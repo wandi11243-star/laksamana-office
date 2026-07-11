@@ -2980,5 +2980,119 @@
             }
         }
     </script>
+<!-- ===== Part B: Kelola Akses Office (membership modul, self-contained) =====
+     Muncul hanya untuk admin modul ini (adminModules dari lm_session mengandung
+     '*' atau MODULE_KEY). Menulis Grants lewat Office Apps Script. Server membatasi
+     setiap tulisan ke modul milik pemanggil (requireModuleAdmin_). purchasing -->
+<div id="lmaModal" class="lma-modal" hidden>
+  <div class="lma-card">
+    <div class="lma-head">
+      <div><div class="lma-title">Kelola Akses Modul</div><div class="lma-sub" id="lmaSub"></div></div>
+      <button type="button" class="lma-x" id="lmaClose" aria-label="Tutup">&#10005;</button>
+    </div>
+    <label class="lma-adv"><input type="checkbox" id="lmaAdv"> Mode lanjutan (atur pengecualian grant/deny per orang)</label>
+    <div class="lma-list" id="lmaList"></div>
+  </div>
+</div>
+<button type="button" id="lmaLaunch" class="lma-launch" hidden>&#128273; Kelola Akses</button>
+<style>
+.lma-launch{position:fixed;left:16px;bottom:16px;z-index:8000;border:1px solid #7A560F;border-radius:20px;padding:9px 15px;font-family:'Inter',system-ui,sans-serif;font-size:13px;font-weight:700;color:#fff;background:linear-gradient(135deg,#C8961F,#7A560F);box-shadow:0 6px 18px rgba(122,86,15,.35);cursor:pointer}
+.lma-launch:hover{filter:brightness(1.06)}
+.lma-launch[hidden]{display:none}
+.lma-modal[hidden]{display:none}
+.lma-modal{position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:24px;background:rgba(42,38,32,.5);backdrop-filter:blur(3px);overflow-y:auto}
+.lma-card{width:100%;max-width:520px;margin:auto;background:#fff;border:1px solid #E7E1D3;border-radius:16px;box-shadow:0 18px 48px rgba(50,42,28,.22);font-family:'Inter',system-ui,sans-serif}
+.lma-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 20px;border-bottom:1px solid #E7E1D3}
+.lma-title{font-weight:800;font-size:17px;color:#2A2620}
+.lma-sub{font-size:12.5px;color:#5C574D;margin-top:2px}
+.lma-x{width:32px;height:32px;border:1px solid #E7E1D3;border-radius:9px;background:#fff;color:#5C574D;cursor:pointer;font-size:15px}
+.lma-x:hover{border-color:#C9432B;color:#C9432B;background:#F8E4DF}
+.lma-adv{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:#2A2620;padding:12px 20px 4px;cursor:pointer}
+.lma-adv input{width:15px;height:15px;accent-color:#A9791F}
+.lma-list{padding:8px 20px 20px;display:flex;flex-direction:column;gap:7px}
+.lma-row{display:flex;align-items:center;gap:11px;border:1px solid #E7E1D3;border-radius:11px;padding:9px 12px}
+.lma-av{width:34px;height:34px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;background:linear-gradient(135deg,#C8961F,#7A560F)}
+.lma-info{flex:1;min-width:0}
+.lma-info b{font-size:13.5px;color:#2A2620;display:block}
+.lma-info span{font-size:11px;color:#5C574D}
+.lma-src{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-radius:20px;padding:1px 7px;border:1px solid #E7E1D3;color:#5C574D;background:#F2E9D3;flex:none}
+.lma-toggle{position:relative;width:42px;height:24px;flex:none;border-radius:20px;background:#E7E1D3;border:none;cursor:pointer;transition:background .15s}
+.lma-toggle::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.lma-toggle.on{background:#1F9D5F}
+.lma-toggle.on::after{left:20px}
+.lma-empty{padding:20px;text-align:center;color:#5C574D;font-size:13px}
+.lma-actions{display:flex;gap:5px;flex:none}
+.lma-mini{border:1px solid #E7E1D3;background:#fff;border-radius:8px;font-size:11px;font-weight:700;padding:5px 9px;cursor:pointer;color:#5C574D}
+.lma-mini.act-grant.on{background:#E4F5EC;color:#1F9D5F;border-color:#1F9D5F}
+.lma-mini.act-deny.on{background:#F8E4DF;color:#C9432B;border-color:#C9432B}
+@media(max-width:860px){.lma-launch{display:none}}
+</style>
+<script>
+(function(){
+  var MODULE_KEY = "purchasing";
+  var OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwTm9jZ0vs9yHUuft6N62cn2GxQ9pq2NfqyhrtBfzjVsW0zlJt7a3a5iyXZcvU36Rpa-A/exec";
+  var creds=null, MEMBERS=[], ADV=false;
+  function sess(){ try{ return JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){ return null; } }
+  function adminsThis(){ var s=sess(); var a=(s&&s.adminModules)||[]; return a.indexOf('*')>-1 || a.indexOf(MODULE_KEY)>-1; }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function initials(n){ return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase(); }
+  async function call(action, extra){
+    var s=sess(); if(!s) return {ok:false,error:'no_session'};
+    if(!creds){ var pin=prompt('Masukkan PIN Anda untuk mengelola akses modul:'); if(!pin) return null; creds={name:s.name, pin:String(pin).trim()}; }
+    var res=await fetch(OFFICE_WEBAPP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(Object.assign({action:action, callerName:creds.name, callerPin:creds.pin}, extra||{}))});
+    return res.json();
+  }
+  function render(){
+    var list=document.getElementById('lmaList');
+    if(!MEMBERS.length){ list.innerHTML='<div class="lma-empty">Belum ada user.</div>'; return; }
+    list.innerHTML=MEMBERS.map(function(m,i){
+      var src = m.source==='grant' ? 'khusus' : (m.access ? 'role' : '');
+      var ctrl = ADV
+        ? '<div class="lma-actions"><button class="lma-mini act-grant'+(m.access&&m.source==='grant'?' on':'')+'" data-i="'+i+'" data-act="grant">Grant</button>'
+          + '<button class="lma-mini act-deny'+(!m.access&&m.source==='grant'?' on':'')+'" data-i="'+i+'" data-act="deny">Deny</button></div>'
+        : '<button class="lma-toggle'+(m.access?' on':'')+'" data-i="'+i+'" data-act="toggle" aria-label="Akses"></button>';
+      return '<div class="lma-row"><div class="lma-av">'+esc(initials(m.name))+'</div>'
+        + '<div class="lma-info"><b>'+esc(m.name)+(m.active?'':' <span style="color:#928C80">(nonaktif)</span>')+'</b>'
+        + '<span>'+esc(m.keterangan||'')+'</span></div>'
+        + (src?'<span class="lma-src">'+src+'</span>':'') + ctrl + '</div>';
+    }).join('');
+  }
+  async function load(){
+    var list=document.getElementById('lmaList');
+    list.innerHTML='<div class="lma-empty">Memuat&#8230;</div>';
+    var data=await call('listModuleMembers',{module:MODULE_KEY});
+    if(data===null){ document.getElementById('lmaModal').hidden=true; return false; }  // batal PIN
+    if(!data.ok){ creds=null; list.innerHTML='<div class="lma-empty">'+(data.error==='forbidden'?'PIN salah atau Anda bukan admin modul ini.':('Gagal: '+esc(data.error)))+'</div>'; return false; }
+    MEMBERS=data.members||[]; render(); return true;
+  }
+  async function setAccess(i, access){
+    var m=MEMBERS[i]; if(!m) return;
+    var data=await call('setModuleAccess',{module:MODULE_KEY, userId:m.id, access:access});
+    if(data===null) return;
+    if(!data.ok){ alert(data.error==='forbidden'?'Tidak berwenang untuk modul ini.':('Gagal: '+data.error)); return; }
+    await load();
+  }
+  window.openKelolaAkses=async function(){
+    document.getElementById('lmaSub').textContent='Modul '+MODULE_KEY+'. Aktifkan untuk memberi akses membuka modul ini.';
+    document.getElementById('lmaModal').hidden=false;
+    await load();
+  };
+  document.addEventListener('click', function(e){
+    var t=e.target;
+    if(t.id==='lmaLaunch'){ window.openKelolaAkses(); return; }
+    if(t.id==='lmaClose'||t.id==='lmaModal'){ document.getElementById('lmaModal').hidden=true; return; }
+    var btn=t.closest ? t.closest('[data-act]') : null; if(!btn) return;
+    var i=+btn.dataset.i, act=btn.dataset.act, m=MEMBERS[i]; if(!m) return;
+    if(act==='toggle') setAccess(i, !m.access);
+    else if(act==='grant') setAccess(i, true);
+    else if(act==='deny') setAccess(i, false);
+  });
+  document.addEventListener('change', function(e){ if(e.target && e.target.id==='lmaAdv'){ ADV=e.target.checked; render(); } });
+  // Tampilkan launcher hanya untuk admin modul ini.
+  if(adminsThis()){ var b=document.getElementById('lmaLaunch'); if(b) b.hidden=false; }
+})();
+</script>
+<!-- ===== /Part B ===== -->
 </body>
 </html>
