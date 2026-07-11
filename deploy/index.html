@@ -414,7 +414,10 @@
         box:'<path d="M21 8l-9-5-9 5m18 0v8l-9 5m9-13l-9 5m0 8l-9-5V8m9 5L3 8m9 5v8"/>',
         content:'<path d="m12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
         calendar:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M8 2v4M16 2v4M3 10h18M9 16l2 2 4-4"/>',
-        academy:'<path d="M22 10L12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/>'
+        academy:'<path d="M22 10L12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/>',
+        briefcase:'<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
+        megaphone:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+        dollar:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'
     };
     // `access` = kunci modul (leaf) yang membuat kartu tampil. Kartu Stock
     // adalah grup: tampil bila user berhak salah satu panel (ordering atau purchasing).
@@ -442,6 +445,24 @@
             title:'Akademi', tag:'Training Kru',
             desc:'Materi, SOP, dan kuis training lintas divisi, plus progress dan sertifikasi tiap kru.',
             scope:['Materi','Kuis','Sertifikat']
+        },
+        {
+            key:'manajemen', href:'sso:manajemen', icon:'briefcase', access:['manajemen'],
+            title:'Manajemen', tag:'General Management',
+            desc:'Panel utama manajemen untuk pantau seluruh event, transaksi, klien, dan evaluasi performa pegawai.',
+            scope:['Event','Finance','Evaluasi']
+        },
+        {
+            key:'event_marketing', href:'sso:event_marketing', icon:'megaphone', access:['event_marketing'],
+            title:'Event Marketing', tag:'Event & Planning',
+            desc:'Kelola jalannya acara, kanban planning, jadwal tamu, dan meeting klien.',
+            scope:['Planning','Acara','Appointment']
+        },
+        {
+            key:'finance', href:'sso:finance', icon:'dollar', access:['finance'],
+            title:'Finance', tag:'Keuangan & Invoice',
+            desc:'Verifikasi bukti pembayaran, kelola transaksi, dan generate laporan keuangan PDF/Excel.',
+            scope:['Transaksi','Laporan']
         }
     ];
 
@@ -458,19 +479,18 @@
         }catch(e){ return null; }
     }
     function setSession(user){
-        // adminModules toleran: bila server lama belum mengirimnya, turunkan dari
-        // sinyal legacy (modules '*' = superadmin) supaya transisi tidak memutus akses.
         const modules = user.modules || [];
         const adminModules = user.adminModules
             || (modules.indexOf('*') > -1 ? ['*'] : []);
         const s = {
             v:2, userId:user.id, name:user.name, role:user.role,
-            modules, adminModules, issuedAt:Date.now(),
+            modules, adminModules, ssoToken:user.ssoToken, issuedAt:Date.now(),
             expiry: Date.now() + SESSION_HOURS*3600*1000
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(s));
         return s;
     }
+
     function clearSession(){ localStorage.removeItem(SESSION_KEY); }
 
     function canOpen(branch, session){
@@ -900,7 +920,13 @@
                 ? `<div class="scope">${b.scope.map(s => `<span class="pill"><span class="dot"></span>${s}</span>`).join('')}</div>`
                 : '';
             const delay = (0.16 + i * 0.08).toFixed(2);
-            return `<a href="${b.href}" class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
+            
+            const isSso = b.href.startsWith('sso:');
+            // Ganti domain ini dengan BACKSTAGE_DOMAIN Laravel Anda yang sebenarnya
+            const targetUrl = isSso ? `https://office.laksamanamuda.id/sso/office?token=${encodeURIComponent(session.ssoToken||'')}` : b.href;
+            const targetAttr = isSso ? ' target="_blank"' : '';
+
+            return `<a href="${targetUrl}"${targetAttr} class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
                 <div class="head"><div class="ico">${svgIcon(b.icon)}</div>${arrow}</div>
                 <h2>${b.title}</h2>
                 <p class="kicker">${b.tag}</p>

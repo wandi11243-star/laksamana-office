@@ -107,12 +107,38 @@ function login_(name, pin) {
   if (!u) return json_({ ok: false, error: 'invalid' });
 
   var role = String(u.role || '').trim().toLowerCase();
+  var ssoToken = generateSsoToken_(u.name, String(u.id || ('u-' + name)), role);
+  
   return json_({ ok: true, user: {
     id: String(u.id || ('u-' + name)),
     name: String(u.name).trim(),
     role: role,
-    modules: modulesForRole_(readSheet_(ss, 'Roles'), role)
+    modules: modulesForRole_(readSheet_(ss, 'Roles'), role),
+    ssoToken: ssoToken
   }});
+}
+
+function generateSsoToken_(name, id, role) {
+  var secret = PropertiesService.getScriptProperties().getProperty('SSO_SECRET');
+  if (!secret) return '';
+  
+  var payload = {
+    sub: id,
+    name: name,
+    orole: role,
+    iat: new Date().getTime(),
+    exp: new Date().getTime() + (24 * 3600 * 1000) // Berlaku 24 jam
+  };
+  
+  var payloadB64 = b64url_(Utilities.base64Encode(JSON.stringify(payload)));
+  var signature = Utilities.computeHmacSha256Signature(payloadB64, secret);
+  var signatureB64 = b64url_(Utilities.base64Encode(signature));
+  
+  return payloadB64 + '.' + signatureB64;
+}
+
+function b64url_(b64) {
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 // A user row matching name + pin + not inactive, or null.
