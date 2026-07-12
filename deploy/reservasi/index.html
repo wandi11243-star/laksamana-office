@@ -466,6 +466,25 @@ svg.lc{display:block;flex:none}
   .appbar .app-search{max-width:none}
   body{font-size:14px}
 }
+
+/* ---------- EDITOR DENAH (layout editor) ---------- */
+.le-wrap{display:grid;grid-template-columns:1fr 260px;gap:14px;align-items:start}
+.le-canvas{position:relative;width:100%;aspect-ratio:1600/1100;background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden;user-select:none;touch-action:none;
+  background-image:linear-gradient(rgba(120,90,30,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(120,90,30,.06) 1px,transparent 1px);background-size:5% 5%}
+.le-seat{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1.5px solid rgba(0,0,0,.16);border-radius:7px;cursor:grab;padding:2px;overflow:hidden;line-height:1.02;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.le-seat:active{cursor:grabbing}
+.le-seat .sn{font-weight:800;font-size:clamp(9px,1.4vw,15px);color:#12233a}
+.le-seat .sp{font-size:clamp(6px,.85vw,10px);font-weight:700;opacity:.72;color:#12233a}
+.le-seat.zone-blue{background:#4db2e8}.le-seat.zone-green{background:#43c06a;border-radius:50%}.le-seat.zone-wood{background:#cdb18a}
+.le-seat.zone-vip{background:#c9b28c}.le-seat.zone-dark{background:#2f3a4a}.le-seat.zone-dark .sn,.le-seat.zone-dark .sp{color:#fff}
+.le-seat.zone-diamond{background:#8a8078}.le-seat.zone-diamond .sn,.le-seat.zone-diamond .sp{color:#fff}.le-seat.zone-ext{background:#f7b24a}
+.le-seat.sel{outline:3px solid var(--gold);outline-offset:1px;box-shadow:0 0 0 5px rgba(169,121,31,.22);z-index:6}
+.le-tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.le-insp{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px;position:sticky;top:0}
+.le-insp .field{margin-bottom:10px}
+.le-insp label{font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);font-weight:600}
+.le-hint{font-size:12.5px;color:var(--muted);margin-top:8px;display:flex;gap:7px}
+@media(max-width:760px){ .le-wrap{grid-template-columns:1fr} .le-insp{position:static} }
 </style>
 </head>
 <body>
@@ -669,7 +688,7 @@ function normStatus(s){ return (s==="Checked-in"||s==="Completed") ? "Datang" : 
 
 /* ================= DENAH TEMPAT DUDUK (Lantai 1: Weekday & Weekend) ================= */
 const SEAT_W=1600, SEAT_H=1100;
-const VENUE_LAYOUTS = (()=>{
+const DEFAULT_VENUE_LAYOUTS = (()=>{
   const row=(ids,x0,y,w,h,gap,cap,zone)=>ids.map((id,i)=>({id:String(id),x:x0+i*(w+gap),y,w,h,cap,zone}));
   const col=(ids,x,y0,w,h,gap,cap,zone)=>ids.map((id,i)=>({id:String(id),x,y:y0+i*(h+gap),w,h,cap,zone}));
   const seq=(pre,a,b)=>{const o=[];for(let i=a;i<=b;i++)o.push(pre+i);return o;};
@@ -783,9 +802,30 @@ const VENUE_LAYOUTS = (()=>{
   };
   return { weekday, weekend, lantai2 };
 })();
+const BUILTIN_LAYOUT_KEYS = ["weekday","weekend","lantai2"];
+// Registry layout custom tersimpan (edit built-in / template baru) di master agar tersinkron.
+function customLayouts(){ if(!STATE.master.layouts) STATE.master.layouts={}; return STATE.master.layouts; }
+// Ambil definisi layout efektif: hasil edit (custom) menimpa built-in.
+function getLayout(key){ return (customLayouts()[key]) || DEFAULT_VENUE_LAYOUTS[key] || null; }
+function layoutName(key){ const L=getLayout(key); return (L&&L.name)||key; }
+function isBuiltinLayout(key){ return BUILTIN_LAYOUT_KEYS.includes(key); }
+// Semua template yang tersedia (built-in + custom) untuk dipilih/dikelola.
+function allLayoutKeys(){
+  const keys=[...BUILTIN_LAYOUT_KEYS];
+  Object.keys(customLayouts()).forEach(k=>{ if(!keys.includes(k)) keys.push(k); });
+  return keys;
+}
 
 let SEAT_SELS=[], SEAT_LAYOUT="weekday";
 const LAYOUT_LABEL={weekday:"Weekday, Lt.1", weekend:"Weekend, Lt.1", lantai2:"Lantai 2"};
+// ===== Override layout per tanggal (event) =====
+// Simpan di master agar ikut tersinkron. Kosong = pakai default weekday/weekend by hari.
+function layoutOverrides(){ if(!STATE.master.layoutOverrides) STATE.master.layoutOverrides={}; return STATE.master.layoutOverrides; }
+// Tipe layout default menurut hari (Sab/Min = weekend).
+function defaultDayType(date){ const dg=new Date(date+"T00:00:00").getDay(); return (dg===0||dg===6)?"weekend":"weekday"; }
+// Template Lt.1 efektif untuk sebuah tanggal: override (bila ada & valid) > default hari.
+function dayTypeLayout(date){ const ov=layoutOverrides()[date]; return (ov && getLayout(ov))?ov:defaultDayType(date); }
+function hasLayoutOverride(date){ const ov=layoutOverrides()[date]; return !!(ov && getLayout(ov)); }
 // id meja yg dipakai sebuah reservasi (dukung banyak meja: "12, 13")
 function tablesOf(r){ return String(r&&r.table||"").split(",").map(s=>s.trim()).filter(Boolean); }
 // Map id meja -> DAFTAR reservasi (satu meja bisa >1 party bila sharing).
@@ -831,7 +871,7 @@ function pickSeat(id){
 }
 // Markup generik peta: mode 'select' (form), 'view' (hari-H) atau 'move' (pindah meja)
 function seatMapMarkup(layoutKey, mode, occ){
-  const L=VENUE_LAYOUTS[layoutKey]||VENUE_LAYOUTS.weekday;
+  const L=getLayout(layoutKey)||getLayout("weekday");
   const px=v=>`${(v/SEAT_W*100).toFixed(3)}%`, py=v=>`${(v/SEAT_H*100).toFixed(3)}%`;
   const esq=s=>String(s).replace(/'/g,"\\'");
   const fixHtml=(L.fixed||[]).map(fx=>`<div class="seat-fix seat-${fx.t}" style="left:${px(fx.x)};top:${py(fx.y)};width:${px(fx.w)};height:${py(fx.h)}">${esc(fx.label)}</div>`).join("");
@@ -895,6 +935,8 @@ const DEFAULT_MASTER = {
   ],
   users: JSON.parse(JSON.stringify(DEFAULT_USERS)),   // daftar kru (dikelola Super Admin)
   perms: JSON.parse(JSON.stringify(DEFAULT_PERMS)),   // hak akses halaman per role
+  layoutOverrides: {},   // { "YYYY-MM-DD": "<layoutKey>" } → override layout utk tanggal event, besoknya balik default
+  layouts: {},           // { "<key>": {name,fixed,tables} } → hasil edit denah / template custom (menimpa built-in)
 };
 
 /* ================= STATE / GOOGLE SHEETS BACKEND ================= */
@@ -1438,10 +1480,9 @@ function renderInput(editId){
     </form>
    </div></div>`;
   toggleDP(); togglePIC(); toggleMember();
-  // Denah tempat duduk: bisa pilih >1 meja; layout otomatis (akhir pekan = weekend)
+  // Denah tempat duduk: bisa pilih >1 meja; layout mengikuti template efektif tanggal (override event > default)
   SEAT_SELS = tablesOf(r);
-  const dObj = new Date((r?.date||todayStr())+"T00:00:00");
-  SEAT_LAYOUT = (dObj.getDay()===0 || dObj.getDay()===6) ? "weekend" : "weekday";
+  SEAT_LAYOUT = dayTypeLayout(r?.date||todayStr());
   renderSeatMap();
   if(r?.dpProofData) byId("dpProofData").innerHTML = "✓ Bukti tersimpan ("+r.dpProofName+")";
   if(r?.docReqData) byId("docReqData").innerHTML = "✓ Dokumen tersimpan ("+r.docReqName+")";
@@ -1504,7 +1545,7 @@ function checkConflict(){
 }
 function onDateChange(){
   const f=byId("resForm"); const d=f?.elements.date?.value;
-  if(d){ const dg=new Date(d+"T00:00:00").getDay(); SEAT_LAYOUT=(dg===0||dg===6)?"weekend":"weekday"; }
+  if(d){ SEAT_LAYOUT=dayTypeLayout(d); }
   checkConflict();
 }
 function checkBigEvent(v){
@@ -1842,20 +1883,23 @@ function exportCSV(ids){
 /* ================= HARI-H / KEDATANGAN ================= */
 let HARIH_DATE = todayStr();
 let HARIH_Q = "", HARIH_VIEW = "list", HARIH_LAYOUT = "l1";
-function harihL1(){ const dg=new Date(HARIH_DATE+"T00:00:00").getDay(); return (dg===0||dg===6)?"weekend":"weekday"; }
+function harihL1(){ return dayTypeLayout(HARIH_DATE); }
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihMapView(){
   const layoutKey=(HARIH_LAYOUT==="lantai2")?"lantai2":harihL1();
   const occ=occupiedMap(HARIH_DATE,"",null);
-  const l1label=harihL1()==="weekend"?"Weekend":"Weekday";
+  const l1label=layoutName(harihL1());
+  const ovOn=hasLayoutOverride(HARIH_DATE);
+  const canEdit=CAN.input(SESSION.role);
   return `<div class="panel"><div class="panel-body">
     <div class="seat-toolbar">
       <div class="seat-switch">
-        <button class="${HARIH_LAYOUT!=='lantai2'?'on':''}" onclick="HARIH_LAYOUT='l1';renderHariH()">Lantai 1 (${l1label})</button>
+        <button class="${HARIH_LAYOUT!=='lantai2'?'on':''}" onclick="HARIH_LAYOUT='l1';renderHariH()">Lantai 1 (${l1label}${ovOn?" ⚑":""})</button>
         <button class="${HARIH_LAYOUT==='lantai2'?'on':''}" onclick="HARIH_LAYOUT='lantai2';renderHariH()">Lantai 2</button>
       </div>
       <span class="seat-selinfo">Klik meja <b>terisi</b> → detail/aksi, <b>🤝 sharing</b> → kelola & tambah tamu, <b>kosong</b> → walk-in</span>
     </div>
+    ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ Layout <b>${l1label}</b> dipakai khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (override event). Tanggal lain otomatis kembali ke default. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}')" style="margin-left:6px;font-weight:600">Kembalikan ke default</a>`:""}</div>`:""}
     <div class="seat-map" id="harihMap">${seatMapMarkup(layoutKey,"view",occ)}</div>
     <div class="seat-viewlegend">
       <span><i style="background:#E0A82E"></i>Pending (bisa diedit)</span>
@@ -1865,6 +1909,186 @@ function harihMapView(){
       <span><i style="background:#EFE6CE;border:1px solid rgba(120,90,30,.3)"></i>Kosong (available) → klik utk walk-in</span>
     </div>
   </div></div>`;
+}
+// ===== Atur layout template per tanggal (event) =====
+function openLayoutSettings(){
+  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  const date=HARIH_DATE, def=defaultDayType(date), cur=layoutOverrides()[date]||"";
+  const opt=(val,label,sub)=>`<label class="wa-target" style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;margin-bottom:8px">
+    <input type="radio" name="lyov" value="${val}" ${((val==="")?cur==="":cur===val)?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
+    <div><h4 style="margin:0">${esc(label)}</h4><p style="margin:2px 0 0">${sub}</p></div></label>`;
+  // Pilihan template: built-in (kecuali lantai2 yg punya toggle lantai sendiri) + semua template custom.
+  const tplKeys=allLayoutKeys().filter(k=>k!=="lantai2");
+  const tplOpts=tplKeys.map(k=>opt(k, layoutName(k)+(isBuiltinLayout(k)?"":" (custom)"), isBuiltinLayout(k)?(k==="weekend"?"Denah akhir pekan / event.":"Denah hari biasa."):"Template denah buatan sendiri.")).join("");
+  // Daftar override yang masih akan datang (hari ini ke depan)
+  const today=todayStr();
+  const upcoming=Object.entries(layoutOverrides()).filter(([d,v])=>getLayout(v)&&d>=today).sort((a,b)=>a[0].localeCompare(b[0]));
+  const list=upcoming.length?upcoming.map(([d,v])=>`<div class="master-tag"><b>${fmtDateShort(d)}</b> → ${esc(layoutName(v))}${d===date?" (dipilih)":""}<button title="Hapus" onclick="clearLayoutOverride('${d}',true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada override terjadwal.</span>`;
+  openModal(`<div class="modal-head"><h3>⚙️ Layout Event, ${fmtDate(date)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-info" style="margin-bottom:14px">Pilih template layout untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — besoknya otomatis kembali ke default (Sabtu/Minggu = Weekend, selain itu Weekday).</div>
+     ${opt("",`Default (otomatis: ${def==="weekend"?"Weekend":"Weekday"})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
+     ${tplOpts}
+     <div style="margin-top:4px"><button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihL1())">✏️ Buka Editor Denah (atur posisi meja)</button></div>
+     <div class="section-title" style="margin-top:14px">Override Terjadwal</div>
+     <div class="master-list">${list}</div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="saveLayoutOverride('${date}')">Terapkan untuk ${fmtDateShort(date)}</button>
+   </div>`);
+}
+function saveLayoutOverride(date){
+  const sel=document.querySelector('input[name=lyov]:checked'); const val=sel?sel.value:"";
+  const ov=layoutOverrides();
+  if(val && getLayout(val)){ ov[date]=val; logAudit("Set Layout Event",`${fmtDateShort(date)} → ${val}`); }
+  else { delete ov[date]; logAudit("Reset Layout",`${fmtDateShort(date)} → default`); }
+  saveState(); closeModal(); renderHariH();
+  toast(val?`Layout ${layoutName(val)} dipakai untuk ${fmtDateShort(date)}`:"Layout dikembalikan ke default","ok");
+}
+function clearLayoutOverride(date, keepModal){
+  const ov=layoutOverrides(); if(!ov[date]) return;
+  delete ov[date]; logAudit("Reset Layout",`${fmtDateShort(date)} → default`);
+  saveState(); renderHariH();
+  if(keepModal) openLayoutSettings(); else closeModal?.();
+  toast("Layout dikembalikan ke default","ok");
+}
+
+/* ===== EDITOR DENAH — atur posisi meja sendiri (drag & drop) ===== */
+let LE=null;   // { key, data:{name,fixed,tables}, sel, dirty, drag }
+function leClone(o){ return JSON.parse(JSON.stringify(o)); }
+function lePx(v){ return (v/SEAT_W*100).toFixed(3)+"%"; }
+function lePy(v){ return (v/SEAT_H*100).toFixed(3)+"%"; }
+function openLayoutEditor(key){
+  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  key=key||"weekday"; if(!getLayout(key)) key="weekday";
+  const data=leClone(getLayout(key)); data.tables=data.tables||[]; data.fixed=data.fixed||[]; if(!data.name) data.name=layoutName(key);
+  LE={ key, data, sel:null, dirty:false, drag:null };
+  leRender();
+}
+function leCanvasHtml(){
+  const fx=(LE.data.fixed||[]).map(f=>`<div class="seat-fix seat-${f.t}" style="left:${lePx(f.x)};top:${lePy(f.y)};width:${lePx(f.w)};height:${lePy(f.h)}">${esc(f.label||"")}</div>`).join("");
+  const ts=(LE.data.tables||[]).map((t,i)=>`<div class="le-seat zone-${t.zone||'green'} ${LE.sel===i?'sel':''}" data-idx="${i}" style="left:${lePx(t.x)};top:${lePy(t.y)};width:${lePx(t.w)};height:${lePy(t.h)}" onpointerdown="leDragStart(event,${i})"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(t.cap||'')} pax</span></div>`).join("");
+  return fx+ts;
+}
+function leInspectorHtml(){
+  if(LE.sel==null || !LE.data.tables[LE.sel]) return `<div class="le-insp"><h4 style="margin:0 0 6px">Belum ada meja dipilih</h4><p class="muted" style="font-size:13px">Klik salah satu meja di denah untuk atur nama, kapasitas, zona & ukuran. Seret untuk memindah posisi.</p><button class="btn btn-sm btn-ok btn-block" style="margin-top:12px" onclick="leAddTable()">➕ Tambah Meja</button></div>`;
+  const t=LE.data.tables[LE.sel];
+  const zones=[["green","Hijau (bulat)"],["blue","Biru"],["wood","Kayu"],["vip","VIP"],["dark","Gelap"],["diamond","Diamond"],["ext","Extension"]];
+  return `<div class="le-insp">
+    <h4 style="margin:0 0 10px">Meja Terpilih</h4>
+    <div class="field"><label>Nama / ID</label><input id="leId" value="${esc(t.id)}" oninput="leSet('id',this.value)"></div>
+    <div class="field"><label>Kapasitas (pax)</label><input id="leCap" value="${esc(t.cap||'')}" oninput="leSet('cap',this.value)" placeholder="mis. 4 atau 10-12"></div>
+    <div class="field"><label>Zona / Warna</label><select onchange="leSet('zone',this.value)">${zones.map(z=>`<option value="${z[0]}" ${t.zone===z[0]?'selected':''}>${z[1]}</option>`).join("")}</select></div>
+    <div style="display:flex;gap:8px">
+      <div class="field" style="flex:1"><label>Lebar</label><input type="number" value="${Math.round(t.w)}" oninput="leSet('w',this.value)"></div>
+      <div class="field" style="flex:1"><label>Tinggi</label><input type="number" value="${Math.round(t.h)}" oninput="leSet('h',this.value)"></div>
+    </div>
+    <button class="btn btn-sm btn-danger btn-block" onclick="leDeleteTable()">🗑️ Hapus Meja</button>
+    <button class="btn btn-sm btn-ok btn-block" style="margin-top:8px" onclick="leAddTable()">➕ Tambah Meja Lain</button>
+  </div>`;
+}
+function leRender(){
+  const custom=!isBuiltinLayout(LE.key), edited=!!customLayouts()[LE.key];
+  const sel=allLayoutKeys().map(k=>`<option value="${k}" ${k===LE.key?'selected':''}>${esc(layoutName(k))}${isBuiltinLayout(k)?'':' (custom)'}</option>`).join("");
+  byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)leTryClose()"><div class="modal" style="max-width:1120px;width:100%">
+    <div class="modal-head"><h3>✏️ Editor Denah ${esc(LE.data.name||"")}${LE.dirty?' •':''}</h3><button class="close-x" onclick="leTryClose()">×</button></div>
+    <div class="modal-body" style="max-height:80vh">
+      <div class="le-tools">
+        <select onchange="leSwitch(this.value)" title="Pilih template">${sel}</select>
+        <button class="btn btn-sm btn-ghost" onclick="leDuplicate()">⧉ Duplikat jadi Baru</button>
+        ${custom?`<button class="btn btn-sm btn-ghost" onclick="leRename()">✏️ Ganti Nama</button>`:""}
+        ${custom?`<button class="btn btn-sm btn-danger" onclick="leDeleteTemplate()">🗑️ Hapus Template</button>`:(edited?`<button class="btn btn-sm btn-ghost" onclick="leResetDefault()">↺ Reset ke Bawaan</button>`:`<span class="muted" style="font-size:12px">Template bawaan — perubahan tersimpan sbg custom-nya.</span>`)}
+      </div>
+      <div class="le-wrap">
+        <div>
+          <div class="le-canvas" id="leCanvas">${leCanvasHtml()}</div>
+          <div class="le-hint">🖱️ Seret meja untuk memindah • klik untuk edit • <b>${(LE.data.tables||[]).length}</b> meja</div>
+        </div>
+        ${leInspectorHtml()}
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="leTryClose()">Tutup</button>
+      <button class="btn btn-primary" onclick="leSave()">💾 Simpan${LE.dirty?' *':''}</button>
+    </div>
+  </div></div>`;
+}
+function leDragStart(e,i){
+  e.preventDefault(); LE.sel=i;
+  const map=byId("leCanvas"); const rect=map.getBoundingClientRect(); const t=LE.data.tables[i];
+  LE.drag={ i, sx:e.clientX, sy:e.clientY, ox:t.x, oy:t.y, rw:rect.width, rh:rect.height, moved:false };
+  map.querySelectorAll(".le-seat.sel").forEach(s=>s.classList.remove("sel"));
+  map.querySelector(`.le-seat[data-idx="${i}"]`)?.classList.add("sel");
+  window.addEventListener("pointermove", leDragMove);
+  window.addEventListener("pointerup", leDragEnd, {once:true});
+}
+function leDragMove(e){
+  if(!LE||!LE.drag) return;
+  const d=LE.drag, t=LE.data.tables[d.i];
+  let nx=d.ox+(e.clientX-d.sx)/d.rw*SEAT_W, ny=d.oy+(e.clientY-d.sy)/d.rh*SEAT_H;
+  nx=Math.max(0,Math.min(SEAT_W-t.w,nx)); ny=Math.max(0,Math.min(SEAT_H-t.h,ny));
+  if(Math.abs(nx-d.ox)>2||Math.abs(ny-d.oy)>2) d.moved=true;
+  t.x=Math.round(nx); t.y=Math.round(ny);
+  const el=byId("leCanvas")?.querySelector(`.le-seat[data-idx="${d.i}"]`);
+  if(el){ el.style.left=lePx(t.x); el.style.top=lePy(t.y); }
+}
+function leDragEnd(){
+  window.removeEventListener("pointermove", leDragMove);
+  const moved=LE&&LE.drag&&LE.drag.moved; if(LE) LE.drag=null;
+  if(moved) LE.dirty=true;
+  leRender();   // segarkan inspector & seleksi
+}
+function leSet(prop,val){
+  if(!LE||LE.sel==null) return; const t=LE.data.tables[LE.sel]; if(!t) return;
+  if(prop==="w"||prop==="h"){ val=Math.max(20,Math.min(prop==="w"?SEAT_W:SEAT_H, Number(val)||20)); }
+  t[prop]=val; LE.dirty=true;
+  const el=byId("leCanvas")?.querySelector(`.le-seat[data-idx="${LE.sel}"]`); if(!el) return;
+  if(prop==="w") el.style.width=lePx(val);
+  else if(prop==="h") el.style.height=lePy(val);
+  else if(prop==="zone") el.className=`le-seat zone-${val} sel`;
+  else if(prop==="id"){ const sn=el.querySelector(".sn"); if(sn) sn.textContent=val; }
+  else if(prop==="cap"){ const sp=el.querySelector(".sp"); if(sp) sp.textContent=(val||"")+" pax"; }
+}
+function leNextId(){ const used=new Set((LE.data.tables||[]).map(t=>String(t.id))); let n=1; while(used.has("T"+n)) n++; return "T"+n; }
+function leAddTable(){
+  LE.data.tables.push({ id:leNextId(), x:Math.round(SEAT_W/2-45), y:Math.round(SEAT_H/2-40), w:90, h:80, cap:"4", zone:"green" });
+  LE.sel=LE.data.tables.length-1; LE.dirty=true; leRender();
+}
+function leDeleteTable(){ if(!LE||LE.sel==null) return; LE.data.tables.splice(LE.sel,1); LE.sel=null; LE.dirty=true; leRender(); }
+function leSwitch(key){
+  if(LE.dirty && !confirm("Ada perubahan belum disimpan. Pindah template & buang perubahan?")){ leRender(); return; }
+  openLayoutEditor(key);
+}
+function leDuplicate(){
+  const key="lyt"+uid(); const data=leClone(LE.data); data.name=(LE.data.name||layoutName(LE.key))+" (copy)";
+  customLayouts()[key]=data; saveState(); logAudit("Duplikat Layout",data.name);
+  toast("Template disalin: "+data.name,"ok"); openLayoutEditor(key);
+}
+function leRename(){
+  const nm=prompt("Nama template:", LE.data.name||""); if(nm===null) return;
+  LE.data.name=(nm.trim()||LE.data.name); LE.dirty=true; leRender();
+}
+function leResetDefault(){
+  if(!confirm("Kembalikan template ini ke bawaan? Perubahan tersimpan akan dihapus.")) return;
+  delete customLayouts()[LE.key]; saveState(); logAudit("Reset Layout",LE.key);
+  toast("Template dikembalikan ke bawaan","ok"); openLayoutEditor(LE.key);
+}
+function leDeleteTemplate(){
+  if(isBuiltinLayout(LE.key)) return;
+  if(!confirm("Hapus template ini? Override tanggal yang memakainya juga dilepas.")) return;
+  const ov=layoutOverrides(); Object.keys(ov).forEach(d=>{ if(ov[d]===LE.key) delete ov[d]; });
+  delete customLayouts()[LE.key]; saveState(); logAudit("Hapus Layout",LE.key);
+  toast("Template dihapus","ok"); openLayoutEditor("weekday");
+}
+function leSave(){
+  customLayouts()[LE.key]=leClone(LE.data); LE.dirty=false;
+  saveState(); logAudit("Simpan Layout",`${layoutName(LE.key)} (${LE.data.tables.length} meja)`);
+  toast("Denah disimpan ✓","ok"); leRender();
+}
+function leTryClose(){
+  if(LE&&LE.dirty && !confirm("Ada perubahan belum disimpan. Tutup & buang perubahan?")) return;
+  LE=null; closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
 }
 // Tik per-detik: warning H-10 menit (follow up) & hitung mundur lewat jam booking
 function updateHarihTimers(){
@@ -1975,8 +2199,7 @@ let MOVE_ID=null, MOVE_LAYOUT="weekday", MOVE_SELS=[];
 function changeTable(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   MOVE_ID=id; MOVE_SELS=tablesOf(r);
-  const d=new Date((r.date||todayStr())+"T00:00:00");
-  MOVE_LAYOUT=(d.getDay()===0||d.getDay()===6)?"weekend":"weekday";
+  MOVE_LAYOUT=dayTypeLayout(r.date||todayStr());
   renderMoveModal();
 }
 function setMoveLayout(l){ MOVE_LAYOUT=l; renderMoveModal(); }
@@ -2110,6 +2333,10 @@ function renderHariH(){
        ${HARIH_Q?`<button class="harih-clear" title="Bersihkan pencarian" onclick="HARIH_Q='';renderHariH()">×</button>`:""}
      </div>
      ${HARIH_Q?`<span class="harih-result">${list.length} hasil untuk “${esc(HARIH_Q)}”</span>`:""}
+     ${CAN.input(SESSION.role)?`<span style="margin-left:auto;display:inline-flex;gap:6px">
+       <button class="btn btn-sm ${hasLayoutOverride(HARIH_DATE)?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings()" title="Pilih layout denah khusus tanggal ini (event); besok balik default">⚙️ Layout: ${layoutName(harihL1())}${hasLayoutOverride(HARIH_DATE)?" ⚑":""}</button>
+       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihL1())" title="Kelola & atur posisi meja (editor denah)">✏️ Editor Denah</button>
+     </span>`:""}
    </div></div>
    ${HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi pada ${fmtDate(HARIH_DATE)}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Jadwal Kedatangan, ${fmtDate(HARIH_DATE)}</h3></div>
