@@ -436,8 +436,25 @@ td .muted{color:var(--muted);font-size:13px}
 .rv-step{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
 .rv-step .n{width:22px;height:22px;border-radius:50%;background:var(--gold);color:#fff;font-size:11px;font-weight:800;
   display:flex;align-items:center;justify-content:center;margin-bottom:7px}
-.rv-step b{display:block;font-size:13px;color:var(--ink);margin-bottom:3px}
-.rv-step span{font-size:11.5px;color:var(--muted);line-height:1.45}
+.rv-step>b{display:block;font-size:13px;color:var(--ink);margin-bottom:2px}
+.rv-step span{display:block;font-size:11.5px;color:var(--muted);line-height:1.5}
+.rv-step span b{display:inline;font-weight:700;color:var(--ink)}
+.rv-step .who{font-size:10.5px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+/* ---- Feedback customer ---- */
+.fb-item{border:1px solid var(--line);border-radius:12px;padding:12px 12px 2px;background:var(--surface-2,var(--surface));margin-top:12px}
+.fb-item-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.fb-no{font-size:11.5px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.4px}
+.fb-chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;margin:1px 0;
+  background:rgba(140,140,140,.14);border:1px solid var(--line);white-space:nowrap}
+.fb-chip.c-bar{background:rgba(155,89,182,.14);border-color:rgba(155,89,182,.35)}
+.fb-chip.c-kitchen{background:rgba(230,126,34,.14);border-color:rgba(230,126,34,.35)}
+.fb-chip.c-floor{background:rgba(52,152,219,.14);border-color:rgba(52,152,219,.35)}
+.fb-chip.c-kasir{background:rgba(46,204,113,.14);border-color:rgba(46,204,113,.35)}
+.fb-chip.c-hygiene{background:rgba(26,188,156,.14);border-color:rgba(26,188,156,.35)}
+.fb-chip.c-system{background:rgba(52,73,94,.16);border-color:rgba(52,73,94,.4)}
+.fb-texts{font-size:12.5px;line-height:1.5;max-width:380px}
+.fb-action{margin-top:5px;font-size:11.5px;color:var(--ok);background:rgba(46,204,113,.10);
+  border-left:3px solid var(--ok);padding:4px 8px;border-radius:0 6px 6px 0}
 @media(max-width:820px){.rv-steps{grid-template-columns:1fr}}
 
 .share-list{display:flex;flex-direction:column;gap:8px}
@@ -728,7 +745,7 @@ const NAV_SECTIONS = [
   {title:"Data & Analisa", items:[
     {id:"riwayat",   label:"Riwayat", ico:"history"},
     {id:"analitik",  label:"Analitik", ico:"bar-chart"},
-    {id:"review",    label:"Google Review", ico:"star"},
+    {id:"review",    label:"Feedback", ico:"star"},
   ]},
   {title:"Kontrol", items:[
     {id:"master",    label:"Master Data", ico:"sliders"},
@@ -1217,6 +1234,8 @@ const DEFAULT_MASTER = {
   // Google Review: catatan review tamu + konfigurasi target bulanan
   reviews: [],           // [{id,name,phone,resId,date,status,rating,reviewerName,proofData,proofName,by,at,verifiedBy,verifiedAt,rejectNote}]
   reviewCfg: {link:"", target:30, counts:{}},   // counts: {"YYYY-MM":{start:<total review di Google awal bulan>, end:<akhir bulan>}}
+  // Feedback / keluhan customer, dikategorikan per divisi
+  feedbacks: [],         // [{id,resId,name,phone,date,items:[{cat,catOther,text}],status,by,at,handledBy,handledAt,actionNote,proofData,proofName}]
 };
 
 /* ================= STATE / GOOGLE SHEETS BACKEND ================= */
@@ -3108,6 +3127,7 @@ function openDetail(id){
      ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
      ${r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
+     <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      <button class="btn btn-ghost btn-sm" onclick="printCheck('${r.id}')">🖨️ Print Struk</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
@@ -3459,6 +3479,8 @@ const REVIEW_STATUS = {
   ditolak:      {label:"Ditolak",       cls:"st-noshow",    ico:"✖"},
 };
 let REVIEW_MONTH = todayStr().slice(0,7);
+let REVIEW_TAB = "google";   // "google" | "feedback"
+function setReviewTab(v){ REVIEW_TAB=v; renderReview(); }
 function setReviewMonth(v){ REVIEW_MONTH=v||todayStr().slice(0,7); renderReview(); }
 function reviewsOfMonth(ym){ return reviews().filter(x=>String(x.date||"").slice(0,7)===ym); }
 function stars(n){ n=Math.max(0,Math.min(5,Number(n)||0)); return "★".repeat(n)+"☆".repeat(5-n); }
@@ -3586,7 +3608,277 @@ function copyReviewLink(){
   navigator.clipboard?.writeText(cfg.link).then(()=>toast("Link review disalin 📋","ok")).catch(()=>toast("Gagal menyalin","err"));
 }
 
+/* ========================= FEEDBACK CUSTOMER =========================
+   Catatan keluhan tamu. Satu tamu bisa punya beberapa keluhan sekaligus,
+   masing-masing dikategorikan ke divisi yang bertanggung jawab supaya
+   ketahuan divisi mana yang paling sering bermasalah.
+   Alur status: BARU → DIPROSES → SELESAI (dengan catatan tindakan).
+   ==================================================================== */
+function feedbacks(){ if(!Array.isArray(STATE.master.feedbacks)) STATE.master.feedbacks=[]; return STATE.master.feedbacks; }
+const FB_CATS = [
+  {id:"bar",     label:"Bar",     ico:"🍸"},
+  {id:"kitchen", label:"Kitchen", ico:"🍳"},
+  {id:"floor",   label:"Floor",   ico:"🧍"},
+  {id:"kasir",   label:"Kasir",   ico:"💳"},
+  {id:"hygiene", label:"Hygiene", ico:"🧼"},
+  {id:"system",  label:"System",  ico:"💻"},
+  {id:"other",   label:"Other",   ico:"📝"},
+];
+const FB_STATUS = {
+  baru:    {label:"Baru",     cls:"st-pending",   ico:"🆕"},
+  proses:  {label:"Diproses", cls:"st-confirmed", ico:"🔧"},
+  selesai: {label:"Selesai",  cls:"dp-yes",       ico:"✅"},
+};
+function fbCat(id){ return FB_CATS.find(c=>c.id===id) || FB_CATS[FB_CATS.length-1]; }
+function fbCatLabel(it){
+  const c=fbCat(it.cat);
+  return c.id==="other" && it.catOther ? `${c.ico} ${it.catOther}` : `${c.ico} ${c.label}`;
+}
+function feedbacksOfMonth(ym){ return feedbacks().filter(x=>String(x.date||"").slice(0,7)===ym); }
+
+// --- baris keluhan pada form (bisa lebih dari satu) ---
+let FB_ITEMS = [];
+function fbBlankItem(){ return {cat:"floor", catOther:"", text:""}; }
+function fbSyncItems(){
+  FB_ITEMS.forEach((it,i)=>{
+    const c=byId("fb_cat_"+i), t=byId("fb_txt_"+i), o=byId("fb_oth_"+i);
+    if(c && c.value) it.cat=c.value;
+    if(t) it.text=t.value;
+    if(o) it.catOther=o.value;
+  });
+}
+function fbItemsHtml(){
+  return FB_ITEMS.map((it,i)=>`
+   <div class="fb-item">
+     <div class="fb-item-head">
+       <span class="fb-no">Keluhan ${i+1}</span>
+       ${FB_ITEMS.length>1?`<button class="btn btn-xs btn-danger" onclick="fbDelItem(${i})" title="Hapus keluhan ini">✖</button>`:""}
+     </div>
+     <div class="form-grid">
+       <div class="field"><label>Kategori / Divisi <span class="req">*</span></label>
+         <select id="fb_cat_${i}" onchange="fbCatChange(${i})">
+           ${FB_CATS.map(c=>`<option value="${c.id}"${it.cat===c.id?" selected":""}>${c.ico} ${c.label}</option>`).join("")}
+         </select></div>
+       <div class="field">${it.cat==="other"
+         ? `<label>Sebutkan kategorinya <span class="req">*</span></label><input id="fb_oth_${i}" value="${esc(it.catOther||"")}" placeholder="mis. Parkir, Musik, AC…">`
+         : `<label>&nbsp;</label><div class="muted" style="font-size:12px;padding-top:9px">Divisi yang bertanggung jawab atas keluhan ini.</div>`}</div>
+       <div class="field full"><label>Isi Keluhan <span class="req">*</span></label>
+         <textarea id="fb_txt_${i}" rows="2" placeholder="Tulis keluhan tamu apa adanya…">${esc(it.text||"")}</textarea></div>
+     </div>
+   </div>`).join("");
+}
+function fbRedrawItems(){ const box=byId("fb_items"); if(box) box.innerHTML=fbItemsHtml(); }
+function fbAddItem(){ fbSyncItems(); FB_ITEMS.push(fbBlankItem()); fbRedrawItems(); }
+function fbDelItem(i){ fbSyncItems(); FB_ITEMS.splice(i,1); if(!FB_ITEMS.length) FB_ITEMS.push(fbBlankItem()); fbRedrawItems(); }
+function fbCatChange(i){ fbSyncItems(); fbRedrawItems(); }   // tampilkan/sembunyikan isian "Other"
+
+// Autofill nama ↔ no. HP dari database tamu (versi modal feedback)
+function fbGuestName(v){
+  const g=findGuestByName(v), ph=byId("fb_phone");
+  if(g && ph && !ph.value.trim()) ph.value=displayPhone(g.phone);
+}
+function fbGuestPhone(v){
+  const g=findGuestByPhone(v), nm=byId("fb_name");
+  if(g && nm && !nm.value.trim()) nm.value=g.name;
+}
+function openFeedbackForm(resId, fbId){
+  const fb = fbId ? feedbacks().find(x=>x.id===fbId) : null;
+  const r  = resId ? STATE.reservations.find(x=>x.id===resId) : (fb&&fb.resId ? STATE.reservations.find(x=>x.id===fb.resId) : null);
+  PENDING_FILES={};
+  FB_ITEMS = (fb && Array.isArray(fb.items) && fb.items.length)
+    ? fb.items.map(x=>({cat:x.cat||"floor", catOther:x.catOther||"", text:x.text||""}))
+    : [fbBlankItem()];
+  const name = fb?.name || r?.name || "";
+  const phone= fb?.phone|| r?.phone|| "";
+  openModal(`<div class="modal-head"><h3>💬 ${fb?"Ubah":"Catat"} Feedback Customer</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-info" style="margin-bottom:14px">Catat keluhan tamu <b>apa adanya</b>. Kalau satu tamu mengeluhkan beberapa hal, tekan <b>➕ Tambah Keluhan</b> supaya tiap keluhan masuk ke kategori divisinya masing-masing.</div>
+     <div class="form-grid">
+       <div class="field"><label>Nama Tamu <span class="req">*</span></label>
+         <input id="fb_name" value="${esc(name)}" placeholder="Nama tamu" autocomplete="off" list="fbNames" oninput="fbGuestName(this.value)"></div>
+       <div class="field"><label>No. WhatsApp</label>
+         <input id="fb_phone" inputmode="numeric" value="${esc(displayPhone(phone))}" placeholder="08xxxx" autocomplete="off" list="fbPhones" oninput="fbGuestPhone(this.value)"></div>
+       <datalist id="fbNames">${guestDirectory().map(g=>`<option value="${esc(g.name)}">${esc(displayPhone(g.phone))}</option>`).join("")}</datalist>
+       <datalist id="fbPhones">${guestDirectory().map(g=>`<option value="${esc(displayPhone(g.phone))}">${esc(g.name)}</option>`).join("")}</datalist>
+       <div class="field"><label>Tanggal Kejadian</label><input type="date" id="fb_date" value="${esc(fb?.date||todayStr())}"></div>
+       <div class="field"><label>Foto Bukti (opsional)</label>
+         <input type="file" accept="image/*" onchange="fileToData(this,'fb_proof')">
+         <div id="fb_proof" class="muted" style="font-size:12px;margin-top:5px">${fb?.proofData?("✓ "+esc(fb.proofName||"bukti tersimpan")):"Belum ada foto"}</div>
+       </div>
+     </div>
+     <div id="fb_items">${fbItemsHtml()}</div>
+     <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Keluhan</button></div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="saveFeedback('${fb?fb.id:""}','${resId||""}')">💾 Simpan Feedback</button>
+   </div>`, true);
+}
+function saveFeedback(fbId, resId){
+  fbSyncItems();
+  const name=(byId("fb_name").value||"").trim();
+  if(!name){ toast("Nama tamu wajib diisi","err"); return; }
+  const items = FB_ITEMS
+    .map(it=>({cat:it.cat||"floor", catOther:(it.catOther||"").trim(), text:(it.text||"").trim()}))
+    .filter(it=>it.text);
+  if(!items.length){ toast("Isi keluhannya minimal satu","err"); return; }
+  const badOther = items.find(it=>it.cat==="other" && !it.catOther);
+  if(badOther){ toast('Kategori "Other" harus disebutkan namanya','err'); return; }
+
+  let fb = fbId ? feedbacks().find(x=>x.id===fbId) : null;
+  const proof = PENDING_FILES.fb_proof;
+  if(!fb){
+    fb={id:uid(), resId:resId||"", status:"baru", by:SESSION.name, at:Date.now(),
+        handledBy:"", handledAt:0, actionNote:""};
+    feedbacks().push(fb);
+  }
+  Object.assign(fb, {
+    name, phone:normPhone(byId("fb_phone").value||""),
+    date:byId("fb_date").value||todayStr(),
+    items,
+    proofData: proof?proof.data:(fb.proofData||""),
+    proofName: proof?proof.name:(fb.proofName||""),
+  });
+  PENDING_FILES={};
+  logAudit("Feedback", `${fbId?"Feedback diperbarui":"Feedback baru"} dari ${name}: ${items.map(it=>fbCatLabel(it)).join(", ")}`);
+  saveState(); closeModal();
+  toast("Feedback tersimpan ✓","ok");
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+}
+function setFbStatus(id, status){
+  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
+  if(status==="selesai"){
+    const note=prompt("Tindakan yang sudah dilakukan (mis. sudah minta maaf & ganti minuman):", fb.actionNote||"");
+    if(note===null) return;
+    fb.actionNote=note;
+  }
+  fb.status=status; fb.handledBy=SESSION.name; fb.handledAt=Date.now();
+  logAudit("Feedback", `Feedback ${fb.name} → ${FB_STATUS[status].label}`);
+  saveState(); renderReview();
+  toast(`Feedback ditandai ${FB_STATUS[status].label}`, status==="selesai"?"ok":"");
+}
+function delFeedback(id){
+  if(!CAN.delete(SESSION.role)){ toast("Tidak ada akses hapus","err"); return; }
+  const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
+  if(!confirm(`Hapus feedback dari "${fb.name}"?`)) return;
+  STATE.master.feedbacks = feedbacks().filter(x=>x.id!==id);
+  logAudit("Feedback", `Feedback ${fb.name} dihapus`);
+  saveState(); renderReview(); toast("Dihapus","");
+}
+function viewFeedbackProof(id){
+  const fb=feedbacks().find(x=>x.id===id); if(!fb||!fb.proofData){ toast("Tidak ada foto","err"); return; }
+  const w=window.open("");
+  w.document.write(`<title>Bukti Feedback</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${fb.proofData}" style="max-width:100%;max-height:100vh"></body>`);
+}
+function waFeedback(id){
+  const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
+  if(!fb.phone){ toast("Nomor WhatsApp tamu kosong","err"); return; }
+  const msg=`Halo Kak ${fb.name} 🙏\n\nMohon maaf atas ketidaknyamanannya kemarin di *Laksamana Muda*.\nMasukan Kakak sudah kami tindak lanjuti ke tim terkait.\n\nTerima kasih sudah mau memberi tahu kami — semoga berkenan mampir lagi ⚓`;
+  window.open(`https://wa.me/${fb.phone}?text=${encodeURIComponent(msg)}`,"_blank");
+}
+
+let FB_FILTER = "";   // "" = semua kategori
+function setFbFilter(v){ FB_FILTER=v; renderReview(); }
+
+function feedbackView(){
+  const mine=feedbacksOfMonth(REVIEW_MONTH);
+  const flat=[];   // satu baris per keluhan, untuk rekap kategori
+  mine.forEach(fb=>fb.items.forEach(it=>flat.push({fb, it})));
+  const baru=mine.filter(x=>x.status==="baru"), proses=mine.filter(x=>x.status==="proses"), selesai=mine.filter(x=>x.status==="selesai");
+
+  // rekap per kategori
+  const byCat={};
+  flat.forEach(({it})=>{ const k=it.cat==="other"?("other:"+(it.catOther||"Lainnya")):it.cat; byCat[k]=(byCat[k]||0)+1; });
+  const catArr=Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  const catMax=Math.max(1,...catArr.map(x=>x[1]));
+  const catName=k=>k.startsWith("other:")?`📝 ${k.slice(6)}`:`${fbCat(k).ico} ${fbCat(k).label}`;
+
+  const shown = FB_FILTER
+    ? mine.filter(fb=>fb.items.some(it=>it.cat===FB_FILTER))
+    : mine;
+
+  const rows = shown.slice().sort((a,b)=>(b.at||0)-(a.at||0)).map(fb=>{
+    const st=FB_STATUS[fb.status]||FB_STATUS.baru;
+    return `<tr>
+      <td><div class="name">${esc(fb.name)}</div><div class="muted">${fb.phone?esc(displayPhone(fb.phone)):"-"}</div></td>
+      <td>${fb.items.map(it=>`<span class="fb-chip c-${it.cat}">${esc(fbCatLabel(it))}</span>`).join(" ")}</td>
+      <td><div class="fb-texts">${fb.items.map(it=>`<div>• ${esc(it.text)}</div>`).join("")}</div>
+        ${fb.actionNote?`<div class="fb-action">🔧 ${esc(fb.actionNote)}</div>`:""}</td>
+      <td>${fmtDateShort(fb.date)}</td>
+      <td><span class="badge-status ${st.cls}">${st.ico} ${st.label}</span>
+        ${fb.handledBy?`<div class="muted" style="font-size:11px">oleh ${esc(fb.handledBy)}</div>`:""}</td>
+      <td>${esc(fb.by||"-")}</td>
+      <td><div class="mini-actions">
+        ${fb.proofData?`<button class="btn btn-xs btn-ghost" onclick="viewFeedbackProof('${fb.id}')" title="Lihat foto bukti">🖼️</button>`:""}
+        ${fb.phone?`<button class="btn btn-xs btn-wa" onclick="waFeedback('${fb.id}')" title="Minta maaf / tindak lanjut via WhatsApp">💬</button>`:""}
+        ${fb.status==="baru"?`<button class="btn btn-xs btn-ghost" onclick="setFbStatus('${fb.id}','proses')" title="Sedang ditangani">🔧 Proses</button>`:""}
+        ${fb.status!=="selesai"?`<button class="btn btn-xs btn-ok" onclick="setFbStatus('${fb.id}','selesai')" title="Sudah ditindaklanjuti">✅ Selesai</button>`:""}
+        <button class="btn btn-xs btn-ghost" onclick="openFeedbackForm('','${fb.id}')" title="Ubah">✏️</button>
+        ${CAN.delete(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delFeedback('${fb.id}')">🗑️</button>`:""}
+      </div></td>
+    </tr>`;
+  }).join("");
+
+  return `
+   <div class="panel">
+     <div class="panel-head"><h3>📊 Rekap Keluhan, ${fmtMonth(REVIEW_MONTH)}</h3>
+       <span class="muted" style="font-size:12.5px">${mine.length} tamu · ${flat.length} keluhan</span></div>
+     <div class="panel-body">
+       <div class="recap-grid">
+         <div class="recap"><div class="lbl">💬 Total Feedback</div><div class="val">${mine.length}</div><div class="sub">${flat.length} keluhan</div></div>
+         <div class="recap ${baru.length?'danger':''}"><div class="lbl">🆕 Baru</div><div class="val">${baru.length}</div><div class="sub">belum ditangani</div></div>
+         <div class="recap warn"><div class="lbl">🔧 Diproses</div><div class="val">${proses.length}</div><div class="sub">sedang ditangani</div></div>
+         <div class="recap ok"><div class="lbl">✅ Selesai</div><div class="val">${selesai.length}</div><div class="sub">sudah ditindaklanjuti</div></div>
+         <div class="recap info"><div class="lbl">🔥 Paling Sering</div><div class="val" style="font-size:17px">${catArr.length?esc(catName(catArr[0][0])):"—"}</div><div class="sub">${catArr.length?catArr[0][1]+" keluhan":"belum ada"}</div></div>
+       </div>
+       ${catArr.length?`<div style="margin-top:18px">${catArr.map(([k,v])=>`
+         <div class="bar-item"><div class="bl"><span>${esc(catName(k))}</span><b>${v}</b></div>
+           <div class="bar-track"><div class="bar-fill${v===catMax?' red':''}" style="width:${Math.round(v/catMax*100)}%"></div></div></div>`).join("")}</div>`:""}
+     </div>
+   </div>
+
+   <div class="panel">
+     <div class="panel-head"><h3>📋 Daftar Feedback</h3>
+       <select onchange="setFbFilter(this.value)" style="max-width:190px">
+         <option value=""${FB_FILTER===""?" selected":""}>Semua kategori</option>
+         ${FB_CATS.map(c=>`<option value="${c.id}"${FB_FILTER===c.id?" selected":""}>${c.ico} ${c.label}</option>`).join("")}
+       </select></div>
+     <div class="panel-body">
+       ${shown.length?`<div class="table-wrap"><table>
+         <thead><tr><th>Tamu</th><th>Kategori</th><th>Keluhan & Tindakan</th><th>Tanggal</th><th>Status</th><th>Dicatat Oleh</th><th>Aksi</th></tr></thead>
+         <tbody>${rows}</tbody></table></div>`
+         :`<div class="empty" style="padding:30px"><div class="big">💬</div>${FB_FILTER?"Tidak ada keluhan pada kategori ini.":"Belum ada feedback bulan ini."}<br>
+            <span class="muted">Tekan <b>➕ Catat Feedback</b> di atas, atau buka detail tamu → <b>💬 Catat Keluhan</b>.</span></div>`}
+     </div>
+   </div>`;
+}
+
+/* Halaman "Feedback" = 2 tab: ⭐ Google Review  |  💬 Feedback Customer */
 function renderReview(){
+  const fbNew = feedbacksOfMonth(REVIEW_MONTH).filter(x=>x.status==="baru").length;
+  const needVerify = reviewsOfMonth(REVIEW_MONTH).filter(x=>x.status==="diklaim").length;
+  byId("page-review").innerHTML = `
+   <div class="page-head">
+     <div><h2>Feedback</h2><div class="desc">Google Review & keluhan customer — dalam satu tempat.</div></div>
+     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       ${REVIEW_TAB==="google"
+         ? `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
+            <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`
+         : `<button class="btn btn-sm btn-primary" onclick="openFeedbackForm()">➕ Catat Feedback</button>`}
+       <div class="field" style="margin:0"><input type="month" value="${REVIEW_MONTH}" onchange="setReviewMonth(this.value)"></div>
+     </div>
+   </div>
+   <div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+     <div class="seat-switch">
+       <button class="${REVIEW_TAB==='google'?'on':''}" onclick="setReviewTab('google')">⭐ Google Review${needVerify?` (${needVerify})`:""}</button>
+       <button class="${REVIEW_TAB==='feedback'?'on':''}" onclick="setReviewTab('feedback')">💬 Feedback Customer${fbNew?` (${fbNew})`:""}</button>
+     </div>
+   </div></div>
+   ${REVIEW_TAB==="feedback" ? feedbackView() : reviewGoogleView()}`;
+}
+
+function reviewGoogleView(){
   const cfg=reviewCfg();
   const canCfg=CAN.master(SESSION.role);
   const mine=reviewsOfMonth(REVIEW_MONTH);
@@ -3629,13 +3921,21 @@ function renderReview(){
     </tr>`;
   }).join("");
 
-  byId("page-review").innerHTML = `
-   <div class="page-head">
-     <div><h2>Google Review</h2><div class="desc">Target bulanan, pencatatan, verifikasi & rekonsiliasi dengan Google.</div></div>
-     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-       ${cfg.link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
-       <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>
-       <div class="field" style="margin:0"><input type="month" value="${REVIEW_MONTH}" onchange="setReviewMonth(this.value)"></div>
+  return `
+   <div class="panel">
+     <div class="panel-head"><h3>❓ Cara Kerja Tab Ini</h3>
+       <span class="muted" style="font-size:12.5px">Google tidak memberi tahu siapa yang menulis review, jadi kita catat & buktikan sendiri</span></div>
+     <div class="panel-body">
+       <div class="rv-steps">
+         <div class="rv-step"><div class="n">1</div><b>Minta</b><span class="who">Host, di detail tamu</span>
+           <span>Tamu selesai makan → buka detailnya → tekan <b>⭐ Minta Review</b>. WhatsApp terbuka berisi link review, tinggal kirim. Tamu langsung masuk daftar bawah dengan status <b>📤 Diminta</b>.</span></div>
+         <div class="rv-step"><div class="n">2</div><b>Klaim</b><span class="who">Host, saat tamu menunjukkan review</span>
+           <span>Tamu bilang "sudah review" (biasanya minta reward) → tekan <b>⭐ Catat Review</b> → isi <b>nama akun Google</b>-nya + rating + <b>screenshot</b>. Statusnya jadi <b>⏳ Perlu Verifikasi</b>. <b>Belum</b> dihitung ke target.</span></div>
+         <div class="rv-step"><div class="n">3</div><b>Verifikasi</b><span class="who">Manager</span>
+           <span>Buka Google Business Profile, cari nama akun itu di daftar ulasan. Ada → tekan <b>✅ Verifikasi</b>. Tidak ada → <b>✖ Tolak</b>. Hanya yang terverifikasi yang dihitung ke target.</span></div>
+         <div class="rv-step"><div class="n">4</div><b>Rekonsiliasi</b><span class="who">Manager, awal &amp; akhir bulan</span>
+           <span>Catat <b>total review</b> di Google awal bulan &amp; akhir bulan. Selisihnya = review asli. Kalau catatan sistem lebih banyak dari selisih itu → ada klaim palsu yang lolos.</span></div>
+       </div>
      </div>
    </div>
 
@@ -3695,21 +3995,16 @@ function renderReview(){
    </div>`:""}
 
    <div class="panel">
-     <div class="panel-head"><h3>⚙️ Setelan & Cara Kerja</h3></div>
+     <div class="panel-head"><h3>⚙️ Setelan</h3><span class="muted" style="font-size:12.5px">cukup diisi sekali</span></div>
      <div class="panel-body">
-       ${canCfg?`<div class="form-grid">
-         <div class="field full"><label>Link Google Review (dari Google Business Profile → "Minta ulasan")</label>
+       ${canCfg?`<div class="inline-info" style="margin-bottom:12px">Link review didapat dari <b>Google Business Profile → Minta ulasan → Salin tautan</b>. Link inilah yang otomatis dikirim ke WhatsApp tamu saat host menekan <b>⭐ Minta Review</b>.</div>
+       <div class="form-grid">
+         <div class="field full"><label>Link Google Review</label>
            <input id="rvcfg_link" value="${esc(cfg.link||"")}" placeholder="https://g.page/r/xxxxxxxx/review"></div>
          <div class="field"><label>Target Review per Bulan</label><input type="number" id="rvcfg_target" min="0" value="${target}"></div>
        </div>
-       <div style="display:flex;justify-content:flex-end;margin:10px 0 16px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
-       :`<div class="inline-info" style="margin-bottom:14px">Link & target diatur oleh manager.</div>`}
-       <div class="rv-steps">
-         <div class="rv-step"><div class="n">1</div><b>Minta</b><span>Setelah tamu ditandai <b>Selesai</b>, host tekan <b>⭐ Minta Review</b> di detail tamu — WhatsApp terbuka berisi link review. Tercatat otomatis.</span></div>
-         <div class="rv-step"><div class="n">2</div><b>Klaim</b><span>Tamu menunjukkan review-nya (biasanya untuk reward). Host tekan <b>⭐ Catat Review</b>, isi <b>nama akun Google</b> + rating + <b>screenshot</b>.</span></div>
-         <div class="rv-step"><div class="n">3</div><b>Verifikasi</b><span>Manager buka Google Business Profile, cocokkan nama akun & tanggalnya. Cocok → <b>✅ Verifikasi</b>. Hanya ini yang dihitung ke target.</span></div>
-         <div class="rv-step"><div class="n">4</div><b>Rekonsiliasi</b><span>Akhir bulan, bandingkan jumlah review terverifikasi dengan kenaikan angka review di Google. Angka Google tak bisa dipalsukan.</span></div>
-       </div>
+       <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
+       :`<div class="inline-info">Link & target diatur oleh manager.</div>`}
      </div>
    </div>`;
 }
