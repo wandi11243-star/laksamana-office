@@ -534,9 +534,8 @@ const EVENT_SCHEMA = [
   {k:'nama',l:'Nama Event',t:'text',req:1},
   {k:'jenis',l:'Jenis Event',t:'sel',o:EVENT_TYPES,req:1},
   {k:'tanggal',l:'Tanggal Event',t:'date',req:1},
-  {k:'jamOverall',l:'Jam Overall',t:'timerange',req:1},
   {k:'mulaiSetup',l:'Mulai Setup',t:'time',req:1},
-  {k:'tamuDatang',l:'Tamu Datang (jam)',t:'time',req:1},
+  {k:'tamuDatang',l:'Tamu Datang / Jam Mulai',t:'time',req:1},
   {k:'selesai',l:'Estimasi Selesai',t:'time',req:1},
   {k:'pax',l:'Estimasi Jumlah Tamu (Pax)',t:'num',req:1},
   {k:'vipDetail',l:'Detail Tamu VIP/VVIP/Umum',t:'ta'},
@@ -876,6 +875,10 @@ function renderDashboard(V){
   const fuTarget = S.settings.fuTarget;
   const upcoming = S.events.filter(e=>daysTo(e.tanggal)>=0 && daysTo(e.tanggal)<=7 && e.status!=='Lost').sort((a,b)=>a.tanggal.localeCompare(b.tanggal));
   const closingMonth = S.events.filter(e=>{const t=new Date(e.tanggal); return t.getMonth()===thisMonth && e.status!=='Lost' && e.status!=='Lead';}).length;
+  const evTotal = S.events.length;
+  const EV_STATUSES = ['Negotiation','Confirmed','Event Done','Lost'];
+  const evTally = {}; EV_STATUSES.forEach(s=>evTally[s]=0);
+  S.events.forEach(e=>{ if(evTally[e.status]!==undefined) evTally[e.status]++; });
 
   let h = pageHead('Command Deck','Selamat datang, '+ME.name.split(' ')[0],'"Pagi Meeting, Malam Healing" — ini yang perlu perhatianmu hari ini.',
     can('edit_client')?'<button class="btn pri" onclick="newClient()">'+svg(IC.plus)+'Lead Baru</button>':'');
@@ -887,6 +890,12 @@ function renderDashboard(V){
   else h+=stat('Total Follow Up',myFU.length,'aktivitas hari ini','pipe');
   h+=stat('Pendapatan Bulan Ini',rpShort(revMonth),MONTHS_F[thisMonth]+' (berjalan)','money');
   h+=stat('DP Pending',dpPending.length,dpPending.length?'perlu ditagih':'semua lunas','alert');
+  h+='</div>';
+
+  // event stats — breakdown per status
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 10px"><div class="eyebrow">Status Event</div><span class="tag">Total '+evTotal+' event</span></div>';
+  h+='<div class="grid g-4" style="margin-bottom:16px">';
+  EV_STATUSES.forEach(s=>{ h+='<div class="card stat"><div class="sl">'+statusChip(s)+'</div><div class="sv num">'+evTally[s]+'</div><div class="sd">event</div></div>'; });
   h+='</div>';
 
   h+='<div class="grid" style="grid-template-columns:1.5fr 1fr;align-items:start">';
@@ -1155,9 +1164,9 @@ function newEvent(){
    +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'
    +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+today()+'"></div>'
    +ff('Estimasi Pax','ne_pax','','number')+'</div>'
-   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="createEvent()">Buat & Detailing →</button></div>');
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitNewEvent()">Buat & Detailing →</button></div>');
 }
-function createEvent(){
+function submitNewEvent(){
   const cid=$('ne_client').value, nama=$('ne_nama').value.trim();
   if(!cid||!nama)return toast('Lengkapi data','Client & Nama Event wajib.','err');
   const jenis=$('ne_jenis').value, tanggal=$('ne_tanggal').value, pax=+$('ne_pax').value||0;
@@ -1244,14 +1253,19 @@ function renderField(ev,fl,canEdit){
     const ty=fl.t==='num'||fl.t==='cur'?'number':fl.t==='date'?'date':fl.t==='time'?'time':'text';
     inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+(fl.t==='cur'?' placeholder="0"':'')+'>';
   } else if(fl.t==='timerange'){
-    inp='<input class="inp" type="text" id="'+id+'" value="'+esc(val||'')+'" placeholder="18:00 - 22:00" '+dis+'>';
+    const parts=String(val||'').split('-'); const a=(parts[0]||'').trim(), b=(parts[1]||'').trim();
+    inp='<div id="'+id+'" style="display:flex;align-items:center;gap:8px">'
+       +'<input class="inp" type="time" id="'+id+'_a" value="'+esc(a)+'" title="Jam mulai" '+dis+' style="flex:1;min-width:0">'
+       +'<span style="color:var(--muted);font-size:12px;flex:none">s/d</span>'
+       +'<input class="inp" type="time" id="'+id+'_b" value="'+esc(b)+'" title="Jam selesai" '+dis+' style="flex:1;min-width:0">'
+       +'</div>';
   } else if(fl.t==='ta'){
     inp='<textarea class="inp" id="'+id+'" '+dis+'>'+esc(val||'')+'</textarea>';
   } else if(fl.t==='sel'){
     inp='<select class="inp" id="'+id+'" '+dis+'><option value="">—</option>'+fl.o.map(o=>'<option '+(val===o?'selected':'')+'>'+esc(o)+'</option>').join('')+'</select>';
   } else if(fl.t==='multi'){
     const arr=Array.isArray(val)?val:[];
-    inp='<div class="chk-grid" id="'+id+'">'+fl.o.map(o=>'<label class="chk '+(arr.includes(o)?'on':'')+'" onclick="'+(canEdit?'this.classList.toggle(\'on\')':'')+'"><input type="checkbox" '+(arr.includes(o)?'checked':'')+' value="'+esc(o)+'" '+dis+'>'+esc(o)+'</label>').join('')+'</div>';
+    inp='<div class="chk-grid" id="'+id+'">'+fl.o.map(o=>'<div class="chk '+(arr.includes(o)?'on':'')+'"'+(canEdit?' onclick="this.classList.toggle(\'on\')"':'')+' data-v="'+esc(o)+'">'+esc(o)+'</div>').join('')+'</div>';
   } else if(fl.t==='tog'){
     const on=val&&(val.v!==undefined?val.v:val)===true||val===true;
     inp='<div class="toggle '+(on?'on':'')+'" id="'+id+'" '+(canEdit?'onclick="this.classList.toggle(\'on\')"':'')+' data-on="'+(on?1:0)+'"></div>';
@@ -1264,9 +1278,10 @@ function renderField(ev,fl,canEdit){
 function segPick(btn,v){ btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); }
 function collectField(fl){
   const el=$('efd_'+fl.k); if(!el)return undefined;
-  if(fl.t==='multi'){ return [...el.querySelectorAll('input:checked')].map(i=>i.value); }
+  if(fl.t==='multi'){ return [...el.querySelectorAll('.chk.on')].map(i=>i.dataset.v); }
   if(fl.t==='tog'){ return el.classList.contains('on'); }
   if(fl.t==='yn'){ const on=el.querySelector('button.on'); return on?{v:on.dataset.v==='1'}:undefined; }
+  if(fl.t==='timerange'){ const a=$('efd_'+fl.k+'_a'), b=$('efd_'+fl.k+'_b'); const av=a?a.value:'', bv=b?b.value:''; return (av||bv)?(av+' - '+bv):''; }
   if(fl.t==='num'||fl.t==='cur'){ return el.value===''?'':(+el.value); }
   return el.value;
 }
