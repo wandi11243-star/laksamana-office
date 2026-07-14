@@ -1232,6 +1232,10 @@ function renderEventForm(V,id){
   h+='<div class="pill-row">';
   h+='<a class="btn" onclick="go(\'events\')">← Daftar</a>';
   h+='<button class="btn" onclick="genBriefFor(\''+ev.id+'\')">'+svg(IC.brief)+'Event Brief</button>';
+  const apPending=S.approvals.some(a=>a.eventId===ev.id&&a.status==='Pending');
+  const apDecided=S.approvals.some(a=>a.eventId===ev.id&&a.status!=='Pending');
+  if(canEdit && approvalStatus(ev).need && !apPending && !apDecided) h+='<button class="btn" onclick="ajukanApproval(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
+  else if(apPending) h+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval</span>';
   if(canEdit && !['Confirmed','Deal','Event Done','Lost'].includes(ev.status)) h+='<button class="btn pri" onclick="confirmEvent(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
   h+='</div></div>';
 
@@ -1332,7 +1336,9 @@ function saveEventTab(id){
   // sync top-level fields
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   if(changes.length)logAct('event',id,'Detail diperbarui: '+sec.n,changes.join(', '));
-  save(); toast('Tersimpan',sec.n+' '+sec.title+' disimpan.','ok');
+  const queued=syncApproval(ev); // auto-masuk Approval Flow bila total ≥ ambang
+  save(); buildNav(); toast('Tersimpan',sec.n+' '+sec.title+' disimpan.','ok');
+  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
   go('event',id);
 }
 function setTask(evId,div,status){
@@ -1350,6 +1356,26 @@ function setTaskProgress(evId,div,val){
   logAct('event',evId,'Progress '+div+' → '+p+'%','');
   save();
 }
+/* ---------- APPROVAL FLOW helpers ---------- */
+function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(f.grand>=S.settings.approvalThreshold||discPct>=S.settings.discountThreshold)}; }
+function approvalReason(f,discPct){ return (f.grand>=S.settings.approvalThreshold?'Nominal ≥ '+rpShort(S.settings.approvalThreshold):'')+(discPct>=S.settings.discountThreshold?((f.grand>=S.settings.approvalThreshold?' & ':'')+'Diskon '+discPct+'%'):''); }
+// otomatis masukkan ke antrian approval bila total/diskon lewat ambang & belum ada entri untuk event ini
+function syncApproval(ev){
+  if(!ev)return false;
+  const {f,discPct,need}=approvalStatus(ev);
+  if(!need)return false;
+  if(S.approvals.some(a=>a.eventId===ev.id))return false; // sudah ada (pending / sudah diputuskan)
+  S.approvals.push({id:uid('ap'),eventId:ev.id,by:ME?ME.id:'',reason:approvalReason(f,discPct),status:'Pending',at:new Date().toISOString(),note:''});
+  pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
+  return true;
+}
+function ajukanApproval(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  if(S.approvals.some(a=>a.eventId===id&&a.status==='Pending'))return toast('Sudah diajukan','Event ini sudah ada di antrian Approval Flow.','ok');
+  if(S.approvals.some(a=>a.eventId===id&&a.status!=='Pending'))return toast('Sudah diputuskan','Approval event ini sudah diproses sebelumnya.','ok');
+  if(!approvalStatus(ev).need)return toast('Belum perlu approval','Total < '+rpShort(S.settings.approvalThreshold)+' & diskon < '+S.settings.discountThreshold+'%. Tidak wajib approval.','err');
+  syncApproval(ev); save(); buildNav(); toast('Diajukan','Event masuk antrian Approval Flow, menunggu Manager.','ok'); go('approvals');
+}
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
   // check PIC matrix (D.14) required
@@ -1357,16 +1383,9 @@ function confirmEvent(id){
   if(missing.length){ curTab='pic'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.14) wajib terisi sebelum Confirmed.','err'); }
   ev.status='Deal'; ev.pipeCol='Deal'; const c=S.clients.find(x=>x.id===ev.clientId); if(c){c.status='Confirmed';c.pipeCol='Deal';}
   genTasks(ev);
-  // approval check
-  const f=eventFinance(ev);
-  const discPct = f.sub?Math.round(f.disc/f.sub*100):0;
-  if(f.grand>=S.settings.approvalThreshold || discPct>=S.settings.discountThreshold){
-    S.approvals.push({id:uid('ap'),eventId:id,by:ME.id,reason:(f.grand>=S.settings.approvalThreshold?'Nominal ≥ '+rpShort(S.settings.approvalThreshold):'')+(discPct>=S.settings.discountThreshold?(f.grand>=S.settings.approvalThreshold?' & ':'')+'Diskon '+discPct+'%':''),status:'Pending',at:new Date().toISOString(),note:''});
-    pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
-    toast('Menunggu approval','Event masuk antrian Approval Flow (nominal/diskon melewati ambang).','ok');
-  } else {
-    toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
-  }
+  syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
+  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (nominal/diskon melewati ambang).','ok');
+  else toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
@@ -1694,10 +1713,35 @@ function renderInvoices(V){
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">DP</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   evs.forEach((e,i)=>{ const f=eventFinance(e); const invNo=S.settings.invPrefix+String(1000+i).slice(1);
     h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.dp)+'</td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
-     +'<td><div class="pill-row"><button class="btn sm" onclick="go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button>'+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
+     +'<td><div class="pill-row"><button class="btn sm" title="Buka event" onclick="go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
+}
+function waInvoice(evId,invNo){
+  const e=S.events.find(x=>x.id===evId); if(!e)return;
+  const c=S.clients.find(x=>x.id===e.clientId);
+  if(!c||!c.hp)return toast('Nomor WA kosong','Client belum punya No. HP/WhatsApp. Lengkapi di Database Client.','err');
+  const f=eventFinance(e);
+  const msg=[
+    '*INVOICE — Laksamana Muda*',
+    'No: '+invNo,
+    '',
+    'Halo '+c.nama+', berikut rincian invoice untuk event *'+e.nama+'* ('+fmtDate(e.tanggal)+'):',
+    '',
+    'Grand Total : '+rp(f.grand),
+    'DP ('+f.dpPct+'%) : '+rp(f.dp),
+    'Terbayar : '+rp(f.paid),
+    'Sisa tagihan : '+rp(f.remaining),
+    '',
+    'Status: '+invStatus(e),
+    '',
+    'Mohon konfirmasi setelah pembayaran ya 🙏',
+    '⚓ Laksamana Muda Event Organizer'
+  ].join('\n');
+  window.open(waLink(c.hp,msg),'_blank');
+  if(!e.invoiceSent){ e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav(); go('invoices'); }
+  else toast('WhatsApp dibuka','Pesan invoice untuk '+c.nama+' siap dikirim.','ok');
 }
 
 /* ============================================================
