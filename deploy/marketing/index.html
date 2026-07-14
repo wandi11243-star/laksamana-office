@@ -165,6 +165,15 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .chk{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border:1px solid var(--line-hard);border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;background:var(--ink-900);transition:.14s;user-select:none}
 .chk:hover{border-color:var(--gold-deep)}
 .chk.on{background:var(--gold-glow);border-color:var(--gold);color:var(--gold)}
+/* checkbox matriks hak akses (modul x role) */
+.mx{display:inline-grid;place-items:center;width:22px;height:22px;border:1.5px solid var(--line-hard);border-radius:6px;background:var(--ink-900);cursor:pointer;transition:.14s;color:#fff}
+.mx svg{width:13px;height:13px;stroke-width:3;opacity:0;transition:.14s}
+.mx.on{background:var(--gold);border-color:var(--gold)}
+.mx.on svg{opacity:1}
+.mx:not(.lock):hover{border-color:var(--gold)}
+.mx.lock{opacity:.45;cursor:not-allowed}
+.mx-role{text-align:center;white-space:nowrap}
+.mx-sec td{background:var(--ink-880);padding-top:10px;padding-bottom:10px}
 .chk input{display:none}
 .toggle{position:relative;width:44px;height:24px;background:var(--ink-700);border-radius:20px;cursor:pointer;transition:.18s;flex-shrink:0}
 .toggle::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--sand-dim);transition:.18s}
@@ -246,6 +255,9 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
   font-size:11px;line-height:1.5;letter-spacing:.01em}
 .tbl-note svg{width:13px;height:13px;color:var(--gold);opacity:.75}
 .tbl-note em{font-style:normal;color:var(--sand-dim);font-weight:600}
+/* input inline di dalam tabel Detail Job (job tambahan) */
+.jb-in{padding:6px 9px;font-size:12px;width:100%;min-width:70px}
+tr.jb-extra td{background:var(--gold-glow)}
 .btn.detail-job{background:#fff;border-color:var(--line-hard);color:var(--gold-deep);justify-content:center;gap:7px}
 .btn.detail-job:hover{border-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep)}
 .btn.detail-job svg{width:15px;height:15px;stroke-width:2}
@@ -548,10 +560,23 @@ function resolveOfficeUser(s){
   return u;
 }
 
-function can(action){
-  const r=ME.role;
-  if(r==='super_admin')return true;
-  const rules={
+/* ---------- HAK AKSES ----------
+   Default mengikuti role. Bisa di-override per user lewat User Management
+   (u.nav = modul yang boleh dibuka, u.perms = izin aksi).
+   Super Admin sengaja tidak bisa dibatasi supaya tak ada yang terkunci dari sistem. */
+const PERM_DEF=[
+  {k:'edit_client',t:'Tambah / edit client'},
+  {k:'del_client',t:'Hapus client'},
+  {k:'edit_event',t:'Tambah / edit event'},
+  {k:'edit_task',t:'Update task & progress divisi'},
+  {k:'verify_payment',t:'Verifikasi pembayaran'},
+  {k:'approve',t:'Approve / reject approval'},
+  {k:'manage_users',t:'Kelola user & hak akses'}
+];
+// default bawaan per role (dipakai bila matriks belum pernah diubah)
+function roleDefaultPerms(role){
+  if(role==='super_admin') return PERM_DEF.map(p=>p.k);
+  const r=role, rules={
     'edit_client': ['marketing'].includes(r),
     'del_client': false,
     'edit_event': ['marketing','manager'].includes(r),
@@ -560,8 +585,16 @@ function can(action){
     'manage_users': false,
     'edit_task': ['operational','marketing','finance','manager'].includes(r)
   };
-  return !!rules[action];
+  return PERM_DEF.filter(p=>rules[p.k]).map(p=>p.k);
 }
+// hasil matriks (S.roleNav / S.rolePerms) menimpa default; Super Admin selalu penuh
+function roleNav(role){ if(role==='super_admin')return ROLES.super_admin.nav; return (S.roleNav&&Array.isArray(S.roleNav[role]))?S.roleNav[role]:ROLES[role].nav; }
+function rolePerms(role){ if(role==='super_admin')return roleDefaultPerms('super_admin'); return (S.rolePerms&&Array.isArray(S.rolePerms[role]))?S.rolePerms[role]:roleDefaultPerms(role); }
+// hak akses per user: override user (bila ada) > matriks role
+function userPerms(u){ if(!u)return []; if(u.role==='super_admin')return rolePerms('super_admin'); return Array.isArray(u.perms)?u.perms:rolePerms(u.role); }
+function userNav(u){ if(!u)return []; if(u.role==='super_admin')return ROLES.super_admin.nav; return Array.isArray(u.nav)?u.nav:roleNav(u.role); }
+function hasCustomAccess(u){ return Array.isArray(u.nav)||Array.isArray(u.perms); }
+function can(action){ if(!ME)return false; if(ME.role==='super_admin')return true; return userPerms(ME).includes(action); }
 /* ============================================================
    EVENT SCHEMA (Modul D.1–D.14) — drives form + Event Brief
    field types: text|ta|date|time|timerange|num|cur|sel|multi|tog|yn
@@ -909,7 +942,7 @@ const NAV_DEF=[
   {k:'settings',t:'Pengaturan',i:'settings'}
 ];
 function buildNav(){
-  const allowed=ROLES[ME.role].nav; const nav=$('nav'); nav.innerHTML='';
+  const allowed=userNav(ME); const nav=$('nav'); nav.innerHTML='';
   let curGroup=null,groupHasItem=false,pending='';
   NAV_DEF.forEach(item=>{
     if(item.g){ curGroup=item.g; pending='<div class="nav-group">'+item.g+'</div>'; groupHasItem=false; return; }
@@ -925,8 +958,8 @@ function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending');
 /* ---------- ROUTER ---------- */
 const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan event bernilai besar / diskon khusus'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 function go(view,param){
-  const allowed=ROLES[ME.role].nav;
-  if(view!=='event' && !allowed.includes(view)){ toast('Akses ditolak','Role '+ROLES[ME.role].t+' tidak punya akses modul ini.','err'); view='dashboard'; }
+  const allowed=userNav(ME);
+  if(view!=='event' && !allowed.includes(view)){ toast('Akses ditolak',ME.name+' tidak punya akses ke modul ini.','err'); view='dashboard'; }
   location.hash = view + (param?('/'+param):'');
   closeSidebar();
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.k===(view==='event'?'events':view)));
@@ -1015,11 +1048,45 @@ function progressBar(v,max){ const p=Math.min(100,Math.round(v/max*100)); return
 function getCats(){ if(!S.categories) S.categories=DIVISIONS.concat(S.taskCategories||[]); return S.categories; }
 function divTemplates(div){ return (S.taskTemplates||[]).filter(t=>t.div===div); }
 // Template efektif untuk 1 divisi pada 1 event: Kitchen ikut menyerap cabang F&B (Prasmanan / Set Menu) sesuai pilihan event
-function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list; }
+// Job tambahan ad-hoc milik 1 event (bukan dari Template Task) — diketik langsung di Detail Job
+function extraJobs(ev,div){ return (ev&&ev.extraJobs&&ev.extraJobs[div])||[]; }
+function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list.concat(extraJobs(ev,div)); }
+function addExtraJob(evId,div){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  ev.extraJobs=ev.extraJobs||{}; ev.extraJobs[div]=ev.extraJobs[div]||[];
+  ev.extraJobs[div].push({id:uid('xj'),div,task:'',pic:'',hminus:null,deadline:'',note:'',extra:true});
+  save(); openDivJobs(evId,div);
+}
+function setExtraJob(evId,div,jobId,field,val){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const j=extraJobs(ev,div).find(x=>x.id===jobId); if(!j)return;
+  j[field]=(field==='hminus')?(val===''?null:Math.max(0,Math.round(+val||0))):val;
+  save();
+}
+function delExtraJob(evId,div,jobId){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const j=extraJobs(ev,div).find(x=>x.id===jobId);
+  confirmUI({title:'Hapus Job Tambahan',danger:true,ok:'Hapus',
+    body:'Hapus job <b>'+esc(j&&j.task?j.task:'(tanpa nama)')+'</b> dari divisi '+esc(div)+'? Job ini hanya milik event ini.',
+    onYes:function(){
+      ev.extraJobs[div]=extraJobs(ev,div).filter(x=>x.id!==jobId);
+      if(ev.jobProgress&&ev.jobProgress[div]) delete ev.jobProgress[div][jobId];
+      save(); openDivJobs(evId,div);
+    }});
+}
 function jobProg(e,div,taskId){ return Math.max(0,Math.min(100, Math.round((e.jobProgress&&e.jobProgress[div]&&+e.jobProgress[div][taskId])||0))); }
 function divProgress(e,div){ const items=eventDivTemplates(e,div); if(!items.length)return 0; return Math.round(items.reduce((a,t)=>a+jobProg(e,div,t.id),0)/items.length); }
 function taskProgress(e){ let sum=0,n=0; getCats().forEach(div=>{ eventDivTemplates(e,div).forEach(t=>{ sum+=jobProg(e,div,t.id); n++; }); }); return n?Math.round(sum/n):0; }
 function setJobProg(evId,div,taskId,val){ const e=S.events.find(x=>x.id===evId); if(!e)return; e.jobProgress=e.jobProgress||{}; e.jobProgress[div]=e.jobProgress[div]||{}; e.jobProgress[div][taskId]=Math.max(0,Math.min(100,Math.round(+val||0))); save(); }
+// Hitung ulang % keseluruhan Detail Job langsung dari posisi slider (realtime saat ditarik,
+// tanpa menunggu slider dilepas / modal dibuka ulang).
+function djRecalc(){
+  const rows=[...document.querySelectorAll('#modal input.rng')];
+  if(!rows.length)return;
+  const avg=Math.round(rows.reduce((a,el)=>a+Math.max(0,Math.min(100,+el.value||0)),0)/rows.length);
+  const t=$('dj_overall'); if(t)t.textContent=avg+'%';
+  const b=$('dj_overall_bar'); if(b)b.style.width=avg+'%';
+}
 function rngFill(el){ const v=Math.max(0,Math.min(100,+el.value||0)); el.style.background='linear-gradient(90deg,var(--gold-deep),var(--gold) '+v+'%,var(--ink-700) '+v+'%)'; const lbl=el.dataset.lbl&&document.getElementById(el.dataset.lbl); if(lbl)lbl.textContent=v+'%'; }
 function refreshView(){ const p=location.hash.slice(1).split('/'); go(p[0]||'dashboard', p[1]); }
 
@@ -1155,10 +1222,9 @@ function viewClient(id){
 let pipeTab='kanban';
 function renderPipeline(V){
   let h=pageHead('Modul C','Sales Pipeline & Follow Up','Target '+S.settings.fuTarget+' follow up/hari. Geser kartu antar tahap saat status berubah.',
-    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';go(\'pipeline\')">Kanban</button><button class="'+(pipeTab==='followup'?'on':'')+'" onclick="pipeTab=\'followup\';go(\'pipeline\')">Follow Up Harian</button><button class="'+(pipeTab==='board'?'on':'')+'" onclick="pipeTab=\'board\';go(\'pipeline\')">Leaderboard</button></div>');
-  if(pipeTab==='kanban')h+=pipeKanban();
-  else if(pipeTab==='followup')h+=pipeFollowUp();
-  else h+=pipeLeaderboard();
+    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';go(\'pipeline\')">Kanban</button><button class="'+(pipeTab==='followup'?'on':'')+'" onclick="pipeTab=\'followup\';go(\'pipeline\')">Follow Up Harian</button></div>');
+  if(pipeTab==='followup')h+=pipeFollowUp();
+  else { pipeTab='kanban'; h+=pipeKanban(); }
   V.innerHTML=h;
   if(pipeTab==='kanban')bindKanban();
 }
@@ -1255,15 +1321,6 @@ function pipeFollowUp(){
        +'<td><button class="btn sm" onclick="logFollowUp(\''+c.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
     h+='</tbody></table></div></div>';
   }
-  return h;
-}
-function pipeLeaderboard(){
-  const mkt=S.users.filter(u=>u.role==='marketing');
-  const stats=mkt.map(u=>{ const fu=S.followups.filter(f=>f.by===u.id).length; const closing=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).length; const omzet=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0); return {u,fu,closing,omzet}; }).sort((a,b)=>b.omzet-a.omzet);
-  let h='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard Marketing</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Marketing</th><th class="mono">Follow Up</th><th class="mono">Closing</th><th class="mono">Omzet</th></tr></thead><tbody>';
-  stats.forEach((s,i)=>h+='<tr><td class="mono">'+(i===0?svg(IC.star,'')+'':(i+1))+'</td><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+s.u.name[0]+'</div>'+esc(s.u.name)+'</div></td><td class="mono">'+s.fu+'</td><td class="mono">'+s.closing+'</td><td class="mono" style="color:var(--gold);font-weight:600">'+rp(s.omzet)+'</td></tr>');
-  h+='</tbody></table></div></div>';
-  setTimeout(()=>document.querySelectorAll('.tbl svg.star').forEach(s=>s.style.color='var(--gold)'),0);
   return h;
 }
 /* Follow Up menempel ke EVENT (peluang). Kalau belum ada peluang, bisa dibuat
@@ -1922,18 +1979,38 @@ function openDivJobs(evId,div){
   const editable=can('edit_task');
   const fbNote=(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat))?'<div class="cell-sub" style="margin-bottom:10px">Termasuk job cabang F&amp;B: <b>'+esc(ev.detail.fbFormat)+'</b> (otomatis dari Format F&amp;B event).</div>':'';
   let b=fbNote;
-  if(!items.length) b+=empty('Job belum diatur','Susun daftar job untuk divisi '+esc(div)+' di menu Template Task, lalu progresnya bisa dipantau di sini.','task');
-  else{
+  let hmOpts=''; for(let i=0;i<=120;i+=5) hmOpts+='<option value="'+i+'">';
+  b+='<datalist id="xj_hm_opts">'+hmOpts+'</datalist>';
+  if(items.length){
     const overall=divProgress(ev,div);
-    b+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line-soft);border-radius:11px"><div style="flex:none"><div class="cell-sub">Progress keseluruhan '+esc(div)+'</div><div style="font-family:var(--ff-display);font-size:22px;line-height:1.15">'+overall+'% <span class="cell-sub" style="font-size:12px">· '+items.length+' job</span></div></div><div class="progress" style="flex:1;height:9px"><div class="bar" style="width:'+overall+'%"></div></div></div>';
-    b+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th><th style="min-width:180px">Progress</th></tr></thead><tbody>';
-    items.forEach(t=>{ const pr=jobProg(ev,div,t.id); const bid='jb_'+t.id; const branch=(t.div!==div)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">'+esc(t.div)+'</span>':'';
-      b+='<tr><td><div class="cell-strong">'+esc(t.task)+branch+'</div></td><td>'+esc(t.pic||'—')+'</td><td class="mono">'+hminusBadge(t.hminus)+'</td><td class="mono">'+(t.deadline?fmtDate(t.deadline):'—')+'</td><td class="cell-sub">'+esc(t.note||'—')+'</td>'
-        +'<td><div style="display:flex;align-items:center;gap:10px">'
+    b+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line-soft);border-radius:11px"><div style="flex:none"><div class="cell-sub">Progress keseluruhan '+esc(div)+'</div><div style="font-family:var(--ff-display);font-size:22px;line-height:1.15"><span id="dj_overall">'+overall+'%</span> <span class="cell-sub" style="font-size:12px">· '+items.length+' job</span></div></div><div class="progress" style="flex:1;height:9px"><div class="bar" id="dj_overall_bar" style="width:'+overall+'%"></div></div></div>';
+  }
+  if(editable) b+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><div class="cell-sub">Job dari Template Task + job tambahan khusus event ini.</div><button class="btn sm pri" onclick="addExtraJob(\''+evId+'\',\''+div+'\')">'+svg(IC.plus)+'Tambah Task</button></div>';
+  if(!items.length) b+=empty('Job belum diatur','Susun daftar job untuk divisi '+esc(div)+' di menu Template Task, atau klik Tambah Task untuk job khusus event ini.','task');
+  else{
+    b+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th><th style="min-width:180px">Progress</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
+    items.forEach(t=>{ const pr=jobProg(ev,div,t.id); const bid='jb_'+t.id;
+      const branch=(!t.extra&&t.div!==div)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">'+esc(t.div)+'</span>':'';
+      const a="'"+evId+"','"+div+"','"+t.id+"'";
+      const progCell='<td><div style="display:flex;align-items:center;gap:10px">'
         +(editable
-          ?'<input type="range" class="rng" min="0" max="100" value="'+pr+'" data-lbl="'+bid+'_lbl" oninput="rngFill(this)" onchange="setJobProg(\''+evId+'\',\''+div+'\',\''+t.id+'\',this.value)" style="flex:1;background:linear-gradient(90deg,var(--gold-deep),var(--gold) '+pr+'%,var(--ink-700) '+pr+'%)">'
+          ?'<input type="range" class="rng" min="0" max="100" value="'+pr+'" data-lbl="'+bid+'_lbl" oninput="rngFill(this);djRecalc()" onchange="setJobProg(\''+evId+'\',\''+div+'\',\''+t.id+'\',this.value)" style="flex:1;background:linear-gradient(90deg,var(--gold-deep),var(--gold) '+pr+'%,var(--ink-700) '+pr+'%)">'
           :'<div class="progress" style="flex:1"><div class="bar" style="width:'+pr+'%"></div></div>')
-        +'<span class="cell-sub" id="'+bid+'_lbl" style="min-width:36px;text-align:right;font-variant-numeric:tabular-nums">'+pr+'%</span></div></td></tr>'; });
+        +'<span class="cell-sub" id="'+bid+'_lbl" style="min-width:36px;text-align:right;font-variant-numeric:tabular-nums">'+pr+'%</span></div></td>';
+      if(t.extra&&editable){
+        b+='<tr class="jb-extra">'
+         +'<td><input class="inp jb-in" value="'+esc(t.task||'')+'" placeholder="Nama task…" onchange="setExtraJob('+a+',\'task\',this.value)"></td>'
+         +'<td><input class="inp jb-in" value="'+esc(t.pic||'')+'" placeholder="PIC" onchange="setExtraJob('+a+',\'pic\',this.value)"></td>'
+         +'<td><input class="inp jb-in" type="number" min="0" step="5" list="xj_hm_opts" value="'+(t.hminus!=null?t.hminus:'')+'" placeholder="H-" onchange="setExtraJob('+a+',\'hminus\',this.value)" style="width:78px"></td>'
+         +'<td><input class="inp jb-in" type="date" value="'+esc(t.deadline||'')+'" onchange="setExtraJob('+a+',\'deadline\',this.value)"></td>'
+         +'<td><input class="inp jb-in" value="'+esc(t.note||'')+'" placeholder="Catatan" onchange="setExtraJob('+a+',\'note\',this.value)"></td>'
+         +progCell
+         +'<td><button class="btn sm" title="Hapus job tambahan" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button></td></tr>';
+      } else {
+        const tag=t.extra?' <span class="tag" style="background:var(--gold-glow);color:var(--gold-deep)">tambahan</span>':branch;
+        b+='<tr><td><div class="cell-strong">'+esc(t.task||'(tanpa nama)')+tag+'</div></td><td>'+esc(t.pic||'—')+'</td><td class="mono">'+hminusBadge(t.hminus)+'</td><td class="mono">'+(t.deadline?fmtDate(t.deadline):'—')+'</td><td class="cell-sub">'+esc(t.note||'—')+'</td>'+progCell+(editable?'<td></td>':'')+'</tr>';
+      }
+    });
     b+='</tbody></table></div>';
   }
   modal('<div class="modal-head"><div><h3>Detail Job · '+esc(div)+'</h3><p>'+esc(ev?ev.nama:'')+'</p></div><div class="x" onclick="closeModal();refreshView()">'+svg(IC.x)+'</div></div><div class="modal-body">'+b+'</div><div class="modal-foot"><button class="btn" onclick="closeModal();refreshView()">Tutup</button>'+(editable?'<button class="btn pri" onclick="closeModal();go(\'templates\')">Kelola Template</button>':'')+'</div>','xwide');
@@ -2051,6 +2128,8 @@ function renderPerformance(V){
    +stat('Avg Event Value',rpShort(avgVal),'per event closing','event')
    +stat('Repeat Customer',S.clients.filter(c=>clientEventCount(c.id)>1).length,'klien balik lagi','star')
    +'</div>';
+  // Omzet 0 padahal ada event closing = biaya di tab Quotation belum diisi
+  if(closed.length && !omzet) h+='<div class="tbl-note" style="margin-top:-6px;margin-bottom:16px">'+svg(IC.alert)+'<span>Ada <em>'+closed.length+' event closing</em> tapi omzet masih Rp0 — nilai event dihitung dari biaya <em>Sewa Venue, F&amp;B, Sound/Lighting, Lain-lain</em> di tab Event Brief &amp; Quotation. Isi di sana agar omzet terhitung.</span></div>';
   // funnel
   const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Negotiation',atStage('Negotiation')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
   h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang.</p>';
@@ -2058,15 +2137,29 @@ function renderPerformance(V){
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
   h+='</div>';
   // per marketing bars
-  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:16px">Omzet per Marketing</h3><div class="bars">';
-  const perM=mkt.map(u=>({u,v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)}));
-  const maxM=Math.max(1,...perM.map(x=>x.v));
-  perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:11px;color:var(--gold)">'+rpShort(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
-  h+='</div></div></div>';
-  // detail table
-  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Detail per Marketing</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Marketing</th><th class="mono">Follow Up</th><th class="mono">Closing</th><th class="mono">Repeat</th><th class="mono">Omzet</th><th class="mono">Avg Value</th></tr></thead><tbody>';
-  mkt.forEach(u=>{ const ev=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)); const om=ev.reduce((a,e)=>a+eventFinance(e).grand,0); const rep=S.clients.filter(c=>c.mktPIC===u.id&&clientEventCount(c.id)>1).length;
-    h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+u.name[0]+'</div>'+esc(u.name)+'</div></td><td class="mono">'+S.followups.filter(f=>f.by===u.id).length+'</td><td class="mono">'+ev.length+'</td><td class="mono">'+rep+'</td><td class="mono" style="color:var(--gold)">'+rp(om)+'</td><td class="mono">'+rp(ev.length?Math.round(om/ev.length):0)+'</td></tr>'; });
+  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:16px">Omzet per Marketing</h3>';
+  if(!mkt.length) h+=empty('Belum ada user Marketing','Grafik ini per orang. Set role seseorang jadi Marketing di User Management supaya muncul di sini.','crm');
+  else{
+    h+='<div class="bars">';
+    const perM=mkt.map(u=>({u,v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)}));
+    const maxM=Math.max(1,...perM.map(x=>x.v));
+    perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:11px;color:var(--gold)">'+rpShort(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
+    h+='</div>';
+  }
+  h+='</div></div>';
+  // leaderboard + detail per marketing (digabung: diurutkan omzet terbesar, juara 1 dapat bintang)
+  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard Marketing</h3><div class="cell-sub">Diurutkan dari omzet terbesar.</div></div>';
+  if(!mkt.length){ h+='<div style="padding:8px 20px 20px">'+empty('Belum ada user Marketing','Tabel ini merinci performa tiap orang ber-role Marketing. Atur role user di User Management.','crm')+'</div>'; V.innerHTML=h+'</div>'; return; }
+  const rows=mkt.map(u=>{
+    const ev=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status));
+    const om=ev.reduce((a,e)=>a+eventFinance(e).grand,0);
+    return {u,ev,om,fu:S.followups.filter(f=>f.by===u.id).length,rep:S.clients.filter(c=>c.mktPIC===u.id&&clientEventCount(c.id)>1).length};
+  }).sort((a,b)=>b.om-a.om);
+  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:44px">#</th><th>Marketing</th><th class="mono">Follow Up</th><th class="mono">Closing</th><th class="mono">Repeat</th><th class="mono">Omzet</th><th class="mono">Avg Value</th></tr></thead><tbody>';
+  rows.forEach((s,i)=>{
+    const rank=(i===0&&s.om>0)?'<span style="color:var(--gold)" title="Omzet tertinggi">'+svg(IC.star)+'</span>':'<span class="mono">'+(i+1)+'</span>';
+    h+='<tr><td>'+rank+'</td><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+s.u.name[0]+'</div>'+esc(s.u.name)+'</div></td><td class="mono">'+s.fu+'</td><td class="mono">'+s.ev.length+'</td><td class="mono">'+s.rep+'</td><td class="mono" style="color:var(--gold);font-weight:600">'+rp(s.om)+'</td><td class="mono">'+rp(s.ev.length?Math.round(s.om/s.ev.length):0)+'</td></tr>';
+  });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
 }
@@ -2126,8 +2219,12 @@ function renderTimeline(V){
   h+='<div class="card"><div class="timeline">';
   if(!n)h+='<div class="muted">Belum ada aktivitas.</div>';
   S.activities.slice(0,60).forEach(a=>{
-    const ref=a.refType==='client'?clientName(a.refId):(S.events.find(e=>e.id===a.refId)||{}).nama||'';
-    h+='<div class="tl-item"><div class="tl-t">'+ago(a.at)+' · '+esc(a.by)+' · '+(a.refType==='client'?'CLIENT':'EVENT')+'</div><div class="tl-a">'+esc(a.action)+'</div><div class="tl-d">'+esc(ref)+(a.detail?' — '+esc(a.detail):'')+'</div></div>';
+    const ref=a.refType==='client'?clientName(a.refId)
+      :a.refType==='user'?((S.users.find(u=>u.id===a.refId)||{}).name||'')
+      :a.refType==='event'?((S.events.find(e=>e.id===a.refId)||{}).nama||'')
+      :'';
+    const lbl={client:'CLIENT',event:'EVENT',user:'USER',template:'TEMPLATE'}[a.refType]||String(a.refType||'').toUpperCase();
+    h+='<div class="tl-item"><div class="tl-t">'+ago(a.at)+' · '+esc(a.by)+' · '+esc(lbl)+'</div><div class="tl-a">'+esc(a.action)+'</div><div class="tl-d">'+esc(ref)+(a.detail?' — '+esc(a.detail):'')+'</div></div>';
   });
   h+='</div></div>';
   V.innerHTML=h;
@@ -2170,31 +2267,98 @@ function markAllRead(){ S.notifs.forEach(n=>n.read=true); save(); buildNav(); to
    MODUL N — USER MANAGEMENT
    ============================================================ */
 function renderUsers(V){
-  let h=pageHead('Modul N','User Management','Kelola akun & hak akses (mengacu matriks Bagian 6.2).',
-    '<button class="btn pri" onclick="newUser()">'+svg(IC.plus)+'User Baru</button>');
+  let h=pageHead('Modul N','User Management','Akun dibuat otomatis saat user login lewat Office. Di sini kamu mengatur status & hak aksesnya.','');
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Divisi</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
-  S.users.forEach(u=>{ h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+u.name[0]+'</div>'+esc(u.name)+'</div></td><td class="cell-sub">'+esc(u.email||'—')+'</td><td>'+ROLES[u.role].t+'</td><td>'+(u.div||'—')+'</td><td>'+(u.active?'<span class="chip" style="background:var(--ok-bg);color:var(--ok)"><span class="cd" style="background:var(--ok)"></span>Aktif</span>':'<span class="chip" style="background:var(--danger-bg);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Nonaktif</span>')+'</td><td><button class="btn sm" onclick="toggleUser(\''+u.id+'\')">'+(u.active?'Nonaktifkan':'Aktifkan')+'</button></td></tr>'; });
+  const canMU=can('manage_users');
+  S.users.forEach(u=>{ const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
+    h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+u.name[0]+'</div>'+esc(u.name)+'</div></td><td class="cell-sub">'+esc(u.email||'—')+'</td><td>'+roleCell(u,canMU)+custom+'</td><td>'+(u.div||'—')+'</td><td>'+(u.active?'<span class="chip" style="background:var(--ok-bg);color:var(--ok)"><span class="cd" style="background:var(--ok)"></span>Aktif</span>':'<span class="chip" style="background:var(--danger-bg);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Nonaktif</span>')+'</td>'
+     +'<td><div class="pill-row">'+(canMU?'<button class="btn sm" onclick="openUserAccess(\''+u.id+'\')">'+svg(IC.approve)+'Hak Akses</button>':'')+'<button class="btn sm" onclick="toggleUser(\''+u.id+'\')">'+(u.active?'Nonaktifkan':'Aktifkan')+'</button></div></td></tr>'; });
   h+='</tbody></table></div></div>';
-  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:12px">Matriks Hak Akses (Bagian 6.2)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Modul</th><th>Super Admin</th><th>Marketing</th><th>Finance</th><th>Manager</th><th>Operational</th></tr></thead><tbody>';
-  const matrix=[['Dashboard','F','V','V','V','V'],['CRM Client','F','F','V','V','X'],['Sales Pipeline','F','F','V','V','X'],['Input Event','F','E','V','V','V'],['Event Brief','F','F','V','V','V'],['Calendar','F','V','V','V','V'],['Invoice & Payment','F','E','F','V','X'],['Task Divisi','F','V','V','V','E'],['Approval Flow','F','V','V','F','X'],['Marketing Perf.','F','V','V','V','X'],['Reporting','F','V','F','V','X'],['User Mgmt','F','X','X','X','X']];
-  const legend={F:'--ok',E:'--gold',V:'--info',X:'--muted'};
-  matrix.forEach(r=>{ h+='<tr><td class="cell-strong">'+r[0]+'</td>'+r.slice(1).map(c=>'<td><span class="tag" style="color:var('+legend[c]+')">'+c+'</span></td>').join('')+'</tr>'; });
-  h+='</tbody></table></div><div class="cell-sub" style="margin-top:10px">F = Full · E = Edit terbatas (miliknya) · V = View · X = Tidak ada akses</div></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Role <em>disinkronkan otomatis dari sesi Office</em> setiap user login — admin modul Office jadi Super Admin. Kalau role Office-nya tidak dikenali, role di sini dipertahankan (tidak diturunkan diam-diam), jadi bisa dikoreksi manual lewat dropdown Role.</span></div>';
+  h+=accessMatrix(canMU);
   V.innerHTML=h;
 }
-function toggleUser(id){ const u=S.users.find(x=>x.id===id); u.active=!u.active; save(); toast('Diperbarui',u.name+(u.active?' diaktifkan':' dinonaktifkan'),'ok'); go('users'); }
-function newUser(){
-  modal('<div class="modal-head"><div><h3>User Baru</h3></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body"><div class="form-grid">'
-   +ff('Nama','uf_name','','text',1)+ff('Email','uf_email','')
-   +'<div class="field"><label>Role</label><select class="inp" id="uf_role" onchange="document.getElementById(\'uf_divwrap\').style.display=this.value===\'operational\'?\'block\':\'none\'">'+Object.entries(ROLES).map(([k,v])=>'<option value="'+k+'">'+v.t+'</option>').join('')+'</select></div>'
-   +'<div class="field" id="uf_divwrap" style="display:none"><label>Divisi</label><select class="inp" id="uf_div">'+DIVISIONS.map(d=>'<option>'+d+'</option>').join('')+'</select></div>'
-   +'</div></div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveUser()">Simpan</button></div>');
+function mxBox(kind,role,key,on,locked){
+  return '<span class="mx'+(on?' on':'')+(locked?' lock':'')+'" data-kind="'+kind+'" data-role="'+role+'" data-key="'+esc(key)+'"'
+    +(locked?'':' onclick="this.classList.toggle(\'on\')"')+'>'+svg(IC.check)+'</span>';
 }
-function saveUser(){
-  const name=$('uf_name').value.trim(); if(!name)return toast('Isi nama','Nama wajib.','err');
-  const role=$('uf_role').value;
-  S.users.push({id:uid('u'),name,email:$('uf_email').value.trim(),role,div:role==='operational'?$('uf_div').value:undefined,active:true});
-  save(); closeModal(); toast('User dibuat',name+' ditambahkan.','ok'); go('users');
+function accessMatrix(canMU){
+  const roles=Object.keys(ROLES);
+  let h='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:15px">Matriks Hak Akses per Role</h3><div class="cell-sub" style="margin-top:3px">Centang = boleh. Berlaku untuk semua user dengan role tersebut, kecuali yang punya Hak Akses <em>custom</em> sendiri.</div></div>'
+    +(canMU?'<button class="btn sm pri" onclick="saveRoleMatrix()">'+svg(IC.check)+'Simpan Matriks</button>':'')+'</div>';
+  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:190px">Modul — menu yang muncul</th>'+roles.map(r=>'<th class="mx-role">'+esc(ROLES[r].t)+'</th>').join('')+'</tr></thead><tbody>';
+  NAV_DEF.filter(x=>x.k).forEach(m=>{
+    h+='<tr><td class="cell-strong">'+esc(m.t)+'</td>'+roles.map(r=>'<td class="mx-role">'+mxBox('nav',r,m.k,roleNav(r).includes(m.k),r==='super_admin'||!canMU)+'</td>').join('')+'</tr>';
+  });
+  h+='<tr class="mx-sec"><td colspan="'+(roles.length+1)+'"><div class="eyebrow">Izin Aksi — yang boleh diubah, bukan sekadar dilihat</div></td></tr>';
+  PERM_DEF.forEach(p=>{
+    h+='<tr><td class="cell-strong">'+esc(p.t)+'</td>'+roles.map(r=>'<td class="mx-role">'+mxBox('perm',r,p.k,rolePerms(r).includes(p.k),r==='super_admin'||!canMU)+'</td>').join('')+'</tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Kolom <em>Super Admin</em> terkunci penuh — supaya tidak ada yang bisa terkunci dari sistem. Baris <em>Modul</em> mengatur menu di sidebar; baris <em>Izin Aksi</em> mengatur hak mengubah data.</span></div>';
+  return h+'</div>';
+}
+function saveRoleMatrix(){
+  if(!can('manage_users'))return toast('Akses ditolak','Kamu tidak punya izin kelola user.','err');
+  S.roleNav=S.roleNav||{}; S.rolePerms=S.rolePerms||{};
+  Object.keys(ROLES).forEach(r=>{
+    if(r==='super_admin')return; // selalu penuh
+    const nav=[...document.querySelectorAll('.mx.on[data-kind="nav"][data-role="'+r+'"]')].map(x=>x.dataset.key);
+    if(!nav.includes('dashboard')) nav.unshift('dashboard'); // selalu punya pintu masuk
+    S.roleNav[r]=nav;
+    S.rolePerms[r]=[...document.querySelectorAll('.mx.on[data-kind="perm"][data-role="'+r+'"]')].map(x=>x.dataset.key);
+  });
+  logAct('user','-','Matriks hak akses role diperbarui','');
+  save(); buildNav(); toast('Matriks disimpan','Hak akses per role diperbarui.','ok'); go('users');
+}
+function toggleUser(id){ const u=S.users.find(x=>x.id===id); u.active=!u.active; save(); toast('Diperbarui',u.name+(u.active?' diaktifkan':' dinonaktifkan'),'ok'); go('users'); }
+// Role tersimpan bisa diubah di sini. Akun hasil SSO Office default-nya 'operational'
+// bila role Office-nya tidak ada di OFFICE_TO_MKT_ROLE — jadi perlu bisa dikoreksi.
+function roleCell(u,canMU){
+  if(!canMU) return esc(ROLES[u.role].t);
+  return '<select class="inp" style="padding:5px 8px;font-size:12px;min-width:150px" onchange="changeUserRole(\''+u.id+'\',this.value)">'
+    +Object.entries(ROLES).map(([k,v])=>'<option value="'+k+'"'+(u.role===k?' selected':'')+'>'+esc(v.t)+'</option>').join('')+'</select>';
+}
+function changeUserRole(id,role){
+  if(!can('manage_users'))return toast('Akses ditolak','Kamu tidak punya izin kelola user.','err');
+  const u=S.users.find(x=>x.id===id); if(!u||!ROLES[role])return;
+  const old=u.role; if(old===role)return;
+  u.role=role; if(role!=='operational') delete u.div;
+  logAct('user',u.id,'Role diubah',ROLES[old].t+' → '+ROLES[role].t);
+  save(); buildNav(); toast('Role diperbarui',u.name+' sekarang '+ROLES[role].t+'.','ok'); go('users');
+}
+function openUserAccess(id){
+  const u=S.users.find(x=>x.id===id); if(!u)return;
+  const isSA=u.role==='super_admin';
+  const navSel=userNav(u), permSel=userPerms(u);
+  const lock=isSA?'':' onclick="this.classList.toggle(\'on\')"';
+  let b='';
+  if(isSA) b+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Super Admin</em> selalu punya akses penuh dan tidak bisa dibatasi — supaya tidak ada yang terkunci dari sistem.</span></div>';
+  b+='<div class="field"><label>Modul yang bisa dibuka</label><div class="chk-grid" id="ua_nav">'
+    +NAV_DEF.filter(x=>x.k).map(m=>'<div class="chk '+(navSel.includes(m.k)?'on':'')+'"'+lock+' data-v="'+esc(m.k)+'">'+esc(m.t)+'</div>').join('')
+    +'</div><div class="fh">Menentukan menu yang muncul di sidebar untuk user ini.</div></div>';
+  b+='<div class="field"><label>Izin aksi</label><div class="chk-grid" id="ua_perm">'
+    +PERM_DEF.map(p=>'<div class="chk '+(permSel.includes(p.k)?'on':'')+'"'+lock+' data-v="'+esc(p.k)+'">'+esc(p.t)+'</div>').join('')
+    +'</div><div class="fh">Menentukan apa yang boleh diubah, bukan sekadar dilihat.</div></div>';
+  modal('<div class="modal-head"><div><h3>Hak Akses · '+esc(u.name)+'</h3><p>'+ROLES[u.role].t+(u.div?' · '+esc(u.div):'')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'+b+'</div>'
+   +'<div class="modal-foot">'+(isSA?'':'<button class="btn" onclick="resetUserAccess(\''+u.id+'\')">Reset ke default role</button>')
+   +'<button class="btn" onclick="closeModal()">Batal</button>'
+   +(isSA?'':'<button class="btn pri" onclick="saveUserAccess(\''+u.id+'\')">Simpan</button>')+'</div>','wide');
+}
+function saveUserAccess(id){
+  const u=S.users.find(x=>x.id===id); if(!u)return;
+  u.nav=[...document.querySelectorAll('#ua_nav .chk.on')].map(x=>x.dataset.v);
+  u.perms=[...document.querySelectorAll('#ua_perm .chk.on')].map(x=>x.dataset.v);
+  if(!u.nav.includes('dashboard')) u.nav.unshift('dashboard'); // selalu punya pintu masuk
+  logAct('user',u.id,'Hak akses diperbarui',u.nav.length+' modul · '+u.perms.length+' izin');
+  save(); closeModal(); buildNav(); toast('Hak akses disimpan','Akses '+u.name+' diperbarui.','ok'); go('users');
+}
+function resetUserAccess(id){
+  const u=S.users.find(x=>x.id===id); if(!u)return;
+  delete u.nav; delete u.perms;
+  logAct('user',u.id,'Hak akses direset','kembali ke default role '+ROLES[u.role].t);
+  save(); closeModal(); buildNav(); toast('Direset','Akses '+u.name+' kembali ke default role.','ok'); go('users');
 }
 
 /* ============================================================
@@ -2262,11 +2426,20 @@ async function boot(){
   const office = readLmSession();
   if(office){
     const u = resolveOfficeUser(office);
-    // Admin modul dari Office (adminModules mengandung '*' atau 'marketing')
-    // -> super_admin untuk sesi ini, tanpa mengubah role tersimpan.
+    // Role mengikuti sesi Office (Office = sumber kebenaran identitas), lalu DISIMPAN
+    // supaya yang tampil di User Management sama dengan yang dipakai sesi ini:
+    //  - admin modul Office ('*' / 'marketing')  -> super_admin
+    //  - selain itu                              -> peta OFFICE_TO_MKT_ROLE
+    //  - role Office tak dikenal                 -> pertahankan role tersimpan
+    //    (jangan turunkan diam-diam ke Operational / menimpa koreksi manual)
     const oAdm = office.adminModules||[];
-    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : u.role;
-    ME = Object.assign({}, u, {role:effRole});
+    const mapped = OFFICE_TO_MKT_ROLE[office.role];
+    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : (mapped || u.role || 'operational');
+    if(u.role!==effRole){
+      logAct('user',u.id,'Role disinkronkan dari sesi Office',(u.role?ROLES[u.role].t:'-')+' → '+ROLES[effRole].t);
+      u.role=effRole; save();
+    }
+    ME = u; // referensi langsung ke record tersimpan, bukan salinan
     localStorage.setItem('lm_me', u.id);
     $('login').style.display='none'; $('app').classList.add('on');
     buildNav(); updateTopUser(); go(location.hash.slice(1).split('/')[0]||'dashboard');
