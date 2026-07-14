@@ -1,20 +1,35 @@
 /**
- * Office Identity Layer, Apps Script backend (v2).
+ * Office Identity Layer, Apps Script backend (v3 — TANPA ROLE).
  * Paste into the identity Google Sheet: Extensions -> Apps Script -> replace Code.gs.
  * Then Deploy -> Manage deployments -> edit -> Version: New version (the /exec URL stays the same).
  *
- * Tabs expected:
- *   Users : id | name | pin | role | active | keterangan
- *   Roles : role | label | modules | admin        (admin is the new v2 column)
- *   Grants: userId | module | access | grantedBy | ts   (auto-created if missing)
+ * PERUBAHAN BESAR DARI v2: kolom `role` dan tab `Roles` DIHAPUS. Akses modul
+ * sekarang dipetakan LANGSUNG user -> modul lewat tab Grants.
  *
- * Model (see docs/office-permissions.md):
- *   modules = which modules a user can OPEN. admin = which modules a user MANAGES.
- *   Superadmin = admin contains '*'. Administering a module implies opening it.
- *   Grants override the role baseline per user-per-module (TRUE grant, FALSE deny).
+ * Tabs:
+ *   Users   : id | name | pin | active | keterangan
+ *   Modules : key | label | active                     (registri modul, dinamis)
+ *   Grants  : userId | module | access | grantedBy | ts
+ *   Admins  : userId | module                          ('*' = superadmin)
  *
- * Enforcement is server-side: every write carries the caller's own name+pin and is
- * re-verified here. The browser only hides buttons.
+ * Model:
+ *   - Grants = satu-satunya sumber "modul apa yang boleh DIBUKA user".
+ *     module '*' berarti semua modul di registri Modules. Baris deny
+ *     (access FALSE) menimpa '*', jadi "* kecuali howandi_life" bisa ditulis
+ *     sebagai dua baris: ('*', TRUE) + ('howandi_life', FALSE).
+ *   - Admins = siapa yang boleh membuka konsol "Kelola Akses" INTERNAL sebuah
+ *     modul. '*' = semua modul (superadmin). Mengelola sebuah modul TIDAK
+ *     otomatis memberi akses membukanya; itu tetap dari Grants.
+ *   - DINAMIS: tambah satu baris di Modules -> modul baru langsung bisa
+ *     diberikan ke siapa pun, dan user '*' otomatis dapat.
+ *
+ * PIN:
+ *   - Boleh SAMA antar user. Login memakai name + pin, jadi nama yang
+ *     membedakan. TIDAK ADA lagi pengecekan pin unik.
+ *   - Tiap user bisa ganti PIN-nya sendiri lewat action `changePin`.
+ *
+ * Enforcement server-side: setiap tulisan membawa name+pin pemanggil dan
+ * diverifikasi ulang di sini. Browser hanya menyembunyikan tombol.
  */
 
 function doPost(e) {
@@ -22,16 +37,17 @@ function doPost(e) {
     var body = JSON.parse((e.postData && e.postData.contents) || '{}');
     switch (body.action) {
       case 'login':             return login_(body.name, body.pin);
+      case 'changePin':         return changePin_(body);      // user mengganti PIN sendiri
       // superadmin only
       case 'listUsers':         return adminListUsers_(body);
       case 'saveUser':          return adminSaveUser_(body);
       case 'deleteUser':        return adminDeleteUser_(body);
-      case 'listRoles':         return adminListRoles_(body);
-      case 'saveRole':          return adminSaveRole_(body);
-      case 'deleteRole':        return adminDeleteRole_(body);
-      // module admin (scoped) — used by each module's in-app console (step 3)
-      case 'listModuleMembers': return listModuleMembers_(body);
+      case 'listModules':       return adminListModules_(body);
+      // pemberian akses modul (landing "Kelola Akses"): butuh admin '*'
+      case 'listAccess':        return listAccess_(body);
       case 'setModuleAccess':   return setModuleAccess_(body);
+      // dipakai konsol internal tiap modul untuk tahu SIAPA anggotanya
+      case 'listModuleMembers': return listModuleMembers_(body);
       default:                  return json_({ ok: false, error: 'unknown_action' });
     }
   } catch (err) {
@@ -50,38 +66,18 @@ function login_(name, pin) {
   var u = findUserByCreds_(readSheet_(ss, 'Users'), name, pin);
   if (!u) return json_({ ok: false, error: 'invalid' });
 
-  var res = resolveFor_(u, readSheet_(ss, 'Roles'), readSheet_(ss, 'Grants'));
-  var id = String(u.id || ('u-' + name));
-  var role = String(u.role || '').trim().toLowerCase();
+  var modules = modulesFor_(ss, u);
+  var adminModules = adminModulesFor_(ss, u);
   return json_({ ok: true, user: {
-    id: id,
+    id: String(u.id || ('u-' + name)),
     name: String(u.name).trim(),
-    role: role,
-    modules: res.modules,
-    adminModules: res.adminModules,
-    // Token SSO untuk modul Laravel (Manajemen/Event Marketing/Finance). Kosong
-    // bila SSO_SECRET belum diset di Script Properties.
-    ssoToken: generateSsoToken_(String(u.name).trim(), id, role)
+    modules: modules,
+    adminModules: adminModules
   }});
 }
 
-// HMAC token untuk SSO ke backend Laravel. Set SSO_SECRET di Project Settings ->
-// Script Properties. Tanpa secret, token kosong dan modul SSO tetap aman ditolak.
-function generateSsoToken_(name, id, role) {
-  var secret = PropertiesService.getScriptProperties().getProperty('SSO_SECRET');
-  if (!secret) return '';
-  var payload = {
-    sub: id, name: name, orole: role,
-    iat: new Date().getTime(),
-    exp: new Date().getTime() + (24 * 3600 * 1000)   // berlaku 24 jam
-  };
-  var payloadB64 = b64url_(Utilities.base64Encode(JSON.stringify(payload)));
-  var signature = Utilities.computeHmacSha256Signature(payloadB64, secret);
-  return payloadB64 + '.' + b64url_(Utilities.base64Encode(signature));
-}
-function b64url_(b64) { return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
-
-// A user row matching name + pin + not inactive, or null.
+// Cocokkan name + pin + tidak nonaktif. PIN boleh duplikat antar user karena
+// nama ikut jadi kunci.
 function findUserByCreds_(users, name, pin) {
   name = String(name).trim().toLowerCase(); pin = String(pin).trim();
   return users.find(function (x) {
@@ -91,77 +87,86 @@ function findUserByCreds_(users, name, pin) {
   }) || null;
 }
 
-/* ===================== Access resolution ===================== */
+// User mengganti PIN-nya sendiri. Wajib menyertakan PIN lama yang benar.
+// PIN baru TIDAK dicek keunikannya: tabrakan antar user tidak masalah.
+function changePin_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var me = findUserByCreds_(readSheet_(ss, 'Users'), body.name, body.pin);
+  if (!me) return json_({ ok: false, error: 'invalid' });
 
-// '*' -> ['*']; 'a,b' -> ['a','b']; '' -> []
-function parseList_(raw) {
-  raw = String(raw == null ? '' : raw).trim();
-  if (raw === '*') return ['*'];
-  return raw.split(',').map(function (s) { return s.trim(); }).filter(String);
-}
-// ['*'] -> '*'; ['a','b'] -> 'a,b'; [] -> ''
-function joinList_(arr) {
-  arr = arr || [];
-  if (arr.indexOf('*') > -1) return '*';
-  return arr.join(',');
-}
+  var next = String(body.newPin || '').trim();
+  if (!/^\d{4,8}$/.test(next)) return json_({ ok: false, error: 'bad_pin' });  // 4-8 digit
 
-function roleObjFor_(roles, role) {
-  role = String(role || '').trim().toLowerCase();
-  for (var i = 0; i < roles.length; i++) {
-    if (String(roles[i].role).trim().toLowerCase() === role) return roles[i];
+  var sh = ss.getSheetByName('Users');
+  var vals = sh.getDataRange().getValues();
+  var col = colMap_(vals[0]);
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][col.id]).trim() === String(me.id).trim()) {
+      sh.getRange(i + 1, col.pin + 1).setValue(next);
+      return json_({ ok: true });
+    }
   }
-  return null;
+  return json_({ ok: false, error: 'not_found' });
 }
 
-// adminModules for a role. Legacy fallback: if the Roles sheet has no `admin`
-// column at all, treat modules '*' as superadmin so nothing breaks pre-migration.
-function adminForRole_(roleObj, baseView) {
-  if (!roleObj) return [];
-  if (!('admin' in roleObj)) return baseView.indexOf('*') > -1 ? ['*'] : [];
-  return parseList_(roleObj.admin);
+/* ===================== Resolusi akses ===================== */
+
+// Daftar key modul aktif dari registri.
+function allModules_(ss) {
+  return readSheet_(ss, 'Modules')
+    .filter(function (m) { return String(m.active).toUpperCase() !== 'FALSE'; })
+    .map(function (m) { return String(m.key || '').trim(); })
+    .filter(String);
 }
 
-// Compute effective { modules, adminModules } for one user, given preloaded
-// roles + grants. Pure, so it can run in a loop cheaply.
-function resolveFor_(user, roles, grants) {
-  var roleObj = roleObjFor_(roles, user.role);
-  var baseView = parseList_(roleObj ? roleObj.modules : '');
-  var adminMods = adminForRole_(roleObj, baseView);
-  if (baseView.indexOf('*') > -1) return { modules: ['*'], adminModules: adminMods, sourceMap: {} };
+// Modul yang boleh DIBUKA user. Grants adalah satu-satunya sumber.
+// '*' diperluas atas registri; baris deny (FALSE) menimpa '*'.
+function modulesFor_(ss, user) {
+  var uid = String(user.id).trim();
+  var grants = readSheet_(ss, 'Grants').filter(function (g) {
+    return String(g.userId).trim() === uid;
+  });
 
   var eff = {};
-  baseView.concat(adminMods).forEach(function (m) { if (m) eff[m] = 'role'; });
-  var uid = String(user.id).trim();
+  // 1) '*' lebih dulu, supaya deny spesifik bisa menimpanya.
   grants.forEach(function (g) {
-    if (String(g.userId).trim() !== uid) return;
-    var mod = String(g.module).trim();
-    if (String(g.access).toUpperCase() === 'TRUE') eff[mod] = 'grant';
-    else delete eff[mod];
+    if (String(g.module).trim() !== '*') return;
+    if (String(g.access).toUpperCase() === 'TRUE') {
+      allModules_(ss).forEach(function (k) { eff[k] = true; });
+    }
   });
-  return {
-    modules: Object.keys(eff).filter(String).sort(),
-    adminModules: adminMods,
-    sourceMap: eff
-  };
+  // 2) baris per modul (TRUE = beri, FALSE = cabut).
+  grants.forEach(function (g) {
+    var m = String(g.module).trim();
+    if (!m || m === '*') return;
+    if (String(g.access).toUpperCase() === 'TRUE') eff[m] = true;
+    else delete eff[m];
+  });
+  return Object.keys(eff).sort();
 }
 
-/* ===================== Authorization predicates ===================== */
-
-function callerAdminModules_(ss, caller) {
-  return resolveFor_(caller, readSheet_(ss, 'Roles'), []).adminModules;
+// Modul yang boleh DIKELOLA (buka konsol Kelola Akses internal). '*' = semua.
+function adminModulesFor_(ss, user) {
+  var uid = String(user.id).trim();
+  return readSheet_(ss, 'Admins')
+    .filter(function (a) { return String(a.userId).trim() === uid; })
+    .map(function (a) { return String(a.module || '').trim(); })
+    .filter(String);
 }
-// Caller must be a valid user AND administer everything ('*').
+
+/* ===================== Predikat otorisasi ===================== */
+
+// Pemanggil valid DAN mengelola segalanya ('*').
 function requireSuperadmin_(ss, body) {
   var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
   if (!caller) return null;
-  return callerAdminModules_(ss, caller).indexOf('*') > -1 ? caller : null;
+  return adminModulesFor_(ss, caller).indexOf('*') > -1 ? caller : null;
 }
-// Caller must administer `module` (or everything).
+// Pemanggil mengelola `module` (atau segalanya).
 function requireModuleAdmin_(ss, body, module) {
   var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
   if (!caller) return null;
-  var adm = callerAdminModules_(ss, caller);
+  var adm = adminModulesFor_(ss, caller);
   return (adm.indexOf('*') > -1 || adm.indexOf(module) > -1) ? caller : null;
 }
 
@@ -170,19 +175,44 @@ function requireModuleAdmin_(ss, body, module) {
 function adminListUsers_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+  var grants = readSheet_(ss, 'Grants');
   var users = readSheet_(ss, 'Users').map(function (u) {
     return {
       id: String(u.id || ''), name: String(u.name || ''), pin: String(u.pin || ''),
-      role: String(u.role || ''), active: String(u.active).toUpperCase() !== 'FALSE',
-      keterangan: String(u.keterangan || '')
+      active: String(u.active).toUpperCase() !== 'FALSE',
+      keterangan: String(u.keterangan || ''),
+      modules: modulesFor_(ss, u),            // hasil perluasan '*' + deny (untuk ditampilkan)
+      grants: rawGrantsFor_(grants, u),       // baris Grants mentah (untuk mengisi centang form)
+      adminModules: adminModulesFor_(ss, u)
     };
   });
-  var roles = readSheet_(ss, 'Roles').map(function (r) { return String(r.role || '').trim(); })
-              .filter(String);
-  return json_({ ok: true, users: users, roles: roles });
+  return json_({ ok: true, users: users, modules: allModules_(ss) });
 }
 
-// Add (no id) or edit (id present). Unique name + PIN. active:false = deactivate.
+// Modul yang PUNYA baris grant TRUE untuk user ini, apa adanya ('*' tetap '*').
+// Dipakai form Kelola Akses supaya centang mencerminkan Sheet, bukan hasil perluasan.
+function rawGrantsFor_(grants, user) {
+  var uid = String(user.id).trim();
+  return grants
+    .filter(function (g) {
+      return String(g.userId).trim() === uid
+          && String(g.access).toUpperCase() === 'TRUE';
+    })
+    .map(function (g) { return String(g.module).trim(); })
+    .filter(String);
+}
+
+function adminListModules_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+  var mods = readSheet_(ss, 'Modules')
+    .filter(function (m) { return String(m.active).toUpperCase() !== 'FALSE'; })
+    .map(function (m) { return { key: String(m.key || '').trim(), label: String(m.label || '').trim() }; })
+    .filter(function (m) { return m.key; });
+  return json_({ ok: true, modules: mods });
+}
+
+// Tambah (tanpa id) atau edit (id ada). Nama wajib unik. PIN TIDAK perlu unik.
 function adminSaveUser_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
@@ -190,23 +220,20 @@ function adminSaveUser_(body) {
   var sh = ss.getSheetByName('Users');
   var vals = sh.getDataRange().getValues();
   var head = vals[0].map(function (h) { return String(h).trim(); });
-  var col = {}; head.forEach(function (h, i) { col[h] = i; });
+  var col = colMap_(vals[0]);
 
   var name = String(body.name || '').trim();
-  var pin  = String(body.pin || '').trim();
-  var role = String(body.role || '').trim().toLowerCase();
+  var pin  = String(body.pin || '').trim() || '1111';
   var ket  = String(body.keterangan || '').trim();
   var active = body.active === false ? 'FALSE' : 'TRUE';
-  if (!name || !pin || !role) return json_({ ok: false, error: 'missing_fields' });
+  if (!name) return json_({ ok: false, error: 'missing_fields' });
 
   var editId = String(body.id || '').trim();
   for (var r = 1; r < vals.length; r++) {
-    var rid = String(vals[r][col.id]).trim();
-    if (rid === editId) continue;
+    if (String(vals[r][col.id]).trim() === editId) continue;
     if (String(vals[r][col.name]).trim().toLowerCase() === name.toLowerCase())
       return json_({ ok: false, error: 'name_taken' });
-    if (String(vals[r][col.pin]).trim() === pin)
-      return json_({ ok: false, error: 'pin_taken' });
+    // sengaja TIDAK ada cek pin_taken: PIN boleh sama antar user.
   }
 
   if (editId) {
@@ -214,7 +241,6 @@ function adminSaveUser_(body) {
       if (String(vals[i][col.id]).trim() === editId) {
         sh.getRange(i + 1, col.name + 1).setValue(name);
         sh.getRange(i + 1, col.pin + 1).setValue(pin);
-        sh.getRange(i + 1, col.role + 1).setValue(role);
         sh.getRange(i + 1, col.active + 1).setValue(active);
         if (col.keterangan != null) sh.getRange(i + 1, col.keterangan + 1).setValue(ket);
         return json_({ ok: true, id: editId });
@@ -229,7 +255,7 @@ function adminSaveUser_(body) {
   while (existing[id]) id = base + n++;
   var row = head.map(function (h) {
     return h === 'id' ? id : h === 'name' ? name : h === 'pin' ? pin
-      : h === 'role' ? role : h === 'active' ? active : h === 'keterangan' ? ket : '';
+      : h === 'active' ? active : h === 'keterangan' ? ket : '';
   });
   sh.appendRow(row);
   return json_({ ok: true, id: id });
@@ -242,8 +268,7 @@ function adminDeleteUser_(body) {
 
   var sh = ss.getSheetByName('Users');
   var vals = sh.getDataRange().getValues();
-  var head = vals[0].map(function (h) { return String(h).trim(); });
-  var col = {}; head.forEach(function (h, i) { col[h] = i; });
+  var col = colMap_(vals[0]);
   var id = String(body.id || '').trim();
   if (id && String(caller.id).trim() === id)
     return json_({ ok: false, error: 'cannot_delete_self' });
@@ -254,129 +279,41 @@ function adminDeleteUser_(body) {
   return json_({ ok: false, error: 'not_found' });
 }
 
-/* ===================== Roles CRUD (superadmin) ===================== */
+/* ============ Pemberian akses modul (landing Kelola Akses, superadmin) ============ */
 
-function adminListRoles_(body) {
+// Matriks user x modul. Hanya superadmin ('*'), sesuai permintaan: pemberian
+// akses office hanya lewat halaman landing oleh Admin/Howandi/Wandi.
+function listAccess_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
-  var roles = readSheet_(ss, 'Roles').map(function (r) {
-    var baseView = parseList_(r.modules);
-    return {
-      role: String(r.role || '').trim(),
-      label: String(r.label || '').trim(),
-      modules: baseView,
-      admin: adminForRole_(r, baseView)
-    };
-  }).filter(function (r) { return r.role; });
-  return json_({ ok: true, roles: roles });
-}
-
-// Upsert. Edit is keyed by `orig` (the previous role key); add has empty `orig`.
-function adminSaveRole_(body) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
-
-  var role = String(body.role || '').trim().toLowerCase();
-  if (!role) return json_({ ok: false, error: 'missing_role' });
-  var orig = String(body.orig || '').trim().toLowerCase();
-  var label = String(body.label || '').trim();
-  var modulesCell = joinList_(body.modules || []);
-  var adminCell = joinList_(body.admin || []);
-
-  var sh = ss.getSheetByName('Roles');
-  var vals = sh.getDataRange().getValues();
-  var head = vals[0].map(function (h) { return String(h).trim(); });
-  var col = {}; head.forEach(function (h, i) { col[h] = i; });
-  if (col.admin == null) return json_({ ok: false, error: 'no_admin_column' });
-
-  for (var r = 1; r < vals.length; r++) {
-    var rk = String(vals[r][col.role]).trim().toLowerCase();
-    if (rk === role && rk !== orig) return json_({ ok: false, error: 'role_taken' });
-  }
-
-  if (orig) {
-    for (var i = 1; i < vals.length; i++) {
-      if (String(vals[i][col.role]).trim().toLowerCase() === orig) {
-        sh.getRange(i + 1, col.role + 1).setValue(role);
-        if (col.label != null)   sh.getRange(i + 1, col.label + 1).setValue(label);
-        if (col.modules != null) sh.getRange(i + 1, col.modules + 1).setValue(modulesCell);
-        sh.getRange(i + 1, col.admin + 1).setValue(adminCell);
-        return json_({ ok: true });
-      }
-    }
-    return json_({ ok: false, error: 'not_found' });
-  }
-
-  var row = head.map(function (h) {
-    return h === 'role' ? role : h === 'label' ? label
-      : h === 'modules' ? modulesCell : h === 'admin' ? adminCell : '';
-  });
-  sh.appendRow(row);
-  return json_({ ok: true });
-}
-
-function adminDeleteRole_(body) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
-  var role = String(body.role || '').trim().toLowerCase();
-  if (role === 'superadmin') return json_({ ok: false, error: 'cannot_delete_superadmin' });
-
-  var inUse = readSheet_(ss, 'Users').some(function (u) {
-    return String(u.role || '').trim().toLowerCase() === role;
-  });
-  if (inUse) return json_({ ok: false, error: 'role_in_use' });
-
-  var sh = ss.getSheetByName('Roles');
-  var vals = sh.getDataRange().getValues();
-  var head = vals[0].map(function (h) { return String(h).trim(); });
-  var col = {}; head.forEach(function (h, i) { col[h] = i; });
-  for (var i = 1; i < vals.length; i++) {
-    if (String(vals[i][col.role]).trim().toLowerCase() === role) { sh.deleteRow(i + 1); return json_({ ok: true }); }
-  }
-  return json_({ ok: false, error: 'not_found' });
-}
-
-/* ===================== Module access (module admin, scoped) ===================== */
-
-// List Office users with their access status for one module. No PINs. Used by the
-// per-module "Kelola Akses" console (step 3).
-function listModuleMembers_(body) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var module = String(body.module || '').trim();
-  if (!requireModuleAdmin_(ss, body, module)) return json_({ ok: false, error: 'forbidden' });
-
-  var roles = readSheet_(ss, 'Roles');
-  var grants = readSheet_(ss, 'Grants');
-  var members = readSheet_(ss, 'Users').map(function (u) {
-    var res = resolveFor_(u, roles, grants);
-    var all = res.modules.indexOf('*') > -1;
-    var has = all || res.modules.indexOf(module) > -1;
-    var source = all ? 'role' : (res.sourceMap[module] || (has ? 'role' : 'none'));
+  var mods = allModules_(ss);
+  var users = readSheet_(ss, 'Users').map(function (u) {
     return {
       id: String(u.id || ''), name: String(u.name || ''),
       keterangan: String(u.keterangan || ''),
       active: String(u.active).toUpperCase() !== 'FALSE',
-      access: has, source: source   // 'role' | 'grant' | 'none'
+      modules: modulesFor_(ss, u),
+      adminModules: adminModulesFor_(ss, u)
     };
   });
-  return json_({ ok: true, members: members });
+  return json_({ ok: true, users: users, modules: mods });
 }
 
-// Upsert a Grants row (userId, module) = access. Creates the Grants tab if missing.
+// Upsert baris Grants (userId, module) = access. Superadmin saja.
 function setModuleAccess_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var module = String(body.module || '').trim();
-  var caller = requireModuleAdmin_(ss, body, module);
+  var caller = requireSuperadmin_(ss, body);
   if (!caller) return json_({ ok: false, error: 'forbidden' });
 
   var userId = String(body.userId || '').trim();
+  var module = String(body.module || '').trim();
   if (!userId || !module) return json_({ ok: false, error: 'missing_fields' });
   var access = (body.access === true || String(body.access).toUpperCase() === 'TRUE') ? 'TRUE' : 'FALSE';
 
-  var sh = ensureGrantsSheet_(ss);
+  var sh = ensureSheet_(ss, 'Grants', ['userId', 'module', 'access', 'grantedBy', 'ts']);
   var vals = sh.getDataRange().getValues();
   var head = vals[0].map(function (h) { return String(h).trim(); });
-  var col = {}; head.forEach(function (h, i) { col[h] = i; });
+  var col = colMap_(vals[0]);
 
   for (var i = 1; i < vals.length; i++) {
     if (String(vals[i][col.userId]).trim() === userId
@@ -395,13 +332,44 @@ function setModuleAccess_(body) {
   return json_({ ok: true });
 }
 
-function ensureGrantsSheet_(ss) {
-  var sh = ss.getSheetByName('Grants');
-  if (!sh) { sh = ss.insertSheet('Grants'); sh.appendRow(['userId', 'module', 'access', 'grantedBy', 'ts']); }
-  return sh;
+/* ============ Anggota sebuah modul (dipakai konsol INTERNAL modul) ============ */
+
+// Hanya user yang PUNYA akses ke modul ini. Konsol internal tiap modul memakai
+// ini untuk tahu siapa yang boleh diatur hak-halamannya. Tanpa PIN.
+// Boleh dipanggil admin modul tsb (atau superadmin).
+function listModuleMembers_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var module = String(body.module || '').trim();
+  if (!requireModuleAdmin_(ss, body, module)) return json_({ ok: false, error: 'forbidden' });
+
+  var members = readSheet_(ss, 'Users')
+    .map(function (u) {
+      return {
+        id: String(u.id || ''), name: String(u.name || ''),
+        keterangan: String(u.keterangan || ''),
+        active: String(u.active).toUpperCase() !== 'FALSE',
+        modules: modulesFor_(ss, u)
+      };
+    })
+    .filter(function (u) { return u.modules.indexOf(module) > -1; })   // hanya anggota modul ini
+    .map(function (u) { delete u.modules; return u; });
+
+  return json_({ ok: true, members: members });
 }
 
 /* ===================== Helpers ===================== */
+
+function colMap_(headRow) {
+  var col = {};
+  headRow.forEach(function (h, i) { var k = String(h).trim(); if (k) col[k] = i; });
+  return col;
+}
+
+function ensureSheet_(ss, name, headers) {
+  var sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); }
+  return sh;
+}
 
 function readSheet_(ss, name) {
   var sh = ss.getSheetByName(name);

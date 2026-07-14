@@ -326,21 +326,15 @@
         <div class="modal-card">
             <div class="modal-head">
                 <div>
-                    <h2>Kelola User</h2>
-                    <p>Akun, PIN, dan role. Tersimpan langsung ke Sheet.</p>
+                    <h2>Kelola Akses</h2>
+                    <p>Akun dan modul yang boleh dibuka. Tidak ada role: akses diberikan langsung per modul.</p>
                 </div>
                 <button class="modal-x" id="admin-close" type="button" aria-label="Tutup">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
             </div>
 
-            <div class="admin-tabs" role="tablist">
-                <button class="admin-tab active" id="tabbtn-users" data-tab="users" type="button" role="tab">User</button>
-                <button class="admin-tab" id="tabbtn-roles" data-tab="roles" type="button" role="tab">Role</button>
-            </div>
-
             <div class="modal-body">
-                <!-- ===== TAB: USER ===== -->
                 <div id="tab-users" class="admin-panel">
                     <form id="admin-form" class="admin-form" autocomplete="off">
                         <div class="af-title" id="af-title">Tambah User Baru</div>
@@ -349,11 +343,14 @@
                             <div class="field"><label for="af-name">Nama</label>
                                 <input id="af-name" type="text" placeholder="cth: Christy"></div>
                             <div class="field"><label for="af-pin">PIN</label>
-                                <input id="af-pin" type="text" inputmode="numeric" placeholder="3 sampai 8 digit"></div>
-                            <div class="field"><label for="af-role">Role</label>
-                                <select id="af-role"></select></div>
+                                <input id="af-pin" type="text" inputmode="numeric" placeholder="default 1111"></div>
                             <div class="field"><label for="af-ket">Keterangan</label>
                                 <input id="af-ket" type="text" placeholder="opsional"></div>
+                        </div>
+                        <div class="field" style="margin-top:12px">
+                            <label>Modul yang boleh dibuka</label>
+                            <div id="af-modules" class="pick-grid"></div>
+                            <p class="pick-hint">Centang <b>Semua (*)</b> untuk memberi seluruh modul, termasuk modul baru yang ditambahkan nanti. Centang modul lain untuk mengecualikannya.</p>
                         </div>
                         <label class="af-active"><input type="checkbox" id="af-active" checked> Akun aktif</label>
                         <p class="auth-err" id="af-err" role="alert"></p>
@@ -366,37 +363,6 @@
 
                     <div class="admin-list-head">Daftar User (<span id="admin-count">0</span>)</div>
                     <div id="admin-list" class="admin-list"></div>
-                </div>
-
-                <!-- ===== TAB: ROLE ===== -->
-                <div id="tab-roles" class="admin-panel hidden">
-                    <form id="role-form" class="admin-form" autocomplete="off">
-                        <div class="af-title" id="rf-title">Tambah Role Baru</div>
-                        <input type="hidden" id="rf-orig">
-                        <div class="af-grid">
-                            <div class="field"><label for="rf-role">Kunci Role</label>
-                                <input id="rf-role" type="text" placeholder="cth: konten_admin"></div>
-                            <div class="field"><label for="rf-label">Label</label>
-                                <input id="rf-label" type="text" placeholder="cth: Konten Admin"></div>
-                        </div>
-                        <div class="field" style="margin-top:12px">
-                            <label>Bisa membuka modul (view)</label>
-                            <div id="rf-modules" class="pick-grid"></div>
-                        </div>
-                        <div class="field" style="margin-top:12px">
-                            <label>Mengelola modul (admin)</label>
-                            <div id="rf-admin" class="pick-grid"></div>
-                            <p class="pick-hint">Centang <b>Semua (*)</b> di baris admin untuk menjadikannya superadmin.</p>
-                        </div>
-                        <p class="auth-err" id="rf-err" role="alert"></p>
-                        <div class="af-actions">
-                            <button type="submit" class="btn btn-primary" id="rf-save">Simpan</button>
-                            <button type="button" class="btn btn-ghost hidden" id="rf-cancel">Batal edit</button>
-                        </div>
-                    </form>
-
-                    <div class="admin-list-head">Daftar Role (<span id="role-count">0</span>)</div>
-                    <div id="role-list" class="admin-list"></div>
                 </div>
             </div>
         </div>
@@ -420,33 +386,24 @@
     // ---- Fallback lokal (dipakai bila URL kosong atau server tak terjangkau).
     // Sumber kebenaran sebenarnya adalah Sheet. Ini hanya agar Office jalan
     // sebelum Sheet dipasang dan saat offline.
+    // TANPA ROLE: akses dipetakan langsung user -> modul (tab Grants di Sheet).
+    // `modules` = modul yang boleh dibuka. `adminModules` = modul yang boleh
+    // dikelola lewat konsol Kelola Akses internal ('*' = superadmin).
+    // PIN default semua user 1111 dan BOLEH sama antar user: login memakai
+    // nama + PIN, jadi nama yang membedakan.
     const SEED_USERS = [
-        { id:'u-super', name:'Admin', pin:'9999', role:'superadmin' },
-        { id:'u-rangga', name:'Rangga', pin:'2222', role:'konten_admin' },
-        { id:'u-putra', name:'Putra', pin:'1111', role:'kitchen' },
-        { id:'u-mella', name:'Mella', pin:'7777', role:'floor' }
+        { id:'u-admin',   name:'Admin',   pin:'1111',
+          modules:ALL_MODULE_KEYS_SEED(), adminModules:['*'] },
+        { id:'u-howandi', name:'Howandi', pin:'1111',
+          modules:ALL_MODULE_KEYS_SEED(), adminModules:['*'] },
+        { id:'u-wandi',   name:'Wandi',   pin:'1111',
+          modules:ALL_MODULE_KEYS_SEED().filter(k => k !== 'howandi_life'), adminModules:['*'] }
     ];
-    // Peta view (modul yang boleh dibuka). Akademi berlaku lintas divisi.
-    const ROLE_MODULES = {
-        superadmin:['*'],
-        konten_admin:['konten','akademi'],
-        kitchen:['ordering','akademi'], purchasing:['purchasing','akademi'],
-        marketing:['marketing','konten','reservasi','akademi'], reservasi:['reservasi','akademi'], floor:['reservasi','akademi']
-    };
-    // Peta admin (modul yang boleh DIKELOLA). '*' = superadmin. Kosong = anggota biasa.
-    // Sumber kebenaran sebenarnya kolom `admin` di tab Roles (mode server).
-    const ROLE_ADMIN = {
-        superadmin:['*'],
-        konten_admin:['konten']
-    };
-    // Modul yang mengelola berarti juga bisa membuka.
-    function seedModules(role){
-        const view = ROLE_MODULES[role] || [];
-        if(view.indexOf('*') > -1) return ['*'];
-        const adm = ROLE_ADMIN[role] || [];
-        return Array.from(new Set(view.concat(adm)));
+    // Seluruh key modul yang dikenal fallback lokal. Sumber kebenaran sebenarnya
+    // adalah tab Modules di Sheet.
+    function ALL_MODULE_KEYS_SEED(){
+        return ['ordering','purchasing','konten','reservasi','akademi','marketing','howandi_life'];
     }
-    function seedAdmin(role){ return (ROLE_ADMIN[role] || []).slice(); }
 
     // ==== REGISTRI MODUL ====
     // Tambah modul baru cukup dengan menambah satu objek di sini, lalu satu baris
@@ -487,24 +444,8 @@
             desc:'Materi, SOP, dan kuis training lintas divisi, plus progress dan sertifikasi tiap kru.',
             scope:['Materi','Kuis','Sertifikat']
         },
-        {
-            key:'manajemen', href:'sso:manajemen', icon:'briefcase', access:['manajemen'],
-            title:'Manajemen', tag:'General Management',
-            desc:'Panel utama manajemen untuk pantau seluruh event, transaksi, klien, dan evaluasi performa pegawai.',
-            scope:['Event','Finance','Evaluasi']
-        },
-        {
-            key:'event_marketing', href:'sso:event_marketing', icon:'megaphone', access:['event_marketing'],
-            title:'Event', tag:'Event & Planning',
-            desc:'Kelola jalannya acara, kanban planning, jadwal tamu, dan meeting klien.',
-            scope:['Planning','Acara','Appointment']
-        },
-        {
-            key:'finance', href:'sso:finance', icon:'dollar', access:['finance'],
-            title:'Finance', tag:'Keuangan & Invoice',
-            desc:'Verifikasi bukti pembayaran, kelola transaksi, dan generate laporan keuangan PDF/Excel.',
-            scope:['Transaksi','Laporan']
-        },
+        // Kartu Laravel (Manajemen, Event, Finance) DIHAPUS. Event akan dibangun
+        // ulang dari nol dengan arsitektur HTML yang sama seperti modul lain.
         {
             key:'marketing', href:'./marketing/', icon:'megaphone', access:['marketing'],
             title:'Marketing', tag:'CRM dan Event Management',
@@ -513,9 +454,8 @@
         }
     ];
 
-    // Kunci modul (leaf) yang bisa dipilih di form role. Diturunkan dari BRANCHES,
-    // jadi menambah modul di registri otomatis menambah pilihannya di sini.
-    const ALL_MODULE_KEYS = Array.from(new Set(BRANCHES.flatMap(b => b.access || [b.key])));
+    // Pilihan modul di form Kelola Akses datang dari server (tab Modules), lihat
+    // ADMIN_MODULES. Registri Sheet itulah yang membuat modul baru otomatis muncul.
 
     /* ---------------------------- Sesi ---------------------------- */
     function getSession(){
@@ -525,13 +465,14 @@
             return s;
         }catch(e){ return null; }
     }
+    // v3: tanpa `role`, tanpa `ssoToken`. `modules` sudah berupa daftar eksplisit
+    // (server yang memperluas '*' atas registri Modules dan menerapkan deny).
     function setSession(user){
-        const modules = user.modules || [];
-        const adminModules = user.adminModules
-            || (modules.indexOf('*') > -1 ? ['*'] : []);
         const s = {
-            v:2, userId:user.id, name:user.name, role:user.role,
-            modules, adminModules, ssoToken:user.ssoToken, issuedAt:Date.now(),
+            v:3, userId:user.id, name:user.name,
+            modules: user.modules || [],
+            adminModules: user.adminModules || [],
+            issuedAt:Date.now(),
             expiry: Date.now() + SESSION_HOURS*3600*1000
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(s));
@@ -565,8 +506,8 @@
             String(x.name).toLowerCase() === String(name).toLowerCase() &&
             String(x.pin) === String(pin));
         if(!u) return null;
-        return { id:u.id, name:u.name, role:u.role,
-                 modules: seedModules(u.role), adminModules: seedAdmin(u.role) };
+        return { id:u.id, name:u.name,
+                 modules:(u.modules||[]).slice(), adminModules:(u.adminModules||[]).slice() };
     }
 
     // Kredensial admin ditahan HANYA di memori (tidak pernah ke localStorage) agar
@@ -595,13 +536,12 @@
         return { ok:true };
     }
 
-    // Superadmin = adminModules mengandung '*'. Fallback legacy: sesi/ backend lama
-    // tanpa adminModules dianggap superadmin bila modules '*'.
+    // Superadmin = adminModules mengandung '*' (tab Admins). Sengaja TIDAK melihat
+    // `modules`: Wandi superadmin tapi tidak diberi akses howandi_life, dan
+    // sebaliknya Cindy punya hampir semua modul tapi bukan admin.
     function isSuperadmin(session){
         if(!session) return false;
-        const adm = session.adminModules;
-        if(Array.isArray(adm)) return adm.indexOf('*') > -1;
-        return (session.modules || []).indexOf('*') > -1;   // legacy
+        return ((session.adminModules) || []).indexOf('*') > -1;
     }
     // Apakah sesi ini admin dari modul tertentu (untuk kelak dipakai per-modul).
     function isModuleAdmin(session, moduleKey){
@@ -623,8 +563,6 @@
         if(!res.ok) throw new Error('http_'+res.status);
         return res.json();
     }
-
-    let adminRoles = [];   // pilihan role dari Sheet, untuk dropdown
 
     function initials(name){
         return String(name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
@@ -667,31 +605,22 @@
     async function openAdminPanel(){
         if(!(await verifyAdminPin())) return;       // gagal PIN -> tidak membuka apa pun
         document.getElementById('admin-modal').classList.remove('hidden');
-        document.getElementById('role-list')._loaded = false;   // muat ulang role tiap buka
-        switchAdminTab('users');
         resetAdminForm();
-        // Muat katalog role di latar supaya label role tampil rapi di daftar user.
-        loadAdminRoles();
-        await loadAdminUsers();
+        await loadAdminUsers();                     // sekaligus memuat katalog modul
     }
     function closeAdminPanel(){
         document.getElementById('admin-modal').classList.add('hidden');
     }
 
-    // ----- Tab switching (User / Role) -----
-    function switchAdminTab(tab){
-        document.querySelectorAll('.admin-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-        document.getElementById('tab-users').classList.toggle('hidden', tab !== 'users');
-        document.getElementById('tab-roles').classList.toggle('hidden', tab !== 'roles');
-        if(tab === 'roles' && !document.getElementById('role-list')._loaded) loadAdminRoles();
-    }
+    // ----- Picker modul untuk form user -----
+    // Katalog modul dari server (tab Modules). Fallback ke seed bila server diam.
+    let ADMIN_MODULES = [];   // [key, ...]
 
-    // ----- Role catalog (superadmin) -----
-    let adminRoleObjs = [];   // { role, label, modules:[], admin:[] }
-
-    // Render satu baris picker modul. `sel` = set kunci terpilih, `withStar` sertakan '*'.
-    function renderPickGrid(container, name, sel, withStar){
-        const keys = (withStar ? ['*'] : []).concat(ALL_MODULE_KEYS);
+    // Render checkbox modul. '*' = semua modul (termasuk modul baru nanti).
+    // '*' TIDAK saling eksklusif: '*' + centang modul lain = "semua KECUALI itu",
+    // karena baris deny menimpa '*' di server.
+    function renderPickGrid(container, name, sel){
+        const keys = ['*'].concat(ADMIN_MODULES.length ? ADMIN_MODULES : ALL_MODULE_KEYS_SEED());
         const chosen = new Set(sel || []);
         container.innerHTML = keys.map(k => {
             const on = chosen.has(k);
@@ -699,127 +628,14 @@
             return `<label class="pick${on?' on':''}" data-k="${esc(k)}">
                 <input type="checkbox" name="${name}" value="${esc(k)}" ${on?'checked':''}> ${esc(label)}</label>`;
         }).join('');
-        // '*' saling eksklusif dengan yang lain; sinkron kelas .on.
         container.querySelectorAll('input').forEach(inp => {
             inp.addEventListener('change', () => {
-                if(inp.value === '*' && inp.checked){
-                    container.querySelectorAll('input').forEach(o => { if(o !== inp){ o.checked = false; } });
-                } else if(inp.checked){
-                    const star = container.querySelector('input[value="*"]');
-                    if(star) star.checked = false;
-                }
                 container.querySelectorAll('.pick').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
             });
         });
     }
     function readPickGrid(container){
         return Array.from(container.querySelectorAll('input:checked')).map(i => i.value);
-    }
-
-    function resetRoleForm(){
-        document.getElementById('rf-title').textContent = 'Tambah Role Baru';
-        document.getElementById('rf-orig').value = '';
-        document.getElementById('rf-role').value = '';
-        document.getElementById('rf-role').disabled = false;
-        document.getElementById('rf-label').value = '';
-        document.getElementById('rf-err').textContent = '';
-        document.getElementById('rf-cancel').classList.add('hidden');
-        document.getElementById('rf-save').textContent = 'Simpan';
-        renderPickGrid(document.getElementById('rf-modules'), 'rf-mod', [], true);
-        renderPickGrid(document.getElementById('rf-admin'), 'rf-adm', [], true);
-    }
-    function fillRoleForm(r){
-        document.getElementById('rf-title').textContent = 'Ubah Role: ' + (r.label || r.role);
-        document.getElementById('rf-orig').value = r.role;
-        document.getElementById('rf-role').value = r.role;
-        document.getElementById('rf-role').disabled = true;   // kunci key saat edit
-        document.getElementById('rf-label').value = r.label || '';
-        renderPickGrid(document.getElementById('rf-modules'), 'rf-mod', r.modules || [], true);
-        renderPickGrid(document.getElementById('rf-admin'), 'rf-adm', r.admin || [], true);
-        document.getElementById('rf-cancel').classList.remove('hidden');
-        document.getElementById('rf-save').textContent = 'Simpan Perubahan';
-    }
-
-    async function loadAdminRoles(){
-        const list = document.getElementById('role-list');
-        resetRoleForm();                             // selalu siapkan form + picker
-        list.innerHTML = '<div class="empty">Memuat...</div>';
-        let data;
-        try{ data = await adminCall('listRoles'); }
-        catch(e){ list.innerHTML = '<div class="empty">Gagal memuat. Cek koneksi.</div>'; return; }
-        if(!data.ok){
-            list.innerHTML = data.error === 'forbidden'
-                ? '<div class="empty">Bukan superadmin.</div>'
-                : (data.error === 'unknown_action'
-                    ? '<div class="empty">Backend belum mendukung kelola role. Perbarui Apps Script (langkah 2).</div>'
-                    : `<div class="empty">Gagal: ${esc(data.error)}</div>`);
-            list._loaded = true;
-            return;
-        }
-        adminRoleObjs = data.roles || [];
-        list._loaded = true;
-        document.getElementById('role-count').textContent = adminRoleObjs.length;
-        list.innerHTML = adminRoleObjs.map(r => {
-            const view = (r.modules && r.modules.length) ? r.modules.join(', ') : '(tidak ada)';
-            const adm = (r.admin && r.admin.length) ? r.admin.join(', ') : '(bukan admin)';
-            const isSuper = (r.admin || []).indexOf('*') > -1;
-            return `<div class="u-row r-row">
-                <div class="u-av">${esc(initials(r.label || r.role))}</div>
-                <div class="u-info">
-                    <b>${esc(r.label || r.role)} <span class="u-role${isSuper?' u-admin-tag':''}">${esc(r.role)}</span></b>
-                    <span class="u-mods">Buka: ${esc(view)}</span>
-                    <span class="u-mods">Kelola: ${esc(adm)}</span>
-                </div>
-                <div class="u-acts">
-                    <button class="u-edit r-edit" title="Ubah" data-role="${esc(r.role)}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                    </button>
-                    <button class="u-del r-del" title="Hapus" data-role="${esc(r.role)}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-                    </button>
-                </div>
-            </div>`;
-        }).join('') || '<div class="empty">Belum ada role.</div>';
-    }
-
-    const ROLE_ERR = {
-        missing_role:'Kunci role wajib diisi.', role_taken:'Kunci role sudah dipakai.',
-        role_in_use:'Role masih dipakai user. Pindahkan dulu user ke role lain.',
-        not_found:'Role tidak ditemukan.', forbidden:'Bukan superadmin.',
-        cannot_delete_superadmin:'Role superadmin tidak bisa dihapus.'
-    };
-
-    async function submitRoleForm(e){
-        e.preventDefault();
-        const err = document.getElementById('rf-err');
-        const save = document.getElementById('rf-save');
-        err.textContent = '';
-        const role = document.getElementById('rf-role').value.trim().toLowerCase().replace(/\s+/g, '_');
-        const label = document.getElementById('rf-label').value.trim();
-        if(!role){ err.textContent = 'Kunci role wajib diisi.'; return; }
-        const payload = {
-            orig: document.getElementById('rf-orig').value,
-            role, label,
-            modules: readPickGrid(document.getElementById('rf-modules')),
-            admin: readPickGrid(document.getElementById('rf-admin'))
-        };
-        save.disabled = true; save.textContent = 'Menyimpan...';
-        let data;
-        try{ data = await adminCall('saveRole', payload); }
-        catch(e2){ err.textContent = 'Gagal terhubung. Cek koneksi.'; save.disabled = false; save.textContent = 'Simpan'; return; }
-        save.disabled = false;
-        if(!data.ok){ err.textContent = ROLE_ERR[data.error] || ('Gagal: ' + data.error); save.textContent = 'Simpan'; return; }
-        await loadAdminRoles();
-    }
-
-    async function deleteAdminRole(role){
-        if(role === 'superadmin'){ alert('Role superadmin tidak bisa dihapus.'); return; }
-        if(!confirm(`Hapus role "${role}"? User yang memakainya harus dipindah dulu.`)) return;
-        let data;
-        try{ data = await adminCall('deleteRole', { role }); }
-        catch(e){ alert('Gagal terhubung. Cek koneksi.'); return; }
-        if(!data.ok){ alert(ROLE_ERR[data.error] || ('Gagal: ' + data.error)); return; }
-        await loadAdminRoles();
     }
 
     async function loadAdminUsers(){
@@ -833,20 +649,24 @@
             else list.innerHTML = `<div class="empty">Gagal: ${esc(data.error)}</div>`;
             return;
         }
-        adminRoles = data.roles || [];
-        // Label role bila katalog role sudah dimuat, jika belih pakai kunci apa adanya.
-        const labelFor = r => { const o = adminRoleObjs.find(x => x.role === r); return o && o.label ? o.label : r; };
-        const sel = document.getElementById('af-role');
-        sel.innerHTML = adminRoles.map(r => `<option value="${esc(r)}">${esc(labelFor(r))}</option>`).join('');
+        ADMIN_MODULES = data.modules || [];
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', []);
 
         document.getElementById('admin-count').textContent = data.users.length;
         list.innerHTML = data.users.map(u => {
             const deact = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64M12 2v10"/></svg>';
+            const mods = (u.modules && u.modules.length) ? u.modules.join(', ') : '(belum ada akses)';
+            const isSuper = (u.adminModules || []).indexOf('*') > -1;
+            const admTag = isSuper
+                ? ' <span class="u-role u-admin-tag">superadmin</span>'
+                : ((u.adminModules || []).length
+                    ? ` <span class="u-role">admin: ${esc(u.adminModules.join(', '))}</span>` : '');
             return `
             <div class="u-row${u.active ? '' : ' inactive'}">
                 <div class="u-av">${esc(initials(u.name))}</div>
                 <div class="u-info">
-                    <b>${esc(u.name)} <span class="u-role">${esc(labelFor(u.role))}</span>${u.active ? '' : ' <span style="color:var(--muted-2);font-size:11px">nonaktif</span>'}</b>
+                    <b>${esc(u.name)}${admTag}${u.active ? '' : ' <span style="color:var(--muted-2);font-size:11px">nonaktif</span>'}</b>
+                    <span class="u-mods">${esc(mods)}</span>
                     <span>PIN ${esc(u.pin)}${u.keterangan ? ', ' + esc(u.keterangan) : ''}</span>
                 </div>
                 <div class="u-acts">
@@ -867,7 +687,7 @@
         if(!next && !confirm(`Nonaktifkan "${u.name}"? Mereka tidak bisa login sampai diaktifkan lagi.`)) return;
         let data;
         try{ data = await adminCall('saveUser', {
-            id:u.id, name:u.name, pin:u.pin, role:u.role, keterangan:u.keterangan || '', active: next
+            id:u.id, name:u.name, pin:u.pin, keterangan:u.keterangan || '', active: next
         }); }
         catch(e){ alert('Gagal terhubung. Cek koneksi.'); return; }
         if(!data.ok){ alert(ADMIN_ERR[data.error] || ('Gagal: ' + data.error)); return; }
@@ -885,6 +705,7 @@
         document.getElementById('af-cancel').classList.add('hidden');
         document.getElementById('af-delete').classList.add('hidden');
         document.getElementById('af-save').textContent = 'Simpan';
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', []);
     }
 
     function fillAdminForm(u){
@@ -892,9 +713,10 @@
         document.getElementById('af-id').value = u.id;
         document.getElementById('af-name').value = u.name;
         document.getElementById('af-pin').value = u.pin;
-        document.getElementById('af-role').value = u.role;
         document.getElementById('af-ket').value = u.keterangan || '';
         document.getElementById('af-active').checked = !!u.active;
+        // Centang sesuai baris Grants mentah user ini (bukan hasil perluasan '*').
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', u.grants || u.modules || []);
         document.getElementById('af-cancel').classList.remove('hidden');
         document.getElementById('af-delete').classList.remove('hidden');   // hard delete hanya saat edit
         document.getElementById('af-delete').dataset.id = u.id;
@@ -904,8 +726,8 @@
     }
 
     const ADMIN_ERR = {
-        name_taken:'Nama sudah dipakai user lain.', pin_taken:'PIN sudah dipakai user lain.',
-        missing_fields:'Nama, PIN, dan role wajib diisi.', forbidden:'PIN salah atau bukan superadmin.',
+        name_taken:'Nama sudah dipakai user lain.',
+        missing_fields:'Nama wajib diisi.', forbidden:'PIN salah atau bukan superadmin.',
         cannot_delete_self:'Tidak bisa menghapus akun sendiri.', not_found:'User tidak ditemukan.'
     };
 
@@ -914,15 +736,21 @@
         const err = document.getElementById('af-err');
         const save = document.getElementById('af-save');
         const name = document.getElementById('af-name').value.trim();
-        const pin  = document.getElementById('af-pin').value.trim();
+        const pin  = document.getElementById('af-pin').value.trim() || '1111';   // default
         err.textContent = '';
-        if(!name || !pin){ err.textContent = 'Nama dan PIN wajib diisi.'; return; }
-        if(!/^\d{3,8}$/.test(pin)){ err.textContent = 'PIN harus 3 sampai 8 digit angka.'; return; }
+        if(!name){ err.textContent = 'Nama wajib diisi.'; return; }
+        if(!/^\d{4,8}$/.test(pin)){ err.textContent = 'PIN harus 4 sampai 8 digit angka.'; return; }
+
+        const wanted = readPickGrid(document.getElementById('af-modules'));
+        const editId = document.getElementById('af-id').value;
+        const before = (() => {
+            const us = (document.getElementById('admin-list')._users || []);
+            const u = us.find(x => x.id === editId);
+            return new Set(u ? (u.grants || u.modules || []) : []);
+        })();
 
         const payload = {
-            id: document.getElementById('af-id').value,
-            name, pin,
-            role: document.getElementById('af-role').value,
+            id: editId, name, pin,
             keterangan: document.getElementById('af-ket').value.trim(),
             active: document.getElementById('af-active').checked
         };
@@ -930,9 +758,27 @@
         let data;
         try{ data = await adminCall('saveUser', payload); }
         catch(e2){ err.textContent = 'Gagal terhubung. Cek koneksi.'; save.disabled = false; save.textContent = 'Simpan'; return; }
-        save.disabled = false;
+        if(!data.ok){
+            save.disabled = false; save.textContent = 'Simpan';
+            err.textContent = ADMIN_ERR[data.error] || ('Gagal: ' + data.error);
+            return;
+        }
 
-        if(!data.ok){ err.textContent = ADMIN_ERR[data.error] || ('Gagal: ' + data.error); save.textContent = 'Simpan'; return; }
+        // Tulis Grants: yang dicentang -> TRUE, yang dilepas -> FALSE (deny).
+        const uid = data.id || editId;
+        const keys = ['*'].concat(ADMIN_MODULES.length ? ADMIN_MODULES : ALL_MODULE_KEYS_SEED());
+        const now = new Set(wanted);
+        try{
+            for(const k of keys){
+                const on = now.has(k), was = before.has(k);
+                if(on === was) continue;                     // tak berubah, lewati
+                await adminCall('setModuleAccess', { userId:uid, module:k, access:on });
+            }
+        }catch(e3){
+            err.textContent = 'User tersimpan, tapi akses modul gagal ditulis. Cek koneksi.';
+        }
+
+        save.disabled = false;
         resetAdminForm();
         await loadAdminUsers();
     }
@@ -952,21 +798,24 @@
         return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]||''}</svg>`;
     }
 
-    // Modul khusus superadmin (Nahkoda). Tidak lewat canOpen/modules: gerbangnya
-    // murni isSuperadmin (adminModules '*').
+    // Modul khusus. Gerbangnya adalah GRANT modul biasa (bukan status superadmin),
+    // supaya superadmin pun bisa dikecualikan: Wandi mengelola semua modul tapi
+    // tidak diberi akses howandi_life.
     const SUPER_BRANCHES = [
         {
-            href:'./howandi_life/', title:'Howandi Life OS', badge:'Akses Nahkoda',
+            key:'howandi_life', href:'./howandi_life/', title:'Howandi Life OS', badge:'Akses Nahkoda',
             desc:'Pusat kendali pribadi Nahkoda: agenda, task, konten, dan portofolio Howandi Chandra Inc. dalam satu dek.'
         }
     ];
     function renderSuper(session){
         const sec = document.getElementById('super-section');
         const grid = document.getElementById('super-grid');
-        if(!isSuperadmin(session)){ sec.hidden = true; grid.innerHTML = ''; return; }
+        const mods = (session && session.modules) || [];
+        const shown = SUPER_BRANCHES.filter(b => mods.indexOf(b.key) > -1);
+        if(!shown.length){ sec.hidden = true; grid.innerHTML = ''; return; }
         const crown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16 3 7l5.5 4L12 5l3.5 6L21 7l-2 9H5z"/><path d="M5 20h14"/></svg>';
         const go = '<svg class="s-go" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
-        grid.innerHTML = SUPER_BRANCHES.map(b => `<a href="${b.href}" class="super-tile" aria-label="Buka ${b.title}">
+        grid.innerHTML = shown.map(b => `<a href="${b.href}" class="super-tile" aria-label="Buka ${b.title}">
                 <div class="s-ico">${crown}</div>
                 <div class="s-body">
                     <span class="s-badge">${b.badge}</span>
@@ -1000,12 +849,9 @@
                 : '';
             const delay = (0.16 + i * 0.08).toFixed(2);
             
-            const isSso = b.href.startsWith('sso:');
-            // Ganti domain ini dengan BACKSTAGE_DOMAIN Laravel Anda yang sebenarnya
-            const targetUrl = isSso ? `https://office.laksamanamuda.id/sso/office?token=${encodeURIComponent(session.ssoToken||'')}` : b.href;
-            const targetAttr = isSso ? ' target="_blank"' : '';
-
-            return `<a href="${targetUrl}"${targetAttr} class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
+            // Semua modul kini lokal (folder di ./). Hand-off SSO ke Laravel dihapus
+            // bersama kartu Manajemen/Event/Finance.
+            return `<a href="${b.href}" class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
                 <div class="head"><div class="ico">${svgIcon(b.icon)}</div>${arrow}</div>
                 <h2>${b.title}</h2>
                 <p class="kicker">${b.tag}</p>
@@ -1104,11 +950,6 @@
         document.getElementById('admin-modal').addEventListener('click', (e) => {
             if(e.target.id === 'admin-modal') closeAdminPanel();   // klik latar untuk tutup
         });
-        // Tab switch
-        document.querySelectorAll('.admin-tab').forEach(b =>
-            b.addEventListener('click', () => switchAdminTab(b.dataset.tab)));
-
-        // ----- Tab User -----
         document.getElementById('admin-form').addEventListener('submit', submitAdminForm);
         document.getElementById('af-cancel').addEventListener('click', resetAdminForm);
         document.getElementById('af-delete').addEventListener('click', (e) => {
@@ -1124,20 +965,6 @@
             } else if(togBtn){
                 const u = users.find(x => x.id === togBtn.dataset.id);
                 if(u) toggleAdminUser(u);
-            }
-        });
-
-        // ----- Tab Role -----
-        document.getElementById('role-form').addEventListener('submit', submitRoleForm);
-        document.getElementById('rf-cancel').addEventListener('click', resetRoleForm);
-        document.getElementById('role-list').addEventListener('click', (e) => {
-            const editBtn = e.target.closest('.r-edit');
-            const delBtn  = e.target.closest('.r-del');
-            if(editBtn){
-                const r = adminRoleObjs.find(x => x.role === editBtn.dataset.role);
-                if(r) fillRoleForm(r);
-            } else if(delBtn){
-                deleteAdminRole(delBtn.dataset.role);
             }
         });
     });

@@ -379,25 +379,40 @@ const IC = {
 };
 function svg(p,cls){return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 
-/* ---------- STORE (Web App API — online ke Google Sheets) ---------- */
-// GANTI URL di bawah dengan URL /exec Web App Google Apps Script milikmu.
-const WEB_APP_URL = "GANTI_DENGAN_URL_WEB_APP_EXEC_MU";
+/* ---------- STORE (Web App API — online ke Google Sheets) ----------
+   Kontrak sama dengan modul reservasi & konten (standar Office):
+     GET  ?action=getAll                  -> {ok:true, data:{...}}
+     POST {action:"saveAll", data:{...}}  -> {ok:true, data:{...}}
+   Script-nya ada di docs/crm-apps-script.gs (pasang di Sheet "Database CRM",
+   deploy sebagai Web app, lalu tempel URL /exec di bawah). */
+const WEB_APP_URL = "PASTE_URL_EXEC_CRM_DI_SINI";
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
 let S = null;
 let API_READY = false;
 
+function apiConfigured(){ return WEB_APP_URL && !WEB_APP_URL.startsWith('PASTE_'); }
+
 // Ambil data dari server (GET). Fallback ke cache lokal / seed bila gagal.
 async function apiLoad(){
+  if(!apiConfigured()){
+    // Backend belum diatur: jalan dengan cache lokal saja.
+    try{ S = JSON.parse(localStorage.getItem(KEY)); }catch(_){ S=null; }
+    if(!S || !S.users){ S = seed(); }
+    API_READY = false;
+    return;
+  }
   try{
-    const res = await fetch(WEB_APP_URL, {method:'GET', redirect:'follow'});
+    const url = WEB_APP_URL + (WEB_APP_URL.includes('?')?'&':'?') + 'action=getAll&t=' + Date.now();
+    const res = await fetch(url, {method:'GET', redirect:'follow'});
     const json = await res.json();
-    if(json && json.status==='success'){
-      S = (json.data && json.data.users) ? json.data : seed();
-    } else { throw new Error('Respons server tidak valid'); }
+    if(!json || !json.ok) throw new Error((json && json.error) || 'Respons server tidak valid');
+    const d = json.data || {};
+    S = (d && d.users) ? d : seed();
     API_READY = true;
     localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
   }catch(e){
     // Gagal online -> pakai cache lokal, atau seed baru
+    console.warn('Gagal memuat dari server:', e);
     try{ S = JSON.parse(localStorage.getItem(KEY)); }catch(_){ S=null; }
     if(!S || !S.users){ S = seed(); }
     API_READY = false;
@@ -406,11 +421,11 @@ async function apiLoad(){
 // Simpan seluruh DB ke server (POST) + cache lokal. Tidak memblokir UI.
 function save(){
   localStorage.setItem(KEY, JSON.stringify(S)); // cache dulu (instan)
-  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0) return; // URL belum diisi
+  if(!apiConfigured()) return;                  // URL belum diisi
   fetch(WEB_APP_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
-    body: JSON.stringify(S),
+    body: JSON.stringify({ action:'saveAll', data:S }),
     redirect:'follow'
   }).catch(err=>{ console.warn('Gagal sinkron ke server:', err); });
 }
