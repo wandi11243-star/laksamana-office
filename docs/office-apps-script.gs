@@ -172,11 +172,19 @@ function requireModuleAdmin_(ss, body, module) {
 
 /* ===================== Users CRUD (superadmin) ===================== */
 
+// Baris Users yang benar-benar berisi user. Tanpa ini, baris kosong / setengah
+// kosong di Sheet muncul sebagai user hantu "?" tanpa nama dan PIN.
+function realUsers_(ss) {
+  return readSheet_(ss, 'Users').filter(function (u) {
+    return String(u.id || '').trim() !== '' && String(u.name || '').trim() !== '';
+  });
+}
+
 function adminListUsers_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
   var grants = readSheet_(ss, 'Grants');
-  var users = readSheet_(ss, 'Users').map(function (u) {
+  var users = realUsers_(ss).map(function (u) {
     return {
       id: String(u.id || ''), name: String(u.name || ''), pin: String(u.pin || ''),
       active: String(u.active).toUpperCase() !== 'FALSE',
@@ -287,7 +295,7 @@ function listAccess_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
   var mods = allModules_(ss);
-  var users = readSheet_(ss, 'Users').map(function (u) {
+  var users = realUsers_(ss).map(function (u) {
     return {
       id: String(u.id || ''), name: String(u.name || ''),
       keterangan: String(u.keterangan || ''),
@@ -342,7 +350,7 @@ function listModuleMembers_(body) {
   var module = String(body.module || '').trim();
   if (!requireModuleAdmin_(ss, body, module)) return json_({ ok: false, error: 'forbidden' });
 
-  var members = readSheet_(ss, 'Users')
+  var members = realUsers_(ss)
     .map(function (u) {
       return {
         id: String(u.id || ''), name: String(u.name || ''),
@@ -371,17 +379,24 @@ function ensureSheet_(ss, name, headers) {
   return sh;
 }
 
+// getDataRange() ikut mengembalikan baris kosong di bawah data (Sheets menganggapnya
+// masih "terpakai"). Tanpa filter, tiap baris kosong jadi objek user tanpa id/nama
+// dan muncul sebagai user hantu "?" di daftar. Buang baris yang seluruh selnya kosong.
 function readSheet_(ss, name) {
   var sh = ss.getSheetByName(name);
   if (!sh) return [];
   var vals = sh.getDataRange().getValues();
   if (vals.length < 2) return [];
   var head = vals[0].map(function (h) { return String(h).trim(); });
-  return vals.slice(1).map(function (row) {
-    var o = {};
-    head.forEach(function (h, i) { if (h) o[h] = row[i]; });
-    return o;
-  });
+  return vals.slice(1)
+    .filter(function (row) {
+      return row.some(function (c) { return String(c == null ? '' : c).trim() !== ''; });
+    })
+    .map(function (row) {
+      var o = {};
+      head.forEach(function (h, i) { if (h) o[h] = row[i]; });
+      return o;
+    });
 }
 
 function json_(obj) {

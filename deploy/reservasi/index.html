@@ -933,21 +933,53 @@ function isSeated(r){ return r && r.status==="Datang" && !r.leftAt; }
 //                     karena jam pulangnya belum diketahui.
 // menit → "HH:MM"
 function hhmm(min){ min=((Math.round(min)%1440)+1440)%1440; return `${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}`; }
+
+/* ================= WAKTU ABSOLUT (LINTAS TENGAH MALAM) =================
+   Jam booking disimpan per tanggal ("2026-07-15" + "02:00"), jadi selisih waktu
+   TIDAK BOLEH dihitung dari jam saja — kalau tidak, booking jam 02:00 dianggap
+   terkunci mulai "23:00 hari yang sama", padahal H-3 jam dari 02:00 itu jatuh di
+   23:00 HARI SEBELUMNYA. Semua perbandingan waktu di bawah memakai menit absolut
+   sejak epoch, sehingga jendela kunci bisa melewati tengah malam dengan benar. */
+function dayNo(date){
+  const [y,m,d]=String(date||"").split("-").map(Number);
+  return y ? Math.floor(Date.UTC(y,(m||1)-1,d||1)/86400000) : 0;
+}
+function absMin(date, time){ return dayNo(date)*1440 + toMin(time); }
+function absNow(){ const d=new Date(); return absMin(todayStr(), hhmm(d.getHours()*60+d.getMinutes())); }
+function dateOfDayNo(dn){ return new Date(dn*86400000).toISOString().slice(0,10); }
+
+// Menit absolut saat meja MULAI terkunci: H-3 jam dari jam datang.
+function lockStart(r){ return absMin(r.date, r.time) - LOCK_LEAD_MIN; }
+// Menit absolut saat kuncian BERAKHIR.
+//  - Belum datang : jam datang + 3 jam (lewat itu meja bebas lagi).
+//  - Sedang duduk : jam pulang belum diketahui → terkunci sampai ditandai "Selesai",
+//                   dibatasi akhir hari BERIKUTNYA supaya tamu boleh duduk lewat tengah
+//                   malam, tapi data yang lupa ditutup tidak mengunci meja selamanya.
+function lockEnd(r){
+  return isSeated(r) ? (dayNo(r.date)+2)*1440-1 : absMin(r.date, r.time)+LOCK_LEAD_MIN;
+}
+// "23:00", atau "23:00 (14 Jul)" bila jam kunci jatuh di tanggal lain dari tanggal booking.
+function lockStartText(r){
+  const s=lockStart(r), dn=Math.floor(s/1440);
+  const jam=hhmm(s);
+  if(dn===dayNo(r.date)) return jam;
+  return `${jam} (${fmtDateShort(dateOfDayNo(dn)).replace(/\s\d{4}$/,"")})`;
+}
 // Penjelasan kapan sebuah meja terkunci karena reservasi `r`.
 function lockWindowText(r){
-  const from=hhmm(toMin(r.time)-LOCK_LEAD_MIN);
   return isSeated(r)
-    ? `Meja terkunci sejak ${from}, sampai tamu ditandai selesai`
-    : `Meja terkunci mulai ${from} (H-3 jam dari jam datang ${r.time}) sampai tamu ditandai selesai`;
+    ? `Meja terkunci sejak ${lockStartText(r)}, sampai tamu ditandai selesai`
+    : `Meja terkunci ${lockStartText(r)}–${hhmm(absMin(r.date,r.time)+LOCK_LEAD_MIN)} (H±3 jam dari jam datang ${r.time})`;
 }
-// Apakah reservasi `r` mengunci mejanya untuk jam datang `time`?
-// KUNCI SATU ARAH: mulai 3 jam sebelum jam datang r, lalu TETAP terkunci sampai
-// tamu ditandai "Selesai". Jadi booking jam 23:00 → jam 20:00 ke atas tidak bisa
-// dipesan lagi, sedangkan jam di bawah 20:00 masih bebas.
-function locksTable(r, time){
-  if(!time) return true;                                   // tanpa konteks jam → anggap terpakai
-  return toMin(time) - toMin(r.time) >= -LOCK_LEAD_MIN;    // sebelum H-3 → masih bebas
-}
+// Apakah kuncian reservasi `r` menyentuh rentang menit absolut [a..b]?
+function locksRange(r, a, b){ return lockStart(r) <= b && lockEnd(r) >= a; }
+// Apakah reservasi `r` mengunci mejanya pada menit absolut `at`? (null → anggap terpakai)
+function locksAt(r, at){ return at==null ? true : locksRange(r, at, at); }
+// Versi lama berbasis (tanggal, jam) — dipakai pengecekan bentrok di form.
+function locksTable(r, date, time){ return locksAt(r, time ? absMin(date,time) : null); }
+
+/* Tamu tanpa nama (walk-in cepat) semuanya dicatat dengan satu nama yang sama: "Walkin". */
+const WALKIN_NAME = "Walkin";
 
 /* ================= WAITING LIST (tamu walk-in yang mengantre) =================
    Alur: tamu datang & meja penuh → catat (nama, WhatsApp, jumlah orang).
@@ -983,9 +1015,8 @@ function waitCandidates(tableId, date){
 function waitMinutes(w){ return w&&w.addedAt ? Math.max(0, Math.round((Date.now()-w.addedAt)/60000)) : 0; }
 
 function addWaitEntry(){
-  const name=(byId("wl_name").value||"").trim();
+  const name=(byId("wl_name").value||"").trim() || WALKIN_NAME;   // tanpa nama → "Walkin"
   const pax=Number(byId("wl_pax").value||0);
-  if(!name){ toast("Nama tamu wajib diisi","err"); return; }
   if(!pax||pax<1){ toast("Jumlah orang wajib diisi","err"); return; }
   waitlist().push({
     id:uid(), name, phone:normPhone(byId("wl_phone").value||""), pax,
@@ -1009,7 +1040,7 @@ function callWaitEntry(id, tableId){
   w.calledAt=Date.now(); saveState();
   if(!w.phone){ toast("Nomor WhatsApp kosong — panggil manual","err"); renderHariH(); return; }
   const msg=`Halo Kak ${w.name} 👋\n\nMeja untuk ${w.pax} orang sudah siap${tableId?` (${tableId})`:""} di *Laksamana Muda* ⚓\nSilakan menuju ke host kami ya.\n\nTerima kasih sudah menunggu 🙏`;
-  window.open(`https://wa.me/${w.phone}?text=${encodeURIComponent(msg)}`,"_blank");
+  waOpen(w.phone, msg);
   renderHariH();
 }
 // Dudukkan tamu dari antrean ke sebuah meja → otomatis jadi reservasi walk-in "Datang"
@@ -1068,15 +1099,23 @@ function offerWaitlist(tableId){
    </div>`, true);
 }
 // Map id meja -> DAFTAR reservasi (satu meja bisa >1 party bila sharing).
+// `time` kosong → seluruh hari `date`; `time` diisi → titik waktu itu saja.
+// Reservasi H-1 & H+1 ikut diperiksa karena jendela kunci bisa melewati tengah malam
+// (booking 02:00 mengunci mejanya sejak 23:00 hari sebelumnya).
 function occupiedMap(date, time, exceptId){
   const m=new Map();
+  const d0=dayNo(date)*1440;
+  const a = time ? absMin(date,time) : d0;
+  const b = time ? absMin(date,time) : d0+1439;
   STATE.reservations.forEach(r=>{
     if(r.id===exceptId) return;
-    if(r.date!==date) return;
+    if(!r.date || !r.time) return;
+    const dd=dayNo(r.date)-dayNo(date);
+    if(dd<-1 || dd>1) return;                                  // di luar jangkauan lintas hari
     // tamu sudah pulang (Completed / Selesai duduk) / batal / no-show → meja bebas lagi
     if(["Cancelled","No-show","Completed"].includes(r.status)) return;
     if(r.leftAt) return;   // sudah selesai duduk (tamu pulang) → meja kembali tersedia
-    if(!locksTable(r, time)) return;
+    if(!locksRange(r, a, b)) return;
     tablesOf(r).forEach(id=>{ if(!m.has(id)) m.set(id,[]); m.get(id).push(r); });
   });
   return m;
@@ -1089,12 +1128,12 @@ function occupiedMap(date, time, exceptId){
 function harihOccupancy(){
   const all=occupiedMap(HARIH_DATE,"",null);
   const isToday = HARIH_DATE===todayStr();
-  const nowMin = new Date().getHours()*60+new Date().getMinutes();
+  const now=absNow();
   const occ=new Map(), later=new Map();
   all.forEach((list,id)=>{
     const locked=[], soon=[];
     list.forEach(r=>{
-      if(isSeated(r) || !isToday || toMin(r.time)-nowMin <= LOCK_LEAD_MIN) locked.push(r);
+      if(isSeated(r) || !isToday || lockStart(r) <= now) locked.push(r);
       else soon.push(r);
     });
     if(locked.length) occ.set(id,locked);
@@ -1104,12 +1143,10 @@ function harihOccupancy(){
 }
 // Booking terdekat pada sebuah meja + jam meja itu akan terkunci otomatis.
 function nextBookingAt(later, id){
-  const list=(later.get(id)||[]).slice().sort((a,b)=>toMin(a.time)-toMin(b.time));
+  const list=(later.get(id)||[]).slice().sort((a,b)=>absMin(a.date,a.time)-absMin(b.date,b.time));
   if(!list.length) return null;
   const r=list[0];
-  const lockMin=Math.max(0, toMin(r.time)-LOCK_LEAD_MIN);
-  const lockAt=`${String(Math.floor(lockMin/60)).padStart(2,"0")}:${String(lockMin%60).padStart(2,"0")}`;
-  return {res:r, lockAt, more:list.length-1};
+  return {res:r, lockAt:lockStartText(r), more:list.length-1};
 }
 // Party di sebuah meja (array), plus util status sharing.
 function partiesAt(occ, id){ return occ.get(id)||[]; }
@@ -1198,7 +1235,7 @@ function seatMapMarkup(layoutKey, mode, occ, later){
       // Selalu tampilkan JAM booking + rentang kuncinya, supaya jelas kenapa meja ini mati.
       const tip=isSeated(r0)
         ? `${t.id} — ${r0.name} masih duduk (jam ${r0.time}, datang ${clockOf(r0.checkinAt)}). ${lockWindowText(r0)}. Tandai "🍽️ Selesai" untuk membuka meja ini.`
-        : `${t.id} — dipesan ${r0.name} jam ${r0.time} (${r0.status}). ${lockWindowText(r0)}. Pilih jam datang sebelum ${hhmm(toMin(r0.time)-LOCK_LEAD_MIN)} kalau mau pakai meja ini.`;
+        : `${t.id} — dipesan ${r0.name} jam ${r0.time} (${r0.status}). ${lockWindowText(r0)}. Pilih jam datang sebelum ${lockStartText(r0)} kalau mau pakai meja ini.`;
       const sub=isSeated(r0) ? `🍽️ duduk` : `🔒 ${esc(r0.time)}`;
       return `<button type="button" class="seat booked ${scls} occ-lock" disabled style="${st}" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc((r0.name||'').split(' ')[0])}</span><span class="seat-sub">${sub}</span></button>`;
     }
@@ -1345,6 +1382,36 @@ function uid(){ return "r"+Date.now().toString(36)+Math.random().toString(36).sl
 function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function rp(n){ n=Number(n)||0; return "Rp "+n.toLocaleString("id-ID"); }
 function rpDot(n){ n=Number(n)||0; return "Rp. "+n.toLocaleString("id-ID"); }   // format DP: Rp. 1.000.000
+
+/* ===== INPUT NOMINAL RUPIAH =====
+   Field nominal diketik angka biasa, tampilannya langsung jadi "Rp. 1.000.000".
+   Nilai asli dibaca ulang dengan rupiahVal() (buang semua non-digit). */
+function rupiahVal(v){ const d=String(v==null?"":v).replace(/[^0-9]/g,""); return d?Number(d):0; }
+function fmtRupiahInput(el){
+  const n=rupiahVal(el.value);
+  el.value = n ? rpDot(n) : "";
+  try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){}
+}
+
+/* ===== BUKA WHATSAPP =====
+   Pakai skema aplikasi (whatsapp://) supaya langsung ke WhatsApp Desktop/HP,
+   bukan WhatsApp Web. Kalau aplikasinya tidak terpasang, browser tidak bereaksi —
+   makanya toast fallback selalu menyediakan tautan WhatsApp Web. */
+function waOpen(phone, txt){
+  const p=phone?normPhone(phone):"";
+  const enc=encodeURIComponent(txt||"");
+  const app = p ? `whatsapp://send?phone=${p}&text=${enc}` : `whatsapp://send?text=${enc}`;
+  const web = p ? `https://wa.me/${p}?text=${enc}` : "https://web.whatsapp.com/";
+  location.href = app;                       // buka aplikasi WhatsApp
+  waFallbackToast(web);
+}
+// Tautan cadangan kalau aplikasi WhatsApp belum terpasang di perangkat ini.
+function waFallbackToast(webUrl){
+  const el=document.createElement("div"); el.className="toast";
+  el.innerHTML=`💬 Membuka aplikasi WhatsApp… <a href="${esc(webUrl)}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline;font-weight:700">pakai WhatsApp Web</a>`;
+  byId("toastRoot").appendChild(el);
+  setTimeout(()=>{el.style.transition="opacity .3s";el.style.opacity="0";setTimeout(()=>el.remove(),300);},6000);
+}
 function normPhone(p){ let x=(p||"").replace(/[^0-9]/g,""); if(x.startsWith("0")) x="62"+x.slice(1); else if(x.startsWith("62")){} else if(x.length>0 && !x.startsWith("62")) x="62"+x; return x; }
 function displayPhone(p){ return (p||"").replace(/[^0-9]/g,""); }
 function todayStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
@@ -1629,12 +1696,15 @@ function conflictCheck(date, table, time, exceptId, sharing){
   if(!table) return null;
   const want=String(table).split(",").map(s=>s.trim()).filter(Boolean);
   return STATE.reservations.find(r=>{
-    if(r.id===exceptId || r.date!==date) return false;
+    if(r.id===exceptId) return false;
+    if(!r.date || !r.time) return false;
+    const dd=dayNo(r.date)-dayNo(date);
+    if(dd<-1 || dd>1) return false;                              // jendela kunci bisa lintas tengah malam
     if(["Cancelled","No-show","Completed"].includes(r.status)) return false;
     if(r.leftAt) return false;                                   // tamu sudah pulang → meja bebas
     if(!tablesOf(r).some(t=>want.includes(t))) return false;
     if(sharing && r.sharing) return false;                       // dua-duanya sharing → boleh gabung
-    return locksTable(r, time);
+    return locksTable(r, date, time);
   }) || null;
 }
 function toMin(t){ if(!t) return 0; const[h,m]=String(t).split(":").map(Number); return (h||0)*60+(m||0); }
@@ -1819,8 +1889,10 @@ function renderInput(editId){
          <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod)}</select>
        </div>
        <div class="field" id="dpNominalWrap">
-         <label>Nominal DP (Rp)</label>
-         <input type="number" name="dpAmount" min="0" value="${r?.dpAmount||""}" placeholder="mis. 100000">
+         <label>Nominal DP</label>
+         <input type="text" name="dpAmount" inputmode="numeric" autocomplete="off"
+                value="${r?.dpAmount?rpDot(r.dpAmount):""}" placeholder="mis. 100.000"
+                oninput="fmtRupiahInput(this)">
        </div>
        <div class="field" id="dpProofWrap">
          <label>Upload Bukti DP (foto/pdf)</label>
@@ -2015,7 +2087,7 @@ function saveReservation(){
     date:g("date"), time:normTime(g("time")), pax:Number(g("pax")),
     table:g("table"), sharing: !!document.querySelector('input[name=sharing]')?.checked,
     category:g("category"), foodReq:g("foodReq"), drinkReq:g("drinkReq"),
-    dpStatus, dpMethod: dpStatus==="Sudah"?g("dpMethod"):"", dpAmount: dpStatus==="Sudah"?Number(g("dpAmount")||0):0,
+    dpStatus, dpMethod: dpStatus==="Sudah"?g("dpMethod"):"", dpAmount: dpStatus==="Sudah"?rupiahVal(g("dpAmount")):0,
     dpProofData: PENDING_FILES.dpProofData?.data || existing?.dpProofData || "",
     dpProofName: PENDING_FILES.dpProofData?.name || existing?.dpProofName || "",
     docReqData: PENDING_FILES.docReqData?.data || existing?.docReqData || "",
@@ -2136,13 +2208,13 @@ function copyWA(btn, txt){
   .catch(()=>{ toast("Gagal menyalin, salin manual","err"); });
 }
 function sendWA(type, detail, txt){
-  const enc = encodeURIComponent(txt);
   if(type==="number" && normPhone(detail).length>=8){
-    window.open(`https://wa.me/${normPhone(detail)}?text=${enc}`,"_blank");
+    waOpen(detail, txt);
   }else{
+    // Grup tidak bisa dituju lewat tautan: salin pesan, buka aplikasi, tempel manual.
     navigator.clipboard.writeText(txt).catch(()=>{});
-    toast("Pesan disalin. Membuka WhatsApp, tempel di grup tujuan.","ok");
-    window.open("https://web.whatsapp.com/","_blank");
+    toast("Pesan disalin. Membuka aplikasi WhatsApp, tempel di grup tujuan.","ok");
+    waOpen("", "");
   }
 }
 
@@ -2589,7 +2661,10 @@ function seatAction(id){
   if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
   if(canEdit){
     acts+=`<button class="btn btn-ghost" onclick="toggleSharing('${r.id}')">🤝 ${r.sharing?"Batalkan Sharing":"Jadikan Sharing"}</button>`;
-    if(r.table) acts+=`<button class="btn btn-ghost" onclick="changeTable('${r.id}')">🔁 Pindah Meja</button>`;
+    if(r.table){
+      acts+=`<button class="btn btn-ghost" onclick="changeTable('${r.id}')">🔁 Pindah Meja</button>`;
+      acts+=`<button class="btn btn-ghost" onclick="addTable('${r.id}')" title="Tamu butuh meja tambahan, meja sekarang tetap dipakai">➕ Tambah Meja</button>`;
+    }
   }
   // Batalkan hanya untuk tamu yang BELUM datang (yang sudah datang → pakai "Selesai").
   if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
@@ -2659,7 +2734,7 @@ function waitlistView(){
     <div class="panel-head"><h3>⏳ Catat Tamu ke Waiting List</h3><span class="muted" style="font-size:12.5px">Tamu walk-in yang belum kebagian meja</span></div>
     <div class="panel-body">
       <div class="form-grid">
-        <div class="field"><label>Nama Tamu <span class="req">*</span></label><input id="wl_name" placeholder="Nama tamu" autocomplete="off"></div>
+        <div class="field"><label>Nama Tamu</label><input id="wl_name" placeholder="Kosongkan → &quot;${esc(WALKIN_NAME)}&quot;" autocomplete="off"></div>
         <div class="field"><label>No. WhatsApp</label><input id="wl_phone" inputmode="numeric" placeholder="08xxxx (untuk dikabari saat meja siap)"></div>
         <div class="field"><label>Jumlah Orang <span class="req">*</span></label><input id="wl_pax" type="number" min="1" placeholder="mis. 2"></div>
         <div class="field"><label>Catatan</label><input id="wl_note" placeholder="Opsional, mis. minta area outdoor"></div>
@@ -2720,7 +2795,7 @@ function walkInSeat(tableId, sharingDefault){
   const esq=String(tableId).replace(/'/g,"\\'");
   openModal(`<div class="modal-head"><h3>🚶 Walk-in, Meja ${esc(tableId)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body"><div class="form-grid">
-     <div class="field full"><label>Nama Tamu <span class="req">*</span></label><input id="wi_name" placeholder="Nama tamu" autocomplete="off"></div>
+     <div class="field full"><label>Nama Tamu</label><input id="wi_name" placeholder="Kosongkan → dicatat sebagai &quot;${esc(WALKIN_NAME)}&quot;" autocomplete="off"></div>
      <div class="field"><label>No. HP</label><input id="wi_phone" inputmode="numeric" placeholder="08xxx (opsional)"></div>
      <div class="field"><label>Jumlah Pax <span class="req">*</span></label><input id="wi_pax" type="number" min="1" value="2"></div>
      <div class="field full"><label class="share-toggle" style="width:100%"><input type="checkbox" id="wi_sharing" ${sharingDefault?"checked":""}> 🤝 Sharing table <span class="hint" style="font-weight:400">meja boleh ditambah tamu lain</span></label></div>
@@ -2733,8 +2808,8 @@ function walkInSeat(tableId, sharingDefault){
   setTimeout(()=>byId("wi_name")?.focus(),60);
 }
 function saveWalkIn(tableId, doPrint){
-  const name=(byId("wi_name").value||"").trim(), pax=Number(byId("wi_pax").value||0);
-  if(!name){ toast("Nama wajib diisi","err"); return; }
+  const name=(byId("wi_name").value||"").trim() || WALKIN_NAME;   // tanpa nama → "Walkin"
+  const pax=Number(byId("wi_pax").value||0);
   if(!pax||pax<1){ toast("Jumlah pax wajib","err"); return; }
   const sharing=!!byId("wi_sharing")?.checked;
   const now=Date.now(), nowTime=new Date().toTimeString().slice(0,5);
@@ -2757,14 +2832,20 @@ function toggleSharing(id){
   saveState(); closeModal(); renderHariH();
   toast(r.sharing?"Meja dijadikan sharing 🤝":"Sharing dibatalkan","ok");
 }
-// ---- Pindah meja (change table), bisa >1 meja ----
-let MOVE_ID=null, MOVE_LAYOUT="weekday", MOVE_SELS=[];
-function changeTable(id){
+// ---- Pindah / tambah meja (bisa >1 meja) ----
+// MOVE_MODE "move" → pilihan dimulai KOSONG: meja lama otomatis terlepas, host tinggal
+//                    klik meja tujuan (tidak perlu meng-unselect meja lama dulu).
+// MOVE_MODE "add"  → pilihan dimulai dari meja yang SUDAH dipakai, tinggal klik meja tambahan.
+let MOVE_ID=null, MOVE_LAYOUT="weekday", MOVE_SELS=[], MOVE_MODE="move";
+function openMoveModal(id, mode){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  MOVE_ID=id; MOVE_SELS=tablesOf(r);
+  MOVE_ID=id; MOVE_MODE=(mode==="add")?"add":"move";
+  MOVE_SELS=(MOVE_MODE==="add") ? tablesOf(r) : [];
   MOVE_LAYOUT=dayTypeLayout(r.date||todayStr());
   renderMoveModal();
 }
+function changeTable(id){ openMoveModal(id,"move"); }
+function addTable(id){ openMoveModal(id,"add"); }
 function setMoveLayout(l){ MOVE_LAYOUT=l; renderMoveModal(); }
 function toggleMoveSeat(tableId){
   const i=MOVE_SELS.indexOf(tableId);
@@ -2775,22 +2856,25 @@ function renderMoveModal(){
   const r=STATE.reservations.find(x=>x.id===MOVE_ID); if(!r) return;
   const occ=occupiedMap(r.date, r.time, MOVE_ID);   // kecualikan diri sendiri
   const sw=(l,t)=>`<button type="button" class="${MOVE_LAYOUT===l?'on':''}" onclick="setMoveLayout('${l}')">${t}</button>`;
-  openModal(`<div class="modal-head"><h3>🔁 Pindah Meja, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+  const add=MOVE_MODE==="add";
+  openModal(`<div class="modal-head"><h3>${add?"➕ Tambah Meja":"🔁 Pindah Meja"}, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <p class="hint" style="margin-bottom:10px">Meja sekarang: <b>${esc(r.table||'-')}</b>, ${fmtDate(r.date)} ${r.time}. Klik meja untuk pilih/lepas (boleh &gt;1). Meja terisi non-sharing terkunci.</p>
+     <p class="hint" style="margin-bottom:10px">Meja sekarang: <b>${esc(r.table||'-')}</b>, ${fmtDate(r.date)} ${r.time}. ${add
+       ? `Meja lama tetap terpilih — klik meja lain untuk <b>menambah</b>.`
+       : `Meja lama sudah otomatis dilepas — tinggal klik <b>meja tujuan</b>.`} Boleh pilih &gt;1. Meja terisi non-sharing terkunci.</p>
      <div class="seat-toolbar"><div class="seat-switch">${sw('weekday','Weekday')}${sw('weekend','Weekend')}${sw('lantai2','Lantai 2')}</div>
        <span class="seat-selinfo">Terpilih: <b>${MOVE_SELS.length?esc(MOVE_SELS.join(", ")):"-"}</b></span></div>
      <div class="seat-map" id="moveMap">${seatMapMarkup(MOVE_LAYOUT,"move",occ)}</div>
    </div>
    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Batal</button>
-     <button class="btn btn-primary" onclick="applyMoveTables()">💾 Simpan Meja (${MOVE_SELS.length})</button></div>`, true);
+     <button class="btn btn-primary" onclick="applyMoveTables()">💾 ${add?"Tambah Meja":"Pindahkan"} (${MOVE_SELS.length})</button></div>`, true);
 }
 function applyMoveTables(){
   const r=STATE.reservations.find(x=>x.id===MOVE_ID); if(!r) return;
-  if(!MOVE_SELS.length){ toast("Pilih minimal 1 meja","err"); return; }
+  if(!MOVE_SELS.length){ toast(MOVE_MODE==="add"?"Pilih minimal 1 meja":"Klik meja tujuan dulu","err"); return; }
   const prev=r.table||'-';
   r.table=MOVE_SELS.join(", "); r.updatedAt=Date.now();
-  logAudit("Pindah Meja",`${r.name}, ${prev} → ${r.table}`);
+  logAudit(MOVE_MODE==="add"?"Tambah Meja":"Pindah Meja",`${r.name}, ${prev} → ${r.table}`);
   saveState(); closeModal(); renderHariH();
   toast(`Meja diperbarui: ${r.table} ✓`,"ok");
 }
@@ -2800,15 +2884,20 @@ function sharingTableAction(tableId){
   const list=partiesAt(occ,tableId);
   if(!list.length){ walkInSeat(tableId,true); return; }
   const canEdit=CAN.input(SESSION.role);
-  const rows=list.map(r=>`
+  const rows=list.map(r=>{
+    const seated=isSeated(r);
+    return `
     <div class="share-row">
-      <div class="who"><b>${esc(r.name)}</b><span>${r.time}, ${r.pax} pax, <span class="badge-status ${STATUS_CLASS[r.status]}" style="font-size:10px">${STATUS_ICON[r.status]} ${r.status}</span></span></div>
+      <div class="who"><b>${esc(r.name)}</b><span>${r.time}, ${r.pax} pax, <span class="badge-status ${STATUS_CLASS[r.status]}" style="font-size:10px">${STATUS_ICON[r.status]} ${r.status}</span>${seated&&r.checkinAt?` , ⏱ ${esc(fmtDur(seatedSoFar(r)))}`:""}</span></div>
       <div class="mini-actions">
         ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Datang</button>`:""}
+        ${seated?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')" title="Tamu ini pulang, sisanya tetap di meja">🍽️ Selesai</button>`:""}
+        ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="changeTable('${r.id}')" title="Pindahkan tamu ini ke meja lain">🔁 Pindah</button>`:""}
         ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="toggleSharing('${r.id}')" title="Batalkan sharing party ini">🤝✕</button>`:""}
         <button class="btn btn-xs btn-ghost" onclick="closeModal();openDetail('${r.id}')">🔍</button>
       </div>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   openModal(`<div class="modal-head"><h3>🤝 Meja ${esc(tableId)}, Sharing (${list.length} grup)</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
      <div class="share-list">${rows}</div>
@@ -2839,24 +2928,108 @@ function buildCheckText(r){
     "PIC  : "+(r.picType==="Marketing"?r.picName:"Host/Captain"), r.phone?("HP   : "+displayPhone(r.phone)):"",
     (r.dpStatus==="Sudah")?("DP   : "+rp(r.dpAmount)+" ("+r.dpMethod+")"):"" ].filter(Boolean);
 }
-async function printCheck(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  const lines=buildCheckText(r);
-  if(!navigator.bluetooth){ return printFallback(r,lines); }
-  let ch=BT_PRINTER; if(!ch) ch=await connectPrinter(); if(!ch){ return printFallback(r,lines); }
+// Cetak ke printer thermal Bluetooth; kalau tidak ada → jatuh ke print biasa (popup).
+async function thermalPrint(r, lines, sub, foot){
+  if(!navigator.bluetooth){ return printFallback(r,lines,sub,foot); }
+  let ch=BT_PRINTER; if(!ch) ch=await connectPrinter(); if(!ch){ return printFallback(r,lines,sub,foot); }
   try{
     const ESC="\x1b", GS="\x1d";
-    let d=ESC+"@"+ESC+"a"+"\x01"+GS+"!"+"\x11"+"LAKSAMANA MUDA\n"+GS+"!"+"\x00"+"Coffee & Live Space\n--------------------------------\n"+ESC+"a"+"\x00"+lines.join("\n")+"\n--------------------------------\n"+ESC+"a"+"\x01"+"Terima kasih, sampai jumpa!\n\n\n"+GS+"V"+"\x00";
+    let d=ESC+"@"+ESC+"a"+"\x01"+GS+"!"+"\x11"+"LAKSAMANA MUDA\n"+GS+"!"+"\x00"+sub+"\n--------------------------------\n"+ESC+"a"+"\x00"+lines.join("\n")+"\n--------------------------------\n"+ESC+"a"+"\x01"+foot+"\n\n\n"+GS+"V"+"\x00";
     const bytes=new TextEncoder().encode(d);
     for(let i=0;i<bytes.length;i+=180){ const chunk=bytes.slice(i,i+180); if(ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(chunk); else await ch.writeValue(chunk); }
-    toast("Struk terkirim ke printer 🖨️","ok");
-  }catch(e){ toast("Gagal print BT: "+e.message,"err"); printFallback(r,lines); }
+    toast("Terkirim ke printer 🖨️","ok");
+  }catch(e){ toast("Gagal print BT: "+e.message,"err"); printFallback(r,lines,sub,foot); }
 }
-function printFallback(r,lines){
+async function printCheck(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  return thermalPrint(r, buildCheckText(r), "Coffee & Live Space", "Terima kasih, sampai jumpa!");
+}
+function printFallback(r,lines,sub,foot){
   const w=window.open("","_blank","width=300,height=520");
   if(!w){ toast("Popup diblokir, izinkan popup untuk print","err"); return; }
-  w.document.write('<pre style="font:12px/1.5 monospace;padding:10px;width:260px">   LAKSAMANA MUDA\n  Coffee &amp; Live Space\n--------------------------------\n'+lines.map(l=>esc(l)).join("\n")+'\n--------------------------------\n   Terima kasih!</pre><scr'+'ipt>window.print();setTimeout(function(){window.close()},300)</scr'+'ipt>');
+  w.document.write('<pre style="font:12px/1.5 monospace;padding:10px;width:260px">   LAKSAMANA MUDA\n'+esc(sub||"Coffee & Live Space")+'\n--------------------------------\n'+lines.map(l=>esc(l)).join("\n")+'\n--------------------------------\n'+esc(foot||"Terima kasih!")+'</pre><scr'+'ipt>window.print();setTimeout(function(){window.close()},300)</scr'+'ipt>');
   w.document.close();
+}
+
+/* ================= KWITANSI DP =================
+   Bukti pembayaran DP untuk tamu: dikirim via WhatsApp atau dicetak sebagai struk. */
+function kwitansiNo(r){
+  return `KW/${String(r.date||todayStr()).replace(/-/g,"")}/${String(r.id||"").slice(-4).toUpperCase()}`;
+}
+function hasDP(r){ return !!r && r.dpStatus==="Sudah" && Number(r.dpAmount)>0; }
+// Penerima DP: yang menginput reservasi; kalau kosong, kru yang sedang login.
+function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"; }
+function buildKwitansiText(r){
+  return [
+    "🧾 *KWITANSI PEMBAYARAN DP*",
+    "*LAKSAMANA MUDA* ⚓",
+    "_Coffee & Live Space_",
+    "─────────────────",
+    `No. Kwitansi : ${kwitansiNo(r)}`,
+    `Tanggal Terbit : ${fmtDate(todayStr())}`,
+    "─────────────────",
+    `Telah diterima dari : *${(r.name||"-").toUpperCase()}*`,
+    `Sejumlah : *${rpDot(r.dpAmount)}*`,
+    `Metode Bayar : ${r.dpMethod||"-"}`,
+    "Untuk : *Down Payment (DP) Reservasi*",
+    "─────────────────",
+    "📅 Tanggal : "+fmtDate(r.date),
+    "🕗 Jam : "+r.time+" WIB",
+    "👥 Pax : "+r.pax+" orang",
+    ...(r.table?["🪑 Meja : "+r.table]:[]),
+    "─────────────────",
+    "DP ini akan memotong total tagihan saat Kakak datang.",
+    "Mohon simpan kwitansi ini sebagai bukti pembayaran 🙏",
+    "",
+    `_Diterima oleh: ${dpReceivedBy(r)}_`,
+    "_Terima kasih, sampai jumpa di Laksamana Muda_ ⚓",
+  ].join("\n");
+}
+function buildKwitansiLines(r){
+  return [
+    "No    : "+kwitansiNo(r),
+    "Terbit: "+fmtDate(todayStr()),
+    "--------------------------------",
+    "Nama  : "+r.name,
+    "DP    : "+rpDot(r.dpAmount),
+    "Metode: "+(r.dpMethod||"-"),
+    "--------------------------------",
+    "Booking: "+fmtDate(r.date)+", "+r.time,
+    "Pax   : "+r.pax,
+    "Meja  : "+(r.table||"-"),
+    r.phone?("HP    : "+displayPhone(r.phone)):"",
+    "--------------------------------",
+    "Diterima: "+dpReceivedBy(r),
+  ].filter(Boolean);
+}
+async function printKwitansi(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  logAudit("Print Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
+  return thermalPrint(r, buildKwitansiLines(r), "KWITANSI PEMBAYARAN DP", "Terima kasih atas pembayarannya!");
+}
+function sendKwitansi(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  if(!normPhone(r.phone)){ toast("Nomor HP tamu kosong — salin manual atau print","err"); return; }
+  logAudit("Kirim Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
+  waOpen(r.phone, buildKwitansiText(r));
+}
+function openKwitansi(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!hasDP(r)){ toast("Belum ada DP untuk tamu ini — isi nominal DP dulu","err"); return; }
+  openModal(`
+    <div class="modal-head"><h3>🧾 Kwitansi DP, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="inline-info" style="margin-bottom:12px">Kwitansi <b>${esc(kwitansiNo(r))}</b> atas DP <b>${rpDot(r.dpAmount)}</b> lewat <b>${esc(r.dpMethod||"-")}</b>.</div>
+      <div class="wa-preview" id="kwText" style="max-height:340px;overflow:auto">${esc(buildKwitansiText(r))}</div>
+    </div>
+    <div class="modal-foot" style="flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="copyWA(this, byId('kwText').textContent)">📋 Salin</button>
+      <button class="btn btn-ghost btn-sm" onclick="printKwitansi('${r.id}')">🖨️ Print</button>
+      <button class="btn btn-wa btn-sm" style="margin-left:auto" onclick="sendKwitansi('${r.id}')">💬 Kirim ke Tamu</button>
+      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
+    </div>`, true);
 }
 function renderHariH(){
   const dayList = STATE.reservations.filter(r=>r.date===HARIH_DATE && !["Cancelled"].includes(r.status));
@@ -2869,6 +3042,13 @@ function renderHariH(){
   const pending = dayList.filter(r=>["Pending","Confirmed"].includes(r.status)).length;
   const noshow = dayList.filter(r=>r.status==="No-show").length;
   const queue = waitingQueue(HARIH_DATE);
+  // Total orang hari itu: dari jumlah pax yang dipesan. No-show tidak dihitung
+  // karena tamunya tidak jadi datang. Pax yang benar-benar hadir pakai actualPax bila ada.
+  const paxList  = dayList.filter(r=>r.status!=="No-show");
+  const totalPax = paxList.reduce((a,r)=>a+(Number(r.pax)||0),0);
+  const paxDatang = paxList.filter(r=>r.status==="Datang")
+    .reduce((a,r)=>a+(Number(r.actualPax!=null?r.actualPax:r.pax)||0),0);
+  const paxQueue = queue.reduce((a,w)=>a+(Number(w.pax)||0),0);
 
   byId("page-hariH").innerHTML = `
    <div class="page-head">
@@ -2881,7 +3061,8 @@ function renderHariH(){
      </div>
    </div>
    <div class="recap-grid">
-     <div class="recap"><div class="lbl">📋 Total Hari Ini</div><div class="val">${dayList.length}</div></div>
+     <div class="recap"><div class="lbl">📋 Total Hari Ini</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
+     <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${totalPax}</div><div class="sub">${paxDatang} sudah datang${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
      <div class="recap ok"><div class="lbl">✅ Sudah Datang</div><div class="val">${arrived}</div></div>
      <div class="recap warn"><div class="lbl">⏳ Belum Datang</div><div class="val">${pending}</div></div>
      <div class="recap danger"><div class="lbl">⚠️ No-show</div><div class="val">${noshow}</div></div>
@@ -2958,7 +3139,7 @@ function markNoShow(id){
 function followUp(id){
   const r=STATE.reservations.find(x=>x.id===id);
   const msg=`Halo Kak ${r.name} 👋\n\nKami dari *Laksamana Muda* ingin mengonfirmasi reservasi Anda hari ini:\n📅 ${fmtDate(r.date)}\n🕗 Jam ${r.time} WIB\n👥 ${r.pax} pax${r.table?"\n🪑 "+r.table:""}\n\nApakah Kakak jadi hadir? Ditunggu kedatangannya ya ⚓\n\n_Sail to Good Taste, Stay for the Vibes_`;
-  window.open(`https://wa.me/${normPhone(r.phone)}?text=${encodeURIComponent(msg)}`,"_blank");
+  waOpen(r.phone, msg);
   // catat follow up
   openModal(`
     <div class="modal-head"><h3>📞 Catat Hasil Follow Up</h3><button class="close-x" onclick="closeModal()">×</button></div>
@@ -3003,11 +3184,29 @@ function dpMethodShort(r){
   if(r.dpStatus!=="Sudah" || !r.dpMethod) return "-";
   return r.dpMethod.replace(/^Transfer\s+/i,"");
 }
-// Ambil daftar reservasi tanggal tsb (urut jam), buang Cancelled & No-show
+/* Rentang jam yang mau direkap (kosong = seluruh hari).
+   Mis. shift malam: 18:00–23:45 → hanya tamu di jam itu yang masuk rekap WA. */
+let COORD_FROM="", COORD_TO="";
+// Ambil daftar reservasi tanggal tsb (urut jam), buang Cancelled & No-show,
+// lalu saring sesuai rentang jam yang dipilih.
 function coordList(dateStr){
+  const lo = COORD_FROM ? toMin(COORD_FROM) : null;
+  const hi = COORD_TO   ? toMin(COORD_TO)   : null;
   return STATE.reservations
     .filter(r=>r.date===dateStr && !["Cancelled","No-show"].includes(r.status))
+    .filter(r=>{
+      const t=toMin(r.time);
+      if(lo!=null && t<lo) return false;
+      if(hi!=null && t>hi) return false;
+      return true;
+    })
     .sort((a,b)=>(a.time||"").localeCompare(b.time||""));
+}
+// Label rentang jam untuk judul rekap: "" kalau seluruh hari.
+function coordRangeLabel(){
+  if(!COORD_FROM && !COORD_TO) return "";
+  if(COORD_FROM && COORD_TO)   return `Jam ${COORD_FROM}–${COORD_TO}`;
+  return COORD_FROM ? `Jam ${COORD_FROM} ke atas` : `Sampai jam ${COORD_TO}`;
 }
 // Bangun teks rekap. variant: "koord" (fokus seating) | "kasir" (fokus DP)
 function buildCoordText(dateStr, variant){
@@ -3015,6 +3214,7 @@ function buildCoordText(dateStr, variant){
   const LINE = "━━━━━━━━━━━━━━━━━";
   const totalPax = list.reduce((a,r)=>a+(Number(r.pax)||0),0);
   const pad = n=>String(n).padStart(2," ");
+  const rangeLine = coordRangeLabel();
 
   if(variant==="kasir"){
     const rows = list.map((r,i)=>`${pad(i+1)}. ${(r.name||"-").toUpperCase()} / ${(Number(r.pax)||0)}PAX / ${dpFull(r)} / ${dpMethodShort(r)}`);
@@ -3023,6 +3223,7 @@ function buildCoordText(dateStr, variant){
     return [
       "💰 *REKAP DP KASIR*",
       `LAKSAMANA MUDA ⚓, ${fmtDate(dateStr)}`,
+      ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
       LINE,
       "_NAMA / PAX / DP / METODE_",
       "",
@@ -3041,6 +3242,7 @@ function buildCoordText(dateStr, variant){
   return [
     "⚓ *KOORDINASI KEDATANGAN*",
     `LAKSAMANA MUDA, ${fmtDate(dateStr)}`,
+    ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
     LINE,
     "_NAMA / PAX / DP / MEJA_",
     "",
@@ -3052,8 +3254,20 @@ function buildCoordText(dateStr, variant){
   ].join("\n");
 }
 function openCoordWA(){
+  if(!STATE.reservations.some(r=>r.date===HARIH_DATE && !["Cancelled","No-show"].includes(r.status))){
+    toast("Tidak ada reservasi untuk dikoordinasikan pada tanggal ini","err"); return;
+  }
+  renderCoordWA();
+}
+// Ubah rentang jam → rekap langsung dihitung ulang.
+function setCoordRange(){
+  COORD_FROM = normTime(byId("coordFrom")?.value||"");
+  COORD_TO   = normTime(byId("coordTo")?.value||"");
+  renderCoordWA();
+}
+function resetCoordRange(){ COORD_FROM=""; COORD_TO=""; renderCoordWA(); }
+function renderCoordWA(){
   const list = coordList(HARIH_DATE);
-  if(!list.length){ toast("Tidak ada reservasi untuk dikoordinasikan pada tanggal ini","err"); return; }
   const koord = buildCoordText(HARIH_DATE,"koord");
   const kasir = buildCoordText(HARIH_DATE,"kasir");
   const card = (id, icon, title, sub, txt, label)=>`
@@ -3063,13 +3277,28 @@ function openCoordWA(){
       <div class="wa-preview" id="${id}" style="max-height:300px;overflow:auto">${esc(txt)}</div>
       <div class="wa-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-sm btn-ghost" onclick="copyWA(this, byId('${id}').textContent)">📋 Salin</button>
-        <button class="btn btn-sm btn-wa" onclick="sendCoord('${label}','${id}')">💬 Buka WhatsApp</button>
+        <button class="btn btn-sm btn-wa" ${list.length?"":"disabled"} onclick="sendCoord('${label}','${id}')">💬 Buka WhatsApp</button>
       </div>
     </div>`;
+  const rangeOpts = `<option value="">Semua jam</option>`;
+  const sel = (id,val)=>`<select id="${id}" onchange="setCoordRange()">${rangeOpts}${
+      timeOptions(30).map(t=>`<option value="${t}"${t===val?" selected":""}>${t}</option>`).join("")
+    }</select>`;
+  const rl = coordRangeLabel();
   openModal(`
     <div class="modal-head"><h3>📋 Kirim Koordinasi Kedatangan</h3><button class="close-x" onclick="closeModal()">×</button></div>
     <div class="modal-body">
-      <div class="inline-info" style="margin-bottom:14px">Rekap kedatangan <b>${fmtDate(HARIH_DATE)}</b>, ${list.length} reservasi, ${list.reduce((a,r)=>a+(Number(r.pax)||0),0)} pax. Dua format terpisah untuk masing-masing grup:</div>
+      <div class="wa-target" style="border-style:dashed">
+        <h4>🕗 Rentang Jam yang Direkap</h4>
+        <p>Kosongkan untuk merekap seluruh hari. Pakai rentang kalau hanya mau rekap per shift, mis. 18:00–23:30.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:12px">Dari</label>${sel("coordFrom",COORD_FROM)}
+          <label style="font-size:12px">Sampai</label>${sel("coordTo",COORD_TO)}
+          ${(COORD_FROM||COORD_TO)?`<button class="btn btn-xs btn-ghost" onclick="resetCoordRange()">↺ Semua jam</button>`:""}
+        </div>
+      </div>
+      <div class="inline-info" style="margin:14px 0">Rekap kedatangan <b>${fmtDate(HARIH_DATE)}</b>${rl?`, <b>${esc(rl)}</b>`:""}, ${list.length} reservasi, ${list.reduce((a,r)=>a+(Number(r.pax)||0),0)} pax. Dua format terpisah untuk masing-masing grup:</div>
+      ${list.length?"":`<div class="inline-info" style="margin-bottom:14px">⚠️ Tidak ada reservasi pada rentang jam ini — longgarkan rentangnya.</div>`}
       ${card("coordKoord","⚓","Grup Koordinasi","Fokus seating dan jumlah tamu, untuk tim floor/host.",koord,"Grup Koordinasi")}
       ${card("coordKasir","💰","Grup Kasir","Fokus DP dan metode bayar, total DP otomatis dijumlah.",kasir,"Grup Kasir")}
     </div>
@@ -3078,7 +3307,8 @@ function openCoordWA(){
 }
 function sendCoord(label, previewId){
   const txt = byId(previewId).textContent;
-  logAudit("Kirim Koordinasi", `${label}, ${fmtDate(HARIH_DATE)}`);
+  const rl = coordRangeLabel();
+  logAudit("Kirim Koordinasi", `${label}, ${fmtDate(HARIH_DATE)}${rl?`, ${rl}`:""}`);
   sendWA("group","",txt);
 }
 
@@ -3098,7 +3328,7 @@ function openDetail(id){
        ${p.isMember?`<span class="badge-status tag-vip">🎫 Member ${esc(p.memberNo)}</span>`:""}
      </div>
      <div class="detail-grid">
-       ${di("📱 No. HP",`<a href="https://wa.me/${normPhone(r.phone)}" target="_blank">${displayPhone(r.phone)}</a>`)}
+       ${di("📱 No. HP",`<a href="whatsapp://send?phone=${normPhone(r.phone)}">${displayPhone(r.phone)}</a>`)}
        ${di("📅 Tanggal",fmtDate(r.date))}
        ${di("🕗 Jam",r.time+" WIB")}
        ${di("👥 Pax",r.pax+" orang"+(r.actualPax!=null?` (datang: ${r.actualPax})`:""))}
@@ -3108,7 +3338,7 @@ function openDetail(id){
        ${di("🧭 PIC",r.picType==="Marketing"?"Marketing: "+esc(r.picName):"Host/Captain")}
        ${di("👤 Tipe Tamu",`${p.type}, ${p.visits}× kunjungan${p.lastVisit?", terakhir "+fmtDateShort(p.lastVisit):""}`)}
        ${(r.foodReq||r.drinkReq)?`<div class="section-title">🍽️ Menu Request</div>${di("Makanan",esc(r.foodReq))}${di("Minuman",esc(r.drinkReq))}`:""}
-       ${r.dpStatus==="Sudah"?`<div class="section-title">💰 Down Payment</div>${di("Nominal",rp(r.dpAmount))}${di("Metode",esc(r.dpMethod))}${r.dpProofData?`<div class="detail-item full"><div class="k">Bukti DP</div><div class="v"><button class="btn btn-xs btn-ghost" onclick="viewFile('${r.id}','dp')">🖼️ Lihat Bukti (${esc(r.dpProofName)})</button></div></div>`:""}`:""}
+       ${r.dpStatus==="Sudah"?`<div class="section-title">💰 Down Payment</div>${di("Nominal",rpDot(r.dpAmount))}${di("Metode",esc(r.dpMethod))}${hasDP(r)?`${di("No. Kwitansi",esc(kwitansiNo(r)))}<div class="detail-item full"><div class="k">Kwitansi DP</div><div class="v"><button class="btn btn-xs btn-wa" onclick="closeModal();openKwitansi('${r.id}')">🧾 Kirim / Print Kwitansi</button></div></div>`:""}${r.dpProofData?`<div class="detail-item full"><div class="k">Bukti DP</div><div class="v"><button class="btn btn-xs btn-ghost" onclick="viewFile('${r.id}','dp')">🖼️ Lihat Bukti (${esc(r.dpProofName)})</button></div></div>`:""}`:""}
        ${r.notes?`<div class="detail-item full"><div class="k">📝 Catatan Khusus</div><div class="v">${esc(r.notes)}</div></div>`:""}
        ${r.docReqData?`<div class="detail-item full"><div class="k">📎 Dokumen Special Request</div><div class="v"><button class="btn btn-xs btn-ghost" onclick="viewFile('${r.id}','doc')">📄 Lihat (${esc(r.docReqName)})</button></div></div>`:""}
        ${r.followups?.length?`<div class="section-title">📞 Riwayat Follow Up</div><div class="detail-item full">${r.followups.map(f=>`<div class="fu-log">${esc(f.note)}<div class="meta">${esc(f.by)}, ${fmtTs(f.ts)}</div></div>`).join("")}</div>`:""}
@@ -3128,6 +3358,7 @@ function openDetail(id){
      ${r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
      <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
+     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openKwitansi('${r.id}')" title="Kirim/print kwitansi pembayaran DP">🧾 Kwitansi DP</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      <button class="btn btn-ghost btn-sm" onclick="printCheck('${r.id}')">🖨️ Print Struk</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
@@ -3500,7 +3731,7 @@ function requestReview(resId){
   saveState();
   if(r.phone){
     const msg=`Halo Kak ${r.name} 👋\n\nTerima kasih sudah mampir ke *Laksamana Muda* ⚓\nKalau berkenan, boleh bantu kami dengan ulasan Google-nya? Cukup 1 menit 🙏\n\n${cfg.link}\n\nUlasan Kakak sangat berarti buat kami 🌟`;
-    window.open(`https://wa.me/${r.phone}?text=${encodeURIComponent(msg)}`,"_blank");
+    waOpen(r.phone, msg);
   }else toast("Nomor HP tamu kosong — kirim manual","err");
   toast("Dicatat: ajakan review terkirim ✓","ok");
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -3775,7 +4006,7 @@ function waFeedback(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
   if(!fb.phone){ toast("Nomor WhatsApp tamu kosong","err"); return; }
   const msg=`Halo Kak ${fb.name} 🙏\n\nMohon maaf atas ketidaknyamanannya kemarin di *Laksamana Muda*.\nMasukan Kakak sudah kami tindak lanjuti ke tim terkait.\n\nTerima kasih sudah mau memberi tahu kami — semoga berkenan mampir lagi ⚓`;
-  window.open(`https://wa.me/${fb.phone}?text=${encodeURIComponent(msg)}`,"_blank");
+  waOpen(fb.phone, msg);
 }
 
 let FB_FILTER = "";   // "" = semua kategori
