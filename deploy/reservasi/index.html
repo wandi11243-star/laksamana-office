@@ -1080,19 +1080,44 @@ function dayNo(date){
   return y ? Math.floor(Date.UTC(y,(m||1)-1,d||1)/86400000) : 0;
 }
 function absMin(date, time){ return dayNo(date)*1440 + toMin(time); }
-function absNow(){ const d=new Date(); return absMin(todayStr(), hhmm(d.getHours()*60+d.getMinutes())); }
+// Tanggal LOKAL sebuah timestamp ("2026-07-16"). Sengaja tidak memakai toISOString(),
+// karena itu memakai UTC — di WIB (UTC+7) jam 01:00 dini hari akan terbaca tanggal kemarin.
+function ymdOf(ts){
+  const d=new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function absOfTs(ts){ const d=new Date(ts); return absMin(ymdOf(ts), hhmm(d.getHours()*60+d.getMinutes())); }
+function absNow(){ return absOfTs(Date.now()); }
 function dateOfDayNo(dn){ return new Date(dn*86400000).toISOString().slice(0,10); }
+
+/* Perkiraan lama tamu duduk (menit). Dipakai untuk melepas meja secara otomatis, jadi
+   satu tamu yang lupa ditandai "Selesai" tidak memblokir mejanya berhari-hari.
+   Bisa diubah di Master Data. */
+function dineEst(){ const n=Number(STATE.master && STATE.master.dineEstMin); return n>0 ? n : 180; }
 
 // Menit absolut saat meja MULAI terkunci: H-3 jam dari jam datang.
 function lockStart(r){ return absMin(r.date, r.time) - LOCK_LEAD_MIN; }
-// Menit absolut saat kuncian BERAKHIR.
-//  - Belum datang : jam datang + 3 jam (lewat itu meja bebas lagi).
-//  - Sedang duduk : jam pulang belum diketahui → terkunci sampai ditandai "Selesai",
-//                   dibatasi akhir hari BERIKUTNYA supaya tamu boleh duduk lewat tengah
-//                   malam, tapi data yang lupa ditutup tidak mengunci meja selamanya.
-function lockEnd(r){
-  return isSeated(r) ? (dayNo(r.date)+2)*1440-1 : absMin(r.date, r.time)+LOCK_LEAD_MIN;
+/* Menit absolut saat kuncian BERAKHIR.
+   - Belum datang : jam datang + 3 jam (lewat itu meja bebas lagi).
+   - Sedang duduk : jam pulangnya belum diketahui, jadi dipakai ESTIMASI LAMA DUDUK
+                    (Master Data, default 3 jam) dihitung dari saat tamu mulai duduk.
+
+   DULU kuncian tamu yang sedang duduk berlaku sampai AKHIR HARI BERIKUTNYA. Akibatnya
+   satu tamu yang lupa ditandai "Selesai" memblokir mejanya berhari-hari: tamu duduk
+   tgl 15 jam 02:00 bikin booking jam 07:00 di hari yang sama ikut tertolak, bahkan
+   tgl 16 jam 02:00 pun masih terblokir. Sekarang mejanya lepas sendiri setelah
+   estimasi lama duduk terlewati. */
+function seatStart(r){
+  const jamBooking = absMin(r.date, r.time);
+  const mulaiDuduk = r.checkinAt ? absOfTs(r.checkinAt) : jamBooking;
+  return Math.max(jamBooking, mulaiDuduk);      // tamu datang lebih awal ≠ meja lepas lebih cepat
 }
+function lockEnd(r){
+  return isSeated(r) ? seatStart(r) + dineEst() : absMin(r.date, r.time) + LOCK_LEAD_MIN;
+}
+// Tamu masih duduk padahal estimasinya sudah lewat → mejanya sudah dianggap bebas untuk
+// booking berikutnya, dan host perlu diingatkan menandai "Selesai".
+function overStay(r){ return isSeated(r) && absNow() > lockEnd(r); }
 // "23:00", atau "23:00 (14 Jul)" bila jam kunci jatuh di tanggal lain dari tanggal booking.
 function lockStartText(r){
   const s=lockStart(r), dn=Math.floor(s/1440);
@@ -1103,7 +1128,7 @@ function lockStartText(r){
 // Penjelasan kapan sebuah meja terkunci karena reservasi `r`.
 function lockWindowText(r){
   return isSeated(r)
-    ? `Meja terkunci sejak ${lockStartText(r)}, sampai tamu ditandai selesai`
+    ? `Meja terkunci sejak ${lockStartText(r)} sampai ±${hhmm(lockEnd(r))} (estimasi lama duduk ${fmtDur(dineEst())}). Tandai "Selesai" untuk membukanya lebih cepat.`
     : `Meja terkunci ${lockStartText(r)}–${hhmm(absMin(r.date,r.time)+LOCK_LEAD_MIN)} (H±3 jam dari jam datang ${r.time})`;
 }
 // Apakah kuncian reservasi `r` menyentuh rentang menit absolut [a..b]?
@@ -1481,6 +1506,7 @@ const DEFAULT_MASTER = {
   ],
   users: JSON.parse(JSON.stringify(DEFAULT_USERS)),   // daftar kru (dikelola Super Admin)
   perms: JSON.parse(JSON.stringify(DEFAULT_PERMS)),   // hak akses halaman per role
+  dineEstMin: 180,       // estimasi lama tamu duduk (menit) → meja lepas sendiri setelah ini
   layoutOverrides: {},   // { "YYYY-MM-DD": "<layoutKey>" } → override layout utk tanggal event, besoknya balik default
   layouts: {},           // { "<key>": {name,fixed,tables} } → hasil edit denah / template custom (menimpa built-in)
   // Antrian tamu walk-in yang belum kebagian meja
@@ -1532,6 +1558,56 @@ async function apiPost(action, data){
   return json.data;
 }
 
+/* ======================================================================
+   SINKRONISASI MULTI-AKUN (BACA–GABUNG–TULIS)
+
+   MASALAH LAMA: tiap simpan mengirim SELURUH isi database (`saveAll` dgn STATE utuh).
+   Jadi kru yang membuka aplikasi jam 19:00 lalu menekan apa pun jam 19:06 akan
+   MENIMPA server dengan salinan lamanya — reservasi yang dibuat kru lain jam 19:05
+   ikut terhapus. Bahkan sekadar login pun memicu ini (login menulis audit → saveState).
+   Itulah kenapa "sudah refresh tapi meja yang ditambah kru lain tidak muncul":
+   datanya memang sudah hilang dari server, bukan cuma layarnya basi.
+
+   PERBAIKAN: sebelum menulis, kita TARIK DULU versi terbaru dari server, lalu
+   GABUNGKAN PER BARIS:
+     - baris yang tidak kita sentuh   → pakai versi SERVER (perubahan kru lain aman)
+     - baris yang kita ubah/tambah    → pakai versi KITA
+     - baris yang kita hapus          → dihapus
+     - baris yang sama-sama diubah    → yang updatedAt-nya paling baru menang
+   Pembanding "kita sentuh atau tidak" adalah BASE: potret data server terakhir yang
+   kita ketahui.
+   ====================================================================== */
+let BASE = { res:new Map(), master:"", auditIds:new Set() };
+
+function normalizeRes(r){
+  r.status = normStatus(r.status);   // migrasi status lama
+  ensureArrivals(r);                 // data lama: actualPax → 1 gelombang kedatangan
+  ensureDps(r);                      // data lama: 1 DP datar → cicilan pertama
+  return r;
+}
+// Potret kondisi "sudah sinkron dgn server" — dipakai untuk tahu mana yang kita ubah.
+function snapshotBase(){
+  BASE.res = new Map(STATE.reservations.map(r=>[r.id, JSON.stringify(r)]));
+  BASE.master = JSON.stringify(STATE.master);
+  BASE.auditIds = new Set(STATE.audit.map(a=>a.id));
+}
+function hasLocalChanges(){
+  if(STATE.reservations.length !== BASE.res.size) return true;
+  for(const r of STATE.reservations){
+    const b=BASE.res.get(r.id);
+    if(b===undefined || b!==JSON.stringify(r)) return true;
+  }
+  if(JSON.stringify(STATE.master)!==BASE.master) return true;
+  return STATE.audit.some(a=>!BASE.auditIds.has(a.id));
+}
+function applyServer(d){
+  STATE.reservations = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
+  STATE.master = Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), d.master||{});
+  ensureUsersPerms();
+  STATE.audit = Array.isArray(d.audit)? d.audit : [];
+  snapshotBase();
+}
+
 /* loadState: tarik seluruh data dari Google Sheet */
 async function loadState(){
   if(!apiConfigured()){
@@ -1539,22 +1615,40 @@ async function loadState(){
     throw new Error("APPS_SCRIPT_URL belum diisi. Buka Code.gs / README untuk setup.");
   }
   setSync("sync","Memuat data…");
-  const d = await apiGet("getAll");
-  STATE.reservations = Array.isArray(d.reservations)? d.reservations : [];
-  STATE.reservations.forEach(r=>{
-    r.status = normStatus(r.status);   // migrasi status lama
-    ensureArrivals(r);                 // data lama: actualPax → 1 gelombang kedatangan
-    ensureDps(r);                      // data lama: 1 DP datar → cicilan pertama
-  });
-  STATE.master = Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), d.master||{});
-  ensureUsersPerms();                 // seed users & hak akses bila Sheet lama belum punya
-  STATE.audit = Array.isArray(d.audit)? d.audit : [];
+  applyServer(await apiGet("getAll"));
   DATA_LOADED = true;
   setSync("ok","Tersambung");
 }
 
-/* saveState: kirim seluruh STATE ke Google Sheet (debounce agar tidak spam) */
+/* Gabungkan koleksi ber-id (waitlist, reviews, feedbacks, users) dgn cara yang sama. */
+function mergeById(baseArr, mine, theirs){
+  const baseMap=new Map((baseArr||[]).map(x=>[x.id, JSON.stringify(x)]));
+  const out=new Map((theirs||[]).map(x=>[x.id, x]));
+  (mine||[]).forEach(x=>{
+    const b=baseMap.get(x.id);
+    if(b===undefined || b!==JSON.stringify(x)) out.set(x.id, x);   // baru / kita ubah → punya kita
+  });
+  baseMap.forEach((_,id)=>{ if(!(mine||[]).some(x=>x.id===id)) out.delete(id); });  // kita hapus
+  return [...out.values()];
+}
+const ID_COLLECTIONS = ["waitlist","reviews","feedbacks","users","waTargets"];
+function mergeMaster(base, mine, theirs){
+  const out = Object.assign({}, theirs||{});
+  const keys = new Set([...Object.keys(mine||{}), ...Object.keys(theirs||{})]);
+  keys.forEach(k=>{
+    if(ID_COLLECTIONS.includes(k) && Array.isArray(mine&&mine[k])){
+      out[k] = mergeById((base||{})[k], mine[k], (theirs||{})[k]);
+    }else{
+      const b=JSON.stringify((base||{})[k]), m=JSON.stringify((mine||{})[k]);
+      if(b!==m) out[k] = mine[k];        // kita yang mengubahnya → pakai punya kita
+    }
+  });
+  return out;
+}
+
+/* saveState: gabungkan dgn server lalu tulis (debounce agar tidak spam) */
 let _saveTimer=null, _saving=false, _saveAgain=false;
+const REJECTED=[];     // reservasi kita yang kalah cepat merebut meja
 function saveState(){
   if(!DATA_LOADED) return;                 // jangan menimpa sheet sebelum data ter-load
   clearTimeout(_saveTimer);
@@ -1565,8 +1659,17 @@ async function flushSave(){
   if(_saving){ _saveAgain=true; return; }  // sudah ada yg jalan → jadwalkan ulang setelah selesai
   _saving=true;
   try{
-    await apiPost("saveAll", STATE);
+    const d = await apiGet("getAll");         // 1) tarik versi terbaru
+    const adaKiriman = mergeIntoState(d);     // 2) gabungkan per baris
+    await apiPost("saveAll", STATE);          // 3) tulis hasil gabungan
+    snapshotBase();
     setSync("ok","Tersimpan");
+    reportRejected();
+    // Gambar ulang HANYA kalau ada perubahan dari kru lain yang ikut tergabung, dan
+    // jangan pernah saat form input sedang diisi / dialog terbuka — nanti ketikan hilang.
+    if(adaKiriman && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !byId("modalRoot")?.innerHTML){
+      buildNav(); navigate(CURRENT_PAGE);
+    }
   }catch(e){
     console.error(e);
     setSync("err","Gagal simpan");
@@ -1576,6 +1679,101 @@ async function flushSave(){
     if(_saveAgain){ _saveAgain=false; flushSave(); }
   }
 }
+
+/* Inti penggabungan. Sekaligus menegakkan aturan REBUTAN MEJA:
+   kalau dua akun memesan meja & jam yang bentrok, yang createdAt-nya LEBIH DULU
+   yang berhak; yang belakangan ditolak dan diberi tahu supaya pilih meja lain. */
+function mergeIntoState(d){
+  const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
+  const srvMap = new Map(srv.map(r=>[r.id, r]));
+  const out = new Map(srvMap);                       // mulai dari versi server
+
+  // Apakah kru lain menambah/mengubah/menghapus sesuatu sejak potret terakhir kita?
+  // (BASE = versi server yang kita ketahui, jadi beda dgn BASE berarti ulah orang lain.)
+  let adaKiriman = srv.some(r=>{
+    const b=BASE.res.get(r.id);
+    return b===undefined || b!==JSON.stringify(r);
+  }) || [...BASE.res.keys()].some(id=>!srvMap.has(id));
+
+  STATE.reservations.forEach(L=>{
+    const base = BASE.res.get(L.id);
+    if(base === undefined){
+      /* BARU dibuat di perangkat ini. Sebelum diterima, cek mejanya sudah keburu
+         diambil kru lain atau belum — dicek ke DATA SERVER TERBARU, bukan ke salinan
+         lokal kita yang mungkin basi.
+         Aturan: SIAPA YANG DATANYA LEBIH DULU SAMPAI DI SERVER, DIA YANG DAPAT.
+         Yang belakangan ditolak & diberi tahu. Sengaja tidak memakai perbandingan jam
+         input, karena itu berarti harus menendang reservasi yang SUDAH tersimpan milik
+         kru lain — dan kru itu tidak akan tahu datanya dihapus. */
+      const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, [...out.values()]);
+      if(lawan){
+        REJECTED.push({ mine:L, other:lawan });      // dia lebih dulu masuk → punya kita batal
+        return;
+      }
+      out.set(L.id, L);
+    }else if(base !== JSON.stringify(L)){
+      // Kita ubah. Kalau kru lain mengubah baris yang sama LEBIH BARU, versi dia menang.
+      const S = srvMap.get(L.id);
+      out.set(L.id, (S && (Number(S.updatedAt)||0) > (Number(L.updatedAt)||0)) ? S : L);
+    }
+    // tidak kita sentuh → biarkan versi server (sudah ada di `out`)
+  });
+  // baris yang kita hapus
+  BASE.res.forEach((_,id)=>{ if(!STATE.reservations.some(r=>r.id===id)) out.delete(id); });
+
+  STATE.reservations = [...out.values()];
+  STATE.master = mergeMaster(JSON.parse(BASE.master||"{}"), STATE.master, d.master||{});
+  ensureUsersPerms();
+
+  // Audit: gabungan, tidak ada yang boleh hilang.
+  const seen=new Set(), gab=[];
+  [...(STATE.audit||[]), ...(Array.isArray(d.audit)?d.audit:[])].forEach(a=>{
+    if(!a || seen.has(a.id)) return; seen.add(a.id); gab.push(a);
+  });
+  gab.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  STATE.audit = gab.slice(0,500);
+  return adaKiriman;
+}
+
+// Beri tahu kru kalau reservasinya kalah cepat merebut meja, lalu SEGARKAN layarnya
+// supaya denah langsung menampilkan meja yang sudah diambil kru lain.
+function reportRejected(){
+  if(!REJECTED.length) return;
+  while(REJECTED.length){
+    const {mine, other} = REJECTED.shift();
+    logAudit("Bentrok Meja", `${mine.name} (${mine.table}) ditolak — meja keburu dipesan ${other.name} yang masuk lebih dulu`);
+    alert(`⛔ Meja ${mine.table} keburu diambil.\n\n"${other.name}" (${fmtDateShort(other.date)} ${other.time}, ${other.pax} pax) masuk ke server LEBIH DULU, jadi dia yang dapat.\n\nReservasi "${mine.name}" TIDAK tersimpan. Layar sudah disegarkan — silakan input ulang dengan meja lain.`);
+    toast(`Meja ${mine.table} sudah diambil kru lain — input ulang dgn meja lain`,"err");
+  }
+  // Paksa gambar ulang: kru harus melihat kondisi meja yang sebenarnya.
+  buildNav();
+  if(CURRENT_PAGE==="input"){ renderSeatMap(); checkConflict(); }
+  else if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+}
+
+/* ===== TARIK OTOMATIS: perubahan kru lain langsung muncul tanpa refresh ===== */
+const POLL_MS = 12000;
+async function pollRemote(){
+  if(!DATA_LOADED || _saving || !SESSION) return;
+  if(document.hidden) return;
+  if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
+  if(byId("modalRoot")?.innerHTML) return;           // jangan gambar ulang saat kru sedang membuka dialog
+  if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
+  try{
+    const d = await apiGet("getAll");
+    const beda = JSON.stringify((d.reservations||[]).map(r=>r.id+"|"+(r.updatedAt||0)).sort())
+              !== JSON.stringify(STATE.reservations.map(r=>r.id+"|"+(r.updatedAt||0)).sort());
+    const bedaMaster = JSON.stringify(d.master||{}) !== JSON.stringify(STATE.master);
+    if(!beda && !bedaMaster) return;
+    applyServer(d);
+    buildNav();
+    if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+    setSync("ok","Diperbarui dari kru lain");
+  }catch(e){ /* offline sesaat → coba lagi pada tik berikutnya */ }
+}
+setInterval(pollRemote, POLL_MS);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(); });
+window.addEventListener("focus", pollRemote);
 
 /* indikator sinkronisasi kecil di pojok bawah */
 function setSync(kind, msg){
@@ -1914,10 +2112,12 @@ function needFollowUpCount(){
 /* helper: reservasi untuk sebuah meja/tanggal (deteksi bentrok) */
 // Bentrok bila meja yang sama dipakai oleh reservasi lain yang masih aktif.
 // Aturan kunci persis sama dengan denah (lihat locksTable): H-3 jam dari jam datang.
-function conflictCheck(date, table, time, exceptId, sharing){
+// `list` boleh diisi daftar lain (mis. data terbaru dari server) untuk mendeteksi
+// rebutan meja antar-akun saat menyimpan.
+function conflictCheck(date, table, time, exceptId, sharing, list){
   if(!table) return null;
   const want=String(table).split(",").map(s=>s.trim()).filter(Boolean);
-  return STATE.reservations.find(r=>{
+  return (list || STATE.reservations).find(r=>{
     if(r.id===exceptId) return false;
     if(!r.date || !r.time) return false;
     const dd=dayNo(r.date)-dayNo(date);
@@ -2283,7 +2483,30 @@ function checkBigEvent(v){
   const el=byId("bigEventHint"); if(!el) return;
   el.innerHTML = Number(v)>=20? `<div class="inline-warn">🎉 Reservasi besar (${v} pax). Butuh approval manajer sebelum konfirmasi.</div>` : "";
 }
-function saveReservation(){
+/* Meja yang di layar kita terlihat kosong belum tentu masih kosong di server — kru lain
+   bisa saja baru saja mengambilnya dan layar kita belum tersegarkan. Jadi SEBELUM
+   reservasi diterima, ketersediaan mejanya DICEK ULANG ke data server yang paling baru.
+   Kalau ternyata sudah diambil: reservasi ditolak, data lokal disegarkan, dan denahnya
+   langsung menampilkan meja itu sebagai terisi.
+   Ini lapisan pertama (cepat & jelas bagi kru). Lapisan keduanya ada di mergeIntoState(),
+   yang menolak lagi saat menulis kalau-kalau dua kru lolos pengecekan pada detik yang sama. */
+async function mejaMasihKosong(date, table, time, exceptId, sharing){
+  if(!apiConfigured()) return { ok:true };
+  setSync("sync","Memeriksa ketersediaan meja…");
+  let d;
+  try{ d = await apiGet("getAll"); }
+  catch(e){ setSync("err","Gagal cek meja"); return { ok:true, offline:true }; }   // offline → lanjut, penjaga terakhir tetap ada
+  const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
+  const bentrok = conflictCheck(date, table, time, exceptId, sharing, srv);
+  if(!bentrok){ setSync("ok","Meja tersedia"); return { ok:true, data:d }; }
+  // Segarkan data lokal supaya denah menunjukkan kondisi sebenarnya (kalau tak ada
+  // perubahan lokal yang belum tersimpan, ambil apa adanya dari server).
+  if(!hasLocalChanges()) applyServer(d);
+  setSync("err","Meja sudah diambil");
+  return { ok:false, bentrok };
+}
+
+async function saveReservation(){
   const f = byId("resForm");
   const g = n => f.elements[n]?.value?.trim() || "";
   const LABELS={name:"Nama Tamu",phone:"No. HP",date:"Tanggal",time:"Jam Datang",pax:"Jumlah Pax"};
@@ -2300,6 +2523,23 @@ function saveReservation(){
     byId("seatMap")?.scrollIntoView({behavior:"smooth",block:"center"});
     return;
   }
+
+  // ===== CEK KE SERVER: apakah mejanya benar-benar masih kosong? =====
+  const sharingNow = !!document.querySelector('input[name=sharing]')?.checked;
+  const cek = await mejaMasihKosong(g("date"), g("table"), normTime(g("time")), EDIT_ID, sharingNow);
+  if(!cek.ok){
+    const b = cek.bentrok;
+    // meja yang bentrok dibuang dari pilihan, denah digambar ulang dgn data terbaru
+    const dipakai = tablesOf(b);
+    SEAT_SELS = SEAT_SELS.filter(t=>!dipakai.includes(t));
+    if(f.elements["table"]) f.elements["table"].value = SEAT_SELS.join(", ");
+    renderSeatMap(); checkConflict();
+    byId("seatMap")?.scrollIntoView({behavior:"smooth",block:"center"});
+    alert(`⛔ Meja ${b.table} baru saja diambil kru lain.\n\n"${b.name}" (${fmtDateShort(b.date)} ${b.time}, ${b.pax} pax) sudah masuk lebih dulu.\n\nReservasi ini BELUM tersimpan. Denah sudah disegarkan — silakan pilih meja lain.`);
+    toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
+    return;
+  }
+
   const dpStatus = document.querySelector('input[name=dpStatus]:checked').value;
   const now = Date.now();
   const existing = EDIT_ID ? STATE.reservations.find(x=>x.id===EDIT_ID) : null;
@@ -3381,7 +3621,9 @@ function renderHariH(){
         return `<tr style="${rowStyle};cursor:pointer" onclick="openDetail('${r.id}')">
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
-            ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>`:r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
+            ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>
+              ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
+              :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
           <td>${paxCell(r)}</td>
           <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
           <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
@@ -5373,6 +5615,19 @@ function renderMaster(){
   byId("page-master").innerHTML=`
    <div class="page-head"><div><h2>Master Data</h2><div class="desc">Kelola pilihan dropdown & pengaturan sistem.</div></div>
      <button class="btn btn-sm btn-ghost" onclick="dataTools()">🛠️ Data & Backup</button></div>
+   <div class="panel"><div class="panel-head"><h3>⏱️ Estimasi Lama Tamu Duduk</h3></div><div class="panel-body">
+     <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+       <div class="field" style="margin:0"><label>Lama duduk (menit)</label>
+         <input id="dineEstInput" type="number" min="30" step="15" value="${dineEst()}" style="width:140px"></div>
+       <button class="btn btn-sm btn-primary" onclick="saveDineEst()">💾 Simpan</button>
+       <div class="pill-row" style="margin:0">
+         ${[90,120,150,180,240,300].map(v=>`<span class="pill" style="cursor:pointer" onclick="byId('dineEstInput').value=${v}">${fmtDur(v)}</span>`).join("")}
+       </div>
+     </div>
+     <p class="hint" style="margin-top:10px">Setelah tamu duduk selama ini, mejanya otomatis dianggap bebas untuk booking berikutnya —
+       jadi satu tamu yang lupa ditandai <b>🍽️ Selesai</b> tidak memblokir mejanya berhari-hari.
+       Sekarang: <b>${fmtDur(dineEst())}</b>. Contoh: tamu duduk jam 02:00 → meja bebas lagi sekitar jam ${hhmm(toMin("02:00")+dineEst())}.</p>
+   </div></div>
    <div class="chart-row">${listBlock("🏷️ Jenis Reservasi (Tag)","categories",m.categories||[])}${listBlock("💳 Metode DP","dpMethods",m.dpMethods)}</div>
    <div class="chart-row">${listBlock("📣 Sumber Informasi","infoSources",m.infoSources)}
      <div class="panel"><div class="panel-head"><h3>💬 Tujuan WhatsApp</h3></div><div class="panel-body">
@@ -5381,6 +5636,14 @@ function renderMaster(){
      </div></div>
    </div>
    ${CAN.manageUsers(SESSION.role) ? userAccessBlock() : ""}`;
+}
+function saveDineEst(){
+  const n=Number(byId("dineEstInput").value||0);
+  if(!n || n<30){ toast("Estimasi lama duduk minimal 30 menit","err"); return; }
+  STATE.master.dineEstMin=n;
+  logAudit("Master","Estimasi lama duduk → "+fmtDur(n));
+  saveState(); renderMaster();
+  toast(`Estimasi lama duduk disetel ${fmtDur(n)} ✓`,"ok");
 }
 function addMaster(key){ const v=byId("add_"+key).value.trim(); if(!v)return; STATE.master[key].push(v); logAudit("Master +",`${key}: ${v}`); saveState(); renderMaster(); }
 function delMaster(key,i){ const v=STATE.master[key][i]; STATE.master[key].splice(i,1); logAudit("Master −",`${key}: ${v}`); saveState(); renderMaster(); }
