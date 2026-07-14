@@ -396,6 +396,12 @@ td .muted{color:var(--muted);font-size:13px}
 .seat .seat-sub{font-size:clamp(7px,1.05vw,11px);font-weight:800;line-height:1.05;margin-top:1px}
 .seat.booked .seat-sub{color:#fff}
 .seat.booked.stpending .seat-sub{color:#3a2a00}
+/* Rombongan datang bertahap & belum lengkap → cincin emas, masih bisa diisi lagi */
+.seat.booked.seat-partial{box-shadow:inset 0 0 0 2.5px #E0A82E}
+/* Meja dengan >1 reservasi (mis. jam 13:00 lalu 20:00) → penanda jumlah sisanya */
+.seat .seat-multi{position:absolute;top:2px;right:3px;background:rgba(20,14,0,.45);color:#fff;font-size:9px;font-weight:800;
+  line-height:1;padding:2px 4px;border-radius:6px;letter-spacing:.2px}
+.seat.avail .seat-multi{background:rgba(120,90,30,.5)}
 .seat.fu-warn{animation:fuPulse 1.1s ease-in-out infinite}
 @keyframes fuPulse{0%,100%{box-shadow:0 0 0 0 rgba(224,168,46,.7)}50%{box-shadow:0 0 0 7px rgba(224,168,46,0)}}
 /* Telat (lewat jam kedatangan, belum datang) → warna KUNING */
@@ -549,6 +555,7 @@ svg.lc{display:block;flex:none}
   .detail-grid{grid-template-columns:1fr}
   .chart-row{grid-template-columns:1fr}
   .check-list{grid-template-columns:1fr}
+  .tf-edit{grid-template-columns:1fr !important}   /* Finance: form & bukti jadi 1 kolom di HP */
   .page-head h2{font-size:22px}
   .appbar .app-search{max-width:none}
   body{font-size:14px}
@@ -643,6 +650,7 @@ svg.lc{display:block;flex:none}
     <div id="page-dashboard" class="page"></div>
     <div id="page-input" class="page hidden"></div>
     <div id="page-hariH" class="page hidden"></div>
+    <div id="page-finance" class="page hidden"></div>
     <div id="page-riwayat" class="page hidden"></div>
     <div id="page-analitik" class="page hidden"></div>
     <div id="page-review" class="page hidden"></div>
@@ -696,9 +704,9 @@ const ROLE_LABEL = {host:"Host / Captain", marketing:"Marketing (PIC)", cashier:
 const ROLE_NAV = {
   host:      ["dashboard","input","hariH","riwayat","analitik","review"],
   marketing: ["dashboard","input","hariH","riwayat","analitik","review"],
-  cashier:   ["dashboard","hariH","riwayat"],
-  manager:   ["dashboard","input","hariH","riwayat","analitik","review","master","audit"],
-  admin:     ["dashboard","input","hariH","riwayat","analitik","review","master","audit"],
+  cashier:   ["dashboard","hariH","finance","riwayat"],
+  manager:   ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
+  admin:     ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
 };
 const CAN = {
   input:  r => ["host","marketing","manager","admin"].includes(r),
@@ -708,6 +716,10 @@ const CAN = {
   audit:  r => ["manager","admin"].includes(r),
   manageUsers: r => ["manager","admin"].includes(r),   // Super Admin: kelola kru & hak akses
   seeDP:  () => true, // semua bisa lihat DP di detail; cashier memang butuh
+  finance: r => ["cashier","manager","admin"].includes(r),   // verifikasi dana masuk (DP)
+  // Hapus catatan uang masuk: HANYA Admin Sistem. Cashier/manajer boleh menolak
+  // buktinya, tapi tidak boleh menghilangkan jejak transaksinya.
+  deleteDp: r => r==="admin",
 };
 
 /* ====== ICON SET (Lucide-style line icons, seragam dgn desain COMS) ====== */
@@ -729,6 +741,7 @@ const ICON_PATHS = {
   refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
   star:'<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z"/>',
   hourglass:'<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
+receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8"/><path d="M8 12h6"/><path d="M8 16h4"/>',
 };
 function icon(name, size=18){
   const p = ICON_PATHS[name] || '';
@@ -741,6 +754,9 @@ const NAV_SECTIONS = [
     {id:"dashboard", label:"Dashboard", ico:"dashboard"},
     {id:"input",     label:"Input Reservasi", ico:"calendar-plus"},
     {id:"hariH",     label:"Kedatangan (Hari-H)", ico:"map-pin"},
+  ]},
+  {title:"Keuangan", items:[
+    {id:"finance",   label:"Dana Masuk (DP)", ico:"receipt"},
   ]},
   {title:"Data & Analisa", items:[
     {id:"riwayat",   label:"Riwayat", ico:"history"},
@@ -924,6 +940,102 @@ function tablesOf(r){ return String(r&&r.table||"").split(",").map(s=>s.trim()).
 const LOCK_LEAD_MIN = 180;
 // Tamu masih menempati meja (sudah datang & belum ditandai selesai/pulang).
 function isSeated(r){ return r && r.status==="Datang" && !r.leftAt; }
+
+/* ================= KEDATANGAN BERTAHAP (ROMBONGAN DATANG BEBERAPA GELOMBANG) =================
+   Tamu booking 10 pax, tapi datangnya dicicil: 2 orang dulu, lalu 3, lalu sisanya.
+   Tiap gelombang dicatat di r.arrivals = [{ts, pax, by}]. r.actualPax = jumlah semua
+   gelombang (tetap diisi supaya laporan/CSV lama tidak berubah artinya). */
+function arrivalsOf(r){ return Array.isArray(r && r.arrivals) ? r.arrivals : []; }
+// Total orang yang sudah benar-benar masuk.
+function arrivedPax(r){
+  const a = arrivalsOf(r);
+  if(a.length) return a.reduce((s,x)=>s+(Number(x.pax)||0), 0);
+  return (r && r.actualPax!=null) ? (Number(r.actualPax)||0) : 0;   // data lama tanpa rincian gelombang
+}
+// Sisa orang yang masih ditunggu (0 = rombongan sudah penuh).
+function remainingPax(r){ return Math.max(0, (Number(r&&r.pax)||0) - arrivedPax(r)); }
+function paxFull(r){ return arrivedPax(r) >= (Number(r&&r.pax)||0); }
+// Tamu sudah duduk tapi rombongannya belum lengkap → masih bisa nambah orang.
+function canAddArrival(r){ return isSeated(r) && remainingPax(r)>0; }
+// Migrasi data lama: actualPax sudah terisi tapi belum punya rincian gelombang.
+function ensureArrivals(r){
+  if(!Array.isArray(r.arrivals)) r.arrivals=[];
+  if(!r.arrivals.length && r.status==="Datang" && r.actualPax!=null && Number(r.actualPax)>0)
+    r.arrivals=[{ ts:r.checkinAt||r.updatedAt||Date.now(), pax:Number(r.actualPax)||0, by:r.createdBy||"-" }];
+}
+// Badge kecil "sisa 8" / "penuh ✓" untuk tamu yang sudah duduk.
+function paxBadge(r){
+  if(r.status!=="Datang") return "";
+  const sisa=remainingPax(r);
+  return sisa
+    ? `<span class="badge-status st-pending" style="font-size:10px" title="${sisa} orang lagi belum masuk">sisa ${sisa}</span>`
+    : `<span class="badge-status dp-yes" style="font-size:10px" title="Rombongan sudah lengkap">penuh ✓</span>`;
+}
+// Isi kolom "Pax" di tabel: "2/10 sisa 8" kalau sudah datang, angka polos kalau belum.
+function paxCell(r){
+  if(r.status!=="Datang") return String(r.pax||0);
+  return `<b>${arrivedPax(r)}</b><span class="muted">/${r.pax}</span> ${paxBadge(r)}`;
+}
+
+/* ================= DP BERTAHAP (BOLEH DICICIL, TIAP CICILAN PUNYA BUKTI SENDIRI) =========
+   r.dps = [{ id, amount, method, proofData, proofName, by, at,
+              tfDate, tfTime, tfBank, tfName, tfAmount,          <- hasil baca bukti (OCR)
+              tfStatus, tfNote, tfSource, tfBy, tfAt, tfOcrAt, tfOcrText }]
+   Field lama (dpAmount / dpMethod / dpProofData / dpStatus) tetap dipertahankan sebagai
+   RINGKASAN — dpAmount = TOTAL semua cicilan — supaya kwitansi, rekap WA, analitik &
+   CSV lama tidak perlu diubah. */
+function dpsOf(r){ return Array.isArray(r && r.dps) ? r.dps : []; }
+function dpTotal(r){ return dpsOf(r).reduce((a,p)=>a+(Number(p.amount)||0), 0); }
+// Data lama (1 DP, field datar) → dipindahkan jadi cicilan pertama.
+function ensureDps(r){
+  if(!Array.isArray(r.dps)) r.dps=[];
+  if(!r.dps.length && r.dpStatus==="Sudah" && (Number(r.dpAmount)>0 || r.dpProofData)){
+    r.dps=[{
+      id:uid(), amount:Number(r.dpAmount)||0, method:r.dpMethod||"",
+      proofData:r.dpProofData||"", proofName:r.dpProofName||"",
+      by:r.createdBy||"", at:r.createdAt||Date.now(),
+      tfDate:r.tfDate||"", tfTime:r.tfTime||"", tfBank:r.tfBank||"", tfName:r.tfName||"",
+      tfAmount:Number(r.tfAmount)||0, tfStatus:r.tfStatus||"", tfNote:r.tfNote||"",
+      tfSource:r.tfSource||"", tfBy:r.tfBy||"", tfAt:r.tfAt||0,
+      tfOcrAt:r.tfOcrAt||0, tfOcrText:r.tfOcrText||"",
+    }];
+  }
+  return r.dps;
+}
+/* Setelah cicilan berubah, samakan lagi field ringkasannya.
+   JANGAN panggil ensureDps() di sini. Waktu cicilan TERAKHIR dihapus, r.dps sudah
+   kosong tapi field lama (dpStatus "Sudah", dpAmount, dpProofData) belum sempat
+   dibersihkan — ensureDps akan mengira itu data lama yang belum dimigrasi, lalu
+   MEMBANGUN ULANG cicilan yang baru saja dihapus. Di sini kita justru yang menulis
+   ulang field lama itu dari isi r.dps, jadi urutannya harus dibalik. */
+function syncDp(r){
+  if(!Array.isArray(r.dps)) r.dps=[];
+  r.dpAmount = dpTotal(r);
+  if(r.dps.length){
+    r.dpStatus  = "Sudah";
+    r.dpMethod  = r.dps[0].method || "";
+    r.dpProofData = r.dps[0].proofData || "";      // bukti pertama, utk tautan lama
+    r.dpProofName = r.dps[0].proofName || "";
+  }else{
+    // Tidak ada uang masuk lagi → bersihkan SEMUA jejak DP lama, termasuk sisa hasil
+    // scan di field datar. Kalau tidak, ensureDps() bisa menghidupkannya lagi nanti.
+    r.dpStatus="Belum"; r.dpMethod=""; r.dpProofData=""; r.dpProofName="";
+    r.tfDate=""; r.tfTime=""; r.tfBank=""; r.tfName=""; r.tfAmount=0;
+    r.tfStatus=""; r.tfNote=""; r.tfSource=""; r.tfBy=""; r.tfAt=0;
+    r.tfOcrAt=0; r.tfOcrText="";
+  }
+  r.updatedAt=Date.now();
+}
+function newDp(){
+  return { id:uid(), amount:0, method:"", proofData:"", proofName:"", by:SESSION?SESSION.name:"", at:Date.now(),
+           tfDate:"", tfTime:"", tfBank:"", tfName:"", tfAmount:0, tfStatus:"", tfNote:"",
+           tfSource:"", tfBy:"", tfAt:0, tfOcrAt:0, tfOcrText:"" };
+}
+// Bukti diganti → hasil scan lama tidak berlaku lagi.
+function resetDpScan(p){
+  p.tfDate=""; p.tfTime=""; p.tfBank=""; p.tfName=""; p.tfAmount=0;
+  p.tfStatus=""; p.tfSource=""; p.tfOcrAt=0; p.tfOcrText="";
+}
 // Apakah reservasi `r` mengunci mejanya untuk jam datang `time`?
 // Semua diukur H-3 JAM DARI JAM DATANG `r`:
 //   - Jam yang LEBIH dari 3 jam sebelum jam datang r  → bebas.
@@ -1056,6 +1168,7 @@ function seatFromWait(id, tableId, sharing){
     source:"Walk-in", picType:"Host/Captain", picName:SESSION.name, member:false, memberNo:"",
     notes:("Dari waiting list"+(w.note?" — "+w.note:"")), vip:false, status:"Datang",
     actualPax:Number(w.pax), checkinAt:now, leftAt:0,
+    arrivals:[{ ts:now, pax:Number(w.pax), by:SESSION.name }],   // tamu antrean masuk langsung penuh
     createdBy:SESSION.name, createdAt:now, updatedAt:now, followups:[],
   };
   STATE.reservations.push(rec);
@@ -1118,7 +1231,23 @@ function occupiedMap(date, time, exceptId){
     if(!locksRange(r, a, b)) return;
     tablesOf(r).forEach(id=>{ if(!m.has(id)) m.set(id,[]); m.get(id).push(r); });
   });
+  // Satu meja bisa dipakai beberapa reservasi (mis. jam 13:00 lalu 20:00, atau booking
+  // 02:00 esok dini hari yang mengunci meja sejak 23:00 malam ini). Urutkan supaya yang
+  // TERDEKAT selalu di depan: tamu yang sedang duduk dulu, lalu jam datang paling awal.
+  // Tanpa ini urutannya mengikuti urutan input data, jadi meja bisa menampilkan booking
+  // jam 20:00 padahal ada yang jam 13:00 lebih dulu.
+  m.forEach(list=>list.sort((x,y)=>{
+    const sx=isSeated(x)?0:1, sy=isSeated(y)?0:1;
+    return sx!==sy ? sx-sy : absMin(x.date,x.time)-absMin(y.date,y.time);
+  }));
   return m;
+}
+// Label jam booking di denah. Kalau tanggalnya beda dari tanggal yang sedang dilihat
+// (mis. dini hari besok), tanggalnya ikut ditulis supaya tidak dikira jam segitu hari ini.
+function seatTimeLabel(r){
+  if(!r || !r.date) return "";
+  if(r.date===HARIH_DATE) return r.time;
+  return `${r.time} (${fmtDateShort(r.date).replace(/\s\d{4}$/,"")})`;
 }
 // Denah Hari-H: pisahkan meja yang BENAR-BENAR terkunci sekarang vs yang baru dipesan nanti.
 // - terkunci  : tamu sedang duduk, ATAU sudah masuk H-2 jam menjelang jam booking.
@@ -1198,21 +1327,30 @@ function seatMapMarkup(layoutKey, mode, occ, later){
           const nm=(list[0].name||'').split(' ')[0]+(list.length>1?` +${list.length-1}`:'');
           return `<button type="button" class="seat booked stsharing" style="${st}" onclick="sharingTableAction('${esq(t.id)}')" title="${esc(t.id+', SHARING, '+list.length+' grup, klik untuk kelola')}"><span class="sn">${esc(t.id)}</span><span class="sp">🤝 ${esc(nm)}</span>${seatSubTimer(list)}</button>`;
         }
-        const res=list[0], scls=seatStatusClass(res);
+        // list sudah urut: yang sedang duduk / jam TERDEKAT ada di depan.
+        // `later` = booking di meja yang sama tapi belum masuk jendela kunci (mis. dini hari
+        // besok). Ikut dihitung supaya host tahu meja ini masih ada antrean berikutnya.
+        const nanti=(later && later.get(t.id))||[];
+        const res=list[0], scls=seatStatusClass(res), lain=list.length-1+nanti.length;
         const isToday=(typeof HARIH_DATE!=="undefined") && HARIH_DATE===todayStr();
-        const bts=isToday ? new Date(HARIH_DATE+"T"+(res.time||"00:00")+":00").getTime() : 0;
+        // jam booking dihitung dari TANGGAL reservasinya sendiri (bisa dini hari besok)
+        const bts=isToday ? new Date((res.date||HARIH_DATE)+"T"+(res.time||"00:00")+":00").getTime() : 0;
         const attr=bts ? ` data-bts="${bts}" data-st="${esc(res.status)}"${isSeated(res)&&res.checkinAt?` data-cin="${res.checkinAt}"`:""}` : "";
-        const tip=isSeated(res)
-          ? `${t.id}, ${res.name}, sedang duduk sejak ${clockOf(res.checkinAt)} (${res.pax} pax)`
-          : `${t.id}, ${res.name}, ${res.time}, ${res.status}, ${res.pax} pax`;
-        return `<button type="button" class="seat booked ${scls}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc((res.name||'').split(' ')[0])}</span>${seatSubTimer(list)}</button>`;
+        // Rombongan yang belum lengkap: tampilkan "Budi 2/10" + cincin emas di mejanya.
+        const sisa=canAddArrival(res)?remainingPax(res):0;
+        const nm1=(res.name||'').split(' ')[0];
+        const tip=(isSeated(res)
+          ? `${t.id}, ${res.name}, sedang duduk sejak ${clockOf(res.checkinAt)} (${arrivedPax(res)} dari ${res.pax} pax${sisa?`, sisa ${sisa} orang belum datang, klik untuk catat kedatangan susulan`:", rombongan penuh"})`
+          : `${t.id}, ${res.name}, ${seatTimeLabel(res)}, ${res.status}, ${res.pax} pax`)
+          + (lain? `\nBerikutnya di meja ini: ` + list.slice(1).concat(nanti).map(x=>`${x.name} ${seatTimeLabel(x)}`).join(", ") : "");
+        return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(sisa?`${nm1} ${arrivedPax(res)}/${res.pax}`:nm1)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}</button>`;
       }
       // Kosong sekarang, tapi ada booking >3 jam lagi → boleh walk-in, ditandai jam kuncinya.
       const nWait=waitingQueue(HARIH_DATE).length;
       const nx=later ? nextBookingAt(later,t.id) : null;
       if(nx){
-        const tip=`${t.id}, ${t.cap} pax, kosong sekarang. Dipesan ${nx.res.name} jam ${nx.res.time}${nx.more?` (+${nx.more} lagi)`:""}, meja terkunci otomatis mulai ${nx.lockAt}. Klik untuk isi tamu.`;
-        return `<button type="button" class="seat avail booking-soon" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">🔒 ${esc(nx.res.time)}</span></button>`;
+        const tip=`${t.id}, ${t.cap} pax, kosong sekarang. Dipesan ${nx.res.name} jam ${seatTimeLabel(nx.res)}${nx.more?` (+${nx.more} reservasi lain)`:""}, meja terkunci otomatis mulai ${nx.lockAt}. Klik untuk isi tamu.`;
+        return `<button type="button" class="seat avail booking-soon" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">🔒 ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
       }
       const tipEmpty=`${t.id}, ${t.cap} pax, kosong. Klik untuk `+(nWait?`pilih tamu dari waiting list (${nWait} menunggu) / walk-in`:`walk-in`);
       return `<button type="button" class="seat avail" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tipEmpty)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span>${nWait?`<span class="seat-sub">⏳ ${nWait}</span>`:""}</button>`;
@@ -1324,7 +1462,11 @@ async function loadState(){
   setSync("sync","Memuat data…");
   const d = await apiGet("getAll");
   STATE.reservations = Array.isArray(d.reservations)? d.reservations : [];
-  STATE.reservations.forEach(r=>{ r.status = normStatus(r.status); });   // migrasi status lama
+  STATE.reservations.forEach(r=>{
+    r.status = normStatus(r.status);   // migrasi status lama
+    ensureArrivals(r);                 // data lama: actualPax → 1 gelombang kedatangan
+    ensureDps(r);                      // data lama: 1 DP datar → cicilan pertama
+  });
   STATE.master = Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), d.master||{});
   ensureUsersPerms();                 // seed users & hak akses bila Sheet lama belum punya
   STATE.audit = Array.isArray(d.audit)? d.audit : [];
@@ -1674,6 +1816,7 @@ function navigate(page){
   if(page==="dashboard") renderDashboard();
   else if(page==="input") renderInput(EDIT_ID);
   else if(page==="hariH") renderHariH();
+  else if(page==="finance") renderFinance();
   else if(page==="riwayat") renderRiwayat();
   else if(page==="analitik") renderAnalitik();
   else if(page==="review") renderReview();
@@ -2090,6 +2233,7 @@ function saveReservation(){
     dpStatus, dpMethod: dpStatus==="Sudah"?g("dpMethod"):"", dpAmount: dpStatus==="Sudah"?rupiahVal(g("dpAmount")):0,
     dpProofData: PENDING_FILES.dpProofData?.data || existing?.dpProofData || "",
     dpProofName: PENDING_FILES.dpProofData?.name || existing?.dpProofName || "",
+    dps: existing?.dps || [],             // cicilan DP (boleh lebih dari satu kali transfer)
     docReqData: PENDING_FILES.docReqData?.data || existing?.docReqData || "",
     docReqName: PENDING_FILES.docReqData?.name || existing?.docReqName || "",
     source:g("source"),
@@ -2103,11 +2247,35 @@ function saveReservation(){
     createdAt: existing?existing.createdAt:now,
     updatedAt: now,
     actualPax: existing?.actualPax||null,
+    arrivals: existing?.arrivals||[],     // gelombang kedatangan (rombongan bisa datang bertahap)
     checkinAt: existing?.checkinAt||null,
     leftAt: existing?.leftAt||0,
     followups: existing?.followups||[],
     cancelReason: existing?.cancelReason||"",
+    // Data transfer DP untuk halaman Finance (diisi lewat scan bukti / edit manual)
+    tfDate: existing?.tfDate||"", tfTime: existing?.tfTime||"", tfBank: existing?.tfBank||"",
+    tfAmount: existing?.tfAmount||0, tfStatus: existing?.tfStatus||"", tfNote: existing?.tfNote||"",
+    tfSource: existing?.tfSource||"", tfBy: existing?.tfBy||"", tfAt: existing?.tfAt||0,
+    tfOcrAt: existing?.tfOcrAt||0, tfOcrText: existing?.tfOcrText||"",
   };
+  /* DP dari form ini = cicilan PERTAMA. Cicilan berikutnya ditambah lewat tombol
+     "Tambah Bukti TF DP" di detail reservasi, dan TIDAK ikut tertimpa di sini. */
+  ensureDps(rec);
+  if(dpStatus==="Sudah"){
+    const p0 = rec.dps[0] || newDp();
+    p0.amount = rupiahVal(g("dpAmount"));
+    p0.method = g("dpMethod");
+    if(PENDING_FILES.dpProofData){
+      p0.proofData = PENDING_FILES.dpProofData.data;
+      p0.proofName = PENDING_FILES.dpProofData.name;
+      resetDpScan(p0);                       // bukti baru → hasil scan lama dibuang
+    }
+    if(!rec.dps.length) rec.dps.push(p0);
+  }else if(rec.dps.length<=1){
+    rec.dps=[];                              // host menyatakan belum DP; aman karena belum dicicil
+  }
+  syncDp(rec);
+  rec.updatedAt = now;
   if(EDIT_ID){
     STATE.reservations = STATE.reservations.map(x=>x.id===EDIT_ID?rec:x);
     logAudit("Edit Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time})`);
@@ -2248,7 +2416,7 @@ function renderDashboard(){
   const filtered = applyFilter(STATE.reservations);
   // recap
   const totalPax = filtered.reduce((a,r)=>a+(Number(r.pax)||0),0);
-  const arrivedPax = filtered.reduce((a,r)=>a+(Number(r.actualPax)||0),0);
+  const arrivedTotal = filtered.reduce((a,r)=>a+arrivedPax(r),0);
   const dpYes = filtered.filter(r=>r.dpStatus==="Sudah").length;
   const newC = filtered.filter(r=>customerProfile(r.phone).visits===0).length;
   const loyalC = filtered.length-newC;
@@ -2266,7 +2434,7 @@ function renderDashboard(){
 
    <div class="recap-grid">
      <div class="recap"><div class="lbl">📋 Total Reservasi</div><div class="val">${filtered.length}</div><div class="sub">periode terpilih</div></div>
-     <div class="recap info"><div class="lbl">👥 Pax Dipesan vs Datang</div><div class="val">${totalPax}<small> / ${arrivedPax} datang</small></div><div class="sub">${totalPax?Math.round(arrivedPax/totalPax*100):0}% realisasi</div></div>
+     <div class="recap info"><div class="lbl">👥 Pax Dipesan vs Datang</div><div class="val">${totalPax}<small> / ${arrivedTotal} datang</small></div><div class="sub">${totalPax?Math.round(arrivedTotal/totalPax*100):0}% realisasi</div></div>
      <div class="recap ok"><div class="lbl">💰 Sudah DP</div><div class="val">${dpYes}<small> / ${filtered.length-dpYes} belum</small></div><div class="sub">reservasi ber-DP</div></div>
      <div class="recap purple"><div class="lbl">🔁 Baru vs Loyal</div><div class="val">${newC}<small> / ${loyalC} loyal</small></div><div class="sub">tamu baru vs repeat</div></div>
      <div class="recap ${needFU>0?'danger':''}"><div class="lbl">📞 Perlu Follow Up</div><div class="val">${needFU}</div><div class="sub">belum konfirmasi hari ini</div></div>
@@ -2315,7 +2483,7 @@ function dashTable(list){
        <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}</td>
        <td>${fmtDateShort(r.date)}</td>
        <td>${r.time}</td>
-       <td>${r.pax}${r.actualPax!=null?` <span class="muted">/${r.actualPax}✓</span>`:""}</td>
+       <td>${paxCell(r)}</td>
        <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
        <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
        <td class="muted">${r.picType==="Marketing"?esc(r.picName):"Host/Capt"}</td>
@@ -2658,6 +2826,7 @@ function seatAction(id){
   const seated=r.status==="Datang" && !r.leftAt;
   let acts="";
   if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
+  if(canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
   if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
   if(canEdit){
     acts+=`<button class="btn btn-ghost" onclick="toggleSharing('${r.id}')">🤝 ${r.sharing?"Batalkan Sharing":"Jadikan Sharing"}</button>`;
@@ -2668,15 +2837,28 @@ function seatAction(id){
   }
   // Batalkan hanya untuk tamu yang BELUM datang (yang sudah datang → pakai "Selesai").
   if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
+  // Reservasi LAIN di meja yang sama (mis. meja dipakai jam 13:00 lalu 20:00, atau ada
+  // booking dini hari besok). Ditampilkan supaya host tahu meja ini masih ada antriannya.
+  const {occ,later}=harihOccupancy();
+  const antre=tablesOf(r)
+    .flatMap(id=>partiesAt(occ,id).concat(later.get(id)||[]))
+    .filter(x=>x.id!==r.id)
+    .filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i)
+    .sort((x,y)=>absMin(x.date,x.time)-absMin(y.date,y.time));
   openModal(`<div class="modal-head"><h3>Meja ${esc(r.table)}, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
        <span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
        ${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
      </div>
+     ${antre.length?`<div class="inline-warn" style="margin-bottom:12px"><div>
+        <b>Meja ini punya ${antre.length} reservasi lain.</b> Yang ditampilkan adalah yang <b>paling dekat</b> jamnya.
+        <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+          ${antre.map(x=>`<button class="btn btn-xs btn-ghost" onclick="closeModal();seatAction('${x.id}')">${esc(x.name)} · ${esc(seatTimeLabel(x))} · ${x.pax} pax</button>`).join("")}
+        </div></div></div>`:""}
      <div class="detail-grid">
-       <div class="detail-item"><div class="k">Jam</div><div class="v">${r.time}</div></div>
-       <div class="detail-item"><div class="k">Pax</div><div class="v">${r.pax}${r.actualPax!=null?` (datang ${r.actualPax})`:""}</div></div>
+       <div class="detail-item"><div class="k">Jam</div><div class="v">${esc(seatTimeLabel(r))}</div></div>
+       <div class="detail-item"><div class="k">Pax</div><div class="v">${r.status==="Datang"?`${arrivedPax(r)} / ${r.pax} ${paxBadge(r)}`:`${r.pax}`}</div></div>
        <div class="detail-item"><div class="k">No. HP</div><div class="v">${displayPhone(r.phone)||"-"}</div></div>
        <div class="detail-item"><div class="k">DP</div><div class="v">${r.dpStatus==="Sudah"?rpDot(r.dpAmount):"Belum"}</div></div>
        ${r.checkinAt?`<div class="detail-item"><div class="k">Mulai Duduk</div><div class="v">${fmtTs(r.checkinAt)} ${latenessLabel(r)}</div></div>`:""}
@@ -2817,6 +2999,7 @@ function saveWalkIn(tableId, doPrint){
     table:tableId, sharing, category:"Tamu Umum", foodReq:"", drinkReq:"", dpStatus:"Belum", dpMethod:"", dpAmount:0,
     dpProofData:"", dpProofName:"", docReqData:"", docReqName:"", source:"Walk-in", picType:"Host/Captain", picName:SESSION.name,
     member:false, memberNo:"", notes:"Walk-in", vip:false, status:"Datang", actualPax:pax, checkinAt:now,
+    arrivals:[{ ts:now, pax, by:SESSION.name }],   // walk-in: rombongan langsung masuk penuh
     createdBy:SESSION.name, createdAt:now, updatedAt:now, followups:[] };
   STATE.reservations.push(rec);
   logAudit("Walk-in",`${name}, meja ${tableId} (${pax} pax)${sharing?", sharing":""}`); saveState(); closeModal(); renderHariH();
@@ -3043,12 +3226,15 @@ function renderHariH(){
   const noshow = dayList.filter(r=>r.status==="No-show").length;
   const queue = waitingQueue(HARIH_DATE);
   // Total orang hari itu: dari jumlah pax yang dipesan. No-show tidak dihitung
-  // karena tamunya tidak jadi datang. Pax yang benar-benar hadir pakai actualPax bila ada.
+  // karena tamunya tidak jadi datang. Pax yang benar-benar hadir dijumlah dari
+  // gelombang kedatangan (rombongan boleh masuk bertahap).
   const paxList  = dayList.filter(r=>r.status!=="No-show");
   const totalPax = paxList.reduce((a,r)=>a+(Number(r.pax)||0),0);
-  const paxDatang = paxList.filter(r=>r.status==="Datang")
-    .reduce((a,r)=>a+(Number(r.actualPax!=null?r.actualPax:r.pax)||0),0);
+  const paxDatang = paxList.filter(r=>r.status==="Datang").reduce((a,r)=>a+arrivedPax(r),0);
   const paxQueue = queue.reduce((a,w)=>a+(Number(w.pax)||0),0);
+  // Rombongan yang sudah duduk tapi belum lengkap → sisa orang yang masih ditunggu.
+  const partial  = dayList.filter(r=>canAddArrival(r));
+  const paxSisa  = partial.reduce((a,r)=>a+remainingPax(r),0);
 
   byId("page-hariH").innerHTML = `
    <div class="page-head">
@@ -3062,7 +3248,9 @@ function renderHariH(){
    </div>
    <div class="recap-grid">
      <div class="recap"><div class="lbl">📋 Total Hari Ini</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
-     <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${totalPax}</div><div class="sub">${paxDatang} sudah datang${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
+     <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${paxDatang}<small> / ${totalPax}</small></div><div class="sub">sudah masuk${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
+     <div class="recap ${paxSisa?'warn':''}"><div class="lbl">🪑 Sisa Pax Rombongan</div><div class="val">${paxSisa}</div>
+       <div class="sub">${paxSisa?`${partial.length} meja belum penuh — bisa diisi lagi`:"semua rombongan lengkap"}</div></div>
      <div class="recap ok"><div class="lbl">✅ Sudah Datang</div><div class="val">${arrived}</div></div>
      <div class="recap warn"><div class="lbl">⏳ Belum Datang</div><div class="val">${pending}</div></div>
      <div class="recap danger"><div class="lbl">⚠️ No-show</div><div class="val">${noshow}</div></div>
@@ -3098,7 +3286,7 @@ function renderHariH(){
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
             ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>`:r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
-          <td>${r.pax}${r.actualPax!=null?` <span class="muted">/${r.actualPax}✓</span>`:""}</td>
+          <td>${paxCell(r)}</td>
           <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
           <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
@@ -3107,6 +3295,7 @@ function renderHariH(){
             ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="checkIn('${r.id}')">✅ Datang</button>
               <button class="btn btn-xs btn-wa" onclick="followUp('${r.id}')">📞 Follow Up</button>
               <button class="btn btn-xs btn-danger" onclick="markNoShow('${r.id}')">⚠️</button>`:""}
+            ${canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
             ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
@@ -3115,13 +3304,98 @@ function renderHariH(){
   `;
   if(HARIH_VIEW==='map') updateHarihTimers();   // tampilkan warning/timer segera
 }
-function checkIn(id){
-  const r=STATE.reservations.find(x=>x.id===id);
-  const actual = prompt(`Check-in "${r.name}".\nJumlah tamu yang benar-benar datang (dipesan ${r.pax} pax):`, r.pax);
-  if(actual===null) return;
-  r.status="Datang"; r.actualPax=Number(actual)||r.pax; r.checkinAt=Date.now(); r.updatedAt=Date.now();
-  logAudit("Datang",`${r.name}, ${r.actualPax} pax datang`); saveState(); buildNav(); renderHariH();
-  toast(`${r.name} sudah datang ✓`,"ok");
+/* ===== Check-in & kedatangan susulan =====
+   Rombongan boleh datang bertahap. Tiap kali ada yang masuk, catat gelombangnya;
+   sisa pax yang belum datang tetap kelihatan sampai rombongan penuh. */
+function checkIn(id){ openArrivalModal(id, true); }
+function addArrival(id){ openArrivalModal(id, false); }
+
+function openArrivalModal(id, first){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  ensureArrivals(r);
+  const sudah=arrivedPax(r), sisa=remainingPax(r);
+  const dflt = sisa>0 ? sisa : 1;                       // default: langsung penuhi sisanya
+  const quick=[...new Set([1,2,3,4,5,sisa].filter(n=>n>0 && n<=Math.max(sisa,1)))].sort((a,b)=>a-b);
+  const log = arrivalsOf(r).map((a,i)=>`
+    <div class="fu-log" style="display:flex;align-items:center;gap:10px">
+      <div style="flex:1"><b>${a.pax} orang</b> masuk
+        <div class="meta">${fmtTs(a.ts)}${a.by?", dicatat "+esc(a.by):""}</div></div>
+      ${CAN.input(SESSION.role)?`<button class="btn btn-xs btn-danger" title="Batalkan catatan gelombang ini" onclick="undoArrival('${r.id}',${i})">✕</button>`:""}
+    </div>`).join("");
+
+  openModal(`
+   <div class="modal-head">
+     <h3>${first?"✅ Tamu Datang":"➕ Tamu Datang Lagi"} — ${esc(r.name)}</h3>
+     <button class="close-x" onclick="closeModal()">×</button>
+   </div>
+   <div class="modal-body">
+     <div class="detail-grid" style="margin-bottom:12px">
+       <div class="detail-item"><div class="k">Dipesan</div><div class="v">${r.pax} pax</div></div>
+       <div class="detail-item"><div class="k">Sudah Masuk</div><div class="v">${sudah} orang</div></div>
+       <div class="detail-item"><div class="k">Sisa Belum Datang</div>
+         <div class="v" style="color:${sisa?'var(--warn)':'var(--ok)'};font-weight:700">${sisa?sisa+" orang":"— penuh ✓"}</div></div>
+       <div class="detail-item"><div class="k">Meja</div><div class="v">${esc(r.table)||"-"}</div></div>
+     </div>
+     ${sisa===0?`<div class="inline-warn">Rombongan sudah lengkap (${sudah}/${r.pax}). Kalau tetap ada tamu tambahan di luar booking, jumlahnya akan melebihi pesanan.</div>`:""}
+     <div class="field" style="margin-top:12px">
+       <label>Jumlah orang yang masuk sekarang <span class="req">*</span></label>
+       <input id="arvPax" type="number" min="1" value="${dflt}" onkeydown="if(event.key==='Enter')saveArrival('${r.id}',${!!first})">
+     </div>
+     <div class="pill-row">
+       ${quick.map(n=>`<span class="pill" style="cursor:pointer" onclick="byId('arvPax').value=${n}">${n===sisa&&sisa>0?`semua sisa (${n})`:n+" orang"}</span>`).join("")}
+     </div>
+     ${log?`<div class="section-title" style="margin-top:16px">👥 Gelombang Kedatangan</div>${log}`:""}
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="saveArrival('${r.id}',${!!first})">💾 Catat Kedatangan</button>
+   </div>`);
+  setTimeout(()=>{ const el=byId("arvPax"); if(el){ el.focus(); el.select(); } }, 60);
+}
+
+function saveArrival(id, first){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  ensureArrivals(r);
+  const n=Number(byId("arvPax")?.value||0);
+  if(!n || n<1){ toast("Jumlah orang yang masuk minimal 1","err"); return; }
+  const total=arrivedPax(r)+n;
+  if(total > Number(r.pax||0) &&
+     !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)) return;
+
+  const now=Date.now();
+  r.arrivals.push({ ts:now, pax:n, by:SESSION.name });
+  r.actualPax = arrivedPax(r);
+  if(r.status!=="Datang"){ r.status="Datang"; r.leftAt=0; }
+  if(!r.checkinAt) r.checkinAt=now;
+  r.updatedAt=now;
+
+  const sisa=remainingPax(r);
+  logAudit(first?"Datang":"Datang Susulan",
+    `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`);
+  saveState(); closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(sisa
+    ? `${r.name}: ${r.actualPax}/${r.pax} pax masuk — sisa ${sisa} pax masih ditunggu`
+    : `${r.name}: ${r.actualPax}/${r.pax} pax — rombongan lengkap ✓`, sisa?"":"ok");
+}
+
+// Salah catat gelombang → hapus. Kalau semua gelombang hilang, tamu kembali "belum datang".
+function undoArrival(id, idx){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  ensureArrivals(r);
+  const a=r.arrivals[idx]; if(!a) return;
+  if(!confirm(`Hapus catatan "${a.pax} orang masuk" (${fmtTs(a.ts)})?`)) return;
+  r.arrivals.splice(idx,1);
+  r.actualPax = r.arrivals.length ? arrivedPax(r) : null;
+  if(!r.arrivals.length){                       // tidak ada yang datang lagi → balik ke Confirmed
+    r.status="Confirmed"; r.checkinAt=null; r.leftAt=0;
+  }
+  r.updatedAt=Date.now();
+  logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`);
+  saveState(); buildNav();
+  if(r.arrivals.length) openArrivalModal(id,false); else closeModal();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast("Catatan kedatangan dihapus","err");
 }
 // Batalkan reservasi → meja kembali tersedia (cream)
 function cancelReservation(id){
@@ -3331,16 +3605,39 @@ function openDetail(id){
        ${di("📱 No. HP",`<a href="whatsapp://send?phone=${normPhone(r.phone)}">${displayPhone(r.phone)}</a>`)}
        ${di("📅 Tanggal",fmtDate(r.date))}
        ${di("🕗 Jam",r.time+" WIB")}
-       ${di("👥 Pax",r.pax+" orang"+(r.actualPax!=null?` (datang: ${r.actualPax})`:""))}
+       ${di("👥 Pax", r.status==="Datang"
+            ? `${arrivedPax(r)} dari ${r.pax} orang ${paxBadge(r)}${remainingPax(r)?`<div class="muted" style="font-size:12px;margin-top:2px">masih ditunggu ${remainingPax(r)} orang lagi</div>`:""}`
+            : `${r.pax} orang`)}
        ${di("🪑 Meja",esc(r.table))}
        ${di("🏷️ Jenis Reservasi",r.category?`<span class="tag-cat">${esc(r.category)}</span>`:"-")}
        ${di("📣 Sumber",esc(r.source))}
        ${di("🧭 PIC",r.picType==="Marketing"?"Marketing: "+esc(r.picName):"Host/Captain")}
        ${di("👤 Tipe Tamu",`${p.type}, ${p.visits}× kunjungan${p.lastVisit?", terakhir "+fmtDateShort(p.lastVisit):""}`)}
        ${(r.foodReq||r.drinkReq)?`<div class="section-title">🍽️ Menu Request</div>${di("Makanan",esc(r.foodReq))}${di("Minuman",esc(r.drinkReq))}`:""}
-       ${r.dpStatus==="Sudah"?`<div class="section-title">💰 Down Payment</div>${di("Nominal",rpDot(r.dpAmount))}${di("Metode",esc(r.dpMethod))}${hasDP(r)?`${di("No. Kwitansi",esc(kwitansiNo(r)))}<div class="detail-item full"><div class="k">Kwitansi DP</div><div class="v"><button class="btn btn-xs btn-wa" onclick="closeModal();openKwitansi('${r.id}')">🧾 Kirim / Print Kwitansi</button></div></div>`:""}${r.dpProofData?`<div class="detail-item full"><div class="k">Bukti DP</div><div class="v"><button class="btn btn-xs btn-ghost" onclick="viewFile('${r.id}','dp')">🖼️ Lihat Bukti (${esc(r.dpProofName)})</button></div></div>`:""}`:""}
+       <div class="section-title">💰 Down Payment${dpsOf(r).length>1?` <span class="muted" style="font-weight:500;font-size:12px">(dicicil ${dpsOf(r).length}×)</span>`:""}</div>
+       ${di("Total DP Masuk", dpsOf(r).length?`<b>${rpDot(dpTotal(r))}</b>`:"Belum DP")}
+       ${hasDP(r)?di("No. Kwitansi",esc(kwitansiNo(r))):""}
+       <div class="detail-item full">
+         ${dpsOf(r).map((p,i)=>`
+           <div class="fu-log" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+             <div style="flex:1;min-width:170px">
+               <b>DP ${i+1} · ${rpDot(p.amount)}</b> ${dpBadge(p)}
+               <div class="meta">${esc(p.method||"-")}${p.tfName?" · a.n. "+esc(p.tfName):""}${p.tfDate?" · "+fmtDateShort(p.tfDate)+(p.tfTime?" "+esc(p.tfTime):""):""} · dicatat ${esc(p.by||"-")}, ${fmtTs(p.at)}</div>
+             </div>
+             ${p.proofData?`<button class="btn btn-xs btn-ghost" onclick="viewProof('${r.id}','${p.id}')">🖼️ Bukti</button>`:`<span class="badge-status st-noshow" style="font-size:10px">tanpa bukti</span>`}
+             ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" title="Hapus catatan DP ini (khusus Admin Sistem)" onclick="delDp('${r.id}','${p.id}')">🗑️</button>`:""}
+           </div>`).join("")}
+         ${CAN.input(SESSION.role)||CAN.finance(SESSION.role)?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
+            ${hasDP(r)?`<button class="btn btn-xs btn-wa" onclick="closeModal();openKwitansi('${r.id}')">🧾 Kirim / Print Kwitansi</button>`:""}
+          </div>`:""}
+       </div>
        ${r.notes?`<div class="detail-item full"><div class="k">📝 Catatan Khusus</div><div class="v">${esc(r.notes)}</div></div>`:""}
        ${r.docReqData?`<div class="detail-item full"><div class="k">📎 Dokumen Special Request</div><div class="v"><button class="btn btn-xs btn-ghost" onclick="viewFile('${r.id}','doc')">📄 Lihat (${esc(r.docReqName)})</button></div></div>`:""}
+       ${arrivalsOf(r).length?`<div class="section-title">👥 Gelombang Kedatangan</div><div class="detail-item full">
+          ${arrivalsOf(r).map(a=>`<div class="fu-log"><b>${a.pax} orang</b> masuk<div class="meta">${fmtTs(a.ts)}${a.by?", dicatat "+esc(a.by):""}</div></div>`).join("")}
+          <div class="muted" style="font-size:12.5px;margin-top:6px">Total masuk: <b>${arrivedPax(r)}</b> dari ${r.pax} pax${remainingPax(r)?` — sisa <b>${remainingPax(r)}</b> orang`:" — lengkap ✓"}</div>
+        </div>`:""}
        ${r.followups?.length?`<div class="section-title">📞 Riwayat Follow Up</div><div class="detail-item full">${r.followups.map(f=>`<div class="fu-log">${esc(f.note)}<div class="meta">${esc(f.by)}, ${fmtTs(f.ts)}</div></div>`).join("")}</div>`:""}
        <div class="section-title">🕓 Jejak & Waktu Duduk</div>
        ${di("Diinput oleh",esc(r.createdBy)+", "+fmtTs(r.createdAt))}
@@ -3354,10 +3651,12 @@ function openDetail(id){
    </div>
    <div class="modal-foot">
      ${canDel?`<button class="btn btn-danger btn-sm" onclick="delReservation('${r.id}')" style="margin-right:auto">🗑️ Hapus</button>`:""}
+     ${canAddArrival(r)?`<button class="btn btn-ok btn-sm" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`:""}
      ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
      ${r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
      <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
+     ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
      ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openKwitansi('${r.id}')" title="Kirim/print kwitansi pembayaran DP">🧾 Kwitansi DP</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      <button class="btn btn-ghost btn-sm" onclick="printCheck('${r.id}')">🖨️ Print Struk</button>
@@ -3365,10 +3664,89 @@ function openDetail(id){
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
    </div>`, true);
 }
+/* ===== DP bertahap: tambah / hapus cicilan + buktinya ===== */
+const DP_BADGE = {
+  verified:'<span class="badge-status dp-yes" style="font-size:10px">✓ terverifikasi</span>',
+  rejected:'<span class="badge-status st-noshow" style="font-size:10px">✕ ditolak</span>',
+};
+function dpBadge(p){ return DP_BADGE[p.tfStatus] || '<span class="badge-status st-pending" style="font-size:10px">⏳ belum terverifikasi</span>'; }
+function findDp(resId, payId){
+  const r=STATE.reservations.find(x=>x.id===resId); if(!r) return {};
+  ensureDps(r);
+  return { r, p:r.dps.find(x=>x.id===payId) };
+}
+function viewProof(resId, payId){
+  const {p}=findDp(resId,payId); if(!p || !p.proofData) return;
+  showFileData(p.proofData);
+}
+function openAddDp(resId){
+  const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
+  ensureDps(r);
+  const m=STATE.master;
+  const ke=r.dps.length+1;
+  PENDING_FILES={};
+  openModal(`
+   <div class="modal-head"><h3>💰 Tambah Bukti TF DP — ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-info" style="margin-bottom:12px"><div>
+       Reservasi ${fmtDateShort(r.date)} ${esc(r.time)}, ${r.pax} pax${r.table?", meja "+esc(r.table):""}.<br>
+       ${r.dps.length?`Sudah masuk <b>${rpDot(dpTotal(r))}</b> dari ${r.dps.length} kali transfer. Ini akan jadi <b>DP ke-${ke}</b>.`
+                     :"Belum ada DP tercatat. Ini akan jadi <b>DP pertama</b>."}
+     </div></div>
+     <div class="field"><label>Nominal DP <span class="req">*</span></label>
+       <input id="ndp_amount" inputmode="numeric" placeholder="mis. 300.000" oninput="fmtRupiahInput(this)"></div>
+     <div class="field"><label>Metode / Tujuan Transfer</label>
+       <select id="ndp_method">${(m.dpMethods||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div>
+     <div class="field"><label>Upload Bukti Transfer (foto/pdf)</label>
+       <input type="file" accept="image/*,application/pdf" onchange="fileToData(this,'ndpProof')">
+       <div id="ndpProof" class="hint"></div>
+       <div class="hint">Tanggal, jam, nominal, bank &amp; nama pengirim akan dibaca otomatis dari bukti ini di halaman Dana Masuk.</div></div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="saveAddDp('${r.id}')">💾 Simpan DP</button>
+   </div>`);
+}
+function saveAddDp(resId){
+  const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
+  ensureDps(r);
+  const amount=rupiahVal(byId("ndp_amount").value);
+  if(!amount){ toast("Nominal DP wajib diisi","err"); return; }
+  const p=newDp();
+  p.amount=amount;
+  p.method=byId("ndp_method")?.value||"";
+  if(PENDING_FILES.ndpProof){ p.proofData=PENDING_FILES.ndpProof.data; p.proofName=PENDING_FILES.ndpProof.name; }
+  r.dps.push(p);
+  syncDp(r);
+  if(r.status==="Pending") r.status="Confirmed";     // sudah ada uang masuk
+  PENDING_FILES={};
+  logAudit("Tambah DP", `${r.name}: DP ke-${r.dps.length} ${rpDot(amount)} (total ${rpDot(dpTotal(r))})`);
+  saveState(); closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(`DP ${rpDot(amount)} tercatat — total DP ${rpDot(dpTotal(r))} ✓`,"ok");
+}
+// Hapus satu catatan uang masuk. Dibatasi Admin Sistem — ini menghapus bukti uang,
+// jadi selain tercatat di audit log, dicegah juga di sisi tombol maupun di sini.
+function delDp(resId, payId){
+  if(!CAN.deleteDp(SESSION.role)){ toast("Hanya Admin Sistem yang boleh menghapus transaksi dana masuk","err"); return; }
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  if(!confirm(`Hapus transaksi dana masuk ${rpDot(p.amount)} (${p.method||"-"}) milik "${r.name}"?\n\nCatatan uang masuk ini akan hilang. Tindakan ini tercatat di audit log.`)) return;
+  r.dps=r.dps.filter(x=>x.id!==payId);
+  syncDp(r);
+  logAudit("Hapus Dana Masuk", `${r.name}: hapus ${rpDot(p.amount)} (${p.tfBank||p.method||"-"}${p.tfName?", a.n. "+p.tfName:""}) — sisa total DP ${rpDot(dpTotal(r))}`);
+  saveState(); closeModal();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast("Transaksi dana masuk dihapus","err");
+}
+
+function showFileData(data){
+  const w=window.open("");
+  w.document.write(`<title>Bukti</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh">${String(data).startsWith("data:application/pdf")?`<iframe src="${data}" style="width:100vw;height:100vh;border:none"></iframe>`:`<img src="${data}" style="max-width:100%;max-height:100vh">`}</body>`);
+}
 function viewFile(id,which){
-  const r=STATE.reservations.find(x=>x.id===id);
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const data=which==="dp"?r.dpProofData:r.docReqData;
-  const w=window.open(""); w.document.write(`<title>Bukti</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh">${data.startsWith("data:application/pdf")?`<iframe src="${data}" style="width:100vw;height:100vh;border:none"></iframe>`:`<img src="${data}" style="max-width:100%;max-height:100vh">`}</body>`);
+  if(data) showFileData(data);
 }
 // Deretan tombol status (menggantikan dropdown + tombol "Terapkan").
 // Status yang sedang aktif tampil ter-highlight & tidak bisa diklik.
@@ -3386,9 +3764,13 @@ function changeStatus(id, status){
   if(!ns || ns===r.status) return;
   if(ns==="Cancelled"){ const reason=prompt("Alasan pembatalan:"); if(reason===null) return; r.cancelReason=reason; }
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
+  // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
+  // bertahap, pakai tombol "✅ Datang" / "➕ Tamu Datang Lagi" yang mencatat per gelombang.
   if(ns==="Datang"){
     if(!r.checkinAt) r.checkinAt=Date.now();
-    if(r.actualPax==null) r.actualPax=r.pax;
+    if(!Array.isArray(r.arrivals)) r.arrivals=[];
+    if(!r.arrivals.length) r.arrivals=[{ ts:r.checkinAt, pax:Number(r.pax)||0, by:SESSION.name }];
+    r.actualPax=arrivedPax(r);
     r.leftAt=0;   // masih duduk
   }
   r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`); saveState(); buildNav();
@@ -3420,6 +3802,646 @@ function delReservation(id){
   closeModal(); toast("Reservasi dihapus","err"); navigate(CURRENT_PAGE);
 }
 
+/* ======================================================================
+   FINANCE, DANA MASUK (DP)
+   Halaman khusus Cashier/Finance: mengecek uang DP yang benar-benar masuk.
+   Sumber datanya BUKTI TRANSFER yang di-upload host saat input reservasi.
+   Bukti (gambar) dibaca OCR → tanggal, jam, nominal, bank ditarik otomatis,
+   lalu boleh dikoreksi manual sebelum diverifikasi.
+   Field hasil scan disimpan di reservasi: tfDate, tfTime, tfBank, tfAmount,
+   tfStatus ("", "verified", "rejected"), tfNote, tfSource, tfOcrAt, tfOcrText.
+   ====================================================================== */
+
+/* ---------- Mesin OCR (Tesseract.js, dimuat dari CDN saat dibutuhkan) ---------- */
+const OCR_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+let _ocrLoad=null, _ocrWorker=null;
+function loadOCR(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(_ocrLoad) return _ocrLoad;
+  _ocrLoad = new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src=OCR_SRC;
+    // batas waktu: kalau koneksi mati/lambat, jangan menggantung selamanya
+    const t=setTimeout(()=>rej(new Error("Mesin OCR tidak bisa dimuat (koneksi lambat / offline).")), 45000);
+    s.onload =()=>{ clearTimeout(t); window.Tesseract ? res(window.Tesseract) : rej(new Error("Mesin OCR gagal dimuat")); };
+    s.onerror=()=>{ clearTimeout(t); rej(new Error("Gagal memuat mesin OCR. Scan bukti butuh koneksi internet.")); };
+    document.head.appendChild(s);
+  }).catch(e=>{ _ocrLoad=null; throw e; });
+  return _ocrLoad;
+}
+async function getOcrWorker(){
+  if(_ocrWorker) return _ocrWorker;
+  const T=await loadOCR();
+  _ocrWorker = await T.createWorker("eng");   // struk bank isinya angka + nama bank, model "eng" paling stabil
+  return _ocrWorker;
+}
+// Bukti biasanya kecil & agak buram (sudah dikompres saat upload). Diperbesar +
+// dijadikan hitam-putih kontras tinggi supaya angka lebih terbaca OCR.
+function prepOcrImage(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(3, Math.max(1, 1700/(img.width||1)));
+      const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      const x=c.getContext("2d");
+      x.drawImage(img,0,0,w,h);
+      try{
+        const d=x.getImageData(0,0,w,h), p=d.data;
+        for(let i=0;i<p.length;i+=4){
+          const g=(0.299*p[i]+0.587*p[i+1]+0.114*p[i+2])/255;   // grayscale 0..1
+          // Gamma menggelapkan nada tengah: teks ABU-ABU (tanggal/jam di struk Livin,
+          // SeaBank, dll ditulis abu muda) jadi lebih hitam, sedangkan latar putih
+          // tetap putih. JANGAN pakai contrast stretch di sekitar 128 — itu justru
+          // memucatkan teks abu sampai hilang terbaca.
+          const v=Math.round(255*Math.pow(g,1.6));
+          p[i]=p[i+1]=p[i+2]= v<0?0:v>255?255:v;
+        }
+        x.putImageData(d,0,0);
+        res(c.toDataURL("image/png"));
+      }catch(e){ res(dataUrl); }                            // canvas tainted / gagal → pakai asli
+    };
+    img.onerror=()=>res(dataUrl);
+    img.src=dataUrl;
+  });
+}
+async function ocrRead(dataUrl){
+  const w=await getOcrWorker();
+  const img=await prepOcrImage(dataUrl);
+  const {data}=await w.recognize(img);
+  return (data && data.text) || "";
+}
+
+/* ---------- Parser: teks OCR → tanggal, jam, nominal, bank ---------- */
+const OCR_BANKS = [
+  ["BCA",         /\b(BCA|KLIKBCA|MY\s?BCA|BANK CENTRAL ASIA|BLU)\b/i],
+  ["Mandiri",     /\b(MANDIRI|LIVIN)\b/i],
+  ["BRI",         /\b(BRI|BRIMO|BANK RAKYAT)\b/i],
+  ["BNI",         /\b(BNI|BANK NEGARA)\b/i],
+  ["BSI",         /\b(BSI|BANK SYARIAH)\b/i],
+  ["CIMB Niaga",  /\b(CIMB|OCTO)\b/i],
+  ["Permata",     /\bPERMATA\b/i],
+  ["Danamon",     /\bDANAMON\b/i],
+  ["BTN",         /\bBTN\b/i],
+  ["SeaBank",     /\bSEA\s?BANK\b/i],
+  ["Bank Jago",   /\bJAGO\b/i],
+  ["Maybank",     /\bMAYBANK\b/i],
+  ["OCBC",        /\bOCBC\b/i],
+  ["Panin",       /\bPANIN\b/i],
+  ["Bank Mega",   /\bBANK\s?MEGA\b/i],
+  ["Jenius/BTPN", /\b(JENIUS|BTPN)\b/i],
+  ["QRIS",        /\bQRIS\b/i],
+  ["DANA",        /\bDANA\b/],          // sengaja case-sensitive: e-wallet DANA ditulis kapital,
+                                        // biar tidak tertukar dengan label "Sumber Dana"
+  ["OVO",         /\bOVO\b/i],
+  ["GoPay",       /\b(GO-?PAY|GOJEK)\b/i],
+  ["ShopeePay",   /\bSHOPEE\s?PAY\b/i],
+  ["LinkAja",     /\bLINK\s?AJA\b/i],
+];
+const OCR_MONTHS = {jan:1,feb:2,mar:3,apr:4,mei:5,may:5,jun:6,jul:7,agu:8,agt:8,aug:8,sep:9,okt:10,oct:10,nov:11,des:12,dec:12};
+function pad2(n){ return String(n).padStart(2,"0"); }
+function isoDate(y,m,d){
+  y=Number(y); m=Number(m); d=Number(d);
+  if(!y||m<1||m>12||d<1||d>31) return "";
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+// "500.000,00" / "Rp 1,500,000" → 500000 / 1500000 (sen dibuang, pemisah ribuan dibersihkan)
+function toNumberID(s){
+  let x=String(s||"").replace(/\s/g,"");
+  x=x.replace(/[.,]\d{2}$/,"");                 // buang sen
+  const d=x.replace(/[^0-9]/g,"");
+  return d?Number(d):0;
+}
+/* Bank yang dicari = BANK SUMBER DANA (uang tamu keluar dari mana), BUKAN bank
+   acquirer/penerima. Ini penting: struk QRIS SeaBank menulis "Nama Acquirer: BRI",
+   dan Livin (Mandiri) menulis "Pengakuisisi: Bank BRI" — kalau asal comot nama bank
+   pertama yang ketemu, hasilnya salah jadi "BRI".
+   Cara kerjanya: tiap baris dinilai memakai konteks 2 baris di atasnya (label seperti
+   "Sumber Dana" biasanya ada di baris terpisah dari nama banknya). */
+const BANK_POS = /(sumber dana|rekening sumber|bank pengirim|bank asal|pengirim|sumber|dari|from)/i;
+const BANK_NEG = /(penerima|acquirer|pengakuisisi|merchant|tujuan|kepada|beneficiary|nama toko|\bke\b)/i;
+function ocrBank(t){
+  const lines=String(t||"").split(/\r?\n/).map(s=>s.trim());
+  let best=null;
+  lines.forEach((line,i)=>{
+    if(!line) return;
+    const ctx=[lines[i-2]||"", lines[i-1]||"", line].join("\n");
+    // label "Sumber Dana" dipakai sbg konteks, tapi jangan sampai kata "Dana"-nya
+    // sendiri terbaca sebagai e-wallet DANA.
+    const hay=line.replace(/sumber\s+dana/ig," ");
+    let base=0;
+    if(BANK_POS.test(ctx)) base+=3;      // dekat label "Sumber Dana" / "Dari"
+    if(BANK_NEG.test(ctx)) base-=5;      // ini bank penerima / acquirer, bukan asal dana
+    if(i<3) base+=2;                     // kepala struk = aplikasi bank penerbitnya
+    if(/\bbank\b/i.test(hay)) base+=1;   // "Bank Mandiri" lebih meyakinkan drpd logo/teks lain
+    for(const [name,re] of OCR_BANKS){
+      if(!re.test(hay)) continue;
+      const score = base + (name==="QRIS" ? -1 : 0);   // QRIS itu metode bayar, bukan bank asal
+      if(!best || score>best.score) best={name,score};
+    }
+  });
+  return best ? best.name : "";
+}
+function dateIn(s){
+  let m=s.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);              // 2026-07-14
+  if(m) return isoDate(m[1],m[2],m[3]);
+  m=s.match(/\b(\d{1,2})\s+([A-Za-z]{3,10})\.?,?\s+(20\d{2})\b/);            // 09 Jul 2026 / 14 Agustus 2026 (Livin & SeaBank)
+  if(m){ const mo=OCR_MONTHS[m[2].slice(0,3).toLowerCase()]; if(mo) return isoDate(m[3],mo,m[1]); }
+  m=s.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2}|\d{2})\b/);            // 14/07/2026
+  if(m) return isoDate(m[3].length===2?("20"+m[3]):m[3], m[2], m[1]);
+  return "";
+}
+function ocrDate(t){ return dateIn(String(t||"")); }
+function timeIn(s){
+  let m=s.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)[:.]([0-5]\d)\b/);           // 16:55:03
+  if(m) return pad2(m[1])+":"+m[2]+":"+m[3];
+  m=s.match(/\b([01]?\d|2[0-3])[:.]([0-5]\d)\s*(WIB|WITA|WIT)\b/i);          // 15:21 WIB
+  if(m) return pad2(m[1])+":"+m[2];
+  m=s.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);                               // 10:31 (titik dua saja; titik rawan tertukar tanggal)
+  if(m) return pad2(m[1])+":"+m[2];
+  return "";
+}
+/* Jam transfer. Kalau struk mencantumkan detik (Livin: "16:55:03 WIB"), detiknya
+   ikut disimpan supaya sama persis dengan bukti.
+   PENTING: bukti sering difoto dari layar HP, sehingga JAM DI STATUS BAR HP ("16.55")
+   ikut terbaca dan berada di baris PALING ATAS. Makanya jam dicari lebih dulu pada
+   baris yang memuat TANGGAL — di situlah jam transaksi sebenarnya berada. */
+function ocrTime(t){
+  const lines=String(t||"").split(/\r?\n/);
+  for(const line of lines){
+    if(!dateIn(line)) continue;
+    const v=timeIn(line);
+    if(v) return v;
+  }
+  return timeIn(String(t||""));                                              // cadangan: cari di mana saja
+}
+// Tampilan jam mengikuti bukti: "15:21:17 WIB" / "10:31 WIB"
+function fmtJamTf(v){ return v ? esc(v)+" WIB" : ""; }
+// Nominal: utamakan angka yang sebaris dengan kata "Nominal/Jumlah/Total",
+// jauhi baris "Biaya admin/Saldo/Sisa". Kalau seri, ambil yang terbesar.
+function ocrAmount(t){
+  const POS=/(nominal|jumlah|total|nilai|amount|transfer|dibayar|pembayaran|dikirim)/i;
+  const NEG=/(biaya|admin|fee|saldo|sisa|limit|denda|pajak|potongan|cashback|po[il]n)/i;
+  const RE=/(rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?)|rp\.?\s*(\d{4,})/gi;
+  const lines=String(t||"").split(/\r?\n/);
+  let best=null;
+  lines.forEach((line,i)=>{
+    let pos=POS.test(line), neg=NEG.test(line);
+    // Sebagian struk menaruh LABELNYA DI BARIS ATAS nilainya:
+    //   "Nominal Transaksi"
+    //   "Rp 200.000"
+    // Kalau baris ini sendiri tidak punya kata kunci, pinjam dari baris di atasnya.
+    if(!pos && !neg){
+      const prev=lines[i-1]||"";
+      pos=POS.test(prev); neg=NEG.test(prev);
+    }
+    const base=(pos?3:0) + (neg?-6:0);
+    let m; RE.lastIndex=0;
+    while((m=RE.exec(line))){
+      const raw=m[2]||m[3]; if(!raw) continue;
+      const val=toNumberID(raw);
+      if(val<1000 || val>2e9) continue;                     // buang nomor rekening / angka receh
+      const score=base + (m[1]||m[3] ? 1 : 0);              // ada "Rp" → lebih yakin ini nominal
+      if(!best || score>best.score || (score===best.score && val>best.val)) best={score,val};
+    }
+  });
+  return best?best.val:0;
+}
+/* Nama pemilik rekening yang mengirim uang. Di struk letaknya di bawah/di samping
+   label "Sumber Dana" (Livin: "Sumber Dana / DODY IRWANDI") atau "Dari" (SeaBank:
+   "Dari  Susanti"). Nama penerima ("Penerima / LAKSAMANA MUDA COFFEE") sengaja
+   tidak diambil. */
+const NAME_LABEL = /^(sumber dana|nama pengirim|rekening sumber|nama rekening|pengirim|dari|from)\b[\s:.\-]*/i;
+function looksLikeName(s){
+  s=String(s||"").trim();
+  if(s.length<3 || s.length>60) return false;
+  if(/\d/.test(s)) return false;                                   // ada angka \u2192 no. rekening / nominal
+  if(/^(rp|bank|transfer|qris|gratis|berhasil|sukses)\b/i.test(s)) return false;
+  if(OCR_BANKS.some(([,re])=>re.test(s))) return false;            // itu nama bank, bukan nama orang
+  return /[A-Za-z]{3}/.test(s);
+}
+function ocrName(t){
+  const lines=String(t||"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  for(let i=0;i<lines.length;i++){
+    const m=lines[i].match(NAME_LABEL); if(!m) continue;
+    let val=lines[i].slice(m[0].length).trim();                    // nilainya sebaris dgn label?
+    if(!looksLikeName(val)) val=(lines[i+1]||"").trim();           // kalau tidak, ambil baris berikutnya
+    if(looksLikeName(val)) return val.replace(/\s{2,}/g," ").trim();
+  }
+  return "";
+}
+function parseTransferText(txt){
+  const t=String(txt||"").replace(/\u00a0/g," ");   // nbsp jadi spasi biasa
+  return { bank:ocrBank(t), date:ocrDate(t), time:ocrTime(t), amount:ocrAmount(t), name:ocrName(t) };
+}
+
+/* ---------- Data transaksi ----------
+   SATU BARIS = SATU KALI TRANSFER, bukan satu reservasi. DP yang dicicil 2x muncul
+   sebagai 2 baris ("DP 1/2", "DP 2/2") karena finance memang mengecek uang masuk
+   per transferan, masing-masing dengan buktinya sendiri. */
+// "Transfer BCA" → "BCA"; dipakai sebagai tebakan bank sebelum bukti discan.
+function bankFromMethod(m){ return String(m||"").replace(/^transfer\s+/i,"").trim(); }
+function financeTx(){
+  const out=[];
+  STATE.reservations.forEach(r=>{
+    ensureDps(r).forEach((p,i)=>{
+      if(!Number(p.amount) && !p.proofData) return;      // baris kosong, tidak ada uangnya
+      out.push({ r, p, ke:i+1, dari:r.dps.length });
+    });
+  });
+  return out;
+}
+function txDate(x){ return x.p.tfDate || x.r.date || ""; }        // tgl transfer, fallback tgl reservasi
+function txTime(x){ return x.p.tfTime || ""; }
+function txBank(x){ return x.p.tfBank || bankFromMethod(x.p.method); }
+function txName(x){ return x.p.tfName || ""; }                    // nama pemilik rekening pengirim
+function txAmount(x){ return Number(x.p.tfAmount)>0 ? Number(x.p.tfAmount) : (Number(x.p.amount)||0); }
+function txScanned(x){ return !!(x.p.tfOcrAt || x.p.tfDate || x.p.tfTime); }
+function txProofIsImage(x){ return !!x.p.proofData && String(x.p.proofData).startsWith("data:image"); }
+// Nominal di bukti ≠ nominal yang diketik host → tanda perlu dicek.
+function txMismatch(x){
+  const a=Number(x.p.tfAmount)||0, b=Number(x.p.amount)||0;
+  return a>0 && b>0 && a!==b;
+}
+const TF_BADGE = {
+  verified:'<span class="badge-status dp-yes">✓ Terverifikasi</span>',
+  rejected:'<span class="badge-status st-noshow">✕ Ditolak</span>',
+};
+function tfBadge(p){ return TF_BADGE[p.tfStatus] || '<span class="badge-status st-pending">⏳ Belum terverifikasi</span>'; }
+
+/* ---------- Halaman ---------- */
+let FIN_F = { from:todayStr().slice(0,8)+"01", to:todayStr(), bank:"", status:"", q:"" };
+function finSet(k,v){ FIN_F[k]=v; renderFinance(); }
+function finRange(kind){
+  const t=todayStr();
+  if(kind==="today"){ FIN_F.from=t; FIN_F.to=t; }
+  else if(kind==="week"){ const d=new Date(); d.setDate(d.getDate()-6); FIN_F.from=d.toISOString().slice(0,10); FIN_F.to=t; }
+  else if(kind==="month"){ FIN_F.from=t.slice(0,8)+"01"; FIN_F.to=t; }
+  else if(kind==="all"){ FIN_F.from=""; FIN_F.to=""; }
+  renderFinance();
+}
+function financeList(){
+  const q=(FIN_F.q||"").trim().toLowerCase();
+  // Rentang tanggal dicek ke DUA tanggal: tanggal transfer DAN tanggal reservasi.
+  // Alasannya: tamu sering transfer DP jauh hari sebelum tanggal makan. Kalau hanya
+  // dicek ke tanggal transfer, begitu bukti selesai discan barisnya bisa mendadak
+  // hilang dari layar (tanggal transfer ternyata di luar rentang filter).
+  const inRange=d=>!!d && (!FIN_F.from || d>=FIN_F.from) && (!FIN_F.to || d<=FIN_F.to);
+  return financeTx().filter(x=>{
+    if(!inRange(txDate(x)) && !inRange(x.r.date)) return false;
+    if(FIN_F.bank && txBank(x)!==FIN_F.bank) return false;
+    if(FIN_F.status==="unscanned" && txScanned(x)) return false;
+    if(FIN_F.status==="pending"  && x.p.tfStatus) return false;
+    if(FIN_F.status==="verified" && x.p.tfStatus!=="verified") return false;
+    if(FIN_F.status==="mismatch" && !txMismatch(x)) return false;
+    if(FIN_F.status==="rejected" && x.p.tfStatus!=="rejected") return false;
+    if(q && !((x.r.name||"").toLowerCase().includes(q) || (x.r.phone||"").includes(q)
+              || txBank(x).toLowerCase().includes(q) || txName(x).toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a,b)=> (txDate(b)+txTime(b)).localeCompare(txDate(a)+txTime(a)));
+}
+function renderFinance(){
+  if(!CAN.finance(SESSION.role)){ byId("page-finance").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
+  const list=financeList();
+  const sum     = arr=>arr.reduce((a,x)=>a+txAmount(x),0);
+  // Yang ditolak = dana tidak jadi masuk, jadi tidak ikut dijumlah ke total.
+  const total   = sum(list.filter(x=>x.p.tfStatus!=="rejected"));
+  const verified= list.filter(x=>x.p.tfStatus==="verified");
+  const rejected= list.filter(x=>x.p.tfStatus==="rejected");
+  const belum   = list.filter(x=>!x.p.tfStatus);          // belum diverifikasi & belum ditolak
+  const unscanned=list.filter(x=>!txScanned(x) && txProofIsImage(x));
+  const noProof = list.filter(x=>!x.p.proofData);
+  const mism    = list.filter(x=>txMismatch(x));
+  const cicilan = list.filter(x=>x.dari>1);
+  const demo    = demoRecords();      // reservasi contoh bawaan sistem yang masih nyangkut
+  // rekap per bank
+  const perBank={};
+  list.forEach(x=>{ const b=txBank(x)||"(tanpa bank)"; perBank[b]=perBank[b]||{n:0,sum:0}; perBank[b].n++; perBank[b].sum+=txAmount(x); });
+  const banks=Object.keys(perBank).sort((a,b)=>perBank[b].sum-perBank[a].sum);
+  const allBanks=[...new Set(financeTx().map(x=>txBank(x)).filter(Boolean))].sort();
+
+  byId("page-finance").innerHTML = `
+   <div class="page-head">
+     <div><h2>Dana Masuk (DP)</h2>
+       <div class="desc">Cek uang DP yang benar-benar masuk. Tanggal, jam, nominal, bank &amp; <b>nama pengirim</b> dibaca <b>otomatis</b> dari bukti transfer begitu halaman ini dibuka. Satu baris = satu kali transfer, jadi DP yang dicicil muncul terpisah. Tinggal periksa lalu verifikasi.</div></div>
+     <div style="display:flex;gap:8px;flex-wrap:wrap">
+       ${demo.length&&CAN.deleteDp(SESSION.role)?`<button class="btn btn-danger btn-sm" onclick="purgeDemo()" title="Hapus reservasi contoh bawaan sistem (Budi Santoso dkk) — khusus Admin Sistem">🧹 Hapus Data Demo (${demo.length})</button>`:""}
+       ${unscanned.length&&!FIN_SCAN.busy?`<button class="btn btn-ghost btn-sm" onclick="scanAllProofs()" title="Baca ulang bukti yang belum terbaca">🔍 Ulangi Scan (${unscanned.length})</button>`:""}
+       <button class="btn btn-ghost btn-sm" onclick="exportFinanceCSV()">⬇️ Export CSV</button>
+     </div>
+   </div>
+   ${demo.length?`<div class="inline-warn" style="margin-bottom:14px"><div>
+      ⚠️ Ada <b>${demo.length} reservasi contoh/demo</b> bawaan sistem yang ikut terhitung di sini
+      (${esc(demo.slice(0,3).map(r=>r.name).join(", "))}${demo.length>3?", dll":""}).
+      Angka dana masuk di atas belum bersih sampai data ini dihapus.
+      ${CAN.deleteDp(SESSION.role)?"Tekan <b>🧹 Hapus Data Demo</b> di atas.":"Minta Admin Sistem menghapusnya."}
+    </div></div>`:""}
+   <div id="finScanBanner"></div>
+
+   <div class="recap-grid">
+     <div class="recap ok"><div class="lbl">💰 Total Dana Masuk</div><div class="val" style="font-size:22px">${rpDot(total)}</div><div class="sub">${list.length} kali transfer${cicilan.length?` · ${cicilan.length} dari DP bertahap`:""}</div></div>
+     <div class="recap"><div class="lbl">✓ Total Terverifikasi</div><div class="val" style="font-size:22px">${rpDot(sum(verified))}</div><div class="sub">${verified.length} transaksi, dana dipastikan masuk</div></div>
+     <div class="recap ${belum.length?'warn':''}"><div class="lbl">⏳ Total Belum Terverifikasi</div><div class="val" style="font-size:22px">${rpDot(sum(belum))}</div>
+       <div class="sub">${belum.length} transaksi${unscanned.length?` · ${unscanned.length} bukti belum discan`:""}</div></div>
+     <div class="recap ${mism.length?'danger':''}"><div class="lbl">⚠️ Dana Tidak Sama</div><div class="val">${mism.length}</div>
+       <div class="sub">${mism.length?`selisih ${rpDot(Math.abs(sum(mism)-mism.reduce((a,x)=>a+(Number(x.p.amount)||0),0)))} dari input host`:"nominal bukti cocok semua"}</div></div>
+     <div class="recap ${noProof.length?'danger':''}"><div class="lbl">📎 Tanpa Bukti</div><div class="val">${noProof.length}</div><div class="sub">DP tercatat, bukti kosong</div></div>
+     <div class="recap ${rejected.length?'danger':''}"><div class="lbl">✕ Ditolak</div><div class="val">${rejected.length}</div><div class="sub">${rejected.length?rpDot(sum(rejected))+" tidak dihitung":"tidak ada"}</div></div>
+   </div>
+
+   <div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+     <div class="field" style="margin:0"><label>Dari Tanggal</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
+     <div class="field" style="margin:0"><label>Sampai</label><input type="date" value="${FIN_F.to}" onchange="finSet('to',this.value)"></div>
+     <div class="field" style="margin:0"><label>Bank</label>
+       <select onchange="finSet('bank',this.value)"><option value="">Semua bank</option>
+         ${allBanks.map(b=>`<option ${FIN_F.bank===b?"selected":""}>${esc(b)}</option>`).join("")}</select></div>
+     <div class="field" style="margin:0"><label>Status</label>
+       <select onchange="finSet('status',this.value)">
+         <option value="">Semua status</option>
+         <option value="unscanned" ${FIN_F.status==="unscanned"?"selected":""}>Bukti belum discan</option>
+         <option value="pending"   ${FIN_F.status==="pending"?"selected":""}>Belum terverifikasi</option>
+         <option value="verified"  ${FIN_F.status==="verified"?"selected":""}>Terverifikasi</option>
+         <option value="mismatch"  ${FIN_F.status==="mismatch"?"selected":""}>Dana tidak sama</option>
+         <option value="rejected"  ${FIN_F.status==="rejected"?"selected":""}>Ditolak</option>
+       </select></div>
+     <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari</label>
+       <input value="${esc(FIN_F.q)}" placeholder="Nama tamu / no. HP / bank…" oninput="FIN_F.q=this.value;renderFinance()"></div>
+     <div class="pill-row" style="margin:0">
+       <span class="pill" style="cursor:pointer" onclick="finRange('today')">Hari Ini</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('week')">7 Hari</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('month')">Bulan Ini</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('all')">Semua</span>
+     </div>
+   </div></div>
+
+   ${banks.length?`<div class="panel"><div class="panel-head"><h3>Rekap per Bank / Metode</h3></div>
+     <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap">
+       ${banks.map(b=>`<span class="pill" title="${perBank[b].n} transaksi"><b>${esc(b)}</b> &nbsp;${rpDot(perBank[b].sum)} <span class="muted">(${perBank[b].n}×)</span></span>`).join("")}
+     </div></div>`:""}
+
+   <div class="panel">
+     <div class="panel-head"><h3>Transaksi Masuk${FIN_F.from||FIN_F.to?`, ${FIN_F.from?fmtDateShort(FIN_F.from):"awal"} – ${FIN_F.to?fmtDateShort(FIN_F.to):"sekarang"}`:""}</h3></div>
+     ${!list.length?`<div class="empty"><div class="big">💸</div>Belum ada dana masuk pada rentang ini.</div>`:`
+     <div class="table-wrap"><table>
+       <thead><tr><th>Tanggal TF</th><th>Jam</th><th>Bank</th><th>Nama Pengirim</th><th>Nominal</th><th>Tamu / Reservasi</th><th>Bukti</th><th>Status</th><th>Aksi</th></tr></thead>
+       <tbody>${list.map(x=>{
+         const r=x.r, p=x.p, scanned=txScanned(x);
+         return `<tr>
+           <td><b>${p.tfDate?fmtDateShort(p.tfDate):`<span class="muted">${fmtDateShort(r.date)}</span>`}</b>
+               ${!p.tfDate?`<div class="muted" style="font-size:11px">dari tgl reservasi</div>`:""}</td>
+           <td>${p.tfTime?`<b>${fmtJamTf(p.tfTime)}</b>`:'<span class="muted">-</span>'}</td>
+           <td>${txBank(x)?`<span class="tag-cat">${esc(txBank(x))}</span>`:'<span class="muted">-</span>'}</td>
+           <td>${txName(x)?`<b>${esc(txName(x))}</b>`:'<span class="muted">-</span>'}
+               ${txName(x)&&txName(x).toLowerCase()!==(r.name||"").toLowerCase()
+                 ? `<div class="muted" style="font-size:11px" title="Rekening pengirim beda nama dengan pemesan">beda dgn pemesan</div>`:""}</td>
+           <td><b>${rpDot(txAmount(x))}</b>
+               ${x.dari>1?`<div class="muted" style="font-size:11px">DP ${x.ke} dari ${x.dari} · total ${rpDot(dpTotal(r))}</div>`:""}
+               ${txMismatch(x)?`<div style="font-size:11px;color:var(--danger);font-weight:700" title="Nominal di bukti transfer tidak sama dengan yang diinput host">⚠️ dana tidak sama<div style="font-weight:500">input host ${rpDot(p.amount)}</div></div>`:""}</td>
+           <td><div class="name" style="cursor:pointer" onclick="openDetail('${r.id}')">${esc(r.name)}</div>
+               <div class="muted">${displayPhone(r.phone)} · ${fmtDateShort(r.date)} ${esc(r.time)}${r.table?" · "+esc(r.table):""}</div></td>
+           <td>${p.proofData
+                 ? `<button class="btn btn-xs btn-ghost" onclick="viewProof('${r.id}','${p.id}')" title="${esc(p.proofName||"bukti")}">🖼️ Lihat</button>`
+                 : `<span class="badge-status st-noshow" style="font-size:10.5px">tanpa bukti</span>`}</td>
+           <td>${tfBadge(p)}${p.tfNote?`<div class="muted" style="font-size:11px;margin-top:2px">${esc(p.tfNote)}</div>`:""}</td>
+           <td><div class="mini-actions">
+             ${txProofIsImage(x)?`<button class="btn btn-xs btn-ghost" onclick="scanProof('${r.id}','${p.id}')" title="Baca ulang bukti dengan OCR">🔍 ${scanned?"Scan Ulang":"Scan"}</button>`:""}
+             <button class="btn btn-xs btn-ghost" onclick="openTfEdit('${r.id}','${p.id}')">✏️ Cek / Edit</button>
+             ${p.tfStatus!=="verified"?`<button class="btn btn-xs btn-ok" onclick="verifyTf('${r.id}','${p.id}')">✓ Verifikasi</button>`:""}
+             ${p.tfStatus!=="rejected"?`<button class="btn btn-xs btn-danger" onclick="rejectTf('${r.id}','${p.id}')" title="Bukti tidak sah / dana tidak masuk">✕ Tolak</button>`:""}
+             ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delDp('${r.id}','${p.id}')" title="Hapus transaksi dana masuk ini (khusus Admin Sistem)">🗑️</button>`:""}
+           </div></td>
+         </tr>`; }).join("")}</tbody>
+     </table></div>`}
+   </div>`;
+  paintScanBanner();
+  setTimeout(autoScanFinance, 60);   // begitu halaman tampil, bukti baru langsung dibaca sendiri
+}
+
+/* ---------- Scan otomatis saat halaman dibuka ----------
+   Halaman ini langsung membaca sendiri bukti-bukti yang belum pernah discan, jadi
+   finance tidak perlu menekan tombol apa pun. Yang sudah punya hasil scan tidak
+   dibaca ulang (hemat waktu & kuota), dan bukti yang gagal dibaca tidak dicoba
+   terus-menerus dalam sesi yang sama supaya tidak muter-muter. */
+let FIN_SCAN = { busy:false, tried:new Set(), done:0, total:0 };
+function financeNeedScan(){
+  return financeList().filter(x=>!txScanned(x) && txProofIsImage(x) && !FIN_SCAN.tried.has(x.p.id));
+}
+async function autoScanFinance(){
+  if(FIN_SCAN.busy) return;
+  const todo=financeNeedScan();
+  if(!todo.length) return;
+  FIN_SCAN.busy=true; FIN_SCAN.done=0; FIN_SCAN.total=todo.length;
+  paintScanBanner();
+  let ok=0, gagal=0;
+  for(const x of todo){
+    FIN_SCAN.tried.add(x.p.id);         // ditandai lebih dulu: gagal pun tidak diulang terus
+    const p=await scanProof(x.r.id, x.p.id, true);
+    if(p && (p.date || p.amount || p.bank)) ok++; else gagal++;
+    FIN_SCAN.done++;
+    paintScanBanner();
+  }
+  FIN_SCAN.busy=false;
+  logAudit("Scan Bukti TF", `Scan otomatis saat halaman Dana Masuk dibuka: ${FIN_SCAN.total} bukti (${ok} terbaca, ${gagal} gagal)`);
+  saveState();
+  if(CURRENT_PAGE==="finance") renderFinance();
+  if(ok) toast(`${ok} bukti transfer terbaca otomatis${gagal?`, ${gagal} perlu diisi manual`:""}`, gagal?"":"ok");
+  else if(gagal) toast("Bukti tidak terbaca otomatis. Cek koneksi internet, lalu isi manual lewat tombol Cek / Edit.","err");
+}
+function paintScanBanner(){
+  const el=byId("finScanBanner"); if(!el) return;
+  if(!FIN_SCAN.busy){ el.innerHTML=""; return; }
+  const pct=FIN_SCAN.total?Math.round(FIN_SCAN.done/FIN_SCAN.total*100):0;
+  el.innerHTML=`<div class="inline-info"><div style="flex:1">
+     🔍 <b>Membaca bukti transfer otomatis…</b> ${FIN_SCAN.done} dari ${FIN_SCAN.total} selesai.
+     Tanggal, jam, nominal, bank &amp; nama pengirim akan terisi sendiri. Jangan tutup halaman ini.
+     <div style="height:8px;background:#fff;border:1px solid var(--line);border-radius:20px;overflow:hidden;margin-top:8px">
+       <div style="height:100%;width:${pct}%;background:var(--gold);transition:width .3s"></div>
+     </div></div></div>`;
+}
+
+/* ---------- Scan bukti ---------- */
+// Terapkan hasil OCR ke SATU cicilan DP. Field yang sudah diisi manual tidak ditimpa
+// (kecuali force = scan ulang dari tombol).
+function applyOcr(p, parsed, text, force){
+  if(parsed.date   && (force || !p.tfDate))   p.tfDate=parsed.date;
+  if(parsed.time   && (force || !p.tfTime))   p.tfTime=parsed.time;
+  if(parsed.bank   && (force || !p.tfBank))   p.tfBank=parsed.bank;
+  if(parsed.name   && (force || !p.tfName))   p.tfName=parsed.name;
+  if(parsed.amount && (force || !p.tfAmount)) p.tfAmount=parsed.amount;
+  // teks mentah disimpan seadanya untuk pengecekan; dibatasi supaya blob data di
+  // Google Sheet tidak membengkak
+  p.tfOcrAt=Date.now(); p.tfOcrText=String(text||"").slice(0,1200);
+  p.tfSource="ocr";
+}
+async function scanProof(resId, payId, silent){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return null;
+  const x={r,p};
+  if(!txProofIsImage(x)){ if(!silent) toast("Bukti bukan gambar (PDF tidak bisa discan otomatis)","err"); return null; }
+  if(!silent) toast("Membaca bukti transfer…");
+  try{
+    const text=await ocrRead(p.proofData);
+    const parsed=parseTransferText(text);
+    applyOcr(p, parsed, text, true);
+    r.updatedAt=Date.now();
+    const miss=["date","time","amount","bank","name"].filter(k=>!parsed[k]);
+    if(!silent){
+      saveState();
+      logAudit("Scan Bukti TF", `${r.name}: ${parsed.bank||"?"} ${parsed.name||"?"} ${parsed.date||"?"} ${parsed.time||"?"} ${parsed.amount?rpDot(parsed.amount):"?"}`);
+      openTfEdit(resId, payId);
+      toast(miss.length? `Bukti terbaca sebagian, lengkapi manual: ${miss.join(", ")}` : "Bukti terbaca ✓ cek lalu verifikasi","ok");
+    }
+    return parsed;
+  }catch(e){
+    console.error(e);
+    if(!silent) toast(e.message||"Gagal membaca bukti","err");
+    return null;
+  }
+}
+// Scan borongan semua bukti yang belum pernah dibaca (tombol "Ulangi Scan").
+async function scanAllProofs(){
+  const todo=financeList().filter(x=>!txScanned(x) && txProofIsImage(x));
+  if(!todo.length){ toast("Tidak ada bukti baru untuk discan","ok"); return; }
+  let ok=0, gagal=0;
+  const paint=(i)=>{ const b=byId("scanBar"), t=byId("scanTxt");
+    if(b) b.style.width=Math.round(i/todo.length*100)+"%";
+    if(t) t.textContent=`${i} / ${todo.length} bukti dibaca…`; };
+  openModal(`
+    <div class="modal-head"><h3>🔍 Scan Bukti Transfer</h3></div>
+    <div class="modal-body">
+      <p class="hint">Membaca bukti transfer dengan OCR. Jangan tutup halaman ini.</p>
+      <div style="height:10px;background:var(--paper);border:1px solid var(--line);border-radius:20px;overflow:hidden;margin:14px 0">
+        <div id="scanBar" style="height:100%;width:0;background:var(--gold);transition:width .3s"></div>
+      </div>
+      <div id="scanTxt" style="font-weight:600">0 / ${todo.length} bukti dibaca…</div>
+    </div>`);
+  for(let i=0;i<todo.length;i++){
+    const res=await scanProof(todo[i].r.id, todo[i].p.id, true);
+    if(res && (res.date||res.amount||res.bank)) ok++; else gagal++;
+    paint(i+1);
+  }
+  logAudit("Scan Bukti TF", `Scan borongan: ${todo.length} bukti (${ok} terbaca, ${gagal} gagal/kosong)`);
+  saveState(); closeModal(); renderFinance();
+  toast(`Selesai: ${ok} bukti terbaca${gagal?`, ${gagal} perlu diisi manual`:""}`, gagal?"":"ok");
+}
+
+/* ---------- Cek / koreksi manual + verifikasi (per cicilan DP) ---------- */
+function openTfEdit(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const x={r,p};
+  const ke=r.dps.findIndex(d=>d.id===p.id)+1, dari=r.dps.length;
+  const banks=[...new Set([...OCR_BANKS.map(b=>b[0]), ...(STATE.master.dpMethods||[]).map(bankFromMethod)])].filter(Boolean).sort();
+  openModal(`
+   <div class="modal-head"><h3>💰 Cek Dana Masuk — ${esc(r.name)}${dari>1?` (DP ${ke} dari ${dari})`:""}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px" class="tf-edit">
+       <div>
+         <div class="inline-info" style="margin-bottom:12px"><div>
+           Reservasi ${fmtDateShort(r.date)} ${esc(r.time)}, ${r.pax} pax${r.table?", meja "+esc(r.table):""}.<br>
+           Nominal transfer ini menurut host: <b>${rpDot(p.amount)}</b> (${esc(p.method||"-")})
+           ${dari>1?`<br>Total DP semua cicilan: <b>${rpDot(dpTotal(r))}</b> dari ${dari} kali transfer.`:""}
+         </div></div>
+         <div class="field"><label>Tanggal Transfer</label>
+           <input type="date" id="tf_date" value="${esc(p.tfDate||"")}"></div>
+         <div class="field"><label>Jam Transfer <span class="hint" style="font-weight:400">(24 jam, WIB — ikut detik bila ada di bukti)</span></label>
+           <input type="time" id="tf_time" step="1" value="${esc(p.tfTime||"")}"></div>
+         <div class="field"><label>Bank / Metode</label>
+           <input id="tf_bank" list="tfBanks" value="${esc(txBank(x))}" placeholder="mis. BCA">
+           <datalist id="tfBanks">${banks.map(b=>`<option value="${esc(b)}">`).join("")}</datalist></div>
+         <div class="field"><label>Nama Pemilik Rekening Pengirim</label>
+           <input id="tf_name" value="${esc(p.tfName||"")}" placeholder="mis. DODY IRWANDI"></div>
+         <div class="field"><label>Nominal di Bukti</label>
+           <input id="tf_amount" inputmode="numeric" value="${txAmount(x)?rpDot(txAmount(x)):""}" oninput="fmtRupiahInput(this)" placeholder="mis. 500.000"></div>
+         <div class="field"><label>Catatan Finance</label>
+           <input id="tf_note" value="${esc(p.tfNote||"")}" placeholder="mis. dana masuk rek. BCA 12:04"></div>
+         <div class="hint">${p.tfOcrAt?`🔍 Terakhir discan ${fmtTs(p.tfOcrAt)}${p.tfSource==="manual"?", lalu dikoreksi manual":""}`:"Belum pernah discan OCR."}</div>
+         ${p.tfOcrText?`<details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Lihat teks mentah hasil OCR</summary>
+           <pre style="white-space:pre-wrap;font-size:11px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;max-height:160px;overflow:auto">${esc(p.tfOcrText)}</pre></details>`:""}
+       </div>
+       <div>
+         <div class="lbl" style="font-size:11.5px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Bukti Transfer</div>
+         ${p.proofData
+           ? (txProofIsImage(x)
+               ? `<img src="${p.proofData}" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper)" alt="bukti transfer">`
+               : `<div class="empty"><div class="big">📄</div>${esc(p.proofName||"Dokumen PDF")}<div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="viewProof('${r.id}','${p.id}')">Buka PDF</button></div></div>`)
+           : `<div class="empty"><div class="big">📎</div>Tidak ada bukti transfer yang di-upload.</div>`}
+         ${txProofIsImage(x)?`<button class="btn btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="scanProof('${r.id}','${p.id}')">🔍 Scan Ulang Bukti Ini</button>`:""}
+       </div>
+     </div>
+   </div>
+   <div class="modal-foot" style="flex-wrap:wrap">
+     <span style="margin-right:auto">${tfBadge(p)}</span>
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-danger" onclick="rejectTf('${r.id}','${p.id}')">✕ Tolak</button>
+     <button class="btn btn-primary" onclick="saveTf('${r.id}','${p.id}',false)">💾 Simpan</button>
+     <button class="btn btn-ok" onclick="saveTf('${r.id}','${p.id}',true)">✓ Simpan &amp; Verifikasi</button>
+   </div>`, true);
+}
+function readTfForm(p){
+  p.tfDate  = byId("tf_date").value || "";
+  p.tfTime  = byId("tf_time").value || "";
+  p.tfBank  = byId("tf_bank").value.trim();
+  p.tfName  = byId("tf_name").value.trim();
+  p.tfAmount= rupiahVal(byId("tf_amount").value);
+  p.tfNote  = byId("tf_note").value.trim();
+  p.tfSource= "manual";
+}
+function saveTf(resId, payId, verify){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  readTfForm(p);
+  if(verify){
+    if(!p.tfDate || !p.tfAmount){ toast("Tanggal & nominal transfer wajib diisi sebelum verifikasi","err"); return; }
+    p.tfStatus="verified"; p.tfBy=SESSION.name; p.tfAt=Date.now();
+  }
+  r.updatedAt=Date.now();
+  logAudit(verify?"Verifikasi Dana Masuk":"Koreksi Data Transfer",
+    `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"-"} ${p.tfTime||""} ${rpDot(p.tfAmount)}`);
+  saveState(); closeModal(); renderFinance();
+  toast(verify?"Dana masuk terverifikasi ✓":"Data transfer disimpan","ok");
+}
+function verifyTf(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const x={r,p};
+  if(!p.tfDate || !txAmount(x)){ openTfEdit(resId,payId); toast("Lengkapi tanggal & nominal transfer dulu","err"); return; }
+  if(!Number(p.tfAmount)) p.tfAmount=Number(p.amount)||0;
+  if(!p.tfBank) p.tfBank=bankFromMethod(p.method);
+  p.tfStatus="verified"; p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
+  logAudit("Verifikasi Dana Masuk", `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate} ${p.tfTime||""} ${rpDot(txAmount(x))}`);
+  saveState(); closeModal(); renderFinance(); toast("Dana masuk terverifikasi ✓","ok");
+}
+function rejectTf(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const note=prompt(`Tolak bukti transfer "${r.name}".\nAlasan (mis. bukti tidak terbaca / dana tidak masuk):`, p.tfNote||"");
+  if(note===null) return;
+  if(byId("tf_date")) readTfForm(p);        // dipanggil dari modal edit → ikut simpan isian
+  p.tfStatus="rejected"; p.tfNote=note.trim(); p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
+  logAudit("Tolak Bukti Transfer", `${r.name}: ${note.trim()||"tanpa alasan"}`);
+  saveState(); closeModal(); renderFinance(); toast("Bukti transfer ditolak","err");
+}
+function exportFinanceCSV(){
+  const list=financeList();
+  if(!list.length){ toast("Tidak ada transaksi untuk diexport","err"); return; }
+  const cols=["Tanggal TF","Jam TF","Bank","Nama Pengirim","Nominal Bukti","Nominal Input Host","Selisih",
+              "DP Ke","Dari Total DP","Total DP Reservasi","Status","Catatan Finance",
+              "Tamu","No HP","Tanggal Reservasi","Jam","Meja","Pax","Ada Bukti","Sumber Data","Diverifikasi Oleh","Waktu Verifikasi"];
+  const rows=list.map(x=>{
+    const r=x.r, p=x.p;
+    return [
+      p.tfDate||"", p.tfTime||"", txBank(x), txName(x), txAmount(x), Number(p.amount)||0,
+      (Number(p.tfAmount)||0) && (Number(p.amount)||0) ? (Number(p.tfAmount)-Number(p.amount)) : 0,
+      x.ke, x.dari, dpTotal(r),
+      p.tfStatus==="verified"?"Terverifikasi":p.tfStatus==="rejected"?"Ditolak":"Belum dicek",
+      p.tfNote||"", r.name, displayPhone(r.phone), r.date, r.time, r.table, r.pax,
+      p.proofData?"Ada":"Tidak ada", p.tfSource==="ocr"?"OCR bukti":p.tfSource==="manual"?"Manual":"-",
+      p.tfBy||"", p.tfAt?fmtTs(p.tfAt):"",
+    ];
+  });
+  const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
+  const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`dana_masuk_laksamana_${FIN_F.from||"awal"}_${FIN_F.to||todayStr()}.csv`; a.click();
+  toast("CSV dana masuk diunduh","ok");
+}
+
 /* ================= RIWAYAT ================= */
 let HIST_F={ q:"", status:"", mode:"all", month:todayStr().slice(0,7), year:new Date().getFullYear() };
 function renderRiwayat(){
@@ -3448,7 +4470,7 @@ function renderRiwayat(){
    <tbody>${list.map(r=>{const p=customerProfile(r.phone);const dur=dineDuration(r);return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer" title="Klik untuk detail & edit">
      <td>${fmtDateShort(r.date)}<div class="muted">${r.time}</div></td>
      <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div></td>
-     <td>${r.pax}${r.actualPax!=null?` <span class="muted">/${r.actualPax}✓</span>`:""}</td>
+     <td>${paxCell(r)}</td>
      <td>${esc(r.table)||'-'}</td>
      <td>${dur!=null?`<span class="muted">⏱ ${fmtDur(dur)}</span>`:'<span class="muted">-</span>'}</td>
      <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓":"-"}</span></td>
@@ -3583,7 +4605,7 @@ function dailyPerfPanel(){
   const seatedNow=day.filter(r=>seatedSoFar(r)!=null).length;
   // Realisasi pax
   const paxBooked=arrived.reduce((a,r)=>a+(Number(r.pax)||0),0);
-  const paxActual=arrived.reduce((a,r)=>a+(Number(r.actualPax)||Number(r.pax)||0),0);
+  const paxActual=arrived.reduce((a,r)=>a+(arrivedPax(r)||Number(r.pax)||0),0);
   const paxReal=paxBooked?Math.round(paxActual/paxBooked*100):0;
   // Daftar tamu telat (untuk evaluasi)
   const lateList=bookedArrived.filter(r=>{const l=arrivalLateness(r);return l!=null&&l>PUNCTUAL_TOL;})
@@ -3592,7 +4614,7 @@ function dailyPerfPanel(){
   const bar=(label,val,pct,cls)=>`<div class="bar-item"><div class="bl"><span>${esc(label)}</span><b>${val}</b></div><div class="bar-track"><div class="bar-fill ${cls||''}" style="width:${Math.max(0,Math.min(100,pct))}%"></div></div></div>`;
   // Mode bulanan: tren reservasi per tanggal (berapa masuk & berapa hadir tiap hari)
   const byDay={};
-  if(bulanan) day.forEach(r=>{ const k=r.date; (byDay[k]=byDay[k]||{total:0,hadir:0,pax:0}); byDay[k].total++; if(r.status==="Datang"){byDay[k].hadir++; byDay[k].pax+=Number(r.actualPax)||Number(r.pax)||0;} });
+  if(bulanan) day.forEach(r=>{ const k=r.date; (byDay[k]=byDay[k]||{total:0,hadir:0,pax:0}); byDay[k].total++; if(r.status==="Datang"){byDay[k].hadir++; byDay[k].pax+=arrivedPax(r)||Number(r.pax)||0;} });
   const dayRows=Object.entries(byDay).sort((a,b)=>a[0].localeCompare(b[0]));
   const dayMax=Math.max(1,...dayRows.map(([,v])=>v.total));
   const busiest=dayRows.slice().sort((a,b)=>b[1].total-a[1].total)[0];
@@ -4389,17 +5411,34 @@ function renderAudit(){
    <tbody>${STATE.audit.length?STATE.audit.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td><span class="pill">${esc(a.action)}</span></td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">Belum ada aktivitas tercatat.</td></tr>`}</tbody></table></div></div>`;
 }
 
-/* ================= DEMO SEED (opsional) ================= */
-function seedDemo(){
-  if(STATE.reservations.length){ if(!confirm("Sudah ada data. Tambahkan contoh data demo?"))return; }
-  const names=["Budi Santoso","Sarah Wijaya","Andre Kurniawan","Melati Putri","PT Nusantara Jaya","Rian Hidayat","Keluarga Tanjung","Fitri Amelia"];
-  const now=new Date();
-  names.forEach((n,i)=>{
-    const d=new Date(now); d.setDate(d.getDate()-7+i*2);
-    const dp = i%3===0;
-    STATE.reservations.push({ id:uid(), name:n, phone:normPhone("08"+(1234500000+i*11111)), date:d.toISOString().slice(0,10), time:["18:00","19:00","19:30","20:00","20:30"][i%5], pax:[2,4,6,10,25,4,8,3][i], table:STATE.master.tables[i%STATE.master.tables.length], foodReq:i%2?"Nasi Goreng Kapal":"", drinkReq:"", dpStatus:dp?"Sudah":"Belum", dpMethod:dp?"QRIS":"", dpAmount:dp?100000:0, dpProofData:"",dpProofName:"", docReqData:"",docReqName:"", source:STATE.master.infoSources[i%STATE.master.infoSources.length], picType:i%2?"Marketing":"Host/Captain", picName:["Devani","Aurel","Christy"][i%3], member:i%4===0, memberNo:i%4===0?"LM-000"+i:"", notes:i===4?"Reservasi korporat, butuh proyektor":"", vip:false, status:["Datang","Datang","No-show","Datang","Confirmed","Pending","Datang","Datang"][i], createdBy:"Devani", createdAt:Date.now()-i*86400000, updatedAt:Date.now(), actualPax:i%3?[2,4,null,10,null,null,8,3][i]:null, checkinAt:null, followups:[] });
-  });
-  logAudit("Seed Demo","8 reservasi contoh ditambahkan"); saveState(); toast("Data demo ditambahkan","ok"); navigate("dashboard");
+/* ================= PEMBERSIH DATA DEMO =================
+   Dulu ada fungsi seedDemo() yang menyuntik 8 reservasi contoh (3 di antaranya
+   ber-DP Rp 100.000 QRIS, makanya ikut muncul di halaman Dana Masuk). Fungsi itu
+   SUDAH DIHAPUS supaya tidak ada lagi data palsu yang masuk. Sisa data demo yang
+   terlanjur tersimpan di Google Sheet bisa dibersihkan lewat tombol di Dana Masuk.
+
+   Data demo dikenali dari sidik jari persis buatan seed lama: NAMA dan NOMOR HP-nya
+   harus dua-duanya cocok. Ini sengaja dibuat ketat supaya reservasi asli tidak ikut
+   terhapus, meski kebetulan namanya sama. */
+const DEMO_NAMES = ["Budi Santoso","Sarah Wijaya","Andre Kurniawan","Melati Putri",
+                    "PT Nusantara Jaya","Rian Hidayat","Keluarga Tanjung","Fitri Amelia"];
+const DEMO_PHONES = new Set(DEMO_NAMES.map((_,i)=>normPhone("08"+(1234500000+i*11111))));
+function isDemoRes(r){
+  return DEMO_NAMES.includes(String(r&&r.name||"").trim()) && DEMO_PHONES.has(normPhone(r&&r.phone));
+}
+function demoRecords(){ return STATE.reservations.filter(isDemoRes); }
+function purgeDemo(){
+  if(!CAN.deleteDp(SESSION.role)){ toast("Hanya Admin Sistem yang boleh menghapus data","err"); return; }
+  const list=demoRecords();
+  if(!list.length){ toast("Tidak ada data demo yang tersisa","ok"); return; }
+  const rincian=list.map(r=>`• ${r.name} — ${fmtDateShort(r.date)}${Number(r.dpAmount)>0?`, DP ${rpDot(r.dpAmount)}`:""}`).join("\n");
+  if(!confirm(`Hapus ${list.length} data DEMO/contoh ini secara permanen?\n\n${rincian}\n\nData ini ikut hilang dari Dashboard, Riwayat & Analitik, bukan cuma dari Dana Masuk.\nTindakan ini tercatat di audit log.`)) return;
+  const ids=new Set(list.map(r=>r.id));
+  STATE.reservations = STATE.reservations.filter(r=>!ids.has(r.id));
+  logAudit("Hapus Data Demo", `${list.length} reservasi contoh dihapus: ${list.map(r=>r.name).join(", ")}`);
+  saveState(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(`${list.length} data demo dihapus ✓`,"ok");
 }
 
 /* ===== SORTABLE COLUMNS (semua tabel), klik header untuk urutkan ===== */
@@ -4421,8 +5460,6 @@ document.addEventListener("click", (e)=>{
 // Saat halaman dibuka: tampil layar "Menghubungkan ke Server…", tarik data dari
 // Google Sheet, baru ke halaman login (atau langsung app kalau sesi tersimpan).
 boot();
-// expose seed via console for convenience
-window.seedDemo=seedDemo;
 
 /* ================= PWA: service worker ================= */
 if("serviceWorker" in navigator){
