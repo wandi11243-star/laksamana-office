@@ -44,6 +44,8 @@ button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit
 a{color:inherit;text-decoration:none}
 h1,h2,h3,h4{font-family:var(--ff-display);font-weight:700;line-height:1.2;letter-spacing:-.02em}
 .num{font-variant-numeric:tabular-nums}
+/* ukuran default SVG — tanpa ini, svg tanpa class jadi raksasa memenuhi kontainer */
+svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:var(--ink-700);border-radius:8px;border:2px solid var(--ink-900)}
 ::-webkit-scrollbar-thumb:hover{background:var(--ink-650)}
@@ -235,6 +237,15 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .divcard{background:var(--ink-900);border:1px solid var(--line-soft);border-radius:12px;padding:14px;display:flex;flex-direction:column}
 .divcard-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px}
 .divcard-h b{font-size:13px}
+/* divisi yang job-nya belum diatur: diredupkan, bukan diberi tulisan negatif */
+.divcard.is-empty{opacity:.55;border-style:dashed}
+.divcard.is-empty:hover{opacity:1}
+/* catatan kaki di bawah tabel — halus, tidak mencuri perhatian */
+.tbl-note{display:flex;align-items:center;gap:8px;margin-top:12px;padding:9px 13px;border-radius:10px;
+  background:var(--ink-880);border:1px solid var(--line-soft);color:var(--muted);
+  font-size:11px;line-height:1.5;letter-spacing:.01em}
+.tbl-note svg{width:13px;height:13px;color:var(--gold);opacity:.75}
+.tbl-note em{font-style:normal;color:var(--sand-dim);font-weight:600}
 .btn.detail-job{background:#fff;border-color:var(--line-hard);color:var(--gold-deep);justify-content:center;gap:7px}
 .btn.detail-job:hover{border-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep)}
 .btn.detail-job svg{width:15px;height:15px;stroke-width:2}
@@ -452,7 +463,9 @@ const DEFAULT_SETTINGS = {
   dpPercent:30, pb1:10, serviceCharge:6,
   approvalThreshold:25000000, discountThreshold:15,
   fuTarget:10, invPrefix:'INV/LM/2026/',
-  waBooking:'6285365234898'
+  waBooking:'6285365234898',
+  fuNextDays:3,    // jeda default jadwal follow up berikutnya
+  staleDays:7      // peluang tanpa follow up selama ini dianggap "basi"
 };
 
 /* ---------- FORMAT HELPERS ---------- */
@@ -477,6 +490,17 @@ const CLIENT_STATUS = {
   'Event Done':{c:'--teal',t:'Event Done'}, Lost:{c:'--danger',t:'Lost'}
 };
 const PIPE_COLS = ['Lead','Prospect','Negotiation','Quotation Terkirim','Deal','Lost'];
+// Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
+const OPEN_STAGES = ['Lead','Prospect','Negotiation','Quotation Terkirim'];
+// Hasil follow up -> tahap pipeline event. null = status tidak berubah.
+const FU_RESULT = {
+  'Tertarik / kebutuhan jelas':'Prospect',
+  'Nego harga':'Negotiation',
+  'Quotation dikirim':'Quotation Terkirim',
+  'Belum jawab / masih pikir':null,
+  'Deal':'Deal',
+  'Lost':'Lost'
+};
 const INV_STATUS = { Draft:'--muted', Sent:'--info', Pending:'--warn', Paid:'--ok', Overdue:'--danger' };
 const TASK_STATUS = { Pending:'--muted', 'On Progress':'--warn', Done:'--ok' };
 const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Lainnya'];
@@ -753,10 +777,51 @@ function pushNotif(type,title,body,link){
 function unreadNotif(){ return S.notifs.filter(n=>!n.read).length; }
 
 /* ---------- BASELINE / UPLIFT (Bagian 9.3) ---------- */
+// Baseline = omzet rata-rata venue pada hari TANPA event. Tidak bisa dihitung
+// dari data sini (sistem ini hanya mencatat event), jadi diisi manual di Pengaturan.
 function baselineDaily(){
-  // rolling 4-week baseline of non-event days (demo: derived constant per settings-ish)
-  return S.baseline || 4200000;
+  return +S.baseline || 0;   // 0 = belum diisi -> Uplift tidak ditampilkan
 }
+
+/* ============================================================
+   OTOMASI
+   ============================================================ */
+// Event yang sudah Deal & tanggalnya lewat -> Event Done (dijalankan saat boot)
+function autoCloseEvents(){
+  let n=0;
+  S.events.forEach(e=>{
+    if(['Deal','Confirmed'].includes(e.status) && e.tanggal && daysTo(e.tanggal)<0){
+      e.status='Event Done'; e.pipeCol='Deal';
+      logAct('event',e.id,'Status → Event Done','otomatis: tanggal event sudah lewat');
+      n++;
+    }
+  });
+  return n;
+}
+// Bentrok jadwal: event lain yang sudah pasti, tanggal sama, area beririsan
+function bookingConflicts(ev){
+  if(!ev||!ev.tanggal) return [];
+  const areaOf=x=>(x.detail&&x.detail.area)||'';
+  const a=areaOf(ev);
+  return S.events.filter(x=>{
+    if(x.id===ev.id || x.tanggal!==ev.tanggal) return false;
+    if(!['Deal','Confirmed','Event Done'].includes(x.status)) return false;
+    const b=areaOf(x);
+    if(!a || !b) return true;                              // area belum diisi -> tetap diperingatkan
+    if(a==='Seluruh Area' || b==='Seluruh Area') return true;
+    return a===b;
+  });
+}
+// Peluang basi: sudah lama tidak di-follow up
+function lastFUDate(ev){
+  const fs=S.followups.filter(f=>f.eventId===ev.id);
+  if(!fs.length) return ev.createdAt||'';
+  return fs.map(f=>String(f.at).slice(0,10)).sort().pop();
+}
+function daysSinceFU(ev){ const d=lastFUDate(ev); return d?Math.max(0,daysBetween(d,today())):0; }
+function isStale(ev){ return isOpenEvent(ev) && daysSinceFU(ev) >= (+S.settings.staleDays||7); }
+// Tanggal default untuk follow up berikutnya
+function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fuNextDays||3)); return d.toISOString().slice(0,10); }
 
 /* ============================================================
    SEED DATA
@@ -900,7 +965,8 @@ function renderDashboard(V){
   const evTotal = S.events.length;
   const EV_STATUSES = ['Lead','Prospect','Negotiation','Quotation Terkirim','Deal','Event Done','Lost'];
   const evTally = {}; EV_STATUSES.forEach(s=>evTally[s]=0);
-  S.events.forEach(e=>{ if(evTally[e.status]!==undefined) evTally[e.status]++; });
+  // 'Confirmed' = status lama sebelum pindah ke 'Deal' — hitung sebagai Deal biar total cocok
+  S.events.forEach(e=>{ const st = e.status==='Confirmed' ? 'Deal' : e.status; if(evTally[st]!==undefined) evTally[st]++; });
 
   let h = pageHead('Command Deck','Selamat datang, '+ME.name.split(' ')[0],'"Pagi Meeting, Malam Healing" — ini yang perlu perhatianmu hari ini.',
     can('edit_client')?'<button class="btn pri" onclick="newClient()">'+svg(IC.plus)+'Lead Baru</button>':'');
@@ -960,7 +1026,7 @@ function refreshView(){ const p=location.hash.slice(1).split('/'); go(p[0]||'das
 /* ============================================================
    MODUL B — CRM DATABASE CLIENT
    ============================================================ */
-let crmFilter={q:'',status:'',source:''};
+let crmFilter={q:'',rel:'',source:''};
 function renderCRM(V){
   const canEdit=can('edit_client');
   let h=pageHead('Modul B','Database Client','Semua klien dalam satu tempat — riwayat komunikasi & event tersimpan permanen.',
@@ -968,16 +1034,27 @@ function renderCRM(V){
   // filters
   h+='<div class="card" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:center">';
   h+='<div class="searchbar">'+svg(IC.search)+'<input id="crm-q" placeholder="Cari nama, perusahaan, kontak..." oninput="crmFilter.q=this.value;paintCRM()" value="'+esc(crmFilter.q)+'"></div>';
-  h+='<select class="inp" style="max-width:180px" onchange="crmFilter.status=this.value;paintCRM()"><option value="">Semua Status</option>'+Object.keys(CLIENT_STATUS).map(s=>'<option '+(crmFilter.status===s?'selected':'')+'>'+s+'</option>').join('')+'</select>';
+  h+='<select class="inp" style="max-width:230px" onchange="crmFilter.rel=this.value;paintCRM()"><option value="">Semua Client</option>'
+    +'<option value="open"'+(crmFilter.rel==='open'?' selected':'')+'>Punya peluang aktif</option>'
+    +OPEN_STAGES.map(s=>'<option value="stage:'+s+'"'+(crmFilter.rel==='stage:'+s?' selected':'')+'>&nbsp;&nbsp;↳ tahap '+s+'</option>').join('')
+    +'<option value="deal"'+(crmFilter.rel==='deal'?' selected':'')+'>Pernah deal</option>'
+    +'<option value="repeat"'+(crmFilter.rel==='repeat'?' selected':'')+'>Repeat customer</option>'
+    +'<option value="nodeal"'+(crmFilter.rel==='nodeal'?' selected':'')+'>Belum pernah deal</option></select>';
   h+='<select class="inp" style="max-width:180px" onchange="crmFilter.source=this.value;paintCRM()"><option value="">Semua Source</option>'+SOURCES.map(s=>'<option '+(crmFilter.source===s?'selected':'')+'>'+s+'</option>').join('')+'</select>';
   h+='</div>';
   h+='<div class="card pad0"><div id="crm-table"></div></div>';
+  h+='<div class="fh" style="margin-top:10px;text-align:right">Peluang aktif = event yang tahapnya masih '+OPEN_STAGES.join(' / ')+'. Event Deal, Event Done, dan Lost tidak dihitung sebagai peluang.</div>';
   V.innerHTML=h; paintCRM();
 }
 function crmData(){
   return S.clients.filter(c=>{
     if(ME.role==='marketing' && c.mktPIC!==ME.id && false)return false; // marketing sees all clients per matrix (F)
-    if(crmFilter.status && c.status!==crmFilter.status)return false;
+    const r=crmFilter.rel;
+    if(r==='open' && !clientOpenEvents(c.id).length)return false;
+    if(r && r.indexOf('stage:')===0){ const st=r.slice(6); if(!S.events.some(e=>e.clientId===c.id && e.status===st))return false; }
+    if(r==='deal' && !clientWonEvents(c.id).length)return false;
+    if(r==='repeat' && clientDoneEvents(c.id).length<2)return false;
+    if(r==='nodeal' && clientWonEvents(c.id).length)return false;
     if(crmFilter.source && c.source!==crmFilter.source)return false;
     if(crmFilter.q){ const q=crmFilter.q.toLowerCase(); if(!(c.nama+' '+c.perusahaan+' '+c.hp+' '+(c.email||'')+' '+(c.ig||'')).toLowerCase().includes(q))return false; }
     return true;
@@ -985,15 +1062,32 @@ function crmData(){
 }
 function clientSpending(id){ return S.events.filter(e=>e.clientId===id && e.status==='Event Done').reduce((a,e)=>a+eventFinance(e).grand,0); }
 function clientEventCount(id){ return S.events.filter(e=>e.clientId===id).length; }
+/* Client tidak punya status sendiri — semua tahapan hidup di event.
+   Info client diturunkan dari event-eventnya. */
+function isOpenEvent(e){ return OPEN_STAGES.includes(e.status); }
+function clientOpenEvents(id){ return S.events.filter(e=>e.clientId===id && isOpenEvent(e)); }
+function clientWonEvents(id){ return S.events.filter(e=>e.clientId===id && ['Deal','Confirmed','Event Done'].includes(e.status)); }
+function clientDoneEvents(id){ return S.events.filter(e=>e.clientId===id && e.status==='Event Done'); }
+function clientTags(id){
+  const open=clientOpenEvents(id), won=clientWonEvents(id).length, done=clientDoneEvents(id).length;
+  let h='';
+  // tampilkan tahap asli tiap peluang yang masih terbuka
+  open.slice(0,3).forEach(e=>{ h+=statusChip(e.status); });
+  if(open.length>3) h+='<span class="tag">+'+(open.length-3)+'</span>';
+  if(done>1) h+='<span class="chip" style="background:color-mix(in srgb,var(--gold) 15%,transparent);color:var(--gold-deep)"><span class="cd" style="background:var(--gold)"></span>Repeat</span>';
+  else if(won) h+='<span class="chip" style="background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)"><span class="cd" style="background:var(--ok)"></span>Pernah deal</span>';
+  if(!h) h='<span class="cell-sub">—</span>';
+  return h;
+}
 function paintCRM(){
   const rows=crmData();
-  let h='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Kontak</th><th>Source</th><th>Marketing PIC</th><th>Status</th><th class="mono">Total Spending</th><th>Next FU</th><th></th></tr></thead><tbody>';
+  let h='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Kontak</th><th>Source</th><th>Marketing PIC</th><th>Peluang</th><th class="mono">Total Spending</th><th>Next FU</th><th></th></tr></thead><tbody>';
   if(!rows.length) return $('crm-table').innerHTML=empty('Tidak ada client','Ubah filter atau tambah client baru.','crm');
   rows.forEach(c=>{
     const sp=clientSpending(c.id);
-    h+='<tr class="row-click" onclick="viewClient(\''+c.id+'\')"><td><div class="cell-strong">'+esc(c.nama)+(sp>20000000?' '+svg(IC.star,'')+'':'')+'</div><div class="cell-sub">'+esc(c.perusahaan||'Perorangan')+'</div></td>'
+    h+='<tr class="row-click" onclick="viewClient(\''+c.id+'\')"><td><div class="cell-strong">'+esc(c.nama)+(sp>20000000?' '+svg(IC.star,'star')+'':'')+'</div><div class="cell-sub">'+esc(c.perusahaan||'Perorangan')+'</div></td>'
      +'<td><div style="font-size:12px">'+esc(c.hp)+'</div><div class="cell-sub">'+esc(c.email||c.ig||'')+'</div></td>'
-     +'<td><span class="tag">'+esc(c.source)+'</span></td><td>'+esc(userName(c.mktPIC))+'</td><td>'+statusChip(c.status)+'</td>'
+     +'<td><span class="tag">'+esc(c.source)+'</span></td><td>'+esc(userName(c.mktPIC))+'</td><td><div class="pill-row">'+clientTags(c.id)+'</div></td>'
      +'<td class="mono">'+(sp?rpShort(sp):'—')+'</td><td class="mono">'+(c.nextFU?fmtDate(c.nextFU):'—')+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
   });
   h+='</tbody></table></div>';
@@ -1017,7 +1111,7 @@ function clientForm(c){
 }
 function ff(label,id,val,type,req){ return '<div class="field"><label>'+label+(req?'<span class="req">*</span>':'')+'</label><input class="inp" type="'+(type||'text')+'" id="'+id+'" value="'+esc(val||'')+'"></div>'; }
 function newClient(){
-  modal('<div class="modal-head"><div><h3>Client Baru</h3><p>Tambah lead ke CRM. Status awal: Lead.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+clientForm()+'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveClient()">Simpan Client</button></div>');
+  modal('<div class="modal-head"><div><h3>Client Baru</h3><p>Tambah kontak ke CRM. Tahapan Lead→Deal hidup di event, bukan di client.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+clientForm()+'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveClient()">Simpan Client</button></div>');
 }
 function editClient(id){
   const c=S.clients.find(x=>x.id===id);
@@ -1028,7 +1122,7 @@ function saveClient(id){
   if(!g('nama')||!g('hp'))return toast('Lengkapi data','Nama & No. HP wajib diisi.','err');
   if(id){ const c=S.clients.find(x=>x.id===id); Object.assign(c,{nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),email:g('email'),ig:g('ig'),alamat:g('alamat'),source:g('source'),mktPIC:g('mktPIC'),birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')}); c.lastContact=today();
     logAct('client',id,'Data client diperbarui',c.nama); toast('Tersimpan','Data '+c.nama+' diperbarui.','ok'); }
-  else { const nc={id:uid('c'),status:'Lead',createdAt:today(),lastContact:today(),nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),email:g('email'),ig:g('ig'),alamat:g('alamat'),source:g('source'),mktPIC:g('mktPIC')||ME.id,birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')};
+  else { const nc={id:uid('c'),createdAt:today(),lastContact:today(),nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),email:g('email'),ig:g('ig'),alamat:g('alamat'),source:g('source'),mktPIC:g('mktPIC')||ME.id,birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')};
     S.clients.unshift(nc); logAct('client',nc.id,'Lead baru masuk',nc.nama+' · '+nc.source); toast('Client dibuat','Lead '+nc.nama+' masuk pipeline.','ok'); }
   save(); closeModal(); go('crm');
 }
@@ -1039,14 +1133,15 @@ function viewClient(id){
   const sp=clientSpending(id);
   let h='<div class="modal-head"><div><div class="eyebrow">Client · '+esc(c.source)+'</div><h3 style="margin-top:6px">'+esc(c.nama)+'</h3><p>'+esc(c.perusahaan||'Perorangan')+' · PIC '+esc(userName(c.mktPIC))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
-  h+='<div class="pill-row" style="margin-bottom:16px">'+statusChip(c.status)+'<span class="tag">'+clientEventCount(id)+' event</span>'+(sp?'<span class="tag" style="color:var(--gold)">Total '+rp(sp)+'</span>':'')+'</div>';
+  h+='<div class="pill-row" style="margin-bottom:16px">'+clientTags(id)+'<span class="tag">'+clientEventCount(id)+' event</span>'+(sp?'<span class="tag" style="color:var(--gold)">Total '+rp(sp)+'</span>':'')+'</div>';
   h+='<dl class="kv-list"><dt>Kontak</dt><dd>'+esc(c.hp)+(c.email?' · '+esc(c.email):'')+(c.ig?' · '+esc(c.ig):'')+'</dd><dt>Alamat</dt><dd>'+esc(c.alamat||'—')+'</dd><dt>Input</dt><dd>'+fmtDate(c.createdAt)+'</dd><dt>Kontak terakhir</dt><dd>'+fmtDate(c.lastContact)+'</dd><dt>Next follow up</dt><dd>'+(c.nextFU?fmtDate(c.nextFU):'—')+'</dd><dt>Catatan</dt><dd>'+esc(c.catatan||'—')+'</dd></dl>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:10px">Riwayat Event</h4>';
   if(!evs.length)h+='<div class="muted">Belum ada event.</div>';
   else evs.forEach(e=>h+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft)"><div><b>'+esc(e.nama)+'</b><div class="cell-sub">'+fmtDate(e.tanggal)+'</div></div><div style="text-align:right">'+statusChip(e.status)+'<div class="cell-sub mono">'+rp(eventFinance(e).grand)+'</div></div></div>');
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:10px">Riwayat Follow Up</h4>';
   if(!fus.length)h+='<div class="muted">Belum ada follow up.</div>';
-  else { h+='<div class="timeline">'; fus.forEach(f=>h+='<div class="tl-item"><div class="tl-t">'+f.at.replace('T',' ')+' · '+esc(userName(f.by))+'</div><div class="tl-a">'+esc(f.action)+' → '+esc(f.hasil)+'</div><div class="tl-d">'+esc(f.note||'')+'</div></div>'); h+='</div>'; }
+  else { h+='<div class="timeline">'; fus.forEach(f=>{ const fe=f.eventId?S.events.find(e=>e.id===f.eventId):null;
+    h+='<div class="tl-item"><div class="tl-t">'+f.at.replace('T',' ')+' · '+esc(userName(f.by))+' · '+(fe?esc(fe.nama):'Umum / after-sales')+'</div><div class="tl-a">'+esc(f.action)+' → '+esc(f.hasil)+'</div><div class="tl-d">'+esc(f.note||'')+'</div></div>'; }); h+='</div>'; }
   h+='</div>';
   h+='<div class="modal-foot"><a class="btn" target="_blank" href="'+waLink(c.hp,'Halo '+c.nama+', dari tim Laksamana Muda 👋')+'">'+svg(IC.wa)+'WhatsApp</a>';
   if(can('edit_client'))h+='<button class="btn" onclick="editClient(\''+id+'\')">'+svg(IC.edit)+'Edit</button><button class="btn pri" onclick="closeModal();logFollowUp(\''+id+'\')">'+svg(IC.plus)+'Follow Up</button>';
@@ -1066,12 +1161,6 @@ function renderPipeline(V){
   else h+=pipeLeaderboard();
   V.innerHTML=h;
   if(pipeTab==='kanban')bindKanban();
-}
-function pipeStatusOf(c){
-  // map client status to kanban col; use explicit pipeCol if set
-  if(c.pipeCol)return c.pipeCol;
-  const m={Lead:'Lead',Prospect:'Prospect',Negotiation:'Negotiation',Confirmed:'Deal','Event Done':'Deal',Lost:'Lost'};
-  return m[c.status]||'Lead';
 }
 function pipeStatusOfEv(e){
   if(e.pipeCol)return e.pipeCol;
@@ -1106,34 +1195,66 @@ function bindKanban(){
       const col=body.dataset.col; moveEventPipe(dragId,col); });
   });
 }
+// pindah tahap dari dalam form event (tanpa harus ke kanban)
+function setEventStage(id,col){
+  const e=S.events.find(x=>x.id===id); if(!e||e.status===col)return;
+  const prev=e.status; e.status=col; e.pipeCol=col;
+  if(col==='Deal') genTasks(e);
+  logAct('event',id,'Tahap diubah',prev+' → '+col);
+  save(); toast('Tahap diperbarui',prev+' → '+col,'ok'); go('event',id);
+}
 function moveEventPipe(id,col){
   const e=S.events.find(x=>x.id===id); if(!e)return;
   e.pipeCol=col;
   const prev=e.status; e.status=col;
-  // sinkronkan status client terkait bila event ini dimenangkan/hilang
-  const c=S.clients.find(x=>x.id===e.clientId);
-  if(c){ if(col==='Deal'){c.status='Confirmed';c.pipeCol='Deal';} else if(col==='Lost' && (S.events.filter(x=>x.clientId===c.id).every(x=>x.pipeCol==='Lost'))){c.status='Lost';c.pipeCol='Lost';} }
   logAct('event',id,'Pipeline dipindah',prev+' → '+col);
   if(col==='Deal'){ genTasks(e); toast('Deal! ⚓',e.nama+' masuk tahap eksekusi & handover divisi.','ok'); }
   save(); go('pipeline');
 }
 function pipeFollowUp(){
   const mine = ME.role==='marketing';
-  const todayFU=S.clients.filter(c=>c.nextFU && c.nextFU<=today() && !['Event Done','Lost'].includes(c.status) && (!mine||c.mktPIC===ME.id));
+  const openEvs=S.events.filter(e=>isOpenEvent(e) && (!mine||e.mktPIC===ME.id));
+  const dueEvs=openEvs.filter(e=>e.nextFU && e.nextFU<=today());
   const myFUcount=S.followups.filter(f=>(!mine||f.by===ME.id)&&f.at.slice(0,10)===today()).length;
-  let h='<div class="grid g-3" style="margin-bottom:16px">'
+  // nurture: client tanpa peluang aktif tapi sengaja dijadwalkan FU (after-sales / repeat)
+  const nurture=S.clients.filter(c=>c.nextFU && !clientOpenEvents(c.id).length && (!mine||c.mktPIC===ME.id));
+  const staleEvs=openEvs.filter(isStale);
+  let h='<div class="grid g-4" style="margin-bottom:16px">'
    +stat('Progress Hari Ini',myFUcount+'/'+S.settings.fuTarget,progressBar(myFUcount,S.settings.fuTarget),'pipe')
-   +stat('Jatuh Tempo Hari Ini',todayFU.length,'client perlu di-follow up','clock')
-   +stat('Total Prospect Aktif',S.clients.filter(c=>['Prospect','Negotiation'].includes(c.status)).length,'dalam proses','flag')
+   +stat('Jatuh Tempo Hari Ini',dueEvs.length,'peluang perlu di-follow up','clock')
+   +stat('Peluang Basi',staleEvs.length,'≥ '+(+S.settings.staleDays||7)+' hari tanpa FU','alert')
+   +stat('Peluang Aktif',openEvs.length,'Lead → Quotation Terkirim','flag')
    +'</div>';
-  h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Antrian Follow Up</h3></div>';
-  const list=S.clients.filter(c=>!['Event Done','Lost'].includes(c.status) && (!mine||c.mktPIC===ME.id)).sort((a,b)=>(a.nextFU||'9999').localeCompare(b.nextFU||'9999'));
-  if(!list.length)h+=empty('Tidak ada antrian','Semua client sudah confirmed atau tidak ada prospect aktif.','pipe');
-  else { h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Status</th><th>Last FU</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
-    list.forEach(c=>{ const overdue=c.nextFU&&c.nextFU<today(); const dueToday=c.nextFU===today();
-      h+='<tr><td class="row-click" onclick="viewClient(\''+c.id+'\')"><div class="cell-strong">'+esc(c.nama)+'</div><div class="cell-sub">'+esc(c.hp)+'</div></td><td>'+statusChip(c.status)+'</td><td class="mono">'+fmtDate(c.lastContact)+'</td><td class="mono" style="color:'+(overdue?'var(--danger)':dueToday?'var(--gold)':'inherit')+'">'+(c.nextFU?fmtDate(c.nextFU):'—')+(overdue?' ⚠':dueToday?' • hari ini':'')+'</td><td><button class="btn sm" onclick="logFollowUp(\''+c.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
-    h+='</tbody></table></div>'; }
+  // --- antrian peluang (event) ---
+  h+='<div class="card pad0" style="margin-bottom:14px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Antrian Follow Up · Peluang Aktif</h3><div class="cell-sub">Hasil follow up langsung menggerakkan tahap event di Pipeline.</div></div>';
+  if(!openEvs.length)h+=empty('Tidak ada peluang aktif','Semua event sudah Deal atau Lost. Buat peluang baru lewat Input & Event, atau lewat Catat FU → "Peluang baru".','pipe');
+  else{
+    // peluang basi naik ke atas — yang paling sering hilang karena lupa, bukan ditolak
+    const list=openEvs.slice().sort((a,b)=>{
+      const sa=isStale(a)?0:1, sb=isStale(b)?0:1;
+      if(sa!==sb) return sa-sb;
+      return (a.nextFU||'9999').localeCompare(b.nextFU||'9999');
+    });
+    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tahap</th><th>Terakhir FU</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
+    list.forEach(e=>{ const overdue=e.nextFU&&e.nextFU<today(); const dueToday=e.nextFU===today(); const stale=isStale(e); const d=daysSinceFU(e);
+      h+='<tr><td class="row-click" onclick="go(\'event\',\''+e.id+'\')"><div class="cell-strong">'+esc(e.nama)+(stale?' <span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Basi</span>':'')+'</div><div class="cell-sub">'+fmtDate(e.tanggal)+'</div></td>'
+       +'<td>'+esc(clientName(e.clientId))+'</td><td>'+statusChip(e.status)+'</td>'
+       +'<td class="mono" style="color:'+(stale?'var(--danger)':'inherit')+'">'+(lastFUDate(e)?d+' hari lalu':'—')+'</td>'
+       +'<td class="mono" style="color:'+(overdue?'var(--danger)':dueToday?'var(--gold)':'inherit')+'">'+(e.nextFU?fmtDate(e.nextFU):'—')+(overdue?' ⚠':dueToday?' • hari ini':'')+'</td>'
+       +'<td><button class="btn sm" onclick="logFollowUp(\''+e.clientId+'\',\''+e.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
+    h+='</tbody></table></div>';
+  }
   h+='</div>';
+  // --- nurture / after-sales (tidak dihitung ke target harian) ---
+  if(nurture.length){
+    h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Nurture / After-sales</h3><div class="cell-sub">Client tanpa peluang aktif tapi dijadwalkan follow up. Tidak dihitung ke target harian.</div></div>';
+    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Kontak</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
+    nurture.slice().sort((a,b)=>(a.nextFU||'9999').localeCompare(b.nextFU||'9999')).forEach(c=>{
+      h+='<tr><td class="row-click" onclick="viewClient(\''+c.id+'\')"><div class="cell-strong">'+esc(c.nama)+'</div><div class="pill-row">'+clientTags(c.id)+'</div></td>'
+       +'<td>'+esc(c.hp||'—')+'</td><td class="mono">'+fmtDate(c.nextFU)+'</td>'
+       +'<td><button class="btn sm" onclick="logFollowUp(\''+c.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
+    h+='</tbody></table></div></div>';
+  }
   return h;
 }
 function pipeLeaderboard(){
@@ -1145,26 +1266,66 @@ function pipeLeaderboard(){
   setTimeout(()=>document.querySelectorAll('.tbl svg.star').forEach(s=>s.style.color='var(--gold)'),0);
   return h;
 }
-function logFollowUp(clientId){
+/* Follow Up menempel ke EVENT (peluang). Kalau belum ada peluang, bisa dibuat
+   di sini juga, atau dicatat sebagai FU umum/after-sales (tak mengubah status). */
+function logFollowUp(clientId,presetEventId){
   const c=S.clients.find(x=>x.id===clientId);
+  const open=clientOpenEvents(clientId);
+  const sel=presetEventId||(open[0]?open[0].id:'__new__');
   modal('<div class="modal-head"><div><h3>Catat Follow Up</h3><p>'+esc(c.nama)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<div class="field"><label>Follow up ini untuk<span class="req">*</span></label><select class="inp" id="fu_event" onchange="fuEventChange()">'
+     + open.map(e=>'<option value="'+e.id+'"'+(sel===e.id?' selected':'')+'>'+esc(e.nama)+' · '+esc(e.status)+' · '+fmtDate(e.tanggal)+'</option>').join('')
+     + '<option value="__new__"'+(sel==='__new__'?' selected':'')+'>+ Peluang baru (buat event)</option>'
+     + '<option value="__umum__">Umum / after-sales (tidak mengubah status)</option>'
+   +'</select><div class="fh">Hasil follow up akan menggerakkan tahap event yang dipilih di Pipeline.</div></div>'
+   +'<div id="fu_newev" style="display:none"><div class="form-grid">'+ff('Nama Event','fu_enama','','text',1)
+     +'<div class="field"><label>Jenis Event</label><select class="inp" id="fu_ejenis">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'
+     +'<div class="field"><label>Tanggal (perkiraan)</label><input class="inp" type="date" id="fu_etanggal" value="'+today()+'"></div>'
+   +'</div></div>'
    +'<div class="form-grid"><div class="field"><label>Jenis Aktivitas</label><select class="inp" id="fu_action"><option>Call</option><option>WA</option><option>Meeting</option><option>Visit</option><option>Email</option></select></div>'
-   +'<div class="field"><label>Hasil</label><select class="inp" id="fu_hasil" onchange="fuHasilChange()"><option>Interested</option><option>Waiting</option><option>No Response</option><option>Deal</option><option>Lost</option></select></div>'
+   +'<div class="field"><label>Hasil</label><select class="inp" id="fu_hasil">'+Object.keys(FU_RESULT).map(k=>'<option>'+k+'</option>').join('')+'</select></div>'
    +'<div class="field full"><label>Catatan</label><textarea class="inp" id="fu_note" placeholder="Ringkasan hasil follow up..."></textarea></div>'
-   +'<div class="field full"><label>Jadwalkan Follow Up Berikutnya</label><input class="inp" type="date" id="fu_next" value="'+today()+'"></div></div>'
+   +'<div class="field full"><label>Jadwalkan Follow Up Berikutnya</label><input class="inp" type="date" id="fu_next" value="'+nextFUDate()+'"><div class="fh">Otomatis +'+(+S.settings.fuNextDays||3)+' hari (atur di Pengaturan). Kosongkan bila peluang sudah Deal/Lost.</div></div></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveFollowUp(\''+clientId+'\')">Simpan Follow Up</button></div>');
+  fuEventChange();
 }
-function fuHasilChange(){}
+function fuEventChange(){
+  const el=$('fu_newev'); if(el) el.style.display = ($('fu_event').value==='__new__')?'block':'none';
+}
 function saveFollowUp(clientId){
   const c=S.clients.find(x=>x.id===clientId);
+  const target=$('fu_event').value;
   const action=$('fu_action').value, hasil=$('fu_hasil').value, note=$('fu_note').value.trim(), next=$('fu_next').value;
-  S.followups.unshift({id:uid('f'),clientId,by:ME.id,action,hasil,note,at:new Date().toISOString().slice(0,16),next});
-  c.lastContact=today(); c.nextFU=next;
-  // status transition
-  const trans={Interested:'Prospect',Waiting:'Prospect',Deal:'Confirmed',Lost:'Lost'};
-  if(trans[hasil]){ if(hasil==='Deal'){c.status='Confirmed';c.pipeCol='Deal';} else if(hasil==='Lost'){c.status='Lost';c.pipeCol='Lost';} else if(c.status==='Lead'){c.status='Prospect';c.pipeCol='Prospect';} }
-  logAct('client',clientId,'Follow up: '+action,hasil+(note?' · '+note:''));
-  save(); closeModal(); toast('Follow up dicatat',c.nama+' → '+hasil,'ok');
+  let ev=null;
+  if(target==='__new__'){
+    const en=$('fu_enama').value.trim();
+    if(!en)return toast('Nama event wajib','Isi nama peluang/event baru dulu.','err');
+    const jenis=$('fu_ejenis').value, tanggal=$('fu_etanggal').value;
+    ev={id:uid('e'),clientId,nama:en,jenis,tanggal,status:'Lead',pipeCol:'Lead',mktPIC:(c.mktPIC||ME.id),pax:0,invoiceSent:false,createdAt:today(),detail:{jenis,tanggal},payments:[],tasks:{}};
+    S.events.unshift(ev); logAct('event',ev.id,'Peluang baru dibuat (dari Follow Up)',en);
+  } else if(target!=='__umum__'){
+    ev=S.events.find(e=>e.id===target);
+  }
+  S.followups.unshift({id:uid('f'),clientId,eventId:ev?ev.id:'',by:ME.id,action,hasil,note,at:new Date().toISOString().slice(0,16),next});
+  c.lastContact=today();
+  if(ev){
+    const stage=FU_RESULT[hasil];
+    if(stage && stage!==ev.status){
+      const prev=ev.status; ev.status=stage; ev.pipeCol=stage;
+      if(stage==='Deal') genTasks(ev);
+      logAct('event',ev.id,'Follow up: '+action,hasil+' · '+prev+' → '+stage+(note?' · '+note:''));
+    } else {
+      logAct('event',ev.id,'Follow up: '+action,hasil+(note?' · '+note:''));
+    }
+    // otomasi jadwal: peluang yang sudah diputuskan tak perlu FU lagi
+    if(['Deal','Lost'].includes(ev.status)) ev.nextFU='';
+    else ev.nextFU = next || nextFUDate();
+  } else {
+    c.nextFU=next; // FU umum / nurture disimpan di client
+    logAct('client',clientId,'Follow up umum: '+action,hasil+(note?' · '+note:''));
+  }
+  save(); closeModal();
+  toast('Follow up dicatat',(ev?esc(ev.nama)+' → '+hasil:c.nama+' → '+hasil),'ok');
   go('pipeline');
 }
 /* ============================================================
@@ -1196,19 +1357,31 @@ function paintEvents(){
 function INV_STATUS_MAP(){ const m={}; Object.keys(INV_STATUS).forEach(k=>m[k]={c:INV_STATUS[k],t:k}); return m; }
 
 function newEvent(){
-  const dealClients=S.clients.filter(c=>['Confirmed','Negotiation','Prospect','Lead'].includes(c.status));
-  modal('<div class="modal-head"><div><h3>Event Baru</h3><p>Pilih client (dari CRM) untuk memulai detailing.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
-   +'<div class="field"><label>Client<span class="req">*</span></label><select class="inp" id="ne_client"><option value="">— pilih client —</option>'+dealClients.map(c=>'<option value="'+c.id+'">'+esc(c.nama)+(c.perusahaan?' ('+esc(c.perusahaan)+')':'')+'</option>').join('')+'</select><div class="fh">Belum ada di daftar? Tambah dulu di Database Client.</div></div>'
+  const dealClients=S.clients.slice().sort((a,b)=>String(a.nama).localeCompare(String(b.nama)));
+  modal('<div class="modal-head"><div><h3>Event Baru</h3><p>Pilih client dari CRM, atau buat client baru langsung di sini.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<div class="field"><label>Client<span class="req">*</span></label><select class="inp" id="ne_client" onchange="neClientChange()"><option value="">— pilih client —</option>'+dealClients.map(c=>'<option value="'+c.id+'">'+esc(c.nama)+(c.perusahaan?' ('+esc(c.perusahaan)+')':'')+'</option>').join('')+'<option value="__new__">+ Client baru (isi cepat)</option></select><div class="fh">Belum ada di daftar? Pilih "+ Client baru" — nanti otomatis masuk Database Client sebagai Lead.</div></div>'
+   +'<div id="ne_newclient" style="display:none"><div class="form-grid">'+ff('Nama Client','ne_cnama','','text',1)+ff('No. HP','ne_chp','','text')+'</div></div>'
    +'<div class="form-grid">'+ff('Nama Event','ne_nama','','text',1)
    +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'
    +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+today()+'"></div>'
    +ff('Estimasi Pax','ne_pax','','number')+'</div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitNewEvent()">Buat & Detailing →</button></div>');
 }
+function neClientChange(){
+  const el=$('ne_newclient'); if(el) el.style.display = ($('ne_client').value==='__new__')?'block':'none';
+}
 function submitNewEvent(){
-  const cid=$('ne_client').value, nama=$('ne_nama').value.trim();
+  let cid=$('ne_client').value; const nama=$('ne_nama').value.trim();
   if(!cid||!nama)return toast('Lengkapi data','Client & Nama Event wajib.','err');
   const jenis=$('ne_jenis').value, tanggal=$('ne_tanggal').value, pax=+$('ne_pax').value||0;
+  // client baru dibuat langsung dari sini (masuk CRM sebagai Lead)
+  if(cid==='__new__'){
+    const cn=$('ne_cnama').value.trim(), chp=$('ne_chp').value.trim();
+    if(!cn)return toast('Nama client wajib','Isi nama client baru dulu.','err');
+    const nc={id:uid('c'),status:'Lead',pipeCol:'Lead',createdAt:today(),lastContact:today(),nama:cn,perusahaan:'',pic:'',hp:chp,email:'',ig:'',alamat:'',source:'',mktPIC:ME.id,birthday:'',nextFU:'',catatan:''};
+    S.clients.unshift(nc); logAct('client',nc.id,'Lead baru masuk (dari Input Event)',cn);
+    cid=nc.id;
+  }
   const cl=S.clients.find(c=>c.id===cid);
   if(!cl)return toast('Client tidak ditemukan','Pilih client yang valid.','err');
   const pic = ME.role==='marketing' ? ME.id : (cl.mktPIC || ME.id);
@@ -1233,12 +1406,33 @@ function renderEventForm(V,id){
   h+='<div class="pill-row">';
   h+='<a class="btn" onclick="go(\'events\')">← Daftar</a>';
   h+='<button class="btn" onclick="genBriefFor(\''+ev.id+'\')">'+svg(IC.brief)+'Event Brief</button>';
+  if(canEdit && isOpenEvent(ev)) h+='<button class="btn" onclick="logFollowUp(\''+ev.clientId+'\',\''+ev.id+'\')">'+svg(IC.pipe)+'Catat FU</button>';
   const apPending=S.approvals.some(a=>a.eventId===ev.id&&a.status==='Pending');
   const apDecided=S.approvals.some(a=>a.eventId===ev.id&&a.status!=='Pending');
-  if(canEdit && approvalStatus(ev).need && !apPending && !apDecided) h+='<button class="btn" onclick="ajukanApproval(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
+  if(canEdit && !apPending && !apDecided) h+='<button class="btn'+(approvalStatus(ev).need?' pri':'')+'" onclick="ajukanApproval(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
   else if(apPending) h+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval</span>';
   if(canEdit && !['Confirmed','Deal','Event Done','Lost'].includes(ev.status)) h+='<button class="btn pri" onclick="confirmEvent(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
   h+='</div></div>';
+
+  // peringatan bentrok jadwal (dobel booking)
+  const clash=bookingConflicts(ev);
+  if(clash.length){
+    h+='<div class="card" style="margin-bottom:16px;background:var(--danger-bg);border-color:var(--danger)">'
+     +'<div style="display:flex;align-items:flex-start;gap:10px"><span style="color:var(--danger);display:flex">'+svg(IC.alert)+'</span>'
+     +'<div><b style="font-size:13px;color:var(--danger)">Bentrok jadwal — '+clash.length+' event lain di tanggal yang sama</b>'
+     +'<div class="cell-sub" style="margin-top:4px">'+clash.map(x=>'<a onclick="go(\'event\',\''+x.id+'\')" style="cursor:pointer;text-decoration:underline">'+esc(x.nama)+'</a> ('+esc((x.detail&&x.detail.area)||'area belum diisi')+' · '+esc(x.status)+')').join(' · ')+'</div>'
+     +'<div class="cell-sub" style="margin-top:4px">Cek ulang area/lantai sebelum konfirmasi supaya tidak dobel booking.</div></div></div></div>';
+  }
+
+  // pengingat tahap pipeline — detailing tidak dikunci, tapi jangan sampai lupa dipindah
+  if(isOpenEvent(ev)){
+    h+='<div class="card" style="margin-bottom:16px;background:var(--warn-bg);border-color:var(--warn);display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">'
+     +'<div style="display:flex;align-items:center;gap:10px;color:var(--warn)">'+svg(IC.alert,'')+'<div style="color:var(--sand)"><b style="font-size:13px">Peluang masih di tahap '+esc(ev.status)+'</b><div class="cell-sub">Boleh diisi kapan saja — tapi kalau sudah ada kemajuan, jangan lupa perbarui tahapnya.</div></div></div>'
+     +(canEdit?'<div style="display:flex;align-items:center;gap:8px"><span class="cell-sub">Pindah ke</span><select class="inp" style="width:auto;padding:7px 12px" onchange="setEventStage(\''+ev.id+'\',this.value)">'
+        +PIPE_COLS.map(s=>'<option'+(s===ev.status?' selected':'')+'>'+s+'</option>').join('')
+       +'</select></div>':'')
+     +'</div>';
+  }
 
   // finance strip
   h+='<div class="grid g-4" style="margin-bottom:18px">'
@@ -1283,8 +1477,11 @@ function renderEventTab(ev,canEdit){
     if(getCats().includes(div)){
       const pr=divProgress(ev,div); const nJobs=eventDivTemplates(ev,div).length;
       h+='<div class="divider"></div><div class="divcard"><div class="divcard-h"><div class="tl">Kesiapan divisi '+div+'</div><span class="cell-sub">'+pr+'% siap</span></div><div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
-       +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job':'belum ada template task')+'</div>'
-       +'<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button></div>';
+       +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job':'—')+'</div>'
+       +(nJobs
+          ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>'
+          : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="go(\'templates\')">'+svg(IC.plus)+'Atur Job</button>')
+       +'</div>';
     }
   }
   h+='</div>';
@@ -1349,6 +1546,8 @@ function saveEventTab(id){
   const queued=syncApproval(ev); // auto-masuk Approval Flow bila total ≥ ambang
   save(); buildNav(); toast('Tersimpan',sec.n+' '+sec.title+' disimpan.','ok');
   if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
+  // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
+  if(isOpenEvent(ev)) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
   go('event',id);
 }
 function setTask(evId,div,status){
@@ -1375,7 +1574,7 @@ function syncApproval(ev){
   const {f,discPct,need}=approvalStatus(ev);
   if(!need)return false;
   if(S.approvals.some(a=>a.eventId===ev.id))return false; // sudah ada (pending / sudah diputuskan)
-  S.approvals.push({id:uid('ap'),eventId:ev.id,by:ME?ME.id:'',reason:approvalReason(f,discPct),status:'Pending',at:new Date().toISOString(),note:''});
+  S.approvals.push({id:uid('ap'),eventId:ev.id,by:ME?ME.id:'',reason:approvalReason(f,discPct),auto:true,status:'Pending',at:new Date().toISOString(),note:''});
   pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
   return true;
 }
@@ -1383,15 +1582,35 @@ function ajukanApproval(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   if(S.approvals.some(a=>a.eventId===id&&a.status==='Pending'))return toast('Sudah diajukan','Event ini sudah ada di antrian Approval Flow.','ok');
   if(S.approvals.some(a=>a.eventId===id&&a.status!=='Pending'))return toast('Sudah diputuskan','Approval event ini sudah diproses sebelumnya.','ok');
-  if(!approvalStatus(ev).need)return toast('Belum perlu approval','Total < '+rpShort(S.settings.approvalThreshold)+' & diskon < '+S.settings.discountThreshold+'%. Tidak wajib approval.','err');
-  syncApproval(ev); save(); buildNav(); toast('Diajukan','Event masuk antrian Approval Flow, menunggu Manager.','ok'); go('approvals');
+  const {f,discPct,need}=approvalStatus(ev);
+  const auto=need?approvalReason(f,discPct):'';
+  modal('<div class="modal-head"><div><h3>Ajukan Approval</h3><p>'+esc(ev.nama)+' · '+rp(f.grand)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +(need
+      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Nilai melewati ambang (≥ '+rpShort(S.settings.approvalThreshold)+' atau diskon ≥ '+S.settings.discountThreshold+'%).</div>'
+      : '<div class="fh" style="margin-bottom:12px">Nilai di bawah ambang (&lt; '+rpShort(S.settings.approvalThreshold)+' &amp; diskon &lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
+   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa event ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitApprovalReq(\''+id+'\')">Ajukan</button></div>');
+}
+function submitApprovalReq(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  if(S.approvals.some(a=>a.eventId===id))return toast('Sudah ada','Event ini sudah pernah diajukan.','err');
+  const reason=$('ap_reason').value.trim();
+  if(!reason)return toast('Alasan wajib','Isi alasan pengajuan approval.','err');
+  const {need}=approvalStatus(ev);
+  S.approvals.push({id:uid('ap'),eventId:id,by:ME?ME.id:'',reason,auto:!!need,status:'Pending',at:new Date().toISOString(),note:''});
+  pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
+  logAct('event',id,'Ajukan approval',reason);
+  save(); buildNav(); closeModal(); toast('Diajukan','Event masuk antrian Approval Flow, menunggu Manager.','ok'); go('approvals');
 }
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
   // check PIC matrix (D.14) required
   const missing=['picKoordinator','picMOD','picAcara'].filter(k=>!ev.detail[k]);
   if(missing.length){ curTab='pic'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.14) wajib terisi sebelum Confirmed.','err'); }
-  ev.status='Deal'; ev.pipeCol='Deal'; const c=S.clients.find(x=>x.id===ev.clientId); if(c){c.status='Confirmed';c.pipeCol='Deal';}
+  // otomasi: cegah dobel booking — minta konfirmasi ulang bila bentrok
+  const clash=bookingConflicts(ev);
+  if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
+  ev.status='Deal'; ev.pipeCol='Deal';
   genTasks(ev);
   syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
   if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (nominal/diskon melewati ambang).','ok');
@@ -1472,7 +1691,18 @@ function renderBrief(V){
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
 }
-function genBriefFor(id,mode){ mode=mode||'internal'; buildBriefDoc(id,mode); }
+function genBriefFor(id,mode){
+  mode=mode||'internal'; buildBriefDoc(id,mode);
+  // otomasi: begitu quotation dibuat, tahap peluang naik sendiri
+  if(mode==='quote'){
+    const ev=S.events.find(e=>e.id===id);
+    if(ev && ['Lead','Prospect','Negotiation'].includes(ev.status)){
+      const prev=ev.status; ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim';
+      logAct('event',id,'Tahap → Quotation Terkirim','otomatis: quotation dibuat');
+      save(); toast('Tahap diperbarui',prev+' → Quotation Terkirim','ok');
+    }
+  }
+}
 function fmtFieldVal(fl,val){
   if(val==null||val===''||(Array.isArray(val)&&!val.length))return null;
   if(fl.t==='multi')return val.join(', ');
@@ -1587,12 +1817,14 @@ function renderTasks(V){
     const rd=daysTo(e.tanggal); const prog=taskProgress(e);
     h+='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px"><div><div style="display:flex;align-items:center;gap:10px"><h3 style="font-size:16px">'+esc(e.nama)+'</h3>'+statusChip(e.jenis in EVENT_COLOR?e.jenis:'',{[e.jenis]:{c:EVENT_COLOR[e.jenis]||'--muted',t:e.jenis}})+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+' · '+fmtDate(e.tanggal)+' · '+(rd>=0?(rd===0?'HARI INI':'H-'+rd):'lewat')+'</div></div><div style="min-width:160px"><div class="progress"><div class="bar" style="width:'+prog+'%"></div></div><div class="cell-sub" style="text-align:right">'+prog+'% siap</div></div></div>';
     h+='<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">';
-    divs.forEach(div=>{ const pr=divProgress(e,div); const nJobs=eventDivTemplates(e,div).length;
-      h+='<div class="divcard">'
-       +'<div class="divcard-h"><b>'+div+'</b><span class="cell-sub">'+pr+'% siap</span></div>'
+    divs.forEach(div=>{ const pr=divProgress(e,div); const nJobs=eventDivTemplates(e,div).length; const kosong=!nJobs;
+      h+='<div class="divcard'+(kosong?' is-empty':'')+'">'
+       +'<div class="divcard-h"><b>'+div+'</b><span class="cell-sub">'+(kosong?'—':pr+'% siap')+'</span></div>'
        +'<div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
-       +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?nJobs+' job':'belum ada template')+'</div>'
-       +'<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+e.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>'
+       +'<div class="cell-sub" style="margin-top:7px">'+(kosong?'—':nJobs+' job')+'</div>'
+       +(kosong
+          ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="go(\'templates\')">'+svg(IC.plus)+'Atur Job</button>'
+          : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+e.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>')
        +'</div>';
     });
     h+='</div></div>';
@@ -1609,7 +1841,7 @@ function tmplCard(div,canEdit,deletable,subtitle){
   let h='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span></h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</div><div class="pill-row">'
     +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+esc(div)+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
     +(canEdit&&deletable?'<button class="btn sm" onclick="delTaskCategory(\''+esc(div)+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
-  if(!items.length) h+='<div class="muted" style="padding:6px 0">Belum ada template task untuk kategori ini.</div>';
+  if(!items.length) h+='<div class="cell-sub" style="padding:6px 0">—</div>';
   else{
     h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th>'+(canEdit?'<th></th>':'')+'</tr></thead><tbody>';
     items.forEach(t=>{
@@ -1690,7 +1922,7 @@ function openDivJobs(evId,div){
   const editable=can('edit_task');
   const fbNote=(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat))?'<div class="cell-sub" style="margin-bottom:10px">Termasuk job cabang F&amp;B: <b>'+esc(ev.detail.fbFormat)+'</b> (otomatis dari Format F&amp;B event).</div>':'';
   let b=fbNote;
-  if(!items.length) b+='<div class="muted" style="padding:8px 0">Belum ada template task untuk divisi '+esc(div)+'. Tambahkan di menu <b>Template Task</b>.</div>';
+  if(!items.length) b+=empty('Job belum diatur','Susun daftar job untuk divisi '+esc(div)+' di menu Template Task, lalu progresnya bisa dipantau di sini.','task');
   else{
     const overall=divProgress(ev,div);
     b+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line-soft);border-radius:11px"><div style="flex:none"><div class="cell-sub">Progress keseluruhan '+esc(div)+'</div><div style="font-family:var(--ff-display);font-size:22px;line-height:1.15">'+overall+'% <span class="cell-sub" style="font-size:12px">· '+items.length+' job</span></div></div><div class="progress" style="flex:1;height:9px"><div class="bar" style="width:'+overall+'%"></div></div></div>';
@@ -1723,7 +1955,7 @@ function renderInvoices(V){
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">DP</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   evs.forEach((e,i)=>{ const f=eventFinance(e); const invNo=S.settings.invPrefix+String(1000+i).slice(1);
     h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.dp)+'</td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
-     +'<td><div class="pill-row"><button class="btn sm" title="Buka event" onclick="go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
+     +'<td><div class="pill-row"><button class="btn sm" title="Buka event" onclick="go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
@@ -1752,6 +1984,29 @@ function waInvoice(evId,invNo){
   window.open(waLink(c.hp,msg),'_blank');
   if(!e.invoiceSent){ e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav(); go('invoices'); }
   else toast('WhatsApp dibuka','Pesan invoice untuk '+c.nama+' siap dikirim.','ok');
+}
+// Reminder DP via WhatsApp (deep link — gratis, tanpa API berbayar)
+function waReminderDP(id){
+  const e=S.events.find(x=>x.id===id); if(!e)return;
+  const c=S.clients.find(x=>x.id===e.clientId); if(!c)return toast('Client tidak ditemukan','','err');
+  const f=eventFinance(e);
+  const msg=[
+    'Halo '+c.nama+' 👋',
+    '',
+    'Pengingat pembayaran DP untuk event *'+e.nama+'*',
+    'Tanggal event : '+fmtDate(e.tanggal),
+    '',
+    'Grand Total : '+rp(f.grand),
+    'DP ('+f.dpPct+'%) : '+rp(f.dp),
+    'Terbayar : '+rp(f.paid),
+    'Kurang : '+rp(Math.max(0,f.dp-f.paid)),
+    '',
+    'Slot event diamankan setelah DP masuk ya 🙏',
+    '⚓ Laksamana Muda Event Organizer'
+  ].join('\n');
+  window.open(waLink(c.hp,msg),'_blank');
+  logAct('event',e.id,'Reminder DP dikirim via WA',rp(Math.max(0,f.dp-f.paid)));
+  save(); toast('WhatsApp dibuka','Reminder DP untuk '+c.nama+' siap dikirim.','ok');
 }
 
 /* ============================================================
@@ -1785,19 +2040,21 @@ function renderPerformance(V){
   // team totals
   const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   const omzet=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
-  const leads=S.clients.length; const deals=S.clients.filter(c=>['Confirmed','Deal','Event Done'].includes(c.status)).length;
+  // Distribusi berbasis EVENT: tiap peluang dihitung SEKALI, di tahapnya saat ini.
+  const leads=S.events.length; const deals=closed.length;
   const convRate=leads?Math.round(deals/leads*100):0;
+  const atStage=s=>S.events.filter(e=>e.status===s).length;
   const avgVal=closed.length?Math.round(omzet/closed.length):0;
   h+='<div class="grid g-4" style="margin-bottom:18px">'
    +stat('Total Omzet',rpShort(omzet),closed.length+' event closing','money')
-   +stat('Conversion Rate',convRate+'%',deals+' deal / '+leads+' lead','pipe')
+   +stat('Conversion Rate',convRate+'%',deals+' deal / '+leads+' peluang','pipe')
    +stat('Avg Event Value',rpShort(avgVal),'per event closing','event')
    +stat('Repeat Customer',S.clients.filter(c=>clientEventCount(c.id)>1).length,'klien balik lagi','star')
    +'</div>';
   // funnel
-  const funnel=[['Lead',S.clients.length],['Prospect',S.clients.filter(c=>['Prospect','Negotiation','Confirmed','Event Done'].includes(c.status)).length],['Negotiation',S.clients.filter(c=>['Negotiation','Confirmed','Event Done'].includes(c.status)).length],['Deal',deals]];
-  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:16px">Funnel Pipeline</h3>';
-  const maxF=funnel[0][1]||1;
+  const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Negotiation',atStage('Negotiation')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
+  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang.</p>';
+  const maxF=Math.max(1,...funnel.map(f=>f[1]));
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
   h+='</div>';
   // per marketing bars
@@ -1835,7 +2092,11 @@ function renderReports(V){
   const eventDays=closed.length; const bDaily=baselineDaily();
   const eventRevenue=totalRev; const baselineTotal=bDaily*eventDays;
   const uplift=Math.max(0,eventRevenue-baselineTotal);
-  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:6px">Baseline vs Uplift</h3><p class="section-desc">Mengikuti model atribusi Laksamana Muda (Bagian 9.3). Baseline = rolling 4-minggu hari non-event.</p>';
+  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:6px">Baseline vs Uplift</h3><p class="section-desc">Rumus: <b>Uplift = Revenue hari event − (Baseline harian × jumlah hari event)</b>. Baseline = omzet rata-rata venue pada hari <b>tanpa</b> event, diisi manual di Pengaturan.</p>';
+  if(!bDaily){
+    h+='<div style="padding:11px;background:var(--warn-bg);border-radius:9px;font-size:12px;color:var(--sand-dim)">'+svg(IC.alert)+' <b>Baseline belum diisi.</b> Uplift tidak bisa dihitung. Isi "Baseline Revenue Harian" di <b>Pengaturan</b> — angkanya harus datang dari laporan Finance (omzet hari non-event), karena sistem ini hanya mencatat event.</div></div></div>';
+    V.innerHTML=h; return;
+  }
   h+='<dl class="kv-list"><dt>Revenue hari event</dt><dd class="mono">'+rp(eventRevenue)+'</dd><dt>Baseline ('+eventDays+' hari × '+rpShort(bDaily)+')</dt><dd class="mono">'+rp(baselineTotal)+'</dd><dt style="color:var(--gold)">Uplift Event</dt><dd class="mono" style="color:var(--gold);font-weight:600">'+rp(uplift)+'</dd></dl>';
   h+='<div style="margin-top:12px;padding:11px;background:var(--info-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' Rekomendasi PRD (Bagian 14, poin 6): sistem ini mencatat data mentah; perhitungan baseline/uplift final tetap diverifikasi Finance (Dina/Cindy) agar konsisten dengan laporan berjalan.</div>';
   h+='</div></div>';
@@ -1859,15 +2120,22 @@ function exportCSV(){
    MODUL L — TIMELINE & AUDIT LOG
    ============================================================ */
 function renderTimeline(V){
-  let h=pageHead('Modul L','Timeline & Audit Log','Jejak kronologis semua perubahan data penting.','');
+  const n=S.activities.length;
+  let h=pageHead('Modul L','Timeline & Audit Log','Jejak kronologis semua perubahan data penting. Log otomatis dibatasi 400 entri terbaru.',
+    (ME.role==='super_admin'&&n)?'<span class="tag">'+n+' entri</span><button class="btn" onclick="clearActivities()">'+svg(IC.trash)+'Bersihkan Log</button>':(n?'<span class="tag">'+n+' entri</span>':''));
   h+='<div class="card"><div class="timeline">';
-  if(!S.activities.length)h+='<div class="muted">Belum ada aktivitas.</div>';
+  if(!n)h+='<div class="muted">Belum ada aktivitas.</div>';
   S.activities.slice(0,60).forEach(a=>{
     const ref=a.refType==='client'?clientName(a.refId):(S.events.find(e=>e.id===a.refId)||{}).nama||'';
     h+='<div class="tl-item"><div class="tl-t">'+ago(a.at)+' · '+esc(a.by)+' · '+(a.refType==='client'?'CLIENT':'EVENT')+'</div><div class="tl-a">'+esc(a.action)+'</div><div class="tl-d">'+esc(ref)+(a.detail?' — '+esc(a.detail):'')+'</div></div>';
   });
   h+='</div></div>';
   V.innerHTML=h;
+}
+function clearActivities(){
+  if(!confirm('Bersihkan seluruh audit log ('+S.activities.length+' entri)? Tindakan ini tidak bisa dibatalkan.'))return;
+  S.activities=[];
+  save(); toast('Log dibersihkan','Audit log dikosongkan.','ok'); go('timeline');
 }
 
 /* ============================================================
@@ -1884,7 +2152,8 @@ function renderNotifications(V){
   const live=[];
   S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&eventFinance(e).paid===0).forEach(e=>live.push({type:'dp',title:'DP belum masuk',body:e.nama+' — DP '+rpShort(eventFinance(e).dp)+' belum diverifikasi.',link:'#event/'+e.id}));
   S.events.filter(e=>{const d=daysTo(e.tanggal);return ['Confirmed','Deal'].includes(e.status)&&d>=0&&d<=7;}).forEach(e=>{const d=daysTo(e.tanggal);live.push({type:'event',title:'Event '+(d===0?'HARI INI':'H-'+d),body:e.nama+' · cek kesiapan divisi ('+taskProgress(e)+'%).',link:'#event/'+e.id});});
-  S.clients.filter(c=>c.nextFU===today()&&!['Event Done','Lost'].includes(c.status)).forEach(c=>live.push({type:'fu',title:'Follow up hari ini',body:c.nama,link:'#pipeline'}));
+  S.events.filter(e=>isOpenEvent(e)&&e.nextFU===today()).forEach(e=>live.push({type:'fu',title:'Follow up hari ini',body:e.nama+' · '+clientName(e.clientId),link:'#pipeline'}));
+  S.clients.filter(c=>c.nextFU===today()&&!clientOpenEvents(c.id).length).forEach(c=>live.push({type:'fu',title:'Follow up (nurture)',body:c.nama,link:'#pipeline'}));
   S.events.filter(e=>invStatus(e)==='Overdue').forEach(e=>live.push({type:'inv',title:'Invoice Overdue',body:e.nama+' lewat H-7 tanpa pelunasan.',link:'#event/'+e.id}));
   const icMap={dp:'money',event:'cal',fu:'pipe',inv:'invoice',approval:'approve',payment:'money',birthday:'star',repeat:'star'};
   const colMap={dp:'--warn',event:'--info',fu:'--gold',inv:'--danger',approval:'--violet',payment:'--ok'};
@@ -1940,8 +2209,11 @@ function renderSettings(V){
    +'<div class="field"><label>PB1 / Pajak (%)</label><input class="inp" type="number" id="set_pb1" value="'+st.pb1+'"></div>'
    +'<div class="field"><label>Service Charge (%)</label><input class="inp" type="number" id="set_service" value="'+st.serviceCharge+'"></div>'
    +'<div class="field"><label>Target Follow Up / Hari</label><input class="inp" type="number" id="set_fu" value="'+st.fuTarget+'"></div>'
+   +'<div class="field"><label>Jeda Follow Up Berikutnya (hari)</label><input class="inp" type="number" id="set_funext" value="'+(st.fuNextDays||3)+'"><div class="fh">Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.</div></div>'
+   +'<div class="field"><label>Ambang Peluang Basi (hari)</label><input class="inp" type="number" id="set_stale" value="'+(st.staleDays||7)+'"><div class="fh">Peluang tanpa follow up selama ini ditandai "Basi" & naik ke atas antrian.</div></div>'
    +'<div class="field"><label>Ambang Approval (Rp)</label><input class="inp" type="number" id="set_appr" value="'+st.approvalThreshold+'"><div class="fh">Bagian 14, poin 5.</div></div>'
    +'<div class="field"><label>Ambang Diskon Approval (%)</label><input class="inp" type="number" id="set_disc" value="'+st.discountThreshold+'"></div>'
+   +'<div class="field"><label>Baseline Revenue Harian (Rp)</label><input class="inp" type="number" id="set_baseline" value="'+(S.baseline||0)+'" placeholder="0"><div class="fh">Rata-rata omzet venue pada hari TANPA event. Dipakai menghitung Uplift di Reporting. Isi 0 bila belum ada angkanya — Uplift tidak akan ditampilkan.</div></div>'
    +'<div class="field"><label>Prefix Invoice</label><input class="inp" id="set_inv" value="'+esc(st.invPrefix)+'"></div>'
    +'<div class="field"><label>WA Booking</label><input class="inp" id="set_wa" value="'+esc(st.waBooking)+'"></div>'
    +'</div><button class="btn pri" onclick="saveSettings()">'+svg(IC.check)+'Simpan Pengaturan</button></div>';
@@ -1956,7 +2228,8 @@ function renderSettings(V){
 }
 function saveSettings(){
   const g=(k,f)=>f?parseFloat($('set_'+k).value):$('set_'+k).value;
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,approvalThreshold:+$('set_appr').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,waBooking:$('set_wa').value});
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,approvalThreshold:+$('set_appr').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
+  S.baseline=+$('set_baseline').value||0;
   save(); toast('Tersimpan','Pengaturan diperbarui.','ok');
 }
 // Kembali ke pemilih modul Office. Sesi Office (lm_session) sengaja TIDAK
@@ -1974,6 +2247,10 @@ async function boot(){
   await apiLoad();
   // pastikan semua koleksi ada (data lama mungkin belum punya taskTemplates dll)
   ['users','clients','events','followups','activities','notifs','approvals','taskTemplates','taskCategories'].forEach(k=>{ if(!Array.isArray(S[k])) S[k]=[]; });
+  // setting baru mungkin belum ada di data lama -> isi dari default
+  S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings||{});
+  // otomasi: tutup event yang tanggalnya sudah lewat
+  if(autoCloseEvents()>0) save();
   // sembunyikan layar loading
   const ls=document.getElementById('api-loading-screen'); if(ls)ls.style.display='none';
   window.LM_LOGO=window.__LOGO__; window.LM_ICON=window.__ICON__;
