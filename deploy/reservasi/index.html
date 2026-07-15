@@ -1555,7 +1555,21 @@ function fetchWithTimeout(url, opts, ms){
   const t = setTimeout(()=>ctrl.abort(), ms||20000);
   return fetch(url, Object.assign({signal:ctrl.signal}, opts)).finally(()=>clearTimeout(t));
 }
-async function apiGet(action){
+
+/* ===== ANTRIAN REQUEST (anti tumpang-tindih) =====
+   Apps Script Web App gampang menolak beberapa request yang datang BERSAMAAN dari satu
+   perangkat — respons gagalnya tidak membawa header CORS, jadi browser menampilkannya
+   sebagai "error CORS" padahal akarnya request bertabrakan. Sejak sinkronisasi multi-akun,
+   satu aksi bisa memicu getAll + saveAll, dan polling jalan di latar — mudah tumpang-tindih.
+   Semua panggilan API dilewatkan lewat SATU antrian di sini: tidak akan pernah ada dua
+   request berjalan sekaligus. */
+let _apiChain = Promise.resolve();
+function apiQueue(fn){
+  const run = _apiChain.then(fn, fn);
+  _apiChain = run.then(()=>{}, ()=>{});   // rantai tak pernah putus walau ada yang gagal
+  return run;
+}
+async function _apiGetRaw(action){
   const url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
   let res;
   try{ res = await fetchWithTimeout(url, { method:"GET", redirect:"follow" }, 20000); }
@@ -1564,7 +1578,7 @@ async function apiGet(action){
   if(!json.ok) throw new Error(json.error || "server error");
   return json.data;
 }
-async function apiPost(action, data){
+async function _apiPostRaw(action, data){
   let res;
   try{
     res = await fetchWithTimeout(APPS_SCRIPT_URL, {
@@ -1577,6 +1591,8 @@ async function apiPost(action, data){
   if(!json.ok) throw new Error(json.error || "server error");
   return json.data;
 }
+function apiGet(action){ return apiQueue(()=>_apiGetRaw(action)); }
+function apiPost(action, data){ return apiQueue(()=>_apiPostRaw(action, data)); }
 
 /* ======================================================================
    SINKRONISASI MULTI-AKUN (BACA–GABUNG–TULIS)
@@ -1811,8 +1827,8 @@ function reportRejected(){
    Denahnya harus terasa hidup, jadi saat kru sedang melihat Recap/Denah, data ditarik
    lebih sering (±4 dtk). Di halaman lain lebih jarang (±15 dtk) supaya tidak boros
    kuota Apps Script. Interval memilih diri sendiri (self-scheduling setTimeout). */
-const POLL_FAST = 4000;    // saat di halaman Recap Reservasi (denah/daftar)
-const POLL_SLOW = 15000;   // halaman lain
+const POLL_FAST = 6000;    // saat di halaman Recap Reservasi (denah/daftar)
+const POLL_SLOW = 20000;   // halaman lain
 function pollDelay(){ return CURRENT_PAGE==="hariH" ? POLL_FAST : POLL_SLOW; }
 async function pollRemote(){
   if(!DATA_LOADED || _saving || !SESSION) return;
@@ -1933,6 +1949,22 @@ function setBusy(msg, sub){
   const s=document.querySelector("#busyRoot .busy-sub"); if(s && sub) s.textContent=sub;
 }
 function hideBusy(){ const el=byId("busyRoot"); if(el){ el.classList.remove("on"); el.innerHTML=""; } }
+
+/* Simpan sebuah perubahan ke database SEKARANG, dengan pop-up pemblokir sampai database
+   mengonfirmasi. Dipakai semua aksi tulis (ubah status, no-show, selesai, batal, follow-up,
+   hapus, dll) supaya:
+     - kru tidak bisa mengklik apa pun selama proses (mencegah dobel-klik / aksi bentrok),
+     - perubahan baru dinyatakan berhasil SETELAH benar-benar tertulis, bukan sebelumnya.
+   Mengembalikan true/false. */
+async function commit(msg){
+  showBusy(msg||"Menyimpan ke database…", "Menunggu konfirmasi database, jangan tutup halaman.");
+  let ok=false;
+  try{ ok = await saveNow(); }
+  catch(e){ ok=false; }
+  finally{ hideBusy(); }
+  if(!ok) toast("Gagal menyimpan ke database — perubahan mungkin belum tersimpan. Coba lagi.","err");
+  return ok;
+}
 
 function openModal(html, wide){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
@@ -3526,12 +3558,14 @@ async function saveWalkIn(tableId, doPrint){
 }
 /* ===== Sharing / kelola meja (hari-H) ===== */
 // Jadikan / batalkan sharing untuk sebuah reservasi
-function toggleSharing(id){
+async function toggleSharing(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   r.sharing=!r.sharing; r.updatedAt=Date.now();
   logAudit(r.sharing?"Set Sharing":"Batal Sharing", `${r.name}, meja ${r.table||'-'}`);
-  saveState(); closeModal(); renderHariH();
-  toast(r.sharing?"Meja dijadikan sharing 🤝":"Sharing dibatalkan","ok");
+  const ok=await commit("Menyimpan ke database…");
+  if(!ok){ r.sharing=!r.sharing; }
+  closeModal(); renderHariH();
+  if(ok) toast(r.sharing?"Meja dijadikan sharing 🤝":"Sharing dibatalkan","ok");
 }
 // ---- Pindah / tambah meja (bisa >1 meja) ----
 // MOVE_MODE "move" → pilihan dimulai KOSONG: meja lama otomatis terlepas, host tinggal
@@ -3922,7 +3956,7 @@ function openArrivalModal(id, first){
   setTimeout(()=>{ const el=byId("arvPax"); if(el){ el.focus(); el.select(); } }, 60);
 }
 
-function saveArrival(id, first){
+async function saveArrival(id, first){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   ensureArrivals(r);
   const n=Number(byId("arvPax")?.value||0);
@@ -3931,6 +3965,7 @@ function saveArrival(id, first){
   if(total > Number(r.pax||0) &&
      !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)) return;
 
+  const prev=JSON.parse(JSON.stringify(r));
   const now=Date.now();
   r.arrivals.push({ ts:now, pax:n, by:SESSION.name });
   r.actualPax = arrivedPax(r);
@@ -3941,7 +3976,9 @@ function saveArrival(id, first){
   const sisa=remainingPax(r);
   logAudit(first?"Datang":"Datang Susulan",
     `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`);
-  saveState(); closeModal(); buildNav();
+  const ok=await commit(first?"Menyimpan kedatangan ke database…":"Menyimpan kedatangan susulan…");
+  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(sisa
     ? `${r.name}: ${r.actualPax}/${r.pax} pax masuk — sisa ${sisa} pax masih ditunggu`
@@ -3949,11 +3986,12 @@ function saveArrival(id, first){
 }
 
 // Salah catat gelombang → hapus. Kalau semua gelombang hilang, tamu kembali "belum datang".
-function undoArrival(id, idx){
+async function undoArrival(id, idx){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   ensureArrivals(r);
   const a=r.arrivals[idx]; if(!a) return;
   if(!confirm(`Hapus catatan "${a.pax} orang masuk" (${fmtTs(a.ts)})?`)) return;
+  const prev=JSON.parse(JSON.stringify(r));
   r.arrivals.splice(idx,1);
   r.actualPax = r.arrivals.length ? arrivedPax(r) : null;
   if(!r.arrivals.length){                       // tidak ada yang datang lagi → balik ke Confirmed
@@ -3961,23 +3999,33 @@ function undoArrival(id, idx){
   }
   r.updatedAt=Date.now();
   logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`);
-  saveState(); buildNav();
+  const ok=await commit("Menyimpan koreksi ke database…");
+  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  buildNav();
   if(r.arrivals.length) openArrivalModal(id,false); else closeModal();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast("Catatan kedatangan dihapus","err");
 }
 // Batalkan reservasi → meja kembali tersedia (cream)
-function cancelReservation(id){
+async function cancelReservation(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!confirm(`Batalkan reservasi "${r.name}"? Meja akan tersedia kembali.`)) return;
-  r.status="Cancelled"; r.updatedAt=Date.now();
-  logAudit("Batal",`${r.name}`); saveState(); buildNav(); renderHariH(); toast("Reservasi dibatalkan, meja tersedia kembali","err");
+  const prev=r.status; r.status="Cancelled"; r.updatedAt=Date.now();
+  logAudit("Batal",`${r.name}`);
+  const ok=await commit("Membatalkan di database…");
+  if(!ok){ r.status=prev; }
+  buildNav(); renderHariH();
+  if(ok) toast("Reservasi dibatalkan, meja tersedia kembali","err");
 }
-function markNoShow(id){
+async function markNoShow(id){
   const r=STATE.reservations.find(x=>x.id===id);
   if(!confirm(`Tandai "${r.name}" sebagai NO-SHOW?`)) return;
-  r.status="No-show"; r.updatedAt=Date.now();
-  logAudit("No-show",`${r.name}`); saveState(); buildNav(); renderHariH(); toast("Ditandai no-show","err");
+  const prev=r.status; r.status="No-show"; r.updatedAt=Date.now();
+  logAudit("No-show",`${r.name}`);
+  const ok=await commit("Menyimpan no-show ke database…");
+  if(!ok){ r.status=prev; }
+  buildNav(); renderHariH();
+  if(ok) toast("Ditandai no-show","err");
 }
 function followUp(id){
   const r=STATE.reservations.find(x=>x.id===id);
@@ -4002,12 +4050,16 @@ function followUp(id){
       <button class="btn btn-primary" onclick="saveFollowUp('${id}')">Simpan Catatan</button>
     </div>`);
 }
-function saveFollowUp(id){
+async function saveFollowUp(id){
   const r=STATE.reservations.find(x=>x.id===id);
   const note=byId("fuNote").value.trim(); if(!note){ closeModal(); return; }
+  const prev=JSON.parse(JSON.stringify(r));
   r.followups=r.followups||[]; r.followups.push({ts:Date.now(),by:SESSION.name,note});
-  r.updatedAt=Date.now(); logAudit("Follow Up",`${r.name}: ${note}`); saveState();
-  closeModal(); renderHariH(); toast("Catatan follow up tersimpan","ok");
+  r.updatedAt=Date.now(); logAudit("Follow Up",`${r.name}: ${note}`);
+  const ok=await commit("Menyimpan catatan ke database…");
+  if(!ok){ Object.assign(r, prev); }
+  closeModal(); renderHariH();
+  if(ok) toast("Catatan follow up tersimpan ✓","ok");
 }
 
 /* ---- Rekap Koordinasi (WA ke Grup Koordinasi & Kasir) ---- */
@@ -4330,10 +4382,11 @@ function statusButtons(r){
       title="${on?"Status saat ini":"Ubah status jadi "+s}">${STATUS_ICON[s]} ${s}${on?" ✓":""}</button>`;
   }).join("")}</div>`;
 }
-function changeStatus(id, status){
+async function changeStatus(id, status){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const ns=status;
   if(!ns || ns===r.status) return;
+  const prev=JSON.parse(JSON.stringify(r));                 // untuk dikembalikan bila gagal
   if(ns==="Cancelled"){ const reason=prompt("Alasan pembatalan:"); if(reason===null) return; r.cancelReason=reason; }
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
   // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
@@ -4345,19 +4398,25 @@ function changeStatus(id, status){
     r.actualPax=arrivedPax(r);
     r.leftAt=0;   // masih duduk
   }
-  r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`); saveState(); buildNav();
-  closeModal(); toast("Status diubah → "+ns,"ok");
+  r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`);
+  const ok=await commit("Mengubah status ke database…");
+  if(!ok){ Object.assign(r, prev); }                        // gagal → balikkan
+  buildNav(); closeModal();
+  if(ok) toast("Status diubah → "+ns+" ✓","ok");
   navigate(CURRENT_PAGE);
 }
 // Tamu selesai duduk / pulang → meja bebas kembali, durasi duduk tercatat.
-function guestLeft(id){
+async function guestLeft(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(r.status!=="Datang"){ toast("Hanya tamu yang sudah datang bisa ditandai selesai","err"); return; }
+  const prev=JSON.parse(JSON.stringify(r));
   if(!r.checkinAt) r.checkinAt=Date.now();
   r.leftAt=Date.now(); r.updatedAt=Date.now();
   const dur=dineDuration(r);
   logAudit("Selesai Duduk",`${r.name}${dur!=null?`, duduk ${fmtDur(dur)}`:""}`);
-  saveState(); closeModal(); buildNav();
+  const ok=await commit("Menandai selesai di database…");
+  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(`${r.name} selesai${dur!=null?` — duduk ${fmtDur(dur)}`:""}, meja bebas ✓`,"ok");
   // Meja baru saja kosong → kalau ada antrean, langsung tawarkan tamu berikutnya.
@@ -4366,12 +4425,15 @@ function guestLeft(id){
     setTimeout(()=>offerWaitlist(freed), 350);
   }
 }
-function delReservation(id){
+async function delReservation(id){
   const r=STATE.reservations.find(x=>x.id===id);
   if(!confirm(`Hapus permanen reservasi "${r.name}"? Tindakan ini tercatat di audit log.`)) return;
+  const backup=STATE.reservations.slice();
   STATE.reservations=STATE.reservations.filter(x=>x.id!==id);
-  logAudit("Hapus Reservasi",`${r.name} (${fmtDateShort(r.date)})`); saveState(); buildNav();
-  closeModal(); toast("Reservasi dihapus","err"); navigate(CURRENT_PAGE);
+  logAudit("Hapus Reservasi",`${r.name} (${fmtDateShort(r.date)})`);
+  const ok=await commit("Menghapus dari database…");
+  if(!ok){ STATE.reservations=backup; buildNav(); return; }
+  buildNav(); closeModal(); toast("Reservasi dihapus","err"); navigate(CURRENT_PAGE);
 }
 
 /* ======================================================================
