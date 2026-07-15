@@ -21,7 +21,7 @@
 require __DIR__ . '/lib_reservasi.php';
 
 /* ---------- WAJIB DIISI ---------- */
-$TOKEN = 'ganti-token-ini';   // <-- ganti dengan kata sandi bebas
+$TOKEN = 'lm-migrasi-7h3k9x2q';   // sekali pakai; HAPUS file ini setelah migrasi selesai
 $APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw6wIxPqrTckcJwEYK8ZssZ62FQwyO2GRU7UxlOiNwXcFpgZ_nM1-eWcKzUU6sI34L0/exec';
 
 header('Content-Type: text/plain; charset=utf-8');
