@@ -68,6 +68,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Prakiraan stok/restock: pembaca xlsx + modul bersama + data embed (fallback offline). -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="laksamana-forecast.js"></script>
+    <script src="forecast_export.js" onerror="this.remove()"></script>
     
     <style>
         body {
@@ -245,6 +249,21 @@
                         <i class="fa-solid fa-server text-indigo-500"></i> Link App Script: Tabel Riwayat & Check-in
                     </label>
                     <input type="text" id="config-appscript-history-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 bg-slate-50/50">
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                        <i class="fa-solid fa-chart-line text-indigo-500"></i> Link App Script: Data Prakiraan Stok
+                    </label>
+                    <input type="text" id="config-appscript-forecast-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-indigo-500 bg-slate-50/50">
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                        <i class="fa-solid fa-file-arrow-up text-indigo-500"></i> Unggah Stok Hari Ini (xlsx)
+                        <span id="stock-today-status" class="ml-auto normal-case tracking-normal text-[10px] font-semibold text-slate-400">Belum ada stok</span>
+                    </label>
+                    <input type="file" accept=".xlsx,.xls" onchange="handleStockUpload(this)" class="w-full text-xs font-semibold text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 file:cursor-pointer cursor-pointer">
                 </div>
 
                 <div>
@@ -555,6 +574,7 @@
             appScriptUrlItem:   "https://script.google.com/macros/s/AKfycbxRk-q2IoyJPLGAdKpFbJbo-wghP1JP5LSOx-3CRJJj1QFFTLyFYvKDB0eujxouHUHRag/exec",   // Link App Script: Database Item (Bahan)
             appScriptUrlHistory:"https://script.google.com/macros/s/AKfycbw3ZpXR10UJt8Jhw9sUdsinhAOLkzCBPfJQi69ZFgZAZnFp4CR0PIfaQ8h0NIDL5UdUaQ/exec",   // Link App Script: Tabel Riwayat & Check-in
             appScriptUrlUsers:  "https://script.google.com/macros/s/AKfycbz8WsJocgFCtucj_ioT81h3XFCbLVb3ZCp0pMHUbxYEgHqL6myAqZkDusiOLva2_NUY/exec",   // Link App Script: Database Akun/User
+            appScriptUrlForecast:"https://script.google.com/macros/s/AKfycbykGmdR7mGiCQUXlJQv2QwHhkNatj6GeCL8JnbZ1WXeoOCWA5m_b7cMdiuPHge0s6rH/exec",   // Link App Script: Data Prakiraan Stok
             entryIds: {
                 item: "entry.314340744",    // ID: Nama Item
                 qty:  "entry.906874541",    // ID: QTY
@@ -652,10 +672,14 @@
         let actionTargetName = null;  // Nama item untuk edit/hapus
 
         let state = {
-            formId: "", formUrl: "", appScriptUrlItem: "", appScriptUrlHistory: "",
+            formId: "", formUrl: "", appScriptUrlItem: "", appScriptUrlHistory: "", appScriptUrlForecast: "",
             entryIds: { item: "", qty: "", unit: "", note: "", date: "", pic: "" },
             picName: "Putra"
         };
+
+        // Prakiraan/restock (modul bersama laksamana-forecast.js)
+        let forecastBook = new LaksForecast.ForecastBook(null, null);
+        let stockAsOf = null;
 
         let currentUser = null;   // { id, name, pin, role, keterangan }
         let appInitialized = false;
@@ -815,7 +839,8 @@
                 setTomorrowAsDefaultDate();
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('history-date-filter').value = today;
-                loadItemsFromAppScript();
+                // Muat item DB dulu, lalu data prakiraan (hindari balapan autocomplete).
+                loadItemsFromAppScript().finally(() => loadForecastData());
             }
 
             setPicFromUser(user);       // PIC pemesan = user login
@@ -963,6 +988,7 @@
             state.formId = localStorage.getItem('kitchen_form_id') || "";
             state.appScriptUrlItem = localStorage.getItem('kitchen_appscript_item_url') || "";
             state.appScriptUrlHistory = localStorage.getItem('kitchen_appscript_history_url') || "";
+            state.appScriptUrlForecast = localStorage.getItem('kitchen_appscript_forecast_url') || "";
 
             const savedEntries = localStorage.getItem('kitchen_entry_ids');
             if (savedEntries) state.entryIds = JSON.parse(savedEntries);
@@ -971,6 +997,7 @@
             if (EMBEDDED_CONFIG.formUrl)             { state.formUrl = EMBEDDED_CONFIG.formUrl; extractFormId(EMBEDDED_CONFIG.formUrl); }
             if (EMBEDDED_CONFIG.appScriptUrlItem)    state.appScriptUrlItem = EMBEDDED_CONFIG.appScriptUrlItem;
             if (EMBEDDED_CONFIG.appScriptUrlHistory) state.appScriptUrlHistory = EMBEDDED_CONFIG.appScriptUrlHistory;
+            if (EMBEDDED_CONFIG.appScriptUrlForecast) state.appScriptUrlForecast = EMBEDDED_CONFIG.appScriptUrlForecast;
             ['item','qty','unit','note','date','pic'].forEach(k => {
                 if (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds[k]) state.entryIds[k] = EMBEDDED_CONFIG.entryIds[k];
             });
@@ -978,6 +1005,8 @@
             // PIC diambil otomatis dari user yang login (lihat setPicFromUser)
             document.getElementById('config-appscript-item-url').value = state.appScriptUrlItem;
             document.getElementById('config-appscript-history-url').value = state.appScriptUrlHistory;
+            const fcEl = document.getElementById('config-appscript-forecast-url');
+            if (fcEl) fcEl.value = state.appScriptUrlForecast;
             document.getElementById('config-form-url').value = state.formUrl;
             
             ['item','qty','unit','note','date','pic'].forEach(key => {
@@ -1030,6 +1059,7 @@
         function selectAutocompleteItem(item, rowId) {
             document.getElementById(`batch-row-item-${rowId}`).value = item;
             document.getElementById(`autocomplete-results-${rowId}`).classList.add('hidden');
+            refreshRowForecast(rowId);   // tampilkan panel prakiraan untuk item ini
         }
 
         function enforceSelection(input) {
@@ -1076,6 +1106,8 @@
         function saveConfigurations() {
             state.appScriptUrlItem = document.getElementById('config-appscript-item-url').value.trim();
             state.appScriptUrlHistory = document.getElementById('config-appscript-history-url').value.trim();
+            const fcEl = document.getElementById('config-appscript-forecast-url');
+            state.appScriptUrlForecast = fcEl ? fcEl.value.trim() : "";
             extractFormId(document.getElementById('config-form-url').value.trim());
 
             ['item','qty','unit','note','date','pic'].forEach(key => {
@@ -1084,6 +1116,7 @@
 
             localStorage.setItem('kitchen_appscript_item_url', state.appScriptUrlItem);
             localStorage.setItem('kitchen_appscript_history_url', state.appScriptUrlHistory);
+            localStorage.setItem('kitchen_appscript_forecast_url', state.appScriptUrlForecast);
             localStorage.setItem('kitchen_form_url', state.formUrl);
             localStorage.setItem('kitchen_form_id', state.formId);
             localStorage.setItem('kitchen_entry_ids', JSON.stringify(state.entryIds));
@@ -1091,6 +1124,7 @@
             checkConfigStatus();
             toggleConfigPanel();
             loadItemsFromAppScript();
+            loadForecastData();
             showToast("Pengaturan Disimpan", "Sistem siap digunakan.", "success");
         }
 
@@ -1111,11 +1145,11 @@
                 </div>
                 <div class="w-full md:w-[150px] flex items-center justify-center gap-1.5">
                     <button type="button" onclick="adjustQty(${id}, -1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">-</button>
-                    <input type="number" id="batch-row-qty-${id}" value="5" min="1" step="1" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-inner">
+                    <input type="number" id="batch-row-qty-${id}" value="5" min="1" step="1" oninput="refreshRowForecast(${id})" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white shadow-inner">
                     <button type="button" onclick="adjustQty(${id}, 1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">+</button>
                 </div>
                 <div class="w-full md:w-[120px]">
-                    <select id="batch-row-unit-${id}" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <select id="batch-row-unit-${id}" onchange="refreshRowForecast(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
                         <option value="Kg">Kg</option><option value="Gram">Gram</option><option value="Pcs">Pcs</option><option value="Pack">Pack</option><option value="Dus">Dus</option><option value="Sack">Sack</option>
                     </select>
                 </div>
@@ -1125,6 +1159,8 @@
                 <div class="flex justify-end">
                     <button type="button" onclick="deleteBatchRow(${id})" class="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all self-end md:self-auto"><i class="fa-solid fa-trash text-sm"></i></button>
                 </div>
+                <!-- Panel prakiraan/restock per baris (modul laksamana-forecast.js). Tampil saat item dipilih. -->
+                <div id="batch-row-forecast-${id}" class="hidden w-full md:basis-full min-w-0 order-last mt-1"></div>
             `;
             wrapper.appendChild(row);
             updateSummaryText();
@@ -1139,11 +1175,200 @@
 
         function adjustQty(id, modifier) {
             const input = document.getElementById(`batch-row-qty-${id}`);
-            if (input) input.value = Math.max(1, Math.round((parseFloat(input.value) || 0) + modifier));
+            if (input) { input.value = Math.max(1, Math.round((parseFloat(input.value) || 0) + modifier)); refreshRowForecast(id); }
         }
 
         function updateSummaryText() {
             document.getElementById('batch-summary-text').innerText = `${document.getElementById('batch-rows-wrapper').children.length} Baris siap dikirim`;
+        }
+
+        // ==========================================
+        //  PRAKIRAAN STOK / RESTOCK (modul bersama)
+        // ==========================================
+        // Ambil data prakiraan dari App Script (fallback ke cache lokal saat offline).
+        async function loadForecastData() {
+            const hasItems = p => p && p.items && Object.keys(p.items).length > 0;
+            let payload = null;
+            if (state.appScriptUrlForecast && navigator.onLine) {
+                try {
+                    const res = await fetch(state.appScriptUrlForecast);
+                    if (res.ok) {
+                        const fetched = await res.json();
+                        if (hasItems(fetched)) {
+                            payload = fetched;
+                            localStorage.setItem('kitchen_cached_forecast', JSON.stringify(payload));
+                        } else {
+                            console.warn("Forecast dari App Script kosong; pakai cache/embedded.");
+                        }
+                    }
+                } catch (err) {
+                    console.warn("Gagal ambil forecast, coba cache lokal.", err);
+                }
+            }
+            if (!hasItems(payload)) {
+                const cached = localStorage.getItem('kitchen_cached_forecast');
+                if (cached) {
+                    const c = JSON.parse(cached);
+                    if (hasItems(c)) payload = c;
+                }
+            }
+            // fallback terakhir: payload yang di-embed di file (forecast_export.js)
+            if (!hasItems(payload) && typeof window.LAKSAMANA_FORECAST !== 'undefined') {
+                payload = window.LAKSAMANA_FORECAST;
+            }
+            // Stok hari ini: utamakan stok BERSAMA dari server (yang diunggah
+            // supervisor) supaya semua perangkat sama; fallback ke stok lokal.
+            let stockMap = null;
+            const shared = await fetchSharedStock();
+            if (shared && shared.stock && Object.keys(shared.stock).length) {
+                stockMap = shared.stock;
+                stockAsOf = shared.as_of || null;
+                localStorage.setItem('kitchen_stock_today', JSON.stringify(stockMap));
+                if (stockAsOf) localStorage.setItem('kitchen_stock_asof', stockAsOf);
+            } else {
+                const stockCached = localStorage.getItem('kitchen_stock_today');
+                stockMap = stockCached ? JSON.parse(stockCached) : null;
+                stockAsOf = localStorage.getItem('kitchen_stock_asof') || null;
+            }
+            forecastBook = new LaksForecast.ForecastBook(payload, stockMap);
+            updateStockBadge();
+            // Bila database item (App Script) belum tersedia, pakai daftar bahan
+            // dari data prakiraan sebagai sumber autocomplete.
+            if ((!globalItemsData || globalItemsData.length === 0) && payload && payload.items) {
+                globalItemsData = Object.keys(payload.items);
+                localStorage.setItem('kitchen_cached_items', JSON.stringify(globalItemsData));
+            }
+            refreshAllRowForecasts();
+        }
+
+        // Ambil stok bersama dari server (type=stock). Null bila belum diatur/offline/kosong.
+        async function fetchSharedStock() {
+            if (!state.appScriptUrlForecast || !navigator.onLine) return null;
+            try {
+                const res = await fetch(state.appScriptUrlForecast + '?type=stock');
+                if (!res.ok) return null;
+                const data = await res.json();
+                return (data && data.stock) ? data : null;
+            } catch (err) {
+                console.warn("Gagal ambil stok bersama; pakai stok lokal.", err);
+                return null;
+            }
+        }
+
+        // Render ulang panel prakiraan untuk satu baris.
+        function refreshRowForecast(rowId) {
+            const panel = document.getElementById(`batch-row-forecast-${rowId}`);
+            if (!panel) return;
+            const itemInput = document.getElementById(`batch-row-item-${rowId}`);
+            const name = itemInput ? itemInput.value.trim() : "";
+            if (!name) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+
+            const a = forecastBook.assess(name);
+            if (!a.hasForecast) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+
+            const F = LaksForecast;
+            const qty = parseFloat(document.getElementById(`batch-row-qty-${rowId}`).value) || 0;
+            const unit = document.getElementById(`batch-row-unit-${rowId}`).value;
+            const lasts = forecastBook.howLongWillLast(name, qty, unit);
+
+            const st = a.status;
+            const tierColor = a.tier === 'A' ? '#15803d' : a.tier === 'B' ? '#b45309' : '#b91c1c';
+            const shortUnit = u => {
+                const s = String(u || '').toLowerCase();
+                if (s.includes('gram') || s === 'gr') return 'gr';
+                if (s.includes('kg')) return 'kg';
+                if (s.includes('ml')) return 'ml';
+                if (s.includes('pcs')) return 'pcs';
+                return u || '';
+            };
+            const uShort = shortUnit(a.unit);
+            const stokTxt = a.stockNow == null
+                ? `<span class="text-slate-400 italic">unggah Stok Hari Ini</span>`
+                : `${F.fmtNum(a.stockNow)} <span class="text-slate-400 font-semibold">${uShort}</span>`;
+            const noUsage = !(a.avgDaily > 0);
+            const naText = '<span class="text-slate-400 italic font-medium">belum terpakai</span>';
+            const coverTxt = noUsage ? naText
+                : (a.daysCover == null ? '<span class="text-slate-400 italic font-medium">perlu stok</span>'
+                   : `<span style="color:${st.color}">${F.fmtDays(a.daysCover)}</span>`);
+            const lastsTxt = noUsage ? naText
+                : (lasts == null ? '-' : `<span class="font-bold">${F.fmtDays(lasts)}</span>`);
+            const showSuggest = st.key !== 'safe' && a.suggestOrderPacks != null;
+
+            panel.classList.remove('hidden');
+            panel.innerHTML = `
+                <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                    <div class="flex flex-nowrap items-stretch text-[11px] min-w-full">
+                        ${metricCell('Stok kini', stokTxt)}
+                        ${metricCell('Cukup', coverTxt, false, noUsage ? null : st.bg)}
+                        ${showSuggest ? metricCell('Saran pesan',
+                            a.suggestOrderPacks > 0
+                               ? `${F.fmtNum(a.suggestOrderPacks)} <span class="text-slate-400 font-semibold">${a.purchaseUnit}</span>`
+                               : '<span class="text-emerald-600 font-bold">cukup</span>') : ''}
+                        ${metricCell(`Isi ${F.fmtNum(qty)} ${unit} tahan`, lastsTxt)}
+                        ${metricCell('Akurasi', `<span style="color:${tierColor}" class="font-black">${a.tier}</span>`, true, null, true)}
+                    </div>
+                </div>`;
+        }
+
+        function metricCell(label, value, highlight, bg, narrow) {
+            const bgStyle = bg ? `style="background:${bg}"` : '';
+            const hl = highlight ? 'bg-indigo-50/40' : '';
+            const size = narrow ? 'flex-none w-[60px]' : 'flex-1 basis-0 min-w-[70px]';
+            return `<div class="${size} px-2.5 py-2 border-r border-slate-100 last:border-r-0 ${hl}" ${bgStyle}>
+                        <div class="text-[9px] font-black uppercase tracking-wider text-slate-400 leading-none mb-1 whitespace-nowrap">${label}</div>
+                        <div class="font-bold text-slate-700 whitespace-nowrap">${value}</div>
+                    </div>`;
+        }
+
+        function refreshAllRowForecasts() {
+            const wrapper = document.getElementById('batch-rows-wrapper');
+            for (const row of wrapper.children) {
+                const id = row.id.replace('batch-row-', '');
+                refreshRowForecast(id);
+            }
+        }
+
+        // Unggah "Stok Hari Ini" (xlsx) -> simpan lokal + PUSH ke penyimpanan bersama.
+        function handleStockUpload(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const res = LaksForecast.parseStockWorkbook(e.target.result);
+                if (!res || res.error) {
+                    showToast("Gagal Baca Stok", (res && res.error) || "Format file tidak dikenali.", "danger");
+                    return;
+                }
+                localStorage.setItem('kitchen_stock_today', JSON.stringify(res.stock));
+                if (res.as_of) localStorage.setItem('kitchen_stock_asof', res.as_of);
+                forecastBook.setStock(res.stock);
+                stockAsOf = res.as_of || null;
+                updateStockBadge();
+                refreshAllRowForecasts();
+                showToast("Stok Diperbarui", `${res.count} bahan dimuat${res.as_of ? ' (per ' + res.as_of + ')' : ''}.`, "success");
+                pushStockToServer(res.stock, res.as_of);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Kirim stok ke Web App (type=stock) agar tersimpan di Drive & terbaca semua perangkat.
+        async function pushStockToServer(stockMap, asOf) {
+            if (!state.appScriptUrlForecast || !navigator.onLine) return;
+            try {
+                await fetch(state.appScriptUrlForecast + '?type=stock', {
+                    method: 'POST',
+                    body: JSON.stringify({ type: 'stock', as_of: asOf || null, stock: stockMap })
+                });
+                showToast("Stok Tersinkron", "Stok tersimpan di server - staf lain bisa melihatnya.", "info");
+            } catch (err) {
+                console.warn("Gagal push stok ke server; stok tetap tersimpan lokal.", err);
+            }
+        }
+
+        function updateStockBadge() {
+            const el = document.getElementById('stock-today-status');
+            if (!el) return;
+            el.textContent = stockAsOf ? `Stok per ${stockAsOf}` : 'Belum ada stok';
         }
 
         // Tahap 1: Validasi lokal dan munculkan Pop-up Summary (Pre-Submit)
