@@ -49,6 +49,9 @@ function doPost(e) {
       case 'setModuleAccess':   return setModuleAccess_(body);
       // dipakai konsol internal tiap modul untuk tahu SIAPA anggotanya
       case 'listModuleMembers': return listModuleMembers_(body);
+      // roster HANYA-BACA sebuah modul, dipakai auto-sync modul (mis. dropdown
+      // PIC Marketing). Identitas valid saja, TIDAK perlu admin modul.
+      case 'listModuleRoster':  return listModuleRoster_(body);
       default:                  return json_({ ok: false, error: 'unknown_action' });
     }
   } catch (err) {
@@ -396,6 +399,35 @@ function listModuleMembers_(body) {
       };
     })
     .filter(function (u) { return u.modules.indexOf(module) > -1; })   // hanya anggota modul ini
+    .map(function (u) { delete u.modules; return u; });
+
+  return json_({ ok: true, members: members });
+}
+
+// Roster HANYA-BACA sebuah modul: siapa saja yang boleh membukanya, dan apakah
+// dia admin modul itu. Beda dari listModuleMembers_ (khusus konsol Kelola Akses,
+// admin-only): ini dipanggil OTOMATIS oleh tiap modul saat boot supaya daftar
+// staf (mis. dropdown PIC di Marketing) selalu ikut roster Office, tanpa perlu
+// tiap orang login manual dulu atau admin menarik satu-satu. Cukup identitas
+// valid (nama+PIN aktif); tidak mengekspos PIN atau modul lain milik user.
+function listModuleRoster_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
+  if (!caller) return json_({ ok: false, error: 'forbidden' });
+
+  var module = String(body.module || '').trim();
+  var members = realUsers_(ss)
+    .map(function (u) {
+      var adm = adminModulesFor_(ss, u);
+      return {
+        id: String(u.id || ''), name: String(u.name || ''),
+        keterangan: String(u.keterangan || ''),
+        active: String(u.active).toUpperCase() !== 'FALSE',
+        isModuleAdmin: adm.indexOf('*') > -1 || adm.indexOf(module) > -1,
+        modules: modulesFor_(ss, u)
+      };
+    })
+    .filter(function (u) { return u.modules.indexOf(module) > -1; })
     .map(function (u) { delete u.modules; return u; });
 
   return json_({ ok: true, members: members });

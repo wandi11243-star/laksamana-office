@@ -468,6 +468,10 @@ function svg(p,cls){return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" fill=
 /* ---------- STORE (Web App API — online ke Google Sheets) ---------- */
 // GANTI URL di bawah dengan URL /exec Web App Google Apps Script milikmu.
 const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwJiXBtYnwkU0FIY0wtp9W_jhb0Gosw2Yi7xABOspxcmgtz4qth6_AEioKw1stqi4xoqw/exec";
+// URL Apps Script identitas Office (bukan CRM), dipakai untuk sinkron roster staf
+// (autoSyncOfficeRoster) dan panel Kelola Akses di bawah. Satu sumber URL, dipakai
+// keduanya, supaya tidak ada dua salinan yang bisa saling tidak sinkron.
+const OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
 let S = null;
 let API_READY = false;
@@ -583,22 +587,57 @@ function readLmSession(){
     return s;
   }catch(e){ return null; }
 }
-// Peta role Office -> role Marketing untuk user yang masuk lewat Office.
-const OFFICE_TO_MKT_ROLE = {
-  owner:'super_admin', admin:'super_admin', manager:'manager',
-  marketing:'marketing', cashier:'finance', host:'operational'
-};
+// Office (backend v3) sudah TANPA konsep role: lm_session tak lagi punya field
+// `role`, akses murni per-modul (Grants) + admin modul (Admins). Jadi role
+// internal Marketing tak bisa lagi diturunkan dari role Office; default yang
+// masuk akal untuk siapa pun yang diberi akses modul ini adalah 'marketing'
+// (mayoritas anggotanya memang marketing), owner/manager mengoreksi manual di
+// Staff bila ada pengecualian (finance, operational, dst).
 // Cocokkan identitas Office ke user Marketing (id lalu nama). Bila belum ada,
-// sediakan user sementara in-memory dengan role default dari role Office.
+// sediakan user sementara in-memory dengan role default 'marketing'.
 function resolveOfficeUser(s){
   let u = (S.users||[]).find(x=>x.id===s.userId)
        || (S.users||[]).find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase());
   if(!u){
-    u = { id:s.userId, name:s.name, role: OFFICE_TO_MKT_ROLE[s.role] || 'operational', active:true };
+    u = { id:s.userId, name:s.name, role:'marketing', active:true };
     if(!S.users) S.users=[];
     S.users.push(u);   // in-memory; ikut tersimpan saat ada save() berikutnya
   }
   return u;
+}
+// Auto-tarik roster modul Marketing dari Office tiap kali modul dibuka, supaya
+// dropdown PIC (dan daftar staf) selalu ikut siapa saja yang Office beri akses
+// ke modul ini, tanpa perlu tiap orang login manual dulu atau admin menarik
+// satu-satu lewat "Tarik User dari Office". PIN Office ditanya SEKALI per sesi
+// tab ini (dicache di variabel, bukan disimpan), lalu dipakai ulang diam-diam.
+// Kegagalan (offline, PIN dibatalkan, PIN salah) sengaja tidak menghentikan
+// boot: app tetap jalan dengan data yang sudah ada, sync dicoba lagi sesi berikutnya.
+let officeRosterPin=null;
+async function autoSyncOfficeRoster(office){
+  try{
+    if(!officeRosterPin){
+      const pin=prompt('Masukkan PIN Office Anda untuk menyinkronkan daftar staf Marketing:');
+      if(!pin) return;
+      officeRosterPin=String(pin).trim();
+    }
+    const res=await fetch(OFFICE_WEBAPP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listModuleRoster',module:'marketing',callerName:office.name,callerPin:officeRosterPin})});
+    const data=await res.json();
+    if(!data || !data.ok){ officeRosterPin=null; return; }
+    let changed=false;
+    (data.members||[]).forEach(m=>{
+      if(!m||!m.id)return;
+      let u=S.users.find(x=>x.id===m.id)||S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
+      if(!u){
+        S.users.push({id:m.id,name:m.name||'(tanpa nama)',role:m.isModuleAdmin?'super_admin':'marketing',active:m.active!==false});
+        changed=true;
+      } else {
+        if(!u.id&&m.id){u.id=m.id;changed=true;}
+        if(m.name&&u.name!==m.name){u.name=m.name;changed=true;}
+      }
+    });
+    if(changed){ logAct('user','-','Roster staf disinkronkan dari Office','otomatis saat buka modul'); save(); buildNav(); }
+  }catch(e){ /* offline / Office tak terjangkau: lewati diam-diam */ }
 }
 
 /* ---------- HAK AKSES ----------
@@ -1490,7 +1529,11 @@ function logFollowUp(clientId,presetEventId){
   const c=S.clients.find(x=>x.id===clientId);
   const open=clientOpenEvents(clientId);
   const sel=presetEventId||(open[0]?open[0].id:'__new__');
+  const prevFU=S.followups.filter(f=>f.clientId===clientId).sort((a,b)=>b.at.localeCompare(a.at));
   modal('<div class="modal-head"><div><h3>Catat Follow Up</h3><p>'+esc(c.nama)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +(prevFU.length?('<details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--sand-dim)">Riwayat follow up sebelumnya ('+prevFU.length+')</summary><div style="margin-top:8px;max-height:220px;overflow:auto">'
+     +prevFU.map(f=>{ const fe=S.events.find(x=>x.id===f.eventId); return '<div style="font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-soft)"><div class="cell-sub">'+f.at.replace('T',' ')+' · '+esc(userName(f.by))+' · '+(fe?esc(fe.nama):'Umum / after-sales')+'</div><div><b>'+esc(f.action)+'</b> → '+esc(f.hasil)+'</div>'+(f.note?'<div class="cell-sub">'+esc(f.note)+'</div>':'')+'</div>'; }).join('')
+   +'</div></details>'):'')
    +'<div class="field"><label>Follow up ini untuk<span class="req">*</span></label><select class="inp" id="fu_event" onchange="fuEventChange()">'
      + open.map(e=>'<option value="'+e.id+'"'+(sel===e.id?' selected':'')+'>'+esc(e.nama)+' · '+esc(e.status)+' · '+fmtDate(e.tanggal)+'</option>').join('')
      + '<option value="__new__"'+(sel==='__new__'?' selected':'')+'>+ Peluang baru (buat event)</option>'
@@ -1669,11 +1712,18 @@ function renderEventForm(V,id){
    +'<div class="card stat"><div class="sl">Kesiapan Divisi</div><div class="sv num" style="font-size:24px">'+taskProgress(ev)+'%</div><div class="sd">'+getCats().filter(d=>divProgress(ev,d)>=100).length+'/'+getCats().length+' divisi</div></div>'
    +'</div>';
 
+  // riwayat follow up peluang ini — supaya bisa ditelusuri langsung dari halaman
+  // event, tidak cuma dari Database Client (yang menggabung semua event client itu).
+  { const evFUs=S.followups.filter(fu=>fu.eventId===ev.id).sort((a,b)=>b.at.localeCompare(a.at));
+    h+='<div class="card" style="margin-bottom:18px"><h4 style="font-size:14px;margin-bottom:10px">Riwayat Follow Up ('+evFUs.length+')</h4>';
+    if(!evFUs.length) h+='<div class="muted">Belum ada follow up untuk peluang ini.</div>';
+    else { h+='<div class="timeline">'+evFUs.map(fu=>'<div class="tl-item"><div class="tl-t">'+fu.at.replace('T',' ')+' · '+esc(userName(fu.by))+'</div><div class="tl-a">'+esc(fu.action)+' → '+esc(fu.hasil)+'</div><div class="tl-d">'+esc(fu.note||'')+'</div></div>').join('')+'</div>'; }
+    h+='</div>';
+  }
+
   // tabs
   h+='<div class="tabs" id="ev-tabs">';
-  EVENT_SCHEMA.forEach(sec=>{
-    if(sec.fin && ME.role==='operational')return;
-    if(opDiv && !sec.div.includes('all') && !sec.div.includes(opDiv))return;
+  visibleSections().forEach(sec=>{
     h+='<div class="tab '+(curTab===sec.id?'active':'')+'" data-sec="'+sec.id+'" onclick="switchEventTab(\''+sec.id+'\',\''+ev.id+'\')"><span class="tn">'+sec.n.replace('D.','')+'</span>'+esc(sec.title)+'</div>';
   });
   h+='</div>';
@@ -1712,7 +1762,13 @@ function renderEventTab(ev,canEdit){
     }
   }
   h+='</div>';
-  if(canEdit) h+='<div style="margin-top:16px;display:flex;justify-content:flex-end"><button class="btn pri" onclick="saveEventTab(\''+ev.id+'\')">'+svg(IC.check)+'Simpan '+sec.n+'</button></div>';
+  if(canEdit){
+    const nx=nextSectionId(sec.id);
+    h+='<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">'
+     +'<button class="btn" onclick="saveEventTab(\''+ev.id+'\')">'+svg(IC.check)+'Simpan '+sec.n+'</button>'
+     +(nx?'<button class="btn pri" onclick="saveEventTab(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(SEC_BY_ID[nx].title)+svg(IC.chevR)+'</button>':'')
+     +'</div>';
+  }
   $('ev-tab-content').innerHTML=h;
 }
 function taskMap(){ const m={}; Object.keys(TASK_STATUS).forEach(k=>m[k]={c:TASK_STATUS[k],t:k}); return m; }
@@ -1763,7 +1819,21 @@ function collectField(fl){
   if(fl.t==='num'||fl.t==='cur'){ return el.value===''?'':(+el.value); }
   return el.value;
 }
-function saveEventTab(id){
+/* Tab yang benar-benar tampil untuk user ini — dipakai bareng oleh render tab
+   dan tombol "Simpan & Lanjut" supaya lanjutannya tidak melompat ke tab tersembunyi. */
+function visibleSections(){
+  const opDiv = ME.role==='operational'?ME.div:null;
+  return EVENT_SCHEMA.filter(sec=>{
+    if(sec.fin && ME.role==='operational')return false;
+    if(opDiv && !sec.div.includes('all') && !sec.div.includes(opDiv))return false;
+    return true;
+  });
+}
+function nextSectionId(cur){
+  const list=visibleSections(), i=list.findIndex(s=>s.id===cur);
+  return (i>=0 && i<list.length-1) ? list[i+1].id : null;
+}
+function saveEventTab(id,goNext){
   const ev=S.events.find(e=>e.id===id); const sec=SEC_BY_ID[curTab];
   const changes=[];
   sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return;
@@ -1775,7 +1845,9 @@ function saveEventTab(id){
   save(); buildNav(); toast('Tersimpan',sec.n+' '+sec.title+' disimpan.','ok');
   if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
   // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
-  if(isOpenEvent(ev)) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
+  // (hanya saat simpan biasa — kalau sedang "Simpan & Lanjut" toast ini justru mengganggu alur)
+  if(isOpenEvent(ev) && !goNext) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
+  if(goNext){ const nx=nextSectionId(curTab); if(nx) curTab=nx; }
   go('event',id);
 }
 function setTask(evId,div,status){
@@ -1861,7 +1933,12 @@ function financeTab(ev,canEdit){
    +curField('Discount','diskon',d.diskon,dis)+'</div>';
   h+='<div class="field"><label>DP Persentase (%)</label><input class="inp" type="number" id="efd_dpPercent" value="'+(ev.dpPercent||st.dpPercent)+'" '+dis+'></div>';
   h+='<div class="field"><label>Data Perusahaan / NPWP (untuk invoice)</label><textarea class="inp" id="efd_npwp" '+dis+'>'+esc(d.npwp||'')+'</textarea></div>';
-  if(canEdit)h+='<button class="btn pri" onclick="saveFinance(\''+ev.id+'\')">'+svg(IC.check)+'Simpan & Hitung Ulang</button>';
+  if(canEdit){
+    const nxF=nextSectionId('finance');
+    h+='<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="saveFinance(\''+ev.id+'\')">'+svg(IC.check)+'Simpan &amp; Hitung Ulang</button>'
+     +(nxF?'<button class="btn pri" onclick="saveFinance(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(SEC_BY_ID[nxF].title)+svg(IC.chevR)+'</button>':'')
+     +'</div>';
+  }
   h+='</div>';
   // right: computed
   h+='<div class="card" style="background:var(--ink-900)"><h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
@@ -1869,7 +1946,7 @@ function financeTab(ev,canEdit){
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
   h+='<dl class="kv-list"><dt>DP ('+f.dpPct+'%)</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
-  if((ev.payments||[]).length){ h+='<div style="margin-top:12px">'; ev.payments.forEach(p=>h+='<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-soft)"><span><b>'+esc(p.type)+'</b> · '+fmtDate(p.at)+(p.verified?' ✓':' (belum verif)')+(p.no?'<div class="cell-sub mono" style="font-size:10.5px">Kwitansi '+esc(p.no)+'</div>':'')+'</span><span class="mono">'+rp(p.amount)+'</span></div>'); h+='</div>'; }
+  h+=paymentHistoryHtml(ev);
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
   h+='</div>';
@@ -1878,14 +1955,26 @@ function financeTab(ev,canEdit){
   setTimeout(()=>{const s=document.querySelector('#ev-tab-content .alert');},0);
   return h;
 }
+// Riwayat pembayaran satu event: dipakai di tab Finance event DAN di modal
+// riwayat dari modul Invoice & Payment, supaya sumbernya satu (tidak dobel).
+function paymentHistoryHtml(ev){
+  if(!(ev.payments||[]).length) return '<div class="lma-empty" style="padding:14px 0">Belum ada pembayaran tercatat.</div>';
+  let h='<div style="margin-top:12px">';
+  ev.payments.forEach(p=>{ h+='<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-soft)"><span><b>'+esc(p.type)+'</b> · '+fmtDate(p.at)+(p.verified?' ✓':' (belum verif)')+(p.no?'<div class="cell-sub mono" style="font-size:10.5px">Kwitansi '+esc(p.no)+'</div>':'')+(p.receiptUrl?'<div class="cell-sub" style="font-size:10.5px"><a href="'+esc(p.receiptUrl)+'" target="_blank" rel="noopener">Lihat bukti transfer</a></div>':(p.receipt?'<div class="cell-sub" style="font-size:10.5px">'+esc(p.receipt)+'</div>':''))+'</span><span class="mono">'+rp(p.amount)+'</span></div>'; });
+  return h+'</div>';
+}
 function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'</label><input class="inp" type="number" id="efd_'+k+'" value="'+(val==null?'':val)+'" placeholder="0" '+dis+'></div>'; }
-function saveFinance(id){
+function saveFinance(id,goNext){
   const ev=S.events.find(e=>e.id===id);
   ['sewaVenue','biayaFB','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el)ev.detail[k]=el.value===''?'':(+el.value); });
   ev.detail.npwp=$('efd_npwp').value;
   ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
   logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
-  save(); toast('Finance tersimpan','Grand Total: '+rp(eventFinance(ev).grand),'ok'); go('event',id);
+  const queued=syncApproval(ev); // nilai baru bisa melewati ambang approval
+  save(); buildNav(); toast('Finance tersimpan','Grand Total: '+rp(eventFinance(ev).grand),'ok');
+  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
+  if(goNext){ const nx=nextSectionId('finance'); if(nx) curTab=nx; }
+  go('event',id);
 }
 function addPayment(id){
   const ev=S.events.find(e=>e.id===id); const f=eventFinance(ev);
@@ -1894,14 +1983,43 @@ function addPayment(id){
    +'<div class="field"><label>Jumlah (Rp)</label><input class="inp" type="number" id="pay_amt" value="'+f.dp+'"></div>'
    +'<div class="field"><label>Metode</label><select class="inp" id="pay_method"><option>Transfer</option><option>Cash</option><option>QRIS</option><option>Card</option></select></div>'
    +'<div class="field"><label>Tanggal</label><input class="inp" type="date" id="pay_date" value="'+today()+'"></div>'
-   +'<div class="field full"><label>Bukti Transfer (nama file / catatan)</label><input class="inp" id="pay_receipt" placeholder="bukti_tf_bca.jpg"></div>'
-   +'</div></div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="savePayment(\''+id+'\')">Verifikasi & Simpan</button></div>');
+   +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label><input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf"><div class="fh">Opsional untuk Cash. Maks 8MB, JPG/PNG/PDF.</div></div>'
+   +'<div class="field full"><label>Catatan</label><input class="inp" id="pay_note" placeholder="mis. transfer dari rek. BCA a.n. ..."></div>'
+   +'</div></div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" id="pay_save_btn" onclick="savePayment(\''+id+'\')">Verifikasi & Simpan</button></div>');
 }
-function savePayment(id){
+// Baca file jadi base64 murni (tanpa prefix data:...;base64,) untuk dikirim ke Apps Script.
+function fileToBase64(file){
+  return new Promise((resolve,reject)=>{
+    const r=new FileReader();
+    r.onload=()=>resolve(String(r.result).split(',').pop());
+    r.onerror=()=>reject(new Error('read_failed'));
+    r.readAsDataURL(file);
+  });
+}
+async function savePayment(id){
   const ev=S.events.find(e=>e.id===id);
   const amt=+$('pay_amt').value; if(!amt)return toast('Isi jumlah','Jumlah pembayaran wajib.','err');
+  const fileInp=$('pay_receipt_file'), file=fileInp&&fileInp.files&&fileInp.files[0];
+  const note=$('pay_note').value.trim();
+  const btn=$('pay_save_btn');
+  let receiptUrl='', receiptName=note;
+  if(file){
+    if(file.size>8*1024*1024) return toast('File terlalu besar','Bukti transfer maksimal 8MB.','err');
+    if(btn){ btn.disabled=true; btn.textContent='Mengunggah bukti...'; }
+    try{
+      const b64=await fileToBase64(file);
+      const res=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type,dataBase64:b64})});
+      const data=await res.json();
+      if(!data||!data.ok){ if(btn){btn.disabled=false;btn.textContent='Verifikasi & Simpan';} return toast('Gagal unggah','Bukti transfer gagal diunggah'+(data&&data.error?': '+data.error:'')+'. Coba lagi.','err'); }
+      receiptUrl=data.data.url; receiptName=receiptName||data.data.name;
+    }catch(e){
+      if(btn){ btn.disabled=false; btn.textContent='Verifikasi & Simpan'; }
+      return toast('Gagal unggah','Tidak bisa menghubungi server untuk unggah bukti. Coba lagi.','err');
+    }
+  }
   // Invoice tetap 1 per event; tiap pembayaran dapat KWITANSI bernomor sendiri.
-  const p={id:uid('p'),no:kwitansiNo(),type:$('pay_type').value,amount:amt,method:$('pay_method').value,at:$('pay_date').value,receipt:$('pay_receipt').value,verified:true,by:ME.name};
+  const p={id:uid('p'),no:kwitansiNo(),type:$('pay_type').value,amount:amt,method:$('pay_method').value,at:$('pay_date').value,receipt:receiptName,receiptUrl:receiptUrl,verified:true,by:ME.name};
   ev.payments=ev.payments||[]; ev.payments.push(p);
   logAct('event',id,'Pembayaran diverifikasi',p.no+' · '+p.type+' '+rp(amt));
   pushNotif('payment','Pembayaran masuk',ev.nama+': '+p.type+' '+rp(amt)+' terverifikasi.','#event/'+id);
@@ -2251,14 +2369,19 @@ function renderInvoices(V){
    +stat('Invoice Overdue',overdue.length,'lewat H-7','alert')
    +stat('Lunas',evs.filter(e=>invStatus(e)==='Paid').length,'dari '+evs.length+' invoice','check')
    +'</div>';
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">DP</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">Terbayar</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   ensureInvNos(evs);
   evs.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
-    h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.dp)+'</td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
-     +'<td><div class="pill-row"><button class="btn sm" title="Buka event" onclick="go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
+    h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target DP '+f.dpPct+'%: '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
+     +'<td><div class="pill-row"><button class="btn sm" title="Buka tab Finance event" onclick="curTab=\'finance\';go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.timeline)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
+}
+function viewPaymentHistory(evId){
+  const e=S.events.find(x=>x.id===evId); if(!e)return;
+  const f=eventFinance(e);
+  modal('<div class="modal-head"><div><h3>Riwayat Pembayaran</h3><p>'+esc(e.nama)+' · '+esc(clientName(e.clientId))+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+paymentHistoryHtml(e)+'</div>');
 }
 function waInvoice(evId,invNo){
   const e=S.events.find(x=>x.id===evId); if(!e)return;
@@ -2643,8 +2766,10 @@ function saveRoleMatrix(){
   logAct('user','-','Matriks hak akses role diperbarui','');
   save(); buildNav(); toast('Matriks disimpan','Hak akses per role diperbarui.','ok'); go('users');
 }
-// Role tersimpan bisa diubah di sini. Akun hasil SSO Office default-nya 'operational'
-// bila role Office-nya tidak ada di OFFICE_TO_MKT_ROLE — jadi perlu bisa dikoreksi.
+// Role tersimpan bisa diubah di sini. Akun baru default-nya 'marketing' (lihat
+// resolveOfficeUser); Office v3 tak lagi punya konsep role jadi tak ada peta untuk
+// dikoreksi otomatis. Sejak ada autoSyncOfficeRoster (jalan sendiri tiap modul
+// dibuka), tombol ini jadi fallback manual saja.
 // Tarik daftar user asli dari Office (listModuleMembers — sama seperti panel Kelola Akses,
 // jadi minta PIN). Role/hak akses lokal yang sudah diatur tidak ditimpa.
 async function importOfficeUsers(){
@@ -2665,7 +2790,7 @@ async function importOfficeUsers(){
       if(m.email&&!u.email){ u.email=m.email; ch=true; }
       if(ch)updated++;
     } else {
-      S.users.push({id:m.id,name:m.name||'(tanpa nama)',email:m.email||'',role:OFFICE_TO_MKT_ROLE[m.role]||'operational',active:true});
+      S.users.push({id:m.id,name:m.name||'(tanpa nama)',email:m.email||'',role:'marketing',active:true});
       added++;
     }
   });
@@ -2805,15 +2930,13 @@ async function boot(){
   const office = readLmSession();
   if(office){
     const u = resolveOfficeUser(office);
-    // Role mengikuti sesi Office (Office = sumber kebenaran identitas), lalu DISIMPAN
-    // supaya yang tampil di User Management sama dengan yang dipakai sesi ini:
-    //  - admin modul Office ('*' / 'marketing')  -> super_admin
-    //  - selain itu                              -> peta OFFICE_TO_MKT_ROLE
-    //  - role Office tak dikenal                 -> pertahankan role tersimpan
-    //    (jangan turunkan diam-diam ke Operational / menimpa koreksi manual)
+    // Office v3 tak lagi mengirim `role` (lihat resolveOfficeUser), jadi satu-satunya
+    // sinyal identitas yang masih hidup dari Office adalah adminModules (siapa admin
+    // modul ini). Admin modul Office -> super_admin; selain itu role tersimpan
+    // DIPERTAHANKAN (tidak ditimpa tiap boot) supaya koreksi manual owner di Staff
+    // tidak diam-diam hilang.
     const oAdm = office.adminModules||[];
-    const mapped = OFFICE_TO_MKT_ROLE[office.role];
-    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : (mapped || u.role || 'operational');
+    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : (u.role || 'marketing');
     if(u.role!==effRole){
       logAct('user',u.id,'Role disinkronkan dari sesi Office',(u.role?ROLES[u.role].t:'-')+' → '+ROLES[effRole].t);
       u.role=effRole; save();
@@ -2822,6 +2945,7 @@ async function boot(){
     localStorage.setItem('lm_me', u.id);
     $('login').style.display='none'; $('app').classList.add('on');
     buildNav(); updateTopUser(); go(location.hash.slice(1).split('/')[0]||'dashboard');
+    autoSyncOfficeRoster(office); // tanpa await: render dulu, sync roster jalan di belakang
   }
 }
 </script>
@@ -2879,7 +3003,7 @@ boot();
 <script>
 (function(){
   var MODULE_KEY = "marketing";
-  var OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
+  // OFFICE_WEBAPP_URL: dideklarasikan sekali di atas (dipakai bareng autoSyncOfficeRoster).
   var creds=null, MEMBERS=[], ADV=false;
   function sess(){ try{ return JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){ return null; } }
   function adminsThis(){ var s=sess(); var a=(s&&s.adminModules)||[]; return a.indexOf('*')>-1 || a.indexOf(MODULE_KEY)>-1; }

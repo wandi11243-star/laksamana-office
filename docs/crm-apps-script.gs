@@ -21,7 +21,10 @@
  */
 
 var DB_SHEET = '_DB';
-var DB_CELL  = 'A1';
+// Google Sheets membatasi SATU SEL maksimal 50.000 karakter. DB (JSON blob)
+// bisa melewati batas itu seiring data bertambah, jadi disimpan terpotong-potong
+// (chunked) di kolom A, satu baris = satu potongan, lalu disambung saat dibaca.
+var DB_CHUNK_SIZE = 45000;
 
 /* ------------------------------- Router ------------------------------- */
 function doGet(e) {
@@ -42,6 +45,7 @@ function doPost(e) {
       flatten_(data);
       return ok_({ saved: true, at: new Date().toISOString() });
     }
+    if (action === 'uploadReceipt') return uploadReceipt_(body);
     return err_('unknown_action: ' + action);
   } catch (ex) { return err_(String(ex && ex.message || ex)); }
 }
@@ -51,14 +55,23 @@ function doPost(e) {
 // supaya klien tidak pecah pada first run.
 function readDb_() {
   var sh = sheet_(DB_SHEET);
-  var raw = String(sh.getRange(DB_CELL).getValue() || '').trim();
+  var lastRow = sh.getLastRow();
+  if (!lastRow) return emptyDb_();
+  var vals = sh.getRange(1, 1, lastRow, 1).getValues();
+  var raw = vals.map(function (r) { return String(r[0] || ''); }).join('').trim();
   if (!raw) return emptyDb_();
   try { return JSON.parse(raw); } catch (e) { return emptyDb_(); }
 }
 
 function writeDb_(data) {
   var sh = sheet_(DB_SHEET);
-  sh.getRange(DB_CELL).setValue(JSON.stringify(data));
+  var json = JSON.stringify(data);
+  var chunks = [];
+  for (var i = 0; i < json.length; i += DB_CHUNK_SIZE) chunks.push([json.slice(i, i + DB_CHUNK_SIZE)]);
+  if (!chunks.length) chunks.push(['']);
+  var oldLastRow = sh.getLastRow();
+  if (oldLastRow > chunks.length) sh.getRange(chunks.length + 1, 1, oldLastRow - chunks.length, 1).clearContent();
+  sh.getRange(1, 1, chunks.length, 1).setValues(chunks);
 }
 
 function emptyDb_() {
@@ -109,6 +122,34 @@ function flatten_(d) {
   var s = d.settings || {};
   var rows = Object.keys(s).map(function (k) { return [k, typeof s[k] === 'object' ? JSON.stringify(s[k]) : s[k]]; });
   writeTabRows_('6_Settings', ['field', 'value'], rows);
+}
+
+/* ------------------------ Upload bukti transfer ------------------------ */
+// File (foto/PDF bukti TF) dikirim sebagai base64 dari browser, disimpan ke
+// Google Drive (folder khusus di lokasi Sheet yang sama), link-nya disimpan
+// di data pembayaran. Cara ini sengaja tidak menaruh file di dalam blob _DB
+// (akan langsung memperparah masalah batas 50.000 karakter/sel).
+var RECEIPT_FOLDER_NAME = 'Bukti Transfer - Database CRM';
+
+function uploadReceipt_(body) {
+  var fileName = String(body.fileName || 'bukti_transfer').trim() || 'bukti_transfer';
+  var mime = String(body.mimeType || 'application/octet-stream');
+  var b64 = String(body.dataBase64 || '');
+  if (!b64) return err_('missing_file');
+  var bytes = Utilities.base64Decode(b64);
+  var blob = Utilities.newBlob(bytes, mime, fileName);
+  var folder = receiptFolder_();
+  var file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return ok_({ url: file.getUrl(), fileId: file.getId(), name: fileName });
+}
+
+function receiptFolder_() {
+  var ssFile = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId());
+  var parents = ssFile.getParents();
+  var parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  var it = parent.getFoldersByName(RECEIPT_FOLDER_NAME);
+  return it.hasNext() ? it.next() : parent.createFolder(RECEIPT_FOLDER_NAME);
 }
 
 /* ------------------------------ Utilitas ------------------------------ */
