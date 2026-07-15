@@ -506,6 +506,17 @@ td .muted{color:var(--muted);font-size:13px}
 
 /* ---------- MISC ---------- */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:30px;font-size:14px;font-weight:500;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;gap:9px;animation:up .25s ease}
+
+/* ---------- PEMBLOKIR SAAT MEMERIKSA / MENYIMPAN KE DATABASE ----------
+   z-index paling tinggi & menutupi seluruh layar, jadi tidak ada tombol lain yang bisa
+   diklik selama sistem sedang memastikan mejanya ke database. */
+#busyRoot{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;
+  background:rgba(42,38,32,.60);backdrop-filter:blur(3px);cursor:progress}
+#busyRoot.on{display:flex}
+.busy-card{background:var(--surface);border-radius:18px;box-shadow:var(--shadow-lg);padding:28px 34px;text-align:center;max-width:340px}
+.busy-spin{width:44px;height:44px;margin:0 auto 16px;border-radius:50%;border:4px solid var(--gold-soft);border-top-color:var(--gold);animation:bspin .8s linear infinite}
+.busy-msg{font-family:'Plus Jakarta Sans',system-ui,sans-serif;font-weight:700;font-size:16px;color:var(--ink)}
+.busy-sub{color:var(--muted);font-size:13px;margin-top:6px}
 @keyframes up{from{transform:translateX(-50%) translateY(14px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
 .toast.ok{background:var(--ok)}.toast.err{background:var(--danger)}
 .mini-actions{display:flex;gap:6px;flex-wrap:wrap}
@@ -521,6 +532,7 @@ svg.lc{display:block;flex:none}
 .btn svg.lc{margin-top:-1px}
 .pill-row{display:flex;gap:6px;flex-wrap:wrap}
 .pill{font-size:12px;font-weight:600;padding:3px 9px;border-radius:20px;background:var(--paper);color:var(--muted);border:1px solid var(--line)}
+.pill.on{background:var(--gold-soft);color:var(--gold-dim);border-color:var(--gold)}
 .divider{height:1px;background:var(--line);margin:16px 0}
 .master-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .master-tag{display:inline-flex;align-items:center;gap:6px;background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 12px;font-size:13.5px}
@@ -763,7 +775,7 @@ const NAV_SECTIONS = [
   {title:"Operasi", items:[
     {id:"dashboard", label:"Dashboard", ico:"dashboard"},
     {id:"input",     label:"Input Reservasi", ico:"calendar-plus"},
-    {id:"hariH",     label:"Kedatangan (Hari-H)", ico:"map-pin"},
+    {id:"hariH",     label:"Recap Reservasi", ico:"map-pin"},
   ]},
   {title:"Keuangan", items:[
     {id:"finance",   label:"Dana Masuk (DP)", ico:"receipt"},
@@ -1246,10 +1258,14 @@ function callWaitEntry(id, tableId){
   renderHariH();
 }
 // Dudukkan tamu dari antrean ke sebuah meja → otomatis jadi reservasi walk-in "Datang"
-function seatFromWait(id, tableId, sharing){
+async function seatFromWait(id, tableId, sharing){
   const w=waitlist().find(x=>x.id===id); if(!w) return;
   const cap=tableCap(tableId);
   if(cap && Number(w.pax)>cap && !confirm(`${w.name} berjumlah ${w.pax} orang, sedangkan ${tableId} kapasitasnya ${cap}. Tetap dudukkan di sini?`)) return;
+  const jamSkrg=normTime(new Date().toTimeString().slice(0,5));
+  // Meja bisa saja baru saja diisi kru lain.
+  const cek=await mejaMasihKosong(HARIH_DATE, tableId, jamSkrg, null, !!sharing);
+  if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${tableId} sudah terisi.`); closeModal(); renderHariH(); return; }
   const now=Date.now();
   const rec={
     id:uid(), name:w.name, phone:w.phone, date:HARIH_DATE, time:normTime(new Date().toTimeString().slice(0,5)),
@@ -1264,8 +1280,12 @@ function seatFromWait(id, tableId, sharing){
   STATE.reservations.push(rec);
   w.status="seated"; w.seatedAt=now; w.table=tableId; w.resId=rec.id;
   logAudit("Waiting List", `${w.name} (${w.pax} pax) didudukkan di ${tableId}, menunggu ${fmtDur(waitMinutes({addedAt:w.addedAt}))}`);
-  saveState(); closeModal(); buildNav(); renderHariH();
-  toast(`${w.name} duduk di ${tableId} ✓`,"ok");
+  setBusy("Menyimpan ke database…");
+  const tertulis=await saveNow();
+  hideBusy(); closeModal(); buildNav(); renderHariH();
+  if(!STATE.reservations.some(x=>x.id===rec.id)){ w.status="waiting"; w.seatedAt=0; w.table=""; w.resId=""; return; }
+  if(!tertulis){ toast("Gagal menulis ke database — BELUM tersimpan","err"); return; }
+  toast(`${w.name} duduk di ${tableId} ✓ (tersimpan di database)`,"ok");
 }
 // Panel pilih tamu antrean untuk sebuah meja (dipakai saat klik meja kosong / tamu pulang)
 function offerWaitlist(tableId){
@@ -1640,7 +1660,8 @@ function mergeMaster(base, mine, theirs){
       out[k] = mergeById((base||{})[k], mine[k], (theirs||{})[k]);
     }else{
       const b=JSON.stringify((base||{})[k]), m=JSON.stringify((mine||{})[k]);
-      if(b!==m) out[k] = mine[k];        // kita yang mengubahnya → pakai punya kita
+      if(b!==m) out[k] = mine[k];                            // kita yang mengubahnya → pakai punya kita
+      else if(!(k in (theirs||{}))) out[k] = (mine||{})[k];  // server belum punya kunci ini → jangan sampai hilang
     }
   });
   return out;
@@ -1655,14 +1676,25 @@ function saveState(){
   setSync("sync","Menyimpan…");
   _saveTimer = setTimeout(flushSave, 700);
 }
+/* Simpan SEKARANG dan tunggu sampai benar-benar tertulis di database.
+   Dipakai saat kru menekan Simpan: statusnya baru boleh disebut "berhasil" setelah ini
+   selesai — bukan sebelumnya. Mengembalikan true/false. */
+async function saveNow(){
+  clearTimeout(_saveTimer);
+  return await flushSave();
+}
+let _saveWaiters=[];
 async function flushSave(){
-  if(_saving){ _saveAgain=true; return; }  // sudah ada yg jalan → jadwalkan ulang setelah selesai
+  // sudah ada penyimpanan berjalan → tunggu yang itu selesai, lalu jalankan lagi
+  if(_saving){ _saveAgain=true; return new Promise(res=>_saveWaiters.push(res)); }
   _saving=true;
+  let sukses=false;
   try{
     const d = await apiGet("getAll");         // 1) tarik versi terbaru
     const adaKiriman = mergeIntoState(d);     // 2) gabungkan per baris
     await apiPost("saveAll", STATE);          // 3) tulis hasil gabungan
     snapshotBase();
+    sukses = true;
     setSync("ok","Tersimpan");
     reportRejected();
     // Gambar ulang HANYA kalau ada perubahan dari kru lain yang ikut tergabung, dan
@@ -1676,8 +1708,11 @@ async function flushSave(){
     toast("Gagal sinkron ke Google Sheet, cek koneksi","err");
   }finally{
     _saving=false;
-    if(_saveAgain){ _saveAgain=false; flushSave(); }
+    const nunggu=_saveWaiters; _saveWaiters=[];
+    if(_saveAgain){ _saveAgain=false; sukses = await flushSave(); }
+    nunggu.forEach(f=>f(sukses));            // bangunkan pemanggil yang sedang menunggu
   }
+  return sukses;
 }
 
 /* Inti penggabungan. Sekaligus menegakkan aturan REBUTAN MEJA:
@@ -1712,7 +1747,23 @@ function mergeIntoState(d){
       }
       out.set(L.id, L);
     }else if(base !== JSON.stringify(L)){
-      // Kita ubah. Kalau kru lain mengubah baris yang sama LEBIH BARU, versi dia menang.
+      /* Kita mengubah baris ini. Kalau yang kita ubah menyangkut PENEMPATAN MEJA
+         (pindah meja / tambah meja / ganti tanggal-jam), mejanya harus dicek ulang juga —
+         kru lain bisa saja sudah mengisi meja tujuan itu. Dulu bagian ini tidak dicek
+         sama sekali, jadi "➕ Tambah Meja" & "🔁 Pindah Meja" bisa menempati meja yang
+         sudah dipakai orang lain tanpa ditolak. */
+      const B = JSON.parse(base);
+      const pindahMeja = B.table!==L.table || B.date!==L.date || B.time!==L.time || !!B.sharing!==!!L.sharing;
+      if(pindahMeja){
+        const lain=[...out.values()].filter(x=>x.id!==L.id);
+        const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, lain);
+        if(lawan){
+          REJECTED.push({ mine:L, other:lawan });
+          out.set(L.id, srvMap.get(L.id) || B);      // kembalikan ke versi sebelum kita ubah
+          return;
+        }
+      }
+      // Kalau kru lain mengubah baris yang sama LEBIH BARU, versi dia menang.
       const S = srvMap.get(L.id);
       out.set(L.id, (S && (Number(S.updatedAt)||0) > (Number(L.updatedAt)||0)) ? S : L);
     }
@@ -1722,7 +1773,12 @@ function mergeIntoState(d){
   BASE.res.forEach((_,id)=>{ if(!STATE.reservations.some(r=>r.id===id)) out.delete(id); });
 
   STATE.reservations = [...out.values()];
-  STATE.master = mergeMaster(JSON.parse(BASE.master||"{}"), STATE.master, d.master||{});
+  // Selalu dialasi DEFAULT_MASTER supaya tidak ada kunci wajib (dpMethods, categories, dll)
+  // yang hilang gara-gara server belum menyimpannya — itu bikin halaman input crash.
+  STATE.master = Object.assign(
+    JSON.parse(JSON.stringify(DEFAULT_MASTER)),
+    mergeMaster(JSON.parse(BASE.master||"{}"), STATE.master, d.master||{})
+  );
   ensureUsersPerms();
 
   // Audit: gabungan, tidak ada yang boleh hilang.
@@ -1751,13 +1807,19 @@ function reportRejected(){
   else if(CURRENT_PAGE) navigate(CURRENT_PAGE);
 }
 
-/* ===== TARIK OTOMATIS: perubahan kru lain langsung muncul tanpa refresh ===== */
-const POLL_MS = 12000;
+/* ===== TARIK OTOMATIS: perubahan kru lain langsung muncul tanpa refresh =====
+   Denahnya harus terasa hidup, jadi saat kru sedang melihat Recap/Denah, data ditarik
+   lebih sering (±4 dtk). Di halaman lain lebih jarang (±15 dtk) supaya tidak boros
+   kuota Apps Script. Interval memilih diri sendiri (self-scheduling setTimeout). */
+const POLL_FAST = 4000;    // saat di halaman Recap Reservasi (denah/daftar)
+const POLL_SLOW = 15000;   // halaman lain
+function pollDelay(){ return CURRENT_PAGE==="hariH" ? POLL_FAST : POLL_SLOW; }
 async function pollRemote(){
   if(!DATA_LOADED || _saving || !SESSION) return;
   if(document.hidden) return;
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
   if(byId("modalRoot")?.innerHTML) return;           // jangan gambar ulang saat kru sedang membuka dialog
+  if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
   if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
   try{
     const d = await apiGet("getAll");
@@ -1771,7 +1833,12 @@ async function pollRemote(){
     setSync("ok","Diperbarui dari kru lain");
   }catch(e){ /* offline sesaat → coba lagi pada tik berikutnya */ }
 }
-setInterval(pollRemote, POLL_MS);
+let _pollTimer=null;
+async function pollLoop(){
+  try{ await pollRemote(); }catch(e){}
+  _pollTimer=setTimeout(pollLoop, pollDelay());
+}
+_pollTimer=setTimeout(pollLoop, POLL_FAST);
 document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(); });
 window.addEventListener("focus", pollRemote);
 
@@ -1833,7 +1900,10 @@ function waFallbackToast(webUrl){
 }
 function normPhone(p){ let x=(p||"").replace(/[^0-9]/g,""); if(x.startsWith("0")) x="62"+x.slice(1); else if(x.startsWith("62")){} else if(x.length>0 && !x.startsWith("62")) x="62"+x; return x; }
 function displayPhone(p){ return (p||"").replace(/[^0-9]/g,""); }
-function todayStr(){ const d=new Date(); return d.toISOString().slice(0,10); }
+// Tanggal LOKAL hari ini ("2026-07-15"). JANGAN pakai toISOString() — itu UTC, sehingga
+// di WIB (UTC+7) sebelum jam 07:00 pagi akan menunjuk tanggal KEMARIN. Itu yang bikin
+// tombol "Hari Ini" meleset satu hari.
+function todayStr(){ return ymdOf(Date.now()); }
 function fmtDate(s){ if(!s) return "-"; const d=new Date(s+"T00:00:00"); if(isNaN(d)) return s; return d.toLocaleDateString("id-ID",{weekday:"short",day:"numeric",month:"short",year:"numeric"}); }
 function fmtDateShort(s){ if(!s) return "-"; const d=new Date(s+"T00:00:00"); if(isNaN(d)) return s; return d.toLocaleDateString("id-ID",{day:"numeric",month:"short",year:"numeric"}); }
 function fmtTime(t){ return t||"-"; }
@@ -1846,6 +1916,24 @@ function toast(msg,type){
   byId("toastRoot").appendChild(el);
   setTimeout(()=>{el.style.transition="opacity .3s";el.style.opacity="0";setTimeout(()=>el.remove(),300);},2600);
 }
+/* ===== Pop-up pemblokir: dipakai saat sistem sedang memastikan data ke database.
+   Selama ini tampil, kru TIDAK bisa mengklik apa pun (termasuk menyimpan dua kali). ===== */
+function showBusy(msg, sub){
+  let el=byId("busyRoot");
+  if(!el){ el=document.createElement("div"); el.id="busyRoot"; document.body.appendChild(el); }
+  el.innerHTML=`<div class="busy-card" role="alertdialog" aria-busy="true">
+      <div class="busy-spin"></div>
+      <div class="busy-msg">${esc(msg||"Memeriksa database…")}</div>
+      <div class="busy-sub">${esc(sub||"Mohon tunggu, jangan tutup halaman.")}</div>
+    </div>`;
+  el.classList.add("on");
+}
+function setBusy(msg, sub){
+  const m=document.querySelector("#busyRoot .busy-msg"); if(m) m.textContent=msg;
+  const s=document.querySelector("#busyRoot .busy-sub"); if(s && sub) s.textContent=sub;
+}
+function hideBusy(){ const el=byId("busyRoot"); if(el){ el.classList.remove("on"); el.innerHTML=""; } }
+
 function openModal(html, wide){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
 }
@@ -2081,6 +2169,15 @@ function buildNav(){
 function globalSearchGo(q){
   HIST_F.q = (q||"").trim();
   navigate("riwayat");
+}
+/* Kotak cari yang memicu render ulang seluruh halaman akan MENGHANCURKAN & MEMBUAT ULANG
+   elemen input-nya, sehingga fokus & kursor hilang tiap satu huruf — kru harus klik lagi
+   ke kotaknya setiap ketik. Helper ini menaruh fokus kembali (kursor di akhir) setelah
+   render, jadi bisa mengetik lancar. */
+function afterSearch(id, render){
+  render();
+  const i=byId(id);
+  if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(e){} }
 }
 function navigate(page){
   const allowed = allowedPages(SESSION.role);
@@ -2493,6 +2590,7 @@ function checkBigEvent(v){
 async function mejaMasihKosong(date, table, time, exceptId, sharing){
   if(!apiConfigured()) return { ok:true };
   setSync("sync","Memeriksa ketersediaan meja…");
+  showBusy("Memeriksa ketersediaan meja…", "Mengecek langsung ke database, bukan ke layar.");
   let d;
   try{ d = await apiGet("getAll"); }
   catch(e){ setSync("err","Gagal cek meja"); return { ok:true, offline:true }; }   // offline → lanjut, penjaga terakhir tetap ada
@@ -2528,6 +2626,7 @@ async function saveReservation(){
   const sharingNow = !!document.querySelector('input[name=sharing]')?.checked;
   const cek = await mejaMasihKosong(g("date"), g("table"), normTime(g("time")), EDIT_ID, sharingNow);
   if(!cek.ok){
+    hideBusy();
     const b = cek.bentrok;
     // meja yang bentrok dibuang dari pilihan, denah digambar ulang dgn data terbaru
     const dipakai = tablesOf(b);
@@ -2595,6 +2694,8 @@ async function saveReservation(){
   }
   syncDp(rec);
   rec.updatedAt = now;
+  const editing = !!EDIT_ID;
+  const sebelumnya = editing ? STATE.reservations.slice() : null;   // untuk dikembalikan bila gagal
   if(EDIT_ID){
     STATE.reservations = STATE.reservations.map(x=>x.id===EDIT_ID?rec:x);
     logAudit("Edit Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time})`);
@@ -2602,8 +2703,30 @@ async function saveReservation(){
     STATE.reservations.push(rec);
     logAudit("Buat Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time}, ${rec.pax} pax)`);
   }
-  PENDING_FILES={}; saveState(); buildNav();
-  toast(EDIT_ID?"Reservasi diperbarui ✓":"Reservasi tersimpan ✓","ok");
+
+  /* TULIS KE DATABASE DAN TUNGGU SAMPAI SELESAI.
+     Dulu di sini langsung muncul "Reservasi tersimpan ✓" padahal penulisannya baru
+     dijadwalkan (debounce) — jadi kru sudah diberi tahu "berhasil" sebelum datanya
+     benar-benar masuk, dan kalau ternyata ditolak, kabarnya datang belakangan.
+     Sekarang statusnya baru disebut berhasil setelah database mengonfirmasi. */
+  setBusy("Menyimpan ke database…", "Memastikan meja tidak diambil kru lain.");
+  const tertulis = await saveNow();
+  hideBusy();
+
+  if(!STATE.reservations.some(x=>x.id===rec.id)){
+    // ditolak saat menulis (kru lain menyerobot pd detik yang sama) — sudah diberi tahu
+    // oleh reportRejected(); form dibiarkan terisi supaya kru tinggal ganti meja.
+    if(sebelumnya) STATE.reservations = sebelumnya;
+    renderSeatMap(); checkConflict();
+    return;
+  }
+  if(!tertulis){
+    toast("Gagal menulis ke database — reservasi BELUM tersimpan. Cek koneksi lalu simpan lagi.","err");
+    return;                                    // data tetap di form, tidak diklaim berhasil
+  }
+
+  PENDING_FILES={}; buildNav();
+  toast(editing?"Reservasi diperbarui ✓ (tersimpan di database)":"Reservasi tersimpan ✓ (tersimpan di database)","ok");
   EDIT_ID=null;
   // Tanpa pop-up WhatsApp. Kirim WA tetap bisa lewat tombol 💬 di daftar / detail reservasi.
   navigate("dashboard");
@@ -2782,7 +2905,7 @@ function renderDashboard(){
         <div class="field"><label>DP</label><select onchange="DASH_FILTER.dp=this.value;renderDashboard()"><option value="">Semua</option><option ${F.dp==="Sudah"?"selected":""}>Sudah</option><option ${F.dp==="Belum"?"selected":""}>Belum</option></select></div>
         <div class="field"><label>PIC</label><select onchange="DASH_FILTER.pic=this.value;renderDashboard()"><option value="">Semua</option>${picNames.map(p=>`<option ${F.pic===p?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
         <div class="field"><label>Tipe Tamu</label><select onchange="DASH_FILTER.ctype=this.value;renderDashboard()"><option value="">Semua</option><option ${F.ctype==="Baru"?"selected":""}>Baru</option><option ${F.ctype==="Loyal"?"selected":""}>Loyal/Repeat</option><option ${F.ctype==="Member"?"selected":""}>Member</option></select></div>
-        <div class="field"><label>Cari</label><div class="search-box"><span class="ico">${icon('search',16)}</span><input placeholder="Nama / No HP" value="${esc(F.q)}" oninput="DASH_FILTER.q=this.value;renderDashboard()"></div></div>
+        <div class="field"><label>Cari</label><div class="search-box"><span class="ico">${icon('search',16)}</span><input id="dashSearch" placeholder="Nama / No HP" value="${esc(F.q)}" oninput="DASH_FILTER.q=this.value;afterSearch('dashSearch',renderDashboard)"></div></div>
       </div>
      </div>
    </div>
@@ -2888,9 +3011,37 @@ function exportCSV(ids){
   toast("CSV diunduh","ok");
 }
 
-/* ================= HARI-H / KEDATANGAN ================= */
+/* ================= RECAP RESERVASI ================= */
 let HARIH_DATE = todayStr();
 let HARIH_Q = "", HARIH_VIEW = "list", HARIH_LAYOUT = "l1";
+/* Filter khusus tab Daftar (recap): rentang tanggal + rentang jam + status.
+   Denah Meja & Waiting List tetap per-tanggal (pakai HARIH_DATE). Kosong = ikut HARIH_DATE. */
+let RECAP_FROM="", RECAP_TO="", RECAP_TF="", RECAP_TT="", RECAP_STATUS="";
+function recapFrom(){ return RECAP_FROM || HARIH_DATE; }
+function recapTo(){ return RECAP_TO || RECAP_FROM || HARIH_DATE; }
+function recapMultiDay(){ return recapFrom() !== recapTo(); }
+function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+// Satu hari tertentu: offset 0=hari ini, 1=besok, 2=lusa. Denah & waiting ikut pindah ke sana.
+function recapSetDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); RECAP_FROM=RECAP_TO=d; HARIH_DATE=d; RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+function recapSet7(){ RECAP_TO=todayStr(); RECAP_FROM=dateOfDayNo(dayNo(todayStr())-6); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+function recapSetMonth(){ RECAP_FROM=todayStr().slice(0,8)+"01"; RECAP_TO=todayStr(); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+// Apakah rentang recap = satu hari tertentu (untuk highlight tombol aktif)?
+function recapIsDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); return !RECAP_TF&&!RECAP_TT&&!RECAP_STATUS&&recapFrom()===d&&recapTo()===d; }
+// Daftar reservasi sesuai filter recap (rentang tanggal, rentang jam, status, pencarian).
+function recapList(){
+  const q=(HARIH_Q||"").trim().toLowerCase();
+  const lo=recapFrom(), hi=recapTo();
+  const tf=RECAP_TF?toMin(RECAP_TF):null, tt=RECAP_TT?toMin(RECAP_TT):null;
+  return STATE.reservations.filter(r=>{
+    if(!r.date || r.date<lo || r.date>hi) return false;
+    if(r.status==="Cancelled") return false;
+    if(RECAP_STATUS && r.status!==RECAP_STATUS) return false;
+    if(tf!=null && toMin(r.time)<tf) return false;
+    if(tt!=null && toMin(r.time)>tt) return false;
+    if(q && !((r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) || tablesOf(r).some(t=>t.toLowerCase().includes(q)))) return false;
+    return true;
+  }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+}
 function harihL1(){ return dayTypeLayout(HARIH_DATE); }
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
@@ -2945,17 +3096,40 @@ function openLayoutSettings(){
   const list=upcoming.length?upcoming.map(([d,v])=>`<div class="master-tag"><b>${fmtDateShort(d)}</b> → ${esc(layoutName(v))}${d===date?" (dipilih)":""}<button title="Hapus" onclick="clearLayoutOverride('${d}',true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada override terjadwal.</span>`;
   openModal(`<div class="modal-head"><h3>⚙️ Layout Event, ${fmtDate(date)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">Pilih template layout untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — besoknya otomatis kembali ke default (Sabtu/Minggu = Weekend, selain itu Weekday).</div>
+     <div class="inline-info" style="margin-bottom:14px"><div>Pilih template layout untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — besoknya otomatis kembali ke default (Sabtu/Minggu = Weekend, selain itu Weekday).</div></div>
      ${opt("",`Default (otomatis: ${def==="weekend"?"Weekend":"Weekday"})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
      ${tplOpts}
-     <div style="margin-top:4px"><button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihL1())">✏️ Buka Editor Denah (atur posisi meja)</button></div>
-     <div class="section-title" style="margin-top:14px">Override Terjadwal</div>
+     <div style="margin-top:4px"><button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihL1())">✏️ Buka / Buat Template Denah (atur posisi meja)</button></div>
+
+     <div class="section-title" style="margin-top:16px">📅 Terapkan Template ke Banyak Tanggal</div>
+     <p class="hint" style="margin-top:0">Pilih salah satu template di atas, lalu tambahkan tanggal-tanggal yang memakai template itu. Bisa banyak hari sekaligus.</p>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+       <div class="field" style="margin:0"><label>Tanggal</label><input type="date" id="lyAddDate" value="${date}"></div>
+       <button class="btn btn-sm btn-ok" onclick="addLayoutDate()">➕ Tambahkan Tanggal</button>
+       <span class="hint" style="align-self:center">Template yang dipakai = yang dipilih di atas.</span>
+     </div>
+
+     <div class="section-title" style="margin-top:14px">Tanggal Terjadwal (hari ini ke depan)</div>
      <div class="master-list">${list}</div>
    </div>
    <div class="modal-foot">
-     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
      <button class="btn btn-primary" onclick="saveLayoutOverride('${date}')">Terapkan untuk ${fmtDateShort(date)}</button>
    </div>`);
+}
+// Terapkan template yang sedang dipilih (radio) ke satu tanggal tambahan, lalu tetap
+// buka modal supaya bisa menambah tanggal lain. Untuk "template dipakai di banyak hari".
+function addLayoutDate(){
+  const sel=document.querySelector('input[name=lyov]:checked'); const val=sel?sel.value:"";
+  const d=byId("lyAddDate")?.value;
+  if(!d){ toast("Pilih tanggalnya dulu","err"); return; }
+  if(!val || !getLayout(val)){ toast("Pilih template dulu (bukan Default)","err"); return; }
+  const ov=layoutOverrides(); ov[d]=val;
+  logAudit("Set Layout Event",`${fmtDateShort(d)} → ${val}`);
+  saveState(); renderHariH();
+  toast(`${layoutName(val)} dipakai untuk ${fmtDateShort(d)} ✓`,"ok");
+  openLayoutSettings();   // segarkan daftar, biarkan pilihan template tetap
+  const sel2=document.querySelector(`input[name=lyov][value="${val}"]`); if(sel2) sel2.checked=true;
 }
 function saveLayoutOverride(date){
   const sel=document.querySelector('input[name=lyov]:checked'); const val=sel?sel.value:"";
@@ -3325,12 +3499,15 @@ function walkInSeat(tableId, sharingDefault){
    </div>`);
   setTimeout(()=>byId("wi_name")?.focus(),60);
 }
-function saveWalkIn(tableId, doPrint){
+async function saveWalkIn(tableId, doPrint){
   const name=(byId("wi_name").value||"").trim() || WALKIN_NAME;   // tanpa nama → "Walkin"
   const pax=Number(byId("wi_pax").value||0);
   if(!pax||pax<1){ toast("Jumlah pax wajib","err"); return; }
   const sharing=!!byId("wi_sharing")?.checked;
   const now=Date.now(), nowTime=new Date().toTimeString().slice(0,5);
+  // Meja bisa saja baru saja diisi kru lain dari perangkat berbeda.
+  const cek=await mejaMasihKosong(HARIH_DATE, tableId, normTime(nowTime), null, sharing);
+  if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${tableId} sudah terisi.`); closeModal(); renderHariH(); return; }
   const rec={ id:uid(), name, phone:normPhone(byId("wi_phone").value||""), date:HARIH_DATE, time:nowTime, pax,
     table:tableId, sharing, category:"Tamu Umum", foodReq:"", drinkReq:"", dpStatus:"Belum", dpMethod:"", dpAmount:0,
     dpProofData:"", dpProofName:"", docReqData:"", docReqName:"", source:"Walk-in", picType:"Host/Captain", picName:SESSION.name,
@@ -3338,8 +3515,13 @@ function saveWalkIn(tableId, doPrint){
     arrivals:[{ ts:now, pax, by:SESSION.name }],   // walk-in: rombongan langsung masuk penuh
     createdBy:SESSION.name, createdAt:now, updatedAt:now, followups:[] };
   STATE.reservations.push(rec);
-  logAudit("Walk-in",`${name}, meja ${tableId} (${pax} pax)${sharing?", sharing":""}`); saveState(); closeModal(); renderHariH();
-  toast("Walk-in tersimpan ✓","ok");
+  logAudit("Walk-in",`${name}, meja ${tableId} (${pax} pax)${sharing?", sharing":""}`);
+  setBusy("Menyimpan walk-in ke database…");
+  const tertulis=await saveNow();
+  hideBusy(); closeModal(); renderHariH();
+  if(!STATE.reservations.some(x=>x.id===rec.id)) return;      // ditolak, sudah diberi tahu
+  if(!tertulis){ toast("Gagal menulis ke database — walk-in BELUM tersimpan","err"); return; }
+  toast("Walk-in tersimpan ✓ (tersimpan di database)","ok");
   if(doPrint) printCheck(rec.id);
 }
 /* ===== Sharing / kelola meja (hari-H) ===== */
@@ -3388,14 +3570,28 @@ function renderMoveModal(){
    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Batal</button>
      <button class="btn btn-primary" onclick="applyMoveTables()">💾 ${add?"Tambah Meja":"Pindahkan"} (${MOVE_SELS.length})</button></div>`, true);
 }
-function applyMoveTables(){
+async function applyMoveTables(){
   const r=STATE.reservations.find(x=>x.id===MOVE_ID); if(!r) return;
   if(!MOVE_SELS.length){ toast(MOVE_MODE==="add"?"Pilih minimal 1 meja":"Klik meja tujuan dulu","err"); return; }
   const prev=r.table||'-';
-  r.table=MOVE_SELS.join(", "); r.updatedAt=Date.now();
+  const tujuan=MOVE_SELS.join(", ");
+  // Meja tujuan bisa saja BARU SAJA diambil kru lain — cek ke server dulu.
+  const cek=await mejaMasihKosong(r.date, tujuan, r.time, r.id, !!r.sharing);
+  if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${cek.bentrok.table} tidak bisa dipakai.`); renderHariH(); return; }
+  r.table=tujuan; r.updatedAt=Date.now();
   logAudit(MOVE_MODE==="add"?"Tambah Meja":"Pindah Meja",`${r.name}, ${prev} → ${r.table}`);
-  saveState(); closeModal(); renderHariH();
-  toast(`Meja diperbarui: ${r.table} ✓`,"ok");
+  setBusy("Menyimpan ke database…");
+  const tertulis=await saveNow();
+  hideBusy(); closeModal(); renderHariH();
+  const kini=STATE.reservations.find(x=>x.id===MOVE_ID);
+  if(!kini || kini.table!==tujuan) return;                    // ditolak saat menulis, sudah diberi tahu
+  if(!tertulis){ toast("Gagal menulis ke database — perubahan meja BELUM tersimpan","err"); return; }
+  toast(`Meja diperbarui: ${kini.table} ✓ (tersimpan di database)`,"ok");
+}
+// Pesan seragam saat meja keburu diambil kru lain.
+function tolakMeja(b, judul){
+  alert(`⛔ ${judul||"Meja sudah diambil kru lain."}\n\n"${b.name}" (${fmtDateShort(b.date)} ${b.time}, ${b.pax} pax) sudah masuk lebih dulu di meja ${b.table}.\n\nTidak jadi disimpan. Layar sudah disegarkan — silakan pilih meja lain.`);
+  toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
 }
 // ---- Kelola meja sharing (banyak grup di satu meja) ----
 function sharingTableAction(tableId){
@@ -3551,12 +3747,20 @@ function openKwitansi(id){
     </div>`, true);
 }
 function renderHariH(){
-  const dayList = STATE.reservations.filter(r=>r.date===HARIH_DATE && !["Cancelled"].includes(r.status));
+  const inList = HARIH_VIEW==='list';
+  // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
+  // `dayList` = kartu ringkasan; di tab Daftar ikut rentang & jam (tanpa filter status,
+  // supaya hitungan Sudah/Belum Datang tetap benar). `list` = isi tabel (ikut filter status).
+  const statusOf=RECAP_STATUS;
+  const savedStatus=RECAP_STATUS; RECAP_STATUS="";        // kartu: abaikan filter status
+  const dayList = inList ? recapList()
+                         : STATE.reservations.filter(r=>r.date===HARIH_DATE && r.status!=="Cancelled");
+  RECAP_STATUS=savedStatus;
+  const list = inList ? recapList()
+                      : dayList.slice().sort((a,b)=>a.time.localeCompare(b.time));
   const q=(HARIH_Q||"").trim().toLowerCase();
-  const list = dayList.filter(r=>!q || (r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) || tablesOf(r).some(t=>t.toLowerCase().includes(q)))
-    .sort((a,b)=>a.time.localeCompare(b.time));
   const nowMin = new Date().getHours()*60+new Date().getMinutes();
-  const isToday = HARIH_DATE===todayStr();
+  const isToday = !recapMultiDay() && recapFrom()===todayStr();
   const arrived = dayList.filter(r=>r.status==="Datang").length;
   const pending = dayList.filter(r=>["Pending","Confirmed"].includes(r.status)).length;
   const noshow = dayList.filter(r=>r.status==="No-show").length;
@@ -3574,7 +3778,7 @@ function renderHariH(){
 
   byId("page-hariH").innerHTML = `
    <div class="page-head">
-     <div><h2>Kedatangan Tamu</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
+     <div><h2>Recap Reservasi</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
        <button class="btn btn-sm btn-ghost" onclick="connectPrinter()" title="Sambungkan printer thermal Bluetooth">🖨️ Printer</button>
        <button class="btn btn-sm btn-wa" onclick="openCoordWA()">📋 WA Koordinasi</button>
@@ -3583,7 +3787,7 @@ function renderHariH(){
      </div>
    </div>
    <div class="recap-grid">
-     <div class="recap"><div class="lbl">📋 Total Hari Ini</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
+     <div class="recap"><div class="lbl">📋 ${inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?"Total (Filter)":"Total Hari Ini"}</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
      <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${paxDatang}<small> / ${totalPax}</small></div><div class="sub">sudah masuk${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
      <div class="recap ${paxSisa?'warn':''}"><div class="lbl">🪑 Sisa Pax Rombongan</div><div class="val">${paxSisa}</div>
        <div class="sub">${paxSisa?`${partial.length} meja belum penuh — bisa diisi lagi`:"semua rombongan lengkap"}</div></div>
@@ -3604,21 +3808,48 @@ function renderHariH(){
        ${HARIH_Q?`<button class="harih-clear" title="Bersihkan pencarian" onclick="HARIH_Q='';renderHariH()">×</button>`:""}
      </div>
      ${HARIH_Q?`<span class="harih-result">${list.length} hasil untuk “${esc(HARIH_Q)}”</span>`:""}
-     ${CAN.input(SESSION.role)?`<span style="margin-left:auto;display:inline-flex;gap:6px">
+     ${!inList&&CAN.input(SESSION.role)?`<span style="margin-left:auto;display:inline-flex;gap:6px">
        <button class="btn btn-sm ${hasLayoutOverride(HARIH_DATE)?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings()" title="Pilih layout denah khusus tanggal ini (event); besok balik default">⚙️ Layout: ${layoutName(harihL1())}${hasLayoutOverride(HARIH_DATE)?" ⚑":""}</button>
        <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihL1())" title="Kelola & atur posisi meja (editor denah)">✏️ Editor Denah</button>
      </span>`:""}
-   </div></div>
-   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi pada ${fmtDate(HARIH_DATE)}.</div></div>`:`
-   <div class="panel"><div class="panel-head"><h3>Jadwal Kedatangan, ${fmtDate(HARIH_DATE)}</h3></div>
+   </div>
+   ${inList?`<div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--line)">
+     <div class="field" style="margin:0"><label>Dari Tanggal</label>
+       <input type="date" value="${recapFrom()}" onchange="RECAP_FROM=this.value; if(RECAP_TO&&RECAP_TO<this.value)RECAP_TO=this.value; renderHariH()"></div>
+     <div class="field" style="margin:0"><label>Sampai Tanggal</label>
+       <input type="date" value="${recapTo()}" onchange="RECAP_TO=this.value; renderHariH()"></div>
+     <div class="field" style="margin:0"><label>Jam Dari</label>
+       <input type="time" step="300" value="${esc(RECAP_TF)}" onchange="RECAP_TF=this.value; renderHariH()"></div>
+     <div class="field" style="margin:0"><label>Jam Sampai</label>
+       <input type="time" step="300" value="${esc(RECAP_TT)}" onchange="RECAP_TT=this.value; renderHariH()"></div>
+     <div class="field" style="margin:0"><label>Status</label>
+       <select onchange="RECAP_STATUS=this.value; renderHariH()">
+         <option value="">Semua status</option>
+         ${["Pending","Confirmed","Datang","No-show"].map(s=>`<option ${RECAP_STATUS===s?"selected":""}>${s}</option>`).join("")}
+       </select></div>
+     <div class="pill-row" style="margin:0">
+       <span class="pill ${recapIsDay(0)?'on':''}" style="cursor:pointer" onclick="recapSetDay(0)">Hari Ini</span>
+       <span class="pill ${recapIsDay(1)?'on':''}" style="cursor:pointer" onclick="recapSetDay(1)">Besok</span>
+       <span class="pill ${recapIsDay(2)?'on':''}" style="cursor:pointer" onclick="recapSetDay(2)">Lusa</span>
+       <span class="pill" style="cursor:pointer" onclick="recapSet7()">7 Hari</span>
+       <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
+       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
+     </div>
+     ${(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:""}
+   </div>`:""}
+   </div>
+   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
+   <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
    <div class="table-wrap"><table>
-     <thead><tr><th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
+     <thead><tr>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${list.map(r=>{
         const p=customerProfile(r.phone);
-        const late = isToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)<nowMin;
-        const near = isToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)-nowMin<=30 && toMin(r.time)>=nowMin;
+        const rowToday = r.date===todayStr();
+        const late = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)<nowMin;
+        const near = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)-nowMin<=30 && toMin(r.time)>=nowMin;
         const rowStyle = late?'background:#FCEFB8':near?'background:#FBF6E6':'';
         return `<tr style="${rowStyle};cursor:pointer" onclick="openDetail('${r.id}')">
+          ${recapMultiDay()?`<td><b>${fmtDateShort(r.date)}</b></td>`:""}
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
             ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>
@@ -4416,7 +4647,7 @@ function finSet(k,v){ FIN_F[k]=v; renderFinance(); }
 function finRange(kind){
   const t=todayStr();
   if(kind==="today"){ FIN_F.from=t; FIN_F.to=t; }
-  else if(kind==="week"){ const d=new Date(); d.setDate(d.getDate()-6); FIN_F.from=d.toISOString().slice(0,10); FIN_F.to=t; }
+  else if(kind==="week"){ const d=new Date(); d.setDate(d.getDate()-6); FIN_F.from=ymdOf(d.getTime()); FIN_F.to=t; }
   else if(kind==="month"){ FIN_F.from=t.slice(0,8)+"01"; FIN_F.to=t; }
   else if(kind==="all"){ FIN_F.from=""; FIN_F.to=""; }
   renderFinance();
@@ -4506,7 +4737,7 @@ function renderFinance(){
          <option value="rejected"  ${FIN_F.status==="rejected"?"selected":""}>Ditolak</option>
        </select></div>
      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari</label>
-       <input value="${esc(FIN_F.q)}" placeholder="Nama tamu / no. HP / bank…" oninput="FIN_F.q=this.value;renderFinance()"></div>
+       <input id="finSearch" value="${esc(FIN_F.q)}" placeholder="Nama tamu / no. HP / bank…" oninput="FIN_F.q=this.value;afterSearch('finSearch',renderFinance)"></div>
      <div class="pill-row" style="margin:0">
        <span class="pill" style="cursor:pointer" onclick="finRange('today')">Hari Ini</span>
        <span class="pill" style="cursor:pointer" onclick="finRange('week')">7 Hari</span>
@@ -4798,7 +5029,7 @@ function renderRiwayat(){
   byId("page-riwayat").innerHTML=`
    <div class="page-head"><div><h2>Riwayat Reservasi</h2><div class="desc">Arsip reservasi yang sudah lewat, basis CRM dan evaluasi. Cari nama/HP untuk lihat riwayat pelanggan.</div></div></div>
    <div class="panel"><div class="panel-body"><div class="filters">
-     <div class="field"><label>Cari Pelanggan</label><div class="search-box"><span class="ico">${icon('search',16)}</span><input placeholder="Nama / No HP" value="${esc(HIST_F.q)}" oninput="HIST_F.q=this.value;renderRiwayat()"></div></div>
+     <div class="field"><label>Cari Pelanggan</label><div class="search-box"><span class="ico">${icon('search',16)}</span><input id="histSearch" placeholder="Nama / No HP" value="${esc(HIST_F.q)}" oninput="HIST_F.q=this.value;afterSearch('histSearch',renderRiwayat)"></div></div>
      <div class="field"><label>Periode</label><select onchange="HIST_F.mode=this.value;renderRiwayat()"><option value="all" ${HIST_F.mode==="all"?"selected":""}>Semua</option><option value="month" ${HIST_F.mode==="month"?"selected":""}>Bulanan</option><option value="year" ${HIST_F.mode==="year"?"selected":""}>Tahunan</option></select></div>
      ${HIST_F.mode==="month"?`<div class="field"><label>Bulan</label><input type="month" value="${HIST_F.month}" onchange="HIST_F.month=this.value;renderRiwayat()"></div>`:""}
      ${HIST_F.mode==="year"?`<div class="field"><label>Tahun</label><input type="number" value="${HIST_F.year}" onchange="HIST_F.year=this.value;renderRiwayat()"></div>`:""}
