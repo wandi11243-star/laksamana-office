@@ -694,7 +694,13 @@ const LOGO_B64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAYAAADN
       (Execute as: Me, Who has access: Anyone).
    3. Salin URL Web App (.../exec) dan tempel di bawah ini.
    Detail langkah ada di README.md. */
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw6wIxPqrTckcJwEYK8ZssZ62FQwyO2GRU7UxlOiNwXcFpgZ_nM1-eWcKzUU6sI34L0/exec";   // ← WAJIB diganti
+/* Backend: PHP di hosting sendiri (deploy/reservasi-api/api.php).
+   Dulu Google Apps Script, tapi ia menambah ~2-4 DETIK per panggilan (redirect /exec →
+   googleusercontent.com + cold start). Terukur: `ping` yang tidak melakukan apa-apa pun
+   butuh 3.780 ms, `stats` 2.383 ms. Di PHP: `stats` 53 ms — ~45x lebih cepat.
+   Sengaja RELATIF: aplikasi ada di /office/reservasi/, API di /office/reservasi-api/,
+   jadi satu origin (tidak ada urusan CORS) dan ikut pindah kalau domainnya berganti. */
+const API_URL = "../reservasi-api/api.php";
 const DEFAULT_PIN = "1234";                                 // PIN default semua kru
 
 // key sessionStorage untuk menyimpan SESI LOGIN saja (bukan data reservasi)
@@ -1548,7 +1554,7 @@ let DATA_LOADED = false;   // true setelah getAll sukses; guard agar save tidak 
    - POST : body text/plain berisi JSON {action:'saveAll', data:STATE}
      (Content-Type text/plain dipakai sengaja supaya browser TIDAK melakukan
       CORS preflight OPTIONS yang tidak didukung Apps Script.) */
-function apiConfigured(){ return APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith("PASTE_"); }
+function apiConfigured(){ return API_URL && !API_URL.startsWith("PASTE_"); }
 
 function fetchWithTimeout(url, opts, ms, ctrl){
   ctrl = ctrl || new AbortController();
@@ -1574,7 +1580,7 @@ function apiQueue(fn){
 }
 function apiIdle(){ return _apiBusy===0; }
 async function _apiGetRaw(action, ctrl, extra){
-  let url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
+  let url = API_URL + (API_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
   if(extra) Object.keys(extra).forEach(k=>{ url += "&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]); });
   let res;
   try{ res = await fetchWithTimeout(url, { method:"GET", redirect:"follow" }, 20000, ctrl); }
@@ -1586,7 +1592,7 @@ async function _apiGetRaw(action, ctrl, extra){
 async function _apiPostRaw(action, data){
   let res;
   try{
-    res = await fetchWithTimeout(APPS_SCRIPT_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method:"POST", redirect:"follow",
       headers:{ "Content-Type":"text/plain;charset=utf-8" },
       body: JSON.stringify({ action, data })
@@ -1713,7 +1719,7 @@ function applyServer(d){
 async function loadState(){
   if(!apiConfigured()){
     setSync("err","Backend belum diatur");
-    throw new Error("APPS_SCRIPT_URL belum diisi. Buka Code.gs / README untuk setup.");
+    throw new Error("API_URL belum diisi (deploy/reservasi-api/api.php).");
   }
   setSync("sync","Memuat data…");
   applyServer(await apiGet("getAll"));
@@ -2257,7 +2263,7 @@ async function enterApp(){
       first.innerHTML = `<div class="panel"><div class="empty"><div class="big">🔌</div><b>Gagal terhubung ke Google Sheet.</b>
         <div style="margin-top:8px;color:var(--muted);font-size:13.5px;max-width:440px">${esc(e.message)}</div>
         <div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="enterApp()">↻ Coba lagi</button></div></div></div>`;
-      toast("Backend belum siap, cek APPS_SCRIPT_URL","err");
+      toast("Backend belum siap — cek deploy/reservasi-api/api.php","err");
       return false;
     }
   }
