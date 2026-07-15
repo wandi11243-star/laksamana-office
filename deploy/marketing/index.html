@@ -1271,7 +1271,10 @@ function delExtraJob(evId,div,jobId){
 }
 function jobProg(e,div,taskId){ return Math.max(0,Math.min(100, Math.round((e.jobProgress&&e.jobProgress[div]&&+e.jobProgress[div][taskId])||0))); }
 function divProgress(e,div){ const items=eventDivTemplates(e,div); if(!items.length)return 0; return Math.round(items.reduce((a,t)=>a+jobProg(e,div,t.id),0)/items.length); }
-function taskProgress(e){ let sum=0,n=0; getCats().forEach(div=>{ eventDivTemplates(e,div).forEach(t=>{ sum+=jobProg(e,div,t.id); n++; }); }); return n?Math.round(sum/n):0; }
+// Progres keseluruhan = rata-rata kesiapan SEMUA divisi (divisi yang belum punya job
+// / belum dikerjakan dihitung 0%), supaya konsisten dengan hitungan "X/7 divisi siap"
+// dan tidak terlihat tinggi padahal sebagian besar divisi belum jalan.
+function taskProgress(e){ const cats=getCats(); if(!cats.length)return 0; return Math.round(cats.reduce((a,div)=>a+divProgress(e,div),0)/cats.length); }
 function setJobProg(evId,div,taskId,val){ const e=S.events.find(x=>x.id===evId); if(!e)return; e.jobProgress=e.jobProgress||{}; e.jobProgress[div]=e.jobProgress[div]||{}; e.jobProgress[div][taskId]=Math.max(0,Math.min(100,Math.round(+val||0))); save(); }
 // Hitung ulang % keseluruhan Detail Job langsung dari posisi slider (realtime saat ditarik,
 // tanpa menunggu slider dilepas / modal dibuka ulang).
@@ -2374,7 +2377,7 @@ function renderCalendar(V){
     const isToday=ds===today();
     const evs=cell.other?[]:S.events.filter(e=>e.tanggal===ds&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
     h+='<div class="cell'+(cell.other?' other':'')+(isToday?' today':'')+'"><div class="dn">'+cell.d+'</div>';
-    evs.forEach(e=>{ const col=EVENT_COLOR[e.jenis]||'--muted'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="go(\'event\',\''+e.id+'\')" title="'+esc(e.nama)+'">'+esc(e.nama)+'</div>'; });
+    evs.forEach(e=>{ const col=EVENT_COLOR[e.jenis]||'--muted'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+'">'+esc(e.nama)+'</div>'; });
     h+='</div>';
   });
   h+='</div></div>';
@@ -2382,6 +2385,26 @@ function renderCalendar(V){
 }
 function calNav(n){ calDate.setMonth(calDate.getMonth()+n); go('calendar'); }
 function calToday(){ calDate=new Date(); calDate.setDate(1); go('calendar'); }
+// Klik event di kalender -> popup ringkas (bukan langsung pindah halaman).
+function calEventPopup(id){
+  const e=S.events.find(x=>x.id===id); if(!e)return;
+  const f=eventFinance(e); const d=e.detail||{};
+  const row=(lbl,val)=>val?'<tr><td style="padding:5px 0;color:var(--muted);font-size:12px;width:40%;vertical-align:top">'+esc(lbl)+'</td><td style="padding:5px 0;font-size:12.5px">'+esc(val)+'</td></tr>':'';
+  const jam=[d.mulaiSetup?'Setup '+d.mulaiSetup:'',d.tamuDatang?'Mulai '+d.tamuDatang:'',d.selesai?'Selesai '+d.selesai:''].filter(Boolean).join(' · ');
+  let h='<div class="modal-head"><div><div class="eyebrow">'+esc(e.jenis||'Event')+'</div><h3 style="margin-top:4px">'+esc(e.nama)+'</h3><div class="pill-row" style="margin-top:6px">'+statusChip(e.status)+'<span class="cell-sub">'+fmtDateLong(e.tanggal)+'</span></div></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
+  h+='<div class="modal-body"><table style="width:100%;border-collapse:collapse">'
+    +row('Client',clientName(e.clientId))
+    +row('PIC Marketing',userName(e.mktPIC))
+    +row('Jam',jam||'—')
+    +row('Estimasi Tamu',(e.pax||d.pax||'—')+' pax')
+    +row('Lantai / Area',d.area)
+    +row('Sifat Acara',d.privacy)
+    +row('Grand Total',rp(f.grand))
+    +row('DP '+f.dpPct+'%',rp(f.dp))
+    +'</table></div>';
+  h+='<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="closeModal();go(\'event\',\''+e.id+'\')">'+svg(IC.chevR)+'Buka Detail Event</button></div>';
+  modal(h);
+}
 
 /* ============================================================
    MODUL H — TASK & CHECKLIST PER DIVISI
