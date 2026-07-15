@@ -79,7 +79,7 @@ function emptyDb_() {
   return {
     users: [], clients: [], events: [], followups: [], activities: [],
     settings: {
-      dpPercent: 30, pb1: 10, serviceCharge: 6,
+      dpPercent: 50, pb1: 10, serviceCharge: 6,
       approvalThreshold: 25000000, discountThreshold: 15,
       fuTarget: 10, invPrefix: 'INV/LM/2026/'
     }
