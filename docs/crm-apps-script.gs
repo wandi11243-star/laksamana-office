@@ -13,14 +13,15 @@
  *   Error                      -> {ok:false, error:"..."}
  *
  * MODEL PENYIMPANAN (standar Office):
- *   _DB      : satu sel berisi JSON blob = SUMBER KEBENARAN (dibaca/ditulis utuh)
+ *   DB_JSON  : JSON blob (kolom A, dipotong per 45.000 karakter/baris kalau
+ *              panjang) = SUMBER KEBENARAN (dibaca/ditulis utuh)
  *   1_Users, 2_Clients, 3_Events, 4_Followups, 5_Activities, 6_Settings
  *            : tab rata (flattened) yang dibuat ulang tiap save, untuk dibaca
  *              manusia / dipakai pivot & laporan. JANGAN diedit manual: akan
  *              tertimpa pada save berikutnya. Edit lewat aplikasi.
  */
 
-var DB_SHEET = '_DB';
+var DB_SHEET = 'DB_JSON';
 // Google Sheets membatasi SATU SEL maksimal 50.000 karakter. DB (JSON blob)
 // bisa melewati batas itu seiring data bertambah, jadi disimpan terpotong-potong
 // (chunked) di kolom A, satu baris = satu potongan, lalu disambung saat dibaca.
@@ -78,7 +79,7 @@ function emptyDb_() {
   return {
     users: [], clients: [], events: [], followups: [], activities: [],
     settings: {
-      dpPercent: 30, pb1: 10, serviceCharge: 6,
+      dpPercent: 50, pb1: 10, serviceCharge: 6,
       approvalThreshold: 25000000, discountThreshold: 15,
       fuTarget: 10, invPrefix: 'INV/LM/2026/'
     }

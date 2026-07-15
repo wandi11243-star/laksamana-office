@@ -479,11 +479,11 @@ let API_READY = false;
 // Ambil data dari server (GET). Fallback ke cache lokal / seed bila gagal.
 async function apiLoad(){
   try{
-    const res = await fetch(WEB_APP_URL, {method:'GET', redirect:'follow'});
+    const res = await fetch(WEB_APP_URL+'?action=getAll', {method:'GET', redirect:'follow'});
     const json = await res.json();
-    if(json && json.status==='success'){
+    if(json && json.ok){
       S = (json.data && json.data.users) ? json.data : seed();
-    } else { throw new Error('Respons server tidak valid'); }
+    } else { throw new Error((json&&json.error)||'Respons server tidak valid'); }
     API_READY = true;
     localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
   }catch(e){
@@ -500,7 +500,7 @@ function save(){
   fetch(WEB_APP_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
-    body: JSON.stringify(S),
+    body: JSON.stringify({action:'saveAll', data:S}),
     redirect:'follow'
   }).catch(err=>{ console.warn('Gagal sinkron ke server:', err); });
 }
@@ -513,7 +513,7 @@ function resetData(){
 
 /* ---------- SETTINGS / BUSINESS RULES (Bagian 9 & 14) ---------- */
 const DEFAULT_SETTINGS = {
-  dpPercent:30, pb1:10, serviceCharge:6,
+  dpPercent:50, pb1:10, serviceCharge:6,
   approvalThreshold:25000000, discountThreshold:15,
   fuTarget:10,
   // Nomor invoice & kwitansi: sekali diberikan, melekat permanen ke event/pembayaran.
@@ -1945,7 +1945,7 @@ function financeTab(ev,canEdit){
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
   h+='</div>';
-  h+='<div style="margin-top:14px;padding:11px;background:var(--warn-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' <b>Perlu konfirmasi (Bagian 14):</b> DP default '+st.dpPercent+'% (dokumen perjanjian). Form kasir lapangan menyebut 50% — atur di Pengaturan bila perlu configurable per jenis event. Tarif PB1 '+st.pb1+'% + service '+st.serviceCharge+'% belum final.</div>';
+  h+='<div style="margin-top:14px;padding:11px;background:var(--warn-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' <b>Perlu konfirmasi:</b> Tarif PB1 '+st.pb1+'% + service '+st.serviceCharge+'% belum final.</div>';
   h+='</div></div>';
   setTimeout(()=>{const s=document.querySelector('#ev-tab-content .alert');},0);
   return h;
@@ -1954,8 +1954,16 @@ function financeTab(ev,canEdit){
 // riwayat dari modul Invoice & Payment, supaya sumbernya satu (tidak dobel).
 function paymentHistoryHtml(ev){
   if(!(ev.payments||[]).length) return '<div class="lma-empty" style="padding:14px 0">Belum ada pembayaran tercatat.</div>';
+  const canEdit=can('verify_payment')||ME.role==='super_admin';
+  let running=0;
   let h='<div style="margin-top:12px">';
-  ev.payments.forEach(p=>{ h+='<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-soft)"><span><b>'+esc(p.type)+'</b> · '+fmtDate(p.at)+(p.verified?' ✓':' (belum verif)')+(p.no?'<div class="cell-sub mono" style="font-size:10.5px">Kwitansi '+esc(p.no)+'</div>':'')+(p.receiptUrl?'<div class="cell-sub" style="font-size:10.5px"><a href="'+esc(p.receiptUrl)+'" target="_blank" rel="noopener">Lihat bukti transfer</a></div>':(p.receipt?'<div class="cell-sub" style="font-size:10.5px">'+esc(p.receipt)+'</div>':''))+'</span><span class="mono">'+rp(p.amount)+'</span></div>'; });
+  ev.payments.forEach(p=>{
+    running+=(+p.amount||0);
+    h+='<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:7px 0;border-bottom:1px solid var(--line-soft)"><span><b>'+esc(p.type)+'</b> · '+fmtDate(p.at)+(p.verified?' ✓':' (belum verif)')+(p.no?'<div class="cell-sub mono" style="font-size:10.5px">Kwitansi '+esc(p.no)+'</div>':'')+(p.receiptUrl?'<div class="cell-sub" style="font-size:10.5px"><a href="'+esc(p.receiptUrl)+'" target="_blank" rel="noopener">Lihat bukti transfer</a></div>':(p.receipt?'<div class="cell-sub" style="font-size:10.5px">'+esc(p.receipt)+'</div>':''))+'</span>'
+     +'<span style="text-align:right"><span class="mono">'+rp(p.amount)+'</span><div class="cell-sub" style="font-size:10.5px">terbayar s.d. ini '+rp(running)+'</div>'
+     +(canEdit?'<div class="pill-row" style="margin-top:4px;justify-content:flex-end"><button class="btn sm" title="Edit pembayaran" onclick="addPayment(\''+ev.id+'\',\''+p.id+'\')">'+svg(IC.edit)+'</button><button class="btn sm" title="Hapus pembayaran" onclick="deletePayment(\''+ev.id+'\',\''+p.id+'\')">'+svg(IC.trash)+'</button></div>':'')
+     +'</span></div>';
+  });
   return h+'</div>';
 }
 function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'</label><input class="inp" type="number" id="efd_'+k+'" value="'+(val==null?'':val)+'" placeholder="0" '+dis+'></div>'; }
@@ -1971,16 +1979,17 @@ function saveFinance(id,goNext){
   if(goNext){ const nx=nextSectionId('finance'); if(nx) curTab=nx; }
   go('event',id);
 }
-function addPayment(id){
+function addPayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id); const f=eventFinance(ev);
-  modal('<div class="modal-head"><div><h3>Catat Pembayaran</h3><p>'+esc(ev.nama)+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body"><div class="form-grid">'
-   +'<div class="field"><label>Jenis</label><select class="inp" id="pay_type"><option>DP</option><option>Pelunasan</option><option>Tambahan Hari-H</option></select></div>'
-   +'<div class="field"><label>Jumlah (Rp)</label><input class="inp" type="number" id="pay_amt" value="'+f.dp+'"></div>'
-   +'<div class="field"><label>Metode</label><select class="inp" id="pay_method"><option>Transfer</option><option>Cash</option><option>QRIS</option><option>Card</option></select></div>'
-   +'<div class="field"><label>Tanggal</label><input class="inp" type="date" id="pay_date" value="'+today()+'"></div>'
-   +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label><input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf"><div class="fh">Opsional untuk Cash. Maks 8MB, JPG/PNG/PDF.</div></div>'
-   +'<div class="field full"><label>Catatan</label><input class="inp" id="pay_note" placeholder="mis. transfer dari rek. BCA a.n. ..."></div>'
-   +'</div></div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" id="pay_save_btn" onclick="savePayment(\''+id+'\')">Verifikasi & Simpan</button></div>');
+  const p=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
+  modal('<div class="modal-head"><div><h3>'+(p?'Edit Pembayaran':'Catat Pembayaran')+'</h3><p>'+esc(ev.nama)+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body"><div class="form-grid">'
+   +'<div class="field"><label>Jenis</label><select class="inp" id="pay_type">'+['DP','Pelunasan','Tambahan Hari-H'].map(t=>'<option'+(p&&p.type===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Jumlah (Rp)</label><input class="inp" type="number" id="pay_amt" value="'+(p?p.amount:f.dp)+'"></div>'
+   +'<div class="field"><label>Metode</label><select class="inp" id="pay_method">'+['Transfer','Cash','QRIS','Card'].map(m=>'<option'+(p&&p.method===m?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Tanggal</label><input class="inp" type="date" id="pay_date" value="'+(p?p.at:today())+'"></div>'
+   +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label><input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf"><div class="fh">'+(p&&p.receiptUrl?'Sudah ada bukti tersimpan. Upload file baru untuk mengganti.':'Opsional untuk Cash. Maks 8MB, JPG/PNG/PDF.')+'</div></div>'
+   +'<div class="field full"><label>Catatan</label><input class="inp" id="pay_note" value="'+(p?esc(p.receipt||''):'')+'" placeholder="mis. transfer dari rek. BCA a.n. ..."></div>'
+   +'</div></div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" id="pay_save_btn" onclick="savePayment(\''+id+'\''+(p?',\''+p.id+'\'':'')+')">'+(p?'Simpan Perubahan':'Verifikasi & Simpan')+'</button></div>');
 }
 // Baca file jadi base64 murni (tanpa prefix data:...;base64,) untuk dikirim ke Apps Script.
 function fileToBase64(file){
@@ -1991,13 +2000,14 @@ function fileToBase64(file){
     r.readAsDataURL(file);
   });
 }
-async function savePayment(id){
+async function savePayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id);
+  const existing=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
   const amt=+$('pay_amt').value; if(!amt)return toast('Isi jumlah','Jumlah pembayaran wajib.','err');
   const fileInp=$('pay_receipt_file'), file=fileInp&&fileInp.files&&fileInp.files[0];
   const note=$('pay_note').value.trim();
   const btn=$('pay_save_btn');
-  let receiptUrl='', receiptName=note;
+  let receiptUrl=existing?(existing.receiptUrl||''):'', receiptName=note||(existing?existing.receipt:'')||'';
   if(file){
     if(file.size>8*1024*1024) return toast('File terlalu besar','Bukti transfer maksimal 8MB.','err');
     if(btn){ btn.disabled=true; btn.textContent='Mengunggah bukti...'; }
@@ -2006,22 +2016,40 @@ async function savePayment(id){
       const res=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type,dataBase64:b64})});
       const data=await res.json();
-      if(!data||!data.ok){ if(btn){btn.disabled=false;btn.textContent='Verifikasi & Simpan';} return toast('Gagal unggah','Bukti transfer gagal diunggah'+(data&&data.error?': '+data.error:'')+'. Coba lagi.','err'); }
-      receiptUrl=data.data.url; receiptName=receiptName||data.data.name;
+      if(!data||!data.ok){ if(btn){btn.disabled=false;btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan';} return toast('Gagal unggah','Bukti transfer gagal diunggah'+(data&&data.error?': '+data.error:'')+'. Coba lagi.','err'); }
+      receiptUrl=data.data.url; receiptName=note||data.data.name;
     }catch(e){
-      if(btn){ btn.disabled=false; btn.textContent='Verifikasi & Simpan'; }
+      if(btn){ btn.disabled=false; btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan'; }
       return toast('Gagal unggah','Tidak bisa menghubungi server untuk unggah bukti. Coba lagi.','err');
     }
   }
-  // Invoice tetap 1 per event; tiap pembayaran dapat KWITANSI bernomor sendiri.
-  const p={id:uid('p'),no:kwitansiNo(),type:$('pay_type').value,amount:amt,method:$('pay_method').value,at:$('pay_date').value,receipt:receiptName,receiptUrl:receiptUrl,verified:true,by:ME.name};
-  ev.payments=ev.payments||[]; ev.payments.push(p);
-  logAct('event',id,'Pembayaran diverifikasi',p.no+' · '+p.type+' '+rp(amt));
-  pushNotif('payment','Pembayaran masuk',ev.nama+': '+p.type+' '+rp(amt)+' terverifikasi.','#event/'+id);
+  let p;
+  if(existing){
+    Object.assign(existing,{type:$('pay_type').value,amount:amt,method:$('pay_method').value,at:$('pay_date').value,receipt:receiptName,receiptUrl:receiptUrl});
+    p=existing;
+    logAct('event',id,'Pembayaran diedit',p.no+' · '+p.type+' '+rp(amt));
+  } else {
+    // Invoice tetap 1 per event; tiap pembayaran dapat KWITANSI bernomor sendiri.
+    p={id:uid('p'),no:kwitansiNo(),type:$('pay_type').value,amount:amt,method:$('pay_method').value,at:$('pay_date').value,receipt:receiptName,receiptUrl:receiptUrl,verified:true,by:ME.name};
+    ev.payments=ev.payments||[]; ev.payments.push(p);
+    logAct('event',id,'Pembayaran diverifikasi',p.no+' · '+p.type+' '+rp(amt));
+    pushNotif('payment','Pembayaran masuk',ev.nama+': '+p.type+' '+rp(amt)+' terverifikasi.','#event/'+id);
+  }
   const f=eventFinance(ev);
   save(); closeModal();
-  toast('Pembayaran tercatat',p.no+' · '+(f.remaining<=0?'Lunas! ⚓':'Sisa '+rp(f.remaining)),'ok');
+  toast(existing?'Pembayaran diperbarui':'Pembayaran tercatat',p.no+' · '+(f.remaining<=0?'Lunas! ⚓':'Sisa '+rp(f.remaining)),'ok');
   curTab='finance'; go('event',id); // mendarat di tab Finance: daftar pembayaran & kwitansi ada di sana
+}
+function deletePayment(id,paymentId){
+  if(!(can('verify_payment')||ME.role==='super_admin'))return toast('Akses ditolak','Kamu tidak punya izin menghapus pembayaran.','err');
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  const p=(ev.payments||[]).find(x=>x.id===paymentId); if(!p)return;
+  if(!confirm('Hapus pembayaran '+(p.no||'')+' · '+p.type+' '+rp(p.amount)+'? Tindakan ini tidak bisa dibatalkan.'))return;
+  ev.payments=ev.payments.filter(x=>x.id!==paymentId);
+  logAct('event',id,'Pembayaran dihapus',(p.no||'')+' · '+p.type+' '+rp(p.amount));
+  save();
+  toast('Pembayaran dihapus','Sisa sekarang '+rp(eventFinance(ev).remaining),'ok');
+  curTab='finance'; go('event',id);
 }
 
 /* ============================================================
@@ -2368,7 +2396,7 @@ function renderInvoices(V){
   ensureInvNos(evs);
   evs.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
     h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target DP '+f.dpPct+'%: '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
-     +'<td><div class="pill-row"><button class="btn sm" title="Buka tab Finance event" onclick="curTab=\'finance\';go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.timeline)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
+     +'<td><div class="pill-row"><button class="btn sm" title="Buka tab Finance event" onclick="curTab=\'finance\';go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.perf)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+(can('del_event')?'<button class="btn sm danger" title="Hapus event/invoice" onclick="delEvent(\''+e.id+'\')">'+svg(IC.trash)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
@@ -2857,7 +2885,7 @@ function renderSettings(V){
   const txt=(id,val)=>'<input class="inp" id="'+id+'" value="'+esc(val==null?'':val)+'">';
   h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Aturan Bisnis & Tarif</h3><div class="cell-sub" style="margin-top:2px">Angka bisa dikalibrasi ulang setelah 2–3 bulan data aktual.</div></div>'
    +'<div class="tbl-wrap"><table class="tbl set-tbl"><thead><tr><th>Pengaturan</th><th>Nilai</th><th>Keterangan</th></tr></thead><tbody>'
-   +setRow('DP Default (%)',num('set_dp',st.dpPercent),'Perjanjian resmi 30% vs form kasir 50% — <em>Bagian 14, poin 1</em>.')
+   +setRow('DP Default (%)',num('set_dp',st.dpPercent),'DP awal 50%, pelunasan 50% sisanya.')
    +setRow('PB1 / Pajak (%)',num('set_pb1',st.pb1),'Dihitung dari subtotal setelah diskon + service charge.')
    +setRow('Service Charge (%)',num('set_service',st.serviceCharge),'Dihitung dari subtotal setelah diskon.')
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
