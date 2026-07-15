@@ -44,6 +44,8 @@ function doPost(e) {
       case 'deleteUser':        return adminDeleteUser_(body);
       case 'listModules':       return adminListModules_(body);
       case 'syncModules':       return syncModules_(body);   // upsert registri dari BRANCHES app
+      case 'saveModule':        return saveModule_(body);    // ubah label / aktif-nonaktif modul
+      case 'setAdmin':          return setAdmin_(body);      // angkat/cabut admin modul per user
       // pemberian akses modul (landing "Kelola Akses"): butuh admin '*'
       case 'listAccess':        return listAccess_(body);
       case 'setModuleAccess':   return setModuleAccess_(body);
@@ -214,13 +216,21 @@ function rawGrantsFor_(grants, user) {
     .filter(String);
 }
 
+// Dipakai form user (hanya modul AKTIF, untuk daftar centang) dan editor modul
+// (semua modul + status active). `all:true` -> sertakan yang nonaktif + flag active.
 function adminListModules_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+  var wantAll = body && body.all === true;
   var mods = readSheet_(ss, 'Modules')
-    .filter(function (m) { return String(m.active).toUpperCase() !== 'FALSE'; })
-    .map(function (m) { return { key: String(m.key || '').trim(), label: String(m.label || '').trim() }; })
-    .filter(function (m) { return m.key; });
+    .map(function (m) {
+      return {
+        key: String(m.key || '').trim(),
+        label: String(m.label || '').trim(),
+        active: String(m.active).toUpperCase() !== 'FALSE'
+      };
+    })
+    .filter(function (m) { return m.key && (wantAll || m.active); });
   return json_({ ok: true, modules: mods });
 }
 
@@ -254,6 +264,64 @@ function syncModules_(body) {
     added.push(key);
   });
   return json_({ ok: true, added: added });
+}
+
+// Ubah label dan/atau status aktif satu modul di tab Modules. Key tidak diubah
+// (key = identitas modul, dipakai Grants/Admins). Nonaktif = modul disembunyikan
+// dari daftar akses tapi baris Grants lama tetap ada.
+function saveModule_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+
+  var key = String(body.key || '').trim();
+  if (!key) return json_({ ok: false, error: 'missing_key' });
+
+  var sh = ensureSheet_(ss, 'Modules', ['key', 'label', 'active']);
+  var vals = sh.getDataRange().getValues();
+  var col = colMap_(vals[0]);
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][col.key]).trim() === key) {
+      if (body.label != null && col.label != null) sh.getRange(i + 1, col.label + 1).setValue(String(body.label).trim());
+      if (body.active != null && col.active != null)
+        sh.getRange(i + 1, col.active + 1).setValue((body.active === true || String(body.active).toUpperCase() === 'TRUE') ? 'TRUE' : 'FALSE');
+      return json_({ ok: true });
+    }
+  }
+  return json_({ ok: false, error: 'not_found' });
+}
+
+// Angkat/cabut satu user sebagai admin sebuah modul (tab Admins). module '*' =
+// superadmin. access TRUE = pastikan baris ada; FALSE = hapus baris bila ada.
+function setAdmin_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var caller = requireSuperadmin_(ss, body);
+  if (!caller) return json_({ ok: false, error: 'forbidden' });
+
+  var userId = String(body.userId || '').trim();
+  var module = String(body.module || '').trim();
+  if (!userId || !module) return json_({ ok: false, error: 'missing_fields' });
+  var grant = (body.access === true || String(body.access).toUpperCase() === 'TRUE');
+
+  // Cegah superadmin terakhir mencabut status '*' dirinya sendiri (kunci diri).
+  if (module === '*' && !grant && String(caller.id).trim() === userId) {
+    var supers = readSheet_(ss, 'Admins').filter(function (a) { return String(a.module).trim() === '*'; });
+    if (supers.length <= 1) return json_({ ok: false, error: 'last_superadmin' });
+  }
+
+  var sh = ensureSheet_(ss, 'Admins', ['userId', 'module']);
+  var vals = sh.getDataRange().getValues();
+  var col = colMap_(vals[0]);
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][col.userId]).trim() === userId && String(vals[i][col.module]).trim() === module) {
+      if (!grant) sh.deleteRow(i + 1);   // cabut = hapus baris
+      return json_({ ok: true });        // sudah ada = tak perlu tambah
+    }
+  }
+  if (grant) {
+    var head = vals[0].map(function (h) { return String(h).trim(); });
+    sh.appendRow(head.map(function (h) { return h === 'userId' ? userId : h === 'module' ? module : ''; }));
+  }
+  return json_({ ok: true });
 }
 
 // Tambah (tanpa id) atau edit (id ada). Nama wajib unik. PIN TIDAK perlu unik.
