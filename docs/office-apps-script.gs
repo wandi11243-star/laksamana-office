@@ -52,7 +52,9 @@ function doPost(e) {
       // dipakai konsol internal tiap modul untuk tahu SIAPA anggotanya
       case 'listModuleMembers': return listModuleMembers_(body);
       // roster HANYA-BACA sebuah modul, dipakai auto-sync modul (mis. dropdown
-      // PIC Marketing). Identitas valid saja, TIDAK perlu admin modul.
+      // PIC Marketing) TANPA prompt PIN. Sengaja TANPA gerbang kredensial: yang
+      // dikembalikan cuma nama + status aktif + apakah admin modul itu, tidak
+      // ada PIN atau data modul lain yang bocor.
       case 'listModuleRoster':  return listModuleRoster_(body);
       default:                  return json_({ ok: false, error: 'unknown_action' });
     }
@@ -480,10 +482,8 @@ function listModuleMembers_(body) {
 // valid (nama+PIN aktif); tidak mengekspos PIN atau modul lain milik user.
 function listModuleRoster_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
-  if (!caller) return json_({ ok: false, error: 'forbidden' });
-
   var module = String(body.module || '').trim();
+  if (!module) return json_({ ok: false, error: 'missing_module' });
   var members = realUsers_(ss)
     .map(function (u) {
       var adm = adminModulesFor_(ss, u);
