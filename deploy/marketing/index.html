@@ -396,10 +396,15 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
 .scrim.on{display:block}
 @media print{
+  @page{size:A4 portrait;margin:12mm}
   body *{visibility:hidden}
   #print-area,#print-area *{visibility:visible}
   #print-area{position:absolute;left:0;top:0;width:100%}
+  #print-area .doc{max-width:100% !important;margin:0 !important;padding:0 !important}
+  #print-area table{page-break-inside:auto}
+  #print-area tr{page-break-inside:avoid}
   .no-print{display:none !important}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 </style>
 </head>
@@ -2241,6 +2246,21 @@ function fmtFieldVal(fl,val){
   return String(val);
 }
 function qrow(label,val){ val=+val||0; if(!val)return ''; return '<tr><td style="padding:7px 14px;border-bottom:1px solid #f0f0f0">'+label+'</td><td style="text-align:right;padding:7px 14px;border-bottom:1px solid #f0f0f0">'+rp(val)+'</td></tr>'; }
+// Field yang tampil di dokumen VERSI CLIENT — hanya info yang penting/perlu dikonfirmasi client,
+// bukan detail operasional internal. Sesuaikan daftar ini bila perlu.
+const CLIENT_FIELDS = new Set([
+  // Informasi Dasar
+  'nama','jenis','tanggal','tamuDatang','selesai','pax','area','rundown',
+  'decorJenis','decorJenisLain','entJenis','entDok',
+  // Food & Beverage
+  'fbFormat','menuFinal','dietary','jenisPenyajian',
+  // Bar
+  'barJenis','signature','barPaket','barJam',
+  // Floor
+  'seatPlan','jenisService','welcomeDrink',
+  // Design / izin publikasi
+  'izinIG','izinTT','dokEvent','mediaCorner','hashtag'
+]);
 function buildBriefDoc(id,mode){
   const ev=S.events.find(e=>e.id===id); const c=S.clients.find(x=>x.id===ev.clientId); const f=eventFinance(ev);
   const title={internal:'EVENT BRIEF — INTERNAL',client:'KONFIRMASI DETAIL ACARA',quote:'PENAWARAN / QUOTATION'}[mode];
@@ -2269,18 +2289,21 @@ function buildBriefDoc(id,mode){
     body+='<div style="margin-top:18px;font-size:11px;color:#999">Penawaran ini berlaku sebagai estimasi. Detail final mengikuti Event Brief & Invoice resmi. Semua sajian 100% non-alkohol.</div>';
   } else {
     body=head+clientBox;
-    const opDivFilter = null;
+    const clientSections=['basic','kitchen','bar','floor','design'];
     EVENT_SCHEMA.forEach(sec=>{
-      if(sec.fin){ if(mode==='client')return; }
-      if(mode==='client' && ['security','cashier','attach','pic','finance','booth'].includes(sec.id)){
-        // client version: only client-relevant sections
-      }
-      const clientSections=['basic','kitchen','bar','floor','design'];
-      if(mode==='client' && !clientSections.includes(sec.id))return;
+      if(mode==='client'){ if(sec.fin || !clientSections.includes(sec.id))return; }
       const rows=[];
-      sec.fields.forEach(fl=>{ if(mode==='client'&&(fl.k==='internalNote'))return; const v=fmtFieldVal(fl,ev.detail[fl.k]); if(v)rows.push('<tr><td style="padding:6px 12px;color:#555;width:42%;vertical-align:top;font-size:12px">'+esc(fl.l)+'</td><td style="padding:6px 12px;font-size:12px">'+esc(v)+'</td></tr>'); });
+      sec.fields.forEach(fl=>{
+        if(fl.t==='head')return;
+        if(mode==='client'){ if(fl.k==='internalNote')return; if(!CLIENT_FIELDS.has(fl.k))return; }
+        const v=fmtFieldVal(fl,ev.detail[fl.k]); if(v==null||v==='')return;
+        const bg = rows.length%2 ? '#ffffff' : '#faf9f5';
+        rows.push('<tr style="background:'+bg+'"><td style="padding:7px 12px;color:#555;width:38%;vertical-align:top;font-size:11.5px;border-bottom:1px solid #efece5">'+esc(fl.l)+'</td><td style="padding:7px 12px;font-size:11.5px;color:#1a1a1a;border-bottom:1px solid #efece5">'+esc(v).replace(/\n/g,'<br>')+'</td></tr>');
+      });
       if(!rows.length)return;
-      body+='<div style="margin-bottom:16px"><div style="font-family:Georgia,serif;font-weight:700;font-size:14px;color:#0C1826;border-bottom:1px solid #eee;padding-bottom:5px;margin-bottom:6px">'+(mode==='internal'?sec.n+' · ':'')+esc(sec.title)+'</div><table style="width:100%;border-collapse:collapse">'+rows.join('')+'</table></div>';
+      body+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;border:1px solid #e5e2da">'
+        +'<thead><tr><th colspan="2" style="text-align:left;font-family:Georgia,serif;font-weight:700;font-size:13px;color:#0C1826;background:#F2EFE7;padding:9px 12px;border-bottom:1px solid #e5e2da">'+(mode==='internal'?sec.n+' · ':'')+esc(sec.title)+'</th></tr></thead>'
+        +'<tbody>'+rows.join('')+'</tbody></table>';
     });
     if(mode==='internal'){
       body+='<div style="background:#F6F4EE;border-radius:10px;padding:14px 18px;margin-top:8px"><div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Ringkasan Finance</div><div style="font-size:13px">Grand Total <b>'+rp(f.grand)+'</b> · DP '+f.dpPct+'% '+rp(f.dp)+' · Terbayar '+rp(f.paid)+' · Sisa '+rp(f.remaining)+'</div></div>';
