@@ -737,6 +737,7 @@ const EVENT_SCHEMA = [
   {k:'tamuDatang',l:'Tamu Datang / Jam Mulai',t:'time',req:1},
   {k:'selesai',l:'Estimasi Selesai',t:'time',req:1},
   {k:'pax',l:'Estimasi Jumlah Tamu (Pax)',t:'num',req:1},
+  {k:'budgetPax',l:'Budget per Pax (F&B)',t:'cur',help:'Harga F&B per orang. Dipakai untuk auto-hitung biaya F&B di tab Finance (Pax × Budget/Pax).'},
   {k:'vipDetail',l:'Detail Tamu VIP/VVIP/Umum',t:'ta'},
   {k:'privacy',l:'Sifat Acara',t:'sel',o:['Private','Public','Semi Private','Combine Event'],req:1},
   {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1 (Dermaga)','Lantai 2','Outdoor','VIP Area','Seluruh Area'],req:1},
@@ -770,7 +771,6 @@ const EVENT_SCHEMA = [
 ]},
 { id:'kitchen', n:'D.2', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format F&B-nya apa, budget per pax berapa, dan menu apa saja yang disajikan?', fields:[
   {k:'fbFormat',l:'Format F&B',t:'sel',o:['Prasmanan','Set Menu'],req:1},
-  {k:'budgetPax',l:'Budget per Pax',t:'cur',req:1},
   {k:'jamFB',l:'Jam Keluar F&B',t:'time',req:1},
   {k:'komponen',l:'Komponen Menu',t:'multi',o:['Welcome Drink','Welcome Snack','Appetizer','Soup','Main Course','Dessert','Fruit','Beverage','Refill'],req:1},
   {k:'menuSpesial',l:'Menu Spesial',t:'multi',o:['Special Menu','VIP Menu','Kids Menu']},
@@ -849,9 +849,9 @@ const EVENT_SCHEMA = [
   {k:'undanganMedia',l:'Undangan Media (wartawan/blogger)',t:'yn'},
   {k:'pressRelease',l:'Press Release Diperlukan',t:'yn'},
   {k:'videoHl',l:'Video Highlights',t:'yn'},{k:'fotoAlbum',l:'Foto Album Event',t:'yn'},{k:'captionRecap',l:'Caption Recap',t:'yn'},
-  {k:'mktPIC',l:'PIC Marketing dari Client',t:'text',req:1}
-]},
-{ id:'booth', n:'D.8b', title:'Booth (Kondisional)', div:['Event','Design'], desc:'Apakah client membuka booth? Kalau ya, bagaimana ukuran, posisi & operasionalnya?', cond:1, fields:[
+  {k:'mktPIC',l:'PIC Marketing dari Client',t:'text',req:1},
+
+  {k:'_hBooth',l:'Booth (jika client membuka booth)',t:'head',desc:'Isi hanya bila ada booth. Aktifkan "Ada Booth?" agar detailnya muncul.'},
   {k:'boothAda',l:'Ada Booth?',t:'tog'},
   {k:'boothUkuran',l:'Ukuran & Jumlah Booth',t:'text',cond:{k:'boothAda',v:true}},
   {k:'boothPosisi',l:'Posisi Booth',t:'sel',o:['Indoor dekat panggung','Indoor dekat entrance','Outdoor'],cond:{k:'boothAda',v:true}},
@@ -878,7 +878,6 @@ const EVENT_SCHEMA = [
 ]},
 { id:'finance', n:'D.10', title:'Finance & Ketentuan Pembayaran', div:[], desc:'Berapa rincian biaya & DP-nya, dan bagaimana ketentuan pembayarannya? (khusus Finance/Marketing)', fin:1, fields:[
   {k:'sewaVenue',l:'Sewa Venue',t:'cur'},
-  {k:'biayaFB',l:'F&B',t:'cur'},
   {k:'biayaTeknis',l:'Sound, Lighting, dll',t:'cur'},
   {k:'biayaLain',l:'Lain-lain',t:'cur'},
   {k:'diskon',l:'Discount',t:'cur'},
@@ -903,20 +902,30 @@ const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
 /* ============================================================
    FINANCE LOGIC (Bagian 9 & D.10)
    ============================================================ */
-function eventSubtotal(ev){ const d=ev.detail||{}; return (+d.sewaVenue||0)+(+d.biayaFB||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
+// Nilai Ya/Tidak (yn) -> boolean, dengan default bila belum diisi.
+function ynBool(val,def){ if(val&&typeof val==='object'&&'v'in val)return val.v===true; if(typeof val==='boolean')return val; return def===true; }
+// Biaya F&B otomatis = Pax × Budget per Pax. Bila budget/pax kosong, pakai nilai
+// lama biayaFB (agar data event lama tidak hilang).
+function eventFbCost(ev){ const d=ev.detail||{}; const pax=+d.pax||0, bp=+d.budgetPax||0; return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0); }
+function eventSubtotal(ev){ const d=ev.detail||{}; return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
 function eventFinance(ev){
   const st=S.settings, d=ev.detail||{};
+  const fb=eventFbCost(ev);
   const sub=eventSubtotal(ev);
   const disc=+d.diskon||0;
   const afterDisc=Math.max(0,sub-disc);
-  const service=Math.round(afterDisc*st.serviceCharge/100);
-  const tax=Math.round((afterDisc+service)*st.pb1/100);
-  const grand=afterDisc+service+tax;
+  const svcOn=ynBool(d.svcApply,true);                 // biaya service opsional
+  const service=svcOn?Math.round(afterDisc*st.serviceCharge/100):0;
+  const taxPct=+st.pb1||0;
+  const taxInc=ynBool(d.taxInclude,false);             // harga sudah termasuk pajak?
+  let tax,grand;
+  if(taxInc){ grand=afterDisc+service; tax=Math.round(grand*taxPct/(100+taxPct)); } // pajak sudah di dalam harga
+  else { tax=Math.round((afterDisc+service)*taxPct/100); grand=afterDisc+service+tax; }
   const dpPct=ev.dpPercent||st.dpPercent;
   const dp=Math.round(grand*dpPct/100);
   const paid=(ev.payments||[]).reduce((a,p)=>a+(+p.amount||0),0);
   const remaining=Math.max(0,grand-paid);
-  return {sub,disc,afterDisc,service,tax,grand,dpPct,dp,paid,remaining};
+  return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,paid,remaining};
 }
 /* ---------- NOMOR INVOICE & KWITANSI ----------
    Dulu nomor invoice dihitung dari posisi baris (String(1000+i)) sehingga bergeser
@@ -2080,10 +2089,18 @@ function financeTab(ev,canEdit){
   const dis=canEdit?'':'disabled';
   let h='<div class="grid g-2" style="align-items:start">';
   // left: inputs
-  h+='<div><div class="form-grid">'
-   +curField('Sewa Venue','sewaVenue',d.sewaVenue,dis)+curField('F&B','biayaFB',d.biayaFB,dis)
+  h+='<div>'
+   +'<div class="field full"><label>F&B (otomatis: '+(ev.pax||0)+' pax × Budget/Pax)</label>'
+     +'<div class="inp" style="display:flex;align-items:center;font-weight:600">'+rp(f.fb)+'</div>'
+     +'<div class="fh">Terisi otomatis dari Pax & Budget per Pax di tab Informasi Dasar.</div></div>';
+  h+='<div class="form-grid">'
+   +curField('Sewa Venue','sewaVenue',d.sewaVenue,dis)
    +curField('Sound, Lighting, dll','biayaTeknis',d.biayaTeknis,dis)+curField('Lain-lain','biayaLain',d.biayaLain,dis)
    +curField('Discount','diskon',d.diskon,dis)+'</div>';
+  h+='<div class="form-grid">'
+   +'<div class="field"><label>Kena Biaya Service? ('+st.serviceCharge+'%)</label>'+ynSeg('efd_svcApply',f.svcOn,canEdit)+'</div>'
+   +'<div class="field"><label>Harga sudah termasuk pajak? ('+st.pb1+'%)</label>'+ynSeg('efd_taxInclude',f.taxInc,canEdit)+'<div class="fh">Ya = pajak sudah di dalam harga. Tidak = pajak ditambahkan di atas.</div></div>'
+   +'</div>';
   h+='<div class="field"><label>DP Persentase (%)</label><input class="inp" type="number" id="efd_dpPercent" value="'+(ev.dpPercent||st.dpPercent)+'" '+dis+'></div>';
   h+='<div class="field"><label>Data Perusahaan / NPWP (untuk invoice)</label><textarea class="inp" id="efd_npwp" '+dis+'>'+esc(d.npwp||'')+'</textarea></div>';
   if(canEdit){
@@ -2095,7 +2112,13 @@ function financeTab(ev,canEdit){
   h+='</div>';
   // right: computed
   h+='<div class="card" style="background:var(--ink-900)"><h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
-  h+='<dl class="kv-list"><dt>Subtotal</dt><dd class="mono">'+rp(f.sub)+'</dd><dt>Discount</dt><dd class="mono">− '+rp(f.disc)+'</dd><dt>Service Charge ('+st.serviceCharge+'%)</dt><dd class="mono">'+rp(f.service)+'</dd><dt>PB1 / Pajak ('+st.pb1+'%)</dt><dd class="mono">'+rp(f.tax)+'</dd></dl>';
+  h+='<dl class="kv-list">'
+   +'<dt>F&B ('+(ev.pax||0)+' pax)</dt><dd class="mono">'+rp(f.fb)+'</dd>'
+   +'<dt>Subtotal</dt><dd class="mono">'+rp(f.sub)+'</dd>'
+   +(f.disc?'<dt>Discount</dt><dd class="mono">− '+rp(f.disc)+'</dd>':'')
+   +(f.svcOn?'<dt>Service Charge ('+st.serviceCharge+'%)</dt><dd class="mono">'+rp(f.service)+'</dd>':'<dt>Service Charge</dt><dd class="mono" style="color:var(--muted)">tidak dikenakan</dd>')
+   +'<dt>PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' · termasuk':'')+')</dt><dd class="mono">'+(f.taxInc?'':'+ ')+rp(f.tax)+'</dd>'
+   +'</dl>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
   h+='<dl class="kv-list"><dt>DP ('+f.dpPct+'%)</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
@@ -2125,9 +2148,14 @@ function paymentHistoryHtml(ev){
   return h+'</div>';
 }
 function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'</label>'+rupiahInputHTML('efd_'+k,val,dis)+'</div>'; }
+// Segmented Ya/Tidak untuk toggle finance (service, tax include).
+function ynSeg(id,on,canEdit){ return '<div class="seg" id="'+id+'"><button type="button" class="'+(on?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(on?'':'on')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'; }
+function segVal(id){ const el=$(id); if(!el)return undefined; const b=el.querySelector('button.on'); return b?{v:b.dataset.v==='1'}:undefined; }
 function saveFinance(id,goNext){
   const ev=S.events.find(e=>e.id===id);
-  ['sewaVenue','biayaFB','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
+  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
+  ev.detail.svcApply=segVal('efd_svcApply');
+  ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
   ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
   logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
@@ -2278,11 +2306,11 @@ function buildBriefDoc(id,mode){
     body=head+clientBox;
     body+='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">'
      +'<tr style="background:var(--gold-deep);color:#fff"><th style="text-align:left;padding:10px 14px">Komponen</th><th style="text-align:right;padding:10px 14px">Jumlah</th></tr>'
-     +qrow('Sewa Venue',ev.detail.sewaVenue)+qrow('Food & Beverage',ev.detail.biayaFB)+qrow('Sound, Lighting & Teknis',ev.detail.biayaTeknis)+qrow('Lain-lain',ev.detail.biayaLain)
+     +qrow('Food & Beverage ('+(ev.pax||0)+' pax)',f.fb)+qrow('Sewa Venue',ev.detail.sewaVenue)+qrow('Sound, Lighting & Teknis',ev.detail.biayaTeknis)+qrow('Lain-lain',ev.detail.biayaLain)
      +'<tr><td style="padding:8px 14px;border-top:1px solid #ddd">Subtotal</td><td style="text-align:right;padding:8px 14px;border-top:1px solid #ddd">'+rp(f.sub)+'</td></tr>'
      +(f.disc?'<tr><td style="padding:6px 14px">Discount</td><td style="text-align:right;padding:6px 14px;color:#C0392B">− '+rp(f.disc)+'</td></tr>':'')
-     +'<tr><td style="padding:6px 14px">Service Charge ('+S.settings.serviceCharge+'%)</td><td style="text-align:right;padding:6px 14px">'+rp(f.service)+'</td></tr>'
-     +'<tr><td style="padding:6px 14px">PB1 / Pajak ('+S.settings.pb1+'%)</td><td style="text-align:right;padding:6px 14px">'+rp(f.tax)+'</td></tr>'
+     +(f.svcOn?'<tr><td style="padding:6px 14px">Service Charge ('+S.settings.serviceCharge+'%)</td><td style="text-align:right;padding:6px 14px">'+rp(f.service)+'</td></tr>':'')
+     +'<tr><td style="padding:6px 14px">PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' · termasuk':'')+')</td><td style="text-align:right;padding:6px 14px">'+rp(f.tax)+'</td></tr>'
      +'<tr style="background:#FBF3D8"><td style="padding:12px 14px;font-weight:700;font-size:15px">GRAND TOTAL</td><td style="text-align:right;padding:12px 14px;font-weight:700;font-size:15px;color:#B8860B">'+rp(f.grand)+'</td></tr>'
      +'</table>';
     body+='<div style="font-size:12px;color:#444;line-height:1.7;margin-top:16px"><b>Ketentuan Pembayaran</b><br>• DP minimum '+f.dpPct+'% ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.<br>• Pelunasan maksimal H-7 sebelum acara.<br>• Penambahan hari-H dilunasi hari yang sama.</div>';
@@ -3116,6 +3144,9 @@ async function boot(){
   ['users','staff','clients','events','followups','activities','notifs','approvals','taskTemplates','taskCategories'].forEach(k=>{ if(!Array.isArray(S[k])) S[k]=[]; });
   // setting baru mungkin belum ada di data lama -> isi dari default
   S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings||{});
+  // Migrasi sekali jalan: DP standar kini 50% (dari sebelumnya 30%). Setelah ini
+  // masih bisa diubah manual di Pengaturan; flag mencegah pemaksaan berulang.
+  if(!S.settings._dp50){ S.settings.dpPercent=50; S.settings._dp50=true; }
   // Migrasi sekali jalan: buang user contoh bawaan seed lama ('u_nahkoda').
   // Identitas asli hanya datang dari Office, jadi user dummy ini menyesatkan.
   if(S.users.some(u=>u.id==='u_nahkoda')){
