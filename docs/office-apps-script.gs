@@ -43,11 +43,19 @@ function doPost(e) {
       case 'saveUser':          return adminSaveUser_(body);
       case 'deleteUser':        return adminDeleteUser_(body);
       case 'listModules':       return adminListModules_(body);
+      case 'syncModules':       return syncModules_(body);   // upsert registri dari BRANCHES app
+      case 'saveModule':        return saveModule_(body);    // ubah label / aktif-nonaktif modul
+      case 'setAdmin':          return setAdmin_(body);      // angkat/cabut admin modul per user
       // pemberian akses modul (landing "Kelola Akses"): butuh admin '*'
       case 'listAccess':        return listAccess_(body);
       case 'setModuleAccess':   return setModuleAccess_(body);
       // dipakai konsol internal tiap modul untuk tahu SIAPA anggotanya
       case 'listModuleMembers': return listModuleMembers_(body);
+      // roster HANYA-BACA sebuah modul, dipakai auto-sync modul (mis. dropdown
+      // PIC Marketing) TANPA prompt PIN. Sengaja TANPA gerbang kredensial: yang
+      // dikembalikan cuma nama + status aktif + apakah admin modul itu, tidak
+      // ada PIN atau data modul lain yang bocor.
+      case 'listModuleRoster':  return listModuleRoster_(body);
       default:                  return json_({ ok: false, error: 'unknown_action' });
     }
   } catch (err) {
@@ -87,12 +95,13 @@ function findUserByCreds_(users, name, pin) {
   }) || null;
 }
 
-// User mengganti PIN-nya sendiri. Wajib menyertakan PIN lama yang benar.
-// PIN baru TIDAK dicek keunikannya: tabrakan antar user tidak masalah.
+// User mengganti PIN-nya sendiri. TANPA verifikasi PIN lama: identitas cukup dari
+// nama pemilik sesi (user sudah login di Office). PIN baru TIDAK dicek keunikannya:
+// tabrakan antar user tidak masalah karena login memakai nama + PIN.
 function changePin_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var me = findUserByCreds_(readSheet_(ss, 'Users'), body.name, body.pin);
-  if (!me) return json_({ ok: false, error: 'invalid' });
+  var name = String(body.name || '').trim().toLowerCase();
+  if (!name) return json_({ ok: false, error: 'missing' });
 
   var next = String(body.newPin || '').trim();
   if (!/^\d{4,8}$/.test(next)) return json_({ ok: false, error: 'bad_pin' });  // 4-8 digit
@@ -101,7 +110,9 @@ function changePin_(body) {
   var vals = sh.getDataRange().getValues();
   var col = colMap_(vals[0]);
   for (var i = 1; i < vals.length; i++) {
-    if (String(vals[i][col.id]).trim() === String(me.id).trim()) {
+    var row = vals[i];
+    var active = String(row[col.active]).toUpperCase() !== 'FALSE';
+    if (String(row[col.name]).trim().toLowerCase() === name && active) {
       sh.getRange(i + 1, col.pin + 1).setValue(next);
       return json_({ ok: true });
     }
@@ -210,14 +221,112 @@ function rawGrantsFor_(grants, user) {
     .filter(String);
 }
 
+// Dipakai form user (hanya modul AKTIF, untuk daftar centang) dan editor modul
+// (semua modul + status active). `all:true` -> sertakan yang nonaktif + flag active.
 function adminListModules_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+  var wantAll = body && body.all === true;
   var mods = readSheet_(ss, 'Modules')
-    .filter(function (m) { return String(m.active).toUpperCase() !== 'FALSE'; })
-    .map(function (m) { return { key: String(m.key || '').trim(), label: String(m.label || '').trim() }; })
-    .filter(function (m) { return m.key; });
+    .map(function (m) {
+      return {
+        key: String(m.key || '').trim(),
+        label: String(m.label || '').trim(),
+        active: String(m.active).toUpperCase() !== 'FALSE'
+      };
+    })
+    .filter(function (m) { return m.key && (wantAll || m.active); });
   return json_({ ok: true, modules: mods });
+}
+
+// Sinkronkan registri Modules dari daftar modul aplikasi (BRANCHES di landing).
+// `body.modules` = [{key,label}, ...]. Key yang belum ada DITAMBAH (active TRUE).
+// Key yang sudah ada TIDAK diubah (label/active milik admin dipertahankan).
+// Tidak pernah MENGHAPUS baris (modul yang dihapus dari app tetap tercatat).
+function syncModules_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+
+  var incoming = Array.isArray(body.modules) ? body.modules : [];
+  var sh = ensureSheet_(ss, 'Modules', ['key', 'label', 'active']);
+  var vals = sh.getDataRange().getValues();
+  var head = vals[0].map(function (h) { return String(h).trim(); });
+  var col = colMap_(vals[0]);
+
+  var existing = {};
+  for (var i = 1; i < vals.length; i++) existing[String(vals[i][col.key]).trim()] = true;
+
+  var added = [];
+  incoming.forEach(function (m) {
+    var key = String((m && m.key) || '').trim();
+    if (!key || existing[key]) return;
+    existing[key] = true;
+    var label = String((m && m.label) || key).trim();
+    var row = head.map(function (h) {
+      return h === 'key' ? key : h === 'label' ? label : h === 'active' ? 'TRUE' : '';
+    });
+    sh.appendRow(row);
+    added.push(key);
+  });
+  return json_({ ok: true, added: added });
+}
+
+// Ubah label dan/atau status aktif satu modul di tab Modules. Key tidak diubah
+// (key = identitas modul, dipakai Grants/Admins). Nonaktif = modul disembunyikan
+// dari daftar akses tapi baris Grants lama tetap ada.
+function saveModule_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+
+  var key = String(body.key || '').trim();
+  if (!key) return json_({ ok: false, error: 'missing_key' });
+
+  var sh = ensureSheet_(ss, 'Modules', ['key', 'label', 'active']);
+  var vals = sh.getDataRange().getValues();
+  var col = colMap_(vals[0]);
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][col.key]).trim() === key) {
+      if (body.label != null && col.label != null) sh.getRange(i + 1, col.label + 1).setValue(String(body.label).trim());
+      if (body.active != null && col.active != null)
+        sh.getRange(i + 1, col.active + 1).setValue((body.active === true || String(body.active).toUpperCase() === 'TRUE') ? 'TRUE' : 'FALSE');
+      return json_({ ok: true });
+    }
+  }
+  return json_({ ok: false, error: 'not_found' });
+}
+
+// Angkat/cabut satu user sebagai admin sebuah modul (tab Admins). module '*' =
+// superadmin. access TRUE = pastikan baris ada; FALSE = hapus baris bila ada.
+function setAdmin_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var caller = requireSuperadmin_(ss, body);
+  if (!caller) return json_({ ok: false, error: 'forbidden' });
+
+  var userId = String(body.userId || '').trim();
+  var module = String(body.module || '').trim();
+  if (!userId || !module) return json_({ ok: false, error: 'missing_fields' });
+  var grant = (body.access === true || String(body.access).toUpperCase() === 'TRUE');
+
+  // Cegah superadmin terakhir mencabut status '*' dirinya sendiri (kunci diri).
+  if (module === '*' && !grant && String(caller.id).trim() === userId) {
+    var supers = readSheet_(ss, 'Admins').filter(function (a) { return String(a.module).trim() === '*'; });
+    if (supers.length <= 1) return json_({ ok: false, error: 'last_superadmin' });
+  }
+
+  var sh = ensureSheet_(ss, 'Admins', ['userId', 'module']);
+  var vals = sh.getDataRange().getValues();
+  var col = colMap_(vals[0]);
+  for (var i = 1; i < vals.length; i++) {
+    if (String(vals[i][col.userId]).trim() === userId && String(vals[i][col.module]).trim() === module) {
+      if (!grant) sh.deleteRow(i + 1);   // cabut = hapus baris
+      return json_({ ok: true });        // sudah ada = tak perlu tambah
+    }
+  }
+  if (grant) {
+    var head = vals[0].map(function (h) { return String(h).trim(); });
+    sh.appendRow(head.map(function (h) { return h === 'userId' ? userId : h === 'module' ? module : ''; }));
+  }
+  return json_({ ok: true });
 }
 
 // Tambah (tanpa id) atau edit (id ada). Nama wajib unik. PIN TIDAK perlu unik.
@@ -360,6 +469,33 @@ function listModuleMembers_(body) {
       };
     })
     .filter(function (u) { return u.modules.indexOf(module) > -1; })   // hanya anggota modul ini
+    .map(function (u) { delete u.modules; return u; });
+
+  return json_({ ok: true, members: members });
+}
+
+// Roster HANYA-BACA sebuah modul: siapa saja yang boleh membukanya, dan apakah
+// dia admin modul itu. Beda dari listModuleMembers_ (khusus konsol Kelola Akses,
+// admin-only): ini dipanggil OTOMATIS oleh tiap modul saat boot supaya daftar
+// staf (mis. dropdown PIC di Marketing) selalu ikut roster Office, tanpa perlu
+// tiap orang login manual dulu atau admin menarik satu-satu. Cukup identitas
+// valid (nama+PIN aktif); tidak mengekspos PIN atau modul lain milik user.
+function listModuleRoster_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var module = String(body.module || '').trim();
+  if (!module) return json_({ ok: false, error: 'missing_module' });
+  var members = realUsers_(ss)
+    .map(function (u) {
+      var adm = adminModulesFor_(ss, u);
+      return {
+        id: String(u.id || ''), name: String(u.name || ''),
+        keterangan: String(u.keterangan || ''),
+        active: String(u.active).toUpperCase() !== 'FALSE',
+        isModuleAdmin: adm.indexOf('*') > -1 || adm.indexOf(module) > -1,
+        modules: modulesFor_(ss, u)
+      };
+    })
+    .filter(function (u) { return u.modules.indexOf(module) > -1; })
     .map(function (u) { delete u.modules; return u; });
 
   return json_({ ok: true, members: members });
