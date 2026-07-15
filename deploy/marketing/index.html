@@ -313,6 +313,37 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .seg button{padding:6px 13px;border:none;background:none;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:.14s}
 .seg button.on{background:var(--gold);color:#fff}
 
+/* rundown tabel */
+.rundown-wrap{border:1px solid var(--line-hard);border-radius:11px;overflow:hidden;background:var(--ink-900)}
+.rundown-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.rundown-tbl th{text-align:left;font-size:11px;font-weight:600;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line-hard);background:rgba(0,0,0,.02)}
+.rundown-tbl td{padding:5px 8px;border-bottom:1px solid var(--line)}
+.rundown-tbl tr:last-child td{border-bottom:none}
+.rundown-tbl td .inp{margin:0;border:1px solid transparent;background:transparent;padding:6px 8px}
+.rundown-tbl td .inp:focus{border-color:var(--line-hard);background:var(--card,#fff)}
+.rundown-del{width:26px;height:26px;border:none;background:none;color:var(--muted);font-size:17px;line-height:1;border-radius:6px;cursor:pointer;transition:.14s}
+.rundown-del:hover{background:var(--danger,#e5484d);color:#fff}
+.rundown-act{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 10px;border-top:1px solid var(--line-hard);background:rgba(0,0,0,.015)}
+.rundown-ocr-status{font-size:11.5px;color:var(--muted)}
+.rundown-ocr-status.ok{color:var(--ok,#30a46c)}
+.rundown-ocr-status.err{color:var(--danger,#e5484d)}
+.autosave-ind{font-size:11.5px;color:var(--muted);opacity:0;transition:opacity .3s;margin-right:auto}
+
+/* input uang (Rp + titik ribuan) */
+.cur-wrap{position:relative;display:flex;align-items:center}
+.cur-pre{position:absolute;left:12px;font-size:12.5px;font-weight:600;color:var(--muted);pointer-events:none}
+.cur-wrap .cur-inp{padding-left:34px;text-align:left}
+
+/* sub-judul dalam form gabungan */
+.form-subhead{display:flex;flex-direction:column;gap:2px;margin:8px 0 2px;padding-top:14px;border-top:1px solid var(--line-hard)}
+.form-subhead .fsh-t{font-family:var(--ff-display,inherit);font-size:14px;font-weight:700}
+.form-subhead .fsh-d{font-size:11.5px;color:var(--muted)}
+
+/* Ya/Tidak + catatan (venue needs) */
+.ynnote{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ynnote .seg{flex:none}
+.ynnote .ynnote-note{flex:1;min-width:160px}
+
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .cal .dow{text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:6px 0}
@@ -528,6 +559,12 @@ const DEFAULT_SETTINGS = {
 /* ---------- FORMAT HELPERS ---------- */
 const rp = n => 'Rp'+(Number(n)||0).toLocaleString('id-ID');
 const rpShort = n => { n=Number(n)||0; if(n>=1e9)return 'Rp'+(n/1e9).toFixed(1)+'M'; if(n>=1e6)return 'Rp'+(n/1e6).toFixed(1)+'jt'; if(n>=1e3)return 'Rp'+(n/1e3).toFixed(0)+'rb'; return 'Rp'+n; };
+// Input uang: tampil dengan titik ribuan + prefix "Rp", tapi disimpan sebagai angka murni.
+const rupiahDigits = s => String(s==null?'':s).replace(/\D/g,'');
+const rupiahGroup  = d => d.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+const rupiahFmt    = n => { const d=rupiahDigits(n); return d?rupiahGroup(d):''; };
+function onRupiahInput(el){ const d=rupiahDigits(el.value); el.value=d?rupiahGroup(d):''; }
+function rupiahInputHTML(id,val,dis,extra){ return '<div class="cur-wrap"><span class="cur-pre">Rp</span><input class="inp cur-inp" type="text" inputmode="numeric" id="'+id+'" value="'+rupiahFmt(val)+'" placeholder="0" oninput="onRupiahInput(this)" '+(dis||'')+(extra||'')+'></div>'; }
 const MONTHS=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 const MONTHS_F=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const DAYS=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
@@ -546,9 +583,10 @@ const CLIENT_STATUS = {
   Confirmed:{c:'--gold',t:'Confirmed'}, Deal:{c:'--ok',t:'Deal'},
   'Event Done':{c:'--teal',t:'Event Done'}, Lost:{c:'--danger',t:'Lost'}
 };
-const PIPE_COLS = ['Lead','Prospect','Negotiation','Quotation Terkirim','Deal','Lost'];
+// Alur: quotation dikirim lebih dulu, baru masuk tahap negosiasi.
+const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Lost'];
 // Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
-const OPEN_STAGES = ['Lead','Prospect','Negotiation','Quotation Terkirim'];
+const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim','Negotiation'];
 // Hasil follow up -> tahap pipeline event. null = status tidak berubah.
 const FU_RESULT = {
   'Tertarik / kebutuhan jelas':'Prospect',
@@ -673,11 +711,11 @@ function userNav(u){ if(!u)return []; if(u.role==='super_admin')return ROLES.sup
 function hasCustomAccess(u){ return Array.isArray(u.nav)||Array.isArray(u.perms); }
 function can(action){ if(!ME)return false; if(ME.role==='super_admin')return true; return userPerms(ME).includes(action); }
 /* ============================================================
-   EVENT SCHEMA (Modul D.1–D.14) — drives form + Event Brief
+   EVENT SCHEMA (Modul D.1–D.12) — drives form + Event Brief
    field types: text|ta|date|time|timerange|num|cur|sel|multi|tog|yn
    ============================================================ */
 const EVENT_SCHEMA = [
-{ id:'basic', n:'D.1', title:'Informasi Dasar Event', div:['all'], desc:'Identitas & jadwal inti event.', fields:[
+{ id:'basic', n:'D.1', title:'Informasi Dasar', div:['all'], desc:'Identitas & jadwal, dekorasi/layout, dan kebutuhan venue — digabung dalam satu form.', fields:[
   {k:'nama',l:'Nama Event',t:'text',req:1},
   {k:'jenis',l:'Jenis Event',t:'sel',o:EVENT_TYPES,req:1},
   {k:'tanggal',l:'Tanggal Event',t:'date',req:1},
@@ -686,36 +724,37 @@ const EVENT_SCHEMA = [
   {k:'selesai',l:'Estimasi Selesai',t:'time',req:1},
   {k:'pax',l:'Estimasi Jumlah Tamu (Pax)',t:'num',req:1},
   {k:'vipDetail',l:'Detail Tamu VIP/VVIP/Umum',t:'ta'},
-  {k:'privacy',l:'Sifat Acara',t:'sel',o:['Private','Public'],req:1},
+  {k:'privacy',l:'Sifat Acara',t:'sel',o:['Private','Public','Semi Private','Combine Event'],req:1},
   {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1 (Dermaga)','Lantai 2','Outdoor','VIP Area','Seluruh Area'],req:1},
-  {k:'rundown',l:'Rundown Acara',t:'ta',help:'Terstruktur per waktu: opening, speech, performance, makan, hiburan, doorprize, closing.',req:1,full:1}
-]},
-{ id:'decor', n:'D.2', title:'Dekorasi & Layout', div:['Design','Floor'], desc:'Sumber dekorasi, layout & penggunaan area.', fields:[
+  {k:'rundown',l:'Rundown Acara',t:'rundown',help:'Isi per baris: Waktu & Kegiatan. Bisa juga upload foto rundown untuk diisi otomatis (scan gambar).',req:1,full:1},
+
+  {k:'_hDecor',l:'Dekorasi & Layout',t:'head',desc:'Sumber dekorasi, layout & penggunaan area.'},
   {k:'decorSource',l:'Sumber Dekorasi',t:'sel',o:['Dari Client','Dari Laksamana Muda'],req:1},
   {k:'decorVendorTime',l:'Jam Vendor Dekorasi Datang',t:'time',cond:{k:'decorSource',v:'Dari Client'}},
   {k:'decorSupport',l:'Perlu Support Tim Venue',t:'yn',req:1},
-  {k:'decorJenis',l:'Jenis Dekorasi',t:'multi',o:['Photo Booth','Backdrop','Balloon','Flower','Standing Flower','Table Decoration']},
+  {k:'decorJenis',l:'Jenis Dekorasi',t:'multi',o:['Photo Booth','Backdrop','Balloon','Flower','Standing Flower','Table Decoration','Lainnya']},
+  {k:'decorJenisLain',l:'Jenis Dekorasi Lainnya',t:'text',cond:{k:'decorJenis',v:'Lainnya'},help:'Muncul saat "Lainnya" dicentang. Simpan tab dulu agar kolom ini tampil.'},
   {k:'decorVendorExt',l:'Vendor Eksternal?',t:'tog',req:1},
   {k:'decorVendorName',l:'Nama & Kontak Vendor',t:'text',cond:{k:'decorVendorExt',v:true}},
   {k:'layoutFile',l:'Catatan Layout & Seating Plan',t:'ta',help:'Stage, VIP area, buffet, registration, photo booth, parking, emergency exit.',full:1},
   {k:'areaPakai',l:'Area yang Dipakai',t:'multi',o:['Indoor','Outdoor','VIP','Seluruh Area'],req:1},
   {k:'areaLimit',l:'Pembatasan Area untuk Tamu',t:'ta'},
-  {k:'layoutKhusus',l:'Request Layout Meja & Kursi Khusus',t:'ta',help:'Clear Area, Meja Panjang, Sofa Ungu/Dinding/Hitam, Area Panggung.'}
-]},
-{ id:'venue', n:'D.3', title:'Venue Needs & Entertainment', div:['Event','Design'], desc:'Kebutuhan teknis venue & hiburan.', fields:[
-  {k:'sound',l:'Sound System',t:'ta',req:1},
-  {k:'lighting',l:'Lighting Khusus',t:'multi',o:['Ambient Light','Stage Light','Spotlight','Moving Head','Par LED']},
-  {k:'screen',l:'LED / Proyektor / TV',t:'multi',o:['Videotron 1900x1080','LED Screen','Proyektor','TV Slide']},
-  {k:'ruangVIP',l:'Ruang VIP',t:'yn'},
-  {k:'musholla',l:'Musholla',t:'yn'},
-  {k:'listrik',l:'Listrik Tambahan (Watt)',t:'text'},
-  {k:'entJenis',l:'Jenis Entertainment',t:'multi',o:['Band','DJ','MC','Singer','Acoustic','Traditional']},
-  {k:'entEquip',l:'Equipment',t:'multi',o:['LED','Videotron','Projector','Mic','Sound System','Lighting','Smoke Machine']},
-  {k:'entDok',l:'Dokumentasi',t:'multi',o:['Live Streaming','Photographer','Videographer','Drone']},
+  {k:'layoutKhusus',l:'Request Layout Meja & Kursi Khusus',t:'ta',help:'Clear Area, Meja Panjang, Sofa Ungu/Dinding/Hitam, Area Panggung.'},
+
+  {k:'_hVenue',l:'Venue Needs',t:'head',desc:'Jawab Ya / Tidak. Isi catatan bila perlu detail.'},
+  {k:'sound',l:'Sound System',t:'ynnote'},
+  {k:'lighting',l:'Lighting Khusus',t:'ynnote'},
+  {k:'screen',l:'LED / Proyektor / TV',t:'ynnote'},
+  {k:'entDok',l:'Dokumentasi',t:'ynnote'},
+  {k:'entEquip',l:'Equipment Tambahan',t:'ynnote'},
+  {k:'entJenis',l:'Entertainment (Band/DJ/MC/dll)',t:'ynnote'},
+  {k:'ruangVIP',l:'Ruang VIP',t:'ynnote'},
+  {k:'musholla',l:'Musholla',t:'ynnote'},
+  {k:'listrik',l:'Listrik Tambahan',t:'ynnote'},
   {k:'entPIC',l:'PIC Koordinasi Talent',t:'text'},
   {k:'entTalent',l:'Handling Artis/Talent Khusus',t:'ta'}
 ]},
-{ id:'kitchen', n:'D.4', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format service & detail dapur.', fields:[
+{ id:'kitchen', n:'D.2', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format service & detail dapur.', fields:[
   {k:'fbFormat',l:'Format F&B',t:'sel',o:['Prasmanan','Set Menu'],req:1},
   {k:'budgetPax',l:'Budget per Pax',t:'cur',req:1},
   {k:'jamFB',l:'Jam Keluar F&B',t:'time',req:1},
@@ -728,12 +767,11 @@ const EVENT_SCHEMA = [
   {k:'jenisPenyajian',l:'Jenis Penyajian',t:'sel',o:['Plating (per porsi)','Buffet'],req:1},
   {k:'plating',l:'Standar Plating / Presentasi',t:'ta'},
   {k:'bahanKhusus',l:'Bahan Baku Khusus / dari Client',t:'ta'},
-  {k:'kEquip',l:'Equipment Khusus',t:'multi',o:['Chafing Dish','Ice Box','Grill Station','Live Cooking Station']},
   {k:'leftoverK',l:'Handling Leftover',t:'sel',o:['Dibungkus','Dibuang','Disimpan'],req:1},
   {k:'kNote',l:'Catatan Kitchen',t:'ta'},
   {k:'kPIC',l:'PIC Client untuk Kitchen',t:'text',req:1}
 ]},
-{ id:'bar', n:'D.5', title:'Bar', div:['Bar'], desc:'100% non-alkohol — mocktail, coffee & signature drink.', fields:[
+{ id:'bar', n:'D.3', title:'Bar', div:['Bar'], desc:'100% non-alkohol — mocktail, coffee & signature drink.', fields:[
   {k:'barJenis',l:'Jenis Minuman',t:'multi',o:['Cocktail (non-alkohol)','Mocktail','Coffee','Tea','Special Drink'],req:1},
   {k:'signature',l:'Signature Drink',t:'text',help:'Nama minuman khusus sesuai tema event.'},
   {k:'barEstimasi',l:'Estimasi Jumlah + Stok Cadangan',t:'text',req:1},
@@ -747,7 +785,7 @@ const EVENT_SCHEMA = [
   {k:'barNote',l:'Bar Note',t:'ta'},
   {k:'bPIC',l:'PIC Client untuk Bar',t:'text',req:1}
 ]},
-{ id:'floor', n:'D.6', title:'Floor Service & Host', div:['Floor'], desc:'Layanan meja, flow & seat plan.', fields:[
+{ id:'floor', n:'D.4', title:'Floor Service & Host', div:['Floor'], desc:'Layanan meja, flow & seat plan.', fields:[
   {k:'meja',l:'Layout Meja',t:'multi',o:['VIP Table','Family Table','Reserved Table','Standing'],req:1},
   {k:'flow',l:'Flow Acara',t:'ta',req:1,help:'Kapan makan, performance, tamu datang (link ke rundown D.1).',full:1},
   {k:'seatPlan',l:'Seat Plan',t:'sel',o:['Bebas','Ada Seat Plan (perlu Guestlist)'],req:1},
@@ -761,7 +799,7 @@ const EVENT_SCHEMA = [
   {k:'floorNote',l:'Service / Captain Floor Note',t:'ta'},
   {k:'fPIC',l:'PIC Client untuk Floor (Hari-H)',t:'text',req:1}
 ]},
-{ id:'guest', n:'D.7', title:'Guest Handling & Akses Parkir', div:['Event','Security'], desc:'RSVP, penanda tamu & parkir VIP.', fields:[
+{ id:'guest', n:'D.5', title:'Guest Handling & Akses Parkir', div:['Event','Security'], desc:'RSVP, penanda tamu & parkir VIP.', fields:[
   {k:'guestList',l:'Guest List / RSVP',t:'yn'},
   {k:'hostBantu',l:'Perlu Perbantuan Host',t:'yn'},
   {k:'penandaTamu',l:'Penanda Tamu',t:'ta',help:'Gelang, kartu undangan, lanyard.'},
@@ -769,18 +807,18 @@ const EVENT_SCHEMA = [
   {k:'vipPark',l:'VIP Parking — Plat & Nama',t:'ta'},
   {k:'parkArea',l:'Area Parkir yang Digunakan',t:'text',req:1}
 ]},
-{ id:'security', n:'D.8', title:'Security & Safety', div:['Security'], desc:'Pengamanan & kesiapan darurat.', fields:[
+{ id:'security', n:'D.6', title:'Security & Safety', div:['Security'], desc:'Pengamanan & kesiapan darurat.', fields:[
   {k:'secTambah',l:'Tambahan Security (jumlah & keperluan)',t:'ta',req:1},
   {k:'emergency',l:'Emergency Exit Briefing',t:'yn'},
   {k:'medical',l:'Medical Staff Stand-by',t:'yn'},
   {k:'loadVendor',l:'Loading Vendor (jadwal masuk-keluar)',t:'ta'},
   {k:'secNote',l:'Security Note',t:'ta'}
 ]},
-{ id:'brief', n:'D.9', title:'Briefing & Rehearsal', div:['Event'], desc:'Untuk event dengan rundown kompleks.', fields:[
+{ id:'brief', n:'D.7', title:'Briefing & Rehearsal', div:['Event'], desc:'Untuk event dengan rundown kompleks.', fields:[
   {k:'briefTgl',l:'Tanggal & Jam Briefing/Rehearsal',t:'text'},
   {k:'briefPeserta',l:'Peserta Briefing',t:'ta',help:'Internal & pihak client/talent yang wajib hadir.'}
 ]},
-{ id:'design', n:'D.10', title:'Design & Marketing Content', div:['Design'], desc:'Materi desain, izin publikasi & konten hari-H.', fields:[
+{ id:'design', n:'D.8', title:'Design & Marketing Content', div:['Design'], desc:'Materi desain, izin publikasi & konten hari-H.', fields:[
   {k:'materiDesain',l:'Materi Desain Venue',t:'multi',o:['Poster','TV Slide','LED Content','Table Number','Name Tag','Standing Banner']},
   {k:'namaResmi',l:'Nama Resmi Event & Tagline/Tema',t:'text',req:1,full:1},
   {k:'materiAda',l:'Materi Promosi Sudah Ada?',t:'yn',req:1},
@@ -799,7 +837,7 @@ const EVENT_SCHEMA = [
   {k:'videoHl',l:'Video Highlights',t:'yn'},{k:'fotoAlbum',l:'Foto Album Event',t:'yn'},{k:'captionRecap',l:'Caption Recap',t:'yn'},
   {k:'mktPIC',l:'PIC Marketing dari Client',t:'text',req:1}
 ]},
-{ id:'booth', n:'D.10b', title:'Booth (Kondisional)', div:['Event','Design'], desc:'Isi jika client membuka booth.', cond:1, fields:[
+{ id:'booth', n:'D.8b', title:'Booth (Kondisional)', div:['Event','Design'], desc:'Isi jika client membuka booth.', cond:1, fields:[
   {k:'boothAda',l:'Ada Booth?',t:'tog'},
   {k:'boothUkuran',l:'Ukuran & Jumlah Booth',t:'text',cond:{k:'boothAda',v:true}},
   {k:'boothPosisi',l:'Posisi Booth',t:'sel',o:['Indoor dekat panggung','Indoor dekat entrance','Outdoor'],cond:{k:'boothAda',v:true}},
@@ -810,7 +848,7 @@ const EVENT_SCHEMA = [
   {k:'boothRevshare',l:'Revenue Sharing (%)',t:'text',cond:{k:'boothAda',v:true}},
   {k:'boothCP',l:'Contact Person Booth',t:'text',cond:{k:'boothAda',v:true}}
 ]},
-{ id:'cashier', n:'D.11', title:'Kasir / Cashier Operasional', div:['Floor'], desc:'Sistem pembayaran & operasional kasir hari-H.', fields:[
+{ id:'cashier', n:'D.9', title:'Kasir / Cashier Operasional', div:['Floor'], desc:'Sistem pembayaran & operasional kasir hari-H.', fields:[
   {k:'estimasiOTS',l:'Estimasi Tamu + Penambahan OTS',t:'text',req:1},
   {k:'sistemBayar',l:'Sistem Pembayaran',t:'sel',o:['Full di Awal','DP','Setelah Event Selesai'],req:1},
   {k:'metodeBayar',l:'Metode Pembayaran',t:'multi',o:['Tunai','Debit','QRIS','Kartu Kredit'],req:1},
@@ -824,7 +862,7 @@ const EVENT_SCHEMA = [
   {k:'kasirTambah',l:'Request Tambahan Kasir',t:'ta',help:'Struk rangkap, laporan harian, invoicing spesial.'},
   {k:'cPIChp',l:'PIC Client Hari-H (Kasir) + No. WA',t:'text',req:1}
 ]},
-{ id:'finance', n:'D.12', title:'Finance & Ketentuan Pembayaran', div:[], desc:'Rincian biaya, DP & status invoice (khusus Finance/Marketing).', fin:1, fields:[
+{ id:'finance', n:'D.10', title:'Finance & Ketentuan Pembayaran', div:[], desc:'Rincian biaya, DP & status invoice (khusus Finance/Marketing).', fin:1, fields:[
   {k:'sewaVenue',l:'Sewa Venue',t:'cur'},
   {k:'biayaFB',l:'F&B',t:'cur'},
   {k:'biayaTeknis',l:'Sound, Lighting, dll',t:'cur'},
@@ -833,11 +871,11 @@ const EVENT_SCHEMA = [
   {k:'npwp',l:'Data Perusahaan untuk Invoice + NPWP',t:'ta'},
   {k:'materai',l:'Materai / Kwitansi Panjang',t:'yn'}
 ]},
-{ id:'attach', n:'D.13', title:'Attachment & Internal Note', div:['all'], desc:'Dokumen pendukung & catatan internal.', fields:[
+{ id:'attach', n:'D.11', title:'Attachment & Internal Note', div:['all'], desc:'Dokumen pendukung & catatan internal.', fields:[
   {k:'attachNote',l:'Daftar Dokumen (rundown, vendor file, dll)',t:'ta'},
   {k:'internalNote',l:'Internal Note',t:'ta',help:'Tidak tampil di versi client.',full:1}
 ]},
-{ id:'pic', n:'D.14', title:'Matriks PIC Hari-H', div:['all'], desc:'Wajib lengkap sebelum status Confirmed.', fields:[
+{ id:'pic', n:'D.12', title:'Matriks PIC Hari-H', div:['all'], desc:'Wajib lengkap sebelum status Confirmed.', fields:[
   {k:'picKoordinator',l:'Koordinator Event Internal',t:'text',src:'staff',req:1},
   {k:'picMOD',l:'Manager On Duty',t:'text',src:'staff',req:1},
   {k:'picAcara',l:'PIC Acara (Internal & Client)',t:'text',src:'staff',req:1},
@@ -849,7 +887,7 @@ const EVENT_SCHEMA = [
 ];
 const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
 /* ============================================================
-   FINANCE LOGIC (Bagian 9 & D.12)
+   FINANCE LOGIC (Bagian 9 & D.10)
    ============================================================ */
 function eventSubtotal(ev){ const d=ev.detail||{}; return (+d.sewaVenue||0)+(+d.biayaFB||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
 function eventFinance(ev){
@@ -1129,7 +1167,7 @@ function renderDashboard(V){
   const upcoming = S.events.filter(e=>daysTo(e.tanggal)>=0 && daysTo(e.tanggal)<=7 && e.status!=='Lost').sort((a,b)=>a.tanggal.localeCompare(b.tanggal));
   const closingMonth = S.events.filter(e=>{const t=new Date(e.tanggal); return t.getMonth()===thisMonth && e.status!=='Lost' && e.status!=='Lead';}).length;
   const evTotal = S.events.length;
-  const EV_STATUSES = ['Lead','Prospect','Negotiation','Quotation Terkirim','Deal','Event Done','Lost'];
+  const EV_STATUSES = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
   const evTally = {}; EV_STATUSES.forEach(s=>evTally[s]=0);
   // 'Confirmed' = status lama sebelum pindah ke 'Deal' — hitung sebagai Deal biar total cocok
   S.events.forEach(e=>{ const st = e.status==='Confirmed' ? 'Deal' : e.status; if(evTally[st]!==undefined) evTally[st]++; });
@@ -1442,7 +1480,10 @@ function doDelEvent(id){
 const STAGE_NEEDS_BASIC=['Negotiation','Quotation Terkirim','Deal'];
 function missingBasic(ev){
   const sec=SEC_BY_ID['basic']; if(!sec)return [];
-  return sec.fields.filter(fl=>fl.req&&fieldVisible(ev,fl)).filter(fl=>{
+  // hanya blok "info inti" (sebelum sub-judul Dekorasi) yang mengunci kenaikan tahap —
+  // dekorasi & venue kini ikut di tab ini tapi tidak wajib untuk maju tahap.
+  const core=[]; for(const fl of sec.fields){ if(fl.t==='head')break; core.push(fl); }
+  return core.filter(fl=>fl.req&&fieldVisible(ev,fl)).filter(fl=>{
     const v=getVal(ev,fl.k);
     return v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length);
   }).map(fl=>fl.l);
@@ -1484,7 +1525,7 @@ function pipeFollowUp(){
    +stat('Progress Hari Ini',myFUcount+'/'+S.settings.fuTarget,progressBar(myFUcount,S.settings.fuTarget),'pipe')
    +stat('Jatuh Tempo Hari Ini',dueEvs.length,'peluang perlu di-follow up','clock')
    +stat('Perlu Ditindaklanjuti',staleEvs.length,'≥ '+(+S.settings.staleDays||7)+' hari belum di-follow up','alert')
-   +stat('Peluang Aktif',openEvs.length,'Lead → Quotation Terkirim','flag')
+   +stat('Peluang Aktif',openEvs.length,'Lead → Negotiation','flag')
    +'</div>';
   // --- antrian peluang (event) ---
   h+='<div class="card pad0" style="margin-bottom:14px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Antrian Follow Up · Peluang Aktif</h3><div class="cell-sub">Hasil follow up langsung menggerakkan tahap event di Pipeline.</div></div>';
@@ -1654,7 +1695,7 @@ function submitNewEvent(){
   save(); closeModal(); go('event',ev.id);
 }
 
-/* ---------- EVENT FORM (tabbed D.1-D.14) ---------- */
+/* ---------- EVENT FORM (tabbed D.1-D.12) ---------- */
 let curEvent=null, curTab='basic';
 function renderEventForm(V,id){
   const ev=S.events.find(e=>e.id===id);
@@ -1759,28 +1800,41 @@ function renderEventTab(ev,canEdit){
   h+='</div>';
   if(canEdit){
     const nx=nextSectionId(sec.id);
-    h+='<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">'
+    h+='<div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap">'
+     +'<span id="autosave-ind" class="autosave-ind"></span>'
      +'<button class="btn" onclick="saveEventTab(\''+ev.id+'\')">'+svg(IC.check)+'Simpan '+sec.n+'</button>'
      +(nx?'<button class="btn pri" onclick="saveEventTab(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(SEC_BY_ID[nx].title)+svg(IC.chevR)+'</button>':'')
      +'</div>';
   }
   $('ev-tab-content').innerHTML=h;
+  if(canEdit) autoSaveBind(ev);
 }
 function taskMap(){ const m={}; Object.keys(TASK_STATUS).forEach(k=>m[k]={c:TASK_STATUS[k],t:k}); return m; }
-function fieldVisible(ev,fl){ if(!fl.cond)return true; const v=ev.detail[fl.cond.k]; if(typeof fl.cond.v==='boolean')return !!(v&&v.v!==undefined?v.v:v)===fl.cond.v; return getVal(ev,fl.cond.k)===fl.cond.v; }
+function fieldVisible(ev,fl){ if(!fl.cond)return true; const v=ev.detail[fl.cond.k]; if(typeof fl.cond.v==='boolean')return !!(v&&v.v!==undefined?v.v:v)===fl.cond.v; const cur=getVal(ev,fl.cond.k); if(Array.isArray(cur))return cur.includes(fl.cond.v); return cur===fl.cond.v; }
 function getVal(ev,k){ const v=ev.detail[k]; if(v&&typeof v==='object'&&'v'in v)return v.v; return v; }
+// Ya/Tidak + catatan; toleran terhadap data lama (string/array/yn) agar tidak hilang.
+function ynnoteVal(val){
+  if(val && typeof val==='object' && !Array.isArray(val) && ('v'in val||'note'in val)) return {v:val.v===true?true:(val.v===false?false:undefined), note:val.note||''};
+  if(Array.isArray(val)) return {v:val.length>0, note:val.join(', ')};
+  if(typeof val==='boolean') return {v:val, note:''};
+  if(typeof val==='string' && val.trim()) return {v:true, note:val.trim()};
+  return {v:undefined, note:''};
+}
 function renderField(ev,fl,canEdit){
   if(!fieldVisible(ev,fl))return '';
+  if(fl.t==='head') return '<div class="field full form-subhead"><span class="fsh-t">'+esc(fl.l)+'</span>'+(fl.desc?'<span class="fsh-d">'+esc(fl.desc)+'</span>':'')+'</div>';
   const val=ev.detail[fl.k]; const dis=canEdit?'':'disabled';
   const cls=fl.full?'field full':'field';
   const lbl='<label>'+esc(fl.l)+(fl.req?'<span class="req">*</span>':'')+'</label>';
   const help=fl.help?'<div class="fh">'+esc(fl.help)+'</div>':'';
   let inp='';
   const id='efd_'+fl.k;
-  if(fl.t==='text'||fl.t==='num'||fl.t==='cur'||fl.t==='date'||fl.t==='time'){
-    const ty=fl.t==='num'||fl.t==='cur'?'number':fl.t==='date'?'date':fl.t==='time'?'time':'text';
+  if(fl.t==='text'||fl.t==='num'||fl.t==='date'||fl.t==='time'){
+    const ty=fl.t==='num'?'number':fl.t==='date'?'date':fl.t==='time'?'time':'text';
     const dl=(fl.src==='staff')?' list="dl_staff" placeholder="pilih / ketik nama"':'';
-    inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+dl+(fl.t==='cur'?' placeholder="0"':'')+'>';
+    inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+dl+'>';
+  } else if(fl.t==='cur'){
+    inp=rupiahInputHTML(id,val,dis);
   } else if(fl.t==='timerange'){
     const parts=String(val||'').split('-'); const a=(parts[0]||'').trim(), b=(parts[1]||'').trim();
     inp='<div id="'+id+'" style="display:flex;align-items:center;gap:8px">'
@@ -1801,6 +1855,24 @@ function renderField(ev,fl,canEdit){
   } else if(fl.t==='yn'){
     const yv=val&&val.v!==undefined?val.v:val;
     inp='<div class="seg" id="'+id+'"><button type="button" class="'+(yv===true?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(yv===false?'on':'')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>';
+  } else if(fl.t==='ynnote'){
+    const o=ynnoteVal(val);
+    inp='<div class="ynnote" id="'+id+'">'
+       +'<div class="seg" data-role="seg"><button type="button" class="'+(o.v===true?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(o.v===false?'on':'')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'
+       +'<input class="inp ynnote-note" data-role="note" placeholder="Catatan / detail (opsional)" value="'+esc(o.note)+'" '+dis+'>'
+       +'</div>';
+  } else if(fl.t==='rundown'){
+    const rows=rundownRows(val);
+    const bodyH=(rows.length?rows:[{waktu:'',kegiatan:''}]).map(r=>rundownRowHTML(r,canEdit)).join('');
+    inp='<div class="rundown-wrap" id="'+id+'">'
+       +'<table class="rundown-tbl"><thead><tr><th style="width:120px">Waktu</th><th>Kegiatan</th>'+(canEdit?'<th style="width:34px"></th>':'')+'</tr></thead>'
+       +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
+       +(canEdit?'<div class="rundown-act">'
+          +'<button type="button" class="btn sm" onclick="rundownAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
+          +'<label class="btn sm" style="cursor:pointer;margin:0">'+svg(IC.brief)+'Scan Gambar<input type="file" accept="image/*" style="display:none" onchange="rundownScan(this,\''+id+'\')"></label>'
+          +'<span class="rundown-ocr-status" id="'+id+'_ocr"></span>'
+          +'</div>':'')
+       +'</div>';
   }
   return '<div class="'+cls+'">'+lbl+inp+help+'</div>';
 }
@@ -1810,9 +1882,126 @@ function collectField(fl){
   if(fl.t==='multi'){ return [...el.querySelectorAll('.chk.on')].map(i=>i.dataset.v); }
   if(fl.t==='tog'){ return el.classList.contains('on'); }
   if(fl.t==='yn'){ const on=el.querySelector('button.on'); return on?{v:on.dataset.v==='1'}:undefined; }
+  if(fl.t==='ynnote'){ const on=el.querySelector('[data-role="seg"] button.on'); const noteEl=el.querySelector('[data-role="note"]'); const n=noteEl?noteEl.value.trim():''; let v=on?(on.dataset.v==='1'):undefined; if(v===undefined){ if(!n)return undefined; v=true; } return {v:v, note:n}; }
   if(fl.t==='timerange'){ const a=$('efd_'+fl.k+'_a'), b=$('efd_'+fl.k+'_b'); const av=a?a.value:'', bv=b?b.value:''; return (av||bv)?(av+' - '+bv):''; }
-  if(fl.t==='num'||fl.t==='cur'){ return el.value===''?'':(+el.value); }
+  if(fl.t==='cur'){ const d=rupiahDigits(el.value); return d===''?'':(+d); }
+  if(fl.t==='num'){ return el.value===''?'':(+el.value); }
+  if(fl.t==='rundown'){
+    const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
+    return [...body.querySelectorAll('tr')].map(tr=>{
+      const w=tr.querySelector('[data-r="waktu"]'), k=tr.querySelector('[data-r="kegiatan"]');
+      return {waktu:(w?w.value:'').trim(), kegiatan:(k?k.value:'').trim()};
+    }).filter(r=>r.waktu||r.kegiatan);
+  }
   return el.value;
+}
+/* ---------- Rundown: tabel Waktu × Kegiatan + isi otomatis via OCR ---------- */
+function rundownRows(val){
+  if(Array.isArray(val)) return val.filter(r=>r&&(r.waktu||r.kegiatan));
+  if(typeof val==='string' && val.trim()) return rundownParseText(val);
+  return [];
+}
+// pecah teks bebas / hasil OCR jadi baris {waktu, kegiatan}
+function rundownParseText(txt){
+  return String(txt).split(/\r?\n/).map(line=>{
+    line=line.replace(/\s+/g,' ').trim(); if(!line)return null;
+    // cocokkan pola jam di depan: "09:00", "9.00", "09:00-10:00", "09.00 – 10.00"
+    const m=line.match(/^(\d{1,2}[:.]\d{2}(?:\s*[-–—]\s*\d{1,2}[:.]\d{2})?)\s*[-–—.:)\]]*\s*(.*)$/);
+    if(m && m[2]) return {waktu:m[1].replace(/\./g,':').replace(/\s+/g,''), kegiatan:m[2].trim()};
+    if(m) return {waktu:m[1].replace(/\./g,':').replace(/\s+/g,''), kegiatan:''};
+    return {waktu:'', kegiatan:line};
+  }).filter(Boolean);
+}
+function rundownRowHTML(r,canEdit){
+  r=r||{}; const dis=canEdit?'':'disabled';
+  return '<tr>'
+    +'<td><input class="inp" data-r="waktu" placeholder="09:00" value="'+esc(r.waktu||'')+'" '+dis+'></td>'
+    +'<td><input class="inp" data-r="kegiatan" placeholder="Kegiatan" value="'+esc(r.kegiatan||'')+'" '+dis+'></td>'
+    +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rundownDelRow(this)">×</button></td>':'')
+    +'</tr>';
+}
+function rundownAddRow(id,row){
+  const body=$(id+'_body'); if(!body)return;
+  const tmp=document.createElement('tbody'); tmp.innerHTML=rundownRowHTML(row||{},true);
+  const tr=tmp.firstElementChild; body.appendChild(tr);
+  const first=tr.querySelector('input'); if(first&&!(row&&row.waktu)) first.focus();
+  return tr;
+}
+function rundownDelRow(btn){
+  const tr=btn.closest('tr'), body=tr&&tr.parentElement; if(!tr)return;
+  tr.remove();
+  if(body && !body.querySelector('tr')) rundownAddRow(body.id.replace('_body',''));
+  // commit perubahan (auto-save) setelah baris dihapus
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
+async function rundownScan(input,id){
+  const file=input.files&&input.files[0]; input.value='';
+  if(!file)return;
+  const st=$(id+'_ocr');
+  const setSt=(t,cls)=>{ if(st){ st.textContent=t; st.className='rundown-ocr-status'+(cls?' '+cls:''); } };
+  setSt('Memuat mesin OCR…');
+  try{
+    const dataUrl=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=()=>rej(new Error('Gagal membaca file')); fr.readAsDataURL(file); });
+    setSt('Membaca gambar… (butuh koneksi internet)');
+    const text=await ocrRead(dataUrl);
+    const rows=rundownParseText(text).filter(r=>r.waktu||r.kegiatan.length>2);
+    if(!rows.length){ setSt('Tidak terbaca. Coba foto lebih jelas / isi manual.','err'); return; }
+    const body=$(id+'_body');
+    // kalau tabel masih kosong (cuma 1 baris kosong), ganti; kalau sudah ada isi, tambahkan.
+    if(body){ const cur=[...body.querySelectorAll('tr')]; const empty=cur.length===1 && !cur[0].querySelector('[data-r="waktu"]').value && !cur[0].querySelector('[data-r="kegiatan"]').value; if(empty) body.innerHTML=''; }
+    rows.forEach(r=>rundownAddRow(id,r));
+    setSt('Terisi '+rows.length+' baris — cek & rapikan.','ok');
+    if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+  }catch(e){ setSt((e&&e.message)||'Gagal memindai gambar','err'); }
+}
+/* ---------- Mesin OCR (Tesseract.js, dimuat dari CDN saat dibutuhkan) ---------- */
+const OCR_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+let _ocrLoad=null, _ocrWorker=null;
+function loadOCR(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(_ocrLoad) return _ocrLoad;
+  _ocrLoad = new Promise((res,rej)=>{
+    const s=document.createElement("script"); s.src=OCR_SRC;
+    const t=setTimeout(()=>rej(new Error("Mesin OCR tidak bisa dimuat (koneksi lambat / offline).")), 45000);
+    s.onload =()=>{ clearTimeout(t); window.Tesseract ? res(window.Tesseract) : rej(new Error("Mesin OCR gagal dimuat")); };
+    s.onerror=()=>{ clearTimeout(t); rej(new Error("Gagal memuat mesin OCR. Scan gambar butuh koneksi internet.")); };
+    document.head.appendChild(s);
+  }).catch(e=>{ _ocrLoad=null; throw e; });
+  return _ocrLoad;
+}
+async function getOcrWorker(){
+  if(_ocrWorker) return _ocrWorker;
+  const T=await loadOCR();
+  _ocrWorker = await T.createWorker("eng");
+  return _ocrWorker;
+}
+function prepOcrImage(dataUrl){
+  return new Promise(res=>{
+    const img=new Image();
+    img.onload=()=>{
+      const scale=Math.min(3, Math.max(1, 1700/(img.width||1)));
+      const w=Math.round(img.width*scale), h=Math.round(img.height*scale);
+      const c=document.createElement("canvas"); c.width=w; c.height=h;
+      const x=c.getContext("2d"); x.drawImage(img,0,0,w,h);
+      try{
+        const d=x.getImageData(0,0,w,h), p=d.data;
+        for(let i=0;i<p.length;i+=4){
+          const g=(0.299*p[i]+0.587*p[i+1]+0.114*p[i+2])/255;
+          const v=Math.round(255*Math.pow(g,1.6));
+          p[i]=p[i+1]=p[i+2]= v<0?0:v>255?255:v;
+        }
+        x.putImageData(d,0,0); res(c.toDataURL("image/png"));
+      }catch(e){ res(dataUrl); }
+    };
+    img.onerror=()=>res(dataUrl);
+    img.src=dataUrl;
+  });
+}
+async function ocrRead(dataUrl){
+  const w=await getOcrWorker();
+  const img=await prepOcrImage(dataUrl);
+  const {data}=await w.recognize(img);
+  return (data && data.text) || "";
 }
 /* Tab yang benar-benar tampil untuk user ini — dipakai bareng oleh render tab
    dan tombol "Simpan & Lanjut" supaya lanjutannya tidak melompat ke tab tersembunyi. */
@@ -1828,7 +2017,30 @@ function nextSectionId(cur){
   const list=visibleSections(), i=list.findIndex(s=>s.id===cur);
   return (i>=0 && i<list.length-1) ? list[i+1].id : null;
 }
+/* ---------- Auto-save: simpan draft tiap kali user mengetik/ubah input ----------
+   Menyimpan ke localStorage secara instan (debounce pendek) tanpa render ulang
+   agar fokus ketik tidak hilang; sinkron ke server dijeda lebih lama supaya
+   tidak membanjiri backend tiap ketukan. Tombol "Simpan" tetap untuk commit final. */
+let _asTimer=null, _asSrvTimer=null, _asEvId=null;
+function autoSaveTrigger(){ clearTimeout(_asTimer); _asTimer=setTimeout(autoSaveCommit,700); }
+function autoSaveBind(ev){
+  _asEvId=ev.id;
+  const c=$('ev-tab-content'); if(!c)return;
+  c.addEventListener('input',autoSaveTrigger);
+  c.addEventListener('change',autoSaveTrigger);
+}
+function autoSaveCommit(){
+  const sec=SEC_BY_ID[curTab]; if(!sec||sec.id==='finance')return; // finance punya alur simpan sendiri
+  const ev=S.events.find(e=>e.id===_asEvId); if(!ev)return;
+  sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; });
+  if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
+  clearTimeout(_asSrvTimer);
+  _asSrvTimer=setTimeout(()=>{ if(WEB_APP_URL && WEB_APP_URL.indexOf('GANTI')!==0){ fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'saveAll',data:S}),redirect:'follow'}).catch(()=>{}); } },4000);
+  const ind=$('autosave-ind'); if(ind){ ind.textContent='✓ Tersimpan otomatis'; ind.style.opacity='1'; clearTimeout(ind._t); ind._t=setTimeout(()=>{ ind.style.opacity='0'; },1600); }
+}
 function saveEventTab(id,goNext){
+  clearTimeout(_asTimer); // draft terakhir langsung ikut tercommit di bawah
   const ev=S.events.find(e=>e.id===id); const sec=SEC_BY_ID[curTab];
   const changes=[];
   sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return;
@@ -1899,9 +2111,9 @@ function submitApprovalReq(id){
 }
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
-  // check PIC matrix (D.14) required
+  // check PIC matrix (D.12) required
   const missing=['picKoordinator','picMOD','picAcara'].filter(k=>!ev.detail[k]);
-  if(missing.length){ curTab='pic'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.14) wajib terisi sebelum Confirmed.','err'); }
+  if(missing.length){ curTab='pic'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.12) wajib terisi sebelum Confirmed.','err'); }
   // otomasi: cegah dobel booking — minta konfirmasi ulang bila bentrok
   const clash=bookingConflicts(ev);
   if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
@@ -1914,7 +2126,7 @@ function confirmEvent(id){
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
 }
-/* ---------- FINANCE TAB (D.12) ---------- */
+/* ---------- FINANCE TAB (D.10) ---------- */
 function financeTab(ev,canEdit){
   const f=eventFinance(ev); const d=ev.detail; const st=S.settings;
   const finVisible = ME.role!=='operational';
@@ -1966,10 +2178,10 @@ function paymentHistoryHtml(ev){
   });
   return h+'</div>';
 }
-function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'</label><input class="inp" type="number" id="efd_'+k+'" value="'+(val==null?'':val)+'" placeholder="0" '+dis+'></div>'; }
+function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'</label>'+rupiahInputHTML('efd_'+k,val,dis)+'</div>'; }
 function saveFinance(id,goNext){
   const ev=S.events.find(e=>e.id===id);
-  ['sewaVenue','biayaFB','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el)ev.detail[k]=el.value===''?'':(+el.value); });
+  ['sewaVenue','biayaFB','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.npwp=$('efd_npwp').value;
   ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
   logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
@@ -1984,7 +2196,7 @@ function addPayment(id,paymentId){
   const p=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
   modal('<div class="modal-head"><div><h3>'+(p?'Edit Pembayaran':'Catat Pembayaran')+'</h3><p>'+esc(ev.nama)+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body"><div class="form-grid">'
    +'<div class="field"><label>Jenis</label><select class="inp" id="pay_type">'+['DP','Pelunasan','Tambahan Hari-H'].map(t=>'<option'+(p&&p.type===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
-   +'<div class="field"><label>Jumlah (Rp)</label><input class="inp" type="number" id="pay_amt" value="'+(p?p.amount:f.dp)+'"></div>'
+   +'<div class="field"><label>Jumlah (Rp)</label>'+rupiahInputHTML('pay_amt',(p?p.amount:f.dp),'')+'</div>'
    +'<div class="field"><label>Metode</label><select class="inp" id="pay_method">'+['Transfer','Cash','QRIS','Card'].map(m=>'<option'+(p&&p.method===m?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'
    +'<div class="field"><label>Tanggal</label><input class="inp" type="date" id="pay_date" value="'+(p?p.at:today())+'"></div>'
    +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label><input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf"><div class="fh">'+(p&&p.receiptUrl?'Sudah ada bukti tersimpan. Upload file baru untuk mengganti.':'Opsional untuk Cash. Maks 8MB, JPG/PNG/PDF.')+'</div></div>'
@@ -2003,7 +2215,7 @@ function fileToBase64(file){
 async function savePayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id);
   const existing=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
-  const amt=+$('pay_amt').value; if(!amt)return toast('Isi jumlah','Jumlah pembayaran wajib.','err');
+  const amt=+rupiahDigits($('pay_amt').value); if(!amt)return toast('Isi jumlah','Jumlah pembayaran wajib.','err');
   const fileInp=$('pay_receipt_file'), file=fileInp&&fileInp.files&&fileInp.files[0];
   const note=$('pay_note').value.trim();
   const btn=$('pay_save_btn');
@@ -2068,7 +2280,8 @@ function genBriefFor(id,mode){
   // otomasi: begitu quotation dibuat, tahap peluang naik sendiri
   if(mode==='quote'){
     const ev=S.events.find(e=>e.id===id);
-    if(ev && ['Lead','Prospect','Negotiation'].includes(ev.status)){
+    // hanya dari tahap awal — Negotiation kini SETELAH Quotation, jadi jangan diturunkan.
+    if(ev && ['Lead','Prospect'].includes(ev.status)){
       const prev=ev.status; ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim';
       logAct('event',id,'Tahap → Quotation Terkirim','otomatis: quotation dibuat');
       save(); toast('Tahap diperbarui',prev+' → Quotation Terkirim','ok');
@@ -2077,6 +2290,8 @@ function genBriefFor(id,mode){
 }
 function fmtFieldVal(fl,val){
   if(val==null||val===''||(Array.isArray(val)&&!val.length))return null;
+  if(fl.t==='rundown'){ const rows=rundownRows(val); if(!rows.length)return null; return rows.map(r=>(r.waktu?r.waktu+' — ':'')+r.kegiatan).join('\n'); }
+  if(fl.t==='ynnote'){ const o=ynnoteVal(val); if(o.v===undefined&&!o.note)return null; return (o.v?'Ya':'Tidak')+(o.note?' — '+o.note:''); }
   if(fl.t==='multi')return val.join(', ');
   if(fl.t==='tog')return (val===true||(val&&val.v))?'Ya':null;
   if(fl.t==='yn'){ const v=val&&val.v!==undefined?val.v:val; return v===true?'Ya':v===false?'Tidak':null; }
@@ -2119,7 +2334,7 @@ function buildBriefDoc(id,mode){
       if(mode==='client' && ['security','cashier','attach','pic','finance','booth'].includes(sec.id)){
         // client version: only client-relevant sections
       }
-      const clientSections=['basic','decor','venue','kitchen','bar','floor','design'];
+      const clientSections=['basic','kitchen','bar','floor','design'];
       if(mode==='client' && !clientSections.includes(sec.id))return;
       const rows=[];
       sec.fields.forEach(fl=>{ if(mode==='client'&&(fl.k==='internalNote'))return; const v=fmtFieldVal(fl,ev.detail[fl.k]); if(v)rows.push('<tr><td style="padding:6px 12px;color:#555;width:42%;vertical-align:top;font-size:12px">'+esc(fl.l)+'</td><td style="padding:6px 12px;font-size:12px">'+esc(v)+'</td></tr>'); });
@@ -2149,7 +2364,7 @@ function printBrief(){ $('print-area').innerHTML=window._printDoc; window.print(
 let calDate=new Date(); calDate.setDate(1);
 let calStatusFilter='';
 function renderCalendar(V){
-  const statusOpts=['Lead','Prospect','Negotiation','Quotation Terkirim','Deal','Event Done','Lost'];
+  const statusOpts=['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
   let h=pageHead('Modul F','Kalender','Satu jadwal untuk seluruh venue — hindari dobel booking.',
     '<select class="inp" style="width:auto;padding:7px 12px" onchange="calStatusFilter=this.value;go(\'calendar\')"><option value=""'+(calStatusFilter===''?' selected':'')+'>Semua status</option>'+statusOpts.map(s=>'<option'+(calStatusFilter===s?' selected':'')+'>'+s+'</option>').join('')+'</select>'
     +'<button class="btn sm" onclick="calNav(-1)">←</button><button class="btn sm" onclick="calToday()">Hari Ini</button><button class="btn sm" onclick="calNav(1)">→</button>');
@@ -2474,6 +2689,12 @@ function decideApproval(id,decision){
   const a=S.approvals.find(x=>x.id===id); a.status=decision; a.by2=ME.id; a.decidedAt=new Date().toISOString();
   const e=S.events.find(x=>x.id===a.eventId);
   logAct('event',a.eventId,'Approval '+decision,'oleh '+ME.name);
+  // Approval ditolak → peluang otomatis dianggap batal (pindah ke tahap Lost),
+  // supaya event tidak nyangkut di tahap lama dan lolos ke invoice.
+  if(decision==='Rejected' && e && e.status!=='Lost'){
+    const prev=e.status; e.status='Lost'; e.pipeCol='Lost';
+    logAct('event',a.eventId,'Tahap → Lost','otomatis: approval ditolak (dari '+prev+')');
+  }
   pushNotif('approval','Approval '+decision,(e?e.nama:'')+' telah di-'+decision.toLowerCase()+'.','#event/'+a.eventId);
   save(); buildNav(); toast('Approval '+decision,(e?e.nama:''),decision==='Approved'?'ok':'err'); go('approvals');
 }
@@ -2500,7 +2721,7 @@ function renderPerformance(V){
   // Omzet 0 padahal ada event closing = biaya di tab Quotation belum diisi
   if(closed.length && !omzet) h+='<div class="tbl-note" style="margin-top:-6px;margin-bottom:16px">'+svg(IC.alert)+'<span>Ada <em>'+closed.length+' event closing</em> tapi omzet masih Rp0 — nilai event dihitung dari biaya <em>Sewa Venue, F&amp;B, Sound/Lighting, Lain-lain</em> di tab Event Brief &amp; Quotation. Isi di sana agar omzet terhitung.</span></div>';
   // funnel
-  const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Negotiation',atStage('Negotiation')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
+  const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Negotiation',atStage('Negotiation')],['Deal',deals],['Lost',atStage('Lost')]];
   h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang.</p>';
   const maxF=Math.max(1,...funnel.map(f=>f[1]));
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
