@@ -74,10 +74,11 @@ function writeDb_(db) {
 
 /* ------------------------- Tab rata (flatten) -------------------------- */
 function flatten_(d) {
-  writeTab_('1_Users', ['id','name','role','division','title','pin','active','createdAt'],
+  // Kru datang dari Office (SSO). Tidak ada PIN di modul ini.
+  writeTab_('1_Users', ['id','name','role','division','title','active','createdAt'],
     (d.users || []), function (u) {
       return [u.id, u.name || '', u.role || '', u.division || '', u.title || '',
-              u.pin || '', u.active === false ? false : true, u.createdAt || ''];
+              u.active === false ? false : true, u.createdAt || ''];
     });
 
   writeTab_('2_Materials',
