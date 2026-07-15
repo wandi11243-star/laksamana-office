@@ -62,75 +62,92 @@ function ambil_json($url) {
   return isset($obj['data']) ? $obj['data'] : null;
 }
 
+/* Batas foto per sekali jalan.
+   Hosting memutus koneksi di ~120 detik (bukan PHP — set_time_limit tidak menolong).
+   Menarik 1 foto dari Apps Script makan ~2-4 detik, jadi 84 foto = ~250 detik → PASTI
+   timeout kalau dikerjakan sekaligus. Maka dicicil, dan bisa dilanjutkan: buka lagi
+   sampai tertulis SELESAI. Foto yang sudah ada otomatis dilewati. */
+$BATCH = 20;
+
 $t0 = microtime(true);
 echo "=== MIGRASI Apps Script -> cPanel ===\n\n";
 
 try {
   db_pastikan_folder();
 
-  /* 1) Tarik blob utama dari Apps Script */
-  echo "[1/3] Menarik data utama dari Apps Script...\n";
-  $state = ambil_json($APPS_SCRIPT_URL . '?action=getAll&t=' . time());
-  if (!is_array($state)) throw new Exception('Data kosong');
-  $nres = isset($state['reservations']) ? count($state['reservations']) : 0;
-  echo "      OK — {$nres} reservasi, blob " . number_format(strlen(json_encode($state)) / 1048576, 2) . " MB\n\n";
+  /* ---- LANGKAH 1: simpan blob DULU (cepat) ----
+     Dulu blob baru disimpan setelah semua foto selesai — begitu kena timeout, tidak ada
+     apa pun yang tersimpan (reservations tetap 0) walau puluhan foto sudah tersalin.
+     Sekarang blob diamankan lebih dulu; foto menyusul bertahap. */
+  $state = baca_state();
+  $sudahAda = !empty($state['reservations']);
 
-  /* 2) Salin setiap foto. Blob dari Apps Script v2 memuat penanda "@f:<key>";
-        isinya ditarik satu per satu lewat ?action=getFile. Foto yang sudah ada
-        di sini dilewati, jadi aman kalau proses ini diulang. */
-  echo "[2/3] Menyalin foto bukti...\n";
+  if (!$sudahAda) {
+    echo "[1] Menarik & menyimpan data utama dari Apps Script...\n";
+    $state = ambil_json($APPS_SCRIPT_URL . '?action=getAll&t=' . time());
+    if (!is_array($state)) throw new Exception('Data kosong');
+    $lock = db_lock();
+    try { $out = save_all($state); } finally { db_unlock($lock); }
+    echo "    OK — {$out['reservations']} reservasi, blob "
+       . number_format($out['blobChars'] / 1048576, 3) . " MB tersimpan.\n\n";
+    $state = baca_state();
+  } else {
+    echo "[1] Data utama sudah ada (" . count($state['reservations']) . " reservasi) — dilewati.\n\n";
+  }
+
+  /* ---- LANGKAH 2: salin foto, dicicil ---- */
   $perlu = array();
   each_file_field($state, function (&$obj, $field, $key) use (&$perlu) {
-    if (!isset($obj[$field]) || $obj[$field] === '') return;
-    if (is_ref($obj[$field])) {
-      // penanda: ambil key aslinya dari penandanya (bukan key hasil hitung),
-      // supaya tetap cocok walau penamaan di server lama berbeda.
-      $perlu[] = array('ref' => substr($obj[$field], strlen(FILE_TAG)), 'key' => $key);
-    }
-    // kalau masih inline, nanti externalize() yang menanganinya di langkah 3.
+    if (empty($obj[$field]) || !is_ref($obj[$field])) return;
+    // pakai key yang tertulis di penanda (bukan hasil hitung) agar cocok dgn server lama
+    $perlu[] = array('ref' => substr($obj[$field], strlen(FILE_TAG)), 'key' => $key);
   });
 
-  $salin = 0; $lewat = 0; $gagal = 0; $bytes = 0;
+  $kurang = array();
   foreach ($perlu as $f) {
-    $tujuan = file_path($f['key']);
-    if (file_exists($tujuan) && filesize($tujuan) > 0) { $lewat++; continue; }   // sudah ada → lewati
+    $p = file_path($f['key']);
+    if (!file_exists($p) || filesize($p) === 0) $kurang[] = $f;
+  }
+  $total = count($perlu); $belum = count($kurang);
+  echo "[2] Foto: {$total} total, " . ($total - $belum) . " sudah ada, {$belum} belum.\n";
+
+  $salin = 0; $gagal = 0; $bytes = 0;
+  foreach ($kurang as $f) {
+    if ($salin + $gagal >= $BATCH) break;                       // cukup untuk ronde ini
+    if (microtime(true) - $t0 > 90) { echo "    (mendekati batas waktu — berhenti aman)\n"; break; }
     try {
       $d = ambil_json($APPS_SCRIPT_URL . '?action=getFile&key=' . rawurlencode($f['ref']) . '&t=' . time());
       $isi = isset($d['data']) ? $d['data'] : '';
-      if ($isi === '') { $gagal++; echo "      ! kosong: {$f['ref']}\n"; continue; }
+      if ($isi === '') { $gagal++; echo "    ! kosong: {$f['ref']}\n"; continue; }
       put_file(array('key' => $f['key'], 'data' => $isi));
       $salin++; $bytes += strlen($isi);
     } catch (Exception $e) {
-      $gagal++; echo "      ! gagal {$f['ref']}: " . $e->getMessage() . "\n";
+      $gagal++; echo "    ! gagal {$f['ref']}: " . $e->getMessage() . "\n";
     }
   }
-  echo "      OK — {$salin} disalin, {$lewat} dilewati (sudah ada), {$gagal} gagal, "
-     . number_format($bytes / 1048576, 2) . " MB\n\n";
-
-  /* 3) Simpan (externalize menangani foto yang mungkin masih inline) */
-  echo "[3/3] Menyimpan ke penyimpanan PHP...\n";
-  $lock = db_lock();
-  try { $out = save_all($state); } finally { db_unlock($lock); }
-  echo "      OK — blob " . number_format($out['blobChars'] / 1048576, 3) . " MB"
-     . ", foto inline dipisah: {$out['fotoDipisah']}\n\n";
+  echo "    Ronde ini: {$salin} disalin (" . number_format($bytes / 1048576, 2) . " MB), {$gagal} gagal.\n\n";
 
   $s = stats();
-  echo "=== SELESAI dalam " . round(microtime(true) - $t0, 1) . " detik ===\n";
-  echo "  reservasi        : {$s['reservations']}\n";
-  echo "  blob             : {$s['blobMB']} MB\n";
-  echo "  foto tersimpan   : {$s['fileFoto']} file\n";
-  echo "  foto masih inline: {$s['fotoMasihInline']}  (harus 0)\n\n";
-  if ($gagal > 0) {
-    echo "PERHATIAN: {$gagal} foto gagal disalin. Jalankan ulang migrate.php\n";
-    echo "(yang sudah tersalin akan dilewati).\n\n";
+  $sisa = $belum - $salin;
+  echo "--- Ronde selesai dalam " . round(microtime(true) - $t0, 1) . " detik ---\n";
+  echo "  reservasi      : {$s['reservations']}\n";
+  echo "  blob           : {$s['blobMB']} MB\n";
+  echo "  foto tersimpan : {$s['fileFoto']} dari {$total}\n";
+  echo "  folder data    : {$s['folderData']}  (di luar web: " . ($s['amanDiLuarWeb'] ? 'ya' : 'TIDAK') . ")\n\n";
+
+  if ($sisa > 0) {
+    echo ">>> BELUM SELESAI — masih {$sisa} foto. BUKA HALAMAN INI LAGI (refresh).\n";
+    echo "    Yang sudah tersalin akan dilewati.\n";
+  } else {
+    echo ">>> SELESAI. Semua foto tersalin.\n\n";
+    echo "Langkah berikutnya:\n";
+    echo "  1. Cek: api.php?action=stats\n";
+    echo "  2. Ganti APPS_SCRIPT_URL di aplikasi ke URL api.php ini.\n";
+    echo "  3. HAPUS migrate.php dari server.\n";
   }
-  echo "Langkah berikutnya:\n";
-  echo "  1. Cek: api.php?action=stats\n";
-  echo "  2. Ganti APPS_SCRIPT_URL di aplikasi ke URL api.php ini.\n";
-  echo "  3. Setelah aplikasi jalan normal, HAPUS migrate.php dari server.\n";
 
 } catch (Throwable $e) {
   http_response_code(500);
   echo "\n!!! GAGAL: " . $e->getMessage() . "\n\n";
-  echo "Data di Google Sheet TIDAK tersentuh — aman. Perbaiki lalu jalankan lagi.\n";
+  echo "Data di Google Sheet TIDAK tersentuh — aman. Buka lagi halaman ini untuk melanjutkan.\n";
 }
