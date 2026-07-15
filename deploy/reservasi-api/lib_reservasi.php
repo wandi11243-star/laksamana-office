@@ -14,34 +14,67 @@
  *   bisa di bawah 1 detik.
  *
  * MODEL DATA (sama seperti Apps Script v2):
- *   - db/data.json         : blob JSON utama (TANPA foto). Foto diganti
- *                            penanda "@f:<key>". ~0,2 MB.
- *   - db/files/<key>.txt   : 1 file per foto (base64). Diambil hanya saat
- *                            "Lihat Bukti" / OCR.
- *   Folder db/ dilindungi .htaccess supaya tidak bisa diunduh langsung.
+ *   - <data>/data.json       : blob JSON utama (TANPA foto). Foto diganti
+ *                              penanda "@f:<key>". ~0,2 MB.
+ *   - <data>/files/<key>.txt : 1 file per foto (base64). Diambil hanya saat
+ *                              "Lihat Bukti" / OCR.
+ *   <data> = /home/<user>/reservasi-db — sengaja DI LUAR public_html: tidak
+ *   tersentuh deploy FTP, dan tidak bisa diunduh lewat browser. Lihat db_dir().
  *
  * File ini HANYA berisi fungsi (tanpa efek samping). Dipakai oleh:
  *   - api.php      : melayani request dari aplikasi.
  *   - migrate.php  : impor sekali-jalan dari Apps Script lama.
  ************************************************************************/
 
-/* ---------- KONFIGURASI ---------- */
-// Folder penyimpanan. Default: subfolder "db" di sebelah file ini.
-if (!defined('DB_DIR'))   define('DB_DIR',   __DIR__ . '/db');
-if (!defined('DATA_FILE')) define('DATA_FILE', DB_DIR . '/data.json');
-if (!defined('FILE_DIR'))  define('FILE_DIR',  DB_DIR . '/files');
-if (!defined('LOCK_FILE')) define('LOCK_FILE', DB_DIR . '/.lock');
-if (!defined('FILE_TAG'))  define('FILE_TAG',  '@f:');
+/* ---------- KONFIGURASI PENYIMPANAN ----------
+   PENTING — folder data HARUS di LUAR folder yang di-deploy.
+
+   Repo ini punya workflow FTP: isi ./deploy/ disalin ke /public_html/office/
+   setiap kali push. File ini berada di deploy/reservasi-api/ → di server jadi
+   /home/<user>/public_html/office/reservasi-api/.
+   Kalau data ditaruh di dalam folder itu juga, ada dua bahaya:
+     1. Deploy berikutnya bisa MENGHAPUS/menimpanya → SELURUH DATABASE HILANG.
+     2. data.json bisa diunduh siapa pun lewat browser (hanya dilindungi .htaccess).
+
+   Maka default-nya naik 3 tingkat, keluar dari public_html:
+     __DIR__                        = /home/<user>/public_html/office/reservasi-api
+     __DIR__/../../../reservasi-db  = /home/<user>/reservasi-db      <- AMAN
+   Tidak tersentuh deploy, dan tidak bisa diakses lewat web sama sekali.
+
+   Kalau path itu tidak bisa dibuat (izin hosting), otomatis mundur ke ./db
+   di sebelah file ini + .htaccess. Cek yang terpakai lewat ?action=stats. */
+if (!defined('FILE_TAG')) define('FILE_TAG', '@f:');
+
+function db_dir() {
+  static $dir = null;
+  if ($dir !== null) return $dir;
+
+  $luar = __DIR__ . '/../../../reservasi-db';        // di luar public_html (disarankan)
+  $dalam = __DIR__ . '/db';                          // cadangan (kurang aman)
+
+  if (is_dir($luar) || @mkdir($luar, 0775, true))    $dir = $luar;
+  else if (is_dir($dalam) || @mkdir($dalam, 0775, true)) $dir = $dalam;
+  else throw new Exception('Tidak bisa membuat folder data. Cek izin tulis di hosting.');
+
+  $dir = realpath($dir) ?: $dir;
+  return $dir;
+}
+function data_file() { return db_dir() . '/data.json'; }
+function file_dir()  { return db_dir() . '/files'; }
+function lock_file() { return db_dir() . '/.lock'; }
+// true kalau data terpaksa disimpan di dalam public_html (perlu .htaccess)
+function db_di_dalam_web() { return strpos(db_dir(), realpath(__DIR__)) === 0; }
 
 /* ---------- SETUP FOLDER ---------- */
 function db_pastikan_folder() {
-  if (!is_dir(DB_DIR))   @mkdir(DB_DIR, 0775, true);
-  if (!is_dir(FILE_DIR)) @mkdir(FILE_DIR, 0775, true);
-  /* Lindungi folder db dari akses langsung lewat browser — tanpa ini, orang bisa
-     mengunduh https://…/reservasi-api/db/data.json dan membaca SELURUH database.
-     Ditulis dgn penjaga <IfModule> supaya tidak bikin error 500: sintaks Apache 2.4
-     (Require) dan 2.2 (Deny) tidak boleh dicampur begitu saja. */
-  $ht = DB_DIR . '/.htaccess';
+  $dir = db_dir();
+  if (!is_dir(file_dir())) @mkdir(file_dir(), 0775, true);
+  if (!db_di_dalam_web()) return;                    // di luar web root → tak perlu .htaccess
+  /* Cadangan: kalau terpaksa di dalam public_html, tutup aksesnya. Tanpa ini orang bisa
+     mengunduh …/reservasi-api/db/data.json dan membaca SELURUH database.
+     Pakai penjaga <IfModule> supaya tidak bikin error 500 — sintaks Apache 2.4 (Require)
+     dan 2.2 (Deny) tidak boleh dicampur begitu saja. */
+  $ht = $dir . '/.htaccess';
   if (!file_exists($ht)) @file_put_contents($ht,
     "<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n" .
     "<IfModule !mod_authz_core.c>\n  Order allow,deny\n  Deny from all\n</IfModule>\n");
@@ -50,7 +83,7 @@ function db_pastikan_folder() {
 /* ---------- KUNCI TULIS (anti tabrakan, seperti LockService) ---------- */
 function db_lock() {
   db_pastikan_folder();
-  $fh = fopen(LOCK_FILE, 'c');
+  $fh = fopen(lock_file(), 'c');
   if ($fh) flock($fh, LOCK_EX);
   return $fh;
 }
@@ -60,8 +93,8 @@ function db_unlock($fh) {
 
 /* ---------- BLOB UTAMA ---------- */
 function baca_state() {
-  if (!file_exists(DATA_FILE)) return array('reservations' => array(), 'master' => null, 'audit' => array());
-  $raw = file_get_contents(DATA_FILE);
+  if (!file_exists(data_file())) return array('reservations' => array(), 'master' => null, 'audit' => array());
+  $raw = file_get_contents(data_file());
   if ($raw === false || $raw === '') return array('reservations' => array(), 'master' => null, 'audit' => array());
   $obj = json_decode($raw, true);
   if (!is_array($obj)) return array('reservations' => array(), 'master' => null, 'audit' => array());
@@ -72,9 +105,9 @@ function baca_state() {
 function tulis_state($state) {
   db_pastikan_folder();
   $json = json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-  $tmp = DATA_FILE . '.tmp' . getmypid();
+  $tmp = data_file() . '.tmp' . getmypid();
   if (file_put_contents($tmp, $json) === false) throw new Exception('Gagal menulis data (cek izin folder db)');
-  if (!rename($tmp, DATA_FILE)) { @unlink($tmp); throw new Exception('Gagal menyimpan data (rename)'); }
+  if (!rename($tmp, data_file())) { @unlink($tmp); throw new Exception('Gagal menyimpan data (rename)'); }
   return strlen($json);
 }
 
@@ -82,7 +115,7 @@ function tulis_state($state) {
 // key aplikasi hanya berisi [a-z0-9:] → ubah ":" jadi "_" (bijektif, tanpa tabrakan).
 function file_path($key) {
   $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$key);
-  return FILE_DIR . '/' . $safe . '.txt';
+  return file_dir() . '/' . $safe . '.txt';
 }
 function get_file($key) {
   if (!$key) throw new Exception('key kosong');
@@ -149,7 +182,7 @@ function externalize(&$state) {
 
 // Hapus foto yang tak lagi dirujuk state (reservasinya dihapus).
 function gc_files(&$state) {
-  if (!is_dir(FILE_DIR)) return 0;
+  if (!is_dir(file_dir())) return 0;
   $hidup = array();
   each_file_field($state, function (&$obj, $field, $key) use (&$hidup) {
     if (empty($obj[$field])) return;
@@ -163,9 +196,9 @@ function gc_files(&$state) {
   $hidupFile = array();
   foreach ($hidup as $k => $_) $hidupFile[basename(file_path($k))] = true;
   $buang = 0;
-  foreach (scandir(FILE_DIR) as $f) {
+  foreach (scandir(file_dir()) as $f) {
     if ($f === '.' || $f === '..' || substr($f, -4) !== '.txt') continue;
-    if (empty($hidupFile[$f])) { @unlink(FILE_DIR . '/' . $f); $buang++; }
+    if (empty($hidupFile[$f])) { @unlink(file_dir() . '/' . $f); $buang++; }
   }
   return $buang;
 }
@@ -198,7 +231,7 @@ function stats() {
     else if (is_ref($obj[$field])) $ref++;
   });
   $nfile = 0;
-  if (is_dir(FILE_DIR)) foreach (scandir(FILE_DIR) as $f) if (substr($f, -4) === '.txt') $nfile++;
+  if (is_dir(file_dir())) foreach (scandir(file_dir()) as $f) if (substr($f, -4) === '.txt') $nfile++;
   return array(
     'backend' => 'php',
     'blobChars' => $blob,
@@ -206,6 +239,10 @@ function stats() {
     'reservations' => isset($state['reservations']) ? count($state['reservations']) : 0,
     'fotoMasihInline' => $inline,     // idealnya 0
     'fotoSudahDipisah' => $ref,
-    'fileFoto' => $nfile
+    'fileFoto' => $nfile,
+    // Diagnostik lokasi data — "amanDiLuarWeb" HARUS true. Kalau false, data ada
+    // di dalam public_html: berisiko tertimpa deploy FTP & hanya dilindungi .htaccess.
+    'folderData' => db_dir(),
+    'amanDiLuarWeb' => !db_di_dalam_web()
   );
 }
