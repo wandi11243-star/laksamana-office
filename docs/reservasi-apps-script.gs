@@ -20,6 +20,7 @@
  *   GET  ?action=getAll                     -> {ok,data:{reservations,master,audit}}
  *   GET  ?action=getFile&key=<key>          -> {ok,data:{key,data}}   (1 foto)
  *   GET  ?action=stats                      -> {ok,data:{...}}        (diagnostik)
+ *   GET  ?action=mirror                     -> paksa perbarui tab enak-baca
  *   POST {action:"saveAll", data:{...}}     -> {ok,data:{...}}
  *   POST {action:"putFile", data:{key,data}}-> {ok,data:{key,len}}
  *   POST {action:"migrate"}                 -> {ok,data:{...}}  (sekali jalan)
@@ -39,6 +40,9 @@
  *   - `saveAll` OTOMATIS memisahkan foto yang masih terkirim inline, jadi
  *     aman walau versi aplikasi lama sempat menyimpan.
  *   - Foto yang tidak lagi dipakai (reservasi dihapus) dibersihkan otomatis.
+ *   - Tab `Reservations` & `Audit` (untuk dibaca manusia) TIDAK ditulis ulang tiap
+ *     simpan — menulis ~6.000 sel itu mahal & bikin tiap klik status terasa lama.
+ *     Dibatasi sekali per MIRROR_JEDA detik; paksa kapan saja dgn ?action=mirror.
  ************************************************************************/
 
 var DATA_SHEET = "_DATA";    // blob JSON utama (TANPA foto) — jangan diedit manual
@@ -67,6 +71,7 @@ function handle(action, data, params) {
     else if (action === "getFile") out = getFile((params && params.key) || (data && data.key));
     else if (action === "putFile") out = putFile(data);
     else if (action === "migrate") out = migrateFiles();
+    else if (action === "mirror")  out = mirrorNow();
     else if (action === "stats")   out = stats();
     else if (action === "ping")    out = { pong: true, ts: new Date().toISOString() };
     else throw new Error("Aksi tidak dikenal: " + action);
@@ -230,7 +235,7 @@ function saveAll(state) {
 
   var terhapus = gcFiles(state);
   var len = writeBlob(state);
-  writeReadable(state);
+  var mirror = mirrorMungkin(state);      // tab enak-baca: dibatasi, TIDAK tiap simpan
 
   return {
     saved: true,
@@ -239,8 +244,39 @@ function saveAll(state) {
     blobChars: len,
     fotoDipisah: ext.moved,
     fotoDihapus: terhapus,
+    mirror: mirror,
     ts: new Date().toISOString()
   };
+}
+
+/* ---------- TAB "ENAK DIBACA" — DIBATASI ----------
+   writeReadable() menulis ulang tab `Reservations` (155 baris x 23 kolom) dan `Audit`
+   (s/d 500 baris) — ±6.000 sel plus panggilan format. Di Apps Script, tulis sheet itu
+   MAHAL: ini bisa makan beberapa detik. Padahal tab tsb cuma untuk dibaca manusia dan
+   TIDAK dipakai aplikasi (aplikasi hanya membaca blob `_DATA`).
+   Menjalankannya tiap kali kru mengubah status = menghukum setiap klik demi tampilan
+   yang mungkin tidak dilihat siapa pun hari itu. Jadi dibatasi: paling sering sekali per
+   MIRROR_JEDA detik. Simpan berikutnya otomatis menyusulkan yang tertinggal, dan bisa
+   dipaksa kapan saja lewat ?action=mirror. */
+var MIRROR_JEDA = 180;                    // detik
+var MIRROR_KEY  = "mirrorTerakhir";
+
+function mirrorMungkin(state) {
+  var props = PropertiesService.getScriptProperties();
+  var last = Number(props.getProperty(MIRROR_KEY) || 0);
+  var now = new Date().getTime();
+  if (now - last < MIRROR_JEDA * 1000) return "dilewati";   // masih segar → jangan buang waktu
+  writeReadable(state);
+  props.setProperty(MIRROR_KEY, String(now));
+  return "ditulis";
+}
+
+// Paksa perbarui tab enak-baca sekarang (mis. sebelum lihat/print Sheet).
+function mirrorNow() {
+  var state = readBlob();
+  writeReadable(state);
+  PropertiesService.getScriptProperties().setProperty(MIRROR_KEY, String(new Date().getTime()));
+  return { mirror: "ditulis", reservations: (state.reservations || []).length };
 }
 
 /* ---------- MIGRASI SEKALI JALAN ----------
