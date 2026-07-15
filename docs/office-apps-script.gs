@@ -43,6 +43,7 @@ function doPost(e) {
       case 'saveUser':          return adminSaveUser_(body);
       case 'deleteUser':        return adminDeleteUser_(body);
       case 'listModules':       return adminListModules_(body);
+      case 'syncModules':       return syncModules_(body);   // upsert registri dari BRANCHES app
       // pemberian akses modul (landing "Kelola Akses"): butuh admin '*'
       case 'listAccess':        return listAccess_(body);
       case 'setModuleAccess':   return setModuleAccess_(body);
@@ -87,12 +88,13 @@ function findUserByCreds_(users, name, pin) {
   }) || null;
 }
 
-// User mengganti PIN-nya sendiri. Wajib menyertakan PIN lama yang benar.
-// PIN baru TIDAK dicek keunikannya: tabrakan antar user tidak masalah.
+// User mengganti PIN-nya sendiri. TANPA verifikasi PIN lama: identitas cukup dari
+// nama pemilik sesi (user sudah login di Office). PIN baru TIDAK dicek keunikannya:
+// tabrakan antar user tidak masalah karena login memakai nama + PIN.
 function changePin_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var me = findUserByCreds_(readSheet_(ss, 'Users'), body.name, body.pin);
-  if (!me) return json_({ ok: false, error: 'invalid' });
+  var name = String(body.name || '').trim().toLowerCase();
+  if (!name) return json_({ ok: false, error: 'missing' });
 
   var next = String(body.newPin || '').trim();
   if (!/^\d{4,8}$/.test(next)) return json_({ ok: false, error: 'bad_pin' });  // 4-8 digit
@@ -101,7 +103,9 @@ function changePin_(body) {
   var vals = sh.getDataRange().getValues();
   var col = colMap_(vals[0]);
   for (var i = 1; i < vals.length; i++) {
-    if (String(vals[i][col.id]).trim() === String(me.id).trim()) {
+    var row = vals[i];
+    var active = String(row[col.active]).toUpperCase() !== 'FALSE';
+    if (String(row[col.name]).trim().toLowerCase() === name && active) {
       sh.getRange(i + 1, col.pin + 1).setValue(next);
       return json_({ ok: true });
     }
@@ -218,6 +222,38 @@ function adminListModules_(body) {
     .map(function (m) { return { key: String(m.key || '').trim(), label: String(m.label || '').trim() }; })
     .filter(function (m) { return m.key; });
   return json_({ ok: true, modules: mods });
+}
+
+// Sinkronkan registri Modules dari daftar modul aplikasi (BRANCHES di landing).
+// `body.modules` = [{key,label}, ...]. Key yang belum ada DITAMBAH (active TRUE).
+// Key yang sudah ada TIDAK diubah (label/active milik admin dipertahankan).
+// Tidak pernah MENGHAPUS baris (modul yang dihapus dari app tetap tercatat).
+function syncModules_(body) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!requireSuperadmin_(ss, body)) return json_({ ok: false, error: 'forbidden' });
+
+  var incoming = Array.isArray(body.modules) ? body.modules : [];
+  var sh = ensureSheet_(ss, 'Modules', ['key', 'label', 'active']);
+  var vals = sh.getDataRange().getValues();
+  var head = vals[0].map(function (h) { return String(h).trim(); });
+  var col = colMap_(vals[0]);
+
+  var existing = {};
+  for (var i = 1; i < vals.length; i++) existing[String(vals[i][col.key]).trim()] = true;
+
+  var added = [];
+  incoming.forEach(function (m) {
+    var key = String((m && m.key) || '').trim();
+    if (!key || existing[key]) return;
+    existing[key] = true;
+    var label = String((m && m.label) || key).trim();
+    var row = head.map(function (h) {
+      return h === 'key' ? key : h === 'label' ? label : h === 'active' ? 'TRUE' : '';
+    });
+    sh.appendRow(row);
+    added.push(key);
+  });
+  return json_({ ok: true, added: added });
 }
 
 // Tambah (tanpa id) atau edit (id ada). Nama wajib unik. PIN TIDAK perlu unik.
