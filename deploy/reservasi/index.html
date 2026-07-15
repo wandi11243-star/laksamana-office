@@ -1573,8 +1573,9 @@ function apiQueue(fn){
   return run;
 }
 function apiIdle(){ return _apiBusy===0; }
-async function _apiGetRaw(action, ctrl){
-  const url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
+async function _apiGetRaw(action, ctrl, extra){
+  let url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
+  if(extra) Object.keys(extra).forEach(k=>{ url += "&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]); });
   let res;
   try{ res = await fetchWithTimeout(url, { method:"GET", redirect:"follow" }, 20000, ctrl); }
   catch(e){ throw new Error(e.name==="AbortError" ? "Server tidak merespons (timeout). Cek koneksi / URL Web App." : e.message); }
@@ -1595,8 +1596,44 @@ async function _apiPostRaw(action, data){
   if(!json.ok) throw new Error(json.error || "server error");
   return json.data;
 }
-function apiGet(action){ return apiQueue(()=>_apiGetRaw(action)); }
+function apiGet(action, extra){ return apiQueue(()=>_apiGetRaw(action, null, extra)); }
 function apiPost(action, data){ return apiQueue(()=>_apiPostRaw(action, data)); }
+
+/* ===== FOTO BUKTI DISIMPAN TERPISAH DI SERVER =====
+   Dulu foto bukti TF (base64) ikut di dalam blob database. Diukur di data produksi:
+   blob 5,95 MB, 97%-nya foto — jadi ubah status pun harus memindahkan ~12 MB dan makan
+   10-20 detik. Sekarang foto disimpan di sheet `_FILES`, dan blob hanya memuat PENANDA
+   "@f:<key>" (~212 KB total). Foto baru diunduh SAAT DIBUTUHKAN (klik "Lihat Bukti" /
+   saat OCR), lalu di-cache supaya tidak berulang.
+   Data lama yang masih inline ("data:image/…") tetap dilayani apa adanya. */
+const FILE_TAG = "@f:";
+function isFileRef(v){ return typeof v==="string" && v.startsWith(FILE_TAG); }
+// Nama berkas dipakai menebak jenisnya saat isinya belum diunduh.
+function proofIsImage(data, name){
+  if(isFileRef(data)) return !/\.pdf$/i.test(String(name||""));
+  return String(data||"").startsWith("data:image");
+}
+const FILE_CACHE = new Map();
+async function loadFile(v){
+  if(!v) return "";
+  if(!isFileRef(v)) return v;                       // data lama: sudah inline
+  const key=v.slice(FILE_TAG.length);
+  if(FILE_CACHE.has(key)) return FILE_CACHE.get(key);
+  const d=await apiGet("getFile", {key});
+  const data=(d && d.data) || "";
+  if(data) FILE_CACHE.set(key, data);
+  return data;
+}
+// Muat foto dgn indikator, lalu jalankan cb(dataUrl).
+async function withFile(v, cb){
+  if(isFileRef(v)) showBusy("Memuat bukti…","Mengunduh foto dari database.");
+  try{
+    const data=await loadFile(v);
+    hideBusy();
+    if(!data){ toast("Bukti tidak ditemukan di database","err"); return; }
+    cb(data);
+  }catch(e){ hideBusy(); toast("Gagal memuat bukti: "+e.message,"err"); }
+}
 
 /* ===== POLLING BISA DIBATALKAN =====
    Polling menarik SELURUH database (termasuk foto bukti) — itu request berat. Karena semua
@@ -4350,7 +4387,7 @@ function findDp(resId, payId){
 }
 function viewProof(resId, payId){
   const {p}=findDp(resId,payId); if(!p || !p.proofData) return;
-  showFileData(p.proofData);
+  withFile(p.proofData, showFileData);
 }
 function openAddDp(resId){
   const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
@@ -4425,7 +4462,7 @@ function showFileData(data){
 function viewFile(id,which){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const data=which==="dp"?r.dpProofData:r.docReqData;
-  if(data) showFileData(data);
+  if(data) withFile(data, showFileData);
 }
 // Deretan tombol status (menggantikan dropdown + tombol "Terapkan").
 // Status yang sedang aktif tampil ter-highlight & tidak bisa diklik.
@@ -4757,7 +4794,7 @@ function txBank(x){ return x.p.tfBank || bankFromMethod(x.p.method); }
 function txName(x){ return x.p.tfName || ""; }                    // nama pemilik rekening pengirim
 function txAmount(x){ return Number(x.p.tfAmount)>0 ? Number(x.p.tfAmount) : (Number(x.p.amount)||0); }
 function txScanned(x){ return !!(x.p.tfOcrAt || x.p.tfDate || x.p.tfTime); }
-function txProofIsImage(x){ return !!x.p.proofData && String(x.p.proofData).startsWith("data:image"); }
+function txProofIsImage(x){ return !!x.p.proofData && proofIsImage(x.p.proofData, x.p.proofName); }
 // Nominal di bukti ≠ nominal yang diketik host → tanda perlu dicek.
 function txMismatch(x){
   const a=Number(x.p.tfAmount)||0, b=Number(x.p.amount)||0;
@@ -4980,7 +5017,9 @@ async function scanProof(resId, payId, silent){
   if(!txProofIsImage(x)){ if(!silent) toast("Bukti bukan gambar (PDF tidak bisa discan otomatis)","err"); return null; }
   if(!silent) toast("Membaca bukti transfer…");
   try{
-    const text=await ocrRead(p.proofData);
+    const gambar=await loadFile(p.proofData);      // penanda → unduh dulu isinya
+    if(!gambar) throw new Error("Bukti tidak ditemukan di database");
+    const text=await ocrRead(gambar);
     const parsed=parseTransferText(text);
     applyOcr(p, parsed, text, true);
     r.updatedAt=Date.now();
@@ -5062,7 +5101,10 @@ function openTfEdit(resId, payId){
          <div class="lbl" style="font-size:11.5px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Bukti Transfer</div>
          ${p.proofData
            ? (txProofIsImage(x)
-               ? `<img src="${p.proofData}" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper)" alt="bukti transfer">`
+               // src diisi belakangan oleh muatBuktiKeImg(): fotonya disimpan terpisah
+               // di server dan baru diunduh saat modal ini dibuka.
+               ? `<img id="tfProofImg" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper);min-height:120px" alt="bukti transfer">
+                  <div id="tfProofLoad" class="hint" style="text-align:center;margin-top:6px">⏳ memuat bukti…</div>`
                : `<div class="empty"><div class="big">📄</div>${esc(p.proofName||"Dokumen PDF")}<div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="viewProof('${r.id}','${p.id}')">Buka PDF</button></div></div>`)
            : `<div class="empty"><div class="big">📎</div>Tidak ada bukti transfer yang di-upload.</div>`}
          ${txProofIsImage(x)?`<button class="btn btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="scanProof('${r.id}','${p.id}')">🔍 Scan Ulang Bukti Ini</button>`:""}
@@ -5076,6 +5118,19 @@ function openTfEdit(resId, payId){
      <button class="btn btn-primary" onclick="saveTf('${r.id}','${p.id}',false)">💾 Simpan</button>
      <button class="btn btn-ok" onclick="saveTf('${r.id}','${p.id}',true)">✓ Simpan &amp; Verifikasi</button>
    </div>`, true);
+  if(txProofIsImage(x)) muatBuktiKeImg(p.proofData);
+}
+// Isi <img> di modal dgn foto yang disimpan terpisah (diunduh saat modal dibuka).
+async function muatBuktiKeImg(v){
+  try{
+    const data=await loadFile(v);
+    const img=byId("tfProofImg"), ket=byId("tfProofLoad");
+    if(!img) return;                                  // modal keburu ditutup
+    if(data){ img.src=data; if(ket) ket.remove(); }
+    else if(ket){ ket.textContent="⚠️ Bukti tidak ditemukan di database"; }
+  }catch(e){
+    const ket=byId("tfProofLoad"); if(ket) ket.textContent="⚠️ Gagal memuat bukti";
+  }
 }
 function readTfForm(p){
   p.tfDate  = byId("tf_date").value || "";
@@ -5548,8 +5603,7 @@ function delReview(id){
 }
 function viewReviewProof(id){
   const rv=reviews().find(x=>x.id===id); if(!rv||!rv.proofData){ toast("Tidak ada bukti","err"); return; }
-  const w=window.open("");
-  w.document.write(`<title>Bukti Review</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${rv.proofData}" style="max-width:100%;max-height:100vh"></body>`);
+  withFile(rv.proofData, showFileData);
 }
 function saveReviewCfg(){
   const cfg=reviewCfg();
@@ -5731,8 +5785,7 @@ function delFeedback(id){
 }
 function viewFeedbackProof(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb||!fb.proofData){ toast("Tidak ada foto","err"); return; }
-  const w=window.open("");
-  w.document.write(`<title>Bukti Feedback</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${fb.proofData}" style="max-width:100%;max-height:100vh"></body>`);
+  withFile(fb.proofData, showFileData);
 }
 function waFeedback(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
