@@ -515,48 +515,103 @@ const IC = {
 };
 function svg(p,cls){return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 
-/* ---------- STORE (Web App API — online ke Google Sheets) ---------- */
-// GANTI URL di bawah dengan URL /exec Web App Google Apps Script milikmu.
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwJiXBtYnwkU0FIY0wtp9W_jhb0Gosw2Yi7xABOspxcmgtz4qth6_AEioKw1stqi4xoqw/exec";
-// URL Apps Script identitas Office (bukan CRM), dipakai untuk sinkron roster staf
-// (autoSyncOfficeRoster) dan panel Kelola Akses di bawah. Satu sumber URL, dipakai
-// keduanya, supaya tidak ada dua salinan yang bisa saling tidak sinkron.
+/* ---------- STORE (data CRM: MySQL via api.php) ----------
+   Dulu data CRM disimpan di Google Apps Script (WEB_APP_URL). Sekarang pindah
+   ke MySQL lewat ../marketing-api-mysql/api.php — kontraknya sama (getAll/
+   saveAll), tapi backend menyimpan PER-BARIS dengan penjaga bentrok, jadi dua
+   kru yang mengedit event yang SAMA tidak lagi saling menimpa diam-diam.
+   Kalau backend perlu dibalik, cukup ganti SATU baris di bawah. */
+const API_URL = "../marketing-api-mysql/api.php";
+// Bukti transfer (file) juga ke MySQL/disk lewat API_URL yang sama (action
+// uploadReceipt -> simpan di disk luar web root, action receipt -> sajikan).
+// Pola sama seperti foto reservasi. Apps Script tidak lagi dipakai untuk CRM.
+// URL Apps Script identitas Office (BUKAN data CRM) — tetap dipakai untuk
+// sinkron roster staf (autoSyncOfficeRoster) & panel Kelola Akses.
 const OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
 let S = null;
 let API_READY = false;
 
-// Ambil data dari server (GET). Fallback ke cache lokal / seed bila gagal.
+/* ---- bentuk state: pastikan default & array selalu ada ----
+   DB kosong balas settings {} — tanpa ini, DEFAULT_SETTINGS (mis. serviceCharge,
+   dpPercent) hilang dan perhitungan finance jadi kacau. */
+const MKT_COLS=['clients','events','followups','approvals','users','staff',
+                'taskTemplates','taskCategories','categories','notifs','activities'];
+function normalizeState(s){
+  s=s||{};
+  MKT_COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  s.settings=Object.assign({}, DEFAULT_SETTINGS, s.settings||{});
+  if(typeof s.baseline!=='number') s.baseline=0;
+  if(!s.rolePerms||typeof s.rolePerms!=='object') s.rolePerms={};
+  if(!s.roleNav||typeof s.roleNav!=='object') s.roleNav={};
+  return s;
+}
+
+/* ---- penstempel updatedAt + baseUpdatedAt ----
+   Server menolak baris yang lebih lama daripada versi di server (penjaga
+   bentrok). Supaya itu bekerja, tiap baris yang BERUBAH harus:
+     - updatedAt = sekarang        (menandai versi baru)
+     - baseUpdatedAt = versi yang KITA muat dari server saat itu
+   Baris yang tidak berubah tidak dicap, jadi tidak menabrak kerja orang lain.
+   Membandingkan sidik jari tiap baris dengan salinan terakhir dari server,
+   supaya tidak perlu menandai perubahan di puluhan tempat mutasi satu per satu. */
+let _snap={}, _serverVer={};
+function _sig(o){ const c=Object.assign({},o); delete c.updatedAt; delete c.baseUpdatedAt; return JSON.stringify(c); }
+function _eachRow(obj,fn){ MKT_COLS.forEach(k=>(obj[k]||[]).forEach(r=>{ if(r&&r.id) fn(k+':'+r.id, r); })); }
+function _dirty(key,r){ return _snap[key]!==_sig(r); }   // beda dari versi server terakhir
+// Cap updatedAt pada baris yang BERUBAH. baseUpdatedAt SENGAJA tidak disentuh di
+// sini — itu metadata kiriman, dibangun di buildPayload() dan tidak pernah masuk
+// objek S (kalau bocor ke S, save berikutnya mengirim base basi -> bentrok palsu).
+function stampChanges(){
+  const now=Date.now();
+  _eachRow(S,(key,r)=>{
+    if(!_dirty(key,r)) return;
+    r.updatedAt = now;
+    if(!r.createdAt) r.createdAt = now;
+  });
+}
+// Salinan S untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
+// kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
+function buildPayload(){
+  const p = JSON.parse(JSON.stringify(S));
+  _eachRow(p,(key,r)=>{ if(_dirty(key,r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+  return p;
+}
+function refreshSnapshot(){
+  const snap={}, ver={};
+  _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
+  _snap=snap; _serverVer=ver;
+}
+
+// Ambil data dari server (GET). Fallback ke cache lokal bila gagal.
 async function apiLoad(){
   try{
-    const res = await fetch(WEB_APP_URL+'?action=getAll', {method:'GET', redirect:'follow'});
+    const res = await fetch(API_URL+'?action=getAll&t='+Date.now(), {method:'GET', redirect:'follow'});
     const json = await res.json();
-    if(json && json.ok){
-      S = (json.data && json.data.users) ? json.data : seed();
-    } else { throw new Error((json&&json.error)||'Respons server tidak valid'); }
+    if(!json || !json.ok) throw new Error((json&&json.error)||'Respons server tidak valid');
+    S = normalizeState(json.data);
     API_READY = true;
     localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
   }catch(e){
-    // Gagal online -> pakai cache lokal, atau seed baru
+    // Gagal online -> pakai cache lokal, atau state kosong ber-default.
     try{ S = JSON.parse(localStorage.getItem(KEY)); }catch(_){ S=null; }
-    if(!S || !S.users){ S = seed(); }
+    S = normalizeState(S);
     API_READY = false;
   }
+  refreshSnapshot();   // catat versi awal untuk penjaga bentrok
 }
-// Simpan seluruh DB ke server (POST) + cache lokal. Tidak memblokir UI.
-/* Simpan menimpa SELURUH DB, jadi dua orang yang menyimpan bersamaan bisa saling
-   menghapus. Kita kirim baseRev = _rev yang kita pegang; server menolak bila sudah
-   ketinggalan (lihat docs/crm-apps-script.gs). Server lama yang belum paham baseRev
-   tetap jalan seperti biasa — hanya tanpa perlindungan. */
+// Simpan seluruh state ke server (POST) + cache lokal. Tidak memblokir UI.
+/* Server menulis PER-BARIS: baris yang tidak berubah tidak tersentuh, dan baris
+   yang KITA ubah ditolak kalau orang lain sudah menyimpannya duluan (server
+   balas daftar `bentrok`). Jadi tidak ada lagi timpa-buta seluruh database. */
 let saveInFlight=false, savePending=false;
 function save(){
-  localStorage.setItem(KEY, JSON.stringify(S)); // cache dulu (instan)
-  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0) return; // URL belum diisi
-  if(saveInFlight){ savePending=true; return; } // hindari dua POST balapan dari tab yang sama
+  stampChanges();                                // cap baris yang berubah SEBELUM cache/simpan
+  localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
+  if(saveInFlight){ savePending=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
-  const body={action:'saveAll', data:S, by:(ME&&ME.name)||''};
-  if(S._rev!==undefined && S._rev!==null) body.baseRev=S._rev;
-  fetch(WEB_APP_URL, {
+  const body={action:'saveAll', data:buildPayload()};  // baseUpdatedAt dibangun di sini, bukan di S
+  fetch(API_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
     body: JSON.stringify(body),
@@ -564,13 +619,17 @@ function save(){
   })
   .then(r=>r.json())
   .then(j=>{
-    if(j && j.ok){
-      if(j.data && j.data.rev!==undefined) S._rev=j.data.rev;
-      API_READY=true; setSyncBadge('ok');
-    } else if(j && j.error==='conflict'){
-      API_READY=false; setSyncBadge('conflict');
-      showSaveConflict(j);
-    } else {
+    if(j && j.ok && j.data){
+      const bentrok=(j.data.bentrok||[]);
+      if(bentrok.length){
+        // Sebagian perubahan ditolak karena orang lain menyimpan duluan.
+        API_READY=false; setSyncBadge('conflict');
+        showSaveConflict(bentrok);
+      }else{
+        API_READY=true; setSyncBadge('ok');
+        refreshSnapshot();     // versi kita kini = versi server
+      }
+    }else{
       API_READY=false; setSyncBadge('err');
       console.warn('Simpan ditolak server:', j && j.error);
     }
@@ -578,29 +637,24 @@ function save(){
   .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err); })
   .finally(()=>{ saveInFlight=false; if(savePending){ savePending=false; save(); } });
 }
-// Perubahan kita ditolak karena server sudah lebih baru. Jangan timpa diam-diam —
-// tanyakan, karena "timpa paksa" berarti membuang kerja orang lain.
+// Sebagian perubahan ditolak karena orang lain menyimpan baris yang sama duluan.
+// Jangan timpa diam-diam — tunjukkan apa yang bentrok, lalu sarankan muat ulang.
 let _conflictShown=false;
-function showSaveConflict(j){
+function showSaveConflict(bentrok){
   if(_conflictShown)return; _conflictShown=true;
-  const who=(j.savedBy||'user lain'), when=j.savedAt?ago(j.savedAt):'baru saja';
-  modal('<div class="modal-head"><div><h3>Perubahan Tidak Tersimpan</h3><p>Data di server sudah lebih baru</p></div></div>'
+  const daftar=bentrok.slice(0,8).map(b=>'<li>'+esc(b.nama||b.id)+' <span class="cell-sub">('+esc(b.koleksi)+')</span></li>').join('');
+  const lbh=bentrok.length>8?'<li>…dan '+(bentrok.length-8)+' lagi</li>':'';
+  modal('<div class="modal-head"><div><h3>Sebagian Perubahan Tidak Tersimpan</h3><p>Orang lain sudah menyimpan data yang sama lebih dulu</p></div></div>'
    +'<div class="modal-body">'
    +'<div class="tbl-note" style="margin-top:0;border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
-     +'<span><em>'+esc(who)+'</em> menyimpan perubahan '+esc(when)+', sesudah halaman ini dimuat. Perubahanmu <em>belum tersimpan</em>.</span></div>'
-   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Kalau dipaksa simpan, semua perubahan '+esc(who)+' akan hilang. Amannya: muat ulang, lalu ulangi perubahanmu.</p>'
+     +'<span>Perubahanmu pada data berikut <em>belum tersimpan</em> karena orang lain menyimpannya lebih dulu:</span></div>'
+   +'<ul style="margin:12px 0 0 18px;line-height:1.9">'+daftar+lbh+'</ul>'
+   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Amannya: muat ulang untuk mengambil versi terbaru, lalu ulangi perubahanmu di data itu. Perubahanmu pada data <em>lain</em> sudah tersimpan.</p>'
    +'</div><div class="modal-foot">'
-   +'<button class="btn danger-solid" onclick="forceSaveAnyway()">Timpa punya '+esc(who)+'</button>'
    +'<button class="btn pri" onclick="reloadFromServer()">Muat ulang (disarankan)</button>'
    +'</div>','wide');
 }
 function reloadFromServer(){ closeModal(); location.reload(); }
-function forceSaveAnyway(){
-  closeModal(); _conflictShown=false;
-  delete S._rev;      // tanpa baseRev -> server melewati pemeriksaan
-  save();
-  toast('Ditimpa','Perubahanmu disimpan menimpa versi server.','err');
-}
 // Badge hanya tampil kalau ADA masalah — kalau semua lancar, topbar tetap bersih.
 function setSyncBadge(state){
   const el=document.getElementById('sync-badge'); if(!el)return;
@@ -616,17 +670,20 @@ function setSyncBadge(state){
    memegang versi usang lalu menimpa kerja orang lain saat menyimpan. Saat tab
    kembali aktif, cek apakah server sudah lebih baru. */
 async function refreshIfStale(){
-  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0 || !S) return;
-  if(saveInFlight || _conflictShown) return;
+  if(!S || saveInFlight || _conflictShown) return;
+  // Jangan menimpa perubahan yang belum sempat naik ke server (mis. sedang
+  // mengetik lalu pindah tab); tampilan baru boleh diganti kalau kita bersih.
+  if(savePending) return;
   try{
-    const res=await fetch(WEB_APP_URL+'?action=getAll',{method:'GET',redirect:'follow'});
+    const res=await fetch(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'});
     const j=await res.json();
-    if(!j||!j.ok||!j.data||!j.data.users) return;
-    const srev=+j.data._rev||0, mine=+S._rev||0;
-    if(!(srev>mine)) return;                       // server tidak lebih baru -> aman
-    S=j.data; localStorage.setItem(KEY,JSON.stringify(S));
+    if(!j||!j.ok||!j.data) return;
+    const srv=normalizeState(j.data);
+    // Bandingkan hanya data yang berarti (buang metadata versi yang selalu beda).
+    if(JSON.stringify(srv)===JSON.stringify(S)) return;   // tidak ada perubahan
+    S=srv; localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
     setSyncBadge('ok'); buildNav(); paintStaffDatalist(); refreshView();
-    toast('Data disegarkan','Ada perubahan dari '+((j.data._savedBy)||'user lain')+' — tampilan diperbarui.','ok');
+    toast('Data disegarkan','Ada perubahan dari kru lain — tampilan diperbarui.','ok');
   }catch(e){ /* offline: biarkan, badge diurus oleh save() */ }
 }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshIfStale(); });
@@ -2122,8 +2179,10 @@ function autoSaveCommit(){
   secs.forEach(sec=>sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; }));
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
+  // Sinkron ke server lewat save() (bukan POST mentah) supaya cap versi &
+  // penjaga bentrok ikut berlaku. Dijeda agar tidak membanjiri tiap ketukan.
   clearTimeout(_asSrvTimer);
-  _asSrvTimer=setTimeout(()=>{ if(WEB_APP_URL && WEB_APP_URL.indexOf('GANTI')!==0){ fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'saveAll',data:S}),redirect:'follow'}).catch(()=>{}); } },4000);
+  _asSrvTimer=setTimeout(()=>{ save(); },4000);
   const ind=$('autosave-ind'); if(ind){ ind.textContent='✓ Tersimpan otomatis'; ind.style.opacity='1'; clearTimeout(ind._t); ind._t=setTimeout(()=>{ ind.style.opacity='0'; },1600); }
 }
 function saveEventTab(id,goNext){
@@ -2332,11 +2391,14 @@ async function savePayment(id,paymentId){
     if(btn){ btn.disabled=true; btn.textContent='Mengunggah bukti...'; }
     try{
       const b64=await fileToBase64(file);
-      const res=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type,dataBase64:b64})});
       const data=await res.json();
       if(!data||!data.ok){ if(btn){btn.disabled=false;btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan';} return toast('Gagal unggah','Bukti transfer gagal diunggah'+(data&&data.error?': '+data.error:'')+'. Coba lagi.','err'); }
-      receiptUrl=data.data.url; receiptName=note||data.data.name;
+      // Backend balas {key,name}; URL tampil dibangun dari key (file disajikan
+      // oleh api.php action=receipt). Disimpan penuh agar link tetap benar.
+      receiptUrl=API_URL+'?action=receipt&key='+encodeURIComponent(data.data.key);
+      receiptName=note||data.data.name;
     }catch(e){
       if(btn){ btn.disabled=false; btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan'; }
       return toast('Gagal unggah','Tidak bisa menghubungi server untuk unggah bukti. Coba lagi.','err');
