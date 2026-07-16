@@ -278,6 +278,13 @@
     .mod-save{border:1px solid var(--line); background:var(--surface); border-radius:8px; font-size:12px; font-weight:700; padding:6px 11px; cursor:pointer; color:var(--gold-dim); flex:none}
     .mod-save:hover{border-color:var(--gold-2); background:var(--gold-soft)}
     .mod-save:disabled{opacity:.45; cursor:default}
+    .mod-users-btn{border:1px solid var(--line); background:var(--surface); border-radius:8px; font-size:12px; font-weight:700; padding:6px 11px; cursor:pointer; color:var(--muted); flex:none; display:inline-flex; align-items:center; gap:5px}
+    .mod-users-btn:hover{border-color:var(--gold-2); color:var(--gold-dim); background:var(--gold-soft)}
+    .mod-users-btn svg{width:13px; height:13px; transition:transform .15s var(--ease)}
+    .mod-users-btn.open svg{transform:rotate(180deg)}
+    .mod-users-panel{border:1px solid var(--line); border-top:none; border-radius:0 0 12px 12px; margin:-8px 0 8px; padding:12px; background:#FCFBF8}
+    .mod-users-panel.hidden{display:none}
+    .mod-users-hint{font-size:11.5px; color:var(--muted); margin-bottom:9px}
     @media(max-width:520px){ .af-grid{grid-template-columns:1fr} }
 
     /* Hormati preferensi kurangi gerak. Animasi global dimatikan di laksamana.css. */
@@ -959,13 +966,64 @@
         catch(e){ box.innerHTML = '<div class="empty">Gagal memuat. Cek koneksi.</div>'; return; }
         if(!data.ok){ box.innerHTML = `<div class="empty">${data.error === 'forbidden' ? 'Bukan superadmin.' : 'Gagal: ' + esc(data.error)}</div>`; return; }
         const mods = data.modules || [];
+        const chevron = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
         box.innerHTML = mods.length ? mods.map(m => `
             <div class="mod-row${m.active ? '' : ' off'}" data-key="${esc(m.key)}">
                 <span class="mod-key">${esc(m.key)}</span>
                 <input class="mod-label" value="${esc(m.label || m.key)}" aria-label="Label modul ${esc(m.key)}">
+                <button class="mod-users-btn" data-key="${esc(m.key)}" title="Kelola user modul ini">${chevron} Akses</button>
                 <button class="mod-toggle${m.active ? ' on' : ''}" data-key="${esc(m.key)}" title="${m.active ? 'Aktif' : 'Nonaktif'}"></button>
                 <button class="mod-save" data-key="${esc(m.key)}">Simpan</button>
-            </div>`).join('') : '<div class="empty">Belum ada modul. Buka tab ini setelah menambah modul di aplikasi.</div>';
+            </div>
+            <div class="mod-users-panel hidden" data-key="${esc(m.key)}"></div>`).join('') : '<div class="empty">Belum ada modul. Buka tab ini setelah menambah modul di aplikasi.</div>';
+    }
+
+    // ----- Akses per modul (tab Modul): kebalikan dari tab User. Dipakai saat
+    // modul baru ditambah dan lebih cepat centang "siapa saja yang boleh" daripada
+    // buka form tiap user satu-satu. Data user dipakai ulang dari cache tab User
+    // (list._users), tak perlu fetch baru; toggle menulis lewat setModuleAccess
+    // yang sama dipakai form user.
+    function moduleUsersCache(){
+        return (document.getElementById('admin-list')._users || []).filter(u => u.active !== false);
+    }
+    function toggleModuleUsersPanel(key){
+        const btn = document.querySelector(`.mod-users-btn[data-key="${CSS.escape(key)}"]`);
+        const panel = document.querySelector(`.mod-users-panel[data-key="${CSS.escape(key)}"]`);
+        if(!btn || !panel) return;
+        const opening = panel.classList.contains('hidden');
+        btn.classList.toggle('open', opening);
+        panel.classList.toggle('hidden', !opening);
+        if(opening) renderModuleUsersPanel(key, panel);
+    }
+    function renderModuleUsersPanel(key, panel){
+        const users = moduleUsersCache();
+        if(!users.length){ panel.innerHTML = '<div class="mod-users-hint">Belum ada user.</div>'; return; }
+        panel.innerHTML = '<p class="mod-users-hint">Centang user yang boleh membuka modul ini. User dengan akses <b>Semua (*)</b> otomatis tercentang dan terkunci di sini, ubah lewat tab User bila perlu mengecualikannya.</p>' +
+            '<div class="pick-grid">' + users.map(u => {
+                const grants = new Set(u.grants || u.modules || []);
+                const viaStar = grants.has('*');
+                const on = viaStar || grants.has(key);
+                return `<label class="pick${on ? ' on' : ''}" data-uid="${esc(u.id)}">
+                    <input type="checkbox" data-uid="${esc(u.id)}" data-module="${esc(key)}" ${on ? 'checked' : ''} ${viaStar ? 'disabled' : ''}>
+                    ${esc(u.name)}${viaStar ? ' <span class="xs" style="opacity:.6">(*)</span>' : ''}</label>`;
+            }).join('') + '</div>';
+    }
+    async function toggleModuleUserAccess(userId, module, on, checkboxEl){
+        checkboxEl.disabled = true;
+        let data;
+        try{ data = await adminCall('setModuleAccess', { userId, module, access: on }); }
+        catch(e){ alert('Gagal terhubung. Cek koneksi.'); checkboxEl.checked = !on; checkboxEl.disabled = false; return; }
+        if(!data || !data.ok){ checkboxEl.checked = !on; checkboxEl.disabled = false; alert('Gagal: ' + ((data && data.error) || 'tak dikenal')); return; }
+        checkboxEl.closest('.pick').classList.toggle('on', on);
+        checkboxEl.disabled = false;
+        // Muat ulang daftar user (dari server) supaya tab User tetap akurat kalau
+        // admin berpindah tab tanpa refresh. Panel Akses yang sedang terbuka
+        // dirender ulang dari data baru sehingga tetap terbuka, tidak menutup.
+        const openKey = module;
+        await loadAdminUsers();
+        const panel = document.querySelector(`.mod-users-panel[data-key="${CSS.escape(openKey)}"]`);
+        const btn = document.querySelector(`.mod-users-btn[data-key="${CSS.escape(openKey)}"]`);
+        if(panel && btn && btn.classList.contains('open')){ panel.classList.remove('hidden'); renderModuleUsersPanel(openKey, panel); }
     }
 
     async function saveModuleLabel(key){
@@ -1247,12 +1305,19 @@
         // ----- Tab User / Modul -----
         document.querySelectorAll('.admin-tab').forEach(btn =>
             btn.addEventListener('click', () => switchAdminTab(btn.dataset.tab)));
-        // Simpan label modul saat blur; toggle aktif saat klik.
+        // Simpan label modul saat blur; toggle aktif saat klik; Akses buka/tutup
+        // panel user per modul (kebalikan tab User: pilih modul, centang user).
         document.getElementById('module-list').addEventListener('click', (e) => {
             const tg = e.target.closest('.mod-toggle');
             if(tg){ toggleModuleActive(tg.dataset.key, tg.classList.contains('on')); return; }
             const sv = e.target.closest('.mod-save');
-            if(sv){ saveModuleLabel(sv.dataset.key); }
+            if(sv){ saveModuleLabel(sv.dataset.key); return; }
+            const ub = e.target.closest('.mod-users-btn');
+            if(ub){ toggleModuleUsersPanel(ub.dataset.key); }
+        });
+        document.getElementById('module-list').addEventListener('change', (e) => {
+            const cb = e.target.closest('.mod-users-panel input[type="checkbox"]');
+            if(cb && !cb.disabled) toggleModuleUserAccess(cb.dataset.uid, cb.dataset.module, cb.checked, cb);
         });
     });
     </script>
