@@ -1589,13 +1589,13 @@ async function _apiGetRaw(action, ctrl, extra){
   if(!json.ok) throw new Error(json.error || "server error");
   return json.data;
 }
-async function _apiPostRaw(action, data){
+async function _apiPostRaw(action, data, extra){
   let res;
   try{
     res = await fetchWithTimeout(API_URL, {
       method:"POST", redirect:"follow",
       headers:{ "Content-Type":"text/plain;charset=utf-8" },
-      body: JSON.stringify({ action, data })
+      body: JSON.stringify(Object.assign({ action, data }, extra||{}))
     }, 25000);
   }catch(e){ throw new Error(e.name==="AbortError" ? "Server tidak merespons (timeout)." : e.message); }
   const json = await res.json();
@@ -1603,7 +1603,7 @@ async function _apiPostRaw(action, data){
   return json.data;
 }
 function apiGet(action, extra){ return apiQueue(()=>_apiGetRaw(action, null, extra)); }
-function apiPost(action, data){ return apiQueue(()=>_apiPostRaw(action, data)); }
+function apiPost(action, data, extra){ return apiQueue(()=>_apiPostRaw(action, data, extra)); }
 
 /* ===== FOTO BUKTI DISIMPAN TERPISAH DI SERVER =====
    Dulu foto bukti TF (base64) ikut di dalam blob database. Diukur di data produksi:
@@ -1778,12 +1778,30 @@ async function flushSave(){
   _saving=true;
   let sukses=false;
   try{
-    const d = await apiGet("getAll");         // 1) tarik versi terbaru
-    const adaKiriman = mergeIntoState(d);     // 2) gabungkan per baris
-    // 3) BEKUKAN apa yang dikirim. Kru bisa saja mengubah/menghapus sesuatu sementara
-    //    request ini masih jalan — perubahan itu TIDAK boleh ikut terpotret sbg tersimpan.
-    const payload = JSON.parse(JSON.stringify(STATE));
-    await apiPost("saveAll", payload);
+    /* TARIK–GABUNG–TULIS dengan PENJAGA VERSI (anti timpa).
+       Server menaikkan nomor versi tiap kali data tersimpan. Kita kirim nomor versi yang
+       kita baca (baseVer); kalau saat menulis versinya sudah berubah — artinya kru lain
+       menyelip menyimpan lebih dulu di jeda antara getAll dan saveAll kita — tulisan kita
+       DITOLAK. Kita jadikan data server tadi sebagai BASE baru, lalu ulangi: tarik yang
+       terbaru, gabungkan (data kru lain aman, bentrok meja diselesaikan createdAt-tercepat),
+       tulis lagi. Dengan ini tidak ada tulisan yang bisa saling menimpa. */
+    let payload=null, adaKiriman=false, tries=0;
+    while(true){
+      const d = await apiGet("getAll");                 // 1) tarik versi terbaru + nomornya
+      const baseVer = (d && d._ver!==undefined) ? d._ver : null;
+      adaKiriman = mergeIntoState(d);                   // 2) gabungkan per baris
+      // 3) BEKUKAN apa yang dikirim. Kru bisa saja mengubah/menghapus sesuatu sementara
+      //    request ini masih jalan — perubahan itu TIDAK boleh ikut terpotret sbg tersimpan.
+      payload = JSON.parse(JSON.stringify(STATE));
+      const r = await apiPost("saveAll", payload, {baseVer});
+      if(r && r.conflict){
+        // Kru lain menyelip lebih dulu. Anggap data server tadi sbg BASE, lalu coba lagi.
+        snapshotBaseFrom(d);
+        if(++tries>=6) throw new Error("Terlalu banyak tabrakan simpan — coba sekali lagi");
+        continue;
+      }
+      break;                                            // tersimpan
+    }
     snapshotBaseFrom(payload);                // BASE = persis isi server sekarang
     // Perubahan yang muncul saat request tadi berjalan otomatis terdeteksi sbg belum
     // tersimpan (STATE ≠ BASE) dan ditulis oleh penyimpanan lanjutan di bawah.
@@ -1799,7 +1817,7 @@ async function flushSave(){
   }catch(e){
     console.error(e);
     setSync("err","Gagal simpan");
-    toast("Gagal sinkron ke Google Sheet, cek koneksi","err");
+    toast("Gagal sinkron ke database, cek koneksi","err");
   }finally{
     _saving=false;
     const nunggu=_saveWaiters; _saveWaiters=[];
@@ -1818,6 +1836,10 @@ async function flushSave(){
    kalau dua akun memesan meja & jam yang bentrok, yang createdAt-nya LEBIH DULU
    yang berhak; yang belakangan ditolak dan diberi tahu supaya pilih meja lain. */
 function mergeIntoState(d){
+  // Dipanggil ulang tiap kali penjaga versi menolak (tabrakan simpan). Kosongkan dulu
+  // daftar tolakan supaya hanya hasil merge TERAKHIR (yang benar-benar tersimpan) yang
+  // dilaporkan ke kru — tanpa ini satu bentrok bisa memunculkan popup berkali-kali.
+  REJECTED.length = 0;
   const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
   const srvMap = new Map(srv.map(r=>[r.id, r]));
   const out = new Map(srvMap);                       // mulai dari versi server

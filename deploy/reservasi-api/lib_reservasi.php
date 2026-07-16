@@ -62,6 +62,7 @@ function db_dir() {
 function data_file() { return db_dir() . '/data.json'; }
 function file_dir()  { return db_dir() . '/files'; }
 function lock_file() { return db_dir() . '/.lock'; }
+function ver_file()  { return db_dir() . '/data.ver'; }
 // true kalau data terpaksa disimpan di dalam public_html (perlu .htaccess)
 function db_di_dalam_web() { return strpos(db_dir(), realpath(__DIR__)) === 0; }
 
@@ -99,6 +100,25 @@ function baca_state() {
   $obj = json_decode($raw, true);
   if (!is_array($obj)) return array('reservations' => array(), 'master' => null, 'audit' => array());
   return $obj;
+}
+
+/* ---------- NOMOR VERSI (anti timpa / optimistic locking) ----------
+   Tiap kali data disimpan, nomor versi naik 1. Klien membaca nomor versi saat getAll,
+   lalu menyertakannya kembali saat saveAll. Kalau di server versinya sudah BEDA (kru lain
+   menyelip menyimpan lebih dulu), tulisan ditolak — klien tarik ulang, gabungkan, coba lagi.
+   Ini yang mencegah "tulisan kru terakhir menimpa yang sudah berhasil duluan".
+   Dibaca/ditulis di dalam db_lock() saat save, jadi naik-turunnya atomik. */
+function read_ver() {
+  $p = ver_file();
+  if (!file_exists($p)) return 0;
+  $v = trim((string)@file_get_contents($p));
+  return ($v === '' || !ctype_digit($v)) ? 0 : (int)$v;
+}
+function write_ver($v) {
+  db_pastikan_folder();
+  $tmp = ver_file() . '.tmp' . getmypid();
+  @file_put_contents($tmp, (string)((int)$v));
+  @rename($tmp, ver_file());
 }
 
 // Tulis atomik: tulis ke file sementara lalu rename (rename di filesystem sama = atomik).
@@ -203,14 +223,27 @@ function gc_files(&$state) {
   return $buang;
 }
 
-/* ---------- SIMPAN (dipanggil di dalam kunci) ---------- */
-function save_all($state) {
+/* ---------- SIMPAN (dipanggil di dalam kunci) ----------
+   $baseVer = nomor versi yang KLIEN lihat terakhir. Kalau tidak cocok dengan versi server
+   sekarang, berarti ada kru lain yang menyimpan lebih dulu → TOLAK (conflict). Klien akan
+   tarik ulang + gabung + coba lagi. $baseVer null = klien lama tanpa penjaga versi → tetap
+   dilayani (timpa) demi kompatibilitas saat masa transisi deploy. */
+function save_all($state, $baseVer = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
+  $curVer = read_ver();
+  if ($baseVer !== null && $baseVer !== '' && (string)$baseVer !== (string)$curVer) {
+    // Bukan error — kondisi normal saat dua kru menyimpan hampir bersamaan.
+    return array('conflict' => true, 'saved' => false, 'ver' => $curVer);
+  }
+  unset($state['_ver']);           // jangan simpan nomor versi ke dalam blob
   $ext = externalize($state);      // jaring pengaman: foto inline → db/files
   $buang = gc_files($state);
   $len = tulis_state($state);
+  $newVer = $curVer + 1;
+  write_ver($newVer);
   return array(
     'saved' => true,
+    'ver' => $newVer,
     'reservations' => isset($state['reservations']) ? count($state['reservations']) : 0,
     'audit' => isset($state['audit']) ? count($state['audit']) : 0,
     'blobChars' => $len,

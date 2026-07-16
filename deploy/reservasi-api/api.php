@@ -59,7 +59,9 @@ if ($API_TOKEN !== '') {
 
 try {
   if ($action === 'getAll') {
-    keluar(array('ok' => true, 'data' => baca_state()));
+    $st = baca_state();
+    $st['_ver'] = read_ver();     // nomor versi utk penjaga anti-timpa (dipakai saveAll)
+    keluar(array('ok' => true, 'data' => $st));
 
   } else if ($action === 'getFile') {
     $key = $method === 'POST' ? (isset($body['data']['key']) ? $body['data']['key'] : @$body['key'])
@@ -73,8 +75,9 @@ try {
     keluar(array('ok' => true, 'data' => array('pong' => true, 'backend' => 'php', 'ts' => gmdate('c'))));
 
   } else if ($action === 'saveAll') {
+    $baseVer = isset($body['baseVer']) ? $body['baseVer'] : null;
     $lock = db_lock();
-    try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
+    try { $out = save_all(isset($body['data']) ? $body['data'] : null, $baseVer); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 
