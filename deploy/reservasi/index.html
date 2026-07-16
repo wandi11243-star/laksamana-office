@@ -694,7 +694,13 @@ const LOGO_B64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAYAAADN
       (Execute as: Me, Who has access: Anyone).
    3. Salin URL Web App (.../exec) dan tempel di bawah ini.
    Detail langkah ada di README.md. */
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw6wIxPqrTckcJwEYK8ZssZ62FQwyO2GRU7UxlOiNwXcFpgZ_nM1-eWcKzUU6sI34L0/exec";   // ← WAJIB diganti
+/* Backend: PHP di hosting sendiri (deploy/reservasi-api/api.php).
+   Dulu Google Apps Script, tapi ia menambah ~2-4 DETIK per panggilan (redirect /exec →
+   googleusercontent.com + cold start). Terukur: `ping` yang tidak melakukan apa-apa pun
+   butuh 3.780 ms, `stats` 2.383 ms. Di PHP: `stats` 53 ms — ~45x lebih cepat.
+   Sengaja RELATIF: aplikasi ada di /office/reservasi/, API di /office/reservasi-api/,
+   jadi satu origin (tidak ada urusan CORS) dan ikut pindah kalau domainnya berganti. */
+const API_URL = "../reservasi-api-mysql/api.php";
 const DEFAULT_PIN = "1234";                                 // PIN default semua kru
 
 // key sessionStorage untuk menyimpan SESI LOGIN saja (bukan data reservasi)
@@ -1548,12 +1554,12 @@ let DATA_LOADED = false;   // true setelah getAll sukses; guard agar save tidak 
    - POST : body text/plain berisi JSON {action:'saveAll', data:STATE}
      (Content-Type text/plain dipakai sengaja supaya browser TIDAK melakukan
       CORS preflight OPTIONS yang tidak didukung Apps Script.) */
-function apiConfigured(){ return APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith("PASTE_"); }
+function apiConfigured(){ return API_URL && !API_URL.startsWith("PASTE_"); }
 
-function fetchWithTimeout(url, opts, ms){
-  const ctrl = new AbortController();
+function fetchWithTimeout(url, opts, ms, ctrl){
+  ctrl = ctrl || new AbortController();
   const t = setTimeout(()=>ctrl.abort(), ms||20000);
-  return fetch(url, Object.assign({signal:ctrl.signal}, opts)).finally(()=>clearTimeout(t));
+  return fetch(url, Object.assign({}, opts, {signal:ctrl.signal})).finally(()=>clearTimeout(t));
 }
 
 /* ===== ANTRIAN REQUEST (anti tumpang-tindih) =====
@@ -1564,15 +1570,20 @@ function fetchWithTimeout(url, opts, ms){
    Semua panggilan API dilewatkan lewat SATU antrian di sini: tidak akan pernah ada dua
    request berjalan sekaligus. */
 let _apiChain = Promise.resolve();
+let _apiBusy = 0;                          // berapa request sedang mengantre/berjalan
 function apiQueue(fn){
+  _apiBusy++;
   const run = _apiChain.then(fn, fn);
-  _apiChain = run.then(()=>{}, ()=>{});   // rantai tak pernah putus walau ada yang gagal
+  _apiChain = run.then(()=>{}, ()=>{});    // rantai tak pernah putus walau ada yang gagal
+  run.then(()=>{ _apiBusy--; }, ()=>{ _apiBusy--; });
   return run;
 }
-async function _apiGetRaw(action){
-  const url = APPS_SCRIPT_URL + (APPS_SCRIPT_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
+function apiIdle(){ return _apiBusy===0; }
+async function _apiGetRaw(action, ctrl, extra){
+  let url = API_URL + (API_URL.includes("?")?"&":"?") + "action=" + encodeURIComponent(action) + "&t=" + Date.now();
+  if(extra) Object.keys(extra).forEach(k=>{ url += "&"+encodeURIComponent(k)+"="+encodeURIComponent(extra[k]); });
   let res;
-  try{ res = await fetchWithTimeout(url, { method:"GET", redirect:"follow" }, 20000); }
+  try{ res = await fetchWithTimeout(url, { method:"GET", redirect:"follow" }, 20000, ctrl); }
   catch(e){ throw new Error(e.name==="AbortError" ? "Server tidak merespons (timeout). Cek koneksi / URL Web App." : e.message); }
   const json = await res.json();
   if(!json.ok) throw new Error(json.error || "server error");
@@ -1581,7 +1592,7 @@ async function _apiGetRaw(action){
 async function _apiPostRaw(action, data){
   let res;
   try{
-    res = await fetchWithTimeout(APPS_SCRIPT_URL, {
+    res = await fetchWithTimeout(API_URL, {
       method:"POST", redirect:"follow",
       headers:{ "Content-Type":"text/plain;charset=utf-8" },
       body: JSON.stringify({ action, data })
@@ -1591,8 +1602,62 @@ async function _apiPostRaw(action, data){
   if(!json.ok) throw new Error(json.error || "server error");
   return json.data;
 }
-function apiGet(action){ return apiQueue(()=>_apiGetRaw(action)); }
+function apiGet(action, extra){ return apiQueue(()=>_apiGetRaw(action, null, extra)); }
 function apiPost(action, data){ return apiQueue(()=>_apiPostRaw(action, data)); }
+
+/* ===== FOTO BUKTI DISIMPAN TERPISAH DI SERVER =====
+   Dulu foto bukti TF (base64) ikut di dalam blob database. Diukur di data produksi:
+   blob 5,95 MB, 97%-nya foto — jadi ubah status pun harus memindahkan ~12 MB dan makan
+   10-20 detik. Sekarang foto disimpan di sheet `_FILES`, dan blob hanya memuat PENANDA
+   "@f:<key>" (~212 KB total). Foto baru diunduh SAAT DIBUTUHKAN (klik "Lihat Bukti" /
+   saat OCR), lalu di-cache supaya tidak berulang.
+   Data lama yang masih inline ("data:image/…") tetap dilayani apa adanya. */
+const FILE_TAG = "@f:";
+function isFileRef(v){ return typeof v==="string" && v.startsWith(FILE_TAG); }
+// Nama berkas dipakai menebak jenisnya saat isinya belum diunduh.
+function proofIsImage(data, name){
+  if(isFileRef(data)) return !/\.pdf$/i.test(String(name||""));
+  return String(data||"").startsWith("data:image");
+}
+const FILE_CACHE = new Map();
+async function loadFile(v){
+  if(!v) return "";
+  if(!isFileRef(v)) return v;                       // data lama: sudah inline
+  const key=v.slice(FILE_TAG.length);
+  if(FILE_CACHE.has(key)) return FILE_CACHE.get(key);
+  const d=await apiGet("getFile", {key});
+  const data=(d && d.data) || "";
+  if(data) FILE_CACHE.set(key, data);
+  return data;
+}
+// Muat foto dgn indikator, lalu jalankan cb(dataUrl).
+async function withFile(v, cb){
+  if(isFileRef(v)) showBusy("Memuat bukti…","Mengunduh foto dari database.");
+  try{
+    const data=await loadFile(v);
+    hideBusy();
+    if(!data){ toast("Bukti tidak ditemukan di database","err"); return; }
+    cb(data);
+  }catch(e){ hideBusy(); toast("Gagal memuat bukti: "+e.message,"err"); }
+}
+
+/* ===== POLLING BISA DIBATALKAN =====
+   Polling menarik SELURUH database (termasuk foto bukti) — itu request berat. Karena semua
+   request diserialkan, polling yang sedang berjalan bikin aksi kru MENUNGGU di belakangnya.
+   Itu sebabnya ubah status kadang terasa lama padahal "cuma status".
+   Solusi: polling dibatalkan begitu kru menekan sesuatu — datanya toh akan ditarik ulang
+   oleh aksi kru itu sendiri (flushSave selalu getAll dulu), jadi tidak ada yang hilang. */
+let _pollCtrl=null, _pollJalan=false;
+function batalkanPolling(){
+  if(_pollCtrl){ try{ _pollCtrl.abort(); }catch(e){} _pollCtrl=null; }
+}
+function apiGetPoll(action){
+  return apiQueue(()=>{
+    if(!_pollJalan) return Promise.reject(new Error("poll dibatalkan"));   // keburu dibatalkan saat mengantre
+    _pollCtrl = new AbortController();
+    return _apiGetRaw(action, _pollCtrl).finally(()=>{ _pollCtrl=null; });
+  });
+}
 
 /* ======================================================================
    SINKRONISASI MULTI-AKUN (BACA–GABUNG–TULIS)
@@ -1621,12 +1686,18 @@ function normalizeRes(r){
   ensureDps(r);                      // data lama: 1 DP datar → cicilan pertama
   return r;
 }
-// Potret kondisi "sudah sinkron dgn server" — dipakai untuk tahu mana yang kita ubah.
-function snapshotBase(){
-  BASE.res = new Map(STATE.reservations.map(r=>[r.id, JSON.stringify(r)]));
-  BASE.master = JSON.stringify(STATE.master);
-  BASE.auditIds = new Set(STATE.audit.map(a=>a.id));
+/* Potret kondisi "sudah sinkron dgn server" — dipakai untuk tahu mana yang kita ubah.
+   WAJIB dipotret dari DATA YANG BENAR-BENAR DIKIRIM, bukan dari STATE yang hidup.
+   Kalau memotret STATE hidup setelah apiPost selesai, perubahan yang dibuat kru DI TENGAH
+   penyimpanan (mis. menghapus sesuatu sementara request masih jalan) ikut terpotret sebagai
+   "sudah tersimpan" — padahal server tidak pernah menerimanya. Penyimpanan berikutnya lalu
+   mengira tidak ada yang perlu ditulis, dan perubahan itu HILANG diam-diam. */
+function snapshotBaseFrom(st){
+  BASE.res = new Map((st.reservations||[]).map(r=>[r.id, JSON.stringify(r)]));
+  BASE.master = JSON.stringify(st.master||{});
+  BASE.auditIds = new Set((st.audit||[]).map(a=>a.id));
 }
+function snapshotBase(){ snapshotBaseFrom(STATE); }
 function hasLocalChanges(){
   if(STATE.reservations.length !== BASE.res.size) return true;
   for(const r of STATE.reservations){
@@ -1648,7 +1719,7 @@ function applyServer(d){
 async function loadState(){
   if(!apiConfigured()){
     setSync("err","Backend belum diatur");
-    throw new Error("APPS_SCRIPT_URL belum diisi. Buka Code.gs / README untuk setup.");
+    throw new Error("API_URL belum diisi (deploy/reservasi-api/api.php).");
   }
   setSync("sync","Memuat data…");
   applyServer(await apiGet("getAll"));
@@ -1697,6 +1768,7 @@ function saveState(){
    selesai — bukan sebelumnya. Mengembalikan true/false. */
 async function saveNow(){
   clearTimeout(_saveTimer);
+  batalkanPolling();          // jangan sampai aksi kru menunggu di belakang polling
   return await flushSave();
 }
 let _saveWaiters=[];
@@ -1708,8 +1780,14 @@ async function flushSave(){
   try{
     const d = await apiGet("getAll");         // 1) tarik versi terbaru
     const adaKiriman = mergeIntoState(d);     // 2) gabungkan per baris
-    await apiPost("saveAll", STATE);          // 3) tulis hasil gabungan
-    snapshotBase();
+    // 3) BEKUKAN apa yang dikirim. Kru bisa saja mengubah/menghapus sesuatu sementara
+    //    request ini masih jalan — perubahan itu TIDAK boleh ikut terpotret sbg tersimpan.
+    const payload = JSON.parse(JSON.stringify(STATE));
+    await apiPost("saveAll", payload);
+    snapshotBaseFrom(payload);                // BASE = persis isi server sekarang
+    // Perubahan yang muncul saat request tadi berjalan otomatis terdeteksi sbg belum
+    // tersimpan (STATE ≠ BASE) dan ditulis oleh penyimpanan lanjutan di bawah.
+    if(hasLocalChanges()) _saveAgain = true;
     sukses = true;
     setSync("ok","Tersimpan");
     reportRejected();
@@ -1725,10 +1803,15 @@ async function flushSave(){
   }finally{
     _saving=false;
     const nunggu=_saveWaiters; _saveWaiters=[];
-    if(_saveAgain){ _saveAgain=false; sukses = await flushSave(); }
-    nunggu.forEach(f=>f(sukses));            // bangunkan pemanggil yang sedang menunggu
+    /* Penyimpanan LANJUTAN (untuk perubahan yang masuk saat kita sedang menulis) punya
+       hasilnya sendiri. JANGAN menimpa `sukses` dengan hasil itu: kalau tulisan KITA sudah
+       berhasil tapi lanjutannya gagal, pemanggil kita akan mengira gagal lalu MEMBATALKAN
+       perubahan yang sebenarnya sudah masuk database. */
+    let lanjut = sukses;
+    if(_saveAgain){ _saveAgain=false; lanjut = await flushSave(); }
+    nunggu.forEach(f=>f(lanjut));            // yang menunggu → hasil penyimpanan lanjutan
   }
-  return sukses;
+  return sukses;                             // pemanggil kita → hasil tulisan KITA sendiri
 }
 
 /* Inti penggabungan. Sekaligus menegakkan aturan REBUTAN MEJA:
@@ -1824,30 +1907,38 @@ function reportRejected(){
 }
 
 /* ===== TARIK OTOMATIS: perubahan kru lain langsung muncul tanpa refresh =====
-   Denahnya harus terasa hidup, jadi saat kru sedang melihat Recap/Denah, data ditarik
-   lebih sering (±4 dtk). Di halaman lain lebih jarang (±15 dtk) supaya tidak boros
-   kuota Apps Script. Interval memilih diri sendiri (self-scheduling setTimeout). */
+   Saat kru melihat Recap/Denah, data ditarik lebih sering supaya denah terasa hidup; di
+   halaman lain lebih jarang. Tiap tarikan mengunduh SELURUH database (foto bukti ikut),
+   jadi ini request berat — makanya polling selalu mengalah: tidak jalan kalau antrian API
+   sedang dipakai, dan langsung dibatalkan begitu kru menekan sesuatu. */
 const POLL_FAST = 6000;    // saat di halaman Recap Reservasi (denah/daftar)
 const POLL_SLOW = 20000;   // halaman lain
 function pollDelay(){ return CURRENT_PAGE==="hariH" ? POLL_FAST : POLL_SLOW; }
 async function pollRemote(){
   if(!DATA_LOADED || _saving || !SESSION) return;
+  // Antrian API sedang dipakai (mis. kru sedang menyimpan) → jangan menyelak. Kalau polling
+  // ikut mengantre, aksi kru bisa terjebak menunggu di belakang tumpukan polling.
+  if(!apiIdle()) return;
   if(document.hidden) return;
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
   if(byId("modalRoot")?.innerHTML) return;           // jangan gambar ulang saat kru sedang membuka dialog
   if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
   if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
   try{
-    const d = await apiGet("getAll");
+    _pollJalan = true;
+    const d = await apiGetPoll("getAll");
     const beda = JSON.stringify((d.reservations||[]).map(r=>r.id+"|"+(r.updatedAt||0)).sort())
               !== JSON.stringify(STATE.reservations.map(r=>r.id+"|"+(r.updatedAt||0)).sort());
     const bedaMaster = JSON.stringify(d.master||{}) !== JSON.stringify(STATE.master);
     if(!beda && !bedaMaster) return;
+    // Kru sempat menekan sesuatu saat tarikan ini berjalan → jangan timpa layarnya.
+    if(_saving || hasLocalChanges() || byId("busyRoot")?.classList.contains("on")) return;
     applyServer(d);
     buildNav();
     if(CURRENT_PAGE) navigate(CURRENT_PAGE);
     setSync("ok","Diperbarui dari kru lain");
-  }catch(e){ /* offline sesaat → coba lagi pada tik berikutnya */ }
+  }catch(e){ /* dibatalkan / offline sesaat → coba lagi pada tik berikutnya */ }
+  finally{ _pollJalan=false; }
 }
 let _pollTimer=null;
 async function pollLoop(){
@@ -1965,6 +2056,7 @@ async function commit(msg){
   if(!ok) toast("Gagal menyimpan ke database — perubahan mungkin belum tersimpan. Coba lagi.","err");
   return ok;
 }
+
 
 function openModal(html, wide){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
@@ -2171,7 +2263,7 @@ async function enterApp(){
       first.innerHTML = `<div class="panel"><div class="empty"><div class="big">🔌</div><b>Gagal terhubung ke Google Sheet.</b>
         <div style="margin-top:8px;color:var(--muted);font-size:13.5px;max-width:440px">${esc(e.message)}</div>
         <div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="enterApp()">↻ Coba lagi</button></div></div></div>`;
-      toast("Backend belum siap, cek APPS_SCRIPT_URL","err");
+      toast("Backend belum siap — cek deploy/reservasi-api/api.php","err");
       return false;
     }
   }
@@ -2378,11 +2470,11 @@ function renderInput(editId){
        <datalist id="guestPhones">${guestDirectory().map(g=>`<option value="${esc(displayPhone(g.phone))}">${esc(g.name)}</option>`).join("")}</datalist>
        <div class="field">
          <label>Tanggal Reservasi <span class="req">*</span></label>
-         <input type="date" name="date" required value="${r?.date||todayStr()}" onchange="onDateChange()">
+         <input type="date" name="date" required value="${r?.date||todayStr()}" min="${r?.date && r.date<todayStr() ? r.date : todayStr()}" onchange="onDateChange()">
        </div>
        <div class="field">
          <label>Jam Datang <span class="req">*</span> <span class="hint" style="font-weight:400">(format 24 jam, tinggal klik)</span></label>
-         ${timePickerHtml({id:"tpTime", name:"time", value:r?.time||"19:00", step:5, onpick:"checkConflict"})}
+         ${timePickerHtml({id:"tpTime", name:"time", value:r?.time||"00:00", step:5, onpick:"checkConflict"})}
        </div>
        <div class="field">
          <label>Jumlah Pax <span class="req">*</span></label>
@@ -2646,6 +2738,12 @@ async function saveReservation(){
   if(!normTime(g("time"))){
     toast("Jam Datang tidak valid — pakai format 24 jam, mis. 19:00","err");
     f.elements["time"].focus(); return;
+  }
+  // Reservasi baru tidak boleh untuk tanggal yang sudah lewat (min di input hanya
+  // menonaktifkan tombolnya; ini jaring pengaman kalau tanggal diketik manual).
+  if(!EDIT_ID && g("date") < todayStr()){
+    toast("Tanggal reservasi tidak boleh sebelum hari ini","err");
+    f.elements["date"].focus(); return;
   }
   // Meja wajib dipilih (klik meja pada denah).
   if(!g("table")){
@@ -3562,7 +3660,7 @@ async function toggleSharing(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   r.sharing=!r.sharing; r.updatedAt=Date.now();
   logAudit(r.sharing?"Set Sharing":"Batal Sharing", `${r.name}, meja ${r.table||'-'}`);
-  const ok=await commit("Menyimpan ke database…");
+  const ok=await commit("Menyimpan…");
   if(!ok){ r.sharing=!r.sharing; }
   closeModal(); renderHariH();
   if(ok) toast(r.sharing?"Meja dijadikan sharing 🤝":"Sharing dibatalkan","ok");
@@ -3976,7 +4074,7 @@ async function saveArrival(id, first){
   const sisa=remainingPax(r);
   logAudit(first?"Datang":"Datang Susulan",
     `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`);
-  const ok=await commit(first?"Menyimpan kedatangan ke database…":"Menyimpan kedatangan susulan…");
+  const ok=await commit("Menyimpan kedatangan…");
   if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -3999,7 +4097,7 @@ async function undoArrival(id, idx){
   }
   r.updatedAt=Date.now();
   logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`);
-  const ok=await commit("Menyimpan koreksi ke database…");
+  const ok=await commit("Menyimpan koreksi…");
   if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   buildNav();
   if(r.arrivals.length) openArrivalModal(id,false); else closeModal();
@@ -4012,7 +4110,7 @@ async function cancelReservation(id){
   if(!confirm(`Batalkan reservasi "${r.name}"? Meja akan tersedia kembali.`)) return;
   const prev=r.status; r.status="Cancelled"; r.updatedAt=Date.now();
   logAudit("Batal",`${r.name}`);
-  const ok=await commit("Membatalkan di database…");
+  const ok=await commit("Membatalkan…");
   if(!ok){ r.status=prev; }
   buildNav(); renderHariH();
   if(ok) toast("Reservasi dibatalkan, meja tersedia kembali","err");
@@ -4022,7 +4120,7 @@ async function markNoShow(id){
   if(!confirm(`Tandai "${r.name}" sebagai NO-SHOW?`)) return;
   const prev=r.status; r.status="No-show"; r.updatedAt=Date.now();
   logAudit("No-show",`${r.name}`);
-  const ok=await commit("Menyimpan no-show ke database…");
+  const ok=await commit("Menyimpan no-show…");
   if(!ok){ r.status=prev; }
   buildNav(); renderHariH();
   if(ok) toast("Ditandai no-show","err");
@@ -4056,7 +4154,7 @@ async function saveFollowUp(id){
   const prev=JSON.parse(JSON.stringify(r));
   r.followups=r.followups||[]; r.followups.push({ts:Date.now(),by:SESSION.name,note});
   r.updatedAt=Date.now(); logAudit("Follow Up",`${r.name}: ${note}`);
-  const ok=await commit("Menyimpan catatan ke database…");
+  const ok=await commit("Menyimpan catatan…");
   if(!ok){ Object.assign(r, prev); }
   closeModal(); renderHariH();
   if(ok) toast("Catatan follow up tersimpan ✓","ok");
@@ -4301,7 +4399,7 @@ function findDp(resId, payId){
 }
 function viewProof(resId, payId){
   const {p}=findDp(resId,payId); if(!p || !p.proofData) return;
-  showFileData(p.proofData);
+  withFile(p.proofData, showFileData);
 }
 function openAddDp(resId){
   const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
@@ -4331,11 +4429,12 @@ function openAddDp(resId){
      <button class="btn btn-primary" onclick="saveAddDp('${r.id}')">💾 Simpan DP</button>
    </div>`);
 }
-function saveAddDp(resId){
+async function saveAddDp(resId){
   const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
   ensureDps(r);
   const amount=rupiahVal(byId("ndp_amount").value);
   if(!amount){ toast("Nominal DP wajib diisi","err"); return; }
+  const prev=JSON.parse(JSON.stringify(r));
   const p=newDp();
   p.amount=amount;
   p.method=byId("ndp_method")?.value||"";
@@ -4343,22 +4442,27 @@ function saveAddDp(resId){
   r.dps.push(p);
   syncDp(r);
   if(r.status==="Pending") r.status="Confirmed";     // sudah ada uang masuk
-  PENDING_FILES={};
   logAudit("Tambah DP", `${r.name}: DP ke-${r.dps.length} ${rpDot(amount)} (total ${rpDot(dpTotal(r))})`);
-  saveState(); closeModal(); buildNav();
+  const ok=await commit("Menyimpan DP ke database…");
+  if(!ok){ Object.assign(r, prev); return; }          // gagal → modal tetap terbuka, bisa coba lagi
+  PENDING_FILES={};
+  closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(`DP ${rpDot(amount)} tercatat — total DP ${rpDot(dpTotal(r))} ✓`,"ok");
 }
 // Hapus satu catatan uang masuk. Dibatasi Admin Sistem — ini menghapus bukti uang,
 // jadi selain tercatat di audit log, dicegah juga di sisi tombol maupun di sini.
-function delDp(resId, payId){
+async function delDp(resId, payId){
   if(!CAN.deleteDp(SESSION.role)){ toast("Hanya Admin Sistem yang boleh menghapus transaksi dana masuk","err"); return; }
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   if(!confirm(`Hapus transaksi dana masuk ${rpDot(p.amount)} (${p.method||"-"}) milik "${r.name}"?\n\nCatatan uang masuk ini akan hilang. Tindakan ini tercatat di audit log.`)) return;
+  const prev=JSON.parse(JSON.stringify(r));
   r.dps=r.dps.filter(x=>x.id!==payId);
   syncDp(r);
   logAudit("Hapus Dana Masuk", `${r.name}: hapus ${rpDot(p.amount)} (${p.tfBank||p.method||"-"}${p.tfName?", a.n. "+p.tfName:""}) — sisa total DP ${rpDot(dpTotal(r))}`);
-  saveState(); closeModal();
+  const ok=await commit("Menghapus dari database…");
+  if(!ok){ Object.assign(r, prev); return; }
+  closeModal();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast("Transaksi dana masuk dihapus","err");
 }
@@ -4370,7 +4474,7 @@ function showFileData(data){
 function viewFile(id,which){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const data=which==="dp"?r.dpProofData:r.docReqData;
-  if(data) showFileData(data);
+  if(data) withFile(data, showFileData);
 }
 // Deretan tombol status (menggantikan dropdown + tombol "Terapkan").
 // Status yang sedang aktif tampil ter-highlight & tidak bisa diklik.
@@ -4399,11 +4503,22 @@ async function changeStatus(id, status){
     r.leftAt=0;   // masih duduk
   }
   r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`);
-  const ok=await commit("Mengubah status ke database…");
-  if(!ok){ Object.assign(r, prev); }                        // gagal → balikkan
-  buildNav(); closeModal();
-  if(ok) toast("Status diubah → "+ns+" ✓","ok");
-  navigate(CURRENT_PAGE);
+  const ok=await commit("Menyimpan status…");
+  /* Cari ULANG barisnya: penggabungan bisa mengganti isi STATE dgn objek baru dari server,
+     sehingga `r` jadi objek lepas yang tidak lagi ada di STATE. */
+  const kini=STATE.reservations.find(x=>x.id===id);
+  if(!ok){ if(kini) Object.assign(kini, prev); }          // gagal → balikkan
+  buildNav(); closeModal(); navigate(CURRENT_PAGE);
+  if(!ok) return;
+  // Berhasil menulis, TAPI perubahan kita bisa saja kalah dari kru lain yang mengubah baris
+  // yang sama lebih baru (aturan "yang terakhir menang"). Jangan mengaku berhasil kalau
+  // hasil akhirnya bukan yang kita pilih — dulu di sinilah layar bilang "✓" padahal
+  // database tidak berubah.
+  if(kini && kini.status!==ns){
+    toast(`Status tidak jadi "${ns}" — kru lain lebih dulu mengubahnya jadi "${kini.status}"`,"err");
+    return;
+  }
+  toast("Status → "+ns+" ✓","ok");
 }
 // Tamu selesai duduk / pulang → meja bebas kembali, durasi duduk tercatat.
 async function guestLeft(id){
@@ -4414,7 +4529,7 @@ async function guestLeft(id){
   r.leftAt=Date.now(); r.updatedAt=Date.now();
   const dur=dineDuration(r);
   logAudit("Selesai Duduk",`${r.name}${dur!=null?`, duduk ${fmtDur(dur)}`:""}`);
-  const ok=await commit("Menandai selesai di database…");
+  const ok=await commit("Menandai selesai…");
   if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -4691,7 +4806,7 @@ function txBank(x){ return x.p.tfBank || bankFromMethod(x.p.method); }
 function txName(x){ return x.p.tfName || ""; }                    // nama pemilik rekening pengirim
 function txAmount(x){ return Number(x.p.tfAmount)>0 ? Number(x.p.tfAmount) : (Number(x.p.amount)||0); }
 function txScanned(x){ return !!(x.p.tfOcrAt || x.p.tfDate || x.p.tfTime); }
-function txProofIsImage(x){ return !!x.p.proofData && String(x.p.proofData).startsWith("data:image"); }
+function txProofIsImage(x){ return !!x.p.proofData && proofIsImage(x.p.proofData, x.p.proofName); }
 // Nominal di bukti ≠ nominal yang diketik host → tanda perlu dicek.
 function txMismatch(x){
   const a=Number(x.p.tfAmount)||0, b=Number(x.p.amount)||0;
@@ -4914,7 +5029,9 @@ async function scanProof(resId, payId, silent){
   if(!txProofIsImage(x)){ if(!silent) toast("Bukti bukan gambar (PDF tidak bisa discan otomatis)","err"); return null; }
   if(!silent) toast("Membaca bukti transfer…");
   try{
-    const text=await ocrRead(p.proofData);
+    const gambar=await loadFile(p.proofData);      // penanda → unduh dulu isinya
+    if(!gambar) throw new Error("Bukti tidak ditemukan di database");
+    const text=await ocrRead(gambar);
     const parsed=parseTransferText(text);
     applyOcr(p, parsed, text, true);
     r.updatedAt=Date.now();
@@ -4996,7 +5113,10 @@ function openTfEdit(resId, payId){
          <div class="lbl" style="font-size:11.5px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Bukti Transfer</div>
          ${p.proofData
            ? (txProofIsImage(x)
-               ? `<img src="${p.proofData}" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper)" alt="bukti transfer">`
+               // src diisi belakangan oleh muatBuktiKeImg(): fotonya disimpan terpisah
+               // di server dan baru diunduh saat modal ini dibuka.
+               ? `<img id="tfProofImg" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper);min-height:120px" alt="bukti transfer">
+                  <div id="tfProofLoad" class="hint" style="text-align:center;margin-top:6px">⏳ memuat bukti…</div>`
                : `<div class="empty"><div class="big">📄</div>${esc(p.proofName||"Dokumen PDF")}<div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="viewProof('${r.id}','${p.id}')">Buka PDF</button></div></div>`)
            : `<div class="empty"><div class="big">📎</div>Tidak ada bukti transfer yang di-upload.</div>`}
          ${txProofIsImage(x)?`<button class="btn btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="scanProof('${r.id}','${p.id}')">🔍 Scan Ulang Bukti Ini</button>`:""}
@@ -5010,6 +5130,19 @@ function openTfEdit(resId, payId){
      <button class="btn btn-primary" onclick="saveTf('${r.id}','${p.id}',false)">💾 Simpan</button>
      <button class="btn btn-ok" onclick="saveTf('${r.id}','${p.id}',true)">✓ Simpan &amp; Verifikasi</button>
    </div>`, true);
+  if(txProofIsImage(x)) muatBuktiKeImg(p.proofData);
+}
+// Isi <img> di modal dgn foto yang disimpan terpisah (diunduh saat modal dibuka).
+async function muatBuktiKeImg(v){
+  try{
+    const data=await loadFile(v);
+    const img=byId("tfProofImg"), ket=byId("tfProofLoad");
+    if(!img) return;                                  // modal keburu ditutup
+    if(data){ img.src=data; if(ket) ket.remove(); }
+    else if(ket){ ket.textContent="⚠️ Bukti tidak ditemukan di database"; }
+  }catch(e){
+    const ket=byId("tfProofLoad"); if(ket) ket.textContent="⚠️ Gagal memuat bukti";
+  }
 }
 function readTfForm(p){
   p.tfDate  = byId("tf_date").value || "";
@@ -5020,7 +5153,7 @@ function readTfForm(p){
   p.tfNote  = byId("tf_note").value.trim();
   p.tfSource= "manual";
 }
-function saveTf(resId, payId, verify){
+async function saveTf(resId, payId, verify){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   readTfForm(p);
   if(verify){
@@ -5030,27 +5163,36 @@ function saveTf(resId, payId, verify){
   r.updatedAt=Date.now();
   logAudit(verify?"Verifikasi Dana Masuk":"Koreksi Data Transfer",
     `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"-"} ${p.tfTime||""} ${rpDot(p.tfAmount)}`);
-  saveState(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // verifikasi bisa dilakukan dari halaman mana pun (mis. detail reservasi)
-  toast(verify?"Dana masuk terverifikasi ✓":"Data transfer disimpan","ok");
+  const ok=await commit(verify?"Memverifikasi ke database…":"Menyimpan data transfer…");
+  closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // bisa dilakukan dari halaman mana pun (mis. detail reservasi)
+  if(ok) toast(verify?"Dana masuk terverifikasi ✓":"Data transfer disimpan ✓","ok");
 }
-function verifyTf(resId, payId){
+async function verifyTf(resId, payId){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   const x={r,p};
   if(!p.tfDate || !txAmount(x)){ openTfEdit(resId,payId); toast("Lengkapi tanggal & nominal transfer dulu","err"); return; }
+  const prev=JSON.parse(JSON.stringify(p));
   if(!Number(p.tfAmount)) p.tfAmount=Number(p.amount)||0;
   if(!p.tfBank) p.tfBank=bankFromMethod(p.method);
   p.tfStatus="verified"; p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
   logAudit("Verifikasi Dana Masuk", `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate} ${p.tfTime||""} ${rpDot(txAmount(x))}`);
-  saveState(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // verifikasi bisa dilakukan dari halaman mana pun (mis. detail reservasi) toast("Dana masuk terverifikasi ✓","ok");
+  const ok=await commit("Memverifikasi dana masuk ke database…");
+  if(!ok) Object.assign(p, prev);
+  closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  if(ok) toast("Dana masuk terverifikasi ✓","ok");
 }
-function rejectTf(resId, payId){
+async function rejectTf(resId, payId){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   const note=prompt(`Tolak bukti transfer "${r.name}".\nAlasan (mis. bukti tidak terbaca / dana tidak masuk):`, p.tfNote||"");
   if(note===null) return;
+  const prev=JSON.parse(JSON.stringify(p));
   if(byId("tf_date")) readTfForm(p);        // dipanggil dari modal edit → ikut simpan isian
   p.tfStatus="rejected"; p.tfNote=note.trim(); p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
   logAudit("Tolak Bukti Transfer", `${r.name}: ${note.trim()||"tanpa alasan"}`);
-  saveState(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // verifikasi bisa dilakukan dari halaman mana pun (mis. detail reservasi) toast("Bukti transfer ditolak","err");
+  const ok=await commit("Menyimpan penolakan ke database…");
+  if(!ok) Object.assign(p, prev);
+  closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  if(ok) toast("Bukti transfer ditolak","err");
 }
 function exportFinanceCSV(){
   const list=financeList();
@@ -5473,8 +5615,7 @@ function delReview(id){
 }
 function viewReviewProof(id){
   const rv=reviews().find(x=>x.id===id); if(!rv||!rv.proofData){ toast("Tidak ada bukti","err"); return; }
-  const w=window.open("");
-  w.document.write(`<title>Bukti Review</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${rv.proofData}" style="max-width:100%;max-height:100vh"></body>`);
+  withFile(rv.proofData, showFileData);
 }
 function saveReviewCfg(){
   const cfg=reviewCfg();
@@ -5656,8 +5797,7 @@ function delFeedback(id){
 }
 function viewFeedbackProof(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb||!fb.proofData){ toast("Tidak ada foto","err"); return; }
-  const w=window.open("");
-  w.document.write(`<title>Bukti Feedback</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${fb.proofData}" style="max-width:100%;max-height:100vh"></body>`);
+  withFile(fb.proofData, showFileData);
 }
 function waFeedback(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
