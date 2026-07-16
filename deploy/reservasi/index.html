@@ -683,6 +683,10 @@ svg.lc{display:block;flex:none}
 </div>
 
 <div id="modalRoot"></div>
+<!-- Wadah TERPISAH untuk popup "meja keburu diambil". Sengaja bukan modalRoot: banyak
+     alur (walk-in, pindah/tambah meja, ubah status) memanggil closeModal() untuk menutup
+     dialognya sendiri tepat setelah menyimpan, dan itu ikut menyapu popup ini. -->
+<div id="popupRoot"></div>
 <div id="toastRoot"></div>
 
 <script>
@@ -1811,7 +1815,7 @@ async function flushSave(){
     reportRejected();
     // Gambar ulang HANYA kalau ada perubahan dari kru lain yang ikut tergabung, dan
     // jangan pernah saat form input sedang diisi / dialog terbuka — nanti ketikan hilang.
-    if(adaKiriman && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !byId("modalRoot")?.innerHTML){
+    if(adaKiriman && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !dialogTerbuka()){
       buildNav(); navigate(CURRENT_PAGE);
     }
   }catch(e){
@@ -1947,7 +1951,7 @@ async function pollRemote(){
   if(!apiIdle()) return;
   if(document.hidden) return;
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
-  if(byId("modalRoot")?.innerHTML) return;           // jangan gambar ulang saat kru sedang membuka dialog
+  if(dialogTerbuka()) return;                        // jangan gambar ulang saat kru sedang membuka dialog/popup
   if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
   if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
   try{
@@ -2088,6 +2092,9 @@ function openModal(html, wide){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
 }
 function closeModal(){ byId("modalRoot").innerHTML=""; }
+// Ada dialog terbuka? Cek DUA wadah: modal biasa (#modalRoot) dan popup meja (#popupRoot).
+// Dipakai polling & auto-save supaya tidak menggambar ulang layar saat kru sedang membaca.
+function dialogTerbuka(){ return !!(byId("modalRoot")?.innerHTML || byId("popupRoot")?.innerHTML); }
 
 /* ===== POPUP "MEJA KEBURU DIAMBIL" =====
    Sengaja BUKAN alert() bawaan browser: alert memblokir seluruh halaman, tampilannya
@@ -2097,11 +2104,14 @@ function closeModal(){ byId("modalRoot").innerHTML=""; }
    `other` = reservasi kru lain yang menang; `mineName` = nama tamu punya kita. */
 function popupMejaDiambil(other, mineName, lain){
   const t = (other && other.table) ? other.table : "-";
-  /* Sengaja TIDAK memakai openModal(): openModal menutup popup begitu LATARNYA DIKLIK,
-     padahal pesan ini wajib terbaca dan tombol OK-nya yang menyegarkan denah. Di sini
-     latar tidak diberi onclick sama sekali → popup HANYA bisa ditutup lewat tombol OK.
-     (Tidak ada handler Escape di aplikasi ini, jadi tak perlu ditahan.) */
-  byId("modalRoot").innerHTML = `<div class="modal-back"><div class="modal">
+  /* Popup ini punya WADAH SENDIRI (#popupRoot), bukan #modalRoot. Alasannya penting:
+     banyak alur memanggil closeModal() untuk menutup dialognya sendiri TEPAT SETELAH
+     menyimpan (mis. baris `tolakMeja(...); closeModal(); renderHariH();` pada walk-in &
+     pindah/tambah meja). Kalau popup ini tinggal di modalRoot, ia ikut tersapu dan
+     terlihat "langsung hilang". alert() lama selamat karena ia memblokir; popup tidak.
+     Latar juga sengaja TANPA onclick → hanya tombol OK yang bisa menutup.
+     z-index 200 supaya selalu di atas modal biasa (z-index 100). */
+  byId("popupRoot").innerHTML = `<div class="modal-back" style="z-index:200"><div class="modal">
     <div class="modal-head"><h3>⛔ Meja ${esc(t)} keburu diambil</h3></div>
     <div class="modal-body">
       <div class="inline-danger" style="margin-bottom:12px">
@@ -2122,9 +2132,10 @@ function popupMejaDiambil(other, mineName, lain){
     </div>
   </div></div>`;
 }
-// OK → segarkan DENAH saja. Form sengaja tidak digambar ulang supaya isian kru tetap utuh.
+// OK → tutup popup (wadahnya sendiri), lalu segarkan DENAH saja.
+// Form sengaja tidak digambar ulang supaya isian kru tetap utuh.
 function tutupPopupMeja(){
-  closeModal();
+  byId("popupRoot").innerHTML = "";
   if(CURRENT_PAGE==="input"){
     renderSeatMap(); checkConflict();
     byId("seatMap")?.scrollIntoView({behavior:"smooth",block:"center"});
