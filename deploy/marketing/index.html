@@ -980,6 +980,43 @@ const EVENT_SCHEMA = [
 ]}
 ];
 const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
+
+/* ============================================================
+   TAB = pengelompokan section (12 section D.1-D.12 -> 3 tab)
+   ------------------------------------------------------------
+   Dulu 1 section = 1 tab, jadi ada 12 tab. Sekarang dikelompokkan jadi 3:
+   Informasi Dasar / Finance / Operasional.
+
+   EVENT_SCHEMA sengaja TIDAK diubah. Alasannya penting: hak akses melekat di
+   section (`div` = divisi yang boleh lihat, `fin` = sembunyikan dari kru
+   operasional). Kalau section dilebur jadi satu daftar field, aturan itu ikut
+   hilang — kru Kitchen jadi melihat field Bar/Security, dan ketentuan
+   pembayaran klien bocor ke kru Floor. Dengan tab sebagai lapisan di ATAS
+   section, tampilannya bergabung tapi penyaringnya tetap utuh:
+   satu tab bisa berisi beberapa section, dan section yang tidak boleh dilihat
+   user ini tetap tidak dirender.
+
+   Tab yang seluruh section-nya tidak terlihat -> tabnya ikut disembunyikan. */
+const TAB_DEF = [
+  { id:'basic',       n:'1', title:'Informasi Dasar', secs:['basic'] },
+  { id:'finance',     n:'2', title:'Finance',         secs:['cashier','finance'] },
+  { id:'operasional', n:'3', title:'Operasional',
+    secs:['kitchen','bar','floor','guest','security','brief','design','attach','pic'] }
+];
+const TAB_BY_ID = Object.fromEntries(TAB_DEF.map(t=>[t.id,t]));
+// Section milik satu tab yang boleh dilihat user ini (urut sesuai TAB_DEF.secs).
+function visibleSecsOfTab(tabId){
+  const tab=TAB_BY_ID[tabId]; if(!tab)return [];
+  const vis=visibleSections();
+  return tab.secs.map(id=>vis.find(s=>s.id===id)).filter(Boolean);
+}
+function visibleTabs(){ return TAB_DEF.filter(t=>visibleSecsOfTab(t.id).length>0); }
+function nextTabId(cur){
+  const l=visibleTabs(), i=l.findIndex(t=>t.id===cur);
+  return (i>=0 && i<l.length-1) ? l[i+1].id : null;
+}
+// Section berbasis field biasa (finance punya renderer & alur simpan sendiri).
+function genericSecsOfTab(tabId){ return visibleSecsOfTab(tabId).filter(s=>s.id!=='finance'); }
 /* ============================================================
    FINANCE LOGIC (Bagian 9 & D.10)
    ============================================================ */
@@ -1870,8 +1907,8 @@ function renderEventForm(V,id){
 
   // tabs
   h+='<div class="tabs" id="ev-tabs">';
-  visibleSections().forEach(sec=>{
-    h+='<div class="tab '+(curTab===sec.id?'active':'')+'" data-sec="'+sec.id+'" onclick="switchEventTab(\''+sec.id+'\',\''+ev.id+'\')"><span class="tn">'+sec.n.replace('D.','')+'</span>'+esc(sec.title)+'</div>';
+  visibleTabs().forEach(tab=>{
+    h+='<div class="tab '+(curTab===tab.id?'active':'')+'" data-sec="'+tab.id+'" onclick="switchEventTab(\''+tab.id+'\',\''+ev.id+'\')"><span class="tn">'+tab.n+'</span>'+esc(tab.title)+'</div>';
   });
   h+='</div>';
 
@@ -1889,32 +1926,42 @@ function switchEventTab(secId,evId){
   if(c){ const y=c.getBoundingClientRect().top+window.scrollY-th; window.scrollTo({top:Math.max(0,y)}); }
 }
 function renderEventTab(ev,canEdit){
-  const sec=SEC_BY_ID[curTab]; if(!sec)return;
-  let h='<div class="card"><h3 class="section-title">'+sec.n+' · '+esc(sec.title)+'</h3><p class="section-desc">'+esc(sec.desc)+'</p>';
-  if(sec.id==='finance'){ h+=financeTab(ev,canEdit); $('ev-tab-content').innerHTML=h+'</div>'; return; }
-  h+='<div class="form-grid" id="ev-fields">';
-  sec.fields.forEach(fl=>{ h+=renderField(ev,fl,canEdit); });
-  h+='</div>';
-  // division handover confirm (for operational + section owned by a division)
-  if(sec.div && !sec.div.includes('all') && sec.div.length && sec.id!=='finance'){
-    const div=sec.div[0];
-    if(getCats().includes(div)){
-      const pr=divProgress(ev,div); const nJobs=eventDivTemplates(ev,div).length;
-      h+='<div class="divider"></div><div class="divcard"><div class="divcard-h"><div class="tl">Kesiapan divisi '+div+'</div><span class="cell-sub">'+pr+'% siap</span></div><div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
-       +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job':'—')+'</div>'
-       +(nJobs
-          ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>'
-          : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.plus)+'Atur Job</button>')
-       +'</div>';
+  const tab=TAB_BY_ID[curTab]; if(!tab)return;
+  const secs=visibleSecsOfTab(tab.id);
+  if(!secs.length){ $('ev-tab-content').innerHTML=''; return; }
+  // Satu tab bisa memuat beberapa section: tiap section jadi satu kartu
+  // (sub-judul), dan yang tidak boleh dilihat user ini sudah tersaring di
+  // visibleSecsOfTab — jadi tidak perlu cek hak akses lagi di sini.
+  let h='';
+  secs.forEach(sec=>{
+    h+='<div class="card"><h3 class="section-title">'+sec.n+' · '+esc(sec.title)+'</h3><p class="section-desc">'+esc(sec.desc)+'</p>';
+    if(sec.id==='finance'){ h+=financeTab(ev,canEdit)+'</div>'; return; }
+    h+='<div class="form-grid">';
+    sec.fields.forEach(fl=>{ h+=renderField(ev,fl,canEdit); });
+    h+='</div>';
+    // division handover confirm (for operational + section owned by a division)
+    if(sec.div && !sec.div.includes('all') && sec.div.length){
+      const div=sec.div[0];
+      if(getCats().includes(div)){
+        const pr=divProgress(ev,div); const nJobs=eventDivTemplates(ev,div).length;
+        h+='<div class="divider"></div><div class="divcard"><div class="divcard-h"><div class="tl">Kesiapan divisi '+div+'</div><span class="cell-sub">'+pr+'% siap</span></div><div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
+         +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job':'—')+'</div>'
+         +(nJobs
+            ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>'
+            : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.plus)+'Atur Job</button>')
+         +'</div>';
+      }
     }
-  }
-  h+='</div>';
+    h+='</div>';
+  });
   if(canEdit){
-    const nx=nextSectionId(sec.id);
+    const nx=nextTabId(tab.id);
+    // Satu tombol simpan untuk SELURUH tab — termasuk bagian Finance kalau ada,
+    // supaya tidak ada dua tombol simpan yang membingungkan dalam satu layar.
     h+='<div style="margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:10px;flex-wrap:wrap">'
      +'<span id="autosave-ind" class="autosave-ind"></span>'
-     +'<button class="btn" onclick="saveEventTab(\''+ev.id+'\')">'+svg(IC.check)+'Simpan '+sec.n+'</button>'
-     +(nx?'<button class="btn pri" onclick="saveEventTab(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(SEC_BY_ID[nx].title)+svg(IC.chevR)+'</button>':'')
+     +'<button class="btn" onclick="saveEventTab(\''+ev.id+'\')">'+svg(IC.check)+'Simpan '+esc(tab.title)+'</button>'
+     +(nx?'<button class="btn pri" onclick="saveEventTab(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(TAB_BY_ID[nx].title)+svg(IC.chevR)+'</button>':'')
      +'</div>';
   }
   $('ev-tab-content').innerHTML=h;
@@ -2054,10 +2101,6 @@ function visibleSections(){
     return true;
   });
 }
-function nextSectionId(cur){
-  const list=visibleSections(), i=list.findIndex(s=>s.id===cur);
-  return (i>=0 && i<list.length-1) ? list[i+1].id : null;
-}
 /* ---------- Auto-save: simpan draft tiap kali user mengetik/ubah input ----------
    Menyimpan ke localStorage secara instan (debounce pendek) tanpa render ulang
    agar fokus ketik tidak hilang; sinkron ke server dijeda lebih lama supaya
@@ -2071,9 +2114,12 @@ function autoSaveBind(ev){
   c.addEventListener('change',autoSaveTrigger);
 }
 function autoSaveCommit(){
-  const sec=SEC_BY_ID[curTab]; if(!sec||sec.id==='finance')return; // finance punya alur simpan sendiri
+  // Auto-save hanya untuk section berbasis field. Bagian Finance sengaja tidak
+  // ikut: nilainya memicu hitung ulang & Approval Flow, jadi tetap butuh klik
+  // Simpan yang disengaja (perilakunya sama seperti sebelum tab digabung).
+  const secs=genericSecsOfTab(curTab); if(!secs.length)return;
   const ev=S.events.find(e=>e.id===_asEvId); if(!ev)return;
-  sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; });
+  secs.forEach(sec=>sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; }));
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
   clearTimeout(_asSrvTimer);
@@ -2082,20 +2128,28 @@ function autoSaveCommit(){
 }
 function saveEventTab(id,goNext){
   clearTimeout(_asTimer); // draft terakhir langsung ikut tercommit di bawah
-  const ev=S.events.find(e=>e.id===id); const sec=SEC_BY_ID[curTab];
+  const ev=S.events.find(e=>e.id===id); const tab=TAB_BY_ID[curTab];
+  if(!ev||!tab)return;
   const changes=[];
-  sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return;
-    const old=JSON.stringify(ev.detail[fl.k]); if(JSON.stringify(v)!==old)changes.push(fl.l); ev.detail[fl.k]=v; });
+  genericSecsOfTab(tab.id).forEach(sec=>{
+    sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return;
+      const old=JSON.stringify(ev.detail[fl.k]); if(JSON.stringify(v)!==old)changes.push(fl.l); ev.detail[fl.k]=v; });
+  });
+  // Tab Finance memuat section 'finance' yang inputnya di luar EVENT_SCHEMA.
+  const adaFinance=visibleSecsOfTab(tab.id).some(s=>s.id==='finance');
+  if(adaFinance) collectFinanceInto(ev);
   // sync top-level fields
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
-  if(changes.length)logAct('event',id,'Detail diperbarui: '+sec.n,changes.join(', '));
+  if(changes.length)logAct('event',id,'Detail diperbarui: '+tab.title,changes.join(', '));
+  if(adaFinance) logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
   const queued=syncApproval(ev); // auto-masuk Approval Flow bila total ≥ ambang
-  save(); buildNav(); toast('Tersimpan',sec.n+' '+sec.title+' disimpan.','ok');
+  save(); buildNav();
+  toast('Tersimpan',tab.title+' disimpan.'+(adaFinance?' Grand Total: '+rp(eventFinance(ev).grand):''),'ok');
   if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
   // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
   // (hanya saat simpan biasa — kalau sedang "Simpan & Lanjut" toast ini justru mengganggu alur)
   if(isOpenEvent(ev) && !goNext) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
-  if(goNext){ const nx=nextSectionId(curTab); if(nx) curTab=nx; }
+  if(goNext){ const nx=nextTabId(curTab); if(nx) curTab=nx; }
   go('event',id);
 }
 function setTask(evId,div,status){
@@ -2154,7 +2208,7 @@ function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
   // check PIC matrix (D.12) required
   const missing=['picKoordinator','picMOD','picAcara'].filter(k=>!ev.detail[k]);
-  if(missing.length){ curTab='pic'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.12) wajib terisi sebelum Confirmed.','err'); }
+  if(missing.length){ curTab='operasional'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.12) di tab Operasional wajib terisi sebelum Confirmed.','err'); }
   // otomasi: cegah dobel booking — minta konfirmasi ulang bila bentrok
   const clash=bookingConflicts(ev);
   if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
@@ -2189,12 +2243,8 @@ function financeTab(ev,canEdit){
    +'</div>';
   h+='<div class="field"><label>DP Persentase (%)</label><input class="inp" type="number" id="efd_dpPercent" value="'+(ev.dpPercent||st.dpPercent)+'" '+dis+'></div>';
   h+='<div class="field"><label>Data Perusahaan / NPWP (untuk invoice)</label><textarea class="inp" id="efd_npwp" '+dis+'>'+esc(d.npwp||'')+'</textarea></div>';
-  if(canEdit){
-    const nxF=nextSectionId('finance');
-    h+='<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" onclick="saveFinance(\''+ev.id+'\')">'+svg(IC.check)+'Simpan &amp; Hitung Ulang</button>'
-     +(nxF?'<button class="btn pri" onclick="saveFinance(\''+ev.id+'\',true)">Simpan &amp; Lanjut · '+esc(SEC_BY_ID[nxF].title)+svg(IC.chevR)+'</button>':'')
-     +'</div>';
-  }
+  // Tombol simpan bagian ini sengaja dihapus: sekarang tab Finance punya satu
+  // tombol Simpan di bawah yang mencakup Kasir + Finance sekaligus.
   h+='</div>';
   // right: computed
   h+='<div class="card" style="background:var(--ink-900)"><h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
@@ -2237,19 +2287,16 @@ function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'<
 // Segmented Ya/Tidak untuk toggle finance (service, tax include).
 function ynSeg(id,on,canEdit){ return '<div class="seg" id="'+id+'"><button type="button" class="'+(on?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(on?'':'on')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'; }
 function segVal(id){ const el=$(id); if(!el)return undefined; const b=el.querySelector('button.on'); return b?{v:b.dataset.v==='1'}:undefined; }
-function saveFinance(id,goNext){
-  const ev=S.events.find(e=>e.id===id);
+/* Input bagian Finance ada di luar EVENT_SCHEMA (punya UI & rumus sendiri),
+   jadi pengumpulannya dipisah supaya bisa dipakai tombol simpan tab Finance. */
+function collectFinanceInto(ev){
+  if(!$('efd_npwp'))return false;                  // bagian finance tidak sedang tampil
   ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
   ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
-  logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
-  const queued=syncApproval(ev); // nilai baru bisa melewati ambang approval
-  save(); buildNav(); toast('Finance tersimpan','Grand Total: '+rp(eventFinance(ev).grand),'ok');
-  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
-  if(goNext){ const nx=nextSectionId('finance'); if(nx) curTab=nx; }
-  go('event',id);
+  return true;
 }
 function addPayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id); const f=eventFinance(ev);
