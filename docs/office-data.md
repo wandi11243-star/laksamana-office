@@ -16,6 +16,7 @@ database bersama, kecuali identitas (Database User) yang dipakai semua modul.
 | **Database COMS** (16 tab) | Konten | Live. Skema paling lengkap. |
 | **Database CRM** | Marketing | Script: `docs/crm-apps-script.gs`. |
 | **Database Academy** | Akademi | Script: `docs/akademi-apps-script.gs`. |
+| **Database Performance** | Staff Performance (`hr`) | Script: `docs/performance-apps-script.gs`. Kontrak standar + `_rev`. Tinggal isi `WEB_APP_URL` di `deploy/hr/index.html`. |
 | (sheet terpisah) | Howandi Life OS | Live, sheet sendiri. |
 | (beberapa script) | Stock (ordering + purchasing) | Live tapi terpecah ke 5+ script. Perlu konsolidasi. |
 | Laravel | Event / Finance / Manajemen | Di luar cakupan (arsitektur lain). |
@@ -71,6 +72,12 @@ Selalu POST dengan `Content-Type: text/plain;charset=utf-8` — supaya jadi
      (sekarang masih `PASTE_URL_EXEC_CRM_DI_SINI`).
    - **Akademi**: buka **Pengaturan** di aplikasinya, isi *URL Web App* +
      *Kunci* (samakan dengan `SYNC_KEY` di script-nya).
+   - **Staff Performance**: buat Sheet baru **Database Performance**, tempel
+     `docs/performance-apps-script.gs`, deploy, lalu ganti `WEB_APP_URL` di
+     `deploy/hr/index.html` (sekarang masih `PASTE_URL_EXEC_PERFORMANCE_DI_SINI`).
+     Selama masih placeholder, app jalan offline (localStorage) dan kartu *Data*
+     di Pengaturan memberi tahu bahwa server belum tersambung. Sheet kosong pada
+     boot pertama akan otomatis diisi data awal (divisi + template KPI) oleh app.
 
 Deploy ulang script = **New deployment** (bukan Save saja), kalau tidak URL
 lama tetap menjalankan kode lama.

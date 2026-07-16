@@ -21,7 +21,7 @@
  *     modul. '*' = semua modul (superadmin). Mengelola sebuah modul TIDAK
  *     otomatis memberi akses membukanya; itu tetap dari Grants.
  *   - DINAMIS: tambah satu baris di Modules -> modul baru langsung bisa
- *     diberikan ke siapa pun, dan user '*' otomatis dapat.
+ *     diberikan ke siapa pun, i dan user '*' otomatis dapat.
  *
  * PIN:
  *   - Boleh SAMA antar user. Login memakai name + pin, jadi nama yang

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="theme-color" content="#A9791F">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>PeopleOS, Human Resource Laksamana Muda</title>
+<title>Staff Performance, Laksamana Muda</title>
 <!-- Guard SSO: tanpa sesi Office yang berhak buka hr, langsung ke login Office. -->
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
@@ -80,6 +80,10 @@ nav{flex:1;overflow-y:auto;padding:6px 0 16px}
 main{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-width:0}
 header.topbar{background:var(--paper);border-bottom:1px solid var(--line2);padding:12px 24px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:20}
 .topbar h2{font-size:19px;color:var(--ink);font-weight:700;flex:1}
+/* Badge sinkron: hanya muncul kalau ADA masalah, jadi topbar tetap bersih saat lancar. */
+.sync-badge{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--bad-bg);color:var(--bad);white-space:nowrap}
+.sync-badge.conflict{background:var(--warn-bg);color:var(--warn)}
+.sync-badge[hidden]{display:none}
 #content{padding:22px 24px 60px;max-width:1240px;width:100%;margin:0 auto}
 
 /* mobile */
@@ -190,12 +194,13 @@ svg.chart text{font-family:var(--font-b)}
   <aside class="sidebar" id="sidebar"></aside>
   <div class="mobile-top">
     <button id="menuBtn">☰</button>
-    <span class="t">PeopleOS</span>
+    <span class="t">Staff Performance</span>
     <span style="width:32px"></span>
   </div>
   <main>
     <header class="topbar">
       <h2 id="pageTitle">Anjungan</h2>
+      <span class="sync-badge" id="sync-badge" hidden></span>
     </header>
     <div id="content"></div>
   </main>
@@ -208,7 +213,11 @@ svg.chart text{font-family:var(--font-b)}
 
 <script>
 /* ====== GLOBALS (di luar IIFE agar bisa diakses dari inline handler & test) ====== */
-var LS_KEY = 'lm_peopleos_v1';
+// URL /exec Web App Apps Script modul ini (Sheet "Database Performance").
+// Cara pasang: docs/office-data.md. Script-nya: docs/performance-apps-script.gs.
+// Selama masih PASTE_..., app jalan offline (localStorage saja).
+var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw-4ntMFpLsuHF3gK4YJ1E2XVi7hKioEiT840O-aKtcqdat022K6PGwG-d8i8hl6SNj/exec";
+var LS_KEY = 'lm_peopleos_v1';   // cache lokal (fallback offline)
 var APP = null; // diisi oleh IIFE untuk akses eksternal/test
 
 (function(){
@@ -231,7 +240,15 @@ const shiftMonth = (mk, d) => { const [y,m]=mk.split('-').map(Number); const dt=
 const lastMonths = (n, from) => { const out=[]; let mk = from||monthKey(); for(let i=0;i<n;i++){ out.unshift(mk); mk=shiftMonth(mk,-1);} return out; };
 const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
 
+// Dideklarasikan di sini (bukan dekat showSaveConflict) karena toast() di bawah
+// membacanya, dan toast() dipakai jauh sebelum blok sync dalam urutan file.
+let _conflictShown = false;
+
 function toast(msg, err){
+  // Saat modal konflik tampil, save() TIDAK jadi naik ke server. Menampilkan
+  // "tersimpan" di situ menyesatkan, jadi toast sukses ditahan; badge + modal
+  // yang jadi sumber informasi. Toast error tetap lewat.
+  if(_conflictShown && !err) return;
   const t = document.createElement('div');
   t.className = 'toast' + (err?' err':'');
   t.textContent = msg;
@@ -239,13 +256,139 @@ function toast(msg, err){
   setTimeout(()=>t.remove(), 3200);
 }
 
-/* ====== STATE ====== */
+/* ====== STATE / SYNC ======
+   Sumber kebenaran = Google Sheet lewat Apps Script (docs/performance-apps-script.gs).
+   localStorage cuma cache: biar tetap kebaca saat offline dan first paint instan.
+   Kontrak standar Office: GET ?action=getAll, POST {action:'saveAll', data, baseRev}.
+   Lihat docs/office-data.md. */
 let S = null;
-function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){ toast('Gagal menyimpan: penyimpanan penuh?', true); } }
-function load(){
-  try{ const raw = localStorage.getItem(LS_KEY); if(raw){ S = JSON.parse(raw); migrate(); return; } }catch(e){}
-  S = seed(); save();
+let API_READY = false;
+
+// Ambil dari server. Gagal (offline/URL kosong) -> cache lokal -> seed baru.
+async function apiLoad(){
+  if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0){ loadLocal(); return; }
+  try{
+    const res = await fetch(WEB_APP_URL + '?action=getAll', {method:'GET', redirect:'follow'});
+    const json = await res.json();
+    if(!json || !json.ok) throw new Error((json && json.error) || 'respons server tidak valid');
+    // Sheet masih kosong (belum pernah disimpan) -> pakai seed, lalu dorong ke server
+    // supaya isi awal (divisi, template KPI) ada di Sheet sejak awal.
+    const fresh = !json.data || !(json.data.employees || []).length;
+    S = fresh ? seed() : json.data;
+    migrate();
+    API_READY = true;
+    cacheLocal();
+    if(fresh) save();
+  }catch(e){
+    console.warn('Gagal memuat dari server, pakai cache lokal:', e);
+    loadLocal();
+    API_READY = false;
+    setSyncBadge('err');
+  }
 }
+function loadLocal(){
+  try{ const raw = localStorage.getItem(LS_KEY); if(raw){ S = JSON.parse(raw); migrate(); return; } }catch(e){}
+  S = seed();
+}
+function cacheLocal(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }
+  catch(e){ /* kuota penuh: server tetap sumber kebenaran, cache boleh gagal */ }
+}
+
+/* Simpan menimpa SELURUH DB, jadi dua orang yang menyimpan bersamaan bisa saling
+   menghapus. Kita kirim baseRev = _rev yang kita pegang; server menolak kalau
+   sudah ketinggalan (lihat docs/performance-apps-script.gs), bukan menimpa diam-diam.
+   save() tetap sinkron dan boleh dipanggil tanpa argumen: ~30 tempat di app ini
+   cuma "ubah S lalu save()". `okMsg` opsional = toast yang BARU muncul setelah
+   server benar-benar mengonfirmasi, supaya tidak pernah bilang "tersimpan" untuk
+   simpan yang ternyata ditolak. */
+let saveInFlight = false, savePending = false;
+function save(okMsg){
+  cacheLocal();                                     // cache dulu, instan
+  if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0){
+    // Mode offline (URL belum diisi): tersimpan lokal, jadi toast boleh langsung.
+    if(okMsg) toast(okMsg);
+    return;
+  }
+  if(saveInFlight){ savePending = true; return; }   // hindari dua POST balapan dari tab sama
+  saveInFlight = true;
+  const body = {action:'saveAll', data:S, by:(CU && CU.name) || ''};
+  if(S._rev !== undefined && S._rev !== null) body.baseRev = S._rev;
+  fetch(WEB_APP_URL, {
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},   // simple request, hindari preflight CORS
+    body: JSON.stringify(body),
+    redirect:'follow'
+  })
+  .then(r => r.json())
+  .then(j => {
+    if(j && j.ok){
+      if(j.data && j.data.rev !== undefined) S._rev = j.data.rev;
+      API_READY = true; setSyncBadge('ok');
+      if(okMsg) toast(okMsg);
+    } else if(j && j.error === 'conflict'){
+      API_READY = false; setSyncBadge('conflict');
+      showSaveConflict(j);
+    } else {
+      API_READY = false; setSyncBadge('err');
+      console.warn('Simpan ditolak server:', j && j.error);
+      toast('Gagal menyimpan ke server. Perubahan baru ada di browser ini.', true);
+    }
+  })
+  .catch(err => {
+    API_READY = false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err);
+    toast('Gagal menyimpan ke server. Perubahan baru ada di browser ini.', true);
+  })
+  .finally(() => { saveInFlight = false; if(savePending){ savePending = false; save(); } });
+}
+
+// Perubahan kita ditolak karena server sudah lebih baru. Jangan timpa diam-diam,
+// tanyakan: timpa paksa berarti membuang kerja orang lain. (_conflictShown
+// dideklarasikan di dekat toast(), yang ikut membacanya.)
+function showSaveConflict(j){
+  if(_conflictShown) return; _conflictShown = true;
+  const who = j.savedBy || 'user lain';
+  const when = j.savedAt ? fmtDate(String(j.savedAt).slice(0,10)) : 'baru saja';
+  openModal('Perubahan Tidak Tersimpan',
+    '<div class="note w" style="margin-bottom:12px"><b>'+esc(who)+'</b> menyimpan perubahan ('+esc(when)+'), sesudah halaman ini dimuat. Perubahan Anda <b>belum tersimpan</b>.</div>'+
+    '<p class="small mut">Kalau dipaksa simpan, semua perubahan '+esc(who)+' akan hilang. Amannya: muat ulang, lalu ulangi perubahan Anda.</p>',
+    {saveLabel:'Muat ulang (disarankan)', onSave:()=>{ location.reload(); }});
+}
+// Badge hanya tampil kalau ADA masalah. Kalau lancar, topbar tetap bersih.
+function setSyncBadge(state){
+  const el = document.getElementById('sync-badge'); if(!el) return;
+  if(state === 'ok'){ el.hidden = true; el.className = 'sync-badge'; return; }
+  el.hidden = false;
+  el.className = 'sync-badge ' + (state === 'conflict' ? 'conflict' : 'err');
+  el.textContent = state === 'conflict' ? 'Belum tersimpan, bentrok' : 'Gagal sinkron, data hanya di browser ini';
+  el.title = state === 'conflict'
+    ? 'Server sudah lebih baru. Muat ulang lalu ulangi perubahan Anda.'
+    : 'Perubahan tersimpan di browser tapi belum naik ke server. Cek koneksi.';
+}
+/* Data dibaca sekali saat boot, jadi tab yang lama dibiarkan terbuka memegang
+   versi usang lalu bisa menimpa kerja orang lain. Saat tab kembali aktif, cek
+   apakah server sudah lebih baru. */
+async function refreshIfStale(){
+  if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0 || !S) return;
+  if(saveInFlight || _conflictShown) return;
+  try{
+    const res = await fetch(WEB_APP_URL + '?action=getAll', {method:'GET', redirect:'follow'});
+    const j = await res.json();
+    if(!j || !j.ok || !j.data || !(j.data.employees||[]).length) return;
+    const srev = +j.data._rev || 0, mine = +S._rev || 0;
+    if(!(srev > mine)) return;                     // server tidak lebih baru -> aman
+    S = j.data; migrate(); cacheLocal();
+    setSyncBadge('ok');
+    // S diganti objek baru, jadi CU (referensi ke employee di S lama) harus
+    // dicocokkan ulang ke roster baru, kalau tidak edit berikutnya menulis ke
+    // objek yatim yang tidak ikut tersimpan.
+    const sess = readLmSession();
+    if(CU && sess){ CU = resolveOfficeUser(sess); buildNav(); go(curPage); }
+    toast('Data disegarkan, ada perubahan dari ' + ((j.data._savedBy) || 'user lain') + '.');
+  }catch(e){ /* offline: biarkan, badge diurus save() */ }
+}
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') refreshIfStale(); });
+
 function migrate(){ const d = seed(); for(const k in d){ if(S[k]===undefined) S[k]=d[k]; } for(const k in d.settings){ if(S.settings[k]===undefined) S.settings[k]=d.settings[k]; } }
 
 /* ====== SEED ====== */
@@ -465,7 +608,7 @@ function buildNav(){
   }).join('');
   sidebar.innerHTML =
     '<div class="side-brand"><img src="../assets/laksamanamuda-warna.jpg" alt="Laksamana Muda">'+
-    '<div><div class="t">Laksamana Muda</div><div class="s">PeopleOS</div></div></div>'+
+    '<div><div class="t">Laksamana Muda</div><div class="s">Performance</div></div></div>'+
     '<nav>'+navHtml+'</nav>'+
     '<div class="side-user">'+
       '<div class="avatar">'+esc(initials(CU.name))+'</div>'+
@@ -768,7 +911,7 @@ function openMonthlyInput(){
       o.review = $('#mi_rev_'+e.id).value;
       o.kpiOverride = $('#mi_kpi_'+e.id).value;
     });
-    log('MONTHLY_INPUT','bulan '+mk); save(); toast('Data bulanan tersimpan.');
+    log('MONTHLY_INPUT','bulan '+mk); save('Data bulanan tersimpan.');
     go('score');
   }});
 }
@@ -809,7 +952,7 @@ function inputKpiActual(divId){
     S.kpiActuals[divId] = S.kpiActuals[divId]||{};
     const o = S.kpiActuals[divId][mk] = S.kpiActuals[divId][mk]||{};
     t.items.forEach(it=>{ const v=$('#ka_'+it.id).value; if(v==='') delete o[it.id]; else o[it.id]=Number(v); });
-    log('KPI_INPUT', divName(divId)+' '+mk); save(); toast('KPI tersimpan.');
+    log('KPI_INPUT', divName(divId)+' '+mk); save('KPI tersimpan.');
     renderKpi($('#content'), mk);
   }});
 }
@@ -828,7 +971,7 @@ function editKpiTemplate(){
       it.name = $('#kt_n_'+it.id).value; it.weight = Number($('#kt_w_'+it.id).value)||0;
       it.target = Number($('#kt_t_'+it.id).value)||0; it.unit = $('#kt_u_'+it.id).value; it.dir = $('#kt_d_'+it.id).value;
     }));
-    log('KPI_TEMPLATE_EDIT',''); save(); toast('Template KPI diperbarui.'); go('kpi');
+    log('KPI_TEMPLATE_EDIT',''); save('Template KPI diperbarui.'); go('kpi');
   }});
 }
 
@@ -868,7 +1011,7 @@ function editOkr(id){
     if(!$('#okr_obj').value.trim() || !krs.length){ toast('Objective dan minimal 1 key result wajib diisi.', true); return false; }
     const data = {ownerType:$('#okr_ot').value, ownerId:$('#okr_owner').value, period:$('#okr_period').value, objective:$('#okr_obj').value.trim(), krs};
     if(id) Object.assign(o, data); else S.okrs.push(Object.assign({id:uid('okr')}, data));
-    log('OKR_SAVE', data.objective); save(); toast('OKR tersimpan.'); go('okr');
+    log('OKR_SAVE', data.objective); save('OKR tersimpan.'); go('okr');
   }});
   const renderOwner = ()=>{
     const t = $('#okr_ot').value;
@@ -885,7 +1028,7 @@ function updKr(okrId, i){
   const k = o.krs[i];
   openModal('Update Progress, '+k.name, '<div class="frow f1"><div><label>Progress ('+esc(k.unit||'')+'), target '+fmtNum(k.target)+'</label><input type="number" step="any" id="kr_p" value="'+k.progress+'"></div></div>', {onSave:()=>{
     k.progress = Number($('#kr_p').value)||0;
-    log('OKR_PROGRESS', o.objective+' / '+k.name); save(); toast('Progress diperbarui.'); go('okr');
+    log('OKR_PROGRESS', o.objective+' / '+k.name); save('Progress diperbarui.'); go('okr');
   }});
 }
 function delOkr(id){ confirmBox('Hapus OKR ini?', ()=>{ S.okrs = S.okrs.filter(o=>o.id!==id); log('OKR_DEL',id); save(); go('okr'); }); }
@@ -944,7 +1087,7 @@ function openReview(empId, mk){
     if(!any){ toast('Isi minimal satu aspek.', true); return false; }
     if(!rv){ rv = {id:uid('rv'), empId, month:mk, layers:{}}; S.reviews.push(rv); }
     rv.layers[L] = {aspects, comment: $('#rv_comment').value, by: CU.id, at: todayStr()};
-    log('REVIEW_SAVE', e.name+' '+mk+' ['+L+']'); save(); toast('Review tersimpan.');
+    log('REVIEW_SAVE', e.name+' '+mk+' ['+L+']'); save('Review tersimpan.');
     go('review');
   }});
 }
@@ -979,7 +1122,7 @@ function editComp(empId){
     const out=[]; let i=0;
     while($('#cm_n_'+i)){ const n=$('#cm_n_'+i).value.trim(); if(n) out.push({name:n, level:Number($('#cm_l_'+i).value)}); i++; }
     if(!cm){ cm={id:uid('cm'), empId, skills:out}; S.competencies.push(cm); } else cm.skills = out;
-    log('COMP_SAVE', e.name); save(); toast('Kompetensi tersimpan.'); go('comp');
+    log('COMP_SAVE', e.name); save('Kompetensi tersimpan.'); go('comp');
   }});
   $('#cm_add').onclick = ()=>{ const tb=$('#cm_rows'); tb.insertAdjacentHTML('beforeend', row({name:'',level:3}, tb.children.length)); };
 }
@@ -1015,7 +1158,7 @@ function editCoach(id){
     const data = {empId:$('#co_emp').value, coachId:x.coachId||CU.id, date:$('#co_date').value, problem:$('#co_problem').value, actionPlan:$('#co_plan').value, deadline:$('#co_dl').value, followUp:$('#co_fu').value, status:$('#co_status').value};
     if(!data.problem.trim()){ toast('Problem wajib diisi.', true); return false; }
     if(id) Object.assign(x, data); else S.coachings.push(Object.assign({id:uid('co')}, data));
-    log('COACH_SAVE', (empById(data.empId)||{}).name||''); save(); toast('Coaching tersimpan.'); go('coach');
+    log('COACH_SAVE', (empById(data.empId)||{}).name||''); save('Coaching tersimpan.'); go('coach');
   }});
 }
 
@@ -1057,7 +1200,7 @@ function editTraining(id){
     const data = {title:$('#tr_title').value.trim(), type:$('#tr_type').value, divId:$('#tr_div').value, passingGrade:Number($('#tr_pg').value)||80, mandatory:$('#tr_mand').value==='1', desc:$('#tr_desc').value};
     if(!data.title){ toast('Judul wajib diisi.', true); return false; }
     if(id) Object.assign(t, data); else S.trainings.push(Object.assign({id:uid('tr')}, data));
-    log('TRAINING_SAVE', data.title); save(); toast('Program tersimpan.'); go('training');
+    log('TRAINING_SAVE', data.title); save('Program tersimpan.'); go('training');
   }});
 }
 function recordTraining(trainingId){
@@ -1115,7 +1258,7 @@ function giveBadge(){
     S.badges.push({id:uid('bd'), empId, badge, month:mk, note:$('#bg_note').value});
     const pts = badge==='Employee of the Month' ? S.settings.pointRules.eom : S.settings.pointRules.badge;
     S.rewards.push({id:uid('rw'), empId, date:todayStr(), type:'earn', points:pts, reason:'Badge: '+badge+' ('+fmtMonth(mk)+')'});
-    log('BADGE', (empById(empId)||{}).name+', '+badge); save(); toast('Badge diberikan +'+pts+' poin 🎉'); go('reward');
+    log('BADGE', (empById(empId)||{}).name+', '+badge); save('Badge diberikan +'+pts+' poin 🎉'); go('reward');
   }});
 }
 function pointTx(){
@@ -1127,7 +1270,7 @@ function pointTx(){
     const empId=$('#px_emp').value, type=$('#px_type').value, p=Number($('#px_pts').value)||0;
     if(p<=0 || !$('#px_reason').value.trim()){ toast('Poin dan alasan wajib diisi.', true); return false; }
     S.rewards.push({id:uid('rw'), empId, date:todayStr(), type, points:p, reason:$('#px_reason').value.trim()});
-    log('POINT_TX', type+' '+p+', '+(empById(empId)||{}).name); save(); toast('Transaksi poin tersimpan.'); go('reward');
+    log('POINT_TX', type+' '+p+', '+(empById(empId)||{}).name); save('Transaksi poin tersimpan.'); go('reward');
   }});
 }
 
@@ -1193,7 +1336,7 @@ function editViolation(id){
   openModal(id?'Edit Pelanggaran':'Catat Pelanggaran', body, {onSave:()=>{
     const data = {empId:$('#vi_emp').value, date:$('#vi_date').value, type:$('#vi_type').value, severity:$('#vi_sev').value, sp:$('#vi_sp').value, note:$('#vi_note').value, status:$('#vi_status').value};
     if(id) Object.assign(v, data); else S.violations.push(Object.assign({id:uid('vi')}, data));
-    log('VIOLATION_SAVE', (empById(data.empId)||{}).name+', '+data.type+(data.sp?' ['+data.sp+']':'')); save(); toast('Pelanggaran tersimpan.'); go('disc');
+    log('VIOLATION_SAVE', (empById(data.empId)||{}).name+', '+data.type+(data.sp?' ['+data.sp+']':'')); save('Pelanggaran tersimpan.'); go('disc');
   }});
   const updHint = ()=>{ const sug = suggestSP($('#vi_emp').value); $('#vi_hint').textContent = sug ? '⚠ Berdasarkan riwayat, sistem menyarankan eskalasi ke '+sug+'. Keputusan tetap di HRD.' : ''; };
   $('#vi_emp').onchange = updHint; updHint();
@@ -1237,7 +1380,7 @@ function setMood(v){
 function addSuggestion(){
   const txt = $('#sg_text').value.trim(); if(!txt){ toast('Tulis dulu sarannya.', true); return; }
   S.suggestions.push({id:uid('sg'), empId: $('#sg_anon').checked? null : CU.id, date:todayStr(), text:txt, status:'Baru', response:''});
-  log('SUGGESTION',''); save(); toast('Saran terkirim. Terima kasih!'); go('engage');
+  log('SUGGESTION',''); save('Saran terkirim. Terima kasih!'); go('engage');
 }
 function respondSuggestion(id){
   const s = S.suggestions.find(x=>x.id===id);
@@ -1309,7 +1452,7 @@ RENDER.emp = function(c){
   const emps = scopeEmps();
   let html = '<div class="toolbar"><input id="empQ" placeholder="Cari nama / jabatan…" style="width:220px" oninput="APP.filterEmp()"><span class="sp"></span>'+
     (can('manageEmployees')?'<button class="btn btn-pri btn-sm" onclick="APP.editEmp()">＋ Kru Baru</button>':'')+'</div>';
-  html += '<div class="note">PeopleOS menyimpan data performa. Dokumen administratif (KTP, NPWP, kontrak, payroll) tetap di Talenta. Jangan duplikasi data sensitif di sini.</div>';
+  html += '<div class="note">Staff Performance menyimpan data performa. Dokumen administratif (KTP, NPWP, kontrak, payroll) tetap di Talenta. Jangan duplikasi data sensitif di sini.</div>';
   html += '<table class="tbl" id="empTbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Divisi</th><th>Level</th><th>Bergabung</th><th>SP Aktif</th><th>Score</th><th></th></tr></thead><tbody>';
   emps.forEach(e=>{
     const ps = peopleScore(e, monthKey());
@@ -1345,7 +1488,7 @@ function editEmp(id){
       joinDate:$('#em_join').value, birthDate:$('#em_birth').value, status:$('#em_status').value, contractEnd:$('#em_contract').value, probationEnd:$('#em_prob').value, pin:$('#em_pin').value||'1234', notes:$('#em_notes').value};
     if(!data.name){ toast('Nama wajib diisi.', true); return false; }
     if(id) Object.assign(e, data); else S.employees.push(Object.assign({id:uid('emp'), phone:'', email:''}, data));
-    log('EMP_SAVE', data.name); save(); toast('Data kru tersimpan.'); go('emp');
+    log('EMP_SAVE', data.name); save('Data kru tersimpan.'); go('emp');
   }});
 }
 function openEmpDetail(empId){
@@ -1438,7 +1581,11 @@ RENDER.settings = function(c){
     '<div class="flex" style="margin-bottom:6px"><label class="grow" style="margin:0">Poin lulus training</label><input type="number" style="width:80px" id="pr_train" value="'+PR.trainingPass+'"></div>'+
     '<div class="flex"><label class="grow" style="margin:0">Poin Employee of the Month</label><input type="number" style="width:80px" id="pr_eom" value="'+PR.eom+'"></div></div>';
 
-  html += '<div class="card"><h3>Data</h3><div class="small mut" style="margin-bottom:10px">Data tersimpan di perangkat ini (localStorage). Rutin ekspor backup. Terutama sebelum ganti perangkat/clear browser. Multi-device sync = Phase 2 (backend/Apps Script).</div>'+
+  html += '<div class="card"><h3>Data</h3><div class="small mut" style="margin-bottom:10px">'+
+    (WEB_APP_URL && WEB_APP_URL.indexOf('PASTE_') !== 0
+      ? 'Data tersimpan online ke Google Sheet dan otomatis tersinkron antar perangkat. Salinan lokal di browser dipakai sebagai cadangan saat offline. Ekspor backup tetap berguna sebelum perubahan besar.'
+      : '<b>Belum tersambung ke server.</b> Data baru tersimpan di browser ini saja (localStorage) dan tidak terlihat di perangkat lain. Isi URL Web App di kode (WEB_APP_URL) untuk mengaktifkan sinkron. Sementara itu, rutin ekspor backup.')+
+    '</div>'+
     '<div class="flex" style="flex-wrap:wrap"><button class="btn btn-pri btn-sm" onclick="APP.exportJson()">⬇ Ekspor Backup (JSON)</button>'+
     '<label class="btn btn-line btn-sm" style="margin:0">⬆ Impor Backup<input type="file" accept=".json" style="display:none" id="importFile"></label>'+
     '<button class="btn btn-danger btn-sm" onclick="APP.resetAll()">Reset ke data awal</button></div></div>';
@@ -1458,13 +1605,13 @@ function saveSettings(){
   S.settings.pointRules.badge = Number($('#pr_badge').value)||50;
   S.settings.pointRules.trainingPass = Number($('#pr_train').value)||20;
   S.settings.pointRules.eom = Number($('#pr_eom').value)||150;
-  log('SETTINGS_SAVE',''); save(); toast('Pengaturan tersimpan.'); go('settings');
+  log('SETTINGS_SAVE',''); save('Pengaturan tersimpan.'); go('settings');
 }
 function exportJson(){
   const blob = new Blob([JSON.stringify(S, null, 1)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'PeopleOS_Laksamana_backup_'+todayStr()+'.json';
+  a.download = 'Staff-Performance_Laksamana_backup_'+todayStr()+'.json';
   a.click(); URL.revokeObjectURL(a.href);
   log('EXPORT',''); save(); toast('Backup terunduh.');
 }
@@ -1496,10 +1643,14 @@ RENDER.audit = function(c){
 };
 
 /* ====== INIT ====== */
-function init(){
-  load();
+// Dijaga sekali-jalan: dipasang lewat DOMContentLoaded DAN pemeriksaan readyState
+// di bawah, jadi tanpa penjaga ini apiLoad() bisa jalan dua kali.
+let _booted = false;
+async function init(){
+  if(_booted) return; _booted = true;
   $('#menuBtn').onclick = ()=> $('#sidebar').classList.toggle('open');
   $('#modalWrap').addEventListener('click', e=>{ if(e.target.id==='modalWrap') closeModal(); });
+  await apiLoad();          // server dulu, baru identitas: resolveOfficeUser butuh S.employees
   bootPeopleOS();
 }
 
