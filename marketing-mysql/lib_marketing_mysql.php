@@ -101,6 +101,59 @@ function save_receipt($payload) {
   // name = nama asli untuk ditampilkan; url dibangun frontend dari key.
   return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
 }
+/* Kumpulkan semua key berkas yang MASIH dipakai, dibaca dari DATABASE.
+   Sengaja TIDAK dari payload kiriman: save_all mendukung kiriman parsial
+   (koleksi yang tidak dikirim dilewati), jadi kalau GC memakai payload, satu
+   kiriman tanpa `events` akan menghapus SEMUA lampiran. Database adalah
+   satu-satunya sumber yang selalu lengkap. */
+function key_terpakai($pdo) {
+  $hidup = array();
+  foreach ($pdo->query('SELECT data FROM events') as $row) {
+    $e = json_decode($row['data'], true);
+    if (!is_array($e)) continue;
+
+    // Lampiran D.11: detail.attachFiles[] = {key,name,...}
+    if (!empty($e['detail']['attachFiles']) && is_array($e['detail']['attachFiles'])) {
+      foreach ($e['detail']['attachFiles'] as $f)
+        if (!empty($f['key'])) $hidup[(string)$f['key']] = true;
+    }
+    // Bukti transfer: payments[].receiptUrl memuat "...?action=receipt&key=xxx".
+    // Bukti lama masih berupa URL Google Drive — tidak punya key, otomatis terlewat.
+    if (!empty($e['payments']) && is_array($e['payments'])) {
+      foreach ($e['payments'] as $p) {
+        if (empty($p['receiptUrl'])) continue;
+        if (preg_match('/[?&]key=([^&"\']+)/', (string)$p['receiptUrl'], $m))
+          $hidup[urldecode($m[1])] = true;
+      }
+    }
+  }
+  return $hidup;
+}
+
+/* Buang berkas yatim: ada di disk tapi tidak ditunjuk data mana pun lagi
+   (mis. lampiran sudah dihapus dari event, atau bukti transfer diganti).
+
+   JEDA AMAN 1 JAM: berkas yang baru diunggah sengaja dilewati. Unggah dan
+   penyimpanan event adalah dua langkah terpisah — tanpa jeda ini, GC yang
+   dipicu simpanan kru LAIN bisa menghapus berkas yang baru saja diunggah
+   sebelum sempat tercatat ke event-nya. */
+function gc_receipts($pdo) {
+  $dir = receipt_files_dir();
+  if (!is_dir($dir)) return 0;
+  $hidup = key_terpakai($pdo);
+  $batas = time() - 3600;
+  $buang = 0;
+  foreach (scandir($dir) as $f) {
+    if ($f === '.' || $f === '..') continue;
+    if (isset($hidup[$f])) continue;                       // masih dipakai
+    $p = $dir . '/' . $f;
+    if (!is_file($p)) continue;
+    if (filemtime($p) > $batas) continue;                  // baru diunggah -> jangan sentuh
+    if (@unlink($p)) $buang++;
+  }
+  return $buang;
+}
+
 function stream_receipt($key) {
   $key = (string)$key;
   if ($key === '' || strpos($key, '..') !== false) { http_response_code(400); exit; }
@@ -466,9 +519,17 @@ function save_all($state) {
     throw $e;
   }
 
+  // Bersihkan berkas yatim SETELAH commit: menghapus file tidak bisa di-rollback,
+  // jadi jangan sampai transaksi gagal tapi berkasnya sudah telanjur hilang.
+  // Dijalankan di dalam kunci tulis (api.php membungkus saveAll dgn db_lock).
+  $buang = 0;
+  try { $buang = gc_receipts($pdo); }
+  catch (Throwable $e) { /* gagal bersih-bersih bukan alasan menggagalkan simpanan */ }
+
   return array(
     'saved'   => true,
     'jumlah'  => $hitung,
+    'berkasDibuang' => $buang,
     // Baris yang DITOLAK karena orang lain sudah menyimpan duluan. Kosong =
     // semuanya masuk. Aplikasi wajib memberitahu user kalau ini terisi —
     // kalau didiamkan, user mengira perubahannya tersimpan padahal tidak.
@@ -490,6 +551,27 @@ function stats() {
   $blob = strlen(json_enc(baca_state()));
   $out['blobChars'] = $blob;
   $out['blobMB']    = round($blob / 1048576, 3);
-  $out['ts']        = gmdate('c');
+
+  // Berkas di disk (lampiran + bukti transfer) — untuk memantau tanpa perlu
+  // membuka File Manager. `berkasYatim` yang terus bertambah = GC bermasalah.
+  $dir = receipt_files_dir();
+  $n = 0; $byte = 0; $yatim = 0;
+  if (is_dir($dir)) {
+    $hidup = key_terpakai($pdo);
+    foreach (scandir($dir) as $f) {
+      if ($f === '.' || $f === '..') continue;
+      $p = $dir . '/' . $f;
+      if (!is_file($p)) continue;
+      $n++; $byte += filesize($p);
+      if (!isset($hidup[$f])) $yatim++;
+    }
+  }
+  $out['berkas']       = $n;
+  $out['berkasMB']     = round($byte / 1048576, 3);
+  $out['berkasYatim']  = $yatim;      // menunggu jeda aman 1 jam sebelum dibuang
+  $out['folderBerkas'] = $dir;
+  $out['amanDiLuarWeb'] = !receipt_di_dalam_web();
+
+  $out['ts'] = gmdate('c');
   return $out;
 }
