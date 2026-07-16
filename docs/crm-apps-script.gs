@@ -8,9 +8,19 @@
  * Salin URL /exec, tempel ke WEB_APP_URL di deploy/marketing/index.html.
  *
  * KONTRAK (sama persis dengan modul reservasi & konten):
- *   GET  ?action=getAll        -> {ok:true, data:{...seluruh DB...}}
- *   POST {action:"saveAll", data:{...}} -> {ok:true, data:{saved:true}}
+ *   GET  ?action=getAll        -> {ok:true, data:{...seluruh DB..., _rev:n}}
+ *   POST {action:"saveAll", data:{...}, baseRev:n, by:"Nama"}
+ *                              -> {ok:true, data:{saved:true, rev:n+1}}
+ *                              -> {ok:false, error:"conflict", serverRev, savedBy, savedAt}
  *   Error                      -> {ok:false, error:"..."}
+ *
+ * ANTI-TABRAKAN (optimistic locking):
+ *   Simpan menimpa SELURUH DB, jadi dua orang yang menyimpan bersamaan bisa
+ *   saling menghapus. Tiap save menaikkan _rev. Klien mengirim baseRev = _rev
+ *   yang dia pegang; kalau sudah tidak sama dengan yang di server, save DITOLAK
+ *   dengan error "conflict" (bukan ditimpa diam-diam). LockService menjaga
+ *   baca-lalu-tulis tetap atomik.
+ *   baseRev tidak dikirim -> pemeriksaan dilewati (kompatibel dgn klien lama).
  *
  * MODEL PENYIMPANAN (standar Office):
  *   DB_JSON  : JSON blob (kolom A, dipotong per 45.000 karakter/baris kalau
@@ -40,15 +50,42 @@ function doPost(e) {
   try {
     var body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     var action = body.action || '';
-    if (action === 'saveAll') {
-      var data = body.data || {};
-      writeDb_(data);
-      flatten_(data);
-      return ok_({ saved: true, at: new Date().toISOString() });
-    }
+    if (action === 'saveAll') return saveAll_(body);
     if (action === 'uploadReceipt') return uploadReceipt_(body);
     return err_('unknown_action: ' + action);
   } catch (ex) { return err_(String(ex && ex.message || ex)); }
+}
+
+/* --------------------------- Simpan + anti-tabrakan --------------------------- */
+// Dikunci supaya baca _rev -> bandingkan -> tulis tidak bisa disisipi request lain.
+// Tanpa kunci, dua save berbarengan sama-sama lolos pemeriksaan lalu saling menimpa.
+function saveAll_(body) {
+  var lock = LockService.getScriptLock();
+  try { lock.waitLock(20000); } catch (ex) { return err_('busy'); }
+  try {
+    var data = body.data || {};
+    var cur = readDb_();
+    var curRev = +(cur && cur._rev) || 0;
+    var baseRev = body.baseRev;
+
+    // Klien mengirim baseRev tapi sudah ketinggalan -> tolak, jangan timpa.
+    if (baseRev !== undefined && baseRev !== null && (+baseRev) !== curRev) {
+      return err_('conflict', {
+        serverRev: curRev,
+        savedBy: (cur && cur._savedBy) || '',
+        savedAt: (cur && cur._savedAt) || ''
+      });
+    }
+
+    data._rev = curRev + 1;
+    data._savedAt = new Date().toISOString();
+    data._savedBy = String(body.by || '');
+    writeDb_(data);
+    flatten_(data);
+    return ok_({ saved: true, rev: data._rev, at: data._savedAt });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------------------- Baca / tulis ---------------------------- */
@@ -180,8 +217,12 @@ function ok_(data) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function err_(msg) {
+// extra: field tambahan (mis. serverRev/savedBy saat conflict) supaya klien
+// bisa memberi tahu SIAPA yang menyimpan duluan, bukan sekadar "gagal".
+function err_(msg, extra) {
+  var o = { ok: false, error: msg };
+  if (extra) for (var k in extra) o[k] = extra[k];
   return ContentService
-    .createTextOutput(JSON.stringify({ ok: false, error: msg }))
+    .createTextOutput(JSON.stringify(o))
     .setMimeType(ContentService.MimeType.JSON);
 }

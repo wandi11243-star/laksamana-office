@@ -177,6 +177,10 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .cbx.on .cbx-box:after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .cbx-lbl{line-height:1.2}
 .cbx input:disabled + .cbx-box{opacity:.5}
+/* status sinkron — hanya muncul saat ada yang perlu diketahui, bukan hiasan tetap */
+.sync-badge{font-size:11px;font-weight:600;padding:5px 10px;border-radius:20px;white-space:nowrap}
+.sync-badge.err{background:var(--danger-bg);color:var(--danger)}
+.sync-badge.conflict{background:var(--warn-bg);color:var(--warn)}
 .star-vip{display:inline-flex;color:var(--gold);cursor:help}
 /* tabel pengaturan: input rapat & sejajar, keterangan di kolomnya sendiri */
 .set-grid{grid-template-columns:1.9fr 1fr}
@@ -455,6 +459,7 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
       <div class="icon-btn menu-toggle" onclick="openSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12h18M3 6h18M3 18h18"/></svg></div>
       <div><div class="tb-title" id="tb-title">Dashboard</div><div class="tb-sub" id="tb-sub"></div></div>
       <div class="tb-spacer"></div>
+      <span class="sync-badge" id="sync-badge" hidden></span>
       <div class="notif-wrap" id="notif-wrap">
         <div class="icon-btn" id="notif-btn" onclick="toggleNotifPop(event)" title="Notifikasi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/></svg><span class="dot" id="notif-dot" style="display:none"></span></div>
         <div class="notif-pop" id="notif-pop"></div>
@@ -539,16 +544,92 @@ async function apiLoad(){
   }
 }
 // Simpan seluruh DB ke server (POST) + cache lokal. Tidak memblokir UI.
+/* Simpan menimpa SELURUH DB, jadi dua orang yang menyimpan bersamaan bisa saling
+   menghapus. Kita kirim baseRev = _rev yang kita pegang; server menolak bila sudah
+   ketinggalan (lihat docs/crm-apps-script.gs). Server lama yang belum paham baseRev
+   tetap jalan seperti biasa — hanya tanpa perlindungan. */
+let saveInFlight=false, savePending=false;
 function save(){
   localStorage.setItem(KEY, JSON.stringify(S)); // cache dulu (instan)
   if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0) return; // URL belum diisi
+  if(saveInFlight){ savePending=true; return; } // hindari dua POST balapan dari tab yang sama
+  saveInFlight=true;
+  const body={action:'saveAll', data:S, by:(ME&&ME.name)||''};
+  if(S._rev!==undefined && S._rev!==null) body.baseRev=S._rev;
   fetch(WEB_APP_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
-    body: JSON.stringify({action:'saveAll', data:S}),
+    body: JSON.stringify(body),
     redirect:'follow'
-  }).catch(err=>{ console.warn('Gagal sinkron ke server:', err); });
+  })
+  .then(r=>r.json())
+  .then(j=>{
+    if(j && j.ok){
+      if(j.data && j.data.rev!==undefined) S._rev=j.data.rev;
+      API_READY=true; setSyncBadge('ok');
+    } else if(j && j.error==='conflict'){
+      API_READY=false; setSyncBadge('conflict');
+      showSaveConflict(j);
+    } else {
+      API_READY=false; setSyncBadge('err');
+      console.warn('Simpan ditolak server:', j && j.error);
+    }
+  })
+  .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err); })
+  .finally(()=>{ saveInFlight=false; if(savePending){ savePending=false; save(); } });
 }
+// Perubahan kita ditolak karena server sudah lebih baru. Jangan timpa diam-diam —
+// tanyakan, karena "timpa paksa" berarti membuang kerja orang lain.
+let _conflictShown=false;
+function showSaveConflict(j){
+  if(_conflictShown)return; _conflictShown=true;
+  const who=(j.savedBy||'user lain'), when=j.savedAt?ago(j.savedAt):'baru saja';
+  modal('<div class="modal-head"><div><h3>Perubahan Tidak Tersimpan</h3><p>Data di server sudah lebih baru</p></div></div>'
+   +'<div class="modal-body">'
+   +'<div class="tbl-note" style="margin-top:0;border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
+     +'<span><em>'+esc(who)+'</em> menyimpan perubahan '+esc(when)+', sesudah halaman ini dimuat. Perubahanmu <em>belum tersimpan</em>.</span></div>'
+   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Kalau dipaksa simpan, semua perubahan '+esc(who)+' akan hilang. Amannya: muat ulang, lalu ulangi perubahanmu.</p>'
+   +'</div><div class="modal-foot">'
+   +'<button class="btn danger-solid" onclick="forceSaveAnyway()">Timpa punya '+esc(who)+'</button>'
+   +'<button class="btn pri" onclick="reloadFromServer()">Muat ulang (disarankan)</button>'
+   +'</div>','wide');
+}
+function reloadFromServer(){ closeModal(); location.reload(); }
+function forceSaveAnyway(){
+  closeModal(); _conflictShown=false;
+  delete S._rev;      // tanpa baseRev -> server melewati pemeriksaan
+  save();
+  toast('Ditimpa','Perubahanmu disimpan menimpa versi server.','err');
+}
+// Badge hanya tampil kalau ADA masalah — kalau semua lancar, topbar tetap bersih.
+function setSyncBadge(state){
+  const el=document.getElementById('sync-badge'); if(!el)return;
+  if(state==='ok'){ el.hidden=true; el.className='sync-badge'; return; }
+  el.hidden=false;
+  el.className='sync-badge '+(state==='conflict'?'conflict':'err');
+  el.textContent = state==='conflict' ? 'Belum tersimpan — bentrok' : 'Gagal sinkron — data hanya di browser ini';
+  el.title = state==='conflict'
+    ? 'Server sudah lebih baru. Muat ulang lalu ulangi perubahanmu.'
+    : 'Perubahan tersimpan di browser tapi belum naik ke server. Cek koneksi.';
+}
+/* Data hanya dibaca sekali saat boot, jadi tab yang lama dibiarkan terbuka akan
+   memegang versi usang lalu menimpa kerja orang lain saat menyimpan. Saat tab
+   kembali aktif, cek apakah server sudah lebih baru. */
+async function refreshIfStale(){
+  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0 || !S) return;
+  if(saveInFlight || _conflictShown) return;
+  try{
+    const res=await fetch(WEB_APP_URL+'?action=getAll',{method:'GET',redirect:'follow'});
+    const j=await res.json();
+    if(!j||!j.ok||!j.data||!j.data.users) return;
+    const srev=+j.data._rev||0, mine=+S._rev||0;
+    if(!(srev>mine)) return;                       // server tidak lebih baru -> aman
+    S=j.data; localStorage.setItem(KEY,JSON.stringify(S));
+    setSyncBadge('ok'); buildNav(); paintStaffDatalist(); refreshView();
+    toast('Data disegarkan','Ada perubahan dari '+((j.data._savedBy)||'user lain')+' — tampilan diperbarui.','ok');
+  }catch(e){ /* offline: biarkan, badge diurus oleh save() */ }
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshIfStale(); });
 function uid(p){ return (p||'id')+'_'+Math.random().toString(36).slice(2,9); }
 function resetData(){
   if(confirm('Kosongkan semua data ke kondisi awal? Tindakan ini menimpa data di server.')){
@@ -1076,7 +1157,9 @@ function toast(title,sub,kind){
   w.appendChild(el); setTimeout(()=>{el.style.opacity='0';el.style.transform='translateX(30px)';setTimeout(()=>el.remove(),250);},2800);
 }
 function modal(html,size){ const m=$('modal'); m.className='modal'+(size?(' '+size):''); m.innerHTML=html; $('modal-bg').classList.add('on'); }
-function closeModal(){ $('modal-bg').classList.remove('on'); }
+// _conflictShown direset di sini juga: modal konflik bisa ditutup lewat klik latar,
+// dan kalau flag-nya tersangkut true, peringatan bentrok tak akan muncul lagi.
+function closeModal(){ $('modal-bg').classList.remove('on'); _conflictShown=false; }
 let _confirmCb=null;
 function confirmUI(opts){
   _confirmCb=opts.onYes||null;
