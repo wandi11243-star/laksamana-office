@@ -218,7 +218,16 @@ svg.chart text{font-family:var(--font-b)}
 // Selama masih PASTE_..., app jalan offline (localStorage saja).
 var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw-4ntMFpLsuHF3gK4YJ1E2XVi7hKioEiT840O-aKtcqdat022K6PGwG-d8i8hl6SNj/exec";
 
+/* Integrasi Akademi (baca-saja): komponen Training di People Score idealnya
+   berasal dari training ASLI di modul Akademi, bukan input manual. Isi dengan
+   URL /exec Akademi yang mengekspos `?action=trainingStats` -> peta
+   { userId: {mandPct,mandTotal,mandDone,certified} }. Lihat
+   docs/hr-akademi-integration.md. Selama KOSONG, Training tetap dari input
+   manual seperti biasa (fitur ini dorman, tidak mengganggu apa pun). */
+var AKADEMI_STATS_URL = "";
+
 var LS_KEY = 'lm_peopleos_v1';   // cache lokal (fallback offline)
+var AKADEMI_CACHE_KEY = 'lm_peopleos_akademi_v1';
 var APP = null; // diisi oleh IIFE untuk akses eksternal/test
 
 (function(){
@@ -264,6 +273,28 @@ function toast(msg, err){
    Lihat docs/office-data.md. */
 let S = null;
 let API_READY = false;
+
+/* ===== Akademi training stats (baca-saja) =====
+   Peta { userId: {mandPct,mandTotal,mandDone,certified} } dari modul Akademi.
+   Dipakai trainingScore() sebagai sumber utama komponen Training. Dorman kalau
+   AKADEMI_STATS_URL kosong. Lihat docs/hr-akademi-integration.md. */
+let AKADEMI_STATS = null;
+async function loadAkademiStats(){
+  if(!AKADEMI_STATS_URL){ AKADEMI_STATS = null; return; }
+  try{
+    const res = await fetch(AKADEMI_STATS_URL + '?action=trainingStats', {method:'GET', redirect:'follow'});
+    const j = await res.json();
+    // Terima dua bentuk: {ok:true,data:{...}} atau langsung {...userId:...}.
+    const map = (j && j.ok && j.data) ? j.data : (j && !j.ok ? null : j);
+    if(map && typeof map === 'object'){
+      AKADEMI_STATS = map;
+      try{ localStorage.setItem(AKADEMI_CACHE_KEY, JSON.stringify(map)); }catch(e){}
+    } else { throw new Error('bentuk tak dikenal'); }
+  }catch(e){
+    console.warn('Gagal memuat training Akademi, pakai cache/manual:', e);
+    try{ AKADEMI_STATS = JSON.parse(localStorage.getItem(AKADEMI_CACHE_KEY) || 'null'); }catch(_){ AKADEMI_STATS = null; }
+  }
+}
 
 // Ambil dari server. Gagal (offline/URL kosong) -> cache lokal -> seed baru.
 async function apiLoad(){
@@ -384,7 +415,7 @@ async function refreshIfStale(){
     // dicocokkan ulang ke roster baru, kalau tidak edit berikutnya menulis ke
     // objek yatim yang tidak ikut tersimpan.
     const sess = readLmSession();
-    if(CU && sess){ CU = resolveOfficeUser(sess); buildNav(); go(curPage); }
+    if(CU && sess){ OFFICE_HR_ADMIN = officeIsHrAdmin(sess); CU = resolveOfficeUser(sess); buildNav(); go(curPage); }
     toast('Data disegarkan, ada perubahan dari ' + ((j.data._savedBy) || 'user lain') + '.');
   }catch(e){ /* offline: biarkan, badge diurus save() */ }
 }
@@ -467,6 +498,10 @@ let CU = null; // current user (employee object)
 const ROLE_LABEL = { ceo:'CEO / Nahkoda', hr:'HRD', manager:'Manager', staff:'Kru' };
 function can(perm){
   if(!CU) return false;
+  // manageOps memakai status admin modul dari Office (superadmin + Rizki Arfan),
+  // BUKAN appRole internal. Ini gate untuk halaman Operasional (Kru, Kalender) dan
+  // Sistem (Pengaturan, Audit). Lihat OFFICE_HR_ADMIN.
+  if(perm === 'manageOps') return OFFICE_HR_ADMIN;
   const r = CU.appRole;
   const P = {
     manageEmployees:['ceo','hr'], manageSettings:['ceo','hr'], inputKpi:['ceo','hr','manager'],
@@ -508,12 +543,19 @@ function readLmSession(){
     return s;
   }catch(e){ return null; }
 }
+// Admin modul dari Office: adminModules mengandung '*' (superadmin: Admin,
+// Howandi, Wandi) atau 'hr' (admin modul ini, mis. Rizki Arfan / HRD). Inilah
+// "superadmin + Rizki Arfan" yang boleh membuka halaman Operasional & Sistem.
+// Diatur lewat Kelola Akses Office, bukan hardcode. Diset saat boot.
+let OFFICE_HR_ADMIN = false;
+function officeIsHrAdmin(s){
+  const adm = (s && s.adminModules) || [];
+  return adm.indexOf('*') > -1 || adm.indexOf('hr') > -1;
+}
 // Peta hak Office -> role internal PeopleOS (ceo / hr / manager / staff).
 // adminModules '*' (superadmin) atau 'hr' (admin modul HR) -> role hr.
 function officeToAppRole(s){
-  const adm = s.adminModules || [];
-  if(adm.indexOf('*') > -1 || adm.indexOf('hr') > -1) return 'hr';
-  return 'staff';
+  return officeIsHrAdmin(s) ? 'hr' : 'staff';
 }
 const normName = n => String(n||'').toLowerCase().replace(/[^a-z\s]/g,'').replace(/\s+/g,' ').trim();
 
@@ -574,6 +616,7 @@ function resolveOfficeUser(s){
 function bootPeopleOS(){
   const office = readLmSession();
   if(!office){ location.replace('../'); return; }
+  OFFICE_HR_ADMIN = officeIsHrAdmin(office);   // status admin dari Office, sumber gate Operasional/Sistem
   CU = resolveOfficeUser(office);
   log('LOGIN','');
   save();
@@ -624,19 +667,21 @@ const PAGES = [
   {id:'reward', label:'Reward & Recognition', icon:'M8 21h8m-4-4v4m-6-17h12v4a6 6 0 01-12 0V4zM4 6H2v2a4 4 0 004 4M20 6h2v2a4 4 0 01-4 4'},
   {id:'disc', label:'Disiplin', icon:'M12 9v4m0 4h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z'},
   {id:'engage', label:'Engagement', icon:'M12 21C7 17 2 13.5 2 9a5 5 0 019-3 5 5 0 019 3c0 4.5-5 8-8 12z'},
-  {grp:'OPERASIONAL'},
-  {id:'emp', label:'Kru', icon:'M17 21v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2m14-14a4 4 0 11-8 0 4 4 0 018 0zm4 14v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0116 11'},
-  {id:'cal', label:'Kalender HR', icon:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'},
-  {grp:'SISTEM'},
-  {id:'settings', label:'Pengaturan', icon:'M12 15a3 3 0 100-6 3 3 0 000 6zm7.4-3a7.4 7.4 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 00-2-1.2L14.5 3h-5L9 5.6a7.5 7.5 0 00-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 000 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 002 1.2L9.5 21h5l.4-2.6a7.5 7.5 0 002-1.2l2.4 1 2-3.4-2-1.6c.07-.4.1-.8.1-1.2z', perm:'manageSettings'},
-  {id:'audit', label:'Audit Log', icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4', perm:'viewAudit'}
+  // Operasional & Sistem: hanya admin modul dari Office (superadmin + Rizki Arfan)
+  // lewat perm 'manageOps'. Diperiksa lagi di go(), bukan cuma disembunyikan di nav.
+  {grp:'OPERASIONAL', perm:'manageOps'},
+  {id:'emp', label:'Kru', perm:'manageOps', icon:'M17 21v-2a4 4 0 00-4-4H7a4 4 0 00-4 4v2m14-14a4 4 0 11-8 0 4 4 0 018 0zm4 14v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0116 11'},
+  {id:'cal', label:'Kalender HR', perm:'manageOps', icon:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'},
+  {grp:'SISTEM', perm:'manageOps'},
+  {id:'settings', label:'Pengaturan', perm:'manageOps', icon:'M12 15a3 3 0 100-6 3 3 0 000 6zm7.4-3a7.4 7.4 0 00-.1-1.2l2-1.6-2-3.4-2.4 1a7.5 7.5 0 00-2-1.2L14.5 3h-5L9 5.6a7.5 7.5 0 00-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 000 2.4l-2 1.6 2 3.4 2.4-1a7.5 7.5 0 002 1.2L9.5 21h5l.4-2.6a7.5 7.5 0 002-1.2l2.4 1 2-3.4-2-1.6c.07-.4.1-.8.1-1.2z'},
+  {id:'audit', label:'Audit Log', perm:'manageOps', icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4'}
 ];
 let curPage = 'dash';
 function buildNav(){
   const sidebar = $('#sidebar');
   const navHtml = PAGES.map(p=>{
+    if(p.perm && !can(p.perm)) return '';   // sembunyikan grup maupun item yang tak berhak
     if(p.grp) return '<div class="ngroup">'+esc(p.grp)+'</div>';
-    if(p.perm && !can(p.perm)) return '';
     return '<button class="nitem" data-page="'+p.id+'" onclick="APP.go(\''+p.id+'\')">'+
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+p.icon+'"/></svg>'+esc(p.label)+'</button>';
   }).join('');
@@ -651,12 +696,24 @@ function buildNav(){
     '</div>';
 }
 const RENDER = {};
+// Boleh tidaknya user membuka sebuah halaman (dipakai gate + kondisi tombol nav/insight).
+function canOpenPage(page){
+  const p = PAGES.find(x=>x.id===page && !x.grp);
+  return !!p && (!p.perm || can(p.perm));
+}
 function go(page){
+  // Penegakan sesungguhnya ada di sini, bukan cuma menyembunyikan tombol nav.
+  // Tanpa ini, halaman ber-perm (mis. Pengaturan) tetap bisa dibuka lewat
+  // APP.go('settings') dari console atau tautan basi.
+  if(!canOpenPage(page)){
+    if(page !== 'dash'){ toast('Halaman itu khusus admin.', true); return go('dash'); }
+    page = 'dash';
+  }
   curPage = page;
   $$('.nitem').forEach(b=>b.classList.toggle('on', b.dataset.page===page));
   $('#sidebar').classList.remove('open');
-  const p = PAGES.find(x=>x.id===page);
-  $('#pageTitle').textContent = p?p.label:page;
+  const cur = PAGES.find(x=>x.id===page);
+  $('#pageTitle').textContent = cur?cur.label:page;
   const c = $('#content'); c.innerHTML='';
   if(RENDER[page]) RENDER[page](c);
   c.scrollTop = 0; window.scrollTo(0,0);
@@ -692,6 +749,13 @@ function empKpiScore(emp, mk){
 
 /* ====== ENGINE: KOMPONEN PEOPLE SCORE ====== */
 function trainingScore(empId){
+  // Sumber utama: Akademi (training ASLI, materi + kuis). Kalau ada entri untuk
+  // kru ini, itu yang dipakai, bukan input manual. Lihat docs/hr-akademi-integration.md.
+  if(AKADEMI_STATS && AKADEMI_STATS[empId] && AKADEMI_STATS[empId].mandPct != null){
+    return clamp(Number(AKADEMI_STATS[empId].mandPct), 0, 100);
+  }
+  // Fallback (Akademi belum tersambung / kru belum ada di Akademi): hitung dari
+  // catatan training manual seperti sebelumnya.
   const recs = S.trainingRecords.filter(r=>r.empId===empId);
   const mandatory = S.trainings.filter(t=>t.mandatory && (t.divId==='all' || t.divId===(empById(empId)||{}).divId));
   if(!mandatory.length && !recs.length) return null;
@@ -699,6 +763,10 @@ function trainingScore(empId){
   if(!relevant.length) return null;
   const done = relevant.filter(t=>recs.some(r=>r.trainingId===t.id && r.status==='Lulus')).length;
   return (done/relevant.length)*100;
+}
+// Apakah skor training kru ini datang dari Akademi (untuk penanda UI).
+function trainingFromAkademi(empId){
+  return !!(AKADEMI_STATS && AKADEMI_STATS[empId] && AKADEMI_STATS[empId].mandPct != null);
 }
 function feedbackScore(empId, mk){
   const fb = S.feedbacks.filter(f=>f.empId===empId && monthKey(f.date)===mk);
@@ -890,7 +958,12 @@ RENDER.dash = function(c){
   // Insight
   html += '<div class="sec-title"><h3>Insight Otomatis</h3><span class="sub">hal yang perlu ditindak, dihitung dari data bulan ini</span></div>';
   if(!insights.length) html += '<div class="empty">Tidak ada alert. Kapal berlayar tenang. ⚓</div>';
-  else html += insights.map(i=>'<div class="note'+(i.sev==='warn'||i.sev==='bad'?' w':'')+'" style="display:flex;gap:10px;align-items:center"><span class="grow">'+esc(i.text)+'</span><button class="btn btn-line btn-xs" onclick="APP.go(\''+i.act+'\')">Buka →</button></div>').join('');
+  else html += insights.map(i=>{
+    // Tombol "Buka" hanya kalau user memang boleh membuka halaman tujuannya,
+    // supaya tidak mengarahkan ke halaman admin lalu ditolak go().
+    const btn = canOpenPage(i.act) ? '<button class="btn btn-line btn-xs" onclick="APP.go(\''+i.act+'\')">Buka →</button>' : '';
+    return '<div class="note'+(i.sev==='warn'||i.sev==='bad'?' w':'')+'" style="display:flex;gap:10px;align-items:center"><span class="grow">'+esc(i.text)+'</span>'+btn+'</div>';
+  }).join('');
 
   // Leaderboard mini + KPI divisi
   html += '<div class="cards g2" style="margin-top:16px"><div class="card"><h3>Top 5 People Score, '+fmtMonth(mk)+'</h3>';
@@ -1239,8 +1312,15 @@ function editCoach(id){
 
 /* ====== PAGE: TRAINING CENTER ====== */
 RENDER.training = function(c){
+  const akademiOn = !!(AKADEMI_STATS && Object.keys(AKADEMI_STATS).length);
   let html = '<div class="toolbar"><span class="sp"></span>'+(can('manageTraining')?'<button class="btn btn-pri btn-sm" onclick="APP.editTraining()">＋ Program Training</button>':'')+'</div>';
-  html += '<div class="note">Halaman ini <b>mencatat hasil</b> training, bukan tempat menjalankannya. Materi dan kuis ada di modul <b>Akademi</b>; penyampaian lain (briefing, praktek) tetap offline. Di sini HRD/manager mendaftarkan program lalu memasukkan nilai tiap kru: nilai ≥ passing grade dihitung Lulus, dapat nomor sertifikat internal dan poin reward. Training wajib mempengaruhi komponen Training di People Score dan jadi gerbang naik level.</div>';
+  if(akademiOn){
+    // Sumber training sudah dari Akademi: komponen People Score dibaca dari sana,
+    // halaman ini tinggal untuk training di LUAR Akademi (briefing, praktek offline).
+    html += '<div class="note">Komponen <b>Training</b> di People Score kini dibaca langsung dari modul <b>Akademi</b> (materi + kuis asli), per kru. Halaman ini hanya untuk mencatat training di luar Akademi (briefing, praktek offline) yang tidak punya materinya di sana. Kelola materi dan kuis di Akademi.</div>';
+  } else {
+    html += '<div class="note">Halaman ini <b>mencatat hasil</b> training, bukan tempat menjalankannya. Materi dan kuis ada di modul <b>Akademi</b>; penyampaian lain (briefing, praktek) tetap offline. Di sini HRD/manager mendaftarkan program lalu memasukkan nilai tiap kru: nilai ≥ passing grade dihitung Lulus, dapat nomor sertifikat internal dan poin reward. Training wajib mempengaruhi komponen Training di People Score dan jadi gerbang naik level.</div>';
+  }
   if(!S.trainings.length){ html += '<div class="empty">Belum ada program. Contoh: Product Knowledge Menu, Opening SOP, Hygiene Test, Coffee Knowledge, Service Excellence.</div>'; }
   html += '<div class="cards g2">';
   S.trainings.forEach(t=>{
@@ -1443,7 +1523,7 @@ RENDER.engage = function(c){
   const today = todayStr();
   const myMood = S.moods.find(m=>m.empId===CU.id && m.date===today);
   const mk = monthKey();
-  let html = '<div class="cards g2"><div class="card"><h3>Mood Check Hari Ini</h3><div class="small mut">Bagaimana perasaanmu hari ini? Jawaban ini <b>tercatat atas nama Anda</b> dan bisa dilihat HRD, dipakai untuk menawarkan bantuan kalau ada yang berat. Sesama kru tidak bisa melihatnya. Kalau ingin menyampaikan sesuatu tanpa nama, pakai Kotak Saran di bawah dengan centang anonim.</div>'+
+  let html = '<div class="cards g2"><div class="card"><h3>Mood Check Hari Ini</h3><div class="small mut">Bagaimana perasaanmu hari ini? Jawaban ini tercatat atas nama Anda dan bisa dilihat HRD. Sesama kru tidak bisa melihatnya. Kalau ingin menyampaikan sesuatu tanpa nama, pakai Kotak Saran di bawah dengan centang anonim.</div>'+
     '<div class="mood-row">'+MOODS.map(m=>'<button class="mood-btn'+(myMood&&myMood.mood===m.v?' sel':'')+'" onclick="APP.setMood('+m.v+')">'+m.e+'</button>').join('')+'</div>'+
     (myMood?'<div class="small" style="text-align:center;color:var(--ok)">Tercatat. Terima kasih! ⚓</div>':'')+'</div>';
 
@@ -1784,6 +1864,7 @@ async function init(){
   $('#menuBtn').onclick = ()=> $('#sidebar').classList.toggle('open');
   $('#modalWrap').addEventListener('click', e=>{ if(e.target.id==='modalWrap') closeModal(); });
   await apiLoad();          // server dulu, baru identitas: resolveOfficeUser butuh S.employees
+  await loadAkademiStats(); // training dari Akademi (dorman kalau URL kosong); non-fatal
   bootPeopleOS();
 }
 

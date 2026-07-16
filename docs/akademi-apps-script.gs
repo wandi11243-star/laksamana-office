@@ -13,6 +13,14 @@
  *   POST {action:"push", key:"...", db:{}} -> {ok:true}
  *   Error                                  -> {ok:false, error:"..."}
  *
+ * TAMBAHAN untuk integrasi Staff Performance (baca-saja, tanpa kunci):
+ *   GET  ?action=trainingStats            -> {ok:true, data:{ userId:{mandPct,...} }}
+ *   Dipakai modul `hr` (Staff Performance) untuk komponen Training di People Score,
+ *   supaya training ASLI di Akademi otomatis memengaruhi skor. Lihat
+ *   docs/hr-akademi-integration.md. Sengaja TANPA kunci: yang dibagi cuma persen
+ *   penyelesaian training per userId (bukan isi materi/jawaban kuis), dan
+ *   klien lintas-modul tidak menyimpan SYNC_KEY.
+ *
  * Akademi memakai last-write-wins lewat field db.updatedAt: pull hanya dipakai
  * klien bila updatedAt server LEBIH BARU dari lokal. Jadi server cukup menyimpan
  * blob apa adanya.
@@ -36,6 +44,7 @@ function doGet(e) {
   try {
     var p = (e && e.parameter) || {};
     var action = p.action || 'pull';
+    if (action === 'trainingStats') return okData_(trainingStats_());   // baca-saja, tanpa kunci
     if (action !== 'pull') return err_('unknown_action: ' + action);
     if (!keyOk_(p.key)) return err_('bad_key');
     return okDb_(readDb_());
@@ -70,6 +79,49 @@ function readDb_() {
 function writeDb_(db) {
   var sh = sheet_(DB_SHEET);
   sh.getRange(DB_CELL).setValue(JSON.stringify(db));
+}
+
+/* ---------------- trainingStats (untuk Staff Performance) ----------------
+   Hitung persen penyelesaian training WAJIB per userId, MENIRU userStats() di
+   klien Akademi PERSIS supaya angkanya sama:
+     matsForUser: materi published yang cocok divisi user (atau 'all')
+     isDone     : quiz -> passed===true; selain itu -> status==='done'
+     mandPct    : dari materi WAJIB, persen yang selesai. Tanpa materi wajib -> 100.
+   Key hasil = user.id, yang sejak SSO = Office userId (kunci gabung ke `hr`). */
+function trainingStats_() {
+  var db = readDb_() || {};
+  var users = db.users || [];
+  var materials = db.materials || [];
+  var progress = db.progress || {};
+
+  var out = {};
+  users.forEach(function (u) {
+    if (u.active === false) return;
+    var mats = materials.filter(function (m) {
+      if (!m.published) return false;
+      var div = Array.isArray(m.division) ? m.division : (m.division ? [m.division] : []);
+      if (u.division === 'all') return true;
+      return div.indexOf('all') > -1 || div.indexOf(u.division) > -1;
+    });
+    var mand = mats.filter(function (m) { return m.mandatory; });
+    var pByUser = progress[u.id] || {};
+    var isDone = function (m) {
+      var pr = pByUser[m.id];
+      if (!pr) return false;
+      return m.type === 'quiz' ? pr.passed === true : pr.status === 'done';
+    };
+    var doneMand = mand.filter(isDone).length;
+    var doneAll = mats.filter(isDone).length;
+    out[u.id] = {
+      mandPct: mand.length ? Math.round(doneMand / mand.length * 100) : 100,
+      mandTotal: mand.length,
+      mandDone: doneMand,
+      total: mats.length,
+      done: doneAll,
+      certified: mand.length > 0 && doneMand === mand.length
+    };
+  });
+  return out;
 }
 
 /* ------------------------- Tab rata (flatten) -------------------------- */
@@ -155,6 +207,12 @@ function ok_() {
 function okDb_(db) {
   return ContentService
     .createTextOutput(JSON.stringify({ ok: true, db: db }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function okData_(data) {
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true, data: data }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
