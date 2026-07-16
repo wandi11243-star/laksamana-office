@@ -213,11 +213,16 @@ function collections() {
       'publish_date' => array('publishDate', 'date'),
       'publish_time' => array('publishTime', 'str'),
     )),
+    // Task produksi berdiri sendiri (tidak menunjuk content), pelaksana = pic,
+    // tanggal = date. Diverifikasi dari data live.
     'prodTasks' => array('table' => 'prod_tasks', 'cols' => array(
-      'content_id' => array('contentId', 'str'),
-      'assignee'   => array('assignee', 'str'),
-      'status'     => array('status', 'str'),
-      'due_date'   => array('due', 'date'),
+      'kind'     => array('kind', 'str'),
+      'title'    => array('title', 'str'),
+      'brand'    => array('brand', 'str'),
+      'pic'      => array('pic', 'str'),
+      'priority' => array('priority', 'str'),
+      'status'   => array('status', 'str'),
+      'tanggal'  => array('date', 'date'),
     )),
     'shootings' => array('table' => 'shootings', 'cols' => array(
       'title'    => array('title', 'str'),
@@ -231,23 +236,31 @@ function collections() {
       'by_user' => array('by', 'str'),
       'at_ms'   => array('at', 'ms'),
     )),
+    // Bank ide: "type" ternyata tidak ada; yang ada category/platform/status.
     'bank' => array('table' => 'bank', 'cols' => array(
-      'owner' => array('owner', 'str'),
-      'kind'  => array('type', 'str'),
-      'at_ms' => array('at', 'ms'),
+      'owner'    => array('owner', 'str'),
+      'title'    => array('title', 'str'),
+      'brand'    => array('brand', 'str'),
+      'platform' => array('platform', 'str'),
+      'kind'     => array('category', 'str'),
+      'status'   => array('status', 'str'),
+      'at_ms'    => array('at', 'ms'),
     )),
+    // Bentuk asli (diverifikasi dari data live): kategori BANYAK (categories[]),
+    // tarif = rateValue, kontak = whatsapp/instagram/tiktok. Tidak ada
+    // phone/followers/status/platform seperti dugaan awal.
     'kols' => array('table' => 'kols', 'created' => true, 'cols' => array(
       'name'      => array('name', 'str'),
-      'category'  => array('category', 'str'),
       'kol_type'  => array('type', 'str'),
-      'platform'  => array('platform', 'str'),
-      'phone'     => array('phone', 'str'),
-      'status'    => array('status', 'str'),
-      'followers' => array('followers', 'int'),
-      'rate'      => array('rate', 'int'),
+      'instagram' => array('instagram', 'str'),
+      'whatsapp'  => array('whatsapp', 'str'),
+      'rate_value'=> array('rateValue', 'int'),
     )),
     'visits' => array('table' => 'visits', 'created' => true, 'cols' => array(
+      'title'    => array('title', 'str'),
       'kol_id'   => array('kolId', 'str'),
+      'brand'    => array('brand', 'str'),
+      'pic'      => array('pic', 'str'),
       'tanggal'  => array('date', 'date'),
       'location' => array('location', 'str'),
       'status'   => array('status', 'str'),
@@ -269,7 +282,8 @@ function collections() {
       'tanggal'  => array('date', 'date'),
     )),
     'notifs' => array('table' => 'notifs', 'cols' => array(
-      'for_user' => array('for', 'str'),
+      'for_user' => array('to', 'str'),         // data live memakai "to", bukan "for"
+      'kind'     => array('type', 'str'),
       'at_ms'    => array('at', 'ms'),
       'seen'     => array('read', 'bool'),      // "read" reserved word di MySQL
     )),
@@ -517,7 +531,7 @@ function save_all($state) {
         if (!is_array($a) || empty($a['id'])) continue;
         $ai->execute(array(
           ':id'      => (string)$a['id'],
-          ':ref_id'  => ambil($a, 'ref', 'str'),
+          ':ref_id'  => ambil($a, 'target', 'str'),   // data live memakai "target"
           ':action'  => ambil($a, 'action', 'str'),
           ':by_user' => ambil($a, 'by', 'str'),
           ':at_ms'   => ambil($a, 'at', 'ms'),

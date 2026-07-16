@@ -85,19 +85,23 @@ CREATE TABLE IF NOT EXISTS content (
   KEY idx_ct_updated  (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Task produksi (todo/doing/done) — dipisah karena dikelola per task, bukan
--- selalu ikut kontennya.
+-- Task produksi (todo/doing/done). Diverifikasi dari data live: task BERDIRI
+-- SENDIRI (tidak menunjuk content), pelaksananya `pic`, tanggalnya `date`.
 CREATE TABLE IF NOT EXISTS prod_tasks (
   id         VARCHAR(64) NOT NULL PRIMARY KEY,
-  content_id VARCHAR(64)     NULL,
-  assignee   VARCHAR(64)     NULL,
+  kind       VARCHAR(32)     NULL,             -- app: kind (edit/shoot/dll)
+  title      VARCHAR(255)    NULL,
+  brand      VARCHAR(64)     NULL,
+  pic        VARCHAR(64)     NULL,
+  priority   VARCHAR(16)     NULL,
   status     VARCHAR(32)     NULL,             -- todo / doing / done
-  due_date   DATE            NULL,
+  tanggal    DATE            NULL,
   updated_at BIGINT      NOT NULL DEFAULT 0,
   data       LONGTEXT    NOT NULL,
-  KEY idx_pt_content  (content_id),
-  KEY idx_pt_assignee (assignee),
-  KEY idx_pt_status   (status)
+  KEY idx_pt_status (status),
+  KEY idx_pt_pic    (pic),
+  KEY idx_pt_brand  (brand),
+  KEY idx_pt_tgl    (tanggal)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------- SHOOTING & ASET ----------
@@ -130,43 +134,50 @@ CREATE TABLE IF NOT EXISTS assets (
 CREATE TABLE IF NOT EXISTS bank (
   id         VARCHAR(64) NOT NULL PRIMARY KEY,
   owner      VARCHAR(64)     NULL,
-  kind       VARCHAR(64)     NULL,
+  title      VARCHAR(255)    NULL,
+  brand      VARCHAR(64)     NULL,
+  platform   VARCHAR(32)     NULL,
+  kind       VARCHAR(64)     NULL,             -- app: category
+  status     VARCHAR(32)     NULL,
   at_ms      BIGINT      NOT NULL DEFAULT 0,
   updated_at BIGINT      NOT NULL DEFAULT 0,
-  data       LONGTEXT    NOT NULL,             -- termasuk reference
-  KEY idx_bk_owner (owner),
-  KEY idx_bk_at    (at_ms)
+  data       LONGTEXT    NOT NULL,             -- reference, trend, keyword, source, dll
+  KEY idx_bk_owner  (owner),
+  KEY idx_bk_status (status),
+  KEY idx_bk_at     (at_ms)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------- KOL / MEDIA PARTNER ----------
+-- Bentuk kolom diverifikasi dari DATA LIVE (bukan dugaan): satu KOL punya
+-- BANYAK kategori (categories[] -> tetap di `data`), tarif = rateValue, dan
+-- kontaknya whatsapp/instagram/tiktok. Tidak ada followers/phone/status.
 CREATE TABLE IF NOT EXISTS kols (
   id         VARCHAR(64) NOT NULL PRIMARY KEY,
   name       VARCHAR(255)    NULL,
-  category   VARCHAR(64)     NULL,             -- KOL_CATEGORIES
   kol_type   VARCHAR(32)     NULL,             -- KOL / Media Partner
-  platform   VARCHAR(32)     NULL,
-  phone      VARCHAR(32)     NULL,
-  status     VARCHAR(32)     NULL,
-  followers  BIGINT      NOT NULL DEFAULT 0,
-  rate       BIGINT      NOT NULL DEFAULT 0,
+  instagram  VARCHAR(255)    NULL,
+  whatsapp   VARCHAR(32)     NULL,
+  rate_value BIGINT      NOT NULL DEFAULT 0,   -- app: rateValue
   updated_at BIGINT      NOT NULL DEFAULT 0,
   created_at BIGINT      NOT NULL DEFAULT 0,
-  data       LONGTEXT    NOT NULL,
-  KEY idx_kl_category (category),
-  KEY idx_kl_type     (kol_type),
-  KEY idx_kl_status   (status)
+  data       LONGTEXT    NOT NULL,             -- termasuk categories[], rateImage, note
+  KEY idx_kl_type (kol_type),
+  KEY idx_kl_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Kunjungan KOL/media ke outlet.
 CREATE TABLE IF NOT EXISTS visits (
   id         VARCHAR(64) NOT NULL PRIMARY KEY,
+  title      VARCHAR(255)    NULL,
   kol_id     VARCHAR(64)     NULL,
+  brand      VARCHAR(64)     NULL,
+  pic        VARCHAR(64)     NULL,
   tanggal    DATE            NULL,
   location   VARCHAR(255)    NULL,             -- VISIT_LOCATIONS
   status     VARCHAR(32)     NULL,
   updated_at BIGINT      NOT NULL DEFAULT 0,
   created_at BIGINT      NOT NULL DEFAULT 0,
-  data       LONGTEXT    NOT NULL,
+  data       LONGTEXT    NOT NULL,             -- termasuk invitees[], time, desc
   KEY idx_vs_kol     (kol_id),
   KEY idx_vs_tanggal (tanggal),
   KEY idx_vs_status  (status)
@@ -208,9 +219,10 @@ CREATE TABLE IF NOT EXISTS ad_funds (
 -- ---------- NOTIFIKASI ----------
 CREATE TABLE IF NOT EXISTS notifs (
   id         VARCHAR(64) NOT NULL PRIMARY KEY,
-  for_user   VARCHAR(64)     NULL,             -- "for" reserved-ish; pakai for_user
+  for_user   VARCHAR(64)     NULL,             -- app: "to" ("for" reserved-ish)
+  kind       VARCHAR(32)     NULL,             -- app: type
   at_ms      BIGINT      NOT NULL DEFAULT 0,
-  seen       TINYINT(1)  NOT NULL DEFAULT 0,   -- "read" reserved word -> seen
+  seen       TINYINT(1)  NOT NULL DEFAULT 0,   -- app: "read" (reserved word) -> seen
   updated_at BIGINT      NOT NULL DEFAULT 0,
   data       LONGTEXT    NOT NULL,
   KEY idx_nt_for  (for_user),
@@ -221,7 +233,7 @@ CREATE TABLE IF NOT EXISTS notifs (
 -- Tidak pernah ditimpa/dihapus oleh saveAll.
 CREATE TABLE IF NOT EXISTS logs (
   id       VARCHAR(64) NOT NULL PRIMARY KEY,
-  ref_id   VARCHAR(64)     NULL,
+  ref_id   VARCHAR(255)    NULL,               -- app: "target" (judul yg diubah)
   action   VARCHAR(255)    NULL,
   by_user  VARCHAR(255)    NULL,
   at_ms    BIGINT      NOT NULL DEFAULT 0,
