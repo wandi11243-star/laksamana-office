@@ -35,6 +35,139 @@ function db() {
   return $pdo;
 }
 
+/* ==================== FILE BUKTI TRANSFER (di disk) ====================
+   Pola sama reservasi: file disimpan di DATA_DIR (di luar web root), TIDAK di
+   MySQL. Beda kecil: di sini disimpan biner ASLI (bukan base64) supaya bisa
+   langsung disajikan ke browser dengan Content-Type yang benar lewat
+   ?action=receipt&key=... — frontend menautkannya sebagai <a href>. */
+function receipt_dir() {
+  static $dir = null;
+  if ($dir !== null) return $dir;
+  if (defined('DATA_DIR') && DATA_DIR !== '') {
+    if (!is_dir(DATA_DIR) && !@mkdir(DATA_DIR, 0775, true))
+      throw new Exception('DATA_DIR tidak bisa dibuat: ' . DATA_DIR);
+    $dir = realpath(DATA_DIR) ?: DATA_DIR;
+  } else {
+    $luar = __DIR__ . '/../../../marketing-db';
+    $dalam = __DIR__ . '/db';
+    if (is_dir($luar) || @mkdir($luar, 0775, true))        $dir = $luar;
+    else if (is_dir($dalam) || @mkdir($dalam, 0775, true)) $dir = $dalam;
+    else throw new Exception('Tidak bisa membuat folder bukti. Cek izin tulis hosting.');
+    $dir = realpath($dir) ?: $dir;
+  }
+  return $dir;
+}
+function receipt_files_dir() { return receipt_dir() . '/receipts'; }
+function receipt_di_dalam_web() { return strpos(receipt_dir(), realpath(__DIR__)) === 0; }
+function receipt_pastikan_folder() {
+  if (!is_dir(receipt_files_dir())) @mkdir(receipt_files_dir(), 0775, true);
+  if (!receipt_di_dalam_web()) return;
+  // Kalau terpaksa di dalam web root, tutup akses langsung.
+  $ht = receipt_dir() . '/.htaccess';
+  if (!file_exists($ht)) @file_put_contents($ht,
+    "<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n" .
+    "<IfModule !mod_authz_core.c>\n  Order allow,deny\n  Deny from all\n</IfModule>\n");
+}
+// Ekstensi aman dari mime/nama; default bin. Hanya gambar & PDF yang diterima.
+function receipt_ext($mime, $name) {
+  $mime = strtolower((string)$mime);
+  $peta = array('image/jpeg'=>'jpg','image/jpg'=>'jpg','image/png'=>'png',
+                'image/webp'=>'webp','image/gif'=>'gif','application/pdf'=>'pdf');
+  if (isset($peta[$mime])) return $peta[$mime];
+  $e = strtolower(pathinfo((string)$name, PATHINFO_EXTENSION));
+  return in_array($e, array('jpg','jpeg','png','webp','gif','pdf'), true) ? ($e==='jpeg'?'jpg':$e) : 'bin';
+}
+function receipt_ctype($ext) {
+  $peta = array('jpg'=>'image/jpeg','png'=>'image/png','webp'=>'image/webp',
+                'gif'=>'image/gif','pdf'=>'application/pdf');
+  return isset($peta[$ext]) ? $peta[$ext] : 'application/octet-stream';
+}
+// key -> path aman (cegah path traversal). key yang kita buat sendiri: rc_<uid>.<ext>
+function receipt_path($key) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$key);
+  return receipt_files_dir() . '/' . $safe;
+}
+function save_receipt($payload) {
+  if (!$payload || empty($payload['dataBase64'])) throw new Exception('file kosong');
+  receipt_pastikan_folder();
+  $ext = receipt_ext(isset($payload['mimeType']) ? $payload['mimeType'] : '',
+                     isset($payload['fileName']) ? $payload['fileName'] : '');
+  $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
+  if ($bin === false) throw new Exception('base64 tidak valid');
+  if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('file melebihi 8MB');
+  $key = 'rc_' . bin2hex(random_bytes(8)) . '.' . $ext;
+  if (file_put_contents(receipt_path($key), $bin) === false)
+    throw new Exception('gagal menulis file (cek izin folder)');
+  // name = nama asli untuk ditampilkan; url dibangun frontend dari key.
+  return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
+}
+/* Kumpulkan semua key berkas yang MASIH dipakai, dibaca dari DATABASE.
+   Sengaja TIDAK dari payload kiriman: save_all mendukung kiriman parsial
+   (koleksi yang tidak dikirim dilewati), jadi kalau GC memakai payload, satu
+   kiriman tanpa `events` akan menghapus SEMUA lampiran. Database adalah
+   satu-satunya sumber yang selalu lengkap. */
+function key_terpakai($pdo) {
+  $hidup = array();
+  foreach ($pdo->query('SELECT data FROM events') as $row) {
+    $e = json_decode($row['data'], true);
+    if (!is_array($e)) continue;
+
+    // Lampiran D.11: detail.attachFiles[] = {key,name,...}
+    if (!empty($e['detail']['attachFiles']) && is_array($e['detail']['attachFiles'])) {
+      foreach ($e['detail']['attachFiles'] as $f)
+        if (!empty($f['key'])) $hidup[(string)$f['key']] = true;
+    }
+    // Bukti transfer: payments[].receiptUrl memuat "...?action=receipt&key=xxx".
+    // Bukti lama masih berupa URL Google Drive — tidak punya key, otomatis terlewat.
+    if (!empty($e['payments']) && is_array($e['payments'])) {
+      foreach ($e['payments'] as $p) {
+        if (empty($p['receiptUrl'])) continue;
+        if (preg_match('/[?&]key=([^&"\']+)/', (string)$p['receiptUrl'], $m))
+          $hidup[urldecode($m[1])] = true;
+      }
+    }
+  }
+  return $hidup;
+}
+
+/* Buang berkas yatim: ada di disk tapi tidak ditunjuk data mana pun lagi
+   (mis. lampiran sudah dihapus dari event, atau bukti transfer diganti).
+
+   JEDA AMAN 1 JAM: berkas yang baru diunggah sengaja dilewati. Unggah dan
+   penyimpanan event adalah dua langkah terpisah — tanpa jeda ini, GC yang
+   dipicu simpanan kru LAIN bisa menghapus berkas yang baru saja diunggah
+   sebelum sempat tercatat ke event-nya. */
+function gc_receipts($pdo) {
+  $dir = receipt_files_dir();
+  if (!is_dir($dir)) return 0;
+  $hidup = key_terpakai($pdo);
+  $batas = time() - 3600;
+  $buang = 0;
+  foreach (scandir($dir) as $f) {
+    if ($f === '.' || $f === '..') continue;
+    if (isset($hidup[$f])) continue;                       // masih dipakai
+    $p = $dir . '/' . $f;
+    if (!is_file($p)) continue;
+    if (filemtime($p) > $batas) continue;                  // baru diunggah -> jangan sentuh
+    if (@unlink($p)) $buang++;
+  }
+  return $buang;
+}
+
+function stream_receipt($key) {
+  $key = (string)$key;
+  if ($key === '' || strpos($key, '..') !== false) { http_response_code(400); exit; }
+  $p = receipt_path($key);
+  if (!is_file($p)) { http_response_code(404); exit; }
+  $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
+  header('Content-Type: ' . receipt_ctype($ext));
+  header('Content-Length: ' . filesize($p));
+  header('Content-Disposition: inline; filename="' . basename($p) . '"');
+  header('Cache-Control: private, max-age=86400');
+  readfile($p);
+  exit;
+}
+
 /* ==================== KUNCI TULIS ==================== */
 function db_lock() {
   $st = db()->prepare('SELECT GET_LOCK(:k, 10) AS ok');
@@ -271,6 +404,7 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
     $ids[] = $id;   // tetap dihitung "ada" walau bentrok, supaya tidak ikut terhapus
 
     // --- penjaga bentrok: hanya untuk baris yang memang diubah klien ---
+    $lolosBentrok = false;
     if (array_key_exists('baseUpdatedAt', $r)) {
       $base = ms_valid($r['baseUpdatedAt']);
       if (isset($verServer[$id]) && $verServer[$id] > $base) {
@@ -283,14 +417,26 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
         );
         continue;   // JANGAN timpa kerja orang lain
       }
+      // Lolos cek bentrok = tidak ada yang menyalip. Baris ini WAJIB masuk.
+      $lolosBentrok = true;
     }
 
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan di `data`.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
 
+    $ua = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    // Kalau sudah lolos cek bentrok, pastikan penjaga urutan `updated_at >=`
+    // TIDAK ikut memblokir: naikkan cap minimal 1 di atas versi server. Tanpa
+    // ini, tulisan yang benar bisa terbuang diam-diam kalau cap klien kebetulan
+    // <= cap server (mis. jam antar-perangkat sedikit berbeda). Untuk baris
+    // yang TIDAK diubah (tanpa baseUpdatedAt), penjaga urutan tetap berlaku.
+    if ($lolosBentrok && isset($verServer[$id]) && $ua <= $verServer[$id]) {
+      $ua = $verServer[$id] + 1;
+    }
+
     $args = array(':id' => $id);
     foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($simpan, $def[0], $def[1]);
-    $args[':updated_at'] = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    $args[':updated_at'] = $ua;
     if ($adaCreated) $args[':created_at'] = ms_valid(isset($simpan['createdAt']) ? $simpan['createdAt'] : 0);
     $args[':data'] = json_enc($simpan);
     $st->execute($args);
@@ -373,9 +519,17 @@ function save_all($state) {
     throw $e;
   }
 
+  // Bersihkan berkas yatim SETELAH commit: menghapus file tidak bisa di-rollback,
+  // jadi jangan sampai transaksi gagal tapi berkasnya sudah telanjur hilang.
+  // Dijalankan di dalam kunci tulis (api.php membungkus saveAll dgn db_lock).
+  $buang = 0;
+  try { $buang = gc_receipts($pdo); }
+  catch (Throwable $e) { /* gagal bersih-bersih bukan alasan menggagalkan simpanan */ }
+
   return array(
     'saved'   => true,
     'jumlah'  => $hitung,
+    'berkasDibuang' => $buang,
     // Baris yang DITOLAK karena orang lain sudah menyimpan duluan. Kosong =
     // semuanya masuk. Aplikasi wajib memberitahu user kalau ini terisi —
     // kalau didiamkan, user mengira perubahannya tersimpan padahal tidak.
@@ -397,6 +551,27 @@ function stats() {
   $blob = strlen(json_enc(baca_state()));
   $out['blobChars'] = $blob;
   $out['blobMB']    = round($blob / 1048576, 3);
-  $out['ts']        = gmdate('c');
+
+  // Berkas di disk (lampiran + bukti transfer) — untuk memantau tanpa perlu
+  // membuka File Manager. `berkasYatim` yang terus bertambah = GC bermasalah.
+  $dir = receipt_files_dir();
+  $n = 0; $byte = 0; $yatim = 0;
+  if (is_dir($dir)) {
+    $hidup = key_terpakai($pdo);
+    foreach (scandir($dir) as $f) {
+      if ($f === '.' || $f === '..') continue;
+      $p = $dir . '/' . $f;
+      if (!is_file($p)) continue;
+      $n++; $byte += filesize($p);
+      if (!isset($hidup[$f])) $yatim++;
+    }
+  }
+  $out['berkas']       = $n;
+  $out['berkasMB']     = round($byte / 1048576, 3);
+  $out['berkasYatim']  = $yatim;      // menunggu jeda aman 1 jam sebelum dibuang
+  $out['folderBerkas'] = $dir;
+  $out['amanDiLuarWeb'] = !receipt_di_dalam_web();
+
+  $out['ts'] = gmdate('c');
   return $out;
 }

@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS audit (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS settings (
-  k  VARCHAR(64) NOT NULL PRIMARY KEY,             -- mis. 'master'
-  v  LONGTEXT    NOT NULL                          -- JSON
+  k  VARCHAR(64) NOT NULL PRIMARY KEY,             -- mis. 'master', '_ver'
+  v  LONGTEXT    NOT NULL                          -- JSON / angka
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Baris versi global untuk PENJAGA ANTI-TIMPA (optimistic locking). Naik 1 tiap kali data
+-- disimpan; klien mengirim versi yang dibacanya (baseVer) saat saveAll, dan tulisan ditolak
+-- kalau versinya sudah berubah. Juga dibuat otomatis (INSERT IGNORE) saat penyimpanan pertama.
+INSERT IGNORE INTO settings (k, v) VALUES ('_ver', '0');

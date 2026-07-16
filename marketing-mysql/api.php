@@ -53,6 +53,17 @@ try {
   } else if ($action === 'ping') {
     keluar(array('ok' => true, 'data' => array('pong' => true, 'backend' => 'php-mysql', 'ts' => gmdate('c'))));
 
+  } else if ($action === 'receipt') {
+    // Sajikan file bukti transfer langsung ke browser (gambar/PDF).
+    // Bukan JSON — stream_receipt() mengatur header & keluar sendiri.
+    stream_receipt(isset($_GET['key']) ? $_GET['key'] : '');
+
+  } else if ($action === 'uploadReceipt') {
+    // Simpan file bukti ke disk (di luar web root). Frontend membangun URL
+    // tampilnya dari key: API_URL + '?action=receipt&key=' + key.
+    $out = save_receipt($body);
+    keluar(array('ok' => true, 'data' => $out));
+
   } else if ($action === 'saveAll') {
     $lock = db_lock();
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }

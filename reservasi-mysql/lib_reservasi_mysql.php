@@ -106,6 +106,15 @@ function baca_state() {
   return array('reservations' => $reservations, 'master' => $master, 'audit' => $audit);
 }
 
+/* Nomor versi global untuk penjaga anti-timpa. Disimpan di tabel settings (k='_ver').
+   Dikirim ke klien saat getAll, lalu disertakan kembali saat saveAll (baseVer). */
+function read_ver() {
+  $pdo = db();
+  $st = $pdo->query("SELECT v FROM settings WHERE k='_ver' LIMIT 1")->fetch();
+  if ($st && isset($st['v']) && ctype_digit((string)$st['v'])) return (int)$st['v'];
+  return 0;
+}
+
 /* ==================== FOTO (disk, tidak berubah) ==================== */
 function file_path($key) {
   $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$key);
@@ -195,18 +204,37 @@ function gc_files(&$state) {
      - audit        : INSERT IGNORE per-id (append-only, tak pernah menimpa)
      - master       : simpan 1 blob di settings
    Semua dalam 1 transaksi. */
-function save_all($state) {
+function save_all($state, $baseVer = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
+  /* baseVer WAJIB (penjaga anti-timpa). Tanpa ini, perangkat yang masih memakai aplikasi
+     versi LAMA akan menghapus/menimpa baris kru lain lewat rekonsiliasi DELETE di bawah.
+     Lebih baik GAGAL KERAS supaya kru menekan Ctrl+Shift+R, daripada diam-diam merusak data. */
+  if ($baseVer === null || $baseVer === '') {
+    throw new Exception('APP_LAWAS — aplikasi di perangkat ini belum diperbarui. Tekan Ctrl+Shift+R (muat ulang) lalu simpan lagi.');
+  }
 
-  $ext = externalize($state);      // foto inline → disk, field jadi penanda @f:
-  $buang = gc_files($state);
+  $ext = externalize($state);      // foto inline → disk (hanya MENULIS; aman walau nanti ditolak)
 
   $pdo = db();
+  $pdo->exec("INSERT IGNORE INTO settings (k,v) VALUES ('_ver','0')");   // pastikan baris versi ada
   $reservations = isset($state['reservations']) && is_array($state['reservations']) ? $state['reservations'] : array();
   $audit        = isset($state['audit']) && is_array($state['audit']) ? $state['audit'] : array();
 
+  $curVer = 0; $newVer = 0; $buang = 0;
   $pdo->beginTransaction();
   try {
+    /* PENJAGA VERSI GLOBAL. Kunci baris versi (FOR UPDATE) → dua saveAll bersamaan
+       di-serialkan oleh MySQL, jauh lebih andal dari flock di shared hosting. Kalau versi
+       server sudah maju (kru lain menyelip menyimpan lebih dulu), TOLAK: klien tarik ulang,
+       gabungkan, lalu coba lagi. Inilah yang menutup kasus reservasi BARU kru lain terhapus
+       oleh rekonsiliasi DELETE di bawah. */
+    $curVer = (int)$pdo->query("SELECT v FROM settings WHERE k='_ver' FOR UPDATE")->fetch()['v'];
+    if ((string)$curVer !== (string)$baseVer) {
+      $pdo->rollBack();
+      return array('conflict' => true, 'saved' => false, 'ver' => $curVer);
+    }
+    $buang = gc_files($state);   // aman dijalankan sekarang — kita pemegang kunci tulis
+
     // ---- reservations: UPSERT per-baris dgn penjaga updated_at ----
     $sql = 'INSERT INTO reservations
               (id,name,phone,tanggal,jam,pax,status,pic_name,source,dp_amount,updated_at,created_at,data)
@@ -283,6 +311,10 @@ function save_all($state) {
       $ms->execute(array(':v' => json_encode($state['master'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
     }
 
+    // ---- naikkan nomor versi (masih di dalam kunci FOR UPDATE) ----
+    $newVer = $curVer + 1;
+    $pdo->prepare("UPDATE settings SET v = :v WHERE k = '_ver'")->execute(array(':v' => (string)$newVer));
+
     $pdo->commit();
   } catch (Throwable $e) {
     $pdo->rollBack();
@@ -291,6 +323,7 @@ function save_all($state) {
 
   return array(
     'saved'        => true,
+    'ver'          => $newVer,
     'reservations' => count($reservations),
     'audit'        => count($audit),
     'blobChars'    => 0,                 // di MySQL tidak ada 1 blob; 0 = tidak relevan

@@ -159,7 +159,13 @@ table.tbl tr:last-child td{border-bottom:none}
 .inp:focus,select.inp:focus,textarea.inp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
 textarea.inp{resize:vertical;min-height:60px;line-height:1.5}
 select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%237E8FA1' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
-.form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:0 18px}
+/* Basis 6 kolom (bukan 3) supaya 3-per-baris DAN 2-per-baris sama-sama pas
+   tanpa pecahan: field biasa span 2 (3/baris), .half span 3 (2/baris).
+   Urutan aturan penting — .half & .full harus SESUDAH .field (spesifisitas
+   sama, yang belakangan menang). */
+.form-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:0 18px}
+.form-grid>.field{grid-column:span 2}
+.form-grid .half{grid-column:span 3}
 .form-grid .full{grid-column:1/-1}
 .chk-grid{display:flex;flex-wrap:wrap;gap:8px}
 .chk{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border:1px solid var(--line-hard);border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;background:var(--ink-900);transition:.14s;user-select:none}
@@ -353,6 +359,20 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .form-subhead .fsh-d{font-size:11.5px;color:var(--muted)}
 
 /* Ya/Tidak + catatan (venue needs) */
+/* Lampiran berkas (D.11) */
+.attach-list{display:flex;flex-direction:column;gap:6px}
+.attach-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line-hard);border-radius:9px;background:var(--ink-900)}
+.attach-name{flex:1;min-width:0;display:flex;align-items:center;gap:8px;color:var(--sand);text-decoration:none;font-size:13px}
+.attach-name:hover{color:var(--gold)}
+.attach-name svg{width:15px;height:15px;flex:none;opacity:.6}
+/* nama panjang dipotong, jangan mendorong tombol hapus keluar */
+.attach-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attach-meta{flex:none;font-size:11.5px}
+/* `.field label` (0,1,1) mengalahkan `.attach-add` (0,1,0) dan memaksanya
+   display:block sehingga tombolnya melebar penuh — pakai selector setara. */
+.field label.attach-add{display:inline-flex;align-items:center;gap:7px;margin-top:8px;margin-bottom:0;padding:7px 13px;border:1px dashed var(--line-hard);border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--sand-dim);background:var(--ink-900)}
+.field label.attach-add:hover{border-color:var(--gold-deep);color:var(--gold)}
+.attach-add svg{width:14px;height:14px}
 .ynnote{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .ynnote .seg{flex:none}
 .ynnote .ynnote-note{flex:1;min-width:160px}
@@ -383,7 +403,9 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .doc{background:#fff;color:#111}
 @media(max-width:1080px){
   .g-4{grid-template-columns:repeat(2,1fr)} .g-3{grid-template-columns:1fr}
-  .form-grid{grid-template-columns:repeat(2,1fr)}
+  /* 4 kolom: field span 2 -> 2 per baris; .half ikut span 2 -> tetap 2 per baris */
+  .form-grid{grid-template-columns:repeat(4,1fr)}
+  .form-grid .half{grid-column:span 2}
 }
 @media(max-width:860px){
   :root{--sidebar-w:0px}
@@ -391,7 +413,9 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
   .sidebar{position:fixed;left:0;top:0;z-index:100;width:250px;transform:translateX(-100%);transition:.24s}
   .sidebar.open{transform:none}
   .menu-toggle{display:grid !important}
-  .form-grid,.g-2{grid-template-columns:1fr}
+  /* HP: 2 kolom dengan semua span 2 -> semuanya 1 per baris (field & .half) */
+  .form-grid{grid-template-columns:repeat(2,1fr)}
+  .g-2{grid-template-columns:1fr}
   .kv-list{grid-template-columns:1fr}
   .content{padding:18px}
   .topbar{padding:12px 16px}
@@ -515,48 +539,105 @@ const IC = {
 };
 function svg(p,cls){return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 
-/* ---------- STORE (Web App API — online ke Google Sheets) ---------- */
-// GANTI URL di bawah dengan URL /exec Web App Google Apps Script milikmu.
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwJiXBtYnwkU0FIY0wtp9W_jhb0Gosw2Yi7xABOspxcmgtz4qth6_AEioKw1stqi4xoqw/exec";
-// URL Apps Script identitas Office (bukan CRM), dipakai untuk sinkron roster staf
-// (autoSyncOfficeRoster) dan panel Kelola Akses di bawah. Satu sumber URL, dipakai
-// keduanya, supaya tidak ada dua salinan yang bisa saling tidak sinkron.
+/* ---------- STORE (data CRM: MySQL via api.php) ----------
+   deploy-marker: 2026-07-16c (paksa unggah ulang; unggahan FTP sebelumnya
+   terputus di tengah karena timeout 30 detik — lihat .github/workflows/deploy.yml)
+   Dulu data CRM disimpan di Google Apps Script (WEB_APP_URL). Sekarang pindah
+   ke MySQL lewat ../marketing-api-mysql/api.php — kontraknya sama (getAll/
+   saveAll), tapi backend menyimpan PER-BARIS dengan penjaga bentrok, jadi dua
+   kru yang mengedit event yang SAMA tidak lagi saling menimpa diam-diam.
+   Kalau backend perlu dibalik, cukup ganti SATU baris di bawah. */
+const API_URL = "../marketing-api-mysql/api.php";
+// Bukti transfer (file) juga ke MySQL/disk lewat API_URL yang sama (action
+// uploadReceipt -> simpan di disk luar web root, action receipt -> sajikan).
+// Pola sama seperti foto reservasi. Apps Script tidak lagi dipakai untuk CRM.
+// URL Apps Script identitas Office (BUKAN data CRM) — tetap dipakai untuk
+// sinkron roster staf (autoSyncOfficeRoster) & panel Kelola Akses.
 const OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
 let S = null;
 let API_READY = false;
 
-// Ambil data dari server (GET). Fallback ke cache lokal / seed bila gagal.
+/* ---- bentuk state: pastikan default & array selalu ada ----
+   DB kosong balas settings {} — tanpa ini, DEFAULT_SETTINGS (mis. serviceCharge,
+   dpPercent) hilang dan perhitungan finance jadi kacau. */
+const MKT_COLS=['clients','events','followups','approvals','users','staff',
+                'taskTemplates','taskCategories','categories','notifs','activities'];
+function normalizeState(s){
+  s=s||{};
+  MKT_COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  s.settings=Object.assign({}, DEFAULT_SETTINGS, s.settings||{});
+  if(typeof s.baseline!=='number') s.baseline=0;
+  if(!s.rolePerms||typeof s.rolePerms!=='object') s.rolePerms={};
+  if(!s.roleNav||typeof s.roleNav!=='object') s.roleNav={};
+  return s;
+}
+
+/* ---- penstempel updatedAt + baseUpdatedAt ----
+   Server menolak baris yang lebih lama daripada versi di server (penjaga
+   bentrok). Supaya itu bekerja, tiap baris yang BERUBAH harus:
+     - updatedAt = sekarang        (menandai versi baru)
+     - baseUpdatedAt = versi yang KITA muat dari server saat itu
+   Baris yang tidak berubah tidak dicap, jadi tidak menabrak kerja orang lain.
+   Membandingkan sidik jari tiap baris dengan salinan terakhir dari server,
+   supaya tidak perlu menandai perubahan di puluhan tempat mutasi satu per satu. */
+let _snap={}, _serverVer={};
+function _sig(o){ const c=Object.assign({},o); delete c.updatedAt; delete c.baseUpdatedAt; return JSON.stringify(c); }
+function _eachRow(obj,fn){ MKT_COLS.forEach(k=>(obj[k]||[]).forEach(r=>{ if(r&&r.id) fn(k+':'+r.id, r); })); }
+function _dirty(key,r){ return _snap[key]!==_sig(r); }   // beda dari versi server terakhir
+// Cap updatedAt pada baris yang BERUBAH. baseUpdatedAt SENGAJA tidak disentuh di
+// sini — itu metadata kiriman, dibangun di buildPayload() dan tidak pernah masuk
+// objek S (kalau bocor ke S, save berikutnya mengirim base basi -> bentrok palsu).
+function stampChanges(){
+  const now=Date.now();
+  _eachRow(S,(key,r)=>{
+    if(!_dirty(key,r)) return;
+    r.updatedAt = now;
+    if(!r.createdAt) r.createdAt = now;
+  });
+}
+// Salinan S untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
+// kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
+function buildPayload(){
+  const p = JSON.parse(JSON.stringify(S));
+  _eachRow(p,(key,r)=>{ if(_dirty(key,r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+  return p;
+}
+function refreshSnapshot(){
+  const snap={}, ver={};
+  _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
+  _snap=snap; _serverVer=ver;
+}
+
+// Ambil data dari server (GET). Fallback ke cache lokal bila gagal.
 async function apiLoad(){
   try{
-    const res = await fetch(WEB_APP_URL+'?action=getAll', {method:'GET', redirect:'follow'});
+    const res = await fetch(API_URL+'?action=getAll&t='+Date.now(), {method:'GET', redirect:'follow'});
     const json = await res.json();
-    if(json && json.ok){
-      S = (json.data && json.data.users) ? json.data : seed();
-    } else { throw new Error((json&&json.error)||'Respons server tidak valid'); }
+    if(!json || !json.ok) throw new Error((json&&json.error)||'Respons server tidak valid');
+    S = normalizeState(json.data);
     API_READY = true;
     localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
   }catch(e){
-    // Gagal online -> pakai cache lokal, atau seed baru
+    // Gagal online -> pakai cache lokal, atau state kosong ber-default.
     try{ S = JSON.parse(localStorage.getItem(KEY)); }catch(_){ S=null; }
-    if(!S || !S.users){ S = seed(); }
+    S = normalizeState(S);
     API_READY = false;
   }
+  refreshSnapshot();   // catat versi awal untuk penjaga bentrok
 }
-// Simpan seluruh DB ke server (POST) + cache lokal. Tidak memblokir UI.
-/* Simpan menimpa SELURUH DB, jadi dua orang yang menyimpan bersamaan bisa saling
-   menghapus. Kita kirim baseRev = _rev yang kita pegang; server menolak bila sudah
-   ketinggalan (lihat docs/crm-apps-script.gs). Server lama yang belum paham baseRev
-   tetap jalan seperti biasa — hanya tanpa perlindungan. */
+// Simpan seluruh state ke server (POST) + cache lokal. Tidak memblokir UI.
+/* Server menulis PER-BARIS: baris yang tidak berubah tidak tersentuh, dan baris
+   yang KITA ubah ditolak kalau orang lain sudah menyimpannya duluan (server
+   balas daftar `bentrok`). Jadi tidak ada lagi timpa-buta seluruh database. */
 let saveInFlight=false, savePending=false;
 function save(){
-  localStorage.setItem(KEY, JSON.stringify(S)); // cache dulu (instan)
-  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0) return; // URL belum diisi
-  if(saveInFlight){ savePending=true; return; } // hindari dua POST balapan dari tab yang sama
+  stampChanges();                                // cap baris yang berubah SEBELUM cache/simpan
+  localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
+  if(saveInFlight){ savePending=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
-  const body={action:'saveAll', data:S, by:(ME&&ME.name)||''};
-  if(S._rev!==undefined && S._rev!==null) body.baseRev=S._rev;
-  fetch(WEB_APP_URL, {
+  const body={action:'saveAll', data:buildPayload()};  // baseUpdatedAt dibangun di sini, bukan di S
+  fetch(API_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
     body: JSON.stringify(body),
@@ -564,13 +645,17 @@ function save(){
   })
   .then(r=>r.json())
   .then(j=>{
-    if(j && j.ok){
-      if(j.data && j.data.rev!==undefined) S._rev=j.data.rev;
-      API_READY=true; setSyncBadge('ok');
-    } else if(j && j.error==='conflict'){
-      API_READY=false; setSyncBadge('conflict');
-      showSaveConflict(j);
-    } else {
+    if(j && j.ok && j.data){
+      const bentrok=(j.data.bentrok||[]);
+      if(bentrok.length){
+        // Sebagian perubahan ditolak karena orang lain menyimpan duluan.
+        API_READY=false; setSyncBadge('conflict');
+        showSaveConflict(bentrok);
+      }else{
+        API_READY=true; setSyncBadge('ok');
+        refreshSnapshot();     // versi kita kini = versi server
+      }
+    }else{
       API_READY=false; setSyncBadge('err');
       console.warn('Simpan ditolak server:', j && j.error);
     }
@@ -578,29 +663,24 @@ function save(){
   .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err); })
   .finally(()=>{ saveInFlight=false; if(savePending){ savePending=false; save(); } });
 }
-// Perubahan kita ditolak karena server sudah lebih baru. Jangan timpa diam-diam —
-// tanyakan, karena "timpa paksa" berarti membuang kerja orang lain.
+// Sebagian perubahan ditolak karena orang lain menyimpan baris yang sama duluan.
+// Jangan timpa diam-diam — tunjukkan apa yang bentrok, lalu sarankan muat ulang.
 let _conflictShown=false;
-function showSaveConflict(j){
+function showSaveConflict(bentrok){
   if(_conflictShown)return; _conflictShown=true;
-  const who=(j.savedBy||'user lain'), when=j.savedAt?ago(j.savedAt):'baru saja';
-  modal('<div class="modal-head"><div><h3>Perubahan Tidak Tersimpan</h3><p>Data di server sudah lebih baru</p></div></div>'
+  const daftar=bentrok.slice(0,8).map(b=>'<li>'+esc(b.nama||b.id)+' <span class="cell-sub">('+esc(b.koleksi)+')</span></li>').join('');
+  const lbh=bentrok.length>8?'<li>…dan '+(bentrok.length-8)+' lagi</li>':'';
+  modal('<div class="modal-head"><div><h3>Sebagian Perubahan Tidak Tersimpan</h3><p>Orang lain sudah menyimpan data yang sama lebih dulu</p></div></div>'
    +'<div class="modal-body">'
    +'<div class="tbl-note" style="margin-top:0;border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
-     +'<span><em>'+esc(who)+'</em> menyimpan perubahan '+esc(when)+', sesudah halaman ini dimuat. Perubahanmu <em>belum tersimpan</em>.</span></div>'
-   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Kalau dipaksa simpan, semua perubahan '+esc(who)+' akan hilang. Amannya: muat ulang, lalu ulangi perubahanmu.</p>'
+     +'<span>Perubahanmu pada data berikut <em>belum tersimpan</em> karena orang lain menyimpannya lebih dulu:</span></div>'
+   +'<ul style="margin:12px 0 0 18px;line-height:1.9">'+daftar+lbh+'</ul>'
+   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Amannya: muat ulang untuk mengambil versi terbaru, lalu ulangi perubahanmu di data itu. Perubahanmu pada data <em>lain</em> sudah tersimpan.</p>'
    +'</div><div class="modal-foot">'
-   +'<button class="btn danger-solid" onclick="forceSaveAnyway()">Timpa punya '+esc(who)+'</button>'
    +'<button class="btn pri" onclick="reloadFromServer()">Muat ulang (disarankan)</button>'
    +'</div>','wide');
 }
 function reloadFromServer(){ closeModal(); location.reload(); }
-function forceSaveAnyway(){
-  closeModal(); _conflictShown=false;
-  delete S._rev;      // tanpa baseRev -> server melewati pemeriksaan
-  save();
-  toast('Ditimpa','Perubahanmu disimpan menimpa versi server.','err');
-}
 // Badge hanya tampil kalau ADA masalah — kalau semua lancar, topbar tetap bersih.
 function setSyncBadge(state){
   const el=document.getElementById('sync-badge'); if(!el)return;
@@ -616,17 +696,20 @@ function setSyncBadge(state){
    memegang versi usang lalu menimpa kerja orang lain saat menyimpan. Saat tab
    kembali aktif, cek apakah server sudah lebih baru. */
 async function refreshIfStale(){
-  if(!WEB_APP_URL || WEB_APP_URL.indexOf('GANTI')===0 || !S) return;
-  if(saveInFlight || _conflictShown) return;
+  if(!S || saveInFlight || _conflictShown) return;
+  // Jangan menimpa perubahan yang belum sempat naik ke server (mis. sedang
+  // mengetik lalu pindah tab); tampilan baru boleh diganti kalau kita bersih.
+  if(savePending) return;
   try{
-    const res=await fetch(WEB_APP_URL+'?action=getAll',{method:'GET',redirect:'follow'});
+    const res=await fetch(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'});
     const j=await res.json();
-    if(!j||!j.ok||!j.data||!j.data.users) return;
-    const srev=+j.data._rev||0, mine=+S._rev||0;
-    if(!(srev>mine)) return;                       // server tidak lebih baru -> aman
-    S=j.data; localStorage.setItem(KEY,JSON.stringify(S));
+    if(!j||!j.ok||!j.data) return;
+    const srv=normalizeState(j.data);
+    // Bandingkan hanya data yang berarti (buang metadata versi yang selalu beda).
+    if(JSON.stringify(srv)===JSON.stringify(S)) return;   // tidak ada perubahan
+    S=srv; localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
     setSyncBadge('ok'); buildNav(); paintStaffDatalist(); refreshView();
-    toast('Data disegarkan','Ada perubahan dari '+((j.data._savedBy)||'user lain')+' — tampilan diperbarui.','ok');
+    toast('Data disegarkan','Ada perubahan dari kru lain — tampilan diperbarui.','ok');
   }catch(e){ /* offline: biarkan, badge diurus oleh save() */ }
 }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshIfStale(); });
@@ -966,7 +1049,8 @@ const EVENT_SCHEMA = [
   {k:'materai',l:'Materai / Kwitansi Panjang',t:'yn'}
 ]},
 { id:'attach', n:'D.11', title:'Attachment & Internal Note', div:['all'], desc:'Dokumen pendukung apa yang dilampirkan, dan catatan internal apa yang perlu dicatat?', fields:[
-  {k:'attachNote',l:'Daftar Dokumen (rundown, vendor file, dll)',t:'ta'},
+  {k:'attachFiles',l:'Lampiran Berkas',t:'files',full:1,help:'Rundown, file vendor, denah, dsb. Maks 8MB per berkas. Tersimpan di server sendiri, bukan di grup WA.'},
+  {k:'attachNote',l:'Catatan Dokumen',t:'ta',help:'Keterangan tambahan soal berkas di atas (mis. versi mana yang dipakai).'},
   {k:'internalNote',l:'Internal Note',t:'ta',help:'Tidak tampil di versi client.',full:1}
 ]},
 { id:'pic', n:'D.12', title:'Matriks PIC Hari-H', div:['all'], desc:'Siapa PIC yang bertanggung jawab untuk tiap peran di hari-H? (wajib lengkap sebelum Confirmed)', fields:[
@@ -1982,8 +2066,12 @@ function renderField(ev,fl,canEdit){
   if(!fieldVisible(ev,fl))return '';
   if(fl.t==='head') return '<div class="field full form-subhead"><span class="fsh-t">'+esc(fl.l)+'</span>'+(fl.desc?'<span class="fsh-d">'+esc(fl.desc)+'</span>':'')+'</div>';
   const val=ev.detail[fl.k]; const dis=canEdit?'':'disabled';
-  // multi (checkbox) & ynnote diberi lebar penuh agar tidak sempit / lebih rapi
-  const cls=(fl.full||fl.t==='multi'||fl.t==='ynnote')?'field full':'field';
+  // multi (checkbox) butuh lebar penuh (isinya banyak chip).
+  // ynnote cukup setengah baris -> 2 per baris, hemat tempat vertikal tapi
+  // kolom catatannya masih lega (lihat .ynnote-note min-width).
+  const cls=fl.full?'field full'
+           :fl.t==='multi'?'field full'
+           :fl.t==='ynnote'?'field half':'field';
   const lbl='<label>'+esc(fl.l)+(fl.req?'<span class="req">*</span>':'')+'</label>';
   const help=fl.help?'<div class="fh">'+esc(fl.help)+'</div>':'';
   let inp='';
@@ -2030,11 +2118,79 @@ function renderField(ev,fl,canEdit){
           +'<button type="button" class="btn sm" onclick="rundownAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
           +'</div>':'')
        +'</div>';
+  } else if(fl.t==='files'){
+    // Berkas diurus di luar alur form biasa: unggah/hapus langsung menyimpan
+    // ke server (lihat uploadAttach/delAttach), jadi collectField melewatinya.
+    inp='<div id="'+id+'">'
+       +'<div id="'+id+'_list">'+attachListHTML(ev.id,fl.k,val,canEdit)+'</div>'
+       +(canEdit?'<label class="attach-add">'+svg(IC.plus)+'Tambah Berkas'
+          +'<input type="file" multiple hidden onchange="uploadAttach(\''+ev.id+'\',\''+fl.k+'\',this)">'
+          +'</label>':'')
+       +'</div>';
   }
   return '<div class="'+cls+'">'+lbl+inp+help+'</div>';
 }
+/* ---------- Lampiran berkas (D.11) ----------
+   Berkas disimpan di server sendiri (disk, di luar web root) lewat api.php —
+   pola sama dengan bukti transfer & foto reservasi. Yang tersimpan di data
+   event hanya penunjuknya: {key,name,size,at,by}. */
+function fmtSize(b){ b=+b||0; if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function attachUrl(key){ return API_URL+'?action=receipt&key='+encodeURIComponent(key); }
+function attachListHTML(evId,k,arr,canEdit){
+  arr=Array.isArray(arr)?arr:[];
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada berkas dilampirkan.</div>';
+  return '<div class="attach-list">'+arr.map(f=>
+     '<div class="attach-item">'
+    +'<a href="'+esc(attachUrl(f.key))+'" download="'+esc(f.name||'berkas')+'" target="_blank" rel="noopener" class="attach-name">'
+      +svg(IC.brief)+'<span>'+esc(f.name||f.key)+'</span></a>'
+    +'<span class="cell-sub attach-meta">'+fmtSize(f.size)+(f.by?' · '+esc(f.by):'')+'</span>'
+    +(canEdit?'<button type="button" class="btn sm danger" title="Hapus berkas" onclick="delAttach(\''+evId+'\',\''+k+'\',\''+esc(f.key)+'\')">'+svg(IC.trash)+'</button>':'')
+    +'</div>').join('')+'</div>';
+}
+function repaintAttach(evId,k){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const box=$('efd_'+k+'_list'); if(box) box.innerHTML=attachListHTML(evId,k,ev.detail[k],can('edit_event'));
+}
+async function uploadAttach(evId,k,inputEl){
+  const files=[...(inputEl.files||[])]; if(!files.length)return;
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  // Rekam dulu isian form yang sedang diketik, supaya tidak hilang saat kita menyimpan.
+  autoSaveCommit();
+  ev.detail[k]=Array.isArray(ev.detail[k])?ev.detail[k]:[];
+  let ok=0;
+  for(const f of files){
+    if(f.size>8*1024*1024){ toast('File terlalu besar',esc(f.name)+' lebih dari 8MB.','err'); continue; }
+    try{
+      const b64=await fileToBase64(f);
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'uploadReceipt',fileName:f.name,mimeType:f.type,dataBase64:b64})});
+      const d=await res.json();
+      if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
+      ev.detail[k].push({key:d.data.key,name:f.name,size:f.size,at:new Date().toISOString(),by:(ME&&ME.name)||''});
+      ok++;
+    }catch(e){ toast('Gagal unggah',esc(f.name)+': '+e.message,'err'); }
+  }
+  inputEl.value='';                       // biar file yang sama bisa dipilih lagi
+  if(!ok)return;
+  logAct('event',evId,'Lampiran ditambahkan',files.slice(0,3).map(f=>f.name).join(', ')+(files.length>3?' +'+(files.length-3):''));
+  save(); repaintAttach(evId,k);
+  toast('Berkas terlampir',ok+' berkas tersimpan di server.','ok');
+}
+function delAttach(evId,k,key){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const f=(ev.detail[k]||[]).find(x=>x.key===key);
+  if(!confirm('Hapus lampiran "'+((f&&f.name)||key)+'" dari event ini?'))return;
+  autoSaveCommit();
+  ev.detail[k]=(ev.detail[k]||[]).filter(x=>x.key!==key);
+  logAct('event',evId,'Lampiran dihapus',(f&&f.name)||key);
+  save(); repaintAttach(evId,k);
+  toast('Lampiran dihapus','','ok');
+}
 function segPick(btn,v){ btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); }
 function collectField(fl){
+  // Lampiran disimpan saat diunggah/dihapus, bukan saat tombol Simpan ditekan.
+  // Tanpa penjaga ini, `return el.value` di bawah akan menimpa daftar berkas.
+  if(fl.t==='files') return undefined;
   const el=$('efd_'+fl.k); if(!el)return undefined;
   if(fl.t==='multi'){ return [...el.querySelectorAll('input[type="checkbox"]')].filter(i=>i.checked).map(i=>i.dataset.v); }
   if(fl.t==='tog'){ return el.classList.contains('on'); }
@@ -2122,8 +2278,10 @@ function autoSaveCommit(){
   secs.forEach(sec=>sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; }));
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
+  // Sinkron ke server lewat save() (bukan POST mentah) supaya cap versi &
+  // penjaga bentrok ikut berlaku. Dijeda agar tidak membanjiri tiap ketukan.
   clearTimeout(_asSrvTimer);
-  _asSrvTimer=setTimeout(()=>{ if(WEB_APP_URL && WEB_APP_URL.indexOf('GANTI')!==0){ fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'saveAll',data:S}),redirect:'follow'}).catch(()=>{}); } },4000);
+  _asSrvTimer=setTimeout(()=>{ save(); },4000);
   const ind=$('autosave-ind'); if(ind){ ind.textContent='✓ Tersimpan otomatis'; ind.style.opacity='1'; clearTimeout(ind._t); ind._t=setTimeout(()=>{ ind.style.opacity='0'; },1600); }
 }
 function saveEventTab(id,goNext){
@@ -2332,11 +2490,14 @@ async function savePayment(id,paymentId){
     if(btn){ btn.disabled=true; btn.textContent='Mengunggah bukti...'; }
     try{
       const b64=await fileToBase64(file);
-      const res=await fetch(WEB_APP_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
         body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type,dataBase64:b64})});
       const data=await res.json();
       if(!data||!data.ok){ if(btn){btn.disabled=false;btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan';} return toast('Gagal unggah','Bukti transfer gagal diunggah'+(data&&data.error?': '+data.error:'')+'. Coba lagi.','err'); }
-      receiptUrl=data.data.url; receiptName=note||data.data.name;
+      // Backend balas {key,name}; URL tampil dibangun dari key (file disajikan
+      // oleh api.php action=receipt). Disimpan penuh agar link tetap benar.
+      receiptUrl=API_URL+'?action=receipt&key='+encodeURIComponent(data.data.key);
+      receiptName=note||data.data.name;
     }catch(e){
       if(btn){ btn.disabled=false; btn.textContent=existing?'Simpan Perubahan':'Verifikasi & Simpan'; }
       return toast('Gagal unggah','Tidak bisa menghubungi server untuk unggah bukti. Coba lagi.','err');
@@ -2376,7 +2537,11 @@ function deletePayment(id,paymentId){
    ============================================================ */
 function renderBrief(V){
   let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal, versi client, atau quotation profesional.','');
-  const evs=S.events.slice().sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
+  const evs=S.events.slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
+  if(!evs.length){
+    h+=empty('Belum ada event','Brief & quotation dibuat dari event yang sudah ada. Buat event dulu di menu Input & Event.','brief');
+    V.innerHTML=h; return;
+  }
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tanggal</th><th>Status</th><th>Generate</th></tr></thead><tbody>';
   evs.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')">Quotation</button></div></td></tr>'; });
   h+='</tbody></table></div></div>';
@@ -2752,6 +2917,10 @@ function renderInvoices(V){
    +stat('Invoice Overdue',overdue.length,'lewat H-7','alert')
    +stat('Lunas',evs.filter(e=>invStatus(e)==='Paid').length,'dari '+evs.length+' invoice','check')
    +'</div>';
+  if(!evs.length){
+    h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');
+    V.innerHTML=h; return;
+  }
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">Terbayar</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   ensureInvNos(evs);
   evs.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);

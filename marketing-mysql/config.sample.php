@@ -21,5 +21,12 @@ define('DB_USER', 'lakk5493_marketing');     // di cPanel diketik "marketing"
 define('DB_PASS', 'ISI_PASSWORD_DI_SINI');
 define('DB_CHARSET', 'utf8mb4');
 
+// ---------- LOKASI FILE BUKTI TRANSFER (di disk, pola sama reservasi) ----------
+// Bukti transfer TIDAK masuk MySQL — disimpan 1 file per bukti di folder ini,
+// di LUAR web root supaya tidak bisa diakses langsung tanpa lewat api.php.
+// Kosongkan ('') untuk pakai default: naik 3 tingkat keluar dari public_html.
+// Boleh dipisah dari folder foto reservasi, atau disatukan — bebas.
+define('DATA_DIR', '/home/lakk5493/marketing-db');
+
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');

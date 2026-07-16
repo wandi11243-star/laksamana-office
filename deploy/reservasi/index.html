@@ -683,6 +683,10 @@ svg.lc{display:block;flex:none}
 </div>
 
 <div id="modalRoot"></div>
+<!-- Wadah TERPISAH untuk popup "meja keburu diambil". Sengaja bukan modalRoot: banyak
+     alur (walk-in, pindah/tambah meja, ubah status) memanggil closeModal() untuk menutup
+     dialognya sendiri tepat setelah menyimpan, dan itu ikut menyapu popup ini. -->
+<div id="popupRoot"></div>
 <div id="toastRoot"></div>
 
 <script>
@@ -1811,7 +1815,7 @@ async function flushSave(){
     reportRejected();
     // Gambar ulang HANYA kalau ada perubahan dari kru lain yang ikut tergabung, dan
     // jangan pernah saat form input sedang diisi / dialog terbuka — nanti ketikan hilang.
-    if(adaKiriman && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !byId("modalRoot")?.innerHTML){
+    if(adaKiriman && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !dialogTerbuka()){
       buildNav(); navigate(CURRENT_PAGE);
     }
   }catch(e){
@@ -1916,16 +1920,20 @@ function mergeIntoState(d){
 // supaya denah langsung menampilkan meja yang sudah diambil kru lain.
 function reportRejected(){
   if(!REJECTED.length) return;
-  while(REJECTED.length){
-    const {mine, other} = REJECTED.shift();
+  /* Ambil SEMUA sekaligus. Dulu tiap tolakan dimunculkan alert() dalam loop — itu bisa
+     karena alert memblokir. Popup sendiri tidak memblokir, jadi kalau ditumpuk hanya yang
+     terakhir yang terlihat. Maka: satu popup mewakili, sisanya cukup disebut jumlahnya. */
+  const semua = REJECTED.splice(0, REJECTED.length);
+  semua.forEach(({mine, other})=>{
     logAudit("Bentrok Meja", `${mine.name} (${mine.table}) ditolak — meja keburu dipesan ${other.name} yang masuk lebih dulu`);
-    alert(`⛔ Meja ${mine.table} keburu diambil.\n\n"${other.name}" (${fmtDateShort(other.date)} ${other.time}, ${other.pax} pax) masuk ke server LEBIH DULU, jadi dia yang dapat.\n\nReservasi "${mine.name}" TIDAK tersimpan. Layar sudah disegarkan — silakan input ulang dengan meja lain.`);
-    toast(`Meja ${mine.table} sudah diambil kru lain — input ulang dgn meja lain`,"err");
-  }
-  // Paksa gambar ulang: kru harus melihat kondisi meja yang sebenarnya.
+  });
+  const {mine, other} = semua[0];
+  toast(`Meja ${mine.table} sudah diambil kru lain — input ulang dgn meja lain`,"err");
   buildNav();
-  if(CURRENT_PAGE==="input"){ renderSeatMap(); checkConflict(); }
-  else if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  // Halaman lain: gambar ulang supaya kru melihat kondisi meja yang sebenarnya.
+  // Halaman input: penyegaran denah dikerjakan tombol OK popup — isian form tetap utuh.
+  if(CURRENT_PAGE && CURRENT_PAGE!=="input") navigate(CURRENT_PAGE);
+  popupMejaDiambil(other, mine.name, semua.length-1);
 }
 
 /* ===== TARIK OTOMATIS: perubahan kru lain langsung muncul tanpa refresh =====
@@ -1943,7 +1951,7 @@ async function pollRemote(){
   if(!apiIdle()) return;
   if(document.hidden) return;
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
-  if(byId("modalRoot")?.innerHTML) return;           // jangan gambar ulang saat kru sedang membuka dialog
+  if(dialogTerbuka()) return;                        // jangan gambar ulang saat kru sedang membuka dialog/popup
   if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
   if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
   try{
@@ -2084,6 +2092,60 @@ function openModal(html, wide){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)closeModal()"><div class="modal ${wide?'wide':''}">${html}</div></div>`;
 }
 function closeModal(){ byId("modalRoot").innerHTML=""; }
+// Ada dialog terbuka? Cek DUA wadah: modal biasa (#modalRoot) dan popup meja (#popupRoot).
+// Dipakai polling & auto-save supaya tidak menggambar ulang layar saat kru sedang membaca.
+function dialogTerbuka(){ return !!(byId("modalRoot")?.innerHTML || byId("popupRoot")?.innerHTML); }
+
+/* ===== POPUP "MEJA KEBURU DIAMBIL" =====
+   Sengaja BUKAN alert() bawaan browser: alert memblokir seluruh halaman, tampilannya
+   beda-beda di tiap HP, dan tidak bisa menampilkan detail dengan rapi. Dengan popup
+   sendiri, tombol OK-nya sekalian bisa MENYEGARKAN DENAH — sementara isian form
+   (nama/HP/pax/jam) sengaja TIDAK disentuh, jadi kru tinggal pilih meja lain.
+   `other` = reservasi kru lain yang menang; `mineName` = nama tamu punya kita. */
+function popupMejaDiambil(other, mineName, lain){
+  const t = (other && other.table) ? other.table : "-";
+  /* Popup ini punya WADAH SENDIRI (#popupRoot), bukan #modalRoot. Alasannya penting:
+     banyak alur memanggil closeModal() untuk menutup dialognya sendiri TEPAT SETELAH
+     menyimpan (mis. baris `tolakMeja(...); closeModal(); renderHariH();` pada walk-in &
+     pindah/tambah meja). Kalau popup ini tinggal di modalRoot, ia ikut tersapu dan
+     terlihat "langsung hilang". alert() lama selamat karena ia memblokir; popup tidak.
+     Latar juga sengaja TANPA onclick → hanya tombol OK yang bisa menutup.
+     z-index 200 supaya selalu di atas modal biasa (z-index 100). */
+  /* CATATAN PENTING soal .inline-danger/.inline-info: keduanya `display:flex; gap:8px`.
+     Kalau isinya teks + <b> langsung, TIAP potongan jadi item flex sendiri lalu dijejer
+     berjarak → kalimatnya berantakan. Maka isinya WAJIB dibungkus satu <div> (pola yang
+     dipakai di tempat lain juga), supaya jadi satu item dan teksnya mengalir normal. */
+  const nama = esc(other && other.name || "-");
+  const kapan = `${other&&other.date?esc(fmtDateShort(other.date)):""} ${esc(other&&other.time||"")}`.trim();
+  const pax = esc(String(other && other.pax || "-"));
+  byId("popupRoot").innerHTML = `<div class="modal-back" style="z-index:200"><div class="modal">
+    <div class="modal-head"><h3>⛔ Meja ${esc(t)} keburu diambil</h3></div>
+    <div class="modal-body">
+      <div class="inline-danger" style="margin:0 0 14px"><div>Kru lain memesan meja ini dan datanya <b>masuk ke server lebih dulu</b>, jadi dia yang berhak.</div></div>
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        <tr><td style="padding:3px 0;color:var(--ink-3);width:110px">Meja</td><td style="padding:3px 0"><b>${esc(t)}</b></td></tr>
+        <tr><td style="padding:3px 0;color:var(--ink-3)">Dipesan oleh</td><td style="padding:3px 0"><b>${nama}</b></td></tr>
+        <tr><td style="padding:3px 0;color:var(--ink-3)">Waktu</td><td style="padding:3px 0">${kapan} · ${pax} pax</td></tr>
+      </table>
+      ${lain>0?`<p style="margin:10px 0 0;font-size:13px;color:var(--muted)">+${lain} reservasi lain juga ditolak karena bentrok.</p>`:""}
+      <div class="inline-info" style="margin-top:14px"><div>Reservasi ${mineName?`<b>${esc(mineName)}</b> `:""}<b>belum tersimpan</b>. Isian Anda <b>tidak hilang</b> — tekan OK, denah disegarkan, lalu tinggal pilih meja lain.</div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" style="margin-left:auto" onclick="tutupPopupMeja()">OK, pilih meja lain</button>
+    </div>
+  </div></div>`;
+}
+// OK → tutup popup (wadahnya sendiri), lalu segarkan DENAH saja.
+// Form sengaja tidak digambar ulang supaya isian kru tetap utuh.
+function tutupPopupMeja(){
+  byId("popupRoot").innerHTML = "";
+  if(CURRENT_PAGE==="input"){
+    renderSeatMap(); checkConflict();
+    byId("seatMap")?.scrollIntoView({behavior:"smooth",block:"center"});
+  }else if(CURRENT_PAGE==="hariH"){
+    renderHariH();                     // denah Recap ikut disegarkan
+  }
+}
 
 /* customer profile dari nomor HP (CRM ringan) */
 function customerProfile(phone){
@@ -2785,8 +2847,7 @@ async function saveReservation(){
     SEAT_SELS = SEAT_SELS.filter(t=>!dipakai.includes(t));
     if(f.elements["table"]) f.elements["table"].value = SEAT_SELS.join(", ");
     renderSeatMap(); checkConflict();
-    byId("seatMap")?.scrollIntoView({behavior:"smooth",block:"center"});
-    alert(`⛔ Meja ${b.table} baru saja diambil kru lain.\n\n"${b.name}" (${fmtDateShort(b.date)} ${b.time}, ${b.pax} pax) sudah masuk lebih dulu.\n\nReservasi ini BELUM tersimpan. Denah sudah disegarkan — silakan pilih meja lain.`);
+    popupMejaDiambil(b, g("name"), 0);
     toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
     return;
   }
@@ -3742,9 +3803,10 @@ async function applyMoveTables(){
   if(!tertulis){ toast("Gagal menulis ke database — perubahan meja BELUM tersimpan","err"); return; }
   toast(`Meja diperbarui: ${kini.table} ✓ (tersimpan di database)`,"ok");
 }
-// Pesan seragam saat meja keburu diambil kru lain.
+// Pesan seragam saat meja keburu diambil kru lain — popup sendiri, bukan alert browser.
+// (`judul` tidak lagi dipakai: popup sudah menyebut nomor mejanya di judulnya sendiri.)
 function tolakMeja(b, judul){
-  alert(`⛔ ${judul||"Meja sudah diambil kru lain."}\n\n"${b.name}" (${fmtDateShort(b.date)} ${b.time}, ${b.pax} pax) sudah masuk lebih dulu di meja ${b.table}.\n\nTidak jadi disimpan. Layar sudah disegarkan — silakan pilih meja lain.`);
+  popupMejaDiambil(b, "", 0);
   toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
 }
 // ---- Kelola meja sharing (banyak grup di satu meja) ----
