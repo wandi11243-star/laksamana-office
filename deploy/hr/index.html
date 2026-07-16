@@ -217,6 +217,7 @@ svg.chart text{font-family:var(--font-b)}
 // Cara pasang: docs/office-data.md. Script-nya: docs/performance-apps-script.gs.
 // Selama masih PASTE_..., app jalan offline (localStorage saja).
 var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw-4ntMFpLsuHF3gK4YJ1E2XVi7hKioEiT840O-aKtcqdat022K6PGwG-d8i8hl6SNj/exec";
+
 var LS_KEY = 'lm_peopleos_v1';   // cache lokal (fallback offline)
 var APP = null; // diisi oleh IIFE untuk akses eksternal/test
 
@@ -403,28 +404,13 @@ function seed(){
     {id:'d_event', name:'Event', color:'#DB2777'},
     {id:'d_hrga', name:'HR / GA / Legal', color:'#0891B2'}
   ];
-  const E = (name, role, divId, level, appRole, join, birth) => ({
-    id: uid('emp'), name, role, divId, level: level||'Staff', appRole: appRole||'staff',
-    joinDate: join||'2024-06-01', birthDate: birth||'', status:'Aktif', pin:'1234',
-    phone:'', email:'', notes:'', probationEnd:'', contractEnd:''
-  });
-  const employees = [
-    E('Howandi Chandra','CEO / Nahkoda','d_mgmt','C-Level','ceo','2023-01-01'),
-    E('M. Rizki Arfan','HRD','d_hrga','Manager','hr','2024-01-10'),
-    E('Ismail Magribi','Store Manager','d_store','Manager','manager','2023-06-01'),
-    E('Dina Mariana','CFO','d_finance','C-Level','manager','2023-03-01'),
-    E('Cindy Juliawati','Finance','d_finance','Staff','staff','2024-02-01'),
-    E('Devani','Sales Manager','d_marketing','Manager','manager','2024-01-15'),
-    E('Aurel','Marketing / Digital','d_marketing','Staff','staff','2024-03-01'),
-    E('Hengky Fernando','Event Manager','d_event','Manager','manager','2024-01-20'),
-    E('Christy','Social Media & Digital','d_marketing','Staff','staff','2024-04-01'),
-    E('Indah','Graphic Designer','d_marketing','Staff','staff','2024-04-01'),
-    E('Aditya Setiadi','Head Chef','d_kitchen','Manager','manager','2023-08-01'),
-    E('Arif Rahman Harefa','Head Bar','d_bar','Manager','manager','2023-08-01'),
-    E('Novianti Kemala','Admin Purchasing','d_hrga','Staff','staff','2024-05-01'),
-    E('Wandi Pranata','BDO','d_mgmt','Supervisor','manager','2024-02-01'),
-    E('M. Tegar Junindri','Legal & Support','d_hrga','Staff','staff','2024-05-01')
-  ];
+  /* Roster SENGAJA KOSONG. Kru muncul sendiri saat mereka login lewat Office
+     (resolveOfficeUser), lalu HRD melengkapi divisi/level/tanggal gabung di
+     halaman Kru. Prototipe dulu men-seed 15 nama ASLI dengan tanggal gabung,
+     level, dan PIN KARANGAN. Karena namanya asli, data karangan itu terlihat
+     resmi dan sempat ikut tersimpan ke Sheet produksi, padahal joinDate dipakai
+     sebagai syarat naik level di Career Path. Lebih baik kosong daripada salah. */
+  const employees = [];
   const K = (divId, items) => ({ id: uid('kpit'), divId, items: items.map(it=>({id:uid('ki'), name:it[0], weight:it[1], target:it[2], unit:it[3], dir:it[4]})) });
   // dir: 'up' = makin tinggi makin baik, 'down' = makin rendah makin baik (cost/waste)
   const kpiTemplates = [
@@ -500,7 +486,10 @@ function divName(id){ const d=divById(id); return d?d.name:'-'; }
 function activeEmps(){ return S.employees.filter(e=>e.status==='Aktif'); }
 function scopeEmps(){
   if(can('seeAll')) return activeEmps();
-  if(CU.appRole==='manager') return activeEmps().filter(e=>e.divId===CU.divId);
+  // Manager tanpa divisi (kru baru dari SSO yang belum dirapikan HRD) TIDAK
+  // boleh jatuh ke filter divId===''; itu akan mengelompokkan semua orang yang
+  // sama-sama belum berdivisi. Sampai HRD mengisi divisinya, dia lihat dirinya saja.
+  if(CU.appRole==='manager' && CU.divId) return activeEmps().filter(e=>e.divId===CU.divId);
   return activeEmps().filter(e=>e.id===CU.id);
 }
 
@@ -526,15 +515,60 @@ function officeToAppRole(s){
   if(adm.indexOf('*') > -1 || adm.indexOf('hr') > -1) return 'hr';
   return 'staff';
 }
-function resolveOfficeUser(s){
-  let u = S.employees.find(x => x.id === s.userId)
-       || S.employees.find(x => String(x.name).toLowerCase() === String(s.name).toLowerCase());
-  if(!u){
-    u = { id: s.userId, name: s.name, role:'Kru Baru', divId:'d_mgmt', level:'Staff',
-          appRole: officeToAppRole(s), joinDate: todayStr(), birthDate:'', status:'Aktif',
-          pin:'', phone:'', email:'', notes:'', probationEnd:'', contractEnd:'' };
-    S.employees.push(u);   // in-memory; ikut tersimpan saat save() berikutnya
+const normName = n => String(n||'').toLowerCase().replace(/[^a-z\s]/g,'').replace(/\s+/g,' ').trim();
+
+/* Cari employee milik sesi Office ini.
+   Urutan: (1) id Office, sumber paling pasti. (2) nama persis. (3) nama depan
+   sama DAN cuma satu kandidat, untuk menjembatani "Howandi" (nama Office) vs
+   "Howandi Chandra" (nama di roster). Pencocokan longgar sengaja hanya dipakai
+   kalau kandidatnya tunggal; kalau ada dua "Rizki", lebih baik tidak menebak.
+   Record yang cocok lewat nama langsung DIKLAIM (id ditimpa id Office) supaya
+   pencocokan longgar hanya terjadi sekali seumur hidup record itu. */
+function findEmployeeForSession(s){
+  const byId = S.employees.find(x => x.id === s.userId);
+  if(byId) return byId;
+
+  const target = normName(s.name);
+  const exact = S.employees.filter(x => normName(x.name) === target);
+  if(exact.length === 1) return exact[0];
+
+  const first = target.split(' ')[0];
+  if(first){
+    const loose = S.employees.filter(x => normName(x.name).split(' ')[0] === first);
+    if(loose.length === 1) return loose[0];
   }
+  return null;
+}
+/* Ganti id employee di SELURUH data. Employee dirujuk lewat empId di banyak
+   koleksi (violations, rewards, reviews, coachings, trainingRecords, moods,
+   suggestions, successions) dan jadi KUNCI di kpiActuals/monthlyInputs. Menimpa
+   id tanpa ikut memindahkan rujukan = riwayat orang itu jadi yatim. */
+function reassignEmployeeId(oldId, newId){
+  if(!oldId || !newId || oldId === newId) return;
+  S.employees.forEach(e => { if(e.id === oldId) e.id = newId; });
+  [S.reviews, S.competencies, S.trainingRecords, S.coachings, S.rewards, S.badges,
+   S.violations, S.feedbacks, S.successions, S.moods, S.suggestions].forEach(list => {
+    (list || []).forEach(r => { if(r && r.empId === oldId) r.empId = newId; });
+  });
+  (S.coachings || []).forEach(c => { if(c.coachId === oldId) c.coachId = newId; });
+  (S.okrs || []).forEach(o => { if(o.ownerType === 'emp' && o.ownerId === oldId) o.ownerId = newId; });
+  (S.audit || []).forEach(a => { if(a.userId === oldId) a.userId = newId; });
+  if(S.monthlyInputs && S.monthlyInputs[oldId]){
+    S.monthlyInputs[newId] = S.monthlyInputs[oldId]; delete S.monthlyInputs[oldId];
+  }
+}
+function resolveOfficeUser(s){
+  let u = findEmployeeForSession(s);
+  if(u){
+    // Klaim: ikat record ini ke identitas Office supaya login berikutnya lewat
+    // jalur id (pasti), bukan tebak-tebakan nama. Rujukan riwayat ikut dipindah.
+    if(u.id !== s.userId){ reassignEmployeeId(u.id, s.userId); save(); }
+    return u;
+  }
+  u = { id: s.userId, name: s.name, role:'', divId:'', level:'Staff',
+        appRole: officeToAppRole(s), joinDate:'', birthDate:'', status:'Aktif',
+        phone:'', email:'', notes:'', probationEnd:'', contractEnd:'' };
+  S.employees.push(u);   // in-memory; ikut tersimpan saat save() berikutnya
   return u;
 }
 function bootPeopleOS(){
@@ -730,7 +764,19 @@ function gradeOf(score){
   const g = S.settings.grades.slice().sort((a,b)=>b.min-a.min).find(g=>score>=g.min);
   return g ? g.g : 'D';
 }
-function gradeTag(score){
+/* Ambang kelengkapan data. Di bawah ini, skor sebagian besar berasal dari nilai
+   default (defaultComponentScore), bukan dari kinerja yang benar-benar terukur:
+   kru tanpa data apa pun tetap keluar sekitar 77 (grade B). Angka seperti itu
+   tidak boleh tampil seolah-olah hasil penilaian, karena dipakai untuk ranking
+   dan promosi. Skor tetap dihitung, tapi ditandai jelas. */
+const SCORE_MIN_COMPLETENESS = 40;
+
+// `completeness` opsional supaya pemanggil lama tetap jalan; kalau diisi dan
+// masih di bawah ambang, grade diganti penanda "data kurang".
+function gradeTag(score, completeness){
+  if(completeness != null && completeness < SCORE_MIN_COMPLETENESS){
+    return '<span class="tag mut" title="Kelengkapan data '+completeness+'%. Sebagian besar komponen memakai nilai default, jadi skor ini belum bisa dipakai menilai.">data kurang</span>';
+  }
   const g = gradeOf(score);
   const cls = score>=85?'ok':score>=70?'gold':score>=60?'warn':'bad';
   return '<span class="tag '+cls+'"><span class="grade">'+g+'</span></span>';
@@ -773,7 +819,10 @@ function sparkline(vals, w, h){
   return '<svg class="chart" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><path d="'+dAttr+'" fill="none" stroke="#B8893A" stroke-width="2" stroke-linecap="round"/></svg>';
 }
 
-/* ====== INSIGHT ENGINE (rule-based, placeholder AI Phase 4) ====== */
+/* ====== INSIGHT ENGINE ======
+   Aturan tetap (bukan AI): skor turun, pelanggaran menumpuk, training tertinggal,
+   kontrak mau habis, action plan coaching lewat deadline. Semua dihormati batas
+   scopeEmps() supaya kru biasa tidak melihat data rekannya. */
 function buildInsights(mk){
   const prev = shiftMonth(mk,-1);
   const out = [];
@@ -787,7 +836,9 @@ function buildInsights(mk){
     const ts = trainingScore(e.id);
     if(ts!=null && ts<50) out.push({sev:'info', text: e.name+': training wajib baru '+fmtNum(ts)+'% selesai. Assign ulang di Training Center.', act:'training', empId:e.id});
   });
-  S.employees.filter(e=>e.status==='Aktif' && e.contractEnd).forEach(e=>{
+  // scopeEmps(), BUKAN S.employees: tanggal habis kontrak itu data HR sensitif.
+  // Tanpa ini, kru biasa ikut melihat kontrak semua rekannya di Anjungan.
+  scopeEmps().filter(e=>e.contractEnd).forEach(e=>{
     const d = Math.round((new Date(e.contractEnd)-new Date())/86400000);
     if(d>=0 && d<=45) out.push({sev:'warn', text:'Kontrak '+e.name+' habis '+fmtDate(e.contractEnd)+' ('+d+' hari lagi). Putuskan perpanjang / evaluasi.', act:'emp', empId:e.id});
   });
@@ -800,7 +851,11 @@ function buildInsights(mk){
 RENDER.dash = function(c){
   const mk = monthKey();
   const emps = scopeEmps().filter(e=>e.appRole!=='ceo');
-  const scored = emps.map(e=>({e, ps: peopleScore(e, mk)})).sort((a,b)=>b.ps.score-a.ps.score);
+  // Hanya kru dengan data memadai yang masuk ranking & rata-rata. Kalau tidak,
+  // kru tanpa data (skor default) ikut menggerakkan angka dan bisa nangkring di Top 5.
+  const scored = emps.map(e=>({e, ps: peopleScore(e, mk)}))
+    .filter(x => x.ps.completeness >= SCORE_MIN_COMPLETENESS)
+    .sort((a,b)=>b.ps.score-a.ps.score);
   const avgScore = avg(scored.map(x=>x.ps.score));
   const trainAvg = avg(emps.map(e=>trainingScore(e.id)).filter(v=>v!=null));
   const vioCount = S.violations.filter(v=>monthKey(v.date)===mk && v.status!=='Dibatalkan').length;
@@ -815,19 +870,25 @@ RENDER.dash = function(c){
     '<div class="flex"><div class="grow"><div class="disp" style="font-size:21px;font-weight:700">Halo, '+esc(CU.name.split(' ')[0])+' 👋</div>'+
     '<div class="small" style="color:#B9C6D2;margin-top:3px">'+esc(divName(CU.divId))+', '+fmtMonth(mk)+'</div></div>'+
     (CU.appRole!=='ceo' ? '<div style="text-align:right"><div class="xs" style="color:#B9C6D2;letter-spacing:.1em">PEOPLE SCORE BULAN INI</div>'+
-    '<div class="disp" style="font-size:30px;font-weight:700;color:var(--gold)">'+fmtNum(my.score)+' <span style="font-size:17px">'+gradeOf(my.score)+'</span></div>'+
-    '<div class="xs" style="color:#8FA2B5">kelengkapan data '+my.completeness+'%</div></div>' : '')+
+      (my.completeness < SCORE_MIN_COMPLETENESS
+        // Menampilkan angka besar dari data yang hampir semuanya default itu
+        // menyesatkan, apalagi ini skor diri sendiri yang paling dipercaya orang.
+        ? '<div class="disp" style="font-size:22px;font-weight:700;color:#B9C6D2">Belum bisa dinilai</div>'+
+          '<div class="xs" style="color:#8FA2B5">data baru '+my.completeness+'%, minimal '+SCORE_MIN_COMPLETENESS+'% supaya skor berarti</div>'
+        : '<div class="disp" style="font-size:30px;font-weight:700;color:var(--gold)">'+fmtNum(my.score)+' <span style="font-size:17px">'+gradeOf(my.score)+'</span></div>'+
+          '<div class="xs" style="color:#8FA2B5">kelengkapan data '+my.completeness+'%</div>')+
+    '</div>' : '')+
     '</div></div>';
 
   html += '<div class="cards g4" style="margin-bottom:16px">'+
-    kcard('Rata-rata People Score', fmtNum(avgScore), fmtMonth(mk))+
+    kcard('Rata-rata People Score', fmtNum(avgScore), scored.length? fmtMonth(mk)+', '+scored.length+' kru terukur' : 'belum ada kru dgn data cukup')+
     kcard('Training Wajib Selesai', trainAvg!=null?fmtNum(trainAvg)+'%':'-', 'rata-rata tim')+
     kcard('Pelanggaran Bulan Ini', vioCount, vioCount? 'perlu tindak lanjut':'bersih 👍')+
     kcard('Mood Tim', moodAvg? fmtNum(moodAvg)+' / 5':'-', moodsMk.length+' check-in')+
     '</div>';
 
   // Insight
-  html += '<div class="sec-title"><h3>Insight Otomatis</h3><span class="sub">rule-based, AI penuh menyusul di Phase 4</span></div>';
+  html += '<div class="sec-title"><h3>Insight Otomatis</h3><span class="sub">hal yang perlu ditindak, dihitung dari data bulan ini</span></div>';
   if(!insights.length) html += '<div class="empty">Tidak ada alert. Kapal berlayar tenang. ⚓</div>';
   else html += insights.map(i=>'<div class="note'+(i.sev==='warn'||i.sev==='bad'?' w':'')+'" style="display:flex;gap:10px;align-items:center"><span class="grow">'+esc(i.text)+'</span><button class="btn btn-line btn-xs" onclick="APP.go(\''+i.act+'\')">Buka →</button></div>').join('');
 
@@ -835,7 +896,7 @@ RENDER.dash = function(c){
   html += '<div class="cards g2" style="margin-top:16px"><div class="card"><h3>Top 5 People Score, '+fmtMonth(mk)+'</h3>';
   if(!scored.length) html+='<div class="mut small">Belum ada data.</div>';
   else html += '<table class="tbl" style="box-shadow:none">'+scored.slice(0,5).map((x,i)=>
-    '<tr><td style="width:26px" class="mono">'+(i+1)+'</td><td><b>'+esc(x.e.name)+'</b><div class="xs mut">'+esc(divName(x.e.divId))+'</div></td><td style="width:110px">'+barHtml(x.ps.score)+'</td><td style="width:50px">'+gradeTag(x.ps.score)+'</td></tr>').join('')+'</table>';
+    '<tr><td style="width:26px" class="mono">'+(i+1)+'</td><td><b>'+esc(x.e.name)+'</b><div class="xs mut">'+esc(divName(x.e.divId))+'</div></td><td style="width:110px">'+barHtml(x.ps.score)+'</td><td style="width:50px">'+gradeTag(x.ps.score, x.ps.completeness)+'</td></tr>').join('')+'</table>';
   html += '<button class="btn btn-line btn-sm" style="margin-top:10px" onclick="APP.go(\'score\')">Lihat semua →</button></div>';
 
   html += '<div class="card"><h3>KPI per Divisi, '+fmtMonth(mk)+'</h3><table class="tbl" style="box-shadow:none">';
@@ -861,11 +922,20 @@ RENDER.score = function(c){
 };
 function renderScore(c, mk){
   const emps = scopeEmps().filter(e=>e.appRole!=='ceo');
-  const rows = emps.map(e=>({e, ps: peopleScore(e, mk)})).sort((a,b)=>b.ps.score-a.ps.score);
+  const all = emps.map(e=>({e, ps: peopleScore(e, mk)}));
+  // Pisahkan yang datanya cukup dari yang belum. Mengurutkan keduanya bersama
+  // berarti kru tanpa data (skor default ~77) bisa mengalahkan kru yang benar
+  // benar diukur, dan podium juaranya jadi karangan.
+  const rows   = all.filter(r => r.ps.completeness >= SCORE_MIN_COMPLETENESS).sort((a,b)=>b.ps.score-a.ps.score);
+  const unrank = all.filter(r => r.ps.completeness <  SCORE_MIN_COMPLETENESS);
   const W = S.settings.scoreWeights;
   let html = '<div class="toolbar">'+monthPicker('psMonth', mk)+'<span class="sp"></span>'+
     (can('inputKpi')?'<button class="btn btn-pri btn-sm" onclick="APP.openMonthlyInput()">＋ Input Data Bulanan</button>':'')+'</div>';
   html += '<div class="note">Bobot: Attendance '+W.attendance+'% (dari Talenta, input manual), KPI '+W.kpi+'%, Training '+W.training+'%, Customer Review '+W.review+'%, Disiplin '+W.discipline+'%, Teamwork '+W.teamwork+'%, Inisiatif '+W.initiative+'%. Komponen kosong memakai nilai default '+S.settings.defaultComponentScore+'. Ubah di Pengaturan.</div>';
+  if(unrank.length){
+    html += '<div class="note w">'+unrank.length+' kru belum masuk ranking karena kelengkapan datanya di bawah '+SCORE_MIN_COMPLETENESS+'% ('+
+      esc(unrank.map(r=>r.e.name).join(', '))+'). Skor mereka masih sebagian besar nilai default, jadi belum menggambarkan kinerja. Isi Data Bulanan dan KPI divisinya dulu.</div>';
+  }
 
   if(rows.length>=3){
     const p = rows.slice(0,3);
@@ -873,21 +943,26 @@ function renderScore(c, mk){
       pod(p[1],2,mk)+pod(p[0],1,mk)+pod(p[2],3,mk)+'</div>';
   }
   html += '<table class="tbl"><thead><tr><th>#</th><th>Kru</th><th>Divisi</th><th class="num">Attend</th><th class="num">KPI</th><th class="num">Training</th><th class="num">Review</th><th class="num">Disiplin</th><th>Score</th><th>Grade</th><th>Tren 6 bln</th><th></th></tr></thead><tbody>';
-  rows.forEach((r,i)=>{
+  const line = (r, rank) => {
     const cp=r.ps.comp;
-    const trend = lastMonths(6, mk).map(m=>{ const p2=peopleScore(r.e,m); return p2.completeness>0?p2.score:null; });
-    html += '<tr><td class="mono">'+(i+1)+'</td><td><b>'+esc(r.e.name)+'</b><div class="xs mut">'+esc(r.e.role)+'</div></td><td class="small">'+esc(divName(r.e.divId))+'</td>'+
+    const weak = r.ps.completeness < SCORE_MIN_COMPLETENESS;
+    const trend = lastMonths(6, mk).map(m=>{ const p2=peopleScore(r.e,m); return p2.completeness>=SCORE_MIN_COMPLETENESS?p2.score:null; });
+    return '<tr'+(weak?' style="opacity:.6"':'')+'><td class="mono">'+(rank||'–')+'</td><td><b>'+esc(r.e.name)+'</b><div class="xs mut">'+esc(r.e.role)+'</div></td><td class="small">'+esc(divName(r.e.divId))+'</td>'+
       cell(cp.attendance)+cell(cp.kpi)+cell(cp.training)+cell(cp.review)+cell(cp.discipline)+
-      '<td style="min-width:110px">'+barHtml(r.ps.score)+'</td><td>'+gradeTag(r.ps.score)+'</td><td>'+sparkline(trend,110,30)+'</td>'+
+      '<td style="min-width:110px">'+(weak?'<span class="xs mut">belum cukup data</span>':barHtml(r.ps.score))+'</td>'+
+      '<td>'+gradeTag(r.ps.score, r.ps.completeness)+'</td><td>'+sparkline(trend,110,30)+'</td>'+
       '<td><button class="btn btn-line btn-xs" onclick="APP.openEmpDetail(\''+r.e.id+'\')">Detail</button></td></tr>';
-  });
-  html += '</tbody></table><div class="hint">Skor komponen "-" artinya belum ada data → default dipakai. Kelengkapan data mempengaruhi kualitas ranking, bukan skornya.</div>';
+  };
+  rows.forEach((r,i)=>{ html += line(r, i+1); });
+  unrank.forEach(r=>{ html += line(r, null); });
+  if(!all.length) html += '<tr><td colspan="12" class="mut small" style="text-align:center;padding:20px">Belum ada kru.</td></tr>';
+  html += '</tbody></table><div class="hint">Skor komponen "–" artinya belum ada data, jadi nilai default dipakai. Kru dengan kelengkapan di bawah '+SCORE_MIN_COMPLETENESS+'% tidak diberi ranking dan grade, karena skornya belum menggambarkan kinerja.</div>';
   c.innerHTML = html;
   mpHandlers['psMonth'] = nv => renderScore(c, nv);
   function cell(v){ return '<td class="num'+(v==null?' mut':'')+'">'+(v==null?'–':fmtNum(v))+'</td>'; }
   function pod(r, rank, mk2){
     if(!r) return '';
-    return '<div class="pod'+(rank===1?' first':'')+'"><div class="rank">'+(rank===1?'🏆':'#'+rank)+'</div><b>'+esc(r.e.name)+'</b><div class="xs mut">'+esc(divName(r.e.divId))+'</div><div class="disp" style="font-size:22px;font-weight:700;color:var(--ink);margin-top:4px">'+fmtNum(r.ps.score)+'</div>'+gradeTag(r.ps.score)+'</div>';
+    return '<div class="pod'+(rank===1?' first':'')+'"><div class="rank">'+(rank===1?'🏆':'#'+rank)+'</div><b>'+esc(r.e.name)+'</b><div class="xs mut">'+esc(divName(r.e.divId))+'</div><div class="disp" style="font-size:22px;font-weight:700;color:var(--ink);margin-top:4px">'+fmtNum(r.ps.score)+'</div>'+gradeTag(r.ps.score, r.ps.completeness)+'</div>';
   }
 }
 function openMonthlyInput(){
@@ -1165,7 +1240,7 @@ function editCoach(id){
 /* ====== PAGE: TRAINING CENTER ====== */
 RENDER.training = function(c){
   let html = '<div class="toolbar"><span class="sp"></span>'+(can('manageTraining')?'<button class="btn btn-pri btn-sm" onclick="APP.editTraining()">＋ Program Training</button>':'')+'</div>';
-  html += '<div class="note">Alur: materi (video/PDF/SOP) → quiz/assessment → lulus (≥ passing grade) → sertifikat internal otomatis. Training wajib mempengaruhi komponen Training di People Score dan jadi gerbang naik level. Materi/quiz disimpan sebagai referensi; penyampaian tetap offline/briefing.</div>';
+  html += '<div class="note">Halaman ini <b>mencatat hasil</b> training, bukan tempat menjalankannya. Materi dan kuis ada di modul <b>Akademi</b>; penyampaian lain (briefing, praktek) tetap offline. Di sini HRD/manager mendaftarkan program lalu memasukkan nilai tiap kru: nilai ≥ passing grade dihitung Lulus, dapat nomor sertifikat internal dan poin reward. Training wajib mempengaruhi komponen Training di People Score dan jadi gerbang naik level.</div>';
   if(!S.trainings.length){ html += '<div class="empty">Belum ada program. Contoh: Product Knowledge Menu, Opening SOP, Hygiene Test, Coffee Knowledge, Service Excellence.</div>'; }
   html += '<div class="cards g2">';
   S.trainings.forEach(t=>{
@@ -1195,13 +1270,33 @@ function editTraining(id){
     '<div class="frow f3"><div><label>Divisi</label><select id="tr_div"><option value="all"'+(t.divId==='all'?' selected':'')+'>Semua divisi</option>'+S.divisions.map(d=>'<option value="'+d.id+'"'+(d.id===t.divId?' selected':'')+'>'+esc(d.name)+'</option>').join('')+'</select></div>'+
     '<div><label>Passing grade</label><input type="number" id="tr_pg" value="'+t.passingGrade+'"></div>'+
     '<div><label>Wajib?</label><select id="tr_mand"><option value="1"'+(t.mandatory?' selected':'')+'>Wajib</option><option value="0"'+(!t.mandatory?' selected':'')+'>Opsional</option></select></div></div>'+
-    '<div class="frow f1"><div><label>Deskripsi / link materi</label><textarea id="tr_desc" rows="2">'+esc(t.desc)+'</textarea></div></div>';
+    '<div class="frow f1"><div><label>Deskripsi / link materi (opsional)</label><textarea id="tr_desc" rows="2" placeholder="cth: materi ada di Akademi, atau tempel link Drive/SOP">'+esc(t.desc)+'</textarea></div></div>';
   openModal(id?'Edit Program':'Program Training Baru', body, {onSave:()=>{
     const data = {title:$('#tr_title').value.trim(), type:$('#tr_type').value, divId:$('#tr_div').value, passingGrade:Number($('#tr_pg').value)||80, mandatory:$('#tr_mand').value==='1', desc:$('#tr_desc').value};
     if(!data.title){ toast('Judul wajib diisi.', true); return false; }
     if(id) Object.assign(t, data); else S.trainings.push(Object.assign({id:uid('tr')}, data));
     log('TRAINING_SAVE', data.title); save('Program tersimpan.'); go('training');
   }});
+}
+/* Nomor sertifikat berikutnya untuk TAHUN sertifikat itu sendiri.
+   Sebelumnya dipakai (trainingRecords.length + 1), yang salah karena:
+   panjang array ikut menghitung yang GAGAL (jadi nomor melompat), dan menyusut
+   saat record dihapus/impor (jadi nomor terpakai ulang, dua orang bisa dapat
+   nomor sama). Di sini nomor diambil dari sertifikat yang BENAR-BENAR pernah
+   terbit di tahun tsb, lalu diambil maksimum + 1, dan tetap dijaga unik. */
+function nextCertNo(dateStr){
+  const yr = (dateStr && dateStr.slice(0,4)) || String(new Date().getFullYear());
+  const prefix = 'LM-CERT-' + yr + '-';
+  const used = new Set(S.trainingRecords.map(r => r.certNo).filter(Boolean));
+  let max = 0;
+  used.forEach(no => {
+    if(String(no).indexOf(prefix) !== 0) return;
+    const n = parseInt(String(no).slice(prefix.length), 10);
+    if(!isNaN(n) && n > max) max = n;
+  });
+  let n = max + 1, cand = prefix + String(n).padStart(3,'0');
+  while(used.has(cand)){ n++; cand = prefix + String(n).padStart(3,'0'); }   // jaga-jaga
+  return cand;
 }
 function recordTraining(trainingId){
   const t = S.trainings.find(x=>x.id===trainingId);
@@ -1214,7 +1309,7 @@ function recordTraining(trainingId){
     const empId = $('#trc_emp').value, sc = Number($('#trc_score').value);
     if(isNaN(sc)){ toast('Nilai wajib diisi.', true); return false; }
     const lulus = sc >= t.passingGrade;
-    const rec = {id:uid('trc'), trainingId, empId, score:sc, date:$('#trc_date').value, status: lulus?'Lulus':'Gagal', certNo: lulus? ('LM-CERT-'+new Date().getFullYear()+'-'+String(S.trainingRecords.length+1).padStart(3,'0')) : ''};
+    const rec = {id:uid('trc'), trainingId, empId, score:sc, date:$('#trc_date').value, status: lulus?'Lulus':'Gagal', certNo: lulus? nextCertNo($('#trc_date').value) : ''};
     S.trainingRecords.push(rec);
     if(lulus){ S.rewards.push({id:uid('rw'), empId, date:todayStr(), type:'earn', points:S.settings.pointRules.trainingPass, reason:'Lulus training: '+t.title}); }
     log('TRAINING_RECORD', (empById(empId)||{}).name+', '+t.title+' ('+sc+')'); save();
@@ -1348,16 +1443,22 @@ RENDER.engage = function(c){
   const today = todayStr();
   const myMood = S.moods.find(m=>m.empId===CU.id && m.date===today);
   const mk = monthKey();
-  let html = '<div class="cards g2"><div class="card"><h3>Mood Check Hari Ini</h3><div class="small mut">Bagaimana perasaanmu hari ini? Anonim untuk sesama kru; HR hanya melihat tren agregat &amp; individu bila perlu.</div>'+
+  let html = '<div class="cards g2"><div class="card"><h3>Mood Check Hari Ini</h3><div class="small mut">Bagaimana perasaanmu hari ini? Jawaban ini <b>tercatat atas nama Anda</b> dan bisa dilihat HRD, dipakai untuk menawarkan bantuan kalau ada yang berat. Sesama kru tidak bisa melihatnya. Kalau ingin menyampaikan sesuatu tanpa nama, pakai Kotak Saran di bawah dengan centang anonim.</div>'+
     '<div class="mood-row">'+MOODS.map(m=>'<button class="mood-btn'+(myMood&&myMood.mood===m.v?' sel':'')+'" onclick="APP.setMood('+m.v+')">'+m.e+'</button>').join('')+'</div>'+
     (myMood?'<div class="small" style="text-align:center;color:var(--ok)">Tercatat. Terima kasih! ⚓</div>':'')+'</div>';
 
-  // Tren mood
+  // Tren mood. Titik dengan check-in < MOOD_MIN_N sengaja dikosongkan: rata-rata
+  // dari satu orang SAMA DENGAN mood orang itu, jadi grafik "agregat" malah
+  // membocorkan individu ke siapa pun yang membuka halaman ini.
+  const MOOD_MIN_N = 3;
   const days = [];
   for(let i=13;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); days.push(d.toISOString().slice(0,10)); }
-  const trend = days.map(d=>{ const ms=S.moods.filter(m=>m.date===d); return ms.length? avg(ms.map(m=>m.mood)) : null; });
+  const trend = days.map(d=>{ const ms=S.moods.filter(m=>m.date===d); return ms.length>=MOOD_MIN_N ? avg(ms.map(m=>m.mood)) : null; });
+  const mkMoods = S.moods.filter(m=>monthKey(m.date)===mk);
   html += '<div class="card"><h3>Tren Mood Tim (14 hari)</h3>'+sparkline(trend, 300, 60)+
-    '<div class="xs mut" style="margin-top:6px">'+S.moods.filter(m=>monthKey(m.date)===mk).length+' check-in bulan ini, rata-rata '+(fmtNum(avg(S.moods.filter(m=>monthKey(m.date)===mk).map(m=>m.mood)))||'-')+' / 5</div></div></div>';
+    '<div class="xs mut" style="margin-top:6px">'+mkMoods.length+' check-in bulan ini'+
+      (mkMoods.length>=MOOD_MIN_N ? ', rata-rata '+fmtNum(avg(mkMoods.map(m=>m.mood)))+' / 5' : '')+
+      '<br>Hari dengan kurang dari '+MOOD_MIN_N+' check-in tidak ditampilkan, supaya mood satu orang tidak terbaca dari grafik.</div></div></div>';
 
   // Suggestion box
   html += '<div class="sec-title"><h3>Kotak Saran</h3><span class="sub">boleh anonim. Budaya hidup kalau suara kru didengar</span></div>';
@@ -1410,7 +1511,7 @@ RENDER.career = function(c){
       html += '<tr><td><b>'+esc(s.position)+'</b></td><td>'+esc(e?e.name:'-')+'<div class="xs mut">'+esc(e?e.role:'')+'</div></td>'+
         '<td><span class="tag '+(rd==='Ready Now'?'ok':rd==='6 Bulan'?'gold':'info')+'">'+esc(rd)+'</span></td>'+
         '<td class="small" style="max-width:260px">'+esc(s.gap||'-')+'</td>'+
-        '<td>'+(ps?fmtNum(ps.score)+' '+gradeTag(ps.score):'-')+'</td>'+
+        '<td>'+(ps?fmtNum(ps.score)+' '+gradeTag(ps.score, ps.completeness):'-')+'</td>'+
         '<td>'+(can('manageCareer')?'<button class="btn btn-line btn-xs" onclick="APP.editSuccession(\''+s.id+'\')">✎</button> <button class="btn btn-line btn-xs" onclick="APP.delSuccession(\''+s.id+'\')">🗑</button>':'')+'</td></tr>';
     });
     html += '</tbody></table>';
@@ -1441,6 +1542,9 @@ function editSuccession(id){
   openModal(id?'Edit Kandidat':'Kandidat Suksesi', body, {onSave:()=>{
     const data = {position:$('#sc_pos').value.trim(), empId:$('#sc_emp').value, readiness:$('#sc_rd').value, gap:$('#sc_gap').value};
     if(!data.position){ toast('Posisi wajib diisi.', true); return false; }
+    // Tanpa ini, baris suksesi bisa tersimpan tanpa kandidat (dropdown kosong)
+    // lalu tampil selamanya sebagai "-" tanpa menunjuk siapa pun.
+    if(!data.empId){ toast('Pilih kandidat dulu.', true); return false; }
     if(id) Object.assign(s, data); else S.successions.push(Object.assign({id:uid('sc')}, data));
     log('SUCCESSION_SAVE', data.position); save(); go('career');
   }});
@@ -1448,19 +1552,38 @@ function editSuccession(id){
 function delSuccession(id){ confirmBox('Hapus kandidat ini?', ()=>{ S.successions=S.successions.filter(x=>x.id!==id); save(); go('career'); }); }
 
 /* ====== PAGE: KRU (EMPLOYEES) ====== */
+// Kru dianggap belum lengkap kalau divisi/jabatan/tanggal gabung masih kosong.
+// Ini terjadi pada kru yang baru pertama login lewat Office: sistem hanya tahu
+// nama dan id-nya, sisanya HRD yang isi.
+const needsSetup = e => !e.divId || !e.role || !e.joinDate;
+
 RENDER.emp = function(c){
   const emps = scopeEmps();
   let html = '<div class="toolbar"><input id="empQ" placeholder="Cari nama / jabatan…" style="width:220px" oninput="APP.filterEmp()"><span class="sp"></span>'+
     (can('manageEmployees')?'<button class="btn btn-pri btn-sm" onclick="APP.editEmp()">＋ Kru Baru</button>':'')+'</div>';
   html += '<div class="note">Staff Performance menyimpan data performa. Dokumen administratif (KTP, NPWP, kontrak, payroll) tetap di Talenta. Jangan duplikasi data sensitif di sini.</div>';
+
+  const belum = emps.filter(needsSetup);
+  if(belum.length && can('manageEmployees')){
+    html += '<div class="note w">'+belum.length+' kru baru muncul dari login Office tapi datanya belum lengkap ('+
+      esc(belum.map(e=>e.name).join(', '))+'). Lengkapi divisi, jabatan, dan tanggal gabung lewat tombol ✎, '+
+      'karena KPI divisi dan syarat naik level dihitung dari data itu.</div>';
+  }
+  if(!emps.length){
+    html += '<div class="empty">Belum ada kru. Kru muncul otomatis begitu mereka membuka modul ini lewat Office.</div>';
+    c.innerHTML = html; return;
+  }
+
   html += '<table class="tbl" id="empTbl"><thead><tr><th>Nama</th><th>Jabatan</th><th>Divisi</th><th>Level</th><th>Bergabung</th><th>SP Aktif</th><th>Score</th><th></th></tr></thead><tbody>';
   emps.forEach(e=>{
     const ps = peopleScore(e, monthKey());
     const sp = activeSP(e.id);
-    html += '<tr data-q="'+esc((e.name+' '+e.role).toLowerCase())+'"><td><div class="flex"><div class="ava">'+initials(e.name)+'</div><b>'+esc(e.name)+'</b></div></td>'+
-      '<td class="small">'+esc(e.role)+'</td><td class="small">'+esc(divName(e.divId))+'</td><td><span class="tag mut">'+esc(e.level)+'</span></td>'+
-      '<td class="mono small">'+fmtDate(e.joinDate)+'</td><td>'+(sp?'<span class="tag bad">'+sp+'</span>':'–')+'</td>'+
-      '<td>'+(e.appRole!=='ceo'?fmtNum(ps.score)+' '+gradeTag(ps.score):'–')+'</td>'+
+    const warn = needsSetup(e) ? ' <span class="tag warn">lengkapi data</span>' : '';
+    html += '<tr data-q="'+esc((e.name+' '+e.role).toLowerCase())+'"><td><div class="flex"><div class="ava">'+initials(e.name)+'</div><b>'+esc(e.name)+'</b>'+warn+'</div></td>'+
+      '<td class="small">'+(e.role?esc(e.role):'<span class="mut">belum diisi</span>')+'</td>'+
+      '<td class="small">'+(e.divId?esc(divName(e.divId)):'<span class="mut">belum diisi</span>')+'</td><td><span class="tag mut">'+esc(e.level)+'</span></td>'+
+      '<td class="mono small">'+(e.joinDate?fmtDate(e.joinDate):'–')+'</td><td>'+(sp?'<span class="tag bad">'+sp+'</span>':'–')+'</td>'+
+      '<td>'+(e.appRole!=='ceo'?fmtNum(ps.score)+' '+gradeTag(ps.score, ps.completeness):'–')+'</td>'+
       '<td><button class="btn btn-line btn-xs" onclick="APP.openEmpDetail(\''+e.id+'\')">Profil</button> '+(can('manageEmployees')?'<button class="btn btn-line btn-xs" onclick="APP.editEmp(\''+e.id+'\')">✎</button>':'')+'</td></tr>';
   });
   html += '</tbody></table>';
@@ -1471,21 +1594,25 @@ function filterEmp(){
   $$('#empTbl tbody tr').forEach(tr=>{ tr.style.display = tr.dataset.q.includes(q)?'':'none'; });
 }
 function editEmp(id){
-  const e = id ? empById(id) : {name:'', role:'', divId:S.divisions[1].id, level:'Staff', appRole:'staff', joinDate:todayStr(), birthDate:'', status:'Aktif', pin:'1234', contractEnd:'', probationEnd:'', notes:''};
+  const e = id ? empById(id) : {name:'', role:'', divId:S.divisions[1].id, level:'Staff', appRole:'staff', joinDate:todayStr(), birthDate:'', status:'Aktif', contractEnd:'', probationEnd:'', notes:''};
   let body = '<div class="frow"><div><label>Nama</label><input id="em_name" value="'+esc(e.name)+'"></div><div><label>Jabatan</label><input id="em_role" value="'+esc(e.role)+'"></div></div>'+
-    '<div class="frow f3"><div><label>Divisi</label><select id="em_div">'+S.divisions.map(d=>'<option value="'+d.id+'"'+(d.id===e.divId?' selected':'')+'>'+esc(d.name)+'</option>').join('')+'</select></div>'+
+    // Opsi kosong wajib ada: kru hasil login Office belum berdivisi, dan tanpa
+    // ini <select> diam-diam memilih divisi pertama lalu ikut tersimpan.
+    '<div class="frow f3"><div><label>Divisi</label><select id="em_div"><option value=""'+(!e.divId?' selected':'')+'>Belum diisi</option>'+S.divisions.map(d=>'<option value="'+d.id+'"'+(d.id===e.divId?' selected':'')+'>'+esc(d.name)+'</option>').join('')+'</select></div>'+
     '<div><label>Level</label><select id="em_level">'+['Staff','Supervisor','Manager','C-Level'].map(l=>'<option'+(l===e.level?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
     '<div><label>Akses aplikasi</label><select id="em_approle">'+Object.keys(ROLE_LABEL).map(r=>'<option value="'+r+'"'+(r===e.appRole?' selected':'')+'>'+ROLE_LABEL[r]+'</option>').join('')+'</select></div></div>'+
     '<div class="frow f3"><div><label>Bergabung</label><input type="date" id="em_join" value="'+(e.joinDate||'')+'"></div>'+
     '<div><label>Ulang tahun</label><input type="date" id="em_birth" value="'+(e.birthDate||'')+'"></div>'+
     '<div><label>Status</label><select id="em_status">'+['Aktif','Nonaktif'].map(s=>'<option'+(s===e.status?' selected':'')+'>'+s+'</option>').join('')+'</select></div></div>'+
-    '<div class="frow f3"><div><label>Kontrak berakhir</label><input type="date" id="em_contract" value="'+(e.contractEnd||'')+'"></div>'+
-    '<div><label>Probation selesai</label><input type="date" id="em_prob" value="'+(e.probationEnd||'')+'"></div>'+
-    '<div><label>PIN login</label><input id="em_pin" value="'+esc(e.pin)+'" maxlength="8"></div></div>'+
-    '<div class="frow f1"><div><label>Catatan</label><input id="em_notes" value="'+esc(e.notes||'')+'"></div></div>';
+    '<div class="frow"><div><label>Kontrak berakhir</label><input type="date" id="em_contract" value="'+(e.contractEnd||'')+'"></div>'+
+    '<div><label>Probation selesai</label><input type="date" id="em_prob" value="'+(e.probationEnd||'')+'"></div></div>'+
+    '<div class="frow f1"><div><label>Catatan</label><input id="em_notes" value="'+esc(e.notes||'')+'"></div></div>'+
+    // Login/PIN sengaja TIDAK ada di sini. Identitas dan PIN dipegang Office
+    // (lm_session), modul cuma memakainya. Lihat docs/office-auth.md.
+    '<p class="hint">Login dan PIN diatur di Office, bukan di sini. "Akses aplikasi" hanya mengatur apa yang boleh dibuka di dalam modul ini.</p>';
   openModal(id?'Edit Kru':'Kru Baru', body, {wide:true, onSave:()=>{
     const data = {name:$('#em_name').value.trim(), role:$('#em_role').value.trim(), divId:$('#em_div').value, level:$('#em_level').value, appRole:$('#em_approle').value,
-      joinDate:$('#em_join').value, birthDate:$('#em_birth').value, status:$('#em_status').value, contractEnd:$('#em_contract').value, probationEnd:$('#em_prob').value, pin:$('#em_pin').value||'1234', notes:$('#em_notes').value};
+      joinDate:$('#em_join').value, birthDate:$('#em_birth').value, status:$('#em_status').value, contractEnd:$('#em_contract').value, probationEnd:$('#em_prob').value, notes:$('#em_notes').value};
     if(!data.name){ toast('Nama wajib diisi.', true); return false; }
     if(id) Object.assign(e, data); else S.employees.push(Object.assign({id:uid('emp'), phone:'', email:''}, data));
     log('EMP_SAVE', data.name); save('Data kru tersimpan.'); go('emp');
@@ -1505,7 +1632,7 @@ function openEmpDetail(empId){
   const W = S.settings.scoreWeights;
   let body = '<div class="flex" style="margin-bottom:12px"><div class="ava" style="width:44px;height:44px;font-size:16px">'+initials(e.name)+'</div>'+
     '<div class="grow"><b style="font-size:16px">'+esc(e.name)+'</b><div class="small mut">'+esc(e.role)+', '+esc(divName(e.divId))+', sejak '+fmtDate(e.joinDate)+'</div></div>'+
-    (e.appRole!=='ceo'?'<div style="text-align:right"><div class="disp" style="font-size:24px;font-weight:700;color:var(--ink)">'+fmtNum(ps.score)+'</div>'+gradeTag(ps.score)+'</div>':'')+'</div>';
+    (e.appRole!=='ceo'?'<div style="text-align:right"><div class="disp" style="font-size:24px;font-weight:700;color:var(--ink)">'+fmtNum(ps.score)+'</div>'+gradeTag(ps.score, ps.completeness)+'</div>':'')+'</div>';
   body += '<div style="margin-bottom:10px">'+sparkline(trend, 560, 46)+'<div class="xs mut">Tren People Score 6 bulan, kelengkapan data bulan ini '+ps.completeness+'%</div></div>';
   body += '<table class="tbl" style="box-shadow:none"><thead><tr><th>Komponen</th><th class="num">Bobot</th><th class="num">Skor</th></tr></thead><tbody>'+
     [['Attendance (Talenta)','attendance'],['KPI','kpi'],['Training','training'],['Customer Review','review'],['Disiplin','discipline'],['Teamwork','teamwork'],['Inisiatif','initiative']].map(([lbl,k])=>
@@ -1555,7 +1682,13 @@ function addCalEvent(){
     log('CAL_ADD', $('#cal_title').value); save(); go('cal');
   }});
 }
-function delCalEvent(id){ S.calendar = S.calendar.filter(x=>x.id!==id); save(); go('cal'); }
+function delCalEvent(id){
+  // Konfirmasi dulu, seperti hapus di halaman lain (OKR, suksesi, track karier).
+  const ev = S.calendar.find(x=>x.id===id);
+  confirmBox('Hapus agenda "'+((ev&&ev.title)||'')+'"?', ()=>{
+    S.calendar = S.calendar.filter(x=>x.id!==id); save(); go('cal');
+  });
+}
 
 /* ====== PAGE: SETTINGS ====== */
 RENDER.settings = function(c){
