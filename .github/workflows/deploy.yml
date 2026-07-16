@@ -19,3 +19,28 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./deploy/
           server-dir: /public_html/office/
+          # Default action ini 30 detik per operasi FTP. Koneksi ke Rumahweb
+          # sering lebih lambat dari itu untuk file besar (marketing ~400KB),
+          # sehingga transfer diputus DI TENGAH: file di server jadi terpotong
+          # dan JS-nya rusak, TAPI action tetap melaporkan "sukses" — modul
+          # mati tanpa ada yang sadar. Sudah kejadian 2x pada 16 Juli 2026
+          # (terpotong di 65KB lalu 234KB dari 403KB).
+          timeout: 300000
+
+      # Deploy FTP bisa "sukses" walau file terpotong, jadi jangan percaya
+      # status hijau saja — buktikan tiap halaman utuh (ada penutup </html>).
+      - name: Verifikasi file di server tidak terpotong
+        run: |
+          gagal=0
+          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/; do
+            url="https://office.laksamanamuda.id/${m}index.html"
+            body=$(curl -s -m 60 "$url?ci=$GITHUB_SHA" || true)
+            n=$(printf '%s' "$body" | wc -c)
+            if printf '%s' "$body" | grep -q '</html>'; then
+              echo "OK      ${m:-/} ($n byte)"
+            else
+              echo "GAGAL   ${m:-/} ($n byte) — tidak ada </html>, file terpotong"
+              gagal=1
+            fi
+          done
+          exit $gagal
