@@ -359,6 +359,20 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .form-subhead .fsh-d{font-size:11.5px;color:var(--muted)}
 
 /* Ya/Tidak + catatan (venue needs) */
+/* Lampiran berkas (D.11) */
+.attach-list{display:flex;flex-direction:column;gap:6px}
+.attach-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line-hard);border-radius:9px;background:var(--ink-900)}
+.attach-name{flex:1;min-width:0;display:flex;align-items:center;gap:8px;color:var(--sand);text-decoration:none;font-size:13px}
+.attach-name:hover{color:var(--gold)}
+.attach-name svg{width:15px;height:15px;flex:none;opacity:.6}
+/* nama panjang dipotong, jangan mendorong tombol hapus keluar */
+.attach-name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attach-meta{flex:none;font-size:11.5px}
+/* `.field label` (0,1,1) mengalahkan `.attach-add` (0,1,0) dan memaksanya
+   display:block sehingga tombolnya melebar penuh — pakai selector setara. */
+.field label.attach-add{display:inline-flex;align-items:center;gap:7px;margin-top:8px;margin-bottom:0;padding:7px 13px;border:1px dashed var(--line-hard);border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--sand-dim);background:var(--ink-900)}
+.field label.attach-add:hover{border-color:var(--gold-deep);color:var(--gold)}
+.attach-add svg{width:14px;height:14px}
 .ynnote{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .ynnote .seg{flex:none}
 .ynnote .ynnote-note{flex:1;min-width:160px}
@@ -1035,7 +1049,8 @@ const EVENT_SCHEMA = [
   {k:'materai',l:'Materai / Kwitansi Panjang',t:'yn'}
 ]},
 { id:'attach', n:'D.11', title:'Attachment & Internal Note', div:['all'], desc:'Dokumen pendukung apa yang dilampirkan, dan catatan internal apa yang perlu dicatat?', fields:[
-  {k:'attachNote',l:'Daftar Dokumen (rundown, vendor file, dll)',t:'ta'},
+  {k:'attachFiles',l:'Lampiran Berkas',t:'files',full:1,help:'Rundown, file vendor, denah, dsb. Maks 8MB per berkas. Tersimpan di server sendiri, bukan di grup WA.'},
+  {k:'attachNote',l:'Catatan Dokumen',t:'ta',help:'Keterangan tambahan soal berkas di atas (mis. versi mana yang dipakai).'},
   {k:'internalNote',l:'Internal Note',t:'ta',help:'Tidak tampil di versi client.',full:1}
 ]},
 { id:'pic', n:'D.12', title:'Matriks PIC Hari-H', div:['all'], desc:'Siapa PIC yang bertanggung jawab untuk tiap peran di hari-H? (wajib lengkap sebelum Confirmed)', fields:[
@@ -2103,11 +2118,79 @@ function renderField(ev,fl,canEdit){
           +'<button type="button" class="btn sm" onclick="rundownAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
           +'</div>':'')
        +'</div>';
+  } else if(fl.t==='files'){
+    // Berkas diurus di luar alur form biasa: unggah/hapus langsung menyimpan
+    // ke server (lihat uploadAttach/delAttach), jadi collectField melewatinya.
+    inp='<div id="'+id+'">'
+       +'<div id="'+id+'_list">'+attachListHTML(ev.id,fl.k,val,canEdit)+'</div>'
+       +(canEdit?'<label class="attach-add">'+svg(IC.plus)+'Tambah Berkas'
+          +'<input type="file" multiple hidden onchange="uploadAttach(\''+ev.id+'\',\''+fl.k+'\',this)">'
+          +'</label>':'')
+       +'</div>';
   }
   return '<div class="'+cls+'">'+lbl+inp+help+'</div>';
 }
+/* ---------- Lampiran berkas (D.11) ----------
+   Berkas disimpan di server sendiri (disk, di luar web root) lewat api.php —
+   pola sama dengan bukti transfer & foto reservasi. Yang tersimpan di data
+   event hanya penunjuknya: {key,name,size,at,by}. */
+function fmtSize(b){ b=+b||0; if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function attachUrl(key){ return API_URL+'?action=receipt&key='+encodeURIComponent(key); }
+function attachListHTML(evId,k,arr,canEdit){
+  arr=Array.isArray(arr)?arr:[];
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada berkas dilampirkan.</div>';
+  return '<div class="attach-list">'+arr.map(f=>
+     '<div class="attach-item">'
+    +'<a href="'+esc(attachUrl(f.key))+'" download="'+esc(f.name||'berkas')+'" target="_blank" rel="noopener" class="attach-name">'
+      +svg(IC.brief)+'<span>'+esc(f.name||f.key)+'</span></a>'
+    +'<span class="cell-sub attach-meta">'+fmtSize(f.size)+(f.by?' · '+esc(f.by):'')+'</span>'
+    +(canEdit?'<button type="button" class="btn sm danger" title="Hapus berkas" onclick="delAttach(\''+evId+'\',\''+k+'\',\''+esc(f.key)+'\')">'+svg(IC.trash)+'</button>':'')
+    +'</div>').join('')+'</div>';
+}
+function repaintAttach(evId,k){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const box=$('efd_'+k+'_list'); if(box) box.innerHTML=attachListHTML(evId,k,ev.detail[k],can('edit_event'));
+}
+async function uploadAttach(evId,k,inputEl){
+  const files=[...(inputEl.files||[])]; if(!files.length)return;
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  // Rekam dulu isian form yang sedang diketik, supaya tidak hilang saat kita menyimpan.
+  autoSaveCommit();
+  ev.detail[k]=Array.isArray(ev.detail[k])?ev.detail[k]:[];
+  let ok=0;
+  for(const f of files){
+    if(f.size>8*1024*1024){ toast('File terlalu besar',esc(f.name)+' lebih dari 8MB.','err'); continue; }
+    try{
+      const b64=await fileToBase64(f);
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'uploadReceipt',fileName:f.name,mimeType:f.type,dataBase64:b64})});
+      const d=await res.json();
+      if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
+      ev.detail[k].push({key:d.data.key,name:f.name,size:f.size,at:new Date().toISOString(),by:(ME&&ME.name)||''});
+      ok++;
+    }catch(e){ toast('Gagal unggah',esc(f.name)+': '+e.message,'err'); }
+  }
+  inputEl.value='';                       // biar file yang sama bisa dipilih lagi
+  if(!ok)return;
+  logAct('event',evId,'Lampiran ditambahkan',files.slice(0,3).map(f=>f.name).join(', ')+(files.length>3?' +'+(files.length-3):''));
+  save(); repaintAttach(evId,k);
+  toast('Berkas terlampir',ok+' berkas tersimpan di server.','ok');
+}
+function delAttach(evId,k,key){
+  const ev=S.events.find(e=>e.id===evId); if(!ev)return;
+  const f=(ev.detail[k]||[]).find(x=>x.key===key);
+  if(!confirm('Hapus lampiran "'+((f&&f.name)||key)+'" dari event ini?'))return;
+  autoSaveCommit();
+  ev.detail[k]=(ev.detail[k]||[]).filter(x=>x.key!==key);
+  logAct('event',evId,'Lampiran dihapus',(f&&f.name)||key);
+  save(); repaintAttach(evId,k);
+  toast('Lampiran dihapus','','ok');
+}
 function segPick(btn,v){ btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); }
 function collectField(fl){
+  // Lampiran disimpan saat diunggah/dihapus, bukan saat tombol Simpan ditekan.
+  // Tanpa penjaga ini, `return el.value` di bawah akan menimpa daftar berkas.
+  if(fl.t==='files') return undefined;
   const el=$('efd_'+fl.k); if(!el)return undefined;
   if(fl.t==='multi'){ return [...el.querySelectorAll('input[type="checkbox"]')].filter(i=>i.checked).map(i=>i.dataset.v); }
   if(fl.t==='tog'){ return el.classList.contains('on'); }
