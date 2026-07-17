@@ -705,6 +705,11 @@ const LOGO_B64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAFACAYAAADN
    Sengaja RELATIF: aplikasi ada di /office/reservasi/, API di /office/reservasi-api/,
    jadi satu origin (tidak ada urusan CORS) dan ikut pindah kalau domainnya berganti. */
 const API_URL = "../reservasi-api-mysql/api.php";
+// URL /exec identitas Office (Sheet "Database User"). Terpisah dari API_URL modul
+// (Reservasi sudah pindah ke PHP/MySQL, tapi identitas Office tetap Apps Script).
+// Dipakai autoSyncOfficeRoster: tarik kru ber-akses `reservasi` supaya muncul di
+// Master Data walau belum pernah login. Read-only, tanpa PIN.
+const OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 const DEFAULT_PIN = "1234";                                 // PIN default semua kru
 
 // key sessionStorage untuk menyimpan SESI LOGIN saja (bukan data reservasi)
@@ -2213,6 +2218,41 @@ function resolveReservasiUser(s){
   }
   return u;
 }
+
+/* Tarik kru ber-akses `reservasi` dari Office supaya muncul di Master Data walau
+   belum pernah login sendiri. Sebelumnya kru cuma muncul saat dia login, jadi
+   admin tak bisa menyetel role kru baru sampai yang bersangkutan buka modul.
+   Read-only, tanpa PIN (Office listModuleRoster_, TERPISAH dari API_URL modul).
+   Kru baru dibuat role admin bila admin modul Office, selain itu host.
+   Non-blocking, diam saat offline. */
+async function autoSyncOfficeRoster(){
+  if(!OFFICE_WEBAPP_URL) return;
+  let data;
+  try{
+    const res = await fetch(OFFICE_WEBAPP_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'listModuleRoster', module:'reservasi'})});
+    data = await res.json();
+  }catch(e){ return; }
+  if(!data || !data.ok || !Array.isArray(data.members)) return;
+  if(!STATE.master) STATE.master={};
+  if(!Array.isArray(STATE.master.users)) STATE.master.users = DEFAULT_USERS.slice();
+  const users = STATE.master.users;
+  let changed=false;
+  data.members.forEach(m=>{
+    if(!m||!m.id) return;
+    let u = users.find(x=>x.id===m.id)
+          || users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
+    if(!u){
+      users.push({ id:m.id, name:m.name||'(tanpa nama)', role:(m.isModuleAdmin?'admin':'host'), pin:'' });
+      changed=true;
+    }else{
+      if(!u.id && m.id){ u.id=m.id; changed=true; }
+      if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
+      if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
+    }
+  });
+  if(changed){ try{ saveState(); }catch(e){} }
+}
 function userById(id){ return getUsers().find(u=>u.id===id) || null; }
 // Admin selalu akses penuh; role lain mengikuti matriks hak akses
 function pageAllowed(page, role){ if(role==="admin") return true; const p=getPerms()[page]; return p ? p.includes(role) : true; }
@@ -2265,6 +2305,7 @@ async function boot(){
     ba.classList.remove("hidden");
     return;
   }
+  await autoSyncOfficeRoster();      // tarik roster Office SEBELUM resolve, hindari duplikat
   // Identitas dari Office, dipetakan ke kru Reservasi -> langsung masuk (tanpa PIN lokal).
   const u = resolveReservasiUser(office);
   // Admin modul dari Office (adminModules mengandung '*' atau 'reservasi') -> role

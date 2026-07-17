@@ -899,6 +899,11 @@
         //  - Bila dibiarkan kosong, user tetap berfungsi secara LOKAL (localStorage)
         //    memakai SEED_USERS di bawah, dan Admin tetap bisa CRUD (tersimpan lokal).
         const USERS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxB5fPjEIe-RIDFlTUIKY9mOjTyso4Mw6hauC8YNDeS7ILzikMtaxOKLsr0aJimI2Ijkg/exec";
+        // URL /exec identitas Office (Sheet "Database User"), untuk autoSyncOfficeRoster:
+        // tarik kru ber-akses `purchasing` dari Kelola Akses Office supaya muncul di
+        // Kelola Akses/daftar tim walau belum pernah login. Read-only, tanpa PIN.
+        // Terpisah dari USERS_WEBAPP_URL (database user modul ini sendiri).
+        const OFFICE_IDENTITY_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 
         // ==================================================================
         //  👥  DAFTAR USER AWAL (dipakai saat pertama kali / fallback offline)
@@ -953,6 +958,7 @@
         window.onload = function() {
             ensureUsersLocal();          // daftar lokal tetap dipakai untuk lookup tim/keterangan PIC
             refreshUsersFromSheet();     // sinkron daftar (tim) dari Sheet di background, bila URL diatur
+            autoSyncOfficeRoster();      // tarik kru ber-akses purchasing dari Office (non-blocking)
             // Identitas kini berasal dari Office (lm_session), bukan login PIN lokal.
             const sess = officeUser();
             if (sess) enterApp(sess);
@@ -993,6 +999,41 @@
             if (!users || users.length === 0) { users = JSON.parse(JSON.stringify(SEED_USERS)); localStorage.setItem('purchasing_users', JSON.stringify(users)); }
             usersCache = users;
             return users;
+        }
+
+        // Tarik kru ber-akses `purchasing` dari Office supaya muncul di daftar tim
+        // walau belum pernah login sendiri. Sebelumnya kru cuma muncul saat dia
+        // login, jadi admin tak bisa menyetel peran orang baru sampai yang
+        // bersangkutan buka modul. Read-only, tanpa PIN (Office listModuleRoster_).
+        // Ditulis ke daftar lokal saja (tidak di-push ke Users Sheet modul, karena
+        // record baru belum lengkap). Non-blocking.
+        async function autoSyncOfficeRoster() {
+            if (!OFFICE_IDENTITY_URL || !navigator.onLine) return;
+            let data;
+            try {
+                const res = await fetch(OFFICE_IDENTITY_URL, { method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'listModuleRoster', module: 'purchasing' }) });
+                data = await res.json();
+            } catch (e) { return; }
+            if (!data || !data.ok || !Array.isArray(data.members)) return;
+            const users = loadUsersLocal();
+            let changed = false;
+            data.members.forEach(m => {
+                if (!m || !m.id) return;
+                let u = users.find(x => x.id === m.id)
+                     || users.find(x => String(x.name || '').toLowerCase() === String(m.name || '').toLowerCase());
+                if (!u) {
+                    users.push({ id: m.id, name: m.name || '(tanpa nama)', pin: '',
+                        role: m.isModuleAdmin ? 'admin' : 'full', keterangan: m.keterangan || '' });
+                    changed = true;
+                } else {
+                    if (!u.id && m.id) { u.id = m.id; changed = true; }
+                    if (m.name && u.name !== m.name) { u.name = m.name; changed = true; }
+                    if (m.isModuleAdmin && u.role !== 'admin') { u.role = 'admin'; changed = true; }
+                }
+            });
+            if (changed) saveUsersLocal(users);
         }
 
         // Tarik daftar user dari Web App (Sheet). Diam-diam gagal -> pakai lokal.

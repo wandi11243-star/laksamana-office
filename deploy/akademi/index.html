@@ -232,6 +232,11 @@ tbody tr:hover{background:var(--gold-soft)}
 
 var DB_KEY = 'lm_akademi_v1';
 var SESSION_KEY = 'lm_akademi_session';
+// URL /exec identitas Office (Sheet "Database User"), sama dengan modul lain.
+// Dipakai autoSyncOfficeRoster: menarik kru yang sudah diberi akses modul
+// `akademi` di Kelola Akses Office supaya muncul di Kelola Kru walau belum pernah
+// login. Read-only, tanpa PIN (server listModuleRoster_).
+var OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 var DB = null;
 var VIEW = 'dashboard';
 var VIEW_ARG = null;
@@ -512,6 +517,41 @@ function resolveAkademiUser(s){
     DB.users.push(u);   // in-memory; ikut tersimpan saat saveDB() berikutnya
   }
   return u;
+}
+
+/* Tarik kru yang SUDAH diberi akses modul `akademi` di Kelola Akses Office,
+   supaya muncul di Kelola Kru walau belum pernah login sendiri. Sebelumnya kru
+   cuma muncul saat dia login (resolveAkademiUser), jadi admin tak bisa menyiapkan
+   divisi/role orang baru sampai yang bersangkutan buka modul. Pola sama dengan
+   Marketing & Staff Performance. Read-only, tanpa PIN. Kru baru dibuat sebagai
+   staff division 'all' (default), admin merapikan di Kelola Kru. Non-blocking. */
+function autoSyncOfficeRoster(){
+  if(!OFFICE_WEBAPP_URL) return Promise.resolve();
+  return fetch(OFFICE_WEBAPP_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listModuleRoster', module:'akademi'})})
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(!data || !data.ok || !Array.isArray(data.members)) return;
+      var changed=false;
+      data.members.forEach(function(m){
+        if(!m || !m.id) return;
+        var u = DB.users.find(function(x){return x.id===m.id;})
+             || DB.users.find(function(x){return String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase();});
+        if(!u){
+          DB.users.push({ id:m.id, name:m.name||'(tanpa nama)',
+            role:(m.isModuleAdmin?'admin':'staff'), division:'all', title:'',
+            active:(m.active!==false) });
+          changed=true;
+        }else{
+          if(!u.id && m.id){ u.id=m.id; changed=true; }
+          if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
+          if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
+          if(m.active===false && u.active!==false){ u.active=false; changed=true; }
+        }
+      });
+      if(changed){ logAct('user','Roster kru disinkronkan dari Office'); }   // logAct sudah saveDB()
+    })
+    .catch(function(){ /* Office tak terjangkau: lewati diam-diam */ });
 }
 
 /* ---------- progress helpers ---------- */
@@ -1616,12 +1656,17 @@ function bootAkademi(){
   VIEW='dashboard'; VIEW_ARG=null;
   showApp();
 }
+// Tarik roster Office (kru ber-akses akademi) SEBELUM resolve user, supaya kru
+// baru sudah ada dan tidak terduplikasi. Non-blocking terhadap kegagalan.
+function bootAkademiWithRoster(){
+  autoSyncOfficeRoster().then(bootAkademi).catch(bootAkademi);
+}
 loadDB();
 if(DB.settings.syncUrl && DB.settings.syncAuto){
-  // Tarik data terbaru dulu supaya resolver cocok ke crew list terkini, lalu masuk.
-  pullDB(true).then(bootAkademi).catch(bootAkademi);
+  // Tarik data terbaru dulu supaya resolver cocok ke crew list terkini, lalu roster, lalu masuk.
+  pullDB(true).then(bootAkademiWithRoster).catch(bootAkademiWithRoster);
 }else{
-  bootAkademi();
+  bootAkademiWithRoster();
 }
 </script>
 </body>

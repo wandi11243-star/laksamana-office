@@ -224,7 +224,13 @@ var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw-4ntMFpLsuHF3gK4YJ1
    { userId: {mandPct,mandTotal,mandDone,certified} }. Lihat
    docs/hr-akademi-integration.md. Selama KOSONG, Training tetap dari input
    manual seperti biasa (fitur ini dorman, tidak mengganggu apa pun). */
-var AKADEMI_STATS_URL = "";
+var AKADEMI_STATS_URL = "https://script.google.com/macros/s/AKfycbyFAMN9GLXKZiCEUvfs71Qnr0ig4HvirEvRIsg-a3MlgjjN-5H8SR7GdyVPS4l-WBOG/exec";
+
+// URL /exec identitas Office (Sheet "Database User"), SAMA dengan yang dipakai
+// landing page & modul lain. Dipakai autoSyncOfficeRoster: menarik daftar kru
+// yang sudah diberi akses modul `hr` di Kelola Akses Office, supaya mereka muncul
+// di halaman Kru walau belum pernah login ke modul ini. Read-only, tanpa PIN.
+var OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 
 var LS_KEY = 'lm_peopleos_v1';   // cache lokal (fallback offline)
 var AKADEMI_CACHE_KEY = 'lm_peopleos_akademi_v1';
@@ -294,6 +300,50 @@ async function loadAkademiStats(){
     console.warn('Gagal memuat training Akademi, pakai cache/manual:', e);
     try{ AKADEMI_STATS = JSON.parse(localStorage.getItem(AKADEMI_CACHE_KEY) || 'null'); }catch(_){ AKADEMI_STATS = null; }
   }
+}
+
+/* ===== Sinkron roster dari Office =====
+   Tarik daftar kru yang SUDAH diberi akses modul `hr` di Kelola Akses Office,
+   supaya mereka muncul di halaman Kru walau belum pernah login ke modul ini.
+   Sebelumnya kru cuma muncul saat DIA SENDIRI login (resolveOfficeUser), jadi
+   admin yang baru memberi akses tak bisa menyiapkan divisi/level orang itu
+   sampai yang bersangkutan buka modul. Pola sama dengan Marketing.
+   Read-only, tanpa PIN (server listModuleRoster_ cuma balas id+nama+status).
+   Kru baru dibuat sebagai record BELUM LENGKAP (divisi/jabatan kosong) supaya
+   ikut ditandai "lengkapi data" di halaman Kru. Non-blocking, diam saat offline. */
+async function autoSyncOfficeRoster(){
+  if(!OFFICE_WEBAPP_URL) return;
+  let data;
+  try{
+    const res = await fetch(OFFICE_WEBAPP_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'listModuleRoster', module:'hr'}), redirect:'follow'
+    });
+    data = await res.json();
+  }catch(e){ /* Office tak terjangkau: lewati diam-diam, coba lagi sesi berikutnya */ return; }
+  if(!data || !data.ok || !Array.isArray(data.members)) return;
+
+  let changed = false;
+  data.members.forEach(m => {
+    if(!m || !m.id) return;
+    const appRole = m.isModuleAdmin ? 'hr' : 'staff';
+    // Pakai pencocokan yang sama dengan login (id -> nama persis -> nama depan unik)
+    // supaya tidak bikin duplikat dengan record yang sudah ada.
+    let u = findEmployeeForSession({userId:m.id, name:m.name});
+    if(u){
+      if(u.id !== m.id){ reassignEmployeeId(u.id, m.id); changed = true; }  // klaim id Office, pindahkan riwayat
+      if(m.name && u.name !== m.name){ u.name = m.name; changed = true; }
+      // Admin modul dari Office menang atas role internal (mis. Rizki tetap 'hr').
+      if(m.isModuleAdmin && u.appRole !== 'hr'){ u.appRole = 'hr'; changed = true; }
+      if(m.active === false && u.status === 'Aktif'){ u.status = 'Nonaktif'; changed = true; }
+    } else {
+      S.employees.push({ id:m.id, name:m.name || '(tanpa nama)', role:'', divId:'', level:'Staff',
+        appRole, joinDate:'', birthDate:'', status: m.active===false?'Nonaktif':'Aktif',
+        phone:'', email:'', notes:'', probationEnd:'', contractEnd:'' });
+      changed = true;
+    }
+  });
+  if(changed){ log('ROSTER_SYNC','dari Office'); save(); if(CU) buildNav(); }
 }
 
 // Ambil dari server. Gagal (offline/URL kosong) -> cache lokal -> seed baru.
@@ -1863,8 +1913,9 @@ async function init(){
   if(_booted) return; _booted = true;
   $('#menuBtn').onclick = ()=> $('#sidebar').classList.toggle('open');
   $('#modalWrap').addEventListener('click', e=>{ if(e.target.id==='modalWrap') closeModal(); });
-  await apiLoad();          // server dulu, baru identitas: resolveOfficeUser butuh S.employees
-  await loadAkademiStats(); // training dari Akademi (dorman kalau URL kosong); non-fatal
+  await apiLoad();             // server dulu, baru identitas: resolveOfficeUser butuh S.employees
+  await autoSyncOfficeRoster(); // tarik kru ber-akses hr dari Office SEBELUM resolve CU (hindari duplikat)
+  await loadAkademiStats();    // training dari Akademi (dorman kalau URL kosong); non-fatal
   bootPeopleOS();
 }
 
