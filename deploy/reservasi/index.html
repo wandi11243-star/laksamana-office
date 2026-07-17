@@ -420,10 +420,10 @@ td .muted{color:var(--muted);font-size:13px}
 .seat.booked.fu-late{background:#F5C400 !important;animation:fuLate 1.2s ease-in-out infinite;z-index:4}
 .seat.booked.fu-late .sn,.seat.booked.fu-late .sp,.seat.booked.fu-late .seat-sub{color:#3a2a00 !important}
 @keyframes fuLate{0%,100%{box-shadow:0 0 0 0 rgba(245,196,0,.8)}50%{box-shadow:0 0 0 8px rgba(245,196,0,0)}}
-/* NGARET: tamu masih duduk melewati estimasi. Mejanya TETAP terisi (kenyataan, bukan
-   estimasi) — cincin ungu supaya beda jelas dari "penuh" (merah) & "telat datang" (kuning). */
-.seat.booked.seat-ngaret{box-shadow:inset 0 0 0 2.5px #7C5FC0}
-/* PERLU DIALIHKAN: ngaret + tamu berikutnya sudah waktunya → paling mendesak, berkedip. */
+/* PERLU DIALIHKAN: meja masih terisi & reservasi berikutnya sudah dekat (≤10 menit) →
+   satu-satunya kondisi yang benar-benar mendesak, jadi hanya INI yang berkedip.
+   Tamu duduk lama tapi reservasi berikutnya masih jauh sengaja TIDAK ditandai — kalau
+   denah penuh tanda, kru berhenti memperhatikannya. */
 .seat.booked.seat-alih{animation:alihPulse 1.2s ease-in-out infinite;z-index:5}
 @keyframes alihPulse{0%,100%{box-shadow:inset 0 0 0 2.5px #7C5FC0,0 0 0 0 rgba(124,95,192,.85)}50%{box-shadow:inset 0 0 0 2.5px #7C5FC0,0 0 0 8px rgba(124,95,192,0)}}
 .seat .seat-alih-tag{position:absolute;top:2px;right:3px;background:#7C5FC0;color:#fff;font-size:9px;
@@ -1172,15 +1172,23 @@ function lockEnd(r){
 function overStay(r){ return isSeated(r) && absNow() > lockEnd(r); }
 // Berapa lama tamu sudah melewati estimasi (menit). Untuk label "ngaret 1j 20m".
 function overStayMin(r){ return overStay(r) ? absNow() - lockEnd(r) : 0; }
-// Reservasi yang jam datangnya SUDAH tiba tapi tamunya belum didudukkan.
-function sudahWaktunya(r){ return !isSeated(r) && absMin(r.date, r.time) <= absNow(); }
-/* Meja yang perlu tindakan: tamu lama MASIH DUDUK melewati estimasi, SEKALIGUS ada tamu
-   berikutnya yang jamnya sudah tiba. Inilah kejadian nyata di lapangan — tamu tak mungkin
-   diusir, jadi tamu berikutnya yang dialihkan sementara ke meja lain. */
+/* Ambang peringatan: berapa menit SEBELUM jam reservasi berikutnya meja mulai diperingatkan.
+   Bisa diubah di Master Data (clashLeadMin), default 10 menit. */
+function clashLead(){ const n=Number(STATE.master && STATE.master.clashLeadMin); return n>0 ? n : 10; }
+// Menit menuju jam reservasi ini (negatif = jamnya sudah lewat).
+function menitMenuju(r){ return absMin(r.date, r.time) - absNow(); }
+/* Meja yang perlu tindakan: masih ada tamu DUDUK, sekaligus reservasi berikutnya di meja
+   yang sama sudah dekat (≤ ambang) atau jamnya lewat.
+
+   Yang menentukan SENGAJA bukan "sudah ngaret". Tamu duduk 4 jam sementara reservasi
+   berikutnya baru jam 20:00 itu BUKAN masalah — memperingatkan sejak jam 16:00 hanya
+   bikin denah berisik lalu tanda peringatannya diabaikan kru. Yang benar-benar mendesak
+   hanyalah saat tamu berikutnya SEBENTAR LAGI datang tapi mejanya masih terisi. */
 function perluDialihkan(list){
   const duduk=(list||[]).find(x=>isSeated(x));
-  if(!duduk || !overStay(duduk)) return null;
-  const nunggu=(list||[]).filter(x=>x.id!==duduk.id && sudahWaktunya(x));
+  if(!duduk) return null;
+  const amb=clashLead();
+  const nunggu=(list||[]).filter(x=>x.id!==duduk.id && !isSeated(x) && menitMenuju(x)<=amb);
   return nunggu.length ? {duduk, nunggu} : null;
 }
 // "23:00", atau "23:00 (14 Jul)" bila jam kunci jatuh di tanggal lain dari tanggal booking.
@@ -1549,15 +1557,16 @@ function seatMapMarkup(layoutKey, mode, occ, later){
            tak mungkin diusir. Meja tetap ditandai TERISI (lihat occupiedMap `realita`),
            dan diberi tanda supaya kru langsung tahu: kalau ada tamu berikutnya yang jamnya
            sudah tiba, dialah yang perlu dialihkan sementara ke meja lain. */
-        const ngaret = overStay(res);
+        /* Peringatan HANYA saat mendekati bentrok — bukan sekadar "sudah lewat estimasi".
+           Tamu duduk lama padahal reservasi berikutnya masih jauh itu normal & tidak perlu
+           ditandai; kalau ditandai terus, kru malah terbiasa mengabaikan tandanya.
+           Lama duduk tetap ditulis di tooltip sebagai INFORMASI, bukan peringatan. */
         const alih = perluDialihkan(list.concat(nanti));
         const nebeng = sedangDialihkan(res);        // tamu ini menumpang, meja aslinya lain
-        const tipEkstra = (ngaret
-          ? `\n⏰ NGARET ${fmtDur(overStayMin(res))} melewati estimasi (${fmtDur(dineEst())}).`
-            + (alih ? `\n⚠️ ${alih.nunggu.map(x=>`${x.name} (${x.time})`).join(", ")} sudah waktunya — alihkan sementara ke meja lain.` : "")
-          : "")
+        const tipEkstra = (overStay(res) ? `\n⏱ Sudah duduk ${fmtDur(overStayMin(res))} melewati estimasi ${fmtDur(dineEst())} (wajar — meja tetap terisi sampai ditandai Selesai).` : "")
+          + (alih ? `\n⚠️ ${alih.nunggu.map(x=>`${x.name} jam ${x.time}${menitMenuju(x)>0?` (${fmtDur(menitMenuju(x))} lagi)`:" (sudah lewat)"}`).join(", ")} — meja masih terisi, alihkan sementara ke meja lain.` : "")
           + (nebeng ? `\n🔁 Dialihkan sementara dari meja ${res.tableAsli} — kembalikan ke sana kalau sudah bebas.` : "");
-        return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}${room?" seat-room":""}${ngaret?" seat-ngaret":""}${alih?" seat-alih":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip+tipEkstra)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(spTxt)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}${alih?`<span class="seat-alih-tag" title="${esc("Tamu berikutnya sudah waktunya, meja masih terisi — alihkan sementara")}">⚠️</span>`:""}${nebeng?`<span class="seat-alih-tag" style="background:#1F9D5F" title="${esc("Menumpang sementara, meja asli "+res.tableAsli)}">🔁</span>`:""}</button>`;
+        return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}${room?" seat-room":""}${alih?" seat-alih":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip+tipEkstra)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(spTxt)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}${alih?`<span class="seat-alih-tag" title="${esc("Reservasi berikutnya sudah dekat tapi meja masih terisi — alihkan sementara")}">⚠️</span>`:""}${nebeng?`<span class="seat-alih-tag" style="background:#1F9D5F" title="${esc("Menumpang sementara, meja asli "+res.tableAsli)}">🔁</span>`:""}</button>`;
       }
       // Kosong sekarang, tapi ada booking >3 jam lagi → boleh walk-in, ditandai jam kuncinya.
       const nWait=waitingQueue(HARIH_DATE).length;
@@ -1622,7 +1631,8 @@ const DEFAULT_MASTER = {
   ],
   users: JSON.parse(JSON.stringify(DEFAULT_USERS)),   // daftar kru (dikelola Super Admin)
   perms: JSON.parse(JSON.stringify(DEFAULT_PERMS)),   // hak akses halaman per role
-  dineEstMin: 180,       // estimasi lama tamu duduk (menit) → meja lepas sendiri setelah ini
+  dineEstMin: 180,       // estimasi lama duduk (menit) → dipakai utk BOLEH-JUAL, bukan utk membebaskan meja di denah
+  clashLeadMin: 10,      // peringatan "perlu dialihkan" muncul sekian menit sebelum jam reservasi berikutnya
   layoutOverrides: {},   // { "YYYY-MM-DD": "<layoutKey>" } → override layout utk tanggal event, besoknya balik default
   layouts: {},           // { "<key>": {name,fixed,tables} } → hasil edit denah / template custom (menimpa built-in)
   // Antrian tamu walk-in yang belum kebagian meja
@@ -4023,7 +4033,7 @@ function moveSementaraDefault(r){
   if(r.tableAsli) return true;                       // sudah pernah dialihkan → pertahankan
   if(r.date!==todayStr()) return false;
   const occ=occupiedMap(r.date,"",r.id, true);       // realita: siapa yang FISIKNYA di sana
-  return tablesOf(r).some(t=>(occ.get(t)||[]).some(x=>isSeated(x) && overStay(x)));
+  return tablesOf(r).some(t=>(occ.get(t)||[]).some(x=>isSeated(x)));   // meja asli masih ada tamunya
 }
 function renderMoveModal(){
   const r=STATE.reservations.find(x=>x.id===MOVE_ID); if(!r) return;
