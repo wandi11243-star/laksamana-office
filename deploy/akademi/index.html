@@ -455,12 +455,81 @@ function seedDB(){
 }
 
 /* ---------- store ---------- */
+/* ================= SUMBER DATA: MySQL ( ../akademi-api-mysql/api.php ) =======
+   Dulu data akademi HANYA di localStorage tiap browser: progress kru terkurung
+   di device-nya sendiri, dan hilang kalau cache dibersihkan. Sekarang satu data
+   dipakai semua device. localStorage TETAP dipakai — tapi turun pangkat jadi
+   cadangan offline, bukan sumber kebenaran.
+   Kalau backend perlu dibalik, cukup ganti SATU baris di bawah. */
+var API_URL = '../akademi-api-mysql/api.php';
+
+// Muat dari cache lokal saja (dipakai saat offline / server tak terjangkau).
 function loadDB(){
   try{ var raw=localStorage.getItem(DB_KEY); if(raw){ DB=JSON.parse(raw); } }catch(e){}
   if(!DB) DB=seedDB();
   migrateDB();
   DIVISIONS=DB.divisions;
   saveDB(true);
+}
+
+/* Muat dari server. Ini yang jadi sumber kebenaran sejak sekarang.
+   Gagal (offline/server mati) -> jatuh ke cache lokal, app tetap bisa dipakai;
+   perubahan menyusul terkirim saat koneksi kembali. */
+function loadFromServer(){
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ctrl.abort();},15000);
+  return fetch(API_URL+'?action=getAll&t='+Date.now(), {signal:ctrl.signal})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(!j || !j.ok || !j.data) throw new Error((j&&j.error)||'respons tidak valid');
+      DB=j.data;
+      migrateDB();                      // isi bagian yang belum ada (divisi dll)
+      DIVISIONS=DB.divisions;
+      try{ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }catch(e){}
+      refreshSnapshot();                // catat versi awal utk penjaga bentrok
+      setSyncBadge('ok');
+      SERVER_OK=true;
+    })
+    .catch(function(e){
+      // Jangan kosongkan layar hanya karena server sedang tidak bisa dihubungi.
+      console.warn('Gagal muat dari server, pakai cache lokal:', e.message);
+      SERVER_OK=false; setSyncBadge('error');
+      loadDB();
+      refreshSnapshot();
+    })
+    .finally(function(){ clearTimeout(timer); });
+}
+var SERVER_OK=false;
+
+/* ---- Penstempel updatedAt + baseUpdatedAt ----
+   Server menolak baris yang sudah disalip kru lain. Supaya penjaga itu bekerja,
+   baris yang BERUBAH harus dicap: updatedAt = sekarang, baseUpdatedAt = versi
+   yang kita muat dari server. Membandingkan sidik jari tiap baris dengan
+   salinan terakhir dari server, supaya tidak perlu menandai perubahan di
+   puluhan tempat satu per satu. */
+var AK_COLS=['users','divisions','materials','programs'];
+var _snap={}, _serverVer={};
+function _sig(o){ var c={}; for(var k in o){ if(k!=='updatedAt'&&k!=='baseUpdatedAt') c[k]=o[k]; } return JSON.stringify(c); }
+function _eachRow(obj,fn){
+  AK_COLS.forEach(function(k){ (obj[k]||[]).forEach(function(r){ if(r&&r.id) fn(k+':'+r.id, r); }); });
+}
+function _dirty(key,r){ return _snap[key]!==_sig(r); }
+function stampChanges(){
+  var now=Date.now();
+  _eachRow(DB,function(key,r){ if(_dirty(key,r)) r.updatedAt=now; });
+}
+// Salinan untuk dikirim: baris yang berubah diberi baseUpdatedAt. DB sendiri
+// tetap bersih dari baseUpdatedAt (kalau bocor, save berikutnya kirim base basi
+// -> bentrok palsu).
+function buildPayload(){
+  var p=JSON.parse(JSON.stringify(DB));
+  _eachRow(p,function(key,r){ if(_dirty(key,r)) r.baseUpdatedAt=_serverVer[key]||0; });
+  return p;
+}
+function refreshSnapshot(){
+  var snap={}, ver={};
+  _eachRow(DB,function(key,r){ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
+  _snap=snap; _serverVer=ver;
 }
 function migrateDB(){
   if(!DB.divisions || !DB.divisions.length) DB.divisions=DEFAULT_DIVISIONS.map(function(d){return {id:d.id,name:d.name,ic:d.ic}});
@@ -1495,7 +1564,11 @@ function delDivisi(id){
   logAct('hapus_divisi', d.name); saveDB(); render(); toast('Divisi dihapus');
 }
 
-/* ---------- SYNC ENGINE (Google Apps Script backend) ---------- */
+/* ---------- SYNC LAMA (Apps Script) — TIDAK DIPAKAI LAGI ----------
+   pushDB()/pullDB() di bawah menyimpan ke Google Apps Script lewat
+   settings.syncUrl, yang tidak pernah diisi siapa pun. Digantikan
+   pushToServer()/loadFromServer() yang langsung ke MySQL, tanpa perlu
+   pengaturan. Dibiarkan sebagai rujukan; tidak ada tombol yang memanggilnya. */
 function setSyncBadge(state){
   SYNC_STATE=state;
   var d=document.getElementById('syncDot'); if(d) d.className='sync-dot '+state;
@@ -1503,11 +1576,42 @@ function setSyncBadge(state){
   var s=document.getElementById('syncStatusLine');
   if(s) s.innerHTML='<span class="sync-dot '+state+'"></span> '+({ok:'Tersinkron dengan server',pending:'Perubahan menunggu dikirim…',error:'Gagal terhubung, cek URL/kunci/koneksi',off:'Belum terhubung'}[state]||state);
 }
+/* Kirim ke MySQL. Dulu ini bergantung syncUrl yang harus diisi manual tiap kru
+   (dan tidak pernah diisi) — sekarang selalu jalan, tanpa pengaturan apa pun. */
 function scheduleSync(){
-  if(!DB.settings || !DB.settings.syncUrl || !DB.settings.syncAuto) return;
   setSyncBadge('pending');
   clearTimeout(SYNC_TIMER);
-  SYNC_TIMER=setTimeout(function(){ pushDB(false); }, 3000);
+  SYNC_TIMER=setTimeout(pushToServer, 1500);
+}
+var _pushBusy=false, _pushLagi=false;
+function pushToServer(){
+  if(_pushBusy){ _pushLagi=true; return; }   // hindari dua POST balapan
+  _pushBusy=true;
+  stampChanges();
+  fetch(API_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'saveAll', data:buildPayload()})})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(!j || !j.ok || !j.data) throw new Error((j&&j.error)||'ditolak server');
+      var bentrok=j.data.bentrok||[];
+      if(bentrok.length){
+        // Kru lain sudah mengubah baris yang sama duluan. Jangan timpa diam-diam.
+        setSyncBadge('error');
+        toast('Sebagian perubahan tidak tersimpan — '+bentrok.length+' data sudah diubah kru lain. Muat ulang halaman.');
+      }else{
+        setSyncBadge('ok'); SERVER_OK=true;
+        refreshSnapshot();               // versi kita kini = versi server
+      }
+    })
+    .catch(function(e){
+      // Tetap aman: perubahan sudah ada di localStorage, dicoba lagi nanti.
+      setSyncBadge('error'); SERVER_OK=false;
+      console.warn('Gagal kirim ke server:', e.message);
+    })
+    .finally(function(){
+      _pushBusy=false;
+      if(_pushLagi){ _pushLagi=false; scheduleSync(); }
+    });
 }
 function pushDB(manual){
   var url=DB.settings.syncUrl;
@@ -1549,60 +1653,44 @@ function pullDB(silent){
       .catch(function(){ setSyncBadge('error'); if(!silent) toast('Gagal ambil data, cek koneksi/URL'); });
   }catch(e){ setSyncBadge('error'); return Promise.resolve(); }
 }
-function testSync(){
-  var url=document.getElementById('sUrl').value.trim();
-  var key=document.getElementById('sKey').value.trim();
-  if(!url){ toast('Isi URL dulu'); return; }
-  toast('Menguji koneksi…');
-  try{
-    fetch(url+(url.indexOf('?')>-1?'&':'?')+'key='+encodeURIComponent(key))
-      .then(function(r){return r.json()})
-      .then(function(res){ toast(res&&res.ok?'Terhubung. Server aktif.':'Server merespon tapi kunci salah'); })
-      .catch(function(){ toast('Tidak terhubung, cek URL & deployment'); });
-  }catch(e){ toast('Tidak terhubung'); }
+/* testSync() & saveSyncSettings() DIBUANG: keduanya membaca kolom URL/Kunci
+   Apps Script yang sudah tidak ada di halaman. Data akademi kini otomatis ke
+   MySQL — tidak ada yang perlu diatur kru. */
+
+// Ambil ulang dari database, buang perubahan lokal yang belum terkirim.
+function ambilDariServer(){
+  toast('Mengambil dari database…');
+  loadFromServer().then(function(){
+    if(SERVER_OK){ toast('Data terbaru diambil dari database'); render(); }
+    else toast('Gagal terhubung ke database, cek koneksi');
+  });
 }
-function saveSyncSettings(){
-  DB.settings.syncUrl=document.getElementById('sUrl').value.trim();
-  DB.settings.syncKey=document.getElementById('sKey').value.trim();
-  DB.settings.syncAuto=document.getElementById('sAuto').checked;
-  saveDB(true);
-  logAct('sync_setting','Pengaturan sinkronisasi diperbarui');
-  toast('Pengaturan tersimpan'); render();
-}
+
 function vSync(u){
-  var s=DB.settings;
-  var h='<div class="topbar"><div><h2>Sinkronisasi & Backup</h2><div class="sub">Hubungkan ke Google Sheet supaya semua device kru membaca-menulis satu data yang sama</div></div></div>';
+  var h='<div class="topbar"><div><h2>Sinkronisasi & Backup</h2><div class="sub">Data akademi tersimpan di database server, dipakai bersama semua device</div></div></div>';
   h+='<div class="card" style="margin-bottom:16px"><h3>Status</h3>'+
     '<div id="syncStatusLine" style="font-size:14px;font-weight:600;margin-bottom:6px"><span class="sync-dot '+SYNC_STATE+'"></span> '+
-    ({ok:'Tersinkron dengan server',pending:'Perubahan menunggu dikirim…',error:'Gagal terhubung, cek URL/kunci/koneksi',off:'Belum terhubung'}[SYNC_STATE]||SYNC_STATE)+'</div>'+
-    '<div style="font-size:12px;color:var(--muted)">Perubahan lokal terakhir: '+fmtDT(DB.updatedAt)+'</div></div>';
-  h+='<div class="card" style="margin-bottom:16px"><h3>Pengaturan Server</h3>'+
-    '<div class="field"><label>URL Web App (Google Apps Script, akhiran /exec)</label><input id="sUrl" value="'+esc(s.syncUrl)+'" placeholder="https://script.google.com/macros/s/…/exec"></div>'+
-    '<div class="field"><label>Kunci Rahasia (harus sama dengan SYNC_KEY di Apps Script)</label><input id="sKey" value="'+esc(s.syncKey)+'" placeholder="cth: LAKSAMANA-2026-RAHASIA"></div>'+
-    '<label style="display:flex;gap:9px;align-items:center;font-size:13.5px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="sAuto" '+(s.syncAuto?'checked':'')+' style="width:17px;height:17px;accent-color:var(--gold2)"> Auto-sync: kirim otomatis beberapa detik setelah setiap perubahan, ambil otomatis saat app dibuka</label>'+
+    ({ok:'Tersinkron dengan database',pending:'Perubahan menunggu dikirim…',error:'Gagal terhubung ke database — perubahan tersimpan sementara di perangkat ini',off:'Belum terhubung'}[SYNC_STATE]||'')+'</div>'+
+    '<div style="font-size:12px;color:var(--muted)">Perubahan terakhir: '+fmtDT(DB.updatedAt)+'</div>'+
+    '<div style="font-size:12px;color:var(--muted);margin-top:8px">Server: <span class="mono">'+esc(API_URL)+'</span></div></div>';
+  h+='<div class="card" style="margin-bottom:16px"><h3>Database</h3>'+
+    '<div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:12px">'+
+      'Semua perubahan (materi, kru, progress belajar) otomatis tersimpan ke database dan langsung terlihat di device lain. '+
+      'Tidak ada yang perlu diatur.<br><br>'+
+      '<b>Dulu:</b> data hanya tersimpan di browser masing-masing kru — progress tiap orang terkurung di device-nya, dan hilang kalau cache dibersihkan.'+
+    '</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-    '<button class="btn btn-gold" onclick="saveSyncSettings()">'+svgIcon('save')+' Simpan Pengaturan</button>'+
-    '<button class="btn btn-ghost" onclick="testSync()">'+svgIcon('power')+' Test Koneksi</button>'+
-    '<button class="btn btn-ink" onclick="pushDB(true)">'+svgIcon('cloud')+' Kirim ke Server</button>'+
-    '<button class="btn btn-ink" onclick="pullDB(false)">'+svgIcon('cloud')+' Ambil dari Server</button></div></div>';
+    '<button class="btn btn-gold" onclick="pushToServer()">'+svgIcon('cloud')+' Kirim Sekarang</button>'+
+    '<button class="btn btn-ghost" onclick="ambilDariServer()">'+svgIcon('cloud')+' Ambil Ulang dari Server</button></div></div>';
   h+='<div class="card" style="margin-bottom:16px"><h3>Backup Manual</h3>'+
     '<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Unduh seluruh data (kru, materi, progress, program) sebagai file JSON, bisa diarsipkan atau dipindahkan ke device lain.</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="exportJSON()">Unduh Backup (.json)</button>'+
     '<button class="btn btn-ghost" onclick="importJSON()">Pulihkan dari Backup</button></div></div>';
-  var steps=[
-    'Buka Google Sheet <b>"Database Academy"</b> (sudah disiapkan) lalu masuk menu <b>Extensions → Apps Script</b>.',
-    'Hapus isi editor, tempel seluruh isi file <b>docs/akademi-apps-script.gs</b>.',
-    'Ganti nilai <b>SYNC_KEY</b> di baris atas dengan kunci rahasia kalian sendiri, lalu simpan.',
-    'Klik <b>Deploy → New deployment</b> → pilih tipe <b>Web app</b>.',
-    '<b>Execute as: Me</b>, <b>Who has access: Anyone</b> → klik Deploy → izinkan akses akun Google.',
-    'Salin <b>Web app URL</b> (berakhiran /exec) → tempel ke kolom URL di atas, isi Kunci yang sama dengan SYNC_KEY → Simpan Pengaturan.',
-    'Dari device utama (data paling lengkap), klik <b>Kirim ke Server</b> sekali. Ini menulis blob ke sel <b>_DB</b> dan otomatis membuat tab rata (1_Users, 2_Materials, dst).',
-    'Di device lain: isi URL & kunci yang sama → <b>Ambil dari Server</b>. Selesai, selanjutnya auto-sync jalan sendiri.'
-  ];
-  h+='<div class="card"><h3>Panduan Setup Backend (± 5 menit, sekali saja)</h3>'+
-    steps.map(function(st,i){return '<div class="guide-step"><div class="n">'+(i+1)+'</div><div>'+st+'</div></div>'}).join('')+
-    '<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.6">Catatan: sistem tetap jalan penuh saat offline (data tersimpan di device) dan tersinkron begitu online lagi. Prinsipnya <i>last-write-wins</i>: kalau dua admin mengedit bersamaan di device berbeda, perubahan terakhir yang menang. Di Google Sheet ada tab rata (1_Users, 2_Materials, 3_Progress, dst) yang bisa dibaca & diolah langsung untuk laporan, tapi sel <b>_DB</b> dan semua tab rata jangan diedit manual, akan tertimpa tiap sync.</div></div>';
-  return h;
+  document.getElementById('main').innerHTML=h;
+  return;
+  /* Panduan pasang Apps Script DIHAPUS: data akademi kini di MySQL,
+     tidak ada lagi yang perlu diatur manual oleh kru. */
+
 }
 function exportJSON(){
   var data=JSON.stringify(DB, null, 1);
@@ -1707,13 +1795,10 @@ function bootAkademiWithRoster(){
   var selesai=function(){ clearTimeout(lambat); bootAkademi(); };
   autoSyncOfficeRoster().then(selesai).catch(selesai);
 }
-loadDB();
-if(DB.settings.syncUrl && DB.settings.syncAuto){
-  // Tarik data terbaru dulu supaya resolver cocok ke crew list terkini, lalu roster, lalu masuk.
-  pullDB(true).then(bootAkademiWithRoster).catch(bootAkademiWithRoster);
-}else{
-  bootAkademiWithRoster();
-}
+/* Boot: MySQL dulu (sumber kebenaran), baru roster Office, baru masuk.
+   loadFromServer() sudah menangani kegagalan sendiri — jatuh ke cache lokal,
+   jadi app tetap terbuka walau server sedang tidak bisa dihubungi. */
+loadFromServer().then(bootAkademiWithRoster);
 </script>
 </body>
 </html>
