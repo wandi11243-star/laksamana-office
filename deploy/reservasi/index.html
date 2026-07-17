@@ -2757,9 +2757,14 @@ function dpRender(id){
   while(sel.length%7) { const d=sel.length-mulai-jmlHari+1; sel.push({d, lain:true, ymd:ymdKe(s.y, s.m+1, d)}); }
   pop.innerHTML=`
     <div class="dp-nav">
-      <button type="button" onclick="dpGeser('${id}',-1)" aria-label="Bulan sebelumnya">‹</button>
+      <!-- event.stopPropagation WAJIB: dpGeser menggambar ulang isi panel, sehingga tombol
+           yang barusan diklik LENYAP dari DOM. Saat klik itu merambat ke document, penutup
+           "klik di luar" (bawah) memanggil e.target.closest(".tp") pada elemen yatim →
+           dapat null → dikira klik di luar → panel ditutup. Akibatnya bulan terlihat tidak
+           bisa berpindah, padahal berpindah lalu panelnya keburu tertutup. -->
+      <button type="button" onclick="event.stopPropagation();dpGeser('${id}',-1)" aria-label="Bulan sebelumnya">‹</button>
       <span class="lbl">${DP_BULAN[s.m]} ${s.y}</span>
-      <button type="button" onclick="dpGeser('${id}',1)" aria-label="Bulan berikutnya">›</button>
+      <button type="button" onclick="event.stopPropagation();dpGeser('${id}',1)" aria-label="Bulan berikutnya">›</button>
     </div>
     <div class="dp-dow">${DP_DOW.map(d=>`<span>${d}</span>`).join("")}</div>
     <div class="dp-grid">${sel.map(c=>{
@@ -2809,7 +2814,15 @@ function tpPick(id, part, v){
   if(cb && typeof window[cb]==="function") window[cb](val);
 }
 // Klik di luar → tutup panel
-document.addEventListener("click", e=>{ if(!e.target.closest(".tp")) tpClose(); });
+/* Klik di luar → tutup pemilih jam/tanggal.
+   Penjaga isConnected: elemen yang SUDAH LEPAS dari DOM (mis. tombol geser bulan yang
+   handler-nya menggambar ulang panel) tidak punya induk lagi, sehingga closest(".tp")
+   mengembalikan null dan kliknya salah dikira "di luar" → panel tertutup sendiri.
+   Kalau target sudah lepas, posisinya memang tak bisa dinilai — abaikan saja. */
+document.addEventListener("click", e=>{
+  if(!e.target || !e.target.isConnected) return;
+  if(!e.target.closest(".tp")) tpClose();
+});
 
 /* ================= INPUT RESERVASI ================= */
 let EDIT_ID = null;
@@ -4289,32 +4302,10 @@ function hasDP(r){ return !!r && r.dpStatus==="Sudah" && Number(r.dpAmount)>0; }
 function isLunas(r){ return !!(r && r.lunas); }
 // Penerima DP: yang menginput reservasi; kalau kosong, kru yang sedang login.
 function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"; }
-function buildKwitansiText(r){
-  return [
-    "🧾 *KWITANSI PEMBAYARAN DP*",
-    "*LAKSAMANA MUDA* ⚓",
-    "_Coffee & Live Space_",
-    "─────────────────",
-    `No. Kwitansi : ${kwitansiNo(r)}`,
-    `Tanggal Terbit : ${fmtDate(todayStr())}`,
-    "─────────────────",
-    `Telah diterima dari : *${(r.name||"-").toUpperCase()}*`,
-    `Sejumlah : *${rpDot(r.dpAmount)}*`,
-    `Metode Bayar : ${r.dpMethod||"-"}`,
-    "Untuk : *Down Payment (DP) Reservasi*",
-    "─────────────────",
-    "📅 Tanggal : "+fmtDate(r.date),
-    "🕗 Jam : "+r.time+" WIB",
-    "👥 Pax : "+r.pax+" orang",
-    ...(r.table?["🪑 Meja : "+r.table]:[]),
-    "─────────────────",
-    "DP ini akan memotong total tagihan saat Kakak datang.",
-    "Mohon simpan kwitansi ini sebagai bukti pembayaran 🙏",
-    "",
-    `_Diterima oleh: ${dpReceivedBy(r)}_`,
-    "_Terima kasih, sampai jumpa di Laksamana Muda_ ⚓",
-  ].join("\n");
-}
+/* Kwitansi versi TEKS WHATSAPP (buildKwitansiText/sendKwitansi/openKwitansi) DIHAPUS —
+   kwitansi kini hanya berbentuk PDF berkop (kwitansiPDF). Tombol kwitansi langsung
+   membuka PDF-nya; modal perantara "Salin / Kirim ke Tamu" ikut dilepas karena tak ada
+   lagi yang bisa disalin/dikirim sebagai teks. */
 /* ===== KWITANSI DP → PDF =====
    Menggantikan kwitansi-struk (printer thermal dihapus). Dibuat sebagai halaman HTML
    berkop lalu dibuka dialog cetak browser → kru pilih "Save as PDF".
@@ -4423,29 +4414,6 @@ function kwitansiPDF(id){
   // PDF-nya bisa tercetak tanpa kop.
   w.onload=()=>setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
   logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
-}
-function sendKwitansi(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
-  if(!normPhone(r.phone)){ toast("Nomor HP tamu kosong — salin manual atau print","err"); return; }
-  logAudit("Kirim Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
-  waOpen(r.phone, buildKwitansiText(r));
-}
-function openKwitansi(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!hasDP(r)){ toast("Belum ada DP untuk tamu ini — isi nominal DP dulu","err"); return; }
-  openModal(`
-    <div class="modal-head"><h3>🧾 Kwitansi DP, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
-    <div class="modal-body">
-      <div class="inline-info" style="margin-bottom:12px">Kwitansi <b>${esc(kwitansiNo(r))}</b> atas DP <b>${rpDot(r.dpAmount)}</b> lewat <b>${esc(r.dpMethod||"-")}</b>.</div>
-      <div class="wa-preview" id="kwText" style="max-height:340px;overflow:auto">${esc(buildKwitansiText(r))}</div>
-    </div>
-    <div class="modal-foot" style="flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="copyWA(this, byId('kwText').textContent)">📋 Salin</button>
-      <button class="btn btn-ghost btn-sm" onclick="kwitansiPDF('${r.id}')" title="Buka kwitansi berkop, lalu simpan sebagai PDF / cetak">📄 PDF</button>
-      <button class="btn btn-wa btn-sm" style="margin-left:auto" onclick="sendKwitansi('${r.id}')">💬 Kirim ke Tamu</button>
-      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
-    </div>`, true);
 }
 function renderHariH(){
   const inList = HARIH_VIEW==='list';
@@ -4969,7 +4937,7 @@ function openDetail(id){
            </div>`).join("")}
          ${CAN.input(SESSION.role)||CAN.finance(SESSION.role)?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
-            ${hasDP(r)?`<button class="btn btn-xs btn-wa" onclick="closeModal();openKwitansi('${r.id}')">🧾 Kirim / Print Kwitansi</button>`:""}
+            ${hasDP(r)?`<button class="btn btn-xs btn-ghost" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
           </div>`:""}
        </div>
        ${r.notes?`<div class="detail-item full"><div class="k">📝 Catatan Khusus</div><div class="v">${esc(r.notes)}</div></div>`:""}
@@ -4997,7 +4965,7 @@ function openDetail(id){
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
      <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
      ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
-     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openKwitansi('${r.id}')" title="Kirim/print kwitansi pembayaran DP">🧾 Kwitansi DP</button>`:""}
+     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
