@@ -1317,6 +1317,7 @@ async function seatFromWait(id, tableId, sharing){
 }
 // Panel pilih tamu antrean untuk sebuah meja (dipakai saat klik meja kosong / tamu pulang)
 function offerWaitlist(tableId){
+  if(tolakKarenaFilter()) return;     // penjaga di fungsi INTI, bukan cuma di tombol
   const list=waitCandidates(tableId);
   if(!list.length){ walkInSeat(tableId); return; }
   const cap=tableCap(tableId);
@@ -1392,12 +1393,29 @@ function seatTimeLabel(r){
 // - "nanti"   : booking masih >3 jam lagi → meja masih boleh dipakai walk-in,
 //               tapi diberi tanda jam berapa meja itu akan otomatis terkunci.
 // Untuk tanggal selain hari ini, semua booking dianggap mengunci (tak ada konteks "sekarang").
+/* Filter jam/status Recap berlaku untuk MELIHAT saja.
+   Saat aktif, denah menyembunyikan sebagian reservasi → meja yang sebenarnya TERPAKAI bisa
+   terlihat kosong. Karena itu semua aksi INPUT dari denah dikunci selama filter aktif
+   (lihat denahFilterAktif/tolakKarenaFilter) supaya tak ada meja terpesan dua kali.
+   Penting: yang disaring HANYA tampilan denah Recap. Pengecekan bentrok saat menyimpan
+   (occupiedMap/conflictCheck di form & mejaMasihKosong) tidak pernah ikut disaring. */
+function cocokFilterDenah(r){
+  if(RECAP_STATUS && r.status!==RECAP_STATUS) return false;
+  const tf=RECAP_TF?toMin(RECAP_TF):null, tt=RECAP_TT?toMin(RECAP_TT):null;
+  if(tf!=null && toMin(r.time)<tf) return false;
+  if(tt!=null && toMin(r.time)>tt) return false;
+  return true;
+}
+function denahFilterAktif(){ return !!(RECAP_TF || RECAP_TT || RECAP_STATUS); }
 function harihOccupancy(){
   const all=occupiedMap(HARIH_DATE,"",null);
   const isToday = HARIH_DATE===todayStr();
   const now=absNow();
+  const saring=denahFilterAktif();
   const occ=new Map(), later=new Map();
-  all.forEach((list,id)=>{
+  all.forEach((list0,id)=>{
+    const list = saring ? list0.filter(cocokFilterDenah) : list0;
+    if(!list.length) return;
     const locked=[], soon=[];
     list.forEach(r=>{
       if(isSeated(r) || !isToday || lockStart(r) <= now) locked.push(r);
@@ -3306,6 +3324,22 @@ function recapFrom(){ return RECAP_FROM || HARIH_DATE; }
 function recapTo(){ return RECAP_TO || RECAP_FROM || HARIH_DATE; }
 function recapMultiDay(){ return recapFrom() !== recapTo(); }
 function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+/* Penjaga: selama filter jam/status aktif, denah tidak menampilkan semua reservasi, jadi
+   INPUT dari denah dilarang. Kembalikan true bila aksi harus dibatalkan. */
+function tolakKarenaFilter(){
+  if(!denahFilterAktif()) return false;
+  const apa=[(RECAP_TF||RECAP_TT)?"jam":"", RECAP_STATUS?"status":""].filter(Boolean).join(" & ");
+  openModal(`<div class="modal-head"><h3>🔍 Bersihkan filter dulu</h3></div>
+   <div class="modal-body">
+     <div class="inline-warn"><div>Denah sedang disaring berdasarkan <b>${esc(apa)}</b>, jadi sebagian reservasi <b>disembunyikan</b> — meja yang sebenarnya terpakai bisa terlihat kosong.</div></div>
+     <p style="margin:12px 0 0">Filter hanya untuk <b>melihat</b>. Kalau input dilakukan sekarang, meja bisa <b>terpesan dua kali</b>. Bersihkan filter dulu supaya denah menampilkan kondisi meja yang sebenarnya.</p>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" style="margin-left:auto" onclick="closeModal();recapReset()">✕ Bersihkan Filter & Lanjut</button>
+   </div>`);
+  return true;
+}
 // Satu hari tertentu: offset 0=hari ini, 1=besok, 2=lusa. Denah & waiting ikut pindah ke sana.
 function recapSetDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); RECAP_FROM=RECAP_TO=d; HARIH_DATE=d; RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
 // Rentang: denah tak bisa menggambarkan banyak hari sekaligus → tetap di HARI INI
@@ -3833,10 +3867,13 @@ setInterval(updateWaitTimers, 1000);
 
 // Klik meja kosong: kalau ada antrean → tawarkan tamu antrean dulu, kalau tidak → walk-in biasa.
 function seatEmptyClick(tableId){
+  // Meja ini "kosong" menurut denah yang SEDANG DISARING — belum tentu kosong sungguhan.
+  if(tolakKarenaFilter()) return;
   if(waitingQueue(HARIH_DATE).length) offerWaitlist(tableId);
   else walkInSeat(tableId);
 }
 function walkInSeat(tableId, sharingDefault){
+  if(tolakKarenaFilter()) return;     // penjaga di fungsi INTI, bukan cuma di tombol
   const esq=String(tableId).replace(/'/g,"\\'");
   openModal(`<div class="modal-head"><h3>🚶 Walk-in, Meja ${esc(tableId)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body"><div class="form-grid">
@@ -3894,14 +3931,17 @@ async function toggleSharing(id){
 // MOVE_MODE "add"  → pilihan dimulai dari meja yang SUDAH dipakai, tinggal klik meja tambahan.
 let MOVE_ID=null, MOVE_LAYOUT="weekday", MOVE_SELS=[], MOVE_MODE="move";
 function openMoveModal(id, mode){
+  if(tolakKarenaFilter()) return;     // meja tujuan dipilih dari denah → jangan dari denah tersaring
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   MOVE_ID=id; MOVE_MODE=(mode==="add")?"add":"move";
   MOVE_SELS=(MOVE_MODE==="add") ? tablesOf(r) : [];
   MOVE_LAYOUT=dayTypeLayout(r.date||todayStr());
   renderMoveModal();
 }
-function changeTable(id){ openMoveModal(id,"move"); }
-function addTable(id){ openMoveModal(id,"add"); }
+// Pindah/Tambah meja memilih meja TUJUAN dari denah — kalau denahnya disaring, meja tujuan
+// bisa tampak kosong padahal terpakai. Kunci sampai filter dibersihkan.
+function changeTable(id){ if(tolakKarenaFilter()) return; openMoveModal(id,"move"); }
+function addTable(id){ if(tolakKarenaFilter()) return; openMoveModal(id,"add"); }
 function setMoveLayout(l){ MOVE_LAYOUT=l; renderMoveModal(); }
 function toggleMoveSeat(tableId){
   const i=MOVE_SELS.indexOf(tableId);
@@ -3951,6 +3991,8 @@ function tolakMeja(b, judul){
 }
 // ---- Kelola meja sharing (banyak grup di satu meja) ----
 function sharingTableAction(tableId){
+  // Kelola sharing = menambah tamu ke meja → input. Denah tersaring tak boleh jadi dasarnya.
+  if(tolakKarenaFilter()) return;
   const occ=occupiedMap(HARIH_DATE,"",null);
   const list=partiesAt(occ,tableId);
   if(!list.length){ walkInSeat(tableId,true); return; }
@@ -4198,8 +4240,11 @@ function renderHariH(){
        ? ((recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:"")
        : `<span class="harih-result">${HARIH_VIEW==='wait'?'Antrean':'Denah'}: ${fmtDate(HARIH_DATE)} · ${dayList.length} reservasi${hasLayoutOverride(HARIH_DATE)?` · layout ${esc(layoutName(harihL1()))} ⚑`:""}</span>`}
    </div>
-   ${!inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<div class="panel-body" style="border-top:1px solid var(--line);padding-top:0">
-     <div class="inline-info"><div>${recapMultiDay()?`Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>. `:""}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?`Filter <b>jam/status</b> sengaja <b>tidak</b> diterapkan pada denah: kalau meja yang sedang dipakai ikut tersembunyi, meja itu akan terlihat kosong dan bisa dipesan dua kali. Denah selalu menampilkan <b>semua</b> reservasi tanggal ini. `:""}Filter lengkapnya berlaku di tab <b>📋 Daftar</b>.</div></div>
+   ${!inList&&(recapMultiDay()||denahFilterAktif())?`<div class="panel-body" style="border-top:1px solid var(--line);padding-top:0">
+     ${denahFilterAktif()?`<div class="inline-warn"><div>🔍 <b>Mode melihat</b> — denah disaring (${esc([(RECAP_TF||RECAP_TT)?"jam":"",RECAP_STATUS?"status":""].filter(Boolean).join(" & "))}), jadi sebagian reservasi disembunyikan dan meja yang terpakai bisa terlihat kosong.
+       Karena itu <b>input dikunci</b> selama filter aktif — walk-in, pindah/tambah meja & sharing akan meminta filter dibersihkan dulu.
+       <a href="javascript:void(0)" onclick="recapReset()" style="font-weight:600;margin-left:4px">✕ Bersihkan filter</a></div></div>`:""}
+     ${recapMultiDay()?`<div class="inline-info" style="margin-top:8px"><div>Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>.</div></div>`:""}
    </div>`:""}
    </div>
    ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
@@ -4767,8 +4812,11 @@ async function guestLeft(id){
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(`${r.name} selesai${dur!=null?` — duduk ${fmtDur(dur)}`:""}, meja bebas ✓`,"ok");
   // Meja baru saja kosong → kalau ada antrean, langsung tawarkan tamu berikutnya.
+  // Saat denah sedang disaring, tawaran ini DILEWATI diam-diam: memunculkan popup
+  // "bersihkan filter" di tengah alur "tamu pulang" cuma mengganggu, padahal kru tidak
+  // memintanya. Kru tetap bisa menawarkan manual setelah filter dibersihkan.
   const freed=tablesOf(r)[0];
-  if(freed && r.date===HARIH_DATE && waitingQueue(HARIH_DATE).length){
+  if(freed && r.date===HARIH_DATE && !denahFilterAktif() && waitingQueue(HARIH_DATE).length){
     setTimeout(()=>offerWaitlist(freed), 350);
   }
 }
