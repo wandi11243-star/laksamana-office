@@ -1305,6 +1305,16 @@ function tableFill(t, list){
            sisaMin: Math.max(0, min-terisi),
            sisaMax: Math.max(0, max-terisi) };
 }
+// Cari objek meja (utk kapasitas) berdasarkan id, lalu hitung sisa kursinya pada hari ini.
+// { t, list, sisa } atau null bila meja tak ditemukan.
+function sisaKursiTable(tableId){
+  let t=null;
+  for(const k of allLayoutKeys()){ const L=getLayout(k); const f=(L&&L.tables||[]).find(x=>x.id===tableId); if(f){ t=f; break; } }
+  if(!t) return null;
+  const occ=occupiedMap(HARIH_DATE,"",null, HARIH_DATE===todayStr());
+  const list=partiesAt(occ, tableId);
+  return { t, list, sisa:tableFill(t, list).sisaMax };
+}
 // Warna khusus (biru) hanya untuk meja yang tamunya SUDAH DUDUK tapi kursinya belum penuh.
 // Meja yang cuma dipesan (belum datang) tetap memakai warna statusnya, tapi sisa kursinya
 // tetap ditulis di bawah mejanya.
@@ -3958,6 +3968,9 @@ function seatAction(id){
   // Tamu ini sedang menumpang di meja lain → jalan pintas kembali ke meja aslinya.
   if(canEdit && sedangDialihkan(r)) acts+=`<button class="btn btn-primary" onclick="closeModal();tawarkanKembaliKeAsli('${r.id}')" title="Tamu ini dialihkan sementara dari meja ${esc(r.tableAsli)}">🔁 Kembali ke Meja Asli (${esc(r.tableAsli)})</button>`;
   if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
+  // Meja masih ada sisa kursi → satu tombol untuk menambah tamu (grup baru) + jadikan sharing.
+  const sisaMeja=canEdit ? tablesOf(r).map(sisaKursiTable).filter(x=>x&&x.sisa>0).sort((a,b)=>b.sisa-a.sisa)[0] : null;
+  if(sisaMeja) acts+=`<button class="btn btn-ok" onclick="closeModal();tambahPaxSharing('${r.id}')" title="Isi ${sisaMeja.sisa} kursi sisa di meja ${sisaMeja.t.id} dgn tamu lain — meja jadi sharing">➕ Tambah Pax (sisa ${sisaMeja.sisa}, jadi sharing)</button>`;
   if(canEdit){
     acts+=`<button class="btn btn-ghost" onclick="toggleSharing('${r.id}')">🤝 ${r.sharing?"Batalkan Sharing":"Jadikan Sharing"}</button>`;
     if(r.table){
@@ -4115,24 +4128,25 @@ function seatEmptyClick(tableId){
   if(waitingQueue(HARIH_DATE).length) offerWaitlist(tableId);
   else walkInSeat(tableId);
 }
-function walkInSeat(tableId, sharingDefault){
+function walkInSeat(tableId, sharingDefault, paxDefault){
   if(tolakKarenaFilter()) return;     // penjaga di fungsi INTI, bukan cuma di tombol
   const esq=String(tableId).replace(/'/g,"\\'");
-  openModal(`<div class="modal-head"><h3>🚶 Walk-in, Meja ${esc(tableId)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+  const paxV=Number(paxDefault)>0?Number(paxDefault):2;
+  const info=sharingDefault?sisaKursiTable(tableId):null;   // untuk tampilkan sisa kursi
+  openModal(`<div class="modal-head"><h3>${sharingDefault?"➕ Tambah Pax":"🚶 Walk-in"}, Meja ${esc(tableId)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body"><div class="form-grid">
      <div class="field full"><label>Nama Tamu</label><input id="wi_name" placeholder="Kosongkan → dicatat sebagai &quot;${esc(WALKIN_NAME)}&quot;" autocomplete="off"></div>
      <div class="field"><label>No. HP</label><input id="wi_phone" inputmode="numeric" placeholder="08xxx (opsional)"></div>
-     <div class="field"><label>Jumlah Pax <span class="req">*</span></label><input id="wi_pax" type="number" min="1" value="2"></div>
+     <div class="field"><label>Jumlah Pax <span class="req">*</span>${info&&info.sisa?` <span class="hint" style="font-weight:400">(sisa ${info.sisa} kursi)</span>`:""}</label><input id="wi_pax" type="number" min="1" value="${paxV}"></div>
      <div class="field full"><label class="share-toggle" style="width:100%"><input type="checkbox" id="wi_sharing" ${sharingDefault?"checked":""}> 🤝 Sharing table <span class="hint" style="font-weight:400">meja boleh ditambah tamu lain</span></label></div>
    </div><p class="hint">Meja <b>${esc(tableId)}</b>, ${fmtDate(HARIH_DATE)}, status otomatis <b>Datang</b>.</p></div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
-     <button class="btn btn-primary" onclick="saveWalkIn('${esq}',false)">Simpan</button>
-     <button class="btn btn-ok" onclick="saveWalkIn('${esq}',true)">Simpan &amp; Print</button>
+     <button class="btn btn-primary" style="margin-left:auto" onclick="saveWalkIn('${esq}')">Simpan</button>
    </div>`);
   setTimeout(()=>byId("wi_name")?.focus(),60);
 }
-async function saveWalkIn(tableId, doPrint){
+async function saveWalkIn(tableId){
   const name=(byId("wi_name").value||"").trim() || WALKIN_NAME;   // tanpa nama → "Walkin"
   const pax=Number(byId("wi_pax").value||0);
   if(!pax||pax<1){ toast("Jumlah pax wajib","err"); return; }
@@ -4253,6 +4267,29 @@ function tolakMeja(b, judul){
   toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
 }
 // ---- Kelola meja sharing (banyak grup di satu meja) ----
+/* TAMBAH PAX ke meja yang masih ada sisa kursi, JADIKAN SHARING dalam satu langkah.
+   Dulu perlu dua langkah: "🤝 Jadikan Sharing" dulu, baru "➕ Tambah Tamu". Sekarang satu
+   tombol: semua grup di meja itu ditandai sharing (syarat conflictCheck & isJoinable:
+   "boleh gabung hanya bila SEMUA party sharing"), lalu form tambah tamu terbuka dengan
+   pax default = sisa kursi. Ditandai sharing DULU & disimpan, supaya pengecekan bentrok
+   walk-in (yang membaca data server) melihat meja ini memang sudah boleh digabung. */
+async function tambahPaxSharing(id){
+  if(tolakKarenaFilter()) return;
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  // Meja milik r yang paling banyak sisa kursinya.
+  const info=tablesOf(r).map(sisaKursiTable).filter(x=>x&&x.sisa>0).sort((a,b)=>b.sisa-a.sisa)[0];
+  if(!info){ toast("Meja sudah penuh — tidak ada sisa kursi","err"); return; }
+  const tableId=info.t.id;
+  // Tandai SEMUA party di meja ini sharing (kalau belum), lalu simpan.
+  const belum=info.list.filter(p=>!p.sharing);
+  if(belum.length){
+    belum.forEach(p=>{ p.sharing=true; p.updatedAt=Date.now(); });
+    logAudit("Jadikan Sharing", `Meja ${tableId} (${belum.map(p=>p.name).join(", ")})`);
+    const ok=await commit("Menyiapkan meja sharing…");
+    if(!ok){ belum.forEach(p=>{ p.sharing=false; }); toast("Gagal menyiapkan sharing — coba lagi","err"); return; }
+  }
+  walkInSeat(tableId, true, info.sisa);   // form tambah tamu, sharing aktif, pax default = sisa
+}
 function sharingTableAction(tableId){
   // Kelola sharing = menambah tamu ke meja → input. Denah tersaring tak boleh jadi dasarnya.
   if(tolakKarenaFilter()) return;
@@ -4280,7 +4317,7 @@ function sharingTableAction(tableId){
      <div class="share-list">${rows}</div>
    </div>
    <div class="modal-foot" style="flex-wrap:wrap">
-     <button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true)">➕ Tambah Tamu (Walk-in)</button>
+     <button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true,(sisaKursiTable('${String(tableId).replace(/'/g,"\\'")}')||{}).sisa)">➕ Tambah Tamu (Walk-in)</button>
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
