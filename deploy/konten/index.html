@@ -422,7 +422,15 @@ tbody tr:last-child td{border-bottom:none}
 // =========================================================================
 
 // MASUKKAN URL WEB APP ANDA DI SINI DARI GOOGLE APPS SCRIPT
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzFy0jdvPmkpkaZ_QPvEr52DqHes2Skb_v6XeoHTcbIRQyoIsXe4YPnL5QoPnIh_K_6/exec";
+/* ---------- SUMBER DATA: MySQL ( ../konten-api-mysql/api.php ) ----------
+   Dulu data Konten disimpan di Google Apps Script. Sekarang di database
+   sendiri: menulis PER-BARIS dengan penjaga bentrok, jadi dua kru yang
+   mengedit konten BERBEDA tidak lagi saling menimpa.
+   Kalau backend perlu dibalik, cukup ganti SATU baris di bawah. */
+const API_URL = "../konten-api-mysql/api.php";
+// URL Apps Script lama — sudah TIDAK dipakai. Data lamanya tetap utuh di sana
+// sebagai arsip (249 record sudah dimigrasikan ke MySQL pada 17 Juli 2026).
+const WEB_APP_URL_LAMA = "https://script.google.com/macros/s/AKfycbzFy0jdvPmkpkaZ_QPvEr52DqHes2Skb_v6XeoHTcbIRQyoIsXe4YPnL5QoPnIh_K_6/exec";
 // URL /exec identitas Office (Sheet "Database User"), sama dengan modul lain.
 // Dipakai autoSyncOfficeRoster: menarik kru ber-akses `konten` dari Kelola Akses
 // Office supaya muncul di Kelola Kru walau belum pernah login. Read-only, tanpa PIN.
@@ -447,32 +455,71 @@ let calDate = new Date();
 // FUNGSI REST API UNTUK LIVE SERVER (FETCH)
 // =========================================================================
 
-// Fungsi SAVE melalui POST Request ke Web App
+/* ---- Penstempel updatedAt + baseUpdatedAt ----
+   Backend menolak baris yang sudah disalip kru lain (penjaga bentrok). Supaya
+   itu bekerja, baris yang BERUBAH harus dicap: updatedAt = sekarang,
+   baseUpdatedAt = versi yang kita muat dari server.
+   Dibandingkan lewat sidik jari tiap baris terhadap salinan terakhir dari
+   server, supaya tidak perlu menandai perubahan di puluhan tempat satu per satu. */
+const KT_COLS = ['users','brands','campaigns','content','prodTasks','shootings',
+                 'assets','bank','kols','visits','ads','adFunds','notifs'];
+let _snap = {}, _serverVer = {};
+function _sig(o){ const c = Object.assign({}, o); delete c.updatedAt; delete c.baseUpdatedAt; return JSON.stringify(c); }
+function _eachRow(obj, fn){ KT_COLS.forEach(k => (obj[k]||[]).forEach(r => { if (r && r.id) fn(k+':'+r.id, r); })); }
+function _dirty(key, r){ return _snap[key] !== _sig(r); }
+function stampChanges(){
+  const now = Date.now();
+  _eachRow(DB, (key, r) => { if (_dirty(key, r)) r.updatedAt = now; });
+}
+// Salinan untuk dikirim: baris yang berubah diberi baseUpdatedAt. DB sendiri
+// tetap bersih (kalau bocor, save berikutnya kirim base basi -> bentrok palsu).
+function buildPayload(){
+  const p = JSON.parse(JSON.stringify(DB));
+  _eachRow(p, (key, r) => { if (_dirty(key, r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+  return p;
+}
+function refreshSnapshot(){
+  const snap = {}, ver = {};
+  _eachRow(DB, (key, r) => { snap[key] = _sig(r); ver[key] = r.updatedAt || 0; });
+  _snap = snap; _serverVer = ver;
+}
+
+// Fungsi SAVE: POST ke MySQL ( ../konten-api-mysql/api.php )
+let _saveBusy = false, _saveLagi = false;
 async function save() {
-  // Jangan pernah kirim payload kosong/rusak (bisa menimpa data di Sheet).
+  // Jangan pernah kirim payload kosong/rusak (bisa menimpa data di server).
   if (!DB || typeof DB !== 'object' || !DB.users) {
     console.warn("Save dibatalkan: DB belum siap.");
     return;
   }
+  if (_saveBusy) { _saveLagi = true; return; }   // hindari dua POST balapan
+  _saveBusy = true;
   try {
-    console.log("Menyimpan data ke server...");
-    const res = await fetch(WEB_APP_URL, {
+    stampChanges();
+    const res = await fetch(API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8', // simple request, tidak memicu preflight CORS
-      },
-      body: JSON.stringify(DB),
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, tanpa preflight CORS
+      body: JSON.stringify({ action: 'saveAll', data: buildPayload() }),
       redirect: 'follow'
     });
-    // Web App membalas {status:'success'} bila berhasil menulis ke Sheet.
     const out = await res.json().catch(() => null);
-    if (!out || out.status !== 'success') {
-      throw new Error(out && out.message ? out.message : 'Respons server tidak valid');
+    if (!out || !out.ok || !out.data) {
+      throw new Error(out && out.error ? out.error : 'Respons server tidak valid');
     }
-    console.log("Data berhasil disimpan ke Google Sheet!");
+    const bentrok = out.data.bentrok || [];
+    if (bentrok.length) {
+      // Kru lain sudah mengubah data yang sama duluan. Jangan timpa diam-diam.
+      toast('Sebagian perubahan tidak tersimpan — ' + bentrok.length +
+            ' data sudah diubah kru lain. Muat ulang halaman.', 'err');
+    } else {
+      refreshSnapshot();          // versi kita kini = versi server
+    }
   } catch (error) {
     toast("Gagal menyimpan data ke server", "err");
     console.error("Save Error:", error);
+  } finally {
+    _saveBusy = false;
+    if (_saveLagi) { _saveLagi = false; save(); }
   }
 }
 
@@ -486,16 +533,16 @@ async function initAPI() {
   // KODE PEMBLOKIR TELAH DIHAPUS DARI SINI
 
   try {
-    const response = await fetch(WEB_APP_URL, {
+    const response = await fetch(API_URL + '?action=getAll&t=' + Date.now(), {
       method: 'GET',
       redirect: 'follow'
     });
     const jsonResult = await response.json();
-    
-    if (jsonResult.status === 'success' && jsonResult.data) {
+
+    if (jsonResult.ok && jsonResult.data) {
       DB = jsonResult.data;
     }
-    
+
     // Jika DB kosong atau belum ada user, jalankan seed awal dari lokal
     if (!DB || typeof DB !== 'object') {
       DB = {};
@@ -530,7 +577,12 @@ async function initAPI() {
       PERM_MODULES.forEach(m=>{ if(!DB.perms[m]) DB.perms[m]=PERM_DEFAULT[m].slice(); });
       ['analytics','reports','activity'].forEach(m=>{ if(!DB.perms[m]) DB.perms[m]=PERM_DEFAULT[m].slice(); });
     }
-    
+
+    // Catat versi tiap baris sebagai acuan penjaga bentrok. Harus setelah semua
+    // migrasi/guard di atas: guard yang menambah field (prod, platforms) bikin
+    // baris terlihat "berubah" padahal tidak ada yang menyentuhnya.
+    refreshSnapshot();
+
     // Tutup layar loading
     document.getElementById('api-loading-screen').style.display = 'none';
     
