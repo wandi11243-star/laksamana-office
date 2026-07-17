@@ -27,19 +27,27 @@ jobs:
           # (terpotong di 65KB lalu 234KB dari 403KB).
           timeout: 300000
 
-      # Deploy FTP bisa "sukses" walau file terpotong, jadi jangan percaya
-      # status hijau saja — buktikan tiap halaman utuh (ada penutup </html>).
-      - name: Verifikasi file di server tidak terpotong
+      # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
+      # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
+      # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
+      # total tetap dilaporkan OK. Maka isinya dibandingkan langsung dengan repo.
+      # FTP mengubah CRLF→LF, jadi \r dibuang dulu di kedua sisi.
+      - name: Verifikasi file di server benar-benar versi ini
         run: |
           gagal=0
           for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/; do
+            src="deploy/${m}index.html"
+            if [ ! -f "$src" ]; then echo "LEWAT   ${m:-/} (tidak ada di repo)"; continue; fi
             url="https://office.laksamanamuda.id/${m}index.html"
-            body=$(curl -s -m 60 "$url?ci=$GITHUB_SHA" || true)
-            n=$(printf '%s' "$body" | wc -c)
-            if printf '%s' "$body" | grep -q '</html>'; then
-              echo "OK      ${m:-/} ($n byte)"
+            curl -s -m 90 "$url?ci=$GITHUB_SHA" -o /tmp/live.html || true
+            tr -d '\r' < "$src" > /tmp/a
+            tr -d '\r' < /tmp/live.html > /tmp/b
+            if cmp -s /tmp/a /tmp/b; then
+              echo "OK      ${m:-/} ($(wc -c < /tmp/b) byte, sama persis dgn repo)"
             else
-              echo "GAGAL   ${m:-/} ($n byte) — tidak ada </html>, file terpotong"
+              echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong)"
+              echo "        repo=$(wc -c < /tmp/a) byte, server=$(wc -c < /tmp/b) byte"
+              grep -q '</html>' /tmp/b || echo "        server tidak punya </html> → terpotong atau 404"
               gagal=1
             fi
           done

@@ -18,20 +18,35 @@ jobs:
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
-          server-dir: /public_html/dev.laksamanamuda.id/dev_office/
+          # Dulu ".../dev.laksamanamuda.id/dev_office/" → file mendarat di folder yang TIDAK
+          # dilayani web (dev.laksamanamuda.id/dev_office/... = 404), sementara yang tampil di
+          # dev.laksamanamuda.id/reservasi/ adalah salinan lama. Jadi deploy "hijau" tapi tidak
+          # ada yang berubah. Path ini sekarang sejalan dengan URL yang diverifikasi di bawah,
+          # dan mengikuti pola produksi (/public_html/office/ ↔ office.laksamanamuda.id/).
+          server-dir: /public_html/dev.laksamanamuda.id/
           timeout: 300000
 
-      - name: Verifikasi file di server tidak terpotong
+      # Verifikasi HARUS membuktikan file di server = file di repo.
+      # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
+      # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.
+      # Sekarang isinya dibandingkan langsung. FTP mengubah CRLF→LF, jadi \r dibuang dulu di
+      # kedua sisi (tanpa ini selalu "beda" sebanyak jumlah baris).
+      - name: Verifikasi file di server benar-benar versi ini
         run: |
           gagal=0
           for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/; do
+            src="deploy/${m}index.html"
+            if [ ! -f "$src" ]; then echo "LEWAT   ${m:-/} (tidak ada di repo)"; continue; fi
             url="https://dev.laksamanamuda.id/${m}index.html"
-            body=$(curl -s -m 60 "$url?ci=$GITHUB_SHA" || true)
-            n=$(printf '%s' "$body" | wc -c)
-            if printf '%s' "$body" | grep -q '</html>'; then
-              echo "OK      ${m:-/} ($n byte)"
+            curl -s -m 90 "$url?ci=$GITHUB_SHA" -o /tmp/live.html || true
+            tr -d '\r' < "$src" > /tmp/a
+            tr -d '\r' < /tmp/live.html > /tmp/b
+            if cmp -s /tmp/a /tmp/b; then
+              echo "OK      ${m:-/} ($(wc -c < /tmp/b) byte, sama persis dgn repo)"
             else
-              echo "GAGAL   ${m:-/} ($n byte) — tidak ada </html>, file terpotong"
+              echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong / salah folder)"
+              echo "        repo=$(wc -c < /tmp/a) byte, server=$(wc -c < /tmp/b) byte"
+              grep -q '</html>' /tmp/b || echo "        server tidak punya </html> → terpotong atau 404"
               gagal=1
             fi
           done
