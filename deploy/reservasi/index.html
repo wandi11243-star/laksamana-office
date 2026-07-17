@@ -2301,6 +2301,17 @@ async function autoSyncOfficeRoster(){
     }
   });
   if(changed){ try{ saveState(); }catch(e){} }
+  return changed;
+}
+/* Jalankan roster Office di LATAR. Panggilan ini ke Apps Script dan diukur ~10,8 DETIK
+   (302 /exec → googleusercontent /echo) — dulu di-await saat boot, sehingga membuka
+   halaman Reservasi butuh 10-12 detik padahal datanya sendiri (api.php) cuma ~58 ms.
+   Roster hanya dipakai admin di Master Data, jadi tak layak menahan seluruh aplikasi. */
+function syncRosterLatar(){
+  autoSyncOfficeRoster().then(berubah=>{
+    // Kalau ada kru baru & admin sedang membuka Master Data, segarkan supaya langsung terlihat.
+    if(berubah && CURRENT_PAGE==="master" && !dialogTerbuka()) navigate("master");
+  }).catch(()=>{});   // diam saat offline / Apps Script bermasalah
 }
 function userById(id){ return getUsers().find(u=>u.id===id) || null; }
 // Admin selalu akses penuh; role lain mengikuti matriks hak akses
@@ -2354,7 +2365,11 @@ async function boot(){
     ba.classList.remove("hidden");
     return;
   }
-  await autoSyncOfficeRoster();      // tarik roster Office SEBELUM resolve, hindari duplikat
+  /* Roster Office TIDAK lagi ditunggu di sini. Dulu di-await dgn alasan "tarik roster
+     SEBELUM resolve, hindari duplikat" — padahal keduanya mencocokkan pada kunci yang SAMA
+     (id Office lalu nama), jadi urutannya tidak menentukan: siapa pun yang lebih dulu, yang
+     kedua akan MENEMUKAN, bukan menduplikasi. Sementara panggilannya ke Apps Script makan
+     ~10,8 detik → itulah 10-12 detik saat membuka halaman. Dipindah ke latar (bawah). */
   // Identitas dari Office, dipetakan ke kru Reservasi -> langsung masuk (tanpa PIN lokal).
   const u = resolveReservasiUser(office);
   // Admin modul dari Office (adminModules mengandung '*' atau 'reservasi') -> role
@@ -2365,6 +2380,7 @@ async function boot(){
   SELECTED_CREW = u.id;
   bs.classList.add("hidden");
   await enterApp();
+  syncRosterLatar();    // roster Office menyusul di latar — aplikasi sudah bisa dipakai
 }
 function renderCrew(){
   byId("crewGrid").innerHTML = getUsers().map(u=>`
