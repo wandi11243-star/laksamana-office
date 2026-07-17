@@ -1,0 +1,38 @@
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [ develop ]
+
+jobs:
+  web-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/dev.laksamanamuda.id/dev_office/
+          timeout: 300000
+
+      - name: Verifikasi file di server tidak terpotong
+        run: |
+          gagal=0
+          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/; do
+            url="https://dev.laksamanamuda.id/${m}index.html"
+            body=$(curl -s -m 60 "$url?ci=$GITHUB_SHA" || true)
+            n=$(printf '%s' "$body" | wc -c)
+            if printf '%s' "$body" | grep -q '</html>'; then
+              echo "OK      ${m:-/} ($n byte)"
+            else
+              echo "GAGAL   ${m:-/} ($n byte) — tidak ada </html>, file terpotong"
+              gagal=1
+            fi
+          done
+          exit $gagal
