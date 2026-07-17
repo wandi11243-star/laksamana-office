@@ -50,6 +50,12 @@ try {
   } else if ($action === 'stats') {
     keluar(array('ok' => true, 'data' => stats()));
 
+  } else if ($action === 'trainingStats') {
+    // Dibaca modul `hr` (Staff Performance) untuk komponen Training di People
+    // Score. Baca-saja, dan yang dibagi cuma PERSEN penyelesaian per userId,
+    // bukan isi materi atau jawaban kuis. Lihat docs/hr-akademi-integration.md.
+    keluar(array('ok' => true, 'data' => training_stats()));
+
   } else if ($action === 'ping') {
     keluar(array('ok' => true, 'data' => array('pong' => true, 'backend' => 'php-mysql', 'ts' => gmdate('c'))));
 

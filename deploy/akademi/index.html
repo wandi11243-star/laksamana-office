@@ -638,8 +638,15 @@ function autoSyncOfficeRoster(){
     .then(function(data){
       if(!data || !data.ok || !Array.isArray(data.members)) return;
       var changed=false;
+      var idOffice={};                       // id yang SAH menurut Office
       data.members.forEach(function(m){
         if(!m || !m.id) return;
+        idOffice[m.id]=true;
+        /* Cocokkan id dulu, baru nama. Pencocokan nama itu jalur ADOPSI: baris
+           roster lama yang namanya sama persis dipakai ulang (id-nya ditimpa id
+           Office di bawah), jadi divisi & jabatannya tidak hilang. Cuma cocok
+           kalau namanya identik — 'Adit' vs 'Aditya Setiadi' tidak, itulah asal
+           roster kembar yang ada sekarang. */
         var u = DB.users.find(function(x){return x.id===m.id;})
              || DB.users.find(function(x){return String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase();});
         if(!u){
@@ -652,8 +659,25 @@ function autoSyncOfficeRoster(){
           if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
           if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
           if(m.active===false && u.active!==false){ u.active=false; changed=true; }
+          // Kru yang tadinya dimatikan lalu diberi akses lagi di Office: hidupkan.
+          if(m.active!==false && u.active===false){ u.active=true; changed=true; }
         }
       });
+      /* Office = SATU-SATUNYA sumber kebenaran daftar kru. Dulu sinkron ini cuma
+         MENAMBAH, tak pernah mematikan, jadi roster lama (mis. 'Aditya Setiadi',
+         'Kru Service 01') menumpuk berdampingan dengan kru Office ('Adit') dan
+         ikut tampil di Kelola Kru / Progress Tim. Kru di luar roster Office
+         dinonaktifkan, BUKAN dihapus: progress-nya tetap utuh dan bisa hidup lagi
+         begitu aksesnya dikembalikan di Kelola Akses. */
+      /* Jaring pengaman: roster KOSONG hampir pasti salah konfigurasi (grant
+         terhapus, modul salah nama), bukan "semua kru resign". Kalau diteruskan,
+         satu jawaban kosong mematikan seluruh kapal sekaligus. Lebih aman
+         membiarkan roster apa adanya. */
+      if(data.members.length){
+        DB.users.forEach(function(u){
+          if(!idOffice[u.id] && u.active!==false){ u.active=false; changed=true; }
+        });
+      }
       if(changed){ logAct('user','Roster kru disinkronkan dari Office'); }   // logAct sudah saveDB()
     })
     .catch(function(){ /* Office tak terjangkau: lewati diam-diam */ });
@@ -1295,8 +1319,12 @@ function saveMaterial(id, type){
 /* ---------- VIEW: kelola kru (admin) ---------- */
 function vKelolaKru(u){
   var h='<div class="topbar"><div><h2>Kelola Kru</h2><div class="sub">Divisi dan peran kru. Akun & login dikelola di Office.</div></div></div>';
+  /* Hanya kru AKTIF, yaitu yang diberi akses modul ini di Kelola Akses Office.
+     autoSyncOfficeRoster() menonaktifkan siapa pun di luar roster Office, jadi
+     daftar di sini = daftar di Kelola Akses. Sebelumnya memakai DB.users apa
+     adanya, sehingga roster lama ikut tampil. Pola sama dengan vTim(). */
   h+='<div class="table-wrap"><table><thead><tr><th>Nama</th><th>Jabatan</th><th>Divisi</th><th>Peran</th><th></th></tr></thead><tbody>'+
-    DB.users.slice().sort(function(a,b){return a.name.localeCompare(b.name)}).map(function(k){
+    DB.users.filter(function(x){return x.active}).sort(function(a,b){return a.name.localeCompare(b.name)}).map(function(k){
       return '<tr><td><b>'+esc(k.name)+'</b></td><td>'+esc(k.title||'-')+'</td>'+
         '<td>'+divIcon(k.division)+' '+divName(k.division)+'</td>'+
         '<td><span class="badge '+(k.role==='admin'?'b-ink':k.role==='manager'?'b-gold':'b-mut')+'">'+(k.role==='admin'?'Nahkoda':k.role==='manager'?'PIC Divisi':'Kru')+'</span></td>'+
@@ -1686,8 +1714,10 @@ function vSync(u){
     '<div style="font-size:13px;color:var(--muted);margin-bottom:12px">Unduh seluruh data (kru, materi, progress, program) sebagai file JSON, bisa diarsipkan atau dipindahkan ke device lain.</div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="exportJSON()">Unduh Backup (.json)</button>'+
     '<button class="btn btn-ghost" onclick="importJSON()">Pulihkan dari Backup</button></div></div>';
-  document.getElementById('main').innerHTML=h;
-  return;
+  // Router (render()) yang menulis ke #main: view HARUS mengembalikan string.
+  // Sebelumnya fungsi ini menulis sendiri lalu `return;` kosong, jadi router
+  // menimpanya dengan "undefined".
+  return h;
   /* Panduan pasang Apps Script DIHAPUS: data akademi kini di MySQL,
      tidak ada lagi yang perlu diatur manual oleh kru. */
 
