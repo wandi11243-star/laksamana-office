@@ -1244,10 +1244,39 @@ function tableCap(tableId, layoutKey){
      - Meja 4-5 pax diisi walk-in 2 orang → terpakai 2, sisa 2-3.
      - Tamu datang melebihi booking (pesan 8, datang 10) → terpakai 10, bukan 8. */
 function paxTaken(r){ return Math.max(Number(r&&r.pax)||0, arrivedPax(r)); }
-function takenPaxAt(list){ return (list||[]).reduce((a,r)=>a+paxTaken(r), 0); }
+// Kapasitas maksimum sebuah meja berdasarkan id-nya, dicari di SEMUA layout — satu
+// reservasi bisa memakai meja dari lantai/denah lain.
+function capOfTableId(id){
+  for(const k of allLayoutKeys()){
+    const L=getLayout(k); if(!L) continue;
+    const t=(L.tables||[]).find(x=>x.id===id);
+    if(t) return capMax(t.cap);
+  }
+  return 0;
+}
+/* Pax sebuah reservasi yang dibebankan ke SATU meja.
+   DULU: reservasi yang memakai beberapa meja dihitung PENUH di tiap mejanya. Rombongan
+   9 pax di 2 meja @7 membuat KEDUA meja tertulis "kursi penuh" (9 dari 7), padahal
+   9 orang di 14 kursi masih sisa 5 — kru jadi mengira tak bisa menambah tamu lagi.
+   SEKARANG: paxnya dibagi menurut porsi kapasitas tiap meja, jadi totalnya tetap pas. */
+function paxDiMeja(r, tableId){
+  const meja=tablesOf(r), total=paxTaken(r);
+  if(meja.length<=1) return total;
+  const i=meja.indexOf(tableId);
+  if(i<0) return 0;
+  const caps=meja.map(id=>Math.max(1, capOfTableId(id)||1));
+  const jml=caps.reduce((a,b)=>a+b,0);
+  const porsi=caps.map(c=>Math.floor(total*c/jml));
+  porsi[0]+=total-porsi.reduce((a,b)=>a+b,0);   // sisa pembulatan → meja pertama
+  return porsi[i];
+}
+// `tableId` diisi → pax reservasi multi-meja dibagi; kosong → dihitung penuh (kompatibel lama).
+function takenPaxAt(list, tableId){
+  return (list||[]).reduce((a,r)=>a+(tableId?paxDiMeja(r,tableId):paxTaken(r)), 0);
+}
 // {terisi, min, max, sisaMin, sisaMax} — sisa dinyatakan sebagai rentang, mengikuti "4-5".
 function tableFill(t, list){
-  const terisi=takenPaxAt(list);
+  const terisi=takenPaxAt(list, t && t.id);
   const min=capMin(t.cap), max=capMax(t.cap);
   return { terisi, min, max,
            sisaMin: Math.max(0, min-terisi),
@@ -2079,8 +2108,13 @@ async function pollRemote(){
     if(_saving || hasLocalChanges() || byId("busyRoot")?.classList.contains("on")) return;
     applyServer(d);
     buildNav();
-    if(CURRENT_PAGE) navigate(CURRENT_PAGE);
-    setSync("ok","Diperbarui dari kru lain");
+    /* Di tab Denah cukup gambar ulang PETANYA saja. navigate() membangun ulang seluruh
+       halaman dari nol, sehingga posisi gulir kru terlempar ke atas di tengah kerja —
+       tiap beberapa detik pula. Halaman lain tetap digambar ulang seperti biasa. */
+    if(!refreshDenahSaja() && CURRENT_PAGE) navigate(CURRENT_PAGE);
+    // Sengaja TIDAK memunculkan notifikasi "diperbarui dari kru lain": tarikan ini jalan
+    // sendiri tiap beberapa detik, jadi pesannya muncul terus tanpa diminta & mengganggu.
+    setSync("ok","Tersambung");
   }catch(e){ /* dibatalkan / offline sesaat → coba lagi pada tik berikutnya */ }
   finally{ _pollJalan=false; }
 }
@@ -2777,8 +2811,16 @@ function renderInput(editId){
            <label><input type="radio" name="dpStatus" value="Belum" ${(!r||r?.dpStatus!=="Sudah")?"checked":""} onchange="toggleDP()"><span>Belum DP</span></label>
          </div>
        </div>
+       <div class="field" id="dpLunasWrap">
+         <label>Jenis Pembayaran</label>
+         <label class="wa-target" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:0">
+           <input type="checkbox" name="lunas" ${r?.lunas?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
+           <div><h4 style="margin:0">💯 Lunas (bayar penuh)</h4>
+             <p style="margin:2px 0 0">Kosongkan kalau ini uang muka (DP) biasa. Mengubah sebutan di kwitansi jadi <b>PELUNASAN</b>.</p></div>
+         </label>
+       </div>
        <div class="field" id="dpMethodWrap">
-         <label>Metode / Tujuan DP</label>
+         <label>Metode / Tujuan Pembayaran</label>
          <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod)}</select>
        </div>
        <div class="field" id="dpNominalWrap">
@@ -2869,7 +2911,7 @@ function downscaleImage(dataUrl, maxDim, quality, cb){
 }
 function toggleDP(){
   const sudah = document.querySelector('input[name=dpStatus]:checked')?.value==="Sudah";
-  ["dpMethodWrap","dpNominalWrap","dpProofWrap"].forEach(id=>byId(id).classList.toggle("hidden",!sudah));
+  ["dpLunasWrap","dpMethodWrap","dpNominalWrap","dpProofWrap"].forEach(id=>byId(id)?.classList.toggle("hidden",!sudah));
 }
 function togglePIC(){
   const wrap=byId("picNameWrap"); const el=byId("resForm")?.elements["picType"];
@@ -3028,6 +3070,8 @@ async function saveReservation(){
     table:g("table"), sharing: !!document.querySelector('input[name=sharing]')?.checked,
     category:g("category"), foodReq:g("foodReq"), drinkReq:g("drinkReq"),
     dpStatus, dpMethod: dpStatus==="Sudah"?g("dpMethod"):"", dpAmount: dpStatus==="Sudah"?rupiahVal(g("dpAmount")):0,
+    // Penanda LUNAS hanya relevan bila memang ada pembayaran; "Belum DP" selalu bukan lunas.
+    lunas: dpStatus==="Sudah" && !!document.querySelector('input[name=lunas]')?.checked,
     dpProofData: PENDING_FILES.dpProofData?.data || existing?.dpProofData || "",
     dpProofName: PENDING_FILES.dpProofData?.name || existing?.dpProofName || "",
     dps: existing?.dps || [],             // cicilan DP (boleh lebih dari satu kali transfer)
@@ -3450,6 +3494,19 @@ function recapList(){
     return true;
   }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 }
+/* Gambar ulang HANYA kotak denahnya (#harihMap), tanpa menyentuh sisa halaman.
+   Dipakai auto-refresh & timer: menggambar ulang seluruh halaman tiap beberapa detik
+   melempar posisi gulir kru ke atas terus-menerus.
+   Mengembalikan true bila denahnya memang sedang tampil (jadi pemanggil tahu apakah
+   perlu jatuh kembali ke navigate() untuk halaman/tab lain). */
+function refreshDenahSaja(){
+  if(CURRENT_PAGE!=="hariH" || HARIH_VIEW!=="map") return false;
+  const map=byId("harihMap"); if(!map) return false;
+  const {occ,later}=harihOccupancy();
+  HARIH_SIG=occSig(occ,later);
+  map.innerHTML=seatMapMarkup(harihLayoutKey(),"view",occ,later);
+  return true;
+}
 function harihL1(){ return dayTypeLayout(HARIH_DATE); }
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
@@ -3762,7 +3819,9 @@ function updateHarihTimers(){
   // Begitu kondisi berubah, gambar ulang halaman supaya denah & ringkasan ikut sinkron.
   const {occ,later}=harihOccupancy();
   const sig=occSig(occ,later);
-  if(sig!==HARIH_SIG){ HARIH_SIG=sig; renderHariH(); return; }
+  // Kondisi meja berubah (mis. lewat jam kunci) → cukup gambar ulang DENAHNYA.
+  // renderHariH() penuh akan melempar posisi gulir kru ke atas tanpa sebab yang jelas.
+  if(sig!==HARIH_SIG){ HARIH_SIG=sig; if(!refreshDenahSaja()) renderHariH(); return; }
   map.querySelectorAll(".seat.booked[data-bts]").forEach(el=>{
     const bts=Number(el.dataset.bts), stt=el.dataset.st, sub=el.querySelector(".seat-sub");
     el.classList.remove("fu-warn","fu-late");
@@ -3845,7 +3904,6 @@ function seatAction(id){
    <div class="modal-foot" style="flex-wrap:wrap;justify-content:flex-start">
      ${acts}
      <button class="btn btn-ghost" onclick="closeModal();openDetail('${r.id}')">🔍 Detail${canEdit?" & Edit":""}</button>
-     <button class="btn btn-ghost" onclick="printCheck('${r.id}')">🖨️ Struk</button>
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
@@ -3990,7 +4048,6 @@ async function saveWalkIn(tableId, doPrint){
   if(!STATE.reservations.some(x=>x.id===rec.id)) return;      // ditolak, sudah diberi tahu
   if(!tertulis){ toast("Gagal menulis ke database — walk-in BELUM tersimpan","err"); return; }
   toast("Walk-in tersimpan ✓ (tersimpan di database)","ok");
-  if(doPrint) printCheck(rec.id);
 }
 /* ===== Sharing / kelola meja (hari-H) ===== */
 // Jadikan / batalkan sharing untuk sebuah reservasi
@@ -4120,49 +4177,10 @@ function sharingTableAction(tableId){
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
-let BT_PRINTER=null;
-async function connectPrinter(){
-  if(!navigator.bluetooth){ toast("Browser tidak mendukung Web Bluetooth (pakai Chrome via HTTPS/localhost)","err"); return null; }
-  try{
-    const dev=await navigator.bluetooth.requestDevice({
-      filters:[{services:[0x18F0]},{namePrefix:"Printer"},{namePrefix:"POS"},{namePrefix:"BT"},{namePrefix:"MTP"},{namePrefix:"MPT"},{namePrefix:"RPP"}],
-      optionalServices:[0x18F0,"000018f0-0000-1000-8000-00805f9b34fb"]
-    });
-    const server=await dev.gatt.connect();
-    const svc=await server.getPrimaryService(0x18F0);
-    const chars=await svc.getCharacteristics();
-    BT_PRINTER=chars.find(c=>c.properties.write||c.properties.writeWithoutResponse)||chars[0];
-    dev.addEventListener('gattserverdisconnected',()=>{BT_PRINTER=null;});
-    toast("Printer terhubung: "+(dev.name||"BT printer"),"ok"); return BT_PRINTER;
-  }catch(e){ if(e.name!=='NotFoundError') toast("Gagal konek printer: "+e.message,"err"); return null; }
-}
-function buildCheckText(r){
-  return [ "Nama : "+r.name, "Meja : "+(r.table||"-"), "Pax  : "+r.pax, "Tgl  : "+fmtDate(r.date), "Jam  : "+r.time,
-    "PIC  : "+(r.picType==="Marketing"?r.picName:"Host/Captain"), r.phone?("HP   : "+displayPhone(r.phone)):"",
-    (r.dpStatus==="Sudah")?("DP   : "+rp(r.dpAmount)+" ("+r.dpMethod+")"):"" ].filter(Boolean);
-}
-// Cetak ke printer thermal Bluetooth; kalau tidak ada → jatuh ke print biasa (popup).
-async function thermalPrint(r, lines, sub, foot){
-  if(!navigator.bluetooth){ return printFallback(r,lines,sub,foot); }
-  let ch=BT_PRINTER; if(!ch) ch=await connectPrinter(); if(!ch){ return printFallback(r,lines,sub,foot); }
-  try{
-    const ESC="\x1b", GS="\x1d";
-    let d=ESC+"@"+ESC+"a"+"\x01"+GS+"!"+"\x11"+"LAKSAMANA MUDA\n"+GS+"!"+"\x00"+sub+"\n--------------------------------\n"+ESC+"a"+"\x00"+lines.join("\n")+"\n--------------------------------\n"+ESC+"a"+"\x01"+foot+"\n\n\n"+GS+"V"+"\x00";
-    const bytes=new TextEncoder().encode(d);
-    for(let i=0;i<bytes.length;i+=180){ const chunk=bytes.slice(i,i+180); if(ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(chunk); else await ch.writeValue(chunk); }
-    toast("Terkirim ke printer 🖨️","ok");
-  }catch(e){ toast("Gagal print BT: "+e.message,"err"); printFallback(r,lines,sub,foot); }
-}
-async function printCheck(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  return thermalPrint(r, buildCheckText(r), "Coffee & Live Space", "Terima kasih, sampai jumpa!");
-}
-function printFallback(r,lines,sub,foot){
-  const w=window.open("","_blank","width=300,height=520");
-  if(!w){ toast("Popup diblokir, izinkan popup untuk print","err"); return; }
-  w.document.write('<pre style="font:12px/1.5 monospace;padding:10px;width:260px">   LAKSAMANA MUDA\n'+esc(sub||"Coffee & Live Space")+'\n--------------------------------\n'+lines.map(l=>esc(l)).join("\n")+'\n--------------------------------\n'+esc(foot||"Terima kasih!")+'</pre><scr'+'ipt>window.print();setTimeout(function(){window.close()},300)</scr'+'ipt>');
-  w.document.close();
-}
+/* Fitur PRINTER THERMAL BLUETOOTH & CETAK STRUK DIHAPUS — tidak jadi dipakai.
+   Dulu di sini: BT_PRINTER, connectPrinter, buildCheckText, thermalPrint, printCheck,
+   printFallback (± 40 baris + izin Web Bluetooth).
+   Kwitansi DP tetap ada, tapi lewat WhatsApp & unduh PDF — bukan struk printer. */
 
 /* ================= KWITANSI DP =================
    Bukti pembayaran DP untuk tamu: dikirim via WhatsApp atau dicetak sebagai struk. */
@@ -4170,6 +4188,11 @@ function kwitansiNo(r){
   return `KW/${String(r.date||todayStr()).replace(/-/g,"")}/${String(r.id||"").slice(-4).toUpperCase()}`;
 }
 function hasDP(r){ return !!r && r.dpStatus==="Sudah" && Number(r.dpAmount)>0; }
+/* LUNAS = pembayaran penuh, bukan uang muka. Dibuat sebagai penanda TERPISAH (r.lunas),
+   bukan status DP ketiga, supaya semua perhitungan DP yang sudah ada (dps[], dpTotal,
+   verifikasi per-transfer, laporan Dana Masuk) tetap jalan apa adanya — yang berubah
+   hanya sebutannya di kwitansi & tampilan. Opsional: kosong = DP biasa. */
+function isLunas(r){ return !!(r && r.lunas); }
 // Penerima DP: yang menginput reservasi; kalau kosong, kru yang sedang login.
 function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"; }
 function buildKwitansiText(r){
@@ -4198,28 +4221,114 @@ function buildKwitansiText(r){
     "_Terima kasih, sampai jumpa di Laksamana Muda_ ⚓",
   ].join("\n");
 }
-function buildKwitansiLines(r){
-  return [
-    "No    : "+kwitansiNo(r),
-    "Terbit: "+fmtDate(todayStr()),
-    "--------------------------------",
-    "Nama  : "+r.name,
-    "DP    : "+rpDot(r.dpAmount),
-    "Metode: "+(r.dpMethod||"-"),
-    "--------------------------------",
-    "Booking: "+fmtDate(r.date)+", "+r.time,
-    "Pax   : "+r.pax,
-    "Meja  : "+(r.table||"-"),
-    r.phone?("HP    : "+displayPhone(r.phone)):"",
-    "--------------------------------",
-    "Diterima: "+dpReceivedBy(r),
-  ].filter(Boolean);
+/* ===== KWITANSI DP → PDF =====
+   Menggantikan kwitansi-struk (printer thermal dihapus). Dibuat sebagai halaman HTML
+   berkop lalu dibuka dialog cetak browser → kru pilih "Save as PDF".
+   Sengaja TANPA library PDF (jsPDF dll): halaman ini dilindungi CSP yang memblokir CDN,
+   dan dialog cetak bawaan sudah menghasilkan PDF yang rapi + bisa langsung dicetak.
+   Semua isinya diambil dari data reservasi; kop mengikuti format faktur perusahaan. */
+const KWI_KOP = {
+  pt:"PT. LAKSAMANA MUDA BERSATU",
+  alamat:"Jl. Soekarno - Hatta No. 39, Labuh Baru Tim, Kec. Payung Sekaki,<br>Kota Pekanbaru, Riau 28282",
+  bank:"UOB | PT. Laksamana Muda Bersatu",
+  rek:"319-303-3588",
+  ttdNama:"(Wandi Pranata)",
+  ttdJabatan:"Finance"
+};
+function kwitansiHTML(r){
+  const baris=(k,v)=>`<tr><td class="k">${esc(k)}</td><td class="v">${v}</td></tr>`;
+  const lunas = isLunas(r);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(kwitansiNo(r))} — ${esc(r.name||"")}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.55 "Segoe UI",Arial,sans-serif;color:#1d1a15;background:#fff;padding:28px 30px}
+  .kop{display:flex;align-items:flex-start;gap:18px;border-bottom:3px solid #C9A227;padding-bottom:14px}
+  .kop img{width:74px;height:74px;object-fit:contain;flex:none}
+  .kop .pt{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .kop .al{font-size:11.5px;color:#5c574d;margin-top:4px}
+  .judul{margin-left:auto;text-align:right;flex:none}
+  .judul b{font-size:22px;letter-spacing:2px;display:block}
+  .judul span{font-size:11px;color:#5c574d;letter-spacing:1px}
+  .meta{display:flex;justify-content:space-between;gap:24px;margin:18px 0 16px}
+  .meta table{border-collapse:collapse}
+  .meta td{padding:2px 0;font-size:12.5px;vertical-align:top}
+  .meta td.k{color:#5c574d;padding-right:10px;white-space:nowrap}
+  .meta td.v{font-weight:600}
+  .lunas{display:inline-block;border:2px solid ${lunas?"#1F9D5F":"#C9A227"};color:${lunas?"#1F9D5F":"#8a6a12"};
+    font-weight:800;font-size:12px;letter-spacing:1.5px;padding:5px 12px;border-radius:6px;transform:rotate(-3deg)}
+  table.isi{width:100%;border-collapse:collapse;margin-top:6px}
+  table.isi th{background:#F4EEE0;border:1px solid #D9CDB2;padding:8px;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase}
+  table.isi td{border:1px solid #D9CDB2;padding:9px 8px;font-size:12.5px}
+  .num{text-align:right;white-space:nowrap}
+  .tot td{background:#FAF6EC;font-weight:800;font-size:13.5px}
+  .bawah{display:flex;justify-content:space-between;gap:30px;margin-top:24px}
+  .bayar{border:1px solid #D9CDB2;border-radius:8px;padding:11px 13px;font-size:12px;max-width:290px}
+  .bayar b{display:block;margin-bottom:3px}
+  .ttd{text-align:center;font-size:12.5px;min-width:190px}
+  .ttd .sp{height:58px}
+  .ttd .nm{border-top:1px solid #1d1a15;padding-top:5px;font-weight:700;display:inline-block;min-width:170px}
+  .catatan{margin-top:20px;font-size:11px;color:#5c574d;border-top:1px dashed #D9CDB2;padding-top:9px}
+  @page{size:A4;margin:12mm}
+  @media print{body{padding:0}.noprint{display:none}}
+  .noprint{margin-top:22px;text-align:center}
+  .noprint button{font:600 13px/1 "Segoe UI",Arial;padding:10px 18px;border-radius:8px;border:0;background:#C9A227;color:#2a2620;cursor:pointer}
+</style></head><body>
+  <div class="kop">
+    <img src="${LOGO_B64}" alt="">
+    <div><div class="pt">${esc(KWI_KOP.pt)}</div><div class="al">${KWI_KOP.alamat}</div></div>
+    <div class="judul"><b>KWITANSI</b><span>${lunas?"PELUNASAN":"PEMBAYARAN DP"}</span></div>
+  </div>
+  <div class="meta">
+    <table>
+      ${baris("Diterima dari", `<b>${esc((r.name||"-").toUpperCase())}</b>`)}
+      ${r.phone?baris("No. HP", esc(displayPhone(r.phone))):""}
+      ${baris("Untuk", lunas?"Pelunasan Reservasi":"Down Payment (DP) Reservasi")}
+    </table>
+    <table>
+      ${baris("No. Kwitansi", `<b>${esc(kwitansiNo(r))}</b>`)}
+      ${baris("Tanggal Terbit", esc(fmtDate(todayStr())))}
+      ${baris("Metode Bayar", esc(r.dpMethod||"-"))}
+    </table>
+  </div>
+  <table class="isi">
+    <thead><tr><th style="width:38px">No</th><th style="text-align:left">Keterangan</th><th style="width:60px">Pax</th><th style="width:130px">Jumlah</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td>
+        <td>Reservasi ${esc(r.category||"Tamu Umum")}<br>
+          <span style="color:#5c574d;font-size:11.5px">${esc(fmtDate(r.date))} · ${esc(r.time||"-")} WIB${r.table?` · Meja ${esc(r.table)}`:""}</span></td>
+        <td class="num">${esc(String(r.pax||"-"))}</td>
+        <td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
+      <tr class="tot"><td colspan="3" class="num">TOTAL DITERIMA</td><td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
+    </tbody>
+  </table>
+  <div class="bawah">
+    <div>
+      <div class="bayar"><b>Pembayaran dapat ditransfer ke:</b>${esc(KWI_KOP.bank)}<br><b style="margin-top:3px">${esc(KWI_KOP.rek)}</b></div>
+      <div style="margin-top:12px"><span class="lunas">${lunas?"LUNAS":"DP DITERIMA"}</span></div>
+    </div>
+    <div class="ttd">Hormat Kami,<div class="sp"></div>
+      <div class="nm">${esc(KWI_KOP.ttdNama)}</div>
+      <div style="color:#5c574d;font-size:11.5px">${esc(KWI_KOP.ttdJabatan)}</div>
+      <div style="color:#5c574d;font-size:11px;margin-top:5px">Diterima oleh: ${esc(dpReceivedBy(r))}</div>
+    </div>
+  </div>
+  <div class="catatan">${lunas
+      ? "Pembayaran reservasi ini telah <b>LUNAS</b>. Mohon simpan kwitansi ini sebagai bukti pembayaran."
+      : "DP ini akan <b>memotong total tagihan</b> saat tamu datang. Mohon simpan kwitansi ini sebagai bukti pembayaran."}
+    <br>Dokumen ini dicetak dari sistem reservasi Laksamana Muda dan sah tanpa tanda tangan basah.</div>
+  <div class="noprint"><button onclick="window.print()">🖨️ Simpan sebagai PDF / Cetak</button></div>
+</body></html>`;
 }
-async function printKwitansi(id){
+function kwitansiPDF(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
-  logAudit("Print Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
-  return thermalPrint(r, buildKwitansiLines(r), "KWITANSI PEMBAYARAN DP", "Terima kasih atas pembayarannya!");
+  const w=window.open("","_blank","width=860,height=980");
+  if(!w){ toast("Popup diblokir — izinkan popup untuk membuat PDF","err"); return; }
+  w.document.write(kwitansiHTML(r)); w.document.close();
+  // Beri jeda agar logo & font selesai dimuat sebelum dialog cetak muncul; tanpa ini
+  // PDF-nya bisa tercetak tanpa kop.
+  w.onload=()=>setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function sendKwitansi(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
@@ -4239,7 +4348,7 @@ function openKwitansi(id){
     </div>
     <div class="modal-foot" style="flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" onclick="copyWA(this, byId('kwText').textContent)">📋 Salin</button>
-      <button class="btn btn-ghost btn-sm" onclick="printKwitansi('${r.id}')">🖨️ Print</button>
+      <button class="btn btn-ghost btn-sm" onclick="kwitansiPDF('${r.id}')" title="Buka kwitansi berkop, lalu simpan sebagai PDF / cetak">📄 PDF</button>
       <button class="btn btn-wa btn-sm" style="margin-left:auto" onclick="sendKwitansi('${r.id}')">💬 Kirim ke Tamu</button>
       <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
     </div>`, true);
@@ -4278,7 +4387,6 @@ function renderHariH(){
    <div class="page-head">
      <div><h2>Recap Reservasi</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-       <button class="btn btn-sm btn-ghost" onclick="connectPrinter()" title="Sambungkan printer thermal Bluetooth">🖨️ Printer</button>
        <button class="btn btn-sm btn-wa" onclick="openCoordWA()">📋 WA Koordinasi</button>
      </div>
      <!-- Pemilih tanggal di header DIHAPUS: ia hanya mengubah HARIH_DATE tanpa RECAP_FROM,
@@ -4758,7 +4866,6 @@ function openDetail(id){
      ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
      ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openKwitansi('${r.id}')" title="Kirim/print kwitansi pembayaran DP">🧾 Kwitansi DP</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
-     <button class="btn btn-ghost btn-sm" onclick="printCheck('${r.id}')">🖨️ Print Struk</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
    </div>`, true);
