@@ -53,6 +53,21 @@ h1,h2,h3{font-family:var(--font-d);letter-spacing:-.02em}
 
 /* ========== APP SHELL ========== */
 #appView{display:none;min-height:100vh}
+/* ---------- Layar muat ----------
+   #appView baru ditampilkan setelah boot selesai, dan boot menunggu roster
+   Office (Apps Script) yang bisa makan 11-18 DETIK. Tanpa ini, kru menatap
+   layar PUTIH KOSONG selama itu dan mengira modulnya rusak.
+   Ditulis langsung di HTML (bukan dibuat JS) supaya tampil SEKETIKA, bahkan
+   sebelum satu baris skrip pun jalan. */
+#bootScreen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;background:var(--cream);z-index:9999;text-align:center;padding:24px}
+#bootScreen .ring{width:34px;height:34px;border:3px solid rgba(200,150,31,.25);border-top-color:var(--gold);
+  border-radius:50%;animation:bootSpin .8s linear infinite}
+@keyframes bootSpin{to{transform:rotate(360deg)}}
+#bootScreen .t{font-family:var(--font-d);font-weight:700;font-size:15px;color:var(--ink)}
+#bootScreen .s{font-size:12.5px;color:var(--muted-dark);max-width:320px;line-height:1.5}
+#bootScreen .slow{font-size:12.5px;color:var(--muted);max-width:340px;line-height:1.5;display:none}
+#bootScreen.is-slow .slow{display:block}
 .shell{display:flex;min-height:100vh}
 .sidebar{width:242px;flex:none;background:var(--white);border-right:1px solid var(--line);color:var(--text);padding:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
 .sidebar::-webkit-scrollbar{width:6px}
@@ -204,6 +219,17 @@ tbody tr:hover{background:var(--gold-soft)}
 </style>
 </head>
 <body>
+
+<!-- Layar muat: tampil seketika, ditutup oleh showApp() saat app siap.
+     Sengaja HTML biasa (bukan dibuat JS) supaya sudah terlihat bahkan sebelum
+     skrip di bawah dieksekusi. -->
+<div id="bootScreen">
+  <div class="ring"></div>
+  <div class="t">Menyiapkan Akademi</div>
+  <div class="s">Memuat materi & data kru…</div>
+  <div class="slow">Menyinkronkan roster kru dari Office — ini kadang butuh sampai 15 detik.
+    Materi tetap terbuka walau sinkron ini gagal.</div>
+</div>
 
 <!-- ============ APP ============
      Tidak ada layar login di modul ini. Identitas datang dari Office (SSO,
@@ -527,8 +553,18 @@ function resolveAkademiUser(s){
    staff division 'all' (default), admin merapikan di Kelola Kru. Non-blocking. */
 function autoSyncOfficeRoster(){
   if(!OFFICE_WEBAPP_URL) return Promise.resolve();
+  /* BATAS WAKTU 10 DETIK. Apps Script Office diukur merespons 11-18 detik, dan
+     boot MENUNGGU panggilan ini — tanpa batas waktu, kru menatap layar kosong
+     selama itu, dan kalau Apps Script mati, selamanya.
+     Sinkron roster cuma menambah kru baru; materi & progress datang dari data
+     lokal. Jadi lebih baik masuk aplikasi dengan roster agak basi daripada
+     tidak bisa masuk sama sekali. */
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, 10000);
   return fetch(OFFICE_WEBAPP_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      signal: ctrl.signal,
       body:JSON.stringify({action:'listModuleRoster', module:'akademi'})})
+    .finally(function(){ clearTimeout(timer); })
     .then(function(r){return r.json();})
     .then(function(data){
       if(!data || !data.ok || !Array.isArray(data.members)) return;
@@ -689,6 +725,7 @@ function navSections(u){
 }
 function go(view, arg){ VIEW=view; VIEW_ARG=arg||null; render(); window.scrollTo(0,0); }
 function showApp(){
+  var bs=document.getElementById('bootScreen'); if(bs) bs.remove();   // layar muat selesai
   document.getElementById('appView').style.display='block';
   render();
 }
@@ -1658,8 +1695,17 @@ function bootAkademi(){
 }
 // Tarik roster Office (kru ber-akses akademi) SEBELUM resolve user, supaya kru
 // baru sudah ada dan tidak terduplikasi. Non-blocking terhadap kegagalan.
+// Urutannya sengaja dipertahankan (roster dulu, baru resolve) — kalau dibalik,
+// kru yang login pertama kali bisa dibuatkan user baru lalu DIGANDAKAN oleh
+// roster. Yang ditambahkan cuma batas waktu di autoSyncOfficeRoster().
 function bootAkademiWithRoster(){
-  autoSyncOfficeRoster().then(bootAkademi).catch(bootAkademi);
+  // Kalau lewat 3 detik, beri tahu kru apa yang sedang ditunggu — diam terlalu
+  // lama membuat orang mengira modulnya rusak lalu me-refresh berulang.
+  var lambat=setTimeout(function(){
+    var bs=document.getElementById('bootScreen'); if(bs) bs.classList.add('is-slow');
+  },3000);
+  var selesai=function(){ clearTimeout(lambat); bootAkademi(); };
+  autoSyncOfficeRoster().then(selesai).catch(selesai);
 }
 loadDB();
 if(DB.settings.syncUrl && DB.settings.syncAuto){
