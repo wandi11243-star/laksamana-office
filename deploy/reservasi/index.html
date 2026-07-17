@@ -328,6 +328,29 @@ td .muted{color:var(--muted);font-size:13px}
 .tp.open .tp-pop{display:block}
 .tp-head{display:grid;grid-template-columns:1fr 1fr;gap:6px;text-align:center;padding:2px 0 7px;
   font-size:10.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
+/* ===== DATE PICKER SENDIRI (.dp) — menumpang gaya .tp supaya seragam dgn pemilih jam.
+   Dipakai di form Input Reservasi: kalender bawaan browser tampilannya beda-beda tiap
+   perangkat & sulit dipakai cepat oleh kru. ===== */
+.dp-pop{width:266px;padding:10px}
+.dp-nav{display:flex;align-items:center;gap:6px;padding-bottom:8px}
+.dp-nav .lbl{flex:1;text-align:center;font-weight:700;font-size:13.5px}
+.dp-nav button{width:30px;height:30px;border:1px solid var(--line);background:var(--paper);border-radius:8px;
+  cursor:pointer;color:var(--ink);font-weight:800;line-height:1}
+.dp-nav button:hover{border-color:var(--gold)}
+.dp-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;
+  font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;padding-bottom:4px}
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.dp-d{padding:7px 0;border:none;background:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;
+  color:var(--ink);font-variant-numeric:tabular-nums}
+.dp-d:hover:not(:disabled){background:var(--surface-2)}
+.dp-d.lain{color:var(--muted-2);font-weight:500}
+.dp-d.kini{box-shadow:inset 0 0 0 1.5px var(--gold)}
+.dp-d.on{background:var(--gold);color:#2a2620;font-weight:800}
+.dp-d:disabled{opacity:.28;cursor:not-allowed}
+.dp-cepat{display:flex;gap:6px;flex-wrap:wrap;padding-top:9px;margin-top:8px;border-top:1px solid var(--line)}
+.dp-cepat button{flex:1;padding:7px 4px;border:1px solid var(--line);background:var(--paper);border-radius:8px;
+  cursor:pointer;font-size:11.5px;font-weight:700;color:var(--ink);white-space:nowrap}
+.dp-cepat button:hover{border-color:var(--gold);color:var(--gold-dark,var(--gold))}
 .tp-cols{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .tp-col{max-height:190px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;scroll-behavior:smooth}
 .tp-col::-webkit-scrollbar{width:6px}
@@ -420,6 +443,14 @@ td .muted{color:var(--muted);font-size:13px}
 .seat.booked.fu-late{background:#F5C400 !important;animation:fuLate 1.2s ease-in-out infinite;z-index:4}
 .seat.booked.fu-late .sn,.seat.booked.fu-late .sp,.seat.booked.fu-late .seat-sub{color:#3a2a00 !important}
 @keyframes fuLate{0%,100%{box-shadow:0 0 0 0 rgba(245,196,0,.8)}50%{box-shadow:0 0 0 8px rgba(245,196,0,0)}}
+/* PERLU DIALIHKAN: meja masih terisi & reservasi berikutnya sudah dekat (≤10 menit) →
+   satu-satunya kondisi yang benar-benar mendesak, jadi hanya INI yang berkedip.
+   Tamu duduk lama tapi reservasi berikutnya masih jauh sengaja TIDAK ditandai — kalau
+   denah penuh tanda, kru berhenti memperhatikannya. */
+.seat.booked.seat-alih{animation:alihPulse 1.2s ease-in-out infinite;z-index:5}
+@keyframes alihPulse{0%,100%{box-shadow:inset 0 0 0 2.5px #7C5FC0,0 0 0 0 rgba(124,95,192,.85)}50%{box-shadow:inset 0 0 0 2.5px #7C5FC0,0 0 0 8px rgba(124,95,192,0)}}
+.seat .seat-alih-tag{position:absolute;top:2px;right:3px;background:#7C5FC0;color:#fff;font-size:9px;
+  line-height:1;padding:2px 3px;border-radius:6px}
 /* Ubah status langsung: tombol, bukan dropdown */
 .status-btns{display:flex;gap:8px;flex-wrap:wrap}
 .stbtn{display:inline-flex;align-items:center;gap:6px;padding:9px 14px;border-radius:10px;border:1.5px solid var(--line);
@@ -990,6 +1021,10 @@ function dayTypeLayout(date){ const ov=layoutOverrides()[date]; return (ov && ge
 function hasLayoutOverride(date){ const ov=layoutOverrides()[date]; return !!(ov && getLayout(ov)); }
 // id meja yg dipakai sebuah reservasi (dukung banyak meja: "12, 13")
 function tablesOf(r){ return String(r&&r.table||"").split(",").map(s=>s.trim()).filter(Boolean); }
+// Meja ASLI tamu yang sedang dialihkan sementara (r.tableAsli), dipisah sama seperti tablesOf.
+function mejaAsliOf(r){ return String(r&&r.tableAsli||"").split(",").map(s=>s.trim()).filter(Boolean); }
+// Tamu yang sedang "menumpang" di meja lain & menunggu meja aslinya bebas.
+function sedangDialihkan(r){ return !!(r && r.tableAsli && !r.leftAt && !["Cancelled","No-show","Completed"].includes(r.status)); }
 // Jendela kunci meja: kursi terkunci otomatis mulai H-3 JAM sebelum jam booking.
 // Contoh: booking 19:00 → meja terkunci sejak 16:00 (jam datang 16:00 pun sudah ter-disable).
 // Reservasi baru hanya bisa memakai meja itu bila jamnya LEBIH dari 3 jam sebelum/sesudahnya.
@@ -1158,6 +1193,27 @@ function lockEnd(r){
 // Tamu masih duduk padahal estimasinya sudah lewat → mejanya sudah dianggap bebas untuk
 // booking berikutnya, dan host perlu diingatkan menandai "Selesai".
 function overStay(r){ return isSeated(r) && absNow() > lockEnd(r); }
+// Berapa lama tamu sudah melewati estimasi (menit). Untuk label "ngaret 1j 20m".
+function overStayMin(r){ return overStay(r) ? absNow() - lockEnd(r) : 0; }
+/* Ambang peringatan: berapa menit SEBELUM jam reservasi berikutnya meja mulai diperingatkan.
+   Bisa diubah di Master Data (clashLeadMin), default 10 menit. */
+function clashLead(){ const n=Number(STATE.master && STATE.master.clashLeadMin); return n>0 ? n : 10; }
+// Menit menuju jam reservasi ini (negatif = jamnya sudah lewat).
+function menitMenuju(r){ return absMin(r.date, r.time) - absNow(); }
+/* Meja yang perlu tindakan: masih ada tamu DUDUK, sekaligus reservasi berikutnya di meja
+   yang sama sudah dekat (≤ ambang) atau jamnya lewat.
+
+   Yang menentukan SENGAJA bukan "sudah ngaret". Tamu duduk 4 jam sementara reservasi
+   berikutnya baru jam 20:00 itu BUKAN masalah — memperingatkan sejak jam 16:00 hanya
+   bikin denah berisik lalu tanda peringatannya diabaikan kru. Yang benar-benar mendesak
+   hanyalah saat tamu berikutnya SEBENTAR LAGI datang tapi mejanya masih terisi. */
+function perluDialihkan(list){
+  const duduk=(list||[]).find(x=>isSeated(x));
+  if(!duduk) return null;
+  const amb=clashLead();
+  const nunggu=(list||[]).filter(x=>x.id!==duduk.id && !isSeated(x) && menitMenuju(x)<=amb);
+  return nunggu.length ? {duduk, nunggu} : null;
+}
 // "23:00", atau "23:00 (14 Jul)" bila jam kunci jatuh di tanggal lain dari tanggal booking.
 function lockStartText(r){
   const s=lockStart(r), dn=Math.floor(s/1440);
@@ -1211,10 +1267,39 @@ function tableCap(tableId, layoutKey){
      - Meja 4-5 pax diisi walk-in 2 orang → terpakai 2, sisa 2-3.
      - Tamu datang melebihi booking (pesan 8, datang 10) → terpakai 10, bukan 8. */
 function paxTaken(r){ return Math.max(Number(r&&r.pax)||0, arrivedPax(r)); }
-function takenPaxAt(list){ return (list||[]).reduce((a,r)=>a+paxTaken(r), 0); }
+// Kapasitas maksimum sebuah meja berdasarkan id-nya, dicari di SEMUA layout — satu
+// reservasi bisa memakai meja dari lantai/denah lain.
+function capOfTableId(id){
+  for(const k of allLayoutKeys()){
+    const L=getLayout(k); if(!L) continue;
+    const t=(L.tables||[]).find(x=>x.id===id);
+    if(t) return capMax(t.cap);
+  }
+  return 0;
+}
+/* Pax sebuah reservasi yang dibebankan ke SATU meja.
+   DULU: reservasi yang memakai beberapa meja dihitung PENUH di tiap mejanya. Rombongan
+   9 pax di 2 meja @7 membuat KEDUA meja tertulis "kursi penuh" (9 dari 7), padahal
+   9 orang di 14 kursi masih sisa 5 — kru jadi mengira tak bisa menambah tamu lagi.
+   SEKARANG: paxnya dibagi menurut porsi kapasitas tiap meja, jadi totalnya tetap pas. */
+function paxDiMeja(r, tableId){
+  const meja=tablesOf(r), total=paxTaken(r);
+  if(meja.length<=1) return total;
+  const i=meja.indexOf(tableId);
+  if(i<0) return 0;
+  const caps=meja.map(id=>Math.max(1, capOfTableId(id)||1));
+  const jml=caps.reduce((a,b)=>a+b,0);
+  const porsi=caps.map(c=>Math.floor(total*c/jml));
+  porsi[0]+=total-porsi.reduce((a,b)=>a+b,0);   // sisa pembulatan → meja pertama
+  return porsi[i];
+}
+// `tableId` diisi → pax reservasi multi-meja dibagi; kosong → dihitung penuh (kompatibel lama).
+function takenPaxAt(list, tableId){
+  return (list||[]).reduce((a,r)=>a+(tableId?paxDiMeja(r,tableId):paxTaken(r)), 0);
+}
 // {terisi, min, max, sisaMin, sisaMax} — sisa dinyatakan sebagai rentang, mengikuti "4-5".
 function tableFill(t, list){
-  const terisi=takenPaxAt(list);
+  const terisi=takenPaxAt(list, t && t.id);
   const min=capMin(t.cap), max=capMax(t.cap);
   return { terisi, min, max,
            sisaMin: Math.max(0, min-terisi),
@@ -1354,7 +1439,16 @@ function offerWaitlist(tableId){
 // `time` kosong → seluruh hari `date`; `time` diisi → titik waktu itu saja.
 // Reservasi H-1 & H+1 ikut diperiksa karena jendela kunci bisa melewati tengah malam
 // (booking 02:00 mengunci mejanya sejak 23:00 hari sebelumnya).
-function occupiedMap(date, time, exceptId){
+/* `realita` (dipakai denah hari ini): tamu yang SEDANG DUDUK tetap menempati mejanya
+   sampai ditandai "Selesai", walau estimasi lama duduk sudah lewat. Estimasi itu tebakan;
+   kenyataannya tamu bisa ngaret dan tidak mungkin diusir — denah harus jujur.
+
+   `realita=false` (pengecekan BOOKING): tetap memakai estimasi, sengaja. Itu yang membuat
+   jam berikutnya TETAP BISA DIJUAL (tamu jam 13:00 → meja boleh dipesan lagi jam 16:00),
+   sekaligus menjaga agar tamu yang lupa ditandai "Selesai" tidak memblokir booking
+   berhari-hari. Jadi satu tamu ngaret hanya membuat denah menandainya merah — bukan
+   menghalangi penjualan. */
+function occupiedMap(date, time, exceptId, realita){
   const m=new Map();
   const d0=dayNo(date)*1440;
   const a = time ? absMin(date,time) : d0;
@@ -1367,7 +1461,8 @@ function occupiedMap(date, time, exceptId){
     // tamu sudah pulang (Completed / Selesai duduk) / batal / no-show → meja bebas lagi
     if(["Cancelled","No-show","Completed"].includes(r.status)) return;
     if(r.leftAt) return;   // sudah selesai duduk (tamu pulang) → meja kembali tersedia
-    if(!locksRange(r, a, b)) return;
+    const dudukTerus = realita && isSeated(r);                 // masih duduk → tetap menempati
+    if(!dudukTerus && !locksRange(r, a, b)) return;
     tablesOf(r).forEach(id=>{ if(!m.has(id)) m.set(id,[]); m.get(id).push(r); });
   });
   // Satu meja bisa dipakai beberapa reservasi (mis. jam 13:00 lalu 20:00, atau booking
@@ -1408,8 +1503,10 @@ function cocokFilterDenah(r){
 }
 function denahFilterAktif(){ return !!(RECAP_TF || RECAP_TT || RECAP_STATUS); }
 function harihOccupancy(){
-  const all=occupiedMap(HARIH_DATE,"",null);
   const isToday = HARIH_DATE===todayStr();
+  // "realita" hanya masuk akal untuk HARI INI — tamu yang duduk sekarang tidak boleh
+  // dianggap menempati meja pada denah tanggal besok.
+  const all=occupiedMap(HARIH_DATE,"",null, isToday);
   const now=absNow();
   const saring=denahFilterAktif();
   const occ=new Map(), later=new Map();
@@ -1507,7 +1604,21 @@ function seatMapMarkup(layoutKey, mode, occ, later){
         // tidak ditulis sebagai badge terpisah — kotak mejanya terlalu sempit dan malah
         // menutupi nomor meja. Warna biru + tooltip + legenda sudah menjelaskannya.
         const spTxt = room ? `${nm1} ${fill.terisi}/${t.cap}` : (sisa? `${nm1} ${arrivedPax(res)}/${res.pax}` : nm1);
-        return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}${room?" seat-room":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(spTxt)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}</button>`;
+        /* NGARET & PERLU DIALIHKAN — kondisi nyata di lapangan.
+           Estimasi lama duduk cuma tebakan; tamu bisa saja masih makan lewat dari itu dan
+           tak mungkin diusir. Meja tetap ditandai TERISI (lihat occupiedMap `realita`),
+           dan diberi tanda supaya kru langsung tahu: kalau ada tamu berikutnya yang jamnya
+           sudah tiba, dialah yang perlu dialihkan sementara ke meja lain. */
+        /* Peringatan HANYA saat mendekati bentrok — bukan sekadar "sudah lewat estimasi".
+           Tamu duduk lama padahal reservasi berikutnya masih jauh itu normal & tidak perlu
+           ditandai; kalau ditandai terus, kru malah terbiasa mengabaikan tandanya.
+           Lama duduk tetap ditulis di tooltip sebagai INFORMASI, bukan peringatan. */
+        const alih = perluDialihkan(list.concat(nanti));
+        const nebeng = sedangDialihkan(res);        // tamu ini menumpang, meja aslinya lain
+        const tipEkstra = (overStay(res) ? `\n⏱ Sudah duduk ${fmtDur(overStayMin(res))} melewati estimasi ${fmtDur(dineEst())} (wajar — meja tetap terisi sampai ditandai Selesai).` : "")
+          + (alih ? `\n⚠️ ${alih.nunggu.map(x=>`${x.name} jam ${x.time}${menitMenuju(x)>0?` (${fmtDur(menitMenuju(x))} lagi)`:" (sudah lewat)"}`).join(", ")} — meja masih terisi, alihkan sementara ke meja lain.` : "")
+          + (nebeng ? `\n🔁 Dialihkan sementara dari meja ${res.tableAsli} — kembalikan ke sana kalau sudah bebas.` : "");
+        return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}${room?" seat-room":""}${alih?" seat-alih":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip+tipEkstra)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(spTxt)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}${alih?`<span class="seat-alih-tag" title="${esc("Reservasi berikutnya sudah dekat tapi meja masih terisi — alihkan sementara")}">⚠️</span>`:""}${nebeng?`<span class="seat-alih-tag" style="background:#1F9D5F" title="${esc("Menumpang sementara, meja asli "+res.tableAsli)}">🔁</span>`:""}</button>`;
       }
       // Kosong sekarang, tapi ada booking >3 jam lagi → boleh walk-in, ditandai jam kuncinya.
       const nWait=waitingQueue(HARIH_DATE).length;
@@ -1572,7 +1683,8 @@ const DEFAULT_MASTER = {
   ],
   users: JSON.parse(JSON.stringify(DEFAULT_USERS)),   // daftar kru (dikelola Super Admin)
   perms: JSON.parse(JSON.stringify(DEFAULT_PERMS)),   // hak akses halaman per role
-  dineEstMin: 180,       // estimasi lama tamu duduk (menit) → meja lepas sendiri setelah ini
+  dineEstMin: 180,       // estimasi lama duduk (menit) → dipakai utk BOLEH-JUAL, bukan utk membebaskan meja di denah
+  clashLeadMin: 10,      // peringatan "perlu dialihkan" muncul sekian menit sebelum jam reservasi berikutnya
   layoutOverrides: {},   // { "YYYY-MM-DD": "<layoutKey>" } → override layout utk tanggal event, besoknya balik default
   layouts: {},           // { "<key>": {name,fixed,tables} } → hasil edit denah / template custom (menimpa built-in)
   // Antrian tamu walk-in yang belum kebagian meja
@@ -2019,8 +2131,13 @@ async function pollRemote(){
     if(_saving || hasLocalChanges() || byId("busyRoot")?.classList.contains("on")) return;
     applyServer(d);
     buildNav();
-    if(CURRENT_PAGE) navigate(CURRENT_PAGE);
-    setSync("ok","Diperbarui dari kru lain");
+    /* Di tab Denah cukup gambar ulang PETANYA saja. navigate() membangun ulang seluruh
+       halaman dari nol, sehingga posisi gulir kru terlempar ke atas di tengah kerja —
+       tiap beberapa detik pula. Halaman lain tetap digambar ulang seperti biasa. */
+    if(!refreshDenahSaja() && CURRENT_PAGE) navigate(CURRENT_PAGE);
+    // Sengaja TIDAK memunculkan notifikasi "diperbarui dari kru lain": tarikan ini jalan
+    // sendiri tiap beberapa detik, jadi pesannya muncul terus tanpa diminta & mengganggu.
+    setSync("ok","Tersambung");
   }catch(e){ /* dibatalkan / offline sesaat → coba lagi pada tik berikutnya */ }
   finally{ _pollJalan=false; }
 }
@@ -2596,6 +2713,81 @@ function timePickerHtml(o){
     </div>
   </div>`;
 }
+/* ===== DATE PICKER SENDIRI =====
+   Kalender bawaan browser (<input type="date">) tampil & berperilaku beda-beda di tiap
+   perangkat, dan di HP sering butuh beberapa ketukan. Kru memakai kolom ini puluhan kali
+   sehari, jadi dibuatkan kalender sendiri + pintasan Hari Ini/Besok/Lusa.
+   Nilainya tetap disimpan sebagai "YYYY-MM-DD" di <input type="hidden">, jadi seluruh
+   kode lain (form.elements.date.value) tidak perlu berubah sama sekali.
+   `min` dihormati: tanggal sebelum itu ter-disable (dipakai utk melarang tanggal lampau). */
+const DP_BULAN=["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const DP_DOW=["Min","Sen","Sel","Rab","Kam","Jum","Sab"];
+const DP_STATE={};   // id -> {y, m} bulan yang sedang ditampilkan
+function datePickerHtml(o){
+  const id=o.id, val=(o.value||todayStr()), min=o.min||"";
+  return `<div class="tp dp" id="${id}" data-cb="${esc(o.onpick||"")}" data-min="${esc(min)}">
+    <input type="hidden" name="${esc(o.name||"")}" value="${esc(val)}">
+    <button type="button" class="tp-btn" onclick="dpToggle('${id}')" aria-label="Pilih tanggal">
+      <span class="tp-val" data-lbl>${esc(fmtDateShort(val))}</span>
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+    </button>
+    <div class="tp-pop dp-pop"></div>
+  </div>`;
+}
+function dpToggle(id){
+  const el=byId(id); if(!el) return;
+  const buka=el.classList.contains("open");
+  tpClose();
+  if(buka) return;
+  const v=el.querySelector("input").value||todayStr();
+  DP_STATE[id]={ y:Number(v.slice(0,4)), m:Number(v.slice(5,7))-1 };
+  dpRender(id); el.classList.add("open");
+}
+function dpGeser(id, d){ const s=DP_STATE[id]; if(!s) return; const t=new Date(s.y, s.m+d, 1); s.y=t.getFullYear(); s.m=t.getMonth(); dpRender(id); }
+function dpRender(id){
+  const el=byId(id); if(!el) return;
+  const s=DP_STATE[id], pop=el.querySelector(".dp-pop");
+  const pilih=el.querySelector("input").value, min=el.dataset.min||"", kini=todayStr();
+  const awal=new Date(s.y, s.m, 1), mulai=awal.getDay();            // 0=Minggu
+  const jmlHari=new Date(s.y, s.m+1, 0).getDate();
+  const jmlSblm=new Date(s.y, s.m, 0).getDate();
+  const sel=[];
+  for(let i=mulai-1;i>=0;i--) sel.push({d:jmlSblm-i, lain:true, ymd:ymdKe(s.y, s.m-1, jmlSblm-i)});
+  for(let d=1;d<=jmlHari;d++)  sel.push({d, lain:false, ymd:ymdKe(s.y, s.m, d)});
+  while(sel.length%7) { const d=sel.length-mulai-jmlHari+1; sel.push({d, lain:true, ymd:ymdKe(s.y, s.m+1, d)}); }
+  pop.innerHTML=`
+    <div class="dp-nav">
+      <!-- event.stopPropagation WAJIB: dpGeser menggambar ulang isi panel, sehingga tombol
+           yang barusan diklik LENYAP dari DOM. Saat klik itu merambat ke document, penutup
+           "klik di luar" (bawah) memanggil e.target.closest(".tp") pada elemen yatim →
+           dapat null → dikira klik di luar → panel ditutup. Akibatnya bulan terlihat tidak
+           bisa berpindah, padahal berpindah lalu panelnya keburu tertutup. -->
+      <button type="button" onclick="event.stopPropagation();dpGeser('${id}',-1)" aria-label="Bulan sebelumnya">‹</button>
+      <span class="lbl">${DP_BULAN[s.m]} ${s.y}</span>
+      <button type="button" onclick="event.stopPropagation();dpGeser('${id}',1)" aria-label="Bulan berikutnya">›</button>
+    </div>
+    <div class="dp-dow">${DP_DOW.map(d=>`<span>${d}</span>`).join("")}</div>
+    <div class="dp-grid">${sel.map(c=>{
+      const mati = min && c.ymd<min;
+      return `<button type="button" class="dp-d${c.lain?" lain":""}${c.ymd===kini?" kini":""}${c.ymd===pilih?" on":""}"
+        ${mati?"disabled":""} onclick="dpPick('${id}','${c.ymd}')">${c.d}</button>`;
+    }).join("")}</div>
+    <div class="dp-cepat">
+      ${[["Hari Ini",0],["Besok",1],["Lusa",2]].map(([t,n])=>{
+        const d=dateOfDayNo(dayNo(kini)+n);
+        return (min && d<min) ? "" : `<button type="button" onclick="dpPick('${id}','${d}')">${t}</button>`;
+      }).join("")}
+    </div>`;
+}
+// Bangun "YYYY-MM-DD" dari komponen; bulan boleh di luar 0-11 (Date menormalkannya).
+function ymdKe(y, m, d){ const t=new Date(y, m, d); return ymdOf(t.getTime()); }
+function dpPick(id, ymd){
+  const el=byId(id); if(!el) return;
+  el.querySelector("input").value=ymd;
+  el.querySelector("[data-lbl]").textContent=fmtDateShort(ymd);
+  el.classList.remove("open");
+  const cb=el.dataset.cb; if(cb && typeof window[cb]==="function") window[cb]();
+}
 function tpClose(){ document.querySelectorAll(".tp.open").forEach(el=>el.classList.remove("open")); }
 function tpToggle(id){
   const el=byId(id); if(!el) return;
@@ -2622,7 +2814,15 @@ function tpPick(id, part, v){
   if(cb && typeof window[cb]==="function") window[cb](val);
 }
 // Klik di luar → tutup panel
-document.addEventListener("click", e=>{ if(!e.target.closest(".tp")) tpClose(); });
+/* Klik di luar → tutup pemilih jam/tanggal.
+   Penjaga isConnected: elemen yang SUDAH LEPAS dari DOM (mis. tombol geser bulan yang
+   handler-nya menggambar ulang panel) tidak punya induk lagi, sehingga closest(".tp")
+   mengembalikan null dan kliknya salah dikira "di luar" → panel tertutup sendiri.
+   Kalau target sudah lepas, posisinya memang tak bisa dinilai — abaikan saja. */
+document.addEventListener("click", e=>{
+  if(!e.target || !e.target.isConnected) return;
+  if(!e.target.closest(".tp")) tpClose();
+});
 
 /* ================= INPUT RESERVASI ================= */
 let EDIT_ID = null;
@@ -2659,8 +2859,9 @@ function renderInput(editId){
        <datalist id="guestNames">${guestDirectory().map(g=>`<option value="${esc(g.name)}">${esc(displayPhone(g.phone))}</option>`).join("")}</datalist>
        <datalist id="guestPhones">${guestDirectory().map(g=>`<option value="${esc(displayPhone(g.phone))}">${esc(g.name)}</option>`).join("")}</datalist>
        <div class="field">
-         <label>Tanggal Reservasi <span class="req">*</span></label>
-         <input type="date" name="date" required value="${r?.date||todayStr()}" min="${r?.date && r.date<todayStr() ? r.date : todayStr()}" onchange="onDateChange()">
+         <label>Tanggal Reservasi <span class="req">*</span> <span class="hint" style="font-weight:400">(klik untuk pilih)</span></label>
+         ${datePickerHtml({id:"dpDate", name:"date", value:r?.date||todayStr(),
+            min:(r?.date && r.date<todayStr()) ? r.date : todayStr(), onpick:"onDateChange"})}
        </div>
        <div class="field">
          <label>Jam Datang <span class="req">*</span> <span class="hint" style="font-weight:400">(format 24 jam, tinggal klik)</span></label>
@@ -2717,8 +2918,16 @@ function renderInput(editId){
            <label><input type="radio" name="dpStatus" value="Belum" ${(!r||r?.dpStatus!=="Sudah")?"checked":""} onchange="toggleDP()"><span>Belum DP</span></label>
          </div>
        </div>
+       <div class="field" id="dpLunasWrap">
+         <label>Jenis Pembayaran</label>
+         <label class="wa-target" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin:0">
+           <input type="checkbox" name="lunas" ${r?.lunas?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
+           <div><h4 style="margin:0">💯 Lunas (bayar penuh)</h4>
+             <p style="margin:2px 0 0">Kosongkan kalau ini uang muka (DP) biasa. Mengubah sebutan di kwitansi jadi <b>PELUNASAN</b>.</p></div>
+         </label>
+       </div>
        <div class="field" id="dpMethodWrap">
-         <label>Metode / Tujuan DP</label>
+         <label>Metode / Tujuan Pembayaran</label>
          <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod)}</select>
        </div>
        <div class="field" id="dpNominalWrap">
@@ -2809,7 +3018,7 @@ function downscaleImage(dataUrl, maxDim, quality, cb){
 }
 function toggleDP(){
   const sudah = document.querySelector('input[name=dpStatus]:checked')?.value==="Sudah";
-  ["dpMethodWrap","dpNominalWrap","dpProofWrap"].forEach(id=>byId(id).classList.toggle("hidden",!sudah));
+  ["dpLunasWrap","dpMethodWrap","dpNominalWrap","dpProofWrap"].forEach(id=>byId(id)?.classList.toggle("hidden",!sudah));
 }
 function togglePIC(){
   const wrap=byId("picNameWrap"); const el=byId("resForm")?.elements["picType"];
@@ -2933,7 +3142,7 @@ async function saveReservation(){
   // menonaktifkan tombolnya; ini jaring pengaman kalau tanggal diketik manual).
   if(!EDIT_ID && g("date") < todayStr()){
     toast("Tanggal reservasi tidak boleh sebelum hari ini","err");
-    f.elements["date"].focus(); return;
+    dpToggle("dpDate"); return;      // input tanggal kini hidden → buka kalendernya
   }
   // Meja wajib dipilih (klik meja pada denah).
   if(!g("table")){
@@ -2968,6 +3177,8 @@ async function saveReservation(){
     table:g("table"), sharing: !!document.querySelector('input[name=sharing]')?.checked,
     category:g("category"), foodReq:g("foodReq"), drinkReq:g("drinkReq"),
     dpStatus, dpMethod: dpStatus==="Sudah"?g("dpMethod"):"", dpAmount: dpStatus==="Sudah"?rupiahVal(g("dpAmount")):0,
+    // Penanda LUNAS hanya relevan bila memang ada pembayaran; "Belum DP" selalu bukan lunas.
+    lunas: dpStatus==="Sudah" && !!document.querySelector('input[name=lunas]')?.checked,
     dpProofData: PENDING_FILES.dpProofData?.data || existing?.dpProofData || "",
     dpProofName: PENDING_FILES.dpProofData?.name || existing?.dpProofName || "",
     dps: existing?.dps || [],             // cicilan DP (boleh lebih dari satu kali transfer)
@@ -3390,6 +3601,19 @@ function recapList(){
     return true;
   }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 }
+/* Gambar ulang HANYA kotak denahnya (#harihMap), tanpa menyentuh sisa halaman.
+   Dipakai auto-refresh & timer: menggambar ulang seluruh halaman tiap beberapa detik
+   melempar posisi gulir kru ke atas terus-menerus.
+   Mengembalikan true bila denahnya memang sedang tampil (jadi pemanggil tahu apakah
+   perlu jatuh kembali ke navigate() untuk halaman/tab lain). */
+function refreshDenahSaja(){
+  if(CURRENT_PAGE!=="hariH" || HARIH_VIEW!=="map") return false;
+  const map=byId("harihMap"); if(!map) return false;
+  const {occ,later}=harihOccupancy();
+  HARIH_SIG=occSig(occ,later);
+  map.innerHTML=seatMapMarkup(harihLayoutKey(),"view",occ,later);
+  return true;
+}
 function harihL1(){ return dayTypeLayout(HARIH_DATE); }
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
@@ -3702,7 +3926,9 @@ function updateHarihTimers(){
   // Begitu kondisi berubah, gambar ulang halaman supaya denah & ringkasan ikut sinkron.
   const {occ,later}=harihOccupancy();
   const sig=occSig(occ,later);
-  if(sig!==HARIH_SIG){ HARIH_SIG=sig; renderHariH(); return; }
+  // Kondisi meja berubah (mis. lewat jam kunci) → cukup gambar ulang DENAHNYA.
+  // renderHariH() penuh akan melempar posisi gulir kru ke atas tanpa sebab yang jelas.
+  if(sig!==HARIH_SIG){ HARIH_SIG=sig; if(!refreshDenahSaja()) renderHariH(); return; }
   map.querySelectorAll(".seat.booked[data-bts]").forEach(el=>{
     const bts=Number(el.dataset.bts), stt=el.dataset.st, sub=el.querySelector(".seat-sub");
     el.classList.remove("fu-warn","fu-late");
@@ -3729,6 +3955,8 @@ function seatAction(id){
   let acts="";
   if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
   if(canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
+  // Tamu ini sedang menumpang di meja lain → jalan pintas kembali ke meja aslinya.
+  if(canEdit && sedangDialihkan(r)) acts+=`<button class="btn btn-primary" onclick="closeModal();tawarkanKembaliKeAsli('${r.id}')" title="Tamu ini dialihkan sementara dari meja ${esc(r.tableAsli)}">🔁 Kembali ke Meja Asli (${esc(r.tableAsli)})</button>`;
   if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
   if(canEdit){
     acts+=`<button class="btn btn-ghost" onclick="toggleSharing('${r.id}')">🤝 ${r.sharing?"Batalkan Sharing":"Jadikan Sharing"}</button>`;
@@ -3783,7 +4011,6 @@ function seatAction(id){
    <div class="modal-foot" style="flex-wrap:wrap;justify-content:flex-start">
      ${acts}
      <button class="btn btn-ghost" onclick="closeModal();openDetail('${r.id}')">🔍 Detail${canEdit?" & Edit":""}</button>
-     <button class="btn btn-ghost" onclick="printCheck('${r.id}')">🖨️ Struk</button>
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
@@ -3928,7 +4155,6 @@ async function saveWalkIn(tableId, doPrint){
   if(!STATE.reservations.some(x=>x.id===rec.id)) return;      // ditolak, sudah diberi tahu
   if(!tertulis){ toast("Gagal menulis ke database — walk-in BELUM tersimpan","err"); return; }
   toast("Walk-in tersimpan ✓ (tersimpan di database)","ok");
-  if(doPrint) printCheck(rec.id);
 }
 /* ===== Sharing / kelola meja (hari-H) ===== */
 // Jadikan / batalkan sharing untuk sebuah reservasi
@@ -3964,6 +4190,15 @@ function toggleMoveSeat(tableId){
   if(i>=0) MOVE_SELS.splice(i,1); else MOVE_SELS.push(tableId);
   renderMoveModal();
 }
+/* Centang "pindah sementara" dicentang OTOMATIS bila meja tamu ini memang sedang ditempati
+   tamu lain yang ngaret — itu justru alasan paling umum kru memindahkan tamu. Kalau bukan
+   karena itu (mis. tamu minta pindah tempat), kru tinggal melepas centangnya. */
+function moveSementaraDefault(r){
+  if(r.tableAsli) return true;                       // sudah pernah dialihkan → pertahankan
+  if(r.date!==todayStr()) return false;
+  const occ=occupiedMap(r.date,"",r.id, true);       // realita: siapa yang FISIKNYA di sana
+  return tablesOf(r).some(t=>(occ.get(t)||[]).some(x=>isSeated(x)));   // meja asli masih ada tamunya
+}
 function renderMoveModal(){
   const r=STATE.reservations.find(x=>x.id===MOVE_ID); if(!r) return;
   const occ=occupiedMap(r.date, r.time, MOVE_ID);   // kecualikan diri sendiri
@@ -3974,6 +4209,11 @@ function renderMoveModal(){
      <p class="hint" style="margin-bottom:10px">Meja sekarang: <b>${esc(r.table||'-')}</b>, ${fmtDate(r.date)} ${r.time}. ${add
        ? `Meja lama tetap terpilih — klik meja lain untuk <b>menambah</b>.`
        : `Meja lama sudah otomatis dilepas — tinggal klik <b>meja tujuan</b>.`} Boleh pilih &gt;1. Meja terisi non-sharing terkunci.</p>
+     ${!add?`<label class="wa-target" style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;margin-bottom:10px">
+       <input type="checkbox" id="moveSementara" ${moveSementaraDefault(r)?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
+       <div><h4 style="margin:0">🔁 Pindah sementara — ingat meja asli (<b>${esc(r.tableAsli||r.table||'-')}</b>)</h4>
+         <p style="margin:2px 0 0">Untuk kasus tamu sebelumnya masih ngaret. Begitu meja asli ditandai <b>Selesai</b>,
+           sistem menawarkan memindahkan tamu ini kembali ke sana.</p></div></label>`:""}
      <div class="seat-toolbar"><div class="seat-switch">${sw('weekday','Weekday')}${sw('weekend','Weekend')}${sw('lantai2','Lantai 2')}</div>
        <span class="seat-selinfo">Terpilih: <b>${MOVE_SELS.length?esc(MOVE_SELS.join(", ")):"-"}</b></span></div>
      <div class="seat-map" id="moveMap">${seatMapMarkup(MOVE_LAYOUT,"move",occ)}</div>
@@ -3986,11 +4226,18 @@ async function applyMoveTables(){
   if(!MOVE_SELS.length){ toast(MOVE_MODE==="add"?"Pilih minimal 1 meja":"Klik meja tujuan dulu","err"); return; }
   const prev=r.table||'-';
   const tujuan=MOVE_SELS.join(", ");
+  const sementara = MOVE_MODE!=="add" && !!byId("moveSementara")?.checked;
   // Meja tujuan bisa saja BARU SAJA diambil kru lain — cek ke server dulu.
   const cek=await mejaMasihKosong(r.date, tujuan, r.time, r.id, !!r.sharing);
   if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${cek.bentrok.table} tidak bisa dipakai.`); renderHariH(); return; }
+  /* Pindah SEMENTARA: catat meja aslinya sekali saja. Kalau tamu ini sudah pernah
+     dialihkan, `tableAsli` yang lama dipertahankan — kalau ditimpa `prev`, meja asli
+     yang sebenarnya akan hilang setelah pengalihan kedua. */
+  if(sementara){ if(!r.tableAsli) r.tableAsli=prev; }
+  else delete r.tableAsli;                        // pindah permanen → tak ada lagi meja asli
   r.table=tujuan; r.updatedAt=Date.now();
-  logAudit(MOVE_MODE==="add"?"Tambah Meja":"Pindah Meja",`${r.name}, ${prev} → ${r.table}`);
+  logAudit(MOVE_MODE==="add"?"Tambah Meja":(sementara?"Pindah Sementara":"Pindah Meja"),
+    `${r.name}, ${prev} → ${r.table}${sementara?` (asli ${r.tableAsli})`:""}`);
   setBusy("Menyimpan ke database…");
   const tertulis=await saveNow();
   hideBusy(); closeModal(); renderHariH();
@@ -4009,7 +4256,8 @@ function tolakMeja(b, judul){
 function sharingTableAction(tableId){
   // Kelola sharing = menambah tamu ke meja → input. Denah tersaring tak boleh jadi dasarnya.
   if(tolakKarenaFilter()) return;
-  const occ=occupiedMap(HARIH_DATE,"",null);
+  // Samakan dengan denah: tamu yang masih duduk tetap terhitung menempati meja.
+  const occ=occupiedMap(HARIH_DATE,"",null, HARIH_DATE===todayStr());
   const list=partiesAt(occ,tableId);
   if(!list.length){ walkInSeat(tableId,true); return; }
   const canEdit=CAN.input(SESSION.role);
@@ -4036,49 +4284,10 @@ function sharingTableAction(tableId){
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
-let BT_PRINTER=null;
-async function connectPrinter(){
-  if(!navigator.bluetooth){ toast("Browser tidak mendukung Web Bluetooth (pakai Chrome via HTTPS/localhost)","err"); return null; }
-  try{
-    const dev=await navigator.bluetooth.requestDevice({
-      filters:[{services:[0x18F0]},{namePrefix:"Printer"},{namePrefix:"POS"},{namePrefix:"BT"},{namePrefix:"MTP"},{namePrefix:"MPT"},{namePrefix:"RPP"}],
-      optionalServices:[0x18F0,"000018f0-0000-1000-8000-00805f9b34fb"]
-    });
-    const server=await dev.gatt.connect();
-    const svc=await server.getPrimaryService(0x18F0);
-    const chars=await svc.getCharacteristics();
-    BT_PRINTER=chars.find(c=>c.properties.write||c.properties.writeWithoutResponse)||chars[0];
-    dev.addEventListener('gattserverdisconnected',()=>{BT_PRINTER=null;});
-    toast("Printer terhubung: "+(dev.name||"BT printer"),"ok"); return BT_PRINTER;
-  }catch(e){ if(e.name!=='NotFoundError') toast("Gagal konek printer: "+e.message,"err"); return null; }
-}
-function buildCheckText(r){
-  return [ "Nama : "+r.name, "Meja : "+(r.table||"-"), "Pax  : "+r.pax, "Tgl  : "+fmtDate(r.date), "Jam  : "+r.time,
-    "PIC  : "+(r.picType==="Marketing"?r.picName:"Host/Captain"), r.phone?("HP   : "+displayPhone(r.phone)):"",
-    (r.dpStatus==="Sudah")?("DP   : "+rp(r.dpAmount)+" ("+r.dpMethod+")"):"" ].filter(Boolean);
-}
-// Cetak ke printer thermal Bluetooth; kalau tidak ada → jatuh ke print biasa (popup).
-async function thermalPrint(r, lines, sub, foot){
-  if(!navigator.bluetooth){ return printFallback(r,lines,sub,foot); }
-  let ch=BT_PRINTER; if(!ch) ch=await connectPrinter(); if(!ch){ return printFallback(r,lines,sub,foot); }
-  try{
-    const ESC="\x1b", GS="\x1d";
-    let d=ESC+"@"+ESC+"a"+"\x01"+GS+"!"+"\x11"+"LAKSAMANA MUDA\n"+GS+"!"+"\x00"+sub+"\n--------------------------------\n"+ESC+"a"+"\x00"+lines.join("\n")+"\n--------------------------------\n"+ESC+"a"+"\x01"+foot+"\n\n\n"+GS+"V"+"\x00";
-    const bytes=new TextEncoder().encode(d);
-    for(let i=0;i<bytes.length;i+=180){ const chunk=bytes.slice(i,i+180); if(ch.properties.writeWithoutResponse) await ch.writeValueWithoutResponse(chunk); else await ch.writeValue(chunk); }
-    toast("Terkirim ke printer 🖨️","ok");
-  }catch(e){ toast("Gagal print BT: "+e.message,"err"); printFallback(r,lines,sub,foot); }
-}
-async function printCheck(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  return thermalPrint(r, buildCheckText(r), "Coffee & Live Space", "Terima kasih, sampai jumpa!");
-}
-function printFallback(r,lines,sub,foot){
-  const w=window.open("","_blank","width=300,height=520");
-  if(!w){ toast("Popup diblokir, izinkan popup untuk print","err"); return; }
-  w.document.write('<pre style="font:12px/1.5 monospace;padding:10px;width:260px">   LAKSAMANA MUDA\n'+esc(sub||"Coffee & Live Space")+'\n--------------------------------\n'+lines.map(l=>esc(l)).join("\n")+'\n--------------------------------\n'+esc(foot||"Terima kasih!")+'</pre><scr'+'ipt>window.print();setTimeout(function(){window.close()},300)</scr'+'ipt>');
-  w.document.close();
-}
+/* Fitur PRINTER THERMAL BLUETOOTH & CETAK STRUK DIHAPUS — tidak jadi dipakai.
+   Dulu di sini: BT_PRINTER, connectPrinter, buildCheckText, thermalPrint, printCheck,
+   printFallback (± 40 baris + izin Web Bluetooth).
+   Kwitansi DP tetap ada, tapi lewat WhatsApp & unduh PDF — bukan struk printer. */
 
 /* ================= KWITANSI DP =================
    Bukti pembayaran DP untuk tamu: dikirim via WhatsApp atau dicetak sebagai struk. */
@@ -4086,79 +4295,125 @@ function kwitansiNo(r){
   return `KW/${String(r.date||todayStr()).replace(/-/g,"")}/${String(r.id||"").slice(-4).toUpperCase()}`;
 }
 function hasDP(r){ return !!r && r.dpStatus==="Sudah" && Number(r.dpAmount)>0; }
+/* LUNAS = pembayaran penuh, bukan uang muka. Dibuat sebagai penanda TERPISAH (r.lunas),
+   bukan status DP ketiga, supaya semua perhitungan DP yang sudah ada (dps[], dpTotal,
+   verifikasi per-transfer, laporan Dana Masuk) tetap jalan apa adanya — yang berubah
+   hanya sebutannya di kwitansi & tampilan. Opsional: kosong = DP biasa. */
+function isLunas(r){ return !!(r && r.lunas); }
 // Penerima DP: yang menginput reservasi; kalau kosong, kru yang sedang login.
 function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"; }
-function buildKwitansiText(r){
-  return [
-    "🧾 *KWITANSI PEMBAYARAN DP*",
-    "*LAKSAMANA MUDA* ⚓",
-    "_Coffee & Live Space_",
-    "─────────────────",
-    `No. Kwitansi : ${kwitansiNo(r)}`,
-    `Tanggal Terbit : ${fmtDate(todayStr())}`,
-    "─────────────────",
-    `Telah diterima dari : *${(r.name||"-").toUpperCase()}*`,
-    `Sejumlah : *${rpDot(r.dpAmount)}*`,
-    `Metode Bayar : ${r.dpMethod||"-"}`,
-    "Untuk : *Down Payment (DP) Reservasi*",
-    "─────────────────",
-    "📅 Tanggal : "+fmtDate(r.date),
-    "🕗 Jam : "+r.time+" WIB",
-    "👥 Pax : "+r.pax+" orang",
-    ...(r.table?["🪑 Meja : "+r.table]:[]),
-    "─────────────────",
-    "DP ini akan memotong total tagihan saat Kakak datang.",
-    "Mohon simpan kwitansi ini sebagai bukti pembayaran 🙏",
-    "",
-    `_Diterima oleh: ${dpReceivedBy(r)}_`,
-    "_Terima kasih, sampai jumpa di Laksamana Muda_ ⚓",
-  ].join("\n");
-}
-function buildKwitansiLines(r){
-  return [
-    "No    : "+kwitansiNo(r),
-    "Terbit: "+fmtDate(todayStr()),
-    "--------------------------------",
-    "Nama  : "+r.name,
-    "DP    : "+rpDot(r.dpAmount),
-    "Metode: "+(r.dpMethod||"-"),
-    "--------------------------------",
-    "Booking: "+fmtDate(r.date)+", "+r.time,
-    "Pax   : "+r.pax,
-    "Meja  : "+(r.table||"-"),
-    r.phone?("HP    : "+displayPhone(r.phone)):"",
-    "--------------------------------",
-    "Diterima: "+dpReceivedBy(r),
-  ].filter(Boolean);
-}
-async function printKwitansi(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
-  logAudit("Print Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
-  return thermalPrint(r, buildKwitansiLines(r), "KWITANSI PEMBAYARAN DP", "Terima kasih atas pembayarannya!");
-}
-function sendKwitansi(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
-  if(!normPhone(r.phone)){ toast("Nomor HP tamu kosong — salin manual atau print","err"); return; }
-  logAudit("Kirim Kwitansi DP", `${r.name}, ${rpDot(r.dpAmount)} (${kwitansiNo(r)})`);
-  waOpen(r.phone, buildKwitansiText(r));
-}
-function openKwitansi(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!hasDP(r)){ toast("Belum ada DP untuk tamu ini — isi nominal DP dulu","err"); return; }
-  openModal(`
-    <div class="modal-head"><h3>🧾 Kwitansi DP, ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
-    <div class="modal-body">
-      <div class="inline-info" style="margin-bottom:12px">Kwitansi <b>${esc(kwitansiNo(r))}</b> atas DP <b>${rpDot(r.dpAmount)}</b> lewat <b>${esc(r.dpMethod||"-")}</b>.</div>
-      <div class="wa-preview" id="kwText" style="max-height:340px;overflow:auto">${esc(buildKwitansiText(r))}</div>
+/* Kwitansi versi TEKS WHATSAPP (buildKwitansiText/sendKwitansi/openKwitansi) DIHAPUS —
+   kwitansi kini hanya berbentuk PDF berkop (kwitansiPDF). Tombol kwitansi langsung
+   membuka PDF-nya; modal perantara "Salin / Kirim ke Tamu" ikut dilepas karena tak ada
+   lagi yang bisa disalin/dikirim sebagai teks. */
+/* ===== KWITANSI DP → PDF =====
+   Menggantikan kwitansi-struk (printer thermal dihapus). Dibuat sebagai halaman HTML
+   berkop lalu dibuka dialog cetak browser → kru pilih "Save as PDF".
+   Sengaja TANPA library PDF (jsPDF dll): halaman ini dilindungi CSP yang memblokir CDN,
+   dan dialog cetak bawaan sudah menghasilkan PDF yang rapi + bisa langsung dicetak.
+   Semua isinya diambil dari data reservasi; kop mengikuti format faktur perusahaan. */
+const KWI_KOP = {
+  pt:"PT. LAKSAMANA MUDA BERSATU",
+  alamat:"Jl. Soekarno - Hatta No. 39, Labuh Baru Tim, Kec. Payung Sekaki,<br>Kota Pekanbaru, Riau 28282",
+  bank:"UOB | PT. Laksamana Muda Bersatu",
+  rek:"319-303-3588",
+  ttdNama:"(Wandi Pranata)",
+  ttdJabatan:"Finance"
+};
+function kwitansiHTML(r){
+  const baris=(k,v)=>`<tr><td class="k">${esc(k)}</td><td class="v">${v}</td></tr>`;
+  const lunas = isLunas(r);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(kwitansiNo(r))} — ${esc(r.name||"")}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font:13px/1.55 "Segoe UI",Arial,sans-serif;color:#1d1a15;background:#fff;padding:28px 30px}
+  .kop{display:flex;align-items:flex-start;gap:18px;border-bottom:3px solid #C9A227;padding-bottom:14px}
+  .kop img{width:74px;height:74px;object-fit:contain;flex:none}
+  .kop .pt{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .kop .al{font-size:11.5px;color:#5c574d;margin-top:4px}
+  .judul{margin-left:auto;text-align:right;flex:none}
+  .judul b{font-size:22px;letter-spacing:2px;display:block}
+  .judul span{font-size:11px;color:#5c574d;letter-spacing:1px}
+  .meta{display:flex;justify-content:space-between;gap:24px;margin:18px 0 16px}
+  .meta table{border-collapse:collapse}
+  .meta td{padding:2px 0;font-size:12.5px;vertical-align:top}
+  .meta td.k{color:#5c574d;padding-right:10px;white-space:nowrap}
+  .meta td.v{font-weight:600}
+  .lunas{display:inline-block;border:2px solid ${lunas?"#1F9D5F":"#C9A227"};color:${lunas?"#1F9D5F":"#8a6a12"};
+    font-weight:800;font-size:12px;letter-spacing:1.5px;padding:5px 12px;border-radius:6px;transform:rotate(-3deg)}
+  table.isi{width:100%;border-collapse:collapse;margin-top:6px}
+  table.isi th{background:#F4EEE0;border:1px solid #D9CDB2;padding:8px;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase}
+  table.isi td{border:1px solid #D9CDB2;padding:9px 8px;font-size:12.5px}
+  .num{text-align:right;white-space:nowrap}
+  .tot td{background:#FAF6EC;font-weight:800;font-size:13.5px}
+  .bawah{display:flex;justify-content:space-between;gap:30px;margin-top:24px}
+  .bayar{border:1px solid #D9CDB2;border-radius:8px;padding:11px 13px;font-size:12px;max-width:290px}
+  .bayar b{display:block;margin-bottom:3px}
+  .ttd{text-align:center;font-size:12.5px;min-width:190px}
+  .ttd .sp{height:58px}
+  .ttd .nm{border-top:1px solid #1d1a15;padding-top:5px;font-weight:700;display:inline-block;min-width:170px}
+  .catatan{margin-top:20px;font-size:11px;color:#5c574d;border-top:1px dashed #D9CDB2;padding-top:9px}
+  @page{size:A4;margin:12mm}
+  @media print{body{padding:0}.noprint{display:none}}
+  .noprint{margin-top:22px;text-align:center}
+  .noprint button{font:600 13px/1 "Segoe UI",Arial;padding:10px 18px;border-radius:8px;border:0;background:#C9A227;color:#2a2620;cursor:pointer}
+</style></head><body>
+  <div class="kop">
+    <img src="${LOGO_B64}" alt="">
+    <div><div class="pt">${esc(KWI_KOP.pt)}</div><div class="al">${KWI_KOP.alamat}</div></div>
+    <div class="judul"><b>KWITANSI</b><span>${lunas?"PELUNASAN":"PEMBAYARAN DP"}</span></div>
+  </div>
+  <div class="meta">
+    <table>
+      ${baris("Diterima dari", `<b>${esc((r.name||"-").toUpperCase())}</b>`)}
+      ${r.phone?baris("No. HP", esc(displayPhone(r.phone))):""}
+      ${baris("Untuk", lunas?"Pelunasan Reservasi":"Down Payment (DP) Reservasi")}
+    </table>
+    <table>
+      ${baris("No. Kwitansi", `<b>${esc(kwitansiNo(r))}</b>`)}
+      ${baris("Tanggal Terbit", esc(fmtDate(todayStr())))}
+      ${baris("Metode Bayar", esc(r.dpMethod||"-"))}
+    </table>
+  </div>
+  <table class="isi">
+    <thead><tr><th style="width:38px">No</th><th style="text-align:left">Keterangan</th><th style="width:60px">Pax</th><th style="width:130px">Jumlah</th></tr></thead>
+    <tbody>
+      <tr><td class="num">1</td>
+        <td>Reservasi ${esc(r.category||"Tamu Umum")}<br>
+          <span style="color:#5c574d;font-size:11.5px">${esc(fmtDate(r.date))} · ${esc(r.time||"-")} WIB${r.table?` · Meja ${esc(r.table)}`:""}</span></td>
+        <td class="num">${esc(String(r.pax||"-"))}</td>
+        <td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
+      <tr class="tot"><td colspan="3" class="num">TOTAL DITERIMA</td><td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
+    </tbody>
+  </table>
+  <div class="bawah">
+    <div>
+      <div class="bayar"><b>Pembayaran dapat ditransfer ke:</b>${esc(KWI_KOP.bank)}<br><b style="margin-top:3px">${esc(KWI_KOP.rek)}</b></div>
+      <div style="margin-top:12px"><span class="lunas">${lunas?"LUNAS":"DP DITERIMA"}</span></div>
     </div>
-    <div class="modal-foot" style="flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="copyWA(this, byId('kwText').textContent)">📋 Salin</button>
-      <button class="btn btn-ghost btn-sm" onclick="printKwitansi('${r.id}')">🖨️ Print</button>
-      <button class="btn btn-wa btn-sm" style="margin-left:auto" onclick="sendKwitansi('${r.id}')">💬 Kirim ke Tamu</button>
-      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
-    </div>`, true);
+    <div class="ttd">Hormat Kami,<div class="sp"></div>
+      <div class="nm">${esc(KWI_KOP.ttdNama)}</div>
+      <div style="color:#5c574d;font-size:11.5px">${esc(KWI_KOP.ttdJabatan)}</div>
+      <div style="color:#5c574d;font-size:11px;margin-top:5px">Diterima oleh: ${esc(dpReceivedBy(r))}</div>
+    </div>
+  </div>
+  <div class="catatan">${lunas
+      ? "Pembayaran reservasi ini telah <b>LUNAS</b>. Mohon simpan kwitansi ini sebagai bukti pembayaran."
+      : "DP ini akan <b>memotong total tagihan</b> saat tamu datang. Mohon simpan kwitansi ini sebagai bukti pembayaran."}
+    <br>Dokumen ini dicetak dari sistem reservasi Laksamana Muda dan sah tanpa tanda tangan basah.</div>
+  <div class="noprint"><button onclick="window.print()">🖨️ Simpan sebagai PDF / Cetak</button></div>
+</body></html>`;
+}
+function kwitansiPDF(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  const w=window.open("","_blank","width=860,height=980");
+  if(!w){ toast("Popup diblokir — izinkan popup untuk membuat PDF","err"); return; }
+  w.document.write(kwitansiHTML(r)); w.document.close();
+  // Beri jeda agar logo & font selesai dimuat sebelum dialog cetak muncul; tanpa ini
+  // PDF-nya bisa tercetak tanpa kop.
+  w.onload=()=>setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function renderHariH(){
   const inList = HARIH_VIEW==='list';
@@ -4194,7 +4449,6 @@ function renderHariH(){
    <div class="page-head">
      <div><h2>Recap Reservasi</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-       <button class="btn btn-sm btn-ghost" onclick="connectPrinter()" title="Sambungkan printer thermal Bluetooth">🖨️ Printer</button>
        <button class="btn btn-sm btn-wa" onclick="openCoordWA()">📋 WA Koordinasi</button>
      </div>
      <!-- Pemilih tanggal di header DIHAPUS: ia hanya mengubah HARIH_DATE tanpa RECAP_FROM,
@@ -4398,15 +4652,54 @@ async function undoArrival(id, idx){
   toast("Catatan kedatangan dihapus","err");
 }
 // Batalkan reservasi → meja kembali tersedia (cream)
-async function cancelReservation(id){
+/* Batalkan reservasi — popup aplikasi, bukan confirm()+prompt() bawaan browser.
+   Dulu dua dialog browser berturut-turut (konfirmasi lalu tanya alasan); sekarang satu
+   popup: konfirmasi + alasan sekaligus. Dipakai OLEH KEDUA jalur — tombol "Batalkan
+   Reservasi" dan tombol status "Cancelled" — supaya alasannya selalu tercatat. */
+function cancelReservation(id){ openCancelModal(id); }
+function openCancelModal(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
-  if(!confirm(`Batalkan reservasi "${r.name}"? Meja akan tersedia kembali.`)) return;
-  const prev=r.status; r.status="Cancelled"; r.updatedAt=Date.now();
-  logAudit("Batal",`${r.name}`);
+  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  const alasanUmum=["Tamu berhalangan","Salah input","Pindah tanggal","Tidak ada konfirmasi","Double booking"];
+  openModal(`<div class="modal-head"><h3>❌ Batalkan Reservasi — ${esc(r.name)}</h3>
+     <button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="detail-grid" style="margin-bottom:12px">
+       <div class="detail-item"><div class="k">Tanggal & Jam</div><div class="v">${esc(fmtDateShort(r.date))} · ${esc(r.time||"-")}</div></div>
+       <div class="detail-item"><div class="k">Pax</div><div class="v">${esc(String(r.pax||"-"))} orang</div></div>
+       <div class="detail-item"><div class="k">Meja</div><div class="v">${esc(r.table||"-")}</div></div>
+       <div class="detail-item"><div class="k">Status</div><div class="v">${esc(r.status||"-")}</div></div>
+     </div>
+     <div class="inline-warn"><div>Meja <b>${esc(r.table||"-")}</b> akan <b>tersedia kembali</b> untuk tamu lain.
+       ${hasDP(r)?`Tamu ini sudah membayar <b>${esc(rpDot(dpTotal(r)))}</b> — pastikan urusan pengembaliannya sudah jelas.`:""}
+       Tindakan ini tercatat di audit log.</div></div>
+     <div class="field" style="margin-top:12px">
+       <label>Alasan pembatalan</label>
+       <input id="cancelReason" placeholder="mis. tamu berhalangan" autocomplete="off"
+              onkeydown="if(event.key==='Enter')konfirmCancel('${r.id}')">
+       <div class="pill-row" style="margin-top:8px">
+         ${alasanUmum.map(a=>`<span class="pill" style="cursor:pointer" onclick="byId('cancelReason').value='${esc(a)}'">${esc(a)}</span>`).join("")}
+       </div>
+     </div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Kembali</button>
+     <button class="btn btn-danger" style="margin-left:auto" onclick="konfirmCancel('${r.id}')">❌ Ya, Batalkan Reservasi</button>
+   </div>`);
+  setTimeout(()=>byId("cancelReason")?.focus(), 60);
+}
+async function konfirmCancel(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(r.status==="Cancelled"){ closeModal(); return; }
+  const alasan=(byId("cancelReason")?.value||"").trim();
+  const prevStatus=r.status, prevReason=r.cancelReason;
+  r.status="Cancelled"; r.cancelReason=alasan; r.updatedAt=Date.now();
+  logAudit("Batal",`${r.name}${alasan?` — ${alasan}`:""}`);
   const ok=await commit("Membatalkan…");
-  if(!ok){ r.status=prev; }
-  buildNav(); renderHariH();
-  if(ok) toast("Reservasi dibatalkan, meja tersedia kembali","err");
+  if(!ok){ r.status=prevStatus; r.cancelReason=prevReason; }
+  closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(ok?"Reservasi dibatalkan, meja tersedia kembali":"Gagal membatalkan — coba lagi", ok?"err":"err");
 }
 async function markNoShow(id){
   const r=STATE.reservations.find(x=>x.id===id);
@@ -4644,7 +4937,7 @@ function openDetail(id){
            </div>`).join("")}
          ${CAN.input(SESSION.role)||CAN.finance(SESSION.role)?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
-            ${hasDP(r)?`<button class="btn btn-xs btn-wa" onclick="closeModal();openKwitansi('${r.id}')">🧾 Kirim / Print Kwitansi</button>`:""}
+            ${hasDP(r)?`<button class="btn btn-xs btn-ghost" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
           </div>`:""}
        </div>
        ${r.notes?`<div class="detail-item full"><div class="k">📝 Catatan Khusus</div><div class="v">${esc(r.notes)}</div></div>`:""}
@@ -4672,9 +4965,8 @@ function openDetail(id){
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
      <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
      ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
-     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openKwitansi('${r.id}')" title="Kirim/print kwitansi pembayaran DP">🧾 Kwitansi DP</button>`:""}
+     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
-     <button class="btn btn-ghost btn-sm" onclick="printCheck('${r.id}')">🖨️ Print Struk</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
    </div>`, true);
@@ -4784,7 +5076,9 @@ async function changeStatus(id, status){
   const ns=status;
   if(!ns || ns===r.status) return;
   const prev=JSON.parse(JSON.stringify(r));                 // untuk dikembalikan bila gagal
-  if(ns==="Cancelled"){ const reason=prompt("Alasan pembatalan:"); if(reason===null) return; r.cancelReason=reason; }
+  // Batal lewat tombol status → pakai popup aplikasi yang sama (konfirmasi + alasan),
+  // bukan prompt() browser. Alur pembatalan jadi satu pintu, alasannya selalu tercatat.
+  if(ns==="Cancelled"){ openCancelModal(id); return; }
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
   // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
   // bertahap, pakai tombol "✅ Datang" / "➕ Tamu Datang Lagi" yang mencatat per gelombang.
@@ -4831,10 +5125,60 @@ async function guestLeft(id){
   // Saat denah sedang disaring, tawaran ini DILEWATI diam-diam: memunculkan popup
   // "bersihkan filter" di tengah alur "tamu pulang" cuma mengganggu, padahal kru tidak
   // memintanya. Kru tetap bisa menawarkan manual setelah filter dibersihkan.
-  const freed=tablesOf(r)[0];
+  /* Meja asli baru saja bebas → tamu yang tadi DIALIHKAN sementara dari meja ini lebih
+     berhak daripada antrean walk-in. Tawarkan memindahkannya kembali dulu. */
+  const bebas=tablesOf(r);
+  const balik=STATE.reservations.find(x=>
+    x.id!==r.id && x.date===r.date && sedangDialihkan(x) &&
+    mejaAsliOf(x).some(t=>bebas.includes(t)));
+  if(balik && !denahFilterAktif()){ setTimeout(()=>tawarkanKembaliKeAsli(balik.id), 350); return; }
+
+  const freed=bebas[0];
   if(freed && r.date===HARIH_DATE && !denahFilterAktif() && waitingQueue(HARIH_DATE).length){
     setTimeout(()=>offerWaitlist(freed), 350);
   }
+}
+/* Tawarkan memindahkan tamu kembali ke meja aslinya (setelah meja itu bebas).
+   Bukan otomatis: kru yang tahu kondisi lapangan — tamu bisa saja sudah nyaman di meja
+   sekarang, atau makanannya baru datang. Jadi ini tawaran, bukan paksaan. */
+function tawarkanKembaliKeAsli(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r || !sedangDialihkan(r)) return;
+  openModal(`<div class="modal-head"><h3>🔁 Meja ${esc(r.tableAsli)} sudah bebas</h3>
+     <button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-info"><div>Tamu <b>${esc(r.name)}</b> (${esc(r.time)}, ${r.pax} pax) tadi dialihkan sementara
+       ke <b>${esc(r.table||'-')}</b> karena meja aslinya masih terisi. Meja asli <b>${esc(r.tableAsli)}</b> sekarang sudah bebas.</div></div>
+     <p style="margin:12px 0 0">Pindahkan kembali sekarang? Kalau tamunya sudah telanjur nyaman,
+       boleh dibiarkan — tekan <b>Tetap di ${esc(r.table||'-')}</b> dan penanda ini dilepas.</p>
+   </div>
+   <div class="modal-foot" style="flex-wrap:wrap;gap:8px">
+     <button class="btn btn-ghost" onclick="closeModal()">Nanti dulu</button>
+     <button class="btn btn-ghost" onclick="lepasPenandaAsli('${r.id}')">Tetap di ${esc(r.table||'-')}</button>
+     <button class="btn btn-primary" style="margin-left:auto" onclick="kembalikanKeAsli('${r.id}')">🔁 Pindahkan kembali ke ${esc(r.tableAsli)}</button>
+   </div>`);
+}
+// "Tetap di meja sekarang" → pengalihan jadi permanen, penanda meja asli dilepas.
+async function lepasPenandaAsli(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  const asli=r.tableAsli; delete r.tableAsli; r.updatedAt=Date.now();
+  logAudit("Pindah Jadi Permanen",`${r.name} tetap di ${r.table} (asli ${asli})`);
+  const ok=await commit("Menyimpan…");
+  closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(ok?`${r.name} tetap di ${r.table} ✓`:"Gagal menyimpan","ok");
+}
+async function kembalikanKeAsli(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r || !r.tableAsli) return;
+  const asli=r.tableAsli, dari=r.table;
+  // Meja asli bisa saja keburu diambil kru lain dalam hitungan detik — cek ke server dulu,
+  // sama seperti pindah meja biasa.
+  const cek=await mejaMasihKosong(r.date, asli, r.time, r.id, !!r.sharing);
+  if(!cek.ok){ hideBusy(); closeModal(); tolakMeja(cek.bentrok); renderHariH(); return; }
+  r.table=asli; delete r.tableAsli; r.updatedAt=Date.now();
+  logAudit("Kembali ke Meja Asli",`${r.name}, ${dari} → ${asli}`);
+  setBusy("Menyimpan ke database…");
+  const ok=await saveNow();
+  hideBusy(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(ok?`${r.name} kembali ke meja ${asli} ✓`:"Gagal menulis ke database — perubahan BELUM tersimpan", ok?"ok":"err");
 }
 async function delReservation(id){
   const r=STATE.reservations.find(x=>x.id===id);
