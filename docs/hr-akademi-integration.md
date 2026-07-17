@@ -79,35 +79,44 @@ endpoint/parsing yang mengembalikan peta ini per userId (bukan seluruh DB).
 - Tidak menulis balik dari Staff Performance ke Akademi. Arahnya satu.
 - Tidak menyatukan divisi. Join per userId membuatnya tak perlu.
 
-## Cara mengaktifkan (langkah Google-side, dilakukan user)
+## PENTING: Akademi SUDAH PINDAH ke MySQL (bukan Apps Script)
 
-Sisi kode SUDAH SIAP dua-duanya:
-- **Akademi** (`docs/akademi-apps-script.gs`): endpoint `?action=trainingStats`
-  sudah ditambahkan, logikanya ditest identik dengan `userStats()` klien Akademi.
-- **Staff Performance** (`deploy/hr/index.html`): consumer `loadAkademiStats()` +
-  `trainingScore()` yang mengutamakan Akademi sudah ada dan ditest end-to-end.
+> Bagian Apps Script di bawah ini **USANG**. Ditulis waktu Akademi masih
+> localStorage + rencana Sheet. Sejak migrasi MySQL, `deploy/akademi/index.html`
+> memakai `API_URL = '../akademi-api-mysql/api.php'`, dan layar
+> "Pengaturan > Sinkronisasi" (isi URL + kunci) **sudah DIHAPUS dari UI dengan
+> sengaja** — jadi wajar kalau kru tidak menemukannya lagi. Sheet
+> `Database Academy` + `docs/akademi-apps-script.gs` = backend TERLANTAR:
+> masih menjawab kalau dipanggil, tapi `progress`-nya selamanya `{}` karena
+> aplikasi live menulis ke MySQL. JANGAN membaca data dari sana.
 
-Yang tinggal dilakukan (tak bisa dari kode, harus di Google):
+**Implementasi yang BENAR (dikerjakan 2026-07-17):**
 
-1. **Backend Akademi.** Buka Sheet `Database Academy` > Extensions > Apps Script,
-   tempel `docs/akademi-apps-script.gs`, ganti `SYNC_KEY`, Deploy > New deployment
-   > Web app (Execute as: Me, Who has access: **Anyone**, bukan "Anyone with
-   Google account"). Salin URL `/exec`.
-2. **Isi sync Akademi.** Di aplikasi Akademi > Pengaturan > Sinkronisasi: isi URL
-   `/exec` + Kunci (sama dgn `SYNC_KEY`). Klik "Kirim ke Server" sekali dari device
-   utama supaya Sheet terisi data awal.
-3. **Aktifkan link di Staff Performance.** Isi `AKADEMI_STATS_URL` di
-   `deploy/hr/index.html` (sekarang `""`) dengan URL `/exec` Akademi yang SAMA.
-   `trainingStats` sengaja tanpa kunci, jadi hanya URL yang diperlukan.
+1. **Akademi (`akademi-mysql/`)**: aksi `?action=trainingStats` di `api.php`
+   -> `training_stats()` di `lib_akademi_mysql.php`. Menghitung dari tabel
+   `users` + `materials` + `progress`, meniru `userStats()` klien PERSIS.
+   Tanpa token (API_TOKEN default kosong), baca-saja.
+2. **Staff Performance (`deploy/hr/index.html`)**: `AKADEMI_STATS_URL` =
+   `"../akademi-api-mysql/api.php"`. Consumer `loadAkademiStats()` sudah
+   menerima bentuk `{ok:true,data:{...}}`, tidak perlu diubah.
 
-Setelah itu: kru menyelesaikan kuis di Akademi -> `mandPct` naik -> komponen
-Training 10% di People Score otomatis mengikuti, tanpa input manual. Halaman
-Training Center di Staff Performance otomatis berganti jadi mode "catat training
-di luar Akademi saja".
+**Jebakan kolom:** di MySQL, `progress.done` itu kolom TURUNAN
+(`empty($r['done']) ? 0 : 1`) dan BUKAN penanda lulus kuis. `passed`/`status`
+hanya ada di dalam kolom `data` (JSON). `training_stats()` karena itu membaca
+`data`, sama seperti `baca_state()`.
 
-**Cek berhasil:** buka `URL_AKADEMI/exec?action=trainingStats` di browser, harus
-balas `{"ok":true,"data":{...}}` (JSON, bukan halaman login Google). Kalau
-mengarah ke accounts.google.com, deployment belum "Anyone".
+**Cek berhasil:** buka `<domain>/akademi-api-mysql/api.php?action=trainingStats`
+-> `{"ok":true,"data":{"u-adit":{"mandPct":…}}}`.
+
+## (USANG) Cara mengaktifkan lewat Apps Script
+
+Ditinggalkan. Disimpan hanya sebagai catatan sejarah.
+
+1. Buka Sheet `Database Academy` > Extensions > Apps Script, tempel
+   `docs/akademi-apps-script.gs`, ganti `SYNC_KEY`, Deploy > New deployment.
+2. Isi URL `/exec` + Kunci di Akademi > Pengaturan > Sinkronisasi (layar ini
+   sudah tidak ada lagi).
+3. Isi `AKADEMI_STATS_URL` dengan URL `/exec` tersebut.
 
 ## Verifikasi yang sudah dilakukan (2026-07-16)
 
@@ -120,8 +129,13 @@ mengarah ke accounts.google.com, deployment belum "Anyone".
 
 ## Status
 
-Sisi kode selesai & terverifikasi (2026-07-16). Menunggu 3 langkah deploy
-Google-side di atas untuk benar-benar hidup. Sampai `AKADEMI_STATS_URL` diisi,
-`trainingScore()` tetap jatuh ke input manual (dorman, tidak mengganggu).
+**2026-07-17:** dipindah ke MySQL dan dihidupkan. `trainingStats` ada di
+`akademi-mysql/api.php`, `AKADEMI_STATS_URL` sudah diisi. Perlu deploy
+`akademi-mysql/*` ke server, lalu cek URL di atas. Belum diuji terhadap DB asli
+(tidak ada PHP/MySQL di mesin lokal), jadi verifikasi pertama = buka URL cek.
+
+Catatan sejarah 2026-07-16: sisi kode Apps Script sempat dinyatakan "selesai &
+terverifikasi", tapi itu menyasar backend yang sudah ditinggalkan. Pelajarannya:
+periksa dulu `API_URL`/`WEB_APP_URL` modulnya sebelum percaya dokumen lama.
 
 Lihat [[hr-module-plan]], [[office-data-standard]], [[office-auth-and-migration]].
