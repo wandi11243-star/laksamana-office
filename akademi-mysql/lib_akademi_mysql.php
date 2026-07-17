@@ -640,6 +640,88 @@ function save_all($state) {
   );
 }
 
+/* ==================== TRAINING STATS (untuk Staff Performance) ====================
+   Peta { userId: {mandPct,mandTotal,mandDone,total,done,certified} }, dibaca modul
+   `hr` untuk komponen Training 10% di People Score. Baca-saja, satu arah: Akademi
+   tidak pernah membaca balik dari hr. Lihat docs/hr-akademi-integration.md.
+
+   MENIRU userStats() di klien Akademi PERSIS supaya angkanya tidak pernah beda:
+     matsForUser : materi published yang cocok divisi user (division 'all' -> semua)
+     isDone      : quiz -> data.passed === true; selain itu -> data.status === 'done'
+     mandPct     : dari materi WAJIB. Tanpa materi wajib -> 100.
+
+   CATATAN kolom: jangan pakai kolom `progress.done` sebagai penentu lulus. Kolom
+   itu turunan (`empty($r['done']) ? 0 : 1`) dan TIDAK sama dengan `passed` kuis.
+   Sumber kebenaran tetap kolom `data` (JSON), sama seperti baca_state(). */
+function training_stats() {
+  $pdo = db();
+
+  // Materi published saja, sekalian ambil division[] dari `data` (JAMAK).
+  $mats = array();
+  foreach ($pdo->query('SELECT id, kind, mandatory, published, data FROM materials') as $row) {
+    if (empty($row['published'])) continue;
+    $d = json_decode($row['data'], true);
+    $div = (is_array($d) && isset($d['division'])) ? $d['division'] : array();
+    if (!is_array($div)) $div = $div === null || $div === '' ? array() : array($div);
+    $mats[] = array(
+      'id'        => $row['id'],
+      'kind'      => $row['kind'],
+      'mandatory' => !empty($row['mandatory']),
+      'division'  => $div,
+    );
+  }
+
+  // progress[userId][materialId] = data JSON utuh (punya passed/status).
+  $prog = array();
+  foreach ($pdo->query('SELECT user_id, material_id, data FROM progress') as $row) {
+    $r = json_decode($row['data'], true);
+    if (!is_array($r)) continue;
+    if (!isset($prog[$row['user_id']])) $prog[$row['user_id']] = array();
+    $prog[$row['user_id']][$row['material_id']] = $r;
+  }
+
+  $out = array();
+  foreach ($pdo->query('SELECT id, divisi, active FROM users') as $u) {
+    if (empty($u['active'])) continue;              // kru nonaktif dikecualikan
+    $uid    = $u['id'];
+    $divisi = $u['divisi'];
+    $pByU   = isset($prog[$uid]) ? $prog[$uid] : array();
+
+    $total = 0; $done = 0; $mandTotal = 0; $mandDone = 0;
+    foreach ($mats as $m) {
+      $cocok = ($divisi === 'all')
+        || in_array('all', $m['division'], true)
+        || in_array($divisi, $m['division'], true);
+      if (!$cocok) continue;
+
+      $p = isset($pByU[$m['id']]) ? $pByU[$m['id']] : null;
+      $selesai = false;
+      if (is_array($p)) {
+        $selesai = ($m['kind'] === 'quiz')
+          ? (isset($p['passed']) && $p['passed'] === true)
+          : (isset($p['status']) && $p['status'] === 'done');
+      }
+
+      $total++;
+      if ($selesai) $done++;
+      if ($m['mandatory']) {
+        $mandTotal++;
+        if ($selesai) $mandDone++;
+      }
+    }
+
+    $out[$uid] = array(
+      'mandPct'   => $mandTotal ? (int)round($mandDone / $mandTotal * 100) : 100,
+      'mandTotal' => $mandTotal,
+      'mandDone'  => $mandDone,
+      'total'     => $total,
+      'done'      => $done,
+      'certified' => $mandTotal > 0 && $mandDone === $mandTotal,
+    );
+  }
+  return $out ? $out : new stdClass();
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();
