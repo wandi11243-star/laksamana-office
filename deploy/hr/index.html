@@ -54,6 +54,20 @@ label{font-size:12px;font-weight:600;color:var(--tx2);display:block;margin-botto
 
 /* ---------- SHELL (canonical, matches akademi/reservasi) ---------- */
 #appView{display:none;min-height:100vh}
+
+/* Layar muat. HTML biasa (bukan dibuat JS) supaya tampil SEKETIKA, sebelum
+   script apa pun jalan. init() menunggu beberapa panggilan jaringan sebelum
+   menggambar; tanpa ini layar putih kosong dan kru mengira modulnya rusak. */
+#bootScreen{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;background:var(--cream);z-index:9999;text-align:center;padding:24px}
+#bootScreen .ring{width:34px;height:34px;border:3px solid rgba(200,150,31,.25);border-top-color:var(--gold);
+  border-radius:50%;animation:bootSpin .8s linear infinite}
+@keyframes bootSpin{to{transform:rotate(360deg)}}
+#bootScreen .t{font-family:var(--font-d);font-weight:700;font-size:15px;color:var(--ink)}
+#bootScreen .s{font-size:12.5px;color:var(--tx2);max-width:320px;line-height:1.5}
+#bootScreen .slow{font-size:12.5px;color:var(--tx3);max-width:340px;line-height:1.5;display:none}
+#bootScreen.is-slow .slow{display:block}
+@media (prefers-reduced-motion:reduce){ #bootScreen .ring{animation-duration:2.4s} }
 .shell{display:flex;min-height:100vh}
 .sidebar{width:242px;flex:none;background:var(--paper);border-right:1px solid var(--line);color:var(--tx);padding:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
 .sidebar::-webkit-scrollbar{width:6px}
@@ -189,6 +203,16 @@ svg.chart text{font-family:var(--font-b)}
 </head>
 <body>
 
+<!-- Tampil seketika, dibuang oleh init() setelah data siap. Sengaja HTML
+     statis: kalau digambar JS, layar tetap kosong selama script memuat. -->
+<div id="bootScreen">
+  <div class="ring"></div>
+  <div class="t">Menyiapkan Staff Performance</div>
+  <div class="s">Memuat data kru & penilaian…</div>
+  <div class="slow">Menyinkronkan roster kru dari Office — ini kadang butuh sampai 15 detik.
+    Halaman tetap terbuka walau sinkron ini gagal.</div>
+</div>
+
 <div id="appView">
 <div class="shell">
   <aside class="sidebar" id="sidebar"></aside>
@@ -213,18 +237,30 @@ svg.chart text{font-family:var(--font-b)}
 
 <script>
 /* ====== GLOBALS (di luar IIFE agar bisa diakses dari inline handler & test) ====== */
-// URL /exec Web App Apps Script modul ini (Sheet "Database Performance").
-// Cara pasang: docs/office-data.md. Script-nya: docs/performance-apps-script.gs.
-// Selama masih PASTE_..., app jalan offline (localStorage saja).
-var WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw-4ntMFpLsuHF3gK4YJ1E2XVi7hKioEiT840O-aKtcqdat022K6PGwG-d8i8hl6SNj/exec";
+// Backend MySQL sendiri (hr-mysql/). Kontrak SENGAJA dibuat sama persis dengan
+// Apps Script lama — GET ?action=getAll, POST {action:'saveAll', data, baseRev}
+// — jadi nama variabel ini dipertahankan dan 8 titik pemakaiannya tidak berubah.
+// Cara pasang backend: hr-mysql/README.md.
+// Sheet lama TIDAK dihapus; dia jadi arsip beku, tidak dibaca lagi dari sini.
+var WEB_APP_URL = "../hr-api-mysql/api.php";
 
 /* Integrasi Akademi (baca-saja): komponen Training di People Score idealnya
    berasal dari training ASLI di modul Akademi, bukan input manual. Isi dengan
-   URL /exec Akademi yang mengekspos `?action=trainingStats` -> peta
+   URL yang mengekspos `?action=trainingStats` -> peta
    { userId: {mandPct,mandTotal,mandDone,certified} }. Lihat
    docs/hr-akademi-integration.md. Selama KOSONG, Training tetap dari input
-   manual seperti biasa (fitur ini dorman, tidak mengganggu apa pun). */
-var AKADEMI_STATS_URL = "https://script.google.com/macros/s/AKfycbyFAMN9GLXKZiCEUvfs71Qnr0ig4HvirEvRIsg-a3MlgjjN-5H8SR7GdyVPS4l-WBOG/exec";
+   manual seperti biasa (fitur ini dorman, tidak mengganggu apa pun).
+
+   SENGAJA DIKOSONGKAN. Sebelumnya diisi URL /exec Akademi, tapi Apps Script
+   itu TIDAK PERNAH punya aksi `trainingStats` — jawabannya selalu
+   {ok:false, error:'unknown_action'}. Jadi fitur ini memang sudah dorman
+   sejak awal, hanya saja membayar ~2,3 detik panggilan jaringan yang pasti
+   gagal SETIAP kali halaman dibuka, dan boot menunggunya.
+
+   Untuk menghidupkannya: tambahkan aksi `trainingStats` di akademi-mysql/api.php
+   (Akademi sekarang MySQL, bukan Apps Script lagi), lalu isi variabel ini
+   dengan "../akademi-api-mysql/api.php". */
+var AKADEMI_STATS_URL = "";
 
 // URL /exec identitas Office (Sheet "Database User"), SAMA dengan yang dipakai
 // landing page & modul lain. Dipakai autoSyncOfficeRoster: menarik daftar kru
@@ -315,10 +351,16 @@ async function autoSyncOfficeRoster(){
   if(!OFFICE_WEBAPP_URL) return;
   let data;
   try{
+    // Batas waktu WAJIB: fetch tanpa batas akan menunggu selamanya kalau Apps
+    // Script menggantung, dan boot menunggunya. Sinkron roster cuma pelengkap
+    // — lebih baik dilewati daripada menahan seluruh halaman.
+    const stop = new AbortController();
+    const jam = setTimeout(()=>stop.abort(), 10000);
     const res = await fetch(OFFICE_WEBAPP_URL, {
       method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'listModuleRoster', module:'hr'}), redirect:'follow'
-    });
+      body: JSON.stringify({action:'listModuleRoster', module:'hr'}), redirect:'follow',
+      signal: stop.signal
+    }).finally(()=>clearTimeout(jam));
     data = await res.json();
   }catch(e){ /* Office tak terjangkau: lewati diam-diam, coba lagi sesi berikutnya */ return; }
   if(!data || !data.ok || !Array.isArray(data.members)) return;
@@ -350,13 +392,36 @@ async function autoSyncOfficeRoster(){
 async function apiLoad(){
   if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0){ loadLocal(); return; }
   try{
-    const res = await fetch(WEB_APP_URL + '?action=getAll', {method:'GET', redirect:'follow'});
+    // Batas waktu: kalau server diam, jatuh ke cache lokal daripada menahan
+    // boot tanpa akhir. 15 detik — lebih longgar dari sinkron roster karena
+    // ini data utamanya, bukan pelengkap.
+    const stop = new AbortController();
+    const jam = setTimeout(()=>stop.abort(), 15000);
+    const res = await fetch(WEB_APP_URL + '?action=getAll',
+      {method:'GET', redirect:'follow', signal: stop.signal}).finally(()=>clearTimeout(jam));
     const json = await res.json();
     if(!json || !json.ok) throw new Error((json && json.error) || 'respons server tidak valid');
-    // Sheet masih kosong (belum pernah disimpan) -> pakai seed, lalu dorong ke server
-    // supaya isi awal (divisi, template KPI) ada di Sheet sejak awal.
-    const fresh = !json.data || !(json.data.employees || []).length;
+    // Server masih kosong (belum pernah disimpan) -> pakai seed, lalu dorong ke
+    // server supaya isi awal (divisi, template KPI) ada sejak awal.
+    //
+    // Penanda "masih kosong" = TIDAK ADA DIVISI. Jangan pakai employees.length:
+    // roster memang SENGAJA mulai kosong (kru muncul sendiri lewat sinkron
+    // Office), jadi memakai itu membuat setiap muat halaman menyemai ulang.
+    // Akibatnya nyata: seed() memberi id acak (uid()) tiap kali dipanggil, jadi
+    // id kpiTemplate & careerPath berubah tiap buka halaman — nilai kpiActuals
+    // yang menunjuk id lama jadi yatim — dan rev naik terus sampai dua orang
+    // yang kebetulan membuka bersamaan saling kena modal bentrok.
+    // Divisi ikut tersemai pada simpan pertama dan tidak pernah dikosongkan,
+    // jadi penanda ini benar walau roster memang kosong selamanya.
+    const fresh = !json.data || (!(json.data.divisions || []).length &&
+                                 !(json.data.employees || []).length);
     S = fresh ? seed() : json.data;
+    // seed() tidak membawa _rev, padahal save() memakainya sebagai baseRev.
+    // Tanpa baris ini simpan pertama dikirim TANPA baseRev, dan server hanya
+    // menerima itu kalau rev masih 0 — begitu rev sudah pernah naik (server
+    // pernah dipakai lalu datanya dikosongkan), pemasangan baru langsung kena
+    // modal bentrok dan seed tidak pernah tersimpan.
+    if(fresh && json.data && json.data._rev !== undefined) S._rev = json.data._rev;
     migrate();
     API_READY = true;
     cacheLocal();
@@ -1846,8 +1911,8 @@ RENDER.settings = function(c){
 
   html += '<div class="card"><h3>Data</h3><div class="small mut" style="margin-bottom:10px">'+
     (WEB_APP_URL && WEB_APP_URL.indexOf('PASTE_') !== 0
-      ? 'Data tersimpan online ke Google Sheet dan otomatis tersinkron antar perangkat. Salinan lokal di browser dipakai sebagai cadangan saat offline. Ekspor backup tetap berguna sebelum perubahan besar.'
-      : '<b>Belum tersambung ke server.</b> Data baru tersimpan di browser ini saja (localStorage) dan tidak terlihat di perangkat lain. Isi URL Web App di kode (WEB_APP_URL) untuk mengaktifkan sinkron. Sementara itu, rutin ekspor backup.')+
+      ? 'Data tersimpan online ke database MySQL milik sendiri dan otomatis tersinkron antar perangkat. Salinan lokal di browser dipakai sebagai cadangan saat offline. Ekspor backup tetap berguna sebelum perubahan besar.'
+      : '<b>Belum tersambung ke server.</b> Data baru tersimpan di browser ini saja (localStorage) dan tidak terlihat di perangkat lain. Backend belum terpasang — lihat hr-mysql/README.md. Sementara itu, rutin ekspor backup.')+
     '</div>'+
     '<div class="flex" style="flex-wrap:wrap"><button class="btn btn-pri btn-sm" onclick="APP.exportJson()">⬇ Ekspor Backup (JSON)</button>'+
     '<label class="btn btn-line btn-sm" style="margin:0">⬆ Impor Backup<input type="file" accept=".json" style="display:none" id="importFile"></label>'+
@@ -1911,12 +1976,33 @@ RENDER.audit = function(c){
 let _booted = false;
 async function init(){
   if(_booted) return; _booted = true;
-  $('#menuBtn').onclick = ()=> $('#sidebar').classList.toggle('open');
-  $('#modalWrap').addEventListener('click', e=>{ if(e.target.id==='modalWrap') closeModal(); });
-  await apiLoad();             // server dulu, baru identitas: resolveOfficeUser butuh S.employees
-  await autoSyncOfficeRoster(); // tarik kru ber-akses hr dari Office SEBELUM resolve CU (hindari duplikat)
-  await loadAkademiStats();    // training dari Akademi (dorman kalau URL kosong); non-fatal
-  bootPeopleOS();
+  const bs = document.getElementById('bootScreen');
+  // Diam terlalu lama membuat orang mengira modulnya rusak lalu refresh berulang.
+  // Lewat 3 detik: sebutkan apa yang sedang ditunggu.
+  const lambat = setTimeout(()=>{ if(bs) bs.classList.add('is-slow'); }, 3000);
+  try{
+    $('#menuBtn').onclick = ()=> $('#sidebar').classList.toggle('open');
+    $('#modalWrap').addEventListener('click', e=>{ if(e.target.id==='modalWrap') closeModal(); });
+    await apiLoad();             // server dulu, baru identitas: resolveOfficeUser butuh S.employees
+    await autoSyncOfficeRoster(); // tarik kru ber-akses hr dari Office SEBELUM resolve CU (hindari duplikat)
+    await loadAkademiStats();    // training dari Akademi (dorman kalau URL kosong); non-fatal
+    bootPeopleOS();
+  }catch(e){
+    // Tiap langkah di atas sudah menangkap error sendiri, jadi sampai sini
+    // artinya ada yang tak terduga. Jangan tinggalkan spinner berputar
+    // selamanya: tunjukkan apa yang terjadi supaya bisa dilaporkan.
+    console.error('Boot HR gagal:', e);
+    if(bs){
+      bs.innerHTML = '<div class="t">Gagal memuat halaman</div>'+
+        '<div class="s">Coba muat ulang. Kalau tetap gagal, laporkan pesan ini: '+
+        esc(String(e && e.message || e))+'</div>';
+      bs.classList.remove('is-slow');
+    }
+    return;                      // bootScreen sengaja DIBIARKAN sebagai layar pesan
+  }finally{
+    clearTimeout(lambat);
+  }
+  if(bs) bs.remove();            // hanya dibuang kalau boot benar-benar sukses
 }
 
 /* ====== EXPOSE ====== */
