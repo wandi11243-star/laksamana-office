@@ -953,7 +953,13 @@ const DEFAULT_VENUE_LAYOUTS = (()=>{
 })();
 const BUILTIN_LAYOUT_KEYS = ["weekday","weekend","lantai2"];
 // Registry layout custom tersimpan (edit built-in / template baru) di master agar tersinkron.
-function customLayouts(){ if(!STATE.master.layouts) STATE.master.layouts={}; return STATE.master.layouts; }
+// Array [] ikut dianggap kosong (backend PHP mengembalikan objek kosong sebagai []) —
+// tanpa ini, layouts["template-baru"]=… menempel di array lalu dibuang JSON.stringify.
+function customLayouts(){
+  const m=STATE.master;
+  if(!m.layouts || Array.isArray(m.layouts)) m.layouts={};
+  return m.layouts;
+}
 // Ambil definisi layout efektif: hasil edit (custom) menimpa built-in.
 function getLayout(key){ return (customLayouts()[key]) || DEFAULT_VENUE_LAYOUTS[key] || null; }
 function layoutName(key){ const L=getLayout(key); return (L&&L.name)||key; }
@@ -969,7 +975,14 @@ let SEAT_SELS=[], SEAT_LAYOUT="weekday";
 const LAYOUT_LABEL={weekday:"Weekday, Lt.1", weekend:"Weekend, Lt.1", lantai2:"Lantai 2"};
 // ===== Override layout per tanggal (event) =====
 // Simpan di master agar ikut tersinkron. Kosong = pakai default weekday/weekend by hari.
-function layoutOverrides(){ if(!STATE.master.layoutOverrides) STATE.master.layoutOverrides={}; return STATE.master.layoutOverrides; }
+/* Objek {tanggal → layoutKey}. Array [] ikut dianggap kosong dan diganti objek — lihat
+   normalizeMaster(): backend PHP mengembalikan objek kosong sebagai []. Tanpa penjaga ini,
+   ov["2026-07-20"]="weekend" menempel di ARRAY dan dibuang JSON.stringify → override hilang. */
+function layoutOverrides(){
+  const m=STATE.master;
+  if(!m.layoutOverrides || Array.isArray(m.layoutOverrides)) m.layoutOverrides={};
+  return m.layoutOverrides;
+}
 // Tipe layout default menurut hari (Sab/Min = weekend).
 function defaultDayType(date){ const dg=new Date(date+"T00:00:00").getDay(); return (dg===0||dg===6)?"weekend":"weekday"; }
 // Template Lt.1 efektif untuk sebuah tanggal: override (bila ada & valid) > default hari.
@@ -1718,7 +1731,7 @@ function hasLocalChanges(){
 }
 function applyServer(d){
   STATE.reservations = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
-  STATE.master = Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), d.master||{});
+  STATE.master = normalizeMaster(Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), normalizeMaster(d.master)||{}));
   ensureUsersPerms();
   STATE.audit = Array.isArray(d.audit)? d.audit : [];
   snapshotBase();
@@ -1746,6 +1759,21 @@ function mergeById(baseArr, mine, theirs){
   });
   baseMap.forEach((_,id)=>{ if(!(mine||[]).some(x=>x.id===id)) out.delete(id); });  // kita hapus
   return [...out.values()];
+}
+/* ===== PERBAIKI OBJEK YANG BERUBAH JADI ARRAY OLEH PHP =====
+   Backend PHP memakai json_decode($x, true) → objek kosong {} tidak bisa dibedakan dari
+   array kosong [], lalu json_encode(array()) mengembalikannya sebagai [].
+   Di JS ini FATAL untuk peta berkunci-nama: array TIDAK bisa menyimpan kunci bernama —
+   JSON.stringify membuangnya diam-diam. Akibatnya layoutOverrides["2026-07-20"]="weekend"
+   terlihat berhasil di layar, tapi HILANG begitu disimpan/refresh.
+   Jadi tiap kali menerima master dari server, kunci yang MEMANG objek dipulihkan. */
+const MASTER_OBJ_KEYS = ["layoutOverrides","layouts"];
+function normalizeMaster(m){
+  if(!m || typeof m!=="object") return m;
+  MASTER_OBJ_KEYS.forEach(k=>{ if(Array.isArray(m[k])) m[k]={}; });
+  if(Array.isArray(m.reviewCfg)) m.reviewCfg={link:"",target:30,counts:{}};
+  if(m.reviewCfg && Array.isArray(m.reviewCfg.counts)) m.reviewCfg.counts={};
+  return m;
 }
 const ID_COLLECTIONS = ["waitlist","reviews","feedbacks","users","waTargets"];
 function mergeMaster(base, mine, theirs){
@@ -1905,10 +1933,13 @@ function mergeIntoState(d){
   STATE.reservations = [...out.values()];
   // Selalu dialasi DEFAULT_MASTER supaya tidak ada kunci wajib (dpMethods, categories, dll)
   // yang hilang gara-gara server belum menyimpannya — itu bikin halaman input crash.
-  STATE.master = Object.assign(
+  // normalizeMaster di ketiga sisi: kalau `theirs` (server) membawa layoutOverrides:[] dan
+  // `mine` kebetulan juga [], mergeMaster menganggap "tidak berubah" lalu mempertahankan []
+  // → override tak pernah bisa tersimpan. Dipulihkan jadi {} dulu supaya perbandingannya benar.
+  STATE.master = normalizeMaster(Object.assign(
     JSON.parse(JSON.stringify(DEFAULT_MASTER)),
-    mergeMaster(JSON.parse(BASE.master||"{}"), STATE.master, d.master||{})
-  );
+    mergeMaster(normalizeMaster(JSON.parse(BASE.master||"{}")), normalizeMaster(STATE.master), normalizeMaster(d.master)||{})
+  ));
   ensureUsersPerms();
 
   // Audit: gabungan, tidak ada yang boleh hilang.
@@ -3281,6 +3312,19 @@ function recapSet7(){ RECAP_TO=todayStr(); RECAP_FROM=dateOfDayNo(dayNo(todayStr
 function recapSetMonth(){ RECAP_FROM=todayStr().slice(0,8)+"01"; RECAP_TO=todayStr(); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
 // Apakah rentang recap = satu hari tertentu (untuk highlight tombol aktif)?
 function recapIsDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); return !RECAP_TF&&!RECAP_TT&&!RECAP_STATUS&&recapFrom()===d&&recapTo()===d; }
+
+/* ===== Filter tanggal untuk tab DENAH & WAITING LIST =====
+   Keduanya selalu menggambarkan SATU tanggal (HARIH_DATE), jadi filter rentang
+   (Dari–Sampai) tidak berlaku di sini — yang dipakai tanggal tunggal + lompat cepat.
+   RECAP_FROM/TO ikut disamakan supaya pindah ke tab Daftar tidak "loncat" tanggal. */
+function harihSetDate(d){
+  if(!d) return;
+  HARIH_DATE=d; RECAP_FROM=RECAP_TO=d;
+  renderHariH();
+}
+function harihSetDay(offset){ harihSetDate(dateOfDayNo(dayNo(todayStr())+offset)); }
+function harihIsDay(offset){ return HARIH_DATE===dateOfDayNo(dayNo(todayStr())+offset); }
+function harihShiftDay(n){ harihSetDate(dateOfDayNo(dayNo(HARIH_DATE)+n)); }
 // Daftar reservasi sesuai filter recap (rentang tanggal, rentang jam, status, pencarian).
 function recapList(){
   const q=(HARIH_Q||"").trim().toLowerCase();
@@ -3342,8 +3386,23 @@ function openLayoutSettings(){
     <input type="radio" name="lyov" value="${val}" ${((val==="")?cur==="":cur===val)?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
     <div><h4 style="margin:0">${esc(label)}</h4><p style="margin:2px 0 0">${sub}</p></div></label>`;
   // Pilihan template: built-in (kecuali lantai2 yg punya toggle lantai sendiri) + semua template custom.
+  // Template custom diberi tombol 🗑️ di sini — sebelumnya hapus hanya ada di dalam Editor
+  // Denah sehingga sulit ditemukan. Tombolnya DI LUAR <label> supaya klik hapus tidak
+  // ikut memilih radio-nya.
   const tplKeys=allLayoutKeys().filter(k=>k!=="lantai2");
-  const tplOpts=tplKeys.map(k=>opt(k, layoutName(k)+(isBuiltinLayout(k)?"":" (custom)"), isBuiltinLayout(k)?(k==="weekend"?"Denah akhir pekan / event.":"Denah hari biasa."):"Template denah buatan sendiri.")).join("");
+  const tplOpts=tplKeys.map(k=>{
+    const builtin=isBuiltinLayout(k);
+    const sub=builtin?(k==="weekend"?"Denah akhir pekan / event.":"Denah hari biasa."):"Template denah buatan sendiri.";
+    const dipakai=Object.values(layoutOverrides()).filter(v=>v===k).length;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <label class="wa-target" style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;flex:1;margin:0">
+        <input type="radio" name="lyov" value="${esc(k)}" ${cur===k?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
+        <div><h4 style="margin:0">${esc(layoutName(k))}${builtin?"":" (custom)"}</h4>
+          <p style="margin:2px 0 0">${sub}${dipakai?` · dipakai ${dipakai} tanggal`:""}</p></div>
+      </label>
+      ${builtin?"":`<button class="btn btn-sm btn-danger" title="Hapus template ini" onclick="hapusTemplate('${esc(k)}')">🗑️</button>`}
+    </div>`;
+  }).join("");
   // Daftar override yang masih akan datang (hari ini ke depan)
   const today=todayStr();
   const upcoming=Object.entries(layoutOverrides()).filter(([d,v])=>getLayout(v)&&d>=today).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -3370,6 +3429,46 @@ function openLayoutSettings(){
      <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
      <button class="btn btn-primary" onclick="saveLayoutOverride('${date}')">Terapkan untuk ${fmtDateShort(date)}</button>
    </div>`);
+}
+/* Hapus template denah custom, dari modal Layout Event. Pakai popup aplikasi (bukan
+   confirm() browser) dan menyebutkan tanggal mana saja yang ikut terlepas ke default —
+   dulu hapus hanya ada di Editor Denah dan tidak memberi tahu dampaknya. */
+function hapusTemplate(key){
+  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  if(isBuiltinLayout(key)){ toast("Template bawaan tidak bisa dihapus","err"); return; }
+  const nama=layoutName(key);
+  const dipakai=Object.entries(layoutOverrides()).filter(([d,v])=>v===key).map(([d])=>d).sort();
+  openModal(`<div class="modal-head"><h3>🗑️ Hapus Template — ${esc(nama)}</h3>
+     <button class="close-x" onclick="openLayoutSettings()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-warn"><div>Template <b>${esc(nama)}</b> akan dihapus permanen.${
+       dipakai.length?` <b>${dipakai.length} tanggal</b> yang memakainya otomatis kembali ke layout default.`
+                     :` Belum ada tanggal yang memakainya.`}</div></div>
+     ${dipakai.length?`<div class="section-title" style="margin-top:14px">Tanggal yang terpengaruh</div>
+       <div class="master-list">${dipakai.map(d=>`<div class="master-tag"><b>${fmtDateShort(d)}</b></div>`).join("")}</div>`:""}
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="openLayoutSettings()">Kembali</button>
+     <button class="btn btn-danger" style="margin-left:auto" onclick="konfirmHapusTemplate('${esc(key)}')">🗑️ Ya, Hapus Template</button>
+   </div>`);
+}
+async function konfirmHapusTemplate(key){
+  if(isBuiltinLayout(key)) return;
+  const nama=layoutName(key);
+  // Cadangkan dulu: kalau tulisan ke database gagal, kembalikan seperti semula.
+  const bLay=JSON.parse(JSON.stringify(customLayouts()));
+  const bOv=JSON.parse(JSON.stringify(layoutOverrides()));
+  const ov=layoutOverrides();
+  Object.keys(ov).forEach(d=>{ if(ov[d]===key) delete ov[d]; });
+  delete customLayouts()[key];
+  logAudit("Hapus Layout",`${nama} (${key})`);
+  const ok=await commit("Menghapus template…");
+  if(!ok){
+    STATE.master.layouts=bLay; STATE.master.layoutOverrides=bOv;
+    closeModal(); toast("Gagal menghapus — template dikembalikan","err"); return;
+  }
+  closeModal(); buildNav(); renderHariH();
+  toast(`Template "${nama}" dihapus ✓`,"ok");
 }
 // Terapkan template yang sedang dipilih (radio) ke satu tanggal tambahan, lalu tetap
 // buka modal supaya bisa menambah tanggal lain. Untuk "template dipakai di banyak hari".
@@ -4093,7 +4192,18 @@ function renderHariH(){
        ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
      </div>
      ${(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:""}
-   </div>`:""}
+   </div>`:`<div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--line)">
+     <div class="field" style="margin:0"><label>Tanggal ${HARIH_VIEW==='wait'?'Waiting List':'Denah'}</label>
+       <input type="date" value="${HARIH_DATE}" onchange="harihSetDate(this.value)"></div>
+     <div class="pill-row" style="margin:0">
+       <span class="pill" style="cursor:pointer" title="Hari sebelumnya" onclick="harihShiftDay(-1)">‹</span>
+       <span class="pill ${harihIsDay(0)?'on':''}" style="cursor:pointer" onclick="harihSetDay(0)">Hari Ini</span>
+       <span class="pill ${harihIsDay(1)?'on':''}" style="cursor:pointer" onclick="harihSetDay(1)">Besok</span>
+       <span class="pill ${harihIsDay(2)?'on':''}" style="cursor:pointer" onclick="harihSetDay(2)">Lusa</span>
+       <span class="pill" style="cursor:pointer" title="Hari berikutnya" onclick="harihShiftDay(1)">›</span>
+     </div>
+     <span class="harih-result">${fmtDate(HARIH_DATE)} · ${dayList.length} reservasi${hasLayoutOverride(HARIH_DATE)?` · layout ${esc(layoutName(harihL1()))} ⚑`:""}</span>
+   </div>`}
    </div>
    ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
