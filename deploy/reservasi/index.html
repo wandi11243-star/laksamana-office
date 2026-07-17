@@ -3308,23 +3308,23 @@ function recapMultiDay(){ return recapFrom() !== recapTo(); }
 function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
 // Satu hari tertentu: offset 0=hari ini, 1=besok, 2=lusa. Denah & waiting ikut pindah ke sana.
 function recapSetDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); RECAP_FROM=RECAP_TO=d; HARIH_DATE=d; RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
-function recapSet7(){ RECAP_TO=todayStr(); RECAP_FROM=dateOfDayNo(dayNo(todayStr())-6); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
-function recapSetMonth(){ RECAP_FROM=todayStr().slice(0,8)+"01"; RECAP_TO=todayStr(); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+// Rentang: denah tak bisa menggambarkan banyak hari sekaligus → tetap di HARI INI
+// (hari paling relevan bagi kru), dan diberi keterangan pada denahnya.
+function recapSet7(){ RECAP_TO=todayStr(); RECAP_FROM=dateOfDayNo(dayNo(todayStr())-6); HARIH_DATE=todayStr(); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+function recapSetMonth(){ RECAP_FROM=todayStr().slice(0,8)+"01"; RECAP_TO=todayStr(); HARIH_DATE=todayStr(); RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
 // Apakah rentang recap = satu hari tertentu (untuk highlight tombol aktif)?
 function recapIsDay(offset){ const d=dateOfDayNo(dayNo(todayStr())+offset); return !RECAP_TF&&!RECAP_TT&&!RECAP_STATUS&&recapFrom()===d&&recapTo()===d; }
 
-/* ===== Filter tanggal untuk tab DENAH & WAITING LIST =====
-   Keduanya selalu menggambarkan SATU tanggal (HARIH_DATE), jadi filter rentang
-   (Dari–Sampai) tidak berlaku di sini — yang dipakai tanggal tunggal + lompat cepat.
-   RECAP_FROM/TO ikut disamakan supaya pindah ke tab Daftar tidak "loncat" tanggal. */
-function harihSetDate(d){
-  if(!d) return;
-  HARIH_DATE=d; RECAP_FROM=RECAP_TO=d;
+/* SATU baris filter dipakai di SEMUA tab (Daftar, Denah, Waiting List).
+   Denah & Waiting List hanya bisa menggambarkan SATU tanggal, jadi keduanya mengikuti
+   "Dari Tanggal". Untuk rentang (7 Hari / Bulan Ini) yang mustahil digambar sekaligus,
+   denah tetap memakai hari ini dan diberi keterangan di layar. */
+function recapSetFrom(v){
+  if(!v) return;
+  RECAP_FROM=v; if(RECAP_TO && RECAP_TO<v) RECAP_TO=v;
+  HARIH_DATE=v;                       // denah & waiting ikut tanggal ini
   renderHariH();
 }
-function harihSetDay(offset){ harihSetDate(dateOfDayNo(dayNo(todayStr())+offset)); }
-function harihIsDay(offset){ return HARIH_DATE===dateOfDayNo(dayNo(todayStr())+offset); }
-function harihShiftDay(n){ harihSetDate(dateOfDayNo(dayNo(HARIH_DATE)+n)); }
 // Daftar reservasi sesuai filter recap (rentang tanggal, rentang jam, status, pencarian).
 function recapList(){
   const q=(HARIH_Q||"").trim().toLowerCase();
@@ -4138,9 +4138,10 @@ function renderHariH(){
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
        <button class="btn btn-sm btn-ghost" onclick="connectPrinter()" title="Sambungkan printer thermal Bluetooth">🖨️ Printer</button>
        <button class="btn btn-sm btn-wa" onclick="openCoordWA()">📋 WA Koordinasi</button>
-       <button class="btn btn-sm ${HARIH_DATE===todayStr()?'btn-primary':'btn-ghost'}" onclick="HARIH_DATE=todayStr();renderHariH()" title="Lompat ke tanggal hari ini">📅 Hari Ini</button>
-       <div class="field" style="margin:0"><input type="date" value="${HARIH_DATE}" onchange="HARIH_DATE=this.value;renderHariH()"></div>
      </div>
+     <!-- Pemilih tanggal di header DIHAPUS: ia hanya mengubah HARIH_DATE tanpa RECAP_FROM,
+          sehingga tanggal Denah & Daftar bisa berbeda tanpa disadari. Sekarang semua tab
+          memakai SATU baris filter di bawah ("Dari Tanggal") sebagai sumber tanggal. -->
    </div>
    <div class="recap-grid">
      <div class="recap"><div class="lbl">📋 ${inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?"Total (Filter)":"Total Hari Ini"}</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
@@ -4169,9 +4170,11 @@ function renderHariH(){
        <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihL1())" title="Kelola & atur posisi meja (editor denah)">✏️ Editor Denah</button>
      </span>`:""}
    </div>
-   ${inList?`<div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--line)">
+   <!-- SATU baris filter untuk SEMUA tab (Daftar / Denah / Waiting List).
+        "Dari Tanggal" = sumber tanggal untuk denah & antrean juga (lihat recapSetFrom). -->
+   <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--line)">
      <div class="field" style="margin:0"><label>Dari Tanggal</label>
-       <input type="date" value="${recapFrom()}" onchange="RECAP_FROM=this.value; if(RECAP_TO&&RECAP_TO<this.value)RECAP_TO=this.value; renderHariH()"></div>
+       <input type="date" value="${recapFrom()}" onchange="recapSetFrom(this.value)"></div>
      <div class="field" style="margin:0"><label>Sampai Tanggal</label>
        <input type="date" value="${recapTo()}" onchange="RECAP_TO=this.value; renderHariH()"></div>
      <div class="field" style="margin:0"><label>Jam Dari</label>
@@ -4191,19 +4194,13 @@ function renderHariH(){
        <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
        ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
      </div>
-     ${(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:""}
-   </div>`:`<div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--line)">
-     <div class="field" style="margin:0"><label>Tanggal ${HARIH_VIEW==='wait'?'Waiting List':'Denah'}</label>
-       <input type="date" value="${HARIH_DATE}" onchange="harihSetDate(this.value)"></div>
-     <div class="pill-row" style="margin:0">
-       <span class="pill" style="cursor:pointer" title="Hari sebelumnya" onclick="harihShiftDay(-1)">‹</span>
-       <span class="pill ${harihIsDay(0)?'on':''}" style="cursor:pointer" onclick="harihSetDay(0)">Hari Ini</span>
-       <span class="pill ${harihIsDay(1)?'on':''}" style="cursor:pointer" onclick="harihSetDay(1)">Besok</span>
-       <span class="pill ${harihIsDay(2)?'on':''}" style="cursor:pointer" onclick="harihSetDay(2)">Lusa</span>
-       <span class="pill" style="cursor:pointer" title="Hari berikutnya" onclick="harihShiftDay(1)">›</span>
-     </div>
-     <span class="harih-result">${fmtDate(HARIH_DATE)} · ${dayList.length} reservasi${hasLayoutOverride(HARIH_DATE)?` · layout ${esc(layoutName(harihL1()))} ⚑`:""}</span>
-   </div>`}
+     ${inList
+       ? ((recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:"")
+       : `<span class="harih-result">${HARIH_VIEW==='wait'?'Antrean':'Denah'}: ${fmtDate(HARIH_DATE)} · ${dayList.length} reservasi${hasLayoutOverride(HARIH_DATE)?` · layout ${esc(layoutName(harihL1()))} ⚑`:""}</span>`}
+   </div>
+   ${!inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<div class="panel-body" style="border-top:1px solid var(--line);padding-top:0">
+     <div class="inline-info"><div>${recapMultiDay()?`Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>. `:""}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?`Filter <b>jam/status</b> sengaja <b>tidak</b> diterapkan pada denah: kalau meja yang sedang dipakai ikut tersembunyi, meja itu akan terlihat kosong dan bisa dipesan dua kali. Denah selalu menampilkan <b>semua</b> reservasi tanggal ini. `:""}Filter lengkapnya berlaku di tab <b>📋 Daftar</b>.</div></div>
+   </div>`:""}
    </div>
    ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
