@@ -223,6 +223,21 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .mx.lock{opacity:.45;cursor:not-allowed}
 .mx-role{text-align:center;white-space:nowrap}
 .mx-sec td{background:var(--ink-880);padding-top:10px;padding-bottom:10px}
+/* Tombol siklus 3-warna Hak Akses (None/Lihat/Ubah), sama pola dgn reservasi
+   & konten: klik = geser status berikutnya, warna berubah sekaligus. */
+.perm-btn{width:34px;height:26px;border-radius:7px;border:1.5px solid transparent;cursor:pointer;
+  font-size:10px;font-weight:800;letter-spacing:.02em;transition:transform .08s}
+.perm-btn:active{transform:scale(.92)}
+.perm-btn:disabled{cursor:not-allowed;opacity:.55}
+.perm-btn[data-v="0"]{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.perm-btn[data-v="1"]{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.perm-btn[data-v="2"]{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.perm-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:12.5px}
+.perm-legend .lg-item{display:flex;align-items:center;gap:7px}
+.perm-legend .lg-dot{width:15px;height:15px;border-radius:5px;border:1.5px solid transparent;flex:none}
+.perm-legend .lg-dot.n0{background:var(--danger-bg);border-color:var(--danger)}
+.perm-legend .lg-dot.n1{background:var(--warn-bg);border-color:var(--warn)}
+.perm-legend .lg-dot.n2{background:var(--ok-bg);border-color:var(--ok)}
 .chk input{display:none}
 .toggle{position:relative;width:44px;height:24px;background:var(--ink-700);border-radius:20px;cursor:pointer;transition:.18s;flex-shrink:0}
 .toggle::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--sand-dim);transition:.18s}
@@ -563,13 +578,41 @@ let API_READY = false;
    dpPercent) hilang dan perhitungan finance jadi kacau. */
 const MKT_COLS=['clients','events','followups','approvals','users','staff',
                 'taskTemplates','taskCategories','categories','notifs','activities'];
+// Data LAMA (sebelum matriks None/Lihat/Ubah): s.roleNav[role]=[view,...],
+// s.rolePerms[role]=[action,...], keduanya array terpisah. Naikkan jadi
+// s.roleAcc[role]={view:0|1|2} — view yang tadinya di roleNav dapat minimal
+// PERM_VIEW, dan kalau aksi si view (lihat ACTION_VIEW) ada di rolePerms lama,
+// naik ke PERM_EDIT. Supaya migrasi TIDAK diam-diam mengunci siapa pun.
+function migrateRoleAcc(oldNav, oldPerms){
+  const acc={};
+  permViewKeys().forEach(v=>{
+    const sawNav=Array.isArray(oldNav)&&oldNav.includes(v);
+    const action=Object.keys(ACTION_VIEW).find(a=>ACTION_VIEW[a]===v);
+    const sawEdit=action&&Array.isArray(oldPerms)&&oldPerms.includes(action);
+    acc[v]=sawEdit?PERM_EDIT:(sawNav?PERM_VIEW:PERM_NONE);
+  });
+  return acc;
+}
 function normalizeState(s){
   s=s||{};
   MKT_COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   s.settings=Object.assign({}, DEFAULT_SETTINGS, s.settings||{});
   if(typeof s.baseline!=='number') s.baseline=0;
-  if(!s.rolePerms||typeof s.rolePerms!=='object') s.rolePerms={};
-  if(!s.roleNav||typeof s.roleNav!=='object') s.roleNav={};
+  if(!s.roleAcc||typeof s.roleAcc!=='object'){
+    s.roleAcc={};
+    if(s.roleNav||s.rolePerms){ // data lama ada: naikkan per role yang pernah diatur
+      const roles=new Set([...Object.keys(s.roleNav||{}),...Object.keys(s.rolePerms||{})]);
+      roles.forEach(r=>{ s.roleAcc[r]=migrateRoleAcc((s.roleNav||{})[r],(s.rolePerms||{})[r]); });
+    }
+  }
+  delete s.rolePerms; delete s.roleNav; // bentuk lama dibuang, sudah pindah ke roleAcc
+  // Per-user override: u.nav/u.perms (array) -> u.acc ({view:0|1|2}).
+  (s.users||[]).forEach(u=>{
+    if((Array.isArray(u.nav)||Array.isArray(u.perms)) && (!u.acc||typeof u.acc!=='object')){
+      u.acc=migrateRoleAcc(u.nav,u.perms);
+    }
+    delete u.nav; delete u.perms;
+  });
   return s;
 }
 
@@ -858,41 +901,80 @@ async function autoSyncOfficeRoster(){
 }
 
 /* ---------- HAK AKSES ----------
-   Default mengikuti role. Bisa di-override per user lewat User Management
-   (u.nav = modul yang boleh dibuka, u.perms = izin aksi).
-   Super Admin sengaja tidak bisa dibatasi supaya tak ada yang terkunci dari sistem. */
-const PERM_DEF=[
-  {k:'edit_client',t:'Tambah / edit client'},
-  {k:'del_client',t:'Hapus client'},
-  {k:'del_event',t:'Hapus event (permanen)'},
-  {k:'edit_event',t:'Tambah / edit event'},
-  {k:'edit_task',t:'Update task & progress divisi'},
-  {k:'verify_payment',t:'Verifikasi pembayaran'},
-  {k:'approve',t:'Approve / reject approval'},
-  {k:'manage_users',t:'Kelola user & hak akses'}
-];
-// default bawaan per role (dipakai bila matriks belum pernah diubah)
-function roleDefaultPerms(role){
-  if(role==='super_admin') return PERM_DEF.map(p=>p.k);
-  const r=role, rules={
-    'edit_client': ['marketing'].includes(r),
-    'del_client': false,
-    'del_event': false,
-    'edit_event': ['marketing','manager'].includes(r),
-    'verify_payment': ['finance'].includes(r),
-    'approve': ['manager'].includes(r),
-    'manage_users': false,
-    'edit_task': ['operational','marketing','finance','manager'].includes(r)
+   Satu matriks per (nav view, role): None(0) / Lihat(1) / Ubah(2). Menyatukan
+   dua sistem lama yang terpisah (nav[] = menu apa yang tampil, PERM_DEF[] =
+   aksi apa yang boleh diubah) — dulu bisa ada role dengan izin ubah tapi menu-
+   nya sendiri tak kelihatan (nyaris tak berguna). Sekarang satu angka per view.
+
+   Beberapa aksi lama (PERM_DEF) dipakai di LEBIH dari satu view (mis. edit_event
+   dicek di renderEvents, renderEventForm, DAN renderField — semua tiga tampilan
+   dari "membuka/mengurus event"). Diikat ke SATU view utama (lihat ACTION_VIEW)
+   — dulu memang satu flag untuk semuanya, jadi ini bukan perilaku baru, cuma
+   pengelompokan ulang cek yang sama ke satu baris matriks.
+
+   Dikecualikan: del_client (didefinisikan dulu, tak pernah dicek di mana pun —
+   dihapus, bukan lagi diwariskan sebagai baris kosong).
+
+   Bisa di-override per user lewat User Management (u.nav lama diganti u.acc =
+   {view:0|1|2}, lihat migrasi di bootApp). Super Admin sengaja tidak bisa
+   dibatasi supaya tak ada yang terkunci dari sistem. */
+const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
+const PERM_OPT=[['0','Tak Terlihat'],['1','Lihat'],['2','Boleh Ubah']];
+// Aksi (nama lama, dipakai di seluruh kode via can('...')) -> view pemiliknya.
+const ACTION_VIEW={
+  edit_client:'crm', del_event:'events', edit_event:'events',
+  verify_payment:'invoices', approve:'approvals', manage_users:'users',
+  edit_task:'tasks', edit_template:'templates', edit_staff:'staff'
+};
+// View yang PUNYA aksi terikat (lihat ACTION_VIEW) — sisanya "info saja": Lihat
+// dan Ubah berlaku sama karena tak ada yang benar-benar dikunci Ubah-nya.
+const PERM_EDIT_VIEWS=[...new Set(Object.values(ACTION_VIEW))];
+function permViewKeys(){ return NAV_DEF.filter(x=>x.k).map(x=>x.k); }
+// default bawaan per role (dipakai bila matriks belum pernah diubah). Cakupan
+// role SAMA seperti rules PERM_DEF lama, dipetakan ke view lewat ACTION_VIEW —
+// dan beberapa view lama (crm, events, dst) juga otomatis Lihat bagi siapa pun
+// yang tadinya ada di ROLES[role].nav bawaan, supaya "role X bisa buka Y" tetap
+// sama seperti sebelum matriks ini ada.
+function roleDefaultPerm(role, view){
+  if(role==='super_admin') return PERM_EDIT;
+  const legacyEditRules={
+    edit_client:['marketing'].includes(role),
+    del_event:false,
+    edit_event:['marketing','manager'].includes(role),
+    verify_payment:['finance'].includes(role),
+    approve:['manager'].includes(role),
+    manage_users:false,
+    edit_task:['operational','marketing','finance','manager'].includes(role),
+    edit_template:['operational','marketing','finance','manager'].includes(role),
+    edit_staff:['marketing','manager'].includes(role)
   };
-  return PERM_DEF.filter(p=>rules[p.k]).map(p=>p.k);
+  const action=Object.keys(ACTION_VIEW).find(a=>ACTION_VIEW[a]===view);
+  const canSeeByDefault=(ROLES[role]&&Array.isArray(ROLES[role].nav)&&ROLES[role].nav.includes(view));
+  if(action && legacyEditRules[action]) return PERM_EDIT;
+  return canSeeByDefault ? PERM_VIEW : PERM_NONE;
 }
-// hasil matriks (S.roleNav / S.rolePerms) menimpa default; Super Admin selalu penuh
-function roleNav(role){ if(role==='super_admin')return ROLES.super_admin.nav; return (S.roleNav&&Array.isArray(S.roleNav[role]))?S.roleNav[role]:ROLES[role].nav; }
-function rolePerms(role){ if(role==='super_admin')return roleDefaultPerms('super_admin'); return (S.rolePerms&&Array.isArray(S.rolePerms[role]))?S.rolePerms[role]:roleDefaultPerms(role); }
+function roleDefaultPerms(role){ const p={}; permViewKeys().forEach(v=>{ p[v]=roleDefaultPerm(role,v); }); return p; }
+// hasil matriks (S.roleAcc) menimpa default; Super Admin selalu penuh
+function roleAcc(role){
+  if(role==='super_admin'){ const p={}; permViewKeys().forEach(v=>p[v]=PERM_EDIT); return p; }
+  return (S.roleAcc && S.roleAcc[role] && typeof S.roleAcc[role]==='object') ? S.roleAcc[role] : roleDefaultPerms(role);
+}
 // hak akses per user: override user (bila ada) > matriks role
-function userPerms(u){ if(!u)return []; if(u.role==='super_admin')return rolePerms('super_admin'); return Array.isArray(u.perms)?u.perms:rolePerms(u.role); }
-function userNav(u){ if(!u)return []; if(u.role==='super_admin')return ROLES.super_admin.nav; return Array.isArray(u.nav)?u.nav:roleNav(u.role); }
-function hasCustomAccess(u){ return Array.isArray(u.nav)||Array.isArray(u.perms); }
+function userAcc(u){
+  if(!u) return {};
+  if(u.role==='super_admin') return roleAcc('super_admin');
+  return (u.acc && typeof u.acc==='object') ? u.acc : roleAcc(u.role);
+}
+function viewPerm(view, u){ const acc=userAcc(u); const v=acc[view]; return typeof v==='number' ? v : PERM_NONE; }
+// nav/perms lama (array-based) DIBUANG — dipertahankan hanya sebagai NAMA fungsi
+// supaya seluruh kode lama yang memanggilnya (buildNav, can()) tak perlu diubah
+// satu-satu, cuma isinya yang sekarang baca dari acc.
+function userNav(u){ if(!u)return []; return permViewKeys().filter(v=>viewPerm(v,u)>=PERM_VIEW); }
+function userPerms(u){
+  if(!u)return [];
+  return Object.keys(ACTION_VIEW).filter(a=>viewPerm(ACTION_VIEW[a],u)>=PERM_EDIT);
+}
+function hasCustomAccess(u){ return (u.acc&&typeof u.acc==='object')||Array.isArray(u.nav)||Array.isArray(u.perms); }
 function can(action){ if(!ME)return false; if(ME.role==='super_admin')return true; return userPerms(ME).includes(action); }
 /* ============================================================
    EVENT SCHEMA (Modul D.1–D.12) — drives form + Event Brief
@@ -2804,7 +2886,7 @@ function tmplCard(div,canEdit,deletable,subtitle){
   return h+'</div>';
 }
 function renderTemplates(V){
-  const canEdit=can('edit_task');
+  const canEdit=can('edit_template');
   let h=pageHead('Template','Template Task','Standar job per divisi — jadi acuan handover & muncul saat buka Detail Job di Task Divisi.',
     canEdit?'<button class="btn pri" onclick="newTaskCategory()">'+svg(IC.plus)+'Kategori Baru</button>':'');
   getCats().forEach(div=>{ h+=tmplCard(div,canEdit,true); });
@@ -3201,7 +3283,7 @@ function paintStaffDatalist(){
   dl.innerHTML=staffList().map(s=>'<option value="'+esc(s.name)+'">'+esc([s.jabatan,s.div].filter(Boolean).join(' · '))+'</option>').join('');
 }
 function renderStaff(V){
-  const canEdit=can('edit_event')||can('manage_users');
+  const canEdit=can('edit_staff');
   let h=pageHead('Data Pegawai','Data Pegawai','Dipakai sebagai pilihan PIC di Matriks PIC Hari-H, Template Task, dan Detail Job.',
     canEdit?'<button class="btn" onclick="importOfficeStaff()">'+svg(IC.down)+'Tarik dari Office</button><button class="btn pri" onclick="newStaff()">'+svg(IC.plus)+'Pegawai Baru</button>':'');
   const list=(S.staff||[]).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
@@ -3297,35 +3379,48 @@ function renderUsers(V){
   h+=accessMatrix(canMU);
   V.innerHTML=h;
 }
-function mxBox(kind,role,key,on,locked){
-  return '<span class="mx'+(on?' on':'')+(locked?' lock':'')+'" data-kind="'+kind+'" data-role="'+role+'" data-key="'+esc(key)+'"'
-    +(locked?'':' onclick="this.classList.toggle(\'on\')"')+'>'+svg(IC.check)+'</span>';
+// Tombol siklus di matriks Hak Akses: klik geser None(0) -> Lihat(1) -> Ubah(2) -> None.
+function cyclePerm(btn){
+  const next=(Number(btn.dataset.v)+1)%3;
+  btn.dataset.v=String(next);
+  btn.textContent=['None','Lihat','Ubah'][next];
+  btn.title=PERM_OPT[next][1]+' — klik untuk ubah';
+}
+function permLegend(){
+  return '<div class="perm-legend">'+PERM_OPT.map(([val,lbl])=>'<span class="lg-item"><span class="lg-dot n'+val+'"></span>'+lbl+'</span>').join('')
+    +'<span class="cell-sub" style="font-size:11.5px">Klik sel untuk geser status</span></div>';
 }
 function accessMatrix(canMU){
   const roles=Object.keys(ROLES);
-  let h='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:15px">Matriks Hak Akses per Role</h3><div class="cell-sub" style="margin-top:3px">Centang = boleh. Berlaku untuk semua user dengan role tersebut, kecuali yang punya Hak Akses <em>custom</em> sendiri.</div></div>'
+  const views=permViewKeys();
+  let h='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:15px">Matriks Hak Akses per Role</h3><div class="cell-sub" style="margin-top:3px">Tak Terlihat / Lihat / Boleh Ubah per menu. Berlaku untuk semua user dengan role tersebut, kecuali yang punya Hak Akses <em>custom</em> sendiri.</div></div>'
     +(canMU?'<button class="btn sm pri" onclick="saveRoleMatrix()">'+svg(IC.check)+'Simpan Matriks</button>':'')+'</div>';
-  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:190px">Modul — menu yang muncul</th>'+roles.map(r=>'<th class="mx-role">'+esc(ROLES[r].t)+'</th>').join('')+'</tr></thead><tbody>';
-  NAV_DEF.filter(x=>x.k).forEach(m=>{
-    h+='<tr><td class="cell-strong">'+esc(m.t)+'</td>'+roles.map(r=>'<td class="mx-role">'+mxBox('nav',r,m.k,roleNav(r).includes(m.k),r==='super_admin'||!canMU)+'</td>').join('')+'</tr>';
-  });
-  h+='<tr class="mx-sec"><td colspan="'+(roles.length+1)+'"><div class="eyebrow">Izin Aksi — yang boleh diubah, bukan sekadar dilihat</div></td></tr>';
-  PERM_DEF.forEach(p=>{
-    h+='<tr><td class="cell-strong">'+esc(p.t)+'</td>'+roles.map(r=>'<td class="mx-role">'+mxBox('perm',r,p.k,rolePerms(r).includes(p.k),r==='super_admin'||!canMU)+'</td>').join('')+'</tr>';
+  h+=permLegend();
+  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="min-width:190px">Menu</th>'+roles.map(r=>'<th class="mx-role">'+esc(ROLES[r].t)+'</th>').join('')+'</tr></thead><tbody>';
+  views.forEach(v=>{
+    const m=NAV_DEF.find(x=>x.k===v);
+    const isEdit=PERM_EDIT_VIEWS.includes(v);
+    h+='<tr><td class="cell-strong">'+esc(m.t)+(isEdit?'':' <span class="cell-sub" style="font-size:11px">(info saja)</span>')+'</td>'+roles.map(r=>{
+      const locked=r==='super_admin'||!canMU;
+      const val=roleAcc(r)[v]??PERM_VIEW; // roleAcc('super_admin') sudah selalu 2, tak perlu dipaksa lagi
+      return '<td class="mx-role">'+(locked
+        ?'<button type="button" class="perm-btn" data-v="'+val+'" disabled title="'+(r==='super_admin'?'Super Admin selalu akses penuh':'Perlu izin kelola user untuk mengubah')+'">'+['None','Lihat','Ubah'][val]+'</button>'
+        :'<button type="button" class="perm-btn" data-v="'+val+'" data-role="'+r+'" data-view="'+v+'" title="'+PERM_OPT[val][1]+' — klik untuk ubah" onclick="cyclePerm(this)">'+['None','Lihat','Ubah'][val]+'</button>')+'</td>';
+    }).join('')+'</tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Kolom <em>Super Admin</em> terkunci penuh — supaya tidak ada yang bisa terkunci dari sistem. Baris <em>Modul</em> mengatur menu di sidebar; baris <em>Izin Aksi</em> mengatur hak mengubah data.</span></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Kolom <em>Super Admin</em> terkunci penuh — supaya tidak ada yang bisa terkunci dari sistem. Menu bertanda <em>(info saja)</em> murni dashboard/daftar — Lihat dan Ubah berlaku sama karena tak ada yang benar-benar dikunci Ubah-nya.</span></div>';
   return h+'</div>';
 }
 function saveRoleMatrix(){
   if(!can('manage_users'))return toast('Akses ditolak','Kamu tidak punya izin kelola user.','err');
-  S.roleNav=S.roleNav||{}; S.rolePerms=S.rolePerms||{};
+  S.roleAcc=S.roleAcc||{};
   Object.keys(ROLES).forEach(r=>{
     if(r==='super_admin')return; // selalu penuh
-    const nav=[...document.querySelectorAll('.mx.on[data-kind="nav"][data-role="'+r+'"]')].map(x=>x.dataset.key);
-    if(!nav.includes('dashboard')) nav.unshift('dashboard'); // selalu punya pintu masuk
-    S.roleNav[r]=nav;
-    S.rolePerms[r]=[...document.querySelectorAll('.mx.on[data-kind="perm"][data-role="'+r+'"]')].map(x=>x.dataset.key);
+    const acc={};
+    document.querySelectorAll('.perm-btn[data-role="'+r+'"]').forEach(btn=>{ acc[btn.dataset.view]=Number(btn.dataset.v); });
+    if((acc.dashboard??PERM_NONE)<PERM_VIEW) acc.dashboard=PERM_VIEW; // selalu punya pintu masuk
+    S.roleAcc[r]=acc;
   });
   logAct('user','-','Matriks hak akses role diperbarui','');
   save(); buildNav(); toast('Matriks disimpan','Hak akses per role diperbarui.','ok'); go('users');
@@ -3379,16 +3474,19 @@ function changeUserRole(id,role){
 function openUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
   const isSA=u.role==='super_admin';
-  const navSel=userNav(u), permSel=userPerms(u);
-  const lock=isSA?'':' onclick="this.classList.toggle(\'on\')"';
+  const acc=userAcc(u);
   let b='';
   if(isSA) b+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Super Admin</em> selalu punya akses penuh dan tidak bisa dibatasi — supaya tidak ada yang terkunci dari sistem.</span></div>';
-  b+='<div class="field"><label>Modul yang bisa dibuka</label><div class="chk-grid" id="ua_nav">'
-    +NAV_DEF.filter(x=>x.k).map(m=>'<div class="chk '+(navSel.includes(m.k)?'on':'')+'"'+lock+' data-v="'+esc(m.k)+'">'+esc(m.t)+'</div>').join('')
-    +'</div><div class="fh">Menentukan menu yang muncul di sidebar untuk user ini.</div></div>';
-  b+='<div class="field"><label>Izin aksi</label><div class="chk-grid" id="ua_perm">'
-    +PERM_DEF.map(p=>'<div class="chk '+(permSel.includes(p.k)?'on':'')+'"'+lock+' data-v="'+esc(p.k)+'">'+esc(p.t)+'</div>').join('')
-    +'</div><div class="fh">Menentukan apa yang boleh diubah, bukan sekadar dilihat.</div></div>';
+  b+=permLegend();
+  b+='<div class="field"><label>Hak akses per menu</label><div class="tbl-wrap" id="ua_acc"><table class="tbl"><tbody>'
+    +permViewKeys().map(v=>{
+      const m=NAV_DEF.find(x=>x.k===v); const isEdit=PERM_EDIT_VIEWS.includes(v);
+      const val=isSA?PERM_EDIT:(acc[v]??PERM_NONE);
+      return '<tr><td class="cell-strong">'+esc(m.t)+(isEdit?'':' <span class="cell-sub" style="font-size:11px">(info saja)</span>')+'</td><td class="mx-role">'
+        +(isSA?'<button type="button" class="perm-btn" data-v="2" disabled title="Super Admin selalu akses penuh">Ubah</button>'
+              :'<button type="button" class="perm-btn" data-v="'+val+'" data-view="'+v+'" title="'+PERM_OPT[val][1]+' — klik untuk ubah" onclick="cyclePerm(this)">'+['None','Lihat','Ubah'][val]+'</button>')
+        +'</td></tr>';
+    }).join('')+'</tbody></table></div><div class="fh">Menentukan menu yang muncul di sidebar DAN apa yang boleh diubah untuk user ini.</div></div>';
   modal('<div class="modal-head"><div><h3>Hak Akses · '+esc(u.name)+'</h3><p>'+ROLES[u.role].t+(u.div?' · '+esc(u.div):'')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'+b+'</div>'
    +'<div class="modal-foot">'+(isSA?'':'<button class="btn" onclick="resetUserAccess(\''+u.id+'\')">Reset ke default role</button>')
@@ -3397,15 +3495,17 @@ function openUserAccess(id){
 }
 function saveUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
-  u.nav=[...document.querySelectorAll('#ua_nav .chk.on')].map(x=>x.dataset.v);
-  u.perms=[...document.querySelectorAll('#ua_perm .chk.on')].map(x=>x.dataset.v);
-  if(!u.nav.includes('dashboard')) u.nav.unshift('dashboard'); // selalu punya pintu masuk
-  logAct('user',u.id,'Hak akses diperbarui',u.nav.length+' modul · '+u.perms.length+' izin');
+  const acc={};
+  document.querySelectorAll('#ua_acc .perm-btn[data-view]').forEach(btn=>{ acc[btn.dataset.view]=Number(btn.dataset.v); });
+  if((acc.dashboard??PERM_NONE)<PERM_VIEW) acc.dashboard=PERM_VIEW; // selalu punya pintu masuk
+  u.acc=acc; delete u.nav; delete u.perms; // buang bentuk lama (array) — sudah diganti u.acc
+  const nView=Object.values(acc).filter(v=>v>=PERM_VIEW).length, nEdit=Object.values(acc).filter(v=>v>=PERM_EDIT).length;
+  logAct('user',u.id,'Hak akses diperbarui',nView+' menu terlihat · '+nEdit+' boleh diubah');
   save(); closeModal(); buildNav(); toast('Hak akses disimpan','Akses '+u.name+' diperbarui.','ok'); go('users');
 }
 function resetUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
-  delete u.nav; delete u.perms;
+  delete u.acc; delete u.nav; delete u.perms;
   logAct('user',u.id,'Hak akses direset','kembali ke default role '+ROLES[u.role].t);
   save(); closeModal(); buildNav(); toast('Direset','Akses '+u.name+' kembali ke default role.','ok'); go('users');
 }
@@ -3637,8 +3737,11 @@ boot();
     else if(act==='deny') setAccess(i, false);
   });
   document.addEventListener('change', function(e){ if(e.target && e.target.id==='lmaAdv'){ ADV=e.target.checked; render(); } });
-  // Tampilkan launcher hanya untuk admin modul ini.
-  if(adminsThis()){ var b=document.getElementById('lmaLaunch'); if(b) b.hidden=false; }
+  // Launcher "Kelola Akses" (grant/deny akses Office ke modul ini) SENGAJA tidak
+  // pernah ditampilkan di Marketing — superadmin sudah mengelola ini dari konsol
+  // Kelola Akses di landing page, jadi tombol duplikat di sini tidak diperlukan.
+  // window.lmaListMembers TETAP aktif (dipakai importOfficeStaff/importOfficeUsers
+  // untuk "Tarik dari Office"), cuma launcher manualnya yang disembunyikan.
 })();
 </script>
 <!-- ===== /Part B ===== -->

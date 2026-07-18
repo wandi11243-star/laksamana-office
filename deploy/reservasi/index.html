@@ -21,6 +21,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" type="image/jpeg" href="../LaksamanaMudaLogo.jpeg">
 <style>
 :root{
   /* Palette diselaraskan dgn COMS (Howandi-style: netral hangat, emas deep) */
@@ -1765,7 +1766,7 @@ function renderSeatMap(){
 
 const DEFAULT_MASTER = {
   tables: ["Meja 01","Meja 02","Meja 03","Meja 04","Meja 05","VIP 01","VIP 02","Booth A","Booth B","Area Dermaga","Area Stage","Rooftop 01","Rooftop 02"],
-  dpMethods: ["Transfer BCA","Transfer Mandiri","QRIS","Cash","Transfer BRI"],
+  dpMethods: ["QRIS BRI","Transfer UOB","Cash","QRIS BCA"],
   infoSources: ["Instagram","Google","Teman / Referral","Walk-in","Repeat Customer","Ads / Iklan","WhatsApp","TikTok"],
   categories: ["Tamu Umum","Event / Acara","Corporate / Gathering","Birthday / Ulang Tahun"],
   waTargets: [
@@ -2198,10 +2199,25 @@ function reportRejected(){
    halaman lain lebih jarang. Tiap tarikan mengunduh SELURUH database (foto bukti ikut),
    jadi ini request berat — makanya polling selalu mengalah: tidak jalan kalau antrian API
    sedang dipakai, dan langsung dibatalkan begitu kru menekan sesuatu. */
-const POLL_FAST = 6000;    // saat di halaman Recap Reservasi (denah/daftar)
-const POLL_SLOW = 20000;   // halaman lain
-function pollDelay(){ return CURRENT_PAGE==="hariH" ? POLL_FAST : POLL_SLOW; }
-async function pollRemote(){
+/* Auto-refresh SENGAJA DIPERSEMPIT.
+   Dulu SELURUH database ditarik tiap 6 detik di Recap dan 20 detik di halaman lain, lalu
+   halamannya digambar ulang — berat, boros kuota, dan bikin layar berkedip/melompat.
+   Sekarang tarikan hanya jalan bila DENAH MEJA benar-benar terlihat (Recap tab Denah, atau
+   halaman Input Reservasi), karena cuma di situ data kru lain berpengaruh langsung ke
+   keputusan (meja masih kosong atau tidak). Halaman lain tidak menarik apa pun.
+   Yang digambar ulang pun HANYA denahnya, bukan seluruh halaman.
+
+   Loop berdetak tiap POLL_TICK (murah, tanpa jaringan) tapi BENAR-BENAR menarik data
+   paling cepat tiap POLL_JEDA. Dua angka dipisah supaya: kru yang baru membuka denah
+   dapat data segar dalam beberapa detik, TANPA membuat tarikan jadi sering. */
+const POLL_TICK = 5000;    // denyut loop; hampir selalu berhenti di penjaga, tanpa jaringan
+const POLL_JEDA = 15000;   // jarak minimum antar tarikan data sungguhan
+let _lastPoll = 0;
+// Denah sedang terlihat? (Recap tab Denah, atau form Input Reservasi)
+function denahTampak(){
+  return (CURRENT_PAGE==="hariH" && HARIH_VIEW==="map") || CURRENT_PAGE==="input";
+}
+async function pollRemote(force){
   if(!DATA_LOADED || _saving || !SESSION) return;
   // Antrian API sedang dipakai (mis. kru sedang menyimpan) → jangan menyelak. Kalau polling
   // ikut mengantre, aksi kru bisa terjebak menunggu di belakang tumpukan polling.
@@ -2210,7 +2226,14 @@ async function pollRemote(){
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
   if(dialogTerbuka()) return;                        // jangan gambar ulang saat kru sedang membuka dialog/popup
   if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
-  if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
+  /* Hanya tarik data bila DENAH terlihat. Halaman lain (Dashboard, Riwayat, Analitik,
+     Finance, Master Data) tidak menarik apa pun — datanya toh disegarkan setiap kru
+     menyimpan sesuatu (flushSave selalu getAll dulu) dan saat berpindah halaman. */
+  if(!denahTampak()) return;
+  // Throttle: loop boleh berdetak cepat, tapi jaringan paling sering tiap POLL_JEDA.
+  // `force` dipakai saat tab kembali aktif — di situ data segar memang perlu segera.
+  if(!force && Date.now()-_lastPoll < POLL_JEDA) return;
+  _lastPoll = Date.now();
   try{
     _pollJalan = true;
     const d = await apiGetPoll("getAll");
@@ -2221,11 +2244,17 @@ async function pollRemote(){
     // Kru sempat menekan sesuatu saat tarikan ini berjalan → jangan timpa layarnya.
     if(_saving || hasLocalChanges() || byId("busyRoot")?.classList.contains("on")) return;
     applyServer(d);
-    buildNav();
-    /* Di tab Denah cukup gambar ulang PETANYA saja. navigate() membangun ulang seluruh
-       halaman dari nol, sehingga posisi gulir kru terlempar ke atas di tengah kerja —
-       tiap beberapa detik pula. Halaman lain tetap digambar ulang seperti biasa. */
-    if(!refreshDenahSaja() && CURRENT_PAGE) navigate(CURRENT_PAGE);
+    /* HANYA denahnya yang digambar ulang — tidak pernah seluruh halaman.
+       navigate() membangun ulang halaman dari nol: posisi gulir kru terlempar ke atas,
+       dan di halaman Input ketikan yang sedang diisi bisa hilang. Karena polling kini
+       cuma jalan saat denah terlihat, dua kemungkinan saja: */
+    if(CURRENT_PAGE==="input"){
+      // Form TIDAK disentuh — renderSeatMap hanya mengganti isi #seatMap, jadi nama/HP/pax
+      // yang sedang diketik tetap utuh. Justru di sinilah kru perlu tahu meja keburu diambil.
+      renderSeatMap(); checkConflict();
+    }else{
+      refreshDenahSaja();
+    }
     // Sengaja TIDAK memunculkan notifikasi "diperbarui dari kru lain": tarikan ini jalan
     // sendiri tiap beberapa detik, jadi pesannya muncul terus tanpa diminta & mengganggu.
     setSync("ok","Tersambung");
@@ -2235,11 +2264,12 @@ async function pollRemote(){
 let _pollTimer=null;
 async function pollLoop(){
   try{ await pollRemote(); }catch(e){}
-  _pollTimer=setTimeout(pollLoop, pollDelay());
+  _pollTimer=setTimeout(pollLoop, POLL_TICK);
 }
-_pollTimer=setTimeout(pollLoop, POLL_FAST);
-document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(); });
-window.addEventListener("focus", pollRemote);
+_pollTimer=setTimeout(pollLoop, POLL_TICK);
+// Tab kembali aktif → tarik SEGERA (force), tidak menunggu jarak POLL_JEDA.
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(true); });
+window.addEventListener("focus", ()=>pollRemote(true));
 
 /* indikator sinkronisasi kecil di pojok bawah */
 function setSync(kind, msg){
@@ -4064,11 +4094,11 @@ function seatAction(id){
   const canEdit=CAN.input(SESSION.role);
   const seated=r.status==="Datang" && !r.leftAt;
   let acts="";
-  if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
-  if(canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
+  if(canEdit && ["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
+  if(canEdit && canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
   // Tamu ini sedang menumpang di meja lain → jalan pintas kembali ke meja aslinya.
   if(canEdit && sedangDialihkan(r)) acts+=`<button class="btn btn-primary" onclick="closeModal();tawarkanKembaliKeAsli('${r.id}')" title="Tamu ini dialihkan sementara dari meja ${esc(r.tableAsli)}">🔁 Kembali ke Meja Asli (${esc(r.tableAsli)})</button>`;
-  if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
+  if(canEdit && seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
   // Meja masih ada sisa kursi → satu tombol untuk menambah tamu (grup baru) + jadikan sharing.
   const sisaMeja=canEdit ? tablesOf(r).map(sisaKursiTable).filter(x=>x&&x.sisa>0).sort((a,b)=>b.sisa-a.sisa)[0] : null;
   if(sisaMeja) acts+=`<button class="btn btn-ok" onclick="closeModal();tambahPaxSharing('${r.id}')" title="Isi ${sisaMeja.sisa} kursi sisa di meja ${sisaMeja.t.id} dgn tamu lain — meja jadi sharing">➕ Tambah Pax (sisa ${sisaMeja.sisa}, jadi sharing)</button>`;
@@ -4080,7 +4110,7 @@ function seatAction(id){
     }
   }
   // Batalkan hanya untuk tamu yang BELUM datang (yang sudah datang → pakai "Selesai").
-  if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
+  if(canEdit && ["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
   // Reservasi LAIN di meja yang sama (mis. meja dipakai jam 13:00 lalu 20:00, atau ada
   // booking dini hari besok). Ditampilkan supaya host tahu meja ini masih ada antriannya.
   const {occ,later}=harihOccupancy();
@@ -4230,6 +4260,14 @@ function seatEmptyClick(tableId){
   else walkInSeat(tableId);
 }
 function walkInSeat(tableId, sharingDefault, paxDefault){
+  // Penjaga hak akses di fungsi INTI, bukan cuma di tombol yang memanggilnya —
+  // walk-in dari Denah (klik meja kosong / tombol "Tambah Tamu" di modal
+  // sharing) sebelumnya TIDAK PERNAH diperiksa lewat CAN.input sama sekali,
+  // beda dari tombol "Layout"/"Editor Denah" yang sudah benar. Ditambahkan di
+  // sini supaya SEMUA jalur menambah reservasi lewat Denah ikut baris Input
+  // Reservasi di matriks (bukan baris Recap Reservasi, walau tombolnya ada
+  // di halaman Recap — walk-in tetap "menambah reservasi").
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
   if(tolakKarenaFilter()) return;     // penjaga di fungsi INTI, bukan cuma di tombol
   const esq=String(tableId).replace(/'/g,"\\'");
   const paxV=Number(paxDefault)>0?Number(paxDefault):2;
@@ -4375,6 +4413,7 @@ function tolakMeja(b, judul){
    pax default = sisa kursi. Ditandai sharing DULU & disimpan, supaya pengecekan bentrok
    walk-in (yang membaca data server) melihat meja ini memang sudah boleh digabung. */
 async function tambahPaxSharing(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
   if(tolakKarenaFilter()) return;
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   // Meja milik r yang paling banyak sisa kursinya.
@@ -4397,16 +4436,19 @@ function sharingTableAction(tableId){
   // Samakan dengan denah: tamu yang masih duduk tetap terhitung menempati meja.
   const occ=occupiedMap(HARIH_DATE,"",null, HARIH_DATE===todayStr());
   const list=partiesAt(occ,tableId);
-  if(!list.length){ walkInSeat(tableId,true); return; }
   const canEdit=CAN.input(SESSION.role);
+  if(!list.length){
+    if(!canEdit){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
+    walkInSeat(tableId,true); return;
+  }
   const rows=list.map(r=>{
     const seated=isSeated(r);
     return `
     <div class="share-row">
       <div class="who"><b>${esc(r.name)}</b><span>${r.time}, ${r.pax} pax, <span class="badge-status ${STATUS_CLASS[r.status]}" style="font-size:10px">${STATUS_ICON[r.status]} ${r.status}</span>${seated&&r.checkinAt?` , ⏱ ${esc(fmtDur(seatedSoFar(r)))}`:""}</span></div>
       <div class="mini-actions">
-        ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Datang</button>`:""}
-        ${seated?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')" title="Tamu ini pulang, sisanya tetap di meja">🍽️ Selesai</button>`:""}
+        ${canEdit&&["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Datang</button>`:""}
+        ${canEdit&&seated?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')" title="Tamu ini pulang, sisanya tetap di meja">🍽️ Selesai</button>`:""}
         ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="changeTable('${r.id}')" title="Pindahkan tamu ini ke meja lain">🔁 Pindah</button>`:""}
         ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="toggleSharing('${r.id}')" title="Batalkan sharing party ini">🤝✕</button>`:""}
         <button class="btn btn-xs btn-ghost" onclick="closeModal();openDetail('${r.id}')">🔍</button>
@@ -4418,7 +4460,7 @@ function sharingTableAction(tableId){
      <div class="share-list">${rows}</div>
    </div>
    <div class="modal-foot" style="flex-wrap:wrap">
-     <button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true,(sisaKursiTable('${String(tableId).replace(/'/g,"\\'")}')||{}).sisa)">➕ Tambah Tamu (Walk-in)</button>
+     ${canEdit?`<button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true,(sisaKursiTable('${String(tableId).replace(/'/g,"\\'")}')||{}).sisa)">➕ Tambah Tamu (Walk-in)</button>`:""}
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
@@ -4554,6 +4596,7 @@ function kwitansiPDF(id){
   logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function renderHariH(){
+  const canEdit=CAN.input(SESSION.role);
   const inList = HARIH_VIEW==='list';
   // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
   // `dayList` = kartu ringkasan; di tab Daftar ikut rentang & jam (tanpa filter status,
@@ -4678,11 +4721,11 @@ function renderHariH(){
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
           <td onclick="event.stopPropagation()"><div class="mini-actions">
-            ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="checkIn('${r.id}')">✅ Datang</button>
+            ${canEdit&&["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="checkIn('${r.id}')">✅ Datang</button>
               <button class="btn btn-xs btn-wa" onclick="followUp('${r.id}')">📞 Follow Up</button>
               <button class="btn btn-xs btn-danger" onclick="markNoShow('${r.id}')">⚠️</button>`:""}
-            ${canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
-            ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
+            ${canEdit&&canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
+            ${canEdit&&r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
         </tr>`; }).join("")}
@@ -4693,7 +4736,10 @@ function renderHariH(){
 /* ===== Check-in & kedatangan susulan =====
    Rombongan boleh datang bertahap. Tiap kali ada yang masuk, catat gelombangnya;
    sisa pax yang belum datang tetap kelihatan sampai rombongan penuh. */
-function checkIn(id){ openArrivalModal(id, true); }
+function checkIn(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
+  openArrivalModal(id, true);
+}
 function addArrival(id){ openArrivalModal(id, false); }
 
 function openArrivalModal(id, first){
@@ -4794,7 +4840,10 @@ async function undoArrival(id, idx){
    Dulu dua dialog browser berturut-turut (konfirmasi lalu tanya alasan); sekarang satu
    popup: konfirmasi + alasan sekaligus. Dipakai OLEH KEDUA jalur — tombol "Batalkan
    Reservasi" dan tombol status "Cancelled" — supaya alasannya selalu tercatat. */
-function cancelReservation(id){ openCancelModal(id); }
+function cancelReservation(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses membatalkan reservasi.","err"); return; }
+  openCancelModal(id);
+}
 function openCancelModal(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
@@ -4840,6 +4889,7 @@ async function konfirmCancel(id){
   toast(ok?"Reservasi dibatalkan, meja tersedia kembali":"Gagal membatalkan — coba lagi", ok?"err":"err");
 }
 async function markNoShow(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id);
   if(!confirm(`Tandai "${r.name}" sebagai NO-SHOW?`)) return;
   const prev=r.status; r.status="No-show"; r.updatedAt=Date.now();
@@ -4850,6 +4900,7 @@ async function markNoShow(id){
   if(ok) toast("Ditandai no-show","err");
 }
 function followUp(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mencatat follow up.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id);
   const msg=`Halo Kak ${r.name} 👋\n\nKami dari *Laksamana Muda* ingin mengonfirmasi reservasi Anda hari ini:\n📅 ${fmtDate(r.date)}\n🕗 Jam ${r.time} WIB\n👥 ${r.pax} pax${r.table?"\n🪑 "+r.table:""}\n\nApakah Kakak jadi hadir? Ditunggu kedatangannya ya ⚓\n\n_Sail to Good Taste, Stay for the Vibes_`;
   waOpen(r.phone, msg);
@@ -5073,7 +5124,7 @@ function openDetail(id){
                ${p.tfStatus!=="rejected"?`<button class="btn btn-xs btn-danger" title="Tolak transfer ini saja" onclick="rejectTf('${r.id}','${p.id}')">✕</button>`:""}`:""}
              ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" title="Hapus catatan DP ini (khusus Admin Sistem)" onclick="delDp('${r.id}','${p.id}')">🗑️</button>`:""}
            </div>`).join("")}
-         ${CAN.input(SESSION.role)||CAN.finance(SESSION.role)?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+         ${canEdit?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
             ${hasDP(r)?`<button class="btn btn-xs btn-ghost" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
           </div>`:""}
@@ -5097,12 +5148,12 @@ function openDetail(id){
    </div>
    <div class="modal-foot">
      ${canDel?`<button class="btn btn-danger btn-sm" onclick="delReservation('${r.id}')" style="margin-right:auto">🗑️ Hapus</button>`:""}
-     ${canAddArrival(r)?`<button class="btn btn-ok btn-sm" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`:""}
-     ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
-     ${r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
+     ${canEdit&&canAddArrival(r)?`<button class="btn btn-ok btn-sm" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`:""}
+     ${canEdit&&r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
+     ${canEdit&&r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
-     <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
-     ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
+     ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>`:""}
+     ${canEdit?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
      ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
@@ -5247,6 +5298,7 @@ async function changeStatus(id, status){
 }
 // Tamu selesai duduk / pulang → meja bebas kembali, durasi duduk tercatat.
 async function guestLeft(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(r.status!=="Datang"){ toast("Hanya tamu yang sudah datang bisa ditandai selesai","err"); return; }
   const prev=JSON.parse(JSON.stringify(r));
@@ -5417,6 +5469,7 @@ const OCR_BANKS = [
   ["Panin",       /\bPANIN\b/i],
   ["Bank Mega",   /\bBANK\s?MEGA\b/i],
   ["Jenius/BTPN", /\b(JENIUS|BTPN)\b/i],
+  ["UOB",         /\bUOB\b/i],
   ["QRIS",        /\bQRIS\b/i],
   ["DANA",        /\bDANA\b/],          // sengaja case-sensitive: e-wallet DANA ditulis kapital,
                                         // biar tidak tertukar dengan label "Sumber Dana"
