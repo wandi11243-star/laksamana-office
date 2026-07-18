@@ -594,7 +594,14 @@ async function initAPI() {
     if (office) {
       const oAdm = office.adminModules || [];
       OFFICE_IS_ADMIN = oAdm.includes('*') || oAdm.includes('konten');
-      await autoSyncOfficeRoster();   // tarik roster Office SEBELUM resolve, hindari duplikat
+      // Roster Office (Apps Script) TERUKUR 16-23 detik. Dulu SELALU ditunggu,
+      // jadi halaman diam belasan detik tiap dibuka.
+      // Sekarang hanya ditunggu bila user BELUM dikenal — sebab cuma di kasus
+      // itu resolveKontenUser membuat entri baru yang bisa berduplikat dengan
+      // entri dari roster. Untuk kru yang sudah terdaftar (mayoritas), aplikasi
+      // langsung tampil dan roster disegarkan di latar belakang.
+      if (kontenUserDikenal(office)) { autoSyncOfficeRoster(); }
+      else { await autoSyncOfficeRoster(); }
       SES = resolveKontenUser(office).id;
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
@@ -967,6 +974,16 @@ function readLmSession(){
 // Petakan identitas Office ke kru Konten. Cocokkan berdasarkan id lalu nama; bila
 // belum ada, buat kru sementara (in-memory) dengan role default dari role Office.
 // Owner dapat menambah/menyetel role kru secara permanen lewat Kelola Kru.
+/* Cek apakah user Office sudah dikenal, TANPA membuat entri baru.
+   Dipakai boot untuk memutuskan perlu-tidaknya menunggu roster Office
+   (Apps Script terukur 16-23 detik). Kalau sudah dikenal, resolveKontenUser
+   di bawah tidak akan push apa pun -> tidak ada risiko duplikat -> boleh
+   langsung tampil dan roster disegarkan di latar belakang. */
+function kontenUserDikenal(s){
+  if(!s) return false;
+  return !!(DB.users.find(x=>x.id===s.userId)
+         || DB.users.find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase()));
+}
 function resolveKontenUser(s){
   let u = DB.users.find(x=>x.id===s.userId)
         || DB.users.find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase());
@@ -988,8 +1005,13 @@ async function autoSyncOfficeRoster(){
   if(!OFFICE_WEBAPP_URL) return;
   let data;
   try{
+    // Batas waktu WAJIB: tanpa ini panggilan bisa menggantung tanpa akhir dan
+    // (di jalur user baru) menahan boot selamanya.
+    const stop = new AbortController();
+    const jam = setTimeout(()=>stop.abort(), 25000);
     const res = await fetch(OFFICE_WEBAPP_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'listModuleRoster', module:'konten'})});
+      body: JSON.stringify({action:'listModuleRoster', module:'konten'}), signal: stop.signal})
+      .finally(()=>clearTimeout(jam));
     data = await res.json();
   }catch(e){ return; }
   if(!data || !data.ok || !Array.isArray(data.members)) return;
