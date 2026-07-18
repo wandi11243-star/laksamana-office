@@ -885,20 +885,42 @@
         //  ⚙️  PENGATURAN SERVER TERTANAM (isi SEKALI di sini, tanpa input)
         //  Semua device yang membuka file ini otomatis tersinkron tanpa
         //  perlu menempelkan URL lagi. Kosongkan ("") untuk memakai input manual.
+        //
+        //  BACKEND = MySQL sendiri (purchasing-mysql/). Sebelumnya EMPAT Web
+        //  App Apps Script terpisah. Sheet lama TIDAK dihapus — jadi arsip
+        //  beku, tidak dibaca lagi dari sini.
+        //
+        //  KENAPA PATH RELATIF (`../../`), bukan URL lengkap:
+        //  Berkas index.html ini SAMA PERSIS di dua situs. Path relatif
+        //  membuat tiap situs otomatis memakai database miliknya sendiri:
+        //    office.laksamanamuda.id/stock/purchasing/  -> office.../purchasing-api-mysql/  -> db_purchasing (asli)
+        //    dev.laksamanamuda.id/stock/purchasing/     -> dev.../purchasing-api-mysql/     -> db_dev_stocks (coba-coba)
+        //  Kalau di sini ditulis URL lengkap, dev akan menulis ke database
+        //  produksi — coba-coba langsung merusak data kru.
+        //
+        //  KENAPA PATH TERPISAH per sumber, bukan satu api.php?src=orders:
+        //  kode di bawah menempelkan cache-buster sendiri
+        //  (`${appState.webAppUrlOrders}?t=${timestamp}`). Kalau URL-nya
+        //  sudah punya '?', hasilnya '?src=orders?t=123' — parameter rusak.
         // ==================================================================
         const EMBEDDED_CONFIG = {
-            webAppUrlOrders:  "https://script.google.com/macros/s/AKfycbw3ZpXR10UJt8Jhw9sUdsinhAOLkzCBPfJQi69ZFgZAZnFp4CR0PIfaQ8h0NIDL5UdUaQ/exec",   // Orders (Pesanan Kitchen)
-            webAppUrlVendors: "https://script.google.com/macros/s/AKfycbxmcasA83xbYE3SRt22fF1Uw5uKEukUTPxLkkAcHZf698_VpgO7EBIPeXlIHGywRTaUxQ/exec",   // Database Vendor
-            webAppUrlItems:   "https://script.google.com/macros/s/AKfycbxRk-q2IoyJPLGAdKpFbJbo-wghP1JP5LSOx-3CRJJj1QFFTLyFYvKDB0eujxouHUHRag/exec",   // Database Item (Produk)
-            webAppUrlForecast:"https://script.google.com/macros/s/AKfycbykGmdR7mGiCQUXlJQv2QwHhkNatj6GeCL8JnbZ1WXeoOCWA5m_b7cMdiuPHge0s6rH/exec"    // Data Prakiraan Stok (isi bila sudah tersedia)
+            webAppUrlOrders:  "../../purchasing-api-mysql/orders.php",    // Orders (Pesanan Kitchen)
+            webAppUrlVendors: "../../purchasing-api-mysql/vendors.php",   // Database Vendor
+            webAppUrlItems:   "../../purchasing-api-mysql/items.php",     // Database Item (Produk)
+            // Prakiraan stok TETAP di Apps Script: modul ini cuma MEMBACA-nya
+            // (tidak pernah POST). Angkanya dihitung proses lain yang tidak
+            // tahu database ini ada — menyalinnya ke MySQL cuma memindahkan
+            // hasil yang langsung basi. Catatan: prakiraan live terakhir
+            // dibuat 2026-07-07, jadi sudah basi bahkan sebelum pindah ini.
+            webAppUrlForecast:"https://script.google.com/macros/s/AKfycbykGmdR7mGiCQUXlJQv2QwHhkNatj6GeCL8JnbZ1WXeoOCWA5m_b7cMdiuPHge0s6rH/exec"
         };
 
-        // Link App Script khusus DATABASE USER (Google Sheet "Users").
-        //  - Deploy file users_appscript.gs (lihat repo) sebagai Web App, lalu
-        //    tempelkan URL /exec-nya di sini agar CRUD user tersimpan di Sheet.
-        //  - Bila dibiarkan kosong, user tetap berfungsi secara LOKAL (localStorage)
+        // DATABASE USER modul ini (berisi PIN login). Sekarang MySQL sendiri,
+        // path relatif seperti yang lain -> dev pakai db_dev_stocks, produksi
+        // pakai db_purchasing.
+        //  - Bila dikosongkan, user tetap berfungsi secara LOKAL (localStorage)
         //    memakai SEED_USERS di bawah, dan Admin tetap bisa CRUD (tersimpan lokal).
-        const USERS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxB5fPjEIe-RIDFlTUIKY9mOjTyso4Mw6hauC8YNDeS7ILzikMtaxOKLsr0aJimI2Ijkg/exec";
+        const USERS_WEBAPP_URL = "../../purchasing-api-mysql/users.php";
         // URL /exec identitas Office (Sheet "Database User"), untuk autoSyncOfficeRoster:
         // tarik kru ber-akses `purchasing` dari Kelola Akses Office supaya muncul di
         // Kelola Akses/daftar tim walau belum pernah login. Read-only, tanpa PIN.
@@ -2452,8 +2474,15 @@
             saveStateToStorage();
             renderDashboard();
             if (!silent) showToast("Order Selesai Diproses!", "Order dipindahkan ke tab Arsip.", "success");
-            if (appState.webAppUrlOrders && rowIndex > 0) {
-                await sendPostRequest({ action: 'archive', rows: [rowIndex] }, 'orders');
+            if (appState.webAppUrlOrders) {
+                // orderIds dikirim BERSAMA rows: server mengutamakan orderIds.
+                // rowIndex itu POSISI, bukan identitas — jalur offline di
+                // bawah mengarang rowIndex dari `orders.length + 2`, dan angka
+                // karangan itu bisa menunjuk order lain yang sah (yang
+                // terarsip jadi order yang salah, tanpa error). nomorOrder
+                // tidak punya masalah itu. `rows` tetap dikirim supaya
+                // backend versi lama masih jalan.
+                await sendPostRequest({ action: 'archive', orderIds: [orderId], rows: rowIndex > 0 ? [rowIndex] : [] }, 'orders');
             }
         }
 
@@ -2466,8 +2495,8 @@
             saveStateToStorage();
             renderDashboard();
             if (!silent) showToast("Gabungan Order Selesai!", "Seluruh item dipindahkan ke tab Arsip.", "success");
-            if (appState.webAppUrlOrders && rowIndices && rowIndices.length > 0) {
-                await sendPostRequest({ action: 'archive', rows: rowIndices }, 'orders');
+            if (appState.webAppUrlOrders && ids && ids.length > 0) {
+                await sendPostRequest({ action: 'archive', orderIds: ids, rows: rowIndices || [] }, 'orders');
             }
         }
 
@@ -2478,8 +2507,8 @@
             saveStateToStorage();
             renderDashboard();
             showToast("Order Dikembalikan!", "Pesanan kembali aktif di antrean utama.", "info");
-            if (appState.webAppUrlOrders && rowIndex > 0) {
-                await sendPostRequest({ action: 'unarchive', rowIndex: rowIndex }, 'orders');
+            if (appState.webAppUrlOrders) {
+                await sendPostRequest({ action: 'unarchive', orderIds: [orderId], rowIndex: rowIndex }, 'orders');
             }
         }
 
