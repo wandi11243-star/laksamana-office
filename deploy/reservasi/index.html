@@ -4260,6 +4260,14 @@ function seatEmptyClick(tableId){
   else walkInSeat(tableId);
 }
 function walkInSeat(tableId, sharingDefault, paxDefault){
+  // Penjaga hak akses di fungsi INTI, bukan cuma di tombol yang memanggilnya —
+  // walk-in dari Denah (klik meja kosong / tombol "Tambah Tamu" di modal
+  // sharing) sebelumnya TIDAK PERNAH diperiksa lewat CAN.input sama sekali,
+  // beda dari tombol "Layout"/"Editor Denah" yang sudah benar. Ditambahkan di
+  // sini supaya SEMUA jalur menambah reservasi lewat Denah ikut baris Input
+  // Reservasi di matriks (bukan baris Recap Reservasi, walau tombolnya ada
+  // di halaman Recap — walk-in tetap "menambah reservasi").
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
   if(tolakKarenaFilter()) return;     // penjaga di fungsi INTI, bukan cuma di tombol
   const esq=String(tableId).replace(/'/g,"\\'");
   const paxV=Number(paxDefault)>0?Number(paxDefault):2;
@@ -4405,6 +4413,7 @@ function tolakMeja(b, judul){
    pax default = sisa kursi. Ditandai sharing DULU & disimpan, supaya pengecekan bentrok
    walk-in (yang membaca data server) melihat meja ini memang sudah boleh digabung. */
 async function tambahPaxSharing(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
   if(tolakKarenaFilter()) return;
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   // Meja milik r yang paling banyak sisa kursinya.
@@ -4427,8 +4436,11 @@ function sharingTableAction(tableId){
   // Samakan dengan denah: tamu yang masih duduk tetap terhitung menempati meja.
   const occ=occupiedMap(HARIH_DATE,"",null, HARIH_DATE===todayStr());
   const list=partiesAt(occ,tableId);
-  if(!list.length){ walkInSeat(tableId,true); return; }
   const canEdit=CAN.input(SESSION.role);
+  if(!list.length){
+    if(!canEdit){ toast("Anda tidak punya akses menambah reservasi.","err"); return; }
+    walkInSeat(tableId,true); return;
+  }
   const rows=list.map(r=>{
     const seated=isSeated(r);
     return `
@@ -4448,7 +4460,7 @@ function sharingTableAction(tableId){
      <div class="share-list">${rows}</div>
    </div>
    <div class="modal-foot" style="flex-wrap:wrap">
-     <button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true,(sisaKursiTable('${String(tableId).replace(/'/g,"\\'")}')||{}).sisa)">➕ Tambah Tamu (Walk-in)</button>
+     ${canEdit?`<button class="btn btn-primary" onclick="closeModal();walkInSeat('${String(tableId).replace(/'/g,"\\'")}',true,(sisaKursiTable('${String(tableId).replace(/'/g,"\\'")}')||{}).sisa)">➕ Tambah Tamu (Walk-in)</button>`:""}
      <button class="btn btn-ink" style="margin-left:auto" onclick="closeModal()">Tutup</button>
    </div>`);
 }
