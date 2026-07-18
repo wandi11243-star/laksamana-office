@@ -2199,10 +2199,25 @@ function reportRejected(){
    halaman lain lebih jarang. Tiap tarikan mengunduh SELURUH database (foto bukti ikut),
    jadi ini request berat — makanya polling selalu mengalah: tidak jalan kalau antrian API
    sedang dipakai, dan langsung dibatalkan begitu kru menekan sesuatu. */
-const POLL_FAST = 6000;    // saat di halaman Recap Reservasi (denah/daftar)
-const POLL_SLOW = 20000;   // halaman lain
-function pollDelay(){ return CURRENT_PAGE==="hariH" ? POLL_FAST : POLL_SLOW; }
-async function pollRemote(){
+/* Auto-refresh SENGAJA DIPERSEMPIT.
+   Dulu SELURUH database ditarik tiap 6 detik di Recap dan 20 detik di halaman lain, lalu
+   halamannya digambar ulang — berat, boros kuota, dan bikin layar berkedip/melompat.
+   Sekarang tarikan hanya jalan bila DENAH MEJA benar-benar terlihat (Recap tab Denah, atau
+   halaman Input Reservasi), karena cuma di situ data kru lain berpengaruh langsung ke
+   keputusan (meja masih kosong atau tidak). Halaman lain tidak menarik apa pun.
+   Yang digambar ulang pun HANYA denahnya, bukan seluruh halaman.
+
+   Loop berdetak tiap POLL_TICK (murah, tanpa jaringan) tapi BENAR-BENAR menarik data
+   paling cepat tiap POLL_JEDA. Dua angka dipisah supaya: kru yang baru membuka denah
+   dapat data segar dalam beberapa detik, TANPA membuat tarikan jadi sering. */
+const POLL_TICK = 5000;    // denyut loop; hampir selalu berhenti di penjaga, tanpa jaringan
+const POLL_JEDA = 15000;   // jarak minimum antar tarikan data sungguhan
+let _lastPoll = 0;
+// Denah sedang terlihat? (Recap tab Denah, atau form Input Reservasi)
+function denahTampak(){
+  return (CURRENT_PAGE==="hariH" && HARIH_VIEW==="map") || CURRENT_PAGE==="input";
+}
+async function pollRemote(force){
   if(!DATA_LOADED || _saving || !SESSION) return;
   // Antrian API sedang dipakai (mis. kru sedang menyimpan) → jangan menyelak. Kalau polling
   // ikut mengantre, aksi kru bisa terjebak menunggu di belakang tumpukan polling.
@@ -2211,7 +2226,14 @@ async function pollRemote(){
   if(hasLocalChanges()) return;                      // ada perubahan belum tersimpan → biar flushSave yg menggabungkan
   if(dialogTerbuka()) return;                        // jangan gambar ulang saat kru sedang membuka dialog/popup
   if(byId("busyRoot")?.classList.contains("on")) return;   // sedang menyimpan/mengecek
-  if(CURRENT_PAGE==="input") return;                 // jangan ganggu form yang sedang diisi
+  /* Hanya tarik data bila DENAH terlihat. Halaman lain (Dashboard, Riwayat, Analitik,
+     Finance, Master Data) tidak menarik apa pun — datanya toh disegarkan setiap kru
+     menyimpan sesuatu (flushSave selalu getAll dulu) dan saat berpindah halaman. */
+  if(!denahTampak()) return;
+  // Throttle: loop boleh berdetak cepat, tapi jaringan paling sering tiap POLL_JEDA.
+  // `force` dipakai saat tab kembali aktif — di situ data segar memang perlu segera.
+  if(!force && Date.now()-_lastPoll < POLL_JEDA) return;
+  _lastPoll = Date.now();
   try{
     _pollJalan = true;
     const d = await apiGetPoll("getAll");
@@ -2222,11 +2244,17 @@ async function pollRemote(){
     // Kru sempat menekan sesuatu saat tarikan ini berjalan → jangan timpa layarnya.
     if(_saving || hasLocalChanges() || byId("busyRoot")?.classList.contains("on")) return;
     applyServer(d);
-    buildNav();
-    /* Di tab Denah cukup gambar ulang PETANYA saja. navigate() membangun ulang seluruh
-       halaman dari nol, sehingga posisi gulir kru terlempar ke atas di tengah kerja —
-       tiap beberapa detik pula. Halaman lain tetap digambar ulang seperti biasa. */
-    if(!refreshDenahSaja() && CURRENT_PAGE) navigate(CURRENT_PAGE);
+    /* HANYA denahnya yang digambar ulang — tidak pernah seluruh halaman.
+       navigate() membangun ulang halaman dari nol: posisi gulir kru terlempar ke atas,
+       dan di halaman Input ketikan yang sedang diisi bisa hilang. Karena polling kini
+       cuma jalan saat denah terlihat, dua kemungkinan saja: */
+    if(CURRENT_PAGE==="input"){
+      // Form TIDAK disentuh — renderSeatMap hanya mengganti isi #seatMap, jadi nama/HP/pax
+      // yang sedang diketik tetap utuh. Justru di sinilah kru perlu tahu meja keburu diambil.
+      renderSeatMap(); checkConflict();
+    }else{
+      refreshDenahSaja();
+    }
     // Sengaja TIDAK memunculkan notifikasi "diperbarui dari kru lain": tarikan ini jalan
     // sendiri tiap beberapa detik, jadi pesannya muncul terus tanpa diminta & mengganggu.
     setSync("ok","Tersambung");
@@ -2236,11 +2264,12 @@ async function pollRemote(){
 let _pollTimer=null;
 async function pollLoop(){
   try{ await pollRemote(); }catch(e){}
-  _pollTimer=setTimeout(pollLoop, pollDelay());
+  _pollTimer=setTimeout(pollLoop, POLL_TICK);
 }
-_pollTimer=setTimeout(pollLoop, POLL_FAST);
-document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(); });
-window.addEventListener("focus", pollRemote);
+_pollTimer=setTimeout(pollLoop, POLL_TICK);
+// Tab kembali aktif → tarik SEGERA (force), tidak menunggu jarak POLL_JEDA.
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) pollRemote(true); });
+window.addEventListener("focus", ()=>pollRemote(true));
 
 /* indikator sinkronisasi kecil di pojok bawah */
 function setSync(kind, msg){
