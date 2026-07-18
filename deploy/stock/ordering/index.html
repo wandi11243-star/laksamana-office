@@ -861,10 +861,18 @@
             // hapus semua (baris ini tidak pernah jalan kalau data.members kosong,
             // sebab idRoster tetap {} dan filter di bawah cuma jalan bila
             // members.length ada — lihat guard di awal fungsi lewat pemanggilnya).
+            //
+            // PENTING: hapus juga di server (ordering_users lewat USERS_URL), bukan
+            // cuma di cache lokal. syncUsersFromServer() menimpa cache lokal dari
+            // server SETIAP kali halaman dibuka — kalau server tidak ikut dibersihkan,
+            // user basi (mis. Ismail) akan selalu kembali muncul di boot berikutnya.
             if (data.members.length) {
-                const before = users.length;
-                users = users.filter(u => idRoster[u.id]);
-                if (users.length !== before) changed = true;
+                const stale = users.filter(u => !idRoster[u.id]);
+                if (stale.length) {
+                    users = users.filter(u => idRoster[u.id]);
+                    changed = true;
+                    stale.forEach(u => { pushToUsersServer({ action: 'deleteUser', user: { id: u.id } }); });
+                }
             }
             if (changed) saveUsers(users);
         }
