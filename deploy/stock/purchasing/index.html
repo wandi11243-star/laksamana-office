@@ -111,6 +111,24 @@
         }
         .pin-key:hover { background: #F2E9D3; border-color: #C8961F; }
         .pin-key:active { transform: scale(0.94); }
+
+        /* Matriks Hak Akses (Kelola Akses > Hak Akses per Peran) */
+        .perm-tbl { border-collapse: collapse; width: 100%; font-size: 12px; }
+        .perm-tbl th, .perm-tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #F2EFEA; white-space: nowrap; }
+        .perm-tbl th { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #928C80; }
+        .perm-btn {
+            border: 1px solid transparent; border-radius: 10px; padding: 6px 12px;
+            font-size: 11px; font-weight: 800; cursor: pointer; transition: all .12s ease;
+            font-family: inherit;
+        }
+        .perm-btn[data-v="0"] { background: #F8E4DF; color: #C9432B; border-color: #F3D2CB; }
+        .perm-btn[data-v="1"] { background: #F7EFDB; color: #946A15; border-color: #F2E4BE; }
+        .perm-btn[data-v="2"] { background: #E4F5EC; color: #188650; border-color: #CFEEDD; }
+        .perm-btn:disabled { opacity: .55; cursor: not-allowed; }
+        .lg-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+        .lg-dot.n0 { background: #C9432B; }
+        .lg-dot.n1 { background: #B5831A; }
+        .lg-dot.n2 { background: #1F9D5F; }
     </style>
     
     <link rel="manifest" href="manifest.json">
@@ -688,12 +706,29 @@
                 </p>
             </div>
 
-            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-3">
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-3 mb-6">
                 <div class="flex items-center justify-between">
                     <div class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Daftar Kru</div>
                     <span id="users-sync-note" class="text-[10px] font-bold text-slate-400"></span>
                 </div>
                 <div id="user-list" class="space-y-2 min-h-[120px]"></div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-3">
+                <div class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Hak Akses per Peran</div>
+                <p class="text-[11px] text-slate-500 font-semibold">
+                    Atur halaman mana yang boleh dilihat atau diubah tiap peran. Admin selalu Boleh Ubah semua halaman.
+                </p>
+                <div class="perm-legend flex items-center gap-4 text-[10px] font-bold text-slate-500 py-1">
+                    <span class="flex items-center gap-1.5"><span class="lg-dot n0"></span> Tak Terlihat</span>
+                    <span class="flex items-center gap-1.5"><span class="lg-dot n1"></span> Lihat</span>
+                    <span class="flex items-center gap-1.5"><span class="lg-dot n2"></span> Boleh Ubah</span>
+                </div>
+                <div id="perm-matrix" class="overflow-x-auto"></div>
+                <div class="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button onclick="resetPermsToDefault()" class="px-4 py-2 border border-slate-200 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-50 transition-all">Kembalikan Default</button>
+                    <button onclick="commitPermMatrix()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-indigo-100">Simpan Hak Akses</button>
+                </div>
             </div>
         </section>
 
@@ -934,6 +969,79 @@
         // Kelola Akses/daftar tim walau belum pernah login. Read-only, tanpa PIN.
         // Terpisah dari USERS_WEBAPP_URL (database user modul ini sendiri).
         const OFFICE_IDENTITY_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
+        // Matriks hak akses per peran/halaman (Kelola Akses > Hak Akses). Tabel
+        // BARU (stock_settings), terpisah dari USERS_WEBAPP_URL (itu daftar
+        // ORANG, ini aturan yang berlaku untuk semua orang di satu peran).
+        const SETTINGS_URL = "../../stock-api-mysql/purchasing-settings.php";
+
+        // ==================================================================
+        //  🔐 HAK AKSES (Kelola Akses > Hak Akses) — 3 keadaan per halaman/peran.
+        //  0=Tak Terlihat, 1=Lihat, 2=Boleh Ubah. admin SELALU Boleh Ubah semua
+        //  halaman (tidak bisa diubah lewat matriks — dikunci di kode, bukan
+        //  data, supaya modul tidak bisa kehilangan admin lewat kesalahan isi).
+        //  Baris & nilai default di bawah SAMA PERSIS dengan perilaku sebelum
+        //  matriks ini ada: full melakukan semua yang dia lakukan sekarang
+        //  (tidak ada yang sebelumnya diblokir), view jadi baca-saja sungguhan.
+        // ==================================================================
+        const PERM_NONE = 0, PERM_VIEW = 1, PERM_EDIT = 2;
+        const PERM_ROLES = ['full', 'view'];   // admin dikunci Boleh Ubah, tidak masuk matriks
+        const PERM_PAGES = [
+            { id: 'dashboard',   label: 'Monitor Order' },
+            { id: 'overview',    label: 'Rekap Per Bulan' },
+            { id: 'database',    label: 'Database & Vendor' },
+            { id: 'integration', label: 'Panduan & PWA' },
+            { id: 'users',       label: 'Kelola Akses' }
+        ];
+        const PERM_DEFAULT = {
+            dashboard:   { full: PERM_EDIT, view: PERM_VIEW },
+            overview:    { full: PERM_VIEW, view: PERM_VIEW },
+            database:    { full: PERM_EDIT, view: PERM_VIEW },
+            integration: { full: PERM_EDIT, view: PERM_VIEW },
+            users:       { full: PERM_NONE, view: PERM_NONE }
+        };
+        let PERMS = null;   // dimuat dari server saat boot; null = belum dimuat -> pakai default
+
+        function pagePerm(page, role) {
+            if (!currentUser) return PERM_NONE;
+            if (currentUser.role === 'admin') return PERM_EDIT;
+            const src = (PERMS && PERMS[page]) ? PERMS[page] : (PERM_DEFAULT[page] || {});
+            const v = src[role || currentUser.role];
+            return v === undefined ? PERM_NONE : Number(v);
+        }
+        function canEditPage(page) { return pagePerm(page, currentUser && currentUser.role) >= PERM_EDIT; }
+        function canViewPage(page) { return pagePerm(page, currentUser && currentUser.role) >= PERM_VIEW; }
+        // Penjaga di TITIK AKSI, bukan cuma di tombolnya. renderDashboard() dkk.
+        // merender banyak tombol lewat innerHTML dalam kartu order/vendor/produk
+        // yang dibuat ulang tiap render — menyembunyikan tiap tombol satu-satu di
+        // sana rapuh (gampang lupa satu). Jadi tiap fungsi mutasi memeriksa
+        // haknya sendiri di baris pertama; kalau ditolak, langsung berhenti.
+        function requireEditPage(page, label) {
+            if (canEditPage(page)) return true;
+            showToast("Akses Ditolak", "Peran Anda cuma bisa melihat " + (label || 'halaman ini') + ".", "danger");
+            return false;
+        }
+
+        async function loadPerms() {
+            if (!SETTINGS_URL || !navigator.onLine) return;
+            try {
+                const res = await fetch(`${SETTINGS_URL}?t=${Date.now()}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.perms && typeof data.perms === 'object' && !Array.isArray(data.perms)) {
+                    PERMS = data.perms;
+                }
+            } catch (e) { console.warn("Gagal memuat hak akses; pakai default.", e); }
+        }
+        async function savePerms(next) {
+            if (!SETTINGS_URL) { PERMS = next; return true; }
+            try {
+                const res = await fetch(SETTINGS_URL, { method: 'POST',
+                    body: JSON.stringify({ action: 'savePerms', perms: next }) });
+                if (!res.ok) return false;
+                PERMS = next;
+                return true;
+            } catch (e) { console.warn("Gagal menyimpan hak akses.", e); return false; }
+        }
 
         // ==================================================================
         //  👥  DAFTAR USER AWAL (dipakai saat pertama kali / fallback offline)
@@ -985,10 +1093,11 @@
         let forecastBook = new LaksForecast.ForecastBook(null, null);
         let stockAsOf = null;
 
-        window.onload = function() {
+        window.onload = async function() {
             ensureUsersLocal();          // daftar lokal tetap dipakai untuk lookup tim/keterangan PIC
             refreshUsersFromSheet();     // sinkron daftar (tim) dari Sheet di background, bila URL diatur
             autoSyncOfficeRoster();      // tarik kru ber-akses purchasing dari Office (non-blocking)
+            await loadPerms();           // hak akses DITUNGGU: enterApp() perlu ini utk gating nav yang benar
             // Identitas kini berasal dari Office (lm_session), bukan login PIN lokal.
             const sess = officeUser();
             if (sess) enterApp(sess);
@@ -1188,10 +1297,21 @@
                 if (!s || !s.expiry || Date.now() > s.expiry) return null;
                 const mods = s.modules || [];
                 if (!(mods.includes('*') || mods.includes('purchasing'))) return null;
-                // Admin modul dari Office (adminModules) -> admin internal, selain itu full.
+                // Peran SUNGGUHNYA datang dari Kelola Akses lokal (admin/full/view yang
+                // ditetapkan admin modul), BUKAN cuma status admin Office. Sebelumnya
+                // fungsi ini mengabaikan role tersimpan sepenuhnya dan selalu memberi
+                // 'full' ke siapapun yang bukan admin modul Office — akibatnya peran
+                // 'view' tidak pernah bisa benar-benar dipakai siapapun, walau ada di
+                // Kelola Akses. Sekarang: cocokkan ke kru terdaftar (id lalu nama)
+                // dulu; admin modul Office tetap MENANG (naik ke 'admin') walau
+                // tersimpan sebagai peran lain, sama seperti perilaku lama.
+                const users = loadUsersLocal();
+                const u = users.find(x => x.id === s.userId)
+                       || users.find(x => String(x.name || '').toLowerCase() === String(s.name || '').toLowerCase());
                 const adm = s.adminModules || [];
-                const role = (adm.includes('*') || adm.includes('purchasing')) ? 'admin' : 'full';
-                return { id: s.userId, name: s.name, role: role, keterangan: '' };
+                const isOfficeAdmin = adm.includes('*') || adm.includes('purchasing');
+                const role = isOfficeAdmin ? 'admin' : (u ? u.role : 'full');
+                return { id: s.userId, name: s.name, role: role, keterangan: u ? u.keterangan : '' };
             } catch (e) { return null; }
         }
 
@@ -1210,7 +1330,22 @@
             // Kini halaman sidebar (Admin > Kelola Akses), bukan gear+modal.
             const isAdmin = user.role === 'admin';
             document.getElementById('nav-admin-sec').classList.toggle('hidden', !isAdmin);
+            applyPagePerms();
             bootApp();
+        }
+
+        // Sembunyikan tombol nav (desktop + mobile) untuk halaman yang tak
+        // boleh dilihat peran ini sama sekali (Tak Terlihat). Halaman yang
+        // cuma Lihat tetap muncul di nav, tapi tombol tulis di dalamnya
+        // disembunyikan oleh renderDatabaseTab()/renderDashboard() dst lewat
+        // canEditPage(). Ditegakkan lagi di switchTab(), bukan cuma di sini —
+        // supaya tidak bisa dibuka lewat switchTab('database') dari console.
+        function applyPagePerms() {
+            const map = { dashboard: 'tab-dashboard', overview: 'tab-overview', database: 'tab-database' };
+            Object.keys(map).forEach(page => {
+                const btn = document.getElementById(map[page]);
+                if (btn) btn.classList.toggle('hidden', !canViewPage(page));
+            });
         }
 
         // ==========================================
@@ -1219,6 +1354,7 @@
         async function openUserManager() {
             if (!currentUser || currentUser.role !== 'admin') return showToast("Akses Ditolak", "Hanya admin modul (Admin/Howandi/Wandi) yang bisa kelola akses.", "danger");
             renderUserList();
+            renderPermMatrix();
             const note = document.getElementById('users-sync-note');
             if (note) note.innerText = USERS_WEBAPP_URL ? "🟢 Tersinkron ke Google Sheet" : "🟡 Mode lokal (isi USERS_WEBAPP_URL untuk sinkron Sheet)";
             await refreshUsersFromSheet();
@@ -1232,6 +1368,90 @@
             await autoSyncOfficeRoster();
             renderUserList();
             if (note) note.innerText = USERS_WEBAPP_URL ? "🟢 Tersinkron ke Google Sheet" : "🟡 Mode lokal (isi USERS_WEBAPP_URL untuk sinkron Sheet)";
+        }
+
+        /* ====== HAK AKSES: matriks per halaman x peran (Kelola Akses > Hak Akses) ====== */
+        function currentPermMatrix() {
+            // Salinan kerja: PERMS server (kalau ada) di atas default, per
+            // halaman/peran — supaya baris yang belum pernah disimpan tetap
+            // tampil dengan nilai default yang benar, bukan kosong/0 semua.
+            const out = {};
+            PERM_PAGES.forEach(p => {
+                out[p.id] = {};
+                PERM_ROLES.forEach(r => {
+                    const src = (PERMS && PERMS[p.id]) || {};
+                    const d = (PERM_DEFAULT[p.id] || {})[r] ?? PERM_NONE;
+                    out[p.id][r] = src[r] !== undefined ? Number(src[r]) : d;
+                });
+            });
+            return out;
+        }
+        let _permDraft = null;
+        function renderPermMatrix() {
+            _permDraft = currentPermMatrix();
+            const box = document.getElementById('perm-matrix');
+            if (!box) return;
+            const roleLabel = { full: 'Full', view: 'View' };
+            let html = '<table class="perm-tbl"><thead><tr><th>Halaman</th>' +
+                PERM_ROLES.map(r => '<th>' + roleLabel[r] + '</th>').join('') +
+                '<th>Admin</th></tr></thead><tbody>';
+            PERM_PAGES.forEach(p => {
+                // "Kelola Akses" dikunci Tak Terlihat: halaman itu sudah digerbang
+                // terpisah (hanya role==='admin'), jadi mengizinkan Full/View di sini
+                // tidak akan pernah benar-benar membuka apapun — dikunci di UI supaya
+                // tidak terlihat seperti kontrol yang berfungsi padahal tidak.
+                const locked = p.id === 'users';
+                html += '<tr><td><b>' + p.label + '</b></td>';
+                PERM_ROLES.forEach(r => {
+                    const v = locked ? PERM_NONE : _permDraft[p.id][r];
+                    const vLabel = v === PERM_EDIT ? 'Boleh Ubah' : (v === PERM_VIEW ? 'Lihat' : 'Tak Terlihat');
+                    html += '<td><button type="button" class="perm-btn" data-v="' + v + '" data-page="' + p.id + '" data-role="' + r + '"' +
+                        (locked ? ' disabled title="Khusus admin, tidak bisa diubah"' : ' onclick="cyclePerm(this)" title="' + vLabel + '"') + '>' + vLabel + '</button></td>';
+                });
+                html += '<td><button type="button" class="perm-btn" data-v="2" disabled title="Admin selalu Boleh Ubah">Boleh Ubah</button></td></tr>';
+            });
+            html += '</tbody></table>';
+            box.innerHTML = html;
+        }
+        function cyclePerm(btn) {
+            const v = (Number(btn.dataset.v) + 1) % 3;
+            btn.dataset.v = String(v);
+            const label = v === PERM_EDIT ? 'Boleh Ubah' : (v === PERM_VIEW ? 'Lihat' : 'Tak Terlihat');
+            btn.textContent = label;
+            btn.title = label;
+            _permDraft[btn.dataset.page][btn.dataset.role] = v;
+        }
+        function resetPermsToDefault() {
+            _permDraft = JSON.parse(JSON.stringify(PERM_DEFAULT));
+            renderPermMatrixFromDraft();
+        }
+        function renderPermMatrixFromDraft() {
+            // Sama seperti renderPermMatrix() tapi memakai _permDraft yang sudah
+            // ada (dipakai oleh resetPermsToDefault, supaya tidak menimpa draft
+            // dengan currentPermMatrix() lagi).
+            const box = document.getElementById('perm-matrix');
+            if (!box) return;
+            document.querySelectorAll('#perm-matrix .perm-btn:not([disabled])').forEach(btn => {
+                const v = _permDraft[btn.dataset.page][btn.dataset.role];
+                btn.dataset.v = String(v);
+                const label = v === PERM_EDIT ? 'Boleh Ubah' : (v === PERM_VIEW ? 'Lihat' : 'Tak Terlihat');
+                btn.textContent = label;
+                btn.title = label;
+            });
+        }
+        async function commitPermMatrix() {
+            if (!_permDraft) return;
+            // "users" dikunci Tak Terlihat di UI (lihat renderPermMatrix) — paksa
+            // sama saat simpan supaya nilai lama yang mungkin masih tersimpan di
+            // server tidak diam-diam terbawa kembali.
+            _permDraft.users = { full: PERM_NONE, view: PERM_NONE };
+            const ok = await savePerms(_permDraft);
+            if (ok) {
+                showToast("Hak Akses Disimpan", "Perubahan berlaku untuk semua kru berperan Full/View.", "success");
+                applyPagePerms();   // sesi admin sendiri: nav tak berubah (admin selalu penuh), tapi jaga konsisten
+            } else {
+                showToast("Gagal Menyimpan", "Tidak bisa menghubungi server. Coba lagi.", "danger");
+            }
         }
 
         function renderUserList() {
@@ -1442,6 +1662,14 @@
         }
 
         function switchTab(tabId) {
+            // Penegakan sesungguhnya, bukan cuma menyembunyikan tombol nav —
+            // tanpa ini halaman ber-gate tetap bisa dibuka lewat switchTab('x')
+            // dari console walau tombolnya disembunyikan applyPagePerms().
+            if (['dashboard', 'overview', 'database'].includes(tabId) && !canViewPage(tabId)) {
+                showToast("Akses Ditolak", "Anda tidak punya akses ke halaman itu.", "danger");
+                tabId = canViewPage('dashboard') ? 'dashboard' : (canViewPage('overview') ? 'overview' : 'database');
+            }
+            if (tabId === 'users' && !(currentUser && currentUser.role === 'admin')) tabId = 'dashboard';
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('block'));
 
@@ -2369,6 +2597,7 @@
         }
 
         function triggerDeleteVendorConfirm(name) {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             openConfirmModal(
                 "Hapus Vendor?",
                 `Apakah Anda yakin ingin menghapus vendor "${name}" secara permanen dari Google Sheets Vendor?`,
@@ -2395,6 +2624,7 @@
         }
 
         function triggerDeleteProductConfirm(name) {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             openConfirmModal(
                 "Hapus Aturan Distribusi?",
                 `Apakah Anda yakin ingin menghapus aturan produk "${name}" secara permanen dari Google Sheets Item?`,
@@ -2421,6 +2651,7 @@
         }
 
         function triggerResetArchiveConfirm() {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             openConfirmModal(
                 "Reset Semua Cache Lokal?",
                 "Apakah Anda yakin ingin mengosongkan riwayat memori pada browser ini? Ini akan mereset status pesanan kembali sesuai di Google Sheet.",
@@ -2518,6 +2749,7 @@
         }
 
         async function markAsArchived(orderId, silent = false, rowIndex = 0) {
+            if (!requireEditPage('dashboard', 'Monitor Order')) return;
             if (!appState.archivedOrderIds.includes(orderId)) {
                 appState.archivedOrderIds.push(orderId);
             }
@@ -2539,6 +2771,7 @@
         }
 
         async function archiveConsolidatedGroup(ids, rowIndices, silent = false) {
+            if (!requireEditPage('dashboard', 'Monitor Order')) return;
             ids.forEach(id => {
                 if (!appState.archivedOrderIds.includes(id)) appState.archivedOrderIds.push(id);
                 const targetIdx = appState.orders.findIndex(o => o.nomorOrder === id);
@@ -2553,6 +2786,7 @@
         }
 
         async function unarchiveOrder(orderId, rowIndex = 0) {
+            if (!requireEditPage('dashboard', 'Monitor Order')) return;
             appState.archivedOrderIds = appState.archivedOrderIds.filter(id => id !== orderId);
             const targetIdx = appState.orders.findIndex(o => o.nomorOrder === orderId);
             if (targetIdx !== -1) appState.orders[targetIdx].status = "Aktif";
@@ -2566,6 +2800,7 @@
 
         async function submitSimulatedOrder(e) {
             e.preventDefault();
+            if (!requireEditPage('dashboard', 'Monitor Order')) return;
             const btn = document.getElementById('btn-submit-simulation');
             const originalHTML = btn.innerHTML;
             btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Mengirim...</span>`;
@@ -2618,6 +2853,7 @@
         }
 
         function updateCafeName(val) {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             appState.cafeName = val.trim();
             document.getElementById('headerCafeName').innerText = appState.cafeName;
             saveStateToStorage();
@@ -2626,6 +2862,7 @@
 
         async function submitAddVendor(e) {
             e.preventDefault();
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             const btn = document.getElementById('btn-submit-vendor');
             const originalHTML = btn.innerHTML;
             btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Menyimpan...</span>`;
@@ -2687,6 +2924,7 @@
 
         async function submitProductMapping(e) {
             e.preventDefault();
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             const btn = document.getElementById('btn-submit-product');
             const originalHTML = btn.innerHTML;
             btn.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Menyimpan...</span>`;
@@ -2727,12 +2965,14 @@
         }
 
         function saveTemplate() {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             appState.templateText = document.getElementById('template-editor').value;
             saveStateToStorage();
             showToast("Format Chat WhatsApp Tunggal Diupdate!");
         }
 
         function saveConsolidatedTemplate() {
+            if (!requireEditPage('database', 'Database & Vendor')) return;
             appState.templateConsolidated = document.getElementById('template-editor-consolidated').value;
             saveStateToStorage();
             showToast("Format Chat WhatsApp Gabungan Diupdate!");
@@ -2779,6 +3019,7 @@
         }
 
         function saveConnectionUrlsFromDashboard() {
+            if (!requireEditPage('dashboard', 'Monitor Order')) return;
             appState.webAppUrlOrders = document.getElementById('setup-web-url-orders').value.trim();
             appState.webAppUrlVendors = document.getElementById('setup-web-url-vendors').value.trim();
             appState.webAppUrlItems = document.getElementById('setup-web-url-items').value.trim();
@@ -2791,6 +3032,7 @@
         }
 
         function saveAndTestConnections() {
+            if (!requireEditPage('integration', 'Panduan & PWA')) return;
             appState.webAppUrlOrders = document.getElementById('input-web-url-orders').value.trim();
             appState.webAppUrlVendors = document.getElementById('input-web-url-vendors').value.trim();
             appState.webAppUrlItems = document.getElementById('input-web-url-items').value.trim();

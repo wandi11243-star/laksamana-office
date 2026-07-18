@@ -147,6 +147,20 @@ CREATE TABLE IF NOT EXISTS stock (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
+-- SETTINGS — konfigurasi bersama per modul (bukan per baris data). Dipakai
+-- pertama kali untuk matriks hak akses (Kelola Akses): siapa boleh apa,
+-- per peran, per halaman. 1 baris per modul ('ordering' | 'purchasing'),
+-- `data` JSON = { "<page>": { "<role>": 0|1|2 } }  (0=Tak Terlihat,
+-- 1=Lihat, 2=Boleh Ubah). Modul terpisah dari ordering_users/users karena
+-- ini bukan daftar orang, tapi aturan yang berlaku untuk SEMUA orang di
+-- satu peran — beda concern, jadi tabel sendiri, bukan kolom tambahan.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stock_settings (
+  modul VARCHAR(20) NOT NULL PRIMARY KEY,   -- 'ordering' | 'purchasing'
+  data  LONGTEXT    NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
 -- FORECAST — SENGAJA TIDAK ADA TABELNYA.
 --
 -- Frontend cuma MEMBACA forecast (fetch GET, tidak pernah POST). Angkanya

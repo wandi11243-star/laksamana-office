@@ -530,6 +530,29 @@ function pur_ordering_user_hapus($pdo, $u) {
 }
 
 // =====================================================================
+// SETTINGS — konfigurasi bersama per modul. Dipakai untuk matriks hak
+// akses (Kelola Akses): { "<page>": { "<role>": 0|1|2 } }. `$modul` HARUS
+// 'ordering' atau 'purchasing' — endpoint masing-masing yang mengunci ini,
+// bukan fungsi ini, supaya satu endpoint tidak bisa menimpa milik modul lain.
+// =====================================================================
+function pur_settings_ambil($pdo, $modul) {
+  $st = $pdo->prepare("SELECT `data` FROM `stock_settings` WHERE `modul`=?");
+  $st->execute([$modul]);
+  $row = $st->fetch();
+  if (!$row) return (object)[];
+  $d = json_decode($row['data']);   // tanpa assoc, lihat catatan JSON di atas berkas
+  return is_object($d) ? $d : (object)[];
+}
+
+function pur_settings_simpan($pdo, $modul, $data) {
+  if (!is_object($data)) return ['status' => 'error', 'message' => 'data bukan objek'];
+  $pdo->prepare("INSERT INTO `stock_settings` (`modul`,`data`) VALUES (?,?)
+                 ON DUPLICATE KEY UPDATE `data`=VALUES(`data`)")
+      ->execute([$modul, json_encode($data, JSON_UNESCAPED_UNICODE)]);
+  return ['status' => 'success'];
+}
+
+// =====================================================================
 // STOCK — sisa bahan "Stock Today" (dipakai bersama ordering + purchasing).
 // Bentuk balasan SENGAJA dijaga sama dengan Apps Script lama supaya
 // ForecastBook menerima masukan identik: {stock:{nama:{stock_now,stock_unit}}, as_of}.
