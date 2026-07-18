@@ -555,7 +555,10 @@ svg.lc{display:block;flex:none}
 .perm-matrix thead th{background:var(--paper);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;position:static}
 .perm-matrix tbody tr:hover{background:var(--gold-soft)}
 .perm-matrix input[type=checkbox]{width:17px;height:17px;accent-color:var(--gold);cursor:pointer}
+.perm-matrix select.perm-sel{font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+.perm-matrix tr.perm-row-extra td:first-child{color:var(--muted);font-weight:500;font-size:12.5px;padding-left:18px}
 .perm-lock{color:var(--ok);font-weight:700}
+.perm-lock.muted{color:var(--muted);font-weight:500}
 .login-err{color:var(--danger);font-size:13px;font-weight:500;margin:10px 0 0;min-height:18px;text-align:center}
 
 /* Layar sempit: menu samping TETAP tampil (tanpa hide/unhide), hanya dipersempit. */
@@ -745,10 +748,13 @@ const ROLE_NAV = {
   manager:   ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
   admin:     ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
 };
-const CAN = {
+// Default lama (dipakai sebagai seed DEFAULT_PERMS di bawah, dan dipertahankan
+// sebagai fallback bila perms per-halaman entah kenapa tidak termuat).
+const CAN_DEFAULT = {
   input:  r => ["host","marketing","manager","admin"].includes(r),
   editStatus: r => ["host","marketing","manager","admin"].includes(r),
-  delete: r => ["manager","admin"].includes(r),
+  deleteReservation: r => ["manager","admin"].includes(r),
+  deleteReview: r => ["manager","admin"].includes(r),
   master: r => ["manager","admin"].includes(r),
   audit:  r => ["manager","admin"].includes(r),
   manageUsers: r => r==="admin",   // hanya admin modul (Office adminModules '*'/'reservasi'): atur role kru & hak akses
@@ -758,6 +764,40 @@ const CAN = {
   // buktinya, tapi tidak boleh menghilangkan jejak transaksinya.
   deleteDp: r => r==="admin",
 };
+/* Setiap aksi edit terikat ke satu BARIS IZIN — itulah yang dikontrol matriks
+   Hak Akses per Role (kolom Lihat/Ubah). Diikat menurut JENIS DATA yang diubah,
+   BUKAN menurut halaman tempat tombolnya diklik: mis. verifikasi DP tetap
+   tunduk pada izin baris Dana Masuk walau dibuka dari popup detail di tab
+   Recap/Riwayat.
+
+   Satu baris izin BIASANYA = satu halaman nav. Tapi dua halaman (Input, Dana
+   Masuk) menaungi dua aksi dengan cakupan role yang beda di kode lama (mis.
+   hapus DP dulu admin-saja, sedangkan verifikasi DP boleh cashier) — kalau
+   dipaksa satu toggle, mencentang "Boleh Ubah" untuk cashier di situ diam-diam
+   ikut membuka hapus DP. Makanya dua baris izin TAMBAHAN dipecah keluar
+   (inputDelete, financeDelete): baris matriks EKSTRA, bukan halaman nav baru
+   — visibilitasnya tetap ikut halaman induknya (pageAllowed tak berubah),
+   cuma level Ubah-nya independen. */
+const ACTION_PAGE = {
+  input:'input', editStatus:'input', deleteReservation:'inputDelete',
+  deleteReview:'review',
+  master:'master', audit:'audit',
+  finance:'finance', deleteDp:'financeDelete',
+};
+// Baris izin EKSTRA: id -> {label, page (halaman nav yang menaunginya, untuk
+// visibilitas), afterPage (dirender tepat setelah baris page ini di matriks)}.
+const EXTRA_PERM_ROWS = {
+  inputDelete:   { label:'↳ Hapus Reservasi', page:'input',   afterPage:'input' },
+  financeDelete: { label:'↳ Hapus Catatan DP', page:'finance', afterPage:'finance' },
+};
+/* CAN.<aksi>(role) = boleh EDIT (bukan cuma lihat) baris izin pemilik aksi itu,
+   menurut matriks perms yang superadmin atur. manageUsers/seeDP tidak terikat
+   baris izin, tetap dari CAN_DEFAULT. */
+const CAN = new Proxy({}, { get(_, action){
+  if(action==='manageUsers' || action==='seeDP') return CAN_DEFAULT[action];
+  const row = ACTION_PAGE[action];
+  return role => row ? canEdit(row, role) : (CAN_DEFAULT[action] ? CAN_DEFAULT[action](role) : false);
+}});
 
 /* ====== ICON SET (Lucide-style line icons, seragam dgn desain COMS) ====== */
 const ICON_PATHS = {
@@ -813,8 +853,32 @@ const PAGE_LABEL = {}; NAV_SECTIONS.forEach(s=>s.items.forEach(i=>{ PAGE_LABEL[i
 const ROLE_KEYS  = ["host","marketing","cashier","manager","admin"];
 // Kru default (dipakai bila Sheet belum punya daftar users). PIN awal = 1234.
 const DEFAULT_USERS = USERS.map(u=>({ id:u.id, name:u.name, role:u.role, pin:DEFAULT_PIN }));
-// Hak akses default: turunan dari ROLE_NAV (halaman -> daftar role yang boleh)
-const DEFAULT_PERMS = (()=>{ const p={}; NAV_PAGES.forEach(pg=>{ p[pg]=ROLE_KEYS.filter(r=>(ROLE_NAV[r]||[]).includes(pg)); }); return p; })();
+// Semua baris izin di matriks = halaman nav + baris ekstra (lihat EXTRA_PERM_ROWS).
+const PERM_ROWS = NAV_PAGES.concat(Object.keys(EXTRA_PERM_ROWS));
+function permRowVisPage(row){ return EXTRA_PERM_ROWS[row] ? EXTRA_PERM_ROWS[row].page : row; }
+/* Hak akses default per (baris izin, role): 0=tak terlihat, 1=lihat saja,
+   2=boleh ubah. Diturunkan dari ROLE_NAV (visibilitas lama, lewat halaman
+   penaung baris ekstra) + CAN_DEFAULT (siapa yang dulu boleh mengedit lewat
+   aksi yang terikat ke baris itu, lihat ACTION_PAGE) supaya perilaku SAMA
+   seperti sebelum matriks View/Ubah ada. */
+const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
+const DEFAULT_PERMS = (()=>{
+  const p={};
+  PERM_ROWS.forEach(row=>{
+    p[row]={};
+    const visPage = permRowVisPage(row);
+    ROLE_KEYS.forEach(r=>{
+      if(!(ROLE_NAV[r]||[]).includes(visPage)){ p[row][r]=PERM_NONE; return; }
+      // Baris yang jadi pemilik satu atau lebih aksi: level Ubah diwarisi dari
+      // aksi TERLONGGAR yang terikat ke baris itu (mis. finance mewarisi dari
+      // CAN.finance saja sekarang — deleteDp sudah baris sendiri).
+      const owned = Object.keys(ACTION_PAGE).filter(a=>ACTION_PAGE[a]===row);
+      const editable = owned.length ? owned.some(a=>CAN_DEFAULT[a](r)) : true; // baris tanpa aksi (dashboard dll) = selalu "edit" krn tak ada yg dikunci
+      p[row][r] = editable ? PERM_EDIT : PERM_VIEW;
+    });
+  });
+  return p;
+})();
 
 // Status disederhanakan: Pending → Confirmed → Datang; atau Cancelled / No-show
 const STATUSES = ["Pending","Confirmed","Datang","Cancelled","No-show"];
@@ -2231,10 +2295,30 @@ function ensureUsersPerms(){
     STATE.master.users = JSON.parse(JSON.stringify(DEFAULT_USERS));
   if(!STATE.master.perms || typeof STATE.master.perms!=="object")
     STATE.master.perms = JSON.parse(JSON.stringify(DEFAULT_PERMS));
-  NAV_PAGES.forEach(pg=>{ if(!Array.isArray(STATE.master.perms[pg])) STATE.master.perms[pg]=(DEFAULT_PERMS[pg]||[]).slice(); });
+  // PERM_ROWS = NAV_PAGES + baris ekstra (inputDelete, financeDelete, lihat
+  // EXTRA_PERM_ROWS). Baris ekstra tak ada di data lama sama sekali (fitur ini
+  // baru), jadi selalu jatuh ke cabang "belum ada" di bawah dan terisi dari
+  // DEFAULT_PERMS, yang sudah meniru cakupan role CAN_DEFAULT lama persis.
+  PERM_ROWS.forEach(pg=>{
+    const cur = STATE.master.perms[pg];
+    if(Array.isArray(cur)){
+      // Data LAMA (sebelum matriks View/Ubah): perms[halaman] = daftar role yang
+      // boleh lihat. Naikkan jadi objek {role: 0|1|2}, dan role yang tadinya
+      // boleh lihat otomatis dapat level EDIT (perilaku sebelumnya: lihat = boleh
+      // ubah, tak ada beda) supaya migrasi TIDAK diam-diam mengunci siapa pun.
+      const up={}; ROLE_KEYS.forEach(r=>{ up[r]=cur.includes(r)?PERM_EDIT:PERM_NONE; });
+      STATE.master.perms[pg]=up;
+    } else if(!cur || typeof cur!=="object"){
+      STATE.master.perms[pg]=JSON.parse(JSON.stringify(DEFAULT_PERMS[pg]||{}));
+    } else {
+      ROLE_KEYS.forEach(r=>{ if(typeof cur[r]!=="number") cur[r]=(DEFAULT_PERMS[pg]||{})[r] ?? PERM_NONE; });
+    }
+  });
 }
 function getUsers(){ return (STATE.master && Array.isArray(STATE.master.users) && STATE.master.users.length) ? STATE.master.users : DEFAULT_USERS; }
 function getPerms(){ return (STATE.master && STATE.master.perms) ? STATE.master.perms : DEFAULT_PERMS; }
+function pagePerm(page, role){ if(role==="admin") return PERM_EDIT; const p=getPerms()[page]; if(!p) return PERM_VIEW; const v=p[role]; return typeof v==="number" ? v : PERM_VIEW; }
+function canEdit(page, role){ return pagePerm(page, role) >= PERM_EDIT; }
 
 // ===== Integrasi identitas Office (SSO) =====
 // Baca lm_session dan pastikan user berhak membuka Reservasi. null bila tidak.
@@ -2315,7 +2399,7 @@ function syncRosterLatar(){
 }
 function userById(id){ return getUsers().find(u=>u.id===id) || null; }
 // Admin selalu akses penuh; role lain mengikuti matriks hak akses
-function pageAllowed(page, role){ if(role==="admin") return true; const p=getPerms()[page]; return p ? p.includes(role) : true; }
+function pageAllowed(page, role){ return pagePerm(page, role) >= PERM_VIEW; }
 function allowedPages(role){ const a=NAV_PAGES.filter(p=>pageAllowed(p,role)); return a.length?a:["dashboard"]; }
 function avatarColor(id){ let i=getUsers().findIndex(u=>u.id===id); if(i<0)i=0; return AVATAR_COLORS[i%AVATAR_COLORS.length]; }
 
@@ -4602,7 +4686,7 @@ function sendCoord(label, previewId){
 function openDetail(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const p=customerProfile(r.phone);
-  const canEdit=CAN.input(SESSION.role), canDel=CAN.delete(SESSION.role);
+  const canEdit=CAN.input(SESSION.role), canDel=CAN.deleteReservation(SESSION.role);
   const di=(k,v)=>`<div class="detail-item"><div class="k">${k}</div><div class="v">${v||"-"}</div></div>`;
   openModal(`
    <div class="modal-head"><h3>${esc(r.name)} ${tagFor(p)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
@@ -5902,7 +5986,7 @@ function rejectReview(id){
   saveState(); renderReview(); toast("Review ditolak","err");
 }
 function delReview(id){
-  if(!CAN.delete(SESSION.role)){ toast("Tidak ada akses hapus","err"); return; }
+  if(!CAN.deleteReview(SESSION.role)){ toast("Tidak ada akses hapus","err"); return; }
   const rv=reviews().find(x=>x.id===id); if(!rv) return;
   if(!confirm(`Hapus catatan review "${rv.name}"?`)) return;
   STATE.master.reviews = reviews().filter(x=>x.id!==id);
@@ -6084,7 +6168,7 @@ function setFbStatus(id, status){
   toast(`Feedback ditandai ${FB_STATUS[status].label}`, status==="selesai"?"ok":"");
 }
 function delFeedback(id){
-  if(!CAN.delete(SESSION.role)){ toast("Tidak ada akses hapus","err"); return; }
+  if(!CAN.deleteReview(SESSION.role)){ toast("Tidak ada akses hapus","err"); return; }
   const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
   if(!confirm(`Hapus feedback dari "${fb.name}"?`)) return;
   STATE.master.feedbacks = feedbacks().filter(x=>x.id!==id);
@@ -6139,7 +6223,7 @@ function feedbackView(){
         ${fb.status==="baru"?`<button class="btn btn-xs btn-ghost" onclick="setFbStatus('${fb.id}','proses')" title="Sedang ditangani">🔧 Proses</button>`:""}
         ${fb.status!=="selesai"?`<button class="btn btn-xs btn-ok" onclick="setFbStatus('${fb.id}','selesai')" title="Sudah ditindaklanjuti">✅ Selesai</button>`:""}
         <button class="btn btn-xs btn-ghost" onclick="openFeedbackForm('','${fb.id}')" title="Ubah">✏️</button>
-        ${CAN.delete(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delFeedback('${fb.id}')">🗑️</button>`:""}
+        ${CAN.deleteReview(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delFeedback('${fb.id}')">🗑️</button>`:""}
       </div></td>
     </tr>`;
   }).join("");
@@ -6240,7 +6324,7 @@ function reviewGoogleView(){
         ${x.status==="diklaim"&&canCfg?`<button class="btn btn-xs btn-ok" onclick="verifyReview('${x.id}')">✅ Verifikasi</button>
           <button class="btn btn-xs btn-danger" onclick="rejectReview('${x.id}')">✖</button>`:""}
         ${x.status!=="terverifikasi"?`<button class="btn btn-xs btn-ghost" onclick="openReviewForm('','${x.id}')" title="Catat / perbarui klaim">✏️</button>`:""}
-        ${CAN.delete(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delReview('${x.id}')">🗑️</button>`:""}
+        ${CAN.deleteReview(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delReview('${x.id}')">🗑️</button>`:""}
       </div></td>
     </tr>`;
   }).join("");
@@ -6388,15 +6472,37 @@ function userAccessBlock(){
         <span><span class="role-badge">${ROLE_LABEL[u.role]||u.role}</span></span></span>
       <button class="btn btn-xs btn-ghost" onclick="openUserForm('${u.id}')">✎ Atur Role</button>
     </div>`).join("");
+  // Tiap sel: None/Lihat/Ubah. "Ubah" hanya berarti sesuatu kalau halamannya
+  // punya aksi terikat (lihat ACTION_PAGE) — dashboard/hariH/riwayat/analitik
+  // murni informasi, jadi selalu berlaku sebagai lihat-saja walau disetel Ubah.
+  const PERM_OPT = [["0","Tak Terlihat"],["1","Lihat"],["2","Boleh Ubah"]];
+  const ownedPages = new Set(Object.values(ACTION_PAGE).map(permRowVisPage));
+  const extraForPage = {}; Object.keys(EXTRA_PERM_ROWS).forEach(id=>{
+    const p=EXTRA_PERM_ROWS[id].afterPage; (extraForPage[p]=extraForPage[p]||[]).push(id);
+  });
+  const permRow = (id, isExtra)=>{
+    const label = isExtra ? EXTRA_PERM_ROWS[id].label : (PAGE_LABEL[id]||id) + (ownedPages.has(id)?"":' <span class="muted" style="font-size:11px">(info saja)</span>');
+    const visPage = permRowVisPage(id);
+    return `<tr${isExtra?' class="perm-row-extra"':''}>
+      <td>${label}</td>
+      ${editableRoles.map(r=>{
+        const v = (perms[id] && typeof perms[id][r]==="number") ? perms[id][r] : PERM_VIEW;
+        // Baris ekstra tak berguna bagi role yang bahkan tak boleh MELIHAT
+        // halaman induknya — kunci ke "Tak Terlihat", jangan biarkan superadmin
+        // menyalakan hapus-DP untuk role yang Finance-nya sendiri tersembunyi.
+        const parentVisible = !isExtra || pagePerm(visPage, r) >= PERM_VIEW;
+        return parentVisible
+          ? `<td><select class="perm-sel" data-p="${id}" data-r="${r}">${PERM_OPT.map(([val,lbl])=>`<option value="${val}" ${String(v)===val?"selected":""}>${lbl}</option>`).join("")}</select></td>`
+          : `<td><span class="perm-lock muted" title="Halaman induk tersembunyi untuk role ini">Tak Terlihat</span></td>`;
+      }).join("")}
+      <td><span class="perm-lock" title="Admin selalu akses penuh">Boleh Ubah</span></td>
+    </tr>`;
+  };
   const matrix = `
     <div class="table-wrap"><table class="perm-matrix"><thead><tr>
       <th>Halaman</th>${editableRoles.map(r=>`<th>${ROLE_LABEL[r].split(" ")[0]}</th>`).join("")}<th>Admin</th>
     </tr></thead><tbody>
-    ${NAV_PAGES.map(pg=>`<tr>
-      <td>${PAGE_LABEL[pg]||pg}</td>
-      ${editableRoles.map(r=>`<td><input type="checkbox" class="perm-chk" data-p="${pg}" data-r="${r}" ${(perms[pg]||[]).includes(r)?"checked":""}></td>`).join("")}
-      <td><span class="perm-lock" title="Admin selalu akses penuh">✓</span></td>
-    </tr>`).join("")}
+    ${NAV_PAGES.map(pg=>permRow(pg,false) + (extraForPage[pg]||[]).map(id=>permRow(id,true)).join("")).join("")}
     </tbody></table></div>`;
   return `
    <div class="panel" style="margin-top:6px">
@@ -6412,7 +6518,7 @@ function userAccessBlock(){
          <button class="btn btn-sm btn-ghost" onclick="resetPerms()">↺ Default</button>
          <button class="btn btn-sm btn-primary" onclick="savePerms()">💾 Simpan Hak Akses</button></div></div>
      <div class="panel-body">
-       <p class="hint" style="margin-bottom:12px">Centang halaman yang boleh diakses tiap role. Perubahan langsung memengaruhi menu sidebar. <b>Admin</b> selalu akses penuh.</p>
+       <p class="hint" style="margin-bottom:12px">Atur per halaman: <b>Tak Terlihat</b> (hilang dari menu), <b>Lihat</b> (buka halamannya tapi tombol ubah/hapus disembunyikan), atau <b>Boleh Ubah</b>. Halaman bertanda "info saja" (Dashboard, Recap, Riwayat, Analitik) tidak punya aksi ubah untuk dikunci, jadi Lihat/Ubah berlaku sama di situ. Perubahan langsung memengaruhi menu sidebar. <b>Admin</b> selalu akses penuh.</p>
        ${matrix}
      </div>
    </div>`;
@@ -6446,10 +6552,11 @@ function saveUserRow(id){
 }
 function savePerms(){
   ensureUsersPerms();
-  const next={}; NAV_PAGES.forEach(p=>next[p]=[]);
-  document.querySelectorAll(".perm-chk").forEach(chk=>{ if(chk.checked) next[chk.dataset.p].push(chk.dataset.r); });
-  // admin selalu penuh (disimpan eksplisit agar konsisten)
-  NAV_PAGES.forEach(p=>{ if(!next[p].includes("admin")) next[p].push("admin"); });
+  const next={}; PERM_ROWS.forEach(p=>{ next[p]={}; ROLE_KEYS.forEach(r=>next[p][r]=PERM_NONE); });
+  document.querySelectorAll(".perm-sel").forEach(sel=>{ next[sel.dataset.p][sel.dataset.r]=Number(sel.value); });
+  // admin selalu penuh (disimpan eksplisit agar konsisten, walau pagePerm()
+  // sudah menganggap admin selalu PERM_EDIT terlepas dari isi matriks ini)
+  PERM_ROWS.forEach(p=>{ next[p].admin=PERM_EDIT; });
   STATE.master.perms=next; logAudit("Hak Akses","Perbarui matriks hak akses");
   saveState(); buildNav(); toast("Hak akses diperbarui","ok");
 }
