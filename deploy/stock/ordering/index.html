@@ -572,7 +572,7 @@
         //  BACKEND = MySQL BERSAMA dengan modul purchasing (stock/purchasing).
         //  Ordering & purchasing dua tampilan di atas DATA YANG SAMA: item dan
         //  order/riwayat dibaca dari database yang sama. Karena itu URL-nya
-        //  menunjuk ke ../../purchasing-api-mysql/ (path relatif), sehingga
+        //  menunjuk ke ../../stock-api-mysql/ (path relatif), sehingga
         //  otomatis ikut situsnya: dev -> db_dev_purchasing, office -> db_purchasing.
         //  Submit order TIDAK lagi via Google Form — sekarang POST batchOrder ke
         //  orders.php (lihat executeFormSubmission). entryIds Form tidak dipakai
@@ -582,9 +582,9 @@
         //  purchasing (mempertahankan pemisahan yang ada di Apps Script lama).
         const EMBEDDED_CONFIG = {
             formUrl:            "",   // tidak dipakai lagi (submit via API)
-            appScriptUrlItem:   "../../purchasing-api-mysql/items.php",
-            appScriptUrlHistory:"../../purchasing-api-mysql/orders.php",
-            appScriptUrlUsers:  "../../purchasing-api-mysql/ordering-users.php",
+            appScriptUrlItem:   "../../stock-api-mysql/items.php",
+            appScriptUrlHistory:"../../stock-api-mysql/orders.php",
+            appScriptUrlUsers:  "../../stock-api-mysql/ordering-users.php",
             appScriptUrlForecast:"https://script.google.com/macros/s/AKfycbykGmdR7mGiCQUXlJQv2QwHhkNatj6GeCL8JnbZ1WXeoOCWA5m_b7cMdiuPHge0s6rH/exec",   // Link App Script: Data Prakiraan Stok
             entryIds: {
                 item: "entry.314340744",    // ID: Nama Item
@@ -1295,10 +1295,16 @@
         }
 
         // Ambil stok bersama dari server (type=stock). Null bila belum diatur/offline/kosong.
+        // Stok sisa "Stock Today" sekarang di MySQL (stock.php), BUKAN lagi
+        // numpang di forecast Apps Script. Bentuk balasan dijaga SAMA
+        // ({stock:{nama:{stock_now,stock_unit}}, as_of}), jadi ForecastBook
+        // menerima masukan identik dan FORECASTING TIDAK BERUBAH. Angka model
+        // forecast (avg harian, reorder point) tetap dibaca dari Apps Script.
+        const STOCK_URL = "../../stock-api-mysql/stock.php";
         async function fetchSharedStock() {
-            if (!state.appScriptUrlForecast || !navigator.onLine) return null;
+            if (!STOCK_URL || !navigator.onLine) return null;
             try {
-                const res = await fetch(state.appScriptUrlForecast + '?type=stock');
+                const res = await fetch(STOCK_URL + '?t=' + Date.now());
                 if (!res.ok) return null;
                 const data = await res.json();
                 return (data && data.stock) ? data : null;
@@ -1406,10 +1412,11 @@
 
         // Kirim stok ke Web App (type=stock) agar tersimpan di Drive & terbaca semua perangkat.
         async function pushStockToServer(stockMap, asOf) {
-            if (!state.appScriptUrlForecast || !navigator.onLine) return;
+            if (!STOCK_URL || !navigator.onLine) return;
             try {
-                await fetch(state.appScriptUrlForecast + '?type=stock', {
+                await fetch(STOCK_URL, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, hindari preflight CORS
                     body: JSON.stringify({ type: 'stock', as_of: asOf || null, stock: stockMap })
                 });
                 showToast("Stok Tersinkron", "Stok tersimpan di server - staf lain bisa melihatnya.", "info");

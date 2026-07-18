@@ -1,5 +1,5 @@
 <?php
-/* PURCHASING — endpoint USERS. BERISI PIN LOGIN.
+/* STOCK — endpoint USERS. BERISI PIN LOGIN.
  * GET  -> {users: [{id, name, pin, role, keterangan}]}
  * POST {action:'add'|'update'|'delete', user:{...}}
  */
@@ -23,6 +23,6 @@ try {
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);
 } catch (Throwable $e) {
-  error_log('[purchasing/users] ' . $e->getMessage());
+  error_log('[stock/users] ' . $e->getMessage());
   pur_json(['status' => 'error', 'message' => 'kesalahan server'], 500);
 }

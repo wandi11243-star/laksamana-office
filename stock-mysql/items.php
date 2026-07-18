@@ -1,5 +1,5 @@
 <?php
-/* PURCHASING — endpoint ITEMS (produk).
+/* STOCK — endpoint ITEMS (produk).
  * GET  -> {products: {"Nama Produk": {utama, cadangan[]}}}  (peta, berkunci NAMA)
  * POST {action:'addProduct', productName, primaryVendor, backupVendors, oldProductName}
  * POST {action:'deleteProduct', productName}
@@ -28,6 +28,6 @@ try {
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);
 } catch (Throwable $e) {
-  error_log('[purchasing/items] ' . $e->getMessage());
+  error_log('[stock/items] ' . $e->getMessage());
   pur_json(['status' => 'error', 'message' => 'kesalahan server'], 500);
 }

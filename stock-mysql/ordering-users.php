@@ -30,6 +30,6 @@ try {
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);
 } catch (Throwable $e) {
-  error_log('[purchasing/ordering-users] ' . $e->getMessage());
+  error_log('[stock/ordering-users] ' . $e->getMessage());
   pur_json(['status' => 'error', 'message' => 'kesalahan server'], 500);
 }

@@ -1,6 +1,6 @@
 <?php
 /************************************************************************
- * PURCHASING — Lapisan data MySQL
+ * STOCK — Lapisan data MySQL
  * ---------------------------------------------------------------------
  * Kontrak dijaga SAMA PERSIS dengan Apps Script lama, termasuk balasan
  * {status:'success'} (bukan {ok:true} seperti modul lain) — frontend
@@ -527,6 +527,52 @@ function pur_ordering_user_hapus($pdo, $u) {
   $st = $pdo->prepare("DELETE FROM `ordering_users` WHERE `id`=?");
   $st->execute([$id]);
   return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// STOCK — sisa bahan "Stock Today" (dipakai bersama ordering + purchasing).
+// Bentuk balasan SENGAJA dijaga sama dengan Apps Script lama supaya
+// ForecastBook menerima masukan identik: {stock:{nama:{stock_now,stock_unit}}, as_of}.
+// =====================================================================
+function pur_stock_ambil($pdo) {
+  $stock = [];
+  $asOf  = '';
+  foreach ($pdo->query("SELECT `nama`,`stock_now`,`stock_unit`,`as_of` FROM `stock`")->fetchAll() as $r) {
+    $stock[$r['nama']] = (object)['stock_now' => (float)$r['stock_now'],
+                                  'stock_unit' => $r['stock_unit']];
+    if ($r['as_of'] > $asOf) $asOf = $r['as_of'];   // semua baris seunggahan sama; ambil yang ada
+  }
+  // (object) supaya peta kosong terkirim {} bukan [] (lihat aturan JSON di atas).
+  return ['stock' => (object)$stock, 'as_of' => $asOf, 'count' => count((array)$stock)];
+}
+
+/* Simpan snapshot stok. Payload: {type:'stock', as_of, stock:{nama:{stock_now,stock_unit}}}
+   Satu upload = snapshot penuh -> tabel DITULIS ULANG. Guard: payload kosong
+   TIDAK mengosongkan tabel (biar upload gagal/rusak tak menghapus stok). */
+function pur_stock_simpan($pdo, $stockMap, $asOf) {
+  if (!is_object($stockMap) || count((array)$stockMap) === 0) {
+    return ['status' => 'error', 'message' => 'stock kosong'];
+  }
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec("DELETE FROM `stock`");
+    $st = $pdo->prepare("INSERT INTO `stock` (`nama`,`stock_now`,`stock_unit`,`as_of`,`data`)
+                         VALUES (?,?,?,?,?)");
+    $n = 0;
+    foreach ($stockMap as $nama => $v) {
+      $nama = (string)$nama;
+      if ($nama === '') continue;
+      $now  = (is_object($v) && isset($v->stock_now)  && is_numeric($v->stock_now)) ? (float)$v->stock_now : 0;
+      $unit = (is_object($v) && isset($v->stock_unit)) ? (string)$v->stock_unit : '';
+      $st->execute([$nama, $now, $unit, (string)$asOf, json_encode($v, JSON_UNESCAPED_UNICODE)]);
+      $n++;
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'saved' => $n, 'as_of' => (string)$asOf];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
 }
 
 // =====================================================================

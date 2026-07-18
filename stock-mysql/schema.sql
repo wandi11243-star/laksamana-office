@@ -1,5 +1,5 @@
 -- =====================================================================
--- PURCHASING LAKSAMANA MUDA — Skema MySQL
+-- STOCK LAKSAMANA MUDA (purchasing + ordering) — Skema MySQL
 -- ---------------------------------------------------------------------
 -- Menggantikan EMPAT Web App Apps Script terpisah (orders, vendors,
 -- items, users). Forecast SENGAJA TIDAK ikut — lihat catatan di bawah.
@@ -8,8 +8,8 @@
 -- + `data` LONGTEXT (JSON) sebagai SUMBER KEBENARAN.
 --
 -- DIPAKAI OLEH DUA SITUS, SATU SKEMA:
---   office.laksamanamuda.id (main)    -> lakk5493_db_purchasing
---   dev.laksamanamuda.id    (develop) -> lakk5493_db_dev_purchasing
+--   office.laksamanamuda.id (main)    -> lakk5493_db_stock
+--   dev.laksamanamuda.id    (develop) -> lakk5493_db_dev_stock
 -- File ini dijalankan di KEDUANYA. Yang memisahkan bukan skema, tapi
 -- config.php di masing-masing situs.
 --
@@ -119,6 +119,30 @@ CREATE TABLE IF NOT EXISTS ordering_users (
   pin        VARCHAR(20)  NOT NULL DEFAULT '',
   role       VARCHAR(20)  NOT NULL DEFAULT '',   -- admin | full | checkin
   keterangan VARCHAR(60)  NOT NULL DEFAULT '',   -- Kitchen | Bar | Floor | ''
+  data       LONGTEXT     NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- STOCK — sisa bahan "Stock Today" yang di-upload kru dapur (dari Excel).
+--
+-- Ini DATA MILIK APLIKASI (bukan hasil model), jadi memang tempatnya di DB.
+-- Dipakai BERSAMA ordering + purchasing (keduanya membaca stok yang sama),
+-- lalu digabung dengan angka forecast oleh LaksForecast.ForecastBook untuk
+-- menghitung rekomendasi restock.
+--
+-- PENTING: bentuk yang dikembalikan endpoint HARUS sama persis dengan yang
+-- dulu dari Apps Script — { "<Nama>": {stock_now, stock_unit} } + as_of —
+-- supaya ForecastBook menerima masukan identik dan FORECASTING TIDAK BERUBAH.
+-- Yang pindah cuma tempat penyimpanan stok, bukan cara menghitung.
+--
+-- Satu upload = satu snapshot penuh "Stock Today" -> tabel ditulis ulang
+-- (bukan digabung). as_of = tanggal hitung, sama untuk semua baris seunggahan.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS stock (
+  nama       VARCHAR(190) NOT NULL PRIMARY KEY,
+  stock_now  DOUBLE       NOT NULL DEFAULT 0,
+  stock_unit VARCHAR(40)  NOT NULL DEFAULT '',
+  as_of      VARCHAR(30)  NOT NULL DEFAULT '',   -- tanggal hitung stok
   data       LONGTEXT     NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

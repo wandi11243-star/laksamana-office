@@ -1,7 +1,12 @@
-# Purchasing — Backend MySQL
+# Stock — Backend MySQL (purchasing + ordering)
 
-Backend modul **Purchasing** (`deploy/stock/purchasing/`). Menggantikan
-**empat** Web App Apps Script terpisah (orders, vendors, items, users).
+Backend BERSAMA untuk dua modul di bawah `deploy/stock/`:
+- **`stock/purchasing/`** — olah order, vendor, produk
+- **`stock/ordering/`** — kru dapur ajukan order + check-in kedatangan
+
+Keduanya berbagi database yang sama (`db_stock` / `db_dev_stock`) karena
+memakai data yang sama (order & produk). Menggantikan beberapa Web App
+Apps Script + satu Google Form.
 
 ## PERINGATAN ISI DATA
 
@@ -15,16 +20,16 @@ Itu jaring pengaman terakhir, bukan pengganti kehati-hatian.
 
 | Situs | Branch | Database |
 |---|---|---|
-| office.laksamanamuda.id | `main` | `lakk5493_db_purchasing` |
-| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_purchasing` |
+| office.laksamanamuda.id | `main` | `lakk5493_db_stock` |
+| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_stock` |
 
 `index.html`-nya **sama persis** di kedua situs. Yang memisahkan hanya
 `config.php` di masing-masing server, karena frontend memanggil API lewat
 **path relatif**:
 
 ```
-office.laksamanamuda.id/stock/purchasing/  ->  office.../purchasing-api-mysql/  ->  db_purchasing
-dev.laksamanamuda.id/stock/purchasing/     ->  dev.../purchasing-api-mysql/     ->  db_dev_purchasing
+office.laksamanamuda.id/stock/purchasing/  ->  office.../stock-api-mysql/  ->  db_stock
+dev.laksamanamuda.id/stock/purchasing/     ->  dev.../stock-api-mysql/     ->  db_dev_stock
 ```
 
 Kalau di `EMBEDDED_CONFIG` ditulis URL lengkap, **dev akan menulis ke
@@ -32,8 +37,8 @@ database produksi** — coba-coba di dev langsung merusak data kru. Jangan
 diubah jadi URL absolut.
 
 Untuk memastikan tidak salah pasang, buka:
-`<situs>/purchasing-api-mysql/orders.php?action=ping` → balasannya menyebut
-`env` dan `db`. Di dev harus `dev` / `lakk5493_db_dev_purchasing`.
+`<situs>/stock-api-mysql/orders.php?action=ping` → balasannya menyebut
+`env` dan `db`. Di dev harus `dev` / `lakk5493_db_dev_stock`.
 
 ## Isi folder
 
@@ -42,7 +47,7 @@ Untuk memastikan tidak salah pasang, buka:
 | `config.php` | Kredensial **produksi** — dipasang di office |
 | `config.dev.php` | Kredensial **dev** — dipasang di dev, **ganti namanya jadi `config.php`** di sana |
 | `schema.sql` | 4 tabel. Dijalankan di KEDUA database |
-| `lib_purchasing_mysql.php` | Logika bersama |
+| `lib_stock_mysql.php` | Logika bersama |
 | `_boot.php` | Pemuat config + lib, melayani `?action=ping` |
 | `orders.php` `vendors.php` `items.php` `users.php` | Endpoint |
 | `config.sample.php` | Contoh tanpa password (yang masuk repo) |
@@ -65,13 +70,13 @@ Lakukan **dua kali**: sekali untuk produksi, sekali untuk dev.
 
 1. **cPanel > MySQL Databases** — buat database + user, `Add User to
    Database` → ALL PRIVILEGES.
-   - produksi: `db_purchasing` + user `purchasing`
-   - dev: `db_dev_purchasing` + user `dev_purchasing`
+   - produksi: `db_stock` + user `stock`
+   - dev: `db_dev_stock` + user `dev_stock`
 2. **phpMyAdmin** → pilih database → tab **SQL** → tempel `schema.sql` → Go.
    Aman dijalankan ulang.
-3. **File Manager** → upload `purchasing-api-mysql.zip` (produksi) atau
-   `purchasing-api-mysql-DEV.zip` (dev) → Extract, sehingga jadi
-   `<docroot>/purchasing-api-mysql/orders.php`.
+3. **File Manager** → upload `stock-api-mysql.zip` (produksi) atau
+   `stock-api-mysql-DEV.zip` (dev) → Extract, sehingga jadi
+   `<docroot>/stock-api-mysql/orders.php`.
 4. Cek `?action=ping` seperti di atas — **pastikan `db` yang disebut benar**.
 
 Folder ini diupload manual lewat cPanel, jadi **aman dari sapuan FTP

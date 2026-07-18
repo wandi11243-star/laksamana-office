@@ -3,7 +3,7 @@
    config.local.php: untuk tes di laptop tanpa menyentuh kredensial asli. */
 if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.local.php';
 else                                            require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/lib_purchasing_mysql.php';
+require_once __DIR__ . '/lib_stock_mysql.php';
 
 $metode = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $aksiUrl = $_GET['action'] ?? '';

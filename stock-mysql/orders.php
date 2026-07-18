@@ -1,5 +1,5 @@
 <?php
-/* PURCHASING — endpoint ORDERS.
+/* STOCK — endpoint ORDERS.
  * GET  -> [ {rowIndex, nomorOrder, timestamp, item, qty, unit, note,
  *            tglDatang, pic, status, kedatangan, catatan}, ... ]
  * POST {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}]}
@@ -36,6 +36,6 @@ try {
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);
 } catch (Throwable $e) {
-  error_log('[purchasing/orders] ' . $e->getMessage());
+  error_log('[stock/orders] ' . $e->getMessage());
   pur_json(['status' => 'error', 'message' => 'kesalahan server'], 500);
 }

@@ -1,5 +1,5 @@
 <?php
-/* PURCHASING — endpoint VENDORS.
+/* STOCK — endpoint VENDORS.
  * GET  -> {vendors: {"Nama Vendor": {whatsapp}}}   (peta, berkunci NAMA)
  * POST {action:'addVendor', vendorName, vendorPhone, oldVendorName}
  * POST {action:'deleteVendor', vendorName}
@@ -27,6 +27,6 @@ try {
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);
 } catch (Throwable $e) {
-  error_log('[purchasing/vendors] ' . $e->getMessage());
+  error_log('[stock/vendors] ' . $e->getMessage());
   pur_json(['status' => 'error', 'message' => 'kesalahan server'], 500);
 }
