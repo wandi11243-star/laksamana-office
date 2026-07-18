@@ -56,7 +56,13 @@ input,select,textarea{font-family:inherit;font-size:14px}
 .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 
 /* ---------- LOGIN ---------- */
-#loginScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;z-index:100;
+/* SENGAJA display:none. Identitas SELALU datang dari SSO Office (lm_session) —
+   gerbang di atas sudah memulangkan siapa pun tanpa sesi. Layar pilih-kru+PIN
+   ini peninggalan sebelum SSO dan tidak pernah dipakai lagi.
+   Dulu default-nya `flex`, jadi saat menunggu roster Office (16-23 detik untuk
+   kru yang belum terdaftar) yang terlihat kru adalah layar login ini —
+   seolah diminta login ulang padahal sudah login di Office. */
+#loginScreen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:24px;z-index:100;
   background:radial-gradient(1000px 700px at 50% -20%, rgba(169,121,31,.12), transparent 55%),var(--ink-850);overflow:auto}
 .login-wrap{width:100%;max-width:1040px;display:grid;grid-template-columns:1.05fr .95fr;gap:0;border-radius:var(--r-xl);
   overflow:hidden;box-shadow:var(--sh-lg);border:1px solid var(--line)}
@@ -610,10 +616,14 @@ async function initAPI() {
     // baris terlihat "berubah" padahal tidak ada yang menyentuhnya.
     refreshSnapshot();
 
-    // Tutup layar loading
-    document.getElementById('api-loading-screen').style.display = 'none';
-    
-    // Lanjutkan proses render UI
+    // Layar loading SENGAJA dibiarkan tampil sampai benar-benar masuk (lihat di
+    // bawah). Dulu ditutup di sini, padahal proses masuk masih bisa menunggu
+    // roster Office belasan detik — akibatnya kru melihat layar login lama,
+    // seolah diminta login ulang. Kalau init gagal, pesan error di catch juga
+    // jadi terlihat karena layarnya masih ada (dulu ditulis ke elemen tersembunyi).
+
+    // Isi daftar kru untuk layar login lama. Layarnya sendiri tidak pernah
+    // ditampilkan (CSS display:none) — identitas datang dari SSO Office.
     renderLogin();
     
     // Identitas berasal dari Office (lm_session). Petakan ke kru Konten lalu masuk.
@@ -627,10 +637,19 @@ async function initAPI() {
       // itu resolveKontenUser membuat entri baru yang bisa berduplikat dengan
       // entri dari roster. Untuk kru yang sudah terdaftar (mayoritas), aplikasi
       // langsung tampil dan roster disegarkan di latar belakang.
-      if (kontenUserDikenal(office)) { autoSyncOfficeRoster(); }
-      else { await autoSyncOfficeRoster(); }
+      if (kontenUserDikenal(office)) {
+        autoSyncOfficeRoster();          // kru sudah terdaftar -> masuk sekarang, roster menyusul
+      } else {
+        // Kru baru: roster HARUS ditunggu, kalau tidak resolveKontenUser membuat
+        // entri yang nanti berduplikat dengan entri dari roster. Apps Script
+        // Office terukur 16-23 detik, jadi katakan apa yang sedang ditunggu —
+        // diam belasan detik membuat orang mengira modulnya rusak.
+        loadingText.innerText = 'Menyiapkan akun kamu (sekali saja, mohon tunggu)…';
+        await autoSyncOfficeRoster();
+      }
       SES = resolveKontenUser(office).id;
       document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('api-loading-screen').style.display = 'none';  // tutup DI SINI, setelah benar-benar masuk
       document.getElementById('app').style.display = 'block';
       bootApp();
     } else {
