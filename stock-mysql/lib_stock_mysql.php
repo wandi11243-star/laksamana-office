@@ -1,0 +1,588 @@
+<?php
+/************************************************************************
+ * STOCK — Lapisan data MySQL
+ * ---------------------------------------------------------------------
+ * Kontrak dijaga SAMA PERSIS dengan Apps Script lama, termasuk balasan
+ * {status:'success'} (bukan {ok:true} seperti modul lain) — frontend
+ * memeriksa `resData.status === 'success'`.
+ *
+ * KENAPA ADA 4 BERKAS ENDPOINT (orders/vendors/items/users), bukan satu
+ * api.php dengan ?src=:
+ *   Frontend menempelkan cache-buster sendiri:
+ *     fetch(`${appState.webAppUrlOrders}?t=${timestamp}`)
+ *   Kalau URL-nya sudah membawa `?src=orders`, hasilnya
+ *   `api.php?src=orders?t=123` — tanda tanya dobel, parameter rusak.
+ *   Jadi tiap sumber WAJIB punya path sendiri.
+ *
+ * ATURAN JSON: selalu decode TANPA flag assoc. json_decode('{}', true)
+ * dan json_decode('[]', true) sama-sama menghasilkan [] — bedanya hilang
+ * permanen, dan peta kosong yang kembali sebagai Array bikin data hilang
+ * diam-diam saat simpan berikutnya. (Pelajaran dari modul HR.)
+ ************************************************************************/
+
+function pur_pdo() {
+  $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
+  return new PDO($dsn, DB_USER, DB_PASS, [
+    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES   => false,
+  ]);
+}
+
+function pur_json($arr, $kode = 200) {
+  http_response_code($kode);
+  header('Content-Type: application/json; charset=utf-8');
+  header('Cache-Control: no-store');
+  echo json_encode($arr, JSON_UNESCAPED_UNICODE);
+  exit;
+}
+
+/* Token opsional. Jujur: kalau diisi, token itu ikut terkirim ke browser
+   di dalam index.html — dia menyaring permintaan asal-asalan, bukan
+   menahan orang yang niat. Penjaga sebenarnya gerbang SSO Office. */
+function pur_cek_token($body = null) {
+  if (!defined('API_TOKEN') || API_TOKEN === '') return;
+  $t = $_GET['token'] ?? ($body && isset($body->token) ? $body->token : '');
+  if (!is_string($t) || !hash_equals(API_TOKEN, $t)) {
+    pur_json(['status' => 'error', 'message' => 'token salah'], 403);
+  }
+}
+
+/* Baca body POST. text/plain (simple request) supaya tidak kena preflight
+   CORS — sama seperti Apps Script lama. */
+function pur_body() {
+  $mentah = file_get_contents('php://input');
+  $b = json_decode($mentah);          // tanpa assoc — lihat catatan di atas
+  return is_object($b) ? $b : null;
+}
+
+// =====================================================================
+// ORDERS
+// =====================================================================
+
+/* Susun ulang record order persis seperti bentuk balasan Apps Script:
+   frontend membaca rowIndex/nomorOrder/timestamp/... apa adanya.
+   `data` adalah sumber kebenaran; kolom inti cuma untuk query. */
+function pur_order_dari_baris($r) {
+  $o = json_decode($r['data']);
+  if (!is_object($o)) $o = (object)[];
+  // Kolom inti menang atas isi `data` supaya hasil UPDATE (mis. archive)
+  // langsung terlihat tanpa perlu menulis ulang JSON-nya.
+  $o->rowIndex   = (int)$r['row_index'];
+  $o->nomorOrder = $r['nomor_order'];
+  $o->timestamp  = $r['waktu'];
+  $o->item       = $r['item'];
+  $o->qty        = (float)$r['qty'];
+  $o->unit       = $r['unit'];
+  $o->tglDatang  = $r['tgl_datang'];
+  $o->pic        = $r['pic'];
+  $o->status     = $r['status'];
+  $o->kedatangan = $r['kedatangan'];
+  return $o;
+}
+
+function pur_orders_ambil($pdo) {
+  $rows = $pdo->query("SELECT * FROM `orders` ORDER BY `row_index`")->fetchAll();
+  return array_map('pur_order_dari_baris', $rows);
+}
+
+/* Nomor order dibuat di SERVER, bukan client. Apps Script lama juga begitu.
+   Bentuknya ditiru dari data live: LKS-260716-232937-KEW-682
+   = LKS - tgl(yymmdd) - jam(HHMMSS) - 3 huruf item - urutan. */
+function pur_nomor_order($item, $urut) {
+  $kode = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $item) ?: 'XXX', 0, 3));
+  if ($kode === '') $kode = 'XXX';
+  return 'LKS-' . date('ymd') . '-' . date('His') . '-' . str_pad($kode, 3, 'X') . '-' . $urut;
+}
+
+function pur_orders_batch($pdo, $orders) {
+  if (!is_array($orders) || !$orders) return ['status' => 'error', 'message' => 'orders kosong'];
+
+  $pdo->beginTransaction();
+  try {
+    // Kunci tabel supaya dua kru yang memesan bersamaan tidak dapat
+    // row_index / urutan yang sama. Tanpa ini, keduanya membaca MAX() yang
+    // sama lalu salah satu gagal (row_index UNIQUE) atau saling menimpa.
+    $maxRow = (int)$pdo->query("SELECT COALESCE(MAX(`row_index`), 1) m FROM `orders` FOR UPDATE")->fetch()['m'];
+    $jml    = (int)$pdo->query("SELECT COUNT(*) c FROM `orders`")->fetch()['c'];
+
+    $st = $pdo->prepare("INSERT INTO `orders`
+      (`nomor_order`,`row_index`,`waktu`,`item`,`qty`,`unit`,`tgl_datang`,`pic`,`status`,`kedatangan`,`data`)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+
+    $dibuat = [];
+    foreach ($orders as $i => $o) {
+      if (!is_object($o)) continue;
+      $item  = (string)($o->item ?? '');
+      if ($item === '') continue;
+      $urut  = $jml + count($dibuat) + 1;
+      $nomor = pur_nomor_order($item, $urut);
+      $row   = $maxRow + count($dibuat) + 1;
+      $waktu = date('Y-m-d H:i:s');
+
+      $rec = (object)[
+        'rowIndex'   => $row,
+        'nomorOrder' => $nomor,
+        'timestamp'  => $waktu,
+        'item'       => $item,
+        'qty'        => isset($o->qty) ? (float)$o->qty : 0,
+        'unit'       => (string)($o->unit ?? ''),
+        'note'       => isset($o->note) && $o->note !== '' ? $o->note : '-',
+        'tglDatang'  => (string)($o->tglDatang ?? '-'),
+        'pic'        => (string)($o->pic ?? ''),
+        'status'     => 'Aktif',
+        'kedatangan' => '',
+        'catatan'    => '',
+      ];
+      $st->execute([$nomor, $row, $waktu, $item, $rec->qty, $rec->unit,
+                    $rec->tglDatang, $rec->pic, 'Aktif', '',
+                    json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+      $dibuat[] = $rec;
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'created' => count($dibuat), 'orders' => $dibuat];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/**
+ * IMPOR order dari data lama (migrasi Apps Script -> MySQL).
+ *
+ * Beda dari batchOrder: ini MEMPERTAHANKAN nomor_order, row_index, timestamp,
+ * DAN status (Aktif/Arsip) apa adanya — batchOrder mengarang nomor baru dan
+ * memaksa semua jadi 'Aktif', yang akan membuat 680 order arsip lama tampil
+ * seolah masih aktif.
+ *
+ * Idempoten: ON DUPLICATE KEY UPDATE, jadi jalan kedua kali menimpa baris yang
+ * sama (berdasar nomor_order) — bukan menggandakan. Aman diulang, dan aman
+ * dijalankan di dev lalu di prod dengan data yang sama.
+ *
+ * BUKAN untuk dipakai frontend sehari-hari — hanya alat migrasi. Tidak
+ * mengubah data yang tidak ada di payload (tidak menghapus).
+ */
+function pur_orders_import($pdo, $orders) {
+  if (!is_array($orders) || !$orders) return ['status' => 'error', 'message' => 'orders kosong'];
+
+  $pdo->beginTransaction();
+  try {
+    $st = $pdo->prepare("INSERT INTO `orders`
+      (`nomor_order`,`row_index`,`waktu`,`item`,`qty`,`unit`,`tgl_datang`,`pic`,`status`,`kedatangan`,`data`)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE
+        `row_index`=VALUES(`row_index`), `waktu`=VALUES(`waktu`), `item`=VALUES(`item`),
+        `qty`=VALUES(`qty`), `unit`=VALUES(`unit`), `tgl_datang`=VALUES(`tgl_datang`),
+        `pic`=VALUES(`pic`), `status`=VALUES(`status`), `kedatangan`=VALUES(`kedatangan`),
+        `data`=VALUES(`data`)");
+
+    $n = 0; $lewat = 0; $rowFallback = 100000;
+    foreach ($orders as $o) {
+      if (!is_object($o)) { $lewat++; continue; }
+      $nomor = (string)($o->nomorOrder ?? '');
+      if ($nomor === '') { $lewat++; continue; }   // tanpa nomor, tak ada identitas
+
+      // row_index tetap NOT NULL + UNIQUE. Kalau data lama tak punya, beri
+      // angka tinggi yang tak bentrok dengan data operasional (yang mulai kecil).
+      $row = isset($o->rowIndex) && is_numeric($o->rowIndex) ? (int)$o->rowIndex : ++$rowFallback;
+
+      // `data` = seluruh objek asli apa adanya (sumber kebenaran, note/catatan utuh).
+      $st->execute([
+        $nomor, $row,
+        (string)($o->timestamp ?? ''), (string)($o->item ?? ''),
+        isset($o->qty) ? (float)$o->qty : 0, (string)($o->unit ?? ''),
+        (string)($o->tglDatang ?? ''), (string)($o->pic ?? ''),
+        (string)($o->status ?? 'Aktif'), (string)($o->kedatangan ?? ''),
+        json_encode($o, JSON_UNESCAPED_UNICODE),
+      ]);
+      $n++;
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'imported' => $n, 'skipped' => $lewat];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/**
+ * Ubah status arsip.
+ *
+ * Menerima DUA cara menunjuk order:
+ *   - orderIds: ['LKS-...'] -> lewat nomor order. DIUTAMAKAN.
+ *   - rows: [12]            -> lewat row_index, untuk kecocokan dengan
+ *                              pemanggilan lama.
+ *
+ * Kenapa nomor order diutamakan: row_index itu POSISI, bukan identitas.
+ * Frontend punya satu jalur (mode offline) yang mengarang rowIndex dari
+ * `appState.orders.length + 2`. Angka karangan itu bisa menunjuk order
+ * lain yang sah — dan yang terarsip jadi order yang salah, tanpa error.
+ * Nomor order tidak punya masalah itu.
+ */
+function pur_orders_arsip($pdo, $body, $status) {
+  $ids  = (isset($body->orderIds) && is_array($body->orderIds)) ? $body->orderIds : [];
+  $rows = [];
+  if (isset($body->rows) && is_array($body->rows))      $rows = $body->rows;
+  elseif (isset($body->rowIndex))                        $rows = [$body->rowIndex];
+
+  $n = 0;
+  if ($ids) {
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    $st = $pdo->prepare("UPDATE `orders` SET `status`=? WHERE `nomor_order` IN ($ph)");
+    $st->execute(array_merge([$status], array_map('strval', $ids)));
+    $n = $st->rowCount();
+  } elseif ($rows) {
+    $rows = array_values(array_filter(array_map('intval', $rows), fn($x) => $x > 0));
+    if (!$rows) return ['status' => 'error', 'message' => 'rows kosong'];
+    $ph = implode(',', array_fill(0, count($rows), '?'));
+    $st = $pdo->prepare("UPDATE `orders` SET `status`=? WHERE `row_index` IN ($ph)");
+    $st->execute(array_merge([$status], $rows));
+    $n = $st->rowCount();
+  } else {
+    return ['status' => 'error', 'message' => 'tidak ada order yang ditunjuk'];
+  }
+
+  // Selaraskan `data` JSON dengan kolom status, supaya keduanya tidak
+  // berbeda kalau nanti ada yang membaca JSON-nya langsung.
+  $pdo->exec("UPDATE `orders` SET `data` = JSON_SET(`data`, '$.status', `status`)
+              WHERE JSON_VALID(`data`)");
+
+  return ['status' => 'success', 'updated' => $n];
+}
+
+// =====================================================================
+// AKSI DARI MODUL ORDERING (stock/ordering)
+// ---------------------------------------------------------------------
+// Ordering adalah tampilan KEDUA di atas tabel `orders` yang sama. Ketiga
+// aksi ini dulunya ditangani Apps Script yang dipakai bareng purchasing.
+// Semua berbasis row_index (Sheet lama tidak punya konsep lain); di MySQL
+// row_index tetap UNIQUE jadi tetap bisa jadi penunjuk yang sah.
+//
+// `data` JSON selalu diselaraskan dengan kolom inti supaya pembaca JSON
+// (mis. order lain yang membaca lewat purchasing) melihat nilai yang sama.
+// =====================================================================
+
+/* Check-in kedatangan: tandai barang datang + catat jumlah aktual.
+   Payload: {action:'updateKedatangan', updates:[{rowIndex, kedatangan, catatanAktual}]}
+   catatanAktual = jumlah yang benar-benar datang (disimpan di kolom `catatan`
+   lewat `data`, mengikuti perilaku Sheet lama). */
+function pur_orders_update_kedatangan($pdo, $updates) {
+  if (!is_array($updates) || !$updates) return ['status' => 'error', 'message' => 'updates kosong'];
+
+  $pdo->beginTransaction();
+  try {
+    // JSON_SET memperlakukan parameter STRING sebagai JSON string otomatis —
+    // tidak perlu CAST AS JSON (yang tadi memicu error server) atau json_encode.
+    $st = $pdo->prepare(
+      "UPDATE `orders`
+         SET `kedatangan` = ?,
+             `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'),
+                        '$.kedatangan', ?, '$.catatan', ?)
+       WHERE `row_index` = ?");
+    $n = 0;
+    foreach ($updates as $u) {
+      if (!is_object($u) || !isset($u->rowIndex)) continue;
+      $row  = (int)$u->rowIndex;
+      if ($row <= 0) continue;
+      $kdt  = (string)($u->kedatangan ?? '');
+      // catatanAktual bisa angka atau teks; disimpan apa adanya sebagai string.
+      $cat  = isset($u->catatanAktual) ? (string)$u->catatanAktual : '';
+      $st->execute([$kdt, $kdt, $cat, $row]);
+      $n += $st->rowCount();
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'updated' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/* Ubah jumlah satu order. Payload: {action:'updateOrderQty', rowIndex, newQty} */
+function pur_orders_update_qty($pdo, $rowIndex, $newQty) {
+  $row = (int)$rowIndex;
+  if ($row <= 0) return ['status' => 'error', 'message' => 'rowIndex tidak sah'];
+  if (!is_numeric($newQty)) return ['status' => 'error', 'message' => 'newQty bukan angka'];
+  $qty = (float)$newQty;
+
+  $st = $pdo->prepare(
+    "UPDATE `orders`
+       SET `qty` = ?,
+           `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'), '$.qty', ?)
+     WHERE `row_index` = ?");
+  $st->execute([$qty, $qty, $row]);
+  return ['status' => 'success', 'updated' => $st->rowCount()];
+}
+
+/* Hapus satu order. Payload: {action:'deleteRow', rowIndex}
+   Beda dari 'archive': ini benar-benar MENGHAPUS baris, sesuai perilaku
+   tombol hapus di ordering. */
+function pur_orders_delete_row($pdo, $rowIndex) {
+  $row = (int)$rowIndex;
+  if ($row <= 0) return ['status' => 'error', 'message' => 'rowIndex tidak sah'];
+  $st = $pdo->prepare("DELETE FROM `orders` WHERE `row_index` = ?");
+  $st->execute([$row]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// VENDORS — peta berkunci NAMA
+// =====================================================================
+function pur_vendors_ambil($pdo) {
+  $out = [];
+  foreach ($pdo->query("SELECT `nama`, `data` FROM `vendors` ORDER BY `nama`")->fetchAll() as $r) {
+    $v = json_decode($r['data']);
+    $out[$r['nama']] = is_object($v) ? $v : (object)['whatsapp' => ''];
+  }
+  // (object) supaya peta kosong terkirim sebagai {} bukan [] — lihat
+  // catatan aturan JSON di kepala berkas.
+  return (object)$out;
+}
+
+function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '') {
+  $nama = trim((string)$nama);
+  if ($nama === '') return ['status' => 'error', 'message' => 'nama vendor kosong'];
+  $rec = (object)['whatsapp' => (string)$telp];
+
+  $pdo->beginTransaction();
+  try {
+    // Ganti nama: hapus yang lama, lalu tulis yang baru. Produk yang
+    // menunjuk vendor lama SENGAJA tidak ikut diubah — nama vendor di
+    // produk memang teks bebas, dan di data live ada 5 produk yang sudah
+    // menunjuk vendor tak terdaftar. Menyentuhnya di sini akan mengubah
+    // data yang tidak diminta.
+    $namaLama = trim((string)$namaLama);
+    if ($namaLama !== '' && $namaLama !== $nama) {
+      $pdo->prepare("DELETE FROM `vendors` WHERE `nama`=?")->execute([$namaLama]);
+    }
+    $pdo->prepare("INSERT INTO `vendors` (`nama`,`whatsapp`,`data`) VALUES (?,?,?)
+                   ON DUPLICATE KEY UPDATE `whatsapp`=VALUES(`whatsapp`), `data`=VALUES(`data`)")
+        ->execute([$nama, (string)$telp, json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+    $pdo->commit();
+    return ['status' => 'success'];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+function pur_vendor_hapus($pdo, $nama) {
+  $st = $pdo->prepare("DELETE FROM `vendors` WHERE `nama`=?");
+  $st->execute([(string)$nama]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// PRODUCTS — peta berkunci NAMA
+// =====================================================================
+function pur_products_ambil($pdo) {
+  $out = [];
+  foreach ($pdo->query("SELECT `nama`, `data` FROM `products` ORDER BY `nama`")->fetchAll() as $r) {
+    $p = json_decode($r['data']);
+    if (!is_object($p)) $p = (object)['utama' => '', 'cadangan' => []];
+    // cadangan HARUS array — kalau jadi objek, frontend .map() meledak.
+    if (!isset($p->cadangan) || !is_array($p->cadangan)) $p->cadangan = [];
+    $out[$r['nama']] = $p;
+  }
+  return (object)$out;
+}
+
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '') {
+  $nama = trim((string)$nama);
+  if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
+
+  // backupVendors bisa datang sebagai array atau teks dipisah koma.
+  if (is_string($cadangan)) {
+    $cadangan = array_values(array_filter(array_map('trim', explode(',', $cadangan)), fn($s) => $s !== ''));
+  }
+  if (!is_array($cadangan)) $cadangan = [];
+  $cadangan = array_values(array_map('strval', $cadangan));
+
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan];
+
+  $pdo->beginTransaction();
+  try {
+    $namaLama = trim((string)$namaLama);
+    if ($namaLama !== '' && $namaLama !== $nama) {
+      $pdo->prepare("DELETE FROM `products` WHERE `nama`=?")->execute([$namaLama]);
+    }
+    $pdo->prepare("INSERT INTO `products` (`nama`,`utama`,`data`) VALUES (?,?,?)
+                   ON DUPLICATE KEY UPDATE `utama`=VALUES(`utama`), `data`=VALUES(`data`)")
+        ->execute([$nama, (string)$utama, json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+    $pdo->commit();
+    return ['status' => 'success'];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+function pur_product_hapus($pdo, $nama) {
+  $st = $pdo->prepare("DELETE FROM `products` WHERE `nama`=?");
+  $st->execute([(string)$nama]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// USERS — berisi PIN
+// =====================================================================
+function pur_users_ambil($pdo) {
+  $out = [];
+  foreach ($pdo->query("SELECT `id`,`nama`,`pin`,`role`,`keterangan` FROM `users` ORDER BY `nama`")->fetchAll() as $r) {
+    $out[] = (object)['id' => $r['id'], 'name' => $r['nama'], 'pin' => $r['pin'],
+                      'role' => $r['role'], 'keterangan' => $r['keterangan']];
+  }
+  return $out;
+}
+
+function pur_user_simpan($pdo, $u) {
+  if (!is_object($u) || !isset($u->id) || $u->id === '') {
+    return ['status' => 'error', 'message' => 'user tanpa id'];
+  }
+  $rec = (object)['id' => (string)$u->id, 'name' => (string)($u->name ?? ''),
+                  'pin' => (string)($u->pin ?? ''), 'role' => (string)($u->role ?? 'full'),
+                  'keterangan' => (string)($u->keterangan ?? $u->tim ?? '')];
+  $pdo->prepare("INSERT INTO `users` (`id`,`nama`,`pin`,`role`,`keterangan`,`data`) VALUES (?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE `nama`=VALUES(`nama`), `pin`=VALUES(`pin`),
+                 `role`=VALUES(`role`), `keterangan`=VALUES(`keterangan`), `data`=VALUES(`data`)")
+      ->execute([$rec->id, $rec->name, $rec->pin, $rec->role, $rec->keterangan,
+                 json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+  return ['status' => 'success'];
+}
+
+function pur_user_hapus($pdo, $u) {
+  $id = is_object($u) ? ($u->id ?? '') : (string)$u;
+  if ($id === '') return ['status' => 'error', 'message' => 'user tanpa id'];
+
+  // Jangan sampai admin terakhir terhapus — sesudah itu tidak ada yang
+  // bisa mengelola user lagi, dan pemulihannya harus lewat phpMyAdmin.
+  $adm = (int)$pdo->query("SELECT COUNT(*) c FROM `users` WHERE `role`='admin'")->fetch()['c'];
+  $st  = $pdo->prepare("SELECT `role` FROM `users` WHERE `id`=?");
+  $st->execute([$id]);
+  $peran = $st->fetchColumn();
+  if ($peran === 'admin' && $adm <= 1) {
+    return ['status' => 'error', 'message' => 'tidak bisa menghapus admin terakhir'];
+  }
+
+  $st = $pdo->prepare("DELETE FROM `users` WHERE `id`=?");
+  $st->execute([$id]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// ORDERING USERS — tabel terpisah `ordering_users` (daftar kru dapur).
+// Frontend ordering: GET -> daftar; POST {action:'saveUser', user} atau
+// {action:'bulkSeed', users}. Berisi PIN.
+// =====================================================================
+function pur_ordering_users_ambil($pdo) {
+  $out = [];
+  foreach ($pdo->query("SELECT `id`,`nama`,`pin`,`role`,`keterangan` FROM `ordering_users` ORDER BY `nama`")->fetchAll() as $r) {
+    $out[] = (object)['id' => $r['id'], 'name' => $r['nama'], 'pin' => $r['pin'],
+                      'role' => $r['role'], 'keterangan' => $r['keterangan']];
+  }
+  return $out;
+}
+
+function pur_ordering_user_row($pdo, $u) {
+  // dipakai saveUser & bulkSeed; TIDAK commit sendiri (biar bisa dibungkus transaksi)
+  if (!is_object($u)) return false;
+  $id = (string)($u->id ?? '');
+  if ($id === '') $id = 'u-' . substr(sha1(($u->pin ?? '') . ($u->name ?? '') . microtime()), 0, 12);
+  $rec = (object)['id' => $id, 'name' => (string)($u->name ?? ''),
+                  'pin' => (string)($u->pin ?? ''), 'role' => (string)($u->role ?? 'full'),
+                  'keterangan' => (string)($u->keterangan ?? $u->tim ?? '')];
+  $pdo->prepare("INSERT INTO `ordering_users` (`id`,`nama`,`pin`,`role`,`keterangan`,`data`) VALUES (?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE `nama`=VALUES(`nama`), `pin`=VALUES(`pin`),
+                 `role`=VALUES(`role`), `keterangan`=VALUES(`keterangan`), `data`=VALUES(`data`)")
+      ->execute([$rec->id, $rec->name, $rec->pin, $rec->role, $rec->keterangan,
+                 json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+  return true;
+}
+
+function pur_ordering_user_simpan($pdo, $u) {
+  if (!pur_ordering_user_row($pdo, $u)) return ['status' => 'error', 'message' => 'user tidak sah'];
+  return ['status' => 'success'];
+}
+
+/* bulkSeed: isi banyak user sekaligus. TIDAK menghapus yang sudah ada —
+   hanya menambah/menimpa berdasar id, jadi aman dijalankan berulang dan
+   tidak membuang user yang dibuat manual. */
+function pur_ordering_users_seed($pdo, $users) {
+  if (!is_array($users)) return ['status' => 'error', 'message' => 'users bukan array'];
+  $pdo->beginTransaction();
+  try {
+    $n = 0;
+    foreach ($users as $u) { if (pur_ordering_user_row($pdo, $u)) $n++; }
+    $pdo->commit();
+    return ['status' => 'success', 'seeded' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+function pur_ordering_user_hapus($pdo, $u) {
+  $id = is_object($u) ? ($u->id ?? '') : (string)$u;
+  if ($id === '') return ['status' => 'error', 'message' => 'user tanpa id'];
+  $st = $pdo->prepare("DELETE FROM `ordering_users` WHERE `id`=?");
+  $st->execute([$id]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// STOCK — sisa bahan "Stock Today" (dipakai bersama ordering + purchasing).
+// Bentuk balasan SENGAJA dijaga sama dengan Apps Script lama supaya
+// ForecastBook menerima masukan identik: {stock:{nama:{stock_now,stock_unit}}, as_of}.
+// =====================================================================
+function pur_stock_ambil($pdo) {
+  $stock = [];
+  $asOf  = '';
+  foreach ($pdo->query("SELECT `nama`,`stock_now`,`stock_unit`,`as_of` FROM `stock`")->fetchAll() as $r) {
+    $stock[$r['nama']] = (object)['stock_now' => (float)$r['stock_now'],
+                                  'stock_unit' => $r['stock_unit']];
+    if ($r['as_of'] > $asOf) $asOf = $r['as_of'];   // semua baris seunggahan sama; ambil yang ada
+  }
+  // (object) supaya peta kosong terkirim {} bukan [] (lihat aturan JSON di atas).
+  return ['stock' => (object)$stock, 'as_of' => $asOf, 'count' => count((array)$stock)];
+}
+
+/* Simpan snapshot stok. Payload: {type:'stock', as_of, stock:{nama:{stock_now,stock_unit}}}
+   Satu upload = snapshot penuh -> tabel DITULIS ULANG. Guard: payload kosong
+   TIDAK mengosongkan tabel (biar upload gagal/rusak tak menghapus stok). */
+function pur_stock_simpan($pdo, $stockMap, $asOf) {
+  if (!is_object($stockMap) || count((array)$stockMap) === 0) {
+    return ['status' => 'error', 'message' => 'stock kosong'];
+  }
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec("DELETE FROM `stock`");
+    $st = $pdo->prepare("INSERT INTO `stock` (`nama`,`stock_now`,`stock_unit`,`as_of`,`data`)
+                         VALUES (?,?,?,?,?)");
+    $n = 0;
+    foreach ($stockMap as $nama => $v) {
+      $nama = (string)$nama;
+      if ($nama === '') continue;
+      $now  = (is_object($v) && isset($v->stock_now)  && is_numeric($v->stock_now)) ? (float)$v->stock_now : 0;
+      $unit = (is_object($v) && isset($v->stock_unit)) ? (string)$v->stock_unit : '';
+      $st->execute([$nama, $now, $unit, (string)$asOf, json_encode($v, JSON_UNESCAPED_UNICODE)]);
+      $n++;
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'saved' => $n, 'as_of' => (string)$asOf];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+// =====================================================================
+function pur_stats($pdo) {
+  $out = [];
+  foreach (['orders', 'vendors', 'products', 'users'] as $t) {
+    $out[$t] = (int)$pdo->query("SELECT COUNT(*) c FROM `$t`")->fetch()['c'];
+  }
+  $out['orders_aktif'] = (int)$pdo->query("SELECT COUNT(*) c FROM `orders` WHERE `status`='Aktif'")->fetch()['c'];
+  $out['env']          = defined('ENV_LABEL') ? ENV_LABEL : '(tidak diberi label)';
+  $out['db']           = DB_NAME;
+  return $out;
+}

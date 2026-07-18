@@ -569,11 +569,22 @@
         //  yang membuka file ini otomatis tersinkron TANPA perlu setting lagi.
         //  Biarkan kosong ("") jika ingin memakai pengaturan manual (gear).
         // ==================================================================
+        //  BACKEND = MySQL BERSAMA dengan modul purchasing (stock/purchasing).
+        //  Ordering & purchasing dua tampilan di atas DATA YANG SAMA: item dan
+        //  order/riwayat dibaca dari database yang sama. Karena itu URL-nya
+        //  menunjuk ke ../../stock-api-mysql/ (path relatif), sehingga
+        //  otomatis ikut situsnya: dev -> db_dev_purchasing, office -> db_purchasing.
+        //  Submit order TIDAK lagi via Google Form — sekarang POST batchOrder ke
+        //  orders.php (lihat executeFormSubmission). entryIds Form tidak dipakai
+        //  lagi tapi dibiarkan supaya kode terkait tidak error.
+        //  Forecast TETAP Apps Script (cuma dibaca; dihitung proses lain).
+        //  users -> ordering-users.php: daftar kru dapur TERPISAH dari user
+        //  purchasing (mempertahankan pemisahan yang ada di Apps Script lama).
         const EMBEDDED_CONFIG = {
-            formUrl:            "https://docs.google.com/forms/d/e/1FAIpQLSeAjKOr2wp_uQDdlXfDktNeOS91YkvlIOA7o2pUHtYehAFo7A/viewform",   // Link Google Form Belanja (…/viewform)
-            appScriptUrlItem:   "https://script.google.com/macros/s/AKfycbxRk-q2IoyJPLGAdKpFbJbo-wghP1JP5LSOx-3CRJJj1QFFTLyFYvKDB0eujxouHUHRag/exec",   // Link App Script: Database Item (Bahan)
-            appScriptUrlHistory:"https://script.google.com/macros/s/AKfycbw3ZpXR10UJt8Jhw9sUdsinhAOLkzCBPfJQi69ZFgZAZnFp4CR0PIfaQ8h0NIDL5UdUaQ/exec",   // Link App Script: Tabel Riwayat & Check-in
-            appScriptUrlUsers:  "https://script.google.com/macros/s/AKfycbz8WsJocgFCtucj_ioT81h3XFCbLVb3ZCp0pMHUbxYEgHqL6myAqZkDusiOLva2_NUY/exec",   // Link App Script: Database Akun/User
+            formUrl:            "",   // tidak dipakai lagi (submit via API)
+            appScriptUrlItem:   "../../stock-api-mysql/items.php",
+            appScriptUrlHistory:"../../stock-api-mysql/orders.php",
+            appScriptUrlUsers:  "../../stock-api-mysql/ordering-users.php",
             appScriptUrlForecast:"https://script.google.com/macros/s/AKfycbykGmdR7mGiCQUXlJQv2QwHhkNatj6GeCL8JnbZ1WXeoOCWA5m_b7cMdiuPHge0s6rH/exec",   // Link App Script: Data Prakiraan Stok
             entryIds: {
                 item: "entry.314340744",    // ID: Nama Item
@@ -632,10 +643,19 @@
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
                 const swCode = `
-                    const CACHE_NAME = 'laksamana-ordering-pwa-v1';
-                    self.addEventListener('install', e => e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll([location.href.split('?')[0]]))));
+                    // v2: pindah backend ke MySQL (stock-api-mysql). Ganti nama cache
+                    // MEMAKSA service worker baru meng-install; activate menghapus cache
+                    // lama v1 supaya app shell usang tidak nyangkut. skipWaiting +
+                    // clients.claim: update langsung berlaku tanpa perlu tutup semua tab.
+                    const CACHE_NAME = 'laksamana-ordering-pwa-v2';
+                    self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll([location.href.split('?')[0]]))); });
+                    self.addEventListener('activate', e => e.waitUntil(
+                        caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))).then(() => self.clients.claim())
+                    ));
                     self.addEventListener('fetch', e => {
                         if (e.request.url.includes('script.google.com') || e.request.url.includes('docs.google.com')) return e.respondWith(fetch(e.request));
+                        // Network-first untuk dokumen (HTML) supaya versi baru selalu terambil
+                        // saat online; cache hanya cadangan offline.
                         e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
                     });
                 `;
@@ -671,9 +691,25 @@
         let actionTargetId = null;    // ID baris untuk edit/hapus
         let actionTargetName = null;  // Nama item untuk edit/hapus
 
+        // URL server diisi LANGSUNG dari EMBEDDED_CONFIG di sini, bukan menunggu
+        // loadSettings(). Alasan: kalau init (enterApp) gagal di tengah — mis.
+        // sebuah getElementById bernilai null lalu melempar error — loadSettings
+        // tak jalan dan state.appScriptUrl* tetap kosong, sehingga check-in tampil
+        // "Harap isi Link App Script" & badge "Offline" padahal server jalan.
+        // Dengan diisi di deklarasi, URL selalu ada apa pun yang terjadi saat init.
         let state = {
-            formId: "", formUrl: "", appScriptUrlItem: "", appScriptUrlHistory: "", appScriptUrlForecast: "",
-            entryIds: { item: "", qty: "", unit: "", note: "", date: "", pic: "" },
+            formId: "", formUrl: "",
+            appScriptUrlItem:     EMBEDDED_CONFIG.appScriptUrlItem     || "",
+            appScriptUrlHistory:  EMBEDDED_CONFIG.appScriptUrlHistory  || "",
+            appScriptUrlForecast: EMBEDDED_CONFIG.appScriptUrlForecast || "",
+            entryIds: {
+                item: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.item) || "",
+                qty:  (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.qty)  || "",
+                unit: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.unit) || "",
+                note: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.note) || "",
+                date: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.date) || "",
+                pic:  (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.pic)  || ""
+            },
             picName: "Putra"
         };
 
@@ -700,9 +736,24 @@
             // Tarik daftar user modul, LALU roster Office (kru ber-akses ordering),
             // baru resolve identitas dan masuk. Roster Office sebelum resolve supaya
             // kru baru sudah ada dan tidak terduplikasi.
-            syncUsersFromServer()
-                .then(() => autoSyncOfficeRoster())
-                .finally(() => { enterApp(resolveOfficeUser(office)); });
+            // syncUsersFromServer = daftar user modul (MySQL, ~0,04 dtk) -> tetap ditunggu.
+            // autoSyncOfficeRoster = roster Office (Apps Script, TERUKUR 16-23 dtk).
+            // Dulu keduanya ditunggu, jadi halaman diam belasan detik.
+            // Roster Office TIDAK PERNAH ditunggu lagi — aplikasi selalu tampil dulu.
+            //
+            // Dulu ditunggu dengan alasan "supaya kru baru tidak terduplikasi".
+            // Alasan itu ternyata tidak berdasar: resolveOfficeUser() hanya membuat
+            // objek SESI sementara untuk user yang belum dikenal — tidak pernah
+            // disimpan ke daftar user (satu-satunya users.push ada di dalam
+            // penggabungan roster itu sendiri). Jadi menampilkan aplikasi lebih dulu
+            // tidak bisa membuat duplikat.
+            //
+            // Hasilnya: buka halaman tidak lagi menunggu Apps Script 16-23 detik.
+            syncUsersFromServer().finally(() => {
+                applyCachedRoster();                  // roster tersimpan (kalau ada) — instan
+                enterApp(resolveOfficeUser(office));  // TAMPIL SEKARANG
+                autoSyncOfficeRoster();               // segarkan roster di latar belakang
+            });
         });
 
         // ==========================================
@@ -762,16 +813,51 @@
         // sampai yang bersangkutan buka modul. Read-only, tanpa PIN (Office
         // listModuleRoster_). Ditulis ke daftar lokal saja (tidak di-push ke Users
         // Sheet modul, karena record baru belum lengkap). Non-blocking.
+        /* Roster Office (Apps Script) DIUKUR 16-23 detik, konsisten — bukan cold
+           start. Dulu boot menunggunya, jadi halaman diam belasan detik padahal
+           MySQL sendiri cuma 0,4 detik.
+
+           Sekarang hasilnya di-cache: saat buka, roster dipakai dari cache
+           (instan) lalu disegarkan di latar belakang. Jadi perlindungan
+           anti-duplikat tetap ada (roster sudah diterapkan sebelum resolve),
+           tapi tidak ada lagi menunggu belasan detik tiap buka. */
+        const ROSTER_CACHE_KEY = 'ordering_office_roster';
+
+        // Terapkan roster dari cache tanpa jaringan. true bila ada cache dipakai.
+        function applyCachedRoster() {
+            try {
+                const raw = localStorage.getItem(ROSTER_CACHE_KEY);
+                if (!raw) return false;
+                const members = JSON.parse(raw);
+                if (!Array.isArray(members) || !members.length) return false;
+                terapkanRoster(members);
+                return true;
+            } catch (e) { return false; }
+        }
+
         async function autoSyncOfficeRoster() {
             if (!OFFICE_WEBAPP_URL || !navigator.onLine) return;
             let data;
             try {
+                // Batas waktu: tanpa ini panggilan bisa menggantung tanpa akhir.
+                const stop = new AbortController();
+                const jam = setTimeout(() => stop.abort(), 25000);
                 const res = await fetch(OFFICE_WEBAPP_URL, { method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'listModuleRoster', module: 'ordering' }) });
+                    body: JSON.stringify({ action: 'listModuleRoster', module: 'ordering' }),
+                    signal: stop.signal }).finally(() => clearTimeout(jam));
                 data = await res.json();
             } catch (e) { return; }
             if (!data || !data.ok || !Array.isArray(data.members)) return;
+            // Simpan untuk dipakai instan saat buka berikutnya.
+            try { localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(data.members)); } catch (e) {}
+            terapkanRoster(data.members);
+        }
+
+        // Bagian yang menggabungkan roster ke daftar user lokal — dipakai bareng
+        // oleh jalur cache (instan) dan jalur jaringan (latar belakang).
+        function terapkanRoster(members) {
+            const data = { members };
             const users = loadUsers();
             let changed = false;
             data.members.forEach(m => {
@@ -875,9 +961,13 @@
 
             if (!appInitialized) {
                 appInitialized = true;
-                updateNetworkStatus();
+                // loadSettings hanya menyinkron localStorage + isi field pengaturan.
+                // URL server SUDAH ada di state (dari EMBEDDED_CONFIG saat deklarasi),
+                // jadi kalau loadSettings melempar error (mis. elemen tak ada), badge
+                // & check-in tetap benar. try/catch supaya init tidak berhenti total.
+                try { loadSettings(); } catch (e) { console.warn('loadSettings gagal, pakai config tertanam:', e); }
+                updateNetworkStatus();     // nilai status setelah config siap
                 for (let i = 0; i < 3; i++) addNewBatchRow();
-                loadSettings();
                 setTomorrowAsDefaultDate();
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('history-date-filter').value = today;
@@ -1121,8 +1211,11 @@
         });
 
         function checkConfigStatus() {
-            if(!navigator.onLine) return; 
-            const hasCompleteConfig = state.formId && state.entryIds.item;
+            if(!navigator.onLine) return;
+            // Dulu cek state.formId (Google Form). Submit sekarang lewat API
+            // (batchOrder ke orders.php), jadi yang menentukan "siap" adalah
+            // URL server order + item, bukan lagi Form.
+            const hasCompleteConfig = state.appScriptUrlHistory && state.appScriptUrlItem;
             const badge = document.getElementById('connection-badge');
             const text = document.getElementById('connection-text');
 
@@ -1284,10 +1377,16 @@
         }
 
         // Ambil stok bersama dari server (type=stock). Null bila belum diatur/offline/kosong.
+        // Stok sisa "Stock Today" sekarang di MySQL (stock.php), BUKAN lagi
+        // numpang di forecast Apps Script. Bentuk balasan dijaga SAMA
+        // ({stock:{nama:{stock_now,stock_unit}}, as_of}), jadi ForecastBook
+        // menerima masukan identik dan FORECASTING TIDAK BERUBAH. Angka model
+        // forecast (avg harian, reorder point) tetap dibaca dari Apps Script.
+        const STOCK_URL = "../../stock-api-mysql/stock.php";
         async function fetchSharedStock() {
-            if (!state.appScriptUrlForecast || !navigator.onLine) return null;
+            if (!STOCK_URL || !navigator.onLine) return null;
             try {
-                const res = await fetch(state.appScriptUrlForecast + '?type=stock');
+                const res = await fetch(STOCK_URL + '?t=' + Date.now());
                 if (!res.ok) return null;
                 const data = await res.json();
                 return (data && data.stock) ? data : null;
@@ -1395,10 +1494,11 @@
 
         // Kirim stok ke Web App (type=stock) agar tersimpan di Drive & terbaca semua perangkat.
         async function pushStockToServer(stockMap, asOf) {
-            if (!state.appScriptUrlForecast || !navigator.onLine) return;
+            if (!STOCK_URL || !navigator.onLine) return;
             try {
-                await fetch(state.appScriptUrlForecast + '?type=stock', {
+                await fetch(STOCK_URL, {
                     method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, hindari preflight CORS
                     body: JSON.stringify({ type: 'stock', as_of: asOf || null, stock: stockMap })
                 });
                 showToast("Stok Tersinkron", "Stok tersimpan di server - staf lain bisa melihatnya.", "info");
@@ -1421,7 +1521,7 @@
             const pic = document.getElementById('batch-pic-name').value;
             const date = document.getElementById('batch-arrival-date').value;
 
-            if (!state.formId) return showToast("Pengaturan Belum Lengkap", "Buka icon gear dan setting URL Form.", "danger"), toggleConfigPanel();
+            if (!state.appScriptUrlHistory) return showToast("Pengaturan Belum Lengkap", "URL server order belum diatur.", "danger"), toggleConfigPanel();
             if (!pic || !date) return showToast("Pengisian Kurang", "Lengkapi PIC dan Tanggal Kedatangan.", "warning");
 
             localStorage.setItem('kitchen_batch_picname', pic);
@@ -1529,7 +1629,10 @@
             }
         }
 
-        // Tahap 3: POST Eksekusi Akhir ke Google Forms
+        // Tahap 3: POST Eksekusi Akhir ke API MySQL (dulu ke Google Forms).
+        // Semua order dikirim SEKALI lewat batchOrder (dulu satu-satu ke Form).
+        // Server yang membuat nomor order & row_index — pakai SELECT ... FOR
+        // UPDATE, jadi dua kru yang mengirim bersamaan tidak berebut nomor sama.
         async function executeFormSubmission(submittedOrders, pic, date) {
             const btn = document.getElementById('btn-trigger-submit'); // Tombol utama form
             const oldHTML = btn.innerHTML;
@@ -1537,25 +1640,30 @@
             btn.disabled = true;
             btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Memproses ${submittedOrders.length} Pesanan...`;
 
+            // Normalkan tanggal ke 'YYYY-MM-DD' untuk kolom tglDatang.
             const d = new Date(date);
-            const yearStr = d.getFullYear().toString(), monthStr = (d.getMonth() + 1).toString(), dayStr = d.getDate().toString();
+            const tglDatang = isNaN(d) ? String(date) :
+                `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
             let successfulCount = 0;
-
-            for (let order of submittedOrders) {
-                try {
-                    const formData = new FormData();
-                    formData.append(state.entryIds.item, order.item);
-                    formData.append(state.entryIds.qty, order.qty.toString());
-                    formData.append(state.entryIds.unit, order.unit);
-                    formData.append(state.entryIds.note, order.note);
-                    formData.append(state.entryIds.pic, pic);
-                    formData.append(`${state.entryIds.date}_year`, yearStr);
-                    formData.append(`${state.entryIds.date}_month`, monthStr);
-                    formData.append(`${state.entryIds.date}_day`, dayStr);
-
-                    await fetch(`https://docs.google.com/forms/d/e/${state.formId}/formResponse`, { method: 'POST', mode: 'no-cors', body: formData });
-                    successfulCount++;
-                } catch (err) { console.error("Gagal kirim:", err); }
+            try {
+                if (!state.appScriptUrlHistory) throw new Error('URL server belum diatur');
+                const res = await fetch(state.appScriptUrlHistory, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, hindari preflight CORS
+                    body: JSON.stringify({
+                        action: 'batchOrder',
+                        orders: submittedOrders.map(o => ({
+                            item: o.item, qty: o.qty, unit: o.unit,
+                            note: o.note || '-', tglDatang: tglDatang, pic: pic
+                        }))
+                    })
+                });
+                const data = await res.json().catch(() => null);
+                if (data && data.status === 'success') successfulCount = data.created || submittedOrders.length;
+                else throw new Error((data && data.message) || 'ditolak server');
+            } catch (err) {
+                console.error("Gagal kirim:", err);
             }
 
             btn.classList.remove('btn-loading');
@@ -1568,7 +1676,7 @@
                 for (let i = 0; i < 3; i++) addNewBatchRow();
                 updateSummaryText();
             } else {
-                showToast("Pengiriman Gagal", "Pastikan internet stabil.", "danger");
+                showToast("Pengiriman Gagal", "Pastikan internet stabil & coba lagi.", "danger");
             }
         }
 
