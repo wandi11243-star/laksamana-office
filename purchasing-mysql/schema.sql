@@ -103,6 +103,26 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
+-- ORDERING_USERS — daftar user modul ordering (stock/ordering).
+--
+-- Ordering berbagi tabel orders/vendors/products dengan purchasing, TAPI
+-- daftar user-nya TERPISAH: kru dapur lengkap + role 'checkin' yang tidak
+-- dipakai purchasing. Di Apps Script lama pun URL user keduanya beda.
+-- Tabel sendiri ini MEMPERTAHANKAN pemisahan itu — migrasi tidak boleh
+-- diam-diam mengubah siapa yang bisa masuk ke modul mana.
+--
+-- BERISI PIN LOGIN. Jangan diekspor ke repo/chat/pihak ketiga.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ordering_users (
+  id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+  nama       VARCHAR(190) NOT NULL DEFAULT '',   -- app: name
+  pin        VARCHAR(20)  NOT NULL DEFAULT '',
+  role       VARCHAR(20)  NOT NULL DEFAULT '',   -- admin | full | checkin
+  keterangan VARCHAR(60)  NOT NULL DEFAULT '',   -- Kitchen | Bar | Floor | ''
+  data       LONGTEXT     NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
 -- FORECAST — SENGAJA TIDAK ADA TABELNYA.
 --
 -- Frontend cuma MEMBACA forecast (fetch GET, tidak pernah POST). Angkanya

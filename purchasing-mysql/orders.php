@@ -28,6 +28,10 @@ try {
     if ($a === 'import')     pur_json(pur_orders_import($pdo, $b->orders ?? []));  // alat migrasi, idempoten
     if ($a === 'archive')    pur_json(pur_orders_arsip($pdo, $b, 'Arsip'));
     if ($a === 'unarchive')  pur_json(pur_orders_arsip($pdo, $b, 'Aktif'));
+    // --- aksi dari modul ordering (tabel order yang sama) ---
+    if ($a === 'updateKedatangan') pur_json(pur_orders_update_kedatangan($pdo, $b->updates ?? []));
+    if ($a === 'updateOrderQty')   pur_json(pur_orders_update_qty($pdo, $b->rowIndex ?? 0, $b->newQty ?? null));
+    if ($a === 'deleteRow')        pur_json(pur_orders_delete_row($pdo, $b->rowIndex ?? 0));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);

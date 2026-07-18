@@ -251,6 +251,81 @@ function pur_orders_arsip($pdo, $body, $status) {
 }
 
 // =====================================================================
+// AKSI DARI MODUL ORDERING (stock/ordering)
+// ---------------------------------------------------------------------
+// Ordering adalah tampilan KEDUA di atas tabel `orders` yang sama. Ketiga
+// aksi ini dulunya ditangani Apps Script yang dipakai bareng purchasing.
+// Semua berbasis row_index (Sheet lama tidak punya konsep lain); di MySQL
+// row_index tetap UNIQUE jadi tetap bisa jadi penunjuk yang sah.
+//
+// `data` JSON selalu diselaraskan dengan kolom inti supaya pembaca JSON
+// (mis. order lain yang membaca lewat purchasing) melihat nilai yang sama.
+// =====================================================================
+
+/* Check-in kedatangan: tandai barang datang + catat jumlah aktual.
+   Payload: {action:'updateKedatangan', updates:[{rowIndex, kedatangan, catatanAktual}]}
+   catatanAktual = jumlah yang benar-benar datang (disimpan di kolom `catatan`
+   lewat `data`, mengikuti perilaku Sheet lama). */
+function pur_orders_update_kedatangan($pdo, $updates) {
+  if (!is_array($updates) || !$updates) return ['status' => 'error', 'message' => 'updates kosong'];
+
+  $pdo->beginTransaction();
+  try {
+    // JSON_SET memperlakukan parameter STRING sebagai JSON string otomatis —
+    // tidak perlu CAST AS JSON (yang tadi memicu error server) atau json_encode.
+    $st = $pdo->prepare(
+      "UPDATE `orders`
+         SET `kedatangan` = ?,
+             `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'),
+                        '$.kedatangan', ?, '$.catatan', ?)
+       WHERE `row_index` = ?");
+    $n = 0;
+    foreach ($updates as $u) {
+      if (!is_object($u) || !isset($u->rowIndex)) continue;
+      $row  = (int)$u->rowIndex;
+      if ($row <= 0) continue;
+      $kdt  = (string)($u->kedatangan ?? '');
+      // catatanAktual bisa angka atau teks; disimpan apa adanya sebagai string.
+      $cat  = isset($u->catatanAktual) ? (string)$u->catatanAktual : '';
+      $st->execute([$kdt, $kdt, $cat, $row]);
+      $n += $st->rowCount();
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'updated' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/* Ubah jumlah satu order. Payload: {action:'updateOrderQty', rowIndex, newQty} */
+function pur_orders_update_qty($pdo, $rowIndex, $newQty) {
+  $row = (int)$rowIndex;
+  if ($row <= 0) return ['status' => 'error', 'message' => 'rowIndex tidak sah'];
+  if (!is_numeric($newQty)) return ['status' => 'error', 'message' => 'newQty bukan angka'];
+  $qty = (float)$newQty;
+
+  $st = $pdo->prepare(
+    "UPDATE `orders`
+       SET `qty` = ?,
+           `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'), '$.qty', ?)
+     WHERE `row_index` = ?");
+  $st->execute([$qty, $qty, $row]);
+  return ['status' => 'success', 'updated' => $st->rowCount()];
+}
+
+/* Hapus satu order. Payload: {action:'deleteRow', rowIndex}
+   Beda dari 'archive': ini benar-benar MENGHAPUS baris, sesuai perilaku
+   tombol hapus di ordering. */
+function pur_orders_delete_row($pdo, $rowIndex) {
+  $row = (int)$rowIndex;
+  if ($row <= 0) return ['status' => 'error', 'message' => 'rowIndex tidak sah'];
+  $st = $pdo->prepare("DELETE FROM `orders` WHERE `row_index` = ?");
+  $st->execute([$row]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
 // VENDORS — peta berkunci NAMA
 // =====================================================================
 function pur_vendors_ambil($pdo) {
@@ -390,6 +465,66 @@ function pur_user_hapus($pdo, $u) {
   }
 
   $st = $pdo->prepare("DELETE FROM `users` WHERE `id`=?");
+  $st->execute([$id]);
+  return ['status' => 'success', 'deleted' => $st->rowCount()];
+}
+
+// =====================================================================
+// ORDERING USERS — tabel terpisah `ordering_users` (daftar kru dapur).
+// Frontend ordering: GET -> daftar; POST {action:'saveUser', user} atau
+// {action:'bulkSeed', users}. Berisi PIN.
+// =====================================================================
+function pur_ordering_users_ambil($pdo) {
+  $out = [];
+  foreach ($pdo->query("SELECT `id`,`nama`,`pin`,`role`,`keterangan` FROM `ordering_users` ORDER BY `nama`")->fetchAll() as $r) {
+    $out[] = (object)['id' => $r['id'], 'name' => $r['nama'], 'pin' => $r['pin'],
+                      'role' => $r['role'], 'keterangan' => $r['keterangan']];
+  }
+  return $out;
+}
+
+function pur_ordering_user_row($pdo, $u) {
+  // dipakai saveUser & bulkSeed; TIDAK commit sendiri (biar bisa dibungkus transaksi)
+  if (!is_object($u)) return false;
+  $id = (string)($u->id ?? '');
+  if ($id === '') $id = 'u-' . substr(sha1(($u->pin ?? '') . ($u->name ?? '') . microtime()), 0, 12);
+  $rec = (object)['id' => $id, 'name' => (string)($u->name ?? ''),
+                  'pin' => (string)($u->pin ?? ''), 'role' => (string)($u->role ?? 'full'),
+                  'keterangan' => (string)($u->keterangan ?? $u->tim ?? '')];
+  $pdo->prepare("INSERT INTO `ordering_users` (`id`,`nama`,`pin`,`role`,`keterangan`,`data`) VALUES (?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE `nama`=VALUES(`nama`), `pin`=VALUES(`pin`),
+                 `role`=VALUES(`role`), `keterangan`=VALUES(`keterangan`), `data`=VALUES(`data`)")
+      ->execute([$rec->id, $rec->name, $rec->pin, $rec->role, $rec->keterangan,
+                 json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+  return true;
+}
+
+function pur_ordering_user_simpan($pdo, $u) {
+  if (!pur_ordering_user_row($pdo, $u)) return ['status' => 'error', 'message' => 'user tidak sah'];
+  return ['status' => 'success'];
+}
+
+/* bulkSeed: isi banyak user sekaligus. TIDAK menghapus yang sudah ada —
+   hanya menambah/menimpa berdasar id, jadi aman dijalankan berulang dan
+   tidak membuang user yang dibuat manual. */
+function pur_ordering_users_seed($pdo, $users) {
+  if (!is_array($users)) return ['status' => 'error', 'message' => 'users bukan array'];
+  $pdo->beginTransaction();
+  try {
+    $n = 0;
+    foreach ($users as $u) { if (pur_ordering_user_row($pdo, $u)) $n++; }
+    $pdo->commit();
+    return ['status' => 'success', 'seeded' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+function pur_ordering_user_hapus($pdo, $u) {
+  $id = is_object($u) ? ($u->id ?? '') : (string)$u;
+  if ($id === '') return ['status' => 'error', 'message' => 'user tanpa id'];
+  $st = $pdo->prepare("DELETE FROM `ordering_users` WHERE `id`=?");
   $st->execute([$id]);
   return ['status' => 'success', 'deleted' => $st->rowCount()];
 }
