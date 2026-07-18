@@ -721,7 +721,10 @@ function resolveOfficeUser(s){
   if(u){
     // Klaim: ikat record ini ke identitas Office supaya login berikutnya lewat
     // jalur id (pasti), bukan tebak-tebakan nama. Rujukan riwayat ikut dipindah.
-    if(u.id !== s.userId){ reassignEmployeeId(u.id, s.userId); save(); }
+    // Cache saja: mencocokkan id ke identitas Office adalah housekeeping,
+    // bukan perubahan data kru, jadi jangan sampai terlihat sebagai
+    // "menyimpan perubahan" oleh user lain yang sedang membuka halaman ini.
+    if(u.id !== s.userId){ reassignEmployeeId(u.id, s.userId); cacheLocal(); }
     return u;
   }
   u = { id: s.userId, name: s.name, role:'', divId:'', level:'Staff',
@@ -736,12 +739,17 @@ function bootPeopleOS(){
   OFFICE_HR_ADMIN = officeIsHrAdmin(office);   // status admin dari Office, sumber gate Operasional/Sistem
   CU = resolveOfficeUser(office);
   log('LOGIN','');
-  save();
+  // Cache saja, JANGAN save() ke server: login semata bukan perubahan data.
+  // save() penuh di sini bikin login siapapun terlihat sebagai "menyimpan
+  // perubahan" di tab lain yang sedang terbuka (modal bentrok palsu).
+  // Catatan LOGIN tetap ada di S.audit dan ikut terkirim naik pada save()
+  // nyata berikutnya (mis. saat user itu benar-benar mengubah sesuatu).
+  cacheLocal();
   $('#appView').style.display='block';
   buildNav(); go('dash');
 }
 function doLogout(){
-  log('LOGOUT',''); save();
+  log('LOGOUT',''); cacheLocal();
   // Kembali ke pemilih modul Office. Sesi Office (lm_session) sengaja TIDAK
   // dihapus supaya user bisa pindah modul tanpa login ulang.
   location.replace('../');
