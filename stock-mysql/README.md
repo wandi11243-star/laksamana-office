@@ -66,6 +66,11 @@ sumber wajib punya path sendiri.
 
 ## Cara pasang
 
+> **Sudah pernah pasang dan cuma mau menerapkan pembaruan BATCH?**
+> Lihat [`CARA-PASANG-BATCH.md`](CARA-PASANG-BATCH.md) — migrasi kolom
+> `batch_id`/`batch_name`/`tim` + unggah 2 berkas PHP. Bagian di bawah ini
+> untuk pemasangan dari nol.
+
 Lakukan **dua kali**: sekali untuk produksi, sekali untuk dev.
 
 1. **cPanel > MySQL Databases** — buat database + user, `Add User to
