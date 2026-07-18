@@ -643,10 +643,19 @@
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
                 const swCode = `
-                    const CACHE_NAME = 'laksamana-ordering-pwa-v1';
-                    self.addEventListener('install', e => e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll([location.href.split('?')[0]]))));
+                    // v2: pindah backend ke MySQL (stock-api-mysql). Ganti nama cache
+                    // MEMAKSA service worker baru meng-install; activate menghapus cache
+                    // lama v1 supaya app shell usang tidak nyangkut. skipWaiting +
+                    // clients.claim: update langsung berlaku tanpa perlu tutup semua tab.
+                    const CACHE_NAME = 'laksamana-ordering-pwa-v2';
+                    self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll([location.href.split('?')[0]]))); });
+                    self.addEventListener('activate', e => e.waitUntil(
+                        caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))).then(() => self.clients.claim())
+                    ));
                     self.addEventListener('fetch', e => {
                         if (e.request.url.includes('script.google.com') || e.request.url.includes('docs.google.com')) return e.respondWith(fetch(e.request));
+                        // Network-first untuk dokumen (HTML) supaya versi baru selalu terambil
+                        // saat online; cache hanya cadangan offline.
                         e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
                     });
                 `;
@@ -886,9 +895,9 @@
 
             if (!appInitialized) {
                 appInitialized = true;
-                updateNetworkStatus();
+                loadSettings();            // muat URL server DULU: badge & check-in butuh config sudah siap
+                updateNetworkStatus();     // baru nilai status koneksi/kesiapan (biar tidak salah sekejap)
                 for (let i = 0; i < 3; i++) addNewBatchRow();
-                loadSettings();
                 setTomorrowAsDefaultDate();
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('history-date-filter').value = today;
