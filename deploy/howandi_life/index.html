@@ -414,12 +414,22 @@ const ICON={
 };
 function svg(n,cls,w){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" ${cls?`class="${cls}"`:''} ${w?`width="${w}" height="${w}"`:''}>${ICON[n]||''}</svg>`}
 
-/* ===== STORAGE — GOOGLE SHEET BACKEND =====
-   Database aplikasi = Google Sheet (via Apps Script, lihat file Code.gs).
-   TIDAK ADA lagi localStorage / sessionStorage / data ter-hardcode di HTML.
-   Isi APPS_SCRIPT_URL + API_TOKEN di bawah (token harus SAMA dgn Code.gs). */
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyKGSD5-yiaqR1-_K6Be1MCxcHv68LZI0Jkn-HFXumty6-C7jOmofpc941d0YP8kJcWOg/exec";
-const API_TOKEN       = "HL-5mHh8Lfu8bpiPMkgtRphSmvM";          // samakan persis dgn Code.gs
+/* ===== STORAGE — BACKEND MYSQL SENDIRI =====
+   Database aplikasi = MySQL milik sendiri (howandi-life-mysql/, lihat
+   README di sana). Sebelumnya Google Sheet lewat Apps Script; Sheet lama
+   TIDAK dihapus, dia jadi arsip beku dan tidak dibaca lagi dari sini.
+   TIDAK ADA localStorage / sessionStorage / data ter-hardcode di HTML.
+
+   Nama variabel sengaja dipertahankan: kontrak API dibuat SAMA PERSIS
+   dengan Apps Script lama (getAll/saveAll + token), jadi seluruh kode di
+   bawah tidak perlu disentuh. */
+const APPS_SCRIPT_URL = "../howandi-life-api-mysql/api.php";
+// Token harus SAMA dengan API_TOKEN di howandi-life-mysql/config.php.
+// Jujur soal kekuatannya: token ini terkirim ke browser di dalam HTML ini,
+// jadi siapa pun yang membuka halaman bisa membacanya — dia menyaring
+// permintaan asal-asalan, bukan menahan orang yang niat. Penjaga sebenarnya
+// adalah gerbang SSO Office (lm_session) di bagian atas file.
+const API_TOKEN       = "HL-5mHh8Lfu8bpiPMkgtRphSmvM";
 function apiConfigured(){ return APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith("GANTI") && API_TOKEN && !API_TOKEN.startsWith("GANTI"); }
 function _fetchTO(url,opts,ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms||20000);return fetch(url,Object.assign({signal:c.signal},opts)).finally(()=>clearTimeout(t));}
 async function apiGetState(){
@@ -453,8 +463,9 @@ function fmtMonth(mk){if(!mk)return'';const p=mk.split('-');return new Date(+p[0
 const THISYEAR=new Date().getFullYear();
 
 /* Kerangka state KOSONG (skeleton). Data contoh (bisnis, tugas, keuangan, aset,
-   dll.) TIDAK lagi di HTML — sumbernya Google Sheet. Saat Sheet masih kosong,
-   Code.gs mengirim data awal (seed) & langsung menyimpannya ke Sheet.
+   dll.) TIDAK lagi di HTML — sumbernya database MySQL. Saat database masih
+   kosong, api.php mengirim nilai bawaan yang bentuknya sama dengan
+   emptyState() di bawah, lalu simpan pertama mengisinya.
    Skeleton ini hanya dipakai migrate() & tombol Reset agar UI tak error. */
 function emptyState(){
   return{
@@ -493,7 +504,7 @@ async function flushSave(){
   if(_saving){_again=true;return;}
   _saving=true;
   try{ await apiSaveState(S); }
-  catch(e){ console.error(e); toast('Gagal simpan ke Google Sheet — cek koneksi'); }
+  catch(e){ console.error(e); toast('Gagal simpan ke database — cek koneksi'); }
   finally{ _saving=false; if(_again){_again=false;flushSave();} }
 }
 </script>
@@ -761,7 +772,7 @@ function viewSettings(m){
       ${authOn?`<p class="hint" style="font-size:13px;color:var(--go)">Login aktif. App akan minta password tiap dibuka.</p><div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn" onclick="openPwModal(true)">${svg('lock','',15)} Ganti password</button><button class="btn btn-ghost" onclick="disableAuth()" style="color:var(--overdue)">Nonaktifkan login</button></div>`:`<p class="hint" style="font-size:13px;color:var(--muted)">Aktifkan agar hanya Anda yang bisa buka app ini setelah di-hosting.</p><button class="btn btn-primary" style="margin-top:12px" onclick="openPwModal(false)">${svg('lock','',15)} Aktifkan login</button>`}
       <div class="hint" style="margin-top:14px;border-top:1px solid var(--line-soft);padding-top:12px">⚠️ Ini kunci sisi-browser (cukup untuk pemakaian pribadi). Untuk hosting yang benar-benar aman, tambahkan auth di server (mis. Basic Auth / login backend) — bukan hanya di browser.</div>
     </div></div>
-    <div class="panel col-6"><div class="panel-h"><div class="panel-title"><span class="dot"></span>Penyimpanan &amp; Backup</div></div><div class="panel-b"><p class="hint" style="font-size:13px;color:var(--muted)">Data tersimpan otomatis di <b>Google Sheet</b> (bukan di browser). Semua perangkat melihat data yang sama.</p><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="exportJSON()">${svg('download','',15)} Backup JSON</button><button class="btn" onclick="exportICS()">${svg('gcal','',15)} Export .ics</button><button class="btn btn-ghost" onclick="resetAll()" style="color:var(--overdue)">${svg('trash','',15)} Reset data</button></div></div></div>
+    <div class="panel col-6"><div class="panel-h"><div class="panel-title"><span class="dot"></span>Penyimpanan &amp; Backup</div></div><div class="panel-b"><p class="hint" style="font-size:13px;color:var(--muted)">Data tersimpan otomatis di <b>database MySQL sendiri</b> (bukan di browser). Semua perangkat melihat data yang sama.</p><div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn" onclick="exportJSON()">${svg('download','',15)} Backup JSON</button><button class="btn" onclick="exportICS()">${svg('gcal','',15)} Export .ics</button><button class="btn btn-ghost" onclick="resetAll()" style="color:var(--overdue)">${svg('trash','',15)} Reset data</button></div></div></div>
     <div class="panel col-12"><div class="panel-h"><div class="panel-title"><span class="dot" style="background:var(--info)"></span>Google Calendar — 3 cara integrasi</div></div><div class="panel-b"><div class="grid" style="grid-template-columns:1fr 1fr 1fr">
       <div><div style="font-weight:600;font-size:13px;margin-bottom:3px">1. Add 1-klik <span class="tag" style="color:var(--go)">jalan sekarang</span></div><p class="hint">Ikon kalender di tiap task/event → buka Google Calendar dengan detail terisi.</p></div>
       <div><div style="font-weight:600;font-size:13px;margin-bottom:3px">2. Export .ics <span class="tag" style="color:var(--go)">jalan sekarang</span></div><p class="hint">Semua event + deadline + konten → Google Calendar: Settings → Import.</p></div>
@@ -770,7 +781,7 @@ function viewSettings(m){
   </div>`;
 }
 function exportJSON(){const blob=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='howandi-life-os-backup.json';a.click();URL.revokeObjectURL(url);toast('Backup diunduh')}
-function resetAll(){modalConfirm('Kosongkan semua data?','Semua data di Google Sheet akan dikosongkan. Tidak bisa dibatalkan. (Backup dulu via tombol Backup JSON bila perlu.)',()=>{const auth=S.auth;S=emptyState();S.firstRun=false;S.auth=auth;save();closeModal();setView('home');toast('Data dikosongkan')})}
+function resetAll(){modalConfirm('Kosongkan semua data?','Semua data di database akan dikosongkan. Tidak bisa dibatalkan. (Backup dulu via tombol Backup JSON bila perlu.)',()=>{const auth=S.auth;S=emptyState();S.firstRun=false;S.auth=auth;save();closeModal();setView('home');toast('Data dikosongkan')})}
 
 /* ===== NAV ===== */
 function renderMobnav(){const items=[['home','home','Home'],['calendar','calendar','Kalender'],['tasks','tasks','Task'],['content','content','Content'],['finance','finance','Finance']];document.getElementById('mobnav').innerHTML=items.map(([v,i,l])=>`<button class="${view===v?'active':''}" onclick="setView('${v}')">${svg(i,'',20)}<span>${l}</span></button>`).join('')}
@@ -898,7 +909,7 @@ document.getElementById('overlay').addEventListener('click',e=>{if(e.target.id==
   catch(e){
     document.getElementById('loader').innerHTML='<div style="max-width:360px;text-align:center;font-family:system-ui,sans-serif;color:#334">'
       +'<div style="font-size:34px;font-weight:800;color:#b91c1c">!</div>'
-      +'<p style="margin-top:10px;font-weight:700">Gagal terhubung ke Google Sheet</p>'
+      +'<p style="margin-top:10px;font-weight:700">Gagal terhubung ke database</p>'
       +'<p style="margin-top:6px;font-size:13px;opacity:.75">'+((e&&e.message)||e)+'</p>'
       +'<button onclick="location.reload()" style="margin-top:14px;padding:9px 18px;border-radius:8px;border:1px solid #ccc;cursor:pointer">↻ Coba lagi</button></div>';
     return;

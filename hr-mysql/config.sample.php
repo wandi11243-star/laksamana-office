@@ -27,3 +27,8 @@ define('DB_CHARSET', 'utf8mb4');
 
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');
+
+/* Penanda lingkungan. Muncul di ?action=stats supaya bisa dipastikan situs ini
+   bicara ke database yang benar — nama file config selalu 'config.php' di
+   kedua server, jadi zip tertukar tidak terlihat dari mana pun kecuali sini. */
+define('ENV_LABEL', 'produksi');
