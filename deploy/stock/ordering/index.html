@@ -736,9 +736,22 @@
             // Tarik daftar user modul, LALU roster Office (kru ber-akses ordering),
             // baru resolve identitas dan masuk. Roster Office sebelum resolve supaya
             // kru baru sudah ada dan tidak terduplikasi.
-            syncUsersFromServer()
-                .then(() => autoSyncOfficeRoster())
-                .finally(() => { enterApp(resolveOfficeUser(office)); });
+            // syncUsersFromServer = daftar user modul (MySQL, ~0,04 dtk) -> tetap ditunggu.
+            // autoSyncOfficeRoster = roster Office (Apps Script, TERUKUR 16-23 dtk).
+            // Dulu keduanya ditunggu, jadi halaman diam belasan detik.
+            syncUsersFromServer().finally(() => {
+                if (applyCachedRoster()) {
+                    // Sudah punya roster tersimpan: pakai itu, tampilkan aplikasi
+                    // SEKARANG, lalu segarkan roster di latar belakang.
+                    enterApp(resolveOfficeUser(office));
+                    autoSyncOfficeRoster();
+                } else {
+                    // Perangkat baru (belum punya cache): tunggu roster dulu supaya
+                    // kru yang baru pertama kali masuk tidak terduplikasi. Hanya
+                    // terjadi sekali per perangkat.
+                    autoSyncOfficeRoster().finally(() => enterApp(resolveOfficeUser(office)));
+                }
+            });
         });
 
         // ==========================================
@@ -798,16 +811,51 @@
         // sampai yang bersangkutan buka modul. Read-only, tanpa PIN (Office
         // listModuleRoster_). Ditulis ke daftar lokal saja (tidak di-push ke Users
         // Sheet modul, karena record baru belum lengkap). Non-blocking.
+        /* Roster Office (Apps Script) DIUKUR 16-23 detik, konsisten — bukan cold
+           start. Dulu boot menunggunya, jadi halaman diam belasan detik padahal
+           MySQL sendiri cuma 0,4 detik.
+
+           Sekarang hasilnya di-cache: saat buka, roster dipakai dari cache
+           (instan) lalu disegarkan di latar belakang. Jadi perlindungan
+           anti-duplikat tetap ada (roster sudah diterapkan sebelum resolve),
+           tapi tidak ada lagi menunggu belasan detik tiap buka. */
+        const ROSTER_CACHE_KEY = 'ordering_office_roster';
+
+        // Terapkan roster dari cache tanpa jaringan. true bila ada cache dipakai.
+        function applyCachedRoster() {
+            try {
+                const raw = localStorage.getItem(ROSTER_CACHE_KEY);
+                if (!raw) return false;
+                const members = JSON.parse(raw);
+                if (!Array.isArray(members) || !members.length) return false;
+                terapkanRoster(members);
+                return true;
+            } catch (e) { return false; }
+        }
+
         async function autoSyncOfficeRoster() {
             if (!OFFICE_WEBAPP_URL || !navigator.onLine) return;
             let data;
             try {
+                // Batas waktu: tanpa ini panggilan bisa menggantung tanpa akhir.
+                const stop = new AbortController();
+                const jam = setTimeout(() => stop.abort(), 25000);
                 const res = await fetch(OFFICE_WEBAPP_URL, { method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'listModuleRoster', module: 'ordering' }) });
+                    body: JSON.stringify({ action: 'listModuleRoster', module: 'ordering' }),
+                    signal: stop.signal }).finally(() => clearTimeout(jam));
                 data = await res.json();
             } catch (e) { return; }
             if (!data || !data.ok || !Array.isArray(data.members)) return;
+            // Simpan untuk dipakai instan saat buka berikutnya.
+            try { localStorage.setItem(ROSTER_CACHE_KEY, JSON.stringify(data.members)); } catch (e) {}
+            terapkanRoster(data.members);
+        }
+
+        // Bagian yang menggabungkan roster ke daftar user lokal — dipakai bareng
+        // oleh jalur cache (instan) dan jalur jaringan (latar belakang).
+        function terapkanRoster(members) {
+            const data = { members };
             const users = loadUsers();
             let changed = false;
             data.members.forEach(m => {
