@@ -187,7 +187,21 @@ tbody tr:last-child td{border-bottom:none}
 .perm-matrix thead th{text-align:center}
 .perm-matrix tbody td{padding:8px 10px}
 .perm-matrix tbody tr:hover{background:var(--gold-glow)}
-.perm-chk{width:17px;height:17px;accent-color:var(--gold);cursor:pointer}
+/* Tombol siklus 3-warna, sama pola dgn reservasi: klik = None -> Lihat -> Ubah
+   -> None. Warna sama dengan legenda di atas matriks. */
+.perm-btn{width:34px;height:26px;border-radius:7px;border:1.5px solid transparent;cursor:pointer;
+  font-size:10px;font-weight:800;letter-spacing:.02em;transition:transform .08s}
+.perm-btn:active{transform:scale(.92)}
+.perm-btn:disabled{cursor:not-allowed;opacity:.55}
+.perm-btn[data-v="0"]{background:var(--bad-bg);color:var(--bad);border-color:var(--bad)}
+.perm-btn[data-v="1"]{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.perm-btn[data-v="2"]{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.perm-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:12.5px}
+.perm-legend .lg-item{display:flex;align-items:center;gap:7px}
+.perm-legend .lg-dot{width:15px;height:15px;border-radius:5px;border:1.5px solid transparent;flex:none}
+.perm-legend .lg-dot.n0{background:var(--bad-bg);border-color:var(--bad)}
+.perm-legend .lg-dot.n1{background:var(--warn-bg);border-color:var(--warn)}
+.perm-legend .lg-dot.n2{background:var(--ok-bg);border-color:var(--ok)}
 
 /* ---------- BADGES / PILLS ---------- */
 .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap}
@@ -573,9 +587,21 @@ async function initAPI() {
     });
     // Hak akses tersimpan: jika belum ada, pakai default (deep copy agar bisa diedit)
     if(!DB.perms){ DB.perms = JSON.parse(JSON.stringify(PERM_DEFAULT)); }
-    else { // pastikan modul baru tetap ada
-      PERM_MODULES.forEach(m=>{ if(!DB.perms[m]) DB.perms[m]=PERM_DEFAULT[m].slice(); });
-      ['analytics','reports','activity'].forEach(m=>{ if(!DB.perms[m]) DB.perms[m]=PERM_DEFAULT[m].slice(); });
+    else { // pastikan modul baru tetap ada, dan naikkan data LAMA (array role) ke {role:0|1|2}
+      PERM_MODULES.forEach(m=>{
+        const cur=DB.perms[m];
+        if(Array.isArray(cur)){
+          // Data lama: daftar role yang boleh akses. Role itu otomatis dapat
+          // PERM_EDIT (perilaku sebelumnya: terdaftar = boleh lihat+ubah, tak
+          // ada beda) supaya migrasi TIDAK diam-diam mengunci siapa pun.
+          const up={}; ROLE_KEYS.forEach(r=>{ up[r]=cur.includes(r)?PERM_EDIT:PERM_NONE; });
+          DB.perms[m]=up;
+        } else if(!cur || typeof cur!=='object'){
+          DB.perms[m]=JSON.parse(JSON.stringify(PERM_DEFAULT[m]||{}));
+        } else {
+          ROLE_KEYS.forEach(r=>{ if(typeof cur[r]!=='number') cur[r]=(PERM_DEFAULT[m]||{})[r] ?? PERM_NONE; });
+        }
+      });
     }
 
     // Catat versi tiap baris sebagai acuan penjaga bentrok. Harus setelah semua
@@ -594,7 +620,14 @@ async function initAPI() {
     if (office) {
       const oAdm = office.adminModules || [];
       OFFICE_IS_ADMIN = oAdm.includes('*') || oAdm.includes('konten');
-      await autoSyncOfficeRoster();   // tarik roster Office SEBELUM resolve, hindari duplikat
+      // Roster Office (Apps Script) TERUKUR 16-23 detik. Dulu SELALU ditunggu,
+      // jadi halaman diam belasan detik tiap dibuka.
+      // Sekarang hanya ditunggu bila user BELUM dikenal — sebab cuma di kasus
+      // itu resolveKontenUser membuat entri baru yang bisa berduplikat dengan
+      // entri dari roster. Untuk kru yang sudah terdaftar (mayoritas), aplikasi
+      // langsung tampil dan roster disegarkan di latar belakang.
+      if (kontenUserDikenal(office)) { autoSyncOfficeRoster(); }
+      else { await autoSyncOfficeRoster(); }
       SES = resolveKontenUser(office).id;
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('app').style.display = 'block';
@@ -650,8 +683,18 @@ const OFFICE_TO_KONTEN_ROLES = {
 };
 const KONTEN_DEFAULT_ROLES = ['content_planner'];
 
+// PERM_NONE/VIEW/EDIT: sama pola dengan reservasi. Modul yang tak punya aksi
+// can() nyata (bank, shooting, design, editing, team, settings, dan
+// analytics/reports/activity yang ditambah di bawah) murni dashboard/daftar —
+// Lihat & Ubah berlaku sama di situ karena tak ada yang dikunci Ubah-nya.
+const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
+const PERM_OPT=[['0','Tak Terlihat','None'],['1','Lihat','Lihat'],['2','Boleh Ubah','Ubah']];
+// Modul yang benar dijaga can() (bukan cuma canView) — dipakai default & label "(info saja)".
+const PERM_EDIT_MODULES=['brands','campaigns','content','approve','assets','publish','ads','kol'];
 // PERM default (dipakai kalau DB.perms belum ada). Bisa diedit Super Admin via Pengaturan.
-const PERM_DEFAULT={
+// Cakupan role tiap modul sama seperti sebelumnya; role yg dulu tercantum kini
+// dapat PERM_EDIT (perilaku lama: terdaftar = boleh lihat+ubah, tak ada beda).
+const PERM_ROLES_LEGACY={
   brands:['content_director','account_manager','content_planner'],
   campaigns:['content_director','content_planner','account_manager'],
   content:['content_director','content_planner','account_manager','designer','video_editor','photographer'],
@@ -667,9 +710,16 @@ const PERM_DEFAULT={
   team:['super_admin','content_director'],
   settings:['super_admin']
 };
+const PERM_DEFAULT=(()=>{ const p={};
+  Object.keys(PERM_ROLES_LEGACY).forEach(m=>{ p[m]={};
+    ROLE_KEYS.forEach(r=>{ p[m][r]=PERM_ROLES_LEGACY[m].includes(r)?PERM_EDIT:PERM_NONE; });
+  });
+  return p;
+})();
 const PERM_MODULES=Object.keys(PERM_DEFAULT);
 // PERM aktif membaca dari DB (dinamis). Selalu pakai getPerm() daripada mengakses variabel statis.
 function getPerm(){ return (DB && DB.perms) ? DB.perms : PERM_DEFAULT; }
+function modPerm(m, role){ if(role==='super_admin') return PERM_EDIT; const p=getPerm()[m]; if(!p) return PERM_NONE; const v=p[role]; return typeof v==='number'?v:PERM_NONE; }
 
 // Menu sidebar -> modul PERM yang mengatur aksesnya.
 // View yang tidak ada di map ini = boleh diakses semua role yang sudah login (mis. dashboard, profil).
@@ -684,8 +734,14 @@ const VIEW_PERM={
   reports:'reports', activity:'activity', settings:'settings'
 };
 // Beberapa modul di VIEW_PERM belum ada di PERM_DEFAULT (analytics, reports, activity).
-// Beri default di sini supaya tetap terkontrol namun tidak error.
-['analytics','reports','activity'].forEach(m=>{ if(!PERM_DEFAULT[m]) PERM_DEFAULT[m]=['content_director','analyst','content_planner']; });
+// Beri default di sini supaya tetap terkontrol namun tidak error. Murni lihat-saja
+// (tak pernah dijaga can()), tapi tetap diberi PERM_EDIT di role yg berhak supaya
+// halamannya tak "terkunci" tampilan Ubah-nya walau tak ada yg dikunci di baliknya.
+['analytics','reports','activity'].forEach(m=>{ if(!PERM_DEFAULT[m]){
+  const allowed=['content_director','analyst','content_planner'];
+  PERM_DEFAULT[m]={}; ROLE_KEYS.forEach(r=>{ PERM_DEFAULT[m][r]=allowed.includes(r)?PERM_EDIT:PERM_NONE; });
+  PERM_MODULES.push(m);
+}});
 
 const STATUS={
   Idea:{c:'#8ba0b5',label:'Idea'}, Research:{c:'#7f9cb5',label:'Research'}, Draft:{c:'#6f9fd0',label:'Draft'},
@@ -908,16 +964,18 @@ function userRoles(u){return (u&&u.roles)||[];}
 // (setara super_admin) untuk sesi ini tanpa mengubah roles tersimpan.
 var OFFICE_IS_ADMIN = false;
 function isSuper(u){return OFFICE_IS_ADMIN || userRoles(u).includes('super_admin');}
-function can(module){ 
+// Rangkap kerja (dual-role) = level TERLONGGAR di antara semua role user itu.
+function userModPerm(u, module){ return Math.max(PERM_NONE, ...userRoles(u).map(r=>modPerm(module,r))); }
+function can(module){
   if(!SES)return false; const u=getUser(SES); if(!u)return false; if(isSuper(u))return true;
-  const allowed=getPerm()[module]||[]; return userRoles(u).some(r=>allowed.includes(r));
+  return userModPerm(u,module) >= PERM_EDIT;
 }
 // Cek apakah user boleh membuka sebuah view/menu sidebar
 function canView(v){
   if(!SES)return false; const u=getUser(SES); if(!u)return false; if(isSuper(u))return true;
   const mod=VIEW_PERM[v];
   if(!mod)return true; // view umum (dashboard, profile, dll)
-  const allowed=getPerm()[mod]||[]; return userRoles(u).some(r=>allowed.includes(r));
+  return userModPerm(u,mod) >= PERM_VIEW;
 }
 function roleLabels(u){return userRoles(u).map(r=>ROLES[r]?ROLES[r].label:r).join(' - ');}
 function roleShorts(u){return userRoles(u).map(r=>ROLES[r]?ROLES[r].short:r).join(' + ');}
@@ -967,6 +1025,16 @@ function readLmSession(){
 // Petakan identitas Office ke kru Konten. Cocokkan berdasarkan id lalu nama; bila
 // belum ada, buat kru sementara (in-memory) dengan role default dari role Office.
 // Owner dapat menambah/menyetel role kru secara permanen lewat Kelola Kru.
+/* Cek apakah user Office sudah dikenal, TANPA membuat entri baru.
+   Dipakai boot untuk memutuskan perlu-tidaknya menunggu roster Office
+   (Apps Script terukur 16-23 detik). Kalau sudah dikenal, resolveKontenUser
+   di bawah tidak akan push apa pun -> tidak ada risiko duplikat -> boleh
+   langsung tampil dan roster disegarkan di latar belakang. */
+function kontenUserDikenal(s){
+  if(!s) return false;
+  return !!(DB.users.find(x=>x.id===s.userId)
+         || DB.users.find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase()));
+}
 function resolveKontenUser(s){
   let u = DB.users.find(x=>x.id===s.userId)
         || DB.users.find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase());
@@ -988,8 +1056,13 @@ async function autoSyncOfficeRoster(){
   if(!OFFICE_WEBAPP_URL) return;
   let data;
   try{
+    // Batas waktu WAJIB: tanpa ini panggilan bisa menggantung tanpa akhir dan
+    // (di jalur user baru) menahan boot selamanya.
+    const stop = new AbortController();
+    const jam = setTimeout(()=>stop.abort(), 25000);
     const res = await fetch(OFFICE_WEBAPP_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'listModuleRoster', module:'konten'})});
+      body: JSON.stringify({action:'listModuleRoster', module:'konten'}), signal: stop.signal})
+      .finally(()=>clearTimeout(jam));
     data = await res.json();
   }catch(e){ return; }
   if(!data || !data.ok || !Array.isArray(data.members)) return;
@@ -2907,42 +2980,57 @@ function moduleLabel(m){ return MODULE_LABELS[m]||m; }
 
 // ---- Kartu KATALOG (read-only, untuk non-super-admin) ----
 function permCatalogCard(){
-  const perm=getPerm();
   return `<div class="card" style="grid-column:1/-1"><div class="card-h"><h3>Katalog Role & Hak Akses</h3><span class="sub">rangkap kerja: akses digabung</span></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Role</th><th>Tanggung Jawab</th><th>Modul yang Bisa Diedit</th></tr></thead><tbody>
-    ${ROLE_KEYS.map(r=>{const ro=ROLES[r];const mods=r==='super_admin'?['SEMUA MODUL']:permModuleKeys().filter(m=>perm[m].includes(r));
+    <div class="tbl-wrap"><table><thead><tr><th>Role</th><th>Tanggung Jawab</th><th>Boleh Ubah</th><th>Lihat Saja</th></tr></thead><tbody>
+    ${ROLE_KEYS.map(r=>{const ro=ROLES[r];
+      const edit=r==='super_admin'?['SEMUA MODUL']:permModuleKeys().filter(m=>modPerm(m,r)>=PERM_EDIT);
+      const view=r==='super_admin'?[]:permModuleKeys().filter(m=>modPerm(m,r)===PERM_VIEW);
       return `<tr><td><span style="color:${readable(ro.color)};font-weight:700">${ro.label}</span></td><td style="font-size:12px;color:var(--txt-2)">${ro.desc}</td>
-      <td>${mods.map(m=>`<span class="tag" style="font-size:10px">${moduleLabel(m)}</span>`).join(' ')}</td></tr>`;}).join('')}
+      <td>${edit.map(m=>`<span class="tag" style="font-size:10px">${moduleLabel(m)}</span>`).join(' ')}</td>
+      <td>${view.map(m=>`<span class="tag" style="font-size:10px;opacity:.7">${moduleLabel(m)}</span>`).join(' ')}</td></tr>`;}).join('')}
     </tbody></table></div></div>`;
 }
 
 // ---- Kartu EDITOR (interaktif, khusus Super Admin) ----
 function permEditorCard(){
-  const perm=getPerm();
   const editableRoles=ROLE_KEYS.filter(r=>r!=='super_admin'); // super admin selalu penuh
   const mods=permModuleKeys();
+  const legend=`<div class="perm-legend">${PERM_OPT.map(([val,lbl])=>`<span class="lg-item"><span class="lg-dot n${val}"></span>${lbl}</span>`).join('')}
+    <span style="color:var(--txt-3);font-size:11.5px">Klik sel untuk geser status</span></div>`;
   return `<div class="card" style="grid-column:1/-1"><div class="card-h">
-      <h3>Editor Hak Akses</h3><span class="sub">centang modul yang boleh diakses tiap role - Super Admin selalu penuh</span></div>
+      <h3>Editor Hak Akses</h3><span class="sub">atur akses tiap role per modul - Super Admin selalu penuh</span></div>
     <p style="font-size:12px;color:var(--txt-2);margin-bottom:12px">Perubahan langsung memengaruhi menu sidebar & tombol tiap kru. Klik <b>Simpan Hak Akses</b> untuk menerapkan.</p>
+    ${legend}
     <div class="tbl-wrap"><table class="perm-matrix"><thead><tr>
       <th style="text-align:left;min-width:120px">Modul</th>
       ${editableRoles.map(r=>`<th title="${esc(ROLES[r].desc)}"><span style="color:${readable(ROLES[r].color)}">${esc(ROLES[r].short)}</span></th>`).join('')}
     </tr></thead><tbody>
-    ${mods.map(m=>`<tr>
-      <td style="text-align:left;font-weight:600">${moduleLabel(m)}<div style="font-size:10px;color:var(--txt-3);font-weight:400">${m}</div></td>
-      ${editableRoles.map(r=>{const on=perm[m].includes(r);
-        return `<td style="text-align:center"><input type="checkbox" class="perm-chk" data-m="${m}" data-r="${r}" ${on?'checked':''}></td>`;}).join('')}
-    </tr>`).join('')}
+    ${mods.map(m=>{ const isEdit=PERM_EDIT_MODULES.includes(m);
+      return `<tr>
+      <td style="text-align:left;font-weight:600">${moduleLabel(m)}${isEdit?'':' <span style="color:var(--txt-3);font-size:11px">(info saja)</span>'}<div style="font-size:10px;color:var(--txt-3);font-weight:400">${m}</div></td>
+      ${editableRoles.map(r=>{ const v=modPerm(m,r);
+        return `<td style="text-align:center"><button type="button" class="perm-btn" data-m="${m}" data-r="${r}" data-v="${v}" title="${PERM_OPT[v][1]} — klik untuk ubah" onclick="COMS.cyclePerm(this)">${PERM_OPT[v][2]}</button></td>`;}).join('')}
+    </tr>`;}).join('')}
     </tbody></table></div>
     <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
       <button class="btn btn-gold btn-sm" onclick="COMS.savePerms()">💾 Simpan Hak Akses</button>
       <button class="btn btn-ghost btn-sm" onclick="COMS.resetPerms()">↺ Kembalikan Default</button>
     </div></div>`;
 }
+// Tombol siklus di matriks Hak Akses: klik geser None(0) -> Lihat(1) -> Ubah(2) -> None.
+function cyclePerm(btn){
+  const next=(Number(btn.dataset.v)+1)%3;
+  btn.dataset.v=String(next);
+  btn.textContent=PERM_OPT[next][2];
+  btn.title=PERM_OPT[next][1]+' — klik untuk ubah';
+}
 function savePerms(){
   const next={};
-  permModuleKeys().forEach(m=>next[m]=[]);
-  $$('.perm-chk').forEach(chk=>{ if(chk.checked){ next[chk.dataset.m].push(chk.dataset.r); } });
+  permModuleKeys().forEach(m=>{ next[m]={}; ROLE_KEYS.forEach(r=>next[m][r]=PERM_NONE); });
+  $$('.perm-btn').forEach(btn=>{ next[btn.dataset.m][btn.dataset.r]=Number(btn.dataset.v); });
+  // super_admin selalu penuh (disimpan eksplisit agar konsisten, walau modPerm()
+  // sudah menganggap super_admin selalu PERM_EDIT terlepas dari isi matriks ini)
+  permModuleKeys().forEach(m=>{ next[m].super_admin=PERM_EDIT; });
   DB.perms=next; save();
   toast('Hak akses diperbarui','ok');
   renderSidebar(); // refresh menu agar langsung sesuai
@@ -3025,7 +3113,7 @@ const API={
   openUserForm,toggleRole,saveUser,
   setAssetCat,openAssetForm,saveAsset,delAsset,
   approveFinal,
-  exportCSV,backupJSON,restoreJSON,saveSettings,savePerms,resetPerms,
+  exportCSV,backupJSON,restoreJSON,saveSettings,savePerms,resetPerms,cyclePerm,
   toggleNotif,markAllRead,clearSearch,
   closeModal,closeDrawer,
   initAPI // Pastikan fungsi dipanggil

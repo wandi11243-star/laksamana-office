@@ -894,7 +894,7 @@
         //  Berkas index.html ini SAMA PERSIS di dua situs. Path relatif
         //  membuat tiap situs otomatis memakai database miliknya sendiri:
         //    office.laksamanamuda.id/stock/purchasing/  -> office.../stock-api-mysql/  -> db_purchasing (asli)
-        //    dev.laksamanamuda.id/stock/purchasing/     -> dev.../stock-api-mysql/     -> db_dev_stocks (coba-coba)
+        //    dev.laksamanamuda.id/stock/purchasing/     -> dev.../stock-api-mysql/     -> db_dev_stock (coba-coba)
         //  Kalau di sini ditulis URL lengkap, dev akan menulis ke database
         //  produksi — coba-coba langsung merusak data kru.
         //
@@ -916,7 +916,7 @@
         };
 
         // DATABASE USER modul ini (berisi PIN login). Sekarang MySQL sendiri,
-        // path relatif seperti yang lain -> dev pakai db_dev_stocks, produksi
+        // path relatif seperti yang lain -> dev pakai db_dev_stock, produksi
         // pakai db_purchasing.
         //  - Bila dikosongkan, user tetap berfungsi secara LOKAL (localStorage)
         //    memakai SEED_USERS di bawah, dan Admin tetap bisa CRUD (tersimpan lokal).
@@ -1033,9 +1033,14 @@
             if (!OFFICE_IDENTITY_URL || !navigator.onLine) return;
             let data;
             try {
+                // Batas waktu: Apps Script Office terukur 16-23 detik. Panggilan ini
+                // sudah non-blocking, jadi ini murni agar tidak menggantung selamanya.
+                const stop = new AbortController();
+                const jam = setTimeout(() => stop.abort(), 25000);
                 const res = await fetch(OFFICE_IDENTITY_URL, { method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'listModuleRoster', module: 'purchasing' }) });
+                    body: JSON.stringify({ action: 'listModuleRoster', module: 'purchasing' }),
+                    signal: stop.signal }).finally(() => clearTimeout(jam));
                 data = await res.json();
             } catch (e) { return; }
             if (!data || !data.ok || !Array.isArray(data.members)) return;
