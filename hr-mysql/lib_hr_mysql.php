@@ -375,5 +375,11 @@ function hr_stats($pdo) {
   $out['_rev']     = $m ? (int)$m['rev'] : 0;
   $out['_savedAt'] = $m ? $m['saved_at'] : '';
   $out['_savedBy'] = $m ? $m['saved_by'] : '';
+  // Penanda lingkungan + nama database. Ini satu-satunya cara memastikan
+  // situs ini bicara ke database yang BENAR — nama file config selalu
+  // 'config.php' di kedua server, jadi zip yang tertukar tidak akan terlihat
+  // dari mana pun kecuali dari sini.
+  $out['env'] = defined('ENV_LABEL') ? ENV_LABEL : '(tidak diberi label)';
+  $out['db']  = DB_NAME;
   return $out;
 }
