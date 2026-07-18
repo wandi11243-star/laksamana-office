@@ -4094,11 +4094,11 @@ function seatAction(id){
   const canEdit=CAN.input(SESSION.role);
   const seated=r.status==="Datang" && !r.leftAt;
   let acts="";
-  if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
-  if(canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
+  if(canEdit && ["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
+  if(canEdit && canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
   // Tamu ini sedang menumpang di meja lain → jalan pintas kembali ke meja aslinya.
   if(canEdit && sedangDialihkan(r)) acts+=`<button class="btn btn-primary" onclick="closeModal();tawarkanKembaliKeAsli('${r.id}')" title="Tamu ini dialihkan sementara dari meja ${esc(r.tableAsli)}">🔁 Kembali ke Meja Asli (${esc(r.tableAsli)})</button>`;
-  if(seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
+  if(canEdit && seated) acts+=`<button class="btn btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`;
   // Meja masih ada sisa kursi → satu tombol untuk menambah tamu (grup baru) + jadikan sharing.
   const sisaMeja=canEdit ? tablesOf(r).map(sisaKursiTable).filter(x=>x&&x.sisa>0).sort((a,b)=>b.sisa-a.sisa)[0] : null;
   if(sisaMeja) acts+=`<button class="btn btn-ok" onclick="closeModal();tambahPaxSharing('${r.id}')" title="Isi ${sisaMeja.sisa} kursi sisa di meja ${sisaMeja.t.id} dgn tamu lain — meja jadi sharing">➕ Tambah Pax (sisa ${sisaMeja.sisa}, jadi sharing)</button>`;
@@ -4110,7 +4110,7 @@ function seatAction(id){
     }
   }
   // Batalkan hanya untuk tamu yang BELUM datang (yang sudah datang → pakai "Selesai").
-  if(["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
+  if(canEdit && ["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-danger" onclick="closeModal();cancelReservation('${r.id}')">❌ Batalkan Reservasi</button>`;
   // Reservasi LAIN di meja yang sama (mis. meja dipakai jam 13:00 lalu 20:00, atau ada
   // booking dini hari besok). Ditampilkan supaya host tahu meja ini masih ada antriannya.
   const {occ,later}=harihOccupancy();
@@ -4447,8 +4447,8 @@ function sharingTableAction(tableId){
     <div class="share-row">
       <div class="who"><b>${esc(r.name)}</b><span>${r.time}, ${r.pax} pax, <span class="badge-status ${STATUS_CLASS[r.status]}" style="font-size:10px">${STATUS_ICON[r.status]} ${r.status}</span>${seated&&r.checkinAt?` , ⏱ ${esc(fmtDur(seatedSoFar(r)))}`:""}</span></div>
       <div class="mini-actions">
-        ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Datang</button>`:""}
-        ${seated?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')" title="Tamu ini pulang, sisanya tetap di meja">🍽️ Selesai</button>`:""}
+        ${canEdit&&["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Datang</button>`:""}
+        ${canEdit&&seated?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')" title="Tamu ini pulang, sisanya tetap di meja">🍽️ Selesai</button>`:""}
         ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="changeTable('${r.id}')" title="Pindahkan tamu ini ke meja lain">🔁 Pindah</button>`:""}
         ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="toggleSharing('${r.id}')" title="Batalkan sharing party ini">🤝✕</button>`:""}
         <button class="btn btn-xs btn-ghost" onclick="closeModal();openDetail('${r.id}')">🔍</button>
@@ -4596,6 +4596,7 @@ function kwitansiPDF(id){
   logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function renderHariH(){
+  const canEdit=CAN.input(SESSION.role);
   const inList = HARIH_VIEW==='list';
   // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
   // `dayList` = kartu ringkasan; di tab Daftar ikut rentang & jam (tanpa filter status,
@@ -4720,11 +4721,11 @@ function renderHariH(){
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
           <td onclick="event.stopPropagation()"><div class="mini-actions">
-            ${["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="checkIn('${r.id}')">✅ Datang</button>
+            ${canEdit&&["Pending","Confirmed"].includes(r.status)?`<button class="btn btn-xs btn-ok" onclick="checkIn('${r.id}')">✅ Datang</button>
               <button class="btn btn-xs btn-wa" onclick="followUp('${r.id}')">📞 Follow Up</button>
               <button class="btn btn-xs btn-danger" onclick="markNoShow('${r.id}')">⚠️</button>`:""}
-            ${canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
-            ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
+            ${canEdit&&canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
+            ${canEdit&&r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
         </tr>`; }).join("")}
@@ -4735,7 +4736,10 @@ function renderHariH(){
 /* ===== Check-in & kedatangan susulan =====
    Rombongan boleh datang bertahap. Tiap kali ada yang masuk, catat gelombangnya;
    sisa pax yang belum datang tetap kelihatan sampai rombongan penuh. */
-function checkIn(id){ openArrivalModal(id, true); }
+function checkIn(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
+  openArrivalModal(id, true);
+}
 function addArrival(id){ openArrivalModal(id, false); }
 
 function openArrivalModal(id, first){
@@ -4836,7 +4840,10 @@ async function undoArrival(id, idx){
    Dulu dua dialog browser berturut-turut (konfirmasi lalu tanya alasan); sekarang satu
    popup: konfirmasi + alasan sekaligus. Dipakai OLEH KEDUA jalur — tombol "Batalkan
    Reservasi" dan tombol status "Cancelled" — supaya alasannya selalu tercatat. */
-function cancelReservation(id){ openCancelModal(id); }
+function cancelReservation(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses membatalkan reservasi.","err"); return; }
+  openCancelModal(id);
+}
 function openCancelModal(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
@@ -4882,6 +4889,7 @@ async function konfirmCancel(id){
   toast(ok?"Reservasi dibatalkan, meja tersedia kembali":"Gagal membatalkan — coba lagi", ok?"err":"err");
 }
 async function markNoShow(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id);
   if(!confirm(`Tandai "${r.name}" sebagai NO-SHOW?`)) return;
   const prev=r.status; r.status="No-show"; r.updatedAt=Date.now();
@@ -4892,6 +4900,7 @@ async function markNoShow(id){
   if(ok) toast("Ditandai no-show","err");
 }
 function followUp(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mencatat follow up.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id);
   const msg=`Halo Kak ${r.name} 👋\n\nKami dari *Laksamana Muda* ingin mengonfirmasi reservasi Anda hari ini:\n📅 ${fmtDate(r.date)}\n🕗 Jam ${r.time} WIB\n👥 ${r.pax} pax${r.table?"\n🪑 "+r.table:""}\n\nApakah Kakak jadi hadir? Ditunggu kedatangannya ya ⚓\n\n_Sail to Good Taste, Stay for the Vibes_`;
   waOpen(r.phone, msg);
@@ -5115,7 +5124,7 @@ function openDetail(id){
                ${p.tfStatus!=="rejected"?`<button class="btn btn-xs btn-danger" title="Tolak transfer ini saja" onclick="rejectTf('${r.id}','${p.id}')">✕</button>`:""}`:""}
              ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" title="Hapus catatan DP ini (khusus Admin Sistem)" onclick="delDp('${r.id}','${p.id}')">🗑️</button>`:""}
            </div>`).join("")}
-         ${CAN.input(SESSION.role)||CAN.finance(SESSION.role)?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+         ${canEdit?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
             ${hasDP(r)?`<button class="btn btn-xs btn-ghost" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
           </div>`:""}
@@ -5139,12 +5148,12 @@ function openDetail(id){
    </div>
    <div class="modal-foot">
      ${canDel?`<button class="btn btn-danger btn-sm" onclick="delReservation('${r.id}')" style="margin-right:auto">🗑️ Hapus</button>`:""}
-     ${canAddArrival(r)?`<button class="btn btn-ok btn-sm" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`:""}
-     ${r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
-     ${r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
+     ${canEdit&&canAddArrival(r)?`<button class="btn btn-ok btn-sm" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`:""}
+     ${canEdit&&r.status==="Datang"&&!r.leftAt?`<button class="btn btn-primary btn-sm" onclick="guestLeft('${r.id}')">🍽️ Selesai (Tamu Pulang)</button>`:""}
+     ${canEdit&&r.status==="Datang"?`<button class="btn btn-ghost btn-sm" onclick="requestReview('${r.id}')" title="Kirim ajakan Google Review via WhatsApp">⭐ Minta Review</button>
        <button class="btn btn-ghost btn-sm" onclick="openReviewForm('${r.id}')" title="Tamu sudah review — catat buktinya">⭐ Catat Review</button>`:""}
-     <button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>
-     ${(CAN.input(SESSION.role)||CAN.finance(SESSION.role))?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
+     ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();openFeedbackForm('${r.id}')" title="Tamu komplain — catat keluhannya">💬 Catat Keluhan</button>`:""}
+     ${canEdit?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
      ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
@@ -5289,6 +5298,7 @@ async function changeStatus(id, status){
 }
 // Tamu selesai duduk / pulang → meja bebas kembali, durasi duduk tercatat.
 async function guestLeft(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(r.status!=="Datang"){ toast("Hanya tamu yang sudah datang bisa ditandai selesai","err"); return; }
   const prev=JSON.parse(JSON.stringify(r));
