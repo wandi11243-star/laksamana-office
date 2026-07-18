@@ -691,9 +691,25 @@
         let actionTargetId = null;    // ID baris untuk edit/hapus
         let actionTargetName = null;  // Nama item untuk edit/hapus
 
+        // URL server diisi LANGSUNG dari EMBEDDED_CONFIG di sini, bukan menunggu
+        // loadSettings(). Alasan: kalau init (enterApp) gagal di tengah — mis.
+        // sebuah getElementById bernilai null lalu melempar error — loadSettings
+        // tak jalan dan state.appScriptUrl* tetap kosong, sehingga check-in tampil
+        // "Harap isi Link App Script" & badge "Offline" padahal server jalan.
+        // Dengan diisi di deklarasi, URL selalu ada apa pun yang terjadi saat init.
         let state = {
-            formId: "", formUrl: "", appScriptUrlItem: "", appScriptUrlHistory: "", appScriptUrlForecast: "",
-            entryIds: { item: "", qty: "", unit: "", note: "", date: "", pic: "" },
+            formId: "", formUrl: "",
+            appScriptUrlItem:     EMBEDDED_CONFIG.appScriptUrlItem     || "",
+            appScriptUrlHistory:  EMBEDDED_CONFIG.appScriptUrlHistory  || "",
+            appScriptUrlForecast: EMBEDDED_CONFIG.appScriptUrlForecast || "",
+            entryIds: {
+                item: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.item) || "",
+                qty:  (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.qty)  || "",
+                unit: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.unit) || "",
+                note: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.note) || "",
+                date: (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.date) || "",
+                pic:  (EMBEDDED_CONFIG.entryIds && EMBEDDED_CONFIG.entryIds.pic)  || ""
+            },
             picName: "Putra"
         };
 
@@ -895,8 +911,12 @@
 
             if (!appInitialized) {
                 appInitialized = true;
-                loadSettings();            // muat URL server DULU: badge & check-in butuh config sudah siap
-                updateNetworkStatus();     // baru nilai status koneksi/kesiapan (biar tidak salah sekejap)
+                // loadSettings hanya menyinkron localStorage + isi field pengaturan.
+                // URL server SUDAH ada di state (dari EMBEDDED_CONFIG saat deklarasi),
+                // jadi kalau loadSettings melempar error (mis. elemen tak ada), badge
+                // & check-in tetap benar. try/catch supaya init tidak berhenti total.
+                try { loadSettings(); } catch (e) { console.warn('loadSettings gagal, pakai config tertanam:', e); }
+                updateNetworkStatus();     // nilai status setelah config siap
                 for (let i = 0; i < 3; i++) addNewBatchRow();
                 setTomorrowAsDefaultDate();
                 const today = new Date().toISOString().split('T')[0];
