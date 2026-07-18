@@ -7,7 +7,9 @@
  * sekarang dipetakan LANGSUNG user -> modul lewat tab Grants.
  *
  * Tabs:
- *   Users   : id | name | pin | active | keterangan
+ *   Users   : id | name | username | pin | active | keterangan
+ *             name     = NAMA LENGKAP, untuk ditampilkan. Boleh sama antar orang.
+ *             username = identitas LOGIN, huruf kecil, WAJIB UNIK & TERISI.
  *   Modules : key | label | active                     (registri modul, dinamis)
  *   Grants  : userId | module | access | grantedBy | ts
  *   Admins  : userId | module                          ('*' = superadmin)
@@ -23,20 +25,29 @@
  *   - DINAMIS: tambah satu baris di Modules -> modul baru langsung bisa
  *     diberikan ke siapa pun, i dan user '*' otomatis dapat.
  *
- * PIN:
- *   - Boleh SAMA antar user. Login memakai name + pin, jadi nama yang
- *     membedakan. TIDAK ADA lagi pengecekan pin unik.
+ * LOGIN = username + pin  (v4; sebelumnya name + pin).
+ *   - `name` dibebaskan jadi nama lengkap untuk ditampilkan. Dulu satu kolom
+ *     dipakai untuk dua hal sekaligus, sehingga memperbaiki ejaan nama
+ *     seseorang diam-diam mengganti kredensial loginnya.
+ *   - PIN boleh SAMA antar user; username-lah yang wajib unik.
  *   - Tiap user bisa ganti PIN-nya sendiri lewat action `changePin`.
  *
- * Enforcement server-side: setiap tulisan membawa name+pin pemanggil dan
- * diverifikasi ulang di sini. Browser hanya menyembunyikan tombol.
+ * MIGRASI YANG WAJIB DILAKUKAN SEBELUM VERSI INI DIPAKAI:
+ *   1. Tambahkan kolom `username` di tab Users.
+ *   2. Isi untuk SETIAP user aktif, huruf kecil tanpa spasi (mis. `howandi`).
+ *   Baris dengan username kosong TIDAK BISA login sama sekali — itu disengaja
+ *   (lihat findUserByCreds_), tapi artinya melewatkan langkah ini akan
+ *   mengunci semua orang dari Office.
+ *
+ * Enforcement server-side: setiap tulisan membawa callerUsername+callerPin
+ * pemanggil dan diverifikasi ulang di sini. Browser hanya menyembunyikan tombol.
  */
 
 function doPost(e) {
   try {
     var body = JSON.parse((e.postData && e.postData.contents) || '{}');
     switch (body.action) {
-      case 'login':             return login_(body.name, body.pin);
+      case 'login':             return login_(body.username, body.pin);
       case 'changePin':         return changePin_(body);      // user mengganti PIN sendiri
       // superadmin only
       case 'listUsers':         return adminListUsers_(body);
@@ -65,31 +76,51 @@ function doPost(e) {
 
 /* ===================== Auth ===================== */
 
-function login_(name, pin) {
-  name = String(name || '').trim().toLowerCase();
-  pin  = String(pin || '').trim();
-  if (!name || !pin) return json_({ ok: false, error: 'missing' });
+/* LOGIN MEMAKAI `username`, BUKAN `name`.
+ *
+ * `name` sekarang murni NAMA LENGKAP untuk ditampilkan ("Howandi Chandra"),
+ * sedangkan `username` adalah identitas login yang pendek dan unik ("howandi").
+ * Dulu keduanya satu kolom, sehingga mengganti nama tampilan seseorang ikut
+ * mengganti kredensial loginnya.
+ *
+ * PRASYARAT: tab `Users` di Sheet WAJIB punya kolom `username` dan terisi
+ * untuk setiap user aktif. Baris dengan username kosong TIDAK BISA login —
+ * lihat findUserByCreds_. Ini disengaja: mencocokkan username kosong dengan
+ * masukan kosong akan membuka pintu bagi siapa pun.
+ */
+function login_(username, pin) {
+  username = String(username || '').trim().toLowerCase();
+  pin      = String(pin || '').trim();
+  if (!username || !pin) return json_({ ok: false, error: 'missing' });
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var u = findUserByCreds_(readSheet_(ss, 'Users'), name, pin);
+  var u = findUserByCreds_(readSheet_(ss, 'Users'), username, pin);
   if (!u) return json_({ ok: false, error: 'invalid' });
 
   var modules = modulesFor_(ss, u);
   var adminModules = adminModulesFor_(ss, u);
   return json_({ ok: true, user: {
-    id: String(u.id || ('u-' + name)),
-    name: String(u.name).trim(),
+    id: String(u.id || ('u-' + username)),
+    username: String(u.username || '').trim(),
+    // Nama lengkap untuk ditampilkan. Jatuh ke username kalau kolom name masih
+    // kosong, supaya tidak ada sesi tanpa identitas yang bisa dibaca manusia.
+    name: String(u.name || u.username || '').trim(),
     modules: modules,
     adminModules: adminModules
   }});
 }
 
-// Cocokkan name + pin + tidak nonaktif. PIN boleh duplikat antar user karena
-// nama ikut jadi kunci.
-function findUserByCreds_(users, name, pin) {
-  name = String(name).trim().toLowerCase(); pin = String(pin).trim();
+// Cocokkan username + pin + tidak nonaktif. PIN boleh duplikat antar user
+// karena username-lah yang unik.
+function findUserByCreds_(users, username, pin) {
+  username = String(username).trim().toLowerCase(); pin = String(pin).trim();
+  if (!username) return null;
   return users.find(function (x) {
-    return String(x.name).trim().toLowerCase() === name
+    var un = String(x.username || '').trim().toLowerCase();
+    // Baris tanpa username tidak pernah cocok — jangan sampai username kosong
+    // di Sheet bertemu masukan kosong dan meloloskan siapa pun.
+    if (!un) return false;
+    return un === username
         && String(x.pin).trim() === pin
         && String(x.active).toUpperCase() !== 'FALSE';
   }) || null;
@@ -100,8 +131,11 @@ function findUserByCreds_(users, name, pin) {
 // tabrakan antar user tidak masalah karena login memakai nama + PIN.
 function changePin_(body) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var name = String(body.name || '').trim().toLowerCase();
-  if (!name) return json_({ ok: false, error: 'missing' });
+  // Identitas pemilik PIN kini USERNAME. Memakai `name` di sini berbahaya sejak
+  // nama lengkap tidak lagi wajib unik: dua "Christy" akan membuat PIN orang
+  // yang salah tertimpa.
+  var username = String(body.username || '').trim().toLowerCase();
+  if (!username) return json_({ ok: false, error: 'missing' });
 
   var next = String(body.newPin || '').trim();
   if (!/^\d{4,8}$/.test(next)) return json_({ ok: false, error: 'bad_pin' });  // 4-8 digit
@@ -109,10 +143,11 @@ function changePin_(body) {
   var sh = ss.getSheetByName('Users');
   var vals = sh.getDataRange().getValues();
   var col = colMap_(vals[0]);
+  if (col.username == null) return json_({ ok: false, error: 'no_username_column' });
   for (var i = 1; i < vals.length; i++) {
     var row = vals[i];
     var active = String(row[col.active]).toUpperCase() !== 'FALSE';
-    if (String(row[col.name]).trim().toLowerCase() === name && active) {
+    if (String(row[col.username]).trim().toLowerCase() === username && active) {
       sh.getRange(i + 1, col.pin + 1).setValue(next);
       return json_({ ok: true });
     }
@@ -169,13 +204,14 @@ function adminModulesFor_(ss, user) {
 
 // Pemanggil valid DAN mengelola segalanya ('*').
 function requireSuperadmin_(ss, body) {
-  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
+  // callerUsername, bukan callerName — kredensial pemanggil kini username.
+  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerUsername, body.callerPin);
   if (!caller) return null;
   return adminModulesFor_(ss, caller).indexOf('*') > -1 ? caller : null;
 }
 // Pemanggil mengelola `module` (atau segalanya).
 function requireModuleAdmin_(ss, body, module) {
-  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerName, body.callerPin);
+  var caller = findUserByCreds_(readSheet_(ss, 'Users'), body.callerUsername, body.callerPin);
   if (!caller) return null;
   var adm = adminModulesFor_(ss, caller);
   return (adm.indexOf('*') > -1 || adm.indexOf(module) > -1) ? caller : null;
@@ -197,7 +233,7 @@ function adminListUsers_(body) {
   var grants = readSheet_(ss, 'Grants');
   var users = realUsers_(ss).map(function (u) {
     return {
-      id: String(u.id || ''), name: String(u.name || ''), pin: String(u.pin || ''),
+      id: String(u.id || ''), name: String(u.name || ''), username: String(u.username || ''), pin: String(u.pin || ''),
       active: String(u.active).toUpperCase() !== 'FALSE',
       keterangan: String(u.keterangan || ''),
       modules: modulesFor_(ss, u),            // hasil perluasan '*' + deny (untuk ditampilkan)
@@ -339,17 +375,25 @@ function adminSaveUser_(body) {
   var head = vals[0].map(function (h) { return String(h).trim(); });
   var col = colMap_(vals[0]);
 
-  var name = String(body.name || '').trim();
+  if (col.username == null) return json_({ ok: false, error: 'no_username_column' });
+
+  var name     = String(body.name || '').trim();               // nama lengkap (tampilan)
+  var username = String(body.username || '').trim().toLowerCase();  // identitas login
   var pin  = String(body.pin || '').trim() || '1111';
   var ket  = String(body.keterangan || '').trim();
   var active = body.active === false ? 'FALSE' : 'TRUE';
-  if (!name) return json_({ ok: false, error: 'missing_fields' });
+  if (!name || !username) return json_({ ok: false, error: 'missing_fields' });
+  // Username dibatasi ke huruf/angka/titik/garis supaya tidak ada spasi atau
+  // huruf besar yang membuat "Andi" dan "andi " terlihat beda padahal sama.
+  if (!/^[a-z0-9._-]{3,20}$/.test(username)) return json_({ ok: false, error: 'bad_username' });
 
   var editId = String(body.id || '').trim();
   for (var r = 1; r < vals.length; r++) {
     if (String(vals[r][col.id]).trim() === editId) continue;
-    if (String(vals[r][col.name]).trim().toLowerCase() === name.toLowerCase())
-      return json_({ ok: false, error: 'name_taken' });
+    // USERNAME yang wajib unik, bukan lagi nama. Dua orang boleh sama-sama
+    // bernama "Christy"; yang tidak boleh sama adalah cara mereka login.
+    if (String(vals[r][col.username] || '').trim().toLowerCase() === username)
+      return json_({ ok: false, error: 'username_taken' });
     // sengaja TIDAK ada cek pin_taken: PIN boleh sama antar user.
   }
 
@@ -357,6 +401,7 @@ function adminSaveUser_(body) {
     for (var i = 1; i < vals.length; i++) {
       if (String(vals[i][col.id]).trim() === editId) {
         sh.getRange(i + 1, col.name + 1).setValue(name);
+        sh.getRange(i + 1, col.username + 1).setValue(username);
         sh.getRange(i + 1, col.pin + 1).setValue(pin);
         sh.getRange(i + 1, col.active + 1).setValue(active);
         if (col.keterangan != null) sh.getRange(i + 1, col.keterangan + 1).setValue(ket);
@@ -366,12 +411,13 @@ function adminSaveUser_(body) {
     return json_({ ok: false, error: 'not_found' });
   }
 
-  var base = 'u-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  var base = 'u-' + username.replace(/[^a-z0-9]+/g, '');
   var id = base, n = 2, existing = {};
   for (var k = 1; k < vals.length; k++) existing[String(vals[k][col.id]).trim()] = true;
   while (existing[id]) id = base + n++;
   var row = head.map(function (h) {
-    return h === 'id' ? id : h === 'name' ? name : h === 'pin' ? pin
+    return h === 'id' ? id : h === 'name' ? name : h === 'username' ? username
+      : h === 'pin' ? pin
       : h === 'active' ? active : h === 'keterangan' ? ket : '';
   });
   sh.appendRow(row);
@@ -462,7 +508,7 @@ function listModuleMembers_(body) {
   var members = realUsers_(ss)
     .map(function (u) {
       return {
-        id: String(u.id || ''), name: String(u.name || ''),
+        id: String(u.id || ''), name: String(u.name || ''), username: String(u.username || ''),
         keterangan: String(u.keterangan || ''),
         active: String(u.active).toUpperCase() !== 'FALSE',
         modules: modulesFor_(ss, u)
@@ -488,7 +534,7 @@ function listModuleRoster_(body) {
     .map(function (u) {
       var adm = adminModulesFor_(ss, u);
       return {
-        id: String(u.id || ''), name: String(u.name || ''),
+        id: String(u.id || ''), name: String(u.name || ''), username: String(u.username || ''),
         keterangan: String(u.keterangan || ''),
         active: String(u.active).toUpperCase() !== 'FALSE',
         isModuleAdmin: adm.indexOf('*') > -1 || adm.indexOf(module) > -1,
