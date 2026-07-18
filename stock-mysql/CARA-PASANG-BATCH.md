@@ -7,8 +7,21 @@ Lakukan **dua kali**: dev dulu sampai benar-benar yakin, baru produksi.
 
 | Situs | Branch | Database | Folder API di server |
 |---|---|---|---|
-| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_stock` | `<docroot>/stock-api-mysql/` |
-| office.laksamanamuda.id | `main` | `lakk5493_db_stock` | `/public_html/office/stock-api-mysql/` |
+| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_stock` | `public_html/dev.laksamanamuda.id/dev_office/stock-api-mysql/` |
+| office.laksamanamuda.id | `main` | `lakk5493_db_stock` | `public_html/office/stock-api-mysql/` — **pastikan dulu**, lihat catatan |
+
+Path dev di atas sudah **terbukti** (dipakai saat pemasangan 2026-07-18).
+
+Path produksi disimpulkan dari `.github/workflows/deploy.yml` (`server-dir:
+/public_html/office/`) dan **belum diperiksa langsung**. Sebelum menimpa apa
+pun, pastikan dengan salah satu cara ini:
+
+- File Manager → **Search** → ketik `stock-api-mysql` → lihat path mana yang
+  berada di bawah folder produksi, dan
+- folder yang benar berisi `orders.php`, `lib_stock_mysql.php`, `config.php`,
+  serta **berdampingan dengan folder `stock/`** (frontend).
+
+Jangan tertukar dengan folder dev: keduanya berisi berkas bernama sama persis.
 
 ---
 
@@ -181,12 +194,35 @@ terkumpul**, dan tidak bisa dikembalikan. Order-nya sendiri tetap aman.
 
 ## Giliran produksi
 
-Setelah dev terbukti benar, ulangi **Langkah 1–3** untuk
-`lakk5493_db_stock` dan folder `/public_html/office/stock-api-mysql/`.
+Ulangi **Langkah 1–3** untuk database `lakk5493_db_stock` dan folder API
+produksi (lihat tabel di atas — pastikan dulu path-nya).
 
-Frontend produksi baru ikut berubah saat `develop` di-merge ke `main`. Supaya
-tidak ada jendela rusak, urutan teraman:
+### Keadaan produksi per 2026-07-18
 
-1. Migrasi database produksi (aman, situs tetap jalan seperti biasa).
-2. Unggah dua berkas PHP ke produksi.
-3. Baru merge `develop` → `main`.
+Frontend batch **sudah tayang** di `office.laksamanamuda.id`, karena pekerjaan
+ini sudah lebih dulu di-merge ke `main`. Backend-nya belum. Jadi produksi
+sekarang berjalan campur: tampilan baru, server lama.
+
+**Itu tidak merusak apa pun, dan tidak perlu diburu-buru.** PHP lama mengabaikan
+field batch yang dikirim frontend, jadi kru tetap bisa mengirim order seperti
+biasa. Yang belum hidup hanya "Gabung Batch", dan halamannya jujur menampilkan
+*"Backend belum mendukung batch"* — bukan pilihan berisi data sampah.
+
+Yang perlu diketahui: keadaan campur ini **hanya aman ke satu arah**.
+
+- Frontend baru + backend lama → aman (yang sekarang terjadi).
+- Frontend baru + backend baru + **DB belum dimigrasi** → **submit order gagal**.
+
+Karena itu urutannya tidak boleh dibalik: **migrasi database dulu, baru unggah
+PHP.** Kalau PHP naik lebih dulu, kru langsung tidak bisa memesan.
+
+### Cara cepat memeriksa produksi kapan saja
+
+```
+https://office.laksamanamuda.id/stock-api-mysql/orders.php?action=ping
+https://office.laksamanamuda.id/stock-api-mysql/orders.php?action=batches&tim=Kitchen
+```
+
+`ping` harus menyebut `"env":"produksi"` dan `"db":"lakk5493_db_stock"`.
+`batches` menjawab `[]` kalau backend sudah benar; kalau masih daftar panjang
+berisi `nomorOrder`, PHP produksi belum diperbarui.
