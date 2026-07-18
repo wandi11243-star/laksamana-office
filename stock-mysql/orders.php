@@ -1,8 +1,12 @@
 <?php
 /* STOCK — endpoint ORDERS.
  * GET  -> [ {rowIndex, nomorOrder, timestamp, item, qty, unit, note,
- *            tglDatang, pic, status, kedatangan, catatan}, ... ]
- * POST {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}]}
+ *            tglDatang, pic, status, kedatangan, catatan,
+ *            batchId, batchName, tim}, ... ]
+ * GET  ?action=batches[&tim=Kitchen] -> [ {batchId, batchName, tglDatang,
+ *            tim, pic, waktu, jmlItem}, ... ]   batch aktif yang boleh digabungi
+ * POST {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}],
+ *       batchId:'' (kosong = batch baru), batchName:'' (opsional), tim:''}
  * POST {action:'archive',   rows:[rowIndex] | orderIds:['LKS-...']}
  * POST {action:'unarchive', rowIndex:N     | orderIds:['LKS-...']}
  *
@@ -15,6 +19,11 @@ try {
   if ($metode === 'GET') {
     pur_cek_token();
     if ($aksiUrl === 'stats') pur_json(pur_stats(pur_pdo()));
+    // Daftar batch aktif yang boleh digabungi, disaring per tim (?tim=Kitchen).
+    // Endpoint sendiri, bukan diturunkan frontend dari GET orders penuh:
+    // pengelompokan + syarat "belum ada yang datang" jauh lebih murah di SQL
+    // daripada mengirim 682 baris lalu menyaringnya di HP kru dapur.
+    if ($aksiUrl === 'batches') pur_json(pur_orders_batches(pur_pdo(), trim((string)($_GET['tim'] ?? ''))));
     pur_json(pur_orders_ambil(pur_pdo()));          // array telanjang, seperti Apps Script
   }
 
@@ -24,7 +33,8 @@ try {
     pur_cek_token($b);
     $pdo = pur_pdo();
     $a = $b->action ?? '';
-    if ($a === 'batchOrder') pur_json(pur_orders_batch($pdo, $b->orders ?? []));
+    // $b dikirim utuh sebagai meta: batchId (kosong = batch baru), batchName, tim.
+    if ($a === 'batchOrder') pur_json(pur_orders_batch($pdo, $b->orders ?? [], $b));
     if ($a === 'import')     pur_json(pur_orders_import($pdo, $b->orders ?? []));  // alat migrasi, idempoten
     if ($a === 'archive')    pur_json(pur_orders_arsip($pdo, $b, 'Arsip'));
     if ($a === 'unarchive')  pur_json(pur_orders_arsip($pdo, $b, 'Aktif'));

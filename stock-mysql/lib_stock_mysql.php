@@ -78,6 +78,13 @@ function pur_order_dari_baris($r) {
   $o->pic        = $r['pic'];
   $o->status     = $r['status'];
   $o->kedatangan = $r['kedatangan'];
+  // Kolom batch belum tentu ada saat kode ini jalan di database yang belum
+  // dimigrasi (lihat migrasi-2026-07-18-batch.sql). Jangan sampai seluruh
+  // modul mati cuma karena ALTER belum dijalankan — jatuhkan ke '' saja,
+  // yang artinya "order pra-batch" dan sudah ditangani frontend.
+  $o->batchId    = $r['batch_id']   ?? '';
+  $o->batchName  = $r['batch_name'] ?? '';
+  $o->tim        = $r['tim']        ?? '';
   return $o;
 }
 
@@ -95,8 +102,95 @@ function pur_nomor_order($item, $urut) {
   return 'LKS-' . date('ymd') . '-' . date('His') . '-' . str_pad($kode, 3, 'X') . '-' . $urut;
 }
 
-function pur_orders_batch($pdo, $orders) {
+/* Huruf kecil yang aman untuk UTF-8, TAPI tidak menuntut ekstensi mbstring.
+   Tidak ada satu pun mb_* lain di modul ini, jadi memakainya begitu saja
+   berarti mempertaruhkan fatal error di hosting yang tidak memasangnya —
+   dan yang mati bukan cuma fitur batch, melainkan seluruh endpoint orders.
+   Nama item di data live semuanya ASCII, jadi strtolower sudah cukup;
+   mb_strtolower dipakai kalau kebetulan tersedia. */
+function pur_lower($s) {
+  return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s);
+}
+
+/* Id batch dibuat di SERVER, sebangun dengan pur_nomor_order:
+   BATCH-260718-232937-4F2A. Empat heksa acak di ekor supaya dua batch yang
+   dibuat pada DETIK yang sama tetap beda — tanpa itu, dua kru yang menekan
+   kirim bersamaan akan menempel jadi satu batch. */
+function pur_batch_id() {
+  return 'BATCH-' . date('ymd') . '-' . date('His') . '-' . strtoupper(bin2hex(random_bytes(2)));
+}
+
+/**
+ * DAFTAR BATCH AKTIF yang boleh digabungi, disaring per TIM.
+ *
+ * Yang TIDAK ikut, dan alasannya:
+ *  - status 'Arsip'            -> sudah selesai, menambah item ke sana tidak berarti.
+ *  - batch_id ''               -> 682 order lama pra-batch; tidak punya identitas
+ *                                 untuk digabungi (lihat migrasi-2026-07-18-batch.sql).
+ *  - batch yang sudah ada item 'Datang' -> penerimaannya sedang/sudah berjalan.
+ *    Menyisipkan item baru ke batch yang sedang di-check-in membuat kru
+ *    menerima barang yang tidak ada di kertas yang mereka pegang.
+ *
+ * $tim kosong = jangan saring per tim (dipakai admin / order tanpa keterangan).
+ */
+function pur_orders_batches($pdo, $tim = '') {
+  $sql = "SELECT `batch_id`, `batch_name`, `tgl_datang`, `tim`,
+                 MIN(`pic`)   AS pic,
+                 MIN(`waktu`) AS waktu,
+                 COUNT(*)     AS jml_item,
+                 SUM(CASE WHEN `kedatangan` = 'Datang' THEN 1 ELSE 0 END) AS jml_datang
+          FROM `orders`
+          WHERE `status` = 'Aktif' AND `batch_id` <> ''";
+  $par = [];
+  if ($tim !== '') { $sql .= " AND `tim` = ?"; $par[] = $tim; }
+  $sql .= " GROUP BY `batch_id`, `batch_name`, `tgl_datang`, `tim`
+            HAVING jml_datang = 0
+            ORDER BY `tgl_datang` ASC, waktu ASC";
+
+  $st = $pdo->prepare($sql);
+  $st->execute($par);
+
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $out[] = [
+      'batchId'   => $r['batch_id'],
+      'batchName' => $r['batch_name'],
+      'tglDatang' => $r['tgl_datang'],
+      'tim'       => $r['tim'],
+      'pic'       => $r['pic'],
+      'waktu'     => $r['waktu'],
+      'jmlItem'   => (int)$r['jml_item'],
+    ];
+  }
+  return $out;
+}
+
+/**
+ * SIMPAN SATU PENGAJUAN ORDER.
+ *
+ * Dua mode, ditentukan oleh $meta->batchId:
+ *   kosong  -> BATCH BARU. Id dibuat di sini, tglDatang diambil dari payload.
+ *   terisi  -> GABUNG ke batch yang sudah ada.
+ *
+ * Saat menggabung, dua hal sengaja terjadi:
+ *
+ *  1. TANGGAL BATCH TUJUAN MENANG atas tanggal yang diketik di form. Satu batch
+ *     = satu kedatangan; membiarkan dua tanggal di dalam satu batch akan
+ *     memecahnya kembali jadi dua kartu di halaman check-in, sehingga
+ *     "menggabungkan" tidak menggabungkan apa pun.
+ *
+ *  2. ITEM YANG SAMA DIJUMLAHKAN, bukan jadi baris kedua (permintaan poin 3).
+ *     Pencocokan pakai LOWER(item) supaya "Ayam Paha" dan "ayam paha" tetap
+ *     bertemu. Satuan yang berbeda TIDAK dijumlahkan — 2 Kg + 3 Pcs bukan 5
+ *     apa pun — baris seperti itu tetap masuk sebagai baris baru.
+ */
+function pur_orders_batch($pdo, $orders, $meta = null) {
   if (!is_array($orders) || !$orders) return ['status' => 'error', 'message' => 'orders kosong'];
+  if (!is_object($meta)) $meta = (object)[];
+
+  $batchId   = trim((string)($meta->batchId   ?? ''));
+  $batchName = trim((string)($meta->batchName ?? ''));   // opsional — poin 4
+  $tim       = trim((string)($meta->tim       ?? ''));
 
   $pdo->beginTransaction();
   try {
@@ -106,41 +200,112 @@ function pur_orders_batch($pdo, $orders) {
     $maxRow = (int)$pdo->query("SELECT COALESCE(MAX(`row_index`), 1) m FROM `orders` FOR UPDATE")->fetch()['m'];
     $jml    = (int)$pdo->query("SELECT COUNT(*) c FROM `orders`")->fetch()['c'];
 
-    $st = $pdo->prepare("INSERT INTO `orders`
-      (`nomor_order`,`row_index`,`waktu`,`item`,`qty`,`unit`,`tgl_datang`,`pic`,`status`,`kedatangan`,`data`)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+    // --- Mode gabung: baca batch tujuan dan baris-barisnya sekali di depan ---
+    $adaBaris = [];      // lower(item) => baris existing
+    $gabung   = false;
+    if ($batchId !== '') {
+      $st = $pdo->prepare("SELECT * FROM `orders`
+                           WHERE `batch_id` = ? AND `status` = 'Aktif' FOR UPDATE");
+      $st->execute([$batchId]);
+      $baris = $st->fetchAll();
+      if (!$baris) {
+        // Batch hilang di antara saat frontend memuat daftar dan saat kirim
+        // (diarsipkan orang lain, atau sudah mulai diterima). Menolak lebih
+        // baik daripada diam-diam membuat batch baru dengan id yang tidak ada.
+        $pdo->rollBack();
+        return ['status' => 'error', 'message' => 'batch tujuan tidak ditemukan atau sudah tidak aktif'];
+      }
+      $gabung = true;
+      foreach ($baris as $b) $adaBaris[pur_lower($b['item'])] = $b;
+      $b0        = $baris[0];
+      $batchName = $b0['batch_name'] ?? $batchName;
+      if ($tim === '') $tim = $b0['tim'] ?? '';
+    } else {
+      $batchId = pur_batch_id();
+    }
 
-    $dibuat = [];
-    foreach ($orders as $i => $o) {
+    $stIns = $pdo->prepare("INSERT INTO `orders`
+      (`nomor_order`,`row_index`,`waktu`,`item`,`qty`,`unit`,`tgl_datang`,`pic`,`status`,`kedatangan`,`batch_id`,`batch_name`,`tim`,`data`)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    $stUpd = $pdo->prepare("UPDATE `orders` SET `qty` = ?, `data` = ? WHERE `nomor_order` = ?");
+
+    $dibuat    = [];
+    $digabung  = [];
+    foreach ($orders as $o) {
       if (!is_object($o)) continue;
-      $item  = (string)($o->item ?? '');
+      $item = (string)($o->item ?? '');
       if ($item === '') continue;
+      $qty   = isset($o->qty) ? (float)$o->qty : 0;
+      $unit  = (string)($o->unit ?? '');
+      $waktu = date('Y-m-d H:i:s');
+
+      // Tanggal batch tujuan menang saat menggabung — lihat catatan (1) di atas.
+      $tgl = $gabung ? ($b0['tgl_datang'] ?? '-') : (string)($o->tglDatang ?? '-');
+
+      // --- (2) item sama + satuan sama -> jumlahkan ke baris yang sudah ada ---
+      $kunci = pur_lower($item);
+      if ($gabung && isset($adaBaris[$kunci]) && $adaBaris[$kunci]['unit'] === $unit) {
+        $lama    = $adaBaris[$kunci];
+        $qtyBaru = (float)$lama['qty'] + $qty;
+
+        $rec = json_decode($lama['data']);
+        if (!is_object($rec)) $rec = (object)[];
+        $rec->qty = $qtyBaru;
+        // Catatan baris baru ikut dilampirkan, jangan dibuang: itu satu-satunya
+        // jejak bahwa penambahan ini pernah diminta terpisah.
+        $noteBaru = isset($o->note) && $o->note !== '' && $o->note !== '-' ? (string)$o->note : '';
+        if ($noteBaru !== '') {
+          $noteLama = isset($rec->note) && $rec->note !== '-' ? (string)$rec->note : '';
+          $rec->note = $noteLama === '' ? $noteBaru : ($noteLama . ' | ' . $noteBaru);
+        }
+        $stUpd->execute([$qtyBaru, json_encode($rec, JSON_UNESCAPED_UNICODE), $lama['nomor_order']]);
+
+        // Perbarui salinan di memori supaya dua baris form dengan item yang
+        // sama dalam SATU kiriman juga menumpuk ke baris yang sama.
+        $adaBaris[$kunci]['qty']  = $qtyBaru;
+        $adaBaris[$kunci]['data'] = json_encode($rec, JSON_UNESCAPED_UNICODE);
+        $digabung[] = ['item' => $item, 'qty' => $qtyBaru, 'unit' => $unit];
+        continue;
+      }
+
       $urut  = $jml + count($dibuat) + 1;
       $nomor = pur_nomor_order($item, $urut);
       $row   = $maxRow + count($dibuat) + 1;
-      $waktu = date('Y-m-d H:i:s');
 
       $rec = (object)[
         'rowIndex'   => $row,
         'nomorOrder' => $nomor,
         'timestamp'  => $waktu,
         'item'       => $item,
-        'qty'        => isset($o->qty) ? (float)$o->qty : 0,
-        'unit'       => (string)($o->unit ?? ''),
+        'qty'        => $qty,
+        'unit'       => $unit,
         'note'       => isset($o->note) && $o->note !== '' ? $o->note : '-',
-        'tglDatang'  => (string)($o->tglDatang ?? '-'),
+        'tglDatang'  => $tgl,
         'pic'        => (string)($o->pic ?? ''),
         'status'     => 'Aktif',
         'kedatangan' => '',
         'catatan'    => '',
+        'batchId'    => $batchId,
+        'batchName'  => $batchName,
+        'tim'        => $tim,
       ];
-      $st->execute([$nomor, $row, $waktu, $item, $rec->qty, $rec->unit,
-                    $rec->tglDatang, $rec->pic, 'Aktif', '',
-                    json_encode($rec, JSON_UNESCAPED_UNICODE)]);
+      $stIns->execute([$nomor, $row, $waktu, $item, $rec->qty, $rec->unit,
+                       $tgl, $rec->pic, 'Aktif', '',
+                       $batchId, $batchName, $tim,
+                       json_encode($rec, JSON_UNESCAPED_UNICODE)]);
       $dibuat[] = $rec;
+      $adaBaris[$kunci] = ['nomor_order' => $nomor, 'item' => $item, 'qty' => $qty,
+                          'unit' => $unit, 'data' => json_encode($rec, JSON_UNESCAPED_UNICODE)];
     }
+
     $pdo->commit();
-    return ['status' => 'success', 'created' => count($dibuat), 'orders' => $dibuat];
+    return ['status'    => 'success',
+            'created'   => count($dibuat),
+            'merged'    => count($digabung),
+            'batchId'   => $batchId,
+            'batchName' => $batchName,
+            'orders'    => $dibuat,
+            'mergedItems' => $digabung];
   } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     throw $e;

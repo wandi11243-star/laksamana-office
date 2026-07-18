@@ -81,7 +81,54 @@
             .login-promo{display:none}
             .login-form{padding:34px 26px}
         }
+
+        /* Pemilih panel disembunyikan SAMPAI diputuskan bahwa ia memang perlu
+           tampil. Lihat skrip pengalih di bawah: user yang cuma berhak satu
+           panel tidak boleh sempat melihat halaman ini sama sekali. */
+        .login-wrap{visibility:hidden}
+        html.tampilkan-pemilih .login-wrap{visibility:visible}
     </style>
+
+    <!--
+      PENGALIH LANGSUNG — sengaja di <head>, sebelum <body> ada.
+
+      Dulu keputusan ini dijalankan pada DOMContentLoaded, yaitu SETELAH browser
+      menggambar kartu "Pilih Panel". Akibatnya user yang cuma berhak Ordering
+      selalu melihat pemilih Ordering/Purchasing berkedip dulu, baru dilempar ke
+      Ordering — persis yang dikeluhkan.
+
+      Skrip ini menghalangi (blocking, tanpa defer/async) dan berjalan sebelum
+      ada satu piksel pun tergambar, jadi `location.replace` terjadi lebih dulu
+      dan halaman ini tidak pernah muncul. `replace`, bukan `href`, supaya tombol
+      Back tidak memantul balik ke sini.
+    -->
+    <script>
+    (function () {
+        function sesiOffice() {
+            try {
+                var s = JSON.parse(localStorage.getItem('lm_session'));
+                if (!s || !s.expiry || Date.now() > s.expiry) return null;
+                var m = s.modules || [];
+                if (!(m.indexOf('*') > -1 || m.indexOf('ordering') > -1 || m.indexOf('purchasing') > -1)) return null;
+                return s;
+            } catch (e) { return null; }
+        }
+        var s = sesiOffice();
+        if (!s) { window.location.replace('../'); return; }
+
+        var m = s.modules || [], semua = m.indexOf('*') > -1, panel = [];
+        if (semua || m.indexOf('ordering') > -1)   panel.push('ordering');
+        if (semua || m.indexOf('purchasing') > -1) panel.push('purchasing');
+
+        if (panel.length === 0) { window.location.replace('../'); return; }
+        if (panel.length === 1) {
+            window.location.replace(panel[0] === 'purchasing' ? './purchasing/' : './ordering/');
+            return;
+        }
+        // Dua panel: halaman ini memang berguna, jadi buka kuncinya.
+        document.documentElement.className += ' tampilkan-pemilih';
+    })();
+    </script>
 </head>
 <body>
 <div class="login-wrap">
@@ -163,19 +210,14 @@ function openPanel(key) {
     window.location.href = key === 'purchasing' ? './purchasing/' : './ordering/';
 }
 
+/* Pemeriksaan sesi & pengalihan sudah dikerjakan skrip di <head> — sengaja,
+   supaya pemilih tidak sempat berkedip. Sampai di sini artinya user berhak atas
+   DUA panel dan halaman ini memang perlu tampil; tinggal isi bagian kosmetiknya. */
 document.addEventListener('DOMContentLoaded', function () {
     const s = officeSession();
-    if (!s) {
-        // Belum login Office atau tak berhak -> ke halaman login Office.
-        window.location.replace('../');
-        return;
-    }
-    const panels = allowedPanels(s);
-    if (panels.length === 0) { window.location.replace('../'); return; }
-    // Bila hanya satu panel yang boleh, langsung buka tanpa perlu memilih.
-    if (panels.length === 1) { openPanel(panels[0]); return; }
+    if (!s) return;                       // seharusnya mustahil; skrip <head> sudah mengalihkan
 
-    // Dua panel: tampilkan pemilih, sembunyikan panel yang tak berhak (jaga-jaga).
+    const panels = allowedPanels(s);
     document.querySelectorAll('.side-card[data-key]').forEach(btn => {
         btn.style.display = panels.includes(btn.dataset.key) ? '' : 'none';
     });
