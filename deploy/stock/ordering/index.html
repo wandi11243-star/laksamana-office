@@ -849,7 +849,12 @@
                         role: m.isModuleAdmin ? 'admin' : 'full', keterangan: m.keterangan || '' });
                     changed = true;
                 } else {
-                    if (!u.id && m.id) { u.id = m.id; changed = true; }
+                    // Klaim id resmi Office walau record lama sudah punya id sendiri
+                    // (mis. dibuat manual dengan id timestamp) — bukan cuma saat id
+                    // kosong. Tanpa ini, id yang salah tidak pernah dikoreksi dan
+                    // orang itu akan dianggap "basi" lalu dihapus+dibuat ulang di
+                    // sinkron berikutnya, alih-alih dikoreksi langsung sekarang.
+                    if (u.id !== m.id) { u.id = m.id; changed = true; }
                     if (m.name && u.name !== m.name) { u.name = m.name; changed = true; }
                     if (m.isModuleAdmin && u.role !== 'admin') { u.role = 'admin'; changed = true; }
                 }
@@ -1027,6 +1032,18 @@
                 const ok = await syncUsersFromServer();
                 if (ok) renderUserList();
             }
+            // Sinkron roster Office DITUNGGU di sini (beda dari saat boot, yang
+            // sengaja tidak menunggu 16-23 detik supaya halaman langsung tampil).
+            // Ini satu-satunya tempat penambahan/penghapusan kru benar-benar
+            // dijamin selesai — sebelumnya cuma jalan di latar belakang saat boot,
+            // dan kalau admin pindah halaman/tutup tab sebelum itu kelar (wajar,
+            // 16-23 detik itu lama), penambahan & penghapusan tidak pernah terjadi.
+            const box = document.getElementById('user-list');
+            const prevHtml = box ? box.innerHTML : '';
+            if (box) box.innerHTML = '<div class="text-center text-xs font-bold text-slate-400 py-6"><i class="fa-solid fa-spinner fa-spin"></i> Menyegarkan dari Office…</div>';
+            await autoSyncOfficeRoster();
+            renderUserList();
+            if (box && box.innerHTML.indexOf('Menyegarkan') > -1) box.innerHTML = prevHtml;
         }
 
         function renderUserList() {
