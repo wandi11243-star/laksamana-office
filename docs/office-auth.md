@@ -45,20 +45,6 @@ Naming note: the folder `stock/kitchen/` was renamed to `stock/ordering/` and it
 
 ## 2. The identity store (Google Sheet)
 
-> **SUDAH TIDAK MUTAKHIR — dokumen ini menggambarkan v2.** Kode Apps Script yang
-> berlaku ada di [`office-apps-script.gs`](office-apps-script.gs); itulah acuan
-> yang benar. Dua perubahan besar sejak dokumen ini ditulis:
->
-> - **v3** membuang kolom `role` dan tab `Roles`. Akses modul dipetakan
->   LANGSUNG user → modul lewat tab `Grants`.
-> - **v4** memisahkan `name` dan `username`. **Login memakai `username` + `pin`**,
->   bukan lagi `name` + `pin`. `name` sekarang murni nama lengkap untuk
->   ditampilkan dan boleh sama antar orang; `username` yang wajib unik dan
->   terisi. Baris tanpa `username` tidak bisa login sama sekali.
->
-> Contoh tabel & potongan kode di bawah dibiarkan apa adanya sebagai catatan
-> rancangan awal. Jangan disalin ke Apps Script.
-
 Two tabs in one spreadsheet.
 
 **Tab `Users`**
