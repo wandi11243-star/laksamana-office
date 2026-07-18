@@ -3,8 +3,9 @@
  * GET  -> [ {rowIndex, nomorOrder, timestamp, item, qty, unit, note,
  *            tglDatang, pic, status, kedatangan, catatan,
  *            batchId, batchName, tim}, ... ]
- * GET  ?action=batches[&tim=Kitchen] -> [ {batchId, batchName, tglDatang,
- *            tim, pic, waktu, jmlItem}, ... ]   batch aktif yang boleh digabungi
+ * GET  ?action=batches[&tim=Kitchen][&tgl=2026-07-19] -> [ {batchId, batchName,
+ *            tglDatang, tim, pic, waktu, jmlItem}, ... ]  batch aktif yang
+ *            boleh digabungi (disaring per tim dan per tanggal kedatangan)
  * POST {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}],
  *       batchId:'' (kosong = batch baru), batchName:'' (opsional), tim:''}
  * POST {action:'archive',   rows:[rowIndex] | orderIds:['LKS-...']}
@@ -23,7 +24,9 @@ try {
     // Endpoint sendiri, bukan diturunkan frontend dari GET orders penuh:
     // pengelompokan + syarat "belum ada yang datang" jauh lebih murah di SQL
     // daripada mengirim 682 baris lalu menyaringnya di HP kru dapur.
-    if ($aksiUrl === 'batches') pur_json(pur_orders_batches(pur_pdo(), trim((string)($_GET['tim'] ?? ''))));
+    if ($aksiUrl === 'batches') pur_json(pur_orders_batches(pur_pdo(),
+                                          trim((string)($_GET['tim'] ?? '')),
+                                          trim((string)($_GET['tgl'] ?? ''))));
     pur_json(pur_orders_ambil(pur_pdo()));          // array telanjang, seperti Apps Script
   }
 

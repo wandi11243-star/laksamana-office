@@ -556,8 +556,8 @@
                         <option value="">Memuat batch…</option>
                     </select>
                     <p class="text-[10px] text-slate-400 font-semibold mt-1.5 leading-relaxed">
-                        Item yang sama di batch tujuan akan <b>dijumlahkan</b>, bukan jadi baris baru.
-                        Tanggal kedatangan mengikuti batch tujuan.
+                        Hanya batch <b>tim yang sama</b> di <b>tanggal kedatangan yang sama</b>.
+                        Item yang sama akan <b>dijumlahkan</b>, bukan jadi baris baru.
                     </p>
                 </div>
             </div>
@@ -583,13 +583,15 @@
                 <i class="fa-solid fa-triangle-exclamation"></i>
             </div>
             <h3 class="text-lg font-black text-center text-slate-800 mb-2">Peringatan Duplikasi!</h3>
-            <p class="text-[11px] text-slate-500 text-center mb-4 font-semibold leading-relaxed">Item di bawah ini sudah pernah di-order sebelumnya untuk tanggal kedatangan yang sama:</p>
-            
-            <div id="duplicate-items-list" class="bg-amber-50/50 rounded-xl p-3 text-xs font-bold text-slate-700 max-h-32 overflow-y-auto mb-5 space-y-1.5 border border-amber-100">
+            <p id="duplicate-modal-desc" class="text-[11px] text-slate-500 text-center mb-4 font-semibold leading-relaxed">Item di bawah ini sudah pernah di-order sebelumnya untuk tanggal kedatangan yang sama:</p>
+
+            <!-- max-h dinaikkan dari 32: tiap baris sekarang dua baris teks
+                 (nama + rincian jumlah), jadi tinggi lama memotong isi. -->
+            <div id="duplicate-items-list" class="bg-amber-50/50 rounded-xl p-3 text-xs font-bold text-slate-700 max-h-56 overflow-y-auto mb-5 space-y-2 border border-amber-100">
                 <!-- List items here -->
             </div>
-            
-            <p class="text-xs text-center text-slate-600 mb-5 font-bold">Apakah Anda yakin ingin tetap melanjutkan pesanan ganda ini?</p>
+
+            <p id="duplicate-modal-ask" class="text-xs text-center text-slate-600 mb-5 font-bold">Apakah Anda yakin ingin tetap melanjutkan pesanan ganda ini?</p>
             
             <div class="flex gap-3">
                 <button onclick="cancelSubmission()" class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all border border-slate-200">Balik Edit</button>
@@ -1791,12 +1793,36 @@
             sel.innerHTML = '<option value="">Memuat batch…</option>';
 
             const tim = timSaatIni();
+            const tgl = document.getElementById('batch-arrival-date').value || "";
             try {
-                const url = `${state.appScriptUrlHistory}?action=batches&tim=${encodeURIComponent(tim)}&t=${Date.now()}`;
+                // Disaring per TIM dan per TANGGAL: batch tujuan harus kedatangan
+                // yang sama dengan yang sedang diisi, kalau tidak "menggabungkan"
+                // malah memindahkan barang ke hari lain.
+                const url = `${state.appScriptUrlHistory}?action=batches`
+                          + `&tim=${encodeURIComponent(tim)}`
+                          + `&tgl=${encodeURIComponent(tgl)}`
+                          + `&t=${Date.now()}`;
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("HTTP " + res.status);
                 const data = await res.json();
-                daftarBatch = Array.isArray(data) ? data : [];
+
+                // WAJIB diperiksa bentuknya, bukan cuma "apakah array".
+                //
+                // Server versi lama tidak mengenal ?action=batches dan MENGABAIKANNYA
+                // begitu saja — balasannya seluruh daftar order (688 baris), yang
+                // juga sebuah array. Tanpa penjagaan ini, baris order dipakai
+                // seolah-olah batch dan pilihan terisi sampah:
+                // "Batch Putra — 1 Jan (undefined item)". Lebih baik mengaku
+                // backend belum siap daripada menampilkan pilihan yang salah.
+                const arr = Array.isArray(data) ? data : [];
+                const bentukBatch = arr.every(b => b && typeof b.batchId === 'string' && b.jmlItem !== undefined);
+                if (!bentukBatch) {
+                    sel.innerHTML = '<option value="">Backend belum mendukung batch — hubungi admin</option>';
+                    console.warn("Balasan ?action=batches bukan daftar batch. " +
+                                 "Kemungkinan besar orders.php di server belum diperbarui.");
+                    return;
+                }
+                daftarBatch = arr;
             } catch (e) {
                 console.warn("Gagal memuat daftar batch:", e.message);
                 // Gagal memuat BUKAN alasan memblokir pengiriman: mode "Batch Baru"
@@ -1806,18 +1832,20 @@
             }
 
             if (!daftarBatch.length) {
-                sel.innerHTML = `<option value="">Belum ada batch aktif${tim ? ' untuk tim ' + tim : ''}</option>`;
+                const tglTeks = tgl ? ` pada ${fmtTglPendek(tgl)}` : '';
+                sel.innerHTML = `<option value="">Belum ada batch${tim ? ' tim ' + tim : ''}${tglTeks}</option>`;
                 return;
             }
 
-            const fmt = (d) => {
-                try { return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day:'numeric', month:'short' }); }
-                catch (e) { return d; }
-            };
             sel.innerHTML = daftarBatch.map(b => {
                 const nama = b.batchName || `Batch ${b.pic || ''}`.trim();
-                return `<option value="${b.batchId}">${nama} — ${fmt(b.tglDatang)} (${b.jmlItem} item)</option>`;
+                return `<option value="${b.batchId}">${nama} — ${b.jmlItem} item</option>`;
             }).join('');
+        }
+
+        function fmtTglPendek(iso) {
+            try { return new Date(iso + 'T00:00:00').toLocaleDateString('id-ID', { day:'numeric', month:'short' }); }
+            catch (e) { return iso; }
         }
 
         // Tahap 2: Cek ke server untuk duplikasi riwayat, setelah klik 'Kirim' di Summary
@@ -1830,29 +1858,57 @@
             const pic = document.getElementById('batch-pic-name').value;
             const date = document.getElementById('batch-arrival-date').value;
 
-            // Mode "gabung" MELEWATI peringatan duplikat. Di mode itu item yang
-            // sama memang disengaja: server menjumlahkannya ke baris yang ada
-            // (poin 3). Memperingatkan "barang ini sudah dipesan" di sana justru
-            // menyuruh user membatalkan hal yang baru saja ia minta.
+            // Peringatan duplikat berlaku di KEDUA mode, termasuk "gabung".
+            //
+            // Sempat dilewati untuk mode gabung dengan alasan penggabungan memang
+            // disengaja. Itu keliru: yang perlu diketahui kru bukan "ada duplikat",
+            // melainkan BERAPA BANYAK barang itu sudah dipesan untuk hari itu —
+            // justru paling penting saat menggabung, karena angkanya akan ditambah
+            // ke jumlah yang sudah ada. Jadi peringatannya sekarang membawa angka,
+            // dan kalimatnya menyesuaikan mode.
             try {
                 let serverDuplicates = [];
-                if (batchMode !== 'join' && state.appScriptUrlHistory) {
+                if (state.appScriptUrlHistory) {
                     const response = await fetch(state.appScriptUrlHistory);
                     if (response.ok) {
                         const data = await response.json();
                         let records = Array.isArray(data) ? data : [];
-                        
-                        let existingForDate = records.filter(row => row.tglDatang === date);
-                        let existingItemNames = existingForDate.map(row => (row.item || row.Item || "").toLowerCase());
-                        
-                        serverDuplicates = preparedOrders.filter(order => existingItemNames.includes(order.item.toLowerCase()));
+
+                        // Order arsip TIDAK dihitung: itu pesanan yang urusannya
+                        // sudah ditutup, bukan jumlah yang akan datang hari itu.
+                        const aktifHariItu = records.filter(row =>
+                            row.tglDatang === date && (row.status || '') !== 'Arsip');
+
+                        // item(huruf kecil) -> { nama, satuan: {unit: qty} }
+                        const rekap = {};
+                        aktifHariItu.forEach(row => {
+                            const nama = String(row.item || row.Item || "");
+                            if (!nama) return;
+                            const k = nama.toLowerCase();
+                            if (!rekap[k]) rekap[k] = { nama: nama, satuan: {} };
+                            const unit = String(row.unit || "").trim() || "-";
+                            rekap[k].satuan[unit] = (rekap[k].satuan[unit] || 0) + (parseFloat(row.qty) || 0);
+                        });
+
+                        serverDuplicates = preparedOrders
+                            .filter(o => rekap[o.item.toLowerCase()])
+                            .map(o => {
+                                const r = rekap[o.item.toLowerCase()];
+                                // Satuan campur (mis. 5 Kg + 2 Pcs) ditampilkan apa
+                                // adanya, bukan dipaksa jadi satu angka yang tidak
+                                // punya arti.
+                                const sudah = Object.keys(r.satuan)
+                                    .map(u => `${r.satuan[u]} ${u === '-' ? '' : u}`.trim())
+                                    .join(' + ');
+                                return { item: o.item, sudah: sudah, tambah: `${o.qty} ${o.unit}` };
+                            });
                     }
                 }
 
                 if (serverDuplicates.length > 0) {
                     pendingSubmission = { orders: preparedOrders, pic, date };
                     closeModal('pre-submit-modal');
-                    showDuplicateModal(serverDuplicates.map(d => d.item)); // Tampil pop-up duplikat
+                    showDuplicateModal(serverDuplicates, date);
                 } else {
                     closeModal('pre-submit-modal');
                     await executeFormSubmission(preparedOrders, pic, date); // Lanjut submit
@@ -1955,9 +2011,44 @@
             }
         }
 
-        function showDuplicateModal(items) {
+        // `dups` = [{ item, sudah, tambah }] — lihat confirmAndCheckServer.
+        // Menampilkan JUMLAH, bukan cuma nama barang: "Mie Kwetiau sudah dipesan"
+        // tidak cukup untuk memutuskan, "sudah 5 Kg, akan jadi 10 Kg" cukup.
+        function showDuplicateModal(dups, tanggal) {
             const list = document.getElementById('duplicate-items-list');
-            list.innerHTML = items.map(i => `<div class="flex items-center gap-2 bg-white px-2 py-1.5 rounded-lg shadow-sm border border-amber-100"><i class="fa-solid fa-circle-exclamation text-amber-500"></i> ${i}</div>`).join('');
+            const gabung = batchMode === 'join';
+
+            list.innerHTML = dups.map(d => `
+                <div class="bg-white px-3 py-2 rounded-lg shadow-sm border border-amber-100">
+                    <div class="flex items-center gap-2 mb-1">
+                        <i class="fa-solid fa-circle-exclamation text-amber-500"></i>
+                        <span class="font-black text-slate-800">${d.item}</span>
+                    </div>
+                    <div class="flex items-center gap-2 flex-wrap text-[11px] font-bold pl-6">
+                        <span class="text-slate-500">Sudah dipesan</span>
+                        <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">${d.sudah}</span>
+                        <span class="text-slate-400">+</span>
+                        <span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">${d.tambah}</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Kalimat pengantar menyesuaikan mode: saat menggabung, hasilnya
+            // dijumlahkan (bukan jadi pesanan ganda), jadi menyebutnya "pesanan
+            // ganda" akan menyesatkan.
+            const ket = document.getElementById('duplicate-modal-desc');
+            if (ket) {
+                ket.innerHTML = gabung
+                    ? `Barang berikut <b>sudah ada</b> untuk kedatangan ${fmtTglPendek(tanggal)}. Jumlahnya akan <b>ditambahkan</b>, bukan jadi baris baru:`
+                    : `Barang berikut sudah pernah di-order untuk kedatangan ${fmtTglPendek(tanggal)}:`;
+            }
+            const tanya = document.getElementById('duplicate-modal-ask');
+            if (tanya) {
+                tanya.textContent = gabung
+                    ? 'Lanjutkan menggabungkan jumlah ini?'
+                    : 'Apakah Anda yakin ingin tetap melanjutkan pesanan ganda ini?';
+            }
+
             openModal('duplicate-modal');
         }
 

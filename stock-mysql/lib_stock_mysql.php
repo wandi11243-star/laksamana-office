@@ -132,8 +132,14 @@ function pur_batch_id() {
  *    menerima barang yang tidak ada di kertas yang mereka pegang.
  *
  * $tim kosong = jangan saring per tim (dipakai admin / order tanpa keterangan).
+ *
+ * $tgl (YYYY-MM-DD) menyaring ke SATU tanggal kedatangan saja. Kru memilih
+ * tanggal di form lebih dulu, jadi batch di tanggal lain tidak pernah jadi
+ * tujuan yang masuk akal — menampilkannya cuma memancing salah pilih. Efek
+ * sampingnya bagus: karena tanggal batch tujuan selalu sama dengan tanggal di
+ * form, penggabungan tidak pernah lagi diam-diam memindahkan tanggal order.
  */
-function pur_orders_batches($pdo, $tim = '') {
+function pur_orders_batches($pdo, $tim = '', $tgl = '') {
   $sql = "SELECT `batch_id`, `batch_name`, `tgl_datang`, `tim`,
                  MIN(`pic`)   AS pic,
                  MIN(`waktu`) AS waktu,
@@ -142,7 +148,8 @@ function pur_orders_batches($pdo, $tim = '') {
           FROM `orders`
           WHERE `status` = 'Aktif' AND `batch_id` <> ''";
   $par = [];
-  if ($tim !== '') { $sql .= " AND `tim` = ?"; $par[] = $tim; }
+  if ($tim !== '') { $sql .= " AND `tim` = ?";        $par[] = $tim; }
+  if ($tgl !== '') { $sql .= " AND `tgl_datang` = ?"; $par[] = $tgl; }
   $sql .= " GROUP BY `batch_id`, `batch_name`, `tgl_datang`, `tim`
             HAVING jml_datang = 0
             ORDER BY `tgl_datang` ASC, waktu ASC";
