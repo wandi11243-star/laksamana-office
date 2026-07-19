@@ -383,6 +383,15 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 
 /* Ya/Tidak + catatan (venue needs) */
 /* Lampiran berkas (D.11) */
+/* Pratinjau gambar lampiran (rundown, layout, denah area). Ukurannya dibatasi
+   supaya banyak gambar tetap muat; klik untuk buka ukuran penuh. */
+.att-imgs{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.att-img{position:relative;width:150px;margin:0}
+.att-img img{width:100%;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line-hard);display:block;background:var(--line)}
+.att-img figcaption{font-size:11px;color:var(--muted);margin-top:4px;word-break:break-word;line-height:1.3}
+.att-img-del{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:0;cursor:pointer;
+  background:rgba(0,0,0,.6);color:#fff;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center}
+.att-img-del:hover{background:#c0392b}
 .attach-list{display:flex;flex-direction:column;gap:6px}
 .attach-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line-hard);border-radius:9px;background:var(--ink-900)}
 .attach-name{flex:1;min-width:0;display:flex;align-items:center;gap:8px;color:var(--sand);text-decoration:none;font-size:13px}
@@ -396,9 +405,12 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .field label.attach-add{display:inline-flex;align-items:center;gap:7px;margin-top:8px;margin-bottom:0;padding:7px 13px;border:1px dashed var(--line-hard);border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--sand-dim);background:var(--ink-900)}
 .field label.attach-add:hover{border-color:var(--gold-deep);color:var(--gold)}
 .attach-add svg{width:14px;height:14px}
-.ynnote{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ynnote{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap}
 .ynnote .seg{flex:none}
-.ynnote .ynnote-note{flex:1;min-width:160px}
+/* Catatan kini <textarea> supaya bisa Enter/multi-baris. Tinggi awal disamakan
+   dengan tinggi input biasa agar barisnya tidak jadi tinggi sendiri; user boleh
+   menariknya ke bawah kalau catatannya panjang. */
+.ynnote .ynnote-note{flex:1;min-width:160px;min-height:38px;height:38px;resize:vertical;line-height:1.4}
 
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
@@ -989,6 +1001,7 @@ const EVENT_SCHEMA = [
 { id:'basic', n:'D.1', title:'Informasi Dasar', div:['all'], desc:'Apa nama, jenis, tanggal & jam acaranya? Berapa tamu, di area mana, bagaimana rundown, dekorasi & kebutuhan venue-nya?', fields:[
   {k:'nama',l:'Nama Event',t:'text',req:1},
   {k:'jenis',l:'Jenis Event',t:'sel',o:EVENT_TYPES,req:1},
+  {k:'jenisLain',l:'Jenis Event — tulis sendiri',t:'text',cond:{k:'jenis',v:'Lainnya'}},
   {k:'tanggal',l:'Tanggal Event',t:'date',req:1},
   {k:'mulaiSetup',l:'Mulai Setup',t:'time',req:1},
   {k:'tamuDatang',l:'Tamu Datang / Jam Mulai',t:'time',req:1},
@@ -997,21 +1010,40 @@ const EVENT_SCHEMA = [
   {k:'budgetPax',l:'Budget per Pax (F&B)',t:'cur',help:'Harga F&B per orang. Dipakai untuk auto-hitung biaya F&B di tab Finance (Pax × Budget/Pax).'},
   {k:'vipDetail',l:'Detail Tamu VIP/VVIP/Umum',t:'ta'},
   {k:'privacy',l:'Sifat Acara',t:'sel',o:['Private','Public','Semi Private','Combine Event'],req:1},
-  {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1 (Dermaga)','Lantai 2','Outdoor','VIP Area','Seluruh Area'],req:1},
-  {k:'rundown',l:'Rundown Acara',t:'rundown',help:'Isi per baris: Waktu & Kegiatan. Klik "Tambah Baris" untuk menambah.',req:1,full:1},
+  {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1 (Dermaga)','Lantai 2','Outdoor','VIP Area','Seluruh Area','Lainnya'],req:1},
+  {k:'areaLain',l:'Lantai / Area — tulis sendiri',t:'text',cond:{k:'area',v:'Lainnya'}},
+  {k:'rundown',l:'Rundown Acara',t:'rundown',help:'Isi per baris: jam mulai, selesai, durasi & kegiatan. Ketik durasi -> jam selesai terhitung sendiri.',req:1,full:1},
+  {k:'rundownFiles',l:'Lampiran Rundown',t:'files',full:1,help:'Unggah foto/PDF rundown. Gambar langsung tampil di bawah.'},
+
+  {k:'_hLoading',l:'Jadwal Loading',t:'head',desc:'Kapan dekorasi & barang masuk-keluar. Dipakai juga oleh Security (D.6).'},
+  {k:'loadDekorTgl',l:'Loading Dekorasi — Tanggal',t:'date'},
+  {k:'loadDekorJam',l:'Loading Dekorasi — Waktu',t:'time'},
+  {k:'loadDekorNote',l:'Catatan Loading Dekorasi',t:'ta',full:1},
+  {k:'loadInTgl',l:'Loading In — Tanggal',t:'date'},
+  {k:'loadInJam',l:'Loading In — Waktu',t:'time'},
+  {k:'loadInNote',l:'Catatan Loading In',t:'ta',full:1},
+  {k:'loadOutTgl',l:'Loading Out — Tanggal',t:'date'},
+  {k:'loadOutJam',l:'Loading Out — Waktu',t:'time'},
+  {k:'loadOutNote',l:'Catatan Loading Out',t:'ta',full:1},
 
   {k:'_hDecor',l:'Dekorasi & Layout',t:'head',desc:'Sumber dekorasi, layout & penggunaan area.'},
   {k:'decorSource',l:'Sumber Dekorasi',t:'sel',o:['Dari Client','Dari Laksamana Muda'],req:1},
   {k:'decorVendorTime',l:'Jam Vendor Dekorasi Datang',t:'time',cond:{k:'decorSource',v:'Dari Client'}},
   {k:'decorSupport',l:'Perlu Support Tim Venue',t:'yn',req:1},
-  {k:'decorJenis',l:'Jenis Dekorasi',t:'multi',o:['Photo Booth','Backdrop','Balloon','Flower','Standing Flower','Table Decoration','Lainnya']},
-  {k:'decorJenisLain',l:'Jenis Dekorasi Lainnya',t:'text',cond:{k:'decorJenis',v:'Lainnya'},help:'Muncul saat "Lainnya" dicentang. Simpan tab dulu agar kolom ini tampil.'},
+  // Jenis dekorasi BEDA tergantung sumbernya: kalau dari Laksamana Muda yang
+  // dipakai inventaris sendiri, bukan daftar vendor client.
+  {k:'decorJenis',l:'Jenis Dekorasi',t:'multi',o:['Photo Booth','Backdrop','Balloon','Flower','Standing Flower','Table Decoration','Lainnya'],cond:{k:'decorSource',v:'Dari Client'}},
+  {k:'decorJenisLain',l:'Jenis Dekorasi — tulis sendiri',t:'text',cond:{k:'decorJenis',v:'Lainnya'}},
+  {k:'decorLM',l:'Jenis Dekorasi (Laksamana Muda)',t:'multi',o:['Kain Hitam','Taplak Gold','Bunga Meja','Custom Placemat','Lainnya'],cond:{k:'decorSource',v:'Dari Laksamana Muda'}},
+  {k:'decorLMLain',l:'Jenis Dekorasi (LM) — tulis sendiri',t:'text',cond:{k:'decorLM',v:'Lainnya'}},
+  {k:'decorLMNote',l:'Catatan Dekor (Laksamana Muda)',t:'ta',cond:{k:'decorSource',v:'Dari Laksamana Muda'},full:1,help:'Tampil juga di Floor (D.4) supaya tim floor tahu dekor apa yang dipasang.'},
   {k:'decorVendorExt',l:'Vendor Eksternal?',t:'tog',req:1},
-  {k:'decorVendorName',l:'Nama & Kontak Vendor',t:'text',cond:{k:'decorVendorExt',v:true}},
-  {k:'layoutFile',l:'Catatan Layout & Seating Plan',t:'ta',help:'Stage, VIP area, buffet, registration, photo booth, parking, emergency exit.',full:1},
-  {k:'areaPakai',l:'Area yang Dipakai',t:'multi',o:['Indoor','Outdoor','VIP','Seluruh Area'],req:1},
-  {k:'areaLimit',l:'Pembatasan Area untuk Tamu',t:'ta'},
-  {k:'layoutKhusus',l:'Request Layout Meja & Kursi Khusus',t:'ta',help:'Clear Area, Meja Panjang, Sofa Ungu/Dinding/Hitam, Area Panggung.'},
+  {k:'decorVendorName',l:'Vendor dari mana? (nama & kontak)',t:'text',cond:{k:'decorVendorExt',v:true}},
+  {k:'layoutFile',l:'Catatan Layout & Seating Plan',t:'ta',help:'Stage, VIP area, buffet, registration, photo booth, parking, emergency exit. Tampil juga di Floor (D.4).',full:1},
+  {k:'layoutImgs',l:'Gambar Layout',t:'files',full:1,help:'Boleh lebih dari satu. Gambar langsung tampil di bawah.'},
+  {k:'areaPakai',l:'Area yang Dipakai untuk Seating dan Dekor',t:'multi',o:['Main Hall','Lobby','Lantai 2','VIP','Outdoor','Seluruh Area','Lainnya'],req:1},
+  {k:'areaPakaiLain',l:'Area — tulis sendiri',t:'text',cond:{k:'areaPakai',v:'Lainnya'}},
+  {k:'areaImgs',l:'Gambar Area',t:'files',full:1,help:'Boleh lebih dari satu. Gambar langsung tampil di bawah.'},
 
   {k:'_hVenue',l:'Venue Needs',t:'head',desc:'Jawab Ya / Tidak. Isi catatan bila perlu detail.'},
   {k:'sound',l:'Sound System',t:'ynnote'},
@@ -1022,9 +1054,9 @@ const EVENT_SCHEMA = [
   {k:'entJenis',l:'Entertainment (Band/DJ/MC/dll)',t:'ynnote'},
   {k:'ruangVIP',l:'Ruang VIP',t:'ynnote'},
   {k:'musholla',l:'Musholla',t:'ynnote'},
-  {k:'listrik',l:'Listrik Tambahan',t:'ynnote'},
-  {k:'entPIC',l:'PIC Koordinasi Talent',t:'text'},
-  {k:'entTalent',l:'Handling Artis/Talent Khusus',t:'ta'}
+  {k:'listrik',l:'Listrik Tambahan',t:'ynnote'}
+  // entPIC & entTalent (PIC Koordinasi Talent / Handling Artis) DIHAPUS dari
+  // D.1 atas permintaan — penanganan talent diurus di matriks PIC (D.12).
 ]},
 { id:'kitchen', n:'D.2', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format F&B-nya apa, budget per pax berapa, dan menu apa saja yang disajikan?', fields:[
   {k:'fbFormat',l:'Format F&B',t:'sel',o:['Prasmanan','Set Menu'],req:1},
@@ -2213,13 +2245,15 @@ function renderField(ev,fl,canEdit){
     const o=ynnoteVal(val);
     inp='<div class="ynnote" id="'+id+'">'
        +'<div class="seg" data-role="seg"><button type="button" class="'+(o.v===true?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(o.v===false?'on':'')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'
-       +'<input class="inp ynnote-note" data-role="note" placeholder="Catatan / detail (opsional)" value="'+esc(o.note)+'" '+dis+'>'
+       // textarea, bukan input: catatan/detail sering butuh beberapa baris dan
+       // dulu tombol Enter tidak bisa dipakai sama sekali di sini.
+       +'<textarea class="inp ynnote-note" data-role="note" rows="1" placeholder="Catatan / detail (opsional) — boleh beberapa baris" '+dis+'>'+esc(o.note)+'</textarea>'
        +'</div>';
   } else if(fl.t==='rundown'){
     const rows=rundownRows(val);
-    const bodyH=(rows.length?rows:[{waktu:'',kegiatan:''}]).map(r=>rundownRowHTML(r,canEdit)).join('');
+    const bodyH=(rows.length?rows:[{mulai:'',selesai:'',durasi:'',kegiatan:''}]).map(r=>rundownRowHTML(r,canEdit)).join('');
     inp='<div class="rundown-wrap" id="'+id+'">'
-       +'<table class="rundown-tbl"><thead><tr><th style="width:120px">Waktu</th><th>Kegiatan</th>'+(canEdit?'<th style="width:34px"></th>':'')+'</tr></thead>'
+       +'<table class="rundown-tbl"><thead><tr><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:84px">Durasi (mnt)</th><th>Kegiatan</th>'+(canEdit?'<th style="width:34px"></th>':'')+'</tr></thead>'
        +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
        +(canEdit?'<div class="rundown-act">'
           +'<button type="button" class="btn sm" onclick="rundownAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
@@ -2246,14 +2280,35 @@ function attachUrl(key){ return API_URL+'?action=receipt&key='+encodeURIComponen
 function attachListHTML(evId,k,arr,canEdit){
   arr=Array.isArray(arr)?arr:[];
   if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada berkas dilampirkan.</div>';
-  return '<div class="attach-list">'+arr.map(f=>
-     '<div class="attach-item">'
-    +'<a href="'+esc(attachUrl(f.key))+'" download="'+esc(f.name||'berkas')+'" target="_blank" rel="noopener" class="attach-name">'
-      +svg(IC.brief)+'<span>'+esc(f.name||f.key)+'</span></a>'
-    +'<span class="cell-sub attach-meta">'+fmtSize(f.size)+(f.by?' · '+esc(f.by):'')+'</span>'
-    +(canEdit?'<button type="button" class="btn sm danger" title="Hapus berkas" onclick="delAttach(\''+evId+'\',\''+k+'\',\''+esc(f.key)+'\')">'+svg(IC.trash)+'</button>':'')
-    +'</div>').join('')+'</div>';
+  // Gambar ditampilkan sebagai pratinjau, bukan cuma tautan unduh — rundown,
+  // layout & denah area jauh lebih cepat dibaca kalau langsung kelihatan.
+  // Berkas non-gambar (PDF, dsb) tetap tampil sebagai tautan seperti biasa.
+  const gambar = arr.filter(fotoKah);
+  const lain   = arr.filter(f=>!fotoKah(f));
+  let h='';
+  if(gambar.length){
+    h+='<div class="att-imgs">'+gambar.map(f=>
+       '<figure class="att-img">'
+      +'<a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener" title="Buka ukuran penuh">'
+        +'<img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'gambar')+'" loading="lazy">'
+      +'</a>'
+      +'<figcaption>'+esc(f.name||f.key)+'</figcaption>'
+      +(canEdit?'<button type="button" class="att-img-del" title="Hapus gambar" onclick="delAttach(\''+evId+'\',\''+k+'\',\''+esc(f.key)+'\')">×</button>':'')
+      +'</figure>').join('')+'</div>';
+  }
+  if(lain.length){
+    h+='<div class="attach-list">'+lain.map(f=>
+       '<div class="attach-item">'
+      +'<a href="'+esc(attachUrl(f.key))+'" download="'+esc(f.name||'berkas')+'" target="_blank" rel="noopener" class="attach-name">'
+        +svg(IC.brief)+'<span>'+esc(f.name||f.key)+'</span></a>'
+      +'<span class="cell-sub attach-meta">'+fmtSize(f.size)+(f.by?' · '+esc(f.by):'')+'</span>'
+      +(canEdit?'<button type="button" class="btn sm danger" title="Hapus berkas" onclick="delAttach(\''+evId+'\',\''+k+'\',\''+esc(f.key)+'\')">'+svg(IC.trash)+'</button>':'')
+      +'</div>').join('')+'</div>';
+  }
+  return h;
 }
+// Gambar dikenali dari nama berkasnya (server menyimpan tanpa mime asli).
+function fotoKah(f){ return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(String((f&&f.name)||'')); }
 function repaintAttach(evId,k){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
   const box=$('efd_'+k+'_list'); if(box) box.innerHTML=attachListHTML(evId,k,ev.detail[k],can('edit_event'));
@@ -2309,15 +2364,20 @@ function collectField(fl){
   if(fl.t==='rundown'){
     const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
     return [...body.querySelectorAll('tr')].map(tr=>{
-      const w=tr.querySelector('[data-r="waktu"]'), k=tr.querySelector('[data-r="kegiatan"]');
-      return {waktu:(w?w.value:'').trim(), kegiatan:(k?k.value:'').trim()};
-    }).filter(r=>r.waktu||r.kegiatan);
+      const g=(r)=>{ const e=tr.querySelector('[data-r="'+r+'"]'); return e?e.value.trim():''; };
+      return {mulai:g('mulai'), selesai:g('selesai'), durasi:g('durasi'), kegiatan:g('kegiatan')};
+    }).filter(r=>r.mulai||r.selesai||r.durasi||r.kegiatan);
   }
   return el.value;
 }
 /* ---------- Rundown: tabel Waktu × Kegiatan + isi otomatis via OCR ---------- */
 function rundownRows(val){
-  if(Array.isArray(val)) return val.filter(r=>r&&(r.waktu||r.kegiatan));
+  // Data lama berbentuk {waktu, kegiatan}; sekarang {mulai, selesai, durasi,
+  // kegiatan}. `waktu` lama dipetakan jadi `mulai` supaya rundown yang sudah
+  // pernah diisi tidak hilang.
+  if(Array.isArray(val)) return val
+    .map(r=>r&&Object.assign({}, r, {mulai: r.mulai || r.waktu || ''}))
+    .filter(r=>r&&(r.mulai||r.selesai||r.durasi||r.kegiatan));
   if(typeof val==='string' && val.trim()) return rundownParseText(val);
   return [];
 }
@@ -2327,15 +2387,55 @@ function rundownParseText(txt){
     line=line.replace(/\s+/g,' ').trim(); if(!line)return null;
     // cocokkan pola jam di depan: "09:00", "9.00", "09:00-10:00", "09.00 – 10.00"
     const m=line.match(/^(\d{1,2}[:.]\d{2}(?:\s*[-–—]\s*\d{1,2}[:.]\d{2})?)\s*[-–—.:)\]]*\s*(.*)$/);
-    if(m && m[2]) return {waktu:m[1].replace(/\./g,':').replace(/\s+/g,''), kegiatan:m[2].trim()};
-    if(m) return {waktu:m[1].replace(/\./g,':').replace(/\s+/g,''), kegiatan:''};
-    return {waktu:'', kegiatan:line};
+    if(m && m[2]) return {mulai:m[1].replace(/\./g,':').replace(/\s+/g,''), selesai:'', durasi:'', kegiatan:m[2].trim()};
+    if(m) return {mulai:m[1].replace(/\./g,':').replace(/\s+/g,''), selesai:'', durasi:'', kegiatan:''};
+    return {mulai:'', selesai:'', durasi:'', kegiatan:line};
   }).filter(Boolean);
+}
+/* Rundown sekarang 4 kolom: Mulai | Selesai | Durasi | Kegiatan.
+
+   Hubungan ketiganya dijaga rundownHitung():
+     - ketik DURASI  -> jam selesai dihitung dari jam mulai (yang diminta)
+     - ubah SELESAI  -> durasi ikut menyesuaikan
+   Data lama yang cuma punya {waktu, kegiatan} tetap terbaca: `waktu` dipakai
+   sebagai jam mulai (lihat rundownRows). */
+function jamKeMenit(s){
+  const m=String(s||'').match(/^(\d{1,2})[:.](\d{2})$/); if(!m)return null;
+  const h=+m[1], mi=+m[2]; if(h>23||mi>59)return null; return h*60+mi;
+}
+function menitKeJam(n){
+  n=((n%1440)+1440)%1440;                       // lewat tengah malam -> berputar
+  return String(Math.floor(n/60)).padStart(2,'0')+':'+String(n%60).padStart(2,'0');
+}
+// durasi diterima sebagai "90", "90m", "1:30", "1.5j"
+function durasiKeMenit(s){
+  s=String(s||'').trim().toLowerCase(); if(!s)return null;
+  let m=s.match(/^(\d{1,2})[:.](\d{2})$/); if(m)return (+m[1])*60+(+m[2]);
+  m=s.match(/^(\d+(?:[.,]\d+)?)\s*j(?:am)?$/); if(m)return Math.round(parseFloat(m[1].replace(',','.'))*60);
+  m=s.match(/^(\d+)\s*m?(?:enit)?$/); if(m)return +m[1];
+  return null;
+}
+function rundownHitung(el,dari){
+  const tr=el.closest('tr'); if(!tr)return;
+  const q=(r)=>tr.querySelector('[data-r="'+r+'"]');
+  const mulai=jamKeMenit(q('mulai')&&q('mulai').value);
+  if(dari==='durasi'){
+    const d=durasiKeMenit(q('durasi').value);
+    if(mulai!=null && d!=null) q('selesai').value=menitKeJam(mulai+d);
+  } else {
+    const sel=jamKeMenit(q('selesai')&&q('selesai').value);
+    if(mulai!=null && sel!=null){ let d=sel-mulai; if(d<0)d+=1440; q('durasi').value=String(d); }
+  }
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
 function rundownRowHTML(r,canEdit){
   r=r||{}; const dis=canEdit?'':'disabled';
+  const ev=canEdit?' oninput="rundownHitung(this,\'durasi\')"':'';
+  const es=canEdit?' oninput="rundownHitung(this,\'selesai\')"':'';
   return '<tr>'
-    +'<td><input class="inp" data-r="waktu" placeholder="09:00" value="'+esc(r.waktu||'')+'" '+dis+'></td>'
+    +'<td><input class="inp" data-r="mulai" placeholder="09:00" value="'+esc(r.mulai||r.waktu||'')+'" '+dis+es+'></td>'
+    +'<td><input class="inp" data-r="selesai" placeholder="10:00" value="'+esc(r.selesai||'')+'" '+dis+es+'></td>'
+    +'<td><input class="inp" data-r="durasi" placeholder="60" title="menit — ketik ini, jam selesai terhitung sendiri" value="'+esc(r.durasi||'')+'" '+dis+ev+'></td>'
     +'<td><input class="inp" data-r="kegiatan" placeholder="Kegiatan" value="'+esc(r.kegiatan||'')+'" '+dis+'></td>'
     +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rundownDelRow(this)">×</button></td>':'')
     +'</tr>';
@@ -2669,7 +2769,12 @@ function genBriefFor(id,mode){
 }
 function fmtFieldVal(fl,val){
   if(val==null||val===''||(Array.isArray(val)&&!val.length))return null;
-  if(fl.t==='rundown'){ const rows=rundownRows(val); if(!rows.length)return null; return rows.map(r=>(r.waktu?r.waktu+' — ':'')+r.kegiatan).join('\n'); }
+  if(fl.t==='rundown'){ const rows=rundownRows(val); if(!rows.length)return null;
+    return rows.map(r=>{
+      const jam=[r.mulai,r.selesai].filter(Boolean).join('–');
+      const dur=r.durasi?' ('+r.durasi+' mnt)':'';
+      return (jam?jam+dur+' — ':'')+(r.kegiatan||'');
+    }).join('\n'); }
   if(fl.t==='ynnote'){ const o=ynnoteVal(val); if(o.v===undefined&&!o.note)return null; return (o.v?'Ya':'Tidak')+(o.note?' — '+o.note:''); }
   if(fl.t==='multi')return val.join(', ');
   if(fl.t==='tog')return (val===true||(val&&val.v))?'Ya':null;
