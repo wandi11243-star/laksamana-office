@@ -257,6 +257,13 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .tab.active .tn{background:var(--gold);color:#fff}
 .section-title{font-size:16px;margin-bottom:4px}
 .section-desc{font-size:12.5px;color:var(--muted);margin-bottom:18px}
+/* Tab Overview — rangkuman baca-saja. Dua kolom: label & isi. */
+.ov-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.ov-tbl td{padding:8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.ov-k{color:var(--muted);width:38%;padding-right:14px}
+.ov-v{font-weight:600;word-break:break-word}
+@media(max-width:640px){ .ov-tbl td{display:block;border:0;padding:2px 0}
+  .ov-k{width:auto;font-size:12px} .ov-v{padding-bottom:10px;border-bottom:1px solid var(--line)} }
 
 /* kanban */
 .kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:12px;overflow-x:auto;padding-bottom:8px}
@@ -1167,11 +1174,21 @@ const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
    user ini tetap tidak dirender.
 
    Tab yang seluruh section-nya tidak terlihat -> tabnya ikut disembunyikan. */
+/* Urutan sengaja: Informasi Dasar -> Operasional -> Finance -> Overview.
+   Mengikuti alur kerja nyata (isi dasar, siapkan operasional, baru uang),
+   dan Finance tetap di belakang karena section-nya `fin:1` — tersembunyi
+   dari kru operasional, jadi bagi mereka tab terakhir yang terlihat adalah
+   Operasional lalu langsung Overview.
+
+   Overview TIDAK punya section: dia rangkuman dari isian tab-tab sebelumnya
+   (lihat renderOverview). Karena `secs` kosong, visibleTabs() akan
+   menyembunyikannya kalau tidak diberi penanda `always`. */
 const TAB_DEF = [
   { id:'basic',       n:'1', title:'Informasi Dasar', secs:['basic'] },
-  { id:'finance',     n:'2', title:'Finance',         secs:['cashier','finance'] },
-  { id:'operasional', n:'3', title:'Operasional',
-    secs:['kitchen','bar','floor','guest','security','brief','design','attach','pic'] }
+  { id:'operasional', n:'2', title:'Operasional',
+    secs:['kitchen','bar','floor','guest','security','brief','design','attach','pic'] },
+  { id:'finance',     n:'3', title:'Finance',         secs:['cashier','finance'] },
+  { id:'overview',    n:'4', title:'Overview',        secs:[], always:1 }
 ];
 const TAB_BY_ID = Object.fromEntries(TAB_DEF.map(t=>[t.id,t]));
 // Section milik satu tab yang boleh dilihat user ini (urut sesuai TAB_DEF.secs).
@@ -1180,7 +1197,9 @@ function visibleSecsOfTab(tabId){
   const vis=visibleSections();
   return tab.secs.map(id=>vis.find(s=>s.id===id)).filter(Boolean);
 }
-function visibleTabs(){ return TAB_DEF.filter(t=>visibleSecsOfTab(t.id).length>0); }
+// `always` untuk tab tanpa section (Overview) — dia merangkum isian tab lain,
+// jadi tidak boleh ikut tersembunyi hanya karena secs-nya kosong.
+function visibleTabs(){ return TAB_DEF.filter(t=>t.always || visibleSecsOfTab(t.id).length>0); }
 function nextTabId(cur){
   const l=visibleTabs(), i=l.findIndex(t=>t.id===cur);
   return (i>=0 && i<l.length-1) ? l[i+1].id : null;
@@ -2097,6 +2116,8 @@ function switchEventTab(secId,evId){
 }
 function renderEventTab(ev,canEdit){
   const tab=TAB_BY_ID[curTab]; if(!tab)return;
+  // Overview: rangkuman baca-saja dari isian tab lain, bukan formulir.
+  if(tab.id==='overview'){ $('ev-tab-content').innerHTML=renderOverview(ev); return; }
   const secs=visibleSecsOfTab(tab.id);
   if(!secs.length){ $('ev-tab-content').innerHTML=''; return; }
   // Satu tab bisa memuat beberapa section: tiap section jadi satu kartu
@@ -2656,6 +2677,38 @@ function fmtFieldVal(fl,val){
   if(fl.t==='cur')return rp(val);
   if(fl.t==='num')return String(val);
   return String(val);
+}
+/* ---------- Tab OVERVIEW ----------
+   Rangkuman baca-saja dari seluruh isian, supaya tidak perlu membuka tab satu
+   per satu untuk melihat apa yang sudah/belum diisi.
+
+   Sengaja memakai fmtFieldVal() yang sama dengan pembuat brief/PDF — kalau
+   pakai pemformat sendiri, angka di layar bisa beda dengan yang tercetak.
+   Hak akses tetap dihormati: hanya section yang boleh dilihat user ini
+   (visibleSections) yang dirangkum, jadi kru operasional tidak melihat
+   ketentuan pembayaran klien di sini. */
+function renderOverview(ev){
+  const secs = visibleSections();
+  let h = '', totalIsi = 0, totalField = 0;
+  secs.forEach(sec=>{
+    const baris = [];
+    sec.fields.forEach(fl=>{
+      if(fl.t==='head' || fl.t==='files') return;        // sub-judul & lampiran bukan nilai
+      if(!fieldVisible(ev,fl)) return;                   // field bersyarat yang sedang tidak aktif
+      totalField++;
+      const v = fmtFieldVal(fl, ev.detail[fl.k]);
+      if(v==null || v==='') return;
+      totalIsi++;
+      baris.push('<tr><td class="ov-k">'+esc(fl.l)+'</td><td class="ov-v">'+esc(String(v)).replace(/\n/g,'<br>')+'</td></tr>');
+    });
+    if(!baris.length) return;                            // section kosong tidak usah ditampilkan
+    h += '<div class="card"><h3 class="section-title">'+sec.n+' · '+esc(sec.title)+'</h3>'
+       + '<table class="ov-tbl">'+baris.join('')+'</table></div>';
+  });
+  const kepala = '<div class="card"><h3 class="section-title">Overview</h3>'
+    + '<p class="section-desc">Rangkuman semua isian event ini. '
+    + '<b>'+totalIsi+'</b> dari '+totalField+' isian sudah terisi.</p></div>';
+  return kepala + (h || '<div class="card"><p class="section-desc">Belum ada isian sama sekali.</p></div>');
 }
 function qrow(label,val){ val=+val||0; if(!val)return ''; return '<tr><td style="padding:7px 14px;border-bottom:1px solid #f0f0f0">'+label+'</td><td style="text-align:right;padding:7px 14px;border-bottom:1px solid #f0f0f0">'+rp(val)+'</td></tr>'; }
 // Field yang tampil di dokumen VERSI CLIENT — hanya info yang penting/perlu dikonfirmasi client,
