@@ -389,6 +389,14 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .seg button{padding:6px 13px;border:none;background:none;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:.14s}
 .seg button.on{background:var(--gold);color:#fff}
 
+/* Kotak jam: ikon pemilih dibuat kentara supaya terlihat bisa diklik.
+   Bawaannya samar dan orang mengira kotaknya cuma bisa diketik. */
+.inp-jam::-webkit-calendar-picker-indicator{
+  opacity:.8;cursor:pointer;padding:2px;border-radius:4px;
+  filter:invert(45%) sepia(70%) saturate(600%) hue-rotate(2deg);   /* jadi emas */
+}
+.inp-jam::-webkit-calendar-picker-indicator:hover{opacity:1;background:var(--gold-glow)}
+.rundown-tbl td .inp-jam{padding-right:4px}
 /* rundown tabel */
 .rundown-wrap{border:1px solid var(--line-hard);border-radius:11px;overflow:hidden;background:var(--ink-900)}
 .rundown-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -2914,6 +2922,27 @@ function rundownParseText(txt){
      - ubah SELESAI  -> durasi ikut menyesuaikan
    Data lama yang cuma punya {waktu, kegiatan} tetap terbaca: `waktu` dipakai
    sebagai jam mulai (lihat rundownRows). */
+/* Kotak jam pada tabel rundown: memakai input jam bawaan browser, jadi ada
+   ikon jam dan pemilihnya — mengetik "09:00" satu per satu itu lambat dan
+   gampang salah.
+
+   Nilai lama yang ditulis "09.00" (pakai titik) dinormalkan dulu ke "09:00",
+   karena input jam bawaan hanya menerima bentuk itu.
+
+   Kalau nilainya TIDAK berbentuk jam sama sekali — misalnya hasil OCR rundown
+   lama yang berbunyi "sore" — kotaknya tetap kotak teks biasa. Kalau
+   dipaksakan jadi input jam, nilainya akan hilang dari layar tanpa jejak dan
+   orang mengira datanya terhapus. */
+function jamCell(nama, nilai, dis, hook){
+  const norm = jamKeMenit(nilai);
+  if(nilai && norm===null){
+    return '<input class="inp" data-r="'+nama+'" value="'+esc(nilai)+'" '
+         + 'title="Bentuknya belum dikenali. Ketik ulang mis. 09:00 supaya bisa memakai pemilih jam." '
+         + dis+hook+'>';
+  }
+  return '<input class="inp inp-jam" type="time" data-r="'+nama+'" '
+       + 'value="'+(norm!==null?menitKeJam(norm):'')+'" '+dis+hook+'>';
+}
 function jamKeMenit(s){
   const m=String(s||'').match(/^(\d{1,2})[:.](\d{2})$/); if(!m)return null;
   const h=+m[1], mi=+m[2]; if(h>23||mi>59)return null; return h*60+mi;
@@ -2967,10 +2996,12 @@ function rundownSambung(tr){
 function rundownRowHTML(r,canEdit){
   r=r||{}; const dis=canEdit?'':'disabled';
   const ev=canEdit?' oninput="rundownHitung(this,\'durasi\')"':'';
-  const es=canEdit?' oninput="rundownHitung(this,\'selesai\')"':'';
+  // 'change' ikut dipasang: memilih jam lewat ikon pemilih tidak selalu
+  // memicu 'input' di semua browser, dan tanpa ini durasinya tidak terhitung.
+  const es=canEdit?' oninput="rundownHitung(this,\'selesai\')" onchange="rundownHitung(this,\'selesai\')"':'';
   return '<tr>'
-    +'<td><input class="inp" data-r="mulai" placeholder="09:00" value="'+esc(r.mulai||r.waktu||'')+'" '+dis+es+'></td>'
-    +'<td><input class="inp" data-r="selesai" placeholder="10:00" value="'+esc(r.selesai||'')+'" '+dis+es+'></td>'
+    +'<td>'+jamCell('mulai',   r.mulai||r.waktu||'', dis, es)+'</td>'
+    +'<td>'+jamCell('selesai', r.selesai||'',        dis, es)+'</td>'
     +'<td><input class="inp" data-r="durasi" placeholder="60" title="menit — ketik ini, jam selesai terhitung sendiri" value="'+esc(r.durasi||'')+'" '+dis+ev+'></td>'
     +'<td><input class="inp" data-r="kegiatan" placeholder="Kegiatan" value="'+esc(r.kegiatan||'')+'" '+dis+'></td>'
     +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rundownDelRow(this)">×</button></td>':'')
