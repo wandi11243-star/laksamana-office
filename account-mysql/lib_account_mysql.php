@@ -1,6 +1,6 @@
 <?php
 /************************************************************************
- * OFFICE IDENTITY LAYER — Backend PHP + MySQL
+ * ACCOUNT — Backend PHP + MySQL (daftar user & hak akses Office)
  * ---------------------------------------------------------------------
  * Pengganti Apps Script + Google Sheet yang selama ini memegang daftar
  * user Office. Kontraknya DISALIN PERSIS dari docs/office-apps-script.gs:

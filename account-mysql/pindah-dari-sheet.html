@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pindahkan Daftar User dari Google Sheet</title>
+<style>
+:root{--gold:#A9791F;--gold-deep:#7a560f;--line:rgba(60,55,45,.18);--sand:#2a2620;
+      --muted:#928c80;--ok:#1f9d5f;--danger:#c9432b;--bg:#f7f6f4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--sand);font:14px/1.55 Inter,system-ui,Segoe UI,sans-serif;padding:28px 16px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 4px 18px rgba(50,42,28,.06)}
+.card h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:9px}
+.n{flex:none;width:24px;height:24px;border-radius:7px;background:var(--gold);color:#fff;
+   font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+label{display:block;font-size:12px;font-weight:600;color:#5c574d;margin:12px 0 5px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fff}
+input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(169,121,31,.13)}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:180px}
+button{background:linear-gradient(135deg,var(--gold),var(--gold-deep));color:#fff;border:0;
+       padding:11px 18px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer;margin-top:16px}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:#fff;border:1px solid var(--line);color:var(--sand)}
+pre{background:#f2f0ec;border-radius:9px;padding:12px;font-size:12px;overflow:auto;max-height:280px;white-space:pre-wrap}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--danger);font-weight:600}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.warn{background:rgba(181,131,26,.12);border:1px solid rgba(181,131,26,.3);border-radius:9px;padding:11px 13px;font-size:12.5px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:10px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pindahkan Daftar User dari Google Sheet</h1>
+  <p class="sub">Menyalin isi tab <b>Users</b>, <b>Modules</b>, <b>Grants</b>, dan <b>Admins</b> dari Apps Script lama ke database <code>account</code>. Dijalankan sekali. Aman diulang kalau terputus.</p>
+
+  <div class="warn">
+    <b>PIN Anda tidak dikirim ke mana pun selain kedua server itu sendiri.</b>
+    Halaman ini berjalan di browser Anda; PIN dipakai untuk membuktikan ke Apps Script
+    dan ke server account bahwa Anda memang superadmin. Tidak ada yang disimpan.
+  </div>
+
+  <div class="card">
+    <h2><span class="n">1</span> Kredensial untuk membaca Sheet</h2>
+    <p class="note" style="margin-top:0">Akun superadmin Office Anda, dengan PIN yang <b>sekarang dipakai sehari-hari</b>.</p>
+    <div class="row">
+      <div><label>Nama pengguna</label><input id="nama" placeholder="mis. Howandi" autocomplete="off"></div>
+      <div><label>PIN asli</label><input id="pin" type="password" placeholder="PIN Office Anda" autocomplete="off"></div>
+    </div>
+    <button id="btnAmbil">Ambil data dari Sheet</button>
+    <div id="hasil1"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span> Kredensial untuk menulis ke database baru</h2>
+    <p class="note" style="margin-top:0">
+      <b>Ini biasanya BERBEDA dari yang di atas.</b> Database baru masih berisi akun benih
+      (Admin / Howandi / Wandi dengan PIN <code>1111</code>), sedangkan PIN asli Anda baru
+      akan berlaku <i>setelah</i> pemindahan ini selesai. Jadi di sini pakai akun benihnya.
+    </p>
+    <div class="row">
+      <div><label>Nama pengguna</label><input id="nama2" value="Admin" autocomplete="off"></div>
+      <div><label>PIN</label><input id="pin2" type="password" value="1111" autocomplete="off"></div>
+    </div>
+    <label>Alamat server account</label>
+    <input id="apiUrl" value="./api.php">
+    <p class="note">Halaman ini diletakkan di dalam folder <code>account-api-mysql/</code>, jadi <code>./api.php</code> sudah tepat.</p>
+  </div>
+
+  <div class="card" id="kartu2" style="display:none">
+    <h2><span class="n">3</span> Periksa dulu, baru pindahkan</h2>
+    <div id="ringkas"></div>
+    <button id="btnPindah">Pindahkan ke database</button>
+    <button class="ghost" onclick="location.reload()">Batal</button>
+    <div id="hasil2"></div>
+  </div>
+
+  <div class="card" id="kartu4" style="display:none">
+    <h2><span class="n">4</span> Bersihkan akun benih</h2>
+    <p class="note" style="margin-top:0">
+      Akun yang ada di database tapi <b>TIDAK ada di Sheet</b> — biasanya akun bawaan
+      yang id-nya berbeda, jadi tidak tertimpa saat pemindahan. Karena akun bawaan
+      berstatus superadmin, itu pintu terbuka. Nonaktifkan.
+      <br><br>
+      Staf asli yang PIN-nya kebetulan <code>1111</code> <b>tidak</b> muncul di sini.
+      Di Laksamana Muda 1111 adalah PIN default, jadi PIN bukan penanda akun bawaan.
+    </p>
+    <div id="sisa"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">5</span> Setelah selesai</h2>
+    <p class="note" style="margin-top:0">
+      Hapus berkas <code>pindah-dari-sheet.html</code> ini dari server setelah dipakai.
+      Lalu buka <code>?action=stats</code> untuk memastikan jumlah user-nya sudah sesuai,
+      dan coba login dengan akun asli Anda.
+    </p>
+  </div>
+</div>
+
+<script>
+const LEGACY = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
+const $ = id => document.getElementById(id);
+let DATA = null;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function post(url, body){
+  const r = await fetch(url, { method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body) });
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+$('btnAmbil').onclick = async () => {
+  const nama = $('nama').value.trim(), pin = $('pin').value.trim();
+  const out = $('hasil1');
+  if(!nama || !pin){ out.innerHTML = '<p class="bad">Nama dan PIN wajib diisi.</p>'; return; }
+  out.innerHTML = '<p class="note">Menghubungi Apps Script… (bisa 15–25 detik, memang selambat itu)</p>';
+  $('btnAmbil').disabled = true;
+  try{
+    // listUsers sudah mengembalikan users + grants mentah + adminModules sekaligus.
+    const u = await post(LEGACY, { action:'listUsers', callerName:nama, callerPin:pin });
+    if(!u.ok) throw new Error(u.error === 'forbidden'
+      ? 'Ditolak: akun ini bukan superadmin, atau PIN-nya salah.' : (u.error||'gagal'));
+    const m = await post(LEGACY, { action:'listModules', callerName:nama, callerPin:pin, all:true });
+
+    // Bentuk ulang jadi payload `import`.
+    const users = [], grants = [], admins = [];
+    (u.users||[]).forEach(x => {
+      users.push({ id:x.id, name:x.name, pin:x.pin, active:x.active, keterangan:x.keterangan||'' });
+      (x.grants||[]).forEach(g => grants.push({ userId:x.id, module:g, access:'TRUE' }));
+      (x.adminModules||[]).forEach(a => admins.push({ userId:x.id, module:a }));
+    });
+    DATA = { users, grants, admins, modules:(m.ok?m.modules:[])||[] };
+    out.innerHTML = '<p class="ok">Berhasil dibaca dari Sheet.</p>';
+    tampilkanRingkas();
+    $('kartu2').style.display = '';
+    // Digulirkan kalau bisa. Jangan sampai kegagalan menggulir terbaca
+    // sebagai kegagalan membaca Sheet — isinya sudah berhasil diambil.
+    try{ $('kartu2').scrollIntoView({behavior:'smooth'}); }catch(_){}
+  }catch(e){
+    out.innerHTML = '<p class="bad">Gagal: ' + esc(e.message) + '</p>';
+  }finally{ $('btnAmbil').disabled = false; }
+};
+
+function tampilkanRingkas(){
+  const d = DATA;
+  $('ringkas').innerHTML =
+    '<p>Yang akan dipindahkan: <b>' + d.users.length + ' user</b>, ' + d.modules.length +
+    ' modul, ' + d.grants.length + ' hak akses, ' + d.admins.length + ' admin.</p>' +
+    '<table><thead><tr><th>Nama</th><th>Aktif</th><th>Modul</th><th>Superadmin</th></tr></thead><tbody>' +
+    d.users.map(x => {
+      const g = d.grants.filter(y => y.userId === x.id).map(y => y.module);
+      const su = d.admins.some(y => y.userId === x.id && y.module === '*');
+      return '<tr><td><b>' + esc(x.name) + '</b></td><td>' + (x.active ? 'ya' : 'tidak') +
+             '</td><td>' + esc(g.join(', ') || '—') + '</td><td>' + (su ? 'ya' : '') + '</td></tr>';
+    }).join('') + '</tbody></table>' +
+    '<p class="note">PIN ikut dipindahkan apa adanya, jadi semua orang tetap memakai PIN yang sekarang. ' +
+    'Akun yang id-nya sudah ada di database akan <b>diperbarui</b>, bukan digandakan. ' +
+    'Tidak ada baris yang dihapus.</p>';
+}
+
+
+/* ---- Pembersih akun benih ----
+   Import memakai id sebagai kunci. Kalau Sheet memakai id yang berbeda untuk
+   orang yang sama, baris benih (PIN 1111, superadmin) TIDAK tertimpa dan
+   tetap hidup di database. Itu pintu terbuka, jadi ditunjukkan dan bisa
+   langsung dinonaktifkan di sini.
+
+   Dinonaktifkan, bukan dihapus: bisa dibalik kalau ternyata salah, dan
+   riwayat grant-nya tidak ikut hilang. */
+async function periksaSisa(){
+  const nama = $('nama2').value.trim(), pin = $('pin2').value.trim();
+  const kotak = $('sisa');
+  let r;
+  try{
+    r = await post($('apiUrl').value.trim(), { action:'listUsers', callerName:nama, callerPin:pin });
+  }catch(e){ return; }
+  if(!r.ok){
+    // PIN benih sudah tertimpa PIN asli -> justru pertanda bagus.
+    $('kartu4').style.display='';
+    kotak.innerHTML = '<p class="ok">Akun benih sudah tertimpa data dari Sheet '
+      + '(kredensial lamanya tidak berlaku lagi). Tidak ada yang perlu dibersihkan.</p>';
+    return;
+  }
+  /* Akun benih = yang TIDAK ada di data Sheet yang barusan dipindahkan.
+     JANGAN memakai "PIN 1111" sebagai penanda: di Laksamana Muda 1111 adalah
+     PIN default organisasi, jadi puluhan staf ASLI memakainya. Versi pertama
+     alat ini memakai patokan itu dan menandai 22 staf asli sebagai akun benih
+     yang harus dimatikan — kalau ditekan, 22 orang terkunci di luar sistem. */
+  const dariSheet = new Set((DATA && DATA.users ? DATA.users : []).map(u => String(u.id)));
+  const sisa = r.users.filter(u => u.active && !dariSheet.has(String(u.id)));
+  $('kartu4').style.display='';
+  if(!sisa.length){
+    kotak.innerHTML = '<p class="ok">Semua akun di database berasal dari Sheet. '
+      + 'Tidak ada akun bawaan yang tertinggal — aman.</p>';
+    return;
+  }
+  const totalSuper = r.users.filter(u => u.active && (u.adminModules||[]).includes('*')).length;
+  kotak.innerHTML =
+    '<p class="bad">' + sisa.length + ' akun tidak ada di Sheet dan masih aktif:</p>' +
+    '<table><thead><tr><th>Nama</th><th>id</th><th>Superadmin</th><th></th></tr></thead><tbody>' +
+    sisa.map(u => {
+      const su = (u.adminModules||[]).includes('*');
+      // Data ditaruh di atribut, bukan dirangkai ke dalam onclick — nama yang
+      // mengandung petik tidak akan merusak halamannya.
+      return '<tr><td><b>' + esc(u.name) + '</b></td><td>' + esc(u.id) + '</td><td>' +
+        (su ? 'ya' : '') + '</td><td><button class="ghost btn-mati" style="margin:0;padding:5px 11px" ' +
+        'data-id="' + esc(u.id) + '" data-nama="' + esc(u.name) + '" data-su="' + (su?1:0) + '">' +
+        'Nonaktifkan</button></td></tr>';
+    }).join('') + '</tbody></table>' +
+    '<p class="note">Periksa sekali lagi: nama di atas memang BUKAN staf Anda. '
+    + 'Pastikan juga Anda sudah bisa login dengan akun asli sebelum menonaktifkan yang terakhir.</p>';
+  kotak.querySelectorAll('.btn-mati').forEach(b => {
+    b.onclick = () => matikan(b.dataset.id, b.dataset.nama, b.dataset.su === '1', totalSuper);
+  });
+}
+async function matikan(id, nama, superadmin, totalSuper){
+  if(superadmin && totalSuper <= 1){
+    alert('Ini satu-satunya superadmin aktif. Menonaktifkannya membuat tidak ada '
+      + 'yang bisa mengelola akses lagi. Pindahkan dulu data Sheet-nya, atau angkat '
+      + 'superadmin lain.'); return;
+  }
+  if(!confirm('Nonaktifkan akun "' + nama + '"? Dia tidak akan bisa login lagi. '
+    + 'Bisa diaktifkan kembali lewat konsol Kelola User.')) return;
+  const r = await post($('apiUrl').value.trim(), { action:'saveUser',
+    callerName:$('nama2').value.trim(), callerPin:$('pin2').value.trim(),
+    id:id, name:nama, pin:'1111', active:false });
+  if(!r.ok){ alert('Gagal: ' + (r.error||'')); return; }
+  await periksaSisa();
+}
+
+$('btnPindah').onclick = async () => {
+  // Kredensial DATABASE BARU (langkah 2), bukan kredensial Sheet: PIN asli
+  // Anda baru berlaku di sini SETELAH pemindahan ini selesai.
+  const nama = $('nama2').value.trim(), pin = $('pin2').value.trim();
+  const out = $('hasil2');
+  out.innerHTML = '<p class="note">Mengirim ke database…</p>';
+  $('btnPindah').disabled = true;
+  try{
+    const r = await post($('apiUrl').value.trim(),
+      Object.assign({ action:'import', callerName:nama, callerPin:pin }, DATA));
+    if(!r.ok) throw new Error(r.error === 'forbidden'
+      ? 'Ditolak oleh server account. Periksa langkah 2: pakai akun benih (Admin / PIN 1111), bukan PIN asli Anda — PIN asli baru berlaku setelah pemindahan ini.'
+      : (r.error||'gagal'));
+    const n = r.diproses || {};
+    out.innerHTML = '<p class="ok">Selesai. ' + (n.users||0) + ' user, ' + (n.modules||0) +
+      ' modul, ' + (n.grants||0) + ' hak akses, ' + (n.admins||0) + ' admin diproses.</p>' +
+      '<p class="note">Coba login dengan akun asli Anda sekarang.</p>';
+    await periksaSisa();
+  }catch(e){
+    out.innerHTML = '<p class="bad">Gagal: ' + esc(e.message) + '</p>';
+  }finally{ $('btnPindah').disabled = false; }
+};
+</script>
+</body>
+</html>

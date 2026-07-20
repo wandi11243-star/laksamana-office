@@ -1,13 +1,13 @@
 <?php
 /************************************************************************
- * OFFICE IDENTITY LAYER — Konfigurasi
+ * ACCOUNT — Konfigurasi
  * ---------------------------------------------------------------------
- * SATU-SATUNYA file yang perlu diedit. lib_office_mysql.php tidak usah
+ * SATU-SATUNYA file yang perlu diedit. lib_account_mysql.php tidak usah
  * disentuh.
  *
  * CARA DAPAT KREDENSIAL DI RUMAHWEB (cPanel):
  *   1. cPanel > "MySQL Databases".
- *   2. Buat database baru, mis. "lakk5493_db_office".
+ *   2. Buat database baru, mis. "lakk5493_db_account".
  *   3. Buat user MySQL + password, lalu "Add User to Database"
  *      (ALL PRIVILEGES).
  *   4. Salin nama db, user, dan password ke bawah ini.
@@ -19,8 +19,8 @@
 // ---------- KONEKSI DATABASE ----------
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
-define('DB_NAME', 'lakk5493_db_office');   // di cPanel diketik "db_office"
-define('DB_USER', 'lakk5493_office');      // di cPanel diketik "office"
+define('DB_NAME', 'lakk5493_db_account');   // di cPanel diketik "db_account"
+define('DB_USER', 'lakk5493_account');      // di cPanel diketik "account"
 define('DB_PASS', 'ISI_PASSWORD_DI_SINI');
 define('DB_CHARSET', 'utf8mb4');
 
