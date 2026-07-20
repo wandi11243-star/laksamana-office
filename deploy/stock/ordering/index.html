@@ -171,6 +171,12 @@
                  panel "Pengaturan Sinkronisasi Server" yang dihapus. -->
             <div id="nav-admin-sec" class="hidden">
               <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-4 pb-2">Admin</div>
+              <!-- Daftar Restock ditaruh PALING ATAS di grup Admin: ini satu-satunya
+                   halaman admin yang dipakai tiap hari (jawaban "hari ini pesan apa"),
+                   sementara Data Forecast & Kelola Akses sifatnya sesekali. -->
+              <button id="tab-restock" onclick="switchTab('restock')" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
+                  <i class="fa-solid fa-clipboard-list w-5 text-center"></i> Daftar Restock
+              </button>
               <button id="tab-forecast" onclick="switchTab('forecast')" class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
                   <i class="fa-solid fa-chart-line w-5 text-center"></i> Data Forecast
               </button>
@@ -200,6 +206,7 @@
         <div class="md:hidden flex items-center gap-1 bg-slate-100 rounded-lg p-1">
             <button onclick="switchTab('order')" class="tab-btn-mobile px-3 py-1.5 text-xs font-bold rounded-md bg-white text-indigo-600" data-tab="order"><i class="fa-solid fa-cart-plus"></i></button>
             <button onclick="switchTab('checkin')" class="tab-btn-mobile px-3 py-1.5 text-xs font-bold rounded-md text-slate-500" data-tab="checkin"><i class="fa-solid fa-clipboard-check"></i></button>
+            <button id="tab-restock-m" onclick="switchTab('restock')" class="tab-btn-mobile hidden px-3 py-1.5 text-xs font-bold rounded-md text-slate-500" data-tab="restock"><i class="fa-solid fa-clipboard-list"></i></button>
             <button id="tab-forecast-m" onclick="switchTab('forecast')" class="tab-btn-mobile hidden px-3 py-1.5 text-xs font-bold rounded-md text-slate-500" data-tab="forecast"><i class="fa-solid fa-chart-line"></i></button>
             <button id="tab-users-m" onclick="switchTab('users')" class="tab-btn-mobile hidden px-3 py-1.5 text-xs font-bold rounded-md text-slate-500" data-tab="users"><i class="fa-solid fa-users-gear"></i></button>
         </div>
@@ -422,6 +429,67 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <!-- ============================================== -->
+        <!-- DAFTAR RESTOCK (KHUSUS ADMIN)                  -->
+        <!-- Kembaran halaman 1_Restock.py: seluruh katalog -->
+        <!-- diurutkan menurut urgensi, supaya "hari ini    -->
+        <!-- pesan apa" terjawab tanpa mengklik satu-satu.  -->
+        <!-- ============================================== -->
+        <div id="view-restock" class="hidden">
+            <div class="rounded-2xl p-5 text-white shadow-md space-y-2 mb-5" style="background:linear-gradient(120deg,#5C440F,#A9791F)">
+                <span class="text-[9px] font-bold tracking-widest text-amber-200 uppercase block">Khusus Admin</span>
+                <h2 class="text-lg font-black brand-font">Daftar Restock</h2>
+                <p class="text-[11px] text-amber-100/80 font-semibold leading-relaxed">
+                    Bahan apa yang perlu dipesan hari ini, berapa banyak, dan berapa lama stok sekarang masih cukup.
+                </p>
+            </div>
+
+            <!-- Kartu hitung cepat per status -->
+            <div id="restock-tally" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4"></div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div id="restock-nostock-note" class="hidden mb-3 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 leading-relaxed">
+                    Stok hari ini belum diunggah, jadi kolom stok masih kosong dan status belum bisa dihitung.
+                    Unggah di <b>Data Forecast</b> supaya daftar ini terisi.
+                </div>
+
+                <div class="flex flex-wrap items-center gap-2 mb-3">
+                    <input type="search" id="restock-search" oninput="renderRestockTable()" placeholder="Cari bahan…"
+                           class="flex-1 min-w-[140px] border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none">
+                        <input type="checkbox" id="restock-only-act" checked onchange="renderRestockTable()"
+                               class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                        Hanya yang perlu ditindak
+                    </label>
+                    <button onclick="unduhRestockCsv()" class="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-bold flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-arrow-down"></i> Unduh CSV
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto -mx-1 px-1">
+                    <table class="w-full text-xs">
+                        <thead>
+                            <tr class="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-left border-b border-slate-100">
+                                <th class="py-2 pr-2">Bahan</th>
+                                <th class="py-2 px-2 whitespace-nowrap">Status</th>
+                                <th class="py-2 px-2 text-right whitespace-nowrap">Stok kini</th>
+                                <th class="py-2 px-2 text-right whitespace-nowrap">Pesan saat sisa</th>
+                                <th class="py-2 px-2 text-right whitespace-nowrap">Saran pesan</th>
+                                <th class="py-2 pl-2 text-right whitespace-nowrap">Cukup sampai</th>
+                            </tr>
+                        </thead>
+                        <tbody id="restock-body"></tbody>
+                    </table>
+                </div>
+                <div id="restock-more" class="text-[10px] font-semibold text-slate-400 mt-2"></div>
+                <p class="text-[10px] text-slate-400 font-semibold mt-3 leading-relaxed">
+                    Semua angka memakai satuan asli tiap bahan. Saran pesan = isi ulang sampai cukup sekitar 14 hari pemakaian.
+                    Perkiraan "cukup sampai" sudah memperhitungkan pemakaian yang naik saat akhir pekan.
+                </p>
+            </div>
+
         </div>
 
         <!-- ============================================== -->
@@ -1111,6 +1179,7 @@
             // seperti Konten dan Reservasi.
             // Tab "Data Forecast" & "Kelola Akses" khusus admin — pengganti panel Pengaturan.
             document.getElementById('nav-admin-sec').classList.toggle('hidden', !isAdmin);
+            document.getElementById('tab-restock-m').classList.toggle('hidden', !isAdmin);
             document.getElementById('tab-forecast-m').classList.toggle('hidden', !isAdmin);
             document.getElementById('tab-users-m').classList.toggle('hidden', !isAdmin);
 
@@ -1214,6 +1283,7 @@
             document.getElementById('view-order').classList.add('hidden');
             document.getElementById('view-checkin').classList.add('hidden');
             document.getElementById('view-forecast').classList.add('hidden');
+            document.getElementById('view-restock').classList.add('hidden');
             document.getElementById('view-users').classList.add('hidden');
 
             // Nav sidebar: reset lalu tandai aktif. Kelas nav-item = shell Office.
@@ -1225,6 +1295,8 @@
             btnCheckin.innerHTML = '<i class="fa-solid fa-clipboard-check w-5 text-center"></i> Check-in Penerimaan';
             btnOrder.className   = tabId === 'order'   ? NAV_ON : NAV_OFF;
             btnCheckin.className = tabId === 'checkin' ? NAV_ON : NAV_OFF;
+            const btnRs = document.getElementById('tab-restock');
+            if (btnRs) btnRs.className = tabId === 'restock' ? NAV_ON : NAV_OFF;
             const btnFc = document.getElementById('tab-forecast');
             if (btnFc) btnFc.className = tabId === 'forecast' ? NAV_ON : NAV_OFF;
             const btnUsers = document.getElementById('tab-users');
@@ -1240,6 +1312,10 @@
             if(tabId === 'order') {
                 document.getElementById('view-order').classList.remove('hidden');
                 document.getElementById('view-order').classList.add('block');
+            } else if(tabId === 'restock') {
+                document.getElementById('view-restock').classList.remove('hidden');
+                document.getElementById('view-restock').classList.add('block');
+                renderRestockTable();
             } else if(tabId === 'forecast') {
                 document.getElementById('view-forecast').classList.remove('hidden');
                 document.getElementById('view-forecast').classList.add('block');
@@ -1672,6 +1748,7 @@
             updateStockBadge();
             renderForecastStatus(payload, stockMap);
             buildForecastHealth(payload);   // tabel keandalan, sumber data sama
+            renderRestockTable();
             // Bila database item (App Script) belum tersedia, pakai daftar bahan
             // dari data prakiraan sebagai sumber autocomplete.
             if ((!globalItemsData || globalItemsData.length === 0) && payload && payload.items) {
@@ -1692,6 +1769,101 @@
             el.innerHTML =
                 baris(nItem>0,  nItem>0  ? `Data prakiraan termuat — <b>${nItem}</b> bahan.` : `Data prakiraan belum ada.`) +
                 baris(nStock>0, nStock>0 ? `Stok hari ini termuat — <b>${nStock}</b> bahan${stockAsOf?` (per ${stockAsOf})`:''}.` : `Stok hari ini belum diunggah.`);
+        }
+
+        /* ============================================================
+         * DAFTAR RESTOCK + LONJAKAN
+         * Hitungannya ada di laksamana-forecast.js (restockTable);
+         * di sini hanya menggambar.
+         * ============================================================ */
+        const RESTOCK_LIMIT = 80;       // batas baris; katalog penuh ~220 bahan
+
+        function renderRestockTable() {
+            const body = document.getElementById('restock-body');
+            if (!body) return;
+            const tally = document.getElementById('restock-tally');
+            const sisa = document.getElementById('restock-more');
+            const catatan = document.getElementById('restock-nostock-note');
+
+            const semua = forecastBook.restockTable();
+            if (!semua.length) {
+                body.innerHTML = `<tr><td colspan="6" class="py-3 text-slate-400 font-semibold">Data prakiraan belum termuat.</td></tr>`;
+                if (tally) tally.innerHTML = '';
+                if (sisa) sisa.textContent = '';
+                return;
+            }
+
+            // Peringatan bila stok belum diunggah: tanpa stok, status tidak bisa dihitung.
+            const adaStok = semua.some(r => r.stockNow != null);
+            if (catatan) catatan.classList.toggle('hidden', adaStok);
+
+            if (tally) {
+                const t = LaksForecast.restockTally(semua);
+                const kartu = [
+                    ['Pesan sekarang', t.order, 'bg-rose-50 text-rose-700 border-rose-100'],
+                    ['Segera siapkan', t.soon,  'bg-amber-50 text-amber-700 border-amber-100'],
+                    ['Aman',           t.safe,  'bg-emerald-50 text-emerald-700 border-emerald-100'],
+                    ['Belum ada stok', t.other, 'bg-slate-50 text-slate-600 border-slate-200'],
+                ];
+                tally.innerHTML = kartu.map(([label, n, cls]) => `
+                    <div class="rounded-xl border px-3 py-2.5 ${cls}">
+                        <div class="text-lg font-black leading-none">${n}</div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider mt-1">${label}</div>
+                    </div>`).join('');
+            }
+
+            const rows = forecastBook.restockTable({
+                actionableOnly: document.getElementById('restock-only-act')?.checked && adaStok,
+                search: document.getElementById('restock-search')?.value || '',
+            });
+
+            if (!rows.length) {
+                body.innerHTML = `<tr><td colspan="6" class="py-3 text-slate-400 font-semibold">Tidak ada bahan yang cocok. ${adaStok ? 'Semua aman untuk saat ini.' : ''}</td></tr>`;
+                if (sisa) sisa.textContent = '';
+                return;
+            }
+
+            const tampil = rows.slice(0, RESTOCK_LIMIT);
+            const F = LaksForecast;
+            body.innerHTML = tampil.map(r => {
+                const s = r.status;
+                const cukup = r.daysLeft == null ? '-'
+                            : (r.daysLeftBeyond ? '> ' + r.daysLeft + ' hari' : F.fmtDays(r.daysLeft));
+                const saran = r.suggestOrderBase ? F.fmtNum(r.suggestOrderBase, 0) +
+                              (r.purchaseUnit && r.suggestOrderPacks
+                                ? ` <span class="text-slate-400">(~${F.fmtNum(r.suggestOrderPacks,0)} ${r.purchaseUnit})</span>` : '')
+                            : '-';
+                return `
+                <tr class="border-b border-slate-50">
+                    <td class="py-2 pr-2 font-semibold text-slate-700">${r.name}
+                        <span class="block text-[10px] font-bold text-slate-300">${F.TIER_LABEL[r.tier] || ''}</span></td>
+                    <td class="py-2 px-2"><span class="px-2 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap" style="background:${s.bg};color:${s.color}">${s.label}</span></td>
+                    <td class="py-2 px-2 text-right font-bold text-slate-600 whitespace-nowrap">${r.stockNow == null ? '-' : F.fmtNum(r.stockNow, 0)} <span class="text-slate-400 font-semibold">${r.unit}</span></td>
+                    <td class="py-2 px-2 text-right font-semibold text-slate-500 whitespace-nowrap">${F.fmtNum(r.reorderPoint, 0)}</td>
+                    <td class="py-2 px-2 text-right font-bold text-slate-700 whitespace-nowrap">${saran}</td>
+                    <td class="py-2 pl-2 text-right font-semibold text-slate-500 whitespace-nowrap">${cukup}</td>
+                </tr>`;
+            }).join('');
+
+            if (sisa) {
+                sisa.textContent = rows.length > RESTOCK_LIMIT
+                    ? `Menampilkan ${RESTOCK_LIMIT} dari ${rows.length} bahan. Pakai kolom cari untuk bahan tertentu.`
+                    : `${rows.length} bahan.`;
+            }
+        }
+
+        function unduhRestockCsv() {
+            const rows = forecastBook.restockTable({
+                actionableOnly: document.getElementById('restock-only-act')?.checked,
+                search: document.getElementById('restock-search')?.value || '',
+            });
+            if (!rows.length) return showToast("Tidak Ada Data", "Daftar restock masih kosong.", "warning");
+            const blob = new Blob([LaksForecast.restockCsv(rows)], { type: 'text/csv;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'daftar-restock-' + new Date().toISOString().slice(0, 10) + '.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
         }
 
         /* ============================================================

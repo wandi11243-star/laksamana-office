@@ -1,5 +1,6 @@
 /*
- * Uji logika keandalan prakiraan (LaksForecast.health*).
+ * Uji logika murni laksamana-forecast.js: keandalan (health*),
+ * lonjakan akhir pekan, dan daftar restock.
  *
  * Jalankan:  node laksamana-forecast.test.js
  *
@@ -88,6 +89,90 @@ ok("baris null tidak error", F.healthView(null).rows.length === 0);
 var asli = rows.map(function (r) { return r.nama; }).join("|");
 F.healthView(rows, { sort: "name" });
 sama("sort tidak mengubah array asal", rows.map(function (r) { return r.nama; }).join("|"), asli);
+
+/* ===================== LONJAKAN AKHIR PEKAN ===================== */
+// 2026-07-20 adalah Senin, jadi hari ke-5..6 dari sini = Sabtu & Minggu.
+var SENIN = "2026-07-20";
+
+console.log("upcomingDays");
+var h7 = F.upcomingDays(7, SENIN);
+sama("panjang jendela", h7.length, 7);
+sama("mulai BESOK, bukan hari ini", h7[0].date, "2026-07-21");
+sama("akhir pekan terdeteksi (Sabtu)", h7[4].date + "=" + h7[4].isWeekend, "2026-07-25=true");
+sama("hari kerja bukan akhir pekan", h7[0].isWeekend, false);
+// String ISO TIDAK boleh dibaca sebagai UTC: di WIB itu memundurkan tanggal
+// satu hari dan membuat hari akhir pekan salah tandai.
+sama("tanggal ISO dibaca lokal, tidak mundur sehari",
+     F.upcomingDays(1, "2026-07-24")[0].date, "2026-07-25");
+
+console.log("dayFactor - hanya akhir pekan");
+var fcDemo = { base_daily: 10, avg_daily: 14, weekend_factor: 2.5, event_factor: 2.0, unit: "Pcs" };
+sama("hari biasa = 1", F.dayFactor(fcDemo, { isWeekend: false }), 1);
+sama("akhir pekan pakai weekend_factor", F.dayFactor(fcDemo, { isWeekend: true }), 2.5);
+// event_factor sengaja TIDAK dipakai (kalender event cuma ada di Python).
+sama("event_factor diabaikan", F.dayFactor(fcDemo, { isWeekend: false, isEvent: true }), 1);
+sama("weekend_factor < 1 tidak menurunkan pemakaian",
+     F.dayFactor({ weekend_factor: 0.5 }, { isWeekend: true }), 1);
+
+console.log("daysUntilEmpty");
+var bookSurge = new F.ForecastBook(
+  { items: { "Kopi": fcDemo, "Tanpa Stok": { base_daily: 5, avg_daily: 5, unit: "Pcs" } } },
+  { "Kopi": { stock_now: 100, stock_unit: "Pcs" } });
+var kering = bookSurge.daysUntilEmpty("Kopi", { days: F.upcomingDays(45, SENIN) });
+ok("mengembalikan angka hari", kering && kering.days > 0);
+// Datar 100/10 = 10 hari. Dengan akhir pekan 2,5x, harus LEBIH CEPAT.
+ok("lonjakan akhir pekan mempercepat habis (< 10 hari datar)", kering.days < 10);
+sama("tanpa stok -> null", bookSurge.daysUntilEmpty("Tanpa Stok"), null);
+sama("bahan tak dikenal -> null", bookSurge.daysUntilEmpty("Ngawur"), null);
+var awet = new F.ForecastBook(
+  { items: { "Awet": { base_daily: 0.01, avg_daily: 0.01, unit: "Pcs" } } },
+  { "Awet": { stock_now: 9999, stock_unit: "Pcs" } })
+  .daysUntilEmpty("Awet", { horizon: 30, from: SENIN });
+sama("bertahan melewati jendela ditandai beyond", awet.beyond, true);
+sama("beyond mengembalikan panjang jendela", awet.days, 30);
+
+/* ===================== DAFTAR RESTOCK ===================== */
+console.log("restockTable");
+var bookR = new F.ForecastBook({
+  items: {
+    "Habis":  { base_daily: 10, avg_daily: 10, reorder_point: 100, unit: "Pcs", tier: "A", per_purchase: 1 },
+    "Segera": { base_daily: 10, avg_daily: 10, reorder_point: 100, unit: "Pcs", tier: "A", per_purchase: 1 },
+    "Aman":   { base_daily: 10, avg_daily: 10, reorder_point: 100, unit: "Pcs", tier: "A", per_purchase: 1 },
+    "NoStok": { base_daily: 10, avg_daily: 10, reorder_point: 100, unit: "Pcs", tier: "C", per_purchase: 1 },
+  },
+}, {
+  "Habis":  { stock_now: 50,  stock_unit: "Pcs" },   // <= RP           -> order
+  "Segera": { stock_now: 140, stock_unit: "Pcs" },   // <= RP*1.5       -> soon
+  "Aman":   { stock_now: 900, stock_unit: "Pcs" },   // > RP*1.5        -> safe
+});
+var tbl = bookR.restockTable({ from: SENIN });
+sama("semua bahan masuk tabel", tbl.length, 4);
+sama("paling mendesak di puncak", tbl[0].name, "Habis");
+sama("urutan urgensi benar",
+     tbl.map(function (r) { return r.status.key; }), ["order", "soon", "safe", "nostk"]);
+ok("sisa hari ikut dihitung", tbl[0].daysLeft != null && tbl[0].daysLeft > 0);
+
+var perlu = bookR.restockTable({ actionableOnly: true, from: SENIN });
+sama("saring hanya yang perlu ditindak", perlu.length, 2);
+ok("aman tidak ikut", perlu.every(function (r) { return r.status.key !== "safe"; }));
+sama("cari di tabel restock", bookR.restockTable({ search: "aman", from: SENIN }).length, 1);
+
+console.log("restockTally");
+sama("hitung per status", F.restockTally(tbl), { order: 1, soon: 1, safe: 1, other: 1 });
+
+console.log("restockCsv");
+var csv = F.restockCsv(tbl);
+ok("diawali BOM (Excel baca UTF-8)", csv.charCodeAt(0) === 0xFEFF);
+// Header menyusul SETELAH BOM, jadi jangan menuntut posisi 0 di sini: menuntut
+// 0 berarti menuntut BOM-nya tidak ada, dan dua syarat itu saling meniadakan.
+ok("pemisah titik-koma", csv.indexOf("Bahan;Satuan;Stok kini") !== -1);
+sama("baris = header + data", csv.trim().split("\r\n").length, 5);
+var csvKutip = F.restockCsv([{
+  name: 'Susu "Full" ; Cream', unit: "L", stockNow: 1, reorderPoint: 2,
+  suggestOrderBase: 3, daysLeft: 4, status: { label: "Aman" }, tier: "A",
+}]);
+ok("titik-koma & kutip di nama di-escape",
+   csvKutip.indexOf('"Susu ""Full"" ; Cream"') !== -1);
 
 console.log("");
 console.log(gagal ? (gagal + " GAGAL, " + lulus + " lulus") : ("SEMUA LULUS (" + lulus + " uji)"));
