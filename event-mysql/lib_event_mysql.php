@@ -416,3 +416,98 @@ function stats() {
   $out['ts']        = gmdate('c');
   return $out;
 }
+
+/* ==================== BERKAS (foto & dokumen) ====================
+   EMS menyimpan tiga macam berkas: bukti transfer talent, dokumen talent
+   (KTP/NPWP/kontrak/portfolio), dan poster event.
+
+   Berkasnya TIDAK ikut masuk ke JSON state. State EMS dikirim utuh setiap
+   kali menyimpan, jadi menaruh gambar base64 di dalamnya berarti mengirim
+   ulang seluruh gambar pada tiap ketukan simpan — beberapa MB per simpan,
+   dan blob-nya membengkak tanpa batas. Yang disimpan di state cuma
+   penunjuknya: {key,name,size,at}.
+
+   Polanya disamakan dengan marketing-mysql: biner asli di disk (bukan
+   base64), disajikan lewat ?action=file&key=... dengan Content-Type benar.
+   Foldernya diusahakan DI LUAR web root supaya tidak bisa diambil orang
+   yang menebak URL-nya — dokumen KTP tidak boleh terbuka begitu saja. */
+function berkas_dir() {
+  static $dir = null;
+  if ($dir !== null) return $dir;
+  if (defined('DATA_DIR') && DATA_DIR !== '') {
+    if (!is_dir(DATA_DIR) && !@mkdir(DATA_DIR, 0775, true))
+      throw new Exception('DATA_DIR tidak bisa dibuat: ' . DATA_DIR);
+    $dir = realpath(DATA_DIR) ?: DATA_DIR;
+  } else {
+    $luar  = __DIR__ . '/../../../event-db';   // di luar public_html
+    $dalam = __DIR__ . '/db';                  // terpaksa: ditutup .htaccess
+    if (is_dir($luar) || @mkdir($luar, 0775, true))        $dir = $luar;
+    else if (is_dir($dalam) || @mkdir($dalam, 0775, true)) $dir = $dalam;
+    else throw new Exception('Tidak bisa membuat folder berkas. Cek izin tulis hosting.');
+    $dir = realpath($dir) ?: $dir;
+  }
+  return $dir;
+}
+function berkas_files_dir()  { return berkas_dir() . '/files'; }
+function berkas_di_web()     { return strpos(berkas_dir(), realpath(__DIR__)) === 0; }
+function berkas_siapkan() {
+  if (!is_dir(berkas_files_dir())) @mkdir(berkas_files_dir(), 0775, true);
+  if (!berkas_di_web()) return;
+  $ht = berkas_dir() . '/.htaccess';
+  if (!file_exists($ht)) @file_put_contents($ht,
+    "<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n" .
+    "<IfModule !mod_authz_core.c>\n  Order allow,deny\n  Deny from all\n</IfModule>\n");
+}
+// Ekstensi aman dari mime/nama; hanya gambar & PDF yang diterima.
+function berkas_ext($mime, $name) {
+  $mime = strtolower((string)$mime);
+  $peta = array('image/jpeg'=>'jpg','image/jpg'=>'jpg','image/png'=>'png',
+                'image/webp'=>'webp','image/gif'=>'gif','application/pdf'=>'pdf');
+  if (isset($peta[$mime])) return $peta[$mime];
+  $e = strtolower(pathinfo((string)$name, PATHINFO_EXTENSION));
+  return in_array($e, array('jpg','jpeg','png','webp','gif','pdf'), true) ? ($e==='jpeg'?'jpg':$e) : 'bin';
+}
+function berkas_ctype($ext) {
+  $peta = array('jpg'=>'image/jpeg','png'=>'image/png','webp'=>'image/webp',
+                'gif'=>'image/gif','pdf'=>'application/pdf');
+  return isset($peta[$ext]) ? $peta[$ext] : 'application/octet-stream';
+}
+// key -> path aman (cegah path traversal). key buatan kita: ev_<acak>.<ext>
+function berkas_path($key) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$key);
+  return berkas_files_dir() . '/' . $safe;
+}
+function simpan_berkas($payload) {
+  if (!$payload || empty($payload['dataBase64'])) throw new Exception('file kosong');
+  berkas_siapkan();
+  $ext = berkas_ext(isset($payload['mimeType']) ? $payload['mimeType'] : '',
+                    isset($payload['fileName']) ? $payload['fileName'] : '');
+  if ($ext === 'bin') throw new Exception('hanya gambar (jpg/png/webp/gif) atau PDF');
+  $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
+  if ($bin === false) throw new Exception('base64 tidak valid');
+  if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('file melebihi 8MB');
+  $key = 'ev_' . bin2hex(random_bytes(8)) . '.' . $ext;
+  if (file_put_contents(berkas_path($key), $bin) === false)
+    throw new Exception('gagal menulis file (cek izin folder)');
+  return array('key'  => $key,
+               'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key,
+               'size' => strlen($bin),
+               'at'   => gmdate('c'));
+}
+/* Sengaja TIDAK ada pembersih berkas yatim di sini. State EMS bisa dikirim
+   sebagian, jadi penyapu otomatis berisiko menghapus berkas yang sebenarnya
+   masih dipakai. Berkas yang tidak terpakai hanya memakan ruang — jauh lebih
+   murah daripada kehilangan KTP atau bukti transfer. */
+function sajikan_berkas($key) {
+  $key = (string)$key;
+  if ($key === '' || strpos($key, '..') !== false) { http_response_code(400); exit; }
+  $p = berkas_path($key);
+  if (!is_file($p)) { http_response_code(404); exit; }
+  $ext = strtolower(pathinfo($p, PATHINFO_EXTENSION));
+  header('Content-Type: ' . berkas_ctype($ext));
+  header('Content-Length: ' . filesize($p));
+  header('Content-Disposition: inline; filename="' . basename($p) . '"');
+  header('Cache-Control: private, max-age=86400');
+  readfile($p);
+  exit;
+}
