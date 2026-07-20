@@ -1,5 +1,5 @@
 -- =====================================================================
--- OFFICE IDENTITY LAYER — SKEMA MySQL
+-- ACCOUNT — SKEMA MySQL (daftar user & hak akses portal Office)
 -- ---------------------------------------------------------------------
 -- Menggantikan Google Sheet berisi 4 tab: Users, Modules, Grants, Admins.
 -- Bentuk tabelnya sengaja dibuat SAMA dengan tab-tab itu supaya isinya
