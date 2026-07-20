@@ -610,6 +610,13 @@ function resolveAkademiUser(s){
     u = { id:s.userId, name:s.name, role:(OFFICE_TO_AKADEMI_ROLE[s.role]||'staff'),
           division:'all', title:'', active:true };
     DB.users.push(u);   // in-memory; ikut tersimpan saat saveDB() berikutnya
+  }else{
+    /* Sesi Office yang lolos guard = kru ini BERHAK membuka akademi. Baris yang
+       masih nonaktif (sisa sapuan roster sebelum id-nya disatukan) jangan sampai
+       memantulkannya: currentUser() menyaring `&& u.active`, jadi baris mati
+       membuat render() memanggil doLogout() dan kru terlempar ke landing. */
+    if(u.active===false){ u.active=true; }
+    if(u.id!==s.userId){ u.id=s.userId; }
   }
   return u;
 }
@@ -658,7 +665,13 @@ function autoSyncOfficeRoster(){
             active:(m.active!==false) });
           changed=true;
         }else{
-          if(!u.id && m.id){ u.id=m.id; changed=true; }
+          /* Satukan ke id Office. Dulu baris ini cuma mengisi id yang KOSONG,
+             padahal komentar adopsi di atas menjanjikan id ditimpa id Office.
+             Akibatnya baris skema lama (u_christy) tetap memakai id lamanya,
+             tidak pernah cocok dengan idOffice, lalu dimatikan lagi oleh sapuan
+             di bawah pada tiap boot. Kru yang bersangkutan jadi terlempar ke
+             landing page walau aksesnya benar. */
+          if(m.id && u.id!==m.id){ u.id=m.id; changed=true; }
           if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
           if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
           if(m.active===false && u.active!==false){ u.active=false; changed=true; }
