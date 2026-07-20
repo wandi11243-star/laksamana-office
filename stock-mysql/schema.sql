@@ -35,6 +35,18 @@ SET time_zone = '+00:00';
 -- `waktu` bukan `timestamp`: TIMESTAMP nama tipe data di MySQL, dan kolom
 -- bernama sama bikin query gampang salah baca.
 -- ---------------------------------------------------------------------
+-- BATCH (batch_id / batch_name / tim): satu pengajuan order = satu batch.
+-- Sebelumnya batch cuma DITEBAK di frontend dari timestamp+pic yang berdekatan
+-- (lihat groupRecordsByPo), jadi dua kru yang mengirim di menit yang sama bisa
+-- tercampur jadi satu "Batch #1". Sekarang batch punya identitas sungguhan,
+-- sehingga order bisa DIGABUNGKAN ke batch yang sudah ada.
+--
+-- `tim` (Kitchen|Bar|Floor) disimpan di baris order, bukan dicari ulang dari
+-- nama PIC saat render: PIC bisa pindah tim atau keluar, dan order lama harus
+-- tetap tercatat sebagai milik tim yang memesannya dulu.
+--
+-- Baris lama (682 order hasil migrasi) punya ketiganya '' — itu wajar dan
+-- ditangani: order tanpa batch_id jatuh ke pengelompokan lama.
 CREATE TABLE IF NOT EXISTS orders (
   nomor_order VARCHAR(64)  NOT NULL PRIMARY KEY,
   row_index   INT          NOT NULL,
@@ -46,11 +58,16 @@ CREATE TABLE IF NOT EXISTS orders (
   pic         VARCHAR(120) NOT NULL DEFAULT '',
   status      VARCHAR(20)  NOT NULL DEFAULT '',   -- Aktif | Arsip
   kedatangan  VARCHAR(40)  NOT NULL DEFAULT '',   -- 'Datang' | ''
+  batch_id    VARCHAR(64)  NOT NULL DEFAULT '',   -- app: batchId  ('' = order lama pra-batch)
+  batch_name  VARCHAR(120) NOT NULL DEFAULT '',   -- app: batchName (opsional, boleh kosong)
+  tim         VARCHAR(20)  NOT NULL DEFAULT '',   -- Kitchen | Bar | Floor | ''
   data        LONGTEXT     NOT NULL,              -- termasuk note & catatan (tipe campur di data live)
   UNIQUE KEY uq_ord_row (row_index),
   KEY idx_ord_status (status),
   KEY idx_ord_item (item),
-  KEY idx_ord_tgl (tgl_datang)
+  KEY idx_ord_tgl (tgl_datang),
+  KEY idx_ord_batch (batch_id),
+  KEY idx_ord_tim (tim, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <title>Sistem Reservasi, Laksamana Muda</title>
+<link rel="icon" type="image/jpeg" href="../assets/LaksamanaMudaLogo.jpeg">
 <!-- Guard SSO: tanpa sesi Office yang berhak buka reservasi, langsung ke login Office. -->
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
@@ -21,7 +22,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="icon" type="image/jpeg" href="../LaksamanaMudaLogo.jpeg">
 <style>
 :root{
   /* Palette diselaraskan dgn COMS (Howandi-style: netral hangat, emas deep) */
@@ -759,7 +759,7 @@ const API_URL = "../reservasi-api-mysql/api.php";
 // (Reservasi sudah pindah ke PHP/MySQL, tapi identitas Office tetap Apps Script).
 // Dipakai autoSyncOfficeRoster: tarik kru ber-akses `reservasi` supaya muncul di
 // Master Data walau belum pernah login. Read-only, tanpa PIN.
-const OFFICE_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
+const OFFICE_WEBAPP_URL = "../office-api-mysql/api.php";
 const DEFAULT_PIN = "1234";                                 // PIN default semua kru
 
 // key sessionStorage untuk menyimpan SESI LOGIN saja (bukan data reservasi)
@@ -785,7 +785,7 @@ const USERS = [
   {id:"u8", name:"Howandi Chandra", role:"manager"},
   {id:"u9", name:"Admin Sistem", role:"admin"},
 ];
-const ROLE_LABEL = {host:"Host / Captain", marketing:"Marketing (PIC)", cashier:"Cashier", manager:"Manajer / Owner", admin:"Admin Sistem"};
+const ROLE_LABEL = {host:"Host / Captain", marketing:"Marketing (PIC)", cashier:"Cashier", manager:"Manajer / Owner", viewer:"View Only", admin:"Admin Sistem"};
 
 // Hak akses per role -> menu yang bisa dibuka
 const ROLE_NAV = {
@@ -793,6 +793,21 @@ const ROLE_NAV = {
   marketing: ["dashboard","input","hariH","riwayat","analitik","review"],
   cashier:   ["dashboard","hariH","finance","riwayat"],
   manager:   ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
+  // VIEW ONLY — hanya menonton, tidak pernah bisa mengubah apa pun.
+  //
+  // Halaman awal sengaja dibatasi ke yang bersifat MEMBACA. Yang tidak masuk
+  // dan alasannya:
+  //   input   — isinya formulir pembuatan reservasi; tak ada yang bisa dilihat
+  //             di sana selain kolom kosong.
+  //   finance — menyangkut uang masuk (DP). Tidak diberikan secara diam-diam;
+  //             kalau memang perlu, admin menyalakannya sendiri di matriks.
+  //   master  — pengaturan modul, termasuk daftar kru dan hak akses.
+  //   audit   — jejak siapa mengubah apa.
+  //
+  // Ini cuma NILAI AWAL. Admin tetap bisa mengatur halaman mana yang terlihat
+  // lewat "Hak Akses per Role"; yang TIDAK bisa diberikan lewat matriks itu
+  // adalah izin mengubah — lihat kunci di pagePerm().
+  viewer:    ["dashboard","hariH","riwayat","analitik","review"],
   admin:     ["dashboard","input","hariH","finance","riwayat","analitik","review","master","audit"],
 };
 // Default lama (dipakai sebagai seed DEFAULT_PERMS di bawah, dan dipertahankan
@@ -897,7 +912,7 @@ const NAV_SECTIONS = [
 // Semua halaman nav (id) + label utk matriks hak akses
 const NAV_PAGES  = NAV_SECTIONS.flatMap(s=>s.items.map(i=>i.id));
 const PAGE_LABEL = {}; NAV_SECTIONS.forEach(s=>s.items.forEach(i=>{ PAGE_LABEL[i.id]=i.label; }));
-const ROLE_KEYS  = ["host","marketing","cashier","manager","admin"];
+const ROLE_KEYS  = ["host","marketing","cashier","manager","viewer","admin"];
 // Kru default (dipakai bila Sheet belum punya daftar users). PIN awal = 1234.
 const DEFAULT_USERS = USERS.map(u=>({ id:u.id, name:u.name, role:u.role, pin:DEFAULT_PIN }));
 // Semua baris izin di matriks = halaman nav + baris ekstra (lihat EXTRA_PERM_ROWS).
@@ -918,6 +933,11 @@ const DEFAULT_PERMS = (()=>{
     const visPage = permRowVisPage(row);
     ROLE_KEYS.forEach(r=>{
       if(!(ROLE_NAV[r]||[]).includes(visPage)){ p[row][r]=PERM_NONE; return; }
+      // viewer: terlihat, tapi TIDAK PERNAH "Boleh Ubah". Dikecualikan sebelum
+      // aturan warisan di bawah, karena baris tanpa aksi terikat (dashboard,
+      // riwayat, analitik) default-nya PERM_EDIT — yang akan membuat role
+      // bernama "View Only" lahir dengan status Ubah di matriks.
+      if(r==="viewer"){ p[row][r]=PERM_VIEW; return; }
       // Baris yang jadi pemilik satu atau lebih aksi: level Ubah diwarisi dari
       // aksi TERLONGGAR yang terikat ke baris itu (mis. finance mewarisi dari
       // CAN.finance saja sekarang — deleteDp sudah baris sendiri).
@@ -2491,7 +2511,25 @@ function ensureUsersPerms(){
 }
 function getUsers(){ return (STATE.master && Array.isArray(STATE.master.users) && STATE.master.users.length) ? STATE.master.users : DEFAULT_USERS; }
 function getPerms(){ return (STATE.master && STATE.master.perms) ? STATE.master.perms : DEFAULT_PERMS; }
-function pagePerm(page, role){ if(role==="admin") return PERM_EDIT; const p=getPerms()[page]; if(!p) return PERM_VIEW; const v=p[role]; return typeof v==="number" ? v : PERM_VIEW; }
+/* Dua role dikunci di KODE, bukan di data — supaya artinya tidak bisa hilang
+   karena salah klik di matriks atau karena isi perms yang tersimpan aneh:
+     admin  selalu PERM_EDIT  (sudah ada sebelumnya)
+     viewer TIDAK PERNAH melebihi PERM_VIEW
+
+   Untuk viewer, matriks tetap berguna: admin memakainya untuk memilih halaman
+   mana yang TERLIHAT (0 atau 1). Yang tidak bisa diberikan lewat sana adalah
+   izin mengubah — kalau nilai 2 sempat tersimpan (mis. dari data lama atau
+   penyuntingan manual), di sini tetap diturunkan jadi 1. Tanpa batas ini,
+   sebuah role bernama "View Only" bisa diam-diam punya tombol hapus. */
+function pagePerm(page, role){
+  if(role==="admin") return PERM_EDIT;
+  const p=getPerms()[page];
+  // Fallback PERM_VIEW saat baris izin tak dikenal TIDAK berlaku untuk viewer
+  // maupun role lain di sini — viewer memang mentok di PERM_VIEW, jadi hasilnya
+  // sama; yang penting nilainya tidak pernah bisa naik ke PERM_EDIT.
+  const v = !p ? PERM_VIEW : (typeof p[role]==="number" ? p[role] : PERM_VIEW);
+  return role==="viewer" ? Math.min(v, PERM_VIEW) : v;
+}
 function canEdit(page, role){ return pagePerm(page, role) >= PERM_EDIT; }
 
 // ===== Integrasi identitas Office (SSO) =====
@@ -2510,7 +2548,11 @@ function readLmSession(){
 // tetap memakai role reservasi mereka sendiri.
 const OFFICE_TO_RESERVASI_ROLE = {
   owner:'admin', admin:'admin', manager:'manager',
-  host:'host', cashier:'cashier', marketing:'marketing', reservasi:'marketing'
+  host:'host', cashier:'cashier', marketing:'marketing', reservasi:'marketing',
+  // Kalau Office memang punya role bernama viewer/view, petakan ke View Only —
+  // bukan ke 'host' (nilai bawaan di resolveReservasiUser), yang akan memberi
+  // orang itu izin mengubah reservasi pada login pertamanya.
+  viewer:'viewer', view:'viewer'
 };
 // Cocokkan identitas Office ke kru Reservasi (id lalu nama). Bila belum ada,
 // sediakan kru sementara in-memory dengan role default dari role Office.
@@ -6944,8 +6986,11 @@ function userAccessBlock(){
         // halaman induknya — kunci ke "Tak Terlihat", jangan biarkan superadmin
         // menyalakan hapus-DP untuk role yang Finance-nya sendiri tersembunyi.
         const parentVisible = !isExtra || pagePerm(visPage, r) >= PERM_VIEW;
+        // viewer mentok di "Lihat": nilainya dijepit di sini supaya tombol tidak
+        // pernah menampilkan "Ubah" walau data lama sempat menyimpan 2.
+        const vv = (r==="viewer") ? Math.min(v, PERM_VIEW) : v;
         return parentVisible
-          ? `<td><button type="button" class="perm-btn" data-p="${id}" data-r="${r}" data-v="${v}" title="${PERM_OPT[v][1]} — klik untuk ubah" onclick="cyclePerm(this)">${PERM_OPT[v][2]}</button></td>`
+          ? `<td><button type="button" class="perm-btn" data-p="${id}" data-r="${r}" data-v="${vv}" title="${PERM_OPT[vv][1]}${r==="viewer"?" — View Only hanya bisa Tak Terlihat / Lihat":" — klik untuk ubah"}" onclick="cyclePerm(this)">${PERM_OPT[vv][2]}</button></td>`
           : `<td><span class="perm-lock muted" title="Halaman induk tersembunyi untuk role ini">Tak Terlihat</span></td>`;
       }).join("")}
       <td><button type="button" class="perm-btn" data-v="2" disabled title="Admin selalu akses penuh, tidak bisa diubah">Ubah</button></td>
@@ -7010,10 +7055,14 @@ function saveUserRow(id){
 function cyclePerm(btn){
   // btn.dataset.v menulis atribut data-v juga (sama hal), dan CSS .perm-btn[data-v="n"]
   // di atas membaca atribut itu untuk warnanya — jadi baris ini SEKALIGUS mengganti warna.
-  const next = (Number(btn.dataset.v)+1)%3;
+  //
+  // Kolom View Only berputar 2 keadaan saja (Tak Terlihat <-> Lihat), bukan 3.
+  // "Boleh Ubah" sengaja tidak bisa dicapai: itu yang membuat role ini berarti.
+  const putaran = (btn.dataset.r === "viewer") ? 2 : 3;
+  const next = (Number(btn.dataset.v)+1)%putaran;
   btn.dataset.v = String(next);
   btn.textContent = PERM_OPT[next][2];
-  btn.title = PERM_OPT[next][1]+" — klik untuk ubah";
+  btn.title = PERM_OPT[next][1] + (putaran===2 ? " — View Only hanya bisa Tak Terlihat / Lihat" : " — klik untuk ubah");
 }
 function savePerms(){
   ensureUsersPerms();
@@ -7024,6 +7073,11 @@ function savePerms(){
   // admin selalu penuh (disimpan eksplisit agar konsisten, walau pagePerm()
   // sudah menganggap admin selalu PERM_EDIT terlepas dari isi matriks ini)
   PERM_ROWS.forEach(p=>{ next[p].admin=PERM_EDIT; });
+  // viewer tidak pernah melebihi "Lihat". Dijepit lagi di sini — pagePerm()
+  // sudah menjaganya saat dibaca, tapi menyimpan angka 2 ke database berarti
+  // menaruh data yang bertentangan dengan namanya sendiri, dan siapa pun yang
+  // membacanya nanti (laporan, migrasi, modul lain) akan salah menyimpulkan.
+  PERM_ROWS.forEach(p=>{ next[p].viewer = Math.min(next[p].viewer ?? PERM_NONE, PERM_VIEW); });
   STATE.master.perms=next; logAudit("Hak Akses","Perbarui matriks hak akses");
   saveState(); buildNav(); toast("Hak akses diperbarui","ok");
 }
