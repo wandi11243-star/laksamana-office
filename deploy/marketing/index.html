@@ -2488,7 +2488,10 @@ function renderField(ev,fl,canEdit){
    Bentuk data: { "Main Course": { jam:"19:00", rows:[{kat,menu,qty,jam}] } }
    Kelompok yang komponennya dilepas centangnya TIDAK dihapus dari data —
    kalau dicentang lagi isian lamanya masih utuh. */
-const MENU_KAT_GROUPS=['Main Course','Welcome Snack'];
+/* Kolom "Jenis" tampil di SEMUA kelompok. Dulu hanya Main Course & Welcome
+   Snack yang dapat, tapi kelompok lain pun perlu dikelompokkan di PDF
+   (mis. Welcome Drink: panas / dingin), dan ketiadaan kolomnya membuat
+   tabelnya terasa beda-beda tanpa alasan yang jelas bagi pengisinya. */
 const MENU_KATEGORI=['Karbohidrat','Protein','Sayuran','Pelengkap'];
 function menuTblVal(val){ return (val && typeof val==='object' && !Array.isArray(val)) ? val : {}; }
 function menuGroupsOf(ev,fl){
@@ -2516,10 +2519,9 @@ function menuTblHTML(ev,fl,canEdit){
   return lama+grup.map(g=>menuGroupHTML(fl.k,g,data[g]||{},canEdit)).join('');
 }
 function menuGroupHTML(fk,g,gd,canEdit){
-  const kat=MENU_KAT_GROUPS.includes(g);
   const rows=Array.isArray(gd.rows)?gd.rows:[];
   const jam=gd.jam||'';
-  const body=(rows.length?rows:[{}]).map(r=>menuRowHTML(r,kat,canEdit)).join('');
+  const body=(rows.length?rows:[{}]).map(r=>menuRowHTML(r,jam,canEdit)).join('');
   // Jam kelompok sengaja disembunyikan sampai diklik — kebanyakan komponen
   // tidak perlu jam sendiri, cukup ikut jam keluar F&B.
   return '<div class="mg" data-g="'+esc(g)+'">'
@@ -2530,20 +2532,24 @@ function menuGroupHTML(fk,g,gd,canEdit){
         +(jam?'':'style="display:none"')+' '+(canEdit?'':'disabled')+' oninput="menuJamIsi(this)">'
     +'</div>'
     +'<table class="rundown-tbl"><thead><tr>'
-      +(kat?'<th style="width:130px">Kategori</th>':'')
-      +'<th>Menu</th><th style="width:88px">Jumlah</th><th style="width:120px">Jam</th>'
+      +'<th style="width:140px">Jenis</th>'
+      +'<th>Menu</th><th style="width:88px">Jumlah</th><th style="width:130px">Jam</th>'
       +(canEdit?'<th style="width:34px"></th>':'')
     +'</tr></thead><tbody>'+body+'</tbody></table>'
     +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="menuAddRow(this)">'+svg(IC.plus)+'Tambah Baris</button></div>':'')
     +'</div>';
 }
-function menuRowHTML(r,kat,canEdit){
+function menuRowHTML(r,gjam,canEdit){
   r=r||{}; const dis=canEdit?'':'disabled';
+  /* Kolom jam sengaja DIBIARKAN KOSONG dan cuma menampilkan jam kelompok
+     sebagai placeholder. Kosong berarti "ikut jam kelompok" — collectMenuTbl
+     yang mengisinya saat disimpan. Jadi tidak perlu diketik ulang tiap baris,
+     tapi tetap bisa ditimpa kalau satu menu keluar di jam berbeda. */
   return '<tr>'
-    +(kat?'<td><input class="inp" list="dl_menukat" data-r="kat" value="'+esc(r.kat||'')+'" placeholder="pilih / ketik" '+dis+'></td>':'')
+    +'<td><input class="inp" list="dl_menukat" data-r="kat" value="'+esc(r.kat||'')+'" placeholder="pilih / ketik" '+dis+'></td>'
     +'<td><input class="inp" data-r="menu" value="'+esc(r.menu||'')+'" placeholder="nama menu" '+dis+'></td>'
     +'<td><input class="inp" data-r="qty" value="'+esc(r.qty||'')+'" placeholder="jumlah" '+dis+'></td>'
-    +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="jam" '+dis+'></td>'
+    +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="'+esc(gjam||'ikut jam kelompok')+'" title="Kosongkan untuk ikut jam kelompok" '+dis+'></td>'
     +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="menuDelRow(this)">×</button></td>':'')
     +'</tr>';
 }
@@ -2616,17 +2622,21 @@ function menuJamToggle(btn){
 }
 // Jam kelompok mengisi baris yang masih kosong ATAU yang masih memakai jam
 // kelompok sebelumnya — jam yang sudah diubah manual tidak ikut tertimpa.
+/* Mengubah jam kelompok cukup memperbarui PLACEHOLDER tiap baris. Baris yang
+   dibiarkan kosong otomatis ikut jam baru itu saat disimpan — tidak ada lagi
+   nilai yang ditulis diam-diam ke dalam kotak, jadi tidak mungkin tertinggal
+   jam lama yang sudah tidak berlaku. */
 function menuJamIsi(inp){
   const g=inp.closest('.mg'); const baru=inp.value;
-  const lama=inp.dataset.prev||'';
-  g.querySelectorAll('tbody [data-r="jam"]').forEach(e=>{ if(!e.value || e.value===lama) e.value=baru; });
-  inp.dataset.prev=baru;
+  g.querySelectorAll('tbody [data-r="jam"]').forEach(e=>{
+    e.placeholder = baru || 'ikut jam kelompok';
+  });
 }
 function menuAddRow(btn){
   const g=btn.closest('.mg');
   const jam=(g.querySelector('[data-r="gjam"]')||{}).value||'';
   const tmp=document.createElement('tbody');
-  tmp.innerHTML=menuRowHTML({jam}, MENU_KAT_GROUPS.includes(g.dataset.g), true);
+  tmp.innerHTML=menuRowHTML({}, jam, true);
   g.querySelector('tbody').appendChild(tmp.firstElementChild);
 }
 function menuDelRow(btn){
@@ -2637,11 +2647,15 @@ function collectMenuTbl(fl){
   const box=$('efd_'+fl.k); if(!box) return undefined;
   const out={};
   box.querySelectorAll('.mg').forEach(g=>{
+    const jamKel=(g.querySelector('[data-r="gjam"]')||{}).value||'';
     const rows=[...g.querySelectorAll('tbody tr')].map(tr=>{
       const v=r=>{ const e=tr.querySelector('[data-r="'+r+'"]'); return e?e.value.trim():''; };
-      return {kat:v('kat'), menu:v('menu'), qty:v('qty'), jam:v('jam')};
+      // Jam baris yang dibiarkan kosong = ikut jam kelompok. Diisi di sini,
+      // bukan di kotaknya, supaya mengganti jam kelompok otomatis mengubah
+      // semua baris yang memang menumpang padanya.
+      return {kat:v('kat'), menu:v('menu'), qty:v('qty'), jam:(v('jam') || jamKel)};
     }).filter(r=>r.menu||r.qty||r.kat);
-    const jam=(g.querySelector('[data-r="gjam"]')||{}).value||'';
+    const jam=jamKel;
     if(rows.length||jam) out[g.dataset.g]={jam:jam, rows:rows};
   });
   // Kelompok yang komponennya sedang tidak dicentang tidak digambar, jadi
