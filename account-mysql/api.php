@@ -1,6 +1,6 @@
 <?php
 /************************************************************************
- * OFFICE IDENTITY LAYER — Endpoint API
+ * ACCOUNT — Endpoint API (daftar user & hak akses Office)
  * ---------------------------------------------------------------------
  * Menggantikan Web App Apps Script. Nama aksi, bentuk balasan, dan kode
  * error-nya SAMA PERSIS, jadi frontend cukup mengganti URL-nya.
@@ -29,7 +29,7 @@
  * Diagnostik (GET):  ?action=ping   ?action=stats
  ************************************************************************/
 
-require __DIR__ . '/lib_office_mysql.php';
+require __DIR__ . '/lib_account_mysql.php';
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
