@@ -9,6 +9,9 @@
  *   GET  ?action=stats                  -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping                   -> {ok,data:{pong:true}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,jumlah:{...}}}
+ *   POST {action:"upload", dataBase64, fileName, mimeType}
+ *                                       -> {ok,data:{key,name,size,at}}
+ *   GET  ?action=file&key=...           -> berkasnya sendiri (bukan JSON)
  *
  * Semua respons: {ok:true,data:...} atau {ok:false,error:"..."}.
  ************************************************************************/
@@ -57,6 +60,17 @@ try {
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
+
+  } else if ($action === 'file') {
+    // Menyajikan berkas (bukti transfer, dokumen talent, poster event).
+    // Bukan JSON — sajikan_berkas() mengatur header & keluar sendiri.
+    sajikan_berkas(isset($_GET['key']) ? $_GET['key'] : '');
+
+  } else if ($action === 'upload') {
+    // Terima {dataBase64,fileName,mimeType} -> balas {key,name,size,at}.
+    // Frontend menyimpan penunjuk itu di state, dan menampilkannya lewat
+    // api.php?action=file&key=...
+    keluar(array('ok' => true, 'data' => simpan_berkas($body)));
 
   } else {
     keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
