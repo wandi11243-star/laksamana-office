@@ -82,9 +82,12 @@ th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4p
   <div class="card" id="kartu4" style="display:none">
     <h2><span class="n">4</span> Bersihkan akun benih</h2>
     <p class="note" style="margin-top:0">
-      Akun bawaan yang PIN-nya masih <code>1111</code>. Kalau id-nya tidak sama dengan
-      yang di Sheet, akun ini <b>tertinggal</b> setelah pemindahan — dan karena semuanya
-      superadmin, siapa pun yang tahu alamat situs ini bisa memakainya. Nonaktifkan.
+      Akun yang ada di database tapi <b>TIDAK ada di Sheet</b> — biasanya akun bawaan
+      yang id-nya berbeda, jadi tidak tertimpa saat pemindahan. Karena akun bawaan
+      berstatus superadmin, itu pintu terbuka. Nonaktifkan.
+      <br><br>
+      Staf asli yang PIN-nya kebetulan <code>1111</code> <b>tidak</b> muncul di sini.
+      Di Laksamana Muda 1111 adalah PIN default, jadi PIN bukan penanda akun bawaan.
     </p>
     <div id="sisa"></div>
   </div>
@@ -184,15 +187,22 @@ async function periksaSisa(){
       + '(kredensial lamanya tidak berlaku lagi). Tidak ada yang perlu dibersihkan.</p>';
     return;
   }
-  const sisa = r.users.filter(u => String(u.pin) === '1111' && u.active);
+  /* Akun benih = yang TIDAK ada di data Sheet yang barusan dipindahkan.
+     JANGAN memakai "PIN 1111" sebagai penanda: di Laksamana Muda 1111 adalah
+     PIN default organisasi, jadi puluhan staf ASLI memakainya. Versi pertama
+     alat ini memakai patokan itu dan menandai 22 staf asli sebagai akun benih
+     yang harus dimatikan — kalau ditekan, 22 orang terkunci di luar sistem. */
+  const dariSheet = new Set((DATA && DATA.users ? DATA.users : []).map(u => String(u.id)));
+  const sisa = r.users.filter(u => u.active && !dariSheet.has(String(u.id)));
   $('kartu4').style.display='';
   if(!sisa.length){
-    kotak.innerHTML = '<p class="ok">Tidak ada akun ber-PIN 1111 yang masih aktif. Aman.</p>';
+    kotak.innerHTML = '<p class="ok">Semua akun di database berasal dari Sheet. '
+      + 'Tidak ada akun bawaan yang tertinggal — aman.</p>';
     return;
   }
   const totalSuper = r.users.filter(u => u.active && (u.adminModules||[]).includes('*')).length;
   kotak.innerHTML =
-    '<p class="bad">' + sisa.length + ' akun masih memakai PIN 1111 dan masih aktif:</p>' +
+    '<p class="bad">' + sisa.length + ' akun tidak ada di Sheet dan masih aktif:</p>' +
     '<table><thead><tr><th>Nama</th><th>id</th><th>Superadmin</th><th></th></tr></thead><tbody>' +
     sisa.map(u => {
       const su = (u.adminModules||[]).includes('*');
@@ -203,7 +213,8 @@ async function periksaSisa(){
         'data-id="' + esc(u.id) + '" data-nama="' + esc(u.name) + '" data-su="' + (su?1:0) + '">' +
         'Nonaktifkan</button></td></tr>';
     }).join('') + '</tbody></table>' +
-    '<p class="note">Pastikan Anda sudah bisa login dengan akun asli SEBELUM menonaktifkan yang terakhir.</p>';
+    '<p class="note">Periksa sekali lagi: nama di atas memang BUKAN staf Anda. '
+    + 'Pastikan juga Anda sudah bisa login dengan akun asli sebelum menonaktifkan yang terakhir.</p>';
   kotak.querySelectorAll('.btn-mati').forEach(b => {
     b.onclick = () => matikan(b.dataset.id, b.dataset.nama, b.dataset.su === '1', totalSuper);
   });
