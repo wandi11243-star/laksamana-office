@@ -79,8 +79,18 @@ th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <div id="hasil2"></div>
   </div>
 
+  <div class="card" id="kartu4" style="display:none">
+    <h2><span class="n">4</span> Bersihkan akun benih</h2>
+    <p class="note" style="margin-top:0">
+      Akun bawaan yang PIN-nya masih <code>1111</code>. Kalau id-nya tidak sama dengan
+      yang di Sheet, akun ini <b>tertinggal</b> setelah pemindahan — dan karena semuanya
+      superadmin, siapa pun yang tahu alamat situs ini bisa memakainya. Nonaktifkan.
+    </p>
+    <div id="sisa"></div>
+  </div>
+
   <div class="card">
-    <h2><span class="n">4</span> Setelah selesai</h2>
+    <h2><span class="n">5</span> Setelah selesai</h2>
     <p class="note" style="margin-top:0">
       Hapus berkas <code>pindah-dari-sheet.html</code> ini dari server setelah dipakai.
       Lalu buka <code>?action=stats</code> untuk memastikan jumlah user-nya sudah sesuai,
@@ -126,7 +136,9 @@ $('btnAmbil').onclick = async () => {
     out.innerHTML = '<p class="ok">Berhasil dibaca dari Sheet.</p>';
     tampilkanRingkas();
     $('kartu2').style.display = '';
-    $('kartu2').scrollIntoView({behavior:'smooth'});
+    // Digulirkan kalau bisa. Jangan sampai kegagalan menggulir terbaca
+    // sebagai kegagalan membaca Sheet — isinya sudah berhasil diambil.
+    try{ $('kartu2').scrollIntoView({behavior:'smooth'}); }catch(_){}
   }catch(e){
     out.innerHTML = '<p class="bad">Gagal: ' + esc(e.message) + '</p>';
   }finally{ $('btnAmbil').disabled = false; }
@@ -149,6 +161,68 @@ function tampilkanRingkas(){
     'Tidak ada baris yang dihapus.</p>';
 }
 
+
+/* ---- Pembersih akun benih ----
+   Import memakai id sebagai kunci. Kalau Sheet memakai id yang berbeda untuk
+   orang yang sama, baris benih (PIN 1111, superadmin) TIDAK tertimpa dan
+   tetap hidup di database. Itu pintu terbuka, jadi ditunjukkan dan bisa
+   langsung dinonaktifkan di sini.
+
+   Dinonaktifkan, bukan dihapus: bisa dibalik kalau ternyata salah, dan
+   riwayat grant-nya tidak ikut hilang. */
+async function periksaSisa(){
+  const nama = $('nama2').value.trim(), pin = $('pin2').value.trim();
+  const kotak = $('sisa');
+  let r;
+  try{
+    r = await post($('apiUrl').value.trim(), { action:'listUsers', callerName:nama, callerPin:pin });
+  }catch(e){ return; }
+  if(!r.ok){
+    // PIN benih sudah tertimpa PIN asli -> justru pertanda bagus.
+    $('kartu4').style.display='';
+    kotak.innerHTML = '<p class="ok">Akun benih sudah tertimpa data dari Sheet '
+      + '(kredensial lamanya tidak berlaku lagi). Tidak ada yang perlu dibersihkan.</p>';
+    return;
+  }
+  const sisa = r.users.filter(u => String(u.pin) === '1111' && u.active);
+  $('kartu4').style.display='';
+  if(!sisa.length){
+    kotak.innerHTML = '<p class="ok">Tidak ada akun ber-PIN 1111 yang masih aktif. Aman.</p>';
+    return;
+  }
+  const totalSuper = r.users.filter(u => u.active && (u.adminModules||[]).includes('*')).length;
+  kotak.innerHTML =
+    '<p class="bad">' + sisa.length + ' akun masih memakai PIN 1111 dan masih aktif:</p>' +
+    '<table><thead><tr><th>Nama</th><th>id</th><th>Superadmin</th><th></th></tr></thead><tbody>' +
+    sisa.map(u => {
+      const su = (u.adminModules||[]).includes('*');
+      // Data ditaruh di atribut, bukan dirangkai ke dalam onclick — nama yang
+      // mengandung petik tidak akan merusak halamannya.
+      return '<tr><td><b>' + esc(u.name) + '</b></td><td>' + esc(u.id) + '</td><td>' +
+        (su ? 'ya' : '') + '</td><td><button class="ghost btn-mati" style="margin:0;padding:5px 11px" ' +
+        'data-id="' + esc(u.id) + '" data-nama="' + esc(u.name) + '" data-su="' + (su?1:0) + '">' +
+        'Nonaktifkan</button></td></tr>';
+    }).join('') + '</tbody></table>' +
+    '<p class="note">Pastikan Anda sudah bisa login dengan akun asli SEBELUM menonaktifkan yang terakhir.</p>';
+  kotak.querySelectorAll('.btn-mati').forEach(b => {
+    b.onclick = () => matikan(b.dataset.id, b.dataset.nama, b.dataset.su === '1', totalSuper);
+  });
+}
+async function matikan(id, nama, superadmin, totalSuper){
+  if(superadmin && totalSuper <= 1){
+    alert('Ini satu-satunya superadmin aktif. Menonaktifkannya membuat tidak ada '
+      + 'yang bisa mengelola akses lagi. Pindahkan dulu data Sheet-nya, atau angkat '
+      + 'superadmin lain.'); return;
+  }
+  if(!confirm('Nonaktifkan akun "' + nama + '"? Dia tidak akan bisa login lagi. '
+    + 'Bisa diaktifkan kembali lewat konsol Kelola User.')) return;
+  const r = await post($('apiUrl').value.trim(), { action:'saveUser',
+    callerName:$('nama2').value.trim(), callerPin:$('pin2').value.trim(),
+    id:id, name:nama, pin:'1111', active:false });
+  if(!r.ok){ alert('Gagal: ' + (r.error||'')); return; }
+  await periksaSisa();
+}
+
 $('btnPindah').onclick = async () => {
   // Kredensial DATABASE BARU (langkah 2), bukan kredensial Sheet: PIN asli
   // Anda baru berlaku di sini SETELAH pemindahan ini selesai.
@@ -165,7 +239,8 @@ $('btnPindah').onclick = async () => {
     const n = r.diproses || {};
     out.innerHTML = '<p class="ok">Selesai. ' + (n.users||0) + ' user, ' + (n.modules||0) +
       ' modul, ' + (n.grants||0) + ' hak akses, ' + (n.admins||0) + ' admin diproses.</p>' +
-      '<p class="note">Coba login dengan akun asli Anda sekarang. Kalau sudah bisa, hapus berkas ini dari server.</p>';
+      '<p class="note">Coba login dengan akun asli Anda sekarang.</p>';
+    await periksaSisa();
   }catch(e){
     out.innerHTML = '<p class="bad">Gagal: ' + esc(e.message) + '</p>';
   }finally{ $('btnPindah').disabled = false; }
