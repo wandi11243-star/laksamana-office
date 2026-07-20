@@ -1,4 +1,6 @@
-# Office Identity Layer — Backend MySQL
+# Account — Backend MySQL
+
+Daftar user & hak akses untuk portal Office.
 
 Menggantikan Google Sheet + Apps Script yang selama ini memegang daftar
 user Office (login, PIN, dan hak akses modul).
@@ -31,15 +33,15 @@ jadi "reset PIN" (bukan "lihat PIN").
 
 | Situs | Branch | Database |
 |---|---|---|
-| office.laksamanamuda.id | `main` | `lakk5493_db_office` |
-| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_office` |
+| office.laksamanamuda.id | `main` | `lakk5493_db_account` |
+| dev.laksamanamuda.id | `develop` | `lakk5493_db_dev_account` |
 
 Frontend memanggil lewat **path relatif**, jadi `index.html`-nya sama
 persis di kedua situs:
 
 ```
-office.laksamanamuda.id/            -> office.../office-api-mysql/  -> db_office
-dev.laksamanamuda.id/marketing/     -> dev.../office-api-mysql/     -> db_dev_office
+office.laksamanamuda.id/            -> office.../account-api-mysql/  -> db_account
+dev.laksamanamuda.id/marketing/     -> dev.../account-api-mysql/     -> db_dev_account
 ```
 
 Kalau ditulis URL lengkap, **dev akan memakai daftar user produksi** dan
@@ -47,15 +49,15 @@ mengubah PIN di dev ikut mengubahnya di produksi. Jangan diubah jadi
 absolut.
 
 Untuk memastikan tidak salah pasang:
-`<situs>/office-api-mysql/api.php?action=ping` → balasannya menyebut `env`
-dan `db`. Di dev harus `dev` / `lakk5493_db_dev_office`.
+`<situs>/account-api-mysql/api.php?action=ping` → balasannya menyebut `env`
+dan `db`. Di dev harus `dev` / `lakk5493_db_dev_account`.
 
 ## Isi folder
 
 | File | Fungsi |
 |---|---|
 | `schema.sql` | 4 tabel + registri modul awal. Dijalankan di KEDUA database |
-| `lib_office_mysql.php` | Seluruh logika (13 aksi) |
+| `lib_account_mysql.php` | Seluruh logika (13 aksi) |
 | `api.php` | Router endpoint |
 | `config.sample.php` | Contoh tanpa password (yang masuk repo) |
 
@@ -65,12 +67,12 @@ Lakukan **dua kali**: sekali untuk produksi, sekali untuk dev.
 
 1. **cPanel > MySQL Databases** — buat database + user, `Add User to
    Database` → ALL PRIVILEGES.
-   - produksi: `db_office` + user `office`
-   - dev: `db_dev_office` + user `dev_office`
+   - produksi: `db_account` + user `office`
+   - dev: `db_dev_account` + user `dev_office`
 2. **phpMyAdmin** → pilih database → tab **SQL** → tempel `schema.sql` → Go.
    Aman dijalankan ulang.
 3. **File Manager** → upload zip → Extract, sehingga jadi
-   `<docroot>/office-api-mysql/api.php`.
+   `<docroot>/account-api-mysql/api.php`.
 4. **Ganti nama `config.sample.php` jadi `config.php`**, lalu isi
    `DB_NAME`, `DB_USER`, `DB_PASS`. Di dev, set `ENV_LABEL` jadi `'dev'`.
 5. Buka `?action=ping` — **pastikan `db` yang disebut benar**.
