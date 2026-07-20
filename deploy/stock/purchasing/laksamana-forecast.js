@@ -327,6 +327,71 @@
     return d >= 10 ? Math.round(d) + " hari" : (Math.round(d * 10) / 10) + " hari";
   }
 
+  /* ==========================================================================
+   * KEANDALAN PRAKIRAAN (health)
+   *
+   * Ringkasan "seberapa bisa dipercaya prakiraan tiap bahan", dari field tier
+   * & wape yang sudah ada di payload. Murni transformasi data: TIDAK menyentuh
+   * DOM, jadi bisa diuji langsung tanpa browser (itu sebabnya tinggal di sini,
+   * bukan di dalam index.html).
+   * ========================================================================== */
+
+  // Payload -> array datar, satu baris per bahan. Dipanggil sekali saat forecast
+  // dimuat; hasilnya dipakai ulang tiap kali admin mengurutkan/mencari.
+  function healthRows(forecastPayload) {
+    var items = (forecastPayload && forecastPayload.items) || {};
+    return Object.keys(items).map(function (nama) {
+      var f = items[nama] || {};
+      return {
+        nama: nama,
+        tier: f.tier || "C",
+        // wape null = model tidak diuji untuk bahan ini. Dibedakan dari 0
+        // (yang berarti "diuji, dan tidak pernah meleset").
+        wape: (f.wape == null || isNaN(f.wape)) ? null : Number(f.wape),
+        avgDaily: Number(f.avg_daily) || 0,
+        unit: f.unit || "",
+      };
+    });
+  }
+
+  // Jumlah bahan per tier. Selalu dihitung dari SELURUH baris (bukan hasil
+  // filter) supaya angka ringkasan tidak ikut berubah saat admin mengetik cari.
+  function healthTally(rows) {
+    var t = { A: 0, B: 0, C: 0 };
+    (rows || []).forEach(function (r) {
+      if (t[r.tier] == null) t[r.tier] = 0;
+      t[r.tier]++;
+    });
+    return t;
+  }
+
+  /* Pembanding urutan. Bahan TANPA nilai wape selalu didorong ke bawah pada
+     kedua urutan berbasis wape: null bukan "paling akurat", dan menaruhnya di
+     puncak daftar "paling akurat" akan menyesatkan orang yang memesan. */
+  var HEALTH_SORTS = {
+    wape_desc:  function (a, b) { return (b.wape == null ? -1 : b.wape) - (a.wape == null ? -1 : a.wape); },
+    wape_asc:   function (a, b) { return (a.wape == null ? Infinity : a.wape) - (b.wape == null ? Infinity : b.wape); },
+    usage_desc: function (a, b) { return b.avgDaily - a.avgDaily; },
+    name:       function (a, b) { return a.nama.localeCompare(b.nama, "id"); },
+  };
+
+  /* Saring + urutkan. Mengembalikan { rows, total } — `total` adalah jumlah
+     SETELAH filter tapi SEBELUM dipotong `limit`, supaya pemanggil bisa bilang
+     "menampilkan 60 dari 143" dengan jujur. */
+  function healthView(rows, opts) {
+    opts = opts || {};
+    var out = rows || [];
+    var cari = norm(opts.search || "");
+    if (cari) {
+      out = out.filter(function (r) { return norm(r.nama).indexOf(cari) !== -1; });
+    }
+    var kmp = HEALTH_SORTS[opts.sort] || HEALTH_SORTS.wape_desc;
+    out = out.slice().sort(kmp);
+    var total = out.length;
+    if (opts.limit > 0) out = out.slice(0, opts.limit);
+    return { rows: out, total: total };
+  }
+
   global.LaksForecast = {
     ForecastBook: ForecastBook,
     parseStockWorkbook: parseStockWorkbook,
@@ -336,5 +401,12 @@
     norm: norm,
     fmtNum: fmtNum,
     fmtDays: fmtDays,
+    healthRows: healthRows,
+    healthTally: healthTally,
+    healthView: healthView,
+    HEALTH_SORTS: HEALTH_SORTS,
   };
-})(window);
+
+  // Ekspor untuk Node (uji tanpa browser). Tidak berpengaruh di browser.
+  if (typeof module !== "undefined" && module.exports) module.exports = global.LaksForecast;
+})(typeof window !== "undefined" ? window : globalThis);
