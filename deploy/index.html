@@ -490,9 +490,21 @@
        sendiri. Kontrak sesi dan setup Sheet ada di docs/office-auth.md.
        ========================================================================= */
 
-    // URL Web App Apps Script (verifikasi PIN di server, kembalikan identitas +
-    // daftar modul). Kosongkan untuk mode seed lokal (jalan tanpa Sheet).
+    /* Sumber identitas: backend MySQL (account-api-mysql). Path RELATIF, jadi
+       office dan dev memakai databasenya masing-masing.
+
+       OFFICE_LEGACY_URL = Web App Apps Script + Google Sheet yang lama.
+       DIPAKAI SEBAGAI CADANGAN kalau backend MySQL belum terpasang di server
+       ini. Ini bukan hiasan: pernah terjadi `main` di-merge lebih dulu
+       sementara folder API-nya belum diunggah, sehingga produksi tidak punya
+       sumber identitas sama sekali dan jatuh ke daftar benih — akibatnya
+       semua akun asli tidak bisa dipakai dan siapa pun bisa masuk sebagai
+       "Admin" dengan PIN yang tertulis di repo.
+
+       Hapus baris legacy ini HANYA setelah backend MySQL terpasang DAN
+       datanya dipindahkan di SEMUA server. */
     const OFFICE_WEBAPP_URL = "./account-api-mysql/api.php";
+    const OFFICE_LEGACY_URL = "https://script.google.com/macros/s/AKfycbyy1hlJPVfV_Xu3o4-2EhjbP4MI0QylphLgmf0Cj7Ve4fJ006tdls9_TYhEMpkVmPGsuA/exec";
 
     const SESSION_KEY   = "lm_session";
     const SESSION_HOURS = 24;
@@ -633,17 +645,31 @@
     }
 
     /* ------------------------ Verifikasi login ------------------------ */
-    // Kembalikan objek user bila cocok, null bila salah, atau lempar bila server
-    // tak terjangkau (agar pemanggil bisa jatuh ke seed lokal).
-    async function verifyRemote(name, pin){
-        const res = await fetch(OFFICE_WEBAPP_URL, {
-            method:'POST',
+    // Satu percobaan ke satu server. null = kredensial salah (server menjawab
+    // dengan tegas), throw = servernya sendiri tidak terjangkau.
+    async function verifyAt(url, name, pin){
+        const res = await fetch(url, {
+            method:'POST', redirect:'follow',
             headers:{ 'Content-Type':'text/plain;charset=utf-8' },
             body: JSON.stringify({ action:'login', name, pin })
         });
         if(!res.ok) throw new Error('http_'+res.status);
         const data = await res.json();
         return data && data.ok ? data.user : null;
+    }
+    /* Coba MySQL dulu; kalau backend-nya belum terpasang di server ini
+       (404 / tidak terjangkau), jatuh ke Sheet yang lama.
+
+       Yang membedakan penting: PIN SALAH mengembalikan null dan berhenti di
+       situ — tidak lanjut mencoba server lain. Yang memicu percobaan kedua
+       hanya kegagalan menghubungi servernya. */
+    async function verifyRemote(name, pin){
+        try {
+            return await verifyAt(OFFICE_WEBAPP_URL, name, pin);
+        } catch (e) {
+            if(!OFFICE_LEGACY_URL) throw e;
+            return await verifyAt(OFFICE_LEGACY_URL, name, pin);   // lempar lagi bila ini pun gagal
+        }
     }
     function verifySeed(name, pin){
         const u = SEED_USERS.find(x =>
@@ -665,12 +691,19 @@
         let user;
         if(OFFICE_WEBAPP_URL){
             try{
-                user = await verifyRemote(name, pin);   // null = salah, throw = server mati
+                user = await verifyRemote(name, pin);   // null = salah, throw = semua server mati
             }catch(e){
-                user = verifySeed(name, pin);            // server mati, pakai seed
+                /* SENGAJA TIDAK jatuh ke SEED_USERS di sini.
+                   Dulu begitu, dan akibatnya berbahaya: begitu server identitas
+                   tak terjangkau, semua akun asli mati DAN siapa pun bisa masuk
+                   sebagai "Admin" dengan PIN 1111 yang tertulis di repo. Server
+                   mati harus berarti tidak ada yang bisa masuk, bukan semua
+                   orang jadi admin. Lagipula seluruh data modul ada di server —
+                   masuk tanpa server tidak ada gunanya. */
+                return { error:'Server identitas tidak terjangkau. Coba lagi sebentar lagi, atau hubungi admin.' };
             }
         }else{
-            user = verifySeed(name, pin);                // belum ada Sheet, seed saja
+            user = verifySeed(name, pin);                // tidak ada backend sama sekali: mode lokal
         }
 
         if(!user) return { error:'Nama pengguna atau PIN salah.' };
