@@ -449,7 +449,10 @@
                                 <input id="af-pin" type="text" inputmode="numeric" placeholder="default 1111"></div>
                             <div class="field"><label for="af-ket">Keterangan</label>
                                 <input id="af-ket" type="text" placeholder="opsional"></div>
+                            <div class="field"><label for="af-talenta">Talenta ID</label>
+                                <input id="af-talenta" type="text" inputmode="numeric" placeholder="cth: 118825"></div>
                         </div>
+                        <p class="pick-hint" style="margin-top:6px">Talenta ID adalah <b>Employee ID</b> di aplikasi absensi. Dipakai modul Kehadiran untuk mencocokkan report bulanan dengan akun ini. Kosongkan kalau yang bersangkutan tidak absen lewat Talenta.</p>
                         <div class="field" style="margin-top:12px">
                             <label>Modul yang boleh dibuka</label>
                             <div id="af-modules" class="pick-grid"></div>
@@ -866,7 +869,7 @@
                 <div class="u-info">
                     <b>${esc(u.name)}${admTag}${u.active ? '' : ' <span style="color:var(--muted-2);font-size:11px">nonaktif</span>'}</b>
                     <span class="u-mods">${esc(mods)}</span>
-                    <span>PIN ${esc(u.pin)}${u.keterangan ? ', ' + esc(u.keterangan) : ''}</span>
+                    <span>PIN ${esc(u.pin)}${u.keterangan ? ', ' + esc(u.keterangan) : ''}${u.talentaId ? ', Talenta ' + esc(u.talentaId) : ''}</span>
                 </div>
                 <div class="u-acts">
                     <button class="u-edit" title="Ubah" data-id="${esc(u.id)}">
@@ -885,8 +888,12 @@
         const next = !u.active;
         if(!next && !confirm(`Nonaktifkan "${u.name}"? Mereka tidak bisa login sampai diaktifkan lagi.`)) return;
         let data;
+        // talentaId ikut dikirim: saveUser menulis ulang seluruh baris, jadi
+        // menghilangkannya di sini akan menghapus pemetaan absensi hanya
+        // karena seseorang menekan tombol aktif/nonaktif.
         try{ data = await adminCall('saveUser', {
-            id:u.id, name:u.name, pin:u.pin, keterangan:u.keterangan || '', active: next
+            id:u.id, name:u.name, pin:u.pin, keterangan:u.keterangan || '',
+            talentaId:u.talentaId || '', active: next
         }); }
         catch(e){ alert('Gagal terhubung. Cek koneksi.'); return; }
         if(!data.ok){ alert(ADMIN_ERR[data.error] || ('Gagal: ' + data.error)); return; }
@@ -899,6 +906,7 @@
         document.getElementById('af-name').value = '';
         document.getElementById('af-pin').value = '';
         document.getElementById('af-ket').value = '';
+        document.getElementById('af-talenta').value = '';
         document.getElementById('af-active').checked = true;
         document.getElementById('af-err').textContent = '';
         document.getElementById('af-cancel').classList.add('hidden');
@@ -914,6 +922,7 @@
         document.getElementById('af-name').value = u.name;
         document.getElementById('af-pin').value = u.pin;
         document.getElementById('af-ket').value = u.keterangan || '';
+        document.getElementById('af-talenta').value = u.talentaId || '';
         document.getElementById('af-active').checked = !!u.active;
         // Centang sesuai baris Grants mentah user ini (bukan hasil perluasan '*').
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', u.grants || u.modules || []);
@@ -930,8 +939,16 @@
     const ADMIN_ERR = {
         name_taken:'Nama sudah dipakai user lain.',
         missing_fields:'Nama wajib diisi.', forbidden:'PIN salah atau bukan superadmin.',
-        cannot_delete_self:'Tidak bisa menghapus akun sendiri.', not_found:'User tidak ditemukan.'
+        cannot_delete_self:'Tidak bisa menghapus akun sendiri.', not_found:'User tidak ditemukan.',
+        talenta_taken:'Talenta ID itu sudah dipakai user lain.'
     };
+    // Pesan yang perlu menyebut siapa pemakainya. Tanpa nama itu, memperbaiki
+    // Talenta ID kembar berarti membuka satu per satu user untuk mencarinya.
+    function pesanAdminErr(data){
+        if(data.error === 'talenta_taken' && data.takenBy)
+            return 'Talenta ID itu sudah dipakai oleh ' + data.takenBy + '.';
+        return ADMIN_ERR[data.error] || ('Gagal: ' + data.error);
+    }
 
     async function submitAdminForm(e){
         e.preventDefault();
@@ -953,6 +970,7 @@
         const payload = {
             id: editId, name, pin,
             keterangan: document.getElementById('af-ket').value.trim(),
+            talentaId: document.getElementById('af-talenta').value.trim(),
             active: document.getElementById('af-active').checked
         };
         save.disabled = true; save.textContent = 'Menyimpan...';
@@ -961,7 +979,7 @@
         catch(e2){ err.textContent = 'Gagal terhubung. Cek koneksi.'; save.disabled = false; save.textContent = 'Simpan'; return; }
         if(!data.ok){
             save.disabled = false; save.textContent = 'Simpan';
-            err.textContent = ADMIN_ERR[data.error] || ('Gagal: ' + data.error);
+            err.textContent = pesanAdminErr(data);
             return;
         }
 

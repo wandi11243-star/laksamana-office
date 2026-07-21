@@ -109,6 +109,49 @@ CREATE TABLE IF NOT EXISTS monthly_inputs (
   PRIMARY KEY (emp_id, bulan)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- =====================================================================
+-- KEHADIRAN — hasil unggah report absensi Talenta, per bulan.
+-- ---------------------------------------------------------------------
+-- Dua tabel, sengaja dipisah:
+--
+--   attendance_months — satu baris per BULAN. Ringkasan per kru + jejak
+--     berkas asalnya. Inilah yang dibaca peopleScore().
+--   attendance_days   — satu baris per KRU per HARI. Bukti mentahnya.
+--
+-- Kenapa harinya ikut disimpan padahal skor cuma butuh ringkasan: kalau
+-- seseorang membantah skornya, pertanyaannya selalu "hari yang mana?".
+-- Tanpa tabel ini jawabannya cuma bisa "unggah ulang file Juni" — dan
+-- file itu sudah lama hilang dari unduhan orang.
+--
+-- Aturan pembobotan TIDAK disimpan di sini. Aturan ada di settings
+-- (attendanceRules) dan skor dihitung ulang di frontend dari baris harian,
+-- supaya mengubah toleransi terlambat berlaku surut ke semua bulan tanpa
+-- perlu unggah ulang apa pun.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS attendance_months (
+  bulan       VARCHAR(10)  NOT NULL,          -- 'YYYY-MM'
+  data        LONGTEXT     NOT NULL,          -- {fileName, importedAt, importedBy, unmatched:[...], summary:{...}}
+  imported_at VARCHAR(40)  NOT NULL DEFAULT '',
+  imported_by VARCHAR(120) NOT NULL DEFAULT '',
+  PRIMARY KEY (bulan)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- emp_id KOSONG = baris Talenta yang belum cocok dengan kru mana pun.
+-- Sengaja tetap disimpan: begitu talenta_id-nya dipetakan di Office, skor
+-- bulan lama langsung ikut benar tanpa unggah ulang. Kalau baris tak cocok
+-- dibuang saat impor, data itu hilang untuk selamanya.
+CREATE TABLE IF NOT EXISTS attendance_days (
+  bulan      VARCHAR(10) NOT NULL,
+  talenta_id VARCHAR(32) NOT NULL,
+  tanggal    VARCHAR(10) NOT NULL,            -- 'YYYY-MM-DD'
+  emp_id     VARCHAR(64) NOT NULL DEFAULT '',
+  data       LONGTEXT    NOT NULL,            -- {shift, code, timeOff, checkIn, checkOut, lateMin, org, name, resign}
+  PRIMARY KEY (bulan, talenta_id, tanggal),
+  KEY idx_att_emp (emp_id, bulan),
+  KEY idx_att_bulan (bulan)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ---------------------------------------------------------------------
 -- OKR. Catatan: field asli = ownerType/ownerId/period
 -- (komentar seed di frontend menyebut owner/divId/month — itu SUDAH BASI).

@@ -102,6 +102,30 @@ Dua koleksi berbentuk peta bersarang, dipipihkan jadi baris supaya bisa di-query
 - `kpiActuals` `{divId: {bulan: {itemId: nilai}}}` → `kpi_actuals(div_id, bulan, item_id, nilai)`
 - `monthlyInputs` `{empId: {bulan: {...}}}` → `monthly_inputs(emp_id, bulan, data)`
 
+## Kehadiran (`attendance`)
+
+Hasil unggah report Talenta, dipecah jadi dua tabel:
+`attendance_months` (ringkasan + jejak berkas) dan `attendance_days`
+(satu baris per kru per hari). Halaman **Kehadiran** yang mengisinya.
+
+Tiga hal yang beda dari koleksi lain, semuanya disengaja:
+
+1. **Ditulis per bulan**, bukan hapus-semua-lalu-tulis-ulang. Satu bulan
+   ~1.600 baris; menulis ulang seluruh riwayat tiap kali ada perubahan di
+   halaman lain akan memperpanjang transaksi tanpa alasan.
+2. **Bulan yang hilang dari kiriman ikut dihapus**, supaya "Hapus bulan
+   ini" di UI benar-benar sampai ke database. Penjaganya: peta kosong
+   tidak menghapus apa pun (itu lebih mungkin gagal muat daripada niat).
+3. **Skor tidak pernah disimpan.** Yang tersimpan hanya data harian; skor
+   dihitung ulang di frontend dari `settings.attendanceRules` tiap kali
+   dibaca. Karena itu mengubah toleransi terlambat berlaku **surut** ke
+   semua bulan tanpa perlu unggah ulang berkas apa pun.
+
+Baris dengan `emp_id` kosong sengaja tetap disimpan: itu kru yang
+`talenta_id`-nya belum diisi di Office. Begitu dipetakan, skor bulan lama
+langsung ikut benar. Kalau baris tak cocok dibuang saat impor, datanya
+hilang selamanya.
+
 `suggestions.emp_id` **boleh NULL** — saran anonim mengirim `null`. Jangan
 diubah jadi `NOT NULL`: itu akan membuat saran anonim ketahuan pemiliknya.
 

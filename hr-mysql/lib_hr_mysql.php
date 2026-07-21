@@ -153,6 +153,31 @@ function hr_ambil_semua($pdo) {
   foreach ($mi as $e => $perBulan) $mi[$e] = (object)$perBulan;
   $out['monthlyInputs'] = (object)$mi;
 
+  // attendance: { bulan: {fileName, importedAt, importedBy, unmatched[], days:[...] } }
+  // Baris harian digabung kembali ke bulannya masing-masing. Satu bulan
+  // penuh ~1.600 baris, jadi ini tetap ringan untuk dikirim sekaligus.
+  $att = [];
+  foreach ($pdo->query("SELECT `bulan`, `data`, `imported_at`, `imported_by`
+                        FROM `attendance_months`")->fetchAll() as $r) {
+    $o = json_decode($r['data']);
+    if (!is_object($o)) $o = (object)[];
+    $o->importedAt = $r['imported_at'];
+    $o->importedBy = $r['imported_by'];
+    $o->days = [];
+    $att[$r['bulan']] = $o;
+  }
+  foreach ($pdo->query("SELECT `bulan`, `talenta_id`, `tanggal`, `emp_id`, `data`
+                        FROM `attendance_days` ORDER BY `talenta_id`, `tanggal`")->fetchAll() as $r) {
+    if (!isset($att[$r['bulan']])) continue;   // hari yatim tanpa induk bulan
+    $d = json_decode($r['data']);
+    if (!is_object($d)) $d = (object)[];
+    $d->talentaId = $r['talenta_id'];
+    $d->date      = $r['tanggal'];
+    $d->empId     = $r['emp_id'];
+    $att[$r['bulan']]->days[] = $d;
+  }
+  $out['attendance'] = (object)$att;
+
   // settings + kunci top-level lain yang disimpan di sana
   $set = [];
   foreach ($pdo->query("SELECT `k`, `v` FROM `settings`")->fetchAll() as $r) {
@@ -264,6 +289,74 @@ function hr_simpan_monthly($pdo, $map) {
   }
 }
 
+/* Kehadiran. Ditulis per BULAN, bukan hapus-semua-lalu-tulis-ulang seperti
+   koleksi lain: satu bulan berisi ~1.600 baris harian, dan menulis ulang
+   seluruh riwayat tiap kali ada perubahan kecil di halaman lain akan
+   menghabiskan waktu transaksi tanpa alasan.
+
+   Konsekuensinya: bulan yang TIDAK ada di kiriman TIDAK dihapus. Itu
+   disengaja — halaman lain yang menyimpan tanpa memuat riwayat absensi
+   tidak boleh diam-diam menghapusnya. Penghapusan bulan dilakukan lewat
+   aksi tersendiri di UI. */
+function hr_simpan_attendance($pdo, $map) {
+  if (!is_object($map)) return;
+
+  /* Bulan yang DIHAPUS di UI ikut hilang di sini. Kiriman attendance selalu
+     memuat seluruh peta bulan (frontend memegang semuanya), jadi bulan yang
+     tidak disebut memang sengaja dibuang — bukan sekadar tidak dimuat.
+     Penjaga di bawah: kalau petanya kosong sama sekali, jangan hapus apa pun.
+     Itu lebih mungkin bug/muat gagal daripada niat menghapus semua. */
+  $simpan = array_keys(get_object_vars($map));
+  if ($simpan) {
+    $tanda = implode(',', array_fill(0, count($simpan), '?'));
+    $st = $pdo->prepare("DELETE FROM `attendance_months` WHERE `bulan` NOT IN ($tanda)");
+    $st->execute($simpan);
+    $st = $pdo->prepare("DELETE FROM `attendance_days` WHERE `bulan` NOT IN ($tanda)");
+    $st->execute($simpan);
+  }
+
+  $stM = $pdo->prepare("INSERT INTO `attendance_months` (`bulan`, `data`, `imported_at`, `imported_by`)
+                        VALUES (?,?,?,?)
+                        ON DUPLICATE KEY UPDATE `data`=VALUES(`data`),
+                          `imported_at`=VALUES(`imported_at`), `imported_by`=VALUES(`imported_by`)");
+  $stD = $pdo->prepare("INSERT INTO `attendance_days` (`bulan`, `talenta_id`, `tanggal`, `emp_id`, `data`)
+                        VALUES (?,?,?,?,?)
+                        ON DUPLICATE KEY UPDATE `emp_id`=VALUES(`emp_id`), `data`=VALUES(`data`)");
+  $stHapus = $pdo->prepare("DELETE FROM `attendance_days` WHERE `bulan`=?");
+
+  foreach ($map as $bulan => $isi) {
+    if (!is_object($isi)) continue;
+    $bulan = (string)$bulan;
+
+    $hari = (isset($isi->days) && is_array($isi->days)) ? $isi->days : [];
+
+    // Ringkasan bulan disimpan TANPA days[] — hari punya tabelnya sendiri.
+    $ringkas = clone $isi;
+    unset($ringkas->days, $ringkas->importedAt, $ringkas->importedBy);
+    $stM->execute([$bulan, json_encode($ringkas, JSON_UNESCAPED_UNICODE),
+                   (string)($isi->importedAt ?? ''), (string)($isi->importedBy ?? '')]);
+
+    /* Unggah ulang sebuah bulan mengganti isinya, bukan menumpuk. Tanpa
+       DELETE ini, kru yang HILANG dari file baru (mis. sudah resign dan
+       dibuang dari ekspor) akan tertinggal sebagai baris hantu dan tetap
+       ikut terhitung. Hanya dijalankan kalau memang ada hari yang dikirim,
+       supaya kiriman tanpa days[] tidak mengosongkan bulan yang sudah ada. */
+    if ($hari) {
+      $stHapus->execute([$bulan]);
+      foreach ($hari as $d) {
+        if (!is_object($d)) continue;
+        $tid = (string)($d->talentaId ?? '');
+        $tgl = (string)($d->date ?? '');
+        if ($tid === '' || $tgl === '') continue;
+        $simpan = clone $d;
+        unset($simpan->talentaId, $simpan->date, $simpan->empId);
+        $stD->execute([$bulan, $tid, $tgl, (string)($d->empId ?? ''),
+                       json_encode($simpan, JSON_UNESCAPED_UNICODE)]);
+      }
+    }
+  }
+}
+
 /* audit: append-only. Yang sudah ada TIDAK disentuh, yang baru ditambah.
    Menghapus jejak audit lewat saveAll akan membuat log ini tidak ada gunanya. */
 function hr_simpan_audit($pdo, $list) {
@@ -282,7 +375,7 @@ function hr_simpan_audit($pdo, $list) {
    prefix "extra:" supaya fitur baru di frontend tidak hilang datanya. */
 function hr_simpan_settings($pdo, $data) {
   $lewati = array_merge(array_keys(hr_koleksi()),
-    ['audit', 'kpiActuals', 'monthlyInputs', 'settings', 'version',
+    ['audit', 'kpiActuals', 'monthlyInputs', 'attendance', 'settings', 'version',
      '_rev', '_savedAt', '_savedBy']);
 
   $pdo->exec("DELETE FROM `settings`");
@@ -348,6 +441,7 @@ function hr_simpan_semua($pdo, $data, $baseRev, $by) {
     hr_simpan_audit($pdo, $data->audit ?? []);
     hr_simpan_kpi_actuals($pdo, $data->kpiActuals ?? null);
     hr_simpan_monthly($pdo, $data->monthlyInputs ?? null);
+    hr_simpan_attendance($pdo, $data->attendance ?? null);
     hr_simpan_settings($pdo, $data);
 
     $revBaru = $revServer + 1;
@@ -368,7 +462,8 @@ function hr_stats($pdo) {
   foreach (hr_koleksi() as $appKey => $tabel) {
     $out[$appKey] = (int)$pdo->query("SELECT COUNT(*) c FROM `$tabel`")->fetch()['c'];
   }
-  foreach (['audit', 'kpi_actuals', 'monthly_inputs', 'settings'] as $t) {
+  foreach (['audit', 'kpi_actuals', 'monthly_inputs',
+            'attendance_months', 'attendance_days', 'settings'] as $t) {
     $out[$t] = (int)$pdo->query("SELECT COUNT(*) c FROM `$t`")->fetch()['c'];
   }
   $m = $pdo->query("SELECT rev, saved_at, saved_by FROM meta WHERE id=1")->fetch();

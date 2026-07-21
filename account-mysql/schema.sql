@@ -28,11 +28,32 @@ CREATE TABLE IF NOT EXISTS `users` (
   `pin`        VARCHAR(32)  NOT NULL DEFAULT '1111',
   `active`     TINYINT(1)   NOT NULL DEFAULT 1,
   `keterangan` VARCHAR(255) NOT NULL DEFAULT '',
+  `talenta_id` VARCHAR(32)  NOT NULL DEFAULT '',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_users_name` (`name`)
+  KEY `idx_users_name` (`name`),
+  KEY `idx_users_talenta` (`talenta_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- talenta_id — Employee ID di Talenta (mis. '118825'), penghubung ke
+-- report absensi bulanan yang diunggah ke modul HR.
+--
+-- Kosong = kru itu belum dipetakan; modul HR akan menampilkannya sebagai
+-- "belum cocok" saat unggah, BUKAN diam-diam melewatinya. Pencocokan lewat
+-- nama saja tidak bisa dipercaya ('M. Rizki Arfan' vs 'Rizki Arfan').
+--
+-- TIDAK unik di tingkat database: kolom kosong akan bentrok satu sama lain.
+-- Keunikan yang bukan-kosong diperiksa di kode.
+--
+-- Baris ALTER di bawah untuk database yang TERLANJUR dibuat sebelum kolom
+-- ini ada. Di MySQL, ADD COLUMN IF NOT EXISTS tidak tersedia, jadi kalau
+-- kolomnya sudah ada perintah ini akan error — abaikan, itu tandanya
+-- memang sudah terpasang.
+-- ---------------------------------------------------------------------
+-- ALTER TABLE `users` ADD COLUMN `talenta_id` VARCHAR(32) NOT NULL DEFAULT '' AFTER `keterangan`;
+-- ALTER TABLE `users` ADD KEY `idx_users_talenta` (`talenta_id`);
 
 -- ---------------------------------------------------------------------
 -- modules — registri modul yang dikenal Office.
