@@ -95,11 +95,16 @@ function user_by_creds($name, $pin) {
 function identitas_bentrok($cand, $kecualiId) {
   $c = mb_strtolower(trim(s($cand)), 'UTF-8');
   if ($c === '') return null;
+  /* :c1 dan :c2 sengaja DUA placeholder berbeda meski nilainya sama.
+     Koneksi ini memakai PDO::ATTR_EMULATE_PREPARES = false, jadi prepared
+     statement-nya asli MySQL — dan di mode itu satu placeholder bernama
+     hanya boleh muncul SEKALI. Memakai :c dua kali menghasilkan
+     SQLSTATE[HY093] Invalid parameter number. */
   $r = q('SELECT id, name, username FROM `users`
-          WHERE id <> :i AND (LOWER(TRIM(name)) = :c
-                          OR (TRIM(username) <> \'\' AND LOWER(TRIM(username)) = :c))
+          WHERE id <> :i AND (LOWER(TRIM(name)) = :c1
+                          OR (TRIM(username) <> \'\' AND LOWER(TRIM(username)) = :c2))
           LIMIT 1',
-         array(':i' => s($kecualiId), ':c' => $c))->fetch();
+         array(':i' => s($kecualiId), ':c1' => $c, ':c2' => $c))->fetch();
   return $r ?: null;
 }
 

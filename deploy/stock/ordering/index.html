@@ -942,13 +942,22 @@
             const office = officeUser();
             if (!office) { window.location.replace('../../'); return; }
 
-            // Tarik daftar user modul (MySQL, ~0,04 dtk) lalu masuk. Roster Office
-            // lewat Apps Script sudah DICABUT seluruhnya — dulu itu yang bikin
-            // halaman menunggu 16-23 detik. Sekarang tidak ada lagi panggilan
-            // lambat di jalur boot.
-            syncUsersFromServer().finally(() => {
-                enterApp(resolveOfficeUser(office));
-            });
+            /* Dua sumber, dijalankan BERSAMAAN lalu baru masuk:
+                 - ordering-users.php : role & pin milik modul ini (~0,04 dtk)
+                 - roster Office      : nama resmi & kru baru    (~0,3 dtk)
+
+               Urutannya penting: roster dipakai SESUDAH daftar modul termuat,
+               supaya nama dari Office tidak langsung ditimpa balik oleh hasil
+               syncUsersFromServer yang datang belakangan. Karena itu bukan
+               Promise.all biasa — roster sengaja menunggu yang pertama selesai.
+
+               Keduanya gagal pun boot tetap lanjut dari cache localStorage. */
+            syncUsersFromServer()
+                .then(() => syncOfficeRoster())
+                .catch(e => console.warn('Sinkron daftar kru gagal:', e))
+                .finally(() => {
+                    enterApp(resolveOfficeUser(office));
+                });
         });
 
         // ==========================================
@@ -1034,14 +1043,85 @@
         // padahal tak ada lagi yang membacanya.
         try { localStorage.removeItem(ROSTER_CACHE_KEY); } catch (e) {}
 
-        /* applyCachedRoster() / autoSyncOfficeRoster() / terapkanRoster() DIHAPUS
-           bersama OFFICE_WEBAPP_URL — lihat catatan di tempat const itu dulu berada.
+        /* Roster Office DIPASANG LAGI — kali ini lewat MySQL, bukan Apps Script.
+           ---------------------------------------------------------------------
+           Dulu ini dicabut karena Apps Script memakan 16-23 detik dan menahan
+           boot. Office sekarang di MySQL: panggilan yang sama TERUKUR ~0,3 detik,
+           jadi alasan pencabutannya sudah tidak berlaku.
 
-           Konsekuensi yang perlu diketahui: kru yang BARU diberi akses `ordering`
-           di Office tidak lagi muncul sendiri di Kelola Akses. Dia muncul begitu
-           membuka modul ini sekali (resolveOfficeUser menaruhnya di daftar), atau
-           bisa ditambahkan admin lewat Kelola Akses. Itulah harga yang dibayar
-           untuk menghapus tunggu 16-23 detik. */
+           Yang diambil dari Office HANYA nama (dan kru baru). role dan pin milik
+           modul ini TIDAK PERNAH ditimpa: siapa boleh apa di Ordering itu urusan
+           Kelola Akses di sini, bukan urusan Office.
+
+           Kenapa perlu: tanpa ini daftar kru Ordering hidup sendiri dan pelan-pelan
+           menyimpang dari Office. Itu yang membuat layar ini masih menulis "Adit"
+           dan "Anggi" padahal Office sudah lama memakai "Aditya Setiadi" dan
+           "Anggi Amanda". */
+        const OFFICE_ACCOUNT_API = "../../account-api-mysql/api.php";
+
+        async function syncOfficeRoster() {
+            if (!navigator.onLine) return false;
+            let members;
+            try {
+                // Batas waktu tetap dipasang: kalau Office diam, modul ini harus
+                // tetap jalan dari cache lokal, bukan menggantung seperti dulu.
+                const stop = new AbortController();
+                const jam = setTimeout(() => stop.abort(), 8000);
+                const res = await fetch(OFFICE_ACCOUNT_API, {
+                    method: 'POST', redirect: 'follow',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'listModuleRoster', module: 'ordering' }),
+                    signal: stop.signal
+                }).finally(() => clearTimeout(jam));
+                const data = await res.json();
+                if (!data || !data.ok || !Array.isArray(data.members)) return false;
+                members = data.members;
+            } catch (e) { console.warn("Roster Office gagal:", e.message); return false; }
+            if (!members.length) return false;   // balasan kosong != semua kru hilang
+
+            const users = loadUsers();
+            const byId = new Map(users.map(u => [u.id, u]));
+            let berubah = false;
+
+            members.forEach(m => {
+                if (!m || !m.id || !m.name) return;
+                const ada = byId.get(m.id);
+                if (ada) {
+                    // Nama resmi dari Office menang. role & pin dibiarkan apa adanya.
+                    if (ada.name !== m.name) { ada.name = m.name; berubah = true; }
+                    if (m.keterangan && ada.keterangan !== m.keterangan) {
+                        ada.keterangan = m.keterangan; berubah = true;
+                    }
+                } else {
+                    /* Kru baru dari Office. PIN diberi acak, BUKAN kosong atau
+                       tebakan: login modul ini memakai sesi Office, jadi PIN lokal
+                       tidak dipakai untuk masuk — tapi membiarkannya kosong akan
+                       membuat baris ini disaring keluar oleh filter u.pin di
+                       syncUsersFromServer(). */
+                    users.push({
+                        id: m.id, name: m.name,
+                        pin: String(Math.floor(1000 + Math.random() * 9000)),
+                        role: 'checkin',            // paling sempit; admin naikkan sendiri
+                        keterangan: m.keterangan || ''
+                    });
+                    berubah = true;
+                }
+            });
+
+            if (!berubah) return false;
+            saveUsers(users);
+
+            /* Hasilnya DITULIS BALIK ke ordering-users.php. Tanpa ini, perbaikan
+               nama cuma bertahan sampai boot berikutnya: syncUsersFromServer()
+               mengganti seluruh daftar lokal dengan isi MySQL, jadi "Adit" akan
+               kembali menimpa "Aditya Setiadi" setiap kali halaman dibuka.
+
+               Sekali tulis per perangkat per perubahan — setelah database ikut
+               benar, syncOfficeRoster() tidak menemukan beda lagi dan diam. */
+            pushToUsersServer({ action: 'bulkSeed', users })
+                .catch(e => console.warn('Simpan nama dari Office gagal:', e));
+            return true;
+        }
 
         // Kirim perubahan user ke server (tambah/edit/hapus/seed).
         async function pushToUsersServer(payload) {

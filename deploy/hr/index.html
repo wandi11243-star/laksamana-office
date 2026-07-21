@@ -407,6 +407,7 @@ async function autoSyncOfficeRoster(){
     }
   });
   if(gabungKembarTalenta()) changed = true;
+  if(buangYatimRoster(data.members)) changed = true;
   if(changed){ log('ROSTER_SYNC','dari Office'); save(); if(CU) buildNav(); }
 }
 
@@ -822,6 +823,52 @@ function gabungKembarTalenta(){
     });
   });
   return berubah;
+}
+
+/* Buang record kru yang SUDAH TIDAK ADA di Office DAN tidak punya riwayat apa
+   pun. Sasarannya sempit: sisa pencocokan nama yang gagal dulu (mis. "Andi",
+   "Putra") yang tertinggal sebagai kru hantu di daftar dan ikut mengotori
+   ranking People Score.
+
+   Empat penjaga, semuanya perlu:
+
+   1. Hanya kalau roster Office benar-benar terisi. Roster kosong berarti
+      panggilan gagal, bukan berarti semua kru dipecat.
+   2. Hanya yang TIDAK ada di roster Office. Yang masih ada di Office tidak
+      pernah disentuh — lagipula sinkron di atas akan membuatnya lagi.
+   3. Hanya yang TANPA riwayat sama sekali. Ada satu review/pelanggaran/hari
+      absensi pun, record-nya ditahan: lebih baik ada nama nyasar daripada
+      riwayat penilaian hilang diam-diam.
+   4. Tidak pernah membuang diri sendiri (CU), supaya sesi yang sedang
+      berjalan tidak kehilangan pijakannya di tengah jalan. */
+function buangYatimRoster(members){
+  if(!Array.isArray(members) || !members.length) return false;   // penjaga 1
+  const diOffice = new Set(members.map(m=>m && m.id).filter(Boolean));
+
+  const punyaRiwayat = id => {
+    const cek = [S.reviews, S.competencies, S.trainingRecords, S.coachings,
+                 S.rewards, S.badges, S.violations, S.feedbacks, S.successions,
+                 S.moods, S.suggestions];
+    if(cek.some(list => (list||[]).some(r => r && (r.empId===id || r.coachId===id)))) return true;
+    if((S.okrs||[]).some(o => o && o.ownerType==='emp' && o.ownerId===id)) return true;
+    if(S.monthlyInputs && S.monthlyInputs[id]) return true;
+    const att = S.attendance || {};
+    for(const mk in att){
+      if((att[mk].days||[]).some(d => d && d.empId===id)) return true;
+    }
+    return false;
+  };
+
+  const buang = S.employees.filter(e =>
+    !diOffice.has(e.id) &&                       // penjaga 2
+    !punyaRiwayat(e.id) &&                       // penjaga 3
+    !(CU && e.id === CU.id));                    // penjaga 4
+  if(!buang.length) return false;
+
+  const nama = buang.map(e=>e.name).join(', ');
+  S.employees = S.employees.filter(e => !buang.includes(e));
+  log('ROSTER_YATIM', 'dibuang: ' + nama);
+  return true;
 }
 
 function resolveOfficeUser(s){
