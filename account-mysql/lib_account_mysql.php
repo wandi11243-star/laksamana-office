@@ -49,12 +49,12 @@ function s($v) { return trim((string)$v); }
    Script, yang membuang baris Sheet setengah kosong supaya tidak muncul
    sebagai user hantu "?" di daftar. */
 function semua_user() {
-  return q('SELECT id, name, pin, active, keterangan FROM `users`
+  return q('SELECT id, name, pin, active, keterangan, talenta_id FROM `users`
             WHERE TRIM(id) <> \'\' AND TRIM(name) <> \'\'
             ORDER BY name ASC')->fetchAll();
 }
 function user_by_id($id) {
-  $r = q('SELECT id, name, pin, active, keterangan FROM `users` WHERE id = :i LIMIT 1',
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id FROM `users` WHERE id = :i LIMIT 1',
          array(':i' => s($id)))->fetch();
   return $r ?: null;
 }
@@ -183,6 +183,7 @@ function aksi_list_users($body) {
       'pin'          => s($u['pin']),
       'active'       => ((int)$u['active'] === 1),
       'keterangan'   => s($u['keterangan']),
+      'talentaId'    => s($u['talenta_id']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
       'adminModules' => admin_modul_untuk($u['id']),
@@ -200,6 +201,7 @@ function aksi_simpan_user($body) {
   $pin  = s(isset($body['pin']) ? $body['pin'] : '');
   if ($pin === '') $pin = '1111';
   $ket    = s(isset($body['keterangan']) ? $body['keterangan'] : '');
+  $tid    = s(isset($body['talentaId']) ? $body['talentaId'] : '');
   $active = (isset($body['active']) && $body['active'] === false) ? 0 : 1;
   if ($name === '') return array('ok' => false, 'error' => 'missing_fields');
 
@@ -209,9 +211,19 @@ function aksi_simpan_user($body) {
                array(':n' => mb_strtolower($name, 'UTF-8'), ':i' => $editId))->fetch();
   if ($bentrok) return array('ok' => false, 'error' => 'name_taken');
 
+  /* talenta_id yang terisi wajib unik: dua kru berbagi satu Employee ID
+     berarti absensi orang lain masuk ke skor seseorang. Yang KOSONG bebas
+     bentrok — itu artinya "belum dipetakan", bukan sebuah identitas. */
+  if ($tid !== '') {
+    $dobel = q('SELECT id, name FROM `users` WHERE TRIM(talenta_id) = :t AND id <> :i LIMIT 1',
+               array(':t' => $tid, ':i' => $editId))->fetch();
+    if ($dobel) return array('ok' => false, 'error' => 'talenta_taken',
+                             'takenBy' => s($dobel['name']));
+  }
+
   if ($editId !== '') {
-    $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k WHERE id = :i',
-            array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':i' => $editId));
+    $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, talenta_id = :t WHERE id = :i',
+            array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid, ':i' => $editId));
     // rowCount 0 kalau tidak ada yang berubah, jadi keberadaannya dicek sendiri.
     if ($st->rowCount() === 0 && !user_by_id($editId))
       return array('ok' => false, 'error' => 'not_found');
@@ -223,8 +235,8 @@ function aksi_simpan_user($body) {
   if ($base === 'u-') $base = 'u-user';
   $id = $base; $n = 2;
   while (user_by_id($id)) { $id = $base . $n; $n++; }
-  q('INSERT INTO `users` (id, name, pin, active, keterangan) VALUES (:i, :n, :p, :a, :k)',
-    array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket));
+  q('INSERT INTO `users` (id, name, pin, active, keterangan, talenta_id) VALUES (:i, :n, :p, :a, :k, :t)',
+    array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid));
   return array('ok' => true, 'id' => $id);
 }
 
@@ -380,10 +392,14 @@ function anggota_modul($module, $withAdminFlag) {
   $out = array();
   foreach (semua_user() as $u) {
     if (!in_array($module, modul_untuk($u['id']), true)) continue;   // hanya anggota modul ini
+    /* talentaId ikut di roster (bukan cuma di listUsers) supaya modul HR
+       bisa mencocokkan report absensi Talenta tanpa kredensial superadmin.
+       Ini bukan data sensitif: nomor pegawai, bukan PIN. */
     $row = array(
       'id'         => s($u['id']),
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
+      'talentaId'  => s($u['talenta_id']),
       'active'     => ((int)$u['active'] === 1),
     );
     if ($withAdminFlag) {
@@ -401,7 +417,7 @@ function anggota_modul($module, $withAdminFlag) {
    tengah. Tidak pernah menghapus baris yang sudah ada di database.
 
    Bentuk kiriman (semua opsional):
-     users:   [{id,name,pin,active,keterangan}, ...]
+     users:   [{id,name,pin,active,keterangan,talentaId}, ...]
      modules: [{key,label,active}, ...]
      grants:  [{userId,module,access,grantedBy,ts}, ...]
      admins:  [{userId,module}, ...]                                    */
@@ -418,12 +434,18 @@ function aksi_import($body) {
   foreach ((isset($body['users']) && is_array($body['users'])) ? $body['users'] : array() as $u) {
     $id = s(isset($u['id']) ? $u['id'] : ''); $nm = s(isset($u['name']) ? $u['name'] : '');
     if ($id === '' || $nm === '') continue;             // baris kosong Sheet dilewati
-    q('INSERT INTO `users` (id, name, pin, active, keterangan) VALUES (:i,:n,:p,:a,:k)
-       ON DUPLICATE KEY UPDATE name=VALUES(name), pin=VALUES(pin), active=VALUES(active), keterangan=VALUES(keterangan)',
+    /* talenta_id: kiriman KOSONG tidak menghapus yang sudah ada. Ekspor tab
+       Sheet lama tidak punya kolom ini, jadi impor ulang tanpa penjaga ini
+       akan memutus semua pemetaan absensi yang sudah dibuat lewat UI. */
+    q('INSERT INTO `users` (id, name, pin, active, keterangan, talenta_id) VALUES (:i,:n,:p,:a,:k,:t)
+       ON DUPLICATE KEY UPDATE name=VALUES(name), pin=VALUES(pin), active=VALUES(active),
+         keterangan=VALUES(keterangan),
+         talenta_id=IF(VALUES(talenta_id)=\'\', talenta_id, VALUES(talenta_id))',
       array(':i' => $id, ':n' => $nm,
             ':p' => s(isset($u['pin']) ? $u['pin'] : '') !== '' ? s($u['pin']) : '1111',
             ':a' => $bool(isset($u['active']) ? $u['active'] : null) ? 1 : 0,
-            ':k' => s(isset($u['keterangan']) ? $u['keterangan'] : '')));
+            ':k' => s(isset($u['keterangan']) ? $u['keterangan'] : ''),
+            ':t' => s(isset($u['talentaId']) ? $u['talentaId'] : '')));
     $n['users']++;
   }
   foreach ((isset($body['modules']) && is_array($body['modules'])) ? $body['modules'] : array() as $m) {

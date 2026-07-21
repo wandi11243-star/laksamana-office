@@ -97,6 +97,25 @@ tabel kosong, jadi database yang sudah berisi tidak pernah tertimpa.
 
 **Ganti PIN ketiganya setelah masuk pertama kali.**
 
+## Talenta ID
+
+Kolom `users.talenta_id` menyimpan **Employee ID** di aplikasi absensi
+Talenta (mis. `118825`). Modul HR memakainya untuk mencocokkan report
+absensi bulanan dengan akun Office.
+
+Pencocokan **hanya** lewat kolom ini, tidak pernah menebak dari nama:
+nama di Talenta dan di Office kerap berbeda (`M. Rizki Arfan` vs
+`Rizki Arfan`), dan salah tebak berarti absensi orang lain masuk ke skor
+seseorang. Nama yang tidak cocok dilaporkan di layar unggah, bukan ditebak.
+
+Diisi lewat **Kelola User** di Office. Yang terisi wajib unik (dicek di
+kode, bukan di database — baris kosong akan saling bentrok kalau dipaksa
+UNIQUE). Kosong berarti "belum dipetakan" dan itu sah.
+
+Ikut dikirim di `listUsers` **dan** `listModuleRoster`, supaya modul HR
+bisa mencocokkan tanpa kredensial superadmin. Ini bukan data sensitif:
+nomor pegawai, bukan PIN.
+
 ## Memindahkan data dari Sheet
 
 Belum wajib — kalau dilewati, Office mulai dengan tiga akun benih di atas
