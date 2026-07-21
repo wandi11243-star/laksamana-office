@@ -4029,6 +4029,39 @@ function refreshDenahSaja(){
   return true;
 }
 function harihL1(){ return dayTypeLayout(HARIH_DATE); }
+
+/* ===== KAPASITAS VENUE PADA SEBUAH TANGGAL =====
+   Dijumlahkan dari denah yang BERLAKU hari itu: Lantai 1 (weekday/weekend/
+   override) + Lantai 2. Weekday & weekend memang berbagi banyak nomor meja,
+   tapi hanya SALAH SATU yang berlaku per tanggal, jadi tidak ada yang terhitung
+   dua kali.
+
+   Memakai capMax: meja bertanda "10-12" dihitung 12, karena yang ditanyakan
+   adalah berapa BANYAK orang yang masih bisa masuk — batas atasnya, bukan
+   jumlah yang nyaman.
+
+   Angkanya ikut berubah sendiri begitu meja ditambah/dihapus atau kapasitasnya
+   diubah lewat Editor Denah. Tidak ada angka kapasitas yang diketik terpisah,
+   supaya tidak ada dua sumber yang bisa berselisih. */
+function kapasitasTanggal(date){
+  let pax=0, meja=0;
+  [dayTypeLayout(date), "lantai2"].forEach(k=>{
+    const seen=new Set();
+    ((getLayout(k)||{}).tables||[]).forEach(t=>{
+      const id=String(t.id);
+      if(seen.has(id)) return;      // id kembar DALAM SATU denah = salah data, jangan dihitung dua kali
+      seen.add(id);
+      pax += capMax(t.cap);
+      meja++;
+    });
+  });
+  return { pax, meja };
+}
+// Total kapasitas satu template denah — dipakai Editor Denah supaya perubahan
+// kapasitas meja langsung terlihat pengaruhnya ke angka keseluruhan.
+function kapasitasLayout(data){
+  return ((data&&data.tables)||[]).reduce((a,t)=>a+capMax(t.cap), 0);
+}
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
 function harihMapView(){
@@ -4237,7 +4270,11 @@ function leRender(){
       <div class="le-wrap">
         <div>
           <div class="le-canvas" id="leCanvas">${leCanvasHtml()}</div>
-          <div class="le-hint">🖱️ Seret meja untuk memindah • klik untuk edit • <b>${(LE.data.tables||[]).length}</b> meja</div>
+          <!-- Total kapasitas ikut ditampilkan: mengubah angka pax satu meja
+               tidak ada artinya kalau pengaruhnya ke keseluruhan tidak terlihat.
+               Angka ini pula yang jadi penyebut "100 / 500" di Recap. -->
+          <div class="le-hint">🖱️ Seret meja untuk memindah • klik untuk edit •
+            <b>${(LE.data.tables||[]).length}</b> meja • total <b id="leTotalPax">${kapasitasLayout(LE.data)}</b> pax</div>
         </div>
         ${leInspectorHtml()}
       </div>
@@ -4282,7 +4319,13 @@ function leSet(prop,val){
   else if(prop==="h") el.style.height=lePy(val);
   else if(prop==="zone") el.className=`le-seat zone-${val} sel`;
   else if(prop==="id"){ const sn=el.querySelector(".sn"); if(sn) sn.textContent=val; }
-  else if(prop==="cap"){ const sp=el.querySelector(".sp"); if(sp) sp.textContent=(val||"")+" pax"; }
+  else if(prop==="cap"){
+    const sp=el.querySelector(".sp"); if(sp) sp.textContent=(val||"")+" pax";
+    // Total di bawah kanvas ikut disegarkan seketika. leRender() TIDAK dipanggil
+    // di sini secara sengaja: menggambar ulang seluruh editor saat orang sedang
+    // mengetik akan mencabut fokus dari kotak isian tiap satu huruf.
+    const tot=byId("leTotalPax"); if(tot) tot.textContent=kapasitasLayout(LE.data);
+  }
 }
 function leNextId(){ const used=new Set((LE.data.tables||[]).map(t=>String(t.id))); let n=1; while(used.has("T"+n)) n++; return "T"+n; }
 function leAddTable(){
@@ -4908,6 +4951,17 @@ function renderHariH(){
   const partial  = dayList.filter(r=>canAddArrival(r));
   const paxSisa  = partial.reduce((a,r)=>a+remainingPax(r),0);
 
+  /* Kapasitas SELALU dihitung untuk HARIH_DATE (satu tanggal), bukan untuk
+     rentang yang sedang dipilih di tab Daftar. Kapasitas venue adalah angka
+     harian — membandingkan pax seminggu dengan kapasitas sehari akan
+     menghasilkan "700/500" yang seolah-olah kelebihan muatan, padahal tidak.
+     Karena itu kartunya diberi tanggal saat rentang sedang aktif. */
+  const kap = kapasitasTanggal(HARIH_DATE);
+  const paxTgl = STATE.reservations
+    .filter(r=>r.date===HARIH_DATE && !["Cancelled","No-show"].includes(r.status))
+    .reduce((a,r)=>a+(Number(r.pax)||0),0);
+  const pctKap = kap.pax ? Math.round(paxTgl/kap.pax*100) : 0;
+
   byId("page-hariH").innerHTML = `
    <div class="page-head">
      <div><h2>Recap Reservasi</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
@@ -4921,6 +4975,9 @@ function renderHariH(){
    <div class="recap-grid">
      <div class="recap"><div class="lbl">📋 ${inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?"Total (Filter)":"Total Hari Ini"}</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
      <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${paxDatang}<small> / ${totalPax}</small></div><div class="sub">sudah masuk${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
+     <div class="recap ${pctKap>=100?'danger':pctKap>=80?'warn':'info'}"><div class="lbl">🪑 Kapasitas Terisi</div>
+       <div class="val">${paxTgl}<small> / ${kap.pax}</small></div>
+       <div class="sub">${pctKap}% dari ${kap.meja} meja${(inList&&recapMultiDay())?` · ${fmtDateShort(HARIH_DATE)}`:""}</div></div>
      <div class="recap ${paxSisa?'warn':''}"><div class="lbl">🪑 Sisa Pax Rombongan</div><div class="val">${paxSisa}</div>
        <div class="sub">${paxSisa?`${partial.length} meja belum penuh — bisa diisi lagi`:"semua rombongan lengkap"}</div></div>
      <div class="recap ok"><div class="lbl">✅ Sudah Datang</div><div class="val">${arrived}</div></div>
