@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Daftarkan Kru dari Report Talenta</title>
+<style>
+:root{--gold:#A9791F;--gold-deep:#7a560f;--line:rgba(60,55,45,.18);--sand:#2a2620;
+      --muted:#928c80;--ok:#1f9d5f;--danger:#c9432b;--bg:#f7f6f4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--sand);font:14px/1.55 Inter,system-ui,Segoe UI,sans-serif;padding:28px 16px}
+.wrap{max-width:860px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 4px 18px rgba(50,42,28,.06)}
+.card h2{font-size:14px;margin:0 0 10px;display:flex;align-items:center;gap:9px}
+.n{flex:none;width:24px;height:24px;border-radius:7px;background:var(--gold);color:#fff;
+   font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+label{display:block;font-size:12px;font-weight:600;color:#5c574d;margin:12px 0 5px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;background:#fff}
+input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(169,121,31,.13)}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:180px}
+button{background:linear-gradient(135deg,var(--gold),var(--gold-deep));color:#fff;border:0;
+       padding:11px 18px;border-radius:9px;font:inherit;font-weight:600;cursor:pointer;margin-top:16px}
+button:disabled{opacity:.5;cursor:not-allowed}
+pre{background:#f2f0ec;border-radius:9px;padding:12px;font-size:12px;overflow:auto;max-height:280px;white-space:pre-wrap}
+.ok{color:var(--ok);font-weight:600}.bad{color:var(--danger);font-weight:600}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.warn{background:rgba(181,131,26,.12);border:1px solid rgba(181,131,26,.3);border-radius:9px;padding:11px 13px;font-size:12.5px;margin-top:10px}
+.tbl-wrap{overflow-x:auto;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+td.mono,th.mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+.tag{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:20px;font-weight:600}
+.tag.baru{background:rgba(31,157,95,.14);color:#177a49}
+.tag.lama{background:rgba(60,55,45,.1);color:#5c574d}
+.cek{width:auto;margin-right:7px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Daftarkan Kru dari Report Talenta</h1>
+  <p class="sub">Membuat akun Office untuk seluruh kru yang ada di report absensi, sekaligus mengisi <b>Talenta ID</b>-nya supaya modul Kehadiran bisa mencocokkan skor. Aman diulang: akun yang sudah ada hanya diperbarui, tidak digandakan.</p>
+
+  <div class="card">
+    <h2><span class="n">1</span> Pilih berkas report absensi</h2>
+    <p class="note">Berkas <b>export_report_attendance.xlsx</b> dari Talenta. Daftar kru diambil dari isi berkas, jadi tidak ada nama yang perlu diketik ulang.</p>
+    <input type="file" id="berkas" accept=".xlsx">
+    <div id="hasil1"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">2</span> Alamat API dan kredensial superadmin</h2>
+    <label for="apiUrl">URL api.php</label>
+    <input id="apiUrl" placeholder="https://dev.laksamanamuda.id/account-api-mysql/api.php">
+    <div class="warn"><b>Jalankan di dev dulu.</b> Produksi dan dev memakai database berbeda. Kalau URL-nya salah, akun masuk ke database yang keliru.</div>
+    <div class="row">
+      <div><label for="nama">Nama superadmin</label><input id="nama" autocomplete="off"></div>
+      <div><label for="pin">PIN</label><input id="pin" type="password" autocomplete="off"></div>
+    </div>
+    <label style="margin-top:14px"><input type="checkbox" id="nonaktif" class="cek">Buat akun dalam keadaan <b>nonaktif</b> (tidak bisa login)</label>
+    <p class="note">Pencocokan absensi hanya memakai Talenta ID, jadi akun nonaktif tetap dapat skor kehadiran. Centang ini kalau kru dapur/bar memang belum perlu masuk ke Office.</p>
+    <button id="btnKirim" disabled>Daftarkan ke database</button>
+    <div id="hasil2"></div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+async function post(url, body){
+  const r = await fetch(url, { method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body) });
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+const ATT_KOLOM = {  // judul di berkas -> nama field
+  'Employee ID':'talentaId', 'Full Name':'name', 'Organization':'org',
+  'Resign Status':'resign', 'Date':'date', 'Shift':'shift',
+  'Attendance Code':'code', 'Time Off Code':'timeOff',
+  'Check In':'checkIn', 'Check Out':'checkOut', 'Late In':'lateIn'
+};
+
+// 'AB' -> 27. Dipakai untuk memetakan referensi sel ke indeks kolom.
+function colIndex(ref){
+  let n = 0;
+  for(const ch of ref.replace(/\d+/g,'')) n = n*26 + (ch.charCodeAt(0)-64);
+  return n;
+}
+const attXmlText = s => String(s).replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+  .replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+
+// 'HH:MM' -> menit. '00:00' dan kosong sama-sama 0.
+function hhmmToMin(t){
+  const m = /^(\d{1,3}):(\d{2})/.exec(String(t||'').trim());
+  return m ? (+m[1])*60 + (+m[2]) : 0;
+}
+
+async function parseTalentaXlsx(file){
+  const buf = await file.arrayBuffer();
+  const zip = await unzipEntries(buf);
+
+  const sheet = zip['xl/worksheets/sheet1.xml'];
+  if(!sheet) throw new Error('Bukan berkas XLSX Talenta: sheet1.xml tidak ditemukan.');
+
+  // sharedStrings opsional — ekspor Talenta yang ada memakai teks inline.
+  let shared = [];
+  if(zip['xl/sharedStrings.xml']){
+    shared = (zip['xl/sharedStrings.xml'].match(/<si>[\s\S]*?<\/si>/g)||[]).map(si=>
+      (si.match(/<t[^>]*>([\s\S]*?)<\/t>/g)||[])
+        .map(t=>attXmlText(t.replace(/<[^>]+>/g,''))).join(''));
+  }
+
+  const cellText = (c) => {
+    const inline = /<is>[\s\S]*?<\/is>/.exec(c);
+    if(inline) return attXmlText(inline[0].replace(/<[^>]+>/g,''));
+    const v = /<v>([\s\S]*?)<\/v>/.exec(c);
+    if(!v) return '';
+    if(/\bt="s"/.test(c)) return shared[+v[1]] ?? '';
+    return attXmlText(v[1]);
+  };
+
+  const rows = sheet.match(/<row[\s\S]*?<\/row>/g) || [];
+  if(!rows.length) throw new Error('Berkas kosong: tidak ada baris sama sekali.');
+
+  // Baris pertama = judul kolom.
+  const headMap = {};   // indeks kolom -> field
+  (rows[0].match(/<c [\s\S]*?(?:\/>|<\/c>)/g)||[]).forEach(c=>{
+    const ref = /r="([A-Z]+)\d+"/.exec(c);
+    const field = ATT_KOLOM[cellText(c).trim()];
+    if(ref && field) headMap[colIndex(ref[1])] = field;
+  });
+  const wajib = ['talentaId','name','date','shift'];
+  const hilang = wajib.filter(f=>!Object.values(headMap).includes(f));
+  if(hilang.length) throw new Error('Kolom wajib tidak ada di berkas: '+hilang.join(', '));
+
+  const out = [];
+  for(let i=1;i<rows.length;i++){
+    const rec = {};
+    (rows[i].match(/<c [\s\S]*?(?:\/>|<\/c>)/g)||[]).forEach(c=>{
+      const ref = /r="([A-Z]+)\d+"/.exec(c);
+      if(!ref) return;
+      const field = headMap[colIndex(ref[1])];
+      if(field) rec[field] = cellText(c).trim();
+    });
+    // Penyaring baris "TOTAL FOR EMPLOYEE": tanggalnya bukan tanggal.
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(rec.date||'')) continue;
+    if(!rec.talentaId) continue;
+    out.push({
+      talentaId: rec.talentaId, name: rec.name||'', org: rec.org||'',
+      resign: rec.resign||'', date: rec.date, shift: rec.shift||'',
+      code: rec.code||'', timeOff: rec.timeOff||'',
+      checkIn: rec.checkIn||'', checkOut: rec.checkOut||'',
+      lateMin: hhmmToMin(rec.lateIn)
+    });
+  }
+  if(!out.length) throw new Error('Tidak ada baris absensi yang terbaca. Pastikan ini report "Attendance" dari Talenta.');
+  return out;
+}
+
+/* Pembaca ZIP seadanya: cukup untuk XLSX, yang isinya selalu deflate mentah
+   atau tanpa kompresi. DecompressionStream ada di semua browser yang dipakai
+   Office (Chrome/Edge 80+, Safari 16.4+). */
+async function unzipEntries(buf){
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), out = {};
+  // Cari End of Central Directory dari belakang.
+  let eocd = -1;
+  for(let i=u8.length-22;i>=0 && i>u8.length-65558;i--){
+    if(dv.getUint32(i,true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error('Berkas rusak atau bukan .xlsx (struktur ZIP tidak ditemukan).');
+
+  let n = dv.getUint16(eocd+10,true), p = dv.getUint32(eocd+16,true);
+  const dec = new TextDecoder();
+  for(let i=0;i<n;i++){
+    if(dv.getUint32(p,true) !== 0x02014b50) break;
+    const metode = dv.getUint16(p+10,true);
+    const ukuran = dv.getUint32(p+20,true);
+    const nLen = dv.getUint16(p+28,true), eLen = dv.getUint16(p+30,true),
+          kLen = dv.getUint16(p+32,true);
+    const nama = dec.decode(u8.subarray(p+46, p+46+nLen));
+    const lho  = dv.getUint32(p+42,true);
+    p += 46 + nLen + eLen + kLen;
+
+    // Header lokal punya panjang field sendiri — yang di central directory
+    // TIDAK selalu sama, dan memakai yang salah menggeser awal data.
+    const lnLen = dv.getUint16(lho+26,true), leLen = dv.getUint16(lho+28,true);
+    const mulai = lho + 30 + lnLen + leLen;
+    const data = u8.subarray(mulai, mulai + ukuran);
+
+    if(!/\.xml$/.test(nama)) continue;              // hanya XML yang dipakai
+    if(metode === 0){ out[nama] = dec.decode(data); continue; }
+    if(metode !== 8) continue;
+    const ds = new DecompressionStream('deflate-raw');
+    const buf2 = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+    out[nama] = dec.decode(buf2);
+  }
+  return out;
+}
+
+
+/* Nickname Office yang SUDAH dikonfirmasi -> Talenta ID. Tanpa peta ini,
+   orang-orang ini akan dibuatkan akun KEDUA dengan id berbeda, dan riwayat
+   training, KPI, serta review mereka tertinggal di akun lama.
+
+   Nama di Talenta memang beda dengan nama akun Office (mis. "Riri" ternyata
+   Gustri Perdina). Itu sebabnya pemetaan ini ditulis tangan dan bukan ditebak
+   dari kemiripan nama: tebakan yang salah memindahkan absensi orang lain ke
+   skor seseorang. */
+const PETA_ID_LAMA = {
+  '1281225':'u-riri',      // Gustri Perdina
+  '118825' :'u-adit',      // Aditya Setiadi
+  '271224' :'u-syahdan',   // Sahdan
+  '104425' :'u-novi',      // Novianti Kemala
+  '147426' :'u-cecil',     // Cecillia A. Wulan Aprilla
+  'Super Admin':'u-howandi',
+  '71024'  :'u-wandi',     '81124' :'u-rizkiarfan',
+  '61024'  :'u-cindy',     '261224':'u-anggi',
+  '1291225':'u-arif',      '471224':'u-tegar',
+  '143326' :'u-aurel',     '91124' :'u-devani',
+  '88125'  :'u-indah',     '114725':'u-christy',
+  '101124' :'u-hengky',    '181224':'u-mella',
+  '521224' :'u-devi'
+};
+
+function slug(nm){
+  const s = nm.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  return 'u-' + (s ? s.slice(0,28) : 'kru');
+}
+
+let RENCANA = null;
+
+$('berkas').onchange = async (ev) => {
+  const f = ev.target.files[0]; if(!f) return;
+  const out = $('hasil1');
+  out.innerHTML = '<p class="note">Membaca berkas...</p>';
+  $('btnKirim').disabled = true;
+  let baris;
+  try{ baris = await parseTalentaXlsx(f); }
+  catch(e){ out.innerHTML = '<p class="bad">' + esc(e.message) + '</p>'; return; }
+
+  // Satu baris per orang. Kru resign dilewati: akun untuk orang yang sudah
+  // keluar hanya menambah nama di daftar tanpa pernah dipakai.
+  const orang = new Map(); let nResign = 0;
+  baris.forEach(b => {
+    if(String(b.resign||'').toLowerCase() === 'resigned'){ nResign++; return; }
+    if(!orang.has(b.talentaId)) orang.set(b.talentaId, {name:b.name, org:b.org});
+  });
+
+  const dipakai = new Set();
+  const users = [...orang.entries()].sort((a,b)=>a[1].name.localeCompare(b[1].name))
+    .map(([tid,p]) => {
+      const dasar = PETA_ID_LAMA[tid] || slug(p.name);
+      let id = dasar, n = 2;
+      while(dipakai.has(id)){ id = dasar + (n++); }
+      dipakai.add(id);
+      return { id, name:p.name, keterangan:p.org, talentaId:tid, lama: !!PETA_ID_LAMA[tid] };
+    });
+
+  RENCANA = users;
+  const nLama = users.filter(u=>u.lama).length;
+  out.innerHTML =
+    '<p class="ok">' + users.length + ' kru aktif terbaca' +
+      (nResign ? ' (' + nResign + ' baris kru resign dilewati)' : '') + '.</p>' +
+    '<p class="note"><b>' + nLama + '</b> sudah punya akun Office dan hanya akan diperbarui Talenta ID-nya. <b>' +
+      (users.length - nLama) + '</b> akun baru akan dibuat.</p>' +
+    '<div class="tbl-wrap"><table><thead><tr><th>Nama</th><th>Divisi</th><th class="mono">Talenta ID</th><th class="mono">id Office</th><th></th></tr></thead><tbody>' +
+    users.map(u => '<tr><td><b>' + esc(u.name) + '</b></td><td>' + esc(u.keterangan) +
+      '</td><td class="mono">' + esc(u.talentaId) + '</td><td class="mono">' + esc(u.id) +
+      '</td><td><span class="tag ' + (u.lama?'lama':'baru') + '">' + (u.lama?'perbarui':'baru') +
+      '</span></td></tr>').join('') + '</tbody></table></div>';
+  $('btnKirim').disabled = false;
+};
+
+$('btnKirim').onclick = async () => {
+  if(!RENCANA) return;
+  const url = $('apiUrl').value.trim(), nama = $('nama').value.trim(), pin = $('pin').value.trim();
+  const out = $('hasil2');
+  if(!url || !nama || !pin){ out.innerHTML = '<p class="bad">URL, nama, dan PIN wajib diisi.</p>'; return; }
+
+  const mati = $('nonaktif').checked;
+  const users = RENCANA.map(u => ({ id:u.id, name:u.name, pin:'1111',
+    active: mati ? 'FALSE' : 'TRUE', keterangan:u.keterangan, talentaId:u.talentaId }));
+  // Hak akses modul hr saja, sengaja minimal. Sisanya diatur lewat Kelola User.
+  const grants = users.map(u => ({ userId:u.id, module:'hr', access:'TRUE' }));
+
+  out.innerHTML = '<p class="note">Mengirim ' + users.length + ' akun...</p>';
+  $('btnKirim').disabled = true;
+  try{
+    const r = await post(url, { action:'import', callerName:nama, callerPin:pin, users, grants });
+    if(!r.ok) throw new Error(r.error === 'forbidden'
+      ? 'Ditolak: akun itu bukan superadmin, atau PIN-nya salah.' : (r.error||'gagal'));
+    const n = r.diproses || {};
+    out.innerHTML = '<p class="ok">Selesai. ' + (n.users||0) + ' user dan ' + (n.grants||0) +
+      ' hak akses diproses.</p><p class="note">Periksa di <b>Kelola User</b>, lalu unggah report bulan ini ' +
+      'di modul Kehadiran. Daftar "belum terhubung ke akun Office" mestinya sudah kosong.</p>';
+  }catch(e){
+    out.innerHTML = '<p class="bad">Gagal: ' + esc(e.message) + '</p>';
+  }finally{ $('btnKirim').disabled = false; }
+};
+</script>
+</body>
+</html>
