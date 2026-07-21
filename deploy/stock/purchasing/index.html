@@ -994,6 +994,16 @@
             if (appBooted) return;
             appBooted = true;
             loadStateFromStorage();
+
+            /* Buka halaman = langsung lihat kedatangan HARI INI.
+               Itu pekerjaan yang paling mendesak tiap pagi; menampilkan seluruh
+               riwayat lebih dulu memaksa kru menyaring manual tiap kali membuka.
+               Cukup disetel di sini (sekali saat boot), BUKAN di renderDashboard
+               — kalau di sana, setiap kali daftar digambar ulang filter akan
+               dipaksa balik ke hari ini dan tanggal lain tak pernah bisa dilihat. */
+            const elTgl = document.getElementById('filter-date-arrival');
+            if (elTgl && !elTgl.value) elTgl.value = tglOffsetLokal(0);
+
             initFilters();
             renderDatabaseTab();
             updateConnectionUI();
@@ -2105,6 +2115,8 @@
                     (perHari[hari] = perHari[hari] || []).push(ord);
                 });
 
+                let nomorPanel = 0;   // id DOM yang aman, tidak memakai batchId mentah
+
                 Object.keys(perHari).sort((a, b) => b.localeCompare(a)).forEach(hari => {
                     const isi = perHari[hari].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                     const hitungDivisi = {};
@@ -2121,7 +2133,54 @@
                         <div class="flex flex-wrap gap-1">${rincianDivisi}</div>`;
                     container.appendChild(kepala);
 
-                    isi.forEach(ord => renderIndividualCard(container, ord, true));
+                    /* DI DALAM TIAP HARI, dikelompokkan lagi per BATCH — satu
+                       batch = satu kali kru menekan kirim. Isinya disembunyikan
+                       sampai diklik: arsip sebulan bisa ratusan baris, dan yang
+                       dicari biasanya "pesanan siapa, kapan", bukan tiap itemnya
+                       sekaligus.
+
+                       Order lama (sebelum kolom batch ada) tidak punya batchId.
+                       Itu dikelompokkan menurut PIC + menit submit — cara yang
+                       sama dipakai halaman ordering, dan hasilnya mendekati
+                       benar karena satu kali kirim memang menghasilkan beberapa
+                       baris pada detik yang berdekatan. */
+                    const perBatch = {};
+                    isi.forEach(ord => {
+                        const bid = String(ord.batchId || '').trim();
+                        const kunci = bid || `~${ord.pic}|${String(ord.timestamp || '').slice(0, 16)}`;
+                        if (!perBatch[kunci]) perBatch[kunci] = { asli: !!bid, nama: ord.batchName || '', items: [] };
+                        perBatch[kunci].items.push(ord);
+                    });
+
+                    Object.keys(perBatch).forEach(kunci => {
+                        const b = perBatch[kunci];
+                        const pertama = b.items[0];
+                        const divisi = divisiOrder(pertama);
+                        const jam = formatFriendlyDate(pertama.timestamp, 'always');
+                        const idPanel = `arsip-batch-${++nomorPanel}`;
+                        const judul = b.nama
+                            ? b.nama
+                            : `Order ${pertama.pic || '-'}`;
+
+                        const kartu = document.createElement('div');
+                        kartu.className = "border border-slate-200 rounded-xl overflow-hidden bg-white";
+                        kartu.innerHTML = `
+                            <button type="button" onclick="toggleArsipBatch('${idPanel}')"
+                                class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-all">
+                                <span id="${idPanel}-caret" class="text-slate-400 text-xs transition-transform shrink-0">▶</span>
+                                <span class="flex-1 min-w-0">
+                                    <span class="block text-sm font-bold text-slate-800 truncate">📦 ${judul}</span>
+                                    <span class="block text-[11px] text-slate-400 font-semibold truncate">${jam}${b.asli ? '' : ' · dikelompokkan dari waktu submit'}</span>
+                                </span>
+                                ${divisi && divisi !== DIVISI_LAIN ? `<span class="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black border bg-slate-50 text-slate-600 border-slate-200 uppercase tracking-wider">${divisi}</span>` : ''}
+                                <span class="shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-black bg-slate-100 text-slate-600">${b.items.length} item</span>
+                            </button>
+                            <div id="${idPanel}" class="hidden border-t border-slate-100 p-3 space-y-3 bg-slate-50/50"></div>`;
+                        container.appendChild(kartu);
+
+                        const isiPanel = kartu.querySelector(`#${idPanel}`);
+                        b.items.forEach(ord => renderIndividualCard(isiPanel, ord, true));
+                    });
                 });
             }
         }
@@ -2681,6 +2740,18 @@
            Order yang divisinya tidak dikenali tetap terlihat di "Semua". */
         const DIVISI_RESMI = ['Kitchen', 'Bar', 'Floor'];
         function setDivisiFilter(v) { appState.divisiFilter = v; renderDashboard(); }
+
+        /* Buka/tutup isi satu batch di Arsip.
+           Sengaja hanya menukar kelas, TIDAK memanggil renderDashboard() —
+           menggambar ulang seluruh daftar akan menutup semua panel lain dan
+           melompatkan posisi gulir kembali ke atas. */
+        function toggleArsipBatch(idPanel) {
+            const panel = document.getElementById(idPanel);
+            if (!panel) return;
+            const tertutup = panel.classList.toggle('hidden');
+            const caret = document.getElementById(idPanel + '-caret');
+            if (caret) caret.style.transform = tertutup ? '' : 'rotate(90deg)';
+        }
 
         /* Pintasan Hari Ini / Besok / Lusa.
            Memakai tanggal LOKAL, bukan toISOString() — yang itu mengubah ke UTC
