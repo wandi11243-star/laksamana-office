@@ -4029,6 +4029,39 @@ function refreshDenahSaja(){
   return true;
 }
 function harihL1(){ return dayTypeLayout(HARIH_DATE); }
+
+/* ===== KAPASITAS VENUE PADA SEBUAH TANGGAL =====
+   Dijumlahkan dari denah yang BERLAKU hari itu: Lantai 1 (weekday/weekend/
+   override) + Lantai 2. Weekday & weekend memang berbagi banyak nomor meja,
+   tapi hanya SALAH SATU yang berlaku per tanggal, jadi tidak ada yang terhitung
+   dua kali.
+
+   Memakai capMax: meja bertanda "10-12" dihitung 12, karena yang ditanyakan
+   adalah berapa BANYAK orang yang masih bisa masuk — batas atasnya, bukan
+   jumlah yang nyaman.
+
+   Angkanya ikut berubah sendiri begitu meja ditambah/dihapus atau kapasitasnya
+   diubah lewat Editor Denah. Tidak ada angka kapasitas yang diketik terpisah,
+   supaya tidak ada dua sumber yang bisa berselisih. */
+function kapasitasTanggal(date){
+  let pax=0, meja=0;
+  [dayTypeLayout(date), "lantai2"].forEach(k=>{
+    const seen=new Set();
+    ((getLayout(k)||{}).tables||[]).forEach(t=>{
+      const id=String(t.id);
+      if(seen.has(id)) return;      // id kembar DALAM SATU denah = salah data, jangan dihitung dua kali
+      seen.add(id);
+      pax += capMax(t.cap);
+      meja++;
+    });
+  });
+  return { pax, meja };
+}
+// Total kapasitas satu template denah — dipakai Editor Denah supaya perubahan
+// kapasitas meja langsung terlihat pengaruhnya ke angka keseluruhan.
+function kapasitasLayout(data){
+  return ((data&&data.tables)||[]).reduce((a,t)=>a+capMax(t.cap), 0);
+}
 function renderHariHListOnly(){ renderHariH(); const inp=byId('harihSearchInput'); if(inp){ inp.focus(); try{inp.setSelectionRange(inp.value.length,inp.value.length);}catch(e){} } }
 function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
 function harihMapView(){
@@ -4237,7 +4270,11 @@ function leRender(){
       <div class="le-wrap">
         <div>
           <div class="le-canvas" id="leCanvas">${leCanvasHtml()}</div>
-          <div class="le-hint">🖱️ Seret meja untuk memindah • klik untuk edit • <b>${(LE.data.tables||[]).length}</b> meja</div>
+          <!-- Total kapasitas ikut ditampilkan: mengubah angka pax satu meja
+               tidak ada artinya kalau pengaruhnya ke keseluruhan tidak terlihat.
+               Angka ini pula yang jadi penyebut "100 / 500" di Recap. -->
+          <div class="le-hint">🖱️ Seret meja untuk memindah • klik untuk edit •
+            <b>${(LE.data.tables||[]).length}</b> meja • total <b id="leTotalPax">${kapasitasLayout(LE.data)}</b> pax</div>
         </div>
         ${leInspectorHtml()}
       </div>
@@ -4282,7 +4319,13 @@ function leSet(prop,val){
   else if(prop==="h") el.style.height=lePy(val);
   else if(prop==="zone") el.className=`le-seat zone-${val} sel`;
   else if(prop==="id"){ const sn=el.querySelector(".sn"); if(sn) sn.textContent=val; }
-  else if(prop==="cap"){ const sp=el.querySelector(".sp"); if(sp) sp.textContent=(val||"")+" pax"; }
+  else if(prop==="cap"){
+    const sp=el.querySelector(".sp"); if(sp) sp.textContent=(val||"")+" pax";
+    // Total di bawah kanvas ikut disegarkan seketika. leRender() TIDAK dipanggil
+    // di sini secara sengaja: menggambar ulang seluruh editor saat orang sedang
+    // mengetik akan mencabut fokus dari kotak isian tiap satu huruf.
+    const tot=byId("leTotalPax"); if(tot) tot.textContent=kapasitasLayout(LE.data);
+  }
 }
 function leNextId(){ const used=new Set((LE.data.tables||[]).map(t=>String(t.id))); let n=1; while(used.has("T"+n)) n++; return "T"+n; }
 function leAddTable(){
@@ -4908,6 +4951,17 @@ function renderHariH(){
   const partial  = dayList.filter(r=>canAddArrival(r));
   const paxSisa  = partial.reduce((a,r)=>a+remainingPax(r),0);
 
+  /* Kapasitas SELALU dihitung untuk HARIH_DATE (satu tanggal), bukan untuk
+     rentang yang sedang dipilih di tab Daftar. Kapasitas venue adalah angka
+     harian — membandingkan pax seminggu dengan kapasitas sehari akan
+     menghasilkan "700/500" yang seolah-olah kelebihan muatan, padahal tidak.
+     Karena itu kartunya diberi tanggal saat rentang sedang aktif. */
+  const kap = kapasitasTanggal(HARIH_DATE);
+  const paxTgl = STATE.reservations
+    .filter(r=>r.date===HARIH_DATE && !["Cancelled","No-show"].includes(r.status))
+    .reduce((a,r)=>a+(Number(r.pax)||0),0);
+  const pctKap = kap.pax ? Math.round(paxTgl/kap.pax*100) : 0;
+
   byId("page-hariH").innerHTML = `
    <div class="page-head">
      <div><h2>Recap Reservasi</h2><div class="desc">Pantau kedatangan, denah meja & walk-in. Klik meja untuk aksi cepat.</div></div>
@@ -4921,6 +4975,9 @@ function renderHariH(){
    <div class="recap-grid">
      <div class="recap"><div class="lbl">📋 ${inList&&(recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?"Total (Filter)":"Total Hari Ini"}</div><div class="val">${dayList.length}</div><div class="sub">reservasi</div></div>
      <div class="recap"><div class="lbl">👥 Total Pax</div><div class="val">${paxDatang}<small> / ${totalPax}</small></div><div class="sub">sudah masuk${paxQueue?` · ${paxQueue} mengantre`:""}</div></div>
+     <div class="recap ${pctKap>=100?'danger':pctKap>=80?'warn':'info'}"><div class="lbl">🪑 Kapasitas Terisi</div>
+       <div class="val">${paxTgl}<small> / ${kap.pax}</small></div>
+       <div class="sub">${pctKap}% dari ${kap.meja} meja${(inList&&recapMultiDay())?` · ${fmtDateShort(HARIH_DATE)}`:""}</div></div>
      <div class="recap ${paxSisa?'warn':''}"><div class="lbl">🪑 Sisa Pax Rombongan</div><div class="val">${paxSisa}</div>
        <div class="sub">${paxSisa?`${partial.length} meja belum penuh — bisa diisi lagi`:"semua rombongan lengkap"}</div></div>
      <div class="recap ok"><div class="lbl">✅ Sudah Datang</div><div class="val">${arrived}</div></div>
@@ -7200,11 +7257,40 @@ function openFeedbackForm(resId, fbId){
      </div>
      <div id="fb_items">${fbItemsHtml()}</div>
      <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Catatan</button></div>
+
+     <!-- STATUS PENANGANAN, langsung di form input.
+          Dulu status hanya bisa diubah SETELAH tersimpan, lewat tombol di baris
+          tabel. Padahal keluhan sering sudah selesai di tempat ("langsung
+          diganti minumannya") — host terpaksa menyimpan sebagai "Baru" lalu
+          mencarinya lagi di tabel untuk menandai Selesai, dan langkah kedua itu
+          gampang terlupakan. Akibatnya daftar evaluasi penuh kasus yang
+          sebenarnya sudah beres. -->
+     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+       <div class="form-grid">
+         <div class="field full"><label>Status Penanganan</label>
+           <select id="fb_status" onchange="fbToggleAksi()">
+             <option value="baru"    ${(fb?.status||"baru")==="baru"?"selected":""}>🆕 Baru — belum ditangani</option>
+             <option value="proses"  ${fb?.status==="proses"?"selected":""}>🔧 Diproses — sedang ditangani</option>
+             <option value="selesai" ${fb?.status==="selesai"?"selected":""}>✅ Selesai — sudah ditindaklanjuti</option>
+           </select></div>
+         <div class="field full ${(fb?.status||"baru")==="baru"?"hidden":""}" id="fb_aksi_wrap">
+           <label>Tindakan yang Dilakukan</label>
+           <input id="fb_action" value="${esc(fb?.actionNote||"")}"
+                  placeholder="mis. sudah minta maaf & ganti minumannya">
+           <div class="hint">Diisi supaya evaluasi nanti tahu apa yang sudah dikerjakan, bukan cuma bahwa kasusnya ditutup.</div>
+         </div>
+       </div>
+     </div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
      <button class="btn btn-primary" onclick="saveFeedback('${fb?fb.id:""}','${resId||""}')">💾 Simpan Feedback</button>
    </div>`, true);
+}
+// Kolom tindakan hanya berguna kalau kasusnya memang sedang/sudah ditangani.
+function fbToggleAksi(){
+  const s=byId("fb_status")?.value||"baru";
+  byId("fb_aksi_wrap")?.classList.toggle("hidden", s==="baru");
 }
 function saveFeedback(fbId, resId){
   fbSyncItems();
@@ -7224,16 +7310,31 @@ function saveFeedback(fbId, resId){
         handledBy:"", handledAt:0, actionNote:""};
     feedbacks().push(fb);
   }
+  // Status & tindakan dari form. Kalau status naik dari "baru", pencatatnya
+  // dianggap yang menangani — sama seperti yang dilakukan tombol di baris tabel,
+  // supaya dua jalur ini menghasilkan data yang bentuknya sama.
+  const statusBaru=(byId("fb_status")?.value)||"baru";
+  const aksi=(byId("fb_action")?.value||"").trim();
+  const berubah = statusBaru!==(fb.status||"baru");
+
   Object.assign(fb, {
     name, phone:normPhone(byId("fb_phone").value||""),
     date:byId("fb_date").value||todayStr(),
     tone:(byId("fb_tone")?.value==="positif")?"positif":"negatif",
     items,
+    status: statusBaru,
+    // "baru" berarti belum ditangani — catatan tindakan dikosongkan supaya
+    // tidak ada baris berstatus Baru yang anehnya sudah punya keterangan
+    // tindakan dari penyuntingan sebelumnya.
+    actionNote: statusBaru==="baru" ? "" : aksi,
     proofData: proof?proof.data:(fb.proofData||""),
     proofName: proof?proof.name:(fb.proofName||""),
   });
+  if(statusBaru==="baru"){ fb.handledBy=""; fb.handledAt=0; }
+  else if(berubah || !fb.handledBy){ fb.handledBy=SESSION.name; fb.handledAt=Date.now(); }
+
   PENDING_FILES={};
-  logAudit("Feedback", `${fbId?"Feedback diperbarui":"Feedback baru"} dari ${name}: ${items.map(it=>fbCatLabel(it)).join(", ")}`);
+  logAudit("Feedback", `${fbId?"Feedback diperbarui":"Feedback baru"} dari ${name}: ${items.map(it=>fbCatLabel(it)).join(", ")} [${(FB_STATUS[statusBaru]||FB_STATUS.baru).label}]`);
   saveState(); closeModal();
   toast("Feedback tersimpan ✓","ok");
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -7581,24 +7682,26 @@ function reviewGoogleView(){
      <div class="panel-head"><h3>🏆 Perolehan per Orang</h3>
        <span class="muted" style="font-size:12.5px">${esc(reviewRangeLabel())}</span></div>
      <div class="panel-body">
-       <div class="table-wrap"><table>
-         <thead><tr><th>Nama</th><th>Diminta</th><th>Jadi Review</th><th>Konversi</th><th style="width:34%">Perbandingan</th></tr></thead>
-         <tbody>${orangArr.map(o=>{
-           const konv=o.diminta?Math.round(o.jadi/o.diminta*100):0;
-           return `<tr>
-             <td><div class="name">${esc(o.nama)}</div></td>
-             <td><b>${o.diminta}</b></td>
-             <td><b>${o.jadi}</b></td>
-             <td>${o.diminta?`${konv}%`:'<span class="muted">-</span>'}</td>
-             <td>
-               <div class="bar-track" title="Diminta: ${o.diminta}"><div class="bar-fill" style="width:${Math.round(o.diminta/orangMax*100)}%"></div></div>
-               <div class="bar-track" style="margin-top:4px" title="Jadi review: ${o.jadi}"><div class="bar-fill green" style="width:${Math.round(o.jadi/orangMax*100)}%"></div></div>
-             </td>
-           </tr>`;
-         }).join("")}</tbody></table></div>
-       <div class="muted" style="font-size:11.5px;margin-top:10px">
-         Batang atas = jumlah <b>diminta</b>, batang bawah (hijau) = yang <b>jadi review terverifikasi</b>.
-         Angka "diminta" memakai pencatat ajakan; untuk catatan lama yang belum menyimpannya, dipakai pencatat pertama.
+       <!-- SATU batang, SATU arti: sepanjang apa review yang dihasilkan orang
+            ini dibanding yang terbanyak. Versi sebelumnya menumpuk dua batang
+            (diminta & jadi) tanpa penanda di sebelahnya, jadi tidak ada yang
+            tahu batang mana berarti apa. Angka "diminta" dan konversinya tetap
+            ada, tapi sebagai ANGKA — bukan gambar yang harus ditebak. -->
+       ${orangArr.map(o=>{
+         const konv=o.diminta?Math.round(o.jadi/o.diminta*100):0;
+         return `<div class="bar-item">
+           <div class="bl">
+             <span>${esc(o.nama)}</span>
+             <b>${o.jadi} review</b>
+           </div>
+           <div class="bar-track"><div class="bar-fill green" style="width:${Math.round(o.jadi/orangMax*100)}%"></div></div>
+           <div class="muted" style="font-size:11.5px;margin-top:4px">
+             dari <b>${o.diminta}</b> ajakan yang dia kirim${o.diminta?` · berhasil ${konv}%`:""}
+           </div>
+         </div>`;
+       }).join("")}
+       <div class="muted" style="font-size:11.5px;margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+         Panjang batang = jumlah review terverifikasi yang dihasilkan orang itu.
        </div>
      </div>
    </div>`:""}

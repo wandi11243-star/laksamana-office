@@ -1283,9 +1283,41 @@
         alert('PIN berhasil diganti. Pakai PIN baru saat login berikutnya.');
     }
 
+    /* Daftar modul ikut tersimpan di dalam sesi dan berlaku 24 jam. Tanpa
+       penyegaran ini, modul yang BARU didaftarkan tidak muncul sampai orangnya
+       keluar-masuk sendiri — dan sebaliknya, akses yang DICABUT masih terpakai
+       sampai sesinya habis. Dijalankan di belakang layar: halaman digambar
+       dulu dari sesi yang ada, baru diperbarui kalau ternyata berubah. */
+    async function segarkanSesi(session){
+        if(!session || !OFFICE_WEBAPP_URL) return;
+        let u;
+        try{
+            const res = await fetch(OFFICE_WEBAPP_URL, {
+                method:'POST', redirect:'follow',
+                headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action:'sessionRefresh', userId: session.userId })
+            });
+            if(!res.ok) return;                       // server tak terjangkau: biarkan sesi lama
+            const data = await res.json();
+            if(!data || !data.ok || !data.user) return;
+            u = data.user;
+        }catch(e){ return; }
+
+        const sama = JSON.stringify((session.modules||[]).slice().sort())
+                  === JSON.stringify((u.modules||[]).slice().sort())
+                  && JSON.stringify((session.adminModules||[]).slice().sort())
+                  === JSON.stringify((u.adminModules||[]).slice().sort());
+        if(sama) return;
+
+        session.modules = u.modules || [];
+        session.adminModules = u.adminModules || [];
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        showApp(session);                             // gambar ulang dengan hak akses terbaru
+    }
     function boot(){
         const session = getSession();
-        if(session) showApp(session); else showLogin();
+        if(session){ showApp(session); segarkanSesi(session); }
+        else showLogin();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
