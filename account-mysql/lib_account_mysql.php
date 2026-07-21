@@ -49,12 +49,12 @@ function s($v) { return trim((string)$v); }
    Script, yang membuang baris Sheet setengah kosong supaya tidak muncul
    sebagai user hantu "?" di daftar. */
 function semua_user() {
-  return q('SELECT id, name, pin, active, keterangan, talenta_id FROM `users`
+  return q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users`
             WHERE TRIM(id) <> \'\' AND TRIM(name) <> \'\'
             ORDER BY name ASC')->fetchAll();
 }
 function user_by_id($id) {
-  $r = q('SELECT id, name, pin, active, keterangan, talenta_id FROM `users` WHERE id = :i LIMIT 1',
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users` WHERE id = :i LIMIT 1',
          array(':i' => s($id)))->fetch();
   return $r ?: null;
 }
@@ -62,7 +62,7 @@ function user_by_id($id) {
    karena nama ikut jadi kunci — persis findUserByCreds_(). LOWER() dipakai
    eksplisit supaya tidak bergantung pada collation database. */
 function user_by_creds($name, $pin) {
-  $r = q('SELECT id, name, pin, active, keterangan FROM `users`
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users`
           WHERE LOWER(TRIM(name)) = :n AND TRIM(pin) = :p AND active = 1
           LIMIT 1',
          array(':n' => mb_strtolower(s($name), 'UTF-8'), ':p' => s($pin)))->fetch();
@@ -147,6 +147,7 @@ function aksi_login($name, $pin) {
   return array('ok' => true, 'user' => array(
     'id'           => s($u['id']) !== '' ? s($u['id']) : ('u-' . mb_strtolower($name, 'UTF-8')),
     'name'         => s($u['name']),
+    'displayName'  => s($u['display_name']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));
@@ -171,6 +172,42 @@ function aksi_ganti_pin($body) {
         : array('ok' => false, 'error' => 'not_found'));
 }
 
+/* Kru mengganti NAMA TAMPILANNYA SENDIRI.
+   ---------------------------------------------------------------------
+   Ini satu-satunya aksi tulis yang boleh dipanggil non-superadmin selain
+   changePin, jadi gerbangnya ditulis eksplisit di sini:
+
+   - Wajib name + PIN yang COCOK (user_by_creds). Beda dari changePin yang
+     hanya butuh nama: changePin dipanggil tepat setelah orangnya login,
+     sedangkan ini bisa dipanggil kapan saja dari halaman profil. Tanpa
+     PIN, siapa pun yang tahu nama orang lain bisa mengganti nama tampilan
+     orang itu — nama orang lain di sini semuanya publik lewat roster.
+   - Baris yang diubah DITENTUKAN dari hasil user_by_creds, BUKAN dari id
+     yang dikirim client. Kalau id ikut dipercaya, kredensial sendiri bisa
+     dipakai untuk menulis ke baris orang lain.
+
+   display_name TIDAK dicek keunikannya: dua orang boleh sama-sama memilih
+   "Adit". Karena itu kolom ini tidak pernah dipakai untuk mencari orang. */
+function aksi_set_display_name($body) {
+  $name = s(isset($body['name']) ? $body['name'] : '');
+  $pin  = s(isset($body['pin'])  ? $body['pin']  : '');
+  if ($name === '' || $pin === '') return array('ok' => false, 'error' => 'missing');
+
+  $u = user_by_creds($name, $pin);
+  if (!$u) return array('ok' => false, 'error' => 'forbidden');
+
+  $disp = trim(s(isset($body['displayName']) ? $body['displayName'] : ''));
+  // Karakter kontrol dibuang: nama tampilan masuk ke banyak layar, dan
+  // baris baru di dalamnya merusak tata letak daftar.
+  $disp = preg_replace('/[\x00-\x1F\x7F]/u', '', $disp);
+  if (mb_strlen($disp, 'UTF-8') > 60) $disp = mb_substr($disp, 0, 60, 'UTF-8');
+
+  // Kosong = kembali memakai nama resmi. Itu sah, bukan error.
+  q('UPDATE `users` SET display_name = :d WHERE id = :i',
+    array(':d' => $disp, ':i' => s($u['id'])));
+  return array('ok' => true, 'displayName' => $disp);
+}
+
 /* ==================== USERS CRUD (superadmin) ==================== */
 
 function aksi_list_users($body) {
@@ -184,6 +221,7 @@ function aksi_list_users($body) {
       'active'       => ((int)$u['active'] === 1),
       'keterangan'   => s($u['keterangan']),
       'talentaId'    => s($u['talenta_id']),
+      'displayName'  => s($u['display_name']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
       'adminModules' => admin_modul_untuk($u['id']),
@@ -222,8 +260,22 @@ function aksi_simpan_user($body) {
   }
 
   if ($editId !== '') {
-    $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, talenta_id = :t WHERE id = :i',
-            array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid, ':i' => $editId));
+    /* display_name hanya ditulis kalau field-nya MEMANG dikirim. Form Kelola
+       User mengirimnya; pemanggil lain (mis. tombol aktif/nonaktif yang
+       mengirim ulang baris seadanya) tidak. Tanpa penjaga ini, satu klik
+       nonaktifkan akan menghapus nama panggilan yang dipilih kru sendiri. */
+    if (array_key_exists('displayName', $body)) {
+      $disp = trim(s($body['displayName']));
+      $disp = preg_replace('/[\x00-\x1F\x7F]/u', '', $disp);
+      if (mb_strlen($disp, 'UTF-8') > 60) $disp = mb_substr($disp, 0, 60, 'UTF-8');
+      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k,
+                 talenta_id = :t, display_name = :d WHERE id = :i',
+              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket,
+                    ':t' => $tid, ':d' => $disp, ':i' => $editId));
+    } else {
+      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, talenta_id = :t WHERE id = :i',
+              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid, ':i' => $editId));
+    }
     // rowCount 0 kalau tidak ada yang berubah, jadi keberadaannya dicek sendiri.
     if ($st->rowCount() === 0 && !user_by_id($editId))
       return array('ok' => false, 'error' => 'not_found');
@@ -400,6 +452,7 @@ function anggota_modul($module, $withAdminFlag) {
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
       'talentaId'  => s($u['talenta_id']),
+      'displayName'=> s($u['display_name']),
       'active'     => ((int)$u['active'] === 1),
     );
     if ($withAdminFlag) {
@@ -429,6 +482,7 @@ function aksi_segarkan_sesi($body) {
   return array('ok' => true, 'user' => array(
     'id'           => s($u['id']),
     'name'         => s($u['name']),
+    'displayName'  => s($u['display_name']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));

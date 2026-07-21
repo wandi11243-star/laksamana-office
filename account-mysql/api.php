@@ -68,6 +68,7 @@ try {
       keluar(aksi_login(isset($body['name']) ? $body['name'] : '',
                         isset($body['pin'])  ? $body['pin']  : ''));
     case 'changePin':         keluar(aksi_ganti_pin($body));
+    case 'setDisplayName':    keluar(aksi_set_display_name($body));
     case 'listUsers':         keluar(aksi_list_users($body));
     case 'saveUser':          keluar(aksi_simpan_user($body));
     case 'deleteUser':        keluar(aksi_hapus_user($body));

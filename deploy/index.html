@@ -357,6 +357,10 @@
                         <svg class="acct-caret" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
                     </button>
                     <div class="acct-menu" id="acct-menu" hidden role="menu">
+                        <button type="button" class="acct-item" id="acct-nick" role="menuitem">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+                            Nama panggilan
+                        </button>
                         <button type="button" class="acct-item" id="acct-pin" role="menuitem">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                             Ganti PIN
@@ -369,6 +373,32 @@
                 </div>
             </div>
         </header>
+
+        <!-- Modal Nama Panggilan -->
+        <div id="nick-modal" class="modal-wrap hidden">
+            <div class="modal-card" style="max-width:430px">
+                <div class="modal-head">
+                    <div><h2>Nama panggilan</h2><p>Nama yang dipakai untuk menyapa Anda di beranda dan modul.</p></div>
+                    <button class="modal-x" id="nick-close" type="button" aria-label="Tutup">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="nick-form" class="admin-form" autocomplete="off">
+                        <div class="field"><label for="nick-value">Nama panggilan</label>
+                            <input id="nick-value" type="text" maxlength="60" placeholder="kosongkan untuk memakai nama resmi"></div>
+                        <p class="pick-hint" style="margin-top:6px">Ini <b>tidak</b> mengubah nama untuk login. Daftar akses, absensi, dan penilaian tetap memakai nama resmi Anda: <b id="nick-real"></b>.</p>
+                        <div class="field" style="margin-top:12px"><label for="nick-pin">PIN Anda</label>
+                            <input id="nick-pin" type="password" inputmode="numeric" maxlength="8" placeholder="untuk memastikan ini Anda"></div>
+                        <p class="auth-err" id="nick-err" role="alert"></p>
+                        <div class="af-actions" style="margin-top:6px">
+                            <button type="submit" class="btn btn-primary" id="nick-save">Simpan</button>
+                            <button type="button" class="btn btn-ghost" id="nick-cancel">Batal</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
 
         <!-- Modal Ganti PIN -->
         <div id="pin-modal" class="modal-wrap hidden">
@@ -451,8 +481,11 @@
                                 <input id="af-ket" type="text" placeholder="opsional"></div>
                             <div class="field"><label for="af-talenta">Talenta ID</label>
                                 <input id="af-talenta" type="text" inputmode="numeric" placeholder="cth: 118825"></div>
+                            <div class="field"><label for="af-display">Nama panggilan</label>
+                                <input id="af-display" type="text" maxlength="60" placeholder="kosong = pakai nama resmi"></div>
                         </div>
                         <p class="pick-hint" style="margin-top:6px">Talenta ID adalah <b>Employee ID</b> di aplikasi absensi. Dipakai modul Kehadiran untuk mencocokkan report bulanan dengan akun ini. Kosongkan kalau yang bersangkutan tidak absen lewat Talenta.</p>
+                        <p class="pick-hint">Nama panggilan hanya mengubah sapaan di beranda dan modul. Login, daftar akses, absensi, dan penilaian tetap memakai <b>nama resmi</b> di kolom Nama. Kru bisa mengubahnya sendiri lewat menu Profil.</p>
                         <div class="field" style="margin-top:12px">
                             <label>Modul yang boleh dibuka</label>
                             <div id="af-modules" class="pick-grid"></div>
@@ -629,6 +662,10 @@
     function setSession(user){
         const s = {
             v:3, userId:user.id, name:user.name,
+            // Nama panggilan ikut di sesi supaya modul lain bisa menyapa tanpa
+            // memanggil Office lagi. `name` TETAP nama resmi — modul yang
+            // mencocokkan orang (mis. HR) harus memakai yang itu, bukan ini.
+            displayName: user.displayName || '',
             modules: user.modules || [],
             adminModules: user.adminModules || [],
             issuedAt:Date.now(),
@@ -867,7 +904,7 @@
             <div class="u-row${u.active ? '' : ' inactive'}">
                 <div class="u-av">${esc(initials(u.name))}</div>
                 <div class="u-info">
-                    <b>${esc(u.name)}${admTag}${u.active ? '' : ' <span style="color:var(--muted-2);font-size:11px">nonaktif</span>'}</b>
+                    <b>${esc(u.name)}${u.displayName ? ` <span style="color:var(--muted-2);font-size:11px;font-weight:500">"${esc(u.displayName)}"</span>` : ''}${admTag}${u.active ? '' : ' <span style="color:var(--muted-2);font-size:11px">nonaktif</span>'}</b>
                     <span class="u-mods">${esc(mods)}</span>
                     <span>PIN ${esc(u.pin)}${u.keterangan ? ', ' + esc(u.keterangan) : ''}${u.talentaId ? ', Talenta ' + esc(u.talentaId) : ''}</span>
                 </div>
@@ -891,6 +928,8 @@
         // talentaId ikut dikirim: saveUser menulis ulang seluruh baris, jadi
         // menghilangkannya di sini akan menghapus pemetaan absensi hanya
         // karena seseorang menekan tombol aktif/nonaktif.
+        // displayName SENGAJA tidak dikirim: saveUser hanya menulis kolom itu
+        // kalau field-nya ada, jadi nama panggilan pilihan kru tetap utuh.
         try{ data = await adminCall('saveUser', {
             id:u.id, name:u.name, pin:u.pin, keterangan:u.keterangan || '',
             talentaId:u.talentaId || '', active: next
@@ -907,6 +946,7 @@
         document.getElementById('af-pin').value = '';
         document.getElementById('af-ket').value = '';
         document.getElementById('af-talenta').value = '';
+        document.getElementById('af-display').value = '';
         document.getElementById('af-active').checked = true;
         document.getElementById('af-err').textContent = '';
         document.getElementById('af-cancel').classList.add('hidden');
@@ -923,6 +963,7 @@
         document.getElementById('af-pin').value = u.pin;
         document.getElementById('af-ket').value = u.keterangan || '';
         document.getElementById('af-talenta').value = u.talentaId || '';
+        document.getElementById('af-display').value = u.displayName || '';
         document.getElementById('af-active').checked = !!u.active;
         // Centang sesuai baris Grants mentah user ini (bukan hasil perluasan '*').
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', u.grants || u.modules || []);
@@ -971,6 +1012,7 @@
             id: editId, name, pin,
             keterangan: document.getElementById('af-ket').value.trim(),
             talentaId: document.getElementById('af-talenta').value.trim(),
+            displayName: document.getElementById('af-display').value.trim(),
             active: document.getElementById('af-active').checked
         };
         save.disabled = true; save.textContent = 'Menyimpan...';
@@ -1220,6 +1262,19 @@
         return h < 11 ? 'Selamat pagi' : h < 15 ? 'Selamat siang' : h < 18 ? 'Selamat sore' : 'Selamat malam';
     }
 
+    /* Nama untuk menyapa PEMILIK sesi ini. Urutan: nama panggilan pilihan
+       sendiri, lalu nama depan dari nama resmi.
+
+       JANGAN dipakai untuk menampilkan orang LAIN di layar administratif —
+       di sana nama resmi yang berlaku, karena itu yang dipakai untuk login,
+       daftar akses, absensi, dan penilaian. */
+    function namaSapaan(session){
+        const d = String((session && session.displayName) || '').trim();
+        if(d) return d;
+        const n = String((session && session.name) || '');
+        return n.split(' ')[0] || n;
+    }
+
     /* ------------------------- Boot dan navigasi ------------------------- */
     let clockTimer = null;
 
@@ -1234,7 +1289,10 @@
         document.getElementById('login').classList.add('hidden');
         document.getElementById('app').classList.remove('hidden');
 
-        const first = String(session.name || '').split(' ')[0] || session.name;
+        /* Sapaan memakai nama panggilan kalau ada. Ini layar "diri sendiri",
+           jadi di sinilah nama pilihan sendiri memang pantas dipakai. Layar
+           administratif (Kelola User, Kelola Akses) tetap nama resmi. */
+        const first = namaSapaan(session);
         document.getElementById('greeting').textContent = `${greetingText()}, ${first}`;
         document.getElementById('year').textContent = new Date().getFullYear();
 
@@ -1283,6 +1341,44 @@
         alert('PIN berhasil diganti. Pakai PIN baru saat login berikutnya.');
     }
 
+    /* Ganti nama panggilan sendiri. Berbeda dari changePin, di sini PIN WAJIB
+       diisi: modal ini bisa dibuka kapan saja selama sesi hidup, dan nama orang
+       lain semuanya publik lewat roster. Tanpa PIN, sesi yang tertinggal
+       terbuka di perangkat bersama cukup untuk mengubah identitas tampilan. */
+    async function submitNickChange(e){
+        e.preventDefault();
+        const err  = document.getElementById('nick-err');
+        const save = document.getElementById('nick-save');
+        const val  = document.getElementById('nick-value').value.trim();
+        const pin  = document.getElementById('nick-pin').value.trim();
+        err.textContent = '';
+        const session = getSession();
+        if(!session){ err.textContent = 'Sesi berakhir. Silakan login ulang.'; return; }
+        if(!pin){ err.textContent = 'Isi PIN Anda untuk menyimpan.'; return; }
+        if(!OFFICE_WEBAPP_URL){ err.textContent = 'Server identitas belum terpasang.'; return; }
+
+        save.disabled = true; save.textContent = 'Menyimpan...';
+        let data;
+        try{
+            const res = await fetch(OFFICE_WEBAPP_URL, {
+                method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action:'setDisplayName', name:session.name, pin, displayName:val })
+            });
+            data = await res.json();
+        }catch(e2){ err.textContent = 'Gagal terhubung. Cek koneksi.'; save.disabled = false; save.textContent = 'Simpan'; return; }
+        save.disabled = false; save.textContent = 'Simpan';
+        if(!data || !data.ok){
+            const map = { forbidden:'PIN salah.', missing:'Data kurang.' };
+            err.textContent = (data && map[data.error]) || ('Gagal: ' + ((data && data.error) || 'tak dikenal'));
+            return;
+        }
+        // Sesi diperbarui di tempat supaya sapaan langsung berubah tanpa login ulang.
+        session.displayName = data.displayName || '';
+        localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        document.getElementById('nick-modal').classList.add('hidden');
+        showApp(session);
+    }
+
     /* Daftar modul ikut tersimpan di dalam sesi dan berlaku 24 jam. Tanpa
        penyegaran ini, modul yang BARU didaftarkan tidak muncul sampai orangnya
        keluar-masuk sendiri — dan sebaliknya, akses yang DICABUT masih terpakai
@@ -1303,14 +1399,18 @@
             u = data.user;
         }catch(e){ return; }
 
+        // displayName ikut dibandingkan: kalau tidak, nama panggilan yang diubah
+        // admin (atau dari perangkat lain) tidak pernah sampai ke sesi ini.
         const sama = JSON.stringify((session.modules||[]).slice().sort())
                   === JSON.stringify((u.modules||[]).slice().sort())
                   && JSON.stringify((session.adminModules||[]).slice().sort())
-                  === JSON.stringify((u.adminModules||[]).slice().sort());
+                  === JSON.stringify((u.adminModules||[]).slice().sort())
+                  && (session.displayName||'') === (u.displayName||'');
         if(sama) return;
 
         session.modules = u.modules || [];
         session.adminModules = u.adminModules || [];
+        session.displayName = u.displayName || '';
         localStorage.setItem(SESSION_KEY, JSON.stringify(session));
         showApp(session);                             // gambar ulang dengan hak akses terbaru
     }
@@ -1367,6 +1467,7 @@
             if(!item) return;
             e.stopPropagation();
             if(item.id === 'acct-pin') openPinModal();
+            else if(item.id === 'acct-nick') openNickModal();
             else if(item.id === 'logout-btn') doLogout();
         });
         document.addEventListener('click', (e) => { if(!e.target.closest('.acct-wrap')) closeAcctMenu(); });
@@ -1388,6 +1489,24 @@
         document.getElementById('pin-cancel').addEventListener('click', closePinModal);
         pinModal.addEventListener('click', (e) => { if(e.target.id === 'pin-modal') closePinModal(); });
         document.getElementById('pin-form').addEventListener('submit', submitPinChange);
+
+        // ----- Nama panggilan -----
+        const nickModal = document.getElementById('nick-modal');
+        function openNickModal(){
+            closeAcctMenu();
+            const s = getSession() || {};
+            document.getElementById('nick-value').value = s.displayName || '';
+            document.getElementById('nick-real').textContent = s.name || '';
+            document.getElementById('nick-pin').value = '';
+            document.getElementById('nick-err').textContent = '';
+            nickModal.classList.remove('hidden');
+            document.getElementById('nick-value').focus();
+        }
+        function closeNickModal(){ nickModal.classList.add('hidden'); }
+        document.getElementById('nick-close').addEventListener('click', closeNickModal);
+        document.getElementById('nick-cancel').addEventListener('click', closeNickModal);
+        nickModal.addEventListener('click', (e) => { if(e.target.id === 'nick-modal') closeNickModal(); });
+        document.getElementById('nick-form').addEventListener('submit', submitNickChange);
 
         // ----- Panel Kelola User -----
         document.getElementById('admin-btn').addEventListener('click', openAdminPanel);

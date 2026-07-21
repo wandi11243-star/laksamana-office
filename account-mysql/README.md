@@ -116,6 +116,34 @@ Ikut dikirim di `listUsers` **dan** `listModuleRoster`, supaya modul HR
 bisa mencocokkan tanpa kredensial superadmin. Ini bukan data sensitif:
 nomor pegawai, bukan PIN.
 
+## Nama resmi vs nama panggilan
+
+`users` punya dua kolom nama, dan bedanya penting:
+
+| Kolom | Untuk apa | Siapa yang mengubah |
+|---|---|---|
+| `name` | **Kredensial login** (nama + PIN), wajib unik, kunci lintas modul | admin saja |
+| `display_name` | Sapaan di layar. Boleh kembar, boleh kosong | pemiliknya sendiri, atau admin |
+
+Aturan tampilannya sengaja dipisah tegas:
+
+- **Nama panggilan** hanya di layar "diri sendiri" — sapaan beranda Office,
+  footer sidebar modul, kartu skor pribadi.
+- **Nama resmi** di semua layar yang dipakai mengambil keputusan tentang
+  seseorang: Kelola User, Kelola Akses, Kru, Kehadiran, People Score,
+  Disiplin. Di Kelola User, nama panggilan ikut tampil kecil di sebelah nama
+  resmi supaya kru yang menyebut dirinya "Chris" tetap ketemu.
+
+`display_name` **tidak pernah** dipakai untuk mencari atau mencocokkan orang.
+Pencocokan tetap lewat `id`, absensi lewat `talenta_id`. Itu sebabnya kolom
+ini tidak unik: dua orang boleh sama-sama memilih "Adit".
+
+Aksi `setDisplayName` adalah satu-satunya aksi tulis selain `changePin` yang
+boleh dipanggil non-superadmin. Gerbangnya **wajib name + PIN yang cocok**,
+dan baris yang ditulis ditentukan dari hasil pencocokan kredensial itu —
+bukan dari `id` yang dikirim client. Kalau `id` ikut dipercaya, kredensial
+sendiri bisa dipakai untuk menulis ke baris orang lain.
+
 ## Memindahkan data dari Sheet
 
 Belum wajib — kalau dilewati, Office mulai dengan tiga akun benih di atas

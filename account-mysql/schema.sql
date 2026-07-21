@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `active`     TINYINT(1)   NOT NULL DEFAULT 1,
   `keterangan` VARCHAR(255) NOT NULL DEFAULT '',
   `talenta_id` VARCHAR(32)  NOT NULL DEFAULT '',
+  `display_name` VARCHAR(60) NOT NULL DEFAULT '',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -54,6 +55,31 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- ---------------------------------------------------------------------
 -- ALTER TABLE `users` ADD COLUMN `talenta_id` VARCHAR(32) NOT NULL DEFAULT '' AFTER `keterangan`;
 -- ALTER TABLE `users` ADD KEY `idx_users_talenta` (`talenta_id`);
+
+-- ---------------------------------------------------------------------
+-- display_name — nama panggilan yang dipilih sendiri oleh kru.
+--
+-- `name` TETAP nama resmi: dipakai untuk LOGIN (nama + PIN), wajib unik,
+-- dan hanya boleh diubah admin. `display_name` murni tampilan dan BUKAN
+-- kredensial: boleh kembar, boleh kosong, boleh diubah pemiliknya sendiri.
+--
+-- Kenapa kolom terpisah, bukan mengganti `name`: nama itu kunci login dan
+-- sudah terlanjur dipakai lintas modul. Membiarkan orang mengubahnya =
+-- mengubah kredensial orang lain bisa bentrok, dan riwayat lama jadi sulit
+-- ditelusuri. Yang dipisah di sini adalah "siapa dia" (name) dari "mau
+-- dipanggil apa" (display_name).
+--
+-- SENGAJA TIDAK unik: dua orang boleh sama-sama memilih "Adit". Karena itu
+-- kolom ini TIDAK PERNAH boleh dipakai untuk mencari/mencocokkan orang.
+-- Pencocokan tetap lewat `id`, dan absensi lewat `talenta_id`.
+--
+-- Kosong = belum pilih; UI menampilkan `name` sebagai gantinya. Jadi tidak
+-- ada baris yang perlu diisi lebih dulu saat kolom ini ditambahkan.
+--
+-- Panjang 60: cukup untuk panggilan, tapi tidak cukup untuk menempelkan
+-- kalimat panjang ke daftar nama.
+-- ---------------------------------------------------------------------
+-- ALTER TABLE `users` ADD COLUMN `display_name` VARCHAR(60) NOT NULL DEFAULT '' AFTER `talenta_id`;
 
 -- ---------------------------------------------------------------------
 -- modules — registri modul yang dikenal Office.
