@@ -6619,6 +6619,32 @@ let REVIEW_TAB = "google";   // "google" | "feedback"
 function setReviewTab(v){ REVIEW_TAB=v; renderReview(); }
 function setReviewMonth(v){ REVIEW_MONTH=v||todayStr().slice(0,7); renderReview(); }
 function reviewsOfMonth(ym){ return reviews().filter(x=>String(x.date||"").slice(0,7)===ym); }
+
+/* ===== SIAPA YANG LAYAK DIMINTA REVIEW, DAN SIAPA YANG SUDAH =====
+   Layak = tamu yang BENAR-BENAR datang. Yang batal / no-show tidak pernah
+   duduk, jadi tidak ada yang bisa mereka ulas.
+
+   "Sudah diminta" ditentukan oleh ADA/TIDAKNYA catatan review untuk reservasi
+   itu — bukan oleh statusnya. requestReview() selalu membuat catatan begitu
+   ajakan dikirim, jadi keberadaan catatan itulah buktinya. */
+function reviewTargetsOfMonth(ym){
+  const sudahIds = new Set(reviews().map(x=>x.resId).filter(Boolean));
+  const layak = STATE.reservations.filter(r =>
+    String(r.date||"").slice(0,7)===ym && r.status==="Datang");
+  return {
+    belum: layak.filter(r=>!sudahIds.has(r.id)).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)),
+    sudah: layak.filter(r=> sudahIds.has(r.id)),
+    layak
+  };
+}
+// Kapan ajakan dikirim. Catatan lama belum punya askedAt — jatuh ke `at`,
+// yang saat itu memang diisi pada detik ajakan dibuat.
+function askedTs(rv){ return Number(rv && (rv.askedAt || rv.at)) || 0; }
+function sameDayTs(ts, ymd){
+  if(!ts) return false;
+  const d=new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`===ymd;
+}
 function stars(n){ n=Math.max(0,Math.min(5,Number(n)||0)); return "★".repeat(n)+"☆".repeat(5-n); }
 
 // Kirim ajakan review via WhatsApp + catat sebagai "diminta"
@@ -6628,10 +6654,15 @@ function requestReview(resId){
   if(!cfg.link){ toast("Link Google Review belum diatur — isi dulu di halaman Google Review","err"); navigate("review"); return; }
   let rv=reviews().find(x=>x.resId===resId);
   if(!rv){
+    // askedAt = KAPAN ajakan dikirim. Tidak bisa memakai `date`, karena begitu
+    // tamu mengklaim, `date` diganti jadi TANGGAL REVIEW dari form — sehingga
+    // "berapa yang diminta hari ini" tak lagi bisa dijawab. Dua hal berbeda,
+    // jadi dua field berbeda.
     rv={id:uid(), resId, name:r.name, phone:r.phone, date:r.date||todayStr(), status:"diminta",
-        rating:0, reviewerName:"", proofData:"", proofName:"", by:SESSION.name, at:Date.now()};
+        rating:0, reviewerName:"", proofData:"", proofName:"",
+        by:SESSION.name, at:Date.now(), askedAt:Date.now(), askedBy:SESSION.name};
     reviews().push(rv);
-  }else if(rv.status==="diminta"){ rv.at=Date.now(); rv.by=SESSION.name; }
+  }else if(rv.status==="diminta"){ rv.at=Date.now(); rv.askedAt=Date.now(); rv.by=SESSION.name; rv.askedBy=SESSION.name; }
   logAudit("Google Review", `Ajakan review dikirim ke ${r.name}`);
   saveState();
   if(r.phone){
@@ -6676,6 +6707,33 @@ function saveReview(rvId, resId){
   let rv = rvId ? reviews().find(x=>x.id===rvId) : null;
   const proof = PENDING_FILES.rv_proof;
   if(!rv && !proof){ toast("Screenshot bukti review wajib dilampirkan","err"); return; }
+
+  /* ===== PENJAGA KLAIM GANDA =====
+     Ditegakkan LINTAS WAKTU, bukan cuma bulan berjalan: satu akun Google hanya
+     bisa meninggalkan SATU review per tempat (menulis lagi = mengganti yang
+     lama, bukan menambah). Jadi nama akun yang sama muncul dua kali pasti
+     bukan dua review — entah salah catat, atau klaim diulang demi reward.
+
+     Nomor HP juga dijaga: satu tamu satu review. Yang dibandingkan hanya
+     catatan yang SUDAH diklaim/terverifikasi — status "diminta" belum berisi
+     klaim apa pun, dan "ditolak" memang boleh diklaim ulang setelah diperbaiki.
+
+     Diri sendiri dikecualikan lewat id, supaya mengedit klaim yang sudah ada
+     tidak tertuduh menggandakan dirinya. */
+  const telp = normPhone(byId("rv_phone").value||"");
+  const kembar = reviews().find(x =>
+    x.id !== (rv?rv.id:"") &&
+    ["diklaim","terverifikasi"].includes(x.status) && (
+      (reviewer && String(x.reviewerName||"").trim().toLowerCase() === reviewer.toLowerCase()) ||
+      (telp && normPhone(x.phone||"") === telp)
+    ));
+  if(kembar){
+    const samaAkun = reviewer && String(kembar.reviewerName||"").trim().toLowerCase()===reviewer.toLowerCase();
+    toast(samaAkun
+      ? `Akun Google "${kembar.reviewerName}" sudah pernah diklaim (${kembar.name}, ${fmtDateShort(kembar.date)}). Satu akun hanya bisa satu review.`
+      : `Nomor HP ini sudah pernah mengklaim review (${kembar.name}, ${fmtDateShort(kembar.date)}).`, "err");
+    return;
+  }
   if(!rv){
     rv={id:uid(), resId:resId||"", by:SESSION.name, at:Date.now()};
     reviews().push(rv);
@@ -6737,6 +6795,137 @@ function saveReviewCount(){
   logAudit("Google Review", `Rekonsiliasi ${REVIEW_MONTH}: awal ${s||"-"} → akhir ${e||"-"}`);
   saveState(); renderReview(); toast("Rekonsiliasi disimpan ✓","ok");
 }
+/* ===================== LAPORAN HARIAN KE GRUP =====================
+   Dua laporan terpisah, sengaja tidak digabung jadi satu pesan panjang:
+   angka Google Review dibaca manajemen untuk mengejar target, sedangkan
+   tanggapan tamu perlu sampai ke divisi yang bersangkutan. Menggabungkannya
+   membuat bagian yang penting bagi satu pihak tenggelam di tengah pesan.
+
+   Pola menyusul renderCoordWA(): pratinjau + Salin + Buka WhatsApp. Grup tidak
+   bisa dituju lewat tautan, jadi sendWA menyalin teks lalu membuka aplikasi. */
+let RVREP_DATE = todayStr();
+function setRvRepDate(v){ RVREP_DATE = v || todayStr(); renderRvReport(); }
+
+// Laporan angka Google Review untuk satu hari.
+function buildReviewReport(ymd){
+  const cfg=reviewCfg();
+  const semua=reviews();
+  const dimintaHariItu = semua.filter(x=>sameDayTs(askedTs(x), ymd));
+  // Dari yang diminta HARI ITU, siapa yang akhirnya mengisi. Inilah angka yang
+  // ditanyakan: hasil ajakan hari itu, bukan total klaim yang masuk hari itu.
+  const ngisi = dimintaHariItu.filter(x=>["diklaim","terverifikasi"].includes(x.status));
+  // Klaim yang MASUK hari itu (bisa dari ajakan hari sebelumnya) — dilaporkan
+  // terpisah supaya dua hal ini tidak tertukar.
+  const klaimMasuk = semua.filter(x=>sameDayTs(Number(x.claimedAt)||0, ymd));
+  const ymOf = ymd.slice(0,7);
+  const bulanIni = reviewsOfMonth(ymOf).filter(x=>x.status==="terverifikasi");
+  const target = Number(cfg.target)||0;
+  const konv = dimintaHariItu.length ? Math.round(ngisi.length/dimintaHariItu.length*100) : 0;
+
+  const baris = ngisi.length
+    ? ngisi.map(x=>`• ${x.name}${x.rating?` — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))}`:""}`).join("\n")
+    : "—";
+  const belumIsi = dimintaHariItu.filter(x=>x.status==="diminta");
+
+  return [
+    `⭐ *LAPORAN GOOGLE REVIEW*`,
+    `${fmtDate(ymd)}`,
+    ``,
+    `📤 Diminta hari ini : *${dimintaHariItu.length}* tamu`,
+    `✍️ Sudah mengisi    : *${ngisi.length}* tamu (${konv}%)`,
+    `⏳ Belum mengisi    : *${belumIsi.length}* tamu`,
+    ``,
+    `Yang sudah mengisi:`,
+    baris,
+    ``,
+    `📥 Klaim masuk hari ini: ${klaimMasuk.length} (termasuk ajakan hari sebelumnya)`,
+    ``,
+    `📈 *Progres ${fmtMonth(ymOf)}*`,
+    `Terverifikasi: ${bulanIni.length}${target?` / ${target}`:""}${target?` (${Math.round(bulanIni.length/target*100)}%)`:""}`,
+    target>bulanIni.length?`Kurang ${target-bulanIni.length} review lagi 💪`:(target?`Target tercapai 🎉`:""),
+  ].filter(x=>x!==null).join("\n").replace(/\n{3,}/g,"\n\n");
+}
+
+// Laporan tanggapan tamu (positif & negatif) untuk satu hari.
+function buildFeedbackReport(ymd){
+  const fbHariItu = feedbacks().filter(x=>String(x.date||"")===ymd);
+  // Catatan lama tidak punya `tone`; isinya memang keluhan, jadi negatif.
+  const pos = fbHariItu.filter(x=>x.tone==="positif");
+  const neg = fbHariItu.filter(x=>x.tone!=="positif");
+  // Sisi "bagus" juga datang dari rating review: 4-5 bintang = pujian, 1-3 =
+  // tanda ada yang perlu dibenahi walau tamunya tidak mengeluh langsung.
+  const rvHariItu = reviews().filter(x=>String(x.date||"")===ymd && ["diklaim","terverifikasi"].includes(x.status));
+  const rvBagus = rvHariItu.filter(x=>(Number(x.rating)||0)>=4);
+  const rvKurang= rvHariItu.filter(x=>(Number(x.rating)||0)>0 && (Number(x.rating)||0)<=3);
+
+  const itemLines = fb => (Array.isArray(fb.items)?fb.items:[]).map(it=>`   ${fbCatLabel(it)} — ${it.text}`).join("\n");
+  const blokPos = [
+    ...pos.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
+    ...rvBagus.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review)`),
+  ];
+  const blokNeg = [
+    ...neg.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
+    ...rvKurang.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review, perlu ditindaklanjuti)`),
+  ];
+  // Divisi mana yang paling sering disebut di keluhan hari itu — supaya yang
+  // membaca langsung tahu ke mana harus menoleh.
+  const perDivisi={};
+  neg.forEach(fb=>(Array.isArray(fb.items)?fb.items:[]).forEach(it=>{
+    const k=fbCatLabel(it); perDivisi[k]=(perDivisi[k]||0)+1;
+  }));
+  const ringkasDivisi=Object.entries(perDivisi).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${v}`).join(", ");
+
+  return [
+    `💬 *LAPORAN TANGGAPAN TAMU*`,
+    `${fmtDate(ymd)}`,
+    ``,
+    `😊 Positif : *${blokPos.length}*`,
+    `😟 Negatif : *${blokNeg.length}*`,
+    ringkasDivisi?`\n🔎 Divisi tersorot: ${ringkasDivisi}`:``,
+    ``,
+    `*— POSITIF —*`,
+    blokPos.length?blokPos.join("\n"):"—",
+    ``,
+    `*— PERLU DIBENAHI —*`,
+    blokNeg.length?blokNeg.join("\n"):"— tidak ada keluhan hari ini 🙌",
+  ].join("\n").replace(/\n{3,}/g,"\n\n");
+}
+
+function openRvReport(){ RVREP_DATE = todayStr(); renderRvReport(); }
+function renderRvReport(){
+  const rev = buildReviewReport(RVREP_DATE);
+  const fbk = buildFeedbackReport(RVREP_DATE);
+  const card = (id, ico, title, sub, txt)=>`
+    <div class="wa-target">
+      <h4>${ico} ${title}</h4>
+      <p>${sub}</p>
+      <div class="wa-preview" id="${id}" style="max-height:280px;overflow:auto">${esc(txt)}</div>
+      <div class="wa-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost" onclick="copyWA(this, byId('${id}').textContent)">📋 Salin</button>
+        <button class="btn btn-sm btn-wa" onclick="sendRvReport('${title}','${id}')">💬 Buka WhatsApp</button>
+      </div>
+    </div>`;
+  openModal(`
+    <div class="modal-head"><h3>📤 Laporan Harian ke Grup</h3><button class="close-x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="wa-target" style="border-style:dashed">
+        <h4>🗓️ Tanggal Laporan</h4>
+        <p>Pilih tanggal yang mau direkap. Bawaannya hari ini.</p>
+        <input type="date" value="${RVREP_DATE}" onchange="setRvRepDate(this.value)">
+      </div>
+      <div class="inline-info" style="margin:14px 0">Grup WhatsApp tidak bisa dituju lewat tautan. Menekan <b>Buka WhatsApp</b> akan menyalin pesannya lalu membuka aplikasi — tinggal tempel di grup tujuan.</div>
+      ${card("rvrepGoogle","⭐","Laporan Google Review","Berapa yang diminta hari itu dan berapa yang akhirnya mengisi.",rev)}
+      ${card("rvrepFeedback","💬","Laporan Tanggapan Tamu","Pujian & keluhan hari itu, lengkap dengan divisi yang tersorot.",fbk)}
+    </div>
+    <div class="modal-foot"><button class="btn btn-ink" onclick="closeModal()">Tutup</button></div>
+  `, true);
+}
+function sendRvReport(label, previewId){
+  const txt = byId(previewId).textContent;
+  logAudit("Laporan Harian", `${label}, ${fmtDate(RVREP_DATE)}`);
+  sendWA("group","",txt);
+}
+
 function copyReviewLink(){
   const cfg=reviewCfg();
   if(!cfg.link){ toast("Link belum diatur","err"); return; }
@@ -6827,8 +7016,16 @@ function openFeedbackForm(resId, fbId){
   const phone= fb?.phone|| r?.phone|| "";
   openModal(`<div class="modal-head"><h3>💬 ${fb?"Ubah":"Catat"} Feedback Customer</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">Catat keluhan tamu <b>apa adanya</b>. Kalau satu tamu mengeluhkan beberapa hal, tekan <b>➕ Tambah Keluhan</b> supaya tiap keluhan masuk ke kategori divisinya masing-masing.</div>
+     <div class="inline-info" style="margin-bottom:14px">Catat tanggapan tamu <b>apa adanya</b>. Kalau satu tamu menyebut beberapa hal, tekan <b>➕ Tambah Catatan</b> supaya masing-masing masuk ke kategori divisinya sendiri.</div>
      <div class="form-grid">
+       <!-- Sifat tanggapan. Dulu tab ini HANYA menampung keluhan, jadi pujian
+            lisan tamu tidak punya tempat dan hilang begitu saja. Catatan lama
+            tanpa field ini dianggap negatif — memang itu isinya. -->
+       <div class="field full"><label>Sifat Tanggapan</label>
+         <select id="fb_tone">
+           <option value="negatif" ${(fb?.tone||"negatif")==="negatif"?"selected":""}>😟 Keluhan / Negatif</option>
+           <option value="positif" ${fb?.tone==="positif"?"selected":""}>😊 Pujian / Positif</option>
+         </select></div>
        <div class="field"><label>Nama Tamu <span class="req">*</span></label>
          <input id="fb_name" value="${esc(name)}" placeholder="Nama tamu" autocomplete="off" list="fbNames" oninput="fbGuestName(this.value)"></div>
        <div class="field"><label>No. WhatsApp</label>
@@ -6842,7 +7039,7 @@ function openFeedbackForm(resId, fbId){
        </div>
      </div>
      <div id="fb_items">${fbItemsHtml()}</div>
-     <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Keluhan</button></div>
+     <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Catatan</button></div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
@@ -6856,7 +7053,7 @@ function saveFeedback(fbId, resId){
   const items = FB_ITEMS
     .map(it=>({cat:it.cat||"floor", catOther:(it.catOther||"").trim(), text:(it.text||"").trim()}))
     .filter(it=>it.text);
-  if(!items.length){ toast("Isi keluhannya minimal satu","err"); return; }
+  if(!items.length){ toast("Isi catatannya minimal satu","err"); return; }
   const badOther = items.find(it=>it.cat==="other" && !it.catOther);
   if(badOther){ toast('Kategori "Other" harus disebutkan namanya','err'); return; }
 
@@ -6870,6 +7067,7 @@ function saveFeedback(fbId, resId){
   Object.assign(fb, {
     name, phone:normPhone(byId("fb_phone").value||""),
     date:byId("fb_date").value||todayStr(),
+    tone:(byId("fb_tone")?.value==="positif")?"positif":"negatif",
     items,
     proofData: proof?proof.data:(fb.proofData||""),
     proofName: proof?proof.name:(fb.proofName||""),
@@ -6935,7 +7133,9 @@ function feedbackView(){
   const rows = shown.slice().sort((a,b)=>(b.at||0)-(a.at||0)).map(fb=>{
     const st=FB_STATUS[fb.status]||FB_STATUS.baru;
     return `<tr>
-      <td><div class="name">${esc(fb.name)}</div><div class="muted">${fb.phone?esc(displayPhone(fb.phone)):"-"}</div></td>
+      <td><div class="name">${esc(fb.name)} ${fb.tone==="positif"
+            ? '<span class="badge-status dp-yes" style="font-size:10px" title="Pujian / tanggapan positif">😊 Positif</span>'
+            : ''}</div><div class="muted">${fb.phone?esc(displayPhone(fb.phone)):"-"}</div></td>
       <td>${fb.items.map(it=>`<span class="fb-chip c-${it.cat}">${esc(fbCatLabel(it))}</span>`).join(" ")}</td>
       <td><div class="fb-texts">${fb.items.map(it=>`<div>• ${esc(it.text)}</div>`).join("")}</div>
         ${fb.actionNote?`<div class="fb-action">🔧 ${esc(fb.actionNote)}</div>`:""}</td>
@@ -6996,6 +7196,10 @@ function renderReview(){
    <div class="page-head">
      <div><h2>Feedback</h2><div class="desc">Google Review & keluhan customer — dalam satu tempat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       <!-- Satu tombol untuk kedua laporan: keduanya per-hari dan biasanya
+            dikirim sekaligus saat tutup shift, jadi tidak ada gunanya dipisah
+            jadi dua tombol yang membuka modal yang mirip. -->
+       <button class="btn btn-sm btn-wa" onclick="openRvReport()">📤 Laporan Harian</button>
        ${REVIEW_TAB==="google"
          ? `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
             <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`
@@ -7016,6 +7220,7 @@ function reviewGoogleView(){
   const cfg=reviewCfg();
   const canCfg=CAN.master(SESSION.role);
   const mine=reviewsOfMonth(REVIEW_MONTH);
+  const tgt=reviewTargetsOfMonth(REVIEW_MONTH);
   const verified=mine.filter(x=>x.status==="terverifikasi");
   const claimed =mine.filter(x=>x.status==="diklaim");
   const asked   =mine.filter(x=>x.status==="diminta");
@@ -7108,6 +7313,31 @@ function reviewGoogleView(){
          <div class="recap ${gap<0?'danger':'ok'}"><div class="lbl">${gap<0?"⚠️ Kelebihan klaim":"Selisih"}</div><div class="val">${gap>=0?"+"+gap:gap}</div>
            <div class="sub">${gap<0?"tercatat > Google, ada klaim tak sah":gap===0?"cocok persis":"ada review organik yang belum tercatat"}</div></div>
        </div>`:`<div class="muted" style="margin-top:10px;font-size:12.5px">Isi kedua angka di atas untuk melihat hasil rekonsiliasi.</div>`}
+     </div>
+   </div>
+
+   <div class="panel">
+     <div class="panel-head"><h3>📤 Tamu Belum Diminta Review</h3>
+       <span class="muted" style="font-size:12.5px">${tgt.belum.length} dari ${tgt.layak.length} tamu yang datang</span></div>
+     <div class="panel-body">
+       <div class="recap-grid" style="margin-bottom:14px">
+         <div class="recap ${tgt.belum.length?'warn':'ok'}"><div class="lbl">⏳ Belum Diminta</div><div class="val">${tgt.belum.length}</div><div class="sub">tamu datang, ajakan belum dikirim</div></div>
+         <div class="recap ok"><div class="lbl">✅ Sudah Diminta</div><div class="val">${tgt.sudah.length}</div><div class="sub">ajakan sudah terkirim</div></div>
+         <div class="recap info"><div class="lbl">📊 Cakupan</div><div class="val">${tgt.layak.length?Math.round(tgt.sudah.length/tgt.layak.length*100):0}<small>%</small></div><div class="sub">tamu datang yang tersentuh</div></div>
+       </div>
+       ${tgt.belum.length?`<div class="table-wrap"><table>
+         <thead><tr><th>Tanggal</th><th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>Aksi</th></tr></thead>
+         <tbody>${tgt.belum.map(r=>`<tr>
+           <td>${fmtDateShort(r.date)}</td>
+           <td>${esc(r.time||"-")}</td>
+           <td><div class="name">${esc(r.name)}</div><div class="muted">${r.phone?esc(displayPhone(r.phone)):'<span style="color:var(--danger)">tanpa no. HP</span>'}</div></td>
+           <td>${esc(String(r.pax||"-"))}</td>
+           <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+           <td><div class="mini-actions">${r.phone
+               ? `<button class="btn btn-xs btn-primary" onclick="requestReview('${r.id}')">⭐ Minta Review</button>`
+               : `<span class="muted" style="font-size:11px">nomor HP kosong</span>`}</div></td>
+         </tr>`).join("")}</tbody></table></div>`
+         :`<div class="empty" style="padding:24px"><div class="big">🎉</div>Semua tamu yang datang bulan ini sudah diminta review.</div>`}
      </div>
    </div>
 
