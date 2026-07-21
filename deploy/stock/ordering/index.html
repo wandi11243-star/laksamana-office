@@ -878,7 +878,15 @@
         // ==========================================
         //  GLOBAL VARIABLES
         // ==========================================
-        let globalItemsData = []; 
+        let globalItemsData = [];
+        // Rincian bahan dari database (nama -> {utama, cadangan[], satuan[]}).
+        // Dipakai untuk membatasi pilihan satuan per baris order.
+        let globalProductInfo = {};
+        /* Daftar satuan lengkap — dipakai saat sebuah bahan BELUM diatur
+           satuannya. HARUS sama persis dengan SATUAN_TERSEDIA di purchasing;
+           kalau berbeda, purchasing bisa menetapkan satuan yang tak pernah
+           muncul di sini. */
+        const SATUAN_TERSEDIA = ["Kg","Gram","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol"];
         let debounceTimer;
         let rowCount = 0;
         let pendingSubmission = null; // Menahan sementara order yang butuh konfirmasi server
@@ -1560,14 +1568,56 @@
                 const response = await fetch(state.appScriptUrlItem);
                 if(response.ok) {
                     const data = await response.json();
-                    if(data && data.products) globalItemsData = Object.keys(data.products);
+                    if(data && data.products){
+                        globalItemsData = Object.keys(data.products);
+                        // Rincian tiap bahan (termasuk satuan yang sah) ikut
+                        // disimpan, bukan cuma namanya — itu yang membatasi
+                        // pilihan satuan di tiap baris order.
+                        globalProductInfo = data.products;
+                    }
                     else if (Array.isArray(data)) globalItemsData = data.map(i => i.nama || i.name || i.Item || i[1] || i);
                     localStorage.setItem('kitchen_cached_items', JSON.stringify(globalItemsData));
+                    try { localStorage.setItem('kitchen_cached_products', JSON.stringify(globalProductInfo)); } catch(e){}
                 }
             } catch(err) {
                 const cached = localStorage.getItem('kitchen_cached_items');
                 if(cached) globalItemsData = JSON.parse(cached);
+                const cachedP = localStorage.getItem('kitchen_cached_products');
+                if(cachedP){ try { globalProductInfo = JSON.parse(cachedP) || {}; } catch(e){} }
             }
+        }
+
+        /* ===== SATUAN YANG SAH UNTUK SEBUAH BAHAN =====
+           Dikembalikan null bila bahan itu belum diatur satuannya — dan null
+           DIBEDAKAN dari array kosong: null berarti "semua satuan boleh"
+           (perilaku lama, berlaku untuk ratusan bahan yang belum disentuh),
+           sedangkan pembatasan hanya berlaku kalau purchasing benar-benar
+           mencentang sesuatu. */
+        function satuanUntukItem(nama){
+            const p = globalProductInfo && globalProductInfo[nama];
+            const s = p && Array.isArray(p.satuan) ? p.satuan.filter(Boolean) : [];
+            return s.length ? s : null;
+        }
+
+        /* Susun ulang pilihan satuan satu baris mengikuti bahan yang dipilih.
+           Nilai yang sedang terpilih dipertahankan bila masih sah; kalau tidak,
+           jatuh ke satuan pertama yang diizinkan. Tanpa itu, mengganti bahan
+           bisa meninggalkan satuan lama yang justru dilarang untuk bahan baru —
+           persis kesalahan yang mau dicegah. */
+        function applyUnitOptions(rowId){
+            const sel = document.getElementById(`batch-row-unit-${rowId}`);
+            const inp = document.getElementById(`batch-row-item-${rowId}`);
+            if(!sel || !inp) return;
+            const izin = satuanUntukItem(inp.value.trim());
+            const daftar = izin || SATUAN_TERSEDIA;
+            const sebelum = sel.value;
+            sel.innerHTML = daftar.map(u => `<option value="${u}">${u}</option>`).join("");
+            sel.value = daftar.includes(sebelum) ? sebelum : daftar[0];
+            // Tanda visual bahwa pilihannya memang sengaja dipersempit, supaya
+            // kru tidak mengira satuannya "hilang".
+            sel.title = izin ? `Satuan untuk bahan ini dibatasi: ${izin.join(", ")}` : "";
+            sel.classList.toggle('ring-1', !!izin);
+            sel.classList.toggle('ring-indigo-200', !!izin);
         }
 
         function handleItemSearch(input, rowId) {
@@ -1597,6 +1647,7 @@
         function selectAutocompleteItem(item, rowId) {
             document.getElementById(`batch-row-item-${rowId}`).value = item;
             document.getElementById(`autocomplete-results-${rowId}`).classList.add('hidden');
+            applyUnitOptions(rowId);     // persempit satuan mengikuti bahan ini
             refreshRowForecast(rowId);   // tampilkan panel prakiraan untuk item ini
         }
 
@@ -1607,6 +1658,9 @@
                     input.value = "";
                     showToast("Input Ditolak", "Harus pilih bahan dari list!", "danger");
                 }
+                // Diketik manual (tanpa lewat autocomplete) juga harus menyempit.
+                const id = String(input.id || "").replace('batch-row-item-', '');
+                if (id) applyUnitOptions(id);
             }, 150);
         }
 
@@ -1664,7 +1718,11 @@
                 </div>
                 <div class="w-full md:w-[120px]">
                     <select id="batch-row-unit-${id}" onchange="refreshRowForecast(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                        <option value="Kg">Kg</option><option value="Gram">Gram</option><option value="Pcs">Pcs</option><option value="Pack">Pack</option><option value="Dus">Dus</option><option value="Sack">Sack</option>
+                        <!-- Satuan baru ditaruh di ekor daftar, BUKAN disisipkan di
+                             tengah: Kg tetap pilihan pertama karena itu yang paling
+                             sering dipakai, dan urutan lama tidak bergeser sehingga
+                             kru yang sudah hafal posisi tidak salah pilih. -->
+                        <option value="Kg">Kg</option><option value="Gram">Gram</option><option value="Pcs">Pcs</option><option value="Pack">Pack</option><option value="Dus">Dus</option><option value="Sack">Sack</option><option value="Jerigen">Jerigen</option><option value="Rim">Rim</option><option value="Botol">Botol</option>
                     </select>
                 </div>
                 <div class="flex-grow">

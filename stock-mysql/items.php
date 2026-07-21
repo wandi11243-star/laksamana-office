@@ -1,7 +1,8 @@
 <?php
 /* STOCK — endpoint ITEMS (produk).
- * GET  -> {products: {"Nama Produk": {utama, cadangan[]}}}  (peta, berkunci NAMA)
- * POST {action:'addProduct', productName, primaryVendor, backupVendors, oldProductName}
+ * GET  -> {products: {"Nama Produk": {utama, cadangan[], satuan[]}}}  (peta, berkunci NAMA)
+ * POST {action:'addProduct', productName, primaryVendor, backupVendors, oldProductName,
+ *       units:[]  <- satuan sah bahan ini; TIDAK dikirim = pertahankan yang lama}
  * POST {action:'deleteProduct', productName}
  */
 require __DIR__ . '/_boot.php';
@@ -20,8 +21,11 @@ try {
     $pdo = pur_pdo();
     $a = $b->action ?? '';
     if ($a === 'addProduct') {
+      // `units` sengaja dilewatkan APA ADANYA (null bila tidak dikirim), supaya
+      // pur_product_simpan bisa membedakan "dikosongkan" dari "tidak disertakan".
       pur_json(pur_product_simpan($pdo, $b->productName ?? '', $b->primaryVendor ?? '',
-                                  $b->backupVendors ?? [], $b->oldProductName ?? ''));
+                                  $b->backupVendors ?? [], $b->oldProductName ?? '',
+                                  $b->units ?? null));
     }
     if ($a === 'deleteProduct') pur_json(pur_product_hapus($pdo, $b->productName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
