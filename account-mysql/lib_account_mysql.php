@@ -49,12 +49,12 @@ function s($v) { return trim((string)$v); }
    Script, yang membuang baris Sheet setengah kosong supaya tidak muncul
    sebagai user hantu "?" di daftar. */
 function semua_user() {
-  return q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users`
+  return q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users`
             WHERE TRIM(id) <> \'\' AND TRIM(name) <> \'\'
             ORDER BY name ASC')->fetchAll();
 }
 function user_by_id($id) {
-  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users` WHERE id = :i LIMIT 1',
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users` WHERE id = :i LIMIT 1',
          array(':i' => s($id)))->fetch();
   return $r ?: null;
 }
@@ -62,11 +62,52 @@ function user_by_id($id) {
    karena nama ikut jadi kunci — persis findUserByCreds_(). LOWER() dipakai
    eksplisit supaya tidak bergantung pada collation database. */
 function user_by_creds($name, $pin) {
-  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, display_name FROM `users`
+  /* Yang diketik boleh USERNAME atau NAMA RESMI. Username didahulukan:
+     kalau seseorang menetapkan username yang kebetulan sama dengan nama
+     resmi orang lain, pemilik username-lah yang menang — dan itu tidak akan
+     terjadi karena username_bentrok() menolaknya sejak awal. Urutan ini
+     ditulis eksplisit supaya perilakunya pasti, bukan bergantung pada
+     urutan baris di tabel.
+
+     Username kosong TIDAK boleh ikut tercocokkan: kalau tidak, login dengan
+     nama kosong akan menyambar user pertama yang belum punya username. */
+  $u = mb_strtolower(trim(s($name)), 'UTF-8');
+  if ($u === '') return null;
+
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users`
+          WHERE TRIM(username) <> \'\' AND LOWER(TRIM(username)) = :n
+            AND TRIM(pin) = :p AND active = 1
+          LIMIT 1',
+         array(':n' => $u, ':p' => s($pin)))->fetch();
+  if ($r) return $r;
+
+  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users`
           WHERE LOWER(TRIM(name)) = :n AND TRIM(pin) = :p AND active = 1
           LIMIT 1',
-         array(':n' => mb_strtolower(s($name), 'UTF-8'), ':p' => s($pin)))->fetch();
+         array(':n' => $u, ':p' => s($pin)))->fetch();
   return $r ?: null;
+}
+
+/* Apakah $cand sudah dipakai orang lain, sebagai username ATAU sebagai nama
+   resmi? Dipakai sebelum menyimpan username maupun sebelum admin mengubah
+   nama resmi. Tanpa pemeriksaan LINTAS KOLOM ini, "Rizky Kemala" bisa
+   mengambil username "Rizki Arfan" dan login jadi mengarah ke akun keliru. */
+function identitas_bentrok($cand, $kecualiId) {
+  $c = mb_strtolower(trim(s($cand)), 'UTF-8');
+  if ($c === '') return null;
+  $r = q('SELECT id, name, username FROM `users`
+          WHERE id <> :i AND (LOWER(TRIM(name)) = :c
+                          OR (TRIM(username) <> \'\' AND LOWER(TRIM(username)) = :c))
+          LIMIT 1',
+         array(':i' => s($kecualiId), ':c' => $c))->fetch();
+  return $r ?: null;
+}
+
+/* Aturan bentuk username. Longgar tapi cukup untuk mencegah kegagalan login
+   yang tidak bisa dijelaskan: tanpa spasi (orang tidak sadar mengetik dua),
+   tanpa karakter tak terlihat, dan cukup panjang untuk tidak asal tabrakan. */
+function username_valid($v) {
+  return (bool)preg_match('/^[A-Za-z0-9._-]{3,40}$/', $v);
 }
 // Key modul AKTIF di registri.
 function semua_modul_aktif() {
@@ -147,7 +188,7 @@ function aksi_login($name, $pin) {
   return array('ok' => true, 'user' => array(
     'id'           => s($u['id']) !== '' ? s($u['id']) : ('u-' . mb_strtolower($name, 'UTF-8')),
     'name'         => s($u['name']),
-    'displayName'  => s($u['display_name']),
+    'username'     => s($u['username']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));
@@ -186,9 +227,10 @@ function aksi_ganti_pin($body) {
      yang dikirim client. Kalau id ikut dipercaya, kredensial sendiri bisa
      dipakai untuk menulis ke baris orang lain.
 
-   display_name TIDAK dicek keunikannya: dua orang boleh sama-sama memilih
-   "Adit". Karena itu kolom ini tidak pernah dipakai untuk mencari orang. */
-function aksi_set_display_name($body) {
+   username WAJIB unik lintas kolom (lihat identitas_bentrok): sejak login
+   menerima username maupun nama resmi, username kembar berarti login bisa
+   mengarah ke akun yang salah. */
+function aksi_set_username($body) {
   $name = s(isset($body['name']) ? $body['name'] : '');
   $pin  = s(isset($body['pin'])  ? $body['pin']  : '');
   if ($name === '' || $pin === '') return array('ok' => false, 'error' => 'missing');
@@ -196,16 +238,22 @@ function aksi_set_display_name($body) {
   $u = user_by_creds($name, $pin);
   if (!$u) return array('ok' => false, 'error' => 'forbidden');
 
-  $disp = trim(s(isset($body['displayName']) ? $body['displayName'] : ''));
-  // Karakter kontrol dibuang: nama tampilan masuk ke banyak layar, dan
-  // baris baru di dalamnya merusak tata letak daftar.
-  $disp = preg_replace('/[\x00-\x1F\x7F]/u', '', $disp);
-  if (mb_strlen($disp, 'UTF-8') > 60) $disp = mb_substr($disp, 0, 60, 'UTF-8');
+  $baru = trim(s(isset($body['username']) ? $body['username'] : ''));
 
-  // Kosong = kembali memakai nama resmi. Itu sah, bukan error.
-  q('UPDATE `users` SET display_name = :d WHERE id = :i',
-    array(':d' => $disp, ':i' => s($u['id'])));
-  return array('ok' => true, 'displayName' => $disp);
+  // Kosong = hapus username, kembali login dengan nama resmi. Itu sah.
+  if ($baru === '') {
+    q('UPDATE `users` SET username = \'\' WHERE id = :i', array(':i' => s($u['id'])));
+    return array('ok' => true, 'username' => '');
+  }
+
+  if (!username_valid($baru)) return array('ok' => false, 'error' => 'bad_username');
+
+  $bentrok = identitas_bentrok($baru, s($u['id']));
+  if ($bentrok) return array('ok' => false, 'error' => 'username_taken');
+
+  q('UPDATE `users` SET username = :u WHERE id = :i',
+    array(':u' => $baru, ':i' => s($u['id'])));
+  return array('ok' => true, 'username' => $baru);
 }
 
 /* ==================== USERS CRUD (superadmin) ==================== */
@@ -221,7 +269,7 @@ function aksi_list_users($body) {
       'active'       => ((int)$u['active'] === 1),
       'keterangan'   => s($u['keterangan']),
       'talentaId'    => s($u['talenta_id']),
-      'displayName'  => s($u['display_name']),
+      'username'     => s($u['username']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
       'adminModules' => admin_modul_untuk($u['id']),
@@ -245,9 +293,13 @@ function aksi_simpan_user($body) {
 
   $editId = s(isset($body['id']) ? $body['id'] : '');
 
-  $bentrok = q('SELECT id FROM `users` WHERE LOWER(TRIM(name)) = :n AND id <> :i LIMIT 1',
-               array(':n' => mb_strtolower($name, 'UTF-8'), ':i' => $editId))->fetch();
-  if ($bentrok) return array('ok' => false, 'error' => 'name_taken');
+  /* Nama resmi diperiksa LINTAS KOLOM: bentrok dengan nama orang lain MAUPUN
+     dengan username orang lain. Sejak login menerima keduanya, memberi nama
+     "arfan" ke seseorang padahal itu username orang lain akan membuat login
+     mengarah ke akun yang salah. */
+  $bentrok = identitas_bentrok($name, $editId);
+  if ($bentrok) return array('ok' => false, 'error' => 'name_taken',
+                             'takenBy' => s($bentrok['name']));
 
   /* talenta_id yang terisi wajib unik: dua kru berbagi satu Employee ID
      berarti absensi orang lain masuk ke skor seseorang. Yang KOSONG bebas
@@ -260,18 +312,25 @@ function aksi_simpan_user($body) {
   }
 
   if ($editId !== '') {
-    /* display_name hanya ditulis kalau field-nya MEMANG dikirim. Form Kelola
-       User mengirimnya; pemanggil lain (mis. tombol aktif/nonaktif yang
-       mengirim ulang baris seadanya) tidak. Tanpa penjaga ini, satu klik
-       nonaktifkan akan menghapus nama panggilan yang dipilih kru sendiri. */
-    if (array_key_exists('displayName', $body)) {
-      $disp = trim(s($body['displayName']));
-      $disp = preg_replace('/[\x00-\x1F\x7F]/u', '', $disp);
-      if (mb_strlen($disp, 'UTF-8') > 60) $disp = mb_substr($disp, 0, 60, 'UTF-8');
+    /* username hanya ditulis kalau field-nya MEMANG dikirim. Form Kelola User
+       mengirimnya; pemanggil lain (mis. tombol aktif/nonaktif yang mengirim
+       ulang baris seadanya) tidak. Tanpa penjaga ini, satu klik nonaktifkan
+       akan menghapus username yang dipilih kru — dan orang itu tiba-tiba
+       tidak bisa login dengan yang biasa dia ketik. */
+    if (array_key_exists('username', $body)) {
+      $un = trim(s($body['username']));
+      if ($un !== '') {
+        if (!username_valid($un)) return array('ok' => false, 'error' => 'bad_username');
+        $du = identitas_bentrok($un, $editId);
+        if ($du) return array('ok' => false, 'error' => 'username_taken',
+                              'takenBy' => s($du['name']));
+        // Username tidak boleh sama dengan nama resmi orang ITU SENDIRI di
+        // baris yang sama — itu bukan bentrok, tapi juga tidak ada gunanya.
+      }
       $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k,
-                 talenta_id = :t, display_name = :d WHERE id = :i',
+                 talenta_id = :t, username = :u WHERE id = :i',
               array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket,
-                    ':t' => $tid, ':d' => $disp, ':i' => $editId));
+                    ':t' => $tid, ':u' => $un, ':i' => $editId));
     } else {
       $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, talenta_id = :t WHERE id = :i',
               array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid, ':i' => $editId));
@@ -452,7 +511,7 @@ function anggota_modul($module, $withAdminFlag) {
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
       'talentaId'  => s($u['talenta_id']),
-      'displayName'=> s($u['display_name']),
+      'username'   => s($u['username']),
       'active'     => ((int)$u['active'] === 1),
     );
     if ($withAdminFlag) {
@@ -482,7 +541,7 @@ function aksi_segarkan_sesi($body) {
   return array('ok' => true, 'user' => array(
     'id'           => s($u['id']),
     'name'         => s($u['name']),
-    'displayName'  => s($u['display_name']),
+    'username'     => s($u['username']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));
