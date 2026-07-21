@@ -554,12 +554,16 @@ function pur_products_ambil($pdo) {
     if (!is_object($p)) $p = (object)['utama' => '', 'cadangan' => []];
     // cadangan HARUS array — kalau jadi objek, frontend .map() meledak.
     if (!isset($p->cadangan) || !is_array($p->cadangan)) $p->cadangan = [];
+    // satuan: daftar satuan yang SAH untuk bahan ini. Array kosong = belum
+    // ditentukan, dan frontend memaknainya sebagai "semua satuan boleh" —
+    // supaya 237 produk lama tidak mendadak jadi tak bisa dipesan.
+    if (!isset($p->satuan) || !is_array($p->satuan)) $p->satuan = [];
     $out[$r['nama']] = $p;
   }
   return (object)$out;
 }
 
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '') {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -570,7 +574,30 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '') {
   if (!is_array($cadangan)) $cadangan = [];
   $cadangan = array_values(array_map('strval', $cadangan));
 
-  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan];
+  /* SATUAN yang sah untuk bahan ini (boleh lebih dari satu, mis. Kg & Pack).
+     null = pemanggil TIDAK menyertakan field ini sama sekali -> pertahankan
+     nilai lama, jangan dikosongkan. Ini penting: kalau ada jalur lama yang
+     masih menyimpan produk tanpa mengirim `satuan`, tanpa penjagaan ini
+     daftar satuan yang sudah disusun akan terhapus diam-diam. */
+  $satuanLama = [];
+  if ($satuan === null) {
+    $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
+    $st->execute([$namaLama !== '' ? $namaLama : $nama]);
+    $row = $st->fetch();
+    if ($row) {
+      $lama = json_decode($row['data']);
+      if (is_object($lama) && isset($lama->satuan) && is_array($lama->satuan)) $satuanLama = $lama->satuan;
+    }
+    $satuan = $satuanLama;
+  }
+  if (is_string($satuan)) {
+    $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
+  }
+  if (!is_array($satuan)) $satuan = [];
+  // Buang duplikat & nilai kosong: dua "Kg" di satu bahan tidak berarti apa-apa.
+  $satuan = array_values(array_unique(array_filter(array_map(fn($s) => trim((string)$s), $satuan), fn($s) => $s !== '')));
+
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan];
 
   $pdo->beginTransaction();
   try {
