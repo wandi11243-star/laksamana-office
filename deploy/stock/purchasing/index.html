@@ -278,6 +278,25 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- Pintasan tanggal. Mengisi "Tanggal Rencana Kedatangan",
+                     BUKAN tanggal submit: yang menentukan kapan purchasing harus
+                     bergerak adalah kapan barangnya harus sampai, bukan kapan
+                     kru mengetik pesanannya. -->
+                <div class="pt-4 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                    <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Kedatangan</span>
+                    <button onclick="setQuickArrival(0)" id="qa-0" class="quick-arrival px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Hari Ini</button>
+                    <button onclick="setQuickArrival(1)" id="qa-1" class="quick-arrival px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Besok</button>
+                    <button onclick="setQuickArrival(2)" id="qa-2" class="quick-arrival px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Lusa</button>
+                </div>
+
+                <!-- Filter DIVISI pemesan. Baris sendiri, bukan disambung ke
+                     filter vendor: keduanya dimensi berbeda dan berlaku
+                     bersamaan (mis. "Bar" + vendor "Sinar Horeca"). -->
+                <div class="pt-4 border-t border-slate-100">
+                    <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">🏷️ Divisi Pemesan</label>
+                    <div id="divisi-filter-list" class="flex gap-2 overflow-x-auto pb-1"></div>
+                </div>
             </div>
 
             <div id="orders-container" class="space-y-4"></div>
@@ -926,6 +945,8 @@
             orders: [],
             archivedOrderIds: [],
             activeFilter: 'ALL',
+            // Divisi pemesan: 'ALL' | 'Kitchen' | 'Bar' | 'Floor' | '(Lainnya)'
+            divisiFilter: 'ALL',
             viewMode: 'active-individual'
         };
 
@@ -994,7 +1015,11 @@
             try { return JSON.parse(localStorage.getItem('purchasing_users')) || []; }
             catch(e){ return []; }
         }
-        function saveUsersLocal(users) { usersCache = users; localStorage.setItem('purchasing_users', JSON.stringify(users)); }
+        function saveUsersLocal(users) {
+            usersCache = users;
+            localStorage.setItem('purchasing_users', JSON.stringify(users));
+            resetPetaDivisi();   // divisi kru berubah -> peta lookup wajib dibangun ulang
+        }
         function ensureUsersLocal() {
             let users = loadUsersLocal();
             if (!users || users.length === 0) { users = JSON.parse(JSON.stringify(SEED_USERS)); localStorage.setItem('purchasing_users', JSON.stringify(users)); }
@@ -1061,9 +1086,14 @@
         }
 
         // Badge tim untuk ditempel di kartu order.
-        function teamBadge(name) {
-            const team = getTeam(name);
-            if (!team) return "";
+        /* Lencana divisi pada kartu order.
+           Menerima ORDER, bukan nama PIC — supaya sumbernya sama persis dengan
+           filter divisi (divisiOrder: kolom `tim` dulu, baru tebak dari nama).
+           Kalau berbeda, sebuah baris bisa lolos filter "Kitchen" tapi
+           berlencana "Bar", dan tidak ada yang tahu mana yang benar. */
+        function teamBadge(ord) {
+            const team = divisiOrder(ord);
+            if (!team || team === DIVISI_LAIN) return "";
             const styles = {
                 Kitchen: "bg-orange-100 text-orange-700 border-orange-200",
                 Bar:     "bg-purple-100 text-purple-700 border-purple-200",
@@ -1947,9 +1977,22 @@
             
             container.innerHTML = '';
             initFilters();
+            initDivisiFilters();
+            syncQuickArrivalButtons();
             updateSubTabCounts();
 
+            /* Filter divisi TIDAK berlaku di "Gabung per Vendor".
+               Alasannya alur kerja: pesanan dikirim SATU PESAN PER VENDOR, dan
+               vendor tidak peduli barangnya diminta Kitchen atau Bar. Kalau
+               filter divisi ikut berlaku di sini, satu vendor bisa terpecah jadi
+               beberapa pesan — dan barang divisi lain untuk vendor yang sama
+               diam-diam tidak ikut terkirim. */
+            const divisiBerlaku = appState.viewMode !== 'active-consolidated';
+
             let filtered = appState.orders.filter(ord => {
+                const matchesDivisi = !divisiBerlaku || appState.divisiFilter === 'ALL'
+                                      || divisiOrder(ord) === appState.divisiFilter;
+                if (!matchesDivisi) return false;
                 const matchesSearch = ord.item.toLowerCase().includes(searchVal) || 
                                       ord.nomorOrder.toLowerCase().includes(searchVal) || 
                                       ord.pic.toLowerCase().includes(searchVal);
@@ -2013,19 +2056,59 @@
                     return;
                 }
                 noOrders.classList.add('hidden');
+                // Beri tahu kenapa filter divisi tidak berpengaruh di sini,
+                // supaya tidak terlihat seperti tombolnya rusak.
+                if (appState.divisiFilter !== 'ALL') {
+                    const nota = document.createElement('div');
+                    nota.className = "bg-amber-50 border border-amber-200 text-amber-800 text-xs font-semibold rounded-xl px-4 py-2.5 mb-1";
+                    nota.innerHTML = `🏷️ Filter divisi <b>${appState.divisiFilter}</b> sengaja diabaikan di tampilan ini — pesanan dikirim <b>satu pesan per vendor</b>, mencakup semua divisi. Pakai tab <b>Per Item</b> untuk melihat per divisi.`;
+                    container.appendChild(nota);
+                }
                 groupKeys.forEach(key => renderConsolidatedCard(container, groups[key]));
 
             } else if (appState.viewMode === 'archived') {
                 let archivedOrders = filtered.filter(ord => ord.status === "Arsip" || appState.archivedOrderIds.includes(ord.nomorOrder));
-                let sorted = [...archivedOrders].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-                if (sorted.length === 0) {
+                if (archivedOrders.length === 0) {
                     noOrders.classList.remove('hidden');
                     document.getElementById('empty-state-desc').innerText = "Belum ada riwayat pesanan yang cocok dengan kriteria filter.";
                     return;
                 }
                 noOrders.classList.add('hidden');
-                sorted.forEach(ord => renderIndividualCard(container, ord, true));
+
+                /* ARSIP DIKELOMPOKKAN PER HARI.
+                   Dikelompokkan menurut TANGGAL KEDATANGAN, bukan tanggal
+                   submit: arsip dibaca sebagai catatan "hari itu barang apa
+                   saja yang masuk", dan pesanan yang diketik H-2 tetap milik
+                   hari kedatangannya.
+
+                   Tiap kepala hari menyebut divisi mana saja yang memesan,
+                   supaya pertanyaan "hari itu dari divisi mana" terjawab tanpa
+                   harus membuka satu per satu. */
+                const perHari = {};
+                archivedOrders.forEach(ord => {
+                    const hari = normalizeDateToYYYYMMDD(ord.tglDatang) || normalizeDateToYYYYMMDD(ord.timestamp) || '-';
+                    (perHari[hari] = perHari[hari] || []).push(ord);
+                });
+
+                Object.keys(perHari).sort((a, b) => b.localeCompare(a)).forEach(hari => {
+                    const isi = perHari[hari].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                    const hitungDivisi = {};
+                    isi.forEach(o => { const d = divisiOrder(o); hitungDivisi[d] = (hitungDivisi[d] || 0) + 1; });
+                    const rincianDivisi = Object.keys(hitungDivisi).sort()
+                        .map(d => `<span class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-slate-600 border border-slate-200">${d} ${hitungDivisi[d]}</span>`)
+                        .join(' ');
+
+                    const kepala = document.createElement('div');
+                    kepala.className = "flex flex-wrap items-center justify-between gap-2 bg-slate-100 border border-slate-200 rounded-xl px-4 py-2.5 mt-2";
+                    kepala.innerHTML = `
+                        <div class="text-xs font-black text-slate-700">🚚 ${formatFriendlyDate(hari, 'always')}
+                            <span class="font-bold text-slate-400 ml-1">· ${isi.length} order</span></div>
+                        <div class="flex flex-wrap gap-1">${rincianDivisi}</div>`;
+                    container.appendChild(kepala);
+
+                    isi.forEach(ord => renderIndividualCard(container, ord, true));
+                });
             }
         }
 
@@ -2132,7 +2215,7 @@
                         <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-slate-400">
                             <span>🚚 <b>Kedatangan:</b> <span class="text-indigo-800 font-bold bg-indigo-50 px-2 py-0.5 rounded-lg">${formatFriendlyDate(ord.tglDatang, false)}</span></span>
                             <span>🧑 <b>PIC:</b> <span class="text-slate-700 font-semibold">${ord.pic}</span></span>
-                            ${teamBadge(ord.pic)}
+                            ${teamBadge(ord)}
                         </div>
                         <div class="pt-1">
                             ${highlightSubmitTime}
@@ -2181,7 +2264,7 @@
                         <div>
                             <div class="flex items-center gap-1.5 flex-wrap">
                                 <span class="font-bold text-slate-900">${o.item}</span>
-                                ${teamBadge(o.pic)}
+                                ${teamBadge(o)}
                             </div>
                             ${o.note && o.note !== "-" ? `<p class="text-[10px] text-slate-500 italic font-medium">"Catatan: ${o.note}"</p>` : ''}
                         </div>
@@ -2551,6 +2634,88 @@
            localStorage — penambal untuk tabrakan ID di era Google Sheets.
            Status arsip sekarang dipegang server (kolom `status`), jadi
            membersihkan cache browser tidak lagi memperbaiki apa pun. */
+
+        /* ===== DIVISI PEMESAN =====
+           Sumber utamanya kolom `tim` yang ikut disimpan sejak order dibuat —
+           itu merekam divisi PADA SAAT memesan, dan tetap benar walau orangnya
+           kemudian pindah divisi atau keluar.
+
+           Order lama (sebelum kolom itu ada) jatuh ke penelusuran nama PIC di
+           daftar kru. Itu tebakan, tapi lebih baik daripada menandai semuanya
+           "Lainnya" dan membuat filter divisi tak berguna untuk riwayat. */
+        const DIVISI_LAIN = '(Lainnya)';
+        let _petaDivisiPIC = null;
+        function divisiOrder(ord) {
+            const t = String((ord && ord.tim) || '').trim();
+            if (t) return t;
+            if (!_petaDivisiPIC) {
+                _petaDivisiPIC = {};
+                (usersCache || []).forEach(u => {
+                    if (u && u.name) _petaDivisiPIC[String(u.name).toLowerCase()] = (u.keterangan || '').trim();
+                });
+            }
+            const k = _petaDivisiPIC[String((ord && ord.pic) || '').trim().toLowerCase()];
+            return k || DIVISI_LAIN;
+        }
+        // Daftar kru berubah -> peta harus dibangun ulang, kalau tidak divisi
+        // yang baru disetel admin tidak pernah terpakai sampai halaman dimuat lagi.
+        function resetPetaDivisi() { _petaDivisiPIC = null; }
+
+        // Divisi yang benar-benar muncul di data, supaya tidak ada tombol filter
+        // yang tidak pernah menghasilkan apa pun.
+        function divisiTersedia() {
+            const s = new Set();
+            (appState.orders || []).forEach(o => s.add(divisiOrder(o)));
+            const urut = ['Kitchen', 'Bar', 'Floor'];
+            return [...s].filter(Boolean).sort((a, b) => {
+                const ia = urut.indexOf(a), ib = urut.indexOf(b);
+                return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+            });
+        }
+        function setDivisiFilter(v) { appState.divisiFilter = v; renderDashboard(); }
+
+        /* Pintasan Hari Ini / Besok / Lusa.
+           Memakai tanggal LOKAL, bukan toISOString() — yang itu mengubah ke UTC
+           dulu dan di WIB menggeser tanggal ke kemarin untuk tiap jam sebelum
+           pukul 07:00. Menekan "Besok" subuh akan memilih hari ini.
+           Menekan tombol yang sedang aktif akan mematikannya, jadi tidak perlu
+           mencari tombol Reset hanya untuk membatalkan satu pintasan. */
+        function tglOffsetLokal(hari) {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + hari);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        function setQuickArrival(hari) {
+            const el = document.getElementById('filter-date-arrival');
+            const target = tglOffsetLokal(hari);
+            el.value = (el.value === target) ? '' : target;
+            filterOrders();
+        }
+        // Tandai pintasan mana yang sedang cocok dengan isi kolom tanggalnya.
+        function syncQuickArrivalButtons() {
+            const val = (document.getElementById('filter-date-arrival') || {}).value || '';
+            [0, 1, 2].forEach(h => {
+                const b = document.getElementById('qa-' + h);
+                if (!b) return;
+                const on = val && val === tglOffsetLokal(h);
+                b.className = `quick-arrival px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                    on ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
+            });
+        }
+
+        function initDivisiFilters() {
+            const box = document.getElementById('divisi-filter-list');
+            if (!box) return;
+            const aktif = appState.divisiFilter;
+            const opsi = [['ALL', 'Semua Divisi'], ...divisiTersedia().map(d => [d, d])];
+            box.innerHTML = opsi.map(([v, label]) => `
+                <button onclick="setDivisiFilter('${String(v).replace(/'/g, "\\'")}')"
+                    class="px-3 py-1 text-xs font-bold rounded-lg border transition-all whitespace-nowrap ${
+                        aktif === v ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${label}</button>`).join('');
+        }
 
         function initFilters() {
             const filterContainer = document.getElementById('vendor-filter-list');
