@@ -11,7 +11,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # continue-on-error: transfer FTP ke Rumahweb kadang putus di tengah tanpa
+      # sebab yang bisa kita kendalikan (sudah kejadian 16 Juli 2026 2x, lalu
+      # 21 Juli 2026 pada reservasi/index.html yang 513KB). Kegagalan di sini
+      # TIDAK langsung menggagalkan job — percobaan ulang di bawah diberi
+      # kesempatan, dan yang menentukan lulus/tidak tetap langkah Verifikasi
+      # yang membandingkan isi file di server dengan repo.
       - name: Deploy via FTP
+        id: ftp1
+        continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.DEV_FTP_SERVER }}
@@ -26,6 +34,21 @@ jobs:
           # dev.laksamanamuda.id/public_html/dev.laksamanamuda.id/reservasi/ — terbukti
           # lewat percobaan: FTP "sukses" tapi dev.laksamanamuda.id/reservasi/ tak berubah.
           # (Beda dengan produksi yang akunnya di root akun → memakai /public_html/office/.)
+          server-dir: /
+          timeout: 300000
+
+      # Percobaan ulang, HANYA bila yang pertama gagal. Sekali ulang sudah cukup:
+      # kegagalannya sejauh ini selalu putus koneksi sesaat, bukan kredensial
+      # atau path yang salah — dan yang begitu tidak akan sembuh berapa kali pun
+      # diulang, cuma memperlama job.
+      - name: Deploy via FTP (percobaan ulang)
+        if: steps.ftp1.outcome == 'failure'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./deploy/
           server-dir: /
           timeout: 300000
 

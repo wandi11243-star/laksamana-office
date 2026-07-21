@@ -11,7 +11,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # continue-on-error + percobaan ulang di bawah: transfer FTP ke Rumahweb
+      # kadang putus tanpa sebab yang bisa kita kendalikan. Kegagalan di sini
+      # tidak langsung menggagalkan job; yang menentukan tetap langkah
+      # Verifikasi, yang membandingkan isi file di server dengan repo.
       - name: Deploy via FTP
+        id: ftp1
+        continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -25,6 +31,20 @@ jobs:
           # dan JS-nya rusak, TAPI action tetap melaporkan "sukses" — modul
           # mati tanpa ada yang sadar. Sudah kejadian 2x pada 16 Juli 2026
           # (terpotong di 65KB lalu 234KB dari 403KB).
+          timeout: 300000
+
+      # Percobaan ulang, HANYA bila yang pertama gagal. Sekali saja: kegagalan
+      # sejauh ini selalu putus koneksi sesaat, bukan kredensial/path salah —
+      # yang begitu tidak sembuh berapa kali pun diulang.
+      - name: Deploy via FTP (percobaan ulang)
+        if: steps.ftp1.outcome == 'failure'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/office/
           timeout: 300000
 
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
