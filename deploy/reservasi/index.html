@@ -1460,11 +1460,27 @@ function tableObj(tableId){
   }
   return null;
 }
+/* Apakah reservasi ini MASIH menempati mejanya? Cerminan persis dari aturan
+   lewat-lewatan di occupiedMap(): tamu yang sudah pulang (leftAt) atau yang
+   batal / no-show / selesai TIDAK lagi memegang meja. */
+function masihMenempati(r){
+  if(!r) return false;
+  if(["Cancelled","No-show","Completed"].includes(r.status)) return false;
+  return !r.leftAt;
+}
+
 /* Sisa kursi seluruh meja sebuah reservasi, pada tanggalnya sendiri.
-   null = tidak bisa dihitung (belum ada meja, atau mejanya tak dikenal layout
-   mana pun — mis. meja yang sudah dihapus dari denah). Sengaja dibedakan dari
-   angka 0, karena "penuh" dan "tidak diketahui" bukan hal yang sama. */
+   null = pertanyaannya tidak berlaku untuk baris ini, bukan "nol kursi".
+   Tiga sebab: belum ada meja; mejanya tak dikenal layout mana pun (mis. sudah
+   dihapus dari denah); atau tamunya sudah pulang/batal.
+
+   Sebab ketiga itu penting. occupiedMap() membebaskan meja begitu tamu pulang,
+   jadi baris "✓ selesai duduk" akan menampilkan kapasitas PENUH meja — mis. 7 —
+   di sebelah rombongan yang sudah lengkap dan sudah pergi. Angkanya benar untuk
+   MEJA-nya, tapi dibaca sebagai "reservasi ini masih muat 7 orang lagi", yang
+   tidak pernah benar. Untuk baris seperti itu, sisa kursi memang tak punya arti. */
 function sisaKursiRes(r){
+  if(!masihMenempati(r)) return null;
   const ids=tablesOf(r);
   if(!ids.length) return null;
   const occ=occFor(r.date);
@@ -4858,7 +4874,9 @@ function renderHariH(){
                sama tiga kali. Yang penuh ditulis 0 supaya seluruh kolom terbaca
                sebagai deretan angka yang bisa dibandingkan sekilas. -->
           <td style="font-variant-numeric:tabular-nums">${sisaKursi===null
-                ? '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah">-</span>'
+                ? `<span class="muted" title="${!masihMenempati(r)
+                      ? 'Tamu sudah selesai/tidak jadi — mejanya bebas kembali, jadi sisa kursi tidak berlaku untuk baris ini'
+                      : 'Meja belum dipilih, atau mejanya tidak ada di denah'}">-</span>`
                 : sisaKursi>0
                   ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
                   : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
