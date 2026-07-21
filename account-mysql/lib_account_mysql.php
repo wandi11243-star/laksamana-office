@@ -411,6 +411,29 @@ function anggota_modul($module, $withAdminFlag) {
   return $out;
 }
 
+/* Menyegarkan sesi yang sudah berjalan.
+   Daftar modul disimpan di dalam sesi saat login dan berlaku 24 jam. Tanpa
+   penyegaran ini, modul yang BARU didaftarkan tidak muncul sampai orangnya
+   keluar-masuk lagi — dan sebaliknya, akses yang DICABUT masih terpakai
+   sampai sesinya habis.
+
+   Sengaja tanpa PIN: yang dikembalikan cuma daftar modul milik satu user,
+   dan itu sudah bisa disimpulkan dari listModuleRoster yang juga terbuka.
+   Tidak ada yang bisa MASUK karenanya — masuk tetap butuh nama + PIN. */
+function aksi_segarkan_sesi($body) {
+  $id = s(isset($body['userId']) ? $body['userId'] : '');
+  if ($id === '') return array('ok' => false, 'error' => 'missing');
+  $u = user_by_id($id);
+  if (!$u) return array('ok' => false, 'error' => 'not_found');
+  if ((int)$u['active'] !== 1) return array('ok' => false, 'error' => 'inactive');
+  return array('ok' => true, 'user' => array(
+    'id'           => s($u['id']),
+    'name'         => s($u['name']),
+    'modules'      => modul_untuk($u['id']),
+    'adminModules' => admin_modul_untuk($u['id']),
+  ));
+}
+
 /* ==================== PEMINDAHAN DATA DARI SHEET ====================
    Dipanggil sekali saat pindah dari Google Sheet. Isi tiap tab dikirim
    apa adanya; aksinya IDEMPOTEN, jadi aman diulang kalau terputus di
