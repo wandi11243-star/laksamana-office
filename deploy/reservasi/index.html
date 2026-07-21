@@ -1430,6 +1430,54 @@ function sisaKursiTable(tableId){
   const list=partiesAt(occ, tableId);
   return { t, list, sisa:tableFill(t, list).sisaMax };
 }
+/* ===== SISA KURSI UNTUK KOLOM DI TABEL RECAP =====
+   sisaKursiTable() di atas selalu memakai HARIH_DATE, jadi tidak bisa dipakai
+   tabel Daftar yang boleh menampilkan beberapa tanggal sekaligus — barisnya
+   akan dihitung memakai hunian tanggal yang salah. Fungsi di bawah memakai
+   tanggal MILIK BARIS itu sendiri.
+
+   occupiedMap() menyapu SELURUH STATE.reservations tiap kali dipanggil, jadi
+   memanggilnya sekali per baris membuat tabel ratusan baris menghitung ulang
+   ratusan kali. Hasilnya di-cache per tanggal, dan cache dibuang tiap render
+   supaya tidak pernah menyajikan angka basi. */
+let _occCache = null;
+function resetOccCache(){ _occCache = new Map(); }
+function occFor(date){
+  if(!_occCache) resetOccCache();
+  if(!_occCache.has(date)){
+    // realita=true HANYA untuk hari ini: tamu yang masih duduk tetap menempati
+    // mejanya. Untuk tanggal lain, "masih duduk" tidak punya arti.
+    _occCache.set(date, occupiedMap(date, "", null, date===todayStr()));
+  }
+  return _occCache.get(date);
+}
+// Objek meja (berisi kapasitas) menurut id, dari layout mana pun.
+function tableObj(tableId){
+  for(const k of allLayoutKeys()){
+    const L=getLayout(k);
+    const f=(L&&L.tables||[]).find(x=>x.id===tableId);
+    if(f) return f;
+  }
+  return null;
+}
+/* Sisa kursi seluruh meja sebuah reservasi, pada tanggalnya sendiri.
+   null = tidak bisa dihitung (belum ada meja, atau mejanya tak dikenal layout
+   mana pun — mis. meja yang sudah dihapus dari denah). Sengaja dibedakan dari
+   angka 0, karena "penuh" dan "tidak diketahui" bukan hal yang sama. */
+function sisaKursiRes(r){
+  const ids=tablesOf(r);
+  if(!ids.length) return null;
+  const occ=occFor(r.date);
+  let total=0, ketemu=false;
+  ids.forEach(id=>{
+    const t=tableObj(id);
+    if(!t) return;
+    ketemu=true;
+    total += tableFill(t, partiesAt(occ, id)).sisaMax;
+  });
+  return ketemu ? total : null;
+}
+
 // Warna khusus (biru) hanya untuk meja yang tamunya SUDAH DUDUK tapi kursinya belum penuh.
 // Meja yang cuma dipesan (belum datang) tetap memakai warna statusnya, tapi sisa kursinya
 // tetap ditulis di bawah mejanya.
@@ -3744,10 +3792,13 @@ let HARIH_Q = "", HARIH_VIEW = "list", HARIH_LAYOUT = "l1";
 /* Filter khusus tab Daftar (recap): rentang tanggal + rentang jam + status.
    Denah Meja & Waiting List tetap per-tanggal (pakai HARIH_DATE). Kosong = ikut HARIH_DATE. */
 let RECAP_FROM="", RECAP_TO="", RECAP_TF="", RECAP_TT="", RECAP_STATUS="";
+// "" = semua | "ada" = mejanya masih punya sisa kursi | "penuh" = kursi habis.
+// Dipakai host untuk cepat menemukan meja yang masih bisa disisipi tamu lain.
+let RECAP_KURSI="";
 function recapFrom(){ return RECAP_FROM || HARIH_DATE; }
 function recapTo(){ return RECAP_TO || RECAP_FROM || HARIH_DATE; }
 function recapMultiDay(){ return recapFrom() !== recapTo(); }
-function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=RECAP_KURSI=""; renderHariH(); }
 /* Penjaga: selama filter jam/status aktif, denah tidak menampilkan semua reservasi, jadi
    INPUT dari denah dilarang. Kembalikan true bila aksi harus dibatalkan. */
 function tolakKarenaFilter(){
@@ -3795,6 +3846,16 @@ function recapList(){
     if(tf!=null && toMin(r.time)<tf) return false;
     if(tt!=null && toMin(r.time)>tt) return false;
     if(q && !((r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) || tablesOf(r).some(t=>t.toLowerCase().includes(q)))) return false;
+    // Saringan sisa kursi ditaruh PALING AKHIR: ia yang paling mahal (menghitung
+    // hunian per tanggal), jadi biarkan saringan murah membuang barisnya dulu.
+    // Baris tanpa meja (sisa = null) tidak pernah lolos kedua pilihan — memang
+    // tidak bisa dijawab "masih ada kursi" atau "penuh".
+    if(RECAP_KURSI){
+      const s=sisaKursiRes(r);
+      if(s===null) return false;
+      if(RECAP_KURSI==="ada"   && !(s>0)) return false;
+      if(RECAP_KURSI==="penuh" && s>0)    return false;
+    }
     return true;
   }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 }
@@ -4652,6 +4713,11 @@ function kwitansiPDF(id){
   logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function renderHariH(){
+  // Buang cache hunian di AWAL tiap render. Isinya diturunkan dari
+  // STATE.reservations, yang bisa berubah kapan saja (check-in, polling
+  // server, tamu pulang) — menyimpannya lebih lama berarti kolom sisa kursi
+  // menampilkan keadaan yang sudah lewat.
+  resetOccCache();
   const canEdit=CAN.input(SESSION.role);
   const inList = HARIH_VIEW==='list';
   // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
@@ -4735,13 +4801,22 @@ function renderHariH(){
          <option value="">Semua status</option>
          ${["Pending","Confirmed","Datang","No-show"].map(s=>`<option ${RECAP_STATUS===s?"selected":""}>${s}</option>`).join("")}
        </select></div>
+     <!-- Hanya relevan di tab Daftar: Denah sudah menunjukkan sisa kursi tiap
+          meja secara visual, jadi menampilkan saringan ini di sana cuma
+          menambah kontrol yang tidak mengubah apa pun. -->
+     ${inList?`<div class="field" style="margin:0"><label>Sisa Kursi</label>
+       <select onchange="RECAP_KURSI=this.value; renderHariH()">
+         <option value="">Semua meja</option>
+         <option value="ada"   ${RECAP_KURSI==="ada"?"selected":""}>Masih ada kursi kosong</option>
+         <option value="penuh" ${RECAP_KURSI==="penuh"?"selected":""}>Kursi sudah penuh</option>
+       </select></div>`:""}
      <div class="pill-row" style="margin:0">
        <span class="pill ${recapIsDay(0)?'on':''}" style="cursor:pointer" onclick="recapSetDay(0)">Hari Ini</span>
        <span class="pill ${recapIsDay(1)?'on':''}" style="cursor:pointer" onclick="recapSetDay(1)">Besok</span>
        <span class="pill ${recapIsDay(2)?'on':''}" style="cursor:pointer" onclick="recapSetDay(2)">Lusa</span>
        <span class="pill" style="cursor:pointer" onclick="recapSet7()">7 Hari</span>
        <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
-       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
+       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
      </div>
      ${inList
        ? ((recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:"")
@@ -4754,17 +4829,23 @@ function renderHariH(){
      ${recapMultiDay()?`<div class="inline-info" style="margin-top:8px"><div>Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>.</div></div>`:""}
    </div>`:""}
    </div>
-   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
+   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI)?" dengan filter ini":""}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
    <div class="table-wrap"><table>
-     <thead><tr>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
+     <!-- Meja dipindah ke kolom PALING KIRI: di lapangan, yang pertama dicari
+          host adalah nomor mejanya, bukan jamnya. "Sisa Kursi" ditaruh tepat
+          setelah Pax supaya dua angka yang saling berhubungan bisa dibaca
+          sekali lihat. -->
+     <thead><tr><th>Meja</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${list.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
         const late = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)<nowMin;
         const near = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)-nowMin<=30 && toMin(r.time)>=nowMin;
         const rowStyle = late?'background:#FCEFB8':near?'background:#FBF6E6':'';
+        const sisaKursi = sisaKursiRes(r);
         return `<tr style="${rowStyle};cursor:pointer" onclick="openDetail('${r.id}')">
+          <td><b>${r.table?esc(r.table):'<span class="muted" style="font-weight:400">-</span>'}</b></td>
           ${recapMultiDay()?`<td><b>${fmtDateShort(r.date)}</b></td>`:""}
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
@@ -4772,7 +4853,11 @@ function renderHariH(){
               ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
               :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
           <td>${paxCell(r)}</td>
-          <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+          <td>${sisaKursi===null
+                ? '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah">-</span>'
+                : sisaKursi>0
+                  ? `<span class="badge-status st-pending" style="font-size:11px" title="Kursi yang masih bisa diisi tamu di meja ini">+${sisaKursi} kursi</span>`
+                  : '<span class="muted" title="Kapasitas meja sudah terpakai semua">penuh</span>'}</td>
           <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
