@@ -44,6 +44,15 @@ jobs:
       # baru mendarat di kesempatan ketiga. Putusnya selalu di tengah transfer,
       # bukan kredensial atau path salah — yang begitu memang tidak sembuh
       # dengan diulang, tapi koneksi putus jelas sembuh.
+      # JEDA sebelum mencoba lagi. Percobaan beruntun tanpa jeda tidak menolong
+      # untuk kegagalan "AggregateError: (control socket)" — itu artinya server
+      # menolak/memutus koneksi, dan menembaknya lagi dalam hitungan detik
+      # menabrak dinding yang sama. Kejadian 22 Juli 2026: tiga percobaan gagal
+      # berturut-turut dalam 1m39s total.
+      - name: Jeda sebelum percobaan 2
+        if: steps.ftp1.outcome == 'failure'
+        run: sleep 45
+
       - name: Deploy via FTP (percobaan 2)
         id: ftp2
         continue-on-error: true
@@ -56,6 +65,12 @@ jobs:
           local-dir: ./deploy/
           server-dir: /
           timeout: 300000
+
+      # Jeda kedua dibuat lebih panjang: kalau 45 detik belum cukup, masalahnya
+      # bukan sekadar sesaat.
+      - name: Jeda sebelum percobaan 3
+        if: steps.ftp1.outcome == 'failure' && steps.ftp2.outcome == 'failure'
+        run: sleep 120
 
       - name: Deploy via FTP (percobaan 3)
         if: steps.ftp1.outcome == 'failure' && steps.ftp2.outcome == 'failure'
