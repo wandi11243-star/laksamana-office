@@ -80,6 +80,7 @@ try {
     case 'listModuleMembers': keluar(aksi_list_module_members($body));
     case 'listModuleRoster':  keluar(aksi_list_module_roster($body));
     case 'import':            keluar(aksi_import($body));
+    case 'sessionRefresh':    keluar(aksi_segarkan_sesi($body));
 
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
