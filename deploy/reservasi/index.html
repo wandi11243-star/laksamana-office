@@ -1460,6 +1460,61 @@ function tableObj(tableId){
   }
   return null;
 }
+/* ===================== LANTAI =====================
+   Lantai TIDAK disimpan di data meja maupun reservasi. Ia DITURUNKAN dari
+   layout tempat meja itu berada: denah "Weekday" & "Weekend" adalah Lantai 1,
+   denah "Lantai 2" adalah Lantai 2.
+
+   Sengaja tidak memakai daftar nomor meja (mis. "61-69 = lantai 2"): daftar
+   seperti itu langsung basi begitu ada meja baru ditambahkan lewat Editor
+   Denah, dan tidak ada yang mengingatkan. Dengan menurunkannya dari layout,
+   meja baru otomatis ikut lantai denah tempat ia digambar. */
+const LAYOUT_LANTAI = { weekday:1, weekend:1, lantai2:2 };
+function lantaiLayout(key){
+  if(LAYOUT_LANTAI[key] != null) return LAYOUT_LANTAI[key];
+  // Layout buatan sendiri (template baru): tebak dari namanya — "Lantai 2",
+  // "Lt 2", "Floor 2". Tidak disebut = dianggap Lantai 1, karena itu yang
+  // paling mungkin dan tidak menyembunyikan meja dari filter mana pun.
+  const n = String(layoutName(key) || key).toLowerCase();
+  const m = n.match(/(?:lantai|lt\.?|floor)\s*(\d+)/);
+  return m ? Number(m[1]) : 1;
+}
+
+/* Peta id meja -> nomor lantai. Nilai 0 = meja itu muncul di DUA lantai
+   berbeda, jadi lantainya tak bisa dipastikan; lebih baik mengaku tidak tahu
+   daripada menebak salah satu. (Weekday & Weekend memang berbagi banyak meja,
+   tapi keduanya Lantai 1, jadi tidak bentrok.) */
+let _lantaiCache = null;
+function resetLantaiCache(){ _lantaiCache = null; }
+function lantaiMap(){
+  if(_lantaiCache) return _lantaiCache;
+  const m = new Map();
+  allLayoutKeys().forEach(k=>{
+    const f = lantaiLayout(k);
+    ((getLayout(k) || {}).tables || []).forEach(t=>{
+      const id = String(t.id);
+      if(!m.has(id)) m.set(id, f);
+      else if(m.get(id) !== f) m.set(id, 0);
+    });
+  });
+  _lantaiCache = m;
+  return m;
+}
+// Nomor lantai yang benar-benar dipakai denah, untuk mengisi pilihan filter.
+function lantaiTersedia(){
+  return [...new Set([...lantaiMap().values()].filter(Boolean))].sort((a,b)=>a-b);
+}
+/* Lantai sebuah reservasi. Array, karena satu reservasi boleh memakai beberapa
+   meja dan (secara teori) meja itu bisa beda lantai. null = tak diketahui:
+   belum ada meja, atau mejanya tidak ada di denah mana pun. */
+function lantaiRes(r){
+  const ids = tablesOf(r);
+  if(!ids.length) return null;
+  const m = lantaiMap(), set = new Set();
+  ids.forEach(id=>{ const f = m.get(id); if(f) set.add(f); });   // 0 & undefined dibuang
+  return set.size ? [...set].sort((a,b)=>a-b) : null;
+}
+
 /* Apakah reservasi ini MASIH menempati mejanya? Cerminan persis dari aturan
    lewat-lewatan di occupiedMap(): tamu yang sudah pulang (leftAt) atau yang
    batal / no-show / selesai TIDAK lagi memegang meja. */
@@ -3811,10 +3866,12 @@ let RECAP_FROM="", RECAP_TO="", RECAP_TF="", RECAP_TT="", RECAP_STATUS="";
 // "" = semua | "ada" = mejanya masih punya sisa kursi | "penuh" = kursi habis.
 // Dipakai host untuk cepat menemukan meja yang masih bisa disisipi tamu lain.
 let RECAP_KURSI="";
+// "" = semua lantai, selain itu nomor lantai sebagai string ("1", "2").
+let RECAP_LANTAI="";
 function recapFrom(){ return RECAP_FROM || HARIH_DATE; }
 function recapTo(){ return RECAP_TO || RECAP_FROM || HARIH_DATE; }
 function recapMultiDay(){ return recapFrom() !== recapTo(); }
-function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=RECAP_KURSI=""; renderHariH(); }
+function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=RECAP_KURSI=RECAP_LANTAI=""; renderHariH(); }
 /* Penjaga: selama filter jam/status aktif, denah tidak menampilkan semua reservasi, jadi
    INPUT dari denah dilarang. Kembalikan true bila aksi harus dibatalkan. */
 function tolakKarenaFilter(){
@@ -3862,6 +3919,14 @@ function recapList(){
     if(tf!=null && toMin(r.time)<tf) return false;
     if(tt!=null && toMin(r.time)>tt) return false;
     if(q && !((r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) || tablesOf(r).some(t=>t.toLowerCase().includes(q)))) return false;
+    // Lantai lebih murah daripada sisa kursi (cuma menengok peta id->lantai),
+    // jadi disaring lebih dulu. Baris tanpa lantai yang jelas tidak pernah
+    // lolos: memaksanya masuk ke salah satu lantai berarti menampilkannya di
+    // tempat yang belum tentu benar.
+    if(RECAP_LANTAI){
+      const lt = lantaiRes(r);
+      if(!lt || !lt.includes(Number(RECAP_LANTAI))) return false;
+    }
     // Saringan sisa kursi ditaruh PALING AKHIR: ia yang paling mahal (menghitung
     // hunian per tanggal), jadi biarkan saringan murah membuang barisnya dulu.
     // Baris tanpa meja (sisa = null) tidak pernah lolos kedua pilihan — memang
@@ -4734,6 +4799,10 @@ function renderHariH(){
   // server, tamu pulang) — menyimpannya lebih lama berarti kolom sisa kursi
   // menampilkan keadaan yang sudah lewat.
   resetOccCache();
+  // Peta lantai diturunkan dari layout, dan layout bisa berubah (Editor Denah,
+  // atau data master yang baru tersinkron dari server). Dibuang tiap render
+  // dengan alasan yang sama seperti cache hunian.
+  resetLantaiCache();
   const canEdit=CAN.input(SESSION.role);
   const inList = HARIH_VIEW==='list';
   // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
@@ -4820,6 +4889,15 @@ function renderHariH(){
      <!-- Hanya relevan di tab Daftar: Denah sudah menunjukkan sisa kursi tiap
           meja secara visual, jadi menampilkan saringan ini di sana cuma
           menambah kontrol yang tidak mengubah apa pun. -->
+     <!-- Lantai & Sisa Kursi hanya di tab Daftar. Keduanya menyaring lewat
+          recapList(), yang tidak dipakai Denah/Waiting List — menampilkannya di
+          sana berarti memberi kontrol yang tidak mengubah apa pun. Denah pun
+          sudah menunjukkan satu lantai sekaligus lewat pilihan layout-nya. -->
+     ${inList?`<div class="field" style="margin:0"><label>Lantai</label>
+       <select onchange="RECAP_LANTAI=this.value; renderHariH()">
+         <option value="">Semua lantai</option>
+         ${lantaiTersedia().map(f=>`<option value="${f}" ${RECAP_LANTAI===String(f)?"selected":""}>Lantai ${f}</option>`).join("")}
+       </select></div>`:""}
      ${inList?`<div class="field" style="margin:0"><label>Sisa Kursi</label>
        <select onchange="RECAP_KURSI=this.value; renderHariH()">
          <option value="">Semua meja</option>
@@ -4832,7 +4910,7 @@ function renderHariH(){
        <span class="pill ${recapIsDay(2)?'on':''}" style="cursor:pointer" onclick="recapSetDay(2)">Lusa</span>
        <span class="pill" style="cursor:pointer" onclick="recapSet7()">7 Hari</span>
        <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
-       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
+       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI||RECAP_LANTAI)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
      </div>
      ${inList
        ? ((recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:"")
@@ -4845,14 +4923,14 @@ function renderHariH(){
      ${recapMultiDay()?`<div class="inline-info" style="margin-top:8px"><div>Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>.</div></div>`:""}
    </div>`:""}
    </div>
-   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI)?" dengan filter ini":""}.</div></div>`:`
+   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI||RECAP_LANTAI)?" dengan filter ini":""}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
    <div class="table-wrap"><table>
      <!-- Meja dipindah ke kolom PALING KIRI: di lapangan, yang pertama dicari
           host adalah nomor mejanya, bukan jamnya. "Sisa Kursi" ditaruh tepat
           setelah Pax supaya dua angka yang saling berhubungan bisa dibaca
           sekali lihat. -->
-     <thead><tr><th>Meja</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
+     <thead><tr><th>Meja</th><th>Lantai</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${list.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
@@ -4860,8 +4938,12 @@ function renderHariH(){
         const near = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)-nowMin<=30 && toMin(r.time)>=nowMin;
         const rowStyle = late?'background:#FCEFB8':near?'background:#FBF6E6':'';
         const sisaKursi = sisaKursiRes(r);
+        const lantai = lantaiRes(r);
         return `<tr style="${rowStyle};cursor:pointer" onclick="openDetail('${r.id}')">
           <td><b>${r.table?esc(r.table):'<span class="muted" style="font-weight:400">-</span>'}</b></td>
+          <td>${lantai
+                ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
+                : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
           ${recapMultiDay()?`<td><b>${fmtDateShort(r.date)}</b></td>`:""}
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
