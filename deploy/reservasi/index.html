@@ -7200,11 +7200,40 @@ function openFeedbackForm(resId, fbId){
      </div>
      <div id="fb_items">${fbItemsHtml()}</div>
      <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Catatan</button></div>
+
+     <!-- STATUS PENANGANAN, langsung di form input.
+          Dulu status hanya bisa diubah SETELAH tersimpan, lewat tombol di baris
+          tabel. Padahal keluhan sering sudah selesai di tempat ("langsung
+          diganti minumannya") — host terpaksa menyimpan sebagai "Baru" lalu
+          mencarinya lagi di tabel untuk menandai Selesai, dan langkah kedua itu
+          gampang terlupakan. Akibatnya daftar evaluasi penuh kasus yang
+          sebenarnya sudah beres. -->
+     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+       <div class="form-grid">
+         <div class="field full"><label>Status Penanganan</label>
+           <select id="fb_status" onchange="fbToggleAksi()">
+             <option value="baru"    ${(fb?.status||"baru")==="baru"?"selected":""}>🆕 Baru — belum ditangani</option>
+             <option value="proses"  ${fb?.status==="proses"?"selected":""}>🔧 Diproses — sedang ditangani</option>
+             <option value="selesai" ${fb?.status==="selesai"?"selected":""}>✅ Selesai — sudah ditindaklanjuti</option>
+           </select></div>
+         <div class="field full ${(fb?.status||"baru")==="baru"?"hidden":""}" id="fb_aksi_wrap">
+           <label>Tindakan yang Dilakukan</label>
+           <input id="fb_action" value="${esc(fb?.actionNote||"")}"
+                  placeholder="mis. sudah minta maaf & ganti minumannya">
+           <div class="hint">Diisi supaya evaluasi nanti tahu apa yang sudah dikerjakan, bukan cuma bahwa kasusnya ditutup.</div>
+         </div>
+       </div>
+     </div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
      <button class="btn btn-primary" onclick="saveFeedback('${fb?fb.id:""}','${resId||""}')">💾 Simpan Feedback</button>
    </div>`, true);
+}
+// Kolom tindakan hanya berguna kalau kasusnya memang sedang/sudah ditangani.
+function fbToggleAksi(){
+  const s=byId("fb_status")?.value||"baru";
+  byId("fb_aksi_wrap")?.classList.toggle("hidden", s==="baru");
 }
 function saveFeedback(fbId, resId){
   fbSyncItems();
@@ -7224,16 +7253,31 @@ function saveFeedback(fbId, resId){
         handledBy:"", handledAt:0, actionNote:""};
     feedbacks().push(fb);
   }
+  // Status & tindakan dari form. Kalau status naik dari "baru", pencatatnya
+  // dianggap yang menangani — sama seperti yang dilakukan tombol di baris tabel,
+  // supaya dua jalur ini menghasilkan data yang bentuknya sama.
+  const statusBaru=(byId("fb_status")?.value)||"baru";
+  const aksi=(byId("fb_action")?.value||"").trim();
+  const berubah = statusBaru!==(fb.status||"baru");
+
   Object.assign(fb, {
     name, phone:normPhone(byId("fb_phone").value||""),
     date:byId("fb_date").value||todayStr(),
     tone:(byId("fb_tone")?.value==="positif")?"positif":"negatif",
     items,
+    status: statusBaru,
+    // "baru" berarti belum ditangani — catatan tindakan dikosongkan supaya
+    // tidak ada baris berstatus Baru yang anehnya sudah punya keterangan
+    // tindakan dari penyuntingan sebelumnya.
+    actionNote: statusBaru==="baru" ? "" : aksi,
     proofData: proof?proof.data:(fb.proofData||""),
     proofName: proof?proof.name:(fb.proofName||""),
   });
+  if(statusBaru==="baru"){ fb.handledBy=""; fb.handledAt=0; }
+  else if(berubah || !fb.handledBy){ fb.handledBy=SESSION.name; fb.handledAt=Date.now(); }
+
   PENDING_FILES={};
-  logAudit("Feedback", `${fbId?"Feedback diperbarui":"Feedback baru"} dari ${name}: ${items.map(it=>fbCatLabel(it)).join(", ")}`);
+  logAudit("Feedback", `${fbId?"Feedback diperbarui":"Feedback baru"} dari ${name}: ${items.map(it=>fbCatLabel(it)).join(", ")} [${(FB_STATUS[statusBaru]||FB_STATUS.baru).label}]`);
   saveState(); closeModal();
   toast("Feedback tersimpan ✓","ok");
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -7581,24 +7625,26 @@ function reviewGoogleView(){
      <div class="panel-head"><h3>🏆 Perolehan per Orang</h3>
        <span class="muted" style="font-size:12.5px">${esc(reviewRangeLabel())}</span></div>
      <div class="panel-body">
-       <div class="table-wrap"><table>
-         <thead><tr><th>Nama</th><th>Diminta</th><th>Jadi Review</th><th>Konversi</th><th style="width:34%">Perbandingan</th></tr></thead>
-         <tbody>${orangArr.map(o=>{
-           const konv=o.diminta?Math.round(o.jadi/o.diminta*100):0;
-           return `<tr>
-             <td><div class="name">${esc(o.nama)}</div></td>
-             <td><b>${o.diminta}</b></td>
-             <td><b>${o.jadi}</b></td>
-             <td>${o.diminta?`${konv}%`:'<span class="muted">-</span>'}</td>
-             <td>
-               <div class="bar-track" title="Diminta: ${o.diminta}"><div class="bar-fill" style="width:${Math.round(o.diminta/orangMax*100)}%"></div></div>
-               <div class="bar-track" style="margin-top:4px" title="Jadi review: ${o.jadi}"><div class="bar-fill green" style="width:${Math.round(o.jadi/orangMax*100)}%"></div></div>
-             </td>
-           </tr>`;
-         }).join("")}</tbody></table></div>
-       <div class="muted" style="font-size:11.5px;margin-top:10px">
-         Batang atas = jumlah <b>diminta</b>, batang bawah (hijau) = yang <b>jadi review terverifikasi</b>.
-         Angka "diminta" memakai pencatat ajakan; untuk catatan lama yang belum menyimpannya, dipakai pencatat pertama.
+       <!-- SATU batang, SATU arti: sepanjang apa review yang dihasilkan orang
+            ini dibanding yang terbanyak. Versi sebelumnya menumpuk dua batang
+            (diminta & jadi) tanpa penanda di sebelahnya, jadi tidak ada yang
+            tahu batang mana berarti apa. Angka "diminta" dan konversinya tetap
+            ada, tapi sebagai ANGKA — bukan gambar yang harus ditebak. -->
+       ${orangArr.map(o=>{
+         const konv=o.diminta?Math.round(o.jadi/o.diminta*100):0;
+         return `<div class="bar-item">
+           <div class="bl">
+             <span>${esc(o.nama)}</span>
+             <b>${o.jadi} review</b>
+           </div>
+           <div class="bar-track"><div class="bar-fill green" style="width:${Math.round(o.jadi/orangMax*100)}%"></div></div>
+           <div class="muted" style="font-size:11.5px;margin-top:4px">
+             dari <b>${o.diminta}</b> ajakan yang dia kirim${o.diminta?` · berhasil ${konv}%`:""}
+           </div>
+         </div>`;
+       }).join("")}
+       <div class="muted" style="font-size:11.5px;margin-top:14px;padding-top:10px;border-top:1px solid var(--line)">
+         Panjang batang = jumlah review terverifikasi yang dihasilkan orang itu.
        </div>
      </div>
    </div>`:""}
