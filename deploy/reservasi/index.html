@@ -3675,7 +3675,9 @@ function sendWA(type, detail, txt){
 }
 
 /* ================= DASHBOARD ================= */
-let DASH_FILTER = { mode:"month", date:todayStr(), month:todayStr().slice(0,7), year:new Date().getFullYear(), from:"", to:"", fromHour:"", toHour:"", status:"", dp:"", pic:"", ctype:"", category:"", q:"" };
+// `lantai`: "" = semua, selain itu nomor lantai sebagai string ("1", "2").
+// Diturunkan dari layout meja, sama seperti di Recap — lihat lantaiRes().
+let DASH_FILTER = { mode:"month", date:todayStr(), month:todayStr().slice(0,7), year:new Date().getFullYear(), from:"", to:"", fromHour:"", toHour:"", status:"", dp:"", pic:"", ctype:"", category:"", q:"", lantai:"" };
 let DASH_VIEW = "table"; // table | calendar
 let CAL_MONTH = new Date();
 let CAL_STATUS = ""; // filter status di kalender (kosong = semua)
@@ -3695,10 +3697,24 @@ function applyFilter(list){
   if(F.pic) r=r.filter(x=>(x.picType==="Marketing"?x.picName:x.picType)===F.pic);
   if(F.ctype){ r=r.filter(x=>{ const p=customerProfile(x.phone); return F.ctype==="Baru"?p.visits===0:F.ctype==="Loyal"?(p.type==="Loyal"||p.type==="Repeat"):F.ctype==="Member"?p.isMember:true; }); }
   if(F.q){ const q=F.q.toLowerCase(); r=r.filter(x=>x.name.toLowerCase().includes(q)||x.phone.includes(q)); }
+  // Lantai disaring PALING AKHIR: ia satu-satunya yang perlu menengok peta
+  // meja->lantai, jadi biarkan saringan yang cuma membandingkan field membuang
+  // barisnya lebih dulu. Reservasi tanpa meja (lantai tak diketahui) tidak
+  // pernah lolos — memaksanya masuk ke suatu lantai berarti menampilkannya di
+  // tempat yang belum tentu benar.
+  if(F.lantai){
+    const want=Number(F.lantai);
+    r=r.filter(x=>{ const lt=lantaiRes(x); return !!lt && lt.includes(want); });
+  }
   return r.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 }
 
 function renderDashboard(){
+  // Peta meja->lantai dibuang di awal render, sama seperti di renderHariH():
+  // layout bisa berubah lewat Editor Denah atau data master yang baru
+  // tersinkron. Harus SEBELUM applyFilter(), karena saringan lantai di sana
+  // sudah membaca petanya.
+  resetLantaiCache();
   const F=DASH_FILTER;
   const picNames = [...new Set(STATE.reservations.map(r=>r.picType==="Marketing"?r.picName:r.picType))].filter(Boolean);
   const filtered = applyFilter(STATE.reservations);
@@ -3748,6 +3764,7 @@ function renderDashboard(){
         <div class="field"><label>Jam Sampai</label>${timeSelectHtml('onchange="DASH_FILTER.toHour=this.value;renderDashboard()"', F.toHour, 30)}</div>
         <div class="field"><label>Status</label><select onchange="DASH_FILTER.status=this.value;renderDashboard()"><option value="">Semua</option>${STATUSES.map(s=>`<option ${F.status===s?"selected":""}>${s}</option>`).join("")}</select></div>
         <div class="field"><label>Jenis Reservasi</label><select onchange="DASH_FILTER.category=this.value;renderDashboard()"><option value="">Semua</option>${(STATE.master.categories||[]).map(c=>`<option ${F.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
+        <div class="field"><label>Lantai</label><select onchange="DASH_FILTER.lantai=this.value;renderDashboard()"><option value="">Semua</option>${lantaiTersedia().map(f=>`<option value="${f}" ${F.lantai===String(f)?"selected":""}>Lantai ${f}</option>`).join("")}</select></div>
         <div class="field"><label>DP</label><select onchange="DASH_FILTER.dp=this.value;renderDashboard()"><option value="">Semua</option><option ${F.dp==="Sudah"?"selected":""}>Sudah</option><option ${F.dp==="Belum"?"selected":""}>Belum</option></select></div>
         <div class="field"><label>PIC</label><select onchange="DASH_FILTER.pic=this.value;renderDashboard()"><option value="">Semua</option>${picNames.map(p=>`<option ${F.pic===p?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
         <div class="field"><label>Tipe Tamu</label><select onchange="DASH_FILTER.ctype=this.value;renderDashboard()"><option value="">Semua</option><option ${F.ctype==="Baru"?"selected":""}>Baru</option><option ${F.ctype==="Loyal"?"selected":""}>Loyal/Repeat</option><option ${F.ctype==="Member"?"selected":""}>Member</option></select></div>
@@ -3765,14 +3782,23 @@ function dashTable(list){
   return `<div class="panel"><div class="panel-head"><h3>Daftar Reservasi <span class="count-tag">${list.length}</span></h3>
     <button class="btn btn-sm btn-ghost" onclick="exportCSV(${JSON.stringify(list.map(r=>r.id)).replace(/"/g,'&quot;')})">⬇️ Export CSV</button></div>
    <div class="table-wrap"><table>
-    <thead><tr><th>Tamu</th><th>Tanggal</th><th>Jam</th><th>Pax</th><th>Meja</th><th>DP</th><th>PIC</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Tamu</th><th>Tanggal</th><th>Jam</th><th>Pax</th><th>Meja</th><th>Lantai</th><th>DP</th><th>PIC</th><th>Status</th><th></th></tr></thead>
     <tbody>${list.map(r=>{ const p=customerProfile(r.phone);
+      const lantai=lantaiRes(r);
       return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer">
        <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}</td>
        <td>${fmtDateShort(r.date)}</td>
        <td>${r.time}</td>
        <td>${paxCell(r)}</td>
        <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+       <!-- Lantai ditaruh tepat setelah Meja: ia keterangan dari meja itu,
+            bukan data berdiri sendiri. Urutan kolom lain sengaja tidak diubah —
+            di sini Meja memang bukan yang paling kiri seperti di Recap, karena
+            Dashboard adalah daftar data lintas periode, bukan panduan kerja
+            lapangan yang dibaca per meja. -->
+       <td>${lantai
+             ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
+             : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
        <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
        <td class="muted">${r.picType==="Marketing"?esc(r.picName):"Host/Capt"}</td>
        <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
@@ -3849,8 +3875,12 @@ function calDragEnd(e){
 
 function exportCSV(ids){
   const list = STATE.reservations.filter(r=>ids.includes(r.id));
-  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
-  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picType==="Marketing"?r.picName:r.picType),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
+  // Lantai ikut diekspor, tepat setelah Meja: tanpa itu, rekap yang disaring
+  // per lantai di layar kehilangan keterangan lantainya begitu dibuka di Excel.
+  // Kosong = mejanya belum dipilih / tidak ada di denah mana pun.
+  resetLantaiCache();
+  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Lantai","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
+  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picType==="Marketing"?r.picName:r.picType),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
   const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`reservasi_laksamana_${todayStr()}.csv`; a.click();
