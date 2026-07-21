@@ -2745,11 +2745,37 @@
            Diurutkan sama pula supaya keduanya terbaca serupa. */
         const SATUAN_TERSEDIA = ["Kg","Gram","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol"];
 
+        /* Apakah SERVER sudah mengenal field `satuan`?
+           Backend versi baru SELALU mengembalikan kunci `satuan` untuk tiap
+           produk (walau isinya array kosong); versi lama tidak pernah. Jadi
+           kalau sudah ada produk tapi tak satu pun punya kunci itu, artinya
+           stock-mysql di server belum diperbarui.
+
+           Ini penting: tanpa pemeriksaan ini, purchasing tetap menampilkan
+           centang satuan dan melaporkan "Berhasil Disinkronkan" padahal
+           satuannya dibuang diam-diam oleh backend lama — staf bisa mengatur
+           ratusan bahan yang hilang semua tanpa ada tanda apa pun. */
+        function serverDukungSatuan() {
+            const p = appState.products || {};
+            const keys = Object.keys(p);
+            if (!keys.length) return true;      // belum ada produk: jangan menuduh
+            return keys.some(k => p[k] && typeof p[k] === 'object' && 'satuan' in p[k]);
+        }
+
         // Gambar centang satuan. `terpilih` = daftar satuan yang sudah tersimpan
         // untuk bahan itu; kosong berarti belum diatur (semua satuan boleh).
         function renderUnitCheckboxes(terpilih) {
             const container = document.getElementById('prod-units-container');
             if (!container) return;
+            if (!serverDukungSatuan()) {
+                container.className = "border border-amber-200 rounded-xl p-3 bg-amber-50";
+                container.innerHTML = `<div class="text-[11px] font-bold text-amber-800 leading-relaxed">
+                    ⚠️ Server belum mendukung pengaturan satuan.<br>
+                    <span class="font-semibold">Unggah ulang <code>stock-mysql/</code> (lib_stock_mysql.php + items.php) ke server dulu.</span>
+                    Kalau dipaksa disimpan sekarang, satuannya tidak akan tersimpan.</div>`;
+                return;
+            }
+            container.className = "grid grid-cols-3 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50";
             const dipakai = new Set((terpilih || []).map(s => String(s).trim()));
             container.innerHTML = SATUAN_TERSEDIA.map(u => `
                 <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded bg-white border border-slate-100">
