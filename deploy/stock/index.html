@@ -110,7 +110,8 @@
                 var s = JSON.parse(localStorage.getItem('lm_session'));
                 if (!s || !s.expiry || Date.now() > s.expiry) return null;
                 var m = s.modules || [];
-                if (!(m.indexOf('*') > -1 || m.indexOf('ordering') > -1 || m.indexOf('purchasing') > -1)) return null;
+                if (!(m.indexOf('*') > -1 || m.indexOf('ordering') > -1
+                   || m.indexOf('purchasing') > -1 || m.indexOf('tree') > -1)) return null;
                 return s;
             } catch (e) { return null; }
         }
@@ -120,13 +121,20 @@
         var m = s.modules || [], semua = m.indexOf('*') > -1, panel = [];
         if (semua || m.indexOf('ordering') > -1)   panel.push('ordering');
         if (semua || m.indexOf('purchasing') > -1) panel.push('purchasing');
+        // Pohon Resep ikut dihitung sebagai tujuan: sejak jadi modul berizin
+        // sendiri, ada kru yang HANYA punya 'tree' dan tidak satu panel pun.
+        if (semua || m.indexOf('tree') > -1)       panel.push('tree');
 
         if (panel.length === 0) { window.location.replace('../'); return; }
-        // CATATAN: dulu satu panel = langsung dialihkan, karena pemilih berisi
-        // satu tombol memang tak ada gunanya. Sejak ada Pohon Resep, halaman ini
-        // selalu punya minimal dua tujuan, jadi pengalihan otomatis justru
-        // menyembunyikan Pohon Resep dari mayoritas kru (yang cuma punya satu
-        // panel). Pemilih karena itu selalu ditampilkan.
+        // Satu tujuan = pemilih berisi satu tombol, tak ada gunanya: langsung
+        // antar ke sana. Dulu aturan ini dimatikan karena Pohon Resep membuat
+        // semua orang punya minimal dua tujuan; sekarang Pohon Resep berizin
+        // sendiri, jadi mayoritas kru kembali bertujuan tunggal.
+        if (panel.length === 1) {
+            window.location.replace(panel[0] === 'tree' ? './tree/'
+                                  : panel[0] === 'purchasing' ? './purchasing/' : './ordering/');
+            return;
+        }
         document.documentElement.className += ' tampilkan-pemilih';
     })();
     </script>
@@ -200,7 +208,7 @@ function officeSession() {
         const s = JSON.parse(localStorage.getItem('lm_session'));
         if (!s || !s.expiry || Date.now() > s.expiry) return null;
         const m = s.modules || [];
-        if (!(m.includes('*') || m.includes('ordering') || m.includes('purchasing'))) return null;
+        if (!(m.includes('*') || m.includes('ordering') || m.includes('purchasing') || m.includes('tree'))) return null;
         return s;
     } catch (e) { return null; }
 }
@@ -212,9 +220,11 @@ function allowedPanels(s) {
     const list = [];
     if (all || m.includes('ordering')) list.push('ordering');
     if (all || m.includes('purchasing')) list.push('purchasing');
-    // Pohon Resep bukan panel berizin sendiri: siapa pun yang boleh masuk modul
-    // stock boleh membacanya (isinya resep, tidak ada tombol yang mengubah data).
-    if (list.length) list.push('tree');
+    /* Pohon Resep kini modul berizin SENDIRI ('tree'), diberikan di Kelola Akses
+       Office seperti panel lain. Dulu ia menempel pada siapa pun yang berhak atas
+       stock, jadi tidak bisa diatur per orang dan tidak pernah muncul sebagai
+       pilihan di Kelola Akses. */
+    if (all || m.includes('tree')) list.push('tree');
     return list;
 }
 

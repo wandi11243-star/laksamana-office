@@ -387,7 +387,7 @@ async function autoSyncOfficeRoster(){
     const appRole = m.isModuleAdmin ? 'hr' : 'staff';
     // Pakai pencocokan yang sama dengan login (id -> nama persis -> nama depan unik)
     // supaya tidak bikin duplikat dengan record yang sudah ada.
-    let u = findEmployeeForSession({userId:m.id, name:m.name});
+    let u = findEmployeeForSession({userId:m.id, name:m.name, talentaId:m.talentaId});
     if(u){
       if(u.id !== m.id){ reassignEmployeeId(u.id, m.id); changed = true; }  // klaim id Office, pindahkan riwayat
       if(m.name && u.name !== m.name){ u.name = m.name; changed = true; }
@@ -406,6 +406,7 @@ async function autoSyncOfficeRoster(){
       changed = true;
     }
   });
+  if(gabungKembarTalenta()) changed = true;
   if(changed){ log('ROSTER_SYNC','dari Office'); save(); if(CU) buildNav(); }
 }
 
@@ -726,6 +727,18 @@ function findEmployeeForSession(s){
   const byId = S.employees.find(x => x.id === s.userId);
   if(byId) return byId;
 
+  /* Talenta ID sebelum nama: itu kunci yang pasti, nama tidak.
+     Tanpa ini, dua kru yang nama depannya sama (mis. "Indah Putri Wardani"
+     dan "Indah Sihombing") sama-sama gagal di pencocokan longgar di bawah,
+     lalu DIBUATKAN record baru — padahal recordnya sudah ada. Akibatnya
+     kru itu punya dua record: satu dengan Talenta ID, satu tanpa, dan
+     halaman Kehadiran melaporkannya "belum punya Talenta ID". */
+  const tid = String(s.talentaId||'');
+  if(tid){
+    const byTid = S.employees.filter(x => String(x.talentaId||'') === tid);
+    if(byTid.length === 1) return byTid[0];
+  }
+
   const target = normName(s.name);
   const exact = S.employees.filter(x => normName(x.name) === target);
   if(exact.length === 1) return exact[0];
@@ -755,6 +768,49 @@ function reassignEmployeeId(oldId, newId){
     S.monthlyInputs[newId] = S.monthlyInputs[oldId]; delete S.monthlyInputs[oldId];
   }
 }
+/* Bereskan record kembar yang terlanjur dibuat sebelum pencocokan lewat
+   Talenta ID ada. Gejalanya: satu orang punya DUA record — satu ber-Talenta ID
+   (dari sinkron Office) dan satu tanpa (sisa pencocokan nama yang gagal karena
+   nama depannya kembar, mis. dua "Indah").
+
+   Yang MENANG adalah record yang id-nya sama dengan id Office, karena itu yang
+   dirujuk sesi login dan grant modul. Riwayat dari record yang kalah dipindahkan
+   lewat reassignEmployeeId, jadi tidak ada yang hilang.
+
+   Hanya menggabungkan yang Talenta ID-nya SAMA PERSIS dan tidak kosong.
+   Record tanpa Talenta ID tidak pernah disentuh: "belum dipetakan" bukan
+   identitas, dan menggabungkan atas dasar itu akan menyatukan orang berbeda. */
+function gabungKembarTalenta(){
+  const perTid = {};
+  S.employees.forEach(e => {
+    const t = String(e.talentaId||'').trim();
+    if(t) (perTid[t] = perTid[t] || []).push(e);
+  });
+  let berubah = false;
+  Object.values(perTid).forEach(grup => {
+    if(grup.length < 2) return;
+    // Pemenang: yang punya riwayat paling banyak. Kalau seri, yang pertama.
+    const skor = e => (S.reviews||[]).filter(r=>r.empId===e.id).length +
+                      (S.trainingRecords||[]).filter(r=>r.empId===e.id).length +
+                      (S.violations||[]).filter(r=>r.empId===e.id).length +
+                      ((S.monthlyInputs||{})[e.id] ? 5 : 0);
+    const menang = grup.slice().sort((a,b)=>skor(b)-skor(a))[0];
+    grup.forEach(e => {
+      if(e === menang) return;
+      reassignEmployeeId(e.id, menang.id);
+      berubah = true;
+    });
+    // reassignEmployeeId menyamakan id-nya; sisakan satu record saja.
+    const lihat = new Set();
+    S.employees = S.employees.filter(e => {
+      if(e.id !== menang.id) return true;
+      if(lihat.has(e.id)) return false;
+      lihat.add(e.id); return true;
+    });
+  });
+  return berubah;
+}
+
 function resolveOfficeUser(s){
   let u = findEmployeeForSession(s);
   if(u){
