@@ -119,7 +119,36 @@ h1,h2,h3,h4{font-family:var(--ff-display)}
 .btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
 .tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tabs button:hover{color:var(--txt)}
-.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+/* Kartu angka: gradasi tipis + garis emas di atas, supaya deretan angka
+   tidak terbaca sebagai kotak-kotak datar yang sama semua. */
+.stat{position:relative;background:linear-gradient(160deg,#fff 0%,var(--panel) 100%);
+  border:1px solid var(--line);border-radius:12px;padding:17px 16px;overflow:hidden;
+  transition:transform .15s,box-shadow .15s}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,var(--accent),var(--accent-soft) 60%,transparent)}
+.stat:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(50,42,28,.09)}
+.stat .val{background:linear-gradient(135deg,var(--accent2),var(--accent-soft));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+/* Panel "Perlu Perhatian" */
+.perhatian{display:grid;gap:9px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.pi{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-radius:10px;
+  text-decoration:none;color:var(--txt);border:1px solid var(--line);
+  background:linear-gradient(135deg,rgba(255,255,255,.9),var(--panel2));transition:.15s}
+.pi:hover{transform:translateX(2px);border-color:var(--accent)}
+.pi b{font-size:13px}
+.pi span{font-size:11.5px;color:var(--muted)}
+.pi-danger{border-left:3px solid var(--red)}
+.pi-warn{border-left:3px solid var(--accent)}
+.pi-ok{border-left:3px solid var(--green)}
+.perhatian-kosong{color:var(--muted);font-size:12.5px;
+  background:linear-gradient(135deg,rgba(31,157,95,.07),transparent)}
+/* Judul halaman & tombol utama diberi gradasi senada */
+.topbar h2{background:linear-gradient(135deg,var(--txt),var(--accent2));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.ecard .cover{background:linear-gradient(135deg,var(--panel2),rgba(169,121,31,.16))}
+.sect{background:linear-gradient(90deg,var(--accent),transparent);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;font-weight:700}
+
 .stat .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
 .stat .val{font-size:24px;font-weight:700;margin-top:6px}
 .stat .sub{font-size:11px;color:var(--muted);margin-top:2px}
@@ -512,7 +541,260 @@ function overlaps(s1,e1,s2,e2){return s1<e2 && s2<e1;}
 // Catatan tema: warna di sini (#fff latar, #0d1117 modul) sengaja TIDAK ikut
 // variabel tema. QR harus selalu gelap-di-atas-putih agar terbaca pemindai —
 // kalau diikutkan palet krem/emas, kontrasnya turun dan scan bisa gagal.
-function qrSvg(token){let h=0;for(let i=0;i<token.length;i++)h=(h*31+token.charCodeAt(i))>>>0;const N=15;let rng=h;const rand=()=>{rng=(rng*1103515245+12345)&0x7fffffff;return rng/0x7fffffff;};let r='<svg class="qr" viewBox="0 0 '+N+' '+N+'" xmlns="http://www.w3.org/2000/svg"><rect width="'+N+'" height="'+N+'" fill="#fff"/>';for(let y=0;y<N;y++)for(let x=0;x<N;x++){const finder=(x<4&&y<4)||(x>N-5&&y<4)||(x<4&&y>N-5);if(finder?((x===0||x===3||y===0||y===3||(x>=1&&x<=2&&y>=1&&y<=2))&&!(x===N)):rand()>0.5){r+='<rect x="'+x+'" y="'+y+'" width="1" height="1" fill="#0d1117"/>';}}r+='</svg>';return r;}
+/* ---------------------------------------------------------------------
+   Pembuat QR Code — mode byte, tingkat koreksi M, versi 1..10.
+   Cukup untuk token tiket dan tautan e-ticket (maksimal 213 karakter).
+
+   Ditulis sendiri karena modul ini satu berkas HTML tanpa pustaka luar,
+   dan token tiket tidak boleh dikirim ke layanan QR pihak ketiga.
+   --------------------------------------------------------------------- */
+
+// Kapasitas byte per versi (tingkat M) dan susunan bloknya:
+// [kodeEC per blok, blokGrup1, dataGrup1, blokGrup2, dataGrup2]
+const QR_M = {
+  1:[10,1,16,0,0],  2:[16,1,28,0,0],  3:[26,1,44,0,0],  4:[18,2,32,0,0],
+  5:[24,2,43,0,0],  6:[16,4,27,0,0],  7:[18,4,31,0,0],  8:[22,2,38,2,39],
+  9:[22,3,36,2,37], 10:[26,4,43,1,44]
+};
+const QR_ALIGN = {
+  1:[], 2:[6,18], 3:[6,22], 4:[6,26], 5:[6,30],
+  6:[6,34], 7:[6,22,38], 8:[6,24,42], 9:[6,26,46], 10:[6,28,50]
+};
+
+/* ---- aritmetika GF(256) untuk Reed-Solomon ---- */
+const GF_EXP = new Uint8Array(512), GF_LOG = new Uint8Array(256);
+(function(){
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    GF_EXP[i] = x; GF_LOG[x] = i;
+    x <<= 1; if (x & 0x100) x ^= 0x11d;          // polinomial 0x11d
+  }
+  for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
+})();
+function gfMul(a, b) { return (a === 0 || b === 0) ? 0 : GF_EXP[GF_LOG[a] + GF_LOG[b]]; }
+
+// Polinomial generator untuk n kodeword koreksi.
+function rsGen(n) {
+  let poly = [1];
+  for (let i = 0; i < n; i++) {
+    const next = new Array(poly.length + 1).fill(0);
+    for (let j = 0; j < poly.length; j++) {
+      next[j]     ^= gfMul(poly[j], GF_EXP[i]);
+      next[j + 1] ^= poly[j];
+    }
+    poly = next;
+  }
+  // Dibalik: rsEncode() memakai urutan derajat MENURUN (gen[0] = suku
+  // tertinggi = 1). Tanpa ini kode koreksinya ngawur — datanya sendiri masih
+  // terbaca, tapi setiap pembaca QR yang memeriksa koreksi akan menolaknya,
+  // jadi galatnya tidak kelihatan sampai dicoba dengan pemindai sungguhan.
+  return poly.reverse();
+}
+function rsEncode(data, n) {
+  const gen = rsGen(n);
+  const res = new Array(n).fill(0);
+  for (const d of data) {
+    const faktor = d ^ res[0];
+    res.shift(); res.push(0);
+    for (let j = 0; j < n; j++) res[j] ^= gfMul(gen[j + 1], faktor);
+  }
+  return res;
+}
+
+/* ---- info format & versi (BCH) ---- */
+function bch(nilai, gen, bit) {
+  let v = nilai << (bit - 1);
+  const panjang = (x) => { let n = 0; while (x) { n++; x >>>= 1; } return n; };
+  while (panjang(v) >= panjang(gen)) v ^= gen << (panjang(v) - panjang(gen));
+  return v;
+}
+// Tingkat M = 00, digabung nomor mask, lalu di-XOR topeng standar.
+function formatBits(mask) {
+  const data = (0b00 << 3) | mask;
+  return ((data << 10) | bch(data, 0b10100110111, 11)) ^ 0b101010000010010;
+}
+function versionBits(v) { return (v << 12) | bch(v, 0b1111100100101, 13); }
+
+/* Letak 15 bit info format, dua salinan. Ditulis SEKALI di sini lalu dipakai
+   bersama oleh pemesanan sel dan penulisannya, supaya keduanya mustahil
+   berbeda — salah satu sumber galat terbesar saat menyusun QR. */
+function formatSel(N){
+  const s=[];
+  for(let i=0;i<=5;i++) s.push([i,8]);          // bit 0..5   turun di kolom 8
+  s.push([7,8]);                                 // bit 6
+  s.push([8,8]);                                 // bit 7
+  s.push([8,7]);                                 // bit 8
+  for(let i=9;i<15;i++) s.push([8,14-i]);        // bit 9..14  ke kiri di baris 8
+  for(let i=0;i<8;i++)  s.push([8,N-1-i]);       // salinan 2: bit 0..7  di baris 8 dari kanan
+  for(let i=8;i<15;i++) s.push([N-15+i,8]);      // salinan 2: bit 8..14 di kolom 8 dari bawah
+  return s;   // indeks 0..14 = bit 0..14, lalu 15..29 = salinan kedua bit 0..14
+}
+
+/* ---- penyusunan matriks ---- */
+function qrMatrix(text) {
+  const bytes = [];
+  for (const ch of unescape(encodeURIComponent(text))) bytes.push(ch.charCodeAt(0));
+
+  // versi terkecil yang muat
+  let ver = 0;
+  for (let v = 1; v <= 10; v++) {
+    const [ec, b1, d1, b2, d2] = QR_M[v];
+    if (bytes.length + 2 <= b1 * d1 + b2 * d2) { ver = v; break; }
+  }
+  if (!ver) throw new Error('Teks terlalu panjang untuk QR versi 10 (maks ~210 karakter)');
+
+  const [ecLen, b1, d1, b2, d2] = QR_M[ver];
+  const totalData = b1 * d1 + b2 * d2;
+
+  // --- rangkaian bit: mode 0100 + panjang + isi + penutup + isian
+  const bits = [];
+  const push = (nilai, n) => { for (let i = n - 1; i >= 0; i--) bits.push((nilai >> i) & 1); };
+  push(0b0100, 4);
+  push(bytes.length, ver <= 9 ? 8 : 16);
+  for (const b of bytes) push(b, 8);
+  for (let i = 0; i < 4 && bits.length < totalData * 8; i++) bits.push(0);
+  while (bits.length % 8) bits.push(0);
+  const kata = [];
+  for (let i = 0; i < bits.length; i += 8)
+    kata.push(bits.slice(i, i + 8).reduce((a, b) => (a << 1) | b, 0));
+  const isian = [0xec, 0x11];
+  for (let i = 0; kata.length < totalData; i++) kata.push(isian[i % 2]);
+
+  // --- bagi per blok, hitung koreksi, lalu susun berselang-seling
+  const blokData = [], blokEc = [];
+  let p = 0;
+  for (let i = 0; i < b1 + b2; i++) {
+    const n = i < b1 ? d1 : d2;
+    const d = kata.slice(p, p + n); p += n;
+    blokData.push(d); blokEc.push(rsEncode(d, ecLen));
+  }
+  const akhir = [];
+  for (let i = 0; i < Math.max(d1, d2); i++)
+    for (const b of blokData) if (i < b.length) akhir.push(b[i]);
+  for (let i = 0; i < ecLen; i++)
+    for (const b of blokEc) akhir.push(b[i]);
+
+  // --- kerangka matriks
+  const N = ver * 4 + 17;
+  const m = Array.from({ length: N }, () => new Array(N).fill(null));   // null = belum diisi
+  const taruh = (r, c, v) => { if (r >= 0 && r < N && c >= 0 && c < N) m[r][c] = v; };
+
+  const finder = (r, c) => {
+    for (let dr = -1; dr <= 7; dr++) for (let dc = -1; dc <= 7; dc++) {
+      const rr = r + dr, cc = c + dc;
+      if (rr < 0 || rr >= N || cc < 0 || cc >= N) continue;
+      const di = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+      const hitam = di && ((dr === 0 || dr === 6 || dc === 0 || dc === 6) ||
+                           (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4));
+      taruh(rr, cc, hitam ? 1 : 0);
+    }
+  };
+  finder(0, 0); finder(0, N - 7); finder(N - 7, 0);
+
+  for (let i = 8; i < N - 8; i++) { const v = i % 2 === 0 ? 1 : 0; taruh(6, i, v); taruh(i, 6, v); }
+
+  for (const r of QR_ALIGN[ver]) for (const c of QR_ALIGN[ver]) {
+    if ((r <= 8 && c <= 8) || (r <= 8 && c >= N - 9) || (r >= N - 9 && c <= 8)) continue;
+    for (let dr = -2; dr <= 2; dr++) for (let dc = -2; dc <= 2; dc++)
+      taruh(r + dr, c + dc, (Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0)) ? 1 : 0);
+  }
+  taruh(N - 8, 8, 1);                                   // modul gelap
+
+  // tempat info format (diisi belakangan) dipesan dulu supaya tidak terpakai data
+  const selFmt = formatSel(N);
+  for (const [r, c] of selFmt) if (m[r][c] === null) m[r][c] = 0;
+
+  if (ver >= 7) {
+    const vb = versionBits(ver);
+    for (let i = 0; i < 18; i++) {
+      const bit = (vb >> i) & 1;
+      taruh(Math.floor(i / 3), N - 11 + (i % 3), bit);
+      taruh(N - 11 + (i % 3), Math.floor(i / 3), bit);
+    }
+  }
+
+  // --- isi data zig-zag dari kanan bawah
+  const kosong = m.map(baris => baris.map(v => v === null));
+  let bitIdx = 0, naik = true;
+  const ambilBit = () => {
+    const byte = akhir[bitIdx >> 3];
+    const b = byte === undefined ? 0 : (byte >> (7 - (bitIdx & 7))) & 1;
+    bitIdx++; return b;
+  };
+  for (let col = N - 1; col > 0; col -= 2) {
+    if (col === 6) col--;                               // lajur timing dilewati
+    for (let i = 0; i < N; i++) {
+      const row = naik ? N - 1 - i : i;
+      for (const c of [col, col - 1]) if (kosong[row][c]) m[row][c] = ambilBit();
+    }
+    naik = !naik;
+  }
+
+  // --- pilih mask dengan denda terkecil
+  const rumus = [
+    (r, c) => (r + c) % 2 === 0,        (r, c) => r % 2 === 0,
+    (r, c) => c % 3 === 0,              (r, c) => (r + c) % 3 === 0,
+    (r, c) => (((r >> 1) + Math.floor(c / 3)) % 2) === 0,
+    (r, c) => ((r * c) % 2 + (r * c) % 3) === 0,
+    (r, c) => (((r * c) % 2 + (r * c) % 3) % 2) === 0,
+    (r, c) => (((r + c) % 2 + (r * c) % 3) % 2) === 0
+  ];
+  let terbaik = null, dendaMin = Infinity;
+  for (let mask = 0; mask < 8; mask++) {
+    const uji = m.map(b => b.slice());
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++)
+      if (kosong[r][c] && rumus[mask](r, c)) uji[r][c] ^= 1;
+    const fb = formatBits(mask);
+    selFmt.forEach(([r, c], i) => { uji[r][c] = (fb >> (i % 15)) & 1; });
+    uji[N - 8][8] = 1;                                   // modul gelap
+    const d = denda(uji, N);
+    if (d < dendaMin) { dendaMin = d; terbaik = uji; }
+  }
+  return terbaik;
+}
+
+// Denda sesuai standar: deret sewarna, blok 2x2, pola mirip finder, timpang hitam-putih.
+function denda(m, N) {
+  let s = 0;
+  for (let r = 0; r < N; r++) for (let arah = 0; arah < 2; arah++) {
+    let run = 1;
+    for (let i = 1; i < N; i++) {
+      const a = arah ? m[i - 1][r] : m[r][i - 1], b = arah ? m[i][r] : m[r][i];
+      if (a === b) { run++; if (run === 5) s += 3; else if (run > 5) s++; }
+      else run = 1;
+    }
+  }
+  for (let r = 0; r < N - 1; r++) for (let c = 0; c < N - 1; c++)
+    if (m[r][c] === m[r][c + 1] && m[r][c] === m[r + 1][c] && m[r][c] === m[r + 1][c + 1]) s += 3;
+  const pola = [1,0,1,1,1,0,1,0,0,0,0], polaR = [0,0,0,0,1,0,1,1,1,0,1];
+  for (let r = 0; r < N; r++) for (let c = 0; c <= N - 11; c++) {
+    let cocok1 = true, cocok2 = true, cocok3 = true, cocok4 = true;
+    for (let i = 0; i < 11; i++) {
+      if (m[r][c + i] !== pola[i])  cocok1 = false;
+      if (m[r][c + i] !== polaR[i]) cocok2 = false;
+      if (m[c + i][r] !== pola[i])  cocok3 = false;
+      if (m[c + i][r] !== polaR[i]) cocok4 = false;
+    }
+    if (cocok1) s += 40; if (cocok2) s += 40; if (cocok3) s += 40; if (cocok4) s += 40;
+  }
+  let hitam = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) hitam += m[r][c];
+  s += Math.floor(Math.abs(hitam * 100 / (N * N) - 50) / 5) * 10;
+  return s;
+}
+
+/* ---- keluaran SVG, siap ditempel ke halaman ---- */
+function qrSvg(text, ukuran) {
+  const m = qrMatrix(text), N = m.length, tepi = 4, total = N + tepi * 2;
+  const px = (ukuran || 200) / total;
+  let kotak = '';
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++)
+    if (m[r][c]) kotak += '<rect x="' + ((c + tepi) * px).toFixed(2) + '" y="' + ((r + tepi) * px).toFixed(2) +
+                          '" width="' + px.toFixed(2) + '" height="' + px.toFixed(2) + '"/>';
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + (ukuran || 200) + '" height="' + (ukuran || 200) +
+         '" viewBox="0 0 ' + (ukuran || 200) + ' ' + (ukuran || 200) + '" shape-rendering="crispEdges">' +
+         '<rect width="100%" height="100%" fill="#fff"/><g fill="#000">' + kotak + '</g></svg>';
+}
 
 /* ============ SEED DATA ============ */
 function seed(){
@@ -656,6 +938,7 @@ function router(){
   // Dijalankan sekali tiap pindah halaman supaya Dashboard & Kalender juga
   // memakai status yang sudah dimutakhirkan, bukan cuma daftar Event.
   if(DB && typeof autoSelesaikanEvent==='function') autoSelesaikanEvent();
+  if(DB && typeof autoSelesaikanJadwal==='function') autoSelesaikanJadwal();
   const parts=location.hash.replace('#/','').split('/');
   const page=parts[0]||'dashboard';const arg=parts[1];
   const routes={dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,events:arg?renderEventDetail:renderEvents,ticketing:arg?renderTicketDetail:renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory};
@@ -672,6 +955,66 @@ function closeModal(){document.getElementById('modalRoot').innerHTML='';}
 function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled:'b-yellow',Done:'b-green',Cancelled:'b-grey',Inactive:'b-grey',Paid:'b-green',Waiting:'b-yellow',Rejected:'b-red',Draft:'b-grey',Upcoming:'b-blue',Today:'b-yellow',Finished:'b-purple',Pending:'b-yellow',Approved:'b-green',Sold:'b-red',Available:'b-green','Checked-In':'b-blue',Valid:'b-green',Expired:'b-grey',Failed:'b-red',Refunded:'b-purple',Free:'b-blue',None:'b-grey'};return '<span class="badge '+(map[s]||'b-grey')+'">'+esc(s)+'</span>';}
 
 /* ============ DASHBOARD ============ */
+/* ==================== OTOMATISASI ====================
+   Hal-hal yang dulu harus diklik satu per satu, padahal jawabannya sudah
+   pasti dari tanggal. Dijalankan tiap pindah halaman. */
+
+/* Jadwal talent yang tanggalnya sudah lewat dinaikkan sendiri jadi Done.
+   Ini bukan kenyamanan semata: rekap Fee & Pembayaran HANYA menghitung
+   jadwal berstatus Done, jadi jadwal yang lupa diklik = talent tidak
+   terbayar. Yang Cancelled tidak disentuh, dan yang masih Scheduled
+   (belum dikonfirmasi) juga tidak — belum tentu jadi tampil. */
+function autoSelesaikanJadwal(){
+  const kmr=dstr(new Date()); let n=0;
+  DB.schedules.forEach(s=>{
+    if(s.status!=='Confirmed') return;
+    if(String(s.date) >= kmr) return;              // hari ini belum lewat
+    s.status='Done'; n++;
+  });
+  if(n){ save(); toast(n+' jadwal talent yang sudah lewat ditandai Done.'); }
+  return n;
+}
+
+/* Hal yang perlu diperhatikan hari ini. Dikumpulkan dari data, bukan
+   diketik manual, supaya tidak ada yang lolos karena lupa dicek. */
+function perhatian(){
+  const out=[]; const hariIni=new Date(); const hari=(d)=>Math.ceil((new Date(d)-hariIni)/86400000);
+
+  DB.events.filter(e=>['Upcoming','Today'].includes(e.status)).forEach(e=>{
+    const sisa=hari(e.start_datetime);
+    if(sisa<=7 && !e.pic)
+      out.push({w:'danger', t:'Event tanpa PIC', d:e.title+' tinggal '+(sisa<=0?'hari ini':sisa+' hari lagi'), go:'#/events/'+e.id});
+    const d=DB.eventDetails[e.id];
+    if(d && sisa<=3){
+      const belum=(d.tasks||[]).filter(x=>!x.done).length;
+      if(belum) out.push({w:'warn', t:belum+' task belum selesai', d:e.title+' — '+(sisa<=0?'hari ini':sisa+' hari lagi'), go:'#/events/'+e.id});
+    }
+  });
+
+  DB.events.filter(e=>e.is_ticketed && ['Upcoming','Today'].includes(e.status)).forEach(e=>{
+    const cls=DB.ticketClasses.filter(c=>c.event_id===e.id);
+    const kuota=cls.reduce((a,c)=>a+c.quota,0), laku=cls.reduce((a,c)=>a+c.sold,0);
+    if(kuota && laku/kuota>=0.9)
+      out.push({w:'ok', t:'Tiket hampir habis', d:e.title+' — '+laku+'/'+kuota+' terjual', go:'#/ticketing/'+e.id});
+  });
+
+  const bulan=new Date().toISOString().slice(0,7);
+  const belumBayar=DB.talentPayments.filter(p=>p.status==='Waiting').length;
+  if(belumBayar) out.push({w:'warn', t:belumBayar+' pembayaran talent menunggu', d:'Belum ditandai lunas', go:'#/fee'});
+
+  const tanpaRek=DB.talents.filter(t=>t.status==='Active' && !t.bank_account).length;
+  if(tanpaRek) out.push({w:'warn', t:tanpaRek+' talent tanpa rekening', d:'Fee tidak bisa ditransfer', go:'#/talents'});
+
+  return out;
+}
+function kartuPerhatian(){
+  const list=perhatian();
+  if(!list.length) return '<div class="card perhatian-kosong">Tidak ada yang perlu ditindak hari ini.</div>';
+  return '<div class="card"><h3 class="sec">Perlu Perhatian</h3><div class="perhatian">'
+    + list.map(x=>'<a class="pi pi-'+x.w+'" href="'+x.go+'">'
+        + '<b>'+esc(x.t)+'</b><span>'+esc(x.d)+'</span></a>').join('')
+    + '</div></div>';
+}
 function renderDashboard(){
   setTop('Dashboard','Ringkasan operasional · '+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'}));
   const todayStr=dstr(new Date());
@@ -693,6 +1036,7 @@ function renderDashboard(){
   const topTid=Object.keys(showByT).sort((a,b)=>showByT[b]-showByT[a])[0];
   const topTalent=DB.talents.find(t=>t.id===topTid);
   C().innerHTML=`
+  ${kartuPerhatian()}
   <div class="grid g4">
     ${stat('Upcoming Events',upcoming,'event akan datang')}
     ${stat('Event Hari Ini',todayEv.length,todayEv.map(e=>e.title).join(', ')||'—')}
@@ -1342,7 +1686,7 @@ function renderTicketDetail(id){
     <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th></tr></thead><tbody>
     ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit)}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} – ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
-    <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">🛒 Simulasi Customer Purchase</button></div>`;}
+    <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;}
   else if(tab==='seatmap'){const seats=DB.seats.filter(s=>s.event_id===id);body=`<div class="card"><h3 class="sec">Seating Layout</h3><div class="stage-bar">S T A G E</div>
     <div class="seatmap">${seats.map(s=>{const ticket=DB.tickets.find(t=>t.seat_id===s.id);const checked=ticket&&ticket.status==='Checked-In';const cls=checked?'checked':s.status==='Sold'?'sold':s.status==='Locked'?'locked':'available';return `<div class="seat ${cls}" title="${s.table_no} (${s.capacity} kursi) - ${s.status}">${s.table_no}</div>`;}).join('')||'<div class="mini">Belum ada layout. Class VIP Table punya seat map.</div>'}</div>
     <div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Available</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Sold</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Locked (hold)</span><span><i class="dotc" style="background:var(--red)"></i>Checked-in</span></div></div>`;}
@@ -1405,7 +1749,7 @@ function saveTicketClass(eid){
 }
 function purchaseFlow(eid){
   const e=DB.events.find(x=>x.id===eid);const classes=DB.ticketClasses.filter(c=>c.event_id===eid);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>🛒 Beli Tiket — ${esc(e.title)}</h3>
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>Catat Penjualan Tiket — ${esc(e.title)}</h3>
   <p class="mini" style="margin-bottom:12px">Alur: pilih tiket → isi data → bayar (gateway) → webhook Paid → generate QR + e-ticket → kirim Email & WA.</p>
   <div class="field"><label>Pilih Tiket</label><select id="pf_class">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
   <div class="grid g2">
@@ -1414,7 +1758,7 @@ function purchaseFlow(eid){
     <div class="field"><label>Email *</label><input id="pf_email"></div>
     <div class="field"><label>Tgl Lahir</label><input id="pf_bd" type="date"></div>
   </div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" onclick="doPurchase('${eid}')">Bayar (simulasi webhook Paid)</button></div>`,true);
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" onclick="doPurchase('${eid}')">Simpan &amp; Tandai Lunas</button></div>`,true);
 }
 function doPurchase(eid){
   const g=x=>document.getElementById(x).value.trim();const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
@@ -1426,7 +1770,7 @@ function doPurchase(eid){
   const oid=uid();DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',subtotal:c.price,fee:5000,total:c.price+5000,payment_status:'Paid',payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
   let seatId=null;if(c.is_seated){const av=DB.seats.find(s=>s.ticket_class_id===cid&&s.status==='Available');if(av){av.status='Sold';seatId=av.id;}}
   const tk={id:uid(),order_item_id:oid,ticket_number:'LM-'+(1000+DB.tickets.length),qr_token:'QR'+uid()+oid,ticket_class_id:cid,seat_id:seatId,pdf_url:'eticket.pdf',status:'Valid'};DB.tickets.push(tk);
-  save();closeModal();toast('✓ Paid! E-ticket + QR terkirim ke Email & WA (< 2 menit).');window._tixTab='buyers';renderTicketDetail(eid);setTimeout(()=>showETicket(tk.id),400);
+  save();closeModal();toast('✓ Tercatat lunas. E-ticket & QR sudah dibuat — kirim ke pembeli lewat tombol WhatsApp.');window._tixTab='buyers';renderTicketDetail(eid);setTimeout(()=>showETicket(tk.id),400);
 }
 function showETicket(tid){
   const tk=DB.tickets.find(x=>x.id===tid);const o=DB.orders.find(x=>x.id===tk.order_item_id);const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);const e=DB.events.find(x=>x.id===o.event_id);const seat=tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;
@@ -1443,10 +1787,70 @@ function showETicket(tid){
       <div class="k">QR Token</div><div class="mini" style="word-break:break-all">${tk.qr_token.slice(0,20)}...</div>
     </div>
   </div>
-  <p class="mini" style="margin-top:14px">Terms: QR single-use. Tunjukkan saat check-in. E-ticket dikirim via Email & WhatsApp otomatis.</p>
-  <div class="modal-actions"><button class="btn ghost" onclick="copyToken('${tk.qr_token}')">Copy QR Token</button><button class="btn" onclick="closeModal()">Tutup</button></div>`,true);
+  <p class="mini" style="margin-top:14px">Terms: QR single-use. Tunjukkan saat check-in.<br><b>Pengiriman otomatis belum aktif</b> — e-ticket ini masih perlu dikirim manual ke pembeli.</p>
+  <div class="modal-actions">
+    <button class="btn ghost" onclick="copyToken('${tk.qr_token}')">Copy QR Token</button>
+    <button class="btn ghost" onclick="unduhQR('${tk.id}')">Unduh QR</button>
+    <button class="btn blue" onclick="kirimWA('${tk.id}')">Kirim via WhatsApp</button>
+    <button class="btn" onclick="closeModal()">Tutup</button>
+  </div>`,true);
 }
 function copyToken(t){navigator.clipboard&&navigator.clipboard.writeText(t);toast('QR token disalin — pakai di menu Check-In.');}
+
+/* ---- Pengiriman e-ticket ke pembeli ----
+   Belum ada pengiriman otomatis dari server, jadi jalurnya WhatsApp: pesannya
+   sudah tersusun lengkap, kasir tinggal menekan kirim. Dipilih begini karena
+   kasir MELIHAT SENDIRI pesannya terkirim — tidak ada kegagalan diam-diam
+   seperti email yang masuk folder spam tanpa ada yang tahu.
+
+   QR-nya diunduh terpisah sebagai gambar lalu dilampirkan, karena tautan
+   wa.me hanya bisa membawa teks. */
+function tiketRingkas(tid){
+  const tk=DB.tickets.find(x=>x.id===tid); if(!tk)return null;
+  const o=DB.orders.find(x=>x.id===tk.order_item_id);
+  const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
+  const e=o?DB.events.find(x=>x.id===o.event_id):null;
+  const seat=tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;
+  return {tk,o,c,e,seat};
+}
+function kirimWA(tid){
+  const r=tiketRingkas(tid); if(!r||!r.o){toast('Data tiket tidak lengkap.');return;}
+  const {tk,o,c,e,seat}=r;
+  const baris=[
+    'Halo '+o.buyer_name+', berikut e-ticket Anda:','',
+    'Nama           : '+o.buyer_name,
+    'Nomor Tiket    : '+tk.ticket_number,
+    'Jam            : '+(e?fmtDateTime(e.start_datetime):'-'),
+    'Kategori Tiket : '+(c?c.name:'-')
+  ];
+  if(seat) baris.push('Seat           : '+seat.table_no);
+  if(e)    baris.push('Venue          : '+esc(e.venue));
+  baris.push('','Tunjukkan QR code (gambar terlampir) saat check-in.',
+             'QR berlaku sekali pakai.','','Laksamana Muda Coffee & Live Space');
+  const nomor=String(o.phone||'').replace(/[^0-9]/g,'').replace(/^0/,'62');
+  if(!nomor){toast('Nomor WhatsApp pembeli kosong.');return;}
+  window.open('https://wa.me/'+nomor+'?text='+encodeURIComponent(baris.join(String.fromCharCode(10))),'_blank','noopener');
+  toast('WhatsApp dibuka - jangan lupa lampirkan gambar QR-nya.');
+}
+// QR disimpan sebagai PNG supaya gampang dilampirkan di WhatsApp atau email.
+function unduhQR(tid){
+  const r=tiketRingkas(tid); if(!r)return;
+  const svg=qrSvg(r.tk.qr_token,600);
+  const img=new Image();
+  img.onload=function(){
+    const cv=document.createElement('canvas'); cv.width=cv.height=600;
+    const cx=cv.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,600,600); cx.drawImage(img,0,0);
+    cv.toBlob(function(b){
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(b);
+      a.download='QR-'+r.tk.ticket_number+'.png';
+      a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);},4000);
+      toast('QR tersimpan sebagai '+a.download);
+    });
+  };
+  img.onerror=function(){toast('Gagal menyiapkan gambar QR.');};
+  img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svg)));
+}
 /* Satu order = satu pengajuan refund yang hidup. Dulu tombolnya bisa
    ditekan berkali-kali dan tiap klik menambah baris baru, sehingga satu
    order bisa punya banyak refund Pending yang saling bertentangan. */
@@ -1629,8 +2033,7 @@ function renderCalendar(){
   for(let d=1;d<=days;d++){const ds=dstr(new Date(y,m,d));const its=items[ds]||[];cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${its.slice(0,4).map(it=>`<span class="evt-dot b-${it.color}">${esc(it.title)}</span>`).join('')}${its.length>4?`<span class="mini">+${its.length-4} lagi</span>`:''}</div>`;}
   const types=['all','Event','Entertainment','Reservation','Marketing','Holiday','Birthday'];
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
-  <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select>
-  <button class="btn ghost sm" onclick="toast('Demo: two-way sync Google Calendar (opsional)')">🔗 Sync Google</button></div>
+  <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
   <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Event</span><span><i class="dotc" style="background:var(--green)"></i>Talent</span><span><i class="dotc" style="background:var(--purple)"></i>Reservation</span><span><i class="dotc" style="background:var(--orange)"></i>Marketing</span><span><i class="dotc" style="background:var(--red)"></i>Holiday</span><span><i class="dotc" style="background:var(--blue)"></i>Birthday</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }

@@ -327,8 +327,249 @@
     return d >= 10 ? Math.round(d) + " hari" : (Math.round(d * 10) / 10) + " hari";
   }
 
+  /* ==========================================================================
+   * LONJAKAN AKHIR PEKAN
+   *
+   * Kembaran JS dari _upcoming_calendar + _days_until_empty (common.py), tapi
+   * DIPERSEMPIT: hanya akhir pekan.
+   *
+   * Kenapa cuma akhir pekan. Python punya kalender penuh (event + libur
+   * nasional lewat event_calendar.py); browser tidak, dan payload forecast
+   * tidak membawanya. Faktor event/libur karena itu TIDAK dipakai di sini:
+   * memakainya butuh seseorang menandai tanggal satu per satu, dan tebakan
+   * yang salah tanggal lebih menyesatkan daripada tidak menebak sama sekali.
+   * Akhir pekan aman karena bisa dihitung sendiri dari tanggal.
+   *
+   * Akibatnya: perkiraan "cukup sampai" bisa agak terlalu optimis menjelang
+   * hari besar atau acara khusus. Angka pemesanan tetap konservatif karena
+   * reorder point sudah memuat stok pengaman.
+   * ========================================================================== */
+
+  /* Ubah "YYYY-MM-DD" jadi Date LOKAL. Sengaja TIDAK memakai new Date(str):
+     string ISO tanggal-saja dibaca sebagai UTC, sehingga di WIB (UTC+7) ia
+     mundur ke hari sebelumnya — cukup untuk salah menandai hari mana yang
+     akhir pekan. Objek Date diteruskan apa adanya. */
+  function toLocalDate(v) {
+    if (v == null) return new Date();
+    if (v instanceof Date) return v;
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    return new Date(v);
+  }
+
+  // Kalender n hari ke depan, mulai BESOK.
+  function upcomingDays(n, mulai) {
+    var out = [];
+    var t0 = toLocalDate(mulai);
+    for (var i = 1; i <= n; i++) {
+      var d = new Date(t0.getFullYear(), t0.getMonth(), t0.getDate() + i);
+      var dow = d.getDay();                       // 0 Min, 6 Sab
+      out.push({
+        date: d.getFullYear() + "-" +
+              String(d.getMonth() + 1).padStart(2, "0") + "-" +
+              String(d.getDate()).padStart(2, "0"),
+        dow: dow,
+        isWeekend: (dow === 0 || dow === 6),
+      });
+    }
+    return out;
+  }
+
+  // Pengali pemakaian untuk SATU hari.
+  function dayFactor(fc, hari) {
+    return hari.isWeekend ? Math.max(1, Number(fc.weekend_factor) || 1) : 1;
+  }
+
+  /* Berapa hari sampai habis, mengikuti lonjakan hari-per-hari. Mengembalikan
+     null bila tak terhitung, atau angka hari (pecahan pada hari terakhir).
+     Bila stok bertahan melewati jendela, kembalikan panjang jendela (batas
+     bawah, bukan angka pasti) dan tandai lewat `beyond`. */
+  ForecastBook.prototype.daysUntilEmpty = function (name, opts) {
+    opts = opts || {};
+    var fc = this.forecastFor(name);
+    if (!fc) return null;
+    var stock = this.stockInBase(name);
+    if (stock == null) return null;
+
+    // base_daily = pemakaian hari biasa; avg_daily sudah termasuk lonjakan,
+    // jadi memakainya bersama faktor akan menghitung lonjakan dua kali.
+    var base = Number(fc.base_daily) || 0;
+    if (base <= 0) base = Number(fc.avg_daily) || 0;
+    if (base <= 0) return null;
+
+    var n = opts.horizon || 45;
+    var hari = opts.days || upcomingDays(n, opts.from);
+    var sisa = Number(stock);
+    for (var i = 0; i < hari.length; i++) {
+      var pakai = base * dayFactor(fc, hari[i]);
+      sisa -= pakai;
+      if (sisa <= 0) {
+        return { days: Math.round((i + sisa / pakai + 1) * 10) / 10, beyond: false };
+      }
+    }
+    return { days: hari.length, beyond: true };
+  };
+
+  /* ==========================================================================
+   * KEANDALAN PRAKIRAAN (health)
+   *
+   * Ringkasan "seberapa bisa dipercaya prakiraan tiap bahan", dari field tier
+   * & wape yang sudah ada di payload. Murni transformasi data: TIDAK menyentuh
+   * DOM, jadi bisa diuji langsung tanpa browser (itu sebabnya tinggal di sini,
+   * bukan di dalam index.html).
+   * ========================================================================== */
+
+  // Payload -> array datar, satu baris per bahan. Dipanggil sekali saat forecast
+  // dimuat; hasilnya dipakai ulang tiap kali admin mengurutkan/mencari.
+  function healthRows(forecastPayload) {
+    var items = (forecastPayload && forecastPayload.items) || {};
+    return Object.keys(items).map(function (nama) {
+      var f = items[nama] || {};
+      return {
+        nama: nama,
+        tier: f.tier || "C",
+        // wape null = model tidak diuji untuk bahan ini. Dibedakan dari 0
+        // (yang berarti "diuji, dan tidak pernah meleset").
+        wape: (f.wape == null || isNaN(f.wape)) ? null : Number(f.wape),
+        avgDaily: Number(f.avg_daily) || 0,
+        unit: f.unit || "",
+      };
+    });
+  }
+
+  // Jumlah bahan per tier. Selalu dihitung dari SELURUH baris (bukan hasil
+  // filter) supaya angka ringkasan tidak ikut berubah saat admin mengetik cari.
+  function healthTally(rows) {
+    var t = { A: 0, B: 0, C: 0 };
+    (rows || []).forEach(function (r) {
+      if (t[r.tier] == null) t[r.tier] = 0;
+      t[r.tier]++;
+    });
+    return t;
+  }
+
+  /* Pembanding urutan. Bahan TANPA nilai wape selalu didorong ke bawah pada
+     kedua urutan berbasis wape: null bukan "paling akurat", dan menaruhnya di
+     puncak daftar "paling akurat" akan menyesatkan orang yang memesan. */
+  var HEALTH_SORTS = {
+    wape_desc:  function (a, b) { return (b.wape == null ? -1 : b.wape) - (a.wape == null ? -1 : a.wape); },
+    wape_asc:   function (a, b) { return (a.wape == null ? Infinity : a.wape) - (b.wape == null ? Infinity : b.wape); },
+    usage_desc: function (a, b) { return b.avgDaily - a.avgDaily; },
+    name:       function (a, b) { return a.nama.localeCompare(b.nama, "id"); },
+  };
+
+  /* Saring + urutkan. Mengembalikan { rows, total } — `total` adalah jumlah
+     SETELAH filter tapi SEBELUM dipotong `limit`, supaya pemanggil bisa bilang
+     "menampilkan 60 dari 143" dengan jujur. */
+  function healthView(rows, opts) {
+    opts = opts || {};
+    var out = rows || [];
+    var cari = norm(opts.search || "");
+    if (cari) {
+      out = out.filter(function (r) { return norm(r.nama).indexOf(cari) !== -1; });
+    }
+    var kmp = HEALTH_SORTS[opts.sort] || HEALTH_SORTS.wape_desc;
+    out = out.slice().sort(kmp);
+    var total = out.length;
+    if (opts.limit > 0) out = out.slice(0, opts.limit);
+    return { rows: out, total: total };
+  }
+
+  /* ==========================================================================
+   * DAFTAR RESTOCK SELURUH KATALOG (kembaran build_restock_table)
+   *
+   * assess() menjawab SATU bahan; ini menjalankannya untuk semua bahan lalu
+   * mengurutkan menurut urgensi, supaya purchasing bisa melihat "hari ini
+   * pesan apa saja" tanpa mengklik satu per satu.
+   * ========================================================================== */
+
+  // Urutan urgensi status. Angka kecil = makin mendesak, dipakai untuk sorting.
+  var STATUS_URGENCY = { order: 0, soon: 1, check: 2, safe: 3, nostk: 4, nofc: 5 };
+
+  ForecastBook.prototype.restockTable = function (opts) {
+    opts = opts || {};
+    var self = this;
+    // Kalender dihitung SEKALI lalu dipakai ulang untuk semua bahan; membangunnya
+    // per bahan akan mengulang kerja yang sama ratusan kali.
+    var hari = upcomingDays(opts.horizon || 45, opts.from);
+
+    var rows = Object.keys(this.items).map(function (nama) {
+      var a = self.assess(nama);
+      var sisa = self.daysUntilEmpty(nama, { days: hari });
+      a.daysLeft = sisa ? sisa.days : null;
+      a.daysLeftBeyond = sisa ? sisa.beyond : false;
+      a.urgency = STATUS_URGENCY[a.status.key];
+      if (a.urgency == null) a.urgency = 9;
+      return a;
+    });
+
+    if (opts.actionableOnly) {
+      rows = rows.filter(function (r) {
+        return r.status.key === "order" || r.status.key === "soon";
+      });
+    }
+    if (opts.search) {
+      var q = norm(opts.search);
+      rows = rows.filter(function (r) { return norm(r.name).indexOf(q) !== -1; });
+    }
+
+    rows.sort(function (a, b) {
+      if (a.urgency !== b.urgency) return a.urgency - b.urgency;
+      // Dalam status yang sama: yang paling cepat habis lebih dulu. Tanpa
+      // angka sisa hari, dorong ke bawah (bukan ke puncak).
+      var da = a.daysLeft == null ? Infinity : a.daysLeft;
+      var db = b.daysLeft == null ? Infinity : b.daysLeft;
+      if (da !== db) return da - db;
+      return a.name.localeCompare(b.name, "id");
+    });
+    return rows;
+  };
+
+  // Hitung per status, untuk kartu ringkasan di atas tabel.
+  function restockTally(rows) {
+    var t = { order: 0, soon: 0, safe: 0, other: 0 };
+    (rows || []).forEach(function (r) {
+      var k = r.status && r.status.key;
+      if (k === "order" || k === "soon" || k === "safe") t[k]++;
+      else t.other++;
+    });
+    return t;
+  }
+
+  /* CSV untuk daftar pesan (Streamlit punya tombol unduh; ini padanannya).
+     Pemisah titik-koma + BOM: Excel Indonesia memakai koma sebagai desimal,
+     jadi CSV berkoma akan terbelah ke kolom yang salah saat dibuka. */
+  function restockCsv(rows) {
+    var head = ["Bahan", "Satuan", "Stok kini", "Pesan saat sisa",
+                "Saran pesan", "Cukup berapa hari", "Status", "Keandalan"];
+    var esc = function (v) {
+      var s = String(v == null ? "" : v);
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    var lines = [head.join(";")];
+    (rows || []).forEach(function (r) {
+      lines.push([
+        esc(r.name), esc(r.unit),
+        esc(r.stockNow == null ? "" : Math.round(r.stockNow)),
+        esc(Math.round(r.reorderPoint)),
+        esc(r.suggestOrderBase == null ? "" : Math.round(r.suggestOrderBase)),
+        esc(r.daysLeft == null ? "" : r.daysLeft),
+        esc(r.status.label),
+        esc(TIER_LABEL[r.tier] || r.tier),
+      ].join(";"));
+    });
+    // BOM ditulis sebagai escape \uFEFF, bukan karakter mentah: BOM harfiah
+    // di berkas sumber gampang hilang saat disalin/disimpan ulang.
+    return "\uFEFF" + lines.join("\r\n");
+  }
+
   global.LaksForecast = {
     ForecastBook: ForecastBook,
+    upcomingDays: upcomingDays,
+    dayFactor: dayFactor,
+    restockTally: restockTally,
+    restockCsv: restockCsv,
+    STATUS_URGENCY: STATUS_URGENCY,
     parseStockWorkbook: parseStockWorkbook,
     STATUS: STATUS,
     TIER_LABEL: TIER_LABEL,
@@ -336,5 +577,12 @@
     norm: norm,
     fmtNum: fmtNum,
     fmtDays: fmtDays,
+    healthRows: healthRows,
+    healthTally: healthTally,
+    healthView: healthView,
+    HEALTH_SORTS: HEALTH_SORTS,
   };
-})(window);
+
+  // Ekspor untuk Node (uji tanpa browser). Tidak berpengaruh di browser.
+  if (typeof module !== "undefined" && module.exports) module.exports = global.LaksForecast;
+})(typeof window !== "undefined" ? window : globalThis);

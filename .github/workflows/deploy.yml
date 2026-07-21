@@ -11,7 +11,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # continue-on-error + percobaan ulang di bawah: transfer FTP ke Rumahweb
+      # kadang putus tanpa sebab yang bisa kita kendalikan. Kegagalan di sini
+      # tidak langsung menggagalkan job; yang menentukan tetap langkah
+      # Verifikasi, yang membandingkan isi file di server dengan repo.
       - name: Deploy via FTP
+        id: ftp1
+        continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
@@ -27,12 +33,43 @@ jobs:
           # (terpotong di 65KB lalu 234KB dari 403KB).
           timeout: 300000
 
+      # Percobaan ke-2 dan ke-3, masing-masing hanya bila yang sebelumnya gagal.
+      # Dua percobaan terbukti belum cukup untuk file besar (lihat catatan di
+      # deploy-dev.yml): putus di tengah transfer bisa berulang beberapa kali.
+      - name: Deploy via FTP (percobaan 2)
+        id: ftp2
+        continue-on-error: true
+        if: steps.ftp1.outcome == 'failure'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/office/
+          timeout: 300000
+
+      - name: Deploy via FTP (percobaan 3)
+        if: steps.ftp1.outcome == 'failure' && steps.ftp2.outcome == 'failure'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/office/
+          timeout: 300000
+
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
       # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
       # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
       # total tetap dilaporkan OK. Maka isinya dibandingkan langsung dengan repo.
       # FTP mengubah CRLF→LF, jadi \r dibuang dulu di kedua sisi.
+      # if: always() — verifikasi tetap jalan walau kedua percobaan FTP gagal,
+      # supaya laporannya menyebut file MANA yang tertinggal, bukan sekadar
+      # "FTP gagal".
       - name: Verifikasi file di server benar-benar versi ini
+        if: always()
         run: |
           gagal=0
           for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/; do

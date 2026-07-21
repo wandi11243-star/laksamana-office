@@ -482,14 +482,16 @@ td .muted{color:var(--muted);font-size:13px}
 .rv-progress{height:12px;border-radius:20px;background:var(--paper);border:1px solid var(--line);overflow:hidden}
 .rv-progress>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold-2),var(--gold-dim));border-radius:20px;transition:width .4s}
 .rv-stars{color:#E0A82E;letter-spacing:1px;font-size:13px}
-.rv-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.rv-step{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
-.rv-step .n{width:22px;height:22px;border-radius:50%;background:var(--gold);color:#fff;font-size:11px;font-weight:800;
-  display:flex;align-items:center;justify-content:center;margin-bottom:7px}
-.rv-step>b{display:block;font-size:13px;color:var(--ink);margin-bottom:2px}
-.rv-step span{display:block;font-size:11.5px;color:var(--muted);line-height:1.5}
-.rv-step span b{display:inline;font-weight:700;color:var(--ink)}
-.rv-step .who{font-size:10.5px;font-weight:700;color:var(--gold);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+/* Navigasi halaman tabel. Keterangan "1–10 dari 37" di kiri, tombol di kanan;
+   di layar sempit keduanya menumpuk supaya tombol nomor tidak terpotong. */
+.rv-pager{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.rv-pager-info{font-size:12.5px;color:var(--muted)}
+.rv-pager-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.rv-pager-nav .btn{min-width:28px;padding-left:8px;padding-right:8px}
+.rv-pager-gap{color:var(--muted-2);padding:0 2px;font-size:12px}
+/* CSS .rv-steps/.rv-step DIHAPUS bersama panel "Cara Kerja Tab Ini" —
+   tidak ada lagi markup yang memakainya. */
 /* ---- Feedback customer ---- */
 .fb-item{border:1px solid var(--line);border-radius:12px;padding:12px 12px 2px;background:var(--surface-2,var(--surface));margin-top:12px}
 .fb-item-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -505,7 +507,7 @@ td .muted{color:var(--muted);font-size:13px}
 .fb-texts{font-size:12.5px;line-height:1.5;max-width:380px}
 .fb-action{margin-top:5px;font-size:11.5px;color:var(--ok);background:rgba(46,204,113,.10);
   border-left:3px solid var(--ok);padding:4px 8px;border-radius:0 6px 6px 0}
-@media(max-width:820px){.rv-steps{grid-template-columns:1fr}}
+
 
 .share-list{display:flex;flex-direction:column;gap:8px}
 .share-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-left:3px solid var(--purple);border-radius:10px;padding:9px 11px;background:var(--surface)}
@@ -1430,6 +1432,125 @@ function sisaKursiTable(tableId){
   const list=partiesAt(occ, tableId);
   return { t, list, sisa:tableFill(t, list).sisaMax };
 }
+/* ===== SISA KURSI UNTUK KOLOM DI TABEL RECAP =====
+   sisaKursiTable() di atas selalu memakai HARIH_DATE, jadi tidak bisa dipakai
+   tabel Daftar yang boleh menampilkan beberapa tanggal sekaligus — barisnya
+   akan dihitung memakai hunian tanggal yang salah. Fungsi di bawah memakai
+   tanggal MILIK BARIS itu sendiri.
+
+   occupiedMap() menyapu SELURUH STATE.reservations tiap kali dipanggil, jadi
+   memanggilnya sekali per baris membuat tabel ratusan baris menghitung ulang
+   ratusan kali. Hasilnya di-cache per tanggal, dan cache dibuang tiap render
+   supaya tidak pernah menyajikan angka basi. */
+let _occCache = null;
+function resetOccCache(){ _occCache = new Map(); }
+function occFor(date){
+  if(!_occCache) resetOccCache();
+  if(!_occCache.has(date)){
+    // realita=true HANYA untuk hari ini: tamu yang masih duduk tetap menempati
+    // mejanya. Untuk tanggal lain, "masih duduk" tidak punya arti.
+    _occCache.set(date, occupiedMap(date, "", null, date===todayStr()));
+  }
+  return _occCache.get(date);
+}
+// Objek meja (berisi kapasitas) menurut id, dari layout mana pun.
+function tableObj(tableId){
+  for(const k of allLayoutKeys()){
+    const L=getLayout(k);
+    const f=(L&&L.tables||[]).find(x=>x.id===tableId);
+    if(f) return f;
+  }
+  return null;
+}
+/* ===================== LANTAI =====================
+   Lantai TIDAK disimpan di data meja maupun reservasi. Ia DITURUNKAN dari
+   layout tempat meja itu berada: denah "Weekday" & "Weekend" adalah Lantai 1,
+   denah "Lantai 2" adalah Lantai 2.
+
+   Sengaja tidak memakai daftar nomor meja (mis. "61-69 = lantai 2"): daftar
+   seperti itu langsung basi begitu ada meja baru ditambahkan lewat Editor
+   Denah, dan tidak ada yang mengingatkan. Dengan menurunkannya dari layout,
+   meja baru otomatis ikut lantai denah tempat ia digambar. */
+const LAYOUT_LANTAI = { weekday:1, weekend:1, lantai2:2 };
+function lantaiLayout(key){
+  if(LAYOUT_LANTAI[key] != null) return LAYOUT_LANTAI[key];
+  // Layout buatan sendiri (template baru): tebak dari namanya — "Lantai 2",
+  // "Lt 2", "Floor 2". Tidak disebut = dianggap Lantai 1, karena itu yang
+  // paling mungkin dan tidak menyembunyikan meja dari filter mana pun.
+  const n = String(layoutName(key) || key).toLowerCase();
+  const m = n.match(/(?:lantai|lt\.?|floor)\s*(\d+)/);
+  return m ? Number(m[1]) : 1;
+}
+
+/* Peta id meja -> nomor lantai. Nilai 0 = meja itu muncul di DUA lantai
+   berbeda, jadi lantainya tak bisa dipastikan; lebih baik mengaku tidak tahu
+   daripada menebak salah satu. (Weekday & Weekend memang berbagi banyak meja,
+   tapi keduanya Lantai 1, jadi tidak bentrok.) */
+let _lantaiCache = null;
+function resetLantaiCache(){ _lantaiCache = null; }
+function lantaiMap(){
+  if(_lantaiCache) return _lantaiCache;
+  const m = new Map();
+  allLayoutKeys().forEach(k=>{
+    const f = lantaiLayout(k);
+    ((getLayout(k) || {}).tables || []).forEach(t=>{
+      const id = String(t.id);
+      if(!m.has(id)) m.set(id, f);
+      else if(m.get(id) !== f) m.set(id, 0);
+    });
+  });
+  _lantaiCache = m;
+  return m;
+}
+// Nomor lantai yang benar-benar dipakai denah, untuk mengisi pilihan filter.
+function lantaiTersedia(){
+  return [...new Set([...lantaiMap().values()].filter(Boolean))].sort((a,b)=>a-b);
+}
+/* Lantai sebuah reservasi. Array, karena satu reservasi boleh memakai beberapa
+   meja dan (secara teori) meja itu bisa beda lantai. null = tak diketahui:
+   belum ada meja, atau mejanya tidak ada di denah mana pun. */
+function lantaiRes(r){
+  const ids = tablesOf(r);
+  if(!ids.length) return null;
+  const m = lantaiMap(), set = new Set();
+  ids.forEach(id=>{ const f = m.get(id); if(f) set.add(f); });   // 0 & undefined dibuang
+  return set.size ? [...set].sort((a,b)=>a-b) : null;
+}
+
+/* Apakah reservasi ini MASIH menempati mejanya? Cerminan persis dari aturan
+   lewat-lewatan di occupiedMap(): tamu yang sudah pulang (leftAt) atau yang
+   batal / no-show / selesai TIDAK lagi memegang meja. */
+function masihMenempati(r){
+  if(!r) return false;
+  if(["Cancelled","No-show","Completed"].includes(r.status)) return false;
+  return !r.leftAt;
+}
+
+/* Sisa kursi seluruh meja sebuah reservasi, pada tanggalnya sendiri.
+   null = pertanyaannya tidak berlaku untuk baris ini, bukan "nol kursi".
+   Tiga sebab: belum ada meja; mejanya tak dikenal layout mana pun (mis. sudah
+   dihapus dari denah); atau tamunya sudah pulang/batal.
+
+   Sebab ketiga itu penting. occupiedMap() membebaskan meja begitu tamu pulang,
+   jadi baris "✓ selesai duduk" akan menampilkan kapasitas PENUH meja — mis. 7 —
+   di sebelah rombongan yang sudah lengkap dan sudah pergi. Angkanya benar untuk
+   MEJA-nya, tapi dibaca sebagai "reservasi ini masih muat 7 orang lagi", yang
+   tidak pernah benar. Untuk baris seperti itu, sisa kursi memang tak punya arti. */
+function sisaKursiRes(r){
+  if(!masihMenempati(r)) return null;
+  const ids=tablesOf(r);
+  if(!ids.length) return null;
+  const occ=occFor(r.date);
+  let total=0, ketemu=false;
+  ids.forEach(id=>{
+    const t=tableObj(id);
+    if(!t) return;
+    ketemu=true;
+    total += tableFill(t, partiesAt(occ, id)).sisaMax;
+  });
+  return ketemu ? total : null;
+}
+
 // Warna khusus (biru) hanya untuk meja yang tamunya SUDAH DUDUK tapi kursinya belum penuh.
 // Meja yang cuma dipesan (belum datang) tetap memakai warna statusnya, tapi sisa kursinya
 // tetap ditulis di bawah mejanya.
@@ -2608,7 +2729,8 @@ async function autoSyncOfficeRoster(){
       users.push({ id:m.id, name:m.name||'(tanpa nama)', role:(m.isModuleAdmin?'admin':'host'), pin:'' });
       changed=true;
     }else{
-      if(!u.id && m.id){ u.id=m.id; changed=true; }
+      // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
+      if(m.id && u.id!==m.id){ u.id=m.id; changed=true; }
       if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
       if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
     }
@@ -3555,7 +3677,9 @@ function sendWA(type, detail, txt){
 }
 
 /* ================= DASHBOARD ================= */
-let DASH_FILTER = { mode:"month", date:todayStr(), month:todayStr().slice(0,7), year:new Date().getFullYear(), from:"", to:"", fromHour:"", toHour:"", status:"", dp:"", pic:"", ctype:"", category:"", q:"" };
+// `lantai`: "" = semua, selain itu nomor lantai sebagai string ("1", "2").
+// Diturunkan dari layout meja, sama seperti di Recap — lihat lantaiRes().
+let DASH_FILTER = { mode:"month", date:todayStr(), month:todayStr().slice(0,7), year:new Date().getFullYear(), from:"", to:"", fromHour:"", toHour:"", status:"", dp:"", pic:"", ctype:"", category:"", q:"", lantai:"" };
 let DASH_VIEW = "table"; // table | calendar
 let CAL_MONTH = new Date();
 let CAL_STATUS = ""; // filter status di kalender (kosong = semua)
@@ -3575,10 +3699,24 @@ function applyFilter(list){
   if(F.pic) r=r.filter(x=>(x.picType==="Marketing"?x.picName:x.picType)===F.pic);
   if(F.ctype){ r=r.filter(x=>{ const p=customerProfile(x.phone); return F.ctype==="Baru"?p.visits===0:F.ctype==="Loyal"?(p.type==="Loyal"||p.type==="Repeat"):F.ctype==="Member"?p.isMember:true; }); }
   if(F.q){ const q=F.q.toLowerCase(); r=r.filter(x=>x.name.toLowerCase().includes(q)||x.phone.includes(q)); }
+  // Lantai disaring PALING AKHIR: ia satu-satunya yang perlu menengok peta
+  // meja->lantai, jadi biarkan saringan yang cuma membandingkan field membuang
+  // barisnya lebih dulu. Reservasi tanpa meja (lantai tak diketahui) tidak
+  // pernah lolos — memaksanya masuk ke suatu lantai berarti menampilkannya di
+  // tempat yang belum tentu benar.
+  if(F.lantai){
+    const want=Number(F.lantai);
+    r=r.filter(x=>{ const lt=lantaiRes(x); return !!lt && lt.includes(want); });
+  }
   return r.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 }
 
 function renderDashboard(){
+  // Peta meja->lantai dibuang di awal render, sama seperti di renderHariH():
+  // layout bisa berubah lewat Editor Denah atau data master yang baru
+  // tersinkron. Harus SEBELUM applyFilter(), karena saringan lantai di sana
+  // sudah membaca petanya.
+  resetLantaiCache();
   const F=DASH_FILTER;
   const picNames = [...new Set(STATE.reservations.map(r=>r.picType==="Marketing"?r.picName:r.picType))].filter(Boolean);
   const filtered = applyFilter(STATE.reservations);
@@ -3628,6 +3766,7 @@ function renderDashboard(){
         <div class="field"><label>Jam Sampai</label>${timeSelectHtml('onchange="DASH_FILTER.toHour=this.value;renderDashboard()"', F.toHour, 30)}</div>
         <div class="field"><label>Status</label><select onchange="DASH_FILTER.status=this.value;renderDashboard()"><option value="">Semua</option>${STATUSES.map(s=>`<option ${F.status===s?"selected":""}>${s}</option>`).join("")}</select></div>
         <div class="field"><label>Jenis Reservasi</label><select onchange="DASH_FILTER.category=this.value;renderDashboard()"><option value="">Semua</option>${(STATE.master.categories||[]).map(c=>`<option ${F.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
+        <div class="field"><label>Lantai</label><select onchange="DASH_FILTER.lantai=this.value;renderDashboard()"><option value="">Semua</option>${lantaiTersedia().map(f=>`<option value="${f}" ${F.lantai===String(f)?"selected":""}>Lantai ${f}</option>`).join("")}</select></div>
         <div class="field"><label>DP</label><select onchange="DASH_FILTER.dp=this.value;renderDashboard()"><option value="">Semua</option><option ${F.dp==="Sudah"?"selected":""}>Sudah</option><option ${F.dp==="Belum"?"selected":""}>Belum</option></select></div>
         <div class="field"><label>PIC</label><select onchange="DASH_FILTER.pic=this.value;renderDashboard()"><option value="">Semua</option>${picNames.map(p=>`<option ${F.pic===p?"selected":""}>${esc(p)}</option>`).join("")}</select></div>
         <div class="field"><label>Tipe Tamu</label><select onchange="DASH_FILTER.ctype=this.value;renderDashboard()"><option value="">Semua</option><option ${F.ctype==="Baru"?"selected":""}>Baru</option><option ${F.ctype==="Loyal"?"selected":""}>Loyal/Repeat</option><option ${F.ctype==="Member"?"selected":""}>Member</option></select></div>
@@ -3645,14 +3784,23 @@ function dashTable(list){
   return `<div class="panel"><div class="panel-head"><h3>Daftar Reservasi <span class="count-tag">${list.length}</span></h3>
     <button class="btn btn-sm btn-ghost" onclick="exportCSV(${JSON.stringify(list.map(r=>r.id)).replace(/"/g,'&quot;')})">⬇️ Export CSV</button></div>
    <div class="table-wrap"><table>
-    <thead><tr><th>Tamu</th><th>Tanggal</th><th>Jam</th><th>Pax</th><th>Meja</th><th>DP</th><th>PIC</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Tamu</th><th>Tanggal</th><th>Jam</th><th>Pax</th><th>Meja</th><th>Lantai</th><th>DP</th><th>PIC</th><th>Status</th><th></th></tr></thead>
     <tbody>${list.map(r=>{ const p=customerProfile(r.phone);
+      const lantai=lantaiRes(r);
       return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer">
        <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}</td>
        <td>${fmtDateShort(r.date)}</td>
        <td>${r.time}</td>
        <td>${paxCell(r)}</td>
        <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+       <!-- Lantai ditaruh tepat setelah Meja: ia keterangan dari meja itu,
+            bukan data berdiri sendiri. Urutan kolom lain sengaja tidak diubah —
+            di sini Meja memang bukan yang paling kiri seperti di Recap, karena
+            Dashboard adalah daftar data lintas periode, bukan panduan kerja
+            lapangan yang dibaca per meja. -->
+       <td>${lantai
+             ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
+             : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
        <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
        <td class="muted">${r.picType==="Marketing"?esc(r.picName):"Host/Capt"}</td>
        <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
@@ -3729,8 +3877,12 @@ function calDragEnd(e){
 
 function exportCSV(ids){
   const list = STATE.reservations.filter(r=>ids.includes(r.id));
-  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
-  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picType==="Marketing"?r.picName:r.picType),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
+  // Lantai ikut diekspor, tepat setelah Meja: tanpa itu, rekap yang disaring
+  // per lantai di layar kehilangan keterangan lantainya begitu dibuka di Excel.
+  // Kosong = mejanya belum dipilih / tidak ada di denah mana pun.
+  resetLantaiCache();
+  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Lantai","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
+  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picType==="Marketing"?r.picName:r.picType),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
   const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`reservasi_laksamana_${todayStr()}.csv`; a.click();
@@ -3743,10 +3895,15 @@ let HARIH_Q = "", HARIH_VIEW = "list", HARIH_LAYOUT = "l1";
 /* Filter khusus tab Daftar (recap): rentang tanggal + rentang jam + status.
    Denah Meja & Waiting List tetap per-tanggal (pakai HARIH_DATE). Kosong = ikut HARIH_DATE. */
 let RECAP_FROM="", RECAP_TO="", RECAP_TF="", RECAP_TT="", RECAP_STATUS="";
+// "" = semua | "ada" = mejanya masih punya sisa kursi | "penuh" = kursi habis.
+// Dipakai host untuk cepat menemukan meja yang masih bisa disisipi tamu lain.
+let RECAP_KURSI="";
+// "" = semua lantai, selain itu nomor lantai sebagai string ("1", "2").
+let RECAP_LANTAI="";
 function recapFrom(){ return RECAP_FROM || HARIH_DATE; }
 function recapTo(){ return RECAP_TO || RECAP_FROM || HARIH_DATE; }
 function recapMultiDay(){ return recapFrom() !== recapTo(); }
-function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=""; renderHariH(); }
+function recapReset(){ RECAP_FROM=RECAP_TO=RECAP_TF=RECAP_TT=RECAP_STATUS=RECAP_KURSI=RECAP_LANTAI=""; renderHariH(); }
 /* Penjaga: selama filter jam/status aktif, denah tidak menampilkan semua reservasi, jadi
    INPUT dari denah dilarang. Kembalikan true bila aksi harus dibatalkan. */
 function tolakKarenaFilter(){
@@ -3794,6 +3951,24 @@ function recapList(){
     if(tf!=null && toMin(r.time)<tf) return false;
     if(tt!=null && toMin(r.time)>tt) return false;
     if(q && !((r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) || tablesOf(r).some(t=>t.toLowerCase().includes(q)))) return false;
+    // Lantai lebih murah daripada sisa kursi (cuma menengok peta id->lantai),
+    // jadi disaring lebih dulu. Baris tanpa lantai yang jelas tidak pernah
+    // lolos: memaksanya masuk ke salah satu lantai berarti menampilkannya di
+    // tempat yang belum tentu benar.
+    if(RECAP_LANTAI){
+      const lt = lantaiRes(r);
+      if(!lt || !lt.includes(Number(RECAP_LANTAI))) return false;
+    }
+    // Saringan sisa kursi ditaruh PALING AKHIR: ia yang paling mahal (menghitung
+    // hunian per tanggal), jadi biarkan saringan murah membuang barisnya dulu.
+    // Baris tanpa meja (sisa = null) tidak pernah lolos kedua pilihan — memang
+    // tidak bisa dijawab "masih ada kursi" atau "penuh".
+    if(RECAP_KURSI){
+      const s=sisaKursiRes(r);
+      if(s===null) return false;
+      if(RECAP_KURSI==="ada"   && !(s>0)) return false;
+      if(RECAP_KURSI==="penuh" && s>0)    return false;
+    }
     return true;
   }).sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
 }
@@ -4651,6 +4826,15 @@ function kwitansiPDF(id){
   logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
 }
 function renderHariH(){
+  // Buang cache hunian di AWAL tiap render. Isinya diturunkan dari
+  // STATE.reservations, yang bisa berubah kapan saja (check-in, polling
+  // server, tamu pulang) — menyimpannya lebih lama berarti kolom sisa kursi
+  // menampilkan keadaan yang sudah lewat.
+  resetOccCache();
+  // Peta lantai diturunkan dari layout, dan layout bisa berubah (Editor Denah,
+  // atau data master yang baru tersinkron dari server). Dibuang tiap render
+  // dengan alasan yang sama seperti cache hunian.
+  resetLantaiCache();
   const canEdit=CAN.input(SESSION.role);
   const inList = HARIH_VIEW==='list';
   // Denah & Waiting List: selalu per-tanggal (HARIH_DATE). Daftar/recap: ikut filter rentang.
@@ -4734,13 +4918,31 @@ function renderHariH(){
          <option value="">Semua status</option>
          ${["Pending","Confirmed","Datang","No-show"].map(s=>`<option ${RECAP_STATUS===s?"selected":""}>${s}</option>`).join("")}
        </select></div>
+     <!-- Hanya relevan di tab Daftar: Denah sudah menunjukkan sisa kursi tiap
+          meja secara visual, jadi menampilkan saringan ini di sana cuma
+          menambah kontrol yang tidak mengubah apa pun. -->
+     <!-- Lantai & Sisa Kursi hanya di tab Daftar. Keduanya menyaring lewat
+          recapList(), yang tidak dipakai Denah/Waiting List — menampilkannya di
+          sana berarti memberi kontrol yang tidak mengubah apa pun. Denah pun
+          sudah menunjukkan satu lantai sekaligus lewat pilihan layout-nya. -->
+     ${inList?`<div class="field" style="margin:0"><label>Lantai</label>
+       <select onchange="RECAP_LANTAI=this.value; renderHariH()">
+         <option value="">Semua lantai</option>
+         ${lantaiTersedia().map(f=>`<option value="${f}" ${RECAP_LANTAI===String(f)?"selected":""}>Lantai ${f}</option>`).join("")}
+       </select></div>`:""}
+     ${inList?`<div class="field" style="margin:0"><label>Sisa Kursi</label>
+       <select onchange="RECAP_KURSI=this.value; renderHariH()">
+         <option value="">Semua meja</option>
+         <option value="ada"   ${RECAP_KURSI==="ada"?"selected":""}>Masih ada kursi kosong</option>
+         <option value="penuh" ${RECAP_KURSI==="penuh"?"selected":""}>Kursi sudah penuh</option>
+       </select></div>`:""}
      <div class="pill-row" style="margin:0">
        <span class="pill ${recapIsDay(0)?'on':''}" style="cursor:pointer" onclick="recapSetDay(0)">Hari Ini</span>
        <span class="pill ${recapIsDay(1)?'on':''}" style="cursor:pointer" onclick="recapSetDay(1)">Besok</span>
        <span class="pill ${recapIsDay(2)?'on':''}" style="cursor:pointer" onclick="recapSetDay(2)">Lusa</span>
        <span class="pill" style="cursor:pointer" onclick="recapSet7()">7 Hari</span>
        <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
-       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
+       ${(RECAP_FROM||RECAP_TO||RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI||RECAP_LANTAI)?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
      </div>
      ${inList
        ? ((recapMultiDay()||RECAP_TF||RECAP_TT||RECAP_STATUS)?`<span class="harih-result">${list.length} reservasi${recapMultiDay()?`, ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:""}${(RECAP_TF||RECAP_TT)?`, jam ${RECAP_TF||"awal"}–${RECAP_TT||"akhir"}`:""}</span>`:"")
@@ -4753,17 +4955,27 @@ function renderHariH(){
      ${recapMultiDay()?`<div class="inline-info" style="margin-top:8px"><div>Rentang <b>${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}</b> dipilih, tapi ${HARIH_VIEW==='wait'?'antrean':'denah'} hanya bisa menampilkan <b>satu tanggal</b> — yang tampil: <b>${fmtDate(HARIH_DATE)}</b>.</div></div>`:""}
    </div>`:""}
    </div>
-   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS)?" dengan filter ini":""}.</div></div>`:`
+   ${HARIH_VIEW==='wait'?waitlistView():HARIH_VIEW==='map'?harihMapView():!list.length?`<div class="panel"><div class="empty"><div class="big">📭</div>Tidak ada reservasi ${recapMultiDay()?`pada ${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:`pada ${fmtDate(recapFrom())}`}${(RECAP_TF||RECAP_TT||RECAP_STATUS||RECAP_KURSI||RECAP_LANTAI)?" dengan filter ini":""}.</div></div>`:`
    <div class="panel"><div class="panel-head"><h3>Recap Reservasi, ${recapMultiDay()?`${fmtDateShort(recapFrom())} – ${fmtDateShort(recapTo())}`:fmtDate(recapFrom())}</h3></div>
    <div class="table-wrap"><table>
-     <thead><tr>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
+     <!-- Meja dipindah ke kolom PALING KIRI: di lapangan, yang pertama dicari
+          host adalah nomor mejanya, bukan jamnya. "Sisa Kursi" ditaruh tepat
+          setelah Pax supaya dua angka yang saling berhubungan bisa dibaca
+          sekali lihat. -->
+     <thead><tr><th>Meja</th><th>Lantai</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${list.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
         const late = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)<nowMin;
         const near = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)-nowMin<=30 && toMin(r.time)>=nowMin;
         const rowStyle = late?'background:#FCEFB8':near?'background:#FBF6E6':'';
+        const sisaKursi = sisaKursiRes(r);
+        const lantai = lantaiRes(r);
         return `<tr style="${rowStyle};cursor:pointer" onclick="openDetail('${r.id}')">
+          <td><b>${r.table?esc(r.table):'<span class="muted" style="font-weight:400">-</span>'}</b></td>
+          <td>${lantai
+                ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
+                : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
           ${recapMultiDay()?`<td><b>${fmtDateShort(r.date)}</b></td>`:""}
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
           <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
@@ -4771,7 +4983,17 @@ function renderHariH(){
               ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
               :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
           <td>${paxCell(r)}</td>
-          <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+          <!-- Angka telanjang, tanpa lencana atau imbuhan: kolomnya sudah
+               berjudul "Sisa Kursi", jadi menulis "+3 kursi" mengulang hal yang
+               sama tiga kali. Yang penuh ditulis 0 supaya seluruh kolom terbaca
+               sebagai deretan angka yang bisa dibandingkan sekilas. -->
+          <td style="font-variant-numeric:tabular-nums">${sisaKursi===null
+                ? `<span class="muted" title="${!masihMenempati(r)
+                      ? 'Tamu sudah selesai/tidak jadi — mejanya bebas kembali, jadi sisa kursi tidak berlaku untuk baris ini'
+                      : 'Meja belum dipilih, atau mejanya tidak ada di denah'}">-</span>`
+                : sisaKursi>0
+                  ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
+                  : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
           <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
@@ -6397,8 +6619,124 @@ const REVIEW_STATUS = {
 let REVIEW_MONTH = todayStr().slice(0,7);
 let REVIEW_TAB = "google";   // "google" | "feedback"
 function setReviewTab(v){ REVIEW_TAB=v; renderReview(); }
-function setReviewMonth(v){ REVIEW_MONTH=v||todayStr().slice(0,7); renderReview(); }
+function setReviewMonth(v){ REVIEW_MONTH=v||todayStr().slice(0,7); rvResetPages(); renderReview(); }
+
+/* ===== PERIODE: HARIAN / MINGGUAN / BULANAN =====
+   Halaman ini dulu terkunci per bulan. Sekarang periodenya bisa dipilih, dan
+   SEMUA angka di halaman ini (kedua tab) mengikuti rentang yang sama — kalau
+   sebagian ikut dan sebagian tidak, dua angka di layar yang sama bisa
+   bercerita tentang waktu yang berbeda tanpa ada yang menyadarinya. */
+let REVIEW_MODE = "bulan";        // "hari" | "minggu" | "bulan"
+let REVIEW_DATE = todayStr();     // acuan untuk mode hari & minggu
+function setReviewMode(v){ REVIEW_MODE=v||"bulan"; rvResetPages(); renderReview(); }
+function setReviewDate(v){ REVIEW_DATE=v||todayStr(); rvResetPages(); renderReview(); }
+
+// Rentang tanggal aktif, sebagai {from, to} inklusif (YYYY-MM-DD).
+function reviewRange(){
+  if(REVIEW_MODE==="hari") return {from:REVIEW_DATE, to:REVIEW_DATE};
+  if(REVIEW_MODE==="minggu"){
+    // Minggu dimulai SENIN, mengikuti kalender di halaman Dashboard supaya
+    // "minggu ini" berarti hal yang sama di seluruh aplikasi.
+    const d=new Date(REVIEW_DATE+"T00:00:00");
+    const geser=(d.getDay()+6)%7;
+    const s=new Date(d); s.setDate(d.getDate()-geser);
+    const e=new Date(s); e.setDate(s.getDate()+6);
+    return {from:ymdOf(s.getTime()), to:ymdOf(e.getTime())};
+  }
+  const [y,m]=REVIEW_MONTH.split("-").map(Number);
+  const akhir=new Date(y, m, 0).getDate();
+  return {from:`${REVIEW_MONTH}-01`, to:`${REVIEW_MONTH}-${String(akhir).padStart(2,"0")}`};
+}
+function reviewRangeLabel(){
+  const r=reviewRange();
+  if(REVIEW_MODE==="hari")   return fmtDate(r.from);
+  if(REVIEW_MODE==="minggu") return `${fmtDateShort(r.from)} – ${fmtDateShort(r.to)}`;
+  return fmtMonth(REVIEW_MONTH);
+}
+// Bulan yang jadi acuan TARGET. Target ditetapkan per bulan, jadi saat periode
+// harian/mingguan dipilih, progres target tetap dihitung atas bulan tempat
+// rentang itu berada — bukan atas rentangnya sendiri.
+function reviewTargetMonth(){ return reviewRange().from.slice(0,7); }
+function inRange(ymd, r){ const s=String(ymd||""); return !!s && s>=r.from && s<=r.to; }
+
 function reviewsOfMonth(ym){ return reviews().filter(x=>String(x.date||"").slice(0,7)===ym); }
+function reviewsInRange(r){ return reviews().filter(x=>inRange(x.date, r)); }
+
+/* ===== SIAPA YANG LAYAK DIMINTA REVIEW, DAN SIAPA YANG SUDAH =====
+   Layak = tamu yang BENAR-BENAR datang. Yang batal / no-show tidak pernah
+   duduk, jadi tidak ada yang bisa mereka ulas.
+
+   "Sudah diminta" ditentukan oleh ADA/TIDAKNYA catatan review untuk reservasi
+   itu — bukan oleh statusnya. requestReview() selalu membuat catatan begitu
+   ajakan dikirim, jadi keberadaan catatan itulah buktinya. */
+/* ===== HALAMAN & PENCARIAN TABEL =====
+   Satu helper dipakai ketiga tabel di halaman ini. Tanpa itu, tiap tabel akan
+   punya salinan logika potong-halaman sendiri yang harus diperbaiki bersamaan
+   tiap ada perubahan. */
+const RV_PER_HAL = 10;
+let RVQ = { belum:"", daftar:"", fb:"" };     // kata kunci pencarian per tabel
+let RVP = { belum:1,  daftar:1,  fb:1  };     // halaman aktif per tabel
+// Ganti periode/filter -> kembali ke halaman 1. Tanpa ini, berpindah ke
+// periode yang barisnya sedikit bisa mendarat di halaman kosong.
+function rvResetPages(){ RVP={belum:1, daftar:1, fb:1}; }
+function rvSetQ(kunci, v){ RVQ[kunci]=v; RVP[kunci]=1; afterSearch("rvq_"+kunci, renderReview); }
+function rvSetPage(kunci, n){ RVP[kunci]=Number(n)||1; renderReview(); }
+
+function rvPage(arr, kunci){
+  const maxHal=Math.max(1, Math.ceil(arr.length/RV_PER_HAL));
+  const hal=Math.min(Math.max(1, RVP[kunci]||1), maxHal);
+  const mulai=(hal-1)*RV_PER_HAL;
+  const akhir=Math.min(mulai+RV_PER_HAL, arr.length);
+  return { hal, maxHal, mulai, akhir, total:arr.length, items:arr.slice(mulai, akhir) };
+}
+// Kotak pencarian. id-nya dipakai afterSearch untuk mengembalikan fokus &
+// posisi kursor setelah render ulang — tanpa itu, mengetik satu huruf langsung
+// melempar kursor keluar dari kotak.
+function rvSearchHtml(kunci, placeholder){
+  return `<div class="search-box" style="max-width:280px">
+    <span class="ico">${icon('search',16)}</span>
+    <input id="rvq_${kunci}" value="${esc(RVQ[kunci]||"")}" placeholder="${esc(placeholder)}"
+           oninput="rvSetQ('${kunci}', this.value)">
+  </div>`;
+}
+// Navigasi halaman bernomor. Kalau halamannya banyak, yang jauh dari halaman
+// aktif diringkas jadi "…" supaya barisnya tidak melebar tak terkendali.
+function rvPagerHtml(p, kunci){
+  if(p.maxHal<=1) return "";
+  const nomor=[];
+  for(let i=1;i<=p.maxHal;i++){
+    if(i===1 || i===p.maxHal || Math.abs(i-p.hal)<=1) nomor.push(i);
+    else if(nomor[nomor.length-1]!=="…") nomor.push("…");
+  }
+  return `<div class="rv-pager">
+    <span class="rv-pager-info">${p.mulai+1}–${p.akhir} dari ${p.total}</span>
+    <div class="rv-pager-nav">
+      <button class="btn btn-xs btn-ghost" ${p.hal<=1?"disabled":""} onclick="rvSetPage('${kunci}',${p.hal-1})">‹</button>
+      ${nomor.map(n=>n==="…"
+        ? `<span class="rv-pager-gap">…</span>`
+        : `<button class="btn btn-xs ${n===p.hal?"btn-primary":"btn-ghost"}" onclick="rvSetPage('${kunci}',${n})">${n}</button>`).join("")}
+      <button class="btn btn-xs btn-ghost" ${p.hal>=p.maxHal?"disabled":""} onclick="rvSetPage('${kunci}',${p.hal+1})">›</button>
+    </div>
+  </div>`;
+}
+
+function reviewTargetsInRange(rg){
+  const sudahIds = new Set(reviews().map(x=>x.resId).filter(Boolean));
+  const layak = STATE.reservations.filter(x => inRange(x.date, rg) && x.status==="Datang");
+  return {
+    belum: layak.filter(x=>!sudahIds.has(x.id)).sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)),
+    sudah: layak.filter(x=> sudahIds.has(x.id)),
+    layak
+  };
+}
+// Kapan ajakan dikirim. Catatan lama belum punya askedAt — jatuh ke `at`,
+// yang saat itu memang diisi pada detik ajakan dibuat.
+function askedTs(rv){ return Number(rv && (rv.askedAt || rv.at)) || 0; }
+function sameDayTs(ts, ymd){
+  if(!ts) return false;
+  const d=new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`===ymd;
+}
 function stars(n){ n=Math.max(0,Math.min(5,Number(n)||0)); return "★".repeat(n)+"☆".repeat(5-n); }
 
 // Kirim ajakan review via WhatsApp + catat sebagai "diminta"
@@ -6408,10 +6746,15 @@ function requestReview(resId){
   if(!cfg.link){ toast("Link Google Review belum diatur — isi dulu di halaman Google Review","err"); navigate("review"); return; }
   let rv=reviews().find(x=>x.resId===resId);
   if(!rv){
+    // askedAt = KAPAN ajakan dikirim. Tidak bisa memakai `date`, karena begitu
+    // tamu mengklaim, `date` diganti jadi TANGGAL REVIEW dari form — sehingga
+    // "berapa yang diminta hari ini" tak lagi bisa dijawab. Dua hal berbeda,
+    // jadi dua field berbeda.
     rv={id:uid(), resId, name:r.name, phone:r.phone, date:r.date||todayStr(), status:"diminta",
-        rating:0, reviewerName:"", proofData:"", proofName:"", by:SESSION.name, at:Date.now()};
+        rating:0, reviewerName:"", proofData:"", proofName:"",
+        by:SESSION.name, at:Date.now(), askedAt:Date.now(), askedBy:SESSION.name};
     reviews().push(rv);
-  }else if(rv.status==="diminta"){ rv.at=Date.now(); rv.by=SESSION.name; }
+  }else if(rv.status==="diminta"){ rv.at=Date.now(); rv.askedAt=Date.now(); rv.by=SESSION.name; rv.askedBy=SESSION.name; }
   logAudit("Google Review", `Ajakan review dikirim ke ${r.name}`);
   saveState();
   if(r.phone){
@@ -6456,6 +6799,33 @@ function saveReview(rvId, resId){
   let rv = rvId ? reviews().find(x=>x.id===rvId) : null;
   const proof = PENDING_FILES.rv_proof;
   if(!rv && !proof){ toast("Screenshot bukti review wajib dilampirkan","err"); return; }
+
+  /* ===== PENJAGA KLAIM GANDA =====
+     Ditegakkan LINTAS WAKTU, bukan cuma bulan berjalan: satu akun Google hanya
+     bisa meninggalkan SATU review per tempat (menulis lagi = mengganti yang
+     lama, bukan menambah). Jadi nama akun yang sama muncul dua kali pasti
+     bukan dua review — entah salah catat, atau klaim diulang demi reward.
+
+     Nomor HP juga dijaga: satu tamu satu review. Yang dibandingkan hanya
+     catatan yang SUDAH diklaim/terverifikasi — status "diminta" belum berisi
+     klaim apa pun, dan "ditolak" memang boleh diklaim ulang setelah diperbaiki.
+
+     Diri sendiri dikecualikan lewat id, supaya mengedit klaim yang sudah ada
+     tidak tertuduh menggandakan dirinya. */
+  const telp = normPhone(byId("rv_phone").value||"");
+  const kembar = reviews().find(x =>
+    x.id !== (rv?rv.id:"") &&
+    ["diklaim","terverifikasi"].includes(x.status) && (
+      (reviewer && String(x.reviewerName||"").trim().toLowerCase() === reviewer.toLowerCase()) ||
+      (telp && normPhone(x.phone||"") === telp)
+    ));
+  if(kembar){
+    const samaAkun = reviewer && String(kembar.reviewerName||"").trim().toLowerCase()===reviewer.toLowerCase();
+    toast(samaAkun
+      ? `Akun Google "${kembar.reviewerName}" sudah pernah diklaim (${kembar.name}, ${fmtDateShort(kembar.date)}). Satu akun hanya bisa satu review.`
+      : `Nomor HP ini sudah pernah mengklaim review (${kembar.name}, ${fmtDateShort(kembar.date)}).`, "err");
+    return;
+  }
   if(!rv){
     rv={id:uid(), resId:resId||"", by:SESSION.name, at:Date.now()};
     reviews().push(rv);
@@ -6510,13 +6880,143 @@ function saveReviewCfg(){
   logAudit("Google Review", `Setelan diperbarui (target ${cfg.target}/bulan)`);
   saveState(); renderReview(); toast("Setelan review disimpan ✓","ok");
 }
-function saveReviewCount(){
+/* saveReviewCount() DIHAPUS bersama panel "Rekonsiliasi dengan Google".
+   Angkanya diketik manual dari Google Business Profile, dan karena tidak
+   ada yang menjamin angka itu benar-benar disalin (contoh di placeholder
+   pun sempat tersimpan sebagai data), hasilnya lebih sering menyesatkan
+   daripada membantu. Penjaga klaim palsu sekarang dipegang pemeriksaan
+   klaim ganda di saveReview(), yang bekerja dari data sendiri. */
+/* ===================== LAPORAN HARIAN KE GRUP =====================
+   Dua laporan terpisah, sengaja tidak digabung jadi satu pesan panjang:
+   angka Google Review dibaca manajemen untuk mengejar target, sedangkan
+   tanggapan tamu perlu sampai ke divisi yang bersangkutan. Menggabungkannya
+   membuat bagian yang penting bagi satu pihak tenggelam di tengah pesan.
+
+   Pola menyusul renderCoordWA(): pratinjau + Salin + Buka WhatsApp. Grup tidak
+   bisa dituju lewat tautan, jadi sendWA menyalin teks lalu membuka aplikasi. */
+let RVREP_DATE = todayStr();
+function setRvRepDate(v){ RVREP_DATE = v || todayStr(); renderRvReport(); }
+
+// Laporan angka Google Review untuk satu hari.
+function buildReviewReport(ymd){
   const cfg=reviewCfg();
-  const s=byId("rvc_start").value, e=byId("rvc_end").value;
-  cfg.counts[REVIEW_MONTH]={ start: s===""?null:Number(s), end: e===""?null:Number(e) };
-  logAudit("Google Review", `Rekonsiliasi ${REVIEW_MONTH}: awal ${s||"-"} → akhir ${e||"-"}`);
-  saveState(); renderReview(); toast("Rekonsiliasi disimpan ✓","ok");
+  const semua=reviews();
+  const dimintaHariItu = semua.filter(x=>sameDayTs(askedTs(x), ymd));
+  // Dari yang diminta HARI ITU, siapa yang akhirnya mengisi. Inilah angka yang
+  // ditanyakan: hasil ajakan hari itu, bukan total klaim yang masuk hari itu.
+  const ngisi = dimintaHariItu.filter(x=>["diklaim","terverifikasi"].includes(x.status));
+  // Klaim yang MASUK hari itu (bisa dari ajakan hari sebelumnya) — dilaporkan
+  // terpisah supaya dua hal ini tidak tertukar.
+  const klaimMasuk = semua.filter(x=>sameDayTs(Number(x.claimedAt)||0, ymd));
+  const ymOf = ymd.slice(0,7);
+  const bulanIni = reviewsOfMonth(ymOf).filter(x=>x.status==="terverifikasi");
+  const target = Number(cfg.target)||0;
+  const konv = dimintaHariItu.length ? Math.round(ngisi.length/dimintaHariItu.length*100) : 0;
+
+  const baris = ngisi.length
+    ? ngisi.map(x=>`• ${x.name}${x.rating?` — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))}`:""}`).join("\n")
+    : "—";
+  const belumIsi = dimintaHariItu.filter(x=>x.status==="diminta");
+
+  return [
+    `⭐ *LAPORAN GOOGLE REVIEW*`,
+    `${fmtDate(ymd)}`,
+    ``,
+    `📤 Diminta hari ini : *${dimintaHariItu.length}* tamu`,
+    `✍️ Sudah mengisi    : *${ngisi.length}* tamu (${konv}%)`,
+    `⏳ Belum mengisi    : *${belumIsi.length}* tamu`,
+    ``,
+    `Yang sudah mengisi:`,
+    baris,
+    ``,
+    `📥 Klaim masuk hari ini: ${klaimMasuk.length} (termasuk ajakan hari sebelumnya)`,
+    ``,
+    `📈 *Progres ${fmtMonth(ymOf)}*`,
+    `Terverifikasi: ${bulanIni.length}${target?` / ${target}`:""}${target?` (${Math.round(bulanIni.length/target*100)}%)`:""}`,
+    target>bulanIni.length?`Kurang ${target-bulanIni.length} review lagi 💪`:(target?`Target tercapai 🎉`:""),
+  ].filter(x=>x!==null).join("\n").replace(/\n{3,}/g,"\n\n");
 }
+
+// Laporan tanggapan tamu (positif & negatif) untuk satu hari.
+function buildFeedbackReport(ymd){
+  const fbHariItu = feedbacks().filter(x=>String(x.date||"")===ymd);
+  // Catatan lama tidak punya `tone`; isinya memang keluhan, jadi negatif.
+  const pos = fbHariItu.filter(x=>x.tone==="positif");
+  const neg = fbHariItu.filter(x=>x.tone!=="positif");
+  // Sisi "bagus" juga datang dari rating review: 4-5 bintang = pujian, 1-3 =
+  // tanda ada yang perlu dibenahi walau tamunya tidak mengeluh langsung.
+  const rvHariItu = reviews().filter(x=>String(x.date||"")===ymd && ["diklaim","terverifikasi"].includes(x.status));
+  const rvBagus = rvHariItu.filter(x=>(Number(x.rating)||0)>=4);
+  const rvKurang= rvHariItu.filter(x=>(Number(x.rating)||0)>0 && (Number(x.rating)||0)<=3);
+
+  const itemLines = fb => (Array.isArray(fb.items)?fb.items:[]).map(it=>`   ${fbCatLabel(it)} — ${it.text}`).join("\n");
+  const blokPos = [
+    ...pos.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
+    ...rvBagus.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review)`),
+  ];
+  const blokNeg = [
+    ...neg.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
+    ...rvKurang.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review, perlu ditindaklanjuti)`),
+  ];
+  // Divisi mana yang paling sering disebut di keluhan hari itu — supaya yang
+  // membaca langsung tahu ke mana harus menoleh.
+  const perDivisi={};
+  neg.forEach(fb=>(Array.isArray(fb.items)?fb.items:[]).forEach(it=>{
+    const k=fbCatLabel(it); perDivisi[k]=(perDivisi[k]||0)+1;
+  }));
+  const ringkasDivisi=Object.entries(perDivisi).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${v}`).join(", ");
+
+  return [
+    `💬 *LAPORAN TANGGAPAN TAMU*`,
+    `${fmtDate(ymd)}`,
+    ``,
+    `😊 Positif : *${blokPos.length}*`,
+    `😟 Negatif : *${blokNeg.length}*`,
+    ringkasDivisi?`\n🔎 Divisi tersorot: ${ringkasDivisi}`:``,
+    ``,
+    `*— POSITIF —*`,
+    blokPos.length?blokPos.join("\n"):"—",
+    ``,
+    `*— PERLU DIBENAHI —*`,
+    blokNeg.length?blokNeg.join("\n"):"— tidak ada keluhan hari ini 🙌",
+  ].join("\n").replace(/\n{3,}/g,"\n\n");
+}
+
+function openRvReport(){ RVREP_DATE = todayStr(); renderRvReport(); }
+function renderRvReport(){
+  const rev = buildReviewReport(RVREP_DATE);
+  const fbk = buildFeedbackReport(RVREP_DATE);
+  const card = (id, ico, title, sub, txt)=>`
+    <div class="wa-target">
+      <h4>${ico} ${title}</h4>
+      <p>${sub}</p>
+      <div class="wa-preview" id="${id}" style="max-height:280px;overflow:auto">${esc(txt)}</div>
+      <div class="wa-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sm btn-ghost" onclick="copyWA(this, byId('${id}').textContent)">📋 Salin</button>
+        <button class="btn btn-sm btn-wa" onclick="sendRvReport('${title}','${id}')">💬 Buka WhatsApp</button>
+      </div>
+    </div>`;
+  openModal(`
+    <div class="modal-head"><h3>📤 Laporan Harian ke Grup</h3><button class="close-x" onclick="closeModal()">×</button></div>
+    <div class="modal-body">
+      <div class="wa-target" style="border-style:dashed">
+        <h4>🗓️ Tanggal Laporan</h4>
+        <p>Pilih tanggal yang mau direkap. Bawaannya hari ini.</p>
+        <input type="date" value="${RVREP_DATE}" onchange="setRvRepDate(this.value)">
+      </div>
+      <div class="inline-info" style="margin:14px 0">Grup WhatsApp tidak bisa dituju lewat tautan. Menekan <b>Buka WhatsApp</b> akan menyalin pesannya lalu membuka aplikasi — tinggal tempel di grup tujuan.</div>
+      ${card("rvrepGoogle","⭐","Laporan Google Review","Berapa yang diminta hari itu dan berapa yang akhirnya mengisi.",rev)}
+      ${card("rvrepFeedback","💬","Laporan Tanggapan Tamu","Pujian & keluhan hari itu, lengkap dengan divisi yang tersorot.",fbk)}
+    </div>
+    <div class="modal-foot"><button class="btn btn-ink" onclick="closeModal()">Tutup</button></div>
+  `, true);
+}
+function sendRvReport(label, previewId){
+  const txt = byId(previewId).textContent;
+  logAudit("Laporan Harian", `${label}, ${fmtDate(RVREP_DATE)}`);
+  sendWA("group","",txt);
+}
+
 function copyReviewLink(){
   const cfg=reviewCfg();
   if(!cfg.link){ toast("Link belum diatur","err"); return; }
@@ -6549,7 +7049,9 @@ function fbCatLabel(it){
   const c=fbCat(it.cat);
   return c.id==="other" && it.catOther ? `${c.ico} ${it.catOther}` : `${c.ico} ${c.label}`;
 }
-function feedbacksOfMonth(ym){ return feedbacks().filter(x=>String(x.date||"").slice(0,7)===ym); }
+/* feedbacksOfMonth() DIHAPUS: seluruh halaman ini kini memakai rentang
+   (harian/mingguan/bulanan), jadi penyaring khusus-bulan tak ada yang memakai. */
+function feedbacksInRange(rg){ return feedbacks().filter(x=>inRange(x.date, rg)); }
 
 // --- baris keluhan pada form (bisa lebih dari satu) ---
 let FB_ITEMS = [];
@@ -6607,8 +7109,16 @@ function openFeedbackForm(resId, fbId){
   const phone= fb?.phone|| r?.phone|| "";
   openModal(`<div class="modal-head"><h3>💬 ${fb?"Ubah":"Catat"} Feedback Customer</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">Catat keluhan tamu <b>apa adanya</b>. Kalau satu tamu mengeluhkan beberapa hal, tekan <b>➕ Tambah Keluhan</b> supaya tiap keluhan masuk ke kategori divisinya masing-masing.</div>
+     <div class="inline-info" style="margin-bottom:14px">Catat tanggapan tamu <b>apa adanya</b>. Kalau satu tamu menyebut beberapa hal, tekan <b>➕ Tambah Catatan</b> supaya masing-masing masuk ke kategori divisinya sendiri.</div>
      <div class="form-grid">
+       <!-- Sifat tanggapan. Dulu tab ini HANYA menampung keluhan, jadi pujian
+            lisan tamu tidak punya tempat dan hilang begitu saja. Catatan lama
+            tanpa field ini dianggap negatif — memang itu isinya. -->
+       <div class="field full"><label>Sifat Tanggapan</label>
+         <select id="fb_tone">
+           <option value="negatif" ${(fb?.tone||"negatif")==="negatif"?"selected":""}>😟 Keluhan / Negatif</option>
+           <option value="positif" ${fb?.tone==="positif"?"selected":""}>😊 Pujian / Positif</option>
+         </select></div>
        <div class="field"><label>Nama Tamu <span class="req">*</span></label>
          <input id="fb_name" value="${esc(name)}" placeholder="Nama tamu" autocomplete="off" list="fbNames" oninput="fbGuestName(this.value)"></div>
        <div class="field"><label>No. WhatsApp</label>
@@ -6622,7 +7132,7 @@ function openFeedbackForm(resId, fbId){
        </div>
      </div>
      <div id="fb_items">${fbItemsHtml()}</div>
-     <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Keluhan</button></div>
+     <div style="margin-top:10px"><button class="btn btn-sm btn-ghost" onclick="fbAddItem()">➕ Tambah Catatan</button></div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
@@ -6636,7 +7146,7 @@ function saveFeedback(fbId, resId){
   const items = FB_ITEMS
     .map(it=>({cat:it.cat||"floor", catOther:(it.catOther||"").trim(), text:(it.text||"").trim()}))
     .filter(it=>it.text);
-  if(!items.length){ toast("Isi keluhannya minimal satu","err"); return; }
+  if(!items.length){ toast("Isi catatannya minimal satu","err"); return; }
   const badOther = items.find(it=>it.cat==="other" && !it.catOther);
   if(badOther){ toast('Kategori "Other" harus disebutkan namanya','err'); return; }
 
@@ -6650,6 +7160,7 @@ function saveFeedback(fbId, resId){
   Object.assign(fb, {
     name, phone:normPhone(byId("fb_phone").value||""),
     date:byId("fb_date").value||todayStr(),
+    tone:(byId("fb_tone")?.value==="positif")?"positif":"negatif",
     items,
     proofData: proof?proof.data:(fb.proofData||""),
     proofName: proof?proof.name:(fb.proofName||""),
@@ -6696,7 +7207,8 @@ let FB_FILTER = "";   // "" = semua kategori
 function setFbFilter(v){ FB_FILTER=v; renderReview(); }
 
 function feedbackView(){
-  const mine=feedbacksOfMonth(REVIEW_MONTH);
+  const rg=reviewRange();
+  const mine=feedbacksInRange(rg);
   const flat=[];   // satu baris per keluhan, untuk rekap kategori
   mine.forEach(fb=>fb.items.forEach(it=>flat.push({fb, it})));
   const baru=mine.filter(x=>x.status==="baru"), proses=mine.filter(x=>x.status==="proses"), selesai=mine.filter(x=>x.status==="selesai");
@@ -6712,10 +7224,22 @@ function feedbackView(){
     ? mine.filter(fb=>fb.items.some(it=>it.cat===FB_FILTER))
     : mine;
 
-  const rows = shown.slice().sort((a,b)=>(b.at||0)-(a.at||0)).map(fb=>{
+  // Pencarian mencakup isi catatannya juga, bukan cuma nama — sering yang
+  // diingat orang justru kata di keluhannya ("AC", "lama", "asin").
+  const qFb=(RVQ.fb||"").trim().toLowerCase();
+  const fbTersaring = shown.filter(fb=>!qFb || [
+      fb.name, fb.phone, fb.by, fb.handledBy, fb.actionNote,
+      ...(Array.isArray(fb.items)?fb.items.map(it=>`${it.text} ${it.catOther||""}`):[])
+    ].some(v=>String(v||"").toLowerCase().includes(qFb)))
+    .slice().sort((a,b)=>(b.at||0)-(a.at||0));
+  const pFb = rvPage(fbTersaring, "fb");
+
+  const rows = pFb.items.map(fb=>{
     const st=FB_STATUS[fb.status]||FB_STATUS.baru;
     return `<tr>
-      <td><div class="name">${esc(fb.name)}</div><div class="muted">${fb.phone?esc(displayPhone(fb.phone)):"-"}</div></td>
+      <td><div class="name">${esc(fb.name)} ${fb.tone==="positif"
+            ? '<span class="badge-status dp-yes" style="font-size:10px" title="Pujian / tanggapan positif">😊 Positif</span>'
+            : ''}</div><div class="muted">${fb.phone?esc(displayPhone(fb.phone)):"-"}</div></td>
       <td>${fb.items.map(it=>`<span class="fb-chip c-${it.cat}">${esc(fbCatLabel(it))}</span>`).join(" ")}</td>
       <td><div class="fb-texts">${fb.items.map(it=>`<div>• ${esc(it.text)}</div>`).join("")}</div>
         ${fb.actionNote?`<div class="fb-action">🔧 ${esc(fb.actionNote)}</div>`:""}</td>
@@ -6736,7 +7260,7 @@ function feedbackView(){
 
   return `
    <div class="panel">
-     <div class="panel-head"><h3>📊 Rekap Keluhan, ${fmtMonth(REVIEW_MONTH)}</h3>
+     <div class="panel-head"><h3>📊 Rekap Tanggapan, ${esc(reviewRangeLabel())}</h3>
        <span class="muted" style="font-size:12.5px">${mine.length} tamu · ${flat.length} keluhan</span></div>
      <div class="panel-body">
        <div class="recap-grid">
@@ -6759,10 +7283,14 @@ function feedbackView(){
          ${FB_CATS.map(c=>`<option value="${c.id}"${FB_FILTER===c.id?" selected":""}>${c.ico} ${c.label}</option>`).join("")}
        </select></div>
      <div class="panel-body">
-       ${shown.length?`<div class="table-wrap"><table>
-         <thead><tr><th>Tamu</th><th>Kategori</th><th>Keluhan & Tindakan</th><th>Tanggal</th><th>Status</th><th>Dicatat Oleh</th><th>Aksi</th></tr></thead>
-         <tbody>${rows}</tbody></table></div>`
-         :`<div class="empty" style="padding:30px"><div class="big">💬</div>${FB_FILTER?"Tidak ada keluhan pada kategori ini.":"Belum ada feedback bulan ini."}<br>
+       <div style="margin-bottom:12px">${rvSearchHtml("fb","Cari nama, no. HP, atau isi catatan…")}</div>
+       ${fbTersaring.length?`<div class="table-wrap"><table>
+         <thead><tr><th>Tamu</th><th>Kategori</th><th>Catatan & Tindakan</th><th>Tanggal</th><th>Status</th><th>Dicatat Oleh</th><th>Aksi</th></tr></thead>
+         <tbody>${rows}</tbody></table></div>
+         ${rvPagerHtml(pFb,"fb")}`
+         :`<div class="empty" style="padding:30px"><div class="big">${qFb?"🔍":"💬"}</div>${qFb
+              ? `Tidak ada catatan yang cocok dengan “${esc(qFb)}”.`
+              : (FB_FILTER?"Tidak ada catatan pada kategori ini.":`Belum ada feedback pada ${esc(reviewRangeLabel())}.`)}<br>
             <span class="muted">Tekan <b>➕ Catat Feedback</b> di atas, atau buka detail tamu → <b>💬 Catat Keluhan</b>.</span></div>`}
      </div>
    </div>`;
@@ -6770,19 +7298,37 @@ function feedbackView(){
 
 /* Halaman "Feedback" = 2 tab: ⭐ Google Review  |  💬 Feedback Customer */
 function renderReview(){
-  const fbNew = feedbacksOfMonth(REVIEW_MONTH).filter(x=>x.status==="baru").length;
-  const needVerify = reviewsOfMonth(REVIEW_MONTH).filter(x=>x.status==="diklaim").length;
+  const rg = reviewRange();
+  const fbNew = feedbacksInRange(rg).filter(x=>x.status==="baru").length;
+  const needVerify = reviewsInRange(rg).filter(x=>x.status==="diklaim").length;
   byId("page-review").innerHTML = `
    <div class="page-head">
      <div><h2>Feedback</h2><div class="desc">Google Review & keluhan customer — dalam satu tempat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       <!-- Satu tombol untuk kedua laporan: keduanya per-hari dan biasanya
+            dikirim sekaligus saat tutup shift, jadi tidak ada gunanya dipisah
+            jadi dua tombol yang membuka modal yang mirip. -->
+       <button class="btn btn-sm btn-wa" onclick="openRvReport()">📤 Laporan Harian</button>
        ${REVIEW_TAB==="google"
          ? `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
             <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`
          : `<button class="btn btn-sm btn-primary" onclick="openFeedbackForm()">➕ Catat Feedback</button>`}
-       <div class="field" style="margin:0"><input type="month" value="${REVIEW_MONTH}" onchange="setReviewMonth(this.value)"></div>
+       <!-- Pemilih periode. Kolom tanggal/bulan yang tampil menyesuaikan mode,
+            supaya tidak ada dua kolom tanggal yang saling bertentangan. -->
+       <div class="field" style="margin:0">
+         <select onchange="setReviewMode(this.value)">
+           <option value="hari"   ${REVIEW_MODE==="hari"?"selected":""}>Harian</option>
+           <option value="minggu" ${REVIEW_MODE==="minggu"?"selected":""}>Mingguan</option>
+           <option value="bulan"  ${REVIEW_MODE==="bulan"?"selected":""}>Bulanan</option>
+         </select></div>
+       ${REVIEW_MODE==="bulan"
+         ? `<div class="field" style="margin:0"><input type="month" value="${REVIEW_MONTH}" onchange="setReviewMonth(this.value)"></div>`
+         : `<div class="field" style="margin:0"><input type="date" value="${REVIEW_DATE}" onchange="setReviewDate(this.value)"></div>`}
      </div>
    </div>
+   <div class="panel"><div class="panel-body" style="padding-top:10px;padding-bottom:10px">
+     <span class="muted" style="font-size:12.5px">Menampilkan data <b>${esc(reviewRangeLabel())}</b>${REVIEW_MODE==="minggu"?" (Senin–Minggu)":""}</span>
+   </div></div>
    <div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
      <div class="seat-switch">
        <button class="${REVIEW_TAB==='google'?'on':''}" onclick="setReviewTab('google')">⭐ Google Review${needVerify?` (${needVerify})`:""}</button>
@@ -6795,28 +7341,45 @@ function renderReview(){
 function reviewGoogleView(){
   const cfg=reviewCfg();
   const canCfg=CAN.master(SESSION.role);
-  const mine=reviewsOfMonth(REVIEW_MONTH);
+  const rg=reviewRange();
+  const mine=reviewsInRange(rg);
+  const tgt=reviewTargetsInRange(rg);
+  // Target ditetapkan PER BULAN, jadi progresnya selalu dihitung atas bulan
+  // tempat rentang ini berada — bukan atas rentangnya. Kalau tidak, memilih
+  // "Harian" akan membuat target sebulan terlihat nyaris tak tersentuh.
+  const tm=reviewTargetMonth();
+  const verifiedBulan=reviewsOfMonth(tm).filter(x=>x.status==="terverifikasi");
   const verified=mine.filter(x=>x.status==="terverifikasi");
   const claimed =mine.filter(x=>x.status==="diklaim");
   const asked   =mine.filter(x=>x.status==="diminta");
   const rejected=mine.filter(x=>x.status==="ditolak");
   const target=Number(cfg.target)||0;
-  const pctDone=target?Math.min(100,Math.round(verified.length/target*100)):0;
+  const pctDone=target?Math.min(100,Math.round(verifiedBulan.length/target*100)):0;
   const avgRating=verified.length?(verified.reduce((a,x)=>a+(Number(x.rating)||0),0)/verified.length).toFixed(1):null;
   // konversi: dari yang diminta, berapa yang akhirnya review
   const totalAsked=mine.length;   // semua tamu yang tersentuh program
   const convRate=totalAsked?Math.round(verified.length/totalAsked*100):0;
-  // rekonsiliasi
-  const c=cfg.counts[REVIEW_MONTH]||{start:null,end:null};
-  const real=(c.start!=null&&c.end!=null)?Math.max(0,Number(c.end)-Number(c.start)):null;
-  const gap=real!=null?real-verified.length:null;
   // leaderboard host
   const byHost={};
   verified.forEach(x=>{ const k=x.claimedBy||x.by||"-"; byHost[k]=(byHost[k]||0)+1; });
   const hostArr=Object.entries(byHost).sort((a,b)=>b[1]-a[1]);
   const hostMax=Math.max(1,...hostArr.map(x=>x[1]));
 
-  const rows=mine.sort((a,b)=>(b.claimedAt||b.at||0)-(a.claimedAt||a.at||0)).map(x=>{
+  // --- Daftar Review: saring dulu, baru potong per halaman ---
+  const qDaftar=(RVQ.daftar||"").trim().toLowerCase();
+  const daftarTersaring = mine
+    .filter(x=>!qDaftar || [x.name, x.reviewerName, x.phone, x.claimedBy, x.by]
+      .some(v=>String(v||"").toLowerCase().includes(qDaftar)))
+    .sort((a,b)=>(b.claimedAt||b.at||0)-(a.claimedAt||a.at||0));
+  const pDaftar = rvPage(daftarTersaring, "daftar");
+
+  // --- Belum Diminta: idem ---
+  const qBelum=(RVQ.belum||"").trim().toLowerCase();
+  const belumTersaring = tgt.belum.filter(r=>!qBelum ||
+    [r.name, r.phone, r.table].some(v=>String(v||"").toLowerCase().includes(qBelum)));
+  const pBelum = rvPage(belumTersaring, "belum");
+
+  const rows=pDaftar.items.map(x=>{
     const st=REVIEW_STATUS[x.status]||REVIEW_STATUS.diminta;
     return `<tr>
       <td><div class="name">${esc(x.name)}</div><div class="muted">${x.phone?esc(displayPhone(x.phone)):"-"}</div></td>
@@ -6837,33 +7400,20 @@ function reviewGoogleView(){
 
   return `
    <div class="panel">
-     <div class="panel-head"><h3>❓ Cara Kerja Tab Ini</h3>
-       <span class="muted" style="font-size:12.5px">Google tidak memberi tahu siapa yang menulis review, jadi kita catat & buktikan sendiri</span></div>
-     <div class="panel-body">
-       <div class="rv-steps">
-         <div class="rv-step"><div class="n">1</div><b>Minta</b><span class="who">Host, di detail tamu</span>
-           <span>Tamu selesai makan → buka detailnya → tekan <b>⭐ Minta Review</b>. WhatsApp terbuka berisi link review, tinggal kirim. Tamu langsung masuk daftar bawah dengan status <b>📤 Diminta</b>.</span></div>
-         <div class="rv-step"><div class="n">2</div><b>Klaim</b><span class="who">Host, saat tamu menunjukkan review</span>
-           <span>Tamu bilang "sudah review" (biasanya minta reward) → tekan <b>⭐ Catat Review</b> → isi <b>nama akun Google</b>-nya + rating + <b>screenshot</b>. Statusnya jadi <b>⏳ Perlu Verifikasi</b>. <b>Belum</b> dihitung ke target.</span></div>
-         <div class="rv-step"><div class="n">3</div><b>Verifikasi</b><span class="who">Manager</span>
-           <span>Buka Google Business Profile, cari nama akun itu di daftar ulasan. Ada → tekan <b>✅ Verifikasi</b>. Tidak ada → <b>✖ Tolak</b>. Hanya yang terverifikasi yang dihitung ke target.</span></div>
-         <div class="rv-step"><div class="n">4</div><b>Rekonsiliasi</b><span class="who">Manager, awal &amp; akhir bulan</span>
-           <span>Catat <b>total review</b> di Google awal bulan &amp; akhir bulan. Selisihnya = review asli. Kalau catatan sistem lebih banyak dari selisih itu → ada klaim palsu yang lolos.</span></div>
-       </div>
-     </div>
-   </div>
-
-   <div class="panel">
-     <div class="panel-head"><h3>🎯 Target ${fmtMonth(REVIEW_MONTH)}</h3>
-       <span class="muted" style="font-size:12.5px">${verified.length} / ${target||"-"} review terverifikasi</span></div>
+     <div class="panel-head"><h3>🎯 Target ${fmtMonth(tm)}</h3>
+       <span class="muted" style="font-size:12.5px">${verifiedBulan.length} / ${target||"-"} review terverifikasi bulan ini</span></div>
      <div class="panel-body">
        <div class="rv-progress" style="margin-bottom:10px"><i style="width:${pctDone}%"></i></div>
        <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)">
          <span><b style="color:var(--ink);font-size:15px">${pctDone}%</b> tercapai</span>
-         <span>${target>verified.length?`kurang <b>${target-verified.length}</b> review lagi`:`🎉 target tercapai`}</span>
+         <span>${target>verifiedBulan.length?`kurang <b>${target-verifiedBulan.length}</b> review lagi`:`🎉 target tercapai`}</span>
        </div>
-       <div class="recap-grid" style="margin-top:16px">
-         <div class="recap ok"><div class="lbl">✅ Terverifikasi</div><div class="val">${verified.length}</div><div class="sub">dihitung ke target</div></div>
+       <!-- Kartu di bawah ini mengikuti PERIODE terpilih, bukan bulan. Diberi
+            keterangan periodenya supaya tidak tertukar dengan angka target di
+            atas yang selalu bulanan. -->
+       <div class="muted" style="font-size:12px;margin-top:16px">Ringkasan ${esc(reviewRangeLabel())}</div>
+       <div class="recap-grid" style="margin-top:8px">
+         <div class="recap ok"><div class="lbl">✅ Terverifikasi</div><div class="val">${verified.length}</div><div class="sub">pada periode ini</div></div>
          <div class="recap warn"><div class="lbl">⏳ Perlu Verifikasi</div><div class="val">${claimed.length}</div><div class="sub">${canCfg?"cek & verifikasi":"menunggu manager"}</div></div>
          <div class="recap"><div class="lbl">📤 Diminta</div><div class="val">${asked.length}</div><div class="sub">belum ada klaim</div></div>
          <div class="recap ${rejected.length?'danger':''}"><div class="lbl">✖ Ditolak</div><div class="val">${rejected.length}</div><div class="sub">tak ditemukan di Google</div></div>
@@ -6873,31 +7423,47 @@ function reviewGoogleView(){
      </div>
    </div>
 
+
    <div class="panel">
-     <div class="panel-head"><h3>🔎 Rekonsiliasi dengan Google (anti klaim palsu)</h3></div>
+     <div class="panel-head"><h3>📤 Tamu Belum Diminta Review</h3>
+       <span class="muted" style="font-size:12.5px">${tgt.belum.length} dari ${tgt.layak.length} tamu yang datang</span></div>
      <div class="panel-body">
-       <div class="inline-info" style="margin-bottom:12px">Buka Google Business Profile, catat <b>jumlah total review</b> di awal & akhir bulan. Selisihnya = review asli yang benar-benar masuk. Kalau yang tercatat di sistem <b>lebih banyak</b> dari selisih itu, berarti ada klaim yang tidak sah.</div>
-       <div class="form-grid">
-         <div class="field"><label>Total review di Google, awal ${fmtMonth(REVIEW_MONTH)}</label><input type="number" id="rvc_start" min="0" value="${c.start!=null?c.start:""}" placeholder="mis. 320"></div>
-         <div class="field"><label>Total review di Google, akhir bulan</label><input type="number" id="rvc_end" min="0" value="${c.end!=null?c.end:""}" placeholder="mis. 348"></div>
+       <div style="margin-bottom:12px">${rvSearchHtml("belum","Cari nama, no. HP, atau meja…")}</div>
+       <div class="recap-grid" style="margin-bottom:14px">
+         <div class="recap ${tgt.belum.length?'warn':'ok'}"><div class="lbl">⏳ Belum Diminta</div><div class="val">${tgt.belum.length}</div><div class="sub">tamu datang, ajakan belum dikirim</div></div>
+         <div class="recap ok"><div class="lbl">✅ Sudah Diminta</div><div class="val">${tgt.sudah.length}</div><div class="sub">ajakan sudah terkirim</div></div>
+         <div class="recap info"><div class="lbl">📊 Cakupan</div><div class="val">${tgt.layak.length?Math.round(tgt.sudah.length/tgt.layak.length*100):0}<small>%</small></div><div class="sub">tamu datang yang tersentuh</div></div>
        </div>
-       <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-sm btn-primary" onclick="saveReviewCount()">💾 Simpan Angka</button></div>
-       ${real!=null?`<div class="recap-grid" style="margin-top:14px">
-         <div class="recap info"><div class="lbl">Review asli (dari Google)</div><div class="val">${real}</div><div class="sub">selisih akhir − awal</div></div>
-         <div class="recap ok"><div class="lbl">Tercatat terverifikasi</div><div class="val">${verified.length}</div></div>
-         <div class="recap ${gap<0?'danger':'ok'}"><div class="lbl">${gap<0?"⚠️ Kelebihan klaim":"Selisih"}</div><div class="val">${gap>=0?"+"+gap:gap}</div>
-           <div class="sub">${gap<0?"tercatat > Google, ada klaim tak sah":gap===0?"cocok persis":"ada review organik yang belum tercatat"}</div></div>
-       </div>`:`<div class="muted" style="margin-top:10px;font-size:12.5px">Isi kedua angka di atas untuk melihat hasil rekonsiliasi.</div>`}
+       ${belumTersaring.length?`<div class="table-wrap"><table>
+         <thead><tr><th>Tanggal</th><th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>Aksi</th></tr></thead>
+         <tbody>${pBelum.items.map(r=>`<tr>
+           <td>${fmtDateShort(r.date)}</td>
+           <td>${esc(r.time||"-")}</td>
+           <td><div class="name">${esc(r.name)}</div><div class="muted">${r.phone?esc(displayPhone(r.phone)):'<span style="color:var(--danger)">tanpa no. HP</span>'}</div></td>
+           <td>${esc(String(r.pax||"-"))}</td>
+           <td>${r.table?esc(r.table):'<span class="muted">-</span>'}</td>
+           <td><div class="mini-actions">${r.phone
+               ? `<button class="btn btn-xs btn-primary" onclick="requestReview('${r.id}')">⭐ Minta Review</button>`
+               : `<span class="muted" style="font-size:11px">nomor HP kosong</span>`}</div></td>
+         </tr>`).join("")}</tbody></table></div>
+         ${rvPagerHtml(pBelum,"belum")}`
+         :`<div class="empty" style="padding:24px"><div class="big">${qBelum?"🔍":"🎉"}</div>${qBelum
+             ? `Tidak ada tamu yang cocok dengan “${esc(qBelum)}”.`
+             : `Semua tamu yang datang pada ${esc(reviewRangeLabel())} sudah diminta review.`}</div>`}
      </div>
    </div>
 
    <div class="panel">
-     <div class="panel-head"><h3>📋 Daftar Review, ${fmtMonth(REVIEW_MONTH)}</h3><span class="muted" style="font-size:12.5px">${mine.length} catatan</span></div>
+     <div class="panel-head"><h3>📋 Daftar Review, ${esc(reviewRangeLabel())}</h3><span class="muted" style="font-size:12.5px">${mine.length} catatan</span></div>
      <div class="panel-body">
-       ${mine.length?`<div class="table-wrap"><table>
+       <div style="margin-bottom:12px">${rvSearchHtml("daftar","Cari nama tamu, akun Google, atau pencatat…")}</div>
+       ${daftarTersaring.length?`<div class="table-wrap"><table>
          <thead><tr><th>Tamu</th><th>Nama Akun Google</th><th>Rating</th><th>Tanggal</th><th>Status</th><th>Dicatat Oleh</th><th>Aksi</th></tr></thead>
-         <tbody>${rows}</tbody></table></div>`
-         :`<div class="empty" style="padding:30px"><div class="big">⭐</div>Belum ada catatan review bulan ini.<br><span class="muted">Kirim ajakan review dari detail reservasi tamu yang sudah selesai duduk.</span></div>`}
+         <tbody>${rows}</tbody></table></div>
+         ${rvPagerHtml(pDaftar,"daftar")}`
+         :`<div class="empty" style="padding:30px"><div class="big">${qDaftar?"🔍":"⭐"}</div>${qDaftar
+             ? `Tidak ada catatan yang cocok dengan “${esc(qDaftar)}”.`
+             : `Belum ada catatan review pada ${esc(reviewRangeLabel())}.<br><span class="muted">Kirim ajakan review dari detail reservasi tamu yang sudah selesai duduk.</span>`}</div>`}
      </div>
    </div>
 

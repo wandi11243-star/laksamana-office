@@ -290,6 +290,7 @@ function upsert_collection($pdo, $c, $rows) {
   $st = $pdo->prepare($sql);
 
   $ids = array();
+  $maxUpd = 0;                      // updated_at terbaru yang ADA di kiriman ini
   foreach ($rows as $r) {
     if (!is_array($r) || empty($r['id'])) continue;
     $id = (string)$r['id'];
@@ -298,12 +299,13 @@ function upsert_collection($pdo, $c, $rows) {
     $args = array(':id' => $id);
     foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($r, $def[0], $def[1]);
     $args[':updated_at'] = ms_valid(isset($r['updatedAt']) ? $r['updatedAt'] : 0);
+    if ($args[':updated_at'] > $maxUpd) $maxUpd = $args[':updated_at'];
     if ($adaCreated) $args[':created_at'] = ms_valid(isset($r[$createdField]) ? $r[$createdField] : 0);
     $args[':data'] = json_enc($r);
     $st->execute($args);
   }
 
-  hapus_yang_hilang($pdo, $tabel, 'id', $ids);
+  hapus_yang_hilang($pdo, $tabel, 'id', $ids, $maxUpd);
   return count($ids);
 }
 
@@ -312,14 +314,25 @@ function upsert_collection($pdo, $c, $rows) {
    lindungi dari state kosong yang tak sengaja (mis. aplikasi gagal load lalu
    menyimpan). Menghapus semua isi tabel harus lewat phpMyAdmin, bukan lewat
    satu request yang kebetulan kosong. */
-function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids) {
+function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $batas = 0) {
   if (count($ids) === 0) {
-    $ada = (int)$pdo->query('SELECT COUNT(*) c FROM ' . $tabel)->fetch()['c'];
-    return; // baik DB kosong maupun terisi: tidak menghapus apa pun
+    return; // kiriman kosong: tidak menghapus apa pun (lihat catatan di atas)
   }
+  /* PENJAGA BARIS BARU DARI KRU LAIN.
+     Penjaga updated_at hanya melindungi PERUBAHAN, bukan PENGHAPUSAN. Tanpa
+     batas di bawah ini: kasir A membuka aplikasi (10 tiket termuat), kasir B
+     menjual tiket ke-11, lalu kasir A menyimpan — kiriman A tidak memuat
+     tiket ke-11, sehingga tiket yang sah itu IKUT TERHAPUS tanpa jejak.
+
+     $batas = updated_at terbaru yang ADA di kiriman. Baris yang lebih baru
+     dari itu mustahil diketahui pengirimnya, jadi tidak boleh dihapus
+     olehnya. Baris lama yang memang sengaja dihapus tetap terhapus. */
   $place = implode(',', array_fill(0, count($ids), '?'));
-  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE ' . $kolomId . ' NOT IN (' . $place . ')');
-  $del->execute($ids);
+  $sql   = 'DELETE FROM ' . $tabel . ' WHERE ' . $kolomId . ' NOT IN (' . $place . ')';
+  $args  = $ids;
+  if ($batas > 0) { $sql .= ' AND updated_at <= ?'; $args[] = $batas; }
+  $del = $pdo->prepare($sql);
+  $del->execute($args);
 }
 
 /* ==================== SIMPAN (dipanggil di dalam kunci) ====================

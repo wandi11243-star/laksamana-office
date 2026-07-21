@@ -389,6 +389,14 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .seg button{padding:6px 13px;border:none;background:none;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:.14s}
 .seg button.on{background:var(--gold);color:#fff}
 
+/* Kotak jam: ikon pemilih dibuat kentara supaya terlihat bisa diklik.
+   Bawaannya samar dan orang mengira kotaknya cuma bisa diketik. */
+.inp-jam::-webkit-calendar-picker-indicator{
+  opacity:.8;cursor:pointer;padding:2px;border-radius:4px;
+  filter:invert(45%) sepia(70%) saturate(600%) hue-rotate(2deg);   /* jadi emas */
+}
+.inp-jam::-webkit-calendar-picker-indicator:hover{opacity:1;background:var(--gold-glow)}
+.rundown-tbl td .inp-jam{padding-right:4px}
 /* rundown tabel */
 .rundown-wrap{border:1px solid var(--line-hard);border-radius:11px;overflow:hidden;background:var(--ink-900)}
 .rundown-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -471,7 +479,8 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 /* Catatan kini <textarea> supaya bisa Enter/multi-baris. Tinggi awal disamakan
    dengan tinggi input biasa agar barisnya tidak jadi tinggi sendiri; user boleh
    menariknya ke bawah kalau catatannya panjang. */
-.ynnote .ynnote-note{flex:1;min-width:160px;min-height:38px;height:38px;resize:vertical;line-height:1.4}
+.ynnote .ynnote-note{flex:1;min-width:160px;min-height:38px;height:38px;resize:vertical;line-height:1.4;
+  overflow-y:hidden}   /* tingginya diatur tumbuhkan() mengikuti jumlah baris */
 
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
@@ -988,7 +997,8 @@ async function autoSyncOfficeRoster(){
         S.users.push({id:m.id,name:m.name||'(tanpa nama)',role:m.isModuleAdmin?'super_admin':'marketing',active:m.active!==false});
         changed=true;
       } else {
-        if(!u.id&&m.id){u.id=m.id;changed=true;}
+        // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
+        if(m.id&&u.id!==m.id){u.id=m.id;changed=true;}
         if(m.name&&u.name!==m.name){u.name=m.name;changed=true;}
       }
     });
@@ -1086,7 +1096,7 @@ const EVENT_SCHEMA = [
   {k:'budgetPax',l:'Budget per Pax (F&B)',t:'cur',help:'Harga F&B per orang. Dipakai untuk auto-hitung biaya F&B di tab Finance (Pax × Budget/Pax).'},
   {k:'vipDetail',l:'Detail Tamu VIP/VVIP/Umum',t:'ta'},
   {k:'privacy',l:'Sifat Acara',t:'sel',o:['Private','Public','Semi Private','Combine Event'],req:1},
-  {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1 (Dermaga)','Lantai 2','Outdoor','VIP Area','Seluruh Area','Lainnya'],req:1},
+  {k:'area',l:'Lantai / Area',t:'sel',o:['Lantai 1','Lantai 2','Outdoor','VIP Area','Seluruh Area','Lainnya'],req:1},
   {k:'areaLain',l:'Lantai / Area — tulis sendiri',t:'text',cond:{k:'area',v:'Lainnya'}},
   {k:'rundown',l:'Rundown Acara',t:'rundown',help:'Isi per baris: jam mulai, selesai, durasi & kegiatan. Ketik durasi -> jam selesai terhitung sendiri.',req:1,full:1},
   {k:'rundownFiles',l:'Lampiran Rundown',t:'files',full:1,help:'Unggah foto/PDF rundown. Gambar langsung tampil di bawah.'},
@@ -2420,11 +2430,16 @@ function renderField(ev,fl,canEdit){
        +'<div class="seg" data-role="seg"><button type="button" class="'+(o.v===true?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(o.v===false?'on':'')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'
        // textarea, bukan input: catatan/detail sering butuh beberapa baris dan
        // dulu tombol Enter tidak bisa dipakai sama sekali di sini.
-       +'<textarea class="inp ynnote-note" data-role="note" rows="1" placeholder="Catatan / detail (opsional) — boleh beberapa baris" '+dis+'>'+esc(o.note)+'</textarea>'
+       +'<textarea class="inp ynnote-note" data-role="note" rows="1" placeholder="Catatan / detail (opsional) — boleh beberapa baris" '
+          +(canEdit?'oninput="tumbuhkan(this)" ':'')+dis+'>'+esc(o.note)+'</textarea>'
        +'</div>';
   } else if(fl.t==='rundown'){
     const rows=rundownRows(val);
-    const bodyH=(rows.length?rows:[{mulai:'',selesai:'',durasi:'',kegiatan:''}]).map(r=>rundownRowHTML(r,canEdit)).join('');
+    // Baris pertama pada tabel kosong sudah membawa jam mulai acara, jadi
+    // tinggal mengisi durasi — tidak perlu mengetik ulang jam yang sudah
+    // ditulis di Informasi Dasar.
+    const kosong=[{mulai:rundownJamAwal(ev), selesai:'', durasi:'', kegiatan:''}];
+    const bodyH=(rows.length?rows:kosong).map(r=>rundownRowHTML(r,canEdit)).join('');
     inp='<div class="rundown-wrap" id="'+id+'">'
        +'<table class="rundown-tbl"><thead><tr><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:84px">Durasi (mnt)</th><th>Kegiatan</th>'+(canEdit?'<th style="width:34px"></th>':'')+'</tr></thead>'
        +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
@@ -2481,7 +2496,10 @@ function renderField(ev,fl,canEdit){
    Bentuk data: { "Main Course": { jam:"19:00", rows:[{kat,menu,qty,jam}] } }
    Kelompok yang komponennya dilepas centangnya TIDAK dihapus dari data —
    kalau dicentang lagi isian lamanya masih utuh. */
-const MENU_KAT_GROUPS=['Main Course','Welcome Snack'];
+/* Kolom "Jenis" tampil di SEMUA kelompok. Dulu hanya Main Course & Welcome
+   Snack yang dapat, tapi kelompok lain pun perlu dikelompokkan di PDF
+   (mis. Welcome Drink: panas / dingin), dan ketiadaan kolomnya membuat
+   tabelnya terasa beda-beda tanpa alasan yang jelas bagi pengisinya. */
 const MENU_KATEGORI=['Karbohidrat','Protein','Sayuran','Pelengkap'];
 function menuTblVal(val){ return (val && typeof val==='object' && !Array.isArray(val)) ? val : {}; }
 function menuGroupsOf(ev,fl){
@@ -2509,10 +2527,9 @@ function menuTblHTML(ev,fl,canEdit){
   return lama+grup.map(g=>menuGroupHTML(fl.k,g,data[g]||{},canEdit)).join('');
 }
 function menuGroupHTML(fk,g,gd,canEdit){
-  const kat=MENU_KAT_GROUPS.includes(g);
   const rows=Array.isArray(gd.rows)?gd.rows:[];
   const jam=gd.jam||'';
-  const body=(rows.length?rows:[{}]).map(r=>menuRowHTML(r,kat,canEdit)).join('');
+  const body=(rows.length?rows:[{}]).map(r=>menuRowHTML(r,jam,canEdit)).join('');
   // Jam kelompok sengaja disembunyikan sampai diklik — kebanyakan komponen
   // tidak perlu jam sendiri, cukup ikut jam keluar F&B.
   return '<div class="mg" data-g="'+esc(g)+'">'
@@ -2523,20 +2540,24 @@ function menuGroupHTML(fk,g,gd,canEdit){
         +(jam?'':'style="display:none"')+' '+(canEdit?'':'disabled')+' oninput="menuJamIsi(this)">'
     +'</div>'
     +'<table class="rundown-tbl"><thead><tr>'
-      +(kat?'<th style="width:130px">Kategori</th>':'')
-      +'<th>Menu</th><th style="width:88px">Jumlah</th><th style="width:120px">Jam</th>'
+      +'<th style="width:140px">Jenis</th>'
+      +'<th>Menu</th><th style="width:88px">Jumlah</th><th style="width:130px">Jam</th>'
       +(canEdit?'<th style="width:34px"></th>':'')
     +'</tr></thead><tbody>'+body+'</tbody></table>'
     +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="menuAddRow(this)">'+svg(IC.plus)+'Tambah Baris</button></div>':'')
     +'</div>';
 }
-function menuRowHTML(r,kat,canEdit){
+function menuRowHTML(r,gjam,canEdit){
   r=r||{}; const dis=canEdit?'':'disabled';
+  /* Kolom jam sengaja DIBIARKAN KOSONG dan cuma menampilkan jam kelompok
+     sebagai placeholder. Kosong berarti "ikut jam kelompok" — collectMenuTbl
+     yang mengisinya saat disimpan. Jadi tidak perlu diketik ulang tiap baris,
+     tapi tetap bisa ditimpa kalau satu menu keluar di jam berbeda. */
   return '<tr>'
-    +(kat?'<td><input class="inp" list="dl_menukat" data-r="kat" value="'+esc(r.kat||'')+'" placeholder="pilih / ketik" '+dis+'></td>':'')
+    +'<td><input class="inp" list="dl_menukat" data-r="kat" value="'+esc(r.kat||'')+'" placeholder="pilih / ketik" '+dis+'></td>'
     +'<td><input class="inp" data-r="menu" value="'+esc(r.menu||'')+'" placeholder="nama menu" '+dis+'></td>'
     +'<td><input class="inp" data-r="qty" value="'+esc(r.qty||'')+'" placeholder="jumlah" '+dis+'></td>'
-    +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="jam" '+dis+'></td>'
+    +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="'+esc(gjam||'ikut jam kelompok')+'" title="Kosongkan untuk ikut jam kelompok" '+dis+'></td>'
     +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="menuDelRow(this)">×</button></td>':'')
     +'</tr>';
 }
@@ -2609,17 +2630,21 @@ function menuJamToggle(btn){
 }
 // Jam kelompok mengisi baris yang masih kosong ATAU yang masih memakai jam
 // kelompok sebelumnya — jam yang sudah diubah manual tidak ikut tertimpa.
+/* Mengubah jam kelompok cukup memperbarui PLACEHOLDER tiap baris. Baris yang
+   dibiarkan kosong otomatis ikut jam baru itu saat disimpan — tidak ada lagi
+   nilai yang ditulis diam-diam ke dalam kotak, jadi tidak mungkin tertinggal
+   jam lama yang sudah tidak berlaku. */
 function menuJamIsi(inp){
   const g=inp.closest('.mg'); const baru=inp.value;
-  const lama=inp.dataset.prev||'';
-  g.querySelectorAll('tbody [data-r="jam"]').forEach(e=>{ if(!e.value || e.value===lama) e.value=baru; });
-  inp.dataset.prev=baru;
+  g.querySelectorAll('tbody [data-r="jam"]').forEach(e=>{
+    e.placeholder = baru || 'ikut jam kelompok';
+  });
 }
 function menuAddRow(btn){
   const g=btn.closest('.mg');
   const jam=(g.querySelector('[data-r="gjam"]')||{}).value||'';
   const tmp=document.createElement('tbody');
-  tmp.innerHTML=menuRowHTML({jam}, MENU_KAT_GROUPS.includes(g.dataset.g), true);
+  tmp.innerHTML=menuRowHTML({}, jam, true);
   g.querySelector('tbody').appendChild(tmp.firstElementChild);
 }
 function menuDelRow(btn){
@@ -2630,11 +2655,15 @@ function collectMenuTbl(fl){
   const box=$('efd_'+fl.k); if(!box) return undefined;
   const out={};
   box.querySelectorAll('.mg').forEach(g=>{
+    const jamKel=(g.querySelector('[data-r="gjam"]')||{}).value||'';
     const rows=[...g.querySelectorAll('tbody tr')].map(tr=>{
       const v=r=>{ const e=tr.querySelector('[data-r="'+r+'"]'); return e?e.value.trim():''; };
-      return {kat:v('kat'), menu:v('menu'), qty:v('qty'), jam:v('jam')};
+      // Jam baris yang dibiarkan kosong = ikut jam kelompok. Diisi di sini,
+      // bukan di kotaknya, supaya mengganti jam kelompok otomatis mengubah
+      // semua baris yang memang menumpang padanya.
+      return {kat:v('kat'), menu:v('menu'), qty:v('qty'), jam:(v('jam') || jamKel)};
     }).filter(r=>r.menu||r.qty||r.kat);
-    const jam=(g.querySelector('[data-r="gjam"]')||{}).value||'';
+    const jam=jamKel;
     if(rows.length||jam) out[g.dataset.g]={jam:jam, rows:rows};
   });
   // Kelompok yang komponennya sedang tidak dicentang tidak digambar, jadi
@@ -2763,6 +2792,21 @@ function delAttach(evId,k,key){
   save(); repaintAttach(evId,k);
   toast('Lampiran dihapus','','ok');
 }
+/* Textarea yang ikut tinggi isinya. Sebelumnya tingginya dikunci 38px, jadi
+   menekan Enter membuat teksnya menggulir di balik kotak sempit — orang jadi
+   tidak bisa melihat catatan yang baru saja diketiknya sendiri.
+   Dipanggil saat mengetik DAN sekali saat form digambar (catatan lama yang
+   sudah berbaris-baris harus langsung tampil utuh). */
+function tumbuhkan(el){
+  if(!el)return;
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight, 320)+'px';   // batas atas: jangan sampai satu catatan memenuhi layar
+  if(el.scrollHeight>320) el.style.overflowY='auto';
+}
+function tumbuhkanSemua(){
+  const c=$('ev-tab-content'); if(!c)return;
+  c.querySelectorAll('textarea.ynnote-note').forEach(tumbuhkan);
+}
 function segPick(btn,v){ btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); syncConds(); }
 /* ---------- Field bersyarat: tampil/sembunyi seketika ----------
    Dulu field ber-`cond` cuma dihitung ulang saat seksi digambar ulang, jadi
@@ -2878,6 +2922,27 @@ function rundownParseText(txt){
      - ubah SELESAI  -> durasi ikut menyesuaikan
    Data lama yang cuma punya {waktu, kegiatan} tetap terbaca: `waktu` dipakai
    sebagai jam mulai (lihat rundownRows). */
+/* Kotak jam pada tabel rundown: memakai input jam bawaan browser, jadi ada
+   ikon jam dan pemilihnya — mengetik "09:00" satu per satu itu lambat dan
+   gampang salah.
+
+   Nilai lama yang ditulis "09.00" (pakai titik) dinormalkan dulu ke "09:00",
+   karena input jam bawaan hanya menerima bentuk itu.
+
+   Kalau nilainya TIDAK berbentuk jam sama sekali — misalnya hasil OCR rundown
+   lama yang berbunyi "sore" — kotaknya tetap kotak teks biasa. Kalau
+   dipaksakan jadi input jam, nilainya akan hilang dari layar tanpa jejak dan
+   orang mengira datanya terhapus. */
+function jamCell(nama, nilai, dis, hook){
+  const norm = jamKeMenit(nilai);
+  if(nilai && norm===null){
+    return '<input class="inp" data-r="'+nama+'" value="'+esc(nilai)+'" '
+         + 'title="Bentuknya belum dikenali. Ketik ulang mis. 09:00 supaya bisa memakai pemilih jam." '
+         + dis+hook+'>';
+  }
+  return '<input class="inp inp-jam" type="time" data-r="'+nama+'" '
+       + 'value="'+(norm!==null?menitKeJam(norm):'')+'" '+dis+hook+'>';
+}
 function jamKeMenit(s){
   const m=String(s||'').match(/^(\d{1,2})[:.](\d{2})$/); if(!m)return null;
   const h=+m[1], mi=+m[2]; if(h>23||mi>59)return null; return h*60+mi;
@@ -2905,15 +2970,38 @@ function rundownHitung(el,dari){
     const sel=jamKeMenit(q('selesai')&&q('selesai').value);
     if(mulai!=null && sel!=null){ let d=sel-mulai; if(d<0)d+=1440; q('durasi').value=String(d); }
   }
+  rundownSambung(tr);
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
+/* Baris berikutnya menyambung dari jam selesai baris ini — acara memang
+   berurutan, jadi mengetik ulang jam mulai tiap baris cuma pekerjaan sia-sia
+   yang gampang salah ketik.
+
+   Hanya diisi kalau baris berikutnya masih KOSONG, atau masih memuat
+   sambungan lama yang belum disentuh siapa pun. Jam yang sudah diubah
+   manual tidak pernah ditimpa — jeda antar acara itu hal biasa. */
+function rundownSambung(tr){
+  const sel=tr.querySelector('[data-r="selesai"]'); if(!sel)return;
+  const next=tr.nextElementSibling; if(!next)return;
+  const m=next.querySelector('[data-r="mulai"]'); if(!m)return;
+  const lama=tr.dataset.sambung||'';
+  if(m.value==='' || m.value===lama){
+    m.value=sel.value;
+    tr.dataset.sambung=sel.value;
+    // rantainya diteruskan: durasi baris berikutnya ikut menghitung ulang
+    const d=next.querySelector('[data-r="durasi"]');
+    if(d && d.value) rundownHitung(d,'durasi');
+  }
 }
 function rundownRowHTML(r,canEdit){
   r=r||{}; const dis=canEdit?'':'disabled';
   const ev=canEdit?' oninput="rundownHitung(this,\'durasi\')"':'';
-  const es=canEdit?' oninput="rundownHitung(this,\'selesai\')"':'';
+  // 'change' ikut dipasang: memilih jam lewat ikon pemilih tidak selalu
+  // memicu 'input' di semua browser, dan tanpa ini durasinya tidak terhitung.
+  const es=canEdit?' oninput="rundownHitung(this,\'selesai\')" onchange="rundownHitung(this,\'selesai\')"':'';
   return '<tr>'
-    +'<td><input class="inp" data-r="mulai" placeholder="09:00" value="'+esc(r.mulai||r.waktu||'')+'" '+dis+es+'></td>'
-    +'<td><input class="inp" data-r="selesai" placeholder="10:00" value="'+esc(r.selesai||'')+'" '+dis+es+'></td>'
+    +'<td>'+jamCell('mulai',   r.mulai||r.waktu||'', dis, es)+'</td>'
+    +'<td>'+jamCell('selesai', r.selesai||'',        dis, es)+'</td>'
     +'<td><input class="inp" data-r="durasi" placeholder="60" title="menit — ketik ini, jam selesai terhitung sendiri" value="'+esc(r.durasi||'')+'" '+dis+ev+'></td>'
     +'<td><input class="inp" data-r="kegiatan" placeholder="Kegiatan" value="'+esc(r.kegiatan||'')+'" '+dis+'></td>'
     +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rundownDelRow(this)">×</button></td>':'')
@@ -2921,10 +3009,38 @@ function rundownRowHTML(r,canEdit){
 }
 function rundownAddRow(id,row){
   const body=$(id+'_body'); if(!body)return;
+  // Baris baru langsung mulai dari jam selesai baris terakhir. Kalau tabelnya
+  // masih kosong, dipakai jam tamu datang dari Informasi Dasar — itu jam yang
+  // hampir selalu jadi titik awal rundown.
+  let sambungDari=null;
+  if(!row || !row.mulai){
+    const akhir=body.querySelector('tr:last-child [data-r="selesai"]');
+    const awal = (akhir && akhir.value) ? akhir.value : rundownJamAwal();
+    if(awal){
+      row=Object.assign({}, row||{}, {mulai:awal});
+      // Baris sebelumnya perlu tahu bahwa jam ini SAMBUNGAN darinya. Tanpa
+      // catatan ini, mengubah durasi baris sebelumnya tidak menggeser baris
+      // berikutnya — jamnya dikira sudah diketik manual.
+      if(akhir && akhir.value) sambungDari=akhir.closest('tr');
+    }
+  }
   const tmp=document.createElement('tbody'); tmp.innerHTML=rundownRowHTML(row||{},true);
   const tr=tmp.firstElementChild; body.appendChild(tr);
-  const first=tr.querySelector('input'); if(first&&!(row&&row.waktu)) first.focus();
+  if(sambungDari) sambungDari.dataset.sambung=row.mulai;
+  // Fokus ke DURASI, bukan jam mulai: jam mulainya sudah terisi, yang perlu
+  // diketik berikutnya memang durasinya.
+  const isi=tr.querySelector('[data-r="durasi"]'), awal2=tr.querySelector('[data-r="mulai"]');
+  const fokus=(awal2 && awal2.value) ? isi : awal2;
+  if(fokus && !(row&&row.waktu)) fokus.focus();
   return tr;
+}
+// Jam mulai acara dari D.1, dipakai sebagai titik awal rundown.
+function rundownJamAwal(ev){
+  // ev boleh dikirim langsung: saat form digambar, _asEvId belum tentu
+  // menunjuk event yang sedang digambar.
+  if(!ev) ev=S.events.find(e=>e.id===_asEvId);
+  if(!ev||!ev.detail)return '';
+  return ev.detail.tamuDatang || ev.detail.mulaiSetup || '';
 }
 function rundownDelRow(btn){
   const tr=btn.closest('tr'), body=tr&&tr.parentElement; if(!tr)return;
@@ -2957,6 +3073,7 @@ function autoSaveBind(ev){
   c.addEventListener('change',syncConds);
   c.addEventListener('change',syncMenuTbl);
   syncConds();
+  tumbuhkanSemua();
   c.querySelectorAll('.rundown-wrap').forEach(itemTotal);   // total item tambahan
 }
 function autoSaveCommit(){

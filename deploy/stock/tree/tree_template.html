@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pohon Resep &middot; Laksamana</title>
+<link rel="icon" href="../../assets/LaksamanaMudaLogo.jpeg">
+<script>
+/* Gerbang SSO Office. Dijalankan di <head> SEBELUM apa pun tergambar, supaya
+   isi halaman tidak sempat berkedip bagi yang tidak berhak. Pola dan kunci
+   sesinya sama dengan deploy/stock/index.html.
+
+   Halaman ini memuat seluruh resep di dalam berkasnya sendiri, jadi tanpa
+   gerbang ini siapa pun yang tahu URL-nya bisa membaca semua resep. */
+(function () {
+  try {
+    var s = JSON.parse(localStorage.getItem('lm_session'));
+    if (!s || !s.expiry || Date.now() > s.expiry) { location.replace('../../'); return; }
+    var m = s.modules || [];
+    if (!(m.indexOf('*') > -1 || m.indexOf('ordering') > -1 || m.indexOf('purchasing') > -1)) {
+      location.replace('../../');
+    }
+  } catch (e) { location.replace('../../'); }
+})();
+</script>
+<style>
+:root{
+  --bg:#f7f4ef; --panel:#fffdfa; --panel-2:#f0ebe2; --ink:#2a2521; --ink-2:#6b6157;
+  --line:#e3dccf; --line-2:#d3c9b8;
+  --accent:#c47d18; --accent-soft:#f2e3c8;
+  --root:#5b8c5a; --root-bg:#e7f0e5;
+  --wip:#c47d18; --wip-bg:#f6ead2;
+  --alert:#bf4e34; --alert-bg:#f7e2da;
+  --bought:#4f74a0; --bought-bg:#e1e9f2;
+  --shadow:0 1px 2px rgba(60,45,25,.06),0 8px 24px rgba(60,45,25,.06);
+  --mono:'SF Mono',ui-monospace,'Cascadia Mono','Roboto Mono',Menlo,Consolas,monospace;
+  --sans:'Segoe UI',-apple-system,BlinkMacSystemFont,system-ui,Roboto,'Helvetica Neue',sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#211d1a; --panel:#2a2521; --panel-2:#322c27; --ink:#f2ece2; --ink-2:#a89d8e;
+  --line:#3a332c; --line-2:#4a4038;
+  --accent:#e0a542; --accent-soft:#463a24;
+  --root:#7bab77; --root-bg:#26362a;
+  --wip:#e0a542; --wip-bg:#3c3220;
+  --alert:#e07a5c; --alert-bg:#3d2820;
+  --bought:#7fa0c9; --bought-bg:#232f3c;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+}}
+:root[data-theme="light"]{
+  --bg:#f7f4ef; --panel:#fffdfa; --panel-2:#f0ebe2; --ink:#2a2521; --ink-2:#6b6157;
+  --line:#e3dccf; --line-2:#d3c9b8; --accent:#c47d18; --accent-soft:#f2e3c8;
+  --root:#5b8c5a; --root-bg:#e7f0e5; --wip:#c47d18; --wip-bg:#f6ead2;
+  --alert:#bf4e34; --alert-bg:#f7e2da; --bought:#4f74a0; --bought-bg:#e1e9f2;
+  --shadow:0 1px 2px rgba(60,45,25,.06),0 8px 24px rgba(60,45,25,.06);
+}
+:root[data-theme="dark"]{
+  --bg:#211d1a; --panel:#2a2521; --panel-2:#322c27; --ink:#f2ece2; --ink-2:#a89d8e;
+  --line:#3a332c; --line-2:#4a4038; --accent:#e0a542; --accent-soft:#463a24;
+  --root:#7bab77; --root-bg:#26362a; --wip:#e0a542; --wip-bg:#3c3220;
+  --alert:#e07a5c; --alert-bg:#3d2820; --bought:#7fa0c9; --bought-bg:#232f3c;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+}
+.dibuat{font-size:12px;color:var(--ink-2);margin-top:6px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1280px;margin:0 auto;padding:22px 20px 60px}
+
+/* header */
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+  flex-wrap:wrap;margin-bottom:18px}
+.title h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em;
+  text-wrap:balance}
+.title .accent{color:var(--accent)}
+.title p{margin:4px 0 0;color:var(--ink-2);font-size:13px;max-width:60ch}
+.stat-row{display:flex;gap:8px;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  padding:8px 13px;box-shadow:var(--shadow);min-width:70px}
+.stat b{display:block;font-size:19px;font-weight:800;line-height:1;
+  font-variant-numeric:tabular-nums}
+.stat span{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-2);font-weight:600}
+.stat.flag b{color:var(--alert)}
+.stat.flag{cursor:pointer;transition:transform .1s,border-color .1s}
+.stat.flag:hover{transform:translateY(-1px);border-color:var(--alert)}
+.stat.flag.zero b{color:var(--root)} .stat.flag.zero{cursor:default}
+
+/* layout */
+.grid{display:grid;grid-template-columns:270px 1fr;gap:16px;align-items:start}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:15px;
+  box-shadow:var(--shadow);overflow:hidden}
+
+/* menu list */
+.sidebar{position:sticky;top:14px;max-height:calc(100vh - 28px);display:flex;
+  flex-direction:column}
+.search{padding:12px;border-bottom:1px solid var(--line)}
+.search input{width:100%;border:1px solid var(--line-2);background:var(--bg);
+  color:var(--ink);border-radius:9px;padding:9px 11px;font-size:13px;font-family:var(--sans)}
+.search input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+.material-search{padding-top:6px}
+.mat-results{position:absolute;left:12px;right:12px;top:calc(100% - 2px);z-index:20;
+  background:var(--panel);border:1px solid var(--line-2);border-radius:9px;
+  box-shadow:var(--shadow);max-height:260px;overflow-y:auto;padding:4px}
+.mat-results.hidden{display:none}
+.mat-row{padding:7px 9px;border-radius:7px;cursor:pointer;font-size:12.5px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mat-row:hover{background:var(--panel-2)}
+.mat-row .mn{font-weight:600}
+.mat-row .mc{font-size:10.5px;color:var(--ink-2);white-space:nowrap}
+.mat-empty{padding:10px 9px;font-size:12px;color:var(--ink-2)}
+.menu-list{overflow-y:auto;padding:6px}
+.cat-label{font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--ink-2);padding:12px 10px 5px}
+.menu-item{padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13px;
+  font-weight:500;display:flex;align-items:center;gap:7px;transition:background .08s}
+.menu-item:hover{background:var(--panel-2)}
+.menu-item.active{background:var(--accent-soft);color:var(--ink);font-weight:600}
+.menu-item .dot{width:6px;height:6px;border-radius:50%;background:var(--alert);
+  flex:0 0 auto;visibility:hidden}
+.menu-item.has-flag .dot{visibility:visible}
+
+/* tree pane */
+.tree-head{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.tree-head h2{margin:0;font-size:18px;font-weight:800;letter-spacing:-.01em}
+.tree-head .cat{font-size:11px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--ink-2);font-weight:600;margin-top:2px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.swatch{width:9px;height:9px;border-radius:3px;display:inline-block}
+.tree-body{padding:10px 6px 16px}
+
+/* tree rows */
+.node{--pad:0px}
+.row{display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:8px;
+  margin-left:var(--pad);position:relative;transition:background .08s}
+.row:hover{background:var(--panel-2)}
+.row .caret{width:15px;height:15px;flex:0 0 auto;display:inline-flex;
+  align-items:center;justify-content:center;color:var(--ink-2);font-size:10px;
+  cursor:pointer;transition:transform .12s;user-select:none}
+.row.collapsed .caret{transform:rotate(-90deg)}
+.row .caret.leaf{visibility:hidden}
+.tag{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  padding:2px 6px;border-radius:5px;flex:0 0 auto}
+.tag.root{color:var(--root);background:var(--root-bg)}
+.tag.wip{color:var(--wip);background:var(--wip-bg)}
+.tag.wip_noyield{color:var(--alert);background:var(--alert-bg)}
+.tag.mismatch{color:var(--alert);background:var(--alert-bg)}
+.tag.unmapped{color:var(--alert);background:var(--alert-bg)}
+.tag.implausible{color:var(--alert);background:var(--alert-bg)}
+.tag.storebought{color:var(--bought);background:var(--bought-bg)}
+.row .nm{font-weight:500;flex:1 1 auto;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.row.clickable .nm{cursor:pointer;text-decoration:underline;
+  text-decoration-color:var(--line-2);text-underline-offset:2px}
+.row.clickable:hover .nm{text-decoration-color:var(--accent)}
+.row .qty{font-family:var(--mono);font-size:12px;color:var(--ink-2);
+  font-variant-numeric:tabular-nums;flex:0 0 auto}
+.children{overflow:hidden}
+.children.hidden{display:none}
+/* connector line */
+.node.nested{border-left:1.5px solid var(--line);margin-left:20px}
+
+/* where-used drawer */
+.drawer-back{position:fixed;inset:0;background:rgba(30,22,12,.4);
+  backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+.drawer-back.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(430px,92vw);
+  background:var(--panel);border-left:1px solid var(--line);box-shadow:var(--shadow);
+  transform:translateX(100%);transition:transform .22s cubic-bezier(.4,0,.2,1);
+  z-index:41;display:flex;flex-direction:column}
+.drawer.open{transform:translateX(0)}
+.drawer-head{padding:18px;border-bottom:1px solid var(--line)}
+.drawer-head .k{font-size:10px;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--ink-2);font-weight:700}
+.drawer-head h3{margin:4px 0 0;font-size:19px;font-weight:800;letter-spacing:-.01em}
+.drawer-head .sub{color:var(--ink-2);font-size:12.5px;margin-top:6px}
+.drawer-head .sub b{color:var(--accent)}
+.drawer-close{position:absolute;top:14px;right:14px;width:30px;height:30px;
+  border:1px solid var(--line);background:var(--bg);border-radius:8px;cursor:pointer;
+  color:var(--ink-2);font-size:15px;line-height:1}
+.drawer-close:hover{border-color:var(--accent);color:var(--accent)}
+.drawer-list{overflow-y:auto;padding:8px}
+.use-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:9px 12px;border-radius:9px;cursor:pointer}
+.use-row:hover{background:var(--panel-2)}
+.use-row .um{font-weight:500;font-size:13px}
+.use-row .uq{font-family:var(--mono);font-size:12px;color:var(--ink-2);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:4px;border-radius:2px;background:var(--accent);margin-top:4px;opacity:.5}
+
+.empty{padding:60px 20px;text-align:center;color:var(--ink-2)}
+.hint{font-size:11.5px;color:var(--ink-2);margin-top:10px;padding:0 12px}
+kbd{font-family:var(--mono);font-size:11px;background:var(--panel-2);
+  border:1px solid var(--line-2);border-radius:4px;padding:1px 5px}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div class="title">
+      <h1>Laksamana <span class="accent">Pohon Resep</span></h1>
+      <p>Rincian tiap menu makanan aktif, turun lewat olahan setengah jadi, sampai ke bahan mentah yang benar-benar dibeli. Klik satu bahan mentah untuk melihat menu apa saja yang memakainya.</p>
+      <p class="dibuat">Data per <b>__DIBUAT__</b>. Halaman ini cuplikan saat dibuat, bukan data langsung: kalau resep atau menu berubah, pohon ini perlu dibuat ulang.</p>
+    </div>
+    <div class="stat-row" id="stats"></div>
+  </header>
+
+  <div class="grid">
+    <aside class="panel sidebar">
+      <div class="search"><input id="q" type="text" placeholder="Cari menu…" autocomplete="off"></div>
+      <div class="search material-search" style="position:relative">
+        <input id="qMat" type="text" placeholder="Cari bahan…" autocomplete="off">
+        <div id="matResults" class="mat-results hidden"></div>
+      </div>
+      <div class="menu-list" id="menuList"></div>
+    </aside>
+
+    <main class="panel">
+      <div class="tree-head">
+        <div>
+          <h2 id="dishName">Pilih menu</h2>
+          <div class="cat" id="dishCat"></div>
+        </div>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--wip)"></i>Olahan setengah jadi</span>
+          <span><i class="swatch" style="background:var(--root)"></i>Bahan mentah</span>
+          <span><i class="swatch" style="background:var(--bought)"></i>Beli jadi</span>
+          <span><i class="swatch" style="background:var(--alert)"></i>Data belum lengkap</span>
+        </div>
+      </div>
+      <div class="tree-body" id="tree">
+        <div class="empty">Pilih menu di sebelah kiri untuk melihat rincian bahannya.<div class="hint">Quantities shown are per one batch of each prep step (as written in the BoM). Amber rows are in-house prep you can expand; green rows are raw materials.</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="drawer-back" id="drawerBack"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <button class="drawer-close" id="drawerClose" aria-label="Close">&times;</button>
+    <div class="k">Dipakai di menu</div>
+    <h3 id="duName"></h3>
+    <div class="sub" id="duSub"></div>
+  </div>
+  <div class="drawer-list" id="duList"></div>
+</aside>
+
+<script>
+const DATA = __DATA__;
+const norm = s => s.trim().toUpperCase().replace(/\s+/g,' ');
+
+// index flags per menu (does any node carry a QA flag?)
+const FLAGKINDS = new Set(['wip_noyield','mismatch','unmapped','implausible']);
+function menuHasFlag(node){
+  if(FLAGKINDS.has(node.kind)) return true;
+  return (node.children||[]).some(menuHasFlag);
+}
+
+// ---------- sidebar ----------
+const menuList = document.getElementById('menuList');
+let activeName = null;
+function renderMenuList(filter=''){
+  const f = norm(filter);
+  const byCat = {};
+  DATA.menus.forEach(m=>{
+    if(f && !norm(m.name).includes(f)) return;
+    (byCat[m.category]=byCat[m.category]||[]).push(m);
+  });
+  menuList.innerHTML='';
+  Object.keys(byCat).sort().forEach(cat=>{
+    const lbl=document.createElement('div');lbl.className='cat-label';lbl.textContent=cat;
+    menuList.appendChild(lbl);
+    byCat[cat].forEach(m=>{
+      const el=document.createElement('div');
+      el.className='menu-item'+(menuHasFlag(m.tree)?' has-flag':'')+(m.name===activeName?' active':'');
+      el.innerHTML=`<span class="dot" title="Has a data gap"></span>${m.name}`;
+      el.onclick=()=>selectMenu(m.name);
+      menuList.appendChild(el);
+    });
+  });
+  if(!menuList.children.length){menuList.innerHTML='<div class="empty" style="padding:30px 12px;font-size:12px">Tidak ada menu yang cocok.</div>';}
+}
+document.getElementById('q').addEventListener('input',e=>renderMenuList(e.target.value));
+
+// ---------- tree ----------
+const KIND_LABEL={root:'raw',wip:'prep',wip_noyield:'no yield',mismatch:'bad unit',unmapped:'unmapped',implausible:'bad qty',storebought:'bought'};
+function fmtQty(n){
+  if(n>=1000) return n.toLocaleString('en',{maximumFractionDigits:0});
+  return (Math.round(n*1000)/1000).toString();
+}
+function nodeEl(node, depth){
+  const wrap=document.createElement('div');
+  wrap.className='node'+(depth>0?' nested':'');
+  const row=document.createElement('div');
+  const hasKids=node.children&&node.children.length;
+  row.className='row'+(node.kind==='root'?' clickable':'');
+  const tag = node.kind==='menu' ? '' :
+    `<span class="tag ${node.kind}">${KIND_LABEL[node.kind]||node.kind}</span>`;
+  const qty = node.kind==='menu' ? '' :
+    `<span class="qty">${fmtQty(node.qty)} ${node.unit}</span>`;
+  row.innerHTML=`<span class="caret ${hasKids?'':'leaf'}">▾</span>${tag}<span class="nm">${node.name}</span>${qty}`;
+  wrap.appendChild(row);
+  if(hasKids){
+    const kids=document.createElement('div');kids.className='children';
+    node.children.forEach(c=>kids.appendChild(nodeEl(c,depth+1)));
+    wrap.appendChild(kids);
+    const caret=row.querySelector('.caret');
+    caret.onclick=e=>{e.stopPropagation();row.classList.toggle('collapsed');kids.classList.toggle('hidden');};
+  }
+  if(node.kind==='root'){
+    row.querySelector('.nm').onclick=()=>openDrawer(node.name);
+  }
+  return wrap;
+}
+function selectMenu(name){
+  activeName=name;
+  const m=DATA.menus.find(x=>x.name===name);
+  document.getElementById('dishName').textContent=m.name;
+  document.getElementById('dishCat').textContent=m.category;
+  const tree=document.getElementById('tree');tree.innerHTML='';
+  (m.tree.children||[]).forEach(c=>tree.appendChild(nodeEl(c,0)));
+  if(!m.tree.children||!m.tree.children.length){
+    tree.innerHTML='<div class="empty">This dish is store-bought or has no recipe — it is restocked as itself.</div>';
+  }
+  document.querySelectorAll('.menu-item').forEach(el=>{
+    el.classList.toggle('active', el.textContent.trim()===name);
+  });
+}
+
+// ---------- where-used drawer ----------
+const drawer=document.getElementById('drawer'),back=document.getElementById('drawerBack');
+function openDrawer(material){
+  const uses=DATA.whereused[material]||[];
+  document.getElementById('duName').textContent=material;
+  document.getElementById('duSub').innerHTML=`Used in <b>${uses.length}</b> dish${uses.length===1?'':'es'} · quantities are per serving, in the recipe's unit`;
+  const list=document.getElementById('duList');list.innerHTML='';
+  const max=Math.max(...uses.map(u=>u.qty),1);
+  uses.forEach(u=>{
+    const r=document.createElement('div');r.className='use-row';
+    r.innerHTML=`<div style="flex:1;min-width:0"><div class="um">${u.menu}</div><div class="bar" style="width:${Math.max(6,100*u.qty/max)}%"></div></div><div class="uq">${fmtQty(u.qty)} ${u.unit}</div>`;
+    r.onclick=()=>{closeDrawer();selectMenu(u.menu);document.querySelector('.menu-item.active')?.scrollIntoView({block:'center'});};
+    list.appendChild(r);
+  });
+  if(!uses.length) list.innerHTML='<div class="empty" style="font-size:12px">Tidak dipakai menu mana pun.</div>';
+  drawer.classList.add('open');back.classList.add('open');
+}
+function closeDrawer(){drawer.classList.remove('open');back.classList.remove('open');}
+document.getElementById('drawerClose').onclick=closeDrawer;
+back.onclick=closeDrawer;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeDrawer();hideMatResults();}});
+
+// ---------- material search (sidebar) ----------
+const ALL_MATERIALS=Object.keys(DATA.whereused).sort();
+const qMat=document.getElementById('qMat'), matResults=document.getElementById('matResults');
+function hideMatResults(){matResults.classList.add('hidden');matResults.innerHTML='';}
+qMat.addEventListener('input',()=>{
+  const f=norm(qMat.value);
+  if(!f){hideMatResults();return;}
+  const matches=ALL_MATERIALS.filter(m=>norm(m).includes(f)).slice(0,30);
+  if(!matches.length){
+    matResults.innerHTML='<div class="mat-empty">Tidak ada bahan yang cocok.</div>';
+  } else {
+    matResults.innerHTML=matches.map(m=>{
+      const n=DATA.whereused[m].length;
+      return `<div class="mat-row" data-m="${m.replace(/"/g,'&quot;')}"><span class="mn">${m}</span><span class="mc">${n} dish${n===1?'':'es'}</span></div>`;
+    }).join('');
+  }
+  matResults.classList.remove('hidden');
+});
+matResults.addEventListener('click',e=>{
+  const row=e.target.closest('.mat-row');
+  if(!row) return;
+  openDrawer(row.dataset.m);
+  qMat.value='';
+  hideMatResults();
+});
+document.addEventListener('click',e=>{
+  if(e.target!==qMat && !matResults.contains(e.target)) hideMatResults();
+});
+qMat.addEventListener('focus',()=>{ if(qMat.value) qMat.dispatchEvent(new Event('input')); });
+
+// ---------- stats ----------
+const S=DATA.stats;
+const stats=[
+  ['menus',S.menus,'Menu',false],
+  ['roots',S.roots,'Bahan mentah',false],
+  ['edges',S.edges,'Sambungan',false],
+  ['missing_yield',S.missing_yield,'Takaran belum ada',true],
+];
+document.getElementById('stats').innerHTML=stats.map(([k,v,l,flag])=>
+  `<div class="stat ${flag?'flag':''} ${flag&&v===0?'zero':''}" ${flag?`data-flag="${k}"`:''}><b>${v}</b><span>${l}</span></div>`
+).join('');
+// clicking the missing-yield stat filters the list to flagged dishes
+document.querySelectorAll('.stat.flag:not(.zero)').forEach(s=>{
+  s.onclick=()=>{
+    document.getElementById('q').value='';
+    // show only dishes with a flag
+    const f=DATA.menus.filter(m=>menuHasFlag(m.tree));
+    menuList.innerHTML='<div class="cat-label" style="color:var(--alert)">Menu dengan data belum lengkap</div>';
+    f.forEach(m=>{
+      const el=document.createElement('div');
+      el.className='menu-item has-flag'+(m.name===activeName?' active':'');
+      el.innerHTML=`<span class="dot"></span>${m.name}`;
+      el.onclick=()=>selectMenu(m.name);
+      menuList.appendChild(el);
+    });
+  };
+});
+
+renderMenuList();
+selectMenu(DATA.menus.find(m=>m.name.includes('NASI HAINAN'))?.name||DATA.menus[0].name);
+</script>
+</body>
+</html>
