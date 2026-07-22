@@ -4431,9 +4431,32 @@ function buildBriefDoc(id,mode){
   $('modal').classList.add('wide');
   window._printDoc=doc;
 }
-function printBrief(){
+/* Menunggu semua <img> di wadah selesai dimuat (atau gagal) sebelum dicetak.
+   Lampiran gambar diambil dari server (api.php?action=receipt), jadi saat
+   innerHTML baru diisi gambarnya BELUM ada isinya — kalau window.print()
+   langsung dipanggil, dialog cetak memotret dokumen yang gambarnya masih
+   kosong dan PDF-nya keluar tanpa denah/layout. Diberi batas waktu supaya
+   satu berkas yang mati tidak membuat tombol Print seolah tidak berfungsi. */
+function tungguGambar(area,batasMs){
+  const imgs=[...area.querySelectorAll('img')].filter(im=>!im.complete||!im.naturalWidth);
+  if(!imgs.length) return Promise.resolve();
+  const semua=Promise.all(imgs.map(im=>new Promise(res=>{
+    im.addEventListener('load',res,{once:true});
+    im.addEventListener('error',res,{once:true});   // gambar rusak jangan menahan cetak
+  })));
+  return Promise.race([semua,new Promise(res=>setTimeout(res,batasMs||6000))]);
+}
+async function printBrief(){
   const area=$('print-area');
   area.innerHTML=window._printDoc||'';
+  /* display:none tidak menghentikan pemuatan gambar, tapi loading="lazy" bisa —
+     wadah cetak tidak pernah masuk viewport, jadi paksa eager. */
+  area.querySelectorAll('img').forEach(im=>{ im.loading='eager'; im.decoding='sync'; });
+  // Kabari kalau memang ada yang ditunggu — tanpa ini tombol Print terasa mati
+  // beberapa detik saat lampirannya besar.
+  if([...area.querySelectorAll('img')].some(im=>!im.complete||!im.naturalWidth))
+    toast('Menyiapkan dokumen','Memuat gambar lampiran dulu supaya ikut tercetak.','ok');
+  await tungguGambar(area);
   /* Dikosongkan lagi sesudah dialog cetak selesai. CSS sudah menyembunyikannya
      dari layar, tapi menyisakan satu dokumen penuh di DOM berarti gambar &
      tabelnya tetap dimuat dan ikut terbaca pembaca layar tanpa alasan.
