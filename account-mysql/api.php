@@ -11,7 +11,7 @@
  *   {action:"login", name, pin}                  -> {ok,user:{id,name,modules,adminModules}}
  *   {action:"changePin", name, newPin}           -> {ok}
  *   -- superadmin (wajib callerName + callerPin) --
- *   {action:"listUsers"}                         -> {ok,users:[...],modules:[...]}
+ *   {action:"listUsers"}                         -> {ok,users:[{...,grants,denies}],modules:[...]}
  *   {action:"saveUser", id?,name,pin,active,keterangan}
  *   {action:"deleteUser", id}
  *   {action:"listModules", all?}                 -> {ok,modules:[{key,label,active}]}

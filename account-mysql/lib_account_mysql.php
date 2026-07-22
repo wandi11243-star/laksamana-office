@@ -165,6 +165,20 @@ function grant_mentah_untuk($userId) {
     if (s($r['module']) !== '') $out[] = s($r['module']);
   return $out;
 }
+/* Modul yang PUNYA baris grant access=0 — pengecualian eksplisit.
+   ---------------------------------------------------------------------
+   Baris ini menimpa '*' (lihat modul_untuk) dan TIDAK pernah hilang
+   sendiri: sekali sebuah modul dilepas centangnya, memberi '*' kemudian
+   tidak mengembalikannya. Sebelumnya baris ini tidak pernah dikirim ke
+   frontend, jadi Kelola Akses menggambar centang yang BOHONG: modul yang
+   ditolak tetap tampak tercentang karena user punya '*', dan tidak ada
+   satu pun cara di layar untuk melihat — apalagi mencabut — penolakannya. */
+function deny_mentah_untuk($userId) {
+  $out = array();
+  foreach (q('SELECT `module` FROM `grants` WHERE user_id = :u AND access = 0', array(':u' => s($userId))) as $r)
+    if (s($r['module']) !== '') $out[] = s($r['module']);
+  return $out;
+}
 
 /* ==================== PREDIKAT OTORISASI ====================
    Setiap tulisan membawa nama+PIN pemanggil dan diverifikasi ULANG di
@@ -277,6 +291,7 @@ function aksi_list_users($body) {
       'username'     => s($u['username']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
+      'denies'       => deny_mentah_untuk($u['id']),  // pengecualian yang menimpa '*'
       'adminModules' => admin_modul_untuk($u['id']),
     );
   }
