@@ -1462,8 +1462,7 @@ const EVENT_SCHEMA = [
   // jenisPenyajian, bahanKhusus, leftoverK. "Standar Plating" pindah ke Bar.
 ]},
 { id:'bar', n:'D.3', title:'Bar', div:['Bar'], desc:'Minuman apa yang disediakan (non-alkohol), paket apa, dan jam operasional bar-nya?', fields:[
-  {k:'barJenis',l:'Komponen Menu Bar',t:'multi',o:['Welcome Drink','Fruit','Dessert','Beverage'],req:1},
-  {k:'barMenu',l:'Daftar Menu Bar',t:'menutbl',src:'barJenis',bar:1,full:1,help:'Tabelnya ikut komponen menu bar yang dicentang di atas.'},
+  {k:'barMenu',l:'Daftar Menu Bar',t:'menutbl',bar:1,full:1,help:'Satu daftar minuman. Jam & jumlah di judul mengisi semua barisnya, dan tiap baris masih bisa diubah sendiri.'},
   {k:'barJam',l:'Jam Operasional Bar',t:'timerange',req:1},
   {k:'plating',l:'Standar Plating / Presentasi',t:'sel',o:['Dikotakin','Dipiringin','Lainnya']},
   {k:'platingLain',l:'Standar Plating — tulis sendiri',t:'text',cond:{k:'plating',v:'Lainnya'}},
@@ -1473,6 +1472,9 @@ const EVENT_SCHEMA = [
   // DIHAPUS atas permintaan: signature, barEstimasi, ice, barEquip,
   // garnish (Garnish & Ingredient Khusus), leftoverB (Handling Leftover).
   // "Standar Plating" pindah ke sini dari Kitchen, jadi dropdown.
+  // barJenis (Komponen Menu Bar) DIHAPUS atas permintaan: mengelompokkan
+  // minuman per komponen tidak terpakai. Daftar Menu Bar kini satu daftar
+  // datar — lihat menuGroupsOf() untuk cara kelompok lama tetap terbaca.
 ]},
 // D.5 "Guest Handling & Akses Parkir" DIBUBARKAN: guest handling digabung ke
 // sini (jadi "Floor, Host & Guest Handling"), urusan parkir pindah ke Security.
@@ -2932,7 +2934,24 @@ function jadwalKeluar(ev){
     .map(jam=>({jam,baris:per[jam]}));
 }
 function menuTblVal(val){ return (val && typeof val==='object' && !Array.isArray(val)) ? val : {}; }
+/* Kelompok bawaan untuk tabel menu yang TIDAK punya field komponen lagi
+   (Daftar Menu Bar, sejak barJenis dihapus). Tabelnya tetap butuh satu nama
+   kelompok karena datanya tersimpan per-kelompok; namanya tidak ditampilkan
+   sebagai judul di PDF supaya tidak jadi baris kosong yang membingungkan. */
+const GRUP_TUNGGAL='Menu Bar';
 function menuGroupsOf(ev,fl){
+  /* Tanpa `src`, kelompoknya tidak datang dari centangan mana pun. Yang
+     dipakai: SEMUA kelompok yang datanya sudah ada + kelompok tunggal.
+     Membaca kelompok lama dari datanya sendiri itu wajib — event lama
+     menyimpan menu bar di bawah 'Welcome Drink', 'Beverage', dst. Kalau
+     hanya kelompok tunggal yang digambar, menu itu masih tersimpan
+     (collectMenuTbl menyalin balik kelompok yang tidak di layar) tapi tak
+     seorang pun bisa melihat atau mengubahnya lagi — hilang tanpa jejak
+     dari sudut pandang pengguna. */
+  if(!fl.src){
+    const punya=Object.keys(menuTblVal(ev.detail[fl.k])).filter(g=>g!=='_teks');
+    return punya.includes(GRUP_TUNGGAL) ? punya : punya.concat(GRUP_TUNGGAL);
+  }
   // Sumbernya dibaca dari layar dulu (kalau ada) supaya centang komponen
   // langsung menambah/mengurangi kelompok tanpa menunggu simpan.
   const srcFl=fieldByKey(fl.src);
@@ -3304,7 +3323,8 @@ function fmtMenuTbl(val){
     if(g==='_teks') return;
     const gd=data[g]||{}; const rows=Array.isArray(gd.rows)?gd.rows:[];
     if(!rows.length && !gd.jam && !gd.qty) return;
-    out.push(g+(gd.jam?' — '+gd.jam:'')+(gd.qty?' · '+gd.qty:''));
+    const kepala=(g===GRUP_TUNGGAL?'':g)+(gd.jam?' — '+gd.jam:'')+(gd.qty?' · '+gd.qty:'');
+    if(kepala.trim()) out.push(kepala.trim());
     // Kitchen dikelompokkan per Jenis; Bar per Catatan (freeflow/lunch/dst).
     // Keduanya kolom pertama tabelnya, jadi diperlakukan sama di sini.
     const perKat={};
@@ -4168,8 +4188,8 @@ const CLIENT_FIELDS = new Set([
   'decorJenis','decorJenisLain','entJenis','entDok',
   // Food & Beverage
   'fbFormat','fbFormatLain','menuFinal','dietary','komponen',
-  // Bar
-  'barJenis','barMenu','barJam',
+  // Bar ('barJenis' dihapus dari skema — lihat D.3)
+  'barMenu','barJam',
   // Floor
   'floorTambah','penyajianBar','penandaTamu',
   // Design / izin publikasi
@@ -4223,18 +4243,28 @@ function pdfJadwalTabel(ev){
   return h+'</tbody></table>';
 }
 /* Komponen menu & menu bar jadi tabel per kelompok. */
-function pdfMenuTabel(val){
+/* Judul kolom pertama IKUT komponennya, sama seperti di layar (menuKolom1).
+   Dulu keduanya dicetak "Jenis / Catatan" — di tabel Bar kata "Jenis" tidak
+   ada artinya (isinya freeflow/lunch/dinner, bukan jenis bahan), dan di tabel
+   Kitchen kata "Catatan" yang mengganggu. Satu header untuk dua arti membuat
+   pembacanya harus menebak kolom itu sebenarnya apa. */
+function pdfMenuTabel(val,bar){
   if(typeof val==='string') return val.trim()? '<div style="white-space:pre-wrap">'+esc(val)+'</div>' : null;
-  const data=menuTblVal(val); let h='';
+  const data=menuTblVal(val); let h=''; const k1=menuKolom1(!!bar);
   if(data._teks && String(data._teks).trim())
     h+='<div style="white-space:pre-wrap;margin-bottom:6px">'+esc(String(data._teks))+'</div>';
   Object.keys(data).forEach(g=>{
     if(g==='_teks') return;
     const gd=data[g]||{}, rows=Array.isArray(gd.rows)?gd.rows:[];
     if(!rows.length) return;
-    const judul=esc(g)+(gd.jam?' &middot; '+esc(gd.jam):'')+(gd.qty?' &middot; '+esc(gd.qty):'');
-    h+='<div style="font-weight:700;font-size:11.5px;margin:8px 0 2px;color:#7a560f">'+judul+'</div>';
-    h+=pdfTblBuka([{l:'Jenis / Catatan',w:'120px'},{l:'Menu'},{l:'Jumlah',w:'70px',r:1},{l:'Jam',w:'88px'}]);
+    /* Kelompok tunggal tidak diberi judul namanya — field-nya sendiri sudah
+       bernama "Daftar Menu Bar", jadi mencetak "Menu Bar" lagi cuma
+       mengulang. Jam & jumlahnya tetap dicetak kalau diisi. */
+    const tunggal=(g===GRUP_TUNGGAL);
+    const ket=(gd.jam?esc(gd.jam):'')+(gd.jam&&gd.qty?' &middot; ':'')+(gd.qty?esc(gd.qty):'');
+    const judul=tunggal?ket:(esc(g)+(ket?' &middot; '+ket:''));
+    if(judul) h+='<div style="font-weight:700;font-size:11.5px;margin:8px 0 2px;color:#7a560f">'+judul+'</div>';
+    h+=pdfTblBuka([{l:k1.l,w:'120px'},{l:'Menu'},{l:'Jumlah',w:'70px',r:1},{l:'Jam',w:'88px'}]);
     rows.forEach((r,i)=>{
       h+=pdfTblBaris([{v:r.kat||r.catatan||''},{v:r.menu||''},{v:r.qty||'',r:1},{v:r.jam||''}],i);
     });
@@ -4319,7 +4349,7 @@ function pdfNilai(fl,ev){
   if(fl.t==='salinlayout') return {h:null};       // tombol, tidak ikut dicetak
   const val=detailVal(ev,fl);
   if(fl.t==='rundown')  return {h:pdfRundownTabel(val)};
-  if(fl.t==='menutbl')  return {h:pdfMenuTabel(val)};
+  if(fl.t==='menutbl')  return {h:pdfMenuTabel(val,fl.bar)};
   if(fl.t==='barangtbl')return {h:pdfBarangTabel(val)};
   if(fl.t==='itemtbl')  return {h:pdfItemTabel(val)};
   if(fl.t==='files')    return {h:pdfGambar(val)};
