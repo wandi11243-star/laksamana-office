@@ -106,17 +106,31 @@ function save_receipt($payload) {
    (koleksi yang tidak dikirim dilewati), jadi kalau GC memakai payload, satu
    kiriman tanpa `events` akan menghapus SEMUA lampiran. Database adalah
    satu-satunya sumber yang selalu lengkap. */
+/* Kumpulkan key dari SEMUA bentuk lampiran, sedalam apa pun letaknya.
+
+   Dulu fungsi ini hanya tahu `detail.attachFiles`. Begitu field lampiran
+   baru ditambahkan di frontend — gambar layout, denah area, lampiran
+   rundown, gambar voucher — GC tidak mengenalinya, menganggapnya yatim,
+   lalu MENGHAPUSNYA satu jam setelah diunggah. Kerusakan yang sunyi:
+   event-nya tersimpan rapi, gambarnya hilang belakangan.
+
+   Menelusuri seluruh isi (bukan daftar nama field) membuat kesalahan itu
+   tidak bisa terulang saat field lampiran berikutnya ditambahkan. */
+function kumpulkan_key($nilai, &$hidup) {
+  if (!is_array($nilai)) return;
+  // Bentuk satu lampiran: {key:'rc_xxx', name:'...'}
+  if (isset($nilai['key']) && is_string($nilai['key']) && $nilai['key'] !== '')
+    $hidup[$nilai['key']] = true;
+  foreach ($nilai as $v) if (is_array($v)) kumpulkan_key($v, $hidup);
+}
 function key_terpakai($pdo) {
   $hidup = array();
   foreach ($pdo->query('SELECT data FROM events') as $row) {
     $e = json_decode($row['data'], true);
     if (!is_array($e)) continue;
 
-    // Lampiran D.11: detail.attachFiles[] = {key,name,...}
-    if (!empty($e['detail']['attachFiles']) && is_array($e['detail']['attachFiles'])) {
-      foreach ($e['detail']['attachFiles'] as $f)
-        if (!empty($f['key'])) $hidup[(string)$f['key']] = true;
-    }
+    // Semua lampiran di mana pun letaknya di dalam event ini.
+    kumpulkan_key($e, $hidup);
     // Bukti transfer: payments[].receiptUrl memuat "...?action=receipt&key=xxx".
     // Bukti lama masih berupa URL Google Drive — tidak punya key, otomatis terlewat.
     if (!empty($e['payments']) && is_array($e['payments'])) {
