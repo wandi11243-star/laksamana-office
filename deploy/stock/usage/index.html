@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pemakaian Bahan Event - Laksamana Muda</title>
+    <title>Pemakaian Bahan Baku - Laksamana Muda</title>
     <link rel="icon" type="image/jpeg" href="../../assets/LaksamanaMudaLogo.jpeg">
 
     <!-- Guard SSO sebelum body dirender, supaya tidak ada kedipan halaman
@@ -126,7 +126,19 @@
                   <option value="Lainnya">📌 Lainnya</option>
                 </select>
               </div>
-              <div class="sm:col-span-2">
+              <div>
+                <!-- Tim dipilih EKSPLISIT, tidak lagi ditebak dari keterangan
+                     akun. Keterangan itu teks bebas ("Kitchen Senior", "Crew
+                     Bar", kosong) sehingga tidak pernah bisa dijadikan
+                     kategori yang bisa disaring. -->
+                <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tim</label>
+                <select id="f-tim" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                  <option value="Kitchen">🍳 Kitchen</option>
+                  <option value="Bar">🍹 Bar</option>
+                  <option value="Floor">🍽️ Floor</option>
+                </select>
+              </div>
+              <div class="sm:col-span-2 lg:col-span-4">
                 <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nama / Keterangan Event</label>
                 <input type="text" id="f-nama" placeholder="cth: Prasmanan PT Bahari, 80 pax" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
               </div>
@@ -169,7 +181,7 @@
         <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
           <div class="relative">
             <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-            <input type="text" id="q" oninput="render()" placeholder="Cari nama event, bahan, atau PIC…" class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/60">
+            <input type="text" id="q" oninput="TAMPIL = 0; render()" placeholder="Cari nama event, bahan, atau PIC…" class="w-full border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/60">
           </div>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <button onclick="setPeriode('hari')"  id="p-hari"  class="px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Hari Ini</button>
@@ -177,9 +189,25 @@
             <button onclick="setPeriode('bulan')" id="p-bulan" class="px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Bulan Ini</button>
             <button onclick="setPeriode('semua')" id="p-semua" class="px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Semua</button>
           </div>
+          <!-- Pemilih bulan: periode di atas hanya menjangkau bulan berjalan,
+               jadi riwayat bulan lalu tidak pernah bisa dibuka tanpa menarik
+               SELURUH data lewat "Semua". -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Atau pilih bulan tertentu</label>
+            <div class="flex items-center gap-2">
+              <input type="month" id="p-bulan-pilih" onchange="setBulan(this.value)"
+                class="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+              <button type="button" id="p-bulan-hapus" onclick="setBulan('')"
+                class="hidden px-3 py-2 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition-all whitespace-nowrap">✕ Batal</button>
+            </div>
+          </div>
           <div>
             <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jenis Event</label>
             <div id="filter-jenis" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tim</label>
+            <div id="filter-tim" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
           </div>
         </div>
 
@@ -221,23 +249,45 @@
   const SESI = sesiOffice('usage');
   let DATA = [];
   let PERIODE = 'bulan';
+  let BULAN_PILIH = '';       // 'YYYY-MM' saat PERIODE === 'pilih'
   let JENIS = 'ALL';
+  let TIM = 'ALL';
   let NOMOR_BARIS = 0;
+  let TAMPIL = 0;             // berapa catatan yang sedang digambar (paginasi)
+
+  const PER_HALAMAN = 20;     // sisanya dimunculkan lewat "Muat lebih banyak"
 
   const JENIS_OPSI = [
     ['ALL', 'Semua'], ['Prasmanan', '🍽️ Prasmanan'], ['Training', '🎓 Training'],
     ['RND', '🧪 RND'], ['Lainnya', '📌 Lainnya']
   ];
+  /* Tiga tim ini juga dipakai form (f-tim) dan penyaring. Ditulis sekali di
+     sini supaya keduanya tidak bisa berbeda diam-diam. 'ALL' hanya untuk
+     penyaring — lihat timOpsiForm(). */
+  const TIM_OPSI = [
+    ['Kitchen', '🍳 Kitchen'], ['Bar', '🍹 Bar'], ['Floor', '🍽️ Floor']
+  ];
+
+  /* Tim bawaan saat form kosong: tebakan dari keterangan akun, kalau cocok
+     dengan salah satu tim. Kalau tidak, Kitchen — yang paling sering mencatat
+     pemakaian bahan. Tebakan ini hanya MENGISI AWAL; yang tersimpan tetap apa
+     yang terpilih di layar. */
+  function timBawaan() {
+    const t = String(timSesi(SESI) || '').toLowerCase();
+    const cocok = TIM_OPSI.find(([v]) => t.includes(v.toLowerCase()));
+    return cocok ? cocok[0] : 'Kitchen';
+  }
 
   document.addEventListener('DOMContentLoaded', async () => {
     if (!SESI) { location.replace('../../'); return; }
-    pasangCangkang('usage', 'Pemakaian Bahan Event',
+    pasangCangkang('usage', 'Pemakaian Bahan Baku',
       'Catat bahan yang dipakai untuk Prasmanan, Training, dan RND.', SESI, [
         { v: 'catat',  ico: 'fa-pen-to-square', label: 'Catat Baru' },
         { v: 'daftar', ico: 'fa-list-ul',       label: 'Catatan Tercatat' }
       ]);
     document.getElementById('f-tanggal').value = hariIni();
     renderFilterJenis();
+    renderFilterTim();
     setAktifPeriode();
     tambahBaris();
     await muatBahan();
@@ -308,6 +358,7 @@
     document.getElementById('f-id').value = '';
     document.getElementById('f-tanggal').value = hariIni();
     document.getElementById('f-jenis').value = 'Prasmanan';
+    document.getElementById('f-tim').value = timBawaan();
     document.getElementById('f-nama').value = '';
     document.getElementById('f-catatan').value = '';
     document.getElementById('baris-wrap').innerHTML = '';
@@ -323,6 +374,11 @@
     document.getElementById('f-id').value = r.id;
     document.getElementById('f-tanggal').value = r.tanggal || hariIni();
     document.getElementById('f-jenis').value = r.jenis || 'Prasmanan';
+    // Catatan lama bisa punya tim di luar tiga pilihan (dulu diisi dari
+    // keterangan akun yang teks bebas). Yang tidak dikenali jatuh ke bawaan,
+    // bukan dibiarkan kosong — select tanpa nilai cocok akan menampilkan
+    // pilihan pertama dan diam-diam mengubah timnya saat disimpan ulang.
+    document.getElementById('f-tim').value = TIM_OPSI.some(([v]) => v === r.tim) ? r.tim : timBawaan();
     document.getElementById('f-nama').value = r.namaEvent || '';
     document.getElementById('f-catatan').value = r.catatan || '';
     document.getElementById('baris-wrap').innerHTML = '';
@@ -349,7 +405,7 @@
       catatan: document.getElementById('f-catatan').value.trim(),
       status,
       pic: SESI.name || '',
-      tim: timSesi(SESI),
+      tim: document.getElementById('f-tim').value,
       items
     };
     try {
@@ -392,11 +448,31 @@
     if (PERIODE === 'semua') return {};
     if (PERIODE === 'hari')  return { dari: hariIni(), ke: hariIni() };
     if (PERIODE === 'minggu') return { dari: tglGeser(-6), ke: hariIni() };
+    if (PERIODE === 'pilih' && BULAN_PILIH) {
+      /* Hari terakhir bulan itu, bukan hari ini: bulan lalu harus terambil
+         penuh. Tanggal 0 bulan berikutnya = hari terakhir bulan ini, dan itu
+         benar juga untuk Februari maupun tahun kabisat. */
+      const [th, bl] = BULAN_PILIH.split('-').map(Number);
+      const akhir = new Date(th, bl, 0).getDate();
+      return { dari: `${BULAN_PILIH}-01`, ke: `${BULAN_PILIH}-${String(akhir).padStart(2, '0')}` };
+    }
     const d = new Date();
     return { dari: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, ke: hariIni() };
   }
 
-  function setPeriode(p) { PERIODE = p; setAktifPeriode(); muat(); }
+  function setPeriode(p) {
+    PERIODE = p;
+    BULAN_PILIH = '';                                    // tombol periode dan pemilih bulan saling meniadakan
+    document.getElementById('p-bulan-pilih').value = '';
+    setAktifPeriode(); muat();
+  }
+  /* Kosong = kembali ke "Bulan Ini". Tanpa jalan keluar ini, memilih satu bulan
+     berarti terkurung di bulan itu sampai halaman dimuat ulang. */
+  function setBulan(v) {
+    if (!v) { setPeriode('bulan'); return; }
+    PERIODE = 'pilih'; BULAN_PILIH = v;
+    setAktifPeriode(); muat();
+  }
   function setAktifPeriode() {
     ['hari', 'minggu', 'bulan', 'semua'].forEach(p => {
       const b = document.getElementById('p-' + p);
@@ -405,8 +481,16 @@
         PERIODE === p ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                       : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`;
     });
+    document.getElementById('p-bulan-hapus').classList.toggle('hidden', PERIODE !== 'pilih');
   }
-  function setJenis(j) { JENIS = j; renderFilterJenis(); render(); }
+  function setJenis(j) { JENIS = j; TAMPIL = 0; renderFilterJenis(); render(); }
+  function setTim(t) { TIM = t; TAMPIL = 0; renderFilterTim(); render(); }
+  function renderFilterTim() {
+    document.getElementById('filter-tim').innerHTML = [['ALL', 'Semua']].concat(TIM_OPSI).map(([v, l]) => `
+      <button onclick="setTim('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
+        TIM === v ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${l}</button>`).join('');
+  }
   function renderFilterJenis() {
     document.getElementById('filter-jenis').innerHTML = JENIS_OPSI.map(([v, l]) => `
       <button onclick="setJenis('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
@@ -422,6 +506,7 @@
       DATA = [];
       toast('Gagal memuat', 'Daftar pemakaian tidak bisa diambil.', 'err');
     }
+    TAMPIL = 0;      // periode baru = daftar baru, mulai lagi dari halaman satu
     render();
   }
 
@@ -429,7 +514,8 @@
     const q = (document.getElementById('q').value || '').trim().toLowerCase();
     const list = DATA
       .filter(r => JENIS === 'ALL' || r.jenis === JENIS)
-      .filter(r => !q || [r.namaEvent, r.pic, r.catatan, r.jenis]
+      .filter(r => TIM === 'ALL' || r.tim === TIM)
+      .filter(r => !q || [r.namaEvent, r.pic, r.catatan, r.jenis, r.tim]
         .concat((r.items || []).map(i => i.item))
         .some(v => String(v || '').toLowerCase().includes(q)));
 
@@ -458,9 +544,23 @@
       return;
     }
 
-    box.innerHTML = list.map(r => {
+    /* Paginasi. Ratusan catatan digambar sekaligus membuat halaman berat dan
+       menggulir jadi pekerjaan sendiri. TAMPIL bertambah lewat tombol di
+       bawah, dan disetel ulang tiap kali filter berubah — kalau tidak, hasil
+       pencarian baru akan mewarisi "sudah dimuat 100" dari pencarian lama. */
+    if (!TAMPIL) TAMPIL = PER_HALAMAN;
+    /* slice() memotong sendiri kalau TAMPIL melebihi panjang daftar, jadi
+       TAMPIL sengaja TIDAK dikecilkan agar cocok. Versi pertama saya
+       melakukannya, dan akibatnya tombol "muat lagi" mentok: menaikkan TAMPIL
+       ke atas panjang daftar langsung dikembalikan ke 20, sehingga sisa
+       catatan tidak pernah bisa muncul. */
+    const tampil = list.slice(0, TAMPIL);
+    const sisa = list.length - tampil.length;
+
+    box.innerHTML = tampil.map(r => {
       const selesai = r.status === 'Selesai';
       const ikon = { Prasmanan: '🍽️', Training: '🎓', RND: '🧪' }[r.jenis] || '📌';
+      const jml = (r.items || []).length;
       return `
       <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden fade-in">
         <div class="p-4 flex flex-wrap items-start gap-3 border-b border-slate-100">
@@ -471,6 +571,7 @@
                 selesai ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : 'bg-amber-50 text-amber-700 border border-amber-200'}">${selesai ? '✅ Sudah Dipakai' : '⏳ Rencana'}</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">${esc(r.jenis)}</span>
+              ${r.tim ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">${esc(r.tim)}</span>` : ''}
             </div>
             <div class="text-[11px] text-slate-400 font-semibold mt-1">
               ${fmtTgl(r.tanggal)} · ${esc(r.pic || '-')}${r.tim ? ` · ${esc(r.tim)}` : ''} · dicatat ${fmtWaktu(r.waktu)}
@@ -488,6 +589,15 @@
               class="px-2.5 py-1.5 rounded-lg text-xs font-bold border border-rose-200 text-rose-600 hover:bg-rose-50 transition-all">🗑️</button>
           </div>
         </div>
+        <!-- Rincian bahan DILIPAT secara bawaan. Satu catatan bisa berisi
+             puluhan bahan; membentangkan semuanya membuat sepuluh catatan
+             saja sudah sepanjang layar berkali-kali, dan yang dicari orang
+             biasanya cukup dijawab baris ringkasan di atas. -->
+        <details class="group">
+          <summary class="px-4 py-2.5 text-[11px] font-bold text-slate-500 cursor-pointer hover:bg-slate-50 select-none flex items-center gap-2">
+            <span class="transition-transform group-open:rotate-90">▶</span>
+            ${jml} bahan <span class="text-slate-300 font-semibold group-open:hidden">— klik untuk melihat rinciannya</span>
+          </summary>
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
             <thead><tr class="bg-slate-50 text-[10px] uppercase text-slate-400 tracking-wider">
@@ -504,9 +614,16 @@
             </tbody>
           </table>
         </div>
+        </details>
       </div>`;
-    }).join('');
+    }).join('') + (sisa > 0 ? `
+      <button type="button" onclick="muatLagi()"
+        class="w-full py-3 rounded-2xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-all">
+        ⬇ Muat ${Math.min(PER_HALAMAN, sisa)} lagi — masih ada ${sisa} catatan
+      </button>` : '');
   }
+
+  function muatLagi() { TAMPIL += PER_HALAMAN; render(); }
 
   /* ---------------------- REKAP TOTAL PER BAHAN ----------------------
      Menjumlahkan pemakaian tiap bahan dari catatan yang SEDANG tampil, jadi

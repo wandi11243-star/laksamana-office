@@ -210,7 +210,11 @@ function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
      mati lebih membingungkan daripada menu yang belum lengkap. Tambahkan
      barisnya di sini begitu halamannya jadi. */
   const menu = [
-    { k: 'usage',  href: '../usage/',  ico: 'fa-calendar-day', label: 'Pemakaian Event' },
+    /* Kunci modulnya TETAP 'usage' walau namanya kini "Pemakaian Bahan Baku".
+       Kunci itu identitas izin yang sudah tersimpan di tabel grants; menggantinya
+       berarti mencabut akses semua orang yang sudah diberi. Nama tampilan bebas
+       berubah, kuncinya tidak. */
+    { k: 'usage',  href: '../usage/',  ico: 'fa-calendar-day', label: 'Pemakaian Bahan Baku' },
   ];
   const views = tampilan || [];
   /* Tautan antar modul hanya ditampilkan kalau modulnya memang lebih dari
