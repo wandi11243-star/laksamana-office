@@ -189,3 +189,84 @@ CREATE TABLE IF NOT EXISTS stock_settings (
 -- hari sebelum migrasi ini. Jadi dia SUDAH basi bahkan sebelum pindah —
 -- ini soal terpisah yang perlu diputuskan sendiri.
 -- ---------------------------------------------------------------------
+
+-- =====================================================================
+-- TIGA MODUL PENCATATAN (2026-07-22): pemakaian event, waste, opname.
+--
+-- Ketiganya MURNI PENCATATAN — tidak satu pun mengubah tabel `stock`.
+-- Alasannya bukan kemalasan: `stock` ditimpa SELURUHNYA tiap kali supervisor
+-- mengunggah xlsx "Stock Today" (lihat pur_stock_simpan, ada DELETE FROM
+-- `stock` di dalamnya). Angka apa pun yang dikurangi otomatis di sini akan
+-- lenyap tanpa jejak pada unggahan berikutnya, dan selisihnya justru
+-- menyesatkan. Perbandingan sistem-vs-fisik dilakukan di tabel `opname`,
+-- di mana angkanya memang dicatat sebagai perbandingan, bukan sebagai
+-- kebenaran baru.
+--
+-- Pola sama dengan tabel lain: kolom inti untuk QUERY + `data` LONGTEXT
+-- (JSON) sebagai sumber kebenaran isi rincinya.
+-- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- USAGE_EVENTS — bahan baku yang dipakai untuk sebuah event.
+-- Satu baris = satu event, dengan banyak item di dalam `data`.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS usage_events (
+  id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+  tanggal    VARCHAR(20)  NOT NULL DEFAULT '',   -- YYYY-MM-DD, kapan dipakai
+  jenis      VARCHAR(40)  NOT NULL DEFAULT '',   -- Prasmanan | Training | RND | Lainnya
+  nama_event VARCHAR(190) NOT NULL DEFAULT '',
+  status     VARCHAR(20)  NOT NULL DEFAULT 'Rencana',  -- Rencana | Selesai
+  pic        VARCHAR(120) NOT NULL DEFAULT '',
+  tim        VARCHAR(20)  NOT NULL DEFAULT '',   -- Kitchen | Bar | Floor
+  waktu      VARCHAR(30)  NOT NULL DEFAULT '',   -- 'YYYY-MM-DD HH:MM:SS'
+  data       LONGTEXT     NOT NULL,              -- {catatan, items:[{item,qty,unit,note}]}
+  KEY idx_ue_tgl (tanggal),
+  KEY idx_ue_jenis (jenis),
+  KEY idx_ue_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- WASTE — produk terbuang, satu baris satu kejadian.
+--
+-- `foto` DIPISAH dari `data` dan SENGAJA TIDAK ikut saat daftar dimuat.
+-- Satu foto ±200-400KB; daftar sebulan bisa ratusan baris, dan menyertakan
+-- fotonya membuat halaman menunggu puluhan megabita hanya untuk menampilkan
+-- tabel. Foto ditarik satu per satu lewat ?action=foto&id=... saat diklik.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS waste (
+  id        VARCHAR(64)  NOT NULL PRIMARY KEY,
+  tanggal   VARCHAR(20)  NOT NULL DEFAULT '',
+  item      VARCHAR(190) NOT NULL DEFAULT '',
+  qty       DOUBLE       NOT NULL DEFAULT 0,
+  unit      VARCHAR(40)  NOT NULL DEFAULT '',
+  sebab     VARCHAR(40)  NOT NULL DEFAULT '',   -- Kadaluarsa | Rusak | Tumpah | Salah Olah | Sisa Produksi | Lainnya
+  pic       VARCHAR(120) NOT NULL DEFAULT '',
+  tim       VARCHAR(20)  NOT NULL DEFAULT '',
+  waktu     VARCHAR(30)  NOT NULL DEFAULT '',
+  foto      LONGTEXT     NOT NULL,              -- data URL; kosong = tanpa foto
+  foto_nama VARCHAR(190) NOT NULL DEFAULT '',
+  data      LONGTEXT     NOT NULL,              -- {catatan}
+  KEY idx_w_tgl (tanggal),
+  KEY idx_w_item (item),
+  KEY idx_w_sebab (sebab)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- OPNAME — hitung fisik harian. Satu baris = satu sesi hitung.
+--
+-- TIDAK diberi UNIQUE (tanggal, tim): hitung ulang di hari yang sama itu
+-- wajar (mis. per shift, atau mengulang karena salah hitung). Yang menahan
+-- duplikat tak sengaja adalah peringatan di frontend, bukan penolakan
+-- database — menolak hitungan kedua yang sah jauh lebih merugikan.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS opname (
+  id      VARCHAR(64)  NOT NULL PRIMARY KEY,
+  tanggal VARCHAR(20)  NOT NULL DEFAULT '',
+  pic     VARCHAR(120) NOT NULL DEFAULT '',
+  tim     VARCHAR(20)  NOT NULL DEFAULT '',
+  status  VARCHAR(20)  NOT NULL DEFAULT 'Draft',   -- Draft | Selesai
+  waktu   VARCHAR(30)  NOT NULL DEFAULT '',
+  data    LONGTEXT     NOT NULL,   -- {catatan, items:[{item,unit,sistem,fisik,note}]}
+  KEY idx_op_tgl (tanggal),
+  KEY idx_op_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
