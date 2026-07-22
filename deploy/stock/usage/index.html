@@ -185,6 +185,12 @@
 
         <!-- ===== RINGKASAN + DAFTAR ===== -->
         <div id="ringkas" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+
+        <!-- Rekap total per bahan. Pertanyaan "bulan ini kita habis berapa kilo
+             ayam untuk event" tidak terjawab oleh daftar per-catatan, karena
+             satu bahan tersebar di banyak event. -->
+        <div id="rekap-bahan"></div>
+
         <div id="daftar" class="space-y-3"></div>
         </section>
       </main>
@@ -441,6 +447,8 @@
       ${kartu('⏳ Masih Rencana', rencana, 'belum diambil', rencana ? 'amber' : '')}
       ${kartu('🔥 Terbanyak', teratas ? teratas[0] : '—', teratas ? `${teratas[1]} catatan` : 'belum ada')}`;
 
+    renderRekapBahan(list);
+
     const box = document.getElementById('daftar');
     if (!list.length) {
       box.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl p-10 text-center">
@@ -498,6 +506,97 @@
         </div>
       </div>`;
     }).join('');
+  }
+
+  /* ---------------------- REKAP TOTAL PER BAHAN ----------------------
+     Menjumlahkan pemakaian tiap bahan dari catatan yang SEDANG tampil, jadi
+     angkanya selalu menjawab filter yang sedang dipasang (periode, jenis,
+     pencarian) — bukan diam-diam menjumlah seluruh riwayat.
+
+     Dikelompokkan per bahan + SATUAN, tidak per bahan saja. Satu bahan bisa
+     tercatat dalam satuan berbeda (Gram di satu event, Kg di event lain);
+     menjumlahkannya jadi satu angka menghasilkan bilangan yang tidak berarti
+     apa-apa. Dipisah begini, angkanya selalu bisa dipercaya — dan kalau ada
+     bahan yang muncul dua baris dengan satuan berbeda, itu justru memberi
+     tahu pencatatannya perlu diseragamkan.
+
+     Rencana dan Sudah Dipakai dipisah kolomnya, karena artinya berbeda:
+     Rencana belum keluar dari gudang. Menjumlahkan keduanya jadi satu angka
+     akan membuat orang mengira barangnya sudah terpakai. */
+  function rekapBahan(list) {
+    const peta = new Map();
+    list.forEach(r => {
+      const selesai = r.status === 'Selesai';
+      (r.items || []).forEach(i => {
+        const nama = String(i.item || '').trim();
+        if (!nama) return;                       // baris kosong tidak dihitung
+        const unit = String(i.unit || '').trim();
+        const kunci = nama.toLowerCase() + ' ' + unit.toLowerCase();
+        const b = peta.get(kunci) || { item: nama, unit, selesai: 0, rencana: 0, dipakai: 0 };
+        const q = Number(i.qty) || 0;
+        if (selesai) b.selesai += q; else b.rencana += q;
+        b.dipakai += 1;                          // berapa catatan menyebut bahan ini
+        peta.set(kunci, b);
+      });
+    });
+    return Array.from(peta.values())
+      .map(b => Object.assign(b, { total: b.selesai + b.rencana }))
+      .sort((a, b) => b.total - a.total || a.item.localeCompare(b.item));
+  }
+
+  // Angka pemakaian sering pecahan (0.25 galon). Nol di belakang koma dibuang
+  // supaya 2.00 tampil "2", tapi 2.25 tetap utuh.
+  function fmtQty(n) {
+    const v = Number(n) || 0;
+    return v.toLocaleString('id-ID', { maximumFractionDigits: 2 });
+  }
+
+  function renderRekapBahan(list) {
+    const box = document.getElementById('rekap-bahan');
+    const baris = rekapBahan(list);
+    if (!baris.length) { box.innerHTML = ''; return; }
+
+    const adaRencana = baris.some(b => b.rencana > 0);
+    box.innerHTML = `
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="p-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+          <span class="text-xs font-black text-slate-500 uppercase tracking-wider">
+            📊 Total Pemakaian per Bahan
+          </span>
+          <span class="text-[11px] font-bold text-slate-400">${baris.length} bahan</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead>
+              <tr class="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                <th class="px-4 py-2 font-black">Bahan</th>
+                <th class="px-4 py-2 font-black text-right">Sudah Dipakai</th>
+                ${adaRencana ? '<th class="px-4 py-2 font-black text-right">Rencana</th>' : ''}
+                <th class="px-4 py-2 font-black text-right">Total</th>
+                <th class="px-4 py-2 font-black text-right whitespace-nowrap">Dipakai di</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${baris.map(b => `
+                <tr class="border-b border-slate-50 last:border-0">
+                  <td class="px-4 py-2 font-bold text-slate-700">${esc(b.item)}</td>
+                  <td class="px-4 py-2 text-right font-semibold text-emerald-700 whitespace-nowrap">
+                    ${fmtQty(b.selesai)} ${esc(b.unit)}</td>
+                  ${adaRencana ? `<td class="px-4 py-2 text-right font-semibold text-amber-700 whitespace-nowrap">
+                    ${b.rencana ? fmtQty(b.rencana) + ' ' + esc(b.unit) : '—'}</td>` : ''}
+                  <td class="px-4 py-2 text-right font-black text-slate-900 whitespace-nowrap">
+                    ${fmtQty(b.total)} ${esc(b.unit)}</td>
+                  <td class="px-4 py-2 text-right font-semibold text-slate-400 whitespace-nowrap">
+                    ${b.dipakai} catatan</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="px-4 py-2.5 text-[10px] text-slate-400 font-semibold border-t border-slate-100 leading-relaxed">
+          Dihitung dari catatan yang sedang tampil — ubah periode, jenis, atau pencarian di atas untuk mempersempitnya.
+          Bahan yang sama dengan satuan berbeda sengaja dipisah barisnya.
+        </p>
+      </div>`;
   }
 
   function kartu(label, nilai, sub, warna) {
