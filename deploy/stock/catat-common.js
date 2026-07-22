@@ -24,12 +24,11 @@ function sesiOffice(kunciModul) {
     const s = JSON.parse(localStorage.getItem('lm_session') || 'null');
     if (!s || !s.expiry || Date.now() > s.expiry) return null;
     const m = s.modules || [];
-    // Gerbangnya `stock`-lah yang menentukan, bukan nama modul ini sendiri:
-    // ketiganya bagian dari Stock, dan orang yang boleh membuka Ordering atau
-    // Purchasing memang orang yang sama yang mencatat pemakaian & waste.
-    const boleh = m.includes('*') || m.includes(kunciModul) ||
-                  m.includes('ordering') || m.includes('purchasing');
-    return boleh ? s : null;
+    /* Yang menentukan HANYA kunci modul ini sendiri ('usage', nanti 'waste'
+       & 'opname'). Sempat menumpang izin ordering/purchasing supaya kru tak
+       perlu diberi izin baru — tapi izin yang tak bisa dicabut bukan izin,
+       dan modulnya juga tidak muncul di Kelola Akses untuk diatur. */
+    return (m.includes('*') || m.includes(kunciModul)) ? s : null;
   } catch (e) { return null; }
 }
 
