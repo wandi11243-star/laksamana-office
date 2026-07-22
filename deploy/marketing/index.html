@@ -397,6 +397,9 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .divcard-h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px}
 .divcard-h b{font-size:13px}
 /* divisi yang job-nya belum diatur: diredupkan, bukan diberi tulisan negatif */
+/* Kartu divisi yang panelnya sedang terbuka ditandai jelas — tanpa itu,
+   kru harus menebak panel di bawah itu milik divisi yang mana. */
+.divcard.is-open{border-color:var(--gold);background:var(--gold-glow)}
 .divcard.is-empty{opacity:.55;border-style:dashed}
 .divcard.is-empty:hover{opacity:1}
 /* catatan kaki di bawah tabel — halus, tidak mencuri perhatian */
@@ -609,7 +612,13 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .menu-toggle{display:none}
 .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90}
 .scrim.on{display:block}
+/* Wadah cetak. WAJIB tersembunyi di layar: isinya diisi tepat sebelum
+   window.print(), dan tanpa aturan ini dokumen briefnya ikut menempel di
+   halaman sesudah dialog cetak ditutup — persis seperti yang terlihat di
+   layar setelah menekan Print. Ditampilkan lagi hanya di dalam @media print. */
+#print-area{display:none}
 @media print{
+  #print-area{display:block}
   @page{size:A4 portrait;margin:12mm}
   body *{visibility:hidden}
   #print-area,#print-area *{visibility:visible}
@@ -1962,17 +1971,34 @@ function stat(label,val,sub,icon){
   return '<div class="card stat"><div class="sl">'+label+'</div><div class="sv num">'+val+'</div><div class="sd">'+sub+'</div><div class="si">'+svg(IC[icon])+'</div></div>';
 }
 function progressBar(v,max){ const p=Math.min(100,Math.round(v/max*100)); return '<div class="progress" style="width:100%;margin-top:2px"><div class="bar" style="width:'+p+'%"></div></div>'; }
-function getCats(){ if(!S.categories) S.categories=DIVISIONS.concat(S.taskCategories||[]); return S.categories; }
+/* Daftar divisi. Array KOSONG harus diperlakukan sama dengan "belum
+   diisi" — dulu syaratnya cuma `!S.categories`, dan [] itu truthy.
+   normalizeState() menuliskan [] di setiap pemuatan (categories ada di
+   MKT_COLS), jadi daftar divisi tidak pernah terisi lagi setelah sekali
+   tersimpan kosong: halaman Task Divisi tampil tanpa satu pun divisi, dan
+   tidak ada tempat untuk mengisi apa pun. */
+function getCats(){
+  if(!Array.isArray(S.categories) || !S.categories.length)
+    S.categories=DIVISIONS.concat(S.taskCategories||[]);
+  return S.categories;
+}
 function divTemplates(div){ return (S.taskTemplates||[]).filter(t=>t.div===div); }
 // Template efektif untuk 1 divisi pada 1 event: Kitchen ikut menyerap cabang F&B (Prasmanan / Set Menu) sesuai pilihan event
 // Job tambahan ad-hoc milik 1 event (bukan dari Template Task) — diketik langsung di Detail Job
 function extraJobs(ev,div){ return (ev&&ev.extraJobs&&ev.extraJobs[div])||[]; }
+/* Gambar ulang di tempat yang sedang dipakai kru — panel di halaman kalau
+   panelnya yang terbuka, modal kalau modalnya. Menebak satu saja membuat
+   menambah job terasa seperti melompat ke layar lain. */
+function gambarUlangJob(evId,div){
+  if(_jobPanel && _jobPanel.evId===evId && _jobPanel.div===div){ refreshView(); return; }
+  openDivJobs(evId,div);
+}
 function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list.concat(extraJobs(ev,div)); }
 function addExtraJob(evId,div){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
   ev.extraJobs=ev.extraJobs||{}; ev.extraJobs[div]=ev.extraJobs[div]||[];
   ev.extraJobs[div].push({id:uid('xj'),div,task:'',pic:'',hminus:null,deadline:'',note:'',extra:true});
-  save(); openDivJobs(evId,div);
+  save(); gambarUlangJob(evId,div);
 }
 function setExtraJob(evId,div,jobId,field,val){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
@@ -1988,7 +2014,7 @@ function delExtraJob(evId,div,jobId){
     onYes:function(){
       ev.extraJobs[div]=extraJobs(ev,div).filter(x=>x.id!==jobId);
       if(ev.jobProgress&&ev.jobProgress[div]) delete ev.jobProgress[div][jobId];
-      save(); openDivJobs(evId,div);
+      save(); gambarUlangJob(evId,div);
     }});
 }
 function jobProg(e,div,taskId){ return Math.max(0,Math.min(100, Math.round((e.jobProgress&&e.jobProgress[div]&&+e.jobProgress[div][taskId])||0))); }
@@ -4311,7 +4337,20 @@ function buildBriefDoc(id,mode){
   $('modal').classList.add('wide');
   window._printDoc=doc;
 }
-function printBrief(){ $('print-area').innerHTML=window._printDoc; window.print(); }
+function printBrief(){
+  const area=$('print-area');
+  area.innerHTML=window._printDoc||'';
+  /* Dikosongkan lagi sesudah dialog cetak selesai. CSS sudah menyembunyikannya
+     dari layar, tapi menyisakan satu dokumen penuh di DOM berarti gambar &
+     tabelnya tetap dimuat dan ikut terbaca pembaca layar tanpa alasan.
+     onafterprint dipasang sekali saja — kalau tidak, tiap kali tombol Print
+     ditekan akan menumpuk satu pendengar baru. */
+  window.print();
+}
+window.addEventListener('afterprint',function(){
+  const area=document.getElementById('print-area');
+  if(area) area.innerHTML='';
+});
 /* ============================================================
    MODUL F — CALENDAR
    ============================================================ */
@@ -4428,16 +4467,28 @@ function taskDetail(e,opDiv){
    +'<div class="cell-sub" style="text-align:right;margin-top:5px">'+prog+'% siap</div></div></div></div>';
   h+='<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">';
   divs.forEach(div=>{ const pr=divProgress(e,div); const nJobs=eventDivTemplates(e,div).length; const kosong=!nJobs;
-    h+='<div class="divcard'+(kosong?' is-empty':'')+'">'
+    const buka=!!(_jobPanel && _jobPanel.evId===e.id && _jobPanel.div===div);
+    h+='<div class="divcard'+(kosong?' is-empty':'')+(buka?' is-open':'')+'">'
      +'<div class="divcard-h"><b>'+div+'</b><span class="cell-sub">'+(kosong?'—':pr+'% siap')+'</span></div>'
      +'<div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
-     +'<div class="cell-sub" style="margin-top:7px">'+(kosong?'—':nJobs+' job')+'</div>'
-     +(kosong
-        ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+e.id+'\',\''+div+'\')">'+svg(IC.plus)+'Atur Job</button>'
-        : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+e.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>')
+     +'<div class="cell-sub" style="margin-top:7px">'+(kosong?'belum ada job':nJobs+' job')+'</div>'
+     +'<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="toggleJobPanel(\''+e.id+'\',\''+esc(div)+'\')">'
+       +svg(buka?IC.x:(kosong?IC.plus:IC.brief))
+       +(buka?'Tutup':(kosong?'Atur Job':'Isi Job'))+'</button>'
      +'</div>';
   });
   h+='</div>';
+  /* Panel diisi LANGSUNG di halaman ini. Dulu satu-satunya jalan adalah
+     modal, dan modal menutupi daftar divisi — kru tidak bisa melihat divisi
+     mana yang masih 0% sambil mengisi yang sedang dibuka. */
+  if(_jobPanel && _jobPanel.evId===e.id && divs.includes(_jobPanel.div)){
+    h+='<div class="card" id="jobpanel" style="margin-top:14px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px">'
+        +'<h3 class="section-title" style="margin:0">Job Divisi '+esc(_jobPanel.div)+'</h3>'
+        +'<button class="btn sm ghost" onclick="toggleJobPanel(\''+e.id+'\',\''+esc(_jobPanel.div)+'\')">'+svg(IC.x)+'Tutup</button>'
+      +'</div>'
+      +divJobsHTML(e.id,_jobPanel.div)+'</div>';
+  }
   return h;
 }
 
@@ -4525,7 +4576,28 @@ function delTaskCategory(name){
       save(); toast('Dihapus','Kategori "'+name+'" dihapus.','ok'); go('templates');
     }});
 }
+/* Isi Detail Job dibangun sekali, dipakai DUA tempat: panel di halaman
+   Task Divisi dan modal lama. Kalau dibuat dua kali, keduanya pasti
+   melenceng cepat atau lambat. */
 function openDivJobs(evId,div){
+  _jobPanel=null;                       // dibuka sebagai modal, bukan panel
+  modal('<div class="modal-head"><div><h3>Detail Job · '+esc(div)+'</h3><p>'
+    +esc((S.events.find(e=>e.id===evId)||{}).nama||'')+'</p></div>'
+    +'<div class="x" onclick="closeModal();refreshView()">'+svg(IC.x)+'</div></div>'
+    +'<div class="modal-body">'+divJobsHTML(evId,div)+'</div>','wide');
+}
+/* Divisi yang sedang dibuka di halaman. Job tambahan yang baru dibuat harus
+   kembali ke tempat yang sama — bukan tiba-tiba melompat ke modal. */
+let _jobPanel=null;
+function toggleJobPanel(evId,div){
+  _jobPanel=(_jobPanel && _jobPanel.div===div && _jobPanel.evId===evId)?null:{evId,div};
+  refreshView();
+  if(_jobPanel){
+    const el=document.getElementById('jobpanel');
+    if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+}
+function divJobsHTML(evId,div){
   const ev=S.events.find(e=>e.id===evId);
   const items=eventDivTemplates(ev,div);
   const editable=can('edit_task');
@@ -4565,7 +4637,13 @@ function openDivJobs(evId,div){
     });
     b+='</tbody></table></div>';
   }
-  modal('<div class="modal-head"><div><h3>Detail Job · '+esc(div)+'</h3><p>'+esc(ev?ev.nama:'')+'</p></div><div class="x" onclick="closeModal();refreshView()">'+svg(IC.x)+'</div></div><div class="modal-body">'+b+'</div><div class="modal-foot"><button class="btn" onclick="closeModal();refreshView()">Tutup</button>'+(editable?'<button class="btn pri" onclick="closeModal();go(\'templates\')">Kelola Template</button>':'')+'</div>','xwide');
+  // Pintasan ini dulu ada di kaki modal. Kaki modalnya sudah tidak ada karena
+  // isinya kini juga dipakai sebagai panel di halaman. Ditaruh SESUDAH rantai
+  // if/else di atas — pernah tersisip di tengahnya, dan `else` yang memuat
+  // tabel job jadi menempel ke if yang salah lalu tabel itu hilang sama sekali.
+  if(editable) b+='<div style="margin-top:12px"><button class="btn sm ghost" onclick="closeModal();go(\'templates\')">'
+    +svg(IC.task)+'Kelola Template Task divisi ini</button></div>';
+  return b;
 }
 
 /* ============================================================
