@@ -199,7 +199,11 @@ function pasangAutocomplete(input, wadah, onPilih) {
 /* Sidebar & topbar dipasang dari sini supaya ketiga halaman terlihat sama
    dan sejajar dengan Ordering/Purchasing. `aktif` menentukan menu mana yang
    disorot. */
-function pasangCangkang(aktif, judul, deskripsi, sesi) {
+/* `tampilan` = sub menu DI DALAM halaman ini, mis. [{v,ico,label}] untuk
+   "Catat Baru" dan "Catatan Tercatat". Berbeda dari `menu` yang berpindah
+   halaman: yang ini cuma menukar bagian yang terlihat, jadi isian form tidak
+   hilang dan tidak ada muat ulang. */
+function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
   /* Hanya modul yang HALAMANNYA SUDAH ADA yang boleh masuk menu. Waste dan
      Opname backend-nya sudah siap (waste.php, opname.php) tapi halamannya
      belum dibuat — menautkannya sekarang cuma menghasilkan 404, dan tautan
@@ -208,6 +212,13 @@ function pasangCangkang(aktif, judul, deskripsi, sesi) {
   const menu = [
     { k: 'usage',  href: '../usage/',  ico: 'fa-calendar-day', label: 'Pemakaian Event' },
   ];
+  const views = tampilan || [];
+  /* Tautan antar modul hanya ditampilkan kalau modulnya memang lebih dari
+     satu. Sekarang cuma ada satu, jadi menampilkannya berarti satu baris menu
+     yang menuju halaman yang sedang dibuka — dan itu mendorong sub menu yang
+     benar-benar berguna turun ke bawah. Begitu waste/opname jadi, barisnya
+     muncul sendiri tanpa perlu menyentuh kode ini lagi. */
+  const tampilkanMenuModul = menu.length > 1;
   const nama = (sesi && sesi.name) || '-';
   const inisial = String(nama).trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
@@ -221,16 +232,17 @@ function pasangCangkang(aktif, judul, deskripsi, sesi) {
     </div>
     <nav class="flex-1 overflow-y-auto px-3 py-3">
       <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-2 pb-2">Pencatatan</div>
-      ${menu.map(m => `
+      ${tampilkanMenuModul ? menu.map(m => `
         <a href="${m.href}" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
           m.k === aktif ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
           <i class="fa-solid ${m.ico} w-5 text-center"></i> ${m.label}
-        </a>`).join('')}
-      <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-4 pb-2">Lainnya</div>
-      <a href="../ordering/" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 text-slate-500 hover:bg-slate-100 transition-all">
-        <i class="fa-solid fa-cart-plus w-5 text-center"></i> Order Belanja</a>
-      <a href="../purchasing/" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 text-slate-500 hover:bg-slate-100 transition-all">
-        <i class="fa-solid fa-list-check w-5 text-center"></i> Purchasing</a>
+        </a>`).join('') : ''}
+      ${views.map((v, i) => `
+        <button type="button" data-nav-tampilan="${esc(v.v)}" onclick="gantiTampilan('${esc(v.v)}')"
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
+          i === 0 ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
+          <i class="fa-solid ${v.ico} w-5 text-center"></i> ${esc(v.label)}
+        </button>`).join('')}
     </nav>
     <div class="border-t border-slate-100 p-3 flex items-center gap-2.5">
       <div class="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm flex-none">${esc(inisial || '?')}</div>
@@ -250,10 +262,42 @@ function pasangCangkang(aktif, judul, deskripsi, sesi) {
     </div>`;
 
   // Tab mini untuk HP — sidebar tersembunyi di bawah md.
-  document.getElementById('mobile-tabs').innerHTML = menu.map(m => `
-    <a href="${m.href}" class="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
-      m.k === aktif ? 'bg-white text-indigo-600' : 'text-slate-500'}">
-      <i class="fa-solid ${m.ico} text-[10px]"></i>${m.label}</a>`).join('');
+  document.getElementById('mobile-tabs').innerHTML =
+    (tampilkanMenuModul ? menu.map(m => `
+      <a href="${m.href}" class="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
+        m.k === aktif ? 'bg-white text-indigo-600' : 'text-slate-500'}">
+        <i class="fa-solid ${m.ico} text-[10px]"></i>${m.label}</a>`).join('') : '') +
+    views.map((v, i) => `
+      <button type="button" data-tab-tampilan="${esc(v.v)}" onclick="gantiTampilan('${esc(v.v)}')"
+        class="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
+        i === 0 ? 'bg-white text-indigo-600' : 'text-slate-500'}">
+        <i class="fa-solid ${v.ico} text-[10px]"></i>${esc(v.label)}</button>`).join('');
+
+  // Tampilan pertama yang aktif saat halaman dibuka.
+  if (views.length) gantiTampilan(views[0].v);
+}
+
+/* Tukar bagian halaman yang terlihat. Bagian ditandai data-tampilan="<v>";
+   yang tidak cocok disembunyikan, BUKAN dibuang — isian form yang sedang
+   diketik harus selamat saat orang menengok daftar lalu kembali. */
+function gantiTampilan(v) {
+  document.querySelectorAll('[data-tampilan]').forEach(el =>
+    el.classList.toggle('hidden', el.dataset.tampilan !== v));
+
+  document.querySelectorAll('[data-nav-tampilan]').forEach(b => {
+    const on = b.dataset.navTampilan === v;
+    b.classList.toggle('bg-indigo-50', on);
+    b.classList.toggle('text-indigo-700', on);
+    b.classList.toggle('text-slate-500', !on);
+    b.classList.toggle('hover:bg-slate-100', !on);
+  });
+  document.querySelectorAll('[data-tab-tampilan]').forEach(b => {
+    const on = b.dataset.tabTampilan === v;
+    b.classList.toggle('bg-white', on);
+    b.classList.toggle('text-indigo-600', on);
+    b.classList.toggle('text-slate-500', !on);
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ------------------------------------------------------------ BERKAS */
