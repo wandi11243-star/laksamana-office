@@ -407,6 +407,7 @@ async function autoSyncOfficeRoster(){
     }
   });
   if(gabungKembarTalenta()) changed = true;
+  if(buangYatimRoster(data.members)) changed = true;
   if(changed){ log('ROSTER_SYNC','dari Office'); save(); if(CU) buildNav(); }
 }
 
@@ -651,7 +652,12 @@ function seed(){
 }
 
 /* ====== AUTH & RBAC ====== */
-let CU = null; // current user (employee object)
+let CU = null; // current user (employee object) — CU.name SELALU nama resmi
+/* Nama panggilan pemilik sesi, dari Office. Hanya untuk menyapa DIRI SENDIRI
+   (footer sidebar, kartu "Skor Saya"). Jangan dipakai di tabel penilaian,
+   kehadiran, atau disiplin: di sana nama resmi yang berlaku. */
+let CU_SAPAAN = '';
+const sapaanCU = () => CU_SAPAAN || (CU ? CU.name : '');
 const ROLE_LABEL = { ceo:'CEO / Nahkoda', hr:'HRD', manager:'Manager', staff:'Kru' };
 function can(perm){
   if(!CU) return false;
@@ -739,13 +745,21 @@ function findEmployeeForSession(s){
     if(byTid.length === 1) return byTid[0];
   }
 
+  /* Kandidat yang Talenta ID-nya SUDAH TERISI dan BERBEDA bukan orang ini.
+     Tanpa penjaga ini, pencocokan nama di bawah bisa menyatukan dua orang
+     berbeda: "Indah Putri Wardani" (88125) pernah tercocokkan ke record
+     "Indah Sihombing" (151426) hanya karena nama depannya sama dan waktu itu
+     dialah satu-satunya "Indah" di daftar. Akibatnya identitas salah satunya
+     hilang, bukan sekadar kembar. */
+  const bukanOrangLain = x => !tid || !x.talentaId || String(x.talentaId) === tid;
+
   const target = normName(s.name);
-  const exact = S.employees.filter(x => normName(x.name) === target);
+  const exact = S.employees.filter(x => normName(x.name) === target && bukanOrangLain(x));
   if(exact.length === 1) return exact[0];
 
   const first = target.split(' ')[0];
   if(first){
-    const loose = S.employees.filter(x => normName(x.name).split(' ')[0] === first);
+    const loose = S.employees.filter(x => normName(x.name).split(' ')[0] === first && bukanOrangLain(x));
     if(loose.length === 1) return loose[0];
   }
   return null;
@@ -811,6 +825,52 @@ function gabungKembarTalenta(){
   return berubah;
 }
 
+/* Buang record kru yang SUDAH TIDAK ADA di Office DAN tidak punya riwayat apa
+   pun. Sasarannya sempit: sisa pencocokan nama yang gagal dulu (mis. "Andi",
+   "Putra") yang tertinggal sebagai kru hantu di daftar dan ikut mengotori
+   ranking People Score.
+
+   Empat penjaga, semuanya perlu:
+
+   1. Hanya kalau roster Office benar-benar terisi. Roster kosong berarti
+      panggilan gagal, bukan berarti semua kru dipecat.
+   2. Hanya yang TIDAK ada di roster Office. Yang masih ada di Office tidak
+      pernah disentuh — lagipula sinkron di atas akan membuatnya lagi.
+   3. Hanya yang TANPA riwayat sama sekali. Ada satu review/pelanggaran/hari
+      absensi pun, record-nya ditahan: lebih baik ada nama nyasar daripada
+      riwayat penilaian hilang diam-diam.
+   4. Tidak pernah membuang diri sendiri (CU), supaya sesi yang sedang
+      berjalan tidak kehilangan pijakannya di tengah jalan. */
+function buangYatimRoster(members){
+  if(!Array.isArray(members) || !members.length) return false;   // penjaga 1
+  const diOffice = new Set(members.map(m=>m && m.id).filter(Boolean));
+
+  const punyaRiwayat = id => {
+    const cek = [S.reviews, S.competencies, S.trainingRecords, S.coachings,
+                 S.rewards, S.badges, S.violations, S.feedbacks, S.successions,
+                 S.moods, S.suggestions];
+    if(cek.some(list => (list||[]).some(r => r && (r.empId===id || r.coachId===id)))) return true;
+    if((S.okrs||[]).some(o => o && o.ownerType==='emp' && o.ownerId===id)) return true;
+    if(S.monthlyInputs && S.monthlyInputs[id]) return true;
+    const att = S.attendance || {};
+    for(const mk in att){
+      if((att[mk].days||[]).some(d => d && d.empId===id)) return true;
+    }
+    return false;
+  };
+
+  const buang = S.employees.filter(e =>
+    !diOffice.has(e.id) &&                       // penjaga 2
+    !punyaRiwayat(e.id) &&                       // penjaga 3
+    !(CU && e.id === CU.id));                    // penjaga 4
+  if(!buang.length) return false;
+
+  const nama = buang.map(e=>e.name).join(', ');
+  S.employees = S.employees.filter(e => !buang.includes(e));
+  log('ROSTER_YATIM', 'dibuang: ' + nama);
+  return true;
+}
+
 function resolveOfficeUser(s){
   let u = findEmployeeForSession(s);
   if(u){
@@ -833,6 +893,11 @@ function bootPeopleOS(){
   if(!office){ location.replace('../'); return; }
   OFFICE_HR_ADMIN = officeIsHrAdmin(office);   // status admin dari Office, sumber gate Operasional/Sistem
   CU = resolveOfficeUser(office);
+  /* Nama panggilan datang dari sesi Office, BUKAN dari record HR — Office yang
+     memegangnya, dan HR tidak boleh ikut menyimpan salinan yang bisa basi.
+     Ditaruh di properti terpisah supaya CU.name tetap nama resmi: seluruh
+     layar penilaian, absensi, dan disiplin memakai CU.name. */
+  CU_SAPAAN = String(office.username||'').trim();
   log('LOGIN','');
   // Cache saja, JANGAN save() ke server: login semata bukan perubahan data.
   // save() penuh di sini bikin login siapapun terlihat sebagai "menyimpan
@@ -912,7 +977,7 @@ function buildNav(){
     '<nav>'+navHtml+'</nav>'+
     '<div class="side-user">'+
       '<div class="avatar">'+esc(initials(CU.name))+'</div>'+
-      '<div class="info"><span class="n">'+esc(CU.name)+'</span><span class="r">'+esc(ROLE_LABEL[CU.appRole]||CU.appRole)+'</span></div>'+
+      '<div class="info"><span class="n">'+esc(sapaanCU())+'</span><span class="r">'+esc(ROLE_LABEL[CU.appRole]||CU.appRole)+'</span></div>'+
       '<button class="logout-x" title="Keluar" onclick="APP.logout()"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg></button>'+
     '</div>';
 }
@@ -1418,7 +1483,7 @@ RENDER.dash = function(c){
   let html = '';
   // Kartu personal untuk semua role
   html += '<div class="card" style="background:linear-gradient(120deg,var(--ink),var(--ink3));color:#fff;border:none;margin-bottom:16px">'+
-    '<div class="flex"><div class="grow"><div class="disp" style="font-size:21px;font-weight:700">Halo, '+esc(CU.name.split(' ')[0])+' 👋</div>'+
+    '<div class="flex"><div class="grow"><div class="disp" style="font-size:21px;font-weight:700">Halo, '+esc(CU_SAPAAN || CU.name.split(' ')[0])+' 👋</div>'+
     '<div class="small" style="color:#B9C6D2;margin-top:3px">'+esc(divName(CU.divId))+', '+fmtMonth(mk)+'</div></div>'+
     (CU.appRole!=='ceo' ? '<div style="text-align:right"><div class="xs" style="color:#B9C6D2;letter-spacing:.1em">PEOPLE SCORE BULAN INI</div>'+
       (my.completeness < SCORE_MIN_COMPLETENESS
@@ -1575,9 +1640,20 @@ function renderKehadiran(c, mk){
     return;
   }
 
-  const emps = scopeEmps().filter(e=>e.appRole!=='ceo');
-  const semua = emps.map(e=>({e, d: attendanceDetail(e.id, mk), kum: attendanceCumulative(e.id)}))
-                    .filter(r=>r.d);
+  /* Kehadiran memakai scopeAll, BUKAN scopeEmps: kehadiran itu catatan sejarah.
+     Kru yang hari ini berstatus Nonaktif tetap benar-benar bekerja di bulan yang
+     sedang dilihat, dan menyembunyikannya membuat halaman ini kosong justru
+     setelah data berhasil diunggah — persis yang terjadi ketika seluruh akun
+     didaftarkan dalam keadaan nonaktif.
+
+     Gerbang siapa-lihat-siapa tetap ada: yang tanpa hak 'seeAll' hanya melihat
+     dirinya sendiri, sama seperti scopeEmps(). Yang dilonggarkan cuma filter
+     status Aktif. */
+  const terlihat = can('seeAll')
+    ? S.employees.filter(e=>e.appRole!=='ceo')
+    : S.employees.filter(e=>CU && e.id===CU.id);
+  const semua = terlihat.map(e=>({e, d: attendanceDetail(e.id, mk), kum: attendanceCumulative(e.id)}))
+                        .filter(r=>r.d);
   // Yang tidak pernah tap dipisah ke bawah: mereka tidak punya skor, dan
   // mencampurnya ke ranking berarti membandingkan orang dengan data kosong.
   const rows   = semua.filter(r=>!r.d.noData).sort((a,b)=>b.d.score - a.d.score);

@@ -29,11 +29,13 @@ CREATE TABLE IF NOT EXISTS `users` (
   `active`     TINYINT(1)   NOT NULL DEFAULT 1,
   `keterangan` VARCHAR(255) NOT NULL DEFAULT '',
   `talenta_id` VARCHAR(32)  NOT NULL DEFAULT '',
+  `username`   VARCHAR(40)  NOT NULL DEFAULT '',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_users_name` (`name`),
-  KEY `idx_users_talenta` (`talenta_id`)
+  KEY `idx_users_talenta` (`talenta_id`),
+  KEY `idx_users_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------------------------------------------------------------------
@@ -54,6 +56,35 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- ---------------------------------------------------------------------
 -- ALTER TABLE `users` ADD COLUMN `talenta_id` VARCHAR(32) NOT NULL DEFAULT '' AFTER `keterangan`;
 -- ALTER TABLE `users` ADD KEY `idx_users_talenta` (`talenta_id`);
+
+-- ---------------------------------------------------------------------
+-- username — nama pendek untuk LOGIN, dipilih sendiri oleh kru.
+--
+-- Masalah yang dipecahkan: login memakai nama + PIN, dan nama resmi harus
+-- diketik LENGKAP supaya "Rizki Arfan" tidak tertukar dengan "Rizky Kemala".
+-- Mengetik nama lengkap tiap login itu menyiksa. Dengan kolom ini, keduanya
+-- cukup mengetik 'arfan' dan 'mala'.
+--
+-- INI KREDENSIAL, BUKAN HIASAN. Konsekuensinya:
+--
+--   1. WAJIB UNIK, dan uniknya LINTAS KOLOM: sebuah username tidak boleh
+--      sama dengan username orang lain MAUPUN dengan `name` orang lain.
+--      Kalau tidak, "Rizky Kemala" bisa mengambil username "Rizki Arfan"
+--      dan login akan mengarah ke akun yang salah.
+--   2. Login mencocokkan `username` ATAU `name`. Nama resmi tetap bisa
+--      dipakai, jadi tidak ada yang terkunci saat fitur ini dipasang.
+--   3. Formatnya dibatasi (huruf/angka/titik/garis bawah/strip, 3-40) supaya
+--      tidak ada spasi ganda atau karakter tak terlihat yang membuat orang
+--      gagal login tanpa tahu sebabnya.
+--
+-- Kosong = belum pilih; orang itu login dengan nama resminya seperti biasa.
+-- Baris kosong BEBAS bentrok satu sama lain, jadi UNIQUE biasa tidak dipakai
+-- (MySQL menganggap '' sama dengan ''). Keunikan diperiksa di kode.
+--
+-- Perbandingan selalu lower-case: 'Arfan' dan 'arfan' orang yang sama.
+-- ---------------------------------------------------------------------
+-- ALTER TABLE `users` ADD COLUMN `username` VARCHAR(40) NOT NULL DEFAULT '' AFTER `talenta_id`;
+-- ALTER TABLE `users` ADD KEY `idx_users_username` (`username`);
 
 -- ---------------------------------------------------------------------
 -- modules — registri modul yang dikenal Office.

@@ -116,6 +116,59 @@ Ikut dikirim di `listUsers` **dan** `listModuleRoster`, supaya modul HR
 bisa mencocokkan tanpa kredensial superadmin. Ini bukan data sensitif:
 nomor pegawai, bukan PIN.
 
+## Nama resmi vs nama panggilan (username)
+
+Masalah aslinya: login memakai nama + PIN, dan nama resmi harus diketik
+**lengkap** supaya "Rizki Arfan" tidak tertukar dengan "Rizky Kemala".
+Mengetik nama lengkap tiap login itu menyiksa. Kolom `username` memberi
+mereka nama pendek: cukup ketik `arfan` dan `mala`.
+
+| Kolom | Untuk apa | Siapa yang mengubah |
+|---|---|---|
+| `name` | Nama resmi. Yang tampil di layar administratif | admin saja |
+| `username` | Nama login pendek + sapaan. Boleh kosong | pemiliknya sendiri, atau admin |
+
+**Login menerima keduanya.** `user_by_creds()` mencocokkan `username` dulu,
+baru `name`. Jadi memasang fitur ini tidak mengunci siapa pun: yang belum
+punya username tetap login seperti biasa.
+
+### Keunikan LINTAS KOLOM — jangan dilonggarkan
+
+`username` itu **kredensial**, bukan hiasan. `identitas_bentrok()` menolak
+sebuah nilai kalau sudah dipakai orang lain **sebagai username MAUPUN sebagai
+nama resmi**. Tanpa itu, "Rizky Kemala" bisa mengambil username `Rizki Arfan`
+dan login akan mengarah ke akun yang salah.
+
+Pemeriksaan yang sama dipakai saat **admin mengubah nama resmi** seseorang,
+karena arah bentroknya bisa terbalik.
+
+Kolom ini **tidak** diberi `UNIQUE` di database: baris kosong akan saling
+bentrok (MySQL menganggap `''` sama dengan `''`). Keunikan yang bukan-kosong
+diperiksa di kode.
+
+### Di mana yang mana ditampilkan
+
+- **Nama panggilan**: sapaan beranda Office, footer sidebar modul, kartu skor
+  pribadi. Semuanya layar "diri sendiri".
+- **Nama resmi**: semua layar untuk mengambil keputusan tentang seseorang —
+  Kelola User, Kelola Akses, Kru, Kehadiran, People Score, Disiplin. Di
+  Kelola User, username ikut tampil kecil (`@arfan`) supaya kru yang menyebut
+  dirinya "arfan" tetap ketemu.
+
+Pencocokan antar modul tetap lewat `id`, absensi lewat `talenta_id`.
+**Jangan pernah** memakai `username` untuk mencocokkan orang antar sistem.
+
+### Aksi `setUsername`
+
+Satu-satunya aksi tulis selain `changePin` yang boleh dipanggil
+non-superadmin. Gerbangnya **wajib name + PIN yang cocok**, dan baris yang
+ditulis ditentukan dari hasil pencocokan kredensial itu — bukan dari `id`
+yang dikirim client. Kalau `id` ikut dipercaya, kredensial sendiri bisa
+dipakai untuk menulis ke baris orang lain.
+
+Format: `[A-Za-z0-9._-]{3,40}`. Tanpa spasi, supaya tidak ada orang gagal
+login gara-gara spasi ganda yang tak terlihat. Kosong = hapus username.
+
 ## Memindahkan data dari Sheet
 
 Belum wajib — kalau dilewati, Office mulai dengan tiga akun benih di atas
