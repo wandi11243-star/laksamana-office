@@ -23,6 +23,33 @@
 if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.local.php';
 else                                            require_once __DIR__ . '/config.php';
 
+/* Versi backend. NAIKKAN tiap kali perilaku file ini berubah.
+
+   Gunanya bukan kerapian: backend di-upload manual per server (office & dev
+   punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
+   memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
+   Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
+define('LIB_VERSI', '2026-07-22');
+
+/* Identitas server, ikut di ping & stats.
+
+   env + db adalah pengaman zip tertukar. Zip dev dan zip office isinya nyaris
+   sama; yang membedakan cuma isi config.php. Kalau zip produksi telanjur
+   terupload ke dev, dev akan menulis ke database office TANPA satu pun pesan
+   error — semuanya terlihat normal. Satu-satunya cara melihatnya adalah
+   membaca env & db yang benar-benar sedang dipakai server itu.
+
+   ENV_LABEL sengaja tidak diwajibkan: config.php lama (yang belum punya
+   baris itu) tetap jalan, dan nilainya muncul sebagai '?' — itu sendiri
+   sudah memberi tahu bahwa config di server masih versi lama. */
+function identitas() {
+  return array(
+    'env'   => defined('ENV_LABEL') ? ENV_LABEL : '?',
+    'db'    => DB_NAME,
+    'versi' => LIB_VERSI,
+  );
+}
+
 /* ==================== KONEKSI MYSQL (PDO) ==================== */
 function db() {
   static $pdo = null;
@@ -416,7 +443,7 @@ function save_all($state) {
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();
-  $out = array('backend' => 'php-mysql', 'db' => DB_NAME);
+  $out = array_merge(array('backend' => 'php-mysql'), identitas());
   $tabel = array('talents','events','event_details','schedules','recurring_rules',
                  'talent_payments','ticket_classes','seats','orders','tickets',
                  'checkins','refunds','ideas','calendar_extra');

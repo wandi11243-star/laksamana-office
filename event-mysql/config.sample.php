@@ -24,6 +24,12 @@ define('DB_USER', 'lakk5493_ems');       // di cPanel diketik "ems" (prefix otom
 define('DB_PASS', 'ISI_PASSWORD_DI_SINI'); // password saat bikin user di cPanel
 define('DB_CHARSET', 'utf8mb4');
 
+// ---------- PENANDA SERVER ----------
+/* WAJIB berbeda antara office dan dev — inilah yang membuat
+   zip tertukar langsung ketahuan lewat ?action=ping.
+   office: 'produksi'   dev: 'dev' */
+define('ENV_LABEL', 'produksi');
+
 // ---------- (OPSIONAL) TOKEN AKSES API ----------
 // Kosongkan = terbuka (sama seperti reservasi sekarang). Kalau diisi, request
 // wajib menyertakan ?token=... yang sama.

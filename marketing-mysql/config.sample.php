@@ -28,5 +28,10 @@ define('DB_CHARSET', 'utf8mb4');
 // Boleh dipisah dari folder foto reservasi, atau disatukan — bebas.
 define('DATA_DIR', '/home/lakk5493/marketing-db');
 
+/* Penanda server. WAJIB berbeda antara office dan dev — inilah yang membuat
+   zip tertukar langsung ketahuan lewat ?action=ping.
+   office: 'produksi'   dev: 'dev' */
+define('ENV_LABEL', 'produksi');
+
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');
