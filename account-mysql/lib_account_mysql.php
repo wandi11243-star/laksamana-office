@@ -165,6 +165,20 @@ function grant_mentah_untuk($userId) {
     if (s($r['module']) !== '') $out[] = s($r['module']);
   return $out;
 }
+/* Modul yang PUNYA baris grant access=0 — pengecualian eksplisit.
+   ---------------------------------------------------------------------
+   Baris ini menimpa '*' (lihat modul_untuk) dan TIDAK pernah hilang
+   sendiri: sekali sebuah modul dilepas centangnya, memberi '*' kemudian
+   tidak mengembalikannya. Sebelumnya baris ini tidak pernah dikirim ke
+   frontend, jadi Kelola Akses menggambar centang yang BOHONG: modul yang
+   ditolak tetap tampak tercentang karena user punya '*', dan tidak ada
+   satu pun cara di layar untuk melihat — apalagi mencabut — penolakannya. */
+function deny_mentah_untuk($userId) {
+  $out = array();
+  foreach (q('SELECT `module` FROM `grants` WHERE user_id = :u AND access = 0', array(':u' => s($userId))) as $r)
+    if (s($r['module']) !== '') $out[] = s($r['module']);
+  return $out;
+}
 
 /* ==================== PREDIKAT OTORISASI ====================
    Setiap tulisan membawa nama+PIN pemanggil dan diverifikasi ULANG di
@@ -185,6 +199,104 @@ function butuh_admin_modul($body, $module) {
 
 /* ==================== AUTH ==================== */
 
+/* Token sesi. Dibuat saat login, dipakai modul lain untuk membuktikan siapa
+   yang memanggil API-nya tanpa pernah menyentuh PIN.
+
+   Sesi kedaluwarsa dibersihkan sambil lalu di sini, bukan lewat cron: tabelnya
+   kecil dan ini satu-satunya jalan masuk, jadi tidak ada yang menumpuk. */
+/* Tabel sessions dibuat sendiri saat pertama dibutuhkan.
+   ---------------------------------------------------------------------
+   Dibuat begini karena tidak ada yang menjalankan schema.sql otomatis saat
+   deploy: kode baru mendarat lebih dulu, tabelnya menyusul manual. Sekali
+   urutan itu meleset, SELURUH login mati — dan itu memang sempat terjadi di
+   dev begitu deploy otomatis menyalip pembuatan tabelnya.
+
+   Dijalankan sekali per permintaan (penanda statis), dan CREATE TABLE IF NOT
+   EXISTS memang tidak melakukan apa-apa kalau tabelnya sudah ada. */
+function pastikan_tabel_sessions() {
+  static $sudah = false;
+  if ($sudah) return;
+  $sudah = true;
+  q('CREATE TABLE IF NOT EXISTS `sessions` (
+       `token`   VARCHAR(64) NOT NULL,
+       `user_id` VARCHAR(64) NOT NULL,
+       `expiry`  BIGINT      NOT NULL,
+       `dibuat`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY (`token`),
+       KEY `idx_sessions_user` (`user_id`),
+       KEY `idx_sessions_expiry` (`expiry`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+/* Kegagalan di sini TIDAK BOLEH menggagalkan login.
+   Token itu tambahan: tanpanya orang tetap bisa masuk dan memakai Office,
+   yang hilang cuma pembatasan per tim di modul stock. Membiarkan galatnya
+   naik akan menukar fitur tambahan dengan satu-satunya pintu masuk — harga
+   yang tidak sebanding, dan persis itu yang terjadi di dev. */
+function buat_token_sesi($userId) {
+  try {
+    pastikan_tabel_sessions();
+    $token = bin2hex(random_bytes(32));
+    $sekarang = (int)(microtime(true) * 1000);
+    $expiry = $sekarang + (24 * 3600 * 1000);   // 24 jam, sama dengan SESSION_HOURS di Office
+    q('DELETE FROM `sessions` WHERE expiry < :n', array(':n' => $sekarang));
+    q('INSERT INTO `sessions` (token, user_id, expiry) VALUES (:t, :u, :e)',
+      array(':t' => $token, ':u' => s($userId), ':e' => $expiry));
+    return $token;
+  } catch (Throwable $e) {
+    return '';      // login tetap jalan, cuma tanpa token
+  }
+}
+
+/* Siapa pemilik token ini. null = token tidak dikenal, kedaluwarsa, atau
+   akunnya sudah dinonaktifkan. Yang terakhir penting: menonaktifkan akun
+   harus langsung berlaku, bukan menunggu tokennya habis sendiri. */
+function user_dari_token($token) {
+  $token = s($token);
+  if ($token === '') return null;
+  try {
+    pastikan_tabel_sessions();
+    $r = q('SELECT user_id, expiry FROM `sessions` WHERE token = :t LIMIT 1',
+           array(':t' => $token))->fetch();
+    if (!$r) return null;
+    if ((int)$r['expiry'] < (int)(microtime(true) * 1000)) {
+      q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $token));
+      return null;
+    }
+    $u = user_by_id(s($r['user_id']));
+    if (!$u || (int)$u['active'] !== 1) return null;
+    return $u;
+  } catch (Throwable $e) {
+    // Tidak bisa dipastikan = tidak diakui. Aman ke arah yang benar:
+    // gagal di sini berarti menolak, bukan meloloskan.
+    return null;
+  }
+}
+
+/* Dipanggil modul lain (mis. stock) untuk menanyakan "token ini milik siapa,
+   dan dia berhak apa". Tidak pernah membalas PIN.
+
+   `keterangan` ikut dibalas karena itulah tim kru (Kitchen/Bar/Floor) —
+   modul stock memakainya untuk membatasi data yang boleh dilihat. */
+function aksi_whoami($body) {
+  $u = user_dari_token(isset($body['token']) ? $body['token'] : '');
+  if (!$u) return array('ok' => false, 'error' => 'invalid_token');
+  return array('ok' => true, 'user' => array(
+    'id'           => s($u['id']),
+    'name'         => s($u['name']),
+    'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
+    'modules'      => modul_untuk($u['id']),
+    'adminModules' => admin_modul_untuk($u['id']),
+  ));
+}
+
+function aksi_logout($body) {
+  $t = s(isset($body['token']) ? $body['token'] : '');
+  if ($t !== '') q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $t));
+  return array('ok' => true);
+}
+
 function aksi_login($name, $pin) {
   $name = s($name); $pin = s($pin);
   if ($name === '' || $pin === '') return array('ok' => false, 'error' => 'missing');
@@ -194,8 +306,10 @@ function aksi_login($name, $pin) {
     'id'           => s($u['id']) !== '' ? s($u['id']) : ('u-' . mb_strtolower($name, 'UTF-8')),
     'name'         => s($u['name']),
     'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
+    'token'        => buat_token_sesi($u['id']),
   ));
 }
 /* User mengganti PIN-nya sendiri. TANPA verifikasi PIN lama: identitasnya
@@ -277,6 +391,7 @@ function aksi_list_users($body) {
       'username'     => s($u['username']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
+      'denies'       => deny_mentah_untuk($u['id']),  // pengecualian yang menimpa '*'
       'adminModules' => admin_modul_untuk($u['id']),
     );
   }
@@ -547,6 +662,7 @@ function aksi_segarkan_sesi($body) {
     'id'           => s($u['id']),
     'name'         => s($u['name']),
     'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));

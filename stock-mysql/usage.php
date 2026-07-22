@@ -20,7 +20,7 @@ require __DIR__ . '/lib_stock_catat.php';
 try {
   if ($metode === 'GET') {
     pur_cek_token();
-    pur_json(pur_usage_ambil(pur_pdo()));
+    pur_json(pur_usage_ambil(pur_pdo(), pur_batas_tim()));
   }
 
   if ($metode === 'POST') {

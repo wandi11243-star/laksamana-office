@@ -565,7 +565,7 @@
                         <div class="field" style="margin-top:12px">
                             <label>Modul yang boleh dibuka</label>
                             <div id="af-modules" class="pick-grid"></div>
-                            <p class="pick-hint">Centang <b>Semua (*)</b> untuk memberi seluruh modul, termasuk modul baru yang ditambahkan nanti. Centang modul lain untuk mengecualikannya.</p>
+                            <p class="pick-hint">Centang <b>Semua (*)</b> untuk memberi seluruh modul, termasuk modul baru yang ditambahkan nanti — modul lain ikut tercentang sendiri. <b>Lepas</b> centang salah satunya untuk mengecualikan modul itu saja.</p>
                         </div>
                         <div class="field" style="margin-top:12px">
                             <label>Kelola akses (admin modul)</label>
@@ -693,17 +693,29 @@
     // Seluruh key modul yang dikenal fallback lokal. Sumber kebenaran sebenarnya
     // adalah tab Modules di Sheet.
     function ALL_MODULE_KEYS_SEED(){
-        return ['ordering','purchasing','tree','konten','reservasi','akademi','event','marketing','hr','howandi_life'];
+        return ['ordering','purchasing','tree','usage','konten','reservasi','akademi',
+                'event','marketing','hr','kompas','howandi_life'];
     }
-    // Label ramah untuk picker Kelola Akses. Key mentah (mis. 'hr') tetap jadi
-    // identitas modul di grant dan gate; ini murni tampilan. Key tanpa entri di
-    // sini jatuh balik ke key-nya sendiri.
-    const MODULE_LABELS = {
-        ordering:'Ordering', purchasing:'Purchasing', tree:'Pohon Resep', konten:'Konten',
-        reservasi:'Reservasi', akademi:'Akademi', event:'Event',
-        marketing:'Marketing', hr:'Staff Performance', howandi_life:'Howandi Life OS'
-    };
-    function moduleLabel(k){ return k === '*' ? 'Semua (*)' : (MODULE_LABELS[k] || k); }
+    /* Label ramah untuk picker Kelola Akses. Key mentah (mis. 'hr') tetap jadi
+       identitas modul di grant dan gate; ini murni tampilan.
+
+       Sumbernya SATU: registri BRANCHES lewat appModuleList() — accessLabels
+       untuk modul grup, judul kartu untuk modul berkunci tunggal. Dulu ada peta
+       tersendiri di sini, dan itu justru sumber masalahnya: menambah modul di
+       BRANCHES tidak menambah namanya di sini, jadi kunci baru muncul mentah
+       ("usage", "kompas") dan admin harus menebak itu modul yang mana.
+
+       Dihitung sekali saat pertama dipakai, bukan saat berkas dimuat: BRANCHES
+       dan SUPER_BRANCHES adalah const yang terisi belakangan di berkas ini. */
+    let PETA_LABEL_MODUL = null;
+    function moduleLabel(k){
+        if(k === '*') return 'Semua (*)';
+        if(!PETA_LABEL_MODUL){
+            PETA_LABEL_MODUL = {};
+            appModuleList().forEach(m => { PETA_LABEL_MODUL[m.key] = m.label; });
+        }
+        return PETA_LABEL_MODUL[k] || k;
+    }
     function moduleLabels(list){ return (list || []).map(moduleLabel).join(', '); }
 
     // ==== REGISTRI MODUL ====
@@ -724,7 +736,14 @@
     // adalah grup: tampil bila user berhak salah satu panel (ordering atau purchasing).
     const BRANCHES = [
         {
-            key:'stock', href:'./stock/', icon:'box', access:['ordering','purchasing','tree'],
+            key:'stock', href:'./stock/', icon:'box', access:['ordering','purchasing','tree','usage'],
+            /* accessLabels: nama yang enak dibaca untuk tiap kunci izin.
+               Tanpa ini, Kelola Akses menampilkan kunci mentahnya ("usage",
+               "tree") — bisa dipakai, tapi admin harus menebak sendiri itu
+               modul yang mana. Kunci yang tidak disebut di sini tetap jalan,
+               cuma tampil apa adanya. */
+            accessLabels:{ ordering:'Stock · Ordering', purchasing:'Stock · Purchasing',
+                           tree:'Stock · Pohon Resep', usage:'Stock · Pemakaian Bahan Baku' },
             title:'Stock', tag:'Ordering dan Purchasing',
             desc:'Input order bahan baku dan check-in penerimaan, plus panel purchasing untuk antrian order, vendor, dan dispatch.',
             scope:['Ordering','Purchasing']
@@ -809,6 +828,16 @@
             // memanggil Office lagi. `name` TETAP nama resmi — modul yang
             // mencocokkan orang (mis. HR) harus memakai yang itu, bukan ini.
             username: user.username || '',
+            /* Token sesi: bukti identitas yang dikirim ulang oleh modul lain
+               (mis. stock) supaya SERVER-nya tahu siapa pemanggilnya. Tanpa
+               ini, API modul cuma dijaga token bersama yang sama untuk semua
+               orang, dan aturan seperti "tim Bar hanya melihat data Bar" tidak
+               mungkin ditegakkan — hanya bisa disembunyikan di layar.
+
+               PIN tidak pernah ikut disimpan di sini. Token bisa dicabut
+               sepihak dari server; PIN tidak. */
+            token: user.token || '',
+            keterangan: user.keterangan || '',      // tim kru (Kitchen/Bar/Floor)
             modules: user.modules || [],
             adminModules: user.adminModules || [],
             issuedAt:Date.now(),
@@ -834,7 +863,7 @@
 
     /* ------------------------ Verifikasi login ------------------------ */
     // Satu percobaan ke satu server. null = kredensial salah (server menjawab
-    // dengan tegas), throw = servernya sendiri tidak terjangkau.
+    // dengan tegas), throw = servernya sendiri tidak terjangkau ATAU rusak.
     async function verifyAt(url, name, pin){
         const res = await fetch(url, {
             method:'POST', redirect:'follow',
@@ -843,7 +872,31 @@
         });
         if(!res.ok) throw new Error('http_'+res.status);
         const data = await res.json();
-        return data && data.ok ? data.user : null;
+        if(data && data.ok) return data.user;
+
+        /* HANYA jawaban yang benar-benar berarti "kredensial tidak cocok" boleh
+           menjadi null. Selain itu servernya yang bermasalah, dan itu WAJIB
+           dibedakan.
+
+           Dulu setiap ok:false diperlakukan sebagai PIN salah. Akibatnya nyata
+           dan mahal: kolom `username` belum ada di database Dev, tiap login
+           melempar SQLSTATE 42S22, dan layar tetap menjawab "Nama pengguna atau
+           PIN salah" — menuduh orang yang mengetik dengan benar, sambil
+           menyembunyikan satu-satunya kalimat yang menjelaskan sebabnya.
+           Butuh lima putaran pemeriksaan untuk menemukannya, padahal server
+           sudah menyebutkan penyebabnya sejak percobaan pertama.
+
+           `missing` ikut di sini karena artinya kolom nama/PIN memang kosong. */
+        const sebab = (data && data.error) || 'unknown';
+        if(sebab === 'invalid' || sebab === 'missing') return null;
+        /* Ditandai `rusak` supaya verifyRemote TIDAK menjatuhkannya ke Sheet
+           lama. Server yang menjawab tapi rusak berbeda jenis dari server yang
+           tidak terjangkau: yang pertama masih memegang kebenaran soal siapa
+           berhak apa, dan diam-diam mengesahkan orang lewat sumber identitas
+           usang justru memberi hak akses versi lama kepada orang yang benar. */
+        const err = new Error('server: ' + sebab);
+        err.rusak = true;
+        throw err;
     }
     /* Coba MySQL dulu; kalau backend-nya belum terpasang di server ini
        (404 / tidak terjangkau), jatuh ke Sheet yang lama.
@@ -855,6 +908,8 @@
         try {
             return await verifyAt(OFFICE_WEBAPP_URL, name, pin);
         } catch (e) {
+            // Backend menjawab tapi rusak -> berhenti di sini, jangan ke Sheet.
+            if(e && e.rusak) throw e;
             if(!OFFICE_LEGACY_URL) throw e;
             return await verifyAt(OFFICE_LEGACY_URL, name, pin);   // lempar lagi bila ini pun gagal
         }
@@ -888,7 +943,14 @@
                    mati harus berarti tidak ada yang bisa masuk, bukan semua
                    orang jadi admin. Lagipula seluruh data modul ada di server —
                    masuk tanpa server tidak ada gunanya. */
-                return { error:'Server identitas tidak terjangkau. Coba lagi sebentar lagi, atau hubungi admin.' };
+                /* Sebabnya IKUT DITAMPILKAN. Ini alat internal, dan yang membaca
+                   pesan ini adalah orang yang bisa meneruskannya ke admin —
+                   "SQLSTATE ... Unknown column 'username'" langsung menunjuk
+                   perbaikannya, sedangkan kalimat sopan tanpa sebab menyuruh
+                   semua orang menebak. Yang TIDAK pernah ditampilkan tetap
+                   tidak: pesan ini tak pernah menyentuh nama atau PIN. */
+                const sebab = (e && e.message) ? String(e.message).slice(0, 200) : 'tak dikenal';
+                return { error:'Bukan PIN Anda — server identitas bermasalah. Tunjukkan ini ke admin: ' + sebab };
             }
         }else{
             user = verifySeed(name, pin);                // tidak ada backend sama sekali: mode lokal
@@ -1027,7 +1089,12 @@
         const add = (key, label) => { key = String(key||'').trim(); if(key && !seen[key]){ seen[key]=1; out.push({key, label: label || key}); } };
         BRANCHES.forEach(b => {
             const keys = b.access && b.access.length ? b.access : [b.key];
-            keys.forEach(k => add(k, keys.length === 1 ? b.title : k));  // grup (stock) pakai key apa adanya
+            const lbl = b.accessLabels || {};
+            /* Urutan sumber nama: accessLabels -> judul modul (kalau modulnya
+               cuma punya SATU kunci, judulnya memang nama kunci itu) -> kunci
+               mentah. Modul grup seperti Stock punya banyak kunci, jadi
+               memakai judulnya akan menamai keempatnya "Stock". */
+            keys.forEach(k => add(k, lbl[k] || (keys.length === 1 ? b.title : k)));
         });
         (typeof SUPER_BRANCHES !== 'undefined' ? SUPER_BRANCHES : []).forEach(b => add(b.key, b.title));
         return out;
@@ -1056,11 +1123,39 @@
     // Katalog modul dari server (tab Modules). Fallback ke seed bila server diam.
     let ADMIN_MODULES = [];   // [key, ...]
 
-    // Render checkbox modul. '*' = semua modul (termasuk modul baru nanti).
-    // '*' TIDAK saling eksklusif: '*' + centang modul lain = "semua KECUALI itu",
-    // karena baris deny menimpa '*' di server.
-    function renderPickGrid(container, name, sel){
-        const keys = ['*'].concat(ADMIN_MODULES.length ? ADMIN_MODULES : ALL_MODULE_KEYS_SEED());
+    // Katalog modul yang bisa dicentang: dari server, atau seed bila server diam.
+    function katalogModul(){
+        return ADMIN_MODULES.length ? ADMIN_MODULES : ALL_MODULE_KEYS_SEED();
+    }
+
+    /* Centang yang MEWAKILI KENYATAAN untuk satu user: baris grant mentah,
+       ditambah perluasan '*' DIKURANGI baris deny.
+
+       Sebelumnya kotak ini digambar dari grants mentah saja, jadi user ber-'*'
+       tampil dengan semua modul lain tidak tercentang. Akibatnya dua-duanya
+       salah: yang benar-benar dikecualikan tidak kelihatan dikecualikan, dan
+       menyentuh modul mana pun lalu menyimpan justru MENULIS deny baru untuk
+       modul yang tadinya baik-baik saja. Itulah sebabnya memberi "Semua (*)"
+       bisa tetap tidak memunculkan Pohon Resep / Pemakaian Event: baris deny
+       lama dari klik di tab Modul menimpanya, tanpa jejak di layar. */
+    function grantEfektif(u){
+        const chosen = new Set((u && (u.grants || u.modules)) || []);
+        if(chosen.has('*')){
+            const deny = new Set((u && u.denies) || []);
+            katalogModul().forEach(k => { if(!deny.has(k)) chosen.add(k); });
+        }
+        return chosen;
+    }
+
+    // Render checkbox modul. '*' = semua modul, TERMASUK modul baru yang
+    // ditambahkan nanti — itu bedanya dengan mencentang semuanya satu per satu.
+    // Melepas centang satu modul pada user ber-'*' = pengecualian untuk modul itu.
+    // bintangCentangSemua: hanya untuk kotak "modul yang boleh dibuka". Kotak
+    // "admin modul" tidak ikut — di sana '*' berarti superadmin, dan mencentang
+    // tiap modul untuknya akan meninggalkan orang itu admin SEMUA modul walau
+    // status superadmin-nya kelak dicabut.
+    function renderPickGrid(container, name, sel, bintangCentangSemua){
+        const keys = ['*'].concat(katalogModul());
         const chosen = new Set(sel || []);
         container.innerHTML = keys.map(k => {
             const on = chosen.has(k);
@@ -1070,6 +1165,19 @@
         }).join('');
         container.querySelectorAll('input').forEach(inp => {
             inp.addEventListener('change', () => {
+                /* Mencentang '*' ikut mencentang semuanya. Bukan sekadar
+                   kemudahan: tanpa ini, memberi "Semua (*)" ke orang yang
+                   pernah dikecualikan dari sebuah modul tidak mengubah apa pun
+                   untuk modul itu — baris deny-nya bertahan dan menimpa '*',
+                   persis keluhan "sudah klik Semua tapi Pohon Resep dan
+                   Pemakaian Event tetap tidak muncul". Sekarang klik itu
+                   menulis izin eksplisit yang menghapus pengecualiannya.
+
+                   MELEPAS '*' sengaja TIDAK melepas yang lain: itu tindakan
+                   mencabut, dan mencabut semua akses sekaligus tanpa diminta
+                   terlalu mudah dilakukan tanpa sadar. */
+                if(bintangCentangSemua && inp.value === '*' && inp.checked)
+                    container.querySelectorAll('input').forEach(o => { o.checked = true; });
                 container.querySelectorAll('.pick').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
             });
         });
@@ -1090,7 +1198,7 @@
             return;
         }
         ADMIN_MODULES = data.modules || [];
-        renderPickGrid(document.getElementById('af-modules'), 'af-mod', []);
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', [], true);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
 
         // Simpan dulu, baru gambar — renderAdminList membacanya dari sini.
@@ -1175,7 +1283,7 @@
         document.getElementById('af-cancel').classList.add('hidden');
         document.getElementById('af-delete').classList.add('hidden');
         document.getElementById('af-save').textContent = 'Simpan';
-        renderPickGrid(document.getElementById('af-modules'), 'af-mod', []);
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', [], true);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
     }
 
@@ -1188,8 +1296,8 @@
         document.getElementById('af-talenta').value = u.talentaId || '';
         document.getElementById('af-display').value = u.username || '';
         document.getElementById('af-active').checked = !!u.active;
-        // Centang sesuai baris Grants mentah user ini (bukan hasil perluasan '*').
-        renderPickGrid(document.getElementById('af-modules'), 'af-mod', u.grants || u.modules || []);
+        // Centang sesuai akses NYATA user ini: grant mentah + perluasan '*' - deny.
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', Array.from(grantEfektif(u)), true);
         // Admin modul: dari adminModules ('*' = superadmin).
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', u.adminModules || []);
         document.getElementById('af-cancel').classList.remove('hidden');
@@ -1232,7 +1340,11 @@
         const wantedAdmin = readPickGrid(document.getElementById('af-admin'));
         const editId = document.getElementById('af-id').value;
         const priorUser = (document.getElementById('admin-list')._users || []).find(x => x.id === editId);
-        const before = new Set(priorUser ? (priorUser.grants || priorUser.modules || []) : []);
+        // `before` dihitung dengan aturan yang SAMA dengan yang menggambar
+        // centangnya. Kalau berbeda, selisihnya jadi palsu: modul yang cuma
+        // "tercentang karena '*'" akan terbaca sebagai perubahan dan ditulis
+        // ulang — atau lebih buruk, dilepas jadi deny.
+        const before = priorUser ? grantEfektif(priorUser) : new Set();
         const beforeAdmin = new Set(priorUser ? (priorUser.adminModules || []) : []);
 
         const payload = {
@@ -1254,7 +1366,7 @@
 
         // Tulis Grants: yang dicentang -> TRUE, yang dilepas -> FALSE (deny).
         const uid = data.id || editId;
-        const keys = ['*'].concat(ADMIN_MODULES.length ? ADMIN_MODULES : ALL_MODULE_KEYS_SEED());
+        const keys = ['*'].concat(katalogModul());
         const now = new Set(wanted), nowAdmin = new Set(wantedAdmin);
         try{
             for(const k of keys){
@@ -1339,14 +1451,23 @@
     function renderModuleUsersPanel(key, panel){
         const users = moduleUsersCache();
         if(!users.length){ panel.innerHTML = '<div class="mod-users-hint">Belum ada user.</div>'; return; }
-        panel.innerHTML = '<p class="mod-users-hint">Centang user yang boleh membuka modul ini. User dengan akses <b>Semua (*)</b> otomatis tercentang dan terkunci di sini, ubah lewat tab User bila perlu mengecualikannya.</p>' +
+        panel.innerHTML = '<p class="mod-users-hint">Centang user yang boleh membuka modul ini. User dengan akses <b>Semua (*)</b> tercentang otomatis — melepas centangnya mencatat <b>pengecualian</b> khusus modul ini, dan mencentangnya lagi mencabut pengecualian itu.</p>' +
             '<div class="pick-grid">' + users.map(u => {
                 const grants = new Set(u.grants || u.modules || []);
+                const deny = new Set(u.denies || []);
                 const viaStar = grants.has('*');
-                const on = viaStar || grants.has(key);
+                /* Baris deny menang atas '*'. Dulu kotak ini dicentang dan
+                   DIKUNCI untuk siapa pun ber-'*', jadi user yang sebenarnya
+                   dikecualikan tetap tampil tercentang — dan pengecualiannya
+                   tidak bisa dicabut dari mana pun, termasuk dari sini. */
+                const on = grants.has(key) || (viaStar && !deny.has(key));
+                const tanda = viaStar
+                    ? (on ? ' <span class="xs" style="opacity:.6">(*)</span>'
+                          : ' <span class="xs" style="opacity:.6">(dikecualikan)</span>')
+                    : '';
                 return `<label class="pick${on ? ' on' : ''}" data-uid="${esc(u.id)}">
-                    <input type="checkbox" data-uid="${esc(u.id)}" data-module="${esc(key)}" ${on ? 'checked' : ''} ${viaStar ? 'disabled' : ''}>
-                    ${esc(u.name)}${viaStar ? ' <span class="xs" style="opacity:.6">(*)</span>' : ''}</label>`;
+                    <input type="checkbox" data-uid="${esc(u.id)}" data-module="${esc(key)}" ${on ? 'checked' : ''}>
+                    ${esc(u.name)}${tanda}</label>`;
             }).join('') + '</div>';
     }
     async function toggleModuleUserAccess(userId, module, on, checkboxEl){
@@ -1645,6 +1766,9 @@
         session.modules = u.modules || [];
         session.adminModules = u.adminModules || [];
         session.username = u.username || '';
+        // Token TIDAK disentuh: sessionRefresh tidak menerbitkan yang baru, dan
+        // menimpanya dengan undefined akan mencabut identitas sesi ini diam-diam.
+        session.keterangan = u.keterangan || session.keterangan || '';
         localStorage.setItem(SESSION_KEY, JSON.stringify(session));
         showApp(session);                             // gambar ulang dengan hak akses terbaru
     }

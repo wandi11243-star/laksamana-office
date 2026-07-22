@@ -83,6 +83,107 @@ jobs:
           server-dir: /
           timeout: 300000
 
+      # ==================================================================
+      # BACKEND (account-api-mysql & stock-api-mysql)
+      # ------------------------------------------------------------------
+      # Dua folder ini ADA DI LUAR deploy/, jadi selama ini tidak pernah
+      # ikut terkirim dan harus diunggah manual. Akibatnya berulang: kode
+      # frontend mendarat sementara backendnya tertinggal versi lama, dan
+      # gejalanya bukan error — cuma fitur yang "tidak berfungsi" tanpa
+      # sebab yang kelihatan.
+      #
+      # NAMA FOLDERNYA BERBEDA antara repo dan server:
+      #   account-mysql/ -> /account-api-mysql/
+      #   stock-mysql/   -> /stock-api-mysql/
+      # Itu yang dipakai frontend (mis. '../../stock-api-mysql/'), jadi
+      # jangan disamakan dengan nama folder di repo.
+      #
+      # YANG SENGAJA TIDAK IKUT (exclude):
+      #   config*.php — berisi password DB, dan tiap situs punya isinya
+      #     sendiri (dev menunjuk db dev, produksi menunjuk db produksi).
+      #     Sudah di-gitignore juga, tapi ditulis di sini supaya alasannya
+      #     tidak hilang. Karena tidak pernah ada di local-dir, file ini
+      #     juga tidak akan terhapus oleh sinkronisasi.
+      #   *.sql — skema & migrasi. Kalau ikut terbit, siapa pun bisa
+      #     mengunduh seluruh struktur database lewat URL biasa.
+      #   *.md — catatan pemasangan, tidak ada gunanya di server.
+      # ==================================================================
+      - name: Deploy backend account-api-mysql
+        id: ftpacc
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./account-mysql/
+          server-dir: /account-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend account-api-mysql (percobaan 2)
+        if: steps.ftpacc.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./account-mysql/
+          server-dir: /account-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend stock-api-mysql
+        id: ftpstock
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./stock-mysql/
+          server-dir: /stock-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend stock-api-mysql (percobaan 2)
+        if: steps.ftpstock.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./stock-mysql/
+          server-dir: /stock-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Verifikasi HARUS membuktikan file di server = file di repo.
       # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
       # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.
@@ -112,4 +213,67 @@ jobs:
               gagal=1
             fi
           done
+          exit $gagal
+
+      # ==================================================================
+      # VERIFIKASI BACKEND — beda caranya dari frontend.
+      # Berkas PHP tidak bisa dibandingkan isinya lewat HTTP: yang dikirim
+      # server adalah HASIL eksekusinya, bukan kodenya. Jadi yang diuji
+      # PERILAKUNYA.
+      #
+      # Tiga hal yang dibuktikan, berurutan dari yang paling sering salah:
+      #   1. env — memastikan situs ini bicara ke database DEV. Salah pasang
+      #      config (dev menunjuk db produksi) adalah kesalahan paling mahal
+      #      di repo ini, dan ping memang dibuat untuk menangkapnya.
+      #   2. whoami dikenal — membuktikan api.php versi BARU yang mendarat.
+      #      Versi lama menjawab 'unknown_action'; versi baru menolak token
+      #      palsu dengan 'invalid_token'. Ini pembeda yang tepat, bukan
+      #      sekadar "endpoint hidup".
+      #   3. usage.php benar-benar dijalankan sampai memuat lib_stock_catat.
+      #      ?action=ping TIDAK cukup: _boot menjawab ping lalu berhenti
+      #      SEBELUM lib itu di-require, jadi salah tulis di sana tidak
+      #      akan ketahuan. Permintaan daftar biasa memuatnya, dan galat
+      #      parse akan muncul sebagai HTTP 500.
+      # ==================================================================
+      - name: Verifikasi backend hidup dan versi terbaru
+        if: always()
+        run: |
+          gagal=0
+
+          echo "--- account-api-mysql ---"
+          acc=$(curl -s -m 60 "https://dev.laksamanamuda.id/account-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $acc"
+          case "$acc" in
+            *'"env":"dev"'*) echo "OK      env=dev" ;;
+            *) echo "GAGAL   env BUKAN dev — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          who=$(curl -s -m 60 -X POST "https://dev.laksamanamuda.id/account-api-mysql/api.php" \
+                  -H 'Content-Type: text/plain;charset=utf-8' \
+                  -d '{"action":"whoami","token":"ci-probe-token-yang-pasti-salah"}')
+          echo "whoami: $who"
+          case "$who" in
+            *invalid_token*) echo "OK      whoami dikenal (versi baru mendarat)" ;;
+            *unknown_action*) echo "GAGAL   whoami TIDAK dikenal — api.php di server masih versi lama"; gagal=1 ;;
+            *) echo "GAGAL   whoami menjawab tak terduga"; gagal=1 ;;
+          esac
+
+          echo "--- stock-api-mysql ---"
+          stk=$(curl -s -m 60 "https://dev.laksamanamuda.id/stock-api-mysql/usage.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $stk"
+          case "$stk" in
+            *'"env":"dev"'*) echo "OK      env=dev" ;;
+            *) echo "GAGAL   env BUKAN dev — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          kode=$(curl -s -m 60 -o /tmp/usage.json -w '%{http_code}' \
+                 "https://dev.laksamanamuda.id/stock-api-mysql/usage.php?dari=2000-01-01&ke=2000-01-02&ci=$GITHUB_SHA")
+          echo "daftar usage: HTTP $kode -> $(head -c 200 /tmp/usage.json)"
+          if [ "$kode" = "200" ]; then
+            echo "OK      usage.php memuat lib_stock_catat tanpa galat"
+          else
+            echo "GAGAL   usage.php balas HTTP $kode — kemungkinan galat PHP di lib_stock_catat.php"
+            gagal=1
+          fi
+
           exit $gagal

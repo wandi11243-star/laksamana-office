@@ -55,9 +55,14 @@ function pur_ada_baris($pdo, $tabel, $id) {
 
 /* ======================== PEMAKAIAN BAHAN UNTUK EVENT ======================== */
 
-function pur_usage_ambil($pdo) {
+/* $batasTim: null = semua, '' = tidak boleh apa pun, 'Bar' = tim itu saja.
+   Lihat pur_batas_tim(). Disaring DI SQL, bukan sesudah baris terkirim —
+   yang tidak boleh dilihat memang tidak pernah meninggalkan server. */
+function pur_usage_ambil($pdo, $batasTim = null) {
+  if ($batasTim === '') return [];
   $sql = "SELECT * FROM `usage_events` WHERE 1=1";
   $par = [];
+  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql); $st->execute($par);
@@ -154,11 +159,13 @@ function pur_usage_hapus($pdo, $id) {
    ratusan baris, jadi menyertakan fotonya berarti mengunduh puluhan
    megabita hanya untuk menampilkan tabel. Frontend cukup tahu ADA/TIDAKNYA
    foto (`adaFoto`), lalu menariknya satu per satu lewat ?action=foto. */
-function pur_waste_ambil($pdo) {
+function pur_waste_ambil($pdo, $batasTim = null) {
+  if ($batasTim === '') return [];
   $sql = "SELECT `id`,`tanggal`,`item`,`qty`,`unit`,`sebab`,`pic`,`tim`,`waktu`,
                  `foto_nama`, (`foto` <> '') AS ada_foto, `data`
           FROM `waste` WHERE 1=1";
   $par = [];
+  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql); $st->execute($par);
@@ -330,4 +337,141 @@ function pur_opname_hapus($pdo, $id) {
   $st = $pdo->prepare("DELETE FROM `opname` WHERE `id`=?");
   $st->execute([$id]);
   return $st->rowCount() ? ['status' => 'success'] : ['status' => 'error', 'message' => 'tidak ditemukan'];
+}
+
+/* =====================================================================
+ * IDENTITAS PEMANGGIL & PEMBATASAN PER TIM
+ * ---------------------------------------------------------------------
+ * Endpoint ini tidak punya daftar akun sendiri. Identitas datang dari
+ * Office: browser mengirim token sesi, dan kita menanyakannya balik ke
+ * API akun (action=whoami). Server-ke-server, jadi browser tidak bisa
+ * mengaku-ngaku jadi orang lain — itu bedanya dengan sekadar mengirim
+ * nama, yang bisa diketik siapa saja.
+ * ===================================================================== */
+
+/* Tanya API akun: token ini milik siapa. null = tidak bisa dipastikan
+   (token salah, kedaluwarsa, akun nonaktif, atau API akun tak terjangkau).
+
+   Jawabannya di-cache selama satu permintaan: satu endpoint bisa memanggil
+   ini beberapa kali, dan tiap panggilan berarti satu HTTP ke API akun. */
+/* Alamat API akun. Diturunkan sendiri dari situs yang sedang melayani, jadi
+   dev otomatis bertanya ke akun dev dan produksi ke akun produksi — TIDAK
+   perlu disetel per situs, dan tidak mungkin tertukar. Salah setel di sini
+   berarti kru dev diverifikasi memakai akun produksi (atau sebaliknya), dan
+   itu jenis kesalahan yang tidak menimbulkan error, cuma hasil yang salah.
+
+   SERVER_NAME didahulukan, bukan HTTP_HOST: HTTP_HOST datang dari permintaan
+   dan bisa dipalsukan, sehingga verifikasi bisa dialihkan ke server lain yang
+   selalu menjawab "ok". SERVER_NAME datang dari konfigurasi vhost.
+
+   config.php tetap bisa menimpanya lewat ACCOUNT_API_URL bila suatu saat
+   API akun dipindah ke domain lain. */
+function pur_account_api_url() {
+  if (defined('ACCOUNT_API_URL') && ACCOUNT_API_URL !== '') return ACCOUNT_API_URL;
+  $host = $_SERVER['SERVER_NAME'] ?? ($_SERVER['HTTP_HOST'] ?? '');
+  if ($host === '') return '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $host . '/account-api-mysql/api.php';
+}
+
+/* Saklar pembatasan per tim.
+   ---------------------------------------------------------------------
+   Bawaannya MENYALA di dev dan MATI di produksi. Disengaja: dev memang
+   tempat mencobanya, sedangkan menyalakannya di produksi harus jadi
+   keputusan sadar — begitu menyala, tiap kru yang `keterangan`-nya belum
+   diisi TIDAK melihat apa pun. Kalau bawaannya menyala di mana saja,
+   menggabungkan develop ke main akan diam-diam mengunci separuh kru.
+
+   Produksi menyalakannya dengan menambahkan define('BATAS_PER_TIM', true)
+   di config.php — dan config.php sengaja tidak ikut ter-deploy, jadi
+   keputusan itu tidak bisa terbawa tanpa sengaja. */
+if (!defined('BATAS_PER_TIM')) {
+  define('BATAS_PER_TIM', defined('ENV_LABEL') && ENV_LABEL === 'dev');
+}
+
+function pur_whoami($token) {
+  static $cache = [];
+  $token = trim((string)$token);
+  if ($token === '') return null;
+  if (array_key_exists($token, $cache)) return $cache[$token];
+  $url = pur_account_api_url();
+  if ($url === '') return $cache[$token] = null;
+
+  $payload = json_encode(['action' => 'whoami', 'token' => $token]);
+  $jawab = null;
+
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_POST           => true,
+      CURLOPT_POSTFIELDS     => $payload,
+      CURLOPT_HTTPHEADER     => ['Content-Type: text/plain;charset=utf-8'],
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_TIMEOUT        => 8,
+      CURLOPT_FOLLOWLOCATION => true,
+    ]);
+    $jawab = curl_exec($ch);
+    curl_close($ch);
+  } else {
+    // Sebagian hosting mematikan curl. allow_url_fopen jadi cadangan.
+    $ctx = stream_context_create(['http' => [
+      'method'  => 'POST',
+      'header'  => "Content-Type: text/plain;charset=utf-8\r\n",
+      'content' => $payload,
+      'timeout' => 8,
+    ]]);
+    $jawab = @file_get_contents($url, false, $ctx);
+  }
+
+  if (!is_string($jawab) || $jawab === '') return $cache[$token] = null;
+  $d = json_decode($jawab, true);
+  if (!is_array($d) || empty($d['ok']) || empty($d['user'])) return $cache[$token] = null;
+  return $cache[$token] = $d['user'];
+}
+
+/* Token dari query (GET) atau body (POST). Satu tempat saja, supaya tiap
+   endpoint tidak menuliskan aturannya sendiri-sendiri. */
+function pur_token_sesi($body = null) {
+  if (isset($_GET['sesi']) && $_GET['sesi'] !== '') return (string)$_GET['sesi'];
+  if ($body && isset($body->sesi)) return (string)$body->sesi;
+  return '';
+}
+
+/* Apakah pemanggil ini admin modul stock — boleh melihat SEMUA tim.
+   'usage' dipakai sebagai kunci modulnya karena itulah modul tempat
+   pencatatan ini bernaung. */
+function pur_pemanggil_admin($u) {
+  if (!$u) return false;
+  $adm = isset($u['adminModules']) && is_array($u['adminModules']) ? $u['adminModules'] : [];
+  return in_array('*', $adm, true) || in_array('usage', $adm, true);
+}
+
+/* Tim pemanggil, dinormalkan ke salah satu dari Kitchen/Bar/Floor.
+   Sumbernya `keterangan` di akun Office — kolom yang memang ditujukan untuk
+   tim, tapi isinya teks bebas ("Kitchen Senior", "crew bar"), jadi dicocokkan
+   longgar. '' = tidak bisa ditentukan. */
+function pur_tim_pemanggil($u) {
+  $ket = strtolower(trim((string)($u['keterangan'] ?? '')));
+  if ($ket === '') return '';
+  foreach (['Kitchen', 'Bar', 'Floor'] as $t) {
+    if (strpos($ket, strtolower($t)) !== false) return $t;
+  }
+  return '';
+}
+
+/* Tim mana yang boleh dilihat pemanggil ini.
+ *   null  -> tanpa batas (lihat semua)
+ *   ''    -> TIDAK BOLEH melihat apa pun
+ *   'Bar' -> hanya baris tim itu
+ *
+ * Kru tanpa tim sengaja tidak melihat apa pun, bukan melihat semua: kalau
+ * dibalik, satu keterangan yang lupa diisi diam-diam memberi akses penuh —
+ * dan tidak ada yang akan menyadarinya karena tampilannya normal.
+ */
+function pur_batas_tim($body = null) {
+  if (!defined('BATAS_PER_TIM') || !BATAS_PER_TIM) return null;   // saklar mati = perilaku lama
+  $u = pur_whoami(pur_token_sesi($body));
+  if (!$u) return '';                       // tak terbukti siapa = tidak melihat apa pun
+  if (pur_pemanggil_admin($u)) return null; // admin modul melihat semua
+  return pur_tim_pemanggil($u);
 }
