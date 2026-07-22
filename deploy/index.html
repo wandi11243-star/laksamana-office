@@ -853,7 +853,7 @@
 
     /* ------------------------ Verifikasi login ------------------------ */
     // Satu percobaan ke satu server. null = kredensial salah (server menjawab
-    // dengan tegas), throw = servernya sendiri tidak terjangkau.
+    // dengan tegas), throw = servernya sendiri tidak terjangkau ATAU rusak.
     async function verifyAt(url, name, pin){
         const res = await fetch(url, {
             method:'POST', redirect:'follow',
@@ -862,7 +862,31 @@
         });
         if(!res.ok) throw new Error('http_'+res.status);
         const data = await res.json();
-        return data && data.ok ? data.user : null;
+        if(data && data.ok) return data.user;
+
+        /* HANYA jawaban yang benar-benar berarti "kredensial tidak cocok" boleh
+           menjadi null. Selain itu servernya yang bermasalah, dan itu WAJIB
+           dibedakan.
+
+           Dulu setiap ok:false diperlakukan sebagai PIN salah. Akibatnya nyata
+           dan mahal: kolom `username` belum ada di database Dev, tiap login
+           melempar SQLSTATE 42S22, dan layar tetap menjawab "Nama pengguna atau
+           PIN salah" — menuduh orang yang mengetik dengan benar, sambil
+           menyembunyikan satu-satunya kalimat yang menjelaskan sebabnya.
+           Butuh lima putaran pemeriksaan untuk menemukannya, padahal server
+           sudah menyebutkan penyebabnya sejak percobaan pertama.
+
+           `missing` ikut di sini karena artinya kolom nama/PIN memang kosong. */
+        const sebab = (data && data.error) || 'unknown';
+        if(sebab === 'invalid' || sebab === 'missing') return null;
+        /* Ditandai `rusak` supaya verifyRemote TIDAK menjatuhkannya ke Sheet
+           lama. Server yang menjawab tapi rusak berbeda jenis dari server yang
+           tidak terjangkau: yang pertama masih memegang kebenaran soal siapa
+           berhak apa, dan diam-diam mengesahkan orang lewat sumber identitas
+           usang justru memberi hak akses versi lama kepada orang yang benar. */
+        const err = new Error('server: ' + sebab);
+        err.rusak = true;
+        throw err;
     }
     /* Coba MySQL dulu; kalau backend-nya belum terpasang di server ini
        (404 / tidak terjangkau), jatuh ke Sheet yang lama.
@@ -874,6 +898,8 @@
         try {
             return await verifyAt(OFFICE_WEBAPP_URL, name, pin);
         } catch (e) {
+            // Backend menjawab tapi rusak -> berhenti di sini, jangan ke Sheet.
+            if(e && e.rusak) throw e;
             if(!OFFICE_LEGACY_URL) throw e;
             return await verifyAt(OFFICE_LEGACY_URL, name, pin);   // lempar lagi bila ini pun gagal
         }
@@ -907,7 +933,14 @@
                    mati harus berarti tidak ada yang bisa masuk, bukan semua
                    orang jadi admin. Lagipula seluruh data modul ada di server —
                    masuk tanpa server tidak ada gunanya. */
-                return { error:'Server identitas tidak terjangkau. Coba lagi sebentar lagi, atau hubungi admin.' };
+                /* Sebabnya IKUT DITAMPILKAN. Ini alat internal, dan yang membaca
+                   pesan ini adalah orang yang bisa meneruskannya ke admin —
+                   "SQLSTATE ... Unknown column 'username'" langsung menunjuk
+                   perbaikannya, sedangkan kalimat sopan tanpa sebab menyuruh
+                   semua orang menebak. Yang TIDAK pernah ditampilkan tetap
+                   tidak: pesan ini tak pernah menyentuh nama atau PIN. */
+                const sebab = (e && e.message) ? String(e.message).slice(0, 200) : 'tak dikenal';
+                return { error:'Bukan PIN Anda — server identitas bermasalah. Tunjukkan ini ke admin: ' + sebab };
             }
         }else{
             user = verifySeed(name, pin);                // tidak ada backend sama sekali: mode lokal
