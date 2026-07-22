@@ -204,13 +204,48 @@ function butuh_admin_modul($body, $module) {
 
    Sesi kedaluwarsa dibersihkan sambil lalu di sini, bukan lewat cron: tabelnya
    kecil dan ini satu-satunya jalan masuk, jadi tidak ada yang menumpuk. */
+/* Tabel sessions dibuat sendiri saat pertama dibutuhkan.
+   ---------------------------------------------------------------------
+   Dibuat begini karena tidak ada yang menjalankan schema.sql otomatis saat
+   deploy: kode baru mendarat lebih dulu, tabelnya menyusul manual. Sekali
+   urutan itu meleset, SELURUH login mati — dan itu memang sempat terjadi di
+   dev begitu deploy otomatis menyalip pembuatan tabelnya.
+
+   Dijalankan sekali per permintaan (penanda statis), dan CREATE TABLE IF NOT
+   EXISTS memang tidak melakukan apa-apa kalau tabelnya sudah ada. */
+function pastikan_tabel_sessions() {
+  static $sudah = false;
+  if ($sudah) return;
+  $sudah = true;
+  q('CREATE TABLE IF NOT EXISTS `sessions` (
+       `token`   VARCHAR(64) NOT NULL,
+       `user_id` VARCHAR(64) NOT NULL,
+       `expiry`  BIGINT      NOT NULL,
+       `dibuat`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+       PRIMARY KEY (`token`),
+       KEY `idx_sessions_user` (`user_id`),
+       KEY `idx_sessions_expiry` (`expiry`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+/* Kegagalan di sini TIDAK BOLEH menggagalkan login.
+   Token itu tambahan: tanpanya orang tetap bisa masuk dan memakai Office,
+   yang hilang cuma pembatasan per tim di modul stock. Membiarkan galatnya
+   naik akan menukar fitur tambahan dengan satu-satunya pintu masuk — harga
+   yang tidak sebanding, dan persis itu yang terjadi di dev. */
 function buat_token_sesi($userId) {
-  $token = bin2hex(random_bytes(32));
-  $expiry = (int)(microtime(true) * 1000) + (24 * 3600 * 1000);   // 24 jam, sama dengan SESSION_HOURS di Office
-  q('DELETE FROM `sessions` WHERE expiry < :n', array(':n' => (int)(microtime(true) * 1000)));
-  q('INSERT INTO `sessions` (token, user_id, expiry) VALUES (:t, :u, :e)',
-    array(':t' => $token, ':u' => s($userId), ':e' => $expiry));
-  return $token;
+  try {
+    pastikan_tabel_sessions();
+    $token = bin2hex(random_bytes(32));
+    $sekarang = (int)(microtime(true) * 1000);
+    $expiry = $sekarang + (24 * 3600 * 1000);   // 24 jam, sama dengan SESSION_HOURS di Office
+    q('DELETE FROM `sessions` WHERE expiry < :n', array(':n' => $sekarang));
+    q('INSERT INTO `sessions` (token, user_id, expiry) VALUES (:t, :u, :e)',
+      array(':t' => $token, ':u' => s($userId), ':e' => $expiry));
+    return $token;
+  } catch (Throwable $e) {
+    return '';      // login tetap jalan, cuma tanpa token
+  }
 }
 
 /* Siapa pemilik token ini. null = token tidak dikenal, kedaluwarsa, atau
@@ -219,16 +254,23 @@ function buat_token_sesi($userId) {
 function user_dari_token($token) {
   $token = s($token);
   if ($token === '') return null;
-  $r = q('SELECT user_id, expiry FROM `sessions` WHERE token = :t LIMIT 1',
-         array(':t' => $token))->fetch();
-  if (!$r) return null;
-  if ((int)$r['expiry'] < (int)(microtime(true) * 1000)) {
-    q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $token));
+  try {
+    pastikan_tabel_sessions();
+    $r = q('SELECT user_id, expiry FROM `sessions` WHERE token = :t LIMIT 1',
+           array(':t' => $token))->fetch();
+    if (!$r) return null;
+    if ((int)$r['expiry'] < (int)(microtime(true) * 1000)) {
+      q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $token));
+      return null;
+    }
+    $u = user_by_id(s($r['user_id']));
+    if (!$u || (int)$u['active'] !== 1) return null;
+    return $u;
+  } catch (Throwable $e) {
+    // Tidak bisa dipastikan = tidak diakui. Aman ke arah yang benar:
+    // gagal di sini berarti menolak, bukan meloloskan.
     return null;
   }
-  $u = user_by_id(s($r['user_id']));
-  if (!$u || (int)$u['active'] !== 1) return null;
-  return $u;
 }
 
 /* Dipanggil modul lain (mis. stock) untuk menanyakan "token ini milik siapa,
