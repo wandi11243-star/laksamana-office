@@ -354,18 +354,54 @@ function pur_opname_hapus($pdo, $id) {
 
    Jawabannya di-cache selama satu permintaan: satu endpoint bisa memanggil
    ini beberapa kali, dan tiap panggilan berarti satu HTTP ke API akun. */
+/* Alamat API akun. Diturunkan sendiri dari situs yang sedang melayani, jadi
+   dev otomatis bertanya ke akun dev dan produksi ke akun produksi — TIDAK
+   perlu disetel per situs, dan tidak mungkin tertukar. Salah setel di sini
+   berarti kru dev diverifikasi memakai akun produksi (atau sebaliknya), dan
+   itu jenis kesalahan yang tidak menimbulkan error, cuma hasil yang salah.
+
+   SERVER_NAME didahulukan, bukan HTTP_HOST: HTTP_HOST datang dari permintaan
+   dan bisa dipalsukan, sehingga verifikasi bisa dialihkan ke server lain yang
+   selalu menjawab "ok". SERVER_NAME datang dari konfigurasi vhost.
+
+   config.php tetap bisa menimpanya lewat ACCOUNT_API_URL bila suatu saat
+   API akun dipindah ke domain lain. */
+function pur_account_api_url() {
+  if (defined('ACCOUNT_API_URL') && ACCOUNT_API_URL !== '') return ACCOUNT_API_URL;
+  $host = $_SERVER['SERVER_NAME'] ?? ($_SERVER['HTTP_HOST'] ?? '');
+  if ($host === '') return '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $host . '/account-api-mysql/api.php';
+}
+
+/* Saklar pembatasan per tim.
+   ---------------------------------------------------------------------
+   Bawaannya MENYALA di dev dan MATI di produksi. Disengaja: dev memang
+   tempat mencobanya, sedangkan menyalakannya di produksi harus jadi
+   keputusan sadar — begitu menyala, tiap kru yang `keterangan`-nya belum
+   diisi TIDAK melihat apa pun. Kalau bawaannya menyala di mana saja,
+   menggabungkan develop ke main akan diam-diam mengunci separuh kru.
+
+   Produksi menyalakannya dengan menambahkan define('BATAS_PER_TIM', true)
+   di config.php — dan config.php sengaja tidak ikut ter-deploy, jadi
+   keputusan itu tidak bisa terbawa tanpa sengaja. */
+if (!defined('BATAS_PER_TIM')) {
+  define('BATAS_PER_TIM', defined('ENV_LABEL') && ENV_LABEL === 'dev');
+}
+
 function pur_whoami($token) {
   static $cache = [];
   $token = trim((string)$token);
   if ($token === '') return null;
   if (array_key_exists($token, $cache)) return $cache[$token];
-  if (!defined('ACCOUNT_API_URL') || ACCOUNT_API_URL === '') return $cache[$token] = null;
+  $url = pur_account_api_url();
+  if ($url === '') return $cache[$token] = null;
 
   $payload = json_encode(['action' => 'whoami', 'token' => $token]);
   $jawab = null;
 
   if (function_exists('curl_init')) {
-    $ch = curl_init(ACCOUNT_API_URL);
+    $ch = curl_init($url);
     curl_setopt_array($ch, [
       CURLOPT_POST           => true,
       CURLOPT_POSTFIELDS     => $payload,
@@ -384,7 +420,7 @@ function pur_whoami($token) {
       'content' => $payload,
       'timeout' => 8,
     ]]);
-    $jawab = @file_get_contents(ACCOUNT_API_URL, false, $ctx);
+    $jawab = @file_get_contents($url, false, $ctx);
   }
 
   if (!is_string($jawab) || $jawab === '') return $cache[$token] = null;
