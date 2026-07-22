@@ -46,3 +46,36 @@ define('ENV_LABEL', 'produksi');   // dev: 'dev'
 
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');
+
+/* ===================================================================
+ * IDENTITAS PEMANGGIL (dipakai pembatasan per tim)
+ * -------------------------------------------------------------------
+ * API ini aslinya hanya dijaga API_TOKEN — satu token yang sama untuk
+ * semua orang. Server jadi tidak tahu SIAPA yang memanggil, sehingga
+ * aturan "tim Bar hanya melihat data Bar" tidak mungkin ditegakkan di
+ * server; paling jauh cuma bisa disembunyikan di layar, dan itu bukan
+ * pembatasan.
+ *
+ * Sekarang browser ikut mengirim token sesi Office, dan endpoint ini
+ * menanyakannya balik ke API akun (action=whoami) untuk tahu siapa
+ * pemiliknya dan apa timnya.
+ *
+ * ACCOUNT_API_URL: alamat api.php milik account-api-mysql DI SITUS YANG
+ * SAMA. Dev menunjuk dev, produksi menunjuk produksi — kalau tertukar,
+ * kru dev akan diverifikasi memakai akun produksi.
+ */
+define('ACCOUNT_API_URL', 'https://office.laksamanamuda.id/account-api-mysql/api.php');
+// dev: 'https://dev.laksamanamuda.id/account-api-mysql/api.php'
+
+/* Saklar pembatasan per tim. Sengaja MATI secara bawaan.
+ *
+ * Menyalakannya sebelum seluruh kru punya token (yaitu sebelum Office versi
+ * baru terpasang DAN mereka login ulang) akan membuat daftar tampak kosong
+ * untuk semua orang — kelihatan seperti data hilang, padahal cuma ditolak.
+ * Nyalakan setelah memastikan whoami menjawab dengan benar.
+ *
+ * Saat menyala: admin modul melihat semua; kru melihat timnya sendiri; kru
+ * yang timnya belum diisi tidak melihat apa pun (pilihan sadar — lihat
+ * catatan di pur_tim_pemanggil).
+ */
+define('BATAS_PER_TIM', false);

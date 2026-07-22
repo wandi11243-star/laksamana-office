@@ -151,3 +151,27 @@ INSERT IGNORE INTO `modules` (`key`, `label`, `active`, `urut`) VALUES
   ('hr',           'Staff Performance', 1, 80),
   ('howandi_life', 'Howandi Life OS',   1, 90),
   ('kompas',       'Kompas Laksamana',  1,100);
+
+-- ---------------------------------------------------------------------
+-- SESSIONS — token sesi Office, dipakai modul lain untuk MEMBUKTIKAN
+-- siapa yang memanggil API-nya.
+--
+-- Sebelum ini, API modul (mis. stock) hanya dijaga token bersama yang sama
+-- untuk semua orang — server tidak punya cara mengetahui SIAPA pemanggilnya,
+-- jadi aturan "tim Bar hanya melihat data Bar" tidak mungkin ditegakkan di
+-- server. Yang bisa dilakukan cuma menyembunyikannya di layar, dan itu
+-- bukan pembatasan.
+--
+-- Token dibuat saat login dan dikirim ulang oleh browser di tiap permintaan.
+-- PIN TIDAK ikut disimpan maupun dikirim: token inilah buktinya, dan ia bisa
+-- dicabut sepihak dengan menghapus barisnya — PIN tidak bisa.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sessions` (
+  `token`   VARCHAR(64) NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `expiry`  BIGINT      NOT NULL,          -- epoch MILIDETIK, sama satuan dengan lm_session di browser
+  `dibuat`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`token`),
+  KEY `idx_sessions_user` (`user_id`),
+  KEY `idx_sessions_expiry` (`expiry`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -24,7 +24,7 @@ try {
     pur_cek_token();
     // Foto dilayani lewat aksi terpisah supaya daftar tetap ringan.
     if ($aksiUrl === 'foto') pur_json(pur_waste_foto(pur_pdo(), trim((string)($_GET['id'] ?? ''))));
-    pur_json(pur_waste_ambil(pur_pdo()));
+    pur_json(pur_waste_ambil(pur_pdo(), pur_batas_tim()));
   }
 
   if ($metode === 'POST') {

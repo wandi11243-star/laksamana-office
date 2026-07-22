@@ -52,8 +52,22 @@ function timSesi(sesi) {
 // cabang kode — jangan diganti jadi URL absolut.
 const API_DIR = '../../stock-api-mysql/';
 
+/* Token sesi Office, dikirim di SETIAP permintaan sebagai bukti identitas.
+   Server memakainya untuk tahu siapa pemanggilnya (lihat pur_whoami di
+   lib_stock_catat.php) — itulah yang membuat pembatasan per tim bisa
+   ditegakkan di server, bukan cuma disembunyikan di layar.
+
+   Dibaca ulang tiap kali, bukan disimpan di konstanta: sesi bisa berganti
+   di tab lain, dan nilai yang dibekukan saat berkas dimuat akan basi. */
+function tokenSesi() {
+  try {
+    const s = JSON.parse(localStorage.getItem('lm_session') || 'null');
+    return (s && s.token) || '';
+  } catch (e) { return ''; }
+}
+
 async function apiGet(berkas, params) {
-  const q = new URLSearchParams(Object.assign({ t: Date.now() }, params || {}));
+  const q = new URLSearchParams(Object.assign({ t: Date.now(), sesi: tokenSesi() }, params || {}));
   const res = await fetch(`${API_DIR}${berkas}?${q}`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
@@ -65,7 +79,7 @@ async function apiPost(berkas, body) {
     // text/plain = simple request, tidak memicu preflight CORS. Sama seperti
     // endpoint stock lainnya; server membaca php://input, bukan $_POST.
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(Object.assign({ sesi: tokenSesi() }, body))
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();

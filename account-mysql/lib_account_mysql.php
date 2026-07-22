@@ -199,6 +199,62 @@ function butuh_admin_modul($body, $module) {
 
 /* ==================== AUTH ==================== */
 
+/* Token sesi. Dibuat saat login, dipakai modul lain untuk membuktikan siapa
+   yang memanggil API-nya tanpa pernah menyentuh PIN.
+
+   Sesi kedaluwarsa dibersihkan sambil lalu di sini, bukan lewat cron: tabelnya
+   kecil dan ini satu-satunya jalan masuk, jadi tidak ada yang menumpuk. */
+function buat_token_sesi($userId) {
+  $token = bin2hex(random_bytes(32));
+  $expiry = (int)(microtime(true) * 1000) + (24 * 3600 * 1000);   // 24 jam, sama dengan SESSION_HOURS di Office
+  q('DELETE FROM `sessions` WHERE expiry < :n', array(':n' => (int)(microtime(true) * 1000)));
+  q('INSERT INTO `sessions` (token, user_id, expiry) VALUES (:t, :u, :e)',
+    array(':t' => $token, ':u' => s($userId), ':e' => $expiry));
+  return $token;
+}
+
+/* Siapa pemilik token ini. null = token tidak dikenal, kedaluwarsa, atau
+   akunnya sudah dinonaktifkan. Yang terakhir penting: menonaktifkan akun
+   harus langsung berlaku, bukan menunggu tokennya habis sendiri. */
+function user_dari_token($token) {
+  $token = s($token);
+  if ($token === '') return null;
+  $r = q('SELECT user_id, expiry FROM `sessions` WHERE token = :t LIMIT 1',
+         array(':t' => $token))->fetch();
+  if (!$r) return null;
+  if ((int)$r['expiry'] < (int)(microtime(true) * 1000)) {
+    q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $token));
+    return null;
+  }
+  $u = user_by_id(s($r['user_id']));
+  if (!$u || (int)$u['active'] !== 1) return null;
+  return $u;
+}
+
+/* Dipanggil modul lain (mis. stock) untuk menanyakan "token ini milik siapa,
+   dan dia berhak apa". Tidak pernah membalas PIN.
+
+   `keterangan` ikut dibalas karena itulah tim kru (Kitchen/Bar/Floor) —
+   modul stock memakainya untuk membatasi data yang boleh dilihat. */
+function aksi_whoami($body) {
+  $u = user_dari_token(isset($body['token']) ? $body['token'] : '');
+  if (!$u) return array('ok' => false, 'error' => 'invalid_token');
+  return array('ok' => true, 'user' => array(
+    'id'           => s($u['id']),
+    'name'         => s($u['name']),
+    'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
+    'modules'      => modul_untuk($u['id']),
+    'adminModules' => admin_modul_untuk($u['id']),
+  ));
+}
+
+function aksi_logout($body) {
+  $t = s(isset($body['token']) ? $body['token'] : '');
+  if ($t !== '') q('DELETE FROM `sessions` WHERE token = :t', array(':t' => $t));
+  return array('ok' => true);
+}
+
 function aksi_login($name, $pin) {
   $name = s($name); $pin = s($pin);
   if ($name === '' || $pin === '') return array('ok' => false, 'error' => 'missing');
@@ -208,8 +264,10 @@ function aksi_login($name, $pin) {
     'id'           => s($u['id']) !== '' ? s($u['id']) : ('u-' . mb_strtolower($name, 'UTF-8')),
     'name'         => s($u['name']),
     'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
+    'token'        => buat_token_sesi($u['id']),
   ));
 }
 /* User mengganti PIN-nya sendiri. TANPA verifikasi PIN lama: identitasnya
@@ -562,6 +620,7 @@ function aksi_segarkan_sesi($body) {
     'id'           => s($u['id']),
     'name'         => s($u['name']),
     'username'     => s($u['username']),
+    'keterangan'   => s($u['keterangan']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
   ));

@@ -67,6 +67,10 @@ try {
     case 'login':
       keluar(aksi_login(isset($body['name']) ? $body['name'] : '',
                         isset($body['pin'])  ? $body['pin']  : ''));
+    // whoami: dipanggil MODUL LAIN (server ke server) untuk memastikan siapa
+    // pemilik token sesi. Tanpa gerbang superadmin — tokennya sendiri buktinya.
+    case 'whoami':            keluar(aksi_whoami($body));
+    case 'logout':            keluar(aksi_logout($body));
     case 'changePin':         keluar(aksi_ganti_pin($body));
     case 'setUsername':       keluar(aksi_set_username($body));
     case 'listUsers':         keluar(aksi_list_users($body));
