@@ -69,6 +69,98 @@ jobs:
           server-dir: /public_html/office/
           timeout: 300000
 
+      # ==================================================================
+      # BACKEND (account-api-mysql & stock-api-mysql)
+      # ------------------------------------------------------------------
+      # Ada DI LUAR deploy/, jadi sebelumnya tidak pernah ikut terkirim dan
+      # harus diunggah manual — sumber kejadian berulang "frontend baru,
+      # backend lama" yang gejalanya cuma fitur diam tanpa error.
+      #
+      # Nama folder di server BEDA dari repo (account-mysql ->
+      # account-api-mysql), mengikuti path yang dipakai frontend.
+      #
+      # config*.php TIDAK ikut: berisi password, dan produksi wajib
+      # menunjuk database produksi sementara dev menunjuk database dev.
+      # Mengirimnya dari repo justru akan menyeragamkan keduanya — persis
+      # kesalahan yang paling mahal di sini. *.sql & *.md juga tidak ikut:
+      # skema database tidak boleh bisa diunduh lewat URL biasa.
+      # ==================================================================
+      - name: Deploy backend account-api-mysql
+        id: ftpacc
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./account-mysql/
+          server-dir: /public_html/office/account-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend account-api-mysql (percobaan 2)
+        if: steps.ftpacc.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./account-mysql/
+          server-dir: /public_html/office/account-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend stock-api-mysql
+        id: ftpstock
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./stock-mysql/
+          server-dir: /public_html/office/stock-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend stock-api-mysql (percobaan 2)
+        if: steps.ftpstock.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./stock-mysql/
+          server-dir: /public_html/office/stock-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
       # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
       # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
@@ -97,4 +189,54 @@ jobs:
               gagal=1
             fi
           done
+          exit $gagal
+
+      # Berkas PHP tidak bisa dibandingkan isinya lewat HTTP — yang dikirim
+      # server adalah hasil eksekusinya. Jadi yang diuji perilakunya.
+      # env=produksi diperiksa lebih dulu: config yang tertukar (produksi
+      # menunjuk database dev, atau sebaliknya) adalah kesalahan termahal di
+      # repo ini, dan ping memang dibuat untuk menangkapnya.
+      - name: Verifikasi backend hidup dan versi terbaru
+        if: always()
+        run: |
+          gagal=0
+
+          echo "--- account-api-mysql ---"
+          acc=$(curl -s -m 60 "https://office.laksamanamuda.id/account-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $acc"
+          case "$acc" in
+            *'"env":"produksi"'*) echo "OK      env=produksi" ;;
+            *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          who=$(curl -s -m 60 -X POST "https://office.laksamanamuda.id/account-api-mysql/api.php" \
+                  -H 'Content-Type: text/plain;charset=utf-8' \
+                  -d '{"action":"whoami","token":"ci-probe-token-yang-pasti-salah"}')
+          echo "whoami: $who"
+          case "$who" in
+            *invalid_token*) echo "OK      whoami dikenal (versi baru mendarat)" ;;
+            *unknown_action*) echo "GAGAL   whoami TIDAK dikenal — api.php di server masih versi lama"; gagal=1 ;;
+            *) echo "GAGAL   whoami menjawab tak terduga"; gagal=1 ;;
+          esac
+
+          echo "--- stock-api-mysql ---"
+          stk=$(curl -s -m 60 "https://office.laksamanamuda.id/stock-api-mysql/usage.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $stk"
+          case "$stk" in
+            *'"env":"produksi"'*) echo "OK      env=produksi" ;;
+            *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          # ?action=ping TIDAK cukup: _boot menjawabnya lalu berhenti SEBELUM
+          # lib_stock_catat di-require, jadi galat parse di sana tidak ketahuan.
+          kode=$(curl -s -m 60 -o /tmp/usage.json -w '%{http_code}' \
+                 "https://office.laksamanamuda.id/stock-api-mysql/usage.php?dari=2000-01-01&ke=2000-01-02&ci=$GITHUB_SHA")
+          echo "daftar usage: HTTP $kode -> $(head -c 200 /tmp/usage.json)"
+          if [ "$kode" = "200" ]; then
+            echo "OK      usage.php memuat lib_stock_catat tanpa galat"
+          else
+            echo "GAGAL   usage.php balas HTTP $kode — kemungkinan galat PHP di lib_stock_catat.php"
+            gagal=1
+          fi
+
           exit $gagal
