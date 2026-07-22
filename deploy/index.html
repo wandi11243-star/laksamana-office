@@ -206,6 +206,30 @@
         position:fixed; inset:0; z-index:300; display:flex; align-items:flex-start; justify-content:center;
         padding:24px; overflow-y:auto; background:rgba(42,38,32,.44); backdrop-filter:blur(3px);
     }
+
+    /* Tombol untuk aksi yang tidak bisa dibatalkan. Warnanya harus beda dari
+       tombol biasa supaya "Hapus permanen" tidak diklik dengan refleks yang
+       sama seperti "Simpan". */
+    .btn.btn-danger{ background:var(--danger); border-color:var(--danger); color:#fff; }
+    .btn.btn-danger:hover{ filter:brightness(.94); }
+
+    /* Notifikasi melayang, pengganti alert(). z-index di ATAS modal (300) supaya
+       pesan galat akibat aksi di dalam modal tetap terbaca. */
+    #notice-wrap{
+        position:fixed; right:18px; bottom:18px; z-index:400;
+        display:flex; flex-direction:column; gap:8px; pointer-events:none;
+    }
+    .notice{
+        pointer-events:auto; min-width:220px; max-width:min(360px, calc(100vw - 36px));
+        background:var(--surface); border:1px solid var(--line); border-left-width:4px;
+        border-radius:10px; padding:11px 14px; font-size:13px; font-weight:600; color:var(--text);
+        box-shadow:0 10px 30px rgba(50,42,28,.16); animation:notice-in .18s ease-out;
+    }
+    .notice.err{ border-left-color:var(--danger); }
+    .notice.ok { border-left-color:var(--ok); }
+    .notice.info{ border-left-color:var(--gold); }
+    @keyframes notice-in{ from{ opacity:0; transform:translateY(6px) } to{ opacity:1; transform:none } }
+    @media (prefers-reduced-motion:reduce){ .notice{ animation:none } }
     .modal-card{
         width:100%; max-width:640px; margin:auto; background:var(--surface); border:1px solid var(--line);
         border-radius:20px; box-shadow:var(--shadow-lg); animation:lm-rise .4s var(--ease) both;
@@ -245,7 +269,46 @@
     .u-acts .u-toggle:hover{border-color:var(--gold-2); color:var(--gold-dim); background:var(--gold-soft)}
 
     /* Tabs User / Role */
+    /* ---- Halaman Kelola Akses (dulu modal) ---- */
+    .admin-page{
+        position:fixed; inset:0; z-index:300; background:var(--paper);
+        overflow-y:auto; display:flex; flex-direction:column;
+    }
+    .admin-topbar{
+        position:sticky; top:0; z-index:2; background:var(--surface);
+        border-bottom:1px solid var(--line); padding:14px 20px;
+        display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    }
+    .admin-topbar-title{flex:1; min-width:180px}
+    .admin-topbar-title h2{margin:0; font-size:19px; font-weight:700; color:var(--ink)}
+    .admin-topbar-title p{margin:2px 0 0; font-size:12.5px; color:var(--muted)}
+    .admin-page-body{padding:20px; max-width:1400px; width:100%; margin:0 auto}
+
+    /* Dua kolom: daftar KIRI (yang paling sering dilihat), formulir KANAN.
+       Formulir menempel saat digulir supaya tetap terjangkau berapa pun
+       panjang daftarnya. */
+    .admin-2col{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,420px); gap:20px; align-items:start}
+    .admin-2col .admin-col-list{order:1; min-width:0}
+    .admin-2col .admin-col-form{order:2; position:sticky; top:88px; max-height:calc(100vh - 108px); overflow-y:auto}
+    .admin-search{
+        width:100%; margin-bottom:10px; padding:10px 12px; font-size:13px; font-family:inherit;
+        border:1px solid var(--line); border-radius:10px; background:var(--surface); color:var(--text);
+    }
+    .admin-search:focus{outline:none; border-color:var(--gold); box-shadow:0 0 0 3px rgba(169,121,31,.14)}
+
+    /* Di layar sempit dua kolom tidak muat. Formulir ditaruh DULU (itu yang
+       sedang dikerjakan saat seseorang mengetuk "Ubah"), daftar menyusul —
+       dan sticky dimatikan karena tidak ada ruang untuk menempel. */
+    @media(max-width:900px){
+        .admin-2col{grid-template-columns:1fr}
+        .admin-2col .admin-col-form{order:1; position:static; max-height:none}
+        .admin-2col .admin-col-list{order:2}
+        .admin-page-body{padding:14px}
+    }
+
     .admin-tabs{display:flex; gap:4px; padding:12px 24px 0}
+    /* Di dalam topbar halaman, tab berdiri sendiri tanpa padding modal. */
+    .admin-topbar .admin-tabs{padding:0}
     .admin-tab{border:none; background:none; font-family:inherit; font-size:13.5px; font-weight:700; color:var(--muted); padding:8px 14px; border-radius:9px 9px 0 0; border-bottom:2px solid transparent; transition:.14s var(--ease)}
     .admin-tab:hover{color:var(--ink); background:var(--gold-soft)}
     .admin-tab.active{color:var(--gold-dim); border-bottom-color:var(--gold)}
@@ -400,6 +463,40 @@
             </div>
         </div>
 
+        <!-- ============================================================
+             MODAL SERBAGUNA — pengganti prompt() / confirm() / alert().
+             Pop-up bawaan browser tampil di luar halaman, tidak bisa ditata,
+             dan di sebagian browser bisa disenyapkan pengguna — kalau itu
+             terjadi, permintaan PIN tidak pernah muncul dan Kelola User
+             seolah-olah rusak tanpa sebab.
+             ============================================================ -->
+        <div id="ask-modal" class="modal-wrap hidden">
+            <div class="modal-card" style="max-width:400px">
+                <div class="modal-head">
+                    <div><h2 id="ask-title">Konfirmasi</h2><p id="ask-desc"></p></div>
+                    <button class="modal-x" id="ask-x" type="button" aria-label="Tutup">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="ask-form" class="admin-form" autocomplete="off">
+                        <div class="field hidden" id="ask-input-wrap">
+                            <label for="ask-input" id="ask-label">PIN</label>
+                            <input id="ask-input" type="password" inputmode="numeric" maxlength="8" placeholder="Masukkan PIN">
+                        </div>
+                        <p class="auth-err" id="ask-err" role="alert"></p>
+                        <div class="af-actions" style="margin-top:6px">
+                            <button type="submit" class="btn btn-primary" id="ask-ok">Lanjut</button>
+                            <button type="button" class="btn btn-ghost" id="ask-cancel">Batal</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wadah notifikasi, pengganti alert(). Tidak menghalangi apa pun. -->
+        <div id="notice-wrap" aria-live="polite"></div>
+
         <!-- Modal Ganti PIN -->
         <div id="pin-modal" class="modal-wrap hidden">
             <div class="modal-card" style="max-width:400px">
@@ -449,27 +546,36 @@
     </div>
 
     <!-- ==================== PANEL KELOLA USER (admin) ==================== -->
-    <div id="admin-modal" class="modal-wrap hidden">
-        <div class="modal-card">
-            <div class="modal-head">
-                <div>
-                    <h2>Kelola Akses</h2>
-                    <p>Akun dan modul yang boleh dibuka. Tidak ada role: akses diberikan langsung per modul.</p>
-                </div>
-                <button class="modal-x" id="admin-close" type="button" aria-label="Tutup">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-            </div>
+    <!-- ================== HALAMAN KELOLA AKSES ==================
+         Dulu ini modal: formulir panjang di atas, daftar user di bawahnya —
+         jadi untuk melihat siapa saja yang terdaftar harus menggulir sampai
+         dasar, tiap kali. Sekarang halaman penuh dua kolom: daftar di kiri
+         (yang paling sering dilihat), formulir di kanan dan MENEMPEL saat
+         digulir. Keduanya terlihat bersamaan, tidak ada lagi gulir-cari.
 
+         Semua id di dalamnya SENGAJA dipertahankan supaya seluruh kode yang
+         sudah ada (loadAdminUsers, fillAdminForm, submitAdminForm, dst) tetap
+         bekerja tanpa disentuh. -->
+    <div id="admin-modal" class="admin-page hidden">
+        <div class="admin-topbar">
+            <button class="btn btn-ghost" id="admin-close" type="button">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+                Kembali
+            </button>
+            <div class="admin-topbar-title">
+                <h2>Kelola Akses</h2>
+                <p>Akun dan modul yang boleh dibuka. Tidak ada role: akses diberikan langsung per modul.</p>
+            </div>
             <div class="admin-tabs" role="tablist">
                 <button class="admin-tab active" id="tabbtn-users" data-tab="users" type="button" role="tab">User</button>
                 <button class="admin-tab" id="tabbtn-modules" data-tab="modules" type="button" role="tab">Modul</button>
             </div>
+        </div>
 
-            <div class="modal-body">
+        <div class="admin-page-body">
                 <!-- ===== TAB: USER ===== -->
-                <div id="tab-users" class="admin-panel">
-                    <form id="admin-form" class="admin-form" autocomplete="off">
+                <div id="tab-users" class="admin-panel admin-2col">
+                    <form id="admin-form" class="admin-form admin-col-form" autocomplete="off">
                         <div class="af-title" id="af-title">Tambah User Baru</div>
                         <input type="hidden" id="af-id">
                         <div class="af-grid">
@@ -505,8 +611,14 @@
                         </div>
                     </form>
 
-                    <div class="admin-list-head">Daftar User (<span id="admin-count">0</span>)</div>
-                    <div id="admin-list" class="admin-list"></div>
+                    <div class="admin-col-list">
+                        <div class="admin-list-head">Daftar User (<span id="admin-count">0</span>)</div>
+                        <!-- Pencarian: daftar kru bisa puluhan orang, dan
+                             mencarinya dengan mata satu per satu justru masalah
+                             yang sama dengan menggulir. -->
+                        <input type="text" id="admin-search" class="admin-search" placeholder="Cari nama atau keterangan…" autocomplete="off">
+                        <div id="admin-list" class="admin-list"></div>
+                    </div>
                 </div>
 
                 <!-- ===== TAB: MODUL ===== -->
@@ -514,7 +626,6 @@
                     <p class="pick-hint" style="margin:0 0 12px">Ubah nama tampilan modul atau nonaktifkan modul yang sudah tidak dipakai. Modul baru terdaftar otomatis saat halaman ini dibuka. Menonaktifkan modul menyembunyikannya dari daftar akses (baris akses lama tetap tersimpan).</p>
                     <div id="module-list" class="admin-list"></div>
                 </div>
-            </div>
         </div>
     </div>
 
@@ -638,6 +749,20 @@
             title:'Staff Performance', tag:'Human Resource',
             desc:'People Score bulanan, KPI per divisi, performance review berlapis, training, dan disiplin kru dalam satu papan.',
             scope:['People Score','KPI','Review','Training']
+        },
+        {
+            /* Kompas dipindahkan ke sini dari SUPER_BRANCHES supaya tampil
+               sebagai kartu modul biasa — sebelumnya ia berdiri di bagian
+               terpisah dengan gaya sendiri, padahal cara membukanya sama saja
+               dengan modul lain.
+
+               superOnly TIDAK dilepas: Kompas memuat omset, target, dan
+               estimasi bonus seluruh tim. Yang berubah cuma penampilannya,
+               bukan siapa yang boleh masuk — lihat canOpen(). */
+            key:'kompas', href:'./kompas/', icon:'dollar', access:['kompas'], superOnly:true,
+            title:'Kompas Laksamana', tag:'Target & Omset',
+            desc:'Target bulanan yang terbagi otomatis ke harian, capaian kasir & marketing, omset event, dan report WhatsApp siap kirim.',
+            scope:['Target','Omset','Bonus']
         }
     ];
 
@@ -678,6 +803,11 @@
     function clearSession(){ localStorage.removeItem(SESSION_KEY); }
 
     function canOpen(branch, session){
+        /* superOnly diperiksa DULU, dan '*' tidak boleh melewatinya.
+           Grant modul menjawab "boleh buka apa"; superOnly menjawab "boleh
+           lihat angka seluruh perusahaan". Keduanya syarat terpisah, jadi
+           punya semua modul tidak dengan sendirinya berarti berhak. */
+        if (branch.superOnly && !isSuperadmin(session)) return false;
         const m = session.modules || [];
         if (m.includes('*')) return true;
         const access = branch.access || [branch.key];
@@ -781,6 +911,58 @@
         return res.json();
     }
 
+    /* ---------- Pengganti prompt() / confirm() / alert() ----------
+       Ketiganya jendela bawaan browser: tampil di luar halaman, tak bisa
+       ditata, dan sebagian browser mengizinkan pengguna menyenyapkannya. Kalau
+       itu terjadi, permintaan PIN tidak pernah muncul dan Kelola User terlihat
+       rusak tanpa sebab yang bisa ditebak. */
+
+    // Notifikasi melayang. type: 'ok' | 'err' | 'info'. Hilang sendiri.
+    function notify(msg, type){
+        const wrap = document.getElementById('notice-wrap');
+        if(!wrap) return;
+        const el = document.createElement('div');
+        el.className = 'notice ' + (type || 'info');
+        el.textContent = String(msg == null ? '' : msg);
+        wrap.appendChild(el);
+        // Galat dibiarkan lebih lama: itu yang perlu dibaca sampai habis.
+        setTimeout(() => el.remove(), type === 'err' ? 6000 : 3500);
+    }
+
+    // Satu modal melayani dua kebutuhan; opts.input menentukan yang mana.
+    // Mengembalikan Promise: string (isian) / true (konfirmasi) / null (batal).
+    let askResolve = null;
+    function openAsk(opts){
+        const m = document.getElementById('ask-modal');
+        document.getElementById('ask-title').textContent = opts.title || 'Konfirmasi';
+        document.getElementById('ask-desc').textContent  = opts.desc || '';
+        document.getElementById('ask-err').textContent   = '';
+        const wrap = document.getElementById('ask-input-wrap');
+        const inp  = document.getElementById('ask-input');
+        wrap.classList.toggle('hidden', !opts.input);
+        if(opts.input){
+            document.getElementById('ask-label').textContent = opts.label || 'PIN';
+            inp.value = '';
+        }
+        const ok = document.getElementById('ask-ok');
+        ok.textContent = opts.okText || 'Lanjut';
+        ok.classList.toggle('btn-danger', !!opts.danger);
+        m.classList.remove('hidden');
+        if(opts.input) setTimeout(() => inp.focus(), 30);
+        return new Promise(res => { askResolve = res; });
+    }
+    function closeAsk(val){
+        document.getElementById('ask-modal').classList.add('hidden');
+        const r = askResolve; askResolve = null;
+        if(r) r(val);
+    }
+    function askPin(title, desc){
+        return openAsk({ title, desc, input:true, label:'PIN', okText:'Lanjut' });
+    }
+    function askConfirm(title, desc, okText, danger){
+        return openAsk({ title, desc, okText: okText || 'Ya, lanjutkan', danger });
+    }
+
     function initials(name){
         return String(name||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
     }
@@ -793,24 +975,25 @@
         if(adminCreds) return true;                 // sudah terverifikasi sesi ini
         const session = getSession();
         if(!session) return false;
-        const pin = prompt('Masukkan PIN Anda untuk membuka Kelola User:');
-        if(!pin) return false;
+        const jawab = await askPin('Kelola User', 'Masukkan PIN Anda untuk membuka Kelola User.');
+        if(!jawab) return false;
+        const pin = String(jawab).trim();
         // Mode seed (tanpa Sheet): verifikasi lokal.
         if(!OFFICE_WEBAPP_URL){
-            const u = verifySeed(session.name, pin.trim());
-            if(u && isSuperadmin(setSessionShape_(u))){ adminCreds = { name:session.name, pin:pin.trim() }; return true; }
-            alert('PIN salah atau bukan superadmin.');
+            const u = verifySeed(session.name, pin);
+            if(u && isSuperadmin(setSessionShape_(u))){ adminCreds = { name:session.name, pin }; return true; }
+            notify('PIN salah atau Anda bukan superadmin.', 'err');
             return false;
         }
         // Mode server: login ulang dengan PIN yang dimasukkan, pastikan superadmin.
         let user;
-        try{ user = await verifyRemote(session.name, pin.trim()); }
-        catch(e){ alert('Gagal terhubung ke server. Coba lagi.'); return false; }
+        try{ user = await verifyRemote(session.name, pin); }
+        catch(e){ notify('Gagal terhubung ke server. Coba lagi.', 'err'); return false; }
         if(user && isSuperadmin(setSessionShape_(user))){
-            adminCreds = { name:session.name, pin:pin.trim() };
+            adminCreds = { name:session.name, pin };
             return true;
         }
-        alert('PIN salah atau bukan superadmin.');
+        notify('PIN salah atau Anda bukan superadmin.', 'err');
         return false;
     }
     // Bentuk objek user (dari seed/server) jadi mirip sesi agar isSuperadmin bisa dipakai.
@@ -835,6 +1018,7 @@
     async function openAdminPanel(){
         if(!(await verifyAdminPin())) return;       // gagal PIN -> tidak membuka apa pun
         document.getElementById('admin-modal').classList.remove('hidden');
+        document.getElementById('admin-search').value = '';   // buka bersih, bukan sisa pencarian lalu
         switchAdminTab('users');                    // selalu mulai di tab User
         resetAdminForm();
         // Auto-sync: daftarkan modul baru dari app ke tab Modules sebelum memuat.
@@ -891,8 +1075,27 @@
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', []);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
 
-        document.getElementById('admin-count').textContent = data.users.length;
-        list.innerHTML = data.users.map(u => {
+        // Simpan dulu, baru gambar — renderAdminList membacanya dari sini.
+        list._users = data.users;
+        renderAdminList(document.getElementById('admin-search').value);
+    }
+
+    /* Gambar daftar user, disaring kata kunci. Dipisah dari loadAdminUsers()
+       supaya mengetik di kotak cari tidak memicu permintaan baru ke server —
+       datanya sudah ada di memori. */
+    function renderAdminList(q){
+        const list = document.getElementById('admin-list');
+        const semua = list._users || [];
+        const kunci = String(q || '').trim().toLowerCase();
+        const users = kunci
+            ? semua.filter(u => [u.name, u.username, u.keterangan, u.talentaId]
+                .some(v => String(v || '').toLowerCase().includes(kunci)))
+            : semua;
+
+        document.getElementById('admin-count').textContent =
+            kunci ? `${users.length} dari ${semua.length}` : semua.length;
+
+        list.innerHTML = users.map(u => {
             const deact = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64M12 2v10"/></svg>';
             const mods = (u.modules && u.modules.length) ? moduleLabels(u.modules) : '(belum ada akses)';
             const isSuper = (u.adminModules || []).indexOf('*') > -1;
@@ -914,16 +1117,18 @@
                     </button>
                     <button class="u-toggle" title="${u.active ? 'Nonaktifkan' : 'Aktifkan'}" data-id="${esc(u.id)}" data-active="${u.active ? '1' : '0'}">${deact}</button>
                 </div>
-            </div>`; }).join('') || '<div class="empty">Belum ada user.</div>';
-
-        // Simpan data untuk pengisian form saat edit.
-        list._users = data.users;
+            </div>`; }).join('') ||
+            `<div class="empty">${kunci ? `Tidak ada user yang cocok dengan “${esc(kunci)}”.` : 'Belum ada user.'}</div>`;
     }
 
     // Nonaktifkan/aktifkan = saveUser dengan active di-flip (tanpa hapus baris).
     async function toggleAdminUser(u){
         const next = !u.active;
-        if(!next && !confirm(`Nonaktifkan "${u.name}"? Mereka tidak bisa login sampai diaktifkan lagi.`)) return;
+        if(!next){
+            const ya = await askConfirm('Nonaktifkan Akun',
+                `"${u.name}" tidak akan bisa login sampai diaktifkan lagi.`, 'Ya, nonaktifkan');
+            if(!ya) return;
+        }
         let data;
         // talentaId ikut dikirim: saveUser menulis ulang seluruh baris, jadi
         // menghilangkannya di sini akan menghapus pemetaan absensi hanya
@@ -934,8 +1139,8 @@
             id:u.id, name:u.name, pin:u.pin, keterangan:u.keterangan || '',
             talentaId:u.talentaId || '', active: next
         }); }
-        catch(e){ alert('Gagal terhubung. Cek koneksi.'); return; }
-        if(!data.ok){ alert(ADMIN_ERR[data.error] || ('Gagal: ' + data.error)); return; }
+        catch(e){ notify('Gagal terhubung. Cek koneksi.', 'err'); return; }
+        if(!data.ok){ notify(ADMIN_ERR[data.error] || ('Gagal: ' + data.error), 'err'); return; }
         await loadAdminUsers();
     }
 
@@ -1056,11 +1261,14 @@
     }
 
     async function deleteAdminUser(id, name){
-        if(!confirm(`Hapus permanen user "${name}"? Lebih aman nonaktifkan saja. Tindakan ini tidak bisa dibatalkan.`)) return;
+        const ya = await askConfirm('Hapus Permanen',
+            `Hapus user "${name}"? Tindakan ini tidak bisa dibatalkan — menonaktifkan akun lebih aman kalau Anda cuma ingin mencabut aksesnya.`,
+            'Ya, hapus permanen', true);
+        if(!ya) return;
         let data;
         try{ data = await adminCall('deleteUser', { id }); }
-        catch(e){ alert('Gagal terhubung. Cek koneksi.'); return; }
-        if(!data.ok){ alert(ADMIN_ERR[data.error] || ('Gagal: ' + data.error)); return; }
+        catch(e){ notify('Gagal terhubung. Cek koneksi.', 'err'); return; }
+        if(!data.ok){ notify(ADMIN_ERR[data.error] || ('Gagal: ' + data.error), 'err'); return; }
         resetAdminForm();
         await loadAdminUsers();
     }
@@ -1127,8 +1335,8 @@
         checkboxEl.disabled = true;
         let data;
         try{ data = await adminCall('setModuleAccess', { userId, module, access: on }); }
-        catch(e){ alert('Gagal terhubung. Cek koneksi.'); checkboxEl.checked = !on; checkboxEl.disabled = false; return; }
-        if(!data || !data.ok){ checkboxEl.checked = !on; checkboxEl.disabled = false; alert('Gagal: ' + ((data && data.error) || 'tak dikenal')); return; }
+        catch(e){ notify('Gagal terhubung. Cek koneksi.', 'err'); checkboxEl.checked = !on; checkboxEl.disabled = false; return; }
+        if(!data || !data.ok){ checkboxEl.checked = !on; checkboxEl.disabled = false; notify('Gagal: ' + ((data && data.error) || 'tak dikenal'), 'err'); return; }
         checkboxEl.closest('.pick').classList.toggle('on', on);
         checkboxEl.disabled = false;
         // Muat ulang daftar user (dari server) supaya tab User tetap akurat kalau
@@ -1150,9 +1358,9 @@
         btn.disabled = true; btn.textContent = '...';
         let data;
         try{ data = await adminCall('saveModule', { key, label, active }); }
-        catch(e){ btn.disabled = false; btn.textContent = 'Simpan'; alert('Gagal terhubung. Cek koneksi.'); return; }
+        catch(e){ btn.disabled = false; btn.textContent = 'Simpan'; notify('Gagal terhubung. Cek koneksi.', 'err'); return; }
         btn.disabled = false; btn.textContent = data && data.ok ? 'Tersimpan' : 'Simpan';
-        if(!data || !data.ok) alert('Gagal: ' + ((data && data.error) || 'tak dikenal'));
+        if(!data || !data.ok) notify('Gagal: ' + ((data && data.error) || 'tak dikenal'), 'err');
         else setTimeout(() => { btn.textContent = 'Simpan'; }, 1200);
     }
 
@@ -1164,8 +1372,8 @@
         tg.classList.toggle('on', next); row.classList.toggle('off', !next);   // optimistis
         let data;
         try{ data = await adminCall('saveModule', { key, active: next }); }
-        catch(e){ tg.classList.toggle('on', currentlyOn); row.classList.toggle('off', currentlyOn); alert('Gagal terhubung. Cek koneksi.'); return; }
-        if(!data || !data.ok){ tg.classList.toggle('on', currentlyOn); row.classList.toggle('off', currentlyOn); alert('Gagal: ' + ((data && data.error) || 'tak dikenal')); }
+        catch(e){ tg.classList.toggle('on', currentlyOn); row.classList.toggle('off', currentlyOn); notify('Gagal terhubung. Cek koneksi.', 'err'); return; }
+        if(!data || !data.ok){ tg.classList.toggle('on', currentlyOn); row.classList.toggle('off', currentlyOn); notify('Gagal: ' + ((data && data.error) || 'tak dikenal'), 'err'); }
     }
 
     /* ------------------------- Tampilan ------------------------- */
@@ -1181,14 +1389,8 @@
             key:'howandi_life', href:'./howandi_life/', title:'Howandi Life OS', badge:'Akses Nahkoda',
             desc:'Pusat kendali pribadi Nahkoda: agenda, task, konten, dan portofolio Howandi Chandra Inc. dalam satu dek.'
         },
-        {
-            // superOnly: selain butuh grant, HARUS superadmin. Kompas memuat
-            // omset, target, dan estimasi bonus seluruh tim — bukan angka yang
-            // boleh terbuka hanya karena seseorang kebetulan diberi grant.
-            key:'kompas', href:'./kompas/', title:'Kompas Laksamana', badge:'Target & Omset',
-            superOnly:true,
-            desc:'Target bulanan yang terbagi otomatis ke harian, capaian kasir & marketing, omset event, dan report WhatsApp siap kirim.'
-        }
+        // Kompas DIPINDAH ke BRANCHES (kartu modul biasa). Bagian "modul khusus"
+        // ini kini hanya untuk Howandi Life OS.
     ];
     function renderSuper(session){
         const sec = document.getElementById('super-section');
@@ -1342,7 +1544,7 @@
         }
         // Sesi memakai nama (bukan PIN) sebagai identitas, jadi tak perlu login ulang.
         document.getElementById('pin-modal').classList.add('hidden');
-        alert('PIN berhasil diganti. Pakai PIN baru saat login berikutnya.');
+        notify('PIN berhasil diganti. Pakai PIN baru saat login berikutnya.', 'ok');
     }
 
     /* Ganti nama panggilan sendiri. Berbeda dari changePin, di sini PIN WAJIB
@@ -1501,6 +1703,26 @@
         // 'acct-pin' & 'logout-btn' ditangani lewat delegasi acctMenu di atas.
         document.getElementById('pin-close').addEventListener('click', closePinModal);
         document.getElementById('pin-cancel').addEventListener('click', closePinModal);
+
+        // Modal serbaguna. SEMUA jalan keluar menghasilkan null, supaya pemanggil
+        // yang menunggu Promise tidak menggantung selamanya saat user menutup
+        // lewat X, tombol Batal, klik latar, atau Esc.
+        document.getElementById('ask-x').addEventListener('click', () => closeAsk(null));
+        document.getElementById('ask-cancel').addEventListener('click', () => closeAsk(null));
+        document.getElementById('ask-modal').addEventListener('click', (e) => {
+            if(e.target.id === 'ask-modal') closeAsk(null);
+        });
+        document.getElementById('ask-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const wrap = document.getElementById('ask-input-wrap');
+            if(wrap.classList.contains('hidden')) return closeAsk(true);   // mode konfirmasi
+            const v = document.getElementById('ask-input').value.trim();
+            if(!v){ document.getElementById('ask-err').textContent = 'Isi dulu kolomnya.'; return; }
+            closeAsk(v);
+        });
+        document.addEventListener('keydown', (e) => {
+            if(e.key === 'Escape' && !document.getElementById('ask-modal').classList.contains('hidden')) closeAsk(null);
+        });
         pinModal.addEventListener('click', (e) => { if(e.target.id === 'pin-modal') closePinModal(); });
         document.getElementById('pin-form').addEventListener('submit', submitPinChange);
 
@@ -1525,8 +1747,15 @@
         // ----- Panel Kelola User -----
         document.getElementById('admin-btn').addEventListener('click', openAdminPanel);
         document.getElementById('admin-close').addEventListener('click', closeAdminPanel);
-        document.getElementById('admin-modal').addEventListener('click', (e) => {
-            if(e.target.id === 'admin-modal') closeAdminPanel();   // klik latar untuk tutup
+        /* Penutup lewat klik latar DIHAPUS: ini halaman penuh sekarang, bukan
+           modal. Kalau dipertahankan, mengklik ruang kosong di mana pun akan
+           menutup halaman dan membuang isian yang sedang diketik. Keluar hanya
+           lewat tombol Kembali. */
+
+        // Pencarian daftar user. Menyaring dari data yang sudah dimuat, jadi
+        // tidak ada permintaan tambahan ke server tiap ketukan.
+        document.getElementById('admin-search').addEventListener('input', (e) => {
+            renderAdminList(e.target.value);
         });
         document.getElementById('admin-form').addEventListener('submit', submitAdminForm);
         document.getElementById('af-cancel').addEventListener('click', resetAdminForm);
