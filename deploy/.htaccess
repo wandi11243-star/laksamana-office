@@ -1,0 +1,69 @@
+# =====================================================================
+# Aturan cache untuk seluruh modul Laksamana Muda.
+# ---------------------------------------------------------------------
+# MASALAH YANG DITUTUP
+# Server tidak pernah mengirim header Cache-Control, jadi browser MENEBAK
+# sendiri berapa lama boleh menyimpan halaman — biasanya berjam-jam.
+# Akibatnya sesudah rilis, sebagian kru tetap memakai versi lama tanpa
+# tahu, dan melapor "revisinya kok belum masuk". Kalau yang dirilis adalah
+# perbaikan bug, sebagian orang tetap terkena bug-nya berhari-hari.
+#
+# CARA KERJANYA
+# `no-cache` BUKAN berarti "jangan simpan". Browser tetap menyimpan, tapi
+# WAJIB bertanya dulu ke server sebelum memakainya. Kalau tidak ada
+# perubahan, server menjawab "304 Not Modified" — beberapa ratus byte,
+# tanpa mengirim ulang isinya. Jadi ini hampir tidak menambah beban, tapi
+# versi baru langsung terpakai begitu dirilis.
+#
+# Semua diapit <IfModule>: kalau modulnya tidak ada di server, barisnya
+# diabaikan. Tanpa itu, satu directive tak dikenal membuat SELURUH situs
+# balas 500 — dan .htaccess yang salah mematikan semua modul sekaligus.
+# =====================================================================
+
+<IfModule mod_headers.c>
+
+  # ---- Berkas KODE: selalu tanya dulu ke server ----
+  # Modul-modul ini satu berkas HTML berisi seluruh aplikasinya, jadi
+  # index.html yang basi = aplikasi yang basi. .js/.css/.json ikut karena
+  # namanya tidak pernah berubah saat isinya berubah (tidak ada hash),
+  # sehingga browser tidak punya cara lain untuk tahu.
+  <FilesMatch "\.(html|htm|js|css|json)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+
+  # ---- Gambar & font: boleh disimpan lama ----
+  # Logo dan gambar nyaris tidak pernah berubah, dan kalaupun berubah,
+  # tampil versi lama sebentar tidak merusak apa pun — beda dengan kode.
+  <FilesMatch "\.(png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|eot)$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+
+</IfModule>
+
+# ETag mati supaya perbandingan versi memakai Last-Modified saja. Di hosting
+# bersama, ETag ikut memuat nomor inode berkas — nilainya berubah begitu
+# berkas dipindah atau di-upload ulang meski isinya sama, jadi justru bikin
+# unduh ulang yang tidak perlu.
+<IfModule mod_headers.c>
+  Header unset ETag
+</IfModule>
+FileETag None
+
+# Cadangan lama jangan bisa diunduh dari web. Berkas seperti
+# index.html.sso-backup adalah salinan aplikasi versi sebelumnya; tidak ada
+# alasan pengunjung boleh mengambilnya.
+#
+# Ditulis dua kali dengan sengaja: `Require` hanya ada di Apache 2.4, dan
+# `Order/Deny` hanya di 2.2. Menulis salah satu saja berarti bertaruh pada
+# versi server — yang salah bukan cuma tidak berfungsi, tapi membuat
+# seluruh situs balas 500. Penjaga <IfModule> memastikan hanya yang cocok
+# yang dijalankan.
+<FilesMatch "\.(bak|backup|sso-backup|old|orig|save|swp)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

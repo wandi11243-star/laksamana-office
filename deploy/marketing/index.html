@@ -318,12 +318,23 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .ov-no{flex:none;min-width:40px;height:26px;padding:0 9px;border-radius:7px;
   background:linear-gradient(135deg,var(--gold),var(--gold-deep));color:#fff;
   font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.ov-imgs{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0}
-.ov-imgs img{width:130px;height:96px;object-fit:contain;background:var(--ink-900);
-  border:1px solid var(--line-hard);border-radius:8px;display:block}
+.ov-imgs{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0}
+/* Ukuran gambar TIDAK diatur di sini. Dulu baris ini memaksa height:96px,
+   dan `max-height` inline dari pdfGambar() tidak bisa menimpanya karena
+   height dan max-height adalah properti berbeda — jadi gambar di Overview
+   selalu gepeng 96px sementara di PDF (yang tidak memuat CSS ini) tampil
+   utuh. Satu perender harus menghasilkan satu tampilan; ukurannya sekarang
+   ditentukan hanya di pdfGambar(). */
+.ov-imgs img{display:block}
+/* Di layar sempit, gambar berdampingan jadi terlalu kecil untuk dibaca —
+   denah venue justru yang paling perlu terbaca. !important dipakai karena
+   lawannya adalah style inline. */
+@media(max-width:640px){ .ov-imgs figure{flex-basis:100%!important} }
 .ov-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
 .ov-tbl td{padding:8px 0;border-bottom:1px solid var(--line);vertical-align:top}
 .ov-k{color:var(--muted);width:38%;padding-right:14px}
+.ov-lebar{font-weight:400}
+.ov-lebar-l{color:var(--muted);font-weight:400;margin-bottom:7px}
 .ov-v{font-weight:600;word-break:break-word}
 @media(max-width:640px){ .ov-tbl td{display:block;border:0;padding:2px 0}
   .ov-k{width:auto;font-size:12px} .ov-v{padding-bottom:10px;border-bottom:1px solid var(--line)} }
@@ -750,6 +761,15 @@ async function fetchOffice(opts){
 }
 
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
+/* Penanda "ada perubahan yang belum diterima server".
+   Dipasang sebelum kiriman berangkat, dan HANYA dicabut kalau server
+   benar-benar menjawab ok. Jadi kalau browser ditutup, mati listrik, atau
+   koneksi putus di tengah jalan, penanda itu masih ada saat halaman dibuka
+   lagi — dan itulah satu-satunya cara kita tahu ada yang perlu diselamatkan. */
+const KEY_PENDING = KEY + '_pending';
+function tandaiBelumNaik(){ try{ localStorage.setItem(KEY_PENDING, String(Date.now())); }catch(_){} }
+function tandaiSudahNaik(){ try{ localStorage.removeItem(KEY_PENDING); }catch(_){} }
+function adaBelumNaik(){ try{ return !!localStorage.getItem(KEY_PENDING); }catch(_){ return false; } }
 let S = null;
 let API_READY = false;
 
@@ -834,6 +854,80 @@ function buildPayload(){
   _eachRow(p,(key,r)=>{ if(_dirty(key,r)) r.baseUpdatedAt = _serverVer[key] || 0; });
   return p;
 }
+/* ---------- Selamatkan perubahan yang belum sampai ke server ----------
+   Dipanggil saat halaman dibuka DAN penanda "belum naik" masih ada.
+
+   Cara amannya: mulai dari data server sebagai kebenaran, lalu kembalikan
+   HANYA baris lokal yang benar-benar lebih baru (atau yang belum ada sama
+   sekali di server), lalu kirim. Server sudah punya penjaga per-baris, jadi
+   dia yang memutuskan mana yang boleh masuk — bukan kita menebak di sini.
+
+   Baris yang di server ternyata LEBIH BARU tidak ditimpa. Itu berarti orang
+   lain sudah menyimpan sesudah kita, dan menimpanya diam-diam justru
+   memindahkan kehilangan data ke orang itu. Baris seperti itu dikumpulkan
+   dan dilaporkan, supaya kru tahu persis apa yang perlu diulang.
+
+   Catatan sengaja: baris yang DIHAPUS secara lokal tapi masih ada di server
+   akan muncul kembali. Itu pilihan sadar — data hidup lagi masih bisa
+   dihapus ulang, data hilang tidak bisa dikembalikan. */
+async function pulihkanBelumNaik(srv){
+  let lok=null;
+  try{ lok=JSON.parse(localStorage.getItem(KEY)); }catch(_){ lok=null; }
+  if(!lok || typeof lok!=='object'){ tandaiSudahNaik(); return; }
+  lok=normalizeState(lok);
+
+  const verSrv={}; _eachRow(srv,(key,r)=>{ verSrv[key]=r.updatedAt||0; });
+  const indexSrv={}; MKT_COLS.forEach(k=>{ indexSrv[k]={}; (srv[k]||[]).forEach(r=>{ if(r&&r.id) indexSrv[k][r.id]=r; }); });
+
+  const dipulihkan=[], kalah=[];
+  MKT_COLS.forEach(k=>{
+    (lok[k]||[]).forEach(r=>{
+      if(!r||!r.id) return;
+      const key=k+':'+r.id, adaDiSrv=indexSrv[k][r.id];
+      const tLok=r.updatedAt||0, tSrv=verSrv[key]||0;
+      if(!adaDiSrv){                       // baru dibuat, server belum punya
+        S[k].push(r); dipulihkan.push({koleksi:k, nama:r.nama||r.name||r.id});
+      }else if(tLok>tSrv){                 // kita lebih baru
+        const i=S[k].findIndex(x=>x&&x.id===r.id);
+        if(i>=0) S[k][i]=r;
+        dipulihkan.push({koleksi:k, nama:r.nama||r.name||r.id});
+      }else if(tLok<tSrv && _sig(r)!==_sig(adaDiSrv)){
+        kalah.push({koleksi:k, nama:r.nama||r.name||r.id});   // server lebih baru & isinya beda
+      }
+    });
+  });
+
+  if(!dipulihkan.length){
+    // Tidak ada yang perlu diselamatkan — penandanya memang sisa yang basi.
+    tandaiSudahNaik();
+    if(kalah.length) showSaveConflict(kalah);
+    return;
+  }
+  await kirimPemulihan(dipulihkan.length, kalah);
+}
+/* Kiriman pemulihan sengaja TIDAK lewat save(): save() memakai stampChanges()
+   yang akan mencap ulang updatedAt jadi "sekarang", sehingga perubahan lama
+   kita tampak lebih baru daripada perubahan orang lain yang sebenarnya
+   menyusul belakangan. Cap waktu aslinya harus dipertahankan. */
+async function kirimPemulihan(jumlah, kalah){
+  try{
+    const res=await fetch(API_URL,{method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'saveAll', data:buildPayload()}), redirect:'follow'});
+    const j=await res.json();
+    if(j && j.ok && j.data){
+      tandaiSudahNaik(); API_READY=true; setSyncBadge('ok'); refreshSnapshot();
+      const bentrok=(j.data.bentrok||[]).concat(kalah);
+      toast('Perubahan tertunda diselamatkan',
+            jumlah+' data yang belum sempat naik sudah masuk ke database.','ok');
+      if(bentrok.length) showSaveConflict(bentrok);
+    }else{
+      API_READY=false; setSyncBadge('err'); jadwalkanKirimUlang();
+    }
+  }catch(e){
+    API_READY=false; setSyncBadge('err'); jadwalkanKirimUlang();
+  }
+}
 function refreshSnapshot(){
   const snap={}, ver={};
   _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
@@ -846,8 +940,16 @@ async function apiLoad(){
     const res = await fetch(API_URL+'?action=getAll&t='+Date.now(), {method:'GET', redirect:'follow'});
     const json = await res.json();
     if(!json || !json.ok) throw new Error((json&&json.error)||'Respons server tidak valid');
-    S = normalizeState(json.data);
+    const srv = normalizeState(json.data);
+    /* PENTING. Dulu baris ini langsung `S = srv` lalu menimpa cache — dan
+       perubahan lokal yang belum sempat naik ke server lenyap di situ tanpa
+       pesan apa pun. Itu sebabnya dua browser bisa menampilkan isi berbeda:
+       yang satu masih memegang perubahan lokal, yang satunya tidak pernah
+       menerimanya karena memang tidak pernah sampai ke database. */
+    S = srv;
     API_READY = true;
+    refreshSnapshot();                            // versi server = acuan
+    if(adaBelumNaik()) await pulihkanBelumNaik(srv);
     localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
   }catch(e){
     // Gagal online -> pakai cache lokal, atau state kosong ber-default.
@@ -865,6 +967,7 @@ let saveInFlight=false, savePending=false;
 function save(){
   stampChanges();                                // cap baris yang berubah SEBELUM cache/simpan
   localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
+  tandaiBelumNaik();                             // dianggap belum sampai sampai server bilang ok
   if(saveInFlight){ savePending=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
   const body={action:'saveAll', data:buildPayload()};  // baseUpdatedAt dibangun di sini, bukan di S
@@ -884,16 +987,56 @@ function save(){
         showSaveConflict(bentrok);
       }else{
         API_READY=true; setSyncBadge('ok');
+        tandaiSudahNaik();      // server sudah menerima — penanda boleh dicabut
+        _ulangJeda=0;
         refreshSnapshot();     // versi kita kini = versi server
       }
     }else{
       API_READY=false; setSyncBadge('err');
       console.warn('Simpan ditolak server:', j && j.error);
+      jadwalkanKirimUlang();
     }
   })
-  .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err); })
+  .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err);
+                jadwalkanKirimUlang(); })
   .finally(()=>{ saveInFlight=false; if(savePending){ savePending=false; save(); } });
 }
+
+/* ---------- Kirim ulang otomatis ----------
+   Dulu kiriman yang gagal berhenti di situ: badge merah muncul lalu diam
+   selamanya. Kalau kru tidak menyadarinya dan tidak mengedit apa pun lagi,
+   perubahan itu tidak pernah naik ke server.
+
+   Jedanya dinaikkan bertahap supaya browser tidak menggedor server yang
+   sedang bermasalah, tapi tetap ada batas atas — kalau jedanya terus naik,
+   sambungan yang sudah pulih baru ketahuan setengah jam kemudian. */
+let _ulangJeda=0, _ulangTimer=null;
+const ULANG_TANGGA=[4000,10000,25000,60000];
+function jadwalkanKirimUlang(){
+  if(_ulangTimer || !adaBelumNaik()) return;
+  const jeda=ULANG_TANGGA[Math.min(_ulangJeda,ULANG_TANGGA.length-1)];
+  _ulangJeda++;
+  _ulangTimer=setTimeout(()=>{ _ulangTimer=null; if(adaBelumNaik()) save(); }, jeda);
+}
+/* Tiga pemicu langsung, tanpa menunggu jeda: koneksi kembali, tab dibuka
+   lagi, atau kru menekan badge merahnya. Menunggu timer saat sambungan
+   jelas-jelas sudah pulih itu menunda tanpa alasan. */
+function cobaKirimSekarang(){
+  if(!adaBelumNaik()) return;
+  _ulangJeda=0;
+  if(_ulangTimer){ clearTimeout(_ulangTimer); _ulangTimer=null; }
+  save();
+}
+window.addEventListener('online', cobaKirimSekarang);
+
+/* Peringatan sebelum tab ditutup. Satu-satunya pertahanan terakhir kalau
+   servernya memang sedang mati: kru tahu pekerjaannya belum aman SEBELUM
+   menutup browser, bukan besok pagi saat datanya sudah tidak ada. */
+window.addEventListener('beforeunload', function(e){
+  if(!adaBelumNaik()) return;
+  e.preventDefault(); e.returnValue='';   // teksnya ditentukan browser
+  return '';
+});
 // Sebagian perubahan ditolak karena orang lain menyimpan baris yang sama duluan.
 // Jangan timpa diam-diam — tunjukkan apa yang bentrok, lalu sarankan muat ulang.
 let _conflictShown=false;
@@ -918,10 +1061,15 @@ function setSyncBadge(state){
   if(state==='ok'){ el.hidden=true; el.className='sync-badge'; return; }
   el.hidden=false;
   el.className='sync-badge '+(state==='conflict'?'conflict':'err');
-  el.textContent = state==='conflict' ? 'Belum tersimpan — bentrok' : 'Gagal sinkron — data hanya di browser ini';
+  el.textContent = state==='conflict' ? 'Belum tersimpan — bentrok' : 'Belum masuk database — mencoba lagi…';
   el.title = state==='conflict'
     ? 'Server sudah lebih baru. Muat ulang lalu ulangi perubahanmu.'
-    : 'Perubahan tersimpan di browser tapi belum naik ke server. Cek koneksi.';
+    : 'Perubahan masih di browser ini dan akan dikirim ulang otomatis. Klik untuk mencoba sekarang.';
+  // Badge bisa ditekan: menunggu jeda padahal sambungan sudah pulih itu
+  // menunda tanpa alasan, dan kru yang melihat badge merah ingin berbuat
+  // sesuatu — bukan cuma menonton.
+  if(state!=='conflict'){ el.style.cursor='pointer'; el.onclick=cobaKirimSekarang; }
+  else { el.style.cursor=''; el.onclick=null; }
 }
 /* Data hanya dibaca sekali saat boot, jadi tab yang lama dibiarkan terbuka akan
    memegang versi usang lalu menimpa kerja orang lain saat menyimpan. Saat tab
@@ -931,6 +1079,9 @@ async function refreshIfStale(){
   // Jangan menimpa perubahan yang belum sempat naik ke server (mis. sedang
   // mengetik lalu pindah tab); tampilan baru boleh diganti kalau kita bersih.
   if(savePending) return;
+  // Menyegarkan tampilan saat masih ada yang belum naik akan menimpa
+  // perubahan itu dengan data server — persis kebocoran yang ditutup di sini.
+  if(adaBelumNaik()){ cobaKirimSekarang(); return; }
   try{
     const res=await fetch(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'});
     const j=await res.json();
@@ -3848,7 +3999,13 @@ function renderOverview(ev){
       const n = pdfNilai(fl,ev);
       if(!n.h) return;
       totalIsi++;
-      baris.push('<tr><td class="ov-k">'+esc(fl.l)+'</td><td class="ov-v">'+n.h+'</td></tr>');
+      if(fl.t==='files' && pdfAdaGambar(detailVal(ev,fl))){
+        // Judul pindah ke ATAS gambar supaya gambarnya dapat lebar penuh.
+        baris.push('<tr><td class="ov-v ov-lebar" colspan="2">'
+          +'<div class="ov-lebar-l">'+esc(fl.l)+'</div>'+n.h+'</td></tr>');
+      } else {
+        baris.push('<tr><td class="ov-k">'+esc(fl.l)+'</td><td class="ov-v">'+n.h+'</td></tr>');
+      }
     });
     if(!baris.length) return;                            // section kosong tidak usah ditampilkan
     h += '<section class="ov-sec"><h3 class="ov-sec-t"><span class="ov-no">'+esc(sec.n)+'</span>'+esc(sec.title)+'</h3>'
@@ -3989,16 +4146,27 @@ function pdfItemTabel(val){
 }
 /* Gambar lampiran ikut tercetak. Dibatasi tingginya supaya satu denah tidak
    memakan satu halaman penuh, dan diberi keterangan namanya. */
+/* Hanya baris yang BENAR-BENAR memuat gambar yang dilebarkan. Lampiran
+   yang isinya cuma PDF/dokumen tetap memakai tata letak dua kolom biasa —
+   melebarkan daftar tautan tidak ada gunanya, malah bikin renggang. */
+function pdfAdaGambar(val){ return Array.isArray(val) && val.some(fotoKah); }
 function pdfGambar(arr){
   const semua=Array.isArray(arr)?arr:[];
   const g=semua.filter(fotoKah), lain=semua.filter(f=>!fotoKah(f));
   if(!semua.length) return null;
   let h='';
   if(g.length){
-    h+='<div class="ov-imgs" style="display:flex;flex-wrap:wrap;gap:10px;margin:4px 0">'
-      +g.map(f=>'<figure style="margin:0;max-width:270px">'
+    /* Satu gambar = biasanya denah venue, dan itu memang harus dibaca —
+       diberi lebar penuh. Lebih dari satu dibagi dua per baris, bukan
+       tiga, supaya tetap cukup besar untuk melihat letak meja & panggung.
+       Ukuran dalam persen, jadi ikut lebar wadahnya: kolom nilai di
+       Overview maupun lebar halaman cetak. */
+    const satu=g.length===1;
+    h+='<div class="ov-imgs" style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">'
+      +g.map(f=>'<figure style="margin:0;flex:1 1 '+(satu?'100%':'46%')+';min-width:0">'
         +'<img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'')+'" '
-        +'style="width:100%;max-height:210px;object-fit:contain;border:'+PDF_GARIS+';border-radius:6px;background:#faf9f5">'
+        +'style="width:100%;max-height:'+(satu?'520':'340')+'px;object-fit:contain;'
+        +'border:'+PDF_GARIS+';border-radius:6px;background:#faf9f5">'
         +'<figcaption style="font-size:9.5px;color:#888;margin-top:3px">'+esc(f.name||'')+'</figcaption></figure>').join('')
       +'</div>';
   }
@@ -4110,9 +4278,17 @@ function buildBriefDoc(id,mode){
         /* Kolom judul dipersempit dari 38% ke 26%: judulnya pendek, isinya
            yang panjang — terutama sekarang setelah rundown & menu jadi tabel
            yang butuh lebar. */
-        rows.push('<tr style="background:'+bg+'">'
-          +'<td style="padding:7px 12px;color:#555;width:26%;vertical-align:top;font-size:11px;border-bottom:1px solid #efece5">'+esc(fl.l)+'</td>'
-          +'<td style="padding:7px 12px;font-size:11.5px;color:#1a1a1a;border-bottom:1px solid #efece5">'+n.h+'</td></tr>');
+        if(fl.t==='files' && pdfAdaGambar(detailVal(ev,fl))){
+          // Sama seperti di Overview: judul di atas, gambar selebar halaman.
+          rows.push('<tr style="background:'+bg+'">'
+            +'<td colspan="2" style="padding:7px 12px;border-bottom:1px solid #efece5">'
+            +'<div style="color:#555;font-size:11px;margin-bottom:5px">'+esc(fl.l)+'</div>'
+            +n.h+'</td></tr>');
+        } else {
+          rows.push('<tr style="background:'+bg+'">'
+            +'<td style="padding:7px 12px;color:#555;width:26%;vertical-align:top;font-size:11px;border-bottom:1px solid #efece5">'+esc(fl.l)+'</td>'
+            +'<td style="padding:7px 12px;font-size:11.5px;color:#1a1a1a;border-bottom:1px solid #efece5">'+n.h+'</td></tr>');
+        }
       });
       if(!rows.length)return;
       body+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;border:1px solid #e5e2da">'
