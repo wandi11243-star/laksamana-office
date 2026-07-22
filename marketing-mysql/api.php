@@ -7,7 +7,7 @@
  *
  *   GET  ?action=getAll                 -> {ok,data:{clients,events,...}}
  *   GET  ?action=stats                  -> {ok,data:{...jumlah per tabel}}
- *   GET  ?action=ping                   -> {ok,data:{pong:true}}
+ *   GET  ?action=ping                   -> {ok,data:{pong,env,db,versi,ts}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
  *
  * Catatan: `bentrok` berisi baris yang ditolak karena orang lain menyimpan
@@ -51,7 +51,8 @@ try {
     keluar(array('ok' => true, 'data' => stats()));
 
   } else if ($action === 'ping') {
-    keluar(array('ok' => true, 'data' => array('pong' => true, 'backend' => 'php-mysql', 'ts' => gmdate('c'))));
+    keluar(array('ok' => true, 'data' => array_merge(
+      array('pong' => true, 'backend' => 'php-mysql'), identitas(), array('ts' => gmdate('c')))));
 
   } else if ($action === 'receipt') {
     // Sajikan file bukti transfer langsung ke browser (gambar/PDF).
