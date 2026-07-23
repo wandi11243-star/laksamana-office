@@ -757,6 +757,20 @@ function antre(fn){var jalan=_rantai.then(fn,fn);_rantai=jalan.then(function(){}
    di-upload, atau halaman error PHP karena config.php keliru. Pesan bawaan itu
    menyuruh orang mencari bug di JavaScript, padahal yang kurang cuma satu
    folder di server. Jadi jawabannya dibaca sebagai teks dulu, baru diurai. */
+/* Jam SERVER saat state ini terakhir dibaca. Dikirim balik sebagai `sinceTs`
+   waktu menyimpan, dan itulah yang menentukan baris mana yang boleh dihapus
+   server.
+
+   Kenapa perlu: backend dulu memakai cap waktu TERBARU DI KIRIMAN sebagai
+   patokan. Saat kru menghapus baris-baris terbaru, yang tersisa justru yang
+   lama — patokannya ikut turun, dan baris yang mau dihapus berada di atas
+   batas sehingga tidak pernah terhapus lalu muncul lagi tiap halaman dimuat.
+
+   Nilainya dari SERVER, bukan Date.now() di sini: jam laptop kru bisa meleset
+   berjam-jam, dan patokan penghapusan yang ikut meleset berarti baris orang
+   lain terhapus atau penghapusan sendiri tidak pernah jadi. */
+var _sinceTs=0;
+
 function bacaJawaban(r){
   return r.text().then(function(teks){
     var j=null;
@@ -771,6 +785,14 @@ function bacaJawaban(r){
         'atau config.php belum benar. Cuplikan: '+cuplik);
     }
     if(!j.ok) throw new Error(j.error||'server error');
+    if(j.data && typeof j.data==='object'){
+      /* getAll membawa _serverTs; saveAll membawa tsMs. Keduanya memajukan
+         patokan yang sama. _serverTs DIBUANG dari state supaya tidak ikut
+         terbandingkan saat polling — kalau tidak, tiap tarikan terlihat
+         "berubah" dan halaman digambar ulang tiap 20 detik tanpa alasan. */
+      if(typeof j.data._serverTs==='number'){ _sinceTs=j.data._serverTs; delete j.data._serverTs; }
+      if(typeof j.data.tsMs==='number')      { _sinceTs=j.data.tsMs; }
+    }
     return j.data;
   });
 }
@@ -783,7 +805,7 @@ function _get(action){
 function _post(action,data){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:action,data:data})},30000)
+      body:JSON.stringify({action:action,data:data,sinceTs:_sinceTs})},30000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
     .then(bacaJawaban);
 }
