@@ -523,20 +523,43 @@ function fetchTimeout(url,opts,ms){
    bersamaan dari satu perangkat (polling getAll + saveAll gampang tabrakan). */
 var _rantai=Promise.resolve();
 function antre(fn){var jalan=_rantai.then(fn,fn);_rantai=jalan.then(function(){},function(){});return jalan;}
+/* Membaca jawaban server dengan pesan yang bisa DITINDAKLANJUTI.
+
+   r.json() yang polos melempar "Unexpected token '<', "<!DOCTYPE "... is not
+   valid JSON" begitu server membalas HTML — dan HTML justru balasan paling
+   sering saat ada yang salah: halaman 404 karena folder bd-api-mysql belum
+   di-upload, atau halaman error PHP karena config.php keliru. Pesan bawaan itu
+   menyuruh orang mencari bug di JavaScript, padahal yang kurang cuma satu
+   folder di server. Jadi jawabannya dibaca sebagai teks dulu, baru diurai. */
+function bacaJawaban(r){
+  return r.text().then(function(teks){
+    var j=null;
+    try{ j=JSON.parse(teks); }catch(e){}
+    if(!j){
+      var cuplik=String(teks||'').replace(/\s+/g,' ').slice(0,110);
+      if(r.status===404) throw new Error(
+        'Backend belum terpasang — '+API_URL+' menjawab 404. Upload isi folder '+
+        'bd-mysql/ ke server sebagai bd-api-mysql/ (config.php ikut, tanpa itu 500).');
+      if(!r.ok) throw new Error('Server membalas HTTP '+r.status+', bukan JSON. Cuplikan: '+cuplik);
+      throw new Error('Server membalas HTML, bukan JSON — biasanya error PHP '+
+        'atau config.php belum benar. Cuplikan: '+cuplik);
+    }
+    if(!j.ok) throw new Error(j.error||'server error');
+    return j.data;
+  });
+}
 function _get(action){
   var url=API_URL+(API_URL.indexOf('?')>-1?'&':'?')+'action='+encodeURIComponent(action)+'&t='+Date.now();
   return fetchTimeout(url,{method:'GET',redirect:'follow',cache:'no-store'},20000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
-    .then(function(r){return r.json();})
-    .then(function(j){if(!j.ok)throw new Error(j.error||'server error');return j.data;});
+    .then(bacaJawaban);
 }
 function _post(action,data){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({action:action,data:data})},30000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
-    .then(function(r){return r.json();})
-    .then(function(j){if(!j.ok)throw new Error(j.error||'server error');return j.data;});
+    .then(bacaJawaban);
 }
 function apiGet(a){return antre(function(){return _get(a);});}
 function apiPost(a,d){return antre(function(){return _post(a,d);});}
@@ -625,16 +648,110 @@ setInterval(function(){
   },function(){ /* diam: polling gagal bukan alasan mengganggu kerja */ });
 },20000);
 
-/* ============ IDENTITAS ============
-   Nama & hak akses datang dari Office; penjaga di <head> sudah memastikan
-   sesinya sah. Yang masih perlu dicari di sini: BARIS KRU mana di tabel
-   `people` yang mewakili orang ini — itulah yang menentukan task siapa yang
-   dia lihat dan siapa yang jadi PIC default.
+/* ============ IDENTITAS & DAFTAR KRU ============
+   Daftar kru TIDAK diketik di modul ini. Sumbernya database account
+   (account-api-mysql), lewat aksi `listModuleRoster` — yang mengembalikan
+   PERSIS user yang punya hak akses modul `bd`, termasuk mereka yang dapat
+   lewat grant '*'.
 
-   Dicocokkan lewat officeUserId dulu, baru nama. officeUserId lebih tahan
-   banting: nama bisa berubah ejaannya, dan dua orang bisa bernama mirip. */
+   Kenapa bukan diketik sendiri: daftar kru yang hidup terpisah dari Office
+   pasti menyimpang. Modul Ordering sudah membuktikannya — layarnya masih
+   menulis "Adit" dan "Anggi" berbulan-bulan setelah Office memakai "Aditya
+   Setiadi" dan "Anggi Amanda". Menyalin roster berarti mengulang kesalahan
+   yang sama, cuma di modul yang lebih baru.
+
+   Yang tetap milik BD OS: jabatan, divisi, dan ATASAN. Tiga itu tidak ada di
+   database account (Office tidak mengenal hierarki), padahal justru atasan
+   yang menentukan siapa melihat task siapa. Jadi baris `people` di sini
+   adalah LAPISAN TAMBAHAN di atas akun Office, bukan salinannya:
+   nama & keaktifan ikut Office, sisanya diatur di sini. */
+const ACCOUNT_API = "../account-api-mysql/api.php";
+
 function sesi(){ try{ return JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){ return null; } }
 var AKU=null;                     // baris people milik user, atau null
+var ROSTER=null;                  // hasil listModuleRoster terakhir; null = gagal/belum
+var ROSTER_PESAN='';              // sebab kegagalan, ditampilkan apa adanya
+
+/* Ambil daftar pemegang akses modul `bd` dari database account.
+
+   Batas waktu 8 detik dan kegagalannya TIDAK mematikan modul: kalau Office
+   diam, BD OS tetap jalan memakai baris people hasil sinkron terakhir. Papan
+   kerja yang mogok total gara-gara layanan lain sedang batuk lebih merugikan
+   daripada daftar kru yang ketinggalan sehari. */
+function ambilRoster(){
+  var stop=new AbortController();
+  var jam=setTimeout(function(){stop.abort();},8000);
+  return fetch(ACCOUNT_API,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listModuleRoster',module:'bd'}),
+      signal:stop.signal})
+    .then(function(r){return r.text();})
+    .then(function(teks){
+      clearTimeout(jam);
+      var j=null; try{ j=JSON.parse(teks); }catch(e){}
+      if(!j)          throw new Error('Office membalas bukan JSON (account-api-mysql belum terpasang?)');
+      if(!j.ok)       throw new Error(j.error||'ditolak');
+      if(!Array.isArray(j.members)) throw new Error('balasan tanpa daftar anggota');
+      return j.members;
+    })
+    .catch(function(e){ clearTimeout(jam); throw new Error(e.name==='AbortError'?'Office tidak menjawab dalam 8 detik':e.message); });
+}
+
+/* Satukan roster ke tabel people. Mengembalikan true kalau ada yang berubah
+   (pemanggil yang memutuskan perlu save atau tidak).
+
+   TIDAK PERNAH MENGHAPUS. Kru yang aksesnya dicabut hanya ditandai
+   `tanpaAkses`, barisnya tetap ada — kalau dihapus, semua task yang pernah
+   dia pegang berubah jadi PIC "—" dan jejak siapa mengerjakan apa hilang
+   untuk selamanya. Hilangnya akses bukan alasan menghapus sejarah. */
+function terapkanRoster(members){
+  var berubah=false;
+  var adaId={};
+  members.forEach(function(m){
+    if(!m||!m.id) return;
+    adaId[m.id]=true;
+    var p=DB.people.find(function(x){return x.officeUserId===m.id;});
+    if(!p){
+      /* Pencocokan nama HANYA untuk baris lama yang belum punya tautan id —
+         sekali ketemu, id-nya dipatri supaya pencocokan rapuh ini tidak
+         terulang di sinkron berikutnya. */
+      p=DB.people.find(function(x){return !x.officeUserId &&
+          String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase();});
+      if(p){ p.officeUserId=m.id; berubah=true; }
+    }
+    if(!p){
+      DB.people.push({id:uid('u'),officeUserId:m.id,name:m.name||'(tanpa nama)',
+        role:'',div:'',boss:'',active:m.active!==false});
+      berubah=true; return;
+    }
+    // Nama & keaktifan milik Office — di sini cuma disalin, tidak pernah diedit.
+    if(p.name!==m.name && m.name){ p.name=m.name; berubah=true; }
+    var aktif=m.active!==false;
+    if(!!p.active!==aktif){ p.active=aktif; berubah=true; }
+    if(p.tanpaAkses){ delete p.tanpaAkses; berubah=true; }
+  });
+  DB.people.forEach(function(p){
+    var punya=p.officeUserId && adaId[p.officeUserId];
+    if(!punya && !p.tanpaAkses){ p.tanpaAkses=true; berubah=true; }
+  });
+  return berubah;
+}
+
+/* Sinkronkan, lalu gambar ulang bila perlu. Dipakai saat boot dan tombol
+   Segarkan di halaman Kru BD. */
+function sinkronRoster(diam){
+  return ambilRoster().then(function(members){
+    ROSTER=members; ROSTER_PESAN='';
+    if(terapkanRoster(members)) save();
+    kenali();
+    return true;
+  },function(e){
+    ROSTER=null; ROSTER_PESAN=e.message||String(e);
+    if(!diam) toast('Daftar kru gagal disegarkan: '+ROSTER_PESAN);
+    return false;
+  });
+}
+
 function kenali(){
   var s=sesi()||{};
   AKU = DB.people.find(function(p){return p.officeUserId && p.officeUserId===s.userId;})
@@ -784,16 +901,22 @@ function taskRow(t,o){
 
 /* ============ DASHBOARD ============ */
 function pitaDaftar(){
-  /* Pita ini muncul hanya untuk orang yang belum punya baris di tabel kru.
-     Tanpa baris itu, semua penyaring "tim saya" tidak punya titik acuan dan
-     dia melihat pekerjaan seluruh tim — bukan kesalahan fatal, tapi juga
-     bukan yang dia inginkan. */
-  if(AKU) return '';
-  var s=sesi()||{};
-  return '<div class="notice">Kamu (<b>'+esc(s.name||'?')+'</b>) belum terdaftar sebagai kru BD, '+
-    'jadi papan ini menampilkan pekerjaan <b>semua orang</b>. Daftarkan dirimu di '+
-    '<b>Kru BD</b> supaya penyaring "tim saya" dan PIC default bekerja.'+
-    '<button class="btn sm" style="margin-left:auto" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
+  /* Dua pita, dua sebab berbeda — sengaja tidak digabung jadi satu pesan
+     kabur, karena tindakan yang diperlukan juga berbeda. */
+  if(ROSTER===null && ROSTER_PESAN)
+    return '<div class="notice bad">Daftar kru tidak bisa diambil dari Office: '+esc(ROSTER_PESAN)+
+      '. Papan tetap jalan memakai daftar hasil sinkron terakhir, tapi kru yang baru diberi akses '+
+      'belum akan muncul.<button class="btn sm" style="margin-left:auto" onclick="APP.segarkanKru()">Coba lagi</button></div>';
+  if(!AKU)
+    return '<div class="notice">Kamu punya akses modul ini, tapi belum muncul di daftar kru — '+
+      'biasanya karena akses baru diberikan dan sesimu masih yang lama. Keluar lalu masuk lagi; '+
+      'sementara itu papan menampilkan pekerjaan <b>semua orang</b>.'+
+      '<button class="btn sm" style="margin-left:auto" onclick="APP.segarkanKru()">Segarkan</button></div>';
+  if(!AKU.div)
+    return '<div class="notice">Divisi kamu belum diatur, jadi task barumu akan jatuh ke divisi bawaan. '+
+      'Atur di <b>Kru BD</b> — sekalian isi atasanmu, karena itu yang menentukan siapa melihat task siapa.'+
+      '<button class="btn sm" style="margin-left:auto" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
+  return '';
 }
 function vDashboard(){
   var vt=tasksTerlihat();
@@ -988,11 +1111,20 @@ function hapusTask(id){
 }
 
 /* ---- modal task ---- */
+/* Pilihan PIC = kru yang masih aktif DAN masih punya akses modul ini.
+
+   Yang sudah kehilangan akses tetap ikut KALAU dia PIC baris yang sedang
+   dibuka. Tanpa itu, membuka task lama untuk mengubah deadlinenya akan
+   diam-diam memindahkan PIC-nya ke orang pertama di daftar — kerusakan senyap
+   yang baru ketahuan saat ada yang bertanya kenapa task ini jadi miliknya. */
 function picOptions(sel){
-  var akt=DB.people.filter(function(p){return p.active!==false;});
-  if(!akt.length) return '<option value="">— belum ada kru terdaftar —</option>';
-  return akt.map(function(p){
-    return '<option value="'+p.id+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+' · '+esc(p.role||'')+'</option>';
+  var pilih=DB.people.filter(function(p){
+    return (p.active!==false && !p.tanpaAkses) || p.id===sel;
+  });
+  if(!pilih.length) return '<option value="">— belum ada kru dengan akses modul ini —</option>';
+  return pilih.map(function(p){
+    var ket=p.tanpaAkses?' · akses dicabut':(p.role?' · '+p.role:'');
+    return '<option value="'+p.id+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+esc(ket)+'</option>';
   }).join('');
 }
 function taskModal(id){
@@ -1616,16 +1748,25 @@ function hapusAgenda(id){
   save(); closeModal(); render(); toast('Agenda dihapus');
 }
 
-/* ============ KRU BD ============ */
+/* ============ KRU BD ============
+   TIDAK ADA tombol "tambah kru" di sini, dan itu disengaja. Siapa yang boleh
+   masuk BD OS ditentukan di Office (Kelola Akses), bukan di modul ini —
+   memberi modul ini tombol tambah berarti membuat daftar kedua yang bisa
+   berbeda dari daftar akses sesungguhnya, dan yang lebih buruk: mengundang
+   orang mengira menambah nama di sini sudah memberi orang itu akses. */
 function vTim(){
-  var s=sesi()||{};
   var h=head('Kru BD',SUB.tim[2],
-    '<button class="btn pri" onclick="APP.orangModal()">'+ic('plus')+'Kru</button>');
-  if(!AKU) h+='<div class="notice">Akun Office kamu: <b>'+esc(s.name||'?')+'</b>'+
-    (s.userId?' <span class="tag">'+esc(s.userId)+'</span>':'')+'. Tambahkan dirimu di daftar ini '+
-    '(isi "ID Office" dengan id di atas) supaya papan tahu task mana milikmu.</div>';
+    '<button class="btn" onclick="APP.segarkanKru()">'+ic('refresh')+'Segarkan dari Office</button>');
+
+  h+='<div class="notice">Daftar ini datang dari <b>database account</b> — isinya '+
+    'persis pemegang hak akses modul <code>bd</code>. Menambah/menghapus orang dilakukan di '+
+    '<b>Kelola Akses</b> di Office, bukan di sini. Yang diatur di halaman ini hanya '+
+    '<b>jabatan, divisi, dan atasan</b>, karena tiga hal itu tidak dikenal Office — '+
+    'padahal atasanlah yang menentukan siapa melihat task siapa.</div>';
+
   if(!DB.people.length) return h+'<div class="card"><div class="card-b">'+
-    kosong('Belum ada kru terdaftar','Tanpa kru, kolom PIC di task/project/PO tidak punya pilihan.')+'</div></div>';
+    kosong('Belum ada kru dengan akses modul ini',
+      'Beri akses modul `bd` lewat Kelola Akses di Office, lalu tekan Segarkan.')+'</div></div>';
 
   var byBoss={};
   DB.people.forEach(function(p){ (byBoss[p.boss||'']=byBoss[p.boss||'']||[]).push(p); });
@@ -1645,70 +1786,71 @@ function vTim(){
   });
 
   return h+'<div class="tw"><table><thead><tr><th>Nama</th><th>Jabatan</th><th>Divisi</th><th>Atasan</th>'+
-    '<th>ID Office</th><th>Task aktif</th><th>Status</th><th></th></tr></thead><tbody>'+
+    '<th>Task aktif</th><th>Akses</th><th></th></tr></thead><tbody>'+
     baris.map(function(b){
       var p=b.p;
       var nAktif=DB.tasks.filter(function(t){return t.pic===p.id&&!selesai(t);}).length;
       var nLewat=DB.tasks.filter(function(t){return t.pic===p.id&&lewat(t);}).length;
+      var akses = p.tanpaAkses ? pill('dicabut','p-bad')
+                : (p.active===false ? pill('nonaktif','p-mute') : pill('aktif','p-go'));
       return '<tr class="clk" onclick="APP.orangModal(\''+p.id+'\')">'+
         '<td style="padding-left:'+(13+b.level*18)+'px"><span class="mini-av" style="margin-right:8px">'+esc(inisial(p.name))+'</span>'+
           '<span class="nm">'+esc(p.name)+'</span>'+(AKU&&AKU.id===p.id?' '+pill('kamu','p-gold'):'')+'</td>'+
         '<td><span class="mut">'+esc(p.role||'—')+'</span></td>'+
-        '<td>'+tagDiv(p.div||'—')+'</td>'+
+        '<td>'+(p.div?tagDiv(p.div):'<span class="mut">belum diatur</span>')+'</td>'+
         '<td><span class="mut">'+esc(p.boss?P(p.boss).name:(b.yatim?'(atasan tidak ditemukan)':'—'))+'</span></td>'+
-        '<td><span class="mut" style="font-family:var(--mono);font-size:11px">'+esc(p.officeUserId||'—')+'</span></td>'+
         '<td><span class="num">'+nAktif+'</span>'+(nLewat?' '+pill(nLewat+' lewat','p-bad'):'')+'</td>'+
-        '<td>'+pill(p.active!==false?'Aktif':'Nonaktif',p.active!==false?'p-go':'p-mute')+'</td>'+
-        '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusOrang(\''+p.id+'\')">'+ic('trash')+'</button></td></tr>';
+        '<td>'+akses+'</td>'+
+        /* Tombol hapus HANYA untuk baris yang aksesnya sudah dicabut DAN tidak
+           lagi memegang pekerjaan apa pun. Selama masih ada task atas namanya,
+           menghapus berarti membuang jejak siapa mengerjakan apa. */
+        '<td>'+((p.tanpaAkses&&!nAktif)?'<button class="iconbtn" title="Hapus dari daftar" '+
+          'onclick="event.stopPropagation();APP.hapusOrang(\''+p.id+'\')">'+ic('trash')+'</button>':'')+'</td></tr>';
     }).join('')+'</tbody></table></div>';
 }
 function orangModal(id){
   var p=id?DB.people.find(function(x){return x.id===id;}):null;
-  var baru=!p;
-  var s=sesi()||{};
-  if(!p) p={name:'',role:'',div:'Business Development',boss:'',officeUserId:'',active:true};
+  if(!p) return;                       // kru hanya lahir dari roster, tidak dari modal
   showModal(
-    '<div class="modal-h"><h3>'+(baru?'Kru Baru':'Edit Kru')+'</h3>'+
+    '<div class="modal-h"><h3>'+esc(p.name)+'</h3>'+
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
     '<div class="modal-b">'+
+      /* Nama & status akses TIDAK bisa diedit di sini: pemiliknya database
+         account. Field yang bisa diketik padahal perubahannya akan ditimpa
+         sinkron berikutnya lebih buruk daripada tidak ada field sama sekali. */
+      '<div class="notice" style="margin:0">Nama dan hak akses dikelola di <b>Office → Kelola Akses</b>, '+
+        'jadi tidak bisa diubah dari sini — perubahannya akan ditimpa saat daftar disegarkan. '+
+        'Yang di bawah ini milik BD OS.</div>'+
       '<div class="frow">'+
-        '<div class="field"><label>Nama</label><input id="k_name" value="'+esc(p.name)+'"></div>'+
-        '<div class="field"><label>Jabatan</label><input id="k_role" value="'+esc(p.role)+'" placeholder="mis. BD Manager"></div></div>'+
-      '<div class="frow">'+
+        '<div class="field"><label>Jabatan</label><input id="k_role" value="'+esc(p.role)+'" placeholder="mis. BD Manager"></div>'+
         '<div class="field"><label>Divisi</label><select id="k_div">'+
-          OWNER_DIVS.map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
-        '<div class="field"><label>Atasan langsung</label><select id="k_boss"><option value="">— tidak ada (puncak) —</option>'+
-          DB.people.filter(function(x){return x.id!==id;}).map(function(x){
-            return '<option value="'+x.id+'"'+(p.boss===x.id?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</select></div></div>'+
-      '<div class="field"><label>ID Office (lm_session.userId)</label>'+
-        '<input id="k_office" value="'+esc(p.officeUserId)+'" placeholder="kosongkan untuk mencocokkan lewat nama">'+
-        '<div style="font-size:11px;color:var(--muted);margin-top:5px">Akun kamu sekarang: <b>'+esc(s.name||'?')+'</b>'+
-        /* id dititipkan lewat data-uid, bukan disisipkan ke dalam string JS di
-           onclick. esc() mengubah kutip jadi &#39; yang HTML-decode kembali
-           menjadi kutip SEBELUM JS-nya dibaca — sisipan langsung di onclick
-           akan pecah untuk id yang mengandung kutip. */
-        (s.userId?' · <code>'+esc(s.userId)+'</code> <button type="button" class="btn sm" style="margin-left:6px" '+
-        'data-uid="'+esc(s.userId)+'" onclick="APP.pakaiIdOffice(this)">Pakai ini</button>':'')+
+          '<option value=""'+(p.div?'':' selected')+'>— belum diatur —</option>'+
+          OWNER_DIVS.map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div></div>'+
+      '<div class="field"><label>Atasan langsung</label><select id="k_boss"><option value="">— tidak ada (puncak) —</option>'+
+        DB.people.filter(function(x){return x.id!==id;}).map(function(x){
+          return '<option value="'+x.id+'"'+(p.boss===x.id?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</select>'+
+        '<div style="font-size:11px;color:var(--muted);margin-top:5px">Atasan menentukan siapa melihat task siapa: '+
+        'seorang atasan melihat task seluruh anak buahnya, langsung maupun tidak.</div></div>'+
+      '<div class="field"><label>Dari database account</label>'+
+        '<div style="font-size:12px;color:var(--muted);line-height:1.7">'+
+        'ID Office: <code>'+esc(p.officeUserId||'—')+'</code><br>'+
+        'Status: '+(p.tanpaAkses?'<b style="color:var(--danger)">akses modul bd sudah dicabut</b>'
+                   :(p.active===false?'akun nonaktif':'aktif, punya akses modul bd'))+
         '</div></div>'+
-      '<div class="field"><label>Status</label><div class="toggles">'+
-        '<button type="button" class="toggle'+(p.active!==false?' on':'')+'" id="kg_act" onclick="this.classList.toggle(\'on\')">'+
-        '<span class="tick">'+ic('check')+'</span> Aktif</button></div>'+
-        '<div style="font-size:11px;color:var(--muted);margin-top:5px">Kru nonaktif tidak muncul di pilihan PIC, '+
-        'tapi task lamanya tetap tercatat atas namanya.</div></div>'+
     '</div>'+
-    '<div class="modal-f"><div>'+(baru?'':'<button class="btn bad sm" onclick="APP.hapusOrang(\''+id+'\')">'+ic('trash')+'Hapus</button>')+'</div>'+
+    '<div class="modal-f"><div></div>'+
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
-      '<button class="btn pri" onclick="APP.simpanOrang(\''+(id||'')+'\')">'+ic('check')+'Simpan</button></div></div>');
+      '<button class="btn pri" onclick="APP.simpanOrang(\''+id+'\')">'+ic('check')+'Simpan</button></div></div>');
 }
 function simpanOrang(id){
   var g=function(x){return document.getElementById(x);};
-  var nama=g('k_name').value.trim();
-  if(!nama){ toast('Nama wajib diisi.'); return; }
+  var orang=DB.people.find(function(x){return x.id===id;});
+  if(!orang) return;
   var boss=g('k_boss').value;
   /* Cegah lingkaran atasan (A atasan B, B atasan A). Tanpa penjagaan ini,
      bawahan() memanggil dirinya tanpa henti dan seluruh halaman membeku —
      bukan pesan error, cuma tab yang mati. */
-  if(id&&boss){
+  if(boss){
     var jalan=boss, langkah=0;
     while(jalan&&langkah++<200){
       if(jalan===id){ toast('Atasan melingkar — orang ini sudah jadi atasan dari kru tersebut.'); return; }
@@ -1716,11 +1858,12 @@ function simpanOrang(id){
       jalan=nx?nx.boss:'';
     }
   }
-  var data={name:nama,role:g('k_role').value.trim(),div:g('k_div').value,boss:boss,
-    officeUserId:g('k_office').value.trim(),active:g('kg_act').classList.contains('on')};
-  if(id) Object.assign(DB.people.find(function(x){return x.id===id;}),data);
-  else DB.people.push(Object.assign({id:uid('u')},data));
-  save(); closeModal(); kenali(); render(); toast(id?'Data kru diperbarui':'Kru ditambahkan');
+  // Hanya tiga field milik BD OS yang ditulis. name/active/tanpaAkses sengaja
+  // tidak disentuh — pemiliknya database account.
+  orang.role=g('k_role').value.trim();
+  orang.div =g('k_div').value;
+  orang.boss=boss;
+  save(); closeModal(); kenali(); render(); toast('Data kru diperbarui');
 }
 function hapusOrang(id){
   var dipakai=DB.tasks.filter(function(t){return t.pic===id;}).length
@@ -1728,15 +1871,20 @@ function hapusOrang(id){
              +DB.po.filter(function(p){return p.pic===id;}).length
              +DB.routines.filter(function(r){return r.pic===id;}).length;
   /* Menghapus kru yang masih memegang pekerjaan membuat barisnya jadi PIC "—"
-     yang tidak bisa ditelusuri lagi. Menonaktifkan jauh lebih tepat, jadi itu
-     yang ditawarkan lebih dulu. */
+     yang tidak bisa ditelusuri lagi. Halaman Kru hanya menampilkan tombol ini
+     untuk baris yang aksesnya dicabut DAN tidak memegang task aktif, tapi
+     pemeriksaannya diulang di sini: yang menghitung task aktif saja bisa
+     meloloskan orang yang masih tercatat di project/PO/routine. */
   if(dipakai){
-    if(!confirm('Kru ini masih tercatat sebagai PIC di '+dipakai+' baris (task/project/PO/routine).\n\n'+
-      'Lebih aman menonaktifkannya lewat tombol Edit. Tetap hapus?')) return;
-  }else if(!confirm('Hapus kru ini?')) return;
+    toast('Tidak bisa dihapus — masih tercatat sebagai PIC di '+dipakai+' baris.');
+    return;
+  }
+  if(!confirm('Hapus '+P(id).name+' dari daftar kru BD?\n\n'+
+    'Ini tidak mencabut apa pun di Office. Kalau akses modulnya diberikan lagi, '+
+    'barisnya akan muncul kembali saat disegarkan.')) return;
   DB.people=DB.people.filter(function(p){return p.id!==id;});
   DB.people.forEach(function(p){ if(p.boss===id) p.boss=''; });
-  save(); closeModal(); kenali(); render(); toast('Kru dihapus');
+  save(); closeModal(); kenali(); render(); toast('Kru dihapus dari daftar BD');
 }
 
 /* ============ CARI ============
@@ -1765,37 +1913,36 @@ window.closeModal=function(){ $('#overlay').classList.remove('show'); $('#modal'
 function showModal(html){ $('#modal').innerHTML=html; $('#overlay').classList.add('show'); }
 document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeModal(); });
 
-/* ============ DATA CONTOH ============ */
-function contoh(){
-  var u={ceo:uid('u'),bd:uid('u'),bd2:uid('u'),pm:uid('u'),pm2:uid('u'),pur:uid('u'),pur2:uid('u')};
+/* ============ DATA CONTOH ============
+   TIDAK ADA kru karangan di sini lagi. Kru datang dari database account, dan
+   nama fiktif seperti "Nadia Kusuma" akan langsung tertandai "akses dicabut"
+   di halaman Kru — sampah yang harus dibersihkan manual, bukan contoh yang
+   membantu.
+
+   Semua PIC di data contoh diarahkan ke ORANG YANG MENJALANKANNYA. Selain
+   membuat papan langsung terasa hidup ("6 task aktif milikku"), itu juga
+   membuat data contoh gampang dihapus: semuanya milik satu orang. */
+function contoh(picku){
+  var u={ceo:picku,bd:picku,bd2:picku,pm:picku,pm2:picku,pur:picku,pur2:picku};
   var p={p1:uid('p'),p2:uid('p'),p3:uid('p'),p4:uid('p')};
-  var people=[
-    {id:u.ceo, name:'Howandi Chandra', role:'CEO',              div:'Business Development', boss:'',    officeUserId:'',active:true},
-    {id:u.bd,  name:'Nadia Kusuma',    role:'BD Manager',       div:'Business Development', boss:u.ceo, officeUserId:'',active:true},
-    {id:u.bd2, name:'Rangga Saputra',  role:'BD Officer',       div:'Business Development', boss:u.bd,  officeUserId:'',active:true},
-    {id:u.pm,  name:'Andre Wijaya',    role:'Project Manager',  div:'Project',              boss:u.ceo, officeUserId:'',active:true},
-    {id:u.pm2, name:'Mega Puspita',    role:'Project Officer',  div:'Project',              boss:u.pm,  officeUserId:'',active:true},
-    {id:u.pur, name:'Galih Prakoso',   role:'Purchasing Lead',  div:'Purchasing',           boss:u.ceo, officeUserId:'',active:true},
-    {id:u.pur2,name:'Tio Ferdian',     role:'Purchasing Staff', div:'Purchasing',           boss:u.pur, officeUserId:'',active:true}
-  ];
   var projects=[
     {id:p.p1,name:'Riau Coffee Festival 2026',type:'Event',stage:'Running',div:'Business Development',pic:u.bd,
-     team:[u.bd,u.bd2,u.pur],start:inDays(-20),end:inDays(25),budget:85000000,spent:38000000,health:'on-track',
+     team:[picku],start:inDays(-20),end:inDays(25),budget:85000000,spent:38000000,health:'on-track',
      desc:'Partisipasi & booth Laksamana di Riau Coffee Festival — brand exposure + penjualan langsung.',
      milestones:[{t:'Approval konsep',date:inDays(-15),done:true},{t:'Booth & desain siap',date:inDays(5),done:false},
                  {t:'Soft run',date:inDays(18),done:false},{t:'Festival day',date:inDays(25),done:false}]},
     {id:p.p2,name:'Renovasi Central Kitchen',type:'Renovasi',stage:'Planning',div:'Project',pic:u.pm,
-     team:[u.pm,u.pur,u.pur2],start:inDays(-8),end:inDays(52),budget:220000000,spent:15000000,health:'at-risk',
+     team:[picku],start:inDays(-8),end:inDays(52),budget:220000000,spent:15000000,health:'at-risk',
      desc:'Upgrade central kitchen untuk kapasitas produksi 2x mendukung ekspansi cabang.',
      milestones:[{t:'Approval design',date:inDays(3),done:false},{t:'Budget disetujui',date:inDays(7),done:false},
                  {t:'Mulai konstruksi',date:inDays(14),done:false},{t:'Handover',date:inDays(52),done:false}]},
     {id:p.p3,name:'Launching Menu Nusantara',type:'Launching',stage:'Running',div:'Business Development',pic:u.bd2,
-     team:[u.bd2],start:inDays(-12),end:inDays(18),budget:35000000,spent:12000000,health:'on-track',
+     team:[picku],start:inDays(-12),end:inDays(18),budget:35000000,spent:12000000,health:'on-track',
      desc:'Peluncuran 5 menu signature Nusantara + campaign marketing terintegrasi.',
      milestones:[{t:'Finalisasi resep',date:inDays(6),done:false},{t:'Photoshoot',date:inDays(9),done:false},
                  {t:'Grand launch',date:inDays(18),done:false}]},
     {id:p.p4,name:'Membership & Loyalty Program',type:'Internal',stage:'Idea',div:'Business Development',pic:u.bd,
-     team:[u.bd],start:inDays(2),end:inDays(75),budget:50000000,spent:0,health:'on-track',
+     team:[picku],start:inDays(2),end:inDays(75),budget:50000000,spent:0,health:'on-track',
      desc:'Program membership berjenjang untuk retensi pelanggan & data-driven marketing.',
      milestones:[{t:'Riset & benchmark',date:inDays(15),done:false},{t:'Sistem siap',date:inDays(50),done:false},
                  {t:'Launch',date:inDays(75),done:false}]}
@@ -1874,7 +2021,11 @@ function contoh(){
     {id:uid('a'),title:'Investor call cabang Pekanbaru',date:inDays(2),type:'Meeting',div:'Project'},
     {id:uid('a'),title:'Site visit central kitchen',date:inDays(5),type:'Vendor',div:'Project'}
   ];
-  return {people:people,projects:projects,tasks:tasks,routines:routines,coord:coord,po:po,agenda:agenda,focus:{}};
+  /* `people` sengaja TIDAK ikut dikembalikan. Pemanggilnya menyalin kunci
+     per kunci ke DB yang sudah berisi kru hasil sinkron roster — kalau seluruh
+     DB ditimpa objek ini, daftar kru yang baru saja ditarik dari Office ikut
+     terhapus di layar dan barisnya ditulis balik kosong ke server. */
+  return {projects:projects,tasks:tasks,routines:routines,coord:coord,po:po,agenda:agenda};
 }
 
 /* ============ JEMBATAN KE HTML ============
@@ -1902,7 +2053,13 @@ window.APP={
   geserBulan:function(n){calRef=new Date(calRef.getFullYear(),calRef.getMonth()+n,1);render();},
   bulanIni:function(){var d=new Date();calRef=new Date(d.getFullYear(),d.getMonth(),1);render();},
   orangModal:orangModal, simpanOrang:simpanOrang, hapusOrang:hapusOrang,
-  pakaiIdOffice:function(btn){ document.getElementById('k_office').value=btn.getAttribute('data-uid')||''; }
+  segarkanKru:function(){
+    toast('Mengambil daftar kru dari Office…');
+    sinkronRoster(false).then(function(ok){
+      cetakIdentitas(); render();
+      if(ok) toast('Daftar kru diperbarui — '+DB.people.filter(function(p){return !p.tanpaAkses;}).length+' kru berakses');
+    });
+  }
 };
 
 /* ============ BOOT ============ */
@@ -1922,8 +2079,13 @@ function layarGagal(pesan){
   cetakIdentitas();
   $('#view').innerHTML='<div class="card" style="border-color:var(--danger);max-width:640px;margin:40px auto">'+
     '<div class="card-h"><h3 style="color:var(--danger)">Tidak bisa memuat data</h3></div>'+
-    '<div class="card-b"><p style="color:var(--muted);line-height:1.6">Server BD OS tidak merespons, jadi tidak ada '+
-    'yang ditampilkan. Data kamu <b>aman di database</b> — ini gagal memuat, bukan data hilang.</p>'+
+    /* Sengaja TIDAK menjanjikan "data kamu aman di database". Penyebab
+       tersering layar ini muncul justru saat backend belum terpasang sama
+       sekali — belum ada database untuk diamankan, dan janji yang salah
+       membuat orang berhenti mencari penyebabnya. */
+    '<div class="card-b"><p style="color:var(--muted);line-height:1.6">BD OS tidak bisa bicara dengan '+
+    'backendnya, jadi tidak ada yang ditampilkan. Ini kegagalan <b>memuat</b> — tidak ada yang terhapus. '+
+    'Pesan di bawah menyebut penyebabnya.</p>'+
     '<div style="margin-top:12px;font-size:12.5px"><div class="stat-l">Alamat API</div>'+
     '<div style="font-family:var(--mono);font-size:12px">'+esc(API_URL)+'</div>'+
     '<div class="stat-l" style="margin-top:8px">Pesan</div><div>'+esc(pesan)+'</div></div>'+
@@ -1933,13 +2095,31 @@ function layarGagal(pesan){
   $('#tbTitle').textContent='Gagal memuat';
   $('#tbSub').textContent='Kesalahan';
 }
+/* Urutannya penting dan bukan kebetulan:
+     1. state BD dari MySQL
+     2. roster dari database account  -> baris people lahir di sini
+     3. kenali()                      -> AKU sudah bisa ditemukan
+     4. baru data contoh, yang PIC-nya butuh AKU
+
+   Kalau roster ditarik belakangan, data contoh akan dibuat dengan PIC kosong
+   dan papannya lahir sudah salah. Roster yang GAGAL tidak menghentikan boot —
+   sinkronRoster() menelan galatnya dan menyimpannya di ROSTER_PESAN untuk
+   ditampilkan sebagai pita. */
 apiGet('getAll').then(function(s){
   DB=normalize(s);
+  return sinkronRoster(true);
+}).then(function(){
   /* Data contoh hanya kalau database benar-benar perawan — bukan sekadar
      "tasks kosong". Tim yang sengaja menghapus semua task tidak boleh
-     mendapati task karangan muncul kembali di sesi berikutnya. */
-  if(SEED_CONTOH && !DB.people.length && !DB.tasks.length && !DB.projects.length){
-    DB=normalize(contoh()); _snap={};
+     mendapati task karangan muncul kembali di sesi berikutnya.
+
+     `people` TIDAK ikut diperiksa: barisnya baru saja diisi roster, jadi
+     memeriksanya berarti data contoh tidak akan pernah muncul. */
+  if(SEED_CONTOH && !DB.tasks.length && !DB.projects.length && !DB.po.length){
+    var c=contoh(AKU?AKU.id:'');
+    // Disalin per kunci, BUKAN DB=contoh(): people hasil sinkron harus utuh.
+    Object.keys(c).forEach(function(k){ DB[k]=c[k]; });
+    _snap={};
     return kirimPaksa();
   }
 }).then(function(){

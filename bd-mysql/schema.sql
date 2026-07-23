@@ -40,13 +40,26 @@
 -- ====================================================================
 
 -- ---------- KRU BD ----------
--- Daftar orang yang boleh jadi PIC pekerjaan BD/Project/Purchasing, plus
--- hierarkinya (boss_id). Hierarki inilah yang menentukan siapa melihat task
--- siapa — seorang manager melihat task anak buahnya, staff hanya miliknya.
+-- LAPISAN TAMBAHAN di atas akun Office, BUKAN daftar kru tersendiri.
 --
--- `office_user_id` menautkan baris ini ke akun Office (lm_session.userId).
--- Tanpa tautan itu aplikasi jatuh ke pencocokan NAMA, yang rapuh begitu ada
--- dua orang bernama mirip atau seseorang mengganti ejaan namanya.
+-- Barisnya lahir otomatis dari database account: aplikasi memanggil
+-- account-api-mysql `listModuleRoster` untuk modul `bd`, yang mengembalikan
+-- persis pemegang hak akses modul ini. Tidak ada tombol "tambah kru" di
+-- aplikasi — siapa yang boleh masuk ditentukan di Office (Kelola Akses).
+--
+-- Yang MILIK tabel ini cuma tiga: `role` (jabatan), `divisi`, dan `boss_id`
+-- (atasan). Office tidak mengenal hierarki, padahal justru atasan yang
+-- menentukan siapa melihat task siapa — seorang atasan melihat task seluruh
+-- anak buahnya, staff hanya miliknya.
+--
+-- `name` dan `active` disalin dari account tiap sinkron; jangan diedit di
+-- sini, tulisannya akan tertimpa. `office_user_id` adalah tautannya
+-- (lm_session.userId / accounts.id).
+--
+-- Baris TIDAK pernah dihapus otomatis saat akses dicabut — hanya ditandai
+-- `tanpaAkses` di dalam kolom `data`. Menghapusnya membuat semua task yang
+-- pernah dipegang orang itu jadi PIC "—", dan jejak siapa mengerjakan apa
+-- hilang untuk selamanya. Hilangnya akses bukan alasan menghapus sejarah.
 CREATE TABLE IF NOT EXISTS people (
   id             VARCHAR(64)  NOT NULL PRIMARY KEY,
   name           VARCHAR(255)     NULL,

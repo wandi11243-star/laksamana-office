@@ -52,6 +52,38 @@ cara melihatnya.
   (mis. lampiran penawaran vendor), ikuti pola `DATA_DIR` di `event-mysql` —
   biner di disk, bukan base64 di dalam state.
 
+## Daftar kru datang dari database account
+
+Tabel `people` **bukan** daftar kru tersendiri, melainkan lapisan tambahan di
+atas akun Office. Saat boot, `deploy/bd/index.html` memanggil:
+
+```
+POST ../account-api-mysql/api.php   {action:"listModuleRoster", module:"bd"}
+```
+
+yang mengembalikan persis **pemegang hak akses modul `bd`** (termasuk yang
+dapat lewat grant `*`). Tiap anggota yang belum punya baris dibuatkan
+otomatis; `name` dan `active` disalin dari account tiap sinkron.
+
+Yang dimiliki BD OS sendiri hanya **jabatan, divisi, dan atasan** — Office
+tidak mengenal hierarki, padahal atasanlah yang menentukan siapa melihat task
+siapa.
+
+Konsekuensinya:
+
+- **Menambah orang dilakukan di Office → Kelola Akses**, bukan di modul ini.
+  Aplikasi tidak punya tombol "tambah kru", justru supaya tidak ada yang
+  mengira menambah nama di sini sudah memberi orang itu akses.
+- **Akses dicabut ≠ baris dihapus.** Yang kehilangan akses ditandai
+  `tanpaAkses` dan tidak lagi muncul di pilihan PIC, tapi barisnya tetap ada
+  supaya task lamanya tidak berubah jadi PIC "—".
+- **Office mati bukan berarti BD OS mati.** Roster punya batas waktu 8 detik;
+  kalau gagal, modul jalan memakai hasil sinkron terakhir dan menampilkan pita
+  merah. Papan kerja yang mogok total gara-gara layanan lain sedang batuk lebih
+  merugikan daripada daftar kru yang ketinggalan sehari.
+- Modul `bd` **harus terdaftar & aktif** di tabel `modules` account. Tanpa itu
+  grant `*` tidak mengembang ke `bd`, dan rosternya kosong.
+
 ## Langkah pasang di Rumahweb (cPanel)
 
 1. **Buat database + user MySQL — DATABASE BARU, jangan menumpang.**

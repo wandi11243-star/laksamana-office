@@ -170,7 +170,8 @@ async function muatBahan() {
 /* Satuan yang sah untuk sebuah bahan. null = belum diatur purchasing, dan
    itu berarti SEMUA satuan boleh — perilaku yang sama dengan form order,
    supaya dua halaman tidak memberi jawaban berbeda untuk bahan yang sama. */
-const SATUAN_TERSEDIA = ["Kg", "Gram", "Pcs", "Pack", "Dus", "Sack", "Jerigen", "Rim", "Botol"];
+const SATUAN_TERSEDIA = ["Kg", "Gram", "Pcs", "Pack", "Dus", "Sack", "Jerigen", "Rim", "Botol",
+                         "Ekor", "Slice", "Tabung", "Bal", "Buah", "Kaleng", "Ikat", "Papan"];
 function satuanBahan(nama) {
   const p = INFO_BAHAN && INFO_BAHAN[nama];
   const s = p && Array.isArray(p.satuan) ? p.satuan.filter(Boolean) : [];
