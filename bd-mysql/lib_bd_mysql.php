@@ -29,7 +29,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-23');
+define('LIB_VERSI', '2026-07-23b');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -401,6 +401,63 @@ function save_all($state) {
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
   );
+}
+
+/* ==================== TAMBAH PO DARI MODUL LAIN ====================
+   Dipakai modul Marketing untuk mengirim request pembelian ke papan
+   Purchasing milik BD.
+
+   TIDAK boleh lewat saveAll, dan ini bukan soal kerapian. saveAll melakukan
+   REKONSILIASI: baris yang tidak ada di kiriman akan DIHAPUS. Marketing tidak
+   memegang state BD, jadi kirimannya hanya berisi dua-tiga baris baru — dan
+   saveAll akan menganggap SELURUH purchase_orders lainnya sudah dihapus, lalu
+   membuangnya. Satu panggilan salah dari modul tetangga cukup untuk
+   mengosongkan papan purchasing.
+
+   Fungsi ini HANYA menyisipkan. Tidak menghapus, tidak menimpa: id yang
+   kebetulan sudah ada dilewati (INSERT IGNORE), bukan ditulis ulang. */
+function tambah_po($rows) {
+  if (!is_array($rows) || !count($rows)) throw new Exception('Tidak ada baris untuk ditambahkan');
+  if (count($rows) > 200) throw new Exception('Terlalu banyak baris sekaligus (maks 200)');
+
+  $c    = collections();
+  $cols = $c['po']['cols'];
+  $pdo  = db();
+
+  $names = array_merge(array('id'), array_keys($cols), array('updated_at','created_at','data'));
+  $ph = array(); $q = array();
+  foreach ($names as $n) { $ph[] = ':' . $n; $q[] = q($n); }
+
+  $st = $pdo->prepare('INSERT IGNORE INTO ' . q($c['po']['table']) .
+        ' (' . implode(',', $q) . ') VALUES (' . implode(',', $ph) . ')');
+
+  $now = (int)round(microtime(true) * 1000);
+  $n = 0;
+  $pdo->beginTransaction();
+  try {
+    foreach ($rows as $r) {
+      if (!is_array($r)) continue;
+      if (empty($r['item'])) continue;                    // baris tanpa nama barang dilewati
+      /* id SELALU dibuat di sini, tidak menerima kiriman: id dari luar bisa
+         bertabrakan dengan baris yang sudah ada, dan INSERT IGNORE akan
+         diam-diam membuang baris barunya tanpa satu pun pesan. */
+      $r['id'] = 'po' . bin2hex(random_bytes(5));
+      if (empty($r['status'])) $r['status'] = 'Diajukan';
+      $r['updatedAt'] = $now;
+      $r['createdAt'] = $now;
+
+      $args = array(':id' => $r['id']);
+      foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($r, $def[0], $def[1]);
+      $args[':updated_at'] = $now;
+      $args[':created_at'] = $now;
+      $args[':data']       = json_enc($r);
+      $st->execute($args);
+      $n++;
+    }
+    $pdo->commit();
+  } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+
+  return array('added' => $n, 'ts' => gmdate('c'));
 }
 
 /* ==================== DIAGNOSTIK ==================== */
