@@ -361,7 +361,10 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .req-tbl .no{color:var(--muted);font-family:var(--mono);font-size:11px;text-align:center;width:26px}
 
 /* Kotak centang pemilih item PR. */
-.pick{width:17px;height:17px;accent-color:var(--gold);cursor:pointer;flex:none;margin-top:2px}
+.pick,.pickall{width:17px;height:17px;accent-color:var(--gold);cursor:pointer;flex:none}
+/* Di kepala tabel latarnya gelap, jadi kotak bawaan browser nyaris tak
+   terlihat. accent-color diterangkan khusus untuk yang di sana. */
+.pick-hdr{accent-color:var(--gold-soft);margin:0;vertical-align:middle}
 
 /* Penyaring PIC di bilah filter — chip yang sama, ukuran lebih kecil. */
 .picfil{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
@@ -2181,25 +2184,46 @@ function vPrList(){
     h+='<div class="card" style="margin-bottom:16px"><div class="card-h">'+
       '<h3>'+bebas.length+' request menunggu dijadikan lembar PR</h3>'+
       '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">'+
-        '<button class="btn sm" onclick="APP.pilihSemuaPr(1)">Pilih semua</button>'+
-        '<button class="btn sm" onclick="APP.pilihSemuaPr(0)">Kosongkan</button>'+
         '<button class="btn pri" id="btnBuatPr" onclick="APP.buatPr()">'+ic('plus')+
           'Buat PR dari '+bebas.length+' item</button>'+
       '</div></div>'+
-      '<div class="card-b tight">'+
+      /* Tabel, bukan daftar pil. Kolomnya sengaja disusun sama urutannya
+         dengan lembar PR — nama, jumlah, satuan, alasan, peminta, harga —
+         supaya yang memeriksa sebelum menekan "Buat PR" membaca susunan yang
+         persis sama dengan yang nanti tercetak, bukan menerjemahkan ulang di
+         kepala. */
+      '<div class="tw" style="border:none;box-shadow:none;border-radius:0">'+
+      '<table><thead><tr>'+
+        /* Kelasnya `pickall`, BUKAN `pick`. Kalau sama, kotak di kepala tabel
+           ikut terhitung sebagai item terpilih dan tombolnya menjanjikan satu
+           item lebih banyak daripada yang benar-benar masuk lembar. */
+        '<th style="width:34px"><input type="checkbox" class="pickall pick-hdr" checked title="Pilih semua" '+
+          'onchange="APP.pilihSemuaPr(this.checked)"></th>'+
+        '<th>Nama item</th><th>Jumlah</th><th>Satuan</th><th>Alasan / kebutuhan</th>'+
+        '<th>Peminta</th><th>Harga</th><th>Butuh</th><th>Diinput</th><th></th>'+
+      '</tr></thead><tbody>'+
       bebas.map(function(p){
-        return '<div class="trow">'+
-          '<input type="checkbox" class="pick" checked data-id="'+esc(p.id)+'" onchange="APP.hitungPilihPr()">'+
-          '<div class="t-main" style="cursor:pointer" onclick="APP.poModal(\''+p.id+'\')">'+
-          '<div class="t-name">'+esc(p.item)+'</div>'+
-          '<div class="t-meta">'+
-            '<span class="tag">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span>'+
-            '<span class="tag pic">'+esc(poRequester(p))+'</span>'+
-            '<span class="tag">'+((+p.amount)?fRpPenuh(p.amount):'harga belum diisi')+'</span>'+
-            (p.needBy?'<span class="tag">butuh '+fTgl(p.needBy)+'</span>':'')+
-          '</div></div></div>';
+        return '<tr class="clk" onclick="APP.poModal(\''+p.id+'\')">'+
+          /* stopPropagation: tanpa itu, mencentang kotak juga membuka modal
+             item — jadi tiap kali memilih, layar tertutup dialog. */
+          '<td onclick="event.stopPropagation()"><input type="checkbox" class="pick" checked '+
+            'data-id="'+esc(p.id)+'" onchange="APP.hitungPilihPr()"></td>'+
+          '<td><span class="nm">'+esc(p.item)+'</span>'+
+            (p.sumber?' <span class="tag">dari '+esc(p.sumber)+'</span>':'')+'</td>'+
+          '<td><span class="num">'+(+p.qty||0)+'</span></td>'+
+          '<td><span class="mut">'+esc(p.unit||'—')+'</span></td>'+
+          '<td><span class="mut">'+esc(p.note||'—')+'</span></td>'+
+          '<td><span class="mut">'+esc(poRequester(p))+'</span></td>'+
+          '<td>'+((+p.amount)?'<span class="nm num" style="white-space:nowrap">'+fRpPenuh(p.amount)+'</span>'
+                             :'<span class="mut">belum diisi</span>')+'</td>'+
+          '<td><span class="mut" style="white-space:nowrap">'+(p.needBy?fTgl(p.needBy):'—')+'</span></td>'+
+          '<td><span class="mut" style="white-space:nowrap">'+esc(fWaktu(p.at))+'</span></td>'+
+          '<td onclick="event.stopPropagation()">'+
+            '<button class="iconbtn" title="Ubah" onclick="APP.poModal(\''+p.id+'\')">'+ic('edit')+'</button>'+
+            '<button class="iconbtn" title="Hapus" onclick="APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button>'+
+          '</td></tr>';
       }).join('')+
-      '</div></div>';
+      '</tbody></table></div></div>';
   }
 
   if(!DB.pr.length) return h+'<div class="card"><div class="card-b">'+
@@ -3110,9 +3134,17 @@ window.APP={
      tiap centang akan menggulung balik ke atas dan menghapus pilihan yang
      sedang disusun. Yang diperbarui cuma tulisan di tombolnya. */
   hitungPilihPr:function(){
+    var semua=document.querySelectorAll('.pick').length;
     var n=document.querySelectorAll('.pick:checked').length;
     var b=document.getElementById('btnBuatPr');
     if(b) b.innerHTML=ic('plus')+(n?'Buat PR dari '+n+' item':'Pilih item dulu');
+    /* Kotak di kepala tabel mengikuti isinya: penuh saat semua tercentang,
+       setengah (indeterminate) saat sebagian. Kotak kepala yang tetap penuh
+       padahal barisnya tinggal separuh memberi tahu hal yang keliru. */
+    document.querySelectorAll('.pickall').forEach(function(el){
+      el.checked = n>0 && n===semua;
+      el.indeterminate = n>0 && n<semua;
+    });
   },
   pilihSemuaPr:function(on){
     document.querySelectorAll('.pick').forEach(function(el){ el.checked=!!on; });
