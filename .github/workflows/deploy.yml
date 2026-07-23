@@ -161,6 +161,49 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # marketing-mysql tadinya SATU-SATUNYA backend yang masih diunggah manual
+      # lewat zip. Itu bukan kelalaian kecil: perbaikan penghapus lampiran ada
+      # di lib ini, dan perbaikan backend yang tidak pernah terunggah sama
+      # dengan tidak diperbaiki. Gejalanya pun tidak berupa error — cuma
+      # lampiran yang hilang berhari-hari kemudian.
+      - name: Deploy backend marketing-api-mysql
+        id: ftpmkt
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./marketing-mysql/
+          server-dir: /public_html/office/marketing-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend marketing-api-mysql (percobaan 2)
+        if: steps.ftpmkt.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./marketing-mysql/
+          server-dir: /public_html/office/marketing-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
       # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
       # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
@@ -236,6 +279,37 @@ jobs:
             echo "OK      usage.php memuat lib_stock_catat tanpa galat"
           else
             echo "GAGAL   usage.php balas HTTP $kode — kemungkinan galat PHP di lib_stock_catat.php"
+            gagal=1
+          fi
+
+          echo "--- marketing-api-mysql ---"
+          mkt=$(curl -s -m 60 "https://team.laksamanamuda.id/marketing-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $mkt"
+          case "$mkt" in
+            *'"env":"produksi"'*) echo "OK      env=produksi" ;;
+            *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          # Versi lib dibandingkan dengan yang ada di repo. Ini pembeda TEPAT
+          # antara lib yang baru mendarat dan lib lama yang masih jalan —
+          # keduanya sama-sama menjawab ping dengan env=produksi.
+          repo_versi=$(sed -n "s/.*LIB_VERSI', *'\([^']*\)'.*/\1/p" marketing-mysql/lib_marketing_mysql.php)
+          echo "versi di repo: $repo_versi"
+          case "$mkt" in
+            *"\"versi\":\"$repo_versi\""*) echo "OK      versi lib di server = repo" ;;
+            *) echo "GAGAL   versi lib di server BUKAN $repo_versi — lib lama masih jalan"; gagal=1 ;;
+          esac
+
+          # stats memuat key_terpakai() + gc — kalau ada galat parse di sana,
+          # ping tetap lolos tapi stats tidak. Sekalian melaporkan berkas yang
+          # keynya tercatat tapi filenya sudah tidak ada.
+          kode=$(curl -s -m 60 -o /tmp/mkt.json -w '%{http_code}' \
+                 "https://team.laksamanamuda.id/marketing-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
+          echo "stats: HTTP $kode -> $(head -c 300 /tmp/mkt.json)"
+          if [ "$kode" = "200" ]; then
+            echo "OK      stats jalan (key_terpakai & gc termuat tanpa galat)"
+          else
+            echo "GAGAL   stats balas HTTP $kode — kemungkinan galat PHP di lib_marketing_mysql.php"
             gagal=1
           fi
 
