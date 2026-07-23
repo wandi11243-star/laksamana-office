@@ -132,11 +132,8 @@
                      Bar", kosong) sehingga tidak pernah bisa dijadikan
                      kategori yang bisa disaring. -->
                 <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tim</label>
-                <select id="f-tim" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                  <option value="Kitchen">🍳 Kitchen</option>
-                  <option value="Bar">🍹 Bar</option>
-                  <option value="Floor">🍽️ Floor</option>
-                </select>
+                <select id="f-tim" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
+                <p id="f-tim-info" class="text-[10px] text-slate-400 font-semibold mt-1"></p>
               </div>
               <div class="sm:col-span-2 lg:col-span-4">
                 <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nama / Keterangan Event</label>
@@ -209,10 +206,6 @@
             <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jenis Event</label>
             <div id="filter-jenis" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
           </div>
-          <div>
-            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tim</label>
-            <div id="filter-tim" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
-          </div>
         </div>
 
         <!-- ===== RINGKASAN + DAFTAR ===== -->
@@ -250,6 +243,7 @@
                 <div>
                   <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Tim</label>
                   <select id="w-tim" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
+                  <p id="w-tim-info" class="text-[10px] text-slate-400 font-semibold mt-1"></p>
                 </div>
                 <div>
                   <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Jumlah</label>
@@ -328,7 +322,6 @@
   let PERIODE = 'bulan';
   let BULAN_PILIH = '';       // 'YYYY-MM' saat PERIODE === 'pilih'
   let JENIS = 'ALL';
-  let TIM = 'ALL';
   let NOMOR_BARIS = 0;
   let TAMPIL = 0;             // berapa catatan yang sedang digambar (paginasi)
 
@@ -349,10 +342,64 @@
      dengan salah satu tim. Kalau tidak, Kitchen — yang paling sering mencatat
      pemakaian bahan. Tebakan ini hanya MENGISI AWAL; yang tersimpan tetap apa
      yang terpilih di layar. */
-  function timBawaan() {
-    const t = String(timSesi(SESI) || '').toLowerCase();
-    const cocok = TIM_OPSI.find(([v]) => t.includes(v.toLowerCase()));
-    return cocok ? cocok[0] : 'Kitchen';
+  /* Tim MILIK pemilik sesi ini, dari keterangan akun Office. '' = tidak
+     ditentukan (biasanya admin, yang memang melihat semua tim).
+
+     Ini sumber yang sama dengan yang dipakai server saat menyaring
+     (pur_tim_pemanggil), jadi apa yang dicatat di layar tidak akan
+     bertentangan dengan apa yang boleh dilihat sesudahnya. */
+  function timSaya() {
+    const ket = String((SESI && SESI.keterangan) || timSesi(SESI) || '').toLowerCase();
+    const cocok = TIM_OPSI.find(([v]) => ket.includes(v.toLowerCase()));
+    return cocok ? cocok[0] : '';
+  }
+  // Kalau timnya sudah pasti, itu yang dipakai. Yang tidak punya tim (admin)
+  // tetap memilih sendiri, dan pilihan pertama jadi bawaannya.
+  function timBawaan() { return timSaya() || TIM_OPSI[0][0]; }
+
+  /* Kru tidak memilih timnya sendiri: sudah ditentukan di Kelola Akses, dan
+     server hanya akan menampilkan catatan tim itu. Membiarkannya memilih Bar
+     padahal dia Kitchen berarti mencatat sesuatu yang langsung hilang dari
+     pandangannya sendiri.
+
+     Yang tidak punya tim (admin) TETAP memilih — mereka melihat semua tim,
+     jadi tanpa pilihan mereka tidak bisa mencatat untuk tim mana pun. */
+  function kunciPilihanTim(sel) {
+    if (!sel) return;
+    const saya = timSaya();
+    if (!saya) {                       // bebas memilih
+      sel.innerHTML = TIM_OPSI.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+      sel.classList.remove('pointer-events-none', 'bg-slate-100', 'text-slate-500');
+      return;
+    }
+    const label = (TIM_OPSI.find(([v]) => v === saya) || [saya, saya])[1];
+    sel.innerHTML = `<option value="${saya}">${label}</option>`;
+    sel.value = saya;
+    /* pointer-events-none, BUKAN atribut disabled: select yang disabled
+       tampil pudar seperti sesuatu yang rusak, dan pada sebagian browser
+       nilainya tidak ikut terbaca lewat form. Ini tetap terbaca .value. */
+    sel.classList.add('pointer-events-none', 'bg-slate-100', 'text-slate-500');
+  }
+
+  /* Pasang nilai tim sebuah catatan ke select saat DIUBAH.
+     ---------------------------------------------------------------------
+     Kalau timnya terkunci, selalu tim si pengguna — daftarnya memang cuma
+     berisi satu.
+
+     Kalau bebas memilih (admin), tim ASLI catatan dipertahankan, termasuk
+     bila nilainya tidak ada di daftar — misalnya catatan lama yang timnya
+     masih kosong. Tanpa penjagaan ini, admin yang cuma memperbaiki salah
+     ketik akan diam-diam memindahkan catatan itu ke Kitchen, dan setelah
+     tersimpan ia lenyap dari pandangan tim yang seharusnya memilikinya. */
+  function setNilaiTim(sel, nilai) {
+    if (!sel) return;
+    if (timSaya()) { sel.value = timSaya(); return; }
+    const ada = TIM_OPSI.some(([v]) => v === nilai);
+    if (!ada) {
+      const label = nilai ? nilai : '(belum ada tim)';
+      sel.insertAdjacentHTML('afterbegin', `<option value="${esc(nilai || '')}">${esc(label)}</option>`);
+    }
+    sel.value = nilai || '';
   }
 
   /* Server membatasi daftar ke tim si pemanggil, dan kru tanpa tim tidak
@@ -381,7 +428,6 @@
       ]);
     document.getElementById('f-tanggal').value = hariIni();
     renderFilterJenis();
-    renderFilterTim();
     isiPilihanBulan();
     setAktifPeriode();
     tambahBaris();
@@ -389,7 +435,15 @@
     // membacanya, dan menyiapkan Waste sebelum ini membuat pilihan satuannya
     // kosong sampai halaman dimuat ulang.
     await muatBahan();
+    kunciPilihanTim(document.getElementById('f-tim'));
     siapkanWaste();
+    // Keterangan yang sama dipasang di kedua form supaya tidak ada yang
+    // mengira timnya bisa diganti dari sini.
+    const catatanTim = timSaya()
+      ? 'Tim Anda, ditetapkan di Kelola Akses.'
+      : 'Anda melihat semua tim — pilih tim yang sesuai.';
+    document.getElementById('f-tim-info').textContent = catatanTim;
+    document.getElementById('w-tim-info').textContent = catatanTim;
     document.getElementById('f-tim').value = timBawaan();
     await muat();
     await muatWaste();
@@ -459,6 +513,7 @@
     document.getElementById('f-id').value = '';
     document.getElementById('f-tanggal').value = hariIni();
     document.getElementById('f-jenis').value = 'Prasmanan';
+    kunciPilihanTim(document.getElementById('f-tim'));
     document.getElementById('f-tim').value = timBawaan();
     document.getElementById('f-nama').value = '';
     document.getElementById('f-catatan').value = '';
@@ -479,7 +534,11 @@
     // keterangan akun yang teks bebas). Yang tidak dikenali jatuh ke bawaan,
     // bukan dibiarkan kosong — select tanpa nilai cocok akan menampilkan
     // pilihan pertama dan diam-diam mengubah timnya saat disimpan ulang.
-    document.getElementById('f-tim').value = TIM_OPSI.some(([v]) => v === r.tim) ? r.tim : timBawaan();
+    /* Kalau timnya terkunci, catatan tetap dicatat atas nama tim itu — daftar
+       pilihannya memang cuma berisi satu. Yang bebas memilih (admin) tetap
+       melihat tim asli catatannya, supaya mengubah catatan tim lain tidak
+       diam-diam memindahkannya ke tim si admin. */
+    setNilaiTim(document.getElementById('f-tim'), r.tim);
     document.getElementById('f-nama').value = r.namaEvent || '';
     document.getElementById('f-catatan').value = r.catatan || '';
     document.getElementById('baris-wrap').innerHTML = '';
@@ -609,13 +668,6 @@
     document.getElementById('p-bulan-hapus').classList.toggle('hidden', PERIODE !== 'pilih');
   }
   function setJenis(j) { JENIS = j; TAMPIL = 0; renderFilterJenis(); render(); }
-  function setTim(t) { TIM = t; TAMPIL = 0; renderFilterTim(); render(); }
-  function renderFilterTim() {
-    document.getElementById('filter-tim').innerHTML = [['ALL', 'Semua']].concat(TIM_OPSI).map(([v, l]) => `
-      <button onclick="setTim('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
-        TIM === v ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${l}</button>`).join('');
-  }
   function renderFilterJenis() {
     document.getElementById('filter-jenis').innerHTML = JENIS_OPSI.map(([v, l]) => `
       <button onclick="setJenis('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
@@ -639,7 +691,6 @@
     const q = (document.getElementById('q').value || '').trim().toLowerCase();
     const list = DATA
       .filter(r => JENIS === 'ALL' || r.jenis === JENIS)
-      .filter(r => TIM === 'ALL' || r.tim === TIM)
       .filter(r => !q || [r.namaEvent, r.pic, r.catatan, r.jenis, r.tim]
         .concat((r.items || []).map(i => i.item))
         .some(v => String(v || '').toLowerCase().includes(q)));
@@ -768,8 +819,7 @@
   function siapkanWaste() {
     document.getElementById('w-sebab').innerHTML =
       SEBAB_OPSI.map(s => `<option value="${s}">${s}</option>`).join('');
-    document.getElementById('w-tim').innerHTML =
-      TIM_OPSI.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    kunciPilihanTim(document.getElementById('w-tim'));
     document.getElementById('w-unit').innerHTML = opsiSatuan('', '');
     pasangAutocomplete(
       document.getElementById('w-item'),
@@ -793,6 +843,9 @@
     document.getElementById('w-id').value = '';
     document.getElementById('w-tanggal').value = hariIni();
     document.getElementById('w-sebab').value = SEBAB_OPSI[0];
+    // Daftar dibangun ulang: opsi sementara "(belum ada tim)" dari catatan
+    // lama yang sempat dibuka tidak boleh tertinggal di form kosong.
+    kunciPilihanTim(document.getElementById('w-tim'));
     document.getElementById('w-tim').value = timBawaan();
     document.getElementById('w-item').value = '';
     document.getElementById('w-qty').value = 1;
@@ -811,7 +864,7 @@
     document.getElementById('w-id').value = r.id;
     document.getElementById('w-tanggal').value = r.tanggal || hariIni();
     document.getElementById('w-sebab').value = SEBAB_OPSI.includes(r.sebab) ? r.sebab : SEBAB_OPSI[0];
-    document.getElementById('w-tim').value = TIM_OPSI.some(([v]) => v === r.tim) ? r.tim : timBawaan();
+    setNilaiTim(document.getElementById('w-tim'), r.tim);
     document.getElementById('w-item').value = r.item || '';
     document.getElementById('w-qty').value = r.qty || 0;
     document.getElementById('w-unit').innerHTML = opsiSatuan(r.item || '', r.unit || '');
