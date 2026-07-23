@@ -333,6 +333,30 @@ td .mut{color:var(--muted);font-size:12.5px}
 .toggle.on .tick svg{opacity:1}
 .qprev{font-family:var(--mono);font-size:11px;padding:9px 12px;border-radius:8px;text-align:center;letter-spacing:.4px}
 
+/* Isian rupiah. `type=text` + inputmode numeric, BUKAN type=number: kolom
+   number menolak titik pemisah ribuan, jadi angkanya berjajar tanpa jeda dan
+   "1000000" gampang terbaca seratus ribu. Salah satu nol pada nilai PO bukan
+   kesalahan yang bisa ditemukan sesudah lembarnya dikirim ke Finance. */
+.rp-wrap{position:relative;display:block}
+.rp-pre{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:12.5px;
+  color:var(--muted);font-weight:600;pointer-events:none}
+input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* Modal lebar untuk form banyak baris. */
+.modal.wide{max-width:960px}
+.req-wrap{overflow-x:auto;border:1px solid var(--line-soft);border-radius:10px}
+.req-tbl{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}
+.req-tbl th{background:var(--ink-880);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);font-weight:700;padding:8px 7px;text-align:left;white-space:nowrap}
+.req-tbl td{padding:5px 6px;border-top:1px solid var(--line-soft);vertical-align:middle}
+.req-tbl input,.req-tbl select{width:100%;padding:7px 9px;font-size:12.5px;border:1px solid var(--line-hard);
+  border-radius:7px;background:var(--ink-900);outline:none;transition:.15s}
+.req-tbl input:focus,.req-tbl select:focus{border-color:var(--gold);background:#fff}
+.req-tbl .no{color:var(--muted);font-family:var(--mono);font-size:11px;text-align:center;width:26px}
+
+/* Kotak centang pemilih item PR. */
+.pick{width:17px;height:17px;accent-color:var(--gold);cursor:pointer;flex:none;margin-top:2px}
+
 /* Pemilih PIC banyak. Chip, bukan <select multiple>: jumlah kru BD kecil
    (lima-enam orang), dan select multiple menyembunyikan siapa saja yang
    terpilih di balik gulungan sempit — persis informasi yang paling sering
@@ -606,6 +630,28 @@ function fRp(n){n=+n||0;var s=n<0?'-':'';n=Math.abs(n);
   if(n>=1e3)return s+'Rp '+Math.round(n/1e3)+'rb';
   return s+'Rp '+n.toLocaleString('id-ID');}
 function inisial(n){return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();}
+
+/* ---- isian rupiah ----
+   Angka ditampilkan berpemisah ribuan sambil diketik. Nilainya dibaca balik
+   dengan membuang semua yang bukan digit, jadi titik/spasi/"Rp" yang ikut
+   tersalin dari tempat lain tidak merusak angkanya. */
+function ribuan(n){ return (+n||0).toLocaleString('id-ID'); }
+/* Rupiah PENUH, tanpa pembulatan. fRp() menyingkat jadi "Rp 5 jt" — enak
+   dipindai di kartu ringkasan, tapi TIDAK BOLEH dipakai di lembar PR maupun
+   daftar item: yang menerimanya di Finance mencocokkan angka dengan nota, dan
+   "Rp 5 jt" tidak bisa dicocokkan dengan apa pun. */
+function fRpPenuh(n){ return 'Rp '+ribuan(n); }
+function rpInput(id,nilai,ph){
+  return '<div class="rp-wrap"><span class="rp-pre">Rp</span>'+
+    '<input class="rp-in" id="'+id+'" inputmode="numeric" autocomplete="off" '+
+    'value="'+(nilai?ribuan(nilai):'')+'" placeholder="'+esc(ph||'0')+'" oninput="APP.fmtRp(this)"></div>';
+}
+function bacaRp(id){
+  var el=document.getElementById(id);
+  if(!el) return 0;
+  return parseInt(String(el.value).replace(/\D/g,''),10)||0;
+}
+function bacaRpEl(el){ return parseInt(String(el.value).replace(/\D/g,''),10)||0; }
 
 const ICON={
   dashboard:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
@@ -1563,8 +1609,8 @@ function projModal(id){
         '<div class="field"><label>Mulai</label><input type="date" id="p_start" value="'+(p.start||'')+'"></div>'+
         '<div class="field"><label>Selesai</label><input type="date" id="p_end" value="'+(p.end||'')+'"></div></div>'+
       '<div class="frow3">'+
-        '<div class="field"><label>Budget (Rp)</label><input type="number" id="p_budget" value="'+(+p.budget||0)+'"></div>'+
-        '<div class="field"><label>Terpakai (Rp)</label><input type="number" id="p_spent" value="'+(+p.spent||0)+'"></div>'+
+        '<div class="field"><label>Budget</label>'+rpInput('p_budget',p.budget)+'</div>'+
+        '<div class="field"><label>Terpakai</label>'+rpInput('p_spent',p.spent)+'</div>'+
         '<div class="field"><label>Health</label><select id="p_health">'+
           Object.keys(PROJ_HEALTH).map(function(k){return '<option value="'+k+'"'+(p.health===k?' selected':'')+'>'+PROJ_HEALTH[k].l+'</option>';}).join('')+'</select></div></div>'+
       '<div class="field"><label>Milestone (satu per baris — <code>nama | YYYY-MM-DD</code>)</label>'+
@@ -1596,7 +1642,7 @@ function simpanProj(id){
   var lama=id?(DB.projects.find(function(x){return x.id===id;}).milestones||[]):[];
   var data={name:nama,desc:g('p_desc').trim(),div:g('p_div'),type:g('p_type').trim()||'Internal',
     stage:g('p_stage'),start:g('p_start'),end:g('p_end'),
-    budget:+g('p_budget')||0,spent:+g('p_spent')||0,health:g('p_health'),
+    budget:bacaRp('p_budget'),spent:bacaRp('p_spent'),health:g('p_health'),
     milestones:bacaMilestone(g('p_ms'),lama)};
   var p;
   if(id){ p=DB.projects.find(function(x){return x.id===id;}); Object.assign(p,data); }
@@ -1898,7 +1944,7 @@ function poTabel(list){
         '<td><span class="mut">'+esc(poRequester(p))+'</span></td>'+
         '<td><span class="mut">'+esc(p.vendor||'—')+'</span></td>'+
         '<td><span class="mut num">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span></td>'+
-        '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRp(p.amount)+'</span>')+'</td>'+
+        '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRpPenuh(p.amount)+'</span>')+'</td>'+
         '<td><span class="tag div">'+esc(String(p.div).split(' ')[0])+'</span></td>'+
         '<td><span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span></td>'+
         '<td>'+pill(p.status,PO_COLOR[p.status]||'p-mute')+'</td>'+
@@ -2029,18 +2075,30 @@ function vPrList(){
   var h='';
 
   if(bebas.length){
+    /* Item dipilih lewat centang, bukan "semua atau tidak sama sekali".
+       Sering ada satu-dua request yang belum jelas harganya atau memang mau
+       ditahan ke minggu depan; tanpa pemilihan, satu-satunya jalan adalah
+       membuat PR lalu mengeluarkannya lagi — dan lembar bernomor yang sempat
+       berisi barang yang batal sudah terlanjur tercatat nomornya. */
     h+='<div class="card" style="margin-bottom:16px"><div class="card-h">'+
       '<h3>'+bebas.length+' request menunggu dijadikan lembar PR</h3>'+
-      '<button class="btn pri" onclick="APP.buatPr()">'+ic('plus')+'Buat PR dari semuanya</button></div>'+
+      '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">'+
+        '<button class="btn sm" onclick="APP.pilihSemuaPr(1)">Pilih semua</button>'+
+        '<button class="btn sm" onclick="APP.pilihSemuaPr(0)">Kosongkan</button>'+
+        '<button class="btn pri" id="btnBuatPr" onclick="APP.buatPr()">'+ic('plus')+
+          'Buat PR dari '+bebas.length+' item</button>'+
+      '</div></div>'+
       '<div class="card-b tight">'+
       bebas.map(function(p){
-        return '<div class="trow"><div class="t-main" style="cursor:pointer" onclick="APP.poModal(\''+p.id+'\')">'+
+        return '<div class="trow">'+
+          '<input type="checkbox" class="pick" checked data-id="'+esc(p.id)+'" onchange="APP.hitungPilihPr()">'+
+          '<div class="t-main" style="cursor:pointer" onclick="APP.poModal(\''+p.id+'\')">'+
           '<div class="t-name">'+esc(p.item)+'</div>'+
           '<div class="t-meta">'+
             '<span class="tag">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span>'+
             '<span class="tag pic">'+esc(poRequester(p))+'</span>'+
             (p.payment?'<span class="tag">'+esc(p.payment)+'</span>':'')+
-            '<span class="tag">'+((+p.amount)?fRp(p.amount):'harga belum diisi')+'</span>'+
+            '<span class="tag">'+((+p.amount)?fRpPenuh(p.amount):'harga belum diisi')+'</span>'+
             (p.needBy?'<span class="tag">butuh '+fTgl(p.needBy)+'</span>':'')+
           '</div></div></div>';
       }).join('')+
@@ -2063,16 +2121,22 @@ function vPrList(){
         '<td><span class="mut">'+esc(labelMinggu(x.weekStart||x.tanggal||todayISO()))+'</span></td>'+
         '<td><span class="mut">'+esc(x.nama||'—')+'</span></td>'+
         '<td><span class="num">'+n+'</span>'+(t.belum?' '+pill(t.belum+' tanpa harga','p-warn'):'')+'</td>'+
-        '<td><span class="nm num">'+fRp(t.grand)+'</span></td>'+
+        '<td><span class="nm num">'+fRpPenuh(t.grand)+'</span></td>'+
         '<td>'+pill(ok+'/'+PENYETUJU.length,ok===PENYETUJU.length?'p-go':(ok?'p-warn':'p-mute'))+'</td>'+
         '<td>'+pill(x.status||'Draft',PR_COLOR[x.status]||'p-mute')+'</td>'+
         '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPr(\''+x.id+'\')">'+ic('trash')+'</button></td></tr>';
     }).join('')+'</tbody></table></div>';
 }
 
+function idTerpilihPr(){
+  var out=[];
+  document.querySelectorAll('.pick:checked').forEach(function(el){ out.push(el.getAttribute('data-id')); });
+  return out;
+}
 function buatPr(){
-  var bebas=poBebas();
-  if(!bebas.length){ toast('Tidak ada request yang menunggu.'); return; }
+  var pilih=idTerpilihPr();
+  var bebas=poBebas().filter(function(p){ return pilih.indexOf(p.id)>-1; });
+  if(!bebas.length){ toast('Belum ada item yang dicentang.'); return; }
   var senin=awalMinggu(todayISO());
   var approvals={};
   PENYETUJU.forEach(function(s){ approvals[s.k]={nama:s.nama, at:'', oleh:''}; });
@@ -2158,7 +2222,7 @@ function vPrDetail(){
         '<td>'+esc(p.note||'—')+'</td>'+
         '<td>'+esc(String(poRequester(p)).split(' ')[0])+'</td>'+
         '<td class="c">'+(p.payment?esc(p.payment):'<span class="muted">—</span>')+'</td>'+
-        '<td class="r num">'+((+p.amount)?fRp(p.amount):'<span class="muted">belum</span>')+'</td>'+
+        '<td class="r num">'+((+p.amount)?fRpPenuh(p.amount):'<span class="muted">belum</span>')+'</td>'+
         /* Saat terkunci TIDAK ada tombol sama sekali — pita di atas menjanjikan
            itemnya dikunci, dan tombol edit yang tetap hidup akan membuat
            janji itu bohong. Yang perlu merevisi harus membuka kunci dulu,
@@ -2174,10 +2238,10 @@ function vPrDetail(){
 
   h+='<div class="doc-total"><table>'+
     PEMBAYARAN.map(function(x){
-      return '<tr><td>TOTAL '+x+'</td><td>'+fRp(t.per[x]||0)+'</td></tr>';
+      return '<tr><td>TOTAL '+x+'</td><td>'+fRpPenuh(t.per[x]||0)+'</td></tr>';
     }).join('')+
-    ((t.per['']||0)?'<tr><td>BELUM DITENTUKAN</td><td>'+fRp(t.per[''])+'</td></tr>':'')+
-    '<tr class="grand"><td>GRAND TOTAL</td><td>'+fRp(t.grand)+'</td></tr>'+
+    ((t.per['']||0)?'<tr><td>BELUM DITENTUKAN</td><td>'+fRpPenuh(t.per[''])+'</td></tr>':'')+
+    '<tr class="grand"><td>GRAND TOTAL</td><td>'+fRpPenuh(t.grand)+'</td></tr>'+
   '</table></div>';
 
   h+='<div class="doc-ttd"><div class="doc-ttd-h">APPROVE BY</div><div class="doc-ttd-g">'+
@@ -2329,64 +2393,100 @@ function simpanPr(id){
   save(); closeModal(); render(); toast('Kepala surat diperbarui');
 }
 
-/* ---- REQUEST ORDER (form pendek, untuk semua kru) ---- */
+/* ---- REQUEST ORDER (banyak baris sekaligus) ----
+   Bentuknya tabel, bukan satu form per barang, karena begitulah kebutuhan
+   datang: sekali duduk seseorang menuliskan tujuh hal yang kurang minggu ini.
+   Form satu-barang memaksa membuka-tutup modal tujuh kali dan mengisi ulang
+   divisi, tanggal, serta project setiap kalinya — cukup melelahkan untuk
+   membuat orang menunda, dan request yang ditunda berubah jadi pesan WhatsApp
+   yang tidak tercatat di mana pun.
+
+   Divisi, tanggal dibutuhkan, dan project ditaruh SEKALI di atas: satu sesi
+   pengisian hampir selalu untuk keperluan yang sama. Yang berbeda tinggal
+   diubah lewat form penuh sesudahnya. */
+function barisRequest(){
+  return '<tr>'+
+    '<td class="no"></td>'+
+    '<td><input class="q-item" placeholder="Nama barang / jasa"></td>'+
+    '<td style="width:74px"><input class="q-qty" type="number" value="1" min="1"></td>'+
+    '<td style="width:96px"><input class="q-unit" value="Unit" placeholder="Pack / Orang"></td>'+
+    '<td><input class="q-note" placeholder="Untuk apa / kebutuhannya"></td>'+
+    '<td style="width:112px"><select class="q-pay"><option value="">—</option>'+
+      PEMBAYARAN.map(function(x){return '<option>'+x+'</option>';}).join('')+'</select></td>'+
+    '<td style="width:132px">'+
+      '<div class="rp-wrap"><span class="rp-pre">Rp</span>'+
+      '<input class="rp-in q-amount" inputmode="numeric" autocomplete="off" placeholder="0" oninput="APP.fmtRp(this)"></div></td>'+
+    '<td style="width:34px"><button class="iconbtn" title="Hapus baris" onclick="APP.hapusBarisReq(this)">'+ic('trash')+'</button></td>'+
+  '</tr>';
+}
+function nomoriBarisReq(){
+  document.querySelectorAll('#q_rows tr').forEach(function(tr,i){
+    var td=tr.querySelector('.no'); if(td) td.textContent=(i+1);
+  });
+}
 function requestModal(){
   showModal(
     '<div class="modal-h"><h3>Request Order</h3>'+
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
     '<div class="modal-b">'+
-      '<div class="notice" style="margin:0">Isi apa yang kamu butuhkan. <b>Vendor dan harga tidak perlu diisi</b> — '+
-        'tim purchasing yang melengkapinya. Request langsung masuk berstatus <b>Diajukan</b>.</div>'+
-      '<div class="field"><label>Barang / jasa yang diminta</label>'+
-        '<input id="q_item" placeholder="mis. Mesin espresso profesional"></div>'+
+      '<div class="notice" style="margin:0">Tulis semua yang kamu butuhkan sekaligus — satu baris per barang. '+
+        '<b>Harga boleh dikosongkan</b> kalau belum tahu; tim purchasing yang melengkapinya. '+
+        'Semua baris masuk berstatus <b>Diajukan</b>.</div>'+
       '<div class="frow3">'+
-        '<div class="field"><label>Jumlah</label><input type="number" id="q_qty" value="1" min="1"></div>'+
-        '<div class="field"><label>Satuan</label><input id="q_unit" value="unit" placeholder="Unit / Pack / Orang"></div>'+
-        /* Bawaannya AKHIR MINGGU INI, bukan tujuh hari dari sekarang. Siklus
-           belanja tim mingguan, jadi "seminggu lagi" selalu melompat ke
-           minggu berikutnya dan membuat kebutuhan minggu berjalan terlihat
-           kosong. */
-        '<div class="field"><label>Dibutuhkan tanggal</label><input type="date" id="q_need" value="'+akhirMinggu(todayISO())+'"></div></div>'+
-      '<div class="frow">'+
-        '<div class="field"><label>Cara bayar (usulan)</label><select id="q_pay">'+
-          '<option value="">— belum ditentukan —</option>'+
-          PEMBAYARAN.map(function(x){return '<option>'+x+'</option>';}).join('')+'</select></div>'+
-        '<div class="field"><label>Perkiraan harga (opsional)</label>'+
-          '<input type="number" id="q_amount" placeholder="kosongkan kalau belum tahu"></div></div>'+
-      '<div class="frow">'+
         '<div class="field"><label>Divisi peminta</label><select id="q_div">'+
           OWNER_DIVS.map(function(d){
             var sel=(AKU&&AKU.div===d)?' selected':'';
             return '<option'+sel+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
+        '<div class="field"><label>Dibutuhkan tanggal</label>'+
+          '<input type="date" id="q_need" value="'+akhirMinggu(todayISO())+'"></div>'+
         '<div class="field"><label>Project (opsional)</label><select id="q_proj"><option value="">—</option>'+
-          DB.projects.map(function(x){return '<option value="'+x.id+'">'+esc(x.name)+'</option>';}).join('')+'</select></div></div>'+
-      '<div class="field"><label>Untuk apa / alasan</label>'+
-        '<textarea id="q_note" placeholder="Kenapa ini dibutuhkan, dan apa akibatnya kalau tidak ada?"></textarea>'+
-        '<div style="font-size:11px;color:var(--muted);margin-top:5px">Alasan yang jelas mempercepat approval — '+
-        'yang memutuskan tidak selalu tahu konteks pekerjaanmu.</div></div>'+
+          DB.projects.map(function(x){return '<option value="'+x.id+'">'+esc(x.name)+'</option>';}).join('')+
+        '</select></div></div>'+
+      '<div class="field"><label>Daftar barang</label>'+
+        '<div class="req-wrap"><table class="req-tbl"><thead><tr>'+
+          '<th class="no">#</th><th>Nama item</th><th>Jumlah</th><th>Satuan</th>'+
+          '<th>Alasan / kebutuhan</th><th>Payment</th><th>Perkiraan harga</th><th></th>'+
+        '</tr></thead><tbody id="q_rows">'+barisRequest()+barisRequest()+barisRequest()+'</tbody></table></div>'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-top:9px">'+
+          '<button type="button" class="btn sm" onclick="APP.tambahBarisReq()">'+ic('plus')+'Tambah baris</button>'+
+          '<span style="font-size:11px;color:var(--muted)">Baris yang nama itemnya kosong diabaikan — '+
+          'tidak perlu dihapus satu per satu.</span>'+
+        '</div></div>'+
     '</div>'+
     '<div class="modal-f"><div></div>'+
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
-      '<button class="btn pri" onclick="APP.simpanRequest()">'+ic('check')+'Ajukan</button></div></div>');
+      '<button class="btn pri" onclick="APP.simpanRequest()">'+ic('check')+'Ajukan semua</button></div></div>', true);
+  nomoriBarisReq();
+  var p=document.querySelector('#q_rows .q-item'); if(p) p.focus();
 }
 function simpanRequest(){
   var g=function(x){return document.getElementById(x).value;};
-  var item=g('q_item').trim();
-  if(!item){ toast('Barang yang diminta wajib diisi.'); return; }
-  DB.po.push({
-    id:uid('po'), item:item, vendor:'', amount:+g('q_amount')||0, payment:g('q_pay'),
-    qty:+g('q_qty')||1, unit:g('q_unit').trim()||'unit',
-    needBy:g('q_need'), div:g('q_div'), prId:null,
-    /* pic = peminta, sampai purchasing mengambil alih. `by` mencatat SIAPA
-       yang meminta dan tidak pernah berubah walau PIC-nya nanti dipindah —
-       tanpa itu, begitu purchasing mengambil alih, jejak siapa yang butuh
-       barang ini hilang. */
-    pic:AKU?AKU.id:'', by:AKU?AKU.id:'', at:todayISO(),
-    status:'Diajukan', project:g('q_proj')||null, note:g('q_note').trim()
+  var div=g('q_div'), need=g('q_need'), proj=g('q_proj')||null;
+  var baris=[].slice.call(document.querySelectorAll('#q_rows tr'));
+  var dibuat=0;
+  baris.forEach(function(tr){
+    var q=function(c){return tr.querySelector(c);};
+    var nama=(q('.q-item').value||'').trim();
+    if(!nama) return;                       // baris kosong diabaikan, bukan ditolak
+    DB.po.push({
+      id:uid('po'), item:nama, vendor:'',
+      amount:bacaRpEl(q('.q-amount')), payment:q('.q-pay').value,
+      qty:+q('.q-qty').value||1, unit:(q('.q-unit').value||'').trim()||'Unit',
+      needBy:need, div:div, prId:null,
+      /* pic = peminta, sampai purchasing mengambil alih. `by` mencatat SIAPA
+         yang meminta dan tidak pernah berubah walau PIC-nya nanti dipindah —
+         tanpa itu, begitu purchasing mengambil alih, jejak siapa yang butuh
+         barang ini hilang. */
+      pic:AKU?AKU.id:'', by:AKU?AKU.id:'', at:todayISO(),
+      status:'Diajukan', project:proj, note:(q('.q-note').value||'').trim()
+    });
+    dibuat++;
   });
+  if(!dibuat){ toast('Belum ada baris yang diisi nama itemnya.'); return; }
   save(); closeModal(); render();
-  toast('Request diajukan — menunggu diproses purchasing');
+  toast(dibuat+' request diajukan — menunggu diproses purchasing');
 }
+
 function poModal(id){
   var p=id?DB.po.find(function(x){return x.id===id;}):null;
   var baru=!p;
@@ -2405,7 +2505,7 @@ function poModal(id){
       '<div class="field"><label>Item / barang</label><input id="o_item" value="'+esc(p.item)+'"></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Vendor</label><input id="o_vendor" value="'+esc(p.vendor)+'" placeholder="Nama supplier"></div>'+
-        '<div class="field"><label>Nilai total (Rp)</label><input type="number" id="o_amount" value="'+(+p.amount||0)+'"></div>'+
+        '<div class="field"><label>Nilai total</label>'+rpInput('o_amount',p.amount)+'</div>'+
         '<div class="field"><label>Cara bayar</label><select id="o_pay">'+
           '<option value=""'+(p.payment?'':' selected')+'>— belum ditentukan —</option>'+
           PEMBAYARAN.map(function(x){return '<option'+(p.payment===x?' selected':'')+'>'+x+'</option>';}).join('')+
@@ -2433,7 +2533,7 @@ function simpanPo(id){
   var g=function(x){return document.getElementById(x).value;};
   var item=g('o_item').trim();
   if(!item){ toast('Nama item wajib diisi.'); return; }
-  var data={item:item,vendor:g('o_vendor').trim(),amount:+g('o_amount')||0,payment:g('o_pay'),
+  var data={item:item,vendor:g('o_vendor').trim(),amount:bacaRp('o_amount'),payment:g('o_pay'),
     qty:+g('o_qty')||1,unit:g('o_unit').trim()||'unit',needBy:g('o_need'),div:g('o_div'),pic:g('o_pic'),
     status:g('o_status'),project:g('o_proj')||null,note:g('o_note').trim()};
   if(id) Object.assign(DB.po.find(function(x){return x.id===id;}),data);
@@ -2752,7 +2852,11 @@ function cari(q){
 
 /* ============ MODAL ============ */
 window.closeModal=function(){ $('#overlay').classList.remove('show'); $('#modal').innerHTML=''; };
-function showModal(html){ $('#modal').innerHTML=html; $('#overlay').classList.add('show'); }
+function showModal(html,lebar){
+  $('#modal').className='modal'+(lebar?' wide':'');
+  $('#modal').innerHTML=html;
+  $('#overlay').classList.add('show');
+}
 document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeModal(); });
 
 
@@ -2773,6 +2877,18 @@ window.APP={
   },
   projModal:projModal, simpanProj:simpanProj, hapusProj:hapusProj,
   togglePic:function(el){ el.classList.toggle('on'); },
+  /* Pemformat rupiah sambil mengetik. Posisi kursor dijaga dengan MENGHITUNG
+     DIGIT sebelum kursor, bukan menyimpan indeksnya: menyisipkan satu titik
+     pemisah menggeser semua indeks di belakangnya, dan kursor yang melompat
+     ke ujung tiap ketikan membuat angka mustahil dikoreksi di tengah. */
+  fmtRp:function(el){
+    var digitSebelum=String(el.value).slice(0,el.selectionStart).replace(/\D/g,'').length;
+    var digit=String(el.value).replace(/\D/g,'').replace(/^0+(?=\d)/,'').slice(0,15);
+    el.value = digit ? (+digit).toLocaleString('id-ID') : '';
+    var i=0,n=0;
+    while(i<el.value.length && n<digitSebelum){ if(el.value.charCodeAt(i)>=48&&el.value.charCodeAt(i)<=57) n++; i++; }
+    el.selectionStart=el.selectionEnd=i;
+  },
   filterProj:function(apa,nilai){
     if(apa==='reset'){ pScope='tim'; pDiv=''; }
     else if(apa==='scope') pScope=nilai;
@@ -2785,7 +2901,38 @@ window.APP={
   routineModal:routineModal, simpanRoutine:simpanRoutine, hapusRoutine:hapusRoutine,
   poModal:poModal, simpanPo:simpanPo, hapusPo:hapusPo, setPoFilter:function(v){poFilter=v;render();},
   requestModal:requestModal, simpanRequest:simpanRequest,
+  tambahBarisReq:function(){
+    document.getElementById('q_rows').insertAdjacentHTML('beforeend',barisRequest());
+    nomoriBarisReq();
+    var r=document.querySelectorAll('#q_rows tr');
+    r[r.length-1].querySelector('.q-item').focus();
+  },
+  hapusBarisReq:function(btn){
+    var tr=btn.closest('tr'), tbody=document.getElementById('q_rows');
+    /* Baris terakhir tidak dihapus, cuma dikosongkan — tabel tanpa satu pun
+       baris tidak menyisakan apa pun untuk diketik, dan orang harus menebak
+       bahwa ada tombol "Tambah baris" di bawahnya. */
+    if(tbody.querySelectorAll('tr').length<=1){
+      tr.querySelectorAll('input').forEach(function(i){ i.value=(i.className.indexOf('q-qty')>-1)?'1':''; });
+      tr.querySelector('.q-unit').value='Unit';
+      tr.querySelector('.q-pay').value='';
+      return;
+    }
+    tr.remove(); nomoriBarisReq();
+  },
   buatPr:buatPr, bukaPr:bukaPr, hapusPr:hapusPr, prModal:prModal, simpanPr:simpanPr,
+  /* Centang TIDAK memicu render ulang — halaman yang menggambar ulang dirinya
+     tiap centang akan menggulung balik ke atas dan menghapus pilihan yang
+     sedang disusun. Yang diperbarui cuma tulisan di tombolnya. */
+  hitungPilihPr:function(){
+    var n=document.querySelectorAll('.pick:checked').length;
+    var b=document.getElementById('btnBuatPr');
+    if(b) b.innerHTML=ic('plus')+(n?'Buat PR dari '+n+' item':'Pilih item dulu');
+  },
+  pilihSemuaPr:function(on){
+    document.querySelectorAll('.pick').forEach(function(el){ el.checked=!!on; });
+    window.APP.hitungPilihPr();
+  },
   statusPr:statusPr, setujuPr:setujuPr, lepasDariPr:lepasDariPr, masukkanKePr:masukkanKePr,
   /* Cetak dipanggil setelah satu putaran render selesai. Tanpa jeda, Chrome
      kadang membuka dialog cetak sebelum gambar kop selesai dimuat, dan
