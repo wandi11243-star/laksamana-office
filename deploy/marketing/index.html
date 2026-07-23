@@ -1496,8 +1496,10 @@ async function autoSyncOfficeRoster(){
    — dulu memang satu flag untuk semuanya, jadi ini bukan perilaku baru, cuma
    pengelompokan ulang cek yang sama ke satu baris matriks.
 
-   Dikecualikan: del_client (didefinisikan dulu, tak pernah dicek di mana pun —
-   dihapus, bukan lagi diwariskan sebagai baris kosong).
+   del_client DIPULIHKAN: dulu ia dibuang justru karena tak pernah dicek di mana
+   pun — Database Client memang belum punya tombol hapus. Sekarang punya, jadi
+   aksinya kembali. Urutannya di ACTION_VIEW penting: ia harus SESUDAH
+   edit_client, lihat catatan di roleDefaultPerm().
 
    Bisa di-override per user lewat User Management (u.nav lama diganti u.acc =
    {view:0|1|2}, lihat migrasi di bootApp). Super Admin sengaja tidak bisa
@@ -1506,7 +1508,7 @@ const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
 const PERM_OPT=[['0','Tak Terlihat'],['1','Lihat'],['2','Boleh Ubah']];
 // Aksi (nama lama, dipakai di seluruh kode via can('...')) -> view pemiliknya.
 const ACTION_VIEW={
-  edit_client:'crm', del_event:'events', edit_event:'events',
+  edit_client:'crm', del_client:'crm', del_event:'events', edit_event:'events',
   verify_payment:'invoices', approve:'approvals', manage_users:'users',
   edit_task:'tasks', edit_template:'templates', edit_staff:'staff'
 };
@@ -1520,6 +1522,7 @@ function roleDefaultPerm(role, view){
   if(role==='super_admin') return PERM_EDIT;
   const legacyEditRules={
     edit_client:['marketing'].includes(role),
+    del_client:false,
     del_event:false,
     edit_event:['marketing','manager'].includes(role),
     verify_payment:['finance'].includes(role),
@@ -1529,6 +1532,11 @@ function roleDefaultPerm(role, view){
     edit_template:['operational','marketing','finance','manager'].includes(role),
     edit_staff:['marketing','manager'].includes(role)
   };
+  /* HANYA aksi PERTAMA yang memetakan ke view ini yang dilihat. Jadi urutan
+     ACTION_VIEW menentukan default: aksi yang legacy-nya `false` dan berdiri
+     paling depan akan menutup aksi di belakangnya. Karena itu del_client
+     ditaruh SESUDAH edit_client — kalau dibalik, default 'crm' untuk marketing
+     turun dari Boleh Ubah jadi Lihat saja tanpa ada yang mengubah matriksnya. */
   const action=Object.keys(ACTION_VIEW).find(a=>ACTION_VIEW[a]===view);
   const canSeeByDefault=(ROLES[role]&&Array.isArray(ROLES[role].nav)&&ROLES[role].nav.includes(view));
   if(action && legacyEditRules[action]) return PERM_EDIT;
@@ -2430,10 +2438,95 @@ function viewClient(id){
   else { h+='<div class="timeline">'; fus.forEach(f=>{ const fe=f.eventId?S.events.find(e=>e.id===f.eventId):null;
     h+='<div class="tl-item"><div class="tl-t">'+f.at.replace('T',' ')+' · '+esc(userName(f.by))+' · '+(fe?esc(fe.nama):'Umum / after-sales')+'</div><div class="tl-a">'+esc(f.action)+' → '+esc(f.hasil)+'</div><div class="tl-d">'+esc(f.note||'')+'</div></div>'; }); h+='</div>'; }
   h+='</div>';
-  h+='<div class="modal-foot"><a class="btn" target="_blank" href="'+waLink(c.hp,'Halo '+c.nama+', dari tim Laksamana Muda 👋')+'">'+svg(IC.wa)+'WhatsApp</a>';
+  h+='<div class="modal-foot">';
+  if(can('del_client'))h+='<button class="btn danger" title="Hapus client permanen" onclick="delClient(\''+id+'\')">'+svg(IC.trash)+'</button>';
+  h+='<a class="btn" target="_blank" href="'+waLink(c.hp,'Halo '+c.nama+', dari tim Laksamana Muda 👋')+'">'+svg(IC.wa)+'WhatsApp</a>';
   if(can('edit_client'))h+='<button class="btn" onclick="editClient(\''+id+'\')">'+svg(IC.edit)+'Edit</button><button class="btn pri" onclick="closeModal();logFollowUp(\''+id+'\')">'+svg(IC.plus)+'Follow Up</button>';
   h+='</div>';
   modal(h);
+}
+
+/* ---------- HAPUS CLIENT (permanen, konfirmasi ketat) ----------
+   Melengkapi CRUD Database Client, yang sebelumnya hanya C-R-U.
+
+   DUA PENJAGA, dan yang pertama lebih penting daripada yang kedua:
+
+   1. CLIENT YANG MASIH PUNYA EVENT TIDAK BISA DIHAPUS SAMA SEKALI. Bukan
+      diperingatkan — DITOLAK. Event menyimpan clientId, dan nama kliennya
+      dibaca ulang lewat clientName() di belasan tempat: daftar event, kanban
+      pipeline, invoice, brief, quotation, papan Task Divisi, dan ekspor
+      laporan. Kalau clientnya hilang, semua itu berubah jadi "—" tanpa satu
+      pun pesan galat — persis jenis kerusakan senyap yang sudah pernah mahal
+      di modul ini. Kaskade juga bukan jawaban: menghapus client tidak boleh
+      diam-diam ikut membuang event beserta jejak uangnya.
+      Jalan keluarnya ditunjukkan, bukan cuma dilarang: daftar eventnya
+      ditampilkan dan bisa dibuka langsung dari sini.
+
+   2. Kalau sudah bersih dari event, namanya harus DIKETIK PERSIS — sama
+      seperti hapus event. Klik "Ya" terlalu murah untuk tindakan permanen.
+
+   Riwayat follow up umum ikut terhapus, dan jumlahnya disebut lebih dulu di
+   layar konfirmasi supaya tidak ada yang hilang tanpa diketahui. */
+function delClient(id){
+  const c=S.clients.find(x=>x.id===id); if(!c)return;
+  if(!can('del_client'))return toast('Akses ditolak','Kamu tidak punya izin menghapus client. Atur di User Management → Matriks Hak Akses.','err');
+  const evs=S.events.filter(e=>e.clientId===id);
+  const fus=S.followups.filter(f=>f.clientId===id);
+  const kepala='<div class="modal-head"><div><h3>Hapus Client Permanen</h3><p>'+esc(c.nama)+' · '+esc(c.perusahaan||'Perorangan')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
+
+  if(evs.length){
+    /* Ditolak, bukan diperingatkan. Tombol hapusnya memang tidak ada di sini —
+       satu-satunya jalan maju adalah membereskan eventnya lebih dulu. */
+    const sp=clientSpending(id);
+    modal(kepala
+     +'<div class="modal-body">'
+     +'<div class="tbl-note" style="margin-top:0;border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
+       +'<span>Client ini <em>tidak bisa dihapus</em> karena masih memegang <b>'+evs.length+' event</b>'
+       +(sp?' dengan total belanja '+rp(sp):'')+'. Menghapusnya akan membuat event-event itu kehilangan nama client '
+       +'di daftar event, pipeline, invoice, brief, dan laporan — tanpa pesan galat apa pun.</span></div>'
+     +'<div class="tbl-note">'+svg(IC.alert)+'<span>Pindahkan event ke client lain, atau hapus event-nya lebih dulu (butuh izin hapus event). Sesudah client ini tidak memegang event mana pun, tombol hapus akan muncul.</span></div>'
+     +'<h4 style="font-size:14px;margin:16px 0 10px">Event yang masih terhubung ('+evs.length+')</h4>'
+     +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Tanggal</th><th>Tahap</th><th></th></tr></thead><tbody>'
+     +evs.map(e=>'<tr><td class="cell-strong">'+esc(e.nama)+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td>'
+       +'<td><button class="btn sm" onclick="closeModal();go(\'event\',\''+e.id+'\')">Buka</button></td></tr>').join('')
+     +'</tbody></table></div>'
+     +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+     +'<button class="btn pri" onclick="closeModal();viewClient(\''+id+'\')">Kembali ke client</button></div>');
+    return;
+  }
+
+  modal(kepala
+   +'<div class="modal-body">'
+   +'<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Tindakan ini <em>permanen</em> dan <em>tidak bisa dibatalkan</em>. Data di bawah ikut terhapus.</span></div>'
+   +'<dl class="kv-list" style="margin-top:14px">'
+     +'<dt>Kontak</dt><dd class="mono">'+esc(c.hp||'—')+'</dd>'
+     +'<dt>Source</dt><dd>'+esc(c.source||'—')+'</dd>'
+     +'<dt>Event terhubung</dt><dd class="mono">0 · aman dihapus</dd>'
+     +'<dt>Riwayat follow up</dt><dd class="mono"'+(fus.length?' style="color:var(--danger);font-weight:600"':'')+'>'+fus.length+(fus.length?' · ikut terhapus':'')+'</dd>'
+     +'<dt>Terdaftar sejak</dt><dd class="mono">'+fmtDate(c.createdAt)+'</dd>'
+   +'</dl>'
+   +'<div class="field" style="margin-top:16px"><label>Ketik <b>'+esc(c.nama)+'</b> untuk konfirmasi<span class="req">*</span></label>'
+   +'<input class="inp" id="delc_confirm" autocomplete="off" placeholder="'+esc(c.nama)+'" data-n="'+esc(c.nama)+'" oninput="var b=document.getElementById(\'delc_btn\'); b.disabled = this.value.trim()!==this.dataset.n"></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn danger-solid" id="delc_btn" disabled onclick="doDelClient(\''+id+'\')">'+svg(IC.trash)+'Hapus permanen</button></div>');
+  setTimeout(function(){ var el=$('delc_confirm'); if(el)el.focus(); },40);
+}
+function doDelClient(id){
+  const c=S.clients.find(x=>x.id===id); if(!c)return;
+  if(!can('del_client'))return toast('Akses ditolak','Kamu tidak punya izin menghapus client.','err');
+  const el=$('delc_confirm');
+  if(!el||el.value.trim()!==c.nama)return toast('Nama tidak cocok','Ketik nama client persis seperti tertulis.','err');
+  /* Diperiksa ULANG di sini, bukan hanya saat modal dibuka. Modal bisa dibiarkan
+     terbuka sementara event baru dibuat di tab lain — dan kalau itu terjadi,
+     penjaganya harus tetap menolak. */
+  const evs=S.events.filter(e=>e.clientId===id);
+  if(evs.length){ closeModal(); return toast('Dibatalkan','Client ini sekarang memegang '+evs.length+' event. Bereskan event-nya lebih dulu.','err'); }
+  const nFU=S.followups.filter(f=>f.clientId===id).length;
+  S.clients=S.clients.filter(x=>x.id!==id);
+  S.followups=S.followups.filter(f=>f.clientId!==id);
+  logAct('client','-','Client dihapus permanen',c.nama+(c.perusahaan?' · '+c.perusahaan:'')+' · '+nFU+' follow up · oleh '+ME.name);
+  save(); closeModal();
+  toast('Client dihapus',c.nama+' dihapus permanen.','ok'); go('crm');
 }
 
 /* ============================================================
