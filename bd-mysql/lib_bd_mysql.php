@@ -83,7 +83,19 @@ function db_unlock($h) {
    sebuah field mau dipakai untuk indeks/laporan.
 
    Format: 'namaKolomDB' => array('fieldDiAplikasi', 'tipe')
-   Tipe: str | int | bool | date
+   Tipe: str | int | bool | date | first
+
+   'first' mengambil elemen PERTAMA dari sebuah array. Dipakai untuk `pic` di
+   tasks & projects: satu baris kini boleh dipegang beberapa orang (`pics`),
+   tapi kolom SQL-nya tetap satu supaya indeks & laporan phpMyAdmin tetap
+   berguna. Daftar lengkapnya ada di kolom `data` — sumber kebenarannya tetap
+   di sana, kolom ini cuma cuplikan.
+
+   SENGAJA TIDAK ada tabel penghubung task_pics. Modul ini memuat state utuh
+   ke klien dan menyaring di sana; tidak ada satu pun query yang mencari "task
+   milik si A" di SQL. Menambah tabel penghubung berarti menambah tempat yang
+   bisa menyimpang demi query yang tidak pernah dijalankan.
+
    'created' => true berarti tabel punya kolom created_at (diisi sekali saat
    INSERT, tidak pernah ditimpa).
 
@@ -109,7 +121,7 @@ function collections() {
       'type'       => array('type', 'str'),
       'stage'      => array('stage', 'str'),
       'divisi'     => array('div', 'str'),
-      'pic'        => array('pic', 'str'),
+      'pic'        => array(array('pics','pic'), 'first'),
       'start_date' => array('start', 'date'),
       'end_date'   => array('end', 'date'),
       'budget'     => array('budget', 'int'),
@@ -119,7 +131,7 @@ function collections() {
     'tasks' => array('table' => 'tasks', 'created' => true, 'cols' => array(
       'name'       => array('name', 'str'),
       'divisi'     => array('div', 'str'),
-      'pic'        => array('pic', 'str'),
+      'pic'        => array(array('pics','pic'), 'first'),
       'status'     => array('status', 'str'),
       'priority'   => array('priority', 'str'),
       'deadline'   => array('deadline', 'date'),
@@ -158,7 +170,7 @@ function collections() {
       'amount'     => array('amount', 'int'),
       'status'     => array('status', 'str'),
       'need_by'    => array('needBy', 'date'),
-      'pic'        => array('pic', 'str'),
+      'pic'        => array('pic', 'str'),          // PO: satu penanggung jawab
       'project_id' => array('project', 'str'),
     )),
     'agenda' => array('table' => 'agenda', 'created' => true, 'cols' => array(
@@ -189,12 +201,26 @@ function ms_valid($v) {
   }
   return 0;
 }
+/* $field boleh berupa NAMA atau DAFTAR nama; yang dipakai adalah yang pertama
+   benar-benar ada di baris. Itulah cara `pic` tetap terisi untuk baris lama:
+   frontend versi sebelumnya hanya mengirim `pic` (string), yang sekarang
+   mengirim `pics` (array), dan keduanya dipetakan ke kolom yang sama. */
 function ambil($row, $field, $type) {
-  $v = isset($row[$field]) ? $row[$field] : null;
+  $v = null;
+  foreach ((array)$field as $f) {
+    if (array_key_exists($f, $row)) { $v = $row[$f]; break; }
+  }
   switch ($type) {
     case 'int':  return intval($v);
     case 'bool': return empty($v) ? 0 : 1;
     case 'date': return tanggal_valid($v);
+    /* Elemen pertama sebuah array (lihat catatan `pics` di collections()).
+       Frontend lama mengirim `pic` sebagai string, bukan array — bentuk itu
+       tetap diterima di sini supaya baris yang tersimpan dari versi sebelumnya
+       tidak kehilangan kolom pic-nya begitu backend ini naik lebih dulu. */
+    case 'first':
+      if (is_array($v)) return count($v) ? (string)$v[0] : null;
+      return ($v === null || $v === '') ? null : (string)$v;
     default:     return $v === null ? null : (string)$v;
   }
 }

@@ -87,7 +87,9 @@ CREATE TABLE IF NOT EXISTS projects (
   type       VARCHAR(64)      NULL,              -- Event/Renovasi/Launching/Internal/Ekspansi
   stage      VARCHAR(32)      NULL,              -- Idea/Planning/Running/Review/Completed
   divisi     VARCHAR(64)      NULL,
-  pic        VARCHAR(64)      NULL,              -- people.id
+  pic        VARCHAR(64)      NULL,              -- pics[0]: PIC pertama, untuk indeks/laporan.
+                                                --   Daftar LENGKAP ada di kolom `data` (`pics`) —
+                                                --   satu baris boleh dipegang beberapa orang.
   start_date DATE             NULL,
   end_date   DATE             NULL,
   budget     BIGINT       NOT NULL DEFAULT 0,
@@ -112,7 +114,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   id         VARCHAR(64)  NOT NULL PRIMARY KEY,
   name       VARCHAR(255)     NULL,
   divisi     VARCHAR(64)      NULL,
-  pic        VARCHAR(64)      NULL,              -- people.id
+  pic        VARCHAR(64)      NULL,              -- pics[0]: PIC pertama, untuk indeks/laporan.
+                                                --   Daftar LENGKAP ada di kolom `data` (`pics`) —
+                                                --   satu baris boleh dipegang beberapa orang.
   status     VARCHAR(32)      NULL,              -- Backlog/To Do/Doing/Waiting/Review/Done
   priority   VARCHAR(16)      NULL,              -- Urgent/High/Medium/Low
   deadline   DATE             NULL,

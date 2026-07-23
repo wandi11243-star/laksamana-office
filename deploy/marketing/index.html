@@ -560,6 +560,19 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .papan-kosong{padding:10px 2px}
 .papan-tbl th{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .papan-tbl td{vertical-align:middle}
+/* Judul kartu kategori = tombol buka/tutup. Dibuat <button> polos supaya tetap
+   bisa dicapai keyboard dan dibacakan pembaca layar (aria-expanded), bukan div
+   ber-onclick yang terlihat sama tapi tak bisa di-Tab. */
+.tmpl-judul{display:flex;align-items:flex-start;gap:9px;background:none;border:0;padding:0;
+  text-align:left;cursor:pointer;color:inherit;font:inherit;flex:1;min-width:0}
+.tmpl-judul:hover h3{color:var(--gold-deep)}
+.tmpl-kar{flex:none;display:flex;align-items:center;justify-content:center;width:20px;height:22px;
+  color:var(--muted);transition:transform .16s}
+.tmpl-kar svg{width:15px;height:15px}
+/* Karet menunjuk ke BAWAH saat terbuka (isinya di bawah), ke kanan saat
+   tertutup — arah panah menjelaskan keadaan tanpa perlu tulisan. */
+.card:not(.tmpl-tutup) > div > .tmpl-judul .tmpl-kar{transform:rotate(90deg)}
+.tmpl-judul:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:8px}
 .sc-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
   margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line-soft)}
 .sc-head.bisa-tarik{cursor:grab}
@@ -5290,12 +5303,23 @@ function tmplTable(div,sub,canEdit){
    tempat yang harus dibereskan. */
 function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
   const items=divTemplates(div), subs=subsOf(div), dj=escJs(div);
-  let h='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span>'
-    +(subs.length?' <span class="tag">'+subs.length+' sub</span>':'')+'</h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</div><div class="pill-row">'
+  const tutup=tmplDitutup(div);
+  /* Judulnya sendiri yang jadi tombol buka/tutup — sasaran klik yang besar dan
+     jelas. Jumlah item & sub tetap tampil saat tertutup, supaya menutup tidak
+     berarti kehilangan gambaran isinya. */
+  let h='<div class="card'+(tutup?' tmpl-tutup':'')+'" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;'+(tutup?'':'margin-bottom:12px')+'">'
+    +'<button type="button" class="tmpl-judul" aria-expanded="'+(tutup?'false':'true')+'" onclick="toggleTmplCard(&quot;'+esc(dj)+'&quot;)" title="'+(tutup?'Buka':'Tutup')+' isi kategori ini">'
+    +'<span class="tmpl-kar">'+svg(IC.chevR)+'</span>'
+    +'<span style="min-width:0"><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span>'
+    +(subs.length?' <span class="tag">'+subs.length+' sub</span>':'')+'</h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</span></button><div class="pill-row">'
     +(canEdit?(extraBtn||''):'')
     +(canEdit?'<button class="btn sm" onclick="newSubCat(\''+dj+'\')">'+svg(IC.plus)+'Sub Kategori</button>':'')
     +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+dj+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
     +(canEdit&&delFn?'<button class="btn sm" onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
+  /* Tertutup = isinya TIDAK digambar sama sekali, bukan disembunyikan CSS.
+     Halaman ini bisa memuat ratusan baris tabel; menggambar semuanya lalu
+     menyembunyikannya membuat halaman berat tanpa ada yang melihatnya. */
+  if(tutup) return h+'</div>';
   if(!items.length && !subs.length) h+='<div class="cell-sub" style="padding:6px 0">—</div>';
   else{
     // Item tanpa sub kategori: hanya ditampilkan kalau memang ada isinya, supaya
@@ -5322,6 +5346,29 @@ function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
   }
   return h+'</div>';
 }
+/* ---------- KATEGORI DITUTUP / DIBUKA ----------
+   Disimpan di localStorage, BUKAN di S. Ini keadaan tampilan milik satu orang
+   di satu browser: kalau ikut S, menutup Prasmanan di layar sendiri akan ikut
+   menutupnya di layar semua orang begitu tersinkron — perubahan data kantor
+   untuk sesuatu yang cuma soal enak dilihat. Gagal baca/tulis tidak boleh
+   menjatuhkan halaman, jadi semuanya dibungkus try. */
+const KEY_TUTUP = KEY + '_tmpl_tutup';
+let tmplTutup = (function(){ try{ return JSON.parse(localStorage.getItem(KEY_TUTUP)||'{}')||{}; }catch(_){ return {}; } })();
+function simpanTutup(){ try{ localStorage.setItem(KEY_TUTUP, JSON.stringify(tmplTutup)); }catch(_){} }
+function tmplDitutup(div){ return !!tmplTutup[div]; }
+function toggleTmplCard(div){
+  if(tmplTutup[div]) delete tmplTutup[div]; else tmplTutup[div]=1;
+  simpanTutup(); go('templates');
+}
+/* Buka/tutup SEMUA sekaligus. Dengan kategori yang banyak, membuka satu per
+   satu untuk mencari sesuatu lebih lama daripada sekadar menggulir. */
+function toggleSemuaTmpl(){
+  const semua=getFbFormats().concat(kategoriLama());
+  const adaTerbuka=semua.some(d=>!tmplDitutup(d));
+  tmplTutup={};
+  if(adaTerbuka) semua.forEach(d=>{ tmplTutup[d]=1; });
+  simpanTutup(); go('templates');
+}
 /* Kategori lama = template yang div-nya masih nama DIVISI, sisa dari waktu
    divisi masih jadi kategori to-do. Tidak dihapus dan tidak dipindah
    diam-diam: menebak formatnya salah berarti menaruh pekerjaan di event yang
@@ -5333,7 +5380,13 @@ function renderTemplates(V){
   const canEdit=can('edit_template');
   const fmts=getFbFormats(), lama=kategoriLama();
   let h=pageHead('Template','Template Task','Standar to-do per Format F&B — jadi acuan handover & isi papan Task Divisi.',
-    canEdit?'<button class="btn pri" onclick="newFbFormat()">'+svg(IC.plus)+'Tambah Kategori</button>':'');
+    (function(){
+      const semua=fmts.concat(lama);
+      const adaTerbuka=semua.some(d=>!tmplDitutup(d));
+      return (semua.length?'<button class="btn" onclick="toggleSemuaTmpl()">'
+        +(adaTerbuka?'Tutup semua':'Buka semua')+'</button>':'')
+        +(canEdit?'<button class="btn pri" onclick="newFbFormat()">'+svg(IC.plus)+'Tambah Kategori</button>':'');
+    })());
   h+='<div class="tbl-note" style="margin:0 0 14px">'+svg(IC.alert)
    +'<span>Tiap event mengambil <b>satu kategori</b> to-do — kategori yang dipakai mengikuti isian <em>Format F&amp;B</em> di form event. Event yang memilih <em>Prasmanan</em> mendapat seluruh daftar di bawah kartu Prasmanan; divisi (Kitchen, Bar, Floor, &hellip;) jadi <b>sub kategori</b> di dalamnya.</span></div>';
   if(!fmts.length) h+='<div class="card cell-sub">Belum ada kategori. Tambahkan satu supaya event bisa memilihnya dan punya daftar to-do.</div>';
