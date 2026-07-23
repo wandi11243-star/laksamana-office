@@ -206,6 +206,14 @@
             <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Jenis Event</label>
             <div id="filter-jenis" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
           </div>
+          <!-- Penyaring divisi KHUSUS ADMIN. Kru biasa hanya menerima catatan
+               timnya sendiri, jadi penyaring ini cuma punya satu hasil yang
+               mungkin bagi mereka — disembunyikan, bukan dinonaktifkan.
+               Admin melihat semua tim sekaligus, dan di situlah ia berguna. -->
+          <div id="filter-tim-wrap" class="hidden">
+            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Divisi</label>
+            <div id="filter-tim" class="grid grid-cols-2 sm:grid-cols-5 gap-2"></div>
+          </div>
         </div>
 
         <!-- ===== RINGKASAN + DAFTAR ===== -->
@@ -322,6 +330,7 @@
   let PERIODE = 'bulan';
   let BULAN_PILIH = '';       // 'YYYY-MM' saat PERIODE === 'pilih'
   let JENIS = 'ALL';
+  let TIM = 'ALL';            // hanya berarti bagi admin; kru selalu 'ALL'
   let NOMOR_BARIS = 0;
   let TAMPIL = 0;             // berapa catatan yang sedang digambar (paginasi)
 
@@ -406,10 +415,21 @@
      melihat apa pun. Tanpa penjelasan, daftar kosong itu terbaca sebagai
      "datanya hilang" — dan orang akan mencari bug yang tidak ada. Ini murni
      penjelasan di layar; yang menegakkan aturannya tetap server. */
+  /* Admin modul ini. Bukan hanya superadmin ('*'): mencentang modul ini di
+     kotak "Kelola akses (admin modul)" sudah cukup, supaya seorang supervisor
+     bisa melihat semua tim tanpa harus dijadikan superadmin.
+
+     Ini pengetahuan yang SAMA dengan pur_pemanggil_admin() di server. Layar
+     memakainya hanya untuk memutuskan apa yang ditampilkan; yang menentukan
+     data mana yang benar-benar terkirim tetap server. */
+  function sayaAdmin() {
+    const adm = (SESI && SESI.adminModules) || [];
+    return adm.indexOf('*') > -1 || adm.indexOf('usage') > -1;
+  }
+
   function timBelumDiisi() {
     if (!SESI) return false;
-    const adm = SESI.adminModules || [];
-    if (adm.indexOf('*') > -1 || adm.indexOf('usage') > -1) return false;   // admin melihat semua
+    if (sayaAdmin()) return false;   // admin melihat semua
     const ket = String(SESI.keterangan || '').toLowerCase();
     return !TIM_OPSI.some(([v]) => ket.includes(v.toLowerCase()));
   }
@@ -428,6 +448,7 @@
       ]);
     document.getElementById('f-tanggal').value = hariIni();
     renderFilterJenis();
+    renderFilterTim();
     isiPilihanBulan();
     setAktifPeriode();
     tambahBaris();
@@ -668,6 +689,23 @@
     document.getElementById('p-bulan-hapus').classList.toggle('hidden', PERIODE !== 'pilih');
   }
   function setJenis(j) { JENIS = j; TAMPIL = 0; renderFilterJenis(); render(); }
+
+  function setTim(t) { TIM = t; TAMPIL = 0; renderFilterTim(); render(); }
+  /* Hanya digambar untuk admin. Pilihan "(belum ada tim)" WAJIB ada: seluruh
+     catatan yang dibuat sebelum tim diberlakukan bertim kosong, dan tanpa
+     pilihan itu tidak ada satu pun cara menemukannya kembali — ia bukan
+     Kitchen, bukan Bar, bukan Floor, jadi setiap penyaring lain akan
+     menyembunyikannya. */
+  function renderFilterTim() {
+    const wrap = document.getElementById('filter-tim-wrap');
+    wrap.classList.toggle('hidden', !sayaAdmin());
+    if (!sayaAdmin()) return;
+    const opsi = [['ALL', 'Semua']].concat(TIM_OPSI).concat([['', '(belum ada tim)']]);
+    document.getElementById('filter-tim').innerHTML = opsi.map(([v, l]) => `
+      <button onclick="setTim('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
+        TIM === v ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${l}</button>`).join('');
+  }
   function renderFilterJenis() {
     document.getElementById('filter-jenis').innerHTML = JENIS_OPSI.map(([v, l]) => `
       <button onclick="setJenis('${v}')" class="px-3 py-2 text-xs font-bold rounded-lg border transition-all truncate ${
@@ -691,6 +729,11 @@
     const q = (document.getElementById('q').value || '').trim().toLowerCase();
     const list = DATA
       .filter(r => JENIS === 'ALL' || r.jenis === JENIS)
+      /* Penyaring divisi. Hanya berpengaruh bagi admin — kru selalu 'ALL',
+         dan server memang sudah hanya mengirim catatan timnya. Perbandingan
+         memakai (r.tim || '') supaya pilihan "(belum ada tim)" benar-benar
+         cocok dengan catatan lama yang kolomnya kosong. */
+      .filter(r => TIM === 'ALL' || (r.tim || '') === TIM)
       .filter(r => !q || [r.namaEvent, r.pic, r.catatan, r.jenis, r.tim]
         .concat((r.items || []).map(i => i.item))
         .some(v => String(v || '').toLowerCase().includes(q)));

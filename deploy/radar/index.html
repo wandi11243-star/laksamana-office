@@ -265,6 +265,37 @@ tbody tr.clk:hover{background:var(--gold-glow)}
 .toast .tt{font-size:13px;font-weight:600}
 .toast .ts{font-size:11px;color:var(--muted)}
 
+/* ---------- FILTER & CHIP ---------- */
+.filters{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:15px}
+.finp{padding:9px 12px;background:#fff;border:1px solid var(--line-hard);border-radius:10px;font-size:13px;
+  color:var(--sand);min-width:150px;transition:.15s}
+.finp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
+select.finp{cursor:pointer;appearance:none;padding-right:30px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B6456' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:15px}
+.chip{padding:6px 13px;border-radius:999px;border:1px solid var(--line-hard);font-size:12px;font-weight:600;
+  color:var(--sand-dim);background:#fff;transition:.14s}
+.chip:hover{border-color:var(--gold)}
+.chip.on{background:linear-gradient(135deg,#9A6E14,var(--gold-deep));color:#fff;border-color:transparent}
+
+/* ---------- PANEL DETAIL (read-only) ---------- */
+.scrim{position:fixed;inset:0;background:rgba(30,38,55,.5);backdrop-filter:blur(2px);z-index:80;
+  opacity:0;pointer-events:none;transition:.22s}
+.scrim.on{opacity:1;pointer-events:auto}
+.drw{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--ink-900);
+  border-left:1px solid var(--line-soft);z-index:81;transform:translateX(100%);
+  transition:transform .28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;
+  box-shadow:-24px 0 60px rgba(30,38,55,.22)}
+.drw.on{transform:none}
+.drw-h{padding:17px 20px;border-bottom:1px solid var(--line-soft);display:flex;align-items:flex-start;gap:14px;
+  background:linear-gradient(180deg,var(--gold-glow),transparent)}
+.drw-h h2{font-size:20px;margin:5px 0 6px}
+.drw-b{flex:1;overflow-y:auto;padding:18px 20px 48px}
+.drw-x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--muted);
+  border:1px solid var(--line-hard);flex:none;background:#fff;cursor:pointer}
+.drw-x:hover{color:var(--sand);border-color:var(--gold)}
+.drw-x svg{width:16px;height:16px}
+
 @media print{
   .sidebar,.topbar,.no-print{display:none!important}
   #app{grid-template-columns:1fr}
@@ -323,6 +354,24 @@ tbody tr.clk:hover{background:var(--gold-glow)}
     <main class="view" id="view"></main>
   </div>
 </div>
+
+<!-- Panel detail: baca-saja. Tombol di dalamnya menautkan ke modul asal
+     untuk mengubah — Radar sendiri tidak pernah menulis. -->
+<div class="scrim" id="scrim" onclick="APP.tutupDetail()"></div>
+<aside class="drw" id="drw" role="dialog" aria-modal="true">
+  <div class="drw-h">
+    <div style="flex:1;min-width:0">
+      <div class="eyebrow" id="drwEye">Detail</div>
+      <h2 id="drwTitle">—</h2>
+      <div id="drwPills" class="pill-row"></div>
+    </div>
+    <button class="drw-x" onclick="APP.tutupDetail()" aria-label="Tutup">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drw-b" id="drwBody"></div>
+</aside>
+
 <div class="toast-wrap" id="toasts"></div>
 
 <script>
@@ -377,6 +426,10 @@ function dLabel(n){if(n===0)return 'HARI-H';if(n>0)return 'H-'+n;return 'H+'+Mat
 function initial(n){return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();}
 function nowStamp(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());}
 function pill(t,c){return '<span class="pill '+c+'"><i></i>'+esc(t)+'</span>';}
+/* rp() dipakai HANYA untuk DP reservasi — angka yang memang disimpan modul
+   Reservasi (dpAmount), bukan hasil hitung ulang. Nilai event Marketing tetap
+   tidak ditampilkan (grand total-nya dihitung runtime di sana, bukan disimpan). */
+function rp(n){n=Number(n)||0;return 'Rp'+n.toLocaleString('id-ID');}
 function toast(t,s){
   var w=$('#toasts'),el=document.createElement('div');
   el.className='toast';
@@ -395,7 +448,9 @@ function ico(n){
     users:'<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/>',
     out:'<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6M10 14L21 3"/>',
     print:'<path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/>',
-    wa:'<path d="M20 12a8 8 0 01-11.9 7L4 20l1-4.1A8 8 0 1120 12z"/>'
+    wa:'<path d="M20 12a8 8 0 01-11.9 7L4 20l1-4.1A8 8 0 1120 12z"/>',
+    star:'<path d="M12 3l2.6 5.5 6 .8-4.3 4.2 1 6-5.3-2.9L6.7 19.5l1-6L3.4 9.3l6-.8z"/>',
+    book:'<path d="M4 5a2 2 0 012-2h13v18H6a2 2 0 01-2-2z"/><path d="M8 7h8M8 11h6"/>'
   };
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p[n]||'')+'</svg>';
 }
@@ -617,7 +672,7 @@ function agendaCard(a){
   var d=dDay(a.tgl), dt=pDate(a.tgl);
   var rs=resTgl(a.tgl);
   var k=a.sumber==='mkt'?kesiapan(a.mentah):null;
-  return '<button type="button" class="ev" onclick="APP.buka(\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
+  return '<button type="button" class="ev" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
     '<span class="ev-date"><span class="ev-d">'+dt.getDate()+'</span><span class="ev-m">'+BLN[dt.getMonth()]+'</span>'+
       '<span class="ev-w">'+HARI[dt.getDay()].slice(0,3)+'</span></span>'+
     '<span class="ev-b"><span class="ev-t" style="display:block">'+esc(a.judul)+'</span>'+
@@ -750,7 +805,7 @@ function vRadar(){
   if(!al.length) h+='<div class="muted" style="font-size:12.5px">Bersih. Tidak ada yang perlu diangkat ke rapat.</div>';
   al.slice(0,12).forEach(function(x){
     var cls=x.p===1?'hi':(x.p===2?'md':'lo');
-    h+='<button type="button" class="alert '+cls+'" onclick="APP.buka(\''+x.a.sumber+'\',\''+esc(x.a.id)+'\')">'+
+    h+='<button type="button" class="alert '+cls+'" onclick="APP.detail(\'ag\',\''+x.a.sumber+'\',\''+esc(x.a.id)+'\')">'+
       '<span class="alert-i" style="background:rgba(42,38,32,.06)">!</span>'+
       '<span style="flex:1;min-width:0"><b>'+esc(x.j)+'</b><p>'+esc(x.k)+'</p></span></button>';
   });
@@ -826,7 +881,7 @@ function vKalender(){
     h+='<div class="cd'+(out?' out':'')+(iso===t?' today':'')+'"><div class="cd-n">'+d.getDate()+'</div>';
     ags.slice(0,3).forEach(function(a){
       h+='<button type="button" class="cev '+(a.sumber==='mkt'?'mkt':'evt')+'" title="'+esc(a.judul+' — '+(a.sumber==='mkt'?'Marketing':'Event'))+'" '+
-        'onclick="APP.buka(\''+a.sumber+'\',\''+esc(a.id)+'\')">'+esc(a.judul)+'</button>';
+        'onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+esc(a.judul)+'</button>';
     });
     if(ags.length>3) h+='<div class="cres">+'+(ags.length-3)+' lagi</div>';
     if(rs.length) h+='<div class="cres">'+rs.length+' rsv · '+paxRes(rs)+' pax</div>';
@@ -863,7 +918,7 @@ function vKoordinasi(){
     DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+PENDEK[d]+'</div>';});
     list.forEach(function(a){
       var k=kesiapan(a.mentah);
-      h+='<button type="button" class="mn" onclick="APP.buka(\'mkt\',\''+esc(a.id)+'\')"><span>'+esc(a.judul)+'</span>'+
+      h+='<button type="button" class="mn" onclick="APP.detail(\'ag\',\'mkt\',\''+esc(a.id)+'\')"><span>'+esc(a.judul)+'</span>'+
         '<small>'+fTglP(a.tgl)+' · '+dLabel(dDay(a.tgl))+' · '+k.pct+'%</small></button>';
       DIVISI.forEach(function(d){
         var p=divProgress(a.mentah,d);
@@ -886,18 +941,39 @@ function vKoordinasi(){
     diam.forEach(function(x){ (perEv[x.a.id]=perEv[x.a.id]||{a:x.a,ds:[]}).ds.push(x.d); });
     Object.keys(perEv).forEach(function(k){
       var x=perEv[k];
-      h+='<button type="button" class="card" style="margin-bottom:10px;width:100%;text-align:left;cursor:pointer" onclick="APP.buka(\'mkt\',\''+esc(x.a.id)+'\')">'+
+      h+='<button type="button" class="card" style="margin-bottom:10px;width:100%;text-align:left;cursor:pointer" onclick="APP.detail(\'ag\',\'mkt\',\''+esc(x.a.id)+'\')">'+
         '<div style="font-weight:700;font-size:13.5px">'+esc(x.a.judul)+'</div>'+
         '<div style="font-size:11.5px;color:var(--muted);margin:3px 0 7px">'+fTglP(x.a.tgl)+' · '+dLabel(dDay(x.a.tgl))+'</div>'+
         '<div class="pill-row">'+x.ds.map(function(d){return pill(d,'p-bad');}).join('')+'</div></button>';
     });
   }
   h+='</div><div>';
+
+  /* Beban per PIC — dihitung dari data NYATA: mktPIC event Marketing (via
+     daftar user Marketing) dan pic modul Event. Menjawab "siapa yang sedang
+     memegang paling banyak acara mendatang" tanpa menanya satu per satu. */
+  var beban={};
+  AGENDA.filter(function(a){return dDay(a.tgl)>=0;}).forEach(function(a){
+    var nama = a.sumber==='mkt' ? namaMkt(a.mentah.mktPIC) : (a.mentah.pic||'');
+    if(nama) (beban[nama]=beban[nama]||{n:0,src:a.sumber}).n++;
+  });
+  var pics=Object.keys(beban).sort(function(x,y){return beban[y].n-beban[x].n;});
+  h+='<div class="card" style="margin-bottom:14px"><div class="sec-h"><h2>Beban per PIC</h2><span class="rule"></span></div>';
+  if(!pics.length) h+='<div class="muted" style="font-size:12.5px">Belum ada PIC tercatat di event mendatang. (Event Marketing di dev banyak yang PIC-nya masih kosong.)</div>';
+  pics.forEach(function(p){
+    h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)">'+
+      '<span class="avatar">'+initial(p)+'</span>'+
+      '<span style="flex:1"><b style="font-size:12.5px">'+esc(p)+'</b>'+
+        '<div style="font-size:10.5px;color:var(--muted)">'+(beban[p].src==='mkt'?'Marketing':'Event')+'</div></span>'+
+      pill(beban[p].n+' agenda','p-sea')+'</div>';
+  });
+  h+='</div>';
+
   h+='<div class="card"><div class="sec-h"><h2>Agenda modul Event</h2><span class="rule"></span></div>';
   var ev=AGENDA.filter(function(a){return a.sumber==='evt' && dDay(a.tgl)>=0;}).slice(0,8);
   if(!ev.length) h+='<div class="muted" style="font-size:12.5px">Tidak ada jadwal dari modul Event.</div>';
   ev.forEach(function(a){
-    h+='<button type="button" style="display:block;width:100%;text-align:left;padding:9px 0;border-bottom:1px solid var(--line-soft);cursor:pointer;background:none">'+
+    h+='<button type="button" style="display:block;width:100%;text-align:left;padding:9px 0;border-bottom:1px solid var(--line-soft);cursor:pointer;background:none" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
       '<div style="font-size:13px;font-weight:600">'+esc(a.judul)+'</div>'+
       '<div style="font-size:11.5px;color:var(--muted)">'+fTglP(a.tgl)+' · '+dLabel(dDay(a.tgl))+
       (a.tempat?' · '+esc(a.tempat):'')+(a.status?' · '+esc(a.status):'')+'</div></button>';
@@ -983,10 +1059,221 @@ function vBriefing(){
   return h;
 }
 
+/* ---------- HALAMAN: EVENT (agenda gabungan) ----------
+   Semua agenda dari Marketing + Event dalam satu daftar, disaring dan dicari.
+   Tetap read-only: klik membuka panel detail; mengubah tetap di modul asal. */
+var fAg={rentang:'akan', sumber:'', status:'', q:''};
+function agendaTersaring(){
+  var list=AGENDA.slice();
+  if(fAg.rentang==='akan') list=list.filter(function(a){return dDay(a.tgl)>=0;});
+  else if(fAg.rentang==='lalu') list=list.filter(function(a){return dDay(a.tgl)<0;});
+  if(fAg.sumber) list=list.filter(function(a){return a.sumber===fAg.sumber;});
+  if(fAg.status) list=list.filter(function(a){return String(a.status||'')===fAg.status;});
+  if(fAg.q){var q=fAg.q.toLowerCase();
+    list=list.filter(function(a){return (a.judul+' '+(a.tempat||'')+' '+(a.jenis||'')).toLowerCase().indexOf(q)>-1;});}
+  return list;
+}
+function vAgendaList(){
+  var h=pitaGagal();
+  var statusSet={}; AGENDA.forEach(function(a){ if(a.status) statusSet[a.status]=1; });
+  var list=agendaTersaring();
+  h+='<div class="grid g4" style="margin-bottom:15px">'+
+    stat('Agenda tampil', list.length, fAg.rentang==='akan'?'hari ini & ke depan':(fAg.rentang==='lalu'?'riwayat':'semua data'),'')+
+    stat('Dari Marketing', list.filter(function(a){return a.sumber==='mkt';}).length,'event klien','')+
+    stat('Dari Event', list.filter(function(a){return a.sumber==='evt';}).length,'jadwal talent & acara','se')+
+    stat('Total pax rencana', list.reduce(function(s,a){return s+(+a.pax||0);},0),'akumulasi kapasitas/target','tl')+
+  '</div>';
+  h+='<div class="filters">'+
+    '<input class="finp" placeholder="Cari nama, tempat, jenis…" value="'+esc(fAg.q)+'" oninput="APP.fAg(\'q\',this.value)" style="min-width:220px">'+
+    '<button class="chip'+(fAg.rentang==='akan'?' on':'')+'" onclick="APP.fAg(\'rentang\',\'akan\')">Akan datang</button>'+
+    '<button class="chip'+(fAg.rentang==='lalu'?' on':'')+'" onclick="APP.fAg(\'rentang\',\'lalu\')">Riwayat</button>'+
+    '<button class="chip'+(fAg.rentang==='semua'?' on':'')+'" onclick="APP.fAg(\'rentang\',\'semua\')">Semua</button>'+
+    '<select class="finp" onchange="APP.fAg(\'sumber\',this.value)"><option value="">Semua sumber</option>'+
+      '<option value="mkt"'+(fAg.sumber==='mkt'?' selected':'')+'>Marketing</option>'+
+      '<option value="evt"'+(fAg.sumber==='evt'?' selected':'')+'>Event</option></select>'+
+    '<select class="finp" onchange="APP.fAg(\'status\',this.value)"><option value="">Semua status</option>'+
+      Object.keys(statusSet).sort().map(function(s){return '<option'+(fAg.status===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
+  '</div>';
+  if(!list.length) return h+kosong('Tidak ada agenda yang cocok','Ubah filter atau kata kuncinya.');
+  h+='<div class="grid g2" style="gap:12px">';
+  list.forEach(function(a){ h+=agendaCard(a); });
+  return h+'</div>';
+}
+
+/* ---------- HALAMAN: RESERVASI ---------- */
+var fRs={rentang:'akan', status:'', kategori:'', q:''};
+function resTersaring(){
+  var list=(D.rsv&&D.rsv.reservations||[]).filter(function(r){return r&&r.date;});
+  if(fRs.rentang==='akan') list=list.filter(function(r){return dDay(r.date)>=0;});
+  else if(fRs.rentang==='lalu') list=list.filter(function(r){return dDay(r.date)<0;});
+  if(fRs.status) list=list.filter(function(r){return String(r.status||'')===fRs.status;});
+  if(fRs.kategori) list=list.filter(function(r){return String(r.category||'')===fRs.kategori;});
+  if(fRs.q){var q=fRs.q.toLowerCase();
+    list=list.filter(function(r){return ((r.name||'')+' '+(r.phone||'')+' '+(r.table||'')).toLowerCase().indexOf(q)>-1;});}
+  list.sort(function(a,b){return a.date===b.date?(String(a.time||'')<String(b.time||'')?-1:1):(a.date<b.date?-1:1);});
+  return list;
+}
+function vResList(){
+  var all=(D.rsv&&D.rsv.reservations||[]);
+  var stSet={}, katSet={};
+  all.forEach(function(r){ if(r.status)stSet[r.status]=1; if(r.category)katSet[r.category]=1; });
+  var list=resTersaring();
+  var h=pitaGagal();
+  h+='<div class="grid g4" style="margin-bottom:15px">'+
+    stat('Reservasi tampil', list.length, fRs.rentang==='akan'?'hari ini & ke depan':(fRs.rentang==='lalu'?'riwayat':'semua data'),'')+
+    stat('Total pax', paxRes(list.filter(function(r){return !resBatal(r);})), 'tanpa yang batal & no-show','se')+
+    stat('Belum konfirmasi', list.filter(function(r){return /pending|menunggu/i.test(String(r.status||''));}).length, 'perlu tindak lanjut', list.filter(function(r){return /pending|menunggu/i.test(String(r.status||''));}).length?'rd':'')+
+    stat('VIP / Korporat', list.filter(function(r){return r.vip||/vip|korporat/i.test(String(r.category||''));}).length, 'butuh perhatian khusus','tl')+
+  '</div>';
+  h+='<div class="filters">'+
+    '<input class="finp" placeholder="Cari nama, nomor, meja…" value="'+esc(fRs.q)+'" oninput="APP.fRs(\'q\',this.value)" style="min-width:220px">'+
+    '<button class="chip'+(fRs.rentang==='akan'?' on':'')+'" onclick="APP.fRs(\'rentang\',\'akan\')">Akan datang</button>'+
+    '<button class="chip'+(fRs.rentang==='lalu'?' on':'')+'" onclick="APP.fRs(\'rentang\',\'lalu\')">Riwayat</button>'+
+    '<button class="chip'+(fRs.rentang==='semua'?' on':'')+'" onclick="APP.fRs(\'rentang\',\'semua\')">Semua</button>'+
+    '<select class="finp" onchange="APP.fRs(\'status\',this.value)"><option value="">Semua status</option>'+
+      Object.keys(stSet).sort().map(function(s){return '<option'+(fRs.status===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
+    '<select class="finp" onchange="APP.fRs(\'kategori\',this.value)"><option value="">Semua kategori</option>'+
+      Object.keys(katSet).sort().map(function(s){return '<option'+(fRs.kategori===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
+  '</div>';
+  if(!list.length) return h+kosong('Tidak ada reservasi yang cocok','Ubah filter atau kata kuncinya.');
+  h+='<div class="tw"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>Kategori</th><th>DP</th><th>Status</th></tr></thead><tbody>';
+  list.forEach(function(r){
+    var st=String(r.status||'—');
+    var c=/datang|seat|duduk/i.test(st)?'p-go':(resBatal(r)||resNoShow(r)?'p-bad':'p-warn');
+    var dp=(+r.dpAmount||0);
+    h+='<tr class="clk" onclick="APP.detail(\'rs\',\''+esc(r.id)+'\')">'+
+      '<td>'+fTglP(r.date)+'</td>'+
+      '<td class="num" style="font-family:var(--mono);font-size:12px">'+esc(r.time||'—')+'</td>'+
+      '<td><b>'+esc(r.name||'—')+'</b>'+(r.vip?' '+pill('VIP','p-vip'):'')+
+        (r.notes?'<div style="font-size:10.5px;color:var(--muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.notes)+'</div>':'')+'</td>'+
+      '<td class="num"><b>'+(+r.pax||0)+'</b></td>'+
+      '<td>'+esc(r.table||'—')+'</td>'+
+      '<td>'+esc(r.category||'—')+'</td>'+
+      '<td>'+(dp?pill(rp(dp),'p-go'):(/lunas/i.test(String(r.dpStatus||''))?pill('Lunas','p-go'):pill('Belum','p-mute')))+'</td>'+
+      '<td>'+pill(st,c)+'</td></tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+
+/* ---------- PANEL DETAIL (read-only) ---------- */
+function namaMkt(id){
+  if(!id) return '';
+  var u=(D.mkt&&D.mkt.users||[]).filter(function(x){return String(x.id)===String(id);})[0];
+  return u?(u.name||u.nama||id):id;
+}
+function klienMkt(id){
+  if(!id) return null;
+  return (D.mkt&&D.mkt.clients||[]).filter(function(x){return String(x.id)===String(id);})[0]||null;
+}
+function talentEvt(eid){
+  var sc=(D.evt&&D.evt.schedules||[]).filter(function(s){return String(s.event_id)===String(eid);});
+  return sc.map(function(s){
+    var t=(D.evt&&D.evt.talents||[]).filter(function(x){return String(x.id)===String(s.talent_id);})[0];
+    return {nama:(t?(t.name||t.nama):'(talent)'), jam:(s.start_time||''), tipe:(s.performance_type||'')};
+  });
+}
+function kvRow(l,v){ return '<div><b>'+esc(l)+'</b><span>'+ (v==null||v===''?'—':v) +'</span></div>'; }
+function drawerAgenda(a){
+  var d=dDay(a.tgl);
+  $('#drwEye').textContent = (a.sumber==='mkt'?'Marketing · Event Klien':'Event · Jadwal Acara');
+  $('#drwTitle').textContent = a.judul;
+  var k=a.sumber==='mkt'?kesiapan(a.mentah):null;
+  $('#drwPills').innerHTML = badgeSumber(a.sumber)+pill(fTgl(a.tgl),'p-mute')+
+    pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+(a.status?pill(a.status,'p-mute'):'')+
+    (k?(k.ada?pill('Siap '+k.pct+'%',k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad')):pill('Job belum disusun','p-mute')):'');
+  var h='';
+  if(a.sumber==='mkt'){
+    var e=a.mentah, cl=klienMkt(e.clientId), byr=(e.payments||[]).length;
+    h+='<div class="kv">'+
+      kvRow('Waktu', (a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
+      kvRow('Tempat', esc(a.tempat||''))+
+      kvRow('Jenis', esc(a.jenis||''))+
+      kvRow('Target pax', a.pax||'—')+
+      kvRow('Marketing PIC', esc(namaMkt(e.mktPIC)))+
+      kvRow('Pembayaran tercatat', byr?byr+' transaksi':'belum ada')+
+    '</div>';
+    if(cl) h+='<div class="kv">'+
+      kvRow('Klien', esc(cl.nama||'')+(cl.perusahaan?' — '+esc(cl.perusahaan):''))+
+      kvRow('PIC klien', esc(cl.pic||cl.nama||''))+
+      kvRow('Kontak', esc(cl.hp||''))+'</div>';
+    var rs=resTgl(a.tgl);
+    h+='<div class="kv">'+
+      kvRow('Reservasi tanggal ini', rs.length+' booking · '+paxRes(rs)+' pax')+'</div>';
+    if(k){
+      h+='<div class="sec-h" style="margin-top:6px"><h2>Kesiapan divisi</h2><span class="rule"></span></div>';
+      if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
+      else{
+        h+='<div style="max-width:220px;margin:0 auto 10px">'+compassSVG(a.mentah)+'</div><div class="pill-row">';
+        DIVISI.forEach(function(dv){ if(!tmplEvDiv(a.mentah,dv).length) return;
+          var p=divProgress(a.mentah,dv); h+=pill(dv+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad')); });
+        h+='</div>';
+      }
+    }
+  }else{
+    var e2=a.mentah, tal=talentEvt(a.id);
+    h+='<div class="kv">'+
+      kvRow('Waktu', (a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
+      kvRow('Venue', esc(e2.venue||''))+
+      kvRow('Kategori', esc(e2.category||''))+
+      kvRow('Kapasitas', e2.capacity||'—')+
+      kvRow('PIC', esc(e2.pic||''))+
+      kvRow('Co-PIC', esc(e2.co_pic||''))+
+    '</div>';
+    if(e2.theme) h+='<div class="kv">'+kvRow('Tema', esc(e2.theme))+kvRow('Tiketing', e2.is_ticketed?'Ya':'Tidak')+'</div>';
+    if(e2.description) h+='<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px">'+esc(String(e2.description).slice(0,400))+'</div>';
+    if(tal.length){
+      h+='<div class="sec-h" style="margin-top:6px"><h2>Talent terjadwal</h2><span class="rule"></span></div>';
+      tal.forEach(function(t){ h+='<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft)">'+
+        '<b style="flex:1;font-size:13px">'+esc(t.nama)+'</b>'+(t.jam?'<span class="muted" style="font-size:11.5px;font-family:var(--mono)">'+esc(t.jam)+'</span>':'')+
+        (t.tipe?' '+pill(t.tipe,'p-mute'):'')+'</div>'; });
+    }
+  }
+  h+='<div style="margin-top:18px"><a class="btn pri" href="'+hrefAgenda(a)+'" target="_blank" rel="noopener">'+
+     ico('out')+'Buka & ubah di '+(a.sumber==='mkt'?'Marketing':'Event')+'</a></div>'+
+     '<div class="muted" style="font-size:11px;margin-top:10px">Radar hanya menampilkan. Semua perubahan dilakukan di modul asalnya.</div>';
+  $('#drwBody').innerHTML=h; bukaDrw();
+}
+function drawerRes(r){
+  $('#drwEye').textContent = 'Reservasi · '+(r.category||'Tamu');
+  $('#drwTitle').textContent = r.name||'—';
+  var st=String(r.status||'—');
+  var c=/datang|seat|duduk/i.test(st)?'p-go':(resBatal(r)||resNoShow(r)?'p-bad':'p-warn');
+  $('#drwPills').innerHTML = pill(st,c)+pill(fTgl(r.date),'p-mute')+pill((r.time||'—')+' · '+(+r.pax||0)+' pax','p-sea')+(r.vip?pill('VIP','p-vip'):'');
+  var dp=(+r.dpAmount||0);
+  var h='<div class="kv">'+
+    kvRow('Tanggal', fTgl(r.date))+
+    kvRow('Jam datang', esc(r.time||''))+
+    kvRow('Jumlah tamu', (+r.pax||0)+' pax')+
+    kvRow('Meja', esc(r.table||''))+
+    kvRow('Kategori', esc(r.category||''))+
+    kvRow('Sumber', esc(r.source||''))+
+    kvRow('PIC', esc(r.picName||''))+
+    kvRow('Kontak', esc(r.phone||''))+
+  '</div>';
+  h+='<div class="kv">'+
+    kvRow('DP', dp?rp(dp):(/lunas/i.test(String(r.dpStatus||''))?'Lunas':'Belum ada'))+
+    kvRow('Status DP', esc(r.dpStatus||''))+
+    kvRow('Member', r.member?('Ya'+(r.memberNo?' · '+esc(r.memberNo):'')):'Bukan')+
+  '</div>';
+  if(r.notes) h+='<div class="card gold" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:6px">Catatan</div><div style="font-size:13px;color:var(--sand-dim);line-height:1.6">'+esc(r.notes)+'</div></div>';
+  var permintaan=[r.foodReq,r.drinkReq].filter(Boolean).join(' · ');
+  if(permintaan) h+='<div class="card" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:6px">Permintaan F&amp;B</div><div style="font-size:13px;color:var(--sand-dim)">'+esc(permintaan)+'</div></div>';
+  if(r.cancelReason) h+='<div class="card" style="margin-bottom:12px;border-color:var(--danger)"><div class="eyebrow" style="margin-bottom:6px;color:var(--danger)">Alasan batal</div><div style="font-size:13px;color:var(--sand-dim)">'+esc(r.cancelReason)+'</div></div>';
+  var wa=String(r.phone||'').replace(/[^0-9]/g,''); if(wa.indexOf('0')===0)wa='62'+wa.slice(1);
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">'+
+     (wa?'<a class="btn" href="https://wa.me/'+wa+'" target="_blank" rel="noopener">'+ico('wa')+'Hubungi tamu</a>':'')+
+     '<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">'+ico('out')+'Buka di Reservasi</a></div>'+
+     '<div class="muted" style="font-size:11px;margin-top:10px">Radar hanya menampilkan. Ubah reservasi di modul Reservasi.</div>';
+  $('#drwBody').innerHTML=h; bukaDrw();
+}
+function bukaDrw(){ $('#drw').classList.add('on'); $('#scrim').classList.add('on'); }
+
 /* ---------- ROUTER ---------- */
 var NAV=[['radar','Radar','radar'],['kalender','Kalender Terpadu','cal'],
+         ['agenda','Event','star'],['reservasi','Reservasi','book'],
          ['koordinasi','Koordinasi','grid'],['briefing','Briefing','file']];
 var JUDUL={radar:['Pusat Koordinasi','Radar'],kalender:['Tiga Modul, Satu Jadwal','Kalender Terpadu'],
+           agenda:['Marketing + Event','Daftar Event'],reservasi:['Dari Modul Reservasi','Reservasi'],
            koordinasi:['Kesiapan Lintas Divisi','Koordinasi'],briefing:['Lembar Harian','Briefing']};
 function render(){
   $('#nav').innerHTML='<div class="nav-l">Koordinasi</div>'+
@@ -1002,6 +1289,8 @@ function render(){
   var v=$('#view');
   if(page==='radar') v.innerHTML=vRadar();
   else if(page==='kalender') v.innerHTML=vKalender();
+  else if(page==='agenda') v.innerHTML=vAgendaList();
+  else if(page==='reservasi') v.innerHTML=vResList();
   else if(page==='koordinasi') v.innerHTML=vKoordinasi();
   else if(page==='briefing') v.innerHTML=vBriefing();
   window.scrollTo(0,0);
@@ -1017,11 +1306,25 @@ var APP={
   calNav:function(n){ var m=calCur.m+n,y=calCur.y; if(m<0){m=11;y--;} if(m>11){m=0;y++;} calCur={y:y,m:m}; render(); },
   calNow:function(){ var d=new Date(); calCur={y:d.getFullYear(),m:d.getMonth()}; render(); },
   setBrief:function(v){ brTgl=v; page='briefing'; render(); },
+  fAg:function(k,v){ fAg[k]=v; render(); },
+  fRs:function(k,v){ fRs[k]=v; render(); },
   buka:function(sum,id){
     var a=AGENDA.filter(function(x){return x.sumber===sum && String(x.id)===String(id);})[0];
     if(!a){ toast('Tidak ditemukan','Agenda mungkin sudah berubah di modul asalnya.'); return; }
     bukaSumber(a);
   },
+  detail:function(kind,a,b){
+    if(kind==='ag'){
+      var ag=AGENDA.filter(function(x){return x.sumber===a && String(x.id)===String(b);})[0];
+      if(!ag){ toast('Tidak ditemukan','Agenda mungkin sudah berubah di modul asalnya.'); return; }
+      drawerAgenda(ag);
+    }else{
+      var r=(D.rsv&&D.rsv.reservations||[]).filter(function(x){return String(x.id)===String(a);})[0];
+      if(!r){ toast('Tidak ditemukan','Reservasi mungkin sudah berubah di modul asalnya.'); return; }
+      drawerRes(r);
+    }
+  },
+  tutupDetail:function(){ $('#drw').classList.remove('on'); $('#scrim').classList.remove('on'); },
   muatUlang:function(){
     toast('Menyegarkan','Menarik ulang data dari ketiga modul.');
     muat().then(function(){
@@ -1056,6 +1359,7 @@ function init(){
     $('#app').style.display='grid';
     render();
     tickClock(); setInterval(tickClock,20000);
+    document.addEventListener('keydown',function(e){ if(e.key==='Escape') APP.tutupDetail(); });
     if(GAGAL.length) toast('Sebagian sumber gagal', GAGAL.map(function(g){return g.nama;}).join(', ')+' tidak terhubung.');
   }, function(e){
     $('#loadTxt').textContent='Gagal memuat: '+(e&&e.message||e);
