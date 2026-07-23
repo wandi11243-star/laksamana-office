@@ -169,9 +169,23 @@ function collections() {
       'divisi'     => array('div', 'str'),
       'amount'     => array('amount', 'int'),
       'status'     => array('status', 'str'),
+      'payment'    => array('payment', 'str'),       // CASH/ONLINE/CREDIT
       'need_by'    => array('needBy', 'date'),
       'pic'        => array('pic', 'str'),          // PO: satu penanggung jawab
       'project_id' => array('project', 'str'),
+      'pr_id'      => array('prId', 'str'),         // dokumen PR mingguan tempat baris ini ikut
+    )),
+    /* Dokumen PR mingguan. Item-nya TIDAK di sini — barisnya tinggal di
+       purchase_orders dan menunjuk balik lewat pr_id, jadi tidak ada dua
+       salinan isi yang bisa menyimpang. */
+    'pr' => array('table' => 'purchase_requests', 'created' => true, 'cols' => array(
+      'no'         => array('no', 'str'),
+      'nama'       => array('nama', 'str'),
+      'dept'       => array('dept', 'str'),
+      'tanggal'    => array('tanggal', 'date'),
+      'week_start' => array('weekStart', 'date'),
+      'status'     => array('status', 'str'),
+      'total'      => array('total', 'int'),
     )),
     'agenda' => array('table' => 'agenda', 'created' => true, 'cols' => array(
       'title'   => array('title', 'str'),
@@ -394,7 +408,7 @@ function stats() {
   $pdo = db();
   $out = array_merge(array('backend' => 'php-mysql'), identitas());
   $tabel = array('people','projects','tasks','routines','coord_requests',
-                 'purchase_orders','agenda','settings');
+                 'purchase_orders','purchase_requests','agenda','settings');
   foreach ($tabel as $t) {
     $out[$t] = (int)$pdo->query('SELECT COUNT(*) c FROM ' . q($t))->fetch()['c'];
   }
