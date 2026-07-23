@@ -16,6 +16,7 @@ paham, kepakai di semua modul.
 | `config.dev.php` | Kredensial **dev**. Upload lalu **rename jadi `config.php`** di server |
 | `config.sample.php` | Contoh yang masuk repo (dua config di atas di-ignore git) |
 | `schema.sql` | Struktur 8 tabel (jalankan sekali, di **tiap** database) |
+| `hapus-data-contoh.sql` | Sekali pakai — bersihkan data contoh versi lama |
 | `lib_bd_mysql.php` | Logika. Tidak perlu disentuh |
 | `api.php` | Endpoint (`getAll` / `saveAll` / `stats` / `ping`) |
 | `.gitignore` | Mengunci `config*.php` agar password tidak ikut ter-commit |
@@ -131,13 +132,26 @@ Konsekuensinya:
    **`bd`**. Tanpa itu kartu BD OS tidak muncul dan penjaga di `deploy/bd/`
    akan melempar kru kembali ke portal.
 
-## Data contoh
+## Tidak ada data contoh
 
-`deploy/bd/index.html` punya `SEED_CONTOH = true`: kalau database benar-benar
-kosong (tidak ada kru, task, maupun project), aplikasi mengisi contoh sekali
-lalu menyimpannya. **Setelah tim mulai input data beneran, ganti ke `false`** —
-supaya database yang sengaja dikosongkan tidak diam-diam terisi ulang data
-karangan.
+Modul ini **tidak pernah mengisi database dengan data karangan**. Papan yang
+baru dipasang memang kosong, lengkap dengan pesan "belum ada task".
+
+Versi pertamanya sempat punya `SEED_CONTOH`: begitu database kosong, papan
+diisi project, task, dan tujuh kru fiktif. Niatnya mengenalkan modul, hasilnya
+sebaliknya — sesudah daftar kru beralih ke database account, tujuh nama
+karangan itu berdiri di halaman Kru bertanda "akses dicabut", dan tiap task
+contoh menempel pada orang yang tidak pernah ada. Kode pengisinya **dihapus**,
+bukan dimatikan lewat saklar: saklar yang bisa dinyalakan pasti suatu saat
+dinyalakan lagi di database yang sudah berisi data sungguhan.
+
+Kalau data contoh dari versi lama telanjur masuk, bersihkan dengan
+[`hapus-data-contoh.sql`](hapus-data-contoh.sql) lewat phpMyAdmin.
+
+> Pengosongan **harus** lewat phpMyAdmin. Backend sengaja menolak menghapus
+> isi tabel saat kiriman aplikasi kosong (`hapus_yang_hilang()`) — perlindungan
+> terhadap aplikasi yang gagal memuat lalu menyimpan state kosong. Tanpa
+> penjaga itu, satu kali gagal muat bisa mengosongkan seluruh papan kerja.
 
 ## Endpoint
 

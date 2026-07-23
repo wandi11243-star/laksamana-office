@@ -332,8 +332,14 @@ td .mut{color:var(--muted);font-size:12.5px}
 /* ---------- LAIN-LAIN ---------- */
 .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;margin-bottom:10px}
 .backlink:hover{color:var(--gold-deep)}
-.notice{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:11px;font-size:12.5px;
-  border:1px solid var(--line);background:var(--gold-glow);color:var(--gold-deep);margin-bottom:16px;line-height:1.5}
+/* display:BLOCK, bukan flex. Versi flex membuat setiap <b> dan <code> di dalam
+   kalimat jadi flex item sendiri, sehingga paragrafnya pecah jadi kolom-kolom
+   dan kalimatnya tidak bisa dibaca berurutan. Tombol di dalam pita diturunkan
+   ke baris bawah lewat .notice .btn. */
+.notice{display:block;padding:11px 14px;border-radius:11px;font-size:12.5px;
+  border:1px solid var(--line);background:var(--gold-glow);color:var(--gold-deep);margin-bottom:16px;line-height:1.55}
+.notice .btn{margin-top:9px}
+.notice code{font-family:var(--mono);font-size:11.5px;background:rgba(122,86,15,.10);padding:1px 5px;border-radius:4px}
 .notice.bad{border-color:var(--danger);background:var(--danger-bg);color:var(--danger)}
 .loading{position:fixed;inset:0;background:var(--ink-900);z-index:999;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:14px}
@@ -424,12 +430,20 @@ td .mut{color:var(--muted);font-size:12.5px}
 /* Kalau backend perlu dipindah/dibalik, cukup ganti SATU baris di bawah. */
 const API_URL = "../bd-api-mysql/api.php";
 
-/* Data contoh diisi HANYA kalau database benar-benar kosong (tidak ada kru dan
-   tidak ada task). Berguna untuk mengenalkan modul.
-   >>> Setelah tim mulai input data beneran, ganti ke false <<<
-   supaya database yang (misalnya) dikosongkan tidak diam-diam terisi ulang
-   data karangan. */
-const SEED_CONTOH = true;
+/* TIDAK ADA DATA CONTOH. Sengaja dihapus, bukan sekadar dimatikan lewat saklar.
+
+   Versi pertama modul ini mengisi papan dengan project, task, dan tujuh kru
+   karangan begitu database kosong. Niatnya mengenalkan modul, hasilnya
+   sebaliknya: sesudah daftar kru beralih ke database account, tujuh nama
+   karangan itu berdiri di halaman Kru bertanda "akses dicabut" — sampah yang
+   harus dibersihkan tangan, dan setiap task contoh menempel pada orang yang
+   tidak pernah ada.
+
+   Saklar `SEED_CONTOH=false` tidak cukup: kode pengisinya tetap ada, dan
+   saklar yang bisa dinyalakan pasti suatu saat dinyalakan lagi di database
+   yang sudah berisi data sungguhan. Papan kosong dengan pesan "belum ada
+   task" jauh lebih jujur daripada papan yang tampak ramai oleh pekerjaan
+   yang tidak pernah dikerjakan siapa pun. */
 
 /* ============ ORGANISASI ============
    OWNER_DIVS = divisi yang PEKERJAANNYA dikelola di sini.
@@ -628,7 +642,6 @@ function kirim(){
     if(_kotor) setTimeout(kirim,2000);
   });
 }
-function kirimPaksa(){_kotor=true;return kirim();}
 // Jangan biarkan perubahan terakhir hilang saat tab ditutup.
 window.addEventListener('beforeunload',function(e){ if(_kotor||_menyimpan){e.preventDefault();e.returnValue='';} });
 
@@ -906,16 +919,16 @@ function pitaDaftar(){
   if(ROSTER===null && ROSTER_PESAN)
     return '<div class="notice bad">Daftar kru tidak bisa diambil dari Office: '+esc(ROSTER_PESAN)+
       '. Papan tetap jalan memakai daftar hasil sinkron terakhir, tapi kru yang baru diberi akses '+
-      'belum akan muncul.<button class="btn sm" style="margin-left:auto" onclick="APP.segarkanKru()">Coba lagi</button></div>';
+      'belum akan muncul.<button class="btn sm" onclick="APP.segarkanKru()">Coba lagi</button></div>';
   if(!AKU)
     return '<div class="notice">Kamu punya akses modul ini, tapi belum muncul di daftar kru — '+
       'biasanya karena akses baru diberikan dan sesimu masih yang lama. Keluar lalu masuk lagi; '+
       'sementara itu papan menampilkan pekerjaan <b>semua orang</b>.'+
-      '<button class="btn sm" style="margin-left:auto" onclick="APP.segarkanKru()">Segarkan</button></div>';
+      '<button class="btn sm" onclick="APP.segarkanKru()">Segarkan</button></div>';
   if(!AKU.div)
     return '<div class="notice">Divisi kamu belum diatur, jadi task barumu akan jatuh ke divisi bawaan. '+
       'Atur di <b>Kru BD</b> — sekalian isi atasanmu, karena itu yang menentukan siapa melihat task siapa.'+
-      '<button class="btn sm" style="margin-left:auto" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
+      '<button class="btn sm" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
   return '';
 }
 function vDashboard(){
@@ -1913,120 +1926,6 @@ window.closeModal=function(){ $('#overlay').classList.remove('show'); $('#modal'
 function showModal(html){ $('#modal').innerHTML=html; $('#overlay').classList.add('show'); }
 document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeModal(); });
 
-/* ============ DATA CONTOH ============
-   TIDAK ADA kru karangan di sini lagi. Kru datang dari database account, dan
-   nama fiktif seperti "Nadia Kusuma" akan langsung tertandai "akses dicabut"
-   di halaman Kru — sampah yang harus dibersihkan manual, bukan contoh yang
-   membantu.
-
-   Semua PIC di data contoh diarahkan ke ORANG YANG MENJALANKANNYA. Selain
-   membuat papan langsung terasa hidup ("6 task aktif milikku"), itu juga
-   membuat data contoh gampang dihapus: semuanya milik satu orang. */
-function contoh(picku){
-  var u={ceo:picku,bd:picku,bd2:picku,pm:picku,pm2:picku,pur:picku,pur2:picku};
-  var p={p1:uid('p'),p2:uid('p'),p3:uid('p'),p4:uid('p')};
-  var projects=[
-    {id:p.p1,name:'Riau Coffee Festival 2026',type:'Event',stage:'Running',div:'Business Development',pic:u.bd,
-     team:[picku],start:inDays(-20),end:inDays(25),budget:85000000,spent:38000000,health:'on-track',
-     desc:'Partisipasi & booth Laksamana di Riau Coffee Festival — brand exposure + penjualan langsung.',
-     milestones:[{t:'Approval konsep',date:inDays(-15),done:true},{t:'Booth & desain siap',date:inDays(5),done:false},
-                 {t:'Soft run',date:inDays(18),done:false},{t:'Festival day',date:inDays(25),done:false}]},
-    {id:p.p2,name:'Renovasi Central Kitchen',type:'Renovasi',stage:'Planning',div:'Project',pic:u.pm,
-     team:[picku],start:inDays(-8),end:inDays(52),budget:220000000,spent:15000000,health:'at-risk',
-     desc:'Upgrade central kitchen untuk kapasitas produksi 2x mendukung ekspansi cabang.',
-     milestones:[{t:'Approval design',date:inDays(3),done:false},{t:'Budget disetujui',date:inDays(7),done:false},
-                 {t:'Mulai konstruksi',date:inDays(14),done:false},{t:'Handover',date:inDays(52),done:false}]},
-    {id:p.p3,name:'Launching Menu Nusantara',type:'Launching',stage:'Running',div:'Business Development',pic:u.bd2,
-     team:[picku],start:inDays(-12),end:inDays(18),budget:35000000,spent:12000000,health:'on-track',
-     desc:'Peluncuran 5 menu signature Nusantara + campaign marketing terintegrasi.',
-     milestones:[{t:'Finalisasi resep',date:inDays(6),done:false},{t:'Photoshoot',date:inDays(9),done:false},
-                 {t:'Grand launch',date:inDays(18),done:false}]},
-    {id:p.p4,name:'Membership & Loyalty Program',type:'Internal',stage:'Idea',div:'Business Development',pic:u.bd,
-     team:[picku],start:inDays(2),end:inDays(75),budget:50000000,spent:0,health:'on-track',
-     desc:'Program membership berjenjang untuk retensi pelanggan & data-driven marketing.',
-     milestones:[{t:'Riset & benchmark',date:inDays(15),done:false},{t:'Sistem siap',date:inDays(50),done:false},
-                 {t:'Launch',date:inDays(75),done:false}]}
-  ];
-  var mk=function(o){return Object.assign({id:uid('t'),desc:'',project:null,progress:0,type:'Ad-hoc'},o);};
-  var tasks=[
-    mk({name:'Finalisasi proposal sponsorship festival',div:'Business Development',pic:u.bd,status:'Doing',
-      priority:'Urgent',deadline:todayISO(),important:true,urgent:true,type:'Project',project:p.p1,progress:60,
-      desc:'Deck sponsor tier + benefit. Kirim ke 3 calon sponsor hari ini.'}),
-    mk({name:'Nego kontrak vendor booth festival',div:'Business Development',pic:u.bd2,status:'Doing',
-      priority:'High',deadline:inDays(2),important:true,urgent:true,type:'Project',project:p.p1,progress:40}),
-    mk({name:'Riset benchmark program membership kompetitor',div:'Business Development',pic:u.bd,status:'To Do',
-      priority:'Medium',deadline:inDays(9),important:true,urgent:false,type:'Project',project:p.p4}),
-    mk({name:'Follow up MoU partner katering korporat',div:'Business Development',pic:u.bd2,status:'Waiting',
-      priority:'High',deadline:inDays(3),important:true,urgent:false,desc:'Menunggu revisi draft dari legal partner.'}),
-    mk({name:'Rekap lead & pipeline BD mingguan',div:'Business Development',pic:u.bd,status:'To Do',
-      priority:'Medium',deadline:inDays(1),important:false,urgent:true,type:'Rutin'}),
-    mk({name:'Review gambar layout central kitchen',div:'Project',pic:u.pm,status:'Review',
-      priority:'High',deadline:inDays(1),important:true,urgent:true,type:'Project',project:p.p2,progress:80}),
-    mk({name:'Susun RAB & pengajuan budget renovasi',div:'Project',pic:u.pm2,status:'Waiting',
-      priority:'Urgent',deadline:inDays(4),important:true,urgent:false,type:'Project',project:p.p2,
-      desc:'Menunggu approval CEO & Finance.'}),
-    mk({name:'Timeline & rundown grand launch menu',div:'Project',pic:u.pm2,status:'To Do',
-      priority:'Medium',deadline:inDays(8),important:true,urgent:false,type:'Project',project:p.p3}),
-    mk({name:'Update progress report project ke CEO',div:'Project',pic:u.pm,status:'To Do',
-      priority:'Medium',deadline:inDays(1),important:false,urgent:true,type:'Rutin'}),
-    mk({name:'Nego harga kopi supplier baru',div:'Purchasing',pic:u.pur,status:'Doing',
-      priority:'High',deadline:inDays(2),important:true,urgent:true,type:'Project',project:p.p1,progress:50}),
-    mk({name:'Beli bahan baku booth festival',div:'Purchasing',pic:u.pur2,status:'To Do',
-      priority:'High',deadline:inDays(4),important:true,urgent:true,type:'Project',project:p.p1}),
-    mk({name:'Cari vendor equipment central kitchen',div:'Purchasing',pic:u.pur,status:'To Do',
-      priority:'Medium',deadline:inDays(10),important:true,urgent:false,type:'Project',project:p.p2}),
-    mk({name:'Bayar invoice vendor sound system',div:'Purchasing',pic:u.pur,status:'To Do',
-      priority:'Urgent',deadline:inDays(-1),important:true,urgent:true}),
-    mk({name:'Follow up pengiriman furniture tertunda',div:'Purchasing',pic:u.pur2,status:'To Do',
-      priority:'High',deadline:inDays(-2),important:false,urgent:true}),
-    mk({name:'Balas email penawaran endorse (low value)',div:'Business Development',pic:u.bd2,status:'To Do',
-      priority:'Low',deadline:todayISO(),important:false,urgent:false}),
-    mk({name:'Approval konsep festival ke CEO',div:'Business Development',pic:u.bd,status:'Done',
-      priority:'High',deadline:inDays(-15),important:true,urgent:false,type:'Project',project:p.p1,progress:100})
-  ];
-  var routines=[
-    {id:uid('r'),name:'Rekap pipeline & lead BD',div:'Business Development',freq:'Weekly',time:'Jumat 16:00',pic:u.bd,   important:true, urgent:false,active:true,done:11,total:12,missed:1},
-    {id:uid('r'),name:'Progress report project ke CEO',div:'Project',       freq:'Weekly',time:'Senin 09:00',pic:u.pm,   important:false,urgent:true, active:true,done:12,total:12,missed:0},
-    {id:uid('r'),name:'Update daftar harga supplier',div:'Purchasing',      freq:'Monthly',time:'Tgl 1',     pic:u.pur2, important:false,urgent:false,active:true,done:3, total:3, missed:0},
-    {id:uid('r'),name:'Cek stok & reorder bahan utama',div:'Purchasing',    freq:'Daily', time:'08:00',      pic:u.pur2, important:true, urgent:true, active:true,done:27,total:30,missed:3},
-    {id:uid('r'),name:'Follow up outstanding invoice vendor',div:'Purchasing',freq:'Weekly',time:'Kamis 14:00',pic:u.pur,important:true, urgent:true, active:true,done:10,total:12,missed:2}
-  ];
-  var coord=[
-    {id:uid('c'),title:'Uji coba resep 5 menu Nusantara',fromDiv:'Business Development',toDiv:'Kitchen',by:u.bd2,to:'Chef Roy',
-      status:'Diproses',priority:'High',due:inDays(6),project:p.p3,desc:'Butuh sample 5 menu untuk photoshoot & tasting.'},
-    {id:uid('c'),title:'Desain feed & konten promo festival',fromDiv:'Business Development',toDiv:'Marketing',by:u.bd,to:'Vina',
-      status:'Diproses',priority:'High',due:inDays(3),project:p.p1,desc:'Set konten 2 minggu jelang festival.'},
-    {id:uid('c'),title:'Signature mocktail untuk booth festival',fromDiv:'Business Development',toDiv:'Bar',by:u.bd,to:'Dimas',
-      status:'Diminta',priority:'Medium',due:inDays(8),project:p.p1,desc:'2 varian mocktail eksklusif festival.'},
-    {id:uid('c'),title:'Approval RAB renovasi central kitchen',fromDiv:'Project',toDiv:'Finance',by:u.pm2,to:'Putri',
-      status:'Diminta',priority:'Urgent',due:inDays(4),project:p.p2,desc:'Review & proses pengajuan budget Rp 220 jt.'},
-    {id:uid('c'),title:'Briefing tim floor menu baru',fromDiv:'Business Development',toDiv:'Floor',by:u.bd2,to:'Christy',
-      status:'Review',priority:'Medium',due:inDays(13),project:p.p3,desc:'SOP penyajian & upselling menu baru.'}
-  ];
-  var po=[
-    {id:uid('po'),item:'Mesin espresso profesional',vendor:'CoffeeTech ID',qty:2,unit:'unit',div:'Purchasing',
-      amount:56000000,status:'Diajukan',needBy:inDays(6),pic:u.pur,project:p.p1,note:'Untuk booth festival + backup.'},
-    {id:uid('po'),item:'Bahan baku kopi & susu',vendor:'Kopi Nusantara',qty:150,unit:'kg',div:'Purchasing',
-      amount:22500000,status:'Approved',needBy:inDays(4),pic:u.pur2,project:p.p1,note:''},
-    {id:uid('po'),item:'Kitchen equipment set (renovasi)',vendor:'',qty:1,unit:'paket',div:'Purchasing',
-      amount:180000000,status:'Draft',needBy:inDays(20),pic:u.pur,project:p.p2,note:'Menunggu approval budget renovasi.'},
-    {id:uid('po'),item:'Furniture & display booth',vendor:'Kreasi Interior',qty:1,unit:'set',div:'Purchasing',
-      amount:18000000,status:'Dibeli',needBy:inDays(3),pic:u.pur2,project:p.p1,note:'Pengiriman tertunda — follow up.'},
-    {id:uid('po'),item:'Sound system sewa festival',vendor:'Audio Pro Riau',qty:1,unit:'paket',div:'Purchasing',
-      amount:12000000,status:'Diterima',needBy:inDays(-1),pic:u.pur,project:p.p1,note:'Invoice belum dibayar.'}
-  ];
-  var agenda=[
-    {id:uid('a'),title:'Meeting mingguan tim BD',date:todayISO(),type:'Meeting',div:'Business Development'},
-    {id:uid('a'),title:'Vendor visit — supplier kopi',date:inDays(1),type:'Vendor',div:'Purchasing'},
-    {id:uid('a'),title:'Investor call cabang Pekanbaru',date:inDays(2),type:'Meeting',div:'Project'},
-    {id:uid('a'),title:'Site visit central kitchen',date:inDays(5),type:'Vendor',div:'Project'}
-  ];
-  /* `people` sengaja TIDAK ikut dikembalikan. Pemanggilnya menyalin kunci
-     per kunci ke DB yang sudah berisi kru hasil sinkron roster — kalau seluruh
-     DB ditimpa objek ini, daftar kru yang baru saja ditarik dari Office ikut
-     terhapus di layar dan barisnya ditulis balik kosong ke server. */
-  return {projects:projects,tasks:tasks,routines:routines,coord:coord,po:po,agenda:agenda};
-}
 
 /* ============ JEMBATAN KE HTML ============
    Semua onclick di markup memanggil lewat APP.*, jadi seluruh modul tetap di
@@ -2098,30 +1997,16 @@ function layarGagal(pesan){
 /* Urutannya penting dan bukan kebetulan:
      1. state BD dari MySQL
      2. roster dari database account  -> baris people lahir di sini
-     3. kenali()                      -> AKU sudah bisa ditemukan
-     4. baru data contoh, yang PIC-nya butuh AKU
+     3. kenali()                      -> AKU sudah bisa ditemukan sebelum
+                                         apa pun digambar
 
-   Kalau roster ditarik belakangan, data contoh akan dibuat dengan PIC kosong
-   dan papannya lahir sudah salah. Roster yang GAGAL tidak menghentikan boot —
-   sinkronRoster() menelan galatnya dan menyimpannya di ROSTER_PESAN untuk
-   ditampilkan sebagai pita. */
+   Roster yang GAGAL tidak menghentikan boot — sinkronRoster() menelan
+   galatnya dan menyimpannya di ROSTER_PESAN untuk ditampilkan sebagai pita.
+   Papan kerja yang mogok total gara-gara layanan lain sedang batuk lebih
+   merugikan daripada daftar kru yang ketinggalan sehari. */
 apiGet('getAll').then(function(s){
   DB=normalize(s);
   return sinkronRoster(true);
-}).then(function(){
-  /* Data contoh hanya kalau database benar-benar perawan — bukan sekadar
-     "tasks kosong". Tim yang sengaja menghapus semua task tidak boleh
-     mendapati task karangan muncul kembali di sesi berikutnya.
-
-     `people` TIDAK ikut diperiksa: barisnya baru saja diisi roster, jadi
-     memeriksanya berarti data contoh tidak akan pernah muncul. */
-  if(SEED_CONTOH && !DB.tasks.length && !DB.projects.length && !DB.po.length){
-    var c=contoh(AKU?AKU.id:'');
-    // Disalin per kunci, BUKAN DB=contoh(): people hasil sinkron harus utuh.
-    Object.keys(c).forEach(function(k){ DB[k]=c[k]; });
-    _snap={};
-    return kirimPaksa();
-  }
 }).then(function(){
   segarkanSnapshot();
   kenali();
