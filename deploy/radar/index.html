@@ -435,8 +435,33 @@ function muat(){
      Marketing  events[]      -> tanggal, nama,  jenis,   pax,      status
      Event      events[]      -> start_datetime, title,   category, venue, capacity
      Reservasi  reservations[]-> date,           name,    time,     pax,   table */
-function tglDari(dt){ return String(dt||'').slice(0,10); }
-function jamDari(dt){ var s=String(dt||''); var m=s.match(/[T ](\d{2}:\d{2})/); return m?m[1]:''; }
+/* ZONA WAKTU — jangan disederhanakan.
+   Modul Event menyimpan waktu sebagai INSTANT UTC berakhiran Z
+   ("2026-07-23T12:00:00.000Z"), sementara Marketing menyimpan tanggal lokal
+   apa adanya ("2026-08-09") tanpa zona sama sekali.
+
+   Memotong string UTC mentah-mentah (slice(0,10) + regex jam) menggeser
+   setiap jam 7 jam LEBIH AWAL: acara 19:00 WIB terbaca 12:00. Dan untuk
+   acara malam ia ikut menggeser TANGGALNYA — 00:30 WIB tersimpan sebagai
+   17:30Z hari sebelumnya, jadi acaranya muncul di kotak kalender yang salah.
+   Kesalahan seperti itu tidak terlihat sebagai galat; ia cuma membuat orang
+   datang di jam yang keliru.
+
+   Aturannya: ada penanda zona -> geser ke WIB. Tanpa zona -> memang sudah
+   lokal, pakai apa adanya. */
+var WIB_MS = 7*3600*1000;
+function pecahWaktu(dt){
+  var s=String(dt||'');
+  if(!s) return null;
+  if(/(Z|[+-]\d{2}:?\d{2})$/.test(s)){
+    var t=Date.parse(s);
+    if(isNaN(t)) return null;
+    var d=new Date(t+WIB_MS);
+    return {tgl:d.toISOString().slice(0,10), jam:d.toISOString().slice(11,16)};
+  }
+  var m=s.match(/^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/);
+  return m ? {tgl:m[1], jam:m[2]||''} : null;
+}
 function satukan(){
   AGENDA=[];
   (D.mkt&&D.mkt.events||[]).forEach(function(e){
@@ -448,10 +473,11 @@ function satukan(){
   });
   (D.evt&&D.evt.events||[]).forEach(function(e){
     if(!e) return;
-    var tgl=tglDari(e.start_datetime||e.tanggal);
-    if(!tgl) return;
-    AGENDA.push({sumber:'evt', id:e.id, tgl:tgl, judul:e.title||'(tanpa judul)',
-      jam:jamDari(e.start_datetime), selesai:jamDari(e.end_datetime),
+    var mulai=pecahWaktu(e.start_datetime||e.tanggal);
+    if(!mulai||!mulai.tgl) return;
+    var habis=pecahWaktu(e.end_datetime);
+    AGENDA.push({sumber:'evt', id:e.id, tgl:mulai.tgl, judul:e.title||'(tanpa judul)',
+      jam:mulai.jam, selesai:(habis&&habis.jam)||'',
       tempat:e.venue||'', status:e.status||'', pax:+e.capacity||0,
       nilai:0, jenis:e.category||'', mentah:e});
   });
