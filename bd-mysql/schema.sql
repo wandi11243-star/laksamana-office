@@ -183,11 +183,16 @@ CREATE TABLE IF NOT EXISTS coord_requests (
   KEY idx_co_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---------- PURCHASE ORDER ----------
+-- ---------- PURCHASE ORDER (satu BARIS kebutuhan) ----------
 -- CATATAN: ini PO tingkat proyek (mesin, furniture, sewa) milik tim BD —
 -- BUKAN pengganti modul Stock. Order bahan baku harian tetap di Stock ·
 -- Ordering/Purchasing. Dua tempat ini sengaja tidak disatukan: siklusnya
 -- beda (harian vs per-proyek) dan yang menyetujuinya beda orang.
+--
+-- Satu baris di sini = satu item yang diminta seseorang. Yang benar-benar
+-- dikirim ke Finance dan ditandatangani adalah DOKUMEN PR MINGGUAN yang
+-- mengumpulkan banyak baris ini — lihat tabel purchase_requests di bawah.
+-- `pr_id` menunjuk dokumen tempat baris ini ikut.
 CREATE TABLE IF NOT EXISTS purchase_orders (
   id         VARCHAR(64)  NOT NULL PRIMARY KEY,
   item       VARCHAR(255)     NULL,
@@ -196,17 +201,54 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   unit       VARCHAR(32)      NULL,
   divisi     VARCHAR(64)      NULL,
   amount     BIGINT       NOT NULL DEFAULT 0,
+  payment    VARCHAR(16)      NULL,              -- CASH/ONLINE/CREDIT. NULL = belum ditentukan,
+                                                 --   sengaja BUKAN 'CASH': menebak cara bayar
+                                                 --   berarti menaruh angka di TOTAL CASH yang
+                                                 --   tidak pernah dikatakan siapa pun.
   status     VARCHAR(32)      NULL,              -- Draft/Diajukan/Approved/Dibeli/Diterima
   need_by    DATE             NULL,
   pic        VARCHAR(64)      NULL,
   project_id VARCHAR(64)      NULL,
+  pr_id      VARCHAR(64)      NULL,              -- purchase_requests.id, dokumen tempat baris ini ikut
   updated_at BIGINT       NOT NULL DEFAULT 0,
   created_at BIGINT       NOT NULL DEFAULT 0,
   data       LONGTEXT     NOT NULL,
   KEY idx_po_status  (status),
   KEY idx_po_need    (need_by),
   KEY idx_po_project (project_id),
+  KEY idx_po_pr      (pr_id),
   KEY idx_po_updated (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------- PURCHASE REQUEST (DOKUMEN MINGGUAN) ----------
+-- Inilah yang sebenarnya dikirim ke Finance dan ditandatangani: satu lembar
+-- per minggu, satu nomor PR, berisi banyak baris purchase_orders.
+--
+-- Isinya TIDAK disalin ke sini. Barisnya tetap tinggal di purchase_orders dan
+-- menunjuk balik lewat `pr_id`. Dokumen yang menyalin isi item akan menyimpang
+-- dari barisnya begitu salah satu diubah, dan tidak akan ada yang tahu mana
+-- yang benar. Yang disimpan di sini hanya kepala surat, blok persetujuan, dan
+-- `total` sebagai cuplikan angka saat disimpan.
+--
+-- Nama penyetuju (Finance/CEO/Head) disimpan DI DALAM dokumen, bukan diambil
+-- dari daftar kru saat ditampilkan. PR lama harus tetap menunjukkan siapa yang
+-- menyetujuinya waktu itu, walau jabatannya sudah berganti orang.
+CREATE TABLE IF NOT EXISTS purchase_requests (
+  id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+  no         VARCHAR(32)      NULL,              -- nomor PR di kertas, mis. "96"
+  nama       VARCHAR(255)     NULL,              -- penyusun (NAME di lembar)
+  dept       VARCHAR(64)      NULL,              -- DEPARTMENT
+  tanggal    DATE             NULL,              -- REQUEST DATE
+  week_start DATE             NULL,              -- Senin minggu yang direkap
+  status     VARCHAR(32)      NULL,              -- Draft/Diajukan/Disetujui/Selesai
+  total      BIGINT       NOT NULL DEFAULT 0,
+  updated_at BIGINT       NOT NULL DEFAULT 0,
+  created_at BIGINT       NOT NULL DEFAULT 0,
+  data       LONGTEXT     NOT NULL,
+  KEY idx_pq_week    (week_start),
+  KEY idx_pq_status  (status),
+  KEY idx_pq_no      (no),
+  KEY idx_pq_updated (updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------- AGENDA ----------

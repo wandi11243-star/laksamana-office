@@ -15,8 +15,9 @@ paham, kepakai di semua modul.
 | `config.php` | **Satu-satunya yang perlu kamu edit** — kredensial MySQL **produksi** |
 | `config.dev.php` | Kredensial **dev**. Upload lalu **rename jadi `config.php`** di server |
 | `config.sample.php` | Contoh yang masuk repo (dua config di atas di-ignore git) |
-| `schema.sql` | Struktur 8 tabel (jalankan sekali, di **tiap** database) |
+| `schema.sql` | Struktur 9 tabel (jalankan sekali, di **tiap** database) |
 | `hapus-data-contoh.sql` | Sekali pakai — bersihkan data contoh versi lama |
+| `migrasi-2026-07-23-pr-mingguan.sql` | **Wajib** untuk database yang sudah ada: tabel PR + kolom payment/pr_id |
 | `lib_bd_mysql.php` | Logika. Tidak perlu disentuh |
 | `api.php` | Endpoint (`getAll` / `saveAll` / `stats` / `ping`) |
 | `.gitignore` | Mengunci `config*.php` agar password tidak ikut ter-commit |
