@@ -39,10 +39,45 @@
 # ganti baris RewriteRule di bawah menjadi:
 #     RewriteRule ^(.*)$ https://team.laksamanamuda.id/$1 [R=301,L]
 # =====================================================================
+# =====================================================================
+# HTTPS diwajibkan.
+# ---------------------------------------------------------------------
+# Sertifikat Let's Encrypt SUDAH terpasang untuk team.laksamanamuda.id,
+# tapi punya sertifikat tidak sama dengan memakainya: tanpa aturan di
+# bawah, orang yang mengetik "team.laksamanamuda.id" tanpa "https://"
+# dilayani lewat HTTP biasa dan browser menandainya "Not secure".
+#
+# Yang dipertaruhkan bukan label di address bar. Halaman pertama modul ini
+# adalah form Nama Pengguna + PIN. Lewat HTTP, PIN itu melintas sebagai
+# teks polos: siapa pun yang sejalur (wifi kafe, kantor, ISP) bisa
+# membacanya. Sesi lm_session yang tersimpan juga ikut terkirim polos di
+# tiap permintaan berikutnya.
+#
+# DUA syarat, bukan satu. Di hosting yang TLS-nya diputus lebih dulu oleh
+# proxy, %{HTTPS} bisa tetap "off" walau pengunjung sudah lewat https —
+# mengalihkannya lagi berarti lingkaran tanpa ujung. X-Forwarded-Proto
+# adalah keterangan dari proxy itu; kalau salah satu bilang sudah https,
+# pengalihan tidak dijalankan.
+#
+# 302, BUKAN 301, untuk sekarang. 301 disimpan browser SELAMANYA — kalau
+# aturan ini ternyata melingkar di server, seluruh kru tidak bisa membuka
+# aplikasi sampai masing-masing membersihkan cache-nya sendiri. Sesudah
+# dipastikan jalan (buka http://team.laksamanamuda.id, harus mendarat di
+# https tanpa berputar), ganti R=302 menjadi R=301 supaya browser berhenti
+# menanyakannya berulang kali.
+# =====================================================================
 <IfModule mod_rewrite.c>
   RewriteEngine On
+
+  # Route laksamanamuda.id/office dimatikan lebih dulu. Ditaruh di ATAS
+  # pengalihan https supaya alamat yang memang sudah mati langsung 404,
+  # tidak dibelokkan dulu ke https baru kemudian 404.
   RewriteCond %{HTTP_HOST} ^(www\.)?laksamanamuda\.id$ [NC]
   RewriteRule ^ - [R=404,L]
+
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=302,L]
 </IfModule>
 
 <IfModule mod_headers.c>
