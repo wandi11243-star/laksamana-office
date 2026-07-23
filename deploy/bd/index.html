@@ -329,6 +329,27 @@ td .mut{color:var(--muted);font-size:12.5px}
 .toggle.on .tick svg{opacity:1}
 .qprev{font-family:var(--mono);font-size:11px;padding:9px 12px;border-radius:8px;text-align:center;letter-spacing:.4px}
 
+/* Pemilih PIC banyak. Chip, bukan <select multiple>: jumlah kru BD kecil
+   (lima-enam orang), dan select multiple menyembunyikan siapa saja yang
+   terpilih di balik gulungan sempit — persis informasi yang paling sering
+   dicari saat menyetel PIC. */
+.picpick{display:flex;flex-wrap:wrap;gap:7px}
+.picchip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 5px;border-radius:999px;
+  border:1px solid var(--line-hard);background:var(--ink-900);font-size:12.5px;font-weight:600;
+  color:var(--muted);transition:.15s}
+.picchip:hover{border-color:var(--gold)}
+.picchip .av{width:22px;height:22px;border-radius:50%;background:var(--ink-700);color:#fff;
+  display:grid;place-items:center;font-size:9px;font-weight:700;flex:none}
+.picchip.on{border-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep)}
+.picchip.on .av{background:linear-gradient(140deg,var(--gold-soft),var(--gold-deep))}
+/* Tumpukan avatar di baris task/kartu project. margin negatif membuatnya
+   saling tindih sedikit, jadi empat PIC tidak mendorong meta lain ke bawah. */
+.avstack{display:inline-flex;align-items:center;vertical-align:middle}
+.avstack .av{width:19px;height:19px;border-radius:50%;background:var(--teal);color:#fff;
+  display:grid;place-items:center;font-size:8.5px;font-weight:700;border:1.5px solid #fff;margin-left:-6px}
+.avstack .av:first-child{margin-left:0}
+.avstack .av.more{background:var(--ink-700)}
+
 /* ---------- LAIN-LAIN ---------- */
 .backlink{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;margin-bottom:10px}
 .backlink:hover{color:var(--gold-deep)}
@@ -589,7 +610,38 @@ function normalize(s){
      meloloskannya — dan DB.focus[id]=… yang menempel sebagai properti array
      dibuang diam-diam oleh JSON.stringify saat menyimpan. */
   if(!s.focus||typeof s.focus!=='object'||Array.isArray(s.focus)) s.focus={};
+
+  /* MIGRASI PIC TUNGGAL -> BANYAK.
+     Task dan project sekarang boleh dipegang beberapa orang. Sumber
+     kebenarannya `pics` (array); `pic` lama diangkat ke dalamnya di sini
+     supaya SISA KODE tidak perlu tahu ada dua bentuk. Baris lama yang belum
+     pernah disentuh tetap terbaca benar, dan begitu disimpan ulang bentuknya
+     ikut baru — tanpa perlu skrip migrasi terpisah.
+
+     `pic` TIDAK dihapus dari objeknya: kolom SQL `pic` diisi dari pics[0] oleh
+     backend, dan membiarkan field lamanya ada membuat baris yang sempat dibaca
+     versi frontend lama tidak kehilangan PIC-nya. */
+  ['tasks','projects'].forEach(function(k){
+    s[k].forEach(function(r){
+      if(!Array.isArray(r.pics)) r.pics = r.pic ? [r.pic] : [];
+      // `team` di project sudah digantikan pics — dilebur, lalu tidak dipakai lagi.
+      if(k==='projects' && Array.isArray(r.team)){
+        r.team.forEach(function(id){ if(id && r.pics.indexOf(id)<0) r.pics.push(id); });
+        delete r.team;
+      }
+      r.pic = r.pics[0] || '';
+    });
+  });
   return s;
+}
+/* Daftar PIC sebuah task/project. Selalu array, tidak pernah null. */
+function pics(o){ return (o&&Array.isArray(o.pics)) ? o.pics : (o&&o.pic ? [o.pic] : []); }
+function punyaPic(o,id){ return pics(o).indexOf(id)>-1; }
+/* Menyetel daftar PIC sekaligus menjaga `pic` tetap = pics[0]. Satu-satunya
+   tempat kedua field itu ditulis, supaya tidak bisa menyimpang. */
+function setPics(o,daftar){
+  o.pics = (daftar||[]).filter(function(v,i,a){ return v && a.indexOf(v)===i; });
+  o.pic  = o.pics[0] || '';
 }
 
 /* ---- penstempel updatedAt otomatis ----
@@ -795,10 +847,22 @@ function lingkup(){
   if(!AKU || adminModul()) return null;
   return [AKU.id].concat(bawahan(AKU.id));
 }
+/* Satu baris terlihat kalau SALAH SATU PIC-nya ada di lingkup. Dengan PIC
+   banyak, memeriksa pic[0] saja akan menyembunyikan task dari orang yang
+   benar-benar ikut mengerjakannya hanya karena namanya bukan yang pertama. */
+function dalamLingkup(o,l){
+  if(!l) return true;
+  return pics(o).some(function(id){ return l.indexOf(id)>-1; });
+}
 function tasksTerlihat(){
   var l=lingkup();
   if(!l) return DB.tasks;
-  return DB.tasks.filter(function(t){return l.indexOf(t.pic)>-1;});
+  return DB.tasks.filter(function(t){ return dalamLingkup(t,l); });
+}
+function projectsTerlihat(){
+  var l=lingkup();
+  if(!l) return DB.projects;
+  return DB.projects.filter(function(p){ return dalamLingkup(p,l); });
 }
 function catIniAku(){ return AKU?AKU.id:('office:'+((sesi()||{}).userId||'?')); }
 
@@ -825,18 +889,23 @@ function selesai(t){return t.status==='Done';}
 function lewat(t){return t.deadline && !selesai(t) && sisaHari(t.deadline)<0;}
 
 /* ============ NAVIGASI ============ */
+/* Calendar duduk di Workspace, bukan di golongan sendiri. Isinya bukan agenda
+   terpisah — ia cuma cara lain memandang task, milestone, PO, dan koordinasi
+   yang sudah ada di Workspace. Menaruhnya di golongan "Jadwal" membuatnya
+   terbaca seperti modul kalender tersendiri, padahal tidak ada satu pun data
+   yang hanya hidup di sana. */
 const NAV=[
   {sec:'Workspace',items:[
     {id:'dashboard',l:'Dashboard',i:'dashboard'},
     {id:'tasks',    l:'Tasks',    i:'matrix'},
-    {id:'projects', l:'Projects', i:'projects'}]},
+    {id:'projects', l:'Projects', i:'projects'},
+    {id:'calendar', l:'Calendar', i:'cal'}]},
   {sec:'Operasi',items:[
     {id:'coord',      l:'Koordinasi', i:'handoff'},
     {id:'routine',    l:'Routine',    i:'routine'},
     {id:'purchasing', l:'Purchasing', i:'cart'}]},
-  {sec:'Jadwal & Tim',items:[
-    {id:'calendar', l:'Calendar', i:'cal'},
-    {id:'tim',      l:'Kru BD',   i:'users'}]}
+  {sec:'Tim',items:[
+    {id:'tim', l:'Kru BD', i:'users'}]}
 ];
 const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — BD, Project & Purchasing'],
   tasks:['Workspace','Tasks','Prioritas ala Eisenhower — Penting × Mendesak'],
@@ -845,7 +914,7 @@ const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — BD, Project 
   coord:['Operasi','Koordinasi','Request & follow-up ke divisi lain'],
   routine:['Operasi','Routine','Task berulang & kepatuhannya'],
   purchasing:['Operasi','Purchasing','Purchase order, vendor & status pembelian'],
-  calendar:['Jadwal','Calendar','Deadline, milestone & agenda'],
+  calendar:['Workspace','Calendar','Deadline, milestone & agenda'],
   tim:['Tim','Kru BD','Siapa mengerjakan apa, dan siapa atasannya']};
 var view='dashboard';
 
@@ -902,7 +971,7 @@ function taskRow(t,o){
         (o.noQuad?'':'<span class="tag q-'+q.k+'">'+q.l+'</span>')+
         (o.hideDiv?'':tagDiv(t.div))+
         (pr&&!o.hideProj?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
-        '<span class="tag pic">'+esc(inisial(P(t.pic).name))+'</span>'+
+        avStack(pics(t))+
         (t.type&&t.type!=='Ad-hoc'?'<span class="tag">'+esc(t.type)+'</span>':'')+
         (t.deadline?'<span class="tag'+(od?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'')+
       '</div></div>'+
@@ -935,7 +1004,11 @@ function vDashboard(){
   var vt=tasksTerlihat();
   var aktif=vt.filter(function(t){return !selesai(t);});
   var od=vt.filter(lewat);
-  var jalan=DB.projects.filter(function(p){return p.stage!=='Completed'&&p.stage!=='Idea';});
+  /* Dashboard memakai lingkup yang sama dengan Tasks: papan pembuka harus
+     menjawab "apa yang jadi urusanku hari ini", bukan mendaftar seluruh
+     perusahaan. Papan Projects punya penyaringnya sendiri untuk melihat lebih
+     luas. */
+  var jalan=projectsTerlihat().filter(function(p){return p.stage!=='Completed'&&p.stage!=='Idea';});
   var coordP=DB.coord.filter(function(c){return c.status!=='Selesai';});
   var poP=DB.po.filter(function(p){return p.status!=='Diterima';});
   var t0=todayISO();
@@ -1013,16 +1086,39 @@ function projMini(p){
     '<span class="dot" style="background:'+(DIV_COLOR[p.div]||'#999')+';margin-top:6px"></span>'+
     '<div class="t-main"><div class="t-name" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
       esc(p.name)+pill(hh.l,hh.c)+'</div>'+bar(pg,pg>=100)+
-      '<div class="t-meta"><span class="tag pic">'+esc(inisial(P(p.pic).name))+'</span>'+
+      '<div class="t-meta">'+avStack(pics(p))+
       '<span class="tag">'+esc(p.stage)+'</span>'+
       '<span class="tag'+(dl<0?' overdue':'')+'">'+(dl<0?Math.abs(dl)+'h lewat':dl+'h lagi')+'</span></div>'+
     '</div></div>';
 }
 
 /* ============ TASKS ============ */
+/* Tiga lingkup, dipakai bersama oleh Tasks dan Projects.
+     saya  = baris yang SAYA ikut pegang (salah satu PIC-nya saya)
+     tim   = saya + seluruh anak buah, langsung maupun tidak
+     semua = seisi papan, tanpa memandang hierarki
+
+   "semua" sengaja tersedia untuk siapa pun, bukan cuma admin. Modul ini
+   dibuka lewat izin Office; begitu seseorang boleh masuk, menyembunyikan
+   pekerjaan divisi sebelah darinya tidak menjaga apa pun — cuma membuat dia
+   bertanya-tanya kenapa papannya sepi. Hierarki di sini alat FOKUS, bukan
+   pagar keamanan. */
+function saringLingkup(daftar,scope){
+  if(scope==='semua') return daftar;
+  if(scope==='saya')  return AKU ? daftar.filter(function(o){return punyaPic(o,AKU.id);}) : daftar;
+  var l=lingkup();
+  return daftar.filter(function(o){ return dalamLingkup(o,l); });
+}
+function segLingkup(scope,aksi){
+  return '<select onchange="'+aksi+'">'+
+    '<option value="tim"'+(scope==='tim'?' selected':'')+'>Tim saya</option>'+
+    '<option value="saya"'+(scope==='saya'?' selected':'')+(AKU?'':' disabled')+'>Ditugaskan ke saya</option>'+
+    '<option value="semua"'+(scope==='semua'?' selected':'')+'>Semua</option></select>';
+}
+
 var taskMode='matrix', fDiv='', fProj='', fType='', fScope='tim';
 function vTasks(){
-  var base=(fScope==='saya'&&AKU)?DB.tasks.filter(function(t){return t.pic===AKU.id;}):tasksTerlihat();
+  var base=saringLingkup(DB.tasks,fScope);
   base=base.filter(function(t){
     return (!fDiv||t.div===fDiv)&&(!fProj||t.project===fProj)&&(!fType||t.type===fType);
   });
@@ -1035,9 +1131,7 @@ function vTasks(){
     '</div><button class="btn pri" onclick="APP.taskModal()">'+ic('plus')+'Task</button>');
 
   h+='<div class="filters"><span class="flabel">'+ic('matrix',14)+' Filter</span>'+
-    '<select onchange="APP.filter(\'scope\',this.value)">'+
-      '<option value="tim"'+(fScope==='tim'?' selected':'')+'>Tim saya</option>'+
-      '<option value="saya"'+(fScope==='saya'?' selected':'')+(AKU?'':' disabled')+'>Ditugaskan ke saya</option></select>'+
+    segLingkup(fScope,'APP.filter(\'scope\',this.value)')+
     '<select onchange="APP.filter(\'div\',this.value)"><option value="">Semua divisi</option>'+
       OWNER_DIVS.map(function(d){return '<option'+(fDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
     '<select onchange="APP.filter(\'proj\',this.value)"><option value="">Semua project</option>'+
@@ -1128,24 +1222,61 @@ function hapusTask(id){
 
    Yang sudah kehilangan akses tetap ikut KALAU dia PIC baris yang sedang
    dibuka. Tanpa itu, membuka task lama untuk mengubah deadlinenya akan
-   diam-diam memindahkan PIC-nya ke orang pertama di daftar — kerusakan senyap
-   yang baru ketahuan saat ada yang bertanya kenapa task ini jadi miliknya. */
-function picOptions(sel){
-  var pilih=DB.people.filter(function(p){
-    return (p.active!==false && !p.tanpaAkses) || p.id===sel;
+   diam-diam menghapus PIC-nya — kerusakan senyap yang baru ketahuan saat ada
+   yang bertanya kenapa task ini tiba-tiba tak bertuan. */
+function kruTersedia(sudah){
+  sudah=sudah||[];
+  return DB.people.filter(function(p){
+    return (p.active!==false && !p.tanpaAkses) || sudah.indexOf(p.id)>-1;
   });
+}
+// PIC tunggal (routine & PO) — keduanya memang satu penanggung jawab.
+function picOptions(sel){
+  var pilih=kruTersedia(sel?[sel]:[]);
   if(!pilih.length) return '<option value="">— belum ada kru dengan akses modul ini —</option>';
   return pilih.map(function(p){
     var ket=p.tanpaAkses?' · akses dicabut':(p.role?' · '+p.role:'');
     return '<option value="'+p.id+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+esc(ket)+'</option>';
   }).join('');
 }
+/* PIC banyak (task & project). Semua PIC setara — tidak ada "PIC utama".
+   Kolom SQL `pic` diisi yang pertama semata untuk indeks/laporan; menjadikan
+   urutan itu bermakna di layar akan menciptakan hierarki yang tidak pernah
+   disepakati siapa pun. */
+function picPicker(wadah,terpilih){
+  var pilih=kruTersedia(terpilih);
+  if(!pilih.length) return '<div class="muted" style="font-size:12.5px">Belum ada kru dengan akses modul ini — '+
+    'beri akses lewat Office → Kelola Akses.</div>';
+  return '<div class="picpick" id="'+wadah+'">'+pilih.map(function(p){
+    var on=terpilih.indexOf(p.id)>-1;
+    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" '+
+      'onclick="APP.togglePic(this)"><span class="av">'+esc(inisial(p.name))+'</span>'+esc(p.name)+
+      (p.tanpaAkses?' <span class="tag" style="margin-left:3px">dicabut</span>':'')+'</button>';
+  }).join('')+'</div>';
+}
+function bacaPic(wadah){
+  var out=[];
+  document.querySelectorAll('#'+wadah+' .picchip.on').forEach(function(el){
+    out.push(el.getAttribute('data-id'));
+  });
+  return out;
+}
+/* Tumpukan inisial untuk baris/kartu. Lebih dari tiga diringkas jadi "+N" —
+   empat lingkaran sudah cukup untuk tahu "ini dikerjakan beramai-ramai", dan
+   selebihnya hanya mendorong meta lain keluar baris. */
+function avStack(daftar){
+  if(!daftar.length) return '<span class="tag">tanpa PIC</span>';
+  var tampil=daftar.slice(0,3), sisa=daftar.length-tampil.length;
+  return '<span class="avstack" title="'+esc(daftar.map(function(id){return P(id).name;}).join(', '))+'">'+
+    tampil.map(function(id){return '<span class="av">'+esc(inisial(P(id).name))+'</span>';}).join('')+
+    (sisa?'<span class="av more">+'+sisa+'</span>':'')+'</span>';
+}
 function taskModal(id){
   var t=id?DB.tasks.find(function(x){return x.id===id;}):null;
   if(id&&!t) return;
   var baru=!t;
   if(!t) t={name:'',desc:'',div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:'Business Development',
-    pic:AKU?AKU.id:(DB.people[0]||{}).id||'',status:'To Do',priority:'Medium',deadline:todayISO(),
+    pics:AKU?[AKU.id]:[],status:'To Do',priority:'Medium',deadline:todayISO(),
     important:true,urgent:false,type:'Ad-hoc',project:_presetProject||null};
   showModal(
     '<div class="modal-h"><h3>'+(baru?'Task Baru':'Edit Task')+'</h3>'+
@@ -1153,10 +1284,9 @@ function taskModal(id){
     '<div class="modal-b">'+
       '<div class="field"><label>Nama task</label><input id="m_name" value="'+esc(t.name)+'" placeholder="Apa yang harus dikerjakan?"></div>'+
       '<div class="field"><label>Deskripsi</label><textarea id="m_desc" placeholder="Detail / catatan…">'+esc(t.desc)+'</textarea></div>'+
-      '<div class="frow">'+
-        '<div class="field"><label>Divisi</label><select id="m_div">'+
-          OWNER_DIVS.map(function(d){return '<option'+(t.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
-        '<div class="field"><label>PIC</label><select id="m_pic">'+picOptions(t.pic)+'</select></div></div>'+
+      '<div class="field"><label>Divisi</label><select id="m_div">'+
+        OWNER_DIVS.map(function(d){return '<option'+(t.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
+      '<div class="field"><label>PIC — boleh lebih dari satu</label>'+picPicker('m_pics',pics(t))+'</div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Status</label><select id="m_status">'+
           STATUS_FLOW.map(function(s){return '<option'+(t.status===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div>'+
@@ -1191,17 +1321,23 @@ function simpanTask(id){
   var g=function(x){return document.getElementById(x);};
   var nama=g('m_name').value.trim();
   if(!nama){ g('m_name').focus(); toast('Nama task wajib diisi.'); return; }
-  var data={name:nama,desc:g('m_desc').value.trim(),div:g('m_div').value,pic:g('m_pic').value,
+  var data={name:nama,desc:g('m_desc').value.trim(),div:g('m_div').value,
     status:g('m_status').value,priority:g('m_prio').value,type:g('m_type').value,
     deadline:g('m_due').value,project:g('m_proj').value||null,
     important:g('tg_imp').classList.contains('on'),urgent:g('tg_urg').classList.contains('on')};
+  var t;
   if(id){
-    var t=DB.tasks.find(function(x){return x.id===id;});
+    t=DB.tasks.find(function(x){return x.id===id;});
     Object.assign(t,data);
     if(t.status==='Done') t.progress=100;
   }else{
-    DB.tasks.push(Object.assign({id:uid('t'),progress:data.status==='Done'?100:0},data));
+    t=Object.assign({id:uid('t'),progress:data.status==='Done'?100:0},data);
+    DB.tasks.push(t);
   }
+  /* Lewat setPics(), bukan Object.assign — `pic` dan `pics` harus selalu
+     ditulis bersamaan supaya kolom SQL tidak menunjuk orang yang sudah
+     dilepas dari task. */
+  setPics(t,bacaPic('m_pics'));
   save(); closeModal(); render(); toast(id?'Task diperbarui':'Task ditambahkan');
 }
 
@@ -1218,16 +1354,36 @@ function projProgress(p){
   return 0;
 }
 var pidAktif=null;
+var pScope='tim', pDiv='';
 function vProjects(){
-  return head('Projects',SUB.projects[2],
-      '<button class="btn pri" onclick="APP.projModal()">'+ic('plus')+'Project</button>')+
-    '<div class="kanban">'+PROJ_STAGES.map(function(st){
-      var l=DB.projects.filter(function(p){return p.stage===st;});
+  var base=saringLingkup(DB.projects,pScope).filter(function(p){ return !pDiv||p.div===pDiv; });
+  var h=head('Projects',SUB.projects[2],
+    '<button class="btn pri" onclick="APP.projModal()">'+ic('plus')+'Project</button>');
+
+  h+='<div class="filters"><span class="flabel">'+ic('projects',14)+' Filter</span>'+
+    segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
+    '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
+      OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
+    ((pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    '<span class="muted" style="font-size:12px;margin-left:auto">'+base.length+' dari '+DB.projects.length+' project</span>'+
+  '</div>';
+
+  /* Kartu tetap bisa digeser antar-stage walau sedang disaring. Yang disaring
+     hanya APA YANG TAMPIL, bukan apa yang boleh diubah — kalau geser dimatikan
+     saat menyaring, orang akan mengira papannya rusak. */
+  h+='<div class="kanban">'+PROJ_STAGES.map(function(st){
+      var l=base.filter(function(p){return p.stage===st;});
       return '<div class="kcol"><div class="kcol-h"><span class="kt">'+st+'</span><span class="kc num">'+l.length+'</span></div>'+
         '<div class="kcol-b" ondragover="event.preventDefault();this.classList.add(\'drop\')" '+
         'ondragleave="this.classList.remove(\'drop\')" ondrop="APP.dropProj(event,\''+st+'\')">'+
         (l.length?l.map(projCard).join(''):'')+'</div></div>';
     }).join('')+'</div>';
+
+  if(!base.length && DB.projects.length)
+    h+='<div class="card" style="margin-top:14px"><div class="card-b">'+
+      kosong('Tidak ada project pada penyaring ini',
+        'Ada '+DB.projects.length+' project di papan — coba ubah lingkupnya jadi "Semua".')+'</div></div>';
+  return h;
 }
 function projCard(p){
   var pg=projProgress(p), nt=projTasks(p.id).length;
@@ -1236,7 +1392,7 @@ function projCard(p){
     'ondragend="this.classList.remove(\'dragging\')" onclick="APP.bukaProject(\''+p.id+'\')">'+
     '<span class="kt2">'+esc(p.name)+'</span>'+
     '<span class="kmeta">'+tagDiv(p.div)+pill(hh.l,hh.c)+'</span>'+
-    '<span class="kmeta" style="margin-top:7px"><span class="tag pic">'+esc(inisial(P(p.pic).name))+'</span>'+
+    '<span class="kmeta" style="margin-top:7px">'+avStack(pics(p))+
       (nt?'<span class="tag proj">'+nt+' task</span>':'')+
       '<span class="tag'+(dl<0?' overdue':'')+'">'+(dl<0?Math.abs(dl)+'h lewat':fTgl(p.end))+'</span></span>'+
     bar(pg,pg>=100)+'</button>';
@@ -1268,7 +1424,8 @@ function vProjectDetail(){
     stat('Health',hh.l,fTgl(p.start)+' → '+fTgl(p.end),hh.c==='p-go'?'gr':(hh.c==='p-warn'?'wa':'rd'))+
     stat('Progress',pg+'<small>%</small>',sls+'/'+ts.length+' task selesai','')+
     stat('Budget terpakai',fRp(p.spent),'dari '+fRp(p.budget)+(sisaBudget<0?' — LEWAT':''),sisaBudget<0?'rd':'tl')+
-    stat('PIC',esc(String(P(p.pic).name).split(' ')[0]),(p.team||[]).length+' anggota tim','vi')+
+    stat('PIC',avStack(pics(p)),
+      pics(p).length?pics(p).map(function(id){return String(P(id).name).split(' ')[0];}).join(', '):'belum ditentukan','vi')+
   '</div>'+
   '<div class="grid g12">'+
     '<div class="card c8"><div class="card-h"><h3>Task di project ini</h3><span class="tagn">'+ts.length+'</span></div>'+
@@ -1300,8 +1457,8 @@ function toggleMilestone(pid,i){
 function projModal(id){
   var p=id?DB.projects.find(function(x){return x.id===id;}):null;
   var baru=!p;
-  if(!p) p={name:'',type:'Internal',stage:'Idea',div:'Business Development',pic:AKU?AKU.id:(DB.people[0]||{}).id||'',
-    team:[],start:todayISO(),end:inDays(30),budget:0,spent:0,health:'on-track',desc:'',milestones:[]};
+  if(!p) p={name:'',type:'Internal',stage:'Idea',div:'Business Development',pics:AKU?[AKU.id]:[],
+    start:todayISO(),end:inDays(30),budget:0,spent:0,health:'on-track',desc:'',milestones:[]};
   var ms=(p.milestones||[]);
   showModal(
     '<div class="modal-h"><h3>'+(baru?'Project Baru':'Edit Project')+'</h3>'+
@@ -1315,8 +1472,8 @@ function projModal(id){
         '<div class="field"><label>Tipe</label><input id="p_type" value="'+esc(p.type)+'"></div>'+
         '<div class="field"><label>Stage</label><select id="p_stage">'+
           PROJ_STAGES.map(function(s){return '<option'+(p.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div></div>'+
-      '<div class="frow3">'+
-        '<div class="field"><label>PIC</label><select id="p_pic">'+picOptions(p.pic)+'</select></div>'+
+      '<div class="field"><label>PIC — boleh lebih dari satu</label>'+picPicker('p_pics',pics(p))+'</div>'+
+      '<div class="frow">'+
         '<div class="field"><label>Mulai</label><input type="date" id="p_start" value="'+(p.start||'')+'"></div>'+
         '<div class="field"><label>Selesai</label><input type="date" id="p_end" value="'+(p.end||'')+'"></div></div>'+
       '<div class="frow3">'+
@@ -1352,11 +1509,13 @@ function simpanProj(id){
   if(!nama){ toast('Nama project wajib diisi.'); return; }
   var lama=id?(DB.projects.find(function(x){return x.id===id;}).milestones||[]):[];
   var data={name:nama,desc:g('p_desc').trim(),div:g('p_div'),type:g('p_type').trim()||'Internal',
-    stage:g('p_stage'),pic:g('p_pic'),start:g('p_start'),end:g('p_end'),
+    stage:g('p_stage'),start:g('p_start'),end:g('p_end'),
     budget:+g('p_budget')||0,spent:+g('p_spent')||0,health:g('p_health'),
     milestones:bacaMilestone(g('p_ms'),lama)};
-  if(id) Object.assign(DB.projects.find(function(x){return x.id===id;}),data);
-  else DB.projects.push(Object.assign({id:uid('p'),team:[data.pic]},data));
+  var p;
+  if(id){ p=DB.projects.find(function(x){return x.id===id;}); Object.assign(p,data); }
+  else  { p=Object.assign({id:uid('p')},data); DB.projects.push(p); }
+  setPics(p,bacaPic('p_pics'));
   save(); closeModal(); render(); toast(id?'Project diperbarui':'Project ditambahkan');
 }
 function hapusProj(id){
@@ -1802,8 +1961,8 @@ function vTim(){
     '<th>Task aktif</th><th>Akses</th><th></th></tr></thead><tbody>'+
     baris.map(function(b){
       var p=b.p;
-      var nAktif=DB.tasks.filter(function(t){return t.pic===p.id&&!selesai(t);}).length;
-      var nLewat=DB.tasks.filter(function(t){return t.pic===p.id&&lewat(t);}).length;
+      var nAktif=DB.tasks.filter(function(t){return punyaPic(t,p.id)&&!selesai(t);}).length;
+      var nLewat=DB.tasks.filter(function(t){return punyaPic(t,p.id)&&lewat(t);}).length;
       var akses = p.tanpaAkses ? pill('dicabut','p-bad')
                 : (p.active===false ? pill('nonaktif','p-mute') : pill('aktif','p-go'));
       return '<tr class="clk" onclick="APP.orangModal(\''+p.id+'\')">'+
@@ -1879,8 +2038,8 @@ function simpanOrang(id){
   save(); closeModal(); kenali(); render(); toast('Data kru diperbarui');
 }
 function hapusOrang(id){
-  var dipakai=DB.tasks.filter(function(t){return t.pic===id;}).length
-             +DB.projects.filter(function(p){return p.pic===id;}).length
+  var dipakai=DB.tasks.filter(function(t){return punyaPic(t,id);}).length
+             +DB.projects.filter(function(p){return punyaPic(p,id);}).length
              +DB.po.filter(function(p){return p.pic===id;}).length
              +DB.routines.filter(function(r){return r.pic===id;}).length;
   /* Menghapus kru yang masih memegang pekerjaan membuat barisnya jadi PIC "—"
@@ -1943,6 +2102,13 @@ window.APP={
     render();
   },
   projModal:projModal, simpanProj:simpanProj, hapusProj:hapusProj,
+  togglePic:function(el){ el.classList.toggle('on'); },
+  filterProj:function(apa,nilai){
+    if(apa==='reset'){ pScope='tim'; pDiv=''; }
+    else if(apa==='scope') pScope=nilai;
+    else if(apa==='div')   pDiv=nilai;
+    render();
+  },
   bukaProject:bukaProject, dragProj:dragProj, dropProj:dropProj, toggleMilestone:toggleMilestone,
   coordModal:coordModal, simpanCoord:simpanCoord, hapusCoord:hapusCoord,
   dragCoord:dragCoord, dropCoord:dropCoord, setCoordMode:function(m){coordMode=m;render();},
