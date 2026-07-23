@@ -560,6 +560,15 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .papan-kosong{padding:10px 2px}
 .papan-tbl th{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .papan-tbl td{vertical-align:middle}
+.sc-head{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line-soft)}
+.sc-head.bisa-tarik{cursor:grab}
+.sc-head.bisa-tarik:active{cursor:grabbing}
+.sc-grip{color:var(--muted);font-size:13px;letter-spacing:-3px;flex:none;user-select:none}
+.sc-head.sc-drag{opacity:.4}
+/* Sasaran jatuh ditandai di GARIS ATASNYA — di situlah barisnya akan mendarat,
+   jadi penandanya menunjukkan hasil, bukan sekadar "kotak ini sedang aktif". */
+.sc-head.sc-over{border-top:2px solid var(--gold);background:var(--gold-glow)}
 /* Judul sub kategori di tengah tabel. Dibuat sebagai baris penuh, bukan kartu
    terpisah, supaya kolom PIC/Deadline/Progress tetap sejajar dari atas bawah. */
 .papan-subhead td{background:var(--ink-880);font-size:10.5px;font-weight:700;letter-spacing:.1em;
@@ -952,6 +961,7 @@ const IC = {
   search:'<circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>',
   wa:'<path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"/>',
   edit:'<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z"/>',
+  copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>',
   trash:'<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>',
   eye:'<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   check:'<path d="M20 6L9 17l-5-5"/>',
@@ -5274,10 +5284,15 @@ function tmplTable(div,sub,canEdit){
    Dulu parameter ini boolean `deletable` dan penghapusnya dipatok
    delTaskCategory — begitu ada kategori jenis kedua (Format F&B) yang
    pembersihannya berbeda, boolean itu tidak cukup lagi. */
-function tmplCard(div,canEdit,delFn,subtitle){
+/* extraBtn = HTML tombol tambahan khusus jenis kartu ini (ubah nama, salin).
+   Kartu kategori lama tidak mendapatkannya: mengubah namanya percuma karena ia
+   memang sedang menunggu dipindah, dan menyalin dari/ke sana cuma menambah
+   tempat yang harus dibereskan. */
+function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
   const items=divTemplates(div), subs=subsOf(div), dj=escJs(div);
   let h='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span>'
     +(subs.length?' <span class="tag">'+subs.length+' sub</span>':'')+'</h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</div><div class="pill-row">'
+    +(canEdit?(extraBtn||''):'')
     +(canEdit?'<button class="btn sm" onclick="newSubCat(\''+dj+'\')">'+svg(IC.plus)+'Sub Kategori</button>':'')
     +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+dj+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
     +(canEdit&&delFn?'<button class="btn sm" onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
@@ -5291,11 +5306,16 @@ function tmplCard(div,canEdit,delFn,subtitle){
     }
     subs.forEach(sc=>{
       const n=subDivTemplates(div,sc.nama).length;
-      h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line-soft)">'
-        +'<div class="cell-strong" style="font-size:13.5px">'+esc(sc.nama)+' <span class="tag">'+n+'</span></div>'
-        +(canEdit?'<div class="pill-row"><button class="btn sm" onclick="newTemplateTask(\''+dj+'\',\'\',\''+escJs(sc.nama)+'\')">'+svg(IC.plus)+'Item</button>'
-          +'<button class="btn sm" onclick="renameSubCat(\''+sc.id+'\')">'+svg(IC.edit)+'</button>'
-          +'<button class="btn sm" onclick="delSubCat(\''+sc.id+'\')">'+svg(IC.trash)+'</button></div>':'')
+      /* Urutan sub kategori diatur dengan menarik KEPALANYA. Yang draggable
+         hanya kepala, bukan seluruh blok: kalau bloknya ikut, memilih teks di
+         dalam tabel dan menekan tombolnya akan ikut memicu drag. */
+      h+='<div class="sc-head'+(canEdit?' bisa-tarik':'')+'"'+(canEdit?' draggable="true"':'')
+        +' data-sc="'+esc(sc.id)+'" data-scdiv="'+esc(div)+'">'
+        +(canEdit?'<span class="sc-grip" title="Tarik untuk mengubah urutan">&#8942;&#8942;</span>':'')
+        +'<div class="cell-strong" style="font-size:13.5px;flex:1;min-width:0">'+esc(sc.nama)+' <span class="tag">'+n+'</span></div>'
+        +(canEdit?'<div class="pill-row"><button class="btn sm" draggable="false" onclick="newTemplateTask(\''+dj+'\',\'\',\''+escJs(sc.nama)+'\')">'+svg(IC.plus)+'Item</button>'
+          +'<button class="btn sm" draggable="false" onclick="renameSubCat(\''+sc.id+'\')">'+svg(IC.edit)+'</button>'
+          +'<button class="btn sm" draggable="false" onclick="delSubCat(\''+sc.id+'\')">'+svg(IC.trash)+'</button></div>':'')
         +'</div>';
       h+=tmplTable(div,sc.nama,canEdit);
     });
@@ -5313,16 +5333,21 @@ function renderTemplates(V){
   const canEdit=can('edit_template');
   const fmts=getFbFormats(), lama=kategoriLama();
   let h=pageHead('Template','Template Task','Standar to-do per Format F&B — jadi acuan handover & isi papan Task Divisi.',
-    canEdit?'<button class="btn pri" onclick="newFbFormat()">'+svg(IC.plus)+'Format F&amp;B Baru</button>':'');
+    canEdit?'<button class="btn pri" onclick="newFbFormat()">'+svg(IC.plus)+'Tambah Kategori</button>':'');
   h+='<div class="tbl-note" style="margin:0 0 14px">'+svg(IC.alert)
-   +'<span>Kategori to-do adalah <b>Format F&amp;B</b>. Event yang memilih <em>Prasmanan</em> mendapat seluruh daftar di bawah kartu Prasmanan. Divisi (Kitchen, Bar, Floor, &hellip;) jadi <b>sub kategori</b> di dalamnya.</span></div>';
-  if(!fmts.length) h+='<div class="card cell-sub">Belum ada Format F&amp;B. Tambahkan satu supaya event bisa memilihnya dan punya daftar to-do.</div>';
-  fmts.forEach(fmt=>{ h+=tmplCard(fmt,canEdit,'delFbFormat','Seluruh to-do event yang Format F&amp;B-nya <b>'+esc(fmt)+'</b>.'); });
+   +'<span>Tiap event mengambil <b>satu kategori</b> to-do — kategori yang dipakai mengikuti isian <em>Format F&amp;B</em> di form event. Event yang memilih <em>Prasmanan</em> mendapat seluruh daftar di bawah kartu Prasmanan; divisi (Kitchen, Bar, Floor, &hellip;) jadi <b>sub kategori</b> di dalamnya.</span></div>';
+  if(!fmts.length) h+='<div class="card cell-sub">Belum ada kategori. Tambahkan satu supaya event bisa memilihnya dan punya daftar to-do.</div>';
+  fmts.forEach(fmt=>{
+    const fj=escJs(fmt);
+    const tombol='<button class="btn sm" title="Salin isi dari kategori lain" onclick="salinKategori(\''+fj+'\')">'+svg(IC.copy)+'Salin dari</button>'
+      +'<button class="btn sm" title="Ubah nama kategori" onclick="renameFbFormat(\''+fj+'\')">'+svg(IC.edit)+'</button>';
+    h+=tmplCard(fmt,canEdit,'delFbFormat','Seluruh to-do event yang kategorinya <b>'+esc(fmt)+'</b>.',tombol);
+  });
 
   if(lama.length){
     h+='<div class="eyebrow" style="margin:24px 2px 8px">Kategori lama — belum dipindah</div>'
      +'<div class="tbl-note" style="margin:0 0 12px">'+svg(IC.alert)
-     +'<span>Ini template dari waktu divisi masih jadi kategori to-do. Isinya <b>tidak hilang</b> dan tidak dipindah otomatis — menebak formatnya salah berarti menaruh pekerjaan di event yang keliru. Pindahkan sendiri ke Format F&amp;B yang sesuai; item beserta progres yang sudah tercatat ikut pindah.</span></div>';
+     +'<span>Ini template dari waktu divisi masih jadi kategori to-do. Isinya <b>tidak hilang</b> dan tidak dipindah otomatis — menebak kategorinya salah berarti menaruh pekerjaan di event yang keliru. Pindahkan sendiri ke kategori yang sesuai; item beserta progres yang sudah tercatat ikut pindah.</span></div>';
     lama.forEach(d=>{
       const n=divTemplates(d).length;
       h+='<div class="card" style="margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
@@ -5338,13 +5363,57 @@ function renderTemplates(V){
     });
   }
   V.innerHTML=h;
+  if(canEdit) bindSubDrag();
+}
+/* ---------- URUTAN SUB KATEGORI (tarik-lepas) ----------
+   Urutannya = urutan di S.fbSubs, dan itu JUGA urutan tampil di papan to-do
+   (taskBoard mengelompokkan menurut daftar sub). Jadi menata di sini sekaligus
+   menata urutan kerja tim di lapangan — bukan cuma kosmetik halaman ini. */
+let scDragId=null;
+function bindSubDrag(){
+  document.querySelectorAll('.sc-head.bisa-tarik').forEach(el=>{
+    el.addEventListener('dragstart',e=>{ scDragId=el.dataset.sc; el.classList.add('sc-drag');
+      try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain',scDragId); }catch(_){} });
+    el.addEventListener('dragend',()=>{ el.classList.remove('sc-drag');
+      document.querySelectorAll('.sc-over').forEach(x=>x.classList.remove('sc-over')); });
+    el.addEventListener('dragover',e=>{
+      /* Hanya di dalam kategori yang SAMA. Menyeret sub Prasmanan ke Set Menu
+         bukan "mengurutkan" melainkan memindahkan — akibatnya lain (itemnya
+         ikut berpindah event), jadi jangan sampai kejadian tanpa disengaja. */
+      const asal=document.querySelector('.sc-head[data-sc="'+scDragId+'"]');
+      if(!asal || asal.dataset.scdiv!==el.dataset.scdiv || asal===el) return;
+      e.preventDefault(); el.classList.add('sc-over');
+    });
+    el.addEventListener('dragleave',()=>el.classList.remove('sc-over'));
+    el.addEventListener('drop',e=>{ e.preventDefault(); el.classList.remove('sc-over');
+      reorderSub(scDragId, el.dataset.sc); });
+  });
+}
+function reorderSub(dragId,targetId){
+  if(!dragId||dragId===targetId) return;
+  const subs=getSubs();
+  const a=subs.find(x=>x.id===dragId), b=subs.find(x=>x.id===targetId);
+  if(!a||!b||a.div!==b.div) return;
+  /* Ditata di dalam SLOT milik kategori ini saja: S.fbSubs memuat sub dari
+     semua kategori sekaligus, jadi mengurutkan seluruh array akan mengacak
+     urutan kategori lain yang tidak sedang disentuh. */
+  const slot=[]; subs.forEach((x,i)=>{ if(x.div===a.div) slot.push(i); });
+  const urut=slot.map(i=>subs[i]);
+  const ia=urut.indexOf(a), ib=urut.indexOf(b);
+  urut.splice(ia,1);
+  const ib2=urut.indexOf(b);
+  // ditarik ke BAWAH -> mendarat sesudah sasaran; ke ATAS -> sebelum sasaran.
+  urut.splice(ia<ib?ib2+1:ib2, 0, a);
+  slot.forEach((gi,k)=>{ subs[gi]=urut[k]; });
+  save(); logAct('template','-','Urutan sub kategori diubah',a.div+' · '+a.nama);
+  go('templates');
 }
 /* Pindahkan satu kategori lama (divisi) menjadi SUB KATEGORI di dalam sebuah
    Format F&B. Yang ikut pindah: templatenya, sub kategori yang sudah ada di
    dalamnya, dan progres/meta job yang sudah tercatat di event. */
 function pindahKategoriLama(div){
   const el=$('pl_'+div); const fmt=el?el.value:'';
-  if(!fmt) return toast('Pilih format','Pilih Format F&B tujuan dulu.','err');
+  if(!fmt) return toast('Pilih kategori','Pilih kategori tujuan dulu.','err');
   const items=divTemplates(div), subLama=subsOf(div);
   confirmUI({title:'Pindahkan Kategori',sub:div+' → '+fmt,ok:'Pindahkan',
     body:'Pindahkan <b>'+esc(div)+'</b> ('+items.length+' item) menjadi sub kategori di dalam <b>'+esc(fmt)+'</b>?'
@@ -5382,22 +5451,118 @@ function pindahKategoriLama(div){
 }
 /* ---------- FORMAT F&B (kategori besar) ---------- */
 function newFbFormat(){
-  modal('<div class="modal-head"><div><h3>Format F&amp;B Baru</h3><p>Kategori besar cabang Kitchen — mis. Prasmanan, Set Menu</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
-   +ff('Nama Format','nf_name','','text',1)
-   +'<div class="fh">Begitu disimpan, format ini langsung bisa dipilih di field <b>Format F&amp;B</b> pada form event.</div>'
+  modal('<div class="modal-head"><div><h3>Kategori Baru</h3><p>Kategori to-do event — mis. Prasmanan, Set Menu</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +ff('Nama Kategori','nf_name','','text',1)
+   +'<div class="fh">Begitu disimpan, kategori ini langsung bisa dipilih di isian <b>Format F&amp;B</b> pada form event.</div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveFbFormat()">Simpan</button></div>');
   setTimeout(function(){ var el=$('nf_name'); if(el){ el.focus(); el.onkeydown=function(ev){ if(ev.key==='Enter')saveFbFormat(); }; } },40);
 }
 function saveFbFormat(){
   let name=($('nf_name').value||'').replace(/['"\\]/g,'').trim();
-  if(!name)return toast('Nama wajib','Isi nama format dulu.','err');
+  if(!name)return toast('Nama wajib','Isi nama kategori dulu.','err');
   /* Bentrok dicek terhadap KEDUA daftar. Nama yang sama di kategori divisi dan
      di Format F&B akan membuat divTemplates() mencampur item keduanya — dan
      'Lainnya' dipakai form event sebagai penanda isian bebas, bukan format. */
   if(getFbFormats().concat(getCats()).concat(['Lainnya']).some(c=>String(c).toLowerCase()===name.toLowerCase()))
-    return toast('Sudah ada','Nama itu sudah dipakai (kategori divisi / format F&B).','err');
+    return toast('Sudah ada','Nama itu sudah dipakai.','err');
   getFbFormats().push(name);
-  save(); closeModal(); toast('Format dibuat','Format F&B "'+name+'" ditambahkan.','ok'); go('templates');
+  save(); closeModal(); toast('Kategori dibuat','Kategori "'+name+'" ditambahkan.','ok'); go('templates');
+}
+/* ---------- UBAH NAMA KATEGORI ----------
+   Nama kategori bukan sekadar label: ia dipakai sebagai KUNCI di lima tempat —
+   taskTemplates[].div, fbSubs[].div, events[].detail.fbFormat, dan kunci
+   jobProgress/jobMeta/tasks per event. Mengganti namanya di daftar saja akan
+   membuat setiap event yang memakainya kehilangan seluruh daftar to-do beserta
+   progresnya, tanpa satu pun pesan galat. Jadi semuanya ikut diganti dalam satu
+   tindakan. */
+function renameFbFormat(name){
+  if(getFbFormats().indexOf(name)<0) return;
+  const dipakai=S.events.filter(e=>e&&e.detail&&e.detail.fbFormat===name).length;
+  modal('<div class="modal-head"><div><h3>Ubah Nama Kategori</h3><p>'+esc(name)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<input type="hidden" id="rf_lama" value="'+esc(name)+'">'
+   +ff('Nama Kategori','rf_name',name,'text',1)
+   +'<div class="fh">Isi kategori tidak berubah — hanya namanya.</div>'
+   +(dipakai?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span><b>'+dipakai+' event</b> memakai kategori ini. Isian <em>Format F&amp;B</em> pada event itu ikut diperbarui ke nama baru, supaya daftar to-do dan progresnya tidak terputus.</span></div>':'')
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveRenameFbFormat()">Simpan</button></div>');
+  setTimeout(function(){ var el=$('rf_name'); if(el)el.focus(); },40);
+}
+function saveRenameFbFormat(){
+  const lama=$('rf_lama').value;
+  let baru=($('rf_name').value||'').replace(/['"\\]/g,'').trim();
+  if(!baru)return toast('Nama wajib','Isi nama kategori dulu.','err');
+  if(baru===lama){ closeModal(); return; }
+  if(getFbFormats().concat(getCats()).concat(['Lainnya']).some(c=>String(c).toLowerCase()===baru.toLowerCase()))
+    return toast('Sudah ada','Nama itu sudah dipakai.','err');
+  const daftar=getFbFormats();
+  daftar[daftar.indexOf(lama)]=baru;
+  (S.taskTemplates||[]).forEach(t=>{ if(t.div===lama) t.div=baru; });
+  getSubs().forEach(x=>{ if(x.div===lama) x.div=baru; });
+  let nEv=0;
+  S.events.forEach(ev=>{
+    if(!ev) return;
+    if(ev.detail && ev.detail.fbFormat===lama){ ev.detail.fbFormat=baru; nEv++; }
+    /* Kunci per-kategori ikut berganti nama. Kalau tidak, progres yang sudah
+       dicentang tetap tersimpan di bawah nama lama dan terbaca 0% lagi. */
+    ['jobProgress','jobMeta','tasks'].forEach(k=>{
+      const kotak=ev[k];
+      if(!kotak||typeof kotak!=='object'||Array.isArray(kotak)) return;
+      if(!(lama in kotak)) return;
+      if(!(baru in kotak)) kotak[baru]=kotak[lama];
+      delete kotak[lama];
+    });
+  });
+  save(); closeModal(); logAct('template','-','Nama kategori diubah',lama+' → '+baru+(nEv?' · '+nEv+' event ikut':''));
+  toast('Tersimpan','Kategori "'+lama+'" jadi "'+baru+'".','ok'); go('templates');
+}
+
+/* ---------- SALIN ISI DARI KATEGORI LAIN ----------
+   Kategori baru hampir selalu mirip yang sudah ada — Set Menu dan Prasmanan
+   berbagi sebagian besar job. Menyalin lebih dulu lalu memangkas jauh lebih
+   cepat daripada mengetik ulang seluruh daftar.
+
+   Yang disalin SALINAN penuh dengan id baru, bukan rujukan: sesudah disalin,
+   mengubah item di kategori asal tidak ikut mengubah yang di sini. Itu memang
+   yang diinginkan — dua kategori yang berbeda justru akan menyimpang isinya. */
+function salinKategori(target){
+  if(getFbFormats().indexOf(target)<0) return;
+  const sumber=getFbFormats().filter(f=>f!==target).concat(kategoriLama());
+  if(!sumber.length) return toast('Tidak ada sumber','Belum ada kategori lain yang bisa disalin.','err');
+  modal('<div class="modal-head"><div><h3>Salin dari Kategori Lain</h3><p>Tujuan: '+esc(target)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<input type="hidden" id="sk_target" value="'+esc(target)+'">'
+   +'<div class="field"><label>Salin dari<span class="req">*</span></label><select class="inp" id="sk_sumber">'
+     +sumber.map(f=>'<option value="'+esc(f)+'">'+esc(f)+' ('+divTemplates(f).length+' item)</option>').join('')
+   +'</select></div>'
+   +'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span>Item &amp; sub kategori dari sumber <b>ditambahkan</b> ke '+esc(target)+', bukan menggantinya. Item yang namanya sudah ada di sub kategori yang sama <b>dilewati</b>, jadi menyalin dua kali tidak menggandakan daftar. Progres event tidak ikut tersalin — yang disalin standarnya, bukan pekerjaan yang sudah berjalan.</span></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="doSalinKategori()">Salin</button></div>');
+}
+function doSalinKategori(){
+  const target=$('sk_target').value, sumber=$('sk_sumber').value;
+  if(!sumber||sumber===target) return toast('Pilih sumber','Pilih kategori asal dulu.','err');
+  // Sub kategori disalin lebih dulu supaya urutannya ikut, bukan tersusun acak
+  // menurut urutan itemnya.
+  const adaSub=subsOf(target).map(x=>x.nama);
+  let nSub=0;
+  subsOf(sumber).forEach(sc=>{
+    if(adaSub.indexOf(sc.nama)>-1) return;
+    getSubs().push({id:uid('sc'),div:target,nama:sc.nama}); adaSub.push(sc.nama); nSub++;
+  });
+  /* Kunci pembanding = sub + nama task. Tanpa ini, menekan Salin dua kali
+     menggandakan seluruh daftar dan orang harus menghapusnya satu per satu. */
+  S.taskTemplates=S.taskTemplates||[];
+  const sudah={};
+  divTemplates(target).forEach(t=>{ sudah[(t.sub||'')+' '+(t.task||'')]=1; });
+  let nBaru=0, nLewat=0;
+  divTemplates(sumber).forEach(t=>{
+    const kunci=(t.sub||'')+' '+(t.task||'');
+    if(sudah[kunci]){ nLewat++; return; }
+    sudah[kunci]=1; nBaru++;
+    S.taskTemplates.push({id:uid('tt'),div:target,sub:t.sub||'',task:t.task||'',
+      pic:t.pic||'',hminus:(t.hminus!=null?t.hminus:null),deadline:t.deadline||'',note:t.note||''});
+  });
+  save(); closeModal();
+  logAct('template','-','Isi kategori disalin',sumber+' → '+target+' · '+nBaru+' item'+(nLewat?' ('+nLewat+' dilewati)':''));
+  toast('Tersalin',nBaru+' item'+(nSub?' & '+nSub+' sub kategori':'')+' masuk ke '+target+(nLewat?' · '+nLewat+' dilewati karena sudah ada':'')+'.','ok');
+  go('templates');
 }
 function delFbFormat(name){
   const n=divTemplates(name).length, ns=subsOf(name).length;
@@ -5406,15 +5571,15 @@ function delFbFormat(name){
      Akibatnya event itu kehilangan cabang job dapurnya — dan itu disebutkan,
      bukan didiamkan. */
   const dipakai=S.events.filter(e=>e&&e.detail&&e.detail.fbFormat===name).length;
-  confirmUI({title:'Hapus Format F&B',danger:true,ok:'Hapus',
-    body:'Hapus format <b>'+esc(name)+'</b>'+(n?(' beserta <b>'+n+'</b> item to-do'):'')+(ns?(' dan <b>'+ns+'</b> sub kategori'):'')+'?'
-      +(dipakai?'<br><br><b>'+dipakai+' event</b> masih tercatat memakai format ini. Isian Format F&B pada event itu tidak diubah, tapi cabang job dapurnya tidak akan muncul lagi.':'')
+  confirmUI({title:'Hapus Kategori',danger:true,ok:'Hapus',
+    body:'Hapus kategori <b>'+esc(name)+'</b>'+(n?(' beserta <b>'+n+'</b> item to-do'):'')+(ns?(' dan <b>'+ns+'</b> sub kategori'):'')+'?'
+      +(dipakai?'<br><br><b>'+dipakai+' event</b> masih memakai kategori ini. Isian Format F&B pada event itu tidak diubah, tapi daftar to-do-nya tidak akan muncul lagi.':'')
       +'<br><br>Tindakan ini tidak bisa dibatalkan.',
     onYes:function(){
       S.fbFormats=getFbFormats().filter(x=>x!==name);
       S.fbSubs=getSubs().filter(x=>x.div!==name);
       S.taskTemplates=(S.taskTemplates||[]).filter(t=>t.div!==name);
-      save(); toast('Dihapus','Format F&B "'+name+'" dihapus.','ok'); go('templates');
+      save(); toast('Dihapus','Kategori "'+name+'" dihapus.','ok'); go('templates');
     }});
 }
 /* ---------- SUB KATEGORI ---------- */
