@@ -456,12 +456,8 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
   font-size:11px;line-height:1.5;letter-spacing:.01em}
 .tbl-note svg{width:13px;height:13px;color:var(--gold);opacity:.75}
 .tbl-note em{font-style:normal;color:var(--sand-dim);font-weight:600}
-/* input inline di dalam tabel Detail Job (job tambahan) */
+/* input inline di dalam papan job halaman Task Divisi */
 .jb-in{padding:6px 9px;font-size:12px;width:100%;min-width:70px}
-tr.jb-extra td{background:var(--gold-glow)}
-.btn.detail-job{background:#fff;border-color:var(--line-hard);color:var(--gold-deep);justify-content:center;gap:7px}
-.btn.detail-job:hover{border-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep)}
-.btn.detail-job svg{width:15px;height:15px;stroke-width:2}
 .ntf-chev{width:18px;height:18px;flex:none;color:var(--muted)}
 input[type=range].rng{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:6px;background:var(--ink-700);outline:none;cursor:pointer}
 input[type=range].rng::-webkit-slider-runnable-track{-webkit-appearance:none;height:8px;border-radius:6px;background:transparent}
@@ -2039,18 +2035,12 @@ function divTemplates(div){ return (S.taskTemplates||[]).filter(t=>t.div===div);
 // Template efektif untuk 1 divisi pada 1 event: Kitchen ikut menyerap cabang F&B (Prasmanan / Set Menu) sesuai pilihan event
 // Job tambahan ad-hoc milik 1 event (bukan dari Template Task) — diketik langsung di Detail Job
 function extraJobs(ev,div){ return (ev&&ev.extraJobs&&ev.extraJobs[div])||[]; }
-/* Gambar ulang di tempat yang sedang dipakai kru — panel di halaman kalau
-   panelnya yang terbuka, modal kalau modalnya. Menebak satu saja membuat
-   menambah job terasa seperti melompat ke layar lain. */
-function gambarUlangJob(evId,div){
-  // Job tambahan bisa dibuat dari dua tempat: papan to-do di halaman Task
-  // Divisi, dan modal Detail Job di form event. Yang digambar ulang harus
-  // yang sedang dilihat kru — kalau salah, menambah item terasa seperti
-  // dilempar ke layar lain.
-  const bg=document.getElementById('modal-bg');
-  if(bg && bg.classList.contains('on')){ openDivJobs(evId,div); return; }
-  refreshView();
-}
+/* Job tambahan kini hanya dibuat dari satu tempat: papan to-do di halaman
+   Task Divisi. Dulu ada cabang kedua yang membuka modal Detail Job kalau
+   ada modal sedang terbuka — modal itu sudah tidak ada pintunya lagi, dan
+   membiarkan cabangnya berarti modal Detail Job bisa muncul tiba-tiba di
+   atas modal LAIN yang kebetulan sedang dibuka. */
+function gambarUlangJob(evId,div){ refreshView(); }
 function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list.concat(extraJobs(ev,div)); }
 function addExtraJob(evId,div){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
@@ -2120,15 +2110,6 @@ function divProgress(e,div){ const items=eventDivTemplates(e,div); if(!items.len
 // dan tidak terlihat tinggi padahal sebagian besar divisi belum jalan.
 function taskProgress(e){ const cats=getCats(); if(!cats.length)return 0; return Math.round(cats.reduce((a,div)=>a+divProgress(e,div),0)/cats.length); }
 function setJobProg(evId,div,taskId,val){ const e=S.events.find(x=>x.id===evId); if(!e)return; e.jobProgress=e.jobProgress||{}; e.jobProgress[div]=e.jobProgress[div]||{}; e.jobProgress[div][taskId]=Math.max(0,Math.min(100,Math.round(+val||0))); save(); }
-// Hitung ulang % keseluruhan Detail Job langsung dari posisi slider (realtime saat ditarik,
-// tanpa menunggu slider dilepas / modal dibuka ulang).
-function djRecalc(){
-  const rows=[...document.querySelectorAll('#modal input.rng')];
-  if(!rows.length)return;
-  const avg=Math.round(rows.reduce((a,el)=>a+Math.max(0,Math.min(100,+el.value||0)),0)/rows.length);
-  const t=$('dj_overall'); if(t)t.textContent=avg+'%';
-  const b=$('dj_overall_bar'); if(b)b.style.width=avg+'%';
-}
 function rngFill(el){ const v=Math.max(0,Math.min(100,+el.value||0)); el.style.background='linear-gradient(90deg,var(--gold-deep),var(--gold) '+v+'%,var(--ink-700) '+v+'%)'; const lbl=el.dataset.lbl&&document.getElementById(el.dataset.lbl); if(lbl)lbl.textContent=v+'%'; }
 function refreshView(){ simpanGulir(); const p=location.hash.slice(1).split('/'); go(p[0]||'dashboard', p[1]); }
 
@@ -2696,11 +2677,14 @@ function renderEventTab(ev,canEdit){
       const div=sec.div[0];
       if(getCats().includes(div)){
         const pr=divProgress(ev,div); const nJobs=eventDivTemplates(ev,div).length;
+        /* Kesiapan divisi tampil sebagai ANGKA saja, tanpa tombol masuk ke
+           job. Mengatur job bukan pekerjaan yang sama dengan mengisi detail
+           acara: yang satu milik divisi pelaksana, yang satu milik marketing.
+           Menaruh pintunya di sini membuat form isian acara ikut jadi layar
+           manajemen tugas. Job diatur di halaman Task Divisi, yang memang
+           dibuat untuk itu dan isinya lebih lengkap. */
         h+='<div class="divider"></div><div class="divcard"><div class="divcard-h"><div class="tl">Kesiapan divisi '+div+'</div><span class="cell-sub">'+pr+'% siap</span></div><div class="progress"><div class="bar" style="width:'+pr+'%"></div></div>'
-         +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job':'—')+'</div>'
-         +(nJobs
-            ? '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.brief)+'Detail Job</button>'
-            : '<button class="btn sm detail-job" style="width:100%;margin-top:12px" onclick="openDivJobs(\''+ev.id+'\',\''+div+'\')">'+svg(IC.plus)+'Atur Job</button>')
+         +'<div class="cell-sub" style="margin-top:7px">'+(nJobs?'progres otomatis dari '+nJobs+' job · diatur di Task Divisi':'belum ada job · diatur di Task Divisi')+'</div>'
          +'</div>';
       }
     }
@@ -4800,63 +4784,6 @@ function delTaskCategory(name){
       S.events.forEach(e=>{ if(e.jobProgress)delete e.jobProgress[name]; if(e.tasks)delete e.tasks[name]; });
       save(); toast('Dihapus','Kategori "'+name+'" dihapus.','ok'); go('templates');
     }});
-}
-/* Isi Detail Job dibangun sekali, dipakai DUA tempat: panel di halaman
-   Task Divisi dan modal lama. Kalau dibuat dua kali, keduanya pasti
-   melenceng cepat atau lambat. */
-function openDivJobs(evId,div){
-  modal('<div class="modal-head"><div><h3>Detail Job · '+esc(div)+'</h3><p>'
-    +esc((S.events.find(e=>e.id===evId)||{}).nama||'')+'</p></div>'
-    +'<div class="x" onclick="closeModal();refreshView()">'+svg(IC.x)+'</div></div>'
-    +'<div class="modal-body">'+divJobsHTML(evId,div)+'</div>','wide');
-}
-function divJobsHTML(evId,div){
-  const ev=S.events.find(e=>e.id===evId);
-  const items=eventDivTemplates(ev,div);
-  const editable=can('edit_task');
-  const fbNote=(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat))?'<div class="cell-sub" style="margin-bottom:10px">Termasuk job cabang F&amp;B: <b>'+esc(ev.detail.fbFormat)+'</b> (otomatis dari Format F&amp;B event).</div>':'';
-  let b=fbNote;
-  let hmOpts=''; for(let i=0;i<=120;i+=5) hmOpts+='<option value="'+i+'">';
-  b+='<datalist id="xj_hm_opts">'+hmOpts+'</datalist>';
-  if(items.length){
-    const overall=divProgress(ev,div);
-    b+='<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line-soft);border-radius:11px"><div style="flex:none"><div class="cell-sub">Progress keseluruhan '+esc(div)+'</div><div style="font-family:var(--ff-display);font-size:22px;line-height:1.15"><span id="dj_overall">'+overall+'%</span> <span class="cell-sub" style="font-size:12px">· '+items.length+' job</span></div></div><div class="progress" style="flex:1;height:9px"><div class="bar" id="dj_overall_bar" style="width:'+overall+'%"></div></div></div>';
-  }
-  if(editable) b+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px"><div class="cell-sub">Job dari Template Task + job tambahan khusus event ini.</div><button class="btn sm pri" onclick="addExtraJob(\''+evId+'\',\''+div+'\')">'+svg(IC.plus)+'Tambah Task</button></div>';
-  if(!items.length) b+=empty('Job belum diatur','Susun daftar job untuk divisi '+esc(div)+' di menu Template Task, atau klik Tambah Task untuk job khusus event ini.','task');
-  else{
-    b+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th><th style="min-width:180px">Progress</th>'+(editable?'<th></th>':'')+'</tr></thead><tbody>';
-    items.forEach(t=>{ const pr=jobProg(ev,div,t.id); const bid='jb_'+t.id;
-      const branch=(!t.extra&&t.div!==div)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">'+esc(t.div)+'</span>':'';
-      const a="'"+evId+"','"+div+"','"+t.id+"'";
-      const progCell='<td><div style="display:flex;align-items:center;gap:10px">'
-        +(editable
-          ?'<input type="range" class="rng" min="0" max="100" value="'+pr+'" data-lbl="'+bid+'_lbl" oninput="rngFill(this);djRecalc()" onchange="setJobProg(\''+evId+'\',\''+div+'\',\''+t.id+'\',this.value)" style="flex:1;background:linear-gradient(90deg,var(--gold-deep),var(--gold) '+pr+'%,var(--ink-700) '+pr+'%)">'
-          :'<div class="progress" style="flex:1"><div class="bar" style="width:'+pr+'%"></div></div>')
-        +'<span class="cell-sub" id="'+bid+'_lbl" style="min-width:36px;text-align:right;font-variant-numeric:tabular-nums">'+pr+'%</span></div></td>';
-      if(t.extra&&editable){
-        b+='<tr class="jb-extra">'
-         +'<td><input class="inp jb-in" value="'+esc(t.task||'')+'" placeholder="Nama task…" onchange="setExtraJob('+a+',\'task\',this.value)"></td>'
-         +'<td><input class="inp jb-in" list="dl_staff" value="'+esc(t.pic||'')+'" placeholder="PIC" onchange="setExtraJob('+a+',\'pic\',this.value)"></td>'
-         +'<td><input class="inp jb-in" type="number" min="0" step="5" list="xj_hm_opts" value="'+(t.hminus!=null?t.hminus:'')+'" placeholder="H-" onchange="setExtraJob('+a+',\'hminus\',this.value)" style="width:78px"></td>'
-         +'<td><input class="inp jb-in" type="date" value="'+esc(t.deadline||'')+'" onchange="setExtraJob('+a+',\'deadline\',this.value)"></td>'
-         +'<td><input class="inp jb-in" value="'+esc(t.note||'')+'" placeholder="Catatan" onchange="setExtraJob('+a+',\'note\',this.value)"></td>'
-         +progCell
-         +'<td><button class="btn sm" title="Hapus job tambahan" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button></td></tr>';
-      } else {
-        const tag=t.extra?' <span class="tag" style="background:var(--gold-glow);color:var(--gold-deep)">tambahan</span>':branch;
-        b+='<tr><td><div class="cell-strong">'+esc(t.task||'(tanpa nama)')+tag+'</div></td><td>'+esc(t.pic||'—')+'</td><td class="mono">'+hminusBadge(t.hminus)+'</td><td class="mono">'+(t.deadline?fmtDate(t.deadline):'—')+'</td><td class="cell-sub">'+esc(t.note||'—')+'</td>'+progCell+(editable?'<td></td>':'')+'</tr>';
-      }
-    });
-    b+='</tbody></table></div>';
-  }
-  // Pintasan ini dulu ada di kaki modal. Kaki modalnya sudah tidak ada karena
-  // isinya kini juga dipakai sebagai panel di halaman. Ditaruh SESUDAH rantai
-  // if/else di atas — pernah tersisip di tengahnya, dan `else` yang memuat
-  // tabel job jadi menempel ke if yang salah lalu tabel itu hilang sama sekali.
-  if(editable) b+='<div style="margin-top:12px"><button class="btn sm ghost" onclick="closeModal();go(\'templates\')">'
-    +svg(IC.task)+'Kelola Template Task divisi ini</button></div>';
-  return b;
 }
 
 /* ============================================================
