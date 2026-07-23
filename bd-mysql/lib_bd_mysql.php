@@ -29,7 +29,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-23c');
+define('LIB_VERSI', '2026-07-23d');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -367,27 +367,41 @@ function upsert_collection($pdo, $c, $rows, $sinceTs = 0) {
 }
 
 /* Hapus baris yang tidak ada di kiriman.
-   JAGA-JAGA: kalau kiriman KOSONG tapi DB berisi, JANGAN hapus semua —
-   lindungi dari state kosong yang tak sengaja (mis. aplikasi gagal load lalu
-   menyimpan). Menghapus semua isi tabel harus lewat phpMyAdmin, bukan lewat
-   satu request yang kebetulan kosong. */
-function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $batas = 0) {
-  if (count($ids) === 0) {
-    return; // kiriman kosong: tidak menghapus apa pun (lihat catatan di atas)
-  }
-  /* PENJAGA BARIS BARU DARI KRU LAIN.
-     Penjaga updated_at hanya melindungi PERUBAHAN, bukan PENGHAPUSAN. Tanpa
-     batas di bawah ini: Nadia membuka BD OS (12 task termuat), Galih membuat
-     task ke-13, lalu Nadia menyimpan — kiriman Nadia tidak memuat task ke-13,
-     sehingga task yang sah itu IKUT TERHAPUS tanpa jejak.
 
-     $batas = updated_at terbaru yang ADA di kiriman. Baris yang lebih baru
-     dari itu mustahil diketahui pengirimnya, jadi tidak boleh dihapus
-     olehnya. Baris lama yang memang sengaja dihapus tetap terhapus. */
-  $place = implode(',', array_fill(0, count($ids), '?'));
-  $sql   = 'DELETE FROM ' . q($tabel) . ' WHERE ' . q($kolomId) . ' NOT IN (' . $place . ')';
-  $args  = $ids;
-  if ($batas > 0) { $sql .= ' AND `updated_at` <= ?'; $args[] = $batas; }
+   PENJAGA BARIS BARU DARI KRU LAIN. Penjaga updated_at hanya melindungi
+   PERUBAHAN, bukan PENGHAPUSAN. Tanpa $batas: Nadia membuka BD OS (12 task
+   termuat), Galih membuat task ke-13, lalu Nadia menyimpan — kiriman Nadia
+   tidak memuat task ke-13, sehingga task yang sah itu IKUT TERHAPUS tanpa
+   jejak. $batas (= `sinceTs`, jam server saat klien terakhir membaca)
+   menyatakan sampai kapan klien ini tahu isi server; yang lahir sesudahnya
+   tidak boleh dihapus olehnya.
+
+   KIRIMAN KOSONG. Dulu dianggap selalu mencurigakan dan dilewati begitu saja,
+   supaya aplikasi yang gagal memuat lalu menyimpan tidak mengosongkan tabel.
+   Akibatnya BARIS TERAKHIR sebuah koleksi mustahil dihapus: menghapusnya
+   membuat kiriman jadi kosong, dan permintaan itu diabaikan diam-diam —
+   barisnya muncul lagi setiap halaman dimuat ulang. Itulah yang terjadi pada
+   PR-2 sesudah PR 3-5 berhasil dibuang.
+
+   Sekarang kiriman kosong DIPERCAYA, tapi hanya kalau $batas ada. $batas
+   berasal dari jawaban getAll, jadi keberadaannya membuktikan klien memang
+   sempat membaca server — bukan aplikasi yang gagal memuat lalu menyimpan
+   kosong. Penghapusannya tetap dibatasi $batas, sehingga baris yang lahir
+   sesudah klien membaca tetap selamat. Klien lama yang tidak mengirim
+   sinceTs tetap dilayani dengan perilaku lama. */
+function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $batas = 0) {
+  if (count($ids) === 0 && $batas <= 0) return;
+
+  $args = array();
+  $sql  = 'DELETE FROM ' . q($tabel) . ' WHERE ';
+  if (count($ids)) {
+    $sql .= q($kolomId) . ' NOT IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+    $args = $ids;
+    if ($batas > 0) { $sql .= ' AND `updated_at` <= ?'; $args[] = $batas; }
+  } else {
+    $sql .= '`updated_at` <= ?';
+    $args[] = $batas;
+  }
   $del = $pdo->prepare($sql);
   $del->execute($args);
 }

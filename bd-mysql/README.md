@@ -44,9 +44,16 @@ cara melihatnya.
 - **Penjaga `updated_at`.** Simpan per-baris pakai `INSERT ... ON DUPLICATE KEY
   UPDATE`: **baris kiriman yang lebih lama tidak menimpa baris server yang lebih
   baru**. Ini yang menutup masalah "kru saling menimpa".
-- **Penghapusan dibatasi.** Baris yang lebih baru dari apa pun yang ada di
-  kiriman tidak ikut terhapus — supaya task yang baru dibuat kru lain tidak
+- **Penghapusan dibatasi `sinceTs`.** `getAll` mengembalikan `_serverTs` (jam
+  server); klien mengirimnya balik saat `saveAll`. Baris yang lahir **sesudah**
+  jam itu tidak ikut terhapus — supaya task yang baru dibuat kru lain tidak
   hilang saat orang lain menyimpan dari layar yang sudah basi.
+
+  > Patokannya dulu "cap waktu terbaru di kiriman", dan itu **rusak**: saat kru
+  > menghapus baris-baris terbaru, patokannya ikut turun sehingga baris yang
+  > mau dihapus berada di atas batas dan tidak pernah terhapus — muncul lagi
+  > tiap halaman dimuat ulang. Klien lama yang tidak mengirim `sinceTs` tetap
+  > dilayani dengan perilaku lama.
 - **`important` + `urgent` dua kolom terpisah.** Kuadran Eisenhower adalah
   turunan dari keduanya dan tidak pernah disimpan; menyimpan turunan berarti
   ada dua kebenaran yang bisa menyimpang.
@@ -149,10 +156,10 @@ dinyalakan lagi di database yang sudah berisi data sungguhan.
 Kalau data contoh dari versi lama telanjur masuk, bersihkan dengan
 [`hapus-data-contoh.sql`](hapus-data-contoh.sql) lewat phpMyAdmin.
 
-> Pengosongan **harus** lewat phpMyAdmin. Backend sengaja menolak menghapus
-> isi tabel saat kiriman aplikasi kosong (`hapus_yang_hilang()`) — perlindungan
-> terhadap aplikasi yang gagal memuat lalu menyimpan state kosong. Tanpa
-> penjaga itu, satu kali gagal muat bisa mengosongkan seluruh papan kerja.
+> Skrip ini cara tercepat mengosongkan **beberapa tabel sekaligus**. Menghapus
+> baris satu per satu lewat aplikasi juga bekerja — termasuk baris terakhir
+> sebuah koleksi, yang dulu mustahil dihapus karena kiriman kosong diabaikan
+> mentah-mentah oleh `hapus_yang_hilang()`.
 
 ## Endpoint
 
