@@ -1837,6 +1837,7 @@ function awalMinggu(iso){
   return isoOf(d);
 }
 function geserMinggu(iso,n){ var d=pDate(iso); d.setDate(d.getDate()+n*7); return isoOf(d); }
+function akhirMinggu(iso){ var d=pDate(awalMinggu(iso)); d.setDate(d.getDate()+6); return isoOf(d); }
 function labelMinggu(senin){
   var m=pDate(senin), a=new Date(m); a.setDate(a.getDate()+6);
   return m.getDate()+' '+BLN[m.getMonth()]+' – '+a.getDate()+' '+BLN[a.getMonth()]+' '+a.getFullYear();
@@ -2008,35 +2009,48 @@ function prNoBerikut(){
 }
 
 var prAktif=null;
+
+/* Request yang BELUM ikut dokumen mana pun.
+
+   TIDAK disaring per minggu, dan itu koreksi dari rancangan pertama. Lembar
+   PR yang dipakai tim tidak punya tanggal-dibutuhkan per baris sama sekali —
+   yang ada cuma satu REQUEST DATE untuk seluruh lembar. Cara kerjanya
+   mengumpulkan apa pun yang masuk, lalu menjadikannya satu lembar; bukan
+   memilah menurut kapan barangnya dipakai.
+
+   Versi pertama menyaringnya menurut minggu needBy, dan akibatnya request
+   yang baru saja diketik menghilang dari layar hanya karena tanggal
+   butuhnya jatuh di minggu berikutnya. Yang tersaring diam-diam lebih buruk
+   daripada daftar panjang: orang menyangka datanya tidak tersimpan. */
+function poBebas(){ return DB.po.filter(function(p){ return !p.prId; }); }
+
 function vPrList(){
-  var senin=geserMinggu(awalMinggu(todayISO()),poMinggu);
-  var akhir=geserMinggu(senin,1);
-  /* Yang bisa dimasukkan ke PR baru: item minggu ini yang BELUM ikut dokumen
-     mana pun. Item yang sudah masuk PR tidak ditawarkan lagi — satu kebutuhan
-     yang muncul di dua lembar akan dibeli dua kali. */
-  var bebas=DB.po.filter(function(p){
-    return !p.prId && p.needBy && p.needBy>=senin && p.needBy<akhir;
-  });
+  var bebas=poBebas();
+  var h='';
 
-  var h='<div class="filters">'+
-    '<div class="seg">'+
-      '<button onclick="APP.geserMingguPo(-1)">'+ic('chevL',14)+'</button>'+
-      '<button class="on" style="cursor:default">'+labelMinggu(senin)+'</button>'+
-      '<button onclick="APP.geserMingguPo(1)">'+ic('chevR',14)+'</button>'+
-    '</div>'+
-    (poMinggu?'<button class="btn sm" onclick="APP.geserMingguPo(0)">Minggu ini</button>':
-              '<span class="pill p-gold">minggu ini</span>')+
-    (bebas.length?'<button class="btn pri" style="margin-left:auto" onclick="APP.buatPr()">'+
-      ic('plus')+'Buat PR dari '+bebas.length+' request minggu ini</button>'
-     :'<span class="muted" style="font-size:12px;margin-left:auto">tidak ada request bebas di minggu ini</span>')+
-  '</div>';
-
-  if(bebas.length)
-    h+='<div class="notice">'+bebas.length+' request minggu ini belum masuk dokumen PR mana pun. '+
-      'Tekan tombol di atas untuk menjadikannya satu lembar bernomor, lalu cetak/PDF dari halaman dokumennya.</div>';
+  if(bebas.length){
+    h+='<div class="card" style="margin-bottom:16px"><div class="card-h">'+
+      '<h3>'+bebas.length+' request menunggu dijadikan lembar PR</h3>'+
+      '<button class="btn pri" onclick="APP.buatPr()">'+ic('plus')+'Buat PR dari semuanya</button></div>'+
+      '<div class="card-b tight">'+
+      bebas.map(function(p){
+        return '<div class="trow"><div class="t-main" style="cursor:pointer" onclick="APP.poModal(\''+p.id+'\')">'+
+          '<div class="t-name">'+esc(p.item)+'</div>'+
+          '<div class="t-meta">'+
+            '<span class="tag">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span>'+
+            '<span class="tag pic">'+esc(poRequester(p))+'</span>'+
+            (p.payment?'<span class="tag">'+esc(p.payment)+'</span>':'')+
+            '<span class="tag">'+((+p.amount)?fRp(p.amount):'harga belum diisi')+'</span>'+
+            (p.needBy?'<span class="tag">butuh '+fTgl(p.needBy)+'</span>':'')+
+          '</div></div></div>';
+      }).join('')+
+      '</div></div>';
+  }
 
   if(!DB.pr.length) return h+'<div class="card"><div class="card-b">'+
-    kosong('Belum ada dokumen PR','Kumpulkan request lewat "Request Order", lalu jadikan satu lembar mingguan.')+'</div></div>';
+    kosong(bebas.length?'Belum ada dokumen PR':'Belum ada request maupun dokumen PR',
+      bebas.length?'Tekan "Buat PR dari semuanya" di atas untuk menjadikannya satu lembar bernomor.'
+                 :'Mulai dari tombol "Request Order" di kanan atas.')+'</div></div>';
 
   var urut=DB.pr.slice().sort(function(a,b){return (b.weekStart||'')<(a.weekStart||'')?-1:1;});
   return h+'<div class="tw"><table><thead><tr><th>PR No</th><th>Periode</th><th>Penyusun</th>'+
@@ -2057,10 +2071,9 @@ function vPrList(){
 }
 
 function buatPr(){
-  var senin=geserMinggu(awalMinggu(todayISO()),poMinggu);
-  var akhir=geserMinggu(senin,1);
-  var bebas=DB.po.filter(function(p){ return !p.prId && p.needBy && p.needBy>=senin && p.needBy<akhir; });
-  if(!bebas.length){ toast('Tidak ada request bebas di minggu ini.'); return; }
+  var bebas=poBebas();
+  if(!bebas.length){ toast('Tidak ada request yang menunggu.'); return; }
+  var senin=awalMinggu(todayISO());
   var approvals={};
   PENYETUJU.forEach(function(s){ approvals[s.k]={nama:s.nama, at:'', oleh:''}; });
   var pr={
@@ -2187,7 +2200,7 @@ function vPrDetail(){
   h+='</div>';   // .doc
 
   if(!terkunci){
-    var lain=DB.po.filter(function(p){return !p.prId;});
+    var lain=poBebas();
     h+='<div class="card no-print" style="margin-top:16px;max-width:1000px;margin-left:auto;margin-right:auto">'+
       '<div class="card-h"><h3>Tambahkan request lain ke lembar ini</h3>'+
         '<span class="tagn">'+lain.length+' belum masuk PR</span></div>'+
@@ -2329,7 +2342,11 @@ function requestModal(){
       '<div class="frow3">'+
         '<div class="field"><label>Jumlah</label><input type="number" id="q_qty" value="1" min="1"></div>'+
         '<div class="field"><label>Satuan</label><input id="q_unit" value="unit" placeholder="Unit / Pack / Orang"></div>'+
-        '<div class="field"><label>Dibutuhkan tanggal</label><input type="date" id="q_need" value="'+inDays(7)+'"></div></div>'+
+        /* Bawaannya AKHIR MINGGU INI, bukan tujuh hari dari sekarang. Siklus
+           belanja tim mingguan, jadi "seminggu lagi" selalu melompat ke
+           minggu berikutnya dan membuat kebutuhan minggu berjalan terlihat
+           kosong. */
+        '<div class="field"><label>Dibutuhkan tanggal</label><input type="date" id="q_need" value="'+akhirMinggu(todayISO())+'"></div></div>'+
       '<div class="frow">'+
         '<div class="field"><label>Cara bayar (usulan)</label><select id="q_pay">'+
           '<option value="">— belum ditentukan —</option>'+
