@@ -389,6 +389,18 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
 
    Jadi Radar menyatukan pandangan, bukan menyalin data. Setiap kartu menautkan
    balik ke modul asalnya untuk diubah di sana.
+
+   BATAS TETAP: RESERVASI TIDAK MASUK KE BAGIAN EVENT/MARKETING.
+   Reservasi meja dan event adalah dua hal berbeda — tamu event Marketing datang
+   lewat kontrak klien dan tidak pernah memesan lewat modul Reservasi. Karena
+   itu tidak ada angka reservasi di kartu agenda, kartu fokus, matriks
+   koordinasi, maupun panel detail event; tidak juga sebagai pil beketerangan.
+   Menyandingkannya pernah dicoba dua kali dengan label yang makin panjang, dan
+   dua kali tetap terbaca sebagai "reservasi milik event ini".
+
+   Reservasi punya tempatnya sendiri, semuanya berbasis TANGGAL bukan event:
+   kartu "Reservasi 7 hari", bagian "Reservasi hari ini", halaman Reservasi,
+   sel kalender terpadu, dan lembar Briefing.
    ============================================================================ */
 (function(){
 'use strict';
@@ -668,9 +680,14 @@ function evBars(a){
   });
   return h+'</div>';
 }
+/* Kartu agenda TIDAK menampilkan reservasi sama sekali — bahkan sebagai pil
+   berlabel. Reservasi meja bukan bagian dari event: tamunya berbeda, kontraknya
+   berbeda, dan modulnya berbeda. Selama angkanya menempel di kartu event, orang
+   akan membacanya sebagai milik event itu betapapun labelnya diperjelas.
+   Reservasi hidup di bagiannya sendiri: kartu "Reservasi hari ini" di Radar,
+   halaman Reservasi, dan lembar Briefing. */
 function agendaCard(a){
   var d=dDay(a.tgl), dt=pDate(a.tgl);
-  var rs=resTgl(a.tgl);
   var k=a.sumber==='mkt'?kesiapan(a.mentah):null;
   return '<button type="button" class="ev" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
     '<span class="ev-date"><span class="ev-d">'+dt.getDate()+'</span><span class="ev-m">'+BLN[dt.getMonth()]+'</span>'+
@@ -687,10 +704,6 @@ function agendaCard(a){
       (a.status?pill(a.status,'p-mute'):'')+
       (k? (k.ada ? pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad'))
                  : pill('Job belum disusun','p-mute')) : '')+
-      /* "reservasi meja hari itu", bukan "reservasi" polos: ini booking meja
-         tamu venue di tanggal yang sama, BUKAN tamu acara ini. Label lama
-         terbaca seolah reservasi itu milik eventnya. */
-      (rs.length?pill(rs.length+' reservasi meja hari itu','p-sea'):'')+
     '</span>'+evBars(a)+'</span></button>';
 }
 
@@ -764,14 +777,19 @@ function vRadar(){
   h+='<div class="grid g4" style="margin-bottom:16px">'+
     stat('Agenda 7 hari', minggu.length, minggu.length?fTglP(minggu[0].tgl)+' — terdekat':'tidak ada agenda','')+
     stat('Reservasi 7 hari', rsMinggu.length, paxRes(rsMinggu)+' pax terjadwal','se')+
-    stat('Agenda hari ini', agendaTgl(t).length, resTgl(t).length+' reservasi hari ini','tl')+
+    /* Keterangan kartu agenda memakai rincian AGENDA (Marketing vs Event),
+       bukan jumlah reservasi. Angka reservasi punya kartunya sendiri di
+       sebelah; menempelkannya di bawah "Agenda hari ini" membuat dua hal yang
+       tidak berhubungan terbaca sebagai satu. */
+    stat('Agenda hari ini', agendaTgl(t).length,
+         agendaTgl(t).filter(function(a){return a.sumber==='mkt';}).length+' Marketing · '+
+         agendaTgl(t).filter(function(a){return a.sumber==='evt';}).length+' Event','tl')+
     stat('Butuh perhatian', al.filter(function(x){return x.p===1;}).length, al.length+' item di papan peringatan',
          al.filter(function(x){return x.p===1;}).length?'rd':'')+
   '</div>';
 
   h+='<div class="split"><div>';
   if(fokus){
-    var rs=resTgl(fokus.tgl);
     h+='<div class="card gold" style="margin-bottom:16px">'+
       '<div class="sec-h"><span class="eyebrow">Fokus koordinasi berikutnya</span><span class="rule"></span>'+
       '<button class="btn sm" onclick="APP.buka(\''+fokus.sumber+'\',\''+esc(fokus.id)+'\')">'+ico('out')+'Buka di '+(fokus.sumber==='mkt'?'Marketing':'Event')+'</button></div>'+
@@ -782,8 +800,7 @@ function vRadar(){
         (fokus.jam?'<span>'+ico('clock')+esc(fokus.jam)+'</span>':'')+
         (fokus.tempat?'<span>'+ico('pin')+esc(fokus.tempat)+'</span>':'')+'</div>'+
       '<div class="pill-row" style="margin-bottom:12px">'+badgeSumber(fokus.sumber)+
-        pill(dLabel(dDay(fokus.tgl)),'p-warn')+(fokus.status?pill(fokus.status,'p-mute'):'')+
-        (rs.length?pill(rs.length+' reservasi meja hari itu','p-sea'):'')+'</div>';
+        pill(dLabel(dDay(fokus.tgl)),'p-warn')+(fokus.status?pill(fokus.status,'p-mute'):'')+'</div>';
     if(fokus.sumber==='mkt'){
       var isi=isianTerisi(fokus.mentah);
       /* Pax event dan pax reservasi meja TIDAK digabung. Pax event datang dari
@@ -822,13 +839,19 @@ function vRadar(){
   });
   h+='</div>';
 
+  /* Kartu "Hari ini" merangkum TANGGAL, bukan sebuah event — jadi dua modul
+     boleh berdampingan di sini. Tapi masing-masing diberi judul kecilnya
+     sendiri: tanpa itu, baris reservasi menempel di bawah daftar agenda dan
+     terbaca seperti lampirannya. */
   h+='<div class="card" style="margin-bottom:14px"><div class="sec-h"><h2>Hari ini</h2><span class="rule"></span></div>'+
      '<div style="font-size:12.5px;color:var(--sand-dim);line-height:1.7">'+
-     '<div><b style="color:var(--gold-deep)">'+fTgl(t)+'</b></div><div>'+
+     '<div><b style="color:var(--gold-deep)">'+fTgl(t)+'</b></div>'+
+     '<div class="eyebrow" style="margin:7px 0 2px">Agenda</div><div>'+
      (agendaTgl(t).length? agendaTgl(t).map(function(a){return esc(a.judul)+(a.jam?' · '+esc(a.jam):'');}).join('<br>')
                          : 'Tidak ada agenda — operasional reguler.')+'</div>'+
      '<div style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line-soft)">'+
-       resTgl(t).length+' reservasi · '+paxRes(resTgl(t))+' pax</div></div>'+
+       '<div class="eyebrow" style="margin-bottom:2px">Reservasi meja</div>'+
+       resTgl(t).length+' booking · '+paxRes(resTgl(t))+' pax</div></div>'+
      '<button class="btn sm" style="margin-top:11px;width:100%;justify-content:center" onclick="APP.go(\'briefing\')">'+
      ico('file')+'Buka lembar briefing</button></div>';
 
@@ -1207,15 +1230,14 @@ function drawerAgenda(a){
       kvRow('Klien', esc(cl.nama||'')+(cl.perusahaan?' — '+esc(cl.perusahaan):''))+
       kvRow('PIC klien', esc(cl.pic||cl.nama||''))+
       kvRow('Kontak', esc(cl.hp||''))+'</div>';
-    /* Beban venue di tanggal yang sama — DIPISAH dari pax event, dan diberi
-       keterangan tegas. Tamu acara ini datang lewat kontrak klien, bukan lewat
-       modul Reservasi; menjumlahkan keduanya menghasilkan angka yang tidak
-       berarti apa-apa. Yang berguna: tahu malam itu venue juga menampung
-       sekian meja tamu lain. */
-    var rs=resTgl(a.tgl);
-    h+='<div class="sec-h" style="margin-top:6px"><h2>Beban venue tanggal ini</h2><span class="rule"></span></div>'+
-       '<div class="kv">'+kvRow('Reservasi meja', rs.length+' booking · '+paxRes(rs)+' pax')+'</div>'+
-       '<div class="muted" style="font-size:11.5px;margin:-6px 0 14px">Ini tamu venue yang memesan meja di tanggal yang sama — <b>bukan</b> tamu acara ini, dan tidak dijumlahkan ke pax event.</div>';
+    /* DIHAPUS: blok "Beban venue tanggal ini" yang menampilkan jumlah reservasi
+       meja di dalam panel detail event. Versi sebelumnya sudah memisahkannya ke
+       bagian sendiri lengkap dengan keterangan "bukan tamu acara ini" — dan itu
+       tetap tidak cukup. Selama angka reservasi berdiri di dalam panel sebuah
+       event, pembacanya tetap menghubungkannya dengan event itu; keterangan
+       hanya dibaca sekali, angkanya dibaca setiap kali.
+       Beban venue per tanggal dibaca di halaman Reservasi atau lembar Briefing,
+       yang memang berbasis TANGGAL, bukan berbasis event. */
     if(k){
       h+='<div class="sec-h" style="margin-top:6px"><h2>Kesiapan divisi</h2><span class="rule"></span></div>';
       if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
