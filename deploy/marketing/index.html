@@ -5880,14 +5880,19 @@ function poAkhirMinggu(){
   d.setDate(d.getDate()+(7-((d.getDay()+6)%7)-1));
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+/* Semua isian memakai kelas `.inp` milik modul ini, bukan input telanjang.
+   Tanpa itu browser menggambarnya dengan gaya bawaannya sendiri — kotak
+   persegi abu-abu — dan halaman ini terlihat seperti tempelan dari aplikasi
+   lain di tengah Marketing. */
 function poBarisMkt(){
   return '<tr>'+
-    '<td><input class="bp-item" placeholder="Nama barang / jasa"></td>'+
-    '<td style="width:78px"><input class="bp-qty" type="number" value="1" min="1"></td>'+
-    '<td style="width:92px"><input class="bp-unit" value="Unit"></td>'+
-    '<td><input class="bp-note" placeholder="Untuk apa / kebutuhannya"></td>'+
-    '<td style="width:140px"><input class="bp-amount" inputmode="numeric" placeholder="Rp 0" oninput="poFmtRp(this)" style="text-align:right"></td>'+
-    '<td style="width:38px"><button class="btn sm" title="Hapus baris" onclick="poHapusBaris(this)">&times;</button></td>'+
+    '<td><input class="inp bp-item" placeholder="Nama barang / jasa"></td>'+
+    '<td style="width:86px"><input class="inp bp-qty" type="number" value="1" min="1"></td>'+
+    '<td style="width:104px"><input class="inp bp-unit" value="Unit" placeholder="Pack / Orang"></td>'+
+    '<td><input class="inp bp-note" placeholder="Untuk apa / kebutuhannya"></td>'+
+    '<td style="width:150px"><input class="inp bp-amount" inputmode="numeric" autocomplete="off" '+
+      'placeholder="0" oninput="poFmtRp(this)" style="text-align:right"></td>'+
+    '<td style="width:44px"><button class="btn sm" title="Hapus baris" onclick="poHapusBaris(this)">'+svg(IC.trash)+'</button></td>'+
   '</tr>';
 }
 function poTambahBaris(){
@@ -5904,42 +5909,75 @@ function poHapusBaris(btn){
   btn.closest('tr').remove();
 }
 
+/* Apakah pemakai ini berhak membuka BD OS? Tautan "Buka BD OS" hanya
+   ditampilkan kalau ya.
+
+   Sebelumnya tautannya selalu ada, dan siapa pun tanpa akses modul `bd`
+   mendarat di portal Office karena penjaga di sana melemparnya keluar —
+   terlihat seperti tautan rusak. Tautan yang tidak bisa dibuka lebih buruk
+   daripada tidak ada tautan: yang pertama membuat orang mengira aplikasinya
+   error, yang kedua cuma tidak menawarkan apa-apa. */
+function poBolehBukaBD(){
+  try{
+    var s=JSON.parse(localStorage.getItem('lm_session')||'null');
+    var m=(s&&s.modules)||[];
+    return m.indexOf('*')>-1 || m.indexOf('bd')>-1;
+  }catch(e){ return false; }
+}
+function poTautanBD(teks){
+  /* #purchasing dibaca BD OS sejak versi ini — sebelumnya hash-nya diabaikan
+     dan tautannya selalu mendarat di Dashboard. */
+  return poBolehBukaBD()
+    ? '<a class="btn sm" href="../bd/#purchasing" target="_blank" rel="noopener">'+teks+'</a>'
+    : '';
+}
+
 function renderPurchasingBD(V){
   V.innerHTML = pageHead('Finance & Kontrol','Purchase Order',
     'Kebutuhan pembelian dari Marketing — terkirim ke papan Purchasing BD OS untuk direkap jadi lembar PR mingguan.',
-    '<a class="btn sm" href="../bd/#purchasing" target="_blank" rel="noopener">Buka BD OS · Purchasing</a>')+
-  '<div class="card" style="padding:18px">'+
-    '<div class="ov-sorot" style="margin-bottom:16px">'+
+    poTautanBD('Buka BD OS · Purchasing'))+
+  '<div class="card">'+
+    '<div class="ov-sorot" style="margin-bottom:18px">'+
       '<div class="ov-sorot-t">CARA KERJANYA</div>'+
       'Baris yang kamu kirim dari sini <b>langsung masuk ke papan Purchasing BD OS</b> berstatus '+
       '<b>Diajukan</b>, bukan disimpan di Marketing. Tim purchasing yang melengkapi vendor dan harga '+
       'akhirnya, lalu mengumpulkannya jadi satu lembar PR mingguan bernomor. '+
       'Kalau sudah terkirim, perubahannya dilakukan di BD OS — bukan di sini.'+
+      (poBolehBukaBD()?'':'<br><br><b>Kamu belum punya akses modul BD OS</b>, jadi tautan ke sana tidak '+
+        'ditampilkan. Kiriman dari halaman ini tetap masuk; minta akses lewat Office → Kelola Akses '+
+        'kalau perlu memantau lanjutannya.')+
     '</div>'+
-    '<div class="grid3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">'+
-      '<label>Divisi peminta<select id="bp_div">'+
-        '<option>Business Development</option><option selected>Marketing</option>'+
-        '<option>Project</option><option>Purchasing</option></select></label>'+
-      '<label>Dibutuhkan tanggal<input type="date" id="bp_need" value="'+poAkhirMinggu()+'"></label>'+
-      '<label>Untuk event (opsional)<select id="bp_event"><option value="">—</option>'+
+    '<div class="form-grid">'+
+      '<div class="field"><label>Divisi peminta</label>'+
+        '<select class="inp" id="bp_div">'+
+          '<option>Business Development</option><option selected>Marketing</option>'+
+          '<option>Project</option><option>Purchasing</option></select></div>'+
+      '<div class="field"><label>Dibutuhkan tanggal</label>'+
+        '<input class="inp" type="date" id="bp_need" value="'+poAkhirMinggu()+'">'+
+        '<div class="fh">Bawaannya akhir minggu ini — siklus belanja tim mingguan.</div></div>'+
+      '<div class="field"><label>Untuk event (opsional)</label>'+
+        '<select class="inp" id="bp_event"><option value="">— tidak terkait event —</option>'+
         S.events.slice().sort(function(a,b){return (b.tanggal||'')<(a.tanggal||'')?-1:1;})
           .map(function(e){return '<option value="'+esc(e.nama)+'">'+esc(e.nama)+'</option>';}).join('')+
-      '</select></label>'+
+        '</select>'+
+        '<div class="fh">Ikut ditulis di kolom alasan, supaya purchasing tahu acaranya.</div></div>'+
     '</div>'+
-    '<div style="overflow-x:auto;border:1px solid var(--line-soft);border-radius:10px">'+
-      '<table style="width:100%;border-collapse:collapse;min-width:720px">'+
-      '<thead><tr>'+
-        '<th style="text-align:left;padding:8px">Nama item</th><th style="text-align:left;padding:8px">Jumlah</th>'+
-        '<th style="text-align:left;padding:8px">Satuan</th><th style="text-align:left;padding:8px">Alasan / kebutuhan</th>'+
-        '<th style="text-align:left;padding:8px">Perkiraan harga</th><th></th>'+
-      '</tr></thead><tbody id="bp_rows">'+poBarisMkt()+poBarisMkt()+poBarisMkt()+'</tbody></table>'+
+    '<div class="field full" style="margin-bottom:0">'+
+      '<label>Daftar barang yang diminta</label>'+
+      '<div class="tbl-wrap" style="border:1px solid var(--line-soft);border-radius:10px">'+
+        '<table class="tbl" style="min-width:760px"><thead><tr>'+
+          '<th>Nama item</th><th>Jumlah</th><th>Satuan</th>'+
+          '<th>Alasan / kebutuhan</th><th>Perkiraan harga</th><th></th>'+
+        '</tr></thead><tbody id="bp_rows">'+poBarisMkt()+poBarisMkt()+poBarisMkt()+'</tbody></table>'+
+      '</div>'+
+      '<div class="fh">Baris tanpa nama item diabaikan — tidak perlu dihapus satu per satu. '+
+        'Harga boleh dikosongkan kalau belum tahu.</div>'+
     '</div>'+
-    '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">'+
-      '<button class="btn sm" onclick="poTambahBaris()">+ Tambah baris</button>'+
-      '<span class="mini" style="color:var(--muted)">Baris tanpa nama item diabaikan. Harga boleh dikosongkan.</span>'+
-      '<button class="btn pri" style="margin-left:auto" id="bp_kirim" onclick="poKirimKeBD()">Kirim ke BD OS</button>'+
+    '<div class="pill-row" style="margin-top:16px;justify-content:space-between">'+
+      '<button class="btn sm" onclick="poTambahBaris()">'+svg(IC.plus)+'Tambah baris</button>'+
+      '<button class="btn pri" id="bp_kirim" onclick="poKirimKeBD()">Kirim ke BD OS</button>'+
     '</div>'+
-    '<div id="bp_hasil" style="margin-top:14px"></div>'+
+    '<div id="bp_hasil" style="margin-top:16px"></div>'+
   '</div>';
 }
 
@@ -5986,8 +6024,10 @@ function poKirimKeBD(){
       document.getElementById('bp_hasil').innerHTML=
         '<div class="ov-sorot" style="margin:0"><div class="ov-sorot-t">TERKIRIM</div>'+
         n+' item masuk ke papan Purchasing BD OS berstatus Diajukan. '+
-        'Lanjutkan di <a href="../bd/#purchasing" target="_blank" rel="noopener"><b>BD OS · Purchasing</b></a> '+
-        'untuk melengkapi harga dan menjadikannya lembar PR.</div>';
+        (poBolehBukaBD()
+          ? 'Lanjutkan di <a href="../bd/#purchasing" target="_blank" rel="noopener"><b>BD OS · Purchasing</b></a> '+
+            'untuk melengkapi harga dan menjadikannya lembar PR.'
+          : 'Tim purchasing yang melanjutkan dari sana.')+'</div>';
       document.getElementById('bp_rows').innerHTML=poBarisMkt()+poBarisMkt()+poBarisMkt();
       toast('Terkirim',n+' item masuk ke BD OS.','ok');
     })

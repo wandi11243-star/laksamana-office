@@ -1155,7 +1155,35 @@ function render(){
   $('#view').innerHTML=(peta[view]||vDashboard)();
   if(view==='dashboard') pasangFokus();
 }
-function go(v){view=v;render();window.scrollTo(0,0);toggleSidebar(false);}
+/* ---- alamat halaman (#tasks, #purchasing, …) ----
+   Ditambahkan karena modul lain menautkan ke sini: Marketing punya tombol
+   "Buka BD OS · Purchasing" yang sebelumnya selalu mendarat di Dashboard,
+   karena hash-nya tidak pernah dibaca siapa pun. Tautan yang menjanjikan satu
+   halaman lalu membuka halaman lain lebih buruk daripada tidak ada tautan.
+
+   Hanya halaman yang punya menu sendiri yang boleh dituju. prDetail sengaja
+   tidak: ia butuh prAktif, dan alamat yang menyebut dokumen yang sudah
+   dihapus akan membuka layar kosong tanpa keterangan. */
+var HALAMAN_ALAMAT=['dashboard','tasks','projects','calendar','coord','routine','purchasing','tim'];
+function bacaAlamat(){
+  var h=(location.hash||'').replace(/^#\/?/,'').split('/')[0];
+  return HALAMAN_ALAMAT.indexOf(h)>-1 ? h : '';
+}
+function go(v){
+  view=v;
+  /* replaceState, bukan location.hash=: mengubah hash memicu hashchange, dan
+     penangannya akan memanggil render() sekali lagi untuk halaman yang baru
+     saja digambar. */
+  if(HALAMAN_ALAMAT.indexOf(v)>-1 && window.history && history.replaceState)
+    history.replaceState(null,'','#'+v);
+  render(); window.scrollTo(0,0); toggleSidebar(false);
+}
+/* Tombol back/forward browser & tautan dari modul lain yang dibuka di tab
+   yang sudah terbuka. */
+window.addEventListener('hashchange',function(){
+  var h=bacaAlamat();
+  if(h && h!==view){ view=h; render(); window.scrollTo(0,0); }
+});
 
 /* ============ KOMPONEN BERSAMA ============ */
 function head(judul,desc,aksi){
@@ -3244,6 +3272,8 @@ apiGet('getAll').then(function(s){
   segarkanSnapshot();
   kenali();
   cetakIdentitas();
+  // Halaman awal dari alamat (#purchasing dari Marketing, bookmark, dst).
+  var awal=bacaAlamat(); if(awal) view=awal;
   $('#loading').style.display='none';
   $('#app').style.display='';
   render();
