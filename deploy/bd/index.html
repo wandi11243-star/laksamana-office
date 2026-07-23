@@ -523,20 +523,43 @@ function fetchTimeout(url,opts,ms){
    bersamaan dari satu perangkat (polling getAll + saveAll gampang tabrakan). */
 var _rantai=Promise.resolve();
 function antre(fn){var jalan=_rantai.then(fn,fn);_rantai=jalan.then(function(){},function(){});return jalan;}
+/* Membaca jawaban server dengan pesan yang bisa DITINDAKLANJUTI.
+
+   r.json() yang polos melempar "Unexpected token '<', "<!DOCTYPE "... is not
+   valid JSON" begitu server membalas HTML — dan HTML justru balasan paling
+   sering saat ada yang salah: halaman 404 karena folder bd-api-mysql belum
+   di-upload, atau halaman error PHP karena config.php keliru. Pesan bawaan itu
+   menyuruh orang mencari bug di JavaScript, padahal yang kurang cuma satu
+   folder di server. Jadi jawabannya dibaca sebagai teks dulu, baru diurai. */
+function bacaJawaban(r){
+  return r.text().then(function(teks){
+    var j=null;
+    try{ j=JSON.parse(teks); }catch(e){}
+    if(!j){
+      var cuplik=String(teks||'').replace(/\s+/g,' ').slice(0,110);
+      if(r.status===404) throw new Error(
+        'Backend belum terpasang — '+API_URL+' menjawab 404. Upload isi folder '+
+        'bd-mysql/ ke server sebagai bd-api-mysql/ (config.php ikut, tanpa itu 500).');
+      if(!r.ok) throw new Error('Server membalas HTTP '+r.status+', bukan JSON. Cuplikan: '+cuplik);
+      throw new Error('Server membalas HTML, bukan JSON — biasanya error PHP '+
+        'atau config.php belum benar. Cuplikan: '+cuplik);
+    }
+    if(!j.ok) throw new Error(j.error||'server error');
+    return j.data;
+  });
+}
 function _get(action){
   var url=API_URL+(API_URL.indexOf('?')>-1?'&':'?')+'action='+encodeURIComponent(action)+'&t='+Date.now();
   return fetchTimeout(url,{method:'GET',redirect:'follow',cache:'no-store'},20000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
-    .then(function(r){return r.json();})
-    .then(function(j){if(!j.ok)throw new Error(j.error||'server error');return j.data;});
+    .then(bacaJawaban);
 }
 function _post(action,data){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({action:action,data:data})},30000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
-    .then(function(r){return r.json();})
-    .then(function(j){if(!j.ok)throw new Error(j.error||'server error');return j.data;});
+    .then(bacaJawaban);
 }
 function apiGet(a){return antre(function(){return _get(a);});}
 function apiPost(a,d){return antre(function(){return _post(a,d);});}
@@ -1922,8 +1945,13 @@ function layarGagal(pesan){
   cetakIdentitas();
   $('#view').innerHTML='<div class="card" style="border-color:var(--danger);max-width:640px;margin:40px auto">'+
     '<div class="card-h"><h3 style="color:var(--danger)">Tidak bisa memuat data</h3></div>'+
-    '<div class="card-b"><p style="color:var(--muted);line-height:1.6">Server BD OS tidak merespons, jadi tidak ada '+
-    'yang ditampilkan. Data kamu <b>aman di database</b> — ini gagal memuat, bukan data hilang.</p>'+
+    /* Sengaja TIDAK menjanjikan "data kamu aman di database". Penyebab
+       tersering layar ini muncul justru saat backend belum terpasang sama
+       sekali — belum ada database untuk diamankan, dan janji yang salah
+       membuat orang berhenti mencari penyebabnya. */
+    '<div class="card-b"><p style="color:var(--muted);line-height:1.6">BD OS tidak bisa bicara dengan '+
+    'backendnya, jadi tidak ada yang ditampilkan. Ini kegagalan <b>memuat</b> — tidak ada yang terhapus. '+
+    'Pesan di bawah menyebut penyebabnya.</p>'+
     '<div style="margin-top:12px;font-size:12.5px"><div class="stat-l">Alamat API</div>'+
     '<div style="font-family:var(--mono);font-size:12px">'+esc(API_URL)+'</div>'+
     '<div class="stat-l" style="margin-top:8px">Pesan</div><div>'+esc(pesan)+'</div></div>'+
