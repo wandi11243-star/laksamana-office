@@ -679,7 +679,7 @@ function agendaCard(a){
     '<span class="ev-meta">'+
       (a.jam?'<span>'+ico('clock')+esc(a.jam)+(a.selesai?'–'+esc(a.selesai):'')+'</span>':'')+
       (a.tempat?'<span>'+ico('pin')+esc(a.tempat)+'</span>':'')+
-      (a.pax?'<span>'+ico('users')+a.pax+' pax</span>':'')+
+      (a.pax?'<span>'+ico('users')+a.pax+' pax'+(a.sumber==='mkt'?' (kontrak)':'')+'</span>':'')+
       (a.jenis?'<span>'+esc(a.jenis)+'</span>':'')+
     '</span>'+
     '<span class="pill-row">'+badgeSumber(a.sumber)+
@@ -687,7 +687,10 @@ function agendaCard(a){
       (a.status?pill(a.status,'p-mute'):'')+
       (k? (k.ada ? pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad'))
                  : pill('Job belum disusun','p-mute')) : '')+
-      (rs.length?pill(rs.length+' reservasi','p-sea'):'')+
+      /* "reservasi meja hari itu", bukan "reservasi" polos: ini booking meja
+         tamu venue di tanggal yang sama, BUKAN tamu acara ini. Label lama
+         terbaca seolah reservasi itu milik eventnya. */
+      (rs.length?pill(rs.length+' reservasi meja hari itu','p-sea'):'')+
     '</span>'+evBars(a)+'</span></button>';
 }
 
@@ -713,9 +716,14 @@ function peringatan(){
         if(d<=5 && kosong.length>=3)
           out.push({p:2,a:a,j:kosong.length+' divisi belum bergerak',k:a.judul+' — '+kosong.join(', ')+' masih 0%.'});
       }
-      var rsv=resTgl(a.tgl);
-      if(d<=2 && a.pax && paxRes(rsv) < a.pax*0.4)
-        out.push({p:2,a:a,j:'Reservasi jauh di bawah target',k:a.judul+' — baru '+paxRes(rsv)+' pax dari target '+a.pax+' pax.'});
+      /* DIHAPUS: peringatan "reservasi jauh di bawah target" yang
+         membandingkan pax reservasi meja dengan target pax event Marketing.
+         Itu membandingkan dua hal yang BERBEDA:
+           - pax event Marketing datang dari kontrak klien (mis. 340 tamu
+             undangan launching) dan TIDAK dibooking lewat modul Reservasi;
+           - reservasi meja adalah tamu venue biasa yang memesan meja.
+         Angka 24 pax reservasi tidak pernah dimaksudkan untuk mengejar target
+         340 pax event, jadi peringatannya selalu menyala dan selalu salah. */
     }
   });
   /* Bentrok jadwal LINTAS MODUL — inilah yang tidak bisa dilihat dari modul
@@ -775,11 +783,14 @@ function vRadar(){
         (fokus.tempat?'<span>'+ico('pin')+esc(fokus.tempat)+'</span>':'')+'</div>'+
       '<div class="pill-row" style="margin-bottom:12px">'+badgeSumber(fokus.sumber)+
         pill(dLabel(dDay(fokus.tgl)),'p-warn')+(fokus.status?pill(fokus.status,'p-mute'):'')+
-        pill(rs.length+' reservasi · '+paxRes(rs)+' pax','p-sea')+'</div>';
+        (rs.length?pill(rs.length+' reservasi meja hari itu','p-sea'):'')+'</div>';
     if(fokus.sumber==='mkt'){
       var isi=isianTerisi(fokus.mentah);
+      /* Pax event dan pax reservasi meja TIDAK digabung. Pax event datang dari
+         kontrak klien; reservasi meja tamu venue yang lain. Menyandingkannya
+         sebagai "24 / 340" dulu terbaca seolah eventnya baru terisi 7%. */
       h+='<div class="kv" style="margin:0">'+
-        '<div><b>Target pax</b><span>'+paxRes(rs)+' / '+(fokus.pax||'—')+'</span></div>'+
+        '<div><b>Pax event (kontrak)</b><span>'+(fokus.pax||'—')+'</span></div>'+
         '<div><b>Isian detail</b><span>'+isi.isi+' dari '+isi.tot+' terisi</span></div>'+
         '<div><b>Jenis</b><span>'+esc(fokus.jenis||'—')+'</span></div>'+
         '<div><b>Status</b><span>'+esc(fokus.status||'—')+'</span></div></div>';
@@ -1188,7 +1199,7 @@ function drawerAgenda(a){
       kvRow('Waktu', (a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
       kvRow('Tempat', esc(a.tempat||''))+
       kvRow('Jenis', esc(a.jenis||''))+
-      kvRow('Target pax', a.pax||'—')+
+      kvRow('Pax event (kontrak)', a.pax||'—')+
       kvRow('Marketing PIC', esc(namaMkt(e.mktPIC)))+
       kvRow('Pembayaran tercatat', byr?byr+' transaksi':'belum ada')+
     '</div>';
@@ -1196,9 +1207,15 @@ function drawerAgenda(a){
       kvRow('Klien', esc(cl.nama||'')+(cl.perusahaan?' — '+esc(cl.perusahaan):''))+
       kvRow('PIC klien', esc(cl.pic||cl.nama||''))+
       kvRow('Kontak', esc(cl.hp||''))+'</div>';
+    /* Beban venue di tanggal yang sama — DIPISAH dari pax event, dan diberi
+       keterangan tegas. Tamu acara ini datang lewat kontrak klien, bukan lewat
+       modul Reservasi; menjumlahkan keduanya menghasilkan angka yang tidak
+       berarti apa-apa. Yang berguna: tahu malam itu venue juga menampung
+       sekian meja tamu lain. */
     var rs=resTgl(a.tgl);
-    h+='<div class="kv">'+
-      kvRow('Reservasi tanggal ini', rs.length+' booking · '+paxRes(rs)+' pax')+'</div>';
+    h+='<div class="sec-h" style="margin-top:6px"><h2>Beban venue tanggal ini</h2><span class="rule"></span></div>'+
+       '<div class="kv">'+kvRow('Reservasi meja', rs.length+' booking · '+paxRes(rs)+' pax')+'</div>'+
+       '<div class="muted" style="font-size:11.5px;margin:-6px 0 14px">Ini tamu venue yang memesan meja di tanggal yang sama — <b>bukan</b> tamu acara ini, dan tidak dijumlahkan ke pax event.</div>';
     if(k){
       h+='<div class="sec-h" style="margin-top:6px"><h2>Kesiapan divisi</h2><span class="rule"></span></div>';
       if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
