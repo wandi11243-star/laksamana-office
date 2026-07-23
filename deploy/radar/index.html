@@ -374,10 +374,6 @@ function fTgl(iso){if(!iso)return '—';var d=pDate(iso);return HARI[d.getDay()]
 function fTglP(iso){if(!iso)return '—';var d=pDate(iso);return d.getDate()+' '+BLN[d.getMonth()];}
 function dDay(iso){var a=pDate(iso);a.setHours(0,0,0,0);var b=new Date();b.setHours(0,0,0,0);return Math.round((a-b)/86400000);}
 function dLabel(n){if(n===0)return 'HARI-H';if(n>0)return 'H-'+n;return 'H+'+Math.abs(n);}
-function rpS(n){n=Number(n)||0;if(n>=1e9)return 'Rp'+(n/1e9).toFixed(n%1e9===0?0:1)+'M';
-  if(n>=1e6)return 'Rp'+(n/1e6).toFixed(n%1e6===0?0:1)+'jt';
-  if(n>=1e3)return 'Rp'+Math.round(n/1e3)+'rb';return 'Rp'+n;}
-function rp(n){return 'Rp'+(Number(n)||0).toLocaleString('id-ID');}
 function initial(n){return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();}
 function nowStamp(){var d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes());}
 function pill(t,c){return '<span class="pill '+c+'"><i></i>'+esc(t)+'</span>';}
@@ -397,7 +393,6 @@ function ico(n){
     clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     pin:'<path d="M12 21s7-6.3 7-11a7 7 0 10-14 0c0 4.7 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     users:'<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.6 3.1-5.5 7-5.5s7 1.9 7 5.5"/>',
-    money:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/>',
     out:'<path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6M10 14L21 3"/>',
     print:'<path d="M6 9V3h12v6M6 18H4v-6h16v6h-2M8 14h8v7H8z"/>',
     wa:'<path d="M20 12a8 8 0 01-11.9 7L4 20l1-4.1A8 8 0 1120 12z"/>'
@@ -466,10 +461,17 @@ function satukan(){
   AGENDA=[];
   (D.mkt&&D.mkt.events||[]).forEach(function(e){
     if(!e||!e.tanggal) return;
+    /* Nilai rupiah SENGAJA tidak ditampilkan. Marketing menghitung grand total
+       saat runtime dari detail + pengaturan (service charge, PB1) dan tidak
+       pernah menyimpannya di event; `e.finance.grand` tidak ada. Menyalin
+       rumusnya ke sini berarti dua tempat menghitung uang yang sama, dan
+       begitu salah satu berubah keduanya menyimpang tanpa ada yang tahu.
+       Radar itu papan koordinasi, bukan papan finance — angkanya dibaca di
+       Marketing. */
     AGENDA.push({sumber:'mkt', id:e.id, tgl:e.tanggal, judul:e.nama||'(tanpa nama)',
       jam:(e.detail&&e.detail.tamuDatang)||'', selesai:(e.detail&&e.detail.selesai)||'',
       tempat:(e.detail&&e.detail.area)||'', status:e.status||'', pax:+e.pax||0,
-      nilai:+((e.finance&&e.finance.grand)||0), jenis:e.jenis||'', mentah:e});
+      jenis:e.jenis||'', mentah:e});
   });
   (D.evt&&D.evt.events||[]).forEach(function(e){
     if(!e) return;
@@ -479,18 +481,40 @@ function satukan(){
     AGENDA.push({sumber:'evt', id:e.id, tgl:mulai.tgl, judul:e.title||'(tanpa judul)',
       jam:mulai.jam, selesai:(habis&&habis.jam)||'',
       tempat:e.venue||'', status:e.status||'', pax:+e.capacity||0,
-      nilai:0, jenis:e.category||'', mentah:e});
+      jenis:e.category||'', mentah:e});
   });
-  AGENDA.sort(function(a,b){ return a.tgl===b.tgl ? (a.jam<b.jam?-1:1) : (a.tgl<b.tgl?-1:1); });
+  /* Agenda tanpa jam diletakkan di AKHIR hari, bukan awal. Sebagian besar
+     event Marketing memang belum mengisi jamnya; string kosong secara alami
+     terurut paling kecil, sehingga acara berjam-tidak-diketahui selalu naik ke
+     puncak dan terbaca seolah paling pagi. */
+  AGENDA.sort(function(a,b){
+    if(a.tgl!==b.tgl) return a.tgl<b.tgl?-1:1;
+    if(!a.jam && !b.jam) return 0;
+    if(!a.jam) return 1;
+    if(!b.jam) return -1;
+    return a.jam<b.jam?-1:(a.jam>b.jam?1:0);
+  });
 }
+/* Kosakata status modul Reservasi: Pending, Confirmed, Datang, Cancelled,
+   No-show. Versi pertama Radar menyaring kata "batal" — yang TIDAK PERNAH
+   dipakai, sehingga reservasi Cancelled lolos dan ikut terhitung sebagai
+   booking hidup. "batal" tetap diterima di sini untuk data lama, tapi yang
+   benar-benar berlaku adalah "cancel". */
+function resBatal(r){ return /cancel|batal/i.test(String((r&&r.status)||'')); }
+function resNoShow(r){ return /no.?show/i.test(String((r&&r.status)||'')); }
 function resAktif(){
   return (D.rsv&&D.rsv.reservations||[]).filter(function(r){
-    return r && r.date && String(r.status||'').toLowerCase().indexOf('batal')<0;
+    return r && r.date && !resBatal(r);
   });
 }
 function resTgl(iso){ return resAktif().filter(function(r){return r.date===iso;}); }
 function agendaTgl(iso){ return AGENDA.filter(function(a){return a.tgl===iso;}); }
-function paxRes(list){ return list.reduce(function(a,r){return a+(+r.pax||0);},0); }
+/* No-show TIDAK dihitung: tamunya tidak datang. Barisnya tetap ditampilkan di
+   tabel (dengan statusnya) supaya jejaknya tidak hilang, tapi memasukkannya ke
+   "pax terjadwal" membuat angka kehadiran terlihat lebih besar dari kenyataan. */
+function paxRes(list){
+  return (list||[]).reduce(function(a,r){ return a+(resNoShow(r)?0:(+r.pax||0)); },0);
+}
 
 /* ---------- KESIAPAN DIVISI (dari data Marketing yang NYATA) ----------
    Perhitungannya disalin dari modul Marketing supaya angkanya SAMA PERSIS
@@ -514,11 +538,24 @@ function divProgress(ev,div){
   return Math.round(items.reduce(function(a,t){return a+jobProg(ev,div,t.id);},0)/items.length);
 }
 function divStatus(ev,div){ var p=divProgress(ev,div); return p>=100?2:(p>0?1:0); }
+/* PEMBEDA PENTING: "0% karena belum dikerjakan" berbeda dari "0% karena
+   jobnya belum pernah disusun". Di dev, taskTemplates kosong sama sekali —
+   artinya SETIAP event 0%, dan tanpa pembedaan ini papan peringatan langsung
+   penuh "Kesiapan rendah menjelang hari-H" untuk semua acara. Alarm yang
+   selalu menyala akan diabaikan, termasuk yang sungguhan.
+
+   adaJob() menjawab: apakah event ini punya daftar job sama sekali? Kalau
+   tidak, angka kesiapannya tidak bermakna dan tidak boleh dipakai menuduh
+   siapa pun tertinggal. */
+function adaJob(ev){
+  for(var i=0;i<DIVISI.length;i++) if(tmplEvDiv(ev,DIVISI[i]).length) return true;
+  return false;
+}
 function kesiapan(ev){
-  if(!ev) return {pct:0, per:{}};
+  if(!ev) return {pct:0, per:{}, ada:false};
   var per={}, tot=0;
   DIVISI.forEach(function(d){ var p=divProgress(ev,d); per[d]=p; tot+=p; });
-  return {pct:Math.round(tot/DIVISI.length), per:per};
+  return {pct:Math.round(tot/DIVISI.length), per:per, ada:adaJob(ev)};
 }
 /* Kelengkapan isian detail event Marketing — dipakai sebagai sinyal kedua:
    kesiapan divisi bisa 0% hanya karena job belum disusun, padahal detail
@@ -588,12 +625,13 @@ function agendaCard(a){
       (a.jam?'<span>'+ico('clock')+esc(a.jam)+(a.selesai?'–'+esc(a.selesai):'')+'</span>':'')+
       (a.tempat?'<span>'+ico('pin')+esc(a.tempat)+'</span>':'')+
       (a.pax?'<span>'+ico('users')+a.pax+' pax</span>':'')+
-      (a.nilai?'<span>'+ico('money')+rpS(a.nilai)+'</span>':'')+
+      (a.jenis?'<span>'+esc(a.jenis)+'</span>':'')+
     '</span>'+
     '<span class="pill-row">'+badgeSumber(a.sumber)+
       pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+
       (a.status?pill(a.status,'p-mute'):'')+
-      (k?pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad')):'')+
+      (k? (k.ada ? pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad'))
+                 : pill('Job belum disusun','p-mute')) : '')+
       (rs.length?pill(rs.length+' reservasi','p-sea'):'')+
     '</span>'+evBars(a)+'</span></button>';
 }
@@ -606,13 +644,20 @@ function peringatan(){
     if(d<0 || d>21) return;
     if(a.sumber==='mkt'){
       var k=kesiapan(a.mentah);
-      if(d<=3 && k.pct<70)
-        out.push({p:1,a:a,j:'Kesiapan rendah menjelang hari-H',k:a.judul+' — '+dLabel(d)+', kesiapan divisi baru '+k.pct+'%.'});
-      else if(d<=7 && k.pct<45)
-        out.push({p:2,a:a,j:'Kesiapan tertinggal',k:a.judul+' — '+dLabel(d)+', kesiapan '+k.pct+'%.'});
-      var kosong=DIVISI.filter(function(x){return divProgress(a.mentah,x)===0;});
-      if(d<=5 && kosong.length>=3)
-        out.push({p:2,a:a,j:kosong.length+' divisi belum bergerak',k:a.judul+' — '+kosong.join(', ')+' masih 0%.'});
+      if(!k.ada){
+        /* Tanpa daftar job, 0% bukan berarti tertinggal — berarti belum
+           disusun. Satu peringatan yang benar, bukan tiga yang menyesatkan. */
+        if(d<=7) out.push({p:2,a:a,j:'Job belum disusun',
+          k:a.judul+' — '+dLabel(d)+'. Belum ada daftar job untuk divisi mana pun, jadi kesiapannya belum bisa diukur. Susun Template Task di Marketing.'});
+      }else{
+        if(d<=3 && k.pct<70)
+          out.push({p:1,a:a,j:'Kesiapan rendah menjelang hari-H',k:a.judul+' — '+dLabel(d)+', kesiapan divisi baru '+k.pct+'%.'});
+        else if(d<=7 && k.pct<45)
+          out.push({p:2,a:a,j:'Kesiapan tertinggal',k:a.judul+' — '+dLabel(d)+', kesiapan '+k.pct+'%.'});
+        var kosong=DIVISI.filter(function(x){return tmplEvDiv(a.mentah,x).length && divProgress(a.mentah,x)===0;});
+        if(d<=5 && kosong.length>=3)
+          out.push({p:2,a:a,j:kosong.length+' divisi belum bergerak',k:a.judul+' — '+kosong.join(', ')+' masih 0%.'});
+      }
       var rsv=resTgl(a.tgl);
       if(d<=2 && a.pax && paxRes(rsv) < a.pax*0.4)
         out.push({p:2,a:a,j:'Reservasi jauh di bawah target',k:a.judul+' — baru '+paxRes(rsv)+' pax dari target '+a.pax+' pax.'});
@@ -893,19 +938,30 @@ function vBriefing(){
       '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">'+
       '<h3 style="font-size:17px;margin:0">'+esc(a.judul)+'</h3><div class="pill-row">'+badgeSumber(a.sumber)+
       (a.jam?pill(a.jam+(a.selesai?'–'+a.selesai:''),'p-sea'):'')+
-      (a.sumber==='mkt'?pill('Siap '+kesiapan(a.mentah).pct+'%','p-warn'):'')+'</div></div>'+
+      (a.sumber==='mkt'? (kesiapan(a.mentah).ada
+          ? pill('Siap '+kesiapan(a.mentah).pct+'%','p-warn')
+          : pill('Job belum disusun','p-mute')) : '')+'</div></div>'+
       '<div class="kv" style="margin:12px 0 0">'+
       '<div><b>Tempat</b><span>'+esc(a.tempat||'—')+'</span></div>'+
       '<div><b>Perkiraan pax</b><span>'+(a.pax||'—')+'</span></div>'+
       '<div><b>Status</b><span>'+esc(a.status||'—')+'</span></div>'+
       '<div><b>Sumber</b><span>'+(a.sumber==='mkt'?'Marketing':'Event')+'</span></div></div>';
     if(a.sumber==='mkt'){
-      h+='<div class="eyebrow" style="margin:12px 0 7px">Kesiapan divisi</div><div class="pill-row">';
-      DIVISI.forEach(function(d){
-        var p=divProgress(a.mentah,d);
-        h+=pill(d+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad'));
-      });
-      h+='</div>';
+      h+='<div class="eyebrow" style="margin:12px 0 7px">Kesiapan divisi</div>';
+      if(!kesiapan(a.mentah).ada){
+        h+='<div class="muted" style="font-size:12px">Belum ada daftar job untuk event ini, jadi kesiapannya belum bisa diukur. Susun Template Task di Marketing.</div>';
+      }else{
+        h+='<div class="pill-row">';
+        DIVISI.forEach(function(d){
+          /* Divisi yang memang tidak punya job untuk event ini tidak
+             ditampilkan sebagai "0%" — itu menuduh mereka menunggak padahal
+             tidak ada yang ditugaskan. */
+          if(!tmplEvDiv(a.mentah,d).length) return;
+          var p=divProgress(a.mentah,d);
+          h+=pill(d+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad'));
+        });
+        h+='</div>';
+      }
     }
     h+='</div>';
   });
