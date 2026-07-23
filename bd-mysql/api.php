@@ -62,7 +62,8 @@ try {
 
   } else if ($action === 'saveAll') {
     $lock = db_lock();
-    try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
+    try { $out = save_all(isset($body['data']) ? $body['data'] : null,
+                          isset($body['sinceTs']) ? (int)$body['sinceTs'] : 0); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

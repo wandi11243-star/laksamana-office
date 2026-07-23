@@ -295,7 +295,13 @@ td .mut{color:var(--muted);font-size:12.5px}
 .cev{font-size:9.8px;padding:3px 5px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-weight:600;line-height:1.35;border-left:3px solid;background:var(--ink-880);
   color:var(--sand);width:100%;text-align:left;display:block}
-.cev.geser{cursor:grab}
+/* user-select:none WAJIB. Tanpa itu browser memulai SELEKSI TEKS begitu
+   tulisan di dalam pil ditekan-tarik, dan drag HTML5-nya tidak pernah jalan —
+   fiturnya terlihat rusak padahal handler-nya sudah benar.
+   -webkit-user-drag untuk Safari: di sana elemen selain <a>/<img> tidak bisa
+   diseret walau draggable="true" sudah dipasang. */
+.cev.geser{cursor:grab;user-select:none;-webkit-user-select:none;-webkit-user-drag:element}
+.cev.geser:active{cursor:grabbing}
 .cev.geser:hover{filter:brightness(.94)}
 .cev.dragging{opacity:.4}
 .cd.drop{border-color:var(--gold);background:var(--gold-glow);box-shadow:inset 0 0 0 1px var(--gold)}
@@ -355,7 +361,15 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .req-tbl .no{color:var(--muted);font-family:var(--mono);font-size:11px;text-align:center;width:26px}
 
 /* Kotak centang pemilih item PR. */
-.pick{width:17px;height:17px;accent-color:var(--gold);cursor:pointer;flex:none;margin-top:2px}
+.pick,.pickall{width:17px;height:17px;accent-color:var(--gold);cursor:pointer;flex:none}
+/* Di kepala tabel latarnya gelap, jadi kotak bawaan browser nyaris tak
+   terlihat. accent-color diterangkan khusus untuk yang di sana. */
+.pick-hdr{accent-color:var(--gold-soft);margin:0;vertical-align:middle}
+
+/* Penyaring PIC di bilah filter — chip yang sama, ukuran lebih kecil. */
+.picfil{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.picchip.sm{padding:3px 9px 3px 3px;font-size:11.5px;gap:5px}
+.picchip.sm .av{width:19px;height:19px;font-size:8.5px}
 
 /* Pemilih PIC banyak. Chip, bukan <select multiple>: jumlah kru BD kecil
    (lima-enam orang), dan select multiple menyembunyikan siapa saja yang
@@ -743,6 +757,20 @@ function antre(fn){var jalan=_rantai.then(fn,fn);_rantai=jalan.then(function(){}
    di-upload, atau halaman error PHP karena config.php keliru. Pesan bawaan itu
    menyuruh orang mencari bug di JavaScript, padahal yang kurang cuma satu
    folder di server. Jadi jawabannya dibaca sebagai teks dulu, baru diurai. */
+/* Jam SERVER saat state ini terakhir dibaca. Dikirim balik sebagai `sinceTs`
+   waktu menyimpan, dan itulah yang menentukan baris mana yang boleh dihapus
+   server.
+
+   Kenapa perlu: backend dulu memakai cap waktu TERBARU DI KIRIMAN sebagai
+   patokan. Saat kru menghapus baris-baris terbaru, yang tersisa justru yang
+   lama — patokannya ikut turun, dan baris yang mau dihapus berada di atas
+   batas sehingga tidak pernah terhapus lalu muncul lagi tiap halaman dimuat.
+
+   Nilainya dari SERVER, bukan Date.now() di sini: jam laptop kru bisa meleset
+   berjam-jam, dan patokan penghapusan yang ikut meleset berarti baris orang
+   lain terhapus atau penghapusan sendiri tidak pernah jadi. */
+var _sinceTs=0;
+
 function bacaJawaban(r){
   return r.text().then(function(teks){
     var j=null;
@@ -757,6 +785,14 @@ function bacaJawaban(r){
         'atau config.php belum benar. Cuplikan: '+cuplik);
     }
     if(!j.ok) throw new Error(j.error||'server error');
+    if(j.data && typeof j.data==='object'){
+      /* getAll membawa _serverTs; saveAll membawa tsMs. Keduanya memajukan
+         patokan yang sama. _serverTs DIBUANG dari state supaya tidak ikut
+         terbandingkan saat polling — kalau tidak, tiap tarikan terlihat
+         "berubah" dan halaman digambar ulang tiap 20 detik tanpa alasan. */
+      if(typeof j.data._serverTs==='number'){ _sinceTs=j.data._serverTs; delete j.data._serverTs; }
+      if(typeof j.data.tsMs==='number')      { _sinceTs=j.data.tsMs; }
+    }
     return j.data;
   });
 }
@@ -769,7 +805,7 @@ function _get(action){
 function _post(action,data){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:action,data:data})},30000)
+      body:JSON.stringify({action:action,data:data,sinceTs:_sinceTs})},30000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
     .then(bacaJawaban);
 }
@@ -1294,9 +1330,36 @@ function segLingkup(scope,aksi){
     '<option value="semua"'+(scope==='semua'?' selected':'')+'>Semua</option></select>';
 }
 
+/* ---- penyaring PIC (boleh lebih dari satu) ----
+   SATU keadaan dipakai bersama Tasks, Projects, dan Calendar. Tiga halaman
+   itu memandang pekerjaan yang sama dari sudut berbeda; penyaring yang
+   berdiri sendiri-sendiri membuat orang menyetel "cuma Wandi" di Tasks lalu
+   heran kenapa Calendar masih penuh.
+
+   Kosong = semua PIC. Bukan "tidak ada satu pun": daftar yang mendadak kosong
+   begitu semua centang dilepas terbaca seperti data hilang. */
+var fPics=[];
+function cocokPic(o){
+  if(!fPics.length) return true;
+  return pics(o).some(function(id){ return fPics.indexOf(id)>-1; });
+}
+function filterPic(){
+  var kru=DB.people.filter(function(p){return p.active!==false && !p.tanpaAkses;});
+  if(!kru.length) return '';
+  return '<span class="flabel">'+ic('users',14)+' PIC</span>'+
+    '<div class="picfil">'+kru.map(function(p){
+      var on=fPics.indexOf(p.id)>-1;
+      return '<button type="button" class="picchip sm'+(on?' on':'')+'" data-id="'+esc(p.id)+'" '+
+        'onclick="APP.togglePicFilter(\''+p.id+'\')" title="'+esc(p.name)+'">'+
+        '<span class="av">'+esc(inisial(p.name))+'</span>'+esc(String(p.name).split(' ')[0])+'</button>';
+    }).join('')+
+    (fPics.length?'<button type="button" class="btn sm" onclick="APP.togglePicFilter(\'\')">'+ic('x',12)+'Semua PIC</button>':'')+
+    '</div>';
+}
+
 var taskMode='matrix', fDiv='', fProj='', fType='', fScope='tim';
 function vTasks(){
-  var base=saringLingkup(DB.tasks,fScope);
+  var base=saringLingkup(DB.tasks,fScope).filter(cocokPic);
   base=base.filter(function(t){
     return (!fDiv||t.div===fDiv)&&(!fProj||t.project===fProj)&&(!fType||t.type===fType);
   });
@@ -1316,7 +1379,7 @@ function vTasks(){
       DB.projects.map(function(p){return '<option value="'+p.id+'"'+(fProj===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select>'+
     '<select onchange="APP.filter(\'type\',this.value)"><option value="">Semua tipe</option>'+
       ['Rutin','Project','Ad-hoc'].map(function(x){return '<option'+(fType===x?' selected':'')+'>'+x+'</option>';}).join('')+'</select>'+
-    ((fDiv||fProj||fType||fScope!=='tim')?'<button class="btn sm" onclick="APP.filter(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    filterPic()+((fPics.length||fDiv||fProj||fType||fScope!=='tim')?'<button class="btn sm" onclick="APP.filter(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
   '</div>';
 
   if(taskMode==='matrix') h+=matrixHtml(base);
@@ -1534,7 +1597,7 @@ function projProgress(p){
 var pidAktif=null;
 var pScope='tim', pDiv='';
 function vProjects(){
-  var base=saringLingkup(DB.projects,pScope).filter(function(p){ return !pDiv||p.div===pDiv; });
+  var base=saringLingkup(DB.projects,pScope).filter(cocokPic).filter(function(p){ return !pDiv||p.div===pDiv; });
   var h=head('Projects',SUB.projects[2],
     '<button class="btn pri" onclick="APP.projModal()">'+ic('plus')+'Project</button>');
 
@@ -1542,7 +1605,7 @@ function vProjects(){
     segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
     '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
       OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
-    ((pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    filterPic()+((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
     '<span class="muted" style="font-size:12px;margin-left:auto">'+base.length+' dari '+DB.projects.length+' project</span>'+
   '</div>';
 
@@ -1958,10 +2021,6 @@ function vPurchasing(){
     '</div>'+
     '<button class="btn pri" onclick="APP.requestModal()">'+ic('plus')+'Request Order</button>');
 
-  h+='<div class="notice">PO tingkat proyek (mesin, furniture, sewa) — <b>bukan pengganti modul Stock</b>. '+
-    'Order bahan baku harian tetap di Stock · Ordering/Purchasing.<br>'+
-    'Siapa pun boleh menekan <b>Request Order</b>; vendor dan nilainya diisi tim purchasing saat memprosesnya.</div>';
-
   h+='<div class="stats">'+
     stat('Total PO',DB.po.length,DB.po.filter(function(p){return p.status==='Diterima';}).length+' sudah diterima','')+
     stat('Perlu approval',perluApproval,'status Diajukan',perluApproval?'wa':'gr')+
@@ -2147,25 +2206,46 @@ function vPrList(){
     h+='<div class="card" style="margin-bottom:16px"><div class="card-h">'+
       '<h3>'+bebas.length+' request menunggu dijadikan lembar PR</h3>'+
       '<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">'+
-        '<button class="btn sm" onclick="APP.pilihSemuaPr(1)">Pilih semua</button>'+
-        '<button class="btn sm" onclick="APP.pilihSemuaPr(0)">Kosongkan</button>'+
         '<button class="btn pri" id="btnBuatPr" onclick="APP.buatPr()">'+ic('plus')+
           'Buat PR dari '+bebas.length+' item</button>'+
       '</div></div>'+
-      '<div class="card-b tight">'+
+      /* Tabel, bukan daftar pil. Kolomnya sengaja disusun sama urutannya
+         dengan lembar PR — nama, jumlah, satuan, alasan, peminta, harga —
+         supaya yang memeriksa sebelum menekan "Buat PR" membaca susunan yang
+         persis sama dengan yang nanti tercetak, bukan menerjemahkan ulang di
+         kepala. */
+      '<div class="tw" style="border:none;box-shadow:none;border-radius:0">'+
+      '<table><thead><tr>'+
+        /* Kelasnya `pickall`, BUKAN `pick`. Kalau sama, kotak di kepala tabel
+           ikut terhitung sebagai item terpilih dan tombolnya menjanjikan satu
+           item lebih banyak daripada yang benar-benar masuk lembar. */
+        '<th style="width:34px"><input type="checkbox" class="pickall pick-hdr" checked title="Pilih semua" '+
+          'onchange="APP.pilihSemuaPr(this.checked)"></th>'+
+        '<th>Nama item</th><th>Jumlah</th><th>Satuan</th><th>Alasan / kebutuhan</th>'+
+        '<th>Peminta</th><th>Harga</th><th>Butuh</th><th>Diinput</th><th></th>'+
+      '</tr></thead><tbody>'+
       bebas.map(function(p){
-        return '<div class="trow">'+
-          '<input type="checkbox" class="pick" checked data-id="'+esc(p.id)+'" onchange="APP.hitungPilihPr()">'+
-          '<div class="t-main" style="cursor:pointer" onclick="APP.poModal(\''+p.id+'\')">'+
-          '<div class="t-name">'+esc(p.item)+'</div>'+
-          '<div class="t-meta">'+
-            '<span class="tag">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span>'+
-            '<span class="tag pic">'+esc(poRequester(p))+'</span>'+
-            '<span class="tag">'+((+p.amount)?fRpPenuh(p.amount):'harga belum diisi')+'</span>'+
-            (p.needBy?'<span class="tag">butuh '+fTgl(p.needBy)+'</span>':'')+
-          '</div></div></div>';
+        return '<tr class="clk" onclick="APP.poModal(\''+p.id+'\')">'+
+          /* stopPropagation: tanpa itu, mencentang kotak juga membuka modal
+             item — jadi tiap kali memilih, layar tertutup dialog. */
+          '<td onclick="event.stopPropagation()"><input type="checkbox" class="pick" checked '+
+            'data-id="'+esc(p.id)+'" onchange="APP.hitungPilihPr()"></td>'+
+          '<td><span class="nm">'+esc(p.item)+'</span>'+
+            (p.sumber?' <span class="tag">dari '+esc(p.sumber)+'</span>':'')+'</td>'+
+          '<td><span class="num">'+(+p.qty||0)+'</span></td>'+
+          '<td><span class="mut">'+esc(p.unit||'—')+'</span></td>'+
+          '<td><span class="mut">'+esc(p.note||'—')+'</span></td>'+
+          '<td><span class="mut">'+esc(poRequester(p))+'</span></td>'+
+          '<td>'+((+p.amount)?'<span class="nm num" style="white-space:nowrap">'+fRpPenuh(p.amount)+'</span>'
+                             :'<span class="mut">belum diisi</span>')+'</td>'+
+          '<td><span class="mut" style="white-space:nowrap">'+(p.needBy?fTgl(p.needBy):'—')+'</span></td>'+
+          '<td><span class="mut" style="white-space:nowrap">'+esc(fWaktu(p.at))+'</span></td>'+
+          '<td onclick="event.stopPropagation()">'+
+            '<button class="iconbtn" title="Ubah" onclick="APP.poModal(\''+p.id+'\')">'+ic('edit')+'</button>'+
+            '<button class="iconbtn" title="Hapus" onclick="APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button>'+
+          '</td></tr>';
       }).join('')+
-      '</div></div>';
+      '</tbody></table></div></div>';
   }
 
   if(!DB.pr.length) return h+'<div class="card"><div class="card-b">'+
@@ -2173,19 +2253,36 @@ function vPrList(){
       bebas.length?'Tekan "Buat PR dari semuanya" di atas untuk menjadikannya satu lembar bernomor.'
                  :'Mulai dari tombol "Request Order" di kanan atas.')+'</div></div>';
 
-  var urut=DB.pr.slice().sort(function(a,b){return (b.weekStart||'')<(a.weekStart||'')?-1:1;});
-  return h+'<div class="tw"><table><thead><tr><th>PR No</th><th>Periode</th><th>Penyusun</th>'+
-    '<th>Item</th><th>Grand total</th><th>Approval</th><th>Status</th><th></th></tr></thead><tbody>'+
+  /* Tabelnya memuat isi lembarnya, bukan cuma ringkasan angka: pertanyaan
+     yang paling sering muncul di daftar ini adalah "PR minggu lalu itu isinya
+     apa saja" — dan menjawabnya dengan membuka satu per satu berarti daftar
+     ini tidak menghemat apa pun. Nama item ikut ditulis (dipotong di item
+     kelima), dan tiga penyetuju ditampilkan terpisah supaya terlihat siapa
+     yang belum tanda tangan tanpa harus masuk ke dokumennya. */
+  var urut=DB.pr.slice().sort(function(a,b){return (b.tanggal||b.weekStart||'')<(a.tanggal||a.weekStart||'')?-1:1;});
+  return h+'<div class="tw"><table><thead><tr>'+
+    '<th>PR No</th><th>Tanggal</th><th>Periode</th><th>Penyusun</th><th>Dept</th>'+
+    '<th>Isi lembar</th><th>Item</th><th>Grand total</th>'+
+    PENYETUJU.map(function(s){return '<th>'+s.l+'</th>';}).join('')+
+    '<th>Status</th><th></th></tr></thead><tbody>'+
     urut.map(function(x){
-      var t=prTotal(x.id), n=prItems(x.id).length;
-      var ok=PENYETUJU.filter(function(s){return (x.approvals||{})[s.k]&&x.approvals[s.k].at;}).length;
+      var t=prTotal(x.id), items=prItems(x.id);
+      var nama=items.slice(0,5).map(function(p){return p.item;});
+      var sisa=items.length-nama.length;
       return '<tr class="clk" onclick="APP.bukaPr(\''+x.id+'\')">'+
         '<td><span class="nm">PR-'+esc(x.no||'?')+'</span></td>'+
-        '<td><span class="mut">'+esc(labelMinggu(x.weekStart||x.tanggal||todayISO()))+'</span></td>'+
+        '<td><span class="mut" style="white-space:nowrap">'+esc(fTgl(x.tanggal))+'</span></td>'+
+        '<td><span class="mut" style="white-space:nowrap">'+esc(labelMinggu(x.weekStart||x.tanggal||todayISO()))+'</span></td>'+
         '<td><span class="mut">'+esc(x.nama||'—')+'</span></td>'+
-        '<td><span class="num">'+n+'</span>'+(t.belum?' '+pill(t.belum+' tanpa harga','p-warn'):'')+'</td>'+
-        '<td><span class="nm num">'+fRpPenuh(t.grand)+'</span></td>'+
-        '<td>'+pill(ok+'/'+PENYETUJU.length,ok===PENYETUJU.length?'p-go':(ok?'p-warn':'p-mute'))+'</td>'+
+        '<td><span class="tag div">'+esc(String(x.dept||'—').split(' ')[0])+'</span></td>'+
+        '<td style="max-width:280px"><span class="mut" style="font-size:12px;line-height:1.5">'+
+          (nama.length?esc(nama.join(', '))+(sisa?' <b>+'+sisa+' lagi</b>':''):'<i>belum ada item</i>')+'</span></td>'+
+        '<td><span class="num">'+items.length+'</span>'+(t.belum?'<div>'+pill(t.belum+' tanpa harga','p-warn')+'</div>':'')+'</td>'+
+        '<td><span class="nm num" style="white-space:nowrap">'+fRpPenuh(t.grand)+'</span></td>'+
+        PENYETUJU.map(function(s){
+          var a=(x.approvals||{})[s.k]||{};
+          return '<td>'+(a.at?pill('✓ '+fTgl(a.at),'p-go'):pill('belum','p-mute'))+'</td>';
+        }).join('')+
         '<td>'+pill(x.status||'Draft',PR_COLOR[x.status]||'p-mute')+'</td>'+
         '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPr(\''+x.id+'\')">'+ic('trash')+'</button></td></tr>';
     }).join('')+'</tbody></table></div>';
@@ -2200,6 +2297,21 @@ function buatPr(){
   var pilih=idTerpilihPr();
   var bebas=poBebas().filter(function(p){ return pilih.indexOf(p.id)>-1; });
   if(!bebas.length){ toast('Belum ada item yang dicentang.'); return; }
+
+  /* KONFIRMASI DULU, jangan langsung terbentuk.
+
+     Lembar PR memakan nomor urut, dan nomor itu tidak bisa dipakai ulang —
+     PR yang terbuat karena salah tekan meninggalkan lubang di penomoran arsip
+     Finance yang tidak bisa dijelaskan lagi setahun kemudian. Satu dialog
+     jauh lebih murah daripada nomor yang hilang. */
+  var total=bebas.reduce(function(a,p){return a+(+p.amount||0);},0);
+  var daftar=bebas.slice(0,8).map(function(p,i){return '  '+(i+1)+'. '+p.item;}).join('\n')+
+             (bebas.length>8?'\n  … dan '+(bebas.length-8)+' item lagi':'');
+  if(!confirm('Buat lembar PR-'+prNoBerikut()+' berisi '+bebas.length+' item?\n\n'+daftar+
+    '\n\nGrand total: '+fRpPenuh(total)+
+    '\n\nLembarnya dibuat sebagai DRAFT — belum terkirim ke siapa pun sampai kamu '+
+    'menekan "Kunci & ajukan" di halaman dokumennya.')) return;
+
   var senin=awalMinggu(todayISO());
   var approvals={};
   PENYETUJU.forEach(function(s){ approvals[s.k]={nama:s.nama, at:'', oleh:''}; });
@@ -2231,7 +2343,19 @@ function vPrDetail(){
   var pr=DB.pr.find(function(x){return x.id===prAktif;});
   if(!pr){ view='purchasing'; return vPurchasing(); }
   var items=prItems(pr.id), t=prTotal(pr.id);
-  var terkunci=pr.status!=='Draft';
+  /* ITEM SELALU BISA DIUBAH, termasuk sesudah dokumen diajukan.
+
+     Versi sebelumnya menguncinya, dengan alasan lembar yang sudah dikirim ke
+     Finance tidak boleh berubah isinya. Tim memutuskan sebaliknya: harga dan
+     vendor sering baru diketahui SESUDAH lembarnya beredar, dan mengharuskan
+     buka-kunci setiap kali cuma menambah langkah tanpa mencegah apa pun.
+
+     Statusnya tetap ada dan tetap berarti — ia menandai lembar mana yang
+     sudah dikirim — cuma tidak lagi memblokir penyuntingan. Konsekuensinya
+     nyata dan sengaja diterima: PDF yang terlanjur dikirim bisa berbeda dari
+     yang di layar, jadi setiap revisi sesudah "Diajukan" perlu dikirim ulang
+     PDF-nya. Pitanya mengingatkan itu. */
+  var diajukan=pr.status!=='Draft';
 
   var h='<div class="no-print">'+
     '<button class="backlink" onclick="APP.go(\'purchasing\')">'+ic('chevL',13)+'Semua dokumen PR</button>'+
@@ -2240,13 +2364,13 @@ function vPrDetail(){
       '<button class="btn" onclick="APP.cetakPr()">'+ic('cart')+'Cetak / Simpan PDF</button>'+
       (pr.status==='Draft'
         ? '<button class="btn pri" onclick="APP.statusPr(\'Diajukan\')">'+ic('check')+'Kunci &amp; ajukan</button>'
-        : '<button class="btn" onclick="APP.statusPr(\'Draft\')">Buka kunci</button>'))+
-    (terkunci
-      ? '<div class="notice">Dokumen sudah <b>'+esc(pr.status)+'</b>, jadi itemnya dikunci. '+
-        'Lembar yang sudah dikirim ke Finance tidak boleh berubah isinya setelah ditandatangani — '+
-        'buka kunci dulu kalau memang perlu direvisi, dan kirim ulang PDF-nya.</div>'
-      : '<div class="notice">Masih <b>Draft</b>: item boleh ditambah, diubah, atau dikeluarkan. '+
-        'Tekan <b>Kunci &amp; ajukan</b> sebelum mengirim PDF-nya.</div>')+
+        : '<button class="btn" onclick="APP.statusPr(\'Draft\')">Kembalikan ke Draft</button>'))+
+    (diajukan
+      ? '<div class="notice">Lembar ini sudah <b>'+esc(pr.status)+'</b>. Itemnya <b>masih bisa diubah</b> — '+
+        'tapi kalau PDF-nya sudah dikirim ke Finance, <b>kirim ulang</b> sesudah merevisi, '+
+        'karena yang ada di tangan mereka jadi tidak sama lagi.</div>'
+      : '<div class="notice">Masih <b>Draft</b> — belum terkirim ke siapa pun. '+
+        'Tekan <b>Kunci &amp; ajukan</b> saat lembarnya siap dikirim.</div>')+
     '</div>';
 
   /* --- lembar dokumen --- */
@@ -2285,14 +2409,10 @@ function vPrDetail(){
         '<td>'+esc(p.note||'—')+'</td>'+
         '<td>'+esc(String(poRequester(p)).split(' ')[0])+'</td>'+
         '<td class="r num">'+((+p.amount)?fRpPenuh(p.amount):'<span class="muted">belum</span>')+'</td>'+
-        /* Saat terkunci TIDAK ada tombol sama sekali — pita di atas menjanjikan
-           itemnya dikunci, dan tombol edit yang tetap hidup akan membuat
-           janji itu bohong. Yang perlu merevisi harus membuka kunci dulu,
-           supaya sadar bahwa PDF yang sudah dikirim jadi tidak sama lagi. */
-        '<td class="c no-print">'+(terkunci?'<span class="muted" title="buka kunci untuk mengubah">🔒</span>'
-          :'<button class="iconbtn" title="Ubah item" onclick="APP.poModal(\''+p.id+'\')">'+ic('edit')+'</button>'+
-           '<button class="iconbtn" title="Keluarkan dari PR ini" '+
-             'onclick="APP.lepasDariPr(\''+p.id+'\')">'+ic('x')+'</button>')+
+        '<td class="c no-print">'+
+          '<button class="iconbtn" title="Ubah item" onclick="APP.poModal(\''+p.id+'\')">'+ic('edit')+'</button>'+
+          '<button class="iconbtn" title="Keluarkan dari PR ini" '+
+            'onclick="APP.lepasDariPr(\''+p.id+'\')">'+ic('x')+'</button>'+
         '</td></tr>';
     }).join('')
     :'<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:22px">Belum ada item di lembar ini</td></tr>')+
@@ -2323,7 +2443,7 @@ function vPrDetail(){
   if(pr.catatan) h+='<div class="doc-catatan">'+esc(pr.catatan)+'</div>';
   h+='</div>';   // .doc
 
-  if(!terkunci){
+  {
     var lain=poBebas();
     h+='<div class="card no-print" style="margin-top:16px;max-width:1000px;margin-left:auto;margin-right:auto">'+
       '<div class="card-h"><h3>Tambahkan request lain ke lembar ini</h3>'+
@@ -2340,20 +2460,9 @@ function vPrDetail(){
   }
   return h;
 }
-/* Penjaga kunci diulang DI SINI, tidak cuma dengan menyembunyikan tombolnya.
-   Layar bisa basi — kru lain mengunci dokumen sementara halaman ini masih
-   terbuka — dan tombol yang sudah tidak seharusnya ada masih bisa ditekan. */
-function prTerkunci(){
-  var pr=DB.pr.find(function(x){return x.id===prAktif;});
-  if(pr && pr.status!=='Draft'){
-    toast('PR-'+pr.no+' sudah '+pr.status+'. Buka kuncinya dulu.');
-    render();
-    return true;
-  }
-  return false;
-}
+/* Tidak ada penjaga kunci lagi: item boleh diubah kapan pun, termasuk sesudah
+   dokumen diajukan. Lihat catatan di vPrDetail. */
 function lepasDariPr(poId){
-  if(prTerkunci()) return;
   var p=DB.po.find(function(x){return x.id===poId;});
   if(!p) return;
   p.prId=null;
@@ -2362,7 +2471,6 @@ function lepasDariPr(poId){
   save(); render(); toast(p.item+' dikeluarkan dari lembar ini');
 }
 function masukkanKePr(poId){
-  if(prTerkunci()) return;
   var p=DB.po.find(function(x){return x.id===poId;});
   if(!p) return;
   p.prId=prAktif;
@@ -2631,14 +2739,33 @@ var calRef=null;
    dengan satu tarikan tangan yang bahkan bisa tidak sengaja terlalu murah
    untuk perubahan sepenting itu. Ketiganya tetap diubah lewat modalnya
    masing-masing, di mana orang melihat konteks lengkapnya dulu. */
+/* Kalender memakai penyaring YANG SAMA dengan Projects — lingkup, divisi, dan
+   PIC. Sebelumnya ia menampilkan seisi papan tanpa peduli penyaring mana pun
+   yang sedang aktif, jadi berpindah dari Projects ke Calendar seperti
+   berpindah ke aplikasi lain.
+
+   Koordinasi dan agenda TIDAK ikut disaring PIC: keduanya tidak punya PIC di
+   sisi BD (koordinasi ditujukan ke divisi lain, agenda milik tim). Menyaring
+   berdasarkan field yang tidak ada berarti menyembunyikan semuanya begitu
+   satu nama dicentang. */
 function calItems(){
   var out=[];
-  DB.tasks.filter(function(t){return t.deadline&&!selesai(t);}).forEach(function(t){
+  var tugas=saringLingkup(DB.tasks,pScope).filter(cocokPic)
+              .filter(function(t){ return (!pDiv||t.div===pDiv) && t.deadline && !selesai(t); });
+  tugas.forEach(function(t){
     out.push({date:t.deadline,title:t.name,color:'var(--danger)',jenis:'Deadline',id:t.id,geser:true});});
-  DB.projects.forEach(function(p){(p.milestones||[]).forEach(function(ms){
-    if(ms.date) out.push({date:ms.date,title:ms.t+' ('+p.name+')',color:'var(--violet)',jenis:'Milestone'});});});
-  DB.po.filter(function(p){return p.status!=='Diterima'&&p.needBy;}).forEach(function(p){
-    out.push({date:p.needBy,title:'PO: '+p.item,color:'var(--teal)',jenis:'PO'});});
+
+  saringLingkup(DB.projects,pScope).filter(cocokPic)
+    .filter(function(p){ return !pDiv||p.div===pDiv; })
+    .forEach(function(p){(p.milestones||[]).forEach(function(ms){
+      if(ms.date) out.push({date:ms.date,title:ms.t+' ('+p.name+')',color:'var(--violet)',jenis:'Milestone'});});});
+
+  DB.po.filter(function(p){
+      return p.status!=='Diterima' && p.needBy &&
+             (!pDiv||p.div===pDiv) && (!fPics.length || fPics.indexOf(p.pic)>-1);
+    }).forEach(function(p){
+      out.push({date:p.needBy,title:'PO: '+p.item,color:'var(--teal)',jenis:'PO'});});
+
   DB.coord.filter(function(c){return c.status!=='Selesai'&&c.due;}).forEach(function(c){
     out.push({date:c.due,title:'Koord: '+c.title,color:'var(--warn)',jenis:'Koordinasi'});});
   DB.agenda.forEach(function(e){
@@ -2647,7 +2774,7 @@ function calItems(){
 }
 
 /* ---- geser task di kalender ---- */
-var _dragCal=null;
+var _dragCal=null, _baruSeret=0;
 function dragCal(e,id){
   _dragCal=id;
   e.dataTransfer.effectAllowed='move';
@@ -2655,8 +2782,17 @@ function dragCal(e,id){
   try{ e.dataTransfer.setData('text/plain',id); }catch(_){}
   e.target.classList.add('dragging');
 }
+/* Klik SESUDAH menyeret harus diabaikan. Sebagian browser tetap melepaskan
+   event click di ujung drag, jadi tanpa penjaga ini tiap kali task digeser
+   modalnya ikut terbuka menimpa kalender — terlihat seperti aplikasi yang
+   melakukan dua hal padahal diminta satu. */
+function klikCal(id){
+  if(Date.now()-_baruSeret < 400) return;
+  taskModal(id);
+}
 function dropCal(e,iso){
   e.preventDefault();
+  _baruSeret=Date.now();
   document.querySelectorAll('.cd').forEach(function(c){c.classList.remove('drop');});
   var t=DB.tasks.find(function(x){return x.id===_dragCal;});
   _dragCal=null;
@@ -2688,6 +2824,18 @@ function vCalendar(){
         '<button onclick="APP.geserBulan(1)">'+ic('chevR',14)+'</button></div>'+
       '<button class="btn sm" onclick="APP.bulanIni()">Bulan ini</button>'+
       '<button class="btn pri" onclick="APP.agendaModal()">'+ic('plus')+'Agenda</button>')+
+    /* Bilah filter SAMA PERSIS dengan Projects, termasuk keadaannya (pScope,
+       pDiv, fPics) — bukan salinan yang berdiri sendiri. Menyetel "cuma
+       Wandi" di Projects lalu pindah ke Calendar harus tetap menampilkan
+       Wandi saja; dua penyaring terpisah untuk data yang sama cuma bikin
+       orang tidak percaya pada keduanya. */
+    '<div class="filters"><span class="flabel">'+ic('projects',14)+' Filter</span>'+
+      segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
+      '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
+        OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
+      filterPic()+
+      ((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    '</div>'+
     '<div class="card"><div class="card-b">'+
       '<div class="cal">'+['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(function(x){
         return '<div class="cal-hd">'+x+'</div>';}).join('')+sel+'</div>'+
@@ -2717,7 +2865,7 @@ function calCell(d,luar,items){
       return '<span class="cev'+(e.geser?' geser':'')+'" '+
         (e.geser?'draggable="true" ondragstart="APP.dragCal(event,\''+e.id+'\')" '+
                  'ondragend="this.classList.remove(\'dragging\')" '+
-                 'onclick="APP.taskModal(\''+e.id+'\')" ':'')+
+                 'onclick="APP.klikCal(\''+e.id+'\')" ':'')+
         'style="border-color:'+e.color+';background:'+e.color+'18;color:'+e.color+'" '+
         'title="'+esc(e.jenis+' — '+e.title)+(e.geser?' (seret untuk pindah tanggal)':'')+'">'+esc(e.title)+'</span>';
     }).join('')+
@@ -2942,7 +3090,7 @@ window.APP={
   dragTask:dragTask, dropTask:dropTask,
   setTaskMode:function(m){taskMode=m;render();},
   filter:function(apa,nilai){
-    if(apa==='reset'){fDiv='';fProj='';fType='';fScope='tim';}
+    if(apa==='reset'){fDiv='';fProj='';fType='';fScope='tim';fPics=[];}
     else if(apa==='div')fDiv=nilai; else if(apa==='proj')fProj=nilai;
     else if(apa==='type')fType=nilai; else if(apa==='scope')fScope=nilai;
     render();
@@ -2962,11 +3110,22 @@ window.APP={
     el.selectionStart=el.selectionEnd=i;
   },
   filterProj:function(apa,nilai){
-    if(apa==='reset'){ pScope='tim'; pDiv=''; }
+    if(apa==='reset'){ pScope='tim'; pDiv=''; fPics=[]; }
     else if(apa==='scope') pScope=nilai;
     else if(apa==='div')   pDiv=nilai;
     render();
   },
+  /* id kosong = lepas semua. Dipakai bersama tiga halaman, jadi cukup satu
+     keadaan dan satu penyetel. */
+  togglePicFilter:function(id){
+    if(!id){ fPics=[]; }
+    else{
+      var i=fPics.indexOf(id);
+      if(i>-1) fPics.splice(i,1); else fPics.push(id);
+    }
+    render();
+  },
+  klikCal:klikCal,
   bukaProject:bukaProject, dragProj:dragProj, dropProj:dropProj, toggleMilestone:toggleMilestone,
   coordModal:coordModal, simpanCoord:simpanCoord, hapusCoord:hapusCoord,
   dragCoord:dragCoord, dropCoord:dropCoord, setCoordMode:function(m){coordMode=m;render();},
@@ -2997,9 +3156,17 @@ window.APP={
      tiap centang akan menggulung balik ke atas dan menghapus pilihan yang
      sedang disusun. Yang diperbarui cuma tulisan di tombolnya. */
   hitungPilihPr:function(){
+    var semua=document.querySelectorAll('.pick').length;
     var n=document.querySelectorAll('.pick:checked').length;
     var b=document.getElementById('btnBuatPr');
     if(b) b.innerHTML=ic('plus')+(n?'Buat PR dari '+n+' item':'Pilih item dulu');
+    /* Kotak di kepala tabel mengikuti isinya: penuh saat semua tercentang,
+       setengah (indeterminate) saat sebagian. Kotak kepala yang tetap penuh
+       padahal barisnya tinggal separuh memberi tahu hal yang keliru. */
+    document.querySelectorAll('.pickall').forEach(function(el){
+      el.checked = n>0 && n===semua;
+      el.indeterminate = n>0 && n<semua;
+    });
   },
   pilihSemuaPr:function(on){
     document.querySelectorAll('.pick').forEach(function(el){ el.checked=!!on; });
