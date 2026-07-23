@@ -458,7 +458,36 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
   .doc{position:absolute;left:0;top:0;width:100%;max-width:100%;
     border:none;box-shadow:none;border-radius:0;padding:0;margin:0}
   .sidebar,.topbar,.no-print,#sideScrim,.toast-wrap{display:none!important}
-  @page{size:A4 landscape;margin:11mm}
+
+  /* SATU HALAMAN. Potret + margin sempit + semua ukuran dikecilkan, supaya
+     lembar dengan jumlah item biasa (sampai ~22 baris) muat utuh dalam satu
+     lembar — persis seperti lembar spreadsheet yang selama ini dikirim.
+
+     Ini pengetatan tata letak, BUKAN jaminan. PR dengan puluhan item, atau
+     alasan yang panjang sekali, tetap akan tumpah ke halaman kedua; yang
+     dijaga di sana adalah barisnya tidak terbelah di tengah dan blok tanda
+     tangan tidak berdiri sendirian di halaman terakhir. */
+  @page{size:A4 portrait;margin:9mm}
+  .doc{font-size:9.6px}
+  .doc-kop{padding-bottom:9px;margin-bottom:10px;border-bottom-width:2px}
+  .doc-logo{width:38px;height:38px}
+  .doc-brand{font-size:15px} .doc-sub{font-size:7.5px} .doc-alamat{font-size:8.5px;margin-top:3px}
+  .doc-judul{font-size:15px} .doc-label{font-size:8px} .doc-tgl{font-size:9px}
+  .doc-meta{padding:8px 11px;margin-bottom:10px;font-size:9.2px;gap:3px 18px}
+  .doc-meta b{min-width:84px}
+  .doc-tbl{font-size:9px}
+  .doc-tbl th{padding:5px 6px;font-size:7.8px}
+  .doc-tbl td{padding:4px 6px}
+  .doc-total table{font-size:9.4px;min-width:250px}
+  .doc-total td{padding:4px 9px}
+  .doc-total tr.grand td{font-size:11px}
+  .doc-ttd{margin-top:14px;max-width:430px}
+  .doc-ttd-h{padding:5px 10px;font-size:9px}
+  .doc-ttd-j{font-size:9px;padding:5px 3px}
+  .doc-ttd-box{height:52px}
+  .doc-ttd-n{font-size:9px;padding:4px 3px}
+  .doc-catatan{margin-top:12px;font-size:9px}
+
   .doc-tbl{page-break-inside:auto} .doc-tbl tr{page-break-inside:avoid}
   .doc-ttd{page-break-inside:avoid}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -580,11 +609,11 @@ const COORD_COLOR  = {Diminta:"p-warn",Diproses:"p-sea",Review:"p-vip",Selesai:"
 const PO_FLOW      = ["Draft","Diajukan","Approved","Dibeli","Diterima"];
 const PO_COLOR     = {Draft:"p-mute",Diajukan:"p-warn",Approved:"p-sea",Dibeli:"p-vip",Diterima:"p-go"};
 
-/* Cara bayar — istilahnya disamakan PERSIS dengan lembar PR yang dipakai tim
-   (CASH / ONLINE / CREDIT), termasuk huruf besarnya. Menerjemahkannya jadi
-   "Tunai/Transfer/Kredit" akan membuat orang yang mencocokkan hasil cetak
-   dengan lembar lama ragu apakah dua kolom itu benar-benar hal yang sama. */
-const PEMBAYARAN   = ["CASH","ONLINE","CREDIT"];
+/* Kolom cara bayar (CASH/ONLINE/CREDIT) DIHAPUS atas permintaan tim.
+   Kolom `payment` di database sengaja dibiarkan: menjatuhkannya berarti
+   membuang nilai yang sudah terlanjur diisi pada baris lama, dan kolom yang
+   tidak dibaca tidak merugikan apa pun. Kalau nanti dibutuhkan lagi, datanya
+   masih ada. */
 const PR_FLOW      = ["Draft","Diajukan","Disetujui","Selesai"];
 const PR_COLOR     = {Draft:"p-mute",Diajukan:"p-warn",Disetujui:"p-sea",Selesai:"p-go"};
 /* Tiga penyetuju di lembar PR. Namanya DISALIN ke dalam dokumen saat PR
@@ -641,6 +670,23 @@ function ribuan(n){ return (+n||0).toLocaleString('id-ID'); }
    daftar item: yang menerimanya di Finance mencocokkan angka dengan nota, dan
    "Rp 5 jt" tidak bisa dicocokkan dengan apa pun. */
 function fRpPenuh(n){ return 'Rp '+ribuan(n); }
+
+/* Cap waktu input: 'YYYY-MM-DD HH:MM' waktu LOKAL perangkat.
+   Bukan toISOString() — itu UTC, dan request yang diketik jam 08:00 WIB akan
+   tercatat 01:00 hari yang sama, sehingga urutan "siapa duluan" salah dan
+   request pagi terlihat dibuat dini hari. */
+function nowStamp(){
+  var d=new Date();
+  return isoOf(d)+' '+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+/* Menampilkan cap waktu. Baris lama hanya menyimpan tanggal (tanpa jam);
+   yang begitu tetap tampil apa adanya, bukan dikarang jamnya. */
+function fWaktu(s){
+  s=String(s||'');
+  if(!s) return '—';
+  var p=s.split(' ');
+  return fTgl(p[0])+(p[1]?' · '+p[1]:'');
+}
 function rpInput(id,nilai,ph){
   return '<div class="rp-wrap"><span class="rp-pre">Rp</span>'+
     '<input class="rp-in" id="'+id+'" inputmode="numeric" autocomplete="off" '+
@@ -1888,7 +1934,16 @@ function labelMinggu(senin){
   var m=pDate(senin), a=new Date(m); a.setDate(a.getDate()+6);
   return m.getDate()+' '+BLN[m.getMonth()]+' – '+a.getDate()+' '+BLN[a.getMonth()]+' '+a.getFullYear();
 }
-function poRequester(p){ return p.by ? P(p.by).name : (p.pic ? P(p.pic).name : '—'); }
+/* Nama peminta. `by` (id kru dari database account) diutamakan; `byName`
+   dipakai untuk baris yang datang dari modul lain — Marketing tidak mengenal
+   id kru BD, jadi ia mengirim namanya sebagai teks. Mengarang id di sana akan
+   membuat kolom Peminta menunjuk orang yang salah, dan itu lebih buruk
+   daripada teks biasa. */
+function poRequester(p){
+  if(p.by && P(p.by).id) return P(p.by).name;
+  if(p.byName) return p.byName;
+  return p.pic ? P(p.pic).name : '—';
+}
 
 function vPurchasing(){
   var berjalan=DB.po.filter(function(p){return p.status!=='Diterima';});
@@ -1910,7 +1965,7 @@ function vPurchasing(){
   h+='<div class="stats">'+
     stat('Total PO',DB.po.length,DB.po.filter(function(p){return p.status==='Diterima';}).length+' sudah diterima','')+
     stat('Perlu approval',perluApproval,'status Diajukan',perluApproval?'wa':'gr')+
-    stat('Nilai berjalan',fRp(nilai),'belum diterima','tl')+
+    stat('Nilai berjalan',fRpPenuh(nilai),'belum diterima','tl')+
   '</div>';
 
   return h+(poMode==='pr'?vPrList():(poMode==='minggu'?poRekapMingguan():poDaftar()));
@@ -1928,7 +1983,7 @@ function poDaftar(){
 }
 
 function poTabel(list){
-  return '<div class="tw"><table><thead><tr><th>Item</th><th>Peminta</th><th>Vendor</th><th>Qty</th><th>Nilai</th>'+
+  return '<div class="tw"><table><thead><tr><th>Item</th><th>Peminta</th><th>Diinput</th><th>Vendor</th><th>Qty</th><th>Nilai</th>'+
     '<th>Divisi</th><th>Butuh</th><th>Status</th><th></th></tr></thead><tbody>'+
     list.map(function(p){
       var pr=p.project&&DB.projects.find(function(x){return x.id===p.project;});
@@ -1941,7 +1996,17 @@ function poTabel(list){
         '<td><span class="nm">'+esc(p.item)+'</span>'+
           (pr?'<div class="tag proj" style="margin-top:3px;display:inline-block">'+esc(pr.name)+'</div>':'')+
           (p.note?'<div class="mut" style="font-size:11.5px;margin-top:2px">'+esc(p.note)+'</div>':'')+'</td>'+
-        '<td><span class="mut">'+esc(poRequester(p))+'</span></td>'+
+        '<td><span class="mut">'+esc(poRequester(p))+'</span>'+
+          /* Asal modul ditandai. Baris dari Marketing tidak punya id kru BD,
+             jadi tanpa penanda ini "kenapa Peminta-nya cuma teks" jadi
+             pertanyaan yang tidak ada jawabannya di layar. */
+          (p.sumber?'<div><span class="tag">dari '+esc(p.sumber)+'</span></div>':'')+'</td>'+
+        /* Waktu input + siapa yang mengetik. Dua-duanya perlu: saat ada dua
+           permintaan mirip, yang menjelaskan duplikatnya biasanya "diketik dua
+           orang berbeda dalam sepuluh menit", dan itu tidak terlihat dari
+           tanggal saja. */
+        '<td><span class="mut" style="white-space:nowrap">'+esc(fWaktu(p.at))+'</span>'+
+          (p.input&&p.input!==poRequester(p)?'<div class="mut" style="font-size:11px">oleh '+esc(p.input)+'</div>':'')+'</td>'+
         '<td><span class="mut">'+esc(p.vendor||'—')+'</span></td>'+
         '<td><span class="mut num">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span></td>'+
         '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRpPenuh(p.amount)+'</span>')+'</td>'+
@@ -2036,14 +2101,13 @@ function poRekapMingguan(){
    lama harus dicek ulang manual. */
 function prItems(prId){ return DB.po.filter(function(p){return p.prId===prId;}); }
 function prTotal(prId){
-  var t={CASH:0,ONLINE:0,CREDIT:0,'':0}, grand=0, belum=0;
+  var grand=0, belum=0;
   prItems(prId).forEach(function(p){
     var a=+p.amount||0;
-    t[p.payment||''] = (t[p.payment||'']||0)+a;
     grand+=a;
     if(!a) belum++;
   });
-  return {per:t, grand:grand, belum:belum};
+  return {grand:grand, belum:belum};
 }
 function prNoBerikut(){
   /* Nomor diambil dari yang TERTINGGI, bukan dari jumlah dokumen. PR yang
@@ -2097,7 +2161,6 @@ function vPrList(){
           '<div class="t-meta">'+
             '<span class="tag">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span>'+
             '<span class="tag pic">'+esc(poRequester(p))+'</span>'+
-            (p.payment?'<span class="tag">'+esc(p.payment)+'</span>':'')+
             '<span class="tag">'+((+p.amount)?fRpPenuh(p.amount):'harga belum diisi')+'</span>'+
             (p.needBy?'<span class="tag">butuh '+fTgl(p.needBy)+'</span>':'')+
           '</div></div></div>';
@@ -2211,7 +2274,7 @@ function vPrDetail(){
   h+='<table class="doc-tbl"><thead><tr>'+
     '<th style="width:34px">No</th><th>Nama Item</th><th style="width:64px">Jumlah</th>'+
     '<th style="width:74px">Satuan</th><th>Alasan / Kebutuhan</th><th style="width:96px">Request</th>'+
-    '<th style="width:84px">Payment</th><th style="width:118px">Harga</th>'+
+    '<th style="width:130px">Harga</th>'+
     '<th class="no-print" style="width:44px"></th></tr></thead><tbody>'+
     (items.length?items.map(function(p,i){
       return '<tr>'+
@@ -2221,7 +2284,6 @@ function vPrDetail(){
         '<td class="c">'+esc(p.unit||'')+'</td>'+
         '<td>'+esc(p.note||'—')+'</td>'+
         '<td>'+esc(String(poRequester(p)).split(' ')[0])+'</td>'+
-        '<td class="c">'+(p.payment?esc(p.payment):'<span class="muted">—</span>')+'</td>'+
         '<td class="r num">'+((+p.amount)?fRpPenuh(p.amount):'<span class="muted">belum</span>')+'</td>'+
         /* Saat terkunci TIDAK ada tombol sama sekali — pita di atas menjanjikan
            itemnya dikunci, dan tombol edit yang tetap hidup akan membuat
@@ -2233,14 +2295,12 @@ function vPrDetail(){
              'onclick="APP.lepasDariPr(\''+p.id+'\')">'+ic('x')+'</button>')+
         '</td></tr>';
     }).join('')
-    :'<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:22px">Belum ada item di lembar ini</td></tr>')+
+    :'<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:22px">Belum ada item di lembar ini</td></tr>')+
   '</tbody></table>';
 
   h+='<div class="doc-total"><table>'+
-    PEMBAYARAN.map(function(x){
-      return '<tr><td>TOTAL '+x+'</td><td>'+fRpPenuh(t.per[x]||0)+'</td></tr>';
-    }).join('')+
-    ((t.per['']||0)?'<tr><td>BELUM DITENTUKAN</td><td>'+fRpPenuh(t.per[''])+'</td></tr>':'')+
+    '<tr><td>JUMLAH ITEM</td><td>'+items.length+'</td></tr>'+
+    (t.belum?'<tr><td>BELUM BERHARGA</td><td>'+t.belum+' item</td></tr>':'')+
     '<tr class="grand"><td>GRAND TOTAL</td><td>'+fRpPenuh(t.grand)+'</td></tr>'+
   '</table></div>';
 
@@ -2404,15 +2464,29 @@ function simpanPr(id){
    Divisi, tanggal dibutuhkan, dan project ditaruh SEKALI di atas: satu sesi
    pengisian hampir selalu untuk keperluan yang sama. Yang berbeda tinggal
    diubah lewat form penuh sesudahnya. */
+/* Kolom "Request" = SIAPA yang minta barang itu, dan namanya datang dari
+   database account (tabel people, hasil sinkron roster) — bukan diketik.
+
+   Per BARIS, bukan sekali untuk seluruh form: di lembar PR yang dipakai tim,
+   satu lembar berisi permintaan beberapa orang sekaligus (Wandi, Rizki, …)
+   yang dikumpulkan satu penyusun. Memaksa satu nama untuk seluruh sesi
+   membuat kolom itu selalu berisi nama penyusunnya, dan pertanyaan "ini
+   siapa yang butuh" tidak terjawab lagi. */
+function opsiPeminta(sel){
+  var l=kruTersedia(sel?[sel]:[]);
+  if(!l.length) return '<option value="">—</option>';
+  return l.map(function(p){
+    return '<option value="'+p.id+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+'</option>';
+  }).join('');
+}
 function barisRequest(){
   return '<tr>'+
     '<td class="no"></td>'+
     '<td><input class="q-item" placeholder="Nama barang / jasa"></td>'+
     '<td style="width:74px"><input class="q-qty" type="number" value="1" min="1"></td>'+
-    '<td style="width:96px"><input class="q-unit" value="Unit" placeholder="Pack / Orang"></td>'+
+    '<td style="width:92px"><input class="q-unit" value="Unit" placeholder="Pack / Orang"></td>'+
     '<td><input class="q-note" placeholder="Untuk apa / kebutuhannya"></td>'+
-    '<td style="width:112px"><select class="q-pay"><option value="">—</option>'+
-      PEMBAYARAN.map(function(x){return '<option>'+x+'</option>';}).join('')+'</select></td>'+
+    '<td style="width:136px"><select class="q-by">'+opsiPeminta(AKU?AKU.id:'')+'</select></td>'+
     '<td style="width:132px">'+
       '<div class="rp-wrap"><span class="rp-pre">Rp</span>'+
       '<input class="rp-in q-amount" inputmode="numeric" autocomplete="off" placeholder="0" oninput="APP.fmtRp(this)"></div></td>'+
@@ -2445,7 +2519,7 @@ function requestModal(){
       '<div class="field"><label>Daftar barang</label>'+
         '<div class="req-wrap"><table class="req-tbl"><thead><tr>'+
           '<th class="no">#</th><th>Nama item</th><th>Jumlah</th><th>Satuan</th>'+
-          '<th>Alasan / kebutuhan</th><th>Payment</th><th>Perkiraan harga</th><th></th>'+
+          '<th>Alasan / kebutuhan</th><th>Request</th><th>Perkiraan harga</th><th></th>'+
         '</tr></thead><tbody id="q_rows">'+barisRequest()+barisRequest()+barisRequest()+'</tbody></table></div>'+
         '<div style="display:flex;align-items:center;gap:10px;margin-top:9px">'+
           '<button type="button" class="btn sm" onclick="APP.tambahBarisReq()">'+ic('plus')+'Tambah baris</button>'+
@@ -2470,14 +2544,16 @@ function simpanRequest(){
     if(!nama) return;                       // baris kosong diabaikan, bukan ditolak
     DB.po.push({
       id:uid('po'), item:nama, vendor:'',
-      amount:bacaRpEl(q('.q-amount')), payment:q('.q-pay').value,
+      amount:bacaRpEl(q('.q-amount')),
       qty:+q('.q-qty').value||1, unit:(q('.q-unit').value||'').trim()||'Unit',
       needBy:need, div:div, prId:null,
-      /* pic = peminta, sampai purchasing mengambil alih. `by` mencatat SIAPA
-         yang meminta dan tidak pernah berubah walau PIC-nya nanti dipindah —
-         tanpa itu, begitu purchasing mengambil alih, jejak siapa yang butuh
-         barang ini hilang. */
-      pic:AKU?AKU.id:'', by:AKU?AKU.id:'', at:todayISO(),
+      /* `by` = yang MEMBUTUHKAN barangnya (dipilih per baris, dari database
+         account). `pic` = penanggung jawab pembelian, awalnya sama lalu
+         berpindah ke purchasing. `input` = siapa yang mengetik, dan itu bisa
+         berbeda dari keduanya: satu penyusun sering mengetikkan permintaan
+         beberapa orang sekaligus. */
+      by:q('.q-by').value||'', pic:q('.q-by').value||'',
+      input:(sesi()||{}).name||'', at:nowStamp(),
       status:'Diajukan', project:proj, note:(q('.q-note').value||'').trim()
     });
     dibuat++;
@@ -2503,13 +2579,9 @@ function poModal(id){
         (p.at?' pada '+fTglPanjang(p.at):'')+
         (p.at?' · '+Math.max(0,-sisaHari(p.at))+' hari lalu':'')+'</div>':'')+
       '<div class="field"><label>Item / barang</label><input id="o_item" value="'+esc(p.item)+'"></div>'+
-      '<div class="frow3">'+
+      '<div class="frow">'+
         '<div class="field"><label>Vendor</label><input id="o_vendor" value="'+esc(p.vendor)+'" placeholder="Nama supplier"></div>'+
-        '<div class="field"><label>Nilai total</label>'+rpInput('o_amount',p.amount)+'</div>'+
-        '<div class="field"><label>Cara bayar</label><select id="o_pay">'+
-          '<option value=""'+(p.payment?'':' selected')+'>— belum ditentukan —</option>'+
-          PEMBAYARAN.map(function(x){return '<option'+(p.payment===x?' selected':'')+'>'+x+'</option>';}).join('')+
-        '</select></div></div>'+
+        '<div class="field"><label>Nilai total</label>'+rpInput('o_amount',p.amount)+'</div></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Qty</label><input type="number" id="o_qty" value="'+(+p.qty||1)+'"></div>'+
         '<div class="field"><label>Satuan</label><input id="o_unit" value="'+esc(p.unit)+'"></div>'+
@@ -2533,7 +2605,7 @@ function simpanPo(id){
   var g=function(x){return document.getElementById(x).value;};
   var item=g('o_item').trim();
   if(!item){ toast('Nama item wajib diisi.'); return; }
-  var data={item:item,vendor:g('o_vendor').trim(),amount:bacaRp('o_amount'),payment:g('o_pay'),
+  var data={item:item,vendor:g('o_vendor').trim(),amount:bacaRp('o_amount'),
     qty:+g('o_qty')||1,unit:g('o_unit').trim()||'unit',needBy:g('o_need'),div:g('o_div'),pic:g('o_pic'),
     status:g('o_status'),project:g('o_proj')||null,note:g('o_note').trim()};
   if(id) Object.assign(DB.po.find(function(x){return x.id===id;}),data);
@@ -2915,7 +2987,7 @@ window.APP={
     if(tbody.querySelectorAll('tr').length<=1){
       tr.querySelectorAll('input').forEach(function(i){ i.value=(i.className.indexOf('q-qty')>-1)?'1':''; });
       tr.querySelector('.q-unit').value='Unit';
-      tr.querySelector('.q-pay').value='';
+
       return;
     }
     tr.remove(); nomoriBarisReq();

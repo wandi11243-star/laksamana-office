@@ -50,6 +50,16 @@ try {
     keluar(array('ok' => true, 'data' => array_merge(
       array('pong' => true, 'backend' => 'php-mysql'), identitas(), array('ts' => gmdate('c')))));
 
+  } else if ($action === 'addPo') {
+    /* Hanya-menyisipkan, dipakai modul lain (Marketing) untuk mengirim
+       request pembelian ke papan Purchasing BD. SENGAJA bukan saveAll —
+       saveAll merekonsiliasi dan akan menghapus semua baris yang tidak ikut
+       di kiriman, dan modul lain tidak pernah memegang state BD seutuhnya. */
+    $lock = db_lock();
+    try { $out = tambah_po(isset($body['items']) ? $body['items'] : null); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
+
   } else if ($action === 'saveAll') {
     $lock = db_lock();
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
