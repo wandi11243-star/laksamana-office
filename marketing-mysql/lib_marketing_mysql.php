@@ -28,7 +28,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-22');
+define('LIB_VERSI', '2026-07-23');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -171,18 +171,48 @@ function key_terpakai($pdo) {
   return $hidup;
 }
 
-/* Buang berkas yatim: ada di disk tapi tidak ditunjuk data mana pun lagi
-   (mis. lampiran sudah dihapus dari event, atau bukti transfer diganti).
+/* Berkas yatim: ada di disk tapi tidak ditunjuk data mana pun lagi (mis.
+   lampiran sudah dihapus dari event, atau bukti transfer diganti).
 
-   JEDA AMAN 1 JAM: berkas yang baru diunggah sengaja dilewati. Unggah dan
-   penyimpanan event adalah dua langkah terpisah — tanpa jeda ini, GC yang
-   dipicu simpanan kru LAIN bisa menghapus berkas yang baru saja diunggah
-   sebelum sempat tercatat ke event-nya. */
+   ============================================================================
+   TIDAK DIHAPUS. DIPINDAHKAN KE TEMPAT SAMPAH.
+   ============================================================================
+   Versi sebelumnya memanggil unlink() langsung, dan itu sudah memakan korban:
+   selama key_terpakai() belum mengenali layoutImgs/areaImgs/rundownFiles/
+   voucherImgs, GC menganggapnya yatim lalu menghapusnya satu jam setelah
+   diunggah. Event tersimpan rapi, gambarnya lenyap belakangan, tanpa satu pun
+   pesan error. Yang tersisa di database cuma key yang menunjuk ke ketiadaan.
+   Kerusakannya baru ketahuan berhari-hari kemudian, dan saat itu tidak ada
+   yang bisa dikembalikan.
+
+   Pemindahan ke sampah membuat kesalahan seperti itu BISA DIBATALKAN. Kalau
+   suatu hari ada lagi tempat penyimpanan lampiran yang belum dikenali
+   kumpulkan_key(), berkasnya menunggu di folder sampah, bukan hilang.
+   Memulihkan = pindahkan kembali dari `receipts_sampah/` ke `receipts/`
+   lewat File Manager. Nama berkasnya tidak berubah, jadi key di database
+   langsung hidup lagi tanpa menyentuh data.
+
+   JEDA AMAN 7 HARI (dulu 1 jam). Unggah dan penyimpanan event adalah dua
+   langkah terpisah, dan jarak antara keduanya TIDAK selalu sebentar:
+   simpanan bisa ditolak penjaga bentrok karena kru lain menyimpan duluan,
+   atau gagal karena jaringan lalu tabnya telanjur ditutup. Satu jam
+   mengasumsikan semuanya lancar dalam hitungan menit; kalau tidak, berkas
+   yang baru diunggah mati sebelum sempat tercatat. Tujuh hari memberi ruang
+   untuk menyelesaikan bentrok keesokan harinya.
+
+   Sampah dibersihkan sendiri setelah 60 hari, jadi ini tidak jadi tumpukan
+   selamanya. */
+define('GC_JEDA_AMAN',   7 * 24 * 3600);    // yatim -> sampah
+define('GC_UMUR_SAMPAH', 60 * 24 * 3600);   // sampah -> benar-benar dibuang
+
+function receipt_sampah_dir() { return receipt_dir() . '/receipts_sampah'; }
+
 function gc_receipts($pdo) {
   $dir = receipt_files_dir();
   if (!is_dir($dir)) return 0;
   $hidup = key_terpakai($pdo);
-  $batas = time() - 3600;
+  $batas = time() - GC_JEDA_AMAN;
+  $sampah = receipt_sampah_dir();
   $buang = 0;
   foreach (scandir($dir) as $f) {
     if ($f === '.' || $f === '..') continue;
@@ -190,9 +220,34 @@ function gc_receipts($pdo) {
     $p = $dir . '/' . $f;
     if (!is_file($p)) continue;
     if (filemtime($p) > $batas) continue;                  // baru diunggah -> jangan sentuh
-    if (@unlink($p)) $buang++;
+    if (!is_dir($sampah) && !@mkdir($sampah, 0775, true)) continue;  // gagal bikin folder -> JANGAN hapus
+    if (@rename($p, $sampah . '/' . $f)) {
+      // mtime disetel ulang supaya umur di sampah dihitung sejak DIPINDAHKAN,
+      // bukan sejak diunggah. Tanpa ini, berkas lama yang baru jadi yatim
+      // hari ini akan langsung lewat batas 60 hari dan dibuang seketika.
+      @touch($sampah . '/' . $f);
+      $buang++;
+    }
   }
+  gc_sampah();
   return $buang;
+}
+
+/* Pembersih tempat sampah. Berkas yang sudah 60 hari di sana dianggap memang
+   tidak diperlukan lagi. Dipisah dari gc_receipts supaya batas waktunya bisa
+   dibaca dan diubah sendiri tanpa menyentuh logika yatim. */
+function gc_sampah() {
+  $sampah = receipt_sampah_dir();
+  if (!is_dir($sampah)) return 0;
+  $batas = time() - GC_UMUR_SAMPAH;
+  $n = 0;
+  foreach (scandir($sampah) as $f) {
+    if ($f === '.' || $f === '..') continue;
+    $p = $sampah . '/' . $f;
+    if (!is_file($p) || filemtime($p) > $batas) continue;
+    if (@unlink($p)) $n++;
+  }
+  return $n;
 }
 
 function stream_receipt($key) {
@@ -596,9 +651,9 @@ function stats() {
   // Berkas di disk (lampiran + bukti transfer) — untuk memantau tanpa perlu
   // membuka File Manager. `berkasYatim` yang terus bertambah = GC bermasalah.
   $dir = receipt_files_dir();
+  $hidup = key_terpakai($pdo);
   $n = 0; $byte = 0; $yatim = 0;
   if (is_dir($dir)) {
-    $hidup = key_terpakai($pdo);
     foreach (scandir($dir) as $f) {
       if ($f === '.' || $f === '..') continue;
       $p = $dir . '/' . $f;
@@ -609,8 +664,40 @@ function stats() {
   }
   $out['berkas']       = $n;
   $out['berkasMB']     = round($byte / 1048576, 3);
-  $out['berkasYatim']  = $yatim;      // menunggu jeda aman 1 jam sebelum dibuang
+  $out['berkasYatim']  = $yatim;      // menunggu jeda aman sebelum ke sampah
+
+  /* ARAH SEBALIKNYA, dan ini yang paling penting: key yang tercatat di
+     database tapi berkasnya TIDAK ADA di disk. Itulah gambar rusak yang
+     dilihat kru — data menunjuk ke ketiadaan.
+
+     Dulu angka ini tidak pernah dihitung, jadi ketika GC lama menghapus
+     layoutImgs/areaImgs, tidak ada satu pun ukuran yang berubah. Kerusakan
+     baru ketahuan saat ada orang membuka event dan melihat gambarnya patah.
+     `berkasYatim` tidak menolong sama sekali di sana — angkanya justru
+     bagus (0) tepat KARENA berkasnya sudah telanjur dihapus.
+
+     Naik dari 0 = ada lampiran yang hilang. Periksa folder sampah. */
+  $hilang = 0;
+  foreach (array_keys($hidup) as $k) {
+    if (!is_file(receipt_path($k))) $hilang++;
+  }
+  $out['berkasHilang'] = $hilang;
+
+  $sampah = receipt_sampah_dir();
+  $ns = 0; $bs = 0;
+  if (is_dir($sampah)) {
+    foreach (scandir($sampah) as $f) {
+      if ($f === '.' || $f === '..') continue;
+      $p = $sampah . '/' . $f;
+      if (!is_file($p)) continue;
+      $ns++; $bs += filesize($p);
+    }
+  }
+  $out['sampah']       = $ns;         // bisa dipulihkan: pindahkan balik ke receipts/
+  $out['sampahMB']     = round($bs / 1048576, 3);
+
   $out['folderBerkas'] = $dir;
+  $out['folderSampah'] = $sampah;
   $out['amanDiLuarWeb'] = !receipt_di_dalam_web();
 
   $out['ts'] = gmdate('c');
