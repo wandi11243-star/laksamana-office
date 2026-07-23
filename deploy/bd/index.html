@@ -295,6 +295,10 @@ td .mut{color:var(--muted);font-size:12.5px}
 .cev{font-size:9.8px;padding:3px 5px;border-radius:5px;overflow:hidden;text-overflow:ellipsis;
   white-space:nowrap;font-weight:600;line-height:1.35;border-left:3px solid;background:var(--ink-880);
   color:var(--sand);width:100%;text-align:left;display:block}
+.cev.geser{cursor:grab}
+.cev.geser:hover{filter:brightness(.94)}
+.cev.dragging{opacity:.4}
+.cd.drop{border-color:var(--gold);background:var(--gold-glow);box-shadow:inset 0 0 0 1px var(--gold)}
 .cal-more{font-size:9.5px;color:var(--muted-dk)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);align-items:center;margin-top:14px}
 
@@ -1730,47 +1734,213 @@ function hapusRoutine(id){
   save(); closeModal(); render(); toast('Routine dihapus');
 }
 
-/* ============ PURCHASING ============ */
-var poFilter='';
+/* ============ PURCHASING ============
+   Dua peran dalam satu halaman, dan itu disengaja:
+
+   - SIAPA PUN boleh mengajukan request order (tombol "Request Order").
+     Formnya pendek — barang, jumlah, kapan dibutuhkan, alasan — karena
+     pemintanya belum tahu vendor maupun harga, dan memaksanya menebak dua
+     hal itu cuma menghasilkan angka karangan yang lalu dipercaya orang lain.
+   - Tim purchasing melengkapinya lewat form penuh (vendor, nilai, status).
+
+   Keduanya baris yang SAMA, bukan dua tabel. Request yang disetujui bukan
+   dokumen baru; ia PO yang sama yang berpindah status, sehingga jejak dari
+   permintaan sampai barang diterima tidak pernah putus. */
+var poFilter='', poMode='daftar', poMinggu=0;
+
+/* Senin sebagai awal minggu, sama dengan kalender. */
+function awalMinggu(iso){
+  var d=pDate(iso||todayISO());
+  d.setDate(d.getDate()-((d.getDay()+6)%7));
+  return isoOf(d);
+}
+function geserMinggu(iso,n){ var d=pDate(iso); d.setDate(d.getDate()+n*7); return isoOf(d); }
+function labelMinggu(senin){
+  var m=pDate(senin), a=new Date(m); a.setDate(a.getDate()+6);
+  return m.getDate()+' '+BLN[m.getMonth()]+' – '+a.getDate()+' '+BLN[a.getMonth()]+' '+a.getFullYear();
+}
+function poRequester(p){ return p.by ? P(p.by).name : (p.pic ? P(p.pic).name : '—'); }
+
 function vPurchasing(){
-  var list=poFilter?DB.po.filter(function(p){return p.status===poFilter;}):DB.po;
   var berjalan=DB.po.filter(function(p){return p.status!=='Diterima';});
   var nilai=berjalan.reduce(function(s,p){return s+(+p.amount||0);},0);
   var perluApproval=DB.po.filter(function(p){return p.status==='Diajukan';}).length;
-  return head('Purchasing',SUB.purchasing[2],
-      '<button class="btn pri" onclick="APP.poModal()">'+ic('plus')+'Purchase Order</button>')+
-    '<div class="notice">PO tingkat proyek (mesin, furniture, sewa) — <b>bukan pengganti modul Stock</b>. '+
-      'Order bahan baku harian tetap di Stock · Ordering/Purchasing.</div>'+
-    '<div class="stats">'+
-      stat('Total PO',DB.po.length,DB.po.filter(function(p){return p.status==='Diterima';}).length+' sudah diterima','')+
-      stat('Perlu approval',perluApproval,'status Diajukan',perluApproval?'wa':'gr')+
-      stat('Nilai berjalan',fRp(nilai),'belum diterima','tl')+
+
+  var h=head('Purchasing',SUB.purchasing[2],
+    '<div class="seg">'+
+      '<button class="'+(poMode==='daftar'?'on':'')+'" onclick="APP.setPoMode(\'daftar\')">Daftar</button>'+
+      '<button class="'+(poMode==='minggu'?'on':'')+'" onclick="APP.setPoMode(\'minggu\')">Rekap Mingguan</button>'+
     '</div>'+
-    '<div class="filters"><span class="flabel">'+ic('cart',14)+' Status</span>'+
+    '<button class="btn" onclick="APP.requestModal()">'+ic('plus')+'Request Order</button>'+
+    '<button class="btn pri" onclick="APP.poModal()">'+ic('cart')+'Purchase Order</button>');
+
+  h+='<div class="notice">PO tingkat proyek (mesin, furniture, sewa) — <b>bukan pengganti modul Stock</b>. '+
+    'Order bahan baku harian tetap di Stock · Ordering/Purchasing.<br>'+
+    'Siapa pun boleh menekan <b>Request Order</b>; vendor dan nilainya diisi tim purchasing saat memprosesnya.</div>';
+
+  h+='<div class="stats">'+
+    stat('Total PO',DB.po.length,DB.po.filter(function(p){return p.status==='Diterima';}).length+' sudah diterima','')+
+    stat('Perlu approval',perluApproval,'status Diajukan',perluApproval?'wa':'gr')+
+    stat('Nilai berjalan',fRp(nilai),'belum diterima','tl')+
+  '</div>';
+
+  return h+(poMode==='minggu'?poRekapMingguan():poDaftar());
+}
+
+function poDaftar(){
+  var list=poFilter?DB.po.filter(function(p){return p.status===poFilter;}):DB.po;
+  return '<div class="filters"><span class="flabel">'+ic('cart',14)+' Status</span>'+
       '<select onchange="APP.setPoFilter(this.value)"><option value="">Semua status</option>'+
         PO_FLOW.map(function(s){return '<option'+(poFilter===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select>'+
       (poFilter?'<button class="btn sm" onclick="APP.setPoFilter(\'\')">'+ic('x',12)+'Reset</button>':'')+
     '</div>'+
-    (list.length?
-    '<div class="tw"><table><thead><tr><th>Item</th><th>Vendor</th><th>Qty</th><th>Nilai</th><th>Divisi</th>'+
-      '<th>PIC</th><th>Butuh</th><th>Status</th><th></th></tr></thead><tbody>'+
-      list.map(function(p){
-        var pr=p.project&&DB.projects.find(function(x){return x.id===p.project;});
-        var telat=sisaHari(p.needBy)<0&&p.status!=='Diterima';
-        return '<tr class="clk" onclick="APP.poModal(\''+p.id+'\')">'+
-          '<td><span class="nm">'+esc(p.item)+'</span>'+
-            (pr?'<div class="tag proj" style="margin-top:3px;display:inline-block">'+esc(pr.name)+'</div>':'')+
-            (p.note?'<div class="mut" style="font-size:11.5px;margin-top:2px">'+esc(p.note)+'</div>':'')+'</td>'+
-          '<td><span class="mut">'+esc(p.vendor||'—')+'</span></td>'+
-          '<td><span class="mut num">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span></td>'+
-          '<td><span class="nm num">'+fRp(p.amount)+'</span></td>'+
-          '<td><span class="tag div">'+esc(String(p.div).split(' ')[0])+'</span></td>'+
-          '<td><span class="mini-av">'+esc(inisial(P(p.pic).name))+'</span></td>'+
-          '<td><span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span></td>'+
-          '<td>'+pill(p.status,PO_COLOR[p.status]||'p-mute')+'</td>'+
-          '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button></td></tr>';
-      }).join('')+'</tbody></table></div>'
+    (list.length?poTabel(list)
     :'<div class="card"><div class="card-b">'+kosong('Tidak ada PO',poFilter?'Tidak ada PO berstatus '+poFilter+'.':'')+'</div></div>');
+}
+
+function poTabel(list){
+  return '<div class="tw"><table><thead><tr><th>Item</th><th>Peminta</th><th>Vendor</th><th>Qty</th><th>Nilai</th>'+
+    '<th>Divisi</th><th>Butuh</th><th>Status</th><th></th></tr></thead><tbody>'+
+    list.map(function(p){
+      var pr=p.project&&DB.projects.find(function(x){return x.id===p.project;});
+      var telat=sisaHari(p.needBy)<0&&p.status!=='Diterima';
+      /* Nilai 0 pada request yang belum diproses BUKAN "gratis" — belum
+         dihitung. Menampilkannya sebagai "Rp 0" membuat rekap mingguan
+         terbaca seolah minggu itu tidak memakan biaya apa pun. */
+      var belumDihitung=(!(+p.amount)) && (p.status==='Draft'||p.status==='Diajukan');
+      return '<tr class="clk" onclick="APP.poModal(\''+p.id+'\')">'+
+        '<td><span class="nm">'+esc(p.item)+'</span>'+
+          (pr?'<div class="tag proj" style="margin-top:3px;display:inline-block">'+esc(pr.name)+'</div>':'')+
+          (p.note?'<div class="mut" style="font-size:11.5px;margin-top:2px">'+esc(p.note)+'</div>':'')+'</td>'+
+        '<td><span class="mut">'+esc(poRequester(p))+'</span></td>'+
+        '<td><span class="mut">'+esc(p.vendor||'—')+'</span></td>'+
+        '<td><span class="mut num">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span></td>'+
+        '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRp(p.amount)+'</span>')+'</td>'+
+        '<td><span class="tag div">'+esc(String(p.div).split(' ')[0])+'</span></td>'+
+        '<td><span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span></td>'+
+        '<td>'+pill(p.status,PO_COLOR[p.status]||'p-mute')+'</td>'+
+        '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button></td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
+
+/* ---- REKAP MINGGUAN ----
+   Dikelompokkan menurut TANGGAL DIBUTUHKAN (needBy), bukan tanggal request.
+   Pertanyaan yang dijawab rekap ini adalah "minggu depan kita harus
+   mengeluarkan apa saja", dan itu ditentukan kapan barangnya dipakai — bukan
+   kapan orang sempat mengetik permintaannya. Tanggal request tetap tercatat
+   dan tampil di barisnya. */
+function poRekapMingguan(){
+  var senin=geserMinggu(awalMinggu(todayISO()),poMinggu);
+  var akhir=geserMinggu(senin,1);
+  var minggu=DB.po.filter(function(p){ return p.needBy && p.needBy>=senin && p.needBy<akhir; });
+
+  var perStatus={};
+  PO_FLOW.forEach(function(s){ perStatus[s]=0; });
+  var nilai=0, belum=0;
+  minggu.forEach(function(p){
+    perStatus[p.status]=(perStatus[p.status]||0)+1;
+    var a=+p.amount||0;
+    nilai+=a;
+    if(!a && (p.status==='Draft'||p.status==='Diajukan')) belum++;
+  });
+
+  var h='<div class="filters">'+
+    '<div class="seg">'+
+      '<button onclick="APP.geserMingguPo(-1)">'+ic('chevL',14)+'</button>'+
+      '<button class="on" style="cursor:default">'+labelMinggu(senin)+'</button>'+
+      '<button onclick="APP.geserMingguPo(1)">'+ic('chevR',14)+'</button>'+
+    '</div>'+
+    (poMinggu?'<button class="btn sm" onclick="APP.geserMingguPo(0)">Minggu ini</button>':
+              '<span class="pill p-gold">minggu ini</span>')+
+    '<span class="muted" style="font-size:12px;margin-left:auto">dikelompokkan menurut tanggal dibutuhkan</span>'+
+  '</div>';
+
+  h+='<div class="stats">'+
+    stat('PO minggu ini',minggu.length,minggu.length?'butuh antara '+labelMinggu(senin):'tidak ada kebutuhan','')+
+    stat('Nilai',fRp(nilai),belum?belum+' item belum dihitung':'seluruhnya sudah dihitung',belum?'wa':'tl')+
+    stat('Perlu approval',perStatus['Diajukan']||0,'menunggu diproses',(perStatus['Diajukan']||0)?'wa':'gr')+
+    stat('Sudah diterima',perStatus['Diterima']||0,'dari '+minggu.length+' PO',
+         (minggu.length&&perStatus['Diterima']===minggu.length)?'gr':'')+
+  '</div>';
+
+  h+='<div class="card" style="margin-bottom:16px"><div class="card-b" style="display:flex;gap:9px;flex-wrap:wrap">'+
+    PO_FLOW.map(function(s){
+      return '<span class="pill '+(PO_COLOR[s]||'p-mute')+'">'+s+': '+(perStatus[s]||0)+'</span>';
+    }).join('')+'</div></div>';
+
+  h+=(minggu.length? poTabel(minggu.slice().sort(function(a,b){return a.needBy<b.needBy?-1:1;}))
+    :'<div class="card"><div class="card-b">'+
+      kosong('Tidak ada PO yang dibutuhkan minggu ini',
+        'Geser ke minggu lain, atau buat request lewat tombol Request Order.')+'</div></div>');
+
+  /* Ringkasan 6 minggu ke depan: rekap satu minggu menjawab "minggu ini apa",
+     tapi tidak menjawab "minggu mana yang menumpuk". Deretan ini yang
+     membuat penumpukan terlihat sebelum terjadi. */
+  var depan='';
+  for(var i=-1;i<5;i++){
+    var s0=geserMinggu(awalMinggu(todayISO()),i), s1=geserMinggu(s0,1);
+    var g=DB.po.filter(function(p){ return p.needBy && p.needBy>=s0 && p.needBy<s1; });
+    var n=g.reduce(function(a,p){return a+(+p.amount||0);},0);
+    depan+='<tr class="clk" onclick="APP.pilihMinggu('+i+')"'+(i===poMinggu?' style="background:var(--gold-glow)"':'')+'>'+
+      '<td><span class="nm">'+labelMinggu(s0)+'</span>'+(i===0?' '+pill('minggu ini','p-gold'):'')+'</td>'+
+      '<td><span class="num">'+g.length+'</span></td>'+
+      '<td><span class="num">'+fRp(n)+'</span></td>'+
+      '<td>'+(g.filter(function(p){return p.status==='Diajukan';}).length||'—')+'</td></tr>';
+  }
+  h+='<div class="card" style="margin-top:16px"><div class="card-h"><h3>Enam minggu terdekat</h3></div>'+
+    '<div class="tw" style="border:none;box-shadow:none;border-radius:0">'+
+    '<table><thead><tr><th>Minggu</th><th>PO</th><th>Nilai</th><th>Perlu approval</th></tr></thead>'+
+    '<tbody>'+depan+'</tbody></table></div></div>';
+  return h;
+}
+
+/* ---- REQUEST ORDER (form pendek, untuk semua kru) ---- */
+function requestModal(){
+  showModal(
+    '<div class="modal-h"><h3>Request Order</h3>'+
+      '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
+    '<div class="modal-b">'+
+      '<div class="notice" style="margin:0">Isi apa yang kamu butuhkan. <b>Vendor dan harga tidak perlu diisi</b> — '+
+        'tim purchasing yang melengkapinya. Request langsung masuk berstatus <b>Diajukan</b>.</div>'+
+      '<div class="field"><label>Barang / jasa yang diminta</label>'+
+        '<input id="q_item" placeholder="mis. Mesin espresso profesional"></div>'+
+      '<div class="frow3">'+
+        '<div class="field"><label>Jumlah</label><input type="number" id="q_qty" value="1" min="1"></div>'+
+        '<div class="field"><label>Satuan</label><input id="q_unit" value="unit"></div>'+
+        '<div class="field"><label>Dibutuhkan tanggal</label><input type="date" id="q_need" value="'+inDays(7)+'"></div></div>'+
+      '<div class="frow">'+
+        '<div class="field"><label>Divisi peminta</label><select id="q_div">'+
+          OWNER_DIVS.map(function(d){
+            var sel=(AKU&&AKU.div===d)?' selected':'';
+            return '<option'+sel+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
+        '<div class="field"><label>Project (opsional)</label><select id="q_proj"><option value="">—</option>'+
+          DB.projects.map(function(x){return '<option value="'+x.id+'">'+esc(x.name)+'</option>';}).join('')+'</select></div></div>'+
+      '<div class="field"><label>Untuk apa / alasan</label>'+
+        '<textarea id="q_note" placeholder="Kenapa ini dibutuhkan, dan apa akibatnya kalau tidak ada?"></textarea>'+
+        '<div style="font-size:11px;color:var(--muted);margin-top:5px">Alasan yang jelas mempercepat approval — '+
+        'yang memutuskan tidak selalu tahu konteks pekerjaanmu.</div></div>'+
+    '</div>'+
+    '<div class="modal-f"><div></div>'+
+      '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
+      '<button class="btn pri" onclick="APP.simpanRequest()">'+ic('check')+'Ajukan</button></div></div>');
+}
+function simpanRequest(){
+  var g=function(x){return document.getElementById(x).value;};
+  var item=g('q_item').trim();
+  if(!item){ toast('Barang yang diminta wajib diisi.'); return; }
+  DB.po.push({
+    id:uid('po'), item:item, vendor:'', amount:0,
+    qty:+g('q_qty')||1, unit:g('q_unit').trim()||'unit',
+    needBy:g('q_need'), div:g('q_div'),
+    /* pic = peminta, sampai purchasing mengambil alih. `by` mencatat SIAPA
+       yang meminta dan tidak pernah berubah walau PIC-nya nanti dipindah —
+       tanpa itu, begitu purchasing mengambil alih, jejak siapa yang butuh
+       barang ini hilang. */
+    pic:AKU?AKU.id:'', by:AKU?AKU.id:'', at:todayISO(),
+    status:'Diajukan', project:g('q_proj')||null, note:g('q_note').trim()
+  });
+  save(); closeModal(); render();
+  toast('Request diajukan — menunggu diproses purchasing');
 }
 function poModal(id){
   var p=id?DB.po.find(function(x){return x.id===id;}):null;
@@ -1781,6 +1951,12 @@ function poModal(id){
     '<div class="modal-h"><h3>'+(baru?'Purchase Order Baru':'Edit Purchase Order')+'</h3>'+
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
     '<div class="modal-b">'+
+      /* Asal-usul request ditampilkan di ATAS, sebelum field mana pun.
+         Yang memproses perlu tahu siapa yang butuh dan sejak kapan sebelum
+         memutuskan — bukan sesudah terlanjur mengisi vendor dan harga. */
+      (p.by?'<div class="notice" style="margin:0">Diajukan oleh <b>'+esc(P(p.by).name)+'</b>'+
+        (p.at?' pada '+fTglPanjang(p.at):'')+
+        (p.at?' · '+Math.max(0,-sisaHari(p.at))+' hari lalu':'')+'</div>':'')+
       '<div class="field"><label>Item / barang</label><input id="o_item" value="'+esc(p.item)+'"></div>'+
       '<div class="frow">'+
         '<div class="field"><label>Vendor</label><input id="o_vendor" value="'+esc(p.vendor)+'" placeholder="Nama supplier"></div>'+
@@ -1826,10 +2002,18 @@ var calRef=null;
 /* Semua yang punya tanggal dikumpulkan jadi satu daftar. Sumbernya empat, dan
    warnanya sengaja beda supaya "banyak merah di satu minggu" langsung terbaca
    sebagai minggu yang padat deadline, bukan sekadar penuh. */
+/* `geser` menandai item yang boleh DIPINDAH dengan menyeretnya ke kotak lain.
+
+   Hanya task. Milestone, PO, dan koordinasi punya konsekuensi di luar
+   kalender — milestone mengikat kesepakatan project, tanggal PO mengikat
+   vendor, due koordinasi sudah dijanjikan ke divisi lain — dan menggesernya
+   dengan satu tarikan tangan yang bahkan bisa tidak sengaja terlalu murah
+   untuk perubahan sepenting itu. Ketiganya tetap diubah lewat modalnya
+   masing-masing, di mana orang melihat konteks lengkapnya dulu. */
 function calItems(){
   var out=[];
   DB.tasks.filter(function(t){return t.deadline&&!selesai(t);}).forEach(function(t){
-    out.push({date:t.deadline,title:t.name,color:'var(--danger)',jenis:'Deadline'});});
+    out.push({date:t.deadline,title:t.name,color:'var(--danger)',jenis:'Deadline',id:t.id,geser:true});});
   DB.projects.forEach(function(p){(p.milestones||[]).forEach(function(ms){
     if(ms.date) out.push({date:ms.date,title:ms.t+' ('+p.name+')',color:'var(--violet)',jenis:'Milestone'});});});
   DB.po.filter(function(p){return p.status!=='Diterima'&&p.needBy;}).forEach(function(p){
@@ -1839,6 +2023,30 @@ function calItems(){
   DB.agenda.forEach(function(e){
     if(e.date) out.push({date:e.date,title:e.title,color:'var(--gold)',jenis:e.type||'Agenda'});});
   return out;
+}
+
+/* ---- geser task di kalender ---- */
+var _dragCal=null;
+function dragCal(e,id){
+  _dragCal=id;
+  e.dataTransfer.effectAllowed='move';
+  /* Firefox tidak memulai drag sama sekali kalau dataTransfer kosong. */
+  try{ e.dataTransfer.setData('text/plain',id); }catch(_){}
+  e.target.classList.add('dragging');
+}
+function dropCal(e,iso){
+  e.preventDefault();
+  document.querySelectorAll('.cd').forEach(function(c){c.classList.remove('drop');});
+  var t=DB.tasks.find(function(x){return x.id===_dragCal;});
+  _dragCal=null;
+  if(!t || t.deadline===iso) return;
+  var lama=t.deadline;
+  t.deadline=iso;
+  save(); render();
+  /* Toast menyebut ASAL dan TUJUAN. Salah jatuh satu kotak gampang terjadi di
+     kalender rapat, dan tanpa keterangan ini orang tidak punya cara tahu
+     tanggal apa yang barusan tergeser. */
+  toast(t.name+': '+fTgl(lama)+' → '+fTgl(iso));
 }
 function vCalendar(){
   if(!calRef) calRef=new Date(new Date().getFullYear(),new Date().getMonth(),1);
@@ -1868,18 +2076,31 @@ function vCalendar(){
         '<span><span class="dot" style="background:var(--teal)"></span> PO</span>'+
         '<span><span class="dot" style="background:var(--warn)"></span> Koordinasi</span>'+
         '<span><span class="dot" style="background:var(--gold)"></span> Agenda tim</span>'+
+        '<span style="margin-left:auto;color:var(--gold-deep);font-weight:600">'+
+          'Seret <b>deadline task</b> ke kotak lain untuk memindahkan tanggalnya.</span>'+
       '</div></div></div>';
 }
 function calCell(d,luar,items){
   var ds=isoOf(d), hariIni=ds===todayISO();
   var ev=items.filter(function(x){return x.date===ds;});
-  return '<div class="cd'+(luar?' out':'')+(hariIni?' today':'')+'">'+
+  return '<div class="cd'+(luar?' out':'')+(hariIni?' today':'')+'" '+
+      'ondragover="event.preventDefault();this.classList.add(\'drop\')" '+
+      'ondragleave="this.classList.remove(\'drop\')" '+
+      'ondrop="APP.dropCal(event,\''+ds+'\')">'+
     '<span class="cd-n">'+d.getDate()+'</span>'+
-    ev.slice(0,3).map(function(e){
-      return '<span class="cev" style="border-color:'+e.color+';background:'+e.color+'18;color:'+e.color+'" '+
-        'title="'+esc(e.jenis+' — '+e.title)+'">'+esc(e.title)+'</span>';
+    /* Sengaja TIDAK dipotong 3 lagi kalau ada yang bisa digeser: item yang
+       tersembunyi di balik "+2 lagi" tidak bisa diseret sama sekali, dan
+       orang akan mengira fiturnya rusak untuk task itu. Batasnya dinaikkan
+       jadi 4 dan sisanya tetap diringkas. */
+    ev.slice(0,4).map(function(e){
+      return '<span class="cev'+(e.geser?' geser':'')+'" '+
+        (e.geser?'draggable="true" ondragstart="APP.dragCal(event,\''+e.id+'\')" '+
+                 'ondragend="this.classList.remove(\'dragging\')" '+
+                 'onclick="APP.taskModal(\''+e.id+'\')" ':'')+
+        'style="border-color:'+e.color+';background:'+e.color+'18;color:'+e.color+'" '+
+        'title="'+esc(e.jenis+' — '+e.title)+(e.geser?' (seret untuk pindah tanggal)':'')+'">'+esc(e.title)+'</span>';
     }).join('')+
-    (ev.length>3?'<span class="cal-more">+'+(ev.length-3)+' lagi</span>':'')+
+    (ev.length>4?'<span class="cal-more">+'+(ev.length-4)+' lagi</span>':'')+
   '</div>';
 }
 function agendaModal(id){
@@ -2114,7 +2335,12 @@ window.APP={
   dragCoord:dragCoord, dropCoord:dropCoord, setCoordMode:function(m){coordMode=m;render();},
   routineModal:routineModal, simpanRoutine:simpanRoutine, hapusRoutine:hapusRoutine,
   poModal:poModal, simpanPo:simpanPo, hapusPo:hapusPo, setPoFilter:function(v){poFilter=v;render();},
+  requestModal:requestModal, simpanRequest:simpanRequest,
+  setPoMode:function(m){poMode=m;render();},
+  geserMingguPo:function(n){ poMinggu = n===0 ? 0 : poMinggu+n; render(); },
+  pilihMinggu:function(i){ poMinggu=i; render(); },
   agendaModal:agendaModal, simpanAgenda:simpanAgenda, hapusAgenda:hapusAgenda,
+  dragCal:dragCal, dropCal:dropCal,
   geserBulan:function(n){calRef=new Date(calRef.getFullYear(),calRef.getMonth()+n,1);render();},
   bulanIni:function(){var d=new Date();calRef=new Date(d.getFullYear(),d.getMonth(),1);render();},
   orangModal:orangModal, simpanOrang:simpanOrang, hapusOrang:hapusOrang,
