@@ -413,6 +413,10 @@ var SUMBER = [
 ];
 var DIVISI = ['Kitchen','Bar','Floor','Design','Event','Security'];
 var PENDEK = {Kitchen:'KIT',Bar:'BAR',Floor:'FLR',Design:'DSG',Event:'EVT',Security:'SEC'};
+/* Nama kategori Format F&B tidak ada di PETA di atas — dan tidak boleh
+   ditambahkan ke sana, karena daftarnya dikelola pengguna di Marketing.
+   Yang tak dikenal dipendekkan sendiri, bukan tampil sebagai 'undefined'. */
+function pendek(d){ return PENDEK[d] || String(d||'').slice(0,3).toUpperCase(); }
 /* Bibit saja. Daftar yang berlaku dikirim Marketing bersama datanya
    (data.fbFormats) karena di sana kategorinya sudah bisa ditambah/dihapus —
    lihat fbFormats() di bawah. */
@@ -604,11 +608,36 @@ function fbFormats(){
   return Array.isArray(f) ? f : FB_FORMATS_DEFAULT;
 }
 function tmplEvDiv(ev,div){
-  var list=tmplDiv(div);
-  if(div==='Kitchen' && ev && ev.detail && fbFormats().indexOf(ev.detail.fbFormat)>-1)
-    list=list.concat(tmplDiv(ev.detail.fbFormat));
-  return list.concat(extraJobs(ev,div));
+  return tmplDiv(div).concat(extraJobs(ev,div));
 }
+/* Kategori to-do satu event = Format F&B-nya, ITU SAJA.
+
+   Divisi (Kitchen, Bar, Floor, ...) BUKAN lagi kategori di Task Divisi; mereka
+   turun jadi sub kategori di dalam format. Radar menghitung ulang kesiapan
+   dengan salinan logika Marketing, jadi kalau di sini masih memakai enam divisi
+   mati, persennya akan berbeda dari yang dilihat tim di sana — dan dua angka
+   berbeda untuk hal yang sama persis adalah yang paling ingin dihindari modul
+   ini.
+
+   [] kalau formatnya belum dipilih / sudah tidak terdaftar: kesiapannya memang
+   belum bisa diukur, dan adaJob() akan menandainya sebagai "belum disusun". */
+function evDivisi(ev){
+  var f=ev&&ev.detail&&ev.detail.fbFormat;
+  return (f && fbFormats().indexOf(f)>-1) ? [f] : [];
+}
+/* Sub kategori milik format sebuah event — dipakai kompas, karena dengan satu
+   kategori saja kompas kehilangan gunanya. Yang dibandingkan sekarang sub
+   kategorinya (Kitchen, Bar, ...) di dalam format itu. */
+function evSubs(ev){
+  var c=evDivisi(ev); if(!c.length) return [];
+  return ((D.mkt&&D.mkt.fbSubs)||[]).filter(function(x){return x&&x.div===c[0];}).map(function(x){return x.nama;});
+}
+function subProgress(ev,cat,sub){
+  var items=tmplEvDiv(ev,cat).filter(function(t){return (t.sub||'')===(sub||'');});
+  if(!items.length) return 0;
+  return Math.round(items.reduce(function(a,t){return a+jobProg(ev,cat,t.id);},0)/items.length);
+}
+function subStatus(ev,cat,sub){ var p=subProgress(ev,cat,sub); return p>=100?2:(p>0?1:0); }
 function jobProg(ev,div,taskId){
   return Math.max(0,Math.min(100, Math.round((ev.jobProgress&&ev.jobProgress[div]&&+ev.jobProgress[div][taskId])||0)));
 }
@@ -628,14 +657,16 @@ function divStatus(ev,div){ var p=divProgress(ev,div); return p>=100?2:(p>0?1:0)
    tidak, angka kesiapannya tidak bermakna dan tidak boleh dipakai menuduh
    siapa pun tertinggal. */
 function adaJob(ev){
-  for(var i=0;i<DIVISI.length;i++) if(tmplEvDiv(ev,DIVISI[i]).length) return true;
+  var dv=evDivisi(ev);
+  for(var i=0;i<dv.length;i++) if(tmplEvDiv(ev,dv[i]).length) return true;
   return false;
 }
 function kesiapan(ev){
   if(!ev) return {pct:0, per:{}, ada:false};
-  var per={}, tot=0;
-  DIVISI.forEach(function(d){ var p=divProgress(ev,d); per[d]=p; tot+=p; });
-  return {pct:Math.round(tot/DIVISI.length), per:per, ada:adaJob(ev)};
+  var per={}, tot=0, dv=evDivisi(ev);
+  if(!dv.length) return {pct:0, per:per, ada:false};   // tanpa format: jangan bagi nol
+  dv.forEach(function(d){ var p=divProgress(ev,d); per[d]=p; tot+=p; });
+  return {pct:Math.round(tot/dv.length), per:per, ada:adaJob(ev)};
 }
 /* Kelengkapan isian detail event Marketing — dipakai sebagai sinyal kedua:
    kesiapan divisi bisa 0% hanya karena job belum disusun, padahal detail
@@ -657,14 +688,16 @@ function compassSVG(ev){
   var k=kesiapan(ev), cx=100, cy=100, r0=34, r1=82;
   var g='<svg viewBox="-16 -16 232 232">';
   g+='<circle class="cp-ring" cx="100" cy="100" r="88"/><circle class="cp-ring" cx="100" cy="100" r="60"/><circle class="cp-ring" cx="100" cy="100" r="30"/>';
-  DIVISI.forEach(function(d,i){
-    var a=(i/DIVISI.length)*Math.PI*2 - Math.PI/2;
+  var cat=evDivisi(ev)[0]||'', dv=evSubs(ev);
+  if(!dv.length && cat) dv=[cat];   // format tanpa sub kategori: satu lengan
+  dv.forEach(function(d,i){
+    var a=(i/dv.length)*Math.PI*2 - Math.PI/2;
     var x0=cx+Math.cos(a)*r0, y0=cy+Math.sin(a)*r0, x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1;
     var lx=cx+Math.cos(a)*(r1+19), ly=cy+Math.sin(a)*(r1+19);
-    var st=divStatus(ev,d);
+    var st=(d===cat)?divStatus(ev,d):subStatus(ev,cat,d);
     var anchor=Math.abs(Math.cos(a))<0.35?'middle':(Math.cos(a)>0?'start':'end');
     g+='<line class="cp-arm s'+st+'" x1="'+x0.toFixed(1)+'" y1="'+y0.toFixed(1)+'" x2="'+x1.toFixed(1)+'" y2="'+y1.toFixed(1)+'"/>';
-    g+='<text class="cp-lbl'+(st?' on':'')+'" x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+'" text-anchor="'+anchor+'">'+PENDEK[d]+'</text>';
+    g+='<text class="cp-lbl'+(st?' on':'')+'" x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+'" text-anchor="'+anchor+'">'+esc(pendek(d))+'</text>';
   });
   g+='<text class="cp-core" x="100" y="102">'+k.pct+'%</text>';
   g+='<text class="cp-core-s" x="100" y="118">Kesiapan</text></svg>';
@@ -687,9 +720,13 @@ function badgeSumber(s){
 }
 function evBars(a){
   if(a.sumber!=='mkt') return '';
-  var h='<div class="bars">';
-  DIVISI.forEach(function(d){
-    h+='<i class="s'+divStatus(a.mentah,d)+'" title="'+esc(d+': '+divProgress(a.mentah,d)+'%')+'"></i>';
+  var h='<div class="bars">', cat=evDivisi(a.mentah)[0]||'', subs=evSubs(a.mentah);
+  if(!cat) return '';
+  if(!subs.length) subs=[cat];
+  subs.forEach(function(d){
+    var st=(d===cat)?divStatus(a.mentah,d):subStatus(a.mentah,cat,d);
+    var p =(d===cat)?divProgress(a.mentah,d):subProgress(a.mentah,cat,d);
+    h+='<i class="s'+st+'" title="'+esc(d+': '+p+'%')+'"></i>';
   });
   return h+'</div>';
 }
@@ -738,7 +775,7 @@ function peringatan(){
           out.push({p:1,a:a,j:'Kesiapan rendah menjelang hari-H',k:a.judul+' — '+dLabel(d)+', kesiapan divisi baru '+k.pct+'%.'});
         else if(d<=7 && k.pct<45)
           out.push({p:2,a:a,j:'Kesiapan tertinggal',k:a.judul+' — '+dLabel(d)+', kesiapan '+k.pct+'%.'});
-        var kosong=DIVISI.filter(function(x){return tmplEvDiv(a.mentah,x).length && divProgress(a.mentah,x)===0;});
+        var kosong=evDivisi(a.mentah).filter(function(x){return tmplEvDiv(a.mentah,x).length && divProgress(a.mentah,x)===0;});
         if(d<=5 && kosong.length>=3)
           out.push({p:2,a:a,j:kosong.length+' divisi belum bergerak',k:a.judul+' — '+kosong.join(', ')+' masih 0%.'});
       }
@@ -962,13 +999,27 @@ function vKoordinasi(){
   else{
     h+='<div style="overflow-x:auto"><div class="mgrid" style="grid-template-columns:230px repeat('+DIVISI.length+',minmax(0,1fr))">';
     h+='<div class="mh" style="text-align:left">Event</div>';
-    DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+PENDEK[d]+'</div>';});
+    DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+esc(pendek(d))+'</div>';});
     list.forEach(function(a){
       var k=kesiapan(a.mentah);
       h+='<button type="button" class="mn" onclick="APP.detail(\'ag\',\'mkt\',\''+esc(a.id)+'\')"><span>'+esc(a.judul)+'</span>'+
         '<small>'+fTglP(a.tgl)+' · '+dLabel(dDay(a.tgl))+' · '+k.pct+'%</small></button>';
+      /* Kolomnya TETAP enam nama divisi, dan sekarang dibaca sebagai SUB
+         KATEGORI di dalam Format F&B tiap event. Tabelnya membandingkan banyak
+         event bersebelahan, jadi sumbunya harus tetap sama di semua baris —
+         padahal formatnya bisa berbeda per event.
+
+         Sel dibedakan tegas: format yang memang tidak punya sub kategori itu
+         tampil '—', BUKAN 0%. Nol berarti "belum dikerjakan"; strip berarti
+         "tidak ada yang ditugaskan di sini". Menyamakan keduanya membuat
+         matriks penuh merah untuk pekerjaan yang tidak pernah ada. */
+      var cat=evDivisi(a.mentah)[0]||'', subs=evSubs(a.mentah);
       DIVISI.forEach(function(d){
-        var p=divProgress(a.mentah,d);
+        if(!cat || subs.indexOf(d)<0){
+          h+='<div class="mc s0" title="'+esc(a.judul+' — '+d+': tidak ada di format '+(cat||'(belum dipilih)')+')')+'">—</div>';
+          return;
+        }
+        var p=subProgress(a.mentah,cat,d);
         h+='<div class="mc s'+(p>=100?2:(p>0?1:0))+'" title="'+esc(a.judul+' — '+d+': '+p+'%')+'">'+p+'%</div>';
       });
     });
@@ -980,7 +1031,15 @@ function vKoordinasi(){
   h+='<div class="sec-h"><h2>Divisi yang belum bergerak</h2><span class="rule"></span></div>';
   var diam=[];
   list.filter(function(a){return dDay(a.tgl)<=14;}).forEach(function(a){
-    DIVISI.forEach(function(d){ if(divProgress(a.mentah,d)===0) diam.push({a:a,d:d}); });
+    /* "Belum bergerak" dihitung per SUB KATEGORI (Kitchen, Bar, ...) di dalam
+       format event — itu satuan yang berarti bagi orang yang mengerjakannya.
+       Sub yang tidak punya item sama sekali dilewati: 0% di situ bukan berarti
+       tertinggal, berarti tidak ada yang ditugaskan. */
+    var cat=evDivisi(a.mentah)[0]||'';
+    if(cat) evSubs(a.mentah).forEach(function(d){
+      if(tmplEvDiv(a.mentah,cat).filter(function(t){return (t.sub||'')===d;}).length
+         && subProgress(a.mentah,cat,d)===0) diam.push({a:a,d:d});
+    });
   });
   if(!diam.length) h+='<div class="card muted" style="font-size:12.5px">Semua divisi sudah bergerak di event 14 hari ke depan.</div>';
   else{
@@ -1075,12 +1134,13 @@ function vBriefing(){
         h+='<div class="muted" style="font-size:12px">Belum ada daftar job untuk event ini, jadi kesiapannya belum bisa diukur. Susun Template Task di Marketing.</div>';
       }else{
         h+='<div class="pill-row">';
-        DIVISI.forEach(function(d){
-          /* Divisi yang memang tidak punya job untuk event ini tidak
+        var cat=evDivisi(a.mentah)[0]||'';
+        (cat?evSubs(a.mentah):[]).forEach(function(d){
+          /* Sub kategori yang memang tidak punya job untuk event ini tidak
              ditampilkan sebagai "0%" — itu menuduh mereka menunggak padahal
              tidak ada yang ditugaskan. */
-          if(!tmplEvDiv(a.mentah,d).length) return;
-          var p=divProgress(a.mentah,d);
+          if(!tmplEvDiv(a.mentah,cat).filter(function(t){return (t.sub||'')===d;}).length) return;
+          var p=subProgress(a.mentah,cat,d);
           h+=pill(d+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad'));
         });
         h+='</div>';
@@ -1256,8 +1316,10 @@ function drawerAgenda(a){
       if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
       else{
         h+='<div style="max-width:220px;margin:0 auto 10px">'+compassSVG(a.mentah)+'</div><div class="pill-row">';
-        DIVISI.forEach(function(dv){ if(!tmplEvDiv(a.mentah,dv).length) return;
-          var p=divProgress(a.mentah,dv); h+=pill(dv+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad')); });
+        var cat2=evDivisi(a.mentah)[0]||'';
+        (cat2?evSubs(a.mentah):[]).forEach(function(dv){
+          if(!tmplEvDiv(a.mentah,cat2).filter(function(t){return (t.sub||'')===dv;}).length) return;
+          var p=subProgress(a.mentah,cat2,dv); h+=pill(dv+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad')); });
         h+='</div>';
       }
     }
