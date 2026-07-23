@@ -560,6 +560,10 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .papan-kosong{padding:10px 2px}
 .papan-tbl th{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .papan-tbl td{vertical-align:middle}
+/* Judul sub kategori di tengah tabel. Dibuat sebagai baris penuh, bukan kartu
+   terpisah, supaya kolom PIC/Deadline/Progress tetap sejajar dari atas bawah. */
+.papan-subhead td{background:var(--ink-880);font-size:10.5px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--gold-deep);padding:7px 13px}
 .papan-nama{font-weight:600}
 /* Item selesai dicoret — sekali lihat langsung ketahuan mana yang tersisa,
    tanpa harus membaca angka progress satu per satu. */
@@ -1041,6 +1045,12 @@ function normalizeState(s){
      dikosongkan oleh pengguna. */
   if(s.menuDb===undefined||s.menuDb===null) s.menuDb=MENU_DB_AWAL();
   else if(typeof s.menuDb!=='object'||Array.isArray(s.menuDb)) s.menuDb={};
+  /* fbFormats & fbSubs pulang lewat jalur 'extra:' backend, jadi TIDAK ikut
+     MKT_COLS. Yang dipaksa di sini hanya "harus array kalau ada" — bukan diisi
+     bibit, karena [] di sini berarti pengguna memang menghapus semuanya.
+     Pembibitannya ada di getFbFormats(). */
+  if(s.fbFormats!==undefined && !Array.isArray(s.fbFormats)) s.fbFormats=[];
+  if(!Array.isArray(s.fbSubs)) s.fbSubs=[];
   s.settings=Object.assign({}, DEFAULT_SETTINGS, s.settings||{});
   if(typeof s.baseline!=='number') s.baseline=0;
   if(!s.roleAcc||typeof s.roleAcc!=='object'){
@@ -1405,7 +1415,18 @@ const TASK_STATUS = { Pending:'--muted', 'On Progress':'--warn', Done:'--ok' };
 const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Lainnya'];
 const EVENT_COLOR = { 'Private Party':'--danger','Corporate Event':'--ok','Wedding':'--info','Birthday':'--warn','Gathering':'--teal','Seminar':'--violet','Launching':'--gold','Competition':'--gold','Lainnya':'--muted' };
 const DIVISIONS = ['Kitchen','Bar','Floor','Design','Event','Security'];
-const FB_FORMATS = ['Prasmanan','Set Menu']; // cabang template dari Kitchen, auto-assign lewat field Format F&B
+/* Cabang template dari Kitchen, auto-assign lewat field Format F&B.
+   Ini cuma BIBIT: daftar yang berlaku ada di S.fbFormats dan bisa ditambah /
+   dihapus dari halaman Template Task (lihat getFbFormats()).
+
+   Bibitnya empat, bukan dua. Dropdown "Format F&B" di form event memang sudah
+   lama menawarkan empat pilihan — tapi hanya Prasmanan & Set Menu yang bisa
+   punya template job. Event ber-format Coffee Break atau Nasi Kotak diam-diam
+   tidak mendapat cabang job sama sekali. Menyeed dua saja berarti dua pilihan
+   itu HILANG dari dropdown dan event lama yang memakainya jadi tidak sah.
+   Tidak terpakai? Hapus dari Template Task — sekarang daftarnya memang bisa
+   dihapus. */
+const FB_FORMATS_DEFAULT = ['Prasmanan','Set Menu','Coffee Break','Nasi Kotak'];
 const SOURCES = ['Instagram','TikTok','Walk In','Referral','Google','Website','Repeat Customer','Event Organizer','Komunitas','Wedding','Corporate'];
 
 /* ---------- RBAC (Bagian 6) ---------- */
@@ -1635,7 +1656,11 @@ const EVENT_SCHEMA = [
   // D.1 atas permintaan — penanganan talent diurus di matriks PIC (D.11).
 ]},
 { id:'kitchen', n:'D.2', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format F&B-nya apa, budget per pax berapa, dan menu apa saja yang disajikan?', fields:[
-  {k:'fbFormat',l:'Format F&B',t:'sel',o:['Prasmanan','Set Menu','Coffee Break','Nasi Kotak','Lainnya'],req:1},
+  /* Pilihannya dibaca saat dirender (lihat fieldOpts) supaya Format F&B yang
+     baru ditambah di Template Task langsung bisa dipilih di sini. Kalau tetap
+     daftar mati, kategori baru punya template tapi tidak ada event yang bisa
+     memakainya. 'Lainnya' tetap ditempel di ekor sebagai jalan keluar. */
+  {k:'fbFormat',l:'Format F&B',t:'sel',o:()=>getFbFormats().concat(['Lainnya']),req:1},
   {k:'fbFormatLain',l:'Format F&B — tulis sendiri',t:'text',cond:{k:'fbFormat',v:'Lainnya'}},
   {k:'jamFB',l:'Jam Keluar F&B',t:'time',req:1},
   {k:'komponen',l:'Komponen Menu',t:'multi',o:['Welcome Snack','Appetizer','Soup','Main Course','Dessert','Fruit','Beverage','VIP Family Set'],req:1},
@@ -2234,6 +2259,39 @@ function getCats(){
     S.categories=DIVISIONS.concat(S.taskCategories||[]);
   return S.categories;
 }
+/* Daftar Format F&B yang berlaku. Syaratnya SENGAJA berbeda dari getCats() di
+   atas: di sini `!Array.isArray` saja, tanpa `|| !length`.
+
+   getCats() terpaksa memakai `!length` karena `categories` ada di MKT_COLS,
+   dan normalizeState() menuliskan [] ke setiap kunci MKT_COLS pada tiap
+   pemuatan — tanpa `!length` daftarnya tidak akan pernah terisi lagi.
+   `fbFormats` TIDAK ada di MKT_COLS (ia pulang lewat jalur 'extra:' backend),
+   jadi [] yang datang dari server memang [] betulan. Kalau di sini ikut
+   memakai `!length`, kategori yang sengaja dihapus habis akan hidup lagi
+   sendiri setiap kali halaman dibuka. */
+function getFbFormats(){
+  if(!Array.isArray(S.fbFormats)) S.fbFormats=FB_FORMATS_DEFAULT.slice();
+  return S.fbFormats;
+}
+/* ---------- SUB KATEGORI ----------
+   Satu tingkat di antara kategori dan item to-do:
+     Prasmanan  ->  Appetizer  ->  [item, item, item]
+
+   Disimpan sebagai ARRAY DATAR {id, div, nama}, bukan objek {div:[nama,...]}.
+   Alasannya bukan selera: json_decode($x,true) di PHP tidak bisa membedakan {}
+   dari [], jadi objek yang kebetulan kosong pulang sebagai array dan properti
+   yang ditempelkan ke situ hilang tanpa pesan apa pun. Array datar tidak punya
+   masalah itu.
+
+   Sub kategori disimpan TERPISAH dari template, bukan diturunkan dari
+   t.sub yang ada — supaya sub kategori kosong tetap bisa dibuat lebih dulu,
+   lalu diisi item belakangan. */
+function getSubs(){ if(!Array.isArray(S.fbSubs)) S.fbSubs=[]; return S.fbSubs; }
+function subsOf(div){ return getSubs().filter(x=>x&&x.div===div); }
+/* Item tanpa sub kategori tetap sah dan tidak disembunyikan — semua template
+   yang sudah ada dibuat sebelum tingkat ini ada. Mereka berkumpul di kelompok
+   tanpa nama yang selalu tampil paling atas. */
+function subDivTemplates(div,sub){ return (S.taskTemplates||[]).filter(t=>t.div===div && (t.sub||'')===(sub||'')); }
 function divTemplates(div){ return (S.taskTemplates||[]).filter(t=>t.div===div); }
 // Template efektif untuk 1 divisi pada 1 event: Kitchen ikut menyerap cabang F&B (Prasmanan / Set Menu) sesuai pilihan event
 // Job tambahan ad-hoc milik 1 event (bukan dari Template Task) — diketik langsung di Detail Job
@@ -2244,7 +2302,7 @@ function extraJobs(ev,div){ return (ev&&ev.extraJobs&&ev.extraJobs[div])||[]; }
    membiarkan cabangnya berarti modal Detail Job bisa muncul tiba-tiba di
    atas modal LAIN yang kebetulan sedang dibuka. */
 function gambarUlangJob(evId,div){ refreshView(); }
-function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&FB_FORMATS.includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list.concat(extraJobs(ev,div)); }
+function eventDivTemplates(ev,div){ let list=divTemplates(div); if(div==='Kitchen'&&ev&&ev.detail&&getFbFormats().includes(ev.detail.fbFormat)) list=list.concat(divTemplates(ev.detail.fbFormat)); return list.concat(extraJobs(ev,div)); }
 function addExtraJob(evId,div){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
   ev.extraJobs=ev.extraJobs||{}; ev.extraJobs[div]=ev.extraJobs[div]||[];
@@ -3093,6 +3151,17 @@ function ynnoteVal(val){
   if(typeof val==='string' && val.trim()) return {v:true, note:val.trim()};
   return {v:undefined, note:''};
 }
+/* Pilihan sebuah field boleh berupa daftar mati ATAU fungsi yang dipanggil saat
+   render — untuk daftar yang bisa diubah pengguna (mis. Format F&B). Dibaca
+   lewat satu pintu ini supaya 'sel' dan 'multi' tidak berbeda perilaku, dan
+   supaya menambah field berdaftar-hidup berikutnya tidak perlu menyentuh
+   renderField lagi. selCek() tidak perlu diubah: ia membaca <datalist> di DOM,
+   bukan skemanya. */
+function fieldOpts(fl){
+  const o=fl&&fl.o;
+  const list=(typeof o==='function')?o():o;
+  return Array.isArray(list)?list:[];
+}
 function renderField(ev,fl,canEdit){
   // Field bersyarat tetap digambar (tersembunyi) supaya syncConds() bisa
   // membukanya seketika saat jawabannya berubah.
@@ -3135,10 +3204,10 @@ function renderField(ev,fl,canEdit){
     inp='<input class="inp inp-sel" id="'+id+'" list="'+dlid+'" value="'+esc(val==null?'':val)+'" '
        +'placeholder="pilih / ketik untuk mencari" autocomplete="off" '
        +(canEdit?'onchange="selCek(this)" onblur="selCek(this)" ':'')+dis+'>'
-       +'<datalist id="'+dlid+'">'+fl.o.map(o=>'<option value="'+esc(o)+'"></option>').join('')+'</datalist>';
+       +'<datalist id="'+dlid+'">'+fieldOpts(fl).map(o=>'<option value="'+esc(o)+'"></option>').join('')+'</datalist>';
   } else if(fl.t==='multi'){
     const arr=Array.isArray(val)?val:[];
-    inp='<div class="cbx-grid" id="'+id+'">'+fl.o.map(o=>'<label class="cbx'+(arr.includes(o)?' on':'')+'"><input type="checkbox" '+(arr.includes(o)?'checked':'')+' '+(canEdit?'':'disabled')+' data-v="'+esc(o)+'" onchange="this.closest(\'.cbx\').classList.toggle(\'on\',this.checked)"><span class="cbx-box"></span><span class="cbx-lbl">'+esc(o)+'</span></label>').join('')+'</div>';
+    inp='<div class="cbx-grid" id="'+id+'">'+fieldOpts(fl).map(o=>'<label class="cbx'+(arr.includes(o)?' on':'')+'"><input type="checkbox" '+(arr.includes(o)?'checked':'')+' '+(canEdit?'':'disabled')+' data-v="'+esc(o)+'" onchange="this.closest(\'.cbx\').classList.toggle(\'on\',this.checked)"><span class="cbx-box"></span><span class="cbx-lbl">'+esc(o)+'</span></label>').join('')+'</div>';
   } else if(fl.t==='tog'){
     const on=val&&(val.v!==undefined?val.v:val)===true||val===true;
     inp='<div class="toggle '+(on?'on':'')+'" id="'+id+'" '+(canEdit?'onclick="this.classList.toggle(\'on\');syncConds()"':'')+' data-on="'+(on?1:0)+'"></div>';
@@ -5027,8 +5096,35 @@ function taskBoard(e,divs){
         +'<th style="width:150px">PIC</th><th style="width:150px">Deadline</th>'
         +'<th>Catatan</th><th style="width:180px">Progress</th>'
         +(bisaUbah?'<th style="width:34px"></th>':'')+'</tr></thead><tbody>';
-      items.forEach(tpl=>{
+      /* Baris judul sub kategori disisipkan di TENGAH tabel, bukan dibuat tabel
+         terpisah per kelompok: kolom PIC/Deadline/Progress harus tetap lurus
+         dari atas ke bawah.
+
+         Itemnya dikelompokkan ulang supaya tiap sub kategori muncul sekali —
+         kalau hanya menandai "sub berganti" pada urutan aslinya, sub yang
+         itemnya berselang-seling akan mencetak judul yang sama berkali-kali.
+         Pengurutannya STABIL: urutan di dalam satu kelompok tetap seperti
+         aslinya, dan job tambahan tetap di paling bawah.
+
+         Urutan kelompok diambil dari sub kategori milik SEMUA div yang
+         menyumbang item — untuk Kitchen itu berarti sub milik Kitchen sendiri
+         plus sub milik cabang F&B yang sedang aktif. */
+      const kolom=7+(bisaUbah?1:0);
+      const dariTmpl=items.filter(t=>!t.extra), tambahan=items.filter(t=>t.extra);
+      const urutSub=[''];
+      [...new Set(dariTmpl.map(t=>t.div))].forEach(d=>subsOf(d).forEach(sc=>{ if(urutSub.indexOf(sc.nama)<0) urutSub.push(sc.nama); }));
+      const urut=[];
+      urutSub.forEach(nm=>{ dariTmpl.forEach(t=>{ if((t.sub||'')===nm) urut.push(t); }); });
+      // Sub yang sudah tidak terdaftar lagi tetap ditampilkan (di ekor), bukan hilang.
+      dariTmpl.forEach(t=>{ if(urutSub.indexOf(t.sub||'')<0) urut.push(t); });
+      let subKini=null;
+      urut.concat(tambahan).forEach(tpl=>{
         const id=tpl.id, a="'"+e.id+"','"+dj+"','"+id+"'";
+        const subIni=tpl.extra?'':(tpl.sub||'');
+        if(subIni!==subKini){
+          subKini=subIni;
+          if(subIni) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(subIni)+'</td></tr>';
+        }
         const done=jobSelesai(e,div,id), pr2=jobProg(e,div,id);
         const cabang=(!tpl.extra&&tpl.div!==div)
           ? ' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">'+esc(tpl.div)+'</span>' : '';
@@ -5076,19 +5172,54 @@ function taskBoard(e,divs){
    TEMPLATE TASK — per divisi (Task, PIC, Deadline, Catatan, Progress)
    ============================================================ */
 function hminusBadge(v){ return v!=null?'<span class="tag" style="background:var(--info-bg);color:var(--info)">H-'+v+'</span>':'—'; }
-function tmplCard(div,canEdit,deletable,subtitle){
-  const items=(S.taskTemplates||[]).filter(t=>t.div===div);
-  let h='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span></h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</div><div class="pill-row">'
-    +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+esc(div)+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
-    +(canEdit&&deletable?'<button class="btn sm" onclick="delTaskCategory(\''+esc(div)+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
-  if(!items.length) h+='<div class="cell-sub" style="padding:6px 0">—</div>';
+/* Satu tabel item to-do. Dipakai dua kali per kategori: sekali untuk item yang
+   belum masuk sub kategori mana pun, dan sekali untuk tiap sub kategori. */
+function tmplTable(div,sub,canEdit){
+  const items=subDivTemplates(div,sub);
+  const dj=escJs(div), sj=escJs(sub||'');
+  if(!items.length) return '<div class="cell-sub" style="padding:4px 0 8px">Belum ada item.'
+    +(canEdit?' <button class="btn sm" style="margin-left:6px" onclick="newTemplateTask(\''+dj+'\',\'\',\''+sj+'\')">'+svg(IC.plus)+'Tambah item</button>':'')+'</div>';
+  let h='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th>'+(canEdit?'<th></th>':'')+'</tr></thead><tbody>';
+  items.forEach(t=>{
+    h+='<tr><td class="cell-strong">'+esc(t.task)+'</td><td>'+esc(t.pic||'—')+'</td><td class="mono">'+hminusBadge(t.hminus!=null?t.hminus:null)+'</td><td class="mono">'+(t.deadline?fmtDate(t.deadline):'—')+'</td><td class="cell-sub">'+esc(t.note||'')+'</td>'
+      +(canEdit?'<td><div class="pill-row"><button class="btn sm" onclick="newTemplateTask(\''+dj+'\',\''+t.id+'\')">'+svg(IC.edit)+'</button><button class="btn sm" onclick="delTemplateTask(\''+t.id+'\')">'+svg(IC.trash)+'</button></div></td>':'')+'</tr>';
+  });
+  return h+'</tbody></table></div>';
+}
+/* Kartu satu kategori. Isinya tiga tingkat:
+     kategori  ->  sub kategori  ->  item to-do
+   Sub kategori bersifat OPSIONAL — item lama yang tidak punya sub tetap tampil
+   di kelompok tanpa nama paling atas, bukan disembunyikan. */
+/* delFn = nama fungsi penghapus kategori ini ('delTaskCategory' /
+   'delFbFormat'), atau '' kalau kategorinya memang tidak boleh dihapus.
+   Dulu parameter ini boolean `deletable` dan penghapusnya dipatok
+   delTaskCategory — begitu ada kategori jenis kedua (Format F&B) yang
+   pembersihannya berbeda, boolean itu tidak cukup lagi. */
+function tmplCard(div,canEdit,delFn,subtitle){
+  const items=divTemplates(div), subs=subsOf(div), dj=escJs(div);
+  let h='<div class="card" style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px"><div><h3 style="font-size:16px">'+esc(div)+' <span class="tag">'+items.length+'</span>'
+    +(subs.length?' <span class="tag">'+subs.length+' sub</span>':'')+'</h3>'+(subtitle?'<div class="cell-sub" style="margin-top:3px">'+subtitle+'</div>':'')+'</div><div class="pill-row">'
+    +(canEdit?'<button class="btn sm" onclick="newSubCat(\''+dj+'\')">'+svg(IC.plus)+'Sub Kategori</button>':'')
+    +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+dj+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
+    +(canEdit&&delFn?'<button class="btn sm" onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
+  if(!items.length && !subs.length) h+='<div class="cell-sub" style="padding:6px 0">—</div>';
   else{
-    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Task</th><th>PIC</th><th>H-</th><th>Deadline</th><th>Catatan</th>'+(canEdit?'<th></th>':'')+'</tr></thead><tbody>';
-    items.forEach(t=>{
-      h+='<tr><td class="cell-strong">'+esc(t.task)+'</td><td>'+esc(t.pic||'—')+'</td><td class="mono">'+hminusBadge(t.hminus!=null?t.hminus:null)+'</td><td class="mono">'+(t.deadline?fmtDate(t.deadline):'—')+'</td><td class="cell-sub">'+esc(t.note||'')+'</td>'
-        +(canEdit?'<td><div class="pill-row"><button class="btn sm" onclick="newTemplateTask(\''+esc(div)+'\',\''+t.id+'\')">'+svg(IC.edit)+'</button><button class="btn sm" onclick="delTemplateTask(\''+t.id+'\')">'+svg(IC.trash)+'</button></div></td>':'')+'</tr>';
+    // Item tanpa sub kategori: hanya ditampilkan kalau memang ada isinya, supaya
+    // kategori yang sudah rapi ber-sub tidak menyisakan kelompok kosong.
+    if(subDivTemplates(div,'').length){
+      if(subs.length) h+='<div class="eyebrow" style="margin:2px 0 6px">Tanpa sub kategori</div>';
+      h+=tmplTable(div,'',canEdit);
+    }
+    subs.forEach(sc=>{
+      const n=subDivTemplates(div,sc.nama).length;
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:14px 0 6px;padding-top:12px;border-top:1px solid var(--line-soft)">'
+        +'<div class="cell-strong" style="font-size:13.5px">'+esc(sc.nama)+' <span class="tag">'+n+'</span></div>'
+        +(canEdit?'<div class="pill-row"><button class="btn sm" onclick="newTemplateTask(\''+dj+'\',\'\',\''+escJs(sc.nama)+'\')">'+svg(IC.plus)+'Item</button>'
+          +'<button class="btn sm" onclick="renameSubCat(\''+sc.id+'\')">'+svg(IC.edit)+'</button>'
+          +'<button class="btn sm" onclick="delSubCat(\''+sc.id+'\')">'+svg(IC.trash)+'</button></div>':'')
+        +'</div>';
+      h+=tmplTable(div,sc.nama,canEdit);
     });
-    h+='</tbody></table></div>';
   }
   return h+'</div>';
 }
@@ -5096,17 +5227,130 @@ function renderTemplates(V){
   const canEdit=can('edit_template');
   let h=pageHead('Template','Template Task','Standar job per divisi — jadi acuan handover & muncul saat buka Detail Job di Task Divisi.',
     canEdit?'<button class="btn pri" onclick="newTaskCategory()">'+svg(IC.plus)+'Kategori Baru</button>':'');
-  getCats().forEach(div=>{ h+=tmplCard(div,canEdit,true); });
-  h+='<div class="eyebrow" style="margin:20px 2px 12px">Cabang Kitchen · Format F&amp;B</div>';
-  FB_FORMATS.forEach(fmt=>{ h+=tmplCard(fmt,canEdit,false,'Otomatis tergabung ke Detail Job <b>Kitchen</b> saat event memilih Format F&amp;B = <b>'+esc(fmt)+'</b>.'); });
+  getCats().forEach(div=>{ h+=tmplCard(div,canEdit,'delTaskCategory'); });
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:20px 2px 12px">'
+   +'<div class="eyebrow" style="margin:0">Cabang Kitchen · Format F&amp;B</div>'
+   +(canEdit?'<button class="btn sm" onclick="newFbFormat()">'+svg(IC.plus)+'Format F&amp;B Baru</button>':'')+'</div>';
+  const fmts=getFbFormats();
+  if(!fmts.length) h+='<div class="card cell-sub">Belum ada Format F&amp;B. Tambahkan satu supaya event bisa memilihnya dan job dapurnya punya standar.</div>';
+  fmts.forEach(fmt=>{ h+=tmplCard(fmt,canEdit,'delFbFormat','Otomatis tergabung ke Detail Job <b>Kitchen</b> saat event memilih Format F&amp;B = <b>'+esc(fmt)+'</b>.'); });
   V.innerHTML=h;
 }
-function newTemplateTask(div,id){
+/* ---------- FORMAT F&B (kategori besar) ---------- */
+function newFbFormat(){
+  modal('<div class="modal-head"><div><h3>Format F&amp;B Baru</h3><p>Kategori besar cabang Kitchen — mis. Prasmanan, Set Menu</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +ff('Nama Format','nf_name','','text',1)
+   +'<div class="fh">Begitu disimpan, format ini langsung bisa dipilih di field <b>Format F&amp;B</b> pada form event.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveFbFormat()">Simpan</button></div>');
+  setTimeout(function(){ var el=$('nf_name'); if(el){ el.focus(); el.onkeydown=function(ev){ if(ev.key==='Enter')saveFbFormat(); }; } },40);
+}
+function saveFbFormat(){
+  let name=($('nf_name').value||'').replace(/['"\\]/g,'').trim();
+  if(!name)return toast('Nama wajib','Isi nama format dulu.','err');
+  /* Bentrok dicek terhadap KEDUA daftar. Nama yang sama di kategori divisi dan
+     di Format F&B akan membuat divTemplates() mencampur item keduanya — dan
+     'Lainnya' dipakai form event sebagai penanda isian bebas, bukan format. */
+  if(getFbFormats().concat(getCats()).concat(['Lainnya']).some(c=>String(c).toLowerCase()===name.toLowerCase()))
+    return toast('Sudah ada','Nama itu sudah dipakai (kategori divisi / format F&B).','err');
+  getFbFormats().push(name);
+  save(); closeModal(); toast('Format dibuat','Format F&B "'+name+'" ditambahkan.','ok'); go('templates');
+}
+function delFbFormat(name){
+  const n=divTemplates(name).length, ns=subsOf(name).length;
+  /* Event yang TELANJUR memakai format ini tidak diubah: detail.fbFormat-nya
+     dibiarkan apa adanya supaya tidak ada data event yang diam-diam berubah.
+     Akibatnya event itu kehilangan cabang job dapurnya — dan itu disebutkan,
+     bukan didiamkan. */
+  const dipakai=S.events.filter(e=>e&&e.detail&&e.detail.fbFormat===name).length;
+  confirmUI({title:'Hapus Format F&B',danger:true,ok:'Hapus',
+    body:'Hapus format <b>'+esc(name)+'</b>'+(n?(' beserta <b>'+n+'</b> item to-do'):'')+(ns?(' dan <b>'+ns+'</b> sub kategori'):'')+'?'
+      +(dipakai?'<br><br><b>'+dipakai+' event</b> masih tercatat memakai format ini. Isian Format F&B pada event itu tidak diubah, tapi cabang job dapurnya tidak akan muncul lagi.':'')
+      +'<br><br>Tindakan ini tidak bisa dibatalkan.',
+    onYes:function(){
+      S.fbFormats=getFbFormats().filter(x=>x!==name);
+      S.fbSubs=getSubs().filter(x=>x.div!==name);
+      S.taskTemplates=(S.taskTemplates||[]).filter(t=>t.div!==name);
+      save(); toast('Dihapus','Format F&B "'+name+'" dihapus.','ok'); go('templates');
+    }});
+}
+/* ---------- SUB KATEGORI ---------- */
+function newSubCat(div){
+  modal('<div class="modal-head"><div><h3>Sub Kategori Baru</h3><p>Di dalam '+esc(div)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<input type="hidden" id="ns_div" value="'+esc(div)+'">'
+   +ff('Nama Sub Kategori','ns_name','','text',1)
+   +'<div class="fh">Kelompok di dalam '+esc(div)+' — mis. Appetizer, Main Course, Dessert. Item to-do-nya ditambahkan setelah ini.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveSubCat()">Simpan</button></div>');
+  setTimeout(function(){ var el=$('ns_name'); if(el){ el.focus(); el.onkeydown=function(ev){ if(ev.key==='Enter')saveSubCat(); }; } },40);
+}
+function saveSubCat(){
+  const div=$('ns_div').value;
+  let name=($('ns_name').value||'').replace(/['"\\]/g,'').trim();
+  if(!name)return toast('Nama wajib','Isi nama sub kategori dulu.','err');
+  if(subsOf(div).some(x=>x.nama.toLowerCase()===name.toLowerCase()))
+    return toast('Sudah ada','Sub kategori "'+name+'" sudah ada di '+div+'.','err');
+  getSubs().push({id:uid('sc'),div,nama:name});
+  save(); closeModal(); logAct('template','-','Sub kategori dibuat',div+' · '+name);
+  toast('Sub kategori dibuat','"'+name+'" ditambahkan ke '+div+'.','ok'); go('templates');
+}
+function renameSubCat(id){
+  const sc=getSubs().find(x=>x.id===id); if(!sc)return;
+  modal('<div class="modal-head"><div><h3>Ubah Nama Sub Kategori</h3><p>'+esc(sc.div)+' · '+esc(sc.nama)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<input type="hidden" id="rs_id" value="'+esc(id)+'">'
+   +ff('Nama Sub Kategori','rs_name',sc.nama,'text',1)
+   +'<div class="fh">Item to-do di dalamnya ikut pindah — namanya diperbarui, bukan disalin.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveRenameSubCat()">Simpan</button></div>');
+  setTimeout(function(){ var el=$('rs_name'); if(el)el.focus(); },40);
+}
+function saveRenameSubCat(){
+  const sc=getSubs().find(x=>x.id===$('rs_id').value); if(!sc)return;
+  let name=($('rs_name').value||'').replace(/['"\\]/g,'').trim();
+  if(!name)return toast('Nama wajib','Isi nama sub kategori dulu.','err');
+  if(name===sc.nama){ closeModal(); return; }
+  if(subsOf(sc.div).some(x=>x.id!==sc.id && x.nama.toLowerCase()===name.toLowerCase()))
+    return toast('Sudah ada','Sub kategori "'+name+'" sudah ada di '+sc.div+'.','err');
+  /* Item menyimpan NAMA sub-nya, bukan id — jadi mengubah nama harus ikut
+     memperbarui itemnya, kalau tidak semuanya jatuh ke kelompok "tanpa sub"
+     tanpa ada yang tahu. */
+  const lama=sc.nama;
+  (S.taskTemplates||[]).forEach(t=>{ if(t.div===sc.div && (t.sub||'')===lama) t.sub=name; });
+  sc.nama=name;
+  save(); closeModal(); logAct('template','-','Sub kategori diubah',sc.div+' · '+lama+' → '+name);
+  toast('Tersimpan','Sub kategori diubah jadi "'+name+'".','ok'); go('templates');
+}
+function delSubCat(id){
+  const sc=getSubs().find(x=>x.id===id); if(!sc)return;
+  const n=subDivTemplates(sc.div,sc.nama).length;
+  /* Item di dalamnya TIDAK ikut dihapus — cuma dilepas ke kelompok "tanpa sub
+     kategori". Menghapus sub kategori itu merapikan, bukan membuang pekerjaan;
+     kalau itemnya ikut hilang, satu klik salah bisa membuang seluruh daftar
+     to-do yang sudah disusun. */
+  confirmUI({title:'Hapus Sub Kategori',sub:sc.div,danger:true,ok:'Hapus',
+    body:'Hapus sub kategori <b>'+esc(sc.nama)+'</b>?'
+      +(n?'<br><br><b>'+n+' item to-do</b> di dalamnya TIDAK ikut terhapus — mereka pindah ke kelompok "tanpa sub kategori" dan bisa dikelompokkan ulang.':'')
+      ,
+    onYes:function(){
+      (S.taskTemplates||[]).forEach(t=>{ if(t.div===sc.div && (t.sub||'')===sc.nama) t.sub=''; });
+      S.fbSubs=getSubs().filter(x=>x.id!==id);
+      save(); logAct('template','-','Sub kategori dihapus',sc.div+' · '+sc.nama);
+      toast('Dihapus','Sub kategori "'+sc.nama+'" dihapus.','ok'); go('templates');
+    }});
+}
+/* sub = sub kategori yang dipilih lebih dulu (dari tombol "Item" di dalam
+   kelompoknya). Saat mengedit, yang dipakai sub milik itemnya sendiri. */
+function newTemplateTask(div,id,sub){
   const t=id?(S.taskTemplates||[]).find(x=>x.id===id):null;
+  const subs=subsOf(div), terpilih=t?(t.sub||''):(sub||'');
   let hmOpts=''; for(let i=0;i<=120;i+=5) hmOpts+='<option value="'+i+'">';
-  modal('<div class="modal-head"><div><h3>'+(t?'Edit':'Tambah')+' Template Task</h3><p>Divisi '+esc(div)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+  modal('<div class="modal-head"><div><h3>'+(t?'Edit':'Tambah')+' Template Task</h3><p>Divisi '+esc(div)+(terpilih?' · '+esc(terpilih):'')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
    +'<input type="hidden" id="tt_id" value="'+(t?t.id:'')+'"><input type="hidden" id="tt_div" value="'+esc(div)+'">'
    +ff('Task','tt_task',t?t.task:'','text',1)
+   /* Selalu ditampilkan, juga saat belum ada sub kategori sama sekali — supaya
+      terlihat bahwa tingkat ini ada dan item ini sedang berada di luar semua
+      kelompok, bukan seolah fiturnya tidak berlaku di kategori ini. */
+   +'<div class="field"><label>Sub Kategori</label><select class="inp" id="tt_sub">'
+     +'<option value=""'+(terpilih===''?' selected':'')+'>— tanpa sub kategori —</option>'
+     +subs.map(sc=>'<option'+(terpilih===sc.nama?' selected':'')+'>'+esc(sc.nama)+'</option>').join('')
+   +'</select><div class="fh">'+(subs.length?'Kelompok di dalam '+esc(div)+'.':'Belum ada sub kategori di '+esc(div)+' — buat lewat tombol "Sub Kategori".')+'</div></div>'
    +'<div class="form-grid"><div class="field"><label>PIC</label><input class="inp" id="tt_pic" list="dl_staff" placeholder="pilih / ketik nama" value="'+esc(t?t.pic||'':'')+'"></div>'
    +'<div class="field"><label>H- (hari sebelum event)</label><input class="inp" type="number" min="0" step="5" list="tt_hm_opts" id="tt_hminus" value="'+(t&&t.hminus!=null?t.hminus:'')+'" placeholder="pilih / ketik, mis. 30"><datalist id="tt_hm_opts">'+hmOpts+'</datalist><div class="fh">Kelipatan 5 dari dropdown, atau ketik angka bebas.</div></div></div>'
    +'<div class="field"><label>Deadline (opsional)</label><input class="inp" type="date" id="tt_deadline" value="'+esc(t?t.deadline||'':'')+'"></div>'
@@ -5117,7 +5361,8 @@ function saveTemplateTask(){
   const id=$('tt_id').value, div=$('tt_div').value, task=$('tt_task').value.trim();
   if(!task)return toast('Task wajib','Isi nama task dulu.','err');
   const hmEl=$('tt_hminus');
-  const data={div,task,pic:$('tt_pic').value.trim(),note:$('tt_note').value.trim(),
+  const subEl=$('tt_sub');
+  const data={div,task,sub:subEl?subEl.value:'',pic:$('tt_pic').value.trim(),note:$('tt_note').value.trim(),
     deadline:$('tt_deadline')?$('tt_deadline').value:'',
     hminus:(hmEl&&hmEl.value!=='')?Math.max(0,Math.round(+hmEl.value||0)):null};
   S.taskTemplates=S.taskTemplates||[];
@@ -5141,16 +5386,17 @@ function saveTaskCategory(){
   let name=($('nc_name').value||'').replace(/['"\\]/g,'').trim();
   if(!name)return toast('Nama wajib','Isi nama kategori dulu.','err');
   const cats=getCats();
-  if(cats.concat(FB_FORMATS).some(c=>c.toLowerCase()===name.toLowerCase()))return toast('Sudah ada','Nama itu sudah dipakai (kategori / cabang F&B).','err');
+  if(cats.concat(getFbFormats()).some(c=>String(c).toLowerCase()===name.toLowerCase()))return toast('Sudah ada','Nama itu sudah dipakai (kategori / cabang F&B).','err');
   cats.push(name);
   save(); closeModal(); toast('Kategori dibuat','Kategori "'+name+'" ditambahkan.','ok'); go('templates');
 }
 function delTaskCategory(name){
-  const n=(S.taskTemplates||[]).filter(t=>t.div===name).length;
+  const n=(S.taskTemplates||[]).filter(t=>t.div===name).length, ns=subsOf(name).length;
   confirmUI({title:'Hapus Kategori',danger:true,ok:'Hapus',
-    body:'Hapus kategori <b>'+esc(name)+'</b>'+(n?(' beserta <b>'+n+'</b> task di dalamnya'):'')+'? Tindakan ini tidak bisa dibatalkan.',
+    body:'Hapus kategori <b>'+esc(name)+'</b>'+(n?(' beserta <b>'+n+'</b> task di dalamnya'):'')+(ns?(' dan <b>'+ns+'</b> sub kategori'):'')+'? Tindakan ini tidak bisa dibatalkan.',
     onYes:function(){
       S.categories=getCats().filter(x=>x!==name);
+      S.fbSubs=getSubs().filter(x=>x.div!==name);
       S.taskTemplates=(S.taskTemplates||[]).filter(t=>t.div!==name);
       S.events.forEach(e=>{ if(e.jobProgress)delete e.jobProgress[name]; if(e.tasks)delete e.tasks[name]; });
       save(); toast('Dihapus','Kategori "'+name+'" dihapus.','ok'); go('templates');
