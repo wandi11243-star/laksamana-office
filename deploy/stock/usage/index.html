@@ -1316,17 +1316,21 @@
   /* Seharusnya & selisih satu item, dari model buku stok:
        seharusnya = opening + masuk − keluar
        selisih    = closing − seharusnya
-     null kalau closing belum diisi (tidak bisa dinilai). opening null
-     (item belum pernah dihitung) diperlakukan sebagai 0 dalam hitungan,
-     tapi ditandai "baru" di tampilan. */
+
+     HITUNGAN PERTAMA (opening null — item belum pernah dihitung) TIDAK punya
+     seharusnya maupun selisih: tanpa stok awal, tidak ada patokan untuk
+     menilai. Hari itu cuma MENETAPKAN stok awal; closing yang diisi jadi
+     opening besok, dan mulai besok selisih baru bermakna. Ini yang dulu keliru
+     menampilkan "+3" padahal belum ada baseline. */
   function soHitung(nama, tgl, tim) {
     const opening = soKemarin(nama, tgl, tim);       // = closing kemarin
+    const baru    = opening === null;                // belum pernah dihitung
     const masuk   = soAngka(SO_MASUK[nama]) || 0;
     const keluar  = +SO_KELUAR[nama] || 0;
     const closing = soAngka(SO_ISI[nama]);
-    const seharusnya = (opening || 0) + masuk - keluar;
-    const selisih = closing === null ? null : closing - seharusnya;
-    return { opening, masuk, keluar, closing, seharusnya, selisih };
+    const seharusnya = baru ? null : opening + masuk - keluar;
+    const selisih = (closing === null || seharusnya === null) ? null : closing - seharusnya;
+    return { opening, baru, masuk, keluar, closing, seharusnya, selisih };
   }
 
   // Kelompokkan produk per kategori (SESUDAH disaring area), urut foto dulu.
@@ -1373,7 +1377,7 @@
                dua tingkat (nama + kotak Stok di atas, buku stok di bawah). -->
           <div class="hidden sm:flex items-center gap-2.5 bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400 px-3 py-2">
             <div class="flex-1">Item</div>
-            <div class="w-[76px] text-center shrink-0">Stok fisik</div>
+            <div class="w-[104px] text-center shrink-0">Stok fisik</div>
             <div class="w-14 text-center shrink-0">Selisih</div>
           </div>`;
       items.forEach(nama => {
@@ -1382,28 +1386,37 @@
         const masukVal = SO_MASUK[nama] !== undefined ? SO_MASUK[nama] : '';
         const unit = soUnit(nama);
         const en = esc(nama);
+        const u = unit ? ' ' + esc(unit) : '';                    // suffix satuan
+        // Item tanpa satuan: angka Keluar bisa keliru (catatan lintas satuan
+        // dijumlah mentah). Beri tanda jelas + arahkan ke Purchasing.
+        const tanpaSatuan = !unit;
         html += `<div class="px-3 py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
           <div class="flex items-center gap-2.5">
             <div class="flex-1 min-w-0">
               <div class="text-xs font-bold text-slate-800 leading-snug break-words">${en}</div>
-              ${unit ? `<div class="text-[10px] font-semibold text-slate-400">${esc(unit)}</div>` : ''}
+              ${unit
+                ? `<div class="text-[10px] font-bold text-indigo-500">satuan: ${esc(unit)}</div>`
+                : `<div class="text-[10px] font-bold text-amber-600" title="Item ini belum punya satuan, jadi angka Keluar bisa salah kalau pemakaiannya bercampur Gram/Kg. Atur satuannya di Purchasing → editor produk.">⚠ belum ada satuan — atur di Purchasing</div>`}
             </div>
-            <input type="number" step="0.01" inputmode="decimal" data-so-fisik="${en}" value="${esc(val)}"
-              oninput="soSet(this,'fisik')" placeholder="stok"
-              class="w-[76px] shrink-0 border border-slate-200 rounded-lg px-2 py-2 text-sm font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+            <div class="shrink-0 flex items-center gap-1">
+              <input type="number" step="0.01" inputmode="decimal" data-so-fisik="${en}" value="${esc(val)}"
+                oninput="soSet(this,'fisik')" placeholder="stok"
+                class="w-[72px] border border-slate-200 rounded-lg px-2 py-2 text-sm font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+              <span class="text-[10px] font-bold text-slate-400 w-6 truncate">${esc(unit || '')}</span>
+            </div>
             <div class="w-14 shrink-0 text-center text-xs font-black" data-so-selisih="${en}" style="font-variant-numeric:tabular-nums">${soSelisihTeks(h)}</div>
           </div>
-          <!-- Buku stok: awal + masuk − keluar = seharusnya. Masuk bisa diisi. -->
+          <!-- Buku stok: awal + masuk − keluar = seharusnya (semua dalam ${esc(unit || 'satuan item')}). -->
           <div class="mt-1.5 flex items-center gap-x-2.5 gap-y-1 text-[10px] font-semibold text-slate-500 flex-wrap" style="font-variant-numeric:tabular-nums">
-            <span>Awal <b class="${h.opening === null ? 'text-slate-300' : 'text-slate-600'}">${h.opening === null ? '0*' : fmtQty(h.opening)}</b></span>
+            <span>Awal <b class="${h.baru ? 'text-slate-300' : 'text-slate-600'}">${h.baru ? 'belum ada' : fmtQty(h.opening) + u}</b></span>
             <span class="flex items-center gap-1">+ Masuk
               <input type="number" step="0.01" inputmode="decimal" data-so-masuk="${en}" value="${esc(masukVal)}"
                 oninput="soSet(this,'masuk')" placeholder="0"
-                class="w-12 border border-slate-200 rounded px-1 py-0.5 text-[11px] font-bold text-center focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white">
+                class="w-12 border border-slate-200 rounded px-1 py-0.5 text-[11px] font-bold text-center focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white">${u}
             </span>
-            <span>− Keluar <b class="${h.keluar ? 'text-rose-500' : 'text-slate-400'}" data-so-keluar="${en}">${fmtQty(h.keluar)}</b>${SO_KELUAR_CAMPUR[nama] ? ' <span class="text-amber-500" title="Ada catatan keluar dengan satuan berbeda yang tidak bisa dikonversi otomatis (mis. Pcs vs Kg). Samakan satuannya agar angka ini tepat.">⚠</span>' : ''}</span>
+            <span>− Keluar <b class="${h.keluar ? 'text-rose-500' : 'text-slate-400'}" data-so-keluar="${en}">${fmtQty(h.keluar)}</b>${u}${(SO_KELUAR_CAMPUR[nama] || (h.keluar && tanpaSatuan)) ? ' <span class="text-amber-500" title="Ada catatan keluar bersatuan berbeda yang tak bisa dikonversi otomatis. Samakan satuannya / atur satuan item agar angka ini tepat.">⚠</span>' : ''}</span>
             <span class="text-slate-300">=</span>
-            <span>Seharusnya <b class="text-indigo-600" data-so-seharusnya="${en}">${fmtQty(h.seharusnya)}</b></span>
+            <span>Seharusnya <b class="text-indigo-600" data-so-seharusnya="${en}">${h.seharusnya === null ? '—' : fmtQty(h.seharusnya) + u}</b></span>
           </div>
         </div>`;
       });
@@ -1413,9 +1426,13 @@
     soRingkas();
   }
 
-  // Selisih = closing − seharusnya. 0 abu-abu; ≠0 merah (ada yang tak tercatat).
+  /* Selisih = closing − seharusnya.
+       belum diisi → "—"
+       hitungan pertama (baru) → "awal": cuma menetapkan stok awal, tak dinilai
+       0 → abu-abu;  ≠0 → merah (ada pergerakan tak tercatat) */
   function soSelisihTeks(h) {
     if (h.closing === null) return '<span class="text-slate-300">—</span>';
+    if (h.baru) return '<span class="text-amber-500" title="Hitungan pertama — cuma menetapkan stok awal. Selisih baru dinilai mulai besok.">awal</span>';
     const d = h.selisih;
     if (d === 0) return '<span class="text-slate-400">0</span>';
     return `<span class="text-rose-600">${d > 0 ? '+' : ''}${fmtQty(d)}</span>`;
@@ -1431,11 +1448,12 @@
     const tgl = document.getElementById('so-tanggal').value;
     const tim = document.getElementById('so-tim').value;
     const h = soHitung(nama, tgl, tim);
+    const u = soUnit(nama) ? ' ' + soUnit(nama) : '';
     const q = selCss(nama);
     const sel = document.querySelector(`[data-so-selisih="${q}"]`);
     if (sel) sel.innerHTML = soSelisihTeks(h);
     const seh = document.querySelector(`[data-so-seharusnya="${q}"]`);
-    if (seh) seh.textContent = fmtQty(h.seharusnya);
+    if (seh) seh.textContent = h.seharusnya === null ? '—' : fmtQty(h.seharusnya) + u;
     soRingkas();
   }
 
@@ -1444,15 +1462,19 @@
     const tim = document.getElementById('so-tim').value;
     const daftar = (DAFTAR_BAHAN || []).filter(soAreaCocok);
     const terisi = daftar.filter(n => soAngka(SO_ISI[n]) !== null).length;
-    let cocok = 0, selisih = 0;
+    // Cocok/selisih HANYA untuk item yang punya baseline (bukan hitungan
+    // pertama) dan sudah diisi. Item "awal" tidak dihitung ke mana-mana —
+    // menghitungnya sebagai selisih itulah yang tadi membengkakkan angkanya.
+    let cocok = 0, selisih = 0, baru = 0;
     daftar.forEach(nama => {
       const h = soHitung(nama, tgl, tim);
       if (h.closing === null) return;
+      if (h.baru) { baru++; return; }
       if (h.selisih === 0) cocok++; else selisih++;
     });
     document.getElementById('so-ringkas').innerHTML = `
-      ${kartu('✓ Terisi', terisi + '/' + daftar.length, 'item dihitung')}
-      ${kartu('✔ Cocok', cocok, 'closing = seharusnya')}
+      ${kartu('✓ Terisi', terisi + '/' + daftar.length, baru ? baru + ' baru (stok awal)' : 'item dihitung')}
+      ${kartu('✔ Cocok', cocok, 'sesuai buku stok')}
       ${kartu('⚠ Selisih', selisih, 'perlu dicek')}`;
   }
 
