@@ -561,12 +561,15 @@ function pur_products_ambil($pdo) {
     // kategori: kelompok bahan (DRY ITEM, CHILLER, FRESH, dst) untuk Daily SO.
     // '' = belum dikelompokkan; Daily SO menaruhnya di "Belum dikategori".
     if (!isset($p->kategori) || !is_string($p->kategori)) $p->kategori = '';
+    // area: lokasi hitung — 'Bar' | 'Kitchen' | 'Umum'/'' (dipakai kedua tempat).
+    // Daily SO menyaring item menurut area supaya Bar tidak melihat item Kitchen.
+    if (!isset($p->area) || !is_string($p->area)) $p->area = '';
     $out[$r['nama']] = $p;
   }
   return (object)$out;
 }
 
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null) {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -587,7 +590,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      dari baris lama dalam SATU query supaya tidak menembak DB dua kali. */
   $satuanLama = [];
   $kategoriLama = '';
-  if ($satuan === null || $kategori === null) {
+  $areaLama = '';
+  if ($satuan === null || $kategori === null || $area === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -595,10 +599,12 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       $lama = json_decode($row['data']);
       if (is_object($lama) && isset($lama->satuan) && is_array($lama->satuan)) $satuanLama = $lama->satuan;
       if (is_object($lama) && isset($lama->kategori) && is_string($lama->kategori)) $kategoriLama = $lama->kategori;
+      if (is_object($lama) && isset($lama->area) && is_string($lama->area)) $areaLama = $lama->area;
     }
   }
   if ($satuan === null)   $satuan = $satuanLama;
   if ($kategori === null) $kategori = $kategoriLama;
+  if ($area === null)     $area = $areaLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -608,8 +614,9 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $satuan = array_values(array_unique(array_filter(array_map(fn($s) => trim((string)$s), $satuan), fn($s) => $s !== '')));
 
   $kategori = trim((string)$kategori);
+  $area     = trim((string)$area);
 
-  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori];
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori, 'area' => $area];
 
   $pdo->beginTransaction();
   try {

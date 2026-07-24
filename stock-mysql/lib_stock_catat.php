@@ -300,12 +300,22 @@ function pur_opname_simpan($pdo, $b) {
     if (!is_object($it)) continue;
     $nm = trim((string)($it->item ?? ''));
     if ($nm === '') continue;
+    /* Buku stok harian:
+         opening = stok awal (= closing kemarin), disimpan agar riwayat stabil
+         masuk   = barang masuk hari itu
+         sistem  = stok SEHARUSNYA = opening + masuk − keluar (dihitung klien)
+         fisik   = closing = stok hasil hitung fisik hari ini
+       selisih (fisik − sistem) tidak disimpan; selalu dihitung saat tampil.
+       Semua nullable: "belum dihitung" ≠ 0. */
+    $num = function ($v) { return ($v !== '' && $v !== null) ? (float)$v : null; };
     $items[] = (object)[
-      'item'   => $nm,
-      'unit'   => trim((string)($it->unit ?? '')),
-      'sistem' => (isset($it->sistem) && $it->sistem !== '' && $it->sistem !== null) ? (float)$it->sistem : null,
-      'fisik'  => (isset($it->fisik)  && $it->fisik  !== '' && $it->fisik  !== null) ? (float)$it->fisik  : null,
-      'note'   => trim((string)($it->note ?? '')),
+      'item'    => $nm,
+      'unit'    => trim((string)($it->unit ?? '')),
+      'opening' => $num($it->opening ?? null),
+      'masuk'   => $num($it->masuk ?? null),
+      'sistem'  => $num($it->sistem ?? null),
+      'fisik'   => $num($it->fisik ?? null),
+      'note'    => trim((string)($it->note ?? '')),
     ];
   }
   if (!$items) return ['status' => 'error', 'message' => 'minimal satu produk harus diisi'];
@@ -335,6 +345,116 @@ function pur_opname_simpan($pdo, $b) {
 
 function pur_opname_hapus($pdo, $id) {
   $st = $pdo->prepare("DELETE FROM `opname` WHERE `id`=?");
+  $st->execute([$id]);
+  return $st->rowCount() ? ['status' => 'success'] : ['status' => 'error', 'message' => 'tidak ditemukan'];
+}
+
+/* =============================== SERAH TERIMA ============================
+   Pengeluaran barang dari stok lokasi ke Kitchen atau Bar. WAJIB berfoto
+   (bukti siapa mengambil), berisi daftar item + jumlah. Tercatat sebagai
+   barang KELUAR di Daily SO tanggal & tim yang sama.
+
+   Pola foto & tim SAMA dengan waste: daftar tidak memuat foto (cuma
+   `adaFoto`), foto ditarik terpisah lewat ?action=foto. */
+function pur_serah_ambil($pdo, $batasTim = null) {
+  if ($batasTim === '') return [];
+  $sql = "SELECT `id`,`tanggal`,`tujuan`,`penerima`,`pic`,`tim`,`waktu`,
+                 `foto_nama`, (`foto` <> '') AS ada_foto, `data`
+          FROM `serah_terima` WHERE 1=1";
+  $par = [];
+  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
+  pur_filter_tanggal($sql, $par);
+  $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
+  $st = $pdo->prepare($sql); $st->execute($par);
+
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = pur_data_obj($r['data']);
+    $out[] = [
+      'id'       => $r['id'],
+      'tanggal'  => $r['tanggal'],
+      'tujuan'   => $r['tujuan'],
+      'penerima' => $r['penerima'],
+      'pic'      => $r['pic'],
+      'tim'      => $r['tim'],
+      'waktu'    => $r['waktu'],
+      'fotoNama' => $r['foto_nama'],
+      'adaFoto'  => (bool)$r['ada_foto'],
+      'catatan'  => isset($d->catatan) ? (string)$d->catatan : '',
+      'items'    => isset($d->items) && is_array($d->items) ? $d->items : [],
+    ];
+  }
+  return $out;
+}
+
+function pur_serah_foto($pdo, $id) {
+  $st = $pdo->prepare("SELECT `foto`,`foto_nama` FROM `serah_terima` WHERE `id`=? LIMIT 1");
+  $st->execute([$id]);
+  $r = $st->fetch();
+  if (!$r || $r['foto'] === '') return ['status' => 'error', 'message' => 'foto tidak ada'];
+  return ['status' => 'success', 'foto' => $r['foto'], 'fotoNama' => $r['foto_nama']];
+}
+
+function pur_serah_simpan($pdo, $b) {
+  $id       = trim((string)($b->id ?? ''));
+  $tanggal  = trim((string)($b->tanggal ?? ''));
+  $tujuan   = trim((string)($b->tujuan ?? ''));
+  if ($tanggal === '') return ['status' => 'error', 'message' => 'tanggal wajib diisi'];
+  if ($tujuan === '')  return ['status' => 'error', 'message' => 'tujuan (Kitchen/Bar) wajib dipilih'];
+
+  // Daftar item yang diserahkan.
+  $items = [];
+  foreach ((array)($b->items ?? []) as $it) {
+    if (!is_object($it)) continue;
+    $nm = trim((string)($it->item ?? ''));
+    $q  = isset($it->qty) ? (float)$it->qty : 0;
+    if ($nm === '' || $q <= 0) continue;
+    $items[] = (object)['item' => $nm, 'qty' => $q, 'unit' => trim((string)($it->unit ?? ''))];
+  }
+  if (!$items) return ['status' => 'error', 'message' => 'minimal satu item harus diisi'];
+
+  $json = json_encode((object)[
+    'catatan' => trim((string)($b->catatan ?? '')),
+    'items'   => $items,
+  ], JSON_UNESCAPED_UNICODE);
+
+  $penerima = trim((string)($b->penerima ?? ''));
+  $pic      = trim((string)($b->pic ?? ''));
+  $tim      = trim((string)($b->tim ?? ''));
+
+  /* `foto` null = pertahankan yang lama; string kosong = hapus. Untuk serah
+     BARU foto WAJIB — dijaga di frontend & ditolak di sini bila kosong. */
+  $fotoBaru = $b->foto ?? null;
+
+  if ($id !== '') {
+    if ($fotoBaru === null) {
+      $pdo->prepare("UPDATE `serah_terima`
+          SET `tanggal`=?,`tujuan`=?,`penerima`=?,`pic`=?,`tim`=?,`data`=? WHERE `id`=?")
+        ->execute([$tanggal, $tujuan, $penerima, $pic, $tim, $json, $id]);
+    } else {
+      $pdo->prepare("UPDATE `serah_terima`
+          SET `tanggal`=?,`tujuan`=?,`penerima`=?,`pic`=?,`tim`=?,`data`=?,`foto`=?,`foto_nama`=? WHERE `id`=?")
+        ->execute([$tanggal, $tujuan, $penerima, $pic, $tim, $json,
+                   (string)$fotoBaru, trim((string)($b->fotoNama ?? '')), $id]);
+    }
+    if (!pur_ada_baris($pdo, 'serah_terima', $id)) return ['status' => 'error', 'message' => 'catatan tidak ditemukan'];
+    return ['status' => 'success', 'id' => $id];
+  }
+
+  if ($fotoBaru === null || (string)$fotoBaru === '')
+    return ['status' => 'error', 'message' => 'foto bukti wajib diunggah'];
+
+  $id = pur_uid('SRH');
+  $pdo->prepare("INSERT INTO `serah_terima`
+      (`id`,`tanggal`,`tujuan`,`penerima`,`pic`,`tim`,`waktu`,`foto`,`foto_nama`,`data`)
+      VALUES (?,?,?,?,?,?,?,?,?,?)")
+    ->execute([$id, $tanggal, $tujuan, $penerima, $pic, $tim, date('Y-m-d H:i:s'),
+               (string)$fotoBaru, trim((string)($b->fotoNama ?? '')), $json]);
+  return ['status' => 'success', 'id' => $id];
+}
+
+function pur_serah_hapus($pdo, $id) {
+  $st = $pdo->prepare("DELETE FROM `serah_terima` WHERE `id`=?");
   $st->execute([$id]);
   return $st->rowCount() ? ['status' => 'success'] : ['status' => 'error', 'message' => 'tidak ditemukan'];
 }

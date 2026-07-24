@@ -266,7 +266,29 @@ CREATE TABLE IF NOT EXISTS opname (
   tim     VARCHAR(20)  NOT NULL DEFAULT '',
   status  VARCHAR(20)  NOT NULL DEFAULT 'Draft',   -- Draft | Selesai
   waktu   VARCHAR(30)  NOT NULL DEFAULT '',
-  data    LONGTEXT     NOT NULL,   -- {catatan, items:[{item,unit,sistem,fisik,note}]}
+  -- data.items: buku stok harian per item —
+  --   {item,unit,opening,masuk,sistem(=seharusnya),fisik(=closing),note}
+  data    LONGTEXT     NOT NULL,
   KEY idx_op_tgl (tanggal),
   KEY idx_op_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- SERAH TERIMA — pengeluaran barang dari stok ke Kitchen/Bar, WAJIB berfoto.
+-- Tercatat sebagai barang KELUAR di Daily SO tanggal & tim yang sama.
+-- Pola foto sama dengan `waste`: `foto` kolom sendiri, tidak ikut di daftar.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS serah_terima (
+  id        VARCHAR(64)  NOT NULL PRIMARY KEY,
+  tanggal   VARCHAR(20)  NOT NULL DEFAULT '',
+  tujuan    VARCHAR(20)  NOT NULL DEFAULT '',   -- Kitchen | Bar
+  penerima  VARCHAR(120) NOT NULL DEFAULT '',
+  pic       VARCHAR(120) NOT NULL DEFAULT '',
+  tim       VARCHAR(20)  NOT NULL DEFAULT '',
+  waktu     VARCHAR(30)  NOT NULL DEFAULT '',
+  foto      LONGTEXT     NOT NULL,              -- data URL; wajib untuk baris baru
+  foto_nama VARCHAR(190) NOT NULL DEFAULT '',
+  data      LONGTEXT     NOT NULL,              -- {catatan, items:[{item,qty,unit}]}
+  KEY idx_srh_tgl (tanggal),
+  KEY idx_srh_tujuan (tujuan)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
