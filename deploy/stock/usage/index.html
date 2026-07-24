@@ -1154,7 +1154,8 @@
   let SO_DATA = [];       // seluruh entri opname (dari server)
   let SO_ISI = {};        // {namaItem: CLOSING (stok fisik) yang sedang diketik}
   let SO_MASUK = {};      // {namaItem: barang MASUK hari ini}
-  let SO_KELUAR = {};     // {namaItem: total KELUAR} — auto dari pemakaian+waste+serah
+  let SO_KELUAR = {};     // {namaItem: total KELUAR} — auto, dalam satuan dasar item
+  let SO_KELUAR_CAMPUR = {}; // {namaItem: true} kalau ada keluar bersatuan tak terkonversi
   let SO_EDIT_ID = '';    // id entri hari+tim terpilih, kalau sudah pernah disimpan
 
   /* Area item cocok dengan tim yang login? Bar melihat item Bar + Umum,
@@ -1175,10 +1176,25 @@
   async function soMuatKeluar() {
     const tgl = document.getElementById('so-tanggal').value;
     const tim = document.getElementById('so-tim').value;
-    SO_KELUAR = {};
+    SO_KELUAR = {}; SO_KELUAR_CAMPUR = {};
     if (!tgl) return;
     const p = { dari: tgl, ke: tgl };
-    const tambah = (nm, q) => { if (!nm) return; SO_KELUAR[nm] = (SO_KELUAR[nm] || 0) + (+q || 0); };
+    /* Jumlahkan ke satuan DASAR item (soUnit). Kalau satuan catatan bisa
+       dikonversi (Kg↔Gram, Liter↔ML) → dikonversi. Kalau tidak (Pcs vs Kg,
+       dll) → ditambah apa adanya TAPI item ditandai "satuan campur" supaya
+       kru tahu angkanya tak bisa dipercaya bulat-bulat. */
+    const tambah = (nm, q, unit) => {
+      if (!nm) return;
+      const qn = +q || 0;
+      const dasar = soUnit(nm);
+      let nilai = qn;
+      if (unit && dasar && String(unit).trim().toLowerCase() !== String(dasar).trim().toLowerCase()) {
+        const k = soKonversi(qn, unit, dasar);
+        if (k === null) SO_KELUAR_CAMPUR[nm] = true;   // tak sekeluarga → tandai
+        else nilai = k;
+      }
+      SO_KELUAR[nm] = (SO_KELUAR[nm] || 0) + nilai;
+    };
     const cocokTim = (t) => (tim === 'ALL' || !tim) ? true : t === tim;
     try {
       const [pem, was, srh] = await Promise.all([
@@ -1188,15 +1204,15 @@
       ]);
       (Array.isArray(pem) ? pem : []).forEach(e => {
         if (e.tanggal !== tgl || !cocokTim(e.tim)) return;
-        (e.items || []).forEach(it => tambah(it.item, it.qty));
+        (e.items || []).forEach(it => tambah(it.item, it.qty, it.unit));
       });
       (Array.isArray(was) ? was : []).forEach(w => {
         if (w.tanggal !== tgl || !cocokTim(w.tim)) return;
-        tambah(w.item, w.qty);
+        tambah(w.item, w.qty, w.unit);
       });
       (Array.isArray(srh) ? srh : []).forEach(s => {
         if (s.tanggal !== tgl || !cocokTim(s.tim)) return;
-        (s.items || []).forEach(it => tambah(it.item, it.qty));
+        (s.items || []).forEach(it => tambah(it.item, it.qty, it.unit));
       });
     } catch (e) { /* biarkan keluar kosong kalau gagal — bukan alasan menahan form */ }
   }
@@ -1216,6 +1232,31 @@
     if (v === '' || v === null || v === undefined) return null;
     const n = parseFloat(String(v).replace(',', '.'));
     return isFinite(n) ? n : null;
+  }
+
+  /* KONVERSI SATUAN — HANYA yang rasionya pasti.
+     Berat (Kg↔Gram) dan volume (Liter↔ML) punya faktor tetap, jadi bisa
+     dikonversi otomatis. Pcs/Dus/Pack/Botol TIDAK: "1 Dus = berapa Pcs" beda
+     tiap barang, tidak ada rasio universal — menebaknya menghasilkan angka
+     karangan yang lebih berbahaya daripada mengaku tidak bisa.
+
+     Tiap satuan: [keluarga, faktor ke satuan dasar keluarga] —
+     berat→Kg, volume→Liter. Keluarga WAJIB dicek: 'kg' dan 'liter' sama-sama
+     berfaktor 1, jadi tanpa pemisahan keluarga Kg→Liter keliru dianggap bisa. */
+  const SO_SATUAN = {
+    'kg': ['berat', 1], 'gram': ['berat', 0.001], 'gr': ['berat', 0.001], 'g': ['berat', 0.001],
+    'liter': ['volume', 1], 'l': ['volume', 1], 'ltr': ['volume', 1], 'ml': ['volume', 0.001]
+  };
+  function soUnitInfo(u) { return SO_SATUAN[String(u || '').trim().toLowerCase()]; }
+  /* Konversi qty dari satuan `dari` ke satuan `ke`.
+     -> angka bila kedua satuan SEKELUARGA. -> null bila tidak bisa (satuan
+        diskrit seperti Pcs/Dus, atau beda keluarga berat vs volume) —
+        pemanggil memutuskan: pakai apa adanya + beri tanda "satuan campur". */
+  function soKonversi(qty, dari, ke) {
+    const a = soUnitInfo(dari), b = soUnitInfo(ke);
+    if (!a || !b) return null;              // ada yang diskrit
+    if (a[0] !== b[0]) return null;         // beda keluarga (berat vs volume)
+    return qty * a[1] / b[1];
   }
 
   /* Stok tercatat SEBELUM tanggal terpilih untuk satu item, tim yang sama.
@@ -1360,7 +1401,7 @@
                 oninput="soSet(this,'masuk')" placeholder="0"
                 class="w-12 border border-slate-200 rounded px-1 py-0.5 text-[11px] font-bold text-center focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white">
             </span>
-            <span>− Keluar <b class="${h.keluar ? 'text-rose-500' : 'text-slate-400'}" data-so-keluar="${en}">${fmtQty(h.keluar)}</b></span>
+            <span>− Keluar <b class="${h.keluar ? 'text-rose-500' : 'text-slate-400'}" data-so-keluar="${en}">${fmtQty(h.keluar)}</b>${SO_KELUAR_CAMPUR[nama] ? ' <span class="text-amber-500" title="Ada catatan keluar dengan satuan berbeda yang tidak bisa dikonversi otomatis (mis. Pcs vs Kg). Samakan satuannya agar angka ini tepat.">⚠</span>' : ''}</span>
             <span class="text-slate-300">=</span>
             <span>Seharusnya <b class="text-indigo-600" data-so-seharusnya="${en}">${fmtQty(h.seharusnya)}</b></span>
           </div>
