@@ -330,6 +330,14 @@
 
               <div id="so-ringkas" class="grid grid-cols-3 gap-3"></div>
 
+              <div class="text-[11px] font-semibold text-slate-500 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 leading-relaxed">
+                <b class="text-slate-700">Buku stok harian.</b>
+                Stok <b>Awal</b> = closing kemarin (otomatis). <b>+ Masuk</b> barang datang hari ini.
+                <b>− Keluar</b> = pemakaian + waste + serah terima (otomatis).
+                <b>Seharusnya</b> = Awal + Masuk − Keluar. Isi <b>Stok fisik</b> hasil hitung; <b>Selisih</b> = fisik − seharusnya.
+                Closing hari ini jadi Awal besok. <span class="text-slate-400">(0* = item belum pernah dihitung)</span>
+              </div>
+
               <div id="so-daftar" class="space-y-4"></div>
 
               <div class="flex flex-wrap gap-2 items-center pt-1">
@@ -1058,8 +1066,54 @@
   const SO_KATEGORI = ['DRY ITEM', 'CHILLER ITEM', 'FRESH', 'OPERATIONAL', 'STORE ITEM'];
   const SO_LAIN = 'Belum dikategori';
   let SO_DATA = [];       // seluruh entri opname (dari server)
-  let SO_ISI = {};        // {namaItem: nilai stok hari ini yang sedang diketik}
+  let SO_ISI = {};        // {namaItem: CLOSING (stok fisik) yang sedang diketik}
+  let SO_MASUK = {};      // {namaItem: barang MASUK hari ini}
+  let SO_KELUAR = {};     // {namaItem: total KELUAR} — auto dari pemakaian+waste+serah
   let SO_EDIT_ID = '';    // id entri hari+tim terpilih, kalau sudah pernah disimpan
+
+  /* Area item cocok dengan tim yang login? Bar melihat item Bar + Umum,
+     Kitchen melihat Kitchen + Umum. Tim lain / admin (timSaya() null) melihat
+     semua. Item tanpa area ('') = Umum, selalu tampil. */
+  function soAreaCocok(nama) {
+    const saya = timSaya();
+    if (saya !== 'Bar' && saya !== 'Kitchen') return true;   // Floor/admin: semua
+    const p = INFO_BAHAN && INFO_BAHAN[nama];
+    const area = (p && typeof p.area === 'string') ? p.area.trim() : '';
+    return area === '' || area === saya;
+  }
+
+  /* KELUAR hari itu = pemakaian (prasmanan/RND) + waste + serah terima untuk
+     tanggal & tim terpilih, dijumlahkan per item. Ditarik segar tiap ganti
+     tanggal supaya angkanya ikut pencatatan terbaru — inilah yang membuat
+     Daily SO otomatis (poin 6). */
+  async function soMuatKeluar() {
+    const tgl = document.getElementById('so-tanggal').value;
+    const tim = document.getElementById('so-tim').value;
+    SO_KELUAR = {};
+    if (!tgl) return;
+    const p = { dari: tgl, ke: tgl };
+    const tambah = (nm, q) => { if (!nm) return; SO_KELUAR[nm] = (SO_KELUAR[nm] || 0) + (+q || 0); };
+    const cocokTim = (t) => (tim === 'ALL' || !tim) ? true : t === tim;
+    try {
+      const [pem, was, srh] = await Promise.all([
+        apiGet('usage.php', p).catch(() => []),
+        apiGet('waste.php', p).catch(() => []),
+        apiGet('serah.php', p).catch(() => [])
+      ]);
+      (Array.isArray(pem) ? pem : []).forEach(e => {
+        if (e.tanggal !== tgl || !cocokTim(e.tim)) return;
+        (e.items || []).forEach(it => tambah(it.item, it.qty));
+      });
+      (Array.isArray(was) ? was : []).forEach(w => {
+        if (w.tanggal !== tgl || !cocokTim(w.tim)) return;
+        tambah(w.item, w.qty);
+      });
+      (Array.isArray(srh) ? srh : []).forEach(s => {
+        if (s.tanggal !== tgl || !cocokTim(s.tim)) return;
+        (s.items || []).forEach(it => tambah(it.item, it.qty));
+      });
+    } catch (e) { /* biarkan keluar kosong kalau gagal — bukan alasan menahan form */ }
+  }
 
   function soUnit(nama) {
     const p = INFO_BAHAN && INFO_BAHAN[nama];
@@ -1103,21 +1157,22 @@
       SO_DATA = await apiGet('opname.php');
       if (!Array.isArray(SO_DATA)) SO_DATA = [];
     } catch (e) { SO_DATA = []; }
-    soMuatHari();
+    await soMuatHari();
     soRiwayat();
   }
 
-  // Ganti tanggal / tim → muat ulang isian hari itu (kalau sudah pernah disimpan).
-  function soMuatHari() {
+  // Ganti tanggal / tim → muat ulang isian hari itu + hitung keluar otomatis.
+  async function soMuatHari() {
     const tgl = document.getElementById('so-tanggal').value;
     const tim = document.getElementById('so-tim').value;
-    SO_ISI = {}; SO_EDIT_ID = '';
+    SO_ISI = {}; SO_MASUK = {}; SO_EDIT_ID = '';
     const ada = SO_DATA.find(e => e.tanggal === tgl && (tim === 'ALL' ? true : e.tim === tim));
     const st = document.getElementById('so-status');
     if (ada) {
       SO_EDIT_ID = ada.id;
       (ada.items || []).forEach(it => {
         if (it.fisik !== null && it.fisik !== undefined && it.fisik !== '') SO_ISI[it.item] = String(it.fisik);
+        if (it.masuk !== null && it.masuk !== undefined && it.masuk !== '' && +it.masuk) SO_MASUK[it.item] = String(it.masuk);
       });
       st.textContent = 'Sudah disimpan (' + (ada.status || 'Selesai') + ') — bisa diubah lalu simpan lagi.';
       st.className = 'text-[11px] font-bold text-emerald-600';
@@ -1125,15 +1180,33 @@
       st.textContent = 'Belum disimpan untuk tanggal & tim ini.';
       st.className = 'text-[11px] font-bold text-slate-400';
     }
+    await soMuatKeluar();
     document.getElementById('so-simpan').textContent =
       SO_EDIT_ID ? 'Simpan Perubahan Opname' : 'Simpan Opname Hari Ini';
     soRenderDaftar();
   }
 
-  // Kelompokkan produk per kategori, urut kategori foto dulu baru sisanya.
+  /* Seharusnya & selisih satu item, dari model buku stok:
+       seharusnya = opening + masuk − keluar
+       selisih    = closing − seharusnya
+     null kalau closing belum diisi (tidak bisa dinilai). opening null
+     (item belum pernah dihitung) diperlakukan sebagai 0 dalam hitungan,
+     tapi ditandai "baru" di tampilan. */
+  function soHitung(nama, tgl, tim) {
+    const opening = soKemarin(nama, tgl, tim);       // = closing kemarin
+    const masuk   = soAngka(SO_MASUK[nama]) || 0;
+    const keluar  = +SO_KELUAR[nama] || 0;
+    const closing = soAngka(SO_ISI[nama]);
+    const seharusnya = (opening || 0) + masuk - keluar;
+    const selisih = closing === null ? null : closing - seharusnya;
+    return { opening, masuk, keluar, closing, seharusnya, selisih };
+  }
+
+  // Kelompokkan produk per kategori (SESUDAH disaring area), urut foto dulu.
   function soGrup() {
     const grup = {};
     (DAFTAR_BAHAN || []).forEach(nama => {
+      if (!soAreaCocok(nama)) return;                 // Bar tak lihat item Kitchen
       const k = soKategori(nama);
       (grup[k] = grup[k] || []).push(nama);
     });
@@ -1169,31 +1242,42 @@
           <div class="flex-1 h-px bg-slate-100"></div>
         </div>
         <div class="border border-slate-200 rounded-xl overflow-hidden">
-          <!-- Header kolom hanya untuk layar lebar. Di HP judul kolom tidak
-               muat, jadi disembunyikan (sm:flex) dan tiap baris jadi flex yang
-               tidak pernah memotong nama item. "Kemarin" pindah ke subjudul
-               supaya selalu terlihat tanpa kolom sendiri. -->
+          <!-- Header kolom untuk layar lebar. Di HP disembunyikan; tiap baris
+               dua tingkat (nama + kotak Stok di atas, buku stok di bawah). -->
           <div class="hidden sm:flex items-center gap-2.5 bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400 px-3 py-2">
             <div class="flex-1">Item</div>
-            <div class="w-[76px] text-center shrink-0">Stok kini</div>
+            <div class="w-[76px] text-center shrink-0">Stok fisik</div>
             <div class="w-14 text-center shrink-0">Selisih</div>
           </div>`;
       items.forEach(nama => {
-        const kem = soKemarin(nama, tgl, tim);
+        const h = soHitung(nama, tgl, tim);
         const val = SO_ISI[nama] !== undefined ? SO_ISI[nama] : '';
+        const masukVal = SO_MASUK[nama] !== undefined ? SO_MASUK[nama] : '';
         const unit = soUnit(nama);
-        html += `<div class="flex items-center gap-2.5 px-3 py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-          <div class="flex-1 min-w-0">
-            <div class="text-xs font-bold text-slate-800 leading-snug break-words">${esc(nama)}</div>
-            <div class="text-[10px] font-semibold text-slate-400 flex items-center gap-1.5 flex-wrap mt-0.5">
-              ${unit ? `<span>${esc(unit)}</span><span class="text-slate-300">·</span>` : ''}
-              <span>kemarin <b class="${kem === null ? 'text-slate-300' : 'text-slate-500'}" style="font-variant-numeric:tabular-nums">${kem === null ? '—' : fmtQty(kem)}</b></span>
+        const en = esc(nama);
+        html += `<div class="px-3 py-2 border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
+          <div class="flex items-center gap-2.5">
+            <div class="flex-1 min-w-0">
+              <div class="text-xs font-bold text-slate-800 leading-snug break-words">${en}</div>
+              ${unit ? `<div class="text-[10px] font-semibold text-slate-400">${esc(unit)}</div>` : ''}
             </div>
+            <input type="number" step="0.01" inputmode="decimal" data-so-fisik="${en}" value="${esc(val)}"
+              oninput="soSet(this,'fisik')" placeholder="stok"
+              class="w-[76px] shrink-0 border border-slate-200 rounded-lg px-2 py-2 text-sm font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+            <div class="w-14 shrink-0 text-center text-xs font-black" data-so-selisih="${en}" style="font-variant-numeric:tabular-nums">${soSelisihTeks(h)}</div>
           </div>
-          <input type="number" step="0.01" inputmode="decimal" data-so="${esc(nama)}" value="${esc(val)}"
-            oninput="soSet(this)" placeholder="—"
-            class="w-[76px] shrink-0 border border-slate-200 rounded-lg px-2 py-2 text-sm font-black text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-          <div class="w-14 shrink-0 text-center text-xs font-black" data-so-selisih="${esc(nama)}" style="font-variant-numeric:tabular-nums">${soSelisihTeks(kem, soAngka(val))}</div>
+          <!-- Buku stok: awal + masuk − keluar = seharusnya. Masuk bisa diisi. -->
+          <div class="mt-1.5 flex items-center gap-x-2.5 gap-y-1 text-[10px] font-semibold text-slate-500 flex-wrap" style="font-variant-numeric:tabular-nums">
+            <span>Awal <b class="${h.opening === null ? 'text-slate-300' : 'text-slate-600'}">${h.opening === null ? '0*' : fmtQty(h.opening)}</b></span>
+            <span class="flex items-center gap-1">+ Masuk
+              <input type="number" step="0.01" inputmode="decimal" data-so-masuk="${en}" value="${esc(masukVal)}"
+                oninput="soSet(this,'masuk')" placeholder="0"
+                class="w-12 border border-slate-200 rounded px-1 py-0.5 text-[11px] font-bold text-center focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white">
+            </span>
+            <span>− Keluar <b class="${h.keluar ? 'text-rose-500' : 'text-slate-400'}" data-so-keluar="${en}">${fmtQty(h.keluar)}</b></span>
+            <span class="text-slate-300">=</span>
+            <span>Seharusnya <b class="text-indigo-600" data-so-seharusnya="${en}">${fmtQty(h.seharusnya)}</b></span>
+          </div>
         </div>`;
       });
       html += `</div></div>`;
@@ -1202,42 +1286,47 @@
     soRingkas();
   }
 
-  function soSelisihTeks(kem, kini) {
-    if (kini === null) return '<span class="text-slate-300">—</span>';
-    if (kem === null)  return '<span class="text-slate-400">baru</span>';
-    const d = kini - kem;
+  // Selisih = closing − seharusnya. 0 abu-abu; ≠0 merah (ada yang tak tercatat).
+  function soSelisihTeks(h) {
+    if (h.closing === null) return '<span class="text-slate-300">—</span>';
+    const d = h.selisih;
     if (d === 0) return '<span class="text-slate-400">0</span>';
-    const warna = d > 0 ? 'text-emerald-600' : 'text-rose-600';
-    return `<span class="${warna}">${d > 0 ? '+' : ''}${fmtQty(d)}</span>`;
+    return `<span class="text-rose-600">${d > 0 ? '+' : ''}${fmtQty(d)}</span>`;
   }
+  function selCss(nama) { return (window.CSS && CSS.escape) ? CSS.escape(nama) : nama; }
 
-  // Ketik satu baris: perbarui HANYA sel selisihnya + ringkasan, jangan render
-  // ulang seluruh daftar (fokus & posisi scroll akan hilang).
-  function soSet(el) {
-    const nama = el.getAttribute('data-so');
-    if (el.value === '') delete SO_ISI[nama]; else SO_ISI[nama] = el.value;
+  // Ketik satu kotak (fisik/masuk): perbarui HANYA sel terkait baris itu +
+  // ringkasan; jangan render ulang seluruh daftar (fokus & scroll akan hilang).
+  function soSet(el, jenis) {
+    const nama = el.getAttribute(jenis === 'masuk' ? 'data-so-masuk' : 'data-so-fisik');
+    const bank = jenis === 'masuk' ? SO_MASUK : SO_ISI;
+    if (el.value === '') delete bank[nama]; else bank[nama] = el.value;
     const tgl = document.getElementById('so-tanggal').value;
     const tim = document.getElementById('so-tim').value;
-    const cell = document.querySelector(`[data-so-selisih="${(window.CSS && CSS.escape) ? CSS.escape(nama) : nama}"]`);
-    if (cell) cell.innerHTML = soSelisihTeks(soKemarin(nama, tgl, tim), soAngka(el.value));
+    const h = soHitung(nama, tgl, tim);
+    const q = selCss(nama);
+    const sel = document.querySelector(`[data-so-selisih="${q}"]`);
+    if (sel) sel.innerHTML = soSelisihTeks(h);
+    const seh = document.querySelector(`[data-so-seharusnya="${q}"]`);
+    if (seh) seh.textContent = fmtQty(h.seharusnya);
     soRingkas();
   }
 
   function soRingkas() {
-    const total = (DAFTAR_BAHAN || []).length;
-    const terisi = Object.keys(SO_ISI).filter(k => soAngka(SO_ISI[k]) !== null).length;
     const tgl = document.getElementById('so-tanggal').value;
     const tim = document.getElementById('so-tim').value;
-    let naik = 0, turun = 0;
-    Object.keys(SO_ISI).forEach(nama => {
-      const kini = soAngka(SO_ISI[nama]); if (kini === null) return;
-      const kem = soKemarin(nama, tgl, tim); if (kem === null) return;
-      if (kini - kem > 0) naik++; else if (kini - kem < 0) turun++;
+    const daftar = (DAFTAR_BAHAN || []).filter(soAreaCocok);
+    const terisi = daftar.filter(n => soAngka(SO_ISI[n]) !== null).length;
+    let cocok = 0, selisih = 0;
+    daftar.forEach(nama => {
+      const h = soHitung(nama, tgl, tim);
+      if (h.closing === null) return;
+      if (h.selisih === 0) cocok++; else selisih++;
     });
     document.getElementById('so-ringkas').innerHTML = `
-      ${kartu('✓ Terisi', terisi + '/' + total, 'item dihitung')}
-      ${kartu('↑ Naik', naik, 'vs kemarin')}
-      ${kartu('↓ Turun', turun, 'vs kemarin')}`;
+      ${kartu('✓ Terisi', terisi + '/' + daftar.length, 'item dihitung')}
+      ${kartu('✔ Cocok', cocok, 'closing = seharusnya')}
+      ${kartu('⚠ Selisih', selisih, 'perlu dicek')}`;
   }
 
   async function soSimpan() {
@@ -1248,10 +1337,18 @@
     // daripada menyimpan opname bertim "ALL" yang tidak berarti apa-apa.
     if (!tim || tim === 'ALL') { toast('Pilih tim', 'Tentukan tim sebelum menyimpan.', 'err'); return; }
 
+    // Simpan item yang closing ATAU masuk-nya diisi. opening & sistem
+    // (seharusnya) ikut disimpan agar riwayat tetap terbaca tanpa hitung ulang.
     const items = [];
-    Object.keys(SO_ISI).forEach(nama => {
-      const kini = soAngka(SO_ISI[nama]); if (kini === null) return;
-      items.push({ item: nama, unit: soUnit(nama), sistem: soKemarin(nama, tgl, tim), fisik: kini, note: '' });
+    const kandidat = new Set([...Object.keys(SO_ISI), ...Object.keys(SO_MASUK)]);
+    kandidat.forEach(nama => {
+      const h = soHitung(nama, tgl, tim);
+      if (h.closing === null && !h.masuk) return;
+      items.push({
+        item: nama, unit: soUnit(nama),
+        opening: h.opening, masuk: h.masuk || null,
+        sistem: h.seharusnya, fisik: h.closing, note: ''
+      });
     });
     if (!items.length) { toast('Belum ada isian', 'Isi minimal satu stok item.', 'err'); return; }
 
@@ -1312,6 +1409,9 @@
      lain supaya tidak mengganggu form yang sedang dibuka. */
   function soTambahItem() {
     const katOpsi = SO_KATEGORI.concat(['(lainnya)']);
+    // Area bawaan = tim yang login (Bar/Kitchen), supaya item baru langsung
+    // muncul di Daily SO orang yang menambahnya. Selain itu Umum.
+    const areaDefault = (timSaya() === 'Bar' || timSaya() === 'Kitchen') ? timSaya() : '';
     const wrap = document.createElement('div');
     wrap.className = 'fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4';
     wrap.innerHTML = `
@@ -1339,6 +1439,13 @@
               </select>
             </div>
           </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Area</label>
+            <select id="si-area" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+              <option value="${areaDefault}">${areaDefault || 'Umum (Bar & Kitchen)'}</option>
+              ${['', 'Bar', 'Kitchen'].filter(a => a !== areaDefault).map(a => `<option value="${a}">${a || 'Umum (Bar & Kitchen)'}</option>`).join('')}
+            </select>
+          </div>
           <input id="si-kat-lain" type="text" placeholder="nama kategori baru…" class="hidden w-full border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <button type="button" data-simpan class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl text-sm mt-1">Tambah ke database</button>
         </div>
@@ -1359,7 +1466,8 @@
       try {
         const d = await apiPost('items.php', {
           action: 'addProduct', productName: nama, primaryVendor: '',
-          backupVendors: [], units: [wrap.querySelector('#si-unit').value], kategori: kat
+          backupVendors: [], units: [wrap.querySelector('#si-unit').value], kategori: kat,
+          area: wrap.querySelector('#si-area').value
         });
         if (d && d.status === 'success') {
           await muatBahan();
