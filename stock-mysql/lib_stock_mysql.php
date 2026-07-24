@@ -558,12 +558,15 @@ function pur_products_ambil($pdo) {
     // ditentukan, dan frontend memaknainya sebagai "semua satuan boleh" —
     // supaya 237 produk lama tidak mendadak jadi tak bisa dipesan.
     if (!isset($p->satuan) || !is_array($p->satuan)) $p->satuan = [];
+    // kategori: kelompok bahan (DRY ITEM, CHILLER, FRESH, dst) untuk Daily SO.
+    // '' = belum dikelompokkan; Daily SO menaruhnya di "Belum dikategori".
+    if (!isset($p->kategori) || !is_string($p->kategori)) $p->kategori = '';
     $out[$r['nama']] = $p;
   }
   return (object)$out;
 }
 
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null) {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -579,17 +582,24 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      nilai lama, jangan dikosongkan. Ini penting: kalau ada jalur lama yang
      masih menyimpan produk tanpa mengirim `satuan`, tanpa penjagaan ini
      daftar satuan yang sudah disusun akan terhapus diam-diam. */
+  /* satuan DAN kategori sama-sama "preserve-if-null": null berarti pemanggil
+     tidak menyertakan field itu, jadi pertahankan nilai lama. Keduanya dibaca
+     dari baris lama dalam SATU query supaya tidak menembak DB dua kali. */
   $satuanLama = [];
-  if ($satuan === null) {
+  $kategoriLama = '';
+  if ($satuan === null || $kategori === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
     if ($row) {
       $lama = json_decode($row['data']);
       if (is_object($lama) && isset($lama->satuan) && is_array($lama->satuan)) $satuanLama = $lama->satuan;
+      if (is_object($lama) && isset($lama->kategori) && is_string($lama->kategori)) $kategoriLama = $lama->kategori;
     }
-    $satuan = $satuanLama;
   }
+  if ($satuan === null)   $satuan = $satuanLama;
+  if ($kategori === null) $kategori = $kategoriLama;
+
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
   }
@@ -597,7 +607,9 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   // Buang duplikat & nilai kosong: dua "Kg" di satu bahan tidak berarti apa-apa.
   $satuan = array_values(array_unique(array_filter(array_map(fn($s) => trim((string)$s), $satuan), fn($s) => $s !== '')));
 
-  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan];
+  $kategori = trim((string)$kategori);
+
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori];
 
   $pdo->beginTransaction();
   try {
