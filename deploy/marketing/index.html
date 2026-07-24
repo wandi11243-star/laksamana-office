@@ -894,8 +894,8 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 <datalist id="dl_staff"></datalist>
 <!-- Jenis & nama menu: saran dari halaman Database Menu (sidebar), bukan
      kurungan — kedua kolomnya tetap bisa diketik bebas. -->
-<!-- Catatan pada tabel menu Bar: saran, bukan kurungan - kolomnya tetap bisa diketik bebas. -->
-<datalist id="dl_barcatatan"><option>freeflow</option><option>lunch</option><option>dinner</option><option>welcome</option></datalist>
+<!-- dl_barcatatan DIBUANG bersama kolom "Catatan" di tabel menu Bar — kapan
+     minuman keluar ditulis di kolom Jam, jadi kolom itu tak ada lagi. -->
 <datalist id="dl_menukat"></datalist>
 <!-- Nama menu: saran dari halaman Database Menu, kolomnya tetap bisa diketik bebas. -->
 <datalist id="dl_menunama"></datalist>
@@ -3480,14 +3480,19 @@ function menuTblHTML(ev,fl,canEdit){
   const opts={bar:!!fl.bar, grup:grup, data:data};
   return lama+grup.map(g=>menuGroupHTML(fl.k,g,data[g]||{},canEdit,opts)).join('');
 }
-/* Kolom pertama beda antara Kitchen dan Bar:
-   - Kitchen "Jenis"   = karbohidrat/protein/sayuran, dipakai mengelompokkan
-     menu di PDF ("Karbohidrat: Nasi Putih, Mie Goreng").
-   - Bar     "Catatan" = kapan minumannya keluar (freeflow/lunch/dinner),
-     bukan jenis bahan. Mengelompokkan minuman per bahan tidak ada gunanya. */
+/* Kolom pertama HANYA ada untuk Kitchen ("Jenis") — dipakai mengelompokkan
+   menu di PDF ("Karbohidrat: Nasi Putih, Mie Goreng").
+
+   Bar TIDAK punya kolom pertama lagi. Dulu ada "Catatan" (freeflow/lunch), tapi
+   kapan minuman keluar sudah ditulis di kolom Jam ("9.30 (Free Flow)"), jadi
+   Catatan selalu kosong dan cuma menyempitkan kolom Menu. Dikembalikan null,
+   dan setiap perender kolom pertama melewatinya saat null.
+
+   Data lama yang terlanjur punya r.catatan dibiarkan apa adanya — tidak
+   dirender, tidak menghalangi apa pun, dan tidak perlu migrasi yang berisiko. */
 function menuKolom1(bar){
-  return bar ? {k:'catatan', l:'Catatan', dl:'dl_barcatatan', ph:'freeflow / lunch / ketik'}
-             : {k:'kat',     l:'Jenis',   dl:'dl_menukat',    ph:'pilih / ketik'};
+  return bar ? null
+             : {k:'kat', l:'Jenis', dl:'dl_menukat', ph:'pilih / ketik'};
 }
 function menuGroupHTML(fk,g,gd,canEdit,opts){
   opts=opts||{};
@@ -3514,7 +3519,7 @@ function menuGroupHTML(fk,g,gd,canEdit,opts){
     +'</div>'
     +'<table class="rundown-tbl"><thead><tr>'
       +(canEdit?'<th style="width:26px"></th>':'')
-      +'<th style="width:150px">'+k1.l+'</th>'
+      +(k1?'<th style="width:150px">'+k1.l+'</th>':'')
       +'<th>Menu</th><th style="width:96px">Jumlah</th><th style="width:130px">Jam</th>'
       +(canEdit?'<th style="width:34px"></th>':'')
     +'</tr></thead><tbody>'+body+'</tbody></table>'
@@ -3530,7 +3535,7 @@ function menuRowHTML(r,gjam,canEdit,bar,gqty){
      collectMenuTbl yang mengisinya saat disimpan. */
   return '<tr'+(canEdit?' draggable="true"':'')+'>'
     +(canEdit?'<td class="mg-drag" title="Seret untuk mengubah urutan">&#8942;&#8942;</td>':'')
-    +'<td><input class="inp" list="'+k1.dl+'" data-r="'+k1.k+'" value="'+esc(r[k1.k]||'')+'" placeholder="'+k1.ph+'" '+dis+'></td>'
+    +(k1?'<td><input class="inp" list="'+k1.dl+'" data-r="'+k1.k+'" value="'+esc(r[k1.k]||'')+'" placeholder="'+k1.ph+'" '+dis+'></td>':'')
     +'<td><input class="inp" list="dl_menunama" data-r="menu" value="'+esc(r.menu||'')+'" placeholder="nama menu" '+dis+'></td>'
     +'<td><input class="inp" data-r="qty" value="'+esc(r.qty||'')+'" placeholder="'+esc(gqty||'ikut kelompok')+'" title="Kosongkan untuk ikut jumlah kelompok" '+dis+'></td>'
     +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="'+esc(gjam||'ikut jam kelompok')+'" title="Kosongkan untuk ikut jam kelompok" '+dis+'></td>'
@@ -3562,7 +3567,9 @@ function menuSalinDari(sel){
     // Kolom pertama beda arti antara Kitchen & Bar. Kalau jenisnya beda,
     // kolom itu TIDAK ikut disalin daripada memindahkan isi yang keliru.
     const o={menu:v('menu'), qty:v('qty'), jam:v('jam')};
-    o[k1.k] = (k1.k===k1a.k) ? v(k1a.k) : '';
+    // Kolom pertama cuma ada di Kitchen. Disalin hanya kalau KEDUA sisi Kitchen;
+    // Bar tidak punya kolom ini lagi (k1 null).
+    if(k1) o[k1.k] = (k1a && k1.k===k1a.k) ? v(k1a.k) : '';
     return o;
   }).filter(function(r){ return r.menu||r.qty; });
   if(!baris.length){ toast('Kelompok kosong','"'+dari+'" belum punya menu untuk disalin.','err'); return; }
@@ -5880,14 +5887,19 @@ function poAkhirMinggu(){
   d.setDate(d.getDate()+(7-((d.getDay()+6)%7)-1));
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
+/* Semua isian memakai kelas `.inp` milik modul ini, bukan input telanjang.
+   Tanpa itu browser menggambarnya dengan gaya bawaannya sendiri — kotak
+   persegi abu-abu — dan halaman ini terlihat seperti tempelan dari aplikasi
+   lain di tengah Marketing. */
 function poBarisMkt(){
   return '<tr>'+
-    '<td><input class="bp-item" placeholder="Nama barang / jasa"></td>'+
-    '<td style="width:78px"><input class="bp-qty" type="number" value="1" min="1"></td>'+
-    '<td style="width:92px"><input class="bp-unit" value="Unit"></td>'+
-    '<td><input class="bp-note" placeholder="Untuk apa / kebutuhannya"></td>'+
-    '<td style="width:140px"><input class="bp-amount" inputmode="numeric" placeholder="Rp 0" oninput="poFmtRp(this)" style="text-align:right"></td>'+
-    '<td style="width:38px"><button class="btn sm" title="Hapus baris" onclick="poHapusBaris(this)">&times;</button></td>'+
+    '<td><input class="inp bp-item" placeholder="Nama barang / jasa"></td>'+
+    '<td style="width:86px"><input class="inp bp-qty" type="number" value="1" min="1"></td>'+
+    '<td style="width:104px"><input class="inp bp-unit" value="Unit" placeholder="Pack / Orang"></td>'+
+    '<td><input class="inp bp-note" placeholder="Untuk apa / kebutuhannya"></td>'+
+    '<td style="width:150px"><input class="inp bp-amount" inputmode="numeric" autocomplete="off" '+
+      'placeholder="0" oninput="poFmtRp(this)" style="text-align:right"></td>'+
+    '<td style="width:44px"><button class="btn sm" title="Hapus baris" onclick="poHapusBaris(this)">'+svg(IC.trash)+'</button></td>'+
   '</tr>';
 }
 function poTambahBaris(){
@@ -5904,42 +5916,53 @@ function poHapusBaris(btn){
   btn.closest('tr').remove();
 }
 
+/* Tautan "Buka BD OS · Purchasing" DIHILANGKAN atas permintaan tim: dari
+   Marketing, kebutuhannya cuma MENGIRIM PO — lanjutannya dikerjakan tim
+   purchasing di modul BD OS langsung, bukan dari sini. Tombol yang menuju ke
+   tempat yang bukan tanggung jawab halaman ini hanya menambah pintu yang
+   jarang dipakai. */
 function renderPurchasingBD(V){
   V.innerHTML = pageHead('Finance & Kontrol','Purchase Order',
     'Kebutuhan pembelian dari Marketing — terkirim ke papan Purchasing BD OS untuk direkap jadi lembar PR mingguan.',
-    '<a class="btn sm" href="../bd/#purchasing" target="_blank" rel="noopener">Buka BD OS · Purchasing</a>')+
-  '<div class="card" style="padding:18px">'+
-    '<div class="ov-sorot" style="margin-bottom:16px">'+
+    '')+
+  '<div class="card">'+
+    '<div class="ov-sorot" style="margin-bottom:18px">'+
       '<div class="ov-sorot-t">CARA KERJANYA</div>'+
       'Baris yang kamu kirim dari sini <b>langsung masuk ke papan Purchasing BD OS</b> berstatus '+
       '<b>Diajukan</b>, bukan disimpan di Marketing. Tim purchasing yang melengkapi vendor dan harga '+
-      'akhirnya, lalu mengumpulkannya jadi satu lembar PR mingguan bernomor. '+
-      'Kalau sudah terkirim, perubahannya dilakukan di BD OS — bukan di sini.'+
+      'akhirnya, lalu mengumpulkannya jadi satu lembar PR mingguan bernomor.'+
     '</div>'+
-    '<div class="grid3" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:14px">'+
-      '<label>Divisi peminta<select id="bp_div">'+
-        '<option>Business Development</option><option selected>Marketing</option>'+
-        '<option>Project</option><option>Purchasing</option></select></label>'+
-      '<label>Dibutuhkan tanggal<input type="date" id="bp_need" value="'+poAkhirMinggu()+'"></label>'+
-      '<label>Untuk event (opsional)<select id="bp_event"><option value="">—</option>'+
+    '<div class="form-grid">'+
+      '<div class="field"><label>Divisi peminta</label>'+
+        '<select class="inp" id="bp_div">'+
+          '<option>Business Development</option><option selected>Marketing</option>'+
+          '<option>Project</option><option>Purchasing</option></select></div>'+
+      '<div class="field"><label>Dibutuhkan tanggal</label>'+
+        '<input class="inp" type="date" id="bp_need" value="'+poAkhirMinggu()+'">'+
+        '<div class="fh">Bawaannya akhir minggu ini — siklus belanja tim mingguan.</div></div>'+
+      '<div class="field"><label>Untuk event (opsional)</label>'+
+        '<select class="inp" id="bp_event"><option value="">— tidak terkait event —</option>'+
         S.events.slice().sort(function(a,b){return (b.tanggal||'')<(a.tanggal||'')?-1:1;})
           .map(function(e){return '<option value="'+esc(e.nama)+'">'+esc(e.nama)+'</option>';}).join('')+
-      '</select></label>'+
+        '</select>'+
+        '<div class="fh">Ikut ditulis di kolom alasan, supaya purchasing tahu acaranya.</div></div>'+
     '</div>'+
-    '<div style="overflow-x:auto;border:1px solid var(--line-soft);border-radius:10px">'+
-      '<table style="width:100%;border-collapse:collapse;min-width:720px">'+
-      '<thead><tr>'+
-        '<th style="text-align:left;padding:8px">Nama item</th><th style="text-align:left;padding:8px">Jumlah</th>'+
-        '<th style="text-align:left;padding:8px">Satuan</th><th style="text-align:left;padding:8px">Alasan / kebutuhan</th>'+
-        '<th style="text-align:left;padding:8px">Perkiraan harga</th><th></th>'+
-      '</tr></thead><tbody id="bp_rows">'+poBarisMkt()+poBarisMkt()+poBarisMkt()+'</tbody></table>'+
+    '<div class="field full" style="margin-bottom:0">'+
+      '<label>Daftar barang yang diminta</label>'+
+      '<div class="tbl-wrap" style="border:1px solid var(--line-soft);border-radius:10px">'+
+        '<table class="tbl" style="min-width:760px"><thead><tr>'+
+          '<th>Nama item</th><th>Jumlah</th><th>Satuan</th>'+
+          '<th>Alasan / kebutuhan</th><th>Perkiraan harga</th><th></th>'+
+        '</tr></thead><tbody id="bp_rows">'+poBarisMkt()+poBarisMkt()+poBarisMkt()+'</tbody></table>'+
+      '</div>'+
+      '<div class="fh">Baris tanpa nama item diabaikan — tidak perlu dihapus satu per satu. '+
+        'Harga boleh dikosongkan kalau belum tahu.</div>'+
     '</div>'+
-    '<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">'+
-      '<button class="btn sm" onclick="poTambahBaris()">+ Tambah baris</button>'+
-      '<span class="mini" style="color:var(--muted)">Baris tanpa nama item diabaikan. Harga boleh dikosongkan.</span>'+
-      '<button class="btn pri" style="margin-left:auto" id="bp_kirim" onclick="poKirimKeBD()">Kirim ke BD OS</button>'+
+    '<div class="pill-row" style="margin-top:16px;justify-content:space-between">'+
+      '<button class="btn sm" onclick="poTambahBaris()">'+svg(IC.plus)+'Tambah baris</button>'+
+      '<button class="btn pri" id="bp_kirim" onclick="poKirimKeBD()">Kirim ke BD OS</button>'+
     '</div>'+
-    '<div id="bp_hasil" style="margin-top:14px"></div>'+
+    '<div id="bp_hasil" style="margin-top:16px"></div>'+
   '</div>';
 }
 
@@ -5986,8 +6009,7 @@ function poKirimKeBD(){
       document.getElementById('bp_hasil').innerHTML=
         '<div class="ov-sorot" style="margin:0"><div class="ov-sorot-t">TERKIRIM</div>'+
         n+' item masuk ke papan Purchasing BD OS berstatus Diajukan. '+
-        'Lanjutkan di <a href="../bd/#purchasing" target="_blank" rel="noopener"><b>BD OS · Purchasing</b></a> '+
-        'untuk melengkapi harga dan menjadikannya lembar PR.</div>';
+        'Tim purchasing yang melanjutkan dari sana.</div>';
       document.getElementById('bp_rows').innerHTML=poBarisMkt()+poBarisMkt()+poBarisMkt();
       toast('Terkirim',n+' item masuk ke BD OS.','ok');
     })
