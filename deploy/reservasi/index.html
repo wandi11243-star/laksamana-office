@@ -6707,8 +6707,149 @@ function renderAnalitik(){
 function reviews(){ if(!Array.isArray(STATE.master.reviews)) STATE.master.reviews=[]; return STATE.master.reviews; }
 function reviewCfg(){
   if(!STATE.master.reviewCfg) STATE.master.reviewCfg={link:"",target:30,counts:{}};
-  if(!STATE.master.reviewCfg.counts) STATE.master.reviewCfg.counts={};
-  return STATE.master.reviewCfg;
+  const c=STATE.master.reviewCfg;
+  if(!c.counts) c.counts={};
+  /* targets = target PER ORANG per bulan, {namaHost: jumlah}. Terpisah dari
+     `target` yang merupakan target AKUMULASI tim sebulan. Keduanya dipakai
+     berdampingan: per orang untuk menilai kinerja individu, akumulasi untuk
+     menilai pencapaian outlet. Akumulasi TIDAK dipaksa sama dengan jumlah
+     target individu — biasanya tim menargetkan lebih tinggi dari penjumlahan
+     personal sebagai peregangan, dan memaksa keduanya sama menghilangkan
+     kemampuan itu. */
+  if(!c.targets || typeof c.targets!=="object" || Array.isArray(c.targets)) c.targets={};
+  return c;
+}
+/* Target sebulan untuk satu host. 0 = belum ditetapkan (tidak dinilai). */
+function reviewTargetOf(nama){ return Math.max(0, Number(reviewCfg().targets[String(nama||"").trim()])||0); }
+/* Daftar nama host yang bisa dipilih: kru yang terdaftar di modul ini. */
+function reviewHosts(){
+  return getUsers().map(u=>String(u.name||"").trim()).filter(Boolean)
+    .filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b));
+}
+/* Nama akun Google dinormalkan sebelum dicocokkan: beda spasi/besar-kecil
+   huruf bukan beda orang. Tanda baca dibuang supaya "rizky_p88" dan
+   "rizky p 88" tetap bertemu. */
+function normAkun(s){
+  return String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ");
+}
+
+/* ======================= UMPAN REVIEW GOOGLE =======================
+   Daftar review yang BENAR-BENAR ada di Google — dipakai untuk mengesahkan
+   klaim host secara otomatis, menggantikan pengecekan manual satu per satu.
+
+   Isinya bisa datang dari dua jalan:
+     1) TEMPEL MANUAL (jalan yang bisa dipakai HARI INI) — manager menyalin
+        daftar reviewer dari Google Business Profile lalu menempelkannya.
+     2) API Google Business Profile — perlu kredensial OAuth milik pemilik
+        bisnis DAN persetujuan akses dari Google. Begitu tersedia, hasilnya
+        cukup dimasukkan ke daftar yang sama dan seluruh pencocokan di bawah
+        langsung bekerja tanpa diubah.
+
+   Tiap entri: {akun, tanggal, rating, dipakai:<id klaim yang mengesahkannya>}
+   `dipakai` mencegah satu review Google mengesahkan dua klaim berbeda. */
+function googleFeed(){
+  if(!Array.isArray(STATE.master.googleFeed)) STATE.master.googleFeed=[];
+  return STATE.master.googleFeed;
+}
+/* Toleransi tanggal: review bisa muncul di Google beberapa jam sampai
+   beberapa hari setelah tamu menulisnya (antrean filter spam Google). Terlalu
+   ketat = klaim sah ikut tertolak; terlalu longgar = review bulan lalu bisa
+   dipakai mengesahkan klaim hari ini. 3 hari menutup delay nyata tanpa
+   membuka celah itu. */
+const RV_TOLERANSI_HARI = 3;
+function selisihHari(a,b){
+  const t1=new Date(a+"T00:00:00").getTime(), t2=new Date(b+"T00:00:00").getTime();
+  if(!isFinite(t1)||!isFinite(t2)) return 1e9;
+  return Math.round((t1-t2)/86400000);
+}
+/* Cocokkan SATU klaim ke umpan Google. Mengembalikan true kalau ketemu dan
+   klaim langsung disahkan. Tidak menyimpan — pemanggil yang saveState(). */
+function cocokkanKeGoogle(rv){
+  if(!rv || rv.status==="terverifikasi") return false;
+  const akun=normAkun(rv.reviewerName);
+  if(!akun) return false;
+  const hit=googleFeed().find(g =>
+    normAkun(g.akun)===akun &&
+    (!g.dipakai || g.dipakai===rv.id) &&
+    Math.abs(selisihHari(g.tanggal||rv.date, rv.date))<=RV_TOLERANSI_HARI);
+  if(!hit) return false;
+  hit.dipakai=rv.id;
+  rv.status="terverifikasi";
+  rv.verifiedBy="Sistem (cocok Google)";
+  rv.verifiedAt=Date.now();
+  rv.rejectNote="";
+  return true;
+}
+/* Jalankan pencocokan untuk SEMUA klaim yang masih menunggu. Dipakai setelah
+   umpan Google diperbarui — klaim kemarin yang review-nya baru muncul hari ini
+   ikut tersahkan tanpa harus dibuka satu per satu. */
+function cocokkanSemuaKlaim(){
+  let n=0;
+  reviews().filter(x=>x.status==="diklaim").forEach(rv=>{ if(cocokkanKeGoogle(rv)) n++; });
+  return n;
+}
+
+/* Tempel daftar review dari Google Business Profile. Satu baris satu review:
+     Nama Akun                     (tanggal = hari ini)
+     Nama Akun | 2026-07-24
+     Nama Akun | 2026-07-24 | 5
+   Pemisah boleh | , atau TAB — orang menyalin dari layar, dari Sheets, atau
+   mengetik manual, dan menolak format yang "salah pemisah" hanya membuat
+   fitur ini tidak dipakai. */
+function openGoogleFeedForm(){
+  if(!CAN.master(SESSION.role)){ toast("Hanya manager/admin","err"); return; }
+  const f=googleFeed();
+  openModal(`<div class="modal-head"><h3>🔄 Data Review dari Google</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-info" style="margin-bottom:14px">
+       Salin daftar reviewer dari <b>Google Business Profile</b> lalu tempel di sini.
+       Klaim host yang nama akunnya cocok akan <b>otomatis jadi Terverifikasi</b>;
+       yang belum ketemu tetap <b>Pending</b> sampai review-nya muncul.
+     </div>
+     <div class="field full"><label>Daftar review (satu baris satu review)</label>
+       <textarea id="gf_teks" rows="9" placeholder="Rizky Pratama | 2026-07-24 | 5&#10;rizky_p88 | 2026-07-24&#10;Siti Aminah"></textarea>
+       <div class="muted" style="font-size:11.5px;margin-top:5px">
+         Format: <b>Nama Akun</b> | <b>tanggal (YYYY-MM-DD)</b> | <b>rating</b>.
+         Tanggal & rating boleh dikosongkan. Pemisah boleh <b>|</b>, koma, atau tab.
+       </div>
+     </div>
+     <div class="muted" style="font-size:12px">Tersimpan saat ini: <b>${f.length}</b> review Google
+       (${f.filter(g=>g.dipakai).length} sudah dipakai mengesahkan klaim).</div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     ${f.length?`<button class="btn btn-ghost" onclick="hapusGoogleFeed()">🗑️ Kosongkan</button>`:""}
+     <button class="btn btn-primary" onclick="simpanGoogleFeed()">💾 Simpan & Cocokkan</button>
+   </div>`, true);
+}
+function simpanGoogleFeed(){
+  const teks=(byId("gf_teks").value||"").trim();
+  if(!teks){ toast("Belum ada yang ditempel","err"); return; }
+  const lama=googleFeed();
+  let baru=0;
+  teks.split(/\r?\n/).forEach(baris=>{
+    const b=baris.trim(); if(!b) return;
+    const kol=b.split(/\s*[|,\t]\s*/);
+    const akun=(kol[0]||"").trim(); if(!akun) return;
+    const tgl=(kol[1]||"").trim().match(/^\d{4}-\d{2}-\d{2}$/) ? kol[1].trim() : todayStr();
+    const rating=Number(kol[2])||0;
+    // Akun+tanggal yang sama tidak digandakan: menempel ulang daftar yang
+    // sama (hal yang wajar dilakukan tiap hari) tidak boleh menumpuk data.
+    if(lama.some(g=>normAkun(g.akun)===normAkun(akun) && g.tanggal===tgl)) return;
+    lama.push({akun, tanggal:tgl, rating, dipakai:""});
+    baru++;
+  });
+  const sah=cocokkanSemuaKlaim();
+  logAudit("Google Review", `Umpan Google diperbarui: +${baru} review, ${sah} klaim tersahkan otomatis`);
+  saveState(); closeModal();
+  toast(`${baru} review Google ditambahkan — ${sah} klaim langsung terverifikasi ✅`,"ok");
+  renderReview();
+}
+function hapusGoogleFeed(){
+  if(!confirm("Kosongkan seluruh data review Google?\n\nKlaim yang SUDAH terverifikasi tidak ikut dibatalkan.")) return;
+  STATE.master.googleFeed=[];
+  logAudit("Google Review", "Umpan Google dikosongkan");
+  saveState(); closeModal(); toast("Data Google dikosongkan",""); renderReview();
 }
 const REVIEW_STATUS = {
   diminta:      {label:"Diminta",       cls:"st-pending",   ico:"📤"},
@@ -6902,10 +7043,31 @@ function openReviewForm(resId, rvId){
        <div class="field"><label>Nama Tamu <span class="req">*</span></label><input id="rv_name" value="${esc(name)}" placeholder="Nama tamu"></div>
        <div class="field"><label>No. WhatsApp</label><input id="rv_phone" inputmode="numeric" value="${esc(displayPhone(phone))}" placeholder="08xxxx"></div>
        <div class="field"><label>Nama Akun Google (reviewer) <span class="req">*</span></label><input id="rv_reviewer" value="${esc(rv?.reviewerName||"")}" placeholder="Nama yang tampil di review"></div>
+       <!-- HOST: siapa yang berhak atas poin ini. Dropdown, bukan ketik bebas —
+            nama yang diketik berbeda-beda ("Budi", "budi", "Budi S") memecah
+            perolehan satu orang jadi beberapa baris dan merusak target. -->
+       <div class="field"><label>Host <span class="req">*</span></label>
+         <select id="rv_host">
+           <option value="">— pilih host —</option>
+           ${reviewHosts().map(n=>`<option value="${esc(n)}"${(rv?.host||SESSION.name)===n?" selected":""}>${esc(n)}</option>`).join("")}
+         </select></div>
+       <!-- NO MEJA / BILL: pengunci ke tamu hari itu. Tanpa ini, screenshot
+            review orang asing dari internet tidak bisa dibedakan dari review
+            tamu sungguhan. -->
+       <div class="field"><label>No. Meja / Bill <span class="req">*</span></label>
+         <input id="rv_table" value="${esc(rv?.tableNo||"")}" placeholder="mis. 12 atau B-0345"></div>
        <div class="field"><label>Rating</label><select id="rv_rating">${[5,4,3,2,1].map(n=>`<option value="${n}"${(rv?.rating||5)===n?" selected":""}>${stars(n)} ${n}</option>`).join("")}</select></div>
        <div class="field"><label>Tanggal Review</label><input type="date" id="rv_date" value="${esc(rv?.date||todayStr())}"></div>
        <div class="field full"><label>Screenshot Bukti Review <span class="req">*</span></label>
-         <input type="file" accept="image/*" onchange="fileToData(this,'rv_proof')">
+         <!-- capture="environment" membuka KAMERA langsung di HP (host memotret
+              layar tamu setelah review terkirim). Di desktop otomatis jatuh ke
+              pemilih berkas biasa, jadi satu input cukup untuk keduanya. -->
+         <div style="display:flex;gap:8px;flex-wrap:wrap">
+           <button type="button" class="btn btn-sm btn-primary" onclick="byId('rv_cam').click()">📷 Buka Kamera</button>
+           <button type="button" class="btn btn-sm btn-ghost" onclick="byId('rv_file').click()">🖼️ Pilih dari Galeri</button>
+         </div>
+         <input type="file" id="rv_cam"  accept="image/*" capture="environment" style="display:none" onchange="fileToData(this,'rv_proof')">
+         <input type="file" id="rv_file" accept="image/*" style="display:none" onchange="fileToData(this,'rv_proof')">
          <div id="rv_proof" class="muted" style="font-size:12px;margin-top:5px">${rv?.proofData?("✓ "+esc(rv.proofName||"bukti tersimpan")):"Belum ada bukti"}</div>
        </div>
      </div>
@@ -6918,8 +7080,12 @@ function openReviewForm(resId, rvId){
 function saveReview(rvId, resId){
   const name=(byId("rv_name").value||"").trim();
   const reviewer=(byId("rv_reviewer").value||"").trim();
+  const host=(byId("rv_host").value||"").trim();
+  const tableNo=(byId("rv_table").value||"").trim();
   if(!name){ toast("Nama tamu wajib diisi","err"); return; }
   if(!reviewer){ toast("Nama akun Google (reviewer) wajib diisi — ini kunci verifikasinya","err"); return; }
+  if(!host){ toast("Host wajib dipilih — poinnya masuk ke siapa?","err"); return; }
+  if(!tableNo){ toast("No. meja / bill wajib diisi — ini yang mengunci review ke tamu hari itu","err"); return; }
   let rv = rvId ? reviews().find(x=>x.id===rvId) : null;
   const proof = PENDING_FILES.rv_proof;
   if(!rv && !proof){ toast("Screenshot bukti review wajib dilampirkan","err"); return; }
@@ -6956,7 +7122,8 @@ function saveReview(rvId, resId){
   }
   Object.assign(rv, {
     name, phone:normPhone(byId("rv_phone").value||""),
-    reviewerName:reviewer, rating:Number(byId("rv_rating").value)||5,
+    reviewerName:reviewer, host, tableNo,
+    rating:Number(byId("rv_rating").value)||5,
     date:byId("rv_date").value||todayStr(),
     proofData: proof?proof.data:(rv.proofData||""),
     proofName: proof?proof.name:(rv.proofName||""),
@@ -6964,9 +7131,14 @@ function saveReview(rvId, resId){
     verifiedBy:"", verifiedAt:0, rejectNote:"",
   });
   PENDING_FILES={};
-  logAudit("Google Review", `Klaim review dicatat: ${name} (akun: ${reviewer})`);
+  // Kalau data Google sudah ditarik, klaim ini bisa langsung sah tanpa
+  // menunggu manager. Kalau belum ketemu, tetap "diklaim" (Pending).
+  const otomatis = cocokkanKeGoogle(rv);
+  logAudit("Google Review", `Klaim review dicatat: ${name} (akun: ${reviewer}, host: ${host}, meja: ${tableNo})`);
   saveState(); closeModal();
-  toast("Klaim review dicatat — menunggu verifikasi ⏳","ok");
+  toast(otomatis
+    ? "Klaim cocok dengan data Google — langsung TERVERIFIKASI ✅"
+    : "Klaim review dicatat — menunggu verifikasi ⏳", "ok");
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
 }
 function verifyReview(id){
@@ -7487,6 +7659,131 @@ function feedbackView(){
    </div>`;
 }
 
+/* ================= DASHBOARD REPORT GOOGLE REVIEW =================
+   Laporan pencapaian PER HOST untuk satu bulan, disandingkan dengan target
+   masing-masing dan target akumulasi tim.
+
+   Yang dihitung ke pencapaian hanya review TERVERIFIKASI — klaim yang belum
+   cocok dengan Google ditampilkan terpisah sebagai "pending", bukan dijumlah
+   ke pencapaian. Kalau pending ikut dihitung, angka target bisa dikerek naik
+   hanya dengan mengklaim, dan seluruh gunanya verifikasi hilang.
+
+   Host diambil dari field `host` (klaim baru). Catatan lama belum punya field
+   itu — jatuh ke claimedBy supaya riwayat lama tetap terbaca, bukan hilang. */
+function rvHostOf(x){ return String(x.host || x.claimedBy || x.by || "").trim() || "—"; }
+function rvDashboardHtml(tm){
+  const cfg=reviewCfg();
+  const canCfg=CAN.master(SESSION.role);
+  const bulan=reviewsOfMonth(tm);
+  const sah=bulan.filter(x=>x.status==="terverifikasi");
+  const pending=bulan.filter(x=>x.status==="diklaim");
+  const tolak=bulan.filter(x=>x.status==="ditolak");
+
+  // Kumpulkan per host: yang sudah sah, yang masih menunggu, dan targetnya.
+  const peta={};
+  const isi=(nama)=>{ const k=nama||"—"; if(!peta[k]) peta[k]={nama:k, sah:0, pending:0}; return peta[k]; };
+  sah.forEach(x=>isi(rvHostOf(x)).sah++);
+  pending.forEach(x=>isi(rvHostOf(x)).pending++);
+  // Host yang PUNYA target tapi belum menghasilkan apa pun tetap ditampilkan —
+  // justru merekalah yang paling perlu terlihat.
+  Object.keys(cfg.targets||{}).forEach(n=>{ if(reviewTargetOf(n)>0) isi(n); });
+
+  const baris=Object.values(peta).map(o=>{
+    o.target=reviewTargetOf(o.nama);
+    o.pct=o.target?Math.min(100,Math.round(o.sah/o.target*100)):null;
+    return o;
+  }).sort((a,b)=> b.sah-a.sah || (b.target-a.target) || a.nama.localeCompare(b.nama));
+
+  const targetTim=Number(cfg.target)||0;
+  const jumlahTargetOrang=baris.reduce((a,o)=>a+o.target,0);
+  const pctTim=targetTim?Math.min(100,Math.round(sah.length/targetTim*100)):0;
+  const feed=googleFeed();
+
+  return `
+   <div class="panel">
+     <div class="panel-head"><h3>📊 Dashboard Report — ${fmtMonth(tm)}</h3>
+       <div style="display:flex;gap:8px;flex-wrap:wrap">
+         ${canCfg?`<button class="btn btn-sm btn-ghost" onclick="openGoogleFeedForm()">🔄 Data Google${feed.length?` (${feed.length})`:""}</button>`:""}
+         ${canCfg?`<button class="btn btn-sm btn-ghost" onclick="openRvTargetForm()">🎯 Atur Target</button>`:""}
+       </div></div>
+     <div class="panel-body">
+       <div class="recap-grid" style="margin-bottom:14px">
+         <div class="recap ok"><div class="lbl">✅ Sah Bulan Ini</div><div class="val">${sah.length}</div><div class="sub">terverifikasi</div></div>
+         <div class="recap warn"><div class="lbl">⏳ Pending</div><div class="val">${pending.length}</div><div class="sub">belum cocok Google</div></div>
+         <div class="recap ${tolak.length?'danger':''}"><div class="lbl">✖ Ditolak</div><div class="val">${tolak.length}</div><div class="sub">tak ada di Google</div></div>
+         <div class="recap info"><div class="lbl">🎯 Target Tim</div><div class="val">${targetTim||"—"}</div><div class="sub">akumulasi sebulan</div></div>
+         <div class="recap purple"><div class="lbl">📈 Pencapaian</div><div class="val">${targetTim?pctTim:"—"}${targetTim?"<small>%</small>":""}</div><div class="sub">${targetTim?`${sah.length} dari ${targetTim}`:"target belum diatur"}</div></div>
+         <div class="recap"><div class="lbl">👥 Total Target Orang</div><div class="val">${jumlahTargetOrang||"—"}</div><div class="sub">jumlah target individu</div></div>
+       </div>
+
+       ${targetTim && jumlahTargetOrang && jumlahTargetOrang!==targetTim ? `
+         <div class="inline-info" style="margin-bottom:12px">
+           Target tim (<b>${targetTim}</b>) berbeda dari jumlah target individu (<b>${jumlahTargetOrang}</b>).
+           Itu wajar kalau disengaja sebagai peregangan — tapi kalau tidak, salah satunya perlu disesuaikan.
+         </div>`:""}
+
+       ${baris.length?`<div class="table-wrap"><table>
+         <thead><tr><th>Host</th><th style="text-align:right">Sah</th><th style="text-align:right">Pending</th><th style="text-align:right">Target</th><th style="width:34%">Progres</th></tr></thead>
+         <tbody>${baris.map(o=>`<tr>
+           <td><b>${esc(o.nama)}</b></td>
+           <td style="text-align:right"><b style="color:var(--ok,#2C8A78)">${o.sah}</b></td>
+           <td style="text-align:right">${o.pending?`<span class="muted">${o.pending}</span>`:"—"}</td>
+           <td style="text-align:right">${o.target||`<span class="muted">—</span>`}</td>
+           <td>${o.target
+             ? `<div class="rv-progress"><i style="width:${o.pct}%"></i></div>
+                <div class="muted" style="font-size:11.5px;margin-top:3px">${o.pct}% ${o.sah>=o.target?"🎉":`— kurang ${o.target-o.sah}`}</div>`
+             : `<span class="muted" style="font-size:11.5px">target belum diatur</span>`}</td>
+         </tr>`).join("")}</tbody></table></div>`
+         :`<div class="empty" style="padding:26px"><div class="big">📊</div>Belum ada data pada ${esc(fmtMonth(tm))}.<br>
+            <span class="muted">Catat review lewat <b>⭐ Catat Review</b>, lalu atur target tiap host.</span></div>`}
+
+       <div class="muted" style="font-size:11.5px;margin-top:12px;line-height:1.6">
+         Hanya review <b>terverifikasi</b> yang dihitung ke target. Klaim jadi terverifikasi otomatis
+         begitu nama akunnya cocok dengan <b>Data Google</b> yang ditarik${feed.length?"":" — belum ada data Google, jadi verifikasi masih manual"}.
+       </div>
+     </div>
+   </div>`;
+}
+
+/* Atur target: akumulasi tim + per orang, dalam satu modal. Dipisah jadi dua
+   tempat dulu membuat orang mengatur salah satunya saja lalu bingung kenapa
+   angkanya tak cocok. */
+function openRvTargetForm(){
+  if(!CAN.master(SESSION.role)){ toast("Hanya manager/admin","err"); return; }
+  const cfg=reviewCfg();
+  const hosts=reviewHosts();
+  openModal(`<div class="modal-head"><h3>🎯 Atur Target Google Review</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="field"><label>Target Akumulasi Tim (per bulan)</label>
+       <input type="number" min="0" id="rvt_tim" value="${Number(cfg.target)||0}">
+       <div class="muted" style="font-size:11.5px;margin-top:4px">Target outlet sebulan. Boleh lebih tinggi dari jumlah target individu.</div>
+     </div>
+     <div class="muted" style="font-size:12px;margin:14px 0 8px"><b>Target per orang (per bulan)</b> — kosongkan / 0 kalau host itu tidak dinilai.</div>
+     <div class="form-grid">
+       ${hosts.map(n=>`<div class="field"><label>${esc(n)}</label>
+         <input type="number" min="0" data-rvt-host="${esc(n)}" value="${reviewTargetOf(n)||""}" placeholder="0"></div>`).join("")}
+     </div>
+     ${hosts.length?"":`<div class="inline-info">Belum ada kru terdaftar di modul ini.</div>`}
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="simpanRvTarget()">💾 Simpan Target</button>
+   </div>`, true);
+}
+function simpanRvTarget(){
+  const cfg=reviewCfg();
+  cfg.target=Math.max(0, Number(byId("rvt_tim").value)||0);
+  const t={};
+  document.querySelectorAll("[data-rvt-host]").forEach(el=>{
+    const n=el.getAttribute("data-rvt-host"), v=Math.max(0, Number(el.value)||0);
+    if(v>0) t[n]=v;                      // 0 = tidak dinilai, tidak perlu disimpan
+  });
+  cfg.targets=t;
+  logAudit("Google Review", `Target diperbarui: tim ${cfg.target}/bulan, ${Object.keys(t).length} host bertarget`);
+  saveState(); closeModal(); renderReview();
+  toast("Target disimpan ✓","ok");
+}
+
 /* Halaman "Feedback" = 2 tab: ⭐ Google Review  |  💬 Feedback Customer */
 function renderReview(){
   const rg = reviewRange();
@@ -7625,9 +7922,10 @@ function reviewGoogleView(){
          <div class="recap info"><div class="lbl">⭐ Rata² Rating</div><div class="val">${avgRating||"—"}</div><div class="sub">dari yang terverifikasi</div></div>
          <div class="recap purple"><div class="lbl">📈 Konversi</div><div class="val">${convRate}<small>%</small></div><div class="sub">${verified.length} jadi review / ${totalAsked} disentuh</div></div>
        </div>
-     </div>
+     </div></div>
    </div>
 
+   ${rvDashboardHtml(tm)}
 
    <div class="panel">
      <div class="panel-head"><h3>📤 Tamu Belum Diminta Review</h3>
