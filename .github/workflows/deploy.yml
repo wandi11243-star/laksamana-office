@@ -216,7 +216,7 @@ jobs:
         if: always()
         run: |
           gagal=0
-          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ bd/; do
+          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ bd/ kompas/; do
             src="deploy/${m}index.html"
             if [ ! -f "$src" ]; then echo "LEWAT   ${m:-/} (tidak ada di repo)"; continue; fi
             url="https://office.laksamanamuda.id/${m}index.html"
@@ -310,6 +310,27 @@ jobs:
             echo "OK      stats jalan (key_terpakai & gc termuat tanpa galat)"
           else
             echo "GAGAL   stats balas HTTP $kode — kemungkinan galat PHP di lib_marketing_mysql.php"
+            gagal=1
+          fi
+
+          echo "--- kompas-api-mysql ---"
+          kmp=$(curl -s -m 60 "https://office.laksamanamuda.id/kompas-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $kmp"
+          case "$kmp" in
+            *'"env":"produksi"'*) echo "OK      env=produksi" ;;
+            *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          # ?action=ping cuma menyentuh config; stats menjalankan query ke SEMUA
+          # tabel lewat lib_kompas_mysql — jadi galat parse / skema hilang yang
+          # lolos dari ping akan tertangkap di sini.
+          kode=$(curl -s -m 60 -o /tmp/kmp.json -w '%{http_code}' \
+                 "https://office.laksamanamuda.id/kompas-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
+          echo "stats: HTTP $kode -> $(head -c 300 /tmp/kmp.json)"
+          if [ "$kode" = "200" ]; then
+            echo "OK      stats jalan (lib_kompas_mysql termuat, semua tabel terbaca)"
+          else
+            echo "GAGAL   stats balas HTTP $kode — kemungkinan galat PHP di lib_kompas_mysql.php / skema kurang"
             gagal=1
           fi
 
