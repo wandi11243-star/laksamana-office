@@ -1916,6 +1916,8 @@
      Rencana dan Sudah Dipakai dipisah kolomnya, karena artinya berbeda:
      Rencana belum keluar dari gudang. Menjumlahkan keduanya jadi satu angka
      akan membuat orang mengira barangnya sudah terpakai. */
+  // Satuan dasar per keluarga untuk penggabungan (kalau produk belum punya).
+  const REKAP_FAM_BASE = { berat: 'Kg', volume: 'Liter' };
   function rekapBahan(list) {
     const peta = new Map();
     list.forEach(r => {
@@ -1924,10 +1926,29 @@
         const nama = String(i.item || '').trim();
         if (!nama) return;                       // baris kosong tidak dihitung
         const unit = String(i.unit || '').trim();
-        const kunci = nama.toLowerCase() + ' ' + unit.toLowerCase();
-        const b = peta.get(kunci) || { item: nama, unit, selesai: 0, rencana: 0, dipakai: 0 };
         const q = Number(i.qty) || 0;
-        if (selesai) b.selesai += q; else b.rencana += q;
+
+        /* Satuan yang SEKELUARGA (Gram+Kg, ML+Liter) digabung jadi satu baris,
+           dikonversi ke satu satuan target: satuan utama produk kalau
+           sekeluarga, kalau tidak ke Kg/Liter. Satuan DISKRIT (Pcs/Dus/…)
+           tidak bisa dikonversi, jadi tetap satu baris per satuan. */
+        const info = soUnitInfo(unit);           // [keluarga, faktor] | undefined
+        let target = unit, kunciSat;
+        let qv = q;
+        if (info) {
+          const keluarga = info[0];
+          const pu = soUnit(nama), puInfo = soUnitInfo(pu);
+          target = (puInfo && puInfo[0] === keluarga) ? pu : REKAP_FAM_BASE[keluarga];
+          const c = soKonversi(q, unit, target);
+          if (c !== null) qv = c;
+          kunciSat = 'fam:' + keluarga;          // satu bucket per keluarga
+        } else {
+          kunciSat = 'u:' + unit.toLowerCase();  // diskrit: per satuan sendiri
+        }
+
+        const kunci = nama.toLowerCase() + '|' + kunciSat;
+        const b = peta.get(kunci) || { item: nama, unit: target, selesai: 0, rencana: 0, dipakai: 0 };
+        if (selesai) b.selesai += qv; else b.rencana += qv;
         b.dipakai += 1;                          // berapa catatan menyebut bahan ini
         peta.set(kunci, b);
       });
@@ -1987,7 +2008,7 @@
         </div>
         <p class="px-4 py-2.5 text-[10px] text-slate-400 font-semibold border-t border-slate-100 leading-relaxed">
           Dihitung dari catatan yang sedang tampil — ubah periode, jenis, atau pencarian di atas untuk mempersempitnya.
-          Bahan yang sama dengan satuan berbeda sengaja dipisah barisnya.
+          Satuan sekeluarga (Gram+Kg, ML+Liter) digabung otomatis; satuan yang tak bisa dikonversi (Pcs, Dus, dll) tetap dipisah barisnya.
         </p>
       </div>`;
   }
