@@ -722,19 +722,33 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 .mdb-del{flex:none}
 .mdb-head{display:flex;align-items:center;gap:9px;margin-bottom:10px}
 .mdb-head .section-title{flex:1;margin:0;font-size:15px}
-.mdb-list{display:flex;flex-wrap:wrap;gap:6px;flex:1;align-content:flex-start}
-/* Pil menu memakai rona kartunya, jadi isi tiap jenis terbaca sebagai satu
-   kelompok. Tombol × disembunyikan sampai pilnya disentuh — deretan silang
-   merah di setiap nama membuat halaman terlihat seperti daftar kesalahan. */
-.mdb-item{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;
-  background:var(--rona-bg,var(--ink-900));border:1px solid transparent;font-size:12.5px;
-  color:var(--sand);transition:border-color .14s,background .14s}
-.mdb-item:hover{border-color:var(--rona,var(--line-hard))}
-.mdb-item button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;
-  padding:0 1px;opacity:0;width:0;overflow:hidden;transition:opacity .14s}
-.mdb-item:hover button,.mdb-item:focus-within button{opacity:1;width:auto}
-.mdb-item button:hover{color:var(--danger)}
-.mdb-item button:focus-visible{opacity:1;width:auto;outline:2px solid var(--danger);border-radius:4px}
+.mdb-list{display:block;flex:1}
+/* TABEL MINI DUA KOLOM (menu | harga) menggantikan deretan pil. Harga tidak
+   muat di dalam pil tanpa membuatnya jadi label panjang yang sulit
+   dibandingkan; berderet ke bawah, angkanya bisa dibaca menurun. */
+.mdb-tbl{width:100%;border-collapse:collapse}
+.mdb-tbl td{padding:5px 6px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+.mdb-tbl tr:last-child td{border-bottom:none}
+.mdb-item{transition:background .14s}
+.mdb-item:hover{background:var(--rona-bg,var(--ink-900))}
+.mdb-nama{font-size:12.5px;color:var(--sand)}
+/* Harga rata KANAN + angka tabular supaya digitnya sejajar antar baris —
+   itulah gunanya menaruhnya di kolom sendiri. */
+.mdb-harga{width:104px;text-align:right;font-size:12.5px;color:var(--sand)}
+.mdb-harga-kosong{color:var(--muted)}
+.mdb-hin{width:100%;border:1px solid transparent;background:none;border-radius:7px;padding:3px 6px;
+  text-align:right;font-size:12.5px;color:inherit;font-variant-numeric:tabular-nums}
+.mdb-hin:hover{border-color:var(--line-hard)}
+.mdb-hin:focus{outline:none;border-color:var(--gold);background:#fff;box-shadow:0 0 0 3px var(--gold-glow)}
+.mdb-hin::placeholder{color:var(--muted)}
+/* Tombol × disembunyikan sampai barisnya disentuh — deretan silang merah di
+   setiap nama membuat halaman terlihat seperti daftar kesalahan. */
+.mdb-aksi{width:22px;text-align:right}
+.mdb-aksi button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;
+  padding:0 1px;opacity:0;transition:opacity .14s}
+.mdb-item:hover .mdb-aksi button,.mdb-item:focus-within .mdb-aksi button{opacity:1}
+.mdb-aksi button:hover{color:var(--danger)}
+.mdb-aksi button:focus-visible{opacity:1;outline:2px solid var(--danger);border-radius:4px}
 .mdb-tambah{display:flex;gap:8px;margin-top:12px}
 .mdb-tambah .inp{flex:1;margin:0}
 @media(max-width:640px){ .mdb-grid{grid-template-columns:1fr} }
@@ -1068,6 +1082,23 @@ function normalizeState(s){
      dikosongkan oleh pengguna. */
   if(s.menuDb===undefined||s.menuDb===null) s.menuDb=MENU_DB_AWAL();
   else if(typeof s.menuDb!=='object'||Array.isArray(s.menuDb)) s.menuDb={};
+  /* Naikkan item menu lama (string) jadi {n,h}. Dilakukan sekali saat memuat
+     supaya yang TERSIMPAN pun seragam — tanpa ini bentuk campur bertahan
+     selamanya dan tiap pembaca harus ingat menormalkannya. Nilai yang bukan
+     array (mis. objek kosong dari PHP) dikembalikan jadi array. */
+  Object.keys(s.menuDb).forEach(function(j){
+    var a=s.menuDb[j];
+    if(!Array.isArray(a)){ s.menuDb[j]=[]; return; }
+    s.menuDb[j]=a.map(function(x){
+      if(typeof x==='string') return {n:x.trim(), h:null};
+      if(x && typeof x==='object'){
+        var n=String(x.n!=null?x.n:(x.nama!=null?x.nama:'')).trim();
+        var h=(x.h===undefined||x.h===null||x.h==='')?null:(+x.h||0);
+        return {n:n, h:h};
+      }
+      return null;
+    }).filter(function(x){ return x && x.n; });
+  });
   /* fbFormats & fbSubs pulang lewat jalur 'extra:' backend, jadi TIDAK ikut
      MKT_COLS. Yang dipaksa di sini hanya "harus array kalau ada" — bukan diisi
      bibit, karena [] di sini berarti pengguna memang menghapus semuanya.
@@ -6268,10 +6299,38 @@ function MENU_DB_AWAL(){
     'Minuman':['Infused Water','Es Teh Manis','Kopi Tubruk','Jus Jeruk','Mocktail']
   };
 }
+/* ---------- BENTUK ITEM MENU ----------
+   Dulu tiap menu cuma STRING nama. Sekarang {n:nama, h:harga} supaya harga
+   jual per porsi ikut tercatat.
+
+   Data lama (string murni) TIDAK dibuang dan tidak perlu migrasi merusak: ia
+   dinaikkan saat dibaca lewat mdbNorm(). Harga yang belum diisi bernilai null
+   — dibedakan dari 0, karena beberapa menu memang gratis (Mineral, Coca Cola)
+   dan itu bukan hal yang sama dengan "belum dihargai". */
+function mdbNorm(x){
+  if(typeof x==='string') return {n:x, h:null};
+  if(x && typeof x==='object'){
+    var n=String(x.n!=null?x.n:(x.nama!=null?x.nama:'')).trim();
+    var h=(x.h===undefined||x.h===null||x.h==='')?null:(+x.h||0);
+    return {n:n, h:h};
+  }
+  return {n:'', h:null};
+}
+/* Baca angka rupiah dari ketikan/tempelan: "Rp6,000", "6.000", "6000" → 6000.
+   Semua non-digit dibuang — harga di sini selalu rupiah bulat, dan pemisah
+   ribuannya bisa titik ATAU koma tergantung dari mana disalin. Kosong → null
+   ("belum dihargai"), bukan 0 ("gratis"). */
+function mdbAngka(v){
+  var t=String(v==null?'':v).replace(/[^0-9]/g,'');
+  return t===''?null:(+t);
+}
+function mdbItems(j){ return ((S.menuDb||{})[j]||[]).map(mdbNorm).filter(i=>i.n); }
+function mdbSet(j,arr){ S.menuDb[j]=arr.map(i=>({n:i.n, h:(i.h==null?null:+i.h)})); }
+function mdbHargaTeks(h){ return (h==null)?'—':rp(h); }
 function menuDbJenis(){ return Object.keys(S.menuDb||{}).sort((a,b)=>a.localeCompare(b)); }
 function menuDbSemuaMenu(){
   const out=[];
-  Object.keys(S.menuDb||{}).forEach(j=>(S.menuDb[j]||[]).forEach(m=>{ if(out.indexOf(m)<0) out.push(m); }));
+  Object.keys(S.menuDb||{}).forEach(j=>mdbItems(j).forEach(m=>{ if(out.indexOf(m.n)<0) out.push(m.n); }));
   return out.sort((a,b)=>a.localeCompare(b));
 }
 /* Saran di tabel menu diambil dari sini, bukan dari daftar tetap di dalam
@@ -6303,7 +6362,7 @@ let _mdbCari='', _mdbFokus='';
 const MDB_RONA=['gold','info','teal','violet','ok','warn'];
 function menuDbTotal(){
   const j=menuDbJenis();
-  return {jenis:j.length, menu:j.reduce((a,x)=>a+((S.menuDb[x]||[]).length),0)};
+  return {jenis:j.length, menu:j.reduce((a,x)=>a+mdbItems(x).length,0)};
 }
 function renderMenuDb(V){
   const bisaUbah=menuDbBisaUbah(), jenis=menuDbJenis();
@@ -6332,6 +6391,7 @@ function renderMenuDb(V){
       +'<input class="inp" id="mdb_jenis_baru" placeholder="mis. Karbohidrat, Dessert, Minuman" '
       +'onkeydown="if(event.key===\'Enter\'){event.preventDefault();menuDbTambahJenis();}">'
       +'<button class="btn pri" onclick="menuDbTambahJenis()">'+svg(IC.plus)+'Tambah Jenis</button>'
+      +'<button class="btn" onclick="menuDbImpor()" title="Tempel daftar menu dari Excel / Google Sheets">'+svg(IC.down)+'Impor Daftar</button>'
       +'</div></div>';
   }
   if(!jenis.length){
@@ -6340,7 +6400,7 @@ function renderMenuDb(V){
   }
   h+='<div class="mdb-grid" id="mdb_grid">';
   jenis.forEach((j,idx)=>{
-    const daftar=(S.menuDb[j]||[]).slice().sort((a,b)=>a.localeCompare(b));
+    const daftar=mdbItems(j).slice().sort((a,b)=>a.n.localeCompare(b.n));
     const jj=escJs(j);
     const rona=MDB_RONA[idx%MDB_RONA.length];
     h+='<div class="card mdb-kartu r-'+rona+'" data-jenis="'+esc(j.toLowerCase())+'">'
@@ -6350,14 +6410,26 @@ function renderMenuDb(V){
         +'<span class="mdb-n num">'+daftar.length+'</span>'
         +(bisaUbah?'<button class="btn sm danger mdb-del" title="Hapus jenis ini" onclick="menuDbHapusJenis(\''+jj+'\')">'+svg(IC.trash)+'</button>':'')
       +'</div>';
+    /* Tabel mini DUA KOLOM (menu | harga) menggantikan deretan pil. Harga tidak
+       muat di dalam pil tanpa membuatnya jadi label panjang yang sulit
+       dibandingkan; berderet ke bawah dalam kolom, angkanya bisa dibaca
+       menurun. Harga rata KANAN dan bernomor tabular supaya digitnya sejajar. */
     h+='<div class="mdb-list">'+(daftar.length
-      ? daftar.map(m=>'<span class="mdb-item" data-menu="'+esc(m.toLowerCase())+'">'+esc(m)
-          +(bisaUbah?'<button type="button" title="Hapus menu ini" onclick="menuDbHapusMenu(\''+jj+'\',\''+escJs(m)+'\')">&times;</button>':'')
-          +'</span>').join('')
+      ? '<table class="mdb-tbl"><tbody>'+daftar.map(m=>
+          '<tr class="mdb-item" data-menu="'+esc(m.n.toLowerCase())+'">'
+          +'<td class="mdb-nama">'+esc(m.n)+'</td>'
+          +'<td class="mdb-harga num'+(m.h==null?' mdb-harga-kosong':'')+'">'
+            +(bisaUbah
+              ? '<input class="mdb-hin num" inputmode="numeric" value="'+(m.h==null?'':esc(poRibuan(m.h)))+'" placeholder="—" '
+                +'title="Harga jual per porsi" onchange="menuDbSetHarga(\''+jj+'\',\''+escJs(m.n)+'\',this.value)">'
+              : mdbHargaTeks(m.h))
+          +'</td>'
+          +(bisaUbah?'<td class="mdb-aksi"><button type="button" title="Hapus menu ini" onclick="menuDbHapusMenu(\''+jj+'\',\''+escJs(m.n)+'\')">&times;</button></td>':'')
+          +'</tr>').join('')+'</tbody></table>'
       : '<span class="cell-sub mdb-kosong">Belum ada menu di jenis ini.</span>')
       +'<span class="cell-sub mdb-nihil" hidden>Tidak ada yang cocok di jenis ini.</span></div>';
     if(bisaUbah){
-      h+='<div class="mdb-tambah"><input class="inp" id="mdb_'+esc(j)+'" placeholder="Tambah menu — pisahkan dengan koma" '
+      h+='<div class="mdb-tambah"><input class="inp" id="mdb_'+esc(j)+'" placeholder="Nama menu = harga — pisahkan dengan koma" '
         +'onkeydown="if(event.key===\'Enter\'){event.preventDefault();menuDbTambahMenu(\''+jj+'\');}">'
         +'<button class="btn sm" onclick="menuDbTambahMenu(\''+jj+'\')">Tambah</button></div>';
     }
@@ -6408,6 +6480,81 @@ function menuDbSaring(q,bersihkan){
   const nihilAll=$('mdb_nihil_all'); if(nihilAll) nihilAll.hidden = !(kata && kartuTampil===0);
 }
 function menuDbSimpan(){ save(); paintMenuDatalist(); renderMenuDb($('view')); }
+/* ---------- IMPOR DAFTAR MENU (tempel dari spreadsheet) ----------
+   Mengetik puluhan menu satu per satu itu lambat dan rawan salah ketik. Ini
+   menerima tempelan langsung dari Excel/Sheets dengan susunan kolom:
+     NO | KATEGORI | NAMA MENU | SATUAN | HARGA
+   Bentuk ringkas 2–3 kolom (KATEGORI | NAMA | HARGA) juga diterima.
+
+   KATEGORI KOSONG DIWARISKAN dari baris di atasnya — di spreadsheet aslinya
+   baris lanjutan memang dikosongkan, dan kalau tidak diwariskan menu-menu itu
+   akan mendarat di kategori bernama "Fried Wonton". */
+function mdbParseTempel(teks){
+  var out=[], katTerakhir='', lewat=0;
+  String(teks||'').split(/\r?\n/).forEach(function(baris){
+    if(!baris.trim()) return;
+    var sel=baris.split('\t').map(function(x){return String(x).trim();});
+    if(sel.length===1) sel=baris.split(/\s{2,}/).map(function(x){return String(x).trim();});
+    var kat,nama,harga;
+    if(sel.length>=4){ kat=sel[1]; nama=sel[2]; harga=sel[4]!==undefined?sel[4]:sel[3]; }
+    else { kat=sel[0]; nama=sel[1]; harga=sel[2]; }
+    if(!nama){ lewat++; return; }
+    // baris judul tabel
+    if(/^nama\s*menu$/i.test(nama) || /^kategori$/i.test(kat)){ lewat++; return; }
+    if(kat) katTerakhir=kat; else kat=katTerakhir;
+    if(!kat){ lewat++; return; }
+    var h=null;
+    if(harga!==undefined && String(harga).trim()!==''){
+      h=mdbAngka(harga);      // "Rp0" tetap 0 — gratis, bukan "belum dihargai"
+    }
+    out.push({kat:kat, n:nama, h:h});
+  });
+  return {baris:out, lewat:lewat};
+}
+function menuDbImpor(){
+  if(!menuDbBisaUbah()) return;
+  modal('<div class="modal-head"><div><h3>Impor Daftar Menu</h3><p>Tempel langsung dari Excel / Google Sheets</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Susunan kolom: <b>NO · KATEGORI · NAMA MENU · SATUAN · HARGA</b> (bentuk ringkas <b>KATEGORI · NAMA · HARGA</b> juga bisa). Kategori yang dikosongkan mewarisi baris di atasnya. Jenis yang belum ada akan dibuat.</span></div>'
+   +'<div class="field" style="margin-top:12px"><label>Tempel di sini<span class="req">*</span></label>'
+   +'<textarea class="inp" id="mdb_tempel" rows="10" placeholder="1&#9;Karbohidrat&#9;Nasi Putih&#9;Porsi&#9;Rp6,000" oninput="menuDbPratinjauImpor()"></textarea></div>'
+   +'<div id="mdb_pratinjau" class="cell-sub">Belum ada yang ditempel.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" id="mdb_impor_ok" onclick="menuDbImporJalan()">Impor</button></div>');
+  setTimeout(function(){ var el=$('mdb_tempel'); if(el)el.focus(); },40);
+}
+function menuDbPratinjauImpor(){
+  var el=$('mdb_tempel'), out=$('mdb_pratinjau'); if(!el||!out) return;
+  var r=mdbParseTempel(el.value);
+  if(!r.baris.length){ out.textContent = el.value.trim()?'Tidak ada baris yang terbaca — cek susunan kolomnya.':'Belum ada yang ditempel.'; return; }
+  var kat={}; r.baris.forEach(function(b){ kat[b.kat]=(kat[b.kat]||0)+1; });
+  var berharga=r.baris.filter(function(b){return b.h!=null;}).length;
+  out.innerHTML='Terbaca <b>'+r.baris.length+' menu</b> dalam <b>'+Object.keys(kat).length+' kategori</b>'
+    +' · '+berharga+' punya harga'+(r.lewat?' · '+r.lewat+' baris dilewati':'')
+    +'<div style="margin-top:6px">'+Object.keys(kat).map(function(k){return esc(k)+' ('+kat[k]+')';}).join(' · ')+'</div>';
+}
+function menuDbImporJalan(){
+  if(!menuDbBisaUbah()) return;
+  var el=$('mdb_tempel'); if(!el) return;
+  var r=mdbParseTempel(el.value);
+  if(!r.baris.length) return toast('Tidak ada data','Tidak ada baris yang bisa dibaca dari tempelan itu.','err');
+  var baru=0, perbarui=0, jenisBaru=0;
+  r.baris.forEach(function(b){
+    if(!Array.isArray(S.menuDb[b.kat])){ S.menuDb[b.kat]=[]; jenisBaru++; }
+    var arr=mdbItems(b.kat);
+    var ada=arr.filter(function(x){return x.n.toLowerCase()===b.n.toLowerCase();})[0];
+    if(ada){
+      /* Menu yang sudah ada TIDAK diduplikasi. Harganya diperbarui hanya kalau
+         tempelan memang membawa harga — impor tanpa kolom harga tidak boleh
+         menghapus harga yang sudah susah payah diisi. */
+      if(b.h!=null && ada.h!==b.h){ ada.h=b.h; perbarui++; }
+    }else{ arr.push({n:b.n, h:b.h}); baru++; }
+    mdbSet(b.kat,arr);
+  });
+  logAct('menudb','-','Daftar menu diimpor',baru+' menu baru, '+perbarui+' harga diperbarui, '+jenisBaru+' jenis baru');
+  menuDbSimpan(); closeModal();
+  toast('Impor selesai',baru+' menu baru · '+perbarui+' harga diperbarui'+(jenisBaru?' · '+jenisBaru+' jenis baru':''),'ok');
+}
 function menuDbTambahJenis(){
   if(!menuDbBisaUbah()) return;
   const el=$('mdb_jenis_baru'); if(!el) return;
@@ -6453,19 +6600,28 @@ function menuDbTambahMenu(j){
   if(!menuDbBisaUbah()) return;
   const el=$('mdb_'+j); if(!el) return;
   // Boleh beberapa sekaligus dipisah koma — mengetik satu per satu itu lambat.
-  const baru=el.value.split(',').map(x=>x.trim()).filter(Boolean);
+  /* "Nama = harga" boleh, harga boleh dilewat. Pemisah harga pakai '=' bukan
+     ':' supaya nama menu yang memang memuat ':' tidak terpotong. */
+  const baru=el.value.split(',').map(x=>x.trim()).filter(Boolean).map(x=>{
+    const p=x.split('=');
+    const n=p[0].trim();
+    const h=p.length>1?mdbAngka(p.slice(1).join('=')):null;
+    return {n:n, h:(p.length>1 && n)?(h||0):null};
+  }).filter(x=>x.n);
   if(!baru.length) return;
-  const ada=S.menuDb[j]||(S.menuDb[j]=[]);
+  if(!Array.isArray(S.menuDb[j])) S.menuDb[j]=[];
+  const ada=S.menuDb[j].map(mdbNorm);
   const masuk=[];
   baru.forEach(m=>{
     // Tolak duplikat yang cuma beda huruf besar-kecil — justru itu yang bikin
     // rekap per menu pecah jadi dua baris.
-    if(!ada.some(x=>x.toLowerCase()===m.toLowerCase()) &&
-       !masuk.some(x=>x.toLowerCase()===m.toLowerCase())){ ada.push(m); masuk.push(m); }
+    if(!ada.some(x=>x.n.toLowerCase()===m.n.toLowerCase()) &&
+       !masuk.some(x=>x.n.toLowerCase()===m.n.toLowerCase())){ ada.push(m); masuk.push(m); }
   });
+  mdbSet(j,ada);
   el.value='';
   if(!masuk.length){ toast('Tidak ada yang baru','Semua menu itu sudah ada di "'+j+'".','err'); return; }
-  logAct('menudb',j,'Menu ditambah',j+': '+masuk.join(', '));
+  logAct('menudb',j,'Menu ditambah',j+': '+masuk.map(x=>x.n).join(', '));
   _mdbFokus='mdb_'+j;          // render ulang mengembalikan fokus ke kotak ini
   menuDbSimpan();
   toast('Ditambahkan',masuk.length+' menu masuk ke "'+j+'".','ok');
@@ -6477,21 +6633,38 @@ function menuDbTambahMenu(j){
    "urungkan": cepat untuk yang disengaja, tetap aman untuk yang tidak. */
 function menuDbHapusMenu(j,m){
   if(!menuDbBisaUbah()) return;
-  const arr=S.menuDb[j]||[];
-  const posisi=arr.indexOf(m);                 // dikembalikan ke tempat semula
+  const arr=mdbItems(j);
+  const posisi=arr.findIndex(x=>x.n===m);      // dikembalikan ke tempat semula
   if(posisi<0) return;
-  S.menuDb[j]=arr.filter(x=>x!==m);
+  const item=arr[posisi];                      // HARGANYA ikut disimpan untuk urungkan
+  mdbSet(j,arr.filter((x,i)=>i!==posisi));
   logAct('menudb',j,'Menu dihapus',j+': '+m);
   menuDbSimpan();
   toast('Menu dihapus','"'+m+'" dari '+j,'ok',{label:'Urungkan',fn:function(){
     if(!menuDbBisaUbah()) return;
-    const kini=S.menuDb[j]||(S.menuDb[j]=[]);
-    if(kini.some(x=>x.toLowerCase()===m.toLowerCase())) return;   // sudah ada lagi
-    kini.splice(Math.min(posisi,kini.length),0,m);
+    const kini=mdbItems(j);
+    if(kini.some(x=>x.n.toLowerCase()===m.toLowerCase())) return;   // sudah ada lagi
+    kini.splice(Math.min(posisi,kini.length),0,item);
+    mdbSet(j,kini);
     logAct('menudb',j,'Penghapusan menu diurungkan',j+': '+m);
     menuDbSimpan();
     toast('Dikembalikan','"'+m+'" kembali ke '+j,'ok');
   }});
+}
+/* Ubah harga langsung dari tabel. Kotak dikosongkan = harga belum diisi (null),
+   BUKAN nol — "belum dihargai" berbeda dari "gratis", dan beberapa menu memang
+   Rp0 (Mineral, Coca Cola). */
+function menuDbSetHarga(j,m,val){
+  if(!menuDbBisaUbah()) return;
+  const arr=mdbItems(j);
+  const it=arr.filter(x=>x.n===m)[0]; if(!it) return;
+  const kosong=String(val==null?'':val).trim()==='';
+  const baru=kosong?null:(mdbAngka(val)||0);
+  if(it.h===baru) return;
+  it.h=baru; mdbSet(j,arr);
+  logAct('menudb',j,'Harga menu diubah',j+': '+m+' → '+(baru==null?'(kosong)':rp(baru)));
+  save(); paintMenuDatalist();
+  toast('Harga disimpan',m+' — '+(baru==null?'dikosongkan':rp(baru)),'ok');
 }
 function renderStaff(V){
   const canEdit=can('edit_staff');
