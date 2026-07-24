@@ -894,8 +894,8 @@ input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid 
 <datalist id="dl_staff"></datalist>
 <!-- Jenis & nama menu: saran dari halaman Database Menu (sidebar), bukan
      kurungan — kedua kolomnya tetap bisa diketik bebas. -->
-<!-- Catatan pada tabel menu Bar: saran, bukan kurungan - kolomnya tetap bisa diketik bebas. -->
-<datalist id="dl_barcatatan"><option>freeflow</option><option>lunch</option><option>dinner</option><option>welcome</option></datalist>
+<!-- dl_barcatatan DIBUANG bersama kolom "Catatan" di tabel menu Bar — kapan
+     minuman keluar ditulis di kolom Jam, jadi kolom itu tak ada lagi. -->
 <datalist id="dl_menukat"></datalist>
 <!-- Nama menu: saran dari halaman Database Menu, kolomnya tetap bisa diketik bebas. -->
 <datalist id="dl_menunama"></datalist>
@@ -3480,14 +3480,19 @@ function menuTblHTML(ev,fl,canEdit){
   const opts={bar:!!fl.bar, grup:grup, data:data};
   return lama+grup.map(g=>menuGroupHTML(fl.k,g,data[g]||{},canEdit,opts)).join('');
 }
-/* Kolom pertama beda antara Kitchen dan Bar:
-   - Kitchen "Jenis"   = karbohidrat/protein/sayuran, dipakai mengelompokkan
-     menu di PDF ("Karbohidrat: Nasi Putih, Mie Goreng").
-   - Bar     "Catatan" = kapan minumannya keluar (freeflow/lunch/dinner),
-     bukan jenis bahan. Mengelompokkan minuman per bahan tidak ada gunanya. */
+/* Kolom pertama HANYA ada untuk Kitchen ("Jenis") — dipakai mengelompokkan
+   menu di PDF ("Karbohidrat: Nasi Putih, Mie Goreng").
+
+   Bar TIDAK punya kolom pertama lagi. Dulu ada "Catatan" (freeflow/lunch), tapi
+   kapan minuman keluar sudah ditulis di kolom Jam ("9.30 (Free Flow)"), jadi
+   Catatan selalu kosong dan cuma menyempitkan kolom Menu. Dikembalikan null,
+   dan setiap perender kolom pertama melewatinya saat null.
+
+   Data lama yang terlanjur punya r.catatan dibiarkan apa adanya — tidak
+   dirender, tidak menghalangi apa pun, dan tidak perlu migrasi yang berisiko. */
 function menuKolom1(bar){
-  return bar ? {k:'catatan', l:'Catatan', dl:'dl_barcatatan', ph:'freeflow / lunch / ketik'}
-             : {k:'kat',     l:'Jenis',   dl:'dl_menukat',    ph:'pilih / ketik'};
+  return bar ? null
+             : {k:'kat', l:'Jenis', dl:'dl_menukat', ph:'pilih / ketik'};
 }
 function menuGroupHTML(fk,g,gd,canEdit,opts){
   opts=opts||{};
@@ -3514,7 +3519,7 @@ function menuGroupHTML(fk,g,gd,canEdit,opts){
     +'</div>'
     +'<table class="rundown-tbl"><thead><tr>'
       +(canEdit?'<th style="width:26px"></th>':'')
-      +'<th style="width:150px">'+k1.l+'</th>'
+      +(k1?'<th style="width:150px">'+k1.l+'</th>':'')
       +'<th>Menu</th><th style="width:96px">Jumlah</th><th style="width:130px">Jam</th>'
       +(canEdit?'<th style="width:34px"></th>':'')
     +'</tr></thead><tbody>'+body+'</tbody></table>'
@@ -3530,7 +3535,7 @@ function menuRowHTML(r,gjam,canEdit,bar,gqty){
      collectMenuTbl yang mengisinya saat disimpan. */
   return '<tr'+(canEdit?' draggable="true"':'')+'>'
     +(canEdit?'<td class="mg-drag" title="Seret untuk mengubah urutan">&#8942;&#8942;</td>':'')
-    +'<td><input class="inp" list="'+k1.dl+'" data-r="'+k1.k+'" value="'+esc(r[k1.k]||'')+'" placeholder="'+k1.ph+'" '+dis+'></td>'
+    +(k1?'<td><input class="inp" list="'+k1.dl+'" data-r="'+k1.k+'" value="'+esc(r[k1.k]||'')+'" placeholder="'+k1.ph+'" '+dis+'></td>':'')
     +'<td><input class="inp" list="dl_menunama" data-r="menu" value="'+esc(r.menu||'')+'" placeholder="nama menu" '+dis+'></td>'
     +'<td><input class="inp" data-r="qty" value="'+esc(r.qty||'')+'" placeholder="'+esc(gqty||'ikut kelompok')+'" title="Kosongkan untuk ikut jumlah kelompok" '+dis+'></td>'
     +'<td><input class="inp" data-r="jam" value="'+esc(r.jam||'')+'" placeholder="'+esc(gjam||'ikut jam kelompok')+'" title="Kosongkan untuk ikut jam kelompok" '+dis+'></td>'
@@ -3562,7 +3567,9 @@ function menuSalinDari(sel){
     // Kolom pertama beda arti antara Kitchen & Bar. Kalau jenisnya beda,
     // kolom itu TIDAK ikut disalin daripada memindahkan isi yang keliru.
     const o={menu:v('menu'), qty:v('qty'), jam:v('jam')};
-    o[k1.k] = (k1.k===k1a.k) ? v(k1a.k) : '';
+    // Kolom pertama cuma ada di Kitchen. Disalin hanya kalau KEDUA sisi Kitchen;
+    // Bar tidak punya kolom ini lagi (k1 null).
+    if(k1) o[k1.k] = (k1a && k1.k===k1a.k) ? v(k1a.k) : '';
     return o;
   }).filter(function(r){ return r.menu||r.qty; });
   if(!baris.length){ toast('Kelompok kosong','"'+dari+'" belum punya menu untuk disalin.','err'); return; }
