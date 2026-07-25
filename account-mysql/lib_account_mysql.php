@@ -619,6 +619,24 @@ function aksi_list_module_roster($body) {
   return array('ok' => true, 'members' => anggota_modul($module, true));
 }
 
+/* Semua user + timnya (keterangan), TANPA gerbang PIN — dipakai modul lain
+   (mis. Kompas) untuk memetakan kru per DIVISI (Marketing/Event/Kasir) secara
+   otomatis. listModuleRoster memfilter per akses modul, sedangkan divisi tidak
+   selalu punya modul sendiri (mis. Kasir), jadi butuh daftar utuh. Tingkat
+   keterbukaannya sama: hanya nama & keterangan, TIDAK ada PIN. */
+function aksi_list_divisi_roster($body) {
+  $out = array();
+  foreach (semua_user() as $u) {
+    $out[] = array(
+      'id'         => s($u['id']),
+      'name'       => s($u['name']),
+      'keterangan' => s($u['keterangan']),
+      'active'     => ((int)$u['active'] === 1),
+    );
+  }
+  return array('ok' => true, 'members' => $out);
+}
+
 function anggota_modul($module, $withAdminFlag) {
   $out = array();
   foreach (semua_user() as $u) {
