@@ -877,6 +877,10 @@ function viewTarget(){
       <div class="notice info">Target harian saat ini: <b>${fmtRp(dailyTarget(PERIOD))}</b></div>
       <button class="btn btn-primary" id="t_save_co">Simpan Target Perusahaan</button>
     </div>
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><h3>PIC dari Office</h3><div class="card-sub" style="margin:0">Tarik kru yang tim/keterangannya <b>Marketing</b>, <b>Event</b>, atau <b>Kasir</b> di Office langsung jadi PIC di sini. Targetnya tetap diisi manual; yang sudah ada tidak ditimpa.</div></div>
+      <button class="btn btn-ghost btn-sm" id="tarikOfc" onclick="tarikPicOffice()">↺ Tarik PIC dari Office</button>
+    </div>
     ${divCard('marketing','Marketing','mk')}
     ${divCard('event','Event Internal','ev')}
     ${divCard('kasir','Kasir','ks')}`;
@@ -907,6 +911,44 @@ function viewTarget(){
         <button class="btn btn-ghost btn-sm" id="add_${divi}" style="margin-bottom:1px">+ Tambah</button>
       </div></div>`;
   }
+}
+
+/* Tarik PIC dari Office berdasarkan Tim/Keterangan (Marketing/Event/Kasir).
+   Butuh listUsers (superadmin, PIN sekali) karena keterangan tiap user hanya
+   dibalas endpoint bergerbang. Non-destruktif: cuma menambah yang belum ada,
+   target & PIC lama tidak disentuh. */
+let OFFICE_PIN=null;
+async function tarikPicOffice(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){}
+  if(!s){ alert('Sesi Office tidak ditemukan.'); return; }
+  if(!OFFICE_PIN){ var pin=prompt('Masukkan PIN Anda (superadmin) untuk menarik daftar kru dari Office:'); if(!pin) return; OFFICE_PIN=String(pin).trim(); }
+  const btn=document.getElementById('tarikOfc'); if(btn){ btn.disabled=true; btn.textContent='Menarik…'; }
+  try{
+    const r=await fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listUsers',callerName:s.name,callerPin:OFFICE_PIN})});
+    const j=await r.json();
+    if(!j.ok){ OFFICE_PIN=null; alert(j.error==='forbidden'?'PIN salah atau Anda bukan superadmin.':('Gagal: '+(j.error||'ditolak'))); return; }
+    const users=j.users||[];
+    const petaDiv={marketing:'marketing', event:'event', kasir:'kasir'};
+    let tambah=0, ringkas=[];
+    Object.keys(petaDiv).forEach(divi=>{
+      const kw=petaDiv[divi]; let n=0;
+      users.forEach(u=>{
+        if(u.active===false) return;
+        const ket=String(u.keterangan||'').toLowerCase();
+        if(!ket.split(/[\s,;/]+/).includes(kw)) return;   // kata "kasir/marketing/event" utuh
+        const nama=String(u.name||'').trim(); if(!nama) return;
+        const ada=DB.employees[divi].some(e=>e.officeUserId===u.id || String(e.name||'').trim().toLowerCase()===nama.toLowerCase());
+        if(!ada){ DB.employees[divi].push({id:divi[0]+Date.now().toString(36)+Math.floor(Math.random()*1e4),name:nama,target:0,officeUserId:u.id}); tambah++; n++; }
+      });
+      if(n) ringkas.push(n+' '+divi);
+    });
+    if(tambah){ save(); render(); }
+    alert(tambah?(tambah+' PIC ditarik dari Office ('+ringkas.join(', ')+'). Isi targetnya lalu simpan.')
+                :'Tidak ada PIC baru — semua kru bertim Marketing/Event/Kasir di Office sudah terdaftar di sini.');
+  }catch(e){ alert('Gagal terhubung ke Office: '+e.message); }
+  finally{ if(btn){ btn.disabled=false; btn.textContent='↺ Tarik PIC dari Office'; } }
 }
 
 /* ============ KELOLA AKSES KRU ============
