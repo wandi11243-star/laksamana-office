@@ -3640,7 +3640,7 @@ function buildWAText(r, fields){
     if(r.dpStatus==="Sudah"){ L.push("   Nominal : "+rp(r.dpAmount)); L.push("   Metode : "+r.dpMethod); if(r.dpProofData) L.push("   (Bukti transfer terlampir di sistem)"); }
   }
   if(fields.includes("catatan")&&r.notes) L.push("📝 Catatan : "+r.notes);
-  if(fields.includes("pic")) L.push("🧭 PIC : "+(r.picType==="Marketing"?"Marketing: "+r.picName:r.picType));
+  if(fields.includes("pic")) L.push("🧭 PIC : "+((r.picName||"-")+(r.picType==="Marketing"?" (Marketing)":"")));
   if(fields.includes("source")&&r.source) L.push("📣 Sumber : "+r.source);
   L.push("─────────────────");
   L.push("_Diinput oleh "+r.createdBy+"_");
@@ -3739,7 +3739,7 @@ function applyFilter(list){
   if(F.status) r=r.filter(x=>x.status===F.status);
   if(F.category) r=r.filter(x=>(x.category||"")===F.category);
   if(F.dp) r=r.filter(x=>x.dpStatus===F.dp);
-  if(F.pic) r=r.filter(x=>(x.picType==="Marketing"?x.picName:x.picType)===F.pic);
+  if(F.pic) r=r.filter(x=>(x.picName||"")===F.pic);
   if(F.ctype){ r=r.filter(x=>{ const p=customerProfile(x.phone); return F.ctype==="Baru"?p.visits===0:F.ctype==="Loyal"?(p.type==="Loyal"||p.type==="Repeat"):F.ctype==="Member"?p.isMember:true; }); }
   if(F.q){ const q=F.q.toLowerCase(); r=r.filter(x=>x.name.toLowerCase().includes(q)||x.phone.includes(q)); }
   // Lantai disaring PALING AKHIR: ia satu-satunya yang perlu menengok peta
@@ -3761,7 +3761,7 @@ function renderDashboard(){
   // sudah membaca petanya.
   resetLantaiCache();
   const F=DASH_FILTER;
-  const picNames = [...new Set(STATE.reservations.map(r=>r.picType==="Marketing"?r.picName:r.picType))].filter(Boolean);
+  const picNames = [...new Set(STATE.reservations.map(r=>r.picName))].filter(Boolean).sort((a,b)=>a.localeCompare(b));
   const filtered = applyFilter(STATE.reservations);
   // recap
   const totalPax = filtered.reduce((a,r)=>a+(Number(r.pax)||0),0);
@@ -3845,7 +3845,7 @@ function dashTable(list){
              ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
              : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
        <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
-       <td class="muted">${r.picType==="Marketing"?esc(r.picName):"Host/Capt"}</td>
+       <td class="muted">${esc(r.picName||"-")}</td>
        <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
        <td onclick="event.stopPropagation()"><div class="mini-actions">
          <button class="btn btn-xs btn-wa" onclick="openWAModal('${r.id}')">💬</button>
@@ -3925,7 +3925,7 @@ function exportCSV(ids){
   // Kosong = mejanya belum dipilih / tidak ada di denah mana pun.
   resetLantaiCache();
   const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Lantai","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
-  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picType==="Marketing"?r.picName:r.picType),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
+  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picName||""),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
   const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`reservasi_laksamana_${todayStr()}.csv`; a.click();
@@ -5062,7 +5062,7 @@ function renderHariH(){
           host adalah nomor mejanya, bukan jamnya. "Sisa Kursi" ditaruh tepat
           setelah Pax supaya dua angka yang saling berhubungan bisa dibaca
           sekali lihat. -->
-     <thead><tr><th>Meja</th><th>Lantai</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Status</th><th>Aksi</th></tr></thead>
+     <thead><tr><th>Meja</th><th>Lantai</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${list.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
@@ -5095,6 +5095,7 @@ function renderHariH(){
                   ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
                   : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
           <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
+          <td class="muted">${esc(r.picName||"-")}</td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
           <td onclick="event.stopPropagation()"><div class="mini-actions">
@@ -5488,7 +5489,7 @@ function openDetail(id){
        ${di("🪑 Meja",esc(r.table))}
        ${di("🏷️ Jenis Reservasi",r.category?`<span class="tag-cat">${esc(r.category)}</span>`:"-")}
        ${di("📣 Sumber",esc(r.source))}
-       ${di("🧭 PIC",r.picType==="Marketing"?"Marketing: "+esc(r.picName):"Host/Captain")}
+       ${di("🧭 PIC",esc(r.picName||"-")+(r.picType==="Marketing"?" (Marketing)":""))}
        ${di("👤 Tipe Tamu",`${p.type}, ${p.visits}× kunjungan${p.lastVisit?", terakhir "+fmtDateShort(p.lastVisit):""}`)}
        ${(r.foodReq||r.drinkReq)?`<div class="section-title">🍽️ Menu Request</div>${di("Makanan",esc(r.foodReq))}${di("Minuman",esc(r.drinkReq))}`:""}
        <div class="section-title">💰 Down Payment${dpsOf(r).length>1?` <span class="muted" style="font-weight:500;font-size:12px">(dicicil ${dpsOf(r).length}×, ${dpVerifiedCount(r)} terverifikasi)</span>`:""}</div>
