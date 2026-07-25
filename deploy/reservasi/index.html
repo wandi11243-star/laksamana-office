@@ -2520,23 +2520,18 @@ function fmtRupiahInput(el){
 }
 
 /* ===== BUKA WHATSAPP =====
-   Pakai skema aplikasi (whatsapp://) supaya langsung ke WhatsApp Desktop/HP,
-   bukan WhatsApp Web. Kalau aplikasinya tidak terpasang, browser tidak bereaksi —
-   makanya toast fallback selalu menyediakan tautan WhatsApp Web. */
+   HANYA aplikasi WhatsApp (skema whatsapp://) — Desktop/HP, BUKAN WhatsApp Web.
+   Sengaja tanpa fallback ke web: kalau aplikasinya belum terpasang, browser
+   tidak bereaksi (bukan membuka web). */
 function waOpen(phone, txt){
   const p=phone?normPhone(phone):"";
   const enc=encodeURIComponent(txt||"");
   const app = p ? `whatsapp://send?phone=${p}&text=${enc}` : `whatsapp://send?text=${enc}`;
-  const web = p ? `https://wa.me/${p}?text=${enc}` : "https://web.whatsapp.com/";
-  location.href = app;                       // buka aplikasi WhatsApp
-  waFallbackToast(web);
-}
-// Tautan cadangan kalau aplikasi WhatsApp belum terpasang di perangkat ini.
-function waFallbackToast(webUrl){
+  location.href = app;                       // buka APLIKASI WhatsApp
   const el=document.createElement("div"); el.className="toast";
-  el.innerHTML=`💬 Membuka aplikasi WhatsApp… <a href="${esc(webUrl)}" target="_blank" rel="noopener" style="color:var(--gold);text-decoration:underline;font-weight:700">pakai WhatsApp Web</a>`;
+  el.innerHTML="💬 Membuka aplikasi WhatsApp…";
   byId("toastRoot").appendChild(el);
-  setTimeout(()=>{el.style.transition="opacity .3s";el.style.opacity="0";setTimeout(()=>el.remove(),300);},6000);
+  setTimeout(()=>{el.style.transition="opacity .3s";el.style.opacity="0";setTimeout(()=>el.remove(),300);},4000);
 }
 function normPhone(p){ let x=(p||"").replace(/[^0-9]/g,""); if(x.startsWith("0")) x="62"+x.slice(1); else if(x.startsWith("62")){} else if(x.length>0 && !x.startsWith("62")) x="62"+x; return x; }
 function displayPhone(p){ return (p||"").replace(/[^0-9]/g,""); }
@@ -4437,6 +4432,12 @@ function seatAction(id){
   const seated=r.status==="Datang" && !r.leftAt;
   let acts="";
   if(canEdit && ["Pending","Confirmed"].includes(r.status)) acts+=`<button class="btn btn-ok" onclick="closeModal();checkIn('${r.id}')">✅ Tandai Datang</button>`;
+  // Tamu TELAT (belum datang, sudah lewat jamnya) → jalan pintas follow-up WA
+  // langsung dari denah, tanpa buka daftar dulu.
+  const _telat = ["Pending","Confirmed"].includes(r.status)
+    && new Date((r.date||HARIH_DATE)+"T"+(r.time||"00:00")+":00").getTime() < Date.now();
+  if(canEdit && _telat && normPhone(r.phone).length>=8)
+    acts+=`<button class="btn btn-wa" onclick="closeModal();followUp('${r.id}')" title="Tamu telat — kirim WhatsApp tanya kabar">📞 Follow Up Tamu (telat ${fmtClock(Date.now()-new Date((r.date||HARIH_DATE)+"T"+(r.time||"00:00")+":00").getTime())})</button>`;
   if(canEdit && canAddArrival(r)) acts+=`<button class="btn btn-ok" onclick="closeModal();addArrival('${r.id}')" title="Rombongan datang bertahap">➕ Tamu Datang Lagi (sisa ${remainingPax(r)})</button>`;
   // Tamu ini sedang menumpang di meja lain → jalan pintas kembali ke meja aslinya.
   if(canEdit && sedangDialihkan(r)) acts+=`<button class="btn btn-primary" onclick="closeModal();tawarkanKembaliKeAsli('${r.id}')" title="Tamu ini dialihkan sementara dari meja ${esc(r.tableAsli)}">🔁 Kembali ke Meja Asli (${esc(r.tableAsli)})</button>`;
@@ -5104,7 +5105,7 @@ function renderHariH(){
                 : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
           ${recapMultiDay()?`<td><b>${fmtDateShort(r.date)}</b></td>`:""}
           <td><b>${r.time}</b>${late?'<br>'+lateBadge(r):near?'<br><span class="badge-status st-pending" style="font-size:10px">segera</span>':''}</td>
-          <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
+          <td><div class="name">${esc(r.name)} ${tagFor(p)}${r.sharing?`<span class="badge-status" style="background:var(--purple-bg);color:var(--purple);font-size:10px;margin-left:5px">🤝 sharing</span>`:""}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
             ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>
               ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
               :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
@@ -5391,44 +5392,38 @@ function buildCoordText(dateStr, variant){
   const meja = r => (r.table && String(r.table).trim()) ? String(r.table).trim() : "belum diatur";
   const jam = r => r.time ? `🕗 ${r.time}` : "🕗 -";
 
+  // Satu tamu = SATU baris (bukan blok 3 baris) supaya broadcast tidak
+  // terlalu berjarak. Ringkasan (total) diletakkan di ATAS, bukan di bawah.
   if(variant==="kasir"){
     const paidList = list.filter(r=>r.dpStatus==="Sudah");
     const totalDP = paidList.reduce((a,r)=>a+(Number(r.dpAmount)||0),0);
-    const blok = list.map((r,i)=>{
+    const baris = list.map((r,i)=>{
       const bayar = (r.dpStatus==="Sudah" && Number(r.dpAmount)>0)
-        ? `💳 DP ${rpDot(r.dpAmount)}${dpMethodShort(r)!=="-"?` (${dpMethodShort(r)})`:""}`
+        ? `💳 ${rpDot(r.dpAmount)}${dpMethodShort(r)!=="-"?` (${dpMethodShort(r)})`:""}`
         : `⭕ Belum DP`;
-      return `${i+1}. *${(r.name||"-").toUpperCase()}*  ·  ${jam(r)}\n    🪑 Meja: ${meja(r)}  ·  👥 ${Number(r.pax)||0} pax\n    ${bayar}`;
+      return `${i+1}. *${(r.name||"-").toUpperCase()}* · ${r.time||"-"} · 🪑${meja(r)} · 👥${Number(r.pax)||0} · ${bayar}`;
     });
     return [
       "💰 *REKAP DP — KASIR*",
-      `⚓ Laksamana Muda  ·  ${fmtDate(dateStr)}`,
-      ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
+      `⚓ Laksamana Muda · ${fmtDate(dateStr)}${rangeLine?` · ${rangeLine}`:""}`,
+      `💰 Total DP: *${rpDot(totalDP)}*  ·  ✅ ${paidList.length}  ⭕ ${list.length-paidList.length}  ·  👥 ${totalPax} pax (${list.length})`,
       LINE,
-      blok.length?blok.join("\n\n"):"_(tidak ada reservasi)_",
-      LINE,
-      `💰 Total DP masuk : *${rpDot(totalDP)}*`,
-      `✅ Sudah DP : ${paidList.length} tamu   ⭕ Belum : ${list.length-paidList.length} tamu`,
-      `👥 Total : ${totalPax} pax  ·  ${list.length} reservasi`,
+      baris.length?baris.join("\n"):"_(tidak ada reservasi)_",
     ].join("\n");
   }
 
   // variant koordinasi (default) — fokus seating & kedatangan
   const mejaCount = list.reduce((a,r)=> a + tablesOf(r).length, 0);
-  const blok = list.map((r,i)=>{
-    const dp = (r.dpStatus==="Sudah" && Number(r.dpAmount)>0) ? `💰 DP ${rpDot(r.dpAmount)}` : `⭕ Belum DP`;
-    return `${i+1}. *${(r.name||"-").toUpperCase()}*  ·  ${jam(r)}\n    🪑 Meja: ${meja(r)}  ·  👥 ${Number(r.pax)||0} pax\n    ${dp}`;
+  const baris = list.map((r,i)=>{
+    const dp = (r.dpStatus==="Sudah" && Number(r.dpAmount)>0) ? `💰${rpDot(r.dpAmount)}` : `⭕ Belum DP`;
+    return `${i+1}. *${(r.name||"-").toUpperCase()}* · ${r.time||"-"} · 🪑${meja(r)} · 👥${Number(r.pax)||0} · ${dp}`;
   });
   return [
     "⚓ *KOORDINASI KEDATANGAN*",
-    `Laksamana Muda  ·  ${fmtDate(dateStr)}`,
-    ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
+    `Laksamana Muda · ${fmtDate(dateStr)}${rangeLine?` · ${rangeLine}`:""}`,
+    `👥 Total: ${totalPax} pax · 📋 ${list.length} reservasi · 🪑 ${mejaCount} meja`,
     LINE,
-    blok.length?blok.join("\n\n"):"_(tidak ada reservasi)_",
-    LINE,
-    `👥 Total tamu : ${totalPax} pax`,
-    `📋 Reservasi : ${list.length}`,
-    `🪑 Meja dipesan : ${mejaCount}`,
+    baris.length?baris.join("\n"):"_(tidak ada reservasi)_",
   ].join("\n");
 }
 function openCoordWA(){
