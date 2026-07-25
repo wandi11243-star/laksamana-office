@@ -218,6 +218,32 @@ function pasangAutocomplete(input, wadah, onPilih) {
    "Catat Baru" dan "Catatan Tercatat". Berbeda dari `menu` yang berpindah
    halaman: yang ini cuma menukar bagian yang terlihat, jadi isian form tidak
    hilang dan tidak ada muat ulang. */
+/* Gaya "ciut ke ikon" untuk sidebar stock (Tailwind). Disuntik sekali karena
+   utility class Tailwind tidak bisa menyembunyikan label teks secara selektif.
+   Hanya berlaku di desktop (md+); di HP sidebar sudah tersembunyi (mobile-tabs). */
+function pasangGayaMini() {
+  if (document.getElementById('nav-mini-style')) return;
+  var st = document.createElement('style');
+  st.id = 'nav-mini-style';
+  st.textContent =
+    '@media(min-width:768px){' +
+    '#app-sidebar.nav-mini{width:4.25rem}' +
+    '#app-sidebar.nav-mini .nav-lbl,#app-sidebar.nav-mini .nav-brand-txt,#app-sidebar.nav-mini .nav-user-txt,#app-sidebar.nav-mini .nav-sec-lbl{display:none}' +
+    '#app-sidebar.nav-mini nav a,#app-sidebar.nav-mini nav button{justify-content:center;gap:0;padding-left:0;padding-right:0}' +
+    '#app-sidebar.nav-mini .nav-brand{justify-content:center;padding-left:0;padding-right:0}' +
+    '#app-sidebar.nav-mini .nav-mini-btn{margin:0}' +
+    '#app-sidebar.nav-mini .nav-user-row{flex-direction:column;gap:8px}' +
+    '}';
+  document.head.appendChild(st);
+}
+/* Ciutkan menu ke ikon (desktop). Diingat per perangkat. */
+window.toggleNav = function () {
+  var s = document.getElementById('app-sidebar');
+  var mini = !s.classList.contains('nav-mini');
+  s.classList.toggle('nav-mini', mini);
+  try { localStorage.setItem('lm_stock_navmini', mini ? '1' : '0'); } catch (e) {}
+};
+
 function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
   /* Hanya modul yang HALAMANNYA SUDAH ADA yang boleh masuk menu. Waste dan
      Opname backend-nya sudah siap (waste.php, opname.php) tapi halamannya
@@ -241,31 +267,36 @@ function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
   const nama = (sesi && sesi.name) || '-';
   const inisial = String(nama).trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
+  pasangGayaMini();
   document.getElementById('app-sidebar').innerHTML = `
-    <div class="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-slate-100">
+    <div class="nav-brand flex items-center gap-3 px-5 pt-5 pb-4 border-b border-slate-100">
       <img src="../../assets/laksamanamuda-warna.jpg" alt="" class="w-9 h-9 rounded-lg object-contain flex-none">
-      <div>
+      <div class="nav-brand-txt flex-1 min-w-0">
         <div class="text-[15px] font-extrabold leading-none text-slate-900">Laksamana Muda</div>
         <div class="text-[9px] font-bold mt-1 tracking-[0.2em] uppercase text-indigo-600">Stock</div>
       </div>
+      <button type="button" onclick="toggleNav()" title="Sembunyikan / tampilkan menu" aria-label="Sembunyikan menu"
+        class="nav-mini-btn ml-auto w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 flex-none">
+        <i class="fa-solid fa-bars text-[12px]"></i>
+      </button>
     </div>
     <nav class="flex-1 overflow-y-auto px-3 py-3">
-      <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-2 pb-2">Pencatatan</div>
+      <div class="nav-sec-lbl text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-2 pb-2">Pencatatan</div>
       ${tampilkanMenuModul ? menu.map(m => `
         <a href="${m.href}" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
           m.k === aktif ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
-          <i class="fa-solid ${m.ico} w-5 text-center"></i> ${m.label}
+          <i class="fa-solid ${m.ico} w-5 text-center"></i> <span class="nav-lbl">${m.label}</span>
         </a>`).join('') : ''}
       ${views.map((v, i) => `
         <button type="button" data-nav-tampilan="${esc(v.v)}" onclick="gantiTampilan('${esc(v.v)}')"
           class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
           i === 0 ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
-          <i class="fa-solid ${v.ico} w-5 text-center"></i> ${esc(v.label)}
+          <i class="fa-solid ${v.ico} w-5 text-center"></i> <span class="nav-lbl">${esc(v.label)}</span>
         </button>`).join('')}
     </nav>
-    <div class="border-t border-slate-100 p-3 flex items-center gap-2.5">
+    <div class="nav-user-row border-t border-slate-100 p-3 flex items-center gap-2.5">
       <div class="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm flex-none">${esc(inisial || '?')}</div>
-      <div class="min-w-0 flex-1">
+      <div class="nav-user-txt min-w-0 flex-1">
         <div class="text-[13px] font-bold text-slate-800 truncate">${esc(nama)}</div>
         <div class="text-[11px] text-slate-400 truncate">Kru Stock</div>
       </div>
@@ -273,6 +304,8 @@ function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
         <i class="fa-solid fa-power-off text-[13px]"></i>
       </a>
     </div>`;
+  // Terapkan preferensi ciut yang tersimpan.
+  try{ if(localStorage.getItem('lm_stock_navmini')==='1') document.getElementById('app-sidebar').classList.add('nav-mini'); }catch(e){}
 
   document.getElementById('page-head').innerHTML = `
     <div>
