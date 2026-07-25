@@ -6721,6 +6721,14 @@ function reviewCfg(){
 }
 /* Target sebulan untuk satu host. 0 = belum ditetapkan (tidak dinilai). */
 function reviewTargetOf(nama){ return Math.max(0, Number(reviewCfg().targets[String(nama||"").trim()])||0); }
+/* Target AKUMULASI tim = jumlah target semua host. Bukan angka terpisah:
+   outlet cuma sekumpulan host, jadi targetnya otomatis penjumlahan target
+   masing-masing. Diatur host-nya, tim ikut sendiri — tidak bisa lagi meleset
+   satu sama lain. `cfg.target` tetap disinkronkan ke nilai ini supaya laporan
+   harian dan data lama yang membacanya tetap benar. */
+function reviewTargetTim(){
+  return Object.values(reviewCfg().targets||{}).reduce((a,v)=>a+Math.max(0,Number(v)||0),0);
+}
 /* Daftar nama host yang bisa dipilih: kru yang terdaftar di modul ini. */
 function reviewHosts(){
   return getUsers().map(u=>String(u.name||"").trim()).filter(Boolean)
@@ -7053,8 +7061,9 @@ function viewReviewProof(id){
 function saveReviewCfg(){
   const cfg=reviewCfg();
   cfg.link=(byId("rvcfg_link").value||"").trim();
-  cfg.target=Math.max(0, Number(byId("rvcfg_target").value)||0);
-  logAudit("Google Review", `Setelan diperbarui (target ${cfg.target}/bulan)`);
+  // Target tim TIDAK diatur di sini lagi — otomatis dari jumlah target host
+  // (lihat simpanRvTarget). Yang tersisa di Setelan cuma link.
+  logAudit("Google Review", "Setelan review diperbarui (link)");
   saveState(); renderReview(); toast("Setelan review disimpan ✓","ok");
 }
 /* saveReviewCount() DIHAPUS bersama panel "Rekonsiliasi dengan Google".
@@ -7076,7 +7085,6 @@ function setRvRepDate(v){ RVREP_DATE = v || todayStr(); renderRvReport(); }
 
 // Laporan angka Google Review untuk satu hari.
 function buildReviewReport(ymd){
-  const cfg=reviewCfg();
   const semua=reviews();
   const dimintaHariItu = semua.filter(x=>sameDayTs(askedTs(x), ymd));
   // Dari yang diminta HARI ITU, siapa yang akhirnya mengisi. Inilah angka yang
@@ -7087,7 +7095,7 @@ function buildReviewReport(ymd){
   const klaimMasuk = semua.filter(x=>sameDayTs(Number(x.claimedAt)||0, ymd));
   const ymOf = ymd.slice(0,7);
   const bulanIni = reviewsOfMonth(ymOf).filter(x=>x.status==="terverifikasi");
-  const target = Number(cfg.target)||0;
+  const target = reviewTargetTim();   // tim = jumlah target semua host
   const konv = dimintaHariItu.length ? Math.round(ngisi.length/dimintaHariItu.length*100) : 0;
 
   const baris = ngisi.length
@@ -7575,8 +7583,7 @@ function rvDashboardHtml(tm){
     return o;
   }).sort((a,b)=> b.sah-a.sah || (b.target-a.target) || a.nama.localeCompare(b.nama));
 
-  const targetTim=Number(cfg.target)||0;
-  const jumlahTargetOrang=baris.reduce((a,o)=>a+o.target,0);
+  const targetTim=reviewTargetTim();     // otomatis = jumlah target semua host
   const pctTim=targetTim?Math.min(100,Math.round(sah.length/targetTim*100)):0;
   const avgRating=sah.length?(sah.reduce((a,x)=>a+(Number(x.rating)||0),0)/sah.length).toFixed(1):null;
 
@@ -7600,18 +7607,12 @@ function rvDashboardHtml(tm){
          <div class="recap ok"><div class="lbl">✅ Sah Bulan Ini</div><div class="val">${sah.length}</div><div class="sub">terverifikasi</div></div>
          <div class="recap warn"><div class="lbl">⏳ Perlu Verifikasi</div><div class="val">${pending.length}</div><div class="sub">${canCfg?"cek & verifikasi":"menunggu manager"}</div></div>
          <div class="recap ${tolak.length?'danger':''}"><div class="lbl">✖ Ditolak</div><div class="val">${tolak.length}</div><div class="sub">tak ada di Google</div></div>
-         <div class="recap info"><div class="lbl">🎯 Target Tim</div><div class="val">${targetTim||"—"}</div><div class="sub">akumulasi sebulan</div></div>
+         <div class="recap info"><div class="lbl">🎯 Target Tim</div><div class="val">${targetTim||"—"}</div><div class="sub">jumlah target host</div></div>
          <div class="recap purple"><div class="lbl">📈 Pencapaian</div><div class="val">${targetTim?pctTim:"—"}${targetTim?"<small>%</small>":""}</div><div class="sub">${targetTim?`${sah.length} dari ${targetTim}`:"target belum diatur"}</div></div>
          <div class="recap"><div class="lbl">⭐ Rata² Rating</div><div class="val">${avgRating||"—"}</div><div class="sub">dari yang terverifikasi</div></div>
        </div>
 
-       ${targetTim && jumlahTargetOrang && jumlahTargetOrang!==targetTim ? `
-         <div class="inline-info" style="margin-bottom:12px">
-           Target tim (<b>${targetTim}</b>) berbeda dari jumlah target individu (<b>${jumlahTargetOrang}</b>).
-           Itu wajar kalau disengaja sebagai peregangan — tapi kalau tidak, salah satunya perlu disesuaikan.
-         </div>`:""}
-
-       <div class="muted" style="font-size:12px;margin:4px 0 8px"><b>Perolehan per host</b> — bulan ${esc(fmtMonth(tm))}</div>
+       <div class="muted" style="font-size:12px;margin:4px 0 8px"><b>Perolehan per host</b> — bulan ${esc(fmtMonth(tm))}${targetTim?` · target tim <b>${targetTim}</b> = jumlah target di bawah`:""}</div>
        ${baris.length?`<div class="table-wrap"><table>
          <thead><tr><th>Host</th><th style="text-align:right">Sah</th><th style="text-align:right">Menunggu</th><th style="text-align:right">Target</th><th style="width:34%">Progres</th></tr></thead>
          <tbody>${baris.map(o=>`<tr>
@@ -7635,41 +7636,48 @@ function rvDashboardHtml(tm){
    </div>`;
 }
 
-/* Atur target: akumulasi tim + per orang, dalam satu modal. Dipisah jadi dua
-   tempat dulu membuat orang mengatur salah satunya saja lalu bingung kenapa
-   angkanya tak cocok. */
+/* Atur target: HANYA per orang. Target tim dihitung otomatis dari jumlahnya —
+   tidak ada lagi angka tim terpisah yang bisa meleset dari penjumlahannya. */
 function openRvTargetForm(){
   if(!CAN.master(SESSION.role)){ toast("Hanya manager/admin","err"); return; }
-  const cfg=reviewCfg();
   const hosts=reviewHosts();
-  openModal(`<div class="modal-head"><h3>🎯 Atur Target Google Review</h3><button class="close-x" onclick="closeModal()">×</button></div>
+  openModal(`<div class="modal-head"><h3>🎯 Atur Target per Host</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="field"><label>Target Akumulasi Tim (per bulan)</label>
-       <input type="number" min="0" id="rvt_tim" value="${Number(cfg.target)||0}">
-       <div class="muted" style="font-size:11.5px;margin-top:4px">Target outlet sebulan. Boleh lebih tinggi dari jumlah target individu.</div>
+     <div class="inline-info" style="margin-bottom:14px">
+       Isi target sebulan tiap host. <b>Target tim dihitung otomatis</b> = jumlah semua target di bawah.
+       Kosongkan / 0 kalau host itu tidak dinilai.
      </div>
-     <div class="muted" style="font-size:12px;margin:14px 0 8px"><b>Target per orang (per bulan)</b> — kosongkan / 0 kalau host itu tidak dinilai.</div>
      <div class="form-grid">
        ${hosts.map(n=>`<div class="field"><label>${esc(n)}</label>
-         <input type="number" min="0" data-rvt-host="${esc(n)}" value="${reviewTargetOf(n)||""}" placeholder="0"></div>`).join("")}
+         <input type="number" min="0" data-rvt-host="${esc(n)}" value="${reviewTargetOf(n)||""}" placeholder="0" oninput="rvtHitungTim()"></div>`).join("")}
      </div>
      ${hosts.length?"":`<div class="inline-info">Belum ada kru terdaftar di modul ini.</div>`}
+     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+       <span class="muted" style="font-size:12.5px">Target akumulasi tim (otomatis)</span>
+       <b id="rvt_total" style="font-size:18px">${reviewTargetTim()}</b>
+     </div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
      <button class="btn btn-primary" onclick="simpanRvTarget()">💾 Simpan Target</button>
    </div>`, true);
 }
+// Perbarui angka target tim langsung saat host diketik, tanpa menyimpan dulu.
+function rvtHitungTim(){
+  let tot=0;
+  document.querySelectorAll("[data-rvt-host]").forEach(el=>{ tot+=Math.max(0,Number(el.value)||0); });
+  const el=byId("rvt_total"); if(el) el.textContent=tot;
+}
 function simpanRvTarget(){
   const cfg=reviewCfg();
-  cfg.target=Math.max(0, Number(byId("rvt_tim").value)||0);
   const t={};
   document.querySelectorAll("[data-rvt-host]").forEach(el=>{
     const n=el.getAttribute("data-rvt-host"), v=Math.max(0, Number(el.value)||0);
     if(v>0) t[n]=v;                      // 0 = tidak dinilai, tidak perlu disimpan
   });
   cfg.targets=t;
-  logAudit("Google Review", `Target diperbarui: tim ${cfg.target}/bulan, ${Object.keys(t).length} host bertarget`);
+  cfg.target=Object.values(t).reduce((a,v)=>a+v,0);   // tim = jumlah target host
+  logAudit("Google Review", `Target diperbarui: ${Object.keys(t).length} host, tim otomatis ${cfg.target}/bulan`);
   saveState(); closeModal(); renderReview();
   toast("Target disimpan ✓","ok");
 }
@@ -7726,7 +7734,6 @@ function reviewGoogleView(){
   // tempat rentang ini berada — bukan atas rentangnya. Kalau tidak, memilih
   // "Harian" akan membuat target sebulan terlihat nyaris tak tersentuh.
   const tm=reviewTargetMonth();          // angka target/report semuanya di dashboard
-  const target=Number(cfg.target)||0;    // dipakai panel Setelan di bawah
   // --- Daftar Review: saring dulu, baru potong per halaman ---
   const qDaftar=(RVQ.daftar||"").trim().toLowerCase();
   const daftarTersaring = mine
@@ -7819,8 +7826,8 @@ function reviewGoogleView(){
        <div class="form-grid">
          <div class="field full"><label>Link Google Review</label>
            <input id="rvcfg_link" value="${esc(cfg.link||"")}" placeholder="https://g.page/r/xxxxxxxx/review"></div>
-         <div class="field"><label>Target Review per Bulan</label><input type="number" id="rvcfg_target" min="0" value="${target}"></div>
        </div>
+       <div class="muted" style="font-size:11.5px;margin-top:8px">Target per bulan diatur di <b>🎯 Atur Target</b> (per host) — target tim dihitung otomatis dari jumlahnya.</div>
        <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
        :`<div class="inline-info">Link & target diatur oleh manager.</div>`}
      </div>
