@@ -172,6 +172,9 @@ a{color:var(--info)}
 .logout-x{background:var(--paper);border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;font-size:15px;flex:none}
 .logout-x:hover{background:var(--danger-bg);color:var(--danger);border-color:#E7BDB8}
 
+/* Sembunyikan menu samping (tombol ☰ di appbar). Kelas dipasang di #app; sidebar
+   dilepas dari alur agar konten memakai lebar penuh. */
+#app.nav-hidden .sidebar{display:none}
 .content{flex:1;min-width:0;display:flex;flex-direction:column}
 .appbar{
   height:60px;background:var(--surface);border-bottom:1px solid var(--line);
@@ -745,6 +748,7 @@ svg.lc{display:block;flex:none}
   </aside>
   <div class="content">
     <div class="appbar">
+      <button class="icon-btn" id="navToggleBtn" title="Sembunyikan / tampilkan menu" onclick="toggleNav()"><svg class="lc" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
       <div class="app-search"><span class="ico"><svg class="lc" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span><input id="globalSearch" placeholder="Cari nama tamu, no. HP…" onkeydown="if(event.key==='Enter')globalSearchGo(this.value)"></div>
       <div class="spacer"></div>
       <button class="btn btn-ghost btn-sm hidden" id="installBtn" title="Pasang sebagai aplikasi" onclick="installPWA()"><svg class="lc" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg> Install</button>
@@ -2907,9 +2911,21 @@ function doLogout(){
   // Sign-out penuh hanya lewat tombol Keluar di Office sendiri.
   location.replace('../');
 }
+/* Sembunyikan / tampilkan menu samping. Pilihan diingat per perangkat
+   (localStorage) supaya tetap seperti terakhir kali dibuka. */
+function toggleNav(){
+  const app=byId("app"), hide=!app.classList.contains("nav-hidden");
+  app.classList.toggle("nav-hidden", hide);
+  try{ localStorage.setItem("rsv_nav_hidden", hide?"1":"0"); }catch(e){}
+}
+function applyNavPref(){
+  let hide=false; try{ hide=localStorage.getItem("rsv_nav_hidden")==="1"; }catch(e){}
+  byId("app").classList.toggle("nav-hidden", hide);
+}
 async function enterApp(){
   byId("loginScreen").classList.add("hidden");
   byId("app").classList.remove("hidden");
+  applyNavPref();
   byId("userName").textContent = SESSION.name;
   byId("userRole").textContent = ROLE_LABEL[SESSION.role];
   const av=byId("userAvatar"); av.textContent = crewInitials(SESSION.name); av.style.background = avatarColor(SESSION.id);
@@ -6034,7 +6050,14 @@ const TF_BADGE = {
 function tfBadge(p){ return TF_BADGE[p.tfStatus] || '<span class="badge-status st-pending">⏳ Belum terverifikasi</span>'; }
 
 /* ---------- Halaman ---------- */
-let FIN_F = { from:todayStr().slice(0,8)+"01", to:todayStr(), bank:"", status:"", q:"" };
+// Default: HARI INI saja (bukan sebulan) — begitu buka, langsung lihat dana
+// masuk hari ini.
+let FIN_F = { from:todayStr(), to:todayStr(), bank:"", status:"", q:"" };
+// Tab verifikasi: transaksi yang sudah diverifikasi pindah keluar dari tab
+// "Perlu Diverifikasi" ke tab "Terverifikasi", jadi daftar yang perlu dicek
+// mengecil sampai habis.
+let FIN_TAB = "perlu";   // 'perlu' | 'sudah' | 'tolak'
+function finTab(v){ FIN_TAB=v; renderFinance(); }
 function finSet(k,v){ FIN_F[k]=v; renderFinance(); }
 function finRange(kind){
   const t=todayStr();
@@ -6044,7 +6067,8 @@ function finRange(kind){
   else if(kind==="all"){ FIN_F.from=""; FIN_F.to=""; }
   renderFinance();
 }
-function financeList(){
+function financeList(applyTab){
+  if(applyTab===undefined) applyTab=true;
   const q=(FIN_F.q||"").trim().toLowerCase();
   // Rentang tanggal dicek ke DUA tanggal: tanggal transfer DAN tanggal reservasi.
   // Alasannya: tamu sering transfer DP jauh hari sebelum tanggal makan. Kalau hanya
@@ -6059,6 +6083,13 @@ function financeList(){
     if(FIN_F.status==="verified" && x.p.tfStatus!=="verified") return false;
     if(FIN_F.status==="mismatch" && !txMismatch(x)) return false;
     if(FIN_F.status==="rejected" && x.p.tfStatus!=="rejected") return false;
+    // Tab verifikasi (dipakai untuk daftar tabel, bukan untuk statistik).
+    if(applyTab){
+      const st=x.p.tfStatus;
+      if(FIN_TAB==="perlu" && (st==="verified"||st==="rejected")) return false;
+      if(FIN_TAB==="sudah" && st!=="verified") return false;
+      if(FIN_TAB==="tolak" && st!=="rejected") return false;
+    }
     if(q && !((x.r.name||"").toLowerCase().includes(q) || (x.r.phone||"").includes(q)
               || txBank(x).toLowerCase().includes(q) || txName(x).toLowerCase().includes(q))) return false;
     return true;
@@ -6066,21 +6097,28 @@ function financeList(){
 }
 function renderFinance(){
   if(!CAN.finance(SESSION.role)){ byId("page-finance").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
-  const list=financeList();
+  // listAll = seluruh transaksi pada rentang/filter (TANPA tab) → dasar semua
+  // statistik & hitungan tab. list = yang ditampilkan di tabel (ikut tab).
+  const listAll = financeList(false);
+  const list    = financeList(true);
   const sum     = arr=>arr.reduce((a,x)=>a+txAmount(x),0);
   // Yang ditolak = dana tidak jadi masuk, jadi tidak ikut dijumlah ke total.
-  const total   = sum(list.filter(x=>x.p.tfStatus!=="rejected"));
-  const verified= list.filter(x=>x.p.tfStatus==="verified");
-  const rejected= list.filter(x=>x.p.tfStatus==="rejected");
-  const belum   = list.filter(x=>!x.p.tfStatus);          // belum diverifikasi & belum ditolak
-  const unscanned=list.filter(x=>!txScanned(x) && txProofIsImage(x));
-  const noProof = list.filter(x=>!x.p.proofData);
-  const mism    = list.filter(x=>txMismatch(x));
-  const cicilan = list.filter(x=>x.dari>1);
+  const total   = sum(listAll.filter(x=>x.p.tfStatus!=="rejected"));
+  const verified= listAll.filter(x=>x.p.tfStatus==="verified");
+  const rejected= listAll.filter(x=>x.p.tfStatus==="rejected");
+  const belum   = listAll.filter(x=>!x.p.tfStatus);          // belum diverifikasi & belum ditolak
+  const unscanned=listAll.filter(x=>!txScanned(x) && txProofIsImage(x));
+  const noProof = listAll.filter(x=>!x.p.proofData);
+  const mism    = listAll.filter(x=>txMismatch(x));
+  const cicilan = listAll.filter(x=>x.dari>1);
+  // Hitungan per tab.
+  const nPerlu  = listAll.filter(x=>x.p.tfStatus!=="verified"&&x.p.tfStatus!=="rejected").length;
+  const nSudah  = verified.length;
+  const nTolak  = rejected.length;
   const demo    = demoRecords();      // reservasi contoh bawaan sistem yang masih nyangkut
-  // rekap per bank
+  // rekap per bank (seluruh rentang, bukan cuma tab aktif)
   const perBank={};
-  list.forEach(x=>{ const b=txBank(x)||"(tanpa bank)"; perBank[b]=perBank[b]||{n:0,sum:0}; perBank[b].n++; perBank[b].sum+=txAmount(x); });
+  listAll.forEach(x=>{ const b=txBank(x)||"(tanpa bank)"; perBank[b]=perBank[b]||{n:0,sum:0}; perBank[b].n++; perBank[b].sum+=txAmount(x); });
   const banks=Object.keys(perBank).sort((a,b)=>perBank[b].sum-perBank[a].sum);
   const allBanks=[...new Set(financeTx().map(x=>txBank(x)).filter(Boolean))].sort();
 
@@ -6119,14 +6157,11 @@ function renderFinance(){
      <div class="field" style="margin:0"><label>Bank</label>
        <select onchange="finSet('bank',this.value)"><option value="">Semua bank</option>
          ${allBanks.map(b=>`<option ${FIN_F.bank===b?"selected":""}>${esc(b)}</option>`).join("")}</select></div>
-     <div class="field" style="margin:0"><label>Status</label>
+     <div class="field" style="margin:0"><label>Saring</label>
        <select onchange="finSet('status',this.value)">
-         <option value="">Semua status</option>
+         <option value="">Semua</option>
          <option value="unscanned" ${FIN_F.status==="unscanned"?"selected":""}>Bukti belum discan</option>
-         <option value="pending"   ${FIN_F.status==="pending"?"selected":""}>Belum terverifikasi</option>
-         <option value="verified"  ${FIN_F.status==="verified"?"selected":""}>Terverifikasi</option>
          <option value="mismatch"  ${FIN_F.status==="mismatch"?"selected":""}>Dana tidak sama</option>
-         <option value="rejected"  ${FIN_F.status==="rejected"?"selected":""}>Ditolak</option>
        </select></div>
      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari</label>
        <input id="finSearch" value="${esc(FIN_F.q)}" placeholder="Nama tamu / no. HP / bank…" oninput="FIN_F.q=this.value;afterSearch('finSearch',renderFinance)"></div>
@@ -6143,9 +6178,24 @@ function renderFinance(){
        ${banks.map(b=>`<span class="pill" title="${perBank[b].n} transaksi"><b>${esc(b)}</b> &nbsp;${rpDot(perBank[b].sum)} <span class="muted">(${perBank[b].n}×)</span></span>`).join("")}
      </div></div>`:""}
 
+   <div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-bottom:0;border:none">
+     <div class="seat-switch">
+       <button class="${FIN_TAB==='perlu'?'on':''}" onclick="finTab('perlu')">⏳ Perlu Diverifikasi${nPerlu?` (${nPerlu})`:""}</button>
+       <button class="${FIN_TAB==='sudah'?'on':''}" onclick="finTab('sudah')">✓ Terverifikasi${nSudah?` (${nSudah})`:""}</button>
+       <button class="${FIN_TAB==='tolak'?'on':''}" onclick="finTab('tolak')">✕ Ditolak${nTolak?` (${nTolak})`:""}</button>
+     </div>
+   </div></div>
+
    <div class="panel">
      <div class="panel-head"><h3>Transaksi Masuk${FIN_F.from||FIN_F.to?`, ${FIN_F.from?fmtDateShort(FIN_F.from):"awal"} – ${FIN_F.to?fmtDateShort(FIN_F.to):"sekarang"}`:""}</h3></div>
-     ${!list.length?`<div class="empty"><div class="big">💸</div>Belum ada dana masuk pada rentang ini.</div>`:`
+     ${!list.length?`<div class="empty">${
+        FIN_TAB==="perlu"
+          ? (nSudah||nTolak
+              ? `<div class="big">🎉</div>Sudah terverifikasi semua.<br><span class="muted">Tidak ada transaksi yang perlu dicek pada rentang ini.</span>`
+              : `<div class="big">💸</div>Belum ada dana masuk pada rentang ini.`)
+          : FIN_TAB==="sudah"
+            ? `<div class="big">✓</div>Belum ada transaksi terverifikasi pada rentang ini.`
+            : `<div class="big">✕</div>Tidak ada transaksi ditolak pada rentang ini.`}</div>`:`
      <div class="table-wrap"><table>
        <thead><tr><th>Tanggal TF</th><th>Jam</th><th>Bank</th><th>Nama Pengirim</th><th>Nominal</th><th>Tamu / Reservasi</th><th>Bukti</th><th>Status</th><th>Aksi</th></tr></thead>
        <tbody>${list.map(x=>{
