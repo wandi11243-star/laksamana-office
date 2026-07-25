@@ -25,6 +25,7 @@
  *   {action:"listModuleMembers", module}         -> {ok,members:[...]}
  *   -- tanpa gerbang, dipanggil modul saat boot --
  *   {action:"listModuleRoster", module}          -> {ok,members:[...]}
+ *   {action:"listDivisiRoster"}                  -> {ok,members:[{id,name,keterangan,active}]}  (tanpa PIN)
  *
  * Diagnostik (GET):  ?action=ping   ?action=stats
  ************************************************************************/
@@ -84,6 +85,7 @@ try {
     case 'setModuleAccess':   keluar(aksi_set_module_access($body));
     case 'listModuleMembers': keluar(aksi_list_module_members($body));
     case 'listModuleRoster':  keluar(aksi_list_module_roster($body));
+    case 'listDivisiRoster':  keluar(aksi_list_divisi_roster($body));
     case 'import':            keluar(aksi_import($body));
     case 'sessionRefresh':    keluar(aksi_segarkan_sesi($body));
 
