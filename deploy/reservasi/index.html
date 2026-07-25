@@ -5482,7 +5482,65 @@ function sendCoord(label, previewId){
   const txt = byId(previewId).textContent;
   const rl = coordRangeLabel();
   logAudit("Kirim Koordinasi", `${label}, ${fmtDate(HARIH_DATE)}${rl?`, ${rl}`:""}`);
-  sendWA("group","",txt);
+  // WhatsApp tidak bisa menaruh teks ke GRUP lewat tautan — jadi pesan disalin,
+  // lalu kita buka GRUP-nya (dari link yang disimpan) supaya host tinggal tempel.
+  navigator.clipboard.writeText(txt).catch(()=>{});
+  toast("Pesan disalin — pilih grup tujuannya, lalu tempel di sana.","ok");
+  pilihGrupWA();
+}
+
+/* ---- Daftar grup WhatsApp (link disimpan per perangkat) ----
+   Link grup didapat dari WhatsApp: Info Grup → Undang lewat tautan → Salin.
+   Karena host sudah anggota, membuka link itu langsung masuk ke grupnya. */
+function getWaGroups(){
+  let g=null; try{ g=JSON.parse(localStorage.getItem('lm_rsv_wa_groups')||'null'); }catch(e){}
+  if(!Array.isArray(g)||!g.length) g=[{id:'g-koord',name:'Grup Koordinasi',link:''},{id:'g-kasir',name:'Grup Kasir',link:''}];
+  return g;
+}
+function setWaGroups(g){ try{ localStorage.setItem('lm_rsv_wa_groups', JSON.stringify(g)); }catch(e){} }
+function pilihGrupWA(){
+  const groups=getWaGroups();
+  byId("popupRoot").innerHTML=`<div class="modal-back" style="z-index:200"><div class="modal">
+    <div class="modal-head"><h3>💬 Buka Grup WhatsApp</h3><button class="close-x" onclick="tutupGrupWA()">×</button></div>
+    <div class="modal-body">
+      <div class="inline-info" style="margin:0 0 10px"><div>✅ Pesan sudah <b>disalin</b>. Pilih grup → WhatsApp membuka grupnya → <b>tempel (paste)</b> pesannya di sana.</div></div>
+      <div class="inline-warn" style="margin:0 0 14px"><div>Catatan: WhatsApp tidak mengizinkan aplikasi menaruh teks langsung ke grup, jadi pesan tetap harus ditempel manual — yang otomatis hanya membuka grupnya.</div></div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${groups.map(g=>`<div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-wa" style="flex:1;justify-content:flex-start" onclick="bukaGrupWA('${g.id}')">💬 ${esc(g.name)}${g.link?"":` <span style="font-weight:400;opacity:.8">(atur link dulu)</span>`}</button>
+          <button class="btn btn-xs btn-ghost" onclick="aturLinkGrupWA('${g.id}')" title="Atur / ubah link grup">⚙️</button>
+          <button class="btn btn-xs btn-danger" onclick="hapusGrupWA('${g.id}')" title="Hapus dari daftar">🗑️</button>
+        </div>`).join("")}
+      </div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:12px" onclick="tambahGrupWA()">➕ Tambah Grup WhatsApp</button>
+      <p class="muted" style="font-size:11.5px;margin-top:12px;line-height:1.55">Ambil link grup dari WhatsApp: buka grup → <b>Info Grup</b> → <b>Undang lewat tautan</b> → <b>Salin tautan</b> (chat.whatsapp.com/…).</p>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ink" onclick="tutupGrupWA()">Tutup</button></div>
+  </div></div>`;
+}
+function tutupGrupWA(){ byId("popupRoot").innerHTML=""; }
+function bukaGrupWA(id){
+  const g=getWaGroups().find(x=>x.id===id); if(!g) return;
+  if(!g.link){ aturLinkGrupWA(id); return; }
+  tutupGrupWA();
+  if(/^https?:/i.test(g.link)) window.open(g.link,"_blank","noopener");
+  else location.href=g.link;
+}
+function aturLinkGrupWA(id){
+  const groups=getWaGroups(), g=groups.find(x=>x.id===id); if(!g) return;
+  const link=prompt(`Tempel link grup WhatsApp untuk "${g.name}"\n(dari Info Grup → Undang lewat tautan → Salin):`, g.link||"");
+  if(link===null) return;
+  g.link=link.trim(); setWaGroups(groups); pilihGrupWA();
+}
+function tambahGrupWA(){
+  const nama=prompt("Nama grup (mis. Grup Floor):"); if(!nama||!nama.trim()) return;
+  const link=(prompt("Tempel link grup WhatsApp (chat.whatsapp.com/…):")||"").trim();
+  const groups=getWaGroups(); groups.push({id:'g'+Date.now().toString(36),name:nama.trim(),link});
+  setWaGroups(groups); pilihGrupWA();
+}
+function hapusGrupWA(id){
+  if(!confirm("Hapus grup ini dari daftar? (Grup di WhatsApp tidak terhapus.)")) return;
+  setWaGroups(getWaGroups().filter(x=>x.id!==id)); pilihGrupWA();
 }
 
 /* ================= DETAIL MODAL ================= */
