@@ -91,9 +91,12 @@ input,select,textarea{font-family:inherit}
 .nav{flex:1}
 .nav-group{margin-top:14px}
 .nav-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);padding:0 10px 7px}
-.nav a{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:background .13s,color .13s}
-.nav a:hover{background:var(--gold-soft);color:var(--ink)}
-.nav a.active{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:600}
+.nav a{position:relative;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:background .13s,color .13s}
+.nav a:hover{background:var(--paper);color:var(--ink)}
+/* Menu aktif: latar krem lembut + garis emas di kiri (samakan dgn Reservasi/
+   BD OS), BUKAN blok kuning penuh. */
+.nav a.active{background:var(--gold-soft);color:var(--gold-dim);font-weight:600}
+.nav a.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--gold)}
 .nav a .ico{width:18px;display:flex;align-items:center;justify-content:center;flex:none}
 .nav a .ico svg{width:17px;height:17px;stroke-width:1.9;opacity:.85}
 .nav a.active .ico svg{opacity:1}
@@ -432,12 +435,10 @@ const TITLES={
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
   event:['Performa Event','Kontribusi omset per PIC event'],
   kasir:['Performa Kasir','Omset walk-in per kasir'],
-  target:['Pengaturan Target','Target perusahaan & masing-masing PIC']
+  target:['Pengaturan Target','Target perusahaan & masing-masing PIC'],
+  akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Kompas']
 };
 function go(view){
-  // "Kelola Akses" bukan halaman — ia membuka modal Office, jadi tidak
-  // mengubah view/CURRENT (kalau tidak, render() mencari view 'akses' yg tak ada).
-  if(view==='akses'){ if(window.openKelolaAkses) window.openKelolaAkses(); return; }
   CURRENT=view;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.getElementById('pageTitle').textContent=TITLES[view][0];
@@ -457,7 +458,7 @@ function render(){
   clearCharts();
   document.getElementById('periodPick').value=PERIOD;
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({input:viewInput,breakdown:viewBreakdown,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget}[CURRENT])();
+  ({input:viewInput,breakdown:viewBreakdown,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -908,6 +909,57 @@ function viewTarget(){
   }
 }
 
+/* ============ KELOLA AKSES KRU ============
+   Daftar siapa saja yang PUNYA akses modul kompas, ditarik dari database
+   account lewat `listModuleRoster` — endpoint TANPA gerbang PIN (identitas
+   sudah dijamin sesi Office). Read-only: menambah/menghapus akses dilakukan
+   di "Kelola Akses" milik Office, bukan di sini. */
+let AKSES_ROSTER=null, AKSES_ERR='';
+async function muatAkses(){
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),8000);
+  try{
+    const r=await fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listModuleRoster',module:'kompas'}),signal:stop.signal});
+    clearTimeout(jam);
+    const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
+    if(!j) throw new Error('Office membalas bukan JSON (account-api-mysql belum terpasang?)');
+    if(!j.ok) throw new Error(j.error||'ditolak');
+    if(!Array.isArray(j.members)) throw new Error('balasan tanpa daftar anggota');
+    AKSES_ROSTER=j.members; AKSES_ERR='';
+  }catch(e){ clearTimeout(jam); AKSES_ROSTER=null; AKSES_ERR=(e.name==='AbortError'?'Office tidak menjawab dalam 8 detik':e.message); }
+  if(CURRENT==='akses') viewAkses();
+}
+function viewAkses(){
+  const el=document.getElementById('app-view');
+  const meNama=(CURRENT_USER&&CURRENT_USER.name)||'';
+  const initial=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+  if(AKSES_ROSTER===null && !AKSES_ERR){
+    el.innerHTML=`<div class="card"><div class="empty"><div class="big">⏳</div>Memuat daftar akses dari Office…</div></div>`;
+    muatAkses(); return;
+  }
+  const rows=(AKSES_ROSTER||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><h3>Pemegang Akses Modul Kompas</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah/menghapus akses dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="AKSES_ROSTER=null;AKSES_ERR='';viewAkses()">↻ Segarkan</button>
+    </div>
+    ${AKSES_ERR?`<div class="notice bad">⚠ Gagal memuat: ${esc(AKSES_ERR)}</div>`:`
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nama</th><th>Status</th><th>Akses</th></tr></thead>
+        <tbody>${rows.length?rows.map(m=>`<tr>
+          <td><div style="display:flex;align-items:center;gap:10px">
+            <span style="width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:11px">${esc(initial(m.name))}</span>
+            <b>${esc(m.name||'(tanpa nama)')}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}</div></td>
+          <td>${m.active===false?'<span class="chip warn">nonaktif</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
+          <td><span class="chip ok">✓ Aktif</span></td>
+        </tr>`).join(''):`<tr><td colspan="3" class="empty">Belum ada kru dengan akses modul Kompas. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
+      </table></div>
+    </div>
+    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Kompas.</div>`}`;
+}
+
 /* ---- chart option factories ---- */
 const money=v=>fmtRpShort(v);
 function lineOpts(){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{family:'Inter'},boxWidth:12}}},scales:{y:{ticks:{callback:money,font:{family:'Inter'}}},x:{ticks:{font:{family:'Inter'}}}}};}
@@ -939,111 +991,6 @@ function boot(){
   });
 }
 boot();
-</script>
-
-<!-- ===== KELOLA AKSES KRU (membership modul Office, self-contained) =====
-     Superadmin mengaktifkan/menonaktifkan siapa yang boleh membuka modul
-     kompas. Menulis Grants lewat account-api-mysql (Office); server membatasi
-     tiap tulisan ke modul milik pemanggil (butuh PIN). -->
-<div id="lmaModal" class="lma-modal" hidden>
-  <div class="lma-card">
-    <div class="lma-head">
-      <div><div class="lma-title">Kelola Akses Kru</div><div class="lma-sub" id="lmaSub"></div></div>
-      <button type="button" class="lma-x" id="lmaClose" aria-label="Tutup">&#10005;</button>
-    </div>
-    <label class="lma-adv"><input type="checkbox" id="lmaAdv"> Mode lanjutan (atur pengecualian grant/deny per orang)</label>
-    <div class="lma-list" id="lmaList"></div>
-  </div>
-</div>
-<style>
-.lma-modal[hidden]{display:none}
-.lma-modal{position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:24px;background:rgba(42,38,32,.5);backdrop-filter:blur(3px);overflow-y:auto}
-.lma-card{width:100%;max-width:520px;margin:auto;background:#fff;border:1px solid #E7E1D3;border-radius:16px;box-shadow:0 18px 48px rgba(50,42,28,.22);font-family:'Inter',system-ui,sans-serif}
-.lma-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 20px;border-bottom:1px solid #E7E1D3}
-.lma-title{font-weight:800;font-size:17px;color:#2A2620}
-.lma-sub{font-size:12.5px;color:#5C574D;margin-top:2px}
-.lma-x{width:32px;height:32px;border:1px solid #E7E1D3;border-radius:9px;background:#fff;color:#5C574D;cursor:pointer;font-size:15px}
-.lma-x:hover{border-color:#C9432B;color:#C9432B;background:#F8E4DF}
-.lma-adv{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:#2A2620;padding:12px 20px 4px;cursor:pointer}
-.lma-adv input{width:15px;height:15px;accent-color:#A9791F}
-.lma-list{padding:8px 20px 20px;display:flex;flex-direction:column;gap:7px}
-.lma-row{display:flex;align-items:center;gap:11px;border:1px solid #E7E1D3;border-radius:11px;padding:9px 12px}
-.lma-av{width:34px;height:34px;flex:none;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;background:linear-gradient(135deg,#C8961F,#7A560F)}
-.lma-info{flex:1;min-width:0}
-.lma-info b{font-size:13.5px;color:#2A2620;display:block}
-.lma-info span{font-size:11px;color:#5C574D}
-.lma-src{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;border-radius:20px;padding:1px 7px;border:1px solid #E7E1D3;color:#5C574D;background:#F2E9D3;flex:none}
-.lma-toggle{position:relative;width:42px;height:24px;flex:none;border-radius:20px;background:#E7E1D3;border:none;cursor:pointer;transition:background .15s}
-.lma-toggle::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.lma-toggle.on{background:#1F9D5F}
-.lma-toggle.on::after{left:20px}
-.lma-empty{padding:20px;text-align:center;color:#5C574D;font-size:13px}
-.lma-actions{display:flex;gap:5px;flex:none}
-.lma-mini{border:1px solid #E7E1D3;background:#fff;border-radius:8px;font-size:11px;font-weight:700;padding:5px 9px;cursor:pointer;color:#5C574D}
-.lma-mini.act-grant.on{background:#E4F5EC;color:#1F9D5F;border-color:#1F9D5F}
-.lma-mini.act-deny.on{background:#F8E4DF;color:#C9432B;border-color:#C9432B}
-</style>
-<script>
-(function(){
-  var MODULE_KEY = "kompas";
-  var OFFICE_URL = "../account-api-mysql/api.php";
-  var creds=null, MEMBERS=[], ADV=false;
-  function sess(){ try{ return JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){ return null; } }
-  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-  function initials(n){ return String(n||'?').trim().split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase(); }
-  async function call(action, extra){
-    var s=sess(); if(!s) return {ok:false,error:'no_session'};
-    if(!creds){ var pin=prompt('Masukkan PIN Anda untuk mengelola akses modul:'); if(!pin) return null; creds={name:s.name, pin:String(pin).trim()}; }
-    var res=await fetch(OFFICE_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify(Object.assign({action:action, callerName:creds.name, callerPin:creds.pin}, extra||{}))});
-    return res.json();
-  }
-  function render(){
-    var list=document.getElementById('lmaList');
-    if(!MEMBERS.length){ list.innerHTML='<div class="lma-empty">Belum ada user.</div>'; return; }
-    list.innerHTML=MEMBERS.map(function(m,i){
-      var src = m.source==='grant' ? 'khusus' : (m.access ? 'role' : '');
-      var ctrl = ADV
-        ? '<div class="lma-actions"><button class="lma-mini act-grant'+(m.access&&m.source==='grant'?' on':'')+'" data-i="'+i+'" data-act="grant">Grant</button>'
-          + '<button class="lma-mini act-deny'+(!m.access&&m.source==='grant'?' on':'')+'" data-i="'+i+'" data-act="deny">Deny</button></div>'
-        : '<button class="lma-toggle'+(m.access?' on':'')+'" data-i="'+i+'" data-act="toggle" aria-label="Akses"></button>';
-      return '<div class="lma-row"><div class="lma-av">'+esc(initials(m.name))+'</div>'
-        + '<div class="lma-info"><b>'+esc(m.name)+(m.active?'':' <span style="color:#928C80">(nonaktif)</span>')+'</b>'
-        + '<span>'+esc(m.keterangan||'')+'</span></div>'
-        + (src?'<span class="lma-src">'+src+'</span>':'') + ctrl + '</div>';
-    }).join('');
-  }
-  async function load(){
-    var list=document.getElementById('lmaList');
-    list.innerHTML='<div class="lma-empty">Memuat&#8230;</div>';
-    var data=await call('listModuleMembers',{module:MODULE_KEY});
-    if(data===null){ document.getElementById('lmaModal').hidden=true; return false; }
-    if(!data.ok){ creds=null; list.innerHTML='<div class="lma-empty">'+(data.error==='forbidden'?'PIN salah atau Anda bukan admin modul ini.':('Gagal: '+esc(data.error)))+'</div>'; return false; }
-    MEMBERS=data.members||[]; render(); return true;
-  }
-  async function setAccess(i, access){
-    var m=MEMBERS[i]; if(!m) return;
-    var data=await call('setModuleAccess',{module:MODULE_KEY, userId:m.id, access:access});
-    if(data===null) return;
-    if(!data.ok){ alert(data.error==='forbidden'?'Tidak berwenang untuk modul ini.':('Gagal: '+data.error)); return; }
-    await load();
-  }
-  window.openKelolaAkses=async function(){
-    document.getElementById('lmaSub').textContent='Modul '+MODULE_KEY+'. Aktifkan untuk memberi akses membuka modul ini.';
-    document.getElementById('lmaModal').hidden=false;
-    await load();
-  };
-  document.addEventListener('click', function(e){
-    var t=e.target;
-    if(t.id==='lmaClose'||t.id==='lmaModal'){ document.getElementById('lmaModal').hidden=true; return; }
-    var btn=t.closest ? t.closest('[data-act]') : null; if(!btn) return;
-    var i=+btn.dataset.i, act=btn.dataset.act, m=MEMBERS[i]; if(!m) return;
-    if(act==='toggle') setAccess(i, !m.access);
-    else if(act==='grant') setAccess(i, true);
-    else if(act==='deny') setAccess(i, false);
-  });
-  document.addEventListener('change', function(e){ if(e.target && e.target.id==='lmaAdv'){ ADV=e.target.checked; render(); } });
-})();
 </script>
 </body>
 </html>
