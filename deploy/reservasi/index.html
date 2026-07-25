@@ -5322,8 +5322,6 @@ function dpShort(r){
   if(n>=1000) return Math.round(n/1000)+"K";
   return String(n);
 }
-// Nominal DP format penuh: "Rp. 1.000.000" (dipakai di rekap WA koordinasi)
-function dpFull(r){ return (r.dpStatus==="Sudah" && Number(r.dpAmount)>0) ? rpDot(r.dpAmount) : "Belum DP"; }
 // Metode bayar ringkas: "Transfer BCA" → "BCA", "QRIS" → "QRIS"
 function dpMethodShort(r){
   if(r.dpStatus!=="Sudah" || !r.dpMethod) return "-";
@@ -5353,49 +5351,57 @@ function coordRangeLabel(){
   if(COORD_FROM && COORD_TO)   return `Jam ${COORD_FROM}–${COORD_TO}`;
   return COORD_FROM ? `Jam ${COORD_FROM} ke atas` : `Sampai jam ${COORD_TO}`;
 }
-// Bangun teks rekap. variant: "koord" (fokus seating) | "kasir" (fokus DP)
+/* Bangun teks rekap. variant: "koord" (fokus seating) | "kasir" (fokus DP).
+   Format per tamu dibuat BLOK dua baris, bukan satu baris beruntun dengan
+   pemisah "/": di WhatsApp (font proporsional) baris panjang membungkus
+   sembarangan dan sulit dibaca. Blok bernomor + jam + meja jauh lebih rapi
+   dan enak dipindai di HP. */
 function buildCoordText(dateStr, variant){
   const list = coordList(dateStr);
-  const LINE = "━━━━━━━━━━━━━━━━━";
+  const LINE = "─────────────────";
   const totalPax = list.reduce((a,r)=>a+(Number(r.pax)||0),0);
-  const pad = n=>String(n).padStart(2," ");
   const rangeLine = coordRangeLabel();
+  const meja = r => (r.table && String(r.table).trim()) ? String(r.table).trim() : "belum diatur";
+  const jam = r => r.time ? `🕗 ${r.time}` : "🕗 -";
 
   if(variant==="kasir"){
-    const rows = list.map((r,i)=>`${pad(i+1)}. ${(r.name||"-").toUpperCase()} / ${(Number(r.pax)||0)}PAX / ${dpFull(r)} / ${dpMethodShort(r)}`);
     const paidList = list.filter(r=>r.dpStatus==="Sudah");
     const totalDP = paidList.reduce((a,r)=>a+(Number(r.dpAmount)||0),0);
+    const blok = list.map((r,i)=>{
+      const bayar = (r.dpStatus==="Sudah" && Number(r.dpAmount)>0)
+        ? `💳 DP ${rpDot(r.dpAmount)}${dpMethodShort(r)!=="-"?` (${dpMethodShort(r)})`:""}`
+        : `⭕ Belum DP`;
+      return `${i+1}. *${(r.name||"-").toUpperCase()}*  ·  ${jam(r)}\n    🪑 Meja: ${meja(r)}  ·  👥 ${Number(r.pax)||0} pax\n    ${bayar}`;
+    });
     return [
-      "💰 *REKAP DP KASIR*",
-      `LAKSAMANA MUDA ⚓, ${fmtDate(dateStr)}`,
+      "💰 *REKAP DP — KASIR*",
+      `⚓ Laksamana Muda  ·  ${fmtDate(dateStr)}`,
       ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
       LINE,
-      "_NAMA / PAX / DP / METODE_",
-      "",
-      rows.join("\n"),
+      blok.length?blok.join("\n\n"):"_(tidak ada reservasi)_",
       LINE,
-      `💰 TOTAL DP MASUK : ${rpDot(totalDP)}`,
-      `✅ SUDAH DP : ${paidList.length} tamu`,
-      `⭕ BELUM DP : ${list.length-paidList.length} tamu`,
-      `👥 TOTAL TAMU : ${totalPax} PAX, ${list.length} reservasi`,
+      `💰 Total DP masuk : *${rpDot(totalDP)}*`,
+      `✅ Sudah DP : ${paidList.length} tamu   ⭕ Belum : ${list.length-paidList.length} tamu`,
+      `👥 Total : ${totalPax} pax  ·  ${list.length} reservasi`,
     ].join("\n");
   }
 
-  // variant koordinasi (default)
-  const rows = list.map((r,i)=>`${pad(i+1)}. ${(r.name||"-").toUpperCase()} / ${(Number(r.pax)||0)}PAX / ${dpFull(r)} / ${r.table||"-"}`);
+  // variant koordinasi (default) — fokus seating & kedatangan
   const mejaCount = list.reduce((a,r)=> a + tablesOf(r).length, 0);
+  const blok = list.map((r,i)=>{
+    const dp = (r.dpStatus==="Sudah" && Number(r.dpAmount)>0) ? `💰 DP ${rpDot(r.dpAmount)}` : `⭕ Belum DP`;
+    return `${i+1}. *${(r.name||"-").toUpperCase()}*  ·  ${jam(r)}\n    🪑 Meja: ${meja(r)}  ·  👥 ${Number(r.pax)||0} pax\n    ${dp}`;
+  });
   return [
     "⚓ *KOORDINASI KEDATANGAN*",
-    `LAKSAMANA MUDA, ${fmtDate(dateStr)}`,
+    `Laksamana Muda  ·  ${fmtDate(dateStr)}`,
     ...(rangeLine?[`🕗 ${rangeLine}`]:[]),
     LINE,
-    "_NAMA / PAX / DP / MEJA_",
-    "",
-    rows.join("\n"),
+    blok.length?blok.join("\n\n"):"_(tidak ada reservasi)_",
     LINE,
-    `👥 TOTAL TAMU : ${totalPax} PAX`,
-    `📋 RESERVASI : ${list.length}`,
-    `🪑 MEJA DIPESAN : ${mejaCount}`,
+    `👥 Total tamu : ${totalPax} pax`,
+    `📋 Reservasi : ${list.length}`,
+    `🪑 Meja dipesan : ${mejaCount}`,
   ].join("\n");
 }
 function openCoordWA(){
@@ -6648,8 +6654,10 @@ function renderAnalitik(){
   // sumber
   const bySource={}; all.forEach(r=>{if(r.source)bySource[r.source]=(bySource[r.source]||0)+1;});
   const srcArr=Object.entries(bySource).sort((a,b)=>b[1]-a[1]); const srcMax=Math.max(1,...srcArr.map(x=>x[1]));
-  // PIC
-  const byPic={}; all.forEach(r=>{const k=r.picType==="Marketing"?r.picName:"Host/Captain";byPic[k]=byPic[k]||{total:0,hadir:0};byPic[k].total++;if(r.status==="Datang")byPic[k].hadir++;});
+  // PIC — dinilai per ORANG (picName), bukan per peran. Dulu semua host
+  // ditumpuk jadi satu batang "Host/Captain" sehingga tidak kelihatan siapa
+  // yang menangani apa; sekarang tiap nama berdiri sendiri.
+  const byPic={}; all.forEach(r=>{const k=(r.picName||"").trim()||(r.picType==="Marketing"?"Marketing":"Host/Captain");byPic[k]=byPic[k]||{total:0,hadir:0};byPic[k].total++;if(r.status==="Datang")byPic[k].hadir++;});
   const picArr=Object.entries(byPic).sort((a,b)=>b[1].total-a[1].total); const picMax=Math.max(1,...picArr.map(x=>x[1].total));
   // peak hour
   const byHour={}; all.forEach(r=>{const h=(r.time||"0").split(":")[0];byHour[h]=(byHour[h]||0)+1;});
