@@ -264,6 +264,29 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .seat.sold{background:rgba(201,67,43,.2);color:var(--red)}
 .seat.locked{background:rgba(169,121,31,.2);color:var(--accent)}
 .seat.checked{background:var(--red);color:#fff}
+.seat.sel{outline:2px solid var(--accent);outline-offset:1px}
+.seat[data-ro="1"]{cursor:not-allowed}
+/* ---------- DENAH LAKSAMANA MUDA (Reguler+ bernomor, klik ala bioskop) ----------
+   Panggung di atas; kursi bernomor MENGELILINGI area lantai: kolom kiri 1–23,
+   baris depan 24–60, kolom kanan 61–83 — persis urutan poster. Dibuat pakai
+   CSS grid supaya bentuk-U-nya jelas tanpa menaruh koordinat piksel manual. */
+.lm-hall{display:grid;grid-template-columns:auto 1fr auto;grid-template-areas:"stage stage stage" "kiri floor kanan" "depan depan depan";gap:12px;background:var(--panel2);border-radius:12px;padding:16px}
+.lm-stage{grid-area:stage;background:#111;color:#fff;text-align:center;padding:14px;border-radius:8px;letter-spacing:4px;font-weight:700;font-size:13px}
+.lm-kiri{grid-area:kiri;display:flex;flex-direction:column;gap:5px}
+.lm-kanan{grid-area:kanan;display:flex;flex-direction:column;gap:5px}
+.lm-depan{grid-area:depan;display:flex;flex-wrap:wrap;gap:5px;justify-content:center}
+.lm-floor{grid-area:floor;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12px;text-align:center;min-height:120px}
+.lm-side-lbl{writing-mode:vertical-rl;transform:rotate(180deg);align-self:center;color:var(--accent);font-weight:700;font-size:11px;letter-spacing:2px}
+.lm-zones{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.lm-zone{flex:1;min-width:160px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.lm-zone h4{margin:0 0 4px;font-size:13px}
+.lm-zone .zc{display:flex;gap:6px;align-items:center;margin-top:8px}
+.lm-zone button{width:26px;height:26px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--txt);cursor:pointer;font-weight:700}
+.lm-floors{display:flex;gap:8px;margin-bottom:12px}
+.lm-floors button{padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer;font-weight:600;font-size:13px}
+.lm-floors button.on{background:var(--accent);color:#111;border-color:var(--accent)}
+@media(max-width:640px){ .lm-hall{grid-template-columns:auto 1fr auto} .seat{width:26px;height:26px;font-size:9px} }
 .stage-bar{background:linear-gradient(var(--panel2),var(--panel));text-align:center;padding:8px;border-radius:8px;color:var(--muted);letter-spacing:3px;font-size:12px;margin-bottom:14px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -1708,9 +1731,7 @@ function renderTicketDetail(id){
     ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit)}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} – ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;}
-  else if(tab==='seatmap'){const seats=DB.seats.filter(s=>s.event_id===id);body=`<div class="card"><h3 class="sec">Seating Layout</h3><div class="stage-bar">S T A G E</div>
-    <div class="seatmap">${seats.map(s=>{const ticket=DB.tickets.find(t=>t.seat_id===s.id);const checked=ticket&&ticket.status==='Checked-In';const cls=checked?'checked':s.status==='Sold'?'sold':s.status==='Locked'?'locked':'available';return `<div class="seat ${cls}" title="${s.table_no} (${s.capacity} kursi) - ${s.status}">${s.table_no}</div>`;}).join('')||'<div class="mini">Belum ada layout. Class VIP Table punya seat map.</div>'}</div>
-    <div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Available</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Sold</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Locked (hold)</span><span><i class="dotc" style="background:var(--red)"></i>Checked-in</span></div></div>`;}
+  else if(tab==='seatmap'){body=seatMapBody(id);}
   else if(tab==='buyers'){const orders=DB.orders.filter(o=>o.event_id===id);body=`<div class="card" style="padding:0"><table><thead><tr><th>Buyer</th><th>Kontak</th><th>Class</th><th>Seat</th><th>Total</th><th>Payment</th><th>Refund</th><th>Check-in</th><th></th></tr></thead><tbody>
     ${orders.map(o=>{const tk=DB.tickets.find(t=>t.order_item_id===o.id);const cls=tk?DB.ticketClasses.find(c=>c.id===tk.ticket_class_id):null;const seat=tk&&tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;const ci=tk?DB.checkins.find(c=>c.ticket_id===tk.id):null;
       const rf=DB.refunds.filter(r=>r.order_id===o.id).slice(-1)[0];
@@ -1727,6 +1748,91 @@ function renderTicketDetail(id){
     ${refs.map(r=>{const o=DB.orders.find(x=>x.id===r.order_id);return `<tr><td>${IDR(o.total)}</td><td>${esc(o.buyer_name)}</td><td>${esc(r.reason)}</td><td>${statusBadge(r.status)}</td><td>${r.status==='Pending'?`<button class="btn sm" onclick="approveRefund('${r.id}')">Approve</button> <button class="btn danger sm" onclick="rejectRefund('${r.id}')">Reject</button>`:''}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada refund.</td></tr>'}
     </tbody></table></div>`;}
   C().innerHTML=`<div class="tabs">${tb('classes','Ticket Class')}${tb('seatmap','Seat Map')}${tb('buyers','Buyer List')}${tb('refund','Refund')}</div>${body}`;
+}
+/* ============================================================
+   DENAH KURSI — TEMPLATE LAKSAMANA MUDA (Reguler+ bernomor 1–83)
+   ------------------------------------------------------------
+   Reguler+ = 83 kursi bernomor MENGELILINGI lantai (poster): kolom kiri 1–23,
+   depan panggung 24–60, kolom kanan 61–83. Bisa diklik untuk menandai status.
+   Reguler = zona (kapasitas, tanpa nomor) — sesuai poster hanya Reguler+ yang
+   dinomori. Reguler ada di lantai 2 (pojok) & seluruh lantai 1.
+   ============================================================ */
+function seatSisi(n){ return n<=23?'Kiri':(n<=60?'Depan':'Kanan'); }
+function buatDenahLM(eid){
+  const e=DB.events.find(x=>x.id===eid); if(!e) return;
+  if(DB.seats.some(s=>s.event_id===eid && s.zone==='Reguler+')){ toast('Denah Reguler+ sudah ada.'); return; }
+  // pastikan ada ticket class untuk tiap zona (dipakai kuota & penjualan)
+  let clsPlus=DB.ticketClasses.find(c=>c.event_id===eid && c.name==='Reguler+');
+  if(!clsPlus){ clsPlus={id:uid(),event_id:eid,name:'Reguler+',price:0,quota:83,sold:0,sale_start:e.start_datetime,sale_end:e.start_datetime,description:'Kursi bernomor',benefit:'Kursi bernomor 1–83',is_seated:true}; DB.ticketClasses.push(clsPlus); }
+  if(!DB.ticketClasses.some(c=>c.event_id===eid && c.name==='Reguler')){
+    const sisa=Math.max(0,(+e.capacity||0)-83);
+    DB.ticketClasses.push({id:uid(),event_id:eid,name:'Reguler',price:0,quota:sisa||100,sold:0,sale_start:e.start_datetime,sale_end:e.start_datetime,description:'Zona reguler (tanpa nomor)',benefit:'Area reguler',is_seated:false});
+  }
+  for(let n=1;n<=83;n++){ DB.seats.push({id:uid(),event_id:eid,ticket_class_id:clsPlus.id,zone:'Reguler+',table_no:String(n),seat_no:n,capacity:1,x:0,y:0,status:'Available'}); }
+  save(); toast('✓ Denah Laksamana Muda dibuat — 83 kursi Reguler+.'); renderTicketDetail(eid);
+}
+/* Klik kursi = putar status manual (Available → Locked → Sold → Available).
+   Kursi yang SUDAH terjual lewat pembelian (punya tiket) tidak boleh dilepas
+   dari sini — itu memutus tiket pembeli; lepasnya lewat Refund. */
+function toggleSeat(eid,sid){
+  const s=DB.seats.find(x=>x.id===sid); if(!s) return;
+  const tk=DB.tickets.find(t=>t.seat_id===sid && t.status!=='Cancelled');
+  if(tk){ const o=DB.orders.find(x=>x.id===tk.order_item_id); toast('Kursi '+s.table_no+' terjual ke '+((o&&o.buyer_name)||'pembeli')+'. Lepas lewat Refund, bukan dari denah.'); return; }
+  s.status = s.status==='Available'?'Locked':(s.status==='Locked'?'Sold':'Available');
+  save(); renderTicketDetail(eid);
+}
+function regulerAdj(eid,delta){
+  const c=DB.ticketClasses.find(x=>x.event_id===eid && x.name==='Reguler'); if(!c) return;
+  c.sold=Math.max(0,Math.min(c.quota,(+c.sold||0)+delta));
+  save(); renderTicketDetail(eid);
+}
+function seatCls(s){
+  const tk=DB.tickets.find(t=>t.seat_id===s.id && t.status!=='Cancelled');
+  if(tk && tk.status==='Checked-In') return 'checked';
+  if(s.status==='Sold'||tk) return 'sold';
+  if(s.status==='Locked') return 'locked';
+  return 'available';
+}
+function seatBox(s){
+  const cls=seatCls(s), ro=(cls==='sold'||cls==='checked')?1:0;
+  return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+s.table_no+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+s.table_no+'</div>';
+}
+function seatMapBody(id){
+  const seats=DB.seats.filter(s=>s.event_id===id);
+  const rplus=seats.filter(s=>s.zone==='Reguler+').sort((a,b)=>a.seat_no-b.seat_no);
+  if(!rplus.length){
+    // fallback: kalau ada seat lain (mis. VIP table lama), tetap tampilkan;
+    // selalu tawarkan template LM.
+    let h='<div class="card"><h3 class="sec">Denah Kursi</h3>'
+      +'<p class="mini">Belum ada denah Reguler+. Buat template venue Laksamana Muda — 83 kursi bernomor mengelilingi panggung (Lantai 2).</p>'
+      +'<button class="btn" onclick="buatDenahLM(\''+id+'\')">+ Buat Denah Laksamana Muda</button>';
+    if(seats.length){ h+='<div class="stage-bar" style="margin-top:16px">S T A G E</div><div class="seatmap">'
+      +seats.map(s=>'<div class="seat '+seatCls(s)+'" title="'+esc(s.table_no)+' — '+s.status+'">'+esc(s.table_no)+'</div>').join('')+'</div>'; }
+    return h+'</div>';
+  }
+  const kiri=rplus.filter(s=>s.seat_no<=23);
+  const depan=rplus.filter(s=>s.seat_no>=24 && s.seat_no<=60);
+  const kanan=rplus.filter(s=>s.seat_no>=61).slice().reverse();  // 83 di atas → 61 di bawah (poster)
+  const terisi=rplus.filter(s=>seatCls(s)!=='available').length;
+  const reg=DB.ticketClasses.find(c=>c.event_id===id && c.name==='Reguler');
+
+  let h='<div class="card"><h3 class="sec">Denah Lantai 2 — Reguler+ <span class="mini" style="font-weight:400">('+terisi+'/'+rplus.length+' terisi)</span></h3>'
+    +'<p class="mini" style="margin-bottom:10px">Klik kursi untuk memutar status: Tersedia → Hold → Terjual → Tersedia. Kursi yang terjual lewat pembelian dilepas lewat Refund.</p>'
+    +'<div class="lm-hall">'
+      +'<div class="lm-stage">S T A G E</div>'
+      +'<div class="lm-kiri"><span class="lm-side-lbl">REGULER +</span>'+kiri.map(seatBox).join('')+'</div>'
+      +'<div class="lm-floor"><b>LANTAI 2</b><span>Area lantai / floor</span></div>'
+      +'<div class="lm-kanan"><span class="lm-side-lbl">REGULER +</span>'+kanan.map(seatBox).join('')+'</div>'
+      +'<div class="lm-depan">'+depan.map(seatBox).join('')+'</div>'
+    +'</div>'
+    +'<div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Tersedia</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Terjual</span><span><i class="dotc" style="background:var(--red)"></i>Check-in</span></div>';
+
+  // Zona Reguler (tanpa nomor) — lantai 2 pojok + seluruh lantai 1
+  h+='<div class="lm-zones">'
+    +'<div class="lm-zone"><h4>Reguler — Lantai 1 &amp; pojok Lantai 2</h4><span class="mini">Zona bebas tanpa nomor kursi.</span>'
+    +(reg?'<div class="zc"><button onclick="regulerAdj(\''+id+'\',-1)">−</button><b>'+reg.sold+'</b> / '+reg.quota+' terjual<button onclick="regulerAdj(\''+id+'\',1)">+</button></div>':'<div class="mini" style="margin-top:8px">Kelas "Reguler" belum ada.</div>')
+    +'</div></div>';
+  return h+'</div>';
 }
 function ticketClassForm(eid){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Ticket Class Baru</h3>
