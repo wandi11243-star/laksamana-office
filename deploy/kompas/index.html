@@ -216,6 +216,33 @@ tbody tr:hover{background:var(--gold-soft)}
 .leader .ln{font-weight:700;font-size:14px}
 .leader .lm{font-size:11.5px;color:var(--muted)}
 .leader .lspace{flex:1}
+
+/* ===== Kalender kustom (bukan date picker bawaan browser) ===== */
+.calwrap{position:relative}
+.calbtn{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:220px}
+.calbtn:hover{border-color:var(--gold)}
+/* di dalam grid form (row-in) tombolnya ikut lebar kolom, jangan memaksa 220px */
+.row-in .calbtn{min-width:0}
+.row-in .calpop{left:0;right:auto;max-width:min(300px,86vw)}
+.calback{position:fixed;inset:0;z-index:55}
+.calpop{position:absolute;z-index:60;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px;width:300px}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.calhead b{font-family:var(--serif);font-size:15px;color:var(--ink)}
+.calnav{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:16px;display:grid;place-items:center;color:var(--muted)}
+.calnav:hover{border-color:var(--gold);color:var(--gold-dim)}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.caldow{font-size:10px;font-weight:700;color:var(--muted-2);text-transform:uppercase;padding:5px 0;letter-spacing:.4px}
+.calday{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text);position:relative}
+.calday:hover{background:var(--gold-soft)}
+.calday.off{color:var(--muted-2);opacity:.45;cursor:default}
+.calday.off:hover{background:none}
+.calday.today{color:var(--gold-dim);font-weight:800}
+.calday.sel{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff}
+.calday.caldata::after{content:'';position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.calday.sel.caldata::after{background:#fff}
+.calquick{display:flex;gap:6px;margin-top:10px}
+.calquick button{flex:1;padding:7px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text)}
+.calquick button:hover{background:var(--gold-soft);border-color:var(--gold)}
 </style>
 </head>
 <body>
@@ -413,6 +440,9 @@ function kirim(){
 function grossOf(d){ return num(d.food)+num(d.bev)+num(d.rokok)+num(d.videotron)+num(d.lainnya); }
 function netOf(d){ return grossOf(d)-num(d.discount); }
 function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
+function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
+/* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
+const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
 function dailyTarget(monthKey){
   const [y,m]=monthKey.split('-').map(Number);
   const div=DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
@@ -465,9 +495,10 @@ function render(){
 /* ============ 1. INPUT OMSET HARIAN ============ */
 let inputDate=todayISO();
 function viewInput(){
+  CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const existing=getDay(inputDate);
-  const d=existing||{date:inputDate,food:0,bev:0,rokok:0,videotron:0,lainnya:0,discount:0,tax_service:0,traffic:0,bill:0};
+  const d=existing||{date:inputDate,food:0,bev:0,rokok:0,videotron:0,lainnya:0,discount:0,tax_service:0,traffic:0,bill:0,qty_food:0,qty_bev:0,qty_others:0};
   el.innerHTML=`
   <div class="grid g2" style="align-items:start">
     <div>
@@ -475,8 +506,8 @@ function viewInput(){
         <h3>Informasi & Pendapatan</h3>
         <div class="card-sub">Tanggal menentukan periode. Hari terisi otomatis.</div>
         <div class="row-in">
-          <div class="field"><label>Tanggal</label><input type="date" id="i_date" value="${inputDate}"></div>
-          <div class="field"><label>Hari</label><input id="i_hari" value="${HARI[new Date(inputDate).getDay()]}" readonly></div>
+          <div class="field"><label>Tanggal</label><div class="calwrap" id="i_cal">${calInner('in')}</div></div>
+          <div class="field"><label>Hari</label><input id="i_hari" value="${HARI[new Date(inputDate+'T00:00:00').getDay()]}" readonly></div>
         </div>
         <div class="mini-lab" style="margin-top:4px">Pendapatan</div>
         <div class="row-in">
@@ -491,10 +522,16 @@ function viewInput(){
         <div class="row-in" style="margin-top:12px">
           <div class="field"><label>Total Tax &amp; Service (input admin)</label><input class="mono ci rp" id="i_tax" inputmode="numeric" value="${d.tax_service}"></div>
         </div>
+        <div class="mini-lab" style="margin-top:4px">Jumlah Item Terjual (Qty)</div>
+        <div class="row-in">
+          <div class="field"><label>Food Item Quantity</label><input class="mono ci" id="i_qfood" inputmode="numeric" value="${num(d.qty_food)}"></div>
+          <div class="field"><label>Beverage Item Quantity</label><input class="mono ci" id="i_qbev" inputmode="numeric" value="${num(d.qty_bev)}"></div>
+          <div class="field"><label>Others Quantity</label><input class="mono ci" id="i_qothers" inputmode="numeric" value="${num(d.qty_others)}"><div class="helper">Rokok, videotron, item lain</div></div>
+        </div>
         <div class="mini-lab" style="margin-top:4px">Data Operasional</div>
         <div class="row-in">
           <div class="field"><label>Traffic (customer datang)</label><input class="mono ci" id="i_traffic" inputmode="numeric" value="${d.traffic}"></div>
-          <div class="field"><label>Bill / Transaksi</label><input class="mono ci" id="i_bill" inputmode="numeric" value="${d.bill}"></div>
+          <div class="field"><label>Total Bill (jumlah transaksi)</label><input class="mono ci" id="i_bill" inputmode="numeric" value="${d.bill}"></div>
         </div>
         <div id="i_err"></div>
         <div style="display:flex;gap:10px;margin-top:6px">
@@ -526,7 +563,7 @@ function viewInput(){
 
   const recalc=()=>{
     const t={food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),bill:num(v('i_bill')),tax_service:num(v('i_tax'))};
-    const net=netOf(t), tgt=dailyTarget(monthKeyOf(v('i_date'))), ach=pct(net,tgt);
+    const net=netOf(t), tgt=dailyTarget(monthKeyOf(inputDate)), ach=pct(net,tgt);
     document.getElementById('s_omset').textContent=fmtRp(net);
     document.getElementById('s_omset_foot').textContent=`Gross ${fmtRp(grossOf(t))} − Diskon ${fmtRp(t.discount)}`;
     document.getElementById('s_avg').textContent=fmtRp(avgSpendOf(t));
@@ -540,7 +577,6 @@ function viewInput(){
     document.getElementById('s_prog_foot').textContent=ok?`Melampaui target ${fmtRp(net-tgt)}`:`Kurang ${fmtRp(Math.max(tgt-net,0))} untuk capai target harian`;
   };
   el.querySelectorAll('.ci').forEach(i=>i.addEventListener('input',recalc));
-  document.getElementById('i_date').addEventListener('change',e=>{inputDate=e.target.value;PERIOD=monthKeyOf(inputDate);render();});
   document.getElementById('i_save').addEventListener('click',saveDaily);
   if(document.getElementById('i_del'))document.getElementById('i_del').addEventListener('click',()=>{
     if(confirm('Hapus data omset '+inputDate+'? Breakdown ikut terhapus.')){DB.daily=DB.daily.filter(x=>x.date!==inputDate);save();render();}
@@ -550,10 +586,10 @@ function viewInput(){
 function v(id){return document.getElementById(id).value;}
 
 function saveDaily(){
-  const date=v('i_date');
-  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),tax_service:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill'))};
+  const date=inputDate;
+  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),tax_service:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill')),qty_food:num(v('i_qfood')),qty_bev:num(v('i_qbev')),qty_others:num(v('i_qothers'))};
   const errs=[];
-  ['food','bev','rokok','videotron','lainnya','discount','tax_service','traffic','bill'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
+  ['food','bev','rokok','videotron','lainnya','discount','tax_service','traffic','bill','qty_food','qty_bev','qty_others'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
   if(grossOf(rec)===0)errs.push('Pendapatan tidak boleh kosong.');
   if(rec.discount>grossOf(rec))errs.push('Diskon melebihi total pendapatan.');
   if(rec.traffic<rec.bill)errs.push('Traffic harus ≥ jumlah Bill.');
@@ -569,24 +605,68 @@ function saveDaily(){
 
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
+
+/* ---- Kalender kustom (bukan input type=date bawaan Chrome). Satu
+   implementasi dipakai dua tempat, dibedakan lewat `key`:
+     'in' → Tanggal di Input Omset Harian
+     'bd' → Pilih Hari di Breakdown
+   Semua tanggal terbuka; tanggal yang sudah ada omset diberi titik. */
+const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const CAL_REG={
+  in:{ box:'i_cal',  get:()=>inputDate,          set:ds=>{ inputDate=ds; PERIOD=monthKeyOf(ds); } },
+  bd:{ box:'bd_cal', get:()=>bdDate||todayISO(), set:ds=>{ bdDate=ds; } }
+};
+const CAL_ST={ in:{open:false,month:null}, bd:{open:false,month:null} };
+function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
+function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
+function calToggle(key){ const s=CAL_ST[key]; s.open=!s.open; if(s.open){ const [y,m]=CAL_REG[key].get().split('-').map(Number); s.month=new Date(y,m-1,1); } paintCal(key); }
+function calNav(key,delta){ const s=CAL_ST[key]; if(!s.month) s.month=new Date(); s.month=new Date(s.month.getFullYear(),s.month.getMonth()+(+delta),1); paintCal(key); }
+function calPickDay(key,ds){ CAL_ST[key].open=false; CAL_REG[key].set(ds); render(); }
+function calQuick(key,off){ const d=new Date(); d.setDate(d.getDate()+off); calPickDay(key,ymdLocal(d)); }
+function calInner(key){
+  const st=CAL_ST[key], sel=CAL_REG[key].get()||todayISO();
+  const btn=`<button type="button" class="calbtn" onclick="calToggle('${key}')"><span>📅 ${dateLabel(sel)}</span><span style="opacity:.55">▾</span></button>`;
+  if(!st.open) return btn;
+  if(!st.month){ const [yy,mm]=sel.split('-').map(Number); st.month=new Date(yy,mm-1,1); }
+  const y=st.month.getFullYear(), mo=st.month.getMonth();
+  const startDow=new Date(y,mo,1).getDay(), dim=new Date(y,mo+1,0).getDate(), prevDim=new Date(y,mo,0).getDate();
+  const DOW=['MIN','SEN','SEL','RAB','KAM','JUM','SAB'];
+  let cells='';
+  for(let i=startDow-1;i>=0;i--) cells+=`<button class="calday off" disabled>${prevDim-i}</button>`;
+  for(let dd=1;dd<=dim;dd++){
+    const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    const cls=['calday']; if(ds===todayISO())cls.push('today'); if(ds===sel)cls.push('sel'); if(getDay(ds))cls.push('caldata');
+    cells+=`<button class="${cls.join(' ')}" onclick="calPickDay('${key}','${ds}')">${dd}</button>`;
+  }
+  return btn+`<div class="calback" onclick="calToggle('${key}')"></div><div class="calpop">
+    <div class="calhead"><button class="calnav" onclick="calNav('${key}',-1)">‹</button><b>${CAL_MON[mo]} ${y}</b><button class="calnav" onclick="calNav('${key}',1)">›</button></div>
+    <div class="calgrid">${DOW.map(d=>`<div class="caldow">${d}</div>`).join('')}${cells}</div>
+    <div class="calquick"><button onclick="calPickDay('${key}','${todayISO()}')">Hari Ini</button><button onclick="calQuick('${key}',-1)">Kemarin</button><button onclick="calToggle('${key}')">Tutup</button></div>
+  </div>`;
+}
+
 function viewBreakdown(){
+  CAL_ST.bd.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
-  if(!bdDate||!getDay(bdDate)) bdDate=days.length?days[days.length-1].date:null;
-  if(!bdDate){ el.innerHTML=`<div class="card"><div class="empty"><div class="big">🧮</div>Belum ada omset harian di periode ini.<br>Input omset dulu di menu <b>Input Omset Harian</b>.</div></div>`; return; }
+  if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
   const d=getDay(bdDate);
+  const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Total breakdown harus tepat sama dengan Total Omset net harian.</div></div>
+      <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner('bd')}</div></div>
+    </div>`;
+  if(!d){
+    el.innerHTML=pickBar+`<div class="card"><div class="empty"><div class="big">🧮</div>Belum ada omset untuk <b>${esc(dateLabel(bdDate))}</b>.<br>Input omsetnya dulu di menu <b>Input Omset Harian</b>, atau pilih tanggal lain di atas.</div></div>`;
+    return;
+  }
   const net=netOf(d);
-  const opts=days.map(x=>`<option value="${x.date}" ${x.date===bdDate?'selected':''}>${x.date} · ${HARI[new Date(x.date).getDay()]} · ${fmtRp(netOf(x))}${x.bdValid?' ✓':''}</option>`).join('');
   d.bd=d.bd||{marketing:[],event:[],kasir:[]};
   // pastikan baris kasir ada untuk semua kasir
   const kasirRows=DB.employees.kasir.map(k=>{ const ex=d.bd.kasir.find(r=>r.kasirId===k.id); return ex||{kasirId:k.id,amount:0,off:false}; });
 
-  el.innerHTML=`
+  el.innerHTML=pickBar+`
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-        <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Total breakdown harus tepat sama dengan Total Omset net harian.</div></div>
-        <div class="field" style="margin:0;min-width:260px"><label>Pilih Hari</label><select id="bd_date">${opts}</select></div>
-      </div>
       <div class="notice info">ℹ️ Total Omset net <b>${fmtRp(net)}</b>${d.discount>0?` (sesudah diskon ${fmtRp(d.discount)})`:''}. Tax &amp; service ${fmtRp(d.tax_service)} tidak masuk breakdown.</div>
 
       <span class="divlabel mk">Section A — Marketing</span>
@@ -612,10 +692,15 @@ function viewBreakdown(){
         <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <button class="btn btn-danger btn-sm mkdel" data-i="${i}" style="margin-bottom:14px">✕</button>
+        <div style="display:flex;gap:5px;margin-bottom:14px">
+          <button type="button" class="btn btn-sm btn-ghost mksisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
+          <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
+        </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data marketing.</div>';
     bind('mkf','mk',drawMk);
     document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{state.mk.splice(+b.dataset.i,1);drawMk();calc();});
+    document.querySelectorAll('.mksisa').forEach(b=>b.onclick=()=>isiSisa('mk',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_mk'));
   }
   function drawEv(){
     document.getElementById('bd_ev').innerHTML=state.ev.map((r,i)=>`
@@ -623,19 +708,27 @@ function viewBreakdown(){
         <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <button class="btn btn-danger btn-sm evdel" data-i="${i}" style="margin-bottom:14px">✕</button>
+        <div style="display:flex;gap:5px;margin-bottom:14px">
+          <button type="button" class="btn btn-sm btn-ghost evsisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
+          <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
+        </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data event.</div>';
     bind('evf','ev',drawEv);
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
+    document.querySelectorAll('.evsisa').forEach(b=>b.onclick=()=>isiSisa('ev',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_ev'));
   }
   function drawKs(){
     document.getElementById('bd_ks').innerHTML=state.ks.map((r,i)=>`
       <div class="brow ks">
         <div class="field"><label>${esc(empName('kasir',r.kasirId))}</label><input data-i="${i}" data-f="amount" class="ksf mono rp" inputmode="numeric" value="${r.amount||0}" ${r.off?'disabled style="opacity:.5"':''}></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:14px;cursor:pointer"><input type="checkbox" class="ksoff" data-i="${i}" ${r.off?'checked':''}> OFF (libur)</label>
+        <button type="button" class="btn btn-sm btn-ghost kssisa" data-i="${i}" style="margin-bottom:14px" ${r.off?'disabled style="margin-bottom:14px;opacity:.4"':''} title="Isi sisa omset yang belum dialokasikan ke kasir ini">sisa</button>
       </div>`).join('');
     document.querySelectorAll('.ksf').forEach(inp=>inp.oninput=()=>{state.ks[+inp.dataset.i].amount=num(inp.value);calc();});
     document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{const i=+c.dataset.i;state.ks[i].off=c.checked;if(c.checked)state.ks[i].amount=0;drawKs();calc();});
+    document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa('ks',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_ks'));
   }
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
@@ -643,6 +736,14 @@ function viewBreakdown(){
     });
   }
   function sumState(){ return state.mk.reduce((s,r)=>s+num(r.amount),0)+state.ev.reduce((s,r)=>s+num(r.amount),0)+state.ks.reduce((s,r)=>s+(r.off?0:num(r.amount)),0); }
+  // Isi otomatis nominal yang BELUM dialokasikan (net − total field lain) ke satu
+  // baris. Dipakai lewat tombol "sisa" begitu field lain sudah diisi.
+  function isiSisa(key,i){
+    const row=state[key][i]; if(!row || (key==='ks'&&row.off)) return;
+    const cur = num(row.amount);
+    row.amount = Math.max(0, net-(sumState()-cur));
+    (key==='mk'?drawMk:key==='ev'?drawEv:drawKs)(); calc();
+  }
   function calc(){
     const tot=sumState(), diff=net-tot, ok=Math.abs(diff)<1;
     document.getElementById('bd_balance').innerHTML=`
@@ -659,7 +760,6 @@ function viewBreakdown(){
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks};d.bdValid=true;save();render();
     };
   }
-  document.getElementById('bd_date').onchange=e=>{bdDate=e.target.value;render();};
   document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0});drawMk();calc();};
   document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0});drawEv();calc();};
   drawMk();drawEv();drawKs();calc();
@@ -674,41 +774,53 @@ function viewBulanan(){
   const tax=days.reduce((s,d)=>s+num(d.tax_service),0);
   const disc=days.reduce((s,d)=>s+num(d.discount),0);
   const ach=pct(real,target), selisih=target-real;
-  const T={food:0,bev:0,rokok:0,videotron:0,lainnya:0,traffic:0,bill:0};
-  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.rokok+=num(d.rokok);T.videotron+=num(d.videotron);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);});
-  const avgMonthly=T.bill>0?real/T.bill:0;
+  const T={food:0,bev:0,rokok:0,videotron:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
+  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.rokok+=num(d.rokok);T.videotron+=num(d.videotron);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);T.qfood+=num(d.qty_food);T.qbev+=num(d.qty_bev);T.qothers+=num(d.qty_others);});
+  const totalItem=T.qfood+T.qbev+T.qothers;
+  /* KPI bulanan — semuanya dibagi Total Bill (jumlah transaksi) */
+  const upt=T.bill>0?totalItem/T.bill:0;   // Unit Per Transaction  = total item ÷ total bill
+  const atv=T.bill>0?real/T.bill:0;        // Average Transaction Value = total sales ÷ total bill
+  const aps=T.bill>0?T.traffic/T.bill:0;   // Average Party Size    = total traffic ÷ total bill
   const dtgt=dailyTarget(PERIOD);
   const rows=days.map(d=>{const n=netOf(d);return `<tr><td>${d.date.slice(8)} ${HARI[new Date(d.date).getDay()].slice(0,3)}</td><td class="num mono">${fmtRp(dtgt)}</td><td class="num mono">${fmtRp(n)}</td><td class="num mono">${pct(n,dtgt).toFixed(0)}%</td><td>${n>=dtgt?'<span class="status ok"><span class="d"></span></span>':'<span class="status bad"><span class="d"></span></span>'}</td></tr>`;}).join('');
 
   el.innerHTML=`
     <div class="grid g4">
-      <div class="stat accent"><div class="lab">Target Bulan</div><div class="val">${fmtRpShort(target)}</div><div class="foot mono">${fmtRp(target)}</div></div>
-      <div class="stat"><div class="lab">Realisasi</div><div class="val">${fmtRpShort(real)}</div><div class="foot mono">${fmtRp(real)}</div></div>
+      <div class="stat accent"><div class="lab">Target Bulan</div><div class="val sm mono">${fmtRp(target)}</div></div>
+      <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(real)}</div></div>
       <div class="stat"><div class="lab">Achievement</div><div class="val">${ach.toFixed(0)}%</div><div class="foot">${real>=target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
-      <div class="stat"><div class="lab">${selisih>0?'Harus Dikejar':'Surplus'}</div><div class="val">${fmtRpShort(Math.abs(selisih))}</div><div class="foot mono">${fmtRp(Math.abs(selisih))}</div></div>
+      <div class="stat"><div class="lab">${selisih>0?'Harus Dikejar':'Surplus'}</div><div class="val sm mono">${fmtRp(Math.abs(selisih))}</div></div>
     </div>
     <div class="card">
       <div class="prog ${real>=target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div>
       <div class="foot" style="font-size:12.5px;color:var(--muted);margin-top:9px">Realisasi ${fmtRp(real)} dari target ${fmtRp(target)} · ${days.length} hari terinput.</div>
     </div>
-    <div class="grid g3">
+    <div class="grid g2">
       <div class="stat" style="background:var(--warn-bg-t)"><div class="lab">💰 Tax &amp; Service Bulanan</div><div class="val sm">${fmtRp(tax)}</div><div class="foot">di luar omset, akumulasi harian</div></div>
       <div class="stat" style="background:var(--danger-bg-t)"><div class="lab">🏷️ Total Discount Bulanan</div><div class="val sm">${fmtRp(disc)}</div><div class="foot">total potongan diberikan</div></div>
-      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">Avg Spending Bulanan</div><div class="val sm">${fmtRp(avgMonthly)}</div><div class="foot">omset ÷ total bill</div></div>
+    </div>
+    <div class="grid g3">
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">🧾 Unit Per Transaction (UPT)</div><div class="val sm">${fmtDec(upt)}</div><div class="foot">${totalItem.toLocaleString('id-ID')} item ÷ ${T.bill.toLocaleString('id-ID')} bill</div></div>
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">💳 Average Transaction Value (ATV)</div><div class="val sm">${fmtRp(atv)}</div><div class="foot">total sales ÷ total bill</div></div>
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">👥 Average Party Size (APS)</div><div class="val sm">${fmtDec(aps)}</div><div class="foot">${T.traffic.toLocaleString('id-ID')} traffic ÷ ${T.bill.toLocaleString('id-ID')} bill</div></div>
     </div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Target vs Actual Harian</h3><div class="card-sub">Garis target dibanding realisasi net</div><div class="chart-box"><canvas id="c_line"></canvas></div></div>
       <div class="card"><h3>Omset Harian</h3><div class="card-sub">Realisasi net per hari</div><div class="chart-box"><canvas id="c_bar"></canvas></div></div>
     </div>
     <div class="grid g4" style="margin-top:2px">
-      <div class="stat"><div class="lab">Total Food</div><div class="val sm">${fmtRpShort(T.food)}</div></div>
-      <div class="stat"><div class="lab">Total Beverage</div><div class="val sm">${fmtRpShort(T.bev)}</div></div>
-      <div class="stat"><div class="lab">Total Rokok</div><div class="val sm">${fmtRpShort(T.rokok)}</div></div>
-      <div class="stat"><div class="lab">Total Videotron</div><div class="val sm">${fmtRpShort(T.videotron)}</div></div>
-      <div class="stat"><div class="lab">Total Lainnya</div><div class="val sm">${fmtRpShort(T.lainnya)}</div></div>
+      <div class="stat"><div class="lab">Total Food</div><div class="val sm mono">${fmtRp(T.food)}</div></div>
+      <div class="stat"><div class="lab">Total Beverage</div><div class="val sm mono">${fmtRp(T.bev)}</div></div>
+      <div class="stat"><div class="lab">Total Rokok</div><div class="val sm mono">${fmtRp(T.rokok)}</div></div>
+      <div class="stat"><div class="lab">Total Videotron</div><div class="val sm mono">${fmtRp(T.videotron)}</div></div>
+      <div class="stat"><div class="lab">Total Lainnya</div><div class="val sm mono">${fmtRp(T.lainnya)}</div></div>
       <div class="stat"><div class="lab">Total Traffic</div><div class="val sm">${T.traffic.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Total Bill</div><div class="val sm">${T.bill.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Rata Achievement</div><div class="val sm">${ach.toFixed(0)}%</div></div>
+      <div class="stat"><div class="lab">Qty Item Food</div><div class="val sm">${T.qfood.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Qty Item Beverage</div><div class="val sm">${T.qbev.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Qty Item Lainnya</div><div class="val sm">${T.qothers.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Total Item Terjual</div><div class="val sm">${totalItem.toLocaleString('id-ID')}</div></div>
     </div>
     <div class="card">
       <h3>Grafik Harian (Tabel)</h3><div class="card-sub">Target, actual, dan achievement per tanggal</div>
@@ -775,17 +887,23 @@ function viewPerforma(divi){
   const agg={};
   list.forEach(e=>agg[e.id]={real:0,events:[]});
   days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{if(agg[r.picId]){agg[r.picId].real+=num(r.amount);agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount)});}});});
-  const seg=list.map((e,i)=>`<button class="${i===0?'active':''}" data-pic="${e.id}">${esc(e.name)}</button>`).join('');
+  const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
   el.innerHTML=`<div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>`;
   const drawPic=pid=>{
-    const e=list.find(x=>x.id===pid), a=agg[pid];
+    let e,a;
+    if(pid==='__all__'){
+      e={name:'Semua PIC', target:list.reduce((s,x)=>s+num(x.target),0)};
+      a={real:0,events:[]};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;g.events.forEach(ev=>a.events.push(Object.assign({pic:x.name},ev)));});
+    } else { e=list.find(x=>x.id===pid); a=agg[pid]; }
+    if(!e||!a) return;
     const ach=pct(a.real,e.target), cnt=a.events.length, avg=cnt>0?a.real/cnt:0;
     const top=[...a.events].sort((x,y)=>y.amount-x.amount)[0];
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}</td><td class="num mono">${fmtRp(ev.amount)}</td></tr>`).join('');
+    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td></tr>`).join('');
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm">${fmtRpShort(e.target)}</div><div class="foot mono">${fmtRp(e.target)}</div></div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm">${fmtRpShort(a.real)}</div><div class="foot mono">${fmtRp(a.real)}</div></div>
+        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(e.target)}</div></div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div></div>
         <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=e.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">${cnt}</div><div class="foot">avg ${fmtRp(avg)}/event</div></div>
       </div>
@@ -801,7 +919,7 @@ function viewPerforma(divi){
     } else emptyCanvas('pf_chart','Belum ada event');
   };
   document.querySelectorAll('#pf_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pf_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawPic(b.dataset.pic);});
-  if(list.length)drawPic(list[0].id); else document.getElementById('pf_body').innerHTML='<div class="card"><div class="empty">Belum ada PIC. Tambah di Pengaturan Target.</div></div>';
+  if(list.length)drawPic('__all__'); else document.getElementById('pf_body').innerHTML='<div class="card"><div class="empty">Belum ada PIC. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
 }
 function clearChartsExcept(){charts.forEach(c=>{try{c.destroy();}catch(e){}});charts=[];}
 
@@ -813,16 +931,22 @@ function viewKasir(){
   const agg={};
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[]});
   days.forEach(d=>{(d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,off:true});}else{agg[r.kasirId].real+=num(r.amount);agg[r.kasirId].masuk++;agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),off:false});}}});});
-  const seg=list.map((k,i)=>`<button class="${i===0?'active':''}" data-k="${k.id}">${esc(k.name)}</button>`).join('');
+  const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
   el.innerHTML=`<div class="seg" id="ks_seg">${seg}</div><div id="ks_body"></div>`;
   const draw=kid=>{
-    const k=list.find(x=>x.id===kid),a=agg[kid];
+    let k,a;
+    if(kid==='__all__'){
+      k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};
+      a={real:0,masuk:0,off:0,hist:[]};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
+    } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
+    if(!k||!a) return;
     const ach=pct(a.real,k.target),avg=a.masuk>0?a.real/a.masuk:0;
-    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
     document.getElementById('ks_body').innerHTML=`
       <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm">${fmtRpShort(k.target)}</div><div class="foot mono">${fmtRp(k.target)}</div></div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm">${fmtRpShort(a.real)}</div><div class="foot mono">${fmtRp(a.real)}</div></div>
+        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(k.target)}</div></div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div></div>
         <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=k.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
       </div>
@@ -837,7 +961,7 @@ function viewKasir(){
     else emptyCanvas('ks_chart','Belum ada data');
   };
   document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
-  if(list.length)draw(list[0].id); else document.getElementById('ks_body').innerHTML='<div class="card"><div class="empty">Belum ada kasir.</div></div>';
+  if(list.length)draw('__all__'); else document.getElementById('ks_body').innerHTML='<div class="card"><div class="empty">Belum ada kasir. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
 }
 
 /* ============ 7. SUMMARY / RANKING ============ */
@@ -875,38 +999,34 @@ function viewTarget(){
         <div class="field" id="t_wd_wrap" style="${DB.settings.useWorkingDays?'':'display:none'}"><label>Jumlah Hari Kerja / Bulan</label><input class="mono" id="t_wd" value="${DB.settings.workingDaysPerMonth}"></div>
       </div>
       <div class="notice info">Target harian saat ini: <b>${fmtRp(dailyTarget(PERIOD))}</b></div>
-      <button class="btn btn-primary" id="t_save_co">Simpan Target Perusahaan</button>
     </div>
-    <div class="notice info" style="margin-bottom:2px">PIC Marketing/Event/Kasir <b>otomatis</b> ditarik dari Tim/Keterangan user di Office. Kamu tinggal isi <b>targetnya</b>. (Tambah manual di bawah tetap bisa untuk yang belum terdaftar di Office.)</div>
+    <div class="notice info" style="margin-bottom:2px">PIC Marketing/Event/Kasir <b>otomatis</b> ditarik dari Tim/Keterangan user di Office. Kamu tinggal isi <b>targetnya</b> lalu tekan Simpan di bawah.</div>
     ${divCard('marketing','Marketing','mk')}
     ${divCard('event','Event Internal','ev')}
-    ${divCard('kasir','Kasir','ks')}`;
+    ${divCard('kasir','Kasir','ks')}
+    <!-- Satu tombol simpan di paling bawah: menyimpan target perusahaan
+         SEKALIGUS semua perubahan target PIC. -->
+    <div style="position:sticky;bottom:0;z-index:5;background:linear-gradient(180deg,transparent,var(--paper) 30%);padding:14px 0 4px;margin-top:6px">
+      <button class="btn btn-primary" id="t_save_all" style="width:100%;padding:14px;font-size:15px">💾 Simpan Semua Target (Perusahaan &amp; PIC)</button>
+    </div>`;
   document.getElementById('t_mode').onchange=e=>{document.getElementById('t_wd_wrap').style.display=e.target.value==='work'?'':'none';};
-  document.getElementById('t_save_co').onclick=()=>{
+  document.getElementById('t_save_all').onclick=()=>{
     DB.settings.companyMonthlyTarget=num(v('t_company'));
     DB.settings.useWorkingDays=v('t_mode')==='work';
     DB.settings.workingDaysPerMonth=num(v('t_wd'))||26;
-    save();render();
+    // Baca semua target PIC dari inputnya sekali jalan.
+    ['marketing','event','kasir'].forEach(divi=>DB.employees[divi].forEach(e=>{
+      const inp=document.getElementById('tg_'+e.id); if(inp) e.target=num(inp.value);
+    }));
+    const btn=document.getElementById('t_save_all'); const semula=btn.innerHTML;
+    btn.innerHTML='✓ Tersimpan'; setTimeout(()=>render(),600);
+    save();
   };
-  ['marketing','event','kasir'].forEach(divi=>{
-    DB.employees[divi].forEach(e=>{
-      const inp=document.getElementById('tg_'+e.id);if(inp)inp.onchange=()=>{e.target=num(inp.value);save();};
-      const del=document.getElementById('del_'+e.id);if(del)del.onclick=()=>{if(confirm('Hapus '+e.name+'?')){DB.employees[divi]=DB.employees[divi].filter(x=>x.id!==e.id);save();render();}};
-    });
-    const add=document.getElementById('add_'+divi);if(add)add.onclick=()=>{
-      const nm=document.getElementById('nn_'+divi).value.trim();const tg=num(document.getElementById('nt_'+divi).value);
-      if(!nm)return;DB.employees[divi].push({id:divi[0]+Date.now(),name:nm,target:tg});save();render();
-    };
-  });
   function divCard(divi,label,cls){
-    const rows=DB.employees[divi].map(e=>`<tr><td><b>${esc(e.name)}</b></td><td class="num"><input class="mono rp" id="tg_${e.id}" inputmode="numeric" value="${e.target}" style="width:170px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td><td><button class="btn btn-danger btn-sm" id="del_${e.id}">Hapus</button></td></tr>`).join('');
-    return `<div class="card"><span class="divlabel ${cls}">${label}</span><div class="card-sub">Target bulanan masing-masing PIC.</div>
-      <div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target Bulanan (Rp)</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada.</td></tr>'}</tbody></table></div>
-      <div class="brow ks" style="margin-top:14px;align-items:end">
-        <div class="field" style="margin:0"><label>Nama PIC baru</label><input id="nn_${divi}" placeholder="Nama"></div>
-        <div class="field" style="margin:0"><label>Target Bulanan</label><input class="mono rp" id="nt_${divi}" inputmode="numeric" placeholder="0"></div>
-        <button class="btn btn-ghost btn-sm" id="add_${divi}" style="margin-bottom:1px">+ Tambah</button>
-      </div></div>`;
+    const rows=DB.employees[divi].map(e=>`<tr><td><b>${esc(e.name)}</b></td><td class="num"><input class="mono rp" id="tg_${e.id}" inputmode="numeric" value="${e.target}" style="width:180px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td></tr>`).join('');
+    return `<div class="card"><span class="divlabel ${cls}">${label}</span><div class="card-sub">Target bulanan masing-masing PIC. Nama datang otomatis dari Office.</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target Bulanan (Rp)</th></tr></thead><tbody>${rows||'<tr><td colspan="2" class="empty">Belum ada — muncul otomatis setelah kru diberi Tim/Keterangan di Office.</td></tr>'}</tbody></table></div>
+    </div>`;
   }
 }
 
