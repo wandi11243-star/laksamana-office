@@ -216,6 +216,30 @@ tbody tr:hover{background:var(--gold-soft)}
 .leader .ln{font-weight:700;font-size:14px}
 .leader .lm{font-size:11.5px;color:var(--muted)}
 .leader .lspace{flex:1}
+
+/* ===== Kalender kustom (bukan date picker bawaan browser) ===== */
+.calwrap{position:relative}
+.calbtn{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:220px}
+.calbtn:hover{border-color:var(--gold)}
+.calback{position:fixed;inset:0;z-index:55}
+.calpop{position:absolute;z-index:60;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px;width:300px}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.calhead b{font-family:var(--serif);font-size:15px;color:var(--ink)}
+.calnav{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:16px;display:grid;place-items:center;color:var(--muted)}
+.calnav:hover{border-color:var(--gold);color:var(--gold-dim)}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.caldow{font-size:10px;font-weight:700;color:var(--muted-2);text-transform:uppercase;padding:5px 0;letter-spacing:.4px}
+.calday{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text);position:relative}
+.calday:hover{background:var(--gold-soft)}
+.calday.off{color:var(--muted-2);opacity:.45;cursor:default}
+.calday.off:hover{background:none}
+.calday.today{color:var(--gold-dim);font-weight:800}
+.calday.sel{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff}
+.calday.caldata::after{content:'';position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.calday.sel.caldata::after{background:#fff}
+.calquick{display:flex;gap:6px;margin-top:10px}
+.calquick button{flex:1;padding:7px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text)}
+.calquick button:hover{background:var(--gold-soft);border-color:var(--gold)}
 </style>
 </head>
 <body>
@@ -569,20 +593,54 @@ function saveDaily(){
 
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
+
+/* ---- Kalender kustom untuk "Pilih Hari" (bukan input type=date bawaan
+   Chrome). Semua tanggal terbuka; tanggal yang sudah ada omset diberi titik. */
+let bdCalOpen=false, bdCalMonth=null;
+const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
+function paintCal(){ const el=document.getElementById('bd_cal'); if(el) el.innerHTML=calInner(); }
+function calToggle(){ bdCalOpen=!bdCalOpen; if(bdCalOpen){ const [y,m]=(bdDate||todayISO()).split('-').map(Number); bdCalMonth=new Date(y,m-1,1); } paintCal(); }
+function calNav(delta){ if(!bdCalMonth) bdCalMonth=new Date(); bdCalMonth=new Date(bdCalMonth.getFullYear(),bdCalMonth.getMonth()+(+delta),1); paintCal(); }
+function calPickDay(ds){ bdDate=ds; bdCalOpen=false; render(); }
+function calQuick(off){ const d=new Date(); d.setDate(d.getDate()+off); calPickDay(ymdLocal(d)); }
+function calInner(){
+  const sel=bdDate||todayISO();
+  const btn=`<button type="button" class="calbtn" onclick="calToggle()"><span>📅 ${dateLabel(sel)}</span><span style="opacity:.55">▾</span></button>`;
+  if(!bdCalOpen) return btn;
+  if(!bdCalMonth){ const [yy,mm]=sel.split('-').map(Number); bdCalMonth=new Date(yy,mm-1,1); }
+  const y=bdCalMonth.getFullYear(), mo=bdCalMonth.getMonth();
+  const startDow=new Date(y,mo,1).getDay(), dim=new Date(y,mo+1,0).getDate(), prevDim=new Date(y,mo,0).getDate();
+  const DOW=['MIN','SEN','SEL','RAB','KAM','JUM','SAB'];
+  let cells='';
+  for(let i=startDow-1;i>=0;i--) cells+=`<button class="calday off" disabled>${prevDim-i}</button>`;
+  for(let dd=1;dd<=dim;dd++){
+    const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    const cls=['calday']; if(ds===todayISO())cls.push('today'); if(ds===sel)cls.push('sel'); if(getDay(ds))cls.push('caldata');
+    cells+=`<button class="${cls.join(' ')}" onclick="calPickDay('${ds}')">${dd}</button>`;
+  }
+  return btn+`<div class="calback" onclick="calToggle()"></div><div class="calpop">
+    <div class="calhead"><button class="calnav" onclick="calNav(-1)">‹</button><b>${CAL_MON[mo]} ${y}</b><button class="calnav" onclick="calNav(1)">›</button></div>
+    <div class="calgrid">${DOW.map(d=>`<div class="caldow">${d}</div>`).join('')}${cells}</div>
+    <div class="calquick"><button onclick="calPickDay('${todayISO()}')">Hari Ini</button><button onclick="calQuick(-1)">Kemarin</button><button onclick="calToggle()">Tutup</button></div>
+  </div>`;
+}
+
 function viewBreakdown(){
+  bdCalOpen=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
   if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
   const d=getDay(bdDate);
   // Pemilih tanggal = kalender bawaan browser (input type=date): SEMUA tanggal
   // terbuka, tidak ada yang dinonaktifkan.
-  const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+  const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Total breakdown harus tepat sama dengan Total Omset net harian.</div></div>
-      <div class="field" style="margin:0"><label>Pilih Hari</label><input type="date" id="bd_date" value="${esc(bdDate)}"></div>
+      <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner()}</div></div>
     </div>`;
   if(!d){
-    el.innerHTML=pickBar+`<div class="card"><div class="empty"><div class="big">🧮</div>Belum ada omset untuk <b>${esc(bdDate)}</b>.<br>Input omsetnya dulu di menu <b>Input Omset Harian</b>, atau pilih tanggal lain di atas.</div></div>`;
-    document.getElementById('bd_date').onchange=e=>{bdDate=e.target.value;render();};
+    el.innerHTML=pickBar+`<div class="card"><div class="empty"><div class="big">🧮</div>Belum ada omset untuk <b>${esc(dateLabel(bdDate))}</b>.<br>Input omsetnya dulu di menu <b>Input Omset Harian</b>, atau pilih tanggal lain di atas.</div></div>`;
     return;
   }
   const net=netOf(d);
@@ -625,6 +683,7 @@ function viewBreakdown(){
     bind('mkf','mk',drawMk);
     document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{state.mk.splice(+b.dataset.i,1);drawMk();calc();});
     document.querySelectorAll('.mksisa').forEach(b=>b.onclick=()=>isiSisa('mk',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_mk'));
   }
   function drawEv(){
     document.getElementById('bd_ev').innerHTML=state.ev.map((r,i)=>`
@@ -640,6 +699,7 @@ function viewBreakdown(){
     bind('evf','ev',drawEv);
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
     document.querySelectorAll('.evsisa').forEach(b=>b.onclick=()=>isiSisa('ev',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_ev'));
   }
   function drawKs(){
     document.getElementById('bd_ks').innerHTML=state.ks.map((r,i)=>`
@@ -651,6 +711,7 @@ function viewBreakdown(){
     document.querySelectorAll('.ksf').forEach(inp=>inp.oninput=()=>{state.ks[+inp.dataset.i].amount=num(inp.value);calc();});
     document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{const i=+c.dataset.i;state.ks[i].off=c.checked;if(c.checked)state.ks[i].amount=0;drawKs();calc();});
     document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa('ks',+b.dataset.i));
+    formatAllRp(document.getElementById('bd_ks'));
   }
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
@@ -682,7 +743,6 @@ function viewBreakdown(){
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks};d.bdValid=true;save();render();
     };
   }
-  document.getElementById('bd_date').onchange=e=>{bdDate=e.target.value;render();};
   document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0});drawMk();calc();};
   document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0});drawEv();calc();};
   drawMk();drawEv();drawKs();calc();
@@ -933,16 +993,10 @@ function viewTarget(){
     btn.innerHTML='✓ Tersimpan'; setTimeout(()=>render(),600);
     save();
   };
-  // Hapus PIC (mis. sisa seed lama) — tetap ada. Target disimpan lewat tombol bawah.
-  ['marketing','event','kasir'].forEach(divi=>{
-    DB.employees[divi].forEach(e=>{
-      const del=document.getElementById('del_'+e.id);if(del)del.onclick=()=>{if(confirm('Hapus '+e.name+' dari daftar PIC?')){DB.employees[divi]=DB.employees[divi].filter(x=>x.id!==e.id);save();render();}};
-    });
-  });
   function divCard(divi,label,cls){
-    const rows=DB.employees[divi].map(e=>`<tr><td><b>${esc(e.name)}</b></td><td class="num"><input class="mono rp" id="tg_${e.id}" inputmode="numeric" value="${e.target}" style="width:170px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td><td><button class="btn btn-danger btn-sm" id="del_${e.id}">Hapus</button></td></tr>`).join('');
+    const rows=DB.employees[divi].map(e=>`<tr><td><b>${esc(e.name)}</b></td><td class="num"><input class="mono rp" id="tg_${e.id}" inputmode="numeric" value="${e.target}" style="width:180px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td></tr>`).join('');
     return `<div class="card"><span class="divlabel ${cls}">${label}</span><div class="card-sub">Target bulanan masing-masing PIC. Nama datang otomatis dari Office.</div>
-      <div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target Bulanan (Rp)</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada — muncul otomatis setelah kru diberi Tim/Keterangan di Office.</td></tr>'}</tbody></table></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target Bulanan (Rp)</th></tr></thead><tbody>${rows||'<tr><td colspan="2" class="empty">Belum ada — muncul otomatis setelah kru diberi Tim/Keterangan di Office.</td></tr>'}</tbody></table></div>
     </div>`;
   }
 }
