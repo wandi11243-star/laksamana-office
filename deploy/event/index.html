@@ -287,6 +287,19 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .lm-floors button{padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer;font-weight:600;font-size:13px}
 .lm-floors button.on{background:var(--accent);color:#111;border-color:var(--accent)}
 @media(max-width:640px){ .lm-hall{grid-template-columns:auto 1fr auto} .seat{width:26px;height:26px;font-size:9px} }
+/* ---------- DENAH LANTAI 1 (berbasis meja bernama) ---------- */
+.l1-markers{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.l1-mark{font-size:10px;font-weight:700;letter-spacing:1px;padding:5px 9px;border-radius:6px;border:1px solid var(--line);color:var(--muted)}
+.l1-mark.stage{background:#111;color:#fff;border-color:#111;flex:1;text-align:center;letter-spacing:4px}
+.l1-mark.ent{background:rgba(230,150,20,.15);color:var(--accent);border-color:var(--accent)}
+.l1-reg{font-size:11px;font-weight:700;letter-spacing:1px;color:var(--accent);margin:16px 0 8px;text-transform:uppercase}
+.l1-grid{display:flex;flex-wrap:wrap;gap:10px}
+.l1-meja{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;min-width:120px}
+.l1-meja.green{border-color:var(--green)}
+.l1-meja-h{font-size:12px;font-weight:700;color:var(--txt);margin-bottom:7px;display:flex;justify-content:space-between;gap:8px}
+.l1-meja-h .pax{color:var(--muted);font-weight:500;font-size:11px}
+.l1-seats{display:flex;flex-wrap:wrap;gap:4px;max-width:180px}
+.l1-meja .seat{width:26px;height:26px;font-size:9px}
 .stage-bar{background:linear-gradient(var(--panel2),var(--panel));text-align:center;padding:8px;border-radius:8px;color:var(--muted);letter-spacing:3px;font-size:12px;margin-bottom:14px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -1795,9 +1808,75 @@ function seatCls(s){
 }
 function seatBox(s){
   const cls=seatCls(s), ro=(cls==='sold'||cls==='checked')?1:0;
-  return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+s.table_no+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+s.table_no+'</div>';
+  const lbl=s.seat_no||s.table_no;   // Lantai 1: table_no=nama meja, yang ditampilkan nomornya (seat_no)
+  const meja=(s.zone==='Lantai 1'&&s.table_no)?(' · Meja '+s.table_no):'';
+  return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+lbl+meja+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+lbl+'</div>';
+}
+/* ---------- DENAH LANTAI 1 — TEMPLATE LAKSAMANA MUDA (berbasis meja) ----------
+   HASIL TRANSKRIP DARI GAMBAR — angka kecil-kecil, mungkin ada yang meleset;
+   ini SATU-SATUNYA tempat untuk mengoreksi. Tiap baris: [nama, dari, ke, grup,
+   hijau?]. Kapasitas = jumlah nomor (ke−dari+1). Nomor kursi 1–210 berurutan.
+   grup: kiri | atas | kanan | tengah | baris2(11–19) | baris1(1–9). */
+const LM1_TABLES=[
+  ['U1',1,7,'kiri',0],['U2',8,16,'kiri',0],['U3',17,24,'kiri',0],
+  ['31',25,30,'atas',0],['32',31,36,'atas',0],
+  ['24',37,40,'atas',1],['23',41,44,'atas',1],['22',45,48,'atas',1],['21',49,52,'atas',1],
+  ['33',53,58,'atas',0],['34',59,64,'atas',0],
+  ['35',65,70,'kanan',0],['42-43',71,75,'kanan',0],['44',76,79,'kanan',0],['45',80,83,'kanan',0],
+  ['S1',84,93,'tengah',0],['S2',94,97,'tengah',1],['S3',98,107,'tengah',0],['S5',108,117,'tengah',0],
+  ['S4',118,121,'tengah',1],['S6',122,125,'tengah',1],['41',126,129,'tengah',1],
+  ['11',130,133,'baris2',0],['12',134,137,'baris2',0],['13',138,141,'baris2',0],['14',142,145,'baris2',0],
+  ['15',146,149,'baris2',0],['16',150,153,'baris2',0],['17',154,157,'baris2',0],['18',158,161,'baris2',0],['19',162,166,'baris2',0],
+  ['1',167,171,'baris1',0],['2',172,176,'baris1',0],['3',177,181,'baris1',0],['4',182,186,'baris1',0],['5',187,191,'baris1',0],
+  ['6',192,196,'baris1',0],['7',197,201,'baris1',0],['8',202,206,'baris1',0],['9',207,210,'baris1',0]
+];
+function buatDenahL1(eid){
+  const e=DB.events.find(x=>x.id===eid); if(!e) return;
+  if(DB.seats.some(s=>s.event_id===eid && s.zone==='Lantai 1')){ toast('Denah Lantai 1 sudah ada.'); return; }
+  let cls=DB.ticketClasses.find(c=>c.event_id===eid && c.name==='Reguler (Lantai 1)');
+  if(!cls){ cls={id:uid(),event_id:eid,name:'Reguler (Lantai 1)',price:0,quota:210,sold:0,sale_start:e.start_datetime,sale_end:e.start_datetime,description:'Kursi meja lantai 1',benefit:'Kursi bernomor lantai 1',is_seated:true}; DB.ticketClasses.push(cls); }
+  LM1_TABLES.forEach(t=>{ for(let n=t[1];n<=t[2];n++){ DB.seats.push({id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Lantai 1',table_no:t[0],seat_no:n,capacity:1,x:0,y:0,status:'Available'}); } });
+  save(); toast('✓ Denah Lantai 1 dibuat — '+(LM1_TABLES.length)+' meja.'); renderTicketDetail(eid);
+}
+function renderL1(id){
+  const seats=DB.seats.filter(s=>s.event_id===id && s.zone==='Lantai 1');
+  if(!seats.length){
+    return '<div class="card"><h3 class="sec">Denah Lantai 1</h3>'
+      +'<p class="mini">Belum ada denah Lantai 1. Buat template venue Laksamana Muda — meja bernama (U1–U3, 21–24, 31–35, 42–45, S1–S6, 41, meja 1–19), '+LM1_TABLES.reduce((a,t)=>a+(t[2]-t[1]+1),0)+' kursi bernomor.</p>'
+      +'<button class="btn" onclick="buatDenahL1(\''+id+'\')">+ Buat Denah Lantai 1</button></div>';
+  }
+  const byNo={}; seats.forEach(s=>{ byNo[s.seat_no]=s; });
+  const terisi=seats.filter(s=>seatCls(s)!=='available').length;
+  const grup=[['kiri','Kiri — Entrance'],['atas','Tengah Atas — dekat Panggung'],['kanan','Kanan — dekat Talent Room'],['tengah','Tengah — S1–S6 & 41'],['baris2','Baris Meja 11–19'],['baris1','Baris Meja 1–9']];
+  let h='<div class="card"><h3 class="sec">Denah Lantai 1 <span class="mini" style="font-weight:400">('+terisi+'/'+seats.length+' terisi)</span></h3>'
+    +'<div class="l1-markers"><span class="l1-mark ent">ENTRANCE IN/OUT</span><span class="l1-mark stage">MEJA DJ · S T A G E</span><span class="l1-mark">TALENT ROOM</span></div>'
+    +'<p class="mini" style="margin-bottom:6px">Klik kursi: Tersedia → Hold → Terjual → Tersedia. Kursi terjual lewat pembelian dilepas via Refund.</p>';
+  grup.forEach(g=>{
+    const tables=LM1_TABLES.filter(t=>t[3]===g[0]); if(!tables.length) return;
+    h+='<div class="l1-reg">'+g[1]+'</div><div class="l1-grid">';
+    tables.forEach(t=>{
+      let chips=''; for(let n=t[1];n<=t[2];n++){ if(byNo[n]) chips+=seatBox(byNo[n]); }
+      h+='<div class="l1-meja'+(t[4]?' green':'')+'"><div class="l1-meja-h"><span>Meja '+esc(t[0])+'</span><span class="pax">'+(t[2]-t[1]+1)+' pax</span></div><div class="l1-seats">'+chips+'</div></div>';
+    });
+    h+='</div>';
+  });
+  h+='<div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Tersedia</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Terjual</span><span><i class="dotc" style="background:var(--red)"></i>Check-in</span></div>';
+  return h+'</div>';
 }
 function seatMapBody(id){
+  const seats=DB.seats.filter(s=>s.event_id===id);
+  const rplus=seats.filter(s=>s.zone==='Reguler+').sort((a,b)=>a.seat_no-b.seat_no);
+  const rL1=seats.filter(s=>s.zone==='Lantai 1');
+  // Pemilih lantai — tampil begitu salah satu denah ada.
+  window._lmFloor = window._lmFloor || (rplus.length?'2':(rL1.length?'1':'2'));
+  const fl=window._lmFloor;
+  const tabs='<div class="lm-floors">'
+    +'<button class="'+(fl==='2'?'on':'')+'" onclick="window._lmFloor=\'2\';renderTicketDetail(\''+id+'\')">Lantai 2 — Reguler+</button>'
+    +'<button class="'+(fl==='1'?'on':'')+'" onclick="window._lmFloor=\'1\';renderTicketDetail(\''+id+'\')">Lantai 1 — Meja</button></div>';
+  if(fl==='1') return tabs+renderL1(id);
+  return tabs+renderL2Hall(id);
+}
+function renderL2Hall(id){
   const seats=DB.seats.filter(s=>s.event_id===id);
   const rplus=seats.filter(s=>s.zone==='Reguler+').sort((a,b)=>a.seat_no-b.seat_no);
   if(!rplus.length){
