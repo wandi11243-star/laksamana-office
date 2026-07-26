@@ -221,6 +221,9 @@ tbody tr:hover{background:var(--gold-soft)}
 .calwrap{position:relative}
 .calbtn{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:220px}
 .calbtn:hover{border-color:var(--gold)}
+/* di dalam grid form (row-in) tombolnya ikut lebar kolom, jangan memaksa 220px */
+.row-in .calbtn{min-width:0}
+.row-in .calpop{left:0;right:auto;max-width:min(300px,86vw)}
 .calback{position:fixed;inset:0;z-index:55}
 .calpop{position:absolute;z-index:60;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px;width:300px}
 .calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -437,6 +440,9 @@ function kirim(){
 function grossOf(d){ return num(d.food)+num(d.bev)+num(d.rokok)+num(d.videotron)+num(d.lainnya); }
 function netOf(d){ return grossOf(d)-num(d.discount); }
 function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
+function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
+/* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
+const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
 function dailyTarget(monthKey){
   const [y,m]=monthKey.split('-').map(Number);
   const div=DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
@@ -489,9 +495,10 @@ function render(){
 /* ============ 1. INPUT OMSET HARIAN ============ */
 let inputDate=todayISO();
 function viewInput(){
+  CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const existing=getDay(inputDate);
-  const d=existing||{date:inputDate,food:0,bev:0,rokok:0,videotron:0,lainnya:0,discount:0,tax_service:0,traffic:0,bill:0};
+  const d=existing||{date:inputDate,food:0,bev:0,rokok:0,videotron:0,lainnya:0,discount:0,tax_service:0,traffic:0,bill:0,qty_food:0,qty_bev:0,qty_others:0};
   el.innerHTML=`
   <div class="grid g2" style="align-items:start">
     <div>
@@ -499,8 +506,8 @@ function viewInput(){
         <h3>Informasi & Pendapatan</h3>
         <div class="card-sub">Tanggal menentukan periode. Hari terisi otomatis.</div>
         <div class="row-in">
-          <div class="field"><label>Tanggal</label><input type="date" id="i_date" value="${inputDate}"></div>
-          <div class="field"><label>Hari</label><input id="i_hari" value="${HARI[new Date(inputDate).getDay()]}" readonly></div>
+          <div class="field"><label>Tanggal</label><div class="calwrap" id="i_cal">${calInner('in')}</div></div>
+          <div class="field"><label>Hari</label><input id="i_hari" value="${HARI[new Date(inputDate+'T00:00:00').getDay()]}" readonly></div>
         </div>
         <div class="mini-lab" style="margin-top:4px">Pendapatan</div>
         <div class="row-in">
@@ -515,10 +522,16 @@ function viewInput(){
         <div class="row-in" style="margin-top:12px">
           <div class="field"><label>Total Tax &amp; Service (input admin)</label><input class="mono ci rp" id="i_tax" inputmode="numeric" value="${d.tax_service}"></div>
         </div>
+        <div class="mini-lab" style="margin-top:4px">Jumlah Item Terjual (Qty)</div>
+        <div class="row-in">
+          <div class="field"><label>Food Item Quantity</label><input class="mono ci" id="i_qfood" inputmode="numeric" value="${num(d.qty_food)}"></div>
+          <div class="field"><label>Beverage Item Quantity</label><input class="mono ci" id="i_qbev" inputmode="numeric" value="${num(d.qty_bev)}"></div>
+          <div class="field"><label>Others Quantity</label><input class="mono ci" id="i_qothers" inputmode="numeric" value="${num(d.qty_others)}"><div class="helper">Rokok, videotron, item lain</div></div>
+        </div>
         <div class="mini-lab" style="margin-top:4px">Data Operasional</div>
         <div class="row-in">
           <div class="field"><label>Traffic (customer datang)</label><input class="mono ci" id="i_traffic" inputmode="numeric" value="${d.traffic}"></div>
-          <div class="field"><label>Bill / Transaksi</label><input class="mono ci" id="i_bill" inputmode="numeric" value="${d.bill}"></div>
+          <div class="field"><label>Total Bill (jumlah transaksi)</label><input class="mono ci" id="i_bill" inputmode="numeric" value="${d.bill}"></div>
         </div>
         <div id="i_err"></div>
         <div style="display:flex;gap:10px;margin-top:6px">
@@ -550,7 +563,7 @@ function viewInput(){
 
   const recalc=()=>{
     const t={food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),bill:num(v('i_bill')),tax_service:num(v('i_tax'))};
-    const net=netOf(t), tgt=dailyTarget(monthKeyOf(v('i_date'))), ach=pct(net,tgt);
+    const net=netOf(t), tgt=dailyTarget(monthKeyOf(inputDate)), ach=pct(net,tgt);
     document.getElementById('s_omset').textContent=fmtRp(net);
     document.getElementById('s_omset_foot').textContent=`Gross ${fmtRp(grossOf(t))} − Diskon ${fmtRp(t.discount)}`;
     document.getElementById('s_avg').textContent=fmtRp(avgSpendOf(t));
@@ -564,7 +577,6 @@ function viewInput(){
     document.getElementById('s_prog_foot').textContent=ok?`Melampaui target ${fmtRp(net-tgt)}`:`Kurang ${fmtRp(Math.max(tgt-net,0))} untuk capai target harian`;
   };
   el.querySelectorAll('.ci').forEach(i=>i.addEventListener('input',recalc));
-  document.getElementById('i_date').addEventListener('change',e=>{inputDate=e.target.value;PERIOD=monthKeyOf(inputDate);render();});
   document.getElementById('i_save').addEventListener('click',saveDaily);
   if(document.getElementById('i_del'))document.getElementById('i_del').addEventListener('click',()=>{
     if(confirm('Hapus data omset '+inputDate+'? Breakdown ikut terhapus.')){DB.daily=DB.daily.filter(x=>x.date!==inputDate);save();render();}
@@ -574,10 +586,10 @@ function viewInput(){
 function v(id){return document.getElementById(id).value;}
 
 function saveDaily(){
-  const date=v('i_date');
-  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),tax_service:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill'))};
+  const date=inputDate;
+  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),tax_service:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill')),qty_food:num(v('i_qfood')),qty_bev:num(v('i_qbev')),qty_others:num(v('i_qothers'))};
   const errs=[];
-  ['food','bev','rokok','videotron','lainnya','discount','tax_service','traffic','bill'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
+  ['food','bev','rokok','videotron','lainnya','discount','tax_service','traffic','bill','qty_food','qty_bev','qty_others'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
   if(grossOf(rec)===0)errs.push('Pendapatan tidak boleh kosong.');
   if(rec.discount>grossOf(rec))errs.push('Diskon melebihi total pendapatan.');
   if(rec.traffic<rec.bill)errs.push('Traffic harus ≥ jumlah Bill.');
@@ -594,23 +606,30 @@ function saveDaily(){
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
 
-/* ---- Kalender kustom untuk "Pilih Hari" (bukan input type=date bawaan
-   Chrome). Semua tanggal terbuka; tanggal yang sudah ada omset diberi titik. */
-let bdCalOpen=false, bdCalMonth=null;
+/* ---- Kalender kustom (bukan input type=date bawaan Chrome). Satu
+   implementasi dipakai dua tempat, dibedakan lewat `key`:
+     'in' → Tanggal di Input Omset Harian
+     'bd' → Pilih Hari di Breakdown
+   Semua tanggal terbuka; tanggal yang sudah ada omset diberi titik. */
 const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const CAL_REG={
+  in:{ box:'i_cal',  get:()=>inputDate,          set:ds=>{ inputDate=ds; PERIOD=monthKeyOf(ds); } },
+  bd:{ box:'bd_cal', get:()=>bdDate||todayISO(), set:ds=>{ bdDate=ds; } }
+};
+const CAL_ST={ in:{open:false,month:null}, bd:{open:false,month:null} };
 function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
-function paintCal(){ const el=document.getElementById('bd_cal'); if(el) el.innerHTML=calInner(); }
-function calToggle(){ bdCalOpen=!bdCalOpen; if(bdCalOpen){ const [y,m]=(bdDate||todayISO()).split('-').map(Number); bdCalMonth=new Date(y,m-1,1); } paintCal(); }
-function calNav(delta){ if(!bdCalMonth) bdCalMonth=new Date(); bdCalMonth=new Date(bdCalMonth.getFullYear(),bdCalMonth.getMonth()+(+delta),1); paintCal(); }
-function calPickDay(ds){ bdDate=ds; bdCalOpen=false; render(); }
-function calQuick(off){ const d=new Date(); d.setDate(d.getDate()+off); calPickDay(ymdLocal(d)); }
-function calInner(){
-  const sel=bdDate||todayISO();
-  const btn=`<button type="button" class="calbtn" onclick="calToggle()"><span>📅 ${dateLabel(sel)}</span><span style="opacity:.55">▾</span></button>`;
-  if(!bdCalOpen) return btn;
-  if(!bdCalMonth){ const [yy,mm]=sel.split('-').map(Number); bdCalMonth=new Date(yy,mm-1,1); }
-  const y=bdCalMonth.getFullYear(), mo=bdCalMonth.getMonth();
+function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
+function calToggle(key){ const s=CAL_ST[key]; s.open=!s.open; if(s.open){ const [y,m]=CAL_REG[key].get().split('-').map(Number); s.month=new Date(y,m-1,1); } paintCal(key); }
+function calNav(key,delta){ const s=CAL_ST[key]; if(!s.month) s.month=new Date(); s.month=new Date(s.month.getFullYear(),s.month.getMonth()+(+delta),1); paintCal(key); }
+function calPickDay(key,ds){ CAL_ST[key].open=false; CAL_REG[key].set(ds); render(); }
+function calQuick(key,off){ const d=new Date(); d.setDate(d.getDate()+off); calPickDay(key,ymdLocal(d)); }
+function calInner(key){
+  const st=CAL_ST[key], sel=CAL_REG[key].get()||todayISO();
+  const btn=`<button type="button" class="calbtn" onclick="calToggle('${key}')"><span>📅 ${dateLabel(sel)}</span><span style="opacity:.55">▾</span></button>`;
+  if(!st.open) return btn;
+  if(!st.month){ const [yy,mm]=sel.split('-').map(Number); st.month=new Date(yy,mm-1,1); }
+  const y=st.month.getFullYear(), mo=st.month.getMonth();
   const startDow=new Date(y,mo,1).getDay(), dim=new Date(y,mo+1,0).getDate(), prevDim=new Date(y,mo,0).getDate();
   const DOW=['MIN','SEN','SEL','RAB','KAM','JUM','SAB'];
   let cells='';
@@ -618,26 +637,24 @@ function calInner(){
   for(let dd=1;dd<=dim;dd++){
     const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
     const cls=['calday']; if(ds===todayISO())cls.push('today'); if(ds===sel)cls.push('sel'); if(getDay(ds))cls.push('caldata');
-    cells+=`<button class="${cls.join(' ')}" onclick="calPickDay('${ds}')">${dd}</button>`;
+    cells+=`<button class="${cls.join(' ')}" onclick="calPickDay('${key}','${ds}')">${dd}</button>`;
   }
-  return btn+`<div class="calback" onclick="calToggle()"></div><div class="calpop">
-    <div class="calhead"><button class="calnav" onclick="calNav(-1)">‹</button><b>${CAL_MON[mo]} ${y}</b><button class="calnav" onclick="calNav(1)">›</button></div>
+  return btn+`<div class="calback" onclick="calToggle('${key}')"></div><div class="calpop">
+    <div class="calhead"><button class="calnav" onclick="calNav('${key}',-1)">‹</button><b>${CAL_MON[mo]} ${y}</b><button class="calnav" onclick="calNav('${key}',1)">›</button></div>
     <div class="calgrid">${DOW.map(d=>`<div class="caldow">${d}</div>`).join('')}${cells}</div>
-    <div class="calquick"><button onclick="calPickDay('${todayISO()}')">Hari Ini</button><button onclick="calQuick(-1)">Kemarin</button><button onclick="calToggle()">Tutup</button></div>
+    <div class="calquick"><button onclick="calPickDay('${key}','${todayISO()}')">Hari Ini</button><button onclick="calQuick('${key}',-1)">Kemarin</button><button onclick="calToggle('${key}')">Tutup</button></div>
   </div>`;
 }
 
 function viewBreakdown(){
-  bdCalOpen=false;   // selalu mulai tertutup saat halaman digambar ulang
+  CAL_ST.bd.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
   if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
   const d=getDay(bdDate);
-  // Pemilih tanggal = kalender bawaan browser (input type=date): SEMUA tanggal
-  // terbuka, tidak ada yang dinonaktifkan.
   const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Total breakdown harus tepat sama dengan Total Omset net harian.</div></div>
-      <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner()}</div></div>
+      <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner('bd')}</div></div>
     </div>`;
   if(!d){
     el.innerHTML=pickBar+`<div class="card"><div class="empty"><div class="big">🧮</div>Belum ada omset untuk <b>${esc(dateLabel(bdDate))}</b>.<br>Input omsetnya dulu di menu <b>Input Omset Harian</b>, atau pilih tanggal lain di atas.</div></div>`;
@@ -757,9 +774,13 @@ function viewBulanan(){
   const tax=days.reduce((s,d)=>s+num(d.tax_service),0);
   const disc=days.reduce((s,d)=>s+num(d.discount),0);
   const ach=pct(real,target), selisih=target-real;
-  const T={food:0,bev:0,rokok:0,videotron:0,lainnya:0,traffic:0,bill:0};
-  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.rokok+=num(d.rokok);T.videotron+=num(d.videotron);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);});
-  const avgMonthly=T.bill>0?real/T.bill:0;
+  const T={food:0,bev:0,rokok:0,videotron:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
+  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.rokok+=num(d.rokok);T.videotron+=num(d.videotron);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);T.qfood+=num(d.qty_food);T.qbev+=num(d.qty_bev);T.qothers+=num(d.qty_others);});
+  const totalItem=T.qfood+T.qbev+T.qothers;
+  /* KPI bulanan — semuanya dibagi Total Bill (jumlah transaksi) */
+  const upt=T.bill>0?totalItem/T.bill:0;   // Unit Per Transaction  = total item ÷ total bill
+  const atv=T.bill>0?real/T.bill:0;        // Average Transaction Value = total sales ÷ total bill
+  const aps=T.bill>0?T.traffic/T.bill:0;   // Average Party Size    = total traffic ÷ total bill
   const dtgt=dailyTarget(PERIOD);
   const rows=days.map(d=>{const n=netOf(d);return `<tr><td>${d.date.slice(8)} ${HARI[new Date(d.date).getDay()].slice(0,3)}</td><td class="num mono">${fmtRp(dtgt)}</td><td class="num mono">${fmtRp(n)}</td><td class="num mono">${pct(n,dtgt).toFixed(0)}%</td><td>${n>=dtgt?'<span class="status ok"><span class="d"></span></span>':'<span class="status bad"><span class="d"></span></span>'}</td></tr>`;}).join('');
 
@@ -774,10 +795,14 @@ function viewBulanan(){
       <div class="prog ${real>=target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div>
       <div class="foot" style="font-size:12.5px;color:var(--muted);margin-top:9px">Realisasi ${fmtRp(real)} dari target ${fmtRp(target)} · ${days.length} hari terinput.</div>
     </div>
-    <div class="grid g3">
+    <div class="grid g2">
       <div class="stat" style="background:var(--warn-bg-t)"><div class="lab">💰 Tax &amp; Service Bulanan</div><div class="val sm">${fmtRp(tax)}</div><div class="foot">di luar omset, akumulasi harian</div></div>
       <div class="stat" style="background:var(--danger-bg-t)"><div class="lab">🏷️ Total Discount Bulanan</div><div class="val sm">${fmtRp(disc)}</div><div class="foot">total potongan diberikan</div></div>
-      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">Avg Spending Bulanan</div><div class="val sm">${fmtRp(avgMonthly)}</div><div class="foot">omset ÷ total bill</div></div>
+    </div>
+    <div class="grid g3">
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">🧾 Unit Per Transaction (UPT)</div><div class="val sm">${fmtDec(upt)}</div><div class="foot">${totalItem.toLocaleString('id-ID')} item ÷ ${T.bill.toLocaleString('id-ID')} bill</div></div>
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">💳 Average Transaction Value (ATV)</div><div class="val sm">${fmtRp(atv)}</div><div class="foot">total sales ÷ total bill</div></div>
+      <div class="stat" style="background:var(--info-bg-t)"><div class="lab">👥 Average Party Size (APS)</div><div class="val sm">${fmtDec(aps)}</div><div class="foot">${T.traffic.toLocaleString('id-ID')} traffic ÷ ${T.bill.toLocaleString('id-ID')} bill</div></div>
     </div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Target vs Actual Harian</h3><div class="card-sub">Garis target dibanding realisasi net</div><div class="chart-box"><canvas id="c_line"></canvas></div></div>
@@ -792,6 +817,10 @@ function viewBulanan(){
       <div class="stat"><div class="lab">Total Traffic</div><div class="val sm">${T.traffic.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Total Bill</div><div class="val sm">${T.bill.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Rata Achievement</div><div class="val sm">${ach.toFixed(0)}%</div></div>
+      <div class="stat"><div class="lab">Qty Item Food</div><div class="val sm">${T.qfood.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Qty Item Beverage</div><div class="val sm">${T.qbev.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Qty Item Lainnya</div><div class="val sm">${T.qothers.toLocaleString('id-ID')}</div></div>
+      <div class="stat"><div class="lab">Total Item Terjual</div><div class="val sm">${totalItem.toLocaleString('id-ID')}</div></div>
     </div>
     <div class="card">
       <h3>Grafik Harian (Tabel)</h3><div class="card-sub">Target, actual, dan achievement per tanggal</div>
