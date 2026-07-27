@@ -345,6 +345,41 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .l1-meja-h .pax{color:var(--muted);font-weight:500;font-size:11px}
 .l1-seats{display:flex;flex-wrap:wrap;gap:4px;max-width:180px}
 .l1-meja .seat{width:26px;height:26px;font-size:9px}
+/* ---------- LAYOUT DESIGNER (denah kustom, drag & drop) ----------
+   Kanvas berkoordinat piksel: tiap objek (kursi/meja) diletakkan absolut lewat
+   x/y/w/h yang tersimpan di barisnya sendiri, jadi tata letaknya bebas — bukan
+   grid CSS seperti denah template. Gambar denah manual dipasang sebagai latar
+   supaya objek tinggal ditaruh menimpanya. */
+.ldz-wrap{overflow:auto;background:var(--panel2);border:1px solid var(--line-soft);border-radius:12px;padding:12px}
+.ldz-canvas{position:relative;background:#fff;background-repeat:no-repeat;background-position:center;background-size:contain;
+  border:1px solid var(--line);border-radius:10px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)}
+.ldz-canvas.grid{background-image:linear-gradient(rgba(60,55,45,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(60,55,45,.07) 1px,transparent 1px);background-size:20px 20px;background-position:0 0}
+/* Latar gambar dipasang di lapisan sendiri supaya opacity-nya bisa diatur
+   tanpa ikut memudarkan objek di atasnya. */
+.ldz-bg{position:absolute;inset:0;background-repeat:no-repeat;background-position:center;background-size:contain;pointer-events:none;border-radius:10px}
+.ldz-item{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;line-height:1.15;text-align:center;padding:2px;overflow:hidden;
+  border:2px solid;border-radius:8px;user-select:none;touch-action:none;background:#fff}
+.ldz-item.circle{border-radius:50%}
+.ldz-item small{font-weight:600;font-size:9px;opacity:.75}
+.ldz-item.edit{cursor:grab}
+.ldz-item.edit:active{cursor:grabbing}
+.ldz-item.sel{outline:2px dashed var(--accent);outline-offset:3px;z-index:5}
+.ldz-item.locked{border-style:dashed}
+.ldz-item.sold{color:#fff!important}
+.ldz-item.checked{color:#fff!important;box-shadow:0 0 0 3px rgba(47,127,196,.35)}
+.ldz-rs{position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;border-radius:4px;background:var(--accent);
+  border:2px solid #fff;cursor:nwse-resize;touch-action:none;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.ldz-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.ldz-bar .grp{display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:6px 8px}
+.ldz-bar .grp>span.lbl{font-size:11px;color:var(--muted);font-weight:600}
+.ldz-bar select,.ldz-bar input[type=text],.ldz-bar input[type=number]{width:auto;min-width:80px;padding:5px 8px;font-size:12px}
+.ldz-side{width:250px;flex-shrink:0}
+.ldz-main{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.ldz-main>.ldz-wrap{flex:1;min-width:320px}
+.ldz-tier{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+.ldz-tier i{width:12px;height:12px;border-radius:4px;display:inline-block;border:1px solid rgba(0,0,0,.15)}
+.ldz-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
 .stage-bar{background:linear-gradient(var(--panel2),var(--panel));text-align:center;padding:8px;border-radius:8px;color:var(--muted);letter-spacing:3px;font-size:12px;margin-bottom:14px}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:10px 0}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -1809,6 +1844,7 @@ function renderTicketDetail(id){
     </tbody></table></div>
     <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;}
   else if(tab==='seatmap'){body=seatMapBody(id);}
+  else if(tab==='layout'){body=layoutBody(id);}
   else if(tab==='buyers'){const orders=DB.orders.filter(o=>o.event_id===id);body=`<div class="card" style="padding:0"><table><thead><tr><th>Buyer</th><th>Kontak</th><th>Class</th><th>Seat</th><th>Total</th><th>Payment</th><th>Refund</th><th>Check-in</th><th></th></tr></thead><tbody>
     ${orders.map(o=>{const tk=DB.tickets.find(t=>t.order_item_id===o.id);const cls=tk?DB.ticketClasses.find(c=>c.id===tk.ticket_class_id):null;const seat=tk&&tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;const ci=tk?DB.checkins.find(c=>c.ticket_id===tk.id):null;
       const rf=DB.refunds.filter(r=>r.order_id===o.id).slice(-1)[0];
@@ -1824,7 +1860,7 @@ function renderTicketDetail(id){
   else{const refs=DB.refunds.filter(r=>{const o=DB.orders.find(x=>x.id===r.order_id);return o&&o.event_id===id;});body=`<div class="card" style="padding:0"><table><thead><tr><th>Order</th><th>Buyer</th><th>Alasan</th><th>Status</th><th></th></tr></thead><tbody>
     ${refs.map(r=>{const o=DB.orders.find(x=>x.id===r.order_id);return `<tr><td>${IDR(o.total)}</td><td>${esc(o.buyer_name)}</td><td>${esc(r.reason)}</td><td>${statusBadge(r.status)}</td><td>${r.status==='Pending'?`<button class="btn sm" onclick="approveRefund('${r.id}')">Approve</button> <button class="btn danger sm" onclick="rejectRefund('${r.id}')">Reject</button>`:''}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada refund.</td></tr>'}
     </tbody></table></div>`;}
-  C().innerHTML=`<div class="tabs">${tb('classes','Ticket Class')}${tb('seatmap','Seat Map')}${tb('buyers','Buyer List')}${tb('refund','Refund')}</div>${body}`;
+  C().innerHTML=`<div class="tabs">${tb('classes','Ticket Class')}${tb('seatmap','Seat Map')}${tb('layout','Layout Kustom')}${tb('buyers','Buyer List')}${tb('refund','Refund')}</div>${body}`;
 }
 /* ============================================================
    DENAH KURSI — TEMPLATE LAKSAMANA MUDA (Reguler+ bernomor 1–83)
@@ -1962,6 +1998,370 @@ function renderL1(id){
     +denahLegend();
   return h+'</div>';
 }
+/* ============================================================
+   LAYOUT DESIGNER — denah kustom, drag & drop
+   ------------------------------------------------------------
+   Denah template (Reguler+ / Lantai 1) tata letaknya dikunci di kode. Ini
+   kebalikannya: tim event menyusun sendiri denah tiap acara — taruh kursi atau
+   meja, geser, ubah ukurannya, beri tingkat tiket.
+
+   Objeknya SENGAJA disimpan di DB.seats (zone='Custom') dan bukan koleksi baru:
+   kolom `data` di tabel seats menyimpan seluruh baris sebagai JSON, jadi field
+   tambahan (x/y/w/h/shape/kind/tier) ikut tersimpan tanpa ubah skema — dan yang
+   lebih penting, penjualan tiket, e-ticket, refund serta Check-In langsung
+   bekerja di atas denah kustom ini karena semuanya sudah berbicara ke seats.
+
+   Gambar denah manual (hasil desain di luar sistem) dipasang sebagai LATAR
+   kanvas; objek tinggal ditaruh menimpanya lalu disesuaikan posisinya.
+   Meta kanvas (latar, ukuran, grid) ada di DB.eventDetails[eid].layout.
+   ============================================================ */
+const LDZ_TIERS={
+  Regular:{c:'#2f7fc4'},   // biru  — kelas dasar
+  Silver :{c:'#8d97a3'},   // perak
+  Gold   :{c:'#e0b23c'},   // kuning
+  VIP    :{c:'#c9432b'}    // merah
+};
+const LDZ_TIER_NAMES=Object.keys(LDZ_TIERS);
+function ldzHexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+function ldzMeta(eid){
+  const d=ensureDetails(eid);
+  if(!d.layout||typeof d.layout!=='object'||Array.isArray(d.layout)) d.layout={};
+  const L=d.layout;
+  L.w=+L.w||1200; L.h=+L.h||760;
+  if(L.bgOpacity==null) L.bgOpacity=70;
+  if(L.grid==null) L.grid=true;
+  if(L.snap==null) L.snap=true;
+  if(!L.bg) L.bg=null;
+  return L;
+}
+function ldzItems(eid){ return DB.seats.filter(s=>s.event_id===eid && s.zone==='Custom'); }
+function ldzFind(id){ return DB.seats.find(s=>s.id===id && s.zone==='Custom'); }
+/* Tiap tingkatan tiket punya satu ticket class per event — dibuat saat pertama
+   kali dipakai, supaya objek denah selalu tersambung ke kelas yang bisa dijual. */
+function ldzTierClass(eid,tier){
+  let c=DB.ticketClasses.find(x=>x.event_id===eid && x.name===tier);
+  if(!c){
+    const e=DB.events.find(x=>x.id===eid)||{};
+    c={id:uid(),event_id:eid,name:tier,price:0,quota:0,sold:0,
+       sale_start:e.start_datetime||'',sale_end:e.start_datetime||'',
+       description:'Tingkatan tiket '+tier+' (denah kustom)',benefit:tier,is_seated:true};
+    DB.ticketClasses.push(c);
+  }
+  return c;
+}
+// Kuota kelas mengikuti isi denah: 1 kursi = 1, 1 meja = kapasitas mejanya.
+function ldzSyncQuota(eid){
+  const its=ldzItems(eid);
+  LDZ_TIER_NAMES.forEach(t=>{
+    const mine=its.filter(i=>i.tier===t);
+    if(!mine.length) return;
+    ldzTierClass(eid,t).quota=mine.reduce((a,i)=>a+(+i.capacity||1),0);
+  });
+}
+function ldzCap(eid){ return ldzItems(eid).reduce((a,i)=>a+(+i.capacity||1),0); }
+
+/* ---------- menambah objek ---------- */
+function ldzAdd(eid,kind,shape){
+  const L=ldzMeta(eid), n=ldzItems(eid).length;
+  const tier=window._ldzTier||'Regular';
+  const cls=ldzTierClass(eid,tier);
+  const w=kind==='table'?(shape==='circle'?96:110):40;
+  const h=kind==='table'?96:40;
+  // ditumpuk bertingkat dari kiri-atas supaya objek baru tidak saling menutupi
+  const x=40+(n%12)*26, y=40+(n%12)*26;
+  const it={id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Custom',
+    kind,shape,tier,table_no:(kind==='table'?'M':'K')+(n+1),seat_no:n+1,
+    capacity:kind==='table'?6:1,x,y,w,h,status:'Available'};
+  DB.seats.push(it);
+  window._ldzSel=it.id;
+  ldzSyncQuota(eid); save(); ldzRepaint(eid);
+}
+function ldzDuplicate(eid){
+  const it=ldzFind(window._ldzSel); if(!it) return toast('Pilih dulu objek yang mau digandakan.');
+  const n=ldzItems(eid).length;
+  const c=Object.assign({},it,{id:uid(),x:it.x+20,y:it.y+20,seat_no:n+1,
+    table_no:(it.kind==='table'?'M':'K')+(n+1),status:'Available'});
+  delete c.updatedAt; delete c.createdAt;
+  DB.seats.push(c); window._ldzSel=c.id;
+  ldzSyncQuota(eid); save(); ldzRepaint(eid);
+}
+/* Objek yang kursinya SUDAH terjual tidak boleh dihapus — itu memutus tiket
+   yang sudah dipegang pembeli; lepasnya lewat Refund, sama seperti toggleSeat. */
+function ldzDelete(eid){
+  const it=ldzFind(window._ldzSel); if(!it) return toast('Pilih dulu objek yang mau dihapus.');
+  if(DB.tickets.some(t=>t.seat_id===it.id && t.status!=='Cancelled'))
+    return toast('"'+it.table_no+'" sudah terjual — lepas lewat Refund dulu.');
+  DB.seats=DB.seats.filter(s=>s.id!==it.id);
+  window._ldzSel=null;
+  ldzSyncQuota(eid); save(); ldzRepaint(eid);
+}
+function ldzClear(eid){
+  const its=ldzItems(eid);
+  if(!its.length) return;
+  const terjual=its.filter(i=>DB.tickets.some(t=>t.seat_id===i.id && t.status!=='Cancelled')).length;
+  if(!confirm('Hapus seluruh '+its.length+' objek di denah kustom ini?'+(terjual?'\n\n'+terjual+' di antaranya sudah terjual dan akan DILEWATI.':'')+'\n\nTindakan ini tidak bisa dibatalkan.')) return;
+  const sisa=its.filter(i=>DB.tickets.some(t=>t.seat_id===i.id && t.status!=='Cancelled')).map(i=>i.id);
+  DB.seats=DB.seats.filter(s=>!(s.event_id===eid && s.zone==='Custom') || sisa.includes(s.id));
+  window._ldzSel=null; ldzSyncQuota(eid); save(); ldzRepaint(eid);
+  toast('Denah dikosongkan'+(terjual?' — '+terjual+' objek terjual dipertahankan.':'.'));
+}
+/* Tambah banyak sekaligus: menaruh 60 kursi satu per satu itu pekerjaan yang
+   tidak masuk akal, jadi barisan kursi dibuat dari satu form. */
+function ldzBulkForm(eid){
+  modal('<h3 class="sec">Tambah Banyak Objek</h3>'
+   +'<div class="grid g2">'
+   +'<div class="field"><label>Jenis</label><select id="bz_kind"><option value="seat">Kursi</option><option value="table">Meja</option></select></div>'
+   +'<div class="field"><label>Bentuk</label><select id="bz_shape"><option value="rect">Rectangle</option><option value="circle">Bulat</option></select></div>'
+   +'<div class="field"><label>Tingkatan</label><select id="bz_tier">'+LDZ_TIER_NAMES.map(t=>'<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Kapasitas per objek</label><input type="number" id="bz_cap" value="1" min="1"></div>'
+   +'<div class="field"><label>Jumlah baris</label><input type="number" id="bz_rows" value="4" min="1" max="40"></div>'
+   +'<div class="field"><label>Jumlah kolom</label><input type="number" id="bz_cols" value="10" min="1" max="40"></div>'
+   +'<div class="field"><label>Awal penomoran</label><input type="text" id="bz_pre" value="A" placeholder="A, VIP, kosongkan untuk angka saja"></div>'
+   +'<div class="field"><label>Jarak antar objek (px)</label><input type="number" id="bz_gap" value="10" min="0"></div>'
+   +'</div>'
+   +'<p class="mini">Ditaruh mulai dari sudut kiri-atas kanvas. Setelah jadi, tiap objek tetap bisa digeser sendiri-sendiri.</p>'
+   +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="ldzBulkGo(\''+eid+'\')">Tambahkan</button></div>');
+}
+function ldzBulkGo(eid){
+  const g=k=>document.getElementById(k).value;
+  const kind=g('bz_kind'), shape=g('bz_shape'), tier=g('bz_tier');
+  const cap=Math.max(1,+g('bz_cap')||1), rows=Math.max(1,+g('bz_rows')||1), cols=Math.max(1,+g('bz_cols')||1);
+  const pre=g('bz_pre').trim(), gap=Math.max(0,+g('bz_gap')||0);
+  if(rows*cols>400) return toast('Terlalu banyak — maksimal 400 objek sekali tambah.');
+  const cls=ldzTierClass(eid,tier);
+  const w=kind==='table'?(shape==='circle'?96:110):40, h=kind==='table'?96:40;
+  let n=ldzItems(eid).length;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    n++;
+    DB.seats.push({id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Custom',kind,shape,tier,
+      table_no:pre?(pre+(r+1)+'-'+(c+1)):String(n),seat_no:n,capacity:cap,
+      x:30+c*(w+gap),y:30+r*(h+gap),w,h,status:'Available'});
+  }
+  ldzSyncQuota(eid); save(); closeModal(); ldzRepaint(eid);
+  toast('✓ '+(rows*cols)+' objek '+(kind==='table'?'meja':'kursi')+' '+tier+' ditambahkan.');
+}
+
+/* ---------- menggambar ---------- */
+function ldzStatusCls(it){ return seatCls(it); }   // available | locked | sold | checked
+function ldzItemHTML(it,edit){
+  const T=LDZ_TIERS[it.tier]||LDZ_TIERS.Regular;
+  const st=ldzStatusCls(it);
+  const isi=(st==='sold'||st==='checked');
+  const sel=(edit&&window._ldzSel===it.id)?' sel':'';
+  let sty='left:'+(+it.x||0)+'px;top:'+(+it.y||0)+'px;width:'+(+it.w||40)+'px;height:'+(+it.h||40)+'px;'
+    +'border-color:'+T.c+';background:'+(isi?T.c:ldzHexA(T.c,.15))+';color:'+(isi?'#fff':T.c)+';';
+  const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
+  const judul=(it.kind==='table'?'Meja ':'Kursi ')+(it.table_no||'')+' · '+it.tier+' · '
+    +(st==='checked'?'sudah check-in':st==='sold'?'terjual':st==='locked'?'hold':'tersedia');
+  /* Mode read-only (window._denahRO, dipakai Live Occupancy saat acara jalan):
+     denah hanya untuk MELIHAT status kedatangan — tanpa klik supaya tidak ada
+     status yang tak sengaja berputar di tengah acara. */
+  let aksi='';
+  if(edit) aksi=' onpointerdown="ldzDown(event,\''+it.id+'\',\'move\')"';
+  else if(window._denahRO) sty+='cursor:default;';
+  else { aksi=' onclick="toggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;'; }
+  return '<div class="ldz-item '+it.shape+' '+st+(edit?' edit':'')+sel+'" id="ldz_'+it.id+'" style="'+sty+'" title="'+esc(judul)+'"'+aksi+'>'
+    +esc(it.table_no||'')+cap
+    +((edit&&window._ldzSel===it.id)?'<i class="ldz-rs" onpointerdown="ldzDown(event,\''+it.id+'\',\'size\')"></i>':'')
+    +'</div>';
+}
+function ldzCanvasHTML(eid,edit){
+  const L=ldzMeta(eid), its=ldzItems(eid);
+  const bg=L.bg?'<div class="ldz-bg" style="background-image:url(\''+fileUrl(L.bg.key)+'\');opacity:'+((+L.bgOpacity||70)/100)+'"></div>':'';
+  return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+'" '
+    +'style="width:'+L.w+'px;height:'+L.h+'px"'+(edit?' onpointerdown="ldzBlur(event)"':'')+'>'
+    +bg+its.map(i=>ldzItemHTML(i,edit)).join('')+'</div></div>';
+}
+// Menggambar ulang SATU objek saja — dipakai saat menggeser supaya gerakannya
+// mulus (menggambar ulang seluruh kanvas tiap pixel bikin patah-patah).
+function ldzPaintItem(it){
+  const el=document.getElementById('ldz_'+it.id); if(!el) return;
+  el.style.left=it.x+'px'; el.style.top=it.y+'px';
+  el.style.width=it.w+'px'; el.style.height=it.h+'px';
+}
+
+/* ---------- geser & ubah ukuran ---------- */
+let _ldzDrag=null;
+function ldzDown(e,id,mode){
+  if(!window._ldzEdit) return;
+  e.preventDefault(); e.stopPropagation();
+  const it=ldzFind(id); if(!it) return;
+  if(window._ldzSel!==id){ window._ldzSel=id; ldzRepaint(it.event_id); }
+  _ldzDrag={id,mode,sx:e.clientX,sy:e.clientY,ox:+it.x||0,oy:+it.y||0,ow:+it.w||40,oh:+it.h||40,moved:false};
+  window.addEventListener('pointermove',ldzMove);
+  window.addEventListener('pointerup',ldzUp);
+}
+function ldzMove(e){
+  if(!_ldzDrag) return;
+  const it=ldzFind(_ldzDrag.id); if(!it) return;
+  const L=ldzMeta(it.event_id), g=L.snap?10:1;
+  const dx=e.clientX-_ldzDrag.sx, dy=e.clientY-_ldzDrag.sy;
+  if(Math.abs(dx)>2||Math.abs(dy)>2) _ldzDrag.moved=true;
+  if(_ldzDrag.mode==='move'){
+    it.x=Math.max(0,Math.min(L.w-(+it.w||40),Math.round((_ldzDrag.ox+dx)/g)*g));
+    it.y=Math.max(0,Math.min(L.h-(+it.h||40),Math.round((_ldzDrag.oy+dy)/g)*g));
+  } else {
+    it.w=Math.max(22,Math.round((_ldzDrag.ow+dx)/g)*g);
+    it.h=Math.max(22,Math.round((_ldzDrag.oh+dy)/g)*g);
+  }
+  ldzPaintItem(it);
+}
+function ldzUp(){
+  window.removeEventListener('pointermove',ldzMove);
+  window.removeEventListener('pointerup',ldzUp);
+  if(!_ldzDrag) return;
+  const it=ldzFind(_ldzDrag.id); const moved=_ldzDrag.moved; _ldzDrag=null;
+  if(!it) return;
+  if(moved){ save(); ldzSideRefresh(it.event_id); }
+}
+// Klik kanvas kosong = lepas pilihan.
+function ldzBlur(e){
+  if(e.target && e.target.id!=='ldzCanvas' && !(e.target.classList&&e.target.classList.contains('ldz-bg'))) return;
+  if(!window._ldzSel) return;
+  const eid=window._ldzEid; window._ldzSel=null; ldzRepaint(eid);
+}
+/* Panah = geser halus, Delete = hapus. Dipasang sekali saja untuk seluruh
+   aplikasi dan baru aktif kalau kanvas memang sedang terbuka & mode edit. */
+if(!window._ldzKeys){
+  window._ldzKeys=true;
+  window.addEventListener('keydown',e=>{
+    if(!window._ldzEdit||!window._ldzSel||!document.getElementById('ldzCanvas')) return;
+    const t=e.target&&e.target.tagName;
+    if(t==='INPUT'||t==='SELECT'||t==='TEXTAREA') return;
+    const it=ldzFind(window._ldzSel); if(!it) return;
+    const step=e.shiftKey?10:1;
+    if(e.key==='ArrowLeft'){ it.x=Math.max(0,it.x-step); }
+    else if(e.key==='ArrowRight'){ it.x=it.x+step; }
+    else if(e.key==='ArrowUp'){ it.y=Math.max(0,it.y-step); }
+    else if(e.key==='ArrowDown'){ it.y=it.y+step; }
+    else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); ldzDelete(it.event_id); return; }
+    else return;
+    e.preventDefault(); ldzPaintItem(it); save();
+  });
+}
+
+/* ---------- panel properti & rangkuman ---------- */
+function ldzSet(eid,field,val){
+  const it=ldzFind(window._ldzSel); if(!it) return;
+  if(field==='tier'){ it.tier=val; it.ticket_class_id=ldzTierClass(eid,val).id; }
+  else if(field==='capacity') it.capacity=Math.max(1,+val||1);
+  else if(field==='w'||field==='h') it[field]=Math.max(22,+val||22);
+  else if(field==='status'){
+    if(DB.tickets.some(t=>t.seat_id===it.id && t.status!=='Cancelled'))
+      { toast('Sudah terjual — status dilepas lewat Refund.'); ldzRepaint(eid); return; }
+    it.status=val;
+  }
+  else it[field]=val;
+  ldzSyncQuota(eid); save(); ldzRepaint(eid);
+}
+function ldzMetaSet(eid,field,val){
+  const L=ldzMeta(eid);
+  if(field==='w'||field==='h') L[field]=Math.max(200,Math.min(4000,+val||1200));
+  else if(field==='bgOpacity') L.bgOpacity=Math.max(0,Math.min(100,+val||0));
+  else L[field]=val;
+  save(); ldzRepaint(eid);
+}
+function ldzBg(eid){
+  pilihBerkas(f=>{
+    if(!berkasGambar(f)) return toast('Latar denah harus gambar (jpg/png/webp/gif).');
+    ldzMeta(eid).bg={key:f.key,name:f.name}; save(); ldzRepaint(eid);
+    toast('✓ Gambar denah dipasang sebagai latar — tinggal taruh kursi/mejanya.');
+  },'image/*');
+}
+function ldzBgHapus(eid){ ldzMeta(eid).bg=null; save(); ldzRepaint(eid); }
+function ldzSideHTML(eid){
+  const it=ldzFind(window._ldzSel), its=ldzItems(eid);
+  let h='<div class="card ldz-side"><h3 class="sec">'+(it?'Properti Objek':'Rangkuman Denah')+'</h3>';
+  if(it){
+    const terjual=DB.tickets.some(t=>t.seat_id===it.id && t.status!=='Cancelled');
+    h+='<div class="field"><label>Nama / Nomor</label><input type="text" value="'+esc(it.table_no||'')+'" onchange="ldzSet(\''+eid+'\',\'table_no\',this.value)"></div>'
+     +'<div class="field"><label>Tingkatan Tiket</label><select onchange="ldzSet(\''+eid+'\',\'tier\',this.value)">'
+       +LDZ_TIER_NAMES.map(t=>'<option'+(it.tier===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+     +'<div class="grid g2">'
+       +'<div class="field"><label>Jenis</label><select onchange="ldzSet(\''+eid+'\',\'kind\',this.value)">'
+         +'<option value="seat"'+(it.kind==='seat'?' selected':'')+'>Kursi</option>'
+         +'<option value="table"'+(it.kind==='table'?' selected':'')+'>Meja</option></select></div>'
+       +'<div class="field"><label>Bentuk</label><select onchange="ldzSet(\''+eid+'\',\'shape\',this.value)">'
+         +'<option value="rect"'+(it.shape==='rect'?' selected':'')+'>Rectangle</option>'
+         +'<option value="circle"'+(it.shape==='circle'?' selected':'')+'>Bulat</option></select></div>'
+       +'<div class="field"><label>Kapasitas (pax)</label><input type="number" min="1" value="'+(+it.capacity||1)+'" onchange="ldzSet(\''+eid+'\',\'capacity\',this.value)"></div>'
+       +'<div class="field"><label>Status</label><select onchange="ldzSet(\''+eid+'\',\'status\',this.value)"'+(terjual?' disabled':'')+'>'
+         +['Available','Locked','Sold'].map(s=>'<option'+(it.status===s?' selected':'')+'>'+s+'</option>').join('')+'</select></div>'
+       +'<div class="field"><label>Lebar (px)</label><input type="number" min="22" value="'+(+it.w||40)+'" onchange="ldzSet(\''+eid+'\',\'w\',this.value)"></div>'
+       +'<div class="field"><label>Tinggi (px)</label><input type="number" min="22" value="'+(+it.h||40)+'" onchange="ldzSet(\''+eid+'\',\'h\',this.value)"></div>'
+     +'</div>'
+     +(terjual?'<p class="mini">Objek ini sudah terjual — statusnya hanya bisa dilepas lewat Refund.</p>':'')
+     +'<div style="display:flex;gap:6px;margin-top:6px"><button class="btn ghost sm" onclick="ldzDuplicate(\''+eid+'\')">Gandakan</button>'
+     +'<button class="btn danger sm" onclick="ldzDelete(\''+eid+'\')">Hapus</button></div>'
+     +'<p class="mini" style="margin-top:8px">Geser objeknya langsung di kanvas, atau pakai tombol panah (Shift = 10px).</p>';
+  } else {
+    const tot=ldzCap(eid);
+    h+='<table><tbody>'+LDZ_TIER_NAMES.map(t=>{
+      const mine=its.filter(i=>i.tier===t);
+      const cap=mine.reduce((a,i)=>a+(+i.capacity||1),0);
+      const cls=DB.ticketClasses.find(c=>c.event_id===eid&&c.name===t);
+      return '<tr><td><span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span></td>'
+        +'<td class="mini">'+mine.length+' objek</td><td class="mini">'+cap+' pax</td>'
+        +'<td class="mini">'+(cls?IDR(cls.price):'—')+'</td></tr>';
+    }).join('')+'</tbody></table>'
+     +'<p class="mini" style="margin-top:8px">Total kapasitas denah: <b>'+tot+' pax</b> dari '+its.length+' objek. Harga tiap tingkatan diatur di tab <b>Ticket Class</b>.</p>'
+     +'<p class="mini">Klik salah satu objek di kanvas untuk mengubah propertinya.</p>';
+  }
+  return h+'</div>';
+}
+function ldzSideRefresh(eid){
+  const box=document.getElementById('ldzSide');
+  if(box) box.innerHTML=ldzSideHTML(eid);
+}
+function ldzRepaint(eid){
+  const root=document.getElementById('ldzRoot');
+  if(!root){ renderTicketDetail(eid); return; }
+  root.innerHTML=ldzInner(eid);
+}
+function ldzToggleEdit(eid){ window._ldzEdit=!window._ldzEdit; if(!window._ldzEdit) window._ldzSel=null; ldzRepaint(eid); }
+function ldzInner(eid){
+  const L=ldzMeta(eid), edit=!!window._ldzEdit, its=ldzItems(eid);
+  let bar='<div class="ldz-bar">'
+    +'<button class="btn'+(edit?'':' ghost')+' sm" onclick="ldzToggleEdit(\''+eid+'\')">'+(edit?'● Mode Desain aktif':'✎ Masuk Mode Desain')+'</button>';
+  if(edit){
+    bar+='<div class="grp"><span class="lbl">Tingkatan baru</span><select onchange="window._ldzTier=this.value">'
+      +LDZ_TIER_NAMES.map(t=>'<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+     +'<div class="grp"><span class="lbl">Tambah</span>'
+       +'<button class="btn ghost sm" onclick="ldzAdd(\''+eid+'\',\'seat\',\'rect\')">Kursi ▭</button>'
+       +'<button class="btn ghost sm" onclick="ldzAdd(\''+eid+'\',\'seat\',\'circle\')">Kursi ●</button>'
+       +'<button class="btn ghost sm" onclick="ldzAdd(\''+eid+'\',\'table\',\'rect\')">Meja ▭</button>'
+       +'<button class="btn ghost sm" onclick="ldzAdd(\''+eid+'\',\'table\',\'circle\')">Meja ●</button>'
+       +'<button class="btn ghost sm" onclick="ldzBulkForm(\''+eid+'\')">Banyak…</button></div>'
+     +'<div class="grp"><span class="lbl">Latar</span>'
+       +'<button class="btn ghost sm" onclick="ldzBg(\''+eid+'\')">'+(L.bg?'Ganti gambar':'Upload gambar denah')+'</button>'
+       +(L.bg?'<button class="btn ghost sm" onclick="ldzBgHapus(\''+eid+'\')">Hapus</button>'
+              +'<input type="range" min="0" max="100" value="'+(+L.bgOpacity||70)+'" style="width:90px" title="Ketebalan gambar latar" onchange="ldzMetaSet(\''+eid+'\',\'bgOpacity\',this.value)">':'')
+       +'</div>'
+     +'<div class="grp"><span class="lbl">Kanvas</span>'
+       +'<input type="number" value="'+L.w+'" title="Lebar kanvas (px)" style="width:76px" onchange="ldzMetaSet(\''+eid+'\',\'w\',this.value)">×'
+       +'<input type="number" value="'+L.h+'" title="Tinggi kanvas (px)" style="width:76px" onchange="ldzMetaSet(\''+eid+'\',\'h\',this.value)">'
+       +'<label style="margin:0;display:flex;align-items:center;gap:4px"><input type="checkbox" style="width:auto" '+(L.grid?'checked':'')+' onchange="ldzMetaSet(\''+eid+'\',\'grid\',this.checked)"> grid</label>'
+       +'<label style="margin:0;display:flex;align-items:center;gap:4px"><input type="checkbox" style="width:auto" '+(L.snap?'checked':'')+' onchange="ldzMetaSet(\''+eid+'\',\'snap\',this.checked)"> snap</label>'
+       +'</div>'
+     +(its.length?'<button class="btn danger sm" onclick="ldzClear(\''+eid+'\')">Kosongkan denah</button>':'');
+  }
+  bar+='</div>';
+  const legenda='<div class="ldz-legend">'
+    +LDZ_TIER_NAMES.map(t=>'<span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span>').join('')
+    +'<span>· warna penuh = terjual · garis putus-putus = hold · lingkaran biru = sudah check-in</span></div>';
+  if(!its.length && !edit){
+    return bar+'<div class="card"><h3 class="sec">Denah Kustom</h3>'
+      +'<p class="mini">Belum ada denah kustom untuk event ini. Masuk <b>Mode Desain</b>, upload gambar denah venue kalau ada, lalu taruh kursi/meja di atasnya dan beri tingkatan tiket (Regular, Silver, Gold, VIP).</p></div>';
+  }
+  return bar+'<div class="ldz-main">'+ldzCanvasHTML(eid,edit)
+    +'<div id="ldzSide" class="ldz-side">'+ldzSideHTML(eid)+'</div></div>'+legenda;
+}
+function layoutBody(eid){
+  window._ldzEid=eid;
+  if(window._ldzTier==null) window._ldzTier='Regular';
+  return '<div id="ldzRoot">'+ldzInner(eid)+'</div>';
+}
+
 function seatMapBody(id){
   const seats=DB.seats.filter(s=>s.event_id===id);
   const rplus=seats.filter(s=>s.zone==='Reguler+').sort((a,b)=>a.seat_no-b.seat_no);
@@ -1980,13 +2380,17 @@ function seatMapBody(id){
   return tabs+renderL2Hall(id);
 }
 function renderL2Hall(id){
-  const seats=DB.seats.filter(s=>s.event_id===id);
+  // Objek denah kustom SENGAJA dikecualikan: tempatnya di tab Layout Kustom,
+  // yang menggambarnya pada koordinat sendiri — kalau ikut ke sini ia jatuh
+  // sebagai grid datar tanpa tata letak dan membingungkan.
+  const seats=DB.seats.filter(s=>s.event_id===id && s.zone!=='Custom');
   const rplus=seats.filter(s=>s.zone==='Reguler+').sort((a,b)=>a.seat_no-b.seat_no);
   if(!rplus.length){
     // fallback: kalau ada seat lain (mis. VIP table lama), tetap tampilkan;
     // selalu tawarkan template LM.
     let h='<div class="card"><h3 class="sec">Denah Kursi</h3>'
-      +'<p class="mini">Belum ada denah Reguler+. Buat template venue Laksamana Muda — 83 kursi bernomor mengelilingi panggung (Lantai 2).</p>'
+      +'<p class="mini">Belum ada denah Reguler+. Buat template venue Laksamana Muda — 83 kursi bernomor mengelilingi panggung (Lantai 2)'
+      +(window._denahRO?'':', atau susun denah sendiri di tab <b>Layout Kustom</b>')+'.</p>'
       +'<button class="btn" onclick="buatDenahLM(\''+id+'\')">+ Buat Denah Laksamana Muda</button>';
     if(seats.length){ h+='<div class="stage-bar" style="margin-top:16px">S T A G E</div><div class="seatmap">'
       +seats.map(s=>'<div class="seat '+seatCls(s)+'" title="'+esc(s.table_no)+' — '+s.status+'">'+esc(s.table_no)+'</div>').join('')+'</div>'; }
@@ -2237,9 +2641,13 @@ function liveDenahHTML(eid){
   if(!DB.seats.some(s=>s.event_id===eid))
     return '<div class="mini">Event ini standing (tanpa seat map).</div>';
   window._denahRO=true;
-  const html=seatMapBody(eid);
+  // Denah kustom (kalau event ini memakainya) ikut tampil live — warnanya
+  // memakai status kedatangan yang sama dengan denah template.
+  const kustom=ldzItems(eid).length
+    ? '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>' : '';
+  const template=DB.seats.some(s=>s.event_id===eid && s.zone!=='Custom') ? seatMapBody(eid) : '';
   window._denahRO=false;
-  return html;
+  return kustom+template;
 }
 function renderLiveDenah(eid){
   const el=document.getElementById('liveDenah');
