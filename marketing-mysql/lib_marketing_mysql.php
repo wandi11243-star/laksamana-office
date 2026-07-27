@@ -121,7 +121,14 @@ function save_receipt($payload) {
                      isset($payload['fileName']) ? $payload['fileName'] : '');
   $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
   if ($bin === false) throw new Exception('base64 tidak valid');
-  if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('file melebihi 8MB');
+  /* Batas atas SEMUA unggahan. Dinaikkan 8MB -> 40MB untuk Surat Penawaran,
+     yang sering penuh gambar venue/layout beresolusi tinggi. Batas per fitur
+     tetap dipegang frontend (lampiran event & bukti transfer masih 8MB); ini
+     jaring pengaman terakhir supaya berkas raksasa tidak menghabiskan disk.
+     CATATAN: base64 membengkakkan ~33%, jadi 40MB berkas = ~54MB body. PHP
+     akan MEMBUANG body yang melewati post_max_size (php://input jadi kosong)
+     sebelum baris ini sempat jalan — lihat .user.ini di folder ini. */
+  if (strlen($bin) > 40 * 1024 * 1024) throw new Exception('file melebihi 40MB');
   $key = 'rc_' . bin2hex(random_bytes(8)) . '.' . $ext;
   if (file_put_contents(receipt_path($key), $bin) === false)
     throw new Exception('gagal menulis file (cek izin folder)');

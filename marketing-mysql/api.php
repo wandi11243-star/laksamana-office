@@ -29,7 +29,21 @@ function keluar($obj) { echo json_encode($obj, JSON_UNESCAPED_UNICODE); exit; }
 $method = $_SERVER['REQUEST_METHOD'];
 $body = array();
 if ($method === 'POST') {
+  // Unggahan Surat Penawaran bisa ~54MB (40MB berkas + pembengkakan base64).
+  // memory_limit BISA dinaikkan saat jalan; post_max_size TIDAK — itu harus
+  // lewat .user.ini / php.ini di folder ini.
+  if ((int)ini_get('memory_limit') > 0 && (int)ini_get('memory_limit') < 256) @ini_set('memory_limit', '256M');
   $raw = file_get_contents('php://input');
+  /* Body kosong padahal browser mengirim isi = PHP MEMBUANGNYA karena melewati
+     post_max_size. Tanpa penjelasan ini, kegagalannya muncul sebagai "file
+     kosong" atau "action tidak dikenal" — menyesatkan, dan yang sebenarnya
+     perlu diubah ada di konfigurasi server, bukan di aplikasi. */
+  if ($raw === '' && !empty($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 0) {
+    keluar(array('ok' => false, 'error' =>
+      'kiriman ' . round(((int)$_SERVER['CONTENT_LENGTH']) / 1048576, 1) . 'MB dibuang server: '
+      . 'melewati post_max_size (' . ini_get('post_max_size') . '). '
+      . 'Naikkan post_max_size & upload_max_filesize di .user.ini / php.ini folder API ini.'));
+  }
   $body = json_decode($raw, true);
   if (!is_array($body)) $body = array();
 }

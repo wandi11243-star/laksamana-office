@@ -41,12 +41,32 @@ yang mengedit event BERBEDA dulu saling ditolak; sekarang keduanya tersimpan.
 2. **Buat tabel** — phpMyAdmin → pilih `lakk5493_db_marketing` → tab SQL →
    tempel `schema.sql` → Go. Harus jadi **12 tabel**.
 3. **Upload folder** ke `public_html/office/marketing-api-mysql/`.
-   (Jangan ikut-upload `config.local.php` kalau sempat dibuat untuk tes lokal.)
+   (Jangan ikut-upload `config.local.php` kalau sempat dibuat untuk tes lokal.
+   `.user.ini` HARUS ikut — lihat batas unggahan di bawah.)
 4. **Uji** — `.../marketing-api-mysql/api.php?action=stats` harus `ok:true`,
    12 tabel bernilai 0.
 5. **Alihkan frontend** — di `deploy/marketing/index.html`, ganti backend dari
    `WEB_APP_URL` (Apps Script) ke `API_URL` MySQL. (Langkah ini BELUM dilakukan
    — lihat catatan di bawah.)
+
+## Batas unggahan berkas
+
+Surat Penawaran boleh sampai **40MB** (lampiran event & bukti transfer tetap
+8MB, dijaga di frontend). Berkas dikirim sebagai base64 di dalam JSON, dan
+base64 membengkakkan ukuran ~33% — 40MB berkas = **~54MB body permintaan**.
+
+Karena itu `post_max_size` server harus ≥ 64M. Nilainya ada di **`.user.ini`**
+di folder ini dan hanya berlaku kalau PHP jalan sebagai CGI/FastCGI/FPM
+(mayoritas shared hosting, termasuk Rumahweb). `post_max_size` **tidak bisa**
+diubah dari kode: kalau body melewati batas, PHP membuangnya sebelum `api.php`
+sempat jalan. Untuk memberi pesan yang jujur saat itu terjadi, `api.php`
+mendeteksi body kosong padahal `Content-Length` terisi dan membalas
+"melewati post_max_size" — bukan error menyesatkan seperti "file kosong".
+
+Kalau server memakai **mod_php**, `.user.ini` diabaikan; setel lewat `php.ini`
+atau `.htaccess` (`php_value post_max_size 64M`, dst). Cara memastikan nilainya
+sudah aktif: buka `api.php?action=ping`, lalu coba unggah berkas besar — kalau
+gagal, pesannya akan menyebut `post_max_size` yang sedang berlaku.
 
 ## Yang sudah diuji
 

@@ -4532,6 +4532,7 @@ const PEN_STATUS={
   'Ditolak':{c:'--danger',t:'Ditolak'},
   'Terkirim':{c:'--violet',t:'Terkirim ke Client'}
 };
+const MAKS_PDF_PENAWARAN=40*1024*1024;
 function penStatus(ev){ return (ev&&ev.penawaran&&ev.penawaran.status)||null; }
 /* Penerima approval = role "Manager / Approver" saja (can('approve')). Super
    Admin ikut lolos karena can() memang selalu meloloskannya — itu akun pemilik
@@ -4561,7 +4562,7 @@ function buatPenawaran(id){
    +'<input id="pen_file" class="inp" type="file" accept="application/pdf,.pdf">'
    +'<div class="cell-sub" style="margin-top:6px">'
      +(f?'Berkas saat ini: <a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><b>'+esc(f.name||'surat-penawaran.pdf')+'</b></a> — pilih berkas baru bila ingin mengganti.'
-        :'Unggah PDF surat penawaran yang sudah kamu buat. Maks 8MB. Berkas ini yang akan dibaca Manager saat approval dan dikirim ke client.')
+        :'Unggah PDF surat penawaran yang sudah kamu buat. Maks 40MB. Berkas ini yang akan dibaca Manager saat approval dan dikirim ke client.')
    +'</div>'
    +'<div class="fh" style="margin-top:10px">Catatan untuk Approver <span style="font-weight:400">(opsional)</span></div>'
    +'<textarea id="pen_note" class="inp" rows="3" placeholder="mis. harga sudah termasuk sewa panggung, hasil nego dengan client">'+esc(p.note||'')+'</textarea>'
@@ -4574,7 +4575,11 @@ async function simpanPenawaran(id){
   const btn=$('pen_save_btn');
   if(file){
     if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf')return toast('Harus PDF','Surat penawaran diunggah dalam format PDF.','err');
-    if(file.size>8*1024*1024)return toast('File terlalu besar','Berkas PDF maksimal 8MB.','err');
+    /* Batasnya 40MB — lebih longgar dari lampiran lain (8MB) karena surat
+       penawaran sering penuh gambar venue/layout beresolusi tinggi. Sisi server
+       punya batas yang sama di save_receipt(); post_max_size PHP juga harus
+       ≥ 60M (base64 membengkakkan ~33%), lihat marketing-mysql/.user.ini. */
+    if(file.size>MAKS_PDF_PENAWARAN)return toast('File terlalu besar','Berkas PDF maksimal '+(MAKS_PDF_PENAWARAN/1048576)+'MB — punyamu '+(file.size/1048576).toFixed(1)+'MB.','err');
     if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF...'; }
     try{
       const b64=await fileToBase64(file);
