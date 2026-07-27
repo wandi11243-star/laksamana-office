@@ -288,6 +288,8 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .seat.checked{background:linear-gradient(135deg,#d9573c,var(--red));color:#fff;border-color:transparent}
 .seat.sel{outline:2px solid var(--accent);outline-offset:1px}
 .seat[data-ro="1"]{cursor:not-allowed}
+.seat.ro{cursor:default}
+.seat.ro:hover{transform:none;box-shadow:none}
 /* ---------- DENAH LAKSAMANA MUDA (Reguler+ bernomor, klik ala bioskop) ----------
    Panggung di atas; kursi bernomor MENGELILINGI area lantai: kolom kiri 1–23,
    baris depan 24–60, kolom kanan 61–83 — persis urutan poster. Dibuat pakai
@@ -1868,10 +1870,24 @@ function seatCls(s){
   if(s.status==='Locked') return 'locked';
   return 'available';
 }
+/* Legend denah — beda makna antara Ticketing (kelola status) dan Live Occupancy
+   di Check-In (status kedatangan). */
+function denahLegend(){
+  if(window._denahRO)
+    return '<div class="legend"><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Belum datang</span><span><i class="dotc" style="background:var(--red)"></i>Sudah datang</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Kosong</span></div>';
+  return '<div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Tersedia</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Terjual</span><span><i class="dotc" style="background:var(--red)"></i>Check-in</span></div>';
+}
 function seatBox(s){
   const cls=seatCls(s), ro=(cls==='sold'||cls==='checked')?1:0;
   const lbl=s.seat_no||s.table_no;   // Lantai 1: table_no=nama meja, yang ditampilkan nomornya (seat_no)
   const meja=(s.zone==='Lantai 1'&&s.table_no)?(' · Meja '+s.table_no):'';
+  // Mode read-only (window._denahRO): dipakai Live Occupancy di Check-In — denah
+  // hanya untuk MELIHAT status kedatangan, bukan mengubah status kursi. Tanpa
+  // onclick supaya tak sengaja memutar status di tengah acara.
+  if(window._denahRO){
+    const tampil=cls==='checked'?'sudah datang':cls==='sold'?'belum datang':cls==='locked'?'hold':'kosong';
+    return '<div class="seat '+cls+' ro" title="Kursi '+lbl+meja+' — '+tampil+'">'+lbl+'</div>';
+  }
   return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+lbl+meja+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+lbl+'</div>';
 }
 /* ---------- DENAH LANTAI 1 — TEMPLATE LAKSAMANA MUDA (berbasis meja) ----------
@@ -1918,7 +1934,9 @@ function renderL1(id){
   const deret=arr=>arr.map(meja).join('');
 
   let h='<div class="card"><h3 class="sec">Denah Lantai 1 <span class="mini" style="font-weight:400">('+terisi+'/'+seats.length+' terisi)</span></h3>'
-    +'<p class="mini" style="margin-bottom:10px">Tata letak mengikuti denah venue. Klik kursi: Tersedia → Hold → Terjual → Tersedia. Kursi terjual lewat pembelian dilepas via Refund.</p>'
+    +'<p class="mini" style="margin-bottom:10px">'+(window._denahRO
+        ?'Tata letak mengikuti denah venue. Warna kursi = status kedatangan tamu (live).'
+        :'Tata letak mengikuti denah venue. Klik kursi: Tersedia → Hold → Terjual → Tersedia. Kursi terjual lewat pembelian dilepas via Refund.')+'</p>'
     +'<div class="l1-plan"><div class="l1-plan-in">'
       // ---- BARIS ATAS: kiri (Entrance+U) · tengah (Stage+meja) · kanan (35/42–45 + Talent) ----
       +'<div class="l1-top">'
@@ -1941,7 +1959,7 @@ function renderL1(id){
       +'<div><div class="l1-band-lbl">Baris 11–19</div><div class="l1-band">'+deret(['11','12','13','14','15','16','17','18','19'])+'</div></div>'
       +'<div><div class="l1-band-lbl">Baris 1–9</div><div class="l1-band">'+deret(['1','2','3','4','5','6','7','8','9'])+'</div></div>'
     +'</div></div>'
-    +'<div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Tersedia</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Terjual</span><span><i class="dotc" style="background:var(--red)"></i>Check-in</span></div>';
+    +denahLegend();
   return h+'</div>';
 }
 function seatMapBody(id){
@@ -1951,9 +1969,13 @@ function seatMapBody(id){
   // Pemilih lantai — tampil begitu salah satu denah ada.
   window._lmFloor = window._lmFloor || (rplus.length?'2':(rL1.length?'1':'2'));
   const fl=window._lmFloor;
+  // Saat read-only (Live Occupancy di Check-In), tab lantai me-refresh denah
+  // saja (renderLiveDenah) — bukan renderTicketDetail — agar scanner tak reset.
+  const go=f=>window._denahRO?('window._lmFloor=\''+f+'\';renderLiveDenah(\''+id+'\')')
+                            :('window._lmFloor=\''+f+'\';renderTicketDetail(\''+id+'\')');
   const tabs='<div class="lm-floors">'
-    +'<button class="'+(fl==='2'?'on':'')+'" onclick="window._lmFloor=\'2\';renderTicketDetail(\''+id+'\')">Lantai 2 — Reguler+</button>'
-    +'<button class="'+(fl==='1'?'on':'')+'" onclick="window._lmFloor=\'1\';renderTicketDetail(\''+id+'\')">Lantai 1 — Meja</button></div>';
+    +'<button class="'+(fl==='2'?'on':'')+'" onclick="'+go('2')+'">Lantai 2 — Reguler+</button>'
+    +'<button class="'+(fl==='1'?'on':'')+'" onclick="'+go('1')+'">Lantai 1 — Meja</button></div>';
   if(fl==='1') return tabs+renderL1(id);
   return tabs+renderL2Hall(id);
 }
@@ -1977,7 +1999,9 @@ function renderL2Hall(id){
   const reg=DB.ticketClasses.find(c=>c.event_id===id && c.name==='Reguler');
 
   let h='<div class="card"><h3 class="sec">Denah Lantai 2 — Reguler+ <span class="mini" style="font-weight:400">('+terisi+'/'+rplus.length+' terisi)</span></h3>'
-    +'<p class="mini" style="margin-bottom:10px">Klik kursi untuk memutar status: Tersedia → Hold → Terjual → Tersedia. Kursi yang terjual lewat pembelian dilepas lewat Refund.</p>'
+    +'<p class="mini" style="margin-bottom:10px">'+(window._denahRO
+        ?'Warna kursi = status kedatangan tamu (live).'
+        :'Klik kursi untuk memutar status: Tersedia → Hold → Terjual → Tersedia. Kursi yang terjual lewat pembelian dilepas lewat Refund.')+'</p>'
     +'<div class="lm-hall">'
       +'<div class="lm-stage">S T A G E</div>'
       +'<div class="lm-kiri"><span class="lm-side-lbl">REGULER +</span>'+kiri.map(seatBox).join('')+'</div>'
@@ -1985,13 +2009,18 @@ function renderL2Hall(id){
       +'<div class="lm-kanan"><span class="lm-side-lbl">REGULER +</span>'+kanan.map(seatBox).join('')+'</div>'
       +'<div class="lm-depan">'+depan.map(seatBox).join('')+'</div>'
     +'</div>'
-    +'<div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Tersedia</span><span><i class="dotc" style="background:rgba(169,121,31,.5)"></i>Hold</span><span><i class="dotc" style="background:rgba(201,67,43,.5)"></i>Terjual</span><span><i class="dotc" style="background:var(--red)"></i>Check-in</span></div>';
+    +denahLegend();
 
-  // Zona Reguler (tanpa nomor) — lantai 2 pojok + seluruh lantai 1
+  // Zona Reguler (tanpa nomor) — lantai 2 pojok + seluruh lantai 1.
+  // Di Live Occupancy (read-only) tombol +/- disembunyikan: cukup tampil angka.
+  const zc = reg
+    ? (window._denahRO
+        ? '<div class="zc"><b>'+reg.sold+'</b> / '+reg.quota+' terjual</div>'
+        : '<div class="zc"><button onclick="regulerAdj(\''+id+'\',-1)">−</button><b>'+reg.sold+'</b> / '+reg.quota+' terjual<button onclick="regulerAdj(\''+id+'\',1)">+</button></div>')
+    : '<div class="mini" style="margin-top:8px">Kelas "Reguler" belum ada.</div>';
   h+='<div class="lm-zones">'
     +'<div class="lm-zone"><h4>Reguler — Lantai 1 &amp; pojok Lantai 2</h4><span class="mini">Zona bebas tanpa nomor kursi.</span>'
-    +(reg?'<div class="zc"><button onclick="regulerAdj(\''+id+'\',-1)">−</button><b>'+reg.sold+'</b> / '+reg.quota+' terjual<button onclick="regulerAdj(\''+id+'\',1)">+</button></div>':'<div class="mini" style="margin-top:8px">Kelas "Reguler" belum ada.</div>')
-    +'</div></div>';
+    +zc+'</div></div>';
   return h+'</div>';
 }
 function ticketClassForm(eid){
@@ -2199,10 +2228,24 @@ function renderCheckin(){
       <div id="scanResult" style="margin-top:16px"></div>
     </div>
     <div class="card"><h3 class="sec">🪑 Live Seat Occupancy</h3>
-      <div class="seatmap">${DB.seats.filter(s=>s.event_id===eid).map(s=>{const tk=DB.tickets.find(t=>t.seat_id===s.id);const checked=tk&&tk.status==='Checked-In';const cls=checked?'checked':s.status==='Sold'?'sold':s.status==='Cancelled'?'':'available';return `<div class="seat ${cls}" title="${s.table_no}">${s.table_no}</div>`;}).join('')||'<div class="mini">Event ini standing (tanpa seat map).</div>'}</div>
-      <div class="legend"><span><i class="dotc" style="background:rgba(31,157,95,.5)"></i>Belum datang</span><span><i class="dotc" style="background:var(--red)"></i>Sudah datang</span><span><i class="dotc" style="background:var(--grey)"></i>Cancelled</span></div>
+      <div id="liveDenah">${liveDenahHTML(eid)}</div>
     </div>
   </div>`;
+}
+/* Live Occupancy = denah venue yang sama dengan Ticketing (Lantai 1 meja &
+   Lantai 2 Reguler+), tapi READ-ONLY dan diwarnai status kedatangan. Memakai
+   seatMapBody dengan window._denahRO supaya tak ada duplikasi tata letak. */
+function liveDenahHTML(eid){
+  if(!DB.seats.some(s=>s.event_id===eid))
+    return '<div class="mini">Event ini standing (tanpa seat map).</div>';
+  window._denahRO=true;
+  const html=seatMapBody(eid);
+  window._denahRO=false;
+  return html;
+}
+function renderLiveDenah(eid){
+  const el=document.getElementById('liveDenah');
+  if(el) el.innerHTML=liveDenahHTML(eid);
 }
 /* ---- Pemindai kamera ----
    Memakai BarcodeDetector kalau browsernya punya (Chrome/Edge Android &
