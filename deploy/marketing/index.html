@@ -6961,11 +6961,21 @@ function delStaff(id){
 }
 // Tarik pegawai dari Office (API & PIN sama seperti panel Kelola Akses)
 async function importOfficeStaff(){
-  if(typeof window.lmaListMembers!=='function')return toast('Belum siap','Modul Kelola Akses belum termuat. Coba refresh.','err');
-  toast('Memuat','Mengambil data pegawai dari Office…','ok');
-  let r; try{ r=await window.lmaListMembers(); }catch(e){ return toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err'); }
-  if(r===null) return; // PIN dibatalkan
-  if(r.error) return toast('Gagal',r.error==='forbidden'?'PIN salah atau kamu bukan admin modul Marketing.':String(r.error),'err');
+  /* SELURUH pegawai dari database akun (dev_account / akun produksi), bukan cuma
+     anggota modul Marketing. Dulu memakai lmaListMembers() yang hanya
+     mengembalikan anggota modul ini (+butuh PIN admin) — akibatnya kru yang
+     belum diberi akses Marketing (Aurel, Cindy, Hengky, Rizki, …) tidak ikut
+     tertarik. listDivisiRoster mengembalikan semua user, tanpa PIN. Endpoint
+     relatif: di dev menarik dari dev_account, di office dari akun produksi. */
+  toast('Memuat','Mengambil seluruh pegawai dari Office…','ok');
+  let r;
+  try{
+    const res=await fetch(OFFICE_WEBAPP_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})});
+    r=await res.json();
+  }catch(e){ return toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err'); }
+  if(!r||!r.ok) return toast('Gagal',(r&&r.error)?String(r.error):'Office menolak permintaan.','err');
   S.staff=S.staff||[];
   let added=0,updated=0;
   (r.members||[]).forEach(m=>{
