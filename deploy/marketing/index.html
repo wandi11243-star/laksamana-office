@@ -2446,11 +2446,20 @@ function eventCats(ev){
 }
 // Sub kategori yang berlaku untuk satu event = sub milik Format F&B-nya.
 function eventSubs(ev){ const c=eventCats(ev); return c.length?subsOf(c[0]):[]; }
-function addExtraJob(evId,div){
+function addExtraJob(evId,div,sub){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
   ev.extraJobs=ev.extraJobs||{}; ev.extraJobs[div]=ev.extraJobs[div]||[];
-  ev.extraJobs[div].push({id:uid('xj'),div,task:'',pic:'',hminus:null,deadline:'',note:'',extra:true});
+  ev.extraJobs[div].push({id:uid('xj'),div,sub:sub||'',task:'',pic:'',hminus:null,deadline:'',note:'',extra:true});
   save(); gambarUlangJob(evId,div);
+}
+/* Tugas bebas: dipakai saat event TIDAK memilih Format F&B — kru tetap bisa
+   menyusun daftar tugasnya sendiri dengan sub kategori bebas. Disimpan di
+   extraJobs['_bebas'] (bentuk sama dengan job tambahan biasa, ada field sub). */
+const FREE_DIV='_bebas';
+function addFreeTask(evId){
+  const el=$('fb_sub'); const sub=el?el.value.trim():'';
+  addExtraJob(evId,FREE_DIV,sub);
+  if(el) el.value='';
 }
 function setExtraJob(evId,div,jobId,field,val){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
@@ -5233,11 +5242,53 @@ function taskDetail(e,opDiv){
    operational). Kosong = semua. Dulu penyaring ini memilih KATEGORI karena
    divisi memang kategori; sejak divisi turun jadi sub kategori, ia menyaring
    di dalam kartu, bukan memilih kartunya. */
+/* Papan TUGAS BEBAS — dipakai saat event belum memilih Format F&B. Kru tetap
+   bisa menyusun tugasnya sendiri dengan sub kategori bebas; setiap item punya
+   PIC, deadline, progress, tombol reminder WA, sama seperti papan biasa. */
+function freeBoard(e){
+  const bisaUbah=can('edit_task'), D=FREE_DIV;
+  const jobs=extraJobs(e,D);
+  let h='<div class="card"><div class="papan-sec-h" style="margin-bottom:6px"><h3 class="papan-sec-t">Tugas Bebas</h3>'
+    +'<span class="cell-sub papan-frac-kecil">'+jobs.filter(j=>jobSelesai(e,D,j.id)).length+'/'+jobs.length+'</span></div>'
+    +'<p class="cell-sub" style="margin-bottom:12px">Event ini belum memilih Format F&amp;B, jadi belum ada daftar to-do standar. Susun tugasnya sendiri di sini — sub kategori &amp; isian bebas. (Kalau nanti Format F&amp;B diisi, papan standar muncul otomatis dan tugas bebas ini tetap tersimpan.)</p>';
+  let hmOpts=''; for(let i=0;i<=120;i+=5) hmOpts+='<option value="'+i+'">';
+  h+='<datalist id="xj_hm_opts">'+hmOpts+'</datalist>';
+  if(jobs.length){
+    const subs=[]; jobs.forEach(j=>{ const sb=j.sub||''; if(subs.indexOf(sb)<0) subs.push(sb); });
+    const kolom=7+(bisaUbah?1:0);
+    h+='<div class="tbl-wrap"><table class="tbl papan-tbl"><thead><tr><th style="width:34px"></th><th>Item</th>'
+      +'<th style="width:74px">Timeline</th><th style="width:150px">PIC</th><th style="width:150px">Deadline</th>'
+      +'<th>Catatan</th><th style="width:180px">Progress</th>'+(bisaUbah?'<th style="width:80px"></th>':'')+'</tr></thead><tbody>';
+    subs.forEach(sb=>{
+      if(sb) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(sb)+'</td></tr>';
+      jobs.filter(j=>(j.sub||'')===sb).forEach(tpl=>{
+        const id=tpl.id, a="'"+e.id+"','"+D+"','"+id+"'";
+        const done=jobSelesai(e,D,id), pr2=jobProg(e,D,id);
+        h+='<tr class="papan-row'+(done?' is-done':'')+'">'
+          +'<td>'+(bisaUbah?'<button class="papan-cek'+(done?' on':'')+'" title="'+(done?'Tandai belum selesai':'Tandai selesai')+'" onclick="toggleJobSelesai('+a+')">'+(done?svg(IC.check):'')+'</button>':'<span class="papan-cek'+(done?' on':'')+'">'+(done?svg(IC.check):'')+'</span>')+'</td>'
+          +'<td>'+(bisaUbah?'<input class="inp jb-in" value="'+esc(tpl.task||'')+'" placeholder="Nama tugas…" onchange="setExtraJob('+a+',\'task\',this.value)">':'<span class="papan-nama">'+esc(tpl.task||'(tanpa nama)')+'</span>')+'</td>'
+          +'<td>'+(bisaUbah?'<input class="inp jb-in" type="number" min="0" step="5" list="xj_hm_opts" value="'+(tpl.hminus!=null?tpl.hminus:'')+'" placeholder="H-" onchange="setExtraJob('+a+',\'hminus\',this.value)">':'<span class="papan-tl">'+(tpl.hminus!=null?'H-'+tpl.hminus:'—')+'</span>')+'</td>'
+          +'<td>'+picSelectHTML(jobField(e,D,tpl,'pic'),'setExtraJob('+a+',&quot;pic&quot;,this.value)',bisaUbah)+'</td>'
+          +'<td><input class="inp jb-in" type="date" value="'+esc(jobField(e,D,tpl,'deadline'))+'" '+(bisaUbah?'onchange="setExtraJob('+a+',\'deadline\',this.value)"':'disabled')+'></td>'
+          +'<td><input class="inp jb-in" placeholder="Catatan…" value="'+esc(jobField(e,D,tpl,'note'))+'" '+(bisaUbah?'onchange="setExtraJob('+a+',\'note\',this.value)"':'disabled')+'></td>'
+          +'<td><div class="papan-prog">'+(bisaUbah?'<input type="range" class="rng" min="0" max="100" value="'+pr2+'" data-lbl="pb_'+id+'" oninput="rngFill(this)" onchange="setJobProg('+a+',this.value);refreshView()">':'<div class="progress" style="flex:1"><div class="bar" style="width:'+pr2+'%"></div></div>')+'<span class="cell-sub num" id="pb_'+id+'">'+pr2+'%</span></div></td>'
+          +(bisaUbah?'<td><div class="pill-row" style="flex-wrap:nowrap"><button class="btn sm" title="Ingatkan PIC via WhatsApp" onclick="remindWA('+a+')">'+svg(IC.wa)+'</button><button class="btn sm" title="Hapus tugas" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button></div></td>':'')
+          +'</tr>';
+      });
+    });
+    h+='</tbody></table></div>';
+  } else {
+    h+='<div class="cell-sub papan-kosong">Belum ada tugas. Tambahkan di bawah.</div>';
+  }
+  if(bisaUbah) h+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+    +'<input class="inp" id="fb_sub" placeholder="Sub kategori (mis. Persiapan, Hari-H)…" style="max-width:280px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addFreeTask(\''+e.id+'\');}">'
+    +'<button class="btn sm" onclick="addFreeTask(\''+e.id+'\')">'+svg(IC.plus)+'Tambah tugas</button></div>';
+  return h+'</div>';
+}
 function taskBoard(e,cats,subFilter){
   const bisaUbah=can('edit_task');
   const c=eventItemCount(e);
-  if(!cats.length) return '<div class="card">'+empty('Format F&B belum dipilih',
-    'Daftar to-do event mengikuti Format F&B-nya. Isi field Format F&B di tab Kitchen pada form event, lalu papan ini akan terisi standar to-do untuk format itu.','task')+'</div>';
+  if(!cats.length) return freeBoard(e);
   let h='<div class="card papan-total">'
     +'<div class="papan-total-l"><div class="eyebrow">Progres Keseluruhan</div>'
       +'<div class="progress" style="margin-top:8px"><div class="bar" style="width:'+c.pct+'%"></div></div></div>'
@@ -5265,7 +5316,7 @@ function taskBoard(e,cats,subFilter){
         +'<th style="width:34px"></th><th>Item</th><th style="width:74px">Timeline</th>'
         +'<th style="width:150px">PIC</th><th style="width:150px">Deadline</th>'
         +'<th>Catatan</th><th style="width:180px">Progress</th>'
-        +(bisaUbah?'<th style="width:34px"></th>':'')+'</tr></thead><tbody>';
+        +(bisaUbah?'<th style="width:80px"></th>':'')+'</tr></thead><tbody>';
       /* Baris judul sub kategori disisipkan di TENGAH tabel, bukan dibuat tabel
          terpisah per kelompok: kolom PIC/Deadline/Progress harus tetap lurus
          dari atas ke bawah.
@@ -5327,9 +5378,10 @@ function taskBoard(e,cats,subFilter){
                 ? '<input type="range" class="rng" min="0" max="100" value="'+pr2+'" data-lbl="pb_'+id+'" oninput="rngFill(this)" onchange="setJobProg('+a+',this.value);refreshView()">'
                 : '<div class="progress" style="flex:1"><div class="bar" style="width:'+pr2+'%"></div></div>')
               +'<span class="cell-sub num" id="pb_'+id+'">'+pr2+'%</span></div></td>'
-          +(bisaUbah?'<td>'+(tpl.extra
-              ? '<button class="btn sm" title="Hapus item tambahan" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button>'
-              : '')+'</td>':'')
+          +(bisaUbah?'<td><div class="pill-row" style="flex-wrap:nowrap">'
+              +'<button class="btn sm" title="Ingatkan PIC via WhatsApp" onclick="remindWA('+a+')">'+svg(IC.wa)+'</button>'
+              +(tpl.extra?'<button class="btn sm" title="Hapus item tambahan" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button>':'')
+              +'</div></td>':'')
           +'</tr>';
       });
       h+='</tbody></table></div>';
@@ -6306,6 +6358,38 @@ function picSelectHTML(terpilih, onchangeJS, bisaUbah){
   return '<select class="inp jb-in" '+(bisaUbah?'onchange="'+onchangeJS+'"':'disabled')+'>'+o+'</select>';
 }
 function staffList(){ return (S.staff||[]).filter(x=>x.active!==false).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); }
+/* No. HP seorang PIC dari Data Pegawai (dicocokkan by NAMA, tanpa peduli
+   besar-kecil). Kosong kalau pegawainya belum punya nomor — data dari Office
+   TIDAK membawa nomor (tabel akun tak punya kolom HP), jadi nomor diisi manual
+   di Data Pegawai. */
+function staffHp(nama){
+  if(!nama) return '';
+  const s=(S.staff||[]).find(x=>String(x.name).toLowerCase()===String(nama).toLowerCase());
+  return s?(s.hp||''):'';
+}
+/* Reminder tugas via WhatsApp ke PIC yang di-assign pada item itu. Nomor
+   diambil dari Data Pegawai; template pesannya berisi tugas, kategori,
+   deadline, dan info event. */
+function remindWA(eid,div,taskId){
+  const e=S.events.find(x=>x.id===eid); if(!e) return;
+  const t=eventDivTemplates(e,div).find(x=>x.id===taskId); if(!t) return toast('Item tidak ditemukan','','err');
+  const pic=jobField(e,div,t,'pic');
+  if(!pic) return toast('Belum ada PIC','Assign PIC dulu di item ini sebelum kirim reminder.','err');
+  const hp=staffHp(pic);
+  if(!hp) return toast('Nomor PIC belum ada','Isi No. HP "'+pic+'" di Data Pegawai dulu.','err');
+  const dl=jobField(e,div,t,'deadline');
+  const kapan=dl?('Deadline: '+fmtDate(dl)):(t.hminus!=null?('Deadline: H-'+t.hminus):'Deadline: secepatnya');
+  const area=(e.detail&&(e.detail.area==='Lainnya'?e.detail.areaLain:e.detail.area))||'';
+  const msg='*Reminder Tugas — '+(e.nama||'Event')+'*\n'
+    +'Halo '+pic+', ada tugas untukmu:\n\n'
+    +'• Tugas: '+(t.task||'(tanpa nama)')+'\n'
+    +((t.sub||div!==FREE_DIV)?('• Kategori: '+(div===FREE_DIV?(t.sub||'Tugas bebas'):(div+(t.sub?' · '+t.sub:'')))+'\n'):'')
+    +'• '+kapan+'\n'
+    +'• Event: '+(e.nama||'')+' ('+fmtDate(e.tanggal)+(area?' · '+area:'')+')\n'
+    +(jobField(e,div,t,'note')?('• Catatan: '+jobField(e,div,t,'note')+'\n'):'')
+    +'\nMohon diselesaikan ya. Terima kasih 🙏';
+  window.open(waLink(hp,msg),'_blank');
+}
 // datalist global: dipakai semua field PIC (dropdown + tetap boleh ketik bebas)
 function paintStaffDatalist(){
   const dl=$('dl_staff'); if(!dl)return;
