@@ -135,6 +135,72 @@ function save_receipt($payload) {
   // name = nama asli untuk ditampilkan; url dibangun frontend dari key.
   return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
 }
+
+/* ==================== UNGGAH BERTAHAP (CHUNK) ====================
+   save_receipt() mengirim seluruh berkas dalam SATU permintaan. Untuk berkas
+   besar itu tidak bisa diandalkan di shared hosting: base64 membengkakkan
+   ukuran ~33%, lalu `post_max_size` (bawaan 8M) membuang seluruh body sebelum
+   PHP sempat jalan — dan batas itu tidak bisa diubah dari kode. Sebagian host
+   juga menolak POST besar di level web server (413) sebelum PHP tersentuh.
+
+   Jalan keluarnya bukan menaikkan batas, tapi TIDAK PERNAH MENYENTUHNYA:
+   berkas dipotong ~2MB per permintaan lalu disambung di sini. Tiap potongan
+   di-base64 sendiri-sendiri, jadi tidak ada masalah batas antar-potongan.
+   Dengan begitu unggahan 40MB tetap jalan di server ber-post_max_size 8M. */
+function receipt_tmp_dir() { return receipt_dir() . '/receipts_tmp'; }
+function receipt_tmp_path($uploadId) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$uploadId);
+  if ($safe === '' || strlen($safe) > 80) throw new Exception('uploadId tidak sah');
+  return receipt_tmp_dir() . '/up_' . $safe . '.part';
+}
+// Buang potongan menggantung (unggahan yang ditinggal di tengah jalan).
+function receipt_tmp_bersihkan() {
+  $dir = receipt_tmp_dir();
+  if (!is_dir($dir)) return;
+  foreach (glob($dir . '/up_*.part') as $p)
+    if (filemtime($p) < time() - 86400) @unlink($p);
+}
+function save_receipt_chunk($payload) {
+  if (!$payload || !isset($payload['uploadId'])) throw new Exception('uploadId kosong');
+  receipt_pastikan_folder();
+  if (!is_dir(receipt_tmp_dir())) @mkdir(receipt_tmp_dir(), 0775, true);
+  $path  = receipt_tmp_path($payload['uploadId']);
+  $seq   = isset($payload['seq']) ? (int)$payload['seq'] : 0;
+  $last  = !empty($payload['last']);
+
+  if ($seq === 0) @unlink($path);            // potongan pertama = mulai dari nol
+  elseif (!file_exists($path)) throw new Exception('potongan awal hilang — ulangi unggahan');
+
+  if (isset($payload['dataBase64']) && $payload['dataBase64'] !== '') {
+    $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
+    if ($bin === false) throw new Exception('base64 tidak valid');
+    /* clearstatcache WAJIB: filesize() dilayani dari stat cache PHP, dan tiap
+       potongan datang sebagai permintaan yang berbeda ke berkas yang sama.
+       Tanpa ini ukuran yang terbaca tertinggal satu potongan — penjaga 40MB
+       jadi longgar dan angka kemajuan yang dibalas ke frontend meleset. */
+    clearstatcache(true, $path);
+    // Batas diperiksa saat menyambung, bukan cuma di akhir, supaya kiriman
+    // yang kebablasan berhenti lebih awal dan tidak menghabiskan disk.
+    if ((file_exists($path) ? filesize($path) : 0) + strlen($bin) > 40 * 1024 * 1024) {
+      @unlink($path);
+      throw new Exception('file melebihi 40MB');
+    }
+    if (file_put_contents($path, $bin, FILE_APPEND) === false)
+      throw new Exception('gagal menulis potongan (cek izin folder)');
+    clearstatcache(true, $path);
+  }
+  if (!$last) return array('ok' => true, 'seq' => $seq, 'bytes' => (int)@filesize($path));
+
+  $ext = receipt_ext(isset($payload['mimeType']) ? $payload['mimeType'] : '',
+                     isset($payload['fileName']) ? $payload['fileName'] : '');
+  $key = 'rc_' . bin2hex(random_bytes(8)) . '.' . $ext;
+  if (!@rename($path, receipt_path($key))) {
+    @unlink($path);
+    throw new Exception('gagal menyimpan berkas gabungan');
+  }
+  receipt_tmp_bersihkan();
+  return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
+}
 /* Kumpulkan semua key berkas yang MASIH dipakai, dibaca dari DATABASE.
    Sengaja TIDAK dari payload kiriman: save_all mendukung kiriman parsial
    (koleksi yang tidak dikirim dilewati), jadi kalau GC memakai payload, satu

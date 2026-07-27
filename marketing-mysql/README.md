@@ -52,21 +52,33 @@ yang mengedit event BERBEDA dulu saling ditolak; sekarang keduanya tersimpan.
 ## Batas unggahan berkas
 
 Surat Penawaran boleh sampai **40MB** (lampiran event & bukti transfer tetap
-8MB, dijaga di frontend). Berkas dikirim sebagai base64 di dalam JSON, dan
-base64 membengkakkan ukuran ~33% — 40MB berkas = **~54MB body permintaan**.
+8MB, dijaga di frontend).
 
-Karena itu `post_max_size` server harus ≥ 64M. Nilainya ada di **`.user.ini`**
-di folder ini dan hanya berlaku kalau PHP jalan sebagai CGI/FastCGI/FPM
-(mayoritas shared hosting, termasuk Rumahweb). `post_max_size` **tidak bisa**
-diubah dari kode: kalau body melewati batas, PHP membuangnya sebelum `api.php`
-sempat jalan. Untuk memberi pesan yang jujur saat itu terjadi, `api.php`
-mendeteksi body kosong padahal `Content-Length` terisi dan membalas
-"melewati post_max_size" — bukan error menyesatkan seperti "file kosong".
+**Unggahannya BERTAHAP** (`action=uploadChunk`): frontend memotong berkas jadi
+~2MB per permintaan dan `save_receipt_chunk()` menyambungnya di server. Ini
+bukan sekadar kerapian — mengirim berkas besar sekaligus tidak bisa diandalkan
+di shared hosting:
 
-Kalau server memakai **mod_php**, `.user.ini` diabaikan; setel lewat `php.ini`
-atau `.htaccess` (`php_value post_max_size 64M`, dst). Cara memastikan nilainya
-sudah aktif: buka `api.php?action=ping`, lalu coba unggah berkas besar — kalau
-gagal, pesannya akan menyebut `post_max_size` yang sedang berlaku.
+* base64 membengkakkan ukuran ~33%, jadi 40MB berkas = ~54MB body;
+* `post_max_size` bawaan PHP cuma 8M, dan begitu body melewatinya PHP
+  **membuang seluruh isinya sebelum `api.php` sempat jalan** — batas yang
+  tidak bisa diubah dari kode karena bertipe `PHP_INI_PERDIR`;
+* sebagian host juga menolak POST besar di level web server (HTTP 413),
+  bahkan sebelum PHP tersentuh.
+
+Dengan dipotong, tiap permintaan hanya ~2,7MB sehingga **tetap jalan walau
+konfigurasi server tidak pernah diubah**. `.user.ini` di folder ini menaikkan
+`post_max_size`/`memory_limit` sebagai cadangan (dan mempercepat unggahan
+lewat jalur satu-tembak `uploadReceipt` yang masih dipakai lampiran lain), tapi
+sudah **tidak wajib** untuk Surat Penawaran. Kalau server memakai mod_php,
+`.user.ini` memang diabaikan — dan itu tidak lagi jadi masalah.
+
+Potongan sementara ditulis ke `receipts_tmp/` dan dihapus begitu berkas
+tersambung; unggahan yang ditinggal di tengah jalan dibersihkan setelah 24 jam.
+Folder itu di luar jangkauan GC lampiran, jadi tidak saling mengganggu.
+
+Kalau unggahan masih gagal, pesan galat di aplikasi sekarang menyebut sebabnya
+apa adanya — status HTTP dan cuplikan balasan server, bukan "Unexpected token".
 
 ## Yang sudah diuji
 

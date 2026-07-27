@@ -4580,14 +4580,11 @@ async function simpanPenawaran(id){
        punya batas yang sama di save_receipt(); post_max_size PHP juga harus
        ≥ 60M (base64 membengkakkan ~33%), lihat marketing-mysql/.user.ini. */
     if(file.size>MAKS_PDF_PENAWARAN)return toast('File terlalu besar','Berkas PDF maksimal '+(MAKS_PDF_PENAWARAN/1048576)+'MB — punyamu '+(file.size/1048576).toFixed(1)+'MB.','err');
-    if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF...'; }
+    if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF… 0%'; }
     try{
-      const b64=await fileToBase64(file);
-      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type||'application/pdf',dataBase64:b64})});
-      const d=await res.json();
-      if(!d||!d.ok)throw new Error((d&&d.error)||'ditolak server');
-      p.file={key:d.data.key,name:file.name,size:file.size,at:new Date().toISOString(),by:(ME&&ME.name)||''};
+      // Bertahap: berkas puluhan MB tidak akan lolos kalau dikirim sekaligus.
+      const d=await unggahBertahap(file,pct=>{ if(btn) btn.textContent='Mengunggah PDF… '+pct+'%'; });
+      p.file={key:d.key,name:file.name,size:file.size,at:new Date().toISOString(),by:(ME&&ME.name)||''};
     }catch(e){
       if(btn){ btn.disabled=false; btn.textContent='Simpan'; }
       return toast('Gagal unggah','Berkas PDF tidak berhasil diunggah: '+e.message,'err');
@@ -4819,6 +4816,44 @@ function fileToBase64(file){
     r.onerror=()=>reject(new Error('read_failed'));
     r.readAsDataURL(file);
   });
+}
+/* Kegagalan unggah dulu muncul sebagai pesan yang menyesatkan: kalau server
+   membalas HTML (413 dari web server, halaman error hosting, dsb), res.json()
+   melempar "Unexpected token '<'" — dan orang mencari-cari kesalahan di
+   berkasnya, padahal masalahnya di server. Di sini badan balasan dibaca
+   sebagai teks dulu, jadi status HTTP & isi balasannya ikut terbaca. */
+async function kirimApi(payload){
+  const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(payload)});
+  const teks=await res.text();
+  let d=null; try{ d=JSON.parse(teks); }catch(e){}
+  if(!d){
+    if(res.status===413) throw new Error('server menolak kiriman karena terlalu besar (HTTP 413)');
+    throw new Error('server membalas bukan JSON (HTTP '+res.status+'): '+teks.slice(0,120).replace(/\s+/g,' '));
+  }
+  if(!d.ok) throw new Error(d.error||'ditolak server');
+  return d.data;
+}
+/* Unggah BERTAHAP — potongan ~2MB per permintaan.
+   Alasannya bukan kerapian: mengirim berkas besar dalam satu POST tidak bisa
+   diandalkan di shared hosting. Base64 membengkakkan ukuran ~33%, lalu
+   post_max_size PHP (bawaan 8M) MEMBUANG seluruh body sebelum PHP jalan —
+   batas yang tidak bisa diubah dari kode aplikasi. Dengan dipotong, unggahan
+   40MB tetap jalan walau batas server tidak pernah dinaikkan. */
+const CHUNK_UNGGAH=2*1024*1024;
+async function unggahBertahap(file,onProgress){
+  const uploadId=uid('up')+'-'+Date.now().toString(36);
+  const total=Math.max(1,Math.ceil(file.size/CHUNK_UNGGAH));
+  let hasil=null;
+  for(let i=0;i<total;i++){
+    const potong=file.slice(i*CHUNK_UNGGAH,(i+1)*CHUNK_UNGGAH);
+    const b64=await fileToBase64(potong);
+    hasil=await kirimApi({action:'uploadChunk',uploadId,seq:i,last:(i===total-1),
+      dataBase64:b64,fileName:file.name,mimeType:file.type||'application/octet-stream'});
+    if(onProgress) onProgress(Math.round((i+1)/total*100));
+  }
+  if(!hasil||!hasil.key) throw new Error('server tidak mengembalikan key berkas');
+  return hasil;
 }
 async function savePayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id);

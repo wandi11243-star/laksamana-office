@@ -79,6 +79,12 @@ try {
     $out = save_receipt($body);
     keluar(array('ok' => true, 'data' => $out));
 
+  } else if ($action === 'uploadChunk') {
+    // Unggah bertahap: berkas besar dipotong ~2MB per permintaan supaya tidak
+    // pernah menyentuh post_max_size. Lihat save_receipt_chunk().
+    $out = save_receipt_chunk($body);
+    keluar(array('ok' => true, 'data' => $out));
+
   } else if ($action === 'saveAll') {
     $lock = db_lock();
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
