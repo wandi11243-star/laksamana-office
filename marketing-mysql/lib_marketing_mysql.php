@@ -28,7 +28,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-23');
+define('LIB_VERSI', '2026-07-27');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -41,11 +41,19 @@ define('LIB_VERSI', '2026-07-23');
    ENV_LABEL sengaja tidak diwajibkan: config.php lama (yang belum punya
    baris itu) tetap jalan, dan nilainya muncul sebagai '?' — itu sendiri
    sudah memberi tahu bahwa config di server masih versi lama. */
+/* `aksi` = daftar action yang DIDUKUNG backend ini. Ada gunanya yang konkret:
+   frontend bisa lebih baru daripada backend yang ter-upload di hosting, dan
+   gejalanya muncul jauh dari sebabnya — "Aksi tidak dikenal: uploadChunk" saat
+   mengunggah, padahal yang salah adalah paket API-nya belum diperbarui.
+   Dengan ini, ?action=ping langsung memberi tahu versi mana yang sedang hidup
+   tanpa perlu menebak dari gejala. */
 function identitas() {
   return array(
     'env'   => defined('ENV_LABEL') ? ENV_LABEL : '?',
     'db'    => DB_NAME,
     'versi' => LIB_VERSI,
+    'aksi'  => array('getAll','stats','ping','receipt','uploadReceipt','uploadChunk','saveAll'),
+    'maksUnggahMB' => 40,
   );
 }
 
