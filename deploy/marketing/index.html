@@ -3999,6 +3999,49 @@ function delAttach(evId,k,key){
   save(); repaintAttach(evId,k);
   toast('Lampiran dihapus','','ok');
 }
+/* ---------- Galeri Venue (untuk Surat Penawaran) ----------
+   Foto venue tetap (full house, panggung, suasana malam, penyesuaian layout)
+   yang tampil di SETIAP Surat Penawaran. Diupload sekali di Pengaturan,
+   disimpan di S.settings.venueGallery, dan ikut tersimpan ke server. */
+function venueGallery(){ return Array.isArray(S.settings.venueGallery)?S.settings.venueGallery:[]; }
+function venueGalleryHTML(canEdit){
+  const arr=venueGallery();
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Surat Penawaran.</div>';
+  return '<div class="att-imgs">'+arr.map(f=>'<figure class="att-img">'
+    +'<a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'venue')+'" loading="lazy" onerror="gambarHilang(this)"></a>'
+    +'<figcaption>'+esc(f.name||f.key)+'</figcaption>'
+    +(canEdit?'<button type="button" class="att-img-del" title="Hapus foto" onclick="delVenueFoto(\''+esc(f.key)+'\')">×</button>':'')
+    +'</figure>').join('')+'</div>';
+}
+async function uploadVenueFoto(inputEl){
+  const files=[...(inputEl.files||[])]; if(!files.length)return;
+  S.settings.venueGallery=venueGallery();
+  let ok=0;
+  for(const f of files){
+    if(!fotoKah(f)){ toast('Harus gambar',esc(f.name)+' bukan file gambar.','err'); continue; }
+    if(f.size>8*1024*1024){ toast('File terlalu besar',esc(f.name)+' lebih dari 8MB.','err'); continue; }
+    try{
+      const b64=await fileToBase64(f);
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'uploadReceipt',fileName:f.name,mimeType:f.type,dataBase64:b64})});
+      const d=await res.json();
+      if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
+      S.settings.venueGallery.push({key:d.data.key,name:f.name,size:f.size,at:new Date().toISOString(),by:(ME&&ME.name)||''});
+      ok++;
+    }catch(e){ toast('Gagal unggah',esc(f.name)+': '+e.message,'err'); }
+  }
+  inputEl.value='';
+  if(!ok)return;
+  save(); const box=$('venueGalWrap'); if(box) box.innerHTML=venueGalleryHTML(true);
+  toast('Foto venue tersimpan',ok+' foto ditambahkan ke galeri penawaran.','ok');
+}
+function delVenueFoto(key){
+  const arr=venueGallery(); const f=arr.find(x=>x.key===key);
+  if(!confirm('Hapus foto "'+((f&&f.name)||key)+'" dari galeri venue?'))return;
+  S.settings.venueGallery=arr.filter(x=>x.key!==key);
+  save(); const box=$('venueGalWrap'); if(box) box.innerHTML=venueGalleryHTML(true);
+  toast('Foto dihapus','','ok');
+}
 /* Textarea yang ikut tinggi isinya. Sebelumnya tingginya dikunci 38px, jadi
    menekan Enter membuat teksnya menggulir di balik kotak sempit — orang jadi
    tidak bisa melihat catatan yang baru saja diketiknya sendiri.
@@ -5167,6 +5210,9 @@ function buildBriefDoc(id,mode){
     const galeri=(Array.isArray(ev.detail.layoutImgs)?ev.detail.layoutImgs:[]).concat(Array.isArray(ev.detail.areaImgs)?ev.detail.areaImgs:[]);
     const galeriHtml=galeri.length?pdfGambar(galeri):'';
     if(galeriHtml) body+='<div style="margin-top:16px"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px">Layout &amp; Suasana Venue</div>'+galeriHtml+'</div>';
+    // Galeri venue tetap (dari Pengaturan) — tampil di semua penawaran.
+    const vg=venueGallery();
+    if(vg.length) body+='<div style="margin-top:16px"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px">Galeri Venue — Laksamana Muda</div>'+pdfGambar(vg)+'</div>';
     // Syarat & Ketentuan — pakai yang diisi di form Penawaran bila ada.
     const terms=(pen.terms&&pen.terms.trim())?pen.terms:('DP minimum '+f.dpPct+'% ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.\nPelunasan maksimal H-7 sebelum acara.\nPenambahan hari-H dilunasi hari yang sama.');
     body+='<div style="margin-top:16px;font-size:12px;color:#444;line-height:1.75"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px;color:#1a1a1a">Syarat &amp; Ketentuan</div><div style="white-space:pre-wrap">'+esc(terms)+'</div></div>';
@@ -7362,6 +7408,11 @@ function renderSettings(V){
   const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','Sumber baseline/uplift','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
   h+='<div style="display:flex;flex-direction:column;gap:7px">'+points.map((p,i)=>'<div style="display:flex;gap:9px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span class="tag">'+(i+1)+'</span>'+esc(p)+'</div>').join('')+'</div>';
   h+='</div>';
+  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Surat Penawaran)</span></h3>'
+   +'<p class="section-desc">Foto venue yang tampil di <b>setiap</b> Surat Penawaran — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Upload sekali, dipakai di semua penawaran. Maks 8MB/foto.</p>'
+   +'<div id="venueGalWrap">'+venueGalleryHTML(true)+'</div>'
+   +'<label class="attach-add" style="margin-top:10px">'+svg(IC.plus)+'Tambah Foto Venue<input type="file" accept="image/*" multiple hidden onchange="uploadVenueFoto(this)"></label>'
+   +'</div>';
   h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:10px">Data</h3><button class="btn danger" onclick="resetData()">'+svg(IC.trash)+'Reset ke Data Contoh</button></div>';
   h+='</div></div>';
   V.innerHTML=h;
