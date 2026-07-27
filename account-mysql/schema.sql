@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `pin`        VARCHAR(32)  NOT NULL DEFAULT '1111',
   `active`     TINYINT(1)   NOT NULL DEFAULT 1,
   `keterangan` VARCHAR(255) NOT NULL DEFAULT '',
+  `no_hp`      VARCHAR(32)  NOT NULL DEFAULT '',
   `talenta_id` VARCHAR(32)  NOT NULL DEFAULT '',
   `username`   VARCHAR(40)  NOT NULL DEFAULT '',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -56,6 +57,12 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- ---------------------------------------------------------------------
 -- ALTER TABLE `users` ADD COLUMN `talenta_id` VARCHAR(32) NOT NULL DEFAULT '' AFTER `keterangan`;
 -- ALTER TABLE `users` ADD KEY `idx_users_talenta` (`talenta_id`);
+
+-- no_hp — nomor HP/WhatsApp kru, untuk template reminder WA di modul lain.
+-- Database yang terlanjur ada akan mendapatkannya OTOMATIS: lib membuat kolom
+-- ini saat koneksi pertama (pastikan_kolom_no_hp), jadi ALTER manual di bawah
+-- hanya cadangan bila auto-migrasi tak berjalan.
+-- ALTER TABLE `users` ADD COLUMN `no_hp` VARCHAR(32) NOT NULL DEFAULT '' AFTER `keterangan`;
 
 -- ---------------------------------------------------------------------
 -- username — nama pendek untuk LOGIN, dipilih sendiri oleh kru.
