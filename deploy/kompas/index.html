@@ -126,7 +126,10 @@ input,select,textarea{font-family:inherit}
 .topbar .sub{font-size:13px;color:var(--muted);margin-top:3px}
 .month-pick{display:flex;align-items:center;gap:10px}
 .month-pick input{padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink)}
-.sync{font-size:11.5px;font-weight:600;color:var(--muted-2)}
+/* Pesan galat simpan sekarang membawa sebab asli dari server (bisa sepanjang
+   "SQLSTATE[HY000] [1044] Access denied..."), jadi span-nya harus boleh
+   membungkus dan memotong kata panjang, bukan melebarkan header. */
+.sync{font-size:11.5px;font-weight:600;color:var(--muted-2);display:inline-block;max-width:340px;line-height:1.45;text-align:right;overflow-wrap:anywhere}
 .sync.ok{color:var(--ok)} .sync.err{color:var(--danger)} .sync.saving{color:var(--warn)}
 .view{max-width:1180px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:18px}
@@ -410,7 +413,7 @@ function purgeSeedKasir(d){
 let DB=null;
 
 /* ---- lapisan API ---- */
-let SAVE_TIMER=null, SAVING=false, DIRTY=false;
+let SAVE_TIMER=null, SAVING=false, DIRTY=false, RETRY_TIMER=null, RETRY_KE=0;
 function setSync(st,msg){
   const el=document.getElementById('syncBox'); if(!el) return;
   el.className='sync'+(st==='err'?' err':st==='ok'?' ok':st==='saving'?' saving':'');
@@ -439,17 +442,36 @@ function save(){
   try{ localStorage.setItem(CACHE_KEY,JSON.stringify(DB)); }catch(e){}
   setSync('saving');
   clearTimeout(SAVE_TIMER);
+  clearTimeout(RETRY_TIMER);   // suntingan baru sudah menjadwalkan kirim sendiri
   SAVE_TIMER=setTimeout(kirim,1000);
+}
+/* Percobaan ulang kalau simpan gagal. Sebelumnya retry dijaga `if(DIRTY)`,
+   padahal DIRTY baru saja di-set false di awal kirim() — jadi syaratnya tidak
+   pernah benar dan "mencoba lagi…" itu bohong: datanya diam di localStorage
+   sampai ada suntingan berikutnya. Sekarang dijadwalkan tanpa syarat, dengan
+   jeda menanjak supaya server yang sedang bermasalah tidak dihujani. */
+const RETRY_JEDA=[5000,10000,20000,40000,60000];
+function jadwalkanUlang(){
+  clearTimeout(RETRY_TIMER);
+  const jeda=RETRY_JEDA[Math.min(RETRY_KE,RETRY_JEDA.length-1)];
+  RETRY_KE++;
+  RETRY_TIMER=setTimeout(kirim,jeda);
+  return jeda;
 }
 function kirim(){
   if(SAVING){ SAVE_TIMER=setTimeout(kirim,700); return; }
   SAVING=true; DIRTY=false;
   apiSave(DB).then(()=>{
-    SAVING=false; setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
+    SAVING=false; RETRY_KE=0; clearTimeout(RETRY_TIMER);
+    setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
   },err=>{
     SAVING=false;
-    setSync('err','Gagal simpan — tersimpan lokal, mencoba lagi…');
-    setTimeout(()=>{ if(DIRTY) kirim(); },6000);
+    /* Sebab aslinya WAJIB ikut tampil. Pesan generik bikin galat konfigurasi
+       (mis. MySQL 1044 "Access denied ... to database") tidak bisa dibedakan
+       dari jaringan putus, dan itu memakan waktu diagnosa yang tidak perlu. */
+    const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
+    const detik=Math.round(jadwalkanUlang()/1000);
+    setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
   });
 }
 
