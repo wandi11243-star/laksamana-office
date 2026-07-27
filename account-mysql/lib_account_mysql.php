@@ -38,7 +38,22 @@ function db() {
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     PDO::ATTR_EMULATE_PREPARES   => false,
   ));
+  pastikan_kolom_no_hp($pdo);
   return $pdo;
+}
+/* No HP ditambahkan belakangan. Database yang terlanjur dibuat tanpa kolom ini
+   akan menabrak setiap SELECT yang menyebut no_hp. Daripada menyuruh admin
+   menjalankan ALTER manual (butuh akses DB langsung yang tak selalu ada),
+   kolomnya dibuat OTOMATIS saat koneksi pertama — cek information_schema dulu,
+   ALTER hanya kalau memang belum ada. Sekali jadi, cek berikutnya nihil biaya. */
+function pastikan_kolom_no_hp($pdo) {
+  try {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = \'users\' AND COLUMN_NAME = \'no_hp\'');
+    $st->execute();
+    if ((int)$st->fetchColumn() === 0)
+      $pdo->exec('ALTER TABLE `users` ADD COLUMN `no_hp` VARCHAR(32) NOT NULL DEFAULT \'\' AFTER `keterangan`');
+  } catch (Exception $e) { /* hak DDL tidak ada / balapan antar-request: abaikan, biar SELECT yang menegur */ }
 }
 function q($sql, $args = array()) { $st = db()->prepare($sql); $st->execute($args); return $st; }
 function s($v) { return trim((string)$v); }
@@ -49,12 +64,12 @@ function s($v) { return trim((string)$v); }
    Script, yang membuang baris Sheet setengah kosong supaya tidak muncul
    sebagai user hantu "?" di daftar. */
 function semua_user() {
-  return q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users`
+  return q('SELECT id, name, pin, active, keterangan, no_hp, talenta_id, username FROM `users`
             WHERE TRIM(id) <> \'\' AND TRIM(name) <> \'\'
             ORDER BY name ASC')->fetchAll();
 }
 function user_by_id($id) {
-  $r = q('SELECT id, name, pin, active, keterangan, talenta_id, username FROM `users` WHERE id = :i LIMIT 1',
+  $r = q('SELECT id, name, pin, active, keterangan, no_hp, talenta_id, username FROM `users` WHERE id = :i LIMIT 1',
          array(':i' => s($id)))->fetch();
   return $r ?: null;
 }
@@ -387,6 +402,7 @@ function aksi_list_users($body) {
       'pin'          => s($u['pin']),
       'active'       => ((int)$u['active'] === 1),
       'keterangan'   => s($u['keterangan']),
+      'noHp'         => s($u['no_hp']),
       'talentaId'    => s($u['talenta_id']),
       'username'     => s($u['username']),
       'modules'      => modul_untuk($u['id']),        // hasil perluasan '*' + deny
@@ -407,6 +423,7 @@ function aksi_simpan_user($body) {
   $pin  = s(isset($body['pin']) ? $body['pin'] : '');
   if ($pin === '') $pin = '1111';
   $ket    = s(isset($body['keterangan']) ? $body['keterangan'] : '');
+  $hp     = s(isset($body['noHp']) ? $body['noHp'] : '');
   $tid    = s(isset($body['talentaId']) ? $body['talentaId'] : '');
   $active = (isset($body['active']) && $body['active'] === false) ? 0 : 1;
   if ($name === '') return array('ok' => false, 'error' => 'missing_fields');
@@ -447,13 +464,13 @@ function aksi_simpan_user($body) {
         // Username tidak boleh sama dengan nama resmi orang ITU SENDIRI di
         // baris yang sama — itu bukan bentrok, tapi juga tidak ada gunanya.
       }
-      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k,
+      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, no_hp = :h,
                  talenta_id = :t, username = :u WHERE id = :i',
-              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket,
+              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp,
                     ':t' => $tid, ':u' => $un, ':i' => $editId));
     } else {
-      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, talenta_id = :t WHERE id = :i',
-              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid, ':i' => $editId));
+      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, no_hp = :h, talenta_id = :t WHERE id = :i',
+              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp, ':t' => $tid, ':i' => $editId));
     }
     // rowCount 0 kalau tidak ada yang berubah, jadi keberadaannya dicek sendiri.
     if ($st->rowCount() === 0 && !user_by_id($editId))
@@ -466,8 +483,8 @@ function aksi_simpan_user($body) {
   if ($base === 'u-') $base = 'u-user';
   $id = $base; $n = 2;
   while (user_by_id($id)) { $id = $base . $n; $n++; }
-  q('INSERT INTO `users` (id, name, pin, active, keterangan, talenta_id) VALUES (:i, :n, :p, :a, :k, :t)',
-    array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':t' => $tid));
+  q('INSERT INTO `users` (id, name, pin, active, keterangan, no_hp, talenta_id) VALUES (:i, :n, :p, :a, :k, :h, :t)',
+    array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp, ':t' => $tid));
   return array('ok' => true, 'id' => $id);
 }
 
@@ -631,6 +648,7 @@ function aksi_list_divisi_roster($body) {
       'id'         => s($u['id']),
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
+      'noHp'       => s($u['no_hp']),
       'active'     => ((int)$u['active'] === 1),
     );
   }
@@ -648,6 +666,7 @@ function anggota_modul($module, $withAdminFlag) {
       'id'         => s($u['id']),
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
+      'noHp'       => s($u['no_hp']),
       'talentaId'  => s($u['talenta_id']),
       'username'   => s($u['username']),
       'active'     => ((int)$u['active'] === 1),
