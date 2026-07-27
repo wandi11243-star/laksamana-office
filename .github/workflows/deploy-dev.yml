@@ -184,6 +184,47 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # kompas-mysql sebelumnya TIDAK ada di workflow mana pun — hanya diunggah
+      # manual, dan itu terbukti bikin backend produksi tertinggal berbulan-bulan
+      # tanpa ketahuan (lihat catatan sepadan di deploy.yml).
+      - name: Deploy backend kompas-api-mysql
+        id: ftpkmp
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./kompas-mysql/
+          server-dir: /kompas-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend kompas-api-mysql (percobaan 2)
+        if: steps.ftpkmp.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./kompas-mysql/
+          server-dir: /kompas-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Verifikasi HARUS membuktikan file di server = file di repo.
       # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
       # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.
@@ -275,5 +316,39 @@ jobs:
             echo "GAGAL   usage.php balas HTTP $kode — kemungkinan galat PHP di lib_stock_catat.php"
             gagal=1
           fi
+
+          echo "--- kompas-api-mysql ---"
+          kmp=$(curl -s -m 60 "https://dev.laksamanamuda.id/kompas-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $kmp"
+          case "$kmp" in
+            *'"env":"dev"'*) echo "OK      env=dev" ;;
+            *) echo "GAGAL   env BUKAN dev — config.php salah atau API tidak terjangkau"; gagal=1 ;;
+          esac
+
+          # Penanda versi: penyimpan blob membalas {bytes,updated_at,ada};
+          # backend lama (multi-tabel) membalas {daily,targets,cashiers,...}.
+          kmps=$(curl -s -m 60 "https://dev.laksamanamuda.id/kompas-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
+          echo "stats: $(printf '%s' "$kmps" | head -c 300)"
+          case "$kmps" in
+            *'"ada"'*) echo "OK      stats berbentuk blob (versi baru mendarat)" ;;
+            *) echo "GAGAL   stats masih berbentuk multi-tabel — lib_kompas_mysql.php di server MASIH VERSI LAMA"; gagal=1 ;;
+          esac
+
+          # ping cuma baca konstanta config dan stats MENELAN galat DB
+          # (catch Throwable -> ada:false), jadi keduanya BUTA terhadap
+          # kredensial/grant yang salah. Itu persis yang terjadi 27 Juli 2026:
+          # modul kelihatan hidup, tapi setiap simpan ditolak MySQL 1044.
+          # saveAll TANPA field `data` memaksa jalur tulis dibuka — db_lock()
+          # menyentuh DB lebih dulu — lalu berhenti di validasi payload, jadi
+          # TIDAK ADA yang ditulis. "Payload kosong/invalid" = koneksi sehat.
+          probe=$(curl -s -m 60 -X POST "https://dev.laksamanamuda.id/kompas-api-mysql/api.php" \
+                    -H 'Content-Type: text/plain;charset=utf-8' \
+                    -d '{"action":"saveAll"}')
+          echo "probe tulis: $(printf '%s' "$probe" | head -c 300)"
+          case "$probe" in
+            *'Payload kosong'*) echo "OK      koneksi DB sehat, jalur simpan terbuka" ;;
+            *SQLSTATE*)         echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database kompas"; gagal=1 ;;
+            *)                  echo "GAGAL   probe menjawab tak terduga"; gagal=1 ;;
+          esac
 
           exit $gagal

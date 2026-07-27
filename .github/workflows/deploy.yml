@@ -204,6 +204,51 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # kompas-mysql sebelumnya TIDAK ada di workflow mana pun — hanya diunggah
+      # manual, dan akibatnya terbukti nyata: 27 Juli 2026 ketahuan backend
+      # produksi masih versi multi-tabel yang lama, padahal repo sudah lama
+      # pindah ke penyimpan blob JSON. Gejalanya menyesatkan — getAll tetap
+      # membalas ok:true (bentuk lama), jadi modul kelihatan hidup, tapi
+      # `employees` tidak pernah ada sehingga frontend jatuh ke seed dan
+      # memunculkan PIC contoh "Kasir 1/2/3".
+      - name: Deploy backend kompas-api-mysql
+        id: ftpkmp
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./kompas-mysql/
+          server-dir: /public_html/office/kompas-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend kompas-api-mysql (percobaan 2)
+        if: steps.ftpkmp.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./kompas-mysql/
+          server-dir: /public_html/office/kompas-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
       # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
       # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
@@ -321,17 +366,45 @@ jobs:
             *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
           esac
 
-          # ?action=ping cuma menyentuh config; stats menjalankan query ke SEMUA
-          # tabel lewat lib_kompas_mysql — jadi galat parse / skema hilang yang
+          # ?action=ping cuma menyentuh config; stats benar-benar menjalankan
+          # query lewat lib_kompas_mysql — jadi galat parse / skema hilang yang
           # lolos dari ping akan tertangkap di sini.
           kode=$(curl -s -m 60 -o /tmp/kmp.json -w '%{http_code}' \
                  "https://office.laksamanamuda.id/kompas-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
           echo "stats: HTTP $kode -> $(head -c 300 /tmp/kmp.json)"
           if [ "$kode" = "200" ]; then
-            echo "OK      stats jalan (lib_kompas_mysql termuat, semua tabel terbaca)"
+            echo "OK      stats jalan (lib_kompas_mysql termuat tanpa galat)"
           else
-            echo "GAGAL   stats balas HTTP $kode — kemungkinan galat PHP di lib_kompas_mysql.php / skema kurang"
+            echo "GAGAL   stats balas HTTP $kode — kemungkinan galat PHP di lib_kompas_mysql.php"
             gagal=1
           fi
+
+          # HTTP 200 saja TIDAK membuktikan versi barunya mendarat: backend lama
+          # (multi-tabel) juga membalas 200, cuma bentuknya {daily,targets,
+          # cashiers,pics,settings,log}. Justru itu yang lolos tanpa ketahuan
+          # sampai 27 Juli 2026. Penyimpan blob membalas {bytes,updated_at,ada},
+          # jadi kunci "ada" dipakai sebagai penanda versi — sepadan dengan
+          # probe whoami milik account.
+          case "$(cat /tmp/kmp.json)" in
+            *'"ada"'*) echo "OK      stats berbentuk blob (versi baru mendarat)" ;;
+            *) echo "GAGAL   stats masih berbentuk multi-tabel — lib_kompas_mysql.php di server MASIH VERSI LAMA"; gagal=1 ;;
+          esac
+
+          # ping cuma baca konstanta config dan stats MENELAN galat DB
+          # (catch Throwable -> ada:false), jadi keduanya BUTA terhadap
+          # kredensial/grant yang salah. Itu persis yang terjadi di dev 27 Juli
+          # 2026: modul kelihatan hidup, tapi setiap simpan ditolak MySQL 1044.
+          # saveAll TANPA field `data` memaksa jalur tulis dibuka — db_lock()
+          # menyentuh DB lebih dulu — lalu berhenti di validasi payload, jadi
+          # TIDAK ADA yang ditulis. "Payload kosong/invalid" = koneksi sehat.
+          probe=$(curl -s -m 60 -X POST "https://office.laksamanamuda.id/kompas-api-mysql/api.php" \
+                    -H 'Content-Type: text/plain;charset=utf-8' \
+                    -d '{"action":"saveAll"}')
+          echo "probe tulis: $(printf '%s' "$probe" | head -c 300)"
+          case "$probe" in
+            *'Payload kosong'*) echo "OK      koneksi DB sehat, jalur simpan terbuka" ;;
+            *SQLSTATE*)         echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database kompas"; gagal=1 ;;
+            *)                  echo "GAGAL   probe menjawab tak terduga"; gagal=1 ;;
+          esac
 
           exit $gagal

@@ -126,7 +126,10 @@ input,select,textarea{font-family:inherit}
 .topbar .sub{font-size:13px;color:var(--muted);margin-top:3px}
 .month-pick{display:flex;align-items:center;gap:10px}
 .month-pick input{padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink)}
-.sync{font-size:11.5px;font-weight:600;color:var(--muted-2)}
+/* Pesan galat simpan sekarang membawa sebab asli dari server (bisa sepanjang
+   "SQLSTATE[HY000] [1044] Access denied..."), jadi span-nya harus boleh
+   membungkus dan memotong kata panjang, bukan melebarkan header. */
+.sync{font-size:11.5px;font-weight:600;color:var(--muted-2);display:inline-block;max-width:340px;line-height:1.45;text-align:right;overflow-wrap:anywhere}
 .sync.ok{color:var(--ok)} .sync.err{color:var(--danger)} .sync.saving{color:var(--warn)}
 .view{max-width:1180px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:18px}
@@ -365,16 +368,14 @@ function bacaSesi(){
   }catch(e){ return null; }
 }
 
-/* Default awal — dipakai kalau server masih kosong. Daftar PIC boleh diubah di
-   Pengaturan Target; data omset harian mulai kosong. */
+/* Default awal — dipakai kalau server masih kosong. Daftar PIC SENGAJA kosong:
+   nama Marketing/Event/Kasir ditarik otomatis dari akun Office yang divisinya
+   sudah di-define (lihat syncPicOffice), bukan diisi contoh dari sini.
+   Data omset harian mulai kosong. */
 function seed(){
   return {
     settings:{ companyMonthlyTarget:300000000, useWorkingDays:false, workingDaysPerMonth:26 },
-    employees:{
-      marketing:[{id:'m1',name:'Devani',target:120000000},{id:'m2',name:'Aurel',target:80000000}],
-      event:[{id:'e1',name:'Hengki',target:70000000}],
-      kasir:[{id:'k1',name:'Kasir 1',target:60000000},{id:'k2',name:'Kasir 2',target:55000000},{id:'k3',name:'Kasir 3',target:50000000}]
-    },
+    employees:{ marketing:[], event:[], kasir:[] },
     daily:[]
   };
 }
@@ -390,10 +391,29 @@ function normalizeDB(d){
   return d;
 }
 
+/* Bersih-bersih PIC contoh "Kasir 1/2/3" bawaan seed versi lama. Daftar kasir
+   sekarang datang dari akun Office yang divisinya di-define, jadi placeholder
+   ini tidak dipakai lagi. Baris breakdown miliknya ikut dibuang HANYA kalau
+   nominalnya nol — kalau ternyata pernah dipakai, PIC-nya dibiarkan supaya
+   omset yang sudah dialokasikan tidak hilang diam-diam. Idempoten: sekali
+   bersih, panggilan berikutnya tidak melakukan apa-apa. */
+function purgeSeedKasir(d){
+  const contoh=e=>/^k[123]$/.test(String(e.id||'')) && /^kasir\s*\d+$/i.test(String(e.name||'').trim()) && !e.officeUserId;
+  const kandidat=(d.employees.kasir||[]).filter(contoh);
+  if(!kandidat.length) return false;
+  const terpakai=new Set();
+  (d.daily||[]).forEach(day=>(day.bd&&Array.isArray(day.bd.kasir)?day.bd.kasir:[]).forEach(r=>{ if(num(r.amount)>0) terpakai.add(r.kasirId); }));
+  const buang=new Set(kandidat.filter(e=>!terpakai.has(e.id)).map(e=>e.id));
+  if(!buang.size) return false;
+  d.employees.kasir=d.employees.kasir.filter(e=>!buang.has(e.id));
+  (d.daily||[]).forEach(day=>{ if(day.bd&&Array.isArray(day.bd.kasir)) day.bd.kasir=day.bd.kasir.filter(r=>!buang.has(r.kasirId)); });
+  return true;
+}
+
 let DB=null;
 
 /* ---- lapisan API ---- */
-let SAVE_TIMER=null, SAVING=false, DIRTY=false;
+let SAVE_TIMER=null, SAVING=false, DIRTY=false, RETRY_TIMER=null, RETRY_KE=0;
 function setSync(st,msg){
   const el=document.getElementById('syncBox'); if(!el) return;
   el.className='sync'+(st==='err'?' err':st==='ok'?' ok':st==='saving'?' saving':'');
@@ -422,17 +442,36 @@ function save(){
   try{ localStorage.setItem(CACHE_KEY,JSON.stringify(DB)); }catch(e){}
   setSync('saving');
   clearTimeout(SAVE_TIMER);
+  clearTimeout(RETRY_TIMER);   // suntingan baru sudah menjadwalkan kirim sendiri
   SAVE_TIMER=setTimeout(kirim,1000);
+}
+/* Percobaan ulang kalau simpan gagal. Sebelumnya retry dijaga `if(DIRTY)`,
+   padahal DIRTY baru saja di-set false di awal kirim() — jadi syaratnya tidak
+   pernah benar dan "mencoba lagi…" itu bohong: datanya diam di localStorage
+   sampai ada suntingan berikutnya. Sekarang dijadwalkan tanpa syarat, dengan
+   jeda menanjak supaya server yang sedang bermasalah tidak dihujani. */
+const RETRY_JEDA=[5000,10000,20000,40000,60000];
+function jadwalkanUlang(){
+  clearTimeout(RETRY_TIMER);
+  const jeda=RETRY_JEDA[Math.min(RETRY_KE,RETRY_JEDA.length-1)];
+  RETRY_KE++;
+  RETRY_TIMER=setTimeout(kirim,jeda);
+  return jeda;
 }
 function kirim(){
   if(SAVING){ SAVE_TIMER=setTimeout(kirim,700); return; }
   SAVING=true; DIRTY=false;
   apiSave(DB).then(()=>{
-    SAVING=false; setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
+    SAVING=false; RETRY_KE=0; clearTimeout(RETRY_TIMER);
+    setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
   },err=>{
     SAVING=false;
-    setSync('err','Gagal simpan — tersimpan lokal, mencoba lagi…');
-    setTimeout(()=>{ if(DIRTY) kirim(); },6000);
+    /* Sebab aslinya WAJIB ikut tampil. Pesan generik bikin galat konfigurasi
+       (mis. MySQL 1044 "Access denied ... to database") tidak bisa dibedakan
+       dari jaringan putus, dan itu memakan waktu diagnosa yang tidak perlu. */
+    const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
+    const detik=Math.round(jadwalkanUlang()/1000);
+    setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
   });
 }
 
@@ -724,7 +763,7 @@ function viewBreakdown(){
         <div class="field"><label>${esc(empName('kasir',r.kasirId))}</label><input data-i="${i}" data-f="amount" class="ksf mono rp" inputmode="numeric" value="${r.amount||0}" ${r.off?'disabled style="opacity:.5"':''}></div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:14px;cursor:pointer"><input type="checkbox" class="ksoff" data-i="${i}" ${r.off?'checked':''}> OFF (libur)</label>
         <button type="button" class="btn btn-sm btn-ghost kssisa" data-i="${i}" style="margin-bottom:14px" ${r.off?'disabled style="margin-bottom:14px;opacity:.4"':''} title="Isi sisa omset yang belum dialokasikan ke kasir ini">sisa</button>
-      </div>`).join('');
+      </div>`).join('')||'<div class="empty" style="padding:20px 10px">Belum ada kasir. Nama muncul otomatis setelah akun di Office diberi Tim/Keterangan <b>kasir</b>.</div>';
     document.querySelectorAll('.ksf').forEach(inp=>inp.oninput=()=>{state.ks[+inp.dataset.i].amount=num(inp.value);calc();});
     document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{const i=+c.dataset.i;state.ks[i].off=c.checked;if(c.checked)state.ks[i].amount=0;drawKs();calc();});
     document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa('ks',+b.dataset.i));
@@ -932,7 +971,7 @@ function viewKasir(){
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[]});
   days.forEach(d=>{(d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,off:true});}else{agg[r.kasirId].real+=num(r.amount);agg[r.kasirId].masuk++;agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),off:false});}}});});
   const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
-  el.innerHTML=`<div class="seg" id="ks_seg">${seg}</div><div id="ks_body"></div>`;
+  el.innerHTML=(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
     let k,a;
     if(kid==='__all__'){
@@ -1130,7 +1169,9 @@ function boot(){
     setSync('ok');
     PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
     inputDate=todayISO();
+    const dibersihkan=purgeSeedKasir(DB);   // buang PIC contoh "Kasir 1/2/3"
     go('input');
+    if(dibersihkan) save();
     syncPicOffice();   // tarik PIC per divisi dari Office (otomatis, tanpa PIN)
   }, err=>{
     // Jaringan gagal → pakai salinan lokal kalau ada, biar tetap bisa dilihat.
@@ -1138,6 +1179,7 @@ function boot(){
     DB=normalizeDB(cache||seed());
     setSync('err','Offline — memakai salinan lokal, perubahan akan disinkronkan saat online');
     PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
+    purgeSeedKasir(DB);   // rapikan tampilan; simpannya nanti saat online
     go('input');
   });
 }
