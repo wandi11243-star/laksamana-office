@@ -3775,6 +3775,66 @@ function applyFilter(list){
   return r.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
 }
 
+/* ========================================================================
+   HALAMAN TABEL (PAGINATION) — SATU implementasi untuk seluruh modul
+   ------------------------------------------------------------------------
+   Sebelumnya hanya tiga tabel di halaman Google Review yang berhalaman, dan
+   helper-nya memanggil renderReview() langsung sehingga tidak bisa dipakai
+   tabel lain. Sekarang tiap tabel mendaftarkan fungsi gambar-ulangnya di
+   TBL_RENDER, jadi satu implementasi melayani semuanya.
+
+   Dua perilaku yang disengaja:
+   - Pager TIDAK muncul kalau isinya cuma satu halaman, jadi tabel pendek
+     (mis. perolehan per host) tetap bersih seperti sebelumnya.
+   - Nomor halaman DIJEPIT ke jumlah halaman yang ada. Tanpa ini, menyaring
+     dari 200 baris ke 5 baris sementara kita di halaman 8 akan menampilkan
+     tabel kosong yang terlihat seperti data hilang.
+   ======================================================================== */
+const TBL_PER_HAL_DEF = 25;
+// Baris yang tinggi (isinya teks berparagraf / banyak chip) diberi jatah lebih
+// sedikit supaya satu halaman tetap muat di layar tanpa menggulung jauh.
+const TBL_PER_HAL = { fb:10, belum:10, daftar:10, audit:50 };
+const TBL_HAL = {};      // kunci -> nomor halaman aktif
+const TBL_SIG = {};      // kunci -> sidik jari saringan terakhir
+const TBL_RENDER = {};   // kunci -> fungsi gambar ulang halaman pemilik tabel
+function tblPerHal(kunci){ return TBL_PER_HAL[kunci] || TBL_PER_HAL_DEF; }
+/* sig = sidik jari saringan (opsional). Kalau saringannya berubah, halaman
+   balik ke 1 — kalau cuma datanya yang bertambah/berkurang, posisi halaman
+   DIPERTAHANKAN supaya sinkronisasi latar tidak melempar pembaca ke awal. */
+function tblPage(arr, kunci, sig){
+  if(sig!==undefined && TBL_SIG[kunci]!==sig){ TBL_SIG[kunci]=sig; TBL_HAL[kunci]=1; }
+  const perHal=tblPerHal(kunci), total=arr.length;
+  const maxHal=Math.max(1, Math.ceil(total/perHal));
+  const hal=Math.min(Math.max(1, TBL_HAL[kunci]||1), maxHal);
+  const mulai=(hal-1)*perHal, akhir=Math.min(mulai+perHal, total);
+  return { hal, maxHal, mulai, akhir, total, items:arr.slice(mulai, akhir) };
+}
+function tblSetPage(kunci, n){
+  TBL_HAL[kunci]=Number(n)||1;
+  const f=TBL_RENDER[kunci]; if(f) f();
+}
+function tblReset(){ for(const k in TBL_HAL) delete TBL_HAL[k]; }
+// Navigasi bernomor. Kalau halamannya banyak, yang jauh dari halaman aktif
+// diringkas jadi "…" supaya barisnya tidak melebar tak terkendali.
+function tblPagerHtml(p, kunci){
+  if(p.maxHal<=1) return "";
+  const nomor=[];
+  for(let i=1;i<=p.maxHal;i++){
+    if(i===1 || i===p.maxHal || Math.abs(i-p.hal)<=1) nomor.push(i);
+    else if(nomor[nomor.length-1]!=="…") nomor.push("…");
+  }
+  return `<div class="rv-pager">
+    <span class="rv-pager-info">${p.mulai+1}–${p.akhir} dari ${p.total}</span>
+    <div class="rv-pager-nav">
+      <button class="btn btn-xs btn-ghost" ${p.hal<=1?"disabled":""} onclick="tblSetPage('${kunci}',${p.hal-1})">‹</button>
+      ${nomor.map(n=>n==="…"
+        ? `<span class="rv-pager-gap">…</span>`
+        : `<button class="btn btn-xs ${n===p.hal?"btn-primary":"btn-ghost"}" onclick="tblSetPage('${kunci}',${n})">${n}</button>`).join("")}
+      <button class="btn btn-xs btn-ghost" ${p.hal>=p.maxHal?"disabled":""} onclick="tblSetPage('${kunci}',${p.hal+1})">›</button>
+    </div>
+  </div>`;
+}
+
 function renderDashboard(){
   // Peta meja->lantai dibuang di awal render, sama seperti di renderHariH():
   // layout bisa berubah lewat Editor Denah atau data master yang baru
@@ -3843,13 +3903,17 @@ function renderDashboard(){
   `;
 }
 
+TBL_RENDER.dash = () => renderDashboard();
 function dashTable(list){
   if(!list.length) return `<div class="panel"><div class="empty"><div class="big">🗒️</div>Belum ada reservasi untuk filter ini.</div></div>`;
+  // Export CSV sengaja tetap memakai `list` yang UTUH, bukan hanya baris di
+  // halaman aktif — orang mengekspor untuk mendapat seluruh hasil saringannya.
+  const pg=tblPage(list,"dash",JSON.stringify(DASH_FILTER));
   return `<div class="panel"><div class="panel-head"><h3>Daftar Reservasi <span class="count-tag">${list.length}</span></h3>
     <button class="btn btn-sm btn-ghost" onclick="exportCSV(${JSON.stringify(list.map(r=>r.id)).replace(/"/g,'&quot;')})">⬇️ Export CSV</button></div>
    <div class="table-wrap"><table>
     <thead><tr><th>Tamu</th><th>Tanggal</th><th>Jam</th><th>Pax</th><th>Meja</th><th>Lantai</th><th>DP</th><th>PIC</th><th>Status</th><th></th></tr></thead>
-    <tbody>${list.map(r=>{ const p=customerProfile(r.phone);
+    <tbody>${pg.items.map(r=>{ const p=customerProfile(r.phone);
       const lantai=lantaiRes(r);
       return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer">
        <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}</td>
@@ -3873,7 +3937,7 @@ function dashTable(list){
          ${CAN.input(SESSION.role)?`<button class="btn btn-xs btn-ghost" onclick="editReservation('${r.id}')">✏️</button>`:""}
        </div></td>
       </tr>`; }).join("")}
-    </tbody></table></div></div>`;
+    </tbody></table></div>${tblPagerHtml(pg,"dash")}</div>`;
 }
 function tagFor(p){
   if(p.blacklist) return `<span class="badge-status tag-blacklist" style="font-size:10px;padding:2px 7px">⛔</span>`;
@@ -4514,7 +4578,12 @@ function waitlistView(){
     ? Math.round(seated.reduce((a,w)=>a+Math.max(0,Math.round(((w.seatedAt||0)-(w.addedAt||0))/60000)),0)/seated.length)
     : null;
 
-  const rows=queue.map((w,i)=>{
+  const pgQ=tblPage(queue,"wlQueue",HARIH_DATE);
+  // Nomor antrean dihitung dari posisi GLOBAL (pgQ.mulai+i+1), bukan indeks di
+  // halaman — kalau tidak, halaman 2 akan mulai dari "1" lagi dan urutan
+  // panggil tamu jadi salah.
+  const rows=pgQ.items.map((w,i0)=>{
+    const i=pgQ.mulai+i0;
     const fit=freeTables.filter(t=>capMax(t.cap)>=Number(w.pax));
     const opts=freeTables.map(t=>`<option value="${esc(t.id)}"${capMax(t.cap)<Number(w.pax)?' data-nofit="1"':''}>${esc(t.id)} (${esc(String(t.cap))} pax)${capMax(t.cap)<Number(w.pax)?" ⚠️":""}</option>`).join("");
     return `<tr>
@@ -4563,22 +4632,23 @@ function waitlistView(){
       <div class="inline-info" style="margin-bottom:12px">Begitu ada meja kosong, klik <b>🪑 Dudukkan</b> — data tamu langsung terpakai, tidak perlu ketik ulang. Meja yang <b>kapasitasnya kurang</b> ditandai ⚠️ tapi tetap bisa dipilih kalau kamu memang mau.</div>
       ${queue.length?`<div class="table-wrap"><table>
         <thead><tr><th>#</th><th>Tamu</th><th>Jumlah</th><th>Menunggu</th><th>Status</th><th>Meja Kosong</th><th>Aksi</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>`
+        <tbody>${rows}</tbody></table></div>${tblPagerHtml(pgQ,"wlQueue")}`
         :`<div class="empty" style="padding:30px"><div class="big">🎉</div>Tidak ada antrean. Semua tamu kebagian meja.</div>`}
     </div>
   </div>
 
-  ${seated.length?`<div class="panel">
+  ${seated.length?(()=>{ const pgS=tblPage(seated.slice().sort((a,b)=>(b.seatedAt||0)-(a.seatedAt||0)),"wlSeated",HARIH_DATE);
+    return `<div class="panel">
     <div class="panel-head"><h3>✅ Sudah Terduduk dari Antrean</h3></div>
     <div class="panel-body"><div class="table-wrap"><table>
       <thead><tr><th>Tamu</th><th>Jumlah</th><th>Meja</th><th>Lama Menunggu</th><th>Duduk Jam</th></tr></thead>
-      <tbody>${seated.sort((a,b)=>(b.seatedAt||0)-(a.seatedAt||0)).map(w=>`<tr>
+      <tbody>${pgS.items.map(w=>`<tr>
         <td><div class="name">${esc(w.name)}</div><div class="muted">${w.phone?esc(displayPhone(w.phone)):"-"}</div></td>
         <td>${w.pax} orang</td><td><b>${esc(w.table||"-")}</b></td>
         <td>${fmtDur(Math.max(0,Math.round(((w.seatedAt||0)-(w.addedAt||0))/60000)))}</td>
         <td>${clockOf(w.seatedAt)}</td></tr>`).join("")}</tbody>
-    </table></div></div>
-  </div>`:""}`;
+    </table></div>${tblPagerHtml(pgS,"wlSeated")}</div>
+  </div>`; })():""}`;
 }
 // Dudukkan dari dropdown meja pada tabel antrean
 function seatFromWaitSelect(id){
@@ -4960,6 +5030,9 @@ function renderHariH(){
   RECAP_STATUS=savedStatus;
   const list = inList ? recapList()
                       : dayList.slice().sort((a,b)=>a.time.localeCompare(b.time));
+  // Sidik jari saringan: begitu salah satunya berubah, halaman balik ke 1.
+  const pgRecap = tblPage(list, "recap",
+    [HARIH_VIEW,recapFrom(),recapTo(),RECAP_TF,RECAP_TT,RECAP_STATUS,RECAP_KURSI,RECAP_LANTAI,HARIH_Q].join("|"));
   const q=(HARIH_Q||"").trim().toLowerCase();
   const nowMin = new Date().getHours()*60+new Date().getMinutes();
   const isToday = !recapMultiDay() && recapFrom()===todayStr();
@@ -5090,7 +5163,7 @@ function renderHariH(){
           setelah Pax supaya dua angka yang saling berhubungan bisa dibaca
           sekali lihat. -->
      <thead><tr><th>Meja</th><th>Lantai</th>${recapMultiDay()?"<th>Tanggal</th>":""}<th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
-     <tbody>${list.map(r=>{
+     <tbody>${pgRecap.items.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
         const late = rowToday && ["Pending","Confirmed"].includes(r.status) && toMin(r.time)<nowMin;
@@ -5134,10 +5207,11 @@ function renderHariH(){
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
         </tr>`; }).join("")}
-     </tbody></table></div></div>`}
+     </tbody></table></div>${tblPagerHtml(pgRecap,"recap")}</div>`}
   `;
   if(HARIH_VIEW==='map') updateHarihTimers();   // tampilkan warning/timer segera
 }
+["recap","wlQueue","wlSeated"].forEach(k=>{ TBL_RENDER[k]=()=>renderHariH(); });
 /* ===== Check-in & kedatangan susulan =====
    Rombongan boleh datang bertahap. Tiap kali ada yang masuk, catat gelombangnya;
    sisa pax yang belum datang tetap kelihatan sampai rombongan penuh. */
@@ -6165,6 +6239,7 @@ function renderFinance(){
   // statistik & hitungan tab. list = yang ditampilkan di tabel (ikut tab).
   const listAll = financeList(false);
   const list    = financeList(true);
+  const pgFin   = tblPage(list, "finance", FIN_TAB+"|"+JSON.stringify(FIN_F));
   const sum     = arr=>arr.reduce((a,x)=>a+txAmount(x),0);
   // Yang ditolak = dana tidak jadi masuk, jadi tidak ikut dijumlah ke total.
   const total   = sum(listAll.filter(x=>x.p.tfStatus!=="rejected"));
@@ -6262,7 +6337,7 @@ function renderFinance(){
             : `<div class="big">✕</div>Tidak ada transaksi ditolak pada rentang ini.`}</div>`:`
      <div class="table-wrap"><table>
        <thead><tr><th>Tanggal TF</th><th>Jam</th><th>Bank</th><th>Nama Pengirim</th><th>Nominal</th><th>Tamu / Reservasi</th><th>Bukti</th><th>Status</th><th>Aksi</th></tr></thead>
-       <tbody>${list.map(x=>{
+       <tbody>${pgFin.items.map(x=>{
          const r=x.r, p=x.p, scanned=txScanned(x);
          return `<tr>
            <td><b>${p.tfDate?fmtDateShort(p.tfDate):`<span class="muted">${fmtDateShort(r.date)}</span>`}</b>
@@ -6290,11 +6365,12 @@ function renderFinance(){
              ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delDp('${r.id}','${p.id}')" title="Hapus transaksi dana masuk ini (khusus Admin Sistem)">🗑️</button>`:""}
            </div></td>
          </tr>`; }).join("")}</tbody>
-     </table></div>`}
+     </table></div>${tblPagerHtml(pgFin,"finance")}`}
    </div>`;
   paintScanBanner();
   setTimeout(autoScanFinance, 60);   // begitu halaman tampil, bukti baru langsung dibaca sendiri
 }
+TBL_RENDER.finance = () => renderFinance();
 
 /* ---------- Scan otomatis saat halaman dibuka ----------
    Halaman ini langsung membaca sendiri bukti-bukti yang belum pernah discan, jadi
@@ -6558,6 +6634,7 @@ function renderRiwayat(){
   if(HIST_F.status) list=list.filter(r=>r.status===HIST_F.status);
   if(HIST_F.q){ const q=HIST_F.q.toLowerCase(); list=list.filter(r=>r.name.toLowerCase().includes(q)||r.phone.includes(q)); }
   list.sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const pgHist = tblPage(list, "riwayat", JSON.stringify(HIST_F));
 
   byId("page-riwayat").innerHTML=`
    <div class="page-head"><div><h2>Riwayat Reservasi</h2><div class="desc">Arsip reservasi yang sudah lewat, basis CRM dan evaluasi. Cari nama/HP untuk lihat riwayat pelanggan.</div></div></div>
@@ -6573,7 +6650,7 @@ function renderRiwayat(){
    <div class="panel"><div class="panel-head"><h3>Arsip <span class="count-tag">${list.length}</span></h3>
      <button class="btn btn-sm btn-ghost" onclick="exportCSV(${JSON.stringify(list.map(r=>r.id)).replace(/"/g,'&quot;')})">⬇️ Export CSV</button></div>
    <div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>Durasi</th><th>DP</th><th>Status</th></tr></thead>
-   <tbody>${list.map(r=>{const p=customerProfile(r.phone);const dur=dineDuration(r);return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer" title="Klik untuk detail & edit">
+   <tbody>${pgHist.items.map(r=>{const p=customerProfile(r.phone);const dur=dineDuration(r);return `<tr onclick="openDetail('${r.id}')" style="cursor:pointer" title="Klik untuk detail & edit">
      <td>${fmtDateShort(r.date)}<div class="muted">${r.time}</div></td>
      <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div></td>
      <td>${paxCell(r)}</td>
@@ -6581,9 +6658,10 @@ function renderRiwayat(){
      <td>${dur!=null?`<span class="muted">⏱ ${fmtDur(dur)}</span>`:'<span class="muted">-</span>'}</td>
      <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓":"-"}</span></td>
      <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
-   </tr>`;}).join("")}</tbody></table></div></div>`}
+   </tr>`;}).join("")}</tbody></table></div>${tblPagerHtml(pgHist,"riwayat")}</div>`}
   `;
 }
+TBL_RENDER.riwayat = () => renderRiwayat();
 function crmCard(list){
   const p=customerProfile(list[0].phone);
   return `<div class="panel" style="border-color:var(--gold)"><div class="panel-body">
@@ -6774,12 +6852,17 @@ function renderAnalitik(){
   // yang menangani apa; sekarang tiap nama berdiri sendiri.
   const byPic={}; all.forEach(r=>{const k=(r.picName||"").trim()||(r.picType==="Marketing"?"Marketing":"Host/Captain");byPic[k]=byPic[k]||{total:0,hadir:0};byPic[k].total++;if(r.status==="Datang")byPic[k].hadir++;});
   const picArr=Object.entries(byPic).sort((a,b)=>b[1].total-a[1].total); const picMax=Math.max(1,...picArr.map(x=>x[1].total));
+  /* Peak hour & hari tersibuk diukur dengan JUMLAH PAX, bukan jumlah baris
+     reservasi. Satu booking 20 orang membuat jam itu jauh lebih ramai daripada
+     dua booking @2 orang — menghitung barisnya menyamakan keduanya dan
+     menyesatkan saat dipakai mengatur jadwal kru. */
+  const paxOf = r => Number(r.pax)||0;
   // peak hour
-  const byHour={}; all.forEach(r=>{const h=(r.time||"0").split(":")[0];byHour[h]=(byHour[h]||0)+1;});
+  const byHour={}; all.forEach(r=>{const h=(r.time||"0").split(":")[0];byHour[h]=(byHour[h]||0)+paxOf(r);});
   const hourArr=Object.entries(byHour).sort((a,b)=>a[0]-b[0]); const hourMax=Math.max(1,...hourArr.map(x=>x[1]));
   // day of week
   const dow=["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"]; const byDow=[0,0,0,0,0,0,0];
-  all.forEach(r=>{const d=new Date(r.date+"T00:00:00");if(!isNaN(d))byDow[d.getDay()]++;});
+  all.forEach(r=>{const d=new Date(r.date+"T00:00:00");if(!isNaN(d))byDow[d.getDay()]+=paxOf(r);});
   const dowMax=Math.max(1,...byDow);
   // monthly trend
   const byMonth={}; all.forEach(r=>{const m=r.date.slice(0,7);byMonth[m]=(byMonth[m]||0)+1;});
@@ -6788,7 +6871,8 @@ function renderAnalitik(){
   const done=all.filter(r=>["Datang","No-show"].includes(r.status));
   const noshow=all.filter(r=>r.status==="No-show").length;
   const nsRatio=done.length?Math.round(noshow/done.length*100):0;
-  const avgPax=all.length?(all.reduce((a,r)=>a+(Number(r.pax)||0),0)/all.length).toFixed(1):0;
+  const totalPax=all.reduce((a,r)=>a+paxOf(r),0);
+  const avgPax=all.length?(totalPax/all.length).toFixed(1):0;
 
   byId("page-analitik").innerHTML=`
    <div class="page-head"><div><h2>Analitik & Laporan</h2><div class="desc">Insight bisnis dari seluruh data reservasi. Angka menyesuaikan seiring data bertambah.</div></div></div>
@@ -6796,7 +6880,8 @@ function renderAnalitik(){
    <div class="section-title" style="border:none;color:var(--gold);font-size:14px;margin:22px 0 6px">📈 Ringkasan Keseluruhan</div>
    <div class="recap-grid">
      <div class="recap"><div class="lbl">Total Reservasi</div><div class="val">${all.length}</div></div>
-     <div class="recap info"><div class="lbl">Rata-rata Pax</div><div class="val">${avgPax}</div></div>
+     <div class="recap info"><div class="lbl">👥 Total Pax</div><div class="val">${totalPax.toLocaleString("id-ID")}</div><div class="sub">seluruh orang dipesan</div></div>
+     <div class="recap info"><div class="lbl">Rata-rata Pax</div><div class="val">${avgPax}</div><div class="sub">per reservasi</div></div>
      <div class="recap ${nsRatio>15?'danger':'ok'}"><div class="lbl">Rasio No-show</div><div class="val">${nsRatio}<small>%</small></div><div class="sub">${noshow} dari ${done.length} tamu</div></div>
      <div class="recap purple"><div class="lbl">Pelanggan Unik</div><div class="val">${new Set(all.map(r=>normPhone(r.phone))).size}</div></div>
    </div>
@@ -6805,8 +6890,8 @@ function renderAnalitik(){
      <div class="panel"><div class="panel-head"><h3>🧭 Performa PIC</h3></div><div class="panel-body">${picArr.length?picArr.map(([k,v])=>bar(k+` (${v.total?Math.round(v.hadir/v.total*100):0}% hadir)`,v.total,picMax,"blue")).join(""):"<div class='muted'>Belum ada data.</div>"}</div></div>
    </div>
    <div class="chart-row">
-     <div class="panel"><div class="panel-head"><h3>🕗 Jam Paling Ramai (Peak Hour)</h3></div><div class="panel-body">${hourArr.length?hourArr.map(([k,v])=>bar(k+":00 WIB",v,hourMax,"green")).join(""):"<div class='muted'>Belum ada data.</div>"}</div></div>
-     <div class="panel"><div class="panel-head"><h3>📅 Hari Paling Ramai</h3></div><div class="panel-body">${byDow.map((v,i)=>bar(dow[i],v,dowMax,"green")).join("")}</div></div>
+     <div class="panel"><div class="panel-head"><h3>🕗 Jam Paling Ramai (Peak Hour)</h3><span class="muted" style="font-size:12px">jumlah pax</span></div><div class="panel-body">${hourArr.length?hourArr.map(([k,v])=>bar(k+":00 WIB",v,hourMax,"green")).join(""):"<div class='muted'>Belum ada data.</div>"}</div></div>
+     <div class="panel"><div class="panel-head"><h3>📅 Hari Paling Ramai</h3><span class="muted" style="font-size:12px">jumlah pax</span></div><div class="panel-body">${byDow.map((v,i)=>bar(dow[i],v,dowMax,"green")).join("")}</div></div>
    </div>
    <div class="panel"><div class="panel-head"><h3>📈 Tren Reservasi per Bulan</h3></div><div class="panel-body">${monArr.length?monArr.map(([k,v])=>bar(k,v,monMax)).join(""):"<div class='muted'>Belum ada data.</div>"}</div></div>
   `;
@@ -6927,26 +7012,18 @@ function reviewsInRange(r){ return reviews().filter(x=>inRange(x.date, r)); }
    "Sudah diminta" ditentukan oleh ADA/TIDAKNYA catatan review untuk reservasi
    itu — bukan oleh statusnya. requestReview() selalu membuat catatan begitu
    ajakan dikirim, jadi keberadaan catatan itulah buktinya. */
-/* ===== HALAMAN & PENCARIAN TABEL =====
-   Satu helper dipakai ketiga tabel di halaman ini. Tanpa itu, tiap tabel akan
-   punya salinan logika potong-halaman sendiri yang harus diperbaiki bersamaan
-   tiap ada perubahan. */
-const RV_PER_HAL = 10;
+/* ===== PENCARIAN TABEL HALAMAN INI =====
+   Potong-halamannya sendiri sekarang memakai helper modul (tblPage/
+   tblPagerHtml di dekat renderDashboard) — dulu ada salinan terpisah di sini
+   yang memanggil renderReview() langsung, sehingga tidak bisa dipakai tabel
+   halaman lain. rvPage/rvPagerHtml dipertahankan sebagai nama panggilan supaya
+   pemanggil di halaman ini tidak perlu diubah. */
 let RVQ = { belum:"", daftar:"", fb:"" };     // kata kunci pencarian per tabel
-let RVP = { belum:1,  daftar:1,  fb:1  };     // halaman aktif per tabel
-// Ganti periode/filter -> kembali ke halaman 1. Tanpa ini, berpindah ke
-// periode yang barisnya sedikit bisa mendarat di halaman kosong.
-function rvResetPages(){ RVP={belum:1, daftar:1, fb:1}; }
-function rvSetQ(kunci, v){ RVQ[kunci]=v; RVP[kunci]=1; afterSearch("rvq_"+kunci, renderReview); }
-function rvSetPage(kunci, n){ RVP[kunci]=Number(n)||1; renderReview(); }
-
-function rvPage(arr, kunci){
-  const maxHal=Math.max(1, Math.ceil(arr.length/RV_PER_HAL));
-  const hal=Math.min(Math.max(1, RVP[kunci]||1), maxHal);
-  const mulai=(hal-1)*RV_PER_HAL;
-  const akhir=Math.min(mulai+RV_PER_HAL, arr.length);
-  return { hal, maxHal, mulai, akhir, total:arr.length, items:arr.slice(mulai, akhir) };
-}
+["belum","daftar","fb","host"].forEach(k=>{ TBL_RENDER[k]=()=>renderReview(); });
+function rvResetPages(){ ["belum","daftar","fb"].forEach(k=>{ TBL_HAL[k]=1; }); }
+function rvSetQ(kunci, v){ RVQ[kunci]=v; TBL_HAL[kunci]=1; afterSearch("rvq_"+kunci, renderReview); }
+const rvPage      = (arr, kunci) => tblPage(arr, kunci);
+const rvPagerHtml = (p, kunci)   => tblPagerHtml(p, kunci);
 // Kotak pencarian. id-nya dipakai afterSearch untuk mengembalikan fokus &
 // posisi kursor setelah render ulang — tanpa itu, mengetik satu huruf langsung
 // melempar kursor keluar dari kotak.
@@ -6975,27 +7052,6 @@ function rvChipsHtml(label, opts, aktif, fn){
         o.n!=null?`<span class="n">${o.n}</span>`:""}</button>`).join("")}
   </div>`;
 }
-// Navigasi halaman bernomor. Kalau halamannya banyak, yang jauh dari halaman
-// aktif diringkas jadi "…" supaya barisnya tidak melebar tak terkendali.
-function rvPagerHtml(p, kunci){
-  if(p.maxHal<=1) return "";
-  const nomor=[];
-  for(let i=1;i<=p.maxHal;i++){
-    if(i===1 || i===p.maxHal || Math.abs(i-p.hal)<=1) nomor.push(i);
-    else if(nomor[nomor.length-1]!=="…") nomor.push("…");
-  }
-  return `<div class="rv-pager">
-    <span class="rv-pager-info">${p.mulai+1}–${p.akhir} dari ${p.total}</span>
-    <div class="rv-pager-nav">
-      <button class="btn btn-xs btn-ghost" ${p.hal<=1?"disabled":""} onclick="rvSetPage('${kunci}',${p.hal-1})">‹</button>
-      ${nomor.map(n=>n==="…"
-        ? `<span class="rv-pager-gap">…</span>`
-        : `<button class="btn btn-xs ${n===p.hal?"btn-primary":"btn-ghost"}" onclick="rvSetPage('${kunci}',${n})">${n}</button>`).join("")}
-      <button class="btn btn-xs btn-ghost" ${p.hal>=p.maxHal?"disabled":""} onclick="rvSetPage('${kunci}',${p.hal+1})">›</button>
-    </div>
-  </div>`;
-}
-
 function reviewTargetsInRange(rg){
   const sudahIds = new Set(reviews().map(x=>x.resId).filter(Boolean));
   // Tamu TANPA NOMOR HP tidak ikut dihitung sama sekali — biasanya walk-in yang
@@ -7600,13 +7656,13 @@ function waFeedback(id){
 }
 
 let FB_FILTER = "";   // "" = semua kategori
-function setFbFilter(v){ FB_FILTER=v; RVP.fb=1; renderReview(); }
+function setFbFilter(v){ FB_FILTER=v; TBL_HAL.fb=1; renderReview(); }
 /* Penyaring STATUS. Daftar feedback dipakai sebagai bahan evaluasi, jadi
    pertanyaan yang paling sering diajukan adalah "mana yang belum selesai" —
    itu harus bisa dijawab dalam satu klik, bukan dengan memelototi kolom status
    baris per baris. */
 let FB_STATUS_F = "";   // "" = semua | baru | proses | selesai
-function setFbStatusFilter(v){ FB_STATUS_F=v; RVP.fb=1; renderReview(); }
+function setFbStatusFilter(v){ FB_STATUS_F=v; TBL_HAL.fb=1; renderReview(); }
 
 function feedbackView(){
   const rg=reviewRange();
@@ -7777,9 +7833,9 @@ function rvDashboardHtml(tm){
        </div>
 
        <div class="muted" style="font-size:12px;margin:4px 0 8px"><b>Perolehan per host</b> — bulan ${esc(fmtMonth(tm))}${targetTim?` · target tim <b>${targetTim}</b> = jumlah target di bawah`:""}</div>
-       ${baris.length?`<div class="table-wrap"><table>
+       ${baris.length?(()=>{ const pgH=tblPage(baris,"host",String(tm)); return `<div class="table-wrap"><table>
          <thead><tr><th>Host</th><th style="text-align:right">Sah</th><th style="text-align:right">Menunggu</th><th style="text-align:right">Target</th><th style="width:34%">Progres</th></tr></thead>
-         <tbody>${baris.map(o=>`<tr>
+         <tbody>${pgH.items.map(o=>`<tr>
            <td><b>${esc(o.nama)}</b></td>
            <td style="text-align:right"><b style="color:var(--ok,#2C8A78)">${o.sah}</b></td>
            <td style="text-align:right">${o.pending?`<span class="muted">${o.pending}</span>`:"—"}</td>
@@ -7788,7 +7844,7 @@ function rvDashboardHtml(tm){
              ? `<div class="rv-progress"><i style="width:${o.pct}%"></i></div>
                 <div class="muted" style="font-size:11.5px;margin-top:3px">${o.pct}% ${o.sah>=o.target?"🎉":`— kurang ${o.target-o.sah}`}</div>`
              : `<span class="muted" style="font-size:11.5px">target belum diatur</span>`}</td>
-         </tr>`).join("")}</tbody></table></div>`
+         </tr>`).join("")}</tbody></table></div>${tblPagerHtml(pgH,"host")}`; })()
          :`<div class="empty" style="padding:26px"><div class="big">📊</div>Belum ada data pada ${esc(fmtMonth(tm))}.<br>
             <span class="muted">Catat review lewat <b>⭐ Catat Review</b>, lalu atur target tiap host.</span></div>`}
 
@@ -8202,11 +8258,15 @@ function wipeData(){ if(!confirm("Hapus SEMUA data reservasi & histori? Tidak bi
 /* ================= AUDIT LOG ================= */
 function renderAudit(){
   if(!CAN.audit(SESSION.role)){ byId("page-audit").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
+  // Audit log tumbuh terus dan tidak pernah dipangkas, jadi ini tabel yang
+  // paling butuh halaman — sebelumnya seluruh isinya digambar sekaligus.
+  const pg=tblPage(STATE.audit,"audit");
   byId("page-audit").innerHTML=`
    <div class="page-head"><div><h2>Audit Log</h2><div class="desc">Jejak seluruh aktivitas: siapa, kapan, apa yang diubah. Untuk akuntabilitas & kontrol data DP.</div></div></div>
    <div class="panel"><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>User</th><th>Role</th><th>Aksi</th><th>Detail</th></tr></thead>
-   <tbody>${STATE.audit.length?STATE.audit.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td><span class="pill">${esc(a.action)}</span></td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">Belum ada aktivitas tercatat.</td></tr>`}</tbody></table></div></div>`;
+   <tbody>${pg.total?pg.items.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td><span class="pill">${esc(a.action)}</span></td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">Belum ada aktivitas tercatat.</td></tr>`}</tbody></table></div>${tblPagerHtml(pg,"audit")}</div>`;
 }
+TBL_RENDER.audit = () => renderAudit();
 
 /* ================= PEMBERSIH DATA DEMO =================
    Dulu ada fungsi seedDemo() yang menyuntik 8 reservasi contoh (3 di antaranya
