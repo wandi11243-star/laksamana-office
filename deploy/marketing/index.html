@@ -1460,7 +1460,9 @@ function resetData(){
 /* ---------- SETTINGS / BUSINESS RULES (Bagian 9 & 14) ---------- */
 const DEFAULT_SETTINGS = {
   dpPercent:50, pb1:10, serviceCharge:5,
-  approvalThreshold:25000000, discountThreshold:15,
+  // approvalThreshold (dulu Rp25 jt) DIHAPUS: approval kini hanya untuk
+  // negosiasi harga, jadi nilai event tidak lagi memicu antrian approval.
+  discountThreshold:15,
   fuTarget:10,
   // Nomor invoice & kwitansi: sekali diberikan, melekat permanen ke event/pembayaran.
   // invSeq/kwSeq = nomor urut berikutnya yang akan dipakai.
@@ -2261,7 +2263,7 @@ function buildNav(){
 function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending'); }
 
 /* ---------- ROUTER ---------- */
-const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan event bernilai besar / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Data Pegawai','Daftar pegawai — jadi sumber pilihan PIC'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
+const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Data Pegawai','Daftar pegawai — jadi sumber pilihan PIC'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 /* Buka halaman sesuai alamat saat aplikasi baru dimuat.
    SATU definisi dipakai kedua jalur masuk (login manual & SSO). Dulu baris
    ini digandakan di dua tempat dan KEDUANYA hanya memakai bagian [0] dari
@@ -2353,7 +2355,7 @@ function renderDashboard(V){
   const rem=[];
   dpPending.forEach(e=>rem.push({i:'money',c:'--warn',t:'DP belum masuk',s:e.nama}));
   S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&!e.invoiceSent).forEach(e=>rem.push({i:'invoice',c:'--info',t:'Invoice belum dikirim',s:e.nama}));
-  S.events.filter(e=>penStatus(e)==='Menunggu Approval').forEach(e=>rem.push({i:'approve',c:'--violet',t:(bisaPutusPenawaran()?'Penawaran perlu approval':'Penawaran menunggu Howandi'),s:e.nama}));
+  S.events.filter(e=>penStatus(e)==='Menunggu Approval').forEach(e=>rem.push({i:'approve',c:'--violet',t:(bisaPutusPenawaran()?'Penawaran perlu approval':'Penawaran menunggu Manager / Approver'),s:e.nama}));
   S.events.filter(e=>penStatus(e)==='Disetujui').forEach(e=>rem.push({i:'approve',c:'--ok',t:'Penawaran disetujui — kirim ke client',s:e.nama}));
   S.followups.filter(f=>f.next===today()).forEach(f=>rem.push({i:'pipe',c:'--gold',t:'Follow up hari ini',s:clientName(f.clientId)}));
   if(!rem.length) h+='<div class="muted" style="padding:12px 0">Tidak ada reminder. Semua terkendali. ⚓</div>';
@@ -3111,7 +3113,7 @@ function renderEventForm(V,id){
    +'<div class="card stat"><div class="sl">Kesiapan Divisi</div><div class="sv num" style="font-size:24px">'+taskProgress(ev)+'%</div><div class="sd">'+eventCats(ev).filter(d=>divProgress(ev,d)>=100).length+'/'+eventCats(ev).length+' kategori</div></div>'
    +'</div>';
 
-  // Kartu Penawaran — alur approval Howandi lalu kirim ke client (di atas detailing).
+  // Kartu Penawaran — unggah PDF, approval Manager, lalu kirim ke client (di atas detailing).
   h+=penawaranCard(ev,canEdit);
 
   // riwayat follow up peluang ini — supaya bisa ditelusuri langsung dari halaman
@@ -3999,14 +4001,15 @@ function delAttach(evId,k,key){
   save(); repaintAttach(evId,k);
   toast('Lampiran dihapus','','ok');
 }
-/* ---------- Galeri Venue (untuk Surat Penawaran) ----------
+/* ---------- Galeri Venue (untuk Draft Quotation) ----------
    Foto venue tetap (full house, panggung, suasana malam, penyesuaian layout)
-   yang tampil di SETIAP Surat Penawaran. Diupload sekali di Pengaturan,
-   disimpan di S.settings.venueGallery, dan ikut tersimpan ke server. */
+   yang tampil di setiap Draft Quotation (Modul E) — bahan menyusun Surat
+   Penawaran, yang surat resminya kini diunggah sebagai PDF. Diupload sekali di
+   Pengaturan, disimpan di S.settings.venueGallery, ikut tersimpan ke server. */
 function venueGallery(){ return Array.isArray(S.settings.venueGallery)?S.settings.venueGallery:[]; }
 function venueGalleryHTML(canEdit){
   const arr=venueGallery();
-  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Surat Penawaran.</div>';
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Draft Quotation.</div>';
   return '<div class="att-imgs">'+arr.map(f=>'<figure class="att-img">'
     +'<a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'venue')+'" loading="lazy" onerror="gambarHilang(this)"></a>'
     +'<figcaption>'+esc(f.name||f.key)+'</figcaption>'
@@ -4424,10 +4427,10 @@ function saveEventTab(id,goNext){
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   if(changes.length)logAct('event',id,'Detail diperbarui: '+tab.title,changes.join(', '));
   if(adaFinance) logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
-  const queued=syncApproval(ev); // auto-masuk Approval Flow bila total ≥ ambang
+  const queued=syncApproval(ev); // auto-masuk Approval Flow bila diskon ≥ ambang negosiasi
   save(); buildNav();
   toast('Tersimpan',tab.title+' disimpan.'+(adaFinance?' Grand Total: '+rp(eventFinance(ev).grand):''),'ok');
-  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
+  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (diskon ≥ ambang negosiasi).','ok');
   // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
   // (hanya saat simpan biasa — kalau sedang "Simpan & Lanjut" toast ini justru mengganggu alur)
   if(isOpenEvent(ev) && !goNext) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
@@ -4449,10 +4452,14 @@ function setTaskProgress(evId,div,val){
   logAct('event',evId,'Progress '+div+' → '+p+'%','');
   save();
 }
-/* ---------- APPROVAL FLOW helpers ---------- */
-function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(f.grand>=S.settings.approvalThreshold||discPct>=S.settings.discountThreshold)}; }
-function approvalReason(f,discPct){ return (f.grand>=S.settings.approvalThreshold?'Nominal ≥ '+rpShort(S.settings.approvalThreshold):'')+(discPct>=S.settings.discountThreshold?((f.grand>=S.settings.approvalThreshold?' & ':'')+'Diskon '+discPct+'%'):''); }
-// otomatis masukkan ke antrian approval bila total/diskon lewat ambang & belum ada entri untuk event ini
+/* ---------- APPROVAL FLOW helpers ----------
+   Approval HANYA untuk negosiasi harga (diskon/penyesuaian harga di luar
+   standar). Ambang nominal (dulu: grand total ≥ Rp25 jt otomatis butuh
+   persetujuan) DIHAPUS atas keputusan bisnis — event besar tidak lagi
+   tertahan hanya karena nilainya besar. */
+function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(discPct>=S.settings.discountThreshold)}; }
+function approvalReason(f,discPct){ return discPct>=S.settings.discountThreshold?('Negosiasi harga — diskon '+discPct+'%'):''; }
+// otomatis masukkan ke antrian approval bila diskon lewat ambang & belum ada entri untuk event ini
 function syncApproval(ev){
   if(!ev)return false;
   const {f,discPct,need}=approvalStatus(ev);
@@ -4470,9 +4477,9 @@ function ajukanApproval(id){
   const auto=need?approvalReason(f,discPct):'';
   modal('<div class="modal-head"><div><h3>Ajukan Approval</h3><p>'+esc(ev.nama)+' · '+rp(f.grand)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
    +(need
-      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Nilai melewati ambang (≥ '+rpShort(S.settings.approvalThreshold)+' atau diskon ≥ '+S.settings.discountThreshold+'%).</div>'
-      : '<div class="fh" style="margin-bottom:12px">Nilai di bawah ambang (&lt; '+rpShort(S.settings.approvalThreshold)+' &amp; diskon &lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
-   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa event ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
+      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Diskon melewati ambang negosiasi (≥ '+S.settings.discountThreshold+'%).</div>'
+      : '<div class="fh" style="margin-bottom:12px">Diskon masih di bawah ambang negosiasi (&lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
+   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa negosiasi harga ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitApprovalReq(\''+id+'\')">Ajukan</button></div>');
 }
 function submitApprovalReq(id){
@@ -4497,7 +4504,7 @@ function confirmEvent(id){
   ev.status='Deal'; ev.pipeCol='Deal';
   genTasks(ev);
   syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
-  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (nominal/diskon melewati ambang).','ok');
+  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (diskon negosiasi melewati ambang).','ok');
   else toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
@@ -4505,11 +4512,14 @@ function confirmEvent(id){
 }
 
 /* ============================================================
-   PENAWARAN (Surat Penawaran) — alur permintaan Howandi:
-     Buat → Ajukan → (Howandi) Setujui/Tolak → Kirim ke Client → Deal (detailing)
-   Menempel di ev.penawaran. Nilai & isi surat memakai eventFinance +
-   buildBriefDoc(...,'quote') yang sudah ada (dokumen Quotation = Surat
-   Penawaran). Keputusan Setujui/Tolak HANYA Super Admin (Howandi); Devani/
+   PENAWARAN (Surat Penawaran) — alur:
+     Buat + Upload PDF → Ajukan → (Manager/Approver) Setujui/Tolak
+     → Kirim ke Client → Deal (detailing)
+   Menempel di ev.penawaran. Suratnya TIDAK lagi digenerate sistem: Marketing
+   membuat sendiri PDF-nya lalu MENGUNGGAH berkasnya di sini (ev.penawaran.file),
+   dan siapa pun tinggal membukanya untuk dibaca. Berkas disimpan di server lewat
+   uploadReceipt, sama seperti lampiran event & bukti transfer.
+   Keputusan Setujui/Tolak hanya untuk role Manager / Approver (can('approve'));
    Marketing tidak bisa mengirim sebelum status 'Disetujui'.
    ============================================================ */
 const PEN_STATUS={
@@ -4520,15 +4530,17 @@ const PEN_STATUS={
   'Terkirim':{c:'--violet',t:'Terkirim ke Client'}
 };
 function penStatus(ev){ return (ev&&ev.penawaran&&ev.penawaran.status)||null; }
-// Persetujuan penawaran HANYA Super Admin (Howandi), sesuai permintaan.
-function bisaPutusPenawaran(){ return !!ME && ME.role==='super_admin'; }
+/* Penerima approval = role "Manager / Approver" saja (can('approve')). Super
+   Admin ikut lolos karena can() memang selalu meloloskannya — itu akun pemilik
+   sistem, bukan role tambahan yang bisa diberikan ke orang lain. */
+function bisaPutusPenawaran(){ return can('approve'); }
+function penFile(ev){ return (ev&&ev.penawaran&&ev.penawaran.file)||null; }
 const ROMAWI=['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
 function noSuratBaru(){
   const n=S.events.filter(e=>e.penawaran&&e.penawaran.noSurat).length+1;
   const d=new Date();
   return String(n).padStart(3,'0')+'/PNW/LM/'+ROMAWI[d.getMonth()+1]+'/'+d.getFullYear();
 }
-const TERMS_DEFAULT='1. Harga berlaku 14 hari sejak tanggal surat.\n2. DP 50% untuk penguncian tanggal.\n3. Pelunasan paling lambat H-3 sebelum acara.\n4. Harga sudah termasuk pajak & service sesuai rincian.';
 function buatPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   if(!can('edit_event'))return toast('Akses ditolak','Hanya tim Marketing yang membuat penawaran.','err');
@@ -4537,40 +4549,66 @@ function buatPenawaran(id){
   const p=ev.penawaran||{};
   const no=p.noSurat||noSuratBaru();
   const vu=p.validUntil||new Date(Date.now()+14*864e5).toISOString().slice(0,10);
-  const terms=p.terms!=null?p.terms:TERMS_DEFAULT;
+  const f=p.file;
   modal('<div class="modal-head"><div><h3>'+(st?'Ubah':'Buat')+' Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
    +'<div class="fh">No. Surat</div><input id="pen_no" class="inp" value="'+esc(no)+'">'
    +'<div class="fh" style="margin-top:10px">Berlaku sampai</div><input id="pen_vu" type="date" class="inp" value="'+esc(vu)+'">'
-   +'<div class="fh" style="margin-top:10px">Syarat &amp; Ketentuan</div><textarea id="pen_terms" class="inp" rows="5">'+esc(terms)+'</textarea>'
-   +'<div class="cell-sub" style="margin-top:8px">Nilai penawaran diambil dari tab <b>Event Brief &amp; Quotation</b> (Grand Total saat ini '+rp(eventFinance(ev).grand)+'). Isi rincian harganya di sana.</div>'
-   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="simpanPenawaran(\''+id+'\')">Simpan</button></div>');
+   +'<div class="fh" style="margin-top:10px">Berkas Surat Penawaran (PDF)</div>'
+   +'<input id="pen_file" class="inp" type="file" accept="application/pdf,.pdf">'
+   +'<div class="cell-sub" style="margin-top:6px">'
+     +(f?'Berkas saat ini: <a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><b>'+esc(f.name||'surat-penawaran.pdf')+'</b></a> — pilih berkas baru bila ingin mengganti.'
+        :'Unggah PDF surat penawaran yang sudah kamu buat. Maks 8MB. Berkas ini yang akan dibaca Manager saat approval dan dikirim ke client.')
+   +'</div>'
+   +'<div class="fh" style="margin-top:10px">Catatan untuk Approver <span style="font-weight:400">(opsional)</span></div>'
+   +'<textarea id="pen_note" class="inp" rows="3" placeholder="mis. harga sudah termasuk sewa panggung, hasil nego dengan client">'+esc(p.note||'')+'</textarea>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" id="pen_save_btn" onclick="simpanPenawaran(\''+id+'\')">Simpan</button></div>');
 }
-function simpanPenawaran(id){
+async function simpanPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   const p=ev.penawaran||{};
+  const inp=$('pen_file'), file=inp&&inp.files&&inp.files[0];
+  const btn=$('pen_save_btn');
+  if(file){
+    if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf')return toast('Harus PDF','Surat penawaran diunggah dalam format PDF.','err');
+    if(file.size>8*1024*1024)return toast('File terlalu besar','Berkas PDF maksimal 8MB.','err');
+    if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF...'; }
+    try{
+      const b64=await fileToBase64(file);
+      const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'uploadReceipt',fileName:file.name,mimeType:file.type||'application/pdf',dataBase64:b64})});
+      const d=await res.json();
+      if(!d||!d.ok)throw new Error((d&&d.error)||'ditolak server');
+      p.file={key:d.data.key,name:file.name,size:file.size,at:new Date().toISOString(),by:(ME&&ME.name)||''};
+    }catch(e){
+      if(btn){ btn.disabled=false; btn.textContent='Simpan'; }
+      return toast('Gagal unggah','Berkas PDF tidak berhasil diunggah: '+e.message,'err');
+    }
+  }
   p.noSurat=$('pen_no').value.trim();
   p.validUntil=$('pen_vu').value;
-  p.terms=$('pen_terms').value;
+  p.note=$('pen_note').value.trim();
   // Draft baru, atau kembali ke Draft setelah revisi dari Ditolak.
-  p.status=(p.status==='Draft')?'Draft':'Draft';
+  p.status='Draft';
   ev.penawaran=p;
-  logAct('event',id,'Penawaran disimpan',p.noSurat);
-  save(); closeModal(); toast('Penawaran disimpan','No. '+p.noSurat+' — ajukan ke Howandi untuk approval.','ok'); go('event',id);
+  logAct('event',id,'Penawaran disimpan',p.noSurat+(file?' · PDF diunggah':''));
+  save(); closeModal();
+  toast('Penawaran disimpan','No. '+p.noSurat+(p.file?' — ajukan approval ke Manager.':' — unggah PDF-nya dulu sebelum bisa diajukan.'),'ok');
+  go('event',id);
 }
 function ajukanPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(!can('edit_event'))return toast('Akses ditolak','','err');
+  if(!penFile(ev))return toast('PDF belum ada','Unggah dulu berkas PDF surat penawarannya lewat tombol Ubah.','err');
   const f=eventFinance(ev);
-  if(!f.grand)return toast('Nilai belum ada','Isi rincian & harga di tab Event Brief & Quotation dulu.','err');
   const p=ev.penawaran;
   p.status='Menunggu Approval'; p.submittedBy=ME.id; p.submittedAt=new Date().toISOString(); p.rejectNote='';
-  logAct('event',id,'Penawaran diajukan','menunggu approval Howandi');
-  pushNotif('approval','Penawaran menunggu approval',ev.nama+' ('+rp(f.grand)+') menunggu persetujuan Howandi.','#event/'+id);
-  save(); buildNav(); toast('Diajukan','Menunggu approval Howandi sebelum bisa dikirim ke client.','ok'); go('event',id);
+  logAct('event',id,'Penawaran diajukan','menunggu approval Manager / Approver');
+  pushNotif('approval','Penawaran menunggu approval',ev.nama+(f.grand?' ('+rp(f.grand)+')':'')+' menunggu persetujuan Manager / Approver.','#event/'+id);
+  save(); buildNav(); toast('Diajukan','Menunggu approval Manager / Approver sebelum bisa dikirim ke client.','ok'); go('event',id);
 }
 function putusPenawaran(id,decision){
-  if(!bisaPutusPenawaran())return toast('Hanya Howandi','Persetujuan penawaran hanya bisa dari Super Admin (Howandi).','err');
+  if(!bisaPutusPenawaran())return toast('Bukan Approver','Persetujuan penawaran hanya bisa dari role Manager / Approver.','err');
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(ev.penawaran.status!=='Menunggu Approval')return;
   let note='';
@@ -4584,46 +4622,68 @@ function putusPenawaran(id,decision){
 function kirimPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(!can('edit_event'))return toast('Akses ditolak','','err');
-  if(!['Disetujui','Terkirim'].includes(ev.penawaran.status))return toast('Belum disetujui','Penawaran harus disetujui Howandi dulu sebelum dikirim ke client.','err');
-  const p=ev.penawaran;
+  if(!['Disetujui','Terkirim'].includes(ev.penawaran.status))return toast('Belum disetujui','Penawaran harus disetujui Manager / Approver dulu sebelum dikirim ke client.','err');
+  const p=ev.penawaran, file=p.file;
+  if(!file)return toast('PDF belum ada','Berkas surat penawarannya tidak ada — unggah dulu.','err');
   p.status='Terkirim'; p.sentAt=new Date().toISOString(); p.sentBy=ME.id; p.sentVia='WhatsApp';
   if(['Lead','Prospect'].includes(ev.status)){ ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim'; }
   logAct('event',id,'Penawaran dikirim ke client','WhatsApp');
   save(); buildNav();
-  genBriefFor(id,'quote'); // buka dokumen Surat Penawaran (Quotation) + tombol WhatsApp/print
+  /* Berkasnya PDF hasil unggahan, jadi tidak bisa "dikirim" langsung dari sini:
+     dua tombol — unduh PDF-nya, lalu buka WhatsApp untuk melampirkannya. */
+  const c=S.clients.find(x=>x.id===ev.clientId)||{}, f=eventFinance(ev);
+  const msg='Halo '+(c.pic||c.nama||'')+', berikut surat penawaran untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+')'
+    +(f.grand?('.\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)):'.')
+    +'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
+  modal('<div class="modal-head"><div><h3>Kirim Surat Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="cell-sub">Unduh dulu berkas PDF-nya, lalu buka WhatsApp client dan lampirkan berkas itu bersama pesan yang sudah disiapkan.</div>'
+   +'<div class="pill-row" style="margin-top:12px">'
+     +'<a class="btn" href="'+esc(attachUrl(file.key))+'" target="_blank" rel="noopener">'+svg(IC.brief)+'Buka / Unduh PDF</a>'
+     +'<a class="btn pri" href="'+esc(waLink(c.hp,msg))+'" target="_blank" rel="noopener">'+svg(IC.wa)+'Buka WhatsApp</a>'
+   +'</div></div><div class="modal-foot"><button class="btn pri" onclick="closeModal()">Selesai</button></div>');
 }
-function suratPenawaranPDF(id){ genBriefFor(id,'quote'); }
+// Membaca surat penawaran = membuka berkas PDF yang diunggah Marketing.
+function suratPenawaranPDF(id){
+  const ev=S.events.find(e=>e.id===id); const f=penFile(ev);
+  if(!f)return toast('Belum ada berkas','Surat penawaran PDF belum diunggah.','err');
+  window.open(attachUrl(f.key),'_blank','noopener');
+}
 function dealPenawaran(id){ confirmEvent(id); }
 /* Kartu Penawaran di halaman detail event — menampilkan status + aksi sesuai
-   tahap & peran (Marketing membuat/mengajukan/mengirim; Howandi setujui/tolak). */
+   tahap & peran (Marketing unggah/ajukan/kirim; Manager / Approver setujui/tolak). */
 function penawaranCard(ev,canEdit){
   const st=penStatus(ev), p=ev.penawaran, f=eventFinance(ev), superA=bisaPutusPenawaran();
+  const pf=penFile(ev);
+  const btnPDF='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Baca PDF</button>';
   let info='', acts='<div class="pill-row">';
   if(!st){
-    info='<div class="cell-sub">Belum ada penawaran. Buat surat penawaran → ajukan ke Howandi → setelah disetujui baru bisa dikirim ke client.</div>';
+    info='<div class="cell-sub">Belum ada penawaran. Buat surat penawaran (unggah PDF-nya) → ajukan ke Manager / Approver → setelah disetujui baru bisa dikirim ke client.</div>';
     if(canEdit) acts+='<button class="btn pri" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.brief)+'Buat Penawaran</button>';
   } else {
     info='<div style="display:flex;gap:26px;flex-wrap:wrap;font-size:13px">'
       +'<div><div class="cell-sub">No. Surat</div><b class="mono">'+esc(p.noSurat||'—')+'</b></div>'
       +'<div><div class="cell-sub">Berlaku s/d</div><b>'+(p.validUntil?fmtDate(p.validUntil):'—')+'</b></div>'
       +'<div><div class="cell-sub">Grand Total</div><b class="mono">'+rp(f.grand)+'</b></div>'
+      +'<div><div class="cell-sub">Berkas PDF</div>'+(pf?'<a href="'+esc(attachUrl(pf.key))+'" target="_blank" rel="noopener"><b>'+esc(pf.name||'surat-penawaran.pdf')+'</b></a>':'<b style="color:var(--danger)">belum diunggah</b>')+'</div>'
       +(p.sentAt?'<div><div class="cell-sub">Dikirim</div><b>'+fmtDate(p.sentAt.slice(0,10))+' · '+esc(p.sentVia||'')+'</b></div>':'')
       +'</div>';
-    if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Howandi:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
+    if(p.note) info+='<div class="cell-sub" style="margin-top:8px">Catatan: '+esc(p.note)+'</div>';
+    if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Approver:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
     if(st==='Draft' && canEdit){
-      acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Ubah</button>'
-        +'<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>'
-        +'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
+      acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+(pf?'Ubah':'Unggah PDF')+'</button>'
+        +(pf?btnPDF:'')
+        +(pf?'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>':'');
     } else if(st==='Menunggu Approval'){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>';
+      acts+=btnPDF;
       if(superA) acts+='<button class="btn pri" onclick="putusPenawaran(\''+ev.id+'\',\'Disetujui\')">'+svg(IC.check)+'Setujui</button>'
         +'<button class="btn danger" onclick="putusPenawaran(\''+ev.id+'\',\'Ditolak\')">'+svg(IC.x)+'Tolak</button>';
-      else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Howandi</span>';
+      else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Manager / Approver</span>';
     } else if(st==='Disetujui' && canEdit){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>'
+      acts+=btnPDF
         +'<button class="btn pri" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ke Client</button>';
     } else if(st==='Terkirim'){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>';
+      acts+=btnPDF;
       if(canEdit) acts+='<button class="btn" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ulang</button>';
       if(canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status)) acts+='<button class="btn pri" onclick="dealPenawaran(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
     } else if(st==='Ditolak' && canEdit){
@@ -4809,7 +4869,7 @@ function deletePayment(id,paymentId){
    ============================================================ */
 let briefCari='';
 function renderBrief(V){
-  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal, versi client, atau quotation profesional.','');
+  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal atau versi client. <b>Surat Penawaran resmi tidak lagi digenerate di sini</b> — dibuat sendiri lalu diunggah PDF-nya di kartu Surat Penawaran pada detail event; tombol Draft Quotation di bawah hanya bahan referensi internal.','');
   const semua=S.events.slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   if(!semua.length){
     h+=empty('Belum ada event','Brief & quotation dibuat dari event yang sudah ada. Buat event dulu di menu Input & Event.','brief');
@@ -4832,22 +4892,17 @@ function renderBrief(V){
     V.innerHTML=h; return;
   }
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tanggal</th><th>Status</th><th>Generate</th></tr></thead><tbody>';
-  evs.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')">Quotation</button></div></td></tr>'; });
+  evs.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')" title="Bahan referensi internal — bukan Surat Penawaran resmi">Draft Quotation</button></div></td></tr>'; });
   h+='</tbody></table></div></div>';
   V.innerHTML=h;
 }
+/* Mode 'quote' di sini kini hanya DRAFT/referensi internal — Surat Penawaran
+   resmi adalah PDF yang diunggah Marketing di kartu Penawaran. Karena itu
+   membuka draft tidak lagi menaikkan tahap peluang; yang menaikkan tahap ke
+   "Quotation Terkirim" adalah kirimPenawaran() saat suratnya benar-benar
+   dikirim ke client. */
 function genBriefFor(id,mode){
   mode=mode||'internal'; buildBriefDoc(id,mode);
-  // otomasi: begitu quotation dibuat, tahap peluang naik sendiri
-  if(mode==='quote'){
-    const ev=S.events.find(e=>e.id===id);
-    // hanya dari tahap awal — Negotiation kini SETELAH Quotation, jadi jangan diturunkan.
-    if(ev && ['Lead','Prospect'].includes(ev.status)){
-      const prev=ev.status; ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim';
-      logAct('event',id,'Tahap → Quotation Terkirim','otomatis: quotation dibuat');
-      save(); toast('Tahap diperbarui',prev+' → Quotation Terkirim','ok');
-    }
-  }
 }
 function fmtFieldVal(fl,val){
   if(fl.t==='mirror'){
@@ -5219,10 +5274,10 @@ function buildBriefDoc(id,mode){
     if(pen.validUntil) body+='<div style="margin-top:8px;font-size:11.5px;color:#B8860B;font-weight:600">Penawaran ini berlaku sampai '+fmtDateLong(pen.validUntil)+'.</div>';
     body+='<div style="font-size:12.5px;line-height:1.75;margin-top:18px">Kami siap mendiskusikan penyesuaian sesuai kebutuhan Anda. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.</div>';
     // Tanda tangan digital (e-signature): terstempel otomatis dari jejak sistem.
-    // Marketing = saat penawaran diajukan/dikirim; Menyetujui = saat Howandi approve.
+    // Marketing = saat penawaran diajukan/dikirim; Menyetujui = saat Approver approve.
     const mktName=userName(ev.mktPIC)||ME.name;
     const mktAt=pen.sentAt||pen.submittedAt||'';
-    const apprName=pen.decidedBy?userName(pen.decidedBy):'Howandi';
+    const apprName=pen.decidedBy?userName(pen.decidedBy):'Manager / Approver';
     const apprAt=['Disetujui','Terkirim'].includes(pen.status)?(pen.decidedAt||''):'';
     const sigBlock=(intro,name,role,at)=>'<div style="text-align:center;min-width:200px">'+intro
       +(at?'<div style="font-family:\'Segoe Script\',\'Brush Script MT\',cursive;font-size:28px;color:#0C1826;line-height:1.15;margin:6px 0 0">'+esc(name)+'</div>'
@@ -5278,7 +5333,7 @@ function buildBriefDoc(id,mode){
 
   // WA message
   const waMsg='Halo '+(c.pic||c.nama)+', berikut '+ (mode==='quote'?'penawaran':'detail acara')+' untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+').\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)+'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
-  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Quotation'};
+  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Draft Quotation — referensi internal'};
   modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Modul E · '+modeLabels[mode]+'</div><h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row"><a class="btn sm" target="_blank" href="'+waLink(c.hp,waMsg)+'">'+svg(IC.wa)+'Kirim WA</a><button class="btn sm" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div><div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'+doc+'</div>');
   $('modal').classList.add('wide');
   window._printDoc=doc;
@@ -6371,9 +6426,9 @@ function poKirimKeBD(){
    MODUL I — APPROVAL FLOW
    ============================================================ */
 function renderApprovals(V){
-  let h=pageHead('Modul I','Approval Flow','Event bernilai besar / diskon di luar standar butuh persetujuan sebelum invoice.','');
+  let h=pageHead('Modul I','Approval Flow','Khusus negosiasi harga — diskon / penyesuaian harga di luar standar butuh persetujuan Manager sebelum invoice. Nilai event sebesar apa pun TIDAK lagi butuh approval.','');
   const items=S.approvals.slice().sort((a,b)=>b.at.localeCompare(a.at));
-  if(!items.length){ V.innerHTML=h+empty('Tidak ada antrian approval','Event yang melewati ambang '+rpShort(S.settings.approvalThreshold)+' atau diskon ≥'+S.settings.discountThreshold+'% akan masuk sini.','approve'); return; }
+  if(!items.length){ V.innerHTML=h+empty('Tidak ada antrian approval','Event dengan diskon negosiasi ≥'+S.settings.discountThreshold+'% akan masuk sini.','approve'); return; }
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Diajukan</th><th>Alasan</th><th class="mono">Nilai</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   items.forEach(a=>{ const e=S.events.find(x=>x.id===a.eventId); if(!e)return; const f=eventFinance(e);
     h+='<tr><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td><td>'+esc(userName(a.by))+'<div class="cell-sub">'+ago(a.at)+'</div></td><td style="font-size:12px">'+esc(a.reason)+'</td><td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(a.status,{Pending:{c:'--warn',t:'Pending'},Approved:{c:'--ok',t:'Approved'},Rejected:{c:'--danger',t:'Rejected'}})+'</td>'
@@ -7395,8 +7450,7 @@ function renderSettings(V){
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
    +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
-   +setRow('Ambang Approval (Rp)',num('set_appr',st.approvalThreshold),'Event dengan grand total ≥ nilai ini otomatis masuk Approval Flow — <em>Bagian 14, poin 5</em>.')
-   +setRow('Ambang Diskon Approval (%)',num('set_disc',st.discountThreshold),'Diskon ≥ persen ini juga otomatis butuh persetujuan Manager.')
+   +setRow('Ambang Diskon Approval (%)',num('set_disc',st.discountThreshold),'Diskon / penyesuaian harga ≥ persen ini otomatis masuk Approval Flow. <b>Hanya negosiasi harga yang butuh approval</b> — besarnya nilai event tidak lagi memicu approval.')
    +setRow('Baseline Revenue Harian (Rp)',num('set_baseline',(S.baseline||0),' placeholder="0"'),'Rata-rata omzet venue pada hari <em>tanpa</em> event. Dipakai menghitung Uplift di Reporting. Isi 0 bila belum ada angkanya — Uplift tidak ditampilkan.')
    +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
    +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
@@ -7408,8 +7462,8 @@ function renderSettings(V){
   const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','Sumber baseline/uplift','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
   h+='<div style="display:flex;flex-direction:column;gap:7px">'+points.map((p,i)=>'<div style="display:flex;gap:9px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span class="tag">'+(i+1)+'</span>'+esc(p)+'</div>').join('')+'</div>';
   h+='</div>';
-  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Surat Penawaran)</span></h3>'
-   +'<p class="section-desc">Foto venue yang tampil di <b>setiap</b> Surat Penawaran — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Upload sekali, dipakai di semua penawaran. Maks 8MB/foto.</p>'
+  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Draft Quotation)</span></h3>'
+   +'<p class="section-desc">Foto venue — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Tampil di <b>Draft Quotation</b> (Modul E) sebagai bahan saat menyusun Surat Penawaran; surat resminya sendiri kini dibuat di luar sistem lalu diunggah PDF-nya. Maks 8MB/foto.</p>'
    +'<div id="venueGalWrap">'+venueGalleryHTML(true)+'</div>'
    +'<label class="attach-add" style="margin-top:10px">'+svg(IC.plus)+'Tambah Foto Venue<input type="file" accept="image/*" multiple hidden onchange="uploadVenueFoto(this)"></label>'
    +'</div>';
@@ -7419,7 +7473,7 @@ function renderSettings(V){
 }
 function saveSettings(){
   const g=(k,f)=>f?parseFloat($('set_'+k).value):$('set_'+k).value;
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,approvalThreshold:+$('set_appr').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
   S.baseline=+$('set_baseline').value||0;
   save(); toast('Tersimpan','Pengaturan diperbarui.','ok');
 }
