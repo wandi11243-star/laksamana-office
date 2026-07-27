@@ -2353,6 +2353,8 @@ function renderDashboard(V){
   const rem=[];
   dpPending.forEach(e=>rem.push({i:'money',c:'--warn',t:'DP belum masuk',s:e.nama}));
   S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&!e.invoiceSent).forEach(e=>rem.push({i:'invoice',c:'--info',t:'Invoice belum dikirim',s:e.nama}));
+  S.events.filter(e=>penStatus(e)==='Menunggu Approval').forEach(e=>rem.push({i:'approve',c:'--violet',t:(bisaPutusPenawaran()?'Penawaran perlu approval':'Penawaran menunggu Howandi'),s:e.nama}));
+  S.events.filter(e=>penStatus(e)==='Disetujui').forEach(e=>rem.push({i:'approve',c:'--ok',t:'Penawaran disetujui — kirim ke client',s:e.nama}));
   S.followups.filter(f=>f.next===today()).forEach(f=>rem.push({i:'pipe',c:'--gold',t:'Follow up hari ini',s:clientName(f.clientId)}));
   if(!rem.length) h+='<div class="muted" style="padding:12px 0">Tidak ada reminder. Semua terkendali. ⚓</div>';
   rem.slice(0,7).forEach(r=>{ h+='<div style="display:flex;gap:11px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft)"><div style="width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,var('+r.c+') 15%,transparent);color:var('+r.c+')">'+svg(IC[r.i],'')+'</div><div><div style="font-size:13px;font-weight:600">'+r.t+'</div><div class="cell-sub">'+esc(r.s)+'</div></div></div>'; });
@@ -3108,6 +3110,9 @@ function renderEventForm(V,id){
    +'<div class="card stat"><div class="sl">Terbayar</div><div class="sv num" style="font-size:24px">'+rpShort(f.paid)+'</div><div class="sd">sisa '+rpShort(f.remaining)+'</div></div>'
    +'<div class="card stat"><div class="sl">Kesiapan Divisi</div><div class="sv num" style="font-size:24px">'+taskProgress(ev)+'%</div><div class="sd">'+eventCats(ev).filter(d=>divProgress(ev,d)>=100).length+'/'+eventCats(ev).length+' kategori</div></div>'
    +'</div>';
+
+  // Kartu Penawaran — alur approval Howandi lalu kirim ke client (di atas detailing).
+  h+=penawaranCard(ev,canEdit);
 
   // riwayat follow up peluang ini — supaya bisa ditelusuri langsung dari halaman
   // event, tidak cuma dari Database Client (yang menggabung semua event client itu).
@@ -4454,6 +4459,139 @@ function confirmEvent(id){
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
+}
+
+/* ============================================================
+   PENAWARAN (Surat Penawaran) — alur permintaan Howandi:
+     Buat → Ajukan → (Howandi) Setujui/Tolak → Kirim ke Client → Deal (detailing)
+   Menempel di ev.penawaran. Nilai & isi surat memakai eventFinance +
+   buildBriefDoc(...,'quote') yang sudah ada (dokumen Quotation = Surat
+   Penawaran). Keputusan Setujui/Tolak HANYA Super Admin (Howandi); Devani/
+   Marketing tidak bisa mengirim sebelum status 'Disetujui'.
+   ============================================================ */
+const PEN_STATUS={
+  'Draft':{c:'--muted',t:'Draft'},
+  'Menunggu Approval':{c:'--warn',t:'Menunggu Approval'},
+  'Disetujui':{c:'--ok',t:'Disetujui'},
+  'Ditolak':{c:'--danger',t:'Ditolak'},
+  'Terkirim':{c:'--violet',t:'Terkirim ke Client'}
+};
+function penStatus(ev){ return (ev&&ev.penawaran&&ev.penawaran.status)||null; }
+// Persetujuan penawaran HANYA Super Admin (Howandi), sesuai permintaan.
+function bisaPutusPenawaran(){ return !!ME && ME.role==='super_admin'; }
+const ROMAWI=['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
+function noSuratBaru(){
+  const n=S.events.filter(e=>e.penawaran&&e.penawaran.noSurat).length+1;
+  const d=new Date();
+  return String(n).padStart(3,'0')+'/PNW/LM/'+ROMAWI[d.getMonth()+1]+'/'+d.getFullYear();
+}
+const TERMS_DEFAULT='1. Harga berlaku 14 hari sejak tanggal surat.\n2. DP 50% untuk penguncian tanggal.\n3. Pelunasan paling lambat H-3 sebelum acara.\n4. Harga sudah termasuk pajak & service sesuai rincian.';
+function buatPenawaran(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  if(!can('edit_event'))return toast('Akses ditolak','Hanya tim Marketing yang membuat penawaran.','err');
+  const st=penStatus(ev);
+  if(st && !['Draft','Ditolak'].includes(st))return toast('Terkunci','Penawaran hanya bisa diubah saat Draft atau setelah ditolak.','err');
+  const p=ev.penawaran||{};
+  const no=p.noSurat||noSuratBaru();
+  const vu=p.validUntil||new Date(Date.now()+14*864e5).toISOString().slice(0,10);
+  const terms=p.terms!=null?p.terms:TERMS_DEFAULT;
+  modal('<div class="modal-head"><div><h3>'+(st?'Ubah':'Buat')+' Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="fh">No. Surat</div><input id="pen_no" class="inp" value="'+esc(no)+'">'
+   +'<div class="fh" style="margin-top:10px">Berlaku sampai</div><input id="pen_vu" type="date" class="inp" value="'+esc(vu)+'">'
+   +'<div class="fh" style="margin-top:10px">Syarat &amp; Ketentuan</div><textarea id="pen_terms" class="inp" rows="5">'+esc(terms)+'</textarea>'
+   +'<div class="cell-sub" style="margin-top:8px">Nilai penawaran diambil dari tab <b>Event Brief &amp; Quotation</b> (Grand Total saat ini '+rp(eventFinance(ev).grand)+'). Isi rincian harganya di sana.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="simpanPenawaran(\''+id+'\')">Simpan</button></div>');
+}
+function simpanPenawaran(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  const p=ev.penawaran||{};
+  p.noSurat=$('pen_no').value.trim();
+  p.validUntil=$('pen_vu').value;
+  p.terms=$('pen_terms').value;
+  // Draft baru, atau kembali ke Draft setelah revisi dari Ditolak.
+  p.status=(p.status==='Draft')?'Draft':'Draft';
+  ev.penawaran=p;
+  logAct('event',id,'Penawaran disimpan',p.noSurat);
+  save(); closeModal(); toast('Penawaran disimpan','No. '+p.noSurat+' — ajukan ke Howandi untuk approval.','ok'); go('event',id);
+}
+function ajukanPenawaran(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
+  if(!can('edit_event'))return toast('Akses ditolak','','err');
+  const f=eventFinance(ev);
+  if(!f.grand)return toast('Nilai belum ada','Isi rincian & harga di tab Event Brief & Quotation dulu.','err');
+  const p=ev.penawaran;
+  p.status='Menunggu Approval'; p.submittedBy=ME.id; p.submittedAt=new Date().toISOString(); p.rejectNote='';
+  logAct('event',id,'Penawaran diajukan','menunggu approval Howandi');
+  pushNotif('approval','Penawaran menunggu approval',ev.nama+' ('+rp(f.grand)+') menunggu persetujuan Howandi.','#event/'+id);
+  save(); buildNav(); toast('Diajukan','Menunggu approval Howandi sebelum bisa dikirim ke client.','ok'); go('event',id);
+}
+function putusPenawaran(id,decision){
+  if(!bisaPutusPenawaran())return toast('Hanya Howandi','Persetujuan penawaran hanya bisa dari Super Admin (Howandi).','err');
+  const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
+  if(ev.penawaran.status!=='Menunggu Approval')return;
+  let note='';
+  if(decision==='Ditolak'){ note=(prompt('Alasan penolakan penawaran ini:')||'').trim(); if(!note)return toast('Alasan wajib','Isi alasan penolakan.','err'); }
+  const p=ev.penawaran;
+  p.status=decision; p.decidedBy=ME.id; p.decidedAt=new Date().toISOString(); p.rejectNote=note;
+  logAct('event',id,'Penawaran '+decision, note||('oleh '+ME.name));
+  pushNotif('approval','Penawaran '+decision, ev.nama+' — '+(decision==='Disetujui'?'siap dikirim ke client.':('ditolak: '+note)),'#event/'+id);
+  save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err'); go('event',id);
+}
+function kirimPenawaran(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
+  if(!can('edit_event'))return toast('Akses ditolak','','err');
+  if(!['Disetujui','Terkirim'].includes(ev.penawaran.status))return toast('Belum disetujui','Penawaran harus disetujui Howandi dulu sebelum dikirim ke client.','err');
+  const p=ev.penawaran;
+  p.status='Terkirim'; p.sentAt=new Date().toISOString(); p.sentBy=ME.id; p.sentVia='WhatsApp';
+  if(['Lead','Prospect'].includes(ev.status)){ ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim'; }
+  logAct('event',id,'Penawaran dikirim ke client','WhatsApp');
+  save(); buildNav();
+  genBriefFor(id,'quote'); // buka dokumen Surat Penawaran (Quotation) + tombol WhatsApp/print
+}
+function suratPenawaranPDF(id){ genBriefFor(id,'quote'); }
+function dealPenawaran(id){ confirmEvent(id); }
+/* Kartu Penawaran di halaman detail event — menampilkan status + aksi sesuai
+   tahap & peran (Marketing membuat/mengajukan/mengirim; Howandi setujui/tolak). */
+function penawaranCard(ev,canEdit){
+  const st=penStatus(ev), p=ev.penawaran, f=eventFinance(ev), superA=bisaPutusPenawaran();
+  let info='', acts='<div class="pill-row">';
+  if(!st){
+    info='<div class="cell-sub">Belum ada penawaran. Buat surat penawaran → ajukan ke Howandi → setelah disetujui baru bisa dikirim ke client.</div>';
+    if(canEdit) acts+='<button class="btn pri" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.brief)+'Buat Penawaran</button>';
+  } else {
+    info='<div style="display:flex;gap:26px;flex-wrap:wrap;font-size:13px">'
+      +'<div><div class="cell-sub">No. Surat</div><b class="mono">'+esc(p.noSurat||'—')+'</b></div>'
+      +'<div><div class="cell-sub">Berlaku s/d</div><b>'+(p.validUntil?fmtDate(p.validUntil):'—')+'</b></div>'
+      +'<div><div class="cell-sub">Grand Total</div><b class="mono">'+rp(f.grand)+'</b></div>'
+      +(p.sentAt?'<div><div class="cell-sub">Dikirim</div><b>'+fmtDate(p.sentAt.slice(0,10))+' · '+esc(p.sentVia||'')+'</b></div>':'')
+      +'</div>';
+    if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Howandi:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
+    if(st==='Draft' && canEdit){
+      acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Ubah</button>'
+        +'<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>'
+        +'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
+    } else if(st==='Menunggu Approval'){
+      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>';
+      if(superA) acts+='<button class="btn pri" onclick="putusPenawaran(\''+ev.id+'\',\'Disetujui\')">'+svg(IC.check)+'Setujui</button>'
+        +'<button class="btn danger" onclick="putusPenawaran(\''+ev.id+'\',\'Ditolak\')">'+svg(IC.x)+'Tolak</button>';
+      else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Howandi</span>';
+    } else if(st==='Disetujui' && canEdit){
+      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>'
+        +'<button class="btn pri" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ke Client</button>';
+    } else if(st==='Terkirim'){
+      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>';
+      if(canEdit) acts+='<button class="btn" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ulang</button>';
+      if(canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status)) acts+='<button class="btn pri" onclick="dealPenawaran(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
+    } else if(st==='Ditolak' && canEdit){
+      acts+='<button class="btn pri" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Perbaiki & Ajukan Lagi</button>';
+    }
+  }
+  acts+='</div>';
+  return '<div class="card" style="margin-bottom:18px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">'
+    +'<h3 style="font-size:15px;display:flex;align-items:center;gap:9px">'+svg(IC.brief)+'Surat Penawaran'+(st?' '+statusChip(st,PEN_STATUS):'')+'</h3>'
+    +acts+'</div>'+info+'</div>';
 }
 /* ---------- FINANCE TAB (D.10) ---------- */
 function financeTab(ev,canEdit){
