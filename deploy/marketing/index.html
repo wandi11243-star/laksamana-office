@@ -1602,13 +1602,15 @@ async function autoSyncOfficeRoster(){
     (data.members||[]).forEach(m=>{
       if(!m||!m.id)return;
       let u=S.users.find(x=>x.id===m.id)||S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
+      const div=divisiDariKeterangan(m.keterangan);
       if(!u){
-        S.users.push({id:m.id,name:m.name||'(tanpa nama)',role:m.isModuleAdmin?'super_admin':'marketing',active:m.active!==false});
+        S.users.push({id:m.id,name:m.name||'(tanpa nama)',div,role:m.isModuleAdmin?'super_admin':'marketing',active:m.active!==false});
         changed=true;
       } else {
         // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
         if(m.id&&u.id!==m.id){u.id=m.id;changed=true;}
         if(m.name&&u.name!==m.name){u.name=m.name;changed=true;}
+        if(div&&!u.div){u.div=div;changed=true;}
       }
     });
     if(changed){ logAct('user','-','Roster staf disinkronkan dari Office','otomatis saat buka modul'); save(); buildNav(); }
@@ -7261,7 +7263,7 @@ function renderStaff(V){
      +(canEdit?'<td><div class="pill-row"><button class="btn sm" onclick="newStaff(\''+s.id+'\')">'+svg(IC.edit)+'</button><button class="btn sm" onclick="delStaff(\''+s.id+'\')">'+svg(IC.trash)+'</button></div></td>':'')+'</tr>';
   });
   h+='</tbody></table></div></div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Pegawai dari <em>Office</em> ikut diperbarui saat kamu menekan "Tarik dari Office"; pegawai <em>Manual</em> tidak akan tertimpa. Field PIC tetap boleh diketik bebas kalau namanya belum terdaftar.</span></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Pegawai dari <em>Office</em> ikut diperbarui saat kamu menekan "Tarik dari Office" — termasuk <em>No. HP</em>-nya; pegawai <em>Manual</em> tidak akan tertimpa. <em>Divisi</em> ditebak dari kolom <em>Keterangan</em> di Office (Office tidak punya kolom divisi sendiri) dan hanya diisi kalau masih kosong — kalau tebakannya meleset atau tidak ketemu, ubah manual lewat tombol edit dan tarikan berikutnya tidak akan menimpanya. Field PIC tetap boleh diketik bebas kalau namanya belum terdaftar.</span></div>';
   V.innerHTML=h;
 }
 function newStaff(id){
@@ -7291,6 +7293,25 @@ function delStaff(id){
     body:'Hapus <b>'+esc(s.name)+'</b> dari data pegawai? Nama yang sudah terlanjur dipakai sebagai PIC di event lama tidak ikut terhapus.',
     onYes:function(){ S.staff=(S.staff||[]).filter(x=>x.id!==id); logAct('user','-','Pegawai dihapus',s.name); save(); paintStaffDatalist(); toast('Dihapus',s.name+' dihapus.','ok'); go('staff'); }});
 }
+/* Office membalas nomor HP di field `noHp` — lihat aksi_list_divisi_roster()
+   di account-mysql. Kode lama membaca `m.hp`, yang tidak pernah ada, jadi
+   nomornya SELALU kosong. Dibaca lewat satu tempat ini supaya tidak salah lagi;
+   `hp` tetap diterima kalau suatu saat backend mengirim nama itu. */
+function hpDariOffice(m){ return String((m&&(m.noHp||m.hp))||'').trim(); }
+/* Office TIDAK punya kolom divisi tersendiri: tim/divisi kru ditulis sebagai
+   teks bebas di kolom `keterangan` (mis. "Event", "Bar", "Marketing Event").
+   Itu sebabnya kolom Divisi selalu kosong — tidak ada yang menurunkannya.
+   Dicocokkan sebagai KATA UTUH ke daftar divisi Marketing (getCats()), cara
+   yang sama dipakai modul Kompas untuk menurunkan tim PIC-nya. Kata utuh,
+   bukan potongan, supaya "Barista" tidak terbaca sebagai divisi "Bar". */
+function divisiDariKeterangan(ket){
+  const kata=String(ket||'').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  if(!kata.length) return '';
+  return getCats().find(d=>{
+    const dl=String(d).toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+    return dl.length && dl.every(w=>kata.indexOf(w)>=0);
+  })||'';
+}
 // Tarik pegawai dari Office (API & PIN sama seperti panel Kelola Akses)
 async function importOfficeStaff(){
   /* SELURUH pegawai dari database akun (dev_account / akun produksi), bukan cuma
@@ -7309,25 +7330,34 @@ async function importOfficeStaff(){
   }catch(e){ return toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err'); }
   if(!r||!r.ok) return toast('Gagal',(r&&r.error)?String(r.error):'Office menolak permintaan.','err');
   S.staff=S.staff||[];
-  let added=0,updated=0;
+  let added=0,updated=0,noDiv=0;
   (r.members||[]).forEach(m=>{
     if(!m||!m.name)return;
+    const hp=hpDariOffice(m), div=divisiDariKeterangan(m.keterangan);
+    if(!div) noDiv++;
     let s=(m.id&&S.staff.find(x=>x.officeId===m.id))||S.staff.find(x=>String(x.name).toLowerCase()===String(m.name).toLowerCase());
     if(s){
       let ch=false;
       if(m.id&&s.officeId!==m.id){ s.officeId=m.id; ch=true; }
       if(m.name&&s.name!==m.name){ s.name=m.name; ch=true; }
       if(m.keterangan&&!s.jabatan){ s.jabatan=m.keterangan; ch=true; }
+      // HP: Office yang jadi acuan, jadi nomor yang berubah di Office IKUT
+      // diperbarui di sini — dulu hanya terisi saat baris pertama kali dibuat.
+      if(hp&&s.hp!==hp){ s.hp=hp; ch=true; }
+      // Divisi: hanya diisi kalau masih kosong. Tebakan dari teks bebas tidak
+      // boleh menimpa divisi yang sudah dipilih orang secara sadar.
+      if(div&&!s.div){ s.div=div; ch=true; }
       if(m.active===false&&s.active!==false){ s.active=false; ch=true; }
       if(ch)updated++;
     } else {
-      S.staff.push({id:uid('st'),officeId:m.id||'',name:m.name,div:'',jabatan:m.keterangan||'',hp:m.hp||'',source:'office',active:m.active!==false});
+      S.staff.push({id:uid('st'),officeId:m.id||'',name:m.name,div,jabatan:m.keterangan||'',hp,source:'office',active:m.active!==false});
       added++;
     }
   });
   logAct('user','-','Data pegawai ditarik dari Office',added+' baru · '+updated+' diperbarui');
   save(); paintStaffDatalist();
-  toast('Selesai',added+' pegawai baru, '+updated+' diperbarui.','ok');
+  toast('Selesai',added+' pegawai baru, '+updated+' diperbarui.'
+    +(noDiv?' '+noDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.':''),'ok');
   go('staff');
 }
 
@@ -7409,14 +7439,17 @@ async function importOfficeUsers(){
   (r.members||[]).forEach(m=>{
     if(!m||!m.id)return;
     const u=S.users.find(x=>x.id===m.id)||S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
+    const div=divisiDariKeterangan(m.keterangan);
     if(u){ // jangan sentuh role/perms yang sudah diatur — hanya lengkapi identitas
       let ch=false;
       if(!u.id){ u.id=m.id; ch=true; }
       if(m.name&&u.name!==m.name){ u.name=m.name; ch=true; }
       if(m.email&&!u.email){ u.email=m.email; ch=true; }
+      // Kolom Divisi di tabel ini dulu selalu "—" karena tidak ada yang mengisinya.
+      if(div&&!u.div){ u.div=div; ch=true; }
       if(ch)updated++;
     } else {
-      S.users.push({id:m.id,name:m.name||'(tanpa nama)',email:m.email||'',role:'marketing',active:true});
+      S.users.push({id:m.id,name:m.name||'(tanpa nama)',email:m.email||'',div,role:'marketing',active:true});
       added++;
     }
   });
