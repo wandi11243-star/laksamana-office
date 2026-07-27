@@ -2255,12 +2255,15 @@ function buildNav(){
     if(item.g){ curGroup=item.g; pending='<div class="nav-group">'+item.g+'</div>'; groupHasItem=false; return; }
     if(!allowed.includes(item.k))return;
     if(pending){ nav.insertAdjacentHTML('beforeend',pending); pending=''; }
-    const badge = item.k==='approvals'?pendingApprovals().length : item.k==='notifications'?unreadNotif() : 0;
+    const badge = item.k==='approvals'?(pendingApprovals().length+pendingPenawaran().length) : item.k==='notifications'?unreadNotif() : 0;
     nav.insertAdjacentHTML('beforeend',
       '<a data-k="'+item.k+'" onclick="go(\''+item.k+'\')">'+svg(IC[item.i])+'<span>'+item.t+'</span>'+(badge?'<span class="badge">'+badge+'</span>':'')+'</a>');
   });
 }
 function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending'); }
+// Surat Penawaran yang menunggu keputusan manajemen — ikut dihitung di lencana
+// menu Approval Flow, karena halaman itulah tempat manajemen memutuskannya.
+function pendingPenawaran(){ return S.events.filter(e=>penStatus(e)==='Menunggu Approval'); }
 
 /* ---------- ROUTER ---------- */
 const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Data Pegawai','Daftar pegawai — jadi sumber pilihan PIC'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
@@ -2839,9 +2842,12 @@ function doDelEvent(id){
   toast('Event dihapus',e.nama+' dihapus permanen.','ok'); go('events');
 }
 
-/* ---------- GERBANG TAHAP PIPELINE ----------
-   Informasi Dasar (D.1) wajib lengkap sebelum peluang masuk Negotiation ke atas —
-   supaya tidak ada event yang dinegosiasikan tanpa tanggal/pax/area yang jelas. */
+/* ---------- PENGINGAT TAHAP PIPELINE ----------
+   Dulu ini GERBANG: Informasi Dasar (D.1) yang belum lengkap MENOLAK kenaikan
+   tahap dan melempar orang ke tab Informasi Dasar. Terlalu mengunci — tahap
+   pipeline itu catatan kemajuan negosiasi, bukan sertifikat kelengkapan data,
+   dan datanya di lapangan memang sering baru lengkap belakangan. Sekarang tahap
+   SELALU boleh naik; yang kurang cuma diingatkan lewat toast. */
 const STAGE_NEEDS_BASIC=['Negotiation','Quotation Terkirim','Deal'];
 function missingBasic(ev){
   const sec=SEC_BY_ID['basic']; if(!sec)return [];
@@ -2853,25 +2859,23 @@ function missingBasic(ev){
     return v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length);
   }).map(fl=>fl.l);
 }
-function guardStage(ev,col){
-  if(!STAGE_NEEDS_BASIC.includes(col))return true;
-  const miss=missingBasic(ev);
-  if(!miss.length)return true;
-  toast('Lengkapi Informasi Dasar','Belum terisi: '+miss.slice(0,3).join(', ')+(miss.length>3?' (+'+(miss.length-3)+' lagi)':'')+'. Wajib sebelum tahap '+col+'.','err');
-  curTab='basic'; go('event',ev.id);
-  return false;
+/* Mengingatkan, TIDAK menahan. Ditunda sedikit supaya tidak menumpuk di atas
+   toast "Tahap diperbarui" yang muncul lebih dulu. */
+function ingatkanStage(ev,col){
+  if(!STAGE_NEEDS_BASIC.includes(col))return;
+  const miss=missingBasic(ev); if(!miss.length)return;
+  setTimeout(()=>toast('Data dasar belum lengkap','Belum terisi: '+miss.slice(0,3).join(', ')+(miss.length>3?' (+'+(miss.length-3)+' lagi)':'')+'. Tahapnya tetap naik — lengkapi kalau sempat.'),700);
 }
 function setEventStage(id,col){
   const e=S.events.find(x=>x.id===id); if(!e||e.status===col)return;
-  if(!guardStage(e,col))return;
   const prev=e.status; e.status=col; e.pipeCol=col;
   if(col==='Deal') genTasks(e);
   logAct('event',id,'Tahap diubah',prev+' → '+col);
-  save(); toast('Tahap diperbarui',prev+' → '+col,'ok'); go('event',id);
+  save(); toast('Tahap diperbarui',prev+' → '+col,'ok'); ingatkanStage(e,col); go('event',id);
 }
 function moveEventPipe(id,col){
   const e=S.events.find(x=>x.id===id); if(!e)return;
-  if(!guardStage(e,col))return; // guardStage sudah mengarahkan ke tab Informasi Dasar
+  ingatkanStage(e,col);
   e.pipeCol=col;
   const prev=e.status; e.status=col;
   logAct('event',id,'Pipeline dipindah',prev+' → '+col);
@@ -2970,13 +2974,12 @@ function saveFollowUp(clientId){
   }
   S.followups.unshift({id:uid('f'),clientId,eventId:ev?ev.id:'',by:ME.id,action,hasil,note,at:new Date().toISOString().slice(0,16),next});
   c.lastContact=today();
-  let stageBlocked='';
   if(ev){
-    let stage=FU_RESULT[hasil];
-    // Follow up tetap tersimpan walau D.1 belum lengkap — hanya kenaikan tahapnya yang ditahan,
-    // supaya catatan hasil telepon tidak hilang cuma karena data event belum rapi.
-    if(stage && stage!==ev.status && STAGE_NEEDS_BASIC.includes(stage) && missingBasic(ev).length){ stageBlocked=stage; stage=null; }
+    const stage=FU_RESULT[hasil];
+    // Hasil follow up langsung menaikkan tahap, lengkap atau belum datanya —
+    // kalau ada yang kurang, ingatkanStage() cuma memberi tahu.
     if(stage && stage!==ev.status){
+      ingatkanStage(ev,stage);
       const prev=ev.status; ev.status=stage; ev.pipeCol=stage;
       if(stage==='Deal') genTasks(ev);
       logAct('event',ev.id,'Follow up: '+action,hasil+' · '+prev+' → '+stage+(note?' · '+note:''));
@@ -2992,10 +2995,6 @@ function saveFollowUp(clientId){
   }
   save(); closeModal();
   toast('Follow up dicatat',(ev?esc(ev.nama)+' → '+hasil:c.nama+' → '+hasil),'ok');
-  if(stageBlocked){
-    toast('Tahap belum naik','Informasi Dasar (D.1) belum lengkap — lengkapi dulu agar bisa masuk tahap '+stageBlocked+'.','err');
-    curTab='basic'; go('event',ev.id); return;
-  }
   go('pipeline');
 }
 /* ============================================================
@@ -4495,9 +4494,10 @@ function submitApprovalReq(id){
 }
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
-  // check PIC matrix (D.11) required
+  /* Matriks PIC Hari-H (D.11) dulu MENOLAK konfirmasi Deal bila belum terisi.
+     Sekarang hanya diingatkan: PIC sering baru ditentukan setelah deal-nya
+     pasti, jadi menahan Deal karenanya membalik urutan kerja yang sebenarnya. */
   const missing=['picKoordinator','picMOD','picAcara'].filter(k=>!ev.detail[k]);
-  if(missing.length){ curTab='operasional'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.11) di tab Operasional wajib terisi sebelum Confirmed.','err'); }
   // otomasi: cegah dobel booking — minta konfirmasi ulang bila bentrok
   const clash=bookingConflicts(ev);
   if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
@@ -4506,6 +4506,7 @@ function confirmEvent(id){
   syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
   if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (diskon negosiasi melewati ambang).','ok');
   else toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
+  if(missing.length) setTimeout(()=>toast('Matriks PIC belum lengkap','PIC Hari-H (D.11) di tab Operasional masih kosong — isi sebelum hari-H.'),900);
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
@@ -4604,10 +4605,12 @@ function ajukanPenawaran(id){
   const p=ev.penawaran;
   p.status='Menunggu Approval'; p.submittedBy=ME.id; p.submittedAt=new Date().toISOString(); p.rejectNote='';
   logAct('event',id,'Penawaran diajukan','menunggu approval Manager / Approver');
-  pushNotif('approval','Penawaran menunggu approval',ev.nama+(f.grand?' ('+rp(f.grand)+')':'')+' menunggu persetujuan Manager / Approver.','#event/'+id);
+  pushNotif('approval','Penawaran menunggu approval',ev.nama+(f.grand?' ('+rp(f.grand)+')':'')+' menunggu persetujuan di Approval Flow.','#approvals');
   save(); buildNav(); toast('Diajukan','Menunggu approval Manager / Approver sebelum bisa dikirim ke client.','ok'); go('event',id);
 }
-function putusPenawaran(id,decision){
+// `dari` = halaman pemanggil, supaya Manager yang memutuskan dari meja Approval
+// Flow tetap di antriannya dan bisa lanjut ke penawaran berikutnya.
+function putusPenawaran(id,decision,dari){
   if(!bisaPutusPenawaran())return toast('Bukan Approver','Persetujuan penawaran hanya bisa dari role Manager / Approver.','err');
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(ev.penawaran.status!=='Menunggu Approval')return;
@@ -4617,7 +4620,8 @@ function putusPenawaran(id,decision){
   p.status=decision; p.decidedBy=ME.id; p.decidedAt=new Date().toISOString(); p.rejectNote=note;
   logAct('event',id,'Penawaran '+decision, note||('oleh '+ME.name));
   pushNotif('approval','Penawaran '+decision, ev.nama+' — '+(decision==='Disetujui'?'siap dikirim ke client.':('ditolak: '+note)),'#event/'+id);
-  save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err'); go('event',id);
+  save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err');
+  if(dari==='approvals') go('approvals'); else go('event',id);
 }
 function kirimPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
@@ -6425,11 +6429,56 @@ function poKirimKeBD(){
 /* ============================================================
    MODUL I — APPROVAL FLOW
    ============================================================ */
+/* Antrian Surat Penawaran di halaman Approval Flow. Berkas suratnya adalah PDF
+   unggahan Marketing, jadi tombol "Baca PDF" membukanya langsung dari sini —
+   Manager bisa membaca lalu memutuskan tanpa berpindah halaman. */
+function penawaranQueueHTML(){
+  const bisa=bisaPutusPenawaran();
+  const pend=pendingPenawaran().slice().sort((a,b)=>String((b.penawaran||{}).submittedAt||'').localeCompare(String((a.penawaran||{}).submittedAt||'')));
+  const sudah=S.events.filter(e=>['Disetujui','Ditolak','Terkirim'].includes(penStatus(e)))
+    .sort((a,b)=>String((b.penawaran||{}).decidedAt||'').localeCompare(String((a.penawaran||{}).decidedAt||''))).slice(0,10);
+  let h='<div class="card pad0"><div style="padding:14px 16px 0"><h3 style="font-size:15px">Surat Penawaran Menunggu Persetujuan'+(pend.length?' <span class="tag" style="background:var(--warn-bg);color:var(--warn)">'+pend.length+'</span>':'')+'</h3>'
+    +'<p class="section-desc">Disetujui dulu di sini, baru Marketing boleh mengirimkannya ke klien.</p></div>';
+  if(!pend.length){
+    h+='<div style="padding:0 16px 16px"><div class="cell-sub">Tidak ada penawaran yang menunggu. Semua sudah diputuskan.</div></div>';
+  } else {
+    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>No. Surat</th><th class="mono">Nilai</th><th>Diajukan</th><th>Berkas</th><th>Aksi</th></tr></thead><tbody>';
+    pend.forEach(e=>{ const p=e.penawaran||{}, f=eventFinance(e);
+      h+='<tr><td><div class="cell-strong"><a onclick="go(\'event\',\''+e.id+'\')" style="cursor:pointer">'+esc(e.nama)+'</a></div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div>'
+        +(p.note?'<div class="cell-sub" style="margin-top:3px">Catatan: '+esc(p.note)+'</div>':'')+'</td>'
+        +'<td class="mono" style="font-size:12px">'+esc(p.noSurat||'—')+'<div class="cell-sub">berlaku s/d '+(p.validUntil?fmtDate(p.validUntil):'—')+'</div></td>'
+        +'<td class="mono">'+rp(f.grand)+'</td>'
+        +'<td>'+esc(userName(p.submittedBy))+'<div class="cell-sub">'+(p.submittedAt?ago(p.submittedAt):'—')+'</div></td>'
+        +'<td>'+(p.file?'<a class="btn sm" href="'+esc(attachUrl(p.file.key))+'" target="_blank" rel="noopener">'+svg(IC.brief)+'Baca PDF</a>':'<span class="cell-sub">tidak ada</span>')+'</td>'
+        +'<td>'+(bisa?'<div class="pill-row"><button class="btn sm pri" onclick="putusPenawaran(\''+e.id+'\',\'Disetujui\',\'approvals\')">Setujui</button><button class="btn sm danger" onclick="putusPenawaran(\''+e.id+'\',\'Ditolak\',\'approvals\')">Tolak</button></div>':'<span class="cell-sub">hanya Manager / Approver</span>')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  if(sudah.length){
+    h+='<div style="padding:14px 16px 0;border-top:1px solid var(--line)"><h3 style="font-size:14px">Sudah Diputuskan <span class="cell-sub" style="font-weight:400">(10 terakhir)</span></h3></div>'
+      +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>No. Surat</th><th>Status</th><th>Diputuskan</th><th>Berkas</th></tr></thead><tbody>';
+    sudah.forEach(e=>{ const p=e.penawaran||{};
+      h+='<tr><td><div class="cell-strong"><a onclick="go(\'event\',\''+e.id+'\')" style="cursor:pointer">'+esc(e.nama)+'</a></div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div>'
+        +(p.rejectNote?'<div class="cell-sub" style="color:var(--danger);margin-top:3px">'+esc(p.rejectNote)+'</div>':'')+'</td>'
+        +'<td class="mono" style="font-size:12px">'+esc(p.noSurat||'—')+'</td>'
+        +'<td>'+statusChip(penStatus(e),PEN_STATUS)+'</td>'
+        +'<td>'+esc(userName(p.decidedBy))+'<div class="cell-sub">'+(p.decidedAt?ago(p.decidedAt):'—')+'</div></td>'
+        +'<td>'+(p.file?'<a class="btn sm" href="'+esc(attachUrl(p.file.key))+'" target="_blank" rel="noopener">Baca PDF</a>':'<span class="cell-sub">—</span>')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  return h+'</div>';
+}
+/* Halaman ini adalah MEJA PUTUSAN MANAJEMEN. Dua antrian di sini:
+   1) Surat Penawaran menunggu persetujuan sebelum dikirim ke klien — ini yang
+      utama, supaya Manager tidak perlu membuka event satu per satu;
+   2) Negosiasi harga (diskon di luar standar) dari S.approvals. */
 function renderApprovals(V){
-  let h=pageHead('Modul I','Approval Flow','Khusus negosiasi harga — diskon / penyesuaian harga di luar standar butuh persetujuan Manager sebelum invoice. Nilai event sebesar apa pun TIDAK lagi butuh approval.','');
+  let h=pageHead('Modul I','Approval Flow','Meja putusan manajemen: setujui Surat Penawaran sebelum dikirim ke klien, dan negosiasi harga di luar standar. Besarnya nilai event tidak lagi memicu approval.','');
+  h+=penawaranQueueHTML();
   const items=S.approvals.slice().sort((a,b)=>b.at.localeCompare(a.at));
-  if(!items.length){ V.innerHTML=h+empty('Tidak ada antrian approval','Event dengan diskon negosiasi ≥'+S.settings.discountThreshold+'% akan masuk sini.','approve'); return; }
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Diajukan</th><th>Alasan</th><th class="mono">Nilai</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+  if(!items.length){ V.innerHTML=h+'<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Negosiasi Harga</h3><div class="cell-sub">Belum ada antrian. Event dengan diskon negosiasi ≥'+S.settings.discountThreshold+'% otomatis masuk sini.</div></div>'; return; }
+  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:14px 16px 0"><h3 style="font-size:15px">Negosiasi Harga</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Diajukan</th><th>Alasan</th><th class="mono">Nilai</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   items.forEach(a=>{ const e=S.events.find(x=>x.id===a.eventId); if(!e)return; const f=eventFinance(e);
     h+='<tr><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td><td>'+esc(userName(a.by))+'<div class="cell-sub">'+ago(a.at)+'</div></td><td style="font-size:12px">'+esc(a.reason)+'</td><td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(a.status,{Pending:{c:'--warn',t:'Pending'},Approved:{c:'--ok',t:'Approved'},Rejected:{c:'--danger',t:'Rejected'}})+'</td>'
      +'<td>'+(a.status==='Pending'&&can('approve')?'<div class="pill-row"><button class="btn sm pri" onclick="decideApproval(\''+a.id+'\',\'Approved\')">Approve</button><button class="btn sm danger" onclick="decideApproval(\''+a.id+'\',\'Rejected\')">Reject</button></div>':(a.note?esc(a.note):'—'))+'</td></tr>';
