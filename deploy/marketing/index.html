@@ -7664,7 +7664,7 @@ let VIP_FORM=null;         // draft yang sedang diisi (belum tersimpan)
 let vipFilter='';
 
 function vipKosong(){
-  return {id:uid('vip'),jenis:'Assisted',nama:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
+  return {id:uid('vip'),jenis:'Assisted',nama:'',clientId:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
     hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,kasir:'',nominal:'',
     meja:[],mktPIC:(ME?ME.id:''),catatan:'',resId:'',kirimAt:'',createdAt:new Date().toISOString(),createdBy:(ME?ME.name:'')};
 }
@@ -7675,6 +7675,28 @@ function vipNominal(v){ return (v&&v.jenis==='Assisted') ? (+v.nominal||0) : 0; 
 // belum selesai, dan harus kelihatan supaya tidak ada omzet yang lupa dicatat.
 function vipBelumNominal(v){ return v&&v.jenis==='Assisted' && !(+v.nominal); }
 function vipPax(v){ return +(v&&v.paxMax) || +(v&&v.paxMin) || 0; }
+/* Perusahaan datang dari Database Client, bukan diketik bebas. Yang disimpan
+   clientId-nya, jadi nama perusahaan yang dikoreksi di CRM ikut terkoreksi di
+   sini — teks bebas akan membeku pada ejaan saat itu dan lambat laun berselisih.
+   `perusahaan` yang lama tetap dibaca sebagai cadangan supaya catatan yang
+   sudah ada tidak kehilangan isinya. */
+function vipPerusahaan(v){
+  const c=v&&v.clientId?S.clients.find(x=>x.id===v.clientId):null;
+  if(c) return c.perusahaan||c.nama||'';
+  return (v&&v.perusahaan)||'';
+}
+// Label di kotak pencarian client — satu tempat, dipakai mengisi datalist DAN
+// membaca balik pilihannya, jadi keduanya tidak mungkin berbeda bentuk.
+function vipClientLabel(c){
+  const pt=(c.perusahaan&&c.perusahaan!==c.nama)?c.perusahaan:'';
+  return c.nama+(pt?' — '+pt:'')+(c.hp?' ('+c.hp+')':'');
+}
+function vipClientDariLabel(teks){
+  const t=String(teks||'').trim();
+  if(!t) return '';
+  const c=S.clients.find(x=>vipClientLabel(x)===t);
+  return c?c.id:null;      // null = diketik tapi tidak dikenali
+}
 function vipJam(v){ return [v.jamMulai,v.jamSelesai].filter(Boolean).join(' - ')||'—'; }
 
 const KOL_VIP=[
@@ -7696,7 +7718,7 @@ function renderVIP(V){
   const semua=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
     .slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   const q=(vipFilter||'').trim().toLowerCase();
-  const list=!q?semua:semua.filter(v=>[v.nama,v.perusahaan,v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
+  const list=!q?semua:semua.filter(v=>[v.nama,vipPerusahaan(v),v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
     .filter(Boolean).join(' ').toLowerCase().includes(q));
 
   const asst=semua.filter(v=>v.jenis==='Assisted');
@@ -7727,7 +7749,7 @@ function renderVIP(V){
   p.items.forEach(v=>{
     h+='<tr>'
      +'<td class="mono">'+fmtDate(v.tanggal)+'<div class="cell-sub">'+esc(vipJam(v))+'</div></td>'
-     +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(v.perusahaan||'')+'</div></td>'
+     +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(vipPerusahaan(v))+'</div></td>'
      +'<td>'+vipChip(v)+'</td>'
      +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
      +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
@@ -7771,7 +7793,10 @@ function vipForm(id){
      +'<div class="fh">Boleh dikosongkan dulu — diisi setelah acaranya selesai lewat tombol <b>Isi Nominal</b> di daftar. Inilah angka yang masuk laporan.</div></div></div>'
    +'<div class="form-grid">'
      +ff('Atas Nama','vip_nama',f.nama,'text',1)
-     +ff('Nama Perusahaan','vip_perusahaan',f.perusahaan,'text')
+     +'<div class="field"><label>Client / Perusahaan</label>'
+       +'<input class="inp" id="vip_client" list="vip_clientlist" autocomplete="off" placeholder="Ketik untuk cari client..." value="'+esc(f.clientId?(S.clients.find(x=>x.id===f.clientId)?vipClientLabel(S.clients.find(x=>x.id===f.clientId)):''):'')+'">'
+       +'<datalist id="vip_clientlist">'+S.clients.map(function(c){ return '<option value="'+esc(vipClientLabel(c))+'"></option>'; }).join('')+'</datalist>'
+       +'<div class="fh">Diambil dari <b>Database Client</b>. Kosongkan bila tamunya belum terdaftar di CRM.</div></div>'
      +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="vip_tanggal" value="'+esc(f.tanggal||'')+'"></div>'
      +ff('No. HP','vip_hp',f.hp,'text',1)
      +'<div class="field"><label>Jam Kedatangan<span class="req">*</span></label><input class="inp" type="time" id="vip_jamMulai" value="'+esc(f.jamMulai||'')+'"></div>'
@@ -7800,8 +7825,19 @@ function vipPilihJenis(btn,jenis){
 function vipKumpulkan(){
   const f=VIP_FORM; if(!f)return 'Form tidak terbuka.';
   const g=id=>{ const el=$(id); return el?el.value.trim():''; };
-  f.nama=g('vip_nama'); f.perusahaan=g('vip_perusahaan'); f.tanggal=g('vip_tanggal');
+  f.nama=g('vip_nama'); f.tanggal=g('vip_tanggal');
+  /* Client: kosong berarti memang tidak ditautkan. Diketik tapi tidak cocok
+     dengan satu pun baris CRM = kemungkinan besar salah ketik, jadi DITOLAK
+     ketimbang diam-diam disimpan sebagai tidak bertaut. */
+  const cid=vipClientDariLabel(g('vip_client'));
+  if(cid===null) return 'Client tidak dikenali — pilih dari daftar yang muncul saat mengetik, atau kosongkan.';
+  f.clientId=cid;
+  f.perusahaan=cid?'':f.perusahaan;   // ditautkan -> namanya selalu dibaca dari CRM
   f.hp=g('vip_hp'); f.jamMulai=g('vip_jamMulai'); f.jamSelesai=g('vip_jamSelesai');
+  // Nomor client dipakai kalau kotaknya masih kosong — mengetik ulang nomor yang
+  // sudah ada di CRM cuma menambah peluang salah ketik. Yang sudah diisi tidak
+  // pernah ditimpa: tamu VIP kadang memakai nomor PIC lain.
+  if(!f.hp && f.clientId){ const c=S.clients.find(x=>x.id===f.clientId); if(c&&c.hp) f.hp=c.hp; }
   f.paxMin=g('vip_paxMin'); f.paxMax=g('vip_paxMax');
   f.layoutReq=g('vip_layoutReq'); f.kasir=g('vip_kasir'); f.catatan=g('vip_catatan');
   const sv=segVal('vip_tv'); if(sv!==undefined)f.tv=sv.v;
@@ -7968,7 +8004,7 @@ async function vipSimpanKunci(){
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
       const catatan=['RESERVASI RUANG VIP ('+f.jenis+')',
-        f.perusahaan?'Perusahaan: '+f.perusahaan:'',
+        vipPerusahaan(f)?'Perusahaan: '+vipPerusahaan(f):'',
         f.layoutReq?'Request layout: '+f.layoutReq:'',
         'TV: '+(f.tv?'Ya':'Tidak')+' · Speaker & Mic: '+(f.speaker?'Ya':'Tidak'),
         f.kasir?'Kasir: '+f.kasir:'',
@@ -8028,7 +8064,7 @@ function vipSimpanNominal(id){
 function vipDetail(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
   const baris=(k,val)=>'<dt>'+k+'</dt><dd>'+(val||'—')+'</dd>';
-  modal('<div class="modal-head"><div><h3>'+esc(v.nama)+'</h3><p>'+esc(v.perusahaan||'')+' · '+esc(v.jenis)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+  modal('<div class="modal-head"><div><h3>'+esc(v.nama)+'</h3><p>'+esc(vipPerusahaan(v))+' · '+esc(v.jenis)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body"><dl class="kv-list">'
    +baris('Tanggal',fmtDateLong(v.tanggal))
    +baris('Jam Kedatangan',esc(vipJam(v)))
