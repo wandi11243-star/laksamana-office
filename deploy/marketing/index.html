@@ -1645,6 +1645,12 @@ const CLIENT_STATUS = {
 };
 // Alur: quotation dikirim lebih dulu, baru masuk tahap negosiasi.
 const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Lost'];
+/* Kolom kanban Sales Pipeline. Sengaja BEDA dari PIPE_COLS: "Event Done" harus
+   punya kolom sendiri supaya event yang sudah selesai tetap terlihat di papan
+   (dulu disembunyikan sama sekali, jadi orang mengira datanya hilang), tapi
+   TIDAK boleh muncul di dropdown "Pindah ke" pada form event — dari situ sebuah
+   Lead bisa lompat langsung jadi Event Done tanpa pernah Deal. */
+const KANBAN_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
 // Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
 const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim','Negotiation'];
 // Hasil follow up -> tahap pipeline event. null = status tidak berubah.
@@ -2316,7 +2322,7 @@ function autoCloseEvents(){
   let n=0;
   S.events.forEach(e=>{
     if(['Deal','Confirmed'].includes(e.status) && e.tanggal && daysTo(e.tanggal) <= -TENGGANG_TUTUP_HARI){
-      e.status='Event Done'; e.pipeCol='Deal';
+      e.status='Event Done'; e.pipeCol='Event Done';
       logAct('event',e.id,'Status → Event Done','otomatis: tanggal event sudah lewat lebih dari sehari');
       n++;
     }
@@ -2615,7 +2621,11 @@ function renderDashboard(V){
     pUp.items.forEach(e=>{
       const rd=daysTo(e.tanggal); const rlbl=rd===0?'Hari ini':'H-'+rd;
       const c=eventItemCount(e); const buka=!!dashTaskBuka[e.id];
-      h+='<tr class="row-click'+(buka?' baris-buka':'')+'" onclick="go(\'event\',\''+e.id+'\')">'
+      // Barisnya TIDAK lagi membuka form event. Dulu satu klik di mana pun
+      // melempar orang ke halaman input event — padahal yang dicari dari
+      // Dashboard cuma "event ini tugasnya apa saja". Sekarang seluruh baris
+      // hanya membuka/menutup dropdown daftar tugas.
+      h+='<tr class="row-click'+(buka?' baris-buka':'')+'" onclick="toggleDashTask(\''+e.id+'\')">'
         +'<td><button type="button" class="tugas-tarik'+(buka?' on':'')+'" '
           +'aria-expanded="'+(buka?'true':'false')+'" title="'+(buka?'Tutup':'Lihat')+' daftar tugas event ini" '
           +'onclick="event.stopPropagation();toggleDashTask(\''+e.id+'\')">'+svg(IC.chevR)+'</button></td>'
@@ -2623,12 +2633,11 @@ function renderDashboard(V){
         +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+rlbl+'</div></td>'
         +'<td class="mono">'+(e.pax||'—')+'</td>'
         +'<td style="min-width:130px"><div class="progress"><div class="bar" style="width:'+c.pct+'%"></div></div>'
-          +'<div class="cell-sub">'+c.selesai+'/'+c.total+' tugas · '+c.pct+'%</div></td>'
-        +'<td>'+svg(IC.chevR,'')+'</td></tr>';
+          +'<div class="cell-sub">'+c.selesai+'/'+c.total+' tugas · '+c.pct+'%</div></td></tr>';
       // Baris kedua: daftar tugas event ini. Hanya digambar saat dibuka —
       // menggambar semuanya lalu menyembunyikannya membuat Dashboard berat
       // tanpa ada yang melihatnya.
-      if(buka) h+='<tr class="baris-tugas"><td colspan="6">'+eventTaskListHTML(e)+'</td></tr>';
+      if(buka) h+='<tr class="baris-tugas"><td colspan="5">'+eventTaskListHTML(e)+'</td></tr>';
     });
     h+='</tbody></table></div>'+tblPagerHtml(pUp,'upcoming'); }
   h+='</div>';
@@ -2738,8 +2747,9 @@ const KOL_UPCOMING=[
   {k:'nama',    t:'Event',    v:e=>e.nama},
   {k:'tanggal', t:'Tanggal',  v:e=>e.tanggal, cls:'mono', def:1},
   {k:'pax',     t:'Pax',      v:e=>+e.pax||0, cls:'mono', turun:1},
-  {k:'siap',    t:'Kesiapan', v:e=>eventItemCount(e).pct, turun:1},
-  {t:''}
+  {k:'siap',    t:'Kesiapan', v:e=>eventItemCount(e).pct, turun:1}
+  // kolom chevron kanan dihapus: barisnya tidak lagi menuju halaman event,
+  // jadi tanda "buka halaman" itu justru menjanjikan hal yang tidak terjadi.
 ];
 function stat(label,val,sub,icon){
   return '<div class="card stat"><div class="sl">'+label+'</div><div class="sv num">'+val+'</div><div class="sd">'+sub+'</div><div class="si">'+svg(IC[icon])+'</div></div>';
@@ -3286,18 +3296,22 @@ function renderPipeline(V){
   if(pipeTab==='kanban')bindKanban();
 }
 function pipeStatusOfEv(e){
+  /* Status 'Event Done' menang atas pipeCol. Event yang ditutup otomatis oleh
+     autoCloseEvents() versi lama ikut disetel pipeCol='Deal', jadi kalau pipeCol
+     dibaca lebih dulu event lama itu akan menumpuk di kolom Deal seolah belum
+     selesai. */
+  if(e.status==='Event Done')return 'Event Done';
   if(e.pipeCol)return e.pipeCol;
-  const m={Confirmed:'Deal','Event Done':'Deal'};
-  return m[e.status] || (PIPE_COLS.includes(e.status)?e.status:'Lead');
+  const m={Confirmed:'Deal'};
+  return m[e.status] || (KANBAN_COLS.includes(e.status)?e.status:'Lead');
 }
 function pipeKanban(){
-  const cols=PIPE_COLS;
-  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
+  const cols=KANBAN_COLS;
+  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok','Event Done':'--teal',Lost:'--danger'};
   const mine=ME.role==='marketing';
   let h='<div class="kanban">';
   cols.forEach(col=>{
-    // Event yang sudah selesai (Event Done) tidak lagi ditampilkan di kanban pipeline.
-    const items=S.events.filter(e=>e.status!=='Event Done' && pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
+    const items=S.events.filter(e=>pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
     h+='<div class="kcol" data-col="'+col+'"><div class="kcol-head"><span class="cd" style="width:8px;height:8px;border-radius:50%;background:var('+colColor[col]+')"></span><span class="kt">'+col+'</span><span class="kc">'+items.length+'</span></div><div class="kcol-body" data-col="'+col+'">';
     items.forEach(e=>{ const val=eventFinance(e).grand;
       h+='<div class="kcard" draggable="true" data-id="'+e.id+'" onclick="go(\'event\',\''+e.id+'\')"><div class="kn">'+esc(e.nama)+'</div><div class="kco">'+esc(clientName(e.clientId))+' · '+esc(e.jenis)+'</div><div class="kmeta"><span class="tag">'+esc(userName(e.mktPIC).split(' ')[0])+'</span>'+(val?'<span class="kv">'+rpShort(val)+'</span>':'')+'</div></div>'; });
