@@ -1645,6 +1645,12 @@ const CLIENT_STATUS = {
 };
 // Alur: quotation dikirim lebih dulu, baru masuk tahap negosiasi.
 const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Lost'];
+/* Kolom kanban Sales Pipeline. Sengaja BEDA dari PIPE_COLS: "Event Done" harus
+   punya kolom sendiri supaya event yang sudah selesai tetap terlihat di papan
+   (dulu disembunyikan sama sekali, jadi orang mengira datanya hilang), tapi
+   TIDAK boleh muncul di dropdown "Pindah ke" pada form event — dari situ sebuah
+   Lead bisa lompat langsung jadi Event Done tanpa pernah Deal. */
+const KANBAN_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
 // Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
 const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim','Negotiation'];
 // Hasil follow up -> tahap pipeline event. null = status tidak berubah.
@@ -2289,12 +2295,8 @@ function openNotif(id){
   if(n.link) notifGo(n.link); else go('notifications');
 }
 
-/* ---------- BASELINE / UPLIFT (Bagian 9.3) ---------- */
-// Baseline = omzet rata-rata venue pada hari TANPA event. Tidak bisa dihitung
-// dari data sini (sistem ini hanya mencatat event), jadi diisi manual di Pengaturan.
-function baselineDaily(){
-  return +S.baseline || 0;   // 0 = belum diisi -> Uplift tidak ditampilkan
-}
+/* baselineDaily() DIHAPUS bersama kartu "Baseline vs Uplift" (PRD 9.3) di
+   Reporting — lihat alasannya di renderReports(). */
 
 /* ============================================================
    OTOMASI
@@ -2316,7 +2318,7 @@ function autoCloseEvents(){
   let n=0;
   S.events.forEach(e=>{
     if(['Deal','Confirmed'].includes(e.status) && e.tanggal && daysTo(e.tanggal) <= -TENGGANG_TUTUP_HARI){
-      e.status='Event Done'; e.pipeCol='Deal';
+      e.status='Event Done'; e.pipeCol='Event Done';
       logAct('event',e.id,'Status → Event Done','otomatis: tanggal event sudah lewat lebih dari sehari');
       n++;
     }
@@ -2437,27 +2439,34 @@ function updateTopUser(){
 
 /* ---------- NAV ---------- */
 const NAV_DEF=[
+  /* URUTAN = alur kerja sehari-hari, bukan urutan modul PRD. Dulu menu
+     bertuliskan "Database" tersebar di dua kelompok berbeda — Database Menu di
+     bawah Event, Database Client di bawah Analitik — sehingga orang yang mau
+     mengurus data induk harus mengingat dua tempat. Sekarang semuanya
+     berkumpul di bagian Sistem, satu tempat untuk data yang jarang diubah. */
   {g:'Ruang Komando'},
   {k:'dashboard',t:'Dashboard',i:'dash'},
   {g:'Event'},
-  {k:'events',t:'Input & Event',i:'event'},
+  // alur: peluang masuk & digarap dulu, baru detailing, brief, jadwal, handover
   {k:'pipeline',t:'Sales Pipeline',i:'pipe'},
+  {k:'events',t:'Input & Event',i:'event'},
   {k:'brief',t:'Event Brief & Quotation',i:'brief'},
   {k:'calendar',t:'Kalender',i:'cal'},
   {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
-  {k:'templates',t:'Template Task',i:'task'},
-  {k:'menudb',t:'Database Menu',i:'brief'},
   {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
   {g:'Finance & Kontrol'},
   {k:'invoices',t:'Invoice & Payment',i:'invoice'},
   {k:'approvals',t:'Approval Flow',i:'approve'},
   {k:'purchasing',t:'Purchase Order',i:'invoice'},
   {g:'Analitik'},
-  {k:'crm',t:'Database Client',i:'crm'},
   {k:'performance',t:'Marketing Performance',i:'perf'},
   {k:'reports',t:'Reporting',i:'report'},
   {k:'timeline',t:'Timeline & Audit Log',i:'timeline'},
   {g:'Sistem'},
+  // data induk — jarang diubah, tapi seluruh modul bersandar padanya
+  {k:'crm',t:'Database Client',i:'crm'},
+  {k:'menudb',t:'Database Menu',i:'brief'},
+  {k:'templates',t:'Template Task',i:'task'},
   {k:'notifications',t:'Notification Center',i:'notif'},
   {k:'staff',t:'Pegawai & Akses',i:'users'},
   {k:'settings',t:'Pengaturan',i:'settings'},
@@ -2615,7 +2624,11 @@ function renderDashboard(V){
     pUp.items.forEach(e=>{
       const rd=daysTo(e.tanggal); const rlbl=rd===0?'Hari ini':'H-'+rd;
       const c=eventItemCount(e); const buka=!!dashTaskBuka[e.id];
-      h+='<tr class="row-click'+(buka?' baris-buka':'')+'" onclick="go(\'event\',\''+e.id+'\')">'
+      // Barisnya TIDAK lagi membuka form event. Dulu satu klik di mana pun
+      // melempar orang ke halaman input event — padahal yang dicari dari
+      // Dashboard cuma "event ini tugasnya apa saja". Sekarang seluruh baris
+      // hanya membuka/menutup dropdown daftar tugas.
+      h+='<tr class="row-click'+(buka?' baris-buka':'')+'" onclick="toggleDashTask(\''+e.id+'\')">'
         +'<td><button type="button" class="tugas-tarik'+(buka?' on':'')+'" '
           +'aria-expanded="'+(buka?'true':'false')+'" title="'+(buka?'Tutup':'Lihat')+' daftar tugas event ini" '
           +'onclick="event.stopPropagation();toggleDashTask(\''+e.id+'\')">'+svg(IC.chevR)+'</button></td>'
@@ -2623,12 +2636,11 @@ function renderDashboard(V){
         +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+rlbl+'</div></td>'
         +'<td class="mono">'+(e.pax||'—')+'</td>'
         +'<td style="min-width:130px"><div class="progress"><div class="bar" style="width:'+c.pct+'%"></div></div>'
-          +'<div class="cell-sub">'+c.selesai+'/'+c.total+' tugas · '+c.pct+'%</div></td>'
-        +'<td>'+svg(IC.chevR,'')+'</td></tr>';
+          +'<div class="cell-sub">'+c.selesai+'/'+c.total+' tugas · '+c.pct+'%</div></td></tr>';
       // Baris kedua: daftar tugas event ini. Hanya digambar saat dibuka —
       // menggambar semuanya lalu menyembunyikannya membuat Dashboard berat
       // tanpa ada yang melihatnya.
-      if(buka) h+='<tr class="baris-tugas"><td colspan="6">'+eventTaskListHTML(e)+'</td></tr>';
+      if(buka) h+='<tr class="baris-tugas"><td colspan="5">'+eventTaskListHTML(e)+'</td></tr>';
     });
     h+='</tbody></table></div>'+tblPagerHtml(pUp,'upcoming'); }
   h+='</div>';
@@ -2738,8 +2750,9 @@ const KOL_UPCOMING=[
   {k:'nama',    t:'Event',    v:e=>e.nama},
   {k:'tanggal', t:'Tanggal',  v:e=>e.tanggal, cls:'mono', def:1},
   {k:'pax',     t:'Pax',      v:e=>+e.pax||0, cls:'mono', turun:1},
-  {k:'siap',    t:'Kesiapan', v:e=>eventItemCount(e).pct, turun:1},
-  {t:''}
+  {k:'siap',    t:'Kesiapan', v:e=>eventItemCount(e).pct, turun:1}
+  // kolom chevron kanan dihapus: barisnya tidak lagi menuju halaman event,
+  // jadi tanda "buka halaman" itu justru menjanjikan hal yang tidak terjadi.
 ];
 function stat(label,val,sub,icon){
   return '<div class="card stat"><div class="sl">'+label+'</div><div class="sv num">'+val+'</div><div class="sd">'+sub+'</div><div class="si">'+svg(IC[icon])+'</div></div>';
@@ -3286,18 +3299,22 @@ function renderPipeline(V){
   if(pipeTab==='kanban')bindKanban();
 }
 function pipeStatusOfEv(e){
+  /* Status 'Event Done' menang atas pipeCol. Event yang ditutup otomatis oleh
+     autoCloseEvents() versi lama ikut disetel pipeCol='Deal', jadi kalau pipeCol
+     dibaca lebih dulu event lama itu akan menumpuk di kolom Deal seolah belum
+     selesai. */
+  if(e.status==='Event Done')return 'Event Done';
   if(e.pipeCol)return e.pipeCol;
-  const m={Confirmed:'Deal','Event Done':'Deal'};
-  return m[e.status] || (PIPE_COLS.includes(e.status)?e.status:'Lead');
+  const m={Confirmed:'Deal'};
+  return m[e.status] || (KANBAN_COLS.includes(e.status)?e.status:'Lead');
 }
 function pipeKanban(){
-  const cols=PIPE_COLS;
-  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
+  const cols=KANBAN_COLS;
+  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok','Event Done':'--teal',Lost:'--danger'};
   const mine=ME.role==='marketing';
   let h='<div class="kanban">';
   cols.forEach(col=>{
-    // Event yang sudah selesai (Event Done) tidak lagi ditampilkan di kanban pipeline.
-    const items=S.events.filter(e=>e.status!=='Event Done' && pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
+    const items=S.events.filter(e=>pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
     h+='<div class="kcol" data-col="'+col+'"><div class="kcol-head"><span class="cd" style="width:8px;height:8px;border-radius:50%;background:var('+colColor[col]+')"></span><span class="kt">'+col+'</span><span class="kc">'+items.length+'</span></div><div class="kcol-body" data-col="'+col+'">';
     items.forEach(e=>{ const val=eventFinance(e).grand;
       h+='<div class="kcard" draggable="true" data-id="'+e.id+'" onclick="go(\'event\',\''+e.id+'\')"><div class="kn">'+esc(e.nama)+'</div><div class="kco">'+esc(clientName(e.clientId))+' · '+esc(e.jenis)+'</div><div class="kmeta"><span class="tag">'+esc(userName(e.mktPIC).split(' ')[0])+'</span>'+(val?'<span class="kv">'+rpShort(val)+'</span>':'')+'</div></div>'; });
@@ -3617,6 +3634,9 @@ function renderEventForm(V,id){
   const apPending=S.approvals.some(a=>a.eventId===ev.id&&a.status==='Pending');
   if(apPending) h+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Sisa approval lama menunggu</span>';
   if(canEdit && !['Confirmed','Deal','Event Done','Lost'].includes(ev.status)) h+='<button class="btn pri" onclick="confirmEvent(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
+  // Event yang sudah Deal/Confirmed boleh ditutup manual — tidak perlu menunggu
+  // autoCloseEvents() di H+2, dan tidak perlu lewat papan Sales Pipeline.
+  if(canEdit && ['Confirmed','Deal'].includes(ev.status)) h+='<button class="btn" onclick="tandaiSelesai(\''+ev.id+'\')">'+svg(IC.check)+'Tandai Event Selesai</button>';
   if(can('del_event')) h+='<button class="btn danger" title="Hapus event permanen" onclick="delEvent(\''+ev.id+'\')">'+svg(IC.trash)+'</button>';
   h+='</div></div>';
 
@@ -5022,6 +5042,34 @@ function confirmEvent(id){
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
+}
+
+/* ---------- TANDAI EVENT SELESAI ----------
+   Sebelum ini satu-satunya cara sebuah event jadi "Event Done" adalah
+   autoCloseEvents() yang jalan sendiri di H+2 — tidak ada tombolnya di mana
+   pun. Akibatnya event yang acaranya sudah bubar hari itu juga tetap tercatat
+   "Deal" sampai lewat tenggang, dan orang mengira sistemnya tidak bisa. */
+function tandaiSelesai(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  if(!can('edit_event'))return toast('Akses ditolak','Kamu tidak punya izin mengubah event.','err');
+  const f=eventFinance(ev);
+  const sisa=f.remaining>0?f.remaining:0;
+  const tugas=eventItemCount(ev);
+  confirmUI({
+    title:'Tandai Event Selesai?',
+    sub:ev.nama+' · '+fmtDate(ev.tanggal),
+    ok:'Ya, Event Selesai',
+    body:'Statusnya berubah jadi <b>Event Done</b>: event keluar dari daftar peluang aktif dan '
+      +'omzetnya dihitung sebagai belanja klien.'
+      +(sisa?'<br><br><b style="color:var(--danger)">Sisa tagihan '+rp(sisa)+' belum lunas.</b> '
+         +'Menandai selesai TIDAK menutup tagihannya — invoice tetap berjalan.':'')
+      +(tugas.total&&tugas.selesai<tugas.total?'<br><br>Masih ada <b>'+(tugas.total-tugas.selesai)+' tugas divisi</b> yang belum dicentang.':''),
+    onYes:()=>{
+      const prev=ev.status;
+      ev.status='Event Done'; ev.pipeCol='Event Done';
+      logAct('event',id,'Status → Event Done',prev+' → Event Done · ditandai manual oleh '+ME.name);
+      save(); toast('Event selesai ⚓',ev.nama+' ditandai Event Done.','ok'); go('event',id);
+    }});
 }
 
 /* ============================================================
@@ -7292,7 +7340,7 @@ const KOL_LEADERBOARD=[
    MODUL K — REPORTING & ANALYTICS
    ============================================================ */
 function renderReports(V){
-  let h=pageHead('Modul K','Reporting & Analytics','Laporan revenue, pax & atribusi baseline vs uplift.',
+  let h=pageHead('Modul K','Reporting & Analytics','Laporan revenue & pax dari event yang sudah closing.',
     '<button class="btn" onclick="exportCSV()">'+svg(IC.down)+'Export CSV</button>');
   const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   // by type
@@ -7301,22 +7349,25 @@ function renderReports(V){
   const totalPax=closed.reduce((a,e)=>a+(+e.pax||0),0);
   h+='<div class="grid g-3" style="margin-bottom:18px">'+stat('Total Revenue',rpShort(totalRev),closed.length+' event','money')+stat('Total Pax',totalPax.toLocaleString('id-ID'),'tamu terlayani','crm')+stat('Avg per Pax',rp(totalPax?Math.round(totalRev/totalPax):0),'revenue/tamu','report')+'</div>';
   // donut by type
-  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:16px">Revenue per Jenis Event</h3><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">';
+  /* Dulu kartu donat ini berbagi baris dua kolom dengan kartu "Baseline vs
+     Uplift". Kartu itu dibuang (lihat catatan di bawah), jadi donatnya berdiri
+     sendiri selebar halaman — bukan setengah baris dengan sisi kanan kosong. */
+  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:16px">Revenue per Jenis Event</h3><div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap">';
   h+=donutSVG(Object.entries(byType).map(([k,v])=>({label:k,val:v,color:EVENT_COLOR[k]||'--muted'})));
   h+='<div class="legend" style="flex:1">'+Object.entries(byType).map(([k,v])=>'<div class="li"><span class="lc" style="background:var('+(EVENT_COLOR[k]||'--muted')+')"></span>'+esc(k)+'<span class="lv">'+rpShort(v)+'</span></div>').join('')+'</div>';
   h+='</div></div>';
-  // baseline vs uplift
-  const eventDays=closed.length; const bDaily=baselineDaily();
-  const eventRevenue=totalRev; const baselineTotal=bDaily*eventDays;
-  const uplift=Math.max(0,eventRevenue-baselineTotal);
-  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:6px">Baseline vs Uplift</h3><p class="section-desc">Rumus: <b>Uplift = Revenue hari event − (Baseline harian × jumlah hari event)</b>. Baseline = omzet rata-rata venue pada hari <b>tanpa</b> event, diisi manual di Pengaturan.</p>';
-  if(!bDaily){
-    h+='<div style="padding:11px;background:var(--warn-bg);border-radius:9px;font-size:12px;color:var(--sand-dim)">'+svg(IC.alert)+' <b>Baseline belum diisi.</b> Uplift tidak bisa dihitung. Isi "Baseline Revenue Harian" di <b>Pengaturan</b> — angkanya harus datang dari laporan Finance (omzet hari non-event), karena sistem ini hanya mencatat event.</div></div></div>';
-    V.innerHTML=h; return;
-  }
-  h+='<dl class="kv-list"><dt>Revenue hari event</dt><dd class="mono">'+rp(eventRevenue)+'</dd><dt>Baseline ('+eventDays+' hari × '+rpShort(bDaily)+')</dt><dd class="mono">'+rp(baselineTotal)+'</dd><dt style="color:var(--gold-deep)">Uplift Event</dt><dd class="mono" style="color:var(--gold-deep);font-weight:600">'+rp(uplift)+'</dd></dl>';
-  h+='<div style="margin-top:12px;padding:11px;background:var(--info-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' Rekomendasi PRD (Bagian 14, poin 6): sistem ini mencatat data mentah; perhitungan baseline/uplift final tetap diverifikasi Finance (Dina/Cindy) agar konsisten dengan laporan berjalan.</div>';
-  h+='</div></div>';
+  /* KARTU "BASELINE VS UPLIFT" DIBUANG.
+     Uplift = Revenue hari event − (Baseline harian × jumlah hari event).
+     Dua sebab angkanya tidak bisa dipercaya, jadi lebih baik tidak ditampilkan
+     sama sekali daripada dipakai orang untuk mengambil keputusan:
+     1. Baseline-nya diketik manual di Pengaturan — modul ini tidak tahu omzet
+        hari non-event, jadi hasilnya cuma sebaik tebakan yang mengisinya.
+     2. "jumlah hari event" dihitung dari BANYAKNYA event closed, bukan hari
+        kalender unik. Dua event di tanggal yang sama memotong baseline dua
+        kali, dan uplift-nya jadi lebih kecil dari yang sebenarnya.
+     Kotak isian "Baseline Revenue Harian" di Pengaturan ikut dihapus. Angka
+     lama di S.baseline sengaja TIDAK dibuang dari state — kalau suatu saat
+     perhitungannya diperbaiki, datanya masih ada. */
   V.innerHTML=h;
 }
 function donutSVG(data){
@@ -8349,7 +8400,7 @@ function renderSettings(V){
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
    +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
-   +setRow('Baseline Revenue Harian (Rp)',num('set_baseline',(S.baseline||0),' placeholder="0"'),'Rata-rata omzet venue pada hari <em>tanpa</em> event. Dipakai menghitung Uplift di Reporting. Isi 0 bila belum ada angkanya — Uplift tidak ditampilkan.')
+   // "Baseline Revenue Harian" dihapus bersama kartu Baseline vs Uplift di Reporting.
    +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
    +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
    +setRow('WA Booking',txt('set_wa',st.waBooking),'Nomor WhatsApp yang dicantumkan pada quotation & brief versi client.')
@@ -8357,7 +8408,8 @@ function renderSettings(V){
    +'<div style="padding:14px 20px;border-top:1px solid var(--line-soft);display:flex;justify-content:flex-end"><button class="btn pri" onclick="saveSettings()">'+svg(IC.check)+'Simpan Pengaturan</button></div></div>';
   h+='<div><div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:12px">Akun Aktif</h3><div style="display:flex;align-items:center;gap:12px"><div class="avatar" style="width:44px;height:44px;font-size:16px">'+ME.name[0]+'</div><div><div style="font-weight:600">'+esc(ME.name)+'</div><div class="cell-sub">'+ROLES[ME.role].t+(ME.div?' · '+ME.div:'')+'</div></div></div><div class="divider"></div><label style="font-size:12px;font-weight:600;color:var(--sand-dim);display:block;margin-bottom:7px">Sesi</label><div class="cell-sub" style="margin-bottom:10px">Identitas dari Office. Ganti akun lewat login Office.</div><button class="btn" onclick="logout()">Keluar ke Office</button></div>';
   h+='<div class="card"><h3 style="font-size:15px;margin-bottom:6px">Perlu Konfirmasi (PRD Bagian 14)</h3><p class="section-desc">10 poin keputusan sebelum development produksi.</p>';
-  const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','Sumber baseline/uplift','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
+  // 'Sumber baseline/uplift' dicoret: laporannya sudah dibuang, jadi pertanyaannya gugur.
+  const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
   h+='<div style="display:flex;flex-direction:column;gap:7px">'+points.map((p,i)=>'<div style="display:flex;gap:9px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span class="tag">'+(i+1)+'</span>'+esc(p)+'</div>').join('')+'</div>';
   h+='</div>';
   h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Draft Quotation)</span></h3>'
@@ -8375,7 +8427,9 @@ function saveSettings(){
   // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
   // seluruh Simpan Pengaturan gagal tanpa pesan.
   Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
-  S.baseline=+$('set_baseline').value||0;
+  // S.baseline TIDAK dibaca lagi: kotaknya sudah tidak ada di halaman ini, dan
+  // membacanya berarti `null.value` — persis kegagalan diam yang sudah pernah
+  // terjadi pada discountThreshold di atas.
   save(); toast('Tersimpan','Pengaturan diperbarui.','ok');
 }
 // Kembali ke pemilih modul Office. Sesi Office (lm_session) sengaja TIDAK
