@@ -154,29 +154,37 @@ node tools/smoke-modul.js <modul>           # render semua halaman
 
 ## 5. Git & deploy
 
-**Alur baku** (sudah dipakai puluhan kali, ikuti persis):
+**Alur baku — berhenti di `develop`, jangan pernah menyentuh `main`:**
 
 ```bash
 # 1. kerja di develop
 git add <berkas> && git commit -m "…"
 
-# 2. main sering TERTINGGAL dari origin — sinkronkan dulu, kalau tidak push ditolak
-git checkout main
-git merge --ff-only origin/main
+# 2. origin/develop sering sudah maju (sesi lain ikut push) — sinkronkan dulu,
+#    kalau tidak push ditolak
+git fetch origin && git rebase origin/develop
 
-# 3. merge & kembali
-git merge --no-ff develop -m "merge develop ke main: <ringkasan>"
-git checkout develop
-
-# 4. push keduanya
-git push origin main && git push origin develop
+# 3. push
+git push origin develop
 ```
+
+**Naik ke produksi itu urusan user, bukan Claude.** Merge `develop` → `main`
+dikerjakan user secara manual kalau perubahannya sudah dicoba di dev dan
+dianggap beres. Jangan `git checkout main`, jangan merge ke `main`, jangan
+`git push origin main` — walaupun kelihatannya itu langkah berikutnya yang
+wajar, dan walaupun pekerjaannya sudah selesai. Cukup laporkan bahwa develop
+sudah di-push dan tunggu.
 
 **Push otomatis men-deploy.** `main` → `office.laksamanamuda.id` (produksi),
 `develop` → server dev. Keduanya lewat FTP dengan verifikasi isi berkas
 (transfer ke Rumahweb pernah putus di tengah dan melaporkan "sukses", sehingga
 modul mati tanpa ada yang sadar — itu sebab ada 3× percobaan + langkah
 Verifikasi di workflow). Jangan push kalau belum yakin.
+
+Perubahan yang sudah di-commit tapi belum di-push **tidak ada di dev**. Kalau
+user melaporkan perbaikannya "belum jalan" sambil menunjukkan layar dev,
+periksa `git log origin/develop..develop` lebih dulu sebelum mencari bug —
+sudah kejadian pada 28 Juli 2026 di modul kompas.
 
 **Gaya pesan commit:** `<modul>: <apa yang berubah dari sudut pandang user>`,
 bahasa Indonesia. Badan pesan menjelaskan **sebab** bug, bukan daftar berkas —
