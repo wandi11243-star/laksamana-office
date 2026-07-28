@@ -1148,7 +1148,7 @@ let API_READY = false;
    DB kosong balas settings {} — tanpa ini, DEFAULT_SETTINGS (mis. serviceCharge,
    dpPercent) hilang dan perhitungan finance jadi kacau. */
 const MKT_COLS=['clients','events','followups','approvals','users','staff',
-                'taskTemplates','taskCategories','categories','notifs','activities'];
+                'taskTemplates','taskCategories','categories','notifs','activities','vip'];
 // Data LAMA (sebelum matriks None/Lihat/Ubah): s.roleNav[role]=[view,...],
 // s.rolePerms[role]=[action,...], keduanya array terpisah. Naikkan jadi
 // s.roleAcc[role]={view:0|1|2} — view yang tadinya di roleNav dapat minimal
@@ -1682,10 +1682,10 @@ const SOURCES = ['Instagram','TikTok','Walk In','Referral','Google','Website','R
 
 /* ---------- RBAC (Bagian 6) ---------- */
 const ROLES = {
-  super_admin:{t:'Super Admin',nav:['dashboard','crm','pipeline','events','brief','kalkulator','calendar','invoices','tasks','templates','staff','approvals','performance','reports','timeline','notifications','purchasing','users','settings']},
-  marketing:{t:'Marketing',nav:['dashboard','crm','pipeline','events','brief','kalkulator','calendar','invoices','tasks','templates','staff','performance','reports','timeline','notifications','purchasing','settings']},
-  finance:{t:'Finance',nav:['dashboard','crm','events','brief','kalkulator','calendar','invoices','tasks','templates','staff','performance','reports','timeline','notifications','purchasing','settings']},
-  manager:{t:'Manager / Approver',nav:['dashboard','crm','pipeline','events','brief','kalkulator','calendar','invoices','tasks','templates','staff','approvals','performance','reports','timeline','notifications','purchasing','settings']},
+  super_admin:{t:'Super Admin',nav:['dashboard','crm','pipeline','events','vip','brief','kalkulator','calendar','invoices','tasks','templates','staff','approvals','performance','reports','timeline','notifications','purchasing','users','settings']},
+  marketing:{t:'Marketing',nav:['dashboard','crm','pipeline','events','vip','brief','kalkulator','calendar','invoices','tasks','templates','staff','performance','reports','timeline','notifications','purchasing','settings']},
+  finance:{t:'Finance',nav:['dashboard','crm','events','vip','brief','kalkulator','calendar','invoices','tasks','templates','staff','performance','reports','timeline','notifications','purchasing','settings']},
+  manager:{t:'Manager / Approver',nav:['dashboard','crm','pipeline','events','vip','brief','kalkulator','calendar','invoices','tasks','templates','staff','approvals','performance','reports','timeline','notifications','purchasing','settings']},
   operational:{t:'Operational',nav:['dashboard','events','brief','kalkulator','calendar','tasks','templates','staff','notifications','settings']}
 };
 let ME = null; // current user object
@@ -1875,7 +1875,8 @@ const PERM_OPT=[['0','Tak Terlihat'],['1','Lihat'],['2','Boleh Ubah']];
 const ACTION_VIEW={
   edit_client:'crm', del_client:'crm', del_event:'events', edit_event:'events',
   verify_payment:'invoices', approve:'approvals', manage_users:'users',
-  edit_task:'tasks', edit_template:'templates', edit_staff:'staff'
+  edit_task:'tasks', edit_template:'templates', edit_staff:'staff',
+  edit_vip:'vip'
 };
 function permViewKeys(){ return NAV_DEF.filter(x=>x.k).map(x=>x.k); }
 // default bawaan per role (dipakai bila matriks belum pernah diubah). Cakupan
@@ -1895,7 +1896,9 @@ function roleDefaultPerm(role, view){
     manage_users:false,
     edit_task:['operational','marketing','finance','manager'].includes(role),
     edit_template:['operational','marketing','finance','manager'].includes(role),
-    edit_staff:['marketing','manager'].includes(role)
+    edit_staff:['marketing','manager'].includes(role),
+    // Reservasi VIP dikerjakan tim marketing; manager ikut supaya bisa mengoreksi.
+    edit_vip:['marketing','manager'].includes(role)
   };
   /* HANYA aksi PERTAMA yang memetakan ke view ini yang dilihat. Jadi urutan
      ACTION_VIEW menentukan default: aksi yang legacy-nya `false` dan berdiri
@@ -2424,7 +2427,7 @@ function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fu
    SEED DATA
    ============================================================ */
 function seed(){
-  const s = { settings:{...DEFAULT_SETTINGS}, baseline:0, users:[], clients:[], events:[], followups:[], activities:[], notifs:[], approvals:[], taskTemplates:[], taskCategories:[] };
+  const s = { settings:{...DEFAULT_SETTINGS}, baseline:0, users:[], clients:[], events:[], followups:[], activities:[], notifs:[], approvals:[], taskTemplates:[], taskCategories:[], vip:[] };
   // Tanpa user dummy: identitas datang dari Office — dibuat otomatis saat login,
   // dan seluruh roster disegarkan sendiri lewat autoSyncOfficeRoster().
   s.users=[]; s.staff=[];
@@ -2523,6 +2526,7 @@ const NAV_DEF=[
   {k:'brief',t:'Event Brief & Quotation',i:'brief'},
   {k:'calendar',t:'Kalender',i:'cal'},
   {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
+  {k:'vip',t:'Reservasi VIP',i:'star'},
   {g:'Finance & Kontrol'},
   // Kalkulator dipindah ke sini: keluarannya angka harga, bukan pekerjaan event.
   {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
@@ -2569,7 +2573,7 @@ function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending');
 function pendingPenawaran(){ return S.events.filter(e=>penStatus(e)==='Menunggu Approval'); }
 
 /* ---------- ROUTER ---------- */
-const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
+const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],vip:['Reservasi VIP','Booking ruang VIP — langsung mengunci meja di modul Reservasi'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 /* Buka halaman sesuai alamat saat aplikasi baru dimuat.
    SATU definisi dipakai kedua jalur masuk (login manual & SSO). Dulu baris
    ini digandakan di dua tempat dan KEDUANYA hanya memakai bagian [0] dari
@@ -2606,7 +2610,7 @@ function go(view,param){
      memang tempat yang benar. */
   const pulih=_gulirUlang; _gulirUlang=null;
   const V=$('view'); V.scrollTop = pulih?pulih.view:0; paintStaffDatalist(); paintMenuDatalist();
-  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderEvents,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,settings:renderSettings};
+  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderEvents,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,vip:renderVIP,settings:renderSettings};
   (R[view]||renderDashboard)(V,param);
   if(pulih){
     /* Tinggi isi baru terhitung pada frame berikutnya setelah innerHTML
@@ -7468,14 +7472,17 @@ function renderPerformance(V){
   const mkt=S.users.filter(u=>u.role==='marketing' && u.active!==false);
   // team totals
   const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
-  const omzet=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
+  // Omzet tim = event closing + seluruh Reservasi VIP Assisted.
+  const omzetEvent=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
+  const omzetVip=vipOmzetTotal();
+  const omzet=omzetEvent+omzetVip;
   // Distribusi berbasis EVENT: tiap peluang dihitung SEKALI, di tahapnya saat ini.
   const leads=S.events.length; const deals=closed.length;
   const convRate=leads?Math.round(deals/leads*100):0;
   const atStage=s=>S.events.filter(e=>e.status===s).length;
   const avgVal=closed.length?Math.round(omzet/closed.length):0;
   h+='<div class="grid g-4" style="margin-bottom:18px">'
-   +stat('Total Omzet',rpShort(omzet),closed.length+' event closing','money')
+   +stat('Total Omzet',rpShort(omzet),closed.length+' event closing'+(omzetVip?' + VIP '+rpShort(omzetVip):''),'money')
    +stat('Conversion Rate',convRate+'%',deals+' deal / '+leads+' peluang','pipe')
    +stat('Avg Event Value',rpShort(avgVal),'per event closing','event')
    +stat('Repeat Customer',S.clients.filter(c=>clientEventCount(c.id)>1).length,'klien balik lagi','star')
@@ -7493,7 +7500,11 @@ function renderPerformance(V){
   if(!mkt.length) h+=empty('Belum ada user Marketing','Grafik ini per orang. Set role seseorang jadi Marketing di User Management supaya muncul di sini.','crm');
   else{
     h+='<div class="bars">';
-    const perM=mkt.map(u=>({u,v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)}));
+    /* Omzet per orang = event closing + Reservasi VIP ASSISTED miliknya.
+       VIP Regular tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
+    const perM=mkt.map(u=>({u,
+      v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)
+        + vipOmzetPIC(u.id)}));
     const maxM=Math.max(1,...perM.map(x=>x.v));
     perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:9.5px;color:var(--gold-deep);white-space:nowrap">'+rp(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
     h+='</div>';
@@ -7532,6 +7543,363 @@ const KOL_LEADERBOARD=[
   {k:'omzet', t:'Omzet',     v:s=>s.om,        cls:'mono', turun:1, def:1},
   {k:'avg',   t:'Avg Value', v:s=>s.ev.length?Math.round(s.om/s.ev.length):0, cls:'mono', turun:1}
 ];
+
+/* ============================================================
+   MODUL VIP — RESERVASI RUANG VIP  (tersambung ke modul Reservasi)
+   ------------------------------------------------------------
+   Dua jenis, dan bedanya HANYA di pelaporan:
+
+     Assisted — marketing yang mencarikan & menutup dealnya. Nominal
+                pendapatannya diketik sendiri oleh marketing dan IKUT dihitung
+                sebagai omzet orang itu di Marketing Performance.
+     Regular  — marketing cuma membantu membookingkan. TIDAK ada nominal dan
+                TIDAK ikut dihitung sebagai pencapaian siapa pun.
+
+   Keduanya sama-sama DITULIS ke database modul Reservasi supaya mejanya
+   benar-benar terkunci untuk seluruh kru, bukan cuma tercatat di Marketing.
+   ============================================================ */
+const RSV_API = "../reservasi-api-mysql/api.php";
+
+/* Tarik seluruh data Reservasi. Dipakai untuk dua hal: tahu meja mana yang
+   sudah terpakai pada tanggal itu, dan mendapat nomor versi (_ver) yang wajib
+   ikut dikirim saat menulis. */
+async function rsvAmbil(){
+  const url=RSV_API+(RSV_API.includes('?')?'&':'?')+'action=getAll&t='+Date.now();
+  const stop=new AbortController();
+  const jam=setTimeout(()=>stop.abort(),25000);
+  const res=await fetch(url,{method:'GET',signal:stop.signal}).finally(()=>clearTimeout(jam));
+  const j=await res.json();
+  if(!j||!j.ok) throw new Error((j&&j.error)||'Modul Reservasi tidak menjawab.');
+  return j.data||{};
+}
+/* Menulis balik ke Reservasi.
+
+   INI BAGIAN YANG PALING GAMPANG MERUSAK DATA ORANG LAIN, jadi mengikuti
+   disiplin yang sama dengan modul Reservasi sendiri: saveAll mengirim SELURUH
+   state, sementara kru lain mungkin sedang menyimpan juga. Karena itu:
+     1. tarik data terbaru + nomor versinya (_ver),
+     2. sisipkan HANYA baris baru kita ke salinan data itu,
+     3. kirim dengan baseVer; kalau server bilang conflict, artinya ada yang
+        menyelip menyimpan lebih dulu — ulangi dari langkah 1.
+   Yang TIDAK boleh dilakukan: menyimpan state hasil tarikan lama. Reservasi
+   yang dibuat kru lain di sela-sela itu akan hilang tanpa jejak. */
+async function rsvSisipkan(buatRecord){
+  for(let coba=0;coba<6;coba++){
+    const d=await rsvAmbil();
+    const baseVer=(d&&d._ver!==undefined)?d._ver:null;
+    const rec=buatRecord(d);
+    if(rec&&rec.__batal) return rec;
+    const data=Object.assign({},d);
+    delete data._ver;
+    data.reservations=(Array.isArray(d.reservations)?d.reservations.slice():[]);
+    data.reservations.push(rec);
+    const res=await fetch(RSV_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'saveAll',data,baseVer})});
+    const j=await res.json();
+    if(j&&j.conflict) continue;                       // kru lain menyelip, ulangi
+    if(!j||!j.ok) throw new Error((j&&j.error)||'Gagal menyimpan ke Reservasi.');
+    return {ok:true,rec};
+  }
+  throw new Error('Terlalu banyak tabrakan simpan di Reservasi — coba sekali lagi.');
+}
+/* Meja yang sudah terpakai pada satu tanggal. Field `table` di Reservasi berisi
+   daftar dipisah koma (satu tamu bisa memakai beberapa meja), jadi dipecah. */
+function rsvMejaTerpakai(d,tanggal){
+  const out={};
+  (d&&d.reservations||[]).forEach(r=>{
+    if(!r||r.date!==tanggal) return;
+    if(String(r.status||'').toLowerCase()==='batal') return;
+    String(r.table||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(m=>{ out[m]=r.name||'terpakai'; });
+  });
+  return out;
+}
+/* Daftar meja yang bisa dipilih. Denah lengkapnya hidup di kode modul
+   Reservasi, jadi TIDAK disalin ke sini — yang disalin pasti lambat laun
+   berbeda. Yang dipakai: daftar meja dari master Reservasi (sumber yang sama
+   dipakai form reservasi di sana), digabung dengan meja yang benar-benar muncul
+   di data reservasi supaya meja denah custom ikut terbaca. */
+function rsvDaftarMeja(d){
+  const set=[];
+  const tambah=m=>{ m=String(m||'').trim(); if(m&&set.indexOf(m)<0)set.push(m); };
+  ((d&&d.master&&d.master.tables)||[]).forEach(tambah);
+  const lay=(d&&d.master&&d.master.layouts)||{};
+  Object.keys(lay).forEach(k=>((lay[k]&&lay[k].tables)||[]).forEach(t=>tambah(t&&t.id)));
+  (d&&d.reservations||[]).forEach(r=>String(r.table||'').split(',').forEach(tambah));
+  return set;
+}
+
+let VIP_FORM=null;         // draft yang sedang diisi (belum tersimpan)
+let vipFilter='';
+
+function vipKosong(){
+  return {id:uid('vip'),jenis:'Assisted',nama:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
+    hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,kasir:'',nominal:'',
+    meja:[],mktPIC:(ME?ME.id:''),catatan:'',resId:'',kirimAt:'',createdAt:new Date().toISOString(),createdBy:(ME?ME.name:'')};
+}
+/* Nominal HANYA berlaku untuk Assisted. Regular yang pernah diketik nominalnya
+   lalu dipindah ke Regular tidak boleh diam-diam tetap terhitung di laporan. */
+function vipNominal(v){ return (v&&v.jenis==='Assisted') ? (+v.nominal||0) : 0; }
+function vipPax(v){ return +(v&&v.paxMax) || +(v&&v.paxMin) || 0; }
+function vipJam(v){ return [v.jamMulai,v.jamSelesai].filter(Boolean).join(' - ')||'—'; }
+
+const KOL_VIP=[
+  {k:'tanggal', t:'Tanggal', v:v=>v.tanggal, cls:'mono', def:1},
+  {k:'nama',    t:'Atas Nama', v:v=>v.nama},
+  {k:'jenis',   t:'Jenis',   v:v=>v.jenis},
+  {k:'pax',     t:'Orang',   v:v=>vipPax(v), cls:'mono', turun:1},
+  {k:'meja',    t:'Meja',    v:v=>(v.meja||[]).join(', ')},
+  {k:'nominal', t:'Nominal', v:v=>vipNominal(v), cls:'mono r', turun:1},
+  {t:''}
+];
+
+function renderVIP(V){
+  const bolehUbah=can('edit_vip');
+  let h=pageHead('Modul L','Reservasi VIP','Booking ruang VIP. Mejanya langsung dikunci di modul Reservasi.',
+    bolehUbah?'<button class="btn pri" onclick="vipForm()">'+svg(IC.plus)+'Reservasi VIP Baru</button>':'');
+
+  const mine=ME.role==='marketing';
+  const semua=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
+    .slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
+  const q=(vipFilter||'').trim().toLowerCase();
+  const list=!q?semua:semua.filter(v=>[v.nama,v.perusahaan,v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
+    .filter(Boolean).join(' ').toLowerCase().includes(q));
+
+  const asst=semua.filter(v=>v.jenis==='Assisted');
+  h+='<div class="grid g-4" style="margin-bottom:16px">'
+   +stat('Total Reservasi',semua.length,'VIP tercatat','star')
+   +stat('Assisted',asst.length,'masuk laporan omzet','money')
+   +stat('Regular',semua.filter(v=>v.jenis==='Regular').length,'bantu booking saja','cal')
+   +stat('Nominal Assisted',rpShort(asst.reduce((a,v)=>a+vipNominal(v),0)),'dihitung sebagai omzet','report')
+   +'</div>';
+
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Assisted</em> = marketing yang mencarikan &amp; menutup dealnya — nominalnya diketik sendiri dan ikut jadi omzet orang itu di Marketing Performance. <em>Regular</em> = sekadar membantu membookingkan, tanpa nominal dan tidak masuk laporan. Keduanya sama-sama mengunci meja di modul Reservasi.</span></div>';
+
+  h+='<div class="toolbar"><input class="inp" id="vip-cari" placeholder="Cari nama, perusahaan, no. HP, tanggal, meja…" '
+   +'value="'+esc(vipFilter||'')+'" oninput="vipFilter=this.value;renderVIP($(\'view\'));'
+   +'const b=$(\'vip-cari\'); if(b){b.focus();b.setSelectionRange(b.value.length,b.value.length);}">'
+   +'<span class="cell-sub">'+list.length+' dari '+semua.length+'</span></div>';
+
+  if(!list.length){
+    h+=empty(q?'Tidak ada yang cocok':'Belum ada reservasi VIP',
+      q?'Coba kata kunci lain.':'Klik "Reservasi VIP Baru" untuk mencatat booking ruang VIP.','star');
+    V.innerHTML=h; return;
+  }
+  const p=tblPage(tblUrut(list,'vip',KOL_VIP),'vip',q);
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('vip',KOL_VIP)+'<tbody>';
+  p.items.forEach(v=>{
+    h+='<tr>'
+     +'<td class="mono">'+fmtDate(v.tanggal)+'<div class="cell-sub">'+esc(vipJam(v))+'</div></td>'
+     +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(v.perusahaan||'')+'</div></td>'
+     +'<td>'+vipChip(v)+'</td>'
+     +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
+     +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
+     +'<td class="mono r">'+(v.jenis==='Assisted'?rp(vipNominal(v)):'<span class="cell-sub">—</span>')+'</td>'
+     +'<td><div class="pill-row">'
+       +'<button class="btn sm" onclick="vipDetail(\''+v.id+'\')">Detail</button>'
+       +(bolehUbah?'<button class="btn sm" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
+     +'</div></td></tr>';
+  });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'vip')+'</div>';
+  V.innerHTML=h;
+}
+TBL_RENDER.vip=function(){ renderVIP($('view')); };
+
+function vipChip(v){
+  const asst=v.jenis==='Assisted';
+  return '<span class="tag" style="background:color-mix(in srgb,var('+(asst?'--ok':'--muted')+') 16%,transparent);color:var('+(asst?'--ok':'--muted')+')">'+esc(v.jenis)+'</span>'
+    +(v.resId?'<div class="cell-sub" style="margin-top:3px">✓ terkunci di Reservasi</div>':'<div class="cell-sub" style="margin-top:3px">belum dikirim</div>');
+}
+
+/* ---------- FORM ---------- */
+function vipForm(id){
+  if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  const v=id?(S.vip||[]).find(x=>x.id===id):vipKosong();
+  if(!v)return toast('Tidak ditemukan','Reservasi VIP ini sudah dihapus.','err');
+  VIP_FORM=JSON.parse(JSON.stringify(v));
+  const f=VIP_FORM;
+  const seg=(kunci,ya)=>'<div class="seg" id="vip_'+kunci+'"><button type="button" class="'+(ya?'on':'')+'" onclick="segPick(this,true)" data-v="1">Ya</button>'
+    +'<button type="button" class="'+(ya?'':'on')+'" onclick="segPick(this,false)" data-v="0">Tidak</button></div>';
+  modal('<div class="modal-head"><div><h3>'+(id?'Ubah':'Reservasi VIP Baru')+'</h3><p>Data ini juga yang dikirim ke modul Reservasi.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="field"><label>Jenis Reservasi<span class="req">*</span></label>'
+     +'<div class="seg" id="vip_jenis"><button type="button" class="'+(f.jenis==='Assisted'?'on':'')+'" onclick="vipPilihJenis(this,\'Assisted\')">Assisted</button>'
+     +'<button type="button" class="'+(f.jenis==='Regular'?'on':'')+'" onclick="vipPilihJenis(this,\'Regular\')">Regular</button></div>'
+     +'<div class="fh">Assisted ikut dihitung sebagai omzet kamu di Marketing Performance. Regular tidak.</div></div>'
+   +'<div id="vip_nominal_wrap" style="display:'+(f.jenis==='Assisted'?'block':'none')+'">'
+     +'<div class="field"><label>Nominal Pendapatan (Rp)<span class="req">*</span></label>'
+     +rupiahInputHTML('vip_nominal',f.nominal,'')
+     +'<div class="fh">Diisi sendiri oleh marketing. Inilah angka yang masuk laporan.</div></div></div>'
+   +'<div class="form-grid">'
+     +ff('Atas Nama','vip_nama',f.nama,'text',1)
+     +ff('Nama Perusahaan','vip_perusahaan',f.perusahaan,'text')
+     +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="vip_tanggal" value="'+esc(f.tanggal||'')+'"></div>'
+     +ff('No. HP','vip_hp',f.hp,'text',1)
+     +'<div class="field"><label>Jam Kedatangan<span class="req">*</span></label><input class="inp" type="time" id="vip_jamMulai" value="'+esc(f.jamMulai||'')+'"></div>'
+     +'<div class="field"><label>Sampai Jam</label><input class="inp" type="time" id="vip_jamSelesai" value="'+esc(f.jamSelesai||'')+'"></div>'
+     +'<div class="field"><label>Jumlah Orang (min)<span class="req">*</span></label><input class="inp" type="number" min="1" id="vip_paxMin" value="'+esc(f.paxMin||'')+'"></div>'
+     +'<div class="field"><label>Jumlah Orang (maks)</label><input class="inp" type="number" min="1" id="vip_paxMax" value="'+esc(f.paxMax||'')+'"><div class="fh">Kosongkan bila jumlahnya pasti.</div></div>'
+   +'</div>'
+   +'<div class="field"><label>Request Layout</label><input class="inp" id="vip_layoutReq" value="'+esc(f.layoutReq||'')+'" placeholder="mis. meja digabung panjang"></div>'
+   +'<div class="form-grid">'
+     +'<div class="field"><label>Penggunaan TV</label>'+seg('tv',f.tv)+'</div>'
+     +'<div class="field"><label>Butuh Speaker &amp; Mic</label>'+seg('speaker',f.speaker)+'</div>'
+     +ff('Kasir','vip_kasir',f.kasir,'text')
+   +'</div>'
+   +'<div class="field"><label>Catatan</label><textarea class="inp" id="vip_catatan" rows="2">'+esc(f.catatan||'')+'</textarea></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" onclick="vipLanjutMeja()">Pilih Meja &amp; Kunci →</button></div>');
+}
+function vipPilihJenis(btn,jenis){
+  [...btn.parentNode.children].forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  VIP_FORM.jenis=jenis;
+  const w=$('vip_nominal_wrap'); if(w) w.style.display=(jenis==='Assisted')?'block':'none';
+}
+/* Kumpulkan isian form. Dikembalikan sebagai pesan galat (string) supaya
+   pemanggilnya yang memutuskan mau diapakan. */
+function vipKumpulkan(){
+  const f=VIP_FORM; if(!f)return 'Form tidak terbuka.';
+  const g=id=>{ const el=$(id); return el?el.value.trim():''; };
+  f.nama=g('vip_nama'); f.perusahaan=g('vip_perusahaan'); f.tanggal=g('vip_tanggal');
+  f.hp=g('vip_hp'); f.jamMulai=g('vip_jamMulai'); f.jamSelesai=g('vip_jamSelesai');
+  f.paxMin=g('vip_paxMin'); f.paxMax=g('vip_paxMax');
+  f.layoutReq=g('vip_layoutReq'); f.kasir=g('vip_kasir'); f.catatan=g('vip_catatan');
+  const sv=segVal('vip_tv'); if(sv!==undefined)f.tv=sv.v;
+  const ss=segVal('vip_speaker'); if(ss!==undefined)f.speaker=ss.v;
+  const n=$('vip_nominal'); if(n) f.nominal=rupiahDigits(n.value)===''?'':(+rupiahDigits(n.value));
+  if(!f.nama) return 'Atas Nama wajib diisi.';
+  if(!f.tanggal) return 'Tanggal wajib diisi.';
+  if(!f.hp) return 'No. HP wajib diisi.';
+  if(!f.jamMulai) return 'Jam kedatangan wajib diisi.';
+  if(!(+f.paxMin)) return 'Jumlah orang wajib diisi.';
+  if(f.jenis==='Assisted' && !(+f.nominal)) return 'Reservasi Assisted wajib punya nominal pendapatan.';
+  return '';
+}
+async function vipLanjutMeja(){
+  const galat=vipKumpulkan();
+  if(galat) return toast('Belum lengkap',galat,'err');
+  const f=VIP_FORM;
+  modal('<div class="modal-head"><div><h3>Memuat denah…</h3><p>Menghubungi modul Reservasi</p></div></div>'
+    +'<div class="modal-body"><div class="cell-sub">Mengambil daftar meja &amp; melihat mana yang sudah terpakai pada '+fmtDate(f.tanggal)+'.</div></div>');
+  let d;
+  try{ d=await rsvAmbil(); }
+  catch(e){ return modal('<div class="modal-head"><div><h3>Reservasi tidak terjangkau</h3></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+    +'<div class="modal-body"><div class="tbl-note">'+svg(IC.alert)+'<span>'+esc(e.message)+'</span></div>'
+    +'<div class="cell-sub" style="margin-top:10px">Datanya belum tersimpan. Coba lagi saat koneksi ke modul Reservasi pulih.</div></div>'
+    +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="vipLanjutMeja()">Coba Lagi</button></div>'); }
+  vipPilihMejaUI(d);
+}
+function vipPilihMejaUI(d){
+  const f=VIP_FORM;
+  const terpakai=rsvMejaTerpakai(d,f.tanggal);
+  const semua=rsvDaftarMeja(d);
+  const dipilih=f.meja||[];
+  let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
+  h+='<div class="modal-body">';
+  if(!semua.length){
+    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu daftar mejanya di sana.</span></div>';
+  }else{
+    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Meja abu-abu sudah dipesan tamu lain pada tanggal ini dan tidak bisa dipilih. Boleh pilih lebih dari satu — '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
+    h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
+    semua.forEach(m=>{
+      const off=!!terpakai[m] && dipilih.indexOf(m)<0;
+      const on=dipilih.indexOf(m)>=0;
+      h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
+        +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
+    });
+    h+='</div>';
+  }
+  h+='<div class="field" style="margin-top:14px"><label>Meja terpilih</label><div class="inp" id="vip_meja_txt" style="display:flex;align-items:center;min-height:38px">'+(dipilih.length?esc(dipilih.join(', ')):'—')+'</div></div>';
+  h+='</div><div class="modal-foot"><button class="btn" onclick="vipForm(\''+f.id+'\')">← Kembali</button>'
+   +'<button class="btn pri" id="vip_kunci_btn" onclick="vipSimpanKunci()">'+svg(IC.check)+'Simpan &amp; Kunci di Reservasi</button></div>';
+  modal(h);
+}
+function vipToggleMeja(btn,m){
+  const f=VIP_FORM; f.meja=f.meja||[];
+  const i=f.meja.indexOf(m);
+  if(i>=0){ f.meja.splice(i,1); btn.classList.remove('pri'); }
+  else { f.meja.push(m); btn.classList.add('pri'); }
+  const t=$('vip_meja_txt'); if(t) t.textContent=f.meja.length?f.meja.join(', '):'—';
+}
+async function vipSimpanKunci(){
+  const f=VIP_FORM; if(!f)return;
+  if(!(f.meja||[]).length) return toast('Meja belum dipilih','Pilih minimal satu meja supaya bisa dikunci di Reservasi.','err');
+  const btn=$('vip_kunci_btn'); if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; }
+  try{
+    const hasil=await rsvSisipkan(function(d){
+      // Diperiksa ULANG di dalam putaran simpan: meja bisa saja baru diambil
+      // orang lain di sela-sela kita memilih.
+      const terpakai=rsvMejaTerpakai(d,f.tanggal);
+      const bentrok=(f.meja||[]).filter(m=>terpakai[m]);
+      if(bentrok.length) return {__batal:true,bentrok};
+      const now=Date.now();
+      const catatan=['RESERVASI RUANG VIP ('+f.jenis+')',
+        f.perusahaan?'Perusahaan: '+f.perusahaan:'',
+        f.layoutReq?'Request layout: '+f.layoutReq:'',
+        'TV: '+(f.tv?'Ya':'Tidak')+' · Speaker & Mic: '+(f.speaker?'Ya':'Tidak'),
+        f.kasir?'Kasir: '+f.kasir:'',
+        f.catatan||'',
+        'Dari modul Marketing — PIC '+userName(f.mktPIC)].filter(Boolean).join('\n');
+      return {
+        id:'vip-'+f.id, name:f.nama, phone:f.hp, date:f.tanggal, time:f.jamMulai,
+        pax:vipPax(f), table:(f.meja||[]).join(', '), sharing:false,
+        category:'Corporate / Gathering', foodReq:'', drinkReq:'',
+        dpStatus:'Belum', dpMethod:'', dpAmount:0, dpProofData:'', dpProofName:'',
+        docReqData:'', docReqName:'', source:'Marketing', picType:'Marketing',
+        picName:userName(f.mktPIC), member:false, memberNo:'',
+        notes:catatan, vip:true, status:'Booking',
+        actualPax:0, checkinAt:0, leftAt:0, arrivals:[],
+        createdBy:(ME?ME.name:'Marketing'), createdAt:now, updatedAt:now, followups:[]
+      };
+    });
+    if(hasil&&hasil.__batal){
+      if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
+      return toast('Meja keburu diambil','Meja '+hasil.bentrok.join(', ')+' baru saja dipesan tamu lain. Pilih meja lain.','err');
+    }
+    f.resId=hasil.rec.id; f.kirimAt=new Date().toISOString();
+    const lama=(S.vip||[]).findIndex(x=>x.id===f.id);
+    if(lama>=0) S.vip[lama]=f; else { S.vip=S.vip||[]; S.vip.unshift(f); }
+    logAct('vip',f.id,'Reservasi VIP '+f.jenis,f.nama+' · '+fmtDate(f.tanggal)+' · meja '+(f.meja||[]).join(', ')+(f.jenis==='Assisted'?' · '+rp(vipNominal(f)):''));
+    save(); closeModal(); buildNav();
+    toast('Terkunci di Reservasi ⚓',f.nama+' · meja '+(f.meja||[]).join(', ')+' sudah dipesan atas nama ini.','ok');
+    go('vip');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
+    toast('Gagal menyimpan',e.message,'err');
+  }
+}
+function vipDetail(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  const baris=(k,val)=>'<dt>'+k+'</dt><dd>'+(val||'—')+'</dd>';
+  modal('<div class="modal-head"><div><h3>'+esc(v.nama)+'</h3><p>'+esc(v.perusahaan||'')+' · '+esc(v.jenis)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body"><dl class="kv-list">'
+   +baris('Tanggal',fmtDateLong(v.tanggal))
+   +baris('Jam Kedatangan',esc(vipJam(v)))
+   +baris('No. HP','<span class="mono">'+esc(v.hp||'')+'</span>')
+   +baris('Jumlah Orang',(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax)?esc(v.paxMin+' – '+v.paxMax+' orang'):vipPax(v)+' orang')
+   +baris('Request Layout',esc(v.layoutReq||''))
+   +baris('Penggunaan TV',v.tv?'Ya':'Tidak')
+   +baris('Speaker &amp; Mic',v.speaker?'Ya':'Tidak')
+   +baris('Kasir',esc(v.kasir||''))
+   +baris('Meja terkunci','<b>'+esc((v.meja||[]).join(', ')||'—')+'</b>')
+   +baris('Marketing PIC',esc(userName(v.mktPIC)))
+   +(v.jenis==='Assisted'?baris('Nominal Pendapatan','<b class="mono">'+rp(vipNominal(v))+'</b>'):'')
+   +baris('Catatan',esc(v.catatan||''))
+   +'</dl>'
+   +(v.resId?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.check)+'<span>Sudah tercatat di modul Reservasi — mejanya terkunci untuk seluruh kru.</span></div>'
+            :'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span>Belum dikirim ke modul Reservasi.</span></div>')
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+   +(can('edit_vip')?'<button class="btn" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'Ubah</button>':'')
+   +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>');
+}
+/* Omzet Reservasi VIP Assisted per marketing — dipakai Marketing Performance.
+   Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
+function vipOmzetPIC(uid){
+  return (S.vip||[]).filter(v=>v.mktPIC===uid && v.jenis==='Assisted').reduce((a,v)=>a+vipNominal(v),0);
+}
+function vipOmzetTotal(){
+  return (S.vip||[]).filter(v=>v.jenis==='Assisted').reduce((a,v)=>a+vipNominal(v),0);
+}
 
 /* ============================================================
    MODUL K — REPORTING & ANALYTICS
