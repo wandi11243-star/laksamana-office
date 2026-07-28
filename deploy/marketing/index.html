@@ -2252,6 +2252,18 @@ function paxDariTeks(v){
 }
 function fbPax(ev){ const d=ev.detail||{}; return paxDariTeks(d.estimasiOTS)||+d.pax||+ev.pax||0; }
 function fbHargaPax(ev){ const d=ev.detail||{}; return +d.dealPax||+d.budgetPax||0; }
+function fbOtomatis(ev){ return Math.round(fbPax(ev)*fbHargaPax(ev)); }
+/* Membaca kotak F&B di tab Finance. Kotak itu SELALU memajang angka (lihat
+   financeTab), jadi "kosong" bukan lagi satu-satunya tanda "ikut otomatis":
+   angka yang PERSIS SAMA dengan hitungan otomatis juga berarti tidak ditimpa.
+   Tanpa aturan ini, sekadar membuka tab Finance lalu menekan Simpan akan
+   membekukan F&B pada angka saat itu — koreksi pax atau harga per pax di tab
+   Kasir sesudahnya tidak akan berpengaruh apa pun, diam-diam. */
+function fbDariKotak(ev,teks){
+  const d=rupiahDigits(teks);
+  if(d==='') return '';
+  return (+d===fbOtomatis(ev)) ? '' : (+d);
+}
 /* fbManual = timpaan manual dari tab Finance. Kosong (''/null/undefined) berarti
    "ikut hitungan otomatis"; angka 0 yang sengaja diketik tetap dihormati. */
 function fbDitimpa(ev){ const v=(ev.detail||{}).fbManual; return v!==''&&v!=null&&!isNaN(+v); }
@@ -5338,17 +5350,26 @@ function financeTab(ev,canEdit){
   // left: inputs
   /* F&B: dulu kotak mati yang hanya memajang hasil hitungan. Sekarang bisa
      ditimpa — harga F&B sering hasil kesepakatan yang tidak jatuh persis di
-     pax x harga (paket, bonus, pembulatan). Kosongkan untuk kembali otomatis;
-     nilai otomatisnya tetap terpampang sebagai placeholder supaya jelas apa
-     yang sedang ditinggalkan. */
-  const fbOto=Math.round(fbPax(ev)*fbHargaPax(ev));
+     pax x harga (paket, bonus, pembulatan).
+
+     ANGKA OTOMATISNYA IKUT TERTULIS DI KOTAK, bukan cuma jadi placeholder.
+     Percobaan pertama memakai placeholder dan hasilnya kotak yang tampak
+     berisi "Rp 0" — dua sebab sekaligus: rupiahInputHTML sudah memasang
+     placeholder="0" sendiri (atribut duplikat, yang PERTAMA menang), dan
+     placeholder memang bukan tempat memajang angka yang sudah dihitung.
+
+     Konsekuensinya: kotak ini tidak lagi bisa dibedakan "kosong = otomatis".
+     Yang membedakan sekarang NILAINYA — selama isinya sama dengan hitungan
+     otomatis, ia tetap dianggap otomatis dan akan ikut berubah kalau pax atau
+     harga per pax di tab Kasir dikoreksi. Lihat fbDariKotak(). */
+  const fbOto=fbOtomatis(ev);
   const fbSumber=paxDariTeks(d.estimasiOTS)?'Estimasi Tamu + Penambahan OTS & Deal per Pax di tab <b>Kasir</b>'
                                            :'Pax & Budget per Pax di tab <b>Informasi Dasar</b>';
   h+='<div>'
    +'<div class="field full"><label>F&B (otomatis: '+fbPax(ev)+' pax × '+rp(fbHargaPax(ev))+')</label>'
-     +rupiahInputHTML('efd_fbManual',d.fbManual,dis,' placeholder="'+esc(rupiahFmt(fbOto)||'0')+'"')
-     +'<div class="fh">Terisi otomatis dari '+fbSumber+'. Isi kotak ini hanya bila mau menimpanya — kosongkan untuk kembali otomatis.'
-     +(fbDitimpa(ev)?' <b style="color:var(--warn)">Sedang ditimpa manual</b> (otomatisnya '+rp(fbOto)+').':'')
+     +rupiahInputHTML('efd_fbManual',(fbDitimpa(ev)?d.fbManual:fbOto),dis)
+     +'<div class="fh">Terisi otomatis dari '+fbSumber+'. Ubah angkanya bila mau menimpa — kembalikan ke '+rp(fbOto)+' (atau kosongkan) untuk mengikuti hitungan otomatis lagi.'
+     +(fbDitimpa(ev)?' <b style="color:var(--warn)">Sedang ditimpa manual</b> — otomatisnya '+rp(fbOto)+'.':'')
      +'</div></div>';
   h+='<div class="form-grid">'
    +curField('Sewa Venue','sewaVenue',d.sewaVenue,dis)
@@ -5405,10 +5426,11 @@ function finHitungHTML(ev){
    dipakai bersama, mengetik akan mengubah data asli tanpa disimpan. */
 function finBayangan(ev){
   const b=Object.assign({},ev,{detail:Object.assign({},ev.detail)});
-  ['sewaVenue','biayaTeknis','biayaLain','diskon','fbManual'].forEach(k=>{
+  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{
     const el=$('efd_'+k); if(!el)return;
     const d=rupiahDigits(el.value); b.detail[k]=d===''?'':(+d);
   });
+  const elFb=$('efd_fbManual'); if(elFb) b.detail.fbManual=fbDariKotak(ev,elFb.value);
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
   const dp=$('efd_dpPercent'); if(dp)b.dpPercent=+dp.value||S.settings.dpPercent;
@@ -5461,8 +5483,9 @@ function segVal(id){ const el=$(id); if(!el)return undefined; const b=el.querySe
    jadi pengumpulannya dipisah supaya bisa dipakai tombol simpan tab Finance. */
 function collectFinanceInto(ev){
   if(!$('efd_npwp'))return false;                  // bagian finance tidak sedang tampil
-  // fbManual ikut dikumpulkan: kosong = kembali ke hitungan otomatis.
-  ['sewaVenue','biayaTeknis','biayaLain','diskon','fbManual'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
+  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
+  // F&B punya aturan sendiri: sama dengan hitungan otomatis = tidak ditimpa.
+  const elFb=$('efd_fbManual'); if(elFb) ev.detail.fbManual=fbDariKotak(ev,elFb.value);
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
