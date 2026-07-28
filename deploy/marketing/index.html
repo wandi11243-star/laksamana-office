@@ -2236,7 +2236,31 @@ function ynBool(val,def){ if(val&&typeof val==='object'&&'v'in val)return val.v=
    NOL dan seluruh biaya makanan hilang dari Grand Total — padahal label di tab
    Finance tetap memajang "100 pax × Budget/Pax" karena label membaca ev.pax.
    Angka yang hilang persis sebesar bagian terbesar tagihan. */
-function eventFbCost(ev){ const d=ev.detail||{}; const pax=+d.pax||+ev.pax||0, bp=+d.budgetPax||0; return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0); }
+/* Angka yang dipakai Kasir (D.8) adalah yang paling dekat dengan kenyataan
+   hari-H: "Estimasi Tamu + Penambahan OTS" sudah termasuk tamu yang datang
+   mendadak, dan "Deal per Pax" adalah harga yang benar-benar disepakati —
+   bukan budget awal di Informasi Dasar. Karena itu keduanya dipakai lebih dulu;
+   Pax & Budget/Pax (D.1) tinggal jadi cadangan untuk event yang tab Kasirnya
+   belum diisi.
+
+   estimasiOTS bertipe teks bebas, jadi ditulis orang bermacam-macam: "152",
+   "150 + 2 OTS", "±150". Semua angka di dalamnya dijumlahkan — itu tepat untuk
+   bentuk "150 + 2" dan tetap benar untuk "152" yang berdiri sendiri. */
+function paxDariTeks(v){
+  const angka=String(v==null?'':v).match(/\d+/g);
+  return angka?angka.reduce((a,n)=>a+(+n||0),0):0;
+}
+function fbPax(ev){ const d=ev.detail||{}; return paxDariTeks(d.estimasiOTS)||+d.pax||+ev.pax||0; }
+function fbHargaPax(ev){ const d=ev.detail||{}; return +d.dealPax||+d.budgetPax||0; }
+/* fbManual = timpaan manual dari tab Finance. Kosong (''/null/undefined) berarti
+   "ikut hitungan otomatis"; angka 0 yang sengaja diketik tetap dihormati. */
+function fbDitimpa(ev){ const v=(ev.detail||{}).fbManual; return v!==''&&v!=null&&!isNaN(+v); }
+function eventFbCost(ev){
+  const d=ev.detail||{};
+  if(fbDitimpa(ev)) return +d.fbManual||0;
+  const pax=fbPax(ev), bp=fbHargaPax(ev);
+  return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0);
+}
 function eventSubtotal(ev){ const d=ev.detail||{}; return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
 function eventFinance(ev){
   const st=S.settings, d=ev.detail||{};
@@ -5312,10 +5336,20 @@ function financeTab(ev,canEdit){
   const dis=canEdit?'':'disabled';
   let h='<div class="grid g-2" style="align-items:start">';
   // left: inputs
+  /* F&B: dulu kotak mati yang hanya memajang hasil hitungan. Sekarang bisa
+     ditimpa — harga F&B sering hasil kesepakatan yang tidak jatuh persis di
+     pax x harga (paket, bonus, pembulatan). Kosongkan untuk kembali otomatis;
+     nilai otomatisnya tetap terpampang sebagai placeholder supaya jelas apa
+     yang sedang ditinggalkan. */
+  const fbOto=Math.round(fbPax(ev)*fbHargaPax(ev));
+  const fbSumber=paxDariTeks(d.estimasiOTS)?'Estimasi Tamu + Penambahan OTS & Deal per Pax di tab <b>Kasir</b>'
+                                           :'Pax & Budget per Pax di tab <b>Informasi Dasar</b>';
   h+='<div>'
-   +'<div class="field full"><label>F&B (otomatis: '+(ev.pax||0)+' pax × Budget/Pax)</label>'
-     +'<div class="inp" style="display:flex;align-items:center;font-weight:600">'+rp(f.fb)+'</div>'
-     +'<div class="fh">Terisi otomatis dari Pax & Budget per Pax di tab Informasi Dasar.</div></div>';
+   +'<div class="field full"><label>F&B (otomatis: '+fbPax(ev)+' pax × '+rp(fbHargaPax(ev))+')</label>'
+     +rupiahInputHTML('efd_fbManual',d.fbManual,dis,' placeholder="'+esc(rupiahFmt(fbOto)||'0')+'"')
+     +'<div class="fh">Terisi otomatis dari '+fbSumber+'. Isi kotak ini hanya bila mau menimpanya — kosongkan untuk kembali otomatis.'
+     +(fbDitimpa(ev)?' <b style="color:var(--warn)">Sedang ditimpa manual</b> (otomatisnya '+rp(fbOto)+').':'')
+     +'</div></div>';
   h+='<div class="form-grid">'
    +curField('Sewa Venue','sewaVenue',d.sewaVenue,dis)
    +curField('Sound, Lighting, dll','biayaTeknis',d.biayaTeknis,dis)+curField('Lain-lain','biayaLain',d.biayaLain,dis)
@@ -5371,7 +5405,7 @@ function finHitungHTML(ev){
    dipakai bersama, mengetik akan mengubah data asli tanpa disimpan. */
 function finBayangan(ev){
   const b=Object.assign({},ev,{detail:Object.assign({},ev.detail)});
-  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{
+  ['sewaVenue','biayaTeknis','biayaLain','diskon','fbManual'].forEach(k=>{
     const el=$('efd_'+k); if(!el)return;
     const d=rupiahDigits(el.value); b.detail[k]=d===''?'':(+d);
   });
@@ -5427,7 +5461,8 @@ function segVal(id){ const el=$(id); if(!el)return undefined; const b=el.querySe
    jadi pengumpulannya dipisah supaya bisa dipakai tombol simpan tab Finance. */
 function collectFinanceInto(ev){
   if(!$('efd_npwp'))return false;                  // bagian finance tidak sedang tampil
-  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
+  // fbManual ikut dikumpulkan: kosong = kembali ke hitungan otomatis.
+  ['sewaVenue','biayaTeknis','biayaLain','diskon','fbManual'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
@@ -7398,7 +7433,16 @@ function decideApproval(id,decision){
    ============================================================ */
 function renderPerformance(V){
   let h=pageHead('Modul J','Marketing Performance','Ukur performa objektif — bukan kesan, tapi angka.','');
-  const mkt=S.users.filter(u=>u.role==='marketing');
+  /* Yang muncul di sini HANYA tim marketing yang masih aktif. Role-nya sendiri
+     diturunkan dari jabatan di Office (lihat roleDariJabatan), jadi daftar ini
+     diatur dari Office -> Kelola User, bukan dipatok di kode: siapa yang
+     jabatannya Marketing/Sales, dialah yang diukur di sini.
+
+     Saringan `active` ditambahkan karena pegawai yang sudah dinonaktifkan di
+     Office tetap tersimpan di S.users (riwayat event lamanya masih menunjuk ke
+     id itu). Tanpa saringan ini papan performa terus memajang batang kosong
+     atas nama orang yang sudah tidak bekerja di sini. */
+  const mkt=S.users.filter(u=>u.role==='marketing' && u.active!==false);
   // team totals
   const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   const omzet=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
@@ -7804,12 +7848,21 @@ function kalkMenuAll(){
 }
 function renderKalkulator(V){
   const all=kalkMenuAll();
-  /* value = "katnama" — indeks bisa bergeser kalau menu ditambah di tab
-     lain; pasangan kat+nama stabil.  dipakai karena tak mungkin muncul
-     di nama menu. */
-  const opts='<option value="">— pilih menu —</option>'+all.map(function(m){
-    return '<option value="'+esc(m.kat+'|'+m.n)+'">'+esc(m.kat+' · '+m.n)+(m.h==null?' (harga —)':' ('+rp(m.h)+')')+'</option>';
-  }).join('');
+  /* PEMILIH MENU BISA DICARI. Dulu <select> biasa: dengan Database Menu yang
+     sudah panjang, menemukan satu menu berarti menggulir seluruh daftar dan
+     hafal ia ada di kategori mana.
+
+     Diganti <input list=...> + <datalist>: mengetik apa pun langsung menyaring,
+     nama menu maupun kategorinya. Ini penyaring bawaan browser, jadi tidak ada
+     daftar melayang buatan sendiri yang harus diurus posisinya, ditutup saat
+     klik di luar, dan dijaga agar tetap bisa dipakai lewat papan ketik.
+
+     ref tetap "kategori|nama": indeks bisa bergeser kalau menu ditambah di tab
+     lain, pasangan kategori+nama stabil. Yang DITAMPILKAN adalah labelnya, jadi
+     pilihan orang harus dipetakan balik ke ref -- lihat kalkPilihMenu(). */
+  const opts='<datalist id="kalk_menulist">'+all.map(function(m){
+    return '<option value="'+esc(kalkLabel(m))+'"></option>';
+  }).join('')+'</datalist>';
 
   let h=pageHead('Modul E','Menu Kalkulator','Hitung harga jual per pax lalu diskon dari harga deal customer. Tidak tersimpan — alat hitung cepat.','');
   if(!all.length){
@@ -7824,10 +7877,12 @@ function renderKalkulator(V){
       +'Rasio per pax dihitung sendiri.</div>'
     +'</div>';
 
+  // datalist dipasang sekali di halaman; tiap kotak menu menunjuk ke sini.
+  h+=opts;
   h+='<div class="card pad0" style="margin-bottom:16px"><div class="tbl-wrap"><table class="tbl kalk-tbl"><thead><tr>'
     +'<th style="width:34px">#</th><th>Menu</th><th style="width:158px">Porsi (pcs)</th>'
     +'<th style="width:130px" class="r">Harga Satuan</th><th style="width:150px" class="r">Subtotal</th><th style="width:34px"></th>'
-    +'</tr></thead><tbody id="kalk_body">'+kalkRowsHTML(opts)+'</tbody></table></div>'
+    +'</tr></thead><tbody id="kalk_body">'+kalkRowsHTML()+'</tbody></table></div>'
     +'<div style="padding:12px"><button class="btn sm" onclick="kalkTambahRow()">'+svg(IC.plus)+'Tambah menu</button></div></div>';
 
   h+='<div class="grid g-2" style="gap:16px;align-items:start">'
@@ -7850,26 +7905,57 @@ function renderKalkulator(V){
   V.innerHTML=h;
   kalkHitung();
 }
-function kalkRowsHTML(opts){
+function kalkRowsHTML(){
   kalkNormalRows();
   return KALK.rows.map(function(r,i){
     return '<tr>'
       +'<td class="mono">'+(i+1)+'</td>'
-      +'<td><select class="inp kalk-sel" onchange="kalkSetRow('+i+',\'ref\',this.value)">'
-        +opts.replace('value="'+esc(r.ref)+'"','value="'+esc(r.ref)+'" selected')+'</select></td>'
-      /* Tombol "= pax" menyamakan porsi dengan jumlah pax dalam satu klik —
+      /* Kotak ketik + datalist, bukan <select>: bisa dicari. Dipakai `change`
+         (bukan `input`) supaya baris belum dianggap berubah selagi orang masih
+         mengetik separuh nama. */
+      +'<td><input class="inp kalk-sel" list="kalk_menulist" autocomplete="off" '
+        +'placeholder="Ketik untuk cari menu..." value="'+esc(kalkLabelRef(r.ref))+'" '
+        +'onchange="kalkPilihMenu('+i+',this)"></td>'
+      /* Tombol "= pax" menyamakan porsi dengan jumlah pax dalam satu klik --
          kasus paling sering (semua tamu kebagian satu). Eksplisit, bukan diam-
          diam mengikuti pax: porsi yang sengaja dibuat beda (80 dari 100) tidak
          boleh berubah sendiri saat jumlah pax dikoreksi. */
       +'<td><div style="display:flex;align-items:center;gap:5px">'
         +'<input class="inp kalk-pcs" type="number" min="0" step="1" value="'+(+r.pcs||0)+'" oninput="kalkSetRow('+i+',\'pcs\',this.value)">'
         +'<button class="btn sm" style="flex:none;padding:5px 7px" title="Samakan dengan jumlah pax" onclick="kalkSamakanPax('+i+')">=pax</button>'
-        +'</div><div class="cell-sub kalk-perpax-baris">—</div></td>'
-      +'<td class="r mono kalk-harga">—</td>'
-      +'<td class="r mono kalk-rowsub">—</td>'
+        +'</div><div class="cell-sub kalk-perpax-baris">-</div></td>'
+      +'<td class="r mono kalk-harga">-</td>'
+      +'<td class="r mono kalk-rowsub">-</td>'
       +'<td><button class="btn sm" title="Hapus baris" onclick="kalkHapusRow('+i+')">&times;</button></td>'
       +'</tr>';
   }).join('');
+}
+/* Label yang dilihat orang di kotak pencarian. Satu tempat saja: dipakai untuk
+   MENGISI datalist dan untuk MEMBACA balik pilihannya, jadi keduanya tidak
+   mungkin berbeda bentuk. */
+function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+')'); }
+function kalkLabelRef(ref){
+  if(!ref) return '';
+  var i=String(ref).indexOf('|'); if(i<0) return '';
+  var kat=ref.slice(0,i), nama=ref.slice(i+1);
+  var it=mdbItems(kat).filter(function(x){return x.n===nama;})[0];
+  return it?kalkLabel({kat:kat,n:nama,h:it.h}):'';
+}
+/* Kosong -> baris dikosongkan. Cocok -> dipakai. Tidak dikenali -> TIDAK diam-
+   diam dibuang: kotaknya dikembalikan ke pilihan sebelumnya dan orangnya
+   diberi tahu, karena ketikan setengah jadi yang hilang tanpa pesan terasa
+   seperti aplikasi rusak. */
+function kalkPilihMenu(i,el){
+  if(!KALK.rows[i]) return;
+  var teks=String(el.value||'').trim();
+  if(!teks){ kalkSetRow(i,'ref',''); return; }
+  var m=kalkMenuAll().filter(function(x){return kalkLabel(x)===teks;})[0];
+  if(!m){
+    el.value=kalkLabelRef(KALK.rows[i].ref);
+    toast('Menu tidak dikenali','Pilih dari daftar yang muncul saat mengetik.','err');
+    return;
+  }
+  kalkSetRow(i,'ref',m.kat+'|'+m.n);
 }
 function kalkSamakanPax(i){
   if(!KALK.rows[i]) return;
