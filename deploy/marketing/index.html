@@ -2201,7 +2201,16 @@ function genericSecsOfTab(tabId){ return visibleSecsOfTab(tabId).filter(s=>s.id!
 function ynBool(val,def){ if(val&&typeof val==='object'&&'v'in val)return val.v===true; if(typeof val==='boolean')return val; return def===true; }
 // Biaya F&B otomatis = Pax × Budget per Pax. Bila budget/pax kosong, pakai nilai
 // lama biayaFB (agar data event lama tidak hilang).
-function eventFbCost(ev){ const d=ev.detail||{}; const pax=+d.pax||0, bp=+d.budgetPax||0; return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0); }
+/* Pax dibaca dari ev.detail.pax DAN ev.pax. Keduanya memang ada: form menulis
+   ke detail.pax, lalu saveEventTab() menyalinnya ke ev.pax untuk daftar & tabel.
+   Salinan itu hanya terjadi saat tab Informasi Dasar disimpan — jadi event yang
+   pax-nya masuk lewat jalan lain (modal "Event Baru" versi lama, peluang yang
+   lahir dari Follow Up, data pindahan) punya ev.pax terisi sementara detail.pax
+   kosong. Dulu rumus ini hanya melihat detail.pax, sehingga F&B diam-diam jadi
+   NOL dan seluruh biaya makanan hilang dari Grand Total — padahal label di tab
+   Finance tetap memajang "100 pax × Budget/Pax" karena label membaca ev.pax.
+   Angka yang hilang persis sebesar bagian terbesar tagihan. */
+function eventFbCost(ev){ const d=ev.detail||{}; const pax=+d.pax||+ev.pax||0, bp=+d.budgetPax||0; return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0); }
 function eventSubtotal(ev){ const d=ev.detail||{}; return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
 function eventFinance(ev){
   const st=S.settings, d=ev.detail||{};
@@ -2452,8 +2461,9 @@ const NAV_DEF=[
   {k:'brief',t:'Event Brief & Quotation',i:'brief'},
   {k:'calendar',t:'Kalender',i:'cal'},
   {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
-  {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
   {g:'Finance & Kontrol'},
+  // Kalkulator dipindah ke sini: keluarannya angka harga, bukan pekerjaan event.
+  {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
   {k:'invoices',t:'Invoice & Payment',i:'invoice'},
   {k:'approvals',t:'Approval Flow',i:'approve'},
   {k:'purchasing',t:'Purchase Order',i:'invoice'},
