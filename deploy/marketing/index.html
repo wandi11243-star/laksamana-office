@@ -243,6 +243,21 @@ table.tbl tr:last-child td{border-bottom:none}
 .row-click{cursor:pointer}
 .cell-strong{font-weight:600}
 .cell-sub{font-size:11px;color:var(--muted);margin-top:2px}
+/* ===== kepala kolom yang bisa diurut + pager ===== */
+/* Tombol, bukan <th> yang diberi onclick: kepala kolom harus bisa dicapai
+   dengan Tab dan ditekan dengan Enter, sama seperti tombol lain di halaman. */
+.th-sort{display:inline-flex;align-items:center;gap:5px;border:0;background:none;padding:0;margin:0;
+  font:inherit;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:inherit;font-weight:600;
+  cursor:pointer;white-space:nowrap}
+.th-sort:hover{color:var(--gold-deep)}
+.th-sort.on{color:var(--gold-deep)}
+.th-ar{font-size:9px;opacity:.45;line-height:1}
+.th-sort.on .th-ar{opacity:1}
+.tbl-pager{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:11px 14px;border-top:1px solid var(--line-soft)}
+.tbl-pager-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.tbl-pager-nav .btn{min-width:30px;padding-left:9px;padding-right:9px;justify-content:center}
+.tbl-pager-gap{color:var(--muted);padding:0 2px;font-size:12px}
 
 /* forms */
 .field{margin-bottom:15px}
@@ -608,8 +623,13 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .papan-cek svg{width:13px;height:13px;stroke-width:3}
 .papan-cek:hover{border-color:var(--gold)}
 .papan-cek.on{background:var(--ok);border-color:var(--ok)}
-.papan-prog{display:flex;align-items:center;gap:9px}
-.papan-prog .rng{flex:1;min-width:80px}
+/* Tombol tambah item yang menempel pada JUDUL sub kategori — item yang dibuat
+   dari sini langsung masuk ke kelompok itu, bukan mendarat di dasar tabel. */
+.sub-tambah{display:inline-flex;align-items:center;gap:4px;margin-left:10px;padding:2px 8px;border-radius:999px;
+  border:1px dashed var(--line-hard);background:none;color:var(--muted);cursor:pointer;
+  font:inherit;font-size:10.5px;letter-spacing:.04em;text-transform:none;vertical-align:middle}
+.sub-tambah:hover{color:var(--gold-deep);border-color:var(--gold)}
+.sub-tambah svg{width:11px;height:11px}
 .papan-tambah{display:flex;align-items:center;gap:8px;width:100%;margin-top:4px;padding:9px 2px;
   border:0;background:none;color:var(--muted);cursor:pointer;font:inherit;font-size:12.5px;text-align:left}
 .papan-tambah:hover{color:var(--gold-deep)}
@@ -625,12 +645,9 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 /* input inline di dalam papan job halaman Task Divisi */
 .jb-in{padding:6px 9px;font-size:12px;width:100%;min-width:70px}
 .ntf-chev{width:18px;height:18px;flex:none;color:var(--muted)}
-input[type=range].rng{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:6px;background:var(--ink-700);outline:none;cursor:pointer}
-input[type=range].rng::-webkit-slider-runnable-track{-webkit-appearance:none;height:8px;border-radius:6px;background:transparent}
-input[type=range].rng::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;margin-top:-5px;width:18px;height:18px;border-radius:50%;background:linear-gradient(135deg,var(--gold-soft),var(--gold-deep));border:2px solid #fff;box-shadow:0 1px 4px rgba(50,42,28,.3);cursor:pointer}
-input[type=range].rng::-moz-range-track{height:8px;border-radius:6px;background:var(--ink-700)}
-input[type=range].rng::-moz-range-progress{height:8px;border-radius:6px;background:linear-gradient(90deg,var(--gold-deep),var(--gold))}
-input[type=range].rng::-moz-range-thumb{width:16px;height:16px;border:2px solid #fff;border-radius:50%;background:var(--gold);box-shadow:0 1px 4px rgba(50,42,28,.3);cursor:pointer}
+/* Gaya slider (input[type=range].rng) DIBUANG bersama kolom Progress di papan
+   to-do: satu-satunya pemakainya. Kesiapan item sekarang cuma dua keadaan —
+   selesai atau belum — dan itu diputuskan lewat kotak centang di kolom pertama. */
 .timeline{position:relative;padding-left:26px}
 .timeline::before{content:"";position:absolute;left:8px;top:4px;bottom:4px;width:2px;background:var(--line-hard)}
 .tl-item{position:relative;padding-bottom:20px}
@@ -1176,6 +1193,37 @@ function normalizeState(s){
     }
     delete u.nav; delete u.perms;
   });
+  /* MIGRASI: daftar pegawai (s.staff) dilebur ke daftar user (s.users).
+     Dulu keduanya daftar orang yang sama tapi hidup terpisah — s.staff hanya
+     terisi kalau ada yang menekan "Tarik dari Office", jadi rutin ketinggalan.
+     Sekarang satu daftar saja.
+
+     Yang dipindah hanya kolom yang TIDAK dimiliki user itu: divisi, jabatan,
+     dan No. HP yang mungkin sudah dirapikan tangan. Baris s.staff yang tidak
+     punya padanan user (pegawai yang ditambah manual dan memang tidak punya
+     akun) tetap ikut masuk sebagai user nonaktif-akses — namanya harus tetap
+     bisa dipilih jadi PIC di event lama. Aman diulang: sesudahnya s.staff
+     kosong, jadi pemuatan berikutnya tidak menemukan apa pun untuk dipindah. */
+  if(Array.isArray(s.staff) && s.staff.length){
+    s.users=Array.isArray(s.users)?s.users:[];
+    s.staff.forEach(st=>{
+      if(!st||!st.name) return;
+      const u=s.users.find(x=>x&&String(x.name||'').toLowerCase()===String(st.name).toLowerCase());
+      if(u){
+        if(st.div&&!u.div) u.div=st.div;
+        if(st.jabatan&&!u.jabatan) u.jabatan=st.jabatan;
+        if(st.hp&&!u.hp) u.hp=st.hp;
+      } else {
+        s.users.push({id:st.officeId||st.id||('st_'+Math.random().toString(36).slice(2,9)),
+          name:st.name, div:st.div||'', jabatan:st.jabatan||'', hp:st.hp||'',
+          /* Tanpa `acc` sendiri: hak aksesnya mengikuti bawaan role, sama
+             seperti user baru mana pun. Menuliskan acc:{} justru berarti
+             "semua menu Tak Terlihat" dan orangnya terkunci diam-diam. */
+          role:'operational', active:st.active!==false});
+      }
+    });
+    s.staff=[];
+  }
   return s;
 }
 
@@ -1460,7 +1508,9 @@ function resetData(){
 /* ---------- SETTINGS / BUSINESS RULES (Bagian 9 & 14) ---------- */
 const DEFAULT_SETTINGS = {
   dpPercent:50, pb1:10, serviceCharge:5,
-  approvalThreshold:25000000, discountThreshold:15,
+  // approvalThreshold (dulu Rp25 jt) DIHAPUS: approval kini hanya untuk
+  // negosiasi harga, jadi nilai event tidak lagi memicu antrian approval.
+  discountThreshold:15,
   fuTarget:10,
   // Nomor invoice & kwitansi: sekali diberikan, melekat permanen ke event/pembayaran.
   // invSeq/kwSeq = nomor urut berikutnya yang akan dipakai.
@@ -1472,8 +1522,16 @@ const DEFAULT_SETTINGS = {
 };
 
 /* ---------- FORMAT HELPERS ---------- */
-const rp = n => 'Rp'+(Number(n)||0).toLocaleString('id-ID');
-const rpShort = n => { n=Number(n)||0; if(n>=1e9)return 'Rp'+(n/1e9).toFixed(1)+'M'; if(n>=1e6)return 'Rp'+(n/1e6).toFixed(1)+'jt'; if(n>=1e3)return 'Rp'+(n/1e3).toFixed(0)+'rb'; return 'Rp'+n; };
+/* SATU format uang untuk seluruh modul: "Rp 1.500.000" — angka penuh, dengan
+   spasi sesudah "Rp" sesuai penulisan resmi rupiah.
+
+   rpShort DULU meringkas jadi "Rp1,5jt" / "Rp850rb". Itu dibuang: ringkasan
+   membulatkan (Rp1.549.000 dan Rp1.451.000 sama-sama tertulis "Rp1,5jt"), dan
+   orang jadi harus membuka halaman lain untuk tahu angka sebenarnya. Namanya
+   dipertahankan sebagai alias supaya tidak ada satu pun pemanggil yang
+   terlewat dan diam-diam kembali memakai format lama. */
+const rp = n => 'Rp '+(Number(n)||0).toLocaleString('id-ID');
+const rpShort = rp;
 // Input uang: tampil dengan titik ribuan + prefix "Rp", tapi disimpan sebagai angka murni.
 const rupiahDigits = s => String(s==null?'':s).replace(/\D/g,'');
 const rupiahGroup  = d => d.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
@@ -1576,41 +1634,97 @@ function resolveOfficeUser(s){
   }
   return u;
 }
-// Auto-tarik roster modul Marketing dari Office tiap kali modul dibuka, supaya
-// dropdown PIC (dan daftar staf) selalu ikut siapa saja yang Office beri akses
-// ke modul ini, tanpa perlu tiap orang login manual dulu atau admin menarik
-// satu-satu lewat "Tarik User dari Office". Diam-diam, tanpa PIN (server-side
-// listModuleRoster_ sengaja dibuat tanpa gerbang kredensial: cuma roster
-// nama+status aktif, tidak ada PIN atau data modul lain yang terekspos).
+// Auto-tarik seluruh pegawai dari database user Office tiap kali modul dibuka,
+// supaya Data Pegawai & dropdown PIC selalu ikut kenyataan tanpa perlu ada yang
+// menekan tombol tarik. Tanpa PIN: kedua endpoint di sisi server sengaja dibuat
+// tanpa gerbang kredensial — isinya cuma nama, tim, no HP & status aktif; tidak
+// ada PIN atau data modul lain yang terekspos.
 // Kegagalan (offline) sengaja tidak menghentikan boot: app tetap jalan dengan
 // data yang sudah ada, sync dicoba lagi sesi berikutnya.
-async function autoSyncOfficeRoster(){
+/* Dua panggilan, dua peran yang berbeda:
+     listDivisiRoster  -> SELURUH pegawai di database user Office (nama, no HP,
+                          keterangan/tim, aktif). Inilah sumber Data Pegawai.
+     listModuleRoster  -> siapa yang Office beri akses ke modul Marketing, dan
+                          siapa admin modulnya. Dipakai hanya untuk role.
+   Keduanya tanpa PIN. Dulu hanya listModuleRoster yang dipanggil, jadi kru yang
+   belum diberi akses Marketing tidak pernah muncul, dan No. HP tidak pernah
+   ikut sama sekali — itu sebab kolom No. HP & Divisi selalu kosong. */
+async function ambilOffice(payload){
+  /* Batas waktu: panggilan Office pernah terukur 16-23 detik dan tanpa penjaga
+     ini bisa menggantung tanpa akhir. Sinkronisasi sudah non-blocking di sini,
+     jadi ini murni agar tidak ada permintaan yang menggantung selamanya. */
+  const stop=new AbortController();
+  const jam=setTimeout(()=>stop.abort(),25000);
+  const res=await fetchOffice({method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(payload),signal:stop.signal}).finally(()=>clearTimeout(jam));
+  const data=await res.json();
+  return (data&&data.ok)?(data.members||[]):null;
+}
+/* diam = true saat jalan otomatis waktu modul dibuka (tanpa toast). Tombol
+   "Sinkron Sekarang" memanggilnya dengan diam=false supaya ada kabarnya. */
+async function autoSyncOfficeRoster(diam){
   try{
-    // Batas waktu: Apps Script Office terukur 16-23 detik dan tanpa penjaga ini
-    // panggilan bisa menggantung tanpa akhir. Roster sudah non-blocking di sini,
-    // jadi ini murni agar tidak ada permintaan yang menggantung selamanya.
-    const stop=new AbortController();
-    const jam=setTimeout(()=>stop.abort(),25000);
-    const res=await fetchOffice({method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'listModuleRoster',module:'marketing'}),signal:stop.signal})
-      .finally(()=>clearTimeout(jam));
-    const data=await res.json();
-    if(!data || !data.ok) return;
-    let changed=false;
-    (data.members||[]).forEach(m=>{
-      if(!m||!m.id)return;
-      let u=S.users.find(x=>x.id===m.id)||S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
+    const semua=await ambilOffice({action:'listDivisiRoster'});
+    if(!semua) { if(!diam) toast('Gagal','Office menolak permintaan roster.','err'); return; }
+    // Anggota modul: dipakai untuk role saja, dan boleh gagal sendirian —
+    // daftar pegawainya tetap tersinkron walau bagian ini tak terjawab.
+    let anggota=null;
+    try{ anggota=await ambilOffice({action:'listModuleRoster',module:'marketing'}); }catch(_){}
+    const adminModul={}, anggotaModul={};
+    (anggota||[]).forEach(m=>{ if(!m||!m.id)return; anggotaModul[m.id]=true; if(m.isModuleAdmin) adminModul[m.id]=true; });
+
+    /* ROLE BAWAAN untuk orang yang baru pertama kali terlihat.
+       Penting: sekarang yang ditarik SELURUH database user Office, bukan hanya
+       anggota modul Marketing. Kalau semuanya diberi role 'marketing' seperti
+       dulu, papan Marketing Performance dan dropdown "Marketing PIC" akan penuh
+       nama orang yang tidak pernah menjual apa pun. Jadi:
+         admin modul Marketing   -> Super Admin
+         anggota modul Marketing -> Marketing
+         selebihnya              -> Operational (muncul sebagai pilihan PIC,
+                                    tapi tidak dihitung sebagai tim marketing)
+       Role yang SUDAH ada tidak pernah disentuh — hanya baris baru. */
+    const roleBawaan=id=> adminModul[id] ? 'super_admin' : (anggotaModul[id] ? 'marketing' : 'operational');
+
+    let baru=0, ubah=0, tanpaDiv=0;
+    semua.forEach(m=>{
+      if(!m||!m.id&&!m.name)return;
+      const hp=hpDariOffice(m), div=divisiDariKeterangan(m.keterangan);
+      if(!div) tanpaDiv++;
+      let u=(m.id&&S.users.find(x=>x.id===m.id))
+          || S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
       if(!u){
-        S.users.push({id:m.id,name:m.name||'(tanpa nama)',role:m.isModuleAdmin?'super_admin':'marketing',active:m.active!==false});
-        changed=true;
-      } else {
-        // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
-        if(m.id&&u.id!==m.id){u.id=m.id;changed=true;}
-        if(m.name&&u.name!==m.name){u.name=m.name;changed=true;}
+        S.users.push({id:m.id||uid('u'),name:m.name||'(tanpa nama)',div,jabatan:m.keterangan||'',hp,
+          role:roleBawaan(m.id),active:m.active!==false});
+        baru++;
+        return;
       }
+      let ch=false;
+      // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
+      if(m.id&&u.id!==m.id){ u.id=m.id; ch=true; }
+      if(m.name&&u.name!==m.name){ u.name=m.name; ch=true; }
+      /* No. HP: Office yang jadi acuan, jadi nomor yang berubah di Office IKUT
+         berubah di sini. Ini yang dulu tidak pernah terjadi. */
+      if(hp&&u.hp!==hp){ u.hp=hp; ch=true; }
+      // Jabatan diisi dari keterangan Office hanya bila belum pernah diisi.
+      if(m.keterangan&&!u.jabatan){ u.jabatan=m.keterangan; ch=true; }
+      /* Divisi: hanya diisi kalau masih kosong. Office tidak punya kolom divisi
+         sendiri — nilainya TEBAKAN dari teks bebas `keterangan`, dan tebakan
+         tidak boleh menimpa divisi yang sudah dipilih orang secara sadar. */
+      if(div&&!u.div){ u.div=div; ch=true; }
+      if(u.active!==(m.active!==false)){ u.active=(m.active!==false); ch=true; }
+      if(ch) ubah++;
     });
-    if(changed){ logAct('user','-','Roster staf disinkronkan dari Office','otomatis saat buka modul'); save(); buildNav(); }
-  }catch(e){ /* offline / Office tak terjangkau: lewati diam-diam */ }
+    if(baru||ubah){
+      logAct('user','-','Data pegawai disinkronkan dari Office',baru+' baru · '+ubah+' diperbarui');
+      save(); buildNav(); paintStaffDatalist();
+    }
+    if(!diam) toast('Selesai',baru+' pegawai baru, '+ubah+' diperbarui.'
+      +(tanpaDiv?' '+tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.':''),'ok');
+    if(!diam) go('staff');
+  }catch(e){
+    // offline / Office tak terjangkau: saat otomatis dilewati diam-diam.
+    if(!diam) toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err');
+  }
 }
 
 /* ---------- HAK AKSES ----------
@@ -2136,8 +2250,8 @@ function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fu
    ============================================================ */
 function seed(){
   const s = { settings:{...DEFAULT_SETTINGS}, baseline:0, users:[], clients:[], events:[], followups:[], activities:[], notifs:[], approvals:[], taskTemplates:[], taskCategories:[] };
-  // Tanpa user dummy: identitas datang dari Office (dibuat otomatis saat login,
-  // atau ditarik massal lewat tombol "Tarik dari Office" di User Management).
+  // Tanpa user dummy: identitas datang dari Office — dibuat otomatis saat login,
+  // dan seluruh roster disegarkan sendiri lewat autoSyncOfficeRoster().
   s.users=[]; s.staff=[];
   return s;
 }
@@ -2229,7 +2343,6 @@ const NAV_DEF=[
   {k:'calendar',t:'Kalender',i:'cal'},
   {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
   {k:'templates',t:'Template Task',i:'task'},
-  {k:'staff',t:'Data Pegawai',i:'crm'},
   {k:'menudb',t:'Database Menu',i:'brief'},
   {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
   {g:'Finance & Kontrol'},
@@ -2243,25 +2356,37 @@ const NAV_DEF=[
   {k:'timeline',t:'Timeline & Audit Log',i:'timeline'},
   {g:'Sistem'},
   {k:'notifications',t:'Notification Center',i:'notif'},
-  {k:'users',t:'User Management',i:'users'},
-  {k:'settings',t:'Pengaturan',i:'settings'}
+  {k:'staff',t:'Pegawai & Akses',i:'users'},
+  {k:'settings',t:'Pengaturan',i:'settings'},
+  /* 'users' TIDAK punya entri sidebar lagi — halamannya sudah menyatu ke
+     'staff' (lihat go()). Barisnya tetap ada di sini karena permViewKeys()
+     membacanya dari daftar ini: ia masih satu-satunya baris izin yang
+     memisahkan "boleh mengubah role & hak akses orang lain" dari "boleh
+     merapikan data pegawai". Kalau dihapus, can('manage_users') tidak punya
+     view untuk disandarkan dan siapa pun yang bisa mengedit pegawai ikut bisa
+     menaikkan dirinya jadi Super Admin. */
+  {k:'users',t:'Kelola Role & Hak Akses',i:'users',hidden:1}
 ];
 function buildNav(){
   const allowed=userNav(ME); const nav=$('nav'); nav.innerHTML='';
   let curGroup=null,groupHasItem=false,pending='';
   NAV_DEF.forEach(item=>{
     if(item.g){ curGroup=item.g; pending='<div class="nav-group">'+item.g+'</div>'; groupHasItem=false; return; }
+    if(item.hidden)return;                 // baris izin saja, bukan menu
     if(!allowed.includes(item.k))return;
     if(pending){ nav.insertAdjacentHTML('beforeend',pending); pending=''; }
-    const badge = item.k==='approvals'?pendingApprovals().length : item.k==='notifications'?unreadNotif() : 0;
+    const badge = item.k==='approvals'?(pendingApprovals().length+pendingPenawaran().length) : item.k==='notifications'?unreadNotif() : 0;
     nav.insertAdjacentHTML('beforeend',
       '<a data-k="'+item.k+'" onclick="go(\''+item.k+'\')">'+svg(IC[item.i])+'<span>'+item.t+'</span>'+(badge?'<span class="badge">'+badge+'</span>':'')+'</a>');
   });
 }
 function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending'); }
+// Surat Penawaran yang menunggu keputusan manajemen — ikut dihitung di lencana
+// menu Approval Flow, karena halaman itulah tempat manajemen memutuskannya.
+function pendingPenawaran(){ return S.events.filter(e=>penStatus(e)==='Menunggu Approval'); }
 
 /* ---------- ROUTER ---------- */
-const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan event bernilai besar / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Data Pegawai','Daftar pegawai — jadi sumber pilihan PIC'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
+const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline','Follow up harian & kanban dari Lead ke Deal'],events:['Input & Event','Detailing event lengkap per divisi'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 /* Buka halaman sesuai alamat saat aplikasi baru dimuat.
    SATU definisi dipakai kedua jalur masuk (login manual & SSO). Dulu baris
    ini digandakan di dua tempat dan KEDUANYA hanya memakai bagian [0] dari
@@ -2273,11 +2398,18 @@ function bootRoute(){
   go(h[0] || 'dashboard', h[1]);
 }
 function go(view,param){
-  const allowed=userNav(ME);
+  let allowed=userNav(ME);
   // #event WAJIB membawa id. Tanpa id tidak ada yang bisa ditampilkan, jadi
   // diarahkan ke daftar event — bukan halaman "Event tidak ditemukan" yang
   // menyesatkan (alamat yang salah ketik/bookmark lama juga mendarat di sini).
   if(view==='event' && !param) view='events';
+  // Data Pegawai & User Management sudah jadi satu halaman. Alamat lama
+  // (#users, dari bookmark / tautan notifikasi) tetap mendarat di tempat yang benar.
+  if(view==='users') view='staff';
+  // Halaman gabungan itu terbuka kalau salah satu dari dua izinnya ada:
+  // 'staff' (merapikan data pegawai) ATAU 'users' (mengatur role & hak akses).
+  // Isi yang boleh disentuh tetap dipilah di dalam halamannya.
+  if(view==='staff' && !allowed.includes('staff') && allowed.includes('users')) allowed=allowed.concat('staff');
   if(view!=='event' && !allowed.includes(view)){ toast('Akses ditolak',ME.name+' tidak punya akses ke modul ini.','err'); view='dashboard'; }
   location.hash = view + (param?('/'+param):'');
   closeSidebar();
@@ -2285,7 +2417,7 @@ function go(view,param){
   const meta=TITLES[view]||TITLES.events; if(view!=='event'){ $('tb-title').textContent=meta[0]; $('tb-sub').textContent=meta[1]; }
   $('notif-dot').style.display=unreadNotif()?'block':'none';
   const V=$('view'); V.scrollTop=0; paintStaffDatalist(); paintMenuDatalist();
-  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderEvents,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,users:renderUsers,settings:renderSettings};
+  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderEvents,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,settings:renderSettings};
   (R[view]||renderDashboard)(V,param);
   window.scrollTo(0,0);
 }
@@ -2343,26 +2475,119 @@ function renderDashboard(V){
   // upcoming
   h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center"><h3 style="font-size:15px">Upcoming Event · 7 Hari</h3><span class="tag">'+upcoming.length+' event</span></div>';
   if(!upcoming.length) h+=empty('Belum ada event dekat','Event 7 hari ke depan akan tampil di sini.','cal');
-  else { h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Tanggal</th><th>Pax</th><th>Kesiapan Divisi</th><th></th></tr></thead><tbody>';
-    upcoming.forEach(e=>{ const rd=daysTo(e.tanggal); const rlbl=rd===0?'Hari ini':'H-'+rd; const prog=taskProgress(e);
+  else { const pUp=tblPage(tblUrut(upcoming,'upcoming',KOL_UPCOMING),'upcoming');
+    h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('upcoming',KOL_UPCOMING)+'<tbody>';
+    pUp.items.forEach(e=>{ const rd=daysTo(e.tanggal); const rlbl=rd===0?'Hari ini':'H-'+rd; const prog=taskProgress(e);
       h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td><td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+rlbl+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td style="min-width:130px"><div class="progress"><div class="bar" style="width:'+prog+'%"></div></div><div class="cell-sub">'+prog+'% siap</div></td><td>'+svg(IC.chevR,'')+'</td></tr>'; });
-    h+='</tbody></table></div>'; }
+    h+='</tbody></table></div>'+tblPagerHtml(pUp,'upcoming'); }
   h+='</div>';
   // reminders
   h+='<div class="card"><h3 style="font-size:15px;margin-bottom:14px">Reminder</h3>';
   const rem=[];
   dpPending.forEach(e=>rem.push({i:'money',c:'--warn',t:'DP belum masuk',s:e.nama}));
   S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&!e.invoiceSent).forEach(e=>rem.push({i:'invoice',c:'--info',t:'Invoice belum dikirim',s:e.nama}));
-  S.events.filter(e=>penStatus(e)==='Menunggu Approval').forEach(e=>rem.push({i:'approve',c:'--violet',t:(bisaPutusPenawaran()?'Penawaran perlu approval':'Penawaran menunggu Howandi'),s:e.nama}));
+  S.events.filter(e=>penStatus(e)==='Menunggu Approval').forEach(e=>rem.push({i:'approve',c:'--violet',t:(bisaPutusPenawaran()?'Penawaran perlu approval':'Penawaran menunggu Manager / Approver'),s:e.nama}));
   S.events.filter(e=>penStatus(e)==='Disetujui').forEach(e=>rem.push({i:'approve',c:'--ok',t:'Penawaran disetujui — kirim ke client',s:e.nama}));
   S.followups.filter(f=>f.next===today()).forEach(f=>rem.push({i:'pipe',c:'--gold',t:'Follow up hari ini',s:clientName(f.clientId)}));
   if(!rem.length) h+='<div class="muted" style="padding:12px 0">Tidak ada reminder. Semua terkendali. ⚓</div>';
   rem.slice(0,7).forEach(r=>{ h+='<div style="display:flex;gap:11px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft)"><div style="width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:color-mix(in srgb,var('+r.c+') 15%,transparent);color:var('+r.c+')">'+svg(IC[r.i],'')+'</div><div><div style="font-size:13px;font-weight:600">'+r.t+'</div><div class="cell-sub">'+esc(r.s)+'</div></div></div>'; });
   h+='<div class="divider"></div><h3 style="font-size:15px;margin-bottom:12px">Performance Snapshot</h3>';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><div class="cell-sub">Closing bulan ini</div><div style="font-family:var(--ff-display);font-size:22px">'+closingMonth+'</div></div><div><div class="cell-sub">Omzet vs target</div><div style="font-family:var(--ff-display);font-size:22px">'+Math.round(revMonth/1e6)+'jt</div></div></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div><div class="cell-sub">Closing bulan ini</div><div style="font-family:var(--ff-display);font-size:22px">'+closingMonth+'</div></div><div><div class="cell-sub">Omzet vs target</div><div style="font-family:var(--ff-display);font-size:19px">'+rp(revMonth)+'</div></div></div>';
   h+='</div></div>';
+  h+=papanTodoHTML();
   V.innerHTML=h;
 }
+
+/* ============================================================
+   PAPAN TO-DO TASK — di Dashboard
+   ------------------------------------------------------------
+   Kumpulan item to-do yang BELUM selesai dari seluruh event handover, dalam
+   satu daftar. Tanpa ini, "apa yang harus kukerjakan hari ini" cuma bisa
+   dijawab dengan membuka Task Divisi lalu masuk ke event satu per satu.
+
+   Bawaannya menyaring ke tugas MILIK SENDIRI (PIC = nama saya); tombol di
+   kepalanya membuka seluruh tugas. Kru operasional tetap dibatasi divisinya,
+   sama seperti di papan Task Divisi. */
+let todoHanyaSaya = true;
+function todoToggleMilik(){ todoHanyaSaya=!todoHanyaSaya; TBL_HAL.todo=1; refreshView(); }
+// Tanggal jatuh tempo efektif: deadline yang diisi, kalau kosong dihitung dari
+// H-<n> terhadap tanggal event, kalau itu pun kosong ya tanggal eventnya.
+function todoJatuhTempo(e,div,tpl){
+  const dl=jobField(e,div,tpl,'deadline');
+  if(dl) return dl;
+  if(tpl.hminus!=null && e.tanggal){
+    const d=new Date(e.tanggal+'T00:00:00');
+    if(!isNaN(d.getTime())){ d.setDate(d.getDate()-Math.max(0,+tpl.hminus||0)); return d.toISOString().slice(0,10); }
+  }
+  return e.tanggal||'';
+}
+function dashTodoItems(){
+  const opDiv=ME.role==='operational'?ME.div:null;
+  const saya=String((ME&&ME.name)||'').toLowerCase();
+  const out=[];
+  handoverEvents().forEach(e=>{
+    genTasks(e);
+    eventCats(e).concat([FREE_DIV]).forEach(div=>{
+      eventDivTemplates(e,div).forEach(tpl=>{
+        if(jobSelesai(e,div,tpl.id)) return;
+        if(opDiv && !tpl.extra && (tpl.sub||'')!==opDiv) return;
+        const pic=jobField(e,div,tpl,'pic');
+        if(todoHanyaSaya && String(pic||'').toLowerCase()!==saya) return;
+        out.push({e,div,tpl,pic,jatuh:todoJatuhTempo(e,div,tpl)});
+      });
+    });
+  });
+  return out;
+}
+const KOL_TODO=[
+  {t:'', w:'34px'},
+  {k:'item',  t:'Item',     v:x=>x.tpl.task||''},
+  {k:'event', t:'Event',    v:x=>x.e.nama},
+  {k:'grup',  t:'Kelompok', v:x=>x.div===FREE_DIV?(x.tpl.sub||'Tugas bebas'):(x.div+(x.tpl.sub?' · '+x.tpl.sub:''))},
+  {k:'pic',   t:'PIC',      v:x=>x.pic},
+  {k:'jatuh', t:'Jatuh Tempo', v:x=>x.jatuh, cls:'mono', def:1}
+];
+function papanTodoHTML(){
+  const items=dashTodoItems();
+  let h='<div class="card pad0" style="margin-top:16px">'
+   +'<div style="padding:16px 20px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+   +'<div><h3 style="font-size:15px">Papan To-Do Task</h3><div class="cell-sub">Item to-do yang belum selesai dari semua event handover. Centang untuk menandai selesai.</div></div>'
+   +'<div class="pill-row"><span class="tag">'+items.length+' item</span>'
+   +'<button class="btn sm" onclick="todoToggleMilik()">'+(todoHanyaSaya?'Tampilkan semua tugas':'Hanya tugas saya')+'</button>'
+   +'<button class="btn sm" onclick="go(\'tasks\')">Buka Task Divisi</button></div></div>';
+  if(!items.length){
+    h+='<div style="padding:8px 20px 20px">'+empty(
+      todoHanyaSaya?'Tidak ada tugas untukmu':'Tidak ada tugas tertunda',
+      todoHanyaSaya?'Belum ada item to-do yang PIC-nya namamu. Tekan "Tampilkan semua tugas" untuk melihat punya tim.'
+                   :'Semua item di event handover sudah dicentang selesai. ⚓','task')+'</div>';
+    return h+'</div>';
+  }
+  const p=tblPage(tblUrut(items,'todo',KOL_TODO),'todo',todoHanyaSaya?'saya':'semua');
+  h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('todo',KOL_TODO)+'<tbody>';
+  p.items.forEach(x=>{
+    const a="'"+x.e.id+"','"+escJs(x.div)+"','"+x.tpl.id+"'";
+    const telat=x.jatuh && daysTo(x.jatuh)<0;
+    h+='<tr>'
+      +'<td>'+(can('edit_task')
+          ? '<button class="papan-cek" title="Tandai selesai" onclick="toggleJobSelesai('+a+')"></button>'
+          : '<span class="papan-cek"></span>')+'</td>'
+      +'<td><div class="cell-strong">'+esc(x.tpl.task||'(tanpa nama)')+'</div></td>'
+      +'<td class="row-click" onclick="go(\'event\',\''+x.e.id+'\')"><div>'+esc(x.e.nama)+'</div><div class="cell-sub">'+fmtDate(x.e.tanggal)+'</div></td>'
+      +'<td><span class="tag">'+esc(x.div===FREE_DIV?(x.tpl.sub||'Tugas bebas'):(x.div+(x.tpl.sub?' · '+x.tpl.sub:'')))+'</span></td>'
+      +'<td>'+esc(x.pic||'—')+'</td>'
+      +'<td class="mono"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+(x.jatuh?fmtDate(x.jatuh):'—')+(telat?'<div class="cell-sub" style="color:var(--danger)">lewat tenggat</div>':'')+'</td>'
+      +'</tr>';
+  });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'todo')+'</div>';
+  return h;
+}
+const KOL_UPCOMING=[
+  {k:'nama',    t:'Event',           v:e=>e.nama},
+  {k:'tanggal', t:'Tanggal',         v:e=>e.tanggal, cls:'mono', def:1},
+  {k:'pax',     t:'Pax',             v:e=>+e.pax||0, cls:'mono', turun:1},
+  {k:'siap',    t:'Kesiapan Divisi', v:e=>taskProgress(e)},
+  {t:''}
+];
 function stat(label,val,sub,icon){
   return '<div class="card stat"><div class="sl">'+label+'</div><div class="sv num">'+val+'</div><div class="sd">'+sub+'</div><div class="si">'+svg(IC[icon])+'</div></div>';
 }
@@ -2533,8 +2758,127 @@ function subProgress(e,cat,sub){
 // dan tidak terlihat tinggi padahal sebagian besar divisi belum jalan.
 function taskProgress(e){ const cats=eventCats(e); if(!cats.length)return 0; return Math.round(cats.reduce((a,div)=>a+divProgress(e,div),0)/cats.length); }
 function setJobProg(evId,div,taskId,val){ const e=S.events.find(x=>x.id===evId); if(!e)return; e.jobProgress=e.jobProgress||{}; e.jobProgress[div]=e.jobProgress[div]||{}; e.jobProgress[div][taskId]=Math.max(0,Math.min(100,Math.round(+val||0))); save(); }
-function rngFill(el){ const v=Math.max(0,Math.min(100,+el.value||0)); el.style.background='linear-gradient(90deg,var(--gold-deep),var(--gold) '+v+'%,var(--ink-700) '+v+'%)'; const lbl=el.dataset.lbl&&document.getElementById(el.dataset.lbl); if(lbl)lbl.textContent=v+'%'; }
+/* rngFill() DIBUANG bersama slider progress per item. setJobProg() sendiri
+   DIPERTAHANKAN: ia masih dipakai toggleJobSelesai() (0 atau 100), dan data
+   lama yang terlanjur bernilai 37% tetap terbaca — divProgress() menghitungnya
+   apa adanya, jadi tidak ada angka yang tiba-tiba berubah. */
 function refreshView(){ simpanGulir(); const p=location.hash.slice(1).split('/'); go(p[0]||'dashboard', p[1]); }
+
+/* ============================================================
+   TABEL: PENGURUTAN + HALAMAN
+   ------------------------------------------------------------
+   Satu mesin untuk semua tabel daftar di modul ini. Tiap tabel cukup
+   mendeklarasikan KOLOMnya sekali:
+
+     const KOL=[{k:'nama', t:'Client', v:c=>c.nama},
+                {k:'nilai',t:'Total',  v:c=>c.total, cls:'mono', turun:1, def:1},
+                {t:''}];                       // kolom tanpa v = tidak bisa diurut
+
+   lalu memakai tblHead(kunci,KOL) untuk kepalanya, tblUrut() untuk isinya,
+   tblPage()/tblPagerHtml() untuk halamannya. Menaruhnya di satu tempat berarti
+   perilaku pengurutan & paginasi tidak akan berbeda-beda antar halaman.
+
+   Dua perilaku yang disengaja:
+   - Pager TIDAK digambar kalau isinya cuma satu halaman, jadi tabel pendek
+     tetap bersih seperti sebelumnya.
+   - Nomor halaman DIJEPIT ke jumlah halaman yang ada. Tanpa ini, menyaring
+     dari 200 baris jadi 5 baris sementara kita di halaman 8 akan menampilkan
+     tabel kosong yang terlihat seperti data hilang.
+
+   Keadaannya (halaman aktif & kolom urut) sengaja hanya hidup di memori
+   sesi ini — bukan di S. Ini pilihan tampilan satu orang; kalau ikut S, ia
+   akan tersimpan ke server dan mengubah tampilan semua orang.
+   ============================================================ */
+const TBL_PER_HAL_DEF=25;
+// Baris yang tinggi (banyak chip / teks berparagraf) diberi jatah lebih sedikit.
+const TBL_PER_HAL={crm:15, events:15, invoices:15, approval:15, pegawai:20, timeline:30, riwayat:20,
+                   todo:10, upcoming:10};   // dua ini menumpang di Dashboard, jangan sampai mendominasi
+const TBL_HAL={};      // kunci -> nomor halaman aktif
+const TBL_SIG={};      // kunci -> sidik jari saringan terakhir
+const TBL_SORT={};     // kunci -> {k, arah}
+const TBL_RENDER={};   // kunci -> penggambar ulang khusus (kalau tabelnya dicat parsial)
+function tblPerHal(k){ return TBL_PER_HAL[k]||TBL_PER_HAL_DEF; }
+function tblGambar(k){ const f=TBL_RENDER[k]; if(f) f(); else refreshView(); }
+/* sig = sidik jari saringan (opsional). Kalau saringannya berubah, halaman
+   balik ke 1 — kalau cuma datanya bertambah/berkurang, posisi halaman
+   DIPERTAHANKAN supaya sinkronisasi latar tidak melempar pembaca ke awal. */
+function tblPage(arr,k,sig){
+  if(sig!==undefined && TBL_SIG[k]!==sig){ TBL_SIG[k]=sig; TBL_HAL[k]=1; }
+  const per=tblPerHal(k), total=arr.length;
+  const maxHal=Math.max(1,Math.ceil(total/per));
+  const hal=Math.min(Math.max(1,TBL_HAL[k]||1),maxHal);
+  const mulai=(hal-1)*per, akhir=Math.min(mulai+per,total);
+  return {hal,maxHal,mulai,akhir,total,items:arr.slice(mulai,akhir)};
+}
+function tblSetPage(k,n){ TBL_HAL[k]=Number(n)||1; tblGambar(k); }
+// Navigasi bernomor. Halaman yang jauh dari halaman aktif diringkas jadi "…"
+// supaya barisnya tidak melebar tak terkendali saat datanya ribuan.
+function tblPagerHtml(p,k){
+  if(p.maxHal<=1) return '';
+  const nomor=[];
+  for(let i=1;i<=p.maxHal;i++){
+    if(i===1||i===p.maxHal||Math.abs(i-p.hal)<=1) nomor.push(i);
+    else if(nomor[nomor.length-1]!=='…') nomor.push('…');
+  }
+  return '<div class="tbl-pager"><span class="cell-sub" style="margin:0">'+(p.mulai+1)+'–'+p.akhir+' dari '+p.total+'</span>'
+    +'<div class="tbl-pager-nav">'
+    +'<button class="btn sm"'+(p.hal<=1?' disabled':'')+' title="Halaman sebelumnya" onclick="tblSetPage(\''+k+'\','+(p.hal-1)+')">‹</button>'
+    +nomor.map(n=>n==='…'?'<span class="tbl-pager-gap">…</span>'
+      :'<button class="btn sm'+(n===p.hal?' pri':'')+'" onclick="tblSetPage(\''+k+'\','+n+')">'+n+'</button>').join('')
+    +'<button class="btn sm"'+(p.hal>=p.maxHal?' disabled':'')+' title="Halaman berikutnya" onclick="tblSetPage(\''+k+'\','+(p.hal+1)+')">›</button>'
+    +'</div></div>';
+}
+/* Kolom urut aktif. Kalau belum pernah dipilih (atau kolomnya sudah tidak ada
+   lagi karena tabelnya berubah), dipakai kolom bertanda `def`, atau kolom
+   pertama yang bisa diurut. `turun:1` = bawaannya menurun (mis. nominal &
+   tanggal — yang terbesar/terbaru hampir selalu yang dicari lebih dulu). */
+function tblUrutState(k,kolom){
+  const bisa=kolom.filter(c=>c.k&&c.v);
+  if(!bisa.length) return null;
+  let s=TBL_SORT[k];
+  if(!s || !bisa.some(c=>c.k===s.k)){
+    const d=bisa.find(c=>c.def)||bisa[0];
+    s={k:d.k,arah:d.turun?-1:1};
+    TBL_SORT[k]=s;
+  }
+  return s;
+}
+function tblSortKlik(k,key){
+  const s=TBL_SORT[k];
+  TBL_SORT[k]=(s&&s.k===key)?{k:key,arah:-s.arah}:{k:key,arah:1};
+  TBL_HAL[k]=1;                 // urutan baru: mulai lagi dari halaman pertama
+  tblGambar(k);
+}
+function tblUrut(rows,k,kolom){
+  const s=tblUrutState(k,kolom); if(!s) return rows;
+  const c=kolom.find(x=>x.k===s.k); if(!c||!c.v) return rows;
+  /* Angka dibandingkan sebagai angka, sisanya sebagai teks dengan aturan
+     bahasa Indonesia + numeric:true — supaya "Item 2" datang sebelum
+     "Item 10", dan huruf besar/kecil tidak mengacak urutan nama. */
+  return rows.slice().sort((a,b)=>{
+    const va=c.v(a), vb=c.v(b);
+    const kosongA=(va==null||va===''), kosongB=(vb==null||vb==='');
+    if(kosongA&&kosongB) return 0;
+    if(kosongA) return 1;        // yang kosong selalu di bawah, arah apa pun
+    if(kosongB) return -1;
+    const r=(typeof va==='number'&&typeof vb==='number')
+      ? va-vb
+      : String(va).localeCompare(String(vb),'id',{numeric:true,sensitivity:'base'});
+    return r*s.arah;
+  });
+}
+function tblHead(k,kolom){
+  const s=tblUrutState(k,kolom);
+  return '<thead><tr>'+kolom.map(c=>{
+    const atr=(c.cls?' class="'+c.cls+'"':'')+(c.w?' style="width:'+c.w+'"':'');
+    if(!c.k||!c.v) return '<th'+atr+'>'+(c.t||'')+'</th>';
+    const aktif=s&&s.k===c.k;
+    return '<th'+atr+'><button type="button" class="th-sort'+(aktif?' on':'')+'" '
+      +'onclick="tblSortKlik(\''+k+'\',\''+escJs(c.k)+'\')" '
+      +'title="Urutkan menurut '+esc(c.t||c.k)+'">'+esc(c.t||'')
+      +'<span class="th-ar">'+(aktif?(s.arah>0?'▲':'▼'):'↕')+'</span></button></th>';
+  }).join('')+'</tr></thead>';
+}
 
 /* ============================================================
    MODUL B — CRM DATABASE CLIENT
@@ -2592,21 +2936,34 @@ function clientTags(id){
   if(!h) h='<span class="cell-sub">—</span>';
   return h;
 }
+const KOL_CRM=[
+  {k:'nama',    t:'Client',         v:c=>c.nama, def:1},
+  {k:'kontak',  t:'Kontak',         v:c=>c.hp},
+  {k:'source',  t:'Source',         v:c=>c.source},
+  {k:'pic',     t:'Marketing PIC',  v:c=>userName(c.mktPIC)},
+  {k:'peluang', t:'Peluang',        v:c=>clientOpenEvents(c.id).length, turun:1},
+  {k:'spend',   t:'Total Spending', v:c=>clientSpending(c.id), cls:'mono', turun:1},
+  {k:'fu',      t:'Next FU',        v:c=>c.nextFU, cls:'mono'},
+  {t:''}
+];
 function paintCRM(){
-  const rows=crmData();
-  let h='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Kontak</th><th>Source</th><th>Marketing PIC</th><th>Peluang</th><th class="mono">Total Spending</th><th>Next FU</th><th></th></tr></thead><tbody>';
-  if(!rows.length) return $('crm-table').innerHTML=empty('Tidak ada client','Ubah filter atau tambah client baru.','crm');
-  rows.forEach(c=>{
+  const semua=tblUrut(crmData(),'crm',KOL_CRM);
+  if(!semua.length) return $('crm-table').innerHTML=empty('Tidak ada client','Ubah filter atau tambah client baru.','crm');
+  // Sidik jari saringan: mengetik pencarian baru harus kembali ke halaman 1.
+  const p=tblPage(semua,'crm',crmFilter.q+'|'+crmFilter.rel+'|'+crmFilter.source);
+  let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('crm',KOL_CRM)+'<tbody>';
+  p.items.forEach(c=>{
     const sp=clientSpending(c.id);
     h+='<tr class="row-click" onclick="viewClient(\''+c.id+'\')"><td><div class="cell-strong">'+esc(c.nama)+(sp>20000000?' <span class="star-vip" title="Klien VIP — total belanja di atas Rp20 juta">'+svg(IC.star,'star')+'</span>':'')+'</div><div class="cell-sub">'+esc(c.perusahaan||'Perorangan')+'</div></td>'
      +'<td><div style="font-size:12px">'+esc(c.hp)+'</div><div class="cell-sub">'+esc(c.email||c.ig||'')+'</div></td>'
      +'<td><span class="tag">'+esc(c.source)+'</span></td><td>'+esc(userName(c.mktPIC))+'</td><td><div class="pill-row">'+clientTags(c.id)+'</div></td>'
-     +'<td class="mono">'+(sp?rpShort(sp):'—')+'</td><td class="mono">'+(c.nextFU?fmtDate(c.nextFU):'—')+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
+     +'<td class="mono">'+(sp?rp(sp):'—')+'</td><td class="mono">'+(c.nextFU?fmtDate(c.nextFU):'—')+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
   });
-  h+='</tbody></table></div>';
+  h+='</tbody></table></div>'+tblPagerHtml(p,'crm');
   $('crm-table').innerHTML=h;
   document.querySelectorAll('#crm-table tr svg.star').forEach(s=>s.style.color='var(--gold)');
 }
+TBL_RENDER.crm=paintCRM;
 /* ---------- CLIENT FORM & DETAIL ---------- */
 function clientForm(c){
   c=c||{};
@@ -2837,9 +3194,12 @@ function doDelEvent(id){
   toast('Event dihapus',e.nama+' dihapus permanen.','ok'); go('events');
 }
 
-/* ---------- GERBANG TAHAP PIPELINE ----------
-   Informasi Dasar (D.1) wajib lengkap sebelum peluang masuk Negotiation ke atas —
-   supaya tidak ada event yang dinegosiasikan tanpa tanggal/pax/area yang jelas. */
+/* ---------- PENGINGAT TAHAP PIPELINE ----------
+   Dulu ini GERBANG: Informasi Dasar (D.1) yang belum lengkap MENOLAK kenaikan
+   tahap dan melempar orang ke tab Informasi Dasar. Terlalu mengunci — tahap
+   pipeline itu catatan kemajuan negosiasi, bukan sertifikat kelengkapan data,
+   dan datanya di lapangan memang sering baru lengkap belakangan. Sekarang tahap
+   SELALU boleh naik; yang kurang cuma diingatkan lewat toast. */
 const STAGE_NEEDS_BASIC=['Negotiation','Quotation Terkirim','Deal'];
 function missingBasic(ev){
   const sec=SEC_BY_ID['basic']; if(!sec)return [];
@@ -2851,25 +3211,23 @@ function missingBasic(ev){
     return v===undefined||v===null||v===''||(Array.isArray(v)&&!v.length);
   }).map(fl=>fl.l);
 }
-function guardStage(ev,col){
-  if(!STAGE_NEEDS_BASIC.includes(col))return true;
-  const miss=missingBasic(ev);
-  if(!miss.length)return true;
-  toast('Lengkapi Informasi Dasar','Belum terisi: '+miss.slice(0,3).join(', ')+(miss.length>3?' (+'+(miss.length-3)+' lagi)':'')+'. Wajib sebelum tahap '+col+'.','err');
-  curTab='basic'; go('event',ev.id);
-  return false;
+/* Mengingatkan, TIDAK menahan. Ditunda sedikit supaya tidak menumpuk di atas
+   toast "Tahap diperbarui" yang muncul lebih dulu. */
+function ingatkanStage(ev,col){
+  if(!STAGE_NEEDS_BASIC.includes(col))return;
+  const miss=missingBasic(ev); if(!miss.length)return;
+  setTimeout(()=>toast('Data dasar belum lengkap','Belum terisi: '+miss.slice(0,3).join(', ')+(miss.length>3?' (+'+(miss.length-3)+' lagi)':'')+'. Tahapnya tetap naik — lengkapi kalau sempat.'),700);
 }
 function setEventStage(id,col){
   const e=S.events.find(x=>x.id===id); if(!e||e.status===col)return;
-  if(!guardStage(e,col))return;
   const prev=e.status; e.status=col; e.pipeCol=col;
   if(col==='Deal') genTasks(e);
   logAct('event',id,'Tahap diubah',prev+' → '+col);
-  save(); toast('Tahap diperbarui',prev+' → '+col,'ok'); go('event',id);
+  save(); toast('Tahap diperbarui',prev+' → '+col,'ok'); ingatkanStage(e,col); go('event',id);
 }
 function moveEventPipe(id,col){
   const e=S.events.find(x=>x.id===id); if(!e)return;
-  if(!guardStage(e,col))return; // guardStage sudah mengarahkan ke tab Informasi Dasar
+  ingatkanStage(e,col);
   e.pipeCol=col;
   const prev=e.status; e.status=col;
   logAct('event',id,'Pipeline dipindah',prev+' → '+col);
@@ -2968,13 +3326,12 @@ function saveFollowUp(clientId){
   }
   S.followups.unshift({id:uid('f'),clientId,eventId:ev?ev.id:'',by:ME.id,action,hasil,note,at:new Date().toISOString().slice(0,16),next});
   c.lastContact=today();
-  let stageBlocked='';
   if(ev){
-    let stage=FU_RESULT[hasil];
-    // Follow up tetap tersimpan walau D.1 belum lengkap — hanya kenaikan tahapnya yang ditahan,
-    // supaya catatan hasil telepon tidak hilang cuma karena data event belum rapi.
-    if(stage && stage!==ev.status && STAGE_NEEDS_BASIC.includes(stage) && missingBasic(ev).length){ stageBlocked=stage; stage=null; }
+    const stage=FU_RESULT[hasil];
+    // Hasil follow up langsung menaikkan tahap, lengkap atau belum datanya —
+    // kalau ada yang kurang, ingatkanStage() cuma memberi tahu.
     if(stage && stage!==ev.status){
+      ingatkanStage(ev,stage);
       const prev=ev.status; ev.status=stage; ev.pipeCol=stage;
       if(stage==='Deal') genTasks(ev);
       logAct('event',ev.id,'Follow up: '+action,hasil+' · '+prev+' → '+stage+(note?' · '+note:''));
@@ -2990,10 +3347,6 @@ function saveFollowUp(clientId){
   }
   save(); closeModal();
   toast('Follow up dicatat',(ev?esc(ev.nama)+' → '+hasil:c.nama+' → '+hasil),'ok');
-  if(stageBlocked){
-    toast('Tahap belum naik','Informasi Dasar (D.1) belum lengkap — lengkapi dulu agar bisa masuk tahap '+stageBlocked+'.','err');
-    curTab='basic'; go('event',ev.id); return;
-  }
   go('pipeline');
 }
 /* ============================================================
@@ -3008,20 +3361,33 @@ function renderEvents(V){
   h+='</div><div class="card pad0"><div id="ev-table"></div></div>';
   V.innerHTML=h; paintEvents();
 }
+const KOL_EVENTS=[
+  {k:'nama',    t:'Event',       v:e=>e.nama},
+  {k:'jenis',   t:'Jenis',       v:e=>e.jenis},
+  {k:'tanggal', t:'Tanggal',     v:e=>e.tanggal, cls:'mono', turun:1, def:1},
+  {k:'pax',     t:'Pax',         v:e=>+e.pax||0, cls:'mono', turun:1},
+  {k:'status',  t:'Status',      v:e=>e.status},
+  {k:'grand',   t:'Grand Total', v:e=>eventFinance(e).grand, cls:'mono', turun:1},
+  {k:'inv',     t:'Invoice',     v:e=>invStatus(e)},
+  {t:''}
+];
 function paintEvents(){
-  let evs=S.events.slice().sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
+  let evs=S.events.slice();
   if(evFilter){ const q=evFilter.toLowerCase(); evs=evs.filter(e=>(e.nama+' '+clientName(e.clientId)).toLowerCase().includes(q)); }
+  evs=tblUrut(evs,'events',KOL_EVENTS);
   if(!evs.length)return $('ev-table').innerHTML=empty('Belum ada event','Buat event dari client yang sudah Deal.','event');
-  let h='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Jenis</th><th>Tanggal</th><th class="mono">Pax</th><th>Status</th><th class="mono">Grand Total</th><th>Invoice</th><th></th></tr></thead><tbody>';
-  evs.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
+  const p=tblPage(evs,'events',evFilter||'');
+  let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('events',KOL_EVENTS)+'<tbody>';
+  p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
     h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
      +'<td><span class="chip" style="background:color-mix(in srgb,var('+(EVENT_COLOR[e.jenis]||'--muted')+') 15%,transparent);color:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"><span class="cd" style="background:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"></span>'+esc(e.jenis)+'</span></td>'
      +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
      +'<td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
   });
-  h+='</tbody></table></div>';
+  h+='</tbody></table></div>'+tblPagerHtml(p,'events');
   $('ev-table').innerHTML=h;
 }
+TBL_RENDER.events=paintEvents;
 function INV_STATUS_MAP(){ const m={}; Object.keys(INV_STATUS).forEach(k=>m[k]={c:INV_STATUS[k],t:k}); return m; }
 
 function newEvent(){
@@ -3111,7 +3477,7 @@ function renderEventForm(V,id){
    +'<div class="card stat"><div class="sl">Kesiapan Divisi</div><div class="sv num" style="font-size:24px">'+taskProgress(ev)+'%</div><div class="sd">'+eventCats(ev).filter(d=>divProgress(ev,d)>=100).length+'/'+eventCats(ev).length+' kategori</div></div>'
    +'</div>';
 
-  // Kartu Penawaran — alur approval Howandi lalu kirim ke client (di atas detailing).
+  // Kartu Penawaran — unggah PDF, approval Manager, lalu kirim ke client (di atas detailing).
   h+=penawaranCard(ev,canEdit);
 
   // riwayat follow up peluang ini — supaya bisa ditelusuri langsung dari halaman
@@ -3999,14 +4365,15 @@ function delAttach(evId,k,key){
   save(); repaintAttach(evId,k);
   toast('Lampiran dihapus','','ok');
 }
-/* ---------- Galeri Venue (untuk Surat Penawaran) ----------
+/* ---------- Galeri Venue (untuk Draft Quotation) ----------
    Foto venue tetap (full house, panggung, suasana malam, penyesuaian layout)
-   yang tampil di SETIAP Surat Penawaran. Diupload sekali di Pengaturan,
-   disimpan di S.settings.venueGallery, dan ikut tersimpan ke server. */
+   yang tampil di setiap Draft Quotation (Modul E) — bahan menyusun Surat
+   Penawaran, yang surat resminya kini diunggah sebagai PDF. Diupload sekali di
+   Pengaturan, disimpan di S.settings.venueGallery, ikut tersimpan ke server. */
 function venueGallery(){ return Array.isArray(S.settings.venueGallery)?S.settings.venueGallery:[]; }
 function venueGalleryHTML(canEdit){
   const arr=venueGallery();
-  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Surat Penawaran.</div>';
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Draft Quotation.</div>';
   return '<div class="att-imgs">'+arr.map(f=>'<figure class="att-img">'
     +'<a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'venue')+'" loading="lazy" onerror="gambarHilang(this)"></a>'
     +'<figcaption>'+esc(f.name||f.key)+'</figcaption>'
@@ -4424,10 +4791,10 @@ function saveEventTab(id,goNext){
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   if(changes.length)logAct('event',id,'Detail diperbarui: '+tab.title,changes.join(', '));
   if(adaFinance) logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
-  const queued=syncApproval(ev); // auto-masuk Approval Flow bila total ≥ ambang
+  const queued=syncApproval(ev); // auto-masuk Approval Flow bila diskon ≥ ambang negosiasi
   save(); buildNav();
   toast('Tersimpan',tab.title+' disimpan.'+(adaFinance?' Grand Total: '+rp(eventFinance(ev).grand):''),'ok');
-  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (nilai ≥ ambang).','ok');
+  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (diskon ≥ ambang negosiasi).','ok');
   // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
   // (hanya saat simpan biasa — kalau sedang "Simpan & Lanjut" toast ini justru mengganggu alur)
   if(isOpenEvent(ev) && !goNext) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
@@ -4449,10 +4816,14 @@ function setTaskProgress(evId,div,val){
   logAct('event',evId,'Progress '+div+' → '+p+'%','');
   save();
 }
-/* ---------- APPROVAL FLOW helpers ---------- */
-function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(f.grand>=S.settings.approvalThreshold||discPct>=S.settings.discountThreshold)}; }
-function approvalReason(f,discPct){ return (f.grand>=S.settings.approvalThreshold?'Nominal ≥ '+rpShort(S.settings.approvalThreshold):'')+(discPct>=S.settings.discountThreshold?((f.grand>=S.settings.approvalThreshold?' & ':'')+'Diskon '+discPct+'%'):''); }
-// otomatis masukkan ke antrian approval bila total/diskon lewat ambang & belum ada entri untuk event ini
+/* ---------- APPROVAL FLOW helpers ----------
+   Approval HANYA untuk negosiasi harga (diskon/penyesuaian harga di luar
+   standar). Ambang nominal (dulu: grand total ≥ Rp25 jt otomatis butuh
+   persetujuan) DIHAPUS atas keputusan bisnis — event besar tidak lagi
+   tertahan hanya karena nilainya besar. */
+function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(discPct>=S.settings.discountThreshold)}; }
+function approvalReason(f,discPct){ return discPct>=S.settings.discountThreshold?('Negosiasi harga — diskon '+discPct+'%'):''; }
+// otomatis masukkan ke antrian approval bila diskon lewat ambang & belum ada entri untuk event ini
 function syncApproval(ev){
   if(!ev)return false;
   const {f,discPct,need}=approvalStatus(ev);
@@ -4470,9 +4841,9 @@ function ajukanApproval(id){
   const auto=need?approvalReason(f,discPct):'';
   modal('<div class="modal-head"><div><h3>Ajukan Approval</h3><p>'+esc(ev.nama)+' · '+rp(f.grand)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
    +(need
-      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Nilai melewati ambang (≥ '+rpShort(S.settings.approvalThreshold)+' atau diskon ≥ '+S.settings.discountThreshold+'%).</div>'
-      : '<div class="fh" style="margin-bottom:12px">Nilai di bawah ambang (&lt; '+rpShort(S.settings.approvalThreshold)+' &amp; diskon &lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
-   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa event ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
+      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Diskon melewati ambang negosiasi (≥ '+S.settings.discountThreshold+'%).</div>'
+      : '<div class="fh" style="margin-bottom:12px">Diskon masih di bawah ambang negosiasi (&lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
+   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa negosiasi harga ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitApprovalReq(\''+id+'\')">Ajukan</button></div>');
 }
 function submitApprovalReq(id){
@@ -4488,28 +4859,33 @@ function submitApprovalReq(id){
 }
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
-  // check PIC matrix (D.11) required
+  /* Matriks PIC Hari-H (D.11) dulu MENOLAK konfirmasi Deal bila belum terisi.
+     Sekarang hanya diingatkan: PIC sering baru ditentukan setelah deal-nya
+     pasti, jadi menahan Deal karenanya membalik urutan kerja yang sebenarnya. */
   const missing=['picKoordinator','picMOD','picAcara'].filter(k=>!ev.detail[k]);
-  if(missing.length){ curTab='operasional'; go('event',id); return toast('Lengkapi PIC Hari-H','Matriks PIC (D.11) di tab Operasional wajib terisi sebelum Confirmed.','err'); }
   // otomasi: cegah dobel booking — minta konfirmasi ulang bila bentrok
   const clash=bookingConflicts(ev);
   if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
   ev.status='Deal'; ev.pipeCol='Deal';
   genTasks(ev);
   syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
-  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (nominal/diskon melewati ambang).','ok');
+  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (diskon negosiasi melewati ambang).','ok');
   else toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
+  if(missing.length) setTimeout(()=>toast('Matriks PIC belum lengkap','PIC Hari-H (D.11) di tab Operasional masih kosong — isi sebelum hari-H.'),900);
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
   save(); buildNav(); go('event',id);
 }
 
 /* ============================================================
-   PENAWARAN (Surat Penawaran) — alur permintaan Howandi:
-     Buat → Ajukan → (Howandi) Setujui/Tolak → Kirim ke Client → Deal (detailing)
-   Menempel di ev.penawaran. Nilai & isi surat memakai eventFinance +
-   buildBriefDoc(...,'quote') yang sudah ada (dokumen Quotation = Surat
-   Penawaran). Keputusan Setujui/Tolak HANYA Super Admin (Howandi); Devani/
+   PENAWARAN (Surat Penawaran) — alur:
+     Buat + Upload PDF → Ajukan → (Manager/Approver) Setujui/Tolak
+     → Kirim ke Client → Deal (detailing)
+   Menempel di ev.penawaran. Suratnya TIDAK lagi digenerate sistem: Marketing
+   membuat sendiri PDF-nya lalu MENGUNGGAH berkasnya di sini (ev.penawaran.file),
+   dan siapa pun tinggal membukanya untuk dibaca. Berkas disimpan di server lewat
+   uploadReceipt, sama seperti lampiran event & bukti transfer.
+   Keputusan Setujui/Tolak hanya untuk role Manager / Approver (can('approve'));
    Marketing tidak bisa mengirim sebelum status 'Disetujui'.
    ============================================================ */
 const PEN_STATUS={
@@ -4519,16 +4895,19 @@ const PEN_STATUS={
   'Ditolak':{c:'--danger',t:'Ditolak'},
   'Terkirim':{c:'--violet',t:'Terkirim ke Client'}
 };
+const MAKS_PDF_PENAWARAN=40*1024*1024;
 function penStatus(ev){ return (ev&&ev.penawaran&&ev.penawaran.status)||null; }
-// Persetujuan penawaran HANYA Super Admin (Howandi), sesuai permintaan.
-function bisaPutusPenawaran(){ return !!ME && ME.role==='super_admin'; }
+/* Penerima approval = role "Manager / Approver" saja (can('approve')). Super
+   Admin ikut lolos karena can() memang selalu meloloskannya — itu akun pemilik
+   sistem, bukan role tambahan yang bisa diberikan ke orang lain. */
+function bisaPutusPenawaran(){ return can('approve'); }
+function penFile(ev){ return (ev&&ev.penawaran&&ev.penawaran.file)||null; }
 const ROMAWI=['','I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
 function noSuratBaru(){
   const n=S.events.filter(e=>e.penawaran&&e.penawaran.noSurat).length+1;
   const d=new Date();
   return String(n).padStart(3,'0')+'/PNW/LM/'+ROMAWI[d.getMonth()+1]+'/'+d.getFullYear();
 }
-const TERMS_DEFAULT='1. Harga berlaku 14 hari sejak tanggal surat.\n2. DP 50% untuk penguncian tanggal.\n3. Pelunasan paling lambat H-3 sebelum acara.\n4. Harga sudah termasuk pajak & service sesuai rincian.';
 function buatPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   if(!can('edit_event'))return toast('Akses ditolak','Hanya tim Marketing yang membuat penawaran.','err');
@@ -4537,40 +4916,69 @@ function buatPenawaran(id){
   const p=ev.penawaran||{};
   const no=p.noSurat||noSuratBaru();
   const vu=p.validUntil||new Date(Date.now()+14*864e5).toISOString().slice(0,10);
-  const terms=p.terms!=null?p.terms:TERMS_DEFAULT;
+  const f=p.file;
   modal('<div class="modal-head"><div><h3>'+(st?'Ubah':'Buat')+' Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
    +'<div class="fh">No. Surat</div><input id="pen_no" class="inp" value="'+esc(no)+'">'
    +'<div class="fh" style="margin-top:10px">Berlaku sampai</div><input id="pen_vu" type="date" class="inp" value="'+esc(vu)+'">'
-   +'<div class="fh" style="margin-top:10px">Syarat &amp; Ketentuan</div><textarea id="pen_terms" class="inp" rows="5">'+esc(terms)+'</textarea>'
-   +'<div class="cell-sub" style="margin-top:8px">Nilai penawaran diambil dari tab <b>Event Brief &amp; Quotation</b> (Grand Total saat ini '+rp(eventFinance(ev).grand)+'). Isi rincian harganya di sana.</div>'
-   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="simpanPenawaran(\''+id+'\')">Simpan</button></div>');
+   +'<div class="fh" style="margin-top:10px">Berkas Surat Penawaran (PDF)</div>'
+   +'<input id="pen_file" class="inp" type="file" accept="application/pdf,.pdf">'
+   +'<div class="cell-sub" style="margin-top:6px">'
+     +(f?'Berkas saat ini: <a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><b>'+esc(f.name||'surat-penawaran.pdf')+'</b></a> — pilih berkas baru bila ingin mengganti.'
+        :'Unggah PDF surat penawaran yang sudah kamu buat. Maks 40MB. Berkas ini yang akan dibaca Manager saat approval dan dikirim ke client.')
+   +'</div>'
+   +'<div class="fh" style="margin-top:10px">Catatan untuk Approver <span style="font-weight:400">(opsional)</span></div>'
+   +'<textarea id="pen_note" class="inp" rows="3" placeholder="mis. harga sudah termasuk sewa panggung, hasil nego dengan client">'+esc(p.note||'')+'</textarea>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" id="pen_save_btn" onclick="simpanPenawaran(\''+id+'\')">Simpan</button></div>');
 }
-function simpanPenawaran(id){
+async function simpanPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   const p=ev.penawaran||{};
+  const inp=$('pen_file'), file=inp&&inp.files&&inp.files[0];
+  const btn=$('pen_save_btn');
+  if(file){
+    if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf')return toast('Harus PDF','Surat penawaran diunggah dalam format PDF.','err');
+    /* Batasnya 40MB — lebih longgar dari lampiran lain (8MB) karena surat
+       penawaran sering penuh gambar venue/layout beresolusi tinggi. Sisi server
+       punya batas yang sama di save_receipt(); post_max_size PHP juga harus
+       ≥ 60M (base64 membengkakkan ~33%), lihat marketing-mysql/.user.ini. */
+    if(file.size>MAKS_PDF_PENAWARAN)return toast('File terlalu besar','Berkas PDF maksimal '+(MAKS_PDF_PENAWARAN/1048576)+'MB — punyamu '+(file.size/1048576).toFixed(1)+'MB.','err');
+    if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF… 0%'; }
+    try{
+      // Bertahap: berkas puluhan MB tidak akan lolos kalau dikirim sekaligus.
+      const d=await unggahBertahap(file,pct=>{ if(btn) btn.textContent='Mengunggah PDF… '+pct+'%'; });
+      p.file={key:d.key,name:file.name,size:file.size,at:new Date().toISOString(),by:(ME&&ME.name)||''};
+    }catch(e){
+      if(btn){ btn.disabled=false; btn.textContent='Simpan'; }
+      return toast('Gagal unggah','Berkas PDF tidak berhasil diunggah: '+e.message,'err');
+    }
+  }
   p.noSurat=$('pen_no').value.trim();
   p.validUntil=$('pen_vu').value;
-  p.terms=$('pen_terms').value;
+  p.note=$('pen_note').value.trim();
   // Draft baru, atau kembali ke Draft setelah revisi dari Ditolak.
-  p.status=(p.status==='Draft')?'Draft':'Draft';
+  p.status='Draft';
   ev.penawaran=p;
-  logAct('event',id,'Penawaran disimpan',p.noSurat);
-  save(); closeModal(); toast('Penawaran disimpan','No. '+p.noSurat+' — ajukan ke Howandi untuk approval.','ok'); go('event',id);
+  logAct('event',id,'Penawaran disimpan',p.noSurat+(file?' · PDF diunggah':''));
+  save(); closeModal();
+  toast('Penawaran disimpan','No. '+p.noSurat+(p.file?' — ajukan approval ke Manager.':' — unggah PDF-nya dulu sebelum bisa diajukan.'),'ok');
+  go('event',id);
 }
 function ajukanPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(!can('edit_event'))return toast('Akses ditolak','','err');
+  if(!penFile(ev))return toast('PDF belum ada','Unggah dulu berkas PDF surat penawarannya lewat tombol Ubah.','err');
   const f=eventFinance(ev);
-  if(!f.grand)return toast('Nilai belum ada','Isi rincian & harga di tab Event Brief & Quotation dulu.','err');
   const p=ev.penawaran;
   p.status='Menunggu Approval'; p.submittedBy=ME.id; p.submittedAt=new Date().toISOString(); p.rejectNote='';
-  logAct('event',id,'Penawaran diajukan','menunggu approval Howandi');
-  pushNotif('approval','Penawaran menunggu approval',ev.nama+' ('+rp(f.grand)+') menunggu persetujuan Howandi.','#event/'+id);
-  save(); buildNav(); toast('Diajukan','Menunggu approval Howandi sebelum bisa dikirim ke client.','ok'); go('event',id);
+  logAct('event',id,'Penawaran diajukan','menunggu approval Manager / Approver');
+  pushNotif('approval','Penawaran menunggu approval',ev.nama+(f.grand?' ('+rp(f.grand)+')':'')+' menunggu persetujuan di Approval Flow.','#approvals');
+  save(); buildNav(); toast('Diajukan','Menunggu approval Manager / Approver sebelum bisa dikirim ke client.','ok'); go('event',id);
 }
-function putusPenawaran(id,decision){
-  if(!bisaPutusPenawaran())return toast('Hanya Howandi','Persetujuan penawaran hanya bisa dari Super Admin (Howandi).','err');
+// `dari` = halaman pemanggil, supaya Manager yang memutuskan dari meja Approval
+// Flow tetap di antriannya dan bisa lanjut ke penawaran berikutnya.
+function putusPenawaran(id,decision,dari){
+  if(!bisaPutusPenawaran())return toast('Bukan Approver','Persetujuan penawaran hanya bisa dari role Manager / Approver.','err');
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(ev.penawaran.status!=='Menunggu Approval')return;
   let note='';
@@ -4579,51 +4987,74 @@ function putusPenawaran(id,decision){
   p.status=decision; p.decidedBy=ME.id; p.decidedAt=new Date().toISOString(); p.rejectNote=note;
   logAct('event',id,'Penawaran '+decision, note||('oleh '+ME.name));
   pushNotif('approval','Penawaran '+decision, ev.nama+' — '+(decision==='Disetujui'?'siap dikirim ke client.':('ditolak: '+note)),'#event/'+id);
-  save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err'); go('event',id);
+  save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err');
+  if(dari==='approvals') go('approvals'); else go('event',id);
 }
 function kirimPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
   if(!can('edit_event'))return toast('Akses ditolak','','err');
-  if(!['Disetujui','Terkirim'].includes(ev.penawaran.status))return toast('Belum disetujui','Penawaran harus disetujui Howandi dulu sebelum dikirim ke client.','err');
-  const p=ev.penawaran;
+  if(!['Disetujui','Terkirim'].includes(ev.penawaran.status))return toast('Belum disetujui','Penawaran harus disetujui Manager / Approver dulu sebelum dikirim ke client.','err');
+  const p=ev.penawaran, file=p.file;
+  if(!file)return toast('PDF belum ada','Berkas surat penawarannya tidak ada — unggah dulu.','err');
   p.status='Terkirim'; p.sentAt=new Date().toISOString(); p.sentBy=ME.id; p.sentVia='WhatsApp';
   if(['Lead','Prospect'].includes(ev.status)){ ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim'; }
   logAct('event',id,'Penawaran dikirim ke client','WhatsApp');
   save(); buildNav();
-  genBriefFor(id,'quote'); // buka dokumen Surat Penawaran (Quotation) + tombol WhatsApp/print
+  /* Berkasnya PDF hasil unggahan, jadi tidak bisa "dikirim" langsung dari sini:
+     dua tombol — unduh PDF-nya, lalu buka WhatsApp untuk melampirkannya. */
+  const c=S.clients.find(x=>x.id===ev.clientId)||{}, f=eventFinance(ev);
+  const msg='Halo '+(c.pic||c.nama||'')+', berikut surat penawaran untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+')'
+    +(f.grand?('.\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)):'.')
+    +'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
+  modal('<div class="modal-head"><div><h3>Kirim Surat Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="cell-sub">Unduh dulu berkas PDF-nya, lalu buka WhatsApp client dan lampirkan berkas itu bersama pesan yang sudah disiapkan.</div>'
+   +'<div class="pill-row" style="margin-top:12px">'
+     +'<a class="btn" href="'+esc(attachUrl(file.key))+'" target="_blank" rel="noopener">'+svg(IC.brief)+'Buka / Unduh PDF</a>'
+     +'<a class="btn pri" href="'+esc(waLink(c.hp,msg))+'" target="_blank" rel="noopener">'+svg(IC.wa)+'Buka WhatsApp</a>'
+   +'</div></div><div class="modal-foot"><button class="btn pri" onclick="closeModal()">Selesai</button></div>');
 }
-function suratPenawaranPDF(id){ genBriefFor(id,'quote'); }
+// Membaca surat penawaran = membuka berkas PDF yang diunggah Marketing.
+function suratPenawaranPDF(id){
+  const ev=S.events.find(e=>e.id===id); const f=penFile(ev);
+  if(!f)return toast('Belum ada berkas','Surat penawaran PDF belum diunggah.','err');
+  window.open(attachUrl(f.key),'_blank','noopener');
+}
 function dealPenawaran(id){ confirmEvent(id); }
 /* Kartu Penawaran di halaman detail event — menampilkan status + aksi sesuai
-   tahap & peran (Marketing membuat/mengajukan/mengirim; Howandi setujui/tolak). */
+   tahap & peran (Marketing unggah/ajukan/kirim; Manager / Approver setujui/tolak). */
 function penawaranCard(ev,canEdit){
   const st=penStatus(ev), p=ev.penawaran, f=eventFinance(ev), superA=bisaPutusPenawaran();
+  const pf=penFile(ev);
+  const btnPDF='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Baca PDF</button>';
   let info='', acts='<div class="pill-row">';
   if(!st){
-    info='<div class="cell-sub">Belum ada penawaran. Buat surat penawaran → ajukan ke Howandi → setelah disetujui baru bisa dikirim ke client.</div>';
+    info='<div class="cell-sub">Belum ada penawaran. Buat surat penawaran (unggah PDF-nya) → ajukan ke Manager / Approver → setelah disetujui baru bisa dikirim ke client.</div>';
     if(canEdit) acts+='<button class="btn pri" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.brief)+'Buat Penawaran</button>';
   } else {
     info='<div style="display:flex;gap:26px;flex-wrap:wrap;font-size:13px">'
       +'<div><div class="cell-sub">No. Surat</div><b class="mono">'+esc(p.noSurat||'—')+'</b></div>'
       +'<div><div class="cell-sub">Berlaku s/d</div><b>'+(p.validUntil?fmtDate(p.validUntil):'—')+'</b></div>'
       +'<div><div class="cell-sub">Grand Total</div><b class="mono">'+rp(f.grand)+'</b></div>'
+      +'<div><div class="cell-sub">Berkas PDF</div>'+(pf?'<a href="'+esc(attachUrl(pf.key))+'" target="_blank" rel="noopener"><b>'+esc(pf.name||'surat-penawaran.pdf')+'</b></a>':'<b style="color:var(--danger)">belum diunggah</b>')+'</div>'
       +(p.sentAt?'<div><div class="cell-sub">Dikirim</div><b>'+fmtDate(p.sentAt.slice(0,10))+' · '+esc(p.sentVia||'')+'</b></div>':'')
       +'</div>';
-    if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Howandi:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
+    if(p.note) info+='<div class="cell-sub" style="margin-top:8px">Catatan: '+esc(p.note)+'</div>';
+    if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Approver:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
     if(st==='Draft' && canEdit){
-      acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Ubah</button>'
-        +'<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>'
-        +'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
+      acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+(pf?'Ubah':'Unggah PDF')+'</button>'
+        +(pf?btnPDF:'')
+        +(pf?'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>':'');
     } else if(st==='Menunggu Approval'){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Lihat PDF</button>';
+      acts+=btnPDF;
       if(superA) acts+='<button class="btn pri" onclick="putusPenawaran(\''+ev.id+'\',\'Disetujui\')">'+svg(IC.check)+'Setujui</button>'
         +'<button class="btn danger" onclick="putusPenawaran(\''+ev.id+'\',\'Ditolak\')">'+svg(IC.x)+'Tolak</button>';
-      else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Howandi</span>';
+      else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Manager / Approver</span>';
     } else if(st==='Disetujui' && canEdit){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>'
+      acts+=btnPDF
         +'<button class="btn pri" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ke Client</button>';
     } else if(st==='Terkirim'){
-      acts+='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'PDF</button>';
+      acts+=btnPDF;
       if(canEdit) acts+='<button class="btn" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ulang</button>';
       if(canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status)) acts+='<button class="btn pri" onclick="dealPenawaran(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
     } else if(st==='Ditolak' && canEdit){
@@ -4749,6 +5180,44 @@ function fileToBase64(file){
     r.readAsDataURL(file);
   });
 }
+/* Kegagalan unggah dulu muncul sebagai pesan yang menyesatkan: kalau server
+   membalas HTML (413 dari web server, halaman error hosting, dsb), res.json()
+   melempar "Unexpected token '<'" — dan orang mencari-cari kesalahan di
+   berkasnya, padahal masalahnya di server. Di sini badan balasan dibaca
+   sebagai teks dulu, jadi status HTTP & isi balasannya ikut terbaca. */
+async function kirimApi(payload){
+  const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(payload)});
+  const teks=await res.text();
+  let d=null; try{ d=JSON.parse(teks); }catch(e){}
+  if(!d){
+    if(res.status===413) throw new Error('server menolak kiriman karena terlalu besar (HTTP 413)');
+    throw new Error('server membalas bukan JSON (HTTP '+res.status+'): '+teks.slice(0,120).replace(/\s+/g,' '));
+  }
+  if(!d.ok) throw new Error(d.error||'ditolak server');
+  return d.data;
+}
+/* Unggah BERTAHAP — potongan ~2MB per permintaan.
+   Alasannya bukan kerapian: mengirim berkas besar dalam satu POST tidak bisa
+   diandalkan di shared hosting. Base64 membengkakkan ukuran ~33%, lalu
+   post_max_size PHP (bawaan 8M) MEMBUANG seluruh body sebelum PHP jalan —
+   batas yang tidak bisa diubah dari kode aplikasi. Dengan dipotong, unggahan
+   40MB tetap jalan walau batas server tidak pernah dinaikkan. */
+const CHUNK_UNGGAH=2*1024*1024;
+async function unggahBertahap(file,onProgress){
+  const uploadId=uid('up')+'-'+Date.now().toString(36);
+  const total=Math.max(1,Math.ceil(file.size/CHUNK_UNGGAH));
+  let hasil=null;
+  for(let i=0;i<total;i++){
+    const potong=file.slice(i*CHUNK_UNGGAH,(i+1)*CHUNK_UNGGAH);
+    const b64=await fileToBase64(potong);
+    hasil=await kirimApi({action:'uploadChunk',uploadId,seq:i,last:(i===total-1),
+      dataBase64:b64,fileName:file.name,mimeType:file.type||'application/octet-stream'});
+    if(onProgress) onProgress(Math.round((i+1)/total*100));
+  }
+  if(!hasil||!hasil.key) throw new Error('server tidak mengembalikan key berkas');
+  return hasil;
+}
 async function savePayment(id,paymentId){
   const ev=S.events.find(e=>e.id===id);
   const existing=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
@@ -4809,7 +5278,7 @@ function deletePayment(id,paymentId){
    ============================================================ */
 let briefCari='';
 function renderBrief(V){
-  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal, versi client, atau quotation profesional.','');
+  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal atau versi client. <b>Surat Penawaran resmi tidak lagi digenerate di sini</b> — dibuat sendiri lalu diunggah PDF-nya di kartu Surat Penawaran pada detail event; tombol Draft Quotation di bawah hanya bahan referensi internal.','');
   const semua=S.events.slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   if(!semua.length){
     h+=empty('Belum ada event','Brief & quotation dibuat dari event yang sudah ada. Buat event dulu di menu Input & Event.','brief');
@@ -4831,23 +5300,27 @@ function renderBrief(V){
     h+=empty('Tidak ada yang cocok','Coba kata kunci lain, atau kosongkan pencariannya.','brief');
     V.innerHTML=h; return;
   }
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tanggal</th><th>Status</th><th>Generate</th></tr></thead><tbody>';
-  evs.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')">Quotation</button></div></td></tr>'; });
-  h+='</tbody></table></div></div>';
+  const urut=tblUrut(evs,'brief',KOL_BRIEF);
+  const p=tblPage(urut,'brief',q);
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('brief',KOL_BRIEF)+'<tbody>';
+  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')" title="Bahan referensi internal — bukan Surat Penawaran resmi">Draft Quotation</button></div></td></tr>'; });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'brief')+'</div>';
   V.innerHTML=h;
 }
+const KOL_BRIEF=[
+  {k:'nama',    t:'Event',    v:e=>e.nama},
+  {k:'client',  t:'Client',   v:e=>clientName(e.clientId)},
+  {k:'tanggal', t:'Tanggal',  v:e=>e.tanggal, cls:'mono', turun:1, def:1},
+  {k:'status',  t:'Status',   v:e=>e.status},
+  {t:'Generate'}
+];
+/* Mode 'quote' di sini kini hanya DRAFT/referensi internal — Surat Penawaran
+   resmi adalah PDF yang diunggah Marketing di kartu Penawaran. Karena itu
+   membuka draft tidak lagi menaikkan tahap peluang; yang menaikkan tahap ke
+   "Quotation Terkirim" adalah kirimPenawaran() saat suratnya benar-benar
+   dikirim ke client. */
 function genBriefFor(id,mode){
   mode=mode||'internal'; buildBriefDoc(id,mode);
-  // otomasi: begitu quotation dibuat, tahap peluang naik sendiri
-  if(mode==='quote'){
-    const ev=S.events.find(e=>e.id===id);
-    // hanya dari tahap awal — Negotiation kini SETELAH Quotation, jadi jangan diturunkan.
-    if(ev && ['Lead','Prospect'].includes(ev.status)){
-      const prev=ev.status; ev.status='Quotation Terkirim'; ev.pipeCol='Quotation Terkirim';
-      logAct('event',id,'Tahap → Quotation Terkirim','otomatis: quotation dibuat');
-      save(); toast('Tahap diperbarui',prev+' → Quotation Terkirim','ok');
-    }
-  }
 }
 function fmtFieldVal(fl,val){
   if(fl.t==='mirror'){
@@ -5147,7 +5620,14 @@ function pdfNilai(fl,ev){
   return {h:esc(String(s)).replace(/\n/g,'<br>')};
 }
 function buildBriefDoc(id,mode){
-  const ev=S.events.find(e=>e.id===id); const c=S.clients.find(x=>x.id===ev.clientId); const f=eventFinance(ev);
+  const ev=S.events.find(e=>e.id===id);
+  if(!ev) return toast('Event tidak ditemukan','Event ini sudah dihapus — muat ulang halamannya.','err');
+  /* Client yang sudah dihapus dulu membuat seluruh fungsi ini melempar
+     (c.nama pada undefined) dan tombolnya terasa mati tanpa pesan apa pun.
+     Sekarang dokumennya tetap terbit dengan kolom client kosong — dokumen
+     dengan satu bagian kosong lebih berguna daripada tidak ada dokumen. */
+  const c=S.clients.find(x=>x.id===ev.clientId)||{nama:'—',perusahaan:'',pic:'',hp:''};
+  const f=eventFinance(ev);
   const title={internal:'EVENT BRIEF — INTERNAL',client:'KONFIRMASI DETAIL ACARA',quote:'PENAWARAN / QUOTATION'}[mode];
   let body='';
   const logo=window.LM_LOGO||'';
@@ -5200,7 +5680,7 @@ function buildBriefDoc(id,mode){
      +'</table>';
     // Fasilitas yang sudah termasuk — dari komponen yang terisi.
     const inc=[];
-    if(f.fb) inc.push('Paket Food &amp; Beverage untuk '+(ev.pax||0)+' pax'+(+ev.detail.budgetPax?' (Rp '+Number(ev.detail.budgetPax).toLocaleString('id-ID')+'/pax)':''));
+    if(f.fb) inc.push('Paket Food &amp; Beverage untuk '+(ev.pax||0)+' pax'+(+ev.detail.budgetPax?' ('+rp(ev.detail.budgetPax)+'/pax)':''));
     if(+ev.detail.sewaVenue) inc.push('Sewa venue &amp; area — '+esc(areaTxt));
     if(+ev.detail.biayaTeknis) inc.push('Sound system, lighting &amp; dukungan teknis');
     if(ev.detail.decorSource) inc.push('Dekorasi &amp; penyesuaian layout ('+esc(ev.detail.decorSource)+')');
@@ -5218,20 +5698,49 @@ function buildBriefDoc(id,mode){
     body+='<div style="margin-top:16px;font-size:12px;color:#444;line-height:1.75"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px;color:#1a1a1a">Syarat &amp; Ketentuan</div><div style="white-space:pre-wrap">'+esc(terms)+'</div></div>';
     if(pen.validUntil) body+='<div style="margin-top:8px;font-size:11.5px;color:#B8860B;font-weight:600">Penawaran ini berlaku sampai '+fmtDateLong(pen.validUntil)+'.</div>';
     body+='<div style="font-size:12.5px;line-height:1.75;margin-top:18px">Kami siap mendiskusikan penyesuaian sesuai kebutuhan Anda. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.</div>';
-    // Tanda tangan digital (e-signature): terstempel otomatis dari jejak sistem.
-    // Marketing = saat penawaran diajukan/dikirim; Menyetujui = saat Howandi approve.
-    const mktName=userName(ev.mktPIC)||ME.name;
-    const mktAt=pen.sentAt||pen.submittedAt||'';
-    const apprName=pen.decidedBy?userName(pen.decidedBy):'Howandi';
-    const apprAt=['Disetujui','Terkirim'].includes(pen.status)?(pen.decidedAt||''):'';
-    const sigBlock=(intro,name,role,at)=>'<div style="text-align:center;min-width:200px">'+intro
-      +(at?'<div style="font-family:\'Segoe Script\',\'Brush Script MT\',cursive;font-size:28px;color:#0C1826;line-height:1.15;margin:6px 0 0">'+esc(name)+'</div>'
-           +'<div style="font-size:9px;color:#1f9d5f;font-weight:700;margin-bottom:2px">✓ Ditandatangani elektronik · '+fmtDateLong(at.slice(0,10))+'</div>'
-          :'<div style="height:46px"></div>')
+    /* ---------- TANDA TANGAN ----------
+       Tiga hal yang dulu membuat blok ini salah, dan sekarang dijaga:
+
+       1) NAMA BISA JADI "—". userName() mengembalikan '—' untuk id yang tidak
+          ada di daftar user, dan `userName(...) || ME.name` TIDAK menangkapnya
+          ('—' itu truthy). Akibatnya penawaran tercetak ditandatangani oleh
+          "—". Sekarang dipakai namaTtd() yang memperlakukan '—'/kosong sebagai
+          "tidak ketemu" dan jatuh ke cadangan yang masuk akal.
+       2) TANGGAL BISA BUKAN TANGGAL. `at` berasal dari data tersimpan; kalau
+          isinya rusak, fmtDateLong menghasilkan "Invalid Date" tercetak di
+          surat. Dicek dulu lewat tglTtd().
+       3) STEMPEL PADA DOKUMEN YANG BELUM DITANDATANGANI. Draft Quotation nyaris
+          selalu dibuat SEBELUM ada approval, jadi kotak "Menyetujui" kosong
+          melompong tapi tetap tampak seperti tanda tangan yang gagal termuat.
+          Sekarang kalau belum ada jejaknya, yang digambar adalah GARIS TANDA
+          TANGAN biasa — jelas bahwa itu memang untuk ditandatangani, bukan
+          tampilan yang rusak. */
+    const namaTtd=(id,cadangan)=>{
+      const n=id?userName(id):'';
+      return (n&&n!=='—') ? n : cadangan;
+    };
+    const tglTtd=v=>{
+      const t=String(v||'').slice(0,10);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(t)) return '';
+      const d=new Date(t+'T00:00:00');
+      return isNaN(d.getTime()) ? '' : fmtDateLong(t);
+    };
+    const mktName=namaTtd(ev.mktPIC, (ME&&ME.name)||'Marketing');
+    const mktAt=tglTtd(pen.sentAt||pen.submittedAt);
+    const apprName=namaTtd(pen.decidedBy,'Manager / Approver');
+    const apprAt=['Disetujui','Terkirim'].includes(pen.status)?tglTtd(pen.decidedAt):'';
+    const sigBlock=(intro,name,role,tgl)=>'<div style="text-align:center;min-width:200px;flex:1">'+intro
+      +(tgl
+        ? '<div style="font-family:\'Segoe Script\',\'Brush Script MT\',\'Lucida Handwriting\',cursive;font-size:26px;color:#0C1826;line-height:1.2;margin:8px 0 0">'+esc(name)+'</div>'
+          +'<div style="font-size:9px;color:#1f9d5f;font-weight:700;margin-bottom:3px">&#10003; Ditandatangani elektronik &middot; '+tgl+'</div>'
+        : '<div style="height:44px"></div>'
+          +'<div style="border-bottom:1px solid #bbb;margin:0 18px 5px"></div>')
       +'<b>'+esc(name)+'</b><br><span style="color:#666">'+role+'</span></div>';
     body+='<div style="display:flex;justify-content:space-between;gap:20px;margin-top:24px;font-size:12px">'
       +sigBlock('Hormat kami,',mktName,'Marketing — Laksamana Muda',mktAt)
       +sigBlock('Menyetujui,',apprName,'Manajemen — Laksamana Muda',apprAt)+'</div>';
+    if(!mktAt || !apprAt)
+      body+='<div style="margin-top:8px;font-size:10.5px;color:#999;text-align:center">Kolom bergaris belum bertanda tangan elektronik — tanda tangan basah di kolom tersebut.</div>';
     body+='<div style="margin-top:16px;font-size:11px;color:#999">Detail final mengikuti Event Brief &amp; Invoice resmi. Semua sajian 100% non-alkohol.</div>';
   } else {
     body=head+clientBox+sorot;
@@ -5278,7 +5787,7 @@ function buildBriefDoc(id,mode){
 
   // WA message
   const waMsg='Halo '+(c.pic||c.nama)+', berikut '+ (mode==='quote'?'penawaran':'detail acara')+' untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+').\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)+'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
-  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Quotation'};
+  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Draft Quotation — referensi internal'};
   modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Modul E · '+modeLabels[mode]+'</div><h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row"><a class="btn sm" target="_blank" href="'+waLink(c.hp,waMsg)+'">'+svg(IC.wa)+'Kirim WA</a><button class="btn sm" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div><div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'+doc+'</div>');
   $('modal').classList.add('wide');
   window._printDoc=doc;
@@ -5483,15 +5992,17 @@ function freeBoard(e){
   h+='<datalist id="xj_hm_opts">'+hmOpts+'</datalist>';
   if(jobs.length){
     const subs=[]; jobs.forEach(j=>{ const sb=j.sub||''; if(subs.indexOf(sb)<0) subs.push(sb); });
-    const kolom=7+(bisaUbah?1:0);
+    const kolom=6+(bisaUbah?1:0);
     h+='<div class="tbl-wrap"><table class="tbl papan-tbl"><thead><tr><th style="width:34px"></th><th>Item</th>'
       +'<th style="width:74px">Timeline</th><th style="width:150px">PIC</th><th style="width:150px">Deadline</th>'
-      +'<th>Catatan</th><th style="width:180px">Progress</th>'+(bisaUbah?'<th style="width:80px"></th>':'')+'</tr></thead><tbody>';
+      +'<th>Catatan</th>'+(bisaUbah?'<th style="width:80px"></th>':'')+'</tr></thead><tbody>';
     subs.forEach(sb=>{
-      if(sb) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(sb)+'</td></tr>';
+      if(sb) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(sb)
+        +(bisaUbah?'<button type="button" class="sub-tambah" title="Tambah item ke '+esc(sb)+'" onclick="addExtraJob(\''+e.id+'\',\''+escJs(D)+'\',\''+escJs(sb)+'\')">'+svg(IC.plus)+'item</button>':'')
+        +'</td></tr>';
       jobs.filter(j=>(j.sub||'')===sb).forEach(tpl=>{
         const id=tpl.id, a="'"+e.id+"','"+D+"','"+id+"'";
-        const done=jobSelesai(e,D,id), pr2=jobProg(e,D,id);
+        const done=jobSelesai(e,D,id);
         h+='<tr class="papan-row'+(done?' is-done':'')+'">'
           +'<td>'+(bisaUbah?'<button class="papan-cek'+(done?' on':'')+'" title="'+(done?'Tandai belum selesai':'Tandai selesai')+'" onclick="toggleJobSelesai('+a+')">'+(done?svg(IC.check):'')+'</button>':'<span class="papan-cek'+(done?' on':'')+'">'+(done?svg(IC.check):'')+'</span>')+'</td>'
           +'<td>'+(bisaUbah?'<input class="inp jb-in" value="'+esc(tpl.task||'')+'" placeholder="Nama tugas…" onchange="setExtraJob('+a+',\'task\',this.value)">':'<span class="papan-nama">'+esc(tpl.task||'(tanpa nama)')+'</span>')+'</td>'
@@ -5499,7 +6010,6 @@ function freeBoard(e){
           +'<td>'+picSelectHTML(jobField(e,D,tpl,'pic'),'setExtraJob('+a+',&quot;pic&quot;,this.value)',bisaUbah)+'</td>'
           +'<td><input class="inp jb-in" type="date" value="'+esc(jobField(e,D,tpl,'deadline'))+'" '+(bisaUbah?'onchange="setExtraJob('+a+',\'deadline\',this.value)"':'disabled')+'></td>'
           +'<td><input class="inp jb-in" placeholder="Catatan…" value="'+esc(jobField(e,D,tpl,'note'))+'" '+(bisaUbah?'onchange="setExtraJob('+a+',\'note\',this.value)"':'disabled')+'></td>'
-          +'<td><div class="papan-prog">'+(bisaUbah?'<input type="range" class="rng" min="0" max="100" value="'+pr2+'" data-lbl="pb_'+id+'" oninput="rngFill(this)" onchange="setJobProg('+a+',this.value);refreshView()">':'<div class="progress" style="flex:1"><div class="bar" style="width:'+pr2+'%"></div></div>')+'<span class="cell-sub num" id="pb_'+id+'">'+pr2+'%</span></div></td>'
           +(bisaUbah?'<td><div class="pill-row" style="flex-wrap:nowrap"><button class="btn sm" title="Ingatkan PIC via WhatsApp" onclick="remindWA('+a+')">'+svg(IC.wa)+'</button><button class="btn sm" title="Hapus tugas" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button></div></td>':'')
           +'</tr>';
       });
@@ -5543,7 +6053,7 @@ function taskBoard(e,cats,subFilter){
       h+='<div class="tbl-wrap"><table class="tbl papan-tbl"><thead><tr>'
         +'<th style="width:34px"></th><th>Item</th><th style="width:74px">Timeline</th>'
         +'<th style="width:150px">PIC</th><th style="width:150px">Deadline</th>'
-        +'<th>Catatan</th><th style="width:180px">Progress</th>'
+        +'<th>Catatan</th>'
         +(bisaUbah?'<th style="width:80px"></th>':'')+'</tr></thead><tbody>';
       /* Baris judul sub kategori disisipkan di TENGAH tabel, bukan dibuat tabel
          terpisah per kelompok: kolom PIC/Deadline/Progress harus tetap lurus
@@ -5558,23 +6068,33 @@ function taskBoard(e,cats,subFilter){
          Urutan kelompok diambil dari sub kategori milik SEMUA div yang
          menyumbang item — untuk Kitchen itu berarti sub milik Kitchen sendiri
          plus sub milik cabang F&B yang sedang aktif. */
-      const kolom=7+(bisaUbah?1:0);
-      const dariTmpl=items.filter(t=>!t.extra), tambahan=items.filter(t=>t.extra);
+      const kolom=6+(bisaUbah?1:0);
+      /* Item TAMBAHAN ikut dikelompokkan menurut sub kategorinya, sama seperti
+         item dari template. Dulu sub-nya dipaksa kosong di sini (`tpl.extra?'':…`)
+         sehingga semua item tambahan jatuh ke satu tumpukan di dasar tabel —
+         itulah sebabnya "Tambah Item" terasa tidak bisa per grouping padahal
+         datanya sejak awal punya field `sub`. Di dalam satu kelompok, item
+         template tetap di atas dan tambahan menyusul di bawahnya. */
       const urutSub=[''];
-      [...new Set(dariTmpl.map(t=>t.div))].forEach(d=>subsOf(d).forEach(sc=>{ if(urutSub.indexOf(sc.nama)<0) urutSub.push(sc.nama); }));
+      [...new Set(items.map(t=>t.div))].forEach(d=>subsOf(d).forEach(sc=>{ if(urutSub.indexOf(sc.nama)<0) urutSub.push(sc.nama); }));
+      // Sub yang sudah tidak terdaftar lagi tetap dapat kelompoknya (di ekor), bukan hilang.
+      items.forEach(t=>{ const sb=t.sub||''; if(urutSub.indexOf(sb)<0) urutSub.push(sb); });
       const urut=[];
-      urutSub.forEach(nm=>{ dariTmpl.forEach(t=>{ if((t.sub||'')===nm) urut.push(t); }); });
-      // Sub yang sudah tidak terdaftar lagi tetap ditampilkan (di ekor), bukan hilang.
-      dariTmpl.forEach(t=>{ if(urutSub.indexOf(t.sub||'')<0) urut.push(t); });
+      urutSub.forEach(nm=>{
+        items.forEach(t=>{ if(!t.extra && (t.sub||'')===nm) urut.push(t); });
+        items.forEach(t=>{ if(t.extra  && (t.sub||'')===nm) urut.push(t); });
+      });
       let subKini=null;
-      urut.concat(tambahan).forEach(tpl=>{
+      urut.forEach(tpl=>{
         const id=tpl.id, a="'"+e.id+"','"+dj+"','"+id+"'";
-        const subIni=tpl.extra?'':(tpl.sub||'');
+        const subIni=tpl.sub||'';
         if(subIni!==subKini){
           subKini=subIni;
-          if(subIni) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(subIni)+'</td></tr>';
+          if(subIni) h+='<tr class="papan-subhead"><td colspan="'+kolom+'">'+esc(subIni)
+            +(bisaUbah?'<button type="button" class="sub-tambah" title="Tambah item ke '+esc(subIni)+'" onclick="addExtraJob(\''+e.id+'\',\''+dj+'\',\''+escJs(subIni)+'\')">'+svg(IC.plus)+'item</button>':'')
+            +'</td></tr>';
         }
-        const done=jobSelesai(e,div,id), pr2=jobProg(e,div,id);
+        const done=jobSelesai(e,div,id);
         /* Label "cabang" DIBUANG bersama pelipatan ke Kitchen. Dulu ia menandai
            item yang div-nya berbeda dari kartu tempatnya menumpang; sekarang
            tidak ada lagi item yang menumpang — Format F&B punya kartunya
@@ -5601,11 +6121,6 @@ function taskBoard(e,cats,subFilter){
               +(bisaUbah?'onchange="'+(tpl.extra?'setExtraJob('+a+',\'deadline\',this.value)':'setJobMeta('+a+',\'deadline\',this.value)')+'"':'disabled')+'></td>'
           +'<td><input class="inp jb-in" placeholder="Catatan…" value="'+esc(jobField(e,div,tpl,'note'))+'" '
               +(bisaUbah?'onchange="'+(tpl.extra?'setExtraJob('+a+',\'note\',this.value)':'setJobMeta('+a+',\'note\',this.value)')+'"':'disabled')+'></td>'
-          +'<td><div class="papan-prog">'
-              +(bisaUbah
-                ? '<input type="range" class="rng" min="0" max="100" value="'+pr2+'" data-lbl="pb_'+id+'" oninput="rngFill(this)" onchange="setJobProg('+a+',this.value);refreshView()">'
-                : '<div class="progress" style="flex:1"><div class="bar" style="width:'+pr2+'%"></div></div>')
-              +'<span class="cell-sub num" id="pb_'+id+'">'+pr2+'%</span></div></td>'
           +(bisaUbah?'<td><div class="pill-row" style="flex-wrap:nowrap">'
               +'<button class="btn sm" title="Ingatkan PIC via WhatsApp" onclick="remindWA('+a+')">'+svg(IC.wa)+'</button>'
               +(tpl.extra?'<button class="btn sm" title="Hapus item tambahan" onclick="delExtraJob('+a+')">'+svg(IC.trash)+'</button>':'')
@@ -5614,8 +6129,11 @@ function taskBoard(e,cats,subFilter){
       });
       h+='</tbody></table></div>';
     }
+    /* Tombol di kaki kartu menambah item TANPA sub kategori. Untuk menambah ke
+       dalam sebuah kelompok, tombolnya menempel di judul kelompok itu — di sana
+       jelas ke mana itemnya akan mendarat. */
     if(bisaUbah)
-      h+='<button class="papan-tambah" onclick="addExtraJob(\''+e.id+'\',\''+dj+'\')">'+svg(IC.plus)+'Tambah item…</button>';
+      h+='<button class="papan-tambah" onclick="addExtraJob(\''+e.id+'\',\''+dj+'\')">'+svg(IC.plus)+'Tambah item tanpa sub kategori…</button>';
     h+='</div>';
   });
   return h;
@@ -5706,9 +6224,17 @@ function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
 const KEY_TUTUP = KEY + '_tmpl_tutup';
 let tmplTutup = (function(){ try{ return JSON.parse(localStorage.getItem(KEY_TUTUP)||'{}')||{}; }catch(_){ return {}; } })();
 function simpanTutup(){ try{ localStorage.setItem(KEY_TUTUP, JSON.stringify(tmplTutup)); }catch(_){} }
-function tmplDitutup(div){ return !!tmplTutup[div]; }
+/* BAWAANNYA TERTUTUP. Sebelumnya semua kategori terbuka begitu halaman dibuka,
+   sehingga ratusan baris tabel tergambar sekaligus dan yang dicari justru
+   tenggelam. Sekarang halaman ini membuka sebagai daftar kategori; isinya
+   dibuka satu per satu sesuai yang sedang dikerjakan.
+
+   Nilainya disimpan EKSPLISIT (0 = dibuka, 1 = ditutup), bukan "ada/tidak ada
+   kuncinya". Dengan bawaan tertutup, menghapus kunci berarti kembali tertutup —
+   jadi kategori yang sengaja dibuka tidak akan pernah bisa bertahan. */
+function tmplDitutup(div){ return tmplTutup[div]!==0; }
 function toggleTmplCard(div){
-  if(tmplTutup[div]) delete tmplTutup[div]; else tmplTutup[div]=1;
+  tmplTutup[div] = tmplDitutup(div) ? 0 : 1;
   simpanTutup(); go('templates');
 }
 /* Buka/tutup SEMUA sekaligus. Dengan kategori yang banyak, membuka satu per
@@ -5717,7 +6243,7 @@ function toggleSemuaTmpl(){
   const semua=getFbFormats().concat(kategoriLama());
   const adaTerbuka=semua.some(d=>!tmplDitutup(d));
   tmplTutup={};
-  if(adaTerbuka) semua.forEach(d=>{ tmplTutup[d]=1; });
+  semua.forEach(d=>{ tmplTutup[d]= adaTerbuka ? 1 : 0; });
   simpanTutup(); go('templates');
 }
 /* Kategori lama = template yang div-nya masih nama DIVISI, sisa dari waktu
@@ -6133,15 +6659,26 @@ function renderInvoices(V){
     h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');
     V.innerHTML=h; return;
   }
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>No. Invoice</th><th>Client / Event</th><th class="mono">Grand Total</th><th class="mono">Terbayar</th><th class="mono">Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
   ensureInvNos(evs);
-  evs.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
+  const urutInv=tblUrut(evs,'invoices',KOL_INVOICES);
+  const pInv=tblPage(urutInv,'invoices');
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
+  pInv.items.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
     h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target DP '+f.dpPct+'%: '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
      +'<td><div class="pill-row"><button class="btn sm" title="Buka tab Finance event" onclick="curTab=\'finance\';go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.perf)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+(can('del_event')?'<button class="btn sm danger" title="Hapus event/invoice" onclick="delEvent(\''+e.id+'\')">'+svg(IC.trash)+'</button>':'')+'</div></td></tr>';
   });
-  h+='</tbody></table></div></div>';
+  h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
   V.innerHTML=h;
 }
+const KOL_INVOICES=[
+  {k:'no',      t:'No. Invoice',    v:e=>invoiceNo(e), cls:'mono'},
+  {k:'client',  t:'Client / Event', v:e=>clientName(e.clientId)},
+  {k:'grand',   t:'Grand Total',    v:e=>eventFinance(e).grand,     cls:'mono', turun:1},
+  {k:'paid',    t:'Terbayar',       v:e=>eventFinance(e).paid,      cls:'mono', turun:1},
+  {k:'sisa',    t:'Sisa',           v:e=>eventFinance(e).remaining, cls:'mono', turun:1, def:1},
+  {k:'status',  t:'Status',         v:e=>invStatus(e)},
+  {t:'Aksi'}
+];
 function viewPaymentHistory(evId){
   const e=S.events.find(x=>x.id===evId); if(!e)return;
   const f=eventFinance(e);
@@ -6240,8 +6777,10 @@ function poBarisMkt(){
     '<td style="width:86px"><input class="inp bp-qty" type="number" value="1" min="1"></td>'+
     '<td style="width:104px"><input class="inp bp-unit" value="Unit" placeholder="Pack / Orang"></td>'+
     '<td><input class="inp bp-note" placeholder="Untuk apa / kebutuhannya"></td>'+
-    '<td style="width:150px"><input class="inp bp-amount" inputmode="numeric" autocomplete="off" '+
-      'placeholder="0" oninput="poFmtRp(this)" style="text-align:right"></td>'+
+    '<td style="width:170px"><div style="display:flex;align-items:center;gap:6px">'+
+      '<span class="cell-sub" style="margin:0;flex:none">Rp</span>'+
+      '<input class="inp bp-amount" inputmode="numeric" autocomplete="off" '+
+      'placeholder="0" oninput="poFmtRp(this)" style="text-align:right"></div></td>'+
     '<td style="width:44px"><button class="btn sm" title="Hapus baris" onclick="poHapusBaris(this)">'+svg(IC.trash)+'</button></td>'+
   '</tr>';
 }
@@ -6295,7 +6834,7 @@ function renderPurchasingBD(V){
       '<div class="tbl-wrap" style="border:1px solid var(--line-soft);border-radius:10px">'+
         '<table class="tbl" style="min-width:760px"><thead><tr>'+
           '<th>Nama item</th><th>Jumlah</th><th>Satuan</th>'+
-          '<th>Alasan / kebutuhan</th><th>Perkiraan harga</th><th></th>'+
+          '<th>Alasan / kebutuhan</th><th>Perkiraan harga (Rp)</th><th></th>'+
         '</tr></thead><tbody id="bp_rows">'+poBarisMkt()+poBarisMkt()+poBarisMkt()+'</tbody></table>'+
       '</div>'+
       '<div class="fh">Baris tanpa nama item diabaikan — tidak perlu dihapus satu per satu. '+
@@ -6370,16 +6909,145 @@ function poKirimKeBD(){
 /* ============================================================
    MODUL I — APPROVAL FLOW
    ============================================================ */
-function renderApprovals(V){
-  let h=pageHead('Modul I','Approval Flow','Event bernilai besar / diskon di luar standar butuh persetujuan sebelum invoice.','');
-  const items=S.approvals.slice().sort((a,b)=>b.at.localeCompare(a.at));
-  if(!items.length){ V.innerHTML=h+empty('Tidak ada antrian approval','Event yang melewati ambang '+rpShort(S.settings.approvalThreshold)+' atau diskon ≥'+S.settings.discountThreshold+'% akan masuk sini.','approve'); return; }
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Diajukan</th><th>Alasan</th><th class="mono">Nilai</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
-  items.forEach(a=>{ const e=S.events.find(x=>x.id===a.eventId); if(!e)return; const f=eventFinance(e);
-    h+='<tr><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td><td>'+esc(userName(a.by))+'<div class="cell-sub">'+ago(a.at)+'</div></td><td style="font-size:12px">'+esc(a.reason)+'</td><td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(a.status,{Pending:{c:'--warn',t:'Pending'},Approved:{c:'--ok',t:'Approved'},Rejected:{c:'--danger',t:'Rejected'}})+'</td>'
-     +'<td>'+(a.status==='Pending'&&can('approve')?'<div class="pill-row"><button class="btn sm pri" onclick="decideApproval(\''+a.id+'\',\'Approved\')">Approve</button><button class="btn sm danger" onclick="decideApproval(\''+a.id+'\',\'Rejected\')">Reject</button></div>':(a.note?esc(a.note):'—'))+'</td></tr>';
+/* Halaman ini adalah MEJA PUTUSAN MANAJEMEN — dan sekarang SATU TABEL.
+
+   Dulu tiga tabel bertumpuk di satu halaman: "Surat Penawaran Menunggu
+   Persetujuan", "Sudah Diputuskan", dan "Negosiasi Harga". Ketiganya menjawab
+   pertanyaan yang sama ("apa yang perlu saya putuskan, dan apa yang sudah"),
+   tapi dengan kolom berbeda-beda, tiga pager sendiri-sendiri, dan tiga urutan
+   yang tidak nyambung. Untuk tahu apakah semua sudah beres, mata harus turun
+   naik tiga kali.
+
+   Sekarang satu daftar: tiap baris adalah satu PERKARA yang menunggu atau sudah
+   diputuskan manajemen, apa pun jenisnya. Jenisnya jadi kolom, bukan tabel
+   terpisah. Satu pager, satu pengurutan, satu penyaring status. */
+const NEGO_STATUS={
+  'Pending' :{c:'--warn',  t:'Menunggu Approval'},
+  'Approved':{c:'--ok',    t:'Disetujui'},
+  'Rejected':{c:'--danger',t:'Ditolak'}
+};
+let apprFilter='';   // '' = semua · 'antri' = masih menunggu · 'putus' = sudah diputuskan
+function setApprFilter(v){ apprFilter=v; TBL_HAL.approval=1; go('approvals'); }
+/* Satu bentuk baris untuk dua sumber yang berbeda. Penyeragaman dilakukan di
+   SINI, sekali — bukan di dalam kode gambar, supaya pengurutan & penyaringan
+   bekerja sama untuk keduanya tanpa cabang if di mana-mana. */
+function approvalRows(){
+  const out=[];
+  S.events.forEach(e=>{
+    const st=penStatus(e);
+    // Draft belum diajukan ke siapa pun, jadi belum jadi perkara di meja ini.
+    if(!st||st==='Draft') return;
+    const p=e.penawaran||{};
+    out.push({
+      jenis:'Surat Penawaran', kind:'pen', rid:e.id, ev:e,
+      perkara:p.noSurat||'—',
+      sub:p.validUntil?('berlaku s/d '+fmtDate(p.validUntil)):'',
+      catatan:p.note||'',
+      tolakNote:(st==='Ditolak'?(p.rejectNote||''):''),
+      nilai:eventFinance(e).grand,
+      olehId:p.submittedBy, pada:p.submittedAt||'',
+      status:st, peta:PEN_STATUS, antri:(st==='Menunggu Approval'),
+      putusId:p.decidedBy, putusPada:p.decidedAt||'',
+      file:p.file||null
+    });
   });
-  h+='</tbody></table></div></div>';
+  // Baris yang eventnya sudah terhapus disaring DI SINI, bukan saat menggambar —
+  // kalau tidak, satu halaman bisa berisi lebih sedikit baris daripada yang
+  // dijanjikan pager.
+  S.approvals.forEach(a=>{
+    const e=S.events.find(x=>x.id===a.eventId); if(!e) return;
+    out.push({
+      jenis:'Negosiasi Harga', kind:'nego', rid:a.id, ev:e,
+      perkara:a.reason||'—', sub:'', catatan:'',
+      tolakNote:(a.status==='Rejected'?(a.note||''):''),
+      nilai:eventFinance(e).grand,
+      olehId:a.by, pada:a.at||'',
+      status:a.status, peta:NEGO_STATUS, antri:(a.status==='Pending'),
+      putusId:a.by2, putusPada:a.decidedAt||'',
+      file:null
+    });
+  });
+  return out;
+}
+const KOL_APPROVAL=[
+  {k:'event',   t:'Event',      v:r=>r.ev.nama},
+  {k:'jenis',   t:'Jenis',      v:r=>r.jenis},
+  {k:'perkara', t:'Perkara',    v:r=>r.perkara},
+  {k:'nilai',   t:'Nilai',      v:r=>r.nilai,     cls:'mono', turun:1},
+  {k:'pada',    t:'Diajukan',   v:r=>r.pada,      turun:1, def:1},
+  {k:'status',  t:'Status',     v:r=>r.status},
+  {k:'putus',   t:'Diputuskan', v:r=>r.putusPada, turun:1},
+  {t:'Aksi'}
+];
+function renderApprovals(V){
+  const bisaPen=bisaPutusPenawaran(), bisaNego=can('approve');
+  let semua=approvalRows();
+  const nAntri=semua.filter(r=>r.antri).length;
+  let h=pageHead('Modul I','Approval Flow',
+    'Meja putusan manajemen dalam satu daftar: Surat Penawaran yang harus disetujui sebelum dikirim ke klien, dan negosiasi harga di luar standar. Besarnya nilai event tidak lagi memicu approval.','');
+  h+='<div class="grid g-3" style="margin-bottom:16px">'
+   +stat('Menunggu Keputusan',nAntri,nAntri?'perlu ditindak':'semua sudah diputuskan','approve')
+   +stat('Surat Penawaran',semua.filter(r=>r.kind==='pen').length,'diajukan ke manajemen','brief')
+   +stat('Negosiasi Harga',semua.filter(r=>r.kind==='nego').length,'diskon ≥'+S.settings.discountThreshold+'% dari standar','money')
+   +'</div>';
+
+  const saring=[['','Semua perkara'],['antri','Menunggu keputusan'],['putus','Sudah diputuskan']];
+  h+='<div class="card pad0"><div style="padding:14px 16px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+   +'<div><h3 style="font-size:15px">Antrian Keputusan'+(nAntri?' <span class="tag" style="background:var(--warn-bg);color:var(--warn)">'+nAntri+' menunggu</span>':'')+'</h3>'
+   +'<div class="cell-sub">Baris bersorot kuning masih menunggu keputusan.</div></div>'
+   +'<select class="inp" style="width:auto;padding:7px 12px" onchange="setApprFilter(this.value)">'
+     +saring.map(([v,t])=>'<option value="'+v+'"'+(apprFilter===v?' selected':'')+'>'+t+'</option>').join('')
+   +'</select></div>';
+
+  if(apprFilter==='antri') semua=semua.filter(r=>r.antri);
+  else if(apprFilter==='putus') semua=semua.filter(r=>!r.antri);
+
+  if(!semua.length){
+    h+='<div style="padding:8px 20px 20px">'+empty(
+      apprFilter==='antri'?'Tidak ada yang menunggu':'Belum ada perkara',
+      apprFilter==='antri'?'Semua Surat Penawaran & negosiasi harga sudah diputuskan. ⚓'
+        :'Perkara masuk ke sini saat Marketing mengajukan Surat Penawaran, atau saat sebuah event memakai diskon negosiasi ≥'+S.settings.discountThreshold+'%.','approve')+'</div>';
+    V.innerHTML=h+'</div>'; return;
+  }
+  const p=tblPage(tblUrut(semua,'approval',KOL_APPROVAL),'approval',apprFilter);
+  h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('approval',KOL_APPROVAL)+'<tbody>';
+  p.items.forEach(r=>{
+    // Aksi mengikuti jenis perkara DAN izin pembacanya — kolomnya tetap satu.
+    let aksi='<span class="cell-sub">—</span>';
+    if(r.antri){
+      if(r.kind==='pen'){
+        aksi=bisaPen
+          ? '<div class="pill-row"><button class="btn sm pri" onclick="putusPenawaran(\''+r.rid+'\',\'Disetujui\',\'approvals\')">Setujui</button>'
+            +'<button class="btn sm danger" onclick="putusPenawaran(\''+r.rid+'\',\'Ditolak\',\'approvals\')">Tolak</button></div>'
+          : '<span class="cell-sub">hanya Manager / Approver</span>';
+      } else {
+        aksi=bisaNego
+          ? '<div class="pill-row"><button class="btn sm pri" onclick="decideApproval(\''+r.rid+'\',\'Approved\')">Setujui</button>'
+            +'<button class="btn sm danger" onclick="decideApproval(\''+r.rid+'\',\'Rejected\')">Tolak</button></div>'
+          : '<span class="cell-sub">hanya Manager / Approver</span>';
+      }
+    }
+    // Berkas PDF menempel pada kolom Perkara — ia bagian dari perkaranya, dan
+    // Manager harus bisa membacanya tepat sebelum menekan Setujui/Tolak.
+    const berkas=r.file
+      ? '<a class="btn sm" style="margin-top:5px" href="'+esc(attachUrl(r.file.key))+'" target="_blank" rel="noopener">'+svg(IC.brief)+'Baca PDF</a>'
+      : (r.kind==='pen'?'<div class="cell-sub" style="color:var(--danger)">PDF belum diunggah</div>':'');
+    h+='<tr'+(r.antri?' style="background:var(--gold-glow)"':'')+'>'
+      +'<td><div class="cell-strong"><a onclick="go(\'event\',\''+r.ev.id+'\')" style="cursor:pointer">'+esc(r.ev.nama)+'</a></div>'
+        +'<div class="cell-sub">'+esc(clientName(r.ev.clientId))+' · '+fmtDate(r.ev.tanggal)+'</div></td>'
+      +'<td><span class="tag"'+(r.kind==='nego'?' style="background:var(--violet-bg);color:var(--violet)"':'')+'>'+esc(r.jenis)+'</span></td>'
+      +'<td><div'+(r.kind==='pen'?' class="mono" style="font-size:12px"':' style="font-size:12px"')+'>'+esc(r.perkara)+'</div>'
+        +(r.sub?'<div class="cell-sub">'+esc(r.sub)+'</div>':'')
+        +(r.catatan?'<div class="cell-sub">Catatan: '+esc(r.catatan)+'</div>':'')
+        +(r.tolakNote?'<div class="cell-sub" style="color:var(--danger)">Alasan tolak: '+esc(r.tolakNote)+'</div>':'')
+        +berkas+'</td>'
+      +'<td class="mono">'+rp(r.nilai)+'</td>'
+      +'<td>'+esc(userName(r.olehId))+'<div class="cell-sub">'+(r.pada?ago(r.pada):'—')+'</div></td>'
+      +'<td>'+statusChip(r.status,r.peta)+'</td>'
+      +'<td>'+(r.putusPada?esc(userName(r.putusId))+'<div class="cell-sub">'+ago(r.putusPada)+'</div>':'<span class="cell-sub">—</span>')+'</td>'
+      +'<td>'+aksi+'</td></tr>';
+  });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'approval')+'</div>';
   V.innerHTML=h;
 }
 function decideApproval(id,decision){
@@ -6430,7 +7098,7 @@ function renderPerformance(V){
     h+='<div class="bars">';
     const perM=mkt.map(u=>({u,v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)}));
     const maxM=Math.max(1,...perM.map(x=>x.v));
-    perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:11px;color:var(--gold-deep)">'+rpShort(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
+    perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:9.5px;color:var(--gold-deep);white-space:nowrap">'+rp(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
     h+='</div>';
   }
   h+='</div></div>';
@@ -6441,15 +7109,32 @@ function renderPerformance(V){
     const ev=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status));
     const om=ev.reduce((a,e)=>a+eventFinance(e).grand,0);
     return {u,ev,om,fu:S.followups.filter(f=>f.by===u.id).length,rep:S.clients.filter(c=>c.mktPIC===u.id&&clientEventCount(c.id)>1).length};
-  }).sort((a,b)=>b.om-a.om);
-  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th style="width:44px">#</th><th>Marketing</th><th class="mono">Follow Up</th><th class="mono">Closing</th><th class="mono">Repeat</th><th class="mono">Omzet</th><th class="mono">Avg Value</th></tr></thead><tbody>';
-  rows.forEach((s,i)=>{
+  });
+  /* Peringkat dipatok pada urutan OMZET, bukan pada urutan tampil. Kalau
+     tabelnya diurutkan menurut kolom lain, "#1" tetap menunjuk orang dengan
+     omzet tertinggi — bukan berpindah ke baris teratas yang kebetulan tampil. */
+  const peringkat={};
+  rows.slice().sort((a,b)=>b.om-a.om).forEach((s,i)=>{ peringkat[s.u.id]=i+1; });
+  const urutLb=tblUrut(rows,'leaderboard',KOL_LEADERBOARD);
+  const pLb=tblPage(urutLb,'leaderboard');
+  h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('leaderboard',KOL_LEADERBOARD)+'<tbody>';
+  pLb.items.forEach(s=>{
+    const i=peringkat[s.u.id]-1;
     const rank=(i===0&&s.om>0)?'<span style="color:var(--gold-deep)" title="Omzet tertinggi">'+svg(IC.star)+'</span>':'<span class="mono">'+(i+1)+'</span>';
     h+='<tr><td>'+rank+'</td><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+s.u.name[0]+'</div>'+esc(s.u.name)+'</div></td><td class="mono">'+s.fu+'</td><td class="mono">'+s.ev.length+'</td><td class="mono">'+s.rep+'</td><td class="mono" style="color:var(--gold-deep);font-weight:600">'+rp(s.om)+'</td><td class="mono">'+rp(s.ev.length?Math.round(s.om/s.ev.length):0)+'</td></tr>';
   });
-  h+='</tbody></table></div></div>';
+  h+='</tbody></table></div>'+tblPagerHtml(pLb,'leaderboard')+'</div>';
   V.innerHTML=h;
 }
+const KOL_LEADERBOARD=[
+  {t:'#', w:'44px'},
+  {k:'nama',  t:'Marketing', v:s=>s.u.name},
+  {k:'fu',    t:'Follow Up', v:s=>s.fu,        cls:'mono', turun:1},
+  {k:'close', t:'Closing',   v:s=>s.ev.length, cls:'mono', turun:1},
+  {k:'rep',   t:'Repeat',    v:s=>s.rep,       cls:'mono', turun:1},
+  {k:'omzet', t:'Omzet',     v:s=>s.om,        cls:'mono', turun:1, def:1},
+  {k:'avg',   t:'Avg Value', v:s=>s.ev.length?Math.round(s.om/s.ev.length):0, cls:'mono', turun:1}
+];
 
 /* ============================================================
    MODUL K — REPORTING & ANALYTICS
@@ -6486,7 +7171,9 @@ function donutSVG(data){
   const total=data.reduce((a,d)=>a+d.val,0)||1; let off=0; const r=60,c=2*Math.PI*r;
   let segs='';
   data.forEach(d=>{ const frac=d.val/total; const len=frac*c; segs+='<circle cx="75" cy="75" r="'+r+'" fill="none" stroke="var('+d.color+')" stroke-width="26" stroke-dasharray="'+len+' '+(c-len)+'" stroke-dashoffset="'+(-off)+'" transform="rotate(-90 75 75)"/>'; off+=len; });
-  return '<div class="donut"><svg width="150" height="150" viewBox="0 0 150 150">'+segs+'<text x="75" y="72" text-anchor="middle" fill="var(--sand)" font-size="12" font-family="Inter">Total</text><text x="75" y="90" text-anchor="middle" fill="var(--gold)" font-size="15" font-weight="700" font-family="Inter">'+rpShort(total)+'</text></svg></div>';
+  /* Angka penuh ("Rp 125.000.000") jauh lebih panjang dari ringkasan lama
+     ("Rp125,0jt"), jadi hurufnya dikecilkan agar tetap muat di lubang donat. */
+  return '<div class="donut"><svg width="150" height="150" viewBox="0 0 150 150">'+segs+'<text x="75" y="72" text-anchor="middle" fill="var(--sand)" font-size="11" font-family="Inter">Total</text><text x="75" y="90" text-anchor="middle" fill="var(--gold)" font-size="11" font-weight="700" font-family="Inter">'+rp(total)+'</text></svg></div>';
 }
 function exportCSV(){
   const rows=[['Event','Client','Jenis','Tanggal','Status','Pax','Grand Total','DP','Terbayar','Sisa','Marketing PIC']];
@@ -6503,19 +7190,38 @@ function renderTimeline(V){
   const n=S.activities.length;
   let h=pageHead('Modul L','Timeline & Audit Log','Jejak kronologis semua perubahan data penting. Log otomatis dibatasi 400 entri terbaru.',
     (ME.role==='super_admin'&&n)?'<span class="tag">'+n+' entri</span><button class="btn" onclick="clearActivities()">'+svg(IC.trash)+'Bersihkan Log</button>':(n?'<span class="tag">'+n+' entri</span>':''));
-  h+='<div class="card"><div class="timeline">';
-  if(!n)h+='<div class="muted">Belum ada aktivitas.</div>';
-  S.activities.slice(0,60).forEach(a=>{
-    const ref=a.refType==='client'?clientName(a.refId)
-      :a.refType==='user'?((S.users.find(u=>u.id===a.refId)||{}).name||'')
-      :a.refType==='event'?((S.events.find(e=>e.id===a.refId)||{}).nama||'')
-      :'';
-    const lbl={client:'CLIENT',event:'EVENT',user:'USER',template:'TEMPLATE'}[a.refType]||String(a.refType||'').toUpperCase();
-    h+='<div class="tl-item"><div class="tl-t">'+ago(a.at)+' · '+esc(a.by)+' · '+esc(lbl)+'</div><div class="tl-a">'+esc(a.action)+'</div><div class="tl-d">'+esc(ref)+(a.detail?' — '+esc(a.detail):'')+'</div></div>';
+  if(!n){ V.innerHTML=h+'<div class="card"><div class="muted">Belum ada aktivitas.</div></div>'; return; }
+  /* Dulu daftar bergaya kronologi yang dipotong 60 entri teratas — 340 entri
+     sisanya tidak bisa dicapai sama sekali. Sekarang tabel: seluruh log bisa
+     ditelusuri per halaman, dan bisa diurutkan per kolom (mis. semua perubahan
+     oleh satu orang dikumpulkan dengan mengurut kolom Oleh). */
+  const baris=tblUrut(S.activities.slice(),'timeline',KOL_TIMELINE);
+  const p=tblPage(baris,'timeline');
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('timeline',KOL_TIMELINE)+'<tbody>';
+  p.items.forEach(a=>{
+    h+='<tr><td class="mono" style="white-space:nowrap">'+ago(a.at)+'</td>'
+      +'<td>'+esc(a.by)+'</td>'
+      +'<td><span class="tag">'+esc(tlLabel(a))+'</span></td>'
+      +'<td class="cell-strong">'+esc(a.action)+'</td>'
+      +'<td class="cell-sub" style="margin:0">'+esc(tlRef(a))+(a.detail?' — '+esc(a.detail):'')+'</td></tr>';
   });
-  h+='</div></div>';
+  h+='</tbody></table></div>'+tblPagerHtml(p,'timeline')+'</div>';
   V.innerHTML=h;
 }
+function tlRef(a){
+  return a.refType==='client'?clientName(a.refId)
+    :a.refType==='user'?((S.users.find(u=>u.id===a.refId)||{}).name||'')
+    :a.refType==='event'?((S.events.find(e=>e.id===a.refId)||{}).nama||'')
+    :'';
+}
+function tlLabel(a){ return {client:'CLIENT',event:'EVENT',user:'USER',template:'TEMPLATE'}[a.refType]||String(a.refType||'').toUpperCase(); }
+const KOL_TIMELINE=[
+  {k:'at',     t:'Waktu',    v:a=>a.at, cls:'mono', turun:1, def:1},
+  {k:'by',     t:'Oleh',     v:a=>a.by},
+  {k:'jenis',  t:'Jenis',    v:a=>tlLabel(a)},
+  {k:'aksi',   t:'Aktivitas',v:a=>a.action},
+  {k:'ref',    t:'Detail',   v:a=>tlRef(a)}
+];
 function clearActivities(){
   if(!confirm('Bersihkan seluruh audit log ('+S.activities.length+' entri)? Tindakan ini tidak bisa dibatalkan.'))return;
   S.activities=[];
@@ -6546,18 +7252,34 @@ function renderNotifications(V){
   live.forEach(n=>{ h+='<div style="display:flex;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid var(--line-soft);cursor:pointer" onclick="notifGo(&#39;'+n.link+'&#39;)"><div style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var('+(colMap[n.type]||'--muted')+') 15%,transparent);color:var('+(colMap[n.type]||'--muted')+')">'+svg(IC[icMap[n.type]||'notif'],'')+'</div><div style="flex:1"><div style="font-size:13px;font-weight:600">'+esc(n.title)+'</div><div class="cell-sub">'+esc(n.body)+'</div></div>'+svg(IC.chevR,'ntf-chev')+'</div>'; });
   h+='</div>';
   // Riwayat notifikasi tersimpan (yang jadi sumber badge & popup lonceng)
-  h+='<div class="card" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px"><div><h3 style="font-size:14px">Riwayat Notifikasi</h3><div class="cell-sub">Kejadian yang tercatat sistem — sama dengan isi popup lonceng.</div></div>'
+  h+='<div class="card pad0" style="margin-top:16px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line-soft)"><div><h3 style="font-size:14px">Riwayat Notifikasi</h3><div class="cell-sub">Kejadian yang tercatat sistem — sama dengan isi popup lonceng.</div></div>'
     +(unreadNotif()?'<span class="tag" style="background:var(--gold);color:#fff">'+unreadNotif()+' belum dibaca</span>':'')+'</div>';
-  if(!S.notifs.length) h+='<div class="muted">Belum ada notifikasi.</div>';
-  else S.notifs.slice(0,50).forEach(n=>{
-    const col=NOTIF_COL[n.type]||'--muted';
-    h+='<div style="display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line-soft);cursor:pointer'+(n.read?'':';background:var(--gold-glow)')+'" onclick="openNotif(\''+n.id+'\')">'
-      +'<div style="width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var('+col+') 15%,transparent);color:var('+col+')">'+svg(IC[NOTIF_IC[n.type]||'notif'])+'</div>'
-      +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+esc(n.title)+(n.read?'':' <span class="tag" style="background:var(--gold);color:#fff">baru</span>')+'</div><div class="cell-sub">'+esc(n.body)+'</div><div class="cell-sub" style="font-size:10.5px;margin-top:2px">'+ago(n.at)+'</div></div></div>';
-  });
+  if(!S.notifs.length) h+='<div style="padding:16px 20px" class="muted">Belum ada notifikasi.</div>';
+  else {
+    // Dulu dipotong 50 terbaru; sisanya tak bisa dicapai. Sekarang seluruh
+    // riwayat bisa ditelusuri per halaman dan diurut per kolom.
+    const baris=tblUrut(S.notifs.slice(),'riwayat',KOL_NOTIF);
+    const p=tblPage(baris,'riwayat');
+    h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('riwayat',KOL_NOTIF)+'<tbody>';
+    p.items.forEach(n=>{
+      const col=NOTIF_COL[n.type]||'--muted';
+      h+='<tr class="row-click"'+(n.read?'':' style="background:var(--gold-glow)"')+' onclick="openNotif(\''+n.id+'\')">'
+        +'<td style="width:44px"><div style="width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var('+col+') 15%,transparent);color:var('+col+')">'+svg(IC[NOTIF_IC[n.type]||'notif'])+'</div></td>'
+        +'<td><div class="cell-strong">'+esc(n.title)+(n.read?'':' <span class="tag" style="background:var(--gold);color:#fff">baru</span>')+'</div></td>'
+        +'<td class="cell-sub" style="margin:0">'+esc(n.body)+'</td>'
+        +'<td class="mono" style="white-space:nowrap">'+ago(n.at)+'</td></tr>';
+    });
+    h+='</tbody></table></div>'+tblPagerHtml(p,'riwayat');
+  }
   h+='</div>';
   V.innerHTML=h;
 }
+const KOL_NOTIF=[
+  {t:'', w:'44px'},
+  {k:'judul', t:'Notifikasi', v:n=>n.title},
+  {k:'isi',   t:'Isi',        v:n=>n.body},
+  {k:'at',    t:'Waktu',      v:n=>n.at, cls:'mono', turun:1, def:1}
+];
 function markAllRead(){
   if(!unreadNotif())return;
   S.notifs.forEach(n=>n.read=true); save(); buildNav();
@@ -6585,14 +7307,17 @@ function picSelectHTML(terpilih, onchangeJS, bisaUbah){
   nama.forEach(n=>{ o+='<option value="'+esc(n)+'"'+(n===kini?' selected':'')+'>'+esc(n)+'</option>'; });
   return '<select class="inp jb-in" '+(bisaUbah?'onchange="'+onchangeJS+'"':'disabled')+'>'+o+'</select>';
 }
-function staffList(){ return (S.staff||[]).filter(x=>x.active!==false).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); }
-/* No. HP seorang PIC dari Data Pegawai (dicocokkan by NAMA, tanpa peduli
-   besar-kecil). Kosong kalau pegawainya belum punya nomor — data dari Office
-   TIDAK membawa nomor (tabel akun tak punya kolom HP), jadi nomor diisi manual
-   di Data Pegawai. */
+/* Daftar pegawai = DATABASE USER, tidak ada lagi daftar kedua.
+   Dulu S.staff hidup terpisah dan hanya terisi kalau ada yang menekan "Tarik
+   dari Office", sehingga dropdown PIC rutin ketinggalan dari kenyataan.
+   Sekarang S.users adalah satu-satunya daftar orang di modul ini, dan ia
+   disegarkan otomatis tiap modul dibuka (autoSyncOfficeRoster). */
+function staffList(){ return (S.users||[]).filter(x=>x&&x.active!==false&&x.name).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name))); }
+/* No. HP seorang PIC (dicocokkan by NAMA, tanpa peduli besar-kecil). Nomornya
+   datang dari kolom `no_hp` database user Office. */
 function staffHp(nama){
   if(!nama) return '';
-  const s=(S.staff||[]).find(x=>String(x.name).toLowerCase()===String(nama).toLowerCase());
+  const s=(S.users||[]).find(x=>String(x.name).toLowerCase()===String(nama).toLowerCase());
   return s?(s.hp||''):'';
 }
 /* Reminder tugas via WhatsApp ke PIC yang di-assign pada item itu. Nomor
@@ -6604,7 +7329,7 @@ function remindWA(eid,div,taskId){
   const pic=jobField(e,div,t,'pic');
   if(!pic) return toast('Belum ada PIC','Assign PIC dulu di item ini sebelum kirim reminder.','err');
   const hp=staffHp(pic);
-  if(!hp) return toast('Nomor PIC belum ada','Isi No. HP "'+pic+'" di Data Pegawai dulu.','err');
+  if(!hp) return toast('Nomor PIC belum ada','No. HP "'+pic+'" masih kosong. Isi di halaman Pegawai & Akses, atau lengkapi No. HP-nya di Office lalu tekan Sinkron Sekarang.','err');
   const dl=jobField(e,div,t,'deadline');
   const kapan=dl?('Deadline: '+fmtDate(dl)):(t.hminus!=null?('Deadline: H-'+t.hminus):'Deadline: secepatnya');
   const area=(e.detail&&(e.detail.area==='Lainnya'?e.detail.areaLain:e.detail.area))||'';
@@ -6754,7 +7479,7 @@ function renderKalkulator(V){
       +'<dt>Harga jual / pax</dt><dd class="mono" id="kalk_perpax" style="font-weight:700">—</dd>'
       +'</dl></div>'
     +'<div class="card"><h4 style="font-size:14px;margin-bottom:12px">Harga Deal Customer</h4>'
-      +'<div class="field"><label>Harga deal / pax</label>'
+      +'<div class="field"><label>Harga deal / pax (Rp)</label>'
         +'<input class="inp" type="text" inputmode="numeric" id="kalk_deal" placeholder="mis. 45.000" '
         +'value="'+(KALK.deal==null?'':poRibuan(KALK.deal))+'" oninput="kalkSet(\'deal\',this.value)"></div>'
       +'<dl class="kv-list" style="margin-top:6px">'
@@ -6890,7 +7615,8 @@ function renderMenuDb(V){
           +'<td class="mdb-nama">'+esc(m.n)+'</td>'
           +'<td class="mdb-harga num'+(m.h==null?' mdb-harga-kosong':'')+'">'
             +(bisaUbah
-              ? '<input class="mdb-hin num" inputmode="numeric" value="'+(m.h==null?'':esc(poRibuan(m.h)))+'" placeholder="—" '
+              ? '<span class="cell-sub" style="margin:0">Rp</span> '
+                +'<input class="mdb-hin num" inputmode="numeric" value="'+(m.h==null?'':esc(poRibuan(m.h)))+'" placeholder="—" '
                 +'title="Harga jual per porsi" onchange="menuDbSetHarga(\''+jj+'\',\''+escJs(m.n)+'\',this.value)">'
               : mdbHargaTeks(m.h))
           +'</td>'
@@ -7136,113 +7862,116 @@ function menuDbSetHarga(j,m,val){
   save(); paintMenuDatalist();
   toast('Harga disimpan',m+' — '+(baru==null?'dikosongkan':rp(baru)),'ok');
 }
-function renderStaff(V){
-  const canEdit=can('edit_staff');
-  let h=pageHead('Data Pegawai','Data Pegawai','Dipakai sebagai pilihan PIC di Matriks PIC Hari-H, Template Task, dan Detail Job.',
-    canEdit?'<button class="btn" onclick="importOfficeStaff()">'+svg(IC.down)+'Tarik dari Office</button><button class="btn pri" onclick="newStaff()">'+svg(IC.plus)+'Pegawai Baru</button>':'');
-  const list=(S.staff||[]).slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-  h+='<div class="grid g-3" style="margin-bottom:16px">'
-   +stat('Total Pegawai',list.length,'aktif '+list.filter(x=>x.active!==false).length,'crm')
-   +stat('Dari Office',list.filter(x=>x.source==='office').length,'tersinkron','down')
-   +stat('Ditambah Manual',list.filter(x=>x.source!=='office').length,'input sendiri','plus')
-   +'</div>';
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>Divisi</th><th>Jabatan</th><th>Kontak</th><th>Sumber</th>'+(canEdit?'<th>Aksi</th>':'')+'</tr></thead><tbody>';
-  if(!list.length) h+='<tr><td colspan="6"><div style="padding:10px 0">'+empty('Belum ada data pegawai','Klik "Tarik dari Office" untuk mengambil daftar pegawai, atau tambah manual lewat "Pegawai Baru".','crm')+'</div></td></tr>';
-  list.forEach(s=>{
-    const src=s.source==='office'
-      ? '<span class="tag" style="background:var(--info-bg);color:var(--info)">Office</span>'
-      : '<span class="tag">Manual</span>';
-    h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc(String(s.name||'?')[0])+'</div><div><div class="cell-strong">'+esc(s.name)+'</div>'+(s.active===false?'<div class="cell-sub">nonaktif</div>':'')+'</div></div></td>'
-     +'<td>'+esc(s.div||'—')+'</td><td>'+esc(s.jabatan||'—')+'</td><td class="cell-sub">'+esc(s.hp||'—')+'</td><td>'+src+'</td>'
-     +(canEdit?'<td><div class="pill-row"><button class="btn sm" onclick="newStaff(\''+s.id+'\')">'+svg(IC.edit)+'</button><button class="btn sm" onclick="delStaff(\''+s.id+'\')">'+svg(IC.trash)+'</button></div></td>':'')+'</tr>';
-  });
-  h+='</tbody></table></div></div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Pegawai dari <em>Office</em> ikut diperbarui saat kamu menekan "Tarik dari Office"; pegawai <em>Manual</em> tidak akan tertimpa. Field PIC tetap boleh diketik bebas kalau namanya belum terdaftar.</span></div>';
-  V.innerHTML=h;
-}
-function newStaff(id){
-  const s=id?(S.staff||[]).find(x=>x.id===id):null;
-  modal('<div class="modal-head"><div><h3>'+(s?'Edit':'Tambah')+' Pegawai</h3><p>'+(s&&s.source==='office'?'Ditarik dari Office':'Data lokal Marketing')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
-   +'<input type="hidden" id="sf_id" value="'+(s?s.id:'')+'">'
-   +ff('Nama','sf_name',s?s.name:'','text',1)
-   +'<div class="form-grid">'
-   +'<div class="field"><label>Divisi</label><select class="inp" id="sf_div"><option value="">—</option>'+getCats().map(d=>'<option'+(s&&s.div===d?' selected':'')+'>'+esc(d)+'</option>').join('')+'</select></div>'
-   +ff('Jabatan','sf_jabatan',s?s.jabatan:'','text')
-   +'</div>'
-   +ff('No. HP','sf_hp',s?s.hp:'','text')
-   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="saveStaff()">Simpan</button></div>');
-}
-function saveStaff(){
-  const id=$('sf_id').value, name=$('sf_name').value.trim();
-  if(!name)return toast('Nama wajib','Isi nama pegawai dulu.','err');
-  S.staff=S.staff||[];
-  const data={name,div:$('sf_div').value,jabatan:$('sf_jabatan').value.trim(),hp:$('sf_hp').value.trim()};
-  if(id){ const s=S.staff.find(x=>x.id===id); if(s)Object.assign(s,data); logAct('user',id,'Pegawai diperbarui',name); }
-  else { S.staff.push(Object.assign({id:uid('st'),source:'lokal',active:true},data)); logAct('user','-','Pegawai ditambah',name); }
-  save(); closeModal(); paintStaffDatalist(); toast('Tersimpan',name+' disimpan.','ok'); go('staff');
-}
-function delStaff(id){
-  const s=(S.staff||[]).find(x=>x.id===id); if(!s)return;
-  confirmUI({title:'Hapus Pegawai',danger:true,ok:'Hapus',
-    body:'Hapus <b>'+esc(s.name)+'</b> dari data pegawai? Nama yang sudah terlanjur dipakai sebagai PIC di event lama tidak ikut terhapus.',
-    onYes:function(){ S.staff=(S.staff||[]).filter(x=>x.id!==id); logAct('user','-','Pegawai dihapus',s.name); save(); paintStaffDatalist(); toast('Dihapus',s.name+' dihapus.','ok'); go('staff'); }});
-}
-// Tarik pegawai dari Office (API & PIN sama seperti panel Kelola Akses)
-async function importOfficeStaff(){
-  /* SELURUH pegawai dari database akun (dev_account / akun produksi), bukan cuma
-     anggota modul Marketing. Dulu memakai lmaListMembers() yang hanya
-     mengembalikan anggota modul ini (+butuh PIN admin) — akibatnya kru yang
-     belum diberi akses Marketing (Aurel, Cindy, Hengky, Rizki, …) tidak ikut
-     tertarik. listDivisiRoster mengembalikan semua user, tanpa PIN. Endpoint
-     relatif: di dev menarik dari dev_account, di office dari akun produksi. */
-  toast('Memuat','Mengambil seluruh pegawai dari Office…','ok');
-  let r;
-  try{
-    const res=await fetch(OFFICE_WEBAPP_URL,{method:'POST',redirect:'follow',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'listDivisiRoster'})});
-    r=await res.json();
-  }catch(e){ return toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err'); }
-  if(!r||!r.ok) return toast('Gagal',(r&&r.error)?String(r.error):'Office menolak permintaan.','err');
-  S.staff=S.staff||[];
-  let added=0,updated=0;
-  (r.members||[]).forEach(m=>{
-    if(!m||!m.name)return;
-    let s=(m.id&&S.staff.find(x=>x.officeId===m.id))||S.staff.find(x=>String(x.name).toLowerCase()===String(m.name).toLowerCase());
-    if(s){
-      let ch=false;
-      if(m.id&&s.officeId!==m.id){ s.officeId=m.id; ch=true; }
-      if(m.name&&s.name!==m.name){ s.name=m.name; ch=true; }
-      if(m.keterangan&&!s.jabatan){ s.jabatan=m.keterangan; ch=true; }
-      if(m.active===false&&s.active!==false){ s.active=false; ch=true; }
-      if(ch)updated++;
-    } else {
-      S.staff.push({id:uid('st'),officeId:m.id||'',name:m.name,div:'',jabatan:m.keterangan||'',hp:m.hp||'',source:'office',active:m.active!==false});
-      added++;
-    }
-  });
-  logAct('user','-','Data pegawai ditarik dari Office',added+' baru · '+updated+' diperbarui');
-  save(); paintStaffDatalist();
-  toast('Selesai',added+' pegawai baru, '+updated+' diperbarui.','ok');
-  go('staff');
-}
-
 /* ============================================================
-   MODUL N — USER MANAGEMENT
+   PEGAWAI & AKSES — satu halaman
+   ------------------------------------------------------------
+   Dulu dua halaman dengan dua daftar terpisah: "Data Pegawai" (S.staff) dan
+   "User Management" (S.users). Keduanya berisi orang yang sama, tapi hanya
+   terisi kalau ada yang menekan tombol "Tarik dari Office" masing-masing —
+   jadi rutin berselisih, dan No. HP / Divisi tinggal kosong.
+
+   Sekarang: SATU daftar (S.users), disegarkan otomatis dari database user
+   Office tiap modul dibuka. Tidak ada lagi tombol tarik; yang tersisa hanya
+   "Sinkron Sekarang" untuk yang tidak sabar menunggu buka ulang.
+
+   Dua tingkat izin masih dipisah di dalam satu halaman ini:
+     can('edit_staff')   -> merapikan Divisi / Jabatan / No. HP
+     can('manage_users') -> mengubah Role & Hak Akses (matriks di bawah)
    ============================================================ */
-function renderUsers(V){
-  let h=pageHead('Modul N','User Management','Daftar user berasal dari Office. Di sini kamu mengatur role & hak aksesnya untuk modul Marketing.',
-    can('manage_users')?'<button class="btn pri" onclick="importOfficeUsers()">'+svg(IC.down)+'Tarik dari Office</button>':'');
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Divisi</th><th>Aksi</th></tr></thead><tbody>';
-  const canMU=can('manage_users');
-  S.users.forEach(u=>{ const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
-    h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+u.name[0]+'</div>'+esc(u.name)+'</div></td><td class="cell-sub">'+esc(u.email||'—')+'</td><td>'+roleCell(u,canMU)+custom+'</td><td>'+(u.div||'—')+'</td>'
-     +'<td><div class="pill-row">'+(canMU?'<button class="btn sm" onclick="openUserAccess(\''+u.id+'\')">'+svg(IC.approve)+'Hak Akses</button>':'<span class="cell-sub">—</span>')+'</div></td></tr>'; });
-  h+='</tbody></table></div></div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Role <em>disinkronkan otomatis dari sesi Office</em> setiap user login — admin modul Office jadi Super Admin. Kalau role Office-nya tidak dikenali, role di sini dipertahankan (tidak diturunkan diam-diam), jadi bisa dikoreksi manual lewat dropdown Role.</span></div>';
+const KOL_PEGAWAI=[
+  {k:'nama',    t:'Nama',    v:u=>u.name, def:1},
+  {k:'div',     t:'Divisi',  v:u=>u.div},
+  {k:'jabatan', t:'Jabatan', v:u=>u.jabatan},
+  {k:'hp',      t:'No. HP',  v:u=>u.hp},
+  {k:'role',    t:'Role',    v:u=>(ROLES[u.role]||{}).t||u.role},
+  {k:'status',  t:'Status',  v:u=>u.active===false?'Nonaktif':'Aktif'},
+  {t:'Aksi'}
+];
+function renderStaff(V){
+  const canEdit=can('edit_staff'), canMU=can('manage_users');
+  let h=pageHead('Sistem','Pegawai & Akses',
+    'Satu daftar untuk semua orang: identitas pegawai <b>otomatis mengikuti database user Office</b>, dan di sini pula role & hak aksesnya diatur. Daftar ini jadi sumber pilihan PIC di Matriks PIC Hari-H, Template Task &amp; papan to-do.',
+    '<button class="btn" onclick="autoSyncOfficeRoster(false)">'+svg(IC.down)+'Sinkron Sekarang</button>');
+  const list=(S.users||[]).filter(u=>u&&u.name);
+  h+='<div class="grid g-4" style="margin-bottom:16px">'
+   +stat('Total Pegawai',list.length,'dari database user Office','crm')
+   +stat('Aktif',list.filter(x=>x.active!==false).length,'bisa dipilih jadi PIC','check')
+   +stat('Divisi Terisi',list.filter(x=>x.div).length,'sisanya perlu diisi manual','pipe')
+   +stat('No. HP Terisi',list.filter(x=>x.hp).length,'dipakai reminder WhatsApp','wa')
+   +'</div>';
+  if(!list.length){
+    h+='<div class="card pad0"><div style="padding:8px 20px 20px">'
+      +empty('Belum ada pegawai','Daftar ini datang langsung dari database user Office. Tekan "Sinkron Sekarang" — kalau tetap kosong, berarti Office belum bisa dihubungi.','crm')
+      +'</div></div>';
+    V.innerHTML=h; return;
+  }
+  const p=tblPage(tblUrut(list,'pegawai',KOL_PEGAWAI),'pegawai');
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('pegawai',KOL_PEGAWAI)+'<tbody>';
+  p.items.forEach(u=>{
+    const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
+    h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc(String(u.name||'?')[0])+'</div><div class="cell-strong">'+esc(u.name)+'</div></div></td>'
+     +'<td>'+esc(u.div||'—')+'</td><td>'+esc(u.jabatan||'—')+'</td><td class="mono">'+esc(u.hp||'—')+'</td>'
+     +'<td>'+roleCell(u,canMU)+custom+'</td>'
+     +'<td>'+(u.active===false?'<span class="tag">Nonaktif</span>':'<span class="tag" style="background:var(--ok-bg);color:var(--ok)">Aktif</span>')+'</td>'
+     +'<td><div class="pill-row">'
+       +(canEdit?'<button class="btn sm" title="Ubah divisi / jabatan / No. HP" onclick="editPegawai(\''+escJs(u.id)+'\')">'+svg(IC.edit)+'</button>':'')
+       +(canMU?'<button class="btn sm" onclick="openUserAccess(\''+escJs(u.id)+'\')">'+svg(IC.approve)+'Hak Akses</button>':'')
+       +((!canEdit&&!canMU)?'<span class="cell-sub">—</span>':'')
+     +'</div></td></tr>';
+  });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'pegawai')+'</div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Nama, <em>No. HP</em>, dan status aktif <b>selalu mengikuti Office</b> — perbaiki di sana, lalu tekan Sinkron Sekarang. <em>Divisi</em> ditebak dari kolom <em>Keterangan</em> Office (Office tidak punya kolom divisi sendiri) dan hanya diisi kalau masih kosong; kalau tebakannya meleset, ubah lewat tombol edit dan sinkronisasi berikutnya tidak akan menimpanya. Role disinkronkan dari sesi Office tiap user login — admin modul Office jadi Super Admin; role yang tidak dikenali dipertahankan, bukan diturunkan diam-diam.</span></div>';
   h+=accessMatrix(canMU);
   V.innerHTML=h;
 }
+/* Hanya tiga kolom yang boleh disunting di sini, dan semuanya kolom yang
+   Office tidak bisa memastikan sendiri. Nama TIDAK bisa diubah: ia kunci
+   pencocokan ke Office dan ke nama PIC yang sudah tercatat di event lama —
+   mengubahnya di sini akan diputar balik oleh sinkronisasi berikutnya, dan
+   sementara itu memutus kaitan ke event yang sudah ada. */
+function editPegawai(id){
+  const u=(S.users||[]).find(x=>x.id===id); if(!u)return;
+  modal('<div class="modal-head"><div><h3>Edit Pegawai</h3><p>'+esc(u.name)+' · dari database user Office</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<input type="hidden" id="sf_id" value="'+esc(u.id)+'">'
+   +'<div class="form-grid">'
+   +'<div class="field"><label>Divisi</label><select class="inp" id="sf_div"><option value="">—</option>'+getCats().map(d=>'<option'+(u.div===d?' selected':'')+'>'+esc(d)+'</option>').join('')+'</select></div>'
+   +ff('Jabatan','sf_jabatan',u.jabatan,'text')
+   +'</div>'
+   +ff('No. HP','sf_hp',u.hp,'text')
+   +'<div class="fh">Nama &amp; status aktif tidak diubah dari sini — keduanya milik Office. No. HP yang kamu isi di sini akan tertimpa kalau Office punya nomor untuk orang ini.</div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="savePegawai()">Simpan</button></div>');
+}
+function savePegawai(){
+  if(!can('edit_staff'))return toast('Akses ditolak','Kamu tidak punya izin mengubah data pegawai.','err');
+  const u=(S.users||[]).find(x=>x.id===$('sf_id').value); if(!u)return;
+  u.div=$('sf_div').value;
+  u.jabatan=$('sf_jabatan').value.trim();
+  u.hp=$('sf_hp').value.trim();
+  logAct('user',u.id,'Data pegawai diperbarui',[u.div,u.jabatan].filter(Boolean).join(' · ')||u.name);
+  save(); closeModal(); paintStaffDatalist(); toast('Tersimpan',u.name+' diperbarui.','ok'); go('staff');
+}
+/* Office membalas nomor HP di field `noHp` — lihat aksi_list_divisi_roster()
+   di account-mysql. Kode lama membaca `m.hp`, yang tidak pernah ada, jadi
+   nomornya SELALU kosong. Dibaca lewat satu tempat ini supaya tidak salah lagi;
+   `hp` tetap diterima kalau suatu saat backend mengirim nama itu. */
+function hpDariOffice(m){ return String((m&&(m.noHp||m.hp))||'').trim(); }
+/* Office TIDAK punya kolom divisi tersendiri: tim/divisi kru ditulis sebagai
+   teks bebas di kolom `keterangan` (mis. "Event", "Bar", "Marketing Event").
+   Itu sebabnya kolom Divisi selalu kosong — tidak ada yang menurunkannya.
+   Dicocokkan sebagai KATA UTUH ke daftar divisi Marketing (getCats()), cara
+   yang sama dipakai modul Kompas untuk menurunkan tim PIC-nya. Kata utuh,
+   bukan potongan, supaya "Barista" tidak terbaca sebagai divisi "Bar". */
+function divisiDariKeterangan(ket){
+  const kata=String(ket||'').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  if(!kata.length) return '';
+  return getCats().find(d=>{
+    const dl=String(d).toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+    return dl.length && dl.every(w=>kata.indexOf(w)>=0);
+  })||'';
+}
+/* ============================================================
+   ROLE & HAK AKSES — isi bagian bawah halaman Pegawai & Akses
+   ============================================================ */
 // Tombol siklus di matriks Hak Akses: klik geser None(0) -> Lihat(1) -> Ubah(2) -> None.
 function cyclePerm(btn){
   const next=(Number(btn.dataset.v)+1)%3;
@@ -7286,43 +8015,15 @@ function saveRoleMatrix(){
     S.roleAcc[r]=acc;
   });
   logAct('user','-','Matriks hak akses role diperbarui','');
-  save(); buildNav(); toast('Matriks disimpan','Hak akses per role diperbarui.','ok'); go('users');
+  save(); buildNav(); toast('Matriks disimpan','Hak akses per role diperbarui.','ok'); go('staff');
 }
-// Role tersimpan bisa diubah di sini. Akun baru default-nya 'marketing' (lihat
-// resolveOfficeUser); Office v3 tak lagi punya konsep role jadi tak ada peta untuk
-// dikoreksi otomatis. Sejak ada autoSyncOfficeRoster (jalan sendiri tiap modul
-// dibuka), tombol ini jadi fallback manual saja.
-// Tarik daftar user asli dari Office (listModuleMembers — sama seperti panel Kelola Akses,
-// jadi minta PIN). Role/hak akses lokal yang sudah diatur tidak ditimpa.
-async function importOfficeUsers(){
-  if(!can('manage_users'))return toast('Akses ditolak','Kamu tidak punya izin kelola user.','err');
-  if(typeof window.lmaListMembers!=='function')return toast('Belum siap','Modul Kelola Akses belum termuat. Coba refresh.','err');
-  toast('Memuat','Mengambil daftar user dari Office…','ok');
-  let r; try{ r=await window.lmaListMembers(); }catch(e){ return toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err'); }
-  if(r===null) return; // PIN dibatalkan
-  if(r.error) return toast('Gagal',r.error==='forbidden'?'PIN salah atau kamu bukan admin modul Marketing.':String(r.error),'err');
-  let added=0,updated=0;
-  (r.members||[]).forEach(m=>{
-    if(!m||!m.id)return;
-    const u=S.users.find(x=>x.id===m.id)||S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
-    if(u){ // jangan sentuh role/perms yang sudah diatur — hanya lengkapi identitas
-      let ch=false;
-      if(!u.id){ u.id=m.id; ch=true; }
-      if(m.name&&u.name!==m.name){ u.name=m.name; ch=true; }
-      if(m.email&&!u.email){ u.email=m.email; ch=true; }
-      if(ch)updated++;
-    } else {
-      S.users.push({id:m.id,name:m.name||'(tanpa nama)',email:m.email||'',role:'marketing',active:true});
-      added++;
-    }
-  });
-  logAct('user','-','Daftar user ditarik dari Office',added+' baru · '+updated+' diperbarui');
-  save(); buildNav();
-  toast('Selesai',added+' user baru, '+updated+' diperbarui. Atur role-nya di tabel.','ok');
-  go('users');
-}
+/* importOfficeUsers() DIBUANG bersama tombol "Tarik dari Office".
+   Ia menarik hanya ANGGOTA MODUL Marketing dan menuntut PIN admin, jadi kru
+   yang belum diberi akses modul ini tidak pernah ikut — persis keluhan "kenapa
+   datanya belum terupdate". Penggantinya autoSyncOfficeRoster(), yang membaca
+   seluruh database user tanpa PIN dan jalan sendiri tiap modul dibuka. */
 function roleCell(u,canMU){
-  if(!canMU) return esc(ROLES[u.role].t);
+  if(!canMU) return esc((ROLES[u.role]||{}).t||u.role||'—');
   return '<select class="inp" style="padding:5px 8px;font-size:12px;min-width:150px" onchange="changeUserRole(\''+u.id+'\',this.value)">'
     +Object.entries(ROLES).map(([k,v])=>'<option value="'+k+'"'+(u.role===k?' selected':'')+'>'+esc(v.t)+'</option>').join('')+'</select>';
 }
@@ -7330,9 +8031,13 @@ function changeUserRole(id,role){
   if(!can('manage_users'))return toast('Akses ditolak','Kamu tidak punya izin kelola user.','err');
   const u=S.users.find(x=>x.id===id); if(!u||!ROLES[role])return;
   const old=u.role; if(old===role)return;
-  u.role=role; if(role!=='operational') delete u.div;
+  /* Divisi TIDAK lagi ikut terhapus saat role berubah. Dulu ia cuma dipakai
+     untuk menyaring papan Task Divisi bagi role Operational, jadi dibuang
+     begitu rolenya bukan itu. Sekarang divisi adalah data pegawai — mengubah
+     role seseorang jadi Manager tidak membuat dia berhenti bekerja di Bar. */
+  u.role=role;
   logAct('user',u.id,'Role diubah',ROLES[old].t+' → '+ROLES[role].t);
-  save(); buildNav(); toast('Role diperbarui',u.name+' sekarang '+ROLES[role].t+'.','ok'); go('users');
+  save(); buildNav(); toast('Role diperbarui',u.name+' sekarang '+ROLES[role].t+'.','ok'); go('staff');
 }
 function openUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
@@ -7364,13 +8069,13 @@ function saveUserAccess(id){
   u.acc=acc; delete u.nav; delete u.perms; // buang bentuk lama (array) — sudah diganti u.acc
   const nView=Object.values(acc).filter(v=>v>=PERM_VIEW).length, nEdit=Object.values(acc).filter(v=>v>=PERM_EDIT).length;
   logAct('user',u.id,'Hak akses diperbarui',nView+' menu terlihat · '+nEdit+' boleh diubah');
-  save(); closeModal(); buildNav(); toast('Hak akses disimpan','Akses '+u.name+' diperbarui.','ok'); go('users');
+  save(); closeModal(); buildNav(); toast('Hak akses disimpan','Akses '+u.name+' diperbarui.','ok'); go('staff');
 }
 function resetUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
   delete u.acc; delete u.nav; delete u.perms;
   logAct('user',u.id,'Hak akses direset','kembali ke default role '+ROLES[u.role].t);
-  save(); closeModal(); buildNav(); toast('Direset','Akses '+u.name+' kembali ke default role.','ok'); go('users');
+  save(); closeModal(); buildNav(); toast('Direset','Akses '+u.name+' kembali ke default role.','ok'); go('staff');
 }
 
 /* ============================================================
@@ -7395,8 +8100,7 @@ function renderSettings(V){
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
    +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
-   +setRow('Ambang Approval (Rp)',num('set_appr',st.approvalThreshold),'Event dengan grand total ≥ nilai ini otomatis masuk Approval Flow — <em>Bagian 14, poin 5</em>.')
-   +setRow('Ambang Diskon Approval (%)',num('set_disc',st.discountThreshold),'Diskon ≥ persen ini juga otomatis butuh persetujuan Manager.')
+   +setRow('Ambang Diskon Approval (%)',num('set_disc',st.discountThreshold),'Diskon / penyesuaian harga ≥ persen ini otomatis masuk Approval Flow. <b>Hanya negosiasi harga yang butuh approval</b> — besarnya nilai event tidak lagi memicu approval.')
    +setRow('Baseline Revenue Harian (Rp)',num('set_baseline',(S.baseline||0),' placeholder="0"'),'Rata-rata omzet venue pada hari <em>tanpa</em> event. Dipakai menghitung Uplift di Reporting. Isi 0 bila belum ada angkanya — Uplift tidak ditampilkan.')
    +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
    +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
@@ -7408,8 +8112,8 @@ function renderSettings(V){
   const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','Sumber baseline/uplift','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
   h+='<div style="display:flex;flex-direction:column;gap:7px">'+points.map((p,i)=>'<div style="display:flex;gap:9px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span class="tag">'+(i+1)+'</span>'+esc(p)+'</div>').join('')+'</div>';
   h+='</div>';
-  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Surat Penawaran)</span></h3>'
-   +'<p class="section-desc">Foto venue yang tampil di <b>setiap</b> Surat Penawaran — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Upload sekali, dipakai di semua penawaran. Maks 8MB/foto.</p>'
+  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Draft Quotation)</span></h3>'
+   +'<p class="section-desc">Foto venue — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Tampil di <b>Draft Quotation</b> (Modul E) sebagai bahan saat menyusun Surat Penawaran; surat resminya sendiri kini dibuat di luar sistem lalu diunggah PDF-nya. Maks 8MB/foto.</p>'
    +'<div id="venueGalWrap">'+venueGalleryHTML(true)+'</div>'
    +'<label class="attach-add" style="margin-top:10px">'+svg(IC.plus)+'Tambah Foto Venue<input type="file" accept="image/*" multiple hidden onchange="uploadVenueFoto(this)"></label>'
    +'</div>';
@@ -7419,7 +8123,7 @@ function renderSettings(V){
 }
 function saveSettings(){
   const g=(k,f)=>f?parseFloat($('set_'+k).value):$('set_'+k).value;
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,approvalThreshold:+$('set_appr').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
   S.baseline=+$('set_baseline').value||0;
   save(); toast('Tersimpan','Pengaturan diperbarui.','ok');
 }
@@ -7480,7 +8184,7 @@ async function boot(){
     localStorage.setItem('lm_me', u.id);
     $('login').style.display='none'; $('app').classList.add('on');
     buildNav(); updateTopUser(); bootRoute();
-    autoSyncOfficeRoster(); // tanpa await: render dulu, sync roster jalan di belakang
+    autoSyncOfficeRoster(true); // diam-diam & tanpa await: render dulu, sync roster jalan di belakang
   }
 }
 </script>
@@ -7608,8 +8312,9 @@ boot();
   // Launcher "Kelola Akses" (grant/deny akses Office ke modul ini) SENGAJA tidak
   // pernah ditampilkan di Marketing — superadmin sudah mengelola ini dari konsol
   // Kelola Akses di landing page, jadi tombol duplikat di sini tidak diperlukan.
-  // window.lmaListMembers TETAP aktif (dipakai importOfficeStaff/importOfficeUsers
-  // untuk "Tarik dari Office"), cuma launcher manualnya yang disembunyikan.
+  // window.lmaListMembers tetap terpasang untuk pemakai lain di masa depan;
+  // halaman Pegawai & Akses TIDAK lagi memakainya — ia menarik roster lewat
+  // autoSyncOfficeRoster() yang membaca seluruh database user tanpa PIN.
 })();
 </script>
 <!-- ===== /Part B ===== -->

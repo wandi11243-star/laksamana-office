@@ -28,7 +28,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-23');
+define('LIB_VERSI', '2026-07-27');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -41,11 +41,19 @@ define('LIB_VERSI', '2026-07-23');
    ENV_LABEL sengaja tidak diwajibkan: config.php lama (yang belum punya
    baris itu) tetap jalan, dan nilainya muncul sebagai '?' — itu sendiri
    sudah memberi tahu bahwa config di server masih versi lama. */
+/* `aksi` = daftar action yang DIDUKUNG backend ini. Ada gunanya yang konkret:
+   frontend bisa lebih baru daripada backend yang ter-upload di hosting, dan
+   gejalanya muncul jauh dari sebabnya — "Aksi tidak dikenal: uploadChunk" saat
+   mengunggah, padahal yang salah adalah paket API-nya belum diperbarui.
+   Dengan ini, ?action=ping langsung memberi tahu versi mana yang sedang hidup
+   tanpa perlu menebak dari gejala. */
 function identitas() {
   return array(
     'env'   => defined('ENV_LABEL') ? ENV_LABEL : '?',
     'db'    => DB_NAME,
     'versi' => LIB_VERSI,
+    'aksi'  => array('getAll','stats','ping','receipt','uploadReceipt','uploadChunk','saveAll'),
+    'maksUnggahMB' => 40,
   );
 }
 
@@ -121,11 +129,84 @@ function save_receipt($payload) {
                      isset($payload['fileName']) ? $payload['fileName'] : '');
   $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
   if ($bin === false) throw new Exception('base64 tidak valid');
-  if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('file melebihi 8MB');
+  /* Batas atas SEMUA unggahan. Dinaikkan 8MB -> 40MB untuk Surat Penawaran,
+     yang sering penuh gambar venue/layout beresolusi tinggi. Batas per fitur
+     tetap dipegang frontend (lampiran event & bukti transfer masih 8MB); ini
+     jaring pengaman terakhir supaya berkas raksasa tidak menghabiskan disk.
+     CATATAN: base64 membengkakkan ~33%, jadi 40MB berkas = ~54MB body. PHP
+     akan MEMBUANG body yang melewati post_max_size (php://input jadi kosong)
+     sebelum baris ini sempat jalan — lihat .user.ini di folder ini. */
+  if (strlen($bin) > 40 * 1024 * 1024) throw new Exception('file melebihi 40MB');
   $key = 'rc_' . bin2hex(random_bytes(8)) . '.' . $ext;
   if (file_put_contents(receipt_path($key), $bin) === false)
     throw new Exception('gagal menulis file (cek izin folder)');
   // name = nama asli untuk ditampilkan; url dibangun frontend dari key.
+  return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
+}
+
+/* ==================== UNGGAH BERTAHAP (CHUNK) ====================
+   save_receipt() mengirim seluruh berkas dalam SATU permintaan. Untuk berkas
+   besar itu tidak bisa diandalkan di shared hosting: base64 membengkakkan
+   ukuran ~33%, lalu `post_max_size` (bawaan 8M) membuang seluruh body sebelum
+   PHP sempat jalan — dan batas itu tidak bisa diubah dari kode. Sebagian host
+   juga menolak POST besar di level web server (413) sebelum PHP tersentuh.
+
+   Jalan keluarnya bukan menaikkan batas, tapi TIDAK PERNAH MENYENTUHNYA:
+   berkas dipotong ~2MB per permintaan lalu disambung di sini. Tiap potongan
+   di-base64 sendiri-sendiri, jadi tidak ada masalah batas antar-potongan.
+   Dengan begitu unggahan 40MB tetap jalan di server ber-post_max_size 8M. */
+function receipt_tmp_dir() { return receipt_dir() . '/receipts_tmp'; }
+function receipt_tmp_path($uploadId) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$uploadId);
+  if ($safe === '' || strlen($safe) > 80) throw new Exception('uploadId tidak sah');
+  return receipt_tmp_dir() . '/up_' . $safe . '.part';
+}
+// Buang potongan menggantung (unggahan yang ditinggal di tengah jalan).
+function receipt_tmp_bersihkan() {
+  $dir = receipt_tmp_dir();
+  if (!is_dir($dir)) return;
+  foreach (glob($dir . '/up_*.part') as $p)
+    if (filemtime($p) < time() - 86400) @unlink($p);
+}
+function save_receipt_chunk($payload) {
+  if (!$payload || !isset($payload['uploadId'])) throw new Exception('uploadId kosong');
+  receipt_pastikan_folder();
+  if (!is_dir(receipt_tmp_dir())) @mkdir(receipt_tmp_dir(), 0775, true);
+  $path  = receipt_tmp_path($payload['uploadId']);
+  $seq   = isset($payload['seq']) ? (int)$payload['seq'] : 0;
+  $last  = !empty($payload['last']);
+
+  if ($seq === 0) @unlink($path);            // potongan pertama = mulai dari nol
+  elseif (!file_exists($path)) throw new Exception('potongan awal hilang — ulangi unggahan');
+
+  if (isset($payload['dataBase64']) && $payload['dataBase64'] !== '') {
+    $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
+    if ($bin === false) throw new Exception('base64 tidak valid');
+    /* clearstatcache WAJIB: filesize() dilayani dari stat cache PHP, dan tiap
+       potongan datang sebagai permintaan yang berbeda ke berkas yang sama.
+       Tanpa ini ukuran yang terbaca tertinggal satu potongan — penjaga 40MB
+       jadi longgar dan angka kemajuan yang dibalas ke frontend meleset. */
+    clearstatcache(true, $path);
+    // Batas diperiksa saat menyambung, bukan cuma di akhir, supaya kiriman
+    // yang kebablasan berhenti lebih awal dan tidak menghabiskan disk.
+    if ((file_exists($path) ? filesize($path) : 0) + strlen($bin) > 40 * 1024 * 1024) {
+      @unlink($path);
+      throw new Exception('file melebihi 40MB');
+    }
+    if (file_put_contents($path, $bin, FILE_APPEND) === false)
+      throw new Exception('gagal menulis potongan (cek izin folder)');
+    clearstatcache(true, $path);
+  }
+  if (!$last) return array('ok' => true, 'seq' => $seq, 'bytes' => (int)@filesize($path));
+
+  $ext = receipt_ext(isset($payload['mimeType']) ? $payload['mimeType'] : '',
+                     isset($payload['fileName']) ? $payload['fileName'] : '');
+  $key = 'rc_' . bin2hex(random_bytes(8)) . '.' . $ext;
+  if (!@rename($path, receipt_path($key))) {
+    @unlink($path);
+    throw new Exception('gagal menyimpan berkas gabungan');
+  }
+  receipt_tmp_bersihkan();
   return array('key' => $key, 'name' => isset($payload['fileName']) ? (string)$payload['fileName'] : $key);
 }
 /* Kumpulkan semua key berkas yang MASIH dipakai, dibaca dari DATABASE.

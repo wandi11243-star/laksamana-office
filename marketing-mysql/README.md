@@ -41,12 +41,44 @@ yang mengedit event BERBEDA dulu saling ditolak; sekarang keduanya tersimpan.
 2. **Buat tabel** — phpMyAdmin → pilih `lakk5493_db_marketing` → tab SQL →
    tempel `schema.sql` → Go. Harus jadi **12 tabel**.
 3. **Upload folder** ke `public_html/office/marketing-api-mysql/`.
-   (Jangan ikut-upload `config.local.php` kalau sempat dibuat untuk tes lokal.)
+   (Jangan ikut-upload `config.local.php` kalau sempat dibuat untuk tes lokal.
+   `.user.ini` HARUS ikut — lihat batas unggahan di bawah.)
 4. **Uji** — `.../marketing-api-mysql/api.php?action=stats` harus `ok:true`,
    12 tabel bernilai 0.
 5. **Alihkan frontend** — di `deploy/marketing/index.html`, ganti backend dari
    `WEB_APP_URL` (Apps Script) ke `API_URL` MySQL. (Langkah ini BELUM dilakukan
    — lihat catatan di bawah.)
+
+## Batas unggahan berkas
+
+Surat Penawaran boleh sampai **40MB** (lampiran event & bukti transfer tetap
+8MB, dijaga di frontend).
+
+**Unggahannya BERTAHAP** (`action=uploadChunk`): frontend memotong berkas jadi
+~2MB per permintaan dan `save_receipt_chunk()` menyambungnya di server. Ini
+bukan sekadar kerapian — mengirim berkas besar sekaligus tidak bisa diandalkan
+di shared hosting:
+
+* base64 membengkakkan ukuran ~33%, jadi 40MB berkas = ~54MB body;
+* `post_max_size` bawaan PHP cuma 8M, dan begitu body melewatinya PHP
+  **membuang seluruh isinya sebelum `api.php` sempat jalan** — batas yang
+  tidak bisa diubah dari kode karena bertipe `PHP_INI_PERDIR`;
+* sebagian host juga menolak POST besar di level web server (HTTP 413),
+  bahkan sebelum PHP tersentuh.
+
+Dengan dipotong, tiap permintaan hanya ~2,7MB sehingga **tetap jalan walau
+konfigurasi server tidak pernah diubah**. `.user.ini` di folder ini menaikkan
+`post_max_size`/`memory_limit` sebagai cadangan (dan mempercepat unggahan
+lewat jalur satu-tembak `uploadReceipt` yang masih dipakai lampiran lain), tapi
+sudah **tidak wajib** untuk Surat Penawaran. Kalau server memakai mod_php,
+`.user.ini` memang diabaikan — dan itu tidak lagi jadi masalah.
+
+Potongan sementara ditulis ke `receipts_tmp/` dan dihapus begitu berkas
+tersambung; unggahan yang ditinggal di tengah jalan dibersihkan setelah 24 jam.
+Folder itu di luar jangkauan GC lampiran, jadi tidak saling mengganggu.
+
+Kalau unggahan masih gagal, pesan galat di aplikasi sekarang menyebut sebabnya
+apa adanya — status HTTP dan cuplikan balasan server, bukan "Unexpected token".
 
 ## Yang sudah diuji
 
