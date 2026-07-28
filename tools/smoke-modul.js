@@ -58,6 +58,10 @@ function bukaModul(modul) {
   if (!fs.existsSync(file)) throw new Error('modul tidak ada: ' + file);
   const dom = new JSDOM(fs.readFileSync(file, 'utf8'), {
     runScripts: 'dangerously',
+    // pretendToBeVisual menyediakan requestAnimationFrame — dipakai kode render
+    // untuk memulihkan posisi gulir. Tanpa ini lingkungan uji berbeda dari
+    // browser sungguhan justru di jalur yang paling sering dilewati.
+    pretendToBeVisual: true,
     url: 'http://localhost/office/' + modul + '/',
     beforeParse(w) {
       // Offline disengaja: boot modul memang harus tetap jalan tanpa server.

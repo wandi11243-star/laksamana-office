@@ -758,7 +758,14 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .kalk-tbl input{margin:0}
 .kalk-tbl td.r,.kalk-tbl th.r{text-align:right}
 .kalk-tbl .kalk-harga,.kalk-tbl .kalk-rowsub{font-variant-numeric:tabular-nums}
-.mdb-list{display:block;flex:1}
+/* Daftar menu dibatasi ~10 baris lalu digulir DI DALAM kartunya. Beberapa jenis
+   memuat puluhan menu; tanpa batas ini satu kartu bisa setinggi tiga layar dan
+   kartu di sebelahnya jadi kolom kosong memanjang — halamannya boros tempat
+   padahal isinya sedikit. 10 baris × ~29px + sedikit ruang. */
+.mdb-list{display:block;flex:1;max-height:300px;overflow-y:auto;overscroll-behavior:contain}
+.mdb-list::-webkit-scrollbar{width:8px}
+.mdb-list::-webkit-scrollbar-thumb{background:var(--line-hard);border-radius:8px}
+.mdb-list::-webkit-scrollbar-track{background:transparent}
 /* TABEL MINI DUA KOLOM (menu | harga) menggantikan deretan pil. Harga tidak
    muat di dalam pil tanpa membuatnya jadi label panjang yang sulit
    dibandingkan; berderet ke bawah, angkanya bisa dibaca menurun. */
@@ -770,9 +777,15 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .mdb-nama{font-size:12.5px;color:var(--sand)}
 /* Harga rata KANAN + angka tabular supaya digitnya sejajar antar baris —
    itulah gunanya menaruhnya di kolom sendiri. */
-.mdb-harga{width:104px;text-align:right;font-size:12.5px;color:var(--sand)}
+.mdb-harga{width:126px;text-align:right;font-size:12.5px;color:var(--sand);white-space:nowrap}
 .mdb-harga-kosong{color:var(--muted)}
-.mdb-hin{width:100%;border:1px solid transparent;background:none;border-radius:7px;padding:3px 6px;
+/* "Rp" dan angkanya HARUS satu baris. Dulu keduanya ditaruh berdampingan
+   sementara input-nya width:100%, jadi "Rp" terdorong turun dan tiap harga
+   memakan dua baris. Sekarang satu baris flex: "Rp" lebarnya tetap, input yang
+   mengalah (`flex:1;min-width:0`). */
+.mdb-harga-baris{display:flex;align-items:center;justify-content:flex-end;gap:4px;white-space:nowrap}
+.mdb-harga-rp{flex:none;font-size:11px;color:var(--muted);line-height:1}
+.mdb-hin{flex:1;min-width:0;border:1px solid transparent;background:none;border-radius:7px;padding:3px 6px;
   text-align:right;font-size:12.5px;color:inherit;font-variant-numeric:tabular-nums}
 .mdb-hin:hover{border-color:var(--line-hard)}
 .mdb-hin:focus{outline:none;border-color:var(--gold);background:#fff;box-shadow:0 0 0 3px var(--gold-glow)}
@@ -1508,9 +1521,11 @@ function resetData(){
 /* ---------- SETTINGS / BUSINESS RULES (Bagian 9 & 14) ---------- */
 const DEFAULT_SETTINGS = {
   dpPercent:50, pb1:10, serviceCharge:5,
-  // approvalThreshold (dulu Rp25 jt) DIHAPUS: approval kini hanya untuk
-  // negosiasi harga, jadi nilai event tidak lagi memicu antrian approval.
-  discountThreshold:15,
+  /* DUA ambang approval sudah DIHAPUS dan tidak perlu dihidupkan lagi:
+       approvalThreshold (dulu Rp25 jt)  — nilai event tidak memicu approval
+       discountThreshold (dulu 15%)      — besarnya diskon juga tidak
+     Approval di modul ini tinggal satu: Surat Penawaran, disetujui sebelum
+     dikirim ke klien. Lihat catatan di bagian APPROVAL FLOW. */
   fuTarget:10,
   // Nomor invoice & kwitansi: sekali diberikan, melekat permanen ke event/pembayaran.
   // invSeq/kwSeq = nomor urut berikutnya yang akan dipakai.
@@ -1660,12 +1675,19 @@ async function ambilOffice(payload){
   const data=await res.json();
   return (data&&data.ok)?(data.members||[]):null;
 }
-/* diam = true saat jalan otomatis waktu modul dibuka (tanpa toast). Tombol
-   "Sinkron Sekarang" memanggilnya dengan diam=false supaya ada kabarnya. */
-async function autoSyncOfficeRoster(diam){
+/* Hasil sinkronisasi terakhir di sesi ini. TIDAK masuk S: ini keadaan sesi,
+   bukan data kantor — kalau ikut tersimpan, tiap orang yang membuka modul akan
+   menulis ulang baris yang sama ke server tanpa ada yang berubah. */
+let rosterSync={ status:'jalan', at:null, baru:0, ubah:0, pesan:'' };
+/* Dipanggil sendiri tiap modul dibuka. TIDAK ADA TOMBOL SINKRON — daftar
+   pegawai bukan sesuatu yang perlu diminta; ia harus benar begitu halaman
+   terbuka. Halaman Pegawai & Akses ikut memicunya lagi kalau sinkronisasi
+   terakhir gagal atau sudah basi (lihat renderStaff). */
+async function autoSyncOfficeRoster(){
+  rosterSync={ status:'jalan', at:null, baru:0, ubah:0, pesan:'' };
   try{
     const semua=await ambilOffice({action:'listDivisiRoster'});
-    if(!semua) { if(!diam) toast('Gagal','Office menolak permintaan roster.','err'); return; }
+    if(!semua){ rosterSync={ status:'gagal', at:new Date(), baru:0, ubah:0, pesan:'Office menolak permintaan roster.' }; segarkanStaff(); return; }
     // Anggota modul: dipakai untuk role saja, dan boleh gagal sendirian —
     // daftar pegawainya tetap tersinkron walau bagian ini tak terjawab.
     let anggota=null;
@@ -1718,12 +1740,16 @@ async function autoSyncOfficeRoster(diam){
       logAct('user','-','Data pegawai disinkronkan dari Office',baru+' baru · '+ubah+' diperbarui');
       save(); buildNav(); paintStaffDatalist();
     }
-    if(!diam) toast('Selesai',baru+' pegawai baru, '+ubah+' diperbarui.'
-      +(tanpaDiv?' '+tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.':''),'ok');
-    if(!diam) go('staff');
+    rosterSync={ status:'ok', at:new Date(), baru, ubah,
+      pesan: tanpaDiv?(tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.'):'' };
+    segarkanStaff();
   }catch(e){
-    // offline / Office tak terjangkau: saat otomatis dilewati diam-diam.
-    if(!diam) toast('Gagal','Tidak bisa menghubungi Office: '+e.message,'err');
+    /* Offline / Office tak terjangkau: TIDAK menghentikan apa pun. App tetap
+       jalan dengan data yang sudah ada; kegagalannya dilaporkan di halaman
+       Pegawai & Akses, bukan lewat toast yang mengganggu tiap kali buka modul
+       dari jaringan yang buruk. */
+    rosterSync={ status:'gagal', at:new Date(), baru:0, ubah:0, pesan:e.message };
+    segarkanStaff();
   }
 }
 
@@ -2416,10 +2442,42 @@ function go(view,param){
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.k===(view==='event'?'events':view)));
   const meta=TITLES[view]||TITLES.events; if(view!=='event'){ $('tb-title').textContent=meta[0]; $('tb-sub').textContent=meta[1]; }
   $('notif-dot').style.display=unreadNotif()?'block':'none';
-  const V=$('view'); V.scrollTop=0; paintStaffDatalist(); paintMenuDatalist();
+  /* Menggambar ULANG halaman yang sama (refreshView) tidak boleh melempar
+     pembaca ke atas. Menambah satu item to-do di papan yang panjang, lalu
+     harus menggulir turun lagi mencari tempatnya, itu menghukum tiap kali
+     tombol ditekan. Berpindah HALAMAN tetap mulai dari atas — di sana atas
+     memang tempat yang benar. */
+  const pulih=_gulirUlang; _gulirUlang=null;
+  const V=$('view'); V.scrollTop = pulih?pulih.view:0; paintStaffDatalist(); paintMenuDatalist();
   const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderEvents,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,settings:renderSettings};
   (R[view]||renderDashboard)(V,param);
-  window.scrollTo(0,0);
+  if(pulih){
+    /* Tinggi isi baru terhitung pada frame berikutnya setelah innerHTML
+       diganti, jadi scrollTop yang diset sebelum render bisa terpotong.
+       Dipasang ulang di frame berikutnya. */
+    frameBerikutnya(()=>{ V.scrollTop=pulih.view; window.scrollTo(0,pulih.win); fokusJobTertunda(); });
+  } else {
+    window.scrollTo(0,0);
+  }
+}
+/* requestAnimationFrame dengan cadangan. Ini dipakai di jalur yang dilewati
+   SETIAP gambar ulang halaman — kalau ia tidak ada (webview lawas, tab yang
+   dibekukan, lingkungan uji tanpa layar), seluruh navigasi ikut mati. Menunda
+   satu putaran event loop sudah cukup: yang dibutuhkan cuma "sesudah browser
+   sempat menghitung tinggi isi yang baru". */
+function frameBerikutnya(fn){
+  if(typeof requestAnimationFrame==='function') requestAnimationFrame(fn);
+  else setTimeout(fn,0);
+}
+/* Isian yang harus dapat fokus setelah gambar ulang (mis. item to-do yang baru
+   ditambahkan). Tanpa ini, "Tambah item" menghasilkan baris kosong yang masih
+   harus diklik dulu sebelum bisa diketik. */
+let _fokusJob=null;
+function fokusJobTertunda(){
+  if(!_fokusJob) return;
+  const el=document.querySelector('[data-job="'+_fokusJob+'"]');
+  _fokusJob=null;
+  if(el){ el.focus(); el.scrollIntoView({block:'nearest'}); }
 }
 window.addEventListener('hashchange',()=>{ const[v,p]=location.hash.slice(1).split('/'); if(v && ME) { /* handled by go via clicks; support back btn */ } });
 
@@ -2676,7 +2734,11 @@ function eventSubs(ev){ const c=eventCats(ev); return c.length?subsOf(c[0]):[]; 
 function addExtraJob(evId,div,sub){
   const ev=S.events.find(e=>e.id===evId); if(!ev)return;
   ev.extraJobs=ev.extraJobs||{}; ev.extraJobs[div]=ev.extraJobs[div]||[];
-  ev.extraJobs[div].push({id:uid('xj'),div,sub:sub||'',task:'',pic:'',hminus:null,deadline:'',note:'',extra:true});
+  const baru={id:uid('xj'),div,sub:sub||'',task:'',pic:'',hminus:null,deadline:'',note:'',extra:true};
+  ev.extraJobs[div].push(baru);
+  // Halaman digambar ulang di tempat (posisi gulir dipertahankan), lalu kotak
+  // nama item yang baru ini yang mendapat kursor — langsung bisa diketik.
+  _fokusJob=baru.id;
   save(); gambarUlangJob(evId,div);
 }
 /* Tugas bebas: dipakai saat event TIDAK memilih Format F&B — kru tetap bisa
@@ -2762,7 +2824,17 @@ function setJobProg(evId,div,taskId,val){ const e=S.events.find(x=>x.id===evId);
    DIPERTAHANKAN: ia masih dipakai toggleJobSelesai() (0 atau 100), dan data
    lama yang terlanjur bernilai 37% tetap terbaca — divProgress() menghitungnya
    apa adanya, jadi tidak ada angka yang tiba-tiba berubah. */
-function refreshView(){ simpanGulir(); const p=location.hash.slice(1).split('/'); go(p[0]||'dashboard', p[1]); }
+/* Posisi gulir yang harus dipulihkan sesudah gambar ulang. Diisi HANYA oleh
+   refreshView() — yaitu saat halaman yang sama digambar ulang. go() yang
+   dipanggil dari menu/tautan membiarkannya null, jadi berpindah halaman tetap
+   mulai dari atas seperti seharusnya. */
+let _gulirUlang=null;
+function refreshView(){
+  simpanGulir();
+  const v=$('view');
+  _gulirUlang={ view:(v?v.scrollTop:0)||0, win:window.scrollY||window.pageYOffset||0 };
+  const p=location.hash.slice(1).split('/'); go(p[0]||'dashboard', p[1]);
+}
 
 /* ============================================================
    TABEL: PENGURUTAN + HALAMAN
@@ -3441,10 +3513,14 @@ function renderEventForm(V,id){
   h+='<a class="btn" onclick="go(\'events\')">← Daftar</a>';
   h+='<button class="btn" onclick="genBriefFor(\''+ev.id+'\')">'+svg(IC.brief)+'Event Brief</button>';
   if(canEdit && isOpenEvent(ev)) h+='<button class="btn" onclick="logFollowUp(\''+ev.clientId+'\',\''+ev.id+'\')">'+svg(IC.pipe)+'Catat FU</button>';
+  /* Tombol "Ajukan Approval" DIBUANG bersama approval berbasis ambang diskon.
+     Sekarang hanya ada SATU approval di modul ini: Surat Penawaran, yang
+     diajukan dari kartu Penawaran di bawah — sebelum surat itu dikirim dan
+     negosiasi dengan klien dimulai. Antrian yang masih tersisa dari aturan
+     lama tetap ditandai di sini supaya tidak ada yang menggantung tanpa
+     terlihat. */
   const apPending=S.approvals.some(a=>a.eventId===ev.id&&a.status==='Pending');
-  const apDecided=S.approvals.some(a=>a.eventId===ev.id&&a.status!=='Pending');
-  if(canEdit && !apPending && !apDecided) h+='<button class="btn'+(approvalStatus(ev).need?' pri':'')+'" onclick="ajukanApproval(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>';
-  else if(apPending) h+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval</span>';
+  if(apPending) h+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Sisa approval lama menunggu</span>';
   if(canEdit && !['Confirmed','Deal','Event Done','Lost'].includes(ev.status)) h+='<button class="btn pri" onclick="confirmEvent(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
   if(can('del_event')) h+='<button class="btn danger" title="Hapus event permanen" onclick="delEvent(\''+ev.id+'\')">'+svg(IC.trash)+'</button>';
   h+='</div></div>';
@@ -3526,7 +3602,7 @@ function pulihkanGulir(){
   const v=$('view'); if(!v) return;
   const y=_gulir[curTab]||0;
   // Setelah innerHTML diganti, tingginya baru terhitung pada frame berikutnya.
-  requestAnimationFrame(()=>{ v.scrollTop=y; });
+  frameBerikutnya(()=>{ v.scrollTop=y; });
 }
 function renderEventTab(ev,canEdit){
   const tab=TAB_BY_ID[curTab]; if(!tab)return;
@@ -4791,10 +4867,12 @@ function saveEventTab(id,goNext){
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
   if(changes.length)logAct('event',id,'Detail diperbarui: '+tab.title,changes.join(', '));
   if(adaFinance) logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
-  const queued=syncApproval(ev); // auto-masuk Approval Flow bila diskon ≥ ambang negosiasi
+  /* Dulu di sini ada syncApproval(): diskon ≥ ambang otomatis melempar event
+     ke Approval Flow. DIHAPUS — approval di modul ini tinggal satu, yaitu
+     Surat Penawaran sebelum dikirim ke klien. Menyimpan detail harga tidak
+     lagi memicu antrian apa pun. */
   save(); buildNav();
   toast('Tersimpan',tab.title+' disimpan.'+(adaFinance?' Grand Total: '+rp(eventFinance(ev).grand):''),'ok');
-  if(queued) toast('Masuk Approval Flow',esc(ev.nama)+' menunggu persetujuan Manager (diskon ≥ ambang negosiasi).','ok');
   // pengingat: detailing tidak mengunci tahap, jadi ingatkan kalau peluang belum dipindah
   // (hanya saat simpan biasa — kalau sedang "Simpan & Lanjut" toast ini justru mengganggu alur)
   if(isOpenEvent(ev) && !goNext) setTimeout(()=>toast('Jangan lupa tahapnya','Peluang masih "'+ev.status+'". Perbarui tahap pipeline bila sudah ada kemajuan.'),700);
@@ -4816,47 +4894,23 @@ function setTaskProgress(evId,div,val){
   logAct('event',evId,'Progress '+div+' → '+p+'%','');
   save();
 }
-/* ---------- APPROVAL FLOW helpers ----------
-   Approval HANYA untuk negosiasi harga (diskon/penyesuaian harga di luar
-   standar). Ambang nominal (dulu: grand total ≥ Rp25 jt otomatis butuh
-   persetujuan) DIHAPUS atas keputusan bisnis — event besar tidak lagi
-   tertahan hanya karena nilainya besar. */
-function approvalStatus(ev){ const f=eventFinance(ev); const discPct=f.sub?Math.round(f.disc/f.sub*100):0; return {f,discPct,need:(discPct>=S.settings.discountThreshold)}; }
-function approvalReason(f,discPct){ return discPct>=S.settings.discountThreshold?('Negosiasi harga — diskon '+discPct+'%'):''; }
-// otomatis masukkan ke antrian approval bila diskon lewat ambang & belum ada entri untuk event ini
-function syncApproval(ev){
-  if(!ev)return false;
-  const {f,discPct,need}=approvalStatus(ev);
-  if(!need)return false;
-  if(S.approvals.some(a=>a.eventId===ev.id))return false; // sudah ada (pending / sudah diputuskan)
-  S.approvals.push({id:uid('ap'),eventId:ev.id,by:ME?ME.id:'',reason:approvalReason(f,discPct),auto:true,status:'Pending',at:new Date().toISOString(),note:''});
-  pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
-  return true;
-}
-function ajukanApproval(id){
-  const ev=S.events.find(e=>e.id===id); if(!ev)return;
-  if(S.approvals.some(a=>a.eventId===id&&a.status==='Pending'))return toast('Sudah diajukan','Event ini sudah ada di antrian Approval Flow.','ok');
-  if(S.approvals.some(a=>a.eventId===id&&a.status!=='Pending'))return toast('Sudah diputuskan','Approval event ini sudah diproses sebelumnya.','ok');
-  const {f,discPct,need}=approvalStatus(ev);
-  const auto=need?approvalReason(f,discPct):'';
-  modal('<div class="modal-head"><div><h3>Ajukan Approval</h3><p>'+esc(ev.nama)+' · '+rp(f.grand)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
-   +(need
-      ? '<div class="fh" style="margin-bottom:12px;color:var(--warn)">⚠ Wajib approval — '+esc(auto)+'. Diskon melewati ambang negosiasi (≥ '+S.settings.discountThreshold+'%).</div>'
-      : '<div class="fh" style="margin-bottom:12px">Diskon masih di bawah ambang negosiasi (&lt; '+S.settings.discountThreshold+'%) — approval tidak wajib, tapi boleh diajukan. Jelaskan alasannya.</div>')
-   +'<div class="field"><label>Alasan Pengajuan<span class="req">*</span></label><textarea class="inp" id="ap_reason" placeholder="Kenapa negosiasi harga ini perlu persetujuan Manager?">'+esc(auto)+'</textarea></div>'
-   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitApprovalReq(\''+id+'\')">Ajukan</button></div>');
-}
-function submitApprovalReq(id){
-  const ev=S.events.find(e=>e.id===id); if(!ev)return;
-  if(S.approvals.some(a=>a.eventId===id))return toast('Sudah ada','Event ini sudah pernah diajukan.','err');
-  const reason=$('ap_reason').value.trim();
-  if(!reason)return toast('Alasan wajib','Isi alasan pengajuan approval.','err');
-  const {need}=approvalStatus(ev);
-  S.approvals.push({id:uid('ap'),eventId:id,by:ME?ME.id:'',reason,auto:!!need,status:'Pending',at:new Date().toISOString(),note:''});
-  pushNotif('approval','Approval dibutuhkan',ev.nama+' menunggu persetujuan Manager.','#approvals');
-  logAct('event',id,'Ajukan approval',reason);
-  save(); buildNav(); closeModal(); toast('Diajukan','Event masuk antrian Approval Flow, menunggu Manager.','ok'); go('approvals');
-}
+/* ---------- APPROVAL FLOW ----------
+   SATU approval saja di modul ini: **Surat Penawaran**, disetujui manajemen
+   SEBELUM dikirim ke klien dan sebelum negosiasi dimulai. Lihat buatPenawaran()
+   / ajukanPenawaran() / putusPenawaran().
+
+   Dua pemicu approval lain sudah DIHAPUS atas keputusan bisnis:
+     1. Ambang NOMINAL (dulu: grand total ≥ Rp25 jt otomatis butuh persetujuan)
+        — event besar tidak lagi tertahan hanya karena nilainya besar.
+     2. Ambang DISKON (diskon ≥ N% otomatis masuk antrian "Negosiasi Harga")
+        — persetujuannya sudah terjadi lebih dulu, saat Surat Penawaran
+        disetujui. Meminta approval kedua untuk harga yang sama berarti
+        menahan pekerjaan dua kali untuk satu keputusan.
+
+   `S.approvals` sengaja TIDAK dihapus: baris yang terlanjur ada tetap
+   ditampilkan di Approval Flow (dan yang masih Pending tetap bisa diputuskan
+   lewat decideApproval) supaya tidak ada perkara yang hilang diam-diam. Yang
+   berhenti adalah PEMBUATAN baris baru — tidak ada lagi jalan masuk ke sana. */
 function confirmEvent(id){
   const ev=S.events.find(e=>e.id===id);
   /* Matriks PIC Hari-H (D.11) dulu MENOLAK konfirmasi Deal bila belum terisi.
@@ -4868,9 +4922,7 @@ function confirmEvent(id){
   if(clash.length && !confirm('BENTROK JADWAL\n\n'+fmtDate(ev.tanggal)+' sudah ada '+clash.length+' event lain:\n'+clash.map(x=>'• '+x.nama+' ('+((x.detail&&x.detail.area)||'area belum diisi')+')').join('\n')+'\n\nTetap konfirmasi Deal?')) return;
   ev.status='Deal'; ev.pipeCol='Deal';
   genTasks(ev);
-  syncApproval(ev); // dedupe: pakai entri yang sudah ada bila auto-terbuat saat simpan
-  if(approvalStatus(ev).need) toast('Menunggu approval','Event masuk antrian Approval Flow (diskon negosiasi melewati ambang).','ok');
-  else toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
+  toast('Event Confirmed ⚓','Handover ke divisi & invoice bisa diterbitkan.','ok');
   if(missing.length) setTimeout(()=>toast('Matriks PIC belum lengkap','PIC Hari-H (D.11) di tab Operasional masih kosong — isi sebelum hari-H.'),900);
   logAct('event',id,'Status → Confirmed','');
   pushNotif('event','Handover baru',ev.nama+' siap dibriefing ke seluruh divisi.','#event/'+id);
@@ -6005,7 +6057,7 @@ function freeBoard(e){
         const done=jobSelesai(e,D,id);
         h+='<tr class="papan-row'+(done?' is-done':'')+'">'
           +'<td>'+(bisaUbah?'<button class="papan-cek'+(done?' on':'')+'" title="'+(done?'Tandai belum selesai':'Tandai selesai')+'" onclick="toggleJobSelesai('+a+')">'+(done?svg(IC.check):'')+'</button>':'<span class="papan-cek'+(done?' on':'')+'">'+(done?svg(IC.check):'')+'</span>')+'</td>'
-          +'<td>'+(bisaUbah?'<input class="inp jb-in" value="'+esc(tpl.task||'')+'" placeholder="Nama tugas…" onchange="setExtraJob('+a+',\'task\',this.value)">':'<span class="papan-nama">'+esc(tpl.task||'(tanpa nama)')+'</span>')+'</td>'
+          +'<td>'+(bisaUbah?'<input class="inp jb-in" data-job="'+id+'" value="'+esc(tpl.task||'')+'" placeholder="Nama tugas…" onchange="setExtraJob('+a+',\'task\',this.value)">':'<span class="papan-nama">'+esc(tpl.task||'(tanpa nama)')+'</span>')+'</td>'
           +'<td>'+(bisaUbah?'<input class="inp jb-in" type="number" min="0" step="5" list="xj_hm_opts" value="'+(tpl.hminus!=null?tpl.hminus:'')+'" placeholder="H-" onchange="setExtraJob('+a+',\'hminus\',this.value)">':'<span class="papan-tl">'+(tpl.hminus!=null?'H-'+tpl.hminus:'—')+'</span>')+'</td>'
           +'<td>'+picSelectHTML(jobField(e,D,tpl,'pic'),'setExtraJob('+a+',&quot;pic&quot;,this.value)',bisaUbah)+'</td>'
           +'<td><input class="inp jb-in" type="date" value="'+esc(jobField(e,D,tpl,'deadline'))+'" '+(bisaUbah?'onchange="setExtraJob('+a+',\'deadline\',this.value)"':'disabled')+'></td>'
@@ -6109,7 +6161,7 @@ function taskBoard(e,cats,subFilter){
           // Nama job: yang dari template ikut template (diubah di Template Task
           // supaya berlaku untuk semua event); yang tambahan diketik di sini.
           +'<td>'+(tpl.extra&&bisaUbah
-              ? '<input class="inp jb-in" value="'+esc(tpl.task||'')+'" placeholder="Nama item…" onchange="setExtraJob('+a+',\'task\',this.value)">'
+              ? '<input class="inp jb-in" data-job="'+id+'" value="'+esc(tpl.task||'')+'" placeholder="Nama item…" onchange="setExtraJob('+a+',\'task\',this.value)">'
               : '<span class="papan-nama">'+esc(tpl.task||'(tanpa nama)')+'</span>'+tag)+'</td>'
           +'<td>'+(tpl.extra&&bisaUbah
               ? '<input class="inp jb-in" type="number" min="0" step="5" list="xj_hm_opts" value="'+(tpl.hminus!=null?tpl.hminus:'')+'" placeholder="H-" onchange="setExtraJob('+a+',\'hminus\',this.value)">'
@@ -6983,13 +7035,18 @@ function renderApprovals(V){
   const bisaPen=bisaPutusPenawaran(), bisaNego=can('approve');
   let semua=approvalRows();
   const nAntri=semua.filter(r=>r.antri).length;
+  const nLama=semua.filter(r=>r.kind==='nego').length;
   let h=pageHead('Modul I','Approval Flow',
-    'Meja putusan manajemen dalam satu daftar: Surat Penawaran yang harus disetujui sebelum dikirim ke klien, dan negosiasi harga di luar standar. Besarnya nilai event tidak lagi memicu approval.','');
-  h+='<div class="grid g-3" style="margin-bottom:16px">'
+    'Meja putusan manajemen. <b>Satu approval saja:</b> Surat Penawaran disetujui di sini sebelum dikirim ke klien — yaitu sebelum negosiasi dimulai. Besarnya nilai event maupun besarnya diskon tidak lagi memicu approval tersendiri.','');
+  h+='<div class="grid g-'+(nLama?'3':'2')+'" style="margin-bottom:16px">'
    +stat('Menunggu Keputusan',nAntri,nAntri?'perlu ditindak':'semua sudah diputuskan','approve')
    +stat('Surat Penawaran',semua.filter(r=>r.kind==='pen').length,'diajukan ke manajemen','brief')
-   +stat('Negosiasi Harga',semua.filter(r=>r.kind==='nego').length,'diskon ≥'+S.settings.discountThreshold+'% dari standar','money')
+   // Kartu ini hanya muncul kalau memang masih ada sisanya — begitu habis
+   // diputuskan, jejak aturan lama ikut hilang dari halaman dengan sendirinya.
+   +(nLama?stat('Sisa Aturan Lama',nLama,'antrian negosiasi, tidak dibuat lagi','money'):'')
    +'</div>';
+  if(nLama) h+='<div class="tbl-note" style="margin:-4px 0 14px">'+svg(IC.alert)
+    +'<span>Baris berjenis <em>Negosiasi Harga</em> berasal dari aturan lama (diskon di atas ambang otomatis masuk antrian). Aturan itu sudah dihapus dan <b>tidak ada baris baru yang dibuat</b> — sisanya tetap ditampilkan supaya bisa diputuskan sampai habis, bukan hilang diam-diam.</span></div>';
 
   const saring=[['','Semua perkara'],['antri','Menunggu keputusan'],['putus','Sudah diputuskan']];
   h+='<div class="card pad0"><div style="padding:14px 16px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
@@ -7005,8 +7062,8 @@ function renderApprovals(V){
   if(!semua.length){
     h+='<div style="padding:8px 20px 20px">'+empty(
       apprFilter==='antri'?'Tidak ada yang menunggu':'Belum ada perkara',
-      apprFilter==='antri'?'Semua Surat Penawaran & negosiasi harga sudah diputuskan. ⚓'
-        :'Perkara masuk ke sini saat Marketing mengajukan Surat Penawaran, atau saat sebuah event memakai diskon negosiasi ≥'+S.settings.discountThreshold+'%.','approve')+'</div>';
+      apprFilter==='antri'?'Semua Surat Penawaran sudah diputuskan. ⚓'
+        :'Perkara masuk ke sini saat Marketing mengajukan Surat Penawaran lewat kartu Penawaran di detail event.','approve')+'</div>';
     V.innerHTML=h+'</div>'; return;
   }
   const p=tblPage(tblUrut(semua,'approval',KOL_APPROVAL),'approval',apprFilter);
@@ -7329,7 +7386,7 @@ function remindWA(eid,div,taskId){
   const pic=jobField(e,div,t,'pic');
   if(!pic) return toast('Belum ada PIC','Assign PIC dulu di item ini sebelum kirim reminder.','err');
   const hp=staffHp(pic);
-  if(!hp) return toast('Nomor PIC belum ada','No. HP "'+pic+'" masih kosong. Isi di halaman Pegawai & Akses, atau lengkapi No. HP-nya di Office lalu tekan Sinkron Sekarang.','err');
+  if(!hp) return toast('Nomor PIC belum ada','No. HP "'+pic+'" masih kosong. Isi di halaman Pegawai & Akses, atau lengkapi No. HP-nya di Office — daftar pegawai ikut tersegarkan sendiri saat modul dibuka.','err');
   const dl=jobField(e,div,t,'deadline');
   const kapan=dl?('Deadline: '+fmtDate(dl)):(t.hminus!=null?('Deadline: H-'+t.hminus):'Deadline: secepatnya');
   const area=(e.detail&&(e.detail.area==='Lainnya'?e.detail.areaLain:e.detail.area))||'';
@@ -7434,13 +7491,36 @@ function menuDbTotal(){
    MENU KALKULATOR — scratchpad harga jual & diskon
    ------------------------------------------------------------
    Bukan quotation resmi (itu di Event Brief). Ini alat cepat: pilih menu dari
-   Database Menu, isi qty per pax & jumlah pax, lihat harga jual per pax; lalu
-   masukkan harga deal customer per pax → diskonnya berapa persen.
+   Database Menu, isi JUMLAH PORSI tiap menu & jumlah pax, lihat harga jual per
+   pax; lalu masukkan harga deal customer per pax → diskonnya berapa persen.
+
+   YANG DIINPUT ADALAH PORSI (pcs), BUKAN "qty per pax".
+   Ini menjawab kasus nyata "100 pax tapi menunya cuma 80 pcs". Dengan model
+   lama orang harus mengetik 0,8 — angka yang tidak pernah muncul di mana pun:
+   tidak di pesanan dapur, tidak di nota. Salah ketik 0,8 jadi 8 pun tidak
+   kelihatan salah. Sekarang yang diketik persis angka yang dipesan (80), dan
+   rasio per pax ditampilkan sebagai TURUNAN di bawah kotaknya — berguna untuk
+   membandingkan kepadatan porsi antar menu, tapi tidak perlu dihitung sendiri.
+
+   Rumusnya jadi lurus:
+     subtotal baris = harga satuan × porsi
+     harga jual/pax = total seluruh baris ÷ jumlah pax
+   Menu yang porsinya tidak sama dengan jumlah pax (80 dari 100) otomatis
+   terhitung benar, tanpa perlakuan khusus.
 
    TIDAK disimpan ke server — murni hitung-hitungan di layar. Sengaja: harga
    coret-coret negosiasi tidak perlu jadi data kantor, dan tanpa persistensi
    tidak ada yang bisa rusak. State-nya transient di KALK. */
-var KALK={ rows:[{ref:'',qty:1}], pax:100, deal:null };
+var KALK={ rows:[{ref:'',pcs:100}], pax:100, deal:null };
+/* Baris lama memakai {qty} = porsi per pax. Diubah sekali ke {pcs} supaya tidak
+   ada dua bentuk yang harus diingat tiap pembaca. */
+function kalkNormalRows(){
+  var pax=+KALK.pax||0;
+  KALK.rows.forEach(function(r){
+    if(r.pcs===undefined){ r.pcs=Math.max(0,Math.round((+r.qty||0)*(pax||1))); }
+    delete r.qty;
+  });
+}
 function kalkMenuAll(){
   var out=[];
   menuDbJenis().forEach(function(j){ mdbItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); }); });
@@ -7463,21 +7543,24 @@ function renderKalkulator(V){
   h+='<div class="card" style="margin-bottom:16px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">'
     +'<div class="field" style="margin:0;max-width:160px"><label>Jumlah Pax</label>'
       +'<input class="inp" type="number" min="1" id="kalk_pax" value="'+(+KALK.pax||0)+'" oninput="kalkSet(\'pax\',this.value)"></div>'
-    +'<div class="cell-sub" style="padding-bottom:8px">Harga menu diambil dari <b>Database Menu</b>. Ubah menu/qty di tabel bawah.</div>'
+    +'<div class="cell-sub" style="padding-bottom:8px">Harga menu diambil dari <b>Database Menu</b>. '
+      +'Kolom <b>Porsi</b> diisi jumlah yang benar-benar dipesan — kalau 100 pax tapi menunya cuma 80 pcs, tulis <b>80</b>. '
+      +'Rasio per pax dihitung sendiri.</div>'
     +'</div>';
 
   h+='<div class="card pad0" style="margin-bottom:16px"><div class="tbl-wrap"><table class="tbl kalk-tbl"><thead><tr>'
-    +'<th style="width:34px">#</th><th>Menu</th><th style="width:90px">Qty/Pax</th>'
-    +'<th style="width:130px" class="r">Harga Jual</th><th style="width:150px" class="r">Subtotal</th><th style="width:34px"></th>'
+    +'<th style="width:34px">#</th><th>Menu</th><th style="width:132px">Porsi (pcs)</th>'
+    +'<th style="width:130px" class="r">Harga Satuan</th><th style="width:150px" class="r">Subtotal</th><th style="width:34px"></th>'
     +'</tr></thead><tbody id="kalk_body">'+kalkRowsHTML(opts)+'</tbody></table></div>'
     +'<div style="padding:12px"><button class="btn sm" onclick="kalkTambahRow()">'+svg(IC.plus)+'Tambah menu</button></div></div>';
 
   h+='<div class="grid g-2" style="gap:16px;align-items:start">'
     +'<div class="card"><h4 style="font-size:14px;margin-bottom:12px">Hasil Hitung</h4>'
       +'<dl class="kv-list">'
-      +'<dt>Subtotal menu</dt><dd class="mono" id="kalk_sub">—</dd>'
+      +'<dt>Total porsi</dt><dd class="mono" id="kalk_pcs">—</dd>'
+      +'<dt>Total biaya menu</dt><dd class="mono" id="kalk_sub">—</dd>'
       +'<dt>Harga jual / pax</dt><dd class="mono" id="kalk_perpax" style="font-weight:700">—</dd>'
-      +'</dl></div>'
+      +'</dl><div class="fh" style="margin-top:8px">Harga jual / pax = total biaya menu ÷ jumlah pax. Menu yang porsinya kurang dari jumlah pax tetap terhitung apa adanya.</div></div>'
     +'<div class="card"><h4 style="font-size:14px;margin-bottom:12px">Harga Deal Customer</h4>'
       +'<div class="field"><label>Harga deal / pax (Rp)</label>'
         +'<input class="inp" type="text" inputmode="numeric" id="kalk_deal" placeholder="mis. 45.000" '
@@ -7492,17 +7575,30 @@ function renderKalkulator(V){
   kalkHitung();
 }
 function kalkRowsHTML(opts){
+  kalkNormalRows();
   return KALK.rows.map(function(r,i){
     return '<tr>'
       +'<td class="mono">'+(i+1)+'</td>'
       +'<td><select class="inp kalk-sel" onchange="kalkSetRow('+i+',\'ref\',this.value)">'
         +opts.replace('value="'+esc(r.ref)+'"','value="'+esc(r.ref)+'" selected')+'</select></td>'
-      +'<td><input class="inp" type="number" min="0" step="0.5" value="'+(r.qty)+'" oninput="kalkSetRow('+i+',\'qty\',this.value)"></td>'
+      /* Tombol "= pax" menyamakan porsi dengan jumlah pax dalam satu klik —
+         kasus paling sering (semua tamu kebagian satu). Eksplisit, bukan diam-
+         diam mengikuti pax: porsi yang sengaja dibuat beda (80 dari 100) tidak
+         boleh berubah sendiri saat jumlah pax dikoreksi. */
+      +'<td><div style="display:flex;align-items:center;gap:5px">'
+        +'<input class="inp" type="number" min="0" step="1" style="min-width:0" value="'+(+r.pcs||0)+'" oninput="kalkSetRow('+i+',\'pcs\',this.value)">'
+        +'<button class="btn sm" style="flex:none;padding:5px 7px" title="Samakan dengan jumlah pax" onclick="kalkSamakanPax('+i+')">=pax</button>'
+        +'</div><div class="cell-sub kalk-perpax-baris">—</div></td>'
       +'<td class="r mono kalk-harga">—</td>'
       +'<td class="r mono kalk-rowsub">—</td>'
       +'<td><button class="btn sm" title="Hapus baris" onclick="kalkHapusRow('+i+')">&times;</button></td>'
       +'</tr>';
   }).join('');
+}
+function kalkSamakanPax(i){
+  if(!KALK.rows[i]) return;
+  KALK.rows[i].pcs=Math.max(0,Math.round(+KALK.pax||0));
+  renderKalkulator($('view'));
 }
 function kalkHargaRef(ref){
   if(!ref) return null;
@@ -7517,29 +7613,49 @@ function kalkSet(k,v){
 }
 function kalkSetRow(i,k,v){
   if(!KALK.rows[i]) return;
-  if(k==='qty') KALK.rows[i].qty=Math.max(0,+v||0);
+  if(k==='pcs') KALK.rows[i].pcs=Math.max(0,Math.round(+v||0));
   else KALK.rows[i][k]=v;
   kalkHitung();
 }
-function kalkTambahRow(){ KALK.rows.push({ref:'',qty:1}); renderKalkulator($('view')); }
-function kalkHapusRow(i){ KALK.rows.splice(i,1); if(!KALK.rows.length) KALK.rows.push({ref:'',qty:1}); renderKalkulator($('view')); }
+// Baris baru bawaannya sebanyak pax — asumsi paling umum, dan tinggal diubah.
+function kalkBarisBaru(){ return {ref:'',pcs:Math.max(0,Math.round(+KALK.pax||0))}; }
+function kalkTambahRow(){ KALK.rows.push(kalkBarisBaru()); renderKalkulator($('view')); }
+function kalkHapusRow(i){ KALK.rows.splice(i,1); if(!KALK.rows.length) KALK.rows.push(kalkBarisBaru()); renderKalkulator($('view')); }
 /* Hitung ulang TANPA menggambar ulang halaman — hanya menulis ke sel hasil,
    jadi kotak yang sedang diketik (deal, qty) tidak kehilangan fokus. */
 function kalkHitung(){
-  var pax=+KALK.pax||0, perPax=0, adaHargaKosong=false;
+  kalkNormalRows();
+  var pax=+KALK.pax||0, sub=0, adaHargaKosong=false;
   var body=$('kalk_body'); if(!body) return;
   var tr=body.querySelectorAll('tr');
   KALK.rows.forEach(function(r,i){
     var harga=kalkHargaRef(r.ref);
-    var baris=harga==null?0:harga*(+r.qty||0);
+    var pcs=+r.pcs||0;
+    var baris=harga==null?0:harga*pcs;          // subtotal = harga satuan × porsi
     if(r.ref && harga==null) adaHargaKosong=true;
-    if(harga!=null) perPax+=baris;
+    if(harga!=null) sub+=baris;
     var row=tr[i]; if(!row) return;
     row.querySelector('.kalk-harga').textContent = harga==null?'—':rp(harga);
-    row.querySelector('.kalk-rowsub').textContent = (harga==null||!r.ref)?'—':rp(baris*pax);
+    row.querySelector('.kalk-rowsub').textContent = (harga==null||!r.ref)?'—':rp(baris);
+    /* Rasio per pax: turunan, ditampilkan supaya porsi antar menu bisa
+       dibandingkan ("yang ini cuma 0,8 per orang"). Tidak pernah diketik. */
+    var rs=row.querySelector('.kalk-perpax-baris');
+    if(rs){
+      if(!pax||!pcs) rs.textContent='—';
+      else{
+        var per=pcs/pax;
+        rs.textContent='= '+(per%1?per.toFixed(2).replace('.',','):per)+' porsi / pax'
+          +(pcs<pax?'  ·  '+(pax-pcs)+' pax tidak kebagian':'');
+      }
+    }
   });
-  var sub=perPax*pax;
+  /* Harga jual per pax = total seluruh menu dibagi jumlah tamu. DIBULATKAN:
+     pembagian hampir selalu menyisakan pecahan (Rp 1.234.567 ÷ 100), dan harga
+     per pax berkoma bukan angka yang dipakai siapa pun saat menawar. */
+  var perPax = pax ? Math.round(sub/pax) : 0;
   var set=function(id,v){ var el=$(id); if(el) el.textContent=v; };
+  var totalPcs=KALK.rows.reduce(function(a,r){ return a+(r.ref?(+r.pcs||0):0); },0);
+  set('kalk_pcs', totalPcs.toLocaleString('id-ID')+' pcs');
   set('kalk_sub', rp(sub)+(adaHargaKosong?'  ⚠':''));
   set('kalk_perpax', rp(perPax)+' / pax');
   // diskon dari harga deal
@@ -7615,9 +7731,9 @@ function renderMenuDb(V){
           +'<td class="mdb-nama">'+esc(m.n)+'</td>'
           +'<td class="mdb-harga num'+(m.h==null?' mdb-harga-kosong':'')+'">'
             +(bisaUbah
-              ? '<span class="cell-sub" style="margin:0">Rp</span> '
+              ? '<span class="mdb-harga-baris"><span class="mdb-harga-rp">Rp</span>'
                 +'<input class="mdb-hin num" inputmode="numeric" value="'+(m.h==null?'':esc(poRibuan(m.h)))+'" placeholder="—" '
-                +'title="Harga jual per porsi" onchange="menuDbSetHarga(\''+jj+'\',\''+escJs(m.n)+'\',this.value)">'
+                +'title="Harga jual per porsi" onchange="menuDbSetHarga(\''+jj+'\',\''+escJs(m.n)+'\',this.value)"></span>'
               : mdbHargaTeks(m.h))
           +'</td>'
           +(bisaUbah?'<td class="mdb-aksi"><button type="button" title="Hapus menu ini" onclick="menuDbHapusMenu(\''+jj+'\',\''+escJs(m.n)+'\')">&times;</button></td>':'')
@@ -7872,7 +7988,7 @@ function menuDbSetHarga(j,m,val){
 
    Sekarang: SATU daftar (S.users), disegarkan otomatis dari database user
    Office tiap modul dibuka. Tidak ada lagi tombol tarik; yang tersisa hanya
-   "Sinkron Sekarang" untuk yang tidak sabar menunggu buka ulang.
+   sinkronisasi otomatis: tidak ada lagi tombol yang harus ditekan.
 
    Dua tingkat izin masih dipisah di dalam satu halaman ini:
      can('edit_staff')   -> merapikan Divisi / Jabatan / No. HP
@@ -7887,11 +8003,49 @@ const KOL_PEGAWAI=[
   {k:'status',  t:'Status',  v:u=>u.active===false?'Nonaktif':'Aktif'},
   {t:'Aksi'}
 ];
+/* Pita status sinkronisasi. Menggantikan tombol "Sinkron Sekarang": yang
+   sebenarnya ingin diketahui orang bukan "bisakah saya menekan tombol", tapi
+   "apakah daftar ini sudah yang terbaru". Itu yang ditampilkan di sini —
+   termasuk saat GAGAL, yang dulu hanya lewat diam-diam di console. */
+function rosterSyncHTML(){
+  const jam=rosterSync.at?rosterSync.at.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):'';
+  if(rosterSync.status==='jalan')
+    return '<div class="tbl-note" style="margin:0 0 14px">'+svg(IC.down)
+      +'<span>Menyinkronkan daftar pegawai dari Office…</span></div>';
+  if(rosterSync.status==='gagal')
+    return '<div class="tbl-note" style="margin:0 0 14px;border-color:var(--danger);background:var(--danger-bg)">'+svg(IC.alert)
+      +'<span><b>Office tidak bisa dihubungi'+(jam?' ('+jam+')':'')+'.</b> Daftar di bawah adalah data terakhir yang tersimpan, bukan yang terbaru. '
+      +'Sinkronisasi dicoba lagi otomatis saat halaman ini dibuka ulang.'+(rosterSync.pesan?' <em>'+esc(rosterSync.pesan)+'</em>':'')+'</span></div>';
+  return '<div class="tbl-note" style="margin:0 0 14px">'+svg(IC.check)
+    +'<span>Tersinkron otomatis dari database user Office'+(jam?' pukul <b>'+jam+'</b>':'')+''
+    +(rosterSync.baru||rosterSync.ubah?' — '+rosterSync.baru+' pegawai baru, '+rosterSync.ubah+' diperbarui.':' — tidak ada perubahan.')
+    +(rosterSync.pesan?' '+esc(rosterSync.pesan):'')+'</span></div>';
+}
+/* Menggambar ulang halaman Pegawai & Akses HANYA kalau ia yang sedang terbuka.
+   Sinkronisasi jalan di latar belakang dan selesainya tidak bisa ditebak —
+   tanpa penjaga ini, ia akan melempar orang yang sedang mengisi form di
+   halaman lain kembali ke daftar pegawai. */
+function segarkanStaff(){
+  if(typeof ME==='undefined' || !ME) return;
+  if((location.hash||'').slice(1).split('/')[0]!=='staff') return;
+  go('staff');
+}
+// Sinkron dianggap basi setelah 5 menit; halaman ini memicunya lagi diam-diam.
+const ROSTER_BASI_MS=5*60*1000;
 function renderStaff(V){
   const canEdit=can('edit_staff'), canMU=can('manage_users');
+  /* TIDAK ADA TOMBOL SINKRON. Daftar pegawai bukan sesuatu yang perlu diminta:
+     ia disegarkan sendiri tiap modul dibuka. Halaman ini ikut memicunya lagi
+     bila yang terakhir gagal (mis. tadi offline) atau sudah basi — supaya
+     tidak ada keadaan "datanya salah dan tidak ada cara memperbaikinya
+     selain memuat ulang seluruh modul". */
+  if(rosterSync.status!=='jalan'){
+    const usia=rosterSync.at?(Date.now()-rosterSync.at.getTime()):Infinity;
+    if(rosterSync.status==='gagal' || usia>ROSTER_BASI_MS) autoSyncOfficeRoster();
+  }
   let h=pageHead('Sistem','Pegawai & Akses',
-    'Satu daftar untuk semua orang: identitas pegawai <b>otomatis mengikuti database user Office</b>, dan di sini pula role & hak aksesnya diatur. Daftar ini jadi sumber pilihan PIC di Matriks PIC Hari-H, Template Task &amp; papan to-do.',
-    '<button class="btn" onclick="autoSyncOfficeRoster(false)">'+svg(IC.down)+'Sinkron Sekarang</button>');
+    'Satu daftar untuk semua orang: identitas pegawai <b>otomatis mengikuti database user Office</b>, dan di sini pula role & hak aksesnya diatur. Daftar ini jadi sumber pilihan PIC di Matriks PIC Hari-H, Template Task &amp; papan to-do.','');
+  h+=rosterSyncHTML();
   const list=(S.users||[]).filter(u=>u&&u.name);
   h+='<div class="grid g-4" style="margin-bottom:16px">'
    +stat('Total Pegawai',list.length,'dari database user Office','crm')
@@ -7901,7 +8055,7 @@ function renderStaff(V){
    +'</div>';
   if(!list.length){
     h+='<div class="card pad0"><div style="padding:8px 20px 20px">'
-      +empty('Belum ada pegawai','Daftar ini datang langsung dari database user Office. Tekan "Sinkron Sekarang" — kalau tetap kosong, berarti Office belum bisa dihubungi.','crm')
+      +empty('Belum ada pegawai','Daftar ini datang langsung dari database user Office dan tersegarkan sendiri. Kalau tetap kosong, berarti Office belum bisa dihubungi — lihat pita status di atas.','crm')
       +'</div></div>';
     V.innerHTML=h; return;
   }
@@ -7920,7 +8074,7 @@ function renderStaff(V){
      +'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(p,'pegawai')+'</div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Nama, <em>No. HP</em>, dan status aktif <b>selalu mengikuti Office</b> — perbaiki di sana, lalu tekan Sinkron Sekarang. <em>Divisi</em> ditebak dari kolom <em>Keterangan</em> Office (Office tidak punya kolom divisi sendiri) dan hanya diisi kalau masih kosong; kalau tebakannya meleset, ubah lewat tombol edit dan sinkronisasi berikutnya tidak akan menimpanya. Role disinkronkan dari sesi Office tiap user login — admin modul Office jadi Super Admin; role yang tidak dikenali dipertahankan, bukan diturunkan diam-diam.</span></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Nama, <em>No. HP</em>, dan status aktif <b>selalu mengikuti Office</b> — perbaiki di sana, perubahannya ikut terbawa saat modul dibuka berikutnya. <em>Divisi</em> ditebak dari kolom <em>Keterangan</em> Office (Office tidak punya kolom divisi sendiri) dan hanya diisi kalau masih kosong; kalau tebakannya meleset, ubah lewat tombol edit dan sinkronisasi berikutnya tidak akan menimpanya. Role disinkronkan dari sesi Office tiap user login — admin modul Office jadi Super Admin; role yang tidak dikenali dipertahankan, bukan diturunkan diam-diam.</span></div>';
   h+=accessMatrix(canMU);
   V.innerHTML=h;
 }
@@ -8100,7 +8254,6 @@ function renderSettings(V){
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
    +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
-   +setRow('Ambang Diskon Approval (%)',num('set_disc',st.discountThreshold),'Diskon / penyesuaian harga ≥ persen ini otomatis masuk Approval Flow. <b>Hanya negosiasi harga yang butuh approval</b> — besarnya nilai event tidak lagi memicu approval.')
    +setRow('Baseline Revenue Harian (Rp)',num('set_baseline',(S.baseline||0),' placeholder="0"'),'Rata-rata omzet venue pada hari <em>tanpa</em> event. Dipakai menghitung Uplift di Reporting. Isi 0 bila belum ada angkanya — Uplift tidak ditampilkan.')
    +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
    +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
@@ -8123,7 +8276,10 @@ function renderSettings(V){
 }
 function saveSettings(){
   const g=(k,f)=>f?parseFloat($('set_'+k).value):$('set_'+k).value;
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,discountThreshold:+$('set_disc').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
+  // discountThreshold DIBUANG bersama approval berbasis ambang diskon. Kotaknya
+  // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
+  // seluruh Simpan Pengaturan gagal tanpa pesan.
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
   S.baseline=+$('set_baseline').value||0;
   save(); toast('Tersimpan','Pengaturan diperbarui.','ok');
 }
@@ -8184,7 +8340,7 @@ async function boot(){
     localStorage.setItem('lm_me', u.id);
     $('login').style.display='none'; $('app').classList.add('on');
     buildNav(); updateTopUser(); bootRoute();
-    autoSyncOfficeRoster(true); // diam-diam & tanpa await: render dulu, sync roster jalan di belakang
+    autoSyncOfficeRoster(); // tanpa await: render dulu, sync roster jalan di belakang
   }
 }
 </script>
