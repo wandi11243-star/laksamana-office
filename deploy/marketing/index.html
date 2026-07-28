@@ -1607,7 +1607,30 @@ const DAYS_F=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
 function fmtDate(d){ if(!d)return '—'; const x=new Date(d+'T00:00:00');
   return DAYS[x.getDay()]+', '+x.getDate()+' '+MONTHS[x.getMonth()]+' '+x.getFullYear(); }
 function fmtDateLong(d){ if(!d)return '—'; const x=new Date(d+'T00:00:00'); return DAYS_F[x.getDay()]+', '+x.getDate()+' '+MONTHS_F[x.getMonth()]+' '+x.getFullYear(); }
-function today(){ return new Date().toISOString().slice(0,10); }
+/* Tanggal (YYYY-MM-DD) menurut JAM DINDING SETEMPAT, bukan UTC.
+   ------------------------------------------------------------------
+   Dulu today() memakai `new Date().toISOString().slice(0,10)`. toISOString
+   selalu mengembalikan UTC, dan Indonesia UTC+7 — jadi setiap hari antara
+   00:00 dan 07:00 WIB aplikasi mengira hari ini masih KEMARIN.
+
+   Akibatnya nyata dan sudah terjadi: event yang dibuat pagi buta memakai
+   tanggal bawaan form (= today() = kemarin), lalu begitu modul dibuka lagi
+   selepas pukul 07:00 WIB, today() maju sehari dan autoCloseEvents membaca
+   event itu sebagai "tanggalnya sudah lewat" — event yang baru saja
+   dikonfirmasi Deal berubah sendiri jadi Event Done, di hari yang sama.
+
+   Selain itu ia menggeser: hitungan H-, "Event Hari Ini" di Dashboard,
+   follow up jatuh tempo, dan invoice overdue.
+
+   Dipakai lewat satu tempat ini supaya tidak ada lagi yang menghitung sendiri
+   dengan toISOString. */
+function tglLokal(d){
+  d=d||new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function today(){ return tglLokal(); }
+/* Kedua sisi berupa 'YYYY-MM-DD' yang di-parse sebagai tengah malam UTC, jadi
+   selisihnya tepat kelipatan hari dan tidak terpengaruh pergeseran musim. */
 function daysBetween(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
 function daysTo(d){ return daysBetween(today(),d); }
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -2276,13 +2299,25 @@ function baselineDaily(){
 /* ============================================================
    OTOMASI
    ============================================================ */
-// Event yang sudah Deal & tanggalnya lewat -> Event Done (dijalankan saat boot)
+/* Event yang sudah Deal & tanggalnya benar-benar lewat -> Event Done.
+   Dijalankan sekali saat boot.
+
+   TENGGANG SATU HARI (bukan langsung H+1). Dulu syaratnya `daysTo < 0`, jadi
+   sebuah event ditutup tepat lewat tengah malam — padahal di venue ini acara
+   rutin baru bubar setelah tengah malam, dan tim masih menuntaskan checklist
+   keesokan harinya. Menutupnya saat itu berarti mengunci event yang secara
+   nyata masih berjalan.
+
+   Angkanya diselaraskan dengan handoverEvents(), yang memang masih menampilkan
+   event sampai H+2 di papan Task Divisi. Sebelum ini keduanya berselisih:
+   papan masih menganggapnya aktif sementara statusnya sudah Event Done. */
+const TENGGANG_TUTUP_HARI = 2;   // ditutup mulai H+2
 function autoCloseEvents(){
   let n=0;
   S.events.forEach(e=>{
-    if(['Deal','Confirmed'].includes(e.status) && e.tanggal && daysTo(e.tanggal)<0){
+    if(['Deal','Confirmed'].includes(e.status) && e.tanggal && daysTo(e.tanggal) <= -TENGGANG_TUTUP_HARI){
       e.status='Event Done'; e.pipeCol='Deal';
-      logAct('event',e.id,'Status → Event Done','otomatis: tanggal event sudah lewat');
+      logAct('event',e.id,'Status → Event Done','otomatis: tanggal event sudah lewat lebih dari sehari');
       n++;
     }
   });
@@ -2311,7 +2346,7 @@ function lastFUDate(ev){
 function daysSinceFU(ev){ const d=lastFUDate(ev); return d?Math.max(0,daysBetween(d,today())):0; }
 function isStale(ev){ return isOpenEvent(ev) && daysSinceFU(ev) >= (+S.settings.staleDays||7); }
 // Tanggal default untuk follow up berikutnya
-function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fuNextDays||3)); return d.toISOString().slice(0,10); }
+function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fuNextDays||3)); return tglLokal(d); }
 
 /* ============================================================
    SEED DATA
@@ -2641,7 +2676,10 @@ function tugasJatuhTempo(e,div,tpl){
   if(dl) return dl;
   if(tpl.hminus!=null && e.tanggal){
     const d=new Date(e.tanggal+'T00:00:00');
-    if(!isNaN(d.getTime())){ d.setDate(d.getDate()-Math.max(0,+tpl.hminus||0)); return d.toISOString().slice(0,10); }
+    /* tglLokal, BUKAN toISOString: `new Date('2026-08-05T00:00:00')` itu tengah
+       malam SETEMPAT, dan di UTC+7 toISOString-nya mundur ke tanggal
+       sebelumnya — H-3 akan tercetak sehari lebih awal dari seharusnya. */
+    if(!isNaN(d.getTime())){ d.setDate(d.getDate()-Math.max(0,+tpl.hminus||0)); return tglLokal(d); }
   }
   return e.tanggal||'';
 }
@@ -5024,7 +5062,7 @@ function buatPenawaran(id){
   if(st && !['Draft','Ditolak'].includes(st))return toast('Terkunci','Penawaran hanya bisa diubah saat Draft atau setelah ditolak.','err');
   const p=ev.penawaran||{};
   const no=p.noSurat||noSuratBaru();
-  const vu=p.validUntil||new Date(Date.now()+14*864e5).toISOString().slice(0,10);
+  const vu=p.validUntil||tglLokal(new Date(Date.now()+14*864e5));
   const f=p.file;
   modal('<div class="modal-head"><div><h3>'+(st?'Ubah':'Buat')+' Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
