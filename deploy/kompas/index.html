@@ -1112,6 +1112,39 @@ function kartuCompliment(rows, pakaiKolomPic){
   </div>`;
 }
 
+/* ---- Pembagian omset event Non-Ticketing (keputusan 28 Juli 2026) ----
+   Event TICKETING: seluruh omsetnya diakui untuk PIC-nya.
+   Event NON-TICKETING: hanya SEPARUH yang diakui untuk PIC (marketing atau
+   event, tergantung siapa yang memegang event itu). Separuh sisanya milik
+   kasir dan dibagi rata ke kasir yang MASUK hari itu — tamunya memang datang
+   karena event, tapi yang melayani belanjanya kasir.
+
+   Ini lapisan PENILAIAN, bukan data. Angka di halaman Breakdown tidak diubah
+   sedikit pun, jadi validasi "total alokasi = omset net harian" tetap berlaku
+   apa adanya. Yang berubah hanya cara Performa, Ranking, dan Analytics
+   membaca angka yang sama.
+
+   Semua halaman WAJIB lewat dua fungsi ini. Sempat ada empat tempat berbeda
+   yang menjumlahkan r.amount sendiri-sendiri; kalau salah satu terlewat,
+   realisasi orang yang sama beda antara Performa dan Ranking. */
+const PORSI_PIC_NON_TIKET=0.5;
+function porsiPic(r){
+  const a=num(r.amount);
+  return r.tiket ? a : Math.round(a*PORSI_PIC_NON_TIKET);
+}
+/* Jatah kasir dari sisa non-ticketing satu hari, sudah dibagi rata.
+   Kasir OFF tidak kebagian. Kalau hari itu tidak ada kasir yang masuk sama
+   sekali, sisanya dibiarkan hangus — menumpuknya ke orang yang libur jelas
+   salah, dan menyimpannya entah ke mana hanya bikin angka tidak bisa
+   ditelusuri. */
+function jatahKasirNonTiket(d){
+  const rows=[...(d.bd?.marketing||[]),...(d.bd?.event||[])];
+  const sisa=rows.reduce((s,r)=>s+(num(r.amount)-porsiPic(r)),0);
+  const masuk=(d.bd?.kasir||[]).filter(r=>!r.off);
+  if(sisa<=0||!masuk.length) return {per:0,ids:[],sisa:Math.max(sisa,0)};
+  return {per:Math.round(sisa/masuk.length),ids:masuk.map(r=>r.kasirId),sisa};
+}
+
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
 
@@ -1183,6 +1216,7 @@ function viewBreakdown(){
         return cs.length?`<div class="notice warn">🎁 Ada ${cs.length} compliment hari ini senilai <b>${fmtRp(cs.reduce((s,c)=>s+num(c.nominal),0))}</b> yang membebani PIC. Nominal ini <b>memotong realisasi</b> PIC bersangkutan di Performa &amp; Ranking — alokasi breakdown di bawah tidak perlu dikurangi sendiri.<br><span style="opacity:.85">${cs.map(c=>`${esc(c.picName)} ${fmtRp(num(c.nominal))}`).join(' · ')}</span></div>`:'';})()}
 
       <span class="divlabel mk">Section A — Marketing</span>
+      <div class="helper" style="margin-bottom:10px">Centang <b>Ticketing</b> kalau omsetnya dari penjualan tiket — diakui penuh untuk PIC. Tanpa centang, hanya <b>50%</b> yang masuk realisasi PIC; sisanya jadi bagi hasil untuk kasir yang masuk hari itu. Angka alokasi di bawah tidak perlu diubah.</div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
@@ -1372,15 +1406,19 @@ function viewAnalytics(){
   const byMk={},byEv={},byKs={};
   days.forEach(d=>{
     comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Lainnya+=num(d.lainnya);
-    (d.bd?.marketing||[]).forEach(r=>{src.Marketing+=num(r.amount);byMk[r.picId]=(byMk[r.picId]||0)+num(r.amount);});
-    (d.bd?.event||[]).forEach(r=>{src.Event+=num(r.amount);byEv[r.picId]=(byEv[r.picId]||0)+num(r.amount);});
-    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){src['Walk In']+=num(r.amount);byKs[r.kasirId]=(byKs[r.kasirId]||0)+num(r.amount);}});
+    /* Memakai aturan yang sama dengan Performa & Ranking: separuh omset event
+       non-ticketing dihitung sebagai kontribusi kasir, bukan PIC event-nya.
+       Totalnya tidak berubah — hanya pindah kategori. */
+    const j=jatahKasirNonTiket(d);
+    (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r);src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
+    (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
+    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=num(r.amount)+(j.ids.indexOf(r.kasirId)>-1?j.per:0);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;}});
   });
   const hasBd=src.Marketing+src.Event+src['Walk In']>0;
   el.innerHTML=`
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
-      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir)</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · separuh event non-ticketing dihitung ke kasir</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
       <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
@@ -1453,9 +1491,10 @@ function labelPeriode(mk){
    node yang ikut tercetak di percetakan berikutnya. */
 function cetakAchievement(divi,e,a,ach){
   const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>
-    `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td>${ev.tiket?'Ticketing':'Non-Ticketing'}</td><td class="num">${fmtRp(ev.amount)}</td></tr>`).join('');
-  const realTk=a.events.filter(x=>x.tiket).reduce((s,x)=>s+x.amount,0);
-  const realNon=a.events.filter(x=>!x.tiket).reduce((s,x)=>s+x.amount,0);
+    `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td>${ev.tiket?'Ticketing':'Non-Ticketing'}</td><td class="num">${fmtRp(ev.amount)}</td><td class="num">${fmtRp(ev.porsi)}</td></tr>`).join('');
+  const evTk=a.events.filter(x=>x.tiket), evNon=a.events.filter(x=>!x.tiket);
+  const nilaiTk=evTk.reduce((s,x)=>s+x.amount,0), nilaiNon=evNon.reduce((s,x)=>s+x.amount,0);
+  const akuTk=evTk.reduce((s,x)=>s+x.porsi,0), akuNon=evNon.reduce((s,x)=>s+x.porsi,0);
   const cRows=(a.compRows||[]);
   const cTot=cRows.reduce((s,c)=>s+num(c.nominal),0);
   const sheet=document.getElementById('printSheet');
@@ -1476,18 +1515,18 @@ function cetakAchievement(divi,e,a,ach){
     ${a.comp?`<div style="font-size:11px;color:#555;margin-top:2px">Realisasi di atas sudah dipotong compliment sebesar ${fmtRp(a.comp)}.</div>`:''}
     <h2>Klasifikasi Omset Event</h2>
     <table>
-      <thead><tr><th>Jenis</th><th class="num" style="width:110px">Jumlah Event</th><th class="num" style="width:150px">Nominal</th></tr></thead>
+      <thead><tr><th>Jenis</th><th class="num" style="width:90px">Event</th><th class="num" style="width:130px">Nilai Event</th><th class="num" style="width:130px">Diakui</th></tr></thead>
       <tbody>
-        <tr><td>Ticketing</td><td class="num">${a.events.filter(x=>x.tiket).length}</td><td class="num">${fmtRp(realTk)}</td></tr>
-        <tr><td>Non-Ticketing</td><td class="num">${a.events.filter(x=>!x.tiket).length}</td><td class="num">${fmtRp(realNon)}</td></tr>
+        <tr><td>Ticketing <span style="color:#666">(100%)</span></td><td class="num">${evTk.length}</td><td class="num">${fmtRp(nilaiTk)}</td><td class="num">${fmtRp(akuTk)}</td></tr>
+        <tr><td>Non-Ticketing <span style="color:#666">(50%, sisanya ke kasir)</span></td><td class="num">${evNon.length}</td><td class="num">${fmtRp(nilaiNon)}</td><td class="num">${fmtRp(akuNon)}</td></tr>
       </tbody>
-      <tfoot><tr><td>TOTAL</td><td class="num">${a.events.length}</td><td class="num">${fmtRp(realTk+realNon)}</td></tr></tfoot>
+      <tfoot><tr><td>TOTAL</td><td class="num">${a.events.length}</td><td class="num">${fmtRp(nilaiTk+nilaiNon)}</td><td class="num">${fmtRp(akuTk+akuNon)}</td></tr></tfoot>
     </table>
     <h2>Rincian Event</h2>
     <table>
-      <thead><tr><th style="width:100px">Tanggal</th><th>Nama Event</th><th style="width:100px">Jenis</th><th class="num" style="width:130px">Nominal</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:#777">Belum ada event pada periode ini.</td></tr>'}</tbody>
-      <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${fmtRp(a.events.reduce((s,x)=>s+x.amount,0))}</td></tr></tfoot>
+      <thead><tr><th style="width:95px">Tanggal</th><th>Nama Event</th><th style="width:95px">Jenis</th><th class="num" style="width:120px">Nilai Event</th><th class="num" style="width:120px">Diakui</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" style="text-align:center;color:#777">Belum ada event pada periode ini.</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${fmtRp(nilaiTk+nilaiNon)}</td><td class="num">${fmtRp(akuTk+akuNon)}</td></tr></tfoot>
     </table>
     ${cRows.length?`
     <h2>Rincian Compliment (Potongan Realisasi)</h2>
@@ -1509,8 +1548,8 @@ function pesanAchievement(divi,e,a,ach){
     `Realisasi   : ${fmtRp(a.real)}`,
     `Achievement : ${ach.toFixed(0)}% (${a.real>=e.target?'ACHIEVE':'belum achieve'})`,
     `Jumlah event: ${a.events.length}`,
-    `  • Ticketing     : ${fmtRp(a.events.filter(x=>x.tiket).reduce((s,x)=>s+x.amount,0))} (${a.events.filter(x=>x.tiket).length} event)`,
-    `  • Non-Ticketing : ${fmtRp(a.events.filter(x=>!x.tiket).reduce((s,x)=>s+x.amount,0))} (${a.events.filter(x=>!x.tiket).length} event)`
+    `  • Ticketing     : ${fmtRp(a.events.filter(x=>x.tiket).reduce((s,x)=>s+x.porsi,0))} (${a.events.filter(x=>x.tiket).length} event, diakui penuh)`,
+    `  • Non-Ticketing : ${fmtRp(a.events.filter(x=>!x.tiket).reduce((s,x)=>s+x.porsi,0))} (${a.events.filter(x=>!x.tiket).length} event, diakui 50% — sisanya jadi bagi hasil kasir)`
   ];
   if(a.comp) baris.push(`Catatan     : realisasi sudah dipotong compliment ${fmtRp(a.comp)}`);
   if(a.real<e.target) baris.push(`Kurang      : ${fmtRp(e.target-a.real)} lagi untuk capai target`);
@@ -1523,7 +1562,14 @@ function viewPerforma(divi){
   const list=DB.employees[divi];
   const agg={};
   list.forEach(e=>agg[e.id]={real:0,events:[]});
-  days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{if(agg[r.picId]){agg[r.picId].real+=num(r.amount);agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),tiket:!!r.tiket});}});});
+  // Realisasi memakai porsiPic(), bukan r.amount mentah: non-ticketing hanya
+  // separuhnya yang jadi milik PIC. `amount` (penuh) tetap disimpan supaya
+  // tabelnya bisa menunjukkan nilai event yang sebenarnya.
+  days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{if(agg[r.picId]){
+    const p=porsiPic(r);
+    agg[r.picId].real+=p;
+    agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),porsi:p,tiket:!!r.tiket});
+  }});});
   // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
   // Barisnya ikut disimpan, bukan cuma totalnya, supaya bisa dirinci di bawah.
   list.forEach(e=>{
@@ -1559,11 +1605,12 @@ function viewPerforma(divi){
     const top=[...a.events].sort((x,y)=>y.amount-x.amount)[0];
     SEL={e,a,ach,semua:pid==='__all__'};
     aturTombolKirim();
-    /* Pemisahan ticketing vs non-ticketing. Realisasi & achievement tetap
-       memakai TOTAL keduanya — pemisahan ini baru soal tampilan. */
+    /* Ticketing diakui penuh, non-ticketing separuh. Yang dijumlahkan ke
+       realisasi adalah kolom "diakui" (porsi), bukan nilai event. */
     const evTk=a.events.filter(ev=>ev.tiket), evNon=a.events.filter(ev=>!ev.tiket);
-    const realTk=evTk.reduce((s,x)=>s+x.amount,0), realNon=evNon.reduce((s,x)=>s+x.amount,0);
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td>${ev.tiket?'<span class="chip info">Ticketing</span>':'<span class="chip mute">Non-Ticketing</span>'}</td><td class="num mono">${fmtRp(ev.amount)}</td></tr>`).join('');
+    const nilaiTk=evTk.reduce((s,x)=>s+x.amount,0), nilaiNon=evNon.reduce((s,x)=>s+x.amount,0);
+    const akuTk=evTk.reduce((s,x)=>s+x.porsi,0), akuNon=evNon.reduce((s,x)=>s+x.porsi,0);
+    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td>${ev.tiket?'<span class="chip info">Ticketing</span>':'<span class="chip mute">Non-Ticketing</span>'}</td><td class="num mono">${fmtRp(ev.amount)}</td><td class="num mono">${fmtRp(ev.porsi)}${ev.tiket?'':'<div class="muted" style="font-size:10.5px;font-weight:500">50%</div>'}</td></tr>`).join('');
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(e.target)}</div></div>
@@ -1573,12 +1620,12 @@ function viewPerforma(divi){
       </div>
       <div class="card"><div class="prog ${a.real>=e.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2">
-        <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(realTk)}</div><div class="foot">${evTk.length} event · ${pct(realTk,realTk+realNon).toFixed(0)}% dari omset event</div></div>
-        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(realNon)}</div><div class="foot">${evNon.length} event · ${pct(realNon,realTk+realNon).toFixed(0)}% dari omset event</div></div>
+        <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui penuh</div></div>
+        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui 50%, sisanya ke kasir</div></div>
       </div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
-        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event bulan ini</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th>Jenis</th><th class="num">Nominal</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada event.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event bulan ini · kolom <b>Diakui</b> yang masuk ke realisasi</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th>Jenis</th><th class="num">Nilai Event</th><th class="num">Diakui</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">Belum ada event.</td></tr>'}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], pid==='__all__')}`;
     clearChartsExcept();
@@ -1632,8 +1679,21 @@ function viewKasir(){
   const days=daysOfMonth(PERIOD);
   const list=DB.employees.kasir;
   const agg={};
-  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[]});
-  days.forEach(d=>{(d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,off:true});}else{agg[r.kasirId].real+=num(r.amount);agg[r.kasirId].masuk++;agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),off:false});}}});});
+  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],bagi:0});
+  days.forEach(d=>{
+    // Jatah dari event non-ticketing hari ini, dibagi rata ke kasir yang masuk.
+    const j=jatahKasirNonTiket(d);
+    (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
+      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,bagi:0,off:true});}
+      else{
+        const bagi=j.ids.indexOf(r.kasirId)>-1?j.per:0;
+        agg[r.kasirId].real+=num(r.amount)+bagi;
+        agg[r.kasirId].bagi+=bagi;
+        agg[r.kasirId].masuk++;
+        agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),bagi,off:false});
+      }
+    }});
+  });
   // sama seperti Performa & Ranking: compliment memotong realisasi. Barisnya
   // disimpan juga supaya rinciannya bisa dipajang, bukan cuma angka potongan.
   list.forEach(k=>{
@@ -1648,28 +1708,30 @@ function viewKasir(){
     let k,a;
     if(kid==='__all__'){
       k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};
-      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[]};
-      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
+      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],bagi:0};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.bagi+=(g.bagi||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
     } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
     if(!k||!a) return;
     const ach=pct(a.real,k.target),avg=a.masuk>0?a.real/a.masuk:0;
-    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td class="num mono">${h.off?'—':(h.bagi?fmtRp(h.bagi):'<span class="muted">—</span>')}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
     document.getElementById('ks_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(k.target)}</div></div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.comp?`sudah dipotong compliment ${fmtRp(a.comp)}`:'tanpa potongan compliment'}</div></div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.bagi?`termasuk ${fmtRp(a.bagi)} bagi hasil event non-ticketing`:''}${a.bagi&&a.comp?' · ':''}${a.comp?`dipotong compliment ${fmtRp(a.comp)}`:''}${!a.bagi&&!a.comp?'walk-in murni':''}</div></div>
         <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=k.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
       </div>
       <div class="card"><div class="prog ${a.real>=k.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(k.target)}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
-        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Nominal</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Bagi Hasil</b> = jatah event non-ticketing hari itu</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Walk In</th><th class="num">Bagi Hasil</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], kid==='__all__')}`;
     clearChartsExcept();
     const h=[...a.hist].sort((x,y)=>x.date<y.date?-1:1);
-    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
+    // Batangnya memakai walk-in + bagi hasil supaya totalnya sama dengan
+    // Realisasi di kotak atas; kalau hanya amount, grafiknya bercerita lain.
+    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount+(x.bagi||0)),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
     else emptyCanvas('ks_chart','Belum ada data');
   };
   document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
@@ -1682,8 +1744,20 @@ function viewSummary(){
   const days=daysOfMonth(PERIOD);
   /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
      ranking di sini memakai angka yang sama dengan halaman Performa. */
+  /* Aturan non-ticketing dipakai di sini juga — lewat porsiPic() untuk
+     marketing/event dan jatahKasirNonTiket() untuk kasir. Sempat dihitung
+     dengan r.amount mentah di sini, dan hasilnya ranking menampilkan realisasi
+     yang berbeda dari halaman Performa untuk orang yang sama. */
   const realBy=(divi,id)=>{
-    let s=0;days.forEach(d=>(d.bd?.[divi]||[]).forEach(r=>{const key=divi==='kasir'?r.kasirId:r.picId;if(key===id&&!r.off)s+=num(r.amount);}));
+    let s=0;
+    days.forEach(d=>{
+      if(divi==='kasir'){
+        const j=jatahKasirNonTiket(d);
+        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=num(r.amount)+(j.ids.indexOf(id)>-1?j.per:0); });
+      }else{
+        (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r); });
+      }
+    });
     return s-compPic(PERIOD,(DB.employees[divi]||[]).find(e=>e.id===id));
   };
   const mkTable=(divi,list)=>{
