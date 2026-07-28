@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="../assets/venue-layouts.js"></script>
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
   var ok=s&&s.expiry&&Date.now()<s.expiry&&(s.modules||[]).some(function(m){return m==='*'||m==='marketing';});
@@ -985,6 +986,25 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   .no-print{display:none !important}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+
+/* ---------- DENAH VENUE (Reservasi VIP) ----------
+   Koordinat meja datang dari assets/venue-layouts.js — kanvas tetap 1600x1160
+   yang diubah jadi persen, jadi denah ikut lebar berapa pun tanpa gepeng. */
+.denah{position:relative;width:100%;padding-top:72.5%;background:var(--ink-900);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.denah-in{position:absolute;inset:0}
+.dn-fix{position:absolute;display:grid;place-items:center;text-align:center;font-size:9px;font-weight:700;
+  letter-spacing:.08em;color:var(--muted);background:var(--ink-880);border:1px dashed var(--line);border-radius:6px}
+.dn-meja{position:absolute;display:grid;place-items:center;gap:1px;border-radius:7px;cursor:pointer;
+  border:1.5px solid var(--line-hard);background:var(--ink-880);color:var(--sand-dim);
+  font-size:10px;font-weight:700;line-height:1.1;padding:2px;transition:.12s}
+.dn-meja:hover{border-color:var(--gold);color:var(--sand)}
+.dn-meja .dn-cap{font-size:8px;font-weight:600;opacity:.7}
+.dn-meja.on{background:var(--gold-glow);border-color:var(--gold-deep);color:var(--gold-deep)}
+.dn-meja.off{cursor:not-allowed;opacity:.5;background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+.dn-meja.off:hover{border-color:var(--danger)}
+.dn-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--sand-dim);margin-top:10px}
+.dn-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
 </style>
 </head>
 <body>
@@ -7789,25 +7809,79 @@ async function vipLanjutMeja(){
     +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="vipLanjutMeja()">Coba Lagi</button></div>'); }
   vipPilihMejaUI(d);
 }
+/* Denah mana yang dipakai untuk sebuah tanggal. Aturannya SAMA dengan modul
+   Reservasi supaya kedua modul menggambar denah yang sama untuk hari yang sama:
+   kalau ada override manual untuk tanggal itu pakai itu; kalau tidak, akhir
+   pekan (Jumat/Sabtu) pakai denah Weekend, selebihnya Weekday. Denah hasil edit
+   yang tersimpan di server (master.layouts) menimpa yang bawaan. */
+function vipDenahKey(d,tanggal){
+  const ov=(d&&d.master&&d.master.layoutOverrides)||{};
+  if(ov&&ov[tanggal]&&vipDenah(d,ov[tanggal])) return ov[tanggal];
+  const hari=new Date(tanggal+'T00:00:00').getDay();
+  return (hari===5||hari===6)?'weekend':'weekday';
+}
+function vipDenah(d,key){
+  const custom=(d&&d.master&&d.master.layouts)||{};
+  if(custom&&!Array.isArray(custom)&&custom[key]) return custom[key];
+  return (window.LM_VENUE_LAYOUTS||{})[key]||null;
+}
+/* Gambar denah. Meja yang sudah dipesan tamu lain dimatikan; sisanya bisa
+   diklik untuk dikunci. Dikembalikan string kosong bila denahnya tidak ada,
+   supaya pemanggilnya bisa jatuh ke daftar tombol biasa — kehilangan denah
+   tidak boleh berarti kehilangan kemampuan memesan meja. */
+function vipDenahHTML(d,terpakai,dipilih){
+  const L=vipDenah(d,vipDenahKey(d,VIP_FORM.tanggal));
+  if(!L||!Array.isArray(L.tables)||!L.tables.length) return '';
+  const W=window.LM_SEAT_W||1600, H=window.LM_SEAT_H||1160;
+  const px=v=>(v/W*100).toFixed(3)+'%', py=v=>(v/H*100).toFixed(3)+'%';
+  let h='<div class="denah"><div class="denah-in">';
+  (L.fixed||[]).forEach(fx=>{
+    h+='<div class="dn-fix" style="left:'+px(fx.x)+';top:'+py(fx.y)+';width:'+px(fx.w)+';height:'+py(fx.h)+'">'+esc(fx.label||'')+'</div>';
+  });
+  L.tables.forEach(t=>{
+    const off=!!terpakai[t.id] && dipilih.indexOf(t.id)<0;
+    const on=dipilih.indexOf(t.id)>=0;
+    const st='left:'+px(t.x)+';top:'+py(t.y)+';width:'+px(t.w)+';height:'+py(t.h);
+    h+='<button type="button" class="dn-meja'+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
+      +(off?'disabled title="Dipesan '+esc(terpakai[t.id])+'"'
+           :'onclick="vipToggleMeja(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
+      +'><span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</button>';
+  });
+  h+='</div></div>';
+  h+='<div class="dn-legend"><span><i style="background:var(--ink-880);border:1.5px solid var(--line-hard)"></i>Kosong</span>'
+   +'<span><i style="background:var(--gold-glow);border:1.5px solid var(--gold-deep)"></i>Dipilih</span>'
+   +'<span><i style="background:var(--danger-bg);border:1.5px solid var(--danger)"></i>Sudah dipesan</span>'
+   +'<span class="cell-sub">Denah: '+esc(L.name||vipDenahKey(d,VIP_FORM.tanggal))+'</span></div>';
+  return h;
+}
 function vipPilihMejaUI(d){
   const f=VIP_FORM;
   const terpakai=rsvMejaTerpakai(d,f.tanggal);
-  const semua=rsvDaftarMeja(d);
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
-  if(!semua.length){
-    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu daftar mejanya di sana.</span></div>';
+  const denah=vipDenahHTML(d,terpakai,dipilih);
+  if(denah){
+    h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
+    h+=denah;
   }else{
-    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Meja abu-abu sudah dipesan tamu lain pada tanggal ini dan tidak bisa dipilih. Boleh pilih lebih dari satu — '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
-    h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
-    semua.forEach(m=>{
-      const off=!!terpakai[m] && dipilih.indexOf(m)<0;
-      const on=dipilih.indexOf(m)>=0;
-      h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
-        +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
-    });
-    h+='</div>';
+    /* Denah tidak terbaca (assets/venue-layouts.js gagal dimuat, atau tanggalnya
+       memakai denah custom yang kosong). Jangan buntu: daftar meja dari master
+       Reservasi tetap bisa dipakai memesan. */
+    const semua=rsvDaftarMeja(d);
+    if(!semua.length){
+      h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu di sana.</span></div>';
+    }else{
+      h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah tidak terbaca, jadi mejanya ditampilkan sebagai daftar. Meja abu-abu sudah dipesan tamu lain.</span></div>';
+      h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
+      semua.forEach(m=>{
+        const off=!!terpakai[m] && dipilih.indexOf(m)<0;
+        const on=dipilih.indexOf(m)>=0;
+        h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
+          +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
+      });
+      h+='</div>';
+    }
   }
   h+='<div class="field" style="margin-top:14px"><label>Meja terpilih</label><div class="inp" id="vip_meja_txt" style="display:flex;align-items:center;min-height:38px">'+(dipilih.length?esc(dipilih.join(', ')):'—')+'</div></div>';
   h+='</div><div class="modal-foot"><button class="btn" onclick="vipForm(\''+f.id+'\')">← Kembali</button>'
@@ -7817,8 +7891,10 @@ function vipPilihMejaUI(d){
 function vipToggleMeja(btn,m){
   const f=VIP_FORM; f.meja=f.meja||[];
   const i=f.meja.indexOf(m);
-  if(i>=0){ f.meja.splice(i,1); btn.classList.remove('pri'); }
-  else { f.meja.push(m); btn.classList.add('pri'); }
+  // dua tampilan, dua kelas penanda: denah pakai .on, daftar tombol pakai .pri
+  const kelas=btn.classList.contains('dn-meja')?'on':'pri';
+  if(i>=0){ f.meja.splice(i,1); btn.classList.remove(kelas); }
+  else { f.meja.push(m); btn.classList.add(kelas); }
   const t=$('vip_meja_txt'); if(t) t.textContent=f.meja.length?f.meja.join(', '):'—';
 }
 async function vipSimpanKunci(){

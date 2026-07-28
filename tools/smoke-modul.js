@@ -53,10 +53,28 @@ const CONTOH = {
   fbSubs: [{ id: 'sc1', div: 'Prasmanan', nama: 'Appetizer' }]
 };
 
+/* Berkas bersama yang dimuat modul lewat <script src="../assets/….js">.
+   jsdom TIDAK mengambil skrip eksternal (resources dimatikan supaya uji ini
+   tidak pernah menyentuh jaringan), jadi isinya disuntikkan sendiri sebelum
+   halaman diurai — persis seperti browser memuatnya lebih dulu. Tanpa ini,
+   modul yang bergantung pada denah venue bersama gagal boot di sini padahal
+   sehat di browser. */
+function suntikAsetBersama(html, w) {
+  const re = /<script[^>]+src=["'](\.\.\/assets\/[^"']+)["'][^>]*>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    const f = path.join(ROOT, 'deploy', 'assets', path.basename(m[1]));
+    if (!fs.existsSync(f)) { console.log(`       · aset bersama tidak ada: ${m[1]}`); continue; }
+    try { w.eval(fs.readFileSync(f, 'utf8')); }
+    catch (e) { console.log(`       · aset bersama gagal: ${m[1]} — ${e.message}`); }
+  }
+}
+
 function bukaModul(modul) {
   const file = path.join(ROOT, 'deploy', modul, 'index.html');
   if (!fs.existsSync(file)) throw new Error('modul tidak ada: ' + file);
-  const dom = new JSDOM(fs.readFileSync(file, 'utf8'), {
+  const html = fs.readFileSync(file, 'utf8');
+  const dom = new JSDOM(html, {
     runScripts: 'dangerously',
     // pretendToBeVisual menyediakan requestAnimationFrame — dipakai kode render
     // untuk memulihkan posisi gulir. Tanpa ini lingkungan uji berbeda dari
@@ -64,6 +82,7 @@ function bukaModul(modul) {
     pretendToBeVisual: true,
     url: 'http://localhost/office/' + modul + '/',
     beforeParse(w) {
+      suntikAsetBersama(html, w);
       // Offline disengaja: boot modul memang harus tetap jalan tanpa server.
       w.fetch = () => Promise.reject(new Error('offline (smoke test)'));
       w.scrollTo = () => {};
