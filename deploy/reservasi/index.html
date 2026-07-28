@@ -2957,7 +2957,10 @@ async function enterApp(){
     }
   }
   buildNav();
-  navigate(CURRENT_PAGE);
+  // Bersihkan tamu yang tertinggal "duduk" dari malam sebelumnya SEBELUM halaman
+  // pertama digambar, jadi Recap tidak sempat menampilkan timer 9 jam berjalan.
+  // autoCloseSeated() menggambar ulang sendiri kalau ada yang ditutup.
+  if(!autoCloseSeated()) navigate(CURRENT_PAGE);
   return true;
 }
 
@@ -5181,7 +5184,8 @@ function renderHariH(){
           <td><div class="name">${esc(r.name)} ${tagFor(p)}${r.sharing?`<span class="badge-status" style="background:var(--purple-bg);color:var(--purple);font-size:10px;margin-left:5px">🤝 sharing</span>`:""}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
             ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>
               ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
-              :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>`:""}</td>
+              :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>
+              ${r.autoClosed?`<div style="font-size:11px;margin-top:2px;color:var(--muted)" title="Tamu ini masih tercatat duduk saat jam tutup ${CLOSING_LABEL}, jadi sistem yang menandai selesai — bukan kru. Jam pulangnya dipakai jam tutup, bukan jam data ini dibuka.">🌙 ditutup otomatis jam ${CLOSING_LABEL}</div>`:""}`:""}</td>
           <td>${paxCell(r)}</td>
           <!-- Angka telanjang, tanpa lencana atau imbuhan: kolomnya sudah
                berjudul "Sisa Kursi", jadi menulis "+3 kursi" mengulang hal yang
@@ -6698,6 +6702,63 @@ function seatedSoFar(r){
   if(!r || !r.checkinAt || r.leftAt || r.status!=="Datang") return null;
   return Math.max(0, Math.round((Date.now() - r.checkinAt)/60000));
 }
+
+/* ================= TUTUP OTOMATIS JAM 04:00 =================
+   Operasional berakhir jam 4 pagi. Tamu yang MASIH tercatat duduk saat jam itu
+   terlewati hampir selalu berarti kru lupa menekan "🍽️ Selesai", bukan tamunya
+   benar-benar masih di tempat sampai siang. Kalau dibiarkan: timer duduk terus
+   berjalan berjam-jam di Recap, mejanya tetap terlihat terpakai, dan durasi di
+   Riwayat/Analitik jadi angka yang tidak berarti.
+
+   leftAt diisi TEPAT di batas 04:00, BUKAN Date.now(). Memakai waktu sekarang
+   justru memperparah data yang mau dibetulkan — tamu yang baru ketahuan jam 11
+   siang akan tercatat duduk 9 jam.
+
+   Nilainya deterministik (cuma turunan dari checkinAt), jadi kalau beberapa
+   perangkat menjalankannya bersamaan hasilnya sama persis dan tidak saling
+   menimpa dengan angka berbeda. */
+const CLOSING_HOUR = 4;
+const CLOSING_LABEL = String(CLOSING_HOUR).padStart(2,"0")+":00";
+/* Batas tutup PERTAMA sesudah sebuah waktu:
+     masuk 20:00 → tutup 04:00 besok
+     masuk 01:30 → tutup 04:00 hari yang sama
+     masuk 04:30 → tutup 04:00 BESOK (tamu yang baru duduk lewat jam 4 tidak
+                   ikut ditutup seketika) */
+function closingAfter(ts){
+  const d=new Date(ts);
+  const b=new Date(d.getFullYear(), d.getMonth(), d.getDate(), CLOSING_HOUR, 0, 0, 0);
+  if(b.getTime()<=ts) b.setDate(b.getDate()+1);
+  return b.getTime();
+}
+function autoCloseDue(){
+  const now=Date.now();
+  return STATE.reservations.filter(r=>isSeated(r) && r.checkinAt && closingAfter(r.checkinAt)<=now);
+}
+/* Dijalankan berkala dan sekali tiap halaman dibuka. Menulis ke database HANYA
+   kalau memang ada yang ditutup. Dibatasi ke role yang boleh mengubah data
+   supaya View Only tidak diam-diam ikut menulis. */
+function autoCloseSeated(){
+  if(!DATA_LOADED || !SESSION || !CAN.input(SESSION.role)) return false;
+  const kena=autoCloseDue();
+  if(!kena.length) return false;
+  const now=Date.now();
+  kena.forEach(r=>{
+    r.leftAt    = closingAfter(r.checkinAt);
+    r.autoClosed= true;              // penanda: ditutup sistem, bukan kru
+    r.updatedAt = now;
+  });
+  const nama=kena.slice(0,8).map(r=>r.name).join(", ")+(kena.length>8?`, +${kena.length-8} lagi`:"");
+  logAudit("Selesai Duduk (otomatis)",
+    `${kena.length} tamu masih duduk saat tutup ${CLOSING_LABEL} — ditandai selesai otomatis: ${nama}`);
+  saveState();
+  toast(`${kena.length} tamu yang masih duduk ditutup otomatis (jam ${CLOSING_LABEL})`,"ok");
+  // Gambar ulang supaya Recap & denah langsung ikut bersih. Dilewati kalau ada
+  // dialog terbuka — menutup modal kru di tengah pekerjaannya lebih mengganggu
+  // daripada menunggu render berikutnya.
+  if(CURRENT_PAGE && !dialogTerbuka()) navigate(CURRENT_PAGE);
+  return true;
+}
+setInterval(autoCloseSeated, 60000);
 // Format menit → "1j 20m" / "45m".
 function fmtDur(min){
   if(min==null) return "-";
