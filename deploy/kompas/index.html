@@ -1645,15 +1645,31 @@ function labelPeriode(mk){
 /* Lembar cetak. Dikosongkan lagi sesudah dialog ditutup supaya tidak ada sisa
    node yang ikut tercetak di percetakan berikutnya. */
 function cetakAchievement(divi,e,a,ach){
-  const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>
-    `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td>${ev.tiket?'Ticketing':'Non-Ticketing'}</td><td class="num">${fmtRp(ev.amount)}</td><td class="num">${fmtRp(ev.porsi)}</td></tr>`).join('');
-  const evTk=a.events.filter(x=>x.tiket), evNon=a.events.filter(x=>!x.tiket);
-  const nilaiTk=evTk.reduce((s,x)=>s+x.amount,0), nilaiNon=evNon.reduce((s,x)=>s+x.amount,0);
-  const akuTk=evTk.reduce((s,x)=>s+x.porsi,0), akuNon=evNon.reduce((s,x)=>s+x.porsi,0);
-  /* Compliment TIDAK dirinci di lembar cetak (permintaan 28 Juli 2026): yang
-     dibawa ke PIC cukup totalan tiap event. Potongannya tetap ikut mengurangi
-     Realisasi di kotak atas — hanya asal-usulnya yang tidak dipajang. Rincian
-     per compliment tetap ada di layar, lewat kartuCompliment(). */
+  /* Lembar cetak hanya memuat SATU angka per event (permintaan 28 Juli 2026).
+     Yang dihapus: tabel Klasifikasi Omset Event, kolom nilai kotor event, dan
+     kata "Diakui" pada judul kolom — yang perlu dibaca PIC cuma angka yang
+     benar-benar masuk ke realisasinya, bukan cara menghitungnya.
+
+     Compliment juga tidak dipajang sebagai tabel sendiri; potongannya
+     ditempelkan ke event yang TANGGALNYA SAMA. Yang tidak ketemu pasangannya
+     — compliment di hari tanpa event, atau yang nilainya melebihi porsi event
+     hari itu — tidak hilang: TOTAL memakai a.real yang sudah bersih, jadi
+     angkanya selalu sama dengan kotak Realisasi di atas sekalipun baris-
+     barisnya kebetulan tidak persis berjumlah segitu.
+
+     Rincian per compliment tetap bisa dilihat di layar lewat kartuCompliment(). */
+  const perPic=a.events.some(ev=>ev.pic);   // benar hanya pada segmen "Semua PIC"
+  const kunci=(date,pic)=>perPic?(date+'|'+String(pic||'').trim().toLowerCase()):date;
+  const sisaComp={};
+  (a.compRows||[]).forEach(c=>{ const k=kunci(c.date,c.picName); sisaComp[k]=(sisaComp[k]||0)+num(c.nominal); });
+  const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>{
+    // Dipotong sebatas porsi event itu saja — baris bernilai minus lebih
+    // membingungkan daripada selisih yang diserap di baris TOTAL.
+    const k=kunci(ev.date,ev.pic||e.name);
+    const pot=Math.min(sisaComp[k]||0, ev.porsi);
+    sisaComp[k]=(sisaComp[k]||0)-pot;
+    return `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td>${ev.tiket?'Ticketing':'Non-Ticketing'}</td><td class="num">${fmtRp(ev.porsi-pot)}</td></tr>`;
+  }).join('');
   const sheet=document.getElementById('printSheet');
   sheet.innerHTML=`
     <div class="ph">
@@ -1669,20 +1685,11 @@ function cetakAchievement(divi,e,a,ach){
       <div><div class="l">Achievement</div><div class="v">${ach.toFixed(0)}%</div></div>
       <div><div class="l">Jumlah Event</div><div class="v">${a.events.length}</div></div>
     </div>
-    <h2>Klasifikasi Omset Event</h2>
-    <table>
-      <thead><tr><th>Jenis</th><th class="num" style="width:90px">Event</th><th class="num" style="width:130px">Nilai Event</th><th class="num" style="width:130px">Diakui</th></tr></thead>
-      <tbody>
-        <tr><td>Ticketing <span style="color:#666">(50%, sisanya ke DW &amp; kasir shift)</span></td><td class="num">${evTk.length}</td><td class="num">${fmtRp(nilaiTk)}</td><td class="num">${fmtRp(akuTk)}</td></tr>
-        <tr><td>Non-Ticketing <span style="color:#666">(100%)</span></td><td class="num">${evNon.length}</td><td class="num">${fmtRp(nilaiNon)}</td><td class="num">${fmtRp(akuNon)}</td></tr>
-      </tbody>
-      <tfoot><tr><td>TOTAL</td><td class="num">${a.events.length}</td><td class="num">${fmtRp(nilaiTk+nilaiNon)}</td><td class="num">${fmtRp(akuTk+akuNon)}</td></tr></tfoot>
-    </table>
     <h2>Rincian Event</h2>
     <table>
-      <thead><tr><th style="width:95px">Tanggal</th><th>Nama Event</th><th style="width:95px">Jenis</th><th class="num" style="width:120px">Nilai Event</th><th class="num" style="width:120px">Diakui</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="5" style="text-align:center;color:#777">Belum ada event pada periode ini.</td></tr>'}</tbody>
-      <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${fmtRp(nilaiTk+nilaiNon)}</td><td class="num">${fmtRp(akuTk+akuNon)}</td></tr></tfoot>
+      <thead><tr><th style="width:95px">Tanggal</th><th>Nama Event</th><th style="width:110px">Jenis</th><th class="num" style="width:140px">Nominal</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="4" style="text-align:center;color:#777">Belum ada event pada periode ini.</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="3">TOTAL</td><td class="num">${fmtRp(a.real)}</td></tr></tfoot>
     </table>
     <div class="ttd">Dicetak ${esc(new Date().toLocaleString('id-ID',{dateStyle:'long',timeStyle:'short'}))}${CURRENT_USER?` oleh ${esc(CURRENT_USER.name)}`:''}.</div>`;
   window.print();
