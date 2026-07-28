@@ -189,7 +189,7 @@ tbody tr:hover{background:var(--gold-soft)}
 
 /* breakdown row */
 .brow{display:grid;gap:10px;align-items:end;margin-bottom:10px}
-.brow.mk{grid-template-columns:1.1fr 1.4fr 1fr auto auto}
+.brow.mk{grid-template-columns:1.1fr 1.3fr .9fr auto auto auto}
 .brow.ks{grid-template-columns:1.3fr 1fr auto}
 .brow .field{margin-bottom:0}
 @media(max-width:760px){.brow.mk,.brow.ks{grid-template-columns:1fr}}
@@ -198,6 +198,26 @@ tbody tr:hover{background:var(--gold-soft)}
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
 .tkbox input{cursor:pointer}
 .tkbox.on{color:var(--gold-dim)}
+/* Tombol ringkasan bagi hasil di baris breakdown. Merah kalau shift-nya belum
+   diisi — tanpa itu porsi kasir tidak punya penerima dan diam-diam hangus. */
+.bhbtn{border:1px dashed var(--line);background:var(--surface);border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:9px;line-height:1.35;text-align:left}
+.bhbtn:hover{border-color:var(--gold);color:var(--gold-dim)}
+.bhbtn.kosong{border-color:var(--danger);color:var(--danger)}
+.bhbtn b{display:block;font-size:12.5px;color:var(--text)}
+.bhbtn.kosong b{color:var(--danger)}
+
+/* ---- Modal ---- */
+.ovl{position:fixed;inset:0;background:rgba(15,18,24,.55);display:flex;align-items:center;justify-content:center;padding:20px;z-index:80}
+.mdl{background:var(--surface);border-radius:var(--radius);max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.mdl-h{padding:18px 22px 12px;border-bottom:1px solid var(--line)}
+.mdl-h h3{font-size:16px;margin:0}
+.mdl-h .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
+.mdl-b{padding:18px 22px}
+.mdl-f{padding:14px 22px 18px;display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--line)}
+.kslist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:8px}
+.kschip{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.kschip:hover{border-color:var(--gold)}
+.kschip.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
 .mini-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:8px}
 .balance-bar{position:sticky;bottom:0;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:var(--shadow-lg);flex-wrap:wrap;margin-top:8px}
 .balance-bar .bnums{display:flex;gap:26px;flex-wrap:wrap}
@@ -1132,17 +1152,113 @@ function porsiPic(r){
   const a=num(r.amount);
   return r.tiket ? a : Math.round(a*PORSI_PIC_NON_TIKET);
 }
-/* Jatah kasir dari sisa non-ticketing satu hari, sudah dibagi rata.
-   Kasir OFF tidak kebagian. Kalau hari itu tidak ada kasir yang masuk sama
-   sekali, sisanya dibiarkan hangus — menumpuknya ke orang yang libur jelas
-   salah, dan menyimpannya entah ke mana hanya bikin angka tidak bisa
-   ditelusuri. */
-function jatahKasirNonTiket(d){
-  const rows=[...(d.bd?.marketing||[]),...(d.bd?.event||[])];
-  const sisa=rows.reduce((s,r)=>s+(num(r.amount)-porsiPic(r)),0);
-  const masuk=(d.bd?.kasir||[]).filter(r=>!r.off);
-  if(sisa<=0||!masuk.length) return {per:0,ids:[],sisa:Math.max(sisa,0)};
-  return {per:Math.round(sisa/masuk.length),ids:masuk.map(r=>r.kasirId),sisa};
+/* Porsi kasir dari SATU baris event, dibagi per SHIFT — bukan rata ke semua
+   kasir yang masuk hari itu (keputusan 28 Juli 2026, mengganti aturan sehari
+   sebelumnya). Kasir yang masuk hari itu tapi tidak kebagian shift event
+   tersebut tidak menerima apa-apa.
+
+   Pembaginya = jumlah DW (daily worker, kasir harian) + jumlah kasir tetap
+   yang dicentang shift-nya. DW ikut membagi TAPI tidak ikut dicatat: mereka
+   bukan pegawai tetap dan tidak punya baris performa. Jadi kalau porsi kasir
+   Rp500.000 dengan 2 DW dan 3 kasir tetap, pembaginya 5 → tiap kasir tetap
+   dapat Rp100.000, dan Rp200.000 milik DW tidak muncul di performa siapa pun.
+   Itu memang disengaja, bukan kebocoran angka.
+
+   Baris yang shift-nya belum diisi mengembalikan pembagi 0 → tidak ada yang
+   menerima. UI menandainya merah supaya ketahuan, daripada diam-diam
+   membagikannya ke orang yang tidak bertugas. */
+function bagiKasirBaris(r){
+  const sisa=num(r.amount)-porsiPic(r);
+  const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
+  const dw=Math.max(0,num(r.dw));
+  const pembagi=dw+ids.length;
+  if(sisa<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,sisa:Math.max(sisa,0)};
+  return {per:Math.round(sisa/pembagi),ids,dw,pembagi,sisa};
+}
+/* Total yang diterima satu kasir tetap dari seluruh event pada satu hari. */
+function bagiKasirHari(d,kasirId){
+  let s=0;
+  [...(d.bd?.marketing||[]),...(d.bd?.event||[])].forEach(r=>{
+    const b=bagiKasirBaris(r);
+    if(b.ids.indexOf(kasirId)>-1) s+=b.per;
+  });
+  return s;
+}
+/* Baris non-ticketing bernominal yang shift-nya belum ditentukan. Dipakai
+   untuk peringatan di Breakdown dan Performa Kasir. */
+function barisTanpaShift(d){
+  return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
+    .filter(r=>!r.tiket && num(r.amount)>0 && bagiKasirBaris(r).pembagi<=0);
+}
+
+/* Modal pengaturan bagi hasil satu baris event. Mengembalikan lewat callback
+   supaya pemanggilnya yang memutuskan kapan menggambar ulang — baris breakdown
+   sedang diisi, jadi redraw yang tidak perlu akan merebut fokus. */
+function modalBagiHasil(row, labelEvent, simpan){
+  const kasir=DB.employees.kasir||[];
+  let dw=Math.max(0,num(row.dw));
+  let pilih=new Set(Array.isArray(row.shift)?row.shift.filter(Boolean):[]);
+  const sisa=num(row.amount)-porsiPic(row);
+
+  const ovl=document.createElement('div');
+  ovl.className='ovl';
+  ovl.innerHTML=`
+    <div class="mdl">
+      <div class="mdl-h">
+        <h3>Bagi Hasil Kasir</h3>
+        <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · porsi kasir <b>${fmtRp(sisa)}</b> (50%)</div>
+      </div>
+      <div class="mdl-b">
+        <div class="field"><label>Jumlah DW Kasir (daily worker) di shift ini</label>
+          <input class="mono" id="bh_dw" inputmode="numeric" value="${dw}">
+          <div class="helper">DW ikut membagi rata, tapi tidak tercatat di Performa karena bukan pegawai tetap. Isi 0 kalau tidak ada.</div>
+        </div>
+        <div style="margin-top:16px">
+          <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Kasir tetap yang kena shift event ini</label>
+          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang menerima. Kasir yang masuk hari itu tapi beda shift tidak dapat.</div>
+          ${kasir.length?`<div class="kslist" id="bh_ks">${kasir.map(k=>`
+            <label class="kschip${pilih.has(k.id)?' on':''}" data-id="${esc(k.id)}"><input type="checkbox" ${pilih.has(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}</div>`
+          :`<div class="empty" style="padding:16px 10px">Belum ada kasir terdaftar.</div>`}
+        </div>
+        <div class="notice info" id="bh_prev" style="margin-top:18px"></div>
+      </div>
+      <div class="mdl-f">
+        <button class="btn btn-ghost" id="bh_batal">Batal</button>
+        <button class="btn btn-primary" id="bh_ok">Simpan Pembagian</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ovl);
+
+  const prev=()=>{
+    const pembagi=dw+pilih.size;
+    const per=pembagi>0?Math.round(sisa/pembagi):0;
+    const box=ovl.querySelector('#bh_prev');
+    box.className='notice '+(pembagi>0?'info':'warn');
+    box.innerHTML = pembagi>0
+      ? `${fmtRp(sisa)} ÷ ${pembagi} orang (${dw} DW + ${pilih.size} kasir tetap) = <b>${fmtRp(per)}</b> per orang.<br>
+         ${pilih.size} kasir tetap menerima total <b>${fmtRp(per*pilih.size)}</b>${dw?`; ${fmtRp(per*dw)} jadi bagian DW dan tidak masuk performa siapa pun.`:'.'}`
+      : `⚠ Belum ada penerima. Isi jumlah DW atau centang minimal satu kasir — kalau tidak, ${fmtRp(sisa)} ini tidak diberikan ke siapa pun.`;
+  };
+  ovl.querySelector('#bh_dw').addEventListener('input',e=>{ dw=Math.max(0,num(e.target.value)); prev(); });
+  ovl.querySelectorAll('.kschip').forEach(c=>c.addEventListener('click',e=>{
+    // Klik pada <label> sudah men-toggle checkbox di dalamnya; jangan
+    // di-toggle dua kali. Baca keadaan checkbox-nya saja setelah klik.
+    setTimeout(()=>{
+      const cb=c.querySelector('input');
+      if(cb.checked) pilih.add(c.dataset.id); else pilih.delete(c.dataset.id);
+      c.classList.toggle('on',cb.checked);
+      prev();
+    },0);
+  }));
+  const tutup=()=>{ try{document.body.removeChild(ovl);}catch(_){} };
+  ovl.querySelector('#bh_batal').onclick=tutup;
+  ovl.addEventListener('click',e=>{ if(e.target===ovl) tutup(); });
+  ovl.querySelector('#bh_ok').onclick=()=>{
+    row.dw=dw; row.shift=[...pilih];
+    tutup(); if(simpan) simpan();
+  };
+  prev();
+  setTimeout(()=>{ const i=ovl.querySelector('#bh_dw'); if(i){ i.focus(); i.select(); } },30);
 }
 
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
@@ -1216,7 +1332,7 @@ function viewBreakdown(){
         return cs.length?`<div class="notice warn">🎁 Ada ${cs.length} compliment hari ini senilai <b>${fmtRp(cs.reduce((s,c)=>s+num(c.nominal),0))}</b> yang membebani PIC. Nominal ini <b>memotong realisasi</b> PIC bersangkutan di Performa &amp; Ranking — alokasi breakdown di bawah tidak perlu dikurangi sendiri.<br><span style="opacity:.85">${cs.map(c=>`${esc(c.picName)} ${fmtRp(num(c.nominal))}`).join(' · ')}</span></div>`:'';})()}
 
       <span class="divlabel mk">Section A — Marketing</span>
-      <div class="helper" style="margin-bottom:10px">Centang <b>Ticketing</b> kalau omsetnya dari penjualan tiket — diakui penuh untuk PIC. Tanpa centang, hanya <b>50%</b> yang masuk realisasi PIC; sisanya jadi bagi hasil untuk kasir yang masuk hari itu. Angka alokasi di bawah tidak perlu diubah.</div>
+      <div class="helper" style="margin-bottom:10px">Centang <b>Ticketing</b> kalau omsetnya dari penjualan tiket — diakui penuh untuk PIC. Tanpa centang, hanya <b>50%</b> yang masuk realisasi PIC; sisanya dibagi rata ke <b>DW + kasir tetap yang kena shift event itu</b> lewat tombol bagi hasil di tiap baris. Angka alokasi di bawah tidak perlu diubah.</div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
@@ -1228,11 +1344,33 @@ function viewBreakdown(){
       <div class="helper" style="margin-bottom:10px">Centang OFF jika kasir libur, nominal otomatis nol.</div>
       <div id="bd_ks"></div>
     </div>
+    <div id="bd_warn"></div>
     <div class="balance-bar" id="bd_balance"></div>`;
 
   const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows))};
 
   const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
+
+  /* Ringkasan bagi hasil per baris. Hanya untuk baris NON-ticketing: baris
+     ticketing diakui penuh untuk PIC, tidak ada porsi kasir yang perlu dibagi
+     sehingga tombolnya tidak ada gunanya. */
+  function tombolBagi(r,i,key){
+    if(r.tiket) return '<div></div>';
+    const b=bagiKasirBaris(r);
+    const belum=num(r.amount)>0 && b.pembagi<=0;
+    // Baris yang nominalnya masih 0 belum punya apa-apa untuk dibagi — jangan
+    // ditandai merah, itu keadaan normal saat baris baru ditambahkan.
+    const isi = b.pembagi<=0
+      ? `<b>Atur bagi hasil</b>${belum?'belum ada penerima':'DW & shift kasir'}`
+      : `<b>${fmtRp(b.per)} / orang</b>${b.dw} DW + ${b.ids.length} kasir`;
+    return `<button type="button" class="bhbtn ${key}bagi${belum?' kosong':''}" data-i="${i}" title="Atur DW & kasir yang kena shift event ini">${isi}</button>`;
+  }
+  /* Dipakai bersama dua section. Modal mengubah baris di `state` langsung,
+     jadi sesudahnya cukup gambar ulang section itu dan hitung ulang. */
+  function bukaBagi(key,i){
+    const arr=state[key], row=arr[i]; if(!row) return;
+    modalBagiHasil(row, row.eventName, ()=>{ (key==='mk'?drawMk:drawEv)(); calc(); });
+  }
   function drawMk(){
     document.getElementById('bd_mk').innerHTML=state.mk.map((r,i)=>`
       <div class="brow mk">
@@ -1240,16 +1378,23 @@ function viewBreakdown(){
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
         <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini berasal dari penjualan tiket"><input type="checkbox" class="mktk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        ${tombolBagi(r,i,'mk')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button type="button" class="btn btn-sm btn-ghost mksisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
         </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data marketing.</div>';
     bind('mkf','mk',drawMk);
-    // Centang tidak memicu drawMk(): menggambar ulang baris saat checkbox
-    // diklik akan merebut fokus dari kolom yang sedang diisi. Cukup label yang
-    // diberi kelas .on.
-    document.querySelectorAll('.mktk').forEach(c=>c.onchange=()=>{state.mk[+c.dataset.i].tiket=c.checked;c.parentElement.classList.toggle('on',c.checked);});
+    /* Centang HARUS menggambar ulang di sini: tombol bagi hasil muncul/hilang
+       mengikuti statusnya. Fokus tidak jadi masalah karena yang baru diklik
+       adalah checkbox, bukan kolom teks. */
+    document.querySelectorAll('.mktk').forEach(c=>c.onchange=()=>{
+      const i=+c.dataset.i; state.mk[i].tiket=c.checked; drawMk(); calc();
+      // Baru dilepas centangnya → porsi kasir jadi ada, dan penerimanya harus
+      // ditentukan sekarang juga. Ini "pop up" yang diminta.
+      if(!c.checked && num(state.mk[i].amount)>0) bukaBagi('mk',i);
+    });
+    document.querySelectorAll('.mkbagi').forEach(b=>b.onclick=()=>bukaBagi('mk',+b.dataset.i));
     document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{state.mk.splice(+b.dataset.i,1);drawMk();calc();});
     document.querySelectorAll('.mksisa').forEach(b=>b.onclick=()=>isiSisa('mk',+b.dataset.i));
     formatAllRp(document.getElementById('bd_mk'));
@@ -1261,13 +1406,18 @@ function viewBreakdown(){
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
         <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini berasal dari penjualan tiket"><input type="checkbox" class="evtk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        ${tombolBagi(r,i,'ev')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button type="button" class="btn btn-sm btn-ghost evsisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
           <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
         </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data event.</div>';
     bind('evf','ev',drawEv);
-    document.querySelectorAll('.evtk').forEach(c=>c.onchange=()=>{state.ev[+c.dataset.i].tiket=c.checked;c.parentElement.classList.toggle('on',c.checked);});
+    document.querySelectorAll('.evtk').forEach(c=>c.onchange=()=>{
+      const i=+c.dataset.i; state.ev[i].tiket=c.checked; drawEv(); calc();
+      if(!c.checked && num(state.ev[i].amount)>0) bukaBagi('ev',i);
+    });
+    document.querySelectorAll('.evbagi').forEach(b=>b.onclick=()=>bukaBagi('ev',+b.dataset.i));
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
     document.querySelectorAll('.evsisa').forEach(b=>b.onclick=()=>isiSisa('ev',+b.dataset.i));
     formatAllRp(document.getElementById('bd_ev'));
@@ -1300,6 +1450,14 @@ function viewBreakdown(){
   }
   function calc(){
     const tot=sumState(), diff=net-tot, ok=Math.abs(diff)<1;
+    /* Baris non-ticketing bernominal yang belum punya penerima. Ini TIDAK
+       mengunci simpan — breakdown-nya sendiri sudah benar dan balance; yang
+       belum ditentukan cuma siapa yang menerima porsi kasirnya. Mengunci di
+       sini berarti alokasi yang sudah betul tidak bisa disimpan. */
+    const belum=[...state.mk,...state.ev].filter(r=>!r.tiket&&num(r.amount)>0&&bagiKasirBaris(r).pembagi<=0);
+    document.getElementById('bd_warn').innerHTML = belum.length
+      ? `<div class="notice warn">⚠ ${belum.length} baris non-ticketing belum ditentukan pembagiannya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Porsi kasirnya <b>${fmtRp(belum.reduce((s,r)=>s+(num(r.amount)-porsiPic(r)),0))}</b> belum diberikan ke siapa pun — klik tombol bagi hasil pada barisnya.</div>`
+      : '';
     document.getElementById('bd_balance').innerHTML=`
       <div class="bnums">
         <div class="bi">Total Breakdown<b class="mono">${fmtRp(tot)}</b></div>
@@ -1316,8 +1474,8 @@ function viewBreakdown(){
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
   // 2026) juga dibaca sebagai non-ticketing, jadi keduanya konsisten.
-  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tiket:false});drawMk();calc();};
-  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false});drawEv();calc();};
+  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
+  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawEv();calc();};
   drawMk();drawEv();drawKs();calc();
 }
 
@@ -1409,10 +1567,9 @@ function viewAnalytics(){
     /* Memakai aturan yang sama dengan Performa & Ranking: separuh omset event
        non-ticketing dihitung sebagai kontribusi kasir, bukan PIC event-nya.
        Totalnya tidak berubah — hanya pindah kategori. */
-    const j=jatahKasirNonTiket(d);
     (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r);src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
     (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
-    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=num(r.amount)+(j.ids.indexOf(r.kasirId)>-1?j.per:0);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;}});
+    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=num(r.amount)+bagiKasirHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;}});
   });
   const hasBd=src.Marketing+src.Event+src['Walk In']>0;
   el.innerHTML=`
@@ -1518,7 +1675,7 @@ function cetakAchievement(divi,e,a,ach){
       <thead><tr><th>Jenis</th><th class="num" style="width:90px">Event</th><th class="num" style="width:130px">Nilai Event</th><th class="num" style="width:130px">Diakui</th></tr></thead>
       <tbody>
         <tr><td>Ticketing <span style="color:#666">(100%)</span></td><td class="num">${evTk.length}</td><td class="num">${fmtRp(nilaiTk)}</td><td class="num">${fmtRp(akuTk)}</td></tr>
-        <tr><td>Non-Ticketing <span style="color:#666">(50%, sisanya ke kasir)</span></td><td class="num">${evNon.length}</td><td class="num">${fmtRp(nilaiNon)}</td><td class="num">${fmtRp(akuNon)}</td></tr>
+        <tr><td>Non-Ticketing <span style="color:#666">(50%, sisanya ke DW &amp; kasir shift)</span></td><td class="num">${evNon.length}</td><td class="num">${fmtRp(nilaiNon)}</td><td class="num">${fmtRp(akuNon)}</td></tr>
       </tbody>
       <tfoot><tr><td>TOTAL</td><td class="num">${a.events.length}</td><td class="num">${fmtRp(nilaiTk+nilaiNon)}</td><td class="num">${fmtRp(akuTk+akuNon)}</td></tr></tfoot>
     </table>
@@ -1549,7 +1706,7 @@ function pesanAchievement(divi,e,a,ach){
     `Achievement : ${ach.toFixed(0)}% (${a.real>=e.target?'ACHIEVE':'belum achieve'})`,
     `Jumlah event: ${a.events.length}`,
     `  • Ticketing     : ${fmtRp(a.events.filter(x=>x.tiket).reduce((s,x)=>s+x.porsi,0))} (${a.events.filter(x=>x.tiket).length} event, diakui penuh)`,
-    `  • Non-Ticketing : ${fmtRp(a.events.filter(x=>!x.tiket).reduce((s,x)=>s+x.porsi,0))} (${a.events.filter(x=>!x.tiket).length} event, diakui 50% — sisanya jadi bagi hasil kasir)`
+    `  • Non-Ticketing : ${fmtRp(a.events.filter(x=>!x.tiket).reduce((s,x)=>s+x.porsi,0))} (${a.events.filter(x=>!x.tiket).length} event, diakui 50% — sisanya bagi hasil DW & kasir shift)`
   ];
   if(a.comp) baris.push(`Catatan     : realisasi sudah dipotong compliment ${fmtRp(a.comp)}`);
   if(a.real<e.target) baris.push(`Kurang      : ${fmtRp(e.target-a.real)} lagi untuk capai target`);
@@ -1621,7 +1778,7 @@ function viewPerforma(divi){
       <div class="card"><div class="prog ${a.real>=e.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2">
         <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui penuh</div></div>
-        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui 50%, sisanya ke kasir</div></div>
+        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui 50%, sisanya ke DW &amp; kasir shift</div></div>
       </div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
@@ -1681,12 +1838,12 @@ function viewKasir(){
   const agg={};
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],bagi:0});
   days.forEach(d=>{
-    // Jatah dari event non-ticketing hari ini, dibagi rata ke kasir yang masuk.
-    const j=jatahKasirNonTiket(d);
     (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
       if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,bagi:0,off:true});}
       else{
-        const bagi=j.ids.indexOf(r.kasirId)>-1?j.per:0;
+        // Bagi hasil dihitung dari shift tiap baris event, bukan dari kehadiran
+        // hari itu: kasir yang masuk tapi tidak kena shift event tidak dapat.
+        const bagi=bagiKasirHari(d,r.kasirId);
         agg[r.kasirId].real+=num(r.amount)+bagi;
         agg[r.kasirId].bagi+=bagi;
         agg[r.kasirId].masuk++;
@@ -1703,7 +1860,14 @@ function viewKasir(){
     agg[k.id].real-=agg[k.id].comp;
   });
   const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
-  el.innerHTML=(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  /* Hari yang punya event non-ticketing tanpa penerima. Bagi hasilnya tidak
+     jatuh ke siapa pun, jadi realisasi kasir di bawah lebih kecil dari
+     seharusnya — sebut alasannya, jangan biarkan angkanya tampak wajar. */
+  const hariBelum=days.filter(d=>barisTanpaShift(d).length);
+  const peringatan=hariBelum.length
+    ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya event non-ticketing yang belum ditentukan shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Bagi hasilnya belum masuk ke kasir mana pun — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
+    : '';
+  el.innerHTML=peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
     let k,a;
     if(kid==='__all__'){
@@ -1724,7 +1888,7 @@ function viewKasir(){
       <div class="card"><div class="prog ${a.real>=k.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(k.target)}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
-        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Bagi Hasil</b> = jatah event non-ticketing hari itu</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Walk In</th><th class="num">Bagi Hasil</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Bagi Hasil</b> = jatah event non-ticketing yang shift-nya dipegang</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Walk In</th><th class="num">Bagi Hasil</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], kid==='__all__')}`;
     clearChartsExcept();
@@ -1745,15 +1909,14 @@ function viewSummary(){
   /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
      ranking di sini memakai angka yang sama dengan halaman Performa. */
   /* Aturan non-ticketing dipakai di sini juga — lewat porsiPic() untuk
-     marketing/event dan jatahKasirNonTiket() untuk kasir. Sempat dihitung
+     marketing/event dan bagiKasirHari() untuk kasir. Sempat dihitung
      dengan r.amount mentah di sini, dan hasilnya ranking menampilkan realisasi
      yang berbeda dari halaman Performa untuk orang yang sama. */
   const realBy=(divi,id)=>{
     let s=0;
     days.forEach(d=>{
       if(divi==='kasir'){
-        const j=jatahKasirNonTiket(d);
-        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=num(r.amount)+(j.ids.indexOf(id)>-1?j.per:0); });
+        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=num(r.amount)+bagiKasirHari(d,id); });
       }else{
         (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r); });
       }
