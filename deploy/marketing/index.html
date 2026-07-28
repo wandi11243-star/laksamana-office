@@ -1765,19 +1765,24 @@ async function autoSyncOfficeRoster(){
     const adminModul={}, anggotaModul={};
     (anggota||[]).forEach(m=>{ if(!m||!m.id)return; anggotaModul[m.id]=true; if(m.isModuleAdmin) adminModul[m.id]=true; });
 
-    /* ROLE BAWAAN untuk orang yang baru pertama kali terlihat.
-       Penting: sekarang yang ditarik SELURUH database user Office, bukan hanya
-       anggota modul Marketing. Kalau semuanya diberi role 'marketing' seperti
-       dulu, papan Marketing Performance dan dropdown "Marketing PIC" akan penuh
-       nama orang yang tidak pernah menjual apa pun. Jadi:
-         admin modul Marketing   -> Super Admin
-         anggota modul Marketing -> Marketing
-         selebihnya              -> Operational (muncul sebagai pilihan PIC,
-                                    tapi tidak dihitung sebagai tim marketing)
-       Role yang SUDAH ada tidak pernah disentuh — hanya baris baru. */
-    const roleBawaan=id=> adminModul[id] ? 'super_admin' : (anggotaModul[id] ? 'marketing' : 'operational');
+    /* ROLE MENGIKUTI JABATAN DI OFFICE (Kelola User -> kolom keterangan).
+       Sebelum ini role hanya ditebak dari keanggotaan modul: siapa pun yang
+       diberi akses modul Marketing jadi role Marketing, sisanya Operational.
+       Akibatnya orang yang jabatannya Finance atau Manager tetap tercatat
+       Marketing hanya karena diberi akses, dan papan Marketing Performance
+       menghitung mereka sebagai tim penjualan.
 
-    let baru=0, ubah=0, tanpaDiv=0;
+       Sekarang jabatanlah yang menentukan (lihat roleDariJabatan). Keanggotaan
+       modul tinggal jadi cadangan untuk jabatan yang tidak terbaca:
+         admin modul Office        -> Super Admin (itu memang setelan akses)
+         jabatan terbaca           -> role sesuai jabatan
+         jabatan tak terbaca       -> anggota modul: Marketing, selainnya Operational */
+    const roleSeharusnya=m=>{
+      if(adminModul[m.id]) return 'super_admin';
+      return roleDariJabatan(m.keterangan) || (anggotaModul[m.id] ? 'marketing' : 'operational');
+    };
+
+    let baru=0, ubah=0, tanpaDiv=0, roleBerubah=[];
     semua.forEach(m=>{
       if(!m||!m.id&&!m.name)return;
       const hp=hpDariOffice(m), div=divisiDariKeterangan(m.keterangan);
@@ -1786,19 +1791,35 @@ async function autoSyncOfficeRoster(){
           || S.users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
       if(!u){
         S.users.push({id:m.id||uid('u'),name:m.name||'(tanpa nama)',div,jabatan:m.keterangan||'',hp,
-          role:roleBawaan(m.id),active:m.active!==false});
+          role:roleSeharusnya(m),active:m.active!==false});
         baru++;
         return;
       }
       let ch=false;
+      /* ROLE IKUT JABATAN, termasuk untuk orang yang SUDAH ada. Dulu role lama
+         tidak pernah disentuh, jadi mengganti jabatan seseorang di Office tidak
+         berpengaruh apa pun di sini dan keduanya diam-diam berselisih.
+
+         Konsekuensinya harus disadari: role yang diubah manual lewat matriks
+         Hak Akses akan dikembalikan mengikuti jabatan saat modul dibuka lagi.
+         Jabatan di Office adalah sumbernya — kalau seseorang perlu role lain,
+         ubah jabatannya di Office, bukan di sini. Tiap perubahan dicatat di
+         Timeline & Audit Log supaya tidak terjadi diam-diam. */
+      const roleBaru=roleSeharusnya(m);
+      if(roleBaru && u.role!==roleBaru){
+        roleBerubah.push(u.name+': '+(ROLES[u.role]?ROLES[u.role].t:u.role)+' → '+(ROLES[roleBaru]?ROLES[roleBaru].t:roleBaru));
+        u.role=roleBaru; ch=true;
+      }
       // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
       if(m.id&&u.id!==m.id){ u.id=m.id; ch=true; }
       if(m.name&&u.name!==m.name){ u.name=m.name; ch=true; }
       /* No. HP: Office yang jadi acuan, jadi nomor yang berubah di Office IKUT
          berubah di sini. Ini yang dulu tidak pernah terjadi. */
       if(hp&&u.hp!==hp){ u.hp=hp; ch=true; }
-      // Jabatan diisi dari keterangan Office hanya bila belum pernah diisi.
-      if(m.keterangan&&!u.jabatan){ u.jabatan=m.keterangan; ch=true; }
+      /* Jabatan: Office yang jadi acuan, SELALU. Dulu hanya diisi bila masih
+         kosong — sekarang role diturunkan darinya, jadi jabatan basi berarti
+         role basi juga. */
+      if(m.keterangan&&u.jabatan!==m.keterangan){ u.jabatan=m.keterangan; ch=true; }
       /* Divisi: hanya diisi kalau masih kosong. Office tidak punya kolom divisi
          sendiri — nilainya TEBAKAN dari teks bebas `keterangan`, dan tebakan
          tidak boleh menimpa divisi yang sudah dipilih orang secara sadar. */
@@ -1808,10 +1829,15 @@ async function autoSyncOfficeRoster(){
     });
     if(baru||ubah){
       logAct('user','-','Data pegawai disinkronkan dari Office',baru+' baru · '+ubah+' diperbarui');
+      // Perubahan role dicatat terpisah & terperinci: ini menyangkut siapa boleh
+      // membuka apa, jadi harus bisa ditelusuri satu per satu di Audit Log.
+      if(roleBerubah.length) logAct('user','-','Role menyesuaikan jabatan Office',roleBerubah.join(' · '));
       save(); buildNav(); paintStaffDatalist();
     }
-    rosterSync={ status:'ok', at:new Date(), baru, ubah,
-      pesan: tanpaDiv?(tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.'):'' };
+    const pesan=[];
+    if(roleBerubah.length) pesan.push(roleBerubah.length+' role disesuaikan dengan jabatan di Office.');
+    if(tanpaDiv) pesan.push(tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.');
+    rosterSync={ status:'ok', at:new Date(), baru, ubah, pesan: pesan.join(' ') };
     segarkanStaff();
   }catch(e){
     /* Offline / Office tak terjangkau: TIDAK menghentikan apa pun. App tetap
@@ -8365,6 +8391,31 @@ function hpDariOffice(m){ return String((m&&(m.noHp||m.hp))||'').trim(); }
    Dicocokkan sebagai KATA UTUH ke daftar divisi Marketing (getCats()), cara
    yang sama dipakai modul Kompas untuk menurunkan tim PIC-nya. Kata utuh,
    bukan potongan, supaya "Barista" tidak terbaca sebagai divisi "Bar". */
+/* ---------- JABATAN OFFICE -> ROLE MARKETING ----------
+   Office (Kelola User) hanya punya satu kolom teks bebas `keterangan` untuk
+   jabatan: "Marketing & Digital", "Finance", "Event Manager", "Barista", dst.
+   Role di Pegawai & Akses diturunkan dari teks itu.
+
+   URUTAN PENTING dan sengaja begini: yang lebih berkuasa diperiksa lebih dulu.
+   "Marketing Manager" harus jadi Manager / Approver, bukan Marketing — kalau
+   urutannya dibalik, orang yang berwenang menyetujui penawaran justru kehilangan
+   hak approval-nya. Dicocokkan sebagai KATA UTUH supaya "Barista" tidak terbaca
+   sebagai "bar" dan "Administrasi" tidak terbaca sebagai "admin". */
+const ROLE_JABATAN=[
+  [['super','admin'],'super_admin'], [['administrator'],'super_admin'], [['it'],'super_admin'],
+  [['owner'],'manager'], [['direktur'],'manager'], [['director'],'manager'],
+  [['manager'],'manager'], [['manajer'],'manager'], [['gm'],'manager'],
+  [['kepala'],'manager'], [['supervisor'],'manager'], [['approver'],'manager'],
+  [['finance'],'finance'], [['keuangan'],'finance'], [['accounting'],'finance'],
+  [['akunting'],'finance'], [['kasir'],'finance'], [['cashier'],'finance'],
+  [['marketing'],'marketing'], [['sales'],'marketing'], [['penjualan'],'marketing']
+];
+function roleDariJabatan(ket){
+  const kata=String(ket||'').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  if(!kata.length) return '';
+  const cocok=ROLE_JABATAN.find(([kunci])=>kunci.every(k=>kata.indexOf(k)>=0));
+  return cocok?cocok[1]:'';
+}
 function divisiDariKeterangan(ket){
   const kata=String(ket||'').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
   if(!kata.length) return '';
