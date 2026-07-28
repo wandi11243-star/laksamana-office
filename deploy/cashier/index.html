@@ -330,6 +330,10 @@ tbody tr:hover{background:var(--gold-soft)}
         <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
         <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg></span> Dana Masuk (DP)</a>
       </div>
+      <div class="nav-group">
+        <div class="nav-label">Sistem</div>
+        <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Akses Kru</a>
+      </div>
     </nav>
     <div class="side-user">
       <div class="su-avatar" id="suAvatar">?</div>
@@ -654,7 +658,8 @@ const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   kasir:['Performa Kasir','Omset walk-in per kasir'],
-  dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi']
+  dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
+  akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
 };
 function go(view){
   // View yang tidak ada di TITLES tidak bisa dicapai, termasuk lewat go() dari
@@ -679,7 +684,7 @@ function render(){
   clearCharts();
   document.getElementById('periodPick').value=PERIOD;
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({report:viewReport,compliment:viewCompliment,kasir:viewKasir,dp:viewDp}[CURRENT])();
+  ({report:viewReport,compliment:viewCompliment,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -1278,6 +1283,68 @@ function viewDp(){
         </table></div>
       </div>
     </div>`;
+}
+
+/* ============ 5. KELOLA AKSES KRU ============
+   Daftar siapa saja yang PUNYA akses modul cashier, ditarik dari database
+   account lewat `listModuleRoster` — endpoint TANPA gerbang PIN (identitas
+   sudah dijamin sesi Office). Read-only: menambah dan menghapus akses tetap
+   dilakukan di "Kelola Akses" milik Office, bukan di sini.
+
+   Beda dari halaman serupa di Kompas: DI SINI TIDAK ADA KOLOM LEVEL. Kompas
+   punya dua level tampilan ('ops'/'full'); modul ini tidak, karena semua
+   halamannya memang pekerjaan kasir. Yang ditampilkan cuma siapa pemegang
+   aksesnya — kalau kolom level ikut disalin, isinya akan berbohong. */
+let AKSES_ROSTER=null, AKSES_ERR='';
+async function muatAkses(){
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),8000);
+  try{
+    const r=await fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listModuleRoster',module:'cashier'}),signal:stop.signal});
+    clearTimeout(jam);
+    const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
+    if(!j) throw new Error('Office membalas bukan JSON (account-api-mysql belum terpasang?)');
+    if(!j.ok) throw new Error(j.error||'ditolak');
+    if(!Array.isArray(j.members)) throw new Error('balasan tanpa daftar anggota');
+    AKSES_ROSTER=j.members; AKSES_ERR='';
+  }catch(e){ clearTimeout(jam); AKSES_ROSTER=null; AKSES_ERR=(e.name==='AbortError'?'Office tidak menjawab dalam 8 detik':e.message); }
+  if(CURRENT==='akses') viewAkses();
+}
+function viewAkses(){
+  const el=document.getElementById('app-view');
+  const meNama=(CURRENT_USER&&CURRENT_USER.name)||'';
+  const initial=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+  if(AKSES_ROSTER===null && !AKSES_ERR){
+    el.innerHTML=`<div class="card"><div class="empty"><div class="big">⏳</div>Memuat daftar akses dari Office…</div></div>`;
+    muatAkses(); return;
+  }
+  const rows=(AKSES_ROSTER||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><h3>Pemegang Akses Modul Cashier</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah dan menghapus akses dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="AKSES_ROSTER=null;AKSES_ERR='';viewAkses()">↻ Segarkan</button>
+    </div>
+    <div class="notice info">🔑 <div><b>Semua pemegang akses melihat halaman yang sama.</b>
+      Report Daily, Compliment, Performa Kasir, dan Dana Masuk — tidak ada level tampilan di modul ini.
+      Kalau seseorang tidak boleh melihat salah satunya, yang benar adalah tidak memberinya modul ini sama sekali,
+      bukan menambah gerbang kedua di dalam sini.
+      <b>Admin modul</b> hanya menentukan siapa yang boleh mengelola akses lewat konsol Office.</div></div>
+    ${AKSES_ERR?`<div class="notice bad">⚠ Gagal memuat: ${esc(AKSES_ERR)}</div>`:`
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nama</th><th>Tim / Keterangan</th><th>Status Akun</th><th>Admin Modul</th></tr></thead>
+        <tbody>${rows.length?rows.map(m=>{const adm=!!m.isModuleAdmin;return `<tr>
+          <td><div style="display:flex;align-items:center;gap:10px">
+            <span style="width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:11px">${esc(initial(m.name))}</span>
+            <b>${esc(m.name||'(tanpa nama)')}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}</div></td>
+          <td class="muted" style="font-size:12.5px">${esc(m.keterangan||'—')}</td>
+          <td>${m.active===false?'<span class="chip warn">nonaktif</span>':'<span class="chip ok">aktif</span>'}</td>
+          <td>${adm?'<span class="chip ok">admin modul</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
+        </tr>`;}).join(''):`<tr><td colspan="4" class="empty">Belum ada kru dengan akses modul Cashier. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
+      </table></div>
+    </div>
+    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Cashier · ${rows.filter(m=>m.isModuleAdmin).length} di antaranya admin modul.</div>`}`;
 }
 
 /* ---- chart option factories ---- */
