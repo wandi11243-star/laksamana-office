@@ -114,8 +114,6 @@ svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 .tb-sub{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold-deep);font-weight:700}
 .tb-title{font-family:var(--ff-display);font-size:20px;font-weight:700;margin-top:2px}
 .tb-sp{flex:1}
-.clock{font-family:var(--mono);font-size:12.5px;color:var(--gold-deep);text-align:right;font-variant-numeric:tabular-nums}
-.clock small{display:block;color:var(--muted);font-size:10px;letter-spacing:.09em;text-transform:uppercase}
 .who{display:flex;align-items:center;gap:9px;padding:5px 12px 5px 5px;border:1px solid var(--line-hard);
   border-radius:999px;background:#fff}
 .avatar{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:11.5px;
@@ -349,7 +347,6 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
   .main{padding-bottom:66px}
   .view{padding:14px}
   .g4,.g3,.g2{grid-template-columns:1fr}
-  .clock{display:none}
   .cal{gap:3px} .cd{min-height:68px;padding:4px} .cev{font-size:8.6px}
 }
 </style>
@@ -384,10 +381,9 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
         <div class="tb-title" id="tbTitle">Radar</div>
       </div>
       <div class="tb-sp"></div>
-      <button class="btn sm no-print" onclick="APP.muatUlang()" title="Tarik ulang data dari ketiga modul">
-        <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 11-2.6-6.4M21 3v6h-6"/></svg>Segarkan
-      </button>
-      <div class="clock" id="clock"></div>
+      <!-- Tombol "Segarkan" dan jam dinding DIBUANG dari topbar: keduanya
+           memakan ruang di bilah yang sama tanpa dipakai. Data tetap bisa
+           ditarik ulang — APP.muatUlang() dipanggil otomatis tiap 5 menit. -->
       <div class="who">
         <span class="avatar" id="uAv">?</span>
         <span><span class="who-n" id="uNama">—</span><span class="who-r" id="uRole">—</span></span>
@@ -502,12 +498,23 @@ function toast(t,s){
   w.appendChild(el);
   setTimeout(function(){el.style.opacity='0';el.style.transform='translateX(28px)';setTimeout(function(){el.remove();},250);},2800);
 }
-/* Ciutkan menu ke ikon (desktop). Diingat per perangkat. */
+/* Ciutkan menu ke ikon (desktop). Diingat per perangkat.
+
+   HARUS ditempel ke window. Seluruh skrip modul ini terbungkus IIFE, jadi
+   fungsi biasa TIDAK terlihat oleh atribut onclick di HTML — dan tombol ☰ di
+   topbar memang mati total sejak awal: satu klik cuma menghasilkan
+   "ReferenceError: toggleNav is not defined" di konsol, tanpa tanda apa pun di
+   layar. Lebih buruk lagi, keadaan ciut disimpan di localStorage dan dipulihkan
+   saat boot — siapa pun yang sempat menciutkan menu lewat cara lain akan
+   terkunci di menu ikon selamanya. */
 function toggleNav(){
   var app=document.getElementById('app'), mini=!app.classList.contains('nav-mini');
   app.classList.toggle('nav-mini',mini);
+  var b=document.getElementById('navMiniBtn');
+  if(b) b.setAttribute('aria-label',mini?'Tampilkan menu':'Sembunyikan menu');
   try{ localStorage.setItem('lm_radar_navmini',mini?'1':'0'); }catch(e){}
 }
+window.toggleNav=toggleNav;
 (function(){ try{ if(localStorage.getItem('lm_radar_navmini')==='1') document.getElementById('app').classList.add('nav-mini'); }catch(e){} })();
 
 function ico(n){
@@ -1151,7 +1158,7 @@ function vDetailEvent(){
     '<div style="flex:1"></div>'+
     '<button class="btn pri sm" onclick="window.print()">'+ico('print')+'Cetak / Simpan PDF</button></div>';
   h+=pitaGagal();
-  if(!a){ return h+kosong('Event tidak ditemukan','Data mungkin sudah berubah di modul asalnya. Coba Segarkan.'); }
+  if(!a){ return h+kosong('Event tidak ditemukan','Data mungkin sudah berubah di modul asalnya. Coba muat ulang halamannya.'); }
   var d=dDay(a.tgl), e=a.mentah||{};
 
   h+='<div class="card gold">';
@@ -1603,9 +1610,22 @@ function render(){
   else if(page==='detail') v.innerHTML=vDetailEvent();
   window.scrollTo(0,0);
 }
-function tickClock(){
-  var d=new Date(), el=$('#clock'); if(!el)return;
-  el.innerHTML='<small>'+HARI[d.getDay()]+', '+d.getDate()+' '+BLN[d.getMonth()]+'</small>'+pad(d.getHours())+':'+pad(d.getMinutes())+' WIB';
+/* tickClock() DIHAPUS bersama jam dinding di topbar.
+
+   Penyegaran otomatis yang menggantikan tombol "Segarkan". Sengaja SENYAP —
+   tidak ada toast, karena toast tiap 5 menit di layar yang memang dibiarkan
+   menyala seharian itu gangguan, bukan informasi.
+
+   Dua pengaman supaya penyegaran tidak menyambar orang yang sedang membaca:
+   panel detail yang terbuka menunda penyegaran sampai putaran berikutnya, dan
+   posisi gulir dikembalikan sesudah render() (render selalu melompat ke atas —
+   itu benar untuk pindah halaman, salah untuk penyegaran di tempat). */
+var SEGAR_MS = 5*60*1000;
+function segarSenyap(){
+  var drw=document.getElementById('drw');
+  if(drw && drw.classList.contains('on')) return;   // sedang dibaca, tunggu putaran berikutnya
+  var y=window.scrollY||0;
+  muat().then(function(){ render(); window.scrollTo(0,y); }, function(){});
 }
 
 /* ---------- APP ---------- */
@@ -1637,6 +1657,10 @@ var APP={
      sini memaksa kru login ulang hanya karena menutup Radar. Perilakunya
      disamakan dengan Marketing, Event, BD, dan HR. */
   logout:function(){ location.replace('../'); },
+  /* Tombol "Segarkan" di topbar sudah dibuang; penyegaran rutin kini dikerjakan
+     segarSenyap() tanpa toast. Versi bertoast ini DIPERTAHANKAN sebagai jalan
+     manual — dipanggil dari pesan "coba muat ulang" di halaman kosong, dan
+     berguna saat menguji dari konsol. */
   muatUlang:function(){
     toast('Menyegarkan','Menarik ulang data dari ketiga modul.');
     muat().then(function(){
@@ -1668,7 +1692,7 @@ function init(){
     $('#loading').style.display='none';
     $('#app').style.display='grid';
     render();
-    tickClock(); setInterval(tickClock,20000);
+    setInterval(segarSenyap,SEGAR_MS);
     document.addEventListener('keydown',function(e){ if(e.key==='Escape') APP.tutupDetail(); });
     if(GAGAL.length) toast('Sebagian sumber gagal', GAGAL.map(function(g){return g.nama;}).join(', ')+' tidak terhubung.');
   }, function(e){
