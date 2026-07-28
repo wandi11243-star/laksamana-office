@@ -1149,139 +1149,41 @@ async function syncPicOffice(){
 }
 
 /* ============ 4. DANA MASUK (DP) ============
-   HANYA BACA. Datanya milik modul Reservasi dan diambil apa adanya lewat
-   `getAll` di API-nya. Halaman ini tidak pernah menulis ke sana, dan itu
-   keputusan, bukan kekurangan yang belum sempat digarap:
+   BUKAN salinan. Yang ditampilkan di sini adalah halaman Dana Masuk MILIK
+   MODUL RESERVASI, dijalankan apa adanya di dalam <iframe> dengan parameter
+   `?embed=finance`. Satu domain, jadi tidak ada urusan lintas-asal.
 
-   1. Reservasi menyimpan SATU blob berisi seluruh reservasi. Menulis dari
-      modul kedua berarti mengirim ulang seluruh blob itu; host yang sedang
-      mengedit reservasi pada jam yang sama akan tertimpa tanpa gejala.
-      (Reservasi sendiri menghindarinya dengan merge per baris + baseVer —
-      mesin itu tidak ada di sini.)
-   2. Verifikasi bukti transfer di sana bersandar pada OCR dan berkas bukti
-      yang disimpan terpisah. Menyalin mesin itu ke modul ini berarti dua
-      salinan yang lambat laun berbeda — lebih berbahaya daripada satu tombol
-      yang memang harus dibuka di modul sebelah.
+   Kenapa begini, bukan disalin kodenya (permintaan 28 Juli 2026 "sama persis
+   seperti yang ada di tab reservasi"): halaman itu bukan cuma tabel. Di
+   belakangnya ada mesin OCR pembaca bukti transfer, pengunduh berkas bukti
+   yang disimpan terpisah di server, jalur simpan verifikasi berpelindung
+   tabrakan (merge per baris + baseVer), dan audit log. Menyalin semuanya
+   berarti membuat salinan kedua yang pelan-pelan melenceng dari aslinya —
+   dan "sama persis" cuma benar di hari pertama. Dengan cara ini perbaikan apa
+   pun di modul Reservasi langsung ikut ke sini, tanpa disalin ulang.
 
-   Jadi kasir memakai halaman ini untuk MENCOCOKKAN uang yang masuk, bukan
-   untuk memverifikasinya. Verifikasi tetap pekerjaan modul Reservasi.
+   Sisi Reservasi yang menopang ini ada tiga baris kecil: guard SSO menerima
+   pemegang modul `cashier` lewat pintu embed, body.embed menyembunyikan
+   sidebar & appbar, dan navigate() dikunci ke 'finance'. Role-nya dipaksa
+   `cashier` — kolom yang memang sudah ada di matriks Hak Akses per Role di
+   sana, dengan Dana Masuk = Boleh Ubah.
 
-   Satu baris = satu kali transfer, sama seperti di sana: DP yang dicicil
-   muncul terpisah supaya nominalnya bisa dicocokkan ke mutasi satu per satu. */
-const RESV_API='../reservasi-api-mysql/api.php';
-let DP_RESV=null, DP_ERR='';
-async function muatDp(){
-  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),20000);
-  try{
-    const r=await fetch(RESV_API+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow',signal:stop.signal});
-    clearTimeout(jam);
-    const j=await r.json();
-    if(!j||!j.ok) throw new Error((j&&j.error)||'server error');
-    DP_RESV=Array.isArray(j.data&&j.data.reservations)?j.data.reservations:[];
-    DP_ERR='';
-  }catch(e){
-    clearTimeout(jam); DP_RESV=null;
-    DP_ERR=(e.name==='AbortError'?'Modul Reservasi tidak menjawab dalam 20 detik':e.message);
-  }
-  if(CURRENT==='dp') viewDp();
-}
-/* Bank pengirim: hasil baca bukti kalau ada, kalau tidak metode yang diketik
-   host ("Transfer BCA" → "BCA"). */
-function dpBank(p){ return p.tfBank || String(p.method||'').replace(/^transfer\s+/i,'').trim(); }
-/* Nominal yang dipakai = yang terbaca di bukti, bukan yang diketik host —
-   kalau keduanya beda, yang benar-benar masuk ke rekening adalah yang di bukti. */
-function dpNominal(p){ return Number(p.tfAmount)>0?Number(p.tfAmount):(Number(p.amount)||0); }
-/* Salinan baca-saja dari ensureDps() milik Reservasi: reservasi lama menyimpan
-   DP sebagai field datar (dpAmount/dpMethod/…), bukan array `dps`. Tanpa ini
-   DP lama tidak muncul sama sekali di halaman ini. Sengaja TIDAK menulis
-   balik ke objeknya — migrasi datanya urusan modul Reservasi. */
-function dpsDari(r){
-  if(Array.isArray(r.dps) && r.dps.length) return r.dps;
-  if(r.dpStatus==='Sudah' && (Number(r.dpAmount)>0 || r.dpProofData)){
-    return [{amount:Number(r.dpAmount)||0, method:r.dpMethod||'', proofData:r.dpProofData||'',
-             tfDate:r.tfDate||'', tfTime:r.tfTime||'', tfBank:r.tfBank||'', tfName:r.tfName||'',
-             tfAmount:Number(r.tfAmount)||0, tfStatus:r.tfStatus||''}];
-  }
-  return [];
-}
-function dpBaris(){
-  const out=[];
-  (DP_RESV||[]).forEach(r=>{
-    const list=dpsDari(r);
-    list.forEach((p,i)=>{
-      if(!Number(p.amount) && !p.proofData) return;      // baris kosong, tidak ada uangnya
-      out.push({nama:r.name||'(tanpa nama)', tglResv:r.date||'',
-                tgl:p.tfDate||r.date||'', jam:p.tfTime||'',
-                bank:dpBank(p), pengirim:p.tfName||'', nominal:dpNominal(p),
-                status:p.tfStatus||'', adaBukti:!!p.proofData, ke:i+1, dari:list.length});
-    });
-  });
-  return out;
-}
+   Kalau iframe-nya gagal (mis. akses reservasi dicabut), yang tampil adalah
+   halaman login Office di dalam bingkai — itu memang jawaban yang benar,
+   bukan layar putih. */
 function viewDp(){
   const el=document.getElementById('app-view');
-  if(DP_RESV===null && !DP_ERR){
-    el.innerHTML=`<div class="card"><div class="empty"><div class="big">⏳</div>Memuat dana masuk dari modul Reservasi…</div></div>`;
-    muatDp(); return;
-  }
-  const segarkan=`<button class="btn btn-ghost btn-sm" onclick="DP_RESV=null;DP_ERR='';viewDp()">↻ Segarkan</button>`;
-  const kepala=`
+  el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-      <div><h3>Dana Masuk (DP)</h3><div class="card-sub" style="margin:0">Uang DP reservasi bulan <b>${esc(PERIOD)}</b>. Dibaca langsung dari modul Reservasi — halaman ini tidak mengubah apa pun di sana.</div></div>
-      ${segarkan}
-    </div>`;
-  if(DP_ERR){
-    el.innerHTML=kepala+`<div class="notice bad">⚠ Gagal memuat dari modul Reservasi: ${esc(DP_ERR)}</div>`;
-    return;
-  }
-  // Disaring per bulan mengikuti pemilih periode di topbar, memakai TANGGAL
-  // TRANSFER (bukan tanggal reservasi): yang dicocokkan kasir adalah mutasi
-  // rekening, dan tamu sering mentransfer jauh sebelum hari acaranya.
-  const semua=dpBaris().filter(x=>String(x.tgl).slice(0,7)===PERIOD)
-    .sort((a,b)=>a.tgl<b.tgl?1:a.tgl>b.tgl?-1:0);
-  const total=semua.reduce((s,x)=>s+x.nominal,0);
-  const sudah=semua.filter(x=>x.status==='verified');
-  const tolak=semua.filter(x=>x.status==='rejected');
-  const belum=semua.filter(x=>!x.status);
-  const tanpaBukti=semua.filter(x=>!x.adaBukti);
-  const perBank={};
-  semua.forEach(x=>{ const b=x.bank||'(tanpa bank)'; perBank[b]=(perBank[b]||0)+x.nominal; });
-  const bankRows=Object.keys(perBank).sort((a,b)=>perBank[b]-perBank[a])
-    .map(b=>`<tr><td>${esc(b)}</td><td class="num mono">${fmtRp(perBank[b])}</td></tr>`).join('');
-  const chip=x=>x.status==='verified'?'<span class="chip ok">terverifikasi</span>'
-             :x.status==='rejected'?'<span class="chip bad">ditolak</span>'
-             :'<span class="chip warn">belum dicek</span>';
-  const rows=semua.map(x=>`<tr>
-      <td>${esc(x.tgl)}${x.jam?` <span class="muted" style="font-size:11px">${esc(x.jam)}</span>`:''}</td>
-      <td><b>${esc(x.nama)}</b>${x.dari>1?` <span class="muted" style="font-size:11px">· DP ${x.ke}/${x.dari}</span>`:''}
-        <div class="muted" style="font-size:11px">reservasi ${esc(x.tglResv||'—')}</div></td>
-      <td>${esc(x.bank||'—')}</td>
-      <td>${esc(x.pengirim||'—')}</td>
-      <td class="num mono">${fmtRp(x.nominal)}</td>
-      <td>${chip(x)}${x.adaBukti?'':' <span class="chip mute">tanpa bukti</span>'}</td>
-    </tr>`).join('');
-  el.innerHTML=kepala+`
-    <div class="grid g4">
-      <div class="stat accent"><div class="lab">Total Dana Masuk</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${semua.length} kali transfer</div></div>
-      <div class="stat"><div class="lab">Terverifikasi</div><div class="val sm mono">${fmtRp(sudah.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${sudah.length} transaksi</div></div>
-      <div class="stat"><div class="lab">Belum Dicek</div><div class="val sm mono">${fmtRp(belum.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${belum.length} transaksi${tanpaBukti.length?` · ${tanpaBukti.length} tanpa bukti`:''}</div></div>
-      <div class="stat"><div class="lab">Ditolak</div><div class="val sm mono">${fmtRp(tolak.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${tolak.length} transaksi, tidak dihitung</div></div>
+      <div><h3>Dana Masuk (DP)</h3><div class="card-sub" style="margin:0">Halaman Dana Masuk milik modul <b>Reservasi</b>, ditampilkan apa adanya di sini — termasuk scan bukti, verifikasi, dan export.</div></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('dpFrame').contentWindow.location.reload()">↻ Muat Ulang</button>
+        <a class="btn btn-ghost btn-sm" href="../reservasi/?embed=finance" target="_blank" rel="noopener">⧉ Buka di tab baru</a>
+      </div>
     </div>
-    <div class="notice info">ℹ️ <div>Halaman ini <b>hanya menampilkan</b>. Verifikasi bukti transfer, koreksi nominal, dan penghapusan DP tetap dikerjakan di modul <b>Reservasi</b> — di sanalah bukti transfernya tersimpan.</div></div>
-    <div class="grid g2" style="align-items:start">
-      <div class="card" style="padding:0;overflow:hidden">
-        <div style="padding:16px 18px 0"><h3>Rincian Transfer</h3><div class="card-sub">Satu baris = satu kali transfer. Nominal memakai angka yang terbaca di bukti kalau ada.</div></div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>Tgl Transfer</th><th>Tamu</th><th>Bank</th><th>Pengirim</th><th class="num">Nominal</th><th>Status</th></tr></thead>
-          <tbody>${rows||'<tr><td colspan="6" class="empty">Belum ada dana masuk pada periode ini.</td></tr>'}</tbody>
-        </table></div>
-      </div>
-      <div class="card"><h3>Rekap per Bank</h3><div class="card-sub">Seluruh transfer bulan ini, termasuk yang belum dicek</div>
-        <div class="tbl-wrap"><table>
-          <thead><tr><th>Bank</th><th class="num">Nominal</th></tr></thead>
-          <tbody>${bankRows||'<tr><td colspan="2" class="empty">Belum ada data.</td></tr>'}</tbody>
-        </table></div>
-      </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <iframe id="dpFrame" src="../reservasi/?embed=finance" title="Dana Masuk (DP)"
+        style="display:block;width:100%;height:calc(100vh - 210px);min-height:520px;border:0"></iframe>
     </div>`;
 }
 
