@@ -4939,6 +4939,12 @@ function autoSaveBind(ev){
   _asEvId=ev.id;
   const c=$('ev-tab-content'); if(!c)return;
   c.addEventListener('input',autoSaveTrigger);
+  /* Panel "Perhitungan Otomatis" ikut hidup saat mengetik. Dipasang sebagai
+     satu pendengar di wadah, bukan oninput per kotak: kotak rupiah sudah punya
+     oninput sendiri (onRupiahInput) dan menumpuknya di atribut gampang tercecer
+     saat kotak baru ditambahkan. Disaring dengan awalan id 'efd_' supaya
+     ketikan di tab lain tidak ikut memanggilnya. */
+  c.addEventListener('input',e=>{ if(e.target&&/^efd_/.test(e.target.id||'')) finLive(); });
   c.addEventListener('change',autoSaveTrigger);
   c.addEventListener('change',syncConds);
   c.addEventListener('change',syncMenuTbl);
@@ -5297,8 +5303,18 @@ function financeTab(ev,canEdit){
   // Tombol simpan bagian ini sengaja dihapus: sekarang tab Finance punya satu
   // tombol Simpan di bawah yang mencakup Kasir + Finance sekaligus.
   h+='</div>';
-  // right: computed
-  h+='<div class="card" style="background:var(--ink-900)"><h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
+  // right: computed — isinya digambar ulang sendiri tiap ketukan, lihat finLive()
+  h+='<div class="card" id="fin-hitung" style="background:var(--ink-900)">'+finHitungHTML(ev)+'</div>';
+  h+='</div>';
+  return h;
+}
+/* Isi panel "Perhitungan Otomatis". Dipisah dari financeTab() supaya bisa
+   digambar ulang SENDIRIAN saat orang mengetik, tanpa menyentuh kotak isian di
+   sebelah kiri — menggambar ulang seluruh tab akan membuang fokus dan posisi
+   kursor di tengah ketikan. */
+function finHitungHTML(ev){
+  const f=eventFinance(ev), st=S.settings;
+  let h='<h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
   h+='<dl class="kv-list">'
    +'<dt>F&B ('+(ev.pax||0)+' pax)</dt><dd class="mono">'+rp(f.fb)+'</dd>'
    +'<dt>Subtotal</dt><dd class="mono">'+rp(f.sub)+'</dd>'
@@ -5314,9 +5330,34 @@ function financeTab(ev,canEdit){
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
   h+='</div>';
   h+='<div style="margin-top:14px;padding:11px;background:var(--warn-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' <b>Perlu konfirmasi:</b> Tarif PB1 '+st.pb1+'% + service '+st.serviceCharge+'% belum final.</div>';
-  h+='</div></div>';
-  setTimeout(()=>{const s=document.querySelector('#ev-tab-content .alert');},0);
   return h;
+}
+/* ---------- PERHITUNGAN IKUT HIDUP SAAT MENGETIK ----------
+   Dulu angka di panel kanan baru bergerak SESUDAH klik Simpan. Orang mengetik
+   "Lain-lain 2.500.000", melihat Grand Total tidak berubah, dan menyimpulkan
+   angkanya tidak ikut dihitung — padahal cuma layarnya yang belum digambar
+   ulang. Sekarang panelnya menghitung ulang tiap ketukan.
+
+   Yang dihitung adalah SALINAN event, bukan event aslinya: menyimpan tetap
+   butuh klik Simpan yang disengaja (nilai finance memicu hitung ulang di
+   invoice & laporan, jadi tidak boleh berubah hanya karena kursor lewat).
+   Salinannya dangkal dengan detail disalin sendiri — kalau ev.detail ikut
+   dipakai bersama, mengetik akan mengubah data asli tanpa disimpan. */
+function finBayangan(ev){
+  const b=Object.assign({},ev,{detail:Object.assign({},ev.detail)});
+  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{
+    const el=$('efd_'+k); if(!el)return;
+    const d=rupiahDigits(el.value); b.detail[k]=d===''?'':(+d);
+  });
+  const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
+  const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
+  const dp=$('efd_dpPercent'); if(dp)b.dpPercent=+dp.value||S.settings.dpPercent;
+  return b;
+}
+function finLive(){
+  const wrap=$('fin-hitung'); if(!wrap)return;
+  const ev=S.events.find(x=>x.id===_asEvId); if(!ev)return;
+  wrap.innerHTML=finHitungHTML(finBayangan(ev));
 }
 // Riwayat pembayaran satu event: dipakai di tab Finance event DAN di modal
 // riwayat dari modul Invoice & Payment, supaya sumbernya satu (tidak dobel).
@@ -5347,8 +5388,11 @@ function hitungFinanceLive(el){
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev)return;
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
-  simpanGulir();
-  renderEventTab(ev,can('edit_event'));   // menggambar ulang + memasang ulang pendengarnya
+  /* Dulu di sini renderEventTab(): menggambar ULANG SELURUH TAB hanya untuk
+     memperbarui empat angka di panel kanan, lengkap dengan simpan/pulihkan
+     posisi gulir supaya layarnya tidak melompat. Sekarang cukup panel kanannya
+     saja — lebih murah, dan tidak ada lagi yang bisa melompat. */
+  finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
 function ynSeg(id,on,canEdit){ return '<div class="seg" id="'+id+'"><button type="button" class="'+(on?'on':'')+'" '+(canEdit?'onclick="segPick(this,true)"':'')+' data-v="1">Ya</button><button type="button" class="'+(on?'':'on')+'" '+(canEdit?'onclick="segPick(this,false)"':'')+' data-v="0">Tidak</button></div>'; }
@@ -5508,7 +5552,7 @@ function renderBrief(V){
   const urut=tblUrut(evs,'brief',KOL_BRIEF);
   const p=tblPage(urut,'brief',q);
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('brief',KOL_BRIEF)+'<tbody>';
-  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')" title="Bahan referensi internal — berisi juga PDF penawaran yang sudah diunggah">Draft Negotiation</button></div></td></tr>'; });
+  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="draftNegotiation(\''+e.id+'\')" title="Pilih: PDF yang diunggah sendiri, atau template otomatis dari sistem">Draft Negotiation</button></div></td></tr>'; });
   h+='</tbody></table></div>'+tblPagerHtml(p,'brief')+'</div>';
   V.innerHTML=h;
 }
@@ -5526,6 +5570,34 @@ const KOL_BRIEF=[
    dikirim ke client. */
 function genBriefFor(id,mode){
   mode=mode||'internal'; buildBriefDoc(id,mode);
+}
+/* ---------- DRAFT NEGOTIATION: PILIH DULU PDF YANG MANA ----------
+   Ada DUA berkas yang sama-sama disebut "penawaran" dan gampang tertukar:
+     1. PDF yang dibuat Marketing sendiri di luar sistem lalu diunggah. Inilah
+        yang benar-benar dikirim ke client dan yang dibaca Approver.
+     2. Dokumen yang dicetak sistem dari data event (template otomatis).
+        Angkanya selalu ikut data terbaru, tapi ia BUKAN surat resmi.
+   Sebelum ini tombolnya langsung membuka nomor 2, dan nomor 1 cuma tertaut di
+   dalamnya — orang yang mencari "surat yang tadi saya unggah" tidak menyangka
+   harus lewat sini. Sekarang ditanya lebih dulu. */
+function draftNegotiation(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  const pf=penFile(ev), st=penStatus(ev);
+  const kartu=(judul,sub,aksi,mati)=>
+    '<button class="btn" style="display:block;width:100%;text-align:left;padding:14px 16px;height:auto;margin-bottom:10px"'
+    +(mati?' disabled':' onclick="'+aksi+'"')+'>'
+    +'<div style="font-weight:600;font-size:13.5px">'+judul+'</div>'
+    +'<div class="cell-sub" style="margin-top:3px;white-space:normal">'+sub+'</div></button>';
+  modal('<div class="modal-head"><div><h3>Draft Negotiation</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +kartu('PDF yang diunggah sendiri',
+      pf ? esc(pf.name||'surat-penawaran.pdf')+(st?' · '+esc(st):'')+' — berkas inilah yang dikirim ke client.'
+         : 'Belum ada berkas. Unggah lewat kartu <b>Surat Penawaran</b> di detail event.',
+      'closeModal();window.open(\''+escJs(attachUrl(pf?pf.key:''))+'\',\'_blank\',\'noopener\')', !pf)
+   +kartu('Template otomatis dari sistem',
+      'Dicetak dari data event — rincian biaya, fasilitas, galeri venue, syarat &amp; ketentuan. Angkanya selalu ikut data terbaru, tapi ini <b>bukan</b> surat resmi.',
+      'closeModal();genBriefFor(\''+id+'\',\'quote\')', false)
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button></div>');
 }
 function fmtFieldVal(fl,val){
   if(fl.t==='mirror'){
