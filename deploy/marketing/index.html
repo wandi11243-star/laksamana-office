@@ -4566,15 +4566,15 @@ function delAttach(evId,k,key){
   save(); repaintAttach(evId,k);
   toast('Lampiran dihapus','','ok');
 }
-/* ---------- Galeri Venue (untuk Draft Quotation) ----------
+/* ---------- Galeri Venue (untuk Draft Negotiation) ----------
    Foto venue tetap (full house, panggung, suasana malam, penyesuaian layout)
-   yang tampil di setiap Draft Quotation (Modul E) — bahan menyusun Surat
+   yang tampil di setiap Draft Negotiation (Modul E) — bahan menyusun Surat
    Penawaran, yang surat resminya kini diunggah sebagai PDF. Diupload sekali di
    Pengaturan, disimpan di S.settings.venueGallery, ikut tersimpan ke server. */
 function venueGallery(){ return Array.isArray(S.settings.venueGallery)?S.settings.venueGallery:[]; }
 function venueGalleryHTML(canEdit){
   const arr=venueGallery();
-  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Draft Quotation.</div>';
+  if(!arr.length) return '<div class="cell-sub" style="padding:6px 0">Belum ada foto venue. Upload foto agar tampil di setiap Draft Negotiation.</div>';
   return '<div class="att-imgs">'+arr.map(f=>'<figure class="att-img">'
     +'<a href="'+esc(attachUrl(f.key))+'" target="_blank" rel="noopener"><img src="'+esc(attachUrl(f.key))+'" alt="'+esc(f.name||'venue')+'" loading="lazy" onerror="gambarHilang(this)"></a>'
     +'<figcaption>'+esc(f.name||f.key)+'</figcaption>'
@@ -5483,7 +5483,7 @@ function deletePayment(id,paymentId){
    ============================================================ */
 let briefCari='';
 function renderBrief(V){
-  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal atau versi client. <b>Surat Penawaran resmi tidak lagi digenerate di sini</b> — dibuat sendiri lalu diunggah PDF-nya di kartu Surat Penawaran pada detail event; tombol Draft Quotation di bawah hanya bahan referensi internal.','');
+  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal atau versi client. <b>Surat Penawaran resmi tidak lagi digenerate di sini</b> — dibuat sendiri lalu diunggah PDF-nya di kartu Surat Penawaran pada detail event; tombol Draft Negotiation di bawah hanya bahan referensi internal — di dalamnya PDF yang sudah diunggah ikut ditautkan.','');
   const semua=S.events.slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   if(!semua.length){
     h+=empty('Belum ada event','Brief & quotation dibuat dari event yang sudah ada. Buat event dulu di menu Input & Event.','brief');
@@ -5508,7 +5508,7 @@ function renderBrief(V){
   const urut=tblUrut(evs,'brief',KOL_BRIEF);
   const p=tblPage(urut,'brief',q);
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('brief',KOL_BRIEF)+'<tbody>';
-  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')" title="Bahan referensi internal — bukan Surat Penawaran resmi">Draft Quotation</button></div></td></tr>'; });
+  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'quote\')" title="Bahan referensi internal — berisi juga PDF penawaran yang sudah diunggah">Draft Negotiation</button></div></td></tr>'; });
   h+='</tbody></table></div>'+tblPagerHtml(p,'brief')+'</div>';
   V.innerHTML=h;
 }
@@ -5873,6 +5873,24 @@ function buildBriefDoc(id,mode){
       +'<div><b>Estimasi Tamu</b>: '+(ev.pax||'—')+' pax</div><div><b>Lokasi</b>: '+esc(areaTxt)+'</div>'
       +(ev.detail.privacy?'<div><b>Sifat Acara</b>: '+esc(ev.detail.privacy)+'</div>':'')+'<div><b>Marketing PIC</b>: '+esc(userName(ev.mktPIC))+'</div></div>';
     body=head+suratMeta+pembuka+sorot+detailAcara;
+    /* BERKAS SURAT PENAWARAN YANG SUDAH DIUNGGAH.
+       Draft ini rujukan internal, tapi yang benar-benar dikirim ke client
+       adalah PDF yang diunggah Marketing di kartu Surat Penawaran. Sebelum ini
+       keduanya terpisah: draft di Modul E, PDF-nya di detail event — orang
+       harus mengingat dua tempat untuk satu penawaran yang sama, dan gampang
+       membandingkan draft lama dengan surat yang sudah berubah. Sekarang
+       berkasnya ditautkan langsung di sini. Ditautkan, bukan disematkan: isi
+       dokumen ini ikut tercetak, dan PDF tidak bisa tercetak di dalam PDF. */
+    const pfDraft=penFile(ev);
+    body+=pfDraft
+      ? '<div style="background:#F6F4EE;border-left:4px solid #C8940A;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:12.5px">'
+        +'<div style="font-size:10px;letter-spacing:.14em;color:#8a6a12;font-weight:700;margin-bottom:5px">BERKAS SURAT PENAWARAN</div>'
+        +'<a href="'+esc(attachUrl(pfDraft.key))+'" target="_blank" rel="noopener"><b>'+esc(pfDraft.name||'surat-penawaran.pdf')+'</b></a>'
+        +(pen.status?' <span style="color:#666">· '+esc(pen.status)+'</span>':'')
+        +'<div style="color:#666;margin-top:3px">Berkas inilah yang dikirim ke client. Rincian di bawah hanya rujukan internal.</div></div>'
+      : '<div style="background:#FDF0F0;border-left:4px solid #C0392B;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:12.5px">'
+        +'<div style="font-size:10px;letter-spacing:.14em;color:#a3342a;font-weight:700;margin-bottom:5px">BERKAS SURAT PENAWARAN</div>'
+        +'Belum ada PDF yang diunggah. Unggah lewat kartu <b>Surat Penawaran</b> di detail event — dokumen ini tidak menggantikannya.</div>';
     body+='<div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Rincian Penawaran</div>'
      +'<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">'
      +'<tr style="background:var(--gold-deep);color:#fff"><th style="text-align:left;padding:10px 14px">Komponen</th><th style="text-align:right;padding:10px 14px">Jumlah</th></tr>'
@@ -5914,7 +5932,7 @@ function buildBriefDoc(id,mode){
        2) TANGGAL BISA BUKAN TANGGAL. `at` berasal dari data tersimpan; kalau
           isinya rusak, fmtDateLong menghasilkan "Invalid Date" tercetak di
           surat. Dicek dulu lewat tglTtd().
-       3) STEMPEL PADA DOKUMEN YANG BELUM DITANDATANGANI. Draft Quotation nyaris
+       3) STEMPEL PADA DOKUMEN YANG BELUM DITANDATANGANI. Draft Negotiation nyaris
           selalu dibuat SEBELUM ada approval, jadi kotak "Menyetujui" kosong
           melompong tapi tetap tampak seperti tanda tangan yang gagal termuat.
           Sekarang kalau belum ada jejaknya, yang digambar adalah GARIS TANDA
@@ -5992,8 +6010,12 @@ function buildBriefDoc(id,mode){
 
   // WA message
   const waMsg='Halo '+(c.pic||c.nama)+', berikut '+ (mode==='quote'?'penawaran':'detail acara')+' untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+').\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)+'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
-  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Draft Quotation — referensi internal'};
-  modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Modul E · '+modeLabels[mode]+'</div><h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row"><a class="btn sm" target="_blank" href="'+waLink(c.hp,waMsg)+'">'+svg(IC.wa)+'Kirim WA</a><button class="btn sm" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div><div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'+doc+'</div>');
+  const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Draft Negotiation — referensi internal'};
+  // Pintasan ke PDF penawaran — hanya di Draft Negotiation, dan hanya bila
+  // berkasnya memang sudah diunggah.
+  const pfHead=(mode==='quote')?penFile(ev):null;
+  const btnPdfHead=pfHead?'<a class="btn sm" target="_blank" rel="noopener" href="'+esc(attachUrl(pfHead.key))+'">'+svg(IC.brief)+'Buka PDF Penawaran</a>':'';
+  modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Modul E · '+modeLabels[mode]+'</div><h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row">'+btnPdfHead+'<a class="btn sm" target="_blank" href="'+waLink(c.hp,waMsg)+'">'+svg(IC.wa)+'Kirim WA</a><button class="btn sm" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div><div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'+doc+'</div>');
   $('modal').classList.add('wide');
   window._printDoc=doc;
 }
@@ -8422,8 +8444,8 @@ function renderSettings(V){
   const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];
   h+='<div style="display:flex;flex-direction:column;gap:7px">'+points.map((p,i)=>'<div style="display:flex;gap:9px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)"><span class="tag">'+(i+1)+'</span>'+esc(p)+'</div>').join('')+'</div>';
   h+='</div>';
-  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Draft Quotation)</span></h3>'
-   +'<p class="section-desc">Foto venue — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Tampil di <b>Draft Quotation</b> (Modul E) sebagai bahan saat menyusun Surat Penawaran; surat resminya sendiri kini dibuat di luar sistem lalu diunggah PDF-nya. Maks 8MB/foto.</p>'
+  h+='<div class="card" style="margin-top:16px"><h3 style="font-size:15px;margin-bottom:6px">Galeri Venue <span class="cell-sub" style="font-weight:400">(Draft Negotiation)</span></h3>'
+   +'<p class="section-desc">Foto venue — mis. full house saat konser, panggung, suasana malam, penyesuaian layout. Tampil di <b>Draft Negotiation</b> (Modul E) sebagai bahan saat menyusun Surat Penawaran; surat resminya sendiri kini dibuat di luar sistem lalu diunggah PDF-nya. Maks 8MB/foto.</p>'
    +'<div id="venueGalWrap">'+venueGalleryHTML(true)+'</div>'
    +'<label class="attach-add" style="margin-top:10px">'+svg(IC.plus)+'Tambah Foto Venue<input type="file" accept="image/*" multiple hidden onchange="uploadVenueFoto(this)"></label>'
    +'</div>';
