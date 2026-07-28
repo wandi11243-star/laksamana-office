@@ -833,8 +833,13 @@ function saveDaily(){
    bermasalah — total saja tidak cukup, karena kelebihan di satu metode bisa
    menutupi kekurangan di metode lain dan seolah-olah balance.
 
-   Pembandingnya tagihanOf(): omset net + service charge + tax. Tax & service
-   ada di luar omset tapi tetap uang yang diterima kasir, jadi harus ikut. */
+   Halaman ini SENGAJA tidak menyebut omset harian sama sekali. Dulu ada kartu
+   "Tagihan Menurut Omset" + "Selisih terhadap Omset" di sini, dan hasilnya
+   membingungkan: selama admin belum menginput omset, tagihannya Rp0 sehingga
+   selisihnya sama dengan seluruh setoran (mis. +Rp9.430.148 merah) — seolah
+   kasir salah besar padahal pekerjaannya sudah benar. Pencocokan ke omset
+   sepenuhnya jadi urusan Input Omset Harian, yang memang diisi belakangan.
+   Yang tersisa di sini hanya selisih POS vs Actual: itu murni internal kasir. */
 let repDate=todayISO();
 function repOf(date){ return (DB.reports||{})[date]||null; }
 function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(p.pos),actual:num(p.actual)}; }
@@ -842,14 +847,11 @@ function viewReport(){
   CAL_ST.rp.open=false;
   const el=document.getElementById('app-view');
   const rec=repOf(repDate);
-  const d=getDay(repDate);
-  const tagihan=d?tagihanOf(d):0;
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Diisi kasir lebih dulu. Isi POS dan Actual tiap metode — selisih dihitung otomatis.</div></div>
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode — selisih dihitung otomatis. Boleh disubmit kapan saja, tidak perlu menunggu omset harian.</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
-    ${!d?`<div class="notice info">ℹ️ Halaman ini boleh diisi dan disubmit kapan saja, tidak perlu menunggu omset harian. Nanti <b>Input Omset Harian</b> yang dicocokkan ke angka di sini.</div>`:''}
     <div class="card">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th></tr></thead>
@@ -865,9 +867,9 @@ function viewReport(){
       </table></div>
     </div>
     <div class="grid g3">
-      <div class="stat accent"><div class="lab">Tagihan Menurut Omset</div><div class="val sm mono">${fmtRp(tagihan)}</div><div class="foot">${d?`omset ${fmtRp(netOf(d))} + service ${fmtRp(num(d.service_charge))} + tax ${fmtRp(num(d.tax))}`:'omset belum diinput'}</div></div>
-      <div class="stat"><div class="lab">Total Actual Kasir</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">jumlah kolom Actual</div></div>
-      <div class="stat" id="rc_box"><div class="lab">Selisih terhadap Omset</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>
+      <div class="stat accent"><div class="lab">Total POS</div><div class="val sm mono" id="rc_pos">Rp0</div><div class="foot">angka dari mesin kasir</div></div>
+      <div class="stat"><div class="lab">Total Actual</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">uang & mutasi yang benar-benar ada</div></div>
+      <div class="stat" id="rc_box"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>
     </div>
     <div id="rp_err"></div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
@@ -892,28 +894,22 @@ function viewReport(){
     const tf=document.getElementById('rt_sel');
     tf.textContent=fmtSel(tsel);
     tf.style.color = tsel===0?'var(--muted)':(tsel>0?'var(--ok)':'var(--danger)');
-    // Pembanding terhadap omset memakai kolom ACTUAL: itu uang yang benar-benar
-    // ada di tangan, bukan angka yang dicetak mesin.
-    const sel=ta-tagihan, abs=Math.abs(sel);
+    /* Ringkasan bawah = pengulangan baris TOTAL, murni POS vs Actual. Tidak
+       ada lagi pembanding ke omset di halaman ini, dan submit tidak pernah
+       dikunci: kasir mengisi lebih dulu, sering sebelum omset harian ada. */
+    const abs=Math.abs(tsel);
+    document.getElementById('rc_pos').textContent=fmtRp(tp);
     document.getElementById('rc_act').textContent=fmtRp(ta);
-    document.getElementById('rc_sel').textContent=fmtSel(sel);
-    const box=document.getElementById('rc_box');
-    /* Report Daily SENGAJA tidak pernah mengunci submit. Kasir mengisi lebih
-       dulu, sering sebelum omset harian diinput sama sekali — mengunci di sini
-       berarti pekerjaan kasir tersandera menunggu admin. Pencocokan yang
-       mengikat dipindah ke Input Omset Harian, yang memang diisi belakangan. */
-    if(!d){
-      box.style.background='';
-      document.getElementById('rc_foot').textContent='omset harian belum diinput — belum ada pembanding';
-    }else{
-      box.style.background = abs===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
-      document.getElementById('rc_foot').innerHTML = abs===0
-        ? 'cocok dengan omset ✓'
-        : abs<SELISIH_TOLERANSI
-          ? `beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)}) — masih dalam batas`
-          : `omset harian yang diinput admin belum cocok dengan setoran ini`;
-    }
-    return {tp,ta,sel,abs};
+    document.getElementById('rc_sel').textContent=fmtSel(tsel);
+    document.getElementById('rc_box').style.background =
+      tsel===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
+    document.getElementById('rc_foot').innerHTML = tsel===0
+      ? 'POS dan Actual cocok ✓'
+      : abs<SELISIH_TOLERANSI
+        ? `beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)})`
+        : tsel>0 ? 'uang lebih dari catatan mesin — cek metode yang selisihnya besar'
+                 : 'uang kurang dari catatan mesin — cek metode yang selisihnya besar';
+    return {tp,ta,sel:tsel,abs};
   };
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
@@ -925,7 +921,7 @@ function viewReport(){
     DB.reports=DB.reports||{};
     DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true};
     save();
-    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan selisih ${fmtRp(h.abs)}`:''}.</div>`;
+    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan selisih POS vs Actual ${fmtRp(h.abs)}`:''}.</div>`;
     setTimeout(()=>render(),700);
   });
   hitung();
