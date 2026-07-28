@@ -67,6 +67,7 @@ input,select,textarea{font-family:inherit}
 .btn:focus-visible{outline:none;box-shadow:var(--ring)}
 .btn-block{width:100%}
 .btn-sm{padding:8px 12px;font-size:13px}
+.btn-xs{padding:5px 9px;font-size:12px;border-radius:8px}
 .btn-primary{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;box-shadow:0 3px 12px rgba(122,86,15,.28)}
 .btn-primary:hover{filter:brightness(1.06)}
 .btn-primary:disabled{opacity:.5;cursor:not-allowed;filter:none}
@@ -198,6 +199,7 @@ tbody tr:hover{background:var(--gold-soft)}
 .notice.ok{background:var(--ok-bg);color:#146c42}
 .notice.bad{background:var(--danger-bg);color:#8f2718}
 .notice.info{background:var(--info-bg);color:#1a5a91}
+.notice.warn{background:var(--warn-bg);color:#7a5a10}
 .empty{text-align:center;padding:40px 20px;color:var(--muted-2)}
 .empty .big{font-size:34px;margin-bottom:8px}
 .seg{display:inline-flex;background:var(--gold-soft);border-radius:10px;padding:3px;gap:2px;margin-bottom:16px;flex-wrap:wrap}
@@ -259,6 +261,8 @@ tbody tr:hover{background:var(--gold-soft)}
       <div class="nav-group">
         <div class="nav-label">Operasional</div>
         <a data-view="input"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span> Input Omset Harian</a>
+        <a data-view="report"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span> Report Daily</a>
+        <a data-view="compliment"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span> Compliment</a>
         <a data-view="breakdown"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></span> Breakdown Sumber</a>
       </div>
       <div class="nav-group">
@@ -311,9 +315,11 @@ tbody tr:hover{background:var(--gold-soft)}
 <script>
 /* =========================================================
    KOMPAS — engine
-   Omset (net) = Food+Beverage+Rokok+Videotron+Lainnya − Discount
-   Tax & Service = di luar omset, diakumulasi bulanan
+   Omset (net) = Food + Beverage + Lainnya − Discount
+   Service Charge & Tax = di luar omset, diakumulasi bulanan, TAPI ikut
+     ditagihkan ke tamu → jadi pembanding setoran kasir di Report Daily
    Discount = diakumulasi bulanan
+   Compliment = catatan terpisah; memotong REALISASI PIC penanggungnya
 
    Data disimpan di server (kompas-api-mysql) sebagai satu blob JSON,
    dengan salinan lokal (localStorage) untuk tampil saat jaringan putus.
@@ -322,6 +328,10 @@ const API_URL='../kompas-api-mysql/api.php';
 const CACHE_KEY='lm_kompas_cache_v2';
 const SESSION_KEY='lm_session';
 const fmtRp=n=>'Rp'+Math.round(n||0).toLocaleString('id-ID');
+/* Nominal BERTANDA untuk kolom selisih. fmtRp() menempelkan minus di belakang
+   "Rp" ("Rp-9.001") karena tandanya ikut ke dalam toLocaleString — di kolom
+   yang justru isinya sering negatif itu terbaca salah sekilas. */
+const fmtSel=n=>{ n=Math.round(n||0); return (n>0?'+':n<0?'−':'')+'Rp'+Math.abs(n).toLocaleString('id-ID'); };
 const fmtRpShort=n=>{n=n||0;if(Math.abs(n)>=1e9)return 'Rp'+(n/1e9).toFixed(1).replace('.0','')+'M';if(Math.abs(n)>=1e6)return 'Rp'+(n/1e6).toFixed(1).replace('.0','')+'jt';if(Math.abs(n)>=1e3)return 'Rp'+Math.round(n/1e3)+'rb';return 'Rp'+Math.round(n);};
 const pct=(a,b)=>b>0?(a/b*100):0;
 // Semua nominal di modul ini bilangan BULAT (rupiah/jumlah), dan input rupiah
@@ -355,18 +365,80 @@ function toggleNav(){
 }
 (function(){ try{ if(localStorage.getItem('lm_kompas_navmini')==='1') document.querySelector('.app').classList.add('nav-mini'); }catch(e){} })();
 
-/* Identitas dari Office (lm_session). Modul khusus superadmin. */
+/* Identitas dari Office (lm_session).
+
+   LEVEL AKSES — dulu modul ini superadmin-saja. Sekarang kasir perlu mengisi
+   Report Daily & Compliment tanpa boleh melihat target/performa siapa pun.
+   Dasar penentuannya Tim/Keterangan akun Office, yang SUDAH ikut di lm_session
+   (field `keterangan`), jadi gerbangnya tetap sinkron — tidak perlu memanggil
+   roster dan menunggu jaringan sebelum tahu boleh masuk atau tidak.
+
+     adminModules '*'  → 'full' : semua grup menu (termasuk Sistem)
+     selain itu        → 'ops'  : HANYA grup Operasional
+
+   Yang bukan superadmin sengaja jatuh ke 'ops', bukan ditolak: hak paling
+   kecil adalah default yang aman, dan kalau keterangannya belum diisi di
+   Office kasir tetap bisa bekerja. */
 let CURRENT_USER=null;
+const LEVEL_GRUP={ ops:['Operasional'], full:['Operasional','Dashboard','Performa','Sistem'] };
 function bacaSesi(){
   try{
     const s=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
     if(!s||!s.expiry||Date.now()>=s.expiry) return null;
-    if((s.adminModules||[]).indexOf('*')<0) return null;
     const m=s.modules||[];
     if(m.indexOf('*')<0 && m.indexOf('kompas')<0) return null;
-    return {id:s.userId,name:s.name};
+    // Admin global ('*') MAUPUN admin modul kompas dapat level penuh — sepadan
+    // dengan flag isModuleAdmin yang dipakai roster Office di Kelola Akses.
+    const adm=s.adminModules||[];
+    const level=(adm.indexOf('*')>-1||adm.indexOf('kompas')>-1) ? 'full' : 'ops';
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',level};
   }catch(e){ return null; }
 }
+function levelSaya(){ return CURRENT_USER?CURRENT_USER.level:'ops'; }
+function bolehLihat(view){ return VIEW_GRUP[view] ? LEVEL_GRUP[levelSaya()].indexOf(VIEW_GRUP[view])>-1 : false; }
+/* Sembunyikan grup menu yang tidak boleh dilihat. Dijalankan sesudah sesi
+   dibaca, sebelum halaman pertama digambar. */
+function pasangMenu(){
+  const boleh=LEVEL_GRUP[levelSaya()];
+  document.querySelectorAll('.nav-group').forEach(g=>{
+    const nama=(g.querySelector('.nav-label')||{}).textContent||'';
+    g.style.display = boleh.indexOf(nama.trim())>-1 ? '' : 'none';
+  });
+  const badge=document.querySelector('.su-info span');
+  if(badge) badge.textContent = levelSaya()==='full' ? 'super admin' : 'operasional';
+}
+
+/* Peta view -> grup menu. Sumber tunggal untuk sidebar DAN untuk router:
+   menyembunyikan menu saja tidak cukup, karena view masih bisa dicapai lewat
+   go() dari kode lain. bolehLihat() memakai peta ini juga. */
+const VIEW_GRUP={
+  input:'Operasional', report:'Operasional', compliment:'Operasional', breakdown:'Operasional',
+  bulanan:'Dashboard', analytics:'Dashboard', summary:'Dashboard',
+  marketing:'Performa', event:'Performa', kasir:'Performa',
+  target:'Sistem', akses:'Sistem'
+};
+
+/* Metode pembayaran Report Daily. Urutannya sengaja alfabetis seperti yang
+   dipakai kasir di POS supaya mudah dicocokkan baris per baris. */
+const PAYS=[
+  {k:'cash',        n:'Cash'},
+  {k:'compliment',  n:'Compliment'},
+  {k:'edc_bca',     n:'EDC BCA'},
+  {k:'edc_mandiri', n:'EDC Mandiri'},
+  {k:'grabfood',    n:'Grabfood'},
+  {k:'member_dep',  n:'Member Deposit'},
+  {k:'qris_bri',    n:'QRIS BRI'},
+  {k:'qris_esb',    n:'QRIS ESB'},
+  {k:'qris_mandiri',n:'QRIS Mandiri'}
+];
+/* Batas selisih yang masih boleh disubmit. "Selisih 3 digit terakhir" =
+   di bawah seribu rupiah — beda pembulatan, bukan uang hilang. Rp1.000 ke
+   atas tombol submit dikunci. */
+const SELISIH_TOLERANSI=1000;
+/* Tim/Keterangan Office yang boleh jadi PIC compliment, + "Tamu" yang bukan
+   orang: compliment ber-PIC Tamu tidak memotong realisasi siapa pun. */
+const COMP_DIV=['marketing','office','event'];
+const PIC_TAMU='__tamu__';
 
 /* Default awal — dipakai kalau server masih kosong. Daftar PIC SENGAJA kosong:
    nama Marketing/Event/Kasir ditarik otomatis dari akun Office yang divisinya
@@ -376,7 +448,9 @@ function seed(){
   return {
     settings:{ companyMonthlyTarget:300000000, useWorkingDays:false, workingDaysPerMonth:26 },
     employees:{ marketing:[], event:[], kasir:[] },
-    daily:[]
+    daily:[],
+    reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted}
+    compliments:[]   // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
   };
 }
 /* Jaga bentuk data supaya view tidak pernah menemui field hilang. */
@@ -388,6 +462,18 @@ function normalizeDB(d){
   if(!d.employees||typeof d.employees!=='object'||Array.isArray(d.employees)) d.employees=JSON.parse(JSON.stringify(s.employees));
   else ['marketing','event','kasir'].forEach(k=>{ if(!Array.isArray(d.employees[k])) d.employees[k]=s.employees[k]; });
   if(!Array.isArray(d.daily)) d.daily=[];
+  if(!d.reports||typeof d.reports!=='object'||Array.isArray(d.reports)) d.reports={};
+  if(!Array.isArray(d.compliments)) d.compliments=[];
+  /* Migrasi: "Total Tax & Service" dulu SATU angka (tax_service). Sekarang
+     dipecah jadi service_charge + tax. Nilai lama seluruhnya dianggap tax —
+     menebak pembagiannya justru mengarang angka yang tidak pernah diinput. */
+  d.daily.forEach(x=>{
+    if(x.service_charge===undefined && x.tax===undefined && x.tax_service!==undefined){
+      x.tax=num(x.tax_service); x.service_charge=0;
+    }
+    if(x.service_charge===undefined) x.service_charge=0;
+    if(x.tax===undefined) x.tax=0;
+  });
   return d;
 }
 
@@ -475,9 +561,19 @@ function kirim(){
   });
 }
 
-/* ---- derived helpers ---- */
-function grossOf(d){ return num(d.food)+num(d.bev)+num(d.rokok)+num(d.videotron)+num(d.lainnya); }
+/* ---- derived helpers ----
+   Rokok & Videotron DIHAPUS 27 Juli 2026 atas permintaan. Aman dilakukan
+   karena saat itu database dev maupun produksi belum berisi satu pun baris
+   omset, jadi tidak ada total historis yang berubah diam-diam. Field lamanya
+   sengaja tidak di-DROP dari data yang mungkin tersimpan — cuma tidak
+   dihitung lagi. */
+function grossOf(d){ return num(d.food)+num(d.bev)+num(d.lainnya); }
 function netOf(d){ return grossOf(d)-num(d.discount); }
+/* Tax & service ADA DI LUAR omset (tidak menambah/mengurangi netOf), tapi
+   tetap ditagihkan ke tamu. Jadi yang harus disamai total pembayaran di
+   Report Daily adalah netOf + tax + service, bukan netOf saja. */
+function taxSvcOf(d){ return num(d.service_charge)+num(d.tax); }
+function tagihanOf(d){ return netOf(d)+taxSvcOf(d); }
 function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
 function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
 /* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
@@ -497,6 +593,8 @@ let CURRENT='input';
 /* ============ ROUTER ============ */
 const TITLES={
   input:['Input Omset Harian','Catat pendapatan, diskon, tax & service, dan trafik harian'],
+  report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
+  compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   breakdown:['Breakdown Sumber Omset','Alokasikan omset net ke marketing, event, dan kasir'],
   bulanan:['Dashboard Omset Bulanan','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
@@ -508,6 +606,9 @@ const TITLES={
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Kompas']
 };
 function go(view){
+  // Menyembunyikan menu saja tidak cukup — view masih bisa dicapai lewat go()
+  // dari tombol di halaman lain. Pembatasannya ditegakkan di router.
+  if(!bolehLihat(view)) view=LEVEL_GRUP[levelSaya()].length?'input':'input';
   CURRENT=view;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.getElementById('pageTitle').textContent=TITLES[view][0];
@@ -527,7 +628,7 @@ function render(){
   clearCharts();
   document.getElementById('periodPick').value=PERIOD;
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({input:viewInput,breakdown:viewBreakdown,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
+  ({input:viewInput,report:viewReport,compliment:viewCompliment,breakdown:viewBreakdown,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -537,7 +638,7 @@ function viewInput(){
   CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
   const existing=getDay(inputDate);
-  const d=existing||{date:inputDate,food:0,bev:0,rokok:0,videotron:0,lainnya:0,discount:0,tax_service:0,traffic:0,bill:0,qty_food:0,qty_bev:0,qty_others:0};
+  const d=existing||{date:inputDate,food:0,bev:0,lainnya:0,discount:0,service_charge:0,tax:0,traffic:0,bill:0,qty_food:0,qty_bev:0,qty_others:0};
   el.innerHTML=`
   <div class="grid g2" style="align-items:start">
     <div>
@@ -552,20 +653,19 @@ function viewInput(){
         <div class="row-in">
           <div class="field"><label>Food Sales</label><input class="mono ci rp" id="i_food" inputmode="numeric" value="${d.food}"></div>
           <div class="field"><label>Beverage Sales</label><input class="mono ci rp" id="i_bev" inputmode="numeric" value="${d.bev}"></div>
-          <div class="field"><label>Rokok</label><input class="mono ci rp" id="i_rokok" inputmode="numeric" value="${d.rokok}"></div>
-          <div class="field"><label>Videotron</label><input class="mono ci rp" id="i_videotron" inputmode="numeric" value="${d.videotron}"></div>
           <div class="field"><label>Pendapatan Lainnya</label><input class="mono ci rp" id="i_lainnya" inputmode="numeric" value="${d.lainnya}"></div>
           <div class="field"><label>Discount diberikan (−)</label><input class="mono ci rp" id="i_discount" inputmode="numeric" value="${d.discount}"><div class="helper">Mengurangi total omset</div></div>
         </div>
-        <div class="tax-note"><b>Tax &amp; Service</b> dicatat terpisah, tidak menambah/mengurangi omset. Diakumulasi jadi pendapatan tax &amp; service bulanan.</div>
+        <div class="tax-note"><b>Service Charge</b> dan <b>Tax</b> dicatat terpisah, tidak menambah/mengurangi omset. Keduanya tetap ditagihkan ke tamu, jadi ikut dijumlah saat dibandingkan dengan setoran kasir di <b>Report Daily</b>.</div>
         <div class="row-in" style="margin-top:12px">
-          <div class="field"><label>Total Tax &amp; Service (input admin)</label><input class="mono ci rp" id="i_tax" inputmode="numeric" value="${d.tax_service}"></div>
+          <div class="field"><label>Total Service Charge</label><input class="mono ci rp" id="i_svc" inputmode="numeric" value="${num(d.service_charge)}"></div>
+          <div class="field"><label>Total Tax</label><input class="mono ci rp" id="i_tax" inputmode="numeric" value="${num(d.tax)}"></div>
         </div>
         <div class="mini-lab" style="margin-top:4px">Jumlah Item Terjual (Qty)</div>
         <div class="row-in">
           <div class="field"><label>Food Item Quantity</label><input class="mono ci" id="i_qfood" inputmode="numeric" value="${num(d.qty_food)}"></div>
           <div class="field"><label>Beverage Item Quantity</label><input class="mono ci" id="i_qbev" inputmode="numeric" value="${num(d.qty_bev)}"></div>
-          <div class="field"><label>Others Quantity</label><input class="mono ci" id="i_qothers" inputmode="numeric" value="${num(d.qty_others)}"><div class="helper">Rokok, videotron, item lain</div></div>
+          <div class="field"><label>Others Quantity</label><input class="mono ci" id="i_qothers" inputmode="numeric" value="${num(d.qty_others)}"><div class="helper">Item di luar food & beverage</div></div>
         </div>
         <div class="mini-lab" style="margin-top:4px">Data Operasional</div>
         <div class="row-in">
@@ -588,7 +688,7 @@ function viewInput(){
       </div>
       <div class="grid g2">
         <div class="stat"><div class="lab">Avg Spending</div><div class="val sm" id="s_avg">Rp0</div><div class="foot">Omset ÷ Bill</div></div>
-        <div class="stat"><div class="lab">Tax &amp; Service</div><div class="val sm" id="s_tax">Rp0</div><div class="foot">di luar omset</div></div>
+        <div class="stat"><div class="lab">Service + Tax</div><div class="val sm" id="s_tax">Rp0</div><div class="foot" id="s_tax_foot">di luar omset</div></div>
         <div class="stat"><div class="lab">Target Harian</div><div class="val sm" id="s_target">Rp0</div><div class="foot" id="s_target_foot"></div></div>
         <div class="stat"><div class="lab">Achievement</div><div class="val sm" id="s_ach">0%</div><div class="foot" id="s_status"></div></div>
       </div>
@@ -601,12 +701,13 @@ function viewInput(){
   </div>`;
 
   const recalc=()=>{
-    const t={food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),bill:num(v('i_bill')),tax_service:num(v('i_tax'))};
+    const t={food:num(v('i_food')),bev:num(v('i_bev')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),bill:num(v('i_bill')),service_charge:num(v('i_svc')),tax:num(v('i_tax'))};
     const net=netOf(t), tgt=dailyTarget(monthKeyOf(inputDate)), ach=pct(net,tgt);
     document.getElementById('s_omset').textContent=fmtRp(net);
     document.getElementById('s_omset_foot').textContent=`Gross ${fmtRp(grossOf(t))} − Diskon ${fmtRp(t.discount)}`;
     document.getElementById('s_avg').textContent=fmtRp(avgSpendOf(t));
-    document.getElementById('s_tax').textContent=fmtRp(t.tax_service);
+    document.getElementById('s_tax').textContent=fmtRp(taxSvcOf(t));
+    document.getElementById('s_tax_foot').textContent=`Service ${fmtRp(t.service_charge)} + Tax ${fmtRp(t.tax)} · tagihan ${fmtRp(tagihanOf(t))}`;
     document.getElementById('s_target').textContent=fmtRp(tgt);
     document.getElementById('s_target_foot').textContent='otomatis dari target bulanan';
     document.getElementById('s_ach').textContent=ach.toFixed(0)+'%';
@@ -626,9 +727,9 @@ function v(id){return document.getElementById(id).value;}
 
 function saveDaily(){
   const date=inputDate;
-  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),rokok:num(v('i_rokok')),videotron:num(v('i_videotron')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),tax_service:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill')),qty_food:num(v('i_qfood')),qty_bev:num(v('i_qbev')),qty_others:num(v('i_qothers'))};
+  const rec={date,food:num(v('i_food')),bev:num(v('i_bev')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),service_charge:num(v('i_svc')),tax:num(v('i_tax')),traffic:num(v('i_traffic')),bill:num(v('i_bill')),qty_food:num(v('i_qfood')),qty_bev:num(v('i_qbev')),qty_others:num(v('i_qothers'))};
   const errs=[];
-  ['food','bev','rokok','videotron','lainnya','discount','tax_service','traffic','bill','qty_food','qty_bev','qty_others'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
+  ['food','bev','lainnya','discount','service_charge','tax','traffic','bill','qty_food','qty_bev','qty_others'].forEach(k=>{if(rec[k]<0)errs.push('Nilai tidak boleh negatif.');});
   if(grossOf(rec)===0)errs.push('Pendapatan tidak boleh kosong.');
   if(rec.discount>grossOf(rec))errs.push('Diskon melebihi total pendapatan.');
   if(rec.traffic<rec.bill)errs.push('Traffic harus ≥ jumlah Bill.');
@@ -642,6 +743,232 @@ function saveDaily(){
   setTimeout(()=>render(),700);
 }
 
+/* ============ 1b. REPORT DAILY (KASIR) ============
+   Kasir mencatat setoran per metode pembayaran dalam dua kolom: POS (angka
+   yang keluar dari mesin) dan Actual (uang/mutasi yang benar-benar ada).
+   Selisih per metode langsung kelihatan supaya ketahuan metode MANA yang
+   bermasalah — total saja tidak cukup, karena kelebihan di satu metode bisa
+   menutupi kekurangan di metode lain dan seolah-olah balance.
+
+   Pembandingnya tagihanOf(): omset net + service charge + tax. Tax & service
+   ada di luar omset tapi tetap uang yang diterima kasir, jadi harus ikut. */
+let repDate=todayISO();
+function repOf(date){ return (DB.reports||{})[date]||null; }
+function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(p.pos),actual:num(p.actual)}; }
+function viewReport(){
+  CAL_ST.rp.open=false;
+  const el=document.getElementById('app-view');
+  const rec=repOf(repDate);
+  const d=getDay(repDate);
+  const tagihan=d?tagihanOf(d):0;
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Selisih dihitung otomatis.</div></div>
+      <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
+    </div>
+    ${!d?`<div class="notice warn">⚠ Omset tanggal ini belum diinput di <b>Input Omset Harian</b>, jadi belum ada angka pembanding. Report tetap bisa diisi dan disimpan, tapi selisihnya baru berarti setelah omsetnya masuk.</div>`:''}
+    <div class="card">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th></tr></thead>
+        <tbody>${PAYS.map(p=>{const v0=repPay(rec,p.k);return `<tr>
+          <td><b>${esc(p.n)}</b></td>
+          <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="pos" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.pos}"></td>
+          <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="actual" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.actual}"></td>
+          <td class="num mono" id="rs_${p.k}">Rp0</td>
+        </tr>`;}).join('')}</tbody>
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
+          <td>TOTAL</td><td class="num mono" id="rt_pos">Rp0</td><td class="num mono" id="rt_act">Rp0</td><td class="num mono" id="rt_sel">Rp0</td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+    <div class="grid g3">
+      <div class="stat accent"><div class="lab">Tagihan Menurut Omset</div><div class="val sm mono">${fmtRp(tagihan)}</div><div class="foot">${d?`omset ${fmtRp(netOf(d))} + service ${fmtRp(num(d.service_charge))} + tax ${fmtRp(num(d.tax))}`:'omset belum diinput'}</div></div>
+      <div class="stat"><div class="lab">Total Actual Kasir</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">jumlah kolom Actual</div></div>
+      <div class="stat" id="rc_box"><div class="lab">Selisih terhadap Omset</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>
+    </div>
+    <div id="rp_err"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <button class="btn btn-primary" id="rp_save">${rec&&rec.submitted?'Update Report':'Submit Report'}</button>
+      <div class="helper" style="margin:0">PIC: <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b>${rec&&rec.by?` · terakhir disimpan oleh <b>${esc(rec.by)}</b>${rec.at?` (${fmtWaktu(rec.at)})`:''}`:''}</div>
+    </div>`;
+
+  const hitung=()=>{
+    let tp=0,ta=0;
+    PAYS.forEach(p=>{
+      const pos=num(inputVal(p.k,'pos')), act=num(inputVal(p.k,'actual'));
+      tp+=pos; ta+=act;
+      const s=act-pos;
+      const c=document.getElementById('rs_'+p.k);
+      c.textContent=fmtSel(s);
+      c.style.color = s===0?'var(--muted)' : (s>0?'var(--ok)':'var(--danger)');
+      c.style.fontWeight = s===0?'500':'800';
+    });
+    document.getElementById('rt_pos').textContent=fmtRp(tp);
+    document.getElementById('rt_act').textContent=fmtRp(ta);
+    const tsel=ta-tp;
+    const tf=document.getElementById('rt_sel');
+    tf.textContent=fmtSel(tsel);
+    tf.style.color = tsel===0?'var(--muted)':(tsel>0?'var(--ok)':'var(--danger)');
+    // Pembanding terhadap omset memakai kolom ACTUAL: itu uang yang benar-benar
+    // ada di tangan, bukan angka yang dicetak mesin.
+    const sel=ta-tagihan, abs=Math.abs(sel);
+    document.getElementById('rc_act').textContent=fmtRp(ta);
+    document.getElementById('rc_sel').textContent=fmtSel(sel);
+    const box=document.getElementById('rc_box');
+    box.style.background = abs===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
+    document.getElementById('rc_foot').innerHTML = abs===0
+      ? 'cocok dengan omset ✓'
+      : abs<SELISIH_TOLERANSI
+        ? `beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)}) — masih boleh disubmit`
+        : `harus ditelusuri dulu, submit dikunci sampai &lt; ${fmtRp(SELISIH_TOLERANSI)}`;
+    const btn=document.getElementById('rp_save');
+    const kunci = abs>=SELISIH_TOLERANSI;
+    btn.disabled=kunci;
+    btn.style.opacity=kunci?'.45':'';
+    btn.style.cursor=kunci?'not-allowed':'';
+    btn.title=kunci?`Selisih ${fmtRp(abs)} — di atas batas ${fmtRp(SELISIH_TOLERANSI)}`:'';
+    return {tp,ta,sel,abs};
+  };
+  function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
+  el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rp_save').addEventListener('click',()=>{
+    const h=hitung();
+    const box=document.getElementById('rp_err');
+    if(h.abs>=SELISIH_TOLERANSI){
+      box.innerHTML=`<div class="notice bad">⚠ Selisih ${fmtRp(h.abs)} melebihi batas ${fmtRp(SELISIH_TOLERANSI)}. Cek ulang angka POS/Actual atau input omsetnya sebelum submit.</div>`;
+      return;
+    }
+    const pay={};
+    PAYS.forEach(p=>{ pay[p.k]={pos:num(inputVal(p.k,'pos')),actual:num(inputVal(p.k,'actual'))}; });
+    DB.reports=DB.reports||{};
+    DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true};
+    save();
+    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan selisih ${fmtRp(h.abs)}`:''}.</div>`;
+    setTimeout(()=>render(),700);
+  });
+  hitung();
+}
+function fmtWaktu(ts){ const d=new Date(ts); return isNaN(d)?'':d.toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+
+/* ============ 1c. COMPLIMENT ============
+   Di luar kalkulasi metode pembayaran: ini catatan SIAPA yang merelakan omset
+   dan untuk apa. PIC-nya ditarik dari akun Office ber-Tim/Keterangan
+   Marketing/Office/Event, ditambah "Tamu" yang bukan orang — compliment untuk
+   tamu umum tidak boleh membebani realisasi siapa pun. */
+let compDate=todayISO();
+let COMP_ROSTER=null, COMP_ROSTER_ERR='';
+function ambilRoster(){
+  if(COMP_ROSTER!==null) return Promise.resolve(COMP_ROSTER);
+  return fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})})
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j||!j.ok||!Array.isArray(j.members)) throw new Error(j&&j.error||'balasan tidak dikenal');
+      COMP_ROSTER=j.members.filter(u=>{
+        if(u.active===false) return false;
+        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+        return COMP_DIV.some(dv=>ket.indexOf(dv)>-1);
+      }).map(u=>{
+        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+        return {id:u.id,name:String(u.name||'').trim(),div:COMP_DIV.find(dv=>ket.indexOf(dv)>-1)||''};
+      }).filter(u=>u.name);
+      COMP_ROSTER_ERR='';
+      return COMP_ROSTER;
+    })
+    .catch(e=>{ COMP_ROSTER_ERR=e.message||'gagal'; COMP_ROSTER=[]; return COMP_ROSTER; });
+}
+function compsOn(date){ return (DB.compliments||[]).filter(c=>c.date===date); }
+function viewCompliment(){
+  CAL_ST.cp.open=false;
+  const el=document.getElementById('app-view');
+  const list=compsOn(compDate);
+  const total=list.reduce((s,c)=>s+num(c.nominal),0);
+  const opsi=(COMP_ROSTER||[]).map(u=>`<option value="${esc(u.id)}">${esc(u.name)} — ${esc(u.div)}</option>`).join('');
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut.</div></div>
+      <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="cp_cal">${calInner('cp')}</div></div>
+    </div>
+    <div class="card">
+      <div class="mini-lab">Tambah Compliment</div>
+      <div class="row-in">
+        <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake"></div>
+        <div class="field"><label>Alasan / Untuk Apa</label><input id="c_alasan" placeholder="cth. Ulang tahun tamu VIP"></div>
+        <div class="field"><label>Nominal</label><input class="mono rp" id="c_nominal" inputmode="numeric" value="0"></div>
+        <div class="field"><label>PIC Penanggung</label>
+          <select id="c_pic">
+            <option value="${PIC_TAMU}">Tamu (tidak memotong siapa pun)</option>
+            ${opsi}
+          </select>
+          ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}. Hanya "Tamu" yang tersedia.</div>`
+            :(COMP_ROSTER&&!COMP_ROSTER.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan Marketing, Office, atau Event.</div>`:'')}
+        </div>
+      </div>
+      <div id="c_err"></div>
+      <button class="btn btn-primary" id="c_add">+ Tambah</button>
+    </div>
+    <div class="grid g2">
+      <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
+      <div class="stat"><div class="lab">Membebani PIC</div><div class="val sm mono">${fmtRp(list.filter(c=>c.picDiv!=='tamu').reduce((s,c)=>s+num(c.nominal),0))}</div><div class="foot">di luar yang ber-PIC Tamu</div></div>
+    </div>
+    <div class="card">
+      <h3>Daftar Compliment Hari Ini</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nama</th><th>Alasan</th><th class="num">Nominal</th><th>PIC</th><th>Dicatat Oleh</th><th></th></tr></thead>
+        <tbody>${list.length?list.map(c=>`<tr>
+          <td><b>${esc(c.nama)}</b></td>
+          <td class="muted">${esc(c.alasan||'—')}</td>
+          <td class="num mono">${fmtRp(num(c.nominal))}</td>
+          <td>${c.picDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.picName)} <span class="muted" style="font-size:11px">· ${esc(c.picDiv)}</span>`}</td>
+          <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
+          <td><button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button></td>
+        </tr>`).join(''):'<tr><td colspan="6" class="empty">Belum ada compliment pada tanggal ini.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+  document.getElementById('c_add').addEventListener('click',()=>{
+    const nama=(document.getElementById('c_nama').value||'').trim();
+    const alasan=(document.getElementById('c_alasan').value||'').trim();
+    const nominal=num(document.getElementById('c_nominal').value);
+    const picId=document.getElementById('c_pic').value;
+    const box=document.getElementById('c_err');
+    const errs=[];
+    if(!nama) errs.push('Nama compliment wajib diisi.');
+    if(nominal<=0) errs.push('Nominal harus lebih dari nol.');
+    if(errs.length){ box.innerHTML='<div class="notice bad">⚠ '+errs.join(' ')+'</div>'; return; }
+    const u=(COMP_ROSTER||[]).find(x=>x.id===picId);
+    DB.compliments=DB.compliments||[];
+    DB.compliments.push({
+      id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
+      date:compDate, nama, alasan, nominal,
+      picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?u.div:'tamu',
+      by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
+    });
+    save(); render();
+  });
+  // Roster belum ada → ambil sekali, lalu gambar ulang supaya dropdown terisi.
+  if(COMP_ROSTER===null) ambilRoster().then(()=>{ if(CURRENT==='compliment') render(); });
+}
+function hapusCompliment(id){
+  if(!confirm('Hapus catatan compliment ini?')) return;
+  DB.compliments=(DB.compliments||[]).filter(c=>c.id!==id);
+  save(); render();
+}
+
+/* Compliment memotong REALISASI PIC (keputusan 27 Juli 2026), bukan targetnya.
+   Yang ber-PIC "Tamu" tidak memotong siapa pun. Pencocokan ke PIC kompas lewat
+   officeUserId dulu — nama bisa berubah ejaannya di Office, id tidak. */
+function compsBulan(monthKey){ return (DB.compliments||[]).filter(c=>monthKeyOf(c.date)===monthKey); }
+function compPic(monthKey, emp){
+  if(!emp) return 0;
+  const nama=String(emp.name||'').trim().toLowerCase();
+  return compsBulan(monthKey).filter(c=>{
+    if(c.picDiv==='tamu') return false;
+    if(emp.officeUserId && c.picOfficeId) return c.picOfficeId===emp.officeUserId;
+    return String(c.picName||'').trim().toLowerCase()===nama;
+  }).reduce((s,c)=>s+num(c.nominal),0);
+}
+
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
 
@@ -653,9 +980,11 @@ let bdDate=null;
 const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const CAL_REG={
   in:{ box:'i_cal',  get:()=>inputDate,          set:ds=>{ inputDate=ds; PERIOD=monthKeyOf(ds); } },
-  bd:{ box:'bd_cal', get:()=>bdDate||todayISO(), set:ds=>{ bdDate=ds; } }
+  bd:{ box:'bd_cal', get:()=>bdDate||todayISO(), set:ds=>{ bdDate=ds; } },
+  rp:{ box:'rp_cal', get:()=>repDate,            set:ds=>{ repDate=ds; PERIOD=monthKeyOf(ds); } },
+  cp:{ box:'cp_cal', get:()=>compDate,           set:ds=>{ compDate=ds; PERIOD=monthKeyOf(ds); } }
 };
-const CAL_ST={ in:{open:false,month:null}, bd:{open:false,month:null} };
+const CAL_ST={ in:{open:false,month:null}, bd:{open:false,month:null}, rp:{open:false,month:null}, cp:{open:false,month:null} };
 function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
 function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
@@ -706,7 +1035,9 @@ function viewBreakdown(){
 
   el.innerHTML=pickBar+`
     <div class="card">
-      <div class="notice info">ℹ️ Total Omset net <b>${fmtRp(net)}</b>${d.discount>0?` (sesudah diskon ${fmtRp(d.discount)})`:''}. Tax &amp; service ${fmtRp(d.tax_service)} tidak masuk breakdown.</div>
+      <div class="notice info">ℹ️ Total Omset net <b>${fmtRp(net)}</b>${d.discount>0?` (sesudah diskon ${fmtRp(d.discount)})`:''}. Service charge + tax ${fmtRp(taxSvcOf(d))} tidak masuk breakdown.</div>
+      ${(()=>{const cs=compsOn(bdDate).filter(c=>c.picDiv!=='tamu');
+        return cs.length?`<div class="notice warn">🎁 Ada ${cs.length} compliment hari ini senilai <b>${fmtRp(cs.reduce((s,c)=>s+num(c.nominal),0))}</b> yang membebani PIC. Nominal ini <b>memotong realisasi</b> PIC bersangkutan di Performa &amp; Ranking — alokasi breakdown di bawah tidak perlu dikurangi sendiri.<br><span style="opacity:.85">${cs.map(c=>`${esc(c.picName)} ${fmtRp(num(c.nominal))}`).join(' · ')}</span></div>`:'';})()}
 
       <span class="divlabel mk">Section A — Marketing</span>
       <div id="bd_mk"></div>
@@ -810,11 +1141,14 @@ function viewBulanan(){
   const days=daysOfMonth(PERIOD);
   const target=DB.settings.companyMonthlyTarget;
   const real=days.reduce((s,d)=>s+netOf(d),0);
-  const tax=days.reduce((s,d)=>s+num(d.tax_service),0);
+  const tax=days.reduce((s,d)=>s+taxSvcOf(d),0);
+  const svcOnly=days.reduce((s,d)=>s+num(d.service_charge),0);
+  const taxOnly=days.reduce((s,d)=>s+num(d.tax),0);
+  const compBulan=compsBulan(PERIOD).reduce((s,c)=>s+num(c.nominal),0);
   const disc=days.reduce((s,d)=>s+num(d.discount),0);
   const ach=pct(real,target), selisih=target-real;
-  const T={food:0,bev:0,rokok:0,videotron:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
-  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.rokok+=num(d.rokok);T.videotron+=num(d.videotron);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);T.qfood+=num(d.qty_food);T.qbev+=num(d.qty_bev);T.qothers+=num(d.qty_others);});
+  const T={food:0,bev:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
+  days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);T.qfood+=num(d.qty_food);T.qbev+=num(d.qty_bev);T.qothers+=num(d.qty_others);});
   const totalItem=T.qfood+T.qbev+T.qothers;
   /* KPI bulanan — semuanya dibagi Total Bill (jumlah transaksi) */
   const upt=T.bill>0?totalItem/T.bill:0;   // Unit Per Transaction  = total item ÷ total bill
@@ -850,9 +1184,10 @@ function viewBulanan(){
     <div class="grid g4" style="margin-top:2px">
       <div class="stat"><div class="lab">Total Food</div><div class="val sm mono">${fmtRp(T.food)}</div></div>
       <div class="stat"><div class="lab">Total Beverage</div><div class="val sm mono">${fmtRp(T.bev)}</div></div>
-      <div class="stat"><div class="lab">Total Rokok</div><div class="val sm mono">${fmtRp(T.rokok)}</div></div>
-      <div class="stat"><div class="lab">Total Videotron</div><div class="val sm mono">${fmtRp(T.videotron)}</div></div>
       <div class="stat"><div class="lab">Total Lainnya</div><div class="val sm mono">${fmtRp(T.lainnya)}</div></div>
+      <div class="stat"><div class="lab">Total Service Charge</div><div class="val sm mono">${fmtRp(svcOnly)}</div></div>
+      <div class="stat"><div class="lab">Total Tax</div><div class="val sm mono">${fmtRp(taxOnly)}</div></div>
+      <div class="stat"><div class="lab">🎁 Total Compliment</div><div class="val sm mono">${fmtRp(compBulan)}</div></div>
       <div class="stat"><div class="lab">Total Traffic</div><div class="val sm">${T.traffic.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Total Bill</div><div class="val sm">${T.bill.toLocaleString('id-ID')}</div></div>
       <div class="stat"><div class="lab">Rata Achievement</div><div class="val sm">${ach.toFixed(0)}%</div></div>
@@ -880,11 +1215,11 @@ function viewBulanan(){
 function viewAnalytics(){
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
-  const comp={Food:0,Beverage:0,Rokok:0,Videotron:0,Lainnya:0};
+  const comp={Food:0,Beverage:0,Lainnya:0};
   const src={Marketing:0,Event:0,'Walk In':0};
   const byMk={},byEv={},byKs={};
   days.forEach(d=>{
-    comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Rokok+=num(d.rokok);comp.Videotron+=num(d.videotron);comp.Lainnya+=num(d.lainnya);
+    comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Lainnya+=num(d.lainnya);
     (d.bd?.marketing||[]).forEach(r=>{src.Marketing+=num(r.amount);byMk[r.picId]=(byMk[r.picId]||0)+num(r.amount);});
     (d.bd?.event||[]).forEach(r=>{src.Event+=num(r.amount);byEv[r.picId]=(byEv[r.picId]||0)+num(r.amount);});
     (d.bd?.kasir||[]).forEach(r=>{if(!r.off){src['Walk In']+=num(r.amount);byKs[r.kasirId]=(byKs[r.kasirId]||0)+num(r.amount);}});
@@ -892,7 +1227,7 @@ function viewAnalytics(){
   const hasBd=src.Marketing+src.Event+src['Walk In']>0;
   el.innerHTML=`
     <div class="grid g2" style="align-items:start">
-      <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Rokok, Videotron, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
+      <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
       <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir)</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
@@ -926,14 +1261,16 @@ function viewPerforma(divi){
   const agg={};
   list.forEach(e=>agg[e.id]={real:0,events:[]});
   days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{if(agg[r.picId]){agg[r.picId].real+=num(r.amount);agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount)});}});});
+  // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
+  list.forEach(e=>{ agg[e.id].comp=compPic(PERIOD,e); agg[e.id].real-=agg[e.id].comp; });
   const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
   el.innerHTML=`<div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>`;
   const drawPic=pid=>{
     let e,a;
     if(pid==='__all__'){
       e={name:'Semua PIC', target:list.reduce((s,x)=>s+num(x.target),0)};
-      a={real:0,events:[]};
-      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;g.events.forEach(ev=>a.events.push(Object.assign({pic:x.name},ev)));});
+      a={real:0,events:[],comp:0};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.comp+=(g.comp||0);g.events.forEach(ev=>a.events.push(Object.assign({pic:x.name},ev)));});
     } else { e=list.find(x=>x.id===pid); a=agg[pid]; }
     if(!e||!a) return;
     const ach=pct(a.real,e.target), cnt=a.events.length, avg=cnt>0?a.real/cnt:0;
@@ -942,7 +1279,7 @@ function viewPerforma(divi){
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(e.target)}</div></div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div></div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.comp?`sudah dipotong compliment ${fmtRp(a.comp)}`:'tanpa potongan compliment'}</div></div>
         <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=e.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">${cnt}</div><div class="foot">avg ${fmtRp(avg)}/event</div></div>
       </div>
@@ -970,6 +1307,8 @@ function viewKasir(){
   const agg={};
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[]});
   days.forEach(d=>{(d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,off:true});}else{agg[r.kasirId].real+=num(r.amount);agg[r.kasirId].masuk++;agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),off:false});}}});});
+  // sama seperti Performa & Ranking: compliment memotong realisasi
+  list.forEach(k=>{ agg[k.id].real-=compPic(PERIOD,k); });
   const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
   el.innerHTML=(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
@@ -1007,7 +1346,12 @@ function viewKasir(){
 function viewSummary(){
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
-  const realBy=(divi,id)=>{let s=0;days.forEach(d=>(d.bd?.[divi]||[]).forEach(r=>{const key=divi==='kasir'?r.kasirId:r.picId;if(key===id&&!r.off)s+=num(r.amount);}));return s;};
+  /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
+     ranking di sini memakai angka yang sama dengan halaman Performa. */
+  const realBy=(divi,id)=>{
+    let s=0;days.forEach(d=>(d.bd?.[divi]||[]).forEach(r=>{const key=divi==='kasir'?r.kasirId:r.picId;if(key===id&&!r.off)s+=num(r.amount);}));
+    return s-compPic(PERIOD,(DB.employees[divi]||[]).find(e=>e.id===id));
+  };
   const mkTable=(divi,list)=>{
     const rows=list.map(e=>{const real=realBy(divi,e.id),ach=pct(real,e.target);return{e,real,ach};}).sort((a,b)=>b.ach-a.ach);
     return rows.map(r=>`<tr><td><b>${esc(r.e.name)}</b></td><td class="num mono">${fmtRp(r.e.target)}</td><td class="num mono">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td>${r.real>=r.e.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</td></tr>`).join('');
@@ -1130,23 +1474,28 @@ function viewAkses(){
   const rows=(AKSES_ROSTER||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-      <div><h3>Pemegang Akses Modul Kompas</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah/menghapus akses dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
+      <div><h3>Pemegang Akses Modul Kompas</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah/menghapus akses dan menaikkan level dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
       <button class="btn btn-ghost btn-sm" onclick="AKSES_ROSTER=null;AKSES_ERR='';viewAkses()">↻ Segarkan</button>
     </div>
+    <div class="notice info">🔑 <div><b>Dua level tampilan.</b>
+      <b>Operasional</b> hanya melihat grup menu Operasional (Input Omset, Report Daily, Compliment, Breakdown) — cocok untuk kasir.
+      <b>Super Admin</b> melihat semuanya: Operasional, Dashboard, Performa, dan Sistem.
+      Levelnya mengikuti status <b>admin modul</b> di Office: kru yang dijadikan admin Kompas (atau admin global) otomatis Super Admin, selain itu Operasional.</div></div>
     ${AKSES_ERR?`<div class="notice bad">⚠ Gagal memuat: ${esc(AKSES_ERR)}</div>`:`
     <div class="card" style="padding:0;overflow:hidden">
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nama</th><th>Status</th><th>Akses</th></tr></thead>
-        <tbody>${rows.length?rows.map(m=>`<tr>
+        <thead><tr><th>Nama</th><th>Tim / Keterangan</th><th>Status</th><th>Level Tampilan</th></tr></thead>
+        <tbody>${rows.length?rows.map(m=>{const penuh=!!m.isModuleAdmin;return `<tr>
           <td><div style="display:flex;align-items:center;gap:10px">
             <span style="width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:11px">${esc(initial(m.name))}</span>
             <b>${esc(m.name||'(tanpa nama)')}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}</div></td>
+          <td class="muted" style="font-size:12.5px">${esc(m.keterangan||'—')}</td>
           <td>${m.active===false?'<span class="chip warn">nonaktif</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
-          <td><span class="chip ok">✓ Aktif</span></td>
-        </tr>`).join(''):`<tr><td colspan="3" class="empty">Belum ada kru dengan akses modul Kompas. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
+          <td>${penuh?'<span class="chip ok">Super Admin — semua menu</span>':'<span class="chip info">Operasional saja</span>'}</td>
+        </tr>`;}).join(''):`<tr><td colspan="4" class="empty">Belum ada kru dengan akses modul Kompas. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
       </table></div>
     </div>
-    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Kompas.</div>`}`;
+    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Kompas · ${rows.filter(m=>m.isModuleAdmin).length} di antaranya Super Admin.</div>`}`;
 }
 
 /* ---- chart option factories ---- */
@@ -1162,6 +1511,7 @@ function boot(){
   const av=document.getElementById('suAvatar'), nm=document.getElementById('suName');
   if(av) av.textContent=(String(CURRENT_USER.name||'?').trim()[0]||'?').toUpperCase();
   if(nm) nm.textContent=CURRENT_USER.name||'—';
+  pasangMenu();   // sembunyikan grup menu di luar level user SEBELUM halaman digambar
   setSync('load');
   render();   // tampilkan status "memuat"
   apiGet().then(data=>{
