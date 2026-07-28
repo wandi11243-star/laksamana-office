@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#F7F6F4">
+<title>CASHIER · Laksamana Muda</title>
+<link rel="icon" href="../assets/LaksamanaMudaLogo.jpeg">
+
+<!-- Guard SSO: cukup punya akses modul `cashier` (atau '*'). Dijaga di sini
+     supaya halaman tidak sempat tergambar sedikit pun bagi yang tidak berhak.
+     Penjaga sebenarnya tetap di sisi Office: `modules`/`adminModules` dibuat
+     server saat login, bukan diketik browser.
+
+     Kuncinya `cashier`, BUKAN `kompas` — itu inti dipisahnya modul ini: kasir
+     boleh mengisi setoran dan compliment tanpa ikut memegang akses ke seluruh
+     angka omset, target, dan bonus perusahaan yang ada di Kompas.
+     Syaratnya HARUS sama persis dengan bacaSesi() di bawah; kalau salah satu
+     diubah, ubah keduanya. -->
+<script>
+(function(){try{
+  var s=JSON.parse(localStorage.getItem('lm_session')||'null');
+  var hidup=s&&s.expiry&&Date.now()<s.expiry;
+  var punyaModul=hidup&&(s.modules||[]).some(function(m){return m==='*'||m==='cashier';});
+  if(!punyaModul)location.replace('../');
+}catch(e){location.replace('../');}})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
+:root{
+  --ink:#2A2620; --ink-2:#3A3428; --ink-3:#4A4234;
+  --gold:#A9791F; --gold-2:#C8961F; --gold-dim:#7A560F;
+  --gold-soft:#F2E9D3; --gold-glow:rgba(169,121,31,.13);
+  --paper:#F7F6F4; --surface:#FFFFFF; --line:#E7E1D3;
+  --line-soft:rgba(60,55,45,.10); --line-hard:rgba(60,55,45,.18);
+  --text:#2A2620; --muted:#5C574D; --muted-2:#928C80;
+  --ok:#1F9D5F; --ok-bg:#E4F5EC; --ok-bg-t:rgba(31,157,95,.12);
+  --warn:#B5831A; --warn-bg:#F7EFDB; --warn-bg-t:rgba(181,131,26,.14);
+  --danger:#C9432B; --danger-bg:#F8E4DF; --danger-bg-t:rgba(201,67,43,.12);
+  --info:#2F7FC4; --info-bg:#E4EFF8; --info-bg-t:rgba(47,127,196,.12);
+  --violet:#7C5FC0; --violet-bg:#ECE6F7; --violet-bg-t:rgba(124,95,192,.12);
+  --teal:#1F9D8F; --teal-bg:#E2F4F2; --teal-bg-t:rgba(31,157,143,.12);
+  --radius:16px; --radius-sm:10px; --radius-lg:20px;
+  --shadow:0 4px 18px rgba(50,42,28,.06); --shadow-lg:0 18px 48px rgba(50,42,28,.12);
+  --ring:0 0 0 3px rgba(227,160,8,.18); --ease:cubic-bezier(.16,1,.3,1);
+  --font-display:'Plus Jakarta Sans',system-ui,sans-serif;
+  --font-body:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --serif:var(--font-display); --sans:var(--font-body); --sidebar-w:248px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);
+  background:radial-gradient(900px 480px at 50% -12%, rgba(227,160,8,.09), transparent 60%),var(--paper);
+  color:var(--text); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; min-height:100vh;
+}
+h1,h2,h3,h4{font-family:var(--serif); font-weight:700; letter-spacing:-.02em; line-height:1.18; color:var(--ink)}
+a{color:var(--info)}
+button{font-family:inherit; cursor:pointer}
+input,select,textarea{font-family:inherit}
+.mono{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+.hidden{display:none !important}
+@keyframes lm-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.rise{animation:lm-rise .5s var(--ease) both}
+.btn{border:none;border-radius:var(--radius-sm);padding:11px 17px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s var(--ease),transform .1s var(--ease)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.btn-block{width:100%}
+.btn-sm{padding:8px 12px;font-size:13px}
+.btn-xs{padding:5px 9px;font-size:12px;border-radius:8px}
+.btn-primary{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;box-shadow:0 3px 12px rgba(122,86,15,.28)}
+.btn-primary:hover{filter:brightness(1.06)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn-ghost{background:var(--surface);border:1.5px solid var(--line);color:var(--ink)}
+.btn-ghost:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.btn-danger{background:var(--danger-bg);color:var(--danger);border:1.5px solid rgba(201,67,43,.25)}
+.btn-danger:hover{filter:brightness(.98)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ink-2);background:var(--gold-soft);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+.pill .dot{width:5px;height:5px;border-radius:50%;background:var(--gold);flex:none}
+.field{text-align:left;margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+
+/* ===== LAYOUT ===== */
+.app{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);flex:none;background:var(--surface);border-right:1px solid var(--line);padding:20px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:11px;padding:6px 8px 18px}
+.brand .logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:800;color:#fff;font-size:18px;flex:none}
+.brand .bt{font-family:var(--serif);font-weight:800;font-size:16px;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+.brand .bs{font-size:10.5px;color:var(--muted-2);letter-spacing:.5px;margin-top:2px}
+.nav{flex:1}
+.nav-group{margin-top:14px}
+.nav-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);padding:0 10px 7px}
+.nav a{position:relative;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:background .13s,color .13s}
+.nav a:hover{background:var(--paper);color:var(--ink)}
+/* Menu aktif: latar krem lembut + garis emas di kiri (samakan dgn Reservasi/
+   BD OS), BUKAN blok kuning penuh. */
+.nav a.active{background:var(--gold-soft);color:var(--gold-dim);font-weight:600}
+.nav a.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--gold)}
+.nav a .ico{width:18px;display:flex;align-items:center;justify-content:center;flex:none}
+.nav a .ico svg{width:17px;height:17px;stroke-width:1.9;opacity:.85}
+.nav a.active .ico svg{opacity:1}
+/* Ciutkan ke ikon saja (tombol ☰). Label/teks disembunyikan, ikon tetap.
+   Hanya di desktop — di layar sempit sidebar sudah off-canvas. */
+@media(min-width:621px){
+  .app.nav-mini .sidebar{width:72px}
+  .app.nav-mini .brand .bt,.app.nav-mini .brand .bs,.app.nav-mini .nav-label,.app.nav-mini .su-info{display:none}
+  .app.nav-mini .brand{justify-content:center;padding:6px 0 18px}
+  .app.nav-mini .nav a{justify-content:center;gap:0;font-size:0;padding:9px 0}
+  .app.nav-mini .nav a .ico{font-size:16px;width:auto}
+  .app.nav-mini .side-user{flex-direction:column;gap:8px;padding:10px 6px}
+}
+@media(max-width:620px){#navMiniBtn{display:none}}
+/* kartu user + tombol keluar di kaki sidebar — pola sama seperti modul lain */
+.side-user{display:flex;align-items:center;gap:9px;margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.su-avatar{width:32px;height:32px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-family:var(--serif);font-weight:800;font-size:14px}
+.su-info{min-width:0;flex:1}
+.su-info b{display:block;font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.su-info span{font-size:10.5px;color:var(--muted-2)}
+.logout-x{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:.16s}
+.logout-x:hover{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.logout-x svg{width:16px;height:16px}
+.main{flex:1;min-width:0;padding:26px 30px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+.topbar h1{font-size:23px}
+.topbar .sub{font-size:13px;color:var(--muted);margin-top:3px}
+.month-pick{display:flex;align-items:center;gap:10px}
+.month-pick input{padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink)}
+/* Pesan galat simpan sekarang membawa sebab asli dari server (bisa sepanjang
+   "SQLSTATE[HY000] [1044] Access denied..."), jadi span-nya harus boleh
+   membungkus dan memotong kata panjang, bukan melebarkan header. */
+.sync{font-size:11.5px;font-weight:600;color:var(--muted-2);display:inline-block;max-width:340px;line-height:1.45;text-align:right;overflow-wrap:anywhere}
+.sync.ok{color:var(--ok)} .sync.err{color:var(--danger)} .sync.saving{color:var(--warn)}
+.view{max-width:1180px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:18px}
+.card h3{font-size:16px;margin-bottom:4px}
+.card .card-sub{font-size:12.5px;color:var(--muted);margin-bottom:16px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
+.row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+
+/* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
+.stat{position:relative;overflow:hidden;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:17px 18px;box-shadow:var(--shadow)}
+.stat::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--gold-2),var(--gold-dim))}
+.stat .lab{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+.stat .val{font-family:var(--serif);font-weight:700;font-size:26px;color:var(--ink);margin-top:8px;letter-spacing:-.02em;line-height:1}
+.stat .val.sm{font-size:19px}
+.stat .foot{font-size:12px;color:var(--muted);margin-top:8px}
+.stat.accent{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;border:none}
+.stat.accent::before{display:none}
+.stat.accent .lab{color:rgba(255,255,255,.72)}
+.stat.accent .val{color:#fff}
+.stat.accent .foot{color:rgba(255,255,255,.72)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;border-radius:20px;padding:3px 9px}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.bad{background:var(--danger-bg);color:var(--danger)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.info{background:var(--info-bg);color:var(--info)}
+/* Netral — untuk label yang bukan status baik/buruk, mis. Non-Ticketing.
+   .chip polos tidak punya background sama sekali, jadi jangan dipakai telanjang. */
+.chip.mute{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
+
+/* progress */
+.prog{height:9px;border-radius:20px;background:var(--gold-soft);overflow:hidden;margin-top:9px}
+.prog>i{display:block;height:100%;border-radius:20px;background:linear-gradient(90deg,var(--gold-2),var(--gold-dim));transition:width .5s var(--ease)}
+.prog.ok>i{background:linear-gradient(90deg,#28b06e,var(--ok))}
+
+/* table */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:10px 12px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--text)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl-wrap{overflow-x:auto}
+tbody tr:hover{background:var(--gold-soft)}
+
+/* status badge */
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+.status .d{width:9px;height:9px;border-radius:50%;flex:none}
+.status.ok .d{background:var(--ok)}
+.status.ok{color:var(--ok)}
+.status.bad .d{background:var(--danger)}
+.status.bad{color:var(--danger)}
+
+/* breakdown row */
+.brow{display:grid;gap:10px;align-items:end;margin-bottom:10px}
+.brow.mk{grid-template-columns:1.1fr 1.3fr .9fr auto auto auto}
+.brow.ks{grid-template-columns:1.3fr 1fr auto}
+.brow .field{margin-bottom:0}
+@media(max-width:760px){.brow.mk,.brow.ks{grid-template-columns:1fr}}
+/* Centang Ticketing di baris breakdown. Dibuat setinggi field di sebelahnya
+   supaya tidak melayang saat baris ikut memanjang. */
+.tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
+.tkbox input{cursor:pointer}
+.tkbox.on{color:var(--gold-dim)}
+/* Tombol ringkasan bagi hasil di baris breakdown. Merah kalau shift-nya belum
+   diisi — tanpa itu porsi kasir tidak punya penerima dan diam-diam hangus. */
+.bhbtn{border:1px dashed var(--line);background:var(--surface);border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:9px;line-height:1.35;text-align:left}
+.bhbtn:hover{border-color:var(--gold);color:var(--gold-dim)}
+.bhbtn.kosong{border-color:var(--danger);color:var(--danger)}
+.bhbtn b{display:block;font-size:12.5px;color:var(--text)}
+.bhbtn.kosong b{color:var(--danger)}
+
+/* ---- Modal ---- */
+.ovl{position:fixed;inset:0;background:rgba(15,18,24,.55);display:flex;align-items:center;justify-content:center;padding:20px;z-index:80}
+.mdl{background:var(--surface);border-radius:var(--radius);max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.mdl-h{padding:18px 22px 12px;border-bottom:1px solid var(--line)}
+.mdl-h h3{font-size:16px;margin:0}
+.mdl-h .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
+.mdl-b{padding:18px 22px}
+.mdl-f{padding:14px 22px 18px;display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--line)}
+.kslist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:8px}
+.kschip{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.kschip:hover{border-color:var(--gold)}
+.kschip.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
+.mini-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:8px}
+.balance-bar{position:sticky;bottom:0;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:var(--shadow-lg);flex-wrap:wrap;margin-top:8px}
+.balance-bar .bnums{display:flex;gap:26px;flex-wrap:wrap}
+.balance-bar .bnums .bi{font-size:12px;color:var(--muted)}
+.balance-bar .bnums .bi b{display:block;font-family:var(--serif);font-size:16px;color:var(--ink);font-weight:800;margin-top:2px}
+.notice{padding:11px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;margin-bottom:14px;display:flex;gap:9px;align-items:flex-start}
+.notice.ok{background:var(--ok-bg);color:#146c42}
+.notice.bad{background:var(--danger-bg);color:#8f2718}
+.notice.info{background:var(--info-bg);color:#1a5a91}
+.notice.warn{background:var(--warn-bg);color:#7a5a10}
+.empty{text-align:center;padding:40px 20px;color:var(--muted-2)}
+.empty .big{font-size:34px;margin-bottom:8px}
+.seg{display:inline-flex;background:var(--gold-soft);border-radius:10px;padding:3px;gap:2px;margin-bottom:16px;flex-wrap:wrap}
+.seg button{border:none;background:transparent;padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.divlabel{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:6px;margin-bottom:12px}
+.divlabel.mk{background:var(--info-bg);color:var(--info)}
+.divlabel.ev{background:var(--violet-bg);color:var(--violet)}
+.divlabel.ks{background:var(--teal-bg);color:var(--teal)}
+.hamb{display:none}
+@media(max-width:620px){.hamb{display:inline-flex}}
+.chart-box{position:relative;height:280px}
+.chart-box.sm{height:230px}
+.helper{font-size:11.5px;color:var(--muted-2);margin-top:4px}
+.tax-note{background:var(--warn-bg-t);border:1px dashed rgba(181,131,26,.4);border-radius:var(--radius-sm);padding:10px 13px;font-size:12.5px;color:#7a5a10;margin-top:6px}
+.leader{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--line);margin-bottom:9px;background:var(--surface)}
+.leader .rank{width:30px;height:30px;border-radius:50%;background:var(--gold-soft);color:var(--gold-dim);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
+.leader.top1 .rank{background:linear-gradient(135deg,#f4c752,#c8961f);color:#fff}
+.leader .ln{font-weight:700;font-size:14px}
+.leader .lm{font-size:11.5px;color:var(--muted)}
+.leader .lspace{flex:1}
+
+/* ===== Kalender kustom (bukan date picker bawaan browser) ===== */
+.calwrap{position:relative}
+.calbtn{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:220px}
+.calbtn:hover{border-color:var(--gold)}
+/* di dalam grid form (row-in) tombolnya ikut lebar kolom, jangan memaksa 220px */
+.row-in .calbtn{min-width:0}
+.row-in .calpop{left:0;right:auto;max-width:min(300px,86vw)}
+.calback{position:fixed;inset:0;z-index:55}
+.calpop{position:absolute;z-index:60;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px;width:300px}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.calhead b{font-family:var(--serif);font-size:15px;color:var(--ink)}
+.calnav{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:16px;display:grid;place-items:center;color:var(--muted)}
+.calnav:hover{border-color:var(--gold);color:var(--gold-dim)}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.caldow{font-size:10px;font-weight:700;color:var(--muted-2);text-transform:uppercase;padding:5px 0;letter-spacing:.4px}
+.calday{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text);position:relative}
+.calday:hover{background:var(--gold-soft)}
+.calday.off{color:var(--muted-2);opacity:.45;cursor:default}
+.calday.off:hover{background:none}
+.calday.today{color:var(--gold-dim);font-weight:800}
+.calday.sel{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff}
+.calday.caldata::after{content:'';position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.calday.sel.caldata::after{background:#fff}
+.calquick{display:flex;gap:6px;margin-top:10px}
+.calquick button{flex:1;padding:7px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text)}
+.calquick button:hover{background:var(--gold-soft);border-color:var(--gold)}
+
+/* ---- Lembar cetak Report Achievement ----
+   WAJIB display:none di layar. Isinya diisi tepat sebelum window.print(), dan
+   tanpa aturan ini lembarnya ikut menempel di bawah halaman sesudah dialog
+   cetak ditutup. Ditampilkan hanya di dalam @media print. */
+#printSheet{display:none}
+@media print{
+  /* Sembunyikan aplikasi, sisakan lembar. visibility saja tidak cukup —
+     sidebar tetap memesan ruang dan lembarnya terdorong ke halaman 2. */
+  .app,.topbar{display:none!important}
+  #printSheet{display:block!important;font-family:Inter,system-ui,sans-serif;color:#111}
+  #printSheet .ph{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #111;padding-bottom:10px;margin-bottom:18px}
+  #printSheet .ph h1{font-size:19px;margin:0 0 3px;letter-spacing:.2px}
+  #printSheet .ph .sub{font-size:11.5px;color:#555}
+  #printSheet .ph .brand{font-size:12px;font-weight:800;letter-spacing:1.5px;text-align:right}
+  #printSheet h2{font-size:13px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.6px;color:#444}
+  #printSheet .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:6px}
+  #printSheet .kv>div{border:1px solid #bbb;border-radius:6px;padding:9px 11px}
+  #printSheet .kv .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:#666;margin-bottom:3px}
+  #printSheet .kv .v{font-size:15px;font-weight:800}
+  #printSheet table{width:100%;border-collapse:collapse;font-size:11.5px}
+  #printSheet th,#printSheet td{border:1px solid #bbb;padding:6px 8px;text-align:left}
+  #printSheet th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+  #printSheet td.num,#printSheet th.num{text-align:right;font-variant-numeric:tabular-nums}
+  #printSheet tfoot td{font-weight:800;background:#f4f4f4}
+  #printSheet .ttd{margin-top:34px;font-size:11px;color:#555}
+  @page{margin:14mm}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">C</div>
+      <div><div class="bt">CASHIER</div><div class="bs">LAKSAMANA MUDA</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-group">
+        <div class="nav-label">Kasir</div>
+        <!-- Empat halaman, itu saja. Report Daily & Compliment menulis ke data
+             yang sama dengan modul Kompas; Performa Kasir dan Dana Masuk hanya
+             membaca. Tidak ada Input Omset / Breakdown / Target di sini —
+             kalau butuh, itu pekerjaan Kompas, bukan kasir. -->
+        <a data-view="report"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span> Report Daily</a>
+        <a data-view="compliment"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span> Compliment</a>
+        <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
+        <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg></span> Dana Masuk (DP)</a>
+      </div>
+    </nav>
+    <div class="side-user">
+      <div class="su-avatar" id="suAvatar">?</div>
+      <div class="su-info"><b id="suName">—</b><span>kasir</span></div>
+      <button class="logout-x" title="Keluar ke Office" aria-label="Keluar ke Office" onclick="location.replace('../')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn btn-ghost btn-sm hamb" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+        <button class="btn btn-ghost btn-sm" id="navMiniBtn" title="Sembunyikan / tampilkan menu" onclick="toggleNav()">☰</button>
+        <div>
+          <h1 id="pageTitle">Input Omset Harian</h1>
+          <div class="sub" id="pageSub">Catat pendapatan harian Laksamana Muda</div>
+        </div>
+      </div>
+      <div class="month-pick">
+        <span class="sync" id="syncBox"></span>
+        <span class="pill"><span class="dot"></span> Periode</span>
+        <input type="month" id="periodPick">
+      </div>
+    </div>
+    <div id="app-view" class="view"></div>
+  </main>
+</div>
+
+<script>
+/* =========================================================
+   CASHIER — engine
+
+   Modul ini DIPECAH DARI KOMPAS (28 Juli 2026), bukan ditulis dari nol.
+   Mesin state, normalisasi, dan lapisan API-nya sengaja dibiarkan sama persis
+   karena DATABASENYA MEMANG SATU: API_URL di bawah tetap kompas-api-mysql.
+   Yang dicatat kasir di sini langsung terbaca di Kompas dan sebaliknya —
+   Report Daily dan Compliment adalah halaman yang sama, cuma pintunya beda.
+
+   Konsekuensi yang harus diingat saat menyunting: perubahan pada Report Daily
+   atau Compliment yang cuma dikerjakan di salah satu berkas akan membuat dua
+   modul menulis bentuk data yang berbeda ke blob yang sama. Kalau menyentuh
+   dua halaman itu, sunting KEDUANYA (deploy/kompas/index.html dan berkas ini).
+
+   Yang TIDAK dibawa ke sini: Input Omset, Breakdown, Dashboard, Ranking,
+   Performa Marketing/Event, Pengaturan Target, Kelola Akses Kru. Itu semua
+   pekerjaan admin, dan justru karena halaman-halaman itulah modul ini dipisah.
+
+   Omset (net) = Food + Beverage + Lainnya − Discount
+   Service Charge & Tax = di luar omset, TAPI ikut ditagihkan ke tamu → jadi
+     pembanding setoran kasir di Report Daily
+   Compliment = catatan terpisah; memotong REALISASI PIC penanggungnya
+
+   Data disimpan di server (kompas-api-mysql) sebagai satu blob JSON, dengan
+   salinan lokal (localStorage) untuk tampil saat jaringan putus. Dana Masuk
+   (DP) datang dari tempat lain lagi — lihat bagian 4.
+   ========================================================= */
+const API_URL='../kompas-api-mysql/api.php';
+const CACHE_KEY='lm_cashier_cache_v1';
+const SESSION_KEY='lm_session';
+const fmtRp=n=>'Rp'+Math.round(n||0).toLocaleString('id-ID');
+/* Nominal BERTANDA untuk kolom selisih. fmtRp() menempelkan minus di belakang
+   "Rp" ("Rp-9.001") karena tandanya ikut ke dalam toLocaleString — di kolom
+   yang justru isinya sering negatif itu terbaca salah sekilas. */
+const fmtSel=n=>{ n=Math.round(n||0); return (n>0?'+':n<0?'−':'')+'Rp'+Math.abs(n).toLocaleString('id-ID'); };
+const fmtRpShort=n=>{n=n||0;if(Math.abs(n)>=1e9)return 'Rp'+(n/1e9).toFixed(1).replace('.0','')+'M';if(Math.abs(n)>=1e6)return 'Rp'+(n/1e6).toFixed(1).replace('.0','')+'jt';if(Math.abs(n)>=1e3)return 'Rp'+Math.round(n/1e3)+'rb';return 'Rp'+Math.round(n);};
+const pct=(a,b)=>b>0?(a/b*100):0;
+// Semua nominal di modul ini bilangan BULAT (rupiah/jumlah), dan input rupiah
+// diformat dengan titik pemisah ribuan. Jadi titik DIBUANG (bukan dianggap
+// desimal) supaya "3.000.000" terbaca 3000000, bukan 3.
+const num=v=>{const n=parseInt(String(v).replace(/[^0-9-]/g,''),10);return isNaN(n)?0:n;};
+const HARI=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+const daysInMonth=(y,m)=>new Date(y,m,0).getDate();
+const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const monthKeyOf=iso=>iso.slice(0,7);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---- Format rupiah untuk input nominal (angka + pemisah ribuan titik) ----
+   Inputan diberi class "rp": nilainya diformat hidup saat diketik, dan num()
+   (yang membuang non-digit) tetap membacanya benar. */
+function fmtRpInput(v){ var d=String(v==null?'':v).replace(/[^0-9]/g,''); return d?Number(d).toLocaleString('id-ID'):''; }
+function formatAllRp(root){ (root||document).querySelectorAll('input.rp').forEach(function(el){ el.value=fmtRpInput(el.value); }); }
+document.addEventListener('input',function(e){
+  var el=e.target; if(!el||!el.classList||!el.classList.contains('rp')) return;
+  var before=el.value.length, caret=el.selectionStart;
+  el.value=fmtRpInput(el.value);
+  var delta=el.value.length-before;
+  try{ el.setSelectionRange(Math.max(0,caret+delta), Math.max(0,caret+delta)); }catch(_){}
+});
+
+/* ---- Nol langsung tergantikan saat mulai mengetik ----
+   Hampir semua kotak angka di modul ini mulai dari "0". Tanpa ini kru harus
+   menghapus nolnya sendiri tiap kali mengisi — dan kalau lupa, hasilnya "05"
+   yang terbaca 5 di kotak rupiah tapi tetap terlihat salah, dan benar-benar
+   jadi "05" di kotak biasa (traffic/bill/qty) yang tidak lewat formatter. */
+function kotakAngka(el){
+  return !!el && el.tagName==='INPUT' && !!el.classList &&
+         (el.classList.contains('rp') || el.classList.contains('ci') || el.getAttribute('inputmode')==='numeric');
+}
+function pilihKalauNol(el){ if(kotakAngka(el) && num(el.value)===0){ try{ el.select(); }catch(_){} } }
+document.addEventListener('focusin',function(e){ pilihKalauNol(e.target); });
+// Klik membatalkan select() dari focusin, jadi dipilih ulang sesudah klik
+// selesai. Aman: hanya berlaku saat isinya nol, yang memang tidak ada yang
+// perlu ditunjuk kursornya.
+document.addEventListener('mouseup',function(e){
+  var el=e.target;
+  if(kotakAngka(el) && el.selectionStart===el.selectionEnd) pilihKalauNol(el);
+});
+// Jaring pengaman untuk kotak TANPA class "rp" (traffic, bill, qty): buang nol
+// di depan begitu ada angka lain diketik.
+document.addEventListener('input',function(e){
+  var el=e.target;
+  if(!kotakAngka(el) || el.classList.contains('rp')) return;   // yang "rp" sudah dirapikan formatter di atas
+  var bersih=String(el.value).replace(/[^0-9]/g,'').replace(/^0+(?=\d)/,'');
+  if(bersih!==el.value) el.value=bersih;
+});
+
+/* Ciutkan / lebarkan menu samping (tombol ☰). Diingat per perangkat. */
+function toggleNav(){
+  const app=document.querySelector('.app'), mini=!app.classList.contains('nav-mini');
+  app.classList.toggle('nav-mini',mini);
+  try{ localStorage.setItem('lm_cashier_navmini',mini?'1':'0'); }catch(e){}
+}
+(function(){ try{ if(localStorage.getItem('lm_cashier_navmini')==='1') document.querySelector('.app').classList.add('nav-mini'); }catch(e){} })();
+
+/* Identitas dari Office (lm_session).
+
+   TIDAK ADA LEVEL di modul ini — sengaja. Kompas punya dua level ('ops' dan
+   'full') karena satu modul itu memuat pekerjaan kasir SEKALIGUS angka
+   perusahaan. Di sini pemisahannya sudah terjadi di lapisan modul: siapa pun
+   yang boleh membuka Cashier boleh membuka keempat halamannya, dan yang tidak
+   boleh tidak diberi modulnya di Kelola Akses. Menambahkan level di sini cuma
+   akan jadi gerbang kedua yang diam-diam bertentangan dengan yang pertama —
+   persis bug yang memakan satu sesi pelacakan di Kompas pada 28 Juli 2026. */
+let CURRENT_USER=null;
+function bacaSesi(){
+  try{
+    const s=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
+    if(!s||!s.expiry||Date.now()>=s.expiry) return null;
+    const m=s.modules||[];
+    if(m.indexOf('*')<0 && m.indexOf('cashier')<0) return null;
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||''};
+  }catch(e){ return null; }
+}
+function bolehLihat(view){ return !!TITLES[view]; }
+
+/* Metode pembayaran Report Daily. Urutannya sengaja alfabetis seperti yang
+   dipakai kasir di POS supaya mudah dicocokkan baris per baris. */
+const PAYS=[
+  {k:'cash',        n:'Cash'},
+  {k:'compliment',  n:'Compliment'},
+  {k:'edc_bca',     n:'EDC BCA'},
+  {k:'edc_mandiri', n:'EDC Mandiri'},
+  {k:'grabfood',    n:'Grabfood'},
+  {k:'member_dep',  n:'Member Deposit'},
+  {k:'qris_bri',    n:'QRIS BRI'},
+  {k:'qris_esb',    n:'QRIS ESB'},
+  {k:'qris_mandiri',n:'QRIS Mandiri'}
+];
+/* Batas selisih yang masih boleh disubmit. "Selisih 3 digit terakhir" =
+   di bawah seribu rupiah — beda pembulatan, bukan uang hilang. Rp1.000 ke
+   atas tombol submit dikunci. */
+const SELISIH_TOLERANSI=1000;
+/* Tim/Keterangan Office yang boleh jadi PIC compliment, + "Tamu" yang bukan
+   orang: compliment ber-PIC Tamu tidak memotong realisasi siapa pun. */
+const COMP_DIV=['marketing','office','event'];
+const PIC_TAMU='__tamu__';
+
+/* Default awal — dipakai kalau server masih kosong. Daftar PIC SENGAJA kosong:
+   nama Marketing/Event/Kasir ditarik otomatis dari akun Office yang divisinya
+   sudah di-define (lihat syncPicOffice), bukan diisi contoh dari sini.
+   Data omset harian mulai kosong. */
+function seed(){
+  return {
+    settings:{ companyMonthlyTarget:300000000, useWorkingDays:false, workingDaysPerMonth:26 },
+    employees:{ marketing:[], event:[], kasir:[] },
+    daily:[],
+    reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted}
+    compliments:[]   // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
+  };
+}
+/* Jaga bentuk data supaya view tidak pernah menemui field hilang. */
+function normalizeDB(d){
+  d=(d&&typeof d==='object'&&!Array.isArray(d))?d:{};
+  const s=seed();
+  if(!d.settings||typeof d.settings!=='object'||Array.isArray(d.settings)) d.settings=s.settings;
+  else for(const k in s.settings) if(d.settings[k]===undefined||d.settings[k]===null) d.settings[k]=s.settings[k];
+  if(!d.employees||typeof d.employees!=='object'||Array.isArray(d.employees)) d.employees=JSON.parse(JSON.stringify(s.employees));
+  else ['marketing','event','kasir'].forEach(k=>{ if(!Array.isArray(d.employees[k])) d.employees[k]=s.employees[k]; });
+  if(!Array.isArray(d.daily)) d.daily=[];
+  if(!d.reports||typeof d.reports!=='object'||Array.isArray(d.reports)) d.reports={};
+  if(!Array.isArray(d.compliments)) d.compliments=[];
+  /* Migrasi: "Total Tax & Service" dulu SATU angka (tax_service). Sekarang
+     dipecah jadi service_charge + tax. Nilai lama seluruhnya dianggap tax —
+     menebak pembagiannya justru mengarang angka yang tidak pernah diinput. */
+  d.daily.forEach(x=>{
+    if(x.service_charge===undefined && x.tax===undefined && x.tax_service!==undefined){
+      x.tax=num(x.tax_service); x.service_charge=0;
+    }
+    if(x.service_charge===undefined) x.service_charge=0;
+    if(x.tax===undefined) x.tax=0;
+  });
+  return d;
+}
+
+/* Bersih-bersih PIC contoh "Kasir 1/2/3" bawaan seed versi lama. Daftar kasir
+   sekarang datang dari akun Office yang divisinya di-define, jadi placeholder
+   ini tidak dipakai lagi. Baris breakdown miliknya ikut dibuang HANYA kalau
+   nominalnya nol — kalau ternyata pernah dipakai, PIC-nya dibiarkan supaya
+   omset yang sudah dialokasikan tidak hilang diam-diam. Idempoten: sekali
+   bersih, panggilan berikutnya tidak melakukan apa-apa. */
+function purgeSeedKasir(d){
+  const contoh=e=>/^k[123]$/.test(String(e.id||'')) && /^kasir\s*\d+$/i.test(String(e.name||'').trim()) && !e.officeUserId;
+  const kandidat=(d.employees.kasir||[]).filter(contoh);
+  if(!kandidat.length) return false;
+  const terpakai=new Set();
+  (d.daily||[]).forEach(day=>(day.bd&&Array.isArray(day.bd.kasir)?day.bd.kasir:[]).forEach(r=>{ if(num(r.amount)>0) terpakai.add(r.kasirId); }));
+  const buang=new Set(kandidat.filter(e=>!terpakai.has(e.id)).map(e=>e.id));
+  if(!buang.size) return false;
+  d.employees.kasir=d.employees.kasir.filter(e=>!buang.has(e.id));
+  (d.daily||[]).forEach(day=>{ if(day.bd&&Array.isArray(day.bd.kasir)) day.bd.kasir=day.bd.kasir.filter(r=>!buang.has(r.kasirId)); });
+  return true;
+}
+
+let DB=null;
+
+/* ---- lapisan API ---- */
+let SAVE_TIMER=null, SAVING=false, DIRTY=false, RETRY_TIMER=null, RETRY_KE=0;
+function setSync(st,msg){
+  const el=document.getElementById('syncBox'); if(!el) return;
+  el.className='sync'+(st==='err'?' err':st==='ok'?' ok':st==='saving'?' saving':'');
+  el.innerHTML=msg||(st==='ok'?'✓ Tersimpan':st==='saving'?'Menyimpan…':st==='load'?'Memuat…':'');
+}
+function fetchTimeout(url,opts,ms){
+  const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||25000);
+  opts=opts||{}; opts.signal=c.signal;
+  return fetch(url,opts).then(r=>{clearTimeout(t);return r;},e=>{clearTimeout(t);throw e;});
+}
+function apiGet(){
+  return fetchTimeout(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'})
+    .then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error||'server error'); return j.data; });
+}
+function apiSave(state){
+  return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'saveAll',data:state})},40000)
+    .then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error||'server error'); return j.data; });
+}
+/* Simpan ditunda sebentar lalu dikirim sekali — mengetik di form tidak boleh
+   memicu satu request per ketukan. */
+function save(){
+  DIRTY=true;
+  DB._savedBy=CURRENT_USER?CURRENT_USER.name:'';
+  try{ localStorage.setItem(CACHE_KEY,JSON.stringify(DB)); }catch(e){}
+  setSync('saving');
+  clearTimeout(SAVE_TIMER);
+  clearTimeout(RETRY_TIMER);   // suntingan baru sudah menjadwalkan kirim sendiri
+  SAVE_TIMER=setTimeout(kirim,1000);
+}
+/* Percobaan ulang kalau simpan gagal. Sebelumnya retry dijaga `if(DIRTY)`,
+   padahal DIRTY baru saja di-set false di awal kirim() — jadi syaratnya tidak
+   pernah benar dan "mencoba lagi…" itu bohong: datanya diam di localStorage
+   sampai ada suntingan berikutnya. Sekarang dijadwalkan tanpa syarat, dengan
+   jeda menanjak supaya server yang sedang bermasalah tidak dihujani. */
+const RETRY_JEDA=[5000,10000,20000,40000,60000];
+function jadwalkanUlang(){
+  clearTimeout(RETRY_TIMER);
+  const jeda=RETRY_JEDA[Math.min(RETRY_KE,RETRY_JEDA.length-1)];
+  RETRY_KE++;
+  RETRY_TIMER=setTimeout(kirim,jeda);
+  return jeda;
+}
+function kirim(){
+  if(SAVING){ SAVE_TIMER=setTimeout(kirim,700); return; }
+  SAVING=true; DIRTY=false;
+  apiSave(DB).then(()=>{
+    SAVING=false; RETRY_KE=0; clearTimeout(RETRY_TIMER);
+    setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
+  },err=>{
+    SAVING=false;
+    /* Sebab aslinya WAJIB ikut tampil. Pesan generik bikin galat konfigurasi
+       (mis. MySQL 1044 "Access denied ... to database") tidak bisa dibedakan
+       dari jaringan putus, dan itu memakan waktu diagnosa yang tidak perlu. */
+    const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
+    const detik=Math.round(jadwalkanUlang()/1000);
+    setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
+  });
+}
+
+/* ---- derived helpers ----
+   Rokok & Videotron DIHAPUS 27 Juli 2026 atas permintaan. Aman dilakukan
+   karena saat itu database dev maupun produksi belum berisi satu pun baris
+   omset, jadi tidak ada total historis yang berubah diam-diam. Field lamanya
+   sengaja tidak di-DROP dari data yang mungkin tersimpan — cuma tidak
+   dihitung lagi. */
+function grossOf(d){ return num(d.food)+num(d.bev)+num(d.lainnya); }
+function netOf(d){ return grossOf(d)-num(d.discount); }
+/* Tax & service ADA DI LUAR omset (tidak menambah/mengurangi netOf), tapi
+   tetap ditagihkan ke tamu. Jadi yang harus disamai total pembayaran di
+   Report Daily adalah netOf + tax + service, bukan netOf saja. */
+function taxSvcOf(d){ return num(d.service_charge)+num(d.tax); }
+function tagihanOf(d){ return netOf(d)+taxSvcOf(d); }
+function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
+function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
+/* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
+const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
+function dailyTarget(monthKey){
+  const [y,m]=monthKey.split('-').map(Number);
+  const div=DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
+  return div>0?DB.settings.companyMonthlyTarget/div:0;
+}
+function daysOfMonth(monthKey){ return DB.daily.filter(d=>monthKeyOf(d.date)===monthKey).sort((a,b)=>a.date<b.date?-1:1); }
+function getDay(date){ return DB.daily.find(d=>d.date===date); }
+function empName(div,id){ const e=(DB.employees[div]||[]).find(x=>x.id===id); return e?e.name:'—'; }
+
+let PERIOD=monthKeyOf(todayISO());
+let CURRENT='input';
+
+/* ============ ROUTER ============ */
+const TITLES={
+  report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
+  compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
+  kasir:['Performa Kasir','Omset walk-in per kasir'],
+  dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi']
+};
+function go(view){
+  // View yang tidak ada di TITLES tidak bisa dicapai, termasuk lewat go() dari
+  // kode lain. Jatuhnya ke Report Daily, halaman pertama pekerjaan kasir.
+  if(!bolehLihat(view)) view='report';
+  CURRENT=view;
+  document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
+  document.getElementById('pageTitle').textContent=TITLES[view][0];
+  document.getElementById('pageSub').textContent=TITLES[view][1];
+  document.getElementById('sidebar').classList.remove('open');
+  render();
+}
+document.querySelectorAll('.nav a').forEach(a=>a.addEventListener('click',()=>go(a.dataset.view)));
+document.getElementById('periodPick').addEventListener('change',e=>{PERIOD=e.target.value;render();});
+
+let charts=[];
+function clearCharts(){ charts.forEach(c=>{try{c.destroy();}catch(e){}}); charts=[]; }
+
+function render(){
+  const el=document.getElementById('app-view');
+  if(!DB){ el.innerHTML='<div class="card"><div class="empty"><div class="big">⏳</div>Memuat data dari server…</div></div>'; return; }
+  clearCharts();
+  document.getElementById('periodPick').value=PERIOD;
+  el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
+  ({report:viewReport,compliment:viewCompliment,kasir:viewKasir,dp:viewDp}[CURRENT])();
+  formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
+}
+
+/* ============ 1. REPORT DAILY ============
+   Kasir mencatat setoran per metode pembayaran dalam dua kolom: POS (angka
+   yang keluar dari mesin) dan Actual (uang/mutasi yang benar-benar ada).
+   Selisih per metode langsung kelihatan supaya ketahuan metode MANA yang
+   bermasalah — total saja tidak cukup, karena kelebihan di satu metode bisa
+   menutupi kekurangan di metode lain dan seolah-olah balance.
+
+   Halaman ini SENGAJA tidak menyebut omset harian sama sekali. Dulu ada kartu
+   "Tagihan Menurut Omset" + "Selisih terhadap Omset" di sini, dan hasilnya
+   membingungkan: selama admin belum menginput omset, tagihannya Rp0 sehingga
+   selisihnya sama dengan seluruh setoran (mis. +Rp9.430.148 merah) — seolah
+   kasir salah besar padahal pekerjaannya sudah benar. Pencocokan ke omset
+   sepenuhnya jadi urusan Input Omset Harian, yang memang diisi belakangan.
+   Yang tersisa di sini hanya selisih POS vs Actual: itu murni internal kasir. */
+let repDate=todayISO();
+function repOf(date){ return (DB.reports||{})[date]||null; }
+function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(p.pos),actual:num(p.actual)}; }
+function viewReport(){
+  CAL_ST.rp.open=false;
+  const el=document.getElementById('app-view');
+  const rec=repOf(repDate);
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode — selisih dihitung otomatis. Boleh disubmit kapan saja, tidak perlu menunggu omset harian.</div></div>
+      <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
+    </div>
+    <div class="card">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th></tr></thead>
+        <tbody>${PAYS.map(p=>{const v0=repPay(rec,p.k);return `<tr>
+          <td><b>${esc(p.n)}</b></td>
+          <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="pos" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.pos}"></td>
+          <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="actual" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.actual}"></td>
+          <td class="num mono" id="rs_${p.k}">Rp0</td>
+        </tr>`;}).join('')}</tbody>
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
+          <td>TOTAL</td><td class="num mono" id="rt_pos">Rp0</td><td class="num mono" id="rt_act">Rp0</td><td class="num mono" id="rt_sel">Rp0</td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+    <div class="grid g3">
+      <div class="stat accent"><div class="lab">Total POS</div><div class="val sm mono" id="rc_pos">Rp0</div><div class="foot">angka dari mesin kasir</div></div>
+      <div class="stat"><div class="lab">Total Actual</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">uang & mutasi yang benar-benar ada</div></div>
+      <div class="stat" id="rc_box"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>
+    </div>
+    <div id="rp_err"></div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
+      <button class="btn btn-primary" id="rp_save">${rec&&rec.submitted?'Update Report':'Submit Report'}</button>
+      <div class="helper" style="margin:0">PIC: <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b>${rec&&rec.by?` · terakhir disimpan oleh <b>${esc(rec.by)}</b>${rec.at?` (${fmtWaktu(rec.at)})`:''}`:''}</div>
+    </div>`;
+
+  const hitung=()=>{
+    let tp=0,ta=0;
+    PAYS.forEach(p=>{
+      const pos=num(inputVal(p.k,'pos')), act=num(inputVal(p.k,'actual'));
+      tp+=pos; ta+=act;
+      const s=act-pos;
+      const c=document.getElementById('rs_'+p.k);
+      c.textContent=fmtSel(s);
+      c.style.color = s===0?'var(--muted)' : (s>0?'var(--ok)':'var(--danger)');
+      c.style.fontWeight = s===0?'500':'800';
+    });
+    document.getElementById('rt_pos').textContent=fmtRp(tp);
+    document.getElementById('rt_act').textContent=fmtRp(ta);
+    const tsel=ta-tp;
+    const tf=document.getElementById('rt_sel');
+    tf.textContent=fmtSel(tsel);
+    tf.style.color = tsel===0?'var(--muted)':(tsel>0?'var(--ok)':'var(--danger)');
+    /* Ringkasan bawah = pengulangan baris TOTAL, murni POS vs Actual. Tidak
+       ada lagi pembanding ke omset di halaman ini, dan submit tidak pernah
+       dikunci: kasir mengisi lebih dulu, sering sebelum omset harian ada. */
+    const abs=Math.abs(tsel);
+    document.getElementById('rc_pos').textContent=fmtRp(tp);
+    document.getElementById('rc_act').textContent=fmtRp(ta);
+    document.getElementById('rc_sel').textContent=fmtSel(tsel);
+    document.getElementById('rc_box').style.background =
+      tsel===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
+    document.getElementById('rc_foot').innerHTML = tsel===0
+      ? 'POS dan Actual cocok ✓'
+      : abs<SELISIH_TOLERANSI
+        ? `beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)})`
+        : tsel>0 ? 'uang lebih dari catatan mesin — cek metode yang selisihnya besar'
+                 : 'uang kurang dari catatan mesin — cek metode yang selisihnya besar';
+    return {tp,ta,sel:tsel,abs};
+  };
+  function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
+  el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rp_save').addEventListener('click',()=>{
+    const h=hitung();
+    const box=document.getElementById('rp_err');
+    const pay={};
+    PAYS.forEach(p=>{ pay[p.k]={pos:num(inputVal(p.k,'pos')),actual:num(inputVal(p.k,'actual'))}; });
+    DB.reports=DB.reports||{};
+    DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true};
+    save();
+    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan selisih POS vs Actual ${fmtRp(h.abs)}`:''}.</div>`;
+    setTimeout(()=>render(),700);
+  });
+  hitung();
+}
+function fmtWaktu(ts){ const d=new Date(ts); return isNaN(d)?'':d.toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+
+/* ============ 2. COMPLIMENT ============
+   Di luar kalkulasi metode pembayaran: ini catatan SIAPA yang merelakan omset
+   dan untuk apa. PIC-nya ditarik dari akun Office ber-Tim/Keterangan
+   Marketing/Office/Event, ditambah "Tamu" yang bukan orang — compliment untuk
+   tamu umum tidak boleh membebani realisasi siapa pun. */
+let compDate=todayISO();
+let COMP_ROSTER=null, COMP_ROSTER_ERR='';
+function ambilRoster(){
+  if(COMP_ROSTER!==null) return Promise.resolve(COMP_ROSTER);
+  return fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})})
+    .then(r=>r.json())
+    .then(j=>{
+      if(!j||!j.ok||!Array.isArray(j.members)) throw new Error(j&&j.error||'balasan tidak dikenal');
+      COMP_ROSTER=j.members.filter(u=>{
+        if(u.active===false) return false;
+        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+        return COMP_DIV.some(dv=>ket.indexOf(dv)>-1);
+      }).map(u=>{
+        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+        return {id:u.id,name:String(u.name||'').trim(),div:COMP_DIV.find(dv=>ket.indexOf(dv)>-1)||''};
+      }).filter(u=>u.name);
+      COMP_ROSTER_ERR='';
+      return COMP_ROSTER;
+    })
+    .catch(e=>{ COMP_ROSTER_ERR=e.message||'gagal'; COMP_ROSTER=[]; return COMP_ROSTER; });
+}
+function compsOn(date){ return (DB.compliments||[]).filter(c=>c.date===date); }
+function viewCompliment(){
+  CAL_ST.cp.open=false;
+  const el=document.getElementById('app-view');
+  const list=compsOn(compDate);
+  const total=list.reduce((s,c)=>s+num(c.nominal),0);
+  const opsi=(COMP_ROSTER||[]).map(u=>`<option value="${esc(u.id)}">${esc(u.name)} — ${esc(u.div)}</option>`).join('');
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut.</div></div>
+      <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="cp_cal">${calInner('cp')}</div></div>
+    </div>
+    <div class="card">
+      <div class="mini-lab">Tambah Compliment</div>
+      <div class="row-in">
+        <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake"></div>
+        <div class="field"><label>Alasan / Untuk Apa</label><input id="c_alasan" placeholder="cth. Ulang tahun tamu VIP"></div>
+        <div class="field"><label>Nominal</label><input class="mono rp" id="c_nominal" inputmode="numeric" value="0"></div>
+        <div class="field"><label>PIC</label>
+          <select id="c_pic">
+            <option value="${PIC_TAMU}">Tamu</option>
+            ${opsi}
+          </select>
+          ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}. Hanya "Tamu" yang tersedia.</div>`
+            :(COMP_ROSTER&&!COMP_ROSTER.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan Marketing, Office, atau Event.</div>`:'')}
+        </div>
+      </div>
+      <div id="c_err"></div>
+      <button class="btn btn-primary" id="c_add">+ Tambah</button>
+    </div>
+    <div class="grid g2">
+      <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
+      <div class="stat"><div class="lab">Membebani PIC</div><div class="val sm mono">${fmtRp(list.filter(c=>c.picDiv!=='tamu').reduce((s,c)=>s+num(c.nominal),0))}</div><div class="foot">di luar yang ber-PIC Tamu</div></div>
+    </div>
+    <div class="card">
+      <h3>Daftar Compliment Hari Ini</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Nama</th><th>Alasan</th><th class="num">Nominal</th><th>PIC</th><th>Dicatat Oleh</th><th></th></tr></thead>
+        <tbody>${list.length?list.map(c=>`<tr>
+          <td><b>${esc(c.nama)}</b></td>
+          <td class="muted">${esc(c.alasan||'—')}</td>
+          <td class="num mono">${fmtRp(num(c.nominal))}</td>
+          <td>${c.picDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.picName)} <span class="muted" style="font-size:11px">· ${esc(c.picDiv)}</span>`}</td>
+          <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
+          <td><button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button></td>
+        </tr>`).join(''):'<tr><td colspan="6" class="empty">Belum ada compliment pada tanggal ini.</td></tr>'}</tbody>
+      </table></div>
+    </div>`;
+  document.getElementById('c_add').addEventListener('click',()=>{
+    const nama=(document.getElementById('c_nama').value||'').trim();
+    const alasan=(document.getElementById('c_alasan').value||'').trim();
+    const nominal=num(document.getElementById('c_nominal').value);
+    const picId=document.getElementById('c_pic').value;
+    const box=document.getElementById('c_err');
+    const errs=[];
+    if(!nama) errs.push('Nama compliment wajib diisi.');
+    if(nominal<=0) errs.push('Nominal harus lebih dari nol.');
+    if(errs.length){ box.innerHTML='<div class="notice bad">⚠ '+errs.join(' ')+'</div>'; return; }
+    const u=(COMP_ROSTER||[]).find(x=>x.id===picId);
+    DB.compliments=DB.compliments||[];
+    DB.compliments.push({
+      id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
+      date:compDate, nama, alasan, nominal,
+      picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?u.div:'tamu',
+      by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
+    });
+    save(); render();
+  });
+  // Roster belum ada → ambil sekali, lalu gambar ulang supaya dropdown terisi.
+  if(COMP_ROSTER===null) ambilRoster().then(()=>{ if(CURRENT==='compliment') render(); });
+}
+function hapusCompliment(id){
+  if(!confirm('Hapus catatan compliment ini?')) return;
+  DB.compliments=(DB.compliments||[]).filter(c=>c.id!==id);
+  save(); render();
+}
+
+/* Compliment memotong REALISASI PIC (keputusan 27 Juli 2026), bukan targetnya.
+   Yang ber-PIC "Tamu" tidak memotong siapa pun. Pencocokan ke PIC kompas lewat
+   officeUserId dulu — nama bisa berubah ejaannya di Office, id tidak. */
+function compsBulan(monthKey){ return (DB.compliments||[]).filter(c=>monthKeyOf(c.date)===monthKey); }
+/* Daftar compliment yang membebani satu PIC. Dipisah dari compPic() supaya
+   halaman Performa bisa memajang rinciannya — angka potongan saja bikin PIC
+   bertanya-tanya "dipotong apa", dan jawabannya cuma ada di halaman lain. */
+function compListPic(monthKey, emp){
+  if(!emp) return [];
+  const nama=String(emp.name||'').trim().toLowerCase();
+  return compsBulan(monthKey).filter(c=>{
+    if(c.picDiv==='tamu') return false;
+    if(emp.officeUserId && c.picOfficeId) return c.picOfficeId===emp.officeUserId;
+    return String(c.picName||'').trim().toLowerCase()===nama;
+  });
+}
+function compPic(monthKey, emp){
+  return compListPic(monthKey, emp).reduce((s,c)=>s+num(c.nominal),0);
+}
+/* Kartu rincian compliment, dipakai bersama Performa Marketing/Event/Kasir.
+   `judulPic` diisi saat menampilkan gabungan banyak PIC (segmen "Semua"),
+   supaya ketahuan potongan itu milik siapa. */
+function kartuCompliment(rows, pakaiKolomPic){
+  const total=rows.reduce((s,c)=>s+num(c.nominal),0);
+  if(!rows.length) return `<div class="card"><h3>Rincian Compliment</h3><div class="empty" style="padding:18px 10px">Tidak ada compliment yang membebani pada periode ini.</div></div>`;
+  const baris=[...rows].sort((a,b)=>a.date<b.date?-1:1).map(c=>`<tr>
+      <td>${esc(c.date)}</td>
+      ${pakaiKolomPic?`<td>${esc(c.picName||'—')}</td>`:''}
+      <td><b>${esc(c.nama||'—')}</b></td>
+      <td>${esc(c.alasan||'—')}</td>
+      <td class="num mono">${fmtRp(num(c.nominal))}</td>
+    </tr>`).join('');
+  return `<div class="card">
+    <h3>Rincian Compliment</h3>
+    <div class="card-sub">${rows.length} compliment senilai ${fmtRp(total)} — sudah dipotong dari Realisasi di atas.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th style="width:110px">Tanggal</th>${pakaiKolomPic?'<th>PIC</th>':''}<th>Compliment</th><th>Alasan</th><th class="num" style="width:130px">Nominal</th></tr></thead>
+      <tbody>${baris}</tbody>
+      <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td colspan="${pakaiKolomPic?4:3}">TOTAL POTONGAN</td><td class="num mono">${fmtRp(total)}</td></tr></tfoot>
+    </table></div>
+  </div>`;
+}
+
+/* ---- Pembagian omset event Ticketing (keputusan 28 Juli 2026) ----
+   Event NON-TICKETING: seluruh omsetnya diakui untuk PIC-nya.
+   Event TICKETING: hanya SEPARUH yang diakui untuk PIC (marketing atau
+   event, tergantung siapa yang memegang event itu). Separuh sisanya milik
+   kasir dan dibagi ke kasir yang kena shift event itu — tiketnya memang dijual
+   atas nama event, tapi yang melayani penjualan dan tamunya kasir.
+
+   CATATAN SEJARAH: aturan ini sempat berlaku terbalik di hari yang sama
+   (non-ticketing yang dibagi dua). Yang dipakai sekarang adalah yang ini —
+   TICKETING yang dibagi. Data lama tidak perlu dimigrasi karena yang berubah
+   cuma cara membaca `tiket`, bukan bentuk datanya; tapi angka realisasi bulan
+   berjalan otomatis berubah begitu berkas ini naik.
+
+   Ini lapisan PENILAIAN, bukan data. Angka di halaman Breakdown tidak diubah
+   sedikit pun, jadi validasi "total alokasi = omset net harian" tetap berlaku
+   apa adanya. Yang berubah hanya cara Performa, Ranking, dan Analytics
+   membaca angka yang sama.
+
+   Semua halaman WAJIB lewat dua fungsi ini. Sempat ada empat tempat berbeda
+   yang menjumlahkan r.amount sendiri-sendiri; kalau salah satu terlewat,
+   realisasi orang yang sama beda antara Performa dan Ranking. */
+const PORSI_PIC_TIKET=0.5;
+function porsiPic(r){
+  const a=num(r.amount);
+  return r.tiket ? Math.round(a*PORSI_PIC_TIKET) : a;
+}
+/* Porsi kasir dari SATU baris event, dibagi per SHIFT — bukan rata ke semua
+   kasir yang masuk hari itu (keputusan 28 Juli 2026, mengganti aturan sehari
+   sebelumnya). Kasir yang masuk hari itu tapi tidak kebagian shift event
+   tersebut tidak menerima apa-apa.
+
+   Pembaginya = jumlah DW (daily worker, kasir harian) + jumlah kasir tetap
+   yang dicentang shift-nya. DW ikut membagi TAPI tidak ikut dicatat: mereka
+   bukan pegawai tetap dan tidak punya baris performa. Jadi kalau porsi kasir
+   Rp500.000 dengan 2 DW dan 3 kasir tetap, pembaginya 5 → tiap kasir tetap
+   dapat Rp100.000, dan Rp200.000 milik DW tidak muncul di performa siapa pun.
+   Itu memang disengaja, bukan kebocoran angka.
+
+   Baris yang shift-nya belum diisi mengembalikan pembagi 0 → tidak ada yang
+   menerima. UI menandainya merah supaya ketahuan, daripada diam-diam
+   membagikannya ke orang yang tidak bertugas. */
+function bagiKasirBaris(r){
+  const sisa=num(r.amount)-porsiPic(r);
+  const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
+  const dw=Math.max(0,num(r.dw));
+  const pembagi=dw+ids.length;
+  if(sisa<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,sisa:Math.max(sisa,0)};
+  return {per:Math.round(sisa/pembagi),ids,dw,pembagi,sisa};
+}
+/* Total yang diterima satu kasir tetap dari seluruh event pada satu hari. */
+function bagiKasirHari(d,kasirId){
+  let s=0;
+  [...(d.bd?.marketing||[]),...(d.bd?.event||[])].forEach(r=>{
+    const b=bagiKasirBaris(r);
+    if(b.ids.indexOf(kasirId)>-1) s+=b.per;
+  });
+  return s;
+}
+/* Baris ticketing bernominal yang shift-nya belum ditentukan. Dipakai
+   untuk peringatan di Breakdown dan Performa Kasir. */
+function barisTanpaShift(d){
+  return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
+    .filter(r=>r.tiket && num(r.amount)>0 && bagiKasirBaris(r).pembagi<=0);
+}
+
+
+/* ---- Kalender kustom (bukan input type=date bawaan Chrome). Satu
+   implementasi dipakai dua tempat, dibedakan lewat `key`:
+     'rp' → Tanggal di Report Daily
+     'cp' → Tanggal di Compliment
+   Semua tanggal terbuka; tanggal yang sudah ada omset diberi titik. */
+const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const CAL_REG={
+  rp:{ box:'rp_cal', get:()=>repDate,            set:ds=>{ repDate=ds; PERIOD=monthKeyOf(ds); } },
+  cp:{ box:'cp_cal', get:()=>compDate,           set:ds=>{ compDate=ds; PERIOD=monthKeyOf(ds); } }
+};
+const CAL_ST={ rp:{open:false,month:null}, cp:{open:false,month:null} };
+function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
+function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
+function calToggle(key){ const s=CAL_ST[key]; s.open=!s.open; if(s.open){ const [y,m]=CAL_REG[key].get().split('-').map(Number); s.month=new Date(y,m-1,1); } paintCal(key); }
+function calNav(key,delta){ const s=CAL_ST[key]; if(!s.month) s.month=new Date(); s.month=new Date(s.month.getFullYear(),s.month.getMonth()+(+delta),1); paintCal(key); }
+function calPickDay(key,ds){ CAL_ST[key].open=false; CAL_REG[key].set(ds); render(); }
+function calQuick(key,off){ const d=new Date(); d.setDate(d.getDate()+off); calPickDay(key,ymdLocal(d)); }
+function calInner(key){
+  const st=CAL_ST[key], sel=CAL_REG[key].get()||todayISO();
+  const btn=`<button type="button" class="calbtn" onclick="calToggle('${key}')"><span>📅 ${dateLabel(sel)}</span><span style="opacity:.55">▾</span></button>`;
+  if(!st.open) return btn;
+  if(!st.month){ const [yy,mm]=sel.split('-').map(Number); st.month=new Date(yy,mm-1,1); }
+  const y=st.month.getFullYear(), mo=st.month.getMonth();
+  const startDow=new Date(y,mo,1).getDay(), dim=new Date(y,mo+1,0).getDate(), prevDim=new Date(y,mo,0).getDate();
+  const DOW=['MIN','SEN','SEL','RAB','KAM','JUM','SAB'];
+  let cells='';
+  for(let i=startDow-1;i>=0;i--) cells+=`<button class="calday off" disabled>${prevDim-i}</button>`;
+  for(let dd=1;dd<=dim;dd++){
+    const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    const cls=['calday']; if(ds===todayISO())cls.push('today'); if(ds===sel)cls.push('sel'); if(getDay(ds))cls.push('caldata');
+    cells+=`<button class="${cls.join(' ')}" onclick="calPickDay('${key}','${ds}')">${dd}</button>`;
+  }
+  return btn+`<div class="calback" onclick="calToggle('${key}')"></div><div class="calpop">
+    <div class="calhead"><button class="calnav" onclick="calNav('${key}',-1)">‹</button><b>${CAL_MON[mo]} ${y}</b><button class="calnav" onclick="calNav('${key}',1)">›</button></div>
+    <div class="calgrid">${DOW.map(d=>`<div class="caldow">${d}</div>`).join('')}${cells}</div>
+    <div class="calquick"><button onclick="calPickDay('${key}','${todayISO()}')">Hari Ini</button><button onclick="calQuick('${key}',-1)">Kemarin</button><button onclick="calToggle('${key}')">Tutup</button></div>
+  </div>`;
+}
+
+function emptyCanvas(id,msg){const c=document.getElementById(id);if(c)c.parentElement.innerHTML='<div class="empty" style="padding:60px 10px"><div class="big">📊</div>'+(msg||'Belum ada data')+'</div>';}
+/* ============ 3. PERFORMA KASIR ============ */
+function viewKasir(){
+  const el=document.getElementById('app-view');
+  const days=daysOfMonth(PERIOD);
+  const list=DB.employees.kasir;
+  const agg={};
+  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],bagi:0});
+  days.forEach(d=>{
+    (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
+      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,bagi:0,off:true});}
+      else{
+        // Bagi hasil dihitung dari shift tiap baris event, bukan dari kehadiran
+        // hari itu: kasir yang masuk tapi tidak kena shift event tidak dapat.
+        const bagi=bagiKasirHari(d,r.kasirId);
+        agg[r.kasirId].real+=num(r.amount)+bagi;
+        agg[r.kasirId].bagi+=bagi;
+        agg[r.kasirId].masuk++;
+        agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),bagi,off:false});
+      }
+    }});
+  });
+  // sama seperti Performa & Ranking: compliment memotong realisasi. Barisnya
+  // disimpan juga supaya rinciannya bisa dipajang, bukan cuma angka potongan.
+  list.forEach(k=>{
+    const cr=compListPic(PERIOD,k);
+    agg[k.id].compRows=cr;
+    agg[k.id].comp=cr.reduce((s,c)=>s+num(c.nominal),0);
+    agg[k.id].real-=agg[k.id].comp;
+  });
+  const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
+  /* Hari yang punya event ticketing tanpa penerima. Bagi hasilnya tidak
+     jatuh ke siapa pun, jadi realisasi kasir di bawah lebih kecil dari
+     seharusnya — sebut alasannya, jangan biarkan angkanya tampak wajar. */
+  const hariBelum=days.filter(d=>barisTanpaShift(d).length);
+  const peringatan=hariBelum.length
+    ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya event ticketing yang belum ditentukan shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Bagi hasilnya belum masuk ke kasir mana pun — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
+    : '';
+  el.innerHTML=peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  const draw=kid=>{
+    let k,a;
+    if(kid==='__all__'){
+      k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};
+      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],bagi:0};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.bagi+=(g.bagi||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
+    } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
+    if(!k||!a) return;
+    const ach=pct(a.real,k.target),avg=a.masuk>0?a.real/a.masuk:0;
+    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td class="num mono">${h.off?'—':(h.bagi?fmtRp(h.bagi):'<span class="muted">—</span>')}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    document.getElementById('ks_body').innerHTML=`
+      <div class="grid g4">
+        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(k.target)}</div></div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.bagi?`termasuk ${fmtRp(a.bagi)} bagi hasil event ticketing`:''}${a.bagi&&a.comp?' · ':''}${a.comp?`dipotong compliment ${fmtRp(a.comp)}`:''}${!a.bagi&&!a.comp?'walk-in murni':''}</div></div>
+        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=k.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+        <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
+      </div>
+      <div class="card"><div class="prog ${a.real>=k.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(k.target)}</div></div>
+      <div class="grid g2" style="align-items:start">
+        <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Bagi Hasil</b> = jatah event ticketing yang shift-nya dipegang</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Walk In</th><th class="num">Bagi Hasil</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+      </div>
+      ${kartuCompliment(a.compRows||[], kid==='__all__')}`;
+    clearChartsExcept();
+    const h=[...a.hist].sort((x,y)=>x.date<y.date?-1:1);
+    // Batangnya memakai walk-in + bagi hasil supaya totalnya sama dengan
+    // Realisasi di kotak atas; kalau hanya amount, grafiknya bercerita lain.
+    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount+(x.bagi||0)),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
+    else emptyCanvas('ks_chart','Belum ada data');
+  };
+  document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
+  if(list.length)draw('__all__'); else document.getElementById('ks_body').innerHTML='<div class="card"><div class="empty">Belum ada kasir. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
+}
+
+/* Sinkron PIC dari Office OTOMATIS (tanpa PIN) berdasarkan Tim/Keterangan.
+   Memakai listDivisiRoster — endpoint terbuka yang hanya membalas nama +
+   keterangan. Di modul ini yang benar-benar dipakai cuma daftar `kasir`
+   (Performa Kasir kosong tanpa itu), tapi ketiga divisi tetap disinkronkan
+   supaya isi database sama persis dengan yang ditulis Kompas — kalau hanya
+   kasir yang ditambahkan di sini, dua modul akan bergantian menulis daftar
+   PIC yang berbeda ke blob yang sama. NON-DESTRUKTIF: cuma menambah yang
+   belum ada (cocok officeUserId atau nama). */
+async function syncPicOffice(){
+  if(!DB) return;
+  try{
+    const r=await fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})});
+    const j=await r.json();
+    if(!j||!j.ok||!Array.isArray(j.members)) return;
+    let changed=false;
+    ['marketing','event','kasir'].forEach(divi=>{
+      j.members.forEach(u=>{
+        if(u.active===false) return;
+        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+        if(ket.indexOf(divi)<0) return;                 // kata divisi utuh
+        const nama=String(u.name||'').trim(); if(!nama) return;
+        const ada=DB.employees[divi].some(e=>e.officeUserId===u.id || String(e.name||'').trim().toLowerCase()===nama.toLowerCase());
+        if(!ada){ DB.employees[divi].push({id:divi[0]+Date.now().toString(36)+Math.floor(Math.random()*1e4),name:nama,target:0,officeUserId:u.id}); changed=true; }
+      });
+    });
+    if(changed){ save(); if(CURRENT==='kasir') render(); }
+  }catch(e){ /* Office diam → biarkan; PIC yang sudah tersimpan tetap ada */ }
+}
+
+/* ============ 4. DANA MASUK (DP) ============
+   HANYA BACA. Datanya milik modul Reservasi dan diambil apa adanya lewat
+   `getAll` di API-nya. Halaman ini tidak pernah menulis ke sana, dan itu
+   keputusan, bukan kekurangan yang belum sempat digarap:
+
+   1. Reservasi menyimpan SATU blob berisi seluruh reservasi. Menulis dari
+      modul kedua berarti mengirim ulang seluruh blob itu; host yang sedang
+      mengedit reservasi pada jam yang sama akan tertimpa tanpa gejala.
+      (Reservasi sendiri menghindarinya dengan merge per baris + baseVer —
+      mesin itu tidak ada di sini.)
+   2. Verifikasi bukti transfer di sana bersandar pada OCR dan berkas bukti
+      yang disimpan terpisah. Menyalin mesin itu ke modul ini berarti dua
+      salinan yang lambat laun berbeda — lebih berbahaya daripada satu tombol
+      yang memang harus dibuka di modul sebelah.
+
+   Jadi kasir memakai halaman ini untuk MENCOCOKKAN uang yang masuk, bukan
+   untuk memverifikasinya. Verifikasi tetap pekerjaan modul Reservasi.
+
+   Satu baris = satu kali transfer, sama seperti di sana: DP yang dicicil
+   muncul terpisah supaya nominalnya bisa dicocokkan ke mutasi satu per satu. */
+const RESV_API='../reservasi-api-mysql/api.php';
+let DP_RESV=null, DP_ERR='';
+async function muatDp(){
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),20000);
+  try{
+    const r=await fetch(RESV_API+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow',signal:stop.signal});
+    clearTimeout(jam);
+    const j=await r.json();
+    if(!j||!j.ok) throw new Error((j&&j.error)||'server error');
+    DP_RESV=Array.isArray(j.data&&j.data.reservations)?j.data.reservations:[];
+    DP_ERR='';
+  }catch(e){
+    clearTimeout(jam); DP_RESV=null;
+    DP_ERR=(e.name==='AbortError'?'Modul Reservasi tidak menjawab dalam 20 detik':e.message);
+  }
+  if(CURRENT==='dp') viewDp();
+}
+/* Bank pengirim: hasil baca bukti kalau ada, kalau tidak metode yang diketik
+   host ("Transfer BCA" → "BCA"). */
+function dpBank(p){ return p.tfBank || String(p.method||'').replace(/^transfer\s+/i,'').trim(); }
+/* Nominal yang dipakai = yang terbaca di bukti, bukan yang diketik host —
+   kalau keduanya beda, yang benar-benar masuk ke rekening adalah yang di bukti. */
+function dpNominal(p){ return Number(p.tfAmount)>0?Number(p.tfAmount):(Number(p.amount)||0); }
+/* Salinan baca-saja dari ensureDps() milik Reservasi: reservasi lama menyimpan
+   DP sebagai field datar (dpAmount/dpMethod/…), bukan array `dps`. Tanpa ini
+   DP lama tidak muncul sama sekali di halaman ini. Sengaja TIDAK menulis
+   balik ke objeknya — migrasi datanya urusan modul Reservasi. */
+function dpsDari(r){
+  if(Array.isArray(r.dps) && r.dps.length) return r.dps;
+  if(r.dpStatus==='Sudah' && (Number(r.dpAmount)>0 || r.dpProofData)){
+    return [{amount:Number(r.dpAmount)||0, method:r.dpMethod||'', proofData:r.dpProofData||'',
+             tfDate:r.tfDate||'', tfTime:r.tfTime||'', tfBank:r.tfBank||'', tfName:r.tfName||'',
+             tfAmount:Number(r.tfAmount)||0, tfStatus:r.tfStatus||''}];
+  }
+  return [];
+}
+function dpBaris(){
+  const out=[];
+  (DP_RESV||[]).forEach(r=>{
+    const list=dpsDari(r);
+    list.forEach((p,i)=>{
+      if(!Number(p.amount) && !p.proofData) return;      // baris kosong, tidak ada uangnya
+      out.push({nama:r.name||'(tanpa nama)', tglResv:r.date||'',
+                tgl:p.tfDate||r.date||'', jam:p.tfTime||'',
+                bank:dpBank(p), pengirim:p.tfName||'', nominal:dpNominal(p),
+                status:p.tfStatus||'', adaBukti:!!p.proofData, ke:i+1, dari:list.length});
+    });
+  });
+  return out;
+}
+function viewDp(){
+  const el=document.getElementById('app-view');
+  if(DP_RESV===null && !DP_ERR){
+    el.innerHTML=`<div class="card"><div class="empty"><div class="big">⏳</div>Memuat dana masuk dari modul Reservasi…</div></div>`;
+    muatDp(); return;
+  }
+  const segarkan=`<button class="btn btn-ghost btn-sm" onclick="DP_RESV=null;DP_ERR='';viewDp()">↻ Segarkan</button>`;
+  const kepala=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><h3>Dana Masuk (DP)</h3><div class="card-sub" style="margin:0">Uang DP reservasi bulan <b>${esc(PERIOD)}</b>. Dibaca langsung dari modul Reservasi — halaman ini tidak mengubah apa pun di sana.</div></div>
+      ${segarkan}
+    </div>`;
+  if(DP_ERR){
+    el.innerHTML=kepala+`<div class="notice bad">⚠ Gagal memuat dari modul Reservasi: ${esc(DP_ERR)}</div>`;
+    return;
+  }
+  // Disaring per bulan mengikuti pemilih periode di topbar, memakai TANGGAL
+  // TRANSFER (bukan tanggal reservasi): yang dicocokkan kasir adalah mutasi
+  // rekening, dan tamu sering mentransfer jauh sebelum hari acaranya.
+  const semua=dpBaris().filter(x=>String(x.tgl).slice(0,7)===PERIOD)
+    .sort((a,b)=>a.tgl<b.tgl?1:a.tgl>b.tgl?-1:0);
+  const total=semua.reduce((s,x)=>s+x.nominal,0);
+  const sudah=semua.filter(x=>x.status==='verified');
+  const tolak=semua.filter(x=>x.status==='rejected');
+  const belum=semua.filter(x=>!x.status);
+  const tanpaBukti=semua.filter(x=>!x.adaBukti);
+  const perBank={};
+  semua.forEach(x=>{ const b=x.bank||'(tanpa bank)'; perBank[b]=(perBank[b]||0)+x.nominal; });
+  const bankRows=Object.keys(perBank).sort((a,b)=>perBank[b]-perBank[a])
+    .map(b=>`<tr><td>${esc(b)}</td><td class="num mono">${fmtRp(perBank[b])}</td></tr>`).join('');
+  const chip=x=>x.status==='verified'?'<span class="chip ok">terverifikasi</span>'
+             :x.status==='rejected'?'<span class="chip bad">ditolak</span>'
+             :'<span class="chip warn">belum dicek</span>';
+  const rows=semua.map(x=>`<tr>
+      <td>${esc(x.tgl)}${x.jam?` <span class="muted" style="font-size:11px">${esc(x.jam)}</span>`:''}</td>
+      <td><b>${esc(x.nama)}</b>${x.dari>1?` <span class="muted" style="font-size:11px">· DP ${x.ke}/${x.dari}</span>`:''}
+        <div class="muted" style="font-size:11px">reservasi ${esc(x.tglResv||'—')}</div></td>
+      <td>${esc(x.bank||'—')}</td>
+      <td>${esc(x.pengirim||'—')}</td>
+      <td class="num mono">${fmtRp(x.nominal)}</td>
+      <td>${chip(x)}${x.adaBukti?'':' <span class="chip mute">tanpa bukti</span>'}</td>
+    </tr>`).join('');
+  el.innerHTML=kepala+`
+    <div class="grid g4">
+      <div class="stat accent"><div class="lab">Total Dana Masuk</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${semua.length} kali transfer</div></div>
+      <div class="stat"><div class="lab">Terverifikasi</div><div class="val sm mono">${fmtRp(sudah.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${sudah.length} transaksi</div></div>
+      <div class="stat"><div class="lab">Belum Dicek</div><div class="val sm mono">${fmtRp(belum.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${belum.length} transaksi${tanpaBukti.length?` · ${tanpaBukti.length} tanpa bukti`:''}</div></div>
+      <div class="stat"><div class="lab">Ditolak</div><div class="val sm mono">${fmtRp(tolak.reduce((s,x)=>s+x.nominal,0))}</div><div class="foot">${tolak.length} transaksi, tidak dihitung</div></div>
+    </div>
+    <div class="notice info">ℹ️ <div>Halaman ini <b>hanya menampilkan</b>. Verifikasi bukti transfer, koreksi nominal, dan penghapusan DP tetap dikerjakan di modul <b>Reservasi</b> — di sanalah bukti transfernya tersimpan.</div></div>
+    <div class="grid g2" style="align-items:start">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:16px 18px 0"><h3>Rincian Transfer</h3><div class="card-sub">Satu baris = satu kali transfer. Nominal memakai angka yang terbaca di bukti kalau ada.</div></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Tgl Transfer</th><th>Tamu</th><th>Bank</th><th>Pengirim</th><th class="num">Nominal</th><th>Status</th></tr></thead>
+          <tbody>${rows||'<tr><td colspan="6" class="empty">Belum ada dana masuk pada periode ini.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+      <div class="card"><h3>Rekap per Bank</h3><div class="card-sub">Seluruh transfer bulan ini, termasuk yang belum dicek</div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Bank</th><th class="num">Nominal</th></tr></thead>
+          <tbody>${bankRows||'<tr><td colspan="2" class="empty">Belum ada data.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+}
+
+/* ---- chart option factories ---- */
+const money=v=>fmtRpShort(v);
+function lineOpts(){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top',labels:{font:{family:'Inter'},boxWidth:12}}},scales:{y:{ticks:{callback:money,font:{family:'Inter'}}},x:{ticks:{font:{family:'Inter'}}}}};}
+function barOpts(horizontal){return{indexAxis:horizontal?'y':'x',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{[horizontal?'x':'y']:{ticks:{callback:money,font:{family:'Inter'}}},[horizontal?'y':'x']:{ticks:{font:{family:'Inter'}}}}};}
+function pieOpts(){return{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{font:{family:'Inter'},boxWidth:12,padding:10}},tooltip:{callbacks:{label:c=>c.label+': '+fmtRp(c.raw)}}}};}
+
+/* ---- init: muat dari server, lalu jalankan ---- */
+function boot(){
+  CURRENT_USER=bacaSesi();
+  if(!CURRENT_USER){ location.replace('../'); return; }
+  const av=document.getElementById('suAvatar'), nm=document.getElementById('suName');
+  if(av) av.textContent=(String(CURRENT_USER.name||'?').trim()[0]||'?').toUpperCase();
+  if(nm) nm.textContent=CURRENT_USER.name||'—';
+  setSync('load');
+  render();   // tampilkan status "memuat"
+  apiGet().then(data=>{
+    DB=normalizeDB(data);
+    setSync('ok');
+    PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
+    const dibersihkan=purgeSeedKasir(DB);   // buang PIC contoh "Kasir 1/2/3"
+    go('report');
+    if(dibersihkan) save();
+    syncPicOffice();   // tarik PIC per divisi dari Office (otomatis, tanpa PIN)
+  }, err=>{
+    // Jaringan gagal → pakai salinan lokal kalau ada, biar tetap bisa dilihat.
+    let cache=null; try{ cache=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); }catch(e){}
+    DB=normalizeDB(cache||seed());
+    setSync('err','Offline — memakai salinan lokal, perubahan akan disinkronkan saat online');
+    PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
+    purgeSeedKasir(DB);   // rapikan tampilan; simpannya nanti saat online
+    go('report');
+  });
+}
+boot();
+</script>
+<!-- Wadah lembar cetak Report Achievement. Tersembunyi di layar (lihat CSS),
+     diisi tepat sebelum window.print() dan dikosongkan lagi sesudahnya. -->
+<div id="printSheet"></div>
+</body>
+</html>
