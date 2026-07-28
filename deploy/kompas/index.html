@@ -248,6 +248,34 @@ tbody tr:hover{background:var(--gold-soft)}
 .calquick{display:flex;gap:6px;margin-top:10px}
 .calquick button{flex:1;padding:7px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text)}
 .calquick button:hover{background:var(--gold-soft);border-color:var(--gold)}
+
+/* ---- Lembar cetak Report Achievement ----
+   WAJIB display:none di layar. Isinya diisi tepat sebelum window.print(), dan
+   tanpa aturan ini lembarnya ikut menempel di bawah halaman sesudah dialog
+   cetak ditutup. Ditampilkan hanya di dalam @media print. */
+#printSheet{display:none}
+@media print{
+  /* Sembunyikan aplikasi, sisakan lembar. visibility saja tidak cukup —
+     sidebar tetap memesan ruang dan lembarnya terdorong ke halaman 2. */
+  .app,.topbar{display:none!important}
+  #printSheet{display:block!important;font-family:Inter,system-ui,sans-serif;color:#111}
+  #printSheet .ph{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2.5px solid #111;padding-bottom:10px;margin-bottom:18px}
+  #printSheet .ph h1{font-size:19px;margin:0 0 3px;letter-spacing:.2px}
+  #printSheet .ph .sub{font-size:11.5px;color:#555}
+  #printSheet .ph .brand{font-size:12px;font-weight:800;letter-spacing:1.5px;text-align:right}
+  #printSheet h2{font-size:13px;margin:20px 0 8px;text-transform:uppercase;letter-spacing:.6px;color:#444}
+  #printSheet .kv{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:6px}
+  #printSheet .kv>div{border:1px solid #bbb;border-radius:6px;padding:9px 11px}
+  #printSheet .kv .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:#666;margin-bottom:3px}
+  #printSheet .kv .v{font-size:15px;font-weight:800}
+  #printSheet table{width:100%;border-collapse:collapse;font-size:11.5px}
+  #printSheet th,#printSheet td{border:1px solid #bbb;padding:6px 8px;text-align:left}
+  #printSheet th{background:#eee;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+  #printSheet td.num,#printSheet th.num{text-align:right;font-variant-numeric:tabular-nums}
+  #printSheet tfoot td{font-weight:800;background:#f4f4f4}
+  #printSheet .ttd{margin-top:34px;font-size:11px;color:#555}
+  @page{margin:14mm}
+}
 </style>
 </head>
 <body>
@@ -974,9 +1002,9 @@ function viewCompliment(){
         <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake"></div>
         <div class="field"><label>Alasan / Untuk Apa</label><input id="c_alasan" placeholder="cth. Ulang tahun tamu VIP"></div>
         <div class="field"><label>Nominal</label><input class="mono rp" id="c_nominal" inputmode="numeric" value="0"></div>
-        <div class="field"><label>PIC Penanggung</label>
+        <div class="field"><label>PIC</label>
           <select id="c_pic">
-            <option value="${PIC_TAMU}">Tamu (tidak memotong siapa pun)</option>
+            <option value="${PIC_TAMU}">Tamu</option>
             ${opsi}
           </select>
           ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}. Hanya "Tamu" yang tersedia.</div>`
@@ -1331,7 +1359,96 @@ function viewAnalytics(){
 }
 function emptyCanvas(id,msg){const c=document.getElementById(id);if(c)c.parentElement.innerHTML='<div class="empty" style="padding:60px 10px"><div class="big">📊</div>'+(msg||'Belum ada data')+'</div>';}
 
-/* ============ 5. PERFORMA MARKETING / EVENT ============ */
+/* ============ 5. PERFORMA MARKETING / EVENT ============
+   Report achievement bisa dikirim ke PIC-nya. Dua langkah, dan memang harus
+   dua langkah: WhatsApp tidak bisa dititipi lampiran lewat tautan wa.me — yang
+   bisa dikirim lewat tautan hanya TEKS. Jadi tombolnya memisahkan "simpan PDF"
+   (dialog cetak browser → Save as PDF) dari "kirim WhatsApp" (ringkasan teks +
+   chat PIC terbuka, lampirkan PDF-nya sendiri). Jangan digabung jadi satu
+   tombol yang seolah-olah mengirim PDF otomatis — itu janji yang tidak bisa
+   ditepati browser. */
+let NOHP_OFFICE=null;
+/* Peta nomor WhatsApp dari database user Office. Dikunci dua arah: lewat
+   officeUserId (pasti) dan lewat nama huruf kecil (untuk PIC lama yang
+   terlanjur tersimpan sebelum ada officeUserId). */
+async function pastikanNoHp(){
+  if(NOHP_OFFICE) return NOHP_OFFICE;
+  const peta={id:{},nama:{}};
+  try{
+    const r=await fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})});
+    const j=await r.json();
+    if(j&&j.ok&&Array.isArray(j.members)) j.members.forEach(u=>{
+      const no=String(u.noHp||'').trim(); if(!no) return;
+      peta.id[u.id]=no;
+      peta.nama[String(u.name||'').trim().toLowerCase()]=no;
+    });
+  }catch(e){ /* Office diam → peta kosong, tombolnya yang menjelaskan */ }
+  NOHP_OFFICE=peta;
+  return peta;
+}
+function noHpPic(e,peta){
+  return (e.officeUserId&&peta.id[e.officeUserId]) ||
+         peta.nama[String(e.name||'').trim().toLowerCase()] || '';
+}
+/* 08xx → 628xx. wa.me menolak nomor berawalan 0. */
+function waLink(no,msg){
+  let n=String(no||'').replace(/\D/g,'');
+  if(n.startsWith('0')) n='62'+n.slice(1);
+  return 'https://wa.me/'+n+(msg?('?text='+encodeURIComponent(msg)):'');
+}
+function labelPeriode(mk){
+  const [y,m]=String(mk).split('-');
+  const d=new Date(Number(y),Number(m)-1,1);
+  return isNaN(d)?mk:d.toLocaleDateString('id-ID',{month:'long',year:'numeric'});
+}
+/* Lembar cetak. Dikosongkan lagi sesudah dialog ditutup supaya tidak ada sisa
+   node yang ikut tercetak di percetakan berikutnya. */
+function cetakAchievement(divi,e,a,ach){
+  const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>
+    `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td class="num">${fmtRp(ev.amount)}</td></tr>`).join('');
+  const sheet=document.getElementById('printSheet');
+  sheet.innerHTML=`
+    <div class="ph">
+      <div>
+        <h1>Report Achievement — ${esc(e.name)}</h1>
+        <div class="sub">Performa ${divi==='marketing'?'Marketing':'Event'} · Periode ${esc(labelPeriode(PERIOD))}</div>
+      </div>
+      <div class="brand">KOMPAS<br><span style="font-weight:600;letter-spacing:.4px;font-size:9px">LAKSAMANA MUDA</span></div>
+    </div>
+    <div class="kv">
+      <div><div class="l">Target Bulanan</div><div class="v">${fmtRp(e.target)}</div></div>
+      <div><div class="l">Realisasi</div><div class="v">${fmtRp(a.real)}</div></div>
+      <div><div class="l">Achievement</div><div class="v">${ach.toFixed(0)}%</div></div>
+      <div><div class="l">Jumlah Event</div><div class="v">${a.events.length}</div></div>
+    </div>
+    ${a.comp?`<div style="font-size:11px;color:#555;margin-top:2px">Realisasi di atas sudah dipotong compliment sebesar ${fmtRp(a.comp)}.</div>`:''}
+    <h2>Rincian Event</h2>
+    <table>
+      <thead><tr><th style="width:110px">Tanggal</th><th>Nama Event</th><th class="num" style="width:130px">Nominal</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="3" style="text-align:center;color:#777">Belum ada event pada periode ini.</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="2">TOTAL</td><td class="num">${fmtRp(a.events.reduce((s,x)=>s+x.amount,0))}</td></tr></tfoot>
+    </table>
+    <div class="ttd">Dicetak ${esc(new Date().toLocaleString('id-ID',{dateStyle:'long',timeStyle:'short'}))}${CURRENT_USER?` oleh ${esc(CURRENT_USER.name)}`:''}.</div>`;
+  window.print();
+  setTimeout(()=>{ sheet.innerHTML=''; },500);
+}
+function pesanAchievement(divi,e,a,ach){
+  const baris=[
+    `*Report Achievement — ${e.name}*`,
+    `Performa ${divi==='marketing'?'Marketing':'Event'} · ${labelPeriode(PERIOD)}`,
+    '',
+    `Target      : ${fmtRp(e.target)}`,
+    `Realisasi   : ${fmtRp(a.real)}`,
+    `Achievement : ${ach.toFixed(0)}% (${a.real>=e.target?'ACHIEVE':'belum achieve'})`,
+    `Jumlah event: ${a.events.length}`
+  ];
+  if(a.comp) baris.push(`Catatan     : realisasi sudah dipotong compliment ${fmtRp(a.comp)}`);
+  if(a.real<e.target) baris.push(`Kurang      : ${fmtRp(e.target-a.real)} lagi untuk capai target`);
+  baris.push('', 'Rincian lengkapnya menyusul dalam lampiran PDF.');
+  return baris.join('\n');
+}
 function viewPerforma(divi){
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
@@ -1342,7 +1459,20 @@ function viewPerforma(divi){
   // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
   list.forEach(e=>{ agg[e.id].comp=compPic(PERIOD,e); agg[e.id].real-=agg[e.id].comp; });
   const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
-  el.innerHTML=`<div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>`;
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+      <div><h3>Report Achievement</h3><div class="card-sub" id="pf_ket">Simpan sebagai PDF, lalu kirim ke PIC lewat WhatsApp.</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost" id="pf_pdf">📄 Simpan PDF</button>
+        <button class="btn btn-primary" id="pf_wa">💬 Kirim ke PIC</button>
+      </div>
+    </div>
+    <div id="pf_wa_err"></div>
+    <div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>`;
+  /* PIC yang sedang ditampilkan. Tombol cetak/WA ada DI LUAR #pf_body supaya
+     tidak perlu dipasang ulang tiap ganti segmen, jadi datanya dititipkan ke
+     sini oleh drawPic. */
+  let SEL=null;
   const drawPic=pid=>{
     let e,a;
     if(pid==='__all__'){
@@ -1353,6 +1483,8 @@ function viewPerforma(divi){
     if(!e||!a) return;
     const ach=pct(a.real,e.target), cnt=a.events.length, avg=cnt>0?a.real/cnt:0;
     const top=[...a.events].sort((x,y)=>y.amount-x.amount)[0];
+    SEL={e,a,ach,semua:pid==='__all__'};
+    aturTombolKirim();
     const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td></tr>`).join('');
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
@@ -1372,8 +1504,42 @@ function viewPerforma(divi){
       charts.push(new Chart(document.getElementById('pf_chart'),{type:'bar',data:{labels:evs.map(x=>x.name||x.date),datasets:[{data:evs.map(x=>x.amount),backgroundColor:divi==='marketing'?'#2F7FC4':'#7C5FC0',borderRadius:5}]},options:barOpts(true)}));
     } else emptyCanvas('pf_chart','Belum ada event');
   };
+  /* "Semua PIC" bukan orang, jadi tidak punya nomor WhatsApp — tombol kirim
+     dimatikan, bukan disembunyikan, supaya jelas kenapa tidak bisa diklik. */
+  function aturTombolKirim(){
+    const wa=document.getElementById('pf_wa'), ket=document.getElementById('pf_ket');
+    if(!wa||!SEL) return;
+    wa.disabled=SEL.semua;
+    wa.style.opacity=SEL.semua?'.45':'';
+    wa.style.cursor=SEL.semua?'not-allowed':'';
+    wa.title=SEL.semua?'Pilih satu PIC dulu — "Semua" tidak punya nomor tujuan':'';
+    if(ket) ket.textContent=SEL.semua
+      ? 'Rekap semua PIC bisa disimpan PDF. Untuk mengirim ke WhatsApp, pilih satu PIC dulu.'
+      : `Report ${SEL.e.name} — simpan sebagai PDF, lalu kirim ke WhatsApp-nya.`;
+  }
+  document.getElementById('pf_pdf').onclick=()=>{
+    if(SEL) cetakAchievement(divi,SEL.e,SEL.a,SEL.ach);
+  };
+  document.getElementById('pf_wa').onclick=async()=>{
+    if(!SEL||SEL.semua) return;
+    const box=document.getElementById('pf_wa_err');
+    box.innerHTML='<div class="notice info">Mengambil nomor WhatsApp dari database user…</div>';
+    const peta=await pastikanNoHp();
+    const no=noHpPic(SEL.e,peta);
+    if(!no){
+      box.innerHTML=`<div class="notice warn">⚠ Nomor WhatsApp <b>${esc(SEL.e.name)}</b> belum terdaftar. Isi <b>No. HP</b> pada akun yang bersangkutan di <b>Office → Kelola User</b>, lalu muat ulang halaman ini.</div>`;
+      return;
+    }
+    box.innerHTML=`<div class="notice ok">✓ Chat ${esc(SEL.e.name)} (${esc(no)}) dibuka di tab baru. Ringkasannya sudah terisi — lampirkan PDF-nya sendiri, karena tautan WhatsApp tidak bisa membawa berkas.</div>`;
+    window.open(waLink(no,pesanAchievement(divi,SEL.e,SEL.a,SEL.ach)),'_blank');
+  };
   document.querySelectorAll('#pf_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pf_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawPic(b.dataset.pic);});
-  if(list.length)drawPic('__all__'); else document.getElementById('pf_body').innerHTML='<div class="card"><div class="empty">Belum ada PIC. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
+  if(list.length)drawPic('__all__');
+  else{
+    document.getElementById('pf_body').innerHTML='<div class="card"><div class="empty">Belum ada PIC. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
+    // Tanpa PIC tidak ada yang bisa dicetak maupun dikirim.
+    document.getElementById('pf_pdf').closest('.card').style.display='none';
+  }
 }
 function clearChartsExcept(){charts.forEach(c=>{try{c.destroy();}catch(e){}});charts=[];}
 
@@ -1613,5 +1779,8 @@ function boot(){
 }
 boot();
 </script>
+<!-- Wadah lembar cetak Report Achievement. Tersembunyi di layar (lihat CSS),
+     diisi tepat sebelum window.print() dan dikosongkan lagi sesudahnya. -->
+<div id="printSheet"></div>
 </body>
 </html>
