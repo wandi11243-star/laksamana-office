@@ -1645,12 +1645,11 @@ const CLIENT_STATUS = {
 };
 // Alur: quotation dikirim lebih dulu, baru masuk tahap negosiasi.
 const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Lost'];
-/* Kolom kanban Sales Pipeline. Sengaja BEDA dari PIPE_COLS: "Event Done" harus
-   punya kolom sendiri supaya event yang sudah selesai tetap terlihat di papan
-   (dulu disembunyikan sama sekali, jadi orang mengira datanya hilang), tapi
-   TIDAK boleh muncul di dropdown "Pindah ke" pada form event — dari situ sebuah
-   Lead bisa lompat langsung jadi Event Done tanpa pernah Deal. */
-const KANBAN_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
+/* "Event Done" sengaja TIDAK punya kolom di kanban. Pipeline itu papan peluang
+   yang masih digarap; event yang sudah selesai bukan lagi pekerjaan di sana dan
+   hanya membuat papannya panjang. Menutup event dilakukan lewat tombol "Tandai
+   Event Selesai" di form event, atau otomatis oleh autoCloseEvents() di H+2 —
+   dan hasilnya dilihat di daftar Input & Event, bukan di kanban. */
 // Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
 const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim','Negotiation'];
 // Hasil follow up -> tahap pipeline event. null = status tidak berubah.
@@ -3299,18 +3298,19 @@ function renderPipeline(V){
   if(pipeTab==='kanban')bindKanban();
 }
 function pipeStatusOfEv(e){
-  /* Status 'Event Done' menang atas pipeCol. Event yang ditutup otomatis oleh
-     autoCloseEvents() versi lama ikut disetel pipeCol='Deal', jadi kalau pipeCol
-     dibaca lebih dulu event lama itu akan menumpuk di kolom Deal seolah belum
-     selesai. */
+  /* Status 'Event Done' dibaca lebih dulu daripada pipeCol, dan sengaja
+     mengembalikan nilai yang TIDAK cocok dengan kolom mana pun — itulah cara
+     event selesai tersaring keluar dari kanban. autoCloseEvents() versi lama
+     menutup event sambil menyetel pipeCol='Deal'; kalau pipeCol dibaca lebih
+     dulu, event lama itu justru muncul di kolom Deal seolah masih berjalan. */
   if(e.status==='Event Done')return 'Event Done';
   if(e.pipeCol)return e.pipeCol;
   const m={Confirmed:'Deal'};
-  return m[e.status] || (KANBAN_COLS.includes(e.status)?e.status:'Lead');
+  return m[e.status] || (PIPE_COLS.includes(e.status)?e.status:'Lead');
 }
 function pipeKanban(){
-  const cols=KANBAN_COLS;
-  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok','Event Done':'--teal',Lost:'--danger'};
+  const cols=PIPE_COLS;
+  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
   const mine=ME.role==='marketing';
   let h='<div class="kanban">';
   cols.forEach(col=>{
