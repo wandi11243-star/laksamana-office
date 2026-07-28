@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="../assets/venue-layouts.js"></script>
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
   var ok=s&&s.expiry&&Date.now()<s.expiry&&(s.modules||[]).some(function(m){return m==='*'||m==='marketing';});
@@ -985,6 +986,37 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   .no-print{display:none !important}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+
+/* ---------- DENAH VENUE (Reservasi VIP) ----------
+   Koordinat meja datang dari assets/venue-layouts.js — kanvas tetap 1600x1160
+   yang diubah jadi persen, jadi denah ikut lebar berapa pun tanpa gepeng. */
+.denah{position:relative;width:100%;padding-top:72.5%;background:var(--ink-900);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.denah-in{position:absolute;inset:0}
+.dn-fix{position:absolute;display:grid;place-items:center;text-align:center;font-size:9px;font-weight:700;
+  letter-spacing:.08em;color:var(--muted);background:var(--ink-880);border:1px dashed var(--line);border-radius:6px}
+.dn-meja{position:absolute;display:grid;place-items:center;gap:1px;border-radius:7px;cursor:pointer;
+  border:1.5px solid var(--line-hard);background:var(--ink-880);color:var(--sand-dim);
+  font-size:10px;font-weight:700;line-height:1.1;padding:2px;transition:.12s}
+.dn-meja:hover{border-color:var(--gold);color:var(--sand)}
+.dn-meja .dn-cap{font-size:8px;font-weight:600;opacity:.7}
+.dn-meja.on{background:var(--gold-glow);border-color:var(--gold-deep);color:var(--gold-deep)}
+.dn-meja.off{cursor:not-allowed;opacity:.5;background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
+.dn-meja.off:hover{border-color:var(--danger)}
+.dn-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--sand-dim);margin-top:10px}
+.dn-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
+
+/* --- ringkasan slot di pemilih meja Reservasi VIP --- */
+.vip-ringkas{margin-top:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line);border-radius:11px}
+.vip-slot-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px}
+.vip-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 10px;
+  border-radius:999px;background:var(--gold-glow);color:var(--gold-deep);border:1px solid var(--gold-deep)}
+.vip-chip i{font-style:normal;font-weight:600;font-size:10.5px;opacity:.8}
+.vip-slot-total{font-size:12.5px;color:var(--sand-dim)}
+.vip-slot-total.kurang{color:var(--warn)}
+/* denah di dalam modal: beri napas, dan jangan melebihi tinggi layar */
+.denah{margin-top:12px;max-width:1180px;margin-left:auto;margin-right:auto}
+.dn-meja{font-size:9.5px}
 </style>
 </head>
 <body>
@@ -7632,14 +7664,39 @@ let VIP_FORM=null;         // draft yang sedang diisi (belum tersimpan)
 let vipFilter='';
 
 function vipKosong(){
-  return {id:uid('vip'),jenis:'Assisted',nama:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
+  return {id:uid('vip'),jenis:'Assisted',nama:'',clientId:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
     hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,kasir:'',nominal:'',
     meja:[],mktPIC:(ME?ME.id:''),catatan:'',resId:'',kirimAt:'',createdAt:new Date().toISOString(),createdBy:(ME?ME.name:'')};
 }
 /* Nominal HANYA berlaku untuk Assisted. Regular yang pernah diketik nominalnya
    lalu dipindah ke Regular tidak boleh diam-diam tetap terhitung di laporan. */
 function vipNominal(v){ return (v&&v.jenis==='Assisted') ? (+v.nominal||0) : 0; }
+// Assisted yang nominalnya belum diketik. Bukan galat, cuma pekerjaan yang
+// belum selesai, dan harus kelihatan supaya tidak ada omzet yang lupa dicatat.
+function vipBelumNominal(v){ return v&&v.jenis==='Assisted' && !(+v.nominal); }
 function vipPax(v){ return +(v&&v.paxMax) || +(v&&v.paxMin) || 0; }
+/* Perusahaan datang dari Database Client, bukan diketik bebas. Yang disimpan
+   clientId-nya, jadi nama perusahaan yang dikoreksi di CRM ikut terkoreksi di
+   sini — teks bebas akan membeku pada ejaan saat itu dan lambat laun berselisih.
+   `perusahaan` yang lama tetap dibaca sebagai cadangan supaya catatan yang
+   sudah ada tidak kehilangan isinya. */
+function vipPerusahaan(v){
+  const c=v&&v.clientId?S.clients.find(x=>x.id===v.clientId):null;
+  if(c) return c.perusahaan||c.nama||'';
+  return (v&&v.perusahaan)||'';
+}
+// Label di kotak pencarian client — satu tempat, dipakai mengisi datalist DAN
+// membaca balik pilihannya, jadi keduanya tidak mungkin berbeda bentuk.
+function vipClientLabel(c){
+  const pt=(c.perusahaan&&c.perusahaan!==c.nama)?c.perusahaan:'';
+  return c.nama+(pt?' — '+pt:'')+(c.hp?' ('+c.hp+')':'');
+}
+function vipClientDariLabel(teks){
+  const t=String(teks||'').trim();
+  if(!t) return '';
+  const c=S.clients.find(x=>vipClientLabel(x)===t);
+  return c?c.id:null;      // null = diketik tapi tidak dikenali
+}
 function vipJam(v){ return [v.jamMulai,v.jamSelesai].filter(Boolean).join(' - ')||'—'; }
 
 const KOL_VIP=[
@@ -7661,7 +7718,7 @@ function renderVIP(V){
   const semua=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
     .slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   const q=(vipFilter||'').trim().toLowerCase();
-  const list=!q?semua:semua.filter(v=>[v.nama,v.perusahaan,v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
+  const list=!q?semua:semua.filter(v=>[v.nama,vipPerusahaan(v),v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
     .filter(Boolean).join(' ').toLowerCase().includes(q));
 
   const asst=semua.filter(v=>v.jenis==='Assisted');
@@ -7671,6 +7728,9 @@ function renderVIP(V){
    +stat('Regular',semua.filter(v=>v.jenis==='Regular').length,'bantu booking saja','cal')
    +stat('Nominal Assisted',rpShort(asst.reduce((a,v)=>a+vipNominal(v),0)),'dihitung sebagai omzet','report')
    +'</div>';
+  const belum=semua.filter(vipBelumNominal);
+  if(belum.length) h+='<div class="tbl-note" style="border-color:var(--warn)">'+svg(IC.alert)
+    +'<span><b>'+belum.length+' reservasi Assisted belum ada nominalnya</b> — omzetnya belum terhitung. Isi lewat tombol <em>Isi Nominal</em> di barisnya.</span></div>';
 
   h+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Assisted</em> = marketing yang mencarikan &amp; menutup dealnya — nominalnya diketik sendiri dan ikut jadi omzet orang itu di Marketing Performance. <em>Regular</em> = sekadar membantu membookingkan, tanpa nominal dan tidak masuk laporan. Keduanya sama-sama mengunci meja di modul Reservasi.</span></div>';
 
@@ -7689,12 +7749,14 @@ function renderVIP(V){
   p.items.forEach(v=>{
     h+='<tr>'
      +'<td class="mono">'+fmtDate(v.tanggal)+'<div class="cell-sub">'+esc(vipJam(v))+'</div></td>'
-     +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(v.perusahaan||'')+'</div></td>'
+     +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(vipPerusahaan(v))+'</div></td>'
      +'<td>'+vipChip(v)+'</td>'
      +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
      +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
-     +'<td class="mono r">'+(v.jenis==='Assisted'?rp(vipNominal(v)):'<span class="cell-sub">—</span>')+'</td>'
+     +'<td class="mono r">'+(v.jenis!=='Assisted'?'<span class="cell-sub">—</span>'
+        :(vipBelumNominal(v)?'<span class="tag" style="background:var(--warn-bg);color:var(--warn)">belum diisi</span>':rp(vipNominal(v))))+'</td>'
      +'<td><div class="pill-row">'
+       +(bolehUbah&&v.jenis==='Assisted'?'<button class="btn sm'+(vipBelumNominal(v)?' pri':'')+'" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
        +'<button class="btn sm" onclick="vipDetail(\''+v.id+'\')">Detail</button>'
        +(bolehUbah?'<button class="btn sm" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
      +'</div></td></tr>';
@@ -7726,12 +7788,15 @@ function vipForm(id){
      +'<button type="button" class="'+(f.jenis==='Regular'?'on':'')+'" onclick="vipPilihJenis(this,\'Regular\')">Regular</button></div>'
      +'<div class="fh">Assisted ikut dihitung sebagai omzet kamu di Marketing Performance. Regular tidak.</div></div>'
    +'<div id="vip_nominal_wrap" style="display:'+(f.jenis==='Assisted'?'block':'none')+'">'
-     +'<div class="field"><label>Nominal Pendapatan (Rp)<span class="req">*</span></label>'
+     +'<div class="field"><label>Nominal Pendapatan (Rp)</label>'
      +rupiahInputHTML('vip_nominal',f.nominal,'')
-     +'<div class="fh">Diisi sendiri oleh marketing. Inilah angka yang masuk laporan.</div></div></div>'
+     +'<div class="fh">Boleh dikosongkan dulu — diisi setelah acaranya selesai lewat tombol <b>Isi Nominal</b> di daftar. Inilah angka yang masuk laporan.</div></div></div>'
    +'<div class="form-grid">'
      +ff('Atas Nama','vip_nama',f.nama,'text',1)
-     +ff('Nama Perusahaan','vip_perusahaan',f.perusahaan,'text')
+     +'<div class="field"><label>Client / Perusahaan</label>'
+       +'<input class="inp" id="vip_client" list="vip_clientlist" autocomplete="off" placeholder="Ketik untuk cari client..." value="'+esc(f.clientId?(S.clients.find(x=>x.id===f.clientId)?vipClientLabel(S.clients.find(x=>x.id===f.clientId)):''):'')+'">'
+       +'<datalist id="vip_clientlist">'+S.clients.map(function(c){ return '<option value="'+esc(vipClientLabel(c))+'"></option>'; }).join('')+'</datalist>'
+       +'<div class="fh">Diambil dari <b>Database Client</b>. Kosongkan bila tamunya belum terdaftar di CRM.</div></div>'
      +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="vip_tanggal" value="'+esc(f.tanggal||'')+'"></div>'
      +ff('No. HP','vip_hp',f.hp,'text',1)
      +'<div class="field"><label>Jam Kedatangan<span class="req">*</span></label><input class="inp" type="time" id="vip_jamMulai" value="'+esc(f.jamMulai||'')+'"></div>'
@@ -7760,8 +7825,19 @@ function vipPilihJenis(btn,jenis){
 function vipKumpulkan(){
   const f=VIP_FORM; if(!f)return 'Form tidak terbuka.';
   const g=id=>{ const el=$(id); return el?el.value.trim():''; };
-  f.nama=g('vip_nama'); f.perusahaan=g('vip_perusahaan'); f.tanggal=g('vip_tanggal');
+  f.nama=g('vip_nama'); f.tanggal=g('vip_tanggal');
+  /* Client: kosong berarti memang tidak ditautkan. Diketik tapi tidak cocok
+     dengan satu pun baris CRM = kemungkinan besar salah ketik, jadi DITOLAK
+     ketimbang diam-diam disimpan sebagai tidak bertaut. */
+  const cid=vipClientDariLabel(g('vip_client'));
+  if(cid===null) return 'Client tidak dikenali — pilih dari daftar yang muncul saat mengetik, atau kosongkan.';
+  f.clientId=cid;
+  f.perusahaan=cid?'':f.perusahaan;   // ditautkan -> namanya selalu dibaca dari CRM
   f.hp=g('vip_hp'); f.jamMulai=g('vip_jamMulai'); f.jamSelesai=g('vip_jamSelesai');
+  // Nomor client dipakai kalau kotaknya masih kosong — mengetik ulang nomor yang
+  // sudah ada di CRM cuma menambah peluang salah ketik. Yang sudah diisi tidak
+  // pernah ditimpa: tamu VIP kadang memakai nomor PIC lain.
+  if(!f.hp && f.clientId){ const c=S.clients.find(x=>x.id===f.clientId); if(c&&c.hp) f.hp=c.hp; }
   f.paxMin=g('vip_paxMin'); f.paxMax=g('vip_paxMax');
   f.layoutReq=g('vip_layoutReq'); f.kasir=g('vip_kasir'); f.catatan=g('vip_catatan');
   const sv=segVal('vip_tv'); if(sv!==undefined)f.tv=sv.v;
@@ -7772,7 +7848,9 @@ function vipKumpulkan(){
   if(!f.hp) return 'No. HP wajib diisi.';
   if(!f.jamMulai) return 'Jam kedatangan wajib diisi.';
   if(!(+f.paxMin)) return 'Jumlah orang wajib diisi.';
-  if(f.jenis==='Assisted' && !(+f.nominal)) return 'Reservasi Assisted wajib punya nominal pendapatan.';
+  /* Nominal SENGAJA tidak wajib di sini. Angkanya baru diketahui sesudah
+     acaranya jalan, jadi memaksanya di depan cuma memancing orang mengarang
+     angka supaya formnya mau lanjut. Yang belum terisi ditandai di daftar. */
   return '';
 }
 async function vipLanjutMeja(){
@@ -7789,37 +7867,129 @@ async function vipLanjutMeja(){
     +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="vipLanjutMeja()">Coba Lagi</button></div>'); }
   vipPilihMejaUI(d);
 }
+/* Denah mana yang dipakai untuk sebuah tanggal. Aturannya SAMA dengan modul
+   Reservasi supaya kedua modul menggambar denah yang sama untuk hari yang sama:
+   kalau ada override manual untuk tanggal itu pakai itu; kalau tidak, akhir
+   pekan (Jumat/Sabtu) pakai denah Weekend, selebihnya Weekday. Denah hasil edit
+   yang tersimpan di server (master.layouts) menimpa yang bawaan. */
+function vipDenahKey(d,tanggal){
+  const ov=(d&&d.master&&d.master.layoutOverrides)||{};
+  if(ov&&ov[tanggal]&&vipDenah(d,ov[tanggal])) return ov[tanggal];
+  const hari=new Date(tanggal+'T00:00:00').getDay();
+  return (hari===5||hari===6)?'weekend':'weekday';
+}
+function vipDenah(d,key){
+  const custom=(d&&d.master&&d.master.layouts)||{};
+  if(custom&&!Array.isArray(custom)&&custom[key]) return custom[key];
+  return (window.LM_VENUE_LAYOUTS||{})[key]||null;
+}
+/* Gambar denah. Meja yang sudah dipesan tamu lain dimatikan; sisanya bisa
+   diklik untuk dikunci. Dikembalikan string kosong bila denahnya tidak ada,
+   supaya pemanggilnya bisa jatuh ke daftar tombol biasa — kehilangan denah
+   tidak boleh berarti kehilangan kemampuan memesan meja. */
+/* Kapasitas meja ditulis bebas di denah: "4", "4-5", "10-12". Yang dipakai
+   angka TERBESAR — itu jumlah orang yang benar-benar muat, dan meremehkan
+   kapasitas justru membuat orang memesan meja lebih banyak dari perlu. */
+function mejaKapasitas(cap){
+  const angka=String(cap==null?'':cap).match(/[0-9]+/g);
+  return angka?Math.max.apply(null,angka.map(Number)):0;
+}
+let VIP_CAP={};   // {idMeja: kapasitas} untuk denah yang sedang tampil
+/* Ringkasan slot: tiap meja terpilih beserta kapasitasnya, lalu totalnya
+   dibandingkan dengan jumlah tamu. Tanpa ini orang harus menjumlah sendiri di
+   kepala dan baru sadar kurang meja saat tamunya sudah datang. */
+function vipRingkasSlotHTML(){
+  const f=VIP_FORM, pilih=f.meja||[], butuh=vipPax(f);
+  if(!pilih.length) return '<span class="cell-sub">Belum ada meja dipilih — klik meja di denah.</span>';
+  const total=pilih.reduce(function(a,m){ return a+(VIP_CAP[m]||0); },0);
+  let h='<div class="vip-slot-chips">';
+  pilih.forEach(function(m){
+    h+='<span class="vip-chip">'+esc(m)+(VIP_CAP[m]?'<i>'+VIP_CAP[m]+' org</i>':'<i>? org</i>')+'</span>';
+  });
+  h+='</div>';
+  const kurang=butuh&&total<butuh;
+  h+='<div class="vip-slot-total'+(kurang?' kurang':'')+'">'
+   +'<b>Total '+total+' slot</b> dari '+pilih.length+' meja'
+   +(butuh?' · butuh '+butuh+' orang'+(kurang?' — <b>kurang '+(butuh-total)+' slot</b>':' · cukup'):'')
+   +'</div>';
+  return h;
+}
+function vipSegarkanRingkas(){
+  const el=$('vip_ringkas'); if(el) el.innerHTML=vipRingkasSlotHTML();
+}
+function vipDenahHTML(d,terpakai,dipilih){
+  const L=vipDenah(d,vipDenahKey(d,VIP_FORM.tanggal));
+  if(!L||!Array.isArray(L.tables)||!L.tables.length) return '';
+  VIP_CAP={}; L.tables.forEach(function(t){ VIP_CAP[t.id]=mejaKapasitas(t.cap); });
+  const W=window.LM_SEAT_W||1600, H=window.LM_SEAT_H||1160;
+  const px=v=>(v/W*100).toFixed(3)+'%', py=v=>(v/H*100).toFixed(3)+'%';
+  let h='<div class="denah"><div class="denah-in">';
+  (L.fixed||[]).forEach(fx=>{
+    h+='<div class="dn-fix" style="left:'+px(fx.x)+';top:'+py(fx.y)+';width:'+px(fx.w)+';height:'+py(fx.h)+'">'+esc(fx.label||'')+'</div>';
+  });
+  L.tables.forEach(t=>{
+    const off=!!terpakai[t.id] && dipilih.indexOf(t.id)<0;
+    const on=dipilih.indexOf(t.id)>=0;
+    const st='left:'+px(t.x)+';top:'+py(t.y)+';width:'+px(t.w)+';height:'+py(t.h);
+    h+='<button type="button" class="dn-meja'+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
+      +(off?'disabled title="Dipesan '+esc(terpakai[t.id])+'"'
+           :'onclick="vipToggleMeja(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
+      +'><span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</button>';
+  });
+  h+='</div></div>';
+  h+='<div class="dn-legend"><span><i style="background:var(--ink-880);border:1.5px solid var(--line-hard)"></i>Kosong</span>'
+   +'<span><i style="background:var(--gold-glow);border:1.5px solid var(--gold-deep)"></i>Dipilih</span>'
+   +'<span><i style="background:var(--danger-bg);border:1.5px solid var(--danger)"></i>Sudah dipesan</span>'
+   +'<span class="cell-sub">Denah: '+esc(L.name||vipDenahKey(d,VIP_FORM.tanggal))+'</span></div>';
+  return h;
+}
 function vipPilihMejaUI(d){
   const f=VIP_FORM;
   const terpakai=rsvMejaTerpakai(d,f.tanggal);
-  const semua=rsvDaftarMeja(d);
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
-  if(!semua.length){
-    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu daftar mejanya di sana.</span></div>';
+  const denah=vipDenahHTML(d,terpakai,dipilih);
+  if(denah){
+    h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
+    h+=denah;
   }else{
-    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Meja abu-abu sudah dipesan tamu lain pada tanggal ini dan tidak bisa dipilih. Boleh pilih lebih dari satu — '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
-    h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
-    semua.forEach(m=>{
-      const off=!!terpakai[m] && dipilih.indexOf(m)<0;
-      const on=dipilih.indexOf(m)>=0;
-      h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
-        +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
-    });
-    h+='</div>';
+    /* Denah tidak terbaca (assets/venue-layouts.js gagal dimuat, atau tanggalnya
+       memakai denah custom yang kosong). Jangan buntu: daftar meja dari master
+       Reservasi tetap bisa dipakai memesan. */
+    const semua=rsvDaftarMeja(d);
+    // Mode daftar tidak punya denah, jadi kapasitas meja tidak diketahui.
+    // Ringkasan slot tetap tampil, tapi jujur menulis "? org" ketimbang menebak.
+    VIP_CAP={};
+    if(!semua.length){
+      h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu di sana.</span></div>';
+    }else{
+      h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah tidak terbaca, jadi mejanya ditampilkan sebagai daftar. Meja abu-abu sudah dipesan tamu lain.</span></div>';
+      h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
+      semua.forEach(m=>{
+        const off=!!terpakai[m] && dipilih.indexOf(m)<0;
+        const on=dipilih.indexOf(m)>=0;
+        h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
+          +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
+      });
+      h+='</div>';
+    }
   }
-  h+='<div class="field" style="margin-top:14px"><label>Meja terpilih</label><div class="inp" id="vip_meja_txt" style="display:flex;align-items:center;min-height:38px">'+(dipilih.length?esc(dipilih.join(', ')):'—')+'</div></div>';
+  h+='<div class="vip-ringkas" id="vip_ringkas">'+vipRingkasSlotHTML()+'</div>';
   h+='</div><div class="modal-foot"><button class="btn" onclick="vipForm(\''+f.id+'\')">← Kembali</button>'
    +'<button class="btn pri" id="vip_kunci_btn" onclick="vipSimpanKunci()">'+svg(IC.check)+'Simpan &amp; Kunci di Reservasi</button></div>';
   modal(h);
+  // denah butuh ruang: modal disetel lebar seperti dokumen brief
+  $('modal').classList.add('wide');
 }
 function vipToggleMeja(btn,m){
   const f=VIP_FORM; f.meja=f.meja||[];
   const i=f.meja.indexOf(m);
-  if(i>=0){ f.meja.splice(i,1); btn.classList.remove('pri'); }
-  else { f.meja.push(m); btn.classList.add('pri'); }
-  const t=$('vip_meja_txt'); if(t) t.textContent=f.meja.length?f.meja.join(', '):'—';
+  // dua tampilan, dua kelas penanda: denah pakai .on, daftar tombol pakai .pri
+  const kelas=btn.classList.contains('dn-meja')?'on':'pri';
+  if(i>=0){ f.meja.splice(i,1); btn.classList.remove(kelas); }
+  else { f.meja.push(m); btn.classList.add(kelas); }
+  vipSegarkanRingkas();
 }
 async function vipSimpanKunci(){
   const f=VIP_FORM; if(!f)return;
@@ -7834,7 +8004,7 @@ async function vipSimpanKunci(){
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
       const catatan=['RESERVASI RUANG VIP ('+f.jenis+')',
-        f.perusahaan?'Perusahaan: '+f.perusahaan:'',
+        vipPerusahaan(f)?'Perusahaan: '+vipPerusahaan(f):'',
         f.layoutReq?'Request layout: '+f.layoutReq:'',
         'TV: '+(f.tv?'Ya':'Tidak')+' · Speaker & Mic: '+(f.speaker?'Ya':'Tidak'),
         f.kasir?'Kasir: '+f.kasir:'',
@@ -7847,7 +8017,12 @@ async function vipSimpanKunci(){
         dpStatus:'Belum', dpMethod:'', dpAmount:0, dpProofData:'', dpProofName:'',
         docReqData:'', docReqName:'', source:'Marketing', picType:'Marketing',
         picName:userName(f.mktPIC), member:false, memberNo:'',
-        notes:catatan, vip:true, status:'Booking',
+        /* 'Confirmed', BUKAN 'Booking'. Kosakata status modul Reservasi cuma
+           Pending/Confirmed/Datang/Cancelled/No-show; status di luar itu tidak
+           punya warna di denah, tidak pernah cocok dengan penyaring status, dan
+           tidak terhitung benar di rekap "Belum Datang". Reservasi VIP yang
+           mejanya sudah dikunci memang setara Confirmed. */
+        notes:catatan, vip:true, status:'Confirmed',
         actualPax:0, checkinAt:0, leftAt:0, arrivals:[],
         createdBy:(ME?ME.name:'Marketing'), createdAt:now, updatedAt:now, followups:[]
       };
@@ -7868,10 +8043,33 @@ async function vipSimpanKunci(){
     toast('Gagal menyimpan',e.message,'err');
   }
 }
+/* Mengisi nominal SESUDAH acaranya selesai — tanpa membuka form penuh dan
+   tanpa menyentuh apa pun di modul Reservasi. Yang berubah cuma angka omzet. */
+function vipIsiNominal(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  if(v.jenis!=='Assisted')return toast('Hanya untuk Assisted','Reservasi Regular memang tidak punya nominal.','err');
+  modal('<div class="modal-head"><div><h3>Nominal Pendapatan</h3><p>'+esc(v.nama)+' · '+fmtDate(v.tanggal)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="field"><label>Nominal (Rp)</label>'+rupiahInputHTML('vipn_nilai',v.nominal,'')
+   +'<div class="fh">Masuk sebagai omzet '+esc(userName(v.mktPIC))+' di Marketing Performance. Kosongkan bila ingin membatalkan pencatatannya.</div></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" onclick="vipSimpanNominal(\''+id+'\')">'+svg(IC.check)+'Simpan</button></div>');
+  setTimeout(function(){ const el=$('vipn_nilai'); if(el)el.focus(); },40);
+}
+function vipSimpanNominal(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  const el=$('vipn_nilai'); if(!el)return;
+  const lama=+v.nominal||0, d=rupiahDigits(el.value);
+  v.nominal=(d===''?'':(+d));
+  logAct('vip',v.id,'Nominal Reservasi VIP diisi',v.nama+' · '+rp(lama)+' → '+rp(vipNominal(v)));
+  save(); closeModal(); toast('Tersimpan',v.nama+' · '+rp(vipNominal(v))+' masuk omzet '+userName(v.mktPIC)+'.','ok');
+  go('vip');
+}
 function vipDetail(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
   const baris=(k,val)=>'<dt>'+k+'</dt><dd>'+(val||'—')+'</dd>';
-  modal('<div class="modal-head"><div><h3>'+esc(v.nama)+'</h3><p>'+esc(v.perusahaan||'')+' · '+esc(v.jenis)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+  modal('<div class="modal-head"><div><h3>'+esc(v.nama)+'</h3><p>'+esc(vipPerusahaan(v))+' · '+esc(v.jenis)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body"><dl class="kv-list">'
    +baris('Tanggal',fmtDateLong(v.tanggal))
    +baris('Jam Kedatangan',esc(vipJam(v)))
