@@ -598,7 +598,11 @@ function pilihBerkas(onDone,accept){
     if(f.size>MAKS_BERKAS)
       return unggahGagal(f,'Ukurannya <b>'+fmtSize(f.size)+'</b>, melebihi batas 8MB. Kecilkan dulu gambarnya lalu ulangi.');
     toast('Mengunggah '+f.name+'…');
-    try{ onDone(await uploadBerkas(f)); }
+    /* File ASLINYA ikut diserahkan ke pemanggil. Pemeriksaan bukti transfer
+       membacanya langsung dari berkas lokal, bukan mengunduh ulang dari server:
+       lebih cepat, dan canvas-nya dijamin tidak "tainted" sehingga piksel
+       gambarnya bisa dibaca untuk dipertajam sebelum OCR. */
+    try{ onDone(await uploadBerkas(f), f); }
     catch(e){ unggahGagal(f,esc(e.message||'server tidak menjawab')); }
   };
   inp.click();
@@ -1743,7 +1747,10 @@ function payAction(pid){
   <div class="kv" style="margin-bottom:14px"><div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div><div class="k">Jumlah Show</div><div>${p.show_count}</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div></div>
   <div class="field"><label>Bank Tujuan</label><input id="pay_bank" value="${esc(p.bank||((t.bank_name||'')+(t.bank_account?' - '+t.bank_account:'')))}"></div>
   <div class="field"><label>Bukti Transfer</label><div id="pay_proof">${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div>
-    <button class="btn ghost sm" style="margin-top:8px" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button></div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button>
+      ${p.transfer_proof?`<button class="btn ghost sm" onclick="periksaUlangBukti('${pid}')">🔍 Periksa ulang bukti</button>`:''}
+    </div></div>
   <div class="field"><label>Nominal pada Bukti <span class="mini">(dicocokkan dengan tagihan)</span></label>
     ${uangInput('pay_amt',p.proof_amount||0,' oninput="uangKetik(this);payCocok()"')}
     <div id="pay_cocok" style="margin-top:6px">${buktiPeriksaHTML(p)}</div></div>
@@ -1762,6 +1769,205 @@ function buktiHTML(f){
             <div class="mini">${esc(f.name)} · ${fmtSize(f.size)}</div>`;
   return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a> <span class="mini">${fmtSize(f.size)}</span>`;
 }
+/* ================== PEMERIKSAAN BUKTI TRANSFER (OCR) ==================
+   Mesinnya sama dengan yang dipakai modul Reservasi untuk memeriksa bukti DP:
+   Tesseract.js dimuat dari CDN hanya saat dibutuhkan, gambar dipertajam dulu,
+   lalu teksnya diurai. Yang dibawa ke sini cuma bagian yang memang dipakai EMS
+   — nominal, bank, dan penilaian "ini bukti transfer atau bukan". Sengaja
+   TIDAK memanggil kode modul sebelah: dua modul terpisah, dan menyeberangkan
+   fungsi antar berkas hanya menghasilkan kaitan yang diam-diam putus. */
+const OCR_SRC="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+let _ocrLoad=null,_ocrWorker=null;
+function loadOCR(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(_ocrLoad) return _ocrLoad;
+  _ocrLoad=new Promise(function(res,rej){
+    const sc=document.createElement('script'); sc.src=OCR_SRC;
+    // Batas waktu: koneksi lambat tidak boleh menggantung layar selamanya.
+    const t=setTimeout(function(){ rej(new Error('Mesin OCR tidak bisa dimuat (koneksi lambat / offline).')); },45000);
+    sc.onload=function(){ clearTimeout(t); window.Tesseract?res(window.Tesseract):rej(new Error('Mesin OCR gagal dimuat.')); };
+    sc.onerror=function(){ clearTimeout(t); rej(new Error('Gagal memuat mesin OCR — pemeriksaan bukti butuh koneksi internet.')); };
+    document.head.appendChild(sc);
+  }).catch(function(e){ _ocrLoad=null; throw e; });
+  return _ocrLoad;
+}
+async function getOcrWorker(){
+  if(_ocrWorker) return _ocrWorker;
+  const T=await loadOCR();
+  _ocrWorker=await T.createWorker('eng');   // struk bank isinya angka + nama bank; model "eng" paling stabil
+  return _ocrWorker;
+}
+/* Bukti transfer biasanya tangkapan layar kecil dan agak buram. Diperbesar lalu
+   digelapkan dengan gamma — BUKAN contrast stretch di sekitar 128, yang justru
+   memucatkan teks abu-abu (tanggal & jam di struk Livin/SeaBank ditulis abu
+   muda) sampai hilang terbaca. */
+function prepOcrImage(dataUrl){
+  return new Promise(function(res){
+    const img=new Image();
+    img.onload=function(){
+      const scale=Math.min(3,Math.max(1,1700/(img.width||1)));
+      const w=Math.round(img.width*scale),h=Math.round(img.height*scale);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      const x=c.getContext('2d'); x.drawImage(img,0,0,w,h);
+      try{
+        const d=x.getImageData(0,0,w,h),px=d.data;
+        for(let i=0;i<px.length;i+=4){
+          const g=(0.299*px[i]+0.587*px[i+1]+0.114*px[i+2])/255;
+          const v=Math.round(255*Math.pow(g,1.6));
+          px[i]=px[i+1]=px[i+2]=v<0?0:v>255?255:v;
+        }
+        x.putImageData(d,0,0);
+        res(c.toDataURL('image/png'));
+      }catch(e){ res(dataUrl); }     // canvas tainted / gagal → pakai aslinya
+    };
+    img.onerror=function(){ res(dataUrl); };
+    img.src=dataUrl;
+  });
+}
+async function ocrRead(dataUrl){
+  const w=await getOcrWorker();
+  const img=await prepOcrImage(dataUrl);
+  const hasil=await w.recognize(img);
+  return (hasil&&hasil.data&&hasil.data.text)||'';
+}
+const OCR_BANKS=[
+  ['BCA',/\b(BCA|KLIKBCA|MY\s?BCA|BANK CENTRAL ASIA|BLU)\b/i],
+  ['Mandiri',/\b(MANDIRI|LIVIN)\b/i],
+  ['BRI',/\b(BRI|BRIMO|BANK RAKYAT)\b/i],
+  ['BNI',/\b(BNI|BANK NEGARA)\b/i],
+  ['BSI',/\b(BSI|BANK SYARIAH)\b/i],
+  ['CIMB Niaga',/\b(CIMB|OCTO)\b/i],
+  ['Permata',/\bPERMATA\b/i],['Danamon',/\bDANAMON\b/i],['BTN',/\bBTN\b/i],
+  ['SeaBank',/\bSEA\s?BANK\b/i],['Bank Jago',/\bJAGO\b/i],['Maybank',/\bMAYBANK\b/i],
+  ['OCBC',/\bOCBC\b/i],['Panin',/\bPANIN\b/i],['Bank Mega',/\bBANK\s?MEGA\b/i],
+  ['Jenius/BTPN',/\b(JENIUS|BTPN)\b/i],['UOB',/\bUOB\b/i],['QRIS',/\bQRIS\b/i],
+  ['DANA',/\bDANA\b/],['OVO',/\bOVO\b/i],['GoPay',/\b(GO-?PAY|GOJEK)\b/i],
+  ['ShopeePay',/\bSHOPEE\s?PAY\b/i],['LinkAja',/\bLINK\s?AJA\b/i]
+];
+// "500.000,00" / "Rp 1,500,000" → 500000 / 1500000
+function toNumberID(x){
+  let v=String(x||'').replace(/\s/g,'');
+  v=v.replace(/[.,]\d{2}$/,'');            // buang sen
+  const d=v.replace(/[^0-9]/g,'');
+  return d?Number(d):0;
+}
+/* Nominal yang dicari NOMINAL TRANSFER, bukan biaya admin atau sisa saldo —
+   struk selalu memuat beberapa angka besar sekaligus. Baris yang menyebut
+   biaya/saldo diberi nilai minus, dan label yang ditulis DI BARIS ATAS
+   nilainya ("Nominal Transaksi" lalu "Rp 200.000") ikut dipinjam. */
+function ocrAmount(t){
+  const POS=/(nominal|jumlah|total|nilai|amount|transfer|dibayar|pembayaran|dikirim)/i;
+  const NEG=/(biaya|admin|fee|saldo|sisa|limit|denda|pajak|potongan|cashback|po[il]n)/i;
+  const RE=/(rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?)|rp\.?\s*(\d{4,})/gi;
+  const lines=String(t||'').split(/\r?\n/);
+  let best=null;
+  lines.forEach(function(line,i){
+    let pos=POS.test(line),neg=NEG.test(line);
+    if(!pos&&!neg){ const prev=lines[i-1]||''; pos=POS.test(prev); neg=NEG.test(prev); }
+    const base=(pos?3:0)+(neg?-6:0);
+    let m; RE.lastIndex=0;
+    while((m=RE.exec(line))){
+      const raw=m[2]||m[3]; if(!raw) continue;
+      const val=toNumberID(raw);
+      if(val<1000||val>2e9) continue;                 // nomor rekening / angka receh
+      const score=base+((m[1]||m[3])?1:0);
+      if(!best||score>best.score||(score===best.score&&val>best.val)) best={score:score,val:val};
+    }
+  });
+  return best?best.val:0;
+}
+function ocrBank(t){
+  const hay=String(t||'');
+  for(let i=0;i<OCR_BANKS.length;i++) if(OCR_BANKS[i][1].test(hay)) return OCR_BANKS[i][0];
+  return '';
+}
+/* APAKAH GAMBAR INI BUKTI TRANSFER? Dinilai dari beberapa penanda sekaligus,
+   bukan satu kata kunci: struk mana pun boleh saja kebetulan memuat satu kata,
+   tapi gambar yang bukan bukti transfer hampir tak pernah memuat nominal
+   berformat rupiah SEKALIGUS kata kerja transaksi dan nama bank. Ambang 3
+   dipilih supaya foto menu, poster, atau tangkapan layar chat tidak lolos. */
+function buktiSkor(t){
+  const txt=String(t||'');
+  let skor=0; const alasan=[];
+  const adaNominal=!!ocrAmount(txt);
+  const adaKata=/(transfer|transaksi|berhasil|sukses|success|pembayaran|dibayar|terkirim)/i.test(txt);
+  const bank=ocrBank(txt);
+  const adaRek=/(rekening|no\.?\s?rek|va|virtual account|ref|referensi|nomor transaksi)/i.test(txt);
+  if(adaNominal){ skor+=2; alasan.push('ada nominal berformat rupiah'); }
+  if(adaKata){ skor+=1; alasan.push('ada kata transaksi'); }
+  if(bank){ skor+=1; alasan.push('menyebut '+bank); }
+  if(adaRek){ skor+=1; alasan.push('ada nomor rekening/referensi'); }
+  if(/rp/i.test(txt)){ skor+=1; alasan.push('ada tanda Rp'); }
+  /* Nominal saja TIDAK cukup. Poster acara, daftar menu, dan tangkapan layar
+     katalog semuanya memuat "Rp 150.000" — kalau angka rupiah dianggap bukti,
+     ketiganya lolos. Harus ada penanda transaksi yang sesungguhnya: kata kerja
+     transaksi, nama bank/e-wallet, atau nomor rekening/referensi. */
+  const bukti = adaNominal && (adaKata||!!bank||adaRek) && skor>=3;
+  return {skor:skor, bukti:bukti, alasan:alasan};
+}
+function parseBuktiText(txt){
+  const t=String(txt||'').replace(/\u00a0/g,' ');
+  const nilai=buktiSkor(t);
+  return {amount:ocrAmount(t),bank:ocrBank(t),skor:nilai.skor,bukti:nilai.bukti,alasan:nilai.alasan};
+}
+function bacaDataUrl(file){
+  return new Promise(function(res,rej){
+    const r=new FileReader();
+    r.onload=function(){ res(String(r.result)); };
+    r.onerror=function(){ rej(new Error('gagal membaca berkas')); };
+    r.readAsDataURL(file);
+  });
+}
+/* Memeriksa bukti yang baru diunggah. Hasilnya disimpan di pembayaran itu
+   (proof_amount / proof_bank / proof_skor / proof_ocr_at) supaya tetap ada
+   walau layarnya ditutup — dan supaya OCR tidak perlu diulang tiap membuka
+   layar pembayaran. */
+async function periksaBuktiOtomatis(pid,file){
+  const p=DB.talentPayments.find(function(x){ return x.id===pid; }); if(!p) return;
+  const box=document.getElementById('pay_cocok');
+  if(!berkasGambar({name:(file&&file.name)||''})){
+    if(box) box.innerHTML='<p class="mini">Bukti berupa PDF — tidak dibaca otomatis. Isi nominalnya sendiri.</p>';
+    return;
+  }
+  if(box) box.innerHTML='<p class="mini">Membaca bukti… pertama kali agak lama karena mesin pembacanya diunduh dulu.</p>';
+  try{
+    const teks=await ocrRead(await bacaDataUrl(file));
+    const h=parseBuktiText(teks);
+    p.proof_bank=h.bank; p.proof_skor=h.skor; p.proof_bukti=h.bukti;
+    p.proof_ocr_at=new Date().toISOString();
+    /* Nominal hasil bacaan TIDAK menimpa yang sudah diketik tangan: koreksi
+       manusia harus menang atas tebakan mesin. */
+    if(h.amount && !(+p.proof_amount)) p.proof_amount=h.amount;
+    save();
+    const el=document.getElementById('pay_amt');
+    if(el && p.proof_amount) el.value=uangFormat(p.proof_amount);
+    if(box) box.innerHTML=buktiPeriksaHTML(p);
+  }catch(e){
+    if(box) box.innerHTML='<p class="mini" style="color:var(--red)">Pembacaan otomatis gagal: '+esc(e.message)
+      +'. Isi nominalnya sendiri — pencocokan dengan tagihan tetap jalan.</p>';
+  }
+}
+/* Memeriksa ulang bukti yang SUDAH tersimpan — berkasnya diambil kembali dari
+   server. Dipakai kalau pemeriksaan pertama gagal (mesin OCR belum terunduh,
+   koneksi putus) atau kalau nominalnya ingin dibaca ulang setelah dikoreksi
+   tangan. Sama-sama satu asal dengan halaman ini, jadi canvas-nya tidak
+   tainted dan gambarnya tetap bisa dipertajam sebelum dibaca. */
+async function periksaUlangBukti(pid){
+  const p=DB.talentPayments.find(function(x){ return x.id===pid; });
+  if(!p||!p.transfer_proof||typeof p.transfer_proof==='string')
+    return toast('Belum ada berkas bukti untuk diperiksa.');
+  window._payPid=pid;
+  const box=document.getElementById('pay_cocok');
+  if(box) box.innerHTML='<p class="mini">Mengambil berkas bukti…</p>';
+  try{
+    const res=await fetch(fileUrl(p.transfer_proof.key));
+    const blob=await res.blob();
+    const file=new File([blob],p.transfer_proof.name||'bukti.jpg',{type:blob.type});
+    await periksaBuktiOtomatis(pid,file);
+  }catch(e){
+    if(box) box.innerHTML='<p class="mini" style="color:var(--red)">Gagal mengambil berkas bukti: '+esc(e.message)+'</p>';
+  }
+}
 /* Hasil pemeriksaan bukti transfer. Nominal yang TERBACA di bukti disimpan
    di p.proof_amount, lalu dibandingkan dengan tagihan. Selisih sekecil apa pun
    ditandai merah: bukti yang nominalnya beda dari tagihan adalah pertanda
@@ -1769,20 +1975,35 @@ function buktiHTML(f){
    sering baru ketahuan berbulan-bulan kemudian saat rekonsiliasi. */
 function buktiPeriksaHTML(p){
   if(!p||!p.transfer_proof) return '';
+  let awal='';
+  if(p.proof_ocr_at){
+    awal=p.proof_bukti
+      ? '<p class="mini" style="color:var(--green)"><b>✓ Terbaca sebagai bukti transfer</b>'
+        +(p.proof_bank?' · '+esc(p.proof_bank):'')+'</p>'
+      : '<p class="mini" style="color:var(--red)"><b>⚠ Gambar ini tidak terbaca sebagai bukti transfer.</b> '
+        +'Periksa sendiri sebelum melanjutkan — bisa jadi salah gambar, atau tulisannya terlalu buram untuk dibaca mesin.</p>';
+  }
   const terbaca=+p.proof_amount||0;
-  if(!terbaca) return '<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  if(!terbaca) return awal+'<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  return awal+buktiCocokHTML(p,terbaca);
+}
+function buktiCocokHTML(p,terbaca){
   const selisih=terbaca-(+p.total_amount||0);
   return selisih===0
     ? '<p class="mini" style="color:var(--green)"><b>✓ Nominal cocok</b> — bukti tertulis '+IDR(terbaca)+', sama dengan tagihan.</p>'
     : '<p class="mini" style="color:var(--red)"><b>⚠ Nominal TIDAK cocok</b> — bukti tertulis '+IDR(terbaca)+', tagihan '+IDR(p.total_amount)+' (selisih '+(selisih>0?'+':'')+IDR(selisih)+'). Periksa dulu sebelum menandai lunas.</p>';
 }
 function pilihBuktiTransfer(pid){
-  pilihBerkas(f=>{
+  pilihBerkas((f,asli)=>{
     const p=DB.talentPayments.find(x=>x.id===pid);
-    p.transfer_proof=f; save();
+    // Hasil pemeriksaan lama ikut dibuang: buktinya sudah berganti.
+    p.transfer_proof=f; p.proof_bank=''; p.proof_skor=0; p.proof_bukti=false; p.proof_ocr_at='';
+    save();
     const box=document.getElementById('pay_proof');
     if(box) box.innerHTML=buktiHTML(f);
     toast('✓ Bukti transfer terunggah.');
+    window._payPid=pid;
+    if(asli) periksaBuktiOtomatis(pid,asli);
   });
 }
 /* "Tandai pembayaran ini LUNAS" dulu memakai confirm() — kotak abu-abu
