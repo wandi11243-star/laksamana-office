@@ -1019,6 +1019,10 @@ div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> te
 .dn-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--sand-dim);margin-top:10px}
 .dn-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
 
+/* baris centang "perusahaan baru" di form Reservasi VIP */
+.vip-cek{display:flex;align-items:center;gap:7px;margin-top:8px;font-size:12px;
+  font-weight:600;color:var(--sand-dim);cursor:pointer}
+.vip-cek input{width:14px;height:14px;accent-color:var(--gold);cursor:pointer}
 /* --- ringkasan slot di pemilih meja Reservasi VIP --- */
 .vip-ringkas{margin-top:14px;padding:12px 14px;background:var(--ink-900);border:1px solid var(--line);border-radius:11px}
 .vip-slot-chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px}
@@ -1709,6 +1713,14 @@ const FU_RESULT = {
 const INV_STATUS = { Draft:'--muted', Sent:'--info', Pending:'--warn', Paid:'--ok', Overdue:'--danger' };
 const TASK_STATUS = { Pending:'--muted', 'On Progress':'--warn', Done:'--ok' };
 const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Lainnya'];
+/* Jenis event untuk DITAMPILKAN. "Lainnya" itu penanda isian bebas, bukan
+   jenis; yang ingin dibaca orang adalah ketikannya. Warna tetap dicari dari
+   e.jenis (jadi tetap abu-abu "Lainnya"), hanya teksnya yang diganti. */
+function jenisEvent(e){
+  const j=(e&&e.jenis)||'';
+  if(j!=='Lainnya') return j;
+  return String((e&&e.detail&&e.detail.jenisLain)||'').trim()||'Lainnya';
+}
 const EVENT_COLOR = { 'Private Party':'--danger','Corporate Event':'--ok','Wedding':'--info','Birthday':'--warn','Gathering':'--teal','Seminar':'--violet','Launching':'--gold','Competition':'--gold','Lainnya':'--muted' };
 const DIVISIONS = ['Kitchen','Bar','Floor','Design','Event','Security'];
 /* Cabang template dari Kitchen, auto-assign lewat field Format F&B.
@@ -3199,7 +3211,11 @@ function renderCRM(V){
     +'<option value="deal"'+(crmFilter.rel==='deal'?' selected':'')+'>Pernah deal</option>'
     +'<option value="repeat"'+(crmFilter.rel==='repeat'?' selected':'')+'>Repeat customer</option>'
     +'<option value="nodeal"'+(crmFilter.rel==='nodeal'?' selected':'')+'>Belum pernah deal</option></select>';
-  h+='<select class="inp" style="max-width:180px" onchange="crmFilter.source=this.value;paintCRM()"><option value="">Semua Source</option>'+SOURCES.map(s=>'<option '+(crmFilter.source===s?'selected':'')+'>'+s+'</option>').join('')+'</select>';
+  /* Daftar penyaring = SOURCES + source hasil ketikan bebas yang benar-benar
+     dipakai. Tanpa itu, sumber yang baru diketik tidak akan pernah bisa
+     disaring — dan justru sumber baru itulah yang paling ingin dilihat. */
+  const srcAda=[...new Set(SOURCES.concat((S.clients||[]).map(c=>c.source).filter(Boolean)))];
+  h+='<select class="inp" style="max-width:180px" onchange="crmFilter.source=this.value;paintCRM()"><option value="">Semua Source</option>'+srcAda.map(s=>'<option '+(crmFilter.source===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select>';
   h+='</div>';
   h+='<div class="card pad0"><div id="crm-table"></div></div>';
   h+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Peluang aktif</em> = event yang tahapnya masih '+OPEN_STAGES.map(s=>'<em>'+esc(s)+'</em>').join(' / ')+'. Event <em>Deal</em>, <em>Event Done</em>, dan <em>Lost</em> tidak dihitung sebagai peluang. Ikon '+svg(IC.star,'star')+' = <em>klien VIP</em> — total belanjanya di atas Rp20 juta.</span></div>';
@@ -3273,12 +3289,42 @@ function clientForm(c){
    +ff('Nama','cf_nama',c.nama,'text',1)+ff('Perusahaan / Organisasi','cf_perusahaan',c.perusahaan)
    +ff('PIC (sisi client)','cf_pic',c.pic)+ff('No. HP / WhatsApp','cf_hp',c.hp,'text',1)
    +ff('Alamat','cf_alamat',c.alamat)
-   +'<div class="field"><label>Source</label><select class="inp" id="cf_source">'+SOURCES.map(s=>'<option '+(c.source===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'
+   +(function(){
+       /* Source boleh diketik sendiri. Daftar SOURCES tidak akan pernah lengkap
+          — sumber lead baru muncul terus (pameran, kolaborasi, endorse) — dan
+          memaksa memilih dari daftar membuat orang menaruh sumber sebenarnya di
+          kolom Catatan, tempat yang tidak pernah bisa disaring.
+          Client lama yang sumbernya di luar daftar (mis. hasil ketikan ini)
+          otomatis tampil sebagai "Lainnya" dengan teksnya sudah terisi, bukan
+          jatuh diam-diam ke pilihan pertama. */
+       const lain = c.source && SOURCES.indexOf(c.source)<0;
+       return '<div class="field"><label>Source</label><select class="inp" id="cf_source" onchange="cfSourceToggle()">'
+         +'<option value=""'+(c.source?'':' selected')+'>— pilih —</option>'
+         +SOURCES.map(s=>'<option'+(c.source===s?' selected':'')+'>'+s+'</option>').join('')
+         +'<option value="__lain__"'+(lain?' selected':'')+'>Lainnya — tulis sendiri</option></select>'
+         +'<input class="inp" id="cf_sourceLain" style="margin-top:8px;display:'+(lain?'block':'none')+'" '
+         +'placeholder="Tulis sumbernya" value="'+esc(lain?c.source:'')+'"></div>';
+     })()
    +'<div class="field"><label>Marketing PIC</label><select class="inp" id="cf_mktPIC">'+S.users.filter(u=>u.role==='marketing').map(u=>'<option value="'+u.id+'" '+(c.mktPIC===u.id?'selected':'')+'>'+u.name+'</option>').join('')+'</select></div>'
    +ff('Tanggal Lahir (opsional)','cf_birthday',c.birthday,'date')
    +'<div class="field"><label>Next Follow Up</label><input class="inp" type="date" id="cf_nextFU" value="'+(c.nextFU||'')+'"></div>'
    +'<div class="field full"><label>Catatan</label><textarea class="inp" id="cf_catatan" placeholder="Preferensi, sensitivitas harga, dsb.">'+esc(c.catatan||'')+'</textarea></div>'
    +'</div>';
+}
+function cfSourceToggle(){
+  const sel=$('cf_source'), inp=$('cf_sourceLain'); if(!sel||!inp) return;
+  const lain=sel.value==='__lain__';
+  inp.style.display=lain?'block':'none';
+  if(lain) inp.focus();
+}
+/* Source yang benar-benar disimpan: ketikan bebas kalau "Lainnya" dipilih.
+   Dikosongkan kalau "Lainnya" dipilih tapi tidak diketik apa-apa — lebih baik
+   kosong daripada baris CRM bersumber harfiah "__lain__". */
+function cfSourceValue(){
+  const sel=$('cf_source'); if(!sel) return '';
+  if(sel.value!=='__lain__') return sel.value;
+  const inp=$('cf_sourceLain');
+  return inp?inp.value.trim():'';
 }
 function ff(label,id,val,type,req){ return '<div class="field"><label>'+label+(req?'<span class="req">*</span>':'')+'</label><input class="inp" type="'+(type||'text')+'" id="'+id+'" value="'+esc(val||'')+'"></div>'; }
 function newClient(){
@@ -3294,10 +3340,11 @@ function saveClient(id){
   // bisa diubah dari sini lagi.
   const g=k=>{ const el=$('cf_'+k); return el ? el.value.trim() : ''; };
   if(!g('nama')||!g('hp'))return toast('Lengkapi data','Nama & No. HP wajib diisi.','err');
-  if(id){ const c=S.clients.find(x=>x.id===id); Object.assign(c,{nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),alamat:g('alamat'),source:g('source'),mktPIC:g('mktPIC'),birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')}); c.lastContact=today();
+  const src=cfSourceValue();
+  if(id){ const c=S.clients.find(x=>x.id===id); Object.assign(c,{nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),alamat:g('alamat'),source:src,mktPIC:g('mktPIC'),birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')}); c.lastContact=today();
     logAct('client',id,'Data client diperbarui',c.nama); toast('Tersimpan','Data '+c.nama+' diperbarui.','ok'); }
-  else { const nc={id:uid('c'),createdAt:today(),lastContact:today(),nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),email:'',ig:'',alamat:g('alamat'),source:g('source'),mktPIC:g('mktPIC')||ME.id,birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')};
-    S.clients.unshift(nc); logAct('client',nc.id,'Lead baru masuk',nc.nama+' · '+nc.source); toast('Client dibuat','Lead '+nc.nama+' masuk pipeline.','ok'); }
+  else { const nc={id:uid('c'),createdAt:today(),lastContact:today(),nama:g('nama'),perusahaan:g('perusahaan'),pic:g('pic'),hp:g('hp'),email:'',ig:'',alamat:g('alamat'),source:src,mktPIC:g('mktPIC')||ME.id,birthday:g('birthday'),nextFU:g('nextFU'),catatan:g('catatan')};
+    S.clients.unshift(nc); logAct('client',nc.id,'Lead baru masuk',nc.nama+(nc.source?' · '+nc.source:'')); toast('Client dibuat','Lead '+nc.nama+' masuk pipeline.','ok'); }
   save(); closeModal(); go('crm');
 }
 function viewClient(id){
@@ -3687,7 +3734,7 @@ function paintEvents(){
   let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('events',KOL_EVENTS)+'<tbody>';
   p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
     h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
-     +'<td><span class="chip" style="background:color-mix(in srgb,var('+(EVENT_COLOR[e.jenis]||'--muted')+') 15%,transparent);color:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"><span class="cd" style="background:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"></span>'+esc(e.jenis)+'</span></td>'
+     +'<td><span class="chip" style="background:color-mix(in srgb,var('+(EVENT_COLOR[e.jenis]||'--muted')+') 15%,transparent);color:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"><span class="cd" style="background:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"></span>'+esc(jenisEvent(e))+'</span></td>'
      +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
      +'<td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
   });
@@ -3703,10 +3750,22 @@ function newEvent(){
    +'<div class="field"><label>Client<span class="req">*</span></label><select class="inp" id="ne_client" onchange="neClientChange()"><option value="">— pilih client —</option>'+dealClients.map(c=>'<option value="'+c.id+'">'+esc(c.nama)+(c.perusahaan?' ('+esc(c.perusahaan)+')':'')+'</option>').join('')+'<option value="__new__">+ Client baru (isi cepat)</option></select><div class="fh">Belum ada di daftar? Pilih "+ Client baru" — nanti otomatis masuk Database Client sebagai Lead.</div></div>'
    +'<div id="ne_newclient" style="display:none"><div class="form-grid">'+ff('Nama Client','ne_cnama','','text',1)+ff('No. HP','ne_chp','','text')+'</div></div>'
    +'<div class="form-grid">'+ff('Nama Event','ne_nama','','text',1)
-   +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis" onchange="neJenisToggle()">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select>'
+     +'<input class="inp" id="ne_jenisLain" style="margin-top:8px;display:none" placeholder="Tulis jenis eventnya"></div>'
    +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+today()+'"></div>'
    +ff('Estimasi Pax','ne_pax','','number')+'</div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitNewEvent()">Buat & Detailing →</button></div>');
+}
+/* "Lainnya" di Jenis Event membuka kotak ketikan. Sebelum ini jenisnya
+   tersimpan harfiah sebagai "Lainnya", jadi kalender, warna, dan rekap per
+   jenis menumpuk semua acara tak-berkategori jadi satu tanpa bisa dibedakan
+   lagi. Formulir Event Brief sudah punya pasangan jenis/jenisLain; ini
+   menyamakan formulir Event Baru dengan pola yang sama. */
+function neJenisToggle(){
+  const sel=$('ne_jenis'), inp=$('ne_jenisLain'); if(!sel||!inp) return;
+  const lain=sel.value==='Lainnya';
+  inp.style.display=lain?'block':'none';
+  if(lain) inp.focus();
 }
 function neClientChange(){
   const el=$('ne_newclient'); if(el) el.style.display = ($('ne_client').value==='__new__')?'block':'none';
@@ -3714,7 +3773,20 @@ function neClientChange(){
 function submitNewEvent(){
   let cid=$('ne_client').value; const nama=$('ne_nama').value.trim();
   if(!cid||!nama)return toast('Lengkapi data','Client & Nama Event wajib.','err');
-  const jenis=$('ne_jenis').value, tanggal=$('ne_tanggal').value, pax=+$('ne_pax').value||0;
+  const jenis=$('ne_jenis').value;
+  const tanggal=$('ne_tanggal').value, pax=+$('ne_pax').value||0;
+  /* Ketikannya disimpan di detail.jenisLain, BUKAN ditimpakan ke ev.jenis.
+     Tab Basic di Event Brief menulis balik `ev.jenis=ev.detail.jenis`, dan
+     detail.jenis itu <select> berisi EVENT_TYPES — jenis hasil ketikan yang
+     ditaruh di sana akan hilang diam-diam begitu ada orang membuka tab itu
+     lalu menyimpan. Pasangan jenis/jenisLain sudah dipakai Event Brief; ini
+     menyamakan formulir Event Baru dengan pola yang sama, dan jenisEvent()
+     yang menggabungkan keduanya untuk ditampilkan. */
+  let jenisLain='';
+  if(jenis==='Lainnya'){
+    jenisLain=($('ne_jenisLain')?$('ne_jenisLain').value:'').trim();
+    if(!jenisLain) return toast('Jenis event belum ditulis','Pilihan "Lainnya" harus ditulis jenisnya.','err');
+  }
   // client baru dibuat langsung dari sini (masuk CRM sebagai Lead)
   if(cid==='__new__'){
     const cn=$('ne_cnama').value.trim(), chp=$('ne_chp').value.trim();
@@ -3726,7 +3798,7 @@ function submitNewEvent(){
   const cl=S.clients.find(c=>c.id===cid);
   if(!cl)return toast('Client tidak ditemukan','Pilih client yang valid.','err');
   const pic = ME.role==='marketing' ? ME.id : (cl.mktPIC || ME.id);
-  const ev={id:uid('e'),clientId:cid,nama,jenis,tanggal,status:'Lead',pipeCol:'Lead',mktPIC:pic,pax,invoiceSent:false,createdAt:today(),detail:{jenis,tanggal,pax},payments:[],tasks:{}};
+  const ev={id:uid('e'),clientId:cid,nama,jenis,tanggal,status:'Lead',pipeCol:'Lead',mktPIC:pic,pax,invoiceSent:false,createdAt:today(),detail:{jenis,jenisLain,tanggal,pax},payments:[],tasks:{}};
   S.events.unshift(ev); logAct('event',ev.id,'Event dibuat',nama);
   save(); closeModal(); go('event',ev.id);
 }
@@ -6398,7 +6470,7 @@ function taskDetail(e,opDiv){
   h+='<div class="papan-kepala">'
    +'<div class="eyebrow">'+svg(IC.task)+'To-do List</div>'
    +'<div class="papan-judul"><h1>'+esc(e.nama)+'</h1>'
-   +statusChip(e.jenis in EVENT_COLOR?e.jenis:'',{[e.jenis]:{c:EVENT_COLOR[e.jenis]||'--muted',t:e.jenis}})+'</div>'
+   +statusChip(e.jenis in EVENT_COLOR?e.jenis:'',{[e.jenis]:{c:EVENT_COLOR[e.jenis]||'--muted',t:jenisEvent(e)}})+'</div>'
    +'<div class="cell-sub">'+esc(clientName(e.clientId))+' · '+fmtDate(e.tanggal)+' · '
      +(rd>=0?(rd===0?'HARI INI':'H-'+rd):'lewat')+'</div></div>';
   h+=taskBoard(e,cats,opDiv);
@@ -7712,7 +7784,7 @@ let vipFilter='';
 
 function vipKosong(){
   return {id:uid('vip'),jenis:'Assisted',nama:'',clientId:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
-    hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,kasir:'',nominal:'',
+    hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,nominal:'',clientBaru:false,
     meja:[],mktPIC:(ME?ME.id:''),catatan:'',resId:'',kirimAt:'',createdAt:new Date().toISOString(),createdBy:(ME?ME.name:'')};
 }
 /* Nominal HANYA berlaku untuk Assisted. Regular yang pernah diketik nominalnya
@@ -7825,7 +7897,20 @@ function vipForm(id){
   const v=id?(S.vip||[]).find(x=>x.id===id):vipKosong();
   if(!v)return toast('Tidak ditemukan','Reservasi VIP ini sudah dihapus.','err');
   VIP_FORM=JSON.parse(JSON.stringify(v));
-  const f=VIP_FORM;
+  vipFormUI();
+}
+/* Menggambar form dari VIP_FORM yang SEDANG hidup, tanpa memuat ulang dari
+   S.vip. Inilah yang dipakai tombol "Kembali" di pemilih meja.
+
+   Dulu tombol itu memanggil vipForm(f.id), dan itu rusak dua kali:
+   1. Reservasi BARU belum ada di S.vip, jadi pencarian id-nya gagal dan yang
+      muncul cuma toast "Tidak ditemukan" — orangnya terjebak di pemilih meja.
+   2. Untuk reservasi lama, isian yang baru diketik (dan meja yang sudah
+      diklik) ditimpa data tersimpan, jadi harus mengetik ulang lalu memilih
+      meja dari awal. Persis keluhan "harus input & pilih denah lagi". */
+function vipFormUI(){
+  const f=VIP_FORM; if(!f) return;
+  const id=(S.vip||[]).some(x=>x.id===f.id)?f.id:'';
   const seg=(kunci,ya)=>'<div class="seg" id="vip_'+kunci+'"><button type="button" class="'+(ya?'on':'')+'" onclick="segPick(this,true)" data-v="1">Ya</button>'
     +'<button type="button" class="'+(ya?'':'on')+'" onclick="segPick(this,false)" data-v="0">Tidak</button></div>';
   modal('<div class="modal-head"><div><h3>'+(id?'Ubah':'Reservasi VIP Baru')+'</h3><p>Data ini juga yang dikirim ke modul Reservasi.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
@@ -7841,9 +7926,20 @@ function vipForm(id){
    +'<div class="form-grid">'
      +ff('Atas Nama','vip_nama',f.nama,'text',1)
      +'<div class="field"><label>Client / Perusahaan</label>'
-       +'<input class="inp" id="vip_client" list="vip_clientlist" autocomplete="off" placeholder="Ketik untuk cari client..." value="'+esc(f.clientId?(S.clients.find(x=>x.id===f.clientId)?vipClientLabel(S.clients.find(x=>x.id===f.clientId)):''):'')+'">'
+       +'<input class="inp" id="vip_client" list="vip_clientlist" autocomplete="off" placeholder="Ketik untuk cari client..." value="'+esc(f.clientId?(S.clients.find(x=>x.id===f.clientId)?vipClientLabel(S.clients.find(x=>x.id===f.clientId)):''):'')+'"'+(f.clientBaru?' style="display:none"':'')+'>'
        +'<datalist id="vip_clientlist">'+S.clients.map(function(c){ return '<option value="'+esc(vipClientLabel(c))+'"></option>'; }).join('')+'</datalist>'
-       +'<div class="fh">Diambil dari <b>Database Client</b>. Kosongkan bila tamunya belum terdaftar di CRM.</div></div>'
+       /* Perusahaan yang belum ada di CRM. Dulu satu-satunya jalan adalah keluar
+          dari form ini, membuat client di Database Client, lalu mengulang
+          seluruh isian Reservasi VIP dari nol — cukup menyakitkan sampai orang
+          memilih mengosongkannya, dan perusahaannya tidak pernah tercatat sama
+          sekali. Dicentang di sini, perusahaannya diketik langsung dan MASUK
+          Database Client saat disimpan, jadi reservasi berikutnya atas nama
+          perusahaan yang sama tinggal dipilih dari daftar. */
+       +'<input class="inp" id="vip_perusahaanBaru" placeholder="Nama perusahaan baru" value="'+esc(f.perusahaan||'')+'"'+(f.clientBaru?'':' style="display:none"')+'>'
+       +'<label class="vip-cek"><input type="checkbox" id="vip_clientBaru" '+(f.clientBaru?'checked ':'')+'onchange="vipClientBaruToggle()"> Perusahaan baru, belum ada di Database Client</label>'
+       +'<div class="fh" id="vip_client_fh">'+(f.clientBaru
+           ?'Akan <b>ditambahkan ke Database Client</b> begitu reservasi ini disimpan, memakai Atas Nama &amp; No. HP di formulir ini.'
+           :'Diambil dari <b>Database Client</b>. Kosongkan bila tamunya belum terdaftar di CRM.')+'</div></div>'
      +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="vip_tanggal" value="'+esc(f.tanggal||'')+'"></div>'
      +ff('No. HP','vip_hp',f.hp,'text',1)
      +'<div class="field"><label>Jam Kedatangan<span class="req">*</span></label><input class="inp" type="time" id="vip_jamMulai" value="'+esc(f.jamMulai||'')+'"></div>'
@@ -7855,11 +7951,44 @@ function vipForm(id){
    +'<div class="form-grid">'
      +'<div class="field"><label>Penggunaan TV</label>'+seg('tv',f.tv)+'</div>'
      +'<div class="field"><label>Butuh Speaker &amp; Mic</label>'+seg('speaker',f.speaker)+'</div>'
-     +ff('Kasir','vip_kasir',f.kasir,'text')
    +'</div>'
    +'<div class="field"><label>Catatan</label><textarea class="inp" id="vip_catatan" rows="2">'+esc(f.catatan||'')+'</textarea></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
-   +'<button class="btn pri" onclick="vipLanjutMeja()">Pilih Meja &amp; Kunci →</button></div>');
+   /* Simpan langsung, HANYA saat mengubah yang sudah tersimpan. Untuk reservasi
+      baru tombol ini sengaja tidak ada: barisnya belum ada gunanya tanpa meja,
+      dan menyimpannya setengah jalan cuma menghasilkan reservasi yang tidak
+      pernah terkunci di modul Reservasi. Saat MENGUBAH sebaliknya: memaksa
+      orang melewati pemilih meja hanya untuk membetulkan satu digit nomor HP
+      itu yang justru mengundang salah pencet di layar kuncian meja. */
+   +(id?'<button class="btn" onclick="vipSimpanSaja()">'+svg(IC.check)+'Simpan</button>':'')
+   +'<button class="btn pri" onclick="vipLanjutMeja()">'+((f.meja||[]).length?'Ubah Meja &amp; Kunci →':'Pilih Meja &amp; Kunci →')+'</button></div>');
+}
+function vipClientBaruToggle(){
+  const cek=$('vip_clientBaru'); if(!cek) return;
+  const baru=cek.checked;
+  VIP_FORM.clientBaru=baru;
+  const cari=$('vip_client'), tulis=$('vip_perusahaanBaru'), fh=$('vip_client_fh');
+  if(cari) cari.style.display=baru?'none':'';
+  if(tulis){ tulis.style.display=baru?'':'none'; if(baru) tulis.focus(); }
+  if(fh) fh.innerHTML=baru
+    ?'Akan <b>ditambahkan ke Database Client</b> begitu reservasi ini disimpan, memakai Atas Nama &amp; No. HP di formulir ini.'
+    :'Diambil dari <b>Database Client</b>. Kosongkan bila tamunya belum terdaftar di CRM.';
+}
+/* Simpan perubahan TANPA menyentuh modul Reservasi. Yang bisa diubah dari sini
+   memang cuma keterangannya (nama, HP, jam, catatan, nominal); meja dan
+   kuncian di Reservasi tetap milik jalur "Ubah Meja & Kunci". */
+function vipSimpanSaja(){
+  const galat=vipKumpulkan();
+  if(galat) return toast('Belum lengkap',galat,'err');
+  const f=VIP_FORM;
+  const i=(S.vip||[]).findIndex(x=>x.id===f.id);
+  if(i<0) return toast('Belum pernah dikunci','Reservasi ini belum tersimpan — pakai "Pilih Meja & Kunci".','err');
+  vipPastikanClient(f);
+  S.vip[i]=JSON.parse(JSON.stringify(f));
+  logAct('vip',f.id,'Reservasi VIP diperbarui',f.nama+' · '+fmtDate(f.tanggal));
+  save(); closeModal();
+  toast('Tersimpan',f.nama+' diperbarui.'+(f.resId?' Meja & kuncian di modul Reservasi tidak berubah.':''),'ok');
+  go('vip');
 }
 function vipPilihJenis(btn,jenis){
   [...btn.parentNode.children].forEach(b=>b.classList.remove('on'));
@@ -7876,17 +8005,29 @@ function vipKumpulkan(){
   /* Client: kosong berarti memang tidak ditautkan. Diketik tapi tidak cocok
      dengan satu pun baris CRM = kemungkinan besar salah ketik, jadi DITOLAK
      ketimbang diam-diam disimpan sebagai tidak bertaut. */
-  const cid=vipClientDariLabel(g('vip_client'));
-  if(cid===null) return 'Client tidak dikenali — pilih dari daftar yang muncul saat mengetik, atau kosongkan.';
-  f.clientId=cid;
-  f.perusahaan=cid?'':f.perusahaan;   // ditautkan -> namanya selalu dibaca dari CRM
+  const cek=$('vip_clientBaru');
+  f.clientBaru=!!(cek&&cek.checked);
+  if(f.clientBaru){
+    /* Perusahaan baru: yang disimpan dulu teksnya. Barisnya BARU dibuat di CRM
+       saat reservasinya benar-benar disimpan (vipPastikanClient) — kalau
+       dibuat sekarang, setiap orang yang membuka form lalu batal akan
+       meninggalkan client sampah di Database Client. */
+    f.perusahaan=g('vip_perusahaanBaru');
+    f.clientId='';
+    if(!f.perusahaan) return 'Nama perusahaan baru wajib diisi — atau lepas centangnya.';
+  }else{
+    const cid=vipClientDariLabel(g('vip_client'));
+    if(cid===null) return 'Client tidak dikenali — pilih dari daftar yang muncul saat mengetik, atau kosongkan.';
+    f.clientId=cid;
+    f.perusahaan=cid?'':f.perusahaan;   // ditautkan -> namanya selalu dibaca dari CRM
+  }
   f.hp=g('vip_hp'); f.jamMulai=g('vip_jamMulai'); f.jamSelesai=g('vip_jamSelesai');
   // Nomor client dipakai kalau kotaknya masih kosong — mengetik ulang nomor yang
   // sudah ada di CRM cuma menambah peluang salah ketik. Yang sudah diisi tidak
   // pernah ditimpa: tamu VIP kadang memakai nomor PIC lain.
   if(!f.hp && f.clientId){ const c=S.clients.find(x=>x.id===f.clientId); if(c&&c.hp) f.hp=c.hp; }
   f.paxMin=g('vip_paxMin'); f.paxMax=g('vip_paxMax');
-  f.layoutReq=g('vip_layoutReq'); f.kasir=g('vip_kasir'); f.catatan=g('vip_catatan');
+  f.layoutReq=g('vip_layoutReq'); f.catatan=g('vip_catatan');
   const sv=segVal('vip_tv'); if(sv!==undefined)f.tv=sv.v;
   const ss=segVal('vip_speaker'); if(ss!==undefined)f.speaker=ss.v;
   const n=$('vip_nominal'); if(n) f.nominal=rupiahDigits(n.value)===''?'':(+rupiahDigits(n.value));
@@ -7899,6 +8040,30 @@ function vipKumpulkan(){
      acaranya jalan, jadi memaksanya di depan cuma memancing orang mengarang
      angka supaya formnya mau lanjut. Yang belum terisi ditandai di daftar. */
   return '';
+}
+/* Menautkan reservasi ke Database Client, membuat barisnya kalau perlu.
+   Dipanggil tepat sebelum menyimpan, dari kedua jalur simpan.
+
+   Perusahaan yang namanya SUDAH ada dipakai ulang, tidak dibuat dua kali:
+   yang paling sering terjadi bukan perusahaan betul-betul baru, tapi orang
+   yang tidak menemukannya di kotak pencarian lalu mencentang "baru". */
+function vipPastikanClient(f){
+  if(!f||!f.clientBaru||!f.perusahaan) return;
+  const nm=String(f.perusahaan).trim().toLowerCase();
+  const ada=(S.clients||[]).find(c=>String(c.perusahaan||'').trim().toLowerCase()===nm
+                                  || String(c.nama||'').trim().toLowerCase()===nm);
+  if(ada){
+    f.clientId=ada.id; f.clientBaru=false; f.perusahaan='';
+    if(!ada.hp&&f.hp){ ada.hp=f.hp; }
+    return;
+  }
+  const nc={id:uid('c'),createdAt:today(),lastContact:today(),
+    nama:f.nama||f.perusahaan,perusahaan:f.perusahaan,pic:'',hp:f.hp||'',
+    email:'',ig:'',alamat:'',source:'Reservasi VIP',
+    mktPIC:f.mktPIC||(ME?ME.id:''),birthday:'',nextFU:'',catatan:'Dibuat otomatis dari Reservasi VIP.'};
+  S.clients.unshift(nc);
+  logAct('client',nc.id,'Client baru dari Reservasi VIP',nc.perusahaan+' · '+(nc.nama||''));
+  f.clientId=nc.id; f.clientBaru=false; f.perusahaan='';
 }
 async function vipLanjutMeja(){
   const galat=vipKumpulkan();
@@ -8045,7 +8210,7 @@ function vipPilihMejaUI(d){
     }
   }
   h+='<div class="vip-ringkas" id="vip_ringkas">'+vipRingkasSlotHTML()+'</div>';
-  h+='</div><div class="modal-foot"><button class="btn" onclick="vipForm(\''+f.id+'\')">← Kembali</button>'
+  h+='</div><div class="modal-foot"><button class="btn" onclick="vipFormUI()">← Kembali</button>'
    +'<button class="btn pri" id="vip_kunci_btn" onclick="vipSimpanKunci()">'+svg(IC.check)+'Simpan &amp; Kunci di Reservasi</button></div>';
   modal(h);
   // denah butuh ruang: modal disetel lebar seperti dokumen brief
@@ -8076,7 +8241,6 @@ async function vipSimpanKunci(){
         vipPerusahaan(f)?'Perusahaan: '+vipPerusahaan(f):'',
         f.layoutReq?'Request layout: '+f.layoutReq:'',
         'TV: '+(f.tv?'Ya':'Tidak')+' · Speaker & Mic: '+(f.speaker?'Ya':'Tidak'),
-        f.kasir?'Kasir: '+f.kasir:'',
         f.catatan||'',
         'Dari modul Marketing — PIC '+userName(f.mktPIC)].filter(Boolean).join('\n');
       return {
@@ -8100,6 +8264,7 @@ async function vipSimpanKunci(){
       if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
       return toast('Meja keburu diambil','Meja '+hasil.bentrok.join(', ')+' baru saja dipesan tamu lain. Pilih meja lain.','err');
     }
+    vipPastikanClient(f);
     f.resId=hasil.rec.id; f.kirimAt=new Date().toISOString();
     const lama=(S.vip||[]).findIndex(x=>x.id===f.id);
     if(lama>=0) S.vip[lama]=f; else { S.vip=S.vip||[]; S.vip.unshift(f); }
@@ -8147,7 +8312,6 @@ function vipDetail(id){
    +baris('Request Layout',esc(v.layoutReq||''))
    +baris('Penggunaan TV',v.tv?'Ya':'Tidak')
    +baris('Speaker &amp; Mic',v.speaker?'Ya':'Tidak')
-   +baris('Kasir',esc(v.kasir||''))
    +baris('Meja terkunci','<b>'+esc((v.meja||[]).join(', ')||'—')+'</b>')
    +baris('Marketing PIC',esc(userName(v.mktPIC)))
    +(v.jenis==='Assisted'?baris('Nominal Pendapatan',vipBelumNominal(v)
@@ -8214,7 +8378,9 @@ function renderReports(V){
     '<button class="btn" onclick="exportCSV()">'+svg(IC.down)+'Export CSV</button>');
   const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   // by type
-  const byType={}; closed.forEach(e=>{ byType[e.jenis]=(byType[e.jenis]||0)+eventFinance(e).grand; });
+  // Dikelompokkan per jenis yang DITAMPILKAN: dua event "Lainnya" dengan
+  // ketikan berbeda memang dua kategori berbeda, bukan satu tumpukan.
+  const byType={}; closed.forEach(e=>{ const k=jenisEvent(e)||'—'; byType[k]=(byType[k]||0)+eventFinance(e).grand; });
   const totalRev=Object.values(byType).reduce((a,b)=>a+b,0);
   const totalPax=closed.reduce((a,e)=>a+(+e.pax||0),0);
   h+='<div class="grid g-3" style="margin-bottom:18px">'+stat('Total Revenue',rpShort(totalRev),closed.length+' event','money')+stat('Total Pax',totalPax.toLocaleString('id-ID'),'tamu terlayani','crm')+stat('Avg per Pax',rp(totalPax?Math.round(totalRev/totalPax):0),'revenue/tamu','report')+'</div>';
