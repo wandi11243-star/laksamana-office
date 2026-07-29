@@ -327,6 +327,7 @@ tbody tr:hover{background:var(--gold-soft)}
              kalau butuh, itu pekerjaan Kompas, bukan kasir. -->
         <a data-view="report"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span> Report Daily</a>
         <a data-view="compliment"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span> Compliment</a>
+        <a data-view="rokok"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="13" width="16" height="6" rx="1"/><path d="M13 13v6"/><path d="M20 12v2M20 17v2"/><path d="M17 5c0 2 2 2 2 4"/></svg></span> Daily Stock Rokok</a>
         <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
         <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg></span> Dana Masuk (DP)</a>
       </div>
@@ -513,6 +514,7 @@ function seed(){
     employees:{ marketing:[], event:[], kasir:[] },
     daily:[],
     reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted}
+    rokok:{},        // "YYYY-MM-DD" -> {items:{<kunci>:{in,out}}, by, at}
     compliments:[]   // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
   };
 }
@@ -526,6 +528,12 @@ function normalizeDB(d){
   else ['marketing','event','kasir'].forEach(k=>{ if(!Array.isArray(d.employees[k])) d.employees[k]=s.employees[k]; });
   if(!Array.isArray(d.daily)) d.daily=[];
   if(!d.reports||typeof d.reports!=='object'||Array.isArray(d.reports)) d.reports={};
+  /* Stock rokok harian. Dibaca & ditulis HANYA oleh modul Cashier, tapi ikut
+     di blob yang sama dengan Kompas — dan itu aman: normalizeDB() di kedua
+     modul tidak pernah membuang kunci yang tidak dikenalnya, dan backend
+     menyimpan blob apa adanya. Kalau suatu saat ada yang menambah normalisasi
+     bergaya "hapus kunci asing", data ini yang pertama hilang. */
+  if(!d.rokok||typeof d.rokok!=='object'||Array.isArray(d.rokok)) d.rokok={};
   if(!Array.isArray(d.compliments)) d.compliments=[];
   /* Migrasi: "Total Tax & Service" dulu SATU angka (tax_service). Sekarang
      dipecah jadi service_charge + tax. Nilai lama seluruhnya dianggap tax —
@@ -657,6 +665,7 @@ let CURRENT='input';
 const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
+  rokok:['Daily Stock Rokok','Barang masuk & keluar per hari, per item'],
   kasir:['Performa Kasir','Omset walk-in per kasir'],
   dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
@@ -684,7 +693,7 @@ function render(){
   clearCharts();
   document.getElementById('periodPick').value=PERIOD;
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({report:viewReport,compliment:viewCompliment,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
+  ({report:viewReport,compliment:viewCompliment,rokok:viewRokok,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -1012,9 +1021,10 @@ function barisTanpaShift(d){
 const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 const CAL_REG={
   rp:{ box:'rp_cal', get:()=>repDate,            set:ds=>{ repDate=ds; PERIOD=monthKeyOf(ds); } },
-  cp:{ box:'cp_cal', get:()=>compDate,           set:ds=>{ compDate=ds; PERIOD=monthKeyOf(ds); } }
+  cp:{ box:'cp_cal', get:()=>compDate,           set:ds=>{ compDate=ds; PERIOD=monthKeyOf(ds); } },
+  rk:{ box:'rk_cal', get:()=>rokokDate,          set:ds=>{ rokokDate=ds; PERIOD=monthKeyOf(ds); } }
 };
-const CAL_ST={ rp:{open:false,month:null}, cp:{open:false,month:null} };
+const CAL_ST={ rp:{open:false,month:null}, cp:{open:false,month:null}, rk:{open:false,month:null} };
 function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
 function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
@@ -1045,7 +1055,142 @@ function calInner(key){
 }
 
 function emptyCanvas(id,msg){const c=document.getElementById(id);if(c)c.parentElement.innerHTML='<div class="empty" style="padding:60px 10px"><div class="big">📊</div>'+(msg||'Belum ada data')+'</div>';}
-/* ============ 3. PERFORMA KASIR ============ */
+/* ============ 3. DAILY STOCK ROKOK ============
+   Barang masuk & keluar per hari, per item. Bukan hanya rokok — Korek dan
+   Coin ikut di daftar yang sama karena dihitung di meja yang sama oleh orang
+   yang sama; memisahkannya jadi halaman sendiri hanya menambah tempat yang
+   harus dibuka tiap malam.
+
+   SEMUA ITEM SELALU DITAMPILKAN, termasuk yang hari itu tidak bergerak.
+   Nol adalah jawaban yang sah dan memang sering terjadi — daftar yang cuma
+   memuat item bergerak membuat "belum diisi" dan "tidak ada pergerakan"
+   terlihat sama persis, padahal yang pertama perlu ditindaklanjuti.
+
+   SISA dihitung, bukan dihitung fisik. Sisa Awal = akumulasi (masuk − keluar)
+   SELURUH tanggal sebelum hari yang dipilih; Sisa Akhir = Awal + Masuk −
+   Keluar. Jadi angka ini benar sepanjang setiap hari yang ada pergerakannya
+   memang dicatat. Kalau nanti perlu stock opname fisik, itu kolom keempat
+   yang harus diinput terpisah — jangan menimpa hitungan ini, karena selisih
+   antara hitungan dan fisik justru itu yang dicari. */
+const ROKOK_ITEMS=[
+  {k:'la_purple',       n:'LA Purple'},
+  {k:'la_mango',        n:'LA Mango'},
+  {k:'la_bold',         n:'LA Bold'},
+  {k:'la_ice',          n:'LA Ice'},
+  {k:'la_light',        n:'LA Light'},
+  {k:'la_menthol',      n:'LA Menthol'},
+  {k:'djarum_super',    n:'Djarum Super'},
+  {k:'insta',           n:'Insta'},
+  {k:'djarum_mild',     n:'Djarum Mild'},
+  {k:'korek',           n:'Korek'},
+  {k:'dos_hermanos',    n:'Dos Hermanos'},
+  {k:'dos_h_rojo',      n:'Dos H. Rojo'},
+  {k:'dos_h_maduro',    n:'Dos H. Maduro'},
+  {k:'dos_h_corona',    n:'Dos H. Corona'},
+  {k:'dos_h_torito',    n:'Dos H. Torito'},
+  {k:'gold_seal_petit', n:'Gold Seal Petit'},
+  {k:'gold_seal_senor', n:'Gold Seal Senor'},
+  {k:'coin',            n:'Coin', lain:true}
+];
+let rokokDate=todayISO();
+function rokokOf(date){ return (DB.rokok||{})[date]||null; }
+function rokokItem(rec,k){ const x=(rec&&rec.items&&rec.items[k])||{}; return {in:num(x.in),out:num(x.out)}; }
+/* Sisa sebelum hari yang dipilih. Menjumlah SELURUH tanggal yang lebih awal,
+   bukan hanya hari sebelumnya: pencatatan sering bolong (tidak semua hari ada
+   pergerakan), dan mengambil "kemarin" saja akan mengembalikan 0 pada hari
+   yang kemarinnya kosong — seolah stoknya habis. */
+function rokokSisaAwal(date){
+  const out={}; ROKOK_ITEMS.forEach(it=>out[it.k]=0);
+  Object.keys(DB.rokok||{}).filter(d=>d<date).forEach(d=>{
+    const rec=DB.rokok[d];
+    ROKOK_ITEMS.forEach(it=>{ const v=rokokItem(rec,it.k); out[it.k]+=v.in-v.out; });
+  });
+  return out;
+}
+function viewRokok(){
+  CAL_ST.rk.open=false;
+  const el=document.getElementById('app-view');
+  const rec=rokokOf(rokokDate);
+  const awal=rokokSisaAwal(rokokDate);
+  const baris=it=>{
+    const v=rokokItem(rec,it.k);
+    return `<tr${it.lain?' style="border-top:2px solid var(--line)"':''}>
+      <td><b>${esc(it.n)}</b>${it.lain?'<div class="muted" style="font-size:11px">bukan rokok — ikut dihitung di sini</div>':''}</td>
+      <td class="num mono" id="rk_aw_${it.k}">${awal[it.k]}</td>
+      <td class="num"><input class="rkf mono" data-k="${it.k}" data-f="in" inputmode="numeric" value="${v.in}" style="width:86px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td>
+      <td class="num"><input class="rkf mono" data-k="${it.k}" data-f="out" inputmode="numeric" value="${v.out}" style="width:86px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td>
+      <td class="num mono" id="rk_ak_${it.k}"></td>
+    </tr>`;
+  };
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Daily Stock Rokok</h3><div class="card-sub" style="margin:0">Isi jumlah yang <b>masuk</b> dan <b>keluar</b> hari itu. Item yang tidak bergerak biarkan <b>0</b> — itu tetap tercatat sebagai "sudah diperiksa, tidak ada pergerakan".</div></div>
+      <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rk_cal">${calInner('rk')}</div></div>
+    </div>
+    ${rec&&rec.at?`<div class="notice info">📝 Terakhir disimpan ${esc(fmtWaktu(rec.at))}${rec.by?` oleh ${esc(rec.by)}`:''}.</div>`:''}
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Item</th><th class="num">Sisa Awal</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num">Sisa Akhir</th></tr></thead>
+        <tbody>${ROKOK_ITEMS.map(baris).join('')}</tbody>
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
+          <td>TOTAL</td><td class="num mono" id="rk_t_aw"></td><td class="num mono" id="rk_t_in"></td>
+          <td class="num mono" id="rk_t_out"></td><td class="num mono" id="rk_t_ak"></td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+    <div id="rk_err"></div>
+    <div class="balance-bar">
+      <div class="bnums">
+        <div class="bi">Item bergerak<b class="mono" id="rk_gerak">0</b></div>
+        <div class="bi">Total Masuk<b class="mono" id="rk_s_in">0</b></div>
+        <div class="bi">Total Keluar<b class="mono" id="rk_s_out">0</b></div>
+      </div>
+      <button class="btn btn-primary" id="rk_save">Simpan Stock Harian</button>
+    </div>`;
+
+  const nilai=(k,f)=>{ const e=el.querySelector(`.rkf[data-k="${k}"][data-f="${f}"]`); return e?num(e.value):0; };
+  function hitung(){
+    let tAw=0,tIn=0,tOut=0,tAk=0,gerak=0;
+    ROKOK_ITEMS.forEach(it=>{
+      const i=nilai(it.k,'in'), o=nilai(it.k,'out');
+      const ak=awal[it.k]+i-o;
+      tAw+=awal[it.k]; tIn+=i; tOut+=o; tAk+=ak;
+      if(i||o) gerak++;
+      const c=document.getElementById('rk_ak_'+it.k);
+      c.textContent=ak;
+      /* Sisa akhir minus berarti keluarnya lebih banyak daripada yang pernah
+         tercatat masuk — hampir selalu tanda ada hari yang belum diisi, bukan
+         stok benar-benar negatif. Ditandai merah, tapi TIDAK mengunci simpan:
+         catatan hari ini sendiri sudah benar, yang bolong hari yang lain. */
+      c.style.color = ak<0?'var(--danger)':(ak===0?'var(--muted)':'');
+      c.style.fontWeight = ak<0?'800':'';
+    });
+    document.getElementById('rk_t_aw').textContent=tAw;
+    document.getElementById('rk_t_in').textContent=tIn;
+    document.getElementById('rk_t_out').textContent=tOut;
+    document.getElementById('rk_t_ak').textContent=tAk;
+    document.getElementById('rk_gerak').textContent=gerak+' / '+ROKOK_ITEMS.length;
+    document.getElementById('rk_s_in').textContent=tIn;
+    document.getElementById('rk_s_out').textContent=tOut;
+    const minus=ROKOK_ITEMS.filter(it=>awal[it.k]+nilai(it.k,'in')-nilai(it.k,'out')<0);
+    document.getElementById('rk_err').innerHTML = minus.length
+      ? `<div class="notice warn">⚠ ${minus.length} item sisa akhirnya minus (${esc(minus.map(x=>x.n).join(', '))}). Biasanya ada hari sebelumnya yang barang masuknya belum dicatat — periksa tanggal-tanggal sebelum ini. Simpan tetap boleh.</div>`
+      : '';
+  }
+  el.querySelectorAll('.rkf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rk_save').addEventListener('click',()=>{
+    const items={};
+    ROKOK_ITEMS.forEach(it=>{ items[it.k]={in:nilai(it.k,'in'),out:nilai(it.k,'out')}; });
+    DB.rokok=DB.rokok||{};
+    DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now()};
+    save();
+    document.getElementById('rk_err').innerHTML=`<div class="notice ok">✓ Stock ${esc(dateLabel(rokokDate))} tersimpan.</div>`;
+    setTimeout(()=>render(),700);
+  });
+  hitung();
+}
+
+/* ============ 4. PERFORMA KASIR ============ */
 function viewKasir(){
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
@@ -1148,7 +1293,7 @@ async function syncPicOffice(){
   }catch(e){ /* Office diam → biarkan; PIC yang sudah tersimpan tetap ada */ }
 }
 
-/* ============ 4. DANA MASUK (DP) ============
+/* ============ 5. DANA MASUK (DP) ============
    BUKAN salinan. Yang ditampilkan di sini adalah halaman Dana Masuk MILIK
    MODUL RESERVASI, dijalankan apa adanya di dalam <iframe> dengan parameter
    `?embed=finance`. Satu domain, jadi tidak ada urusan lintas-asal.
@@ -1200,7 +1345,7 @@ function muatUlangDp(){
   if(f) f.src='../reservasi/?embed=finance&t='+Date.now();
 }
 
-/* ============ 5. KELOLA AKSES KRU ============
+/* ============ 6. KELOLA AKSES KRU ============
    Daftar siapa saja yang PUNYA akses modul cashier, ditarik dari database
    account lewat `listModuleRoster` — endpoint TANPA gerbang PIN (identitas
    sudah dijamin sesi Office). Read-only: menambah dan menghapus akses tetap
