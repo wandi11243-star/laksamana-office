@@ -292,3 +292,45 @@ CREATE TABLE IF NOT EXISTS serah_terima (
   KEY idx_srh_tgl (tanggal),
   KEY idx_srh_tujuan (tujuan)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- CK_STOCK — buku besar mutasi stok CENTRAL KITCHEN (barang produksi dapur).
+--
+-- Satu baris = satu pergerakan. Saldo TIDAK disimpan di mana pun; selalu
+-- dihitung ulang dari SUM(masuk) - SUM(keluar). Saldo tersimpan pasti
+-- menyimpang dari riwayatnya cepat atau lambat, dan tidak ada cara tahu
+-- mana yang benar; menghitung ulang selalu bisa dibuktikan dari barisnya.
+--
+-- `qty` SELALU dalam SATUAN DASAR barang (packSatuan, mis. Gram) — tanpa
+-- itu "2" milik Pack dan "2" milik Gram terjumlah jadi 4. Yang diketik
+-- orang tetap disimpan di qty_input/unit_input supaya riwayat bisa
+-- ditampilkan sebagaimana dicatat ("2 Pack", bukan "1000 Gram").
+--
+-- `ref` = nomor_order, hanya untuk mutasi keluar yang lahir otomatis dari
+-- pengajuan yang sudah ditandai datang. UNIQUE (ref, arah) membuat
+-- sinkronisasinya idempoten: menyimpan check-in dua kali tidak bisa
+-- mengurangi stok dua kali. Mutasi manual diisi NULL (NULL tidak ikut
+-- aturan unik, dan memang boleh berulang).
+--
+-- Master barangnya ada di `products`, ditandai data.sumber='ck' beserta
+-- data.packIsi & data.packSatuan — bukan tabel produk terpisah.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ck_stock (
+  id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+  tanggal    VARCHAR(20)  NOT NULL DEFAULT '',
+  item       VARCHAR(190) NOT NULL DEFAULT '',
+  arah       VARCHAR(10)  NOT NULL DEFAULT '',   -- masuk | keluar
+  qty        DOUBLE       NOT NULL DEFAULT 0,    -- SELALU satuan dasar
+  qty_input  DOUBLE       NOT NULL DEFAULT 0,    -- angka yang diketik orang
+  unit_input VARCHAR(40)  NOT NULL DEFAULT '',   -- 'Pack' atau satuan dasar
+  sebab      VARCHAR(40)  NOT NULL DEFAULT '',   -- produksi | pengajuan | penyesuaian | rusak
+  ref        VARCHAR(64)  NULL DEFAULT NULL,     -- nomor_order (mutasi otomatis)
+  tim        VARCHAR(20)  NOT NULL DEFAULT '',
+  pic        VARCHAR(120) NOT NULL DEFAULT '',
+  waktu      VARCHAR(30)  NOT NULL DEFAULT '',
+  data       LONGTEXT     NOT NULL,              -- {catatan, packIsi, packSatuan}
+  UNIQUE KEY uq_ck_ref (ref, arah),
+  KEY idx_ck_item (item),
+  KEY idx_ck_tgl (tanggal),
+  KEY idx_ck_arah (arah)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
