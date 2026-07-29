@@ -27,7 +27,8 @@ try {
       // pur_product_simpan bisa membedakan "dikosongkan" dari "tidak disertakan".
       pur_json(pur_product_simpan($pdo, $b->productName ?? '', $b->primaryVendor ?? '',
                                   $b->backupVendors ?? [], $b->oldProductName ?? '',
-                                  $b->units ?? null, $b->kategori ?? null, $b->area ?? null));
+                                  $b->units ?? null, $b->kategori ?? null, $b->area ?? null,
+                                  $b->caraBeli ?? null));
     }
     if ($a === 'deleteProduct') pur_json(pur_product_hapus($pdo, $b->productName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);

@@ -569,7 +569,13 @@ function pur_products_ambil($pdo) {
   return (object)$out;
 }
 
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null) {
+/* $caraBeli: '' | 'online' | 'jemput'
+   Cara barang ini diperoleh. 'jemput' = harus diambil sendiri ke tokonya,
+   'online' = dikirim/dipesan daring, '' = belum ditentukan. Dipakai modul
+   Ordering untuk memberi tahu tim barang mana yang perlu dijemput hari itu,
+   supaya tidak perlu bertanya ke orang yang tahu. Sama seperti `kategori` dan
+   `area`: ikut di dalam blob `data`, jadi TIDAK perlu migrasi tabel. */
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -591,7 +597,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $satuanLama = [];
   $kategoriLama = '';
   $areaLama = '';
-  if ($satuan === null || $kategori === null || $area === null) {
+  $caraBeliLama = '';
+  if ($satuan === null || $kategori === null || $area === null || $caraBeli === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -600,11 +607,13 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->satuan) && is_array($lama->satuan)) $satuanLama = $lama->satuan;
       if (is_object($lama) && isset($lama->kategori) && is_string($lama->kategori)) $kategoriLama = $lama->kategori;
       if (is_object($lama) && isset($lama->area) && is_string($lama->area)) $areaLama = $lama->area;
+      if (is_object($lama) && isset($lama->caraBeli) && is_string($lama->caraBeli)) $caraBeliLama = $lama->caraBeli;
     }
   }
   if ($satuan === null)   $satuan = $satuanLama;
   if ($kategori === null) $kategori = $kategoriLama;
   if ($area === null)     $area = $areaLama;
+  if ($caraBeli === null) $caraBeli = $caraBeliLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -615,8 +624,14 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
 
   $kategori = trim((string)$kategori);
   $area     = trim((string)$area);
+  // Hanya dua nilai yang berarti; apa pun selain itu disimpan sebagai ''
+  // (belum ditentukan), bukan diteruskan apa adanya. Daftar "perlu dijemput"
+  // dibangun dari kolom ini, jadi nilai asing di sini berarti barang yang
+  // tidak pernah masuk daftar mana pun dan tidak ada yang tahu kenapa.
+  $caraBeli = strtolower(trim((string)$caraBeli));
+  if ($caraBeli !== 'online' && $caraBeli !== 'jemput') $caraBeli = '';
 
-  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori, 'area' => $area];
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli];
 
   $pdo->beginTransaction();
   try {

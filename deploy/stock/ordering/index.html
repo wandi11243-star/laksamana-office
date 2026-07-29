@@ -387,6 +387,12 @@
                         </div>
                     </div>
 
+                    <!-- Daftar barang yang harus DIJEMPUT SENDIRI pada tanggal
+                         terpilih. Disisipkan renderJemputPanel(); kosong kalau
+                         tidak ada satu pun, supaya tidak jadi kotak hampa yang
+                         lama-lama diabaikan orang. -->
+                    <div id="jemput-panel" class="hidden px-4 pt-4"></div>
+
                     <!-- Kartu-kartu PO disisipkan disini -->
                     <div id="po-cards-wrapper" class="p-4 space-y-3 bg-slate-50/40 min-h-[200px] rounded-b-3xl">
                         <div class="p-10 text-center text-slate-400 italic font-medium text-xs">
@@ -2973,11 +2979,84 @@
         }
 
         // ==========================================
+        //  PERLU DIJEMPUT SENDIRI
+        // ==========================================
+        // Sebagian barang dikirim (online), sebagian harus diambil sendiri ke
+        // tokonya. Sifat itu melekat pada BARANGNYA, bukan pada ordernya, jadi
+        // disimpan di master produk (Purchasing -> Atur Produk -> Cara Beli)
+        // dan dibaca dari sini. Tanpa panel ini satu-satunya cara tim tahu
+        // barang mana yang harus dijemput adalah bertanya ke orang yang
+        // kebetulan hafal — persis yang diminta dihilangkan.
+        //
+        // Nama produk dicocokkan apa adanya lebih dulu, lalu tanpa memandang
+        // besar-kecil huruf: nama di order diketik tangan lewat autocomplete
+        // dan tidak dijamin sama persis dengan master.
+        function caraBeliItem(nama) {
+            const n = String(nama || "").trim();
+            if (!n) return "";
+            let p = globalProductInfo[n];
+            if (!p) {
+                const cari = n.toLowerCase();
+                const kunci = Object.keys(globalProductInfo).find(k => k.toLowerCase() === cari);
+                if (kunci) p = globalProductInfo[kunci];
+            }
+            return (p && p.caraBeli) || "";
+        }
+        function renderJemputPanel(records) {
+            const panel = document.getElementById('jemput-panel');
+            if (!panel) return;
+            const kunciTim = timTerkunci();
+            const perlu = (records || []).filter(r =>
+                caraBeliItem(r.item) === 'jemput' &&
+                (!kunciTim || timDariRecord(r) === kunciTim)
+            );
+            if (!perlu.length) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+
+            // Digabung per nama barang: satu barang bisa dipesan dua tim di
+            // hari yang sama, dan yang menjemput cuma perlu tahu total bawaannya.
+            const peta = {};
+            perlu.forEach(r => {
+                const k = String(r.item || "").trim();
+                if (!peta[k]) peta[k] = { item: k, jml: [], tim: new Set(), sup: new Set() };
+                peta[k].jml.push(`${r.qty || 0} ${r.unit || ''}`.trim());
+                const t = timDariRecord(r); if (t) peta[k].tim.add(t);
+                if (r.supplier) peta[k].sup.add(r.supplier);
+            });
+            const baris = Object.values(peta).sort((a, b) => a.item.localeCompare(b.item)).map(x => `
+                <div class="flex items-start justify-between gap-3 py-2 border-b border-amber-100 last:border-0">
+                    <div class="min-w-0">
+                        <div class="text-[12px] font-bold text-slate-800 truncate">${x.item}</div>
+                        <div class="text-[10px] text-slate-500 mt-0.5">
+                            ${[...x.tim].join(', ') || 'tim tidak diketahui'}${x.sup.size ? ' &middot; ' + [...x.sup].join(', ') : ''}
+                        </div>
+                    </div>
+                    <div class="shrink-0 text-[11px] font-black text-amber-800">${x.jml.join(' + ')}</div>
+                </div>`).join('');
+
+            panel.innerHTML = `
+                <div class="border border-amber-200 bg-amber-50 rounded-2xl p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <i class="fa-solid fa-truck-pickup text-amber-700"></i>
+                        <h4 class="text-[11px] font-black uppercase tracking-wider text-amber-900">Perlu Dijemput Sendiri &mdash; ${Object.keys(peta).length} barang</h4>
+                    </div>
+                    <p class="text-[10px] text-amber-800 mb-2 opacity-90">Barang di bawah ini <b>tidak dikirim</b>. Sisanya dikirim atau belum ditentukan cara belinya di master produk.</p>
+                    ${baris}
+                </div>`;
+            panel.classList.remove('hidden');
+        }
+
+        // ==========================================
         //  RENDER: DAFTAR KARTU PO
         // ==========================================
         function renderPoCards() {
             const wrapper = document.getElementById('po-cards-wrapper');
             const query = (document.getElementById('po-search-input').value || "").trim().toLowerCase();
+
+            /* Panel jemput dihitung dari SELURUH record tanggal itu, sengaja
+               di luar filter status/pencarian di bawah: pertanyaannya "hari ini
+               saya harus menjemput apa saja", dan jawabannya tidak boleh
+               berubah cuma karena seseorang sedang mencari nomor PO tertentu. */
+            renderJemputPanel(checkinAllRecords);
 
             if (!checkinAllRecords || checkinAllRecords.length === 0) {
                 wrapper.innerHTML = `<div class="p-10 text-center text-slate-400 italic font-medium text-xs"><i class="fa-solid fa-inbox text-2xl block mb-2 opacity-50"></i>Tidak ada jadwal kedatangan pada tanggal ${checkinCurrentDate || 'ini'}.</div>`;
