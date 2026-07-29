@@ -598,7 +598,11 @@ function pilihBerkas(onDone,accept){
     if(f.size>MAKS_BERKAS)
       return unggahGagal(f,'Ukurannya <b>'+fmtSize(f.size)+'</b>, melebihi batas 8MB. Kecilkan dulu gambarnya lalu ulangi.');
     toast('Mengunggah '+f.name+'…');
-    try{ onDone(await uploadBerkas(f)); }
+    /* File ASLINYA ikut diserahkan ke pemanggil. Pemeriksaan bukti transfer
+       membacanya langsung dari berkas lokal, bukan mengunduh ulang dari server:
+       lebih cepat, dan canvas-nya dijamin tidak "tainted" sehingga piksel
+       gambarnya bisa dibaca untuk dipertajam sebelum OCR. */
+    try{ onDone(await uploadBerkas(f), f); }
     catch(e){ unggahGagal(f,esc(e.message||'server tidak menjawab')); }
   };
   inp.click();
@@ -1743,7 +1747,10 @@ function payAction(pid){
   <div class="kv" style="margin-bottom:14px"><div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div><div class="k">Jumlah Show</div><div>${p.show_count}</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div></div>
   <div class="field"><label>Bank Tujuan</label><input id="pay_bank" value="${esc(p.bank||((t.bank_name||'')+(t.bank_account?' - '+t.bank_account:'')))}"></div>
   <div class="field"><label>Bukti Transfer</label><div id="pay_proof">${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div>
-    <button class="btn ghost sm" style="margin-top:8px" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button></div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn ghost sm" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button>
+      ${p.transfer_proof?`<button class="btn ghost sm" onclick="periksaUlangBukti('${pid}')">🔍 Periksa ulang bukti</button>`:''}
+    </div></div>
   <div class="field"><label>Nominal pada Bukti <span class="mini">(dicocokkan dengan tagihan)</span></label>
     ${uangInput('pay_amt',p.proof_amount||0,' oninput="uangKetik(this);payCocok()"')}
     <div id="pay_cocok" style="margin-top:6px">${buktiPeriksaHTML(p)}</div></div>
@@ -1762,6 +1769,205 @@ function buktiHTML(f){
             <div class="mini">${esc(f.name)} · ${fmtSize(f.size)}</div>`;
   return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a> <span class="mini">${fmtSize(f.size)}</span>`;
 }
+/* ================== PEMERIKSAAN BUKTI TRANSFER (OCR) ==================
+   Mesinnya sama dengan yang dipakai modul Reservasi untuk memeriksa bukti DP:
+   Tesseract.js dimuat dari CDN hanya saat dibutuhkan, gambar dipertajam dulu,
+   lalu teksnya diurai. Yang dibawa ke sini cuma bagian yang memang dipakai EMS
+   — nominal, bank, dan penilaian "ini bukti transfer atau bukan". Sengaja
+   TIDAK memanggil kode modul sebelah: dua modul terpisah, dan menyeberangkan
+   fungsi antar berkas hanya menghasilkan kaitan yang diam-diam putus. */
+const OCR_SRC="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+let _ocrLoad=null,_ocrWorker=null;
+function loadOCR(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(_ocrLoad) return _ocrLoad;
+  _ocrLoad=new Promise(function(res,rej){
+    const sc=document.createElement('script'); sc.src=OCR_SRC;
+    // Batas waktu: koneksi lambat tidak boleh menggantung layar selamanya.
+    const t=setTimeout(function(){ rej(new Error('Mesin OCR tidak bisa dimuat (koneksi lambat / offline).')); },45000);
+    sc.onload=function(){ clearTimeout(t); window.Tesseract?res(window.Tesseract):rej(new Error('Mesin OCR gagal dimuat.')); };
+    sc.onerror=function(){ clearTimeout(t); rej(new Error('Gagal memuat mesin OCR — pemeriksaan bukti butuh koneksi internet.')); };
+    document.head.appendChild(sc);
+  }).catch(function(e){ _ocrLoad=null; throw e; });
+  return _ocrLoad;
+}
+async function getOcrWorker(){
+  if(_ocrWorker) return _ocrWorker;
+  const T=await loadOCR();
+  _ocrWorker=await T.createWorker('eng');   // struk bank isinya angka + nama bank; model "eng" paling stabil
+  return _ocrWorker;
+}
+/* Bukti transfer biasanya tangkapan layar kecil dan agak buram. Diperbesar lalu
+   digelapkan dengan gamma — BUKAN contrast stretch di sekitar 128, yang justru
+   memucatkan teks abu-abu (tanggal & jam di struk Livin/SeaBank ditulis abu
+   muda) sampai hilang terbaca. */
+function prepOcrImage(dataUrl){
+  return new Promise(function(res){
+    const img=new Image();
+    img.onload=function(){
+      const scale=Math.min(3,Math.max(1,1700/(img.width||1)));
+      const w=Math.round(img.width*scale),h=Math.round(img.height*scale);
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      const x=c.getContext('2d'); x.drawImage(img,0,0,w,h);
+      try{
+        const d=x.getImageData(0,0,w,h),px=d.data;
+        for(let i=0;i<px.length;i+=4){
+          const g=(0.299*px[i]+0.587*px[i+1]+0.114*px[i+2])/255;
+          const v=Math.round(255*Math.pow(g,1.6));
+          px[i]=px[i+1]=px[i+2]=v<0?0:v>255?255:v;
+        }
+        x.putImageData(d,0,0);
+        res(c.toDataURL('image/png'));
+      }catch(e){ res(dataUrl); }     // canvas tainted / gagal → pakai aslinya
+    };
+    img.onerror=function(){ res(dataUrl); };
+    img.src=dataUrl;
+  });
+}
+async function ocrRead(dataUrl){
+  const w=await getOcrWorker();
+  const img=await prepOcrImage(dataUrl);
+  const hasil=await w.recognize(img);
+  return (hasil&&hasil.data&&hasil.data.text)||'';
+}
+const OCR_BANKS=[
+  ['BCA',/\b(BCA|KLIKBCA|MY\s?BCA|BANK CENTRAL ASIA|BLU)\b/i],
+  ['Mandiri',/\b(MANDIRI|LIVIN)\b/i],
+  ['BRI',/\b(BRI|BRIMO|BANK RAKYAT)\b/i],
+  ['BNI',/\b(BNI|BANK NEGARA)\b/i],
+  ['BSI',/\b(BSI|BANK SYARIAH)\b/i],
+  ['CIMB Niaga',/\b(CIMB|OCTO)\b/i],
+  ['Permata',/\bPERMATA\b/i],['Danamon',/\bDANAMON\b/i],['BTN',/\bBTN\b/i],
+  ['SeaBank',/\bSEA\s?BANK\b/i],['Bank Jago',/\bJAGO\b/i],['Maybank',/\bMAYBANK\b/i],
+  ['OCBC',/\bOCBC\b/i],['Panin',/\bPANIN\b/i],['Bank Mega',/\bBANK\s?MEGA\b/i],
+  ['Jenius/BTPN',/\b(JENIUS|BTPN)\b/i],['UOB',/\bUOB\b/i],['QRIS',/\bQRIS\b/i],
+  ['DANA',/\bDANA\b/],['OVO',/\bOVO\b/i],['GoPay',/\b(GO-?PAY|GOJEK)\b/i],
+  ['ShopeePay',/\bSHOPEE\s?PAY\b/i],['LinkAja',/\bLINK\s?AJA\b/i]
+];
+// "500.000,00" / "Rp 1,500,000" → 500000 / 1500000
+function toNumberID(x){
+  let v=String(x||'').replace(/\s/g,'');
+  v=v.replace(/[.,]\d{2}$/,'');            // buang sen
+  const d=v.replace(/[^0-9]/g,'');
+  return d?Number(d):0;
+}
+/* Nominal yang dicari NOMINAL TRANSFER, bukan biaya admin atau sisa saldo —
+   struk selalu memuat beberapa angka besar sekaligus. Baris yang menyebut
+   biaya/saldo diberi nilai minus, dan label yang ditulis DI BARIS ATAS
+   nilainya ("Nominal Transaksi" lalu "Rp 200.000") ikut dipinjam. */
+function ocrAmount(t){
+  const POS=/(nominal|jumlah|total|nilai|amount|transfer|dibayar|pembayaran|dikirim)/i;
+  const NEG=/(biaya|admin|fee|saldo|sisa|limit|denda|pajak|potongan|cashback|po[il]n)/i;
+  const RE=/(rp\.?\s*)?(\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?)|rp\.?\s*(\d{4,})/gi;
+  const lines=String(t||'').split(/\r?\n/);
+  let best=null;
+  lines.forEach(function(line,i){
+    let pos=POS.test(line),neg=NEG.test(line);
+    if(!pos&&!neg){ const prev=lines[i-1]||''; pos=POS.test(prev); neg=NEG.test(prev); }
+    const base=(pos?3:0)+(neg?-6:0);
+    let m; RE.lastIndex=0;
+    while((m=RE.exec(line))){
+      const raw=m[2]||m[3]; if(!raw) continue;
+      const val=toNumberID(raw);
+      if(val<1000||val>2e9) continue;                 // nomor rekening / angka receh
+      const score=base+((m[1]||m[3])?1:0);
+      if(!best||score>best.score||(score===best.score&&val>best.val)) best={score:score,val:val};
+    }
+  });
+  return best?best.val:0;
+}
+function ocrBank(t){
+  const hay=String(t||'');
+  for(let i=0;i<OCR_BANKS.length;i++) if(OCR_BANKS[i][1].test(hay)) return OCR_BANKS[i][0];
+  return '';
+}
+/* APAKAH GAMBAR INI BUKTI TRANSFER? Dinilai dari beberapa penanda sekaligus,
+   bukan satu kata kunci: struk mana pun boleh saja kebetulan memuat satu kata,
+   tapi gambar yang bukan bukti transfer hampir tak pernah memuat nominal
+   berformat rupiah SEKALIGUS kata kerja transaksi dan nama bank. Ambang 3
+   dipilih supaya foto menu, poster, atau tangkapan layar chat tidak lolos. */
+function buktiSkor(t){
+  const txt=String(t||'');
+  let skor=0; const alasan=[];
+  const adaNominal=!!ocrAmount(txt);
+  const adaKata=/(transfer|transaksi|berhasil|sukses|success|pembayaran|dibayar|terkirim)/i.test(txt);
+  const bank=ocrBank(txt);
+  const adaRek=/(rekening|no\.?\s?rek|va|virtual account|ref|referensi|nomor transaksi)/i.test(txt);
+  if(adaNominal){ skor+=2; alasan.push('ada nominal berformat rupiah'); }
+  if(adaKata){ skor+=1; alasan.push('ada kata transaksi'); }
+  if(bank){ skor+=1; alasan.push('menyebut '+bank); }
+  if(adaRek){ skor+=1; alasan.push('ada nomor rekening/referensi'); }
+  if(/rp/i.test(txt)){ skor+=1; alasan.push('ada tanda Rp'); }
+  /* Nominal saja TIDAK cukup. Poster acara, daftar menu, dan tangkapan layar
+     katalog semuanya memuat "Rp 150.000" — kalau angka rupiah dianggap bukti,
+     ketiganya lolos. Harus ada penanda transaksi yang sesungguhnya: kata kerja
+     transaksi, nama bank/e-wallet, atau nomor rekening/referensi. */
+  const bukti = adaNominal && (adaKata||!!bank||adaRek) && skor>=3;
+  return {skor:skor, bukti:bukti, alasan:alasan};
+}
+function parseBuktiText(txt){
+  const t=String(txt||'').replace(/\u00a0/g,' ');
+  const nilai=buktiSkor(t);
+  return {amount:ocrAmount(t),bank:ocrBank(t),skor:nilai.skor,bukti:nilai.bukti,alasan:nilai.alasan};
+}
+function bacaDataUrl(file){
+  return new Promise(function(res,rej){
+    const r=new FileReader();
+    r.onload=function(){ res(String(r.result)); };
+    r.onerror=function(){ rej(new Error('gagal membaca berkas')); };
+    r.readAsDataURL(file);
+  });
+}
+/* Memeriksa bukti yang baru diunggah. Hasilnya disimpan di pembayaran itu
+   (proof_amount / proof_bank / proof_skor / proof_ocr_at) supaya tetap ada
+   walau layarnya ditutup — dan supaya OCR tidak perlu diulang tiap membuka
+   layar pembayaran. */
+async function periksaBuktiOtomatis(pid,file){
+  const p=DB.talentPayments.find(function(x){ return x.id===pid; }); if(!p) return;
+  const box=document.getElementById('pay_cocok');
+  if(!berkasGambar({name:(file&&file.name)||''})){
+    if(box) box.innerHTML='<p class="mini">Bukti berupa PDF — tidak dibaca otomatis. Isi nominalnya sendiri.</p>';
+    return;
+  }
+  if(box) box.innerHTML='<p class="mini">Membaca bukti… pertama kali agak lama karena mesin pembacanya diunduh dulu.</p>';
+  try{
+    const teks=await ocrRead(await bacaDataUrl(file));
+    const h=parseBuktiText(teks);
+    p.proof_bank=h.bank; p.proof_skor=h.skor; p.proof_bukti=h.bukti;
+    p.proof_ocr_at=new Date().toISOString();
+    /* Nominal hasil bacaan TIDAK menimpa yang sudah diketik tangan: koreksi
+       manusia harus menang atas tebakan mesin. */
+    if(h.amount && !(+p.proof_amount)) p.proof_amount=h.amount;
+    save();
+    const el=document.getElementById('pay_amt');
+    if(el && p.proof_amount) el.value=uangFormat(p.proof_amount);
+    if(box) box.innerHTML=buktiPeriksaHTML(p);
+  }catch(e){
+    if(box) box.innerHTML='<p class="mini" style="color:var(--red)">Pembacaan otomatis gagal: '+esc(e.message)
+      +'. Isi nominalnya sendiri — pencocokan dengan tagihan tetap jalan.</p>';
+  }
+}
+/* Memeriksa ulang bukti yang SUDAH tersimpan — berkasnya diambil kembali dari
+   server. Dipakai kalau pemeriksaan pertama gagal (mesin OCR belum terunduh,
+   koneksi putus) atau kalau nominalnya ingin dibaca ulang setelah dikoreksi
+   tangan. Sama-sama satu asal dengan halaman ini, jadi canvas-nya tidak
+   tainted dan gambarnya tetap bisa dipertajam sebelum dibaca. */
+async function periksaUlangBukti(pid){
+  const p=DB.talentPayments.find(function(x){ return x.id===pid; });
+  if(!p||!p.transfer_proof||typeof p.transfer_proof==='string')
+    return toast('Belum ada berkas bukti untuk diperiksa.');
+  window._payPid=pid;
+  const box=document.getElementById('pay_cocok');
+  if(box) box.innerHTML='<p class="mini">Mengambil berkas bukti…</p>';
+  try{
+    const res=await fetch(fileUrl(p.transfer_proof.key));
+    const blob=await res.blob();
+    const file=new File([blob],p.transfer_proof.name||'bukti.jpg',{type:blob.type});
+    await periksaBuktiOtomatis(pid,file);
+  }catch(e){
+    if(box) box.innerHTML='<p class="mini" style="color:var(--red)">Gagal mengambil berkas bukti: '+esc(e.message)+'</p>';
+  }
+}
 /* Hasil pemeriksaan bukti transfer. Nominal yang TERBACA di bukti disimpan
    di p.proof_amount, lalu dibandingkan dengan tagihan. Selisih sekecil apa pun
    ditandai merah: bukti yang nominalnya beda dari tagihan adalah pertanda
@@ -1769,20 +1975,35 @@ function buktiHTML(f){
    sering baru ketahuan berbulan-bulan kemudian saat rekonsiliasi. */
 function buktiPeriksaHTML(p){
   if(!p||!p.transfer_proof) return '';
+  let awal='';
+  if(p.proof_ocr_at){
+    awal=p.proof_bukti
+      ? '<p class="mini" style="color:var(--green)"><b>✓ Terbaca sebagai bukti transfer</b>'
+        +(p.proof_bank?' · '+esc(p.proof_bank):'')+'</p>'
+      : '<p class="mini" style="color:var(--red)"><b>⚠ Gambar ini tidak terbaca sebagai bukti transfer.</b> '
+        +'Periksa sendiri sebelum melanjutkan — bisa jadi salah gambar, atau tulisannya terlalu buram untuk dibaca mesin.</p>';
+  }
   const terbaca=+p.proof_amount||0;
-  if(!terbaca) return '<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  if(!terbaca) return awal+'<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  return awal+buktiCocokHTML(p,terbaca);
+}
+function buktiCocokHTML(p,terbaca){
   const selisih=terbaca-(+p.total_amount||0);
   return selisih===0
     ? '<p class="mini" style="color:var(--green)"><b>✓ Nominal cocok</b> — bukti tertulis '+IDR(terbaca)+', sama dengan tagihan.</p>'
     : '<p class="mini" style="color:var(--red)"><b>⚠ Nominal TIDAK cocok</b> — bukti tertulis '+IDR(terbaca)+', tagihan '+IDR(p.total_amount)+' (selisih '+(selisih>0?'+':'')+IDR(selisih)+'). Periksa dulu sebelum menandai lunas.</p>';
 }
 function pilihBuktiTransfer(pid){
-  pilihBerkas(f=>{
+  pilihBerkas((f,asli)=>{
     const p=DB.talentPayments.find(x=>x.id===pid);
-    p.transfer_proof=f; save();
+    // Hasil pemeriksaan lama ikut dibuang: buktinya sudah berganti.
+    p.transfer_proof=f; p.proof_bank=''; p.proof_skor=0; p.proof_bukti=false; p.proof_ocr_at='';
+    save();
     const box=document.getElementById('pay_proof');
     if(box) box.innerHTML=buktiHTML(f);
     toast('✓ Bukti transfer terunggah.');
+    window._payPid=pid;
+    if(asli) periksaBuktiOtomatis(pid,asli);
   });
 }
 /* "Tandai pembayaran ini LUNAS" dulu memakai confirm() — kotak abu-abu
@@ -2399,6 +2620,40 @@ const LDZ_TIERS={
   VIP    :{c:'#c9432b'}    // merah
 };
 const LDZ_TIER_NAMES=Object.keys(LDZ_TIERS);
+/* ---- TINGKATAN DENAH = KELAS TIKET EVENT ITU ----
+   Dulu tingkatannya dipatok empat nama (Regular/Silver/Gold/VIP) untuk SEMUA
+   event. Akibatnya event yang menjual "Early Bird" dan "Festival" tetap harus
+   memilih dari empat nama asing itu, lalu ldzTierClass() diam-diam membuat
+   kelas tiket baru bernama "Silver" yang tidak pernah dijual siapa pun — dua
+   daftar kelas untuk satu event, dan rangkuman denahnya tidak pernah cocok
+   dengan kenyataan penjualan.
+
+   Sekarang arahnya dibalik: kelas tiket yang didefinisikan di event ITU yang
+   jadi daftar tingkatan. Warnanya dibagikan dari palet berdasarkan urutan
+   kelas, jadi tetap konsisten selama urutannya tidak berubah, dan bisa dipatok
+   sendiri lewat c.color kalau suatu saat kelas tiket punya kolom warna.
+   Event yang belum punya satu kelas pun tetap memakai empat bawaan lama,
+   supaya denah bisa mulai digambar sebelum harga tiketnya ditentukan. */
+const LDZ_WARNA=['#2f7fc4','#c9432b','#e0b23c','#1F9D5F','#7C5FC0','#8d97a3','#d9573c','#2a9d8f'];
+function ldzTiers(eid){
+  const kelas=DB.ticketClasses.filter(c=>c.event_id===eid);
+  if(!kelas.length) return LDZ_TIERS;
+  const out={};
+  kelas.forEach(function(c,i){
+    out[c.name]={c:c.color||LDZ_WARNA[i%LDZ_WARNA.length],price:+c.price||0,quota:+c.quota||0,id:c.id};
+  });
+  return out;
+}
+function ldzTierNames(eid){ return Object.keys(ldzTiers(eid)); }
+// Tingkatan yang sedang dipilih di palet, dijamin ada di event ini.
+function ldzTierAktif(eid){
+  const nama=ldzTierNames(eid);
+  return (nama.indexOf(window._ldzTier)>=0)?window._ldzTier:(nama[0]||'Regular');
+}
+function ldzTierInfo(eid,tier){
+  const T=ldzTiers(eid);
+  return T[tier]||T[Object.keys(T)[0]]||{c:'#8d97a3',price:0,quota:0};
+}
 const LDZ_MIN=16;                       // sisi terkecil sebuah objek (px kanvas)
 function ldzHexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
 /* Versi lebih gelap dari warna tier, untuk garis tepi & objek terjual. Dengan
@@ -2468,7 +2723,9 @@ function ldzUkuranBaku(kind,shape){
 }
 function ldzBuat(eid,kind,shape,x,y){
   const L=ldzMeta(eid), n=ldzItems(eid).length;
-  const tier=window._ldzTier||'Regular';
+  // Tingkatan yang dipakai objek baru harus salah satu kelas tiket event ini;
+  // window._ldzTier bisa tertinggal dari event sebelumnya yang kelasnya lain.
+  const tier=ldzTierAktif(eid);
   const cls=ldzTierClass(eid,tier);
   const u=ldzUkuranBaku(kind,shape);
   const g=L.snap?10:1;
@@ -2526,7 +2783,7 @@ function ldzBulkForm(eid){
    +'<div class="grid g2">'
    +'<div class="field"><label>Jenis</label><select id="bz_kind"><option value="seat">Kursi</option><option value="table">Meja</option></select></div>'
    +'<div class="field"><label>Bentuk</label><select id="bz_shape"><option value="rect">Rectangle</option><option value="circle">Bulat</option></select></div>'
-   +'<div class="field"><label>Tingkatan</label><select id="bz_tier">'+LDZ_TIER_NAMES.map(t=>'<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Tingkatan</label><select id="bz_tier">'+ldzTierNames(eid).map(t=>'<option'+(ldzTierAktif(eid)===t?' selected':'')+'>'+esc(t)+'</option>').join('')+'</select></div>'
    +'<div class="field"><label>Kapasitas per objek</label><input type="number" id="bz_cap" value="1" min="1"></div>'
    +'<div class="field"><label>Jumlah baris</label><input type="number" id="bz_rows" value="4" min="1" max="40"></div>'
    +'<div class="field"><label>Jumlah kolom</label><input type="number" id="bz_cols" value="10" min="1" max="40"></div>'
@@ -2559,7 +2816,7 @@ function ldzBulkGo(eid){
 /* ---------- menggambar ---------- */
 function ldzStatusCls(it){ return seatCls(it); }   // available | locked | sold | checked
 function ldzItemHTML(it,edit){
-  const T=LDZ_TIERS[it.tier]||LDZ_TIERS.Regular;
+  const T=ldzTierInfo(it.event_id,it.tier);
   const st=ldzStatusCls(it);
   const isi=(st==='sold'||st==='checked');
   const sel=(edit&&ldzIsSel(it.id))?' sel':'';
@@ -2955,7 +3212,12 @@ function ldzSet(eid,field,val){
 }
 function ldzMetaSet(eid,field,val){
   const L=ldzMeta(eid);
-  if(field==='w'||field==='h') L[field]=Math.max(200,Math.min(4000,+val||1200));
+  /* Batas dinaikkan dari 4.000 ke 24.000 px. Denah venue sungguhan yang
+     digambar 1:1 dari file arsitek bisa berukuran ~19.000 × 12.000; dengan
+     batas lama, gambar latarnya terpaksa dikecilkan sampai nomor mejanya tak
+     terbaca. Kanvasnya sendiri cuma div ber-transform, jadi yang mahal bukan
+     ukurannya melainkan jumlah objek di dalamnya. */
+  if(field==='w'||field==='h') L[field]=Math.max(200,Math.min(24000,+val||1200));
   else if(field==='bgOpacity') L.bgOpacity=Math.max(0,Math.min(100,+val||0));
   else L[field]=val;
   save(); ldzRepaint(eid);
@@ -2979,7 +3241,7 @@ function ldzSideHTML(eid){
     if(!banyak) h+='<div class="field"><label>Nama / Nomor</label><input type="text" value="'+esc(p.table_no||'')+'" onchange="ldzSet(\''+eid+'\',\'table_no\',this.value)"></div>';
     h+='<div class="field"><label>Tingkatan Tiket</label><select onchange="ldzSet(\''+eid+'\',\'tier\',this.value)">'
        +(banyak&&!sama('tier')?'<option value="" selected>— campur —</option>':'')
-       +LDZ_TIER_NAMES.map(function(t){ return '<option'+((!banyak||sama('tier'))&&p.tier===t?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'
+       +ldzTierNames(eid).map(function(t){ return '<option'+((!banyak||sama('tier'))&&p.tier===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')+'</select></div>'
      +'<div class="grid g2">'
        +'<div class="field"><label>Jenis</label><select onchange="ldzSet(\''+eid+'\',\'kind\',this.value)">'
          +'<option value="seat"'+(p.kind==='seat'?' selected':'')+'>Kursi</option>'
@@ -3009,16 +3271,38 @@ function ldzSideHTML(eid){
     h+='<div style="display:flex;gap:6px;margin-top:12px"><button class="ldz-ib" onclick="ldzDuplicate(\''+eid+'\')">Gandakan</button>'
      +'<button class="ldz-ib" style="color:var(--red);border-color:var(--red)" onclick="ldzDelete(\''+eid+'\')">Hapus</button></div>';
   } else {
+    /* Rangkuman lengkap per kategori: berapa objek, berapa pax yang muat,
+       harga satuannya, dan berapa uang yang bisa masuk kalau semuanya terjual.
+       Dulu kolom terakhir cuma harga satuan — angka yang tidak menjawab
+       pertanyaan yang sebenarnya ditanyakan orang saat menyusun denah:
+       "kalau penuh, dapat berapa?" */
     const tot=ldzCap(eid);
-    h+='<h4>Rangkuman Denah</h4><table><tbody>'+LDZ_TIER_NAMES.map(function(t){
+    const nama=ldzTierNames(eid);
+    let totalUang=0, totalObj=0;
+    const baris=nama.map(function(t){
+      const info=ldzTierInfo(eid,t);
       const mine=its.filter(function(i){ return i.tier===t; });
       const cap=mine.reduce(function(a,i){ return a+(+i.capacity||1); },0);
-      const cls=DB.ticketClasses.find(function(c){ return c.event_id===eid&&c.name===t; });
-      return '<tr><td><span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span></td>'
-        +'<td class="mini">'+mine.length+' objek</td><td class="mini">'+cap+' pax</td>'
-        +'<td class="mini">'+(cls?IDR(cls.price):'—')+'</td></tr>';
-    }).join('')+'</tbody></table>'
-     +'<p class="mini" style="margin-top:8px">Total kapasitas <b>'+tot+' pax</b> dari '+its.length+' objek. Harga tiap tingkatan diatur di tab <b>Ticket Class</b>.</p>';
+      const uang=cap*(+info.price||0);
+      totalUang+=uang; totalObj+=mine.length;
+      const terjual=mine.filter(ldzTerjual).length;
+      return '<tr'+(mine.length?'':' style="opacity:.5"')+'>'
+        +'<td><span class="ldz-tier"><i style="background:'+info.c+'"></i>'+esc(t)+'</span>'
+        +(terjual?'<div class="mini">'+terjual+' objek terjual</div>':'')+'</td>'
+        +'<td class="mini">'+mine.length+' objek</td>'
+        +'<td class="mini"><b>'+cap+'</b> pax</td>'
+        +'<td class="mini">'+(info.price?IDR(info.price):'—')+'</td>'
+        +'<td class="mini"><b>'+(uang?IDR(uang):'—')+'</b></td></tr>';
+    }).join('');
+    h+='<h4>Rangkuman Denah</h4>'
+     +'<table><thead><tr><th>Kategori</th><th>Objek</th><th>Pax</th><th>Harga</th><th>Potensi</th></tr></thead>'
+     +'<tbody>'+baris
+     +'<tr><td><b>Total</b></td><td class="mini"><b>'+totalObj+'</b></td>'
+     +'<td class="mini"><b>'+tot+' pax</b></td><td></td>'
+     +'<td class="mini"><b style="color:var(--accent)">'+IDR(totalUang)+'</b></td></tr>'
+     +'</tbody></table>'
+     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = pax × harga kategori, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
+     +(DB.ticketClasses.some(function(c){return c.event_id===eid;})?'':' — event ini belum punya kelas tiket, jadi yang dipakai empat tingkatan bawaan')+'.</p>';
   }
   h+='<div class="ldz-hint"><b>Seret</b> di area kosong untuk memblok banyak objek sekaligus.<br>'
    +'<b>Shift+klik</b> menambah/melepas satu objek.<br>'
@@ -3046,18 +3330,30 @@ function ldzToggleEdit(eid){
   if(!window._ldzEdit){ ldzSetSel([]); window._ldzArm=null; }
   ldzRepaint(eid);
 }
+/* Ikon bentuk di palet ikut BERWARNA tingkatan yang sedang dipilih. Sebelumnya
+   ikonnya selalu abu-abu, jadi tidak ada isyarat apa pun bahwa objek yang
+   ditaruh berikutnya akan berwarna lain — dan warna itu baru ketahuan setelah
+   objeknya terlanjur jatuh di kanvas. */
+function ldzPaletRefresh(){
+  const el=document.querySelector('.ldz-palette');
+  if(el) el.outerHTML=ldzPaletteHTML();
+}
 function ldzPaletteHTML(){
+  const eid=window._ldzEid;
+  const aktif=ldzTierAktif(eid), warna=ldzTierInfo(eid,aktif).c;
   const bentuk=[['seat','rect','rect-seat','Kursi'],['seat','circle','circle-seat','Kursi'],
                 ['table','rect','rect-table','Meja'],['table','circle','circle-table','Meja']];
   return '<div class="ldz-palette"><h5>Bentuk</h5>'
    +bentuk.map(function(b){
-      return '<div class="ldz-shape" title="Seret ke kanvas, atau klik lalu klik di kanvas" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
-        +'<span class="ic '+b[2]+'"></span>'+b[3]+'</div>';
+      return '<div class="ldz-shape" style="color:'+warna+';border-color:'+warna+'" title="Seret ke kanvas, atau klik lalu klik di kanvas — tingkatan '+esc(aktif)+'" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
+        +'<span class="ic '+b[2]+'" style="background:'+warna+';border-color:'+warna+'"></span>'+b[3]+'</div>';
    }).join('')
-   +'<h5 style="margin-top:6px">Tingkatan</h5>'
-   +'<select style="padding:5px;font-size:11px" onchange="window._ldzTier=this.value">'
-   +LDZ_TIER_NAMES.map(function(t){ return '<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>'; }).join('')
+   +'<h5 style="margin-top:6px">Tingkatan <span class="mini">(kelas tiket event ini)</span></h5>'
+   +'<select style="padding:5px;font-size:11px" onchange="window._ldzTier=this.value;ldzSideRefresh(window._ldzEid);ldzPaletRefresh()">'
+   +ldzTierNames(window._ldzEid).map(function(t){ return '<option'+(aktif===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')
    +'</select>'
+   +'<div class="ldz-tier" style="margin-top:6px"><i style="background:'+warna+'"></i>'
+   +'<span class="mini">objek baru memakai warna ini</span></div>'
    +'<button class="ldz-ib" style="margin-top:6px" onclick="ldzBulkForm(\''+window._ldzEid+'\')">Tambah banyak…</button>'
    +'</div>';
 }
@@ -3099,7 +3395,7 @@ function ldzInner(eid){
     +(edit?' onpointerdown="ldzCanvasDown(event)"':'')+'>'
     +ldzCanvasInner(eid,edit)+'</div></div></div>';
   const legenda='<div class="ldz-legend">'
-    +LDZ_TIER_NAMES.map(function(t){ return '<span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span>'; }).join('')
+    +ldzTierNames(eid).map(function(t){ return '<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,t).c+'"></i>'+esc(t)+'</span>'; }).join('')
     +'<span>· warna penuh = terjual · garis putus-putus = hold · cincin biru = sudah check-in</span></div>';
   return '<div class="ldz-app">'
     +(edit?ldzPaletteHTML():'')

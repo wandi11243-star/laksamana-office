@@ -42,7 +42,33 @@ try {
     if ($a === 'archive')    pur_json(pur_orders_arsip($pdo, $b, 'Arsip'));
     if ($a === 'unarchive')  pur_json(pur_orders_arsip($pdo, $b, 'Aktif'));
     // --- aksi dari modul ordering (tabel order yang sama) ---
-    if ($a === 'updateKedatangan') pur_json(pur_orders_update_kedatangan($pdo, $b->updates ?? []));
+    /* Kedatangan barang Central Kitchen = stok CK berkurang. Disinkronkan
+       DI SINI, sesudah kolom kedatangan benar-benar tersimpan, bukan di
+       frontend: barang yang sama bisa ditandai datang dari Check-in
+       Penerimaan (Ordering) maupun tombol Selesai Dijemput (Purchasing),
+       dan mutasi stok yang ditulis dari dua layar berbeda pasti akan
+       berbeda perlakuannya cepat atau lambat. Satu pintu, satu aturan.
+       pur_ck_sinkron_order() idempoten — lihat catatannya di lib. */
+    if ($a === 'updateKedatangan') {
+      $hasil = pur_orders_update_kedatangan($pdo, $b->updates ?? []);
+      $baris = [];
+      foreach (($b->updates ?? []) as $u) {
+        if (is_object($u) && isset($u->rowIndex)) $baris[] = (int)$u->rowIndex;
+      }
+      /* Kegagalan sinkron stok TIDAK boleh menggagalkan check-in-nya:
+         status kedatangan sudah tersimpan pada titik ini, dan melaporkan
+         "gagal" akan membuat orang menyimpannya berulang kali untuk
+         sesuatu yang sebenarnya sudah berhasil. Selisih stok yang timbul
+         bisa dikoreksi lewat Penyesuaian; check-in yang hilang tidak. */
+      try {
+        require_once __DIR__ . '/lib_stock_ck.php';
+        $hasil['ck'] = pur_ck_sinkron_order($pdo, $baris);
+      } catch (Throwable $e) {
+        error_log('[stock/orders] sinkron CK gagal: ' . $e->getMessage());
+        $hasil['ck'] = ['error' => 'sinkron stok CK gagal'];
+      }
+      pur_json($hasil);
+    }
     if ($a === 'updateOrderQty')   pur_json(pur_orders_update_qty($pdo, $b->rowIndex ?? 0, $b->newQty ?? null));
     if ($a === 'deleteRow')        pur_json(pur_orders_delete_row($pdo, $b->rowIndex ?? 0));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);

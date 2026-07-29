@@ -1259,6 +1259,11 @@
                 setNilaiKalender('history-date-filter', isoLokal(new Date()), false);
                 // Muat item DB dulu, lalu data prakiraan (hindari balapan autocomplete).
                 loadItemsFromAppScript().finally(() => loadForecastData());
+                // Sisa stok Central Kitchen ditarik terpisah dan TIDAK
+                // dirantai ke atas: ia cuma mengisi angka bantu di panel baris,
+                // jadi kalau endpointnya belum ada di server, autocomplete dan
+                // prakiraan tidak boleh ikut tertahan menunggunya.
+                muatSaldoCK();
             }
 
             setPicFromUser(user);       // PIC pemesan = user login
@@ -1695,6 +1700,60 @@
             }
         }
 
+        /* ================= CENTRAL KITCHEN =================
+           Barang produksi dapur sendiri. Masternya ikut di globalProductInfo
+           (tabel produk yang sama), dibedakan `sumber === 'ck'` — jadi
+           autocomplete, pembatasan satuan, check-in, dan daftar jemput
+           berlaku apa adanya tanpa jalur kedua.
+
+           Satuannya TIDAK perlu penanganan khusus di sini: server sudah
+           memaksa satuan barang CK jadi [Pack, satuan dasar], dan
+           applyUnitOptions() memang sudah membatasi pilihan menurut daftar
+           itu. Yang ditambahkan di sini cuma yang belum ada: padanan pack
+           dan sisa stoknya. */
+        const CK_URL = "../../stock-api-mysql/ck.php";
+        let ckSaldoPeta = {};   // {nama: saldo dalam satuan dasar}
+
+        function infoCKItem(nama) {
+            const n = String(nama || '').trim();
+            if (!n) return null;
+            let p = globalProductInfo && globalProductInfo[n];
+            if (!p) {
+                const cari = n.toLowerCase();
+                const kunci = Object.keys(globalProductInfo || {}).find(k => k.toLowerCase() === cari);
+                if (kunci) p = globalProductInfo[kunci];
+            }
+            return (p && p.sumber === 'ck') ? p : null;
+        }
+        /* Harus persis sama dengan pur_ck_ke_dasar() di backend — kalau
+           berbeda, angka padanan yang dibaca kru bukan angka yang benar-benar
+           dipotong dari saldo. */
+        function ckKeDasar(qty, unit, p) {
+            const n = parseFloat(qty) || 0;
+            if (String(unit || '').toLowerCase() === 'pack' && p && p.packIsi > 0) return n * p.packIsi;
+            return n;
+        }
+        function ckNum(n) {
+            const v = Math.round((parseFloat(n) || 0) * 1000) / 1000;
+            return String(v);
+        }
+        /* Sisa stok CK ditarik SEKALI saat halaman dibuka. Kegagalannya
+           dibiarkan diam: angka sisa stok itu bantuan, bukan syarat — form
+           order harus tetap bisa dipakai walau endpoint CK belum terpasang
+           di server. */
+        async function muatSaldoCK() {
+            if (!navigator.onLine) return;
+            try {
+                const res = await fetch(`${CK_URL}?t=${Date.now()}`);
+                if (!res.ok) return;
+                const d = await res.json();
+                if (!d || !Array.isArray(d.saldo)) return;
+                const peta = {};
+                d.saldo.forEach(s => { peta[s.item] = s.saldo; });
+                ckSaldoPeta = peta;
+            } catch (e) { /* diam: lihat catatan di atas */ }
+        }
+
         /* ===== SATUAN YANG SAH UNTUK SEBUAH BAHAN =====
            Dikembalikan null bila bahan itu belum diatur satuannya — dan null
            DIBEDAKAN dari array kosong: null berarti "semua satuan boleh"
@@ -1743,8 +1802,15 @@
                 if (filtered.length === 0) {
                     resultsContainer.innerHTML = `<div class="p-3 text-xs text-rose-500 font-bold italic text-center border-b-2 border-rose-100 bg-white">Bahan tidak ada di Database!</div>`;
                 } else {
+                    // Barang Central Kitchen ditandai DI DAFTARNYA, bukan baru
+                    // setelah dipilih: yang mengajukan perlu tahu barang ini
+                    // datang dari dapur sendiri sebelum memilihnya, karena
+                    // ketersediaannya ditentukan produksi — bukan vendor.
                     resultsContainer.innerHTML = filtered.map(item => `
-                        <div onmousedown="selectAutocompleteItem('${item.replace(/'/g, "\\'")}', ${rowId})" class="p-3 text-xs font-bold text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 bg-white transition-colors">${item}</div>
+                        <div onmousedown="selectAutocompleteItem('${item.replace(/'/g, "\\'")}', ${rowId})" class="p-3 text-xs font-bold text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 bg-white transition-colors flex items-center justify-between gap-2">
+                            <span class="min-w-0 truncate">${item}</span>
+                            ${infoCKItem(item) ? '<span class="shrink-0 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">CK</span>' : ''}
+                        </div>
                     `).join('');
                 }
                 resultsContainer.classList.remove('hidden');
@@ -2211,12 +2277,60 @@
         }
 
         // Render ulang panel prakiraan untuk satu baris.
+        /* Panel satu baris untuk barang Central Kitchen: padanan satuan +
+           sisa stok. Padanan ditulis karena inti fitur pack adalah orang
+           boleh mengajukan dalam Pack ATAU satuan dasar — dan tanpa ditulis,
+           "2 Pack" tidak pernah bisa dibandingkan dengan sisa stok yang
+           tercatat dalam gram. */
+        function renderPanelCK(rowId, panel, nama, p) {
+            const qty = parseFloat((document.getElementById(`batch-row-qty-${rowId}`) || {}).value) || 0;
+            const unit = (document.getElementById(`batch-row-unit-${rowId}`) || {}).value || '';
+            const dasar = ckKeDasar(qty, unit, p);
+            const sisa = ckSaldoPeta[nama];
+            const tahuSisa = (sisa !== undefined && sisa !== null);
+            // Peringatan hanya kalau sisanya BENAR-BENAR diketahui. Kalau
+            // endpoint CK belum terpasang, ckSaldoPeta kosong — dan menandai
+            // semuanya "stok kurang" karena tidak tahu apa-apa akan membuat
+            // peringatan ini diabaikan selamanya.
+            const kurang = tahuSisa && dasar > sisa;
+
+            const sel = (l, v, warna) => `
+                <div class="flex-1 min-w-[110px] px-3 py-2 border-r border-slate-100 last:border-r-0">
+                    <div class="text-[9px] font-black uppercase tracking-wider text-slate-400">${l}</div>
+                    <div class="text-[12px] font-black mt-0.5 ${warna || 'text-slate-800'}">${v}</div>
+                </div>`;
+
+            panel.classList.remove('hidden');
+            panel.innerHTML = `
+                <div class="rounded-xl border ${kurang ? 'border-rose-200 bg-rose-50/40' : 'border-amber-200 bg-amber-50/40'} shadow-sm overflow-x-auto">
+                    <div class="flex flex-nowrap items-stretch min-w-full">
+                        ${sel('Sumber', '👨‍🍳 Central Kitchen', 'text-amber-800')}
+                        ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
+                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
+                        ${sel('Sisa stok', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
+                              kurang ? 'text-rose-600' : '')}
+                    </div>
+                    ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
+                        Sisa stok Central Kitchen di bawah jumlah yang diminta &mdash; boleh tetap diajukan, dapur yang menentukan bisa atau tidak.
+                    </div>` : ''}
+                </div>`;
+        }
+
         function refreshRowForecast(rowId) {
             const panel = document.getElementById(`batch-row-forecast-${rowId}`);
             if (!panel) return;
             const itemInput = document.getElementById(`batch-row-item-${rowId}`);
             const name = itemInput ? itemInput.value.trim() : "";
             if (!name) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+
+            /* BARANG CENTRAL KITCHEN memakai panel sendiri dan berhenti di
+               sini. Prakiraan stok tidak berlaku untuknya: angka forecast
+               dihitung dari pola pembelian ke vendor, sedangkan barang ini
+               ada karena dapur memproduksinya. Menampilkan "saran pesan"
+               untuk barang produksi sendiri adalah saran yang tidak ada
+               yang bisa menjalankannya. */
+            const pck = infoCKItem(name);
+            if (pck) { renderPanelCK(rowId, panel, name, pck); return; }
 
             const a = forecastBook.assess(name);
             if (!a.hasForecast) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
@@ -3206,16 +3320,30 @@
                 const catatanAktual = row.catatan || "";
                 const isChecked = (row.kedatangan || "") === "Datang";
 
+                /* Barang Central Kitchen ditandai di sini. Bukan hiasan:
+                   mencentangnya juga MEMOTONG STOK Central Kitchen (server
+                   yang melakukannya, lihat pur_ck_sinkron_order), jadi orang
+                   yang mencentang perlu tahu barisnya bukan sekadar catatan
+                   kedatangan biasa. Padanan pack ikut ditulis supaya "2 Pack"
+                   bisa dicocokkan dengan barang fisik di depannya. */
+                const pCK = infoCKItem(itemName);
+                const padananCK = (pCK && pCK.packIsi > 0 && String(unitVal).toLowerCase() === 'pack')
+                    ? ` <span class="text-indigo-400 font-semibold">(${ckNum(ckKeDasar(qtyVal, unitVal, pCK))} ${pCK.packSatuan})</span>`
+                    : '';
+
                 const trItem = document.createElement('tr');
                 trItem.className = "hover:bg-slate-50 transition-colors group";
                 trItem.innerHTML = `
                     <td class="p-4 border-b border-slate-50 relative">
                         <div class="flex justify-between items-start">
                             <div>
-                                <div class="font-bold text-slate-800 text-[13px]">${itemName}</div>
+                                <div class="font-bold text-slate-800 text-[13px] flex items-center gap-1.5 flex-wrap">
+                                    ${itemName}
+                                    ${pCK ? '<span class="shrink-0 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">Central Kitchen</span>' : ''}
+                                </div>
                                 <div class="flex items-center gap-2 mt-1">
                                     <div class="font-bold text-indigo-600 text-[11px] bg-indigo-50 inline-block px-2 py-0.5 rounded-md border border-indigo-100">
-                                        <i class="fa-solid fa-box text-[9px] mr-1"></i> ${qtyVal} ${unitVal}
+                                        <i class="fa-solid fa-box text-[9px] mr-1"></i> ${qtyVal} ${unitVal}${padananCK}
                                     </div>
                                     <button onclick="promptEditQty(${id}, '${itemName.replace(/'/g, "\\'")}', ${qtyVal})" class="text-slate-400 hover:text-indigo-600 transition-colors p-1 rounded hover:bg-indigo-50" title="Edit Jumlah Order">
                                         <i class="fa-solid fa-pen text-[10px]"></i>
@@ -3303,6 +3431,11 @@
                 });
                 if(!response.ok) throw new Error("Gagal menyimpan update");
                 showToast("Berhasil Disimpan", "Data kedatangan berhasil di-update.", "success");
+                // Mencentang barang Central Kitchen memotong stoknya di server,
+                // jadi angka sisa stok yang ditarik saat halaman dibuka sudah
+                // basi begitu ini selesai. Ditarik ulang supaya panel di form
+                // order tidak menampilkan sisa yang sebenarnya sudah terpakai.
+                muatSaldoCK();
                 await fetchHistoryData(); // tarik ulang & kembali ke daftar kartu PO
             } catch (err) { console.error(err); showToast("Gagal Menyimpan", "Kesalahan koneksi Server App Script.", "danger"); } 
             finally { btn.innerHTML = originalBtnHTML; btn.disabled = false; }

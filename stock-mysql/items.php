@@ -25,10 +25,13 @@ try {
       // pur_product_simpan bisa membedakan "dikosongkan" dari "tidak disertakan".
       // `units`, `kategori`, `area` dilewatkan null bila tidak dikirim, supaya
       // pur_product_simpan bisa membedakan "dikosongkan" dari "tidak disertakan".
+      // sumber/packIsi/packSatuan (Central Kitchen) ikut aturan
+      // preserve-if-null yang sama: tidak dikirim = pertahankan yang lama.
       pur_json(pur_product_simpan($pdo, $b->productName ?? '', $b->primaryVendor ?? '',
                                   $b->backupVendors ?? [], $b->oldProductName ?? '',
                                   $b->units ?? null, $b->kategori ?? null, $b->area ?? null,
-                                  $b->caraBeli ?? null));
+                                  $b->caraBeli ?? null, $b->sumber ?? null,
+                                  $b->packIsi ?? null, $b->packSatuan ?? null));
     }
     if ($a === 'deleteProduct') pur_json(pur_product_hapus($pdo, $b->productName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);

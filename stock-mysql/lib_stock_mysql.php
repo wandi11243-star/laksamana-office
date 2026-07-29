@@ -564,6 +564,12 @@ function pur_products_ambil($pdo) {
     // area: lokasi hitung — 'Bar' | 'Kitchen' | 'Umum'/'' (dipakai kedua tempat).
     // Daily SO menyaring item menurut area supaya Bar tidak melihat item Kitchen.
     if (!isset($p->area) || !is_string($p->area)) $p->area = '';
+    // sumber: '' = bahan vendor (perilaku lama), 'ck' = produksi Central
+    // Kitchen. packIsi/packSatuan hanya berarti untuk yang 'ck'; dinormalkan
+    // di sini supaya frontend tidak perlu memeriksa tipenya tiap pemakaian.
+    if (!isset($p->sumber) || !is_string($p->sumber)) $p->sumber = '';
+    $p->packIsi = isset($p->packIsi) ? (float)$p->packIsi : 0;
+    if (!isset($p->packSatuan) || !is_string($p->packSatuan)) $p->packSatuan = '';
     $out[$r['nama']] = $p;
   }
   return (object)$out;
@@ -575,7 +581,17 @@ function pur_products_ambil($pdo) {
    Ordering untuk memberi tahu tim barang mana yang perlu dijemput hari itu,
    supaya tidak perlu bertanya ke orang yang tahu. Sama seperti `kategori` dan
    `area`: ikut di dalam blob `data`, jadi TIDAK perlu migrasi tabel. */
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null) {
+/* CENTRAL KITCHEN — barang produksi dapur sendiri.
+   Disimpan di tabel `products` yang SAMA dengan bahan vendor, dibedakan
+   `sumber`='ck'. Bukan tabel terpisah: kalau terpisah, form order, check-in,
+   dan daftar jemput masing-masing harus tahu dua sumber data dan
+   menggabungkannya di tiap layar — tiga tempat baru yang bisa lupa
+   digabung. Satu tabel + satu penanda membuat semua jalur yang sudah ada
+   berlaku apa adanya, dan pemisahannya cukup dilakukan di layar.
+
+   packIsi + packSatuan = isi satu pack, mis. 1 Pack = 500 Gram. Itulah yang
+   membuat "2 Pack" dan "1000 Gram" bisa dijumlah jadi satu saldo. */
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -598,7 +614,11 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $kategoriLama = '';
   $areaLama = '';
   $caraBeliLama = '';
-  if ($satuan === null || $kategori === null || $area === null || $caraBeli === null) {
+  $sumberLama = '';
+  $packIsiLama = 0;
+  $packSatuanLama = '';
+  if ($satuan === null || $kategori === null || $area === null || $caraBeli === null
+      || $sumber === null || $packIsi === null || $packSatuan === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -608,12 +628,18 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->kategori) && is_string($lama->kategori)) $kategoriLama = $lama->kategori;
       if (is_object($lama) && isset($lama->area) && is_string($lama->area)) $areaLama = $lama->area;
       if (is_object($lama) && isset($lama->caraBeli) && is_string($lama->caraBeli)) $caraBeliLama = $lama->caraBeli;
+      if (is_object($lama) && isset($lama->sumber) && is_string($lama->sumber)) $sumberLama = $lama->sumber;
+      if (is_object($lama) && isset($lama->packIsi)) $packIsiLama = (float)$lama->packIsi;
+      if (is_object($lama) && isset($lama->packSatuan) && is_string($lama->packSatuan)) $packSatuanLama = $lama->packSatuan;
     }
   }
-  if ($satuan === null)   $satuan = $satuanLama;
-  if ($kategori === null) $kategori = $kategoriLama;
-  if ($area === null)     $area = $areaLama;
-  if ($caraBeli === null) $caraBeli = $caraBeliLama;
+  if ($satuan === null)     $satuan = $satuanLama;
+  if ($kategori === null)   $kategori = $kategoriLama;
+  if ($area === null)       $area = $areaLama;
+  if ($caraBeli === null)   $caraBeli = $caraBeliLama;
+  if ($sumber === null)     $sumber = $sumberLama;
+  if ($packIsi === null)    $packIsi = $packIsiLama;
+  if ($packSatuan === null) $packSatuan = $packSatuanLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -631,7 +657,31 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $caraBeli = strtolower(trim((string)$caraBeli));
   if ($caraBeli !== 'online' && $caraBeli !== 'jemput') $caraBeli = '';
 
-  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan, 'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli];
+  /* SUMBER: '' = bahan dari vendor (perilaku lama, berlaku untuk ratusan
+     bahan yang sudah ada), 'ck' = barang produksi Central Kitchen. Nilai
+     asing dibuang jadi '' — bukan diteruskan apa adanya, karena daftar
+     barang CK dibangun dari kolom ini dan nilai yang tidak dikenal berarti
+     barang yang tidak masuk daftar mana pun tanpa ada yang tahu kenapa. */
+  $sumber = strtolower(trim((string)$sumber));
+  if ($sumber !== 'ck') $sumber = '';
+
+  $packIsi    = (float)$packIsi;
+  $packSatuan = trim((string)$packSatuan);
+  if ($sumber !== 'ck') { $packIsi = 0; $packSatuan = ''; }   // pack cuma berarti untuk barang CK
+  if ($packIsi < 0) $packIsi = 0;
+
+  /* Satuan barang CK DIPAKSA jadi [Pack, satuan dasar], bukan dibiarkan
+     mengikuti centang di layar. Alasannya: konversi saldo cuma mengenal dua
+     satuan itu; satuan ketiga yang lolos ke form order akan tercatat sebagai
+     angka yang tidak bisa dijumlahkan ke saldo mana pun, dan baru ketahuan
+     saat saldonya sudah telanjur salah. */
+  if ($sumber === 'ck' && $packSatuan !== '') {
+    $satuan = $packIsi > 0 ? ['Pack', $packSatuan] : [$packSatuan];
+  }
+
+  $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan,
+                  'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli,
+                  'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan];
 
   $pdo->beginTransaction();
   try {
