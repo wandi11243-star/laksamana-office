@@ -1323,12 +1323,7 @@ function normalizeState(s){
           /* Tanpa `acc` sendiri: hak aksesnya mengikuti bawaan role, sama
              seperti user baru mana pun. Menuliskan acc:{} justru berarti
              "semua menu Tak Terlihat" dan orangnya terkunci diam-diam. */
-          /* Role KOSONG, bukan 'operational'. Baris ini pegawai lama yang tidak
-             punya akun Office sama sekali — namanya cuma perlu bisa dipilih
-             jadi PIC. Memberinya role berarti memberi akses ke orang yang
-             tidak pernah diperiksa Office; kalau suatu saat akunnya ada,
-             sinkronisasi roster yang menentukan rolenya dari Tim. */
-          role:'', active:st.active!==false});
+          role:'operational', active:st.active!==false});
       }
     });
     s.staff=[];
@@ -1852,14 +1847,12 @@ async function autoSyncOfficeRoster(){
          disengaja, dan kalau ikut dikosongkan gara-gara kolom Tim belum diisi,
          orang yang berwenang mengisi Tim justru terkunci di luar. */
       if(adminModul[m.id]) return 'super_admin';
-      /* TIM KOSONG -> ROLE KOSONG -> TIDAK ADA AKSES sama sekali, sampai
-         kolom Tim-nya diisi di Office. Dulu orang tanpa Tim jatuh ke
-         'operational' (atau 'marketing' kalau kebetulan anggota modul), jadi
-         pegawai yang datanya belum lengkap diam-diam sudah bisa membuka modul
-         ini. Menahan akses lebih aman daripada menebak: yang hilang cuma
-         beberapa menit sampai Office diisi, sementara tebakan yang salah bisa
-         berumur berbulan-bulan tanpa ada yang sadar. */
-      if(!String(m.keterangan||'').trim()) return '';
+      /* TIM KOSONG -> JANGAN SENTUH role yang sudah ada (null = biarkan).
+         Role menyesuaikan Tim hanya kalau Tim-nya memang terisi; kolom yang
+         belum diisi di Office bukan alasan mencabut akses orang yang selama ini
+         bekerja normal. Tanpa null di sini, satu kolom kosong di sistem lain
+         bisa mengunci seisi tim tanpa ada yang tahu sebabnya. */
+      if(!String(m.keterangan||'').trim()) return null;
       return roleDariJabatan(m.keterangan) || (anggotaModul[m.id] ? 'marketing' : 'operational');
     };
 
@@ -1886,12 +1879,9 @@ async function autoSyncOfficeRoster(){
          Jabatan di Office adalah sumbernya — kalau seseorang perlu role lain,
          ubah jabatannya di Office, bukan di sini. Tiap perubahan dicatat di
          Timeline & Audit Log supaya tidak terjadi diam-diam. */
-      /* Sengaja TANPA `roleBaru &&`: role kosong adalah hasil yang sah (Tim
-         belum diisi), dan guard lama membuat pencabutan akses tidak pernah
-         terjadi — orang yang Tim-nya dikosongkan di Office tetap memegang role
-         lamanya selamanya. */
+      // null = Tim kosong, role dibiarkan apa adanya (lihat roleSeharusnya).
       const roleBaru=roleSeharusnya(m);
-      if(u.role!==roleBaru){
+      if(roleBaru!==null && u.role!==roleBaru){
         roleBerubah.push(u.name+': '+namaRole(u.role)+' → '+namaRole(roleBaru));
         u.role=roleBaru; ch=true;
       }
@@ -2003,36 +1993,16 @@ function roleAcc(role){
   if(role==='super_admin'){ const p={}; permViewKeys().forEach(v=>p[v]=PERM_EDIT); return p; }
   return (S.roleAcc && S.roleAcc[role] && typeof S.roleAcc[role]==='object') ? S.roleAcc[role] : roleDefaultPerms(role);
 }
-/* ROLE YANG BENAR-BENAR BERLAKU untuk seseorang.
-
-   Menyetel role kosong hanya di dalam sinkronisasi roster ternyata tidak cukup:
-   yang disentuh sinkronisasi CUMA orang yang dikirim Office pada panggilan itu.
-   Kru yang sudah tidak ada di roster, atau yang tersimpan sebelum aturan ini
-   ada, tetap memegang role lamanya selamanya — di layar Pegawai & Akses
-   terlihat sebagai baris ber-Tim "—" tapi ber-role Marketing. Karena itu
-   gerbangnya dipindah ke tempat hak akses DIBACA, sehingga berlaku untuk semua
-   orang, apa pun jalan masuk datanya.
-
-   Super Admin dikecualikan: role itu diberikan Office lewat adminModules tiap
-   boot, bukan ditebak dari Tim, dan mengunci mereka berarti mengunci orang yang
-   berwenang mengisi kolom Tim. */
-function roleEfektif(u){
-  if(!u) return '';
-  if(u.role==='super_admin') return 'super_admin';
-  return timUser(u) ? (u.role||'') : '';
-}
-// Sedang ditahan: punya role tersimpan, tapi Tim-nya kosong.
-function aksesDitahan(u){ return !!(u && u.role && u.role!=='super_admin' && !timUser(u)); }
+/* TIM KOSONG TIDAK MENAHAN AKSES. Role menyesuaikan Tim kalau Tim-nya ada;
+   kalau kosong, role tersimpan dipakai apa adanya. Versi sebelumnya menahan
+   akses siapa pun yang Tim-nya belum diisi, dan itu terlalu keras untuk data
+   yang memang belum rapi — orang jadi tak bisa bekerja gara-gara satu kolom
+   di sistem lain. */
 // hak akses per user: override user (bila ada) > matriks role
 function userAcc(u){
   if(!u) return {};
-  const role=roleEfektif(u);
-  if(role==='super_admin') return roleAcc('super_admin');
-  /* Gerbang Tim menang atas override per-user. Kalau tidak, orang bertanda
-     "custom" di Pegawai & Akses tetap bisa masuk tanpa Tim — dan justru
-     merekalah yang aksesnya paling lebar. */
-  if(!role) return {};
-  return (u.acc && typeof u.acc==='object') ? u.acc : roleAcc(role);
+  if(u.role==='super_admin') return roleAcc('super_admin');
+  return (u.acc && typeof u.acc==='object') ? u.acc : roleAcc(u.role);
 }
 function viewPerm(view, u){ const acc=userAcc(u); const v=acc[view]; return typeof v==='number' ? v : PERM_NONE; }
 // nav/perms lama (array-based) DIBUANG — dipertahankan hanya sebagai NAMA fungsi
@@ -2044,7 +2014,7 @@ function userPerms(u){
   return Object.keys(ACTION_VIEW).filter(a=>viewPerm(ACTION_VIEW[a],u)>=PERM_EDIT);
 }
 function hasCustomAccess(u){ return (u.acc&&typeof u.acc==='object')||Array.isArray(u.nav)||Array.isArray(u.perms); }
-function can(action){ if(!ME)return false; if(roleEfektif(ME)==='super_admin')return true; return userPerms(ME).includes(action); }
+function can(action){ if(!ME)return false; if(ME.role==='super_admin')return true; return userPerms(ME).includes(action); }
 /* ============================================================
    EVENT SCHEMA (Modul D.1–D.11) — drives form + Event Brief
    field types: text|ta|date|time|timerange|num|cur|sel|multi|tog|yn
@@ -2717,9 +2687,9 @@ function go(view,param){
   if(!allowed.length){
     location.hash='';
     $('tb-title').textContent='Akses belum aktif';
-    $('tb-sub').textContent='Tim kamu belum diisi di Office';
+    $('tb-sub').textContent='Belum ada halaman yang boleh dibuka';
     $('view').innerHTML=empty('Akses belum aktif',
-      'Role di modul ini mengikuti <b>Tim</b> kamu di Office. Kolom <b>Tim / Keterangan</b> pada akun <b>'+esc(ME.name)+'</b> masih kosong, jadi belum ada halaman yang boleh dibuka.<br><br>Minta admin mengisinya di <b>Office &rarr; Kelola User</b>; aksesnya langsung menyesuaikan begitu modul ini dibuka lagi.','crm');
+      'Akun <b>'+esc(ME.name)+'</b> belum punya satu halaman pun di modul ini — rolenya masih <b>Belum ada akses</b>, atau seluruh menunya disetel Tak Terlihat di matriks Hak Akses.<br><br>Minta admin modul mengaturnya di <b>Pegawai &amp; Akses</b>.','crm');
     return;
   }
   if(view!=='event' && !allowed.includes(view)){ toast('Akses ditolak',ME.name+' tidak punya akses ke modul ini.','err'); view='dashboard'; }
@@ -9359,13 +9329,9 @@ function renderStaff(V){
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('pegawai',KOL_PEGAWAI)+'<tbody>';
   p.items.forEach(u=>{
     const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
-    /* Role tersimpan tetap ditampilkan apa adanya — itu yang akan berlaku
-       begitu Tim-nya diisi — tapi diberi tanda supaya tidak ada yang mengira
-       orang ini sudah bisa masuk. */
-    const ditahan=aksesDitahan(u)?' <span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="Kolom Tim di Office masih kosong, jadi rolenya belum berlaku">tanpa Tim — akses ditahan</span>':'';
     h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc(String(u.name||'?')[0])+'</div><div class="cell-strong">'+esc(u.name)+'</div></div></td>'
      +'<td>'+esc(timUser(u)||'—')+'</td><td class="mono">'+esc(u.hp||'—')+'</td>'
-     +'<td>'+roleCell(u,canMU)+custom+ditahan+'</td>'
+     +'<td>'+roleCell(u,canMU)+custom+'</td>'
      +'<td>'+(u.active===false?'<span class="tag">Nonaktif</span>':'<span class="tag" style="background:var(--ok-bg);color:var(--ok)">Aktif</span>')+'</td>'
      +'<td><div class="pill-row">'
        +(canEdit?'<button class="btn sm" title="Ubah No. HP" onclick="editPegawai(\''+escJs(u.id)+'\')">'+svg(IC.edit)+'</button>':'')
@@ -9683,12 +9649,7 @@ async function boot(){
     // DIPERTAHANKAN (tidak ditimpa tiap boot) supaya koreksi manual owner di Staff
     // tidak diam-diam hilang.
     const oAdm = office.adminModules||[];
-    /* `u.role || 'marketing'` DIBUANG. Cadangan itu memberi role Marketing
-       kepada siapa pun yang role tersimpannya kosong — termasuk orang yang
-       Tim-nya di Office memang belum diisi, yang justru sedang kita tahan
-       aksesnya. Role kosong sekarang dibiarkan kosong: modul terbuka, tapi
-       tanpa satu halaman pun, dengan keterangan cara membetulkannya. */
-    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : (u.role || '');
+    const effRole = (oAdm.includes('*')||oAdm.includes('marketing')) ? 'super_admin' : (u.role || 'marketing');
     if(u.role!==effRole){
       logAct('user',u.id,'Role disinkronkan dari sesi Office',namaRole(u.role)+' → '+namaRole(effRole));
       u.role=effRole; save();
