@@ -323,7 +323,12 @@ CREATE TABLE IF NOT EXISTS ck_stock (
   qty        DOUBLE       NOT NULL DEFAULT 0,    -- SELALU satuan dasar
   qty_input  DOUBLE       NOT NULL DEFAULT 0,    -- angka yang diketik orang
   unit_input VARCHAR(40)  NOT NULL DEFAULT '',   -- 'Pack' atau satuan dasar
-  sebab      VARCHAR(40)  NOT NULL DEFAULT '',   -- produksi | pengajuan | penyesuaian | rusak
+  sebab      VARCHAR(40)  NOT NULL DEFAULT '',   -- produksi | pengajuan | penyesuaian | rusak | kiriman
+  -- '' = dihitung ke saldo; 'pending' = kiriman outlet yang belum
+  -- dikonfirmasi diterima CK, TIDAK dihitung. Kiriman yang ditolak
+  -- dihapus barisnya, bukan diberi status tersendiri: barang yang tidak
+  -- pernah sampai bukan peristiwa yang perlu disimpan di buku besar.
+  status     VARCHAR(20)  NOT NULL DEFAULT '',
   ref        VARCHAR(64)  NULL DEFAULT NULL,     -- nomor_order (mutasi otomatis)
   tim        VARCHAR(20)  NOT NULL DEFAULT '',
   pic        VARCHAR(120) NOT NULL DEFAULT '',
@@ -332,5 +337,6 @@ CREATE TABLE IF NOT EXISTS ck_stock (
   UNIQUE KEY uq_ck_ref (ref, arah),
   KEY idx_ck_item (item),
   KEY idx_ck_tgl (tanggal),
-  KEY idx_ck_arah (arah)
+  KEY idx_ck_arah (arah),
+  KEY idx_ck_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

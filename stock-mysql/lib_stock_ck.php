@@ -51,6 +51,10 @@ function pur_ck_produk($pdo) {
       'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
       'kategori'   => isset($d->kategori) ? (string)$d->kategori : '',
       'satuan'     => isset($d->satuan) && is_array($d->satuan) ? $d->satuan : [],
+      // Barang ini juga disimpan di outlet, jadi bisa dikirim BALIK ke CK
+      // (retur sisa, titipan stok berlebih). Barang yang cuma ada di CK
+      // tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirimnya.
+      'diOutlet'   => !empty($d->diOutlet),
     ];
   }
   return $out;
@@ -82,12 +86,17 @@ function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan) {
 function pur_ck_saldo($pdo) {
   $produk = pur_ck_produk($pdo);
 
+  /* status='pending' DIKELUARKAN dari saldo. Itu kiriman outlet yang
+     belum dikonfirmasi sampai; menghitungnya berarti stok CK naik karena
+     ada yang MENGAKU mengirim, bukan karena barangnya benar-benar ada di
+     sana. Disaring di WHERE, bukan di CASE, supaya `terakhir` juga tidak
+     ikut bergerak gara-gara kiriman yang belum tentu jadi. */
   $agg = [];
   $sql = "SELECT `item`,
                  SUM(CASE WHEN `arah`='masuk'  THEN `qty` ELSE 0 END) AS masuk,
                  SUM(CASE WHEN `arah`='keluar' THEN `qty` ELSE 0 END) AS keluar,
                  MAX(`tanggal`) AS terakhir
-            FROM `ck_stock` GROUP BY `item`";
+            FROM `ck_stock` WHERE `status` <> 'pending' GROUP BY `item`";
   foreach ($pdo->query($sql)->fetchAll() as $r) {
     $agg[$r['item']] = $r;
   }
@@ -135,7 +144,7 @@ function pur_ck_saldo($pdo) {
    --------------------------------------------------------------------- */
 function pur_ck_mutasi_ambil($pdo) {
   $sql = "SELECT `id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
-                 `sebab`,`ref`,`tim`,`pic`,`waktu`,`data`
+                 `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`
             FROM `ck_stock` WHERE 1=1";
   $par = [];
   pur_filter_tanggal($sql, $par);
@@ -155,6 +164,7 @@ function pur_ck_mutasi_ambil($pdo) {
       'qtyInput'  => (float)$r['qty_input'],
       'unitInput' => $r['unit_input'],
       'sebab'     => $r['sebab'],
+      'status'    => $r['status'],
       'ref'       => $r['ref'] === null ? '' : $r['ref'],
       'tim'       => $r['tim'],
       'pic'       => $r['pic'],
@@ -242,12 +252,19 @@ function pur_ck_simpan($pdo, $b) {
 function pur_ck_hapus($pdo, $id) {
   $id = trim((string)$id);
   if ($id === '') return ['status' => 'error', 'message' => 'id kosong'];
-  $st = $pdo->prepare("SELECT `ref` FROM `ck_stock` WHERE `id`=?");
+  $st = $pdo->prepare("SELECT `ref`,`status` FROM `ck_stock` WHERE `id`=?");
   $st->execute([$id]);
-  $ref = $st->fetchColumn();
-  if ($ref === false) return ['status' => 'error', 'message' => 'mutasi tidak ditemukan'];
-  if ((string)$ref !== '') {
+  $row = $st->fetch();
+  if (!$row) return ['status' => 'error', 'message' => 'mutasi tidak ditemukan'];
+  if ((string)$row['ref'] !== '') {
     return ['status' => 'error', 'message' => 'mutasi dari pengajuan hanya hilang bila check-in dibatalkan'];
+  }
+  /* Kiriman yang masih menunggu konfirmasi TIDAK boleh dihapus dari daftar
+     riwayat. Menghapusnya di sini sama artinya dengan menolak kiriman —
+     tapi lewat tombol yang tidak mengatakan begitu, dan tanpa pengirimnya
+     tahu apa-apa. Penolakan punya tempatnya sendiri di Terima Kiriman. */
+  if ((string)$row['status'] === 'pending') {
+    return ['status' => 'error', 'message' => 'kiriman yang belum dikonfirmasi diurus lewat Terima Kiriman'];
   }
   $st = $pdo->prepare("DELETE FROM `ck_stock` WHERE `id`=?");
   $st->execute([$id]);
@@ -337,4 +354,148 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
     $n++;
   }
   return ['disinkron' => $n];
+}
+
+/* =====================================================================
+   KIRIMAN OUTLET → CENTRAL KITCHEN
+   ---------------------------------------------------------------------
+   Arah kebalikan dari pengajuan: outlet mengirim barang KE CK (retur
+   sisa yang tidak terpakai, titipan stok berlebih). Hanya untuk barang
+   yang memang disimpan di dua tempat (`diOutlet`) — barang yang cuma ada
+   di CK tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirim.
+
+   DUA LANGKAH, BUKAN SATU. Kiriman tercatat lebih dulu sebagai 'pending'
+   dan baru menambah saldo setelah orang CK mengonfirmasi menerimanya.
+   Kalau langsung dihitung, stok CK naik karena ada yang MENGAKU
+   mengirim, bukan karena barangnya benar-benar sampai — dan selisihnya
+   (kirim 5 kg, sampai 4 kg) tidak akan pernah tertangkap sampai stok
+   opname, saat sudah tidak ada yang ingat kirimannya yang mana.
+   ===================================================================== */
+function pur_ck_kiriman_simpan($pdo, $b) {
+  $item = trim((string)($b->item ?? ''));
+  if ($item === '') return ['status' => 'error', 'message' => 'barang kosong'];
+
+  $qtyInput = (float)($b->qtyInput ?? 0);
+  if ($qtyInput <= 0) return ['status' => 'error', 'message' => 'jumlah harus lebih dari 0'];
+
+  // Isi pack dibaca dari MASTER, bukan dari yang dikirim browser: halaman
+  // yang cache-nya basi bisa menghitung dengan isi pack lama dan menulis
+  // saldo yang salah tanpa ada yang tahu.
+  $produk = pur_ck_produk($pdo);
+  $p = $produk[$item] ?? null;
+  if (!$p) return ['status' => 'error', 'message' => 'barang bukan barang Central Kitchen: ' . $item];
+  if (!$p->diOutlet) {
+    return ['status' => 'error', 'message' => 'barang ini tidak disimpan di outlet, jadi tidak bisa dikirim ke CK'];
+  }
+
+  $unitInput = trim((string)($b->unitInput ?? ''));
+  if ($unitInput === '') $unitInput = $p->packSatuan !== '' ? $p->packSatuan : 'Pcs';
+  $qty = pur_ck_ke_dasar($qtyInput, $unitInput, $p->packIsi, $p->packSatuan);
+
+  $rec = (object)[
+    'catatan'    => trim((string)($b->catatan ?? '')),
+    'packIsi'    => $p->packIsi,
+    'packSatuan' => $p->packSatuan,
+  ];
+
+  $id = pur_uid('CKK');
+  $pdo->prepare("INSERT INTO `ck_stock`
+                   (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
+                    `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`)
+                 VALUES (?,?,?,'masuk',?,?,?,'kiriman','pending',NULL,?,?,?,?)")
+      ->execute([
+        $id,
+        trim((string)($b->tanggal ?? '')) ?: date('Y-m-d'),
+        $item, $qty, $qtyInput, $unitInput,
+        trim((string)($b->tim ?? '')),
+        trim((string)($b->pic ?? '')),
+        date('Y-m-d H:i:s'),
+        json_encode($rec, JSON_UNESCAPED_UNICODE),
+      ]);
+  return ['status' => 'success', 'id' => $id];
+}
+
+/* Daftar kiriman yang MENUNGGU konfirmasi. Endpoint sendiri (bukan
+   disaring dari daftar mutasi di browser) supaya halaman CK tidak perlu
+   menarik seluruh riwayat hanya untuk menemukan segelintir yang pending. */
+function pur_ck_kiriman_pending($pdo) {
+  $st = $pdo->query("SELECT `id`,`tanggal`,`item`,`qty`,`qty_input`,`unit_input`,
+                            `tim`,`pic`,`waktu`,`data`
+                       FROM `ck_stock`
+                      WHERE `status`='pending' AND `sebab`='kiriman'
+                      ORDER BY `tanggal` DESC, `waktu` DESC");
+  $out = [];
+  foreach ($st->fetchAll() as $r) {
+    $d = pur_data_obj($r['data']);
+    $out[] = [
+      'id'         => $r['id'],
+      'tanggal'    => $r['tanggal'],
+      'item'       => $r['item'],
+      'qty'        => (float)$r['qty'],
+      'qtyInput'   => (float)$r['qty_input'],
+      'unitInput'  => $r['unit_input'],
+      'tim'        => $r['tim'],
+      'pic'        => $r['pic'],
+      'waktu'      => $r['waktu'],
+      'catatan'    => isset($d->catatan) ? (string)$d->catatan : '',
+      'packIsi'    => isset($d->packIsi) ? (float)$d->packIsi : 0,
+      'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
+    ];
+  }
+  return $out;
+}
+
+/* Konfirmasi penerimaan. `qtyTerima` OPSIONAL: kalau diisi, itulah jumlah
+   yang benar-benar sampai dan yang masuk ke saldo — bukan jumlah yang
+   diklaim pengirim. Itu seluruh gunanya langkah konfirmasi ini; tanpanya
+   ia cuma tombol "iya" yang tidak menambah kebenaran apa pun.
+
+   $terima=false MENGHAPUS barisnya. Barang yang tidak pernah sampai bukan
+   peristiwa yang perlu disimpan di buku besar stok — status 'ditolak'
+   yang mengendap cuma akan mengaburkan riwayat, dan tidak ada satu pun
+   angka yang dihitung darinya. */
+function pur_ck_kiriman_konfirmasi($pdo, $items, $terima = true) {
+  if (!is_array($items) || !$items) return ['status' => 'error', 'message' => 'tidak ada kiriman dipilih'];
+
+  $produk = pur_ck_produk($pdo);
+  $n = 0;
+  $pdo->beginTransaction();
+  try {
+    foreach ($items as $it) {
+      // Terima dua bentuk: id telanjang, atau {id, qtyTerima}.
+      $id  = is_object($it) ? trim((string)($it->id ?? '')) : trim((string)$it);
+      if ($id === '') continue;
+
+      if (!$terima) {
+        $st = $pdo->prepare("DELETE FROM `ck_stock` WHERE `id`=? AND `status`='pending'");
+        $st->execute([$id]);
+        $n += $st->rowCount();
+        continue;
+      }
+
+      $qtyTerima = (is_object($it) && isset($it->qtyTerima)) ? (float)$it->qtyTerima : null;
+      if ($qtyTerima !== null && $qtyTerima > 0) {
+        // Jumlah yang diterima berbeda dari yang dikirim: yang dicatat ke
+        // saldo yang DITERIMA, dan yang diklaim pengirim tetap tersimpan
+        // di qty_input supaya selisihnya bisa ditelusuri.
+        $cur = $pdo->prepare("SELECT `item`,`unit_input` FROM `ck_stock` WHERE `id`=? AND `status`='pending'");
+        $cur->execute([$id]);
+        $row = $cur->fetch();
+        if (!$row) continue;
+        $p = $produk[$row['item']] ?? null;
+        $qty = $p ? pur_ck_ke_dasar($qtyTerima, $row['unit_input'], $p->packIsi, $p->packSatuan) : $qtyTerima;
+        $st = $pdo->prepare("UPDATE `ck_stock` SET `status`='', `qty`=? WHERE `id`=? AND `status`='pending'");
+        $st->execute([$qty, $id]);
+      } else {
+        $st = $pdo->prepare("UPDATE `ck_stock` SET `status`='' WHERE `id`=? AND `status`='pending'");
+        $st->execute([$id]);
+      }
+      $n += $st->rowCount();
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'diproses' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
 }

@@ -14,9 +14,22 @@
  * (appState.orders) + master produk. Endpoint terpisah cuma menambah satu
  * sumber kebenaran yang bisa berbeda dari daftar order di sebelahnya.
  *
+ * GET  ck.php?action=pending
+ *      -> [{id, tanggal, item, qty, qtyInput, unitInput, tim, pic, waktu,
+ *           catatan, packIsi, packSatuan}, ...]  kiriman outlet yang
+ *      masih menunggu dikonfirmasi diterima CK.
+ *
  * POST {action:'simpan', id?, tanggal, item, arah:'masuk'|'keluar',
  *       qtyInput, unitInput, sebab, tim, pic, catatan}
  * POST {action:'hapus', id}
+ *
+ * --- arah OUTLET -> CK (dua langkah) ---
+ * POST {action:'kirim', tanggal, item, qtyInput, unitInput, tim, pic, catatan}
+ *      Outlet mencatat kiriman. Tercatat 'pending' dan BELUM menambah saldo.
+ * POST {action:'konfirmasi', items:[id | {id, qtyTerima}], terima:true|false}
+ *      CK menerima (masuk ke saldo) atau menolak (barisnya dihapus).
+ *      qtyTerima opsional = jumlah yang benar-benar sampai; itulah yang
+ *      dihitung, bukan jumlah yang diklaim pengirim.
  *
  * Mutasi yang lahir dari pengajuan (kolom `ref` terisi) TIDAK bisa disimpan
  * atau dihapus lewat sini — ia cerminan status kedatangan sebuah order, dan
@@ -30,6 +43,7 @@ try {
   if ($metode === 'GET') {
     pur_cek_token();
     $pdo = pur_pdo();
+    if ($aksiUrl === 'pending') pur_json(pur_ck_kiriman_pending($pdo));
     pur_json(['saldo' => pur_ck_saldo($pdo), 'mutasi' => pur_ck_mutasi_ambil($pdo)]);
   }
 
@@ -41,6 +55,14 @@ try {
     $a = $b->action ?? '';
     if ($a === 'simpan') pur_json(pur_ck_simpan($pdo, $b));
     if ($a === 'hapus')  pur_json(pur_ck_hapus($pdo, $b->id ?? ''));
+    if ($a === 'kirim')  pur_json(pur_ck_kiriman_simpan($pdo, $b));
+    if ($a === 'konfirmasi') {
+      // `terima` dibaca ketat: apa pun selain false berarti diterima.
+      // Default menerima, karena menolak adalah tindakan yang harus
+      // disengaja — bukan yang terjadi kalau satu field lupa dikirim.
+      $terima = !(isset($b->terima) && $b->terima === false);
+      pur_json(pur_ck_kiriman_konfirmasi($pdo, $b->items ?? [], $terima));
+    }
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
 
