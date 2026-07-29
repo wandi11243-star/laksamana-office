@@ -2148,9 +2148,43 @@ function poDaftar(){
     :'<div class="card"><div class="card-b">'+kosong('Tidak ada PO',poFilter?'Tidak ada PO berstatus '+poFilter+'.':'')+'</div></div>');
 }
 
+/* ---- PENANDA "SUDAH DIPROSES" ----
+   Terpisah dari `status`, dan itu disengaja. `status` (Draft → Diajukan →
+   Approved → Dibeli → Diterima) adalah posisi barang di alur pembelian —
+   yang menggerakkannya approval dan barang datang. Penanda ini menjawab
+   pertanyaan lain: "baris ini sudah saya kerjakan atau belum". Purchasing
+   memakainya untuk menandai mana yang sudah ditindaklanjuti walau statusnya
+   belum bergerak, mis. sudah menghubungi vendor tapi harga belum keluar.
+
+   Menumpangkannya ke `status` sebagai tahap baru akan merusak rekap: nilai
+   mingguan dan hitungan "perlu approval" dihitung dari status, jadi tahap
+   tambahan membuat baris hilang dari salah satu hitungan itu.
+
+   Disimpan di field `proses` + jejak siapa/kapan. Backend menyimpan seluruh
+   baris sebagai JSON di kolom `data`, jadi field baru tidak butuh migrasi. */
+function poProsesSel(p){
+  var on=!!p.proses;
+  var judul=on
+    ? 'Sudah diproses'+(p.prosesBy?' oleh '+p.prosesBy:'')+(p.prosesAt?' · '+fWaktu(p.prosesAt):'')+' — klik untuk batalkan'
+    : 'Klik kalau barang ini sudah diproses';
+  return '<span class="pill '+(on?'p-go':'p-mute')+'" role="button" tabindex="0" style="cursor:pointer;user-select:none"'+
+    ' title="'+esc(judul)+'"'+
+    ' onclick="event.stopPropagation();APP.togglePoProses(\''+p.id+'\')">'+
+    (on?'✓ Diproses':'Belum')+'</span>';
+}
+function togglePoProses(id){
+  var p=DB.po.find(function(x){return x.id===id;}); if(!p) return;
+  p.proses=!p.proses;
+  // Jejaknya ikut dibersihkan saat penandanya dilepas — meninggalkan nama dan
+  // jam pada baris yang statusnya "Belum" membuat tooltip berbohong.
+  if(p.proses){ p.prosesAt=Date.now(); p.prosesBy=(AKU&&AKU.name)||''; }
+  else { delete p.prosesAt; delete p.prosesBy; }
+  save(); render();
+}
+
 function poTabel(list){
   return '<div class="tw"><table><thead><tr><th>Item</th><th>Peminta</th><th>Diinput</th><th>Vendor</th><th>Qty</th><th>Nilai</th>'+
-    '<th>Divisi</th><th>Butuh</th><th>Status</th><th></th></tr></thead><tbody>'+
+    '<th>Divisi</th><th>Butuh</th><th>Proses</th><th>Status</th><th></th></tr></thead><tbody>'+
     list.map(function(p){
       var pr=p.project&&DB.projects.find(function(x){return x.id===p.project;});
       var telat=sisaHari(p.needBy)<0&&p.status!=='Diterima';
@@ -2178,6 +2212,7 @@ function poTabel(list){
         '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRpPenuh(p.amount)+'</span>')+'</td>'+
         '<td><span class="tag div">'+esc(String(p.div).split(' ')[0])+'</span></td>'+
         '<td><span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span></td>'+
+        '<td>'+poProsesSel(p)+'</td>'+
         '<td>'+pill(p.status,PO_COLOR[p.status]||'p-mute')+'</td>'+
         '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button></td></tr>';
     }).join('')+'</tbody></table></div>';
@@ -3237,7 +3272,7 @@ window.APP={
   coordModal:coordModal, simpanCoord:simpanCoord, hapusCoord:hapusCoord,
   dragCoord:dragCoord, dropCoord:dropCoord, setCoordMode:function(m){coordMode=m;render();},
   routineModal:routineModal, simpanRoutine:simpanRoutine, hapusRoutine:hapusRoutine,
-  poModal:poModal, simpanPo:simpanPo, hapusPo:hapusPo, setPoFilter:function(v){poFilter=v;render();},
+  poModal:poModal, simpanPo:simpanPo, hapusPo:hapusPo, togglePoProses:togglePoProses, setPoFilter:function(v){poFilter=v;render();},
   requestModal:requestModal, simpanRequest:simpanRequest,
   tambahBarisReq:function(){
     document.getElementById('q_rows').insertAdjacentHTML('beforeend',barisRequest());

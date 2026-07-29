@@ -1189,6 +1189,38 @@ function paxCell(r){
    CSV lama tidak perlu diubah. */
 function dpsOf(r){ return Array.isArray(r && r.dps) ? r.dps : []; }
 function dpTotal(r){ return dpsOf(r).reduce((a,p)=>a+(Number(p.amount)||0), 0); }
+/* Sel DP untuk tabel Dashboard & Recap Reservasi. Yang ditampilkan SELALU
+   angka FINAL — total seluruh cicilan, bukan cicilan terakhir dan bukan
+   daftar satu per satu (permintaan 28 Juli 2026). DP yang dicicil tiga kali
+   tetap muncul sebagai satu angka; jumlah transfernya cuma disebut sebagai
+   keterangan kecil, supaya orang yang mencocokkan ke mutasi tahu angka itu
+   gabungan dan tidak mencari satu transfer sebesar itu.
+
+   Memakai dpTotal() SELAMA dps[] terisi, bukan r.dpAmount: keduanya
+   seharusnya sama (syncDp menyalin yang satu ke yang lain), tapi r.dpAmount
+   cuma ikut terbarui saat syncDp() sempat jalan, sedangkan dpTotal() dihitung
+   ulang dari dps[] tiap kali dibaca.
+
+   TAPI reservasi lama menyimpan DP sebagai field datar tanpa dps[] sama
+   sekali, dan dpsOf() sengaja TIDAK memigrasikannya (ensureDps() yang
+   melakukan itu, dan ia menulis ke objeknya — tabel yang cuma menampilkan
+   tidak boleh mengubah data). Untuk baris seperti itu dpTotal() mengembalikan
+   0, dan tanpa cadangan di bawah kolomnya akan berbohong "nominal belum
+   diisi" pada DP yang nominalnya jelas-jelas ada.
+
+   `mini` = versi Recap: barisnya rapat, jadi hurufnya dikecilkan. */
+function dpSel(r, mini){
+  const gaya = mini ? ' style="font-size:11px"' : '';
+  if(r.dpStatus!=="Sudah") return `<span class="badge-status dp-no"${gaya}>Belum</span>`;
+  const n = dpsOf(r).length;
+  const total = n ? dpTotal(r) : (Number(r.dpAmount)||0);
+  /* DP bertanda "Sudah" tapi nominalnya nol memang ada: statusnya diketik
+     lebih dulu, angkanya menyusul. Menulis "Rp. 0" di situ terbaca sebagai
+     "tamu membayar nol", jadi disebut apa adanya. */
+  if(!total) return `<span class="badge-status dp-yes"${gaya} title="Status DP sudah diisi, tapi nominalnya belum">✓ DP <span class="muted">(nominal belum diisi)</span></span>`;
+  const ket = n>1 ? `<div class="muted" style="font-size:10.5px;font-weight:500">total ${n}× transfer</div>` : '';
+  return `<span class="badge-status dp-yes"${gaya} title="${n>1?`Nominal final, gabungan ${n} kali transfer`:'Nominal DP'}">✓ ${rpDot(total)}</span>${ket}`;
+}
 // Verifikasi jalan PER TRANSFER, bukan per reservasi: DP 1 bisa sudah diverifikasi
 // sementara DP 2 masih menunggu bukti dicek.
 function dpVerifiedCount(r){ return dpsOf(r).filter(p=>p.tfStatus==="verified").length; }
@@ -3905,7 +3937,7 @@ function dashTable(list){
        <td>${lantai
              ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
              : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
-       <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
+       <td>${dpSel(r)}</td>
        <td class="muted">${esc(r.picName||"-")}</td>
        <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
        <td onclick="event.stopPropagation()"><div class="mini-actions">
@@ -5171,7 +5203,7 @@ function renderHariH(){
                 : sisaKursi>0
                   ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
                   : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
-          <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
+          <td>${dpSel(r,true)}</td>
           <td class="muted">${esc(r.picName||"-")}</td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
