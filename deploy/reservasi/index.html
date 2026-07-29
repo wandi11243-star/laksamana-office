@@ -9,7 +9,21 @@
 <script src="../assets/venue-layouts.js"></script>
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
-  var ok=s&&s.expiry&&Date.now()<s.expiry&&(s.modules||[]).some(function(m){return m==='*'||m==='reservasi';});
+  var hidup=s&&s.expiry&&Date.now()<s.expiry;
+  var mods=(s&&s.modules)||[];
+  var punya=function(k){return mods.indexOf(k)>-1;};
+  /* Modul Cashier menampilkan halaman Dana Masuk (DP) MILIK MODUL INI apa
+     adanya lewat <iframe src="../reservasi/?embed=finance">. Pemegang modul
+     `cashier` karena itu ikut boleh masuk — TAPI hanya lewat pintu embed, dan
+     di dalamnya terkunci ke halaman Dana Masuk saja (lihat EMBED di boot()
+     dan navigate()). Tanpa parameter embed, `cashier` tidak membuka apa pun.
+
+     Dipilih begini supaya halaman Dana Masuk cuma ada SATU di seluruh repo.
+     Menyalinnya ke modul Cashier berarti menyalin juga mesin OCR pembaca
+     bukti, pengunduh berkas bukti, dan jalur simpan verifikasi — lalu
+     membiarkan dua salinan itu pelan-pelan berbeda. */
+  var embed=/[?&]embed=finance(&|$)/.test(location.search);
+  var ok=hidup&&(punya('*')||punya('reservasi')||(embed&&punya('cashier')));
   if(!ok)location.replace('../');}catch(e){location.replace('../');}})();
 </script>
 <!-- ===== PWA ===== -->
@@ -187,6 +201,12 @@ a{color:var(--info)}
 #app.nav-hidden .sidebar .side-nav button .badge{position:absolute;top:2px;right:4px;margin:0;font-size:10px;padding:0 5px}
 #app.nav-hidden .sidebar .side-user{flex-direction:column;gap:8px;padding:10px 6px}
 .content{flex:1;min-width:0;display:flex;flex-direction:column}
+/* Mode embed (dipanggil modul Cashier di dalam iframe): bingkai navigasi
+   dibuang, isinya saja yang tampil. Halaman Dana Masuk-nya sendiri tidak
+   diberi gaya khusus apa pun — yang dilihat kasir harus sama persis dengan
+   yang dilihat host di modul ini. */
+body.embed .sidebar,body.embed .appbar{display:none!important}
+body.embed .main{padding:18px;max-width:none}
 .appbar{
   height:60px;background:var(--surface);border-bottom:1px solid var(--line);
   display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:30;
@@ -419,7 +439,17 @@ td .muted{color:var(--muted);font-size:13px}
 .seat.zone-diamond{background:#8a8078} .seat.zone-diamond .sn,.seat.zone-diamond .sp{color:#fff}
 .seat.zone-ext{background:#f7b24a}
 /* mode VIEW (kedatangan hari-H) */
-.seat.booked{color:#fff;border-color:rgba(0,0,0,.18)}
+/* Warna CADANGAN untuk meja terisi. Wajib ada: .seat.booked memutihkan seluruh
+   tulisannya, sementara latar belakangnya dulu HANYA datang dari kelas status
+   (.stpending/.stconfirmed/.stdatang/.stsharing). Begitu ada reservasi dengan
+   status di luar daftar itu — mis. data lama berstatus "Booking" yang dulu
+   dikirim modul Marketing — seatStatusClass() menghasilkan kelas yang tak punya
+   aturan warna, kotaknya jadi transparan, dan nomor meja putih di atas kanvas
+   denah yang juga putih praktis TAK TERBACA. Sudah kejadian 29 Juli 2026:
+   serombongan meja terkunci jam 15:30 tampil sebagai kotak putih kosong.
+   Abu-abu gelap ini sengaja bukan warna status mana pun: kalau muncul, artinya
+   ada status yang perlu dibereskan datanya, bukan warna baru yang sah. */
+.seat.booked{color:#fff;border-color:rgba(0,0,0,.18);background:#6B6456}
 .seat.booked .sn,.seat.booked .sp{color:#fff;opacity:1}
 .seat.booked .sp{font-weight:800;opacity:.9}
 .seat.booked.stpending{background:#E0A82E}
@@ -1021,7 +1051,16 @@ const STATUS_COLOR = {
   "No-show":{c:"#928C80",bg:"#EDEBE7"}
 };
 // Normalisasi status lama (Checked-in/Completed) → "Datang"
-function normStatus(s){ return (s==="Checked-in"||s==="Completed") ? "Datang" : s; }
+/* "Booking" dulu dikirim modul Marketing untuk Reservasi VIP (sampai 29 Juli
+   2026). Status itu tak pernah ada di STATUSES: warnanya tak dikenali denah,
+   tak pernah cocok dengan penyaring status, dan salah hitung di rekap "Belum
+   Datang". Marketing sekarang mengirim "Confirmed"; baris lama dipetakan ke
+   sana juga — meja yang sudah dikunci atas nama tamu memang setara Confirmed. */
+function normStatus(s){
+  if(s==="Checked-in"||s==="Completed") return "Datang";
+  if(s==="Booking") return "Confirmed";
+  return s;
+}
 
 /* ================= DENAH TEMPAT DUDUK (Lantai 1: Weekday & Weekend) ================= */
 /* Kanvas denah. Tingginya 1160 (bukan 1100 seperti dulu) untuk menyediakan RUANG KOSONG
@@ -1150,6 +1189,38 @@ function paxCell(r){
    CSV lama tidak perlu diubah. */
 function dpsOf(r){ return Array.isArray(r && r.dps) ? r.dps : []; }
 function dpTotal(r){ return dpsOf(r).reduce((a,p)=>a+(Number(p.amount)||0), 0); }
+/* Sel DP untuk tabel Dashboard & Recap Reservasi. Yang ditampilkan SELALU
+   angka FINAL — total seluruh cicilan, bukan cicilan terakhir dan bukan
+   daftar satu per satu (permintaan 28 Juli 2026). DP yang dicicil tiga kali
+   tetap muncul sebagai satu angka; jumlah transfernya cuma disebut sebagai
+   keterangan kecil, supaya orang yang mencocokkan ke mutasi tahu angka itu
+   gabungan dan tidak mencari satu transfer sebesar itu.
+
+   Memakai dpTotal() SELAMA dps[] terisi, bukan r.dpAmount: keduanya
+   seharusnya sama (syncDp menyalin yang satu ke yang lain), tapi r.dpAmount
+   cuma ikut terbarui saat syncDp() sempat jalan, sedangkan dpTotal() dihitung
+   ulang dari dps[] tiap kali dibaca.
+
+   TAPI reservasi lama menyimpan DP sebagai field datar tanpa dps[] sama
+   sekali, dan dpsOf() sengaja TIDAK memigrasikannya (ensureDps() yang
+   melakukan itu, dan ia menulis ke objeknya — tabel yang cuma menampilkan
+   tidak boleh mengubah data). Untuk baris seperti itu dpTotal() mengembalikan
+   0, dan tanpa cadangan di bawah kolomnya akan berbohong "nominal belum
+   diisi" pada DP yang nominalnya jelas-jelas ada.
+
+   `mini` = versi Recap: barisnya rapat, jadi hurufnya dikecilkan. */
+function dpSel(r, mini){
+  const gaya = mini ? ' style="font-size:11px"' : '';
+  if(r.dpStatus!=="Sudah") return `<span class="badge-status dp-no"${gaya}>Belum</span>`;
+  const n = dpsOf(r).length;
+  const total = n ? dpTotal(r) : (Number(r.dpAmount)||0);
+  /* DP bertanda "Sudah" tapi nominalnya nol memang ada: statusnya diketik
+     lebih dulu, angkanya menyusul. Menulis "Rp. 0" di situ terbaca sebagai
+     "tamu membayar nol", jadi disebut apa adanya. */
+  if(!total) return `<span class="badge-status dp-yes"${gaya} title="Status DP sudah diisi, tapi nominalnya belum">✓ DP <span class="muted">(nominal belum diisi)</span></span>`;
+  const ket = n>1 ? `<div class="muted" style="font-size:10.5px;font-weight:500">total ${n}× transfer</div>` : '';
+  return `<span class="badge-status dp-yes"${gaya} title="${n>1?`Nominal final, gabungan ${n} kali transfer`:'Nominal DP'}">✓ ${rpDot(total)}</span>${ket}`;
+}
 // Verifikasi jalan PER TRANSFER, bukan per reservasi: DP 1 bisa sudah diverifikasi
 // sementara DP 2 masih menunggu bukti dicek.
 function dpVerifiedCount(r){ return dpsOf(r).filter(p=>p.tfStatus==="verified").length; }
@@ -2654,7 +2725,10 @@ function resolveReservasiUser(s){
   let u = getUsers().find(x=>x.id===s.userId)
        || getUsers().find(x=>String(x.name).toLowerCase()===String(s.name).toLowerCase());
   if(!u){
-    u = { id:s.userId, name:s.name, role: OFFICE_TO_RESERVASI_ROLE[s.role] || 'host', pin:'' };
+    // Kru yang belum dikenal modul ini. Yang datang lewat pintu embed (modul
+    // Cashier) dibuat langsung ber-role `cashier` supaya Master Data tidak
+    // memajangnya sebagai `host` sementara sesinya berjalan sebagai kasir.
+    u = { id:s.userId, name:s.name, role: OFFICE_TO_RESERVASI_ROLE[s.role] || (EMBED?'cashier':'host'), pin:'' };
     if(!STATE.master) STATE.master={};
     if(!Array.isArray(STATE.master.users)) STATE.master.users = DEFAULT_USERS.slice();
     STATE.master.users.push(u);   // in-memory; ikut tersimpan saat ada saveState() berikutnya
@@ -2770,7 +2844,16 @@ async function boot(){
   // Admin modul dari Office (adminModules mengandung '*' atau 'reservasi') -> role
   // admin untuk sesi ini, tanpa mengubah role kru tersimpan. Membuka Master Data.
   const oAdm = (office.adminModules||[]);
-  const effRole = (oAdm.includes('*')||oAdm.includes('reservasi')) ? 'admin' : u.role;
+  const oMod = (office.modules||[]);
+  const punyaResv = oMod.includes('*')||oMod.includes('reservasi');
+  let effRole = (oAdm.includes('*')||oAdm.includes('reservasi')) ? 'admin' : u.role;
+  /* Orang yang datang dari modul Cashier dan TIDAK punya akses reservasi
+     sendiri masuk sebagai role `cashier`. Tanpa baris ini dia jatuh ke `host`
+     lewat resolveReservasiUser(), dan matriks Hak Akses menyembunyikan Dana
+     Masuk dari host — bingkai embed-nya akan terbuka kosong tanpa keterangan
+     apa pun. Role `cashier` sudah ada di matriks itu dengan Dana Masuk =
+     Boleh Ubah, jadi tidak ada aturan baru yang ditambahkan di sini. */
+  if(EMBED && !punyaResv) effRole = 'cashier';
   SESSION = {id:u.id, name:u.name, role:effRole};
   SELECTED_CREW = u.id;
   bs.classList.add("hidden");
@@ -2846,6 +2929,8 @@ async function enterApp(){
   buildNav();
   const allowed = allowedPages(SESSION.role);
   CURRENT_PAGE = allowed[0];
+  // Mode embed: buang bingkai navigasi dan mulai langsung di Dana Masuk.
+  if(EMBED){ document.body.classList.add('embed'); CURRENT_PAGE = 'finance'; }
   // Data biasanya sudah ditarik saat boot. Kalau belum (mis. login ulang
   // setelah logout), muat sekarang dengan indikator singkat di halaman.
   if(!DATA_LOADED){
@@ -2874,6 +2959,12 @@ async function enterApp(){
 
 /* ================= NAV / ROUTING ================= */
 let CURRENT_PAGE = "dashboard";
+/* Modul ini sedang ditampilkan DI DALAM modul lain (Cashier) lewat iframe
+   `?embed=finance`. Yang berubah hanya bingkainya — sidebar & appbar
+   disembunyikan lewat body.embed, dan halaman dikunci ke Dana Masuk di
+   navigate(). Isi halamannya dijalankan oleh kode yang sama persis, jadi
+   apa pun yang diperbaiki di Dana Masuk otomatis ikut ke modul Cashier. */
+const EMBED = /[?&]embed=finance(&|$)/.test(location.search);
 function buildNav(){
   const fu = needFollowUpCount();
   let html="";
@@ -2904,6 +2995,12 @@ function afterSearch(id, render){
   if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(e){} }
 }
 function navigate(page){
+  /* Dikunci di mode embed. Bukan sekadar kerapian tampilan: pemegang modul
+     `cashier` yang tidak punya akses reservasi masuk lewat pintu ini, dan
+     tanpa kunci ini satu panggilan navigate() dari kode mana pun (mis. tombol
+     "lihat reservasi" di dalam popup DP) akan membawanya ke halaman yang tidak
+     berhak dia buka. */
+  if(EMBED) page='finance';
   const allowed = allowedPages(SESSION.role);
   if(!allowed.includes(page)) page=allowed[0];
   CURRENT_PAGE=page;
@@ -3840,7 +3937,7 @@ function dashTable(list){
        <td>${lantai
              ? lantai.map(f=>`<span class="pill" style="font-size:11px">Lt ${f}</span>`).join(" ")
              : '<span class="muted" title="Meja belum dipilih, atau mejanya tidak ada di denah mana pun">-</span>'}</td>
-       <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}">${r.dpStatus==="Sudah"?"✓ "+rp(r.dpAmount):"Belum"}</span></td>
+       <td>${dpSel(r)}</td>
        <td class="muted">${esc(r.picName||"-")}</td>
        <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
        <td onclick="event.stopPropagation()"><div class="mini-actions">
@@ -5106,7 +5203,7 @@ function renderHariH(){
                 : sisaKursi>0
                   ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
                   : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
-          <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓ DP":"Belum"}</span></td>
+          <td>${dpSel(r,true)}</td>
           <td class="muted">${esc(r.picName||"-")}</td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>

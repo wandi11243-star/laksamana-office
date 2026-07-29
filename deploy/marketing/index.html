@@ -1000,9 +1000,22 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   font-size:10px;font-weight:700;line-height:1.1;padding:2px;transition:.12s}
 .dn-meja:hover{border-color:var(--gold);color:var(--sand)}
 .dn-meja .dn-cap{font-size:8px;font-weight:600;opacity:.7}
-.dn-meja.on{background:var(--gold-glow);border-color:var(--gold-deep);color:var(--gold-deep)}
+/* Meja terkunci/terpilih: emas PEKAT dengan tulisan putih.
+   Dulu isiannya krem (--gold-glow #F2E9D3) di atas kanvas denah yang juga
+   nyaris putih (--ink-900 #F7F6F4) — tandanya nyaris tak terlihat, dan nomor
+   meja 9.5px berwarna emas tua di atas krem susah dibaca. Putih di atas
+   --gold-deep memberi kontras ±7:1, cukup untuk teks sekecil itu. */
+.dn-meja.on{background:var(--gold-deep);border-color:var(--gold-deep);color:#fff}
+.dn-meja.on .dn-cap{color:#fff;opacity:.85}
+.dn-meja.on:hover{border-color:var(--gold-deep);color:#fff}
 .dn-meja.off{cursor:not-allowed;opacity:.5;background:var(--danger-bg);border-color:var(--danger);color:var(--danger)}
 .dn-meja.off:hover{border-color:var(--danger)}
+/* Denah baca-saja di panel Detail: meja yang TIDAK dikunci sengaja dipudarkan
+   supaya meja emas milik tamu itu langsung terbaca dalam sekali lihat. Kursor
+   dan hover dimatikan — tanpa itu mejanya tampak bisa diklik padahal tidak. */
+.dn-meja.dn-pudar{cursor:default;opacity:.42}
+.dn-meja.dn-pudar:hover{border-color:var(--line-hard);color:var(--sand-dim)}
+div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> tetap bisa diklik */
 .dn-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--sand-dim);margin-top:10px}
 .dn-legend i{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:-2px;margin-right:5px}
 
@@ -7917,10 +7930,21 @@ function vipRingkasSlotHTML(){
 function vipSegarkanRingkas(){
   const el=$('vip_ringkas'); if(el) el.innerHTML=vipRingkasSlotHTML();
 }
-function vipDenahHTML(d,terpakai,dipilih){
-  const L=vipDenah(d,vipDenahKey(d,VIP_FORM.tanggal));
+/* opts.tanggal  — dipakai panel Detail, yang tidak punya VIP_FORM.
+   opts.bacaSaja — denah cuma dipandang: mejanya tidak bisa diklik. Dipakai saat
+                   melihat reservasi lama; menggambar ulang denah yang bisa
+                   diklik di sana akan mengundang orang mengubah kunciannya dari
+                   layar yang niatnya cuma membaca. */
+function vipDenahHTML(d,terpakai,dipilih,opts){
+  opts=opts||{};
+  const tgl=opts.tanggal||(VIP_FORM&&VIP_FORM.tanggal)||today();
+  const bacaSaja=!!opts.bacaSaja;
+  const L=vipDenah(d,vipDenahKey(d,tgl));
   if(!L||!Array.isArray(L.tables)||!L.tables.length) return '';
-  VIP_CAP={}; L.tables.forEach(function(t){ VIP_CAP[t.id]=mejaKapasitas(t.cap); });
+  /* VIP_CAP milik pemilih meja. Denah baca-saja (panel Detail) TIDAK boleh
+     menimpanya: kalau Detail dibuka sementara draft form masih hidup, ringkasan
+     slot form ikut memakai kapasitas denah tanggal lain. */
+  if(!bacaSaja){ VIP_CAP={}; L.tables.forEach(function(t){ VIP_CAP[t.id]=mejaKapasitas(t.cap); }); }
   const W=window.LM_SEAT_W||1600, H=window.LM_SEAT_H||1160;
   const px=v=>(v/W*100).toFixed(3)+'%', py=v=>(v/H*100).toFixed(3)+'%';
   let h='<div class="denah"><div class="denah-in">';
@@ -7931,16 +7955,27 @@ function vipDenahHTML(d,terpakai,dipilih){
     const off=!!terpakai[t.id] && dipilih.indexOf(t.id)<0;
     const on=dipilih.indexOf(t.id)>=0;
     const st='left:'+px(t.x)+';top:'+py(t.y)+';width:'+px(t.w)+';height:'+py(t.h);
+    const judul=esc(t.id+(t.cap?' · '+t.cap+' pax':''));
+    if(bacaSaja){
+      h+='<div class="dn-meja'+(on?' on':'')+(on?'':' dn-pudar')+'" style="'+st+'" data-meja="'+esc(t.id)+'" title="'+judul+'">'
+        +'<span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</div>';
+      return;
+    }
     h+='<button type="button" class="dn-meja'+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
       +(off?'disabled title="Dipesan '+esc(terpakai[t.id])+'"'
            :'onclick="vipToggleMeja(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
       +'><span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</button>';
   });
   h+='</div></div>';
+  if(bacaSaja){
+    h+='<div class="dn-legend"><span><i style="background:var(--gold-deep);border:1.5px solid var(--gold-deep)"></i>Meja yang dikunci</span>'
+     +'<span class="cell-sub">Denah: '+esc(L.name||vipDenahKey(d,tgl))+'</span></div>';
+    return h;
+  }
   h+='<div class="dn-legend"><span><i style="background:var(--ink-880);border:1.5px solid var(--line-hard)"></i>Kosong</span>'
-   +'<span><i style="background:var(--gold-glow);border:1.5px solid var(--gold-deep)"></i>Dipilih</span>'
+   +'<span><i style="background:var(--gold-deep);border:1.5px solid var(--gold-deep)"></i>Dipilih</span>'
    +'<span><i style="background:var(--danger-bg);border:1.5px solid var(--danger)"></i>Sudah dipesan</span>'
-   +'<span class="cell-sub">Denah: '+esc(L.name||vipDenahKey(d,VIP_FORM.tanggal))+'</span></div>';
+   +'<span class="cell-sub">Denah: '+esc(L.name||vipDenahKey(d,tgl))+'</span></div>';
   return h;
 }
 function vipPilihMejaUI(d){
@@ -8081,14 +8116,52 @@ function vipDetail(id){
    +baris('Kasir',esc(v.kasir||''))
    +baris('Meja terkunci','<b>'+esc((v.meja||[]).join(', ')||'—')+'</b>')
    +baris('Marketing PIC',esc(userName(v.mktPIC)))
-   +(v.jenis==='Assisted'?baris('Nominal Pendapatan','<b class="mono">'+rp(vipNominal(v))+'</b>'):'')
+   +(v.jenis==='Assisted'?baris('Nominal Pendapatan',vipBelumNominal(v)
+       ?'<span class="tag" style="background:var(--warn-bg);color:var(--warn)">belum diisi</span>'
+       :'<b class="mono">'+rp(vipNominal(v))+'</b>'):'')
    +baris('Catatan',esc(v.catatan||''))
    +'</dl>'
+   +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">Denah Meja yang Dikunci</h4>'
+   +'<p class="cell-sub" style="margin-bottom:10px">Denah '+esc(fmtDateLong(v.tanggal))+' — meja bertanda emas dipesan atas nama ini.</p>'
+   +'<div id="vip_det_denah" data-vip="'+esc(v.id)+'">'
+   +(vipDenahHTML({}, {}, (v.meja||[]), {tanggal:v.tanggal, bacaSaja:true})
+      || '<div class="cell-sub">Denah untuk tanggal ini tidak tersedia. Meja terkunci: <b>'+esc((v.meja||[]).join(', ')||'—')+'</b></div>')
+   +'</div>'
    +(v.resId?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.check)+'<span>Sudah tercatat di modul Reservasi — mejanya terkunci untuk seluruh kru.</span></div>'
             :'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span>Belum dikirim ke modul Reservasi.</span></div>')
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
    +(can('edit_vip')?'<button class="btn" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'Ubah</button>':'')
-   +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>');
+   +(can('edit_vip')&&v.jenis==='Assisted'?'<button class="btn" onclick="closeModal();vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
+   +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>'
+   ,'wide');   // denah butuh ruang: sama seperti pemilih meja & dokumen brief
+  vipDetailDenahAsli(v);
+}
+/* Denah yang digambar di atas baru tebakan: tanpa data server, vipDenahKey()
+   hanya bisa menyimpulkan weekday/weekend dari tanggalnya. Denah yang BENAR-
+   BENAR dipakai saat mejanya dulu dipilih bisa denah custom atau override
+   tanggal yang tersimpan di modul Reservasi. Jadi ditarik di belakang layar
+   lalu digambar ulang — Detail tetap terbuka seketika, dan kalau Reservasi
+   sedang tak terjangkau yang tampil tetap denah bawaan, bukan kotak kosong. */
+/* Cache pendek KHUSUS jalur baca-saja. rsvAmbil() menarik SELURUH data
+   Reservasi; tanpa ini, buka-tutup panel Detail sepuluh kali = sepuluh kali
+   getAll. Yang dipakai dari data itu cuma bentuk denah (master.layouts &
+   layoutOverrides) — nyaris tak pernah berubah dalam hitungan detik, jadi
+   basi 60 detik tidak berbahaya. Pemilih meja SENGAJA tidak ikut memakai
+   cache ini: di sana yang dibaca justru meja mana yang baru saja diambil
+   orang lain, dan data basi di sana berarti meja terpesan dua kali. */
+let RSV_DENAH_CACHE={d:null,at:0};
+async function vipDetailDenahAsli(v){
+  let d;
+  if(RSV_DENAH_CACHE.d && Date.now()-RSV_DENAH_CACHE.at<60000){ d=RSV_DENAH_CACHE.d; }
+  else{
+    try{ d=await rsvAmbil(); }catch(e){ return; }
+    RSV_DENAH_CACHE={d:d,at:Date.now()};
+  }
+  const el=$('vip_det_denah');
+  // modal sudah ditutup, atau user keburu membuka Detail reservasi lain
+  if(!el || el.getAttribute('data-vip')!==v.id) return;
+  const h=vipDenahHTML(d,{},(v.meja||[]),{tanggal:v.tanggal, bacaSaja:true});
+  if(h) el.innerHTML=h;
 }
 /* Omzet Reservasi VIP Assisted per marketing — dipakai Marketing Performance.
    Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
