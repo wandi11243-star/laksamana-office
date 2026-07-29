@@ -2399,6 +2399,40 @@ const LDZ_TIERS={
   VIP    :{c:'#c9432b'}    // merah
 };
 const LDZ_TIER_NAMES=Object.keys(LDZ_TIERS);
+/* ---- TINGKATAN DENAH = KELAS TIKET EVENT ITU ----
+   Dulu tingkatannya dipatok empat nama (Regular/Silver/Gold/VIP) untuk SEMUA
+   event. Akibatnya event yang menjual "Early Bird" dan "Festival" tetap harus
+   memilih dari empat nama asing itu, lalu ldzTierClass() diam-diam membuat
+   kelas tiket baru bernama "Silver" yang tidak pernah dijual siapa pun — dua
+   daftar kelas untuk satu event, dan rangkuman denahnya tidak pernah cocok
+   dengan kenyataan penjualan.
+
+   Sekarang arahnya dibalik: kelas tiket yang didefinisikan di event ITU yang
+   jadi daftar tingkatan. Warnanya dibagikan dari palet berdasarkan urutan
+   kelas, jadi tetap konsisten selama urutannya tidak berubah, dan bisa dipatok
+   sendiri lewat c.color kalau suatu saat kelas tiket punya kolom warna.
+   Event yang belum punya satu kelas pun tetap memakai empat bawaan lama,
+   supaya denah bisa mulai digambar sebelum harga tiketnya ditentukan. */
+const LDZ_WARNA=['#2f7fc4','#c9432b','#e0b23c','#1F9D5F','#7C5FC0','#8d97a3','#d9573c','#2a9d8f'];
+function ldzTiers(eid){
+  const kelas=DB.ticketClasses.filter(c=>c.event_id===eid);
+  if(!kelas.length) return LDZ_TIERS;
+  const out={};
+  kelas.forEach(function(c,i){
+    out[c.name]={c:c.color||LDZ_WARNA[i%LDZ_WARNA.length],price:+c.price||0,quota:+c.quota||0,id:c.id};
+  });
+  return out;
+}
+function ldzTierNames(eid){ return Object.keys(ldzTiers(eid)); }
+// Tingkatan yang sedang dipilih di palet, dijamin ada di event ini.
+function ldzTierAktif(eid){
+  const nama=ldzTierNames(eid);
+  return (nama.indexOf(window._ldzTier)>=0)?window._ldzTier:(nama[0]||'Regular');
+}
+function ldzTierInfo(eid,tier){
+  const T=ldzTiers(eid);
+  return T[tier]||T[Object.keys(T)[0]]||{c:'#8d97a3',price:0,quota:0};
+}
 const LDZ_MIN=16;                       // sisi terkecil sebuah objek (px kanvas)
 function ldzHexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
 /* Versi lebih gelap dari warna tier, untuk garis tepi & objek terjual. Dengan
@@ -2468,7 +2502,9 @@ function ldzUkuranBaku(kind,shape){
 }
 function ldzBuat(eid,kind,shape,x,y){
   const L=ldzMeta(eid), n=ldzItems(eid).length;
-  const tier=window._ldzTier||'Regular';
+  // Tingkatan yang dipakai objek baru harus salah satu kelas tiket event ini;
+  // window._ldzTier bisa tertinggal dari event sebelumnya yang kelasnya lain.
+  const tier=ldzTierAktif(eid);
   const cls=ldzTierClass(eid,tier);
   const u=ldzUkuranBaku(kind,shape);
   const g=L.snap?10:1;
@@ -2526,7 +2562,7 @@ function ldzBulkForm(eid){
    +'<div class="grid g2">'
    +'<div class="field"><label>Jenis</label><select id="bz_kind"><option value="seat">Kursi</option><option value="table">Meja</option></select></div>'
    +'<div class="field"><label>Bentuk</label><select id="bz_shape"><option value="rect">Rectangle</option><option value="circle">Bulat</option></select></div>'
-   +'<div class="field"><label>Tingkatan</label><select id="bz_tier">'+LDZ_TIER_NAMES.map(t=>'<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'
+   +'<div class="field"><label>Tingkatan</label><select id="bz_tier">'+ldzTierNames(eid).map(t=>'<option'+(ldzTierAktif(eid)===t?' selected':'')+'>'+esc(t)+'</option>').join('')+'</select></div>'
    +'<div class="field"><label>Kapasitas per objek</label><input type="number" id="bz_cap" value="1" min="1"></div>'
    +'<div class="field"><label>Jumlah baris</label><input type="number" id="bz_rows" value="4" min="1" max="40"></div>'
    +'<div class="field"><label>Jumlah kolom</label><input type="number" id="bz_cols" value="10" min="1" max="40"></div>'
@@ -2559,7 +2595,7 @@ function ldzBulkGo(eid){
 /* ---------- menggambar ---------- */
 function ldzStatusCls(it){ return seatCls(it); }   // available | locked | sold | checked
 function ldzItemHTML(it,edit){
-  const T=LDZ_TIERS[it.tier]||LDZ_TIERS.Regular;
+  const T=ldzTierInfo(it.event_id,it.tier);
   const st=ldzStatusCls(it);
   const isi=(st==='sold'||st==='checked');
   const sel=(edit&&ldzIsSel(it.id))?' sel':'';
@@ -2955,7 +2991,12 @@ function ldzSet(eid,field,val){
 }
 function ldzMetaSet(eid,field,val){
   const L=ldzMeta(eid);
-  if(field==='w'||field==='h') L[field]=Math.max(200,Math.min(4000,+val||1200));
+  /* Batas dinaikkan dari 4.000 ke 24.000 px. Denah venue sungguhan yang
+     digambar 1:1 dari file arsitek bisa berukuran ~19.000 × 12.000; dengan
+     batas lama, gambar latarnya terpaksa dikecilkan sampai nomor mejanya tak
+     terbaca. Kanvasnya sendiri cuma div ber-transform, jadi yang mahal bukan
+     ukurannya melainkan jumlah objek di dalamnya. */
+  if(field==='w'||field==='h') L[field]=Math.max(200,Math.min(24000,+val||1200));
   else if(field==='bgOpacity') L.bgOpacity=Math.max(0,Math.min(100,+val||0));
   else L[field]=val;
   save(); ldzRepaint(eid);
@@ -2979,7 +3020,7 @@ function ldzSideHTML(eid){
     if(!banyak) h+='<div class="field"><label>Nama / Nomor</label><input type="text" value="'+esc(p.table_no||'')+'" onchange="ldzSet(\''+eid+'\',\'table_no\',this.value)"></div>';
     h+='<div class="field"><label>Tingkatan Tiket</label><select onchange="ldzSet(\''+eid+'\',\'tier\',this.value)">'
        +(banyak&&!sama('tier')?'<option value="" selected>— campur —</option>':'')
-       +LDZ_TIER_NAMES.map(function(t){ return '<option'+((!banyak||sama('tier'))&&p.tier===t?' selected':'')+'>'+t+'</option>'; }).join('')+'</select></div>'
+       +ldzTierNames(eid).map(function(t){ return '<option'+((!banyak||sama('tier'))&&p.tier===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')+'</select></div>'
      +'<div class="grid g2">'
        +'<div class="field"><label>Jenis</label><select onchange="ldzSet(\''+eid+'\',\'kind\',this.value)">'
          +'<option value="seat"'+(p.kind==='seat'?' selected':'')+'>Kursi</option>'
@@ -3009,16 +3050,38 @@ function ldzSideHTML(eid){
     h+='<div style="display:flex;gap:6px;margin-top:12px"><button class="ldz-ib" onclick="ldzDuplicate(\''+eid+'\')">Gandakan</button>'
      +'<button class="ldz-ib" style="color:var(--red);border-color:var(--red)" onclick="ldzDelete(\''+eid+'\')">Hapus</button></div>';
   } else {
+    /* Rangkuman lengkap per kategori: berapa objek, berapa pax yang muat,
+       harga satuannya, dan berapa uang yang bisa masuk kalau semuanya terjual.
+       Dulu kolom terakhir cuma harga satuan — angka yang tidak menjawab
+       pertanyaan yang sebenarnya ditanyakan orang saat menyusun denah:
+       "kalau penuh, dapat berapa?" */
     const tot=ldzCap(eid);
-    h+='<h4>Rangkuman Denah</h4><table><tbody>'+LDZ_TIER_NAMES.map(function(t){
+    const nama=ldzTierNames(eid);
+    let totalUang=0, totalObj=0;
+    const baris=nama.map(function(t){
+      const info=ldzTierInfo(eid,t);
       const mine=its.filter(function(i){ return i.tier===t; });
       const cap=mine.reduce(function(a,i){ return a+(+i.capacity||1); },0);
-      const cls=DB.ticketClasses.find(function(c){ return c.event_id===eid&&c.name===t; });
-      return '<tr><td><span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span></td>'
-        +'<td class="mini">'+mine.length+' objek</td><td class="mini">'+cap+' pax</td>'
-        +'<td class="mini">'+(cls?IDR(cls.price):'—')+'</td></tr>';
-    }).join('')+'</tbody></table>'
-     +'<p class="mini" style="margin-top:8px">Total kapasitas <b>'+tot+' pax</b> dari '+its.length+' objek. Harga tiap tingkatan diatur di tab <b>Ticket Class</b>.</p>';
+      const uang=cap*(+info.price||0);
+      totalUang+=uang; totalObj+=mine.length;
+      const terjual=mine.filter(ldzTerjual).length;
+      return '<tr'+(mine.length?'':' style="opacity:.5"')+'>'
+        +'<td><span class="ldz-tier"><i style="background:'+info.c+'"></i>'+esc(t)+'</span>'
+        +(terjual?'<div class="mini">'+terjual+' objek terjual</div>':'')+'</td>'
+        +'<td class="mini">'+mine.length+' objek</td>'
+        +'<td class="mini"><b>'+cap+'</b> pax</td>'
+        +'<td class="mini">'+(info.price?IDR(info.price):'—')+'</td>'
+        +'<td class="mini"><b>'+(uang?IDR(uang):'—')+'</b></td></tr>';
+    }).join('');
+    h+='<h4>Rangkuman Denah</h4>'
+     +'<table><thead><tr><th>Kategori</th><th>Objek</th><th>Pax</th><th>Harga</th><th>Potensi</th></tr></thead>'
+     +'<tbody>'+baris
+     +'<tr><td><b>Total</b></td><td class="mini"><b>'+totalObj+'</b></td>'
+     +'<td class="mini"><b>'+tot+' pax</b></td><td></td>'
+     +'<td class="mini"><b style="color:var(--accent)">'+IDR(totalUang)+'</b></td></tr>'
+     +'</tbody></table>'
+     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = pax × harga kategori, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
+     +(DB.ticketClasses.some(function(c){return c.event_id===eid;})?'':' — event ini belum punya kelas tiket, jadi yang dipakai empat tingkatan bawaan')+'.</p>';
   }
   h+='<div class="ldz-hint"><b>Seret</b> di area kosong untuk memblok banyak objek sekaligus.<br>'
    +'<b>Shift+klik</b> menambah/melepas satu objek.<br>'
@@ -3046,18 +3109,30 @@ function ldzToggleEdit(eid){
   if(!window._ldzEdit){ ldzSetSel([]); window._ldzArm=null; }
   ldzRepaint(eid);
 }
+/* Ikon bentuk di palet ikut BERWARNA tingkatan yang sedang dipilih. Sebelumnya
+   ikonnya selalu abu-abu, jadi tidak ada isyarat apa pun bahwa objek yang
+   ditaruh berikutnya akan berwarna lain — dan warna itu baru ketahuan setelah
+   objeknya terlanjur jatuh di kanvas. */
+function ldzPaletRefresh(){
+  const el=document.querySelector('.ldz-palette');
+  if(el) el.outerHTML=ldzPaletteHTML();
+}
 function ldzPaletteHTML(){
+  const eid=window._ldzEid;
+  const aktif=ldzTierAktif(eid), warna=ldzTierInfo(eid,aktif).c;
   const bentuk=[['seat','rect','rect-seat','Kursi'],['seat','circle','circle-seat','Kursi'],
                 ['table','rect','rect-table','Meja'],['table','circle','circle-table','Meja']];
   return '<div class="ldz-palette"><h5>Bentuk</h5>'
    +bentuk.map(function(b){
-      return '<div class="ldz-shape" title="Seret ke kanvas, atau klik lalu klik di kanvas" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
-        +'<span class="ic '+b[2]+'"></span>'+b[3]+'</div>';
+      return '<div class="ldz-shape" style="color:'+warna+';border-color:'+warna+'" title="Seret ke kanvas, atau klik lalu klik di kanvas — tingkatan '+esc(aktif)+'" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
+        +'<span class="ic '+b[2]+'" style="background:'+warna+';border-color:'+warna+'"></span>'+b[3]+'</div>';
    }).join('')
-   +'<h5 style="margin-top:6px">Tingkatan</h5>'
-   +'<select style="padding:5px;font-size:11px" onchange="window._ldzTier=this.value">'
-   +LDZ_TIER_NAMES.map(function(t){ return '<option'+((window._ldzTier||'Regular')===t?' selected':'')+'>'+t+'</option>'; }).join('')
+   +'<h5 style="margin-top:6px">Tingkatan <span class="mini">(kelas tiket event ini)</span></h5>'
+   +'<select style="padding:5px;font-size:11px" onchange="window._ldzTier=this.value;ldzSideRefresh(window._ldzEid);ldzPaletRefresh()">'
+   +ldzTierNames(window._ldzEid).map(function(t){ return '<option'+(aktif===t?' selected':'')+'>'+esc(t)+'</option>'; }).join('')
    +'</select>'
+   +'<div class="ldz-tier" style="margin-top:6px"><i style="background:'+warna+'"></i>'
+   +'<span class="mini">objek baru memakai warna ini</span></div>'
    +'<button class="ldz-ib" style="margin-top:6px" onclick="ldzBulkForm(\''+window._ldzEid+'\')">Tambah banyak…</button>'
    +'</div>';
 }
@@ -3099,7 +3174,7 @@ function ldzInner(eid){
     +(edit?' onpointerdown="ldzCanvasDown(event)"':'')+'>'
     +ldzCanvasInner(eid,edit)+'</div></div></div>';
   const legenda='<div class="ldz-legend">'
-    +LDZ_TIER_NAMES.map(function(t){ return '<span class="ldz-tier"><i style="background:'+LDZ_TIERS[t].c+'"></i>'+t+'</span>'; }).join('')
+    +ldzTierNames(eid).map(function(t){ return '<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,t).c+'"></i>'+esc(t)+'</span>'; }).join('')
     +'<span>· warna penuh = terjual · garis putus-putus = hold · cincin biru = sudah check-in</span></div>';
   return '<div class="ldz-app">'
     +(edit?ldzPaletteHTML():'')
