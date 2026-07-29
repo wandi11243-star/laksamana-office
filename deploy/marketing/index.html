@@ -1876,12 +1876,14 @@ async function autoSyncOfficeRoster(){
       logAct('user','-','Data pegawai disinkronkan dari Office',baru+' baru · '+ubah+' diperbarui');
       // Perubahan role dicatat terpisah & terperinci: ini menyangkut siapa boleh
       // membuka apa, jadi harus bisa ditelusuri satu per satu di Audit Log.
-      if(roleBerubah.length) logAct('user','-','Role menyesuaikan jabatan Office',roleBerubah.join(' · '));
+      if(roleBerubah.length) logAct('user','-','Role menyesuaikan Tim di Office',roleBerubah.join(' · '));
       save(); buildNav(); paintStaffDatalist();
     }
     const pesan=[];
-    if(roleBerubah.length) pesan.push(roleBerubah.length+' role disesuaikan dengan jabatan di Office.');
-    if(tanpaDiv) pesan.push(tanpaDiv+' orang divisinya belum bisa ditebak dari keterangan Office — isi manual lewat tombol edit.');
+    if(roleBerubah.length) pesan.push(roleBerubah.length+' role disesuaikan dengan Tim di Office.');
+    /* Dulu berbunyi "isi manual lewat tombol edit". Kolom itu sudah tidak bisa
+       disunting dari sini — satu-satunya perbaikan yang benar ada di Office. */
+    if(tanpaDiv) pesan.push(tanpaDiv+' orang belum punya Tim di Office — role mereka jatuh ke bawaan sampai kolom Tim-nya diisi di sana.');
     rosterSync={ status:'ok', at:new Date(), baru, ubah, pesan: pesan.join(' ') };
     segarkanStaff();
   }catch(e){
@@ -9050,10 +9052,16 @@ function menuDbSetHarga(j,m,val){
      can('edit_staff')   -> merapikan Divisi / Jabatan / No. HP
      can('manage_users') -> mengubah Role & Hak Akses (matriks di bawah)
    ============================================================ */
+/* Kolom Divisi & Jabatan SENGAJA tidak ada lagi. Keduanya berasal dari satu
+   kolom yang sama di Office ("Tim / Keterangan"), lalu ditampilkan sebagai dua
+   kolom berbeda di sini — satu hasil tebakan (divisiDariKeterangan), satu teks
+   mentahnya. Dua kolom untuk satu data hanya bikin orang mengira ada dua hal
+   yang harus diisi, dan kalau tebakannya meleset kelihatannya seperti data
+   yang saling bertentangan. Yang tampil sekarang cuma TIM-nya, dan Role di
+   sebelahnya memang diturunkan dari Tim itu. */
 const KOL_PEGAWAI=[
   {k:'nama',    t:'Nama',    v:u=>u.name, def:1},
-  {k:'div',     t:'Divisi',  v:u=>u.div},
-  {k:'jabatan', t:'Jabatan', v:u=>u.jabatan},
+  {k:'tim',     t:'Tim',     v:u=>timUser(u)},
   {k:'hp',      t:'No. HP',  v:u=>u.hp},
   {k:'role',    t:'Role',    v:u=>(ROLES[u.role]||{}).t||u.role},
   {k:'status',  t:'Status',  v:u=>u.active===false?'Nonaktif':'Aktif'},
@@ -9106,7 +9114,7 @@ function renderStaff(V){
   h+='<div class="grid g-4" style="margin-bottom:16px">'
    +stat('Total Pegawai',list.length,'dari database user Office','crm')
    +stat('Aktif',list.filter(x=>x.active!==false).length,'bisa dipilih jadi PIC','check')
-   +stat('Divisi Terisi',list.filter(x=>x.div).length,'sisanya perlu diisi manual','pipe')
+   +stat('Tim Terisi',list.filter(x=>timUser(x)).length,'sisanya kosong di Office','pipe')
    +stat('No. HP Terisi',list.filter(x=>x.hp).length,'dipakai reminder WhatsApp','wa')
    +'</div>';
   if(!list.length){
@@ -9120,17 +9128,17 @@ function renderStaff(V){
   p.items.forEach(u=>{
     const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
     h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc(String(u.name||'?')[0])+'</div><div class="cell-strong">'+esc(u.name)+'</div></div></td>'
-     +'<td>'+esc(u.div||'—')+'</td><td>'+esc(u.jabatan||'—')+'</td><td class="mono">'+esc(u.hp||'—')+'</td>'
+     +'<td>'+esc(timUser(u)||'—')+'</td><td class="mono">'+esc(u.hp||'—')+'</td>'
      +'<td>'+roleCell(u,canMU)+custom+'</td>'
      +'<td>'+(u.active===false?'<span class="tag">Nonaktif</span>':'<span class="tag" style="background:var(--ok-bg);color:var(--ok)">Aktif</span>')+'</td>'
      +'<td><div class="pill-row">'
-       +(canEdit?'<button class="btn sm" title="Ubah divisi / jabatan / No. HP" onclick="editPegawai(\''+escJs(u.id)+'\')">'+svg(IC.edit)+'</button>':'')
+       +(canEdit?'<button class="btn sm" title="Ubah No. HP" onclick="editPegawai(\''+escJs(u.id)+'\')">'+svg(IC.edit)+'</button>':'')
        +(canMU?'<button class="btn sm" onclick="openUserAccess(\''+escJs(u.id)+'\')">'+svg(IC.approve)+'Hak Akses</button>':'')
        +((!canEdit&&!canMU)?'<span class="cell-sub">—</span>':'')
      +'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(p,'pegawai')+'</div>';
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Nama, <em>No. HP</em>, dan status aktif <b>selalu mengikuti Office</b> — perbaiki di sana, perubahannya ikut terbawa saat modul dibuka berikutnya. <em>Divisi</em> ditebak dari kolom <em>Keterangan</em> Office (Office tidak punya kolom divisi sendiri) dan hanya diisi kalau masih kosong; kalau tebakannya meleset, ubah lewat tombol edit dan sinkronisasi berikutnya tidak akan menimpanya. Role disinkronkan dari sesi Office tiap user login — admin modul Office jadi Super Admin; role yang tidak dikenali dipertahankan, bukan diturunkan diam-diam.</span></div>';
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span><b>Semuanya mengikuti Office.</b> Nama, status aktif, dan <em>Tim</em> datang dari <em>Kelola User &rarr; kolom Tim / Keterangan</em> — perbaiki di sana, perubahannya terbawa saat modul dibuka berikutnya. <b>Role diturunkan dari Tim itu</b>, jadi memindahkan orang ke tim lain di Office otomatis mengubah rolenya di sini; admin modul Office tetap jadi Super Admin. Yang bisa diubah manual tinggal <em>No. HP</em> (itu pun tertimpa kalau Office punya nomornya).</span></div>';
   h+=accessMatrix(canMU);
   V.innerHTML=h;
 }
@@ -9143,21 +9151,18 @@ function editPegawai(id){
   const u=(S.users||[]).find(x=>x.id===id); if(!u)return;
   modal('<div class="modal-head"><div><h3>Edit Pegawai</h3><p>'+esc(u.name)+' · dari database user Office</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
    +'<input type="hidden" id="sf_id" value="'+esc(u.id)+'">'
-   +'<div class="form-grid">'
-   +'<div class="field"><label>Divisi</label><select class="inp" id="sf_div"><option value="">—</option>'+getCats().map(d=>'<option'+(u.div===d?' selected':'')+'>'+esc(d)+'</option>').join('')+'</select></div>'
-   +ff('Jabatan','sf_jabatan',u.jabatan,'text')
-   +'</div>'
    +ff('No. HP','sf_hp',u.hp,'text')
-   +'<div class="fh">Nama &amp; status aktif tidak diubah dari sini — keduanya milik Office. No. HP yang kamu isi di sini akan tertimpa kalau Office punya nomor untuk orang ini.</div>'
+   +'<div class="fh"><b>Tim: '+esc(timUser(u)||'belum diisi')+'</b> — diambil dari Office &rarr; Kelola User, kolom <em>Tim / Keterangan</em>, dan role orang ini diturunkan dari sana. Tim, nama, dan status aktif memang tidak bisa diubah dari sini: apa pun yang diketik akan diputar balik oleh sinkronisasi berikutnya. No. HP pun tertimpa kalau Office punya nomor untuk orang ini.</div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="savePegawai()">Simpan</button></div>');
 }
 function savePegawai(){
   if(!can('edit_staff'))return toast('Akses ditolak','Kamu tidak punya izin mengubah data pegawai.','err');
   const u=(S.users||[]).find(x=>x.id===$('sf_id').value); if(!u)return;
-  u.div=$('sf_div').value;
-  u.jabatan=$('sf_jabatan').value.trim();
+  /* Hanya No. HP. Divisi & Jabatan tidak lagi disunting dari sini: dua-duanya
+     turunan kolom Tim di Office, dan menyuntingnya di sini cuma menghasilkan
+     data yang dibatalkan diam-diam oleh sinkronisasi berikutnya. */
   u.hp=$('sf_hp').value.trim();
-  logAct('user',u.id,'Data pegawai diperbarui',[u.div,u.jabatan].filter(Boolean).join(' · ')||u.name);
+  logAct('user',u.id,'No. HP pegawai diperbarui',u.name+' · '+(u.hp||'dikosongkan'));
   save(); closeModal(); paintStaffDatalist(); toast('Tersimpan',u.name+' diperbarui.','ok'); go('staff');
 }
 /* Office membalas nomor HP di field `noHp` — lihat aksi_list_divisi_roster()
@@ -9196,6 +9201,12 @@ function roleDariJabatan(ket){
   const cocok=ROLE_JABATAN.find(([kunci])=>kunci.every(k=>kata.indexOf(k)>=0));
   return cocok?cocok[1]:'';
 }
+/* TIM seseorang, apa adanya seperti diketik di Office -> Kelola User -> kolom
+   "Tim / Keterangan". Disimpan di `u.jabatan` (nama field lama, dari zaman
+   kolom itu masih disebut jabatan) dan jatuh ke `u.div` untuk kru lama yang
+   terlanjur tersimpan sebelum kolom itu ikut disinkronkan. Satu tempat baca
+   supaya tampilan, penurunan role, dan penyaring tim tidak pernah berselisih. */
+function timUser(u){ return String((u&&u.jabatan)||(u&&u.div)||'').trim(); }
 /* Apakah orang ini anggota TIM MARKETING?
    Kolom "Tim / Keterangan" di Office adalah satu-satunya sumber: isinya
    "Marketing", "Kitchen", "Bar", "Floor", boleh ditambah keterangan lain.
@@ -9207,7 +9218,7 @@ function roleDariJabatan(ket){
    yang kedua. Bidang `div` ikut dibaca karena di situlah divisi hasil
    terjemahan tersimpan untuk kru lama. */
 function timMarketing(u){
-  const kata=String((u&&u.div||'')+' '+(u&&u.jabatan||'')).toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  const kata=timUser(u).toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
   return kata.indexOf('marketing')>=0 || kata.indexOf('sales')>=0 || kata.indexOf('penjualan')>=0;
 }
 function divisiDariKeterangan(ket){
