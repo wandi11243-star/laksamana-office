@@ -282,10 +282,14 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   font-size:10px;line-height:1.05;text-align:center;padding:1px;cursor:pointer;border:1px solid var(--line);
   font-weight:700;transition:transform .12s,box-shadow .12s}
 .seat:hover{transform:translateY(-2px);box-shadow:0 4px 10px rgba(50,42,28,.15);z-index:1}
-.seat.available{background:rgba(31,157,95,.15);color:var(--green);border-color:rgba(31,157,95,.32)}
-.seat.sold{background:rgba(201,67,43,.16);color:var(--red);border-color:rgba(201,67,43,.32)}
-.seat.locked{background:rgba(169,121,31,.18);color:var(--accent);border-color:rgba(169,121,31,.34)}
-.seat.checked{background:linear-gradient(135deg,#d9573c,var(--red));color:#fff;border-color:transparent}
+/* WARNA SOLID, bukan rgba tipis. Isian 15% opasitas nyaris tak terbaca di
+   layar terang maupun dari jarak satu meter — dan denah kursi justru paling
+   sering dilihat sambil berdiri, jauh dari layar. Tulisan dibuat putih di atas
+   warna penuh supaya kontrasnya tetap aman pada kotak sekecil 26px. */
+.seat.available{background:#1F9D5F;color:#fff;border-color:#18804C}
+.seat.sold{background:#C9432B;color:#fff;border-color:#A33320}
+.seat.locked{background:#A9791F;color:#fff;border-color:#8A6218}
+.seat.checked{background:#2F7FC4;color:#fff;border-color:#245F94}
 .seat.sel{outline:2px solid var(--accent);outline-offset:1px}
 .seat[data-ro="1"]{cursor:not-allowed}
 .seat.ro{cursor:default}
@@ -385,11 +389,13 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-bg{position:absolute;inset:0;background-repeat:no-repeat;background-position:center;background-size:contain;pointer-events:none}
 .ldz-item{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-size:11px;font-weight:700;line-height:1.15;text-align:center;padding:2px;overflow:hidden;
-  border:2px solid;border-radius:8px;user-select:none;touch-action:none;background:#fff}
+  border:2px solid;border-radius:8px;user-select:none;touch-action:none;background:#8d97a3;color:#fff}
 .ldz-item.circle{border-radius:50%}
-.ldz-item small{font-weight:600;font-size:9px;opacity:.75}
+.ldz-item small{font-weight:600;font-size:9px;opacity:.85}
 .ldz-item.edit{cursor:move}
 .ldz-item.locked{border-style:dashed}
+/* .sold & .checked sudah solid dari ldzItemHTML; kelas ini tinggal memastikan
+   tulisannya putih walau ada gaya lain yang menyelip. */
 .ldz-item.sold{color:#fff!important}
 .ldz-item.checked{color:#fff!important;box-shadow:0 0 0 3px rgba(47,127,196,.35)}
 .ldz-item.sel{box-shadow:0 0 0 2px var(--accent)}
@@ -571,19 +577,53 @@ async function uploadBerkas(file){
 }
 function fmtSize(b){ b=+b||0; if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
 function berkasGambar(f){ return /\.(png|jpe?g|gif|webp)$/i.test(String((f&&f.name)||'')); }
+// Untuk menaruh teks di dalam atribut onclick="...('teks')" dengan aman.
+function escJsStr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'\\u003c'); }
 /* Pemilih berkas serba-guna. Menaruh hasilnya lewat callback, jadi tiap
    pemakai (bukti transfer / dokumen talent / poster) bebas menyimpannya
    di tempatnya sendiri. */
+const EKST_BOLEH=['jpg','jpeg','png','webp','gif','pdf'];
 function pilihBerkas(onDone,accept){
   const inp=document.createElement('input');
   inp.type='file'; inp.accept=accept||'image/*,application/pdf';
   inp.onchange=async()=>{
     const f=inp.files&&inp.files[0]; if(!f)return;
+    /* Diperiksa DI SINI dulu, sebelum berkasnya dibaca dan dikirim. Server
+       memang menolak jenis & ukuran yang salah, tapi jawabannya baru datang
+       setelah beberapa MB terkirim — dan yang sampai ke layar cuma toast
+       2,8 detik yang keburu hilang. */
+    const ext=String(f.name||'').split('.').pop().toLowerCase();
+    if(EKST_BOLEH.indexOf(ext)<0)
+      return unggahGagal(f,'Jenis berkas <b>.'+esc(ext)+'</b> tidak diterima. Yang bisa diunggah: JPG, PNG, WEBP, GIF, atau PDF.');
+    if(f.size>MAKS_BERKAS)
+      return unggahGagal(f,'Ukurannya <b>'+fmtSize(f.size)+'</b>, melebihi batas 8MB. Kecilkan dulu gambarnya lalu ulangi.');
     toast('Mengunggah '+f.name+'…');
     try{ onDone(await uploadBerkas(f)); }
-    catch(e){ toast('✗ Gagal unggah: '+e.message); }
+    catch(e){ unggahGagal(f,esc(e.message||'server tidak menjawab')); }
   };
   inp.click();
+}
+/* Kegagalan unggah dulu hanya lewat toast yang hilang dalam 2,8 detik — orang
+   melihat "tidak terjadi apa-apa" dan menyimpulkan fitur unggahnya mati.
+   Sekarang alasannya tetap di layar sampai ditutup, lengkap dengan apa yang
+   harus dilakukan. Pesan server ditampilkan apa adanya: "gagal menulis file
+   (cek izin folder)" menunjuk masalah server, bukan salah pengguna. */
+function unggahGagal(f,pesan){
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Gagal mengunggah berkas</h3>'
+   +'<p class="mini" style="margin-bottom:10px">Berkas: <b>'+esc((f&&f.name)||'-')+'</b>'+(f?' · '+fmtSize(f.size):'')+'</p>'
+   +'<p style="color:var(--red)">'+pesan+'</p>'
+   +'<p class="mini" style="margin-top:10px">Kalau pesannya menyebut <i>izin folder</i> atau <i>server</i>, berkasnya tidak pernah sampai — itu perlu dibereskan di server, bukan diulang dari sini.</p>'
+   +'<div class="modal-actions"><button class="btn" onclick="closeModal()">Tutup</button></div>');
+}
+/* Pratinjau berkas ukuran penuh. Dokumen seperti KTP & kontrak memang untuk
+   DIBACA; thumbnail 90px cuma memberi tahu "ada berkasnya", bukan isinya. */
+function pratinjauBerkas(key,nama){
+  const gbr=/\.(png|jpe?g|gif|webp)$/i.test(nama||'');
+  modal('<button class="close" onclick="closeModal()">×</button><h3>'+esc(nama||'Berkas')+'</h3>'
+   +(gbr?'<img src="'+fileUrl(key)+'" alt="'+esc(nama||'')+'" style="max-width:100%;max-height:70vh;display:block;margin:0 auto;border-radius:10px">'
+        :'<p class="mini">Berkas PDF tidak bisa dipratinjau di sini.</p>')
+   +'<div class="modal-actions"><a class="btn ghost" href="'+fileUrl(key)+'" target="_blank" rel="noopener">Buka di tab baru</a>'
+   +'<button class="btn" onclick="closeModal()">Tutup</button></div>',true);
 }
 
 /* ---- bentuk state (jaga-jaga kalau server balas tanpa sebagian koleksi) ---- */
@@ -1085,6 +1125,33 @@ function modal(html,wide){document.getElementById('modalRoot').innerHTML='<div c
 function closeModal(){document.getElementById('modalRoot').innerHTML='';}
 
 /* ============ SHARED UI ============ */
+/* ---- INPUT UANG: pemisah ribuan saat diketik ----
+   Kotak <input type="number"> menampilkan 1500000 tanpa pemisah apa pun, dan
+   di angka sebesar itu orang tidak bisa membaca cepat apakah 1,5 juta atau 15
+   juta. Diganti input teks yang menyisipkan titik tiap tiga digit sambil
+   diketik; yang dibaca kode tetap angka murni lewat uangNilai(). */
+function uangFormat(v){
+  const d=String(v==null?'':v).replace(/\D/g,'').replace(/^0+(?=\d)/,'');
+  return d?d.replace(/\B(?=(\d{3})+(?!\d))/g,'.'):'';
+}
+function uangKetik(el){
+  // Kursor dijaga dari kanan: menyisipkan titik menggeser posisi kursor, dan
+  // tanpa ini kursor melompat ke ujung tiap kali satu digit diketik.
+  const sisaKanan=el.value.length-(el.selectionStart||0);
+  el.value=uangFormat(el.value);
+  const pos=Math.max(0,el.value.length-sisaKanan);
+  try{ el.setSelectionRange(pos,pos); }catch(e){}
+}
+function uangNilai(id){
+  const el=document.getElementById(id); if(!el) return 0;
+  return +String(el.value).replace(/\D/g,'')||0;
+}
+/* Kotak uang siap pakai. inputmode=numeric memunculkan papan angka di ponsel
+   tanpa memaksa type=number, yang tidak bisa memuat titik. */
+function uangInput(id,nilai,extra){
+  return '<input id="'+id+'" inputmode="numeric" autocomplete="off" value="'+esc(uangFormat(nilai||0))
+    +'" oninput="uangKetik(this)"'+(extra||'')+'>';
+}
 function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled:'b-yellow',Done:'b-green',Cancelled:'b-grey',Inactive:'b-grey',Paid:'b-green',Waiting:'b-yellow',Rejected:'b-red',Draft:'b-grey',Upcoming:'b-blue',Today:'b-yellow',Finished:'b-purple',Pending:'b-yellow',Approved:'b-green',Sold:'b-red',Available:'b-green','Checked-In':'b-blue',Valid:'b-green',Expired:'b-grey',Failed:'b-red',Refunded:'b-purple',Free:'b-blue',None:'b-grey'};return '<span class="badge '+(map[s]||'b-grey')+'">'+esc(s)+'</span>';}
 
 /* ============ DASHBOARD ============ */
@@ -1209,27 +1276,48 @@ function barChart(data,fmt){const max=Math.max(...data.map(d=>d[1]));return '<di
 
 /* ============ TALENT MANAGEMENT ============ */
 const TAL_CATS=['Band','DJ','MC DJ','Acoustic','Solo Singer','Saxophone','Violin','Guest Artist'];
-let talFilter={q:'',cat:'',status:''};
+/* ---- DUA STATUS YANG BERBEDA, JANGAN DISAMAKAN ----
+   t.status          = talent ini masih dipakai atau tidak (Active/Inactive)
+   t.contract_status = kontrak tertulisnya (None/Active/Expired)
+   Dua-duanya dulu digambar dengan statusBadge() polos, jadi keduanya berbunyi
+   "Active" dengan warna hijau yang sama persis dan berdampingan pula. Tidak
+   ada yang bisa membedakan "talentnya aktif" dari "kontraknya aktif". Sekarang
+   masing-masing punya kata sendiri. */
+function badgeAktif(t){
+  const on=(t&&t.status)!=='Inactive';
+  return '<span class="badge '+(on?'b-green':'b-grey')+'">'+(on?'Aktif':'Nonaktif')+'</span>';
+}
+function badgeKontrak(t){
+  const k=(t&&t.contract_status)||'None';
+  const peta={Active:['b-blue','Kontrak Berjalan'],Expired:['b-red','Kontrak Habis'],None:['b-grey','Tanpa Kontrak']};
+  const v=peta[k]||peta.None;
+  return '<span class="badge '+v[0]+'">'+v[1]+'</span>';
+}
+let talFilter={q:'',cat:'',status:'',kontrak:''};
 function renderTalents(){
   setTop('Talent Management','Kelola profil, jadwal & fee talent','<button class="btn" onclick="talentForm()">+ Talent Baru</button>');
-  let list=DB.talents.filter(t=>(!talFilter.q||t.name.toLowerCase().includes(talFilter.q.toLowerCase()))&&(!talFilter.cat||t.category===talFilter.cat)&&(!talFilter.status||t.status===talFilter.status));
+  let list=DB.talents.filter(t=>(!talFilter.q||t.name.toLowerCase().includes(talFilter.q.toLowerCase()))
+    &&(!talFilter.cat||t.category===talFilter.cat)
+    &&(!talFilter.status||t.status===talFilter.status)
+    &&(!talFilter.kontrak||(t.contract_status||'None')===talFilter.kontrak));
   C().innerHTML=`
   <div class="toolbar">
     <input placeholder="🔍 Cari nama talent..." value="${esc(talFilter.q)}" oninput="talFilter.q=this.value;renderTalents()">
     <select onchange="talFilter.cat=this.value;renderTalents()"><option value="">Semua kategori</option>${TAL_CATS.map(c=>`<option ${talFilter.cat===c?'selected':''}>${c}</option>`).join('')}</select>
-    <select onchange="talFilter.status=this.value;renderTalents()"><option value="">Semua status</option><option ${talFilter.status==='Active'?'selected':''}>Active</option><option ${talFilter.status==='Inactive'?'selected':''}>Inactive</option></select>
+    <select onchange="talFilter.status=this.value;renderTalents()"><option value="">Semua status talent</option><option value="Active" ${talFilter.status==='Active'?'selected':''}>Aktif</option><option value="Inactive" ${talFilter.status==='Inactive'?'selected':''}>Nonaktif</option></select>
+    <select onchange="talFilter.kontrak=this.value;renderTalents()"><option value="">Semua kontrak</option><option value="Active" ${talFilter.kontrak==='Active'?'selected':''}>Kontrak Berjalan</option><option value="Expired" ${talFilter.kontrak==='Expired'?'selected':''}>Kontrak Habis</option><option value="None" ${talFilter.kontrak==='None'?'selected':''}>Tanpa Kontrak</option></select>
     <span class="pill">${list.length} talent</span>
   </div>
   <div class="card" style="padding:0">
-  <table><thead><tr><th>Talent</th><th>Kategori</th><th>Kontak</th><th>Manager</th><th>Default Fee</th><th>Kontrak</th><th>Status</th></tr></thead><tbody>
+  <table><thead><tr><th>Talent</th><th>Kategori</th><th>Kontak</th><th>Manager</th><th>Default Fee</th><th>Status Kontrak</th><th>Status Talent</th></tr></thead><tbody>
   ${list.map(t=>`<tr style="cursor:pointer" onclick="location.hash='#/talents/${t.id}'">
     <td><div style="display:flex;align-items:center;gap:10px"><div class="avatar">${initials(t.name)}</div><div><b>${esc(t.name)}</b><br><span class="mini">${esc(t.instagram)}</span></div></div></td>
     <td><span class="badge b-blue">${t.category}</span></td>
     <td>${esc(t.whatsapp)}<br><span class="mini">${esc(t.email)}</span></td>
     <td>${esc(t.manager_name||'—')}</td>
     <td>${IDR(t.default_fee)}</td>
-    <td>${statusBadge(t.contract_status)}</td>
-    <td>${statusBadge(t.status)}</td>
+    <td>${badgeKontrak(t)}</td>
+    <td>${badgeAktif(t)}</td>
   </tr>`).join('')||'<tr><td colspan="7" class="empty">Tidak ada talent.</td></tr>'}
   </tbody></table></div>`;
 }
@@ -1244,11 +1332,11 @@ function talentForm(id){
     <div class="field"><label>Instagram</label><input id="f_ig" value="${esc(t.instagram||'')}"></div>
     <div class="field"><label>Email</label><input id="f_email" value="${esc(t.email||'')}"></div>
     <div class="field"><label>Manager</label><input id="f_mgr" value="${esc(t.manager_name||'')}"></div>
-    <div class="field"><label>Default Fee (IDR)</label><input id="f_fee" type="number" value="${t.default_fee||0}"></div>
+    <div class="field"><label>Default Fee (IDR)</label>${uangInput('f_fee',t.default_fee||0)}</div>
     <div class="field"><label>Bank</label><input id="f_bank" value="${esc(t.bank_name||'')}"></div>
     <div class="field"><label>No. Rekening</label><input id="f_acc" value="${esc(t.bank_account||'')}"></div>
-    <div class="field"><label>Kontrak</label><select id="f_ct"><option ${t.contract_status==='None'?'selected':''}>None</option><option ${t.contract_status==='Active'?'selected':''}>Active</option><option ${t.contract_status==='Expired'?'selected':''}>Expired</option></select></div>
-    <div class="field"><label>Status</label><select id="f_st"><option ${t.status==='Active'?'selected':''}>Active</option><option ${t.status==='Inactive'?'selected':''}>Inactive</option></select></div>
+    <div class="field"><label>Status Kontrak</label><select id="f_ct"><option value="None" ${t.contract_status==='None'?'selected':''}>Tanpa Kontrak</option><option value="Active" ${t.contract_status==='Active'?'selected':''}>Kontrak Berjalan</option><option value="Expired" ${t.contract_status==='Expired'?'selected':''}>Kontrak Habis</option></select></div>
+    <div class="field"><label>Status Talent</label><select id="f_st"><option value="Active" ${t.status==='Active'?'selected':''}>Aktif — masih dipakai</option><option value="Inactive" ${t.status==='Inactive'?'selected':''}>Nonaktif — tidak dijadwalkan lagi</option></select></div>
   </div>
   <div class="field"><label>Notes</label><textarea id="f_notes" rows="2">${esc(t.notes||'')}</textarea></div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTalent('${id||''}')">Simpan</button></div>`,true);
@@ -1258,7 +1346,7 @@ function saveTalent(id){
   const name=g('f_name'),phone=g('f_phone'),email=g('f_email');
   if(!name||!phone){toast('Nama & phone wajib diisi.');return;}
   if(email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){toast('Email tidak valid.');return;}
-  const data={name,category:g('f_cat'),phone,whatsapp:g('f_wa'),instagram:g('f_ig'),email,manager_name:g('f_mgr'),default_fee:+g('f_fee'),bank_name:g('f_bank'),bank_account:g('f_acc'),account_holder:name,contract_status:g('f_ct'),status:g('f_st'),notes:g('f_notes')};
+  const data={name,category:g('f_cat'),phone,whatsapp:g('f_wa'),instagram:g('f_ig'),email,manager_name:g('f_mgr'),default_fee:uangNilai('f_fee'),bank_name:g('f_bank'),bank_account:g('f_acc'),account_holder:name,contract_status:g('f_ct'),status:g('f_st'),notes:g('f_notes')};
   if(id){const t=DB.talents.find(x=>x.id===id);if(data.status==='Inactive'&&DB.schedules.some(s=>s.talent_id===id&&['Scheduled','Confirmed'].includes(s.status)))toast('⚠ Talent punya jadwal aktif — jadwal tetap disimpan.');Object.assign(t,data);}
   else DB.talents.push({id:uid(),...data});
   save();closeModal();toast('Talent tersimpan.');id?renderTalentDetail(id):renderTalents();
@@ -1276,8 +1364,8 @@ function docCardHTML(t,d){
     isi='<div style="font-size:30px">📄</div><span class="mini">belum ada</span>';
   } else {
     isi=arr.map((f,i)=>berkasGambar(f)
-      ? `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${fileUrl(f.key)}" class="doc-thumb" alt="${esc(d.l)}"></a>`
-      : `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener" title="${esc(f.name)}"><div style="font-size:30px">📄</div><span class="mini">${esc(f.name)}</span></a>`
+      ? `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="Lihat ${esc(f.name)}"><img src="${fileUrl(f.key)}" class="doc-thumb" alt="${esc(d.l)}"></a>`
+      : `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="${esc(f.name)}"><div style="font-size:30px">📄</div><span class="mini">${esc(f.name)}</span></a>`
     ).join('')
     + `<div class="mini">${arr.length} berkas · ${fmtSize(arr.reduce((a,f)=>a+(+f.size||0),0))}</div>`;
   }
@@ -1309,11 +1397,20 @@ function hapusDoc(tid,kunci){
    klik pindah tab. Section-nya diberi judul sendiri sebagai pemisah. */
 function renderTalentDetail(id){
   const t=DB.talents.find(x=>x.id===id);if(!t){location.hash='#/talents';return;}
-  setTop(t.name,'<a href="#/talents" style="color:var(--accent)">Talent</a> / '+esc(t.name),`<button class="btn ghost sm" onclick="talentForm('${id}')">Edit</button>`);
+  /* Tombol Kembali yang sebenarnya. Remah roti "Talent / <nama>" di atas
+     memang bisa diklik, tapi tidak ada yang membacanya sebagai tombol — orang
+     memakai sidebar untuk keluar dari halaman ini. */
+  setTop(t.name,'<a href="#/talents" style="color:var(--accent)">Talent</a> / '+esc(t.name),
+    `<button class="btn ghost sm" onclick="location.hash='#/talents'">← Kembali</button> <button class="btn ghost sm" onclick="talentForm('${id}')">Edit Lengkap</button>`);
   const scheds=DB.schedules.filter(s=>s.talent_id===id).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const income={};scheds.filter(s=>s.status==='Done').forEach(s=>{const mm=s.date.slice(0,7);income[mm]=income[mm]||{count:0,total:0};income[mm].count++;income[mm].total+=s.fee;});
 
-  const basic=`<div class="grid g2"><div class="card"><h3 class="sec">Basic Information</h3><div class="kv">
+  /* Basic Information bisa disunting di tempat. Membuka modal "Edit Talent"
+     hanya untuk membetulkan satu nomor WhatsApp itu terlalu jauh, apalagi
+     modalnya memuat seluruh 12 kolom sekaligus. Tombol Edit di kartu ini
+     menukar isinya jadi kotak isian, dan Simpan mengembalikannya. */
+  const basic=`<div class="grid g2"><div class="card"><h3 class="sec">Basic Information
+    <button class="btn ghost sm" style="float:right;margin-top:-4px" onclick="talentEditInline('${id}')">Edit</button></h3><div class="kv" id="tal_basic_kv">
     <div class="k">Kategori</div><div><span class="badge b-blue">${t.category}</span></div>
     <div class="k">Phone / WA</div><div>${esc(t.phone)} · ${esc(t.whatsapp)}</div>
     <div class="k">Instagram</div><div>${esc(t.instagram||'—')}</div>
@@ -1321,10 +1418,12 @@ function renderTalentDetail(id){
     <div class="k">Manager</div><div>${esc(t.manager_name||'—')}</div>
     <div class="k">Alamat</div><div>${esc(t.address||'—')}</div>
     <div class="k">NPWP</div><div>${esc(t.npwp||'—')}</div>
-    <div class="k">Status</div><div>${statusBadge(t.status)} ${statusBadge(t.contract_status)}</div>
+    <div class="k">Status Talent</div><div>${badgeAktif(t)}</div>
+    <div class="k">Status Kontrak</div><div>${badgeKontrak(t)}</div>
     <div class="k">Notes</div><div>${esc(t.notes||'—')}</div>
   </div></div>
-  <div class="card"><h3 class="sec">Pembayaran</h3><div class="kv">
+  <div class="card"><h3 class="sec">Pembayaran
+    <button class="btn ghost sm" style="float:right;margin-top:-4px" onclick="talentEditInline('${id}')">Edit</button></h3><div class="kv">
     <div class="k">Default Fee</div><div><b>${IDR(t.default_fee)}</b> / show</div>
     <div class="k">Bank</div><div>${esc(t.bank_name)}</div>
     <div class="k">No. Rekening</div><div>${esc(t.bank_account)}</div>
@@ -1345,6 +1444,51 @@ function renderTalentDetail(id){
   <div style="margin-top:16px">${docs}</div>
   <div style="margin-top:16px">${history}</div>
   <div style="margin-top:16px">${monthly}</div>`;
+}
+
+/* Sunting di tempat untuk kartu Basic Information + Pembayaran. Kolom yang
+   ditawarkan sengaja hanya yang memang sering berubah; sisanya (kategori,
+   nama, catatan) tetap lewat "Edit Lengkap" supaya kartunya tidak berubah
+   jadi formulir raksasa kedua. */
+function talentEditInline(id){
+  const t=DB.talents.find(x=>x.id===id); if(!t)return;
+  const kv=document.getElementById('tal_basic_kv'); if(!kv) return talentForm(id);
+  const f=(l,i,v,ph)=>'<div class="k">'+l+'</div><div><input class="inp" id="'+i+'" value="'+esc(v||'')+'" placeholder="'+(ph||'')+'"></div>';
+  kv.innerHTML=
+     '<div class="k">Kategori</div><div><select class="inp" id="ti_cat">'
+       +TAL_CATS.map(c=>'<option'+(t.category===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
+    +f('Phone','ti_phone',t.phone)
+    +f('WhatsApp','ti_wa',t.whatsapp)
+    +f('Instagram','ti_ig',t.instagram)
+    +f('Email','ti_email',t.email)
+    +f('Manager','ti_mgr',t.manager_name)
+    +f('Alamat','ti_addr',t.address)
+    +f('NPWP','ti_npwp',t.npwp)
+    +'<div class="k">Default Fee</div><div>'+uangInput('ti_fee',t.default_fee||0,' class="inp"')+'</div>'
+    +f('Bank','ti_bank',t.bank_name)
+    +f('No. Rekening','ti_acc',t.bank_account)
+    +'<div class="k">Status Talent</div><div><select class="inp" id="ti_st">'
+      +'<option value="Active"'+(t.status!=='Inactive'?' selected':'')+'>Aktif</option>'
+      +'<option value="Inactive"'+(t.status==='Inactive'?' selected':'')+'>Nonaktif</option></select></div>'
+    +'<div class="k">Status Kontrak</div><div><select class="inp" id="ti_ct">'
+      +['None','Active','Expired'].map(k=>'<option value="'+k+'"'+((t.contract_status||'None')===k?' selected':'')+'>'
+        +({None:'Tanpa Kontrak',Active:'Kontrak Berjalan',Expired:'Kontrak Habis'})[k]+'</option>').join('')+'</select></div>'
+    +'<div class="k"></div><div style="display:flex;gap:8px;margin-top:6px">'
+      +'<button class="btn sm" onclick="talentSimpanInline(\''+id+'\')">Simpan</button>'
+      +'<button class="btn ghost sm" onclick="renderTalentDetail(\''+id+'\')">Batal</button></div>';
+}
+function talentSimpanInline(id){
+  const t=DB.talents.find(x=>x.id===id); if(!t)return;
+  const g=x=>{ const el=document.getElementById(x); return el?el.value.trim():''; };
+  if(!g('ti_phone')){ toast('Phone wajib diisi.'); return; }
+  const email=g('ti_email');
+  if(email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast('Email tidak valid.'); return; }
+  Object.assign(t,{category:g('ti_cat'),phone:g('ti_phone'),whatsapp:g('ti_wa'),instagram:g('ti_ig'),
+    email,manager_name:g('ti_mgr'),address:g('ti_addr'),npwp:g('ti_npwp'),
+    default_fee:uangNilai('ti_fee'),bank_name:g('ti_bank'),bank_account:g('ti_acc'),
+    status:g('ti_st'),contract_status:g('ti_ct')});
+  if(!t.account_holder) t.account_holder=t.name;
+  save(); renderTalentDetail(id); toast('✓ Data talent tersimpan.');
 }
 
 /* ============ TALENT SCHEDULE ============ */
@@ -1389,17 +1533,17 @@ function scheduleForm(){
     <div class="field"><label>Jam Mulai</label><input id="s_start" type="time" value="20:00"></div>
     <div class="field"><label>Jam Selesai</label><input id="s_end" type="time" value="23:00"></div>
     <div class="field"><label>Tipe Performance</label><select id="s_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
-    <div class="field"><label>Fee (IDR)</label><input id="s_fee" type="number" value="1500000"></div>
+    <div class="field"><label>Fee (IDR)</label>${uangInput('s_fee',1500000)}</div>
   </div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
-  document.getElementById('s_tal').onchange=function(){document.getElementById('s_fee').value=this.selectedOptions[0].dataset.fee;document.getElementById('s_type').value=this.selectedOptions[0].dataset.cat;};
+  document.getElementById('s_tal').onchange=function(){document.getElementById('s_fee').value=uangFormat(this.selectedOptions[0].dataset.fee);document.getElementById('s_type').value=this.selectedOptions[0].dataset.cat;};
   document.getElementById('s_tal').dispatchEvent(new Event('change'));
 }
 function saveSchedule(){
   const g=x=>document.getElementById(x).value;const tid=g('s_tal'),date=g('s_date'),st=g('s_start'),et=g('s_end');
   if(st>=et){toast('Jam selesai harus > jam mulai.');return;}
   if(hasConflict(tid,date,st,et)){const t=DB.talents.find(x=>x.id===tid);toast('⛔ Talent already booked — '+t.name+' bentrok di '+fmtDate(date));return;}
-  DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date,start_time:st,end_time:et,performance_type:g('s_type'),fee:+g('s_fee'),status:'Scheduled',recurring_rule_id:null,source:'manual'});
+  DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date,start_time:st,end_time:et,performance_type:g('s_type'),fee:uangNilai('s_fee'),status:'Scheduled',recurring_rule_id:null,source:'manual'});
   save();closeModal();renderSchedule();toast('Jadwal tersimpan (tanpa konflik).');
 }
 function recurringModal(){
@@ -1414,7 +1558,7 @@ function recurringModal(){
     <div class="field"><label>Jam Selesai</label><input id="r_end" type="time" value="23:00"></div>
     <div class="field"><label>Dari</label><input id="r_from" type="date" value="${dstr(new Date())}"></div>
     <div class="field"><label>Sampai</label><input id="r_to" type="date" value="${dstr(new Date(new Date().getFullYear(),new Date().getMonth()+2,0))}"></div>
-    <div class="field"><label>Fee</label><input id="r_fee" type="number" value="1500000"></div>
+    <div class="field"><label>Fee</label>${uangInput('r_fee',1500000)}</div>
   </div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="genRecurring()">Generate</button></div>`,true);
 }
@@ -1422,7 +1566,7 @@ function genRecurring(){
   const g=x=>document.getElementById(x).value;
   const dows=[...document.querySelectorAll('.r_dow:checked')].map(c=>+c.value);
   if(!dows.length){toast('Pilih minimal satu hari.');return;}
-  const tid=g('r_tal'),st=g('r_start'),et=g('r_end'),fee=+g('r_fee'),type=g('r_type');
+  const tid=g('r_tal'),st=g('r_start'),et=g('r_end'),fee=uangNilai('r_fee'),type=g('r_type');
   const rid=uid();DB.recurringRules.push({id:rid,talent_id:tid,days_of_week:dows,start_time:st,end_time:et,valid_from:g('r_from'),valid_to:g('r_to'),performance_type:type,fee});
   let added=0,skipped=0;const from=new Date(g('r_from')),to=new Date(g('r_to'));
   for(let d=new Date(from);d<=to;d.setDate(d.getDate()+1)){
@@ -1433,25 +1577,110 @@ function genRecurring(){
   save();closeModal();renderSchedule();toast(`✓ ${added} jadwal dibuat${skipped?', '+skipped+' dilewati (konflik/duplikat)':''}.`);
 }
 function monthlyGenModal(){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>📅 Monthly Scheduling</h3><p class="mini" style="margin-bottom:12px">Tetapkan pola per hari, sistem auto-generate seluruh jadwal ${MONTHS[schMonth.getMonth()]} ${schMonth.getFullYear()}.</p>
-  ${DOW.map((d,i)=>`<div class="grid" style="grid-template-columns:60px 1fr 100px 100px;gap:8px;margin-bottom:8px;align-items:center"><b>${d}</b><select class="mg_tal" data-dow="${i}"><option value="">— kosong —</option>${DB.talents.map(t=>`<option value="${t.id}" data-fee="${t.default_fee}">${esc(t.name)}</option>`).join('')}</select><input class="mg_st" type="time" value="20:00"><input class="mg_et" type="time" value="23:00"></div>`).join('')}
+  /* Bawaan jam & fee diambil dari Daily Rules; kalau hari itu belum punya
+     aturan, dipakai 20:00–23:00 seperti dulu. Fee-nya sekarang KELIHATAN dan
+     bisa ditimpa per hari — sebelum ini fee diam-diam diambil dari default
+     talent, jadi jadwal sebulan bisa ter-generate dengan angka yang tidak
+     pernah dilihat siapa pun sampai muncul di rekap pembayaran. */
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>📅 Monthly Scheduling</h3>
+  <p class="mini" style="margin-bottom:12px">Pola per hari untuk <b>${MONTHS[schMonth.getMonth()]} ${schMonth.getFullYear()}</b>. Bawaannya diambil dari <b>Daily Rules</b>; ubah di sini kalau bulan ini berbeda. Tanggal yang bentrok dilewati, tidak ditimpa.</p>
+  <div class="tbl-edit"><table><thead><tr><th style="width:56px">Hari</th><th>Talent</th><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:140px">Fee / show</th></tr></thead><tbody>
+  ${DOW.map((d,i)=>{
+    const r=ruleHari(i);
+    // Talent yang dipilih lebih dulu: yang kategorinya cocok dengan aturan hari itu.
+    const cocok=r.category?DB.talents.filter(t=>t.category===r.category):[];
+    const pilihan=cocok.length?cocok:DB.talents;
+    return `<tr>
+      <td><b>${d}</b>${r.rule?`<div class="mini" title="${esc(r.rule)}">ℹ</div>`:''}</td>
+      <td><select class="inp mg_tal" data-dow="${i}" onchange="mgIsiFee(this)"><option value="">— kosong —</option>${pilihan.map(t=>`<option value="${t.id}" data-fee="${t.default_fee||0}">${esc(t.name)}${t.category?' · '+t.category:''}</option>`).join('')}</select></td>
+      <td><input class="inp mg_st" type="time" value="${esc(r.start||'20:00')}"></td>
+      <td><input class="inp mg_et" type="time" value="${esc(r.end||'23:00')}"></td>
+      <td><input class="inp mg_fee uang" inputmode="numeric" value="${uangFormat(r.fee||0)}" oninput="uangKetik(this)" placeholder="ikut default talent"></td>
+    </tr>`;}).join('')}
+  </tbody></table></div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="genMonthly()">Generate Bulan Ini</button></div>`,true);
+}
+/* Memilih talent mengisi fee-nya, TAPI hanya kalau kotaknya masih kosong —
+   fee yang datang dari Daily Rules atau yang sudah diketik tangan tidak boleh
+   ditimpa hanya karena talentnya diganti. */
+function mgIsiFee(sel){
+  const baris=sel.closest('tr'); if(!baris)return;
+  const kotak=baris.querySelector('.mg_fee'); if(!kotak)return;
+  const adaIsi=+String(kotak.value).replace(/\D/g,'')>0;
+  if(!adaIsi && sel.selectedOptions[0]) kotak.value=uangFormat(sel.selectedOptions[0].dataset.fee||0);
 }
 function genMonthly(){
   const y=schMonth.getFullYear(),m=schMonth.getMonth(),days=new Date(y,m+1,0).getDate();
-  const rows=[...document.querySelectorAll('.mg_tal')];let added=0,skipped=0;
-  for(let d=1;d<=days;d++){const dt=new Date(y,m,d),dow=dt.getDay();const row=rows.find(r=>+r.dataset.dow===dow);
-    if(row&&row.value){const tid=row.value;const parent=row.parentElement;const st=parent.querySelector('.mg_st').value,et=parent.querySelector('.mg_et').value;const fee=+row.selectedOptions[0].dataset.fee;const ds=dstr(dt);const t=DB.talents.find(x=>x.id===tid);
-      if(hasConflict(tid,ds,st,et)){skipped++;continue;}
-      DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date:ds,start_time:st,end_time:et,performance_type:t.category,fee,status:'Scheduled',recurring_rule_id:null,source:'monthly_generator'});added++;}}
-  save();closeModal();renderSchedule();toast(`✓ ${added} jadwal ter-generate${skipped?', '+skipped+' dilewati':''}.`);
+  const rows=[...document.querySelectorAll('.mg_tal')];
+  let added=0,skipped=0,totalFee=0;
+  for(let d=1;d<=days;d++){
+    const dt=new Date(y,m,d),dow=dt.getDay();
+    const row=rows.find(r=>+r.dataset.dow===dow);
+    if(!row||!row.value) continue;
+    const tid=row.value, tr=row.closest('tr');
+    const st=tr.querySelector('.mg_st').value, et=tr.querySelector('.mg_et').value;
+    if(st>=et){ skipped++; continue; }        // jam terbalik: lewati, jangan simpan
+    /* Fee: yang diketik di baris ini menang; kalau dikosongkan barulah jatuh ke
+       default talent. Itu sebabnya kotaknya berlabel "ikut default talent". */
+    const t=DB.talents.find(x=>x.id===tid); if(!t){ skipped++; continue; }
+    const feeKetik=+String(tr.querySelector('.mg_fee').value).replace(/\D/g,'')||0;
+    const fee=feeKetik||(+t.default_fee||0);
+    const ds=dstr(dt);
+    if(hasConflict(tid,ds,st,et)){skipped++;continue;}
+    DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date:ds,start_time:st,end_time:et,
+      performance_type:t.category,fee,status:'Scheduled',recurring_rule_id:null,source:'monthly_generator'});
+    added++; totalFee+=fee;
+  }
+  save();closeModal();renderSchedule();
+  toast(`✓ ${added} jadwal ter-generate · total fee ${IDR(totalFee)}${skipped?' · '+skipped+' dilewati (bentrok/jam salah)':''}.`);
+}
+/* ---- DAILY ENTERTAINMENT RULES ----
+   Dulu ini cuma satu kotak teks bebas per hari, dan tidak ada satu baris kode
+   pun yang membacanya — padahal keterangannya sendiri berjanji "generator
+   menghormati aturan ini". Jadi aturannya tidak pernah berlaku: yang menulis
+   "Sen: DJ 21:00-01:00" tetap harus mengisi ulang semuanya tiap kali membuat
+   jadwal bulanan.
+
+   Sekarang aturannya berisi kolom yang bisa dipakai mesin: kategori talent,
+   jam mulai/selesai, dan fee. Generate Bulanan mengambil bawaannya dari sini
+   (lihat monthlyGenModal), dan kolom catatan bebas tetap ada untuk hal yang
+   tidak bisa dijadikan kolom. */
+function ruleNormal(r){
+  r=r||{};
+  return {day:r.day||'', rule:r.rule||'', category:r.category||'',
+          start:r.start||'', end:r.end||'', fee:+r.fee||0};
 }
 function dailyRulesModal(){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>⚙ Daily Entertainment Rules</h3><p class="mini" style="margin-bottom:12px">Aturan per hari; generator menghormati aturan ini. Perubahan tidak menghapus jadwal lampau.</p>
-  ${DB.entertainmentRules.map((r,i)=>`<div class="grid" style="grid-template-columns:80px 1fr;gap:10px;margin-bottom:8px;align-items:center"><b>${r.day}</b><input class="er_rule" data-i="${i}" value="${esc(r.rule)}"></div>`).join('')}
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveDailyRules()">Simpan</button></div>`);
+  const rows=DB.entertainmentRules.map(ruleNormal);
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>⚙ Daily Entertainment Rules</h3>
+  <p class="mini" style="margin-bottom:12px">Pola tetap tiap hari. <b>Generate Bulanan mengambil bawaannya dari sini</b> — kategori, jam, dan fee tinggal dipakai atau ditimpa. Mengubah aturan tidak menyentuh jadwal yang sudah ada.</p>
+  <div class="tbl-edit"><table><thead><tr><th style="width:62px">Hari</th><th>Kategori</th><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:130px">Fee</th><th>Catatan</th></tr></thead><tbody>
+  ${rows.map((r,i)=>`<tr>
+    <td><b>${esc(r.day)}</b></td>
+    <td><select class="inp er_cat" data-i="${i}"><option value="">— kosong —</option>${TAL_CATS.map(c=>`<option ${r.category===c?'selected':''}>${c}</option>`).join('')}</select></td>
+    <td><input class="inp er_start" type="time" data-i="${i}" value="${esc(r.start)}"></td>
+    <td><input class="inp er_end" type="time" data-i="${i}" value="${esc(r.end)}"></td>
+    <td><input class="inp er_fee" inputmode="numeric" data-i="${i}" value="${uangFormat(r.fee)}" oninput="uangKetik(this)"></td>
+    <td><input class="inp er_rule" data-i="${i}" value="${esc(r.rule)}" placeholder="catatan bebas"></td>
+  </tr>`).join('')}
+  </tbody></table></div>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveDailyRules()">Simpan</button></div>`,true);
 }
-function saveDailyRules(){document.querySelectorAll('.er_rule').forEach(el=>DB.entertainmentRules[+el.dataset.i].rule=el.value);save();closeModal();toast('Daily rules disimpan.');}
+function saveDailyRules(){
+  DB.entertainmentRules=DB.entertainmentRules.map(ruleNormal);
+  const set=(cls,f)=>document.querySelectorAll('.'+cls).forEach(el=>f(DB.entertainmentRules[+el.dataset.i],el));
+  set('er_cat',  (r,el)=>r.category=el.value);
+  set('er_start',(r,el)=>r.start=el.value);
+  set('er_end',  (r,el)=>r.end=el.value);
+  set('er_fee',  (r,el)=>r.fee=+String(el.value).replace(/\D/g,'')||0);
+  set('er_rule', (r,el)=>r.rule=el.value);
+  save();closeModal();toast('✓ Daily rules disimpan — dipakai Generate Bulanan.');
+}
+// Aturan hari tertentu (0=Minggu). Dipakai Generate Bulanan.
+function ruleHari(dow){
+  const r=(DB.entertainmentRules||[]).find(x=>x&&x.day===DOW[dow]);
+  return r?ruleNormal(r):ruleNormal({});
+}
 
 /* ============ FEE & PAYMENT ============ */
 let feeMonth=dstr(new Date()).slice(0,7);
@@ -1515,8 +1744,12 @@ function payAction(pid){
   <div class="field"><label>Bank Tujuan</label><input id="pay_bank" value="${esc(p.bank||((t.bank_name||'')+(t.bank_account?' - '+t.bank_account:'')))}"></div>
   <div class="field"><label>Bukti Transfer</label><div id="pay_proof">${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div>
     <button class="btn ghost sm" style="margin-top:8px" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button></div>
+  <div class="field"><label>Nominal pada Bukti <span class="mini">(dicocokkan dengan tagihan)</span></label>
+    ${uangInput('pay_amt',p.proof_amount||0,' oninput="uangKetik(this);payCocok()"')}
+    <div id="pay_cocok" style="margin-top:6px">${buktiPeriksaHTML(p)}</div></div>
   <div class="field"><label>PIC Finance</label><input id="pay_pic" value="${esc(p.pic_finance||'Finance')}"></div>
-  <div class="modal-actions"><button class="btn danger" onclick="rejectPay('${pid}')">Reject</button><button class="btn" onclick="markPaid('${pid}')">Set Paid</button></div>`);
+  <div class="modal-actions"><button class="btn danger" onclick="rejectPay('${pid}')">Reject</button><button class="btn" onclick="simpanNominalBukti('${pid}');markPaid('${pid}')">Set Paid</button></div>`);
+  window._payPid=pid;
 }
 // Pratinjau bukti: gambar tampil langsung, PDF jadi tautan.
 function buktiHTML(f){
@@ -1525,9 +1758,23 @@ function buktiHTML(f){
   // sungguhan. Ditampilkan apa adanya, bukan dianggap tautan yang rusak.
   if(typeof f==='string') return `<span class="mini">${esc(f)} <i>(catatan lama, berkasnya tidak tersimpan)</i></span>`;
   if(berkasGambar(f))
-    return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener"><img src="${fileUrl(f.key)}" alt="bukti transfer" class="bukti-img"></a>
+    return `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="Lihat ukuran penuh"><img src="${fileUrl(f.key)}" alt="bukti transfer" class="bukti-img"></a>
             <div class="mini">${esc(f.name)} · ${fmtSize(f.size)}</div>`;
   return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a> <span class="mini">${fmtSize(f.size)}</span>`;
+}
+/* Hasil pemeriksaan bukti transfer. Nominal yang TERBACA di bukti disimpan
+   di p.proof_amount, lalu dibandingkan dengan tagihan. Selisih sekecil apa pun
+   ditandai merah: bukti yang nominalnya beda dari tagihan adalah pertanda
+   transfer salah jumlah atau bukti milik pembayaran lain — dua hal yang paling
+   sering baru ketahuan berbulan-bulan kemudian saat rekonsiliasi. */
+function buktiPeriksaHTML(p){
+  if(!p||!p.transfer_proof) return '';
+  const terbaca=+p.proof_amount||0;
+  if(!terbaca) return '<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  const selisih=terbaca-(+p.total_amount||0);
+  return selisih===0
+    ? '<p class="mini" style="color:var(--green)"><b>✓ Nominal cocok</b> — bukti tertulis '+IDR(terbaca)+', sama dengan tagihan.</p>'
+    : '<p class="mini" style="color:var(--red)"><b>⚠ Nominal TIDAK cocok</b> — bukti tertulis '+IDR(terbaca)+', tagihan '+IDR(p.total_amount)+' (selisih '+(selisih>0?'+':'')+IDR(selisih)+'). Periksa dulu sebelum menandai lunas.</p>';
 }
 function pilihBuktiTransfer(pid){
   pilihBerkas(f=>{
@@ -1538,16 +1785,50 @@ function pilihBuktiTransfer(pid){
     toast('✓ Bukti transfer terunggah.');
   });
 }
+/* "Tandai pembayaran ini LUNAS" dulu memakai confirm() — kotak abu-abu
+   browser berisi teks polos, tanpa bukti transfer yang bisa dilihat, tanpa
+   rekening tujuan, dan di sebagian browser bisa dimatikan sama sekali oleh
+   pengguna ("jangan tampilkan lagi") sehingga langkah konfirmasinya HILANG
+   tanpa jejak. Untuk satu-satunya tombol yang memindahkan uang, itu terlalu
+   ringan. Sekarang layarnya sendiri: ringkasan tagihan, rekening tujuan,
+   pratinjau bukti, dan hasil pemeriksaan bukti kalau ada. */
 function markPaid(pid){
-  const p=DB.talentPayments.find(x=>x.id===pid);
-  // Tanpa bukti, "Paid" cuma klaim. Finance wajib melampirkannya.
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
   if(!p.transfer_proof){toast('Unggah bukti transfer dulu sebelum Set Paid.');return;}
-  const t=DB.talents.find(x=>x.id===p.talent_id);
-  // Konfirmasi dulu — supaya salah tekan tidak langsung menandai lunas.
-  if(!confirm('Tandai pembayaran ini LUNAS?\n\nTalent: '+(t?t.name:'-')+'\nTotal: '+IDR(p.total_amount)+'\n\nStatus jadi Paid dan tercatat di Performance History.'))return;
-  p.status='Paid';p.paid_at=new Date().toISOString();
-  p.bank=document.getElementById('pay_bank').value;
-  p.pic_finance=document.getElementById('pay_pic').value;
+  // Isian di layar sebelumnya disimpan dulu, kalau tidak akan hilang saat
+  // modal ini menggantikannya.
+  const bank=document.getElementById('pay_bank'), pic=document.getElementById('pay_pic');
+  if(bank) p.bank=bank.value;
+  if(pic)  p.pic_finance=pic.value;
+  const t=DB.talents.find(x=>x.id===p.talent_id)||{};
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>Tandai Lunas — ${esc(t.name||'-')}</h3>
+  <p class="mini" style="margin-bottom:12px">Setelah ditandai lunas, status berubah jadi <b>Paid</b>, tercatat di Performance History talent, dan tidak bisa dikembalikan dari layar ini.</p>
+  <div class="kv" style="margin-bottom:12px">
+    <div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div>
+    <div class="k">Jumlah Show</div><div>${p.show_count} show</div>
+    <div class="k">Total Dibayar</div><div><b style="color:var(--accent);font-size:17px">${IDR(p.total_amount)}</b></div>
+    <div class="k">Rekening Tujuan</div><div>${esc(p.bank||t.bank_name||'—')}${t.account_holder?'<br><span class="mini">a/n '+esc(t.account_holder)+'</span>':''}</div>
+    <div class="k">PIC Finance</div><div>${esc(p.pic_finance||'—')}</div>
+  </div>
+  <div class="field"><label>Bukti Transfer</label>${buktiHTML(p.transfer_proof)}</div>
+  <div id="lunas_periksa">${buktiPeriksaHTML(p)}</div>
+  <div class="modal-actions"><button class="btn ghost" onclick="payAction('${pid}')">← Kembali</button>
+    <button class="btn" onclick="markPaidGo('${pid}')">✓ Ya, Tandai Lunas</button></div>`,true);
+}
+// Mencocokkan sambil diketik, tanpa menunggu tombol — kalau nominalnya salah,
+// yang paling berguna adalah tahu SEKARANG, bukan setelah menekan Set Paid.
+function payCocok(){
+  const pid=window._payPid; const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  const box=document.getElementById('pay_cocok'); if(!box)return;
+  box.innerHTML=buktiPeriksaHTML(Object.assign({},p,{proof_amount:uangNilai('pay_amt')}));
+}
+function simpanNominalBukti(pid){
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  const el=document.getElementById('pay_amt'); if(el) p.proof_amount=uangNilai('pay_amt');
+}
+function markPaidGo(pid){
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  p.status='Paid'; p.paid_at=new Date().toISOString();
   save();closeModal();renderFee();toast('✓ Paid — Performance History talent kini menampilkan Paid.');
 }
 function rejectPay(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=DB.talents.find(x=>x.id===p.talent_id);
@@ -1706,8 +1987,9 @@ function renderEventDetail(id){
   const vendor=`<div class="card"><h3 class="sec">🤝 Vendor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editVendor('${id}')">✎ Kelola Vendor</button>`:''}<table><thead><tr><th>Vendor</th><th>PIC</th><th>Phone</th><th>Cost</th><th>Status</th></tr></thead><tbody>${d.vendors.map(v=>`<tr><td>${esc(v.name)}</td><td>${esc(v.pic)}</td><td>${esc(v.phone)}</td><td>${IDR(v.cost)}</td><td>${statusBadge(v.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada vendor.</td></tr>'}</tbody></table></div>`;
   const inc=d.budget.filter(b=>b.type==='Income'),exp=d.budget.filter(b=>b.type==='Expense');const sumB=a=>a.reduce((s,b)=>s+b.budget,0),sumA=a=>a.reduce((s,b)=>s+b.actual,0);const profit=sumA(inc)-sumA(exp);
   const budget=`<div class="grid g3" style="margin-bottom:16px">${stat('Income (Actual)',IDR(sumA(inc)),'budget '+IDR(sumB(inc)))}${stat('Expense (Actual)',IDR(sumA(exp)),'budget '+IDR(sumB(exp)))}${stat('Profit',IDR(profit),profit>=0?'surplus':'defisit')}</div>
-    <div class="card"><h3 class="sec">💰 Budget <span class="mini">— Actual vs Budget vs Variance</span></h3><table><thead><tr><th>Item</th><th>Tipe</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead><tbody>${d.budget.map(b=>{const v=b.actual-b.budget;return `<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.budget)}</td><td>${IDR(b.actual)}</td><td style="color:${v<0?'var(--green)':v>0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${IDR(v)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada budget.</td></tr>'}</tbody></table></div>`;
-  const sponsor=`<div class="card"><h3 class="sec">🏷️ Sponsor</h3><table><thead><tr><th>Sponsor</th><th>Package</th><th>Nominal</th><th>Agreement</th><th>Status</th></tr></thead><tbody>${d.sponsors.map(s=>`<tr><td>${s.logo||''} ${esc(s.name)}</td><td>${esc(s.package)}</td><td>${IDR(s.nominal)}</td><td>${esc(s.agreement)}</td><td>${statusBadge(s.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada sponsor.</td></tr>'}</tbody></table></div>`;
+    <div class="card"><h3 class="sec">💰 Budget <span class="mini">— Actual vs Budget vs Variance</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editBudget('${id}')">✎ Kelola Budget</button>`:''}<table><thead><tr><th>Item</th><th>Tipe</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead><tbody>${d.budget.map(b=>{const v=b.actual-b.budget;return `<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.budget)}</td><td>${IDR(b.actual)}</td><td style="color:${v<0?'var(--green)':v>0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${IDR(v)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada budget.</td></tr>'}</tbody></table></div>`;
+  const sponsor=`<div class="card"><h3 class="sec">🏷️ Sponsor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editSponsor('${id}')">✎ Kelola Sponsor</button>`:''}<table><thead><tr><th>Sponsor</th><th>Package</th><th>Nominal</th><th>Agreement</th><th>Status</th></tr></thead><tbody>${d.sponsors.map(s=>`<tr><td>${s.logo||''} ${esc(s.name)}</td><td>${esc(s.package)}</td><td>${IDR(s.nominal)}</td><td>${esc(s.agreement)}</td><td>${statusBadge(s.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada sponsor.</td></tr>'}<tr><td colspan="2" style="text-align:right"><b>Total sponsor masuk</b></td><td><b>${IDR(d.sponsors.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+(+x.nominal||0),0))}</b></td><td colspan="2"></td></tr>
+  </tbody></table></div>`;
   const task=`<div class="card"><h3 class="sec">✅ Task Internal <span class="mini">(sinkron Task Management)</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editTask('${id}')">✎ Kelola Task</button>`:''}<table><thead><tr><th>✓</th><th>Task</th><th>Assignee</th><th>Due Date</th></tr></thead><tbody>${d.tasks.map((t,i)=>`<tr><td><input type="checkbox" style="width:auto" ${t.done?'checked':''} onchange="toggleTask('${id}',${i})"></td><td ${t.done?'style="text-decoration:line-through;color:var(--muted)"':''}>${esc(t.title)}</td><td>${esc(t.assignee)}</td><td>${fmtDate(t.due)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">Belum ada task.</td></tr>'}</tbody></table></div>`;
   const sec=(html)=>`<div style="margin-top:16px">${html}</div>`;
   const banner=`<div class="evt-banner"><div class="poster-head" style="width:64px;height:64px">${posterKecilHTML(e,64)}</div>
@@ -1732,7 +2014,14 @@ function ambilBaris(wrapId,kolom){
   const wrap=document.getElementById(wrapId); if(!wrap)return [];
   return [...wrap.querySelectorAll('tbody tr')].map(tr=>{
     const o={};
-    kolom.forEach(k=>{ const el=tr.querySelector('[data-r="'+k+'"]'); o[k]=el?(el.type==='checkbox'?el.checked:el.value.trim()):''; });
+    kolom.forEach(k=>{
+      const el=tr.querySelector('[data-r="'+k+'"]');
+      if(!el){ o[k]=''; return; }
+      if(el.type==='checkbox') o[k]=el.checked;
+      // Kotak uang menyimpan "1.500.000" di layar; yang dibaca kode angkanya.
+      else if(el.classList.contains('uang')) o[k]=+String(el.value).replace(/\D/g,'')||0;
+      else o[k]=el.value.trim();
+    });
     return o;
   });
 }
@@ -1777,7 +2066,7 @@ function vendorRowHTML(v){v=v||{};return `<tr>
   <td><input class="inp" data-r="name" value="${esc(v.name||'')}" placeholder="nama vendor"></td>
   <td><input class="inp" data-r="pic" value="${esc(v.pic||'')}" placeholder="PIC"></td>
   <td><input class="inp" data-r="phone" value="${esc(v.phone||'')}" placeholder="08…"></td>
-  <td><input class="inp" type="number" min="0" data-r="cost" value="${+v.cost||0}"></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"></td>
   <td><select class="inp" data-r="status">${VD_STATUS.map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
   <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
 function editVendor(id){
@@ -1812,6 +2101,59 @@ function simpanTask(id){
   const rows=ambilBaris('tk_wrap',TK_COLS).filter(t=>t.title)
     .map(t=>({title:t.title,assignee:t.assignee,due:t.due?new Date(t.due).toISOString():new Date().toISOString(),done:!!t.done}));
   ensureDetails(id).tasks=rows;save();closeModal();renderEventDetail(id);toast('✓ Task tersimpan ('+rows.length+' task).');
+}
+
+/* ---- BUDGET & SPONSOR ----
+   Dua bagian ini sebelumnya HANYA bisa dibaca: tabelnya digambar dari
+   d.budget / d.sponsors, tapi tidak ada satu pun tombol yang bisa mengisinya
+   — jadi selamanya berbunyi "Belum ada budget". Sekarang keduanya memakai
+   pola baris-langsung yang sama dengan Rundown/Vendor/Task: tekan Tambah,
+   baris kosong muncul di tempat, isi, Simpan. */
+const BG_COLS=['item','type','budget','actual'];
+const BG_TYPES=['Expense','Income'];
+function budgetRowHTML(b){b=b||{};return `<tr>
+  <td><input class="inp" data-r="item" value="${esc(b.item||'')}" placeholder="nama item"></td>
+  <td><select class="inp" data-r="type">${BG_TYPES.map(x=>`<option ${b.type===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"></td>
+  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
+function editBudget(id){
+  const d=ensureDetails(id);
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>💰 Budget Event</h3>
+  <p class="mini" style="margin-bottom:10px"><b>Budget</b> = rencana, <b>Actual</b> = yang benar-benar keluar/masuk. Selisihnya dihitung sendiri sebagai Variance.</p>
+  <div id="bg_wrap" class="tbl-edit"><table><thead><tr><th>Item</th><th style="width:130px">Tipe</th><th style="width:150px">Budget</th><th style="width:150px">Actual</th><th style="width:36px"></th></tr></thead>
+  <tbody>${d.budget.length?d.budget.map(budgetRowHTML).join(''):'<tr class="kosong"><td colspan="5" class="empty">Belum ada item — tekan Tambah.</td></tr>'}</tbody></table></div>
+  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('bg_wrap');barisTambah('bg_wrap',budgetRowHTML())">+ Tambah Item</button>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanBudget('${id}')">Simpan</button></div>`,true);
+}
+function simpanBudget(id){
+  const rows=ambilBaris('bg_wrap',BG_COLS).filter(b=>b.item)
+    .map(b=>({item:b.item,type:b.type||'Expense',budget:+b.budget||0,actual:+b.actual||0}));
+  ensureDetails(id).budget=rows;save();closeModal();renderEventDetail(id);
+  toast('✓ Budget tersimpan ('+rows.length+' item).');
+}
+const SP_COLS=['name','package','nominal','agreement','status'];
+const SP_STATUS=['Pending','Confirmed','Paid','Cancelled'];
+function sponsorRowHTML(sp){sp=sp||{};return `<tr>
+  <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"></td>
+  <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"></td>
+  <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"></td>
+  <td><select class="inp" data-r="status">${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
+function editSponsor(id){
+  const d=ensureDetails(id);
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>🏷️ Sponsor Event</h3>
+  <div id="sp_wrap" class="tbl-edit"><table><thead><tr><th>Sponsor</th><th style="width:170px">Package</th><th style="width:150px">Nominal</th><th style="width:150px">Agreement</th><th style="width:130px">Status</th><th style="width:36px"></th></tr></thead>
+  <tbody>${d.sponsors.length?d.sponsors.map(sponsorRowHTML).join(''):'<tr class="kosong"><td colspan="6" class="empty">Belum ada sponsor — tekan Tambah.</td></tr>'}</tbody></table></div>
+  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('sp_wrap');barisTambah('sp_wrap',sponsorRowHTML())">+ Tambah Sponsor</button>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanSponsor('${id}')">Simpan</button></div>`,true);
+}
+function simpanSponsor(id){
+  const rows=ambilBaris('sp_wrap',SP_COLS).filter(x=>x.name)
+    .map(x=>({name:x.name,package:x.package,nominal:+x.nominal||0,agreement:x.agreement,status:x.status||'Pending'}));
+  ensureDetails(id).sponsors=rows;save();closeModal();renderEventDetail(id);
+  toast('✓ Sponsor tersimpan ('+rows.length+' sponsor).');
 }
 
 /* ============ TICKETING ============ */
@@ -1883,6 +2225,26 @@ function buatDenahLM(eid){
 /* Klik kursi = putar status manual (Available → Locked → Sold → Available).
    Kursi yang SUDAH terjual lewat pembelian (punya tiket) tidak boleh dilepas
    dari sini — itu memutus tiket pembeli; lepasnya lewat Refund. */
+/* ---- MODE PILIH KURSI (dipakai layar Catat Penjualan) ----
+   Denah yang sama dipakai dua keperluan: mengelola status kursi (Ticketing)
+   dan memilih kursi yang dibeli. Yang membedakan cuma window._beliMode, jadi
+   tidak ada denah kedua yang harus ikut dirawat. */
+function beliSel(){ if(!Array.isArray(window._beliSelIds)) window._beliSelIds=[]; return window._beliSelIds; }
+function beliSetSel(ids){ window._beliSelIds=(ids||[]).slice(); }
+function beliBisaDipilih(s){
+  if(!s) return false;
+  const tk=DB.tickets.find(t=>t.seat_id===s.id && t.status!=='Cancelled');
+  return !tk && s.status!=='Sold';        // Locked (hold) masih boleh dijual
+}
+function beliToggleSeat(eid,sid){
+  const s=DB.seats.find(x=>x.id===sid); if(!s) return;
+  if(!beliBisaDipilih(s)){ toast('Kursi '+(s.table_no||s.seat_no)+' sudah terjual.'); return; }
+  const sel=beliSel(), i=sel.indexOf(sid);
+  if(i>=0) sel.splice(i,1); else sel.push(sid);
+  beliSetSel(sel);
+  pfGambarDenah(eid);
+  pfRingkas(eid);
+}
 function toggleSeat(eid,sid){
   const s=DB.seats.find(x=>x.id===sid); if(!s) return;
   const tk=DB.tickets.find(t=>t.seat_id===sid && t.status!=='Cancelled');
@@ -1919,6 +2281,12 @@ function seatBox(s){
   if(window._denahRO){
     const tampil=cls==='checked'?'sudah datang':cls==='sold'?'belum datang':cls==='locked'?'hold':'kosong';
     return '<div class="seat '+cls+' ro" title="Kursi '+lbl+meja+' — '+tampil+'">'+lbl+'</div>';
+  }
+  if(window._beliMode){
+    const pilih=beliSel().indexOf(s.id)>=0;
+    const bisa=beliBisaDipilih(s);
+    return '<div class="seat '+cls+(pilih?' sel':'')+'" title="Kursi '+lbl+meja+(bisa?'':' — sudah terjual')+'"'
+      +(bisa?' onclick="beliToggleSeat(\''+s.event_id+'\',\''+s.id+'\')"':' style="cursor:not-allowed"')+'>'+lbl+'</div>';
   }
   return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+lbl+meja+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+lbl+'</div>';
 }
@@ -2033,6 +2401,14 @@ const LDZ_TIERS={
 const LDZ_TIER_NAMES=Object.keys(LDZ_TIERS);
 const LDZ_MIN=16;                       // sisi terkecil sebuah objek (px kanvas)
 function ldzHexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>16)&255)+','+((n>>8)&255)+','+(n&255)+','+a+')'; }
+/* Versi lebih gelap dari warna tier, untuk garis tepi & objek terjual. Dengan
+   isian solid, tepi harus lebih gelap dari isinya — kalau warnanya sama,
+   objek yang berdempetan terbaca sebagai satu blok besar. */
+function ldzGelap(hex){
+  const n=parseInt(hex.slice(1),16);
+  const g=v=>Math.round(v*0.72);
+  return 'rgb('+g((n>>16)&255)+','+g((n>>8)&255)+','+g(n&255)+')';
+}
 function ldzMeta(eid){
   const d=ensureDetails(eid);
   if(!d.layout||typeof d.layout!=='object'||Array.isArray(d.layout)) d.layout={};
@@ -2187,8 +2563,12 @@ function ldzItemHTML(it,edit){
   const st=ldzStatusCls(it);
   const isi=(st==='sold'||st==='checked');
   const sel=(edit&&ldzIsSel(it.id))?' sel':'';
+  /* Isian SOLID untuk semua bentuk — persegi maupun bulat. Sebelumnya objek
+     yang belum terjual diisi warna tier 15% opasitas: di kanvas putih, Silver
+     dan Regular praktis sama-sama abu-abu pucat dan tidak bisa dibedakan.
+     Sekarang warna tier dipakai penuh, tulisannya putih. */
   let sty='left:'+(+it.x||0)+'px;top:'+(+it.y||0)+'px;width:'+(+it.w||40)+'px;height:'+(+it.h||40)+'px;'
-    +'border-color:'+T.c+';background:'+(isi?T.c:ldzHexA(T.c,.15))+';color:'+(isi?'#fff':T.c)+';';
+    +'border-color:'+ldzGelap(T.c)+';background:'+(isi?ldzGelap(T.c):T.c)+';color:#fff;';
   const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
   const judul=(it.kind==='table'?'Meja ':'Kursi ')+(it.table_no||'')+' · '+it.tier+' · '
     +(st==='checked'?'sudah check-in':st==='sold'?'terjual':st==='locked'?'hold':'tersedia');
@@ -2197,6 +2577,11 @@ function ldzItemHTML(it,edit){
      status yang tak sengaja berputar di tengah acara. */
   let aksi='';
   if(edit) aksi=' onpointerdown="ldzDown(event,\''+it.id+'\',\'move\')"';
+  else if(window._beliMode){
+    // Layar penjualan: klik = pilih/lepas, dan yang sedang dipilih diberi cincin.
+    aksi=' onclick="beliToggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;';
+    if(beliSel().indexOf(it.id)>=0) sty+='box-shadow:0 0 0 3px var(--accent);';
+  }
   else if(window._denahRO) sty+='cursor:default;';
   else { aksi=' onclick="toggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;'; }
   return '<div class="ldz-item '+it.shape+' '+st+(edit?' edit':'')+sel+'" id="ldz_'+it.id+'" style="'+sty+'" title="'+esc(judul)+'"'+aksi+'>'
@@ -2799,7 +3184,7 @@ function ticketClassForm(eid){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Ticket Class Baru</h3>
   <div class="grid g2">
     <div class="field"><label>Nama</label><input id="tc_name" placeholder="Regular / VIP / Early Bird"></div>
-    <div class="field"><label>Harga (IDR)</label><input id="tc_price" type="number" value="100000"></div>
+    <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',100000)}</div>
     <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="100"></div>
     <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll"></div>
     <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date())}" onchange="syncSaleWindow()"></div>
@@ -2835,30 +3220,112 @@ function saveTicketClass(eid){
     description:'',benefit:g('tc_benefit'),is_seated:document.getElementById('tc_seated').checked});
   save();closeModal();renderTicketDetail(eid);toast('Ticket class dibuat.');
 }
+/* Satu pembeli boleh mengambil BANYAK kursi sekaligus. Dulu satu penjualan =
+   satu tiket = satu kursi, yang dipilihkan sistem (kursi Available pertama
+   yang ketemu). Rombongan enam orang berarti mengulang formulir enam kali dan
+   kursinya tersebar entah di mana — padahal justru rombongan yang paling
+   ingin duduk berdekatan.
+
+   Sekarang kursinya diklik langsung di denah acara itu (denah kustom kalau
+   ada, template kalau tidak), persis seperti pemilih meja di modul Reservasi.
+   Untuk tiket berdiri (tanpa denah) yang muncul kotak jumlah tiket. */
 function purchaseFlow(eid){
   const e=DB.events.find(x=>x.id===eid);const classes=DB.ticketClasses.filter(c=>c.event_id===eid);
+  beliSetSel([]);
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Catat Penjualan Tiket — ${esc(e.title)}</h3>
-  <p class="mini" style="margin-bottom:12px">Alur: pilih tiket → isi data → bayar (gateway) → webhook Paid → generate QR + e-ticket → kirim Email & WA.</p>
-  <div class="field"><label>Pilih Tiket</label><select id="pf_class">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
+  <div class="field"><label>Pilih Tiket</label><select id="pf_class" onchange="pfKelasBerubah('${eid}')">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
+  <div id="pf_seatwrap"></div>
   <div class="grid g2">
     <div class="field"><label>Nama *</label><input id="pf_name"></div>
     <div class="field"><label>Phone *</label><input id="pf_phone" value="+628"></div>
     <div class="field"><label>Email *</label><input id="pf_email"></div>
     <div class="field"><label>Tgl Lahir</label><input id="pf_bd" type="date"></div>
   </div>
+  <div id="pf_total" class="mini" style="margin-top:10px"></div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" onclick="doPurchase('${eid}')">Simpan &amp; Tandai Lunas</button></div>`,true);
+  pfKelasBerubah(eid);
+}
+// Kursi yang bisa dijual untuk sebuah event (denah kustom didahulukan).
+function pfKursiEvent(eid){
+  const kustom=ldzItems(eid);
+  if(kustom.length) return kustom;
+  return DB.seats.filter(s=>s.event_id===eid && s.zone!=='Custom');
+}
+function pfKelasBerubah(eid){
+  const wrap=document.getElementById('pf_seatwrap'); if(!wrap) return;
+  const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);
+  const adaDenah=pfKursiEvent(eid).length>0;
+  beliSetSel([]);
+  if(c && c.is_seated && adaDenah){
+    wrap.innerHTML='<div class="field"><label>Pilih Kursi <span class="mini">(klik di denah, boleh lebih dari satu)</span></label>'
+      +'<div id="pf_denah"></div><div id="pf_pilihan" class="mini" style="margin-top:6px"></div></div>';
+    pfGambarDenah(eid);
+  } else if(c && c.is_seated){
+    wrap.innerHTML='<p class="mini" style="color:var(--red)">Kelas ini bertanda <b>Seated</b> tapi event ini belum punya denah. Buat denahnya dulu di tab Layout, atau lepas tanda Seated.</p>';
+  } else {
+    wrap.innerHTML='<div class="field"><label>Jumlah Tiket</label><input id="pf_qty" type="number" min="1" value="1" onchange="pfRingkas(\''+eid+'\')" oninput="pfRingkas(\''+eid+'\')"></div>';
+  }
+  pfRingkas(eid);
+}
+function pfGambarDenah(eid){
+  const box=document.getElementById('pf_denah'); if(!box) return;
+  window._beliMode=true;
+  box.innerHTML=ldzItems(eid).length?ldzCanvasHTML(eid,false):seatMapBody(eid);
+  window._beliMode=false;
+}
+function pfRingkas(eid){
+  const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);
+  const pilih=beliSel();
+  const kotak=document.getElementById('pf_pilihan');
+  if(kotak) kotak.innerHTML=pilih.length
+    ? '<b>'+pilih.length+' kursi:</b> '+pilih.map(id=>{const s=DB.seats.find(x=>x.id===id);return esc((s&&(s.table_no||s.seat_no))||'?');}).join(', ')
+    : 'Belum ada kursi dipilih — klik meja/kursi di denah.';
+  const qtyEl=document.getElementById('pf_qty');
+  const n=pilih.length||(qtyEl?Math.max(1,+qtyEl.value||1):1);
+  const tot=document.getElementById('pf_total');
+  if(tot&&c) tot.innerHTML='<b>'+n+' tiket × '+IDR(c.price)+'</b> + biaya layanan '+IDR(5000*n)
+    +' = <b style="color:var(--accent);font-size:15px">'+IDR(n*c.price+5000*n)+'</b>';
 }
 function doPurchase(eid){
-  const g=x=>document.getElementById(x).value.trim();const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
+  const g=x=>{const el=document.getElementById(x);return el?el.value.trim():'';};
+  const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
   if(!name||!phone||!email){toast('Nama, phone, email wajib.');return;}
-  const c=DB.ticketClasses.find(x=>x.id===cid);
-  if(c.sold>=c.quota){toast('⛔ Sold out — kuota tercapai.');return;}
-  // seat hold + atomic-ish
-  c.sold++;
-  const oid=uid();DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',subtotal:c.price,fee:5000,total:c.price+5000,payment_status:'Paid',payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
-  let seatId=null;if(c.is_seated){const av=DB.seats.find(s=>s.ticket_class_id===cid&&s.status==='Available');if(av){av.status='Sold';seatId=av.id;}}
-  const tk={id:uid(),order_item_id:oid,ticket_number:'LM-'+(1000+DB.tickets.length),qr_token:'QR'+uid()+oid,ticket_class_id:cid,seat_id:seatId,pdf_url:'eticket.pdf',status:'Valid'};DB.tickets.push(tk);
-  save();closeModal();toast('✓ Tercatat lunas. E-ticket & QR sudah dibuat — kirim ke pembeli lewat tombol WhatsApp.');window._tixTab='buyers';renderTicketDetail(eid);setTimeout(()=>showETicket(tk.id),400);
+  const c=DB.ticketClasses.find(x=>x.id===cid); if(!c){toast('Pilih kelas tiket dulu.');return;}
+  const kursi=beliSel().slice();
+  const qtyEl=document.getElementById('pf_qty');
+  const jumlah=kursi.length||(qtyEl?Math.max(1,+qtyEl.value||1):1);
+  if(c.is_seated && !kursi.length){toast('Pilih kursinya dulu di denah.');return;}
+  /* Kuota diperiksa untuk SELURUH jumlah, bukan satu per satu — kalau tidak,
+     rombongan 6 orang bisa lolos pada sisa kuota 2 dan kuota jadi minus. */
+  const sisa=(+c.quota||0)-(+c.sold||0);
+  if(jumlah>sisa){toast('⛔ Sisa kuota tinggal '+sisa+' tiket.');return;}
+  // Kursi diperiksa ulang tepat sebelum simpan: bisa saja baru terjual.
+  const bentrok=kursi.filter(id=>!beliBisaDipilih(DB.seats.find(s=>s.id===id)));
+  if(bentrok.length){toast('⛔ Kursi sudah keburu terjual — pilih ulang.');pfGambarDenah(eid);return;}
+
+  const oid=uid();
+  DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',
+    subtotal:c.price*jumlah,fee:5000*jumlah,total:(c.price+5000)*jumlah,payment_status:'Paid',
+    payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),
+    expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
+
+  const dibuat=[];
+  for(let i=0;i<jumlah;i++){
+    let seatId=null;
+    if(kursi.length){ seatId=kursi[i]; const s=DB.seats.find(x=>x.id===seatId); if(s) s.status='Sold'; }
+    else if(c.is_seated){ const av=DB.seats.find(s=>s.ticket_class_id===cid&&s.status==='Available'); if(av){av.status='Sold';seatId=av.id;} }
+    const tk={id:uid(),order_item_id:oid,ticket_number:'LM-'+(1000+DB.tickets.length+i),
+      qr_token:'QR'+uid()+oid+i,ticket_class_id:cid,seat_id:seatId,pdf_url:'eticket.pdf',status:'Valid'};
+    DB.tickets.push(tk); dibuat.push(tk);
+  }
+  c.sold=(+c.sold||0)+jumlah;
+  beliSetSel([]);
+  save();closeModal();
+  toast('✓ '+jumlah+' tiket tercatat lunas'+(kursi.length?' · kursi '+kursi.map(id=>{const s=DB.seats.find(x=>x.id===id);return (s&&(s.table_no||s.seat_no))||'?';}).join(', '):'')+'.');
+  window._tixTab='buyers';renderTicketDetail(eid);
+  // E-ticket pertama dibuka; sisanya lewat daftar pembeli — membuka 6 modal
+  // bertumpuk tidak menolong siapa pun.
+  setTimeout(()=>showETicket(dibuat[0].id),400);
 }
 function showETicket(tid){
   const tk=DB.tickets.find(x=>x.id===tid);const o=DB.orders.find(x=>x.id===tk.order_item_id);const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);const e=DB.events.find(x=>x.id===o.event_id);const seat=tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;
@@ -3011,11 +3478,19 @@ function liveDenahHTML(eid){
   window._denahRO=true;
   // Denah kustom (kalau event ini memakainya) ikut tampil live — warnanya
   // memakai status kedatangan yang sama dengan denah template.
-  const kustom=ldzItems(eid).length
-    ? '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>' : '';
+  /* Event yang punya denah KUSTOM hanya menampilkan denah itu. Sebelumnya
+     keduanya digambar bertumpuk, jadi petugas check-in melihat dua denah untuk
+     satu ruangan — yang satu tata letak asli acara, yang satu template bawaan
+     venue yang tidak dipakai malam itu. Di depan antrean tamu, dua denah yang
+     saling bertentangan lebih buruk daripada tidak ada denah sama sekali. */
+  const punyaKustom=ldzItems(eid).length>0;
+  if(punyaKustom){
+    window._denahRO=false;
+    return '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>';
+  }
   const template=DB.seats.some(s=>s.event_id===eid && s.zone!=='Custom') ? seatMapBody(eid) : '';
   window._denahRO=false;
-  return kustom+template;
+  return template;
 }
 function renderLiveDenah(eid){
   const el=document.getElementById('liveDenah');
@@ -3197,8 +3672,8 @@ function ideaForm(){
     <div class="field"><label>Kategori</label><select id="i_cat">${IDEA_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Target Market</label><input id="i_target"></div>
     <div class="field"><label>Frekuensi</label><select id="i_freq">${FREQS.map(f=>`<option>${f}</option>`).join('')}</select></div>
-    <div class="field"><label>Budget (IDR)</label><input id="i_budget" type="number" value="10000000"></div>
-    <div class="field"><label>Potensi Revenue</label><input id="i_rev" type="number" value="20000000"></div>
+    <div class="field"><label>Budget (IDR)</label>${uangInput('i_budget',10000000)}</div>
+    <div class="field"><label>Potensi Revenue</label>${uangInput('i_rev',20000000)}</div>
     <div class="field"><label>Difficulty</label><select id="i_diff"><option>Easy</option><option>Medium</option><option>Hard</option></select></div>
   </div>
   <div class="field"><label>Deskripsi</label><textarea id="i_desc" rows="2"></textarea></div>
