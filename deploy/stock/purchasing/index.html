@@ -495,19 +495,30 @@
                      ini paling sering datang untuk mencatat hasil produksi,
                      bukan untuk membaca angka. -->
                 <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-                    <h3 class="text-sm font-black text-slate-800 mb-3">Catat Mutasi Stok</h3>
+                    <h3 class="text-sm font-black text-slate-800 mb-1">Catat Stok Masuk / Keluar</h3>
+                    <p class="text-[10px] text-slate-400 mb-3">Barang yang keluar karena pengajuan tim TIDAK perlu dicatat di sini &mdash; itu tercatat sendiri lewat tab <b>Serah Terima</b>.</p>
+
+                    <!-- ARAH dipilih LEBIH DULU dan eksplisit, bukan disimpulkan
+                         dari jenisnya. Sebelumnya arah ditentukan diam-diam di
+                         kode ("produksi = masuk, sisanya keluar"), sehingga
+                         orang yang mau mencatat stok keluar harus menebak jenis
+                         mana yang kebetulan berarti keluar. Bertambah atau
+                         berkurang adalah hal pertama yang orang tahu saat
+                         mencatat — jadi itu pula yang ditanya pertama. -->
+                    <div class="grid grid-cols-2 gap-2 mb-2.5">
+                        <button type="button" onclick="setArahCK('masuk')" id="ck-arah-masuk" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">⬇️ Stok Masuk</button>
+                        <button type="button" onclick="setArahCK('keluar')" id="ck-arah-keluar" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">⬆️ Stok Keluar</button>
+                    </div>
+                    <input type="hidden" id="ck-m-arah" value="masuk">
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
                         <div class="lg:col-span-2">
                             <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Barang</label>
                             <select id="ck-m-item" onchange="renderCKSatuanMutasi()" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
                         </div>
                         <div>
-                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Jenis</label>
-                            <select id="ck-m-sebab" onchange="renderCKSatuanMutasi()" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                                <option value="produksi">➕ Hasil Produksi</option>
-                                <option value="penyesuaian">⚖️ Penyesuaian (koreksi)</option>
-                                <option value="rusak">🗑️ Rusak / Terbuang</option>
-                            </select>
+                            <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Keterangan</label>
+                            <select id="ck-m-sebab" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
                         </div>
                         <div>
                             <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Jumlah</label>
@@ -3402,6 +3413,7 @@
             const tglM = document.getElementById('ck-m-tgl');
             if (tglM && !tglM.value) tglM.value = tglOffsetLokal(0);
             ckSerahTglAktif();   // isi hari ini kalau belum pernah dipilih
+            setArahCK(document.getElementById('ck-m-arah').value);   // susun tombol arah + daftar keterangannya
             // Ditarik sekali per pembukaan halaman, bukan tiap render: saldo
             // berubah karena orang lain, bukan karena menekan sub-tab.
             muatCK(!ckSiapDimuat);
@@ -3702,6 +3714,37 @@
         }
 
         // ---------- STOK / SALDO ----------
+        /* Keterangan yang masuk akal berbeda menurut arahnya: barang tidak
+           "rusak" saat masuk, dan tidak datang dari "produksi" saat keluar.
+           Menawarkan daftar yang sama untuk keduanya berarti membiarkan
+           kombinasi yang tidak berarti apa-apa tercatat di buku besar. */
+        const CK_SEBAB = {
+            masuk:  [['produksi', '➕ Hasil Produksi'], ['penyesuaian', '⚖️ Penyesuaian (koreksi)']],
+            keluar: [['rusak', '🗑️ Rusak / Terbuang'], ['penyesuaian', '⚖️ Penyesuaian (koreksi)']]
+        };
+        function setArahCK(v) {
+            const masuk = (v !== 'keluar');
+            document.getElementById('ck-m-arah').value = masuk ? 'masuk' : 'keluar';
+
+            const ON_IN  = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-emerald-600 text-white border-emerald-600 shadow-sm';
+            const ON_OUT = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-rose-600 text-white border-rose-600 shadow-sm';
+            const OFF    = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-white text-slate-600 border-slate-200 hover:bg-slate-50';
+            document.getElementById('ck-arah-masuk').className  = masuk ? ON_IN  : OFF;
+            document.getElementById('ck-arah-keluar').className = masuk ? OFF    : ON_OUT;
+
+            const sel = document.getElementById('ck-m-sebab');
+            if (sel) {
+                const sebelum = sel.value;
+                const opsi = CK_SEBAB[masuk ? 'masuk' : 'keluar'];
+                sel.innerHTML = opsi.map(([v2, l]) => `<option value="${v2}">${l}</option>`).join('');
+                if (opsi.some(([v2]) => v2 === sebelum)) sel.value = sebelum;
+            }
+
+            const btn = document.getElementById('ck-m-simpan');
+            if (btn) btn.className = 'px-4 py-2 text-xs font-bold rounded-xl text-white shadow-sm transition-all whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed ' +
+                (masuk ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700');
+        }
+
         function renderCKPilihanBarang() {
             const sel = document.getElementById('ck-m-item');
             if (!sel) return;
@@ -3812,10 +3855,8 @@
             if (!item) return showToast("Barang Kosong", "Pilih barang Central Kitchen dulu.", "warning");
             if (qty <= 0) return showToast("Jumlah Kosong", "Isi jumlahnya lebih dari 0.", "warning");
 
-            // Produksi menambah stok; penyesuaian & rusak menguranginya.
-            // Penyesuaian yang menambah dicatat sebagai produksi — arah
-            // ditentukan di sini supaya orang tidak perlu memikirkannya.
-            const arah = (sebab === 'produksi') ? 'masuk' : 'keluar';
+            // Arah dibaca dari pilihan orangnya, bukan disimpulkan dari jenis.
+            const arah = document.getElementById('ck-m-arah').value === 'keluar' ? 'keluar' : 'masuk';
 
             const btn = document.getElementById('ck-m-simpan');
             const htmlAsli = btn.innerHTML;
