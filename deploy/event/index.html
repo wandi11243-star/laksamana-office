@@ -577,19 +577,53 @@ async function uploadBerkas(file){
 }
 function fmtSize(b){ b=+b||0; if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
 function berkasGambar(f){ return /\.(png|jpe?g|gif|webp)$/i.test(String((f&&f.name)||'')); }
+// Untuk menaruh teks di dalam atribut onclick="...('teks')" dengan aman.
+function escJsStr(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/</g,'\\u003c'); }
 /* Pemilih berkas serba-guna. Menaruh hasilnya lewat callback, jadi tiap
    pemakai (bukti transfer / dokumen talent / poster) bebas menyimpannya
    di tempatnya sendiri. */
+const EKST_BOLEH=['jpg','jpeg','png','webp','gif','pdf'];
 function pilihBerkas(onDone,accept){
   const inp=document.createElement('input');
   inp.type='file'; inp.accept=accept||'image/*,application/pdf';
   inp.onchange=async()=>{
     const f=inp.files&&inp.files[0]; if(!f)return;
+    /* Diperiksa DI SINI dulu, sebelum berkasnya dibaca dan dikirim. Server
+       memang menolak jenis & ukuran yang salah, tapi jawabannya baru datang
+       setelah beberapa MB terkirim — dan yang sampai ke layar cuma toast
+       2,8 detik yang keburu hilang. */
+    const ext=String(f.name||'').split('.').pop().toLowerCase();
+    if(EKST_BOLEH.indexOf(ext)<0)
+      return unggahGagal(f,'Jenis berkas <b>.'+esc(ext)+'</b> tidak diterima. Yang bisa diunggah: JPG, PNG, WEBP, GIF, atau PDF.');
+    if(f.size>MAKS_BERKAS)
+      return unggahGagal(f,'Ukurannya <b>'+fmtSize(f.size)+'</b>, melebihi batas 8MB. Kecilkan dulu gambarnya lalu ulangi.');
     toast('Mengunggah '+f.name+'…');
     try{ onDone(await uploadBerkas(f)); }
-    catch(e){ toast('✗ Gagal unggah: '+e.message); }
+    catch(e){ unggahGagal(f,esc(e.message||'server tidak menjawab')); }
   };
   inp.click();
+}
+/* Kegagalan unggah dulu hanya lewat toast yang hilang dalam 2,8 detik — orang
+   melihat "tidak terjadi apa-apa" dan menyimpulkan fitur unggahnya mati.
+   Sekarang alasannya tetap di layar sampai ditutup, lengkap dengan apa yang
+   harus dilakukan. Pesan server ditampilkan apa adanya: "gagal menulis file
+   (cek izin folder)" menunjuk masalah server, bukan salah pengguna. */
+function unggahGagal(f,pesan){
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Gagal mengunggah berkas</h3>'
+   +'<p class="mini" style="margin-bottom:10px">Berkas: <b>'+esc((f&&f.name)||'-')+'</b>'+(f?' · '+fmtSize(f.size):'')+'</p>'
+   +'<p style="color:var(--red)">'+pesan+'</p>'
+   +'<p class="mini" style="margin-top:10px">Kalau pesannya menyebut <i>izin folder</i> atau <i>server</i>, berkasnya tidak pernah sampai — itu perlu dibereskan di server, bukan diulang dari sini.</p>'
+   +'<div class="modal-actions"><button class="btn" onclick="closeModal()">Tutup</button></div>');
+}
+/* Pratinjau berkas ukuran penuh. Dokumen seperti KTP & kontrak memang untuk
+   DIBACA; thumbnail 90px cuma memberi tahu "ada berkasnya", bukan isinya. */
+function pratinjauBerkas(key,nama){
+  const gbr=/\.(png|jpe?g|gif|webp)$/i.test(nama||'');
+  modal('<button class="close" onclick="closeModal()">×</button><h3>'+esc(nama||'Berkas')+'</h3>'
+   +(gbr?'<img src="'+fileUrl(key)+'" alt="'+esc(nama||'')+'" style="max-width:100%;max-height:70vh;display:block;margin:0 auto;border-radius:10px">'
+        :'<p class="mini">Berkas PDF tidak bisa dipratinjau di sini.</p>')
+   +'<div class="modal-actions"><a class="btn ghost" href="'+fileUrl(key)+'" target="_blank" rel="noopener">Buka di tab baru</a>'
+   +'<button class="btn" onclick="closeModal()">Tutup</button></div>',true);
 }
 
 /* ---- bentuk state (jaga-jaga kalau server balas tanpa sebagian koleksi) ---- */
@@ -1330,8 +1364,8 @@ function docCardHTML(t,d){
     isi='<div style="font-size:30px">📄</div><span class="mini">belum ada</span>';
   } else {
     isi=arr.map((f,i)=>berkasGambar(f)
-      ? `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="${fileUrl(f.key)}" class="doc-thumb" alt="${esc(d.l)}"></a>`
-      : `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener" title="${esc(f.name)}"><div style="font-size:30px">📄</div><span class="mini">${esc(f.name)}</span></a>`
+      ? `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="Lihat ${esc(f.name)}"><img src="${fileUrl(f.key)}" class="doc-thumb" alt="${esc(d.l)}"></a>`
+      : `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="${esc(f.name)}"><div style="font-size:30px">📄</div><span class="mini">${esc(f.name)}</span></a>`
     ).join('')
     + `<div class="mini">${arr.length} berkas · ${fmtSize(arr.reduce((a,f)=>a+(+f.size||0),0))}</div>`;
   }
@@ -1724,7 +1758,7 @@ function buktiHTML(f){
   // sungguhan. Ditampilkan apa adanya, bukan dianggap tautan yang rusak.
   if(typeof f==='string') return `<span class="mini">${esc(f)} <i>(catatan lama, berkasnya tidak tersimpan)</i></span>`;
   if(berkasGambar(f))
-    return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener"><img src="${fileUrl(f.key)}" alt="bukti transfer" class="bukti-img"></a>
+    return `<a href="javascript:void 0" onclick="pratinjauBerkas('${escJsStr(f.key)}','${escJsStr(f.name)}')" title="Lihat ukuran penuh"><img src="${fileUrl(f.key)}" alt="bukti transfer" class="bukti-img"></a>
             <div class="mini">${esc(f.name)} · ${fmtSize(f.size)}</div>`;
   return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a> <span class="mini">${fmtSize(f.size)}</span>`;
 }
