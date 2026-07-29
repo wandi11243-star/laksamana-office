@@ -2191,6 +2191,26 @@ function buatDenahLM(eid){
 /* Klik kursi = putar status manual (Available → Locked → Sold → Available).
    Kursi yang SUDAH terjual lewat pembelian (punya tiket) tidak boleh dilepas
    dari sini — itu memutus tiket pembeli; lepasnya lewat Refund. */
+/* ---- MODE PILIH KURSI (dipakai layar Catat Penjualan) ----
+   Denah yang sama dipakai dua keperluan: mengelola status kursi (Ticketing)
+   dan memilih kursi yang dibeli. Yang membedakan cuma window._beliMode, jadi
+   tidak ada denah kedua yang harus ikut dirawat. */
+function beliSel(){ if(!Array.isArray(window._beliSelIds)) window._beliSelIds=[]; return window._beliSelIds; }
+function beliSetSel(ids){ window._beliSelIds=(ids||[]).slice(); }
+function beliBisaDipilih(s){
+  if(!s) return false;
+  const tk=DB.tickets.find(t=>t.seat_id===s.id && t.status!=='Cancelled');
+  return !tk && s.status!=='Sold';        // Locked (hold) masih boleh dijual
+}
+function beliToggleSeat(eid,sid){
+  const s=DB.seats.find(x=>x.id===sid); if(!s) return;
+  if(!beliBisaDipilih(s)){ toast('Kursi '+(s.table_no||s.seat_no)+' sudah terjual.'); return; }
+  const sel=beliSel(), i=sel.indexOf(sid);
+  if(i>=0) sel.splice(i,1); else sel.push(sid);
+  beliSetSel(sel);
+  pfGambarDenah(eid);
+  pfRingkas(eid);
+}
 function toggleSeat(eid,sid){
   const s=DB.seats.find(x=>x.id===sid); if(!s) return;
   const tk=DB.tickets.find(t=>t.seat_id===sid && t.status!=='Cancelled');
@@ -2227,6 +2247,12 @@ function seatBox(s){
   if(window._denahRO){
     const tampil=cls==='checked'?'sudah datang':cls==='sold'?'belum datang':cls==='locked'?'hold':'kosong';
     return '<div class="seat '+cls+' ro" title="Kursi '+lbl+meja+' — '+tampil+'">'+lbl+'</div>';
+  }
+  if(window._beliMode){
+    const pilih=beliSel().indexOf(s.id)>=0;
+    const bisa=beliBisaDipilih(s);
+    return '<div class="seat '+cls+(pilih?' sel':'')+'" title="Kursi '+lbl+meja+(bisa?'':' — sudah terjual')+'"'
+      +(bisa?' onclick="beliToggleSeat(\''+s.event_id+'\',\''+s.id+'\')"':' style="cursor:not-allowed"')+'>'+lbl+'</div>';
   }
   return '<div class="seat '+cls+'" data-ro="'+ro+'" title="Kursi '+lbl+meja+' — '+s.status+'" onclick="toggleSeat(\''+s.event_id+'\',\''+s.id+'\')">'+lbl+'</div>';
 }
@@ -2517,6 +2543,11 @@ function ldzItemHTML(it,edit){
      status yang tak sengaja berputar di tengah acara. */
   let aksi='';
   if(edit) aksi=' onpointerdown="ldzDown(event,\''+it.id+'\',\'move\')"';
+  else if(window._beliMode){
+    // Layar penjualan: klik = pilih/lepas, dan yang sedang dipilih diberi cincin.
+    aksi=' onclick="beliToggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;';
+    if(beliSel().indexOf(it.id)>=0) sty+='box-shadow:0 0 0 3px var(--accent);';
+  }
   else if(window._denahRO) sty+='cursor:default;';
   else { aksi=' onclick="toggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;'; }
   return '<div class="ldz-item '+it.shape+' '+st+(edit?' edit':'')+sel+'" id="ldz_'+it.id+'" style="'+sty+'" title="'+esc(judul)+'"'+aksi+'>'
@@ -3155,30 +3186,112 @@ function saveTicketClass(eid){
     description:'',benefit:g('tc_benefit'),is_seated:document.getElementById('tc_seated').checked});
   save();closeModal();renderTicketDetail(eid);toast('Ticket class dibuat.');
 }
+/* Satu pembeli boleh mengambil BANYAK kursi sekaligus. Dulu satu penjualan =
+   satu tiket = satu kursi, yang dipilihkan sistem (kursi Available pertama
+   yang ketemu). Rombongan enam orang berarti mengulang formulir enam kali dan
+   kursinya tersebar entah di mana — padahal justru rombongan yang paling
+   ingin duduk berdekatan.
+
+   Sekarang kursinya diklik langsung di denah acara itu (denah kustom kalau
+   ada, template kalau tidak), persis seperti pemilih meja di modul Reservasi.
+   Untuk tiket berdiri (tanpa denah) yang muncul kotak jumlah tiket. */
 function purchaseFlow(eid){
   const e=DB.events.find(x=>x.id===eid);const classes=DB.ticketClasses.filter(c=>c.event_id===eid);
+  beliSetSel([]);
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Catat Penjualan Tiket — ${esc(e.title)}</h3>
-  <p class="mini" style="margin-bottom:12px">Alur: pilih tiket → isi data → bayar (gateway) → webhook Paid → generate QR + e-ticket → kirim Email & WA.</p>
-  <div class="field"><label>Pilih Tiket</label><select id="pf_class">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
+  <div class="field"><label>Pilih Tiket</label><select id="pf_class" onchange="pfKelasBerubah('${eid}')">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
+  <div id="pf_seatwrap"></div>
   <div class="grid g2">
     <div class="field"><label>Nama *</label><input id="pf_name"></div>
     <div class="field"><label>Phone *</label><input id="pf_phone" value="+628"></div>
     <div class="field"><label>Email *</label><input id="pf_email"></div>
     <div class="field"><label>Tgl Lahir</label><input id="pf_bd" type="date"></div>
   </div>
+  <div id="pf_total" class="mini" style="margin-top:10px"></div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" onclick="doPurchase('${eid}')">Simpan &amp; Tandai Lunas</button></div>`,true);
+  pfKelasBerubah(eid);
+}
+// Kursi yang bisa dijual untuk sebuah event (denah kustom didahulukan).
+function pfKursiEvent(eid){
+  const kustom=ldzItems(eid);
+  if(kustom.length) return kustom;
+  return DB.seats.filter(s=>s.event_id===eid && s.zone!=='Custom');
+}
+function pfKelasBerubah(eid){
+  const wrap=document.getElementById('pf_seatwrap'); if(!wrap) return;
+  const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);
+  const adaDenah=pfKursiEvent(eid).length>0;
+  beliSetSel([]);
+  if(c && c.is_seated && adaDenah){
+    wrap.innerHTML='<div class="field"><label>Pilih Kursi <span class="mini">(klik di denah, boleh lebih dari satu)</span></label>'
+      +'<div id="pf_denah"></div><div id="pf_pilihan" class="mini" style="margin-top:6px"></div></div>';
+    pfGambarDenah(eid);
+  } else if(c && c.is_seated){
+    wrap.innerHTML='<p class="mini" style="color:var(--red)">Kelas ini bertanda <b>Seated</b> tapi event ini belum punya denah. Buat denahnya dulu di tab Layout, atau lepas tanda Seated.</p>';
+  } else {
+    wrap.innerHTML='<div class="field"><label>Jumlah Tiket</label><input id="pf_qty" type="number" min="1" value="1" onchange="pfRingkas(\''+eid+'\')" oninput="pfRingkas(\''+eid+'\')"></div>';
+  }
+  pfRingkas(eid);
+}
+function pfGambarDenah(eid){
+  const box=document.getElementById('pf_denah'); if(!box) return;
+  window._beliMode=true;
+  box.innerHTML=ldzItems(eid).length?ldzCanvasHTML(eid,false):seatMapBody(eid);
+  window._beliMode=false;
+}
+function pfRingkas(eid){
+  const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);
+  const pilih=beliSel();
+  const kotak=document.getElementById('pf_pilihan');
+  if(kotak) kotak.innerHTML=pilih.length
+    ? '<b>'+pilih.length+' kursi:</b> '+pilih.map(id=>{const s=DB.seats.find(x=>x.id===id);return esc((s&&(s.table_no||s.seat_no))||'?');}).join(', ')
+    : 'Belum ada kursi dipilih — klik meja/kursi di denah.';
+  const qtyEl=document.getElementById('pf_qty');
+  const n=pilih.length||(qtyEl?Math.max(1,+qtyEl.value||1):1);
+  const tot=document.getElementById('pf_total');
+  if(tot&&c) tot.innerHTML='<b>'+n+' tiket × '+IDR(c.price)+'</b> + biaya layanan '+IDR(5000*n)
+    +' = <b style="color:var(--accent);font-size:15px">'+IDR(n*c.price+5000*n)+'</b>';
 }
 function doPurchase(eid){
-  const g=x=>document.getElementById(x).value.trim();const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
+  const g=x=>{const el=document.getElementById(x);return el?el.value.trim():'';};
+  const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
   if(!name||!phone||!email){toast('Nama, phone, email wajib.');return;}
-  const c=DB.ticketClasses.find(x=>x.id===cid);
-  if(c.sold>=c.quota){toast('⛔ Sold out — kuota tercapai.');return;}
-  // seat hold + atomic-ish
-  c.sold++;
-  const oid=uid();DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',subtotal:c.price,fee:5000,total:c.price+5000,payment_status:'Paid',payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
-  let seatId=null;if(c.is_seated){const av=DB.seats.find(s=>s.ticket_class_id===cid&&s.status==='Available');if(av){av.status='Sold';seatId=av.id;}}
-  const tk={id:uid(),order_item_id:oid,ticket_number:'LM-'+(1000+DB.tickets.length),qr_token:'QR'+uid()+oid,ticket_class_id:cid,seat_id:seatId,pdf_url:'eticket.pdf',status:'Valid'};DB.tickets.push(tk);
-  save();closeModal();toast('✓ Tercatat lunas. E-ticket & QR sudah dibuat — kirim ke pembeli lewat tombol WhatsApp.');window._tixTab='buyers';renderTicketDetail(eid);setTimeout(()=>showETicket(tk.id),400);
+  const c=DB.ticketClasses.find(x=>x.id===cid); if(!c){toast('Pilih kelas tiket dulu.');return;}
+  const kursi=beliSel().slice();
+  const qtyEl=document.getElementById('pf_qty');
+  const jumlah=kursi.length||(qtyEl?Math.max(1,+qtyEl.value||1):1);
+  if(c.is_seated && !kursi.length){toast('Pilih kursinya dulu di denah.');return;}
+  /* Kuota diperiksa untuk SELURUH jumlah, bukan satu per satu — kalau tidak,
+     rombongan 6 orang bisa lolos pada sisa kuota 2 dan kuota jadi minus. */
+  const sisa=(+c.quota||0)-(+c.sold||0);
+  if(jumlah>sisa){toast('⛔ Sisa kuota tinggal '+sisa+' tiket.');return;}
+  // Kursi diperiksa ulang tepat sebelum simpan: bisa saja baru terjual.
+  const bentrok=kursi.filter(id=>!beliBisaDipilih(DB.seats.find(s=>s.id===id)));
+  if(bentrok.length){toast('⛔ Kursi sudah keburu terjual — pilih ulang.');pfGambarDenah(eid);return;}
+
+  const oid=uid();
+  DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',
+    subtotal:c.price*jumlah,fee:5000*jumlah,total:(c.price+5000)*jumlah,payment_status:'Paid',
+    payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),
+    expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
+
+  const dibuat=[];
+  for(let i=0;i<jumlah;i++){
+    let seatId=null;
+    if(kursi.length){ seatId=kursi[i]; const s=DB.seats.find(x=>x.id===seatId); if(s) s.status='Sold'; }
+    else if(c.is_seated){ const av=DB.seats.find(s=>s.ticket_class_id===cid&&s.status==='Available'); if(av){av.status='Sold';seatId=av.id;} }
+    const tk={id:uid(),order_item_id:oid,ticket_number:'LM-'+(1000+DB.tickets.length+i),
+      qr_token:'QR'+uid()+oid+i,ticket_class_id:cid,seat_id:seatId,pdf_url:'eticket.pdf',status:'Valid'};
+    DB.tickets.push(tk); dibuat.push(tk);
+  }
+  c.sold=(+c.sold||0)+jumlah;
+  beliSetSel([]);
+  save();closeModal();
+  toast('✓ '+jumlah+' tiket tercatat lunas'+(kursi.length?' · kursi '+kursi.map(id=>{const s=DB.seats.find(x=>x.id===id);return (s&&(s.table_no||s.seat_no))||'?';}).join(', '):'')+'.');
+  window._tixTab='buyers';renderTicketDetail(eid);
+  // E-ticket pertama dibuka; sisanya lewat daftar pembeli — membuka 6 modal
+  // bertumpuk tidak menolong siapa pun.
+  setTimeout(()=>showETicket(dibuat[0].id),400);
 }
 function showETicket(tid){
   const tk=DB.tickets.find(x=>x.id===tid);const o=DB.orders.find(x=>x.id===tk.order_item_id);const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);const e=DB.events.find(x=>x.id===o.event_id);const seat=tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;
@@ -3331,11 +3444,19 @@ function liveDenahHTML(eid){
   window._denahRO=true;
   // Denah kustom (kalau event ini memakainya) ikut tampil live — warnanya
   // memakai status kedatangan yang sama dengan denah template.
-  const kustom=ldzItems(eid).length
-    ? '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>' : '';
+  /* Event yang punya denah KUSTOM hanya menampilkan denah itu. Sebelumnya
+     keduanya digambar bertumpuk, jadi petugas check-in melihat dua denah untuk
+     satu ruangan — yang satu tata letak asli acara, yang satu template bawaan
+     venue yang tidak dipakai malam itu. Di depan antrean tamu, dua denah yang
+     saling bertentangan lebih buruk daripada tidak ada denah sama sekali. */
+  const punyaKustom=ldzItems(eid).length>0;
+  if(punyaKustom){
+    window._denahRO=false;
+    return '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>';
+  }
   const template=DB.seats.some(s=>s.event_id===eid && s.zone!=='Custom') ? seatMapBody(eid) : '';
   window._denahRO=false;
-  return kustom+template;
+  return template;
 }
 function renderLiveDenah(eid){
   const el=document.getElementById('liveDenah');
