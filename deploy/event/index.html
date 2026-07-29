@@ -1710,8 +1710,12 @@ function payAction(pid){
   <div class="field"><label>Bank Tujuan</label><input id="pay_bank" value="${esc(p.bank||((t.bank_name||'')+(t.bank_account?' - '+t.bank_account:'')))}"></div>
   <div class="field"><label>Bukti Transfer</label><div id="pay_proof">${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div>
     <button class="btn ghost sm" style="margin-top:8px" onclick="pilihBuktiTransfer('${pid}')">${p.transfer_proof?'Ganti bukti':'📎 Unggah bukti'}</button></div>
+  <div class="field"><label>Nominal pada Bukti <span class="mini">(dicocokkan dengan tagihan)</span></label>
+    ${uangInput('pay_amt',p.proof_amount||0,' oninput="uangKetik(this);payCocok()"')}
+    <div id="pay_cocok" style="margin-top:6px">${buktiPeriksaHTML(p)}</div></div>
   <div class="field"><label>PIC Finance</label><input id="pay_pic" value="${esc(p.pic_finance||'Finance')}"></div>
-  <div class="modal-actions"><button class="btn danger" onclick="rejectPay('${pid}')">Reject</button><button class="btn" onclick="markPaid('${pid}')">Set Paid</button></div>`);
+  <div class="modal-actions"><button class="btn danger" onclick="rejectPay('${pid}')">Reject</button><button class="btn" onclick="simpanNominalBukti('${pid}');markPaid('${pid}')">Set Paid</button></div>`);
+  window._payPid=pid;
 }
 // Pratinjau bukti: gambar tampil langsung, PDF jadi tautan.
 function buktiHTML(f){
@@ -1724,6 +1728,20 @@ function buktiHTML(f){
             <div class="mini">${esc(f.name)} · ${fmtSize(f.size)}</div>`;
   return `<a href="${fileUrl(f.key)}" target="_blank" rel="noopener">📄 ${esc(f.name)}</a> <span class="mini">${fmtSize(f.size)}</span>`;
 }
+/* Hasil pemeriksaan bukti transfer. Nominal yang TERBACA di bukti disimpan
+   di p.proof_amount, lalu dibandingkan dengan tagihan. Selisih sekecil apa pun
+   ditandai merah: bukti yang nominalnya beda dari tagihan adalah pertanda
+   transfer salah jumlah atau bukti milik pembayaran lain — dua hal yang paling
+   sering baru ketahuan berbulan-bulan kemudian saat rekonsiliasi. */
+function buktiPeriksaHTML(p){
+  if(!p||!p.transfer_proof) return '';
+  const terbaca=+p.proof_amount||0;
+  if(!terbaca) return '<p class="mini">Nominal pada bukti belum dicatat — isi di layar Proses Pembayaran supaya bisa dicocokkan otomatis dengan tagihan.</p>';
+  const selisih=terbaca-(+p.total_amount||0);
+  return selisih===0
+    ? '<p class="mini" style="color:var(--green)"><b>✓ Nominal cocok</b> — bukti tertulis '+IDR(terbaca)+', sama dengan tagihan.</p>'
+    : '<p class="mini" style="color:var(--red)"><b>⚠ Nominal TIDAK cocok</b> — bukti tertulis '+IDR(terbaca)+', tagihan '+IDR(p.total_amount)+' (selisih '+(selisih>0?'+':'')+IDR(selisih)+'). Periksa dulu sebelum menandai lunas.</p>';
+}
 function pilihBuktiTransfer(pid){
   pilihBerkas(f=>{
     const p=DB.talentPayments.find(x=>x.id===pid);
@@ -1733,16 +1751,50 @@ function pilihBuktiTransfer(pid){
     toast('✓ Bukti transfer terunggah.');
   });
 }
+/* "Tandai pembayaran ini LUNAS" dulu memakai confirm() — kotak abu-abu
+   browser berisi teks polos, tanpa bukti transfer yang bisa dilihat, tanpa
+   rekening tujuan, dan di sebagian browser bisa dimatikan sama sekali oleh
+   pengguna ("jangan tampilkan lagi") sehingga langkah konfirmasinya HILANG
+   tanpa jejak. Untuk satu-satunya tombol yang memindahkan uang, itu terlalu
+   ringan. Sekarang layarnya sendiri: ringkasan tagihan, rekening tujuan,
+   pratinjau bukti, dan hasil pemeriksaan bukti kalau ada. */
 function markPaid(pid){
-  const p=DB.talentPayments.find(x=>x.id===pid);
-  // Tanpa bukti, "Paid" cuma klaim. Finance wajib melampirkannya.
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
   if(!p.transfer_proof){toast('Unggah bukti transfer dulu sebelum Set Paid.');return;}
-  const t=DB.talents.find(x=>x.id===p.talent_id);
-  // Konfirmasi dulu — supaya salah tekan tidak langsung menandai lunas.
-  if(!confirm('Tandai pembayaran ini LUNAS?\n\nTalent: '+(t?t.name:'-')+'\nTotal: '+IDR(p.total_amount)+'\n\nStatus jadi Paid dan tercatat di Performance History.'))return;
-  p.status='Paid';p.paid_at=new Date().toISOString();
-  p.bank=document.getElementById('pay_bank').value;
-  p.pic_finance=document.getElementById('pay_pic').value;
+  // Isian di layar sebelumnya disimpan dulu, kalau tidak akan hilang saat
+  // modal ini menggantikannya.
+  const bank=document.getElementById('pay_bank'), pic=document.getElementById('pay_pic');
+  if(bank) p.bank=bank.value;
+  if(pic)  p.pic_finance=pic.value;
+  const t=DB.talents.find(x=>x.id===p.talent_id)||{};
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>Tandai Lunas — ${esc(t.name||'-')}</h3>
+  <p class="mini" style="margin-bottom:12px">Setelah ditandai lunas, status berubah jadi <b>Paid</b>, tercatat di Performance History talent, dan tidak bisa dikembalikan dari layar ini.</p>
+  <div class="kv" style="margin-bottom:12px">
+    <div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div>
+    <div class="k">Jumlah Show</div><div>${p.show_count} show</div>
+    <div class="k">Total Dibayar</div><div><b style="color:var(--accent);font-size:17px">${IDR(p.total_amount)}</b></div>
+    <div class="k">Rekening Tujuan</div><div>${esc(p.bank||t.bank_name||'—')}${t.account_holder?'<br><span class="mini">a/n '+esc(t.account_holder)+'</span>':''}</div>
+    <div class="k">PIC Finance</div><div>${esc(p.pic_finance||'—')}</div>
+  </div>
+  <div class="field"><label>Bukti Transfer</label>${buktiHTML(p.transfer_proof)}</div>
+  <div id="lunas_periksa">${buktiPeriksaHTML(p)}</div>
+  <div class="modal-actions"><button class="btn ghost" onclick="payAction('${pid}')">← Kembali</button>
+    <button class="btn" onclick="markPaidGo('${pid}')">✓ Ya, Tandai Lunas</button></div>`,true);
+}
+// Mencocokkan sambil diketik, tanpa menunggu tombol — kalau nominalnya salah,
+// yang paling berguna adalah tahu SEKARANG, bukan setelah menekan Set Paid.
+function payCocok(){
+  const pid=window._payPid; const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  const box=document.getElementById('pay_cocok'); if(!box)return;
+  box.innerHTML=buktiPeriksaHTML(Object.assign({},p,{proof_amount:uangNilai('pay_amt')}));
+}
+function simpanNominalBukti(pid){
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  const el=document.getElementById('pay_amt'); if(el) p.proof_amount=uangNilai('pay_amt');
+}
+function markPaidGo(pid){
+  const p=DB.talentPayments.find(x=>x.id===pid); if(!p)return;
+  p.status='Paid'; p.paid_at=new Date().toISOString();
   save();closeModal();renderFee();toast('✓ Paid — Performance History talent kini menampilkan Paid.');
 }
 function rejectPay(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=DB.talents.find(x=>x.id===p.talent_id);
@@ -1901,8 +1953,9 @@ function renderEventDetail(id){
   const vendor=`<div class="card"><h3 class="sec">🤝 Vendor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editVendor('${id}')">✎ Kelola Vendor</button>`:''}<table><thead><tr><th>Vendor</th><th>PIC</th><th>Phone</th><th>Cost</th><th>Status</th></tr></thead><tbody>${d.vendors.map(v=>`<tr><td>${esc(v.name)}</td><td>${esc(v.pic)}</td><td>${esc(v.phone)}</td><td>${IDR(v.cost)}</td><td>${statusBadge(v.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada vendor.</td></tr>'}</tbody></table></div>`;
   const inc=d.budget.filter(b=>b.type==='Income'),exp=d.budget.filter(b=>b.type==='Expense');const sumB=a=>a.reduce((s,b)=>s+b.budget,0),sumA=a=>a.reduce((s,b)=>s+b.actual,0);const profit=sumA(inc)-sumA(exp);
   const budget=`<div class="grid g3" style="margin-bottom:16px">${stat('Income (Actual)',IDR(sumA(inc)),'budget '+IDR(sumB(inc)))}${stat('Expense (Actual)',IDR(sumA(exp)),'budget '+IDR(sumB(exp)))}${stat('Profit',IDR(profit),profit>=0?'surplus':'defisit')}</div>
-    <div class="card"><h3 class="sec">💰 Budget <span class="mini">— Actual vs Budget vs Variance</span></h3><table><thead><tr><th>Item</th><th>Tipe</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead><tbody>${d.budget.map(b=>{const v=b.actual-b.budget;return `<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.budget)}</td><td>${IDR(b.actual)}</td><td style="color:${v<0?'var(--green)':v>0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${IDR(v)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada budget.</td></tr>'}</tbody></table></div>`;
-  const sponsor=`<div class="card"><h3 class="sec">🏷️ Sponsor</h3><table><thead><tr><th>Sponsor</th><th>Package</th><th>Nominal</th><th>Agreement</th><th>Status</th></tr></thead><tbody>${d.sponsors.map(s=>`<tr><td>${s.logo||''} ${esc(s.name)}</td><td>${esc(s.package)}</td><td>${IDR(s.nominal)}</td><td>${esc(s.agreement)}</td><td>${statusBadge(s.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada sponsor.</td></tr>'}</tbody></table></div>`;
+    <div class="card"><h3 class="sec">💰 Budget <span class="mini">— Actual vs Budget vs Variance</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editBudget('${id}')">✎ Kelola Budget</button>`:''}<table><thead><tr><th>Item</th><th>Tipe</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead><tbody>${d.budget.map(b=>{const v=b.actual-b.budget;return `<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.budget)}</td><td>${IDR(b.actual)}</td><td style="color:${v<0?'var(--green)':v>0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${IDR(v)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada budget.</td></tr>'}</tbody></table></div>`;
+  const sponsor=`<div class="card"><h3 class="sec">🏷️ Sponsor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editSponsor('${id}')">✎ Kelola Sponsor</button>`:''}<table><thead><tr><th>Sponsor</th><th>Package</th><th>Nominal</th><th>Agreement</th><th>Status</th></tr></thead><tbody>${d.sponsors.map(s=>`<tr><td>${s.logo||''} ${esc(s.name)}</td><td>${esc(s.package)}</td><td>${IDR(s.nominal)}</td><td>${esc(s.agreement)}</td><td>${statusBadge(s.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada sponsor.</td></tr>'}<tr><td colspan="2" style="text-align:right"><b>Total sponsor masuk</b></td><td><b>${IDR(d.sponsors.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+(+x.nominal||0),0))}</b></td><td colspan="2"></td></tr>
+  </tbody></table></div>`;
   const task=`<div class="card"><h3 class="sec">✅ Task Internal <span class="mini">(sinkron Task Management)</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editTask('${id}')">✎ Kelola Task</button>`:''}<table><thead><tr><th>✓</th><th>Task</th><th>Assignee</th><th>Due Date</th></tr></thead><tbody>${d.tasks.map((t,i)=>`<tr><td><input type="checkbox" style="width:auto" ${t.done?'checked':''} onchange="toggleTask('${id}',${i})"></td><td ${t.done?'style="text-decoration:line-through;color:var(--muted)"':''}>${esc(t.title)}</td><td>${esc(t.assignee)}</td><td>${fmtDate(t.due)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">Belum ada task.</td></tr>'}</tbody></table></div>`;
   const sec=(html)=>`<div style="margin-top:16px">${html}</div>`;
   const banner=`<div class="evt-banner"><div class="poster-head" style="width:64px;height:64px">${posterKecilHTML(e,64)}</div>
@@ -2014,6 +2067,59 @@ function simpanTask(id){
   const rows=ambilBaris('tk_wrap',TK_COLS).filter(t=>t.title)
     .map(t=>({title:t.title,assignee:t.assignee,due:t.due?new Date(t.due).toISOString():new Date().toISOString(),done:!!t.done}));
   ensureDetails(id).tasks=rows;save();closeModal();renderEventDetail(id);toast('✓ Task tersimpan ('+rows.length+' task).');
+}
+
+/* ---- BUDGET & SPONSOR ----
+   Dua bagian ini sebelumnya HANYA bisa dibaca: tabelnya digambar dari
+   d.budget / d.sponsors, tapi tidak ada satu pun tombol yang bisa mengisinya
+   — jadi selamanya berbunyi "Belum ada budget". Sekarang keduanya memakai
+   pola baris-langsung yang sama dengan Rundown/Vendor/Task: tekan Tambah,
+   baris kosong muncul di tempat, isi, Simpan. */
+const BG_COLS=['item','type','budget','actual'];
+const BG_TYPES=['Expense','Income'];
+function budgetRowHTML(b){b=b||{};return `<tr>
+  <td><input class="inp" data-r="item" value="${esc(b.item||'')}" placeholder="nama item"></td>
+  <td><select class="inp" data-r="type">${BG_TYPES.map(x=>`<option ${b.type===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"></td>
+  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
+function editBudget(id){
+  const d=ensureDetails(id);
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>💰 Budget Event</h3>
+  <p class="mini" style="margin-bottom:10px"><b>Budget</b> = rencana, <b>Actual</b> = yang benar-benar keluar/masuk. Selisihnya dihitung sendiri sebagai Variance.</p>
+  <div id="bg_wrap" class="tbl-edit"><table><thead><tr><th>Item</th><th style="width:130px">Tipe</th><th style="width:150px">Budget</th><th style="width:150px">Actual</th><th style="width:36px"></th></tr></thead>
+  <tbody>${d.budget.length?d.budget.map(budgetRowHTML).join(''):'<tr class="kosong"><td colspan="5" class="empty">Belum ada item — tekan Tambah.</td></tr>'}</tbody></table></div>
+  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('bg_wrap');barisTambah('bg_wrap',budgetRowHTML())">+ Tambah Item</button>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanBudget('${id}')">Simpan</button></div>`,true);
+}
+function simpanBudget(id){
+  const rows=ambilBaris('bg_wrap',BG_COLS).filter(b=>b.item)
+    .map(b=>({item:b.item,type:b.type||'Expense',budget:+b.budget||0,actual:+b.actual||0}));
+  ensureDetails(id).budget=rows;save();closeModal();renderEventDetail(id);
+  toast('✓ Budget tersimpan ('+rows.length+' item).');
+}
+const SP_COLS=['name','package','nominal','agreement','status'];
+const SP_STATUS=['Pending','Confirmed','Paid','Cancelled'];
+function sponsorRowHTML(sp){sp=sp||{};return `<tr>
+  <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"></td>
+  <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"></td>
+  <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"></td>
+  <td><select class="inp" data-r="status">${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
+function editSponsor(id){
+  const d=ensureDetails(id);
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>🏷️ Sponsor Event</h3>
+  <div id="sp_wrap" class="tbl-edit"><table><thead><tr><th>Sponsor</th><th style="width:170px">Package</th><th style="width:150px">Nominal</th><th style="width:150px">Agreement</th><th style="width:130px">Status</th><th style="width:36px"></th></tr></thead>
+  <tbody>${d.sponsors.length?d.sponsors.map(sponsorRowHTML).join(''):'<tr class="kosong"><td colspan="6" class="empty">Belum ada sponsor — tekan Tambah.</td></tr>'}</tbody></table></div>
+  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('sp_wrap');barisTambah('sp_wrap',sponsorRowHTML())">+ Tambah Sponsor</button>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanSponsor('${id}')">Simpan</button></div>`,true);
+}
+function simpanSponsor(id){
+  const rows=ambilBaris('sp_wrap',SP_COLS).filter(x=>x.name)
+    .map(x=>({name:x.name,package:x.package,nominal:+x.nominal||0,agreement:x.agreement,status:x.status||'Pending'}));
+  ensureDetails(id).sponsors=rows;save();closeModal();renderEventDetail(id);
+  toast('✓ Sponsor tersimpan ('+rows.length+' sponsor).');
 }
 
 /* ============ TICKETING ============ */
