@@ -570,6 +570,10 @@ function pur_products_ambil($pdo) {
     if (!isset($p->sumber) || !is_string($p->sumber)) $p->sumber = '';
     $p->packIsi = isset($p->packIsi) ? (float)$p->packIsi : 0;
     if (!isset($p->packSatuan) || !is_string($p->packSatuan)) $p->packSatuan = '';
+    // diOutlet: barang CK yang juga disimpan di outlet, jadi bisa dikirim
+    // balik ke CK. Dinormalkan ke bool supaya frontend tidak perlu
+    // memeriksa tipenya tiap pemakaian.
+    $p->diOutlet = !empty($p->diOutlet);
     $out[$r['nama']] = $p;
   }
   return (object)$out;
@@ -591,7 +595,7 @@ function pur_products_ambil($pdo) {
 
    packIsi + packSatuan = isi satu pack, mis. 1 Pack = 500 Gram. Itulah yang
    membuat "2 Pack" dan "1000 Gram" bisa dijumlah jadi satu saldo. */
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null) {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -617,8 +621,9 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $sumberLama = '';
   $packIsiLama = 0;
   $packSatuanLama = '';
+  $diOutletLama = false;
   if ($satuan === null || $kategori === null || $area === null || $caraBeli === null
-      || $sumber === null || $packIsi === null || $packSatuan === null) {
+      || $sumber === null || $packIsi === null || $packSatuan === null || $diOutlet === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -631,6 +636,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->sumber) && is_string($lama->sumber)) $sumberLama = $lama->sumber;
       if (is_object($lama) && isset($lama->packIsi)) $packIsiLama = (float)$lama->packIsi;
       if (is_object($lama) && isset($lama->packSatuan) && is_string($lama->packSatuan)) $packSatuanLama = $lama->packSatuan;
+      if (is_object($lama) && isset($lama->diOutlet)) $diOutletLama = (bool)$lama->diOutlet;
     }
   }
   if ($satuan === null)     $satuan = $satuanLama;
@@ -640,6 +646,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   if ($sumber === null)     $sumber = $sumberLama;
   if ($packIsi === null)    $packIsi = $packIsiLama;
   if ($packSatuan === null) $packSatuan = $packSatuanLama;
+  if ($diOutlet === null)   $diOutlet = $diOutletLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -667,7 +674,12 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
 
   $packIsi    = (float)$packIsi;
   $packSatuan = trim((string)$packSatuan);
-  if ($sumber !== 'ck') { $packIsi = 0; $packSatuan = ''; }   // pack cuma berarti untuk barang CK
+  /* diOutlet: barang CK ini JUGA disimpan di outlet, jadi outlet punya
+     sesuatu untuk dikirim balik ke CK (retur sisa, titipan stok berlebih).
+     Barang yang cuma ada di CK tidak pernah dipegang outlet — menawarkannya
+     di form "Kirim ke CK" berarti menawarkan mengirim barang yang tidak ada. */
+  $diOutlet = (bool)$diOutlet;
+  if ($sumber !== 'ck') { $packIsi = 0; $packSatuan = ''; $diOutlet = false; }   // hanya berarti untuk barang CK
   if ($packIsi < 0) $packIsi = 0;
 
   /* Satuan barang CK DIPAKSA jadi [Pack, satuan dasar], bukan dibiarkan
@@ -681,7 +693,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
 
   $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan,
                   'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli,
-                  'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan];
+                  'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan,
+                  'diOutlet' => $diOutlet];
 
   $pdo->beginTransaction();
   try {
