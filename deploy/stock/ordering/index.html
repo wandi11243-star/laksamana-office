@@ -378,7 +378,7 @@
                              berbeda dan berlaku bersamaan (mis. "Bar" + "In Progress"),
                              jadi menaruhnya dalam satu deret akan menyiratkan
                              pilihan tunggal yang saling meniadakan. -->
-                        <div class="flex gap-2 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
+                        <div id="tim-filter-row" class="flex gap-2 overflow-x-auto pb-1 pt-1 border-t border-slate-100">
                             <span class="shrink-0 self-center text-[9px] font-black uppercase tracking-widest text-slate-400 pr-1">Tim</span>
                             <button data-timfilter="all" onclick="setTimFilter('all')" class="tim-filter-btn shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border border-slate-700 bg-slate-700 text-white transition-all">Semua</button>
                             <button data-timfilter="Kitchen" onclick="setTimFilter('Kitchen')" class="tim-filter-btn shrink-0 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border border-slate-200 bg-white text-slate-500 transition-all"><i class="fa-solid fa-kitchen-set text-[9px] mr-1"></i>Kitchen</button>
@@ -415,6 +415,11 @@
                             <span id="detail-po-badge" class="shrink-0 px-3 py-1.5 text-[10px] font-black rounded-full uppercase tracking-wider bg-amber-400 text-amber-900"></span>
                         </div>
                     </div>
+
+                    <!-- Keterangan penyaringan tim. Muncul hanya saat ada barang
+                         tim lain yang disembunyikan dari kru ini, supaya PO yang
+                         isinya berkurang tidak terbaca sebagai kiriman kurang. -->
+                    <div id="detail-tim-note" class="hidden px-5 py-2.5 bg-amber-50 border-b border-amber-100 text-[10.5px] text-amber-900 font-medium"></div>
 
                     <div class="overflow-x-auto">
                         <table class="w-full text-left border-collapse min-w-[600px]">
@@ -1286,6 +1291,11 @@
             switchTab(canOrder ? 'order' : 'checkin');
             document.getElementById('tab-order').classList.toggle('hidden', !canOrder);
             document.querySelectorAll('.tab-btn-mobile[data-tab="order"]').forEach(b => b.classList.toggle('hidden', !canOrder));
+
+            // Kunci tim Check-in ditetapkan di sini juga, bukan cuma saat
+            // render: identitas baru diketahui pada titik ini, dan filternya
+            // harus sudah benar sebelum daftar PO pertama digambar.
+            terapkanKunciTim();
         }
 
         // ==========================================
@@ -2913,7 +2923,46 @@
             return (row.tim || "").trim() || getKeterangan(row.pic || "");
         }
 
+        // ==========================================
+        //  KUNCI TIM DI CHECK-IN
+        // ==========================================
+        // Kru ber-Tim Kitchen/Bar/Floor hanya melihat orderan TIMNYA SENDIRI,
+        // dan deretan tombol filter Tim disembunyikan untuknya — buat dia
+        // tombol itu tidak punya pilihan yang berarti, cuma satu-satunya tim
+        // yang boleh dia lihat.
+        //
+        // Admin modul tetap melihat semua walau punya Tim. Aturan yang sama
+        // sudah dipakai modul Stock · Pemakaian Bahan Baku, dan menyimpang di
+        // sini akan membuat "kenapa di sana saya lihat semua tapi di sini
+        // tidak" jadi pertanyaan yang tak ada jawabannya.
+        const TIM_LIST = ['Kitchen', 'Bar', 'Floor'];
+        // Keterangan di Office boleh berisi kata lain ("Kitchen Senior"), jadi
+        // dicocokkan sebagai KATA, bukan disamakan persis. Tanpa ini kru yang
+        // keterangannya diperjelas malah lolos dari penyaringan.
+        function timDariKeterangan(ket) {
+            const s = String(ket || "").toLowerCase();
+            return TIM_LIST.find(t => new RegExp('\\b' + t.toLowerCase() + '\\b').test(s)) || "";
+        }
+        // "" = boleh melihat semua tim.
+        function timTerkunci() {
+            if (!currentUser) return "";
+            if (currentUser.role === 'admin') return "";
+            return timDariKeterangan(currentUser.keterangan);
+        }
+        // Dipanggil sesudah identitas diketahui. Menyembunyikan baris filter
+        // sekaligus mengunci nilainya, supaya render mana pun sesudah ini
+        // sudah membawa tim yang benar tanpa perlu mengingat memanggil apa-apa.
+        function terapkanKunciTim() {
+            const kunci = timTerkunci();
+            const row = document.getElementById('tim-filter-row');
+            if (row) row.classList.toggle('hidden', !!kunci);
+            if (kunci) timFilter = kunci;
+        }
+
         function setTimFilter(t) {
+            // Penjaga kedua. Yang pertama menyembunyikan tombolnya; ini
+            // menahan pemanggilan dari mana pun selain tombol itu.
+            if (timTerkunci()) return;
             timFilter = t;
             document.querySelectorAll('.tim-filter-btn').forEach(btn => {
                 const active = btn.dataset.timfilter === t;
@@ -2941,8 +2990,14 @@
             // itemnya milik tim terpilih — batch campuran (mis. Kitchen menitip
             // satu barang Bar) tetap terlihat oleh kedua tim, karena kartunya
             // memang satu kedatangan fisik yang sama.
-            if (timFilter !== 'all') {
-                groups = groups.filter(g => g.items.some(it => timDariRecord(it) === timFilter));
+            // Kunci tim menang atas pilihan filter apa pun. Ditegakkan DI SINI,
+            // bukan hanya saat menyembunyikan tombolnya: kalau cuma tombolnya
+            // yang disembunyikan, timFilter lama dari sesi sebelumnya masih
+            // bisa membawa order tim lain ke layar.
+            const kunciTim = timTerkunci();
+            const timAktif = kunciTim || timFilter;
+            if (timAktif !== 'all') {
+                groups = groups.filter(g => g.items.some(it => timDariRecord(it) === timAktif));
             }
 
             // Filter status
@@ -3106,7 +3161,28 @@
             const tbody = document.getElementById('history-table-body');
             tbody.innerHTML = '';
 
-            const items = group.items.slice().sort((a, b) => String(a.item || "").localeCompare(String(b.item || "")));
+            /* Isi PO ikut disaring untuk kru yang timnya terkunci. Satu batch
+               sering campuran — Kitchen menitip satu barang Bar — dan yang
+               memegang barang cuma perlu mencentang miliknya sendiri.
+
+               Barang tim lain TIDAK dihapus diam-diam: jumlahnya disebut di
+               baris keterangan bawah. Kalau tidak, orang yang menerima kiriman
+               fisik akan mengira PO-nya kurang barang. Yang tersembunyi juga
+               aman dari tombol Simpan — saveCheckinData() melewati baris yang
+               elemennya tidak ada di DOM, jadi centang tim lain tidak tersapu. */
+            const kunciTim = timTerkunci();
+            const semua = group.items.slice();
+            const dipakai = kunciTim ? semua.filter(it => timDariRecord(it) === kunciTim) : semua;
+            const disembunyikan = semua.length - dipakai.length;
+            const catatanTim = document.getElementById('detail-tim-note');
+            if (catatanTim) {
+                catatanTim.innerHTML = disembunyikan
+                    ? `<i class="fa-solid fa-filter"></i> Menampilkan <b>${dipakai.length}</b> barang tim <b>${kunciTim}</b>. <b>${disembunyikan}</b> barang tim lain di PO ini disembunyikan dan dicentang oleh timnya masing-masing.`
+                    : '';
+                catatanTim.classList.toggle('hidden', !disembunyikan);
+            }
+
+            const items = dipakai.sort((a, b) => String(a.item || "").localeCompare(String(b.item || "")));
 
             items.forEach((row) => {
                 const id = row.rowIndex;
