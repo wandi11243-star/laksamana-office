@@ -2003,11 +2003,36 @@ function roleAcc(role){
   if(role==='super_admin'){ const p={}; permViewKeys().forEach(v=>p[v]=PERM_EDIT); return p; }
   return (S.roleAcc && S.roleAcc[role] && typeof S.roleAcc[role]==='object') ? S.roleAcc[role] : roleDefaultPerms(role);
 }
+/* ROLE YANG BENAR-BENAR BERLAKU untuk seseorang.
+
+   Menyetel role kosong hanya di dalam sinkronisasi roster ternyata tidak cukup:
+   yang disentuh sinkronisasi CUMA orang yang dikirim Office pada panggilan itu.
+   Kru yang sudah tidak ada di roster, atau yang tersimpan sebelum aturan ini
+   ada, tetap memegang role lamanya selamanya — di layar Pegawai & Akses
+   terlihat sebagai baris ber-Tim "—" tapi ber-role Marketing. Karena itu
+   gerbangnya dipindah ke tempat hak akses DIBACA, sehingga berlaku untuk semua
+   orang, apa pun jalan masuk datanya.
+
+   Super Admin dikecualikan: role itu diberikan Office lewat adminModules tiap
+   boot, bukan ditebak dari Tim, dan mengunci mereka berarti mengunci orang yang
+   berwenang mengisi kolom Tim. */
+function roleEfektif(u){
+  if(!u) return '';
+  if(u.role==='super_admin') return 'super_admin';
+  return timUser(u) ? (u.role||'') : '';
+}
+// Sedang ditahan: punya role tersimpan, tapi Tim-nya kosong.
+function aksesDitahan(u){ return !!(u && u.role && u.role!=='super_admin' && !timUser(u)); }
 // hak akses per user: override user (bila ada) > matriks role
 function userAcc(u){
   if(!u) return {};
-  if(u.role==='super_admin') return roleAcc('super_admin');
-  return (u.acc && typeof u.acc==='object') ? u.acc : roleAcc(u.role);
+  const role=roleEfektif(u);
+  if(role==='super_admin') return roleAcc('super_admin');
+  /* Gerbang Tim menang atas override per-user. Kalau tidak, orang bertanda
+     "custom" di Pegawai & Akses tetap bisa masuk tanpa Tim — dan justru
+     merekalah yang aksesnya paling lebar. */
+  if(!role) return {};
+  return (u.acc && typeof u.acc==='object') ? u.acc : roleAcc(role);
 }
 function viewPerm(view, u){ const acc=userAcc(u); const v=acc[view]; return typeof v==='number' ? v : PERM_NONE; }
 // nav/perms lama (array-based) DIBUANG — dipertahankan hanya sebagai NAMA fungsi
@@ -2019,7 +2044,7 @@ function userPerms(u){
   return Object.keys(ACTION_VIEW).filter(a=>viewPerm(ACTION_VIEW[a],u)>=PERM_EDIT);
 }
 function hasCustomAccess(u){ return (u.acc&&typeof u.acc==='object')||Array.isArray(u.nav)||Array.isArray(u.perms); }
-function can(action){ if(!ME)return false; if(ME.role==='super_admin')return true; return userPerms(ME).includes(action); }
+function can(action){ if(!ME)return false; if(roleEfektif(ME)==='super_admin')return true; return userPerms(ME).includes(action); }
 /* ============================================================
    EVENT SCHEMA (Modul D.1–D.11) — drives form + Event Brief
    field types: text|ta|date|time|timerange|num|cur|sel|multi|tog|yn
@@ -9334,9 +9359,13 @@ function renderStaff(V){
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('pegawai',KOL_PEGAWAI)+'<tbody>';
   p.items.forEach(u=>{
     const custom=hasCustomAccess(u)?' <span class="tag" style="background:var(--violet-bg);color:var(--violet)">custom</span>':'';
+    /* Role tersimpan tetap ditampilkan apa adanya — itu yang akan berlaku
+       begitu Tim-nya diisi — tapi diberi tanda supaya tidak ada yang mengira
+       orang ini sudah bisa masuk. */
+    const ditahan=aksesDitahan(u)?' <span class="tag" style="background:var(--warn-bg);color:var(--warn)" title="Kolom Tim di Office masih kosong, jadi rolenya belum berlaku">tanpa Tim — akses ditahan</span>':'';
     h+='<tr><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc(String(u.name||'?')[0])+'</div><div class="cell-strong">'+esc(u.name)+'</div></div></td>'
      +'<td>'+esc(timUser(u)||'—')+'</td><td class="mono">'+esc(u.hp||'—')+'</td>'
-     +'<td>'+roleCell(u,canMU)+custom+'</td>'
+     +'<td>'+roleCell(u,canMU)+custom+ditahan+'</td>'
      +'<td>'+(u.active===false?'<span class="tag">Nonaktif</span>':'<span class="tag" style="background:var(--ok-bg);color:var(--ok)">Aktif</span>')+'</td>'
      +'<td><div class="pill-row">'
        +(canEdit?'<button class="btn sm" title="Ubah No. HP" onclick="editPegawai(\''+escJs(u.id)+'\')">'+svg(IC.edit)+'</button>':'')
