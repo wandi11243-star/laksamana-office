@@ -371,6 +371,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-shape .ic.rect-seat{width:22px;height:22px;border-radius:5px}
 .ldz-shape .ic.circle-seat{width:22px;height:22px;border-radius:50%}
 .ldz-shape .ic.rect-table{width:38px;height:22px;border-radius:5px}
+.ldz-shape .ic.rect-area{width:38px;height:18px;border-radius:3px;border-style:dashed}
 .ldz-shape .ic.circle-table{width:26px;height:26px;border-radius:50%}
 /* Bayangan bentuk yang mengikuti kursor saat ditarik dari palet. */
 .ldz-ghost{position:fixed;pointer-events:none;z-index:9999;opacity:.75;border:2px dashed var(--accent);
@@ -2483,6 +2484,7 @@ function denahTabBody(eid){
      +'<button class="'+(lt==='2'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'2\')">Lantai 2 <span class="mini">('+jml('2')+')</span></button>'
    +'</div>'
    +'<button class="btn '+(window._ldzEdit?'':'ghost')+' sm" onclick="ldzToggleEdit(\''+eid+'\')">\u270e Mode Desain</button>'
+   +'<button class="btn ghost sm" title="Pasang denah bawaan venue untuk lantai ini" onclick="ldzPasangBawaan(\''+eid+'\')">Denah Bawaan LM</button>'
    +'<button class="btn ghost sm" onclick="ldzMuatTemplateForm(\''+eid+'\')">\u2913 Muat Template</button>'
    +(ldzItems(eid).length?'<button class="btn ghost sm" onclick="ldzSimpanTemplate(\''+eid+'\')">\u2912 Simpan sebagai Template</button>':'')
    +(ldzTemplates().length?'<button class="btn ghost sm" onclick="ldzHapusTemplate()">Kelola Template</button>':'')
@@ -2645,6 +2647,7 @@ function beliSel(){ if(!Array.isArray(window._beliSelIds)) window._beliSelIds=[]
 function beliSetSel(ids){ window._beliSelIds=(ids||[]).slice(); }
 function beliBisaDipilih(s){
   if(!s) return false;
+  if(ldzAdalahArea(s)) return false;      // panggung & zona bukan tempat duduk
   const tk=DB.tickets.find(t=>t.seat_id===s.id && t.status!=='Cancelled');
   return !tk && s.status!=='Sold';        // Locked (hold) masih boleh dijual
 }
@@ -3091,7 +3094,7 @@ function ldzSyncQuota(eid){
     ldzTierClass(eid,t).quota=mine.reduce((a,i)=>a+(+i.capacity||1),0);
   });
 }
-function ldzCap(eid){ return ldzItems(eid).reduce((a,i)=>a+(+i.capacity||1),0); }
+function ldzCap(eid){ return ldzItems(eid).filter(function(i){ return !ldzAdalahArea(i); }).reduce((a,i)=>a+(+i.capacity||1),0); }
 function ldzTerjual(it){ return DB.tickets.some(t=>t.seat_id===it.id && t.status!=='Cancelled'); }
 
 /* ---------- pilihan (bisa lebih dari satu) ---------- */
@@ -3110,6 +3113,8 @@ function ldzZoom(){ const z=+window._ldzZoom; return (z&&z>0)?z:1; }
 
 /* ---------- menambah objek ---------- */
 function ldzUkuranBaku(kind,shape){
+  // Area bawaannya besar: ia menandai RUANG, bukan satu tempat duduk.
+  if(kind==='area') return {w:180,h:90};
   if(kind==='table') return shape==='circle'?{w:96,h:96}:{w:110,h:70};
   return {w:40,h:40};
 }
@@ -3129,7 +3134,7 @@ function ldzBuat(eid,kind,shape,x,y){
        terbaca petugas sebagai bagian dari nomor kursinya ("K12" padahal
        tamunya mencari meja 12). */
     kind,shape,tier,floor:ldzLantai(),table_no:String(n+1),seat_no:n+1,
-    capacity:kind==='table'?6:1,
+    capacity:kind==='area'?0:(kind==='table'?6:1),
     x:Math.max(0,Math.min(L.w-u.w,Math.round((x-u.w/2)/g)*g)),
     y:Math.max(0,Math.min(L.h-u.h,Math.round((y-u.h/2)/g)*g)),
     w:u.w,h:u.h,status:'Available'};
@@ -3226,7 +3231,11 @@ function ldzItemHTML(it,edit){
      yang belum terjual diisi warna tier 15% opasitas: di kanvas putih, Silver
      dan Regular praktis sama-sama abu-abu pucat dan tidak bisa dibedakan.
      Sekarang warna tier dipakai penuh, tulisannya putih. */
-  const wr=ldzWarnaObjek(it,T.c,isi);
+  /* Area digambar netral abu-abu dan tidak pernah memakai warna kategori:
+     kalau ikut berwarna, panggung terbaca seperti blok kursi termahal. */
+  const wr=ldzAdalahArea(it)
+    ? {bg:'#b9b4ac',tepi:'#8d8880',teks:'#2b2721'}
+    : ldzWarnaObjek(it,T.c,isi);
   let sty='left:'+(+it.x||0)+'px;top:'+(+it.y||0)+'px;width:'+(+it.w||40)+'px;height:'+(+it.h||40)+'px;'
     +'border-color:'+wr.tepi+';background:'+wr.bg+';color:'+wr.teks+';';
   const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
@@ -3237,6 +3246,7 @@ function ldzItemHTML(it,edit){
      status yang tak sengaja berputar di tengah acara. */
   let aksi='';
   if(edit) aksi=' onpointerdown="ldzDown(event,\''+it.id+'\',\'move\')" ondblclick="ldzRename(\''+it.id+'\')"';
+  else if(ldzAdalahArea(it)){ sty+='cursor:default;'; }
   else if(window._beliMode||ldzJualAktif()){
     // Layar penjualan / mode jual di tab Layout: klik = pilih atau lepas.
     aksi=' onclick="beliToggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;';
@@ -3264,6 +3274,17 @@ function ldzSelBoxHTML(){
    lain di keadaan mana pun, jadi tidak ada yang dikorbankan — sementara
    memblok enam kursi sekaligus lalu menekan Booking adalah cara paling cepat
    melayani rombongan. */
+/* ---- JENIS OBJEK "AREA": zona berlabel yang TIDAK dijual ----
+   Denah venue tidak seluruhnya berisi kursi: ada panggung, meja DJ, ruang
+   talent, tangga, dan yang paling penting zona REGULER yang memang dijual
+   tanpa nomor kursi. Sebelumnya hanya ada kursi & meja, jadi hal-hal itu tidak
+   bisa digambar sama sekali \u2014 padahal tanpa panggung, petugas tidak bisa
+   membaca arah hadap denah.
+
+   Area sengaja tidak punya kapasitas dan tidak pernah bisa dipesan: ia penanda
+   ruang, bukan tempat duduk bernomor. Kuota zona reguler tetap diatur sebagai
+   kelas tiket non-seated di tab Ticket Class. */
+function ldzAdalahArea(it){ return !!it && it.kind==='area'; }
 function ldzBolehBlok(){ return !!window._ldzEdit || ldzJualAktif(); }
 function ldzCanvasInner(eid,edit){
   const L=ldzMeta(eid), its=ldzItems(eid);
@@ -3895,7 +3916,8 @@ function ldzPaletteHTML(){
   const eid=window._ldzEid;
   const aktif=ldzTierAktif(eid), warna=ldzTierInfo(eid,aktif).c;
   const bentuk=[['seat','rect','rect-seat','Kursi'],['seat','circle','circle-seat','Kursi'],
-                ['table','rect','rect-table','Meja'],['table','circle','circle-table','Meja']];
+                ['table','rect','rect-table','Meja'],['table','circle','circle-table','Meja'],
+                ['area','rect','rect-area','Area']];
   return '<div class="ldz-palette"><h5>Bentuk</h5>'
    +bentuk.map(function(b){
       // Ikon palet memakai warna yang SAMA dengan hasilnya di kanvas, jadi
@@ -3997,6 +4019,137 @@ function ldzInner(eid){
    lalu dipetakan ke kelas tiket milik event tujuan saat dimuat. Event yang
    berbeda menjual kelas yang berbeda; menyalin id kelas antar event akan
    membuat kursi tertaut ke tiket yang bukan miliknya. */
+/* ================= DENAH BAWAAN LAKSAMANA MUDA =================
+   Bentuk awal yang selalu sama untuk kedua lantai, supaya event baru tidak
+   pernah mulai dari kanvas kosong. Disusun dari denah cetak venue:
+
+     Lantai 1 (bawah) — panggung + meja DJ di utara, meja U1–U3 di barat,
+       meja 31–35 & 42–45, meja bundar 21–24, deret S1–S6 + 41, lalu barisan
+       meja 11–19 dan 1–9. Seluruh tempat duduk di lantai ini satu kategori: VIP.
+     Lantai 2 (atas) — kursi REGULER+ BERNOMOR 1–83 mengelilingi void dalam
+       bentuk U (kolom kiri, baris bawah, kolom kanan), ditambah zona REGULER
+       yang memang dijual TANPA nomor kursi, jadi digambar sebagai AREA.
+
+   Koordinatnya disusun terhitung (baris & kolom), bukan disalin satu per satu
+   dari foto: angka hasil kira-kira dari gambar tidak akan pernah presisi, dan
+   yang penting di sini strukturnya benar — jumlah kursi, penomoran, dan urutan
+   posisinya. Merapikan letaknya cukup sekali, lalu disimpan lewat "Simpan
+   sebagai Template", dan event berikutnya memakai yang sudah rapi itu.
+
+   Denah bawaan TIDAK menghapus denah yang sudah ada: ia menambahkan, dan bisa
+   dibatalkan dengan Ctrl+Z. */
+function ldzBawaanL1(){
+  const o=[];
+  const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
+  const meja=function(lbl,x,y,w,h,shape){ o.push({kind:'table',shape:shape||'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
+  let n=1;
+  // Kursi bernomor ditaruh mengelilingi mejanya: separuh di sisi atas, separuh
+  // di sisi bawah — pola yang sama dengan denah cetak.
+  const kursiSekitar=function(x,y,w,h,jml){
+    const atas=Math.ceil(jml/2), bawah=jml-atas, d=22;
+    for(let i=0;i<atas;i++)  o.push({kind:'seat',shape:'circle',lbl:String(n++),x:Math.round(x+(w/(atas+1))*(i+1)-d/2),y:y-d-4,w:d,h:d});
+    for(let i=0;i<bawah;i++) o.push({kind:'seat',shape:'circle',lbl:String(n++),x:Math.round(x+(w/(bawah+1))*(i+1)-d/2),y:y+h+4,w:d,h:d});
+  };
+  area('STAGE',380,60,400,130);
+  area('MEJA DJ',500,20,170,32);
+  area('TALENT ROOM',1400,60,170,300);
+  area('ENTRANCE',14,380,44,170);
+  [['U1',7],['U2',8],['U3',9]].forEach(function(u,i){
+    const x=150,y=70+i*110,w=120,h=64;
+    meja(u[0],x,y,w,h); kursiSekitar(x,y,w,h,u[1]);
+  });
+  // EXT 1–15: meja tambahan tanpa kursi bernomor.
+  const ext=[[280,40],[350,40],[280,105],[350,105],[300,150],[86,180],[86,240],[86,300],[160,300],
+             [70,440],[70,520],[820,200],[880,200],[430,205],[700,205]];
+  ext.forEach(function(pos,i){ meja('EXT '+(i+1),pos[0],pos[1],44,40); });
+  [['31',430,250],['32',430,350],['33',1080,250],['34',1080,350]].forEach(function(m){
+    meja(m[0],m[1],m[2],120,64); kursiSekitar(m[1],m[2],120,64,7);
+  });
+  ['24','23','22','21'].forEach(function(lbl,i){
+    const x=620+i*105,y=430,w=76,h=56;
+    meja(lbl,x,y,w,h,'circle'); kursiSekitar(x,y,w,h,4);
+  });
+  meja('35',1250,70,140,64);     kursiSekitar(1250,70,140,64,6);
+  meja('42-43',1250,180,140,58); kursiSekitar(1250,180,140,58,5);
+  meja('44',1270,272,110,58);    kursiSekitar(1270,272,110,58,4);
+  meja('45',1270,364,110,58);    kursiSekitar(1270,364,110,58,4);
+  [['S1',10],['S2',4],['S3',10],['S5',10],['S4',4],['S6',4],['41',4]].forEach(function(t,i){
+    const x=250+i*160,y=570,w=120,h=52;
+    meja(t[0],x,y,w,h,(t[1]===4)?'circle':'rect');
+    kursiSekitar(x,y,w,h,t[1]);
+  });
+  ['11','12','13','14','15','16','17','18','19'].forEach(function(lbl,i){
+    const x=170+i*140,y=700,w=112,h=56;
+    meja(lbl,x,y,w,h); kursiSekitar(x,y,w,h,4);
+  });
+  ['1','2','3','4','5','6','7','8','9'].forEach(function(lbl,i){
+    const x=170+i*140,y=830,w=112,h=56;
+    meja(lbl,x,y,w,h); kursiSekitar(x,y,w,h,5);
+  });
+  return {kanvas:{w:1600,h:950},objek:o};
+}
+function ldzBawaanL2(){
+  const o=[];
+  const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
+  const d=24;
+  area('STAGE',520,40,400,150);
+  area('VOID LANTAI 2',330,210,780,330);
+  /* REGULER+ bernomor 1–83 membentuk huruf U: kolom kiri (1–22), baris bawah
+     (23–61), kolom kanan (62–83) — urutan penomoran mengikuti denah cetak. */
+  let n=1;
+  for(let i=0;i<22;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),x:296,y:214+i*(d+4),w:d,h:d});
+  for(let i=0;i<39;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),x:300+i*(d+4),y:552,w:d,h:d});
+  for(let i=0;i<22;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),x:1116,y:508-i*(d+4),w:d,h:d});
+  /* Zona REGULER dijual TANPA nomor kursi, jadi digambar sebagai AREA. Kuotanya
+     diatur di kelas tiket non-seated, bukan dari jumlah kotak di denah. */
+  area('REGULER',60,214,210,330);
+  area('REGULER',1160,214,210,330);
+  area('REGULER',120,640,470,150);
+  area('REGULER',740,640,470,150);
+  area('OPERATOR',620,640,100,150);
+  area('TANGGA',60,560,120,64);
+  area('TANGGA',1250,560,120,64);
+  return {kanvas:{w:1440,h:830},objek:o};
+}
+/* Memasang denah bawaan di lantai yang sedang dibuka.
+   Kategori: Lantai 1 seluruhnya VIP; kursi bernomor Lantai 2 jadi Reguler+.
+   Kelas tiketnya dibuat kalau belum ada — termasuk kelas Reguler TANPA kursi
+   untuk zona berdiri, supaya kuotanya tetap bisa dijual. */
+function ldzPasangBawaan(eid){
+  const e=DB.events.find(function(x){ return x.id===eid; }); if(!e) return;
+  const lantai=ldzLantai();
+  const tpl=(lantai==='2')?ldzBawaanL2():ldzBawaanL1();
+  const namaKelas=(lantai==='2')?'Reguler+':'VIP';
+  let cls=DB.ticketClasses.find(function(c){ return c.event_id===eid && c.name===namaKelas; });
+  if(!cls){
+    cls={id:uid(),event_id:eid,name:namaKelas,price:0,quota:0,sold:0,
+         sale_start:e.start_datetime||'',sale_end:e.start_datetime||'',
+         description:'Dibuat dari denah bawaan',benefit:namaKelas,is_seated:true};
+    DB.ticketClasses.push(cls);
+  }
+  if(lantai==='2' && !DB.ticketClasses.some(function(c){ return c.event_id===eid && c.name==='Reguler'; })){
+    DB.ticketClasses.push({id:uid(),event_id:eid,name:'Reguler',price:0,quota:100,sold:0,
+      sale_start:e.start_datetime||'',sale_end:e.start_datetime||'',
+      description:'Zona reguler tanpa nomor kursi',benefit:'Area reguler',is_seated:false});
+  }
+  ldzRekam(eid);
+  const L=ldzMeta(eid);
+  L.w=Math.max(L.w,tpl.kanvas.w); L.h=Math.max(L.h,tpl.kanvas.h);
+  const baru=tpl.objek.map(function(o){
+    return {id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Custom',floor:lantai,
+            kind:o.kind,shape:o.shape,tier:cls.name,
+            x:o.x,y:o.y,w:o.w,h:o.h,
+            capacity:(o.kind==='area')?0:(o.kind==='table'?6:1),
+            table_no:o.lbl,seat_no:o.lbl,status:'Available'};
+  });
+  DB.seats=DB.seats.concat(baru);
+  ldzSetSel([]); ldzSyncQuota(eid); save();
+  if(document.querySelector('.tabs')) renderTicketDetail(eid); else ldzRepaint(eid);
+  const kursi=baru.filter(function(i){ return i.kind==='seat'; }).length;
+  const meja=baru.filter(function(i){ return i.kind==='table'; }).length;
+  const luas=baru.filter(function(i){ return i.kind==='area'; }).length;
+  toast('✓ Denah bawaan Lantai '+lantai+' dibuat — '+kursi+' kursi bernomor, '+meja+' meja, '+luas+' area. Rapikan lalu Simpan sebagai Template.');
+}
 function ldzTemplates(){ if(!Array.isArray(DB.layoutTemplates)) DB.layoutTemplates=[]; return DB.layoutTemplates; }
 function ldzSimpanTemplate(eid){
   const its=ldzItems(eid);
