@@ -3252,34 +3252,32 @@ function ldzSelBoxHTML(){
         +' onpointerdown="ldzDown(event,null,\'size:'+d[0]+'\')"></i>';
     }).join('')+'</div>';
 }
+/* Blok-seret berlaku di DUA keadaan: menyusun denah (Mode Desain) dan memilih
+   kursi untuk dipesan (Mode Jual). Menyeret di ruang KOSONG tidak punya arti
+   lain di keadaan mana pun, jadi tidak ada yang dikorbankan — sementara
+   memblok enam kursi sekaligus lalu menekan Booking adalah cara paling cepat
+   melayani rombongan. */
+function ldzBolehBlok(){ return !!window._ldzEdit || ldzJualAktif(); }
 function ldzCanvasInner(eid,edit){
   const L=ldzMeta(eid), its=ldzItems(eid);
   const bg=L.bg?'<div class="ldz-bg" style="background-image:url(\''+fileUrl(L.bg.key)+'\');opacity:'+((+L.bgOpacity||70)/100)+'"></div>':'';
   return bg+its.map(function(i){ return ldzItemHTML(i,edit); }).join('')
-    +(edit?ldzSelBoxHTML()+'<div id="ldzMarquee"></div>':'');
+    +(edit?ldzSelBoxHTML():'')
+    /* Kotak seleksi perlu wadah kosong untuk digambar. Tanpa ini seretan tetap
+       memilih objek tapi tidak menampilkan apa pun, dan itu terbaca sebagai
+       "fiturnya tidak jalan". */
+    +(ldzBolehBlok()?'<div id="ldzMarquee"></div>':'');
 }
-// Dipakai Live Occupancy (read-only) — kanvas polos tanpa perkakas.
 function ldzCanvasHTML(eid,edit){
   const L=ldzMeta(eid);
-  return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+'" '
+  /* Versi ringkas kanvas ini dipakai halaman Penjualan & Check-In, dan DULU
+     sama sekali tidak memasang penangan pointer — jadi di Mode Jual, menyeret
+     di kanvas tidak terjadi apa-apa. Yang punya penangan hanya kanvas di dalam
+     perancang denah; itu sebabnya blok-seret terasa cuma jalan kadang-kadang. */
+  const aksi=ldzBolehBlok()?' onpointerdown="ldzCanvasDown(event)"':'';
+  return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+'"'+aksi+' '
     +'style="position:relative;width:'+L.w+'px;height:'+L.h+'px">'+ldzCanvasInner(eid,edit)+'</div></div>';
 }
-// Menggambar ulang objek yang bergerak saja — menggambar ulang seluruh kanvas
-// tiap pixel membuat gerakannya patah-patah saat objeknya banyak.
-function ldzPaintItem(it){
-  const el=document.getElementById('ldz_'+it.id); if(!el) return;
-  el.style.left=(+it.x||0)+'px'; el.style.top=(+it.y||0)+'px';
-  el.style.width=(+it.w||40)+'px'; el.style.height=(+it.h||40)+'px';
-}
-function ldzPaintSel(){
-  const box=document.getElementById('ldzCanvas'); if(!box) return;
-  const old=box.querySelector('.ldz-selbox'); if(old) old.remove();
-  const html=ldzSelBoxHTML();
-  if(html) box.insertAdjacentHTML('beforeend',html);
-}
-
-/* ---------- interaksi kanvas: pilih, geser, ubah ukuran, marquee, pan ---------- */
-let _ldzDrag=null;
 function ldzPt(e){
   const cv=document.getElementById('ldzCanvas'); if(!cv) return {x:0,y:0};
   const r=cv.getBoundingClientRect(), z=ldzZoom();
@@ -3371,7 +3369,7 @@ function ldzDown(e,id,mode){
 }
 // Seret di area kosong = kotak seleksi. Tanpa Shift, pilihan lama diganti.
 function ldzCanvasDown(e){
-  if(!window._ldzEdit) return;
+  if(!ldzBolehBlok()) return;
   const t=e.target;
   if(t && t.id!=='ldzCanvas' && !(t.classList&&t.classList.contains('ldz-bg'))) return;
   // Menaruh bentuk dari palet lewat sekali klik (mode "armed").
@@ -3383,8 +3381,9 @@ function ldzCanvasDown(e){
   }
   e.preventDefault();
   const p=ldzPt(e);
-  _ldzDrag={mode:'marquee',sx:e.clientX,sy:e.clientY,x0:p.x,y0:p.y,moved:false,
-    tambah:(e.shiftKey||e.ctrlKey||e.metaKey),awal:ldzSel().slice()};
+  const jual=ldzJualAktif();
+  _ldzDrag={mode:'marquee',jual:jual,sx:e.clientX,sy:e.clientY,x0:p.x,y0:p.y,moved:false,
+    tambah:(e.shiftKey||e.ctrlKey||e.metaKey),awal:(jual?beliSel():ldzSel()).slice()};
   window.addEventListener('pointermove',ldzMove);
   window.addEventListener('pointerup',ldzUp);
 }
@@ -3463,15 +3462,28 @@ function ldzMove(e){
     if(box) box.outerHTML='<div id="ldzMarquee" class="ldz-marquee" style="left:'+r.x+'px;top:'+r.y+'px;width:'+r.w+'px;height:'+r.h+'px"></div>';
     // Bersinggungan (bukan harus termuat penuh) — lebih memaafkan saat menyapu
     // barisan kursi rapat.
-    const kena=ldzItems(window._ldzEid).filter(function(i){
+    let kena=ldzItems(window._ldzEid).filter(function(i){
       return !((+i.x||0)>r.x+r.w || (+i.x||0)+(+i.w||0)<r.x || (+i.y||0)>r.y+r.h || (+i.y||0)+(+i.h||0)<r.y);
-    }).map(function(i){ return i.id; });
-    const gabung=_ldzDrag.tambah?_ldzDrag.awal.concat(kena.filter(function(k){ return _ldzDrag.awal.indexOf(k)<0; })):kena;
-    ldzSetSel(gabung);
-    ldzItems(window._ldzEid).forEach(function(i){
-      const el=document.getElementById('ldz_'+i.id);
-      if(el) el.classList.toggle('sel',ldzIsSel(i.id));
     });
+    // Di Mode Jual yang boleh masuk pilihan hanya kursi yang MASIH BISA dijual;
+    // menyapu kursi terjual lalu menemukannya ditolak saat simpan jauh lebih
+    // menjengkelkan daripada tidak pernah ikut terpilih sejak awal.
+    if(_ldzDrag.jual) kena=kena.filter(beliBisaDipilih);
+    const ids=kena.map(function(i){ return i.id; });
+    const gabung=_ldzDrag.tambah?_ldzDrag.awal.concat(ids.filter(function(k){ return _ldzDrag.awal.indexOf(k)<0; })):ids;
+    if(_ldzDrag.jual){
+      beliSetSel(gabung);
+      ldzItems(window._ldzEid).forEach(function(i){
+        const el=document.getElementById('ldz_'+i.id);
+        if(el) el.style.boxShadow=(gabung.indexOf(i.id)>=0)?'0 0 0 3px var(--accent)':'';
+      });
+    } else {
+      ldzSetSel(gabung);
+      ldzItems(window._ldzEid).forEach(function(i){
+        const el=document.getElementById('ldz_'+i.id);
+        if(el) el.classList.toggle('sel',ldzIsSel(i.id));
+      });
+    }
   }
 }
 function ldzUp(){
@@ -3484,7 +3496,12 @@ function ldzUp(){
   if(d.mode==='marquee'){
     const m=document.getElementById('ldzMarquee');
     if(m) m.outerHTML='<div id="ldzMarquee"></div>';
-    if(!d.moved) ldzSetSel(d.tambah?d.awal:[]);   // klik biasa di ruang kosong = lepas pilihan
+    if(d.jual){
+      if(!d.moved) beliSetSel(d.tambah?d.awal:[]);   // klik biasa di ruang kosong = lepas pilihan
+      renderTicketDetail(eid);                       // bar "n kursi · Booking" ikut diperbarui
+      return;
+    }
+    if(!d.moved) ldzSetSel(d.tambah?d.awal:[]);
     ldzRepaint(eid);
     return;
   }
@@ -4085,7 +4102,8 @@ function ldzBarJualHTML(eid){
   const pilih=beliSel();
   const nama=pilih.map(function(id){ const x=DB.seats.find(function(s2){ return s2.id===id; }); return (x&&(x.table_no||x.seat_no))||'?'; });
   return '<div class="ldz-jual-bar">'
-   +'<span>'+(pilih.length?('<b>'+pilih.length+' kursi</b> · '+esc(nama.join(', '))):'Klik kursi di denah untuk memilih.')+'</span>'
+   +'<span>'+(pilih.length?('<b>'+pilih.length+' kursi</b> · '+esc(nama.join(', ')))
+        :'Klik kursi untuk memilih — atau <b>seret di ruang kosong</b> untuk memblok banyak kursi sekaligus.')+'</span>'
    +(pilih.length?'<button class="btn ghost sm" onclick="beliSetSel([]);renderTicketDetail(\''+eid+'\')">Kosongkan</button>'
      +'<button class="btn blue sm" onclick="purchaseFlow(\''+eid+'\',true)">Booking '+pilih.length+' kursi →</button>':'')
    +'</div>';
