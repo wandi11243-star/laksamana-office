@@ -332,7 +332,7 @@ tbody tr:hover{background:var(--gold-soft)}
       </div>
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
-        <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Omset Bulanan</a>
+        <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Dashboard Omset</a>
         <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
         <a data-view="summary"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg></span> Ranking PIC</a>
       </div>
@@ -698,7 +698,7 @@ const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   breakdown:['Breakdown Sumber Omset','Alokasikan omset net ke marketing, event, dan kasir'],
-  bulanan:['Dashboard Omset Bulanan','Pencapaian target bulan berjalan'],
+  bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
   summary:['Ranking Seluruh PIC','Leaderboard achievement bulanan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
@@ -1525,6 +1525,113 @@ function viewBreakdown(){
 }
 
 /* ============ 3. DASHBOARD BULANAN ============ */
+/* ---- LAPORAN DASHBOARD OMSET: PDF & WhatsApp ----
+   Diisi viewBulanan() tiap kali halaman digambar; dibaca kedua tombol di
+   bawahnya. Lihat catatan di viewBulanan soal kenapa angkanya dititipkan
+   begini alih-alih dihitung ulang. */
+let RINGKAS_OMSET=null;
+
+/* PDF lewat DIALOG CETAK BROWSER (Save as PDF), bukan pustaka pembuat PDF.
+   Alasannya sama seperti Report Achievement yang sudah memakai cara ini:
+   tidak menambah dependensi CDN (jszip pernah dibuang dari modul lain karena
+   itu), hasilnya memakai mesin layout yang sama dengan yang sudah terbukti
+   rapi di lembar cetak lain, dan di HP pun tetap bisa "Simpan sebagai PDF".
+   Menumpang #printSheet + @media print yang sudah ada. */
+function cetakDashboardOmset(){
+  const r=RINGKAS_OMSET;
+  if(!r) return;
+  const baris=r.hari.map(h=>{
+    const a=pct(h.net,r.dtgt);
+    return `<tr><td>${esc(h.date)}</td><td class="num">${fmtRp(r.dtgt)}</td><td class="num">${fmtRp(h.net)}</td><td class="num">${a.toFixed(0)}%</td><td>${h.net>=r.dtgt?'Tercapai':'Belum'}</td></tr>`;
+  }).join('');
+  const sheet=document.getElementById('printSheet');
+  sheet.innerHTML=`
+    <div class="ph">
+      <div>
+        <h1>Dashboard Omset — ${esc(labelPeriode(r.periode))}</h1>
+        <div class="sub">Pencapaian target &amp; komposisi pendapatan · ${r.hari.length} hari terinput</div>
+      </div>
+      <div class="brand">KOMPAS<br><span style="font-weight:600;letter-spacing:.4px;font-size:9px">LAKSAMANA MUDA</span></div>
+    </div>
+    <div class="kv">
+      <div><div class="l">Target Bulan</div><div class="v">${fmtRp(r.target)}</div></div>
+      <div><div class="l">Realisasi</div><div class="v">${fmtRp(r.real)}</div></div>
+      <div><div class="l">Achievement</div><div class="v">${r.ach.toFixed(0)}%</div></div>
+      <div><div class="l">${r.selisih>0?'Harus Dikejar':'Surplus'}</div><div class="v">${fmtRp(Math.abs(r.selisih))}</div></div>
+    </div>
+    <h2>Indikator Transaksi</h2>
+    <div class="kv">
+      <div><div class="l">UPT</div><div class="v">${fmtDec(r.upt)}</div></div>
+      <div><div class="l">ATV</div><div class="v">${fmtRp(r.atv)}</div></div>
+      <div><div class="l">APS</div><div class="v">${fmtDec(r.aps)}</div></div>
+      <div><div class="l">Total Bill</div><div class="v">${r.T.bill.toLocaleString('id-ID')}</div></div>
+    </div>
+    <h2>Komposisi &amp; Total</h2>
+    <table>
+      <tbody>
+        <tr><td>Food</td><td class="num">${fmtRp(r.T.food)}</td><td>Beverage</td><td class="num">${fmtRp(r.T.bev)}</td></tr>
+        <tr><td>Lainnya</td><td class="num">${fmtRp(r.T.lainnya)}</td><td>Total Item Terjual</td><td class="num">${r.totalItem.toLocaleString('id-ID')}</td></tr>
+        <tr><td>Service Charge</td><td class="num">${fmtRp(r.svcOnly)}</td><td>Tax</td><td class="num">${fmtRp(r.taxOnly)}</td></tr>
+        <tr><td>Total Discount</td><td class="num">${fmtRp(r.disc)}</td><td>Total Compliment</td><td class="num">${fmtRp(r.compBulan)}</td></tr>
+        <tr><td>Total Traffic</td><td class="num">${r.T.traffic.toLocaleString('id-ID')}</td><td>Tax &amp; Service</td><td class="num">${fmtRp(r.tax)}</td></tr>
+      </tbody>
+    </table>
+    <h2>Rincian Harian</h2>
+    <table>
+      <thead><tr><th style="width:95px">Tanggal</th><th class="num" style="width:120px">Target</th><th class="num" style="width:120px">Actual</th><th class="num" style="width:60px">Ach</th><th style="width:70px">Status</th></tr></thead>
+      <tbody>${baris||'<tr><td colspan="5" style="text-align:center;color:#777">Belum ada data pada periode ini.</td></tr>'}</tbody>
+      <tfoot><tr><td>TOTAL</td><td class="num">${fmtRp(r.target)}</td><td class="num">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td></td></tr></tfoot>
+    </table>
+    <div class="ttd">Dicetak ${esc(new Date().toLocaleString('id-ID',{dateStyle:'long',timeStyle:'short'}))}${CURRENT_USER?` oleh ${esc(CURRENT_USER.name)}`:''}.</div>`;
+  window.print();
+  setTimeout(()=>{ sheet.innerHTML=''; },500);
+}
+
+/* WhatsApp TANPA nomor tujuan: wa.me dibuka kosong sehingga WhatsApp sendiri
+   yang menampilkan pemilih kontak/grup. Sengaja begitu — peta nomor HP kru
+   (pastikanNoHp/noHpPic) DIHAPUS 28 Juli 2026 atas permintaan, dan laporan
+   omset bulanan pun tidak punya satu penerima yang pasti: kadang ke owner,
+   kadang ke grup manajemen. Membangkitkan lagi peta nomor itu hanya untuk
+   ini berarti mengembalikan yang sudah sengaja dibuang.
+
+   Isinya RINGKASAN saja, tanpa rincian harian: teks lewat URL punya batas
+   panjang yang berbeda-beda di tiap perangkat, dan tabel 30 baris adalah
+   yang pertama membuatnya terpotong di tengah — terpotong tanpa peringatan,
+   jadi yang mengirim tidak akan tahu. Rinciannya ada di PDF. */
+function waDashboardOmset(){
+  const r=RINGKAS_OMSET;
+  if(!r) return;
+  const NL=String.fromCharCode(10);
+  const t=[
+    `*DASHBOARD OMSET — ${labelPeriode(r.periode).toUpperCase()}*`,
+    `_Laksamana Muda · ${r.hari.length} hari terinput_`,
+    '',
+    `🎯 Target      : ${fmtRp(r.target)}`,
+    `💰 Realisasi   : ${fmtRp(r.real)}`,
+    `📊 Achievement : ${r.ach.toFixed(0)}%`,
+    `${r.selisih>0?'⚠️ Harus dikejar':'✅ Surplus'} : ${fmtRp(Math.abs(r.selisih))}`,
+    '',
+    '*Komposisi*',
+    `• Food     : ${fmtRp(r.T.food)}`,
+    `• Beverage : ${fmtRp(r.T.bev)}`,
+    `• Lainnya  : ${fmtRp(r.T.lainnya)}`,
+    '',
+    '*Indikator*',
+    `• UPT : ${fmtDec(r.upt)}`,
+    `• ATV : ${fmtRp(r.atv)}`,
+    `• APS : ${fmtDec(r.aps)}`,
+    `• Total Bill    : ${r.T.bill.toLocaleString('id-ID')}`,
+    `• Total Traffic : ${r.T.traffic.toLocaleString('id-ID')}`,
+    '',
+    `🏷️ Discount   : ${fmtRp(r.disc)}`,
+    `🎁 Compliment : ${fmtRp(r.compBulan)}`,
+    `💳 Tax & Service : ${fmtRp(r.tax)}`,
+    '',
+    `_Rincian harian ada di laporan PDF._`
+  ].join(NL);
+  window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank','noopener');
+}
+
 function viewBulanan(){
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
@@ -1546,7 +1653,25 @@ function viewBulanan(){
   const dtgt=dailyTarget(PERIOD);
   const rows=days.map(d=>{const n=netOf(d);return `<tr><td>${d.date.slice(8)} ${HARI[new Date(d.date).getDay()].slice(0,3)}</td><td class="num mono">${fmtRp(dtgt)}</td><td class="num mono">${fmtRp(n)}</td><td class="num mono">${pct(n,dtgt).toFixed(0)}%</td><td>${n>=dtgt?'<span class="status ok"><span class="d"></span></span>':'<span class="status bad"><span class="d"></span></span>'}</td></tr>`;}).join('');
 
+  /* Angka yang dipajang disimpan di satu tempat supaya lembar PDF dan ringkasan
+     WhatsApp memakai HASIL YANG SAMA dengan layar — bukan menghitung ulang
+     sendiri. Dua perhitungan untuk satu angka pasti berbeda cepat atau lambat
+     (satu ikut diperbaiki, satu terlupa), dan laporan yang beda dari layar
+     adalah laporan yang tidak bisa dipercaya lagi setelahnya.
+     Diisi di sini, dibaca tombol di bawah — tombolnya cuma ada selama view ini
+     terpasang, jadi ia tidak pernah bisa dibaca sebelum terisi. */
+  RINGKAS_OMSET={periode:PERIOD,target,real,ach,selisih,tax,svcOnly,taxOnly,compBulan,disc,
+                 T,totalItem,upt,atv,aps,dtgt,
+                 hari:days.map(d=>({date:d.date,net:netOf(d)}))};
+
   el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><h3>Laporan ${esc(labelPeriode(PERIOD))}</h3><div class="card-sub">Simpan sebagai PDF, atau kirim ringkasannya lewat WhatsApp</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="waDashboardOmset()">💬 Kirim WhatsApp</button>
+        <button class="btn btn-primary btn-sm" onclick="cetakDashboardOmset()">📄 Simpan PDF</button>
+      </div>
+    </div>
     <div class="grid g4">
       <div class="stat accent"><div class="lab">Target Bulan</div><div class="val sm mono">${fmtRp(target)}</div></div>
       <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(real)}</div></div>
