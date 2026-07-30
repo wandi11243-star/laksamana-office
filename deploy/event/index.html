@@ -4020,123 +4020,157 @@ function ldzInner(eid){
    berbeda menjual kelas yang berbeda; menyalin id kelas antar event akan
    membuat kursi tertaut ke tiket yang bukan miliknya. */
 /* ================= DENAH BAWAAN LAKSAMANA MUDA =================
-   Bentuk awal yang selalu sama untuk kedua lantai, supaya event baru tidak
-   pernah mulai dari kanvas kosong.
+   Disusun dengan MENSKALAKAN denah cetak venue (±1,5×), bukan menaruh objek
+   sesuka penata: letak tiap meja, panggung, EXT, dan ruang talent mengikuti
+   proporsi gambar aslinya.
 
-   Yang dijamin benar di sini: jumlah kursi, PENOMORAN, kapasitas tiap meja, dan
-   susunan posisinya relatif satu sama lain. Letak absolutnya masih perlu
-   dirapikan sekali — angka hasil kira-kira dari foto denah tidak akan pernah
-   presisi. Sesudah rapi, simpan lewat "Simpan sebagai Template" dan event
-   berikutnya memakai versi rapi itu, bukan versi bawaan ini.
+   URUTAN PENOMORAN mengikuti denah cetak, dan itu TIDAK sama dengan urutan
+   menggambar yang paling nyaman:
 
-   Denah bawaan MENAMBAHKAN, tidak menghapus yang sudah ada, dan seluruhnya bisa
-   dibatalkan dengan Ctrl+Z. */
+     U1–U3 .......... 1–24     (7 + 8 + 9)
+     31, 32 ......... 25–36    (6 kursi bernomor tiap meja, label 7 pax)
+     24, 23, 22, 21 . 37–52    (bundar, 4 tiap meja)
+     33, 34 ......... 53–64
+     35 ............. 65–70
+     42-43 .......... 71–75
+     44 ............. 76–79
+     45 ............. 80–83
+     S1 ............. 84–93    S2 94–97   S3 98–107  S5 108–117
+     S4 ............. 118–121  S6 122–125 41 126–129
+     11–19 .......... 130–166
+     1–9 ............ 167–211
 
-/* Penempatan kursi di sekitar meja. `sisi` menentukan arah:
-     'h' — separuh di atas, separuh di bawah (meja mendatar)
-     'v' — separuh di kiri, separuh di kanan (meja tegak)
-   Kursi dibuat kecil (18px) supaya meja 10–12 pax tidak menabrak meja sebelah,
-   persis seperti denah cetak yang kursinya jauh lebih kecil dari mejanya. */
+   Versi sebelumnya menomori menurut urutan pembuatan, sehingga meja bundar
+   mendapat 53–64 dan meja 33/34 mendapat 37–52 — tertukar dari denah cetak. Itu
+   bukan soal kerapian: nomor kursi ikut tercetak di e-ticket, dan tamu memegang
+   kertas bernomor yang menunjuk meja yang salah.
+
+   Perlu diketahui: kapasitas LABEL dan jumlah KURSI BERNOMOR tidak selalu sama.
+   Meja 31–34 berlabel "7 pax" tapi hanya punya 6 kursi bernomor di denah cetak
+   (satu tempat memang tanpa nomor). Keduanya disimpan terpisah supaya rekap
+   kapasitas tetap benar tanpa mengarang kursi bernomor yang tidak ada.
+
+   Denah bawaan MENAMBAHKAN, tidak menghapus, dan bisa dibatalkan dengan Ctrl+Z.
+   Sesudah dirapikan, simpan lewat "Simpan sebagai Template" — event berikutnya
+   memakai versi rapi itu. */
+
+/* Penempatan kursi di sekeliling meja.
+     'h'   — separuh di atas, separuh di bawah (meja mendatar)
+     'v'   — separuh di kiri, separuh di kanan (meja tegak: 31–34)
+     'tlb' — atas, lalu kiri, lalu bawah (meja U1–U3 yang menempel dinding
+             kanan, persis seperti denah cetak) */
 function ldzKursiSekitar(o, nomor, x, y, w, h, jml, sisi){
   const d=18, j=5;
-  const a=Math.ceil(jml/2), b=jml-a;
+  const bikin=function(cx,cy){ o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),x:Math.round(cx),y:Math.round(cy),w:d,h:d}); };
+  const sebar=function(n,p1,p2){ const out=[]; for(let i=0;i<n;i++) out.push(p1+((p2-p1)/(n+1))*(i+1)); return out; };
   if(sisi==='v'){
-    for(let i=0;i<a;i++) o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),
-      x:x-d-j, y:Math.round(y+(h/(a+1))*(i+1)-d/2), w:d,h:d});
-    for(let i=0;i<b;i++) o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),
-      x:x+w+j, y:Math.round(y+(h/(b+1))*(i+1)-d/2), w:d,h:d});
+    const a=Math.ceil(jml/2), b=jml-a;
+    sebar(a,y,y+h).forEach(function(cy){ bikin(x-d-j,cy-d/2); });
+    sebar(b,y,y+h).forEach(function(cy){ bikin(x+w+j,cy-d/2); });
     return;
   }
-  for(let i=0;i<a;i++) o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),
-    x:Math.round(x+(w/(a+1))*(i+1)-d/2), y:y-d-j, w:d,h:d});
-  for(let i=0;i<b;i++) o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),
-    x:Math.round(x+(w/(b+1))*(i+1)-d/2), y:y+h+j, w:d,h:d});
+  if(sisi==='tlb'){
+    // Pola U1–U3: paling banyak di atas, sisanya kiri lalu bawah.
+    const atas=Math.min(jml,Math.ceil(jml*0.45));
+    const bawah=Math.min(jml-atas,Math.ceil((jml-atas)/2)+((jml-atas)%2));
+    const kiri=jml-atas-bawah;
+    sebar(atas,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
+    sebar(kiri,y,y+h).forEach(function(cy){ bikin(x-d-j,cy-d/2); });
+    sebar(bawah,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
+    return;
+  }
+  const a=Math.ceil(jml/2), b=jml-a;
+  sebar(a,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
+  sebar(b,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
 }
 function ldzBawaanL1(){
   const o=[], nomor={n:1};
   const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
-  /* Meja SELALU membawa kapasitasnya sendiri. Versi sebelumnya membiarkan
-     kapasitas jatuh ke bawaan 6, jadi seluruh denah berbunyi "6 pax" — termasuk
-     U3 yang 9 pax dan S1 yang 10 pax. Angka itu dipakai rekap kapasitas dan
-     harga potensi, jadi salahnya menular ke laporan. */
-  const meja=function(lbl,x,y,w,h,pax,shape,sisi){
+  /* pax   = kapasitas yang tercetak di denah (dipakai rekap & potensi)
+     kursi = jumlah kursi BERNOMOR yang digambar (default = pax) */
+  const meja=function(lbl,x,y,w,h,pax,shape,sisi,kursi){
     o.push({kind:'table',shape:shape||'rect',lbl:lbl,x:x,y:y,w:w,h:h,cap:pax});
-    if(pax) ldzKursiSekitar(o,nomor,x,y,w,h,pax,sisi||'h');
+    const n=(kursi==null)?pax:kursi;
+    if(n) ldzKursiSekitar(o,nomor,x,y,w,h,n,sisi||'h');
   };
-  // ---- kerangka ruangan ----
-  area('MEJA DJ',470,26,180,26);
-  area('STAGE',380,60,380,140);
-  area('TALENT ROOM',1400,60,170,320);
-  area('ENTRANCE',20,400,40,170);
-  // ---- U1–U3 di barat (7/8/9 pax), kursinya di sisi kiri & kanan ----
-  [['U1',7],['U2',8],['U3',9]].forEach(function(u,i){
-    meja(u[0],170,70+i*120,110,74,u[1],'rect','v');
-  });
-  // ---- EXT: meja tambahan 2 pax, tanpa kursi bernomor (sesuai denah cetak) ----
-  [[300,60],[368,60],[300,120],[368,120],[318,175],   // EXT 1–5, dekat panggung
-   [86,190],[86,250],[86,310],[176,330],              // EXT 6–9, sisi barat
-   [86,470],[86,540],                                 // EXT 10–11, barat bawah
-   [800,215],[860,215],                               // EXT 12–13
-   [470,215],[700,215]                                // EXT 14–15
-  ].forEach(function(pos,i){
-    o.push({kind:'table',shape:'rect',lbl:'EXT '+(i+1),x:pos[0],y:pos[1],w:46,h:36,cap:2});
-  });
-  // ---- meja 31–32 (barat) & 33–34 (timur), 7 pax, kursi di kiri-kanan ----
-  meja('31',430,260,120,72,7,'rect','v');
-  meja('32',430,360,120,72,7,'rect','v');
-  meja('33',1080,260,120,72,7,'rect','v');
-  meja('34',1080,360,120,72,7,'rect','v');
-  // ---- meja bundar 24,23,22,21 (4 pax) di depan panggung ----
-  ['24','23','22','21'].forEach(function(lbl,i){
-    meja(lbl,610+i*112,455,78,58,4,'circle','h');
-  });
-  // ---- kolom timur: 35 (12 pax), 42-43, 44, 45 ----
-  meja('35',1230,70,140,66,6,'rect','h');
-  meja('42-43',1230,180,140,58,4,'rect','h');
-  meja('44',1250,272,110,58,4,'rect','h');
-  meja('45',1250,364,110,58,4,'rect','h');
-  // ---- deret S1–S6 + 41: meja panjang 10–12 pax dan bundar 4 pax ----
-  [['S1',10,'rect'],['S2',4,'circle'],['S3',10,'rect'],['S5',10,'rect'],
-   ['S4',4,'circle'],['S6',4,'circle'],['41',4,'circle']].forEach(function(t,i){
-    const x=230+i*168, y=580, w=(t[2]==='rect')?130:86, h=50;
-    meja(t[0],x,y,w,h,t[1],t[2],'h');
-  });
-  // ---- barisan meja 11–19 (4 pax) dan 1–9 (5 pax) ----
+  const ext=function(no,x,y,w,h){ o.push({kind:'table',shape:'rect',lbl:'EXT '+no,x:x,y:y,w:w,h:h,cap:2}); };
+
+  // ---- kerangka ruangan (skala ±1,5x dari denah cetak) ----
+  area('MEJA DJ',780,58,160,32);
+  area('STAGE',600,45,535,150);
+  area('TALENT ROOM',1440,45,125,480);
+  area('ENTRANCE',12,405,34,120);
+
+  // ---- U1–U3 di barat: 7 / 8 / 9 pax, kursi mengelilingi atas-kiri-bawah ----
+  meja('U1',203,60,158,78,7,'rect','tlb');
+  meja('U2',203,172,158,84,8,'rect','tlb');
+  meja('U3',203,290,158,96,9,'rect','tlb');
+
+  // ---- EXT: hanya 1–11, 14, 15 (denah cetak tidak punya EXT 12/13) ----
+  ext(1,402,60,48,56);  ext(2,503,60,50,56);
+  ext(3,402,143,48,56); ext(4,503,143,50,56);
+  ext(5,450,213,60,40);
+  ext(6,128,218,50,56); ext(7,128,296,50,56); ext(8,128,375,50,56);
+  ext(9,233,435,95,34);
+  ext(10,93,648,50,56); ext(11,93,818,50,56);
+  ext(14,638,282,50,74); ext(15,1028,278,50,74);
+
+  // ---- 31 & 32 (label 7 pax, 6 kursi bernomor) ----
+  meja('31',458,263,128,116,7,'rect','v',6);
+  meja('32',458,395,128,116,7,'rect','v',6);
+  // ---- meja bundar 24, 23, 22, 21 (4 pax) ----
+  meja('24',623,428,76,60,4,'circle','h');
+  meja('23',762,428,76,60,4,'circle','h');
+  meja('22',893,428,76,60,4,'circle','h');
+  meja('21',1020,428,76,60,4,'circle','h');
+  // ---- 33 & 34 di timur ----
+  meja('33',1118,263,128,112,7,'rect','v',6);
+  meja('34',1118,391,128,120,7,'rect','v',6);
+  // ---- kolom timur: 35, 42-43, 44, 45 ----
+  meja('35',1275,55,150,100,7,'rect','h',6);
+  meja('42-43',1290,212,135,58,4,'rect','h',5);
+  meja('44',1320,338,105,56,4,'rect','h',4);
+  meja('45',1320,465,105,57,4,'rect','h',4);
+  /* Deret S: denah cetak menulis "10-12 PAX" untuk S1/S3/S5, sedangkan kursi
+     bernomornya 10. Kapasitas dipatok 10 — angka yang lebih kecil dari dua
+     kemungkinan, karena kapasitas dipakai menghitung POTENSI pendapatan dan
+     melebihkannya membuat target terlihat lebih besar dari yang bisa dijual. */
+  // ---- deret S: S1, S2, S3, S5, S4, S6, 41 ----
+  meja('S1',338,600,180,58,10,'rect','h',10);
+  meja('S2',567,597,72,62,4,'circle','h');
+  meja('S3',683,600,180,58,10,'rect','h',10);
+  meja('S5',893,600,180,58,10,'rect','h',10);
+  meja('S4',1113,597,70,62,4,'circle','h');
+  meja('S6',1227,597,72,62,4,'circle','h');
+  meja('41',1343,597,72,62,4,'circle','h');
+  // ---- barisan 11–19 (4 pax; 19 punya 5) dan 1–9 (5 pax) ----
   ['11','12','13','14','15','16','17','18','19'].forEach(function(lbl,i){
-    meja(lbl,160+i*150,700,116,54,4,'rect','h');
+    meja(lbl,195+i*143,717,115,62,(lbl==='19')?5:4,'rect','h');
   });
   ['1','2','3','4','5','6','7','8','9'].forEach(function(lbl,i){
-    meja(lbl,160+i*150,830,116,54,5,'rect','h');
+    meja(lbl,195+i*143,845,115,62,5,'rect','h');
   });
-  return {kanvas:{w:1620,h:930},objek:o};
+  return {kanvas:{w:1600,h:960},objek:o};
 }
 function ldzBawaanL2(){
   const o=[];
   const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
-  /* Semua posisi dihitung DARI KOTAK VOID, bukan diketik satu-satu. Versi
-     sebelumnya menaruh kolom kanan dengan menghitung ke ATAS dari satu titik
-     tetap, jadi ujungnya melewati batas void dan barisannya tidak lagi
-     menempel — kelihatan jelas begitu digambar. Dengan void sebagai acuan,
-     ketiga sisinya selalu menempel walau ukurannya diubah. */
+  /* Semua posisi dihitung DARI KOTAK VOID, jadi ketiga barisan kursi selalu
+     menempel walau ukuran voidnya diubah. */
   const V={x:300,y:210,w:880,h:400};
-  const d=18, jr=4;                       // ukuran kursi & jaraknya dari void
+  const d=18, jr=4;
   area('STAGE',Math.round(V.x+V.w/2-190),40,380,140);
   area('VOID LANTAI 2',V.x,V.y,V.w,V.h);
   let n=1;
-  // Kolom kiri: 1–22, dari atas ke bawah, menempel di sisi kiri void.
-  const nKiri=22, stepKiri=V.h/nKiri;
+  const nKiri=22, sKiri=V.h/nKiri;
   for(let i=0;i<nKiri;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),
-    x:V.x-d-jr, y:Math.round(V.y+stepKiri*i+(stepKiri-d)/2), w:d,h:d});
-  // Baris bawah: 23–61, kiri ke kanan, menempel di bawah void.
-  const nBawah=39, stepBawah=V.w/nBawah;
+    x:V.x-d-jr, y:Math.round(V.y+sKiri*i+(sKiri-d)/2), w:d,h:d});
+  const nBawah=39, sBawah=V.w/nBawah;
   for(let i=0;i<nBawah;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),
-    x:Math.round(V.x+stepBawah*i+(stepBawah-d)/2), y:V.y+V.h+jr, w:d,h:d});
-  // Kolom kanan: 62–83, dari BAWAH ke atas, menempel di sisi kanan void.
-  const nKanan=22, stepKanan=V.h/nKanan;
+    x:Math.round(V.x+sBawah*i+(sBawah-d)/2), y:V.y+V.h+jr, w:d,h:d});
+  const nKanan=22, sKanan=V.h/nKanan;
   for(let i=0;i<nKanan;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),
-    x:V.x+V.w+jr, y:Math.round(V.y+V.h-stepKanan*(i+1)+(stepKanan-d)/2), w:d,h:d});
-  /* Zona REGULER dijual TANPA nomor kursi, jadi digambar sebagai AREA. Kuotanya
-     diatur di kelas tiket non-seated, bukan dari jumlah kotak di denah. */
+    x:V.x+V.w+jr, y:Math.round(V.y+V.h-sKanan*(i+1)+(sKanan-d)/2), w:d,h:d});
   area('REGULER',60,V.y,190,V.h);
   area('REGULER',V.x+V.w+40,V.y,190,V.h);
   area('TANGGA',60,V.y+V.h+40,120,60);
@@ -4175,7 +4209,6 @@ function ldzPasangBawaan(eid){
     return {id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Custom',floor:lantai,
             kind:o.kind,shape:o.shape,tier:cls.name,
             x:o.x,y:o.y,w:o.w,h:o.h,
-            // Kapasitas: area nol, meja sesuai denah, kursi satu orang.
             capacity:(o.kind==='area')?0:(o.kind==='table'?(+o.cap||0):1),
             table_no:o.lbl,seat_no:o.lbl,status:'Available'};
   });
