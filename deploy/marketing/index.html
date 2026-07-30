@@ -1712,7 +1712,7 @@ const FU_RESULT = {
 };
 const INV_STATUS = { Draft:'--muted', Sent:'--info', Pending:'--warn', Paid:'--ok', Overdue:'--danger' };
 const TASK_STATUS = { Pending:'--muted', 'On Progress':'--warn', Done:'--ok' };
-const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Lainnya'];
+const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Collaboration Event','Compliment','Lainnya'];
 /* Jenis event untuk DITAMPILKAN. "Lainnya" itu penanda isian bebas, bukan
    jenis; yang ingin dibaca orang adalah ketikannya. Warna tetap dicari dari
    e.jenis (jadi tetap abu-abu "Lainnya"), hanya teksnya yang diganti. */
@@ -1721,7 +1721,7 @@ function jenisEvent(e){
   if(j!=='Lainnya') return j;
   return String((e&&e.detail&&e.detail.jenisLain)||'').trim()||'Lainnya';
 }
-const EVENT_COLOR = { 'Private Party':'--danger','Corporate Event':'--ok','Wedding':'--info','Birthday':'--warn','Gathering':'--teal','Seminar':'--violet','Launching':'--gold','Competition':'--gold','Lainnya':'--muted' };
+const EVENT_COLOR = { 'Private Party':'--danger','Corporate Event':'--ok','Wedding':'--info','Birthday':'--warn','Gathering':'--teal','Seminar':'--violet','Launching':'--gold','Competition':'--gold','Collaboration Event':'--teal','Compliment':'--ok','Lainnya':'--muted' };
 const DIVISIONS = ['Kitchen','Bar','Floor','Design','Event','Security'];
 /* Cabang template dari Kitchen, auto-assign lewat field Format F&B.
    Ini cuma BIBIT: daftar yang berlaku ada di S.fbFormats dan bisa ditambah /
@@ -2024,6 +2024,13 @@ const EVENT_SCHEMA = [
   {k:'nama',l:'Nama Event',t:'text',req:1},
   {k:'jenis',l:'Jenis Event',t:'sel',o:EVENT_TYPES,req:1},
   {k:'jenisLain',l:'Jenis Event — tulis sendiri',t:'text',cond:{k:'jenis',v:'Lainnya'}},
+  /* FORMAT F&B PINDAH KE SINI dari D.2. Formatnya (Prasmanan / Set Menu / dst.)
+     adalah keputusan yang diambil bersama client saat menyusun acara — bukan
+     detail dapur — dan ditanyakan lagi di halaman berbeda membuat marketing
+     mengisinya dua kali atau lupa sama sekali. Kitchen sekarang memantulkannya
+     (m_fbFormat), jadi tetap terbaca di sana tanpa bisa berselisih isi. */
+  {k:'fbFormat',l:'Format F&B',t:'sel',o:()=>getFbFormats().concat(['Lainnya']),req:1},
+  {k:'fbFormatLain',l:'Format F&B — tulis sendiri',t:'text',cond:{k:'fbFormat',v:'Lainnya'}},
   {k:'tanggal',l:'Tanggal Event',t:'date',req:1},
   {k:'mulaiSetup',l:'Mulai Setup',t:'time',req:1},
   {k:'tamuDatang',l:'Tamu Datang / Jam Mulai',t:'time',req:1},
@@ -2084,15 +2091,14 @@ const EVENT_SCHEMA = [
   // entPIC & entTalent (PIC Koordinasi Talent / Handling Artis) DIHAPUS dari
   // D.1 atas permintaan — penanganan talent diurus di matriks PIC (D.11).
 ]},
-{ id:'kitchen', n:'D.2', title:'Food & Beverage — Kitchen', div:['Kitchen'], desc:'Format F&B-nya apa, budget per pax berapa, dan menu apa saja yang disajikan?', fields:[
-  /* Pilihannya dibaca saat dirender (lihat fieldOpts) supaya Format F&B yang
-     baru ditambah di Template Task langsung bisa dipilih di sini. Kalau tetap
-     daftar mati, kategori baru punya template tapi tidak ada event yang bisa
-     memakainya. 'Lainnya' tetap ditempel di ekor sebagai jalan keluar. */
-  {k:'fbFormat',l:'Format F&B',t:'sel',o:()=>getFbFormats().concat(['Lainnya']),req:1},
-  {k:'fbFormatLain',l:'Format F&B — tulis sendiri',t:'text',cond:{k:'fbFormat',v:'Lainnya'}},
+{ id:'kitchen', n:'D.2', title:'Kitchen', div:['Kitchen'], desc:'Menu apa saja yang disajikan, jam keluarnya, dan catatan dapurnya?', fields:[
+  // Format F&B ditentukan di D.1 Informasi Dasar; di sini hanya dipantulkan.
+  {k:'m_fbFormat',l:'Format F&B (dari D.1)',t:'mirror',from:'fbFormat'},
   {k:'jamFB',l:'Jam Keluar F&B',t:'time',req:1},
-  {k:'komponen',l:'Komponen Menu',t:'multi',o:['Welcome Snack','Appetizer','Soup','Main Course','Dessert','Fruit','Beverage','VIP Family Set'],req:1},
+  /* Dessert, Fruit & Beverage DIPINDAH ke Bar. Ketiganya disiapkan bar, bukan
+     dapur, dan selama ini muncul di dua daftar sekaligus sehingga tidak ada
+     yang tahu siapa yang menyiapkan. */
+  {k:'komponen',l:'Komponen Menu',t:'multi',o:['Welcome Snack','Appetizer','Soup','Main Course','VIP Family Set'],req:1},
   {k:'dietary',l:'Dietary Requirement',t:'multi',o:['Halal','Vegetarian','Vegan','Non Spicy','Food Allergy'],req:1},
   {k:'menuFinal',l:'Menu Final',t:'menutbl',src:'komponen',req:1,full:1,help:'Tabelnya ikut komponen menu yang dicentang di atas. Jam di judul kelompok mengisi semua barisnya, dan tiap baris masih bisa diubah sendiri.'},
   {k:'kNote',l:'Catatan Kitchen',t:'ta'},
@@ -2100,7 +2106,9 @@ const EVENT_SCHEMA = [
   // DIHAPUS atas permintaan: menuSpesial, porsi, penyajianWaktu,
   // jenisPenyajian, bahanKhusus, leftoverK. "Standar Plating" pindah ke Bar.
 ]},
-{ id:'bar', n:'D.3', title:'Bar', div:['Bar'], desc:'Minuman apa yang disediakan (non-alkohol), paket apa, dan jam operasional bar-nya?', fields:[
+{ id:'bar', n:'D.3', title:'Bar', div:['Bar'], desc:'Minuman, dessert & fruit apa yang disediakan, paket apa, dan jam operasional bar-nya?', fields:[
+  // Pindahan dari Kitchen: ketiganya memang disiapkan bar.
+  {k:'barKomponen',l:'Komponen Bar',t:'multi',o:['Beverage','Dessert','Fruit']},
   {k:'barMenu',l:'Daftar Menu Bar',t:'menutbl',bar:1,full:1,help:'Satu daftar minuman. Jam & jumlah di judul mengisi semua barisnya, dan tiap baris masih bisa diubah sendiri.'},
   {k:'barJam',l:'Jam Operasional Bar',t:'timerange',req:1},
   {k:'plating',l:'Standar Plating / Presentasi',t:'sel',o:['Dikotakin','Dipiringin','Lainnya']},
@@ -2205,7 +2213,6 @@ const EVENT_SCHEMA = [
   {k:'depositNama',l:'Deposit — Keterangan',t:'text',cond:{k:'sistemBayar',v:'DP'}},
   {k:'depositNominal',l:'Deposit — Nominal',t:'cur',cond:{k:'sistemBayar',v:'DP'}},
   {k:'depositVia',l:'Deposit — Via',t:'sel',o:['QRIS BRI','Transfer UOB','QRIS MANDIRI','Transfer BRI','Debit','Cash'],cond:{k:'sistemBayar',v:'DP'}},
-  {k:'metodeBayar',l:'Metode Pembayaran',t:'multi',o:['Tunai','Debit','QRIS','Kartu Kredit'],req:1},
   {k:'ketentuanBill',l:'Ketentuan Bill',t:'sel',o:['Open Bill','Close Bill']},
   // Limit anggaran hanya masuk akal pada Open Bill.
   // Tetap teks bebas, bukan field rupiah: isian lama ada yang ditulis
@@ -2215,12 +2222,17 @@ const EVENT_SCHEMA = [
   {k:'voucher',l:'Voucher / Kupon',t:'ta'},
   {k:'voucherImgs',l:'Gambar Voucher / Kupon',t:'files',full:1,help:'Boleh lebih dari satu. Gambar langsung tampil di bawah.'},
   {k:'itemTambah',l:'Item Tambahan / Pesanan Khusus',t:'itemtbl',full:1,help:'Entertainment charge, dekor tambahan, dsb. Nama item & nominalnya ikut muncul di Finance sebagai Lain-lain.'},
-  {k:'refundPIC',l:'PIC Pembayaran',t:'text',req:1},
+  /* Dulu ada DUA kolom PIC di tab ini: "PIC Pembayaran" dan "PIC Client Hari-H
+     (Kasir)". Keduanya diisi orang yang sama hampir setiap kali, dan yang
+     benar-benar dibutuhkan kasir cuma satu: siapa DARI PIHAK CLIENT yang
+     mengurus pembayaran, beserta nomornya. Yang satu dibuang, yang tersisa
+     diberi judul yang menyebutkan keduanya. */
+  {k:'refundPIC',l:'PIC Pembayaran (Client) + No. WA',t:'text',req:1},
   {k:'jamOrder',l:'Jam Operasional & Mulai Boleh Order',t:'timerange',req:1},
   {k:'kasirTambah',l:'Request Tambahan Kasir',t:'ta',help:'Struk rangkap, laporan harian, invoicing spesial.'},
   {k:'noteInvoice',l:'Note Invoice',t:'ta',full:1},
-  {k:'cPIChp',l:'PIC Client Hari-H (Kasir) + No. WA',t:'text',req:1}
-  // DIHAPUS atas permintaan: itemNoSell (Item yang Tidak Boleh Dijual).
+  // DIHAPUS atas permintaan: itemNoSell (Item yang Tidak Boleh Dijual),
+  // metodeBayar (Metode Pembayaran), cPIChp (PIC Client Hari-H Kasir).
 ]},
 { id:'finance', n:'D.9', title:'Finance & Ketentuan Pembayaran', div:[], desc:'Berapa rincian biaya & DP-nya, dan bagaimana ketentuan pembayarannya? (khusus Finance/Marketing)', fin:1, fields:[
   {k:'sewaVenue',l:'Sewa Venue',t:'cur'},
@@ -2372,11 +2384,21 @@ function eventFinance(ev){
   let tax,grand;
   if(taxInc){ grand=afterDisc+service; tax=Math.round(grand*taxPct/(100+taxPct)); } // pajak sudah di dalam harga
   else { tax=Math.round((afterDisc+service)*taxPct/100); grand=afterDisc+service+tax; }
+  /* DP MEMAKAI NOMINAL, bukan persentase. Di lapangan yang disepakati dengan
+     client selalu berupa angka rupiah ("DP 5 juta"), bukan persen; persentase
+     memaksa marketing menghitung mundur, dan angka hasil pembulatannya tidak
+     pernah sama dengan yang benar-benar ditransfer.
+
+     Sumbernya Deposit — Nominal di tab Kasir (dipakai kalau sistem bayarnya DP).
+     Kalau belum diisi, DP jatuh ke persentase bawaan seperti dulu supaya event
+     lama tidak kehilangan angkanya begitu saja. */
+  const dpNom=+d.depositNominal||0;
   const dpPct=ev.dpPercent||st.dpPercent;
-  const dp=Math.round(grand*dpPct/100);
+  const dp=dpNom>0?dpNom:Math.round(grand*dpPct/100);
+  const dpDariNominal=dpNom>0;
   const paid=(ev.payments||[]).reduce((a,p)=>a+(+p.amount||0),0);
   const remaining=Math.max(0,grand-paid);
-  return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,paid,remaining};
+  return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,paid,remaining};
 }
 /* ---------- NOMOR INVOICE & KWITANSI ----------
    Dulu nomor invoice dihitung dari posisi baris (String(1000+i)) sehingga bergeser
@@ -3911,8 +3933,11 @@ function renderEventForm(V,id){
   // finance strip
   h+='<div class="grid g-4" style="margin-bottom:18px">'
    +'<div class="card stat"><div class="sl">Grand Total</div><div class="sv num" style="font-size:24px">'+rpShort(f.grand)+'</div><div class="sd">'+rp(f.grand)+'</div></div>'
-   +'<div class="card stat"><div class="sl">DP '+f.dpPct+'%</div><div class="sv num" style="font-size:24px">'+rpShort(f.dp)+'</div><div class="sd">'+(f.paid>=f.dp?'✓ terpenuhi':'belum masuk')+'</div></div>'
-   +'<div class="card stat"><div class="sl">Terbayar</div><div class="sv num" style="font-size:24px">'+rpShort(f.paid)+'</div><div class="sd">sisa '+rpShort(f.remaining)+'</div></div>'
+   +'<div class="card stat"><div class="sl">DP'+(f.dpDariNominal?'':' '+f.dpPct+'%')+'</div><div class="sv num" style="font-size:24px">'+rpShort(f.dp)+'</div><div class="sd">'+(f.paid>=f.dp?'✓ terpenuhi':'belum masuk')+'</div></div>'
+   /* "Sisa" adalah Grand Total dikurangi yang SUDAH dibayar — itu angka yang
+      ditanyakan client dan finance, dan sekarang ditulis besar di kartunya
+      sendiri alih-alih jadi keterangan kecil di bawah "Terbayar". */
+   +'<div class="card stat"><div class="sl">Sisa Tagihan</div><div class="sv num" style="font-size:24px">'+rpShort(f.remaining)+'</div><div class="sd">terbayar '+rpShort(f.paid)+' dari '+rpShort(f.grand)+'</div></div>'
    +'<div class="card stat"><div class="sl">Kesiapan Divisi</div><div class="sv num" style="font-size:24px">'+taskProgress(ev)+'%</div><div class="sd">'+eventCats(ev).filter(d=>divProgress(ev,d)>=100).length+'/'+eventCats(ev).length+' kategori</div></div>'
    +'</div>';
 
@@ -5453,7 +5478,7 @@ function kirimPenawaran(id){
      dua tombol — unduh PDF-nya, lalu buka WhatsApp untuk melampirkannya. */
   const c=S.clients.find(x=>x.id===ev.clientId)||{}, f=eventFinance(ev);
   const msg='Halo '+(c.pic||c.nama||'')+', berikut surat penawaran untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+')'
-    +(f.grand?('.\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)):'.')
+    +(f.grand?('.\nGrand Total: '+rp(f.grand)+'\nDP: '+rp(f.dp)+(f.paid?('\nSudah dibayar: '+rp(f.paid)+'\nSisa: '+rp(f.remaining)):'')):'.')
     +'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
   modal('<div class="modal-head"><div><h3>Kirim Surat Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
@@ -5581,7 +5606,7 @@ function finHitungHTML(ev){
    +'</dl>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold-deep)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
-  h+='<dl class="kv-list"><dt>DP ('+f.dpPct+'%)</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
+  h+='<dl class="kv-list"><dt>DP'+(f.dpDariNominal?' (nominal)':' ('+f.dpPct+'%)')+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
   h+=paymentHistoryHtml(ev);
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';

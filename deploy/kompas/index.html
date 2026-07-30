@@ -134,6 +134,12 @@ input,select,textarea{font-family:inherit}
 .topbar .sub{font-size:13px;color:var(--muted);margin-top:3px}
 .month-pick{display:flex;align-items:center;gap:10px}
 .month-pick input{padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink)}
+/* Saklar Harian / Bulanan. Bentuk segmented supaya terbaca sebagai DUA
+   keadaan dari satu hal, bukan dua tombol aksi yang berdiri sendiri. */
+.modesw{display:inline-flex;gap:3px;background:var(--paper);border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:3px}
+.modesw button{border:none;background:transparent;padding:6px 12px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.modesw button:hover{color:var(--ink)}
+.modesw button.on{background:var(--surface);color:var(--gold-dim);box-shadow:0 1px 4px rgba(50,42,28,.12)}
 /* Pesan galat simpan sekarang membawa sebab asli dari server (bisa sepanjang
    "SQLSTATE[HY000] [1044] Access denied..."), jadi span-nya harus boleh
    membungkus dan memotong kata panjang, bukan melebarkan header. */
@@ -205,8 +211,9 @@ tbody tr:hover{background:var(--gold-soft)}
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
 .tkbox input{cursor:pointer}
 .tkbox.on{color:var(--gold-dim)}
-/* Tombol ringkasan bagi hasil di baris breakdown. Merah kalau shift-nya belum
-   diisi — tanpa itu porsi kasir tidak punya penerima dan diam-diam hangus. */
+/* Tombol ringkasan potongan di baris breakdown. Merah kalau shift-nya belum
+   diisi — tanpa itu potongannya tidak dibebankan ke siapa pun dan omset yang
+   sama diam-diam terhitung dua kali. */
 .bhbtn{border:1px dashed var(--line);background:var(--surface);border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:9px;line-height:1.35;text-align:left}
 .bhbtn:hover{border-color:var(--gold);color:var(--gold-dim)}
 .bhbtn.kosong{border-color:var(--danger);color:var(--danger)}
@@ -332,7 +339,7 @@ tbody tr:hover{background:var(--gold-soft)}
       </div>
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
-        <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Omset Bulanan</a>
+        <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Dashboard Omset</a>
         <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
         <a data-view="summary"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg></span> Ranking PIC</a>
       </div>
@@ -369,8 +376,18 @@ tbody tr:hover{background:var(--gold-soft)}
       </div>
       <div class="month-pick">
         <span class="sync" id="syncBox"></span>
-        <span class="pill"><span class="dot"></span> Periode</span>
+        <!-- Saklar HARIAN / BULANAN untuk halaman analitik (Dashboard Omset,
+             Analytics, Ranking, Performa). Halaman input punya pemilih
+             tanggalnya sendiri di dalam kartunya, jadi saklar ini
+             disembunyikan di sana — dua pemilih tanggal di satu layar yang
+             artinya berbeda adalah cara tercepat membaca angka hari yang salah. -->
+        <span class="modesw" id="modeSw">
+          <button type="button" id="modeHari" onclick="setViewMode('hari')">Harian</button>
+          <button type="button" id="modeBulan" onclick="setViewMode('bulan')">Bulanan</button>
+        </span>
+        <span class="pill" id="periodLabel"><span class="dot"></span> Periode</span>
         <input type="month" id="periodPick">
+        <input type="date" id="datePick" style="display:none">
       </div>
     </div>
     <div id="app-view" class="view"></div>
@@ -680,9 +697,15 @@ function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
 function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
 /* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
 const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
-function dailyTarget(monthKey){
+/* Pembagi hari sebulan — dipakai bareng oleh target harian perusahaan DAN
+   proporsi target per PIC saat halaman dilihat per hari. Satu tempat, supaya
+   "target harian" tidak pernah berarti dua angka berbeda di dua halaman. */
+function pembagiHari(monthKey){
   const [y,m]=monthKey.split('-').map(Number);
-  const div=DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
+  return DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
+}
+function dailyTarget(monthKey){
+  const div=pembagiHari(monthKey);
   return div>0?DB.settings.companyMonthlyTarget/div:0;
 }
 function daysOfMonth(monthKey){ return DB.daily.filter(d=>monthKeyOf(d.date)===monthKey).sort((a,b)=>a.date<b.date?-1:1); }
@@ -692,18 +715,98 @@ function empName(div,id){ const e=(DB.employees[div]||[]).find(x=>x.id===id); re
 let PERIOD=monthKeyOf(todayISO());
 let CURRENT='input';
 
+/* ============ RENTANG TAMPILAN: HARIAN vs BULANAN ============
+   Halaman analitik (Dashboard Omset, Analytics, Ranking, Performa) dulu selalu
+   sebulan. Sekarang keempatnya bisa dilihat per HARI juga — dan semuanya
+   membaca rentangnya dari SATU fungsi di bawah, bukan masing-masing memanggil
+   daysOfMonth(PERIOD) sendiri. Alasannya sama seperti porsiPic(): pernah ada
+   empat tempat yang menjumlahkan sendiri-sendiri, dan yang satu terlewat
+   membuat angka orang yang sama berbeda antar halaman.
+
+   Halaman INPUT (Input Omset, Report Daily, Compliment, Breakdown) TIDAK ikut
+   saklar ini — masing-masing punya pemilih tanggalnya sendiri di dalam
+   kartunya, dan mereka mengubah satu hari, bukan membaca rentang. */
+let VIEWMODE='bulan';                 // 'bulan' | 'hari'
+let VIEWDATE=todayISO();              // hari yang dilihat saat VIEWMODE==='hari'
+const VIEW_ANALITIK=['bulanan','analytics','summary','marketing','event','kasir'];
+
+function modeHarian(){ return VIEWMODE==='hari'; }
+/* Daftar hari yang dianalisis. Mode harian mengembalikan array 0 atau 1 elemen
+   — array kosong (bukan null) supaya seluruh view yang me-reduce/map tetap
+   jalan apa adanya tanpa penjagaan tambahan di tiap tempat. */
+function rentangAktif(){
+  if(!modeHarian()) return daysOfMonth(PERIOD);
+  const d=getDay(VIEWDATE);
+  return d?[d]:[];
+}
+function labelRentang(){
+  return modeHarian()?dateLabel(VIEWDATE):labelPeriode(PERIOD);
+}
+/* Target perusahaan untuk rentang yang sedang dilihat. */
+function targetRentang(){
+  return modeHarian()?dailyTarget(monthKeyOf(VIEWDATE)):DB.settings.companyMonthlyTarget;
+}
+/* Target seorang PIC untuk rentang yang sedang dilihat. Target yang disimpan
+   selalu BULANAN, jadi mode harian membaginya dengan pembagi yang sama yang
+   dipakai target harian perusahaan. Kalau tidak diproporsikan, achievement
+   harian tiap orang akan tampil ~1/30 dan semua orang terlihat gagal total
+   tiap hari — angka yang benar secara aritmetika tapi tidak berarti apa pun. */
+function targetPic(bulanan){
+  if(!modeHarian()) return num(bulanan);
+  const div=pembagiHari(monthKeyOf(VIEWDATE));
+  return div>0?num(bulanan)/div:0;
+}
+/* Compliment dalam rentang aktif. compsBulan/compsOn sudah ada; ini cuma
+   memilih yang mana yang berlaku supaya view tidak perlu bercabang sendiri. */
+function compsRentang(){
+  return modeHarian()?compsOn(VIEWDATE):compsBulan(PERIOD);
+}
+
+function setViewMode(m){
+  VIEWMODE=(m==='hari')?'hari':'bulan';
+  /* Hari yang dipilih diselaraskan ke PERIOD yang sedang aktif supaya
+     berpindah ke mode harian tidak melompat ke bulan lain tanpa diminta.
+     Kalau bulan itu ada datanya, ambil hari TERAKHIR yang terinput — itu
+     yang hampir selalu dicari, bukan tanggal 1. */
+  if(modeHarian() && monthKeyOf(VIEWDATE)!==PERIOD){
+    const ds=daysOfMonth(PERIOD);
+    VIEWDATE=ds.length?ds[ds.length-1].date:(PERIOD+'-01');
+  }
+  render();
+}
+/* Menampilkan kendali yang sesuai halaman & mode. Dipanggil dari render(),
+   bukan dari tiap view: kalau tiap view mengaturnya sendiri, halaman yang
+   lupa akan mewarisi kendali halaman sebelumnya. */
+function syncKendaliPeriode(){
+  const analitik=VIEW_ANALITIK.indexOf(CURRENT)>=0;
+  const sw=document.getElementById('modeSw');
+  const mp=document.getElementById('periodPick');
+  const dp=document.getElementById('datePick');
+  const lb=document.getElementById('periodLabel');
+  if(sw) sw.style.display=analitik?'inline-flex':'none';
+  const pakaiHari=analitik&&modeHarian();
+  if(mp) mp.style.display=pakaiHari?'none':'';
+  if(dp) dp.style.display=pakaiHari?'':'none';
+  if(lb) lb.innerHTML='<span class="dot"></span> '+(pakaiHari?'Tanggal':'Periode');
+  const bh=document.getElementById('modeHari'), bb=document.getElementById('modeBulan');
+  if(bh) bh.className=modeHarian()?'on':'';
+  if(bb) bb.className=modeHarian()?'':'on';
+  if(mp) mp.value=PERIOD;
+  if(dp) dp.value=VIEWDATE;
+}
+
 /* ============ ROUTER ============ */
 const TITLES={
   input:['Input Omset Harian','Catat pendapatan, diskon, tax & service, dan trafik harian'],
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
-  breakdown:['Breakdown Sumber Omset','Alokasikan omset net ke marketing, event, dan kasir'],
-  bulanan:['Dashboard Omset Bulanan','Pencapaian target bulan berjalan'],
+  breakdown:['Breakdown Sumber Omset','Isi omset per kasir, lalu potong untuk event marketing & internal'],
+  bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
   summary:['Ranking Seluruh PIC','Leaderboard achievement bulanan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
   event:['Performa Event','Kontribusi omset per PIC event'],
-  kasir:['Performa Kasir','Omset walk-in per kasir'],
+  kasir:['Performa Kasir','Omset per kasir sesudah potongan event'],
   target:['Pengaturan Target','Target perusahaan & masing-masing PIC'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Kompas']
 };
@@ -720,6 +823,13 @@ function go(view){
 }
 document.querySelectorAll('.nav a').forEach(a=>a.addEventListener('click',()=>go(a.dataset.view)));
 document.getElementById('periodPick').addEventListener('change',e=>{PERIOD=e.target.value;render();});
+/* Mengubah tanggal ikut memindahkan PERIOD. Tanpa itu, kembali ke mode bulanan
+   akan menampilkan bulan lama padahal orangnya baru saja melihat hari di bulan
+   lain — dan tidak ada apa pun di layar yang menjelaskan kenapa. */
+document.getElementById('datePick').addEventListener('change',e=>{
+  if(!e.target.value) return;
+  VIEWDATE=e.target.value; PERIOD=monthKeyOf(VIEWDATE); render();
+});
 
 let charts=[];
 function clearCharts(){ charts.forEach(c=>{try{c.destroy();}catch(e){}}); charts=[]; }
@@ -728,7 +838,7 @@ function render(){
   const el=document.getElementById('app-view');
   if(!DB){ el.innerHTML='<div class="card"><div class="empty"><div class="big">⏳</div>Memuat data dari server…</div></div>'; return; }
   clearCharts();
-  document.getElementById('periodPick').value=PERIOD;
+  syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
   ({input:viewInput,report:viewReport,compliment:viewCompliment,breakdown:viewBreakdown,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
@@ -1113,18 +1223,26 @@ function compsBulan(monthKey){ return (DB.compliments||[]).filter(c=>monthKeyOf(
 /* Daftar compliment yang membebani satu PIC. Dipisah dari compPic() supaya
    halaman Performa bisa memajang rinciannya — angka potongan saja bikin PIC
    bertanya-tanya "dipotong apa", dan jawabannya cuma ada di halaman lain. */
-function compListPic(monthKey, emp){
+/* Penyaringnya dipisah dari sumber daftarnya supaya rentang mana pun bisa
+   dipakai — sebulan (compListPic) maupun rentang aktif yang bisa cuma sehari
+   (compListPicRentang). Tanpa pemisahan ini, halaman Performa versi harian
+   akan memotong realisasi memakai compliment SEBULAN penuh. */
+function compFilterPic(list, emp){
   if(!emp) return [];
   const nama=String(emp.name||'').trim().toLowerCase();
-  return compsBulan(monthKey).filter(c=>{
+  return list.filter(c=>{
     if(c.picDiv==='tamu') return false;
     if(emp.officeUserId && c.picOfficeId) return c.picOfficeId===emp.officeUserId;
     return String(c.picName||'').trim().toLowerCase()===nama;
   });
 }
+function compListPic(monthKey, emp){ return compFilterPic(compsBulan(monthKey), emp); }
 function compPic(monthKey, emp){
   return compListPic(monthKey, emp).reduce((s,c)=>s+num(c.nominal),0);
 }
+/* Versi yang mengikuti saklar Harian/Bulanan. Dipakai halaman analitik. */
+function compListPicRentang(emp){ return compFilterPic(compsRentang(), emp); }
+function compPicRentang(emp){ return compListPicRentang(emp).reduce((s,c)=>s+num(c.nominal),0); }
 /* Kartu rincian compliment, dipakai bersama Performa Marketing/Event/Kasir.
    `judulPic` diisi saat menampilkan gabungan banyak PIC (segmen "Semua"),
    supaya ketahuan potongan itu milik siapa. */
@@ -1149,96 +1267,122 @@ function kartuCompliment(rows, pakaiKolomPic){
   </div>`;
 }
 
-/* ---- Pembagian omset event Ticketing (keputusan 28 Juli 2026) ----
-   Event NON-TICKETING: seluruh omsetnya diakui untuk PIC-nya.
-   Event TICKETING: hanya SEPARUH yang diakui untuk PIC (marketing atau
-   event, tergantung siapa yang memegang event itu). Separuh sisanya milik
-   kasir dan dibagi ke kasir yang kena shift event itu — tiketnya memang dijual
-   atas nama event, tapi yang melayani penjualan dan tamunya kasir.
+/* ---- Alur omset: KASIR DULU, event MEMOTONG (keputusan 30 Juli 2026) ----
+   Ini pembalikan arah dari aturan 28 Juli. Baca ini sebelum mengubah apa pun
+   di bawah, karena dua model itu memakai bentuk data yang sama persis dan
+   angkanya cuma bisa dibedakan dari cara membacanya.
 
-   CATATAN SEJARAH: aturan ini sempat berlaku terbalik di hari yang sama
-   (non-ticketing yang dibagi dua). Yang dipakai sekarang adalah yang ini —
-   TICKETING yang dibagi. Data lama tidak perlu dimigrasi karena yang berubah
-   cuma cara membaca `tiket`, bukan bentuk datanya; tapi angka realisasi bulan
-   berjalan otomatis berubah begitu berkas ini naik.
+   MODEL SEKARANG. Semua uang masuk lewat meja kasir — termasuk tiket event dan
+   tagihan gathering. Jadi yang diisi lebih dulu di Breakdown adalah omset per
+   KASIR, dan totalnya sendiri sudah harus sama dengan omset net hari itu.
+   Marketing & event tidak menambah total apa pun: barisnya MEMOTONG omset
+   kasir yang kena shift event tersebut.
 
-   Ini lapisan PENILAIAN, bukan data. Angka di halaman Breakdown tidak diubah
-   sedikit pun, jadi validasi "total alokasi = omset net harian" tetap berlaku
-   apa adanya. Yang berubah hanya cara Performa, Ranking, dan Analytics
-   membaca angka yang sama.
+     • baris TANPA centang Ticketing → SELURUH nominalnya dipotong dari kasir
+       shift, dan seluruhnya diakui untuk PIC.
+     • baris DICENTANG Ticketing     → hanya SEPARUH yang dipotong dari kasir
+       shift, dan separuh itu juga yang diakui untuk PIC. Separuh sisanya tetap
+       milik kasir — tiketnya dijual atas nama event, tapi yang melayani
+       penjualan dan tamunya kasir.
 
-   Semua halaman WAJIB lewat dua fungsi ini. Sempat ada empat tempat berbeda
-   yang menjumlahkan r.amount sendiri-sendiri; kalau salah satu terlewat,
+   Karena potongan kasir = porsi PIC (uang yang sama, cuma berpindah pemilik),
+   jumlah seluruh realisasi tetap sama dengan omset net. Itu invariannya, dan
+   itu yang harus tetap benar sesudah perubahan apa pun di bawah.
+
+   MODEL LAMA (28 Juli 2026, sudah tidak dipakai): kasir diisi walk-in MURNI,
+   ketiga section dijumlahkan harus sama dengan net, dan separuh omset ticketing
+   DITAMBAHKAN ke kasir shift sebagai bagi hasil. Persis kebalikan arah
+   potongannya.
+
+   Data lama TIDAK dimigrasi — bentuknya memang tidak berubah, hanya artinya.
+   Konsekuensinya disengaja dan sudah diterima (preseden yang sama diambil saat
+   aturan 28 Juli naik): hari-hari yang diisi dengan model lama akan tampak
+   kurang balance di Breakdown, karena omset kasirnya belum memuat event. Hari
+   seperti itu diberi peringatan sendiri di halaman Breakdown supaya orang tahu
+   harus mengisi ulang omset kasirnya, bukan mengira angkanya rusak.
+
+   Semua halaman WAJIB lewat fungsi-fungsi di bawah. Sempat ada empat tempat
+   berbeda yang menjumlahkan r.amount sendiri-sendiri; kalau satu terlewat,
    realisasi orang yang sama beda antara Performa dan Ranking. */
 const PORSI_PIC_TIKET=0.5;
 function porsiPic(r){
   const a=num(r.amount);
   return r.tiket ? Math.round(a*PORSI_PIC_TIKET) : a;
 }
-/* Porsi kasir dari SATU baris event, dibagi per SHIFT — bukan rata ke semua
-   kasir yang masuk hari itu (keputusan 28 Juli 2026, mengganti aturan sehari
-   sebelumnya). Kasir yang masuk hari itu tapi tidak kebagian shift event
-   tersebut tidak menerima apa-apa.
+/* Potongan yang ditanggung kasir karena SATU baris event, dibagi per SHIFT —
+   bukan rata ke semua kasir yang masuk hari itu. Kasir yang masuk tapi tidak
+   kebagian shift event tersebut tidak ikut dipotong.
 
-   Pembaginya = jumlah DW (daily worker, kasir harian) + jumlah kasir tetap
-   yang dicentang shift-nya. DW ikut membagi TAPI tidak ikut dicatat: mereka
-   bukan pegawai tetap dan tidak punya baris performa. Jadi kalau porsi kasir
-   Rp500.000 dengan 2 DW dan 3 kasir tetap, pembaginya 5 → tiap kasir tetap
-   dapat Rp100.000, dan Rp200.000 milik DW tidak muncul di performa siapa pun.
-   Itu memang disengaja, bukan kebocoran angka.
+   Yang dipotong = porsiPic(r), yaitu uang yang sama yang diakui untuk PIC.
+   Bukan kebetulan: omsetnya sudah tercatat penuh di baris kasir, jadi memotong
+   lebih kecil dari yang diakui PIC berarti uang yang sama dihitung dua kali.
 
-   Baris yang shift-nya belum diisi mengembalikan pembagi 0 → tidak ada yang
-   menerima. UI menandainya merah supaya ketahuan, daripada diam-diam
-   membagikannya ke orang yang tidak bertugas. */
-function bagiKasirBaris(r){
-  const sisa=num(r.amount)-porsiPic(r);
+   DW TIDAK IKUT MEMBAGI potongan ini — beda dari aturan 28 Juli yang lama, dan
+   ini perbedaan yang paling mudah salah kalau kodenya disamakan begitu saja.
+   Alasannya: section kasir di Breakdown hanya punya baris untuk kasir TETAP,
+   jadi setoran DW pun ikut tercatat di baris kasir tetap yang menaunginya.
+   Kalau DW dijadikan pembagi, sebagian potongan tidak dibebankan ke siapa pun
+   sementara omsetnya tetap ada di baris kasir tetap — realisasi kasir jadi
+   lebih besar dari yang seharusnya dan totalnya melebihi omset net. Jumlah DW
+   tetap disimpan (`r.dw`) karena berguna sebagai catatan operasional shift,
+   tapi tidak lagi memengaruhi angka.
+
+   Baris yang shift-nya belum diisi mengembalikan pembagi 0 → potongannya tidak
+   dibebankan ke siapa pun. UI menandainya merah supaya ketahuan, daripada
+   diam-diam membebankannya ke orang yang tidak bertugas. */
+function potonganBaris(r){
+  const total=porsiPic(r);
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
-  const pembagi=dw+ids.length;
-  if(sisa<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,sisa:Math.max(sisa,0)};
-  return {per:Math.round(sisa/pembagi),ids,dw,pembagi,sisa};
+  const pembagi=ids.length;
+  if(total<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,total:Math.max(total,0)};
+  return {per:Math.round(total/pembagi),ids,dw,pembagi,total};
 }
-/* Total yang diterima satu kasir tetap dari seluruh event pada satu hari. */
-function bagiKasirHari(d,kasirId){
+/* Total potongan yang ditanggung satu kasir tetap dari seluruh event pada satu
+   hari. Dipakai apa adanya oleh Performa Kasir, Ranking, dan Analytics. */
+function potonganHari(d,kasirId){
   let s=0;
   [...(d.bd?.marketing||[]),...(d.bd?.event||[])].forEach(r=>{
-    const b=bagiKasirBaris(r);
+    const b=potonganBaris(r);
     if(b.ids.indexOf(kasirId)>-1) s+=b.per;
   });
   return s;
 }
-/* Baris ticketing bernominal yang shift-nya belum ditentukan. Dipakai
-   untuk peringatan di Breakdown dan Performa Kasir. */
+/* Baris bernominal yang shift-nya belum ditentukan. Dipakai untuk peringatan di
+   Breakdown dan Performa Kasir. Filter `r.tiket` yang dulu ada di sini DIHAPUS:
+   sekarang setiap baris event memotong kasir, bukan cuma yang ticketing, jadi
+   semuanya butuh shift. */
 function barisTanpaShift(d){
   return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
-    .filter(r=>r.tiket && num(r.amount)>0 && bagiKasirBaris(r).pembagi<=0);
+    .filter(r=>num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
-/* Modal pengaturan bagi hasil satu baris event. Mengembalikan lewat callback
+/* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
+   Namanya masih modalBagiHasil() supaya diff-nya kecil. Mengembalikan lewat callback
    supaya pemanggilnya yang memutuskan kapan menggambar ulang — baris breakdown
    sedang diisi, jadi redraw yang tidak perlu akan merebut fokus. */
 function modalBagiHasil(row, labelEvent, simpan){
   const kasir=DB.employees.kasir||[];
   let dw=Math.max(0,num(row.dw));
   let pilih=new Set(Array.isArray(row.shift)?row.shift.filter(Boolean):[]);
-  const sisa=num(row.amount)-porsiPic(row);
+  const potong=porsiPic(row);
 
   const ovl=document.createElement('div');
   ovl.className='ovl';
   ovl.innerHTML=`
     <div class="mdl">
       <div class="mdl-h">
-        <h3>Bagi Hasil Kasir</h3>
-        <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · porsi kasir <b>${fmtRp(sisa)}</b> (50%)</div>
+        <h3>Potongan Kasir Shift</h3>
+        <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · dipotong dari kasir <b>${fmtRp(potong)}</b>${row.tiket?' (50%, ticketing)':' (100%)'}</div>
       </div>
       <div class="mdl-b">
         <div class="field"><label>Jumlah DW Kasir (daily worker) di shift ini</label>
           <input class="mono" id="bh_dw" inputmode="numeric" value="${dw}">
-          <div class="helper">DW ikut membagi rata, tapi tidak tercatat di Performa karena bukan pegawai tetap. Isi 0 kalau tidak ada.</div>
+          <div class="helper">Catatan operasional saja — <b>tidak</b> memengaruhi angka. Setoran DW sudah ikut tercatat di baris kasir tetap yang menaunginya, jadi potongan hanya dibagi ke kasir tetap di bawah.</div>
         </div>
         <div style="margin-top:16px">
           <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Kasir tetap yang kena shift event ini</label>
-          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang menerima. Kasir yang masuk hari itu tapi beda shift tidak dapat.</div>
+          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang ikut dipotong. Kasir yang masuk hari itu tapi beda shift tidak kena.</div>
           ${kasir.length?`<div class="kslist" id="bh_ks">${kasir.map(k=>`
             <label class="kschip${pilih.has(k.id)?' on':''}" data-id="${esc(k.id)}"><input type="checkbox" ${pilih.has(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}</div>`
           :`<div class="empty" style="padding:16px 10px">Belum ada kasir terdaftar.</div>`}
@@ -1253,14 +1397,14 @@ function modalBagiHasil(row, labelEvent, simpan){
   document.body.appendChild(ovl);
 
   const prev=()=>{
-    const pembagi=dw+pilih.size;
-    const per=pembagi>0?Math.round(sisa/pembagi):0;
+    const pembagi=pilih.size;
+    const per=pembagi>0?Math.round(potong/pembagi):0;
     const box=ovl.querySelector('#bh_prev');
     box.className='notice '+(pembagi>0?'info':'warn');
     box.innerHTML = pembagi>0
-      ? `${fmtRp(sisa)} ÷ ${pembagi} orang (${dw} DW + ${pilih.size} kasir tetap) = <b>${fmtRp(per)}</b> per orang.<br>
-         ${pilih.size} kasir tetap menerima total <b>${fmtRp(per*pilih.size)}</b>${dw?`; ${fmtRp(per*dw)} jadi bagian DW dan tidak masuk performa siapa pun.`:'.'}`
-      : `⚠ Belum ada penerima. Isi jumlah DW atau centang minimal satu kasir — kalau tidak, ${fmtRp(sisa)} ini tidak diberikan ke siapa pun.`;
+      ? `${fmtRp(potong)} ÷ ${pembagi} kasir tetap = <b>${fmtRp(per)}</b> dipotong dari masing-masing.<br>
+         Nominal itu pindah jadi realisasi <b>${esc(labelEvent||'event ini')}</b>; omset kasir yang sudah diinput tidak diubah, hanya realisasinya yang berkurang.`
+      : `⚠ Belum ada kasir yang dicentang. Kalau dibiarkan, potongan ${fmtRp(potong)} tidak dibebankan ke siapa pun — omset yang sama akan terhitung dua kali: sekali di realisasi PIC, sekali di realisasi kasir.`;
   };
   ovl.querySelector('#bh_dw').addEventListener('input',e=>{ dw=Math.max(0,num(e.target.value)); prev(); });
   ovl.querySelectorAll('.kschip').forEach(c=>c.addEventListener('click',e=>{
@@ -1339,7 +1483,7 @@ function viewBreakdown(){
   if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
   const d=getDay(bdDate);
   const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Total breakdown harus tepat sama dengan Total Omset net harian.</div></div>
+      <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Isi omset per kasir dulu — totalnya harus tepat sama dengan Total Omset net harian. Marketing &amp; event memotong dari kasir yang kena shift-nya.</div></div>
       <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner('bd')}</div></div>
     </div>`;
   if(!d){
@@ -1351,26 +1495,40 @@ function viewBreakdown(){
   // pastikan baris kasir ada untuk semua kasir
   const kasirRows=DB.employees.kasir.map(k=>{ const ex=d.bd.kasir.find(r=>r.kasirId===k.id); return ex||{kasirId:k.id,amount:0,off:false}; });
 
+  /* Hari yang diisi dengan MODEL LAMA (sebelum 30 Juli 2026): dulu ketiga
+     section dijumlahkan sama dengan net, jadi omset kasirnya walk-in murni dan
+     belum memuat event. Tandanya khas dan bisa dikenali dengan pasti — kasir
+     sendiri kurang dari net, tapi kasir + marketing + event tepat sama dengan
+     net. Disebutkan terang-terangan supaya orang tahu harus menaikkan omset
+     kasirnya, bukan mengira Breakdown-nya rusak. */
+  const ksIsi=kasirRows.reduce((s,r)=>s+(r.off?0:num(r.amount)),0);
+  const mkEvIsi=[...d.bd.marketing,...d.bd.event].reduce((s,r)=>s+num(r.amount),0);
+  const polaLama = mkEvIsi>0 && Math.abs(net-(ksIsi+mkEvIsi))<1 && Math.abs(net-ksIsi)>=1;
+
   el.innerHTML=pickBar+`
     <div class="card">
       <div class="notice info">ℹ️ Total Omset net <b>${fmtRp(net)}</b>${d.discount>0?` (sesudah diskon ${fmtRp(d.discount)})`:''}. Service charge + tax ${fmtRp(taxSvcOf(d))} tidak masuk breakdown.</div>
       ${(()=>{const cs=compsOn(bdDate).filter(c=>c.picDiv!=='tamu');
         return cs.length?`<div class="notice warn">🎁 Ada ${cs.length} compliment hari ini senilai <b>${fmtRp(cs.reduce((s,c)=>s+num(c.nominal),0))}</b> yang membebani PIC. Nominal ini <b>memotong realisasi</b> PIC bersangkutan di Performa &amp; Ranking — alokasi breakdown di bawah tidak perlu dikurangi sendiri.<br><span style="opacity:.85">${cs.map(c=>`${esc(c.picName)} ${fmtRp(num(c.nominal))}`).join(' · ')}</span></div>`:'';})()}
 
-      <span class="divlabel mk">Section A — Marketing</span>
-      <div class="helper" style="margin-bottom:10px">Centang <b>Ticketing</b> kalau omsetnya dari penjualan tiket — hanya <b>50%</b> yang masuk realisasi PIC, sisanya dibagi rata ke <b>DW + kasir tetap yang kena shift event itu</b> lewat tombol bagi hasil yang muncul di baris itu. Tanpa centang, omsetnya diakui penuh untuk PIC dan tidak ada bagi hasil. Angka alokasi di bawah tidak perlu diubah.</div>
+      ${polaLama?`<div class="notice warn">🔄 Hari ini diisi dengan <b>aturan lama</b>: omset kasir masih walk-in murni (${fmtRp(ksIsi)}), belum memuat omset event yang ${fmtRp(mkEvIsi)}. Aturan sekarang: <b>omset kasir sendiri</b> yang harus sama dengan net ${fmtRp(net)}, karena tiket &amp; tagihan event pun lewat meja kasir. Naikkan nominal kasir yang bertugas sampai balance — baris marketing &amp; event di bawah biarkan apa adanya, sekarang perannya memotong.</div>`:''}
+
+      <span class="divlabel ks">Section A — Omset per Kasir <span style="opacity:.75;font-weight:600">(isi ini dulu)</span></span>
+      <div class="helper" style="margin-bottom:10px">Semua uang lewat meja kasir, <b>termasuk tiket event dan tagihan gathering</b> — jadi isi omset apa adanya sesuai setoran tiap kasir. Total section ini sendiri yang harus sama dengan omset net; section B dan C di bawah tidak menambah total, tapi <b>memotong</b> dari kasir yang kena shift-nya. Centang OFF jika kasir libur, nominal otomatis nol.</div>
+      <div id="bd_ks"></div>
+
+      <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
+      <div class="helper" style="margin-bottom:10px">Tiap baris memotong omset kasir yang kena shift event itu — tentukan shift-nya lewat tombol potongan di baris tersebut. Tanpa centang <b>Ticketing</b>, <b>seluruh</b> nominalnya dipotong dari kasir shift dan diakui penuh untuk PIC. Dengan centang Ticketing, hanya <b>50%</b> yang dipotong dan 50% itu juga yang diakui untuk PIC — separuh sisanya tetap milik kasir.</div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
-      <span class="divlabel ev" style="margin-top:24px">Section B — Event Internal</span>
+      <span class="divlabel ev" style="margin-top:24px">Section C — Event Internal <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
+      <div class="helper" style="margin-bottom:10px">Aturannya sama dengan Section B.</div>
       <div id="bd_ev"></div>
       <button class="btn btn-ghost btn-sm" id="add_ev">+ Tambah Data Event</button>
-
-      <span class="divlabel ks" style="margin-top:24px">Section C — Walk In (per Kasir)</span>
-      <div class="helper" style="margin-bottom:10px">Centang OFF jika kasir libur, nominal otomatis nol.</div>
-      <div id="bd_ks"></div>
     </div>
     <div id="bd_info"></div>
+    <div id="bd_efek"></div>
     <div id="bd_warn"></div>
     <div class="balance-bar" id="bd_balance"></div>`;
 
@@ -1378,19 +1536,18 @@ function viewBreakdown(){
 
   const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
 
-  /* Ringkasan bagi hasil per baris. Hanya untuk baris TICKETING: baris
-     non-ticketing diakui penuh untuk PIC, tidak ada porsi kasir yang perlu
-     dibagi sehingga tombolnya tidak ada gunanya. */
+  /* Ringkasan potongan per baris. Sekarang muncul di SEMUA baris, tidak lagi
+     hanya yang ticketing: setiap baris event memotong kasir, centang Ticketing
+     cuma menentukan besarnya (50% atau 100%). */
   function tombolBagi(r,i,key){
-    if(!r.tiket) return '<div></div>';
-    const b=bagiKasirBaris(r);
+    const b=potonganBaris(r);
     const belum=num(r.amount)>0 && b.pembagi<=0;
-    // Baris yang nominalnya masih 0 belum punya apa-apa untuk dibagi — jangan
+    // Baris yang nominalnya masih 0 belum punya apa-apa untuk dipotong — jangan
     // ditandai merah, itu keadaan normal saat baris baru ditambahkan.
     const isi = b.pembagi<=0
-      ? `<b>Atur bagi hasil</b>${belum?'belum ada penerima':'DW & shift kasir'}`
-      : `<b>${fmtRp(b.per)} / orang</b>${b.dw} DW + ${b.ids.length} kasir`;
-    return `<button type="button" class="bhbtn ${key}bagi${belum?' kosong':''}" data-i="${i}" title="Atur DW & kasir yang kena shift event ini">${isi}</button>`;
+      ? `<b>Atur kasir shift</b>${belum?'potongan belum dibebankan':'belum ditentukan'}`
+      : `<b>−${fmtRp(b.per)} / kasir</b>${b.ids.length} kasir shift${b.dw?` · ${b.dw} DW`:''}`;
+    return `<button type="button" class="bhbtn ${key}bagi${belum?' kosong':''}" data-i="${i}" title="Atur kasir yang kena shift event ini — merekalah yang dipotong">${isi}</button>`;
   }
   /* Dipakai bersama dua section. Modal mengubah baris di `state` langsung,
      jadi sesudahnya cukup gambar ulang section itu dan hitung ulang. */
@@ -1406,11 +1563,11 @@ function viewBreakdown(){
          belum balance, jadi flagnya diisi apa adanya supaya tidak berbohong
          soal hari yang sebenarnya masih selisih. */
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks};
-      d.bdValid=Math.abs(net-sumState())<1;
+      d.bdValid=Math.abs(net-sumKasir())<1;
       save();
-      const b=bagiKasirBaris(row), box=document.getElementById('bd_info');
+      const b=potonganBaris(row), box=document.getElementById('bd_info');
       if(box){
-        box.innerHTML=`<div class="notice ok">✓ Pembagian <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan — ${b.pembagi>0?`${fmtRp(b.per)} per orang untuk ${b.dw} DW + ${b.ids.length} kasir tetap`:'belum ada penerima'}.</div>`;
+        box.innerHTML=`<div class="notice ok">✓ Shift <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan — ${b.pembagi>0?`${fmtRp(b.per)} dipotong dari masing-masing ${b.ids.length} kasir shift`:'belum ada kasir yang dibebani'}.</div>`;
         clearTimeout(bagiInfoTimer);
         bagiInfoTimer=setTimeout(()=>{ const x=document.getElementById('bd_info'); if(x) x.innerHTML=''; },6000);
       }
@@ -1422,26 +1579,25 @@ function viewBreakdown(){
         <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini berasal dari penjualan tiket"><input type="checkbox" class="mktk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari penjualan tiket — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="mktk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
         ${tombolBagi(r,i,'mk')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
-          <button type="button" class="btn btn-sm btn-ghost mksisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
         </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data marketing.</div>';
     bind('mkf','mk',drawMk);
-    /* Centang HARUS menggambar ulang di sini: tombol bagi hasil muncul/hilang
-       mengikuti statusnya. Fokus tidak jadi masalah karena yang baru diklik
+    /* Centang HARUS menggambar ulang di sini: besar potongan di tombolnya
+       berubah 50% ↔ 100%. Fokus tidak jadi masalah karena yang baru diklik
        adalah checkbox, bukan kolom teks. */
     document.querySelectorAll('.mktk').forEach(c=>c.onchange=()=>{
       const i=+c.dataset.i; state.mk[i].tiket=c.checked; drawMk(); calc();
-      // Baru dicentang → porsi kasir jadi ada, dan penerimanya harus
-      // ditentukan sekarang juga. Ini "pop up" yang diminta.
-      if(c.checked && num(state.mk[i].amount)>0) bukaBagi('mk',i);
+      // Setiap baris memotong kasir sekarang, jadi shift-nya wajib ada. Modal
+      // dibuka begitu nominalnya sudah diisi tapi shift-nya masih kosong —
+      // bukan lagi hanya saat Ticketing dicentang.
+      if(num(state.mk[i].amount)>0 && potonganBaris(state.mk[i]).pembagi<=0) bukaBagi('mk',i);
     });
     document.querySelectorAll('.mkbagi').forEach(b=>b.onclick=()=>bukaBagi('mk',+b.dataset.i));
     document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{state.mk.splice(+b.dataset.i,1);drawMk();calc();});
-    document.querySelectorAll('.mksisa').forEach(b=>b.onclick=()=>isiSisa('mk',+b.dataset.i));
     formatAllRp(document.getElementById('bd_mk'));
   }
   function drawEv(){
@@ -1450,21 +1606,19 @@ function viewBreakdown(){
         <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini berasal dari penjualan tiket"><input type="checkbox" class="evtk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari penjualan tiket — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="evtk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
         ${tombolBagi(r,i,'ev')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
-          <button type="button" class="btn btn-sm btn-ghost evsisa" data-i="${i}" title="Isi sisa omset yang belum dialokasikan ke sini">sisa</button>
           <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
         </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data event.</div>';
     bind('evf','ev',drawEv);
     document.querySelectorAll('.evtk').forEach(c=>c.onchange=()=>{
       const i=+c.dataset.i; state.ev[i].tiket=c.checked; drawEv(); calc();
-      if(c.checked && num(state.ev[i].amount)>0) bukaBagi('ev',i);
+      if(num(state.ev[i].amount)>0 && potonganBaris(state.ev[i]).pembagi<=0) bukaBagi('ev',i);
     });
     document.querySelectorAll('.evbagi').forEach(b=>b.onclick=()=>bukaBagi('ev',+b.dataset.i));
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
-    document.querySelectorAll('.evsisa').forEach(b=>b.onclick=()=>isiSisa('ev',+b.dataset.i));
     formatAllRp(document.getElementById('bd_ev'));
   }
   function drawKs(){
@@ -1476,7 +1630,7 @@ function viewBreakdown(){
       </div>`).join('')||'<div class="empty" style="padding:20px 10px">Belum ada kasir. Nama muncul otomatis setelah akun di Office diberi Tim/Keterangan <b>kasir</b>.</div>';
     document.querySelectorAll('.ksf').forEach(inp=>inp.oninput=()=>{state.ks[+inp.dataset.i].amount=num(inp.value);calc();});
     document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{const i=+c.dataset.i;state.ks[i].off=c.checked;if(c.checked)state.ks[i].amount=0;drawKs();calc();});
-    document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa('ks',+b.dataset.i));
+    document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa(+b.dataset.i));
     formatAllRp(document.getElementById('bd_ks'));
   }
   function bind(cls,key,redraw){
@@ -1484,28 +1638,58 @@ function viewBreakdown(){
       inp.oninput=inp.onchange=()=>{const i=+inp.dataset.i,f=inp.dataset.f;state[key][i][f]=f==='amount'?num(inp.value):inp.value;calc();};
     });
   }
-  function sumState(){ return state.mk.reduce((s,r)=>s+num(r.amount),0)+state.ev.reduce((s,r)=>s+num(r.amount),0)+state.ks.reduce((s,r)=>s+(r.off?0:num(r.amount)),0); }
-  // Isi otomatis nominal yang BELUM dialokasikan (net − total field lain) ke satu
-  // baris. Dipakai lewat tombol "sisa" begitu field lain sudah diisi.
-  function isiSisa(key,i){
-    const row=state[key][i]; if(!row || (key==='ks'&&row.off)) return;
-    const cur = num(row.amount);
-    row.amount = Math.max(0, net-(sumState()-cur));
-    (key==='mk'?drawMk:key==='ev'?drawEv:drawKs)(); calc();
+  /* Yang divalidasi terhadap omset net sekarang HANYA section kasir. Dulu
+     ketiga section dijumlahkan; sejak omset kasir memuat event juga (30 Juli
+     2026), menjumlahkan marketing & event ke sini berarti menghitung uang yang
+     sama dua kali. */
+  function sumKasir(){ return state.ks.reduce((s,r)=>s+(r.off?0:num(r.amount)),0); }
+  // Isi otomatis omset yang BELUM dialokasikan (net − kasir lain) ke satu baris
+  // kasir. Hanya untuk section kasir: baris marketing/event tidak mengisi total
+  // apa pun lagi, jadi "sisa" di sana tidak punya arti dan tombolnya dihapus.
+  function isiSisa(i){
+    const row=state.ks[i]; if(!row || row.off) return;
+    const cur=num(row.amount);
+    row.amount=Math.max(0, net-(sumKasir()-cur));
+    drawKs(); calc();
+  }
+  /* Rincian efek potongan per kasir. Bukan hiasan: potongannya tidak terlihat
+     di angka yang diinput sama sekali (omset kasir tetap utuh), jadi tanpa
+     kartu ini orang tidak punya cara memastikan potongannya jatuh ke kasir yang
+     benar selain membuka halaman Performa Kasir sesudah menyimpan. */
+  function kartuEfek(){
+    const rows=state.ks.filter(r=>!r.off);
+    if(!rows.length) return '';
+    const semua=[...state.mk,...state.ev];
+    const pot=id=>semua.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
+    const isi=rows.map(r=>{
+      const p=pot(r.kasirId), real=num(r.amount)-p;
+      return `<tr><td>${esc(empName('kasir',r.kasirId))}</td><td class="num mono">${fmtRp(num(r.amount))}</td><td class="num mono">${p?'−'+fmtRp(p):'<span class="muted">—</span>'}</td><td class="num mono"><b>${fmtRp(real)}</b></td></tr>`;
+    }).join('');
+    const tp=rows.reduce((s,r)=>s+pot(r.kasirId),0);
+    const tk=rows.reduce((s,r)=>s+num(r.amount),0);
+    return `<div class="card"><h3>Efek ke Realisasi Kasir</h3>
+      <div class="card-sub">Omset yang diinput tidak diubah — yang berkurang hanya realisasi kasir di halaman Performa &amp; Ranking.</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Kasir</th><th class="num" style="width:140px">Omset Diinput</th><th class="num" style="width:140px">Potongan Event</th><th class="num" style="width:140px">Realisasi</th></tr></thead>
+        <tbody>${isi}</tbody>
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td>TOTAL</td><td class="num mono">${fmtRp(tk)}</td><td class="num mono">${tp?'−'+fmtRp(tp):'Rp0'}</td><td class="num mono">${fmtRp(tk-tp)}</td></tr></tfoot>
+      </table></div></div>`;
   }
   function calc(){
-    const tot=sumState(), diff=net-tot, ok=Math.abs(diff)<1;
-    /* Baris non-ticketing bernominal yang belum punya penerima. Ini TIDAK
-       mengunci simpan — breakdown-nya sendiri sudah benar dan balance; yang
-       belum ditentukan cuma siapa yang menerima porsi kasirnya. Mengunci di
-       sini berarti alokasi yang sudah betul tidak bisa disimpan. */
-    const belum=[...state.mk,...state.ev].filter(r=>r.tiket&&num(r.amount)>0&&bagiKasirBaris(r).pembagi<=0);
+    const tot=sumKasir(), diff=net-tot, ok=Math.abs(diff)<1;
+    document.getElementById('bd_efek').innerHTML=kartuEfek();
+    /* Baris bernominal yang shift-nya belum ditentukan. Ini TIDAK mengunci
+       simpan — omset kasirnya sendiri bisa saja sudah benar dan balance, dan
+       mengunci di sini berarti angka yang sudah betul tidak bisa disimpan.
+       Tapi peringatannya sekarang menyebut akibatnya terang-terangan: potongan
+       yang tidak dibebankan membuat uang yang sama dihitung dua kali. */
+    const belum=[...state.mk,...state.ev].filter(r=>num(r.amount)>0&&potonganBaris(r).pembagi<=0);
     document.getElementById('bd_warn').innerHTML = belum.length
-      ? `<div class="notice warn">⚠ ${belum.length} baris ticketing belum ditentukan pembagiannya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Porsi kasirnya <b>${fmtRp(belum.reduce((s,r)=>s+(num(r.amount)-porsiPic(r)),0))}</b> belum diberikan ke siapa pun — klik tombol bagi hasil pada barisnya.</div>`
+      ? `<div class="notice warn">⚠ ${belum.length} baris belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+porsiPic(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
       : '';
     document.getElementById('bd_balance').innerHTML=`
       <div class="bnums">
-        <div class="bi">Total Breakdown<b class="mono">${fmtRp(tot)}</b></div>
+        <div class="bi">Total Omset Kasir<b class="mono">${fmtRp(tot)}</b></div>
         <div class="bi">Total Omset (net)<b class="mono">${fmtRp(net)}</b></div>
         <div class="bi">Selisih<b class="mono" style="color:${ok?'var(--ok)':'var(--danger)'}">${diff===0?'Rp0':(diff>0?'Kurang '+fmtRp(diff):'Lebih '+fmtRp(-diff))}</b></div>
       </div>
@@ -1525,15 +1709,124 @@ function viewBreakdown(){
 }
 
 /* ============ 3. DASHBOARD BULANAN ============ */
+/* ---- LAPORAN DASHBOARD OMSET: PDF & WhatsApp ----
+   Diisi viewBulanan() tiap kali halaman digambar; dibaca kedua tombol di
+   bawahnya. Lihat catatan di viewBulanan soal kenapa angkanya dititipkan
+   begini alih-alih dihitung ulang. */
+let RINGKAS_OMSET=null;
+
+/* PDF lewat DIALOG CETAK BROWSER (Save as PDF), bukan pustaka pembuat PDF.
+   Alasannya sama seperti Report Achievement yang sudah memakai cara ini:
+   tidak menambah dependensi CDN (jszip pernah dibuang dari modul lain karena
+   itu), hasilnya memakai mesin layout yang sama dengan yang sudah terbukti
+   rapi di lembar cetak lain, dan di HP pun tetap bisa "Simpan sebagai PDF".
+   Menumpang #printSheet + @media print yang sudah ada. */
+function cetakDashboardOmset(){
+  const r=RINGKAS_OMSET;
+  if(!r) return;
+  const baris=r.hari.map(h=>{
+    const a=pct(h.net,r.dtgt);
+    return `<tr><td>${esc(h.date)}</td><td class="num">${fmtRp(r.dtgt)}</td><td class="num">${fmtRp(h.net)}</td><td class="num">${a.toFixed(0)}%</td><td>${h.net>=r.dtgt?'Tercapai':'Belum'}</td></tr>`;
+  }).join('');
+  const sheet=document.getElementById('printSheet');
+  sheet.innerHTML=`
+    <div class="ph">
+      <div>
+        <h1>Dashboard Omset — ${esc(r.label)}</h1>
+        <div class="sub">Pencapaian target &amp; komposisi pendapatan · ${r.harian?'laporan harian':`${r.hari.length} hari terinput`}</div>
+      </div>
+      <div class="brand">KOMPAS<br><span style="font-weight:600;letter-spacing:.4px;font-size:9px">LAKSAMANA MUDA</span></div>
+    </div>
+    <div class="kv">
+      <div><div class="l">Target ${r.harian?'Hari':'Bulan'}</div><div class="v">${fmtRp(r.target)}</div></div>
+      <div><div class="l">Realisasi</div><div class="v">${fmtRp(r.real)}</div></div>
+      <div><div class="l">Achievement</div><div class="v">${r.ach.toFixed(0)}%</div></div>
+      <div><div class="l">${r.selisih>0?'Harus Dikejar':'Surplus'}</div><div class="v">${fmtRp(Math.abs(r.selisih))}</div></div>
+    </div>
+    <h2>Indikator Transaksi</h2>
+    <div class="kv">
+      <div><div class="l">UPT</div><div class="v">${fmtDec(r.upt)}</div></div>
+      <div><div class="l">ATV</div><div class="v">${fmtRp(r.atv)}</div></div>
+      <div><div class="l">APS</div><div class="v">${fmtDec(r.aps)}</div></div>
+      <div><div class="l">Total Bill</div><div class="v">${r.T.bill.toLocaleString('id-ID')}</div></div>
+    </div>
+    <h2>Komposisi &amp; Total</h2>
+    <table>
+      <tbody>
+        <tr><td>Food</td><td class="num">${fmtRp(r.T.food)}</td><td>Beverage</td><td class="num">${fmtRp(r.T.bev)}</td></tr>
+        <tr><td>Lainnya</td><td class="num">${fmtRp(r.T.lainnya)}</td><td>Total Item Terjual</td><td class="num">${r.totalItem.toLocaleString('id-ID')}</td></tr>
+        <tr><td>Service Charge</td><td class="num">${fmtRp(r.svcOnly)}</td><td>Tax</td><td class="num">${fmtRp(r.taxOnly)}</td></tr>
+        <tr><td>Total Discount</td><td class="num">${fmtRp(r.disc)}</td><td>Total Compliment</td><td class="num">${fmtRp(r.compBulan)}</td></tr>
+        <tr><td>Total Traffic</td><td class="num">${r.T.traffic.toLocaleString('id-ID')}</td><td>Tax &amp; Service</td><td class="num">${fmtRp(r.tax)}</td></tr>
+      </tbody>
+    </table>
+    ${r.harian?'':`<h2>Rincian Harian</h2>
+    <table>
+      <thead><tr><th style="width:95px">Tanggal</th><th class="num" style="width:120px">Target</th><th class="num" style="width:120px">Actual</th><th class="num" style="width:60px">Ach</th><th style="width:70px">Status</th></tr></thead>
+      <tbody>${baris||'<tr><td colspan="5" style="text-align:center;color:#777">Belum ada data pada periode ini.</td></tr>'}</tbody>
+      <tfoot><tr><td>TOTAL</td><td class="num">${fmtRp(r.target)}</td><td class="num">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td></td></tr></tfoot>
+    </table>`}
+    <div class="ttd">Dicetak ${esc(new Date().toLocaleString('id-ID',{dateStyle:'long',timeStyle:'short'}))}${CURRENT_USER?` oleh ${esc(CURRENT_USER.name)}`:''}.</div>`;
+  window.print();
+  setTimeout(()=>{ sheet.innerHTML=''; },500);
+}
+
+/* WhatsApp TANPA nomor tujuan: wa.me dibuka kosong sehingga WhatsApp sendiri
+   yang menampilkan pemilih kontak/grup. Sengaja begitu — peta nomor HP kru
+   (pastikanNoHp/noHpPic) DIHAPUS 28 Juli 2026 atas permintaan, dan laporan
+   omset bulanan pun tidak punya satu penerima yang pasti: kadang ke owner,
+   kadang ke grup manajemen. Membangkitkan lagi peta nomor itu hanya untuk
+   ini berarti mengembalikan yang sudah sengaja dibuang.
+
+   Isinya RINGKASAN saja, tanpa rincian harian: teks lewat URL punya batas
+   panjang yang berbeda-beda di tiap perangkat, dan tabel 30 baris adalah
+   yang pertama membuatnya terpotong di tengah — terpotong tanpa peringatan,
+   jadi yang mengirim tidak akan tahu. Rinciannya ada di PDF. */
+function waDashboardOmset(){
+  const r=RINGKAS_OMSET;
+  if(!r) return;
+  const NL=String.fromCharCode(10);
+  const t=[
+    `*DASHBOARD OMSET — ${r.label.toUpperCase()}*`,
+    `_Laksamana Muda · ${r.harian?'laporan harian':`${r.hari.length} hari terinput`}_`,
+    '',
+    `🎯 Target      : ${fmtRp(r.target)}`,
+    `💰 Realisasi   : ${fmtRp(r.real)}`,
+    `📊 Achievement : ${r.ach.toFixed(0)}%`,
+    `${r.selisih>0?'⚠️ Harus dikejar':'✅ Surplus'} : ${fmtRp(Math.abs(r.selisih))}`,
+    '',
+    '*Komposisi*',
+    `• Food     : ${fmtRp(r.T.food)}`,
+    `• Beverage : ${fmtRp(r.T.bev)}`,
+    `• Lainnya  : ${fmtRp(r.T.lainnya)}`,
+    '',
+    '*Indikator*',
+    `• UPT : ${fmtDec(r.upt)}`,
+    `• ATV : ${fmtRp(r.atv)}`,
+    `• APS : ${fmtDec(r.aps)}`,
+    `• Total Bill    : ${r.T.bill.toLocaleString('id-ID')}`,
+    `• Total Traffic : ${r.T.traffic.toLocaleString('id-ID')}`,
+    '',
+    `🏷️ Discount   : ${fmtRp(r.disc)}`,
+    `🎁 Compliment : ${fmtRp(r.compBulan)}`,
+    `💳 Tax & Service : ${fmtRp(r.tax)}`,
+    '',
+    // Baris penutup ini tidak berlaku di mode harian: rentangnya cuma satu
+    // hari, jadi "rincian harian" tidak menambah apa pun di PDF-nya.
+    r.harian?'':'_Rincian harian ada di laporan PDF._'
+  ].join(NL).trim();
+  window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank','noopener');
+}
+
 function viewBulanan(){
   const el=document.getElementById('app-view');
-  const days=daysOfMonth(PERIOD);
-  const target=DB.settings.companyMonthlyTarget;
+  const days=rentangAktif();
+  const target=targetRentang();
   const real=days.reduce((s,d)=>s+netOf(d),0);
   const tax=days.reduce((s,d)=>s+taxSvcOf(d),0);
   const svcOnly=days.reduce((s,d)=>s+num(d.service_charge),0);
   const taxOnly=days.reduce((s,d)=>s+num(d.tax),0);
-  const compBulan=compsBulan(PERIOD).reduce((s,c)=>s+num(c.nominal),0);
+  const compBulan=compsRentang().reduce((s,c)=>s+num(c.nominal),0);
   const disc=days.reduce((s,d)=>s+num(d.discount),0);
   const ach=pct(real,target), selisih=target-real;
   const T={food:0,bev:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
@@ -1543,19 +1836,41 @@ function viewBulanan(){
   const upt=T.bill>0?totalItem/T.bill:0;   // Unit Per Transaction  = total item ÷ total bill
   const atv=T.bill>0?real/T.bill:0;        // Average Transaction Value = total sales ÷ total bill
   const aps=T.bill>0?T.traffic/T.bill:0;   // Average Party Size    = total traffic ÷ total bill
-  const dtgt=dailyTarget(PERIOD);
+  /* Target per HARI untuk tabel & grafik harian. Di mode harian ia sama dengan
+     target rentangnya (rentangnya memang satu hari), jadi tidak dihitung dua
+     kali dengan cara yang bisa berbeda. */
+  const dtgt=modeHarian()?target:dailyTarget(PERIOD);
   const rows=days.map(d=>{const n=netOf(d);return `<tr><td>${d.date.slice(8)} ${HARI[new Date(d.date).getDay()].slice(0,3)}</td><td class="num mono">${fmtRp(dtgt)}</td><td class="num mono">${fmtRp(n)}</td><td class="num mono">${pct(n,dtgt).toFixed(0)}%</td><td>${n>=dtgt?'<span class="status ok"><span class="d"></span></span>':'<span class="status bad"><span class="d"></span></span>'}</td></tr>`;}).join('');
 
+  /* Angka yang dipajang disimpan di satu tempat supaya lembar PDF dan ringkasan
+     WhatsApp memakai HASIL YANG SAMA dengan layar — bukan menghitung ulang
+     sendiri. Dua perhitungan untuk satu angka pasti berbeda cepat atau lambat
+     (satu ikut diperbaiki, satu terlupa), dan laporan yang beda dari layar
+     adalah laporan yang tidak bisa dipercaya lagi setelahnya.
+     Diisi di sini, dibaca tombol di bawah — tombolnya cuma ada selama view ini
+     terpasang, jadi ia tidak pernah bisa dibaca sebelum terisi. */
+  RINGKAS_OMSET={label:labelRentang(),harian:modeHarian(),
+                 target,real,ach,selisih,tax,svcOnly,taxOnly,compBulan,disc,
+                 T,totalItem,upt,atv,aps,dtgt,
+                 hari:days.map(d=>({date:d.date,net:netOf(d)}))};
+
   el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div><h3>Laporan ${esc(labelRentang())}</h3><div class="card-sub">Simpan sebagai PDF, atau kirim ringkasannya lewat WhatsApp</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="waDashboardOmset()">💬 Kirim WhatsApp</button>
+        <button class="btn btn-primary btn-sm" onclick="cetakDashboardOmset()">📄 Simpan PDF</button>
+      </div>
+    </div>
     <div class="grid g4">
-      <div class="stat accent"><div class="lab">Target Bulan</div><div class="val sm mono">${fmtRp(target)}</div></div>
+      <div class="stat accent"><div class="lab">Target ${modeHarian()?'Hari':'Bulan'}</div><div class="val sm mono">${fmtRp(target)}</div></div>
       <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(real)}</div></div>
       <div class="stat"><div class="lab">Achievement</div><div class="val">${ach.toFixed(0)}%</div><div class="foot">${real>=target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
       <div class="stat"><div class="lab">${selisih>0?'Harus Dikejar':'Surplus'}</div><div class="val sm mono">${fmtRp(Math.abs(selisih))}</div></div>
     </div>
     <div class="card">
       <div class="prog ${real>=target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div>
-      <div class="foot" style="font-size:12.5px;color:var(--muted);margin-top:9px">Realisasi ${fmtRp(real)} dari target ${fmtRp(target)} · ${days.length} hari terinput.</div>
+      <div class="foot" style="font-size:12.5px;color:var(--muted);margin-top:9px">Realisasi ${fmtRp(real)} dari target ${fmtRp(target)} · ${modeHarian()?(days.length?'data hari ini sudah diinput':'<b>belum ada data hari ini</b>'):`${days.length} hari terinput`}.</div>
     </div>
     <div class="grid g2">
       <div class="stat" style="background:var(--warn-bg-t)"><div class="lab">💰 Tax &amp; Service Bulanan</div><div class="val sm">${fmtRp(tax)}</div><div class="foot">di luar omset, akumulasi harian</div></div>
@@ -1603,24 +1918,25 @@ function viewBulanan(){
 /* ============ 4. ANALYTICS ============ */
 function viewAnalytics(){
   const el=document.getElementById('app-view');
-  const days=daysOfMonth(PERIOD);
+  const days=rentangAktif();
   const comp={Food:0,Beverage:0,Lainnya:0};
   const src={Marketing:0,Event:0,'Walk In':0};
   const byMk={},byEv={},byKs={};
   days.forEach(d=>{
     comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Lainnya+=num(d.lainnya);
-    /* Memakai aturan yang sama dengan Performa & Ranking: separuh omset event
-       ticketing dihitung sebagai kontribusi kasir, bukan PIC event-nya.
+    /* Memakai aturan yang sama dengan Performa & Ranking: omset kasir yang
+       diinput sudah memuat event, jadi porsi PIC-nya DIPOTONG dari kasir.
        Totalnya tidak berubah — hanya pindah kategori. */
     (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r);src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
     (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
-    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=num(r.amount)+bagiKasirHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;}});
+    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=num(r.amount)-potonganHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;}});
   });
   const hasBd=src.Marketing+src.Event+src['Walk In']>0;
   el.innerHTML=`
+    <div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
-      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · separuh event ticketing dihitung ke kasir</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · porsi PIC dipotong dari kasir shift</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
       <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
@@ -1661,7 +1977,7 @@ function labelPeriode(mk){
 }
 /* Lembar cetak. Dikosongkan lagi sesudah dialog ditutup supaya tidak ada sisa
    node yang ikut tercetak di percetakan berikutnya. */
-function cetakAchievement(divi,e,a,ach){
+function cetakAchievement(divi,e,a,ach,tgt){
   /* Lembar cetak hanya memuat SATU angka per event (permintaan 28 Juli 2026).
      Yang dihapus: tabel Klasifikasi Omset Event, kolom nilai kotor event,
      kolom Jenis, dan kata "Diakui" pada judul kolom — yang perlu dibaca PIC
@@ -1695,12 +2011,12 @@ function cetakAchievement(divi,e,a,ach){
     <div class="ph">
       <div>
         <h1>Report Achievement — ${esc(e.name)}</h1>
-        <div class="sub">Performa ${divi==='marketing'?'Marketing':'Event'} · Periode ${esc(labelPeriode(PERIOD))}</div>
+        <div class="sub">Performa ${divi==='marketing'?'Marketing':'Event'} · ${modeHarian()?'Tanggal':'Periode'} ${esc(labelRentang())}</div>
       </div>
       <div class="brand">KOMPAS<br><span style="font-weight:600;letter-spacing:.4px;font-size:9px">LAKSAMANA MUDA</span></div>
     </div>
     <div class="kv">
-      <div><div class="l">Target Bulanan</div><div class="v">${fmtRp(e.target)}</div></div>
+      <div><div class="l">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="v">${fmtRp(tgt===undefined?e.target:tgt)}</div></div>
       <div><div class="l">Realisasi</div><div class="v">${fmtRp(a.real)}</div></div>
       <div><div class="l">Achievement</div><div class="v">${ach.toFixed(0)}%</div></div>
       <div><div class="l">Jumlah Event</div><div class="v">${a.events.length}</div></div>
@@ -1717,7 +2033,7 @@ function cetakAchievement(divi,e,a,ach){
 }
 function viewPerforma(divi){
   const el=document.getElementById('app-view');
-  const days=daysOfMonth(PERIOD);
+  const days=rentangAktif();
   const list=DB.employees[divi];
   const agg={};
   list.forEach(e=>agg[e.id]={real:0,events:[]});
@@ -1732,7 +2048,7 @@ function viewPerforma(divi){
   // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
   // Barisnya ikut disimpan, bukan cuma totalnya, supaya bisa dirinci di bawah.
   list.forEach(e=>{
-    const cr=compListPic(PERIOD,e);
+    const cr=compListPicRentang(e);
     agg[e.id].compRows=cr;
     agg[e.id].comp=cr.reduce((s,c)=>s+num(c.nominal),0);
     agg[e.id].real-=agg[e.id].comp;
@@ -1740,7 +2056,8 @@ function viewPerforma(divi){
   const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-      <div><h3>Report Achievement</h3><div class="card-sub" id="pf_ket">Simpan sebagai PDF, lalu kirim sendiri ke PIC-nya.</div></div>
+      <div><h3>Report Achievement</h3><div class="card-sub" id="pf_ket">Simpan sebagai PDF, lalu kirim sendiri ke PIC-nya.</div>
+        <div class="card-sub" style="margin-top:2px">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="pf_pdf">📄 Simpan PDF</button>
       </div>
@@ -1758,9 +2075,14 @@ function viewPerforma(divi){
       list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.events.forEach(ev=>a.events.push(Object.assign({pic:x.name},ev)));});
     } else { e=list.find(x=>x.id===pid); a=agg[pid]; }
     if(!e||!a) return;
-    const ach=pct(a.real,e.target), cnt=a.events.length, avg=cnt>0?a.real/cnt:0;
+    /* Target yang disimpan selalu BULANAN. Di mode harian ia diproporsikan —
+       tanpa itu achievement harian tiap orang tampil ~1/30 dan semua orang
+       terlihat gagal total tiap hari: benar secara aritmetika, tapi tidak
+       berarti apa pun dan membuat halamannya berhenti dipakai. */
+    const tgt=targetPic(e.target);
+    const ach=pct(a.real,tgt), cnt=a.events.length, avg=cnt>0?a.real/cnt:0;
     const top=[...a.events].sort((x,y)=>y.amount-x.amount)[0];
-    SEL={e,a,ach,semua:pid==='__all__'};
+    SEL={e,a,ach,semua:pid==='__all__',tgt};
     aturTombolKirim();
     /* Non-ticketing diakui penuh, ticketing separuh. Yang dijumlahkan ke
        realisasi adalah kolom "diakui" (porsi), bukan nilai event. */
@@ -1770,15 +2092,15 @@ function viewPerforma(divi){
     const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td>${ev.tiket?'<span class="chip info">Ticketing</span>':'<span class="chip mute">Non-Ticketing</span>'}</td><td class="num mono">${fmtRp(ev.amount)}</td><td class="num mono">${fmtRp(ev.porsi)}${ev.tiket?'<div class="muted" style="font-size:10.5px;font-weight:500">50%</div>':''}</td></tr>`).join('');
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(e.target)}</div></div>
+        <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(e.target)}</div>`:''}</div>
         <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.comp?`sudah dipotong compliment ${fmtRp(a.comp)}`:'tanpa potongan compliment'}</div></div>
-        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=e.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">${cnt}</div><div class="foot">avg ${fmtRp(avg)}/event</div></div>
       </div>
-      <div class="card"><div class="prog ${a.real>=e.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
+      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2">
-        <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui 50%, sisanya ke DW &amp; kasir shift</div></div>
-        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui penuh</div></div>
+        <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui 50%, separuh sisanya tetap milik kasir shift</div></div>
+        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui penuh, dipotong dari kasir shift</div></div>
       </div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
@@ -1800,7 +2122,7 @@ function viewPerforma(divi){
       : `Report ${SEL.e.name} — simpan sebagai PDF, lalu kirim sendiri ke yang bersangkutan.`;
   }
   document.getElementById('pf_pdf').onclick=()=>{
-    if(SEL) cetakAchievement(divi,SEL.e,SEL.a,SEL.ach);
+    if(SEL) cetakAchievement(divi,SEL.e,SEL.a,SEL.ach,SEL.tgt);
   };
   document.querySelectorAll('#pf_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pf_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawPic(b.dataset.pic);});
   if(list.length)drawPic('__all__');
@@ -1815,69 +2137,70 @@ function clearChartsExcept(){charts.forEach(c=>{try{c.destroy();}catch(e){}});ch
 /* ============ 6. PERFORMA KASIR ============ */
 function viewKasir(){
   const el=document.getElementById('app-view');
-  const days=daysOfMonth(PERIOD);
+  const days=rentangAktif();
   const list=DB.employees.kasir;
   const agg={};
-  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],bagi:0});
+  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0});
   days.forEach(d=>{
     (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
-      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,bagi:0,off:true});}
+      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,potong:0,off:true});}
       else{
-        // Bagi hasil dihitung dari shift tiap baris event, bukan dari kehadiran
-        // hari itu: kasir yang masuk tapi tidak kena shift event tidak dapat.
-        const bagi=bagiKasirHari(d,r.kasirId);
-        agg[r.kasirId].real+=num(r.amount)+bagi;
-        agg[r.kasirId].bagi+=bagi;
+        // Potongan dihitung dari shift tiap baris event, bukan dari kehadiran
+        // hari itu: kasir yang masuk tapi tidak kena shift event tidak dipotong.
+        const potong=potonganHari(d,r.kasirId);
+        agg[r.kasirId].real+=num(r.amount)-potong;
+        agg[r.kasirId].potong+=potong;
         agg[r.kasirId].masuk++;
-        agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),bagi,off:false});
+        agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),potong,off:false});
       }
     }});
   });
   // sama seperti Performa & Ranking: compliment memotong realisasi. Barisnya
   // disimpan juga supaya rinciannya bisa dipajang, bukan cuma angka potongan.
   list.forEach(k=>{
-    const cr=compListPic(PERIOD,k);
+    const cr=compListPicRentang(k);
     agg[k.id].compRows=cr;
     agg[k.id].comp=cr.reduce((s,c)=>s+num(c.nominal),0);
     agg[k.id].real-=agg[k.id].comp;
   });
   const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
-  /* Hari yang punya event ticketing tanpa penerima. Bagi hasilnya tidak
-     jatuh ke siapa pun, jadi realisasi kasir di bawah lebih kecil dari
-     seharusnya — sebut alasannya, jangan biarkan angkanya tampak wajar. */
+  /* Hari yang punya baris event tanpa kasir shift. Potongannya tidak dibebankan
+     ke siapa pun, jadi realisasi kasir di bawah lebih BESAR dari seharusnya —
+     sebut alasannya, jangan biarkan angkanya tampak wajar. */
   const hariBelum=days.filter(d=>barisTanpaShift(d).length);
   const peringatan=hariBelum.length
-    ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya event ticketing yang belum ditentukan shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Bagi hasilnya belum masuk ke kasir mana pun — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
+    ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya baris event yang belum ditentukan kasir shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Potongannya belum dibebankan ke kasir mana pun, jadi realisasi di bawah masih terlalu besar — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
     : '';
-  el.innerHTML=peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
     let k,a;
     if(kid==='__all__'){
       k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};
-      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],bagi:0};
-      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.bagi+=(g.bagi||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
+      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],potong:0};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.potong+=(g.potong||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
     } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
     if(!k||!a) return;
-    const ach=pct(a.real,k.target),avg=a.masuk>0?a.real/a.masuk:0;
-    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td class="num mono">${h.off?'—':(h.bagi?fmtRp(h.bagi):'<span class="muted">—</span>')}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    const tgt=targetPic(k.target);   // bulanan diproporsikan di mode harian
+    const ach=pct(a.real,tgt),avg=a.masuk>0?a.real/a.masuk:0;
+    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td class="num mono">${h.off?'—':(h.potong?'−'+fmtRp(h.potong):'<span class="muted">—</span>')}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
     document.getElementById('ks_body').innerHTML=`
       <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono">${fmtRp(k.target)}</div></div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.bagi?`termasuk ${fmtRp(a.bagi)} bagi hasil event ticketing`:''}${a.bagi&&a.comp?' · ':''}${a.comp?`dipotong compliment ${fmtRp(a.comp)}`:''}${!a.bagi&&!a.comp?'walk-in murni':''}</div></div>
-        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=k.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+        <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(k.target)}</div>`:''}</div>
+        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.potong?`sesudah potongan event ${fmtRp(a.potong)}`:''}${a.potong&&a.comp?' · ':''}${a.comp?`dipotong compliment ${fmtRp(a.comp)}`:''}${!a.potong&&!a.comp?'tanpa potongan':''}</div></div>
+        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
         <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
       </div>
-      <div class="card"><div class="prog ${a.real>=k.target?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(k.target)}</div></div>
+      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(tgt)}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
-        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Bagi Hasil</b> = jatah event ticketing yang shift-nya dipegang</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Walk In</th><th class="num">Bagi Hasil</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Potongan</b> = porsi PIC dari event yang shift-nya dipegang</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Kasir</th><th class="num">Potongan</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], kid==='__all__')}`;
     clearChartsExcept();
     const h=[...a.hist].sort((x,y)=>x.date<y.date?-1:1);
-    // Batangnya memakai walk-in + bagi hasil supaya totalnya sama dengan
+    // Batangnya memakai omset SESUDAH potongan supaya totalnya sama dengan
     // Realisasi di kotak atas; kalau hanya amount, grafiknya bercerita lain.
-    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount+(x.bagi||0)),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
+    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount-(x.potong||0)),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
     else emptyCanvas('ks_chart','Belum ada data');
   };
   document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
@@ -1887,34 +2210,39 @@ function viewKasir(){
 /* ============ 7. SUMMARY / RANKING ============ */
 function viewSummary(){
   const el=document.getElementById('app-view');
-  const days=daysOfMonth(PERIOD);
+  const days=rentangAktif();
   /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
      ranking di sini memakai angka yang sama dengan halaman Performa. */
-  /* Aturan ticketing dipakai di sini juga — lewat porsiPic() untuk
-     marketing/event dan bagiKasirHari() untuk kasir. Sempat dihitung
+  /* Aturan potongan dipakai di sini juga — lewat porsiPic() untuk
+     marketing/event dan potonganHari() untuk kasir. Sempat dihitung
      dengan r.amount mentah di sini, dan hasilnya ranking menampilkan realisasi
      yang berbeda dari halaman Performa untuk orang yang sama. */
   const realBy=(divi,id)=>{
     let s=0;
     days.forEach(d=>{
       if(divi==='kasir'){
-        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=num(r.amount)+bagiKasirHari(d,id); });
+        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=num(r.amount)-potonganHari(d,id); });
       }else{
         (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r); });
       }
     });
-    return s-compPic(PERIOD,(DB.employees[divi]||[]).find(e=>e.id===id));
+    return s-compPicRentang((DB.employees[divi]||[]).find(e=>e.id===id));
   };
+  /* Target diproporsikan di mode harian lewat targetPic(), sama seperti halaman
+     Performa. Kalau di sini tidak diproporsikan, ranking harian akan memakai
+     target sebulan sementara Performa memakai target sehari — dan achievement
+     orang yang sama beda antara dua halaman, persis kesalahan yang dicatat di
+     komentar porsiPic() di atas. */
   const mkTable=(divi,list)=>{
-    const rows=list.map(e=>{const real=realBy(divi,e.id),ach=pct(real,e.target);return{e,real,ach};}).sort((a,b)=>b.ach-a.ach);
-    return rows.map(r=>`<tr><td><b>${esc(r.e.name)}</b></td><td class="num mono">${fmtRp(r.e.target)}</td><td class="num mono">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td>${r.real>=r.e.target?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</td></tr>`).join('');
+    const rows=list.map(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target),ach=pct(real,tgt);return{e,real,ach,tgt};}).sort((a,b)=>b.ach-a.ach);
+    return rows.map(r=>`<tr><td><b>${esc(r.e.name)}</b></td><td class="num mono">${fmtRp(r.tgt)}</td><td class="num mono">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td>${r.real>=r.tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</td></tr>`).join('');
   };
   const all=[];
-  [['marketing','Marketing'],['event','Event'],['kasir','Kasir']].forEach(([divi,lab])=>DB.employees[divi].forEach(e=>{const real=realBy(divi,e.id);all.push({name:e.name,div:lab,ach:pct(real,e.target),real,target:e.target});}));
+  [['marketing','Marketing'],['event','Event'],['kasir','Kasir']].forEach(([divi,lab])=>DB.employees[divi].forEach(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target);all.push({name:e.name,div:lab,ach:pct(real,tgt),real,target:tgt});}));
   all.sort((a,b)=>b.ach-a.ach);
   const lb=all.map((r,i)=>`<div class="leader ${i===0?'top1':''}"><div class="rank">${i+1}</div><div><div class="ln">${esc(r.name)} <span class="pill" style="margin-left:4px">${r.div}</span></div><div class="lm">${fmtRp(r.real)} / ${fmtRp(r.target)}</div></div><div class="lspace"></div><div style="text-align:right"><div class="ln">${r.ach.toFixed(0)}%</div><div class="lm">${r.real>=r.target?'Achieve':'Belum'}</div></div></div>`).join('');
   el.innerHTML=`
-    <div class="card"><h3>🏆 Top Performer Bulanan</h3><div class="card-sub">Leaderboard berdasarkan persentase achievement</div>${lb||'<div class="empty">Belum ada data.</div>'}</div>
+    <div class="card"><h3>🏆 Top Performer ${modeHarian()?'Harian':'Bulanan'}</h3><div class="card-sub">Leaderboard berdasarkan persentase achievement · ${esc(labelRentang())}</div>${lb||'<div class="empty">Belum ada data.</div>'}</div>
     <div class="card"><span class="divlabel mk">Marketing</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('marketing',DB.employees.marketing)}</tbody></table></div></div>
     <div class="card"><span class="divlabel ev">Event</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('event',DB.employees.event)}</tbody></table></div></div>
     <div class="card"><span class="divlabel ks">Kasir</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('kasir',DB.employees.kasir)}</tbody></table></div></div>`;
