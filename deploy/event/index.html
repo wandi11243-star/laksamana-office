@@ -400,6 +400,10 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   border:2px solid;border-radius:8px;user-select:none;touch-action:none;background:#8d97a3;color:#fff}
 .ldz-item.circle{border-radius:50%}
 .ldz-item small{font-weight:600;font-size:9px;opacity:.85}
+/* Objek kecil (kursi) memuat nomor sampai TIGA angka. Dengan font 11px bawaan,
+   "210" terpotong oleh overflow:hidden dan yang terbaca cuma "21" — nomor kursi
+   yang salah baca lebih berbahaya daripada nomor yang kecil. */
+.ldz-item.kecil{font-size:8.5px;letter-spacing:-.04em;padding:0;line-height:1}
 .ldz-item.edit{cursor:move}
 .ldz-item.locked{border-style:dashed}
 /* Warna isian & tulisan diatur inline per objek oleh ldzWarnaObjek() — termasuk
@@ -2943,7 +2947,15 @@ function ldzMeta(eid){
    murah daripada risiko salah membalik satu operasi. Potret diambil SEBELUM
    perubahan (ldzRekam), jadi Undo mengembalikan keadaan tepat sebelum tindakan
    terakhir. */
-let _ldzUndo=[], _ldzRedo=[];
+let _ldzUndo=[], _ldzRedo=[], _ldzPotretTunda=null;
+// Mendaftarkan potret yang sudah diambil lebih dulu (dipakai jalur seret).
+function ldzRekamPotret(eid,data){
+  if(!data) return;
+  _ldzUndo.push({eid:eid,data:data});
+  if(_ldzUndo.length>60) _ldzUndo.shift();
+  _ldzRedo.length=0;
+  ldzTombolRiwayat();
+}
 function ldzPotret(eid){
   return JSON.stringify({items:ldzItems(eid), L:ldzMeta(eid)});
 }
@@ -3246,9 +3258,9 @@ function ldzItemHTML(it,edit){
     +'border-color:'+wr.tepi+';background:'+wr.bg+';color:'+wr.teks+';';
   if(petak){
     const g=+it.petak||26;      // sisi satu petak (px kanvas)
-    sty+='background-image:linear-gradient(rgba(60,55,45,.55) 1px,transparent 1px),'
-       +'linear-gradient(90deg,rgba(60,55,45,.55) 1px,transparent 1px);'
-       +'background-size:'+g+'px '+g+'px;background-position:2px 2px;';
+    sty+='background-image:linear-gradient(rgba(50,45,35,.7) 2px,transparent 2px),'
+       +'linear-gradient(90deg,rgba(50,45,35,.7) 2px,transparent 2px);'
+       +'background-size:'+g+'px '+g+'px;background-position:3px 3px;';
   }
   const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
   const judul=(it.kind==='table'?'Meja ':'Kursi ')+(it.table_no||'')+' · '+it.tier+' · '
@@ -3266,7 +3278,9 @@ function ldzItemHTML(it,edit){
   }
   else if(window._denahRO) sty+='cursor:default;';
   else { aksi=' onclick="toggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;'; }
-  return '<div class="ldz-item '+it.shape+' '+st+(edit?' edit':'')+sel+'" id="ldz_'+it.id+'" style="'+sty+'" title="'+esc(judul)+'"'+aksi+'>'
+  // Ambang 26px: di bawah itu tiga angka tidak muat pada font normal.
+  const kecil=((+it.w||40)<=26||(+it.h||40)<=26)?' kecil':'';
+  return '<div class="ldz-item '+it.shape+' '+st+(edit?' edit':'')+sel+kecil+'" id="ldz_'+it.id+'" style="'+sty+'" title="'+esc(judul)+'"'+aksi+'>'
     +esc(it.table_no||'')+cap+'</div>';
 }
 // Kotak pilihan + 8 pegangan. Ukuran pegangan dibagi zoom supaya tetap enak
@@ -3319,6 +3333,26 @@ function ldzCanvasHTML(eid,edit){
   return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+tandai+'"'+aksi+' '
     +'style="position:relative;width:'+L.w+'px;height:'+L.h+'px">'+ldzCanvasInner(eid,edit)+'</div></div>';
 }
+/* Menggambar ulang SATU objek tanpa menyentuh sisa kanvas. Dipakai jalur yang
+   berjalan tiap gerakan pointer, jadi harus semurah mungkin: yang diubah cuma
+   empat properti gaya, bukan innerHTML.
+
+   Kedua fungsi ini pernah TERHAPUS oleh penggantian blok saat menggarap
+   blok-seret — dan akibatnya tiap geseran objek melempar ReferenceError pada
+   gerakan pointer pertama, sehingga objeknya terasa berat dan tidak mau
+   dipindahkan. Uji blok-seret tidak menangkapnya karena marquee memang tidak
+   memanggil keduanya. */
+function ldzPaintItem(it){
+  const el=document.getElementById('ldz_'+it.id); if(!el) return;
+  el.style.left=(+it.x||0)+'px'; el.style.top=(+it.y||0)+'px';
+  el.style.width=(+it.w||40)+'px'; el.style.height=(+it.h||40)+'px';
+}
+function ldzPaintSel(){
+  const box=document.getElementById('ldzCanvas'); if(!box) return;
+  const old=box.querySelector('.ldz-selbox'); if(old) old.remove();
+  const html=ldzSelBoxHTML();
+  if(html) box.insertAdjacentHTML('beforeend',html);
+}
 function ldzPt(e){
   const cv=document.getElementById('ldzCanvas'); if(!cv) return {x:0,y:0};
   const r=cv.getBoundingClientRect(), z=ldzZoom();
@@ -3338,25 +3372,41 @@ function ldzSnap(v,L){ const g=L.snap?10:1; return Math.round(v/g)*g; }
    Ambangnya dihitung dalam piksel LAYAR (dibagi zoom), supaya rasa "menempel"
    sama saat kanvas diperbesar maupun diperkecil. */
 const LDZ_TARIK=6;
+/* Dua elemen garis bantu dibuat SEKALI lalu disembunyikan/digeser. Versi
+   sebelumnya menghapus dan membuat ulang elemen tiap gerakan pointer; pada
+   denah padat, kelahiran-kematian elemen itu yang terasa sebagai tersendat. */
+function ldzGuideEl(arah){
+  const c=document.getElementById('ldzCanvas'); if(!c) return null;
+  const id='ldzGuide'+arah;
+  let g=document.getElementById(id);
+  if(!g){ g=document.createElement('div'); g.id=id; g.className='ldz-guide '+arah; c.appendChild(g); }
+  return g;
+}
 function ldzGuideBersih(){
-  const c=document.getElementById('ldzCanvas'); if(!c) return;
-  c.querySelectorAll('.ldz-guide').forEach(function(g){ g.remove(); });
+  ['v','h'].forEach(function(a){
+    const g=document.getElementById('ldzGuide'+a);
+    if(g) g.style.display='none';
+  });
 }
 function ldzGuideGambar(vs,hs){
-  const c=document.getElementById('ldzCanvas'); if(!c) return;
-  ldzGuideBersih();
-  vs.forEach(function(x){
-    const g=document.createElement('div'); g.className='ldz-guide v'; g.style.left=x+'px'; c.appendChild(g);
-  });
-  hs.forEach(function(y){
-    const g=document.createElement('div'); g.className='ldz-guide h'; g.style.top=y+'px'; c.appendChild(g);
-  });
+  const gv=ldzGuideEl('v'), gh=ldzGuideEl('h');
+  if(gv){ if(vs.length){ gv.style.display='block'; gv.style.left=vs[0]+'px'; } else gv.style.display='none'; }
+  if(gh){ if(hs.length){ gh.style.display='block'; gh.style.top=hs[0]+'px'; } else gh.style.display='none'; }
 }
 /* Menghitung pergeseran tambahan supaya blok yang sedang diseret menempel ke
    objek lain. Yang dibandingkan tiga garis per sumbu — tepi awal, tengah, tepi
    akhir — jadi objek bisa rata kiri, rata tengah, ataupun rata kanan. */
 function ldzTarikSejajar(eid,box,abaikan){
   const amb=LDZ_TARIK/ldzZoom();
+  /* SELURUH objek tetap jadi acuan, termasuk yang jauh di atas atau di samping:
+     meluruskan meja baris ke-4 dengan baris pertama justru pekerjaan yang paling
+     butuh bantuan ini, dan membatasinya dengan radius membuat perataan berhenti
+     bekerja tepat saat paling dibutuhkan.
+
+     Sebelumnya sempat saya batasi radius 260px karena menyangka bantuan inilah
+     yang membuat objek "susah dipindahkan". Ternyata sebabnya lain dan jauh
+     lebih parah: ldzPaintItem/ldzPaintSel terhapus, jadi setiap gerakan pointer
+     melempar ReferenceError dan objeknya tidak pernah bergerak. */
   const lain=ldzItems(eid).filter(function(i){ return abaikan.indexOf(i.id)<0; });
   const garisX=[], garisY=[];
   lain.forEach(function(i){
@@ -3380,9 +3430,11 @@ function ldzTarikSejajar(eid,box,abaikan){
           vs:bx?[bx.g]:[], hs:by?[by.g]:[]};
 }
 function ldzDown(e,id,mode){
-  // Sekali per SERETAN, bukan tiap gerakan pointer: satu seretan = satu langkah
-  // yang bisa dibatalkan, persis seperti yang orang harapkan dari Ctrl+Z.
-  if(window._ldzEdit) ldzRekam(window._ldzEid);
+  /* Potret riwayat DITUNDA sampai objeknya benar-benar bergeser (lihat ldzUp).
+     Sebelumnya diambil di setiap pointerdown — termasuk saat cuma MEMILIH objek
+     — dan tiap potret men-stringify seluruh objek lantai itu. Di denah 264
+     objek, sekadar mengklik pun ikut membayar biaya itu. */
+  if(window._ldzEdit) _ldzPotretTunda=ldzPotret(window._ldzEid);
   if(!window._ldzEdit) return;
   e.preventDefault(); e.stopPropagation();
   const eid=window._ldzEid, L=ldzMeta(eid);
@@ -3520,8 +3572,16 @@ function ldzMove(e){
     const p=ldzPt(e);
     const r={x:Math.min(_ldzDrag.x0,p.x),y:Math.min(_ldzDrag.y0,p.y),
              w:Math.abs(p.x-_ldzDrag.x0),h:Math.abs(p.y-_ldzDrag.y0)};
+    /* Kotak seleksi cukup DIGESER lewat style. Versi sebelumnya menulis
+       outerHTML tiap gerakan pointer — artinya elemen dibongkar dan dipasang
+       ulang puluhan kali per detik, dan di denah padat itu terasa sebagai
+       tersendat saat menyeret. */
     const box=document.getElementById('ldzMarquee');
-    if(box) box.outerHTML='<div id="ldzMarquee" class="ldz-marquee" style="left:'+r.x+'px;top:'+r.y+'px;width:'+r.w+'px;height:'+r.h+'px"></div>';
+    if(box){
+      if(!box.classList.contains('ldz-marquee')) box.className='ldz-marquee';
+      box.style.left=r.x+'px'; box.style.top=r.y+'px';
+      box.style.width=r.w+'px'; box.style.height=r.h+'px';
+    }
     // Bersinggungan (bukan harus termuat penuh) — lebih memaafkan saat menyapu
     // barisan kursi rapat.
     let kena=ldzItems(window._ldzEid).filter(function(i){
@@ -3533,18 +3593,22 @@ function ldzMove(e){
     if(_ldzDrag.jual) kena=kena.filter(beliBisaDipilih);
     const ids=kena.map(function(i){ return i.id; });
     const gabung=_ldzDrag.tambah?_ldzDrag.awal.concat(ids.filter(function(k){ return _ldzDrag.awal.indexOf(k)<0; })):ids;
+    /* Hanya objek yang BERUBAH status pilihannya disentuh. Sebelumnya seluruh
+       objek di lantai itu di-toggle tiap gerakan pointer: pada 264 objek berarti
+       264 operasi DOM per gerakan, puluhan kali per detik — itu sumber utama
+       delay saat memblok di denah penuh. */
+    const sblm=_ldzDrag.terpilih||[];
+    const masuk=gabung.filter(function(k){ return sblm.indexOf(k)<0; });
+    const keluar=sblm.filter(function(k){ return gabung.indexOf(k)<0; });
+    _ldzDrag.terpilih=gabung.slice();
     if(_ldzDrag.jual){
       beliSetSel(gabung);
-      ldzItems(window._ldzEid).forEach(function(i){
-        const el=document.getElementById('ldz_'+i.id);
-        if(el) el.style.boxShadow=(gabung.indexOf(i.id)>=0)?'0 0 0 3px var(--accent)':'';
-      });
+      masuk.forEach(function(id){ const el=document.getElementById('ldz_'+id); if(el) el.style.boxShadow='0 0 0 3px var(--accent)'; });
+      keluar.forEach(function(id){ const el=document.getElementById('ldz_'+id); if(el) el.style.boxShadow=''; });
     } else {
       ldzSetSel(gabung);
-      ldzItems(window._ldzEid).forEach(function(i){
-        const el=document.getElementById('ldz_'+i.id);
-        if(el) el.classList.toggle('sel',ldzIsSel(i.id));
-      });
+      masuk.forEach(function(id){ const el=document.getElementById('ldz_'+id); if(el) el.classList.add('sel'); });
+      keluar.forEach(function(id){ const el=document.getElementById('ldz_'+id); if(el) el.classList.remove('sel'); });
     }
   }
 }
@@ -3568,7 +3632,13 @@ function ldzUp(){
     ldzRepaint(eid);
     return;
   }
-  if(d.moved){ save(); ldzSideRefresh(eid); }
+  if(d.moved){
+    // Baru sekarang perubahannya sah masuk riwayat: klik tanpa geser bukan
+    // langkah yang perlu dibatalkan.
+    ldzRekamPotret(eid,_ldzPotretTunda);
+    save(); ldzSideRefresh(eid);
+  }
+  _ldzPotretTunda=null;
   ldzPaintSel();
 }
 
@@ -4091,9 +4161,13 @@ function ldzKursiSekitar(o, nomor, x, y, w, h, jml, sisi){
     sebar(bawah,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
     return;
   }
-  const a=Math.ceil(jml/2), b=jml-a;
-  sebar(a,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
-  sebar(b,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
+  /* Baris BAWAH mendapat bagian terbanyak. Denah cetak menempatkan 2 kursi di
+     atas meja dan 3 di bawahnya (meja 1–9), bukan sebaliknya — sisi bawah
+     menghadap ke arah datangnya tamu. Nomor kecil juga jatuh di atas: 168,169
+     lalu 170,171,172. */
+  const bawah=Math.ceil(jml/2), atas=jml-bawah;
+  sebar(atas,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
+  sebar(bawah,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
 }
 function ldzBawaanL1(){
   const o=[], nomor={n:1};
