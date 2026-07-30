@@ -381,8 +381,15 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-stage.panning{cursor:grabbing}
 .ldz-stage.placing{cursor:crosshair}
 .ldz-sizer{position:relative;padding:0}
+/* touch-action:none WAJIB di sini. Tanpa itu, di layar sentuh & trackpad
+   presisi browser memperlakukan seretan sebagai GULIR: pointerdown sempat
+   sampai, lalu browser mengambil alih dan mengirim pointercancel — pointermove
+   tidak pernah tiba, dan blok-seret berhenti sebelum sempat menggambar apa pun.
+   Dari sisi pengguna itu terlihat persis seperti fiturnya tidak ada. */
 .ldz-canvas{position:absolute;left:0;top:0;transform-origin:0 0;background:#fff;
-  box-shadow:0 2px 16px rgba(50,42,28,.18)}
+  touch-action:none;box-shadow:0 2px 16px rgba(50,42,28,.18)}
+.ldz-canvas.bisa-blok{cursor:crosshair}
+.ldz-stage.bisa-blok{touch-action:none}
 .ldz-canvas.grid{background-image:linear-gradient(rgba(60,55,45,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(60,55,45,.09) 1px,transparent 1px);background-size:20px 20px}
 /* Latar gambar dipasang di lapisan sendiri supaya opacity-nya bisa diatur
    tanpa ikut memudarkan objek di atasnya. */
@@ -3275,7 +3282,8 @@ function ldzCanvasHTML(eid,edit){
      di kanvas tidak terjadi apa-apa. Yang punya penangan hanya kanvas di dalam
      perancang denah; itu sebabnya blok-seret terasa cuma jalan kadang-kadang. */
   const aksi=ldzBolehBlok()?' onpointerdown="ldzCanvasDown(event)"':'';
-  return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+'"'+aksi+' '
+  const tandai=ldzBolehBlok()?' bisa-blok':'';
+  return '<div class="ldz-wrap"><div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+tandai+'"'+aksi+' '
     +'style="position:relative;width:'+L.w+'px;height:'+L.h+'px">'+ldzCanvasInner(eid,edit)+'</div></div>';
 }
 function ldzPt(e){
@@ -3368,10 +3376,22 @@ function ldzDown(e,id,mode){
   window.addEventListener('pointerup',ldzUp);
 }
 // Seret di area kosong = kotak seleksi. Tanpa Shift, pilihan lama diganti.
-function ldzCanvasDown(e){
-  if(!ldzBolehBlok()) return;
+function ldzCanvasDown(e,dariPanggung){
+  if(!ldzBolehBlok()){
+    /* Diam-diam tidak melakukan apa pun adalah jawaban terburuk: orang mengira
+       fiturnya rusak, bukan bahwa modenya belum dinyalakan. Diberitahu sekali
+       saja per halaman supaya tidak jadi gangguan. */
+    if(!window._ldzPernahIngat){
+      window._ldzPernahIngat=true;
+      toast('Nyalakan Mode Desain (atau Pilih Kursi di Denah) dulu untuk memblok dengan seret.');
+    }
+    return;
+  }
   const t=e.target;
-  if(t && t.id!=='ldzCanvas' && !(t.classList&&t.classList.contains('ldz-bg'))) return;
+  const bolehMulai = dariPanggung || !t
+    || t.id==='ldzCanvas'
+    || (t.classList && (t.classList.contains('ldz-bg')||t.classList.contains('ldz-sizer')||t.classList.contains('ldz-stage')));
+  if(!bolehMulai) return;
   // Menaruh bentuk dari palet lewat sekali klik (mode "armed").
   if(window._ldzArm){
     const p=ldzPt(e), a=window._ldzArm; window._ldzArm=null;
@@ -3384,8 +3404,17 @@ function ldzCanvasDown(e){
   const jual=ldzJualAktif();
   _ldzDrag={mode:'marquee',jual:jual,sx:e.clientX,sy:e.clientY,x0:p.x,y0:p.y,moved:false,
     tambah:(e.shiftKey||e.ctrlKey||e.metaKey),awal:(jual?beliSel():ldzSel()).slice()};
+  /* Pointer capture: seluruh pointermove & pointerup berikutnya dijamin sampai
+     ke elemen ini, bahkan kalau kursornya keluar dari kanvas atau melewati
+     objek lain di tengah seretan. Tanpa ini, seretan yang keluar dari area
+     kanvas bisa "putus" di tengah jalan dan seleksinya berhenti separuh. */
+  try{ if(e.pointerId!=null && e.currentTarget && e.currentTarget.setPointerCapture)
+         e.currentTarget.setPointerCapture(e.pointerId); }catch(_){}
   window.addEventListener('pointermove',ldzMove);
   window.addEventListener('pointerup',ldzUp);
+  // pointercancel (mis. browser mengambil alih untuk gulir) harus ikut menutup
+  // seretan; kalau tidak, _ldzDrag menggantung dan klik berikutnya kacau.
+  window.addEventListener('pointercancel',ldzUp);
 }
 function ldzMove(e){
   if(!_ldzDrag) return;
@@ -3489,6 +3518,7 @@ function ldzMove(e){
 function ldzUp(){
   window.removeEventListener('pointermove',ldzMove);
   window.removeEventListener('pointerup',ldzUp);
+  window.removeEventListener('pointercancel',ldzUp);
   if(!_ldzDrag) return;
   const d=_ldzDrag; _ldzDrag=null;
   const eid=window._ldzEid;
@@ -3583,6 +3613,14 @@ function ldzWheel(e){
 let _ldzPan=null;
 function ldzStageDown(e){
   const st=document.getElementById('ldzStage'); if(!st) return;
+  /* Klik kiri di area kosong panggung = mulai memblok, bukan diam saja.
+     Panggung hanya menerima ini kalau yang ditekan memang RUANG KOSONG —
+     kanvas & objeknya punya penangan sendiri yang berjalan lebih dulu. */
+  if(e.button===0 && !window._ldzSpace && ldzBolehBlok()
+     && (e.target===st || (e.target.classList&&e.target.classList.contains('ldz-sizer')))){
+    ldzCanvasDown(e,true);
+    return;
+  }
   if(!(e.button===1 || (window._ldzSpace&&e.button===0))) return;
   e.preventDefault();
   _ldzPan={sx:e.clientX,sy:e.clientY,l:st.scrollLeft,t:st.scrollTop};
@@ -3923,11 +3961,16 @@ function ldzInner(eid){
      +(its.length?'<button class="ldz-ib" style="color:var(--red);border-color:var(--red)" onclick="ldzClear(\''+eid+'\')">Kosongkan</button>':'');
   }
   bar+='</div>';
-  const stage='<div class="ldz-stage" id="ldzStage"'
-    +(edit?' onpointerdown="ldzStageDown(event)" onwheel="ldzWheel(event)"':' onwheel="ldzWheel(event)"')+'>'
+  /* Seret juga boleh DIMULAI di area abu-abu sekitar kanvas. Kanvas 1200px di
+     dalam panggung yang lebih lebar menyisakan pinggiran kosong, dan menyeret
+     dari sana adalah gerakan paling alami untuk menyapu seluruh denah — dulu
+     tidak terjadi apa-apa karena penangannya hanya di kanvas. */
+  const stage='<div class="ldz-stage'+(ldzBolehBlok()?' bisa-blok':'')+'" id="ldzStage"'
+    +' onpointerdown="ldzStageDown(event)"'
+    +' onwheel="ldzWheel(event)">'
     +'<div class="ldz-sizer" style="width:'+Math.round(L.w*z)+'px;height:'+Math.round(L.h*z)+'px">'
-    +'<div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+'" style="width:'+L.w+'px;height:'+L.h+'px;transform:scale('+z+')"'
-    +(edit?' onpointerdown="ldzCanvasDown(event)"':'')+'>'
+    +'<div id="ldzCanvas" class="ldz-canvas'+(L.grid?' grid':'')+(ldzBolehBlok()?' bisa-blok':'')+'" style="width:'+L.w+'px;height:'+L.h+'px;transform:scale('+z+')"'
+    +(ldzBolehBlok()?' onpointerdown="ldzCanvasDown(event)"':'')+'>'
     +ldzCanvasInner(eid,edit)+'</div></div></div>';
   const legenda='<div class="ldz-legend">'
     +ldzTierNames(eid).map(function(t){ return '<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,t).c+'"></i>'+esc(t)+'</span>'; }).join('')
