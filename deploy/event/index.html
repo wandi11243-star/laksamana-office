@@ -3245,9 +3245,16 @@ function ldzItemHTML(it,edit){
      Sekarang warna tier dipakai penuh, tulisannya putih. */
   /* Area digambar netral abu-abu dan tidak pernah memakai warna kategori:
      kalau ikut berwarna, panggung terbaca seperti blok kursi termahal. */
-  const wr=ldzAdalahArea(it)
-    ? {bg:'#b9b4ac',tepi:'#8d8880',teks:'#2b2721'}
-    : ldzWarnaObjek(it,T.c,isi);
+  /* Warna ruang menang atas warna kategori untuk AREA dan meja EXT: keduanya
+     bukan tempat duduk yang dijual per kelas, jadi memberinya warna kategori
+     justru menyesatkan — EXT pernah tampil semerah blok VIP. Kursi & meja biasa
+     tetap memakai warna kategori tiketnya. */
+  const ruang=(ldzAdalahArea(it)||/^ext/i.test(String(it.table_no||'')))?ldzWarnaRuang(it):null;
+  const wr=ruang
+    ? ruang
+    : (ldzAdalahArea(it)
+        ? {bg:'#b9b4ac',tepi:'#8d8880',teks:'#2b2721'}
+        : ldzWarnaObjek(it,T.c,isi));
   /* Zona REGULER digambar BERPETAK, meniru denah cetak yang memenuhi area itu
      dengan deretan kotak kursi. Dibuat sebagai pola isian, bukan ratusan objek
      kecil: yang dibutuhkan cuma tampilannya — kursinya sendiri memang tidak
@@ -3311,6 +3318,51 @@ function ldzSelBoxHTML(){
    ruang, bukan tempat duduk bernomor. Kuota zona reguler tetap diatur sebagai
    kelas tiket non-seated di tab Ticket Class. */
 function ldzAdalahArea(it){ return !!it && it.kind==='area'; }
+/* ---- WARNA PER JENIS RUANG ----
+   Semua area dulu abu-abu sama rata, jadi panggung, tangga, ruang talent, dan
+   zona reguler tidak bisa dibedakan tanpa membaca tulisannya satu-satu — padahal
+   denah dipakai justru untuk membaca ruangan dalam sekali lihat.
+
+   Warnanya dipilih dari maknanya, bukan sekadar supaya beda: panggung gelap
+   (pusat perhatian, bukan tempat dijual), pintu masuk oranye seperti rambu
+   keluar-masuk di denah cetak, tangga cokelat kayu, ruang talent ungu (area
+   tertutup), zona reguler biru baja (dijual, tapi tanpa nomor), void nyaris
+   putih karena ia memang lubang lantai. EXT memakai kuning bergaris merah,
+   persis penandaan di denah cetak.
+
+   Dicocokkan dari LABELNYA, jadi denah yang sudah digambar sebelum ini pun ikut
+   berwarna tanpa perlu diapa-apakan. Satu objek boleh memakai warnanya sendiri
+   lewat field `warna` — itu yang diisi pemilih warna di panel kanan. */
+const LDZ_RUANG=[
+  [/^stage$|panggung/i,        {bg:'#3f4a5a', tepi:'#2b3340'}],
+  [/^meja ?dj$/i,              {bg:'#a9791f', tepi:'#7a560f'}],
+  [/talent/i,                  {bg:'#6d5aa8', tepi:'#4e3f80'}],
+  [/entrance|masuk|keluar/i,   {bg:'#e08a1e', tepi:'#a86212'}],
+  [/tangga/i,                  {bg:'#8a6242', tepi:'#63452e'}],
+  [/operator|foh/i,            {bg:'#2f3a4a', tepi:'#1d2530'}],
+  [/^void/i,                   {bg:'#eceae4', tepi:'#c9c4b8'}],
+  [/reguler|regular/i,         {bg:'#5b7fa6', tepi:'#3f5d7d'}],
+  [/^ext/i,                    {bg:'#f2c14e', tepi:'#c9432b'}]
+];
+// Tulisan hitam atau putih, dipilih dari kecerahan latarnya sendiri supaya
+// kontrasnya aman tanpa perlu diatur satu-satu.
+function ldzTeksKontras(hex){
+  const n=parseInt(String(hex).replace('#',''),16);
+  const L=(0.299*((n>>16)&255)+0.587*((n>>8)&255)+0.114*(n&255))/255;
+  return L>0.62?'#241f18':'#fff';
+}
+function ldzWarnaRuang(it){
+  if(!it) return null;
+  if(it.warna) return {bg:it.warna, tepi:ldzGelap(it.warna,0.7), teks:ldzTeksKontras(it.warna)};
+  const lbl=String(it.table_no||'');
+  for(let i=0;i<LDZ_RUANG.length;i++){
+    if(LDZ_RUANG[i][0].test(lbl)){
+      const w=LDZ_RUANG[i][1];
+      return {bg:w.bg, tepi:w.tepi, teks:ldzTeksKontras(w.bg)};
+    }
+  }
+  return null;
+}
 function ldzBolehBlok(){ return !!window._ldzEdit || ldzJualAktif(); }
 function ldzCanvasInner(eid,edit){
   const L=ldzMeta(eid), its=ldzItems(eid);
@@ -3839,6 +3891,13 @@ function ldzSamakan(eid,apa){
 
 /* ---------- panel properti ---------- */
 function ldzSet(eid,field,val){
+  /* warna & pola bernilai TEKS, bukan angka. Tanpa cabang ini keduanya
+     lewat jalur pembersih angka di bawah dan berubah jadi 0. */
+  if(field==='warna'||field==='pola'){
+    ldzRekam(eid);
+    ldzSelItems().forEach(function(it){ it[field]=String(val||''); });
+    save(); ldzRepaint(eid); return;
+  }
   ldzRekam(eid);
   const sel=ldzSelItems(); if(!sel.length) return;
   sel.forEach(function(it){
@@ -3901,6 +3960,23 @@ function ldzSideHTML(eid){
      +'</div>';
     if(!banyak) h+='<div class="grid g2"><div class="field"><label>Posisi X</label><input type="number" value="'+(+p.x||0)+'" onchange="ldzSet(\''+eid+'\',\'x\',this.value)"></div>'
        +'<div class="field"><label>Posisi Y</label><input type="number" value="'+(+p.y||0)+'" onchange="ldzSet(\''+eid+'\',\'y\',this.value)"></div></div>';
+    /* Warna & pola per objek. Palet bawaan sudah mengenali nama ruang yang umum
+       (Stage, Reguler, Tangga, EXT, dst.), tapi denah nyata selalu punya ruang
+       bernama lain — dan memaksanya abu-abu berarti kembali ke masalah semula. */
+    h+='<h4 style="margin-top:14px">Tampilan</h4>'
+     +'<div class="grid g2">'
+       +'<div class="field"><label>Warna</label>'
+         +'<input type="color" value="'+ldzHexWarna((ldzWarnaRuang(p)||{}).bg||ldzTierInfo(eid,p.tier).c)+'"'
+         +' onchange="ldzSet(\''+eid+'\',\'warna\',this.value)"'
+         +' style="width:100%;height:30px;padding:0;border:1px solid var(--line);border-radius:6px;background:none;cursor:pointer">'
+       +'</div>'
+       +'<div class="field"><label>Pola</label>'
+         +'<select onchange="ldzSet(\''+eid+'\',\'pola\',this.value)">'
+           +'<option value=""'+(!p.pola?' selected':'')+'>Polos</option>'
+           +'<option value="petak"'+(p.pola==='petak'?' selected':'')+'>Petak</option>'
+         +'</select></div>'
+     +'</div>'
+     +'<button class="ldz-ib" style="margin-top:4px" onclick="ldzSet(\''+eid+'\',\'warna\',\'\')">Kembalikan warna bawaan</button>';
     if(terjual) h+='<p class="mini">'+terjual+' objek sudah terjual — statusnya hanya bisa dilepas lewat Refund, dan tidak ikut terhapus.</p>';
     if(sel.length>1){
       h+='<h4 style="margin-top:14px">Rapikan</h4><div style="display:flex;gap:4px;flex-wrap:wrap">'
@@ -4136,48 +4212,44 @@ function ldzInner(eid){
    Sesudah dirapikan, simpan lewat "Simpan sebagai Template" — event berikutnya
    memakai versi rapi itu. */
 
-/* Penempatan kursi di sekeliling meja.
-     'h'   — separuh di atas, separuh di bawah (meja mendatar)
-     'v'   — separuh di kiri, separuh di kanan (meja tegak: 31–34)
-     'tlb' — atas, lalu kiri, lalu bawah (meja U1–U3 yang menempel dinding
-             kanan, persis seperti denah cetak) */
-function ldzKursiSekitar(o, nomor, x, y, w, h, jml, sisi){
+/* Penempatan kursi di sekeliling meja, ditulis EKSPLISIT per meja.
+
+   Denah cetak tidak memakai satu pola untuk semua: meja 44 punya kursi di
+   empat sisi (kiri, atas, kanan, bawah), meja 42-43 punya satu di kiri lalu
+   dua atas & dua bawah, dan meja ujung barisan (1 dan 9, 19) punya satu kursi
+   tambahan di sisi lorong. Pola tebak-tebakan "separuh atas separuh bawah"
+   tidak akan pernah cocok dengan semuanya — dan nomor kursi yang salah tempat
+   ikut tercetak di e-ticket.
+
+   Formatnya deretan sisi + jumlah, DALAM URUTAN PENOMORAN denah cetak:
+     'l1,t2,b2' → 1 kiri (nomor terkecil), lalu 2 atas, lalu 2 bawah
+     't2,b2,r1' → 2 atas, 2 bawah, lalu 1 di kanan (nomor terbesar)
+   Sisi: t=atas, b=bawah, l=kiri, r=kanan. */
+function ldzKursiSekitar(o, nomor, x, y, w, h, spek){
   const d=18, j=5;
   const bikin=function(cx,cy){ o.push({kind:'seat',shape:'circle',lbl:String(nomor.n++),x:Math.round(cx),y:Math.round(cy),w:d,h:d}); };
   const sebar=function(n,p1,p2){ const out=[]; for(let i=0;i<n;i++) out.push(p1+((p2-p1)/(n+1))*(i+1)); return out; };
-  if(sisi==='v'){
-    const a=Math.ceil(jml/2), b=jml-a;
-    sebar(a,y,y+h).forEach(function(cy){ bikin(x-d-j,cy-d/2); });
-    sebar(b,y,y+h).forEach(function(cy){ bikin(x+w+j,cy-d/2); });
-    return;
-  }
-  if(sisi==='tlb'){
-    // Pola U1–U3: paling banyak di atas, sisanya kiri lalu bawah.
-    const atas=Math.min(jml,Math.ceil(jml*0.45));
-    const bawah=Math.min(jml-atas,Math.ceil((jml-atas)/2)+((jml-atas)%2));
-    const kiri=jml-atas-bawah;
-    sebar(atas,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
-    sebar(kiri,y,y+h).forEach(function(cy){ bikin(x-d-j,cy-d/2); });
-    sebar(bawah,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
-    return;
-  }
-  /* Baris BAWAH mendapat bagian terbanyak. Denah cetak menempatkan 2 kursi di
-     atas meja dan 3 di bawahnya (meja 1–9), bukan sebaliknya — sisi bawah
-     menghadap ke arah datangnya tamu. Nomor kecil juga jatuh di atas: 168,169
-     lalu 170,171,172. */
-  const bawah=Math.ceil(jml/2), atas=jml-bawah;
-  sebar(atas,x,x+w).forEach(function(cx){ bikin(cx-d/2,y-d-j); });
-  sebar(bawah,x,x+w).forEach(function(cx){ bikin(cx-d/2,y+h+j); });
+  String(spek||'').split(',').forEach(function(bag){
+    const sisi=bag.charAt(0), n=+bag.slice(1)||0;
+    if(!n) return;
+    if(sisi==='t') sebar(n,x,x+w).forEach(function(cx){ bikin(cx-d/2, y-d-j); });
+    else if(sisi==='b') sebar(n,x,x+w).forEach(function(cx){ bikin(cx-d/2, y+h+j); });
+    else if(sisi==='l') sebar(n,y,y+h).forEach(function(cy){ bikin(x-d-j, cy-d/2); });
+    else if(sisi==='r') sebar(n,y,y+h).forEach(function(cy){ bikin(x+w+j, cy-d/2); });
+  });
+}
+// Jumlah kursi dalam sebuah spek — dipakai memeriksa kecocokannya dengan pax.
+function ldzJumlahSpek(spek){
+  return String(spek||'').split(',').reduce(function(a,b){ return a+(+b.slice(1)||0); },0);
 }
 function ldzBawaanL1(){
   const o=[], nomor={n:1};
   const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
-  /* pax   = kapasitas yang tercetak di denah (dipakai rekap & potensi)
-     kursi = jumlah kursi BERNOMOR yang digambar (default = pax) */
-  const meja=function(lbl,x,y,w,h,pax,shape,sisi,kursi){
+  /* pax   = kapasitas tercetak di denah (dipakai rekap & potensi pendapatan)
+     spek  = penempatan kursi bernomor, dalam urutan penomoran denah cetak */
+  const meja=function(lbl,x,y,w,h,pax,shape,spek){
     o.push({kind:'table',shape:shape||'rect',lbl:lbl,x:x,y:y,w:w,h:h,cap:pax});
-    const n=(kursi==null)?pax:kursi;
-    if(n) ldzKursiSekitar(o,nomor,x,y,w,h,n,sisi||'h');
+    if(spek) ldzKursiSekitar(o,nomor,x,y,w,h,spek);
   };
   const ext=function(no,x,y,w,h){ o.push({kind:'table',shape:'rect',lbl:'EXT '+no,x:x,y:y,w:w,h:h,cap:2}); };
 
@@ -4187,59 +4259,65 @@ function ldzBawaanL1(){
   area('TALENT ROOM',1440,45,125,480);
   area('ENTRANCE',12,470,30,120);
 
-  /* U1–U3: jarak antar meja harus memuat DUA baris kursi — baris bawah meja di
-     atasnya dan baris atas meja di bawahnya. Tiap baris 18px + 5px jarak, jadi
-     minimal 46px antar tepi meja. Versi sebelumnya memberi 34px, sehingga kursi
-     6–7 (bawah U1) tepat menimpa kursi 8–11 (atas U2). */
-  meja('U1',203,60,158,78,7,'rect','tlb');
-  meja('U2',203,196,158,84,8,'rect','tlb');
-  meja('U3',203,338,158,96,9,'rect','tlb');
+  /* U1–U3 menempel dinding barat: kursi di ATAS, KIRI, lalu BAWAH — sisi kanan
+     menghadap lorong, jadi tidak berkursi. Jarak antar meja memuat dua baris
+     kursi (bawah meja atas + atas meja bawah), minimal 46px. */
+  meja('U1',203,60,158,78,7,'rect','t3,l2,b2');
+  meja('U2',203,196,158,84,8,'rect','t2,l4,b2');
+  meja('U3',203,338,158,96,9,'rect','t4,l3,b2');
 
   // ---- EXT: hanya 1–11, 14, 15 (denah cetak tidak punya EXT 12/13) ----
   ext(1,402,60,48,56);  ext(2,503,60,50,56);
   ext(3,402,143,48,56); ext(4,503,143,50,56);
   ext(5,450,213,60,40);
-  /* EXT 6–8 digeser ke pinggir: kursi sisi kiri meja U berhenti di x=180, dan
-     pada x=128 kotak EXT-nya bersentuhan dengan kursi 12–13. */
-  ext(6,52,214,50,56); ext(7,52,300,50,56); ext(8,52,386,50,56);
+  ext(6,52,214,50,56);  ext(7,52,300,50,56); ext(8,52,386,50,56);
   ext(9,233,485,95,34);
   ext(10,93,648,50,56); ext(11,93,818,50,56);
   ext(14,638,282,50,74); ext(15,1028,278,50,74);
 
-  // ---- 31 & 32 (label 7 pax, 6 kursi bernomor) ----
-  meja('31',458,263,128,116,7,'rect','v',6);
-  meja('32',458,395,128,116,7,'rect','v',6);
-  // ---- meja bundar 24, 23, 22, 21 (4 pax) ----
-  meja('24',623,428,76,60,4,'circle','h');
-  meja('23',762,428,76,60,4,'circle','h');
-  meja('22',893,428,76,60,4,'circle','h');
-  meja('21',1020,428,76,60,4,'circle','h');
-  // ---- 33 & 34 di timur ----
-  meja('33',1118,263,128,112,7,'rect','v',6);
-  meja('34',1118,391,128,120,7,'rect','v',6);
-  // ---- kolom timur: 35, 42-43, 44, 45 ----
-  meja('35',1275,55,150,100,7,'rect','h',6);
-  meja('42-43',1290,212,135,58,4,'rect','h',5);
-  meja('44',1320,338,105,56,4,'rect','h',4);
-  meja('45',1320,465,105,57,4,'rect','h',4);
+  // ---- 31 & 32: meja tegak, kursi 3 kiri + 3 kanan (label 7 pax) ----
+  meja('31',458,263,128,116,7,'rect','l3,r3');
+  meja('32',458,395,128,116,7,'rect','l3,r3');
+  // ---- meja bundar 24, 23, 22, 21 ----
+  meja('24',623,428,76,60,4,'circle','t2,b2');
+  meja('23',762,428,76,60,4,'circle','t2,b2');
+  meja('22',893,428,76,60,4,'circle','t2,b2');
+  meja('21',1020,428,76,60,4,'circle','t2,b2');
+  // ---- 33 & 34 di timur, pola sama dengan 31/32 ----
+  meja('33',1118,263,128,112,7,'rect','l3,r3');
+  meja('34',1118,391,128,120,7,'rect','l3,r3');
+  /* Kolom timur. Pola tiap meja berbeda dan itu memang begitu di denah cetak:
+       35     : 3 atas, 3 bawah
+       42-43  : 1 KIRI, lalu 2 atas, 2 bawah
+       44 & 45: satu kursi di TIAP sisi (kiri, atas, kanan, bawah) */
+  meja('35',1275,55,150,100,7,'rect','t3,b3');
+  meja('42-43',1290,212,135,58,4,'rect','l1,t2,b2');
+  /* 44 & 45 dipersempit dan digeser ke kiri: kursi sisi KANANnya butuh ruang
+     sebelum TALENT ROOM (x=1440). Pada lebar 105 di x=1320, kursi 78 dan 82
+     menembus ruang talent. */
+  meja('44',1296,338,96,56,4,'rect','l1,t1,r1,b1');
+  meja('45',1296,465,96,57,4,'rect','l1,t1,r1,b1');
   /* Deret S: denah cetak menulis "10-12 PAX" untuk S1/S3/S5, sedangkan kursi
      bernomornya 10. Kapasitas dipatok 10 — angka yang lebih kecil dari dua
      kemungkinan, karena kapasitas dipakai menghitung POTENSI pendapatan dan
      melebihkannya membuat target terlihat lebih besar dari yang bisa dijual. */
-  // ---- deret S: S1, S2, S3, S5, S4, S6, 41 ----
-  meja('S1',338,600,180,58,10,'rect','h',10);
-  meja('S2',567,597,72,62,4,'circle','h');
-  meja('S3',683,600,180,58,10,'rect','h',10);
-  meja('S5',893,600,180,58,10,'rect','h',10);
-  meja('S4',1113,597,70,62,4,'circle','h');
-  meja('S6',1227,597,72,62,4,'circle','h');
-  meja('41',1343,597,72,62,4,'circle','h');
-  // ---- barisan 11–19 (4 pax; 19 punya 5) dan 1–9 (5 pax) ----
+  meja('S1',338,600,180,58,10,'rect','t5,b5');
+  meja('S2',567,597,72,62,4,'circle','t2,b2');
+  meja('S3',683,600,180,58,10,'rect','t5,b5');
+  meja('S5',893,600,180,58,10,'rect','t5,b5');
+  meja('S4',1113,597,70,62,4,'circle','t2,b2');
+  meja('S6',1227,597,72,62,4,'circle','t2,b2');
+  meja('41',1343,597,72,62,4,'circle','t2,b2');
+  /* Barisan 11–19 dan 1–9. Meja UJUNG barisan punya satu kursi tambahan di sisi
+     lorong — 19 di kanan, 1 di kiri, 9 di kanan — persis denah cetak. Sisanya
+     2 atas & 3 bawah (barisan 1–9) atau 2 atas & 2 bawah (barisan 11–19). */
   ['11','12','13','14','15','16','17','18','19'].forEach(function(lbl,i){
-    meja(lbl,195+i*143,717,115,62,(lbl==='19')?5:4,'rect','h');
+    const akhir=(lbl==='19');
+    meja(lbl,195+i*143,717,115,62,akhir?5:4,'rect',akhir?'t2,b2,r1':'t2,b2');
   });
   ['1','2','3','4','5','6','7','8','9'].forEach(function(lbl,i){
-    meja(lbl,195+i*143,845,115,62,5,'rect','h');
+    const spek=(lbl==='1')?'l1,t2,b2':((lbl==='9')?'t2,b2,r1':'t2,b3');
+    meja(lbl,195+i*143,845,115,62,5,'rect',spek);
   });
   return {kanvas:{w:1600,h:960},objek:o};
 }
