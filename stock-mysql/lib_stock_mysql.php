@@ -664,31 +664,58 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $caraBeli = strtolower(trim((string)$caraBeli));
   if ($caraBeli !== 'online' && $caraBeli !== 'jemput') $caraBeli = '';
 
-  /* SUMBER: '' = bahan dari vendor (perilaku lama, berlaku untuk ratusan
-     bahan yang sudah ada), 'ck' = barang produksi Central Kitchen. Nilai
-     asing dibuang jadi '' — bukan diteruskan apa adanya, karena daftar
-     barang CK dibangun dari kolom ini dan nilai yang tidak dikenal berarti
-     barang yang tidak masuk daftar mana pun tanpa ada yang tahu kenapa. */
+  /* SUMBER — TIGA nilai sejak 31 Juli 2026:
+       ''     = bahan dibeli dari vendor (perilaku lama, ratusan bahan)
+       'ck'   = barang produksi Central Kitchen, tidak dibeli ke mana pun
+       'both' = DIBELI DARI VENDOR *DAN* disimpan di Central Kitchen
+     Nilai ketiga ditambahkan karena ada barang yang dibeli ke vendor,
+     diantar ke CK, lalu diambil lagi sedikit-sedikit oleh outlet. Sebelumnya
+     sumber bersifat pilih-salah-satu, sehingga barang seperti itu harus
+     didaftarkan dua kali dengan nama berbeda — dan dua nama berarti dua
+     saldo yang tidak pernah cocok dengan satu tumpuk barang yang nyata.
+
+     Nilai asing tetap dibuang jadi '' — bukan diteruskan apa adanya, karena
+     daftar barang CK dibangun dari kolom ini dan nilai yang tidak dikenal
+     berarti barang yang tidak masuk daftar mana pun tanpa ada yang tahu
+     kenapa. */
   $sumber = strtolower(trim((string)$sumber));
-  if ($sumber !== 'ck') $sumber = '';
+  if ($sumber !== 'ck' && $sumber !== 'both') $sumber = '';
+  $adaDiCK = ($sumber === 'ck' || $sumber === 'both');
 
   $packIsi    = (float)$packIsi;
   $packSatuan = trim((string)$packSatuan);
-  /* diOutlet: barang CK ini JUGA disimpan di outlet, jadi outlet punya
-     sesuatu untuk dikirim balik ke CK (retur sisa, titipan stok berlebih).
-     Barang yang cuma ada di CK tidak pernah dipegang outlet — menawarkannya
-     di form "Kirim ke CK" berarti menawarkan mengirim barang yang tidak ada. */
+  /* diOutlet: barang ini JUGA disimpan di outlet, jadi outlet punya sesuatu
+     untuk dikirim balik ke CK (retur sisa, titipan stok berlebih). Barang
+     yang cuma ada di CK tidak pernah dipegang outlet — menawarkannya di form
+     "Kirim ke CK" berarti menawarkan mengirim barang yang tidak ada.
+     Untuk sumber 'both' nilainya DIPAKSA true: barang yang dibeli ke vendor
+     pasti melewati outlet, jadi menanyakannya lagi cuma menyediakan cara
+     menyimpan jawaban yang salah. */
   $diOutlet = (bool)$diOutlet;
-  if ($sumber !== 'ck') { $packIsi = 0; $packSatuan = ''; $diOutlet = false; }   // hanya berarti untuk barang CK
+  if ($sumber === 'both') $diOutlet = true;
+  if (!$adaDiCK) { $packIsi = 0; $packSatuan = ''; $diOutlet = false; }   // pack hanya berarti untuk barang yang ada di CK
   if ($packIsi < 0) $packIsi = 0;
 
-  /* Satuan barang CK DIPAKSA jadi [Pack, satuan dasar], bukan dibiarkan
+  /* Satuan barang CK MURNI dipaksa jadi [Pack, satuan dasar], bukan dibiarkan
      mengikuti centang di layar. Alasannya: konversi saldo cuma mengenal dua
      satuan itu; satuan ketiga yang lolos ke form order akan tercatat sebagai
      angka yang tidak bisa dijumlahkan ke saldo mana pun, dan baru ketahuan
-     saat saldonya sudah telanjur salah. */
+     saat saldonya sudah telanjur salah.
+
+     Barang 'both' TIDAK dipaksa, hanya DITAMBAHI: ia juga dipesan ke vendor,
+     dan vendor punya satuan sendiri (Dus, Karton) yang sah untuk order
+     belanja. Yang dijamin di sini cuma bahwa Pack & satuan dasar selalu
+     tersedia, supaya mutasi CK-nya tetap bisa dikonversi.
+
+     Daftar KOSONG dibiarkan kosong, tidak ikut ditambahi: kosong berarti
+     "semua satuan boleh" (perilaku lama untuk ratusan bahan), dan itu sudah
+     memuat Pack maupun satuan dasar. Mengisinya justru MEMPERSEMPIT dari
+     semua-boleh jadi dua-saja, diam-diam, tanpa admin pernah memintanya. */
   if ($sumber === 'ck' && $packSatuan !== '') {
     $satuan = $packIsi > 0 ? ['Pack', $packSatuan] : [$packSatuan];
+  } elseif ($sumber === 'both' && $packSatuan !== '' && $satuan) {
+    $wajib = $packIsi > 0 ? ['Pack', $packSatuan] : [$packSatuan];
+    foreach ($wajib as $w) if (!in_array($w, $satuan, true)) $satuan[] = $w;
   }
 
   $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan,

@@ -1,0 +1,30 @@
+-- ====================================================================
+-- STOCK — MIGRASI: KIRIMAN OUTLET → CK LANGSUNG DIHITUNG
+-- --------------------------------------------------------------------
+-- Jalankan SEKALI di tiap database stock (lakk5493_db_dev_stock dulu,
+-- baru lakk5493_db_stock). phpMyAdmin: pilih database > tab "SQL" >
+-- tempel > Go. AMAN diulang berkali-kali.
+--
+-- BERKAS INI OPSIONAL — tidak menjalankannya TIDAK membuat angka salah.
+-- pur_ck_saldo() sudah menjumlah semua baris tanpa memandang `status`,
+-- justru supaya database yang belum dimigrasi tidak diam-diam kehilangan
+-- stok yang barangnya nyata ada di rak. Yang diperbaiki di sini cuma
+-- datanya sendiri: baris yang masih berlabel 'pending' padahal konsep
+-- pending sudah tidak ada lagi, dan labelnya akan membingungkan siapa pun
+-- yang membaca tabel ini langsung.
+--
+-- LATAR. Sampai 30 Juli 2026 kiriman outlet ke Central Kitchen tercatat
+-- 'pending' lebih dulu dan baru menambah saldo setelah orang CK menekan
+-- konfirmasi di tab "Terima Kiriman". Tab itu dibuang 31 Juli 2026 atas
+-- permintaan user: harganya adalah satu layar yang WAJIB dibuka tiap hari
+-- supaya stok tidak macet, dan layar yang isinya cuma tombol "iya, sampai"
+-- akan ditekan tanpa dibaca. Selisih kiriman (kirim 5 kg, sampai 4 kg)
+-- sekarang diselesaikan lewat mutasi Penyesuaian, sama seperti selisih
+-- lainnya.
+--
+-- Kolom `status` SENGAJA TIDAK di-DROP. Ia tidak dipakai perhitungan mana
+-- pun sekarang, tapi menghapus kolomnya berarti membuang satu-satunya
+-- jejak bahwa baris-baris itu dulu pernah menunggu konfirmasi.
+-- ====================================================================
+
+UPDATE `ck_stock` SET `status` = '' WHERE `status` = 'pending';

@@ -45,8 +45,15 @@ function pur_ck_produk($pdo) {
   foreach ($pdo->query("SELECT `nama`,`data` FROM `products` ORDER BY `nama`")->fetchAll() as $r) {
     $d = json_decode($r['data']);
     if (!is_object($d)) continue;
-    if (!isset($d->sumber) || $d->sumber !== 'ck') continue;
+    /* Sejak 31 Juli 2026 sumber punya nilai ketiga 'both' — barang yang
+       dibeli ke vendor TAPI juga disimpan di Central Kitchen (diantar ke CK,
+       lalu diambil lagi sedikit-sedikit). Halaman CK harus memuat keduanya;
+       memakai perbandingan === 'ck' seperti dulu akan membuat barang 'both'
+       tidak punya saldo di mana pun padahal barangnya jelas ada di rak CK. */
+    $sumber = isset($d->sumber) ? (string)$d->sumber : '';
+    if ($sumber !== 'ck' && $sumber !== 'both') continue;
     $out[$r['nama']] = (object)[
+      'sumber'     => $sumber,
       'packIsi'    => isset($d->packIsi) ? (float)$d->packIsi : 0,
       'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
       'kategori'   => isset($d->kategori) ? (string)$d->kategori : '',
@@ -54,7 +61,8 @@ function pur_ck_produk($pdo) {
       // Barang ini juga disimpan di outlet, jadi bisa dikirim BALIK ke CK
       // (retur sisa, titipan stok berlebih). Barang yang cuma ada di CK
       // tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirimnya.
-      'diOutlet'   => !empty($d->diOutlet),
+      // Barang 'both' selalu lewat outlet, jadi selalu bisa dikirim balik.
+      'diOutlet'   => ($sumber === 'both') || !empty($d->diOutlet),
     ];
   }
   return $out;
@@ -86,17 +94,22 @@ function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan) {
 function pur_ck_saldo($pdo) {
   $produk = pur_ck_produk($pdo);
 
-  /* status='pending' DIKELUARKAN dari saldo. Itu kiriman outlet yang
-     belum dikonfirmasi sampai; menghitungnya berarti stok CK naik karena
-     ada yang MENGAKU mengirim, bukan karena barangnya benar-benar ada di
-     sana. Disaring di WHERE, bukan di CASE, supaya `terakhir` juga tidak
-     ikut bergerak gara-gara kiriman yang belum tentu jadi. */
+  /* SEMUA baris dihitung, tanpa memandang `status`. Dulu status='pending'
+     dikeluarkan karena kiriman outlet baru sah setelah dikonfirmasi orang CK;
+     langkah konfirmasi itu dibuang 31 Juli 2026, jadi tidak ada lagi baris
+     yang "belum tentu jadi".
+
+     Filternya sengaja dibuang, bukan dibiarkan sambil mengandalkan migrasi
+     mengosongkan kolomnya: kalau migrasinya belum dijalankan, baris pending
+     peninggalan aturan lama akan diam-diam tidak pernah masuk saldo — stok
+     yang barangnya ada di rak tapi tidak ada angkanya, tanpa satu pun
+     petunjuk di layar. */
   $agg = [];
   $sql = "SELECT `item`,
                  SUM(CASE WHEN `arah`='masuk'  THEN `qty` ELSE 0 END) AS masuk,
                  SUM(CASE WHEN `arah`='keluar' THEN `qty` ELSE 0 END) AS keluar,
                  MAX(`tanggal`) AS terakhir
-            FROM `ck_stock` WHERE `status` <> 'pending' GROUP BY `item`";
+            FROM `ck_stock` GROUP BY `item`";
   foreach ($pdo->query($sql)->fetchAll() as $r) {
     $agg[$r['item']] = $r;
   }
@@ -108,6 +121,11 @@ function pur_ck_saldo($pdo) {
     $keluar = $a ? (float)$a['keluar'] : 0;
     $out[$nama] = [
       'item'       => $nama,
+      // Ikut dikirim supaya tabel Stok Item bisa membedakan barang produksi
+      // dapur dari barang vendor yang cuma dititipkan di CK — dua-duanya
+      // punya saldo di sini, tapi yang habis ditangani dengan cara berbeda
+      // (yang satu diproduksi, yang satu dipesan ulang ke vendor).
+      'sumber'     => $p->sumber,
       'packIsi'    => $p->packIsi,
       'packSatuan' => $p->packSatuan,
       'kategori'   => $p->kategori,
@@ -252,20 +270,21 @@ function pur_ck_simpan($pdo, $b) {
 function pur_ck_hapus($pdo, $id) {
   $id = trim((string)$id);
   if ($id === '') return ['status' => 'error', 'message' => 'id kosong'];
-  $st = $pdo->prepare("SELECT `ref`,`status` FROM `ck_stock` WHERE `id`=?");
+  $st = $pdo->prepare("SELECT `ref` FROM `ck_stock` WHERE `id`=?");
   $st->execute([$id]);
   $row = $st->fetch();
   if (!$row) return ['status' => 'error', 'message' => 'mutasi tidak ditemukan'];
   if ((string)$row['ref'] !== '') {
     return ['status' => 'error', 'message' => 'mutasi dari pengajuan hanya hilang bila check-in dibatalkan'];
   }
-  /* Kiriman yang masih menunggu konfirmasi TIDAK boleh dihapus dari daftar
-     riwayat. Menghapusnya di sini sama artinya dengan menolak kiriman —
-     tapi lewat tombol yang tidak mengatakan begitu, dan tanpa pengirimnya
-     tahu apa-apa. Penolakan punya tempatnya sendiri di Terima Kiriman. */
-  if ((string)$row['status'] === 'pending') {
-    return ['status' => 'error', 'message' => 'kiriman yang belum dikonfirmasi diurus lewat Terima Kiriman'];
-  }
+  /* Penjagaan status='pending' DIBUANG 31 Juli 2026. Dulu baris pending tidak
+     boleh dihapus karena menghapusnya sama artinya dengan menolak kiriman
+     lewat tombol yang tidak mengatakan begitu — penolakan punya tempatnya
+     sendiri di tab Terima Kiriman. Tab itu sudah tidak ada, dan baris pending
+     peninggalannya sekarang ikut dihitung ke saldo seperti mutasi biasa.
+     Membiarkan penjagaannya berarti satu-satunya baris yang tidak bisa
+     dikoreksi adalah justru baris yang paling mungkin salah, dengan pesan
+     yang menyuruh membuka layar yang tidak bisa dibuka lagi. */
   $st = $pdo->prepare("DELETE FROM `ck_stock` WHERE `id`=?");
   $st->execute([$id]);
   return ['status' => 'success', 'deleted' => $st->rowCount()];
@@ -364,12 +383,20 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
    yang memang disimpan di dua tempat (`diOutlet`) — barang yang cuma ada
    di CK tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirim.
 
-   DUA LANGKAH, BUKAN SATU. Kiriman tercatat lebih dulu sebagai 'pending'
-   dan baru menambah saldo setelah orang CK mengonfirmasi menerimanya.
-   Kalau langsung dihitung, stok CK naik karena ada yang MENGAKU
-   mengirim, bukan karena barangnya benar-benar sampai — dan selisihnya
-   (kirim 5 kg, sampai 4 kg) tidak akan pernah tertangkap sampai stok
-   opname, saat sudah tidak ada yang ingat kirimannya yang mana.
+   SATU LANGKAH sejak 31 Juli 2026 (keputusan user). Kiriman LANGSUNG
+   menambah saldo CK; tidak ada lagi status 'pending' dan tidak ada layar
+   konfirmasi penerimaan.
+
+   Aturan lama dua langkah — tercatat 'pending' dulu, baru dihitung setelah
+   orang CK menekan konfirmasi — dibuang bersama tab "Terima Kiriman" di
+   Purchasing. Alasan aslinya masih benar (selisih kirim 5 kg / sampai 4 kg
+   tidak tertangkap), tapi harganya adalah satu layar yang HARUS dibuka tiap
+   hari supaya stok tidak macet, dan layar yang cuma berisi tombol
+   "iya, sampai" akan ditekan tanpa dibaca. Selisih kiriman sekarang
+   diselesaikan lewat mutasi Penyesuaian, sama seperti selisih lain.
+
+   Baris lama yang telanjur 'pending' dinormalkan oleh
+   migrasi-2026-07-31-ck-kiriman-langsung.sql.
    ===================================================================== */
 function pur_ck_kiriman_simpan($pdo, $b) {
   $item = trim((string)($b->item ?? ''));
@@ -399,10 +426,12 @@ function pur_ck_kiriman_simpan($pdo, $b) {
   ];
 
   $id = pur_uid('CKK');
+  // status '' = mutasi biasa yang LANGSUNG dihitung ke saldo. Kolomnya tetap
+  // ada supaya baris pending peninggalan aturan lama masih bisa dibaca.
   $pdo->prepare("INSERT INTO `ck_stock`
                    (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
                     `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`)
-                 VALUES (?,?,?,'masuk',?,?,?,'kiriman','pending',NULL,?,?,?,?)")
+                 VALUES (?,?,?,'masuk',?,?,?,'kiriman','',NULL,?,?,?,?)")
       ->execute([
         $id,
         trim((string)($b->tanggal ?? '')) ?: date('Y-m-d'),
@@ -415,87 +444,12 @@ function pur_ck_kiriman_simpan($pdo, $b) {
   return ['status' => 'success', 'id' => $id];
 }
 
-/* Daftar kiriman yang MENUNGGU konfirmasi. Endpoint sendiri (bukan
-   disaring dari daftar mutasi di browser) supaya halaman CK tidak perlu
-   menarik seluruh riwayat hanya untuk menemukan segelintir yang pending. */
-function pur_ck_kiriman_pending($pdo) {
-  $st = $pdo->query("SELECT `id`,`tanggal`,`item`,`qty`,`qty_input`,`unit_input`,
-                            `tim`,`pic`,`waktu`,`data`
-                       FROM `ck_stock`
-                      WHERE `status`='pending' AND `sebab`='kiriman'
-                      ORDER BY `tanggal` DESC, `waktu` DESC");
-  $out = [];
-  foreach ($st->fetchAll() as $r) {
-    $d = pur_data_obj($r['data']);
-    $out[] = [
-      'id'         => $r['id'],
-      'tanggal'    => $r['tanggal'],
-      'item'       => $r['item'],
-      'qty'        => (float)$r['qty'],
-      'qtyInput'   => (float)$r['qty_input'],
-      'unitInput'  => $r['unit_input'],
-      'tim'        => $r['tim'],
-      'pic'        => $r['pic'],
-      'waktu'      => $r['waktu'],
-      'catatan'    => isset($d->catatan) ? (string)$d->catatan : '',
-      'packIsi'    => isset($d->packIsi) ? (float)$d->packIsi : 0,
-      'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
-    ];
-  }
-  return $out;
-}
+/* pur_ck_kiriman_pending() dan pur_ck_kiriman_konfirmasi() DIHAPUS 31 Juli
+   2026 bersama tab "Terima Kiriman" di Purchasing. Kiriman outlet sekarang
+   langsung menambah saldo (lihat catatan di pur_ck_kiriman_simpan), jadi
+   tidak ada lagi antrean yang perlu ditampilkan maupun dikonfirmasi.
 
-/* Konfirmasi penerimaan. `qtyTerima` OPSIONAL: kalau diisi, itulah jumlah
-   yang benar-benar sampai dan yang masuk ke saldo — bukan jumlah yang
-   diklaim pengirim. Itu seluruh gunanya langkah konfirmasi ini; tanpanya
-   ia cuma tombol "iya" yang tidak menambah kebenaran apa pun.
-
-   $terima=false MENGHAPUS barisnya. Barang yang tidak pernah sampai bukan
-   peristiwa yang perlu disimpan di buku besar stok — status 'ditolak'
-   yang mengendap cuma akan mengaburkan riwayat, dan tidak ada satu pun
-   angka yang dihitung darinya. */
-function pur_ck_kiriman_konfirmasi($pdo, $items, $terima = true) {
-  if (!is_array($items) || !$items) return ['status' => 'error', 'message' => 'tidak ada kiriman dipilih'];
-
-  $produk = pur_ck_produk($pdo);
-  $n = 0;
-  $pdo->beginTransaction();
-  try {
-    foreach ($items as $it) {
-      // Terima dua bentuk: id telanjang, atau {id, qtyTerima}.
-      $id  = is_object($it) ? trim((string)($it->id ?? '')) : trim((string)$it);
-      if ($id === '') continue;
-
-      if (!$terima) {
-        $st = $pdo->prepare("DELETE FROM `ck_stock` WHERE `id`=? AND `status`='pending'");
-        $st->execute([$id]);
-        $n += $st->rowCount();
-        continue;
-      }
-
-      $qtyTerima = (is_object($it) && isset($it->qtyTerima)) ? (float)$it->qtyTerima : null;
-      if ($qtyTerima !== null && $qtyTerima > 0) {
-        // Jumlah yang diterima berbeda dari yang dikirim: yang dicatat ke
-        // saldo yang DITERIMA, dan yang diklaim pengirim tetap tersimpan
-        // di qty_input supaya selisihnya bisa ditelusuri.
-        $cur = $pdo->prepare("SELECT `item`,`unit_input` FROM `ck_stock` WHERE `id`=? AND `status`='pending'");
-        $cur->execute([$id]);
-        $row = $cur->fetch();
-        if (!$row) continue;
-        $p = $produk[$row['item']] ?? null;
-        $qty = $p ? pur_ck_ke_dasar($qtyTerima, $row['unit_input'], $p->packIsi, $p->packSatuan) : $qtyTerima;
-        $st = $pdo->prepare("UPDATE `ck_stock` SET `status`='', `qty`=? WHERE `id`=? AND `status`='pending'");
-        $st->execute([$qty, $id]);
-      } else {
-        $st = $pdo->prepare("UPDATE `ck_stock` SET `status`='' WHERE `id`=? AND `status`='pending'");
-        $st->execute([$id]);
-      }
-      $n += $st->rowCount();
-    }
-    $pdo->commit();
-    return ['status' => 'success', 'diproses' => $n];
-  } catch (Exception $e) {
-    if ($pdo->inTransaction()) $pdo->rollBack();
-    throw $e;
-  }
-}
+   Kolom `status` di ck_stock sengaja TIDAK di-DROP: baris peninggalan aturan
+   lama masih memakainya, dan menghapus kolomnya berarti riwayat itu tidak
+   bisa dibaca lagi. Ia cuma tidak pernah dilihat lagi oleh perhitungan mana
+   pun — pur_ck_saldo() menjumlah semua baris tanpa memandang status. */
