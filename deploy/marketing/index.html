@@ -272,6 +272,31 @@ table.tbl tr:last-child td{border-bottom:none}
 select.inp:focus-visible,.inp:focus-visible{outline:none}
 .field .fh{font-size:11px;color:var(--muted);font-weight:400;margin-top:5px}
 .inp,select.inp,textarea.inp{width:100%;background:var(--ink-950);border:1px solid var(--line-hard);border-radius:10px;padding:10px 12px;color:var(--sand);transition:.16s}
+/* ---- COMBO: kotak ketik + tombol panah di LUAR kotak ----
+   <input list=...> bawaan browser hanya menampilkan pilihan yang COCOK dengan
+   teks yang sedang diketik. Begitu sebuah nilai terpilih, daftarnya menyusut
+   jadi satu baris — dan satu-satunya cara melihat pilihan lain adalah
+   mengosongkan kotaknya dulu. Itu yang membuat mengganti pilihan terasa seperti
+   melawan aplikasi.
+
+   Combo ini memisahkan dua hal yang memang berbeda: MENGETIK untuk menyaring,
+   dan MENEKAN PANAH untuk melihat seluruh pilihan apa pun isi kotaknya. */
+.combo{position:relative;display:flex;align-items:stretch;gap:0}
+.combo>input{flex:1;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0}
+.combo>.combo-btn{flex:none;width:34px;border:1px solid var(--line-hard);border-left:none;
+  border-radius:0 9px 9px 0;background:var(--ink-880);color:var(--sand-dim);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:11px;transition:.14s}
+.combo>.combo-btn:hover{background:var(--gold-glow);color:var(--gold-deep);border-color:var(--gold-deep)}
+.combo>.combo-btn:disabled{cursor:not-allowed;opacity:.5}
+.combo-pop{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:40;max-height:240px;
+  overflow:auto;background:#fff;border:1px solid var(--line-hard);border-radius:10px;
+  box-shadow:0 10px 28px rgba(50,42,28,.16);padding:4px;display:none}
+.combo-pop.on{display:block}
+.combo-pop .ci{padding:7px 10px;border-radius:7px;font-size:13px;cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.combo-pop .ci:hover,.combo-pop .ci.sorot{background:var(--gold-glow);color:var(--gold-deep)}
+.combo-pop .ci.pilih{font-weight:700;color:var(--gold-deep)}
+.combo-pop .ci-kosong{padding:8px 10px;font-size:12px;color:var(--muted)}
 .inp:focus,select.inp:focus,textarea.inp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
 textarea.inp{resize:vertical;min-height:60px;line-height:1.5}
 select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%237E8FA1' stroke-width='2' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:34px}
@@ -2241,6 +2266,20 @@ const EVENT_SCHEMA = [
   // Item tambahan diketik sekali di Kasir, lalu tampil di sini supaya Finance
   // tahu isi "Lain-lain" itu apa saja tanpa harus buka tab Kasir.
   {k:'m_itemTambah',l:'Item Tambahan dari Kasir',t:'mirror',from:'itemTambah',full:1},
+  /* HARGA DEAL PER JENIS MAKANAN. Sebelumnya F&B hanya bisa dihitung satu cara:
+     pax x satu harga per pax. Itu benar untuk paket seragam, tapi tidak untuk
+     acara yang menyepakati harga BERBEDA per jenis hidangan (mis. main course
+     Rp75.000, dessert Rp20.000, snack Rp15.000) — dan itu yang paling sering
+     terjadi pada event korporat.
+
+     Dicentang dulu supaya cara lama tetap jadi bawaan: event yang sudah jalan
+     dengan harga per pax tidak boleh berubah angkanya hanya karena tabel ini
+     ditambahkan. Kalau dicentang, JUMLAH tiap barisnya (Jumlah x Harga Deal)
+     yang dipakai sebagai biaya F&B, menggantikan hitungan pax x harga. */
+  {k:'fbDealOn',l:'Pakai Harga Deal per Jenis Makanan',t:'tog',full:1,
+   help:'Kalau dinyalakan, biaya F&B dihitung dari tabel di bawah — bukan dari Pax x Deal per Pax di tab Kasir.'},
+  {k:'fbDeal',l:'Harga Deal per Jenis Makanan',t:'dealtbl',full:1,cond:{k:'fbDealOn',v:true},
+   help:'Keterangan makanan diambil dari Menu Final (D.2 Kitchen) & Daftar Menu Bar (D.3). Total tiap baris = Jumlah x Harga Deal, dan seluruh totalnya masuk Grand Total.'},
   {k:'diskon',l:'Discount',t:'cur'},
   {k:'npwp',l:'Data Perusahaan untuk Invoice + NPWP',t:'ta'},
   {k:'materai',l:'Materai / Kwitansi Panjang',t:'yn'}
@@ -2364,9 +2403,27 @@ function fbDariKotak(ev,teks){
 /* fbManual = timpaan manual dari tab Finance. Kosong (''/null/undefined) berarti
    "ikut hitungan otomatis"; angka 0 yang sengaja diketik tetap dihormati. */
 function fbDitimpa(ev){ const v=(ev.detail||{}).fbManual; return v!==''&&v!=null&&!isNaN(+v); }
+/* Jumlah seluruh baris tabel Harga Deal (Jumlah x Harga Deal). */
+function fbDealTotal(ev){
+  const rows=(ev&&ev.detail&&ev.detail.fbDeal)||[];
+  if(!Array.isArray(rows)) return 0;
+  return rows.reduce(function(a,r){ return a+((+r.jumlah||0)*(+r.harga||0)); },0);
+}
+function fbDealAktif(ev){
+  const d=(ev&&ev.detail)||{};
+  return ynBool(d.fbDealOn,false) && fbDealTotal(ev)>0;
+}
 function eventFbCost(ev){
   const d=ev.detail||{};
+  /* Urutan kewenangan, dari yang paling disengaja ke yang paling otomatis:
+       1. fbManual  — angka yang diketik langsung di kotak F&B tab Finance
+       2. fbDeal    — tabel harga deal per jenis makanan (kalau dinyalakan)
+       3. pax x harga per pax
+       4. biayaFB lama (data event sebelum kedua cara di atas ada)
+     Yang lebih disengaja selalu menang; kalau tidak, angka yang diketik tangan
+     bisa ditimpa diam-diam oleh hitungan otomatis. */
   if(fbDitimpa(ev)) return +d.fbManual||0;
+  if(fbDealAktif(ev)) return fbDealTotal(ev);
   const pax=fbPax(ev), bp=fbHargaPax(ev);
   return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0);
 }
@@ -3821,8 +3878,20 @@ function INV_STATUS_MAP(){ const m={}; Object.keys(INV_STATUS).forEach(k=>m[k]={
 
 function newEvent(){
   const dealClients=S.clients.slice().sort((a,b)=>String(a.nama).localeCompare(String(b.nama)));
+  // "+ Client baru" ikut jadi salah satu baris daftar, bukan tombol terpisah:
+  // orang mencari dulu, dan baru sadar client-nya belum ada saat tidak ketemu.
+  const neOpsi=dealClients.map(neClientLabel).concat([NE_CLIENT_BARU]);
   modal('<div class="modal-head"><div><h3>Event Baru</h3><p>Pilih client dari CRM, atau buat client baru langsung di sini.</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
-   +'<div class="field"><label>Client<span class="req">*</span></label><select class="inp" id="ne_client" onchange="neClientChange()"><option value="">— pilih client —</option>'+dealClients.map(c=>'<option value="'+c.id+'">'+esc(c.nama)+(c.perusahaan?' ('+esc(c.perusahaan)+')':'')+'</option>').join('')+'<option value="__new__">+ Client baru (isi cepat)</option></select><div class="fh">Belum ada di daftar? Pilih "+ Client baru" — nanti otomatis masuk Database Client sebagai Lead.</div></div>'
+   /* <select> polos tidak punya pencarian sama sekali. Begitu Database Client
+      berisi ratusan nama, memilihnya berarti menggulir daftar panjang sambil
+      menebak ejaan — dan nama perusahaan yang justru diingat orang ada di
+      dalam tanda kurung, tempat yang tidak bisa dicari. Combo di bawah mencari
+      dengan "mengandung", jadi "Muda" menemukan "PT Laksamana Muda". */
+   +'<div class="field"><label>Client<span class="req">*</span></label>'
+   +comboHTML('ne_client_cari',neOpsi,'',false,'cari nama client atau perusahaan…',
+              'onchange="neClientDariCari()"')
+   +'<input type="hidden" id="ne_client" value="">'
+   +'<div class="fh">Ketik untuk mencari, atau tekan ▾ untuk melihat semua. Belum terdaftar? Pilih <b>+ Client baru</b> di daftar — nanti otomatis masuk Database Client sebagai Lead.</div></div>'
    +'<div id="ne_newclient" style="display:none"><div class="form-grid">'+ff('Nama Client','ne_cnama','','text',1)+ff('No. HP','ne_chp','','text')+'</div></div>'
    +'<div class="form-grid">'+ff('Nama Event','ne_nama','','text',1)
    +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis" onchange="neJenisToggle()">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select>'
@@ -3841,6 +3910,20 @@ function neJenisToggle(){
   const lain=sel.value==='Lainnya';
   inp.style.display=lain?'block':'none';
   if(lain) inp.focus();
+}
+/* Label client di daftar pencarian. Satu tempat, dipakai membangun daftar DAN
+   membaca kembali pilihannya — jadi keduanya tidak mungkin berbeda bentuk. */
+function neClientLabel(c){
+  return c.nama+(c.perusahaan&&c.perusahaan!==c.nama?' — '+c.perusahaan:'')+(c.hp?' ('+c.hp+')':'');
+}
+const NE_CLIENT_BARU='+ Client baru (isi cepat)';
+function neClientDariCari(){
+  const teks=($('ne_client_cari')||{}).value||'';
+  const hid=$('ne_client'); if(!hid) return;
+  if(teks===NE_CLIENT_BARU){ hid.value='__new__'; neClientChange(); return; }
+  const c=(S.clients||[]).find(function(x){ return neClientLabel(x)===teks; });
+  hid.value=c?c.id:'';
+  neClientChange();
 }
 function neClientChange(){
   const el=$('ne_newclient'); if(el) el.style.display = ($('ne_client').value==='__new__')?'block':'none';
@@ -4175,8 +4258,13 @@ function renderField(ev,fl,canEdit){
   const id='efd_'+fl.k;
   if(fl.t==='text'||fl.t==='num'||fl.t==='date'||fl.t==='time'){
     const ty=fl.t==='num'?'number':fl.t==='date'?'date':fl.t==='time'?'time':'text';
-    const dl=(fl.src==='staff')?' list="dl_staff" placeholder="pilih / ketik nama"':'';
-    inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+dl+'>';
+    if(fl.src==='staff'){
+      /* Daftar pegawai juga memakai combo: sebelumnya <input list="dl_staff">,
+         yang begitu satu nama terpilih tidak lagi mau menampilkan nama lain. */
+      inp=comboHTML(id,staffList().map(function(x){ return x.name; }),val,!canEdit,'pilih / ketik nama');
+    } else {
+      inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+'>';
+    }
   } else if(fl.t==='cur'){
     inp=rupiahInputHTML(id,val,dis);
   } else if(fl.t==='timerange'){
@@ -4195,11 +4283,8 @@ function renderField(ev,fl,canEdit){
        Area sudah cukup panjang untuk menyulitkan.
        Nilai di luar daftar ditolak saat selesai mengetik (lihat selCek) —
        jadi tetap bersih, tidak berubah jadi isian bebas. */
-    const dlid='dlsel_'+fl.k;
-    inp='<input class="inp inp-sel" id="'+id+'" list="'+dlid+'" value="'+esc(val==null?'':val)+'" '
-       +'placeholder="pilih / ketik untuk mencari" autocomplete="off" '
-       +(canEdit?'onchange="selCek(this)" onblur="selCek(this)" ':'')+dis+'>'
-       +'<datalist id="'+dlid+'">'+fieldOpts(fl).map(o=>'<option value="'+esc(o)+'"></option>').join('')+'</datalist>';
+    // Combo dengan tombol panah di luar kotak; daftar penuh selalu bisa dibuka.
+    inp=comboHTML(id,fieldOpts(fl),val,!canEdit,'pilih / ketik untuk mencari');
   } else if(fl.t==='multi'){
     const arr=Array.isArray(val)?val:[];
     inp='<div class="cbx-grid" id="'+id+'">'+fieldOpts(fl).map(o=>'<label class="cbx'+(arr.includes(o)?' on':'')+'"><input type="checkbox" '+(arr.includes(o)?'checked':'')+' '+(canEdit?'':'disabled')+' data-v="'+esc(o)+'" onchange="this.closest(\'.cbx\').classList.toggle(\'on\',this.checked)"><span class="cbx-box"></span><span class="cbx-lbl">'+esc(o)+'</span></label>').join('')+'</div>';
@@ -4246,6 +4331,19 @@ function renderField(ev,fl,canEdit){
        +'<table class="rundown-tbl"><thead><tr><th>Nama Item</th><th style="width:170px">Nominal</th>'+(canEdit?'<th style="width:34px"></th>':'')+'</tr></thead>'
        +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
        +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="itemAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Item</button>'
+          +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
+       +'</div>';
+  } else if(fl.t==='dealtbl'){
+    const rows=Array.isArray(val)?val:[];
+    const bodyH=(rows.length?rows:[{}]).map(function(r,i){ return dealRowHTML(ev,r,canEdit,i); }).join('');
+    inp='<div class="rundown-wrap" id="'+id+'">'
+       +'<table class="rundown-tbl"><thead><tr>'
+         +'<th>Keterangan Makanan</th><th style="width:96px">Jumlah</th>'
+         +'<th style="width:150px">Harga Deal</th><th style="width:140px;text-align:right">Total</th>'
+         +(canEdit?'<th style="width:34px"></th>':'')
+       +'</tr></thead>'
+       +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
+       +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="dealAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
           +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
        +'</div>';
   } else if(fl.t==='barangtbl'){
@@ -4536,6 +4634,79 @@ function itemRupiah(el){
   const d=rupiahDigits(el.value);
   el.value = d===''?'':rp(+d);
   itemTotal(el.closest('.rundown-wrap'));
+}
+/* ================= TABEL HARGA DEAL PER JENIS MAKANAN =================
+   Empat kolom: Keterangan Makanan, Jumlah, Harga Deal, Total (= Jumlah x Harga
+   Deal, dihitung sendiri dan tidak bisa diketik). Seluruh Total dijumlahkan
+   jadi biaya F&B, lalu masuk Grand Total lewat eventSubtotal().
+
+   Kolom Keterangan memakai combo berisi nama hidangan yang SUDAH diketik di
+   Menu Final (D.2 Kitchen) dan Daftar Menu Bar (D.3) — bukan daftar bebas.
+   Mengetik ulang nama menu di sini berarti dua sumber kebenaran untuk satu
+   hidangan, dan begitu salah satu diubah, harga deal menempel pada nama yang
+   sudah tidak ada. Tetap boleh diketik bebas untuk hal yang belum masuk menu. */
+function dealNamaMenu(ev){
+  const out=[];
+  const ambil=function(v){
+    if(!Array.isArray(v)) return;
+    v.forEach(function(r){
+      if(!r) return;
+      const nm=(typeof r==='string')?r:(r.nama||r.menu||r.item||'');
+      if(nm && out.indexOf(nm)<0) out.push(nm);
+    });
+  };
+  const d=(ev&&ev.detail)||{};
+  ambil(d.menuFinal); ambil(d.barMenu);
+  return out;
+}
+function dealRowHTML(ev,r,canEdit,idx){
+  r=r||{}; const dis=canEdit?'':'disabled';
+  const cid='dealnm_'+idx;
+  const jml=+r.jumlah||0, harga=+r.harga||0;
+  return '<tr>'
+    +'<td>'+(canEdit
+        ? comboHTML(cid,dealNamaMenu(ev),r.nama||'',false,'pilih / ketik nama hidangan','data-r="nama"')
+        : '<input class="inp" data-r="nama" value="'+esc(r.nama||'')+'" disabled>')+'</td>'
+    +'<td><input class="inp" data-r="jumlah" type="number" min="0" value="'+(jml||'')+'" placeholder="0" '+dis+' oninput="dealHitung(this)"></td>'
+    +'<td><input class="inp" data-r="harga" inputmode="numeric" value="'+esc(harga?rp(harga):'')+'" placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);dealHitung(this)"></td>'
+    +'<td class="mono" data-r="total" style="text-align:right;white-space:nowrap">'+(jml&&harga?rp(jml*harga):'—')+'</td>'
+    +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="dealDelRow(this)">×</button></td>':'')
+    +'</tr>';
+}
+// Menghitung ulang satu baris + total tabelnya. Dipanggil tiap ketukan.
+function dealHitung(el){
+  const tr=el.closest('tr'); if(!tr) return;
+  const j=+((tr.querySelector('[data-r="jumlah"]')||{}).value)||0;
+  const hRaw=(tr.querySelector('[data-r="harga"]')||{}).value||'';
+  const h=+rupiahDigits(hRaw)||0;
+  const sel=tr.querySelector('[data-r="total"]');
+  if(sel) sel.textContent=(j&&h)?rp(j*h):'—';
+  dealTotal(el.closest('.rundown-wrap'));
+}
+function dealTotal(wrap){
+  if(!wrap) return;
+  let sum=0;
+  wrap.querySelectorAll('tbody tr').forEach(function(tr){
+    const j=+((tr.querySelector('[data-r="jumlah"]')||{}).value)||0;
+    const h=+rupiahDigits((tr.querySelector('[data-r="harga"]')||{}).value||'')||0;
+    sum+=j*h;
+  });
+  const t=$(wrap.id+'_tot'); if(t) t.textContent = sum?('Total F&B '+rp(sum)):'';
+  // Panel Perhitungan Otomatis & strip ringkasan ikut hidup.
+  if(typeof finLive==='function') finLive();
+}
+function dealAddRow(id,ev){
+  const body=$(id+'_body'); if(!body)return;
+  const e=S.events.find(function(x){ return x.id===_asEvId; })||ev||{detail:{}};
+  const tmp=document.createElement('tbody');
+  tmp.innerHTML=dealRowHTML(e,{},true,'x'+Date.now());
+  body.appendChild(tmp.firstElementChild);
+}
+function dealDelRow(btn){
+  const wrap=btn.closest('.rundown-wrap'), body=btn.closest('tbody');
+  btn.closest('tr').remove();
+  if(!body.querySelector('tr')) dealAddRow(body.id.replace('_body',''));
+  dealTotal(wrap);
 }
 function itemTotal(wrap){
   if(!wrap) return;
@@ -4918,6 +5089,84 @@ function tumbuhkanSemua(){
 /* Nilai di luar daftar dikembalikan ke nilai sebelumnya. Tanpa ini, salah
    ketik satu huruf diam-diam menyimpan pilihan yang tidak dikenal, dan
    field bersyarat yang bergantung padanya berhenti bekerja tanpa pesan. */
+/* ================= COMBO PILIH-SAMBIL-KETIK =================
+   Satu komponen dipakai tiga tempat: field 'sel' di form event, kotak PIC
+   (daftar pegawai), dan pencarian client di form Event Baru. Nilainya tetap
+   tersimpan di <input> biasa, jadi seluruh pembaca form yang sudah ada
+   (collectField, autoSaveCommit) tidak perlu tahu apa-apa soal komponen ini. */
+const COMBO_OPSI={};
+function comboHTML(id,opsi,nilai,dis,ph,extra){
+  COMBO_OPSI[id]=(opsi||[]).slice();
+  return '<div class="combo" id="cb_'+id+'">'
+    +'<input class="inp" id="'+id+'" value="'+esc(nilai==null?'':nilai)+'" autocomplete="off" '
+      +'placeholder="'+esc(ph||'pilih / ketik untuk mencari')+'" '
+      +(dis?'disabled ':'')
+      +'oninput="comboSaring(\''+id+'\')" onfocus="comboBuka(\''+id+'\',true)" '
+      +'onkeydown="comboKey(event,\''+id+'\')" '+(extra||'')+'>'
+    +'<button type="button" class="combo-btn" '+(dis?'disabled ':'')
+      +'title="Lihat semua pilihan" onclick="comboToggle(\''+id+'\')">▾</button>'
+    +'<div class="combo-pop" id="cp_'+id+'"></div>'
+    +'</div>';
+}
+function comboEl(id){ return {inp:document.getElementById(id), pop:document.getElementById('cp_'+id)}; }
+function comboIsi(id,saring){
+  const {inp,pop}=comboEl(id); if(!inp||!pop) return;
+  const semua=COMBO_OPSI[id]||[];
+  const q=String(saring||'').trim().toLowerCase();
+  /* Menyaring memakai "mengandung", bukan "diawali": nama pegawai dan client
+     lebih sering diingat dari kata tengahnya ("Muda", "Azahra"). */
+  const list=q?semua.filter(function(o){ return String(o).toLowerCase().indexOf(q)>=0; }):semua;
+  pop.innerHTML=list.length
+    ? list.map(function(o){ return '<div class="ci'+(String(o)===inp.value?' pilih':'')+'" onmousedown="comboPilih(\''+id+'\',this.dataset.v)" data-v="'+esc(o)+'">'+esc(o)+'</div>'; }).join('')
+    : '<div class="ci-kosong">Tidak ada yang cocok dengan “'+esc(saring||'')+'”</div>';
+}
+function comboBuka(id,tanpaSaring){
+  const {inp,pop}=comboEl(id); if(!inp||!pop||inp.disabled) return;
+  document.querySelectorAll('.combo-pop.on').forEach(function(x){ if(x!==pop) x.classList.remove('on'); });
+  comboIsi(id, tanpaSaring?'':inp.value);
+  pop.classList.add('on');
+}
+function comboTutup(id){ const {pop}=comboEl(id); if(pop) pop.classList.remove('on'); }
+function comboToggle(id){
+  const {pop}=comboEl(id); if(!pop) return;
+  // Tombol panah SELALU menampilkan seluruh pilihan, tidak disaring ketikan.
+  if(pop.classList.contains('on')) comboTutup(id); else comboBuka(id,true);
+}
+function comboSaring(id){ comboBuka(id,false); }
+function comboPilih(id,val){
+  const {inp}=comboEl(id); if(!inp) return;
+  inp.value=val; inp.dataset.ok=val;
+  comboTutup(id);
+  // Memicu event asli supaya auto-save & field bersyarat ikut jalan.
+  inp.dispatchEvent(new Event('input',{bubbles:true}));
+  inp.dispatchEvent(new Event('change',{bubbles:true}));
+}
+function comboKey(e,id){
+  const {pop}=comboEl(id); if(!pop) return;
+  if(e.key==='Escape'){ comboTutup(id); return; }
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    if(!pop.classList.contains('on')) return comboBuka(id,true);
+    const it=[...pop.querySelectorAll('.ci')]; if(!it.length) return;
+    let i=it.findIndex(function(x){ return x.classList.contains('sorot'); });
+    it.forEach(function(x){ x.classList.remove('sorot'); });
+    i=(e.key==='ArrowDown')?Math.min(it.length-1,i+1):Math.max(0,(i<0?0:i-1));
+    it[i].classList.add('sorot'); it[i].scrollIntoView({block:'nearest'});
+    return;
+  }
+  if(e.key==='Enter'){
+    const s1=pop.querySelector('.ci.sorot');
+    if(s1){ e.preventDefault(); comboPilih(id,s1.dataset.v); }
+  }
+}
+// Klik di luar menutup semua daftar yang terbuka.
+if(!window._comboLuar){
+  window._comboLuar=true;
+  document.addEventListener('mousedown',function(e){
+    if(e.target && e.target.closest && e.target.closest('.combo')) return;
+    document.querySelectorAll('.combo-pop.on').forEach(function(x){ x.classList.remove('on'); });
+  });
+}
 function selCek(el){
   const v=el.value.trim();
   const dl=document.getElementById(el.getAttribute('list'));
@@ -5009,6 +5258,16 @@ function collectField(fl){
       const d=nv?rupiahDigits(nv.value):'';
       return {nama:nm?nm.value.trim():'', nominal:d===''?'':(+d)};
     }).filter(r=>r.nama||r.nominal!=='');
+  }
+  if(fl.t==='dealtbl'){
+    const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
+    return [...body.querySelectorAll('tr')].map(function(tr){
+      const nm=tr.querySelector('[data-r="nama"]');
+      const jv=tr.querySelector('[data-r="jumlah"]');
+      const hv=tr.querySelector('[data-r="harga"]');
+      const h=hv?rupiahDigits(hv.value):'';
+      return {nama:nm?String(nm.value).trim():'', jumlah:jv?(+jv.value||0):0, harga:h===''?0:(+h)};
+    }).filter(function(r){ return r.nama||r.jumlah||r.harga; });
   }
   if(fl.t==='barangtbl'){
     const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
@@ -5200,7 +5459,8 @@ let _asTimer=null, _asSrvTimer=null, _asEvId=null;
 function autoSaveTrigger(){ clearTimeout(_asTimer); _asTimer=setTimeout(autoSaveCommit,700); }
 function autoSaveBind(ev){
   _asEvId=ev.id;
-  const c=$('ev-tab-content'); if(!c)return;
+  const c=$('ev-tab-content'); if(!c){ autoSaveDenyutStop(); return; }
+  autoSaveDenyutMulai();
   c.addEventListener('input',autoSaveTrigger);
   /* Panel "Perhitungan Otomatis" ikut hidup saat mengetik. Dipasang sebagai
      satu pendengar di wadah, bukan oninput per kotak: kotak rupiah sudah punya
@@ -5218,10 +5478,16 @@ function autoSaveBind(ev){
   c.querySelectorAll('.rundown-wrap').forEach(itemTotal);   // total item tambahan
 }
 function autoSaveCommit(){
-  // Auto-save hanya untuk section berbasis field. Bagian Finance sengaja tidak
-  // ikut: nilainya memicu hitung ulang & Approval Flow, jadi tetap butuh klik
-  // Simpan yang disengaja (perilakunya sama seperti sebelum tab digabung).
-  const secs=genericSecsOfTab(curTab); if(!secs.length)return;
+  /* FINANCE IKUT DISIMPAN OTOMATIS. Sebelumnya dikecualikan supaya Approval
+     Flow hanya jalan lewat klik Simpan — niatnya benar, akibatnya tidak:
+     angka biaya yang sudah diketik hilang begitu tab dipindah atau halaman
+     ditutup, dan itu justru isian yang paling mahal untuk diketik ulang.
+
+     Yang disimpan di sini HANYA nilainya. Approval Flow tetap dijalankan oleh
+     tombol Simpan, bukan oleh auto-save: mengajukan approval diam-diam tiap
+     kali angka diketik akan membanjiri approver dengan pengajuan setengah
+     jadi. */
+  const secs=visibleSecsOfTab(curTab); if(!secs.length)return;
   const ev=S.events.find(e=>e.id===_asEvId); if(!ev)return;
   secs.forEach(sec=>sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; }));
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
@@ -5233,6 +5499,27 @@ function autoSaveCommit(){
   const ind=$('autosave-ind'); if(ind){ ind.textContent='✓ Tersimpan otomatis'; ind.style.opacity='1'; clearTimeout(ind._t); ind._t=setTimeout(()=>{ ind.style.opacity='0'; },1600); }
   segarkanRingkas(ev);
 }
+/* PENYELAMAT BERKALA — menyimpan tiap 20 detik selama form event terbuka, tanpa
+   menunggu ketikan berikutnya.
+
+   Auto-save berbasis ketikan sudah ada, tapi ia hanya berbunyi SESUDAH ada
+   perubahan: kalau orang mengetik satu angka lalu berpindah memikirkan sesuatu,
+   penyimpanannya memang sudah jalan — tapi kalau browser tertutup di tengah
+   isian yang belum sempat memicu event (mis. nilai ditempel lewat menu klik
+   kanan pada sebagian browser), isinya hilang. Denyut 20 detik menutup celah
+   itu tanpa membebani: yang dikirim ke server tetap lewat save() yang berjeda,
+   jadi denyut ini paling banyak menghasilkan satu penulisan localStorage. */
+let _asDenyut=null;
+function autoSaveDenyutMulai(){
+  clearInterval(_asDenyut);
+  _asDenyut=setInterval(function(){
+    if(!_asEvId) return;
+    if(!$('ev-tab-content')) return;              // form sudah ditutup
+    if(document.getElementById('modal-bg') && document.getElementById('modal-bg').classList.contains('on')) return; // sedang ada dialog
+    autoSaveCommit();
+  },20000);
+}
+function autoSaveDenyutStop(){ clearInterval(_asDenyut); _asDenyut=null; }
 /* Ringkasan di atas form ikut hidup saat mengetik. Tanpa ini angkanya baru
    benar setelah render ulang penuh, dan strip yang memajang "29/37" padahal
    isian ke-30 baru saja diketik lebih buruk daripada tidak ada strip sama
