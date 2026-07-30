@@ -483,17 +483,27 @@ function bacaSesi(){
 function bolehLihat(view){ return !!TITLES[view]; }
 
 /* Metode pembayaran Report Daily. Urutannya sengaja alfabetis seperti yang
-   dipakai kasir di POS supaya mudah dicocokkan baris per baris. */
+   dipakai kasir di POS supaya mudah dicocokkan baris per baris.
+
+   HARUS SAMA PERSIS dengan PAYS di deploy/kompas/index.html. Kedua modul
+   membaca dan menulis SATU objek yang sama (DB.reports[tgl].pay di blob
+   kompas-api-mysql), jadi metode yang cuma ada di salah satunya akan
+   diisi di satu layar lalu tidak kelihatan di layar satunya — dan
+   totalnya berbeda antara dua halaman yang seharusnya menampilkan angka
+   yang sama. Menambah/menghapus di sini WAJIB diikuti di sana. */
 const PAYS=[
   {k:'cash',        n:'Cash'},
   {k:'compliment',  n:'Compliment'},
   {k:'edc_bca',     n:'EDC BCA'},
+  {k:'edc_bri',     n:'EDC BRI'},
   {k:'edc_mandiri', n:'EDC Mandiri'},
   {k:'grabfood',    n:'Grabfood'},
   {k:'member_dep',  n:'Member Deposit'},
+  {k:'qris_bca',    n:'QRIS BCA'},
   {k:'qris_bri',    n:'QRIS BRI'},
   {k:'qris_esb',    n:'QRIS ESB'},
-  {k:'qris_mandiri',n:'QRIS Mandiri'}
+  {k:'qris_mandiri',n:'QRIS Mandiri'},
+  {k:'voucher',     n:'Voucher'}
 ];
 /* Batas selisih yang masih boleh disubmit. "Selisih 3 digit terakhir" =
    di bawah seribu rupiah — beda pembulatan, bukan uang hilang. Rp1.000 ke
@@ -1072,16 +1082,20 @@ function emptyCanvas(id,msg){const c=document.getElementById(id);if(c)c.parentEl
    memang dicatat. Kalau nanti perlu stock opname fisik, itu kolom keempat
    yang harus diinput terpisah — jangan menimpa hitungan ini, karena selisih
    antara hitungan dan fisik justru itu yang dicari. */
+/* LA Menthol & Djarum Mild DIHAPUS 30 Juli 2026 atas permintaan (sudah tidak
+   dijual). Kuncinya ('la_menthol', 'djarum_mild') sengaja TIDAK di-DROP dari
+   data yang sudah tersimpan — lihat penjagaan di tombol simpan di bawah, yang
+   mempertahankan kunci tak dikenal. Jadi angka historisnya masih utuh di
+   database kalau suatu saat ditanyakan, cuma tidak lagi ditampilkan dan tidak
+   lagi ikut dijumlah ke Sisa Awal. */
 const ROKOK_ITEMS=[
   {k:'la_purple',       n:'LA Purple'},
   {k:'la_mango',        n:'LA Mango'},
   {k:'la_bold',         n:'LA Bold'},
   {k:'la_ice',          n:'LA Ice'},
   {k:'la_light',        n:'LA Light'},
-  {k:'la_menthol',      n:'LA Menthol'},
   {k:'djarum_super',    n:'Djarum Super'},
   {k:'insta',           n:'Insta'},
-  {k:'djarum_mild',     n:'Djarum Mild'},
   {k:'korek',           n:'Korek'},
   {k:'dos_hermanos',    n:'Dos Hermanos'},
   {k:'dos_h_rojo',      n:'Dos H. Rojo'},
@@ -1179,7 +1193,15 @@ function viewRokok(){
   }
   el.querySelectorAll('.rkf').forEach(i=>i.addEventListener('input',hitung));
   document.getElementById('rk_save').addEventListener('click',()=>{
+    /* Kunci yang TIDAK ADA lagi di ROKOK_ITEMS dipertahankan apa adanya —
+       item yang dihapus dari daftar (mis. LA Menthol & Djarum Mild, 30 Juli
+       2026) meninggalkan angka di hari-hari sebelumnya, dan membangun `items`
+       dari nol akan MENGHAPUSNYA begitu ada yang membuka lalu menyimpan ulang
+       tanggal lama. Kehilangan itu tidak menimbulkan error apa pun, jadi tidak
+       akan ada yang menyadarinya sampai angkanya dibutuhkan. */
+    const lama=(DB.rokok&&DB.rokok[rokokDate]&&DB.rokok[rokokDate].items)||{};
     const items={};
+    Object.keys(lama).forEach(k=>{ if(!ROKOK_ITEMS.some(it=>it.k===k)) items[k]=lama[k]; });
     ROKOK_ITEMS.forEach(it=>{ items[it.k]={in:nilai(it.k,'in'),out:nilai(it.k,'out')}; });
     DB.rokok=DB.rokok||{};
     DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now()};

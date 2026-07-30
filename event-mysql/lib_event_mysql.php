@@ -269,6 +269,11 @@ function baca_state() {
   // settings kecil
   $out['entertainmentRules'] = get_setting('entertainmentRules', array());
   $out['role']               = get_setting('role', 'Director');
+  /* Pustaka template denah: satu denah yang sudah jadi bisa dipakai ulang oleh
+     event berikutnya. Disimpan sebagai setting (bukan tabel sendiri) karena
+     bentuknya memang satu dokumen JSON yang dibaca/ditulis utuh, dan jumlahnya
+     hitungan lusinan — bukan ribuan baris yang perlu diindeks. */
+  $out['layoutTemplates']    = get_setting('layoutTemplates', array());
 
   return $out;
 }
@@ -425,6 +430,7 @@ function save_all($state) {
     // ---- settings kecil ----
     if (isset($state['entertainmentRules'])) put_setting($pdo, 'entertainmentRules', $state['entertainmentRules']);
     if (isset($state['role']))               put_setting($pdo, 'role', $state['role']);
+    if (isset($state['layoutTemplates']))    put_setting($pdo, 'layoutTemplates', $state['layoutTemplates']);
 
     $pdo->commit();
   } catch (Throwable $e) {
