@@ -394,9 +394,10 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-item small{font-weight:600;font-size:9px;opacity:.85}
 .ldz-item.edit{cursor:move}
 .ldz-item.locked{border-style:dashed}
-/* .sold & .checked sudah solid dari ldzItemHTML; kelas ini tinggal memastikan
-   tulisannya putih walau ada gaya lain yang menyelip. */
-.ldz-item.sold{color:#fff!important}
+/* Warna isian & tulisan diatur inline per objek oleh ldzWarnaObjek() — termasuk
+   untuk yang terjual. Aturan lama di sini memaksa tulisan putih dengan
+   !important, yang membuat tulisan gelap pada MEJA (isian muda) tak terbaca. */
+.ldz-item.sold{}
 .ldz-item.checked{color:#fff!important;box-shadow:0 0 0 3px rgba(47,127,196,.35)}
 .ldz-item.sel{box-shadow:0 0 0 2px var(--accent)}
 /* Kotak ketik saat mengganti nomor objek langsung di kanvas. Dibuat memenuhi
@@ -2669,10 +2670,35 @@ function ldzHexA(hex,a){ const n=parseInt(hex.slice(1),16); return 'rgba('+((n>>
 /* Versi lebih gelap dari warna tier, untuk garis tepi & objek terjual. Dengan
    isian solid, tepi harus lebih gelap dari isinya — kalau warnanya sama,
    objek yang berdempetan terbaca sebagai satu blok besar. */
-function ldzGelap(hex){
-  const n=parseInt(hex.slice(1),16);
-  const g=v=>Math.round(v*0.72);
+function ldzGelap(hex,f){
+  const n=parseInt(hex.slice(1),16), k=(f==null?0.72:f);
+  const g=v=>Math.round(v*k);
   return 'rgb('+g((n>>16)&255)+','+g((n>>8)&255)+','+g(n&255)+')';
+}
+// Versi lebih muda: warna dicampur putih sebanyak f.
+function ldzMuda(hex,f){
+  const n=parseInt(hex.slice(1),16);
+  const c=v=>Math.round(v+(255-v)*f);
+  return 'rgb('+c((n>>16)&255)+','+c((n>>8)&255)+','+c(n&255)+')';
+}
+/* ---- WARNA SATU OBJEK: kategori menentukan RONA, jenis menentukan KEPEKATAN ----
+   Kursi dan meja sebelumnya berwarna sama persis — yang membedakan cuma bentuk,
+   dan pada denah padat berisi ratusan objek kecil, bentuk saja tidak terbaca
+   sekilas. Sekarang KURSI memakai warna kategori penuh (pekat, tulisan putih),
+   MEJA memakai versi mudanya dengan tulisan gelap. Ronanya tetap sama, jadi
+   kategori tiket tetap terbaca dari warna; yang berubah cuma kepekatannya.
+
+   Objek yang sudah TERJUAL selalu digelapkan, apa pun jenisnya — status uang
+   lebih penting daripada perbedaan meja/kursi saat denah dipakai check-in. */
+function ldzWarnaObjek(it,warnaTier,terisi){
+  const meja=(it&&it.kind==='table');
+  if(terisi){
+    const dasar=meja?ldzGelap(warnaTier,0.85):ldzGelap(warnaTier);
+    return {bg:dasar, tepi:ldzGelap(warnaTier,0.55), teks:'#fff'};
+  }
+  return meja
+    ? {bg:ldzMuda(warnaTier,0.55), tepi:warnaTier,               teks:ldzGelap(warnaTier,0.55)}
+    : {bg:warnaTier,               tepi:ldzGelap(warnaTier),     teks:'#fff'};
 }
 function ldzMeta(eid){
   const d=ensureDetails(eid);
@@ -2762,7 +2788,7 @@ function ldzTempel(eid){
     return Object.assign({},i,{
       id:uid(), event_id:eid, ticket_class_id:cls.id,
       tier:cls.name,
-      table_no:(i.kind==='table'?'M':'K')+(n0+k+1), seat_no:n0+k+1,
+      table_no:String(n0+k+1), seat_no:n0+k+1,
       x:Math.max(0,Math.min(L.w-w,(+i.x||0)-minx+20)),
       y:Math.max(0,Math.min(L.h-h,(+i.y||0)-miny+20)),
       status:'Available'      // salinan selalu kosong: status terjual milik tiket, bukan bentuk
@@ -2860,7 +2886,12 @@ function ldzBuat(eid,kind,shape,x,y){
   const u=ldzUkuranBaku(kind,shape);
   const g=L.snap?10:1;
   const it={id:uid(),event_id:eid,ticket_class_id:cls.id,zone:'Custom',
-    kind,shape,tier,table_no:(kind==='table'?'M':'K')+(n+1),seat_no:n+1,
+    /* Nomor objek = angka polos mulai dari 1. Awalan K/M dulu dipakai untuk
+       membedakan kursi dan meja, tapi sekarang bedanya sudah terlihat dari
+       warna dan bentuk — sementara awalan itu ikut tercetak di e-ticket dan
+       terbaca petugas sebagai bagian dari nomor kursinya ("K12" padahal
+       tamunya mencari meja 12). */
+    kind,shape,tier,table_no:String(n+1),seat_no:n+1,
     capacity:kind==='table'?6:1,
     x:Math.max(0,Math.min(L.w-u.w,Math.round((x-u.w/2)/g)*g)),
     y:Math.max(0,Math.min(L.h-u.h,Math.round((y-u.h/2)/g)*g)),
@@ -2877,7 +2908,7 @@ function ldzDuplicate(eid){
   sel.forEach(it=>{
     n++;
     const c=Object.assign({},it,{id:uid(),x:(+it.x||0)+20,y:(+it.y||0)+20,seat_no:n,
-      table_no:(it.kind==='table'?'M':'K')+n,status:'Available'});
+      table_no:String(n),status:'Available'});
     delete c.updatedAt; delete c.createdAt;
     DB.seats.push(c); baru.push(c.id);
   });
@@ -2958,8 +2989,9 @@ function ldzItemHTML(it,edit){
      yang belum terjual diisi warna tier 15% opasitas: di kanvas putih, Silver
      dan Regular praktis sama-sama abu-abu pucat dan tidak bisa dibedakan.
      Sekarang warna tier dipakai penuh, tulisannya putih. */
+  const wr=ldzWarnaObjek(it,T.c,isi);
   let sty='left:'+(+it.x||0)+'px;top:'+(+it.y||0)+'px;width:'+(+it.w||40)+'px;height:'+(+it.h||40)+'px;'
-    +'border-color:'+ldzGelap(T.c)+';background:'+(isi?ldzGelap(T.c):T.c)+';color:#fff;';
+    +'border-color:'+wr.tepi+';background:'+wr.bg+';color:'+wr.teks+';';
   const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
   const judul=(it.kind==='table'?'Meja ':'Kursi ')+(it.table_no||'')+' · '+it.tier+' · '
     +(st==='checked'?'sudah check-in':st==='sold'?'terjual':st==='locked'?'hold':'tersedia');
@@ -3571,8 +3603,11 @@ function ldzPaletteHTML(){
                 ['table','rect','rect-table','Meja'],['table','circle','circle-table','Meja']];
   return '<div class="ldz-palette"><h5>Bentuk</h5>'
    +bentuk.map(function(b){
-      return '<div class="ldz-shape" style="color:'+warna+';border-color:'+warna+'" title="Seret ke kanvas, atau klik lalu klik di kanvas — tingkatan '+esc(aktif)+'" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
-        +'<span class="ic '+b[2]+'" style="background:'+warna+';border-color:'+warna+'"></span>'+b[3]+'</div>';
+      // Ikon palet memakai warna yang SAMA dengan hasilnya di kanvas, jadi
+      // perbedaan kursi/meja sudah terlihat sebelum objeknya ditaruh.
+      const wp=ldzWarnaObjek({kind:b[0]},warna,false);
+      return '<div class="ldz-shape" style="color:'+wp.tepi+';border-color:'+wp.tepi+'" title="Seret ke kanvas, atau klik lalu klik di kanvas — tingkatan '+esc(aktif)+'" onpointerdown="ldzPalDown(event,\''+b[0]+'\',\''+b[1]+'\')">'
+        +'<span class="ic '+b[2]+'" style="background:'+wp.bg+';border-color:'+wp.tepi+'"></span>'+b[3]+'</div>';
    }).join('')
    +'<h5 style="margin-top:6px">Tingkatan <span class="mini">(kelas tiket event ini)</span></h5>'
    +'<select style="padding:5px;font-size:11px" onchange="window._ldzTier=this.value;ldzSideRefresh(window._ldzEid);ldzPaletRefresh()">'
@@ -3628,7 +3663,7 @@ function ldzInner(eid){
     +ldzCanvasInner(eid,edit)+'</div></div></div>';
   const legenda='<div class="ldz-legend">'
     +ldzTierNames(eid).map(function(t){ return '<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,t).c+'"></i>'+esc(t)+'</span>'; }).join('')
-    +'<span>· warna penuh = terjual · garis putus-putus = hold · cincin biru = sudah check-in</span></div>';
+    +'<span>· <b>kursi</b> warna pekat, <b>meja</b> warna muda · digelapkan = terjual · garis putus-putus = hold · cincin biru = sudah check-in</span></div>';
   return '<div class="ldz-app">'
     +(edit?ldzPaletteHTML():'')
     +'<div style="flex:1;min-width:0;display:flex;flex-direction:column">'+bar+stage+'</div>'
