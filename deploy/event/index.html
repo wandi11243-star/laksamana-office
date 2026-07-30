@@ -410,6 +410,17 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-guide{position:absolute;background:var(--accent);pointer-events:none;z-index:9}
 .ldz-guide.v{width:1px;top:0;bottom:0}
 .ldz-guide.h{height:1px;left:0;right:0}
+/* Bar mode jual di tab Denah: menempel di atas kanvas supaya jumlah kursi
+   terpilih tetap terlihat sambil menggulir denah yang panjang. */
+.ldz-jual-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;
+  padding:9px 12px;border:1px solid var(--accent);border-radius:10px;background:var(--panel2);font-size:13px}
+.salesbar{height:9px;border-radius:6px;background:var(--panel2);overflow:hidden}
+.salesbar i{display:block;height:100%;border-radius:6px}
+/* Tabel penjualan bisa panjang: digulir di dalam kartunya sendiri supaya
+   kepala tabel & pager tidak ikut hilang dari layar. */
+.tbl-scroll{max-height:60vh;overflow:auto}
+.tbl-scroll thead th{position:sticky;top:0;z-index:1;background:var(--panel)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--line)}
 /* Kotak pilihan + 8 pegangan ukuran, meniru draw.io. Pegangannya diperbesar
    (dan diberi area tekan ekstra lewat ::after) karena versi sebelumnya cuma
    satu titik 14px di pojok — itu yang bikin mengubah ukuran terasa susah. */
@@ -1098,6 +1109,16 @@ function buildNav(){
   NAV.forEach(it=>{
     if(it.s){const d=document.createElement('div');d.className='sect';d.textContent=it.s;nav.appendChild(d);return;}
     const a=document.createElement('a');a.href='#/'+it.h;if(cur===it.h)a.className='active';
+    /* Menekan menu yang SEDANG aktif tidak mengubah location.hash, jadi
+       hashchange tidak berbunyi dan halaman tidak digambar ulang. Selama isi
+       halaman selalu utuh itu tak terasa — tapi begitu isinya tergantikan
+       (mis. dari dalam Check-In membuka layar lain), menu Check-In jadi terasa
+       "mati": ditekan berkali-kali tetap tidak kembali. Di sini dipaksa
+       menggambar ulang untuk kasus itu. */
+    a.addEventListener('click',function(ev){
+      const tujuan='#/'+it.h;
+      if(location.hash===tujuan || (location.hash===''&&it.h==='dashboard')){ ev.preventDefault(); router(); }
+    });
     a.innerHTML=svg(IC[it.ic]||'')+'<span>'+it.t+'</span>';nav.appendChild(a);
   });
 }
@@ -2403,34 +2424,151 @@ function renderTicketing(id){
 }
 function renderTicketDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/ticketing';return;}
-  window._tixTab=window._tixTab||'classes';const tab=window._tixTab;
-  setTop(e.title+' — Ticketing','<a href="#/ticketing" style="color:var(--accent)">Ticketing</a> / '+esc(e.title),'');
+  /* TIGA TAB, bukan lima. "Seat Map" (denah template bawaan venue) dulu berdiri
+     sendiri di sebelah "Layout Kustom", padahal keduanya menjawab pertanyaan
+     yang sama — dan event hanya memakai SALAH SATU. Dua tab untuk satu hal
+     memaksa orang menebak mana yang berlaku. Sekarang denah template hidup di
+     dalam tab Denah sebagai CONTOH yang dibuka kalau perlu.
+
+     "Buyer List" dan "Refund" juga digabung: refund itu kelanjutan sebuah
+     pembelian, bukan daftar terpisah, dan memisahkannya berarti kasir harus
+     bolak-balik tab untuk menjawab satu pertanyaan ("pesanan ini sudah
+     dikembalikan belum?"). */
+  const sah=['classes','layout','sales'];
+  if(sah.indexOf(window._tixTab)<0) window._tixTab='classes';
+  const tab=window._tixTab;
+  setTop(e.title+' \u2014 Ticketing','<a href="#/ticketing" style="color:var(--accent)">Ticketing</a> / '+esc(e.title),'');
   const classes=DB.ticketClasses.filter(c=>c.event_id===id);
   const tb=(k,l)=>`<button class="${tab===k?'active':''}" onclick="window._tixTab='${k}';renderTicketDetail('${id}')">${l}</button>`;
   let body='';
-  if(tab==='classes'){body=`<button class="btn ghost sm" style="margin-bottom:12px" onclick="ticketClassForm('${id}')">+ Ticket Class</button>
+  if(tab==='classes'){
+    body=`<button class="btn ghost sm" style="margin-bottom:12px" onclick="ticketClassForm('${id}')">+ Ticket Class</button>
     <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th></tr></thead><tbody>
-    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit)}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} – ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
+    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
-    <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;}
-  else if(tab==='seatmap'){body=seatMapBody(id);}
-  else if(tab==='layout'){body=layoutBody(id);}
-  else if(tab==='buyers'){const orders=DB.orders.filter(o=>o.event_id===id);body=`<div class="card" style="padding:0"><table><thead><tr><th>Buyer</th><th>Kontak</th><th>Class</th><th>Seat</th><th>Total</th><th>Payment</th><th>Refund</th><th>Check-in</th><th></th></tr></thead><tbody>
-    ${orders.map(o=>{const tk=DB.tickets.find(t=>t.order_item_id===o.id);const cls=tk?DB.ticketClasses.find(c=>c.id===tk.ticket_class_id):null;const seat=tk&&tk.seat_id?DB.seats.find(s=>s.id===tk.seat_id):null;const ci=tk?DB.checkins.find(c=>c.ticket_id===tk.id):null;
-      const rf=DB.refunds.filter(r=>r.order_id===o.id).slice(-1)[0];
-      // Status refund tampil di baris pembelinya, jadi kasir tidak perlu
-      // pindah tab cuma untuk tahu pengajuannya sudah sampai mana.
-      const rfCell = !rf ? '<span class="mini">—</span>'
-        : rf.status==='Pending'  ? '<span class="badge b-yellow">On process</span><br><span class="mini">menunggu persetujuan</span>'
-        : rf.status==='Approved' ? '<span class="badge b-green">Refunded</span>'
-        : '<span class="badge b-grey">Ditolak</span>';
-      const bisaAjukan = tk && !refundAktif(o.id) && o.payment_status!=='Refunded';
-      return `<tr><td><b>${esc(o.buyer_name)}</b></td><td class="mini">${esc(o.phone)}<br>${esc(o.email)}</td><td>${cls?esc(cls.name):'-'}</td><td>${seat?esc(seat.table_no):'-'}</td><td>${IDR(o.total)}</td><td>${statusBadge(o.payment_status)}</td><td>${rfCell}</td><td>${ci?fmtDateTime(ci.checked_in_at):(tk&&tk.status==='Checked-In'?'✓':'—')}</td><td>${tk?`<button class="btn ghost sm" onclick="showETicket('${tk.id}')">E-Ticket</button> ${bisaAjukan?`<button class="btn ghost sm" onclick="requestRefund('${o.id}')">Refund</button>`:''}`:''}</td></tr>`;}).join('')||'<tr><td colspan="9" class="empty">Belum ada pembeli.</td></tr>'}
-    </tbody></table></div>`;}
-  else{const refs=DB.refunds.filter(r=>{const o=DB.orders.find(x=>x.id===r.order_id);return o&&o.event_id===id;});body=`<div class="card" style="padding:0"><table><thead><tr><th>Order</th><th>Buyer</th><th>Alasan</th><th>Status</th><th></th></tr></thead><tbody>
-    ${refs.map(r=>{const o=DB.orders.find(x=>x.id===r.order_id);return `<tr><td>${IDR(o.total)}</td><td>${esc(o.buyer_name)}</td><td>${esc(r.reason)}</td><td>${statusBadge(r.status)}</td><td>${r.status==='Pending'?`<button class="btn sm" onclick="approveRefund('${r.id}')">Approve</button> <button class="btn danger sm" onclick="rejectRefund('${r.id}')">Reject</button>`:''}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada refund.</td></tr>'}
-    </tbody></table></div>`;}
-  C().innerHTML=`<div class="tabs">${tb('classes','Ticket Class')}${tb('seatmap','Seat Map')}${tb('layout','Layout Kustom')}${tb('buyers','Buyer List')}${tb('refund','Refund')}</div>${body}`;
+    <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;
+  }
+  else if(tab==='layout'){ body=denahTabBody(id); }
+  else { body=salesBody(id); }
+  C().innerHTML=`<div class="tabs">${tb('classes','Ticket Class')}${tb('layout','Denah & Booking')}${tb('sales','Penjualan & Refund')}</div>${body}`;
+}
+/* Tab Denah: perancang denah kustom + contoh denah template venue yang hanya
+   muncul kalau diminta. Tombol Mode Jual mengubah denah jadi alat pemesanan. */
+function denahTabBody(eid){
+  const jual=ldzJualAktif();
+  const adaTemplate=DB.seats.some(s2=>s2.event_id===eid && s2.zone!=='Custom');
+  const bar='<div class="toolbar" style="margin-bottom:10px">'
+   +'<button class="btn '+(window._ldzEdit?'':'ghost')+' sm" onclick="ldzToggleEdit(\''+eid+'\')">\u270e Mode Desain</button>'
+   +'<button class="btn '+(jual?'blue':'ghost')+' sm" onclick="ldzToggleJual(\''+eid+'\')">\ud83c\udfab Mode Jual</button>'
+   +'<button class="btn ghost sm" onclick="window._lmContoh=!window._lmContoh;renderTicketDetail(\''+eid+'\')">'
+     +(window._lmContoh?'Sembunyikan':'Lihat')+' contoh denah venue</button>'
+   +'<span class="mini">'+(jual?'Klik kursi untuk memesan.':(window._ldzEdit?'Menyusun denah.':'Klik kursi untuk mengubah statusnya.'))+'</span>'
+   +'</div>';
+  const contoh=window._lmContoh
+    ? '<div class="card" style="margin-bottom:14px"><h3 class="sec">Contoh Denah Venue Laksamana Muda</h3>'
+      +'<p class="mini" style="margin-bottom:10px">Denah bawaan gedung, dipakai kalau event ini tidak menggambar denah sendiri.'
+      +(adaTemplate?'':' Event ini belum memakainya \u2014 tampil di sini sebagai rujukan bentuk ruangan saja.')+'</p>'
+      +seatMapBody(eid)+'</div>'
+    : '';
+  return bar+ldzBarJualHTML(eid)+contoh+layoutBody(eid);
+}
+/* ---- PENJUALAN & REFUND (satu halaman) ----
+   Dibuka dengan ringkasan uang: tiap kategori berapa tiket dan berapa
+   rupiahnya, plus total omzet bersih setelah refund. Angka itu yang paling
+   sering ditanyakan dan dulu harus dihitung tangan dari daftar pembeli. */
+function salesRingkas(eid){
+  const orders=DB.orders.filter(o=>o.event_id===eid);
+  const per={};
+  let omzet=0, dikembalikan=0, tiketSah=0;
+  orders.forEach(function(o){
+    const tks=DB.tickets.filter(t=>t.order_item_id===o.id);
+    const refund=(o.payment_status==='Refunded');
+    tks.forEach(function(t){
+      const c=DB.ticketClasses.find(x=>x.id===t.ticket_class_id);
+      const nama=c?c.name:'(tanpa kelas)';
+      const harga=c?(+c.price||0):0;
+      per[nama]=per[nama]||{n:0,rp:0,warna:ldzTierInfo(eid,nama).c};
+      if(refund){ dikembalikan+=harga; return; }
+      per[nama].n++; per[nama].rp+=harga; omzet+=harga; tiketSah++;
+    });
+  });
+  return {per:per, omzet:omzet, dikembalikan:dikembalikan, tiketSah:tiketSah, orders:orders};
+}
+function salesGrafikHTML(r){
+  const nama=Object.keys(r.per);
+  if(!nama.length) return '';
+  const maks=Math.max.apply(null,nama.map(function(k){ return r.per[k].rp; }))||1;
+  return '<div class="card" style="margin-bottom:16px"><h3 class="sec">Penjualan per Kategori</h3>'
+   +nama.map(function(k){
+      const v=r.per[k], w=Math.round(v.rp/maks*100);
+      return '<div style="margin-bottom:10px">'
+       +'<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px">'
+         +'<span><span class="ldz-tier"><i style="background:'+v.warna+'"></i>'+esc(k)+'</span></span>'
+         +'<span class="mini"><b>'+v.n+' tiket</b> \u00b7 '+IDR(v.rp)+'</span></div>'
+       +'<div class="salesbar"><i style="width:'+w+'%;background:'+v.warna+'"></i></div></div>';
+   }).join('')
+   +'</div>';
+}
+let _salesHal=1;
+const SALES_PER_HAL=15;
+function salesBody(eid){
+  const r=salesRingkas(eid);
+  let h='<div class="grid g3" style="margin-bottom:16px">'
+   +stat('Omzet Bersih',IDR(r.omzet),r.tiketSah+' tiket sah')
+   +stat('Dikembalikan',IDR(r.dikembalikan),'refund disetujui')
+   +stat('Jumlah Pesanan',r.orders.length,'termasuk yang direfund')
+   +'</div>'+salesGrafikHTML(r);
+
+  const baris=[];
+  r.orders.slice().reverse().forEach(function(o){
+    const tks=DB.tickets.filter(t=>t.order_item_id===o.id);
+    const rf=DB.refunds.filter(x=>x.order_id===o.id).slice(-1)[0];
+    baris.push({o:o,tks:tks,rf:rf});
+  });
+  const total=baris.length;
+  const halMax=Math.max(1,Math.ceil(total/SALES_PER_HAL));
+  if(_salesHal>halMax) _salesHal=halMax;
+  const mulai=(_salesHal-1)*SALES_PER_HAL;
+  const tampil=baris.slice(mulai,mulai+SALES_PER_HAL);
+
+  h+='<div class="card" style="padding:0"><div class="tbl-scroll"><table><thead><tr>'
+   +'<th>Buyer</th><th>Kontak</th><th>Tiket</th><th>Kursi</th><th>Total</th>'
+   +'<th>Bayar</th><th>Refund</th><th>Check-in</th><th></th></tr></thead><tbody>';
+  if(!tampil.length){
+    h+='<tr><td colspan="9" class="empty">Belum ada pembeli.</td></tr>';
+  } else tampil.forEach(function(b){
+    const o=b.o, tks=b.tks, rf=b.rf;
+    const cls=tks[0]?DB.ticketClasses.find(c=>c.id===tks[0].ticket_class_id):null;
+    const kursi=tks.map(function(t){ const st=t.seat_id?DB.seats.find(x=>x.id===t.seat_id):null; return st?(st.table_no||st.seat_no):null; }).filter(Boolean);
+    const masuk=tks.filter(function(t){ return t.status==='Checked-In'; }).length;
+    const rfCell = !rf ? '<span class="mini">\u2014</span>'
+      : rf.status==='Pending'  ? '<span class="badge b-yellow">On process</span>'
+      : rf.status==='Approved' ? '<span class="badge b-green">Refunded</span>'
+      : '<span class="badge b-grey">Ditolak</span>';
+    const bisaAjukan = tks.length && !refundAktif(o.id) && o.payment_status!=='Refunded';
+    h+='<tr><td><b>'+esc(o.buyer_name)+'</b><div class="mini">'+fmtDateTime(o.created)
+     +(o.recorded_by?' · oleh '+esc(o.recorded_by):'')+'</div>'
+     +'<div class="mini">'+esc(o.payment_ref||'')+'</div></td>'
+     +'<td class="mini">'+esc(o.phone)+'<br>'+esc(o.email)+'</td>'
+     +'<td>'+(cls?esc(cls.name):'-')+(tks.length>1?' <span class="badge b-blue">'+tks.length+' tiket</span>':'')+'</td>'
+     +'<td class="mini">'+(kursi.length?esc(kursi.join(', ')):'\u2014')+'</td>'
+     +'<td>'+IDR(o.total)+'</td>'
+     +'<td>'+statusBadge(o.payment_status)+'</td>'
+     +'<td>'+rfCell+(rf&&rf.status==='Pending'?' <button class="btn sm" onclick="approveRefund(\''+rf.id+'\')">Setujui</button> <button class="btn danger sm" onclick="rejectRefund(\''+rf.id+'\')">Tolak</button>':'')+'</td>'
+     +'<td class="mini">'+(masuk?masuk+' / '+tks.length:'\u2014')+'</td>'
+     +'<td>'+(tks.length?'<button class="btn ghost sm" onclick="showETicket(\''+tks[0].id+'\')">E-Ticket</button>'
+        +(bisaAjukan?' <button class="btn ghost sm" onclick="requestRefund(\''+o.id+'\')">Refund</button>':''):'')+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  if(halMax>1){
+    h+='<div class="pager">'
+     +'<button class="btn ghost sm" '+(_salesHal<=1?'disabled':'')+' onclick="_salesHal--;renderTicketDetail(\''+eid+'\')">\u2039 Sebelumnya</button>'
+     +'<span class="mini">Halaman '+_salesHal+' dari '+halMax+' \u00b7 '+total+' pesanan</span>'
+     +'<button class="btn ghost sm" '+(_salesHal>=halMax?'disabled':'')+' onclick="_salesHal++;renderTicketDetail(\''+eid+'\')">Berikutnya \u203a</button>'
+     +'</div>';
+  }
+  h+='</div>';
+  return h;
 }
 /* ============================================================
    DENAH KURSI — TEMPLATE LAKSAMANA MUDA (Reguler+ bernomor 1–83)
@@ -2474,8 +2612,10 @@ function beliToggleSeat(eid,sid){
   const sel=beliSel(), i=sel.indexOf(sid);
   if(i>=0) sel.splice(i,1); else sel.push(sid);
   beliSetSel(sel);
-  pfGambarDenah(eid);
-  pfRingkas(eid);
+  /* Dua tempat memakai pemilih kursi yang sama: modal Catat Penjualan dan tab
+     Layout. Yang mana pun yang sedang terbuka, itu yang digambar ulang. */
+  if(document.getElementById('pf_denah')){ pfGambarDenah(eid); pfRingkas(eid); }
+  else if(ldzJualAktif()) renderTicketDetail(eid);
 }
 function toggleSeat(eid,sid){
   const s=DB.seats.find(x=>x.id===sid); if(!s) return;
@@ -3000,8 +3140,8 @@ function ldzItemHTML(it,edit){
      status yang tak sengaja berputar di tengah acara. */
   let aksi='';
   if(edit) aksi=' onpointerdown="ldzDown(event,\''+it.id+'\',\'move\')" ondblclick="ldzRename(\''+it.id+'\')"';
-  else if(window._beliMode){
-    // Layar penjualan: klik = pilih/lepas, dan yang sedang dipilih diberi cincin.
+  else if(window._beliMode||ldzJualAktif()){
+    // Layar penjualan / mode jual di tab Layout: klik = pilih atau lepas.
     aksi=' onclick="beliToggleSeat(\''+it.event_id+'\',\''+it.id+'\')"'; sty+='cursor:pointer;';
     if(beliSel().indexOf(it.id)>=0) sty+='box-shadow:0 0 0 3px var(--accent);';
   }
@@ -3542,22 +3682,26 @@ function ldzSideHTML(eid){
       const uang=cap*(+info.price||0);
       totalUang+=uang; totalObj+=mine.length;
       const terjual=mine.filter(ldzTerjual).length;
+      /* Kolom "Objek" DIBUANG. Jumlah kotak di layar bukan angka yang dipakai
+         siapa pun untuk mengambil keputusan — yang ditanyakan selalu berapa
+         orang yang muat dan berapa uangnya. Yang menggantikan tempatnya:
+         berapa pax yang SUDAH terjual, karena itu yang membedakan rangkuman
+         ini dari sekadar daftar harga. */
+      const paxTerjual=mine.filter(ldzTerjual).reduce(function(a,i){ return a+(+i.capacity||1); },0);
       return '<tr'+(mine.length?'':' style="opacity:.5"')+'>'
-        +'<td><span class="ldz-tier"><i style="background:'+info.c+'"></i>'+esc(t)+'</span>'
-        +(terjual?'<div class="mini">'+terjual+' objek terjual</div>':'')+'</td>'
-        +'<td class="mini">'+mine.length+' objek</td>'
-        +'<td class="mini"><b>'+cap+'</b> pax</td>'
+        +'<td><span class="ldz-tier"><i style="background:'+info.c+'"></i>'+esc(t)+'</span></td>'
+        +'<td class="mini"><b>'+cap+'</b> pax'+(paxTerjual?'<div class="mini">'+paxTerjual+' terjual</div>':'')+'</td>'
         +'<td class="mini">'+(info.price?IDR(info.price):'—')+'</td>'
         +'<td class="mini"><b>'+(uang?IDR(uang):'—')+'</b></td></tr>';
     }).join('');
     h+='<h4>Rangkuman Denah</h4>'
-     +'<table><thead><tr><th>Kategori</th><th>Objek</th><th>Pax</th><th>Harga</th><th>Potensi</th></tr></thead>'
+     +'<table><thead><tr><th>Kategori</th><th>Kapasitas</th><th>Harga</th><th>Potensi</th></tr></thead>'
      +'<tbody>'+baris
-     +'<tr><td><b>Total</b></td><td class="mini"><b>'+totalObj+'</b></td>'
+     +'<tr><td><b>Total</b></td>'
      +'<td class="mini"><b>'+tot+' pax</b></td><td></td>'
      +'<td class="mini"><b style="color:var(--accent)">'+IDR(totalUang)+'</b></td></tr>'
      +'</tbody></table>'
-     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = pax × harga kategori, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
+     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = kapasitas × harga, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
      +(DB.ticketClasses.some(function(c){return c.event_id===eid;})?'':' — event ini belum punya kelas tiket, jadi yang dipakai empat tingkatan bawaan')+'.</p>';
   }
   h+='<div class="ldz-hint"><b>Seret</b> di area kosong untuk memblok banyak objek sekaligus.<br>'
@@ -3586,7 +3730,13 @@ function ldzRepaint(eid){
 function ldzToggleEdit(eid){
   window._ldzEdit=!window._ldzEdit;
   if(!window._ldzEdit){ ldzSetSel([]); window._ldzArm=null; }
-  ldzRepaint(eid);
+  /* Mode Desain dan Mode Jual saling meniadakan: di mode desain klik berarti
+     memilih objek untuk digeser, di mode jual klik berarti memesan kursi.
+     Membiarkan keduanya menyala berarti satu klik punya dua arti. */
+  if(window._ldzEdit && window._ldzJual){ window._ldzJual=false; beliSetSel([]); }
+  // Tab Denah membungkus kanvas dengan toolbar & bar jual, jadi yang digambar
+  // ulang harus seluruh tabnya — bukan kanvasnya saja.
+  if(document.querySelector('.tabs')) renderTicketDetail(eid); else ldzRepaint(eid);
 }
 /* Ikon bentuk di palet ikut BERWARNA tingkatan yang sedang dipilih. Sebelumnya
    ikonnya selalu abu-abu, jadi tidak ada isyarat apa pun bahwa objek yang
@@ -3669,6 +3819,34 @@ function ldzInner(eid){
     +'<div style="flex:1;min-width:0;display:flex;flex-direction:column">'+bar+stage+'</div>'
     +'<div class="ldz-side" id="ldzSide">'+ldzSideHTML(eid)+'</div>'
     +'</div>'+legenda;
+}
+/* ---- MODE JUAL DI TAB LAYOUT ----
+   Denah yang sudah dirancang kini bisa dipakai berjualan langsung, seperti
+   memilih meja di modul Reservasi: klik kursinya, lalu tekan Booking. Dulu
+   klik pada denah di luar mode edit hanya MEMUTAR status kursi
+   (kosong → hold → terjual) — berguna untuk mengelola, tapi tidak menghasilkan
+   pesanan, tidak ada nama pembelinya, dan tidak ada tiket maupun QR yang
+   terbit. Kursi jadi "terjual" tanpa ada yang membelinya.
+
+   Mode jual memakai pilihan yang sama dengan layar Catat Penjualan
+   (beliSel), jadi kursi yang sudah dipilih di denah langsung terbawa ke
+   formulir pembeli. */
+function ldzJualAktif(){ return !window._ldzEdit && window._ldzJual; }
+function ldzToggleJual(eid){
+  window._ldzJual=!window._ldzJual;
+  if(window._ldzJual) window._ldzEdit=false;
+  beliSetSel([]);
+  renderTicketDetail(eid);
+}
+function ldzBarJualHTML(eid){
+  if(!ldzJualAktif()) return '';
+  const pilih=beliSel();
+  const nama=pilih.map(function(id){ const x=DB.seats.find(function(s2){ return s2.id===id; }); return (x&&(x.table_no||x.seat_no))||'?'; });
+  return '<div class="ldz-jual-bar">'
+   +'<span>'+(pilih.length?('<b>'+pilih.length+' kursi</b> · '+esc(nama.join(', '))):'Klik kursi di denah untuk memilih.')+'</span>'
+   +(pilih.length?'<button class="btn ghost sm" onclick="beliSetSel([]);renderTicketDetail(\''+eid+'\')">Kosongkan</button>'
+     +'<button class="btn blue sm" onclick="purchaseFlow(\''+eid+'\',true)">Booking '+pilih.length+' kursi →</button>':'')
+   +'</div>';
 }
 function layoutBody(eid){
   window._ldzEid=eid;
@@ -3792,9 +3970,11 @@ function saveTicketClass(eid){
    Sekarang kursinya diklik langsung di denah acara itu (denah kustom kalau
    ada, template kalau tidak), persis seperti pemilih meja di modul Reservasi.
    Untuk tiket berdiri (tanpa denah) yang muncul kotak jumlah tiket. */
-function purchaseFlow(eid){
+function purchaseFlow(eid,pakaiPilihan){
   const e=DB.events.find(x=>x.id===eid);const classes=DB.ticketClasses.filter(c=>c.event_id===eid);
-  beliSetSel([]);
+  // Dipanggil dari denah (mode jual) → kursi yang sudah diklik dipertahankan.
+  const bawaan=pakaiPilihan?beliSel().slice():[];
+  if(!pakaiPilihan) beliSetSel([]);
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Catat Penjualan Tiket — ${esc(e.title)}</h3>
   <div class="field"><label>Pilih Tiket</label><select id="pf_class" onchange="pfKelasBerubah('${eid}')">${classes.map(c=>`<option value="${c.id}" ${c.sold>=c.quota?'disabled':''}>${esc(c.name)} - ${IDR(c.price)} ${c.sold>=c.quota?'(SOLD OUT)':'('+(c.quota-c.sold)+' tersisa)'}</option>`).join('')}</select></div>
   <div id="pf_seatwrap"></div>
@@ -3805,8 +3985,20 @@ function purchaseFlow(eid){
     <div class="field"><label>Tgl Lahir</label><input id="pf_bd" type="date"></div>
   </div>
   <div id="pf_total" class="mini" style="margin-top:10px"></div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" onclick="doPurchase('${eid}')">Simpan &amp; Tandai Lunas</button></div>`,true);
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn blue" id="pf_go" onclick="doPurchase('${eid}')">Simpan &amp; Tandai Lunas</button></div>`,true);
+  /* Kelas tiket dipilihkan dari kursi yang sudah diklik: kalau semua kursi itu
+     satu tingkatan, kelas itu yang dipakai. Tanpa ini orang harus menebak
+     kelas mana yang cocok dengan kursi yang baru saja dipilihnya. */
+  if(bawaan.length){
+    const tier=[...new Set(bawaan.map(function(id){ const x=DB.seats.find(function(s2){ return s2.id===id; }); return x&&x.tier; }))];
+    const sel=document.getElementById('pf_class');
+    if(sel && tier.length===1){
+      const c=classes.find(function(x){ return x.name===tier[0]; });
+      if(c) sel.value=c.id;
+    }
+  }
   pfKelasBerubah(eid);
+  if(bawaan.length){ beliSetSel(bawaan); pfGambarDenah(eid); pfRingkas(eid); }
 }
 // Kursi yang bisa dijual untuk sebuah event (denah kustom didahulukan).
 function pfKursiEvent(eid){
@@ -3850,26 +4042,37 @@ function pfRingkas(eid){
     +' = <b style="color:var(--accent);font-size:15px">'+IDR(n*c.price+5000*n)+'</b>';
 }
 function doPurchase(eid){
+  /* Penjaga tekan-ganda. Tombolnya menyimpan pesanan LALU menutup modal; kalau
+     ditekan dua kali cepat (atau Enter ditahan), dua pesanan identik terbentuk
+     dengan kursi yang sama — dan kuota ikut berkurang dua kali. Penjaganya
+     dilepas lagi di tiap jalur keluar yang gagal, kalau tidak orang terkunci
+     setelah satu kesalahan isian. */
+  if(window._pfSibuk) return;
+  const tombol=document.getElementById('pf_go');
+  const lepas=function(){ window._pfSibuk=false; if(tombol){ tombol.disabled=false; tombol.textContent='Simpan & Tandai Lunas'; } };
+  window._pfSibuk=true; if(tombol){ tombol.disabled=true; tombol.textContent='Menyimpan\u2026'; }
   const g=x=>{const el=document.getElementById(x);return el?el.value.trim():'';};
   const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
-  if(!name||!phone||!email){toast('Nama, phone, email wajib.');return;}
-  const c=DB.ticketClasses.find(x=>x.id===cid); if(!c){toast('Pilih kelas tiket dulu.');return;}
+  if(!name||!phone||!email){toast('Nama, phone, email wajib.');lepas();return;}
+  const c=DB.ticketClasses.find(x=>x.id===cid); if(!c){toast('Pilih kelas tiket dulu.');lepas();return;}
   const kursi=beliSel().slice();
   const qtyEl=document.getElementById('pf_qty');
   const jumlah=kursi.length||(qtyEl?Math.max(1,+qtyEl.value||1):1);
-  if(c.is_seated && !kursi.length){toast('Pilih kursinya dulu di denah.');return;}
+  if(c.is_seated && !kursi.length){toast('Pilih kursinya dulu di denah.');lepas();return;}
   /* Kuota diperiksa untuk SELURUH jumlah, bukan satu per satu — kalau tidak,
      rombongan 6 orang bisa lolos pada sisa kuota 2 dan kuota jadi minus. */
   const sisa=(+c.quota||0)-(+c.sold||0);
-  if(jumlah>sisa){toast('⛔ Sisa kuota tinggal '+sisa+' tiket.');return;}
+  if(jumlah>sisa){toast('⛔ Sisa kuota tinggal '+sisa+' tiket.');lepas();return;}
   // Kursi diperiksa ulang tepat sebelum simpan: bisa saja baru terjual.
   const bentrok=kursi.filter(id=>!beliBisaDipilih(DB.seats.find(s=>s.id===id)));
-  if(bentrok.length){toast('⛔ Kursi sudah keburu terjual — pilih ulang.');pfGambarDenah(eid);return;}
+  if(bentrok.length){toast('⛔ Kursi sudah keburu terjual — pilih ulang.');pfGambarDenah(eid);lepas();return;}
 
   const oid=uid();
   DB.orders.push({id:oid,event_id:eid,buyer_name:name,phone,email,birthdate:g('pf_bd'),notes:'',
     subtotal:c.price*jumlah,fee:5000*jumlah,total:(c.price+5000)*jumlah,payment_status:'Paid',
     payment_ref:'MID-'+uid().slice(2,8).toUpperCase(),
+    // Jejak pencatat: siapa kru yang menerima uangnya, dan dari layar mana.
+    recorded_by:namaKru(), recorded_via:(kursi.length?'denah':'formulir'),
     expires_at:new Date(Date.now()+600000).toISOString(),created:new Date().toISOString()});
 
   const dibuat=[];
@@ -3883,9 +4086,10 @@ function doPurchase(eid){
   }
   c.sold=(+c.sold||0)+jumlah;
   beliSetSel([]);
+  window._pfSibuk=false;
   save();closeModal();
   toast('✓ '+jumlah+' tiket tercatat lunas'+(kursi.length?' · kursi '+kursi.map(id=>{const s=DB.seats.find(x=>x.id===id);return (s&&(s.table_no||s.seat_no))||'?';}).join(', '):'')+'.');
-  window._tixTab='buyers';renderTicketDetail(eid);
+  window._tixTab='sales';renderTicketDetail(eid);
   // E-ticket pertama dibuka; sisanya lewat daftar pembeli — membuka 6 modal
   // bertumpuk tidak menolong siapa pun.
   setTimeout(()=>showETicket(dibuat[0].id),400);
@@ -3981,7 +4185,7 @@ function requestRefund(oid){
     toast(ada.status==='Pending'
       ? 'Refund untuk order ini sudah diajukan — menunggu persetujuan.'
       : 'Refund untuk order ini sudah disetujui.');
-    const o0=DB.orders.find(x=>x.id===oid);window._tixTab='refund';renderTicketDetail(o0.event_id);return;
+    const o0=DB.orders.find(x=>x.id===oid);window._tixTab='sales';renderTicketDetail(o0.event_id);return;
   }
   const o=DB.orders.find(x=>x.id===oid);
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Ajukan Refund</h3>
@@ -3996,9 +4200,29 @@ function submitRefund(oid){
   if(refundAktif(oid)){toast('Refund untuk order ini sudah ada.');closeModal();return;}
   DB.refunds.push({id:uid(),order_id:oid,reason,status:'Pending',requested_at:new Date().toISOString()});
   save();closeModal();toast('✓ Refund diajukan — menunggu persetujuan.');
-  const o=DB.orders.find(x=>x.id===oid);window._tixTab='refund';renderTicketDetail(o.event_id);
+  const o=DB.orders.find(x=>x.id===oid);window._tixTab='sales';renderTicketDetail(o.event_id);
 }
-function approveRefund(rid){const r=DB.refunds.find(x=>x.id===rid);r.status='Approved';const o=DB.orders.find(x=>x.id===r.order_id);o.payment_status='Refunded';const tk=DB.tickets.find(t=>t.order_item_id===o.id);if(tk){tk.status='Cancelled';if(tk.seat_id){const s=DB.seats.find(x=>x.id===tk.seat_id);if(s)s.status='Available';}const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);if(c&&c.sold>0)c.sold--;}save();toast('✓ Refund approved — tiket Cancelled & kursi dilepas.');renderTicketDetail(o.event_id);}
+/* Satu pesanan bisa berisi BANYAK tiket sejak pembelian multi-kursi ada.
+   Versi lama memakai DB.tickets.find(...) — satu tiket saja — sehingga
+   pesanan 6 kursi yang di-refund menyisakan 5 tiket berstatus Valid, 5 kursi
+   tetap terjual di denah, dan kuota kelas berkurang 1 dari 6 yang seharusnya.
+   Uangnya sudah dikembalikan tapi kursinya tidak pernah bisa dijual lagi. */
+function approveRefund(rid){
+  const r=DB.refunds.find(x=>x.id===rid); if(!r) return;
+  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return;
+  r.status='Approved'; r.approved_at=new Date().toISOString();
+  o.payment_status='Refunded';
+  const tiket=DB.tickets.filter(t=>t.order_item_id===o.id && t.status!=='Cancelled');
+  tiket.forEach(function(tk){
+    tk.status='Cancelled';
+    if(tk.seat_id){ const st=DB.seats.find(x=>x.id===tk.seat_id); if(st) st.status='Available'; }
+    const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
+    if(c&&c.sold>0) c.sold--;
+  });
+  save();
+  toast('✓ Refund disetujui — '+tiket.length+' tiket dibatalkan & kursinya dilepas.');
+  renderTicketDetail(o.event_id);
+}
 function rejectRefund(rid){const r=DB.refunds.find(x=>x.id===rid);r.status='Rejected';save();const o=DB.orders.find(x=>x.id===r.order_id);renderTicketDetail(o.event_id);toast('Refund ditolak.');}
 
 /* ============ CHECK-IN ============ */
@@ -4048,8 +4272,16 @@ function liveDenahHTML(eid){
      saling bertentangan lebih buruk daripada tidak ada denah sama sekali. */
   const punyaKustom=ldzItems(eid).length>0;
   if(punyaKustom){
+    /* _denahRO HARUS tetap true selama kanvasnya dibangun. Versi sebelumnya
+       mematikannya lebih dulu, jadi tiap objek dipasangi onclick="toggleSeat()"
+       — di layar Check-In, satu sentuhan pada denah memutar status kursi lalu
+       memanggil renderTicketDetail(), yang MENIMPA seluruh isi halaman Check-In
+       dengan halaman Ticketing. Itulah "check-in berantakan" dan "klik denah
+       malah masuk ke halaman layout": halaman Ticketing terbuka pada tab
+       terakhir yang dipakai, yang biasanya Layout. */
+    const html='<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>';
     window._denahRO=false;
-    return '<div class="card"><h3 class="sec">Denah Kustom</h3>'+ldzCanvasHTML(eid,false)+'</div>';
+    return html;
   }
   const template=DB.seats.some(s=>s.event_id===eid && s.zone!=='Custom') ? seatMapBody(eid) : '';
   window._denahRO=false;
@@ -4329,6 +4561,12 @@ function renderHistoryDetail(id){
 /* Identitas & logo di sidebar — disamakan dengan Marketing/Reservasi.
    Nama diambil dari sesi Office (guard SSO di <head> sudah memastikan sesinya
    ada dan berhak), jadi tidak perlu login terpisah di modul ini. */
+/* Nama kru yang sedang login — dipakai sebagai jejak siapa yang mencatat
+   penjualan. Sumbernya sesi Office yang sama dengan blok pengguna di sidebar. */
+function namaKru(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(_){}
+  return (s&&s.name)||'Kru';
+}
 function paintSideUser(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(_){}
   const nama=(s&&s.name)||'Kru';
