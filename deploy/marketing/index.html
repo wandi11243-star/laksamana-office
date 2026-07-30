@@ -4334,18 +4334,7 @@ function renderField(ev,fl,canEdit){
           +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
        +'</div>';
   } else if(fl.t==='dealtbl'){
-    const rows=Array.isArray(val)?val:[];
-    const bodyH=(rows.length?rows:[{}]).map(function(r,i){ return dealRowHTML(ev,r,canEdit,i); }).join('');
-    inp='<div class="rundown-wrap" id="'+id+'">'
-       +'<table class="rundown-tbl"><thead><tr>'
-         +'<th>Keterangan Makanan</th><th style="width:96px">Jumlah</th>'
-         +'<th style="width:150px">Harga Deal</th><th style="width:140px;text-align:right">Total</th>'
-         +(canEdit?'<th style="width:34px"></th>':'')
-       +'</tr></thead>'
-       +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
-       +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="dealAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
-          +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
-       +'</div>';
+    inp=dealTblHTML(id,ev,val,canEdit);
   } else if(fl.t==='barangtbl'){
     const rows=Array.isArray(val)?val:[];
     const bodyH=(rows.length?rows:[{}]).map(r=>barangRowHTML(r,canEdit)).join('');
@@ -4694,6 +4683,54 @@ function dealTotal(wrap){
   const t=$(wrap.id+'_tot'); if(t) t.textContent = sum?('Total F&B '+rp(sum)):'';
   // Panel Perhitungan Otomatis & strip ringkasan ikut hidup.
   if(typeof finLive==='function') finLive();
+}
+/* Markup tabelnya dipakai DUA tempat: perender field generik (kalau suatu saat
+   dealtbl dipakai section lain) dan panel Finance yang digambar tangan. Satu
+   fungsi supaya keduanya tidak bisa berbeda bentuk — id-nya tetap mengikuti
+   konvensi efd_<key>, jadi collectField() & auto-save membacanya tanpa perlu
+   tahu siapa yang menggambar. */
+function dealTblHTML(id,ev,rows,canEdit){
+  rows=Array.isArray(rows)?rows:[];
+  const bodyH=(rows.length?rows:[{}]).map(function(r,i){ return dealRowHTML(ev,r,canEdit,i); }).join('');
+  return '<div class="rundown-wrap" id="'+id+'">'
+    +'<table class="rundown-tbl"><thead><tr>'
+      +'<th>Keterangan Makanan</th><th style="width:96px">Jumlah</th>'
+      +'<th style="width:150px">Harga Deal</th><th style="width:140px;text-align:right">Total</th>'
+      +(canEdit?'<th style="width:34px"></th>':'')
+    +'</tr></thead>'
+    +'<tbody id="'+id+'_body">'+bodyH+'</tbody></table>'
+    +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="dealAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Baris</button>'
+       +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
+    +'</div>';
+}
+/* Membaca isi tabel dari DOM. Dipakai collectField (tombol Simpan & auto-save)
+   DAN finBayangan (panel hitungan di kanan, yang harus ikut angka yang belum
+   disimpan). Barisnya disaring: baris kosong yang tersisa dari "Tambah Baris"
+   tidak boleh ikut tersimpan. */
+function dealBaca(id){
+  const body=$(id+'_body'); if(!body) return undefined;
+  return [...body.querySelectorAll('tr')].map(function(tr){
+    const nm=tr.querySelector('[data-r="nama"]');
+    const jv=tr.querySelector('[data-r="jumlah"]');
+    const hv=tr.querySelector('[data-r="harga"]');
+    const h=hv?rupiahDigits(hv.value):'';
+    return {nama:nm?String(nm.value).trim():'', jumlah:jv?(+jv.value||0):0, harga:h===''?0:(+h)};
+  }).filter(function(r){ return r.nama||r.jumlah||r.harga; });
+}
+/* Centang "Pakai Harga Deal". Kotak F&B di atasnya ikut dimatikan: selama mode
+   ini hidup angka di kotak itu TIDAK dipakai (lihat urutan kewenangan di
+   eventFbCost), dan membiarkannya tetap aktif berarti memajang angka yang
+   diam-diam diabaikan — orang akan mengira hitungannya salah. */
+function fbDealCentang(el){
+  const on=!!el.checked;
+  const wrap=$('efd_fbDealOn'); if(wrap) wrap.classList.toggle('on',on);
+  const lab=el.closest?el.closest('.cbx'):null; if(lab) lab.classList.toggle('on',on);
+  const box=$('fbDealBox'); if(box) box.style.display=on?'':'none';
+  const fb=$('efd_fbManual'); if(fb) fb.disabled=on;
+  const note=$('fbDealAbai');
+  if(note) note.innerHTML=on?' <b style="color:var(--warn)">Sedang memakai Harga Deal</b> — angka di kotak ini diabaikan.':'';
+  finLive();
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
 function dealAddRow(id,ev){
   const body=$(id+'_body'); if(!body)return;
@@ -5259,16 +5296,7 @@ function collectField(fl){
       return {nama:nm?nm.value.trim():'', nominal:d===''?'':(+d)};
     }).filter(r=>r.nama||r.nominal!=='');
   }
-  if(fl.t==='dealtbl'){
-    const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
-    return [...body.querySelectorAll('tr')].map(function(tr){
-      const nm=tr.querySelector('[data-r="nama"]');
-      const jv=tr.querySelector('[data-r="jumlah"]');
-      const hv=tr.querySelector('[data-r="harga"]');
-      const h=hv?rupiahDigits(hv.value):'';
-      return {nama:nm?String(nm.value).trim():'', jumlah:jv?(+jv.value||0):0, harga:h===''?0:(+h)};
-    }).filter(function(r){ return r.nama||r.jumlah||r.harga; });
-  }
+  if(fl.t==='dealtbl'){ return dealBaca('efd_'+fl.k); }
   if(fl.t==='barangtbl'){
     const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
     return [...body.querySelectorAll('tr')].map(tr=>{
@@ -5851,14 +5879,32 @@ function financeTab(ev,canEdit){
      otomatis, ia tetap dianggap otomatis dan akan ikut berubah kalau pax atau
      harga per pax di tab Kasir dikoreksi. Lihat fbDariKotak(). */
   const fbOto=fbOtomatis(ev);
+  const dealOn=ynBool(d.fbDealOn,false);
   const fbSumber=paxDariTeks(d.estimasiOTS)?'Estimasi Tamu + Penambahan OTS & Deal per Pax di tab <b>Kasir</b>'
                                            :'Pax & Budget per Pax di tab <b>Informasi Dasar</b>';
   h+='<div>'
    +'<div class="field full"><label>F&B (otomatis: '+fbPax(ev)+' pax × '+rp(fbHargaPax(ev))+')</label>'
-     +rupiahInputHTML('efd_fbManual',(fbDitimpa(ev)?d.fbManual:fbOto),dis)
+     +rupiahInputHTML('efd_fbManual',(fbDitimpa(ev)?d.fbManual:fbOto),(dis||dealOn?'disabled':''))
      +'<div class="fh">Terisi otomatis dari '+fbSumber+'. Ubah angkanya bila mau menimpa — kembalikan ke '+rp(fbOto)+' (atau kosongkan) untuk mengikuti hitungan otomatis lagi.'
      +(fbDitimpa(ev)?' <b style="color:var(--warn)">Sedang ditimpa manual</b> — otomatisnya '+rp(fbOto)+'.':'')
+     +'<span id="fbDealAbai">'+(dealOn?' <b style="color:var(--warn)">Sedang memakai Harga Deal</b> — angka di kotak ini diabaikan.':'')+'</span>'
      +'</div></div>';
+  /* HARGA DEAL PER JENIS MAKANAN — "di bawah F&B otomatis ada opsi centang".
+     Letaknya memang harus di sini: panel ini digambar tangan, jadi menambahkan
+     fieldnya ke fields:[] section D.9 saja tidak memunculkan apa pun di layar
+     (fields:[] D.9 hanya dibaca untuk izin & pemeriksaan kelengkapan). */
+  h+='<div class="field full">'
+   +'<div id="efd_fbDealOn" class="'+(dealOn?'on':'')+'" style="display:inline-block">'
+     +'<label class="cbx'+(dealOn?' on':'')+'"><input type="checkbox" '+(dealOn?'checked ':'')+(canEdit?'':'disabled ')+'onchange="fbDealCentang(this)">'
+       +'<span class="cbx-box"></span><span class="cbx-lbl">Pakai Harga Deal per Jenis Makanan</span></label>'
+   +'</div>'
+   +'<div class="fh">Untuk acara yang menyepakati harga BERBEDA per jenis hidangan — bukan satu harga per pax. Kalau dicentang, biaya F&amp;B dihitung dari tabel di bawah.</div>'
+   +'</div>';
+  h+='<div class="field full" id="fbDealBox" style="display:'+(dealOn?'':'none')+'">'
+   +'<label>Harga Deal per Jenis Makanan</label>'
+   +dealTblHTML('efd_fbDeal',ev,d.fbDeal,canEdit)
+   +'<div class="fh">Keterangan makanan bisa dipilih dari Menu Final (D.2 Kitchen) &amp; Daftar Menu Bar (D.3), atau diketik bebas. Total tiap baris = Jumlah × Harga Deal, dan seluruh totalnya masuk Grand Total.</div>'
+   +'</div>';
   h+='<div class="form-grid">'
    +curField('Sewa Venue','sewaVenue',d.sewaVenue,dis)
    +curField('Sound, Lighting, dll','biayaTeknis',d.biayaTeknis,dis)+curField('Lain-lain','biayaLain',d.biayaLain,dis)
@@ -5922,6 +5968,10 @@ function finBayangan(ev){
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
   const dp=$('efd_dpPercent'); if(dp)b.dpPercent=+dp.value||S.settings.dpPercent;
+  // Mode & isi tabel Harga Deal, supaya angka di panel kanan ikut yang di layar
+  // sekarang — bukan yang terakhir disimpan.
+  const dOn=$('efd_fbDealOn'); if(dOn) b.detail.fbDealOn=dOn.classList.contains('on');
+  const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) b.detail.fbDeal=dRows;
   return b;
 }
 function finLive(){
@@ -5978,6 +6028,8 @@ function collectFinanceInto(ev){
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
   ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
+  const dOn=$('efd_fbDealOn'); if(dOn) ev.detail.fbDealOn=dOn.classList.contains('on');
+  const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) ev.detail.fbDeal=dRows;
   return true;
 }
 function addPayment(id,paymentId){
