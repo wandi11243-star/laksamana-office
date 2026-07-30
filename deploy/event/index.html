@@ -3236,8 +3236,20 @@ function ldzItemHTML(it,edit){
   const wr=ldzAdalahArea(it)
     ? {bg:'#b9b4ac',tepi:'#8d8880',teks:'#2b2721'}
     : ldzWarnaObjek(it,T.c,isi);
+  /* Zona REGULER digambar BERPETAK, meniru denah cetak yang memenuhi area itu
+     dengan deretan kotak kursi. Dibuat sebagai pola isian, bukan ratusan objek
+     kecil: yang dibutuhkan cuma tampilannya — kursinya sendiri memang tidak
+     bernomor dan tidak dijual satu-satu, jadi menaruh 300 objek di sana hanya
+     memberatkan kanvas tanpa menambah satu pun kemampuan. */
+  const petak=(ldzAdalahArea(it)&&it.pola==='petak');
   let sty='left:'+(+it.x||0)+'px;top:'+(+it.y||0)+'px;width:'+(+it.w||40)+'px;height:'+(+it.h||40)+'px;'
     +'border-color:'+wr.tepi+';background:'+wr.bg+';color:'+wr.teks+';';
+  if(petak){
+    const g=+it.petak||26;      // sisi satu petak (px kanvas)
+    sty+='background-image:linear-gradient(rgba(60,55,45,.55) 1px,transparent 1px),'
+       +'linear-gradient(90deg,rgba(60,55,45,.55) 1px,transparent 1px);'
+       +'background-size:'+g+'px '+g+'px;background-position:2px 2px;';
+  }
   const cap=(+it.capacity||1)>1?'<small>'+(+it.capacity)+' pax</small>':'';
   const judul=(it.kind==='table'?'Meja ':'Kursi ')+(it.table_no||'')+' · '+it.tier+' · '
     +(st==='checked'?'sudah check-in':st==='sold'?'terjual':st==='locked'?'hold':'tersedia');
@@ -4154,7 +4166,7 @@ function ldzBawaanL1(){
 }
 function ldzBawaanL2(){
   const o=[];
-  const area=function(lbl,x,y,w,h){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h}); };
+  const area=function(lbl,x,y,w,h,pola,petak){ o.push({kind:'area',shape:'rect',lbl:lbl,x:x,y:y,w:w,h:h,pola:pola,petak:petak}); };
   /* Semua posisi dihitung DARI KOTAK VOID, jadi ketiga barisan kursi selalu
      menempel walau ukuran voidnya diubah. */
   const V={x:300,y:210,w:880,h:400};
@@ -4171,14 +4183,17 @@ function ldzBawaanL2(){
   const nKanan=22, sKanan=V.h/nKanan;
   for(let i=0;i<nKanan;i++) o.push({kind:'seat',shape:'rect',lbl:String(n++),
     x:V.x+V.w+jr, y:Math.round(V.y+V.h-sKanan*(i+1)+(sKanan-d)/2), w:d,h:d});
-  area('REGULER',60,V.y,190,V.h);
-  area('REGULER',V.x+V.w+40,V.y,190,V.h);
+  /* Zona REGULER digambar BERPETAK penuh seperti denah cetak: petak 26px kira-
+     kira satu kursi, jadi luasnya langsung terbaca sebagai daya tampung
+     walaupun kursinya tidak bernomor dan tidak dijual satu-satu. */
+  area('REGULER',60,V.y,190,V.h,'petak',26);
+  area('REGULER',V.x+V.w+40,V.y,190,V.h,'petak',26);
   area('TANGGA',60,V.y+V.h+40,120,60);
   area('TANGGA',V.x+V.w+40,V.y+V.h+40,120,60);
   const yb=V.y+V.h+120;
-  area('REGULER',120,yb,430,140);
-  area('OPERATOR',580,yb,120,140);
-  area('REGULER',730,yb,430,140);
+  area('REGULER',120,yb,430,150,'petak',26);
+  area('OPERATOR',580,yb,120,150);
+  area('REGULER',730,yb,430,150,'petak',26);
   return {kanvas:{w:1440,h:yb+180},objek:o};
 }
 /* Memasang denah bawaan di lantai yang sedang dibuka.
@@ -4210,6 +4225,8 @@ function ldzPasangBawaan(eid){
             kind:o.kind,shape:o.shape,tier:cls.name,
             x:o.x,y:o.y,w:o.w,h:o.h,
             capacity:(o.kind==='area')?0:(o.kind==='table'?(+o.cap||0):1),
+            // pola isian ikut dibawa: zona REGULER digambar berpetak penuh
+            pola:o.pola||'', petak:+o.petak||0,
             table_no:o.lbl,seat_no:o.lbl,status:'Available'};
   });
   DB.seats=DB.seats.concat(baru);
