@@ -415,7 +415,8 @@
                             </button>
                         </div>
                         <p class="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
-                            Stok CK <b>belum bertambah</b> saat dikirim &mdash; baru dihitung setelah orang Central Kitchen mengonfirmasi barangnya sampai.
+                            Stok CK <b>langsung bertambah</b> begitu dicatat di sini. Kalau jumlah yang sampai ternyata berbeda,
+                            selisihnya dibetulkan lewat mutasi <b>Penyesuaian</b> di halaman Central Kitchen.
                         </p>
                     </div>
 
@@ -1849,13 +1850,18 @@
                 if(response.ok) {
                     const data = await response.json();
                     if(data && data.products){
-                        /* Barang Central Kitchen SENGAJA DIBUANG dari daftar
-                           form belanja: ia punya tabnya sendiri, dan barang
-                           yang bisa diminta dari dua form berbeda akan diajukan
-                           dua kali oleh dua orang yang sama-sama merasa sudah
-                           mengurusnya. globalProductInfo tetap memuat semuanya —
-                           form CK, check-in, dan konversi pack membacanya dari
-                           sana. */
+                        /* Barang Central Kitchen MURNI sengaja dibuang dari
+                           daftar form belanja: ia punya tabnya sendiri, dan
+                           barang yang bisa diminta dari dua form berbeda akan
+                           diajukan dua kali oleh dua orang yang sama-sama merasa
+                           sudah mengurusnya. globalProductInfo tetap memuat
+                           semuanya — form CK, check-in, dan konversi pack
+                           membacanya dari sana.
+
+                           Yang bersumber 'both' TETAP ADA di sini: barang itu
+                           memang dibeli ke vendor, cuma disimpannya di CK.
+                           Membuangnya berarti barang yang stoknya habis tidak
+                           bisa dipesan ulang dari mana pun. */
                         globalItemsData = Object.keys(data.products)
                             .filter(n => !(data.products[n] && data.products[n].sumber === 'ck'));
                         // Rincian tiap bahan (termasuk satuan yang sah) ikut
@@ -1876,8 +1882,10 @@
         }
 
         /* ================= CENTRAL KITCHEN =================
-           Barang produksi dapur sendiri. Masternya ikut di globalProductInfo
-           (tabel produk yang sama), dibedakan `sumber === 'ck'` — jadi
+           Barang yang diambil dari dapur pusat. Masternya ikut di
+           globalProductInfo (tabel produk yang sama), dibedakan lewat
+           `sumber`: 'ck' (produksi dapur sendiri) maupun 'both' (dibeli ke
+           vendor tapi disimpan di CK) — jadi
            autocomplete, pembatasan satuan, check-in, dan daftar jemput
            berlaku apa adanya tanpa jalur kedua.
 
@@ -1898,7 +1906,14 @@
                 const kunci = Object.keys(globalProductInfo || {}).find(k => k.toLowerCase() === cari);
                 if (kunci) p = globalProductInfo[kunci];
             }
-            return (p && p.sumber === 'ck') ? p : null;
+            return adaDiCK(p) ? p : null;
+        }
+        /* Satu-satunya tempat yang memutuskan "barang ini punya stok CK".
+           Dipusatkan supaya tidak ada lagi perbandingan `sumber === 'ck'`
+           tersebar yang diam-diam melewatkan barang 'both'. */
+        function adaDiCK(p) {
+            const s = p && p.sumber;
+            return s === 'ck' || s === 'both';
         }
         /* Harus persis sama dengan pur_ck_ke_dasar() di backend — kalau
            berbeda, angka padanan yang dibaca kru bukan angka yang benar-benar
@@ -1944,7 +1959,7 @@
 
         function daftarBarangCK() {
             return Object.keys(globalProductInfo || {})
-                .filter(n => globalProductInfo[n] && globalProductInfo[n].sumber === 'ck')
+                .filter(n => adaDiCK(globalProductInfo[n]))
                 .sort((a, b) => a.localeCompare(b));
         }
 
@@ -2060,21 +2075,43 @@
             refreshBarisCK(id);
         }
 
-        /* Satuan baris mengikuti barang yang dipilih: Pack (kalau isi packnya
-           diisi) + satuan dasar. Tidak lebih — satuan di luar dua itu tidak
-           bisa dikonversi ke saldo, jadi menawarkannya berarti menawarkan cara
-           merusak stok. Aturan yang sama ditegakkan server. */
+        /* Satuan baris mengikuti barang yang dipilih. Sejak 31 Juli 2026
+           PENGAMBILAN DARI CK TIDAK BISA DIPECAH (permintaan user): barang yang
+           punya isi pack hanya bisa diambil dalam PACK UTUH — satuan dasarnya
+           tidak lagi ditawarkan, dan jumlahnya dipaksa bilangan bulat.
+
+           Sebelumnya kedua satuan ditawarkan, sehingga orang bisa meminta
+           "300 Gram" dari barang yang di rak CK berbentuk pack 500 Gram.
+           Dapur lalu harus membuka satu pack untuk melayaninya, dan sisa 200
+           Gram yang terbuka itu tidak pernah tercatat di mana pun — saldo
+           mengatakan stoknya utuh, kenyataannya ada pack terbuka yang tidak
+           bisa dikirim ke outlet lain.
+
+           Barang TANPA isi pack tetap memakai satuan dasar dan boleh pecahan:
+           itu barang curah yang memang ditakar, bukan diambil per bungkus. */
         function onPilihBarangCK(id) {
             const selI = document.getElementById(`ck-row-item-${id}`);
             const selU = document.getElementById(`ck-row-unit-${id}`);
             if (!selI || !selU) return;
             const p = infoCKItem(selI.value);
-            const opsi = [];
-            if (p && p.packIsi > 0) opsi.push('Pack');
-            if (p && p.packSatuan) opsi.push(p.packSatuan);
+            const perPack = !!(p && p.packIsi > 0);
+            const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
             const sebelum = selU.value;
             selU.innerHTML = (opsi.length ? opsi : ['Pcs']).map(u => `<option value="${u}">${u}</option>`).join('');
             if (opsi.includes(sebelum)) selU.value = sebelum;
+            selU.title = perPack
+                ? 'Barang ini dipack — pengambilan dari CK hanya bisa dalam pack utuh.'
+                : '';
+
+            /* step & min ikut diubah, bukan cuma divalidasi saat kirim: panah
+               naik-turun dan tombol +/- harus bergerak per 1 pack, dan angka
+               pecahan sebaiknya tidak pernah sempat muncul di layar. */
+            const inp = document.getElementById(`ck-row-qty-${id}`);
+            if (inp) {
+                inp.step = perPack ? '1' : 'any';
+                inp.min = '0';
+                if (perPack) inp.value = Math.max(0, Math.round(parseFloat(inp.value) || 0));
+            }
             refreshBarisCK(id);
         }
 
@@ -2089,6 +2126,9 @@
             const qty = parseFloat((document.getElementById(`ck-row-qty-${id}`) || {}).value) || 0;
             const unit = (document.getElementById(`ck-row-unit-${id}`) || {}).value || '';
             const dasar = ckKeDasar(qty, unit, p);
+            // Pack utuh: pecahan ditandai di sini juga, bukan cuma ditolak saat
+            // kirim — orang harus tahu sebelum mengisi sepuluh baris lainnya.
+            const pecah = p.packIsi > 0 && !Number.isInteger(qty);
             const sisa = ckSaldoPeta[nama];
             const tahuSisa = (sisa !== undefined && sisa !== null);
             // Peringatan hanya kalau sisanya BENAR-BENAR diketahui — kalau
@@ -2105,13 +2145,16 @@
 
             box.classList.remove('hidden');
             box.innerHTML = `
-                <div class="rounded-xl border ${kurang ? 'border-rose-200 bg-rose-50/40' : 'border-teal-200 bg-teal-50/40'} shadow-sm overflow-x-auto">
+                <div class="rounded-xl border ${(kurang || pecah) ? 'border-rose-200 bg-rose-50/40' : 'border-teal-200 bg-teal-50/40'} shadow-sm overflow-x-auto">
                     <div class="flex flex-nowrap items-stretch min-w-full">
                         ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
+                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`, pecah ? 'text-rose-600' : '')}
                         ${sel('Sisa stok CK', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
                               kurang ? 'text-rose-600' : '')}
                     </div>
+                    ${pecah ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
+                        Barang ini dipack &mdash; jumlahnya harus <b>pack utuh</b> (1, 2, 3), tidak bisa ${ckNum(qty)}.
+                    </div>` : ''}
                     ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
                         Melebihi sisa stok Central Kitchen &mdash; boleh tetap diajukan, dapur yang menentukan bisa atau tidak.
                     </div>` : ''}
@@ -2142,6 +2185,7 @@
 
             const pesanan = [];
             let adaBarisRusak = false;
+            const pecahan = [];
             document.querySelectorAll('[id^="ck-row-item-"]').forEach(el => {
                 const id = el.id.replace('ck-row-item-', '');
                 const nama = el.value;
@@ -2150,8 +2194,18 @@
                 const note = (document.getElementById(`ck-row-note-${id}`) || {}).value || '';
                 if (!nama && qty <= 0) return;                       // baris kosong: diabaikan diam-diam
                 if (!nama || qty <= 0) { adaBarisRusak = true; return; }
+                // Pack utuh. Dijaga di sini juga, bukan cuma lewat step="1":
+                // step hanya mengatur tombol panah — angka pecahan yang diketik
+                // atau ditempel langsung tetap lolos ke pesanan.
+                const p = infoCKItem(nama);
+                if (p && p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
                 pesanan.push({ item: nama, qty: qty, unit: unit, note: note.trim() || '-', tglDatang: tgl, pic: pic });
             });
+
+            if (pecahan.length) {
+                return showToast("Harus Pack Utuh",
+                    `${pecahan.join(', ')} hanya bisa diambil dalam pack utuh — bulatkan jumlahnya.`, "warning");
+            }
 
             // Baris setengah terisi DITOLAK, bukan dilewati diam-diam: barang
             // yang diketik tapi lupa diisi jumlahnya adalah barang yang orangnya
@@ -2202,10 +2256,9 @@
 
            Tidak lewat batchOrder seperti pengajuan, melainkan langsung ke
            ck.php: ini bukan permintaan yang perlu di-check-in, melainkan
-           mutasi stok yang menunggu dikonfirmasi. Memaksanya lewat tabel
-           orders akan membuat baris yang tidak pernah punya "kedatangan"
-           muncul di Check-in Penerimaan sebagai pekerjaan yang tak
-           terselesaikan. */
+           mutasi stok yang langsung berlaku. Memaksanya lewat tabel orders
+           akan membuat baris yang tidak pernah punya "kedatangan" muncul di
+           Check-in Penerimaan sebagai pekerjaan yang tak terselesaikan. */
         let kirimRowCount = 0;
         let riwayatKiriman = [];
 
@@ -2304,7 +2357,7 @@
                     <div class="flex flex-nowrap items-stretch min-w-full">
                         ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
                         ${sel('Dikirim', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
-                        ${sel('Status', 'Menunggu konfirmasi CK')}
+                        ${sel('Status', 'Langsung menambah stok CK')}
                     </div>
                 </div>`;
         }
@@ -2315,11 +2368,10 @@
         }
 
         /* Dikirim satu per satu, bukan satu permintaan berisi banyak baris:
-           endpoint ck.php sengaja menyimpan SATU mutasi per panggilan supaya
-           tiap baris bisa dikonfirmasi/ditolak sendiri-sendiri di CK. Satu
-           kiriman berisi lima barang yang harus diterima atau ditolak
-           sekaligus akan memaksa CK menolak semuanya gara-gara satu yang
-           tidak sampai. */
+           endpoint ck.php sengaja menyimpan SATU mutasi per panggilan, jadi
+           tiap barang jadi satu baris buku besar yang berdiri sendiri dan bisa
+           dikoreksi sendiri-sendiri. Satu kiriman yang tersimpan sebagai satu
+           baris gabungan tidak bisa dibetulkan sebagian. */
         async function submitKirimCK() {
             const pic = document.getElementById('batch-pic-name').value || '';
             if (!pic) return showToast("PIC Kosong", "Identitas pengirim belum terbaca. Muat ulang halaman.", "danger");
@@ -2373,7 +2425,7 @@
                 // "berhasil" untuk 3 dari 5 barang akan membuat 2 sisanya
                 // hilang tanpa ada yang tahu.
                 const pesan = sukses === daftar.length
-                    ? 'Menunggu konfirmasi Central Kitchen.'
+                    ? 'Stok Central Kitchen sudah bertambah.'
                     : `${sukses} dari ${daftar.length} tercatat. Sisanya gagal: ${pesanGagal}`;
                 showToast(sukses === daftar.length ? "Kiriman Tercatat" : "Sebagian Tercatat", pesan,
                           sukses === daftar.length ? "success" : "warning");
@@ -2387,9 +2439,8 @@
         }
 
         /* Riwayat kiriman = mutasi CK bersebab 'kiriman'. Disaring dari daftar
-           mutasi penuh, bukan endpoint sendiri: kru perlu melihat yang sudah
-           diterima juga (bukan cuma yang pending), dan itu memang seluruh
-           riwayatnya. */
+           mutasi penuh, bukan endpoint sendiri: yang perlu dilihat kru memang
+           seluruh riwayatnya. */
         async function muatRiwayatKiriman() {
             const wrap = document.getElementById('kirim-riwayat-wrap');
             if (!wrap) return;
@@ -2417,30 +2468,35 @@
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-16 text-center">
                     <div class="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-4"><i class="fa-solid fa-truck-fast text-xl"></i></div>
                     <h3 class="font-bold text-slate-800">Belum Ada Kiriman</h3>
-                    <p class="text-slate-500 text-sm mt-1">Kiriman ke Central Kitchen akan muncul di sini beserta statusnya.</p>
+                    <p class="text-slate-500 text-sm mt-1">Kiriman ke Central Kitchen akan muncul di sini.</p>
                 </div>`;
                 return;
             }
             wrap.innerHTML = riwayatKiriman.map(m => {
-                const pending = m.status === 'pending';
-                // Selisih antara yang dikirim dan yang diterima ditulis
+                /* Baris peninggalan aturan lama masih bisa berstatus 'pending'
+                   (kiriman yang dulu belum sempat dikonfirmasi). Sejak langkah
+                   konfirmasi dibuang 31 Juli 2026 baris itu SUDAH dihitung ke
+                   saldo, jadi ia tidak lagi ditampilkan sebagai "menunggu" —
+                   labelnya cuma akan menyuruh orang menunggu sesuatu yang tidak
+                   akan pernah datang. */
+                // Selisih antara yang dikirim dan yang tercatat ditulis
                 // terang-terangan: itu satu-satunya cara pengirim tahu bahwa
-                // yang sampai tidak sebanyak yang dia kirim.
+                // yang masuk stok tidak sebanyak yang dia kirim.
                 const dikirimDasar = ckKeDasar(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
-                const beda = !pending && Math.abs(dikirimDasar - m.qty) > 0.0001;
-                return `<div class="bg-white border ${pending ? 'border-amber-200' : (beda ? 'border-rose-200' : 'border-slate-200')} rounded-xl px-4 py-3 flex items-center gap-3">
-                    <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm ${pending ? 'bg-amber-50' : 'bg-emerald-50'}">
-                        <i class="fa-solid ${pending ? 'fa-hourglass-half text-amber-600' : 'fa-circle-check text-emerald-600'} text-[13px]"></i>
+                const beda = Math.abs(dikirimDasar - m.qty) > 0.0001;
+                return `<div class="bg-white border ${beda ? 'border-rose-200' : 'border-slate-200'} rounded-xl px-4 py-3 flex items-center gap-3">
+                    <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-emerald-50">
+                        <i class="fa-solid fa-circle-check text-emerald-600 text-[13px]"></i>
                     </span>
                     <div class="min-w-0 flex-1">
                         <div class="text-[13px] font-bold text-slate-800 truncate">${m.item}</div>
                         <div class="text-[10px] text-slate-500 mt-0.5">${m.tanggal}${m.tim ? ' · ' + m.tim : ''}${m.pic ? ' · ' + m.pic : ''}</div>
                         ${m.catatan ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate">${m.catatan}</div>` : ''}
-                        ${beda ? `<div class="text-[10px] font-bold text-rose-600 mt-0.5">Diterima ${ckNum(m.qty)} ${m.packSatuan} dari ${ckNum(dikirimDasar)} ${m.packSatuan} yang dikirim</div>` : ''}
+                        ${beda ? `<div class="text-[10px] font-bold text-rose-600 mt-0.5">Masuk stok ${ckNum(m.qty)} ${m.packSatuan} dari ${ckNum(dikirimDasar)} ${m.packSatuan} yang dikirim</div>` : ''}
                     </div>
                     <div class="shrink-0 text-right">
                         <div class="text-[13px] font-black text-slate-800">${ckNum(m.qtyInput)} ${m.unitInput}</div>
-                        <div class="text-[9px] font-black uppercase tracking-wider ${pending ? 'text-amber-600' : 'text-emerald-600'}">${pending ? 'Menunggu' : 'Diterima'}</div>
+                        <div class="text-[9px] font-black uppercase tracking-wider text-emerald-600">Masuk Stok</div>
                     </div>
                 </div>`;
             }).join('');

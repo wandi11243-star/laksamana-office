@@ -69,6 +69,50 @@ Cari fitur berdasarkan **teks yang dilihat user**, bukan tebakan nama fungsi:
 > ripgrep kadang melaporkannya sebagai berkas biner. Itu normal, bukan
 > kerusakan. `Grep` tetap bekerja.
 
+### Graphify — untuk pertanyaan "siapa yang memanggil ini"
+
+`Grep` menjawab **"di mana"**. Yang mahal justru **"apa saja yang ikut rusak
+kalau ini kuubah"** — itu butuh beberapa `Grep` beruntun, dan gampang ada yang
+terlewat. Untuk itu ada graf panggilan yang sudah terpasang:
+
+```bash
+graphify affected "infoCK" --depth 2   # siapa saja yang terdampak (radius perubahan)
+graphify explain  "viewBreakdown"      # pemanggil + yang dipanggil + nomor baris
+graphify update .                      # bangun ulang graf (tanpa LLM, tanpa biaya)
+```
+
+**Nomor baris yang dilaporkan graphify LANGSUNG dipakai.** `explain` menjawab
+`tools/graph-src/kompas.js L1497`, dan baris **1497** di
+`deploy/kompas/index.html` memang `function viewBreakdown(){`. Berkas kerangka
+itu ditulis sejajar baris demi baris dengan aslinya justru untuk ini — jadi
+`explain` lalu `Read` dengan `offset` itu, tanpa `Grep` sama sekali.
+
+**Kapan TIDAK usah dipakai:** kalau cuma mau menemukan satu fitur, `Grep` teks
+yang dilihat user tetap yang tercepat. Graf tidak tahu apa-apa soal string HTML,
+teks tombol, atau CSS.
+
+**Yang perlu diketahui soal berkas kerangka di `tools/graph-src/`:**
+
+- Isinya **turunan**, dihasilkan `tools/graph-src.ps1`. **Jangan pernah
+  disunting**, dan jangan tertukar saat `Grep` — kode sebenarnya ada di
+  `deploy/<modul>/index.html`. Isinya sengaja cuma tanda tangan fungsi +
+  panggilannya (tanpa badan fungsi) supaya hasil `Grep` tidak berlipat dua.
+- graphify **menghormati `.gitignore`** (sudah diuji 31 Juli 2026), jadi
+  kerangkanya wajib ter-track — tidak bisa disembunyikan di direktori terabaikan.
+- **Perbarui setelah menambah/menghapus/mengganti nama fungsi**, kalau tidak
+  grafnya berbohong — dan graf yang berbohong lebih berbahaya daripada tidak ada
+  graf, karena ia dipercaya:
+
+  ```bash
+  powershell -ExecutionPolicy Bypass -File tools/graph-src.ps1
+  graphify update .
+  ```
+
+- `graphify-out/` **tidak** masuk repo (sudah di `.gitignore`) — ia keluaran
+  mesin, ukurannya megabyte, dan bisa dibangun ulang kapan saja. `tools/`
+  maupun `graphify-out/` tidak pernah ikut ter-deploy: workflow FTP hanya
+  mengunggah `deploy/` dan `<modul>-mysql/`.
+
 ---
 
 ## 3. Arsitektur frontend — model mental yang sudah benar
