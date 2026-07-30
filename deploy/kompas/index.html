@@ -174,7 +174,7 @@ input,select,textarea{font-family:inherit}
 .chip.bad{background:var(--danger-bg);color:var(--danger)}
 .chip.warn{background:var(--warn-bg);color:var(--warn)}
 .chip.info{background:var(--info-bg);color:var(--info)}
-/* Netral — untuk label yang bukan status baik/buruk, mis. Non-Ticketing.
+/* Netral — untuk label yang bukan status baik/buruk, mis. Non-Free Entry.
    .chip polos tidak punya background sama sekali, jadi jangan dipakai telanjang. */
 .chip.mute{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
 
@@ -206,7 +206,7 @@ tbody tr:hover{background:var(--gold-soft)}
 .brow.ks{grid-template-columns:1.3fr 1fr auto}
 .brow .field{margin-bottom:0}
 @media(max-width:760px){.brow.mk,.brow.ks{grid-template-columns:1fr}}
-/* Centang Ticketing di baris breakdown. Dibuat setinggi field di sebelahnya
+/* Centang Free Entry (dulu "Ticketing") di baris breakdown. Dibuat setinggi field di sebelahnya
    supaya tidak melayang saat baris ikut memanjang. */
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
 .tkbox input{cursor:pointer}
@@ -1169,9 +1169,12 @@ function viewCompliment(){
       <div id="c_err"></div>
       <button class="btn btn-primary" id="c_add">+ Tambah</button>
     </div>
-    <div class="grid g2">
+    <!-- Kartu "Membebani PIC" dibuang 30 Juli 2026 atas permintaan user: angkanya
+         mengulang informasi yang sudah ada di kolom PIC pada daftar di bawah, dan
+         hampir selalu Rp0 sehingga malah membingungkan. Aturan Tamu-tidak-memotong
+         tetap berlaku di perhitungan, cuma tidak dipajang lagi. -->
+    <div class="grid">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
-      <div class="stat"><div class="lab">Membebani PIC</div><div class="val sm mono">${fmtRp(list.filter(c=>c.picDiv!=='tamu').reduce((s,c)=>s+num(c.nominal),0))}</div><div class="foot">di luar yang ber-PIC Tamu</div></div>
     </div>
     <div class="card">
       <h3>Daftar Compliment Hari Ini</h3>
@@ -1278,9 +1281,14 @@ function kartuCompliment(rows, pakaiKolomPic){
    Marketing & event tidak menambah total apa pun: barisnya MEMOTONG omset
    kasir yang kena shift event tersebut.
 
-     • baris TANPA centang Ticketing → SELURUH nominalnya dipotong dari kasir
+   Centang yang dulu bernama "Ticketing" sejak 30 Juli 2026 DITULIS "Free Entry"
+   di layar. Yang berubah hanya labelnya; nama fieldnya tetap `r.tiket` dan
+   artinya tetap sama (potongan 50%), jadi tidak ada migrasi data. Komentar di
+   bawah memakai istilah baru.
+
+     • baris TANPA centang Free Entry → SELURUH nominalnya dipotong dari kasir
        shift, dan seluruhnya diakui untuk PIC.
-     • baris DICENTANG Ticketing     → hanya SEPARUH yang dipotong dari kasir
+     • baris DICENTANG Free Entry     → hanya SEPARUH yang dipotong dari kasir
        shift, dan separuh itu juga yang diakui untuk PIC. Separuh sisanya tetap
        milik kasir — tiketnya dijual atas nama event, tapi yang melayani
        penjualan dan tamunya kasir.
@@ -1290,7 +1298,7 @@ function kartuCompliment(rows, pakaiKolomPic){
    itu yang harus tetap benar sesudah perubahan apa pun di bawah.
 
    MODEL LAMA (28 Juli 2026, sudah tidak dipakai): kasir diisi walk-in MURNI,
-   ketiga section dijumlahkan harus sama dengan net, dan separuh omset ticketing
+   ketiga section dijumlahkan harus sama dengan net, dan separuh omset free entry
    DITAMBAHKAN ke kasir shift sebagai bagi hasil. Persis kebalikan arah
    potongannya.
 
@@ -1350,7 +1358,7 @@ function potonganHari(d,kasirId){
 }
 /* Baris bernominal yang shift-nya belum ditentukan. Dipakai untuk peringatan di
    Breakdown dan Performa Kasir. Filter `r.tiket` yang dulu ada di sini DIHAPUS:
-   sekarang setiap baris event memotong kasir, bukan cuma yang ticketing, jadi
+   sekarang setiap baris event memotong kasir, bukan cuma yang free entry, jadi
    semuanya butuh shift. */
 function barisTanpaShift(d){
   return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
@@ -1360,11 +1368,21 @@ function barisTanpaShift(d){
 /* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
    Namanya masih modalBagiHasil() supaya diff-nya kecil. Mengembalikan lewat callback
    supaya pemanggilnya yang memutuskan kapan menggambar ulang — baris breakdown
-   sedang diisi, jadi redraw yang tidak perlu akan merebut fokus. */
-function modalBagiHasil(row, labelEvent, simpan){
-  const kasir=DB.employees.kasir||[];
+   sedang diisi, jadi redraw yang tidak perlu akan merebut fokus.
+
+   `kasirAktif` = daftar kasir yang BOLEH dicentang hari itu, dikirim oleh
+   pemanggil. Dulu modal ini selalu memakai seluruh DB.employees.kasir, jadi kasir
+   yang sudah dicentang OFF (libur) di Section A tetap ikut muncul dan bisa
+   dibebani potongan. Akibatnya fatal dan tidak kelihatan: potongannya dibagi ke
+   orang yang omsetnya nol, sementara kartu Efek ke Realisasi Kasir hanya
+   menampilkan kasir non-OFF — jadi sebagian potongan lenyap dari rekap. */
+function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
+  const kasir=Array.isArray(kasirAktif)?kasirAktif:(DB.employees.kasir||[]);
+  const sah=new Set(kasir.map(k=>k.id));
   let dw=Math.max(0,num(row.dw));
-  let pilih=new Set(Array.isArray(row.shift)?row.shift.filter(Boolean):[]);
+  // Buang centang lama yang kasirnya sekarang OFF, supaya pembagi di pratinjau
+  // sama persis dengan yang akan tersimpan.
+  let pilih=new Set((Array.isArray(row.shift)?row.shift.filter(Boolean):[]).filter(id=>sah.has(id)));
   const potong=porsiPic(row);
 
   const ovl=document.createElement('div');
@@ -1373,7 +1391,7 @@ function modalBagiHasil(row, labelEvent, simpan){
     <div class="mdl">
       <div class="mdl-h">
         <h3>Potongan Kasir Shift</h3>
-        <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · dipotong dari kasir <b>${fmtRp(potong)}</b>${row.tiket?' (50%, ticketing)':' (100%)'}</div>
+        <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · dipotong dari kasir <b>${fmtRp(potong)}</b>${row.tiket?' (50%, free entry)':' (100%)'}</div>
       </div>
       <div class="mdl-b">
         <div class="field"><label>Jumlah DW Kasir (daily worker) di shift ini</label>
@@ -1382,10 +1400,10 @@ function modalBagiHasil(row, labelEvent, simpan){
         </div>
         <div style="margin-top:16px">
           <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Kasir tetap yang kena shift event ini</label>
-          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang ikut dipotong. Kasir yang masuk hari itu tapi beda shift tidak kena.</div>
+          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang ikut dipotong. Kasir yang masuk hari itu tapi beda shift tidak kena. Kasir yang dicentang <b>OFF</b> di Section A tidak ditampilkan di sini.</div>
           ${kasir.length?`<div class="kslist" id="bh_ks">${kasir.map(k=>`
             <label class="kschip${pilih.has(k.id)?' on':''}" data-id="${esc(k.id)}"><input type="checkbox" ${pilih.has(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}</div>`
-          :`<div class="empty" style="padding:16px 10px">Belum ada kasir terdaftar.</div>`}
+          :`<div class="empty" style="padding:16px 10px">Tidak ada kasir yang bisa dibebani — semua kasir dicentang OFF (libur) hari ini, atau belum ada kasir terdaftar.</div>`}
         </div>
         <div class="notice info" id="bh_prev" style="margin-top:18px"></div>
       </div>
@@ -1518,7 +1536,7 @@ function viewBreakdown(){
       <div id="bd_ks"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Tiap baris memotong omset kasir yang kena shift event itu — tentukan shift-nya lewat tombol potongan di baris tersebut. Tanpa centang <b>Ticketing</b>, <b>seluruh</b> nominalnya dipotong dari kasir shift dan diakui penuh untuk PIC. Dengan centang Ticketing, hanya <b>50%</b> yang dipotong dan 50% itu juga yang diakui untuk PIC — separuh sisanya tetap milik kasir.</div>
+      <div class="helper" style="margin-bottom:10px">Tiap baris memotong omset kasir yang kena shift event itu — tentukan shift-nya lewat tombol potongan di baris tersebut. Tanpa centang <b>Free Entry</b>, <b>seluruh</b> nominalnya dipotong dari kasir shift dan diakui penuh untuk PIC. Dengan centang Free Entry, hanya <b>50%</b> yang dipotong dan 50% itu juga yang diakui untuk PIC — separuh sisanya tetap milik kasir.</div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
@@ -1534,10 +1552,23 @@ function viewBreakdown(){
 
   const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows))};
 
+  /* Cabut satu kasir dari seluruh baris shift marketing & event. Dipakai saat
+     kasir dicentang OFF, dan sekali saat halaman dibuka untuk merapikan data
+     lama yang terlanjur menyimpan kasir OFF di dalam shift. */
+  function buangDariShift(id){
+    [...state.mk,...state.ev].forEach(r=>{
+      if(Array.isArray(r.shift)) r.shift=r.shift.filter(x=>x!==id);
+    });
+  }
+  // Data lama: kasir yang di-OFF-kan sesudah shift-nya terlanjur diisi. Dibersihkan
+  // di `state` saja — perubahannya baru ikut tersimpan kalau user memang menyimpan.
+  // Baris yang jadi tanpa shift akan muncul sendiri di peringatan calc().
+  state.ks.filter(r=>r.off).forEach(r=>buangDariShift(r.kasirId));
+
   const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
 
   /* Ringkasan potongan per baris. Sekarang muncul di SEMUA baris, tidak lagi
-     hanya yang ticketing: setiap baris event memotong kasir, centang Ticketing
+     hanya yang free entry: setiap baris event memotong kasir, centang Free Entry
      cuma menentukan besarnya (50% atau 100%). */
   function tombolBagi(r,i,key){
     const b=potonganBaris(r);
@@ -1548,6 +1579,31 @@ function viewBreakdown(){
       ? `<b>Atur kasir shift</b>${belum?'potongan belum dibebankan':'belum ditentukan'}`
       : `<b>−${fmtRp(b.per)} / kasir</b>${b.ids.length} kasir shift${b.dw?` · ${b.dw} DW`:''}`;
     return `<button type="button" class="bhbtn ${key}bagi${belum?' kosong':''}" data-i="${i}" title="Atur kasir yang kena shift event ini — merekalah yang dipotong">${isi}</button>`;
+  }
+  /* Nominal omset diubah → besar potongan per kasir ikut berubah, jadi tombolnya
+     harus ikut berubah saat itu juga. Sebelumnya tombol hanya digambar ulang oleh
+     drawMk/drawEv, sehingga sesudah "Simpan Pembagian" angkanya membeku pada
+     nominal LAMA dan orang mengira pembagiannya tidak mengikuti omset baru —
+     padahal yang disimpan memang cuma daftar kasir shift, pembagiannya selalu
+     dihitung ulang dari nominal terakhir.
+     Tombolnya ditambal di tempat, bukan lewat drawMk/drawEv: menggambar ulang
+     section saat nominalnya sedang diketik akan merebut fokus dari kolomnya. */
+  function segarkanBagi(key,i){
+    const r=state[key][i]; if(!r) return;
+    const btn=document.querySelector('#bd_'+key+' .'+key+'bagi[data-i="'+i+'"]');
+    if(!btn) return;
+    const tmp=document.createElement('div');
+    tmp.innerHTML=tombolBagi(r,i,key);
+    const baru=tmp.firstElementChild;
+    btn.className=baru.className;
+    btn.innerHTML=baru.innerHTML;
+  }
+  /* Kasir yang boleh dibebani potongan hari ini = yang TIDAK dicentang OFF di
+     Section A. Dibaca dari `state.ks`, bukan dari DB, supaya centang OFF yang
+     baru saja diklik (belum disimpan) langsung berlaku di modal. */
+  function kasirAktif(){
+    const off=new Set(state.ks.filter(r=>r.off).map(r=>r.kasirId));
+    return (DB.employees.kasir||[]).filter(k=>!off.has(k.id));
   }
   /* Dipakai bersama dua section. Modal mengubah baris di `state` langsung,
      jadi sesudahnya cukup gambar ulang section itu dan hitung ulang. */
@@ -1571,7 +1627,7 @@ function viewBreakdown(){
         clearTimeout(bagiInfoTimer);
         bagiInfoTimer=setTimeout(()=>{ const x=document.getElementById('bd_info'); if(x) x.innerHTML=''; },6000);
       }
-    });
+    }, kasirAktif());
   }
   function drawMk(){
     document.getElementById('bd_mk').innerHTML=state.mk.map((r,i)=>`
@@ -1579,7 +1635,7 @@ function viewBreakdown(){
         <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari penjualan tiket — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="mktk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari free entry — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="mktk" data-i="${i}" ${r.tiket?'checked':''}> Free Entry</label>
         ${tombolBagi(r,i,'mk')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
@@ -1593,7 +1649,7 @@ function viewBreakdown(){
       const i=+c.dataset.i; state.mk[i].tiket=c.checked; drawMk(); calc();
       // Setiap baris memotong kasir sekarang, jadi shift-nya wajib ada. Modal
       // dibuka begitu nominalnya sudah diisi tapi shift-nya masih kosong —
-      // bukan lagi hanya saat Ticketing dicentang.
+      // bukan lagi hanya saat Free Entry dicentang.
       if(num(state.mk[i].amount)>0 && potonganBaris(state.mk[i]).pembagi<=0) bukaBagi('mk',i);
     });
     document.querySelectorAll('.mkbagi').forEach(b=>b.onclick=()=>bukaBagi('mk',+b.dataset.i));
@@ -1606,7 +1662,7 @@ function viewBreakdown(){
         <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari penjualan tiket — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="evtk" data-i="${i}" ${r.tiket?'checked':''}> Ticketing</label>
+        <label class="tkbox${r.tiket?' on':''}" title="Centang jika omset ini dari free entry — yang dipotong dari kasir shift hanya 50%"><input type="checkbox" class="evtk" data-i="${i}" ${r.tiket?'checked':''}> Free Entry</label>
         ${tombolBagi(r,i,'ev')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
@@ -1629,13 +1685,28 @@ function viewBreakdown(){
         <button type="button" class="btn btn-sm btn-ghost kssisa" data-i="${i}" style="margin-bottom:14px" ${r.off?'disabled style="margin-bottom:14px;opacity:.4"':''} title="Isi sisa omset yang belum dialokasikan ke kasir ini">sisa</button>
       </div>`).join('')||'<div class="empty" style="padding:20px 10px">Belum ada kasir. Nama muncul otomatis setelah akun di Office diberi Tim/Keterangan <b>kasir</b>.</div>';
     document.querySelectorAll('.ksf').forEach(inp=>inp.oninput=()=>{state.ks[+inp.dataset.i].amount=num(inp.value);calc();});
-    document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{const i=+c.dataset.i;state.ks[i].off=c.checked;if(c.checked)state.ks[i].amount=0;drawKs();calc();});
+    /* Centang OFF juga MENCABUT kasir itu dari seluruh baris shift marketing &
+       event. Kalau tidak: potongannya tetap dibagi ke orang yang libur, padahal
+       kartu Efek ke Realisasi Kasir cuma menampilkan kasir non-OFF — jadi
+       sebagian potongan hilang dari rekap tanpa ada yang tahu. Section B/C ikut
+       digambar ulang karena angka di tombol potongannya berubah. */
+    document.querySelectorAll('.ksoff').forEach(c=>c.onchange=()=>{
+      const i=+c.dataset.i;
+      state.ks[i].off=c.checked;
+      if(c.checked){ state.ks[i].amount=0; buangDariShift(state.ks[i].kasirId); }
+      drawKs(); drawMk(); drawEv(); calc();
+    });
     document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa(+b.dataset.i));
     formatAllRp(document.getElementById('bd_ks'));
   }
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
-      inp.oninput=inp.onchange=()=>{const i=+inp.dataset.i,f=inp.dataset.f;state[key][i][f]=f==='amount'?num(inp.value):inp.value;calc();};
+      inp.oninput=inp.onchange=()=>{
+        const i=+inp.dataset.i,f=inp.dataset.f;
+        state[key][i][f]=f==='amount'?num(inp.value):inp.value;
+        if(f==='amount') segarkanBagi(key,i);
+        calc();
+      };
     });
   }
   /* Yang divalidasi terhadap omset net sekarang HANYA section kasir. Dulu
@@ -2002,7 +2073,7 @@ function cetakAchievement(divi,e,a,ach,tgt){
     const k=kunci(ev.date,ev.pic||e.name);
     const pot=Math.min(sisaComp[k]||0, ev.porsi);
     sisaComp[k]=(sisaComp[k]||0)-pot;
-    // Kolom Jenis (Ticketing/Non-Ticketing) sengaja tidak dicetak: itu cara
+    // Kolom Jenis (Free Entry/Non-Free Entry) sengaja tidak dicetak: itu cara
     // menghitung, bukan hasil, dan PIC tidak perlu tahu dari lembar ini.
     return `<tr><td>${esc(ev.date)}</td><td>${esc(ev.name||'—')}${ev.pic?` (${esc(ev.pic)})`:''}</td><td class="num">${fmtRp(ev.porsi-pot)}</td></tr>`;
   }).join('');
@@ -2084,12 +2155,12 @@ function viewPerforma(divi){
     const top=[...a.events].sort((x,y)=>y.amount-x.amount)[0];
     SEL={e,a,ach,semua:pid==='__all__',tgt};
     aturTombolKirim();
-    /* Non-ticketing diakui penuh, ticketing separuh. Yang dijumlahkan ke
+    /* Non-free-entry diakui penuh, free entry separuh. Yang dijumlahkan ke
        realisasi adalah kolom "diakui" (porsi), bukan nilai event. */
     const evTk=a.events.filter(ev=>ev.tiket), evNon=a.events.filter(ev=>!ev.tiket);
     const nilaiTk=evTk.reduce((s,x)=>s+x.amount,0), nilaiNon=evNon.reduce((s,x)=>s+x.amount,0);
     const akuTk=evTk.reduce((s,x)=>s+x.porsi,0), akuNon=evNon.reduce((s,x)=>s+x.porsi,0);
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td>${ev.tiket?'<span class="chip info">Ticketing</span>':'<span class="chip mute">Non-Ticketing</span>'}</td><td class="num mono">${fmtRp(ev.amount)}</td><td class="num mono">${fmtRp(ev.porsi)}${ev.tiket?'<div class="muted" style="font-size:10.5px;font-weight:500">50%</div>':''}</td></tr>`).join('');
+    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td>${ev.tiket?'<span class="chip info">Free Entry</span>':'<span class="chip mute">Non-Free Entry</span>'}</td><td class="num mono">${fmtRp(ev.amount)}</td><td class="num mono">${fmtRp(ev.porsi)}${ev.tiket?'<div class="muted" style="font-size:10.5px;font-weight:500">50%</div>':''}</td></tr>`).join('');
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(e.target)}</div>`:''}</div>
@@ -2099,8 +2170,8 @@ function viewPerforma(divi){
       </div>
       <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2">
-        <div class="stat"><div class="lab">Ticketing</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui 50%, separuh sisanya tetap milik kasir shift</div></div>
-        <div class="stat"><div class="lab">Non-Ticketing</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui penuh, dipotong dari kasir shift</div></div>
+        <div class="stat"><div class="lab">Free Entry</div><div class="val sm mono">${fmtRp(akuTk)}</div><div class="foot">${evTk.length} event · nilai ${fmtRp(nilaiTk)} · diakui 50%, separuh sisanya tetap milik kasir shift</div></div>
+        <div class="stat"><div class="lab">Non-Free Entry</div><div class="val sm mono">${fmtRp(akuNon)}</div><div class="foot">${evNon.length} event · nilai ${fmtRp(nilaiNon)} · diakui penuh, dipotong dari kasir shift</div></div>
       </div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
