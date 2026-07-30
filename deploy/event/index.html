@@ -424,7 +424,12 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 /* Kotak pilihan + 8 pegangan ukuran, meniru draw.io. Pegangannya diperbesar
    (dan diberi area tekan ekstra lewat ::after) karena versi sebelumnya cuma
    satu titik 14px di pojok — itu yang bikin mengubah ukuran terasa susah. */
-.ldz-marquee{position:absolute;border:1px solid var(--accent);background:rgba(169,121,31,.14);pointer-events:none;z-index:30}
+/* Kotak seleksi seret. Warnanya sengaja BIRU dan bukan emas seperti sisa
+   antarmuka: emas 14% di atas kanvas terang nyaris tak terlihat, jadi orang
+   tidak yakin seretannya sedang memblok atau justru menggeser sesuatu —
+   persis keraguan yang membuat fitur ini dikira tidak ada. Biru muda dengan
+   garis tegas adalah bahasa yang sudah dikenal dari Windows & draw.io. */
+.ldz-marquee{position:absolute;border:1px solid #2f7fc4;background:rgba(47,127,196,.18);pointer-events:none;z-index:30}
 .ldz-selbox{position:absolute;border:1px dashed var(--accent);pointer-events:none;z-index:20}
 .ldz-h{position:absolute;background:#fff;border:1px solid var(--accent);border-radius:2px;pointer-events:auto;
   touch-action:none;box-shadow:0 1px 3px rgba(0,0,0,.25)}
@@ -664,6 +669,7 @@ function normalize(s){
   // dibiarkan sebagai array, DB.eventDetails[id]=… menempel sebagai properti
   // array dan JSON.stringify membuangnya diam-diam saat menyimpan.
   if(!s.eventDetails||typeof s.eventDetails!=='object'||Array.isArray(s.eventDetails)) s.eventDetails={};
+  if(!Array.isArray(s.layoutTemplates)) s.layoutTemplates=[];
   if(!Array.isArray(s.entertainmentRules)||!s.entertainmentRules.length)
     s.entertainmentRules=bawaanKosong().entertainmentRules;
   if(!s.role) s.role='Director';
@@ -2457,12 +2463,24 @@ function renderTicketDetail(id){
 function denahTabBody(eid){
   const jual=ldzJualAktif();
   const adaTemplate=DB.seats.some(s2=>s2.event_id===eid && s2.zone!=='Custom');
+  const lt=ldzLantai();
+  const jml=function(f){ return ldzSemuaItems(eid).filter(function(i){ return ldzLantaiObjek(i)===f; }).length; };
   const bar='<div class="toolbar" style="margin-bottom:10px">'
+   /* Pemilih lantai berdiri paling depan: apa pun yang ditekan sesudahnya
+      (desain, jual, template) berlaku untuk lantai yang sedang terbuka, jadi
+      itu keputusan pertama yang harus disadari orang. */
+   +'<div class="lm-floors" style="margin:0">'
+     +'<button class="'+(lt==='1'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'1\')">Lantai 1 <span class="mini">('+jml('1')+')</span></button>'
+     +'<button class="'+(lt==='2'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'2\')">Lantai 2 <span class="mini">('+jml('2')+')</span></button>'
+   +'</div>'
    +'<button class="btn '+(window._ldzEdit?'':'ghost')+' sm" onclick="ldzToggleEdit(\''+eid+'\')">\u270e Mode Desain</button>'
    +'<button class="btn '+(jual?'blue':'ghost')+' sm" onclick="ldzToggleJual(\''+eid+'\')">\ud83c\udfab Mode Jual</button>'
    +'<button class="btn ghost sm" onclick="window._lmContoh=!window._lmContoh;renderTicketDetail(\''+eid+'\')">'
      +(window._lmContoh?'Sembunyikan':'Lihat')+' contoh denah venue</button>'
-   +'<span class="mini">'+(jual?'Klik kursi untuk memesan.':(window._ldzEdit?'Menyusun denah.':'Klik kursi untuk mengubah statusnya.'))+'</span>'
+   +'<button class="btn ghost sm" onclick="ldzMuatTemplateForm(\''+eid+'\')">\u2913 Muat Template</button>'
+   +(ldzItems(eid).length?'<button class="btn ghost sm" onclick="ldzSimpanTemplate(\''+eid+'\')">\u2912 Simpan sebagai Template</button>':'')
+   +(ldzTemplates().length?'<button class="btn ghost sm" onclick="ldzHapusTemplate()">Kelola Template</button>':'')
+   +'<span class="mini">'+(jual?'Klik kursi untuk memesan.':(window._ldzEdit?'Menyusun denah Lantai '+lt+'.':'Klik kursi untuk mengubah statusnya.'))+'</span>'
    +'</div>';
   const contoh=window._lmContoh
     ? '<div class="card" style="margin-bottom:14px"><h3 class="sec">Contoh Denah Venue Laksamana Muda</h3>'
@@ -2843,6 +2861,19 @@ function ldzWarnaObjek(it,warnaTier,terisi){
 function ldzMeta(eid){
   const d=ensureDetails(eid);
   if(!d.layout||typeof d.layout!=='object'||Array.isArray(d.layout)) d.layout={};
+  /* Tiap lantai punya ukuran kanvas & gambar latarnya sendiri — lantai 2 di
+     venue ini bentuknya jauh berbeda dari lantai 1. Setelan lantai 1 tetap
+     disimpan di akar objek supaya denah lama terbaca apa adanya. */
+  if(ldzLantai()==='2'){
+    if(!d.layout.f2||typeof d.layout.f2!=='object'||Array.isArray(d.layout.f2)) d.layout.f2={};
+    const L2=d.layout.f2;
+    L2.w=+L2.w||1200; L2.h=+L2.h||760;
+    if(L2.bgOpacity==null) L2.bgOpacity=70;
+    if(L2.grid==null) L2.grid=true;
+    if(L2.snap==null) L2.snap=true;
+    if(!L2.bg) L2.bg=null;
+    return L2;
+  }
   const L=d.layout;
   L.w=+L.w||1200; L.h=+L.h||760;
   if(L.bgOpacity==null) L.bgOpacity=70;
@@ -2928,7 +2959,7 @@ function ldzTempel(eid){
     return Object.assign({},i,{
       id:uid(), event_id:eid, ticket_class_id:cls.id,
       tier:cls.name,
-      table_no:String(n0+k+1), seat_no:n0+k+1,
+      table_no:String(n0+k+1), seat_no:n0+k+1, floor:ldzLantai(),
       x:Math.max(0,Math.min(L.w-w,(+i.x||0)-minx+20)),
       y:Math.max(0,Math.min(L.h-h,(+i.y||0)-miny+20)),
       status:'Available'      // salinan selalu kosong: status terjual milik tiket, bukan bentuk
@@ -2970,7 +3001,27 @@ function ldzRename(id){
   el.innerHTML=''; el.appendChild(inp);
   inp.focus(); inp.select();
 }
-function ldzItems(eid){ return DB.seats.filter(s=>s.event_id===eid && s.zone==='Custom'); }
+/* ---- DUA LANTAI DALAM SATU EVENT ----
+   Venue ini bertingkat, dan tiap lantai punya denah sendiri: lantai bawah
+   berisi VIP & Gold di sekitar panggung, lantai atas berisi Reguler & Reguler+.
+   Sebelumnya semua objek menumpuk di satu kanvas, jadi menggambar lantai 2
+   berarti menyelipkannya di sela-sela lantai 1 — dan pemesanan tidak punya
+   cara memberitahu tamu ia duduk di lantai berapa.
+
+   Objek lama yang belum bertanda lantai dianggap Lantai 1: itu yang sudah
+   digambar orang selama ini, dan memindahkannya diam-diam ke lantai lain akan
+   membuat denah yang sudah jadi tampak kosong. */
+function ldzLantai(){ return window._ldzLantai==='2'?'2':'1'; }
+function ldzLantaiObjek(it){ return String((it&&it.floor)||'1'); }
+function ldzSetLantai(eid,f){
+  window._ldzLantai=(String(f)==='2')?'2':'1';
+  ldzSetSel([]); beliSetSel([]);
+  if(document.querySelector('.tabs')) renderTicketDetail(eid); else ldzRepaint(eid);
+}
+// Seluruh objek kustom event ini, lintas lantai — dipakai rekap & penjualan.
+function ldzSemuaItems(eid){ return DB.seats.filter(s=>s.event_id===eid && s.zone==='Custom'); }
+// Objek pada lantai yang sedang dibuka — inilah yang digambar & diedit.
+function ldzItems(eid){ return ldzSemuaItems(eid).filter(i=>ldzLantaiObjek(i)===ldzLantai()); }
 function ldzFind(id){ return DB.seats.find(s=>s.id===id && s.zone==='Custom'); }
 /* Tiap tingkatan tiket punya satu ticket class per event — dibuat saat pertama
    kali dipakai, supaya objek denah selalu tersambung ke kelas yang bisa dijual. */
@@ -3031,7 +3082,7 @@ function ldzBuat(eid,kind,shape,x,y){
        warna dan bentuk — sementara awalan itu ikut tercetak di e-ticket dan
        terbaca petugas sebagai bagian dari nomor kursinya ("K12" padahal
        tamunya mencari meja 12). */
-    kind,shape,tier,table_no:String(n+1),seat_no:n+1,
+    kind,shape,tier,floor:ldzLantai(),table_no:String(n+1),seat_no:n+1,
     capacity:kind==='table'?6:1,
     x:Math.max(0,Math.min(L.w-u.w,Math.round((x-u.w/2)/g)*g)),
     y:Math.max(0,Math.min(L.h-u.h,Math.round((y-u.h/2)/g)*g)),
@@ -3048,7 +3099,7 @@ function ldzDuplicate(eid){
   sel.forEach(it=>{
     n++;
     const c=Object.assign({},it,{id:uid(),x:(+it.x||0)+20,y:(+it.y||0)+20,seat_no:n,
-      table_no:String(n),status:'Available'});
+      table_no:String(n),floor:ldzLantai(),status:'Available'});
     delete c.updatedAt; delete c.createdAt;
     DB.seats.push(c); baru.push(c.id);
   });
@@ -3820,6 +3871,127 @@ function ldzInner(eid){
     +'<div class="ldz-side" id="ldzSide">'+ldzSideHTML(eid)+'</div>'
     +'</div>'+legenda;
 }
+/* ================= PUSTAKA TEMPLATE DENAH =================
+   Menggambar ulang denah venue dari nol tiap kali ada acara adalah pekerjaan
+   setengah jam yang hasilnya selalu sama. Sekarang denah yang sudah jadi bisa
+   DISIMPAN sebagai template dan dimuat oleh event berikutnya dalam sekali klik,
+   lengkap dengan posisi, ukuran, bentuk, kapasitas, dan penomorannya.
+
+   Kenapa menyimpan denah yang sudah digambar, bukan menuliskan koordinat tiap
+   kursi di dalam kode: koordinat yang disalin dari foto denah tidak akan pernah
+   persis, dan begitu venue menggeser satu blok meja, kode ikut harus diubah dan
+   di-deploy. Template yang lahir dari denah asli selalu cocok dengan kenyataan,
+   dan yang mengurusnya orang yang memang tahu tata letaknya.
+
+   Kategori tiket TIDAK ikut disalin apa adanya — yang disimpan namanya saja,
+   lalu dipetakan ke kelas tiket milik event tujuan saat dimuat. Event yang
+   berbeda menjual kelas yang berbeda; menyalin id kelas antar event akan
+   membuat kursi tertaut ke tiket yang bukan miliknya. */
+function ldzTemplates(){ if(!Array.isArray(DB.layoutTemplates)) DB.layoutTemplates=[]; return DB.layoutTemplates; }
+function ldzSimpanTemplate(eid){
+  const its=ldzItems(eid);
+  if(!its.length) return toast('Denah lantai ini masih kosong.');
+  const L=ldzMeta(eid);
+  modal('<button class="close" onclick="closeModal()">\u00d7</button><h3>Simpan sebagai Template Denah</h3>'
+   +'<p class="mini" style="margin-bottom:10px">'+its.length+' objek pada <b>Lantai '+ldzLantai()+'</b> akan disimpan beserta posisi, ukuran, kapasitas, dan nomornya. Kategori disimpan sebagai NAMA, lalu dicocokkan ulang saat dimuat di event lain.</p>'
+   +'<div class="field"><label>Nama Template</label><input id="tpl_nama" placeholder="mis. Laksamana Muda \u2014 Lantai 1 (panggung depan)"></div>'
+   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+   +'<button class="btn" onclick="ldzSimpanTemplateGo(\''+eid+'\')">Simpan Template</button></div>');
+  setTimeout(function(){ const el=document.getElementById('tpl_nama'); if(el)el.focus(); },40);
+}
+function ldzSimpanTemplateGo(eid){
+  const nama=(document.getElementById('tpl_nama')||{}).value||'';
+  if(!nama.trim()) return toast('Nama template wajib diisi.');
+  const its=ldzItems(eid), L=ldzMeta(eid);
+  ldzTemplates().push({
+    id:uid(), nama:nama.trim(), lantai:ldzLantai(), dibuat:new Date().toISOString(), oleh:namaKru(),
+    kanvas:{w:L.w,h:L.h,grid:L.grid,snap:L.snap},
+    objek:its.map(function(i){
+      return {kind:i.kind,shape:i.shape,tier:i.tier,x:+i.x||0,y:+i.y||0,
+              w:+i.w||40,h:+i.h||40,capacity:+i.capacity||1,
+              table_no:i.table_no,seat_no:i.seat_no};
+    })
+  });
+  save(); closeModal(); renderTicketDetail(eid);
+  toast('\u2713 Template "'+nama.trim()+'" tersimpan \u2014 bisa dipakai event lain.');
+}
+function ldzMuatTemplateForm(eid){
+  const tpl=ldzTemplates();
+  if(!tpl.length) return toast('Belum ada template tersimpan. Gambar denahnya sekali, lalu Simpan sebagai Template.');
+  const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===eid; });
+  modal('<button class="close" onclick="closeModal()">\u00d7</button><h3>Muat Template Denah</h3>'
+   +'<p class="mini" style="margin-bottom:10px">Objeknya dibuat ulang di <b>Lantai '+ldzLantai()+'</b> event ini. Denah lantai ini yang sekarang <b>tidak dihapus</b> \u2014 template ditambahkan di atasnya, dan bisa dibatalkan dengan Ctrl+Z.</p>'
+   +'<div class="field"><label>Template</label><select class="inp" id="tpl_pilih" onchange="ldzMuatPetaKelas(\''+eid+'\')">'
+   +tpl.map(function(t,i){ return '<option value="'+i+'">'+esc(t.nama)+' \u00b7 Lantai '+esc(t.lantai||'1')+' \u00b7 '+t.objek.length+' objek</option>'; }).join('')
+   +'</select></div>'
+   +'<div id="tpl_peta"></div>'
+   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+   +'<button class="btn" onclick="ldzMuatTemplateGo(\''+eid+'\')">Muat ke Denah</button></div>',true);
+  ldzMuatPetaKelas(eid);
+}
+/* Pemetaan kategori: tiap nama kategori di template dipasangkan dengan kelas
+   tiket milik event ini. Bawaannya kelas bernama sama kalau ada; kalau tidak,
+   kelas pertama — dan itu ditampilkan, bukan diputuskan diam-diam. */
+function ldzMuatPetaKelas(eid){
+  const box=document.getElementById('tpl_peta'); if(!box) return;
+  const t=ldzTemplates()[+((document.getElementById('tpl_pilih')||{}).value||0)]; if(!t) return;
+  const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===eid; });
+  const namaTier=[...new Set(t.objek.map(function(o){ return o.tier||'(tanpa kategori)'; }))];
+  if(!kelas.length){
+    box.innerHTML='<p class="mini" style="color:var(--red)">Event ini belum punya satu kelas tiket pun. Buat dulu di tab <b>Ticket Class</b> \u2014 kalau tidak, kursinya tidak bisa dijual.</p>';
+    return;
+  }
+  box.innerHTML='<label style="display:block;margin-bottom:6px">Pasangkan kategori template dengan kelas tiket event ini</label>'
+   +'<div class="tbl-edit"><table><thead><tr><th>Kategori di template</th><th>Jadi kelas</th></tr></thead><tbody>'
+   +namaTier.map(function(n){
+      const sama=kelas.find(function(c){ return c.name===n; });
+      return '<tr><td>'+esc(n)+'</td><td><select class="inp tpl_map" data-tier="'+esc(n)+'">'
+       +kelas.map(function(c){ return '<option value="'+c.id+'"'+((sama&&sama.id===c.id)?' selected':'')+'>'+esc(c.name)+'</option>'; }).join('')
+       +'</select></td></tr>';
+   }).join('')
+   +'</tbody></table></div>';
+}
+function ldzMuatTemplateGo(eid){
+  const t=ldzTemplates()[+((document.getElementById('tpl_pilih')||{}).value||0)]; if(!t) return;
+  const peta={};
+  document.querySelectorAll('.tpl_map').forEach(function(el){ peta[el.dataset.tier]=el.value; });
+  const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===eid; });
+  if(!kelas.length) return toast('Buat kelas tiket dulu di tab Ticket Class.');
+  ldzRekam(eid);
+  const L=ldzMeta(eid);
+  if(t.kanvas){ L.w=Math.max(L.w,+t.kanvas.w||0); L.h=Math.max(L.h,+t.kanvas.h||0); }
+  const lantai=ldzLantai();
+  const baru=t.objek.map(function(o){
+    const cid=peta[o.tier||'(tanpa kategori)']||kelas[0].id;
+    const c=kelas.find(function(x){ return x.id===cid; })||kelas[0];
+    return {id:uid(), event_id:eid, ticket_class_id:c.id, zone:'Custom', floor:lantai,
+            kind:o.kind, shape:o.shape, tier:c.name,
+            x:+o.x||0, y:+o.y||0, w:+o.w||40, h:+o.h||40,
+            capacity:+o.capacity||1, table_no:o.table_no, seat_no:o.seat_no,
+            status:'Available'};
+  });
+  DB.seats=DB.seats.concat(baru);
+  ldzSetSel(baru.map(function(i){ return i.id; }));
+  ldzSyncQuota(eid); save(); closeModal(); renderTicketDetail(eid);
+  toast('\u2713 '+baru.length+' objek dimuat dari template "'+t.nama+'".');
+}
+function ldzHapusTemplate(){
+  const tpl=ldzTemplates(); if(!tpl.length) return toast('Belum ada template.');
+  modal('<button class="close" onclick="closeModal()">\u00d7</button><h3>Kelola Template Denah</h3>'
+   +'<div class="tbl-edit"><table><thead><tr><th>Nama</th><th>Lantai</th><th>Objek</th><th>Dibuat</th><th></th></tr></thead><tbody>'
+   +tpl.map(function(t,i){
+      return '<tr><td>'+esc(t.nama)+'</td><td>'+esc(t.lantai||'1')+'</td><td>'+t.objek.length+'</td>'
+       +'<td class="mini">'+fmtDate(t.dibuat)+(t.oleh?' \u00b7 '+esc(t.oleh):'')+'</td>'
+       +'<td><button class="btn danger sm" onclick="ldzHapusTemplateGo('+i+')">Hapus</button></td></tr>';
+   }).join('')
+   +'</tbody></table></div>'
+   +'<div class="modal-actions"><button class="btn" onclick="closeModal()">Tutup</button></div>',true);
+}
+function ldzHapusTemplateGo(i){
+  const tpl=ldzTemplates(); const t=tpl[i]; if(!t) return;
+  tpl.splice(i,1); save(); closeModal(); toast('Template "'+t.nama+'" dihapus.');
+}
+
 /* ---- MODE JUAL DI TAB LAYOUT ----
    Denah yang sudah dirancang kini bisa dipakai berjualan langsung, seperti
    memilih meja di modul Reservasi: klik kursinya, lalu tekan Booking. Dulu
