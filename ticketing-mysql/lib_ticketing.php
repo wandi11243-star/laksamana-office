@@ -84,6 +84,17 @@ function cek_db() {
 
    ENV_LABEL tetap dibaca dan dilaporkan terpisah supaya ketidakcocokan antara
    config dan kenyataan tetap terlihat di ?action=ping. */
+/* Alamat situs disimpulkan dari host yang sedang melayani permintaan.
+   SITE_URL di config harus diketik tangan per server, dan kesalahannya tidak
+   terlihat sampai SESUDAH orang membayar: pembeli di dev dilempar ke
+   laksamanamuda.id yang belum ada isinya, tiketnya seolah hilang, padahal
+   uangnya sudah masuk. Host yang melayani permintaan pasti benar. */
+function site_url() {
+  $h = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+  if ($h === '') return defined('SITE_URL') ? SITE_URL : '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $h . '/ticketing';
+}
 function env_nyata() {
   $h = strtolower(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
   if ($h === '') return defined('ENV_LABEL') ? ENV_LABEL : '?';   // dipanggil dari CLI
@@ -454,7 +465,7 @@ function mode_simulasi() {
 function xendit_invoice($o, $ev) {
   if (mode_simulasi()) {
     return array('gateway' => 'simulasi', 'invoice_id' => 'SIM-' . $o['payment_ref'],
-      'invoice_url' => SITE_URL . '/#simbayar/' . $o['payment_ref'] . '/' . $o['access_token'],
+      'invoice_url' => site_url() . '/#simbayar/' . $o['payment_ref'] . '/' . $o['access_token'],
       'expiry_date' => '', 'status' => 'PENDING', 'simulasi' => true);
   }
   if (strpos(xendit_mode(), 'belum diisi') === 0)
@@ -467,8 +478,8 @@ function xendit_invoice($o, $ev) {
     'payer_email'           => $o['email'],
     'description'           => $ev['title'] . ' — ' . count($o['items']) . ' tiket',
     'invoice_duration'      => 3600,
-    'success_redirect_url'  => SITE_URL . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
-    'failure_redirect_url'  => SITE_URL . '/#gagal/' . $o['payment_ref'],
+    'success_redirect_url'  => site_url() . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
+    'failure_redirect_url'  => site_url() . '/#gagal/' . $o['payment_ref'],
     'customer'              => array('given_names' => $o['buyer_name'], 'email' => $o['email'], 'mobile_number' => $o['phone']),
     'items'                 => array_map(function ($it) use ($ev) {
       return array('name' => $ev['title'] . ' · ' . $it['label'], 'quantity' => 1, 'price' => $it['price'], 'category' => $it['tier']);
@@ -616,12 +627,44 @@ function simulasi_bayar($ref, $akses) {
    Dibuka dengan ref + access_token, bukan dengan email saja. Email mudah
    ditebak; kalau itu kuncinya, siapa pun bisa memanggil QR tiket orang
    lain dan masuk lebih dulu. */
+/* JANGAN HANYA BERGANTUNG PADA WEBHOOK.
+   Webhook bisa tidak pernah sampai: URL-nya salah didaftarkan, tokennya beda,
+   server sempat mati, atau jaringannya putus. Kalau itu satu-satunya jalan,
+   pembeli sudah membayar tapi tiketnya tidak pernah terbit — dan tidak ada
+   seorang pun yang tahu sampai ia mengeluh di pintu masuk. Sudah terjadi saat
+   pemasangan ini: pembayaran sampai ke Xendit, tickets tidak bertambah satu pun.
+
+   Jadi saat halaman tiket dibuka dan pesanannya masih Pending, kita TANYA
+   Xendit langsung. Kalau di sana sudah PAID, pelunasannya dijalankan lewat
+   lunaskan() yang sama dengan jalur webhook — idempoten, jadi webhook yang
+   datang terlambat tidak menerbitkan tiket kedua. */
+function selaraskan_xendit($o) {
+  if ($o['payment_status'] !== 'Pending') return $o;
+  $inv = isset($o['payment']['invoice_id']) ? $o['payment']['invoice_id'] : '';
+  if ($inv === '' || strpos($inv, 'SIM-') === 0) return $o;   // invoice simulasi tak ada di Xendit
+  if (strpos(xendit_mode(), 'belum diisi') === 0) return $o;
+  $ch = curl_init('https://api.xendit.co/v2/invoices/' . rawurlencode($inv));
+  curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_USERPWD => XENDIT_SECRET . ':', CURLOPT_TIMEOUT => 20));
+  $res = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+  if ($res === false || $code >= 300) return $o;
+  $d = json_decode($res, true);
+  $st = strtoupper(isset($d['status']) ? $d['status'] : '');
+  if ($st === 'PAID' || $st === 'SETTLED') {
+    lunaskan($o['id'], $d);
+    $r2 = ambil('SELECT data FROM orders WHERE id = :i', array(':i' => $o['id']));
+    if ($r2) return $r2[0];
+  } else if ($st === 'EXPIRED') {
+    batalkan($o['id'], 'EXPIRED');
+  }
+  return $o;
+}
 function status_pesanan($ref, $akses) {
   $rows = ambil('SELECT data FROM orders WHERE payment_ref = :r', array(':r' => $ref));
   if (!$rows) throw new Exception('Pesanan tidak ditemukan.');
   $o = $rows[0];
   if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses))
     throw new Exception('Tautan tiket tidak sah.');
+  $o = selaraskan_xendit($o);
   $ev = event_satu($o['event_id']);
   $tiket = array();
   if ($o['payment_status'] === 'Paid') {
