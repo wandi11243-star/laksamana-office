@@ -33,9 +33,14 @@
  * menit lalu — mengembalikan kursi yang baru saja terjual jadi Available.
  ************************************************************************/
 
-if (file_exists(__DIR__ . '/config.local.php'))      require __DIR__ . '/config.local.php';
-else if (file_exists(__DIR__ . '/config.php'))       require __DIR__ . '/config.php';
-else                                                 require __DIR__ . '/config.sample.php';
+/* Berkas config mana yang MENANG dicatat, lalu dilaporkan di ?action=ping.
+   Urutannya config.local.php > config.php > config.sample.php, dan yang
+   pertama menang diam-diam. Kejadian 31 Juli 2026: sebuah baris di config.php
+   diubah berkali-kali tanpa pengaruh apa pun, dan tidak ada satu pun cara
+   dari luar untuk tahu bahwa yang dibaca server ternyata berkas lain. */
+if (file_exists(__DIR__ . '/config.local.php'))      { require __DIR__ . '/config.local.php'; define('CONFIG_DIPAKAI', 'config.local.php'); }
+else if (file_exists(__DIR__ . '/config.php'))       { require __DIR__ . '/config.php';       define('CONFIG_DIPAKAI', 'config.php'); }
+else                                                 { require __DIR__ . '/config.sample.php'; define('CONFIG_DIPAKAI', 'config.sample.php (BELUM DIISI)'); }
 
 define('LIB_VERSI', '2026-07-31a');
 
@@ -74,6 +79,7 @@ function identitas() {
     // terpisah yang bisa lupa diubah saat kunci diganti.
     'xendit' => xendit_mode(),
     'simulasi_bayar' => mode_simulasi(),
+    'config' => defined('CONFIG_DIPAKAI') ? CONFIG_DIPAKAI : '?',
   ));
 }
 function xendit_mode() {
