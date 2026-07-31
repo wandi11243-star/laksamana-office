@@ -517,6 +517,15 @@ function tautkan_pesanan_lama($userId, $email) {
   return $n;
 }
 
+/* Berapa orang yang ditampung sekumpulan item pesanan — sekaligus berapa tiket
+   yang terbit untuknya. Dipakai bersama oleh riwayat dan email supaya keduanya
+   tidak pernah menyebut angka yang berbeda untuk pesanan yang sama. */
+function jml_pax($items) {
+  $n = 0;
+  foreach ((array)$items as $it) $n += max(1, (int)(isset($it['capacity']) ? $it['capacity'] : 1));
+  return $n;
+}
+
 /* Daftar tiket milik satu akun. Tiap pesanan dibawa lengkap dengan
    access_token-nya sendiri, supaya halaman Tiket Saya membuka e-ticket lewat
    jalur yang SAMA dengan tautan dari email — bukan jalur kedua yang bisa
@@ -534,7 +543,10 @@ function tiket_saya($u) {
       'ref' => $o['payment_ref'], 'access_token' => $o['access_token'],
       'status' => $o['payment_status'], 'total' => (int)$o['total'],
       'created' => isset($o['created']) ? $o['created'] : '',
-      'jml_tiket' => count(isset($o['items']) ? $o['items'] : array()),
+      // Jumlah TIKET, bukan jumlah tempat: satu meja 6 orang menerbitkan 6
+      // tiket, dan riwayat yang menulis "1 tiket" untuk pesanan itu membuat
+      // pembelinya mengira lima QR-nya hilang.
+      'jml_tiket' => jml_pax(isset($o['items']) ? $o['items'] : array()),
       'event' => $ev ? array('title' => $ev['title'], 'start' => $ev['start'], 'venue' => $ev['venue']) : null,
     );
   }
@@ -640,8 +652,17 @@ function checkout($b) {
     $s = isset($peta[$sid]) ? $peta[$sid] : null;
     if (!$s || $s['price'] <= 0) throw new Exception('Ada kursi yang harganya belum ditetapkan. Hubungi admin.');
     if ($s['status'] === 'sold' || $s['status'] === 'checked') throw new Exception('Kursi ' . $s['label'] . ' keburu terjual. Silakan pilih ulang.');
+    /* Meja dibeli sebagai SATU tempat, tapi menampung `capacity` orang — dan
+       tiap orang perlu QR-nya sendiri (lihat lunaskan()). Kapasitasnya
+       dinormalkan di sini, bukan saat pelunasan: kalau denah berubah setelah
+       pesanan dibuat, jumlah tiket yang terbit harus tetap sama dengan yang
+       dilihat pembeli waktu membayar.
+       Kursi biasa dipaksa 1 — kursi dengan capacity aneh dari denah lama tidak
+       boleh diam-diam melahirkan dua tiket. */
+    $pax = ($s['kind'] === 'table') ? max(1, (int)$s['capacity']) : 1;
     $items[] = array('seat_id' => $sid, 'label' => $s['label'], 'tier' => $s['tier'],
-                     'class_id' => $s['class_id'], 'capacity' => $s['capacity'], 'price' => $s['price']);
+                     'class_id' => $s['class_id'], 'kind' => $s['kind'],
+                     'capacity' => $pax, 'price' => $s['price']);
     $subtotal += $s['price'];
   }
   $fee   = (defined('ADMIN_FEE') ? ADMIN_FEE : 0) * count($items);
@@ -808,22 +829,46 @@ function lunaskan($oid, $body = array()) {
       db()->prepare('UPDATE seats SET status = "Sold", updated_at = :u, data = :d WHERE id = :i')
           ->execute(array(':u' => now_ms(), ':d' => json_encode($s, JSON_UNESCAPED_UNICODE), ':i' => $seatId));
     };
-    foreach ($o['items'] as $idx => $it) {
-      $tk = array(
-        'id' => uid('tk'), 'order_item_id' => $oid, 'ticket_class_id' => $it['class_id'],
-        'seat_id' => $it['seat_id'],
-        'ticket_number' => 'LM-' . (1000 + $no + $idx),
-        // Token QR: acak penuh, bukan turunan id pesanan. Nomor urut atau
-        // id yang bisa ditebak berarti QR palsu bisa dibuat dari rumah.
-        'qr_token' => 'QR' . token_acak(20),
-        'status' => 'Valid', 'pdf_url' => '', 'seat_label' => $it['label'], 'tier' => $it['tier'],
-        'buyer_name' => $o['buyer_name'], 'issued_at' => gmdate('c'),
-      );
-      $insT->execute(array(':i' => $tk['id'], ':o' => $oid, ':c' => $tk['ticket_class_id'], ':s' => $tk['seat_id'],
-        ':n' => $tk['ticket_number'], ':q' => $tk['qr_token'], ':st' => 'Valid', ':u' => now_ms(),
-        ':d' => json_encode($tk, JSON_UNESCAPED_UNICODE)));
-      if ($tk['seat_id']) $updS($tk['seat_id']);
-      $tiket[] = $tk;
+    /* SATU MEJA = SATU TIKET PER TAMU.
+       Meja 6 orang yang menerbitkan satu QR berarti petugas memindai sekali dan
+       lima tamu sisanya masuk tanpa tercatat — atau ditolak di pintu, tergantung
+       petugasnya. Kuota kelas di EMS pun sudah dihitung per ORANG (ldzSyncQuota
+       menjumlahkan capacity tiap objek), jadi satu tiket per meja membuat angka
+       "sisa" ikut meleset sebanyak kapasitas mejanya.
+
+       Nomor tiket berjalan untuk SELURUH pesanan ($urut), bukan indeks item:
+       dengan indeks item, enam tamu di meja yang sama akan memegang nomor tiket
+       yang sama persis. */
+    $urut = 0;
+    foreach ($o['items'] as $it) {
+      $pax = max(1, (int)(isset($it['capacity']) ? $it['capacity'] : 1));
+      // Pesanan lama (sebelum 'kind' ikut disimpan) hanya bisa dikenali dari
+      // kapasitasnya. Itu cukup: yang berkapasitas lebih dari satu memang meja.
+      $meja = isset($it['kind']) ? ($it['kind'] === 'table') : ($pax > 1);
+      for ($p = 1; $p <= $pax; $p++) {
+        $tk = array(
+          'id' => uid('tk'), 'order_item_id' => $oid, 'ticket_class_id' => $it['class_id'],
+          'seat_id' => $it['seat_id'],
+          'ticket_number' => 'LM-' . (1000 + $no + $urut),
+          // Token QR: acak penuh, bukan turunan id pesanan. Nomor urut atau
+          // id yang bisa ditebak berarti QR palsu bisa dibuat dari rumah.
+          'qr_token' => 'QR' . token_acak(20),
+          'status' => 'Valid', 'pdf_url' => '', 'seat_label' => $it['label'], 'tier' => $it['tier'],
+          // Tamu ke berapa dari meja yang mana. Tanpa ini enam tiket satu meja
+          // tampil identik di halaman e-ticket, dan tak ada yang tahu QR mana
+          // yang sudah diberikan ke siapa.
+          'kind' => $meja ? 'table' : 'seat', 'pax_no' => $p, 'pax_total' => $pax,
+          'buyer_name' => $o['buyer_name'], 'issued_at' => gmdate('c'),
+        );
+        $insT->execute(array(':i' => $tk['id'], ':o' => $oid, ':c' => $tk['ticket_class_id'], ':s' => $tk['seat_id'],
+          ':n' => $tk['ticket_number'], ':q' => $tk['qr_token'], ':st' => 'Valid', ':u' => now_ms(),
+          ':d' => json_encode($tk, JSON_UNESCAPED_UNICODE)));
+        $tiket[] = $tk;
+        $urut++;
+      }
+      // Kursinya ditandai terjual SEKALI per tempat, bukan per tiket: satu meja
+      // tetap satu baris `seats`, sebanyak apa pun tamu yang duduk di sana.
+      if ($it['seat_id']) $updS($it['seat_id']);
     }
     // Kuota kelas tiket ikut naik, supaya angka "sisa" di EMS benar.
     naikkan_sold($o['items']);
@@ -834,9 +879,17 @@ function lunaskan($oid, $body = array()) {
     return array('order_id' => $oid, 'tiket' => count($tiket));
   } finally { tx_unlock(); }
 }
+/* Yang dihitung ORANG, bukan tempat. Kuota kelas di EMS dibangun dengan
+   menjumlahkan capacity tiap objek denah (satu meja 6 orang menyumbang 6),
+   jadi menaikkan sold satu per meja membuat "sisa kuota" di EMS melar terus:
+   kelas yang tempatnya sudah habis masih dilaporkan menyisakan puluhan tiket. */
 function naikkan_sold($items) {
   $hit = array();
-  foreach ($items as $it) if ($it['class_id']) $hit[$it['class_id']] = (isset($hit[$it['class_id']]) ? $hit[$it['class_id']] : 0) + 1;
+  foreach ($items as $it) {
+    if (!$it['class_id']) continue;
+    $pax = max(1, (int)(isset($it['capacity']) ? $it['capacity'] : 1));
+    $hit[$it['class_id']] = (isset($hit[$it['class_id']]) ? $hit[$it['class_id']] : 0) + $pax;
+  }
   foreach ($hit as $cid => $n) {
     $rows = ambil('SELECT data FROM ticket_classes WHERE id = :i', array(':i' => $cid));
     if (!$rows) continue;
@@ -954,9 +1007,15 @@ function email_eticket_html($o, $tiket) {
   $tautan = site_url() . '/#tiket/' . rawurlencode($o['payment_ref']) . '/' . rawurlencode($o['access_token']);
   $baris = '';
   foreach ($tiket as $t) {
+    // Meja disebut "Meja 5 · Tamu 3 dari 6". Enam baris bertuliskan "Meja 5"
+    // saja membuat pembelinya mengira sistemnya salah mengirim tiket berulang.
+    $pt   = (int)(isset($t['pax_total']) ? $t['pax_total'] : 1);
+    $meja = (isset($t['kind']) ? $t['kind'] === 'table' : $pt > 1);
+    $tmp  = ($meja ? 'Meja ' : '') . htmlspecialchars($t['seat_label'])
+          . ($pt > 1 ? ' &middot; Tamu ' . (int)$t['pax_no'] . ' dari ' . $pt : '');
     $baris .= '<tr><td style="padding:6px 0;border-bottom:1px solid #E7E1D3">'
       . '<b>' . htmlspecialchars($t['ticket_number']) . '</b> &middot; '
-      . htmlspecialchars($t['seat_label']) . ' <span style="color:#8C8677">(' . htmlspecialchars($t['tier']) . ')</span>'
+      . $tmp . ' <span style="color:#8C8677">(' . htmlspecialchars($t['tier']) . ')</span>'
       . '</td></tr>';
   }
   return '<div style="font-family:Arial,Helvetica,sans-serif;background:#F7F6F4;padding:24px">'
@@ -1041,6 +1100,9 @@ function status_pesanan($ref, $akses) {
     foreach (ambil('SELECT data FROM tickets WHERE order_item_id = :o', array(':o' => $o['id'])) as $t) {
       $tiket[] = array('ticket_number' => $t['ticket_number'], 'qr_token' => $t['qr_token'],
                        'seat_label' => isset($t['seat_label']) ? $t['seat_label'] : '',
+                       'kind' => isset($t['kind']) ? $t['kind'] : 'seat',
+                       'pax_no' => (int)(isset($t['pax_no']) ? $t['pax_no'] : 1),
+                       'pax_total' => (int)(isset($t['pax_total']) ? $t['pax_total'] : 1),
                        'tier' => isset($t['tier']) ? $t['tier'] : '', 'status' => $t['status']);
     }
   }

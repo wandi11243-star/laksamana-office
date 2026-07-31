@@ -206,6 +206,60 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function tgl() {  }
 
 
@@ -226,7 +280,38 @@ function toast() {  }
 
 
 
-function api() { toast(); go(); klok(); }
+function api() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatAkun() { api(); }
+
+
+
+
+function gambarTopnav() { go(); api(); toast(); klok(); }
 
 
 
@@ -258,9 +343,34 @@ function api() { toast(); go(); klok(); }
 
 
 
-function go() { gambarBarHp(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function go() { gambarTopnav(); gambarBarHp(); }
+
+
+
+
+
+
+
+
+
+
+function mulai() { muatAkun(); gambarTopnav(); dariHash(); }
 
 
 
@@ -357,6 +467,46 @@ function kartuEvent() { go(); tgl(); jam(); memuat(); api(); galat(); gambarDena
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
 
 
@@ -380,7 +530,62 @@ function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
 
 
 
+
 function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -450,7 +655,15 @@ function hex2rgb() { api(); toast(); gambarDenah(); }
 
 
 
+
+
+
+
 function ringkasHTML() { go(); }
+
+
+
+
 
 
 
@@ -517,7 +730,148 @@ function gambarBarHp() { go(); toast(); ringkasHTML(); api(); simpanTiketku(); }
 
 
 
-function simpanTiketku() { memuat(); api(); galat(); tiketHTML(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanTiketku() { go(); kirimAkun(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimAkun() { toast(); api(); gambarTopnav(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -559,6 +913,13 @@ function simpanTiketku() { memuat(); api(); galat(); tiketHTML(); go(); }
 
 
 function tiketHTML() { tgl(); jam(); qrSvg(); api(); toast(); go(); }
+
+
+
+
+
+
+
 
 
 
@@ -846,4 +1207,4 @@ function denda() {  }
 
 
 
-function qrSvg() { qrMatrix(); dariHash(); }
+function qrSvg() { qrMatrix(); mulai(); }

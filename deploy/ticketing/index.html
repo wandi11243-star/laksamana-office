@@ -342,6 +342,9 @@ const Beli = {
     if($('#f-nama')) this.isian={nama:g('#f-nama'),email:g('#f-email'),hp:g('#f-hp')};
   },
   total(){ return this.items.reduce((a,i)=>a+(+i.price||0),0); },
+  // Jumlah ORANG yang tertampung = jumlah tiket yang akan terbit. Beda dengan
+  // jumlah tempat begitu ada meja di keranjang.
+  pax(){ return this.items.reduce((a,i)=>a+Math.max(1,+i.pax||1),0); },
   mulaiJam(){
     clearInterval(this.jam);
     this.jam=setInterval(()=>{
@@ -647,22 +650,30 @@ window.ketukTempat = async (seatId)=>{
     return gambarDenah();
   }
   o.status='mine';
-  Beli.items.push({seat_id:o.id,label:o.label,tier:o.tier,price:o.price});
+  /* kind & capacity ikut disimpan karena ringkasan harus bisa mengatakan
+     "1 meja = 6 tiket" SEBELUM orang membayar. Server menghitung ulang
+     angka yang sama dari denah saat checkout — ini cuma untuk ditampilkan. */
+  Beli.items.push({seat_id:o.id,label:o.label,tier:o.tier,price:o.price,
+                   kind:o.kind,pax:(o.kind==='table'?Math.max(1,+o.capacity||1):1)});
   Beli.habis=r.expires_at; Beli.mulaiJam();
   gambarDenah();
 };
 
 function ringkasHTML(lanjutTeks, aksi){
-  const t=Beli.total();
+  const t=Beli.total(), pax=Beli.pax();
   return '<div class="card sum"><div class="sh">Ringkasan</div><div class="sb">'
    +(Beli.items.length?'<div class="timer">⏱ Tempat ditahan, sisa <b id="sisa-waktu" class="mono">10:00</b></div>':'')
    +(Beli.items.length
-      ? Beli.items.map(i=>'<div class="pilih"><div><b>'+esc(i.label||'Tempat')+'</b>'
-          +'<div class="mini">'+esc(i.tier||'')+'</div></div>'
+      /* Meja menyebutkan jumlah tiketnya sendiri. Harga meja jauh lebih besar
+         daripada harga kursi, dan tanpa keterangan ini orang membaca angka itu
+         sebagai harga satu orang — lalu merasa tertipu di halaman pembayaran. */
+      ? Beli.items.map(i=>'<div class="pilih"><div><b>'+(i.kind==='table'?'Meja ':'')+esc(i.label||'Tempat')+'</b>'
+          +'<div class="mini">'+esc(i.tier||'')+(i.pax>1?' · '+i.pax+' tamu, '+i.pax+' tiket':'')+'</div></div>'
           +'<div style="display:flex;align-items:center;gap:8px"><span class="mono">'+rp(i.price)+'</span>'
           +'<button class="rm" title="Lepas" onclick="ketukTempat(\''+esc(i.seat_id)+'\')">×</button></div></div>').join('')
       : '<div class="mini" style="text-align:center;padding:14px 0">Belum ada tempat dipilih</div>')
-   +(Beli.items.length?'<div class="cost"><span>Subtotal ('+Beli.items.length+' tempat)</span><span class="mono">'+rp(t)+'</span></div>'
+   +(Beli.items.length?'<div class="cost"><span>Subtotal ('+Beli.items.length+' tempat'
+       +(pax>Beli.items.length?' · '+pax+' tiket':'')+')</span><span class="mono">'+rp(t)+'</span></div>'
        +'<div class="cost tot"><span>TOTAL</span><span class="mono">'+rp(t)+'</span></div>'
        +'<p class="mini" style="margin:4px 0 10px">Biaya admin ditambahkan di halaman pembayaran.</p>':'')
    +'<button class="btn btn-pri btn-block" '+(Beli.items.length?'':'disabled')+' onclick="'+(aksi||'go(\'checkout\',Beli.eventId)')+'">'
@@ -672,7 +683,8 @@ function ringkasHTML(lanjutTeks, aksi){
 function gambarBarHp(){
   const s=$('#barhp');
   if((location.hash.indexOf('#denah')===0) && Beli.items.length){
-    s.innerHTML='<div class="bar-hp"><div class="r"><div class="i"><span>'+Beli.items.length+' tempat</span>'
+    s.innerHTML='<div class="bar-hp"><div class="r"><div class="i"><span>'+Beli.items.length+' tempat'
+      +(Beli.pax()>Beli.items.length?' · '+Beli.pax()+' tiket':'')+'</span>'
       +'<b>'+rp(Beli.total())+'</b></div>'
       +'<button class="btn btn-pri" onclick="go(\'checkout\',Beli.eventId)">Lanjut</button></div></div>';
   } else s.innerHTML='';
@@ -893,7 +905,8 @@ Layar.tiket = async (ref, token)=>{
   $('#app').innerHTML='<div class="tengah">'
     +'<div class="sukses">✓</div>'
     +'<h1 style="font-size:24px">Pembayaran Berhasil</h1>'
-    +'<p style="color:var(--muted)">Tunjukkan QR di bawah ke petugas saat masuk.</p>'
+    +'<p style="color:var(--muted)">Tunjukkan QR di bawah ke petugas saat masuk.'
+      +(o.tickets.length>1?'<br><b>'+o.tickets.length+' tiket</b> — tiap tamu memakai QR-nya sendiri, jadi bagikan satu per orang.':'')+'</p>'
     +o.tickets.map(t=>tiketHTML(t,o)).join('')
     +'<p class="mini" style="margin-top:14px">Simpan halaman ini. Bisa dibuka lagi lewat tautan yang sama.</p>'
     +'<button class="btn btn-ghost btn-block" style="margin-top:12px" onclick="go(\'events\')">Lihat Event Lain</button>'
@@ -901,6 +914,12 @@ Layar.tiket = async (ref, token)=>{
 };
 function tiketHTML(t,o){
   const ci=t.status==='Checked-In';
+  /* Satu meja menerbitkan satu tiket per tamu. Tiket-tiket itu identik kecuali
+     nomor dan QR-nya, jadi kartunya HARUS menyebut tamu ke berapa — kalau tidak,
+     pembeli yang membagikan tiket ke teman-temannya tidak tahu mana yang sudah
+     dibagikan, dan dua orang bisa datang membawa QR yang sama. */
+  const pt=+t.pax_total||1, meja=(t.kind==='table')||pt>1;
+  const tempat=(meja?'Meja ':'')+(t.seat_label||'-');
   return '<div class="tiket rise">'
    +'<div class="th"><h2>'+esc(o.event?o.event.title:'')+'</h2>'
      +'<span>'+esc(tgl(o.event&&o.event.start))+' · '+esc(jam(o.event&&o.event.start))+'</span></div>'
@@ -909,8 +928,9 @@ function tiketHTML(t,o){
    +'<div class="ti">'
      +'<div><div class="f">Nomor Tiket</div><div class="v mono">'+esc(t.ticket_number)+'</div></div>'
      +'<div><div class="f">Nama</div><div class="v">'+esc(o.buyer)+'</div></div>'
-     +'<div><div class="f">Tempat</div><div class="v">'+esc(t.seat_label||'-')+'</div></div>'
-     +'<div><div class="f">Kategori</div><div class="v">'+esc(t.tier||'-')+'</div></div>'
+     +'<div><div class="f">Tempat</div><div class="v">'+esc(tempat)+'</div></div>'
+     +'<div><div class="f">'+(pt>1?'Tamu':'Kategori')+'</div><div class="v">'
+       +(pt>1?(t.pax_no+' dari '+pt+' <span class="mini">'+esc(t.tier||'')+'</span>'):esc(t.tier||'-'))+'</div></div>'
    +'</div>'
    +'<div class="ts'+(ci?' ci':'')+'">'+(ci?'✓ SUDAH CHECK-IN':'✓ TIKET SAH')+'</div>'
   +'</div>';

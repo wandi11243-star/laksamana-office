@@ -2742,7 +2742,17 @@ function salesBody(eid){
   } else tampil.forEach(function(b){
     const o=b.o, tks=b.tks, rf=b.rf;
     const cls=tks[0]?DB.ticketClasses.find(c=>c.id===tks[0].ticket_class_id):null;
-    const kursi=tks.map(function(t){ const st=t.seat_id?DB.seats.find(x=>x.id===t.seat_id):null; return st?(st.table_no||st.seat_no):null; }).filter(Boolean);
+    /* Tempatnya dikelompokkan, bukan dideret satu per tiket: satu meja 6 orang
+       menerbitkan 6 tiket dengan seat_id yang SAMA, dan kolomnya dulu berbunyi
+       "5, 5, 5, 5, 5, 5" — terbaca seperti enam meja berbeda. */
+    const jml={}; const urut=[];
+    tks.forEach(function(t){
+      const st=t.seat_id?DB.seats.find(x=>x.id===t.seat_id):null; if(!st) return;
+      const l=String(st.table_no||st.seat_no);
+      if(!(l in jml)){ jml[l]=0; urut.push(l); }
+      jml[l]++;
+    });
+    const kursi=urut.map(function(l){ return jml[l]>1 ? l+' ('+jml[l]+' tamu)' : l; });
     const masuk=tks.filter(function(t){ return t.status==='Checked-In'; }).length;
     const rfCell = !rf ? '<span class="mini">\u2014</span>'
       : rf.status==='Pending'  ? '<span class="badge b-yellow">On process</span>'
@@ -2833,12 +2843,25 @@ function regulerAdj(eid,delta){
   c.sold=Math.max(0,Math.min(c.quota,(+c.sold||0)+delta));
   save(); renderTicketDetail(eid);
 }
+/* Satu tempat bisa memegang BEBERAPA tiket: penjualan online menerbitkan satu
+   tiket per tamu untuk meja berkapasitas banyak. Dulu status diambil dari tiket
+   PERTAMA yang ketemu — akibatnya meja 6 orang berubah jadi "sudah datang"
+   begitu satu tamu memindai, dan Live Occupancy melaporkan satu meja penuh
+   hadir padahal baru satu orang. Sekarang meja baru hijau kalau SEMUA tiketnya
+   sudah check-in. Untuk kursi biasa (satu tiket) hasilnya persis seperti dulu. */
 function seatCls(s){
-  const tk=DB.tickets.find(t=>t.seat_id===s.id && t.status!=='Cancelled');
-  if(tk && tk.status==='Checked-In') return 'checked';
-  if(s.status==='Sold'||tk) return 'sold';
+  const tks=DB.tickets.filter(t=>t.seat_id===s.id && t.status!=='Cancelled');
+  if(tks.length && tks.every(t=>t.status==='Checked-In')) return 'checked';
+  if(s.status==='Sold'||tks.length) return 'sold';
   if(s.status==='Locked') return 'locked';
   return 'available';
+}
+/* "3 / 6 datang" untuk tempat berisi banyak tiket; kosong untuk kursi biasa,
+   supaya tooltip kursi tidak jadi lebih ramai tanpa menambah apa pun. */
+function seatDatang(s){
+  const tks=DB.tickets.filter(t=>t.seat_id===s.id && t.status!=='Cancelled');
+  if(tks.length<2) return '';
+  return ' — '+tks.filter(t=>t.status==='Checked-In').length+' dari '+tks.length+' datang';
 }
 /* Legend denah — beda makna antara Ticketing (kelola status) dan Live Occupancy
    di Check-In (status kedatangan). */
@@ -2856,7 +2879,7 @@ function seatBox(s){
   // onclick supaya tak sengaja memutar status di tengah acara.
   if(window._denahRO){
     const tampil=cls==='checked'?'sudah datang':cls==='sold'?'belum datang':cls==='locked'?'hold':'kosong';
-    return '<div class="seat '+cls+' ro" title="Kursi '+lbl+meja+' — '+tampil+'">'+lbl+'</div>';
+    return '<div class="seat '+cls+' ro" title="Kursi '+lbl+meja+' — '+tampil+seatDatang(s)+'">'+lbl+'</div>';
   }
   if(window._beliMode){
     const pilih=beliSel().indexOf(s.id)>=0;
@@ -5192,7 +5215,7 @@ function showETicket(tid){
       <div class="k">Event</div><div><b>${esc(e.title)}</b></div>
       <div class="k">Nama</div><div>${esc(o.buyer_name)}</div>
       <div class="k">Class</div><div>${esc(c.name)}</div>
-      <div class="k">Seat</div><div>${seat?esc(seat.table_no):'Standing'}</div>
+      <div class="k">Seat</div><div>${seat?esc(seat.table_no):'Standing'}${(+tk.pax_total>1)?` <span class="mini">· tamu ${+tk.pax_no} dari ${+tk.pax_total}</span>`:''}</div>
       <div class="k">Venue</div><div>${esc(e.venue)}</div>
       <div class="k">Waktu</div><div>${fmtDateTime(e.start_datetime)}</div>
       <div class="k">QR Token</div><div class="mini" style="word-break:break-all">${tk.qr_token.slice(0,20)}...</div>
