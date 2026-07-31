@@ -2604,8 +2604,8 @@ function renderTicketDetail(id){
     body=`<button class="btn ghost sm" style="margin-bottom:12px" onclick="ticketClassForm('${id}')">+ Ticket Class</button>
     <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th><th></th></tr></thead><tbody>
     ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td>
-      <td style="white-space:nowrap"><button class="btn ghost sm" title="Ubah" onclick="ticketClassForm('${id}','${c.id}')">Ubah</button>
-      <button class="btn ghost sm" title="Hapus" onclick="delTicketClass('${id}','${c.id}')">Hapus</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Belum ada ticket class.</td></tr>'}
+      <td style="white-space:nowrap"><button class="btn ghost sm" title="Ubah" onclick="ticketClassForm('${id}','${c.id}')">✎</button>
+      <button class="btn ghost sm" title="Hapus" onclick="delTicketClass('${id}','${c.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;
   }
@@ -4814,10 +4814,23 @@ function renderL2Hall(id){
    Keduanya menolak dengan MENYEBUT ANGKANYA, bukan sekadar "tidak bisa":
    yang dibutuhkan orang saat ditolak adalah tahu apa yang harus dibereskan
    lebih dulu. */
+/* JUMLAH TERJUAL DIHITUNG DARI TIKETNYA, BUKAN DARI KOLOM `sold`.
+
+   `sold` adalah penghitung yang disimpan terpisah, dan ia bisa basi: data
+   contoh bawaan memasang angka (mis. Spectator 70) tanpa satu pun baris di
+   tabel tickets, dan pembatalan lama tidak selalu menurunkannya kembali.
+   Memakai angka itu sebagai penjaga membuat kelas yang sebenarnya bersih
+   MENOLAK dihapus dengan alasan "sudah terjual 70" — padahal di halaman
+   Penjualan tidak ada satu baris pun. Tiket adalah bukti transaksinya;
+   penghitung hanya cerminan yang bisa tertinggal. */
+function tiketTerjual(id){
+  return DB.tickets.filter(function(t){ return t.ticket_class_id===id && t.status!=='Cancelled'; }).length;
+}
 function delTicketClass(eid, id){
   const c = DB.ticketClasses.find(x => x.id === id); if(!c) return;
-  if(+c.sold > 0){
-    toast('Tidak bisa dihapus — sudah ada ' + c.sold + ' tiket terjual di kelas ini.');
+  const nyata = tiketTerjual(id);
+  if(nyata > 0){
+    toast('Tidak bisa dihapus — sudah ada ' + nyata + ' tiket terjual di kelas ini.');
     return;
   }
   const dipakai = DB.seats.filter(function(s2){
@@ -4831,7 +4844,13 @@ function delTicketClass(eid, id){
     toast('Masih dipakai ' + dipakai.length + ' objek di denah. Ubah tingkatan objeknya dulu.');
     return;
   }
-  if(!confirm('Hapus ticket class "' + c.name + '"?')) return;
+  // Penghitung basi diberitahukan, bukan dipakai menolak — supaya angka aneh
+  // di kolom Terjual tidak lagi jadi misteri yang tak bisa dijelaskan.
+  const pesan = (+c.sold > 0)
+    ? 'Hapus ticket class "' + c.name + '"?\n\nKolom Terjual tertulis ' + c.sold
+      + ', tapi tidak ada satu pun tiket sungguhan di kelas ini (angka itu sisa data contoh).'
+    : 'Hapus ticket class "' + c.name + '"?';
+  if(!confirm(pesan)) return;
   DB.ticketClasses = DB.ticketClasses.filter(x => x.id !== id);
   save(); renderTicketDetail(eid); toast('Ticket class dihapus.');
 }
@@ -4884,8 +4903,9 @@ function saveTicketClass(eid, id){
     /* Kuota tidak boleh turun di bawah yang SUDAH terjual — kalau tidak,
        "sisa" jadi minus dan penjualan berikutnya ditolak dengan angka yang
        tidak masuk akal buat kasir maupun pembeli. */
-    if(quota < (+lama.sold||0)){
-      toast('Sudah terjual ' + lama.sold + ' tiket — kuota tidak boleh di bawah itu.');
+    const nyata = tiketTerjual(id);
+    if(quota < nyata){
+      toast('Sudah terjual ' + nyata + ' tiket — kuota tidak boleh di bawah itu.');
       return;
     }
     /* Nama kelas adalah TAUTAN ke kursi di denah: objek denah menyimpan
@@ -4978,11 +4998,49 @@ function pfKelasBerubah(eid){
   }
   pfRingkas(eid);
 }
+/* PERTANYAAN TINGKAT EVENT TIDAK BOLEH DIJAWAB DATA TINGKAT LANTAI.
+
+   Versi sebelumnya memutuskan "pakai denah kustom atau template" lewat
+   ldzItems(), yang hanya berisi objek LANTAI YANG SEDANG DIBUKA. Kalau kru
+   terakhir kali membuka Lantai 2 yang masih kosong, modal Catat Penjualan
+   diam-diam jatuh ke denah TEMPLATE bawaan venue — kursi yang diklik kasir
+   bukan kursi yang dirancang di layout, dan tidak ada apa pun di layar yang
+   memberi tahu bahwa itu denah yang berbeda.
+
+   Keputusannya sekarang memakai ldzSemuaItems() (lintas lantai), dan kalau
+   lantai yang sedang aktif kebetulan kosong, dipindah sendiri ke lantai yang
+   ada isinya. */
 function pfGambarDenah(eid){
   const box=document.getElementById('pf_denah'); if(!box) return;
   window._beliMode=true;
-  box.innerHTML=ldzItems(eid).length?ldzCanvasHTML(eid,false):seatMapBody(eid);
+  const semua=ldzSemuaItems(eid);
+  if(semua.length){
+    if(!semua.some(function(o){ return ldzLantaiObjek(o)===ldzLantai(); })){
+      window._ldzLantai=ldzLantaiObjek(semua[0]);
+    }
+    box.innerHTML=pfLantaiBar(eid)+ldzCanvasHTML(eid,false);
+  } else {
+    box.innerHTML=seatMapBody(eid);
+  }
   window._beliMode=false;
+}
+/* Pemilih lantai khusus modal penjualan. TIDAK memakai ldzSetLantai(): fungsi
+   itu menggambar ulang seluruh halaman Ticketing, yang berarti modal yang
+   sedang diisi kasir ikut tertutup dan isian namanya hilang. */
+function pfLantaiBar(eid){
+  const semua=ldzSemuaItems(eid);
+  const ada=[...new Set(semua.map(ldzLantaiObjek))].sort();
+  if(ada.length<2) return '';
+  const kini=ldzLantai();
+  return '<div class="lm-floors" style="margin:0 0 10px">'+ada.map(function(f){
+    const n=semua.filter(function(o){ return ldzLantaiObjek(o)===f; }).length;
+    return '<button class="'+(kini===f?'on':'')+'" type="button" onclick="pfSetLantai(\''+eid+'\',\''+f+'\')">'
+      +'Lantai '+esc(f)+' <span class="mini">('+n+')</span></button>';
+  }).join('')+'</div>';
+}
+function pfSetLantai(eid,f){
+  window._ldzLantai=(String(f)==='2')?'2':'1';
+  pfGambarDenah(eid); pfRingkas(eid);
 }
 function pfRingkas(eid){
   const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);
