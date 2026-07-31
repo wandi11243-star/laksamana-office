@@ -117,6 +117,12 @@ try {
        server non-produksi: di produksi ia jadi alat orang asing mengirim
        email atas nama domainmu. */
     if (env_nyata() === 'produksi') keluar(array('ok' => false, 'error' => 'Uji email tidak tersedia di produksi.'));
+    /* Alamat diperiksa di sini supaya salah ketik dijawab kalimat yang bisa
+       ditindaklanjuti, bukan pesan mentah SMTP seperti "501 recipient address
+       must contain a domain" — yang benar tapi tidak memberi tahu apa yang
+       harus diperbaiki. */
+    if (!filter_var($G('ke'), FILTER_VALIDATE_EMAIL))
+      keluar(array('ok' => false, 'error' => 'Isi ?ke= dengan alamat email lengkap, mis. ?ke=nama@gmail.com (dapat: "' . $G('ke') . '").'));
     kirim_email($G('ke'), 'Uji kirim Laksamana Muda Ticketing',
       '<p>Kalau email ini sampai, SMTP sudah benar.</p>');
     keluar(array('ok' => true, 'data' => array('terkirim_ke' => $G('ke'))));
