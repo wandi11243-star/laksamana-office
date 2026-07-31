@@ -2575,8 +2575,10 @@ function renderTicketDetail(id){
   let body='';
   if(tab==='classes'){
     body=`<button class="btn ghost sm" style="margin-bottom:12px" onclick="ticketClassForm('${id}')">+ Ticket Class</button>
-    <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th></tr></thead><tbody>
-    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
+    <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th><th></th></tr></thead><tbody>
+    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn ghost sm" title="Ubah" onclick="ticketClassForm('${id}','${c.id}')">Ubah</button>
+      <button class="btn ghost sm" title="Hapus" onclick="delTicketClass('${id}','${c.id}')">Hapus</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;
   }
@@ -4773,18 +4775,55 @@ function renderL2Hall(id){
     +zc+'</div></div>';
   return h+'</div>';
 }
-function ticketClassForm(eid){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Ticket Class Baru</h3>
+/* HAPUS KELAS TIKET — dijaga dua hal yang tidak boleh dilanggar.
+
+   1. Sudah ada yang membeli. Menghapus kelasnya membuat tiket yang sudah
+      terbayar kehilangan induknya: harganya jadi nol, kuotanya lenyap, dan
+      laporan penjualan tidak lagi bisa menjelaskan uang yang sudah diterima.
+   2. Masih dipakai objek di denah. Kursinya akan tetap tergambar tapi tanpa
+      harga — di situs customer ia muncul lalu menolak dipilih, dan tidak
+      ada apa pun di layar yang menjelaskan sebabnya.
+
+   Keduanya menolak dengan MENYEBUT ANGKANYA, bukan sekadar "tidak bisa":
+   yang dibutuhkan orang saat ditolak adalah tahu apa yang harus dibereskan
+   lebih dulu. */
+function delTicketClass(eid, id){
+  const c = DB.ticketClasses.find(x => x.id === id); if(!c) return;
+  if(+c.sold > 0){
+    toast('Tidak bisa dihapus — sudah ada ' + c.sold + ' tiket terjual di kelas ini.');
+    return;
+  }
+  const dipakai = DB.seats.filter(function(s2){
+    return s2.event_id === eid && (s2.ticket_class_id === id || s2.tier === c.name);
+  });
+  if(dipakai.length){
+    toast('Masih dipakai ' + dipakai.length + ' objek di denah. Ubah tingkatan objeknya dulu.');
+    return;
+  }
+  if(!confirm('Hapus ticket class "' + c.name + '"?')) return;
+  DB.ticketClasses = DB.ticketClasses.filter(x => x.id !== id);
+  save(); renderTicketDetail(eid); toast('Ticket class dihapus.');
+}
+function ticketClassForm(eid, id){
+  /* Satu form untuk BUAT dan UBAH. Sebelumnya hanya bisa membuat: salah ketik
+     harga sekali berarti kelas itu menetap selamanya, dan satu-satunya jalan
+     keluar adalah membuat kelas kedua — yang justru merusak, karena kursi di
+     denah dicocokkan ke kelas lewat NAMA. */
+  const c = id ? DB.ticketClasses.find(x => x.id === id) : null;
+  const d = c || {name:'', price:100000, quota:100, benefit:'', is_seated:false,
+                  sale_start:new Date().toISOString(), sale_end:''};
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>${c?'Ubah Ticket Class':'Ticket Class Baru'}</h3>
   <div class="grid g2">
-    <div class="field"><label>Nama</label><input id="tc_name" placeholder="Regular / VIP / Early Bird"></div>
-    <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',100000)}</div>
-    <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="100"></div>
-    <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll"></div>
-    <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date())}" onchange="syncSaleWindow()"></div>
-    <div class="field"><label>Sale End</label><input id="tc_se" type="date" min="${dstr(new Date())}"><div class="mini" id="tc_se_hint"></div></div>
+    <div class="field"><label>Nama</label><input id="tc_name" placeholder="Regular / VIP / Early Bird" value="${esc(d.name)}"></div>
+    <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',+d.price||0)}</div>
+    <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="${+d.quota||1}"></div>
+    <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll" value="${esc(d.benefit||'')}"></div>
+    <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date(d.sale_start||Date.now()))}" onchange="syncSaleWindow()"></div>
+    <div class="field"><label>Sale End</label><input id="tc_se" type="date" value="${d.sale_end?dstr(new Date(d.sale_end)):''}"><div class="mini" id="tc_se_hint"></div></div>
   </div>
-  <label style="display:inline-flex;gap:6px;color:var(--txt)"><input type="checkbox" id="tc_seated" style="width:auto"> Seated (pilih kursi)</label>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTicketClass('${eid}')">Simpan</button></div>`,true);
+  <label style="display:inline-flex;gap:6px;color:var(--txt)"><input type="checkbox" id="tc_seated" style="width:auto" ${d.is_seated?'checked':''}> Seated (pilih kursi)</label>
+  ${c&&+c.sold>0?`<p class="mini" style="margin-top:8px">Sudah ${c.sold} tiket terjual — kuota tidak bisa diturunkan di bawah angka itu.</p>`:''}
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTicketClass('${eid}'${c?(",'"+c.id+"'"):''})">Simpan</button></div>`,true);
 }
 /* Sale End tidak boleh mendahului Sale Start. Dijaga di dua lapis: kalender
    tidak mengizinkan memilih tanggal sebelum Sale Start (min), dan saat simpan
@@ -4798,7 +4837,7 @@ function syncSaleWindow(){
     se.value=''; if(hint)hint.textContent='Sale End dikosongkan — tidak boleh sebelum Sale Start.';
   } else if(hint) hint.textContent=ss.value?'Paling awal '+ss.value:'';
 }
-function saveTicketClass(eid){
+function saveTicketClass(eid, id){
   const g=x=>document.getElementById(x).value;
   const name=g('tc_name').trim();if(!name){toast('Nama wajib.');return;}
   const ss=g('tc_ss'), se=g('tc_se');
@@ -4808,9 +4847,36 @@ function saveTicketClass(eid){
   const price=+g('tc_price'), quota=+g('tc_quota');
   if(price<0){toast('Harga tidak boleh minus.');return;}
   if(quota<1){toast('Kuota minimal 1.');return;}
+  const seated = document.getElementById('tc_seated').checked;
+  const lama = id ? DB.ticketClasses.find(x => x.id === id) : null;
+  if(lama){
+    /* Kuota tidak boleh turun di bawah yang SUDAH terjual — kalau tidak,
+       "sisa" jadi minus dan penjualan berikutnya ditolak dengan angka yang
+       tidak masuk akal buat kasir maupun pembeli. */
+    if(quota < (+lama.sold||0)){
+      toast('Sudah terjual ' + lama.sold + ' tiket — kuota tidak boleh di bawah itu.');
+      return;
+    }
+    /* Nama kelas adalah TAUTAN ke kursi di denah: objek denah menyimpan
+       tingkatannya sebagai nama, bukan id. Mengganti nama tanpa ikut
+       memperbarui kursinya memutus tautan itu diam-diam — kursinya tetap
+       tergambar tapi kehilangan harga, dan di situs customer jadi tidak bisa
+       dipilih tanpa sebab yang terlihat. */
+    if(lama.name !== name){
+      let n = 0;
+      DB.seats.forEach(function(s2){
+        if(s2.event_id === eid && s2.tier === lama.name){ s2.tier = name; n++; }
+      });
+      if(n) toast(n + ' objek denah ikut dipindah ke nama "' + name + '".');
+    }
+    Object.assign(lama, {name, price, quota, benefit:g('tc_benefit'), is_seated:seated,
+      sale_start:new Date(ss).toISOString(), sale_end:new Date(se+'T23:59:59').toISOString()});
+    save(); closeModal(); renderTicketDetail(eid); toast('Ticket class diperbarui.');
+    return;
+  }
   DB.ticketClasses.push({id:uid(),event_id:eid,name,price,quota,sold:0,
     sale_start:new Date(ss).toISOString(),sale_end:new Date(se+'T23:59:59').toISOString(),
-    description:'',benefit:g('tc_benefit'),is_seated:document.getElementById('tc_seated').checked});
+    description:'',benefit:g('tc_benefit'),is_seated:seated});
   save();closeModal();renderTicketDetail(eid);toast('Ticket class dibuat.');
 }
 /* Satu pembeli boleh mengambil BANYAK kursi sekaligus. Dulu satu penjualan =
