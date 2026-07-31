@@ -70,9 +70,30 @@ function cek_db() {
     return array('db_ok' => false, 'db_error' => $p);
   }
 }
+/* ENV DISIMPULKAN DARI ALAMAT SERVER, BUKAN DARI CONFIG.
+
+   ENV_LABEL harus diketik tangan di tiap server, dan itu terbukti jadi sumber
+   kesalahan yang paling sering: berkasnya benar, databasenya benar, tapi satu
+   baris tertinggal 'produksi' di server dev — dan akibatnya seluruh mode uji
+   coba menolak menyala tanpa penjelasan yang terlihat.
+
+   Nama host tidak bisa salah ketik: dev.laksamanamuda.id memang dev, dan
+   laksamanamuda.id memang produksi. Yang PALING PENTING, arah amannya benar:
+   host yang tidak dikenali dianggap PRODUKSI, jadi kesalahan konfigurasi
+   menutup mode simulasi, bukan membukanya.
+
+   ENV_LABEL tetap dibaca dan dilaporkan terpisah supaya ketidakcocokan antara
+   config dan kenyataan tetap terlihat di ?action=ping. */
+function env_nyata() {
+  $h = strtolower(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
+  if ($h === '') return defined('ENV_LABEL') ? ENV_LABEL : '?';   // dipanggil dari CLI
+  if (strpos($h, 'dev.') === 0 || strpos($h, 'localhost') !== false || strpos($h, '127.0.0.1') !== false) return 'dev';
+  return 'produksi';
+}
 function identitas() {
   return array_merge(cek_db(), array(
-    'env'    => defined('ENV_LABEL') ? ENV_LABEL : '?',
+    'env'        => env_nyata(),
+    'env_config' => defined('ENV_LABEL') ? ENV_LABEL : '?',
     'db'     => DB_NAME,
     'versi'  => LIB_VERSI,
     // Mode Xendit dibaca dari awalan kuncinya sendiri, bukan dari tulisan
@@ -415,7 +436,8 @@ function simpan_order($o) {
    dimatikan". */
 function mode_simulasi() {
   if (!defined('XENDIT_MOCK') || !XENDIT_MOCK) return false;
-  if (defined('ENV_LABEL') && ENV_LABEL === 'produksi') return false;
+  // Dinilai dari host, bukan config — lihat env_nyata().
+  if (env_nyata() === 'produksi') return false;
   return true;
 }
 function xendit_invoice($o, $ev) {
