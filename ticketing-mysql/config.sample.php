@@ -61,6 +61,12 @@ define('ADMIN_FEE', 5000);
    kursinya dilepas sendiri dan boleh diambil orang lain. */
 define('HOLD_MINUTES', 10);
 
+/* Batas lembar tiket reguler per kategori dalam satu pesanan. Penahannya bukan
+   kesopanan: pesanan Pending ikut mengurangi sisa kuota sampai invoicenya
+   kedaluwarsa, jadi satu orang yang memesan 500 lembar lalu tidak membayar
+   bisa mengunci penjualan selama sejam. */
+define('MAX_PER_PESANAN', 10);
+
 /* ==================== EMAIL (SMTP) ====================
    Dipakai mengirim e-ticket. Memakai akun email domain sendiri, BUKAN mail()
    bawaan PHP: kiriman mail() tidak terautentikasi dan sering mendarat di spam,

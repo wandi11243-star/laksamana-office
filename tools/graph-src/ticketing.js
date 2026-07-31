@@ -260,6 +260,38 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function tgl() {  }
 
 
@@ -311,7 +343,48 @@ function muatAkun() { api(); }
 
 
 
-function gambarTopnav() { go(); api(); toast(); klok(); }
+function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -401,7 +474,11 @@ function galat() { go(); memuat(); api(); }
 
 
 
-function kartuEvent() { go(); tgl(); jam(); memuat(); api(); galat(); gambarDenah(); }
+
+
+
+function posterUrl() {  }
+function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(); gambarEvent(); }
 
 
 
@@ -438,6 +515,105 @@ function kartuEvent() { go(); tgl(); jam(); memuat(); api(); galat(); gambarDena
 
 
 
+
+
+
+
+
+
+
+function gambarEvent() { go(); posterUrl(); tgl(); jam(); punyaDenah(); ringkasHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function punyaDenah() {  }
+
+
+
+
+
+function kelasHTML() { go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); }
 
 
 
@@ -531,7 +707,25 @@ function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
+
+
+
+
+
+
 
 
 
@@ -659,7 +853,10 @@ function hex2rgb() { api(); toast(); gambarDenah(); }
 
 
 
-function ringkasHTML() { go(); }
+function ringkasHTML() { go(); gambarEvent(); gambarBarHp(); }
+
+
+
 
 
 
@@ -681,6 +878,19 @@ function ringkasHTML() { go(); }
 
 
 function gambarBarHp() { go(); toast(); ringkasHTML(); api(); simpanTiketku(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -781,6 +991,10 @@ function simpanTiketku() { go(); kirimAkun(); }
 
 
 function kirimAkun() { toast(); api(); gambarTopnav(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+
+
+
+
 
 
 
