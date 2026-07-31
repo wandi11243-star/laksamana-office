@@ -4916,6 +4916,17 @@ function delTicketClass(eid, id){
   DB.ticketClasses = DB.ticketClasses.filter(x => x.id !== id);
   save(); renderTicketDetail(eid); toast('Ticket class dihapus.');
 }
+/* Nama kelas dan keterangannya sering menyebut lantai yang berbeda setelah
+   kelas diganti nama — dan keterangan itulah yang TAMPIL KE PEMBELI di situs
+   ticketing. Tidak ditulis ulang otomatis: menebak isi kalimat orang lebih
+   berisiko daripada memberitahunya, dan yang benar bisa saja namanya. */
+function lantaiBentrok(c){
+  if(!c) return null;
+  const n=String(c.name||'').match(/lantai\s*([12])/i);
+  const t=String((c.description||'')+' '+(c.benefit||'')).match(/lantai\s*([12])/i);
+  if(!n||!t||n[1]===t[1]) return null;
+  return {nama:n[1], teks:t[1]};
+}
 function ticketClassForm(eid, id){
   /* Satu form untuk BUAT dan UBAH. Sebelumnya hanya bisa membuat: salah ketik
      harga sekali berarti kelas itu menetap selamanya, dan satu-satunya jalan
@@ -4930,11 +4941,13 @@ function ticketClassForm(eid, id){
     <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',+d.price||0)}</div>
     <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="${+d.quota||1}"></div>
     <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll" value="${esc(d.benefit||'')}"></div>
+    <div class="field" style="grid-column:1/-1"><label>Keterangan</label><input id="tc_desc" placeholder="Penjelasan singkat kelas ini" value="${esc(d.description||'')}"><div class="mini">Tampil ke pembeli di situs ticketing.</div></div>
     <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date(d.sale_start||Date.now()))}" onchange="syncSaleWindow()"></div>
     <div class="field"><label>Sale End</label><input id="tc_se" type="date" value="${d.sale_end?dstr(new Date(d.sale_end)):''}"><div class="mini" id="tc_se_hint"></div></div>
   </div>
   <label style="display:inline-flex;gap:6px;color:var(--txt)"><input type="checkbox" id="tc_seated" style="width:auto" ${d.is_seated?'checked':''}> Seated (pilih kursi)</label>
   ${c&&+c.sold>0?`<p class="mini" style="margin-top:8px">Sudah ${c.sold} tiket terjual — kuota tidak bisa diturunkan di bawah angka itu.</p>`:''}
+  ${lantaiBentrok(d)?`<p class="mini" style="margin-top:8px;color:var(--accent)">Nama kelas menyebut <b>Lantai ${lantaiBentrok(d).nama}</b>, tapi keterangan/benefitnya menyebut <b>Lantai ${lantaiBentrok(d).teks}</b>. Teks itu tampil ke pembeli.</p>`:''}
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTicketClass('${eid}'${c?(",'"+c.id+"'"):''})">Simpan</button></div>`,true);
 }
 /* Sale End tidak boleh mendahului Sale Start. Dijaga di dua lapis: kalender
@@ -4989,14 +5002,14 @@ function saveTicketClass(eid, id){
       });
       if(n) toast(n + ' objek denah ikut dipindah ke nama "' + name + '".');
     }
-    Object.assign(lama, {name, price, quota, benefit:g('tc_benefit'), is_seated:seated,
+    Object.assign(lama, {name, price, quota, benefit:g('tc_benefit'), description:g('tc_desc'), is_seated:seated,
       sale_start:new Date(ss).toISOString(), sale_end:new Date(se+'T23:59:59').toISOString()});
     save(); closeModal(); renderTicketDetail(eid); toast('Ticket class diperbarui.');
     return;
   }
   DB.ticketClasses.push({id:uid(),event_id:eid,name,price,quota,sold:0,
     sale_start:new Date(ss).toISOString(),sale_end:new Date(se+'T23:59:59').toISOString(),
-    description:'',benefit:g('tc_benefit'),is_seated:seated});
+    description:g('tc_desc'),benefit:g('tc_benefit'),is_seated:seated});
   save();closeModal();renderTicketDetail(eid);toast('Ticket class dibuat.');
 }
 /* Satu pembeli boleh mengambil BANYAK kursi sekaligus. Dulu satu penjualan =
