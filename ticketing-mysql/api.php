@@ -12,6 +12,10 @@
  *                                              -> {invoice_url,ref,access_token}
  *   POST {action:"webhook", ...}               <- DARI XENDIT, bukan browser
  *   POST {action:"simbayar",ref,token}         -> hanya di dev (XENDIT_MOCK)
+ *   POST {action:"daftar"|"masuk", email,password,...} -> {user,token}
+ *   POST {action:"keluar", sesi}
+ *   GET  ?action=saya&sesi=                    -> akun yang sedang masuk
+ *   GET  ?action=tiketSaya&sesi=               -> riwayat tiket akun itu
  *   GET  ?action=order&ref=&token=             -> status + e-ticket
  *
  * Sengaja TIDAK ada endpoint yang memulangkan seluruh isi database, dan
@@ -87,6 +91,25 @@ try {
   } else if ($aksi === 'simbayar') {
     // Hanya hidup di server non-produksi yang menyalakan XENDIT_MOCK.
     keluar(array('ok' => true, 'data' => simulasi_bayar($B('ref'), $B('token'))));
+
+  /* ---- akun pembeli ----
+     Token sesi dikirim di badan (POST) atau ?sesi= (GET). Tidak memakai
+     cookie: backend ini dipanggil dari halaman yang bisa berada di domain
+     berbeda, dan cookie tidak selalu ikut terkirim di situ. */
+  } else if ($aksi === 'daftar') {
+    keluar(array('ok' => true, 'data' => daftar($body)));
+
+  } else if ($aksi === 'masuk') {
+    keluar(array('ok' => true, 'data' => masuk($body)));
+
+  } else if ($aksi === 'keluar') {
+    keluar(array('ok' => true, 'data' => keluar_sesi($B('sesi'))));
+
+  } else if ($aksi === 'saya') {
+    keluar(array('ok' => true, 'data' => user_publik(user_dari_sesi($G('sesi')))));
+
+  } else if ($aksi === 'tiketSaya') {
+    keluar(array('ok' => true, 'data' => tiket_saya(user_dari_sesi($G('sesi')))));
 
   } else if ($aksi === 'order') {
     keluar(array('ok' => true, 'data' => status_pesanan($G('ref'), $G('token'))));

@@ -41,3 +41,38 @@ CREATE TABLE IF NOT EXISTS seat_holds (
   KEY idx_sh_token (hold_token),
   KEY idx_sh_exp   (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/* ---------------------------------------------------------------------
+   AKUN PEMBELI
+   ---------------------------------------------------------------------
+   Dipisah dari tabel `users` milik Office: itu akun KRU, dengan role dan
+   hak akses modul. Mencampur pembeli ke sana berarti satu kebocoran di
+   situs publik menyentuh daftar pegawai — dan tiap kolom baru untuk
+   pembeli ikut membebani tabel yang dipakai seluruh Office.
+
+   email UNIQUE dan disimpan huruf kecil: "Budi@x.com" dan "budi@x.com"
+   adalah orang yang sama, dan membiarkan keduanya terdaftar berarti dua
+   akun memperebutkan riwayat tiket yang sama.
+   --------------------------------------------------------------------- */
+CREATE TABLE IF NOT EXISTS tix_users (
+  id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+  email      VARCHAR(191)     NULL,
+  pass_hash  VARCHAR(255)     NULL,
+  name       VARCHAR(255)     NULL,
+  phone      VARCHAR(32)      NULL,
+  created_at BIGINT       NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_tu_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/* Sesi disimpan di tabel, bukan PHP session: backend ini dipanggil dari
+   halaman yang bisa berada di domain berbeda, dan cookie session PHP tidak
+   selalu ikut terkirim di situ. Token acak jauh lebih sederhana daripada
+   menambal cookie lintas domain. */
+CREATE TABLE IF NOT EXISTS tix_sessions (
+  token      VARCHAR(64)  NOT NULL PRIMARY KEY,
+  user_id    VARCHAR(64)      NULL,
+  expires_at BIGINT       NOT NULL DEFAULT 0,
+  created_at BIGINT       NOT NULL DEFAULT 0,
+  KEY idx_ts_user (user_id),
+  KEY idx_ts_exp  (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

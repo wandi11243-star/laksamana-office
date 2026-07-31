@@ -415,6 +415,139 @@ function lepas_kursi($holdToken, $seatIds = null) {
   return array('released' => $st->rowCount());
 }
 
+/* ==================== AKUN PEMBELI ====================
+   Sengaja TIDAK memakai tabel `users` milik Office: itu akun kru dengan role
+   dan hak akses modul. Satu kebocoran di situs publik tidak boleh menyentuh
+   daftar pegawai.
+
+   BELI TANPA AKUN TETAP BOLEH. Memaksa mendaftar di tengah checkout adalah
+   cara paling efektif membuat orang batal membeli. Akun hanya menautkan
+   pesanan supaya bisa dilihat lagi dari perangkat lain; tautan e-ticket
+   ber-access_token tetap bekerja seperti sebelumnya.
+   ================================================================= */
+function email_rapi($e) { return strtolower(trim((string)$e)); }
+
+function user_baris($email) {
+  $st = db()->prepare('SELECT * FROM tix_users WHERE email = :e');
+  $st->execute(array(':e' => email_rapi($email)));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+function user_by_id($id) {
+  $st = db()->prepare('SELECT * FROM tix_users WHERE id = :i');
+  $st->execute(array(':i' => $id));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+function user_publik($u) {
+  return $u ? array('id' => $u['id'], 'email' => $u['email'],
+                    'name' => $u['name'], 'phone' => $u['phone']) : null;
+}
+
+/* Sesi 30 hari. Tokennya acak penuh, bukan turunan email atau id — token
+   yang bisa ditebak sama saja dengan tidak ada. */
+function buat_sesi($userId) {
+  $tok = token_acak(24);
+  db()->prepare('INSERT INTO tix_sessions (token,user_id,expires_at,created_at) VALUES (:t,:u,:x,:c)')
+      ->execute(array(':t' => $tok, ':u' => $userId,
+                      ':x' => now_ms() + 30 * 24 * 3600 * 1000, ':c' => now_ms()));
+  db()->prepare('DELETE FROM tix_sessions WHERE expires_at < :n')->execute(array(':n' => now_ms()));
+  return $tok;
+}
+function user_dari_sesi($tok) {
+  if (!$tok) return null;
+  $st = db()->prepare('SELECT user_id FROM tix_sessions WHERE token = :t AND expires_at > :n');
+  $st->execute(array(':t' => $tok, ':n' => now_ms()));
+  $r = $st->fetch();
+  return $r ? user_by_id($r['user_id']) : null;
+}
+
+function daftar($b) {
+  $email = email_rapi(isset($b['email']) ? $b['email'] : '');
+  $pass  = (string)(isset($b['password']) ? $b['password'] : '');
+  $nama  = trim((string)(isset($b['name']) ? $b['name'] : ''));
+  $hp    = trim((string)(isset($b['phone']) ? $b['phone'] : ''));
+  if ($nama === '' || $email === '') throw new Exception('Nama dan email wajib diisi.');
+  if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Format email tidak valid.');
+  /* Delapan karakter, bukan aturan rumit huruf besar-angka-simbol. Aturan
+     rumit membuat orang menulis passwordnya di catatan HP, dan itu jauh
+     lebih berbahaya daripada password panjang yang sederhana. */
+  if (strlen($pass) < 8) throw new Exception('Password minimal 8 karakter.');
+  if (user_baris($email)) throw new Exception('Email ini sudah terdaftar. Silakan masuk.');
+
+  $id = uid('usr');
+  db()->prepare('INSERT INTO tix_users (id,email,pass_hash,name,phone,created_at) VALUES (:i,:e,:p,:n,:h,:c)')
+      ->execute(array(':i' => $id, ':e' => $email, ':p' => password_hash($pass, PASSWORD_DEFAULT),
+                      ':n' => $nama, ':h' => $hp, ':c' => now_ms()));
+  $n = tautkan_pesanan_lama($id, $email);
+  return array('user' => user_publik(user_by_id($id)), 'token' => buat_sesi($id), 'pesanan_lama' => $n);
+}
+
+function masuk($b) {
+  $email = email_rapi(isset($b['email']) ? $b['email'] : '');
+  $pass  = (string)(isset($b['password']) ? $b['password'] : '');
+  $u = user_baris($email);
+  /* Pesan yang sama untuk email tak terdaftar dan password salah. Pesan yang
+     membedakan keduanya memberi tahu orang asing email mana yang punya akun
+     di sini — itu daftar yang tidak perlu dibagikan. */
+  if (!$u || !password_verify($pass, $u['pass_hash'])) throw new Exception('Email atau password salah.');
+  tautkan_pesanan_lama($u['id'], $u['email']);
+  return array('user' => user_publik($u), 'token' => buat_sesi($u['id']));
+}
+function keluar_sesi($tok) {
+  if ($tok) db()->prepare('DELETE FROM tix_sessions WHERE token = :t')->execute(array(':t' => $tok));
+  return array('keluar' => true);
+}
+
+/* PESANAN LAMA IKUT TERTAUT saat orang mendaftar/masuk dengan email yang
+   sama. Tanpa ini, seluruh riwayat pembeliannya hilang tepat pada saat ia
+   membuat akun — kebalikan dari yang ia harapkan. */
+function tautkan_pesanan_lama($userId, $email) {
+  $st = db()->prepare('SELECT id, data FROM orders WHERE email = :e');
+  $st->execute(array(':e' => $email));
+  $n = 0;
+  foreach ($st as $row) {
+    $o = json_decode($row['data'], true);
+    if (!is_array($o) || !empty($o['user_id'])) continue;
+    $o['user_id'] = $userId;
+    db()->prepare('UPDATE orders SET updated_at = :u, data = :d WHERE id = :i')
+        ->execute(array(':u' => now_ms(), ':d' => json_encode($o, JSON_UNESCAPED_UNICODE), ':i' => $row['id']));
+    $n++;
+  }
+  return $n;
+}
+
+/* Daftar tiket milik satu akun. Tiap pesanan dibawa lengkap dengan
+   access_token-nya sendiri, supaya halaman Tiket Saya membuka e-ticket lewat
+   jalur yang SAMA dengan tautan dari email — bukan jalur kedua yang bisa
+   diam-diam berbeda aturannya. */
+function tiket_saya($u) {
+  if (!$u) throw new Exception('Silakan masuk dulu.');
+  $st = db()->prepare('SELECT data FROM orders WHERE email = :e ORDER BY created_at DESC');
+  $st->execute(array(':e' => $u['email']));
+  $out = array();
+  foreach ($st as $row) {
+    $o = json_decode($row['data'], true);
+    if (!is_array($o)) continue;
+    $ev = event_satu_apa_adanya($o['event_id']);
+    $out[] = array(
+      'ref' => $o['payment_ref'], 'access_token' => $o['access_token'],
+      'status' => $o['payment_status'], 'total' => (int)$o['total'],
+      'created' => isset($o['created']) ? $o['created'] : '',
+      'jml_tiket' => count(isset($o['items']) ? $o['items'] : array()),
+      'event' => $ev ? array('title' => $ev['title'], 'start' => $ev['start'], 'venue' => $ev['venue']) : null,
+    );
+  }
+  return $out;
+}
+/* Event pada riwayat dibaca TANPA saringan status: acara yang sudah lewat
+   atau dibatalkan tetap harus muncul di riwayat pembelinya. Yang disaring
+   status hanyalah daftar yang DIJUAL. */
+function event_satu_apa_adanya($id) {
+  $rows = ambil('SELECT data FROM events WHERE id = :i', array(':i' => $id));
+  return $rows ? event_ringkas($rows[0]) : null;
+}
+
 /* ==================== CHECKOUT ====================
    Menyusun pesanan (Pending) lalu meminta invoice ke Xendit.
    Kursi TIDAK ditandai Sold di sini — hanya kalau uangnya benar-benar
@@ -465,6 +598,9 @@ function checkout($b) {
     // dibeli sendiri oleh customer lewat web.
     'recorded_by' => 'Website', 'recorded_via' => 'ticketing-web',
     'channel' => 'online', 'items' => $items, 'access_token' => $akses,
+    // Menempel ke akun kalau pembelinya sedang masuk. Kalau tidak, pesanan
+    // tetap sah dan tetap bisa dibuka lewat access_token-nya sendiri.
+    'user_id' => ($uu = user_dari_sesi(isset($b['sesi']) ? $b['sesi'] : '')) ? $uu['id'] : '',
     'expires_at' => gmdate('c', (int)(now_ms() / 1000) + 3600),
     'created' => gmdate('c'),
   );
