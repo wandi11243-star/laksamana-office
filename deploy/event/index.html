@@ -2635,6 +2635,15 @@ function denahTabBody(eid){
    +'</div>'
    +'<button class="btn '+(window._ldzEdit?'':'ghost')+' sm" onclick="ldzToggleEdit(\''+eid+'\')">\u270e Mode Desain</button>'
    +'<button class="btn ghost sm" title="Pasang denah bawaan venue untuk lantai ini" onclick="ldzPasangBawaan(\''+eid+'\')">Denah Bawaan LM</button>'
+   /* Tombol ini HANYA muncul kalau event punya DUA denah sekaligus: objek
+      kustom dan kursi template bawaan. Itu keadaan yang membingungkan — dua
+      sumber kebenaran untuk satu ruangan — dan penyebab angka yang tidak
+      cocok antar layar (Rangkuman Denah menghitung 92, penjaga hapus kelas
+      menghitung 175). Kalau eventnya cuma punya satu denah, tombolnya tidak
+      perlu ada sama sekali. */
+   +(ldzSemuaItems(eid).length && kursiTemplate(eid).length
+      ? '<button class="btn ghost sm" title="Hapus sisa denah template bawaan — denah kustom tidak disentuh" onclick="hapusDenahTemplate(\''+eid+'\')">Hapus Denah Template Lama ('+kursiTemplate(eid).length+')</button>'
+      : '')
    +'<button class="btn ghost sm" onclick="ldzMuatTemplateForm(\''+eid+'\')">\u2913 Muat Template</button>'
    +(ldzItems(eid).length?'<button class="btn ghost sm" onclick="ldzSimpanTemplate(\''+eid+'\')">\u2912 Simpan sebagai Template</button>':'')
    +(ldzTemplates().length?'<button class="btn ghost sm" onclick="ldzHapusTemplate()">Kelola Template</button>':'')
@@ -4549,6 +4558,38 @@ function ldzBawaanL2(){
    Kategori: Lantai 1 seluruhnya VIP; kursi bernomor Lantai 2 jadi Reguler+.
    Kelas tiketnya dibuat kalau belum ada — termasuk kelas Reguler TANPA kursi
    untuk zona berdiri, supaya kuotanya tetap bisa dijual. */
+/* ---------- BERSIHKAN DENAH TEMPLATE LAMA ----------
+   Kursi template (zone selain 'Custom') adalah peninggalan sebelum perancang
+   denah ada. Event yang sudah punya denah kustom tidak memerlukannya lagi,
+   tapi selama keduanya ada, tiap layar menghitung yang berbeda dan tidak ada
+   satu pun yang salah menurut dirinya sendiri.
+
+   PENJAGANYA: kursi yang sudah punya tiket TIDAK BOLEH ikut terhapus. Tiket
+   yang kursinya lenyap tidak bisa lagi ditunjukkan letaknya di pintu masuk,
+   dan uangnya sudah diterima. Kalau ada satu saja yang begitu, seluruh
+   penghapusan dibatalkan — bukan dihapus sebagian, yang justru meninggalkan
+   denah setengah rusak yang lebih sulit dijelaskan. */
+function kursiTemplate(eid){
+  return DB.seats.filter(function(s2){ return s2.event_id===eid && s2.zone!=='Custom'; });
+}
+function hapusDenahTemplate(eid){
+  const tpl=kursiTemplate(eid);
+  if(!tpl.length){ toast('Tidak ada denah template di event ini.'); return; }
+  const dipakai=tpl.filter(function(s2){
+    return DB.tickets.some(function(t){ return t.seat_id===s2.id && t.status!=='Cancelled'; });
+  });
+  if(dipakai.length){
+    toast('Dibatalkan — '+dipakai.length+' kursi template sudah punya tiket terjual. '
+      +'Refund atau pindahkan tiketnya dulu sebelum denah lama dihapus.');
+    return;
+  }
+  if(!confirm('Hapus '+tpl.length+' kursi denah template lama?\n\n'
+    +'Denah kustom ('+ldzSemuaItems(eid).length+' objek) TIDAK disentuh.')) return;
+  const buang={}; tpl.forEach(function(s2){ buang[s2.id]=1; });
+  DB.seats=DB.seats.filter(function(s2){ return !buang[s2.id]; });
+  save(); renderTicketDetail(eid);
+  toast('✓ '+tpl.length+' kursi denah template lama dihapus. Denah kustom utuh.');
+}
 function ldzPasangBawaan(eid){
   const e=DB.events.find(function(x){ return x.id===eid; }); if(!e) return;
   const lantai=ldzLantai();
