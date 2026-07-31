@@ -2215,7 +2215,11 @@ const EVT_STATUS=['Draft','Upcoming','Today','Finished','Cancelled'];
    lalu menekan "Ubah Status" berkali-kali sampai sampai ke status yang mau. */
 function setEventStatus(id,st){
   const e=DB.events.find(x=>x.id===id); if(!e)return;
-  const lama=e.status; e.status=st; save(); renderEvents();
+  const lama=e.status; e.status=st;
+  /* Jejak "status ini dipilih manusia, jam sekian". Dipakai autoSelesaikanEvent
+     untuk tahu mana status yang boleh ia rapikan dan mana yang tidak. */
+  e.statusAt=Date.now();
+  save(); renderEvents();
   toast('Status '+e.title+': '+lama+' → '+st+(st==='Finished'?' (data event terkunci)':''));
 }
 /* Event yang tanggalnya sudah lewat tapi masih "Upcoming"/"Today" dinaikkan
@@ -2229,6 +2233,19 @@ function autoSelesaikanEvent(){
     if(!['Upcoming','Today'].includes(e.status))return;
     const selesai=new Date(e.end_datetime||e.start_datetime).getTime();
     if(!selesai||isNaN(selesai))return;
+    /* PILIHAN MANUSIA MENANG ATAS PERAPIAN OTOMATIS.
+       setEventStatus() menyimpan lalu memanggil renderEvents(), dan renderEvents()
+       menjalankan fungsi ini sebagai baris pertamanya. Tanpa penjaga di bawah,
+       memilih "Upcoming" pada event yang tanggalnya sudah lewat diputar balik
+       jadi "Finished" dalam hitungan milidetik — statusnya seolah menolak
+       diubah, dan tidak ada apa pun di layar yang menjelaskan kenapa.
+       (Terasa saat memasang situs customer: hanya event Upcoming/Today yang
+       dijual, jadi event lampau mustahil dibuka untuk penjualan.)
+
+       Yang dirapikan sekarang hanya event yang TIDAK disentuh orang sejak ia
+       berakhir — itu memang maksud aslinya: menyapu yang terlupakan, bukan
+       membatalkan keputusan yang baru saja diambil. */
+    if(e.statusAt && e.statusAt > selesai) return;
     if(selesai<skrg){ e.status='Finished'; ubah++; }
   });
   if(ubah){ save(); toast(ubah+' event yang tanggalnya sudah lewat dipindah ke Finished.'); }

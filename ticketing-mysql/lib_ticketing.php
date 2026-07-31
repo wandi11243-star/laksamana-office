@@ -131,16 +131,33 @@ function sapu_hold() {
       ->execute(array(':t' => now_ms()));
 }
 
-/* ==================== EVENT ==================== */
-/* Yang boleh dilihat umum HANYA event yang sudah Published dan belum lewat.
-   Draft adalah rencana yang belum tentu jadi — memublikasikannya berarti
-   menjual acara yang mungkin dibatalkan besok. */
+/* ==================== EVENT ====================
+   STATUS EVENT MENGIKUTI MESIN STATUS EMS YANG SEBENARNYA, yaitu daftar di
+   cycleEventStatus() pada deploy/event/index.html:
+
+       Draft → Upcoming → Today → Finished        (+ Cancelled)
+
+   Versi pertama fungsi ini menyaring 'Published'/'Ongoing' — kosakata
+   ticketing pada umumnya, yang TIDAK ADA di EMS. Akibatnya daftar event di
+   situs customer selalu kosong dan tidak ada pesan galat apa pun yang
+   menjelaskan kenapa: 6 event di database, nol yang lolos saringan.
+
+   Yang boleh dijual ke umum:
+     Upcoming  akan datang, tiket dibuka
+     Today     hari-H, masih boleh beli di tempat
+   Yang tidak:
+     Draft     rencana yang belum tentu jadi; menjualnya berarti menagih uang
+               untuk acara yang mungkin dibatalkan besok
+     Finished  sudah lewat
+     Cancelled batal */
+function boleh_dijual($status) {
+  return $status === 'Upcoming' || $status === 'Today';
+}
 function events_publik() {
   $rows = ambil('SELECT data FROM events ORDER BY start_datetime ASC');
   $out = array();
   foreach ($rows as $e) {
-    $st = isset($e['status']) ? $e['status'] : '';
-    if ($st !== 'Published' && $st !== 'Ongoing') continue;
+    if (!boleh_dijual(isset($e['status']) ? $e['status'] : '')) continue;
     $out[] = event_ringkas($e);
   }
   return $out;
@@ -178,8 +195,7 @@ function event_satu($id) {
   $rows = ambil('SELECT data FROM events WHERE id = :i', array(':i' => $id));
   if (!$rows) return null;
   $e = $rows[0];
-  $st = isset($e['status']) ? $e['status'] : '';
-  if ($st !== 'Published' && $st !== 'Ongoing') return null;
+  if (!boleh_dijual(isset($e['status']) ? $e['status'] : '')) return null;
   return event_ringkas($e);
 }
 function kelas_event($eid) {
