@@ -95,5 +95,18 @@ try {
     keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $aksi));
   }
 } catch (Throwable $e) {
+  /* WEBHOOK YANG GAGAL HARUS MENJAWAB NON-2xx.
+     Semua respons di sini berstatus 200, dan untuk browser itu benar. Tapi
+     Xendit membaca 2xx sebagai "sudah diterima" lalu berhenti mengirim —
+     jadi kalau database sedang tumbang saat webhook datang, pembayaran itu
+     hilang selamanya meski auto-retry dinyalakan: tidak ada yang perlu
+     diulang menurut Xendit.
+     Khusus jalur webhook, galat dijawab 500 supaya auto-retry benar-benar
+     berjalan. Token yang salah dijawab 401: itu salah konfigurasi, mengulang
+     tidak menolong, dan kegagalannya justru harus terlihat di dashboard. */
+  if ($aksi === 'webhook') {
+    $tokenSalah = strpos($e->getMessage(), 'callback') !== false || strpos($e->getMessage(), 'Token') !== false;
+    http_response_code($tokenSalah ? 401 : 500);
+  }
   keluar(array('ok' => false, 'error' => $e->getMessage()));
 }

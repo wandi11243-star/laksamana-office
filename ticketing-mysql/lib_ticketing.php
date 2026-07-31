@@ -70,9 +70,41 @@ function cek_db() {
     return array('db_ok' => false, 'db_error' => $p);
   }
 }
+/* ENV DISIMPULKAN DARI ALAMAT SERVER, BUKAN DARI CONFIG.
+
+   ENV_LABEL harus diketik tangan di tiap server, dan itu terbukti jadi sumber
+   kesalahan yang paling sering: berkasnya benar, databasenya benar, tapi satu
+   baris tertinggal 'produksi' di server dev — dan akibatnya seluruh mode uji
+   coba menolak menyala tanpa penjelasan yang terlihat.
+
+   Nama host tidak bisa salah ketik: dev.laksamanamuda.id memang dev, dan
+   laksamanamuda.id memang produksi. Yang PALING PENTING, arah amannya benar:
+   host yang tidak dikenali dianggap PRODUKSI, jadi kesalahan konfigurasi
+   menutup mode simulasi, bukan membukanya.
+
+   ENV_LABEL tetap dibaca dan dilaporkan terpisah supaya ketidakcocokan antara
+   config dan kenyataan tetap terlihat di ?action=ping. */
+/* Alamat situs disimpulkan dari host yang sedang melayani permintaan.
+   SITE_URL di config harus diketik tangan per server, dan kesalahannya tidak
+   terlihat sampai SESUDAH orang membayar: pembeli di dev dilempar ke
+   laksamanamuda.id yang belum ada isinya, tiketnya seolah hilang, padahal
+   uangnya sudah masuk. Host yang melayani permintaan pasti benar. */
+function site_url() {
+  $h = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+  if ($h === '') return defined('SITE_URL') ? SITE_URL : '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $h . '/ticketing';
+}
+function env_nyata() {
+  $h = strtolower(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
+  if ($h === '') return defined('ENV_LABEL') ? ENV_LABEL : '?';   // dipanggil dari CLI
+  if (strpos($h, 'dev.') === 0 || strpos($h, 'localhost') !== false || strpos($h, '127.0.0.1') !== false) return 'dev';
+  return 'produksi';
+}
 function identitas() {
   return array_merge(cek_db(), array(
-    'env'    => defined('ENV_LABEL') ? ENV_LABEL : '?',
+    'env'        => env_nyata(),
+    'env_config' => defined('ENV_LABEL') ? ENV_LABEL : '?',
     'db'     => DB_NAME,
     'versi'  => LIB_VERSI,
     // Mode Xendit dibaca dari awalan kuncinya sendiri, bukan dari tulisan
@@ -82,10 +114,21 @@ function identitas() {
     'config' => defined('CONFIG_DIPAKAI') ? CONFIG_DIPAKAI : '?',
   ));
 }
+/* Tiga sebab "belum diisi" DIBEDAKAN, karena penanganannya berbeda dan dari
+   luar ketiganya terlihat sama persis:
+     tidak ada  -> barisnya belum ditulis sama sekali
+     placeholder-> baris contoh masih menang. Di PHP define() yang PERTAMA
+                   menang; baris baru yang ditempel di BAWAH baris lama
+                   diabaikan tanpa pesan apa pun. Ini penyebab tersering.
+     kosong     -> barisnya ada tapi nilainya ''
+   Yang dilaporkan hanya sebabnya, tidak pernah isi kuncinya. */
 function xendit_mode() {
-  if (!defined('XENDIT_SECRET') || XENDIT_SECRET === '' || strpos(XENDIT_SECRET, 'ISI_') === 0) return 'belum diisi';
+  if (!defined('XENDIT_SECRET'))              return 'belum diisi (baris XENDIT_SECRET tidak ada)';
+  if (strpos(XENDIT_SECRET, 'ISI_') === 0)    return 'belum diisi (masih teks contoh — ada define ganda?)';
+  if (XENDIT_SECRET === '')                   return 'belum diisi (kosong)';
   if (strpos(XENDIT_SECRET, 'xnd_production') === 0) return 'LIVE';
-  return 'test';
+  if (strpos(XENDIT_SECRET, 'xnd_development') === 0) return 'test';
+  return 'terisi, tapi awalannya bukan xnd_development/xnd_production';
 }
 
 /* ==================== KONEKSI ==================== */
@@ -415,16 +458,18 @@ function simpan_order($o) {
    dimatikan". */
 function mode_simulasi() {
   if (!defined('XENDIT_MOCK') || !XENDIT_MOCK) return false;
-  if (defined('ENV_LABEL') && ENV_LABEL === 'produksi') return false;
+  // Dinilai dari host, bukan config — lihat env_nyata().
+  if (env_nyata() === 'produksi') return false;
   return true;
 }
 function xendit_invoice($o, $ev) {
   if (mode_simulasi()) {
     return array('gateway' => 'simulasi', 'invoice_id' => 'SIM-' . $o['payment_ref'],
-      'invoice_url' => SITE_URL . '/#simbayar/' . $o['payment_ref'] . '/' . $o['access_token'],
+      'invoice_url' => site_url() . '/#simbayar/' . $o['payment_ref'] . '/' . $o['access_token'],
       'expiry_date' => '', 'status' => 'PENDING', 'simulasi' => true);
   }
-  if (xendit_mode() === 'belum diisi') throw new Exception('Pembayaran belum dikonfigurasi di server (XENDIT_SECRET kosong).');
+  if (strpos(xendit_mode(), 'belum diisi') === 0)
+    throw new Exception('Pembayaran belum dikonfigurasi di server: ' . xendit_mode());
   $body = array(
     // external_id inilah yang dipulangkan webhook. Dipakai id pesanan kita
     // supaya pencocokannya tidak bergantung pada apa pun yang bisa berubah.
@@ -433,8 +478,8 @@ function xendit_invoice($o, $ev) {
     'payer_email'           => $o['email'],
     'description'           => $ev['title'] . ' — ' . count($o['items']) . ' tiket',
     'invoice_duration'      => 3600,
-    'success_redirect_url'  => SITE_URL . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
-    'failure_redirect_url'  => SITE_URL . '/#gagal/' . $o['payment_ref'],
+    'success_redirect_url'  => site_url() . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
+    'failure_redirect_url'  => site_url() . '/#gagal/' . $o['payment_ref'],
     'customer'              => array('given_names' => $o['buyer_name'], 'email' => $o['email'], 'mobile_number' => $o['phone']),
     'items'                 => array_map(function ($it) use ($ev) {
       return array('name' => $ev['title'] . ' · ' . $it['label'], 'quantity' => 1, 'price' => $it['price'], 'category' => $it['tier']);
@@ -582,12 +627,44 @@ function simulasi_bayar($ref, $akses) {
    Dibuka dengan ref + access_token, bukan dengan email saja. Email mudah
    ditebak; kalau itu kuncinya, siapa pun bisa memanggil QR tiket orang
    lain dan masuk lebih dulu. */
+/* JANGAN HANYA BERGANTUNG PADA WEBHOOK.
+   Webhook bisa tidak pernah sampai: URL-nya salah didaftarkan, tokennya beda,
+   server sempat mati, atau jaringannya putus. Kalau itu satu-satunya jalan,
+   pembeli sudah membayar tapi tiketnya tidak pernah terbit — dan tidak ada
+   seorang pun yang tahu sampai ia mengeluh di pintu masuk. Sudah terjadi saat
+   pemasangan ini: pembayaran sampai ke Xendit, tickets tidak bertambah satu pun.
+
+   Jadi saat halaman tiket dibuka dan pesanannya masih Pending, kita TANYA
+   Xendit langsung. Kalau di sana sudah PAID, pelunasannya dijalankan lewat
+   lunaskan() yang sama dengan jalur webhook — idempoten, jadi webhook yang
+   datang terlambat tidak menerbitkan tiket kedua. */
+function selaraskan_xendit($o) {
+  if ($o['payment_status'] !== 'Pending') return $o;
+  $inv = isset($o['payment']['invoice_id']) ? $o['payment']['invoice_id'] : '';
+  if ($inv === '' || strpos($inv, 'SIM-') === 0) return $o;   // invoice simulasi tak ada di Xendit
+  if (strpos(xendit_mode(), 'belum diisi') === 0) return $o;
+  $ch = curl_init('https://api.xendit.co/v2/invoices/' . rawurlencode($inv));
+  curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_USERPWD => XENDIT_SECRET . ':', CURLOPT_TIMEOUT => 20));
+  $res = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+  if ($res === false || $code >= 300) return $o;
+  $d = json_decode($res, true);
+  $st = strtoupper(isset($d['status']) ? $d['status'] : '');
+  if ($st === 'PAID' || $st === 'SETTLED') {
+    lunaskan($o['id'], $d);
+    $r2 = ambil('SELECT data FROM orders WHERE id = :i', array(':i' => $o['id']));
+    if ($r2) return $r2[0];
+  } else if ($st === 'EXPIRED') {
+    batalkan($o['id'], 'EXPIRED');
+  }
+  return $o;
+}
 function status_pesanan($ref, $akses) {
   $rows = ambil('SELECT data FROM orders WHERE payment_ref = :r', array(':r' => $ref));
   if (!$rows) throw new Exception('Pesanan tidak ditemukan.');
   $o = $rows[0];
   if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses))
     throw new Exception('Tautan tiket tidak sah.');
+  $o = selaraskan_xendit($o);
   $ev = event_satu($o['event_id']);
   $tiket = array();
   if ($o['payment_status'] === 'Paid') {
