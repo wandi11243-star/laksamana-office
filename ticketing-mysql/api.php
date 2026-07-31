@@ -1,0 +1,99 @@
+<?php
+/************************************************************************
+ * LAKSAMANA MUDA TICKETING — endpoint publik (situs customer)
+ * ---------------------------------------------------------------------
+ *   GET  ?action=ping                          -> {ok,data:{env,db,xendit}}
+ *   GET  ?action=events                        -> daftar event yang dijual
+ *   GET  ?action=event&id=                     -> satu event + kelas tiket
+ *   GET  ?action=denah&id=[&hold=]             -> objek denah + status kursi
+ *   POST {action:"hold",   event_id, seats[], hold_token?}
+ *   POST {action:"release",hold_token, seats?}
+ *   POST {action:"checkout",event_id,hold_token,name,email,phone}
+ *                                              -> {invoice_url,ref,access_token}
+ *   POST {action:"webhook", ...}               <- DARI XENDIT, bukan browser
+ *   POST {action:"simbayar",ref,token}         -> hanya di dev (XENDIT_MOCK)
+ *   GET  ?action=order&ref=&token=             -> status + e-ticket
+ *
+ * Sengaja TIDAK ada endpoint yang memulangkan seluruh isi database, dan
+ * tidak ada satu pun yang menerima harga dari pemanggil.
+ ************************************************************************/
+
+require __DIR__ . '/lib_ticketing.php';
+
+/* CORS: situs customer bisa berada di domain lain dari API-nya
+   (laksamanamuda.id/ticketing memanggil office.laksamanamuda.id/...),
+   jadi GET dibuka. Yang menjaga bukan CORS — CORS hanya aturan browser dan
+   tidak menghalangi curl sama sekali — melainkan endpoint yang memang
+   sempit dan token akses per pesanan. */
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, x-callback-token');
+header('Content-Type: application/json; charset=utf-8');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+
+function keluar($o) { echo json_encode($o, JSON_UNESCAPED_UNICODE); exit; }
+
+$metode = $_SERVER['REQUEST_METHOD'];
+$body = array();
+if ($metode === 'POST') {
+  $raw = file_get_contents('php://input');
+  $body = json_decode($raw, true);
+  if (!is_array($body)) $body = array();
+}
+$aksi = $metode === 'POST'
+  ? (isset($body['action']) ? $body['action'] : '')
+  : (isset($_GET['action']) ? $_GET['action'] : 'events');
+
+/* Webhook Xendit tidak mengirim {action:...} — ia mengirim badan invoice apa
+   adanya. Dikenali dari header khusus miliknya, bukan dari isi badan yang
+   bisa ditiru siapa saja. */
+$hdr = isset($_SERVER['HTTP_X_CALLBACK_TOKEN']) ? $_SERVER['HTTP_X_CALLBACK_TOKEN'] : '';
+if ($metode === 'POST' && $hdr !== '' && $aksi === '') $aksi = 'webhook';
+
+$G = function ($k, $d = '') { return isset($_GET[$k]) ? $_GET[$k] : $d; };
+$B = function ($k, $d = '') use ($body) { return isset($body[$k]) ? $body[$k] : $d; };
+
+try {
+  if ($aksi === 'ping') {
+    keluar(array('ok' => true, 'data' => array_merge(
+      array('pong' => true, 'backend' => 'ticketing-php-mysql'), identitas(), array('ts' => gmdate('c')))));
+
+  } else if ($aksi === 'events') {
+    keluar(array('ok' => true, 'data' => events_publik()));
+
+  } else if ($aksi === 'event') {
+    $e = event_satu($G('id'));
+    if (!$e) keluar(array('ok' => false, 'error' => 'Event tidak ditemukan atau belum dijual.'));
+    keluar(array('ok' => true, 'data' => $e));
+
+  } else if ($aksi === 'denah') {
+    keluar(array('ok' => true, 'data' => denah($G('id'), $G('hold'))));
+
+  } else if ($aksi === 'hold') {
+    $seats = $B('seats', array());
+    if (!is_array($seats) || !$seats) keluar(array('ok' => false, 'error' => 'Tidak ada kursi yang dipilih.'));
+    keluar(array('ok' => true, 'data' => tahan_kursi($B('event_id'), $seats, $B('hold_token'))));
+
+  } else if ($aksi === 'release') {
+    $s = $B('seats', null);
+    keluar(array('ok' => true, 'data' => lepas_kursi($B('hold_token'), is_array($s) ? $s : null)));
+
+  } else if ($aksi === 'checkout') {
+    keluar(array('ok' => true, 'data' => checkout($body)));
+
+  } else if ($aksi === 'webhook') {
+    keluar(array('ok' => true, 'data' => webhook_xendit($body, $hdr)));
+
+  } else if ($aksi === 'simbayar') {
+    // Hanya hidup di server non-produksi yang menyalakan XENDIT_MOCK.
+    keluar(array('ok' => true, 'data' => simulasi_bayar($B('ref'), $B('token'))));
+
+  } else if ($aksi === 'order') {
+    keluar(array('ok' => true, 'data' => status_pesanan($G('ref'), $G('token'))));
+
+  } else {
+    keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $aksi));
+  }
+} catch (Throwable $e) {
+  keluar(array('ok' => false, 'error' => $e->getMessage()));
+}
