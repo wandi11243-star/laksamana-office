@@ -40,7 +40,24 @@
    dari luar untuk tahu bahwa yang dibaca server ternyata berkas lain. */
 if (file_exists(__DIR__ . '/config.local.php'))      { require __DIR__ . '/config.local.php'; define('CONFIG_DIPAKAI', 'config.local.php'); }
 else if (file_exists(__DIR__ . '/config.php'))       { require __DIR__ . '/config.php';       define('CONFIG_DIPAKAI', 'config.php'); }
-else                                                 { require __DIR__ . '/config.sample.php'; define('CONFIG_DIPAKAI', 'config.sample.php (BELUM DIISI)'); }
+else if (file_exists(__DIR__ . '/config.sample.php')){ require __DIR__ . '/config.sample.php'; define('CONFIG_DIPAKAI', 'config.sample.php (BELUM DIISI)'); }
+else {
+  /* TIDAK ADA SATU PUN BERKAS CONFIG.
+     Dulu baris ini `require` berkas contoh tanpa memeriksa — dan berkas
+     contoh pun sengaja tidak pernah ikut deploy (pola config*.php). Jadi di
+     server yang belum dipasang config-nya, PHP mati sebelum mencetak apa pun:
+     HTTP 500 dengan badan KOSONG, tanpa satu pun petunjuk apa yang kurang.
+     Sudah memakan waktu saat memasang produksi 31 Juli 2026.
+     Sekarang gagalnya menjelaskan diri sendiri. */
+  header('Content-Type: application/json; charset=utf-8');
+  http_response_code(503);
+  echo json_encode(array('ok' => false, 'error' =>
+    'config.php belum ada di folder ini. Salin dari ticketing-mysql/config.sample.php di repo, '
+    . 'isi kredensial database (samakan dengan event-api-mysql) + kunci Xendit, '
+    . 'lalu simpan sebagai config.php di folder yang sama dengan api.php.',
+    'folder' => basename(__DIR__)), JSON_UNESCAPED_UNICODE);
+  exit;
+}
 
 define('LIB_VERSI', '2026-07-31a');
 
