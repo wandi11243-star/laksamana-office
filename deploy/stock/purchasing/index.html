@@ -973,24 +973,52 @@
                     </span>
                 </div>
 
-                <!-- ISI PACK — untuk barang yang ADA DI CK (sumber 'ck' maupun
-                     'both'). Inilah yang membuat
-                     "2 Pack" dan "1000 Gram" bisa dijumlah jadi satu saldo:
-                     semua mutasi disimpan dalam satuan dasar, dan angka ini
-                     kursnya. Tanpa isi pack, keduanya jadi angka yang tidak
-                     bisa dibandingkan. -->
+                <!-- SISI CENTRAL KITCHEN — untuk barang yang ADA DI CK (sumber
+                     'ck' maupun 'both'): satuan dasar, dipack/curah, dan
+                     lokasi simpan.
+
+                     Satuan dasar + isi pack itulah yang membuat "2 Pack" dan
+                     "1000 Gram" bisa dijumlah jadi satu saldo: semua mutasi
+                     disimpan dalam satuan dasar, dan isi pack kursnya. Tanpa
+                     keduanya, angka-angka itu tidak bisa dibandingkan. -->
                 <div id="prod-pack-wrap" class="hidden bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    <label class="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1.5">Isi 1 Pack</label>
-                    <div class="flex items-center gap-2">
-                        <span class="text-xs font-bold text-amber-800 whitespace-nowrap">1 Pack =</span>
-                        <input type="number" id="prod-pack-isi" step="any" min="0" placeholder="500" class="w-24 border border-amber-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
-                        <select id="prod-pack-satuan" class="flex-1 min-w-0 border border-amber-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"></select>
-                    </div>
+                    <!-- SATUAN DASAR selalu ditanya: ia satuan penyimpanan
+                         saldo, berlaku untuk barang dipack maupun curah. -->
+                    <label class="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1.5">Satuan Dasar</label>
+                    <select id="prod-pack-satuan" class="w-full border border-amber-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"></select>
                     <span class="text-[10px] text-amber-700 mt-1.5 block leading-relaxed">
-                        Isi pack juga yang <b>mengunci pengambilan dari CK</b>: begitu diisi, tim hanya bisa mengambil dalam
-                        <b>pack utuh</b> (1, 2, 3 &mdash; bukan 1,5). Kosongkan kalau barang ini memang tidak dipack dan boleh
-                        diambil eceran &mdash; satuannya jadi satuan dasar saja.
+                        Satuan yang dipakai menyimpan saldo stok CK barang ini (mis. Gram, ML, Pcs).
                     </span>
+
+                    <!-- DIPACK ATAU CURAH — ditanya EKSPLISIT sejak 31 Juli 2026.
+                         Dulu jawabannya disimpulkan dari kolom "Isi 1 Pack"
+                         yang dikosongkan, dan kosong itu punya dua arti yang
+                         tidak bisa dibedakan siapa pun: "barang ini memang
+                         curah" dan "admin belum sempat mengisinya". Bedanya
+                         besar — yang kedua membuat satuan Pack hilang dari
+                         form Ordering tanpa ada satu pun petunjuk kenapa.
+                         Berlaku untuk sumber 'ck' maupun 'both': pertanyaannya
+                         sama, dan barang Vendor & CK justru yang paling sering
+                         curah (dibeli per sak, diambil per gram). -->
+                    <div class="mt-3 pt-3 border-t border-amber-200">
+                        <label class="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1.5">Bentuk Simpanan</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <button type="button" onclick="setDipackProduk(true)"  id="prod-dipack-ya"    class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">📦 Dipack</button>
+                            <button type="button" onclick="setDipackProduk(false)" id="prod-dipack-tidak" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">⚖️ Curah / Eceran</button>
+                        </div>
+                        <input type="hidden" id="prod-dipack" value="1">
+
+                        <div id="prod-pack-isi-wrap" class="flex items-center gap-2 mt-2.5">
+                            <span class="text-xs font-bold text-amber-800 whitespace-nowrap">1 Pack =</span>
+                            <input type="number" id="prod-pack-isi" step="any" min="0" placeholder="500" class="w-24 border border-amber-200 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
+                            <span id="prod-pack-isi-satuan" class="text-xs font-bold text-amber-800 whitespace-nowrap"></span>
+                        </div>
+                        <span class="text-[10px] text-amber-700 mt-1.5 block leading-relaxed">
+                            <b>Dipack</b> <b>mengunci pengambilan dari CK</b>: tim hanya bisa mengambil dalam
+                            <b>pack utuh</b> (1, 2, 3 &mdash; bukan 1,5), dan sisa stok di layar Ordering ikut
+                            dihitung dalam Pack. <b>Curah</b> = ditakar bebas dalam satuan dasar.
+                        </span>
+                    </div>
 
                     <!-- DISIMPAN DI MANA. Menentukan apakah barang ini bisa
                          mengalir DUA ARAH. Barang yang cuma ada di CK hanya
@@ -4555,7 +4583,36 @@
                 selPack.innerHTML = SATUAN_TERSEDIA.filter(u => u !== 'Pack')
                     .map(u => `<option value="${u}">${u}</option>`).join('');
                 selPack.value = 'Gram';
+                // Label "1 Pack = 500 <satuan>" ikut satuan dasar yang dipilih,
+                // supaya angkanya tidak pernah diketik tanpa satuan di kepala.
+                selPack.onchange = syncSatuanDasarLabel;
             }
+            syncSatuanDasarLabel();
+        }
+
+        function syncSatuanDasarLabel() {
+            const sel = document.getElementById('prod-pack-satuan');
+            const lbl = document.getElementById('prod-pack-isi-satuan');
+            if (lbl) lbl.textContent = (sel && sel.value) || '';
+        }
+
+        /* Dipack atau curah — lihat catatan panjangnya di markup
+           #prod-pack-wrap. Jawabannya disimpan sebagai packIsi > 0 (tidak ada
+           kolom baru di database): curah menulis 0, dan itu memang arti yang
+           sudah dipakai backend maupun modul Ordering sejak awal. Yang berubah
+           cuma bahwa 0 sekarang PILIHAN, bukan kekosongan. */
+        function setDipackProduk(dipack) {
+            document.getElementById('prod-dipack').value = dipack ? '1' : '';
+            const ON  = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-amber-600 text-white border-amber-600 shadow-sm';
+            const OFF = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-white text-slate-600 border-amber-200 hover:bg-amber-50';
+            document.getElementById('prod-dipack-ya').className    = dipack ? ON  : OFF;
+            document.getElementById('prod-dipack-tidak').className  = dipack ? OFF : ON;
+            document.getElementById('prod-pack-isi-wrap').classList.toggle('hidden', !dipack);
+            // Curah mengosongkan isi pack, bukan menyembunyikannya sambil tetap
+            // menyimpan angkanya: angka yang tak terlihat tapi ikut tersimpan
+            // adalah yang membuat barang "curah" tetap terkunci pack utuh.
+            if (!dipack) document.getElementById('prod-pack-isi').value = '';
+            syncSatuanDasarLabel();
         }
 
         function setLokasiCK(diOutlet) {
@@ -4605,15 +4662,30 @@
             const caraBeli = document.getElementById('prod-carabeli').value;
             const editKey = document.getElementById('prod-edit-key').value;
             const sumber = document.getElementById('prod-sumber').value;
-            const packIsi = parseFloat(document.getElementById('prod-pack-isi').value) || 0;
+            const adaDiCKProd = (sumber === 'ck' || sumber === 'both');
+            // Curah menulis 0 apa pun isi kolomnya — kolomnya memang
+            // disembunyikan, dan angka sisa dari pilihan sebelumnya tidak boleh
+            // ikut tersimpan diam-diam.
+            const dipack = document.getElementById('prod-dipack').value === '1';
+            const packIsi = (adaDiCKProd && dipack) ? (parseFloat(document.getElementById('prod-pack-isi').value) || 0) : 0;
             const packSatuan = document.getElementById('prod-pack-satuan').value || '';
             const diOutlet = document.getElementById('prod-di-outlet').value === '1';
 
             // Barang yang ada di CK WAJIB punya satuan dasar. Tanpa itu tidak
             // ada satuan untuk menyimpan mutasinya, dan saldo yang terbentuk
             // kemudian adalah penjumlahan angka-angka yang tidak sebanding.
-            if ((sumber === 'ck' || sumber === 'both') && !packSatuan) {
+            if (adaDiCKProd && !packSatuan) {
                 showToast("Satuan Dasar Kosong", "Barang Central Kitchen harus punya satuan dasar (mis. Gram).", "danger");
+                btn.innerHTML = originalHTML; btn.disabled = false; return;
+            }
+
+            /* "Dipack" tapi isi packnya kosong DITOLAK, bukan diam-diam
+               disimpan sebagai 0. Persis keadaan itulah yang membuat satuan
+               Pack hilang dari form Ordering tanpa ada satu pun petunjuk
+               kenapa — dilaporkan 31 Juli 2026. Kalau memang tidak dipack,
+               pilihannya sudah ada: Curah. */
+            if (adaDiCKProd && dipack && packIsi <= 0) {
+                showToast("Isi Pack Kosong", `Barang bertanda "Dipack" harus diisi berapa ${packSatuan} per pack — atau pilih "Curah / Eceran".`, "danger");
                 btn.innerHTML = originalHTML; btn.disabled = false; return;
             }
 
@@ -4905,6 +4977,12 @@
             // setSumberProduk() dipanggil BELAKANGAN karena ia yang menyusun
             // daftar satuan dasar dan menentukan blok mana yang tampak.
             setSumberProduk('');
+            /* Bawaan barang baru = Dipack. Bukan karena mayoritas barang CK
+               dipack, tapi karena "Dipack + isi pack kosong" DITOLAK saat
+               simpan sedangkan Curah tidak menuntut apa-apa: bawaan yang
+               menuntut jawaban tidak bisa lolos tanpa disadari, bawaan yang
+               diam bisa. */
+            setDipackProduk(true);
             toggleModal('modal-product', true);
         }
 
@@ -4931,8 +5009,15 @@
             // lebih dulu, baru nilainya bisa dipulihkan. Dibalik, `value` yang
             // disetel akan hilang karena opsinya belum ada saat itu.
             setSumberProduk(mapping.sumber === 'ck' || mapping.sumber === 'both' ? mapping.sumber : '');
-            document.getElementById('prod-pack-isi').value = mapping.packIsi ? mapping.packIsi : '';
+            /* packSatuan dipulihkan SEBELUM setDipackProduk supaya label
+               "1 Pack = … <satuan>" langsung benar. `if (mapping.packSatuan)`
+               dipertahankan: nilai kosong akan menyetel select ke '' yang tidak
+               ada opsinya, dan selectnya jadi blank. */
             if (mapping.packSatuan) document.getElementById('prod-pack-satuan').value = mapping.packSatuan;
+            document.getElementById('prod-pack-isi').value = mapping.packIsi ? mapping.packIsi : '';
+            // Barang lama tidak punya penanda dipack/curah tersendiri —
+            // disimpulkan dari packIsi, satu-satunya sumber yang memang ada.
+            setDipackProduk(!!(mapping.packIsi > 0));
             // 'both' selalu ada di outlet; setSumberProduk sudah memaksanya, jadi
             // jangan ditimpa nilai lama yang mungkin tersimpan false.
             if (mapping.sumber !== 'both') setLokasiCK(!!mapping.diOutlet);

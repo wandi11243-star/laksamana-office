@@ -1937,6 +1937,19 @@ function ckNum() {  }
 
 
 
+
+
+
+
+
+function ckTeksPack() { ckNum(); }
+
+
+
+
+
+
+
 function muatSaldoCK() {  }
 
 
@@ -1989,7 +2002,7 @@ function ckAcCfg() {  }
 
 
 
-function cariBarangCK() { ckAcCfg(); infoCKItem(); pilihBarangCKAc(); ckNum(); }
+function cariBarangCK() { ckAcCfg(); infoCKItem(); pilihBarangCKAc(); ckTeksPack(); }
 
 
 
@@ -2053,6 +2066,9 @@ function tutupSugCK() { ckAcCfg(); }
 
 
 function optSatuanCK() {  }
+
+
+
 
 
 
@@ -2180,6 +2196,15 @@ function addCKRow() { cariBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKR
 
 
 
+
+
+
+
+
+
+
+
+
 function deleteCKRow() { showToast(); updateCKSummary(); }
 
 
@@ -2266,7 +2291,7 @@ function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); }
 
 
 
-function sel() { ckNum(); catatanTanpaPackCK(); }
+function sel() { ckNum(); ckTeksPack(); catatanTanpaPackCK(); }
 
 
 
@@ -3197,7 +3222,7 @@ function fetchSharedStock() {  }
 
 
 
-function renderPanelCK() { ckKeDasar(); sel(); ckNum(); }
+function renderPanelCK() { ckKeDasar(); sel(); ckNum(); ckTeksPack(); }
 
 
 

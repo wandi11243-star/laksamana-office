@@ -1238,6 +1238,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -4521,7 +4549,7 @@ function renderUnitCheckboxes() { serverDukungSatuan(); }
 
 
 
-function setSumberProduk() { setLokasiCK(); }
+function setSumberProduk() { setLokasiCK(); syncSatuanDasarLabel(); }
 
 
 
@@ -4545,6 +4573,35 @@ function setSumberProduk() { setLokasiCK(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function syncSatuanDasarLabel() {  }
+
+
+
+
+
+
+
+
+
+
+function setDipackProduk() { syncSatuanDasarLabel(); }
 
 
 
@@ -4585,6 +4642,21 @@ function updateBackupCheckboxes() {  }
 
 
 function submitProductMapping() { requireEditPage(); showToast(); sendPostRequest(); closeProductModal(); fetchSheetData(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4890,7 +4962,7 @@ function openEditVendorModal() { toggleModal(); }
 
 function closeVendorModal() { toggleModal(); }
 
-function openAddProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); toggleModal(); }
+function openAddProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); toggleModal(); }
 
 
 
@@ -4908,7 +4980,20 @@ function openAddProductModal() { populateVendorDropdowns(); updateBackupCheckbox
 
 
 
-function openEditProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setLokasiCK(); toggleModal(); }
+
+
+
+
+
+
+function openEditProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+
+
+
+
+
+
 
 
 

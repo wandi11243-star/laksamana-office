@@ -1933,6 +1933,19 @@
             const v = Math.round((parseFloat(n) || 0) * 1000) / 1000;
             return String(v);
         }
+        /* Sebuah jumlah stok CK sebagaimana kru menyebutnya.
+           Barang yang DIPACK dihitung dalam Pack, bukan satuan dasarnya.
+           Sebabnya: sejak pengambilan wajib pack utuh, satuan dasar tidak
+           pernah dipakai siapa pun untuk memutuskan apa pun di layar ini —
+           "sisa 0 Pcs" untuk barang berisi 5 Pcs per pack cuma menyuruh orang
+           membagi sendiri, dan yang ia butuhkan adalah "sisa 0 Pack".
+           Konversi saldo di server TIDAK berubah: yang disimpan tetap satuan
+           dasar, ini semata cara menuliskannya. Barang curah tetap memakai
+           satuan dasar — di sana justru Pack yang tidak berarti. */
+        function ckTeksPack(qtyDasar, p) {
+            if (p && p.packIsi > 0) return `${ckNum(qtyDasar / p.packIsi)} Pack`;
+            return `${ckNum(qtyDasar)} ${(p && p.packSatuan) || ''}`.trim();
+        }
         /* Sisa stok CK ditarik SEKALI saat halaman dibuka. Kegagalannya
            dibiarkan diam: angka sisa stok itu bantuan, bukan syarat — form
            order harus tetap bisa dipakai walau endpoint CK belum terpasang
@@ -2013,7 +2026,7 @@
                                  class="px-3 py-2.5 border-b border-slate-50 last:border-b-0 cursor-pointer hover:bg-teal-50 flex items-center justify-between gap-2 transition-colors">
                                 <span class="min-w-0 truncate text-xs font-bold text-slate-700">${n}</span>
                                 <span class="shrink-0 text-[10px] font-black ${habis ? 'text-rose-600' : (tahu ? 'text-teal-700' : 'text-slate-300 italic font-medium')}">
-                                    ${tahu ? `${ckNum(sisa)} ${(p && p.packSatuan) || ''}` : 'stok ?'}
+                                    ${tahu ? ckTeksPack(sisa, p) : 'stok ?'}
                                 </span>
                             </div>`;
                 }).join('')
@@ -2055,18 +2068,21 @@
         function optSatuanCK(opsi, adaPack) {
             const html = opsi.map(u => `<option value="${u}">${u}</option>`).join('');
             return adaPack ? html
-                : html + '<option value="Pack" disabled>Pack — isi pack belum diatur</option>';
+                : html + '<option value="Pack" disabled>Pack — barang ini tidak dipack</option>';
         }
 
-        /* Petunjuk di panel rincian untuk barang yang belum punya isi pack.
-           Sengaja bukan peringatan merah: barang curah memang boleh tanpa isi
-           pack, jadi ini keterangan, bukan kesalahan. */
+        /* Petunjuk di panel rincian untuk barang yang tidak dipack.
+           Sengaja bukan peringatan merah: sejak Atur Produk menanyakan
+           dipack/curah secara terpisah (31 Juli 2026), curah adalah pilihan
+           yang sah — jadi ini keterangan, bukan kesalahan. Tetap disebutkan
+           di mana mengubahnya, karena tetap ada barang yang statusnya memang
+           salah diisi. */
         function catatanTanpaPackCK(p) {
             if (!p || p.packIsi > 0) return '';
             return `<div class="px-3 py-1.5 border-t border-slate-200 text-[10px] font-semibold text-slate-500 leading-relaxed">
-                Barang ini belum punya <b>Isi 1 Pack</b>, jadi satuan <b>Pack</b> belum bisa dipakai &mdash;
+                Barang ini <b>tidak dipack</b>, jadi satuan <b>Pack</b> tidak berlaku &mdash;
                 jumlahnya ditakar dalam <b>${p.packSatuan || 'satuan dasar'}</b>. Kalau semestinya dipack, admin
-                mengaturnya di <b>Purchasing → Database &amp; Vendor → Atur Produk</b>.
+                mengubahnya di <b>Purchasing → Database &amp; Vendor → Atur Produk</b>.
             </div>`;
         }
 
@@ -2149,9 +2165,18 @@
             const wrapper = document.getElementById('ck-rows-wrapper');
             const id = ++ckRowCount;
 
+            /* `md:flex-wrap` WAJIB ada di baris ini. Panel rincian di bawah
+               (`ck-row-info-*`) memakai `md:basis-full` supaya jatuh ke baris
+               sendiri — tapi tanpa flex-wrap ia tidak pernah jatuh, ia cuma
+               ikut berdesakan di baris yang sama dan menghimpit semua kolom
+               lain. Akibatnya dilaporkan 31 Juli 2026 sebagai "satuan Pack
+               tidak muncul": pilihannya ADA dan terpilih, kolomnya saja yang
+               tergencet jadi selebar tanda panah, jadi tulisannya terpotong
+               habis. Panel itu baru tampil setelah barangnya diisi — itu
+               sebabnya kolom satuan terlihat normal sebelum mengetik. */
             const row = document.createElement('div');
             row.id = `ck-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
                 <div class="flex-1 min-w-[200px] relative">
                     <input type="text" id="ck-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
@@ -2164,7 +2189,7 @@
                     <input type="number" id="ck-row-qty-${id}" value="1" min="0" step="any" oninput="refreshBarisCK(${id})" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white shadow-inner">
                     <button type="button" onclick="adjustCKQty(${id}, 1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">+</button>
                 </div>
-                <div class="w-full md:w-[110px]">
+                <div class="w-full md:w-[110px] md:shrink-0">
                     <select id="ck-row-unit-${id}" onchange="refreshBarisCK(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"></select>
                 </div>
                 <div class="flex-grow">
@@ -2277,8 +2302,8 @@
                 <div class="rounded-xl border ${(kurang || pecah) ? 'border-rose-200 bg-rose-50/40' : 'border-teal-200 bg-teal-50/40'} shadow-sm overflow-x-auto">
                     <div class="flex flex-nowrap items-stretch min-w-full">
                         ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`, pecah ? 'text-rose-600' : '')}
-                        ${sel('Sisa stok CK', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
+                        ${sel('Diminta', ckTeksPack(dasar, p), pecah ? 'text-rose-600' : '')}
+                        ${sel('Sisa stok CK', tahuSisa ? ckTeksPack(sisa, p) : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
                               kurang ? 'text-rose-600' : '')}
                     </div>
                     ${pecah ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
@@ -2413,7 +2438,7 @@
 
             const row = document.createElement('div');
             row.id = `kirim-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
                 <div class="flex-1 min-w-[200px] relative">
                     <input type="text" id="kirim-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
@@ -2426,7 +2451,7 @@
                     <input type="number" id="kirim-row-qty-${id}" value="1" min="0" step="any" oninput="refreshBarisKirim(${id})" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white shadow-inner">
                     <button type="button" onclick="adjustKirimQty(${id}, 1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">+</button>
                 </div>
-                <div class="w-full md:w-[110px]">
+                <div class="w-full md:w-[110px] md:shrink-0">
                     <select id="kirim-row-unit-${id}" onchange="refreshBarisKirim(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"></select>
                 </div>
                 <div class="flex-grow">
@@ -2790,7 +2815,7 @@
             const id = ++rowCount;
             const row = document.createElement('div');
             row.id = `batch-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all relative";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all relative";
 
             row.innerHTML = `
                 <div class="relative flex-1 min-w-[200px]">
@@ -3221,8 +3246,8 @@
                     <div class="flex flex-nowrap items-stretch min-w-full">
                         ${sel('Sumber', '👨‍🍳 Central Kitchen', 'text-amber-800')}
                         ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
-                        ${sel('Sisa stok', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
+                        ${sel('Diminta', ckTeksPack(dasar, p))}
+                        ${sel('Sisa stok', tahuSisa ? ckTeksPack(sisa, p) : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
                               kurang ? 'text-rose-600' : '')}
                     </div>
                     ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
