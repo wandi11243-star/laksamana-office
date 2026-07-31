@@ -103,10 +103,21 @@ function identitas() {
     'config' => defined('CONFIG_DIPAKAI') ? CONFIG_DIPAKAI : '?',
   ));
 }
+/* Tiga sebab "belum diisi" DIBEDAKAN, karena penanganannya berbeda dan dari
+   luar ketiganya terlihat sama persis:
+     tidak ada  -> barisnya belum ditulis sama sekali
+     placeholder-> baris contoh masih menang. Di PHP define() yang PERTAMA
+                   menang; baris baru yang ditempel di BAWAH baris lama
+                   diabaikan tanpa pesan apa pun. Ini penyebab tersering.
+     kosong     -> barisnya ada tapi nilainya ''
+   Yang dilaporkan hanya sebabnya, tidak pernah isi kuncinya. */
 function xendit_mode() {
-  if (!defined('XENDIT_SECRET') || XENDIT_SECRET === '' || strpos(XENDIT_SECRET, 'ISI_') === 0) return 'belum diisi';
+  if (!defined('XENDIT_SECRET'))              return 'belum diisi (baris XENDIT_SECRET tidak ada)';
+  if (strpos(XENDIT_SECRET, 'ISI_') === 0)    return 'belum diisi (masih teks contoh — ada define ganda?)';
+  if (XENDIT_SECRET === '')                   return 'belum diisi (kosong)';
   if (strpos(XENDIT_SECRET, 'xnd_production') === 0) return 'LIVE';
-  return 'test';
+  if (strpos(XENDIT_SECRET, 'xnd_development') === 0) return 'test';
+  return 'terisi, tapi awalannya bukan xnd_development/xnd_production';
 }
 
 /* ==================== KONEKSI ==================== */
@@ -446,7 +457,8 @@ function xendit_invoice($o, $ev) {
       'invoice_url' => SITE_URL . '/#simbayar/' . $o['payment_ref'] . '/' . $o['access_token'],
       'expiry_date' => '', 'status' => 'PENDING', 'simulasi' => true);
   }
-  if (xendit_mode() === 'belum diisi') throw new Exception('Pembayaran belum dikonfigurasi di server (XENDIT_SECRET kosong).');
+  if (strpos(xendit_mode(), 'belum diisi') === 0)
+    throw new Exception('Pembayaran belum dikonfigurasi di server: ' . xendit_mode());
   $body = array(
     // external_id inilah yang dipulangkan webhook. Dipakai id pesanan kita
     // supaya pencocokannya tidak bergantung pada apa pun yang bisa berubah.
