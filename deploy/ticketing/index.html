@@ -81,7 +81,7 @@ img{max-width:100%;display:block}
 .ev .price small{font-weight:500;font-size:12px;color:var(--muted-2)}
 
 /* ---- denah (bentuknya sama dengan denah EMS) ---- */
-.denah-wrap{overflow:auto;background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 12px,rgba(0,0,0,.012) 12px,rgba(0,0,0,.012) 24px);
+.denah-wrap{overflow:hidden;background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 12px,rgba(0,0,0,.012) 12px,rgba(0,0,0,.012) 24px);
   border-radius:var(--radius);padding:16px;max-height:66vh;border:1px solid var(--line)}
 .denah{position:relative;transform-origin:top left;margin:0 auto}
 .obj{position:absolute;border:2px solid;border-radius:7px;display:flex;align-items:center;justify-content:center;
@@ -243,6 +243,15 @@ async function api(aksi, data){
 const Beli = {
   eventId:null, holdToken:localStorage.getItem('lmtix_hold')||'', items:[], habis:0, jam:null,
   simpanToken(t){ this.holdToken=t; localStorage.setItem('lmtix_hold',t); },
+  /* Isian data pemesan disimpan supaya bolak-balik ke denah untuk menambah
+     atau mengurangi tempat tidak menghapus nama, email, dan nomor HP yang
+     sudah diketik. Mengetik ulang tiga isian itu tiap kali berubah pikiran
+     adalah cara paling cepat membuat orang batal membeli. */
+  isian:{nama:'',email:'',hp:''},
+  simpanIsian(){
+    const g=id=>{ const el=$(id); return el?el.value:''; };
+    if($('#f-nama')) this.isian={nama:g('#f-nama'),email:g('#f-email'),hp:g('#f-hp')};
+  },
   total(){ return this.items.reduce((a,i)=>a+(+i.price||0),0); },
   mulaiJam(){
     clearInterval(this.jam);
@@ -259,6 +268,7 @@ const Beli = {
 /* ---------- router ---------- */
 const Layar = {};
 function go(nama, a, b){
+  Beli.simpanIsian();   // sebelum layarnya diganti, bukan sesudah
   const hash = nama + (a?('/'+a):'') + (b?('/'+b):'');
   if(location.hash.slice(1) !== hash) location.hash = hash;
   window.scrollTo(0,0);
@@ -341,6 +351,29 @@ Layar.event = async (id)=>{
    pembungkus terkecil yang memuat SEMUA objek lantai itu — bukan dari
    ukuran kanvas EMS, yang biasanya jauh lebih besar dari isinya dan
    membuat denah tampil kecil di tengah ruang kosong. */
+/* Palet nama ruang — SALINAN PERSIS dari LDZ_RUANG di modul Event.
+   Tanpa ini, objek yang di EMS berwarna sendiri (STAGE biru gelap, TANGGA
+   cokelat, OPERATOR abu tua, VOID abu muda) semuanya jatuh ke warna emas
+   bawaan di sisi customer — denah yang sama tampil seperti dua ruangan
+   berbeda, dan pembeli kehilangan satu-satunya petunjuk mana panggung dan
+   mana tangga. Warna eksplisit per objek tetap menang di atas palet ini.
+   Kalau daftar di EMS diubah, salin lagi ke sini. */
+const RUANG=[
+  [/^stage$|panggung/i,      {bg:'#3f4a5a', tepi:'#2b3340'}],
+  [/^meja ?dj$/i,            {bg:'#a9791f', tepi:'#7a560f'}],
+  [/talent/i,                {bg:'#6d5aa8', tepi:'#4e3f80'}],
+  [/entrance|masuk|keluar/i, {bg:'#e08a1e', tepi:'#a86212'}],
+  [/tangga/i,                {bg:'#8a6242', tepi:'#63452e'}],
+  [/operator|foh/i,          {bg:'#2f3a4a', tepi:'#1d2530'}],
+  [/^void/i,                 {bg:'#eceae4', tepi:'#c9c4b8'}],
+  [/reguler|regular/i,       {bg:'#5b7fa6', tepi:'#3f5d7d'}],
+  [/^ext/i,                  {bg:'#f2c14e', tepi:'#c9432b'}]
+];
+function warnaRuang(label){
+  const t=String(label||'').trim();
+  for(const [pola,w] of RUANG) if(pola.test(t)) return w;
+  return null;
+}
 let DENAH=[], LANTAI='1', EVENT_KINI=null;
 Layar.denah = async (id)=>{
   memuat('Memuat denah venue…');
@@ -397,20 +430,30 @@ function petakanObjek(){
      untuk disentuh jari, pembeli tetap bisa memperbesar lewat cubit/zoom
      browser; yang tidak bisa diperbaiki sendiri adalah denah yang tak muat
      di layar sama sekali. */
+  /* Muat SELURUHNYA tanpa perlu digulir. Sebelumnya skalanya hanya dibatasi
+     lebar, jadi denah lantai 1 (yang tinggi) menyisakan kotak menjulang dengan
+     scrollbar di dalamnya — dan ruang kosong di kanan ikut terbawa karena
+     tingginya dipatok dari kotak pembungkus objek, bukan dari yang terlihat.
+     Sekarang dua-duanya dibatasi, dan tinggi kotaknya dipatok PAS pada isi
+     yang sudah diskalakan; tidak ada lagi yang perlu digulir. */
   const muat=(wrap.clientWidth||900)-34;
-  const muatTinggi=Math.max(280, Math.round((window.innerHeight||800)*0.62));
+  const muatTinggi=Math.max(260, Math.round((window.innerHeight||800)*0.58));
   const skala=Math.min(1, muat/lebar, muatTinggi/tinggi);
   box.style.width=lebar+'px'; box.style.height=tinggi+'px';
   box.style.transform='scale('+skala+')';
-  wrap.style.height=(tinggi*skala+34)+'px';
+  wrap.style.height=Math.ceil(tinggi*skala+32)+'px';
+  wrap.style.overflow='hidden';
   box.innerHTML=its.map(o=>{
     const bisa = o.status==='available' || o.status==='mine';
-    const w = o.warna || '#A9791F';
+    const ruang = o.warna ? null : warnaRuang(o.label);
+    const w = o.warna || (ruang ? ruang.tepi : '#A9791F');
+    const isiRuang = ruang ? ruang.bg : null;
     /* Warna dasar mengikuti kategori tiketnya (sama seperti di EMS), dan
        hanya status yang menimpanya lewat kelas CSS — jadi kursi VIP tetap
        terlihat VIP sampai ia benar-benar terjual. */
     const gaya='left:'+(o.x-minX+20)+'px;top:'+(o.y-minY+20)+'px;width:'+o.w+'px;height:'+o.h+'px;'
-      +'border-color:'+w+';background:'+(o.kind==='table'?warnaMuda(w):w)+';color:'+(o.kind==='table'?'#2A2620':kontras(w))+';';
+      +'border-color:'+w+';background:'+(isiRuang||(o.kind==='table'?warnaMuda(w):w))
+      +';color:'+kontras(isiRuang||(o.kind==='table'?'#EDE9DF':w))+';';
     const kelas='obj '+(o.shape==='circle'?'bulat ':'')+o.status+(bisa?' bisa':'')
       +(o.kind==='area'?' area':'');
     const judul=(o.kind==='table'?'Meja ':'Kursi ')+(o.label||'')+' · '+(o.tier||'')
@@ -496,9 +539,9 @@ Layar.checkout = (id)=>{
    +'<div class="dua"><div class="card sec">'
      +'<h2>Data Pemesan</h2>'
      +'<p class="mini" style="margin-bottom:14px">E-ticket dikirim ke email ini, jadi pastikan benar.</p>'
-     +'<div class="field"><label>Nama Lengkap *</label><input id="f-nama" autocomplete="name" placeholder="Nama sesuai identitas"></div>'
-     +'<div class="field"><label>Email *</label><input id="f-email" type="email" autocomplete="email" placeholder="email@contoh.com"></div>'
-     +'<div class="field"><label>Nomor HP / WhatsApp *</label><input id="f-hp" autocomplete="tel" placeholder="08xxxxxxxxxx"></div>'
+     +'<div class="field"><label>Nama Lengkap *</label><input id="f-nama" autocomplete="name" placeholder="Nama sesuai identitas" value="'+esc(Beli.isian.nama)+'"></div>'
+     +'<div class="field"><label>Email *</label><input id="f-email" type="email" autocomplete="email" placeholder="email@contoh.com" value="'+esc(Beli.isian.email)+'"></div>'
+     +'<div class="field"><label>Nomor HP / WhatsApp *</label><input id="f-hp" autocomplete="tel" placeholder="08xxxxxxxxxx" value="'+esc(Beli.isian.hp)+'"></div>'
      +'<label class="cek"><input type="checkbox" id="f-setuju"> <span>Saya menyetujui syarat &amp; ketentuan dan kebijakan refund Laksamana Muda.</span></label>'
    +'</div><aside>'+ringkasHTML('LANJUT KE PEMBAYARAN','kirimCheckout()')+'</aside></div>';
   if(Beli.items.length) Beli.mulaiJam();
