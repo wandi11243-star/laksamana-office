@@ -76,3 +76,16 @@ CREATE TABLE IF NOT EXISTS tix_sessions (
   KEY idx_ts_user (user_id),
   KEY idx_ts_exp  (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/* Token reset password. Tabel sendiri, bukan menumpang tix_sessions: sesi
+   memberi AKSES, token reset memberi HAK MENGGANTI PASSWORD — dua kewenangan
+   berbeda yang tidak boleh saling tertukar kalau salah satu bocor.
+   Sekali pakai (dihapus setelah dipakai) dan berumur pendek. */
+CREATE TABLE IF NOT EXISTS tix_reset (
+  token      VARCHAR(64)  NOT NULL PRIMARY KEY,
+  user_id    VARCHAR(64)      NULL,
+  expires_at BIGINT       NOT NULL DEFAULT 0,
+  created_at BIGINT       NOT NULL DEFAULT 0,
+  KEY idx_tr_user (user_id),
+  KEY idx_tr_exp  (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

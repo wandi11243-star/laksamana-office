@@ -690,6 +690,8 @@ Layar.masuk = ()=>{
      +'<div class="field"><label>Password *</label><input id="a-pass" type="password" autocomplete="'+(modeDaftar?'new-password':'current-password')+'">'
        +(modeDaftar?'<div class="mini">Minimal 8 karakter.</div>':'')+'</div>'
      +'<button class="btn btn-pri btn-block" id="a-go">'+(modeDaftar?'DAFTAR':'MASUK')+'</button>'
+     +(modeDaftar?'':'<p class="mini" style="text-align:center;margin-top:10px">'
+        +'<a href="#lupa" onclick="go(\'lupa\');return false;">Lupa password?</a></p>')
      +'<p class="mini" style="text-align:center;margin-top:12px">'
        +(modeDaftar?'Sudah punya akun? ':'Belum punya akun? ')
        +'<a href="#masuk" onclick="modeDaftar='+(!modeDaftar)+';Layar.masuk();return false;"><b>'
@@ -721,6 +723,56 @@ async function kirimAkun(){
   toast(modeDaftar?'Akun dibuat. Selamat datang!':'Berhasil masuk.','ok');
   go('tiketsaya');
 }
+
+/* ---------- LUPA & RESET PASSWORD ---------- */
+Layar.lupa = ()=>{
+  $('#app').innerHTML='<div class="tengah" style="max-width:400px"><div class="card sec">'
+   +'<h1 style="font-size:22px;margin-bottom:4px">Lupa Password</h1>'
+   +'<p class="mini" style="margin-bottom:16px">Masukkan email akunmu. Kami kirim tautan untuk membuat password baru.</p>'
+   +'<div class="field"><label>Email</label><input id="l-email" type="email" autocomplete="email"></div>'
+   +'<button class="btn btn-pri btn-block" id="l-go">KIRIM TAUTAN</button>'
+   +'<p class="mini" style="text-align:center;margin-top:12px"><a href="#masuk" onclick="go(\'masuk\');return false;">Kembali ke Masuk</a></p>'
+   +'</div></div>';
+  $('#l-go').onclick = async ()=>{
+    const em=$('#l-email').value.trim();
+    if(!em) return toast('Isi emailmu dulu.','warn');
+    const b=$('#l-go'); b.disabled=true; b.innerHTML='<span class="spinner"></span> Mengirim…';
+    let r;
+    try{ r = await api('lupaPassword',{email:em}); }
+    catch(e){ b.disabled=false; b.textContent='KIRIM TAUTAN'; return toast(e.message,'err'); }
+    /* Pesannya sama apa pun kenyataannya — server sengaja tidak memberi tahu
+       apakah email itu terdaftar, dan layar tidak boleh membocorkannya. */
+    $('#app').innerHTML='<div class="tengah" style="max-width:400px"><div class="card sec">'
+      +'<div class="sukses">✉</div>'
+      +'<h2 style="font-size:19px;text-align:center">Cek emailmu</h2>'
+      +'<p class="mini" style="text-align:center;margin-top:8px">'+esc(r.pesan)+'</p>'
+      +'<button class="btn btn-ghost btn-block" style="margin-top:16px" onclick="go(\'masuk\')">Kembali</button>'
+      +'</div></div>';
+  };
+};
+Layar.reset = (tok)=>{
+  $('#app').innerHTML='<div class="tengah" style="max-width:400px"><div class="card sec">'
+   +'<h1 style="font-size:22px;margin-bottom:4px">Password Baru</h1>'
+   +'<p class="mini" style="margin-bottom:16px">Tautan ini berlaku sekali pakai. Setelah diganti, semua perangkat lain otomatis keluar.</p>'
+   +'<div class="field"><label>Password Baru</label><input id="r-pass" type="password" autocomplete="new-password"><div class="mini">Minimal 8 karakter.</div></div>'
+   +'<div class="field"><label>Ulangi Password</label><input id="r-pass2" type="password" autocomplete="new-password"></div>'
+   +'<button class="btn btn-pri btn-block" id="r-go">SIMPAN PASSWORD</button>'
+   +'</div></div>';
+  $('#r-go').onclick = async ()=>{
+    const p1=$('#r-pass').value, p2=$('#r-pass2').value;
+    if(p1.length<8) return toast('Password minimal 8 karakter.','warn');
+    if(p1!==p2)     return toast('Ulangan passwordnya belum sama.','warn');
+    const b=$('#r-go'); b.disabled=true; b.innerHTML='<span class="spinner"></span> Menyimpan…';
+    let r;
+    try{ r = await api('resetPassword',{token:tok, password:p1}); }
+    catch(e){ b.disabled=false; b.textContent='SIMPAN PASSWORD'; return toast(e.message,'err'); }
+    // Langsung masuk memakai sesi baru — orang yang baru mengganti password
+    // tidak perlu mengetikkannya lagi di layar berikutnya.
+    Akun.simpan(r.token, r.user); gambarTopnav();
+    toast('Password berhasil diganti.','ok');
+    go('tiketsaya');
+  };
+};
 
 /* ---------- TIKET SAYA ---------- */
 Layar.tiketsaya = async ()=>{

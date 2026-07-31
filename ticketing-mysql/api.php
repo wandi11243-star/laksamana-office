@@ -14,6 +14,8 @@
  *   POST {action:"simbayar",ref,token}         -> hanya di dev (XENDIT_MOCK)
  *   POST {action:"daftar"|"masuk", email,password,...} -> {user,token}
  *   POST {action:"keluar", sesi}
+ *   POST {action:"lupaPassword", email}       -> kirim tautan reset
+ *   POST {action:"resetPassword", token, password}
  *   GET  ?action=saya&sesi=                    -> akun yang sedang masuk
  *   GET  ?action=tiketSaya&sesi=               -> riwayat tiket akun itu
  *   GET  ?action=ujiEmail&ke=                  -> uji SMTP (bukan di produksi)
@@ -105,6 +107,12 @@ try {
 
   } else if ($aksi === 'keluar') {
     keluar(array('ok' => true, 'data' => keluar_sesi($B('sesi'))));
+
+  } else if ($aksi === 'lupaPassword') {
+    keluar(array('ok' => true, 'data' => lupa_password($B('email'))));
+
+  } else if ($aksi === 'resetPassword') {
+    keluar(array('ok' => true, 'data' => reset_password($B('token'), $B('password'))));
 
   } else if ($aksi === 'saya') {
     keluar(array('ok' => true, 'data' => user_publik(user_dari_sesi($G('sesi')))));

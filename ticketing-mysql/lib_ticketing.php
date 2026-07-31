@@ -548,6 +548,67 @@ function event_satu_apa_adanya($id) {
   return $rows ? event_ringkas($rows[0]) : null;
 }
 
+/* ==================== LUPA & RESET PASSWORD ====================
+   Ini yang menutup satu-satunya kelemahan besar akun berpassword: tanpa jalan
+   pemulihan, lupa password berarti tiket yang sudah dibayar tidak bisa diakses
+   lagi kecuali admin turun tangan.
+   ================================================================= */
+
+/* JAWABANNYA SELALU SAMA, terdaftar atau tidak. Kalau dibedakan, siapa pun
+   bisa memakai halaman ini untuk memeriksa email mana yang punya akun di sini
+   — daftar yang tidak perlu dibagikan ke orang asing. */
+function lupa_password($email) {
+  $u = user_baris($email);
+  if ($u) {
+    // Token lama dibuang: satu permintaan baru harus membatalkan yang lama,
+    // kalau tidak tautan dari email minggu lalu masih bisa dipakai.
+    db()->prepare('DELETE FROM tix_reset WHERE user_id = :u')->execute(array(':u' => $u['id']));
+    $tok = token_acak(24);
+    db()->prepare('INSERT INTO tix_reset (token,user_id,expires_at,created_at) VALUES (:t,:u,:x,:c)')
+        ->execute(array(':t' => $tok, ':u' => $u['id'],
+                        ':x' => now_ms() + 3600000, ':c' => now_ms()));   // 1 jam
+    if (smtp_siap()) {
+      $tautan = site_url() . '/#reset/' . rawurlencode($tok);
+      try {
+        kirim_email($u['email'], 'Atur ulang password \u2014 Laksamana Muda Ticketing',
+          '<div style="font-family:Arial,sans-serif;background:#F7F6F4;padding:24px">'
+          . '<div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #E7E1D3;'
+          . 'border-radius:14px;padding:24px">'
+          . '<p>Halo <b>' . htmlspecialchars($u['name']) . '</b>,</p>'
+          . '<p>Ada permintaan mengatur ulang password akun tiketmu. Tautan ini berlaku <b>1 jam</b> '
+          . 'dan hanya bisa dipakai sekali.</p>'
+          . '<p><a href="' . htmlspecialchars($tautan) . '" style="display:inline-block;background:#A9791F;'
+          . 'color:#fff;padding:12px 20px;border-radius:9px;text-decoration:none;font-weight:bold">'
+          . 'ATUR ULANG PASSWORD</a></p>'
+          . '<p style="font-size:12px;color:#8C8677">Kalau bukan kamu yang meminta, abaikan saja email ini '
+          . '\u2014 passwordmu tidak berubah selama tautan di atas tidak dibuka.</p>'
+          . '</div></div>');
+      } catch (Throwable $e) { /* ditelan: jangan sampai kegagalan kirim membocorkan bahwa emailnya terdaftar */ }
+    }
+  }
+  return array('terkirim' => true,
+    'pesan' => 'Kalau email itu terdaftar, tautan pengaturan ulang sudah kami kirim. Cek inbox dan folder spam.');
+}
+
+function reset_password($tok, $baru) {
+  if (strlen((string)$baru) < 8) throw new Exception('Password minimal 8 karakter.');
+  db()->prepare('DELETE FROM tix_reset WHERE expires_at < :n')->execute(array(':n' => now_ms()));
+  $st = db()->prepare('SELECT user_id FROM tix_reset WHERE token = :t AND expires_at > :n');
+  $st->execute(array(':t' => $tok, ':n' => now_ms()));
+  $r = $st->fetch();
+  if (!$r) throw new Exception('Tautan sudah kedaluwarsa atau pernah dipakai. Minta tautan baru.');
+  db()->prepare('UPDATE tix_users SET pass_hash = :p WHERE id = :i')
+      ->execute(array(':p' => password_hash($baru, PASSWORD_DEFAULT), ':i' => $r['user_id']));
+  // Sekali pakai.
+  db()->prepare('DELETE FROM tix_reset WHERE token = :t')->execute(array(':t' => $tok));
+  /* SEMUA SESI LAMA DIPUTUS. Orang mengganti password justru ketika ia curiga
+     akunnya dipakai orang lain; membiarkan sesi lama tetap hidup membuat
+     penggantian itu tidak menyelesaikan apa pun. */
+  db()->prepare('DELETE FROM tix_sessions WHERE user_id = :u')->execute(array(':u' => $r['user_id']));
+  $u = user_by_id($r['user_id']);
+  return array('user' => user_publik($u), 'token' => buat_sesi($u['id']));
+}
+
 /* ==================== CHECKOUT ====================
    Menyusun pesanan (Pending) lalu meminta invoice ke Xendit.
    Kursi TIDAK ditandai Sold di sini — hanya kalau uangnya benar-benar
