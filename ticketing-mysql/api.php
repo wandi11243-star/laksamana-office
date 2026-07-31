@@ -16,6 +16,7 @@
  *   POST {action:"keluar", sesi}
  *   GET  ?action=saya&sesi=                    -> akun yang sedang masuk
  *   GET  ?action=tiketSaya&sesi=               -> riwayat tiket akun itu
+ *   GET  ?action=ujiEmail&ke=                  -> uji SMTP (bukan di produksi)
  *   GET  ?action=order&ref=&token=             -> status + e-ticket
  *
  * Sengaja TIDAK ada endpoint yang memulangkan seluruh isi database, dan
@@ -110,6 +111,15 @@ try {
 
   } else if ($aksi === 'tiketSaya') {
     keluar(array('ok' => true, 'data' => tiket_saya(user_dari_sesi($G('sesi')))));
+
+  } else if ($aksi === 'ujiEmail') {
+    /* Uji kirim sebelum ada pembeli sungguhan yang mengandalkannya. Hanya di
+       server non-produksi: di produksi ia jadi alat orang asing mengirim
+       email atas nama domainmu. */
+    if (env_nyata() === 'produksi') keluar(array('ok' => false, 'error' => 'Uji email tidak tersedia di produksi.'));
+    kirim_email($G('ke'), 'Uji kirim Laksamana Muda Ticketing',
+      '<p>Kalau email ini sampai, SMTP sudah benar.</p>');
+    keluar(array('ok' => true, 'data' => array('terkirim_ke' => $G('ke'))));
 
   } else if ($aksi === 'order') {
     keluar(array('ok' => true, 'data' => status_pesanan($G('ref'), $G('token'))));

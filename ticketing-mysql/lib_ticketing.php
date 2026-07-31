@@ -766,6 +766,7 @@ function lunaskan($oid, $body = array()) {
     }
     // Kuota kelas tiket ikut naik, supaya angka "sisa" di EMS benar.
     naikkan_sold($o['items']);
+    $o['email_eticket'] = kirim_eticket($o, $tiket);
     simpan_order($o);
     // Kunci kursi dilepas: perannya sudah digantikan tiket + status Sold.
     db()->prepare('DELETE FROM seat_holds WHERE order_id = :o')->execute(array(':o' => $oid));
@@ -805,6 +806,130 @@ function simulasi_bayar($ref, $akses) {
   if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses))
     throw new Exception('Tautan tidak sah.');
   return lunaskan($o['id'], array('payment_method' => 'SIMULASI', 'paid_amount' => $o['total']));
+}
+
+/* ==================== KIRIM EMAIL (SMTP) ====================
+   Memakai akun email domain sendiri, BUKAN fungsi mail() bawaan PHP. Email
+   dari mail() tidak terautentikasi, jadi ia sering mendarat di spam \u2014 dan
+   e-ticket yang tidak terbaca sama saja dengan e-ticket yang tidak terkirim.
+   Lewat SMTP akun sendiri, kirimannya lolos SPF/DKIM domain.
+
+   Ditulis langsung di atas soket, tanpa pustaka. Repo ini tidak memakai
+   composer, dan menambahkan satu hanya untuk mengirim email berarti seluruh
+   alur deploy FTP harus ikut memikirkan vendor/.
+
+   PENGIRIMAN TIDAK PERNAH MENGGAGALKAN PELUNASAN. Kalau SMTP mati, uang sudah
+   diterima dan tiket sudah terbit \u2014 melempar galat di titik itu akan membuat
+   webhook Xendit mengulang terus dan (kalau lunaskan tidak idempoten) bisa
+   menerbitkan tiket berkali-kali. Jadi kegagalannya dicatat di pesanan, bukan
+   dilempar ke atas. */
+function smtp_siap() {
+  return defined('SMTP_HOST') && SMTP_HOST !== '' && strpos(SMTP_HOST, 'ISI_') !== 0
+      && defined('SMTP_USER') && SMTP_USER !== '' && strpos(SMTP_USER, 'ISI_') !== 0;
+}
+function smtp_baca($fp, $harap) {
+  $balas = '';
+  while (($baris = fgets($fp, 515)) !== false) {
+    $balas .= $baris;
+    if (isset($baris[3]) && $baris[3] === ' ') break;   // baris terakhir multi-line
+  }
+  $kode = (int)substr($balas, 0, 3);
+  if ($harap && $kode !== $harap) throw new Exception('SMTP ' . $kode . ': ' . trim($balas));
+  return $balas;
+}
+function smtp_tulis($fp, $baris, $harap) {
+  fwrite($fp, $baris . "\r\n");
+  return $harap ? smtp_baca($fp, $harap) : '';
+}
+function kirim_email($ke, $subjek, $html) {
+  if (!smtp_siap()) throw new Exception('SMTP belum dikonfigurasi di server.');
+  $port = defined('SMTP_PORT') ? (int)SMTP_PORT : 465;
+  // Port 465 memakai TLS sejak detik pertama; 587 mulai polos lalu STARTTLS.
+  $alamat = ($port === 465 ? 'ssl://' : 'tcp://') . SMTP_HOST . ':' . $port;
+  $ctx = stream_context_create(array('ssl' => array('verify_peer' => true, 'verify_peer_name' => true)));
+  $fp = @stream_socket_client($alamat, $errno, $errstr, 20, STREAM_CLIENT_CONNECT, $ctx);
+  if (!$fp) throw new Exception('Tidak bisa menghubungi server email: ' . $errstr);
+  stream_set_timeout($fp, 20);
+  try {
+    smtp_baca($fp, 220);
+    $host = defined('SMTP_HOST') ? SMTP_HOST : 'localhost';
+    smtp_tulis($fp, 'EHLO ' . $host, 250);
+    if ($port !== 465) {
+      smtp_tulis($fp, 'STARTTLS', 220);
+      if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT))
+        throw new Exception('Gagal menyalakan TLS.');
+      smtp_tulis($fp, 'EHLO ' . $host, 250);
+    }
+    smtp_tulis($fp, 'AUTH LOGIN', 334);
+    smtp_tulis($fp, base64_encode(SMTP_USER), 334);
+    smtp_tulis($fp, base64_encode(SMTP_PASS), 235);
+    $dari = SMTP_USER;
+    $nama = defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Laksamana Muda';
+    smtp_tulis($fp, 'MAIL FROM:<' . $dari . '>', 250);
+    smtp_tulis($fp, 'RCPT TO:<' . $ke . '>', 250);
+    smtp_tulis($fp, 'DATA', 354);
+    $isi = 'From: =?UTF-8?B?' . base64_encode($nama) . "?= <" . $dari . ">\r\n"
+         . 'To: <' . $ke . ">\r\n"
+         . 'Subject: =?UTF-8?B?' . base64_encode($subjek) . "?=\r\n"
+         . "MIME-Version: 1.0\r\n"
+         . "Content-Type: text/html; charset=UTF-8\r\n"
+         . "Content-Transfer-Encoding: base64\r\n\r\n"
+         . chunk_split(base64_encode($html));
+    fwrite($fp, $isi . "\r\n.\r\n");
+    smtp_baca($fp, 250);
+    smtp_tulis($fp, 'QUIT', 0);
+  } finally { fclose($fp); }
+  return true;
+}
+
+/* Isi email e-ticket. QR-nya TIDAK ditempel sebagai gambar: gambar tertanam
+   sering diblokir peramban email sampai penerima menekan "tampilkan gambar",
+   dan QR yang tidak tampil di pintu masuk adalah kegagalan yang paling buruk
+   waktunya. Yang dikirim tautan permanen ke halaman e-ticket \u2014 di sana QR-nya
+   digambar, dan statusnya selalu yang terbaru (termasuk kalau sudah check-in). */
+function email_eticket_html($o, $tiket) {
+  $ev = event_satu_apa_adanya($o['event_id']);
+  $judul = $ev ? $ev['title'] : 'Event Laksamana Muda';
+  $tautan = site_url() . '/#tiket/' . rawurlencode($o['payment_ref']) . '/' . rawurlencode($o['access_token']);
+  $baris = '';
+  foreach ($tiket as $t) {
+    $baris .= '<tr><td style="padding:6px 0;border-bottom:1px solid #E7E1D3">'
+      . '<b>' . htmlspecialchars($t['ticket_number']) . '</b> &middot; '
+      . htmlspecialchars($t['seat_label']) . ' <span style="color:#8C8677">(' . htmlspecialchars($t['tier']) . ')</span>'
+      . '</td></tr>';
+  }
+  return '<div style="font-family:Arial,Helvetica,sans-serif;background:#F7F6F4;padding:24px">'
+    . '<div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E1D3;border-radius:14px;overflow:hidden">'
+    . '<div style="background:#2A2620;color:#fff;padding:20px 24px">'
+    . '<div style="font-size:12px;color:#C8961F;letter-spacing:1px">LAKSAMANA MUDA</div>'
+    . '<div style="font-size:22px;font-weight:bold;margin-top:4px">' . htmlspecialchars($judul) . '</div>'
+    . ($ev ? '<div style="font-size:13px;color:#ccc;margin-top:4px">' . htmlspecialchars($ev['venue']) . '</div>' : '')
+    . '</div>'
+    . '<div style="padding:22px 24px">'
+    . '<p style="margin:0 0 14px">Halo <b>' . htmlspecialchars($o['buyer_name']) . '</b>, pembayaranmu sudah kami terima. Tiketmu siap.</p>'
+    . '<table style="width:100%;border-collapse:collapse;font-size:14px">' . $baris . '</table>'
+    . '<p style="margin:18px 0 8px;font-size:13px;color:#5C574D">Tunjukkan QR di halaman berikut kepada petugas saat masuk:</p>'
+    . '<p><a href="' . htmlspecialchars($tautan) . '" style="display:inline-block;background:#A9791F;color:#fff;'
+    . 'padding:12px 20px;border-radius:9px;text-decoration:none;font-weight:bold">BUKA E-TICKET</a></p>'
+    . '<p style="font-size:12px;color:#8C8677;margin-top:16px">Simpan email ini. Tautan di atas berlaku permanen dan hanya bisa dibuka olehmu.<br>'
+    . 'Kode pesanan: <b>' . htmlspecialchars($o['payment_ref']) . '</b></p>'
+    . '</div></div></div>';
+}
+
+/* Dipanggil dari lunaskan(). Sengaja menelan galatnya sendiri \u2014 lihat
+   catatan di atas: uang sudah masuk dan tiket sudah terbit, jadi email yang
+   gagal tidak boleh membatalkan apa pun. Jejaknya disimpan di pesanan supaya
+   bisa ditelusuri, bukan hilang tanpa bekas. */
+function kirim_eticket($o, $tiket) {
+  if (!smtp_siap()) return array('ok' => false, 'sebab' => 'SMTP belum dikonfigurasi');
+  try {
+    $ev = event_satu_apa_adanya($o['event_id']);
+    kirim_email($o['email'], 'E-Ticket ' . ($ev ? $ev['title'] : 'Laksamana Muda') . ' \u2014 ' . $o['payment_ref'],
+                email_eticket_html($o, $tiket));
+    return array('ok' => true, 'at' => gmdate('c'));
+  } catch (Throwable $e) {
+    return array('ok' => false, 'sebab' => $e->getMessage(), 'at' => gmdate('c'));
+  }
 }
 
 /* ==================== STATUS PESANAN & E-TICKET ====================
