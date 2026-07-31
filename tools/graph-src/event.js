@@ -2223,7 +2223,24 @@ function setEventStatus() { save(); renderEvents(); toast(); }
 
 
 
-function autoSelesaikanEvent() { save(); toast(); }
+
+
+
+
+function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2554,7 +2571,9 @@ function renderTicketDetail() { setTop(); esc(); }
 
 
 
-function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); fmtDate(); purchaseFlow(); denahTabBody(); salesBody(); C(); }
+function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); fmtDate(); delTicketClass(); purchaseFlow(); denahTabBody(); salesBody(); C(); }
+
+
 
 
 
@@ -4756,7 +4775,44 @@ function renderL2Hall() { buatDenahLM(); seatCls(); esc(); denahLegend(); regule
 
 
 
-function ticketClassForm() { modal(); closeModal(); uangInput(); dstr(); syncSaleWindow(); saveTicketClass(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function delTicketClass() { toast(); save(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ticketClassForm() { modal(); closeModal(); esc(); uangInput(); dstr(); syncSaleWindow(); saveTicketClass(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -4781,7 +4837,34 @@ function syncSaleWindow() {  }
 
 
 
-function saveTicketClass() { toast(); uid(); save(); closeModal(); renderTicketDetail(); }
+function saveTicketClass() { toast(); save(); closeModal(); renderTicketDetail(); uid(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

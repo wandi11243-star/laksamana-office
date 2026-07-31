@@ -2064,7 +2064,6 @@ function tutupSugCK() { ckAcCfg(); }
 
 
 
-
 function optSatuanCK() {  }
 
 
@@ -2074,23 +2073,28 @@ function optSatuanCK() {  }
 
 
 
-
-
-
-function catatanTanpaPackCK() {  }
-
-
-
-
-
-
-
-
-
-
-
-
 function panelTakDikenalCK() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chipSisaCK() { ckTeksPack(); }
+
+
+
+
+
+
+
 
 
 
@@ -2161,7 +2165,11 @@ function bukaFormCK() { setSubCKOrder(); setNilaiKalender(); isoLokal(); addCKRo
 
 
 
-function addCKRow() { cariBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); onPilihBarangCK(); updateCKSummary(); }
+function addCKRow() { baris(); cariBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); onPilihBarangCK(); updateCKSummary(); }
+
+
+
+
 
 
 
@@ -2259,11 +2267,7 @@ function onPilihBarangCK() { infoCKItem(); optSatuanCK(); refreshBarisCK(); }
 
 
 
-
-
-
-function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); }
-
+function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); chipSisaCK(); }
 
 
 
@@ -2276,22 +2280,6 @@ function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function sel() { ckNum(); ckTeksPack(); catatanTanpaPackCK(); }
 
 
 
@@ -2502,24 +2490,7 @@ function onPilihBarangKirim() { infoCKItem(); optSatuanCK(); refreshBarisKirim()
 
 
 
-
-function refreshBarisKirim() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); sel(); ckNum(); catatanTanpaPackCK(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function refreshBarisKirim() { infoCKItem(); panelTakDikenalCK(); chipSisaCK(); }
 
 
 
@@ -3222,7 +3193,7 @@ function fetchSharedStock() {  }
 
 
 
-function renderPanelCK() { ckKeDasar(); sel(); ckNum(); ckTeksPack(); }
+function renderPanelCK() { ckKeDasar(); }
 
 
 
@@ -3234,7 +3205,7 @@ function renderPanelCK() { ckKeDasar(); sel(); ckNum(); ckTeksPack(); }
 
 
 
-
+function sel() { ckNum(); ckTeksPack(); }
 
 
 
