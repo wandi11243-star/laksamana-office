@@ -508,7 +508,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-ib:disabled{opacity:.4;cursor:not-allowed}
 .ldz-ib.sq{padding:5px 8px;min-width:30px;text-align:center}
 .ldz-zoom{font-size:12px;font-weight:700;min-width:44px;text-align:center;color:var(--muted)}
-.ldz-side{width:300px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel2);padding:12px;overflow-y:auto;height:66vh}
+.ldz-side{width:328px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel2);padding:12px;overflow-y:auto;height:66vh}
 .ldz-side h4{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:0 0 9px}
 .ldz-side .field{margin-bottom:9px}
 .ldz-side table{font-size:12px}
@@ -533,7 +533,13 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-tbl th:nth-child(4),.ldz-tbl td:nth-child(4){width:23%;text-align:right}
 /* Angkanya tidak boleh dipatahkan ke baris baru — "Rp250." di satu baris dan
    "000" di baris berikutnya terbaca seperti dua angka berbeda. */
-.ldz-tbl td:not(:first-child),.ldz-tbl th:not(:first-child){white-space:nowrap}
+/* Hanya kolom Pax yang dilarang patah. Rupiah SENGAJA boleh turun baris:
+   dengan table-layout:fixed, isi ber-nowrap yang lebih lebar dari selnya
+   terpotong begitu saja — dan pembungkus overflow-x tidak menolong, karena
+   tabelnya sendiri tetap selebar 100%. Terpotong diam-diam jauh lebih buruk
+   daripada angka yang turun baris. */
+.ldz-tbl td:nth-child(2),.ldz-tbl th:nth-child(2){white-space:nowrap}
+.ldz-tbl td:nth-child(3),.ldz-tbl td:nth-child(4){word-break:break-word}
 .ldz-tbl .ldz-tier{font-size:11px;gap:5px}
 .ldz-tbl .ldz-tier i{width:9px;height:9px;border-radius:3px;flex-shrink:0}
 
@@ -773,6 +779,33 @@ function normalize(s){
   s=s||{};
   COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   if(!Array.isArray(s.checkins)) s.checkins=[];
+  /* ---------- OBJEK DENAH BERTAUT KE KELAS TIKET LEWAT ID ----------
+     ldzSet() sudah menulis ticket_class_id sejak objeknya diberi tingkatan,
+     tapi objek yang lahir SEBELUM itu — dari denah bawaan, dari template,
+     atau dari data lama — hanya menyimpan NAMA tingkatannya.
+
+     Selama tautannya berupa teks, dua kelas bernama mirip bisa tertukar, dan
+     nama yang diganti di satu tempat memutus harga di tempat lain tanpa jejak.
+     Diisi sekali di sini, saat data dimuat, dengan mencocokkan nama ke kelas
+     milik event yang sama. Yang namanya tidak cocok dengan kelas mana pun
+     sengaja DIBIARKAN kosong: menebak-nebak kelas untuk kursi berarti
+     menempelkan harga yang belum tentu benar pada tiket yang dijual. */
+  (function(){
+    const kelasPer={};
+    (s.ticketClasses||[]).forEach(function(c){
+      if(!c || !c.event_id) return;
+      (kelasPer[c.event_id]=kelasPer[c.event_id]||{})[c.name]=c.id;
+    });
+    let n=0;
+    (s.seats||[]).forEach(function(o){
+      if(!o || o.ticket_class_id) return;
+      const peta=kelasPer[o.event_id]; if(!peta) return;
+      const id=peta[o.tier] || peta[o.zone];
+      if(id){ o.ticket_class_id=id; n++; }
+    });
+    if(n && typeof console!=='undefined' && console.info)
+      console.info('[denah] '+n+' objek disambungkan ke kelas tiketnya lewat id.');
+  })();
   // Array juga bertipe 'object', jadi pemeriksaan lama meloloskannya. PHP
   // mengirim [] (bukan {}) ketika belum ada satu pun event detail; kalau
   // dibiarkan sebagai array, DB.eventDetails[id]=… menempel sebagai properti
@@ -2215,7 +2248,11 @@ const EVT_STATUS=['Draft','Upcoming','Today','Finished','Cancelled'];
    lalu menekan "Ubah Status" berkali-kali sampai sampai ke status yang mau. */
 function setEventStatus(id,st){
   const e=DB.events.find(x=>x.id===id); if(!e)return;
-  const lama=e.status; e.status=st; save(); renderEvents();
+  const lama=e.status; e.status=st;
+  /* Jejak "status ini dipilih manusia, jam sekian". Dipakai autoSelesaikanEvent
+     untuk tahu mana status yang boleh ia rapikan dan mana yang tidak. */
+  e.statusAt=Date.now();
+  save(); renderEvents();
   toast('Status '+e.title+': '+lama+' → '+st+(st==='Finished'?' (data event terkunci)':''));
 }
 /* Event yang tanggalnya sudah lewat tapi masih "Upcoming"/"Today" dinaikkan
@@ -2229,6 +2266,19 @@ function autoSelesaikanEvent(){
     if(!['Upcoming','Today'].includes(e.status))return;
     const selesai=new Date(e.end_datetime||e.start_datetime).getTime();
     if(!selesai||isNaN(selesai))return;
+    /* PILIHAN MANUSIA MENANG ATAS PERAPIAN OTOMATIS.
+       setEventStatus() menyimpan lalu memanggil renderEvents(), dan renderEvents()
+       menjalankan fungsi ini sebagai baris pertamanya. Tanpa penjaga di bawah,
+       memilih "Upcoming" pada event yang tanggalnya sudah lewat diputar balik
+       jadi "Finished" dalam hitungan milidetik — statusnya seolah menolak
+       diubah, dan tidak ada apa pun di layar yang menjelaskan kenapa.
+       (Terasa saat memasang situs customer: hanya event Upcoming/Today yang
+       dijual, jadi event lampau mustahil dibuka untuk penjualan.)
+
+       Yang dirapikan sekarang hanya event yang TIDAK disentuh orang sejak ia
+       berakhir — itu memang maksud aslinya: menyapu yang terlupakan, bukan
+       membatalkan keputusan yang baru saja diambil. */
+    if(e.statusAt && e.statusAt > selesai) return;
     if(selesai<skrg){ e.status='Finished'; ubah++; }
   });
   if(ubah){ save(); toast(ubah+' event yang tanggalnya sudah lewat dipindah ke Finished.'); }
@@ -2558,8 +2608,10 @@ function renderTicketDetail(id){
   let body='';
   if(tab==='classes'){
     body=`<button class="btn ghost sm" style="margin-bottom:12px" onclick="ticketClassForm('${id}')">+ Ticket Class</button>
-    <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th></tr></thead><tbody>
-    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada ticket class.</td></tr>'}
+    <div class="card" style="padding:0"><table><thead><tr><th>Class</th><th>Harga</th><th>Kuota</th><th>Terjual</th><th>Sale Window</th><th>Mode</th><th></th></tr></thead><tbody>
+    ${classes.map(c=>`<tr><td><b>${esc(c.name)}</b><br><span class="mini">${esc(c.benefit||'')}</span></td><td>${IDR(c.price)}</td><td>${c.quota}</td><td>${c.sold} ${c.sold>=c.quota?statusBadge('Sold'):''}</td><td class="mini">${fmtDate(c.sale_start)} \u2013 ${fmtDate(c.sale_end)}</td><td>${c.is_seated?'<span class="badge b-purple">Seated</span>':'<span class="badge b-blue">Standing</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn ghost sm" title="Ubah" onclick="ticketClassForm('${id}','${c.id}')">✎</button>
+      <button class="btn ghost sm" title="Hapus" onclick="delTicketClass('${id}','${c.id}')">×</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">Belum ada ticket class.</td></tr>'}
     </tbody></table></div>
     <div style="margin-top:16px"><button class="btn blue" onclick="purchaseFlow('${id}')">+ Catat Penjualan Tiket</button></div>`;
   }
@@ -4121,7 +4173,12 @@ function ldzSideHTML(eid){
     let totalUang=0, totalObj=0;
     const baris=nama.map(function(t){
       const info=ldzTierInfo(eid,t);
-      const mine=its.filter(function(i){ return i.tier===t; });
+      /* AREA TIDAK IKUT DIHITUNG — sama seperti ldzCap() yang memasok angka
+         Total. Sebelumnya baris memasukkan area sedangkan Total tidak, jadi
+         tabelnya membantah dirinya sendiri: satu baris 92 pax, totalnya 83.
+         Area adalah penanda zona (STAGE, EXT, tangga), bukan kursi yang dijual;
+         backend ticketing pun menolaknya dengan alasan yang sama. */
+      const mine=its.filter(function(i){ return i.tier===t && !ldzAdalahArea(i); });
       const cap=mine.reduce(function(a,i){ return a+(+i.capacity||1); },0);
       const uang=cap*(+info.price||0);
       totalUang+=uang; totalObj+=mine.length;
@@ -4146,7 +4203,7 @@ function ldzSideHTML(eid){
      +'<td class="mini"><b>'+tot+' pax</b></td><td></td>'
      +'<td class="mini"><b style="color:var(--accent)">'+IDR(totalUang)+'</b></td></tr>'
      +'</tbody></table></div>'
-     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = kapasitas × harga, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
+     +'<p class="mini" style="margin-top:8px">Menghitung <b>Lantai '+ldzLantai()+'</b> saja — pindah lantai untuk melihat sisanya. Objek area (STAGE, EXT, tangga) tidak dihitung karena bukan kursi yang dijual.<br><b>Potensi</b> = kapasitas × harga, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
      +(DB.ticketClasses.some(function(c){return c.event_id===eid;})?'':' — event ini belum punya kelas tiket, jadi yang dipakai empat tingkatan bawaan')+'.</p>'
      +'</div></details>';
   }
@@ -4756,18 +4813,88 @@ function renderL2Hall(id){
     +zc+'</div></div>';
   return h+'</div>';
 }
-function ticketClassForm(eid){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Ticket Class Baru</h3>
+/* HAPUS KELAS TIKET — dijaga dua hal yang tidak boleh dilanggar.
+
+   1. Sudah ada yang membeli. Menghapus kelasnya membuat tiket yang sudah
+      terbayar kehilangan induknya: harganya jadi nol, kuotanya lenyap, dan
+      laporan penjualan tidak lagi bisa menjelaskan uang yang sudah diterima.
+   2. Masih dipakai objek di denah. Kursinya akan tetap tergambar tapi tanpa
+      harga — di situs customer ia muncul lalu menolak dipilih, dan tidak
+      ada apa pun di layar yang menjelaskan sebabnya.
+
+   Keduanya menolak dengan MENYEBUT ANGKANYA, bukan sekadar "tidak bisa":
+   yang dibutuhkan orang saat ditolak adalah tahu apa yang harus dibereskan
+   lebih dulu. */
+/* JUMLAH TERJUAL DIHITUNG DARI TIKETNYA, BUKAN DARI KOLOM `sold`.
+
+   `sold` adalah penghitung yang disimpan terpisah, dan ia bisa basi: data
+   contoh bawaan memasang angka (mis. Spectator 70) tanpa satu pun baris di
+   tabel tickets, dan pembatalan lama tidak selalu menurunkannya kembali.
+   Memakai angka itu sebagai penjaga membuat kelas yang sebenarnya bersih
+   MENOLAK dihapus dengan alasan "sudah terjual 70" — padahal di halaman
+   Penjualan tidak ada satu baris pun. Tiket adalah bukti transaksinya;
+   penghitung hanya cerminan yang bisa tertinggal. */
+function tiketTerjual(id){
+  return DB.tickets.filter(function(t){ return t.ticket_class_id===id && t.status!=='Cancelled'; }).length;
+}
+function delTicketClass(eid, id){
+  const c = DB.ticketClasses.find(x => x.id === id); if(!c) return;
+  const nyata = tiketTerjual(id);
+  if(nyata > 0){
+    toast('Tidak bisa dihapus — sudah ada ' + nyata + ' tiket terjual di kelas ini.');
+    return;
+  }
+  const dipakai = DB.seats.filter(function(s2){
+    if(s2.event_id !== eid) return false;
+    // Objek yang sudah bertaut id dinilai dari id-nya saja: kalau tidak, objek
+    // yang id-nya kelas LAIN tapi namanya kebetulan sama ikut terhitung dan
+    // penghapusan yang sah jadi tertolak tanpa alasan yang bisa ditelusuri.
+    return s2.ticket_class_id ? s2.ticket_class_id === id : s2.tier === c.name;
+  });
+  if(dipakai.length){
+    /* Angkanya DIPILAH antara denah kustom dan kursi template bawaan.
+       Sebelumnya keduanya dijumlah jadi satu angka bernama "objek di denah",
+       dan angkanya tidak cocok dengan apa pun yang terlihat di layar: kru
+       melihat 92 objek di Rangkuman Denah lalu ditolak dengan "175 objek",
+       tanpa cara apa pun menemukan 83 sisanya. */
+    const kustom = dipakai.filter(function(s2){ return s2.zone === 'Custom'; }).length;
+    const tpl = dipakai.length - kustom;
+    const bagian = [];
+    if(kustom) bagian.push(kustom + ' objek di denah kustom');
+    if(tpl)    bagian.push(tpl + ' kursi denah template lama');
+    toast('Masih dipakai ' + bagian.join(' + ') + '. Ubah tingkatannya dulu, atau hapus denah template kalau sudah tidak dipakai.');
+    return;
+  }
+  // Penghitung basi diberitahukan, bukan dipakai menolak — supaya angka aneh
+  // di kolom Terjual tidak lagi jadi misteri yang tak bisa dijelaskan.
+  const pesan = (+c.sold > 0)
+    ? 'Hapus ticket class "' + c.name + '"?\n\nKolom Terjual tertulis ' + c.sold
+      + ', tapi tidak ada satu pun tiket sungguhan di kelas ini (angka itu sisa data contoh).'
+    : 'Hapus ticket class "' + c.name + '"?';
+  if(!confirm(pesan)) return;
+  DB.ticketClasses = DB.ticketClasses.filter(x => x.id !== id);
+  save(); renderTicketDetail(eid); toast('Ticket class dihapus.');
+}
+function ticketClassForm(eid, id){
+  /* Satu form untuk BUAT dan UBAH. Sebelumnya hanya bisa membuat: salah ketik
+     harga sekali berarti kelas itu menetap selamanya, dan satu-satunya jalan
+     keluar adalah membuat kelas kedua — yang justru merusak, karena kursi di
+     denah dicocokkan ke kelas lewat NAMA. */
+  const c = id ? DB.ticketClasses.find(x => x.id === id) : null;
+  const d = c || {name:'', price:100000, quota:100, benefit:'', is_seated:false,
+                  sale_start:new Date().toISOString(), sale_end:''};
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>${c?'Ubah Ticket Class':'Ticket Class Baru'}</h3>
   <div class="grid g2">
-    <div class="field"><label>Nama</label><input id="tc_name" placeholder="Regular / VIP / Early Bird"></div>
-    <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',100000)}</div>
-    <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="100"></div>
-    <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll"></div>
-    <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date())}" onchange="syncSaleWindow()"></div>
-    <div class="field"><label>Sale End</label><input id="tc_se" type="date" min="${dstr(new Date())}"><div class="mini" id="tc_se_hint"></div></div>
+    <div class="field"><label>Nama</label><input id="tc_name" placeholder="Regular / VIP / Early Bird" value="${esc(d.name)}"></div>
+    <div class="field"><label>Harga (IDR)</label>${uangInput('tc_price',+d.price||0)}</div>
+    <div class="field"><label>Kuota</label><input id="tc_quota" type="number" value="${+d.quota||1}"></div>
+    <div class="field"><label>Benefit</label><input id="tc_benefit" placeholder="Free drink, seat, dll" value="${esc(d.benefit||'')}"></div>
+    <div class="field"><label>Sale Start</label><input id="tc_ss" type="date" value="${dstr(new Date(d.sale_start||Date.now()))}" onchange="syncSaleWindow()"></div>
+    <div class="field"><label>Sale End</label><input id="tc_se" type="date" value="${d.sale_end?dstr(new Date(d.sale_end)):''}"><div class="mini" id="tc_se_hint"></div></div>
   </div>
-  <label style="display:inline-flex;gap:6px;color:var(--txt)"><input type="checkbox" id="tc_seated" style="width:auto"> Seated (pilih kursi)</label>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTicketClass('${eid}')">Simpan</button></div>`,true);
+  <label style="display:inline-flex;gap:6px;color:var(--txt)"><input type="checkbox" id="tc_seated" style="width:auto" ${d.is_seated?'checked':''}> Seated (pilih kursi)</label>
+  ${c&&+c.sold>0?`<p class="mini" style="margin-top:8px">Sudah ${c.sold} tiket terjual — kuota tidak bisa diturunkan di bawah angka itu.</p>`:''}
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveTicketClass('${eid}'${c?(",'"+c.id+"'"):''})">Simpan</button></div>`,true);
 }
 /* Sale End tidak boleh mendahului Sale Start. Dijaga di dua lapis: kalender
    tidak mengizinkan memilih tanggal sebelum Sale Start (min), dan saat simpan
@@ -4781,19 +4908,54 @@ function syncSaleWindow(){
     se.value=''; if(hint)hint.textContent='Sale End dikosongkan — tidak boleh sebelum Sale Start.';
   } else if(hint) hint.textContent=ss.value?'Paling awal '+ss.value:'';
 }
-function saveTicketClass(eid){
+function saveTicketClass(eid, id){
   const g=x=>document.getElementById(x).value;
   const name=g('tc_name').trim();if(!name){toast('Nama wajib.');return;}
   const ss=g('tc_ss'), se=g('tc_se');
   if(!ss){toast('Sale Start wajib diisi.');return;}
   if(!se){toast('Sale End wajib diisi.');return;}
   if(se<ss){toast('⛔ Sale End ('+se+') tidak boleh sebelum Sale Start ('+ss+').');return;}
-  const price=+g('tc_price'), quota=+g('tc_quota');
+  const price=uangNilai('tc_price'), quota=+g('tc_quota');
   if(price<0){toast('Harga tidak boleh minus.');return;}
   if(quota<1){toast('Kuota minimal 1.');return;}
+  const seated = document.getElementById('tc_seated').checked;
+  const lama = id ? DB.ticketClasses.find(x => x.id === id) : null;
+  if(lama){
+    /* Kuota tidak boleh turun di bawah yang SUDAH terjual — kalau tidak,
+       "sisa" jadi minus dan penjualan berikutnya ditolak dengan angka yang
+       tidak masuk akal buat kasir maupun pembeli. */
+    const nyata = tiketTerjual(id);
+    if(quota < nyata){
+      toast('Sudah terjual ' + nyata + ' tiket — kuota tidak boleh di bawah itu.');
+      return;
+    }
+    /* Nama kelas adalah TAUTAN ke kursi di denah: objek denah menyimpan
+       tingkatannya sebagai nama, bukan id. Mengganti nama tanpa ikut
+       memperbarui kursinya memutus tautan itu diam-diam — kursinya tetap
+       tergambar tapi kehilangan harga, dan di situs customer jadi tidak bisa
+       dipilih tanpa sebab yang terlihat. */
+    if(lama.name !== name){
+      /* Dicocokkan lewat ID LEBIH DULU, nama hanya cadangan untuk objek lama
+         yang belum sempat termigrasi. Kalau hanya mengandalkan nama, objek
+         yang tingkatannya pernah diketik berbeda ejaan akan tertinggal dan
+         diam-diam kehilangan harga. */
+      let n = 0;
+      DB.seats.forEach(function(s2){
+        if(s2.event_id !== eid) return;
+        if(s2.ticket_class_id === id || (!s2.ticket_class_id && s2.tier === lama.name)){
+          s2.tier = name; s2.ticket_class_id = id; n++;
+        }
+      });
+      if(n) toast(n + ' objek denah ikut dipindah ke nama "' + name + '".');
+    }
+    Object.assign(lama, {name, price, quota, benefit:g('tc_benefit'), is_seated:seated,
+      sale_start:new Date(ss).toISOString(), sale_end:new Date(se+'T23:59:59').toISOString()});
+    save(); closeModal(); renderTicketDetail(eid); toast('Ticket class diperbarui.');
+    return;
+  }
   DB.ticketClasses.push({id:uid(),event_id:eid,name,price,quota,sold:0,
     sale_start:new Date(ss).toISOString(),sale_end:new Date(se+'T23:59:59').toISOString(),
-    description:'',benefit:g('tc_benefit'),is_seated:document.getElementById('tc_seated').checked});
+    description:'',benefit:g('tc_benefit'),is_seated:seated});
   save();closeModal();renderTicketDetail(eid);toast('Ticket class dibuat.');
 }
 /* Satu pembeli boleh mengambil BANYAK kursi sekaligus. Dulu satu penjualan =
@@ -4857,11 +5019,49 @@ function pfKelasBerubah(eid){
   }
   pfRingkas(eid);
 }
+/* PERTANYAAN TINGKAT EVENT TIDAK BOLEH DIJAWAB DATA TINGKAT LANTAI.
+
+   Versi sebelumnya memutuskan "pakai denah kustom atau template" lewat
+   ldzItems(), yang hanya berisi objek LANTAI YANG SEDANG DIBUKA. Kalau kru
+   terakhir kali membuka Lantai 2 yang masih kosong, modal Catat Penjualan
+   diam-diam jatuh ke denah TEMPLATE bawaan venue — kursi yang diklik kasir
+   bukan kursi yang dirancang di layout, dan tidak ada apa pun di layar yang
+   memberi tahu bahwa itu denah yang berbeda.
+
+   Keputusannya sekarang memakai ldzSemuaItems() (lintas lantai), dan kalau
+   lantai yang sedang aktif kebetulan kosong, dipindah sendiri ke lantai yang
+   ada isinya. */
 function pfGambarDenah(eid){
   const box=document.getElementById('pf_denah'); if(!box) return;
   window._beliMode=true;
-  box.innerHTML=ldzItems(eid).length?ldzCanvasHTML(eid,false):seatMapBody(eid);
+  const semua=ldzSemuaItems(eid);
+  if(semua.length){
+    if(!semua.some(function(o){ return ldzLantaiObjek(o)===ldzLantai(); })){
+      window._ldzLantai=ldzLantaiObjek(semua[0]);
+    }
+    box.innerHTML=pfLantaiBar(eid)+ldzCanvasHTML(eid,false);
+  } else {
+    box.innerHTML=seatMapBody(eid);
+  }
   window._beliMode=false;
+}
+/* Pemilih lantai khusus modal penjualan. TIDAK memakai ldzSetLantai(): fungsi
+   itu menggambar ulang seluruh halaman Ticketing, yang berarti modal yang
+   sedang diisi kasir ikut tertutup dan isian namanya hilang. */
+function pfLantaiBar(eid){
+  const semua=ldzSemuaItems(eid);
+  const ada=[...new Set(semua.map(ldzLantaiObjek))].sort();
+  if(ada.length<2) return '';
+  const kini=ldzLantai();
+  return '<div class="lm-floors" style="margin:0 0 10px">'+ada.map(function(f){
+    const n=semua.filter(function(o){ return ldzLantaiObjek(o)===f; }).length;
+    return '<button class="'+(kini===f?'on':'')+'" type="button" onclick="pfSetLantai(\''+eid+'\',\''+f+'\')">'
+      +'Lantai '+esc(f)+' <span class="mini">('+n+')</span></button>';
+  }).join('')+'</div>';
+}
+function pfSetLantai(eid,f){
+  window._ldzLantai=(String(f)==='2')?'2':'1';
+  pfGambarDenah(eid); pfRingkas(eid);
 }
 function pfRingkas(eid){
   const c=DB.ticketClasses.find(x=>x.id===(document.getElementById('pf_class')||{}).value);

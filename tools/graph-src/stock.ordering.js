@@ -1003,6 +1003,8 @@
 
 
 
+
+
 function injectPwaManifest() {  }
 
 
@@ -1022,6 +1024,10 @@ function injectPwaManifest() {  }
 
 
 function registerServiceWorker() { loadSettings(); injectPwaManifest(); ensureUsers(); officeUser(); syncUsersFromServer(); syncOfficeRoster(); enterApp(); resolveOfficeUser(); }
+
+
+
+
 
 
 
@@ -1931,6 +1937,19 @@ function ckNum() {  }
 
 
 
+
+
+
+
+
+function ckTeksPack() { ckNum(); }
+
+
+
+
+
+
+
 function muatSaldoCK() {  }
 
 
@@ -1957,7 +1976,128 @@ function muatSaldoCK() {  }
 
 
 
+
+
 function daftarBarangCK() { adaDiCK(); }
+
+
+
+
+
+
+
+
+
+function ckAcCfg() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cariBarangCK() { ckAcCfg(); infoCKItem(); pilihBarangCKAc(); ckTeksPack(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihBarangCKAc() { ckAcCfg(); tutupSugCK(); }
+
+
+
+
+
+
+
+
+
+function tutupSugCK() { ckAcCfg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function optSatuanCK() {  }
+
+
+
+
+
+
+
+
+function panelTakDikenalCK() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chipSisaCK() { ckTeksPack(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2025,7 +2165,19 @@ function bukaFormCK() { setSubCKOrder(); setNilaiKalender(); isoLokal(); addCKRo
 
 
 
-function addCKRow() { daftarBarangCK(); onPilihBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); updateCKSummary(); }
+function addCKRow() { baris(); cariBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); onPilihBarangCK(); updateCKSummary(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2089,7 +2241,7 @@ function adjustCKQty() { refreshBarisCK(); }
 
 
 
-function onPilihBarangCK() { infoCKItem(); refreshBarisCK(); }
+function onPilihBarangCK() { infoCKItem(); optSatuanCK(); refreshBarisCK(); }
 
 
 
@@ -2115,7 +2267,7 @@ function onPilihBarangCK() { infoCKItem(); refreshBarisCK(); }
 
 
 
-function refreshBarisCK() { infoCKItem(); ckKeDasar(); }
+function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); chipSisaCK(); }
 
 
 
@@ -2129,15 +2281,6 @@ function refreshBarisCK() { infoCKItem(); ckKeDasar(); }
 
 
 
-
-
-
-
-
-
-
-
-function sel() { ckNum(); }
 
 
 
@@ -2262,12 +2405,22 @@ function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); addCKRow(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function daftarBarangKirimCK() { daftarBarangCK(); }
 
 
 
-function addKirimRow() { daftarBarangKirimCK(); onPilihBarangKirim(); adjustKirimQty(); refreshBarisKirim(); deleteKirimRow(); updateKirimSummary(); }
-
+function addKirimRow() { cariBarangCK(); adjustKirimQty(); refreshBarisKirim(); deleteKirimRow(); onPilihBarangKirim(); updateKirimSummary(); }
 
 
 
@@ -2316,7 +2469,7 @@ function adjustKirimQty() { refreshBarisKirim(); }
 
 
 
-function onPilihBarangKirim() { infoCKItem(); refreshBarisKirim(); }
+function onPilihBarangKirim() { infoCKItem(); optSatuanCK(); refreshBarisKirim(); }
 
 
 
@@ -2334,7 +2487,6 @@ function onPilihBarangKirim() { infoCKItem(); refreshBarisKirim(); }
 
 
 
-function refreshBarisKirim() { infoCKItem(); ckKeDasar(); sel(); ckNum(); }
 
 
 
@@ -2344,6 +2496,9 @@ function refreshBarisKirim() { infoCKItem(); ckKeDasar(); sel(); ckNum(); }
 
 
 
+
+
+function refreshBarisKirim() { infoCKItem(); panelTakDikenalCK(); chipSisaCK(); }
 
 
 
@@ -2372,7 +2527,15 @@ function updateKirimSummary() {  }
 
 
 
-function submitKirimCK() { showToast(); isoLokal(); timSaatIni(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2462,7 +2625,6 @@ function muatRiwayatKiriman() { renderRiwayatKiriman(); }
 
 
 
-function renderRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 
@@ -2472,6 +2634,76 @@ function renderRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 
+
+function halamanRiwayatKiriman() { renderRiwayatKiriman(); }
+
+
+
+
+function renderRiwayatKiriman() { fmtTglRiwayat(); halamanRiwayatKiriman(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fmtTglRiwayat() {  }
+
+
+
+
+
+
+
+
+function barisRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 
@@ -2574,6 +2806,14 @@ function selectAutocompleteItem() { applyUnitOptions(); refreshRowForecast(); }
 
 
 function enforceSelection() { showToast(); applyUnitOptions(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -3030,7 +3270,7 @@ function fetchSharedStock() {  }
 
 
 
-function renderPanelCK() { ckKeDasar(); sel(); ckNum(); }
+function renderPanelCK() { ckKeDasar(); }
 
 
 
@@ -3042,7 +3282,7 @@ function renderPanelCK() { ckKeDasar(); sel(); ckNum(); }
 
 
 
-
+function sel() { ckNum(); ckTeksPack(); }
 
 
 

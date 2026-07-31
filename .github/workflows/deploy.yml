@@ -25,6 +25,12 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./deploy/
           server-dir: /public_html/office/
+          # Situs customer punya alamatnya sendiri di /public_html/ticketing/
+          # (lihat langkah terpisah di bawah). Kalau ikut tersalin ke sini,
+          # ada salinan kedua di office/ticketing/ yang PASTI rusak:
+          # ../ticketing-api/ dari sana menunjuk folder yang tak pernah ada.
+          exclude: |
+            ticketing/**
           # Default action ini 30 detik per operasi FTP. Koneksi ke Rumahweb
           # sering lebih lambat dari itu untuk file besar (marketing ~400KB),
           # sehingga transfer diputus DI TENGAH: file di server jadi terpotong
@@ -52,6 +58,12 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./deploy/
           server-dir: /public_html/office/
+          # Situs customer punya alamatnya sendiri di /public_html/ticketing/
+          # (lihat langkah terpisah di bawah). Kalau ikut tersalin ke sini,
+          # ada salinan kedua di office/ticketing/ yang PASTI rusak:
+          # ../ticketing-api/ dari sana menunjuk folder yang tak pernah ada.
+          exclude: |
+            ticketing/**
           timeout: 300000
 
       - name: Jeda sebelum percobaan 3
@@ -67,6 +79,12 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./deploy/
           server-dir: /public_html/office/
+          # Situs customer punya alamatnya sendiri di /public_html/ticketing/
+          # (lihat langkah terpisah di bawah). Kalau ikut tersalin ke sini,
+          # ada salinan kedua di office/ticketing/ yang PASTI rusak:
+          # ../ticketing-api/ dari sana menunjuk folder yang tak pernah ada.
+          exclude: |
+            ticketing/**
           timeout: 300000
 
       # ==================================================================
@@ -239,6 +257,79 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./event-mysql/
           server-dir: /event-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      # ===============================================================
+      # SITUS CUSTOMER — laksamanamuda.id/ticketing
+      # Docroot domain utama = /public_html (dikonfirmasi 31 Juli 2026).
+      # Berbeda dengan modul Office yang tinggal di /public_html/office/.
+      # ===============================================================
+      - name: Deploy situs customer ticketing
+        id: ftptixweb
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/ticketing/
+          server-dir: /public_html/ticketing/
+          timeout: 300000
+
+      - name: Deploy situs customer ticketing (percobaan 2)
+        if: steps.ftptixweb.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/ticketing/
+          server-dir: /public_html/ticketing/
+          timeout: 300000
+
+      # Backend publiknya. Letaknya SEJAJAR dengan situsnya, supaya
+      # ../ticketing-api/ di dalam index.html menemukannya — jalur relatif
+      # yang sama itu juga benar di dev, jadi satu berkas untuk dua server.
+      #
+      # config*.php dikecualikan: memuat password database DAN secret key
+      # Xendit. Menimpanya dari repo = mematikan pembayaran di produksi.
+      - name: Deploy backend ticketing-api
+        id: ftptixapi
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./ticketing-mysql/
+          server-dir: /public_html/ticketing-api/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend ticketing-api (percobaan 2)
+        if: steps.ftptixapi.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./ticketing-mysql/
+          server-dir: /public_html/ticketing-api/
           exclude: |
             config*.php
             **/config*.php

@@ -323,11 +323,13 @@
         <!-- Sebangun dengan Form Order Belanja di atas,     -->
         <!-- tapi sumbernya master barang CK (sumber='ck').  -->
         <!--                                                 -->
-        <!-- Barangnya dipilih dari DAFTAR, bukan diketik    -->
-        <!-- lewat autocomplete: barang produksi dapur cuma  -->
-        <!-- belasan, dan daftar bisa sekaligus menampilkan  -->
-        <!-- sisa stok tiap barang — angka yang justru       -->
-        <!-- paling menentukan boleh-tidaknya diajukan.      -->
+        <!-- Barangnya DIKETIK (autocomplete), sama seperti  -->
+        <!-- form belanja. Dulu dropdown, dengan alasan      -->
+        <!-- barang CK cuma belasan — ternyata tidak: sekali -->
+        <!-- daftarnya lewat 20 baris, menggulung dropdown   -->
+        <!-- di HP jauh lebih lambat daripada mengetik tiga  -->
+        <!-- huruf. Sisa stok tiap barang tetap ditampilkan, -->
+        <!-- sekarang di dalam saran ketikannya.             -->
         <!-- ============================================== -->
         <div id="view-ck" class="hidden space-y-6">
             <div class="rounded-2xl p-5 text-white shadow-md space-y-4" style="background:linear-gradient(120deg,#134E4A,#0F766E)">
@@ -1056,7 +1058,11 @@
            satuannya. HARUS sama persis dengan SATUAN_TERSEDIA di purchasing;
            kalau berbeda, purchasing bisa menetapkan satuan yang tak pernah
            muncul di sini. */
-        const SATUAN_TERSEDIA = ["Kg","Gram","ML","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol",
+        /* "Liter" ditambahkan 31 Juli 2026 atas permintaan user: sebelumnya
+           cuma ada "ML", jadi bahan cair yang dibeli per liter harus ditulis
+           "1000 ML" — angka yang tidak pernah cocok dengan nota vendor dan
+           selalu salah ketik nolnya. */
+        const SATUAN_TERSEDIA = ["Kg","Gram","Liter","ML","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol",
                                 "Ekor","Slice","Tabung","Bal","Buah","Kaleng","Ikat","Papan"];
         let debounceTimer;
         let rowCount = 0;
@@ -1927,6 +1933,19 @@
             const v = Math.round((parseFloat(n) || 0) * 1000) / 1000;
             return String(v);
         }
+        /* Sebuah jumlah stok CK sebagaimana kru menyebutnya.
+           Barang yang DIPACK dihitung dalam Pack, bukan satuan dasarnya.
+           Sebabnya: sejak pengambilan wajib pack utuh, satuan dasar tidak
+           pernah dipakai siapa pun untuk memutuskan apa pun di layar ini —
+           "sisa 0 Pcs" untuk barang berisi 5 Pcs per pack cuma menyuruh orang
+           membagi sendiri, dan yang ia butuhkan adalah "sisa 0 Pack".
+           Konversi saldo di server TIDAK berubah: yang disimpan tetap satuan
+           dasar, ini semata cara menuliskannya. Barang curah tetap memakai
+           satuan dasar — di sana justru Pack yang tidak berarti. */
+        function ckTeksPack(qtyDasar, p) {
+            if (p && p.packIsi > 0) return `${ckNum(qtyDasar / p.packIsi)} Pack`;
+            return `${ckNum(qtyDasar)} ${(p && p.packSatuan) || ''}`.trim();
+        }
         /* Sisa stok CK ditarik SEKALI saat halaman dibuka. Kegagalannya
            dibiarkan diam: angka sisa stok itu bantuan, bukan syarat — form
            order harus tetap bisa dipakai walau endpoint CK belum terpasang
@@ -1951,16 +1970,137 @@
            di Purchasing, dan sinkronisasi stok CK. Tidak ada tabel kedua dan
            tidak ada jalur kedua; yang dipisah cuma layarnya.
 
-           Barang dipilih dari daftar dropdown, bukan autocomplete: barang produksi
-           dapur cuma belasan (bahan vendor ratusan), dan daftar yang bisa
-           dibuka sekaligus menampilkan sisa stok tiap barang — angka yang
-           justru paling menentukan boleh-tidaknya sesuatu diajukan. */
+           Barangnya DIKETIK dengan autocomplete, sama seperti form belanja.
+           Dulu dropdown <select>, alasannya "barang CK cuma belasan" — dan itu
+           berhenti benar begitu daftarnya lewat 20 baris: menggulung dropdown
+           panjang di HP jauh lebih lambat daripada mengetik tiga huruf.
+           Sisa stok tiap barang, satu-satunya hal berguna yang dulu hanya bisa
+           ditampilkan lewat dropdown, ikut pindah ke dalam saran ketikannya. */
         let ckRowCount = 0;
 
         function daftarBarangCK() {
             return Object.keys(globalProductInfo || {})
                 .filter(n => adaDiCK(globalProductInfo[n]))
                 .sort((a, b) => a.localeCompare(b));
+        }
+
+        /* ===== AUTOCOMPLETE BARANG CK — dipakai form Minta MAUPUN form Kirim
+           Satu fungsi untuk dua form, bukan dua salinan: bedanya cuma daftar
+           barang dan awalan id, dan dua salinan berarti perbaikan berikutnya
+           hanya kena separuh layar. */
+        function ckAcCfg(mode) {
+            return mode === 'kirim'
+                ? { pre: 'kirim-row', daftar: daftarBarangKirimCK, pilih: onPilihBarangKirim }
+                : { pre: 'ck-row',    daftar: daftarBarangCK,      pilih: onPilihBarangCK };
+        }
+
+        /* Saran yang SEDANG tampil per baris, {"minta-3": ["Nama A", …]}.
+           Ada supaya tombol saran cukup mengirim NOMOR URUT, bukan nama barang
+           yang ditempel ke dalam atribut onmousedown. Nama yang memuat petik
+           atau tanda kutip akan memutus atributnya di tengah — autocomplete
+           form belanja masih memakai cara lama itu dan tetap rapuh untuk nama
+           seperti O'Brien; yang baru tidak usah ikut rapuh. */
+        const ckAcHasil = {};
+
+        function cariBarangCK(mode, id) {
+            const c = ckAcCfg(mode);
+            const inp = document.getElementById(`${c.pre}-item-${id}`);
+            const box = document.getElementById(`${c.pre}-sug-${id}`);
+            if (!inp || !box) return;
+
+            const q = inp.value.trim().toLowerCase();
+            const semua = c.daftar();
+            /* Kolom kosong TIDAK menutup kotak saran — ia justru menampilkan
+               daftar penuh. Itulah pengganti gunanya dropdown lama: yang tidak
+               hafal nama barangnya tetap bisa melihat semuanya tanpa mengetik. */
+            const cocok = q ? semua.filter(n => n.toLowerCase().includes(q)) : semua;
+            ckAcHasil[`${mode}-${id}`] = cocok;
+
+            box.innerHTML = cocok.length
+                ? cocok.map((n, i) => {
+                    const p = infoCKItem(n);
+                    const sisa = ckSaldoPeta[n];
+                    const tahu = (sisa !== undefined && sisa !== null);
+                    const habis = tahu && sisa <= 0;
+                    return `<div onmousedown="pilihBarangCKAc('${mode}',${id},${i})"
+                                 class="px-3 py-2.5 border-b border-slate-50 last:border-b-0 cursor-pointer hover:bg-teal-50 flex items-center justify-between gap-2 transition-colors">
+                                <span class="min-w-0 truncate text-xs font-bold text-slate-700">${n}</span>
+                                <span class="shrink-0 text-[10px] font-black ${habis ? 'text-rose-600' : (tahu ? 'text-teal-700' : 'text-slate-300 italic font-medium')}">
+                                    ${tahu ? ckTeksPack(sisa, p) : 'stok ?'}
+                                </span>
+                            </div>`;
+                }).join('')
+                : `<div class="p-3 text-xs font-bold italic text-center text-rose-500">${semua.length
+                        ? 'Tidak ada barang CK yang cocok.'
+                        : 'Belum ada barang Central Kitchen terdaftar.'}</div>`;
+            box.classList.remove('hidden');
+
+            // Satuan & panel rincian ikut apa yang SEDANG diketik, bukan hanya
+            // yang dipilih lewat saran: nama yang diketik lengkap tanpa
+            // menyentuh daftar tetap harus menyempitkan satuannya.
+            c.pilih(id);
+        }
+
+        function pilihBarangCKAc(mode, id, i) {
+            const nama = (ckAcHasil[`${mode}-${id}`] || [])[i];
+            if (nama === undefined) return;
+            const c = ckAcCfg(mode);
+            const inp = document.getElementById(`${c.pre}-item-${id}`);
+            if (inp) inp.value = nama;
+            tutupSugCK(mode, id);
+            c.pilih(id);
+        }
+
+        function tutupSugCK(mode, id) {
+            const box = document.getElementById(`${ckAcCfg(mode).pre}-sug-${id}`);
+            if (box) box.classList.add('hidden');
+        }
+
+        /* Satuan satu baris CK, ditulis sebagai <option>.
+           Barang yang tidak dipack TIDAK lagi diberi opsi "Pack" yang
+           dimatikan. Opsi itu sempat ada (31 Juli 2026) untuk membedakan
+           "memang curah" dari "admin lupa mengisi Isi 1 Pack" — dua keadaan
+           yang dulu sama-sama berarti packIsi 0. Sejak Atur Produk menanyakan
+           Dipack/Curah secara eksplisit, packIsi 0 cuma punya satu arti, dan
+           opsi mati yang menjelaskan sesuatu yang sudah tidak ambigu tinggal
+           jadi baris yang harus dilewati tiap kali membuka daftar. */
+        function optSatuanCK(opsi) {
+            return opsi.map(u => `<option value="${u}">${u}</option>`).join('');
+        }
+
+        /* Penanda untuk nama yang SUDAH diketik tapi bukan barang CK. Sejak
+           barangnya diketik (bukan dipilih dari daftar), salah ketik jadi
+           mungkin — dan baris yang diam saja akan dikira sudah benar sampai
+           ditolak waktu dikirim. Sengaja tetap sependek chip sisa stok: ia
+           menempati petak yang sama. */
+        function panelTakDikenalCK() {
+            return `<span class="inline-flex items-center px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-[10px] font-black text-amber-700 whitespace-nowrap"
+                          title="Nama ini bukan barang Central Kitchen — pilih dari daftar saran yang muncul saat mengetik.">
+                        ? tak dikenal
+                    </span>`;
+        }
+
+        /* Chip sisa stok — satu-satunya hal yang ditampilkan di samping baris.
+           Panel lebar berisi Isi 1 Pack / Diminta / peringatan dibuang atas
+           permintaan user (31 Juli 2026), dan alasannya benar: "Diminta 1 Pack"
+           cuma mengulang kolom jumlah dan kolom satuan yang persis di
+           sebelahnya, "Isi 1 Pack" data master yang tidak berubah, dan
+           kalimat panduannya terbaca berulang-ulang di tiap baris. Yang
+           benar-benar tidak ada di tempat lain cuma sisa stoknya. */
+        function chipSisaCK(nama, p, dasar) {
+            const sisa = ckSaldoPeta[nama];
+            const tahu = (sisa !== undefined && sisa !== null);
+            // Merah = permintaannya melebihi sisa. Tetap boleh diajukan —
+            // dapur yang memutuskan; itu sebabnya ia warna, bukan penghalang.
+            const kurang = tahu && dasar > sisa;
+            const warna = !tahu ? 'border-slate-200 bg-slate-50 text-slate-400'
+                        : kurang ? 'border-rose-200 bg-rose-50 text-rose-700'
+                        : 'border-teal-200 bg-teal-50 text-teal-700';
+            return `<span class="inline-flex items-baseline gap-1.5 px-2.5 py-1.5 rounded-lg border ${warna} whitespace-nowrap"
+                          title="${tahu ? (kurang ? 'Melebihi sisa stok Central Kitchen — boleh tetap diajukan, dapur yang menentukan bisa atau tidak.' : 'Sisa stok di Central Kitchen.') : 'Sisa stok Central Kitchen tidak terbaca.'}">
+                        <span class="text-[9px] font-bold uppercase tracking-wider opacity-70">Sisa</span>
+                        <span class="text-[11px] font-black">${tahu ? ckTeksPack(sisa, p) : '?'}</span>
+                    </span>`;
         }
 
         let subCKOrder = 'minta';
@@ -2028,33 +2168,45 @@
         function addCKRow() {
             const wrapper = document.getElementById('ck-rows-wrapper');
             const id = ++ckRowCount;
-            const daftar = daftarBarangCK();
 
+            /* Riwayat yang perlu diingat sebelum menata ulang baris ini:
+               dulu rinciannya panel selebar baris (`md:basis-full`) yang
+               dipasang sebagai anak flex TANPA `flex-wrap`. Akibatnya ia tidak
+               pernah jatuh ke baris sendiri, ia cuma ikut berdesakan dan
+               menghimpit semua kolom lain sampai kolom satuan tinggal selebar
+               tanda panah — dilaporkan 31 Juli 2026 sebagai "satuan Pack tidak
+               muncul", padahal pilihannya ada dan terpilih, tulisannya saja
+               yang terpotong habis.
+
+               Sekarang rinciannya cuma chip sisa stok yang memang muat di
+               samping, jadi masalahnya hilang dari sumbernya. `md:flex-wrap`
+               tetap dipasang supaya baris yang kesempitan membungkus, bukan
+               menggencet. */
             const row = document.createElement('div');
             row.id = `ck-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
-                <div class="flex-1 min-w-[200px]">
-                    <select id="ck-row-item-${id}" onchange="onPilihBarangCK(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                        <option value="">— pilih barang —</option>
-                        ${daftar.map(n => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('')}
-                    </select>
+                <div class="flex-1 min-w-[200px] relative">
+                    <input type="text" id="ck-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
+                           oninput="cariBarangCK('minta',${id})" onfocus="cariBarangCK('minta',${id})"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <div id="ck-row-sug-${id}" class="hidden absolute left-0 right-0 top-full mt-1 z-40 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"></div>
                 </div>
                 <div class="w-full md:w-[150px] flex items-center justify-center gap-1.5">
                     <button type="button" onclick="adjustCKQty(${id}, -1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">-</button>
                     <input type="number" id="ck-row-qty-${id}" value="1" min="0" step="any" oninput="refreshBarisCK(${id})" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white shadow-inner">
                     <button type="button" onclick="adjustCKQty(${id}, 1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">+</button>
                 </div>
-                <div class="w-full md:w-[110px]">
+                <div class="w-full md:w-[110px] md:shrink-0">
                     <select id="ck-row-unit-${id}" onchange="refreshBarisCK(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"></select>
                 </div>
-                <div class="flex-grow">
+                <div class="flex-grow min-w-0">
                     <input type="text" id="ck-row-note-${id}" placeholder="Catatan (opsional)" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 md:py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50/50">
                 </div>
+                <div id="ck-row-info-${id}" class="hidden md:shrink-0 flex items-center md:justify-end"></div>
                 <div class="flex justify-end">
                     <button type="button" onclick="deleteCKRow(${id})" class="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all"><i class="fa-solid fa-trash text-sm"></i></button>
                 </div>
-                <div id="ck-row-info-${id}" class="hidden w-full md:basis-full min-w-0 order-last mt-1"></div>
             `;
             wrapper.appendChild(row);
             onPilihBarangCK(id);
@@ -2097,7 +2249,7 @@
             const perPack = !!(p && p.packIsi > 0);
             const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
             const sebelum = selU.value;
-            selU.innerHTML = (opsi.length ? opsi : ['Pcs']).map(u => `<option value="${u}">${u}</option>`).join('');
+            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs']);
             if (opsi.includes(sebelum)) selU.value = sebelum;
             selU.title = perPack
                 ? 'Barang ini dipack — pengambilan dari CK hanya bisa dalam pack utuh.'
@@ -2121,44 +2273,35 @@
             if (!box || !selI) return;
             const nama = selI.value;
             const p = infoCKItem(nama);
-            if (!p) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            if (!p) {
+                // Kosong = baris belum diisi, diam saja. Ada isinya tapi tidak
+                // dikenali = salah ketik, dan itu harus kelihatan sekarang.
+                if (!String(nama).trim()) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+                box.classList.remove('hidden');
+                box.innerHTML = panelTakDikenalCK();
+                return;
+            }
 
-            const qty = parseFloat((document.getElementById(`ck-row-qty-${id}`) || {}).value) || 0;
+            const inpQty = document.getElementById(`ck-row-qty-${id}`);
+            const qty = parseFloat((inpQty || {}).value) || 0;
             const unit = (document.getElementById(`ck-row-unit-${id}`) || {}).value || '';
             const dasar = ckKeDasar(qty, unit, p);
-            // Pack utuh: pecahan ditandai di sini juga, bukan cuma ditolak saat
-            // kirim — orang harus tahu sebelum mengisi sepuluh baris lainnya.
-            const pecah = p.packIsi > 0 && !Number.isInteger(qty);
-            const sisa = ckSaldoPeta[nama];
-            const tahuSisa = (sisa !== undefined && sisa !== null);
-            // Peringatan hanya kalau sisanya BENAR-BENAR diketahui — kalau
-            // endpoint CK belum terpasang, ckSaldoPeta kosong, dan menandai
-            // semua baris "stok kurang" karena tidak tahu apa-apa akan membuat
-            // peringatan ini diabaikan selamanya.
-            const kurang = tahuSisa && dasar > sisa;
 
-            const sel = (l, v, warna) => `
-                <div class="flex-1 min-w-[105px] px-3 py-2 border-r border-slate-100 last:border-r-0">
-                    <div class="text-[9px] font-black uppercase tracking-wider text-slate-400">${l}</div>
-                    <div class="text-[12px] font-black mt-0.5 ${warna || 'text-slate-800'}">${v}</div>
-                </div>`;
+            /* Pack utuh ditandai di kolom jumlahnya sendiri, tanpa kalimat.
+               Kalimat penjelasnya dibuang bersama panel lebar (permintaan
+               user), tapi penandanya tidak boleh ikut hilang: pecahan tetap
+               ditolak saat kirim, dan tanda ini yang membuat penolakan itu
+               tidak datang mendadak setelah sepuluh baris lain diisi. */
+            if (inpQty) {
+                const pecah = p.packIsi > 0 && !Number.isInteger(qty);
+                inpQty.classList.toggle('border-rose-400', pecah);
+                inpQty.classList.toggle('text-rose-600', pecah);
+                inpQty.classList.toggle('border-slate-200', !pecah);
+                inpQty.title = pecah ? 'Barang ini dipack — jumlahnya harus pack utuh (1, 2, 3).' : '';
+            }
 
             box.classList.remove('hidden');
-            box.innerHTML = `
-                <div class="rounded-xl border ${(kurang || pecah) ? 'border-rose-200 bg-rose-50/40' : 'border-teal-200 bg-teal-50/40'} shadow-sm overflow-x-auto">
-                    <div class="flex flex-nowrap items-stretch min-w-full">
-                        ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`, pecah ? 'text-rose-600' : '')}
-                        ${sel('Sisa stok CK', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
-                              kurang ? 'text-rose-600' : '')}
-                    </div>
-                    ${pecah ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
-                        Barang ini dipack &mdash; jumlahnya harus <b>pack utuh</b> (1, 2, 3), tidak bisa ${ckNum(qty)}.
-                    </div>` : ''}
-                    ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
-                        Melebihi sisa stok Central Kitchen &mdash; boleh tetap diajukan, dapur yang menentukan bisa atau tidak.
-                    </div>` : ''}
-                </div>`;
+            box.innerHTML = chipSisaCK(nama, p, dasar);
         }
 
         function refreshSemuaBarisCK() {
@@ -2186,9 +2329,14 @@
             const pesanan = [];
             let adaBarisRusak = false;
             const pecahan = [];
+            // Sejak barangnya diketik (bukan dipilih dari dropdown), nama yang
+            // tidak ada di master jadi mungkin. Ditolak DI SINI, bukan
+            // dibiarkan sampai server: baris seperti itu akan tersimpan sebagai
+            // order barang yang tidak pernah bisa dipenuhi siapa pun.
+            const takDikenal = [];
             document.querySelectorAll('[id^="ck-row-item-"]').forEach(el => {
                 const id = el.id.replace('ck-row-item-', '');
-                const nama = el.value;
+                const nama = el.value.trim();
                 const qty = parseFloat((document.getElementById(`ck-row-qty-${id}`) || {}).value) || 0;
                 const unit = (document.getElementById(`ck-row-unit-${id}`) || {}).value || '';
                 const note = (document.getElementById(`ck-row-note-${id}`) || {}).value || '';
@@ -2198,9 +2346,15 @@
                 // step hanya mengatur tombol panah — angka pecahan yang diketik
                 // atau ditempel langsung tetap lolos ke pesanan.
                 const p = infoCKItem(nama);
-                if (p && p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
+                if (!p) { takDikenal.push(nama); return; }
+                if (p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
                 pesanan.push({ item: nama, qty: qty, unit: unit, note: note.trim() || '-', tglDatang: tgl, pic: pic });
             });
+
+            if (takDikenal.length) {
+                return showToast("Barang Tidak Dikenali",
+                    `${takDikenal.join(', ')} bukan barang Central Kitchen — pilih dari daftar saran saat mengetik.`, "danger");
+            }
 
             if (pecahan.length) {
                 return showToast("Harus Pack Utuh",
@@ -2269,33 +2423,32 @@
         function addKirimRow() {
             const wrapper = document.getElementById('kirim-rows-wrapper');
             const id = ++kirimRowCount;
-            const daftar = daftarBarangKirimCK();
 
             const row = document.createElement('div');
             row.id = `kirim-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
-                <div class="flex-1 min-w-[200px]">
-                    <select id="kirim-row-item-${id}" onchange="onPilihBarangKirim(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                        <option value="">— pilih barang —</option>
-                        ${daftar.map(n => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('')}
-                    </select>
+                <div class="flex-1 min-w-[200px] relative">
+                    <input type="text" id="kirim-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
+                           oninput="cariBarangCK('kirim',${id})" onfocus="cariBarangCK('kirim',${id})"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <div id="kirim-row-sug-${id}" class="hidden absolute left-0 right-0 top-full mt-1 z-40 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"></div>
                 </div>
                 <div class="w-full md:w-[150px] flex items-center justify-center gap-1.5">
                     <button type="button" onclick="adjustKirimQty(${id}, -1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">-</button>
                     <input type="number" id="kirim-row-qty-${id}" value="1" min="0" step="any" oninput="refreshBarisKirim(${id})" class="w-16 border border-slate-200 rounded-xl text-center font-black text-xs py-2 md:py-1.5 focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white shadow-inner">
                     <button type="button" onclick="adjustKirimQty(${id}, 1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">+</button>
                 </div>
-                <div class="w-full md:w-[110px]">
+                <div class="w-full md:w-[110px] md:shrink-0">
                     <select id="kirim-row-unit-${id}" onchange="refreshBarisKirim(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white"></select>
                 </div>
-                <div class="flex-grow">
+                <div class="flex-grow min-w-0">
                     <input type="text" id="kirim-row-note-${id}" placeholder="Alasan / catatan (opsional)" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 md:py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50/50">
                 </div>
+                <div id="kirim-row-info-${id}" class="hidden md:shrink-0 flex items-center md:justify-end"></div>
                 <div class="flex justify-end">
                     <button type="button" onclick="deleteKirimRow(${id})" class="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all"><i class="fa-solid fa-trash text-sm"></i></button>
                 </div>
-                <div id="kirim-row-info-${id}" class="hidden w-full md:basis-full min-w-0 order-last mt-1"></div>
             `;
             wrapper.appendChild(row);
             onPilihBarangKirim(id);
@@ -2321,45 +2474,47 @@
             const selU = document.getElementById(`kirim-row-unit-${id}`);
             if (!selI || !selU) return;
             const p = infoCKItem(selI.value);
-            const opsi = [];
-            if (p && p.packIsi > 0) opsi.push('Pack');
-            if (p && p.packSatuan) opsi.push(p.packSatuan);
+            const perPack = !!(p && p.packIsi > 0);
+            /* Barang yang dipack HANYA boleh dikirim dalam Pack, sama seperti
+               form Minta (permintaan user 31 Juli 2026). Sebelumnya kedua
+               satuan ditawarkan di sini, dan itu membuat satu barang yang sama
+               tercatat kadang dalam Pack kadang dalam Gram — riwayatnya jadi
+               tidak bisa dibaca berdampingan walau saldonya tetap benar.
+
+               Bedanya dengan Minta: jumlahnya TIDAK dipaksa bilangan bulat.
+               Pack pecahan di sini sah — outlet memang bisa mengembalikan sisa
+               setengah pack, dan menolaknya berarti menyuruh barang yang nyata
+               ada tidak usah dicatat. */
+            const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
             const sebelum = selU.value;
-            selU.innerHTML = (opsi.length ? opsi : ['Pcs']).map(u => `<option value="${u}">${u}</option>`).join('');
+            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs']);
             if (opsi.includes(sebelum)) selU.value = sebelum;
             refreshBarisKirim(id);
         }
 
-        /* Panel baris kirim TIDAK menampilkan sisa stok CK seperti form minta.
-           Yang dikirim ini barang di tangan outlet; sisa stok di CK tidak
-           membatasi apa pun, dan menampilkannya cuma mengundang orang
-           mencocokkan dua angka yang memang tidak berhubungan. */
+        /* Sama ringkasnya dengan form minta: cuma chip sisa stok CK, tanpa
+           kalimat panduan. Sisa stok di sini memang tidak MEMBATASI apa pun
+           (yang dikirim barang di tangan outlet), tapi ia jawaban atas
+           pertanyaan yang membuat orang mengirim balik: "di CK masih ada
+           berapa". Dulu panel ini menulis Isi 1 Pack / Dikirim / Status —
+           ketiganya mengulang kolom yang persis di sebelahnya. */
         function refreshBarisKirim(id) {
             const box = document.getElementById(`kirim-row-info-${id}`);
             const selI = document.getElementById(`kirim-row-item-${id}`);
             if (!box || !selI) return;
             const p = infoCKItem(selI.value);
-            if (!p) { box.classList.add('hidden'); box.innerHTML = ''; return; }
-
-            const qty = parseFloat((document.getElementById(`kirim-row-qty-${id}`) || {}).value) || 0;
-            const unit = (document.getElementById(`kirim-row-unit-${id}`) || {}).value || '';
-            const dasar = ckKeDasar(qty, unit, p);
-
-            const sel = (l, v) => `
-                <div class="flex-1 min-w-[105px] px-3 py-2 border-r border-slate-100 last:border-r-0">
-                    <div class="text-[9px] font-black uppercase tracking-wider text-slate-400">${l}</div>
-                    <div class="text-[12px] font-black mt-0.5 text-slate-800">${v}</div>
-                </div>`;
+            if (!p) {
+                // Lihat catatan yang sama di refreshBarisCK.
+                if (!String(selI.value).trim()) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+                box.classList.remove('hidden');
+                box.innerHTML = panelTakDikenalCK();
+                return;
+            }
 
             box.classList.remove('hidden');
-            box.innerHTML = `
-                <div class="rounded-xl border border-teal-200 bg-teal-50/40 shadow-sm overflow-x-auto">
-                    <div class="flex flex-nowrap items-stretch min-w-full">
-                        ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Dikirim', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
-                        ${sel('Status', 'Langsung menambah stok CK')}
-                    </div>
-                </div>`;
+            /* dasar 0 = chip tidak pernah merah di sini, memang disengaja:
+               mengirim ke CK tidak bisa "melebihi sisa stok CK". */
+            box.innerHTML = chipSisaCK(selI.value, p, 0);
         }
 
         function updateKirimSummary() {
@@ -2378,17 +2533,25 @@
 
             const daftar = [];
             let adaBarisRusak = false;
+            // Lihat catatan yang sama di submitCKOrder — barangnya diketik,
+            // jadi salah ketik harus ditolak sebelum menjadi mutasi stok.
+            const takDikenal = [];
             document.querySelectorAll('[id^="kirim-row-item-"]').forEach(el => {
                 const id = el.id.replace('kirim-row-item-', '');
-                const nama = el.value;
+                const nama = el.value.trim();
                 const qty = parseFloat((document.getElementById(`kirim-row-qty-${id}`) || {}).value) || 0;
                 const unit = (document.getElementById(`kirim-row-unit-${id}`) || {}).value || '';
                 const note = (document.getElementById(`kirim-row-note-${id}`) || {}).value || '';
                 if (!nama && qty <= 0) return;
                 if (!nama || qty <= 0) { adaBarisRusak = true; return; }
+                if (!infoCKItem(nama)) { takDikenal.push(nama); return; }
                 daftar.push({ item: nama, qtyInput: qty, unitInput: unit, catatan: note.trim() });
             });
 
+            if (takDikenal.length) {
+                return showToast("Barang Tidak Dikenali",
+                    `${takDikenal.join(', ')} bukan barang Central Kitchen — pilih dari daftar saran saat mengetik.`, "danger");
+            }
             if (adaBarisRusak) return showToast("Baris Belum Lengkap", "Ada baris yang barangnya atau jumlahnya belum diisi.", "warning");
             if (!daftar.length) return showToast("Belum Ada Barang", "Pilih minimal satu barang.", "warning");
 
@@ -2462,9 +2625,25 @@
             renderRiwayatKiriman();
         }
 
+        /* Riwayat dikelompokkan per TANGGAL dan dipotong per halaman
+           (permintaan user 31 Juli 2026). Yang dipotong adalah KELOMPOK
+           TANGGALNYA, bukan barisnya: satu tanggal yang terbelah dua halaman
+           membuat orang mengira kirimannya cuma sebagian, dan itu justru
+           pertanyaan yang membawa orang ke layar ini. Konsekuensinya satu
+           halaman bisa lebih panjang dari halaman lain — itu ditukar dengan
+           tanggal yang selalu utuh. */
+        const RIWAYAT_TGL_PER_HAL = 5;
+        let riwayatHal = 1;
+
+        function halamanRiwayatKiriman(d) {
+            riwayatHal += d;
+            renderRiwayatKiriman();
+        }
+
         function renderRiwayatKiriman() {
             const wrap = document.getElementById('kirim-riwayat-wrap');
             if (!riwayatKiriman.length) {
+                riwayatHal = 1;
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-16 text-center">
                     <div class="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-4"><i class="fa-solid fa-truck-fast text-xl"></i></div>
                     <h3 class="font-bold text-slate-800">Belum Ada Kiriman</h3>
@@ -2472,34 +2651,87 @@
                 </div>`;
                 return;
             }
-            wrap.innerHTML = riwayatKiriman.map(m => {
-                /* Baris peninggalan aturan lama masih bisa berstatus 'pending'
-                   (kiriman yang dulu belum sempat dikonfirmasi). Sejak langkah
-                   konfirmasi dibuang 31 Juli 2026 baris itu SUDAH dihitung ke
-                   saldo, jadi ia tidak lagi ditampilkan sebagai "menunggu" —
-                   labelnya cuma akan menyuruh orang menunggu sesuatu yang tidak
-                   akan pernah datang. */
-                // Selisih antara yang dikirim dan yang tercatat ditulis
-                // terang-terangan: itu satu-satunya cara pengirim tahu bahwa
-                // yang masuk stok tidak sebanyak yang dia kirim.
-                const dikirimDasar = ckKeDasar(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
-                const beda = Math.abs(dikirimDasar - m.qty) > 0.0001;
-                return `<div class="bg-white border ${beda ? 'border-rose-200' : 'border-slate-200'} rounded-xl px-4 py-3 flex items-center gap-3">
-                    <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-emerald-50">
-                        <i class="fa-solid fa-circle-check text-emerald-600 text-[13px]"></i>
-                    </span>
-                    <div class="min-w-0 flex-1">
-                        <div class="text-[13px] font-bold text-slate-800 truncate">${m.item}</div>
-                        <div class="text-[10px] text-slate-500 mt-0.5">${m.tanggal}${m.tim ? ' · ' + m.tim : ''}${m.pic ? ' · ' + m.pic : ''}</div>
-                        ${m.catatan ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate">${m.catatan}</div>` : ''}
-                        ${beda ? `<div class="text-[10px] font-bold text-rose-600 mt-0.5">Masuk stok ${ckNum(m.qty)} ${m.packSatuan} dari ${ckNum(dikirimDasar)} ${m.packSatuan} yang dikirim</div>` : ''}
+
+            const perTgl = {};
+            riwayatKiriman.forEach(m => {
+                const t = String(m.tanggal || '').slice(0, 10) || '(tanpa tanggal)';
+                (perTgl[t] = perTgl[t] || []).push(m);
+            });
+            // Terbaru di atas — riwayat dibaca dari yang paling baru, selalu.
+            const tanggal = Object.keys(perTgl).sort().reverse();
+
+            const maxHal = Math.max(1, Math.ceil(tanggal.length / RIWAYAT_TGL_PER_HAL));
+            // Dijepit DI SINI supaya halaman yang tersimpan dari muatan
+            // sebelumnya tidak menampilkan daftar kosong setelah data menyusut.
+            riwayatHal = Math.min(Math.max(1, riwayatHal), maxHal);
+            const mulai = (riwayatHal - 1) * RIWAYAT_TGL_PER_HAL;
+            const tglHalaman = tanggal.slice(mulai, mulai + RIWAYAT_TGL_PER_HAL);
+
+            wrap.innerHTML = tglHalaman.map(t => {
+                const isi = perTgl[t];
+                const jml = isi.length;
+                return `<div class="space-y-2">
+                    <div class="flex items-baseline justify-between gap-2 pt-2">
+                        <h4 class="text-xs font-black text-slate-700">${t === '(tanpa tanggal)' ? t : fmtTglRiwayat(t)}</h4>
+                        <span class="text-[10px] font-bold text-slate-400 whitespace-nowrap">${jml} kiriman</span>
                     </div>
-                    <div class="shrink-0 text-right">
-                        <div class="text-[13px] font-black text-slate-800">${ckNum(m.qtyInput)} ${m.unitInput}</div>
-                        <div class="text-[9px] font-black uppercase tracking-wider text-emerald-600">Masuk Stok</div>
-                    </div>
+                    ${isi.map(barisRiwayatKiriman).join('')}
                 </div>`;
-            }).join('');
+            }).join('') + (maxHal > 1 ? `
+                <div class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-200">
+                    <span class="text-[11px] font-bold text-slate-400">
+                        Tanggal ${mulai + 1}&ndash;${mulai + tglHalaman.length} dari ${tanggal.length}
+                    </span>
+                    <div class="flex items-center gap-1">
+                        <button type="button" onclick="halamanRiwayatKiriman(-1)" ${riwayatHal <= 1 ? 'disabled' : ''}
+                            class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+                        <span class="px-2 text-[11px] font-black text-slate-500">${riwayatHal} / ${maxHal}</span>
+                        <button type="button" onclick="halamanRiwayatKiriman(1)" ${riwayatHal >= maxHal ? 'disabled' : ''}
+                            class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+                    </div>
+                </div>` : '');
+        }
+
+        // "2026-07-31" -> "Jumat, 31 Juli 2026". Ditulis di sini, bukan memakai
+        // fmtDate modul lain: ordering tidak memuat helper tanggal bersama itu.
+        function fmtTglRiwayat(iso) {
+            const d = new Date(iso + 'T00:00:00');
+            if (isNaN(d.getTime())) return iso;
+            const hari = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+            const bulan = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+                           'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+            return `${hari[d.getDay()]}, ${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
+        }
+
+        function barisRiwayatKiriman(m) {
+            /* Baris peninggalan aturan lama masih bisa berstatus 'pending'
+               (kiriman yang dulu belum sempat dikonfirmasi). Sejak langkah
+               konfirmasi dibuang 31 Juli 2026 baris itu SUDAH dihitung ke
+               saldo, jadi ia tidak lagi ditampilkan sebagai "menunggu" —
+               labelnya cuma akan menyuruh orang menunggu sesuatu yang tidak
+               akan pernah datang. */
+            // Selisih antara yang dikirim dan yang tercatat ditulis
+            // terang-terangan: itu satu-satunya cara pengirim tahu bahwa
+            // yang masuk stok tidak sebanyak yang dia kirim.
+            const dikirimDasar = ckKeDasar(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
+            const beda = Math.abs(dikirimDasar - m.qty) > 0.0001;
+            // Tanggal TIDAK diulang di sini: ia sudah jadi judul kelompoknya.
+            const meta = [m.tim, m.pic].filter(Boolean).join(' · ');
+            return `<div class="bg-white border ${beda ? 'border-rose-200' : 'border-slate-200'} rounded-xl px-4 py-3 flex items-center gap-3">
+                <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-emerald-50">
+                    <i class="fa-solid fa-circle-check text-emerald-600 text-[13px]"></i>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <div class="text-[13px] font-bold text-slate-800 truncate">${m.item}</div>
+                    ${meta ? `<div class="text-[10px] text-slate-500 mt-0.5">${meta}</div>` : ''}
+                    ${m.catatan ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate">${m.catatan}</div>` : ''}
+                    ${beda ? `<div class="text-[10px] font-bold text-rose-600 mt-0.5">Masuk stok ${ckNum(m.qty)} ${m.packSatuan} dari ${ckNum(dikirimDasar)} ${m.packSatuan} yang dikirim</div>` : ''}
+                </div>
+                <div class="shrink-0 text-right">
+                    <div class="text-[13px] font-black text-slate-800">${ckNum(m.qtyInput)} ${m.unitInput}</div>
+                    <div class="text-[9px] font-black uppercase tracking-wider text-emerald-600">Masuk Stok</div>
+                </div>
+            </div>`;
         }
 
         /* ===== SATUAN YANG SAH UNTUK SEBUAH BAHAN =====
@@ -2590,6 +2822,14 @@
             document.querySelectorAll('[id^="autocomplete-results-"]').forEach(res => {
                 if (!res.contains(e.target) && res.previousElementSibling !== e.target) res.classList.add('hidden');
             });
+            /* Kotak saran form CK ikut ditutup di sini, bukan lewat onblur:
+               onblur menyala LEBIH DULU daripada klik pada sarannya di sebagian
+               browser, sehingga kotaknya hilang tepat sebelum pilihan sempat
+               terbaca. Saran dipilih dengan onmousedown, yang jalan sebelum
+               klik ini — jadi urutannya aman. */
+            document.querySelectorAll('[id*="-row-sug-"]').forEach(res => {
+                if (!res.contains(e.target) && res.previousElementSibling !== e.target) res.classList.add('hidden');
+            });
         });
 
         function checkConfigStatus() {
@@ -2623,7 +2863,7 @@
             const id = ++rowCount;
             const row = document.createElement('div');
             row.id = `batch-row-${id}`;
-            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all relative";
+            row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 transition-all relative";
 
             row.innerHTML = `
                 <div class="relative flex-1 min-w-[200px]">
@@ -3054,8 +3294,8 @@
                     <div class="flex flex-nowrap items-stretch min-w-full">
                         ${sel('Sumber', '👨‍🍳 Central Kitchen', 'text-amber-800')}
                         ${p.packIsi > 0 ? sel('Isi 1 Pack', `${ckNum(p.packIsi)} ${p.packSatuan}`) : ''}
-                        ${sel('Diminta', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
-                        ${sel('Sisa stok', tahuSisa ? `${ckNum(sisa)} ${p.packSatuan || ''}` : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
+                        ${sel('Diminta', ckTeksPack(dasar, p))}
+                        ${sel('Sisa stok', tahuSisa ? ckTeksPack(sisa, p) : '<span class="text-slate-400 italic font-medium">tidak diketahui</span>',
                               kurang ? 'text-rose-600' : '')}
                     </div>
                     ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
