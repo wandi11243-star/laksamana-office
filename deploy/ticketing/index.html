@@ -81,7 +81,7 @@ img{max-width:100%;display:block}
 .ev .price small{font-weight:500;font-size:12px;color:var(--muted-2)}
 
 /* ---- denah (bentuknya sama dengan denah EMS) ---- */
-.denah-wrap{overflow:hidden;background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 12px,rgba(0,0,0,.012) 12px,rgba(0,0,0,.012) 24px);
+.denah-wrap{overflow:hidden;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;background:repeating-linear-gradient(45deg,var(--paper),var(--paper) 12px,rgba(0,0,0,.012) 12px,rgba(0,0,0,.012) 24px);
   border-radius:var(--radius);padding:16px;max-height:66vh;border:1px solid var(--line)}
 .denah{position:relative;transform-origin:top left;margin:0 auto}
 .obj{position:absolute;border:2px solid;border-radius:7px;display:flex;align-items:center;justify-content:center;
@@ -163,6 +163,11 @@ img{max-width:100%;display:block}
 }
 @media(max-width:560px){
   .wrap{padding:16px 14px 92px}
+  /* Tombol lantai & legenda dirapatkan supaya denah dapat tinggi sebanyak
+     mungkin di layar kecil. */
+  .lantai button{padding:7px 12px;font-size:12.5px}
+  .legend{gap:10px;font-size:11.5px}
+  .denah-wrap{padding:10px}
   .head h1{font-size:23px}
   .grid{grid-template-columns:1fr}
 }
@@ -402,6 +407,7 @@ function gambarDenah(){
          return '<button class="'+(f===LANTAI?'on':'')+'" onclick="pilihLantai(\''+esc(f)+'\')">Lantai '+esc(f)+' <span class="mini">('+n+' tempat)</span></button>';
        }).join('')+'</div>':'')
      +'<div class="denah-wrap" id="denahWrap"><div class="denah" id="denah"></div></div>'
+     +'<div class="mini" id="denahGeser" style="display:none;margin-top:6px;text-align:center">Geser denah untuk melihat bagian lainnya.</div>'
      +'<div class="legend">'
        +'<span><i style="background:#E4F5EC;border-color:#1F9D5F"></i>Tersedia</span>'
        +'<span><i style="background:#E4EFF8;border-color:#2F7FC4;box-shadow:0 0 0 2px #2F7FC4"></i>Pilihanmu</span>'
@@ -449,15 +455,32 @@ function petakanObjek(){
      lebar hasil gambar sebelumnya dan denahnya menyusut sedikit demi sedikit. */
   const ruang=(wrap.parentElement && wrap.parentElement.clientWidth) || wrap.clientWidth || 900;
   const muat=ruang-34;
-  const muatTinggi=Math.max(260, Math.round((window.innerHeight||800)*0.58));
-  const skala=Math.min(1, muat/lebar, muatTinggi/tinggi);
+  const muatTinggi=Math.max(300, Math.round((window.innerHeight||800)*0.76));
+  /* BOLEH DIPERBESAR, bukan cuma diperkecil. Batas atasnya dulu 1, jadi denah
+     yang kanvasnya kecil berhenti di ukuran aslinya dan menyisakan ruang
+     kosong — nomor mejanya (10px) nyaris tak terbaca padahal tempatnya ada.
+     Objek denah adalah elemen DOM, bukan gambar, jadi diperbesar tetap tajam.
+     Dibatasi 2,4x supaya denah dengan dua-tiga objek tidak melar jadi papan
+     iklan. */
+  let skala=Math.min(2.4, muat/lebar, muatTinggi/tinggi);
+  /* DI LAYAR SEMPIT, KETERBACAAN MENANG ATAS "MUAT SELURUHNYA".
+     Denah 500 kursi yang dipaksa masuk layar 360px menghasilkan kotak 3px
+     dengan nomor yang mustahil dibaca apalagi disentuh — muat, tapi tak bisa
+     dipakai. Jadi di bawah 700px lebar, skalanya ditahan di batas keterbacaan
+     dan denahnya boleh digeser. Menggeser denah adalah gerakan yang sudah
+     dikenal orang dari aplikasi peta; menebak kursi dari kotak 3px tidak. */
+  const sempit=ruang<700;
+  if(sempit) skala=Math.max(skala, 0.5);
   box.style.width=lebar+'px'; box.style.height=tinggi+'px';
   box.style.transform='scale('+skala+')';
-  wrap.style.width=Math.ceil(lebar*skala+32)+'px';
+  const perluGulir=(lebar*skala>muat+1)||(tinggi*skala>muatTinggi+1);
+  wrap.style.width=perluGulir?'100%':(Math.ceil(lebar*skala+32)+'px');
   wrap.style.maxWidth='100%';
   wrap.style.margin='0 auto';
-  wrap.style.height=Math.ceil(tinggi*skala+32)+'px';
-  wrap.style.overflow='hidden';
+  wrap.style.height=Math.ceil(Math.min(tinggi*skala, muatTinggi)+32)+'px';
+  wrap.style.overflow=perluGulir?'auto':'hidden';
+  const petunjuk=document.getElementById('denahGeser');
+  if(petunjuk) petunjuk.style.display=perluGulir?'block':'none';
   box.innerHTML=its.map(o=>{
     const bisa = o.status==='available' || o.status==='mine';
     const ruang = o.warna ? null : warnaRuang(o.label);
