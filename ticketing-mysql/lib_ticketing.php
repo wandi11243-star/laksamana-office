@@ -415,6 +415,200 @@ function lepas_kursi($holdToken, $seatIds = null) {
   return array('released' => $st->rowCount());
 }
 
+/* ==================== AKUN PEMBELI ====================
+   Sengaja TIDAK memakai tabel `users` milik Office: itu akun kru dengan role
+   dan hak akses modul. Satu kebocoran di situs publik tidak boleh menyentuh
+   daftar pegawai.
+
+   BELI TANPA AKUN TETAP BOLEH. Memaksa mendaftar di tengah checkout adalah
+   cara paling efektif membuat orang batal membeli. Akun hanya menautkan
+   pesanan supaya bisa dilihat lagi dari perangkat lain; tautan e-ticket
+   ber-access_token tetap bekerja seperti sebelumnya.
+   ================================================================= */
+function email_rapi($e) { return strtolower(trim((string)$e)); }
+
+function user_baris($email) {
+  $st = db()->prepare('SELECT * FROM tix_users WHERE email = :e');
+  $st->execute(array(':e' => email_rapi($email)));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+function user_by_id($id) {
+  $st = db()->prepare('SELECT * FROM tix_users WHERE id = :i');
+  $st->execute(array(':i' => $id));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+function user_publik($u) {
+  return $u ? array('id' => $u['id'], 'email' => $u['email'],
+                    'name' => $u['name'], 'phone' => $u['phone']) : null;
+}
+
+/* Sesi 30 hari. Tokennya acak penuh, bukan turunan email atau id — token
+   yang bisa ditebak sama saja dengan tidak ada. */
+function buat_sesi($userId) {
+  $tok = token_acak(24);
+  db()->prepare('INSERT INTO tix_sessions (token,user_id,expires_at,created_at) VALUES (:t,:u,:x,:c)')
+      ->execute(array(':t' => $tok, ':u' => $userId,
+                      ':x' => now_ms() + 30 * 24 * 3600 * 1000, ':c' => now_ms()));
+  db()->prepare('DELETE FROM tix_sessions WHERE expires_at < :n')->execute(array(':n' => now_ms()));
+  return $tok;
+}
+function user_dari_sesi($tok) {
+  if (!$tok) return null;
+  $st = db()->prepare('SELECT user_id FROM tix_sessions WHERE token = :t AND expires_at > :n');
+  $st->execute(array(':t' => $tok, ':n' => now_ms()));
+  $r = $st->fetch();
+  return $r ? user_by_id($r['user_id']) : null;
+}
+
+function daftar($b) {
+  $email = email_rapi(isset($b['email']) ? $b['email'] : '');
+  $pass  = (string)(isset($b['password']) ? $b['password'] : '');
+  $nama  = trim((string)(isset($b['name']) ? $b['name'] : ''));
+  $hp    = trim((string)(isset($b['phone']) ? $b['phone'] : ''));
+  if ($nama === '' || $email === '') throw new Exception('Nama dan email wajib diisi.');
+  if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception('Format email tidak valid.');
+  /* Delapan karakter, bukan aturan rumit huruf besar-angka-simbol. Aturan
+     rumit membuat orang menulis passwordnya di catatan HP, dan itu jauh
+     lebih berbahaya daripada password panjang yang sederhana. */
+  if (strlen($pass) < 8) throw new Exception('Password minimal 8 karakter.');
+  if (user_baris($email)) throw new Exception('Email ini sudah terdaftar. Silakan masuk.');
+
+  $id = uid('usr');
+  db()->prepare('INSERT INTO tix_users (id,email,pass_hash,name,phone,created_at) VALUES (:i,:e,:p,:n,:h,:c)')
+      ->execute(array(':i' => $id, ':e' => $email, ':p' => password_hash($pass, PASSWORD_DEFAULT),
+                      ':n' => $nama, ':h' => $hp, ':c' => now_ms()));
+  $n = tautkan_pesanan_lama($id, $email);
+  return array('user' => user_publik(user_by_id($id)), 'token' => buat_sesi($id), 'pesanan_lama' => $n);
+}
+
+function masuk($b) {
+  $email = email_rapi(isset($b['email']) ? $b['email'] : '');
+  $pass  = (string)(isset($b['password']) ? $b['password'] : '');
+  $u = user_baris($email);
+  /* Pesan yang sama untuk email tak terdaftar dan password salah. Pesan yang
+     membedakan keduanya memberi tahu orang asing email mana yang punya akun
+     di sini — itu daftar yang tidak perlu dibagikan. */
+  if (!$u || !password_verify($pass, $u['pass_hash'])) throw new Exception('Email atau password salah.');
+  tautkan_pesanan_lama($u['id'], $u['email']);
+  return array('user' => user_publik($u), 'token' => buat_sesi($u['id']));
+}
+function keluar_sesi($tok) {
+  if ($tok) db()->prepare('DELETE FROM tix_sessions WHERE token = :t')->execute(array(':t' => $tok));
+  return array('keluar' => true);
+}
+
+/* PESANAN LAMA IKUT TERTAUT saat orang mendaftar/masuk dengan email yang
+   sama. Tanpa ini, seluruh riwayat pembeliannya hilang tepat pada saat ia
+   membuat akun — kebalikan dari yang ia harapkan. */
+function tautkan_pesanan_lama($userId, $email) {
+  $st = db()->prepare('SELECT id, data FROM orders WHERE email = :e');
+  $st->execute(array(':e' => $email));
+  $n = 0;
+  foreach ($st as $row) {
+    $o = json_decode($row['data'], true);
+    if (!is_array($o) || !empty($o['user_id'])) continue;
+    $o['user_id'] = $userId;
+    db()->prepare('UPDATE orders SET updated_at = :u, data = :d WHERE id = :i')
+        ->execute(array(':u' => now_ms(), ':d' => json_encode($o, JSON_UNESCAPED_UNICODE), ':i' => $row['id']));
+    $n++;
+  }
+  return $n;
+}
+
+/* Daftar tiket milik satu akun. Tiap pesanan dibawa lengkap dengan
+   access_token-nya sendiri, supaya halaman Tiket Saya membuka e-ticket lewat
+   jalur yang SAMA dengan tautan dari email — bukan jalur kedua yang bisa
+   diam-diam berbeda aturannya. */
+function tiket_saya($u) {
+  if (!$u) throw new Exception('Silakan masuk dulu.');
+  $st = db()->prepare('SELECT data FROM orders WHERE email = :e ORDER BY created_at DESC');
+  $st->execute(array(':e' => $u['email']));
+  $out = array();
+  foreach ($st as $row) {
+    $o = json_decode($row['data'], true);
+    if (!is_array($o)) continue;
+    $ev = event_satu_apa_adanya($o['event_id']);
+    $out[] = array(
+      'ref' => $o['payment_ref'], 'access_token' => $o['access_token'],
+      'status' => $o['payment_status'], 'total' => (int)$o['total'],
+      'created' => isset($o['created']) ? $o['created'] : '',
+      'jml_tiket' => count(isset($o['items']) ? $o['items'] : array()),
+      'event' => $ev ? array('title' => $ev['title'], 'start' => $ev['start'], 'venue' => $ev['venue']) : null,
+    );
+  }
+  return $out;
+}
+/* Event pada riwayat dibaca TANPA saringan status: acara yang sudah lewat
+   atau dibatalkan tetap harus muncul di riwayat pembelinya. Yang disaring
+   status hanyalah daftar yang DIJUAL. */
+function event_satu_apa_adanya($id) {
+  $rows = ambil('SELECT data FROM events WHERE id = :i', array(':i' => $id));
+  return $rows ? event_ringkas($rows[0]) : null;
+}
+
+/* ==================== LUPA & RESET PASSWORD ====================
+   Ini yang menutup satu-satunya kelemahan besar akun berpassword: tanpa jalan
+   pemulihan, lupa password berarti tiket yang sudah dibayar tidak bisa diakses
+   lagi kecuali admin turun tangan.
+   ================================================================= */
+
+/* JAWABANNYA SELALU SAMA, terdaftar atau tidak. Kalau dibedakan, siapa pun
+   bisa memakai halaman ini untuk memeriksa email mana yang punya akun di sini
+   — daftar yang tidak perlu dibagikan ke orang asing. */
+function lupa_password($email) {
+  $u = user_baris($email);
+  if ($u) {
+    // Token lama dibuang: satu permintaan baru harus membatalkan yang lama,
+    // kalau tidak tautan dari email minggu lalu masih bisa dipakai.
+    db()->prepare('DELETE FROM tix_reset WHERE user_id = :u')->execute(array(':u' => $u['id']));
+    $tok = token_acak(24);
+    db()->prepare('INSERT INTO tix_reset (token,user_id,expires_at,created_at) VALUES (:t,:u,:x,:c)')
+        ->execute(array(':t' => $tok, ':u' => $u['id'],
+                        ':x' => now_ms() + 3600000, ':c' => now_ms()));   // 1 jam
+    if (smtp_siap()) {
+      $tautan = site_url() . '/#reset/' . rawurlencode($tok);
+      try {
+        kirim_email($u['email'], 'Atur ulang password \u2014 Laksamana Muda Ticketing',
+          '<div style="font-family:Arial,sans-serif;background:#F7F6F4;padding:24px">'
+          . '<div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #E7E1D3;'
+          . 'border-radius:14px;padding:24px">'
+          . '<p>Halo <b>' . htmlspecialchars($u['name']) . '</b>,</p>'
+          . '<p>Ada permintaan mengatur ulang password akun tiketmu. Tautan ini berlaku <b>1 jam</b> '
+          . 'dan hanya bisa dipakai sekali.</p>'
+          . '<p><a href="' . htmlspecialchars($tautan) . '" style="display:inline-block;background:#A9791F;'
+          . 'color:#fff;padding:12px 20px;border-radius:9px;text-decoration:none;font-weight:bold">'
+          . 'ATUR ULANG PASSWORD</a></p>'
+          . '<p style="font-size:12px;color:#8C8677">Kalau bukan kamu yang meminta, abaikan saja email ini '
+          . '\u2014 passwordmu tidak berubah selama tautan di atas tidak dibuka.</p>'
+          . '</div></div>');
+      } catch (Throwable $e) { /* ditelan: jangan sampai kegagalan kirim membocorkan bahwa emailnya terdaftar */ }
+    }
+  }
+  return array('terkirim' => true,
+    'pesan' => 'Kalau email itu terdaftar, tautan pengaturan ulang sudah kami kirim. Cek inbox dan folder spam.');
+}
+
+function reset_password($tok, $baru) {
+  if (strlen((string)$baru) < 8) throw new Exception('Password minimal 8 karakter.');
+  db()->prepare('DELETE FROM tix_reset WHERE expires_at < :n')->execute(array(':n' => now_ms()));
+  $st = db()->prepare('SELECT user_id FROM tix_reset WHERE token = :t AND expires_at > :n');
+  $st->execute(array(':t' => $tok, ':n' => now_ms()));
+  $r = $st->fetch();
+  if (!$r) throw new Exception('Tautan sudah kedaluwarsa atau pernah dipakai. Minta tautan baru.');
+  db()->prepare('UPDATE tix_users SET pass_hash = :p WHERE id = :i')
+      ->execute(array(':p' => password_hash($baru, PASSWORD_DEFAULT), ':i' => $r['user_id']));
+  // Sekali pakai.
+  db()->prepare('DELETE FROM tix_reset WHERE token = :t')->execute(array(':t' => $tok));
+  /* SEMUA SESI LAMA DIPUTUS. Orang mengganti password justru ketika ia curiga
+     akunnya dipakai orang lain; membiarkan sesi lama tetap hidup membuat
+     penggantian itu tidak menyelesaikan apa pun. */
+  db()->prepare('DELETE FROM tix_sessions WHERE user_id = :u')->execute(array(':u' => $r['user_id']));
+  $u = user_by_id($r['user_id']);
+  return array('user' => user_publik($u), 'token' => buat_sesi($u['id']));
+}
+
 /* ==================== CHECKOUT ====================
    Menyusun pesanan (Pending) lalu meminta invoice ke Xendit.
    Kursi TIDAK ditandai Sold di sini — hanya kalau uangnya benar-benar
@@ -465,6 +659,9 @@ function checkout($b) {
     // dibeli sendiri oleh customer lewat web.
     'recorded_by' => 'Website', 'recorded_via' => 'ticketing-web',
     'channel' => 'online', 'items' => $items, 'access_token' => $akses,
+    // Menempel ke akun kalau pembelinya sedang masuk. Kalau tidak, pesanan
+    // tetap sah dan tetap bisa dibuka lewat access_token-nya sendiri.
+    'user_id' => ($uu = user_dari_sesi(isset($b['sesi']) ? $b['sesi'] : '')) ? $uu['id'] : '',
     'expires_at' => gmdate('c', (int)(now_ms() / 1000) + 3600),
     'created' => gmdate('c'),
   );
@@ -630,6 +827,7 @@ function lunaskan($oid, $body = array()) {
     }
     // Kuota kelas tiket ikut naik, supaya angka "sisa" di EMS benar.
     naikkan_sold($o['items']);
+    $o['email_eticket'] = kirim_eticket($o, $tiket);
     simpan_order($o);
     // Kunci kursi dilepas: perannya sudah digantikan tiket + status Sold.
     db()->prepare('DELETE FROM seat_holds WHERE order_id = :o')->execute(array(':o' => $oid));
@@ -669,6 +867,130 @@ function simulasi_bayar($ref, $akses) {
   if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses))
     throw new Exception('Tautan tidak sah.');
   return lunaskan($o['id'], array('payment_method' => 'SIMULASI', 'paid_amount' => $o['total']));
+}
+
+/* ==================== KIRIM EMAIL (SMTP) ====================
+   Memakai akun email domain sendiri, BUKAN fungsi mail() bawaan PHP. Email
+   dari mail() tidak terautentikasi, jadi ia sering mendarat di spam \u2014 dan
+   e-ticket yang tidak terbaca sama saja dengan e-ticket yang tidak terkirim.
+   Lewat SMTP akun sendiri, kirimannya lolos SPF/DKIM domain.
+
+   Ditulis langsung di atas soket, tanpa pustaka. Repo ini tidak memakai
+   composer, dan menambahkan satu hanya untuk mengirim email berarti seluruh
+   alur deploy FTP harus ikut memikirkan vendor/.
+
+   PENGIRIMAN TIDAK PERNAH MENGGAGALKAN PELUNASAN. Kalau SMTP mati, uang sudah
+   diterima dan tiket sudah terbit \u2014 melempar galat di titik itu akan membuat
+   webhook Xendit mengulang terus dan (kalau lunaskan tidak idempoten) bisa
+   menerbitkan tiket berkali-kali. Jadi kegagalannya dicatat di pesanan, bukan
+   dilempar ke atas. */
+function smtp_siap() {
+  return defined('SMTP_HOST') && SMTP_HOST !== '' && strpos(SMTP_HOST, 'ISI_') !== 0
+      && defined('SMTP_USER') && SMTP_USER !== '' && strpos(SMTP_USER, 'ISI_') !== 0;
+}
+function smtp_baca($fp, $harap) {
+  $balas = '';
+  while (($baris = fgets($fp, 515)) !== false) {
+    $balas .= $baris;
+    if (isset($baris[3]) && $baris[3] === ' ') break;   // baris terakhir multi-line
+  }
+  $kode = (int)substr($balas, 0, 3);
+  if ($harap && $kode !== $harap) throw new Exception('SMTP ' . $kode . ': ' . trim($balas));
+  return $balas;
+}
+function smtp_tulis($fp, $baris, $harap) {
+  fwrite($fp, $baris . "\r\n");
+  return $harap ? smtp_baca($fp, $harap) : '';
+}
+function kirim_email($ke, $subjek, $html) {
+  if (!smtp_siap()) throw new Exception('SMTP belum dikonfigurasi di server.');
+  $port = defined('SMTP_PORT') ? (int)SMTP_PORT : 465;
+  // Port 465 memakai TLS sejak detik pertama; 587 mulai polos lalu STARTTLS.
+  $alamat = ($port === 465 ? 'ssl://' : 'tcp://') . SMTP_HOST . ':' . $port;
+  $ctx = stream_context_create(array('ssl' => array('verify_peer' => true, 'verify_peer_name' => true)));
+  $fp = @stream_socket_client($alamat, $errno, $errstr, 20, STREAM_CLIENT_CONNECT, $ctx);
+  if (!$fp) throw new Exception('Tidak bisa menghubungi server email: ' . $errstr);
+  stream_set_timeout($fp, 20);
+  try {
+    smtp_baca($fp, 220);
+    $host = defined('SMTP_HOST') ? SMTP_HOST : 'localhost';
+    smtp_tulis($fp, 'EHLO ' . $host, 250);
+    if ($port !== 465) {
+      smtp_tulis($fp, 'STARTTLS', 220);
+      if (!stream_socket_enable_crypto($fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT))
+        throw new Exception('Gagal menyalakan TLS.');
+      smtp_tulis($fp, 'EHLO ' . $host, 250);
+    }
+    smtp_tulis($fp, 'AUTH LOGIN', 334);
+    smtp_tulis($fp, base64_encode(SMTP_USER), 334);
+    smtp_tulis($fp, base64_encode(SMTP_PASS), 235);
+    $dari = SMTP_USER;
+    $nama = defined('SMTP_FROM_NAME') ? SMTP_FROM_NAME : 'Laksamana Muda';
+    smtp_tulis($fp, 'MAIL FROM:<' . $dari . '>', 250);
+    smtp_tulis($fp, 'RCPT TO:<' . $ke . '>', 250);
+    smtp_tulis($fp, 'DATA', 354);
+    $isi = 'From: =?UTF-8?B?' . base64_encode($nama) . "?= <" . $dari . ">\r\n"
+         . 'To: <' . $ke . ">\r\n"
+         . 'Subject: =?UTF-8?B?' . base64_encode($subjek) . "?=\r\n"
+         . "MIME-Version: 1.0\r\n"
+         . "Content-Type: text/html; charset=UTF-8\r\n"
+         . "Content-Transfer-Encoding: base64\r\n\r\n"
+         . chunk_split(base64_encode($html));
+    fwrite($fp, $isi . "\r\n.\r\n");
+    smtp_baca($fp, 250);
+    smtp_tulis($fp, 'QUIT', 0);
+  } finally { fclose($fp); }
+  return true;
+}
+
+/* Isi email e-ticket. QR-nya TIDAK ditempel sebagai gambar: gambar tertanam
+   sering diblokir peramban email sampai penerima menekan "tampilkan gambar",
+   dan QR yang tidak tampil di pintu masuk adalah kegagalan yang paling buruk
+   waktunya. Yang dikirim tautan permanen ke halaman e-ticket \u2014 di sana QR-nya
+   digambar, dan statusnya selalu yang terbaru (termasuk kalau sudah check-in). */
+function email_eticket_html($o, $tiket) {
+  $ev = event_satu_apa_adanya($o['event_id']);
+  $judul = $ev ? $ev['title'] : 'Event Laksamana Muda';
+  $tautan = site_url() . '/#tiket/' . rawurlencode($o['payment_ref']) . '/' . rawurlencode($o['access_token']);
+  $baris = '';
+  foreach ($tiket as $t) {
+    $baris .= '<tr><td style="padding:6px 0;border-bottom:1px solid #E7E1D3">'
+      . '<b>' . htmlspecialchars($t['ticket_number']) . '</b> &middot; '
+      . htmlspecialchars($t['seat_label']) . ' <span style="color:#8C8677">(' . htmlspecialchars($t['tier']) . ')</span>'
+      . '</td></tr>';
+  }
+  return '<div style="font-family:Arial,Helvetica,sans-serif;background:#F7F6F4;padding:24px">'
+    . '<div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E1D3;border-radius:14px;overflow:hidden">'
+    . '<div style="background:#2A2620;color:#fff;padding:20px 24px">'
+    . '<div style="font-size:12px;color:#C8961F;letter-spacing:1px">LAKSAMANA MUDA</div>'
+    . '<div style="font-size:22px;font-weight:bold;margin-top:4px">' . htmlspecialchars($judul) . '</div>'
+    . ($ev ? '<div style="font-size:13px;color:#ccc;margin-top:4px">' . htmlspecialchars($ev['venue']) . '</div>' : '')
+    . '</div>'
+    . '<div style="padding:22px 24px">'
+    . '<p style="margin:0 0 14px">Halo <b>' . htmlspecialchars($o['buyer_name']) . '</b>, pembayaranmu sudah kami terima. Tiketmu siap.</p>'
+    . '<table style="width:100%;border-collapse:collapse;font-size:14px">' . $baris . '</table>'
+    . '<p style="margin:18px 0 8px;font-size:13px;color:#5C574D">Tunjukkan QR di halaman berikut kepada petugas saat masuk:</p>'
+    . '<p><a href="' . htmlspecialchars($tautan) . '" style="display:inline-block;background:#A9791F;color:#fff;'
+    . 'padding:12px 20px;border-radius:9px;text-decoration:none;font-weight:bold">BUKA E-TICKET</a></p>'
+    . '<p style="font-size:12px;color:#8C8677;margin-top:16px">Simpan email ini. Tautan di atas berlaku permanen dan hanya bisa dibuka olehmu.<br>'
+    . 'Kode pesanan: <b>' . htmlspecialchars($o['payment_ref']) . '</b></p>'
+    . '</div></div></div>';
+}
+
+/* Dipanggil dari lunaskan(). Sengaja menelan galatnya sendiri \u2014 lihat
+   catatan di atas: uang sudah masuk dan tiket sudah terbit, jadi email yang
+   gagal tidak boleh membatalkan apa pun. Jejaknya disimpan di pesanan supaya
+   bisa ditelusuri, bukan hilang tanpa bekas. */
+function kirim_eticket($o, $tiket) {
+  if (!smtp_siap()) return array('ok' => false, 'sebab' => 'SMTP belum dikonfigurasi');
+  try {
+    $ev = event_satu_apa_adanya($o['event_id']);
+    kirim_email($o['email'], 'E-Ticket ' . ($ev ? $ev['title'] : 'Laksamana Muda') . ' \u2014 ' . $o['payment_ref'],
+                email_eticket_html($o, $tiket));
+    return array('ok' => true, 'at' => gmdate('c'));
+  } catch (Throwable $e) {
+    return array('ok' => false, 'sebab' => $e->getMessage(), 'at' => gmdate('c'));
+  }
 }
 
 /* ==================== STATUS PESANAN & E-TICKET ====================

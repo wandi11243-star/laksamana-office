@@ -60,3 +60,23 @@ define('ADMIN_FEE', 5000);
 /* Berapa lama kursi ditahan setelah dipilih, dalam menit. Setelah lewat,
    kursinya dilepas sendiri dan boleh diambil orang lain. */
 define('HOLD_MINUTES', 10);
+
+/* ==================== EMAIL (SMTP) ====================
+   Dipakai mengirim e-ticket. Memakai akun email domain sendiri, BUKAN mail()
+   bawaan PHP: kiriman mail() tidak terautentikasi dan sering mendarat di spam,
+   dan e-ticket yang tidak terbaca sama saja dengan yang tidak terkirim.
+
+   Nilainya ada di cPanel -> Email Accounts -> Connect Devices ->
+   "Mail Client Manual Settings".
+
+   SMTP_PORT 465 = SSL langsung (paling umum di cPanel).
+   SMTP_PORT 587 = mulai polos lalu STARTTLS. Keduanya didukung.
+
+   Password ditempel di antara kutip TUNGGAL supaya karakter seperti $ tidak
+   ditafsirkan PHP sebagai variabel.
+   ================================================================= */
+define('SMTP_HOST', 'mail.laksamanamuda.id');
+define('SMTP_PORT', 465);
+define('SMTP_USER', 'tiket@laksamanamuda.id');
+define('SMTP_PASS', 'ISI_PASSWORD_EMAIL');
+define('SMTP_FROM_NAME', 'Laksamana Muda Ticketing');

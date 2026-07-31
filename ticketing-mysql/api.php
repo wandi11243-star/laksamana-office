@@ -12,6 +12,13 @@
  *                                              -> {invoice_url,ref,access_token}
  *   POST {action:"webhook", ...}               <- DARI XENDIT, bukan browser
  *   POST {action:"simbayar",ref,token}         -> hanya di dev (XENDIT_MOCK)
+ *   POST {action:"daftar"|"masuk", email,password,...} -> {user,token}
+ *   POST {action:"keluar", sesi}
+ *   POST {action:"lupaPassword", email}       -> kirim tautan reset
+ *   POST {action:"resetPassword", token, password}
+ *   GET  ?action=saya&sesi=                    -> akun yang sedang masuk
+ *   GET  ?action=tiketSaya&sesi=               -> riwayat tiket akun itu
+ *   GET  ?action=ujiEmail&ke=                  -> uji SMTP (bukan di produksi)
  *   GET  ?action=order&ref=&token=             -> status + e-ticket
  *
  * Sengaja TIDAK ada endpoint yang memulangkan seluruh isi database, dan
@@ -87,6 +94,46 @@ try {
   } else if ($aksi === 'simbayar') {
     // Hanya hidup di server non-produksi yang menyalakan XENDIT_MOCK.
     keluar(array('ok' => true, 'data' => simulasi_bayar($B('ref'), $B('token'))));
+
+  /* ---- akun pembeli ----
+     Token sesi dikirim di badan (POST) atau ?sesi= (GET). Tidak memakai
+     cookie: backend ini dipanggil dari halaman yang bisa berada di domain
+     berbeda, dan cookie tidak selalu ikut terkirim di situ. */
+  } else if ($aksi === 'daftar') {
+    keluar(array('ok' => true, 'data' => daftar($body)));
+
+  } else if ($aksi === 'masuk') {
+    keluar(array('ok' => true, 'data' => masuk($body)));
+
+  } else if ($aksi === 'keluar') {
+    keluar(array('ok' => true, 'data' => keluar_sesi($B('sesi'))));
+
+  } else if ($aksi === 'lupaPassword') {
+    keluar(array('ok' => true, 'data' => lupa_password($B('email'))));
+
+  } else if ($aksi === 'resetPassword') {
+    keluar(array('ok' => true, 'data' => reset_password($B('token'), $B('password'))));
+
+  } else if ($aksi === 'saya') {
+    keluar(array('ok' => true, 'data' => user_publik(user_dari_sesi($G('sesi')))));
+
+  } else if ($aksi === 'tiketSaya') {
+    keluar(array('ok' => true, 'data' => tiket_saya(user_dari_sesi($G('sesi')))));
+
+  } else if ($aksi === 'ujiEmail') {
+    /* Uji kirim sebelum ada pembeli sungguhan yang mengandalkannya. Hanya di
+       server non-produksi: di produksi ia jadi alat orang asing mengirim
+       email atas nama domainmu. */
+    if (env_nyata() === 'produksi') keluar(array('ok' => false, 'error' => 'Uji email tidak tersedia di produksi.'));
+    /* Alamat diperiksa di sini supaya salah ketik dijawab kalimat yang bisa
+       ditindaklanjuti, bukan pesan mentah SMTP seperti "501 recipient address
+       must contain a domain" — yang benar tapi tidak memberi tahu apa yang
+       harus diperbaiki. */
+    if (!filter_var($G('ke'), FILTER_VALIDATE_EMAIL))
+      keluar(array('ok' => false, 'error' => 'Isi ?ke= dengan alamat email lengkap, mis. ?ke=nama@gmail.com (dapat: "' . $G('ke') . '").'));
+    kirim_email($G('ke'), 'Uji kirim Laksamana Muda Ticketing',
+      '<p>Kalau email ini sampai, SMTP sudah benar.</p>');
+    keluar(array('ok' => true, 'data' => array('terkirim_ke' => $G('ke'))));
 
   } else if ($aksi === 'order') {
     keluar(array('ok' => true, 'data' => status_pesanan($G('ref'), $G('token'))));
