@@ -251,6 +251,33 @@ function kelas_event($eid) {
   return ambil('SELECT data FROM ticket_classes WHERE event_id = :e', array(':e' => $eid));
 }
 
+/* ---------- PALET NAMA RUANG ----------
+   Salinan LDZ_RUANG dari deploy/event/index.html. Ditaruh di SERVER, bukan di
+   halaman customer, karena halaman customer sebelumnya menyimpan salinannya
+   sendiri — tiga tempat yang harus diubah bersamaan tiap kali palet berubah,
+   dan yang lupa akan menampilkan denah berbeda untuk ruangan yang sama.
+   Sekarang halaman customer tidak tahu apa-apa soal warna: ia memakai apa yang
+   dikirim di sini. Tinggal dua tempat, dan yang satu (EMS) adalah sumbernya. */
+function palet_ruang() {
+  return array(
+    array('/^stage$|panggung/i',      '#3f4a5a', '#2b3340'),
+    array('/^meja ?dj$/i',            '#a9791f', '#7a560f'),
+    array('/talent/i',                '#6d5aa8', '#4e3f80'),
+    array('/entrance|masuk|keluar/i', '#e08a1e', '#a86212'),
+    array('/tangga/i',                '#8a6242', '#63452e'),
+    array('/operator|foh/i',          '#2f3a4a', '#1d2530'),
+    array('/^void/i',                 '#eceae4', '#c9c4b8'),
+    array('/reguler|regular/i',       '#5b7fa6', '#3f5d7d'),
+    array('/^ext/i',                  '#f2c14e', '#c9432b'),
+  );
+}
+function warna_ruang($label) {
+  $t = trim((string)$label);
+  if ($t === '') return null;
+  foreach (palet_ruang() as $r) if (preg_match($r[0], $t)) return array('bg' => $r[1], 'tepi' => $r[2]);
+  return null;
+}
+
 /* ==================== DENAH ====================
    Objek denah dikirim APA ADANYA (x, y, w, h, bentuk, warna, lantai),
    supaya situs customer menggambar denah yang SAMA dengan yang dirancang
@@ -303,7 +330,11 @@ function denah($eid, $holdToken = '') {
       'capacity' => (int)(isset($s['capacity']) ? $s['capacity'] : 1),
       'x' => (float)($s['x'] ?? 0), 'y' => (float)($s['y'] ?? 0),
       'w' => (float)($s['w'] ?? 40), 'h' => (float)($s['h'] ?? 40),
-      'warna'    => isset($s['warna']) ? $s['warna'] : '',
+      /* Warna eksplisit per objek MENANG atas palet nama ruang — kalau tidak,
+         warna yang sengaja dipatok kru akan ditimpa tebakan dari namanya. */
+      'warna'      => isset($s['warna']) ? $s['warna'] : '',
+      'warna_bg'   => ($w = warna_ruang(isset($s['table_no']) ? $s['table_no'] : '')) ? $w['bg'] : '',
+      'warna_tepi' => $w ? $w['tepi'] : '',
       'pola'     => isset($s['pola']) ? $s['pola'] : '',
       'status'   => $status,
       'price'    => $c ? (int)$c['price'] : 0,
