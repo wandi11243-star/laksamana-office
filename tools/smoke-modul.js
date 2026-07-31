@@ -108,6 +108,12 @@ async function ujiModul(modul) {
   // --- siapkan state & identitas -------------------------------------------
   try {
     px('if (typeof normalizeState === "function" && typeof seed === "function") S = normalizeState(seed());');
+    /* Modul Event menamai state-nya DB, bukan S, dan menyiapkannya dengan
+       normalize() bukan normalizeState(seed()). Tanpa baris ini DB tetap null
+       dan SEMUA halaman gagal dengan "Cannot read properties of null" —
+       kegagalan harness, bukan kegagalan modul, yang justru menyembunyikan
+       bug sungguhan di baliknya. */
+    px('if (typeof DB !== "undefined" && !DB && typeof normalize === "function") DB = normalize({});');
     px('if (typeof save === "function") save = function(){};');   // jangan menembak server
     const punyaS = px('typeof S !== "undefined" && !!S');
     if (punyaS) {
@@ -129,15 +135,30 @@ async function ujiModul(modul) {
     if (!views.length) views = px('(typeof TITLES !== "undefined") ? Object.keys(TITLES) : []') || [];
   } catch (_) {}
 
+  /* DUA GAYA ROUTER. Marketing dkk memakai go(view). Modul Event memakai
+     router() yang membaca location.hash berbentuk '#/<halaman>'. Sebelumnya
+     harness hanya mengenali yang pertama, jadi seluruh modul Event cuma
+     diuji "boot tidak melempar" — dan bug seperti modal penjualan yang
+     memakai denah template lama lolos sampai ketahuan dari layar pengguna.
+
+     Yang dikenali sengaja cuma dua bentuk ini, bukan tebakan umum: router
+     yang tidak dikenali tetap dilaporkan apa adanya sebagai "hanya boot",
+     bukan diam-diam dianggap lulus. */
   const punyaGo = px('typeof go === "function"');
-  if (!punyaGo || !views.length) {
+  const punyaRouter = px('typeof router === "function"');
+  const bukaHalaman = punyaGo
+    ? (v) => px(`go(${JSON.stringify(v)})`)
+    : (v) => px(`location.hash = ${JSON.stringify('#/' + v)}; router();`);
+
+  if ((!punyaGo && !punyaRouter) || !views.length) {
     /* Tidak semua modul punya router bernama go() + daftar halaman yang bisa
        dibaca dari NAV_DEF/TITLES. Untuk modul itu yang bisa diuji hanya "boot
        tidak melempar dan menghasilkan sesuatu" — tetap berguna, tapi jangan
        dikira cakupan penuh. */
     const teks = (w.document.body.textContent || '').trim();
     if (!teks) errs.push('boot: halaman kosong sama sekali');
-    const sebab = !punyaGo ? 'tidak ada go()' : 'daftar halaman tak terbaca dari NAV_DEF/TITLES';
+    const sebab = (!punyaGo && !punyaRouter) ? 'tidak ada go() maupun router()'
+                                             : 'daftar halaman tak terbaca dari NAV_DEF/TITLES';
     return { modul, views: 0, errs, catatan: 'hanya boot yang diuji (' + sebab + ')' };
   }
 
@@ -150,7 +171,7 @@ async function ujiModul(modul) {
     .find(el => el);
 
   views.forEach(v => {
-    try { px(`go(${JSON.stringify(v)})`); }
+    try { bukaHalaman(v); }
     catch (e) { errs.push(v + ': ' + e.message); return; }
     // Halaman yang render-nya diam-diam tidak menghasilkan apa pun juga rusak.
     if (wadah && !(wadah.textContent || '').trim()) errs.push(v + ': wadah render kosong');
