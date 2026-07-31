@@ -39,8 +39,34 @@ else                                                 require __DIR__ . '/config.
 
 define('LIB_VERSI', '2026-07-31a');
 
+/* KENAPA identitas() IKUT MENCOBA MENYAMBUNG KE DATABASE
+
+   Versi pertama hanya membacakan isi config apa adanya. Akibatnya ?action=ping
+   membalas ok:true dengan nama database yang cantik, PADAHAL kredensialnya
+   ditolak MySQL — dan itu justru satu-satunya hal yang ingin dibuktikan oleh
+   ping. Sudah kejadian 31 Juli 2026 saat memasang di dev: nama database salah
+   ketik (dev_db vs db_dev), ping tetap hijau, dan kesalahannya baru ketahuan
+   setelah memanggil endpoint lain.
+
+   Sekarang ping benar-benar bertanya ke database. Pesan galatnya dipendekkan —
+   pesan PDO utuh memuat nama user & host, dan ini endpoint publik. */
+function cek_db() {
+  try {
+    db()->query('SELECT 1');
+    // Sekalian buktikan tabel milik bersama memang terlihat dari sini; nama
+    // database yang benar tapi skema EMS belum ada sama saja tidak bisa dipakai.
+    $t = db()->query("SHOW TABLES LIKE 'seats'")->fetch();
+    $h = db()->query("SHOW TABLES LIKE 'seat_holds'")->fetch();
+    return array('db_ok' => true, 'tabel_ems' => $t ? true : false, 'tabel_hold' => $h ? true : false);
+  } catch (Throwable $e) {
+    $p = $e->getCode() === '42000' || strpos($e->getMessage(), '1044') !== false
+      ? 'akses ditolak / nama database salah'
+      : 'tidak bisa menyambung';
+    return array('db_ok' => false, 'db_error' => $p);
+  }
+}
 function identitas() {
-  return array(
+  return array_merge(cek_db(), array(
     'env'    => defined('ENV_LABEL') ? ENV_LABEL : '?',
     'db'     => DB_NAME,
     'versi'  => LIB_VERSI,
@@ -48,7 +74,7 @@ function identitas() {
     // terpisah yang bisa lupa diubah saat kunci diganti.
     'xendit' => xendit_mode(),
     'simulasi_bayar' => mode_simulasi(),
-  );
+  ));
 }
 function xendit_mode() {
   if (!defined('XENDIT_SECRET') || XENDIT_SECRET === '' || strpos(XENDIT_SECRET, 'ISI_') === 0) return 'belum diisi';
