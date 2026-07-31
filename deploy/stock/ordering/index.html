@@ -323,11 +323,13 @@
         <!-- Sebangun dengan Form Order Belanja di atas,     -->
         <!-- tapi sumbernya master barang CK (sumber='ck').  -->
         <!--                                                 -->
-        <!-- Barangnya dipilih dari DAFTAR, bukan diketik    -->
-        <!-- lewat autocomplete: barang produksi dapur cuma  -->
-        <!-- belasan, dan daftar bisa sekaligus menampilkan  -->
-        <!-- sisa stok tiap barang — angka yang justru       -->
-        <!-- paling menentukan boleh-tidaknya diajukan.      -->
+        <!-- Barangnya DIKETIK (autocomplete), sama seperti  -->
+        <!-- form belanja. Dulu dropdown, dengan alasan      -->
+        <!-- barang CK cuma belasan — ternyata tidak: sekali -->
+        <!-- daftarnya lewat 20 baris, menggulung dropdown   -->
+        <!-- di HP jauh lebih lambat daripada mengetik tiga  -->
+        <!-- huruf. Sisa stok tiap barang tetap ditampilkan, -->
+        <!-- sekarang di dalam saran ketikannya.             -->
         <!-- ============================================== -->
         <div id="view-ck" class="hidden space-y-6">
             <div class="rounded-2xl p-5 text-white shadow-md space-y-4" style="background:linear-gradient(120deg,#134E4A,#0F766E)">
@@ -1056,7 +1058,11 @@
            satuannya. HARUS sama persis dengan SATUAN_TERSEDIA di purchasing;
            kalau berbeda, purchasing bisa menetapkan satuan yang tak pernah
            muncul di sini. */
-        const SATUAN_TERSEDIA = ["Kg","Gram","ML","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol",
+        /* "Liter" ditambahkan 31 Juli 2026 atas permintaan user: sebelumnya
+           cuma ada "ML", jadi bahan cair yang dibeli per liter harus ditulis
+           "1000 ML" — angka yang tidak pernah cocok dengan nota vendor dan
+           selalu salah ketik nolnya. */
+        const SATUAN_TERSEDIA = ["Kg","Gram","Liter","ML","Pcs","Pack","Dus","Sack","Jerigen","Rim","Botol",
                                 "Ekor","Slice","Tabung","Bal","Buah","Kaleng","Ikat","Papan"];
         let debounceTimer;
         let rowCount = 0;
@@ -1951,16 +1957,130 @@
            di Purchasing, dan sinkronisasi stok CK. Tidak ada tabel kedua dan
            tidak ada jalur kedua; yang dipisah cuma layarnya.
 
-           Barang dipilih dari daftar dropdown, bukan autocomplete: barang produksi
-           dapur cuma belasan (bahan vendor ratusan), dan daftar yang bisa
-           dibuka sekaligus menampilkan sisa stok tiap barang — angka yang
-           justru paling menentukan boleh-tidaknya sesuatu diajukan. */
+           Barangnya DIKETIK dengan autocomplete, sama seperti form belanja.
+           Dulu dropdown <select>, alasannya "barang CK cuma belasan" — dan itu
+           berhenti benar begitu daftarnya lewat 20 baris: menggulung dropdown
+           panjang di HP jauh lebih lambat daripada mengetik tiga huruf.
+           Sisa stok tiap barang, satu-satunya hal berguna yang dulu hanya bisa
+           ditampilkan lewat dropdown, ikut pindah ke dalam saran ketikannya. */
         let ckRowCount = 0;
 
         function daftarBarangCK() {
             return Object.keys(globalProductInfo || {})
                 .filter(n => adaDiCK(globalProductInfo[n]))
                 .sort((a, b) => a.localeCompare(b));
+        }
+
+        /* ===== AUTOCOMPLETE BARANG CK — dipakai form Minta MAUPUN form Kirim
+           Satu fungsi untuk dua form, bukan dua salinan: bedanya cuma daftar
+           barang dan awalan id, dan dua salinan berarti perbaikan berikutnya
+           hanya kena separuh layar. */
+        function ckAcCfg(mode) {
+            return mode === 'kirim'
+                ? { pre: 'kirim-row', daftar: daftarBarangKirimCK, pilih: onPilihBarangKirim }
+                : { pre: 'ck-row',    daftar: daftarBarangCK,      pilih: onPilihBarangCK };
+        }
+
+        /* Saran yang SEDANG tampil per baris, {"minta-3": ["Nama A", …]}.
+           Ada supaya tombol saran cukup mengirim NOMOR URUT, bukan nama barang
+           yang ditempel ke dalam atribut onmousedown. Nama yang memuat petik
+           atau tanda kutip akan memutus atributnya di tengah — autocomplete
+           form belanja masih memakai cara lama itu dan tetap rapuh untuk nama
+           seperti O'Brien; yang baru tidak usah ikut rapuh. */
+        const ckAcHasil = {};
+
+        function cariBarangCK(mode, id) {
+            const c = ckAcCfg(mode);
+            const inp = document.getElementById(`${c.pre}-item-${id}`);
+            const box = document.getElementById(`${c.pre}-sug-${id}`);
+            if (!inp || !box) return;
+
+            const q = inp.value.trim().toLowerCase();
+            const semua = c.daftar();
+            /* Kolom kosong TIDAK menutup kotak saran — ia justru menampilkan
+               daftar penuh. Itulah pengganti gunanya dropdown lama: yang tidak
+               hafal nama barangnya tetap bisa melihat semuanya tanpa mengetik. */
+            const cocok = q ? semua.filter(n => n.toLowerCase().includes(q)) : semua;
+            ckAcHasil[`${mode}-${id}`] = cocok;
+
+            box.innerHTML = cocok.length
+                ? cocok.map((n, i) => {
+                    const p = infoCKItem(n);
+                    const sisa = ckSaldoPeta[n];
+                    const tahu = (sisa !== undefined && sisa !== null);
+                    const habis = tahu && sisa <= 0;
+                    return `<div onmousedown="pilihBarangCKAc('${mode}',${id},${i})"
+                                 class="px-3 py-2.5 border-b border-slate-50 last:border-b-0 cursor-pointer hover:bg-teal-50 flex items-center justify-between gap-2 transition-colors">
+                                <span class="min-w-0 truncate text-xs font-bold text-slate-700">${n}</span>
+                                <span class="shrink-0 text-[10px] font-black ${habis ? 'text-rose-600' : (tahu ? 'text-teal-700' : 'text-slate-300 italic font-medium')}">
+                                    ${tahu ? `${ckNum(sisa)} ${(p && p.packSatuan) || ''}` : 'stok ?'}
+                                </span>
+                            </div>`;
+                }).join('')
+                : `<div class="p-3 text-xs font-bold italic text-center text-rose-500">${semua.length
+                        ? 'Tidak ada barang CK yang cocok.'
+                        : 'Belum ada barang Central Kitchen terdaftar.'}</div>`;
+            box.classList.remove('hidden');
+
+            // Satuan & panel rincian ikut apa yang SEDANG diketik, bukan hanya
+            // yang dipilih lewat saran: nama yang diketik lengkap tanpa
+            // menyentuh daftar tetap harus menyempitkan satuannya.
+            c.pilih(id);
+        }
+
+        function pilihBarangCKAc(mode, id, i) {
+            const nama = (ckAcHasil[`${mode}-${id}`] || [])[i];
+            if (nama === undefined) return;
+            const c = ckAcCfg(mode);
+            const inp = document.getElementById(`${c.pre}-item-${id}`);
+            if (inp) inp.value = nama;
+            tutupSugCK(mode, id);
+            c.pilih(id);
+        }
+
+        function tutupSugCK(mode, id) {
+            const box = document.getElementById(`${ckAcCfg(mode).pre}-sug-${id}`);
+            if (box) box.classList.add('hidden');
+        }
+
+        /* Satuan satu baris CK, ditulis sebagai <option>.
+           "Pack" SELALU ikut ditulis untuk barang yang sudah dikenali, walau
+           barangnya belum punya isi pack — bedanya ia dimatikan (disabled)
+           beserta sebabnya. Dulu ia sekadar tidak ikut dirender, dan kru yang
+           membuka daftar satuan lalu tidak menemukan Pack tidak punya cara
+           membedakan "barang ini memang eceran" dari "admin lupa mengisi Isi 1
+           Pack di Atur Produk" — dua keadaan yang penanganannya jauh berbeda,
+           dan yang kedua persis yang dilaporkan sebagai "satuan pack tidak
+           muncul" pada 31 Juli 2026. */
+        function optSatuanCK(opsi, adaPack) {
+            const html = opsi.map(u => `<option value="${u}">${u}</option>`).join('');
+            return adaPack ? html
+                : html + '<option value="Pack" disabled>Pack — isi pack belum diatur</option>';
+        }
+
+        /* Petunjuk di panel rincian untuk barang yang belum punya isi pack.
+           Sengaja bukan peringatan merah: barang curah memang boleh tanpa isi
+           pack, jadi ini keterangan, bukan kesalahan. */
+        function catatanTanpaPackCK(p) {
+            if (!p || p.packIsi > 0) return '';
+            return `<div class="px-3 py-1.5 border-t border-slate-200 text-[10px] font-semibold text-slate-500 leading-relaxed">
+                Barang ini belum punya <b>Isi 1 Pack</b>, jadi satuan <b>Pack</b> belum bisa dipakai &mdash;
+                jumlahnya ditakar dalam <b>${p.packSatuan || 'satuan dasar'}</b>. Kalau semestinya dipack, admin
+                mengaturnya di <b>Purchasing → Database &amp; Vendor → Atur Produk</b>.
+            </div>`;
+        }
+
+        /* Panel untuk nama yang SUDAH diketik tapi bukan barang CK. Sejak
+           barangnya diketik (bukan dipilih dari daftar), salah ketik jadi
+           mungkin — dan baris yang diam saja akan dikira sudah benar sampai
+           ditolak waktu dikirim. */
+        function panelTakDikenalCK(nama) {
+            return `<div class="rounded-xl border border-amber-200 bg-amber-50/60 shadow-sm px-3 py-2">
+                <div class="text-[10px] font-bold text-amber-800 leading-relaxed">
+                    &ldquo;${nama}&rdquo; belum dikenali sebagai barang Central Kitchen &mdash;
+                    pilih dari daftar saran yang muncul saat mengetik.
+                </div>
+            </div>`;
         }
 
         let subCKOrder = 'minta';
@@ -2028,17 +2148,16 @@
         function addCKRow() {
             const wrapper = document.getElementById('ck-rows-wrapper');
             const id = ++ckRowCount;
-            const daftar = daftarBarangCK();
 
             const row = document.createElement('div');
             row.id = `ck-row-${id}`;
             row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
-                <div class="flex-1 min-w-[200px]">
-                    <select id="ck-row-item-${id}" onchange="onPilihBarangCK(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                        <option value="">— pilih barang —</option>
-                        ${daftar.map(n => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('')}
-                    </select>
+                <div class="flex-1 min-w-[200px] relative">
+                    <input type="text" id="ck-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
+                           oninput="cariBarangCK('minta',${id})" onfocus="cariBarangCK('minta',${id})"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <div id="ck-row-sug-${id}" class="hidden absolute left-0 right-0 top-full mt-1 z-40 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"></div>
                 </div>
                 <div class="w-full md:w-[150px] flex items-center justify-center gap-1.5">
                     <button type="button" onclick="adjustCKQty(${id}, -1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">-</button>
@@ -2097,11 +2216,14 @@
             const perPack = !!(p && p.packIsi > 0);
             const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
             const sebelum = selU.value;
-            selU.innerHTML = (opsi.length ? opsi : ['Pcs']).map(u => `<option value="${u}">${u}</option>`).join('');
+            // adaPack = true saat barangnya belum dikenali juga: "Pack — isi
+            // pack belum diatur" untuk baris yang barangnya masih kosong cuma
+            // menuduh sesuatu yang belum dipilih.
+            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs'], perPack || !p);
             if (opsi.includes(sebelum)) selU.value = sebelum;
             selU.title = perPack
                 ? 'Barang ini dipack — pengambilan dari CK hanya bisa dalam pack utuh.'
-                : '';
+                : (p ? 'Barang ini belum punya Isi 1 Pack, jadi satuan Pack belum bisa dipakai.' : '');
 
             /* step & min ikut diubah, bukan cuma divalidasi saat kirim: panah
                naik-turun dan tombol +/- harus bergerak per 1 pack, dan angka
@@ -2121,7 +2243,14 @@
             if (!box || !selI) return;
             const nama = selI.value;
             const p = infoCKItem(nama);
-            if (!p) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            if (!p) {
+                // Kosong = baris belum diisi, diam saja. Ada isinya tapi tidak
+                // dikenali = salah ketik, dan itu harus kelihatan sekarang.
+                if (!String(nama).trim()) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+                box.classList.remove('hidden');
+                box.innerHTML = panelTakDikenalCK(nama);
+                return;
+            }
 
             const qty = parseFloat((document.getElementById(`ck-row-qty-${id}`) || {}).value) || 0;
             const unit = (document.getElementById(`ck-row-unit-${id}`) || {}).value || '';
@@ -2158,6 +2287,7 @@
                     ${kurang ? `<div class="px-3 py-1.5 border-t border-rose-200 text-[10px] font-bold text-rose-700">
                         Melebihi sisa stok Central Kitchen &mdash; boleh tetap diajukan, dapur yang menentukan bisa atau tidak.
                     </div>` : ''}
+                    ${catatanTanpaPackCK(p)}
                 </div>`;
         }
 
@@ -2186,9 +2316,14 @@
             const pesanan = [];
             let adaBarisRusak = false;
             const pecahan = [];
+            // Sejak barangnya diketik (bukan dipilih dari dropdown), nama yang
+            // tidak ada di master jadi mungkin. Ditolak DI SINI, bukan
+            // dibiarkan sampai server: baris seperti itu akan tersimpan sebagai
+            // order barang yang tidak pernah bisa dipenuhi siapa pun.
+            const takDikenal = [];
             document.querySelectorAll('[id^="ck-row-item-"]').forEach(el => {
                 const id = el.id.replace('ck-row-item-', '');
-                const nama = el.value;
+                const nama = el.value.trim();
                 const qty = parseFloat((document.getElementById(`ck-row-qty-${id}`) || {}).value) || 0;
                 const unit = (document.getElementById(`ck-row-unit-${id}`) || {}).value || '';
                 const note = (document.getElementById(`ck-row-note-${id}`) || {}).value || '';
@@ -2198,9 +2333,15 @@
                 // step hanya mengatur tombol panah — angka pecahan yang diketik
                 // atau ditempel langsung tetap lolos ke pesanan.
                 const p = infoCKItem(nama);
-                if (p && p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
+                if (!p) { takDikenal.push(nama); return; }
+                if (p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
                 pesanan.push({ item: nama, qty: qty, unit: unit, note: note.trim() || '-', tglDatang: tgl, pic: pic });
             });
+
+            if (takDikenal.length) {
+                return showToast("Barang Tidak Dikenali",
+                    `${takDikenal.join(', ')} bukan barang Central Kitchen — pilih dari daftar saran saat mengetik.`, "danger");
+            }
 
             if (pecahan.length) {
                 return showToast("Harus Pack Utuh",
@@ -2269,17 +2410,16 @@
         function addKirimRow() {
             const wrapper = document.getElementById('kirim-rows-wrapper');
             const id = ++kirimRowCount;
-            const daftar = daftarBarangKirimCK();
 
             const row = document.createElement('div');
             row.id = `kirim-row-${id}`;
             row.className = "p-4 md:p-3 hover:bg-slate-50/50 flex flex-col md:flex-row items-stretch md:items-center gap-3 transition-all";
             row.innerHTML = `
-                <div class="flex-1 min-w-[200px]">
-                    <select id="kirim-row-item-${id}" onchange="onPilihBarangKirim(${id})" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
-                        <option value="">— pilih barang —</option>
-                        ${daftar.map(n => `<option value="${n.replace(/"/g, '&quot;')}">${n}</option>`).join('')}
-                    </select>
+                <div class="flex-1 min-w-[200px] relative">
+                    <input type="text" id="kirim-row-item-${id}" autocomplete="off" placeholder="Ketik nama barang…"
+                           oninput="cariBarangCK('kirim',${id})" onfocus="cariBarangCK('kirim',${id})"
+                           class="w-full border border-slate-200 rounded-xl px-3 py-2.5 md:py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-teal-500 bg-white">
+                    <div id="kirim-row-sug-${id}" class="hidden absolute left-0 right-0 top-full mt-1 z-40 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl"></div>
                 </div>
                 <div class="w-full md:w-[150px] flex items-center justify-center gap-1.5">
                     <button type="button" onclick="adjustKirimQty(${id}, -1)" class="w-10 h-10 md:w-8 md:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold flex items-center justify-center transition-all shadow-sm active:scale-95 text-xs">-</button>
@@ -2321,12 +2461,16 @@
             const selU = document.getElementById(`kirim-row-unit-${id}`);
             if (!selI || !selU) return;
             const p = infoCKItem(selI.value);
+            const perPack = !!(p && p.packIsi > 0);
             const opsi = [];
-            if (p && p.packIsi > 0) opsi.push('Pack');
+            if (perPack) opsi.push('Pack');
             if (p && p.packSatuan) opsi.push(p.packSatuan);
             const sebelum = selU.value;
-            selU.innerHTML = (opsi.length ? opsi : ['Pcs']).map(u => `<option value="${u}">${u}</option>`).join('');
+            // Sama seperti form Minta: "Pack" tetap ditulis (dimatikan) untuk
+            // barang yang belum punya isi pack — lihat catatan di optSatuanCK.
+            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs'], perPack || !p);
             if (opsi.includes(sebelum)) selU.value = sebelum;
+            selU.title = perPack ? '' : (p ? 'Barang ini belum punya Isi 1 Pack, jadi satuan Pack belum bisa dipakai.' : '');
             refreshBarisKirim(id);
         }
 
@@ -2339,7 +2483,13 @@
             const selI = document.getElementById(`kirim-row-item-${id}`);
             if (!box || !selI) return;
             const p = infoCKItem(selI.value);
-            if (!p) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            if (!p) {
+                // Lihat catatan yang sama di refreshBarisCK.
+                if (!String(selI.value).trim()) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+                box.classList.remove('hidden');
+                box.innerHTML = panelTakDikenalCK(selI.value);
+                return;
+            }
 
             const qty = parseFloat((document.getElementById(`kirim-row-qty-${id}`) || {}).value) || 0;
             const unit = (document.getElementById(`kirim-row-unit-${id}`) || {}).value || '';
@@ -2359,6 +2509,7 @@
                         ${sel('Dikirim', `${ckNum(dasar)} ${p.packSatuan || ''}`)}
                         ${sel('Status', 'Langsung menambah stok CK')}
                     </div>
+                    ${catatanTanpaPackCK(p)}
                 </div>`;
         }
 
@@ -2378,17 +2529,25 @@
 
             const daftar = [];
             let adaBarisRusak = false;
+            // Lihat catatan yang sama di submitCKOrder — barangnya diketik,
+            // jadi salah ketik harus ditolak sebelum menjadi mutasi stok.
+            const takDikenal = [];
             document.querySelectorAll('[id^="kirim-row-item-"]').forEach(el => {
                 const id = el.id.replace('kirim-row-item-', '');
-                const nama = el.value;
+                const nama = el.value.trim();
                 const qty = parseFloat((document.getElementById(`kirim-row-qty-${id}`) || {}).value) || 0;
                 const unit = (document.getElementById(`kirim-row-unit-${id}`) || {}).value || '';
                 const note = (document.getElementById(`kirim-row-note-${id}`) || {}).value || '';
                 if (!nama && qty <= 0) return;
                 if (!nama || qty <= 0) { adaBarisRusak = true; return; }
+                if (!infoCKItem(nama)) { takDikenal.push(nama); return; }
                 daftar.push({ item: nama, qtyInput: qty, unitInput: unit, catatan: note.trim() });
             });
 
+            if (takDikenal.length) {
+                return showToast("Barang Tidak Dikenali",
+                    `${takDikenal.join(', ')} bukan barang Central Kitchen — pilih dari daftar saran saat mengetik.`, "danger");
+            }
             if (adaBarisRusak) return showToast("Baris Belum Lengkap", "Ada baris yang barangnya atau jumlahnya belum diisi.", "warning");
             if (!daftar.length) return showToast("Belum Ada Barang", "Pilih minimal satu barang.", "warning");
 
@@ -2588,6 +2747,14 @@
 
         document.addEventListener('click', function(e) {
             document.querySelectorAll('[id^="autocomplete-results-"]').forEach(res => {
+                if (!res.contains(e.target) && res.previousElementSibling !== e.target) res.classList.add('hidden');
+            });
+            /* Kotak saran form CK ikut ditutup di sini, bukan lewat onblur:
+               onblur menyala LEBIH DULU daripada klik pada sarannya di sebagian
+               browser, sehingga kotaknya hilang tepat sebelum pilihan sempat
+               terbaca. Saran dipilih dengan onmousedown, yang jalan sebelum
+               klik ini — jadi urutannya aman. */
+            document.querySelectorAll('[id*="-row-sug-"]').forEach(res => {
                 if (!res.contains(e.target) && res.previousElementSibling !== e.target) res.classList.add('hidden');
             });
         });

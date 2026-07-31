@@ -1195,6 +1195,49 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3459,7 +3502,18 @@ function setSubCK() { renderCK(); }
 
 
 
-function bukaCK() { setSubCK(); tglOffsetLokal(); formatFriendlyDate(); setArahCK(); setArahRiwayatCK(); muatCK(); }
+function bukaCK() { tglOffsetLokal(); setSubCK(); formatFriendlyDate(); setArahCK(); setArahRiwayatCK(); muatCK(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3493,7 +3547,8 @@ function muatCK() { renderCK(); }
 
 
 
-function renderCK() { renderCKPilihanBarang(); renderCKSaldo(); renderCKMutasi(); }
+function renderCK() { renderCKPilihanBarang(); renderCKDash(); renderCKSaldo(); renderCKMutasi(); }
+
 
 
 
@@ -3656,6 +3711,324 @@ function renderCKSaldo() { ckGerakHariIni(); ckNum(); ckJumlahTeks(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setPeriodeCK() { tglOffsetLokal(); renderCKDash(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function ckDashRentang() {  }
+
+
+
+
+
+
+function ckMutasiPeriode() { ckDashRentang(); normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ckDashJumlahHari() { ckDashRentang(); }
+
+function selisih() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+function ckKartuKpi() {  }
+
+
+
+
+
+
+
+function renderCKDash() { ckDashRentang(); }
+
+
+
+
+
+
+function cocokPintasan() { tglOffsetLokal(); ckMutasiPeriode(); ckDashJumlahHari(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ambilRekap() { normalizeDateToYYYYMMDD(); ckKartuKpi(); renderCKDashSering(); renderCKDashTren(); renderCKDashRinci(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderCKDashSering() { ckNum(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderCKDashTren() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderCKDashRinci() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function status() { ckNum(); ckJumlahTeks(); }
 
 
 
@@ -4040,6 +4413,10 @@ function unarchiveOrder() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 function submitAddVendor() { requireEditPage(); showToast(); sendPostRequest(); closeVendorModal(); fetchSheetData(); }
+
+
+
+
 
 
 

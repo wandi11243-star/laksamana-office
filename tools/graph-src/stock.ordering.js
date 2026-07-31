@@ -1003,6 +1003,8 @@
 
 
 
+
+
 function injectPwaManifest() {  }
 
 
@@ -1022,6 +1024,10 @@ function injectPwaManifest() {  }
 
 
 function registerServiceWorker() { loadSettings(); injectPwaManifest(); ensureUsers(); officeUser(); syncUsersFromServer(); syncOfficeRoster(); enterApp(); resolveOfficeUser(); }
+
+
+
+
 
 
 
@@ -1957,7 +1963,121 @@ function muatSaldoCK() {  }
 
 
 
+
+
 function daftarBarangCK() { adaDiCK(); }
+
+
+
+
+
+
+
+
+
+function ckAcCfg() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cariBarangCK() { ckAcCfg(); infoCKItem(); pilihBarangCKAc(); ckNum(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihBarangCKAc() { ckAcCfg(); tutupSugCK(); }
+
+
+
+
+
+
+
+
+
+function tutupSugCK() { ckAcCfg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function optSatuanCK() {  }
+
+
+
+
+
+
+
+
+function catatanTanpaPackCK() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function panelTakDikenalCK() {  }
+
+
+
 
 
 
@@ -2025,8 +2145,7 @@ function bukaFormCK() { setSubCKOrder(); setNilaiKalender(); isoLokal(); addCKRo
 
 
 
-function addCKRow() { daftarBarangCK(); onPilihBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); updateCKSummary(); }
-
+function addCKRow() { cariBarangCK(); adjustCKQty(); refreshBarisCK(); deleteCKRow(); onPilihBarangCK(); updateCKSummary(); }
 
 
 
@@ -2089,7 +2208,7 @@ function adjustCKQty() { refreshBarisCK(); }
 
 
 
-function onPilihBarangCK() { infoCKItem(); refreshBarisCK(); }
+function onPilihBarangCK() { infoCKItem(); optSatuanCK(); refreshBarisCK(); }
 
 
 
@@ -2115,7 +2234,10 @@ function onPilihBarangCK() { infoCKItem(); refreshBarisCK(); }
 
 
 
-function refreshBarisCK() { infoCKItem(); ckKeDasar(); }
+
+
+
+function refreshBarisCK() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); }
 
 
 
@@ -2137,7 +2259,15 @@ function refreshBarisCK() { infoCKItem(); ckKeDasar(); }
 
 
 
-function sel() { ckNum(); }
+
+
+
+
+
+
+
+function sel() { ckNum(); catatanTanpaPackCK(); }
+
 
 
 
@@ -2262,12 +2392,22 @@ function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); addCKRow(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function daftarBarangKirimCK() { daftarBarangCK(); }
 
 
 
-function addKirimRow() { daftarBarangKirimCK(); onPilihBarangKirim(); adjustKirimQty(); refreshBarisKirim(); deleteKirimRow(); updateKirimSummary(); }
-
+function addKirimRow() { cariBarangCK(); adjustKirimQty(); refreshBarisKirim(); deleteKirimRow(); onPilihBarangKirim(); updateKirimSummary(); }
 
 
 
@@ -2316,7 +2456,7 @@ function adjustKirimQty() { refreshBarisKirim(); }
 
 
 
-function onPilihBarangKirim() { infoCKItem(); refreshBarisKirim(); }
+function onPilihBarangKirim() { infoCKItem(); optSatuanCK(); refreshBarisKirim(); }
 
 
 
@@ -2334,7 +2474,18 @@ function onPilihBarangKirim() { infoCKItem(); refreshBarisKirim(); }
 
 
 
-function refreshBarisKirim() { infoCKItem(); ckKeDasar(); sel(); ckNum(); }
+
+
+
+
+function refreshBarisKirim() { infoCKItem(); panelTakDikenalCK(); ckKeDasar(); sel(); ckNum(); catatanTanpaPackCK(); }
+
+
+
+
+
+
+
 
 
 
@@ -2372,7 +2523,15 @@ function updateKirimSummary() {  }
 
 
 
-function submitKirimCK() { showToast(); isoLokal(); timSaatIni(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2574,6 +2733,14 @@ function selectAutocompleteItem() { applyUnitOptions(); refreshRowForecast(); }
 
 
 function enforceSelection() { showToast(); applyUnitOptions(); }
+
+
+
+
+
+
+
+
 
 
 
