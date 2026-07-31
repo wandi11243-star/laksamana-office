@@ -171,9 +171,17 @@ node tools/smoke-modul.js               # semua modul; keluar 1 kalau ada yang g
 
 | Modul | Yang benar-benar diuji |
 |---|---|
-| `marketing` | 20 halaman dirender satu per satu + wadah render tidak kosong |
-| `kompas` | 10 halaman dirender (wadahnya tak dikenali, jadi hanya "tidak melempar") |
+| `marketing` | 22 halaman dirender satu per satu + wadah render tidak kosong |
+| `event` | 10 halaman dirender + wadah render tidak kosong |
+| `kompas` | 12 halaman dirender (wadahnya tak dikenali, jadi hanya "tidak melempar") |
+| `cashier` | 6 halaman dirender (wadah tak dikenali) |
 | sisanya | hanya boot — router/daftar halamannya tidak terbaca dari luar |
+
+Harness mengenali **dua gaya router**: `go(view)` (marketing dkk) dan
+`router()` + `location.hash = '#/<halaman>'` (modul Event). Modul dengan router
+lain tetap dilaporkan apa adanya sebagai "hanya boot", bukan diam-diam
+dianggap lulus. State disiapkan untuk dua penamaan: `S` (normalizeState+seed)
+dan `DB` (normalize({})).
 
 Harness mencetak sendiri alasannya di tiap baris. Kalau menggarap modul yang
 cakupannya masih "hanya boot", **ujilah manual di browser** atau perluas
