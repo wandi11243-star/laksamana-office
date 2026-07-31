@@ -8,7 +8,8 @@
  *   GET  ?action=denah&id=[&hold=]             -> objek denah + status kursi
  *   POST {action:"hold",   event_id, seats[], hold_token?}
  *   POST {action:"release",hold_token, seats?}
- *   POST {action:"checkout",event_id,hold_token,name,email,phone}
+ *   POST {action:"checkout",event_id,hold_token,name,email,phone,
+ *         umum:[{class_id,qty}]}   ← umum = tiket reguler tanpa nomor tempat
  *                                              -> {invoice_url,ref,access_token}
  *   POST {action:"webhook", ...}               <- DARI XENDIT, bukan browser
  *   POST {action:"simbayar",ref,token}         -> hanya di dev (XENDIT_MOCK)
@@ -72,6 +73,10 @@ try {
     $e = event_satu($G('id'));
     if (!$e) keluar(array('ok' => false, 'error' => 'Event tidak ditemukan atau belum dijual.'));
     keluar(array('ok' => true, 'data' => $e));
+
+  } else if ($aksi === 'poster') {
+    // Bukan JSON — sajikan_poster() mengatur header gambarnya lalu keluar.
+    sajikan_poster($G('id'));
 
   } else if ($aksi === 'denah') {
     keluar(array('ok' => true, 'data' => denah($G('id'), $G('hold'))));

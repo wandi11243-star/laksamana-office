@@ -644,6 +644,31 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2618,7 +2643,16 @@ function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); f
 function denahTabBody() { ldzJualAktif(); ldzLantai(); }
 
 
-function jml() { ldzSemuaItems(); ldzLantaiObjek(); ldzSetLantai(); ldzToggleEdit(); ldzPasangBawaan(); ldzMuatTemplateForm(); ldzItems(); ldzSimpanTemplate(); ldzTemplates(); ldzHapusTemplate(); ldzBarJualHTML(); layoutBody(); }
+function jml() { ldzSemuaItems(); ldzLantaiObjek(); ldzSetLantai(); ldzToggleEdit(); ldzPasangBawaan(); kursiTemplate(); hapusDenahTemplate(); ldzMuatTemplateForm(); ldzItems(); ldzSimpanTemplate(); ldzTemplates(); ldzHapusTemplate(); ldzBarJualHTML(); layoutBody(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2766,6 +2800,16 @@ function salesBody() { salesRingkas(); purchaseFlow(); ldzSemuaItems(); ldzJualA
 
 
 
+
+
+
+
+
+
+
+
+
+
 function seatSisi() {  }
 function buatDenahLM() { toast(); uid(); save(); renderTicketDetail(); }
 
@@ -2818,9 +2862,22 @@ function regulerAdj() { save(); renderTicketDetail(); }
 
 
 
+
+
+
+
+
+
 function seatCls() {  }
 
 
+
+
+
+
+
+
+function seatDatang() {  }
 
 
 
@@ -2832,7 +2889,9 @@ function denahLegend() {  }
 
 
 
-function seatBox() { seatCls(); beliSel(); beliBisaDipilih(); beliToggleSeat(); toggleSeat(); }
+function seatBox() { seatCls(); ciKursi(); seatDatang(); beliSel(); beliBisaDipilih(); beliToggleSeat(); toggleSeat(); }
+
+
 
 
 
@@ -3394,7 +3453,10 @@ function ldzBulkGo() { ldzRekam(); toast(); ldzTierClass(); ldzUkuranBaku(); ldz
 
 
 function ldzStatusCls() { seatCls(); }
-function ldzItemHTML() { ldzTierInfo(); ldzStatusCls(); ldzIsSel(); ldzAdalahArea(); ldzWarnaRuang(); ldzWarnaObjek(); ldzDown(); ldzRename(); ldzJualAktif(); beliToggleSeat(); beliSel(); toggleSeat(); esc(); }
+function ldzItemHTML() { ldzTierInfo(); ldzStatusCls(); ldzIsSel(); ldzAdalahArea(); ldzWarnaRuang(); ldzWarnaObjek(); ldzDown(); ldzRename(); ldzJualAktif(); beliToggleSeat(); beliSel(); ciKursi(); toggleSeat(); esc(); }
+
+
+
 
 
 
@@ -4103,7 +4165,12 @@ function ldzSideHTML() { ldzSideRefresh(); ldzPanelTutup(); ldzRailHTML(); ldzSe
 
 
 
-function sama() { esc(); ldzSet(); ldzTierNames(); ldzHexWarna(); ldzWarnaRuang(); ldzTierInfo(); ldzAlign(); ldzDistribute(); ldzSamakan(); ldzDuplicate(); ldzDelete(); ldzCap(); }
+function sama() { esc(); ldzSet(); ldzTierNames(); ldzHexWarna(); ldzWarnaRuang(); ldzTierInfo(); ldzAlign(); ldzDistribute(); ldzSamakan(); ldzDuplicate(); ldzDelete(); ldzCap(); ldzAdalahArea(); ldzLantai(); area(); }
+
+
+
+
+
 
 
 
@@ -4538,6 +4605,38 @@ function ldzBawaanL2() { area(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+function kursiTemplate() {  }
+
+
+function hapusDenahTemplate() { kursiTemplate(); toast(); ldzSemuaItems(); save(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ldzPasangBawaan() { ldzLantai(); ldzBawaanL2(); ldzBawaanL1(); uid(); ldzRekam(); ldzMeta(); ldzSetSel(); ldzSyncQuota(); save(); renderTicketDetail(); ldzRepaint(); toast(); }
 
 
@@ -4854,7 +4953,30 @@ function delTicketClass() { tiketTerjual(); toast(); save(); renderTicketDetail(
 
 
 
-function ticketClassForm() { modal(); closeModal(); esc(); uangInput(); dstr(); syncSaleWindow(); saveTicketClass(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lantaiBentrok() {  }
+
+
+
+
+
+
+function ticketClassForm() { modal(); closeModal(); esc(); uangInput(); dstr(); syncSaleWindow(); lantaiBentrok(); saveTicketClass(); }
+
+
 
 
 
@@ -4887,7 +5009,7 @@ function syncSaleWindow() {  }
 
 
 
-function saveTicketClass() { toast(); tiketTerjual(); save(); closeModal(); renderTicketDetail(); uid(); }
+function saveTicketClass() { toast(); uangNilai(); tiketTerjual(); save(); closeModal(); renderTicketDetail(); uid(); }
 
 
 
@@ -5240,7 +5362,7 @@ function approveRefund() { save(); toast(); renderTicketDetail(); }
 function rejectRefund() { save(); renderTicketDetail(); toast(); }
 
 
-function renderCheckin() { setTop(); C(); esc(); stat(); liveDenahHTML(); toggleKamera(); doScan(); }
+function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDenahHTML(); toggleKamera(); doScan(); }
 
 
 
@@ -5264,6 +5386,32 @@ function renderCheckin() { setTop(); C(); esc(); stat(); liveDenahHTML(); toggle
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+function ciStatHTML() { stat(); }
+
+
+
+
+function ciTiket() { renderCheckin(); }
+
+
+
+
+
+
+
+
+function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); }
 
 
 
@@ -5348,6 +5496,7 @@ function renderLiveDenah() { liveDenahHTML(); }
 
 
 
+
 function checkinTiket() { uid(); save(); }
 
 
@@ -5404,9 +5553,6 @@ function bacaFrame() { konfirmasiScan(); }
 
 
 
-function konfirmasiScan() {  }
-
-function lanjutMemindai() { modal(); closeModal(); lanjutScan(); esc(); fmtDateTime(); checkinTiket(); showScanResult(); toast(); lanjutScanNanti(); renderCheckin(); konfirmasiMasuk(); }
 
 
 
@@ -5415,6 +5561,7 @@ function lanjutMemindai() { modal(); closeModal(); lanjutScan(); esc(); fmtDateT
 
 
 
+function konfirmasiScan() { modal(); closeModal(); lanjutScan(); esc(); seatTeks(); fmtDateTime(); batalCheckin(); checkinTiket(); showScanResult(); kartuMasukHTML(); toast(); segarkanCheckin(); lanjutScanNanti(); }
 
 
 
@@ -5440,6 +5587,20 @@ function lanjutMemindai() { modal(); closeModal(); lanjutScan(); esc(); fmtDateT
 
 
 
+
+
+
+function seatTeks() { esc(); }
+
+
+
+
+
+
+
+
+
+function kartuMasukHTML() { esc(); seatTeks(); fmtDateTime(); batalCheckin(); }
 
 
 
@@ -5447,7 +5608,68 @@ function lanjutMemindai() { modal(); closeModal(); lanjutScan(); esc(); fmtDateT
 
 
 function lanjutScan() {  }
-function konfirmasiMasuk() { uid(); save(); closeModal(); toast(); renderCheckin(); matikanKamera(); }
+
+
+
+
+function ciKursi() { modal(); closeModal(); esc(); fmtDateTime(); batalCheckin(); checkinDariDenah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function checkinDariDenah() { toast(); checkinTiket(); closeModal(); showScanResult(); kartuMasukHTML(); segarkanCheckin(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function batalCheckin() { toast(); modal(); closeModal(); esc(); batalCheckinYakin(); }
+
+
+
+
+
+
+
+
+
+function batalCheckinYakin() { save(); closeModal(); toast(); showScanResult(); segarkanCheckin(); }
+
 
 
 

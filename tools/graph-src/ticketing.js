@@ -206,6 +206,92 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function tgl() {  }
 
 
@@ -226,7 +312,38 @@ function toast() {  }
 
 
 
-function api() { toast(); go(); klok(); }
+function api() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatAkun() { api(); }
+
+
+
+
+function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
@@ -258,9 +375,75 @@ function api() { toast(); go(); klok(); }
 
 
 
-function go() { gambarBarHp(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function go() { gambarTopnav(); gambarBarHp(); }
+
+
+
+
+
+
+
+
+
+
+function mulai() { muatAkun(); gambarTopnav(); dariHash(); }
 
 
 
@@ -291,7 +474,150 @@ function galat() { go(); memuat(); api(); }
 
 
 
-function kartuEvent() { go(); tgl(); jam(); memuat(); api(); galat(); gambarDenah(); }
+
+
+
+function posterUrl() {  }
+function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(); gambarEvent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarEvent() { go(); posterUrl(); tgl(); jam(); punyaDenah(); ringkasHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function punyaDenah() {  }
+
+
+
+
+
+function kelasHTML() { go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); }
+
+
+
+
 
 
 
@@ -380,7 +706,80 @@ function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -450,7 +849,18 @@ function hex2rgb() { api(); toast(); gambarDenah(); }
 
 
 
-function ringkasHTML() { go(); }
+
+
+
+
+function ringkasHTML() { go(); gambarEvent(); gambarBarHp(); }
+
+
+
+
+
+
+
 
 
 
@@ -517,7 +927,165 @@ function gambarBarHp() { go(); toast(); ringkasHTML(); api(); simpanTiketku(); }
 
 
 
-function simpanTiketku() { memuat(); api(); galat(); tiketHTML(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanTiketku() { go(); kirimAkun(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimAkun() { toast(); api(); gambarTopnav(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -559,6 +1127,13 @@ function simpanTiketku() { memuat(); api(); galat(); tiketHTML(); go(); }
 
 
 function tiketHTML() { tgl(); jam(); qrSvg(); api(); toast(); go(); }
+
+
+
+
+
+
+
 
 
 
@@ -846,4 +1421,4 @@ function denda() {  }
 
 
 
-function qrSvg() { qrMatrix(); dariHash(); }
+function qrSvg() { qrMatrix(); mulai(); }
