@@ -2490,6 +2490,14 @@ function onPilihBarangKirim() { infoCKItem(); optSatuanCK(); refreshBarisKirim()
 
 
 
+
+
+
+
+
+
+
+
 function refreshBarisKirim() { infoCKItem(); panelTakDikenalCK(); chipSisaCK(); }
 
 
@@ -2617,7 +2625,6 @@ function muatRiwayatKiriman() { renderRiwayatKiriman(); }
 
 
 
-function renderRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 
@@ -2627,6 +2634,76 @@ function renderRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 
+
+function halamanRiwayatKiriman() { renderRiwayatKiriman(); }
+
+
+
+
+function renderRiwayatKiriman() { fmtTglRiwayat(); halamanRiwayatKiriman(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fmtTglRiwayat() {  }
+
+
+
+
+
+
+
+
+function barisRiwayatKiriman() { ckKeDasar(); ckNum(); }
 
 
 

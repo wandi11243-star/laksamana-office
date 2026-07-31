@@ -492,10 +492,20 @@
                     <span id="ck-stok-tgl" class="text-xs font-bold text-slate-800"></span>
                     <span class="text-[10px] text-slate-400">— saldo terkini, bukan ringkasan periode</span>
                     <div class="flex-1"></div>
-                    <input type="search" id="ck-stok-cari" oninput="renderCKSaldo()" placeholder="Cari barang…"
+                    <input type="search" id="ck-stok-cari" oninput="cariCKStok()" placeholder="Cari barang…"
                            class="w-full sm:w-56 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
                 </div>
                 <div id="ck-saldo-wrap"></div>
+                <!-- Footer halaman memakai potongHalaman() yang sama dengan
+                     tabel Vendor & Produk, jadi id-nya harus berpola
+                     <prefix>-pager / -pager-info / -prev / -next. -->
+                <div id="ckstok-pager" class="hidden items-center justify-between gap-2 mt-3 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm">
+                    <span id="ckstok-pager-info" class="text-[11px] font-bold text-slate-400"></span>
+                    <div class="flex items-center gap-1">
+                        <button onclick="halamanCKStok(-1)" class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" id="ckstok-prev"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+                        <button onclick="halamanCKStok(1)" class="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-500 text-xs font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed" id="ckstok-next"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+                    </div>
+                </div>
             </div>
 
             <!-- ===== SUB: CATAT MUTASI (INPUT) ===== -->
@@ -3422,12 +3432,24 @@
                         </span>
                         <span class="min-w-0 flex-1">
                             <span class="block text-[13px] font-bold ${on ? 'text-emerald-800 line-through decoration-emerald-300' : 'text-slate-800'} truncate">${o.item}</span>
-                            <span class="block text-[10px] text-slate-500 mt-0.5">${o.qty} ${o.unit || ''} &middot; ${div}${o.pic ? ' &middot; ' + o.pic : ''}</span>
+                            <span class="block text-[10px] text-slate-500 mt-0.5">${div}${o.pic ? ' &middot; ' + o.pic : ''}</span>
                             ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
                         </span>
-                        ${(o.kedatangan || '') === 'Datang'
-                            ? '<span class="shrink-0 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-wider">Tersimpan</span>'
-                            : (on ? '<span class="shrink-0 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">Belum disimpan</span>' : '')}
+                        <!-- JUMLAH dipindah ke kanan dan dibesarkan (permintaan
+                             user 31 Juli 2026). Dulu ia awalan baris meta kecil
+                             abu-abu bersama divisi dan PIC — angka yang justru
+                             menentukan berapa banyak yang harus diangkut, tapi
+                             ditulis sekecil dan sesamar keterangan yang cuma
+                             dibaca sekali. Sekarang ia sekolom lurus ke bawah,
+                             jadi seluruh jemputan bisa dibaca sekali lihat. -->
+                        <span class="shrink-0 text-right">
+                            <span class="block text-[15px] font-black whitespace-nowrap ${on ? 'text-emerald-700' : 'text-slate-900'}">
+                                ${o.qty}<span class="text-[11px] font-bold text-slate-500 ml-1">${o.unit || ''}</span>
+                            </span>
+                            ${(o.kedatangan || '') === 'Datang'
+                                ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-wider">Tersimpan</span>'
+                                : (on ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">Belum disimpan</span>' : '')}
+                        </span>
                     </button>`;
                 }).join('');
 
@@ -3715,11 +3737,30 @@
             return out;
         }
 
+        /* Halaman tabel Stok Item. Memakai potongHalaman() & DB_PER_HAL yang
+           SAMA dengan tabel Vendor dan Produk — bukan penomoran sendiri:
+           kalau tiap tabel punya aturannya sendiri, "halaman berikutnya" mulai
+           berarti hal yang berbeda di tiap layar. Pencarian mengembalikan ke
+           halaman 1, kalau tidak hasil pencarian yang cuma 3 baris akan tampil
+           kosong karena halamannya masih di nomor 4. */
+        let ckStokHal = 1;
+        function halamanCKStok(d) { ckStokHal += d; renderCKSaldo(); }
+        function cariCKStok() { ckStokHal = 1; renderCKSaldo(); }
+
+        // Footer halaman disembunyikan saat tabelnya sendiri tidak tampil
+        // (belum ada barang / tidak ada yang cocok) — tombol halaman di bawah
+        // layar kosong cuma menyuruh orang mencari isi yang tidak ada.
+        function sembunyikanPagerCKStok() {
+            const pager = document.getElementById('ckstok-pager');
+            if (pager) { pager.classList.add('hidden'); pager.classList.remove('flex'); }
+        }
+
         function renderCKSaldo() {
             const wrap = document.getElementById('ck-saldo-wrap');
             if (!wrap) return;
 
             if (!ckSaldo.length) {
+                sembunyikanPagerCKStok();
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-16 text-center">
                     <div class="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-4"><i class="fa-solid fa-box-open text-xl"></i></div>
                     <h3 class="font-bold text-slate-800">Belum Ada Barang Central Kitchen</h3>
@@ -3734,6 +3775,7 @@
             const gerak = ckGerakHariIni();
 
             if (!daftar.length) {
+                sembunyikanPagerCKStok();
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-14 text-center">
                     <h3 class="font-bold text-slate-800">Tidak Ada Barang Cocok</h3>
                     <p class="text-slate-500 text-sm mt-1">Tidak ada barang CK yang namanya memuat "${cari}".</p>
@@ -3741,7 +3783,11 @@
                 return;
             }
 
-            const baris = daftar.map(s => {
+            const pp = potongHalaman(ckStokHal, 'ckstok', daftar.length);
+            ckStokHal = pp.hal;
+            const halaman = daftar.slice(pp.mulai, pp.akhir);
+
+            const baris = halaman.map(s => {
                 const p = { packIsi: s.packIsi, packSatuan: s.packSatuan };
                 const habis = s.saldo <= 0;
                 const g = gerak[s.item] || { masuk: 0, keluar: 0 };

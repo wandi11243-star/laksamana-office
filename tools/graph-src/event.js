@@ -769,7 +769,34 @@ function pratinjauBerkas() { modal(); closeModal(); esc(); fileUrl(); }
 
 
 
-function normalize() { bawaanKosong(); }
+function normalize() { ldzSet(); bawaanKosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4787,7 +4814,30 @@ function renderL2Hall() { buatDenahLM(); seatCls(); esc(); denahLegend(); regule
 
 
 
-function delTicketClass() { toast(); save(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+function tiketTerjual() {  }
+
+
+function delTicketClass() { tiketTerjual(); toast(); save(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4837,7 +4887,15 @@ function syncSaleWindow() {  }
 
 
 
-function saveTicketClass() { toast(); save(); closeModal(); renderTicketDetail(); uid(); }
+function saveTicketClass() { toast(); tiketTerjual(); save(); closeModal(); renderTicketDetail(); uid(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -4924,7 +4982,7 @@ function pfKursiEvent() { ldzItems(); }
 
 
 
-function pfKelasBerubah() { pfKursiEvent(); beliSetSel(); pfGambarDenah(); pfRingkas(); }
+function pfKelasBerubah() { pfKursiEvent(); beliSetSel(); pfGambarDenah(); pfRingkas(); ldzItems(); ldzSemuaItems(); }
 
 
 
@@ -4940,9 +4998,47 @@ function pfKelasBerubah() { pfKursiEvent(); beliSetSel(); pfGambarDenah(); pfRin
 
 
 
-function pfGambarDenah() { ldzItems(); ldzCanvasHTML(); seatMapBody(); }
 
 
+
+
+
+
+
+
+
+
+
+
+function pfGambarDenah() { ldzSemuaItems(); ldzLantaiObjek(); ldzLantai(); pfLantaiBar(); ldzCanvasHTML(); seatMapBody(); ldzSetLantai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pfLantaiBar() { ldzSemuaItems(); ldzLantai(); ldzLantaiObjek(); pfSetLantai(); esc(); }
+
+
+
+
+
+
+
+
+
+
+function pfSetLantai() { pfGambarDenah(); pfRingkas(); }
 
 
 

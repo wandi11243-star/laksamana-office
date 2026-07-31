@@ -1266,6 +1266,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3465,6 +3475,18 @@ function renderJemput() { jemputTglAktif(); daftarJemput(); formatFriendlyDate()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function adaDiCK() {  }
 
 
@@ -3702,7 +3724,7 @@ function renderCKPadanan() { infoCK(); ckKeDasar(); ckJumlahTeks(); }
 
 
 
-function ckGerakHariIni() { tglOffsetLokal(); normalizeDateToYYYYMMDD(); }
+function ckGerakHariIni() { tglOffsetLokal(); normalizeDateToYYYYMMDD(); potongHalaman(); }
 
 
 
@@ -3715,7 +3737,31 @@ function ckGerakHariIni() { tglOffsetLokal(); normalizeDateToYYYYMMDD(); }
 
 
 
-function renderCKSaldo() { ckGerakHariIni(); ckNum(); ckJumlahTeks(); }
+
+
+
+
+
+
+
+function halamanCKStok() { renderCKSaldo(); }
+function cariCKStok() { renderCKSaldo(); }
+
+
+
+
+function sembunyikanPagerCKStok() {  }
+
+
+
+
+function renderCKSaldo() { sembunyikanPagerCKStok(); ckGerakHariIni(); potongHalaman(); ckNum(); ckJumlahTeks(); }
+
+
+
+
+
+
 
 
 
