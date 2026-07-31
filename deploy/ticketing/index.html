@@ -51,6 +51,24 @@ img{max-width:100%;display:block}
   display:grid;place-items:center;color:#fff;font-weight:800;font-size:15px}
 .brand b{font-size:15px}
 .brand span{font-size:11px;color:var(--muted-2);display:block;margin-top:-2px}
+.topnav{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.topnav button{padding:8px 13px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;
+  color:var(--muted);background:transparent;border:none}
+.topnav button:hover{color:var(--ink);background:var(--gold-soft)}
+.topnav button.on{color:var(--gold-dim);background:var(--gold-soft)}
+.topnav .siapa{font-size:12px;color:var(--muted-2);padding:0 4px;max-width:190px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.riwayat{display:flex;gap:14px;align-items:center;padding:14px 16px;border:1px solid var(--line);
+  border-radius:var(--radius);background:var(--surface);box-shadow:var(--shadow);margin-bottom:12px;
+  cursor:pointer;transition:transform .15s,border-color .15s}
+.riwayat:hover{transform:translateY(-2px);border-color:var(--gold-2)}
+.riwayat .isi{flex:1;min-width:0}
+.riwayat .isi b{font-size:15px;display:block}
+.riwayat .isi span{font-size:12px;color:var(--muted-2)}
+.chip{font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap}
+.chip.lunas{background:var(--ok-bg);color:var(--ok)}
+.chip.nunggu{background:var(--warn-bg);color:var(--warn)}
+.chip.batal{background:var(--danger-bg);color:var(--danger)}
 .wrap{max-width:1120px;margin:0 auto;padding:24px 20px 90px}
 .crumb{display:flex;gap:7px;align-items:center;font-size:13px;color:var(--muted-2);margin-bottom:14px;flex-wrap:wrap}
 .crumb button{background:none;border:none;color:var(--muted);font-size:13px;font-weight:600;padding:0}
@@ -181,6 +199,7 @@ img{max-width:100%;display:block}
       <div class="mark">LM</div>
       <div><b>Laksamana Muda</b><span>Event Ticketing</span></div>
     </div>
+    <nav class="topnav" id="topnav"></nav>
   </div>
 </header>
 <main class="wrap" id="app"></main>
@@ -244,6 +263,41 @@ async function api(aksi, data){
   return d.data;
 }
 
+/* ---------- AKUN PEMBELI ----------
+   Token sesi disimpan di localStorage, bukan cookie: backend bisa berada di
+   domain lain dari halaman ini, dan cookie tidak selalu ikut terkirim ke sana.
+   Konsekuensinya token ikut hilang kalau orang membersihkan data peramban —
+   itu sebabnya tautan e-ticket ber-access_token tetap dipertahankan sebagai
+   jalan masuk yang tidak bergantung akun sama sekali. */
+const Akun = {
+  sesi: localStorage.getItem('lmtix_sesi') || '',
+  user: null,
+  simpan(t, u){ this.sesi=t||''; this.user=u||null;
+    try{ t ? localStorage.setItem('lmtix_sesi',t) : localStorage.removeItem('lmtix_sesi'); }catch(e){} },
+  masuk(){ return !!this.user; }
+};
+async function muatAkun(){
+  if(!Akun.sesi){ Akun.user=null; return; }
+  try{ Akun.user = await api('action=saya&sesi='+encodeURIComponent(Akun.sesi)); }
+  catch(e){ Akun.simpan('', null); }        // sesi kedaluwarsa -> anggap keluar
+}
+function gambarTopnav(){
+  const n=$('#topnav'); if(!n) return;
+  const hal=(location.hash.slice(1)||'events').split('/')[0];
+  n.innerHTML =
+     '<button class="'+(hal==='events'?'on':'')+'" onclick="go(\'events\')">Event</button>'
+    +(Akun.masuk()
+       ? '<button class="'+(hal==='tiketsaya'?'on':'')+'" onclick="go(\'tiketsaya\')">Tiket Saya</button>'
+         +'<span class="siapa" title="'+esc(Akun.user.email)+'">'+esc(Akun.user.name||Akun.user.email)+'</span>'
+         +'<button onclick="keluarAkun()">Keluar</button>'
+       : '<button class="'+(hal==='masuk'?'on':'')+'" onclick="go(\'masuk\')">Masuk</button>');
+}
+window.keluarAkun = async ()=>{
+  try{ await api('keluar',{sesi:Akun.sesi}); }catch(e){}
+  Akun.simpan('', null); gambarTopnav();
+  toast('Kamu sudah keluar.','ok'); go('events');
+};
+
 /* ---------- keranjang ---------- */
 const Beli = {
   eventId:null, holdToken:localStorage.getItem('lmtix_hold')||'', items:[], habis:0, jam:null,
@@ -278,7 +332,15 @@ function go(nama, a, b){
   if(location.hash.slice(1) !== hash) location.hash = hash;
   window.scrollTo(0,0);
   (Layar[nama]||Layar.events)(a,b);
+  gambarTopnav();
   gambarBarHp();
+}
+/* Akun dimuat SEBELUM layar pertama digambar, supaya menu atas tidak sempat
+   berkedip dari "Masuk" ke nama orangnya. */
+async function mulai(){
+  await muatAkun();
+  gambarTopnav();
+  dariHash();
 }
 function dariHash(){
   const p=(location.hash.slice(1)||'events').split('/');
@@ -555,6 +617,16 @@ function gambarBarHp(){
 Layar.checkout = (id)=>{
   if(!Beli.items.length){ toast('Pilih tempat dulu.','warn'); return go('denah',id||Beli.eventId); }
   Beli.eventId = id||Beli.eventId;
+  /* Isian diisikan dari akun kalau pembelinya sedang masuk dan belum pernah
+     mengetik apa pun. Tidak menimpa yang sudah diketik — orang boleh membeli
+     atas nama orang lain, dan menimpanya diam-diam akan mengirim tiket ke
+     alamat yang salah. */
+  if(Akun.masuk()){
+    const i=Beli.isian;
+    if(!i.nama)  i.nama  = Akun.user.name  || '';
+    if(!i.email) i.email = Akun.user.email || '';
+    if(!i.hp)    i.hp    = Akun.user.phone || '';
+  }
   $('#app').innerHTML=
     '<div class="crumb"><button onclick="go(\'denah\',\''+esc(Beli.eventId)+'\')">Pilih Tempat</button> › <span>Data Pemesan</span></div>'
    +'<div class="dua"><div class="card sec">'
@@ -576,7 +648,8 @@ window.kirimCheckout = async ()=>{
   tombol.disabled=true; tombol.innerHTML='<span class="spinner"></span> Menyiapkan pembayaran…';
   let r;
   try{
-    r = await api('checkout',{event_id:Beli.eventId, hold_token:Beli.holdToken, name:nama, email:email, phone:hp});
+    r = await api('checkout',{event_id:Beli.eventId, hold_token:Beli.holdToken,
+                              name:nama, email:email, phone:hp, sesi:Akun.sesi});
   }catch(e){
     tombol.disabled=false; tombol.textContent='LANJUT KE PEMBAYARAN';
     return toast(e.message,'err');
@@ -597,6 +670,82 @@ function simpanTiketku(ref, token){
   if(!arr.some(x=>x.ref===ref)) arr.unshift({ref, token, at:Date.now()});
   try{ localStorage.setItem('lmtix_saya', JSON.stringify(arr.slice(0,30))); }catch(e){}
 }
+
+/* ---------- MASUK & DAFTAR ----------
+   Satu layar dengan dua mode, bukan dua halaman. Orang yang salah masuk ke
+   "daftar" padahal sudah punya akun cukup menekan satu tautan, tanpa
+   kehilangan apa yang sudah diketik. */
+let modeDaftar=false;
+Layar.masuk = ()=>{
+  if(Akun.masuk()) return go('tiketsaya');
+  $('#app').innerHTML='<div class="tengah" style="max-width:400px">'
+   +'<div class="card sec">'
+     +'<h1 style="font-size:22px;margin-bottom:4px">'+(modeDaftar?'Buat Akun':'Masuk')+'</h1>'
+     +'<p class="mini" style="margin-bottom:16px">'+(modeDaftar
+        ? 'Supaya tiketmu tersimpan dan bisa dibuka dari perangkat mana pun.'
+        : 'Masuk untuk melihat tiket yang pernah kamu beli.')+'</p>'
+     +(modeDaftar?'<div class="field"><label>Nama Lengkap *</label><input id="a-nama" autocomplete="name"></div>':'')
+     +'<div class="field"><label>Email *</label><input id="a-email" type="email" autocomplete="email"></div>'
+     +(modeDaftar?'<div class="field"><label>Nomor HP / WhatsApp</label><input id="a-hp" autocomplete="tel"></div>':'')
+     +'<div class="field"><label>Password *</label><input id="a-pass" type="password" autocomplete="'+(modeDaftar?'new-password':'current-password')+'">'
+       +(modeDaftar?'<div class="mini">Minimal 8 karakter.</div>':'')+'</div>'
+     +'<button class="btn btn-pri btn-block" id="a-go">'+(modeDaftar?'DAFTAR':'MASUK')+'</button>'
+     +'<p class="mini" style="text-align:center;margin-top:12px">'
+       +(modeDaftar?'Sudah punya akun? ':'Belum punya akun? ')
+       +'<a href="#masuk" onclick="modeDaftar='+(!modeDaftar)+';Layar.masuk();return false;"><b>'
+       +(modeDaftar?'Masuk':'Buat akun')+'</b></a></p>'
+     +'<p class="mini" style="text-align:center;margin-top:10px">Tanpa akun pun kamu tetap bisa membeli tiket — tautannya dikirim ke email.</p>'
+   +'</div></div>';
+  $('#a-go').onclick=kirimAkun;
+  ['a-nama','a-email','a-hp','a-pass'].forEach(function(id){
+    const el=$('#'+id); if(el) el.addEventListener('keydown',function(e){ if(e.key==='Enter') kirimAkun(); });
+  });
+};
+async function kirimAkun(){
+  const g=id=>{ const el=$('#'+id); return el?el.value.trim():''; };
+  const email=g('a-email'), pass=$('#a-pass').value;
+  if(!email||!pass) return toast('Email dan password wajib diisi.','warn');
+  if(modeDaftar && !g('a-nama')) return toast('Nama wajib diisi.','warn');
+  const b=$('#a-go'); b.disabled=true; b.innerHTML='<span class="spinner"></span> Memproses\u2026';
+  let r;
+  try{
+    r = modeDaftar
+      ? await api('daftar',{name:g('a-nama'),email,phone:g('a-hp'),password:pass})
+      : await api('masuk',{email,password:pass});
+  }catch(e){
+    b.disabled=false; b.textContent=modeDaftar?'DAFTAR':'MASUK';
+    return toast(e.message,'err');
+  }
+  Akun.simpan(r.token, r.user);
+  gambarTopnav();
+  toast(modeDaftar?'Akun dibuat. Selamat datang!':'Berhasil masuk.','ok');
+  go('tiketsaya');
+}
+
+/* ---------- TIKET SAYA ---------- */
+Layar.tiketsaya = async ()=>{
+  if(!Akun.masuk()) return go('masuk');
+  memuat('Memuat tiketmu\u2026');
+  let list;
+  try{ list = await api('action=tiketSaya&sesi='+encodeURIComponent(Akun.sesi)); }
+  catch(e){ return galat(e.message); }
+  let h='<div class="head"><h1>Tiket Saya</h1><p>Semua pembelian dengan email <b>'+esc(Akun.user.email)+'</b>.</p></div>';
+  if(!list.length){
+    h+='<div class="empty">Belum ada pembelian.<br><br>'
+      +'<button class="btn btn-pri" onclick="go(\'events\')">Lihat Event</button></div>';
+    $('#app').innerHTML=h; return;
+  }
+  h+=list.map(function(o){
+    const k = o.status==='Paid' ? 'lunas' : (o.status==='Pending' ? 'nunggu' : 'batal');
+    const t = o.status==='Paid' ? 'LUNAS' : (o.status==='Pending' ? 'MENUNGGU BAYAR' : o.status.toUpperCase());
+    return '<div class="riwayat" onclick="go(\'tiket\',\''+esc(o.ref)+'\',\''+esc(o.access_token)+'\')">'
+      +'<div class="isi"><b>'+esc(o.event?o.event.title:'Event')+'</b>'
+        +'<span>'+esc(tgl(o.event&&o.event.start))+' \u00b7 '+o.jml_tiket+' tiket \u00b7 '+rp(o.total)+'</span>'
+        +'<span class="mono" style="font-size:11px">'+esc(o.ref)+'</span></div>'
+      +'<span class="chip '+k+'">'+t+'</span></div>';
+  }).join('');
+  $('#app').innerHTML=h;
+};
 
 /* ---------- 5. E-TICKET ---------- */
 Layar.tiket = async (ref, token)=>{
@@ -932,7 +1081,7 @@ function qrSvg(text, ukuran) {
          '" viewBox="0 0 ' + (ukuran || 200) + ' ' + (ukuran || 200) + '" shape-rendering="crispEdges">' +
          '<rect width="100%" height="100%" fill="#fff"/><g fill="#000">' + kotak + '</g></svg>';
 }
-dariHash();
+mulai();
 </script>
 </body>
 </html>
