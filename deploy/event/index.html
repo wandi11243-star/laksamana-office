@@ -508,7 +508,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-ib:disabled{opacity:.4;cursor:not-allowed}
 .ldz-ib.sq{padding:5px 8px;min-width:30px;text-align:center}
 .ldz-zoom{font-size:12px;font-weight:700;min-width:44px;text-align:center;color:var(--muted)}
-.ldz-side{width:300px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel2);padding:12px;overflow-y:auto;height:66vh}
+.ldz-side{width:328px;flex-shrink:0;border-left:1px solid var(--line);background:var(--panel2);padding:12px;overflow-y:auto;height:66vh}
 .ldz-side h4{font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:0 0 9px}
 .ldz-side .field{margin-bottom:9px}
 .ldz-side table{font-size:12px}
@@ -533,7 +533,13 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-tbl th:nth-child(4),.ldz-tbl td:nth-child(4){width:23%;text-align:right}
 /* Angkanya tidak boleh dipatahkan ke baris baru — "Rp250." di satu baris dan
    "000" di baris berikutnya terbaca seperti dua angka berbeda. */
-.ldz-tbl td:not(:first-child),.ldz-tbl th:not(:first-child){white-space:nowrap}
+/* Hanya kolom Pax yang dilarang patah. Rupiah SENGAJA boleh turun baris:
+   dengan table-layout:fixed, isi ber-nowrap yang lebih lebar dari selnya
+   terpotong begitu saja — dan pembungkus overflow-x tidak menolong, karena
+   tabelnya sendiri tetap selebar 100%. Terpotong diam-diam jauh lebih buruk
+   daripada angka yang turun baris. */
+.ldz-tbl td:nth-child(2),.ldz-tbl th:nth-child(2){white-space:nowrap}
+.ldz-tbl td:nth-child(3),.ldz-tbl td:nth-child(4){word-break:break-word}
 .ldz-tbl .ldz-tier{font-size:11px;gap:5px}
 .ldz-tbl .ldz-tier i{width:9px;height:9px;border-radius:3px;flex-shrink:0}
 
@@ -4167,7 +4173,12 @@ function ldzSideHTML(eid){
     let totalUang=0, totalObj=0;
     const baris=nama.map(function(t){
       const info=ldzTierInfo(eid,t);
-      const mine=its.filter(function(i){ return i.tier===t; });
+      /* AREA TIDAK IKUT DIHITUNG — sama seperti ldzCap() yang memasok angka
+         Total. Sebelumnya baris memasukkan area sedangkan Total tidak, jadi
+         tabelnya membantah dirinya sendiri: satu baris 92 pax, totalnya 83.
+         Area adalah penanda zona (STAGE, EXT, tangga), bukan kursi yang dijual;
+         backend ticketing pun menolaknya dengan alasan yang sama. */
+      const mine=its.filter(function(i){ return i.tier===t && !ldzAdalahArea(i); });
       const cap=mine.reduce(function(a,i){ return a+(+i.capacity||1); },0);
       const uang=cap*(+info.price||0);
       totalUang+=uang; totalObj+=mine.length;
@@ -4192,7 +4203,7 @@ function ldzSideHTML(eid){
      +'<td class="mini"><b>'+tot+' pax</b></td><td></td>'
      +'<td class="mini"><b style="color:var(--accent)">'+IDR(totalUang)+'</b></td></tr>'
      +'</tbody></table></div>'
-     +'<p class="mini" style="margin-top:8px"><b>Potensi</b> = kapasitas × harga, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
+     +'<p class="mini" style="margin-top:8px">Menghitung <b>Lantai '+ldzLantai()+'</b> saja — pindah lantai untuk melihat sisanya. Objek area (STAGE, EXT, tangga) tidak dihitung karena bukan kursi yang dijual.<br><b>Potensi</b> = kapasitas × harga, kalau seluruh kursi terjual. Kategori &amp; harganya diambil dari tab <b>Ticket Class</b> event ini'
      +(DB.ticketClasses.some(function(c){return c.event_id===eid;})?'':' — event ini belum punya kelas tiket, jadi yang dipakai empat tingkatan bawaan')+'.</p>'
      +'</div></details>';
   }
@@ -4841,7 +4852,17 @@ function delTicketClass(eid, id){
     return s2.ticket_class_id ? s2.ticket_class_id === id : s2.tier === c.name;
   });
   if(dipakai.length){
-    toast('Masih dipakai ' + dipakai.length + ' objek di denah. Ubah tingkatan objeknya dulu.');
+    /* Angkanya DIPILAH antara denah kustom dan kursi template bawaan.
+       Sebelumnya keduanya dijumlah jadi satu angka bernama "objek di denah",
+       dan angkanya tidak cocok dengan apa pun yang terlihat di layar: kru
+       melihat 92 objek di Rangkuman Denah lalu ditolak dengan "175 objek",
+       tanpa cara apa pun menemukan 83 sisanya. */
+    const kustom = dipakai.filter(function(s2){ return s2.zone === 'Custom'; }).length;
+    const tpl = dipakai.length - kustom;
+    const bagian = [];
+    if(kustom) bagian.push(kustom + ' objek di denah kustom');
+    if(tpl)    bagian.push(tpl + ' kursi denah template lama');
+    toast('Masih dipakai ' + bagian.join(' + ') + '. Ubah tingkatannya dulu, atau hapus denah template kalau sudah tidak dipakai.');
     return;
   }
   // Penghitung basi diberitahukan, bukan dipakai menolak — supaya angka aneh
@@ -4894,7 +4915,7 @@ function saveTicketClass(eid, id){
   if(!ss){toast('Sale Start wajib diisi.');return;}
   if(!se){toast('Sale End wajib diisi.');return;}
   if(se<ss){toast('⛔ Sale End ('+se+') tidak boleh sebelum Sale Start ('+ss+').');return;}
-  const price=+g('tc_price'), quota=+g('tc_quota');
+  const price=uangNilai('tc_price'), quota=+g('tc_quota');
   if(price<0){toast('Harga tidak boleh minus.');return;}
   if(quota<1){toast('Kuota minimal 1.');return;}
   const seated = document.getElementById('tc_seated').checked;
