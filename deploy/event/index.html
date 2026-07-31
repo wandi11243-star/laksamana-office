@@ -773,6 +773,33 @@ function normalize(s){
   s=s||{};
   COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   if(!Array.isArray(s.checkins)) s.checkins=[];
+  /* ---------- OBJEK DENAH BERTAUT KE KELAS TIKET LEWAT ID ----------
+     ldzSet() sudah menulis ticket_class_id sejak objeknya diberi tingkatan,
+     tapi objek yang lahir SEBELUM itu — dari denah bawaan, dari template,
+     atau dari data lama — hanya menyimpan NAMA tingkatannya.
+
+     Selama tautannya berupa teks, dua kelas bernama mirip bisa tertukar, dan
+     nama yang diganti di satu tempat memutus harga di tempat lain tanpa jejak.
+     Diisi sekali di sini, saat data dimuat, dengan mencocokkan nama ke kelas
+     milik event yang sama. Yang namanya tidak cocok dengan kelas mana pun
+     sengaja DIBIARKAN kosong: menebak-nebak kelas untuk kursi berarti
+     menempelkan harga yang belum tentu benar pada tiket yang dijual. */
+  (function(){
+    const kelasPer={};
+    (s.ticketClasses||[]).forEach(function(c){
+      if(!c || !c.event_id) return;
+      (kelasPer[c.event_id]=kelasPer[c.event_id]||{})[c.name]=c.id;
+    });
+    let n=0;
+    (s.seats||[]).forEach(function(o){
+      if(!o || o.ticket_class_id) return;
+      const peta=kelasPer[o.event_id]; if(!peta) return;
+      const id=peta[o.tier] || peta[o.zone];
+      if(id){ o.ticket_class_id=id; n++; }
+    });
+    if(n && typeof console!=='undefined' && console.info)
+      console.info('[denah] '+n+' objek disambungkan ke kelas tiketnya lewat id.');
+  })();
   // Array juga bertipe 'object', jadi pemeriksaan lama meloloskannya. PHP
   // mengirim [] (bukan {}) ketika belum ada satu pun event detail; kalau
   // dibiarkan sebagai array, DB.eventDetails[id]=… menempel sebagai properti
@@ -4794,7 +4821,11 @@ function delTicketClass(eid, id){
     return;
   }
   const dipakai = DB.seats.filter(function(s2){
-    return s2.event_id === eid && (s2.ticket_class_id === id || s2.tier === c.name);
+    if(s2.event_id !== eid) return false;
+    // Objek yang sudah bertaut id dinilai dari id-nya saja: kalau tidak, objek
+    // yang id-nya kelas LAIN tapi namanya kebetulan sama ikut terhitung dan
+    // penghapusan yang sah jadi tertolak tanpa alasan yang bisa ditelusuri.
+    return s2.ticket_class_id ? s2.ticket_class_id === id : s2.tier === c.name;
   });
   if(dipakai.length){
     toast('Masih dipakai ' + dipakai.length + ' objek di denah. Ubah tingkatan objeknya dulu.');
@@ -4863,9 +4894,16 @@ function saveTicketClass(eid, id){
        tergambar tapi kehilangan harga, dan di situs customer jadi tidak bisa
        dipilih tanpa sebab yang terlihat. */
     if(lama.name !== name){
+      /* Dicocokkan lewat ID LEBIH DULU, nama hanya cadangan untuk objek lama
+         yang belum sempat termigrasi. Kalau hanya mengandalkan nama, objek
+         yang tingkatannya pernah diketik berbeda ejaan akan tertinggal dan
+         diam-diam kehilangan harga. */
       let n = 0;
       DB.seats.forEach(function(s2){
-        if(s2.event_id === eid && s2.tier === lama.name){ s2.tier = name; n++; }
+        if(s2.event_id !== eid) return;
+        if(s2.ticket_class_id === id || (!s2.ticket_class_id && s2.tier === lama.name)){
+          s2.tier = name; s2.ticket_class_id = id; n++;
+        }
       });
       if(n) toast(n + ' objek denah ikut dipindah ke nama "' + name + '".');
     }
