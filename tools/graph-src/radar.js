@@ -464,6 +464,50 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pendek() { fbFormats(); }
 
 
@@ -525,6 +569,8 @@ function toggleNav() {  }
 
 
 function ico() {  }
+
+
 
 
 
@@ -872,14 +918,120 @@ function peringatan() { dDay(); kesiapan(); dLabel(); evDivisi(); tmplEvDiv(); d
 
 
 function stat() { esc(); }
-function kosong() { esc(); }
+function kosong() { esc(); pgReset(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pgReset() {  }
+function pgHal() {  }
+
+
+
+
+
+
+
+function pgIris() { pgHal(); }
+
+
+
+
+
+function pgNomor() {  }
+
+
+
+
+
+
+
+
+
+function pager() { pgHal(); esc(); pgNomor(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dalamRentang() { dDay(); pDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function chipPeriode() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function agPasti() {  }
+
+
+
+
+
+
+
+
+function statusPasti() { agPasti(); }
+
+
+
+
 function pitaGagal() { esc(); }
 
 
 
 
 
-function vRadar() { todayISO(); dDay(); resAktif(); peringatan(); pitaGagal(); stat(); fTglP(); paxRes(); agendaTgl(); esc(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); isianTerisi(); compassSVG(); kosong(); agendaCard(); resTgl(); tabelRes(); }
 
 
 
@@ -895,6 +1047,7 @@ function vRadar() { todayISO(); dDay(); resAktif(); peringatan(); pitaGagal(); s
 
 
 
+function vRadar() { todayISO(); dDay(); peringatan(); pitaGagal(); agPasti(); dalamRentang(); resAktif(); }
 
 
 
@@ -906,6 +1059,7 @@ function vRadar() { todayISO(); dDay(); resAktif(); peringatan(); pitaGagal(); s
 
 
 
+function paxOf() { esc(); fTgl(); stat(); paxRes(); ico(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); kosong(); agendaCard(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
 
 
 
@@ -985,7 +1139,6 @@ function vRadar() { todayISO(); dDay(); resAktif(); peringatan(); pitaGagal(); s
 
 
 
-function tabelRes() { esc(); pill(); }
 
 
 
@@ -1002,7 +1155,6 @@ function tabelRes() { esc(); pill(); }
 
 
 
-function vKalender() { todayISO(); pitaGagal(); pad(); agendaTgl(); resTgl(); esc(); paxRes(); pDate(); resAktif(); stat(); }
 
 
 
@@ -1014,6 +1166,7 @@ function vKalender() { todayISO(); pitaGagal(); pad(); agendaTgl(); resTgl(); es
 
 
 
+function tabelRes() { pgIris(); esc(); pill(); pager(); }
 
 
 
@@ -1048,7 +1201,79 @@ function vKalender() { todayISO(); pitaGagal(); pad(); agendaTgl(); resTgl(); es
 
 
 
-function vKoordinasi() { dDay(); pitaGagal(); esc(); pendek(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); tmplEvDiv(); pill(); namaMkt(); initial(); }
+function paxTgl() { agendaTgl(); paxRes(); resTgl(); }
+
+
+
+
+
+
+function vKalender() { todayISO(); pitaGagal(); pad(); agendaTgl(); resTgl(); paxTgl(); esc(); fTgl(); pDate(); resAktif(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paxBln() { stat(); paxRes(); }
+
+
+
+
+
+
+
+
+
+
+
+function vKoordinasi() { dDay(); pitaGagal(); esc(); pendek(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
+
+
 
 
 
@@ -1237,23 +1462,13 @@ function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumb
 
 
 
-function agendaTersaring() { dDay(); }
 
 
 
 
 
 
-
-
-
-function vAgendaList() { pitaGagal(); agendaTersaring(); stat(); esc(); kosong(); agendaCard(); }
-
-
-
-
-
-
+function agendaTersaring() { dalamRentang(); }
 
 
 
@@ -1265,9 +1480,12 @@ function vAgendaList() { pitaGagal(); agendaTersaring(); stat(); esc(); kosong()
 
 
 
+function swView() { ico(); }
 
 
 
+
+function tabelAgenda() { pgIris(); dDay(); esc(); fTglP(); dLabel(); badgeSumber(); pill(); pager(); }
 
 
 
@@ -1281,7 +1499,11 @@ function vAgendaList() { pitaGagal(); agendaTersaring(); stat(); esc(); kosong()
 
 
 
-function resTersaring() { dDay(); }
+
+
+
+
+function vAgendaList() { pitaGagal(); agendaTersaring(); stat(); esc(); chipPeriode(); statusPasti(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); }
 
 
 
@@ -1293,7 +1515,87 @@ function resTersaring() { dDay(); }
 
 
 
-function vResList() { resTersaring(); pitaGagal(); agendaTgl(); fTgl(); esc(); ico(); nowStamp(); sesi(); stat(); fTglP(); paxRes(); resBatal(); todayISO(); kosong(); resNoShow(); pill(); rp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resHidup() { resBatal(); resNoShow(); }
+function resTersaring() { dalamRentang(); agendaCard(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resCard() { resBatal(); resNoShow(); esc(); ico(); fTglP(); pill(); rp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vResList() { resTersaring(); pitaGagal(); agendaTgl(); fTgl(); esc(); ico(); nowStamp(); sesi(); stat(); fTglP(); paxRes(); chipPeriode(); swView(); kosong(); pgIris(); resCard(); pager(); resBatal(); resNoShow(); pill(); rp(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1628,7 +1930,26 @@ function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender()
 
 
 
-function segarSenyap() { muat(); render(); todayISO(); toast(); drawerAgenda(); drawerRes(); $(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
+function segarSenyap() { muat(); render(); todayISO(); pgReset(); toast(); drawerAgenda(); drawerRes(); $(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
