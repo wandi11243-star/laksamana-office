@@ -823,6 +823,46 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function timSaya() {  }
 
 
@@ -899,7 +939,11 @@ function timBelumDiisi() { sayaAdmin(); }
 
 
 
-function pesanTimKosong() { renderFilterJenis(); renderFilterTim(); renderFilterSebabWaste(); renderFilterTimWaste(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+function pesanTimKosong() { gantiSub(); renderFilterJenis(); renderFilterTim(); renderFilterSebabWaste(); renderFilterTimWaste(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+
+
+
+
 
 
 
@@ -1038,7 +1082,7 @@ function resetForm() { kunciPilihanTim(); timBawaan(); tambahBaris(); }
 
 
 
-function edit() { setNilaiTim(); tambahBaris(); }
+function edit() { setNilaiTim(); tambahBaris(); buka(); }
 
 
 
@@ -1067,7 +1111,7 @@ function edit() { setNilaiTim(); tambahBaris(); }
 
 
 
-function simpan() { bacaBaris(); resetForm(); muat(); }
+function simpan() { bacaBaris(); resetForm(); muat(); buka(); }
 
 
 
@@ -1167,6 +1211,35 @@ function setPeriode() { bulanIni(); setAktifPeriode(); muat(); }
 
 
 function setBulan() { setPeriode(); setAktifPeriode(); muat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gantiSub() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function buka() { gantiSub(); }
 
 
 
@@ -1437,7 +1510,7 @@ function resetWaste() { kunciPilihanTim(); timBawaan(); }
 
 
 
-function editWaste() { setNilaiTim(); }
+function editWaste() { setNilaiTim(); buka(); }
 
 
 
@@ -1461,7 +1534,7 @@ function editWaste() { setNilaiTim(); }
 
 
 
-function simpanWaste() { resetWaste(); muatWaste(); }
+function simpanWaste() { resetWaste(); muatWaste(); buka(); }
 
 
 
@@ -2142,7 +2215,7 @@ function resetSerah() { kunciPilihanTim(); timBawaan(); srhAturTujuan(); srhTamb
 
 
 
-function srhSimpan() { srhBacaBaris(); resetSerah(); muatSerah(); soMuatKeluar(); }
+function srhSimpan() { srhBacaBaris(); resetSerah(); muatSerah(); buka(); soMuatKeluar(); }
 
 
 
@@ -2178,7 +2251,7 @@ function srhSimpan() { srhBacaBaris(); resetSerah(); muatSerah(); soMuatKeluar()
 
 
 
-function editSerah() { setNilaiTim(); srhAturTujuan(); srhTambahBaris(); }
+function editSerah() { setNilaiTim(); srhAturTujuan(); srhTambahBaris(); buka(); }
 
 
 

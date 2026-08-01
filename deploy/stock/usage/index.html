@@ -207,6 +207,23 @@
         .seg button:hover{color:var(--ink)}
         .seg button.on{background:var(--surface);color:var(--gold-dim);box-shadow:var(--shadow)}
 
+        /* ---------- SUB-TAB DI DALAM MENU ----------
+           Lebih besar dan lebih tegas daripada .seg (pemilih periode): ini
+           berpindah antara MENGISI dan MELIHAT — dua layar yang isinya sama
+           sekali berbeda — sementara .seg cuma mempersempit data yang sama.
+           Kalau keduanya sama besar, orang membaca sub-tab sebagai penyaring
+           lain dan tidak menyadari ada halaman kedua di situ. */
+        .subtab{display:inline-flex;gap:4px;padding:5px;background:var(--surface);
+                border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);
+                max-width:100%;overflow-x:auto}
+        .subtab button{border:none;background:none;padding:9px 16px;border-radius:9px;
+                       font-family:inherit;font-size:13.5px;font-weight:600;color:var(--muted);
+                       cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;
+                       transition:background .13s,color .13s}
+        .subtab button i{font-size:12.5px}
+        .subtab button:hover{background:var(--paper);color:var(--ink)}
+        .subtab button.on{background:var(--gold-soft);color:var(--gold-dim)}
+
         /* ---------- TABEL ---------- */
         .tbl-wrap{overflow-x:auto}
         table.tbl{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -325,34 +342,95 @@
         <div id="page-head" class="flex items-start justify-between gap-3"></div>
 
         <!-- =========================================================
-             SATU MENU = SATU PEKERJAAN.
-             Tujuh sub-halaman, masing-masing satu item di sidebar:
+             EMPAT MENU BESAR, MASING-MASING BERISI DUA SUB-TAB.
 
-               catat        → mengisi pemakaian bahan
-               report       → dashboard + daftar pemakaian
-               waste        → mengisi waste
-               waste-report → dashboard + daftar waste
-               serah        → mengisi serah terima
-               serah-report → dashboard + daftar serah terima
-               opname       → Daily Stock Opname
+               opname     → Daily Stock Opname          (tanpa sub-tab)
+               pemakaian  → ✍️ Catat  |  📊 Report
+               waste      → ✍️ Catat  |  📊 Report
+               serah      → ✍️ Catat  |  📊 Report
 
-             Dulu MENGISI dan MELIHAT menumpuk di halaman yang sama (waste
-             bahkan menempel di bawah daftar pemakaian), sehingga yang cuma
-             mau melihat rekap harus menggulir melewati seluruh form dulu —
-             dan yang mau mengisi tidak yakin daftar di bawahnya bagian dari
-             isian atau bukan.
+             Daily SO ditaruh PALING ATAS: itu yang dibuka tiap closing oleh
+             semua orang, sementara tiga menu lain dipakai sesuai kejadian.
+
+             Kenapa bersarang, bukan tujuh menu sejajar: dengan tujuh baris,
+             jarak "Catat Waste" ke "Report Waste" terbaca sama jauhnya dengan
+             jarak "Catat Waste" ke "Daily SO" — padahal dua yang pertama satu
+             pekerjaan yang cuma beda arah (mengisi vs melihat), sedangkan yang
+             ketiga urusan yang sama sekali lain. Dengan sub-tab, pindah antara
+             mengisi dan melihat jadi satu klik di tempat yang sama, dan sidebar
+             kembali menjawab pertanyaan "saya mau mengurus apa", bukan "saya
+             mau menekan tombol yang mana".
+
+             MENGISI dan MELIHAT tetap TIDAK menumpuk di satu layar — itu
+             aturan lama yang masih berlaku, cuma pemisahnya sekarang sub-tab,
+             bukan menu terpisah.
 
              Bagian yang tidak aktif hanya DISEMBUNYIKAN, bukan dibuang, jadi
-             isian yang sedang diketik tetap utuh saat menengok rekap.
+             isian yang sedang diketik tetap utuh saat menengok report.
              ========================================================= -->
 
-        <!-- ============================ 1. CATAT PEMAKAIAN ============================
+        <!-- ============================ 1. DAILY SO ============================
+             Tiap closing, kru mengisi STOK FISIK per item. Besok saat mengisi
+             lagi, "kemarin" terisi otomatis dari catatan terakhir dan selisih
+             dihitung sendiri. Item + kategorinya dari database produk. -->
+        <section data-tampilan="opname" class="space-y-5">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Daily Stock Opname</h3>
+              <span id="so-status" class="sub"></span>
+            </div>
+            <div class="panel-body space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="field"><label>Tanggal</label><input type="date" id="so-tanggal" onchange="soMuatHari()"></div>
+                <div class="field">
+                  <label>Tim</label>
+                  <select id="so-tim" onchange="soMuatHari()"></select>
+                  <p id="so-tim-info" class="hint"></p>
+                </div>
+                <div class="field"><label>Cari item</label><input type="text" id="so-cari" oninput="soRenderDaftar()" placeholder="ketik untuk menyaring…"></div>
+              </div>
+
+              <div id="so-ringkas" class="recap-grid"></div>
+
+              <div class="text-[12.5px] leading-relaxed" style="color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px">
+                <b style="color:var(--ink)">Buku stok harian.</b>
+                Stok <b style="color:var(--ink)">Awal</b> = closing kemarin (otomatis). <b style="color:var(--ink)">+ Masuk</b> barang datang hari ini.
+                <b style="color:var(--ink)">− Keluar</b> = pemakaian + waste + serah terima (otomatis).
+                <b style="color:var(--ink)">Seharusnya</b> = Awal + Masuk − Keluar. Isi <b style="color:var(--ink)">Stok fisik</b> hasil hitung; <b style="color:var(--ink)">Selisih</b> = fisik − seharusnya.
+                Closing hari ini jadi Awal besok. <span style="color:var(--muted-2)">(0* = item belum pernah dihitung)</span>
+              </div>
+
+              <div id="so-daftar" class="space-y-4"></div>
+
+              <div class="flex flex-wrap gap-2 items-center pt-1">
+                <button type="button" onclick="soTambahItem()" class="btn btn-ghost btn-sm">
+                  <i class="fa-solid fa-plus"></i> Tambah item baru
+                </button>
+                <span class="text-[11.5px] font-medium" style="color:var(--muted-2)">Item baru ikut tersimpan ke database produk.</span>
+                <button type="button" id="so-simpan" onclick="soSimpan()" class="btn btn-primary ml-auto">Simpan Opname Hari Ini</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h3>Riwayat opname</h3></div>
+            <div class="panel-body"><div id="so-riwayat" class="space-y-2"></div></div>
+          </div>
+        </section>
+
+        <!-- ============================ 2. PEMAKAIAN BAHAN ============================
              Kata "Event" sengaja TIDAK dipakai di mana pun di sini. Training
              dan RND bukan event, dan menamai kolomnya "Jenis Event" membuat
              kru ragu apakah pemakaian untuk uji resep boleh dicatat di sini.
              Nama kolom di database tetap `namaEvent` (mengubahnya berarti
              migrasi tabel demi kata), yang berubah cuma yang dibaca orang. -->
-        <section data-tampilan="catat" class="space-y-5">
+        <section data-tampilan="pemakaian" class="space-y-5 hidden">
+          <div class="subtab" data-subgrup="pemakaian">
+            <button type="button" data-sub="catat"  onclick="gantiSub('pemakaian','catat')"><i class="fa-solid fa-pen-to-square"></i> Catat Pemakaian</button>
+            <button type="button" data-sub="report" onclick="gantiSub('pemakaian','report')"><i class="fa-solid fa-chart-column"></i> Report Pemakaian</button>
+          </div>
+
+          <div data-subpane="pemakaian:catat" class="space-y-5">
           <div class="panel">
             <div class="panel-head">
               <h3 id="form-judul">Catat Pemakaian Baru</h3>
@@ -412,19 +490,18 @@
               <p class="text-[12px] leading-relaxed" style="color:var(--muted)">
                 <b style="color:var(--ink)">Rencana</b> = bahannya belum diambil dari gudang.
                 <b style="color:var(--ink)">Sudah Dipakai</b> = bahannya benar-benar sudah keluar.
-                Statusnya bisa diubah kapan saja lewat menu <b style="color:var(--ink)">Report Pemakaian</b>.
+                Statusnya bisa diubah kapan saja lewat sub-tab <b style="color:var(--ink)">Report Pemakaian</b>.
               </p>
             </div>
           </div>
-        </section>
+          </div>
 
-        <!-- ============================ 2. REPORT PEMAKAIAN ============================
-             Dashboard, bukan sekadar daftar. Urutannya sengaja: penyaring →
-             angka besar → sebaran → total per bahan → baru catatan satu per
-             satu. Yang bertanya "bulan ini habis berapa" terjawab di layar
-             pertama tanpa menggulir; yang mencari satu catatan tertentu tetap
-             bisa turun ke bawah. -->
-        <section data-tampilan="report" class="space-y-5 hidden">
+          <!-- Dashboard, bukan sekadar daftar. Urutannya sengaja: penyaring →
+               angka besar → sebaran → total per bahan → baru catatan satu per
+               satu. Yang bertanya "bulan ini habis berapa" terjawab di layar
+               pertama tanpa menggulir; yang mencari satu catatan tertentu
+               tetap bisa turun ke bawah. -->
+          <div data-subpane="pemakaian:report" class="space-y-5 hidden">
           <!-- ===== PENYARING =====
                SATU BARIS + laci. Bentuk lamanya lima blok berlabel yang
                menumpuk (cari, 4 tombol periode, pemilih bulan, 5 tombol jenis,
@@ -507,14 +584,21 @@
             <div class="section-title">Catatan satu per satu</div>
             <div id="daftar" class="space-y-3"></div>
           </div>
+          </div>
         </section>
 
-        <!-- ============================ 3. CATAT WASTE ============================
-             Dulu menempel di bawah daftar pemakaian dengan pemisah garis
-             putus-putus. Dua pencatatan berbeda di satu layar berarti kru
-             harus menggulir melewati puluhan catatan pemakaian hanya untuk
+        <!-- ============================ 3. WASTE PRODUK ============================
+             Dulu form waste menempel di bawah daftar pemakaian dengan pemisah
+             garis putus-putus. Dua pencatatan berbeda di satu layar berarti
+             kru harus menggulir melewati puluhan catatan pemakaian hanya untuk
              mencatat satu produk yang terbuang. -->
         <section data-tampilan="waste" class="space-y-5 hidden">
+          <div class="subtab" data-subgrup="waste">
+            <button type="button" data-sub="catat"  onclick="gantiSub('waste','catat')"><i class="fa-solid fa-pen-to-square"></i> Catat Waste</button>
+            <button type="button" data-sub="report" onclick="gantiSub('waste','report')"><i class="fa-solid fa-chart-pie"></i> Report Waste</button>
+          </div>
+
+          <div data-subpane="waste:catat" class="space-y-5">
           <div class="panel">
             <div class="panel-head">
               <h3 id="w-judul">Catat Waste Baru</h3>
@@ -560,10 +644,9 @@
               <button type="button" onclick="simpanWaste()" class="btn btn-primary btn-block">🗑️ Simpan Catatan Waste</button>
             </div>
           </div>
-        </section>
+          </div>
 
-        <!-- ============================ 4. REPORT WASTE ============================ -->
-        <section data-tampilan="waste-report" class="space-y-5 hidden">
+          <div data-subpane="waste:report" class="space-y-5 hidden">
           <div class="panel">
             <div class="panel-body tight">
               <div class="flex flex-wrap items-center gap-2">
@@ -607,12 +690,19 @@
             <div class="section-title">Catatan waste satu per satu</div>
             <div id="waste-daftar" class="space-y-3"></div>
           </div>
+          </div>
         </section>
 
-        <!-- ============================ 5. SERAH TERIMA (input) ============================
+        <!-- ============================ 4. SERAH TERIMA ============================
              Pengeluaran stok ke Kitchen/Bar, WAJIB berfoto. Tercatat sebagai
              barang KELUAR di Daily SO tanggal & tim yang sama. -->
         <section data-tampilan="serah" class="space-y-5 hidden">
+          <div class="subtab" data-subgrup="serah">
+            <button type="button" data-sub="catat"  onclick="gantiSub('serah','catat')"><i class="fa-solid fa-pen-to-square"></i> Catat Serah Terima</button>
+            <button type="button" data-sub="report" onclick="gantiSub('serah','report')"><i class="fa-solid fa-boxes-packing"></i> Report Serah Terima</button>
+          </div>
+
+          <div data-subpane="serah:catat" class="space-y-5">
           <div class="panel">
             <div class="panel-head">
               <h3 id="sr-judul">Serah Terima Barang</h3>
@@ -679,10 +769,9 @@
               <button type="button" onclick="srhSimpan()" class="btn btn-primary btn-block">Simpan Serah Terima</button>
             </div>
           </div>
-        </section>
+          </div>
 
-        <!-- ============================ 6. REPORT SERAH TERIMA ============================ -->
-        <section data-tampilan="serah-report" class="space-y-5 hidden">
+          <div data-subpane="serah:report" class="space-y-5 hidden">
           <div class="panel">
             <div class="panel-body tight">
               <div class="flex flex-wrap items-center gap-2">
@@ -716,54 +805,6 @@
             <div class="section-title">Catatan serah terima</div>
             <div id="serah-daftar" class="space-y-3"></div>
           </div>
-        </section>
-
-        <!-- ============================ 7. DAILY SO ============================
-             Tiap closing, kru mengisi STOK FISIK per item. Besok saat mengisi
-             lagi, "kemarin" terisi otomatis dari catatan terakhir dan selisih
-             dihitung sendiri. Item + kategorinya dari database produk. -->
-        <section data-tampilan="opname" class="space-y-5 hidden">
-          <div class="panel">
-            <div class="panel-head">
-              <h3>Daily Stock Opname</h3>
-              <span id="so-status" class="sub"></span>
-            </div>
-            <div class="panel-body space-y-4">
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div class="field"><label>Tanggal</label><input type="date" id="so-tanggal" onchange="soMuatHari()"></div>
-                <div class="field">
-                  <label>Tim</label>
-                  <select id="so-tim" onchange="soMuatHari()"></select>
-                  <p id="so-tim-info" class="hint"></p>
-                </div>
-                <div class="field"><label>Cari item</label><input type="text" id="so-cari" oninput="soRenderDaftar()" placeholder="ketik untuk menyaring…"></div>
-              </div>
-
-              <div id="so-ringkas" class="recap-grid"></div>
-
-              <div class="text-[12.5px] leading-relaxed" style="color:var(--muted);background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px">
-                <b style="color:var(--ink)">Buku stok harian.</b>
-                Stok <b style="color:var(--ink)">Awal</b> = closing kemarin (otomatis). <b style="color:var(--ink)">+ Masuk</b> barang datang hari ini.
-                <b style="color:var(--ink)">− Keluar</b> = pemakaian + waste + serah terima (otomatis).
-                <b style="color:var(--ink)">Seharusnya</b> = Awal + Masuk − Keluar. Isi <b style="color:var(--ink)">Stok fisik</b> hasil hitung; <b style="color:var(--ink)">Selisih</b> = fisik − seharusnya.
-                Closing hari ini jadi Awal besok. <span style="color:var(--muted-2)">(0* = item belum pernah dihitung)</span>
-              </div>
-
-              <div id="so-daftar" class="space-y-4"></div>
-
-              <div class="flex flex-wrap gap-2 items-center pt-1">
-                <button type="button" onclick="soTambahItem()" class="btn btn-ghost btn-sm">
-                  <i class="fa-solid fa-plus"></i> Tambah item baru
-                </button>
-                <span class="text-[11.5px] font-medium" style="color:var(--muted-2)">Item baru ikut tersimpan ke database produk.</span>
-                <button type="button" id="so-simpan" onclick="soSimpan()" class="btn btn-primary ml-auto">Simpan Opname Hari Ini</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-head"><h3>Riwayat opname</h3></div>
-            <div class="panel-body"><div id="so-riwayat" class="space-y-2"></div></div>
           </div>
         </section>
       </main>
@@ -906,19 +947,23 @@
 
   document.addEventListener('DOMContentLoaded', async () => {
     if (!SESI) { location.replace('../../'); return; }
-    /* Urutannya MENGISI lalu MELIHAT, berpasangan per pekerjaan. Kru yang
-       sedang mencatat tidak perlu melewati dashboard, dan supervisor yang
-       cuma membaca angka tidak perlu melewati form. */
+    /* Empat menu = empat urusan, bukan tujuh tombol. Mengisi vs melihat
+       dipisah di dalam tiap menu sebagai sub-tab (lihat gantiSub).
+
+       Daily SO pertama — dan karena pasangCangkang membuka tampilan pertama,
+       itu juga yang terbuka saat halaman dimuat. Memang disengaja: itu yang
+       dibuka tiap closing oleh semua orang. */
     pasangCangkang('usage', 'Pemakaian Bahan Baku',
       'Catat bahan yang dipakai untuk Prasmanan, Training, dan RND.', SESI, [
-        { v: 'catat',        ico: 'fa-pen-to-square',   label: 'Catat Pemakaian' },
-        { v: 'report',       ico: 'fa-chart-column',    label: 'Report Pemakaian' },
-        { v: 'waste',        ico: 'fa-trash-can',       label: 'Catat Waste' },
-        { v: 'waste-report', ico: 'fa-chart-pie',       label: 'Report Waste' },
-        { v: 'serah',        ico: 'fa-handshake',       label: 'Serah Terima' },
-        { v: 'serah-report', ico: 'fa-boxes-packing',   label: 'Report Serah Terima' },
-        { v: 'opname',       ico: 'fa-clipboard-check', label: 'Daily SO' }
+        { v: 'opname',    ico: 'fa-clipboard-check', label: 'Daily SO' },
+        { v: 'pemakaian', ico: 'fa-utensils',        label: 'Pemakaian Bahan' },
+        { v: 'waste',     ico: 'fa-trash-can',       label: 'Waste Produk' },
+        { v: 'serah',     ico: 'fa-handshake',       label: 'Serah Terima' }
       ]);
+    /* Sorot sub-tab awal tiap menu. HTML sudah menyembunyikan panel report,
+       tapi tombolnya belum bertanda aktif — tanpa ini, ketiga menu terbuka
+       dengan dua sub-tab yang sama-sama terlihat mati. */
+    Object.keys(SUB_AKTIF).forEach(g => gantiSub(g, SUB_AKTIF[g]));
     document.getElementById('f-tanggal').value = hariIni();
     renderFilterJenis();
     renderFilterTim();
@@ -1061,10 +1106,10 @@
     if (!(r.items || []).length) tambahBaris();
     document.getElementById('form-judul').textContent = 'Ubah Catatan Pemakaian';
     document.getElementById('btn-batal-edit').classList.remove('hidden');
-    /* Formnya kini ada di sub menu lain — tanpa pindah ke sana, tombol Ubah
-       tampak tidak melakukan apa-apa. gantiTampilan sekaligus menggulir ke
+    /* Formnya ada di sub-tab lain — tanpa pindah ke sana, tombol Ubah di
+       Report tampak tidak melakukan apa-apa. buka() sekaligus menggulir ke
        atas, jadi scrollTo yang dulu di sini tidak diperlukan lagi. */
-    gantiTampilan('catat');
+    buka('pemakaian', 'catat');
   }
 
   async function simpan(status) {
@@ -1090,7 +1135,7 @@
         await muat();
         // Pindah ke report supaya yang baru disimpan terlihat hasilnya. Tanpa
         // ini form cuma jadi kosong, dan tidak ada bukti apa pun tersimpan.
-        gantiTampilan('report');
+        buka('pemakaian', 'report');
       } else {
         toast('Gagal menyimpan', (d && d.message) || 'Ditolak server.', 'err');
       }
@@ -1171,6 +1216,35 @@
     PERIODE = 'pilih'; BULAN_PILIH = v;
     setAktifPeriode(); muat();
   }
+  /* ------------------------- SUB-TAB DALAM MENU -------------------------
+     gantiTampilan() (catat-common.js) menukar MENU; ini menukar sub-tab DI
+     DALAM sebuah menu. Sengaja dua mekanisme terpisah: sub-tab yang sedang
+     terbuka harus DIINGAT per menu, supaya berpindah ke Waste lalu kembali
+     ke Pemakaian tidak melempar orang balik ke form padahal tadi ia sedang
+     membaca report.
+
+     Panel yang tidak aktif disembunyikan, bukan dibuang — isian yang sedang
+     diketik harus selamat saat menengok report lalu kembali. */
+  const SUB_AKTIF = { pemakaian: 'catat', waste: 'catat', serah: 'catat' };
+
+  function gantiSub(grup, nama) {
+    SUB_AKTIF[grup] = nama;
+    document.querySelectorAll(`[data-subpane^="${grup}:"]`).forEach(el =>
+      el.classList.toggle('hidden', el.dataset.subpane !== grup + ':' + nama));
+    document.querySelectorAll(`[data-subgrup="${grup}"] [data-sub]`).forEach(b =>
+      b.classList.toggle('on', b.dataset.sub === nama));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  /* Buka sebuah menu SEKALIGUS sub-tabnya. Dipakai tiap kali kode memindahkan
+     orang (tombol Ubah, atau sesudah menyimpan) — dua langkah itu selalu
+     berpasangan, dan yang lupa memanggil salah satunya menghasilkan menu benar
+     dengan sub-tab yang salah. */
+  function buka(grup, sub) {
+    gantiTampilan(grup);
+    gantiSub(grup, sub);
+  }
+
   /* Saklar segmen (.seg) mengurus tampilannya sendiri lewat CSS; di sini
      cukup memindahkan kelas .on. Sebelumnya tiap tombol ditimpa className
      penuh berisi belasan utility class — satu perubahan gaya berarti
@@ -1455,10 +1529,10 @@
     document.getElementById('w-foto-info').textContent = r.adaFoto ? 'Sudah ada foto — pilih berkas baru untuk menggantinya.' : '';
     document.getElementById('w-judul').textContent = 'Ubah Catatan Waste';
     document.getElementById('w-batal').classList.remove('hidden');
-    /* Formnya kini di menu lain. Tanpa pindah ke sana, tombol Ubah di Report
+    /* Formnya di sub-tab lain. Tanpa pindah ke sana, tombol Ubah di Report
        Waste tampak tidak melakukan apa-apa — persis masalah yang dulu ada di
-       tombol Ubah pemakaian. gantiTampilan sekaligus menggulir ke atas. */
-    gantiTampilan('waste');
+       tombol Ubah pemakaian. buka() sekaligus menggulir ke atas. */
+    buka('waste', 'catat');
   }
 
   async function simpanWaste() {
@@ -1490,7 +1564,7 @@
         await muatWaste();
         // Sama alasannya dengan simpan pemakaian: form yang cuma jadi kosong
         // tidak memberi bukti apa pun bahwa catatannya tersimpan.
-        gantiTampilan('waste-report');
+        buka('waste', 'report');
       } else toast('Gagal menyimpan', (d && d.message) || 'Ditolak server.', 'err');
     } catch (e) { toast('Gagal terhubung', 'Cek koneksi lalu coba lagi.', 'err'); }
   }
@@ -2171,7 +2245,7 @@
         toast('Tersimpan', items.length + ' item diserahkan ke ' + tujuan + '.', 'ok');
         resetSerah();
         await muatSerah();
-        gantiTampilan('serah-report');
+        buka('serah', 'report');
         // Kalau Daily SO sedang di tanggal/tim yang sama, keluar-nya ikut segar.
         if (document.getElementById('so-tanggal').value === tanggal) soMuatKeluar().then(soRenderDaftar);
       } else toast('Gagal', (d && d.message) || 'Ditolak server.', 'err');
@@ -2206,8 +2280,8 @@
     if (!(s.items || []).length) srhTambahBaris();
     document.getElementById('sr-judul').textContent = 'Ubah Serah Terima';
     document.getElementById('sr-batal').classList.remove('hidden');
-    // Formnya di menu lain sekarang; gantiTampilan sekaligus menggulir ke atas.
-    gantiTampilan('serah');
+    // Formnya di sub-tab lain; buka() sekaligus menggulir ke atas.
+    buka('serah', 'catat');
   }
 
   async function hapusSerah(id) {
