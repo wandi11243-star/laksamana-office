@@ -973,7 +973,17 @@ function fetchOffice() { pagePerm(); canEdit(); }
 
 
 
-function icon() {  }
+function icon() { navigate(); ensureUsersPerms(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1470,6 +1480,10 @@ function sisaKursiTable() { allLayoutKeys(); getLayout(); occupiedMap(); todaySt
 
 
 
+
+
+
+
 function resetOccCache() {  }
 function occFor() { resetOccCache(); occupiedMap(); todayStr(); }
 
@@ -1760,7 +1774,7 @@ function occupiedMap() { dayNo(); absMin(); isSeated(); locksRange(); tablesOf()
 
 
 
-function seatTimeLabel() { fmtDateShort(); }
+function seatTimeLabel() { fmtDateShort(); recapList(); applyFilter(); }
 
 
 
@@ -1776,7 +1790,34 @@ function seatTimeLabel() { fmtDateShort(); }
 
 
 
-function cocokFilterDenah() { toMin(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function filterIdsAktif() { recapList(); }
+
+
+
+
+
+
+
+
+
+
+
+function cocokFilterDenah() { filterIdsAktif(); }
+
+
 
 
 
@@ -1784,6 +1825,9 @@ function cocokFilterDenah() { toMin(); }
 
 
 function denahFilterAktif() {  }
+
+
+
 function harihOccupancy() { todayStr(); occupiedMap(); absNow(); denahFilterAktif(); isSeated(); lockStart(); }
 
 
@@ -2614,7 +2658,7 @@ function popupMejaDiambil() { closeModal(); tolakMeja(); renderHariH(); esc(); f
 
 
 
-function tutupPopupMeja() { byId(); renderSeatMap(); checkConflict(); renderHariH(); }
+function tutupPopupMeja() { byId(); renderSeatMap(); checkConflict(); renderDashboard(); }
 
 
 
@@ -2649,6 +2693,36 @@ function crewInitials() {  }
 
 
 function ensureUsersPerms() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function nilai() { ensureUsersPerms(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2989,12 +3063,26 @@ function globalSearchGo() { navigate(); }
 
 
 
+function bukaKedatangan() { recapSetDay(); navigate(); }
+
+
+
+
+
+
+
+
 function afterSearch() { byId(); }
 
 
 
 
-function navigate() { allowedPages(); byId(); renderDashboard(); renderInput(); renderHariH(); renderFinance(); renderRiwayat(); renderAnalitik(); renderReview(); renderMaster(); renderAudit(); }
+function navigate() { allowedPages(); byId(); renderDashboard(); renderInput(); renderFinance(); renderRiwayat(); renderAnalitik(); renderReview(); renderMaster(); renderAudit(); }
+
+
+
+
+
 
 
 
@@ -3756,6 +3844,14 @@ function sendWA() { normPhone(); waOpen(); toast(); lantaiRes(); todayStr(); }
 
 
 
+
+
+
+
+
+
+
+
 function applyFilter() { customerProfile(); lantaiRes(); renderReview(); }
 
 
@@ -3843,7 +3939,6 @@ function tblPagerHtml() { tblSetPage(); }
 
 
 
-function renderDashboard() { renderHariH(); applyFilter(); resetLantaiCache(); arrivedPax(); customerProfile(); needFollowUpCount(); byId(); newReservation(); timeSelectHtml(); esc(); lantaiTersedia(); icon(); afterSearch(); dashTable(); dashCalendar(); }
 
 
 
@@ -3860,6 +3955,7 @@ function renderDashboard() { renderHariH(); applyFilter(); resetLantaiCache(); a
 
 
 
+function renderDashboard() { resetOccCache(); resetLantaiCache(); recapList(); tblPage(); arrivedPax(); needFollowUpCount(); waitingQueue(); kapasitasTanggal(); fmtDate(); fmtDateShort(); recapFrom(); recapTo(); }
 
 
 
@@ -3912,7 +4008,163 @@ function renderDashboard() { renderHariH(); applyFilter(); resetLantaiCache(); a
 
 
 
-function dashTable() { tblPage(); exportCSV(); customerProfile(); lantaiRes(); openDetail(); esc(); tagFor(); displayPhone(); fmtDateShort(); paxCell(); dpSel(); openWAModal(); editReservation(); tblPagerHtml(); }
+
+function tabBtn() { dashTab(); byId(); openCoordWA(); newReservation(); fmtDateShort(); esc(); fmtDur(); waitMinutes(); icon(); afterSearch(); renderDashboard(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); dashSetMode(); recapSetFrom(); setDenahTgl(); timeSelectHtml(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); denahFilterAktif(); todayStr(); recapReset(); fmtDate(); recapMultiDay(); waitlistView(); harihMapView(); dashCalendar(); recapTable(); updateHarihTimers(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dashTab() { renderDashboard(); }
+
+
+
+function dashSetMode() { renderDashboard(); }
+
+
+
+
+
+
+function renderHariH() { renderDashboard(); }
+function renderHariHListOnly() { renderDashboard(); byId(); }
+
+
+
+
+
+
+
+function recapTable() { exportCSV(); customerProfile(); todayStr(); toMin(); sisaKursiRes(); lantaiRes(); openDetail(); esc(); fmtDateShort(); lateBadge(); tagFor(); displayPhone(); seatTimerHtml(); clockOf(); overStay(); fmtDur(); dineEst(); dineDuration(); paxCell(); masihMenempati(); dpSel(); latenessLabel(); checkIn(); followUp(); markNoShow(); canAddArrival(); addArrival(); remainingPax(); guestLeft(); editReservation(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3972,7 +4224,10 @@ function dashCalendar() { esc(); openDetail(); }
 
 
 
-function cell() { toMin(); todayStr(); renderDashboard(); }
+function cell() { toMin(); todayStr(); recapSetFrom(); dashTab(); }
+
+
+
 
 
 
@@ -4036,10 +4291,50 @@ function exportCSV() { resetLantaiCache(); displayPhone(); lantaiRes(); todayStr
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function recapFrom() {  }
-function recapTo() {  }
-function recapMultiDay() { recapFrom(); recapTo(); }
-function recapReset() { renderHariH(); }
+
+
+
+
+
+
+
+function recapTo() { akhirBulan(); }
+
+
+
+
+
+
+
+
+
+function akhirBulan() { todayStr(); }
+
+
+
+
+
+function recapMultiDay() {  }
+function recapReset() { todayStr(); renderDashboard(); }
+
+
+
+
+
 
 
 function tolakKarenaFilter() { denahFilterAktif(); openModal(); esc(); closeModal(); recapReset(); }
@@ -4057,26 +4352,26 @@ function tolakKarenaFilter() { denahFilterAktif(); openModal(); esc(); closeModa
 
 
 
-function recapSetDay() { dateOfDayNo(); dayNo(); todayStr(); renderHariH(); }
-
-
-function recapSet7() { todayStr(); dateOfDayNo(); dayNo(); renderHariH(); }
-function recapSetMonth() { todayStr(); renderHariH(); }
-
-function recapIsDay() { dateOfDayNo(); dayNo(); todayStr(); recapFrom(); recapTo(); }
 
 
 
-
-
-function recapSetFrom() { renderHariH(); }
+function recapSetDay() { dateOfDayNo(); dayNo(); todayStr(); renderDashboard(); }
 
 
 
 
 
 
-function recapList() { recapFrom(); recapTo(); toMin(); tablesOf(); lantaiRes(); sisaKursiRes(); navigate(); }
+function recapSet7() { dateOfDayNo(); dayNo(); todayStr(); renderDashboard(); }
+
+
+
+function recapSetMonth() { todayStr(); renderDashboard(); }
+
+
+
+
+function recapIsDay() { dateOfDayNo(); dayNo(); todayStr(); }
 
 
 
@@ -4086,6 +4381,28 @@ function recapList() { recapFrom(); recapTo(); toMin(); tablesOf(); lantaiRes();
 
 
 
+
+
+function recapSetFrom() { renderDashboard(); }
+
+
+
+
+
+
+
+
+function setDenahTgl() { renderDashboard(); applyFilter(); }
+
+
+
+
+
+
+
+
+
+function recapList() { applyFilter(); tablesOf(); sisaKursiRes(); navigate(); }
 
 
 
@@ -4152,10 +4469,10 @@ function kapasitasTanggal() { dayTypeLayout(); getLayout(); capMax(); }
 
 
 
-function kapasitasLayout() { capMax(); }
+function kapasitasLayout() { capMax(); renderHariHListOnly(); }
 
 
-function renderHariHListOnly() { renderHariH(); byId(); }
+
 function harihLayoutKey() { harihL1(); }
 function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); hasLayoutOverride(); renderHariH(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
 
@@ -5022,217 +5339,7 @@ function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); to
 
 
 
-function kwitansiPDF() { hasDP(); toast(); kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); }
-
-
-
-
-
-
-
-
-
-
-function renderHariH() { resetOccCache(); resetLantaiCache(); recapList(); tblPage(); recapFrom(); recapTo(); recapMultiDay(); todayStr(); waitingQueue(); arrivedPax(); canAddArrival(); remainingPax(); kapasitasTanggal(); byId(); openCoordWA(); fmtDateShort(); fmtDur(); waitMinutes(); icon(); esc(); renderHariHListOnly(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); recapSetFrom(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); recapReset(); fmtDate(); denahFilterAktif(); waitlistView(); harihMapView(); customerProfile(); toMin(); sisaKursiRes(); lantaiRes(); openDetail(); lateBadge(); tagFor(); displayPhone(); seatTimerHtml(); clockOf(); overStay(); dineEst(); dineDuration(); paxCell(); masihMenempati(); dpSel(); latenessLabel(); checkIn(); followUp(); markNoShow(); addArrival(); guestLeft(); tblPagerHtml(); updateHarihTimers(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function kwitansiPDF() { hasDP(); toast(); kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
 
 
 
