@@ -2960,13 +2960,31 @@ function g() {  }
 
 
 
-function drafAdaIsi() {  }
+function drafAdaIsi() { setNilaiKalender(); setTomorrowAsDefaultDate(); }
 
 
 
 
 
-function simpanDrafSenyap() { bacaForm(); drafSemua(); drafAdaIsi(); drafTulis(); gambarBannerDraf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanDrafSenyap() { bacaForm(); drafAdaIsi(); drafSemua(); drafTulis(); gambarBannerDraf(); }
+
+
+
 
 
 
@@ -3108,7 +3126,14 @@ function catat() { jenisDari(); simpanDrafSenyap(); }
 
 
 
-function simpanSemua() { bacaForm(); drafSemua(); drafAdaIsi(); drafTulis(); }
+
+
+
+
+
+
+function simpanSemua() {  }
+
 
 
 

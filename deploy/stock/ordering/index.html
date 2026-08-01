@@ -2962,17 +2962,35 @@
 
         function drafAdaIsi(d) { return !!(d && Array.isArray(d.rows) && d.rows.length); }
 
-        /* Simpan senyap. Dipanggil tiap isian berubah (lihat pasangAutoDraf)
-           dan saat halaman ditutup. Form yang kosong menghapus drafnya, bukan
-           menyimpan draf kosong — kalau tidak, membuka lalu mengosongkan form
-           akan meninggalkan tawaran "pulihkan draf" yang isinya nihil. */
-        function simpanDrafSenyap(jenis) {
-            const isi = bacaForm(jenis); if (!isi) return;
+        /* Penjaga masa boot. Selama halaman masih menyiapkan diri, TIDAK BOLEH
+           ada satu pun tulisan ke penyimpanan draf.
+
+           Sudah kejadian 1 Agustus 2026, dan hilangnya total: setelah
+           setNilaiKalender() diberi event 'change', pemanggilan
+           setTomorrowAsDefaultDate() saat boot ikut memicu penyimpan otomatis —
+           padahal form saat itu masih tiga baris kosong. Draf yang tersimpan
+           kemarin terhapus ±600 ms setelah halaman terbuka, sebelum kru sempat
+           menekan Pulihkan. Dari luar terlihat seperti "draf tidak pernah
+           tersimpan". */
+        let _drafSiap = false;
+
+        /* Simpan senyap. Dipanggil tiap isian berubah dan saat halaman ditutup.
+
+           TIDAK PERNAH MENGHAPUS. Form kosong bukan berarti kru menghapus
+           isinya — form SELALU kosong sesaat setelah halaman dimuat, dan itulah
+           yang dulu memusnahkan draf. Membuang draf hanya boleh lewat dua jalan
+           yang disengaja: tombol "Buang" di pitanya, dan pengiriman yang
+           berhasil. */
+        function simpanDrafSenyap(jenis, paksa) {
+            /* `paksa` dipakai tombol "Simpan Draft": penekanan tombol SELALU
+               kehendak kru, jadi ia tidak boleh ikut ditahan jeda boot. Tanpa
+               ini, menekan tombolnya dalam 1,5 detik pertama akan memunculkan
+               toast "Tersimpan" padahal tidak ada yang tersimpan. */
+            if (!_drafSiap && !paksa) return;
+            const isi = bacaForm(jenis); if (!drafAdaIsi(isi)) return;
             const semua = drafSemua();
-            if (drafAdaIsi(isi)) {
-                semua[jenis] = { ...isi, ts: Date.now(),
-                                 pic: (document.getElementById('batch-pic-name') || {}).value || '' };
-            } else delete semua[jenis];
+            semua[jenis] = { ...isi, ts: Date.now(),
+                             pic: (document.getElementById('batch-pic-name') || {}).value || '' };
             drafTulis(semua);
             gambarBannerDraf(jenis);
         }
@@ -2983,7 +3001,7 @@
         function simpanDraf(jenis) {
             const isi = bacaForm(jenis);
             if (!drafAdaIsi(isi)) return showToast("Belum Ada Isi", "Isi minimal satu baris sebelum menyimpan draft.", "warning");
-            simpanDrafSenyap(jenis);
+            simpanDrafSenyap(jenis, true);
             showToast("Draft Tersimpan", `${isi.rows.length} baris disimpan di perangkat ini. Buka lagi kapan saja.`, "success");
         }
 
@@ -3107,16 +3125,23 @@
             /* Jaring pengaman terakhir. pagehide dipakai bersama beforeunload:
                di Safari iOS beforeunload sering tidak pernah menyala, dan HP
                yang terkunci saat form setengah terisi justru kasus yang paling
-               sering terjadi di lapangan. */
-            const simpanSemua = () => Object.keys(DRAF_FORM).forEach(j => {
-                const isi = bacaForm(j); if (!isi) return;
-                const semua = drafSemua();
-                if (drafAdaIsi(isi)) semua[j] = { ...isi, ts: Date.now(), pic:(document.getElementById('batch-pic-name')||{}).value||'' };
-                else delete semua[j];
-                drafTulis(semua);
-            });
+               sering terjadi di lapangan.
+
+               Memakai simpanDrafSenyap yang sama — termasuk aturannya yang
+               TIDAK PERNAH MENGHAPUS. Versi pertama menyalin logikanya dan ikut
+               membawa `else delete`, sehingga menutup situs dengan form kosong
+               justru memusnahkan draf yang baru saja disimpan. Satu jalan
+               keluar saja, jadi aturannya tidak bisa berbeda di dua tempat. */
+            const simpanSemua = () => Object.keys(DRAF_FORM).forEach(simpanDrafSenyap);
             window.addEventListener('beforeunload', simpanSemua);
             window.addEventListener('pagehide', simpanSemua);
+
+            /* Baru sekarang penyimpan otomatis dinyalakan. Boot masih akan
+               menyentuh field tanggal (setTomorrowAsDefaultDate, bukaFormCK,
+               data master yang datang belakangan), dan tiap sentuhan itu
+               menerbitkan 'change'. Jeda ini memastikan tidak satu pun dari
+               mereka dianggap sebagai "kru sedang mengisi form". */
+            setTimeout(() => { _drafSiap = true; }, 1500);
         }
         function addNewBatchRow() {
             const wrapper = document.getElementById('batch-rows-wrapper');
