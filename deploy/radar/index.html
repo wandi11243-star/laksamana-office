@@ -370,9 +370,10 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
    dicari orang saat membuka kalender. Rinciannya tetap kecil — ia keterangan,
    bukan yang dibaca sekilas. */
 .cpax{margin-top:auto;padding-top:4px;border-top:1px solid var(--line-soft);
-  font-size:13px;font-family:var(--ff-display);color:var(--gold-deep);font-weight:700;line-height:1.2}
+  font-size:12.5px;font-family:var(--ff-display);color:var(--gold-deep);font-weight:700;line-height:1.2;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cpax span{display:block;font-weight:600;color:var(--muted);font-size:9.5px;font-family:var(--mono);
-  margin-top:2px;letter-spacing:-.01em}
+  margin-top:2px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- KARTU RESERVASI (tampilan grid) ---------- */
 .rc{border:1px solid var(--line-soft);border-radius:var(--radius);background:#fff;padding:12px 14px;
@@ -1163,39 +1164,27 @@ function vRadar(){
     h+='</div></div>';
   }
 
-  /* AGENDA 14 HARI — sumbernya tab Event + tab Reservasi di Radar ini, bukan
-     data mentah ketiga modul. Artinya aturan penyaring kedua tab itu ikut
-     berlaku di sini: acara hanya yang sudah pasti jalan (agPasti), reservasi
-     hanya yang hidup (resHidup, tanpa Cancelled & No-show).
+  /* AGENDA 14 HARI — ACARA SAJA, tanpa reservasi.
+     Sumbernya agendaTampil(), jadi aturan tab Event ikut berlaku: hanya yang
+     sudah pasti jalan. Sebelumnya bagian ini menggambar AGENDA apa adanya,
+     sehingga event yang masih Lead/Prospect ikut nongkrong di papan
+     koordinasi — padahal tidak ada yang perlu disiapkan untuk peluang yang
+     belum tentu jadi.
 
-     Sebelumnya bagian ini menggambar AGENDA apa adanya, sehingga event yang
-     masih Lead/Prospect ikut nongkrong di papan koordinasi 14 hari — padahal
-     tidak ada yang perlu disiapkan untuk peluang yang belum tentu jadi. Dan
-     reservasi sama sekali tidak muncul, jadi hari yang penuh booking meja
-     terbaca "kosong" di papan yang justru dipakai untuk melihat beban hari.
-
-     Keduanya digambar dengan kartu yang BERBEDA BENTUK (agendaCard vs
-     resCard) dan berlencana sumber — supaya tetap terbaca sebagai dua hal,
-     bukan satu daftar campur. */
-  var dua=agendaTampil().filter(function(a){ var d=dDay(a.tgl); return d>=0 && d<=14; })
-    .map(function(a){ return {tgl:a.tgl, jam:a.jam||'', jenis:'ag', d:a}; })
-    .concat(resAktif().filter(function(r){ var d=dDay(r.date); return resHidup(r) && d>=0 && d<=14; })
-      .map(function(r){ return {tgl:r.date, jam:r.time||'', jenis:'rs', d:r}; }));
-  dua.sort(function(a,b){
-    if(a.tgl!==b.tgl) return a.tgl<b.tgl?-1:1;
-    if(!a.jam&&!b.jam) return 0;
-    if(!a.jam) return 1;
-    if(!b.jam) return -1;
-    return a.jam<b.jam?-1:(a.jam>b.jam?1:0);
-  });
-  var nAg=dua.filter(function(x){return x.jenis==='ag';}).length;
+     Reservasi sengaja TIDAK ikut. Sempat dicoba digabung ke sini, dan
+     hasilnya: dua minggu booking meja menenggelamkan acaranya sendiri —
+     bagian yang seharusnya menjawab "acara apa yang harus disiapkan dua
+     minggu ke depan" berubah jadi daftar reservasi bersambung. Reservasi
+     punya tempatnya sendiri: tabel "Reservasi hari ini" tepat di bawah ini,
+     dan tab Reservasi. */
+  var dua=agendaTampil().filter(function(a){ var d=dDay(a.tgl); return d>=0 && d<=14; });
   h+='<div class="sec-h"><h2>Agenda 14 hari</h2><span class="rule"></span>'+
-     '<span class="muted" style="font-size:12px">'+nAg+' acara · '+(dua.length-nAg)+' reservasi</span></div>';
+     '<span class="muted" style="font-size:12px">'+dua.length+' acara</span></div>';
   if(!dua.length) h+=kosong('Tidak ada agenda dalam 14 hari','Jendela kosong. Kalau ini bukan low season, ini saatnya mendorong booking korporat.');
   else {
     h+='<div class="grid" style="gap:11px">';
-    pgIris('radar14',dua).forEach(function(x){ h+= x.jenis==='ag' ? agendaCard(x.d) : resCard(x.d); });
-    h+='</div>'+pager('radar14',dua.length,'baris');
+    pgIris('radar14',dua).forEach(function(a){ h+=agendaCard(a); });
+    h+='</div>'+pager('radar14',dua.length,'acara');
   }
 
   h+='<div class="sec-h" style="margin-top:22px"><h2>Reservasi hari ini</h2><span class="rule"></span>'+
@@ -1352,7 +1341,7 @@ function vKalender(){
     if(ags.length>3) h+='<div class="cres">+'+(ags.length-3)+' lagi</div>';
     if(rs.length) h+='<div class="cres">'+rs.length+' rsv</div>';
     if(tot) h+='<div class="cpax" title="'+esc('Total '+tot+' pax pada '+fTgl(iso)+(rinci.length?' — '+rinci.join(' + '):'')+
-                 '. Pax event dan pax reservasi meja adalah rombongan berbeda.')+'">Σ '+tot+' pax'+
+                 '. Pax event dan pax reservasi meja adalah rombongan berbeda.')+'">Total '+tot+' pax'+
                  (rinci.length>1?'<span>'+rinci.join(' · ')+'</span>':'')+'</div>';
     h+='</div>';
   }
@@ -1560,7 +1549,9 @@ function vDetailEvent(){
    untuk menyiapkan operasional, dan peluang yang belum tentu jadi cuma
    menambah baris yang tidak boleh disiapkan apa-apa. Pipeline penjualannya
    tetap ada di modul Marketing, tempatnya memang di sana. */
-var fAg={view:'grid', sumber:'', status:'', q:'', mode:'bulan', tgl:todayISO(), bln:bulanISO()};
+/* Terbuka di mode HARIAN pada hari ini. Yang paling sering ditanyakan saat
+   membuka tab ini adalah "hari ini ada apa", dan Bulanan tinggal satu klik. */
+var fAg={view:'grid', sumber:'', status:'', q:'', mode:'hari', tgl:todayISO(), bln:bulanISO()};
 function agendaTersaring(){
   var list=agendaTampil().filter(function(a){return dalamPeriode(a.tgl,fAg);});
   if(fAg.sumber) list=list.filter(function(a){return a.sumber===fAg.sumber;});
@@ -1642,7 +1633,10 @@ function vAgendaList(){
    terbaca lebih besar dari kenyataan — persis kesalahan yang dulu bikin floor
    menyiapkan meja untuk tamu yang sudah membatalkan. Jejaknya tidak hilang:
    pilih statusnya di penyaring untuk memunculkannya kembali. */
-var fRs={view:'tabel', status:'', kategori:'', q:'', mode:'bulan', tgl:todayISO(), bln:bulanISO()};
+/* Sama seperti tab Event: terbuka di mode Harian pada hari ini. Di sini itu
+   sekaligus berarti lembar tengok harian langsung siap begitu tab dibuka —
+   siapa saja tamunya, permintaan khususnya, siap di-WA atau dicetak. */
+var fRs={view:'tabel', status:'', kategori:'', q:'', mode:'hari', tgl:todayISO(), bln:bulanISO()};
 function resHidup(r){ return !resBatal(r) && !resNoShow(r); }
 function resTersaring(){
   var list=(D.rsv&&D.rsv.reservations||[]).filter(function(r){return r&&r.date;});

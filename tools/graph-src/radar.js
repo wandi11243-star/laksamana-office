@@ -533,6 +533,7 @@
 
 
 
+
 function pendek() { fbFormats(); }
 
 
@@ -1115,19 +1116,7 @@ function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(
 
 
 
-function paxOf() { labelPeriode(); kendaliPeriode(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); agendaTampil(); resAktif(); resHidup(); kosong(); pgIris(); agendaCard(); resCard(); pager(); resTgl(); tabelRes(); agendaTgl(); }
-
-
-
-
-
-
-
-
-
-
-
-
+function paxOf() { labelPeriode(); kendaliPeriode(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); agendaTampil(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
 
 
 
@@ -1561,6 +1550,8 @@ function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumb
 
 
 
+
+
 function agendaTersaring() { agendaTampil(); dalamPeriode(); }
 
 
@@ -1596,6 +1587,9 @@ function tabelAgenda() { pgIris(); dDay(); esc(); fTglP(); dLabel(); badgeSumber
 
 
 function vAgendaList() { pitaGagal(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+
+
+
 
 
 
