@@ -721,7 +721,18 @@ function resAktif(){
   });
 }
 function resTgl(iso){ return resAktif().filter(function(r){return r.date===iso;}); }
-function agendaTgl(iso){ return AGENDA.filter(function(a){return a.tgl===iso;}); }
+/* SEMUA tampilan Radar membaca lewat sini, bukan lewat AGENDA langsung.
+   AGENDA tetap berisi gabungan MENTAH ketiga modul — ia masih dipakai untuk
+   mencari satu agenda berdasarkan id (panel detail) dan untuk menyusun daftar
+   pilihan status. Yang digambar ke layar selalu yang sudah disaring agPasti.
+
+   Dipusatkan begini setelah ketahuan 1 Agustus 2026: aturan "hanya yang pasti
+   jalan" sempat cuma dipasang di tab Event, jadi event berstatus Negotiation
+   tetap muncul di dashboard Radar, di Kalender Terpadu, di papan peringatan,
+   dan di Koordinasi. Selama tiap tampilan menyaring sendiri-sendiri, yang
+   terlupa satu akan selalu ada. */
+function agendaTampil(){ return AGENDA.filter(agPasti); }
+function agendaTgl(iso){ return agendaTampil().filter(function(a){return a.tgl===iso;}); }
 /* No-show TIDAK dihitung: tamunya tidak datang. Barisnya tetap ditampilkan di
    tabel (dengan statusnya) supaya jejaknya tidak hilang, tapi memasukkannya ke
    "pax terjadwal" membuat angka kehadiran terlihat lebih besar dari kenyataan. */
@@ -895,7 +906,11 @@ function agendaCard(a){
 /* ---------- PERINGATAN ---------- */
 function peringatan(){
   var out=[];
-  AGENDA.forEach(function(a){
+  /* Hanya acara yang pasti jalan. Memperingatkan "kesiapan rendah" untuk event
+     yang masih Negotiation itu keliru dua kali: belum tentu jadi, dan memang
+     belum waktunya disiapkan. */
+  var ag=agendaTampil();
+  ag.forEach(function(a){
     var d=dDay(a.tgl);
     if(d<0 || d>21) return;
     if(a.sumber==='mkt'){
@@ -927,7 +942,7 @@ function peringatan(){
   /* Bentrok jadwal LINTAS MODUL — inilah yang tidak bisa dilihat dari modul
      mana pun sendirian, dan alasan utama Radar ada. */
   var perTgl={};
-  AGENDA.forEach(function(a){ (perTgl[a.tgl]=perTgl[a.tgl]||[]).push(a); });
+  ag.forEach(function(a){ (perTgl[a.tgl]=perTgl[a.tgl]||[]).push(a); });
   Object.keys(perTgl).forEach(function(t){
     var d=dDay(t); if(d<0||d>21) return;
     var g=perTgl[t];
@@ -1062,7 +1077,7 @@ function agPasti(a){
    dipakai tidak perlu jadi pilihan yang selalu menghasilkan daftar kosong. */
 function statusPasti(){
   var set={};
-  AGENDA.forEach(function(a){ if(agPasti(a) && a.status) set[a.status]=1; });
+  agendaTampil().forEach(function(a){ if(a.status) set[a.status]=1; });
   return Object.keys(set).sort();
 }
 function pitaGagal(){
@@ -1088,12 +1103,15 @@ function pitaGagal(){
 var fRd=periodeBaru('hari');
 function vRadar(){
   var t=todayISO();
-  var akan=AGENDA.filter(function(a){return dDay(a.tgl)>=0;});
+  /* "Fokus koordinasi berikutnya" pun hanya dari acara yang pasti jalan —
+     kartu paling menonjol di halaman ini tidak boleh menampilkan peluang yang
+     masih ditawar. */
+  var akan=agendaTampil().filter(function(a){return dDay(a.tgl)>=0;});
   var al=peringatan();
   var fokus=akan[0]||null;
   var h=pitaGagal();
 
-  var agPer=AGENDA.filter(function(a){ return agPasti(a) && dalamPeriode(a.tgl,fRd); });
+  var agPer=agendaTampil().filter(function(a){ return dalamPeriode(a.tgl,fRd); });
   var rsPer=resAktif().filter(function(r){ return resHidup(r) && dalamPeriode(r.date,fRd); });
   var mkt=agPer.filter(function(a){return a.sumber==='mkt';});
   var evt=agPer.filter(function(a){return a.sumber==='evt';});
@@ -1159,7 +1177,7 @@ function vRadar(){
      Keduanya digambar dengan kartu yang BERBEDA BENTUK (agendaCard vs
      resCard) dan berlencana sumber — supaya tetap terbaca sebagai dua hal,
      bukan satu daftar campur. */
-  var dua=AGENDA.filter(function(a){ var d=dDay(a.tgl); return agPasti(a) && d>=0 && d<=14; })
+  var dua=agendaTampil().filter(function(a){ var d=dDay(a.tgl); return d>=0 && d<=14; })
     .map(function(a){ return {tgl:a.tgl, jam:a.jam||'', jenis:'ag', d:a}; })
     .concat(resAktif().filter(function(r){ var d=dDay(r.date); return resHidup(r) && d>=0 && d<=14; })
       .map(function(r){ return {tgl:r.date, jam:r.time||'', jenis:'rs', d:r}; }));
@@ -1300,7 +1318,7 @@ function vKalender(){
      kalendernya sendiri sudah setinggi layar, jadi angka "total pax bulan ini"
      baru terlihat setelah menggulir melewati seluruh kisi. Padahal itu angka
      yang dicari duluan, dan kisi kalender adalah rinciannya. */
-  var bln=AGENDA.filter(function(a){var x=pDate(a.tgl);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
+  var bln=agendaTampil().filter(function(a){var x=pDate(a.tgl);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
   var rbln=resAktif().filter(function(r){var x=pDate(r.date);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
   var paxBln=function(src){ return bln.filter(function(a){return a.sumber===src;}).reduce(function(s,a){return s+(+a.pax||0);},0); };
   h+='<div class="grid g4" style="margin-bottom:16px">'+
@@ -1344,7 +1362,10 @@ function vKalender(){
 
 /* ---------- TAMPILAN: KOORDINASI ---------- */
 function vKoordinasi(){
-  var list=AGENDA.filter(function(a){return a.sumber==='mkt' && dDay(a.tgl)>=0;});
+  /* Matriks kesiapan hanya untuk event yang pasti jalan. Menyusun job untuk
+     event yang masih ditawar itu pekerjaan yang belum tentu terpakai, dan
+     barisnya cuma membuat matriks penuh merah tanpa arti. */
+  var list=agendaTampil().filter(function(a){return a.sumber==='mkt' && dDay(a.tgl)>=0;});
   var h=pitaGagal();
   h+='<div class="card" style="margin-bottom:16px"><div class="sec-h"><h2>Matriks kesiapan lintas divisi</h2><span class="rule"></span>'+
     '<span class="legend">'+
@@ -1420,7 +1441,7 @@ function vKoordinasi(){
      daftar user Marketing) dan pic modul Event. Menjawab "siapa yang sedang
      memegang paling banyak acara mendatang" tanpa menanya satu per satu. */
   var beban={};
-  AGENDA.filter(function(a){return dDay(a.tgl)>=0;}).forEach(function(a){
+  agendaTampil().filter(function(a){return dDay(a.tgl)>=0;}).forEach(function(a){
     var nama = a.sumber==='mkt' ? namaMkt(a.mentah.mktPIC) : (a.mentah.pic||'');
     if(nama) (beban[nama]=beban[nama]||{n:0,src:a.sumber}).n++;
   });
@@ -1437,7 +1458,7 @@ function vKoordinasi(){
   h+='</div>';
 
   h+='<div class="card"><div class="sec-h"><h2>Agenda modul Event</h2><span class="rule"></span></div>';
-  var ev=AGENDA.filter(function(a){return a.sumber==='evt' && dDay(a.tgl)>=0;}).slice(0,8);
+  var ev=agendaTampil().filter(function(a){return a.sumber==='evt' && dDay(a.tgl)>=0;}).slice(0,8);
   if(!ev.length) h+='<div class="muted" style="font-size:12.5px">Tidak ada jadwal dari modul Event.</div>';
   ev.forEach(function(a){
     h+='<button type="button" style="display:block;width:100%;text-align:left;padding:9px 0;border-bottom:1px solid var(--line-soft);cursor:pointer;background:none" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
@@ -1541,8 +1562,7 @@ function vDetailEvent(){
    tetap ada di modul Marketing, tempatnya memang di sana. */
 var fAg={view:'grid', sumber:'', status:'', q:'', mode:'bulan', tgl:todayISO(), bln:bulanISO()};
 function agendaTersaring(){
-  var list=AGENDA.filter(agPasti);
-  list=list.filter(function(a){return dalamPeriode(a.tgl,fAg);});
+  var list=agendaTampil().filter(function(a){return dalamPeriode(a.tgl,fAg);});
   if(fAg.sumber) list=list.filter(function(a){return a.sumber===fAg.sumber;});
   if(fAg.status) list=list.filter(function(a){return String(a.status||'')===fAg.status;});
   if(fAg.q){var q=fAg.q.toLowerCase();
