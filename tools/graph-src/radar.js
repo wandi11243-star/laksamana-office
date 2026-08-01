@@ -714,6 +714,15 @@ function satukan() { pecahWaktu(); }
 
 
 
+
+
+
+
+
+
+
+
+
 function resBatal() {  }
 function resNoShow() {  }
 function resAktif() { resBatal(); }
@@ -884,6 +893,9 @@ function evBars() { evDivisi(); evSubs(); divStatus(); subStatus(); divProgress(
 
 
 function agendaCard() { dDay(); pDate(); kesiapan(); esc(); ico(); badgeSumber(); pill(); dLabel(); evBars(); }
+
+
+
 
 
 
@@ -1076,7 +1088,40 @@ function agPasti() {  }
 
 
 
-function statusPasti() { agendaTampil(); }
+function statusPasti() { agendaTampil(); fbFormats(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fbOpsi() { fbFormats(); agendaTampil(); }
+
+
+
+
+
+function selFb() { fbOpsi(); esc(); }
+
+
+
+
+
+
+
+
+
+function cocokFb() {  }
 
 
 
@@ -1102,7 +1147,7 @@ function pitaGagal() { esc(); periodeBaru(); }
 
 
 
-function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(); dalamPeriode(); resAktif(); resHidup(); }
+function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(); dalamPeriode(); cocokFb(); resAktif(); resHidup(); }
 
 
 
@@ -1116,7 +1161,19 @@ function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(
 
 
 
-function paxOf() { labelPeriode(); kendaliPeriode(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); agendaTampil(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
+
+
+
+
+
+function paxOf() { labelPeriode(); kendaliPeriode(); selFb(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); agendaTampil(); cocokFb(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
+
+
+
+
+
+
+
 
 
 
@@ -1552,7 +1609,8 @@ function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumb
 
 
 
-function agendaTersaring() { agendaTampil(); dalamPeriode(); }
+function agendaTersaring() { agendaTampil(); dalamPeriode(); cocokFb(); }
+
 
 
 
@@ -1586,7 +1644,9 @@ function tabelAgenda() { pgIris(); dDay(); esc(); fTglP(); dLabel(); badgeSumber
 
 
 
-function vAgendaList() { pitaGagal(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+
+function vAgendaList() { pitaGagal(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); selFb(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+
 
 
 
@@ -1938,7 +1998,11 @@ function drawerAgenda() { dDay(); $(); kesiapan(); badgeSumber(); pill(); fTgl()
 
 
 
-function drawerRes() { $(); resBatal(); resNoShow(); pill(); fTgl(); kvRow(); esc(); rp(); ico(); bukaDrw(); }
+function drawerRes() { $(); resBatal(); resNoShow(); pill(); fTgl(); kvRow(); esc(); rp(); bukaDrw(); }
+
+
+
+
 
 
 

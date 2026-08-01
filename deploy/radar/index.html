@@ -682,10 +682,19 @@ function satukan(){
        begitu salah satu berubah keduanya menyimpang tanpa ada yang tahu.
        Radar itu papan koordinasi, bukan papan finance — angkanya dibaca di
        Marketing. */
+    /* `fb` = Format F&B (Prasmanan / Set Menu / Coffee Break / Nasi Kotak),
+       dibawa naik dari detail.fbFormat supaya bisa disaring dan ditampilkan
+       tanpa membongkar `mentah` di tiap tempat. BEDA dari `jenis`, yang di
+       Marketing berisi jenis acaranya (Gathering, Wedding, …) — dua kolom
+       berbeda yang sama-sama terbaca sebagai "jenis event" kalau tidak
+       dibedakan namanya sejak di sini.
+
+       Hanya event Marketing yang punya format F&B; modul Event tidak mengenal
+       konsep ini, jadi `fb` di sana selalu kosong. */
     AGENDA.push({sumber:'mkt', id:e.id, tgl:e.tanggal, judul:e.nama||'(tanpa nama)',
       jam:(e.detail&&e.detail.tamuDatang)||'', selesai:(e.detail&&e.detail.selesai)||'',
       tempat:(e.detail&&e.detail.area)||'', status:e.status||'', pax:+e.pax||0,
-      jenis:e.jenis||'', mentah:e});
+      jenis:e.jenis||'', fb:(e.detail&&e.detail.fbFormat)||'', mentah:e});
   });
   (D.evt&&D.evt.events||[]).forEach(function(e){
     if(!e) return;
@@ -695,7 +704,7 @@ function satukan(){
     AGENDA.push({sumber:'evt', id:e.id, tgl:mulai.tgl, judul:e.title||'(tanpa judul)',
       jam:mulai.jam, selesai:(habis&&habis.jam)||'',
       tempat:e.venue||'', status:e.status||'', pax:+e.capacity||0,
-      jenis:e.category||'', mentah:e});
+      jenis:e.category||'', fb:'', mentah:e});
   });
   /* Agenda tanpa jam diletakkan di AKHIR hari, bukan awal. Sebagian besar
      event Marketing memang belum mengisi jamnya; string kosong secara alami
@@ -896,7 +905,10 @@ function agendaCard(a){
       (a.pax?'<span>'+ico('users')+a.pax+' pax'+(a.sumber==='mkt'?' (kontrak)':'')+'</span>':'')+
       (a.jenis?'<span>'+esc(a.jenis)+'</span>':'')+
     '</span>'+
+    // Format F&B diberi pil sendiri, bukan digabung ke baris meta: itu yang
+    // menentukan beban dapur, jadi harus terbaca sekilas dari kartunya.
     '<span class="pill-row">'+badgeSumber(a.sumber)+
+      (a.fb?pill(a.fb,'p-teal'):'')+
       pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+
       (a.status?pill(a.status,'p-mute'):'')+
       (k? (k.ada ? pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad'))
@@ -1081,6 +1093,39 @@ function statusPasti(){
   agendaTampil().forEach(function(a){ if(a.status) set[a.status]=1; });
   return Object.keys(set).sort();
 }
+
+/* ================= FORMAT F&B ================================
+   Prasmanan / Set Menu / Coffee Break / Nasi Kotak. Menentukan beban dapur:
+   200 pax nasi kotak dan 200 pax prasmanan adalah dua pekerjaan yang sama
+   sekali berbeda untuk Kitchen, jadi papan koordinasi harus bisa memisahkan
+   keduanya.
+
+   Daftar pilihannya digabung dari dua sumber: fbFormats() (daftar resmi yang
+   diatur di Marketing) DAN format yang benar-benar terpakai di data. Yang
+   kedua perlu karena event lama bisa memakai format yang sudah dihapus dari
+   daftar resmi — tanpa itu, event tersebut tidak bisa ditemukan lewat
+   penyaring mana pun. */
+function fbOpsi(){
+  var set={};
+  fbFormats().forEach(function(f){ if(f) set[f]=1; });
+  agendaTampil().forEach(function(a){ if(a.fb) set[a.fb]=1; });
+  return Object.keys(set).sort();
+}
+function selFb(fn,nilai){
+  return '<select class="finp" onchange="APP.'+fn+'(\'fb\',this.value)">'+
+    '<option value="">Semua format F&amp;B</option>'+
+    fbOpsi().map(function(f){return '<option'+(nilai===f?' selected':'')+'>'+esc(f)+'</option>';}).join('')+
+    /* Event modul Event tidak punya format F&B sama sekali. Tanpa pilihan
+       eksplisit ini, satu-satunya cara melihatnya adalah "Semua" — dan
+       memilih format apa pun akan membuatnya lenyap tanpa penjelasan. */
+    '<option value="__none"'+(nilai==='__none'?' selected':'')+'>(tanpa format F&amp;B)</option>'+
+  '</select>';
+}
+function cocokFb(a,nilai){
+  if(!nilai) return true;
+  if(nilai==='__none') return !a.fb;
+  return a.fb===nilai;
+}
 function pitaGagal(){
   if(!GAGAL.length) return '';
   return '<div class="src-bad no-print">'+
@@ -1101,7 +1146,7 @@ function pitaGagal(){
    (lihat agPasti). Event yang masih Lead/Prospect punya tanggal dan angka pax
    di kontrak calon, tapi belum tentu terjadi; memasukkannya membuat papan hari
    ini menjanjikan tamu yang mungkin tidak pernah datang. */
-var fRd=periodeBaru('hari');
+var fRd=periodeBaru('hari'); fRd.fb='';
 function vRadar(){
   var t=todayISO();
   /* "Fokus koordinasi berikutnya" pun hanya dari acara yang pasti jalan —
@@ -1112,7 +1157,12 @@ function vRadar(){
   var fokus=akan[0]||null;
   var h=pitaGagal();
 
-  var agPer=agendaTampil().filter(function(a){ return dalamPeriode(a.tgl,fRd); });
+  /* Penyaring format F&B berlaku untuk angka Marketing/Event DAN untuk daftar
+     Agenda 14 hari di bawah — supaya "Prasmanan" menjawab pertanyaan yang
+     sama di seluruh halaman ini. Angka reservasi TIDAK ikut disaring:
+     reservasi meja tidak punya format F&B, dan mengosongkannya saat sebuah
+     format dipilih akan terbaca seolah tidak ada tamu malam itu. */
+  var agPer=agendaTampil().filter(function(a){ return dalamPeriode(a.tgl,fRd) && cocokFb(a,fRd.fb); });
   var rsPer=resAktif().filter(function(r){ return resHidup(r) && dalamPeriode(r.date,fRd); });
   var mkt=agPer.filter(function(a){return a.sumber==='mkt';});
   var evt=agPer.filter(function(a){return a.sumber==='evt';});
@@ -1121,11 +1171,18 @@ function vRadar(){
 
   h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:13px 18px">'+
      '<span class="eyebrow">Ringkasan</span>'+kendaliPeriode('fRd',fRd)+
+     selFb('fRd',fRd.fb)+
      '<div style="flex:1"></div>'+
      '<span class="muted" style="font-size:12px">'+esc(lbl)+'</span></div>';
 
-  h+='<div class="grid g4" style="margin-bottom:16px">'+
-    stat('Total reservasi', rsPer.length, paxRes(rsPer)+' pax meja','se')+
+  /* Lima kartu, jadi grid-nya bukan g4. Reservasi dipecah dua — JUMLAH BOOKING
+     dan JUMLAH PAX — karena keduanya menjawab pertanyaan berbeda: booking
+     menentukan berapa meja yang harus disiapkan, pax menentukan berapa kursi
+     dan berapa porsi. Satu angka dengan yang lain jadi keterangan kecil di
+     bawahnya membuat yang kedua nyaris tidak terbaca. */
+  h+='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:16px">'+
+    stat('Total reservasi', rsPer.length, 'booking meja','se')+
+    stat('Total pax Reservasi', paxRes(rsPer), 'tamu meja · tanpa batal & no-show','se')+
     stat('Total pax Event', paxOf(evt), evt.length+' acara · dari modul Event','tl')+
     stat('Total pax Marketing', paxOf(mkt), mkt.length+' event · pax kontrak klien','')+
     stat('Butuh perhatian', al.filter(function(x){return x.p===1;}).length, al.length+' item di papan peringatan',
@@ -1177,9 +1234,9 @@ function vRadar(){
      minggu ke depan" berubah jadi daftar reservasi bersambung. Reservasi
      punya tempatnya sendiri: tabel "Reservasi hari ini" tepat di bawah ini,
      dan tab Reservasi. */
-  var dua=agendaTampil().filter(function(a){ var d=dDay(a.tgl); return d>=0 && d<=14; });
+  var dua=agendaTampil().filter(function(a){ var d=dDay(a.tgl); return d>=0 && d<=14 && cocokFb(a,fRd.fb); });
   h+='<div class="sec-h"><h2>Agenda 14 hari</h2><span class="rule"></span>'+
-     '<span class="muted" style="font-size:12px">'+dua.length+' acara</span></div>';
+     '<span class="muted" style="font-size:12px">'+dua.length+' acara'+(fRd.fb?' · '+esc(fRd.fb==='__none'?'tanpa format F&B':fRd.fb):'')+'</span></div>';
   if(!dua.length) h+=kosong('Tidak ada agenda dalam 14 hari','Jendela kosong. Kalau ini bukan low season, ini saatnya mendorong booking korporat.');
   else {
     h+='<div class="grid" style="gap:11px">';
@@ -1551,11 +1608,12 @@ function vDetailEvent(){
    tetap ada di modul Marketing, tempatnya memang di sana. */
 /* Terbuka di mode HARIAN pada hari ini. Yang paling sering ditanyakan saat
    membuka tab ini adalah "hari ini ada apa", dan Bulanan tinggal satu klik. */
-var fAg={view:'grid', sumber:'', status:'', q:'', mode:'hari', tgl:todayISO(), bln:bulanISO()};
+var fAg={view:'grid', sumber:'', status:'', fb:'', q:'', mode:'hari', tgl:todayISO(), bln:bulanISO()};
 function agendaTersaring(){
   var list=agendaTampil().filter(function(a){return dalamPeriode(a.tgl,fAg);});
   if(fAg.sumber) list=list.filter(function(a){return a.sumber===fAg.sumber;});
   if(fAg.status) list=list.filter(function(a){return String(a.status||'')===fAg.status;});
+  list=list.filter(function(a){return cocokFb(a,fAg.fb);});
   if(fAg.q){var q=fAg.q.toLowerCase();
     list=list.filter(function(a){return (a.judul+' '+(a.tempat||'')+' '+(a.jenis||'')).toLowerCase().indexOf(q)>-1;});}
   return list;
@@ -1571,7 +1629,7 @@ function swView(fn,aktif){
 function tabelAgenda(list){
   var total=list.length;
   var h='<div class="tw"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>Acara</th><th>Sumber</th>'+
-        '<th>Tempat</th><th>Jenis</th><th style="text-align:right">Pax</th><th>Status</th></tr></thead><tbody>';
+        '<th>Tempat</th><th>Format F&amp;B</th><th>Jenis</th><th style="text-align:right">Pax</th><th>Status</th></tr></thead><tbody>';
   pgIris('agenda',list).forEach(function(a){
     var d=dDay(a.tgl);
     h+='<tr class="clk" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
@@ -1580,6 +1638,7 @@ function tabelAgenda(list){
       '<td><b>'+esc(a.judul)+'</b></td>'+
       '<td>'+badgeSumber(a.sumber)+'</td>'+
       '<td>'+esc(a.tempat||'—')+'</td>'+
+      '<td>'+(a.fb?pill(a.fb,'p-teal'):'<span class="muted">—</span>')+'</td>'+
       '<td>'+esc(a.jenis||'—')+'</td>'+
       '<td class="num" style="text-align:right"><b>'+(+a.pax||0)+'</b></td>'+
       '<td>'+(a.status?pill(a.status,/done|finish/i.test(a.status)?'p-teal':'p-go'):'—')+'</td></tr>';
@@ -1608,6 +1667,7 @@ function vAgendaList(){
       '<option value="evt"'+(fAg.sumber==='evt'?' selected':'')+'>Event</option></select>'+
     '<select class="finp" onchange="APP.fAg(\'status\',this.value)"><option value="">Semua status</option>'+
       statusPasti().map(function(s){return '<option'+(fAg.status===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
+    selFb('fAg',fAg.fb)+
     '<div style="flex:1"></div>'+swView('fAg',fAg.view)+
   '</div>';
   h+='<div class="muted no-print" style="font-size:11.5px;margin:-6px 0 13px;line-height:1.6">'+
@@ -1964,10 +2024,14 @@ function drawerRes(r){
   var permintaan=[r.foodReq,r.drinkReq].filter(Boolean).join(' · ');
   if(permintaan) h+='<div class="card" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:6px">Permintaan F&amp;B</div><div style="font-size:13px;color:var(--sand-dim)">'+esc(permintaan)+'</div></div>';
   if(r.cancelReason) h+='<div class="card" style="margin-bottom:12px;border-color:var(--danger)"><div class="eyebrow" style="margin-bottom:6px;color:var(--danger)">Alasan batal</div><div style="font-size:13px;color:var(--sand-dim)">'+esc(r.cancelReason)+'</div></div>';
-  var wa=String(r.phone||'').replace(/[^0-9]/g,''); if(wa.indexOf('0')===0)wa='62'+wa.slice(1);
-  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">'+
-     (wa?'<a class="btn" href="https://wa.me/'+wa+'" target="_blank" rel="noopener">'+ico('wa')+'Hubungi tamu</a>':'')+'</div>'+
-     '<div class="muted" style="font-size:11px;margin-top:10px">Radar hanya menampilkan. Ubah reservasi di modul Reservasi.</div>';
+  /* Tombol "Hubungi tamu" (WA ke nomor tamu) DIHAPUS.
+     Radar adalah papan koordinasi internal yang hanya membaca — menghubungi
+     tamu itu pekerjaan modul Reservasi, tempat percakapannya dicatat dan
+     statusnya ikut berubah. Dari sini, WA terkirim tanpa jejak apa pun di
+     data, jadi dua orang bisa menghubungi tamu yang sama tanpa saling tahu.
+     Nomor tamunya tetap tampil di panel ini untuk dibaca. */
+  h+='<div class="muted" style="font-size:11px;margin-top:16px">Radar hanya menampilkan. '+
+     'Hubungi tamu dan ubah reservasi di modul Reservasi, supaya tindak lanjutnya tercatat.</div>';
   $('#drwBody').innerHTML=h; bukaDrw();
 }
 function bukaDrw(){ $('#drw').classList.add('on'); $('#scrim').classList.add('on'); }
