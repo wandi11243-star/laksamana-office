@@ -529,6 +529,300 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function timSaya() {  }
 
 
@@ -605,7 +899,15 @@ function timBelumDiisi() { sayaAdmin(); }
 
 
 
-function pesanTimKosong() { renderFilterJenis(); renderFilterTim(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+function pesanTimKosong() { renderFilterJenis(); renderFilterTim(); renderFilterSebabWaste(); renderFilterTimWaste(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -660,6 +962,10 @@ function pesanTimKosong() { renderFilterJenis(); renderFilterTim(); isiPilihanBu
 
 
 function tambahBaris() { hapusBaris(); }
+
+
+
+
 
 
 
@@ -865,13 +1171,17 @@ function setBulan() { setPeriode(); setAktifPeriode(); muat(); }
 
 
 
-function setAktifPeriode() { syncBadgeFilter(); }
+
+
+
+
+function segAktif() {  }
 
 
 
 
 
-
+function setAktifPeriode() { segAktif(); syncBadgeFilter(); }
 
 
 
@@ -890,6 +1200,8 @@ function toggleLaciFilter() {  }
 
 
 function syncBadgeFilter() { sayaAdmin(); }
+
+
 
 
 
@@ -937,7 +1249,7 @@ function muat() { rentang(); render(); }
 
 
 
-function render() { kartu(); renderRekapBahan(); timBelumDiisi(); pesanTimKosong(); ubahStatus(); edit(); hapus(); muatLagi(); }
+function render() { kartu(); }
 
 
 
@@ -963,6 +1275,13 @@ function render() { kartu(); renderRekapBahan(); timBelumDiisi(); pesanTimKosong
 
 
 
+
+
+
+
+
+
+function barisPer() { gambarBars(); renderRekapBahan(); kosong(); timBelumDiisi(); pesanTimKosong(); ubahStatus(); edit(); hapus(); fmtQty(); muatLagi(); }
 
 
 
@@ -1071,6 +1390,11 @@ function muatLagi() { render(); }
 
 
 
+
+
+
+
+
 function siapkanWaste() { kunciPilihanTim(); resetWaste(); }
 
 
@@ -1134,7 +1458,13 @@ function editWaste() { setNilaiTim(); }
 
 
 
+
+
+
 function simpanWaste() { resetWaste(); muatWaste(); }
+
+
+
 
 
 
@@ -1180,8 +1510,27 @@ function rentangWaste() { bulanIni(); }
 
 
 function setPeriodeWaste() { muatWaste(); }
+function setSebabWaste() { renderWasteReport(); }
+function setTimWaste() { renderWasteReport(); }
 
-function muatWaste() { rentangWaste(); renderWaste(); }
+function renderFilterSebabWaste() {  }
+
+
+
+
+
+
+
+function renderFilterTimWaste() { sayaAdmin(); }
+
+
+
+
+
+
+
+
+function muatWaste() { rentangWaste(); renderWasteReport(); }
 
 
 
@@ -1411,8 +1760,7 @@ function soGrup() { soAreaCocok(); soKategori(); }
 
 
 
-function soRenderDaftar() { soRingkas(); soGrup(); soHitung(); soUnit(); soSet(); soSelisihTeks(); fmtQty(); }
-
+function soRenderDaftar() { kosong(); soRingkas(); soGrup(); soHitung(); soUnit(); soSet(); soSelisihTeks(); fmtQty(); }
 
 
 
@@ -1660,8 +2008,6 @@ function soTambahItem() { timSaya(); }
 
 
 
-
-
 function tutup() { soRenderDaftar(); }
 
 
@@ -1698,7 +2044,26 @@ function tutup() { soRenderDaftar(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function siapkanSerah() { resetSerah(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1776,6 +2141,7 @@ function resetSerah() { kunciPilihanTim(); timBawaan(); srhAturTujuan(); srhTamb
 
 
 
+
 function srhSimpan() { srhBacaBaris(); resetSerah(); muatSerah(); soMuatKeluar(); }
 
 
@@ -1811,7 +2177,9 @@ function srhSimpan() { srhBacaBaris(); resetSerah(); muatSerah(); soMuatKeluar()
 
 
 
-function editSerah() { setNilaiTim(); srhAturTujuan(); setModeSerah(); srhTambahBaris(); }
+
+function editSerah() { setNilaiTim(); srhAturTujuan(); srhTambahBaris(); }
+
 
 
 
@@ -1870,7 +2238,15 @@ function rentangSerah() {  }
 
 function setPeriodeSerah() { muatSerah(); }
 
-function muatSerah() { rentangSerah(); renderSerah(); }
+function muatSerah() { rentangSerah(); renderSerahReport(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1910,7 +2286,17 @@ function srhAturTujuan() {  }
 
 
 
-function setModeSerah() {  }
+
+
+
+
+
+
+
+
+
+
+function gambarBars() { fmtQty(); }
 
 
 
@@ -1922,7 +2308,71 @@ function setModeSerah() {  }
 
 
 
-function renderSerah() { setModeSerah(); srhAturTujuan(); timBelumDiisi(); pesanTimKosong(); timSaya(); blokSerah(); kartuSerah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kosong() {  }
+
+
+
+
+
+function renderSerahReport() { srhAturTujuan(); segAktif(); kartu(); timSaya(); gambarBars(); kosong(); timBelumDiisi(); pesanTimKosong(); blokSerah(); kartuSerah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1992,7 +2442,29 @@ function kartuSerah() { fmtQty(); lihatFotoSerah(); editSerah(); hapusSerah(); }
 
 
 
-function renderWaste() { kartu(); timBelumDiisi(); pesanTimKosong(); fmtQty(); lihatFotoWaste(); editWaste(); hapusWaste(); }
+
+
+
+
+
+
+
+
+
+function renderWasteReport() { segAktif(); kartu(); gambarBars(); kosong(); timBelumDiisi(); pesanTimKosong(); fmtQty(); lihatFotoWaste(); editWaste(); hapusWaste(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

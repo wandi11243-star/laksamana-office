@@ -97,12 +97,15 @@ function esc(s) {
 function toast(judul, pesan, jenis) {
   const wrap = document.getElementById('toast-wrap');
   if (!wrap) return;
-  const warna = jenis === 'ok' ? 'border-emerald-400' :
-                jenis === 'err' ? 'border-rose-400' : 'border-amber-400';
+  const warna = jenis === 'ok' ? 'var(--ok)' : jenis === 'err' ? 'var(--danger)' : 'var(--warn)';
   const el = document.createElement('div');
-  el.className = `bg-white border border-slate-200 border-l-4 ${warna} rounded-xl shadow-lg px-4 py-3 max-w-sm pointer-events-auto`;
-  el.innerHTML = `<div class="text-sm font-bold text-slate-800">${esc(judul)}</div>` +
-                 (pesan ? `<div class="text-xs text-slate-500 mt-0.5 leading-relaxed">${esc(pesan)}</div>` : '');
+  el.className = 'fade-in px-4 py-3 max-w-sm pointer-events-auto';
+  // Rel warna 4px di kiri: bentuk yang sama dengan kartu .recap, supaya
+  // notifikasi terbaca sebagai bagian dari sistem yang sama.
+  el.style.cssText = 'background:var(--surface);border:1px solid var(--line);border-left:4px solid ' + warna +
+                     ';border-radius:var(--radius);box-shadow:var(--shadow-lg)';
+  el.innerHTML = `<div class="text-[14px] font-semibold" style="color:var(--ink)">${esc(judul)}</div>` +
+                 (pesan ? `<div class="text-[12.5px] mt-0.5 leading-relaxed" style="color:var(--muted)">${esc(pesan)}</div>` : '');
   wrap.appendChild(el);
   // Galat dibiarkan lebih lama: itu yang perlu dibaca sampai habis.
   setTimeout(() => el.remove(), jenis === 'err' ? 6000 : 3500);
@@ -197,7 +200,8 @@ function pasangAutocomplete(input, wadah, onPilih) {
     const cocok = DAFTAR_BAHAN.filter(x => x.toLowerCase().includes(q)).slice(0, 8);
     if (!cocok.length) return tutup();
     wadah.innerHTML = cocok.map(x =>
-      `<div class="px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 last:border-0"
+      `<div class="px-3 py-2 text-[13px] font-medium cursor-pointer ac-item"
+            style="color:var(--ink);border-bottom:1px solid var(--line)"
             onmousedown="event.preventDefault()">${esc(x)}</div>`).join('');
     [...wadah.children].forEach((el, i) => {
       el.addEventListener('mousedown', () => {
@@ -229,7 +233,8 @@ function pasangGayaMini() {
   st.id = 'nav-mini-style';
   st.textContent =
     '@media(min-width:768px){' +
-    '#app-sidebar.nav-mini{width:4.25rem}' +
+    // 66px = lebar sidebar ciut modul Reservasi (#app.nav-hidden .sidebar).
+    '#app-sidebar.nav-mini{width:66px}' +
     '#app-sidebar.nav-mini .nav-lbl,#app-sidebar.nav-mini .nav-brand-txt,#app-sidebar.nav-mini .nav-user-txt,#app-sidebar.nav-mini .nav-sec-lbl{display:none}' +
     '#app-sidebar.nav-mini nav a,#app-sidebar.nav-mini nav button{justify-content:center;gap:0;padding-left:0;padding-right:0}' +
     '#app-sidebar.nav-mini .nav-brand{justify-content:center;padding-left:0;padding-right:0}' +
@@ -270,60 +275,64 @@ function pasangCangkang(aktif, judul, deskripsi, sesi, tampilan) {
   const inisial = String(nama).trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
 
   pasangGayaMini();
+  /* Bentuknya menyalin sidebar modul Reservasi: merek + garis, seksi berlabel,
+     baris menu 10px/12px dengan ikon selebar 20px, dan blok pengguna di kaki.
+     Warna diambil dari variabel CSS halaman (--gold, --line, …) supaya satu
+     perubahan tema Reservasi cukup disamakan di satu tempat. */
   document.getElementById('app-sidebar').innerHTML = `
-    <div class="nav-brand flex items-center gap-3 px-5 pt-5 pb-4 border-b border-slate-100">
+    <div class="nav-brand flex items-center gap-3 px-4 pt-4 pb-3" style="border-bottom:1px solid var(--line)">
       <img src="../../assets/laksamanamuda-warna.jpg" alt="" class="w-9 h-9 rounded-lg object-contain flex-none">
       <div class="nav-brand-txt flex-1 min-w-0">
-        <div class="text-[15px] font-extrabold leading-none text-slate-900">Laksamana Muda</div>
-        <div class="text-[9px] font-bold mt-1 tracking-[0.2em] uppercase text-indigo-600">Stock</div>
+        <div class="f-head text-[16px] font-bold leading-none">Laksamana Muda</div>
+        <div class="text-[9.5px] font-semibold mt-1 uppercase" style="letter-spacing:2.5px;color:var(--gold)">Stock</div>
       </div>
       <button type="button" onclick="toggleNav()" title="Sembunyikan / tampilkan menu" aria-label="Sembunyikan menu"
-        class="nav-mini-btn ml-auto w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-indigo-600 hover:border-indigo-200 flex-none">
+        class="nav-mini-btn btn-icon ml-auto">
         <i class="fa-solid fa-bars text-[12px]"></i>
       </button>
     </div>
-    <nav class="flex-1 overflow-y-auto px-3 py-3">
-      <div class="nav-sec-lbl text-[10px] font-bold uppercase tracking-wider text-slate-400 px-3 pt-2 pb-2">Pencatatan</div>
+    <nav class="flex-1 overflow-y-auto px-3 py-2">
+      <div class="nav-sec-lbl text-[10.5px] font-bold uppercase px-3 pt-3 pb-2"
+           style="letter-spacing:1.2px;color:var(--muted-2)">Pencatatan</div>
       ${tampilkanMenuModul ? menu.map(m => `
-        <a href="${m.href}" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
+        <a href="${m.href}" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium text-left mb-0.5 transition-all ${
           m.k === aktif ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
-          <i class="fa-solid ${m.ico} w-5 text-center"></i> <span class="nav-lbl">${m.label}</span>
+          <i class="fa-solid ${m.ico} w-5 text-center text-[16px]"></i> <span class="nav-lbl">${m.label}</span>
         </a>`).join('') : ''}
       ${views.map((v, i) => `
         <button type="button" data-nav-tampilan="${esc(v.v)}" onclick="gantiTampilan('${esc(v.v)}')"
-          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all ${
-          i === 0 ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-slate-100'}">
-          <i class="fa-solid ${v.ico} w-5 text-center"></i> <span class="nav-lbl">${esc(v.label)}</span>
+          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-[14px] font-medium text-left mb-0.5 transition-all ${
+          i === 0 ? 'bg-indigo-50 text-indigo-700 nav-on' : 'text-slate-500 hover:bg-slate-100'}">
+          <i class="fa-solid ${v.ico} w-5 text-center text-[16px]"></i> <span class="nav-lbl">${esc(v.label)}</span>
         </button>`).join('')}
     </nav>
-    <div class="nav-user-row border-t border-slate-100 p-3 flex items-center gap-2.5">
-      <div class="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm flex-none">${esc(inisial || '?')}</div>
+    <div class="nav-user-row p-3 flex items-center gap-2.5" style="border-top:1px solid var(--line)">
+      <div class="w-9 h-9 rounded-[10px] text-white flex items-center justify-center font-bold text-[13px] flex-none"
+           style="background:var(--gold)">${esc(inisial || '?')}</div>
       <div class="nav-user-txt min-w-0 flex-1">
-        <div class="text-[13px] font-bold text-slate-800 truncate">${esc(nama)}</div>
-        <div class="text-[11px] text-slate-400 truncate">Kru Stock</div>
+        <div class="text-[13.5px] font-semibold truncate" style="color:var(--ink)">${esc(nama)}</div>
+        <div class="text-[11px] truncate" style="color:var(--muted)">Kru Stock</div>
       </div>
-      <a href="../../" title="Kembali ke Office" class="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-50 border border-slate-200 text-slate-400 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all flex-none">
-        <i class="fa-solid fa-power-off text-[13px]"></i>
-      </a>
+      <a href="../../" title="Kembali ke Office" class="btn-icon dgr flex-none"><i class="fa-solid fa-power-off text-[13px]"></i></a>
     </div>`;
   // Terapkan preferensi ciut yang tersimpan.
   try{ if(localStorage.getItem('lm_stock_navmini')==='1') document.getElementById('app-sidebar').classList.add('nav-mini'); }catch(e){}
 
   document.getElementById('page-head').innerHTML = `
     <div>
-      <h2 class="text-xl font-black text-slate-900">${esc(judul)}</h2>
-      <p class="text-xs text-slate-500 mt-0.5">${esc(deskripsi)}</p>
+      <h2 class="text-[25px] font-bold">${esc(judul)}</h2>
+      <p class="text-[13.5px] mt-0.5" style="color:var(--muted)">${esc(deskripsi)}</p>
     </div>`;
 
   // Tab mini untuk HP — sidebar tersembunyi di bawah md.
   document.getElementById('mobile-tabs').innerHTML =
     (tampilkanMenuModul ? menu.map(m => `
-      <a href="${m.href}" class="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
+      <a href="${m.href}" class="shrink-0 px-3 py-1.5 text-[11.5px] font-semibold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
         m.k === aktif ? 'bg-white text-indigo-600' : 'text-slate-500'}">
         <i class="fa-solid ${m.ico} text-[10px]"></i>${m.label}</a>`).join('') : '') +
     views.map((v, i) => `
       <button type="button" data-tab-tampilan="${esc(v.v)}" onclick="gantiTampilan('${esc(v.v)}')"
-        class="shrink-0 px-3 py-1.5 text-[11px] font-bold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
+        class="shrink-0 px-3 py-1.5 text-[11.5px] font-semibold rounded-md whitespace-nowrap flex items-center gap-1.5 ${
         i === 0 ? 'bg-white text-indigo-600' : 'text-slate-500'}">
         <i class="fa-solid ${v.ico} text-[10px]"></i>${esc(v.label)}</button>`).join('');
 
@@ -344,6 +353,11 @@ function gantiTampilan(v) {
     b.classList.toggle('text-indigo-700', on);
     b.classList.toggle('text-slate-500', !on);
     b.classList.toggle('hover:bg-slate-100', !on);
+    /* Penanda yang dipakai CSS halaman untuk menggambar rel emas di sisi kiri
+       menu aktif — ciri sidebar modul Reservasi. Dipisah dari kelas warna
+       Tailwind di atas karena pseudo-element tidak bisa dipasang lewat
+       utility class. */
+    b.classList.toggle('nav-on', on);
   });
   document.querySelectorAll('[data-tab-tampilan]').forEach(b => {
     const on = b.dataset.tabTampilan === v;
