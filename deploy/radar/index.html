@@ -344,10 +344,35 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
 .pager button:disabled{opacity:.35;cursor:default}
 .pager .pg-n{font-family:var(--mono);font-size:11.5px}
 
-/* ---------- TOTAL PAX DI SEL KALENDER ---------- */
-.cpax{margin-top:auto;padding-top:3px;border-top:1px solid var(--line-soft);
-  font-size:9.5px;font-family:var(--mono);color:var(--gold-deep);font-weight:700;line-height:1.35}
-.cpax span{display:block;font-weight:500;color:var(--muted);font-size:9px}
+/* ---------- KENDALI PERIODE (disalin dari modul Kompas) ----------
+   Saklar Harian|Bulanan berbentuk segmented supaya terbaca sebagai DUA KEADAAN
+   dari satu hal, bukan dua tombol aksi yang berdiri sendiri — lalu pemilih
+   tanggal/bulan bawaan browser di sebelahnya. Menggantikan deretan chip
+   "Hari ini / 7 Hari / Bulan Ini / Semua" yang tidak pernah bisa menjawab
+   "tanggal 17 bagaimana" tanpa menambah satu pemilih tanggal lagi di sampingnya. */
+.pkt{display:inline-flex;align-items:center;gap:9px;flex-wrap:wrap}
+.modesw{display:inline-flex;gap:3px;background:var(--ink-880);border:1.5px solid var(--line-hard);
+  border-radius:10px;padding:3px}
+.modesw button{border:none;background:transparent;padding:6px 13px;border-radius:8px;font-size:12.5px;
+  font-weight:700;color:var(--muted);cursor:pointer;transition:.15s;font-family:inherit}
+.modesw button:hover{color:var(--sand)}
+.modesw button.on{background:#fff;color:var(--gold-deep);box-shadow:0 1px 4px rgba(50,42,28,.12)}
+.pkt-lbl{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  background:var(--gold-glow);color:var(--gold-deep);font-size:11.5px;font-weight:700;white-space:nowrap}
+.pkt-lbl i{width:6px;height:6px;border-radius:50%;background:var(--gold);display:block}
+.pkt input{padding:8px 11px;border:1.5px solid var(--line-hard);border-radius:10px;background:#fff;
+  font-size:13.5px;font-weight:600;color:var(--sand);font-family:inherit}
+.pkt input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
+
+/* ---------- TOTAL PAX DI SEL KALENDER ----------
+   Dibesarkan (9.5px → 13px) setelah dicoba di layar: pada 9.5px angkanya
+   praktis tidak terbaca tanpa mendekat, padahal justru angka inilah yang
+   dicari orang saat membuka kalender. Rinciannya tetap kecil — ia keterangan,
+   bukan yang dibaca sekilas. */
+.cpax{margin-top:auto;padding-top:4px;border-top:1px solid var(--line-soft);
+  font-size:13px;font-family:var(--ff-display);color:var(--gold-deep);font-weight:700;line-height:1.2}
+.cpax span{display:block;font-weight:600;color:var(--muted);font-size:9.5px;font-family:var(--mono);
+  margin-top:2px;letter-spacing:-.01em}
 
 /* ---------- KARTU RESERVASI (tampilan grid) ---------- */
 .rc{border:1px solid var(--line-soft);border-radius:var(--radius);background:#fff;padding:12px 14px;
@@ -972,30 +997,44 @@ function pager(kunci,total,satuan){
   return out;
 }
 
-/* ================= RENTANG WAKTU BERSAMA =====================
-   Dipakai dashboard Radar, tab Event, dan tab Reservasi supaya "bulan ini" di
-   ketiganya berarti hal yang sama persis.
+/* ================= KENDALI PERIODE BERSAMA ===================
+   Bentuknya disalin dari modul Kompas: saklar Harian|Bulanan + pemilih
+   tanggal/bulan bawaan browser. Dipakai Radar, tab Event, dan tab Reservasi
+   supaya ketiganya menanyakan waktu dengan cara yang sama persis.
 
-   'minggu' sengaja 7 hari BERGULIR dari hari ini, bukan Senin–Minggu kalender.
-   Yang ditanyakan di rapat selalu "seminggu ke depan ada apa", dan minggu
-   kalender menjawab pertanyaan lain: pada hari Sabtu ia hanya menyisakan
-   sehari ke depan lalu berganti. */
-function dalamRentang(iso,periode){
+   Menggantikan chip "Hari ini / 7 Hari / Bulan Ini / Semua". Chip itu selalu
+   berpatokan pada HARI INI, jadi pertanyaan "tanggal 17 kemarin bagaimana"
+   atau "Desember nanti seperti apa" tidak pernah bisa dijawab tanpa menambah
+   satu pemilih tanggal lagi di sebelahnya — dan dua pemilih waktu berbeda arti
+   di satu baris adalah cara tercepat membaca angka hari yang salah.
+
+   Bentuk keadaannya: {mode:'hari'|'bulan', tgl:'YYYY-MM-DD', bln:'YYYY-MM'}.
+   Keduanya disimpan sekaligus, bukan satu nilai yang ditafsir ulang: berpindah
+   ke Bulanan lalu kembali ke Harian harus mengembalikan tanggal yang tadi
+   dipilih, bukan melompat ke hari ini. */
+function bulanISO(d){ d=d||new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+function periodeBaru(mode){ return {mode:mode||'bulan', tgl:todayISO(), bln:bulanISO()}; }
+function dalamPeriode(iso,st){
   if(!iso) return false;
-  if(periode==='semua') return true;
-  var d=dDay(iso);
-  if(periode==='hari')   return d===0;
-  if(periode==='minggu') return d>=0 && d<=6;
-  if(periode==='bulan'){
-    var x=pDate(iso), n=new Date();
-    return x.getMonth()===n.getMonth() && x.getFullYear()===n.getFullYear();
-  }
-  return true;
+  return st.mode==='hari' ? String(iso)===st.tgl : String(iso).slice(0,7)===st.bln;
 }
-var PERIODE_LBL={hari:'hari ini',minggu:'7 hari ke depan',bulan:'bulan ini',semua:'semua tanggal'};
-function chipPeriode(fn,aktif){
-  return [['hari','Hari ini'],['minggu','7 Hari'],['bulan','Bulan Ini'],['semua','Semua']]
-    .map(function(p){ return '<button class="chip'+(aktif===p[0]?' on':'')+'" onclick="APP.'+fn+'(\'periode\',\''+p[0]+'\')">'+p[1]+'</button>'; }).join('');
+function labelPeriode(st){
+  if(st.mode==='hari') return fTgl(st.tgl);
+  var p=String(st.bln||'').split('-');
+  return (BULAN[(+p[1]||1)-1]||'')+' '+(p[0]||'');
+}
+function kendaliPeriode(fn,st){
+  var hari=st.mode==='hari';
+  return '<span class="pkt no-print">'+
+    '<span class="modesw">'+
+      '<button type="button" class="'+(hari?'on':'')+'" onclick="APP.'+fn+'(\'mode\',\'hari\')">Harian</button>'+
+      '<button type="button" class="'+(hari?'':'on')+'" onclick="APP.'+fn+'(\'mode\',\'bulan\')">Bulanan</button>'+
+    '</span>'+
+    '<span class="pkt-lbl"><i></i>'+(hari?'Tanggal':'Periode')+'</span>'+
+    (hari
+      ? '<input type="date" value="'+esc(st.tgl)+'" onchange="APP.'+fn+'(\'tgl\',this.value)">'
+      : '<input type="month" value="'+esc(st.bln)+'" onchange="APP.'+fn+'(\'bln\',this.value)">')+
+  '</span>';
 }
 
 /* ================= STATUS YANG DIANGGAP "PASTI JALAN" =========
@@ -1046,7 +1085,7 @@ function pitaGagal(){
    (lihat agPasti). Event yang masih Lead/Prospect punya tanggal dan angka pax
    di kontrak calon, tapi belum tentu terjadi; memasukkannya membuat papan hari
    ini menjanjikan tamu yang mungkin tidak pernah datang. */
-var fRd={periode:'hari'};
+var fRd=periodeBaru('hari');
 function vRadar(){
   var t=todayISO();
   var akan=AGENDA.filter(function(a){return dDay(a.tgl)>=0;});
@@ -1054,24 +1093,20 @@ function vRadar(){
   var fokus=akan[0]||null;
   var h=pitaGagal();
 
-  var per=fRd.periode;
-  var agPer=AGENDA.filter(function(a){ return agPasti(a) && dalamRentang(a.tgl,per); });
-  var rsPer=resAktif().filter(function(r){ return dalamRentang(r.date,per); });
+  var agPer=AGENDA.filter(function(a){ return agPasti(a) && dalamPeriode(a.tgl,fRd); });
+  var rsPer=resAktif().filter(function(r){ return resHidup(r) && dalamPeriode(r.date,fRd); });
   var mkt=agPer.filter(function(a){return a.sumber==='mkt';});
   var evt=agPer.filter(function(a){return a.sumber==='evt';});
   var paxOf=function(l){ return l.reduce(function(s,a){return s+(+a.pax||0);},0); };
-  var lbl=PERIODE_LBL[per];
+  var lbl=labelPeriode(fRd);
 
-  h+='<div class="filters no-print" style="margin-bottom:13px">'+
-     '<span class="eyebrow" style="margin-right:2px">Ringkasan</span>'+
-     '<button class="chip'+(per==='hari'?' on':'')+'" onclick="APP.fRd(\'periode\',\'hari\')">Hari ini</button>'+
-     '<button class="chip'+(per==='minggu'?' on':'')+'" onclick="APP.fRd(\'periode\',\'minggu\')">7 Hari</button>'+
-     '<button class="chip'+(per==='bulan'?' on':'')+'" onclick="APP.fRd(\'periode\',\'bulan\')">Bulan Ini</button>'+
-     '<span class="muted" style="font-size:11.5px">'+esc(per==='bulan'?BULAN[new Date().getMonth()]+' '+new Date().getFullYear():fTgl(t))+'</span>'+
-     '</div>';
+  h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:13px 18px">'+
+     '<span class="eyebrow">Ringkasan</span>'+kendaliPeriode('fRd',fRd)+
+     '<div style="flex:1"></div>'+
+     '<span class="muted" style="font-size:12px">'+esc(lbl)+'</span></div>';
 
   h+='<div class="grid g4" style="margin-bottom:16px">'+
-    stat('Total reservasi', rsPer.length, paxRes(rsPer)+' pax meja · '+lbl,'se')+
+    stat('Total reservasi', rsPer.length, paxRes(rsPer)+' pax meja','se')+
     stat('Total pax Event', paxOf(evt), evt.length+' acara · dari modul Event','tl')+
     stat('Total pax Marketing', paxOf(mkt), mkt.length+' event · pax kontrak klien','')+
     stat('Butuh perhatian', al.filter(function(x){return x.p===1;}).length, al.length+' item di papan peringatan',
@@ -1110,10 +1145,40 @@ function vRadar(){
     h+='</div></div>';
   }
 
-  h+='<div class="sec-h"><h2>Agenda 14 hari</h2><span class="rule"></span></div>';
-  var dua=akan.filter(function(a){return dDay(a.tgl)<=14;});
+  /* AGENDA 14 HARI — sumbernya tab Event + tab Reservasi di Radar ini, bukan
+     data mentah ketiga modul. Artinya aturan penyaring kedua tab itu ikut
+     berlaku di sini: acara hanya yang sudah pasti jalan (agPasti), reservasi
+     hanya yang hidup (resHidup, tanpa Cancelled & No-show).
+
+     Sebelumnya bagian ini menggambar AGENDA apa adanya, sehingga event yang
+     masih Lead/Prospect ikut nongkrong di papan koordinasi 14 hari — padahal
+     tidak ada yang perlu disiapkan untuk peluang yang belum tentu jadi. Dan
+     reservasi sama sekali tidak muncul, jadi hari yang penuh booking meja
+     terbaca "kosong" di papan yang justru dipakai untuk melihat beban hari.
+
+     Keduanya digambar dengan kartu yang BERBEDA BENTUK (agendaCard vs
+     resCard) dan berlencana sumber — supaya tetap terbaca sebagai dua hal,
+     bukan satu daftar campur. */
+  var dua=AGENDA.filter(function(a){ var d=dDay(a.tgl); return agPasti(a) && d>=0 && d<=14; })
+    .map(function(a){ return {tgl:a.tgl, jam:a.jam||'', jenis:'ag', d:a}; })
+    .concat(resAktif().filter(function(r){ var d=dDay(r.date); return resHidup(r) && d>=0 && d<=14; })
+      .map(function(r){ return {tgl:r.date, jam:r.time||'', jenis:'rs', d:r}; }));
+  dua.sort(function(a,b){
+    if(a.tgl!==b.tgl) return a.tgl<b.tgl?-1:1;
+    if(!a.jam&&!b.jam) return 0;
+    if(!a.jam) return 1;
+    if(!b.jam) return -1;
+    return a.jam<b.jam?-1:(a.jam>b.jam?1:0);
+  });
+  var nAg=dua.filter(function(x){return x.jenis==='ag';}).length;
+  h+='<div class="sec-h"><h2>Agenda 14 hari</h2><span class="rule"></span>'+
+     '<span class="muted" style="font-size:12px">'+nAg+' acara · '+(dua.length-nAg)+' reservasi</span></div>';
   if(!dua.length) h+=kosong('Tidak ada agenda dalam 14 hari','Jendela kosong. Kalau ini bukan low season, ini saatnya mendorong booking korporat.');
-  else { h+='<div class="grid" style="gap:11px">'; dua.forEach(function(a){h+=agendaCard(a);}); h+='</div>'; }
+  else {
+    h+='<div class="grid" style="gap:11px">';
+    pgIris('radar14',dua).forEach(function(x){ h+= x.jenis==='ag' ? agendaCard(x.d) : resCard(x.d); });
+    h+='</div>'+pager('radar14',dua.length,'baris');
+  }
 
   h+='<div class="sec-h" style="margin-top:22px"><h2>Reservasi hari ini</h2><span class="rule"></span>'+
      '<span class="muted" style="font-size:12px">'+resTgl(t).length+' booking</span></div>';
@@ -1229,6 +1294,23 @@ function vKalender(){
   if(!fCal.mkt&&!fCal.evt&&!fCal.rsv)
     h+='<div class="src-bad no-print" style="background:var(--warn-bg);border-color:var(--warn);color:var(--warn)">'+
        '<span>⚠</span><span>Ketiga sumber sedang dimatikan, jadi kalendernya kosong bukan karena tidak ada jadwal.</span></div>';
+
+  /* RINGKASAN BULAN DI ATAS KALENDER, bukan di bawahnya.
+     Sebelumnya empat kartu ini berada di kaki halaman — di bulan yang penuh,
+     kalendernya sendiri sudah setinggi layar, jadi angka "total pax bulan ini"
+     baru terlihat setelah menggulir melewati seluruh kisi. Padahal itu angka
+     yang dicari duluan, dan kisi kalender adalah rinciannya. */
+  var bln=AGENDA.filter(function(a){var x=pDate(a.tgl);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
+  var rbln=resAktif().filter(function(r){var x=pDate(r.date);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
+  var paxBln=function(src){ return bln.filter(function(a){return a.sumber===src;}).reduce(function(s,a){return s+(+a.pax||0);},0); };
+  h+='<div class="grid g4" style="margin-bottom:16px">'+
+    stat('Total pax '+BULAN[calCur.m], paxBln('mkt')+paxBln('evt')+paxRes(rbln),
+         paxBln('mkt')+' mkt · '+paxBln('evt')+' evt · '+paxRes(rbln)+' rsv','')+
+    stat('Agenda bulan ini', bln.length, bln.filter(function(a){return a.sumber==='mkt';}).length+' Marketing · '+bln.filter(function(a){return a.sumber==='evt';}).length+' Event','tl')+
+    stat('Reservasi bulan ini', rbln.length, paxRes(rbln)+' pax meja','se')+
+    stat('Hari dobel agenda', Object.keys(bln.reduce(function(o,a){o[a.tgl]=(o[a.tgl]||0)+1;return o;},{})).filter(function(k){return bln.filter(function(a){return a.tgl===k;}).length>1;}).length, 'perlu dicek bentroknya','rd')+
+  '</div>';
+
   h+='<div class="cal">';
   ['Min','Sen','Sel','Rab','Kam','Jum','Sab'].forEach(function(d){h+='<div class="cal-hd">'+d+'</div>';});
   for(var i=0;i<42;i++){
@@ -1257,16 +1339,6 @@ function vKalender(){
     h+='</div>';
   }
   h+='</div>';
-  var bln=AGENDA.filter(function(a){var x=pDate(a.tgl);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
-  var rbln=resAktif().filter(function(r){var x=pDate(r.date);return x.getMonth()===calCur.m&&x.getFullYear()===calCur.y;});
-  var paxBln=function(src){ return bln.filter(function(a){return a.sumber===src;}).reduce(function(s,a){return s+(+a.pax||0);},0); };
-  h+='<div class="grid g4" style="margin-top:16px">'+
-    stat('Total pax bulan ini', paxBln('mkt')+paxBln('evt')+paxRes(rbln),
-         paxBln('mkt')+' mkt · '+paxBln('evt')+' evt · '+paxRes(rbln)+' rsv','')+
-    stat('Agenda bulan ini', bln.length, bln.filter(function(a){return a.sumber==='mkt';}).length+' Marketing · '+bln.filter(function(a){return a.sumber==='evt';}).length+' Event','tl')+
-    stat('Reservasi bulan ini', rbln.length, paxRes(rbln)+' pax meja','se')+
-    stat('Hari dobel agenda', Object.keys(bln.reduce(function(o,a){o[a.tgl]=(o[a.tgl]||0)+1;return o;},{})).filter(function(k){return bln.filter(function(a){return a.tgl===k;}).length>1;}).length, 'perlu dicek bentroknya','rd')+
-  '</div>';
   return h;
 }
 
@@ -1467,10 +1539,10 @@ function vDetailEvent(){
    untuk menyiapkan operasional, dan peluang yang belum tentu jadi cuma
    menambah baris yang tidak boleh disiapkan apa-apa. Pipeline penjualannya
    tetap ada di modul Marketing, tempatnya memang di sana. */
-var fAg={periode:'bulan', view:'grid', sumber:'', status:'', q:''};
+var fAg={view:'grid', sumber:'', status:'', q:'', mode:'bulan', tgl:todayISO(), bln:bulanISO()};
 function agendaTersaring(){
   var list=AGENDA.filter(agPasti);
-  list=list.filter(function(a){return dalamRentang(a.tgl,fAg.periode);});
+  list=list.filter(function(a){return dalamPeriode(a.tgl,fAg);});
   if(fAg.sumber) list=list.filter(function(a){return a.sumber===fAg.sumber;});
   if(fAg.status) list=list.filter(function(a){return String(a.status||'')===fAg.status;});
   if(fAg.q){var q=fAg.q.toLowerCase();
@@ -1508,15 +1580,18 @@ function vAgendaList(){
   var list=agendaTersaring();
   var paxMkt=list.filter(function(a){return a.sumber==='mkt';}).reduce(function(s,a){return s+(+a.pax||0);},0);
   var paxEvt=list.filter(function(a){return a.sumber==='evt';}).reduce(function(s,a){return s+(+a.pax||0);},0);
+  h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:13px 18px">'+
+     '<span class="eyebrow">Periode</span>'+kendaliPeriode('fAg',fAg)+
+     '<div style="flex:1"></div>'+
+     '<span class="muted" style="font-size:12px">'+esc(labelPeriode(fAg))+'</span></div>';
   h+='<div class="grid g4" style="margin-bottom:15px">'+
-    stat('Acara tampil', list.length, PERIODE_LBL[fAg.periode],'')+
+    stat('Acara tampil', list.length, labelPeriode(fAg),'')+
     stat('Pax Marketing', paxMkt, list.filter(function(a){return a.sumber==='mkt';}).length+' event klien','')+
     stat('Pax Event', paxEvt, list.filter(function(a){return a.sumber==='evt';}).length+' acara modul Event','tl')+
     stat('Total pax', paxMkt+paxEvt, 'gabungan kedua sumber','se')+
   '</div>';
   h+='<div class="filters">'+
     '<input class="finp" placeholder="Cari nama, tempat, jenis…" value="'+esc(fAg.q)+'" oninput="APP.fAg(\'q\',this.value)" style="min-width:210px">'+
-    chipPeriode('fAg',fAg.periode)+
     '<select class="finp" onchange="APP.fAg(\'sumber\',this.value)"><option value="">Semua sumber</option>'+
       '<option value="mkt"'+(fAg.sumber==='mkt'?' selected':'')+'>Marketing</option>'+
       '<option value="evt"'+(fAg.sumber==='evt'?' selected':'')+'>Event</option></select>'+
@@ -1534,21 +1609,20 @@ function vAgendaList(){
   return h+'</div>'+pager('agenda',list.length,'acara');
 }
 
-/* ---------- HALAMAN: RESERVASI ---------- */
-/* tgl = filter SATU hari. Kalau terisi ia menggantikan filter rentang: pertanyaan
-   "tanggal 25 siapa saja tamunya" tidak ada hubungannya dengan akan-datang /
-   riwayat, dan membiarkan keduanya aktif membuat hasilnya kosong tanpa sebab
-   yang terlihat. Daftar penuh + filternya tetap ada — hanya bertambah satu
-   cara menyaring. */
-/* Dibangun dengan konsep yang sama dengan tab Event: saklar grid/tabel,
-   periode harian/mingguan/bulanan, dan hanya booking yang HIDUP.
+/* ---------- HALAMAN: RESERVASI ----------
+   Dibangun dengan konsep yang sama dengan tab Event: saklar grid/tabel,
+   kendali periode Harian|Bulanan bergaya Kompas, dan hanya booking yang HIDUP.
+
+   Mode Harian di sini menggantikan "lembar harian" lama yang dipicu pemilih
+   tanggal terpisah: satu pemilih waktu saja di layar ini, dan kalau modenya
+   Harian maka halaman ini memang lembar tengok hari itu.
 
    "Hidup" = bukan Cancelled dan bukan No-show. Keduanya tidak akan datang,
    jadi membiarkannya di daftar operasional membuat jumlah booking dan pax
    terbaca lebih besar dari kenyataan — persis kesalahan yang dulu bikin floor
    menyiapkan meja untuk tamu yang sudah membatalkan. Jejaknya tidak hilang:
    pilih statusnya di penyaring untuk memunculkannya kembali. */
-var fRs={periode:'bulan', view:'tabel', status:'', kategori:'', q:'', tgl:''};
+var fRs={view:'tabel', status:'', kategori:'', q:'', mode:'bulan', tgl:todayISO(), bln:bulanISO()};
 function resHidup(r){ return !resBatal(r) && !resNoShow(r); }
 function resTersaring(){
   var list=(D.rsv&&D.rsv.reservations||[]).filter(function(r){return r&&r.date;});
@@ -1557,8 +1631,7 @@ function resTersaring(){
      sebab yang terlihat. */
   if(fRs.status) list=list.filter(function(r){return String(r.status||'')===fRs.status;});
   else list=list.filter(resHidup);
-  if(fRs.tgl) list=list.filter(function(r){return r.date===fRs.tgl;});
-  else list=list.filter(function(r){return dalamRentang(r.date,fRs.periode);});
+  list=list.filter(function(r){return dalamPeriode(r.date,fRs);});
   if(fRs.kategori) list=list.filter(function(r){return String(r.category||'')===fRs.kategori;});
   if(fRs.q){var q=fRs.q.toLowerCase();
     list=list.filter(function(r){return ((r.name||'')+' '+(r.phone||'')+' '+(r.table||'')).toLowerCase().indexOf(q)>-1;});}
@@ -1590,12 +1663,18 @@ function vResList(){
   var stSet={}, katSet={};
   all.forEach(function(r){ if(r.status)stSet[r.status]=1; if(r.category)katSet[r.category]=1; });
   var list=resTersaring();
-  var hari=fRs.tgl;                     // '' = semua tanggal
+  /* '' saat mode Bulanan. Semua bagian "lembar harian" di bawah bergantung
+     pada nilai ini, jadi satu tempat saja yang memutuskan. */
+  var hari=fRs.mode==='hari'?fRs.tgl:'';
   var h=pitaGagal();
+  h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:13px 18px">'+
+     '<span class="eyebrow">Periode</span>'+kendaliPeriode('fRs',fRs)+
+     '<div style="flex:1"></div>'+
+     '<span class="muted" style="font-size:12px">'+esc(labelPeriode(fRs))+'</span></div>';
   /* LEMBAR HARIAN — briefing harian dilebur ke sini, menu "Briefing" terpisah
-     dihapus. Begitu satu hari dipilih, halaman ini berubah jadi lembar tengok
+     dihapus. Begitu modenya Harian, halaman ini berubah jadi lembar tengok
      harian: siapa saja tamunya, permintaan khususnya, siap dikirim WA atau
-     dicetak. Tanpa hari terpilih, ia tetap daftar penuh seperti biasa. */
+     dicetak. Di mode Bulanan ia tetap daftar penuh seperti biasa. */
   if(hari){
     var ags=agendaTgl(hari);
     h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:14px 18px">'+
@@ -1617,8 +1696,7 @@ function vResList(){
   }
   var blmKonf=list.filter(function(r){return /pending|menunggu/i.test(String(r.status||''));}).length;
   h+='<div class="grid g4" style="margin-bottom:15px">'+
-    stat(hari?'Booking hari itu':'Reservasi tampil', list.length,
-         hari?fTglP(hari):PERIODE_LBL[fRs.periode],'')+
+    stat(hari?'Booking hari itu':'Reservasi tampil', list.length, labelPeriode(fRs),'')+
     stat('Total pax', paxRes(list), 'tanpa yang batal & no-show','se')+
     (hari
       ? stat('Meja terpakai', list.filter(function(r){return r.table;}).length, 'dari booking hari itu','tl')
@@ -1627,14 +1705,6 @@ function vResList(){
   '</div>';
   h+='<div class="filters no-print">'+
     '<input class="finp" placeholder="Cari nama, nomor, meja…" value="'+esc(fRs.q)+'" oninput="APP.fRs(\'q\',this.value)" style="min-width:200px">'+
-    /* Pemilih satu hari berdiri di depan chip periode, dan chip periode
-       diredupkan saat satu hari dipilih — supaya jelas mana yang berlaku. */
-    '<input class="finp" type="date" style="min-width:148px" value="'+esc(fRs.tgl)+'" onchange="APP.fRs(\'tgl\',this.value)">'+
-    (fRs.tgl?'<button class="chip" onclick="APP.fRs(\'tgl\',\'\')">✕ Lepas tanggal</button>':'')+
-    /* Dibungkus supaya keempat chip bisa diredupkan sekaligus. inline-flex +
-       gap-nya ditulis ulang di sini: sebagai satu flex item, gap milik
-       .filters tidak berlaku untuk anak-anak di dalamnya. */
-    '<span style="display:inline-flex;gap:9px;flex-wrap:wrap'+(fRs.tgl?';opacity:.45':'')+'">'+chipPeriode('fRs',fRs.periode)+'</span>'+
     '<select class="finp" onchange="APP.fRs(\'status\',this.value)"><option value="">Hanya yang hidup</option>'+
       Object.keys(stSet).sort().map(function(s){return '<option'+(fRs.status===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
     '<select class="finp" onchange="APP.fRs(\'kategori\',this.value)"><option value="">Semua kategori</option>'+
@@ -1945,7 +2015,10 @@ var APP={
   detailPenuh:function(sum,id){ detailRef={sumber:sum,id:String(id)}; page='detail'; render(); },
   /* Pintasan dari kartu "Hari ini" — membuka Reservasi yang sudah tersaring ke
      hari ini, menggantikan tombol "lembar briefing" yang lama. */
-  resHariIni:function(){ fRs.tgl=todayISO(); pgReset(); page='reservasi'; render(); },
+  /* Pintasan dari kartu "Hari ini": buka Reservasi dalam mode Harian pada
+     tanggal hari ini. Modenya WAJIB ikut disetel — menaruh tanggalnya saja
+     tidak berpengaruh apa-apa selama halaman itu masih di mode Bulanan. */
+  resHariIni:function(){ fRs.mode='hari'; fRs.tgl=todayISO(); pgReset(); page='reservasi'; render(); },
   /* Tiap perubahan penyaring MENYETEL ULANG nomor halaman. Tanpa ini, mengetik
      kata kunci baru sementara masih di halaman 7 menghasilkan layar kosong yang
      terlihat seperti "tidak ada datanya" — padahal datanya ada di halaman 1.
