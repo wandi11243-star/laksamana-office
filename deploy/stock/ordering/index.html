@@ -310,10 +310,20 @@
                         <div class="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-ping"></div>
                         <span id="batch-summary-text" class="text-xs font-extrabold text-slate-500">0 Item siap dikirim</span>
                     </div>
-                    <!-- Tombol sekarang memanggil startOrderSubmission (menampilkan pop-up pre-submit) -->
-                    <button type="button" id="btn-trigger-submit" onclick="startOrderSubmission()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black px-8 py-3.5 rounded-2xl text-sm transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-list-check"></i> Cek & Submit Pesanan
-                    </button>
+                    <!-- Simpan Draft berdiri DI SEBELAH tombol kirim, bukan di
+                         dalam menu tersembunyi: order yang disusun bertahap
+                         ("tunggu, saya tanya dapur dulu") itu hal biasa, dan
+                         satu-satunya cara menyelamatkannya dulu adalah tidak
+                         menutup tab. -->
+                    <div class="w-full sm:w-auto flex flex-col sm:flex-row gap-2">
+                      <button type="button" onclick="simpanDraf('belanja')" class="w-full sm:w-auto bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold px-5 py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-2">
+                          <i class="fa-regular fa-floppy-disk"></i> Simpan Draft
+                      </button>
+                      <!-- Tombol sekarang memanggil startOrderSubmission (menampilkan pop-up pre-submit) -->
+                      <button type="button" id="btn-trigger-submit" onclick="startOrderSubmission()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black px-8 py-3.5 rounded-2xl text-sm transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2">
+                          <i class="fa-solid fa-list-check"></i> Cek & Submit Pesanan
+                      </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -400,6 +410,7 @@
                         <div class="w-2.5 h-2.5 bg-teal-600 rounded-full animate-ping"></div>
                         <span id="ck-summary-text" class="text-xs font-extrabold text-slate-500">0 Baris siap dikirim</span>
                     </div>
+                    <button type="button" onclick="simpanDraf('ck')" class="w-full sm:w-auto bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold px-5 py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-2"><i class="fa-regular fa-floppy-disk"></i> Simpan Draft</button>
                     <button type="button" id="btn-ck-submit" onclick="submitCKOrder()" class="w-full sm:w-auto bg-teal-600 hover:bg-teal-700 text-white font-black px-8 py-3.5 rounded-2xl text-sm transition-all shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2">
                         <i class="fa-solid fa-paper-plane"></i> Kirim Pengajuan
                     </button>
@@ -437,6 +448,7 @@
                             <div class="w-2.5 h-2.5 bg-teal-600 rounded-full animate-ping"></div>
                             <span id="kirim-summary-text" class="text-xs font-extrabold text-slate-500">0 Baris siap dikirim</span>
                         </div>
+                        <button type="button" onclick="simpanDraf('kirim')" class="w-full sm:w-auto bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold px-5 py-3.5 rounded-2xl text-sm transition-all flex items-center justify-center gap-2"><i class="fa-regular fa-floppy-disk"></i> Simpan Draft</button>
                         <button type="button" id="btn-kirim-submit" onclick="submitKirimCK()" class="w-full sm:w-auto bg-teal-600 hover:bg-teal-700 text-white font-black px-8 py-3.5 rounded-2xl text-sm transition-all shadow-lg shadow-teal-500/20 flex items-center justify-center gap-2">
                             <i class="fa-solid fa-truck-fast"></i> Catat Kiriman
                         </button>
@@ -1409,6 +1421,13 @@
                 try { loadSettings(); } catch (e) { console.warn('loadSettings gagal, pakai config tertanam:', e); }
                 updateNetworkStatus();     // nilai status setelah config siap
                 for (let i = 0; i < 3; i++) addNewBatchRow();
+                /* Sesudah baris awal ada, sebelum apa pun diisi: memasang wadah
+                   pita draf + penyimpan otomatis untuk KETIGA form sekaligus.
+                   Form CK barisnya baru dibuat saat tabnya dibuka, tapi wadah
+                   pita tetap dipasang di sini karena wrapper-nya sudah ada di
+                   markup sejak awal — jadi draf CK yang tertinggal langsung
+                   ditawarkan begitu tabnya dibuka, bukan setelah diisi lagi. */
+                siapkanDraf();
                 setTomorrowAsDefaultDate();
                 // isoLokal, bukan toISOString: di WIB toISOString memundurkan
                 // tanggal untuk tiap jam sebelum pukul 07:00, jadi check-in akan
@@ -1721,6 +1740,12 @@
                 label.textContent = (!iso || isNaN(d)) ? 'Pilih tanggal' : d.toLocaleDateString('id-ID', fmt);
             }
             if (KAL[id] && KAL[id].bulan) renderKal(id);
+            /* Input tanggalnya TERSEMBUNYI dan diisi lewat kode, jadi browser
+               tidak pernah menerbitkan event apa pun untuknya. Tanpa baris ini,
+               penyimpan draf otomatis (lihat siapkanDraf) tidak akan pernah tahu
+               tanggalnya berubah — dan draf yang dipulihkan akan membawa tanggal
+               lama sementara layarnya menunjukkan tanggal baru. */
+            inp.dispatchEvent(new Event('change', { bubbles: true }));
             if (picu && KAL[id] && KAL[id].onPick) {
                 try { (new Function(KAL[id].onPick))(); }
                 catch (e) { console.warn('Aksi kalender gagal:', e); }
@@ -2141,6 +2166,7 @@
                 document.getElementById('ck-kirim-kosong-warn')
                     .classList.toggle('hidden', daftarBarangKirimCK().length > 0);
                 if (wrap && !wrap.children.length) { for (let i = 0; i < 2; i++) addKirimRow(); }
+                gambarBannerDraf('kirim');   // tawarkan draf yang tertinggal, kalau ada
                 updateKirimSummary();
             }
             if (v === 'riwayat') muatRiwayatKiriman();
@@ -2162,6 +2188,7 @@
             const wrap = document.getElementById('ck-rows-wrapper');
             if (wrap && !wrap.children.length) { for (let i = 0; i < 2; i++) addCKRow(); }
             else refreshSemuaBarisCK();      // sisa stok bisa berubah sejak terakhir dibuka
+            gambarBannerDraf('ck');          // tawarkan draf yang tertinggal, kalau ada
             updateCKSummary();
         }
 
@@ -2391,7 +2418,8 @@
                 if (digabung) bagian.push(`${digabung} barang digabung`);
                 showToast("Pengajuan Terkirim", `${bagian.join(' & ') || 'Pengajuan'} tercatat. Central Kitchen akan menyiapkannya.`, "success");
 
-                document.getElementById('ck-rows-wrapper').innerHTML = '';
+                buangDraf('ck', true);            // sudah terkirim — drafnya tidak berlaku lagi
+            document.getElementById('ck-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 2; i++) addCKRow();
                 updateCKSummary();
             } catch (e) {
@@ -2592,7 +2620,8 @@
                     : `${sukses} dari ${daftar.length} tercatat. Sisanya gagal: ${pesanGagal}`;
                 showToast(sukses === daftar.length ? "Kiriman Tercatat" : "Sebagian Tercatat", pesan,
                           sukses === daftar.length ? "success" : "warning");
-                document.getElementById('kirim-rows-wrapper').innerHTML = '';
+                buangDraf('kirim', true);         // sudah tercatat — drafnya tidak berlaku lagi
+            document.getElementById('kirim-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 2; i++) addKirimRow();
                 updateKirimSummary();
                 muatRiwayatKiriman();
@@ -2858,6 +2887,237 @@
            "Pengaturan Sinkronisasi Server": semua URL server kini tertanam di
            EMBEDDED_CONFIG (MySQL), dan submit tidak lagi lewat Google Form. */
 
+        // ==========================================
+        //  DRAF FORM — Order Belanja & Central Kitchen
+        // ==========================================
+        /* Tiga form di modul ini bentuknya sama persis: sederet baris
+           {barang, jumlah, satuan, catatan} plus satu tanggal di kepalanya.
+           Karena itu satu mesin draf melayani ketiganya, bukan tiga salinan
+           yang lambat laun berbeda perilaku.
+
+           DUA hal yang dikerjakan:
+
+           1. SIMPAN DRAFT MANUAL — tombol di tiap form. Untuk order yang
+              disusun bertahap ("tunggu, saya tanya dapur dulu") dan belum
+              boleh terkirim.
+
+           2. PENYELAMAT OTOMATIS — isian disimpan diam-diam tiap kali diubah.
+              Ini yang menjawab "keluar terus masuk lagi": HP terkunci, tab
+              tertutup, browser mati, atau sinyal hilang saat menekan Kirim —
+              begitu halaman dibuka lagi, isian yang tadi ditawarkan kembali,
+              bukan hilang tanpa jejak. Sebelumnya form seperti itu benar-benar
+              hilang, dan kru mengetik ulang belasan baris dari ingatan.
+
+           DISIMPAN DI PERANGKAT (localStorage), BUKAN DI SERVER. Draf adalah
+           isian yang BELUM dikirim — menaruhnya di server berarti order
+           setengah jadi ikut terbaca tim lain sebagai pesanan yang mungkin
+           akan datang. Konsekuensinya jujur: draf tidak berpindah perangkat,
+           dan itu ditulis di layar supaya tidak ada yang menunggu drafnya
+           muncul di HP lain.
+
+           Draf ditandai NAMA PIC. Satu tablet sering dipakai bergantian; draf
+           orang lain tetap ditampilkan (jangan sampai hilang diam-diam) tapi
+           namanya disebut, sehingga tidak ada yang mengirim order milik
+           rekannya tanpa sadar. */
+        const DRAF_KEY = 'lm_ordering_draft_v1';
+        const DRAF_FORM = {
+            belanja: { wrap:'batch-rows-wrapper', pre:'batch-row-', tglId:'batch-arrival-date',
+                       tambah:()=>addNewBatchRow(), min:3, label:'Order Belanja' },
+            ck:      { wrap:'ck-rows-wrapper',    pre:'ck-row-',    tglId:'ck-arrival-date',
+                       tambah:()=>addCKRow(),      min:2, label:'Order Central Kitchen' },
+            kirim:   { wrap:'kirim-rows-wrapper', pre:'kirim-row-', tglId:'',
+                       tambah:()=>addKirimRow(),   min:2, label:'Kiriman Central Kitchen' },
+        };
+
+        function drafSemua() {
+            try { const d = JSON.parse(localStorage.getItem(DRAF_KEY) || '{}'); return (d && typeof d === 'object') ? d : {}; }
+            catch (e) { return {}; }
+        }
+        function drafTulis(semua) {
+            try { localStorage.setItem(DRAF_KEY, JSON.stringify(semua)); return true; }
+            catch (e) { return false; }   // kuota penuh / mode privat: jangan sampai melempar
+        }
+
+        /* Baca isi sebuah form apa adanya. Baris yang benar-benar kosong
+           dibuang di sini — form selalu dibuka dengan 2-3 baris kosong, dan
+           tanpa ini setiap halaman yang cuma dilihat sekilas akan tersimpan
+           sebagai "draf" berisi tiga baris hampa. */
+        function bacaForm(jenis) {
+            const F = DRAF_FORM[jenis]; if (!F) return null;
+            const wrap = document.getElementById(F.wrap); if (!wrap) return null;
+            const rows = [];
+            [...wrap.children].forEach(el => {
+                const id = String(el.id || '').replace(F.pre, '');
+                if (!id) return;
+                const g = (k) => (document.getElementById(`${F.pre}${k}-${id}`) || {}).value;
+                const item = String(g('item') || '').trim();
+                const qty  = String(g('qty')  || '').trim();
+                const note = String(g('note') || '').trim();
+                if (!item && !note) return;                 // baris kosong bawaan
+                rows.push({ item, qty, unit: String(g('unit') || ''), note });
+            });
+            const tgl = F.tglId ? ((document.getElementById(F.tglId) || {}).value || '') : '';
+            return { tgl, rows };
+        }
+
+        function drafAdaIsi(d) { return !!(d && Array.isArray(d.rows) && d.rows.length); }
+
+        /* Simpan senyap. Dipanggil tiap isian berubah (lihat pasangAutoDraf)
+           dan saat halaman ditutup. Form yang kosong menghapus drafnya, bukan
+           menyimpan draf kosong — kalau tidak, membuka lalu mengosongkan form
+           akan meninggalkan tawaran "pulihkan draf" yang isinya nihil. */
+        function simpanDrafSenyap(jenis) {
+            const isi = bacaForm(jenis); if (!isi) return;
+            const semua = drafSemua();
+            if (drafAdaIsi(isi)) {
+                semua[jenis] = { ...isi, ts: Date.now(),
+                                 pic: (document.getElementById('batch-pic-name') || {}).value || '' };
+            } else delete semua[jenis];
+            drafTulis(semua);
+            gambarBannerDraf(jenis);
+        }
+
+        // Tombol "Simpan Draft" — sama isinya dengan simpan senyap, bedanya
+        // memberi tahu bahwa tersimpan. Tanpa kabar itu, orang menekan tombolnya
+        // berkali-kali karena tidak yakin ada yang terjadi.
+        function simpanDraf(jenis) {
+            const isi = bacaForm(jenis);
+            if (!drafAdaIsi(isi)) return showToast("Belum Ada Isi", "Isi minimal satu baris sebelum menyimpan draft.", "warning");
+            simpanDrafSenyap(jenis);
+            showToast("Draft Tersimpan", `${isi.rows.length} baris disimpan di perangkat ini. Buka lagi kapan saja.`, "success");
+        }
+
+        function buangDraf(jenis, diam) {
+            const semua = drafSemua();
+            if (!semua[jenis]) return;
+            delete semua[jenis]; drafTulis(semua);
+            gambarBannerDraf(jenis);
+            if (!diam) showToast("Draft Dibuang", `Draft ${DRAF_FORM[jenis].label} dihapus.`, "info");
+        }
+
+        /* Tuang draf ke form. Baris lama dibuang lebih dulu supaya isian draf
+           tidak bercampur dengan baris kosong yang sudah ada. Autocomplete &
+           panel prakiraan disegarkan lewat 'input'/'change' buatan — mengisi
+           .value lewat kode tidak memicu keduanya, dan tanpa itu satuan dan
+           sisa stok CK tampil kosong padahal barangnya sudah terisi. */
+        function pulihkanDraf(jenis) {
+            const F = DRAF_FORM[jenis], d = drafSemua()[jenis];
+            if (!F || !drafAdaIsi(d)) return;
+            const wrap = document.getElementById(F.wrap); if (!wrap) return;
+            wrap.innerHTML = '';
+            d.rows.forEach(() => F.tambah());
+            [...wrap.children].forEach((el, i) => {
+                const id = String(el.id || '').replace(F.pre, '');
+                const r = d.rows[i] || {};
+                const set = (k, v) => {
+                    const inp = document.getElementById(`${F.pre}${k}-${id}`);
+                    if (!inp || v == null) return;
+                    inp.value = v;
+                    inp.dispatchEvent(new Event(k === 'unit' ? 'change' : 'input', { bubbles: true }));
+                };
+                set('item', r.item); set('qty', r.qty); set('note', r.note);
+                // Satuan DITARUH TERAKHIR: memilih barang akan menulis ulang
+                // daftar satuannya, jadi menyetelnya lebih dulu akan tertimpa.
+                set('unit', r.unit);
+            });
+            /* WAJIB lewat setNilaiKalender, bukan menyetel .value langsung:
+               tanggalnya dipegang input tersembunyi + label yang dilihat kru,
+               dan mengisi salah satunya saja membuat keduanya berbeda — layar
+               menunjukkan tanggal lama sementara yang terkirim tanggal draf. */
+            if (F.tglId && d.tgl) setNilaiKalender(F.tglId, d.tgl, false);
+            if (jenis === 'belanja') { updateSummaryText(); refreshAllRowForecasts(); }
+            if (jenis === 'ck')      { refreshSemuaBarisCK(); updateCKSummary(); }
+            if (jenis === 'kirim')   { updateKirimSummary(); }
+            gambarBannerDraf(jenis);
+            showToast("Draft Dipulihkan", `${d.rows.length} baris dikembalikan ke formulir.`, "success");
+        }
+
+        // Umur draf dalam bahasa manusia — "3 jam lalu" jauh lebih berguna
+        // daripada cap waktu, karena yang ditanya orang selalu "ini yang tadi?".
+        function umurDraf(ts) {
+            const m = Math.max(0, Math.round((Date.now() - (ts || 0)) / 60000));
+            if (m < 1) return 'barusan';
+            if (m < 60) return `${m} menit lalu`;
+            const j = Math.round(m / 60);
+            if (j < 24) return `${j} jam lalu`;
+            return `${Math.round(j / 24)} hari lalu`;
+        }
+
+        /* Pita tawaran di atas form. Digambar ulang tiap draf berubah.
+           Wadahnya dibuat sekali di depan baris-baris form (lihat siapkanDraf)
+           supaya tidak perlu menyentuh markup HTML tiap form. */
+        function gambarBannerDraf(jenis) {
+            const F = DRAF_FORM[jenis]; if (!F) return;
+            const box = document.getElementById(`draf-banner-${jenis}`); if (!box) return;
+            const d = drafSemua()[jenis];
+            if (!drafAdaIsi(d)) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+            const akuPic = (document.getElementById('batch-pic-name') || {}).value || '';
+            const lain = d.pic && akuPic && d.pic !== akuPic;
+            box.classList.remove('hidden');
+            box.innerHTML = `
+              <div class="flex flex-wrap items-center gap-2.5 px-3.5 py-2.5 rounded-xl border ${lain?'border-amber-300 bg-amber-50':'border-indigo-200 bg-indigo-50'}">
+                <i class="fa-regular fa-floppy-disk ${lain?'text-amber-600':'text-indigo-600'}"></i>
+                <span class="text-[11px] font-bold ${lain?'text-amber-800':'text-indigo-800'} flex-1 min-w-[180px] leading-relaxed">
+                  Ada draft belum terkirim — <b>${d.rows.length} baris</b>, disimpan ${umurDraf(d.ts)}${lain?` oleh <b>${d.pic}</b>`:''}.
+                  <span class="font-semibold opacity-80">Tersimpan di perangkat ini saja.</span>
+                </span>
+                <button type="button" onclick="pulihkanDraf('${jenis}')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-all">Pulihkan</button>
+                <button type="button" onclick="buangDraf('${jenis}')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 transition-all">Buang</button>
+              </div>`;
+        }
+
+        /* Pasang wadah pita + penyimpan otomatis. Dipanggil sekali saat masuk
+           aplikasi.
+
+           Pendengarnya DIDELEGASIKAN ke document, bukan dipasang per elemen:
+           baris form dibuat dan dibuang terus-menerus, dan pendengar per
+           elemen akan hilang bersama barisnya tanpa ada yang menyadari.
+
+           Ditunda 600 ms setelah ketikan terakhir — menyimpan tiap huruf
+           berarti menulis localStorage puluhan kali untuk satu nama barang. */
+        let _drafTimer = null;
+        function siapkanDraf() {
+            Object.keys(DRAF_FORM).forEach(jenis => {
+                const wrap = document.getElementById(DRAF_FORM[jenis].wrap);
+                if (!wrap || document.getElementById(`draf-banner-${jenis}`)) return;
+                const box = document.createElement('div');
+                box.id = `draf-banner-${jenis}`;
+                box.className = 'hidden px-4 pt-3';
+                wrap.parentNode.insertBefore(box, wrap);
+                gambarBannerDraf(jenis);
+            });
+
+            const jenisDari = (el) => {
+                const id = String((el && el.id) || '');
+                if (!id) return null;
+                for (const j of Object.keys(DRAF_FORM)) {
+                    const F = DRAF_FORM[j];
+                    if (id.startsWith(F.pre) || (F.tglId && id === F.tglId)) return j;
+                }
+                return null;
+            };
+            const catat = (e) => {
+                const j = jenisDari(e.target); if (!j) return;
+                clearTimeout(_drafTimer);
+                _drafTimer = setTimeout(() => simpanDrafSenyap(j), 600);
+            };
+            document.addEventListener('input', catat, true);
+            document.addEventListener('change', catat, true);
+
+            /* Jaring pengaman terakhir. pagehide dipakai bersama beforeunload:
+               di Safari iOS beforeunload sering tidak pernah menyala, dan HP
+               yang terkunci saat form setengah terisi justru kasus yang paling
+               sering terjadi di lapangan. */
+            const simpanSemua = () => Object.keys(DRAF_FORM).forEach(j => {
+                const isi = bacaForm(j); if (!isi) return;
+                const semua = drafSemua();
+                if (drafAdaIsi(isi)) semua[j] = { ...isi, ts: Date.now(), pic:(document.getElementById('batch-pic-name')||{}).value||'' };
+                else delete semua[j];
+                drafTulis(semua);
+            });
+            window.addEventListener('beforeunload', simpanSemua);
+            window.addEventListener('pagehide', simpanSemua);
+        }
         function addNewBatchRow() {
             const wrapper = document.getElementById('batch-rows-wrapper');
             const id = ++rowCount;
@@ -3743,7 +4003,8 @@
                 if (successfulCount > 0) bagian.push(`${successfulCount} item baru`);
                 if (mergedCount > 0)     bagian.push(`${mergedCount} item digabung`);
                 showToast("Berhasil!", `${bagian.join(' & ')} dicatat di sistem.`, "success");
-                document.getElementById('batch-rows-wrapper').innerHTML = '';
+                buangDraf('belanja', true);       // sudah terkirim — drafnya tidak berlaku lagi
+            document.getElementById('batch-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 3; i++) addNewBatchRow();
                 updateSummaryText();
                 document.getElementById('batch-name-input').value = '';

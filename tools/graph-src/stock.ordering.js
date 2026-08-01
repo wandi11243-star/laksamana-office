@@ -1005,6 +1005,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function injectPwaManifest() {  }
 
 
@@ -1384,7 +1396,14 @@ function resolveOfficeUser() { loadUsers(); officeRoleToInternal(); officeAdmins
 
 
 
-function enterApp() { loadSettings(); updateNetworkStatus(); addNewBatchRow(); setTomorrowAsDefaultDate(); setNilaiKalender(); isoLokal(); loadItemsFromAppScript(); loadForecastData(); muatSaldoCK(); setPicFromUser(); applyAccessControl(); }
+function enterApp() { loadSettings(); updateNetworkStatus(); addNewBatchRow(); siapkanDraf(); setTomorrowAsDefaultDate(); setNilaiKalender(); isoLokal(); loadItemsFromAppScript(); loadForecastData(); muatSaldoCK(); setPicFromUser(); applyAccessControl(); }
+
+
+
+
+
+
+
 
 
 
@@ -1708,6 +1727,12 @@ function awalHari() {  }
 
 
 function setNilaiKalender() { renderKal(); }
+
+
+
+
+
+
 
 
 
@@ -2105,7 +2130,7 @@ function chipSisaCK() { ckTeksPack(); }
 
 
 
-function setSubCKOrder() { daftarBarangCK(); daftarBarangKirimCK(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+function setSubCKOrder() { daftarBarangCK(); daftarBarangKirimCK(); addKirimRow(); gambarBannerDraf(); updateKirimSummary(); muatRiwayatKiriman(); }
 
 
 
@@ -2146,7 +2171,9 @@ function setSubCKOrder() { daftarBarangCK(); daftarBarangKirimCK(); addKirimRow(
 
 
 
-function bukaFormCK() { setSubCKOrder(); setNilaiKalender(); isoLokal(); addCKRow(); refreshSemuaBarisCK(); updateCKSummary(); }
+
+function bukaFormCK() { setSubCKOrder(); setNilaiKalender(); isoLokal(); addCKRow(); refreshSemuaBarisCK(); gambarBannerDraf(); updateCKSummary(); }
+
 
 
 
@@ -2320,7 +2347,8 @@ function updateCKSummary() {  }
 
 
 
-function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); addCKRow(); updateCKSummary(); }
+function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); buangDraf(); addCKRow(); updateCKSummary(); }
+
 
 
 
@@ -2527,7 +2555,8 @@ function updateKirimSummary() {  }
 
 
 
-function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); buangDraf(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+
 
 
 
@@ -2832,7 +2861,7 @@ function enforceSelection() { showToast(); applyUnitOptions(); }
 
 
 
-function checkConfigStatus() {  }
+function checkConfigStatus() { addNewBatchRow(); addCKRow(); addKirimRow(); }
 
 
 
@@ -2849,6 +2878,237 @@ function checkConfigStatus() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drafSemua() {  }
+
+
+
+function drafTulis() {  }
+
+
+
+
+
+
+
+
+function bacaForm() {  }
+
+
+
+
+
+
+function g() {  }
+
+
+
+
+
+
+
+
+
+
+function drafAdaIsi() {  }
+
+
+
+
+
+function simpanDrafSenyap() { bacaForm(); drafSemua(); drafAdaIsi(); drafTulis(); gambarBannerDraf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanDraf() { bacaForm(); drafAdaIsi(); showToast(); simpanDrafSenyap(); }
+
+
+
+
+
+
+function buangDraf() { drafSemua(); drafTulis(); gambarBannerDraf(); showToast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function pulihkanDraf() { drafSemua(); drafAdaIsi(); }
+
+
+
+
+
+
+
+
+function set() { setNilaiKalender(); updateSummaryText(); refreshAllRowForecasts(); refreshSemuaBarisCK(); updateCKSummary(); updateKirimSummary(); gambarBannerDraf(); showToast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function umurDraf() {  }
+
+
+
+
+
+
+
+
+
+
+
+function gambarBannerDraf() { drafSemua(); drafAdaIsi(); umurDraf(); pulihkanDraf(); buangDraf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function siapkanDraf() { gambarBannerDraf(); }
+
+
+
+
+
+
+
+
+
+
+function jenisDari() {  }
+
+
+
+
+
+
+
+
+function catat() { jenisDari(); simpanDrafSenyap(); }
+
+
+
+
+
+
+
+
+
+
+
+function simpanSemua() { bacaForm(); drafSemua(); drafAdaIsi(); drafTulis(); }
 
 
 
@@ -3672,7 +3932,8 @@ function confirmAndCheckServer() { closeModal(); showDuplicateModal(); executeFo
 
 
 
-function executeFormSubmission() { showToast(); timSaatIni(); addNewBatchRow(); updateSummaryText(); setBatchMode(); }
+function executeFormSubmission() { showToast(); timSaatIni(); buangDraf(); addNewBatchRow(); updateSummaryText(); setBatchMode(); }
+
 
 
 
