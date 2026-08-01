@@ -4226,7 +4226,13 @@ function openLayoutSettings(){
      <div class="inline-info" style="margin-bottom:14px"><div>Pilih template layout untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — besoknya otomatis kembali ke default (Jumat/Sabtu/Minggu = Weekend, selain itu Weekday).</div></div>
      ${opt("",`Default (otomatis: ${def==="weekend"?"Weekend":"Weekday"})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
      ${tplOpts}
-     <div style="margin-top:4px"><button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihL1())">✏️ Buka / Buat Template Denah (atur posisi meja)</button></div>
+     <!-- Ikut lantai yang sedang dilihat, sama alasannya dengan tombol Editor
+          Denah di toolbar Hari-H. -->
+     <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihLayoutKey())">✏️ Buka / Buat Template Denah (atur posisi meja)</button>
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('lantai2')" title="Atur posisi meja Lantai 2">🪜 Editor Denah Lantai 2</button>
+     </div>
+     <p class="hint" style="margin-top:6px">Denah <b>Lantai 2</b> tidak ikut daftar template di atas — ia bukan pilihan untuk satu tanggal, melainkan lantai tersendiri yang selalu tersedia lewat saklar Lantai 1 / Lantai 2 di Denah Meja. Mengaturnya lewat tombol di sebelah.</p>
 
      <div class="section-title" style="margin-top:16px">📅 Terapkan Template ke Banyak Tanggal</div>
      <p class="hint" style="margin-top:0">Pilih salah satu template di atas, lalu tambahkan tanggal-tanggal yang memakai template itu. Bisa banyak hari sekaligus.</p>
@@ -4350,9 +4356,20 @@ function leInspectorHtml(){
 }
 function leRender(){
   const custom=!isBuiltinLayout(LE.key), edited=!!customLayouts()[LE.key];
-  const sel=allLayoutKeys().map(k=>`<option value="${k}" ${k===LE.key?'selected':''}>${esc(layoutName(k))}${isBuiltinLayout(k)?'':' (custom)'}</option>`).join("");
+  /* Pemilih template DIKELOMPOKKAN PER LANTAI. Sebelumnya satu daftar datar,
+     dan "Lantai 2" tenggelam di antara Weekday/Weekend/template custom —
+     padahal ia bukan varian denah lantai 1, melainkan lantai yang lain sama
+     sekali. Lantainya diturunkan dari lantaiLayout(), jadi template custom
+     bernama "…Lantai 2" ikut masuk kelompok yang benar tanpa didaftar ulang. */
+  const perLantai={};
+  allLayoutKeys().forEach(k=>{ const n=lantaiLayout(k); (perLantai[n]=perLantai[n]||[]).push(k); });
+  const sel=Object.keys(perLantai).sort((a,b)=>a-b).map(n=>
+    `<optgroup label="Lantai ${n}">`+
+    perLantai[n].map(k=>`<option value="${k}" ${k===LE.key?'selected':''}>${esc(layoutName(k))}${isBuiltinLayout(k)?'':' (custom)'}</option>`).join("")+
+    `</optgroup>`).join("");
+  const lt=lantaiLayout(LE.key);
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)leTryClose()"><div class="modal" style="max-width:1120px;width:100%">
-    <div class="modal-head"><h3>✏️ Editor Denah ${esc(LE.data.name||"")}${LE.dirty?' •':''}</h3><button class="close-x" onclick="leTryClose()">×</button></div>
+    <div class="modal-head"><h3>✏️ Editor Denah ${esc(LE.data.name||"")} <span class="badge-status tag-new" style="vertical-align:middle">Lantai ${lt}</span>${LE.dirty?' •':''}</h3><button class="close-x" onclick="leTryClose()">×</button></div>
     <div class="modal-body" style="max-height:80vh">
       <div class="le-tools">
         <select onchange="leSwitch(this.value)" title="Pilih template">${sel}</select>
@@ -5107,7 +5124,13 @@ function renderHariH(){
      ${HARIH_Q?`<span class="harih-result">${list.length} hasil untuk “${esc(HARIH_Q)}”</span>`:""}
      ${!inList&&CAN.input(SESSION.role)?`<span style="margin-left:auto;display:inline-flex;gap:6px">
        <button class="btn btn-sm ${hasLayoutOverride(HARIH_DATE)?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings()" title="Pilih layout denah khusus tanggal ini (event); besok balik default">⚙️ Layout: ${layoutName(harihL1())}${hasLayoutOverride(HARIH_DATE)?" ⚑":""}</button>
-       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihL1())" title="Kelola & atur posisi meja (editor denah)">✏️ Editor Denah</button>
+       <!-- Editor mengikuti LANTAI YANG SEDANG DILIHAT (harihLayoutKey), bukan
+            selalu lantai 1 (harihL1). Sebelumnya menekan tombol ini sambil
+            melihat denah Lantai 2 membuka editor Weekday/Weekend — jadi meja
+            lantai 2 praktis tidak bisa diatur, kecuali kebetulan tahu ada
+            pemilih template di dalam editornya. Nama layoutnya ditulis di
+            tombol supaya jelas yang mana yang akan dibuka. -->
+       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihLayoutKey())" title="Kelola & atur posisi meja denah ${esc(layoutName(harihLayoutKey()))}">✏️ Editor Denah: ${esc(layoutName(harihLayoutKey()))}</button>
      </span>`:""}
    </div>
    <!-- SATU baris filter untuk SEMUA tab (Daftar / Denah / Waiting List).
