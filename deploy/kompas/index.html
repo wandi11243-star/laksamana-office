@@ -1398,9 +1398,18 @@ function barisTanpaShift(d){
 function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
   const kasir=Array.isArray(kasirAktif)?kasirAktif:(DB.employees.kasir||[]);
   const sah=new Set(kasir.map(k=>k.id));
-  let dw=Math.max(0,num(row.dw));
-  // Buang centang lama yang kasirnya sekarang OFF, supaya pembagi di pratinjau
-  // sama persis dengan yang akan tersimpan.
+  /* Kolom "Jumlah DW Kasir" DIHAPUS dari modal ini (3 Agustus 2026).
+     Ia sudah lama tidak memengaruhi angka apa pun — keterangannya sendiri
+     berbunyi "catatan operasional saja" — sementara ia berdiri paling atas dan
+     mendapat fokus otomatis saat modal dibuka. Akibatnya kotak pertama yang
+     dilihat dan diketik orang justru satu-satunya kotak yang tidak
+     berpengaruh, sedangkan pilihan kasir yang menentukan pembagian ada di
+     bawahnya. Sekarang modal ini menanyakan satu hal saja: siapa kasir yang
+     bertugas saat event itu.
+
+     `row.dw` yang sudah tersimpan TIDAK dihapus dari data — ia tidak dibaca
+     oleh perhitungan mana pun (lihat potonganBaris), jadi membiarkannya lebih
+     aman daripada menulis ulang data lama demi kerapian. */
   let pilih=new Set((Array.isArray(row.shift)?row.shift.filter(Boolean):[]).filter(id=>sah.has(id)));
   const potong=porsiPic(row);
 
@@ -1413,13 +1422,9 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
         <div class="sub">${esc(labelEvent||'Event tanpa nama')} · nilai ${fmtRp(num(row.amount))} · dipotong dari kasir <b>${fmtRp(potong)}</b></div>
       </div>
       <div class="mdl-b">
-        <div class="field"><label>Jumlah DW Kasir (daily worker) di shift ini</label>
-          <input class="mono" id="bh_dw" inputmode="numeric" value="${dw}">
-          <div class="helper">Catatan operasional saja — <b>tidak</b> memengaruhi angka. Setoran DW sudah ikut tercatat di baris kasir tetap yang menaunginya, jadi potongan hanya dibagi ke kasir tetap di bawah.</div>
-        </div>
-        <div style="margin-top:16px">
-          <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Kasir tetap yang kena shift event ini</label>
-          <div class="helper" style="margin-bottom:2px">Hanya yang dicentang yang ikut dipotong. Kasir yang masuk hari itu tapi beda shift tidak kena. Kasir yang dicentang <b>OFF</b> di Section A tidak ditampilkan di sini.</div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Kasir yang bertugas saat event ini</label>
+          <div class="helper" style="margin-bottom:2px">Centang kasir yang menginput omset saat event berlangsung — merekalah yang dipotong. Kasir yang masuk hari itu tapi beda shift tidak kena. Kasir yang dicentang <b>OFF</b> di Section A tidak ditampilkan di sini.</div>
           ${kasir.length?`<div class="kslist" id="bh_ks">${kasir.map(k=>`
             <label class="kschip${pilih.has(k.id)?' on':''}" data-id="${esc(k.id)}"><input type="checkbox" ${pilih.has(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}</div>`
           :`<div class="empty" style="padding:16px 10px">Tidak ada kasir yang bisa dibebani — semua kasir dicentang OFF (libur) hari ini, atau belum ada kasir terdaftar.</div>`}
@@ -1438,12 +1443,19 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
     const per=pembagi>0?Math.round(potong/pembagi):0;
     const box=ovl.querySelector('#bh_prev');
     box.className='notice '+(pembagi>0?'info':'warn');
+    /* Isinya DIBUNGKUS satu elemen blok. `.notice` itu display:flex, jadi
+       tiap potongan teks dan tiap penebalan di dalamnya menjadi flex item
+       sendiri — hasilnya kalimatnya pecah jadi kolom-kolom sempit yang saling
+       bertumpuk, bukan satu paragraf. Terlihat jelas di layar kasir 3
+       Agustus 2026. Satu pembungkus = satu flex item = paragraf normal.
+       (Tag-nya sengaja tidak ditulis di komentar ini: pemeriksa struktur
+       menghitung tag mentah, dan menyebutnya di sini membuat hitungannya
+       timpang tanpa ada yang salah di markup-nya.) */
     box.innerHTML = pembagi>0
-      ? `${fmtRp(potong)} ÷ ${pembagi} kasir tetap = <b>${fmtRp(per)}</b> dipotong dari masing-masing.<br>
-         Nominal itu pindah jadi realisasi <b>${esc(labelEvent||'event ini')}</b>; omset kasir yang sudah diinput tidak diubah, hanya realisasinya yang berkurang.`
-      : `⚠ Belum ada kasir yang dicentang. Kalau dibiarkan, potongan ${fmtRp(potong)} tidak dibebankan ke siapa pun — omset yang sama akan terhitung dua kali: sekali di realisasi PIC, sekali di realisasi kasir.`;
+      ? `<div>${fmtRp(potong)} ÷ ${pembagi} kasir = <b>${fmtRp(per)}</b> dipotong dari masing-masing.<br>
+         Nominal itu pindah jadi realisasi <b>${esc(labelEvent||'event ini')}</b>; omset kasir yang sudah diinput tidak diubah, hanya realisasinya yang berkurang.</div>`
+      : `<div>⚠ Belum ada kasir yang dicentang. Kalau dibiarkan, potongan ${fmtRp(potong)} tidak dibebankan ke siapa pun — omset yang sama akan terhitung dua kali: sekali di realisasi PIC, sekali di realisasi kasir.</div>`;
   };
-  ovl.querySelector('#bh_dw').addEventListener('input',e=>{ dw=Math.max(0,num(e.target.value)); prev(); });
   ovl.querySelectorAll('.kschip').forEach(c=>c.addEventListener('click',e=>{
     // Klik pada <label> sudah men-toggle checkbox di dalamnya; jangan
     // di-toggle dua kali. Baca keadaan checkbox-nya saja setelah klik.
@@ -1458,11 +1470,12 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
   ovl.querySelector('#bh_batal').onclick=tutup;
   ovl.addEventListener('click',e=>{ if(e.target===ovl) tutup(); });
   ovl.querySelector('#bh_ok').onclick=()=>{
-    row.dw=dw; row.shift=[...pilih];
+    row.shift=[...pilih];   // row.dw dibiarkan apa adanya — lihat catatan di atas
     tutup(); if(simpan) simpan();
   };
   prev();
-  setTimeout(()=>{ const i=ovl.querySelector('#bh_dw'); if(i){ i.focus(); i.select(); } },30);
+  // Fokus otomatis ke centang kasir pertama: itu satu-satunya isian di modal ini.
+  setTimeout(()=>{ const c=ovl.querySelector('.kschip input'); if(c) c.focus(); },30);
 }
 
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
