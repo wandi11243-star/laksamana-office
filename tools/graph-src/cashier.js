@@ -535,6 +535,12 @@ function bolehLihat() {  }
 
 
 
+
+
+
+
+
+
 function seed() {  }
 
 

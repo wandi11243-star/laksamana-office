@@ -563,6 +563,12 @@ function pasangMenu() { levelSaya(); go(); bolehLihat(); }
 
 
 
+
+
+
+
+
+
 function seed() {  }
 
 
@@ -1313,8 +1319,21 @@ function kartuCompliment() {  }
 
 
 
-function porsiPic() {  }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function porsiPic() {  }
 
 
 
@@ -1629,7 +1648,7 @@ function bukaBagi() { modalBagiHasil(); calc(); sumKasir(); save(); potonganBari
 
 
 
-function drawMk() { mkSelect(); tombolBagi(); bind(); calc(); potonganBaris(); bukaBagi(); formatAllRp(); }
+function drawMk() { mkSelect(); tombolBagi(); bind(); bukaBagi(); calc(); formatAllRp(); }
 
 
 
@@ -1649,15 +1668,7 @@ function drawMk() { mkSelect(); tombolBagi(); bind(); calc(); potonganBaris(); b
 
 
 
-
-
-
-
-
-
-
-function drawEv() { mkSelect(); tombolBagi(); bind(); calc(); potonganBaris(); bukaBagi(); formatAllRp(); }
-
+function drawEv() { mkSelect(); tombolBagi(); bind(); bukaBagi(); calc(); formatAllRp(); }
 
 
 
@@ -2183,8 +2194,6 @@ function viewPerforma() { rentangAktif(); porsiPic(); compListPicRentang(); mode
 
 
 
-
-
 function aturTombolKirim() { cetakAchievement(); }
 
 
@@ -2206,7 +2215,66 @@ function aturTombolKirim() { cetakAchievement(); }
 function clearChartsExcept() {  }
 
 
-function viewKasir() { rentangAktif(); potonganHari(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bonusKasir() {  }
+
+
+
+
+
+
+function kartuBonusKasir() { bonusKasir(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewKasir() { rentangAktif(); potonganHari(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
 
 
 
