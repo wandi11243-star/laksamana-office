@@ -534,7 +534,14 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 @media(max-width:720px){ .doc{padding:18px 14px} .doc-ttd-g{grid-template-columns:1fr}
   .doc-ttd-c{border-right:1px solid var(--line-hard);border-bottom:none} }
 
+/* Nilai realisasi punya DUA bentuk: kotak isian di layar (.rz-inp) dan teks
+   biasa saat dicetak (.only-print). Kotak isian yang ikut tercetak keluar
+   sebagai bingkai kosong di lembar yang ditandatangani Finance. */
+.only-print{display:none}
+.rz-inp:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow,rgba(169,121,31,.15))}
 @media print{
+  .rz-inp{display:none}
+  .only-print{display:inline}
   /* Hanya lembar PR yang ikut tercetak. Sidebar, topbar, dan tombol
      disembunyikan lewat visibility (bukan display:none) supaya tata letak
      dokumennya tidak ikut bergeser saat dialog cetak dibuka. */
@@ -2540,7 +2547,7 @@ function vPrDetail(){
   h+='<table class="doc-tbl"><thead><tr>'+
     '<th style="width:34px">No</th><th>Nama Item</th><th style="width:64px">Jumlah</th>'+
     '<th style="width:74px">Satuan</th><th>Alasan / Kebutuhan</th><th style="width:96px">Request</th>'+
-    '<th style="width:130px">Harga</th>'+
+    '<th style="width:120px">Harga</th>'+
     /* Penanda proses ikut di lembar PR karena tab inilah yang terbuka lebih
        dulu (poMode default 'pr') — purchasing bekerja di sini, bukan di
        "Semua Item". Tapi no-print: lembar yang ditandatangani Finance adalah
@@ -2564,13 +2571,29 @@ function vPrDetail(){
             'onclick="APP.lepasDariPr(\''+p.id+'\')">'+ic('x')+'</button>'+
         '</td></tr>';
     }).join('')
-    :'<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:22px">Belum ada item di lembar ini</td></tr>')+
+    :'<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:22px">Belum ada item di lembar ini</td></tr>')+
   '</tbody></table>';
 
   h+='<div class="doc-total"><table>'+
     '<tr><td>JUMLAH ITEM</td><td>'+items.length+'</td></tr>'+
     (t.belum?'<tr><td>BELUM BERHARGA</td><td>'+t.belum+' item</td></tr>':'')+
     '<tr class="grand"><td>GRAND TOTAL</td><td>'+fRpPenuh(t.grand)+'</td></tr>'+
+    /* Total realisasi & overbudget hanya ditampilkan kalau MEMANG sudah ada
+       yang dibeli. Lembar yang belum satu pun realisasinya terisi tidak perlu
+       dua baris berisi Rp0 — itu terbaca seolah semuanya sudah dibeli dan
+       gratis. Penyebutnya jumlah item yang sudah terisi, bukan seluruh item:
+       "hemat Rp1 juta dari 3 dari 11 item" jujur, "hemat Rp1 juta" tidak. */
+    (function(){
+      var isi=items.filter(function(p){return realisasiNum(p)!==null;});
+      if(!isi.length) return '';
+      var tr=isi.reduce(function(a,p){return a+realisasiNum(p);},0);
+      var to=isi.reduce(function(a,p){return a+((+p.amount||0)-realisasiNum(p));},0);
+      return '<tr><td>TOTAL REALISASI</td><td>'+fRpPenuh(tr)+
+             ' <span style="font-weight:500;color:var(--muted)">('+isi.length+' dari '+items.length+' item)</span></td></tr>'+
+             '<tr><td>OVERBUDGET</td><td><span style="color:var(--'+(to<0?'danger':'ok')+');font-weight:700">'+
+             (to<0?'−':'')+fRpPenuh(Math.abs(to))+'</span> <span style="font-weight:500;color:var(--muted)">'+
+             (to<0?'lebih mahal dari pengajuan':'hemat dari pengajuan')+'</span></td></tr>';
+    })()+
   '</table></div>';
 
   h+='<div class="doc-ttd"><div class="doc-ttd-h">APPROVE BY</div><div class="doc-ttd-g">'+
@@ -2581,10 +2604,12 @@ function vPrDetail(){
         '<div class="doc-ttd-box">'+
           (a.at?'<span class="doc-ttd-ok">✓ Disetujui<br>'+esc(fTgl(a.at))+
                 (a.oleh?'<br><span style="color:var(--muted);font-weight:500">via '+esc(a.oleh)+'</span>':'')+'</span>'
-               :'<button class="btn sm no-print" onclick="APP.setujuPr(\''+s.k+'\')">Setujui</button>')+
+               :(bolehSetuju(s)
+                    ?'<button class="btn sm no-print" onclick="APP.setujuPr(\''+s.k+'\')">Setujui</button>'
+                    :'<span class="muted no-print" style="font-size:11.5px;line-height:1.45;display:block" title="'+esc(alasanTakBolehSetuju(s))+'">🔒 '+esc(alasanTakBolehSetuju(s))+'</span>'))+
         '</div>'+
         '<div class="doc-ttd-n">'+esc(a.nama||s.nama)+
-          (a.at?'<button class="iconbtn no-print" style="margin-left:4px" title="Batalkan persetujuan" '+
+          (a.at&&bolehSetuju(s)?'<button class="iconbtn no-print" style="margin-left:4px" title="Batalkan persetujuan" '+
             'onclick="APP.setujuPr(\''+s.k+'\',1)">'+ic('x')+'</button>':'')+'</div>'+
       '</div>';
     }).join('')+'</div></div>';
@@ -2635,6 +2660,99 @@ function statusPr(st){
   save(); render();
   toast(st==='Draft'?'Kunci dibuka — item bisa diubah lagi':'PR-'+pr.no+' dikunci sebagai '+st);
 }
+/* ---- REALISASI & OVERBUDGET (3 Agustus 2026) ----------------------------
+   `amount`    = harga yang DIAJUKAN saat request dibuat.
+   `realisasi` = harga yang BENAR-BENAR dibayar saat barangnya dibeli.
+   overbudget  = amount − realisasi, DIHITUNG, tidak pernah disimpan.
+
+   Sengaja tidak disimpan: satu angka turunan yang ikut ditulis ke data pasti
+   akan menyimpang begitu salah satu penyusunnya diubah dan yang lain lupa
+   dihitung ulang. Positif = hemat, negatif = lebih mahal dari pengajuan.
+
+   Baris yang realisasinya belum diisi TIDAK dianggap nol — ia belum dibeli,
+   dan menampilkan overbudget "+Rp2.000.000" untuk barang yang belum dibeli
+   akan terbaca seolah anggarannya sudah kembali. */
+function realisasiNum(p){
+  var v=p&&p.realisasi;
+  return (v===''||v===null||v===undefined)?null:(+v||0);
+}
+function overbudget(p){
+  var r=realisasiNum(p);
+  return r===null?null:(+p.amount||0)-r;
+}
+function selRealisasi(p){
+  /* Kotak isian, bukan teks: purchasing mengisinya langsung di lembar ini
+     saat barangnya dibeli. no-print di kotaknya saja — nilainya tetap
+     tercetak lewat span di sebelahnya. */
+  var r=realisasiNum(p);
+  return '<input class="rz-inp" inputmode="numeric" data-rz="'+esc(p.id)+'" '+
+           'oninput="APP.isiRealisasi(this.dataset.rz,this.value)" '+
+           'value="'+(r===null?'':esc(String(r)))+'" placeholder="belum dibeli" '+
+           'style="width:110px;text-align:right;padding:5px 7px;border:1.5px solid var(--line);border-radius:7px;font:inherit;font-variant-numeric:tabular-nums">'+
+         '<span class="only-print">'+(r===null?'—':fRpPenuh(r))+'</span>';
+}
+function selOverbudget(p){
+  var o=overbudget(p);
+  if(o===null) return '<span class="muted">—</span>';
+  if(o===0)    return '<span class="muted">Rp0</span>';
+  // Lebih mahal dari pengajuan ditandai merah dan diberi tanda minus, persis
+  // seperti lembar yang selama ini dipakai purchasing.
+  return '<span style="color:var(--'+(o<0?'danger':'ok')+');font-weight:700">'+
+         (o<0?'−':'')+fRpPenuh(Math.abs(o))+'</span>';
+}
+/* Simpan realisasi saat diketik. Ditunda 500 ms supaya tidak menulis ke
+   server tiap huruf, dan TIDAK menggambar ulang halaman — render ulang saat
+   orang sedang mengetik akan merebut fokus dari kotaknya. Kolom overbudget
+   di baris yang sama ditambal di tempat. */
+var _rzTimer=null;
+function isiRealisasi(id,nilai){
+  var p=DB.po.find(function(x){return x.id===id;});
+  if(!p) return;
+  var t=String(nilai).replace(/[^0-9]/g,'');
+  p.realisasi = t===''?'':(+t);
+  var sel=document.querySelector('[data-rz="'+id+'"]');
+  if(sel){
+    var td=sel.closest('td');
+    if(td&&td.nextElementSibling) td.nextElementSibling.innerHTML=selOverbudget(p);
+  }
+  clearTimeout(_rzTimer);
+  _rzTimer=setTimeout(function(){ save(); }, 500);
+}
+
+/* ---- SIAPA YANG BOLEH MENEKAN SETUJUI --------------------------------
+   Nama penyetuju diambil dari User Database Office (DB.people, hasil sinkron
+   roster) berdasarkan NAMA di PENYETUJU — bukan dipatok id, karena id akun
+   bisa berbeda antar lingkungan dan nama itulah yang tertulis di lembar
+   fisiknya.
+
+   Yang boleh menekan: orang yang bersangkutan sendiri, atau admin modul BD /
+   superadmin. Selain itu tombolnya mati dengan alasan yang disebutkan —
+   sebelumnya siapa pun bisa menekannya, dan catatan "via <nama>" tidak
+   menahan apa pun.
+
+   TETAP BUKAN OTORISASI SUNGGUHAN: ini dicek di browser. Yang mengikat
+   tetap PDF bertanda tangan. Kalau suatu saat harus jadi otorisasi, tempat
+   pemeriksaannya WAJIB di server. */
+function orangPenyetuju(s){
+  var nm=String(s.nama||'').trim().toLowerCase();
+  return (DB.people||[]).find(function(p){
+    return String(p.name||'').trim().toLowerCase()===nm;
+  })||null;
+}
+function bolehSetuju(s){
+  if(adminModul()) return true;                       // admin BD / superadmin
+  var aku=String((sesi()||{}).name||'').trim().toLowerCase();
+  return !!aku && aku===String(s.nama||'').trim().toLowerCase();
+}
+/* Alasan tombolnya mati — ditulis apa adanya supaya tidak ada yang mengira
+   halamannya rusak. Nama yang BELUM terdaftar di Office disebut terpisah:
+   itu bukan soal izin, itu akunnya memang belum dibuat. */
+function alasanTakBolehSetuju(s){
+  return orangPenyetuju(s)
+    ? 'Hanya '+s.nama+' atau admin BD yang bisa menekan ini.'
+    : s.nama+' belum terdaftar di User Database Office — mintakan akunnya dibuat dulu.';
+}
+
 /* Persetujuan mencatat SIAPA yang menekannya (dari sesi Office) dan kapan.
 
    Ini jejak, BUKAN penjagaan: aplikasi tidak memeriksa apakah yang menekan
@@ -2647,6 +2765,10 @@ function setujuPr(kunci,batal){
   if(!pr) return;
   pr.approvals=pr.approvals||{};
   var def=PENYETUJU.find(function(s){return s.k===kunci;})||{};
+  /* Gerbang yang SAMA dipakai tombolnya dan di sini. Tombol yang mati masih
+     bisa dipanggil dari konsol, dan membatalkan persetujuan orang lain sama
+     seriusnya dengan memberikannya. */
+  if(!bolehSetuju(def)){ toast(alasanTakBolehSetuju(def)); return; }
   var a=pr.approvals[kunci]||{nama:def.nama||'',at:'',oleh:''};
   if(batal){
     if(!confirm('Batalkan persetujuan '+(def.l||kunci)+'?')) return;
@@ -3322,6 +3444,7 @@ window.APP={
     window.APP.hitungPilihPr();
   },
   statusPr:statusPr, setujuPr:setujuPr, lepasDariPr:lepasDariPr, masukkanKePr:masukkanKePr,
+  isiRealisasi:isiRealisasi,
   /* Cetak dipanggil setelah satu putaran render selesai. Tanpa jeda, Chrome
      kadang membuka dialog cetak sebelum gambar kop selesai dimuat, dan
      lembarnya tercetak tanpa logo. */

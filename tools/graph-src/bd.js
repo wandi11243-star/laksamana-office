@@ -713,6 +713,13 @@
 
 
 
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -2481,7 +2488,25 @@ function hapusPr() { prItems(); save(); render(); toast(); }
 
 
 
-function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); poProsesSel(); poModal(); lepasDariPr(); fTgl(); setujuPr(); poBebas(); masukkanKePr(); kosong(); }
+function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2627,7 +2652,7 @@ function masukkanKePr() { prTotal(); save(); render(); toast(); }
 
 
 
-function statusPr() { prTotal(); save(); render(); toast(); }
+function statusPr() { prTotal(); save(); render(); toast(); OVERBUDGET(); }
 
 
 
@@ -2642,7 +2667,104 @@ function statusPr() { prTotal(); save(); render(); toast(); }
 
 
 
-function setujuPr() { todayISO(); sesi(); save(); render(); toast(); }
+
+
+
+
+
+function realisasiNum() {  }
+
+
+
+function overbudget() { realisasiNum(); }
+
+
+
+function selRealisasi() { realisasiNum(); esc(); isiRealisasi(); fRpPenuh(); }
+
+
+
+
+
+
+
+
+
+
+function selOverbudget() { overbudget(); fRpPenuh(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiRealisasi() { selOverbudget(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function orangPenyetuju() {  }
+
+
+
+
+
+function bolehSetuju() { adminModul(); sesi(); }
+
+
+
+
+
+
+
+function alasanTakBolehSetuju() { orangPenyetuju(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function setujuPr() { bolehSetuju(); toast(); alasanTakBolehSetuju(); todayISO(); sesi(); save(); render(); }
+
+
+
+
 
 
 
@@ -3222,6 +3344,7 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 function showModal() { $(); taskModal(); render(); barisRequest(); nomoriBarisReq(); ic(); toast(); sinkronRoster(); cetakIdentitas(); }
+
 
 
 
