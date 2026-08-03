@@ -357,6 +357,72 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -597,7 +663,8 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
-function gambarEvent() { go(); posterUrl(); tgl(); jam(); bersihTeks(); punyaDenah(); ringkasHTML(); }
+function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); bersihTeks(); punyaDenah(); ringkasHTML(); }
+
 
 
 
@@ -766,7 +833,7 @@ function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(
 
 
 
-function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
+function gambarDenah() { go(); langkahHTML(); ringkasHTML(); petakanObjek(); gambarPilihanBar(); }
 
 
 
@@ -802,7 +869,6 @@ function gambarDenah() { go(); ringkasHTML(); petakanObjek(); }
 
 
 
-function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
 
 
 
@@ -818,6 +884,7 @@ function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
 
 
 
+function gambarPilihanBar() { gambarDenah(); }
 
 
 
@@ -840,6 +907,107 @@ function petakanObjek() { warnaMuda(); kontras(); labelStatus(); }
 
 
 
+
+
+function petakanObjek() { warnaMuda(); kontras(); labelStatus(); escJsId(); pasangGerak(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function escJsId() {  }
+
+
+
+function zMin() { terapkanView(); ubahZoom(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ubahZoom() { zMin(); terapkanView(); }
+
+
+
+
+
+
+
+
+
+
+function rapikanGeser() {  }
+
+
+
+
+
+
+
+function terapkanView() { rapikanGeser(); }
+
+
+
+
+
+
+function pasangGerak() {  }
+
+
+
+
+
+function kumpul() {  }
+function titikTengah() { kumpul(); }
+
+
+
+function jarak() { kumpul(); titikTengah(); ubahZoom(); terapkanView(); }
 
 
 
@@ -936,6 +1104,22 @@ function hex2rgb() { api(); toast(); gambarDenah(); }
 
 
 
+
+
+
+
+
+
+
+function langkahHTML() {  }
+
+
+
+
+
+
+
+
 function ringkasHTML() { go(); gambarEvent(); gambarBarHp(); }
 
 
@@ -960,7 +1144,33 @@ function ringkasHTML() { go(); gambarEvent(); gambarBarHp(); }
 
 
 
-function gambarBarHp() { go(); toast(); ringkasHTML(); api(); simpanTiketku(); }
+
+
+
+
+
+
+
+
+function gambarBarHp() { go(); toast(); langkahHTML(); ringkasHTML(); api(); simpanTiketku(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
