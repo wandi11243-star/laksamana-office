@@ -219,6 +219,7 @@ img{max-width:100%;display:block}
 .tiket .ti .v{font-size:14px;font-weight:600}
 .tiket .ts{padding:11px 20px;background:var(--ok-bg);color:var(--ok);font-weight:700;text-align:center;font-size:13.5px}
 .tiket .ts.ci{background:var(--info-bg);color:var(--info)}
+.tiket .ts.batal{background:var(--danger-bg);color:var(--danger)}
 .sukses{width:70px;height:70px;border-radius:50%;background:var(--ok-bg);display:grid;place-items:center;
   margin:0 auto 16px;font-size:32px;color:var(--ok)}
 
@@ -1082,7 +1083,11 @@ Layar.tiketsaya = async ()=>{
   }
   h+=list.map(function(o){
     const k = o.status==='Paid' ? 'lunas' : (o.status==='Pending' ? 'nunggu' : 'batal');
-    const t = o.status==='Paid' ? 'Lunas' : (o.status==='Pending' ? 'Menunggu bayar' : o.status);
+    // Status ditulis dalam bahasa pembeli. "Refunded"/"Expired" itu kosakata
+    // sistem; yang membacanya di sini orang yang cuma ingin tahu tiketnya masih
+    // berlaku atau tidak.
+    const t = {Paid:'Lunas', Pending:'Menunggu bayar', Refunded:'Direfund',
+               Expired:'Kedaluwarsa', Failed:'Gagal', Cancelled:'Dibatalkan'}[o.status] || o.status;
     return '<div class="riwayat" onclick="go(\'tiket\',\''+esc(o.ref)+'\',\''+esc(o.access_token)+'\')">'
       +'<div class="isi"><b>'+esc(o.event?o.event.title:'Event')+'</b>'
         +'<span>'+esc(tgl(o.event&&o.event.start))+' \u00b7 '+o.jml_tiket+' tiket \u00b7 '+rp(o.total)+'</span>'
@@ -1118,6 +1123,28 @@ Layar.tiket = async (ref, token)=>{
   if(window._tiketAktif !== ref) return;
   simpanTiketku(ref, token);
 
+  /* PESANAN YANG SUDAH SELESAI TAPI TIDAK BERTIKET.
+     Refund yang disetujui kru mengubah status pesanan jadi 'Refunded'; pesanan
+     yang kedaluwarsa jadi 'Expired'. Semuanya BUKAN 'Paid', dan dulu ketiganya
+     jatuh ke layar "Menunggu pembayaran" — lengkap dengan tombol "Lanjutkan
+     Pembayaran" yang masih menunjuk invoice lama. Pembeli yang uangnya sudah
+     dikembalikan justru diajak membayar lagi, dan halamannya menembak server
+     tiap 4 detik selamanya menunggu sesuatu yang tidak akan pernah datang. */
+  const SELESAI={Refunded:['Pesanan ini sudah direfund','Uangnya sudah dikembalikan lewat jalur pembayaran yang sama. Tiketnya tidak berlaku lagi.'],
+                 Cancelled:['Pesanan ini dibatalkan','Tiketnya tidak berlaku lagi. Hubungi kami kalau ini di luar dugaanmu.'],
+                 Expired:['Waktu pembayaran habis','Pesanan ini kedaluwarsa sebelum dibayar, jadi kursinya sudah dilepas. Silakan pesan ulang.'],
+                 Failed:['Pembayaran tidak jadi','Pesanan ini tidak pernah selesai dibayar. Silakan pesan ulang.']};
+  if(SELESAI[o.status]){
+    $('#app').innerHTML='<div class="tengah"><div class="card sec">'
+      +'<h2 style="margin-bottom:6px">'+esc(SELESAI[o.status][0])+'</h2>'
+      +'<p class="mini">Kode pesanan <b>'+esc(ref)+'</b></p>'
+      +'<div class="divider"></div>'
+      +'<p style="color:var(--muted)">'+esc(SELESAI[o.status][1])+'</p>'
+      +'<button class="btn btn-pri btn-block" style="margin-top:16px" onclick="go(\'events\')">Lihat Event Lain</button>'
+     +'</div></div>';
+    return;   // tanpa tombol bayar, tanpa pemeriksa otomatis
+  }
+
   if(o.status!=='Paid'){
     /* Pembayaran bisa saja belum tercatat saat pembeli kembali — webhook
        Xendit datang beberapa detik kemudian. Jadi halaman ini memeriksa
@@ -1151,6 +1178,11 @@ Layar.tiket = async (ref, token)=>{
 };
 function tiketHTML(t,o){
   const ci=t.status==='Checked-In';
+  /* Tiket yang dibatalkan (refund disetujui kru) tetap digambar sebagai kartu,
+     tapi harus TERLIHAT mati. Sebelumnya ia tampil "✓ Tiket sah" lengkap dengan
+     QR mengilap — petugas pintu memang tetap menolaknya saat dipindai, tapi
+     tamunya sudah terlanjur datang dan merasa dipermainkan. */
+  const batal=t.status==='Cancelled';
   /* Satu meja menerbitkan satu tiket per tamu. Tiket-tiket itu identik kecuali
      nomor dan QR-nya, jadi kartunya HARUS menyebut tamu ke berapa — kalau tidak,
      pembeli yang membagikan tiket ke teman-temannya tidak tahu mana yang sudah
@@ -1160,7 +1192,7 @@ function tiketHTML(t,o){
   return '<div class="tiket rise">'
    +'<div class="th"><h2>'+esc(o.event?o.event.title:'')+'</h2>'
      +'<span>'+esc(tgl(o.event&&o.event.start))+' · '+esc(jam(o.event&&o.event.start))+'</span></div>'
-   +'<div class="tqr">'+qrSvg(t.qr_token,180)+'</div>'
+   +'<div class="tqr"'+(batal?' style="opacity:.25;filter:grayscale(1)"':'')+'>'+qrSvg(t.qr_token,180)+'</div>'
    +'<div class="perf"></div>'
    +'<div class="ti">'
      +'<div><div class="f">Nomor Tiket</div><div class="v mono">'+esc(t.ticket_number)+'</div></div>'
@@ -1169,7 +1201,8 @@ function tiketHTML(t,o){
      +'<div><div class="f">'+(pt>1?'Tamu':'Kategori')+'</div><div class="v">'
        +(pt>1?(t.pax_no+' dari '+pt+' <span class="mini">'+esc(t.tier||'')+'</span>'):esc(t.tier||'-'))+'</div></div>'
    +'</div>'
-   +'<div class="ts'+(ci?' ci':'')+'">'+(ci?'✓ Sudah check-in':'✓ Tiket sah')+'</div>'
+   +'<div class="ts'+(batal?' batal':(ci?' ci':''))+'">'
+     +(batal?'✕ Tiket dibatalkan (refund)':(ci?'✓ Sudah check-in':'✓ Tiket sah'))+'</div>'
   +'</div>';
 }
 
