@@ -900,6 +900,13 @@ function gambarDenah(){
    +'</div><aside>'+ringkasHTML()+'</aside></div>';
   petakanObjek();
   gambarPilihanBar();
+  /* BAR BAWAH IKUT DIGAMBAR ULANG DI SINI.
+     Di HP, ringkasan samping disembunyikan dan tombol "Lanjut ke data pemesan"
+     HANYA ada di bar bawah. Bar itu digambar oleh go(), sementara memilih kursi
+     tidak lewat go() — jadi sesudah mengetuk kursi pertama, layar HP tidak
+     punya satu pun jalan maju: kursinya terpilih, chipnya muncul, tapi tidak
+     ada tombol lanjut di mana pun. Dilaporkan 3 Agustus 2026. */
+  gambarBarHp();
 }
 /* Deretan kursi terpilih di bawah denah. Ketuk chip-nya untuk melepas — di HP
    itu jauh lebih mudah daripada mencari kursinya lagi di dalam denah. */
@@ -1222,6 +1229,18 @@ Layar.checkout = (id)=>{
   // denah sama sekali, dan mengirim orang ke halaman kosong sebagai jawaban
   // atas "belum ada yang dipilih" hanya menambah kebingungan.
   if(Beli.kosong()){ toast('Pilih tiketnya dulu.','warn'); return go('event',id||Beli.eventId); }
+  /* WAJIB MASUK SEBELUM MEMBELI.
+     Tiket harus tercatat atas nama seseorang: itu yang membuat "Tiket Saya"
+     berguna, membuat tiket bisa dibuka lagi dari HP lain, dan membuat kru punya
+     cara mengenali pemiliknya kalau QR-nya hilang. Pemeriksaannya juga ada di
+     server (checkout menolak sesi kosong) — penjaga di layar ini hanya supaya
+     orangnya tidak mengisi formulir panjang dulu baru ditolak. */
+  if(!Akun.masuk()){
+    Beli.simpanIsian();
+    SETELAH_MASUK='checkout';
+    toast('Masuk dulu, ya','Tiketnya dicatat atas nama akunmu supaya bisa dibuka lagi kapan saja. Kursimu tetap ditahan.','warn');
+    return go('masuk');
+  }
   Beli.eventId = id||Beli.eventId;
   /* Isian diisikan dari akun kalau pembelinya sedang masuk dan belum pernah
      mengetik apa pun. Tidak menimpa yang sudah diketik — orang boleh membeli
@@ -1290,6 +1309,9 @@ function simpanTiketku(ref, token){
    "daftar" padahal sudah punya akun cukup menekan satu tautan, tanpa
    kehilangan apa yang sudah diketik. */
 let modeDaftar=false;
+/* Ke mana harus kembali sesudah masuk. Diisi saat pembeli dihentikan di tengah
+   alur beli (lihat Layar.checkout). */
+let SETELAH_MASUK=null;
 Layar.masuk = ()=>{
   if(Akun.masuk()) return go('tiketsaya');
   $('#app').innerHTML='<div class="tengah" style="max-width:400px">'
@@ -1310,7 +1332,7 @@ Layar.masuk = ()=>{
        +(modeDaftar?'Sudah punya akun? ':'Belum punya akun? ')
        +'<a href="#masuk" onclick="modeDaftar='+(!modeDaftar)+';Layar.masuk();return false;"><b>'
        +(modeDaftar?'Masuk':'Buat akun')+'</b></a></p>'
-     +'<p class="mini" style="text-align:center;margin-top:10px">Tanpa akun pun kamu tetap bisa membeli tiket — tautannya dikirim ke email.</p>'
+     +'<p class="mini" style="text-align:center;margin-top:10px">Tiket dicatat atas nama akunmu, jadi bisa dibuka lagi kapan pun dari perangkat mana pun.</p>'
    +'</div></div>';
   $('#a-go').onclick=kirimAkun;
   ['a-nama','a-email','a-hp','a-pass'].forEach(function(id){
@@ -1335,6 +1357,12 @@ async function kirimAkun(){
   Akun.simpan(r.token, r.user);
   gambarTopnav();
   toast(modeDaftar?'Akun dibuat. Selamat datang!':'Berhasil masuk.','ok');
+  /* Kembali ke tempat yang ditinggalkan, bukan selalu ke Tiket Saya. Orang yang
+     dihentikan di tengah pembelian sedang memegang kursi yang berhitung mundur —
+     melemparnya ke halaman riwayat berarti ia harus mencari jalan sendiri
+     kembali ke denah sebelum kuncinya habis. */
+  const balik=SETELAH_MASUK; SETELAH_MASUK=null;
+  if(balik){ location.hash=balik; dariHash(); return; }
   go('tiketsaya');
 }
 

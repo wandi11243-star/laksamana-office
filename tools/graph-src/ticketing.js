@@ -423,6 +423,22 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -833,7 +849,14 @@ function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(
 
 
 
-function gambarDenah() { go(); langkahHTML(); ringkasHTML(); petakanObjek(); gambarPilihanBar(); }
+function gambarDenah() { go(); langkahHTML(); ringkasHTML(); petakanObjek(); gambarPilihanBar(); gambarBarHp(); }
+
+
+
+
+
+
+
 
 
 
@@ -1263,6 +1286,18 @@ function gambarBarHp() { go(); toast(); langkahHTML(); ringkasHTML(); api(); sim
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function simpanTiketku() { go(); kirimAkun(); }
 
 
@@ -1301,7 +1336,16 @@ function simpanTiketku() { go(); kirimAkun(); }
 
 
 
-function kirimAkun() { toast(); api(); gambarTopnav(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+
+
+
+function kirimAkun() { toast(); api(); gambarTopnav(); dariHash(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+
+
+
+
+
+
 
 
 

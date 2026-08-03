@@ -600,11 +600,17 @@ function lepas_kursi($holdToken, $seatIds = null) {
    dan hak akses modul. Satu kebocoran di situs publik tidak boleh menyentuh
    daftar pegawai.
 
-   BELI TANPA AKUN TETAP BOLEH. Memaksa mendaftar di tengah checkout adalah
-   cara paling efektif membuat orang batal membeli. Akun hanya menautkan
-   pesanan supaya bisa dilihat lagi dari perangkat lain; tautan e-ticket
-   ber-access_token tetap bekerja seperti sebelumnya.
-   ================================================================= */
+   BELI WAJIB PAKAI AKUN — sejak 3 Agustus 2026 (keputusan user).
+   Sebelumnya tidak: memaksa mendaftar di tengah checkout memang membuat
+   sebagian orang batal membeli, dan itu alasan yang dulu dipakai. Yang
+   mengalahkannya: tiket harus jelas MILIK SIAPA. Tanpa akun, satu-satunya
+   pegangan pembeli adalah tautan ber-access_token di emailnya — begitu email
+   itu hilang atau salah ketik, tiketnya tidak bisa ditemukan siapa pun,
+   termasuk kru. Dengan akun, "Tiket Saya" selalu jadi jalan pulang.
+
+   access_token tetap ada dan tetap bekerja: tautan dari email masih membuka
+   e-ticket tanpa perlu masuk, supaya tiket bisa diteruskan ke teman yang ikut
+   datang. Yang berubah cuma pembuatannya. */
 function email_rapi($e) { return strtolower(trim((string)$e)); }
 
 function user_baris($email) {
@@ -865,6 +871,17 @@ function checkout($b) {
   $hp    = trim(isset($b['phone']) ? $b['phone'] : '');
   if ($nama === '' || $email === '' || $hp === '') throw new Exception('Nama, email, dan nomor HP wajib diisi.');
   if (!filter_var($email, FILTER_VALIDATE_EMAIL))  throw new Exception('Format email tidak valid.');
+
+  /* WAJIB MASUK. Keputusan user 3 Agustus 2026: tiket harus tercatat atas nama
+     akun, supaya "Tiket Saya" berguna, tiket bisa dibuka lagi dari perangkat
+     lain, dan kru punya cara mengenali pemiliknya kalau QR-nya hilang.
+
+     Diperiksa DI SINI, bukan cuma di halaman: penjaga yang hanya ada di layar
+     bisa dilewati siapa pun yang memanggil api.php langsung. Sesi juga dibaca
+     ulang di bawah untuk mengisi user_id — jadi angkanya satu, tidak mungkin
+     pesanannya lolos tanpa pemilik. */
+  $sesiUser = user_dari_sesi(isset($b['sesi']) ? $b['sesi'] : '');
+  if (!$sesiUser) throw new Exception('Silakan masuk dulu — tiket dicatat atas nama akunmu.');
   $ev = event_satu($eid);
   if (!$ev) throw new Exception('Event tidak ditemukan atau belum dibuka untuk umum.');
 
@@ -979,9 +996,9 @@ function checkout($b) {
     // dibeli sendiri oleh customer lewat web.
     'recorded_by' => 'Website', 'recorded_via' => 'ticketing-web',
     'channel' => 'online', 'items' => $items, 'access_token' => $akses,
-    // Menempel ke akun kalau pembelinya sedang masuk. Kalau tidak, pesanan
-    // tetap sah dan tetap bisa dibuka lewat access_token-nya sendiri.
-    'user_id' => ($uu = user_dari_sesi(isset($b['sesi']) ? $b['sesi'] : '')) ? $uu['id'] : '',
+    // Pemiliknya sudah dipastikan di awal fungsi ini — pesanan tanpa akun tidak
+    // pernah sampai ke baris ini.
+    'user_id' => $sesiUser['id'],
     'expires_at' => gmdate('c', (int)(now_ms() / 1000) + 3600),
     'created' => gmdate('c'),
   );
