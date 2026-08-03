@@ -679,6 +679,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2344,6 +2356,11 @@ function payHistory() { modal(); closeModal(); esc(); statusBadge(); fmtDateTime
 
 
 
+function labelIzin() {  }
+
+
+
+
 
 
 
@@ -2561,7 +2578,7 @@ function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); e
 
 
 
-function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); peranSaya(); esc(); setPeran(); tambahPeran(); setIzin(); resetIzin(); C(); }
+function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); peranSaya(); esc(); setPeran(); tambahPeran(); setIzin(); labelIzin(); resetIzin(); C(); }
 
 
 
@@ -2743,7 +2760,13 @@ function saveEvent() { toast(); esc(); uid(); save(); closeModal(); }
 
 
 function ensureDetails() {  }
-function renderEventDetail() { ensureDetails(); setTop(); esc(); setEventStatusDetail(); eventForm(); fmtDateTime(); statusBadge(); toggleTimeline(); editRundown(); editVendor(); stat(); editBudget(); editSponsor(); editTask(); toggleTask(); fmtDate(); }
+function renderEventDetail() { ensureDetails(); bisaUbah(); setTop(); esc(); setEventStatusDetail(); eventForm(); fmtDateTime(); statusBadge(); toggleTimeline(); sama(); seksiHTML(); budgetStatHTML(); }
+
+
+
+
+
+
 
 
 
@@ -2787,7 +2810,14 @@ function setEventStatusDetail() { save(); renderEventDetail(); toast(); setujuiR
 
 
 function toggleTimeline() { save(); }
-function toggleTask() { save(); renderEventDetail(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2813,21 +2843,27 @@ function barisTambah() {  }
 
 
 
-function barisHapus() {  }
+
+
+
+function barisHapus() { simpanSeksi(); }
+
+
 
 
 
 function bersihkanKosong() {  }
 
 
-function rundownRowHTML() { esc(); barisHapus(); }
 
 
+function matikan() {  }
+function selHapus() { barisHapus(); }
 
 
 
+function rundownRowHTML() { matikan(); esc(); selHapus(); }
 
-function editRundown() { ensureDetails(); modal(); closeModal(); bersihkanKosong(); barisTambah(); rundownRowHTML(); simpanRundown(); }
 
 
 
@@ -2835,43 +2871,41 @@ function editRundown() { ensureDetails(); modal(); closeModal(); bersihkanKosong
 
 
 
+function vendorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus(); }
 
-function simpanRundown() { ambilBaris(); ensureDetails(); save(); closeModal(); renderEventDetail(); toast(); }
 
 
 
 
 
 
+function taskRowHTML() { matikan(); esc(); selHapus(); }
 
-function vendorRowHTML() { esc(); uangFormat(); uangKetik(); barisHapus(); }
 
 
 
 
 
 
-function editVendor() { ensureDetails(); modal(); closeModal(); bersihkanKosong(); barisTambah(); vendorRowHTML(); simpanVendor(); }
 
 
 
 
 
+function budgetRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus(); }
 
 
-function simpanVendor() { ambilBaris(); ensureDetails(); save(); closeModal(); renderEventDetail(); toast(); }
 
 
 
 
 
-function taskRowHTML() { esc(); barisHapus(); }
 
 
 
 
+function sponsorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus(); totalSponsor(); }
 
-function editTask() { ensureDetails(); modal(); closeModal(); bersihkanKosong(); barisTambah(); taskRowHTML(); simpanTask(); }
 
 
 
@@ -2879,7 +2913,6 @@ function editTask() { ensureDetails(); modal(); closeModal(); bersihkanKosong();
 
 
 
-function simpanTask() { ambilBaris(); ensureDetails(); save(); closeModal(); renderEventDetail(); toast(); }
 
 
 
@@ -2893,13 +2926,11 @@ function simpanTask() { ambilBaris(); ensureDetails(); save(); closeModal(); ren
 
 
 
-function budgetRowHTML() { esc(); uangFormat(); uangKetik(); barisHapus(); }
 
 
 
 
 
-function editBudget() { ensureDetails(); modal(); closeModal(); bersihkanKosong(); barisTambah(); budgetRowHTML(); simpanBudget(); }
 
 
 
@@ -2908,7 +2939,6 @@ function editBudget() { ensureDetails(); modal(); closeModal(); bersihkanKosong(
 
 
 
-function simpanBudget() { ambilBaris(); ensureDetails(); save(); closeModal(); renderEventDetail(); toast(); }
 
 
 
@@ -2916,22 +2946,73 @@ function simpanBudget() { ambilBaris(); ensureDetails(); save(); closeModal(); r
 
 
 
-function sponsorRowHTML() { esc(); uangFormat(); uangKetik(); barisHapus(); }
 
 
 
+function totalSponsor() {  }
 
+function wrapSeksi() {  }
 
 
-function editSponsor() { ensureDetails(); modal(); closeModal(); bersihkanKosong(); barisTambah(); sponsorRowHTML(); simpanSponsor(); }
 
 
 
+function seksiHTML() { ensureDetails(); tambahBarisSeksi(); wrapSeksi(); esc(); simpanSeksi(); }
 
 
 
 
-function simpanSponsor() { ambilBaris(); ensureDetails(); save(); closeModal(); renderEventDetail(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+function tambahBarisSeksi() { wrapSeksi(); bersihkanKosong(); barisTambah(); }
+
+
+
+
+
+
+
+
+
+
+function simpanSeksi() { ambilBaris(); wrapSeksi(); ensureDetails(); save(); seksiHTML(); paintTurunan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function paintTurunan() { ensureDetails(); budgetStatHTML(); totalSponsor(); wrapSeksi(); }
+
+
+
+
+function sel() {  }
+
+
+
+
+
+function budgetStatHTML() {  }
+
+
+function sumB() {  }
+function sumA() { stat(); sumB(); }
 
 
 
