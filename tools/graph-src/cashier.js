@@ -546,6 +546,17 @@ function bolehLihat() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function seed() {  }
 
 
@@ -558,7 +569,23 @@ function seed() {  }
 
 
 
+
+
+
+
+
 function normalizeDB() { seed(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -863,7 +890,27 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); bonRingkasHari(); calInner(); repPay(); kartuPenjelasanBon(); selisihSeharusnya(); fmtWaktu(); inputVal(); catatanMetode(); }
+function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); fmtWaktu(); inputVal(); catatanMetode(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1008,7 +1055,31 @@ function fmtWaktu() {  }
 
 
 
+
+
+
+
+function penjelasHari() { bonRingkasHari(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function catatanMetode() {  }
+
+
 
 
 
@@ -1036,7 +1107,7 @@ function selisihSeharusnya() {  }
 
 
 
-function catatanSelisihBon() { selisihSeharusnya(); }
+function catatanSelisihHari() { selisihSeharusnya(); }
 
 
 
@@ -1060,12 +1131,12 @@ function catatanSelisihBon() { selisihSeharusnya(); }
 
 
 
-function kartuPenjelasanBon() { selisihSeharusnya(); bonGrupBelum(); }
+function kartuPenjelasan() { selisihSeharusnya(); bonGrupBelum(); }
 
 
 
 function baris() {  }
-function daftar() { go(); catatanSelisihBon(); baris(); todayISO(); }
+function daftar() { go(); catatanSelisihHari(); baris(); todayISO(); }
 
 
 
@@ -1167,7 +1238,7 @@ function bonGrupBelum() { bonBelum(); }
 
 function setBonTab() { render(); }
 
-function viewPiutang() { bonGrupBelum(); bonRingkasHari(); bonSemua(); hapusBon(); todayISO(); calInner(); bonBelum(); dateLabel(); setBonTab(); batalLunas(); save(); render(); }
+function viewPiutang() { bonGrupBelum(); bonRingkasHari(); hapusOwner(); bonSemua(); hapusBon(); todayISO(); calInner(); bonBelum(); dateLabel(); setBonTab(); batalLunas(); }
 
 
 
@@ -1227,6 +1298,72 @@ function viewPiutang() { bonGrupBelum(); bonRingkasHari(); bonSemua(); hapusBon(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tampil() {  }
+function syncTipe() { tampil(); daftar(); save(); render(); ambilRoster(); }
 
 
 
@@ -1333,7 +1470,18 @@ function batalLunas() { save(); render(); }
 
 
 
-function hapusBon() { save(); render(); todayISO(); }
+function hapusBon() { save(); render(); }
+
+
+
+
+
+
+
+
+function hapusOwner() { save(); render(); todayISO(); }
+
+
 
 
 
@@ -1830,7 +1978,7 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearCharts(); barOpts(); emptyCanvas(); }
+function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
 
 
 
