@@ -855,7 +855,18 @@ function checkout($b) {
   // Kursi yang dibayar = kursi yang MASIH dipegang token ini di database.
   // Bukan daftar dari browser: daftar dari browser bisa memuat kursi yang
   // kuncinya sudah kedaluwarsa atau tidak pernah ada.
-  $st = db()->prepare('SELECT seat_id FROM seat_holds WHERE hold_token = :t AND event_id = :e AND expires_at > :n');
+  /* HANYA kursi yang BELUM terikat pesanan lain.
+     Kunci yang sudah punya order_id adalah milik pesanan yang sedang menunggu
+     pembayaran (masa tahannya diperpanjang jadi 1 jam, dan sapu_hold sengaja
+     tidak menyapunya). Tanpa saringan ini, checkout berikutnya dengan token yang
+     sama IKUT MENYERET kursi-kursi itu ke pesanan baru: keranjang di layar
+     menampilkan satu kursi, tagihan Xendit berisi tiga.
+     Sudah kejadian 3 Agustus 2026 di produksi — dua percobaan checkout gagal
+     (kunci Xendit belum berizin) meninggalkan kursi 70 & 81 tergantung, lalu
+     ikut tertagih bersama kursi 82 yang baru dipilih. */
+  $st = db()->prepare('SELECT seat_id FROM seat_holds
+                       WHERE hold_token = :t AND event_id = :e AND expires_at > :n
+                         AND (order_id IS NULL OR order_id = \'\')');
   $st->execute(array(':t' => $tok, ':e' => $eid, ':n' => now_ms()));
   $seatIds = array(); foreach ($st as $r) $seatIds[] = $r['seat_id'];
 
@@ -970,7 +981,18 @@ function checkout($b) {
   }
   } finally { tx_unlock(); }   // di sinilah pembeli berikutnya boleh masuk
 
-  $inv = xendit_invoice($order, $ev);
+  /* KALAU XENDIT MENOLAK, PESANANNYA DIBATALKAN — bukan ditinggal menggantung.
+     Pesanan tanpa invoice tidak akan pernah bisa dibayar, tapi kunci kursinya
+     sudah terikat padanya selama satu jam. Akibatnya kursi itu mati untuk semua
+     orang (termasuk pembelinya sendiri, yang cuma melihat kursinya "sedang
+     dipilih orang lain"), dan pesanan hantu menumpuk di daftar EMS.
+     batalkan() menandainya Failed sekaligus melepas kuncinya. */
+  try {
+    $inv = xendit_invoice($order, $ev);
+  } catch (Throwable $e) {
+    batalkan($oid, 'FAILED');
+    throw $e;
+  }
   $order['payment'] = $inv;
   simpan_order($order);
   return array('order_id' => $oid, 'ref' => $ref, 'access_token' => $akses,
