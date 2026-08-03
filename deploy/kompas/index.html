@@ -204,8 +204,9 @@ tbody tr:hover{background:var(--gold-soft)}
 .brow{display:grid;gap:10px;align-items:end;margin-bottom:10px}
 .brow.mk{grid-template-columns:1.1fr 1.3fr .9fr auto auto auto}
 .brow.ks{grid-template-columns:1.2fr .9fr 1fr auto}
+.brow.so{grid-template-columns:1.2fr .9fr auto}
 .brow .field{margin-bottom:0}
-@media(max-width:760px){.brow.mk,.brow.ks{grid-template-columns:1fr}}
+@media(max-width:760px){.brow.mk,.brow.ks,.brow.so{grid-template-columns:1fr}}
 /* Centang Free Entry (dulu "Ticketing") di baris breakdown. Dibuat setinggi field di sebelahnya
    supaya tidak melayang saat baris ikut memanjang. */
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
@@ -251,6 +252,7 @@ tbody tr:hover{background:var(--gold-soft)}
 .divlabel.mk{background:var(--info-bg);color:var(--info)}
 .divlabel.ev{background:var(--violet-bg);color:var(--violet)}
 .divlabel.ks{background:var(--teal-bg);color:var(--teal)}
+.divlabel.so{background:var(--gold-soft);color:var(--gold)}
 .hamb{display:none}
 @media(max-width:620px){.hamb{display:inline-flex}}
 .chart-box{position:relative;height:280px}
@@ -603,6 +605,9 @@ function normalizeDB(d){
        kasir, dan membagi ratanya akan mengarang angka yang tidak diinput
        siapa pun. Lihat catatan omsetKasir(). */
     if(x.bd&&Array.isArray(x.bd.kasir)) x.bd.kasir.forEach(r=>{ if(r.disc===undefined) r.disc=0; });
+    // Ember Self Order, sama alasannya: hari sebelum 3 Agustus 2026 tidak
+    // punya bidang ini dan nilainya memang nol — tidak ada omset yang pindah.
+    if(x.bd&&(!x.bd.self||typeof x.bd.self!=='object'||Array.isArray(x.bd.self))) x.bd.self={amount:0,disc:0};
   });
   return d;
 }
@@ -726,6 +731,21 @@ function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
    migrasi. Yang hilang cuma atribusinya, dan itu memang tidak pernah ada. */
 function omsetKasir(r){ return num(r&&r.amount)-num(r&&r.disc); }
 function diskonKasir(r){ return r&&r.off?0:num(r&&r.disc); }
+
+/* ---- SELF ORDER (3 Agustus 2026) ----
+   Tamu memesan sendiri lewat barcode di meja: uangnya masuk tanpa ada kasir
+   yang melayani. Karena itu ia BUKAN omset kasir mana pun — tidak masuk
+   Performa Kasir, tidak kena potongan event, tidak ikut menghitung bonus.
+   Tapi uangnya nyata dan harus dialokasikan, kalau tidak Breakdown tidak akan
+   pernah balance pada hari yang ada self order-nya.
+
+   Jadi ia berdiri sebagai ember sendiri di Section A: satu baris per hari,
+   `{amount, disc}` dengan aturan yang sama seperti baris kasir (amount bruto,
+   disc = diskon bill yang diberikan lewat jalur ini). Laporannya digabung ke
+   Analytics dan Dashboard Omset saja, sesuai permintaan user. */
+function selfRow(d){ return (d&&d.bd&&d.bd.self)||{amount:0,disc:0}; }
+function selfOmset(d){ const s=selfRow(d); return num(s.amount)-num(s.disc); }
+function selfDiskon(d){ return num(selfRow(d).disc); }
 /* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
 const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
 /* Pembagi hari sebulan — dipakai bareng oleh target harian perusahaan DAN
@@ -1033,7 +1053,7 @@ function saveDaily(){
   const box=document.getElementById('i_err');
   if(errs.length){box.innerHTML='<div class="notice bad">⚠ '+[...new Set(errs)].join(' ')+'</div>';return;}
   const ex=getDay(date);
-  if(ex){Object.assign(ex,rec);} else {rec.bd={marketing:[],event:[],kasir:[]};rec.bdValid=false;DB.daily.push(rec);}
+  if(ex){Object.assign(ex,rec);} else {rec.bd={marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};rec.bdValid=false;DB.daily.push(rec);}
   save();
   box.innerHTML='<div class="notice ok">✓ Tersimpan. '+(ex?'Data diperbarui.':'Lanjut ke Breakdown untuk alokasi sumber omset.')+'</div>';
   inputDate=date;PERIOD=monthKeyOf(date);
@@ -1566,7 +1586,8 @@ function viewBreakdown(){
     return;
   }
   const net=netOf(d);
-  d.bd=d.bd||{marketing:[],event:[],kasir:[]};
+  d.bd=d.bd||{marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};
+  if(!d.bd.self||typeof d.bd.self!=='object') d.bd.self={amount:0,disc:0};
   // pastikan baris kasir ada untuk semua kasir
   const kasirRows=DB.employees.kasir.map(k=>{ const ex=d.bd.kasir.find(r=>r.kasirId===k.id); return ex||{kasirId:k.id,amount:0,disc:0,off:false}; });
 
@@ -1576,7 +1597,7 @@ function viewBreakdown(){
      sendiri kurang dari net, tapi kasir + marketing + event tepat sama dengan
      net. Disebutkan terang-terangan supaya orang tahu harus menaikkan omset
      kasirnya, bukan mengira Breakdown-nya rusak. */
-  const ksIsi=kasirRows.reduce((s,r)=>s+(r.off?0:omsetKasir(r)),0);
+  const ksIsi=kasirRows.reduce((s,r)=>s+(r.off?0:omsetKasir(r)),0)+selfOmset(d);
   const mkEvIsi=[...d.bd.marketing,...d.bd.event].reduce((s,r)=>s+num(r.amount),0);
   const polaLama = mkEvIsi>0 && Math.abs(net-(ksIsi+mkEvIsi))<1 && Math.abs(net-ksIsi)>=1;
 
@@ -1591,6 +1612,10 @@ function viewBreakdown(){
       <span class="divlabel ks">Section A — Omset per Kasir <span style="opacity:.75;font-weight:600">(isi ini dulu)</span></span>
       <div class="helper" style="margin-bottom:10px">Semua uang lewat meja kasir, <b>termasuk tiket event dan tagihan gathering</b> — jadi isi omset apa adanya sesuai setoran tiap kasir. Kolom <b>Omset diisi BRUTO</b> (sebelum diskon), lalu diskon bill yang diberikan kasir itu diisi di kolom sebelahnya; yang diakui = bruto − diskon. Total <b>yang diakui</b> inilah yang harus sama dengan omset net; section B dan C di bawah tidak menambah total, tapi <b>memotong</b> dari kasir yang kena shift-nya. Centang OFF jika kasir libur, nominal otomatis nol.</div>
       <div id="bd_ks"></div>
+
+      <span class="divlabel so" style="margin-top:20px">Self Order <span style="opacity:.75;font-weight:600">(tanpa kasir)</span></span>
+      <div class="helper" style="margin-bottom:10px">Tamu memesan sendiri lewat <b>barcode</b> di meja — tidak ada kasir yang melayani, jadi nominalnya <b>bukan omset kasir mana pun</b>: tidak masuk Performa Kasir, tidak kena potongan event, tidak ikut menghitung bonus. Uangnya tetap harus dialokasikan di sini supaya harian ini balance. Laporannya digabung ke <b>Analytics</b> dan <b>Dashboard Omset</b>.</div>
+      <div id="bd_so"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
       <div class="helper" style="margin-bottom:10px">Tiap baris memotong omset kasir yang kena shift event itu — tentukan shift-nya lewat tombol potongan di baris tersebut. <b>Seluruh</b> nominalnya dipotong dari kasir shift dan diakui penuh untuk PIC — sejak 1 Agustus 2026 tidak ada lagi baris yang dibagi dua.</div>
@@ -1607,7 +1632,7 @@ function viewBreakdown(){
     <div id="bd_warn"></div>
     <div class="balance-bar" id="bd_balance"></div>`;
 
-  const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows))};
+  const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows)),so:JSON.parse(JSON.stringify(d.bd.self))};
 
   /* Cabut satu kasir dari seluruh baris shift marketing & event. Dipakai saat
      kasir dicentang OFF, dan sekali saat halaman dibuka untuk merapikan data
@@ -1675,8 +1700,8 @@ function viewBreakdown(){
          `bdValid` tidak dinaikkan begitu saja: alokasi omsetnya bisa saja
          belum balance, jadi flagnya diisi apa adanya supaya tidak berbohong
          soal hari yang sebenarnya masih selisih. */
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks};
-      d.bdValid=Math.abs(net-sumKasir())<1;
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so};
+      d.bdValid=Math.abs(net-sumDiakui())<1;
       save();
       const b=potonganBaris(row), box=document.getElementById('bd_info');
       if(box){
@@ -1752,6 +1777,24 @@ function viewBreakdown(){
     document.querySelectorAll('.kssisa').forEach(b=>b.onclick=()=>isiSisa(+b.dataset.i));
     formatAllRp(document.getElementById('bd_ks'));
   }
+  /* Satu baris saja, tanpa OFF (self order tidak libur) dan tanpa nama PIC.
+     Tombol "sisa" tetap ada: pada hari yang omsetnya banyak lewat barcode,
+     jauh lebih cepat mengisi kasir dulu lalu melempar sisanya ke sini. */
+  function drawSo(){
+    document.getElementById('bd_so').innerHTML=`
+      <div class="brow so">
+        <div class="field"><label>Self Order — omset bruto</label><input data-f="amount" class="sof mono rp" inputmode="numeric" value="${state.so.amount||0}"></div>
+        <div class="field"><label>Diskon diberikan (−)</label><input data-f="disc" class="sof mono rp" inputmode="numeric" value="${state.so.disc||0}" title="Diskon bill pada pesanan yang masuk lewat barcode"></div>
+        <button type="button" class="btn btn-sm btn-ghost" id="so_sisa" style="margin-bottom:14px" title="Isi sisa omset yang belum dialokasikan ke Self Order">sisa</button>
+      </div>`;
+    document.querySelectorAll('.sof').forEach(inp=>inp.oninput=()=>{state.so[inp.dataset.f]=num(inp.value);calc();});
+    document.getElementById('so_sisa').onclick=()=>{
+      const cur=num(state.so.amount)-num(state.so.disc);
+      state.so.amount=Math.max(0, net-(sumDiakui()-cur))+num(state.so.disc);
+      drawSo(); calc();
+    };
+    formatAllRp(document.getElementById('bd_so'));
+  }
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
       inp.oninput=inp.onchange=()=>{
@@ -1769,11 +1812,15 @@ function viewBreakdown(){
   /* Yang dijumlahkan adalah omset yang DIAKUI (bruto − diskon), bukan bruto:
      diskon tidak pernah jadi omset siapa pun, dan omset net harian di atas
      juga sudah dikurangi diskon. Menjumlahkan bruto di sini akan membuat
-     Breakdown menuntut angka sebesar gross — tidak akan pernah balance. */
-  function sumKasir(){ return state.ks.reduce((s,r)=>s+(r.off?0:omsetKasir(r)),0); }
-  // Total diskon yang sudah diatribusikan ke kasir. Pembandingnya angka
-  // Discount di Input Omset Harian (d.discount) — lihat cekDiskon() di calc().
-  function sumDiskon(){ return state.ks.reduce((s,r)=>s+diskonKasir(r),0); }
+     Breakdown menuntut angka sebesar gross — tidak akan pernah balance.
+     Self Order ikut dijumlahkan walau bukan omset kasir: uangnya nyata dan
+     ikut membentuk omset net, jadi tanpa itu hari yang ada self order-nya
+     tidak akan pernah bisa balance. */
+  function sumKasirSaja(){ return state.ks.reduce((s,r)=>s+(r.off?0:omsetKasir(r)),0); }
+  function sumDiakui(){ return sumKasirSaja()+num(state.so.amount)-num(state.so.disc); }
+  // Total diskon yang sudah diatribusikan, kasir maupun Self Order.
+  // Pembandingnya angka Discount di Input Omset Harian (d.discount).
+  function sumDiskon(){ return state.ks.reduce((s,r)=>s+diskonKasir(r),0)+num(state.so.disc); }
   // Isi otomatis omset yang BELUM dialokasikan (net − kasir lain) ke satu baris
   // kasir. Hanya untuk section kasir: baris marketing/event tidak mengisi total
   // apa pun lagi, jadi "sisa" di sana tidak punya arti dan tombolnya dihapus.
@@ -1782,7 +1829,7 @@ function viewBreakdown(){
   function isiSisa(i){
     const row=state.ks[i]; if(!row || row.off) return;
     const cur=omsetKasir(row);
-    row.amount=Math.max(0, net-(sumKasir()-cur))+num(row.disc);
+    row.amount=Math.max(0, net-(sumDiakui()-cur))+num(row.disc);
     drawKs(); calc();
   }
   /* Rincian efek potongan per kasir. Bukan hiasan: potongannya tidak terlihat
@@ -1791,7 +1838,9 @@ function viewBreakdown(){
      benar selain membuka halaman Performa Kasir sesudah menyimpan. */
   function kartuEfek(){
     const rows=state.ks.filter(r=>!r.off);
-    if(!rows.length) return '';
+    // Hari yang seluruh kasirnya OFF tapi ada self order tetap perlu kartu ini
+    // — omsetnya ada, cuma tidak ada yang mengakuinya sebagai kasir.
+    if(!rows.length && !num(state.so.amount)) return '';
     const semua=[...state.mk,...state.ev];
     const pot=id=>semua.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
     const isi=rows.map(r=>{
@@ -1799,18 +1848,25 @@ function viewBreakdown(){
       return `<tr><td>${esc(empName('kasir',r.kasirId))}</td><td class="num mono">${fmtRp(num(r.amount))}</td><td class="num mono">${dc?'−'+fmtRp(dc):'<span class="muted">—</span>'}</td><td class="num mono">${p?'−'+fmtRp(p):'<span class="muted">—</span>'}</td><td class="num mono"><b>${fmtRp(real)}</b></td></tr>`;
     }).join('');
     const tp=rows.reduce((s,r)=>s+pot(r.kasirId),0);
-    const tk=rows.reduce((s,r)=>s+num(r.amount),0);
-    const td=rows.reduce((s,r)=>s+diskonKasir(r),0);
+    const tk=rows.reduce((s,r)=>s+num(r.amount),0)+num(state.so.amount);
+    const td=rows.reduce((s,r)=>s+diskonKasir(r),0)+num(state.so.disc);
+    /* Self Order ditempelkan sebagai baris terakhir walau bukan realisasi
+       kasir: tanpa itu TOTAL kartu ini tidak akan sama dengan omset net dan
+       orang akan mengira ada omset yang hilang. Ditandai jelas supaya tidak
+       terbaca sebagai nama kasir. */
+    const barisSo=(num(state.so.amount)||num(state.so.disc))
+      ? `<tr style="color:var(--muted)"><td><i>Self Order (tanpa kasir)</i></td><td class="num mono">${fmtRp(num(state.so.amount))}</td><td class="num mono">${num(state.so.disc)?'−'+fmtRp(num(state.so.disc)):'—'}</td><td class="num mono">—</td><td class="num mono"><b>${fmtRp(num(state.so.amount)-num(state.so.disc))}</b></td></tr>`
+      : '';
     return `<div class="card"><h3>Efek ke Realisasi Kasir</h3>
       <div class="card-sub">Rincian lengkap ada di sini, bukan di halaman Performa Kasir — di sana yang tampil hanya angka finalnya. Diskon yang diberikan seorang kasir tidak pernah jadi omsetnya.</div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Kasir</th><th class="num" style="width:130px">Omset Bruto</th><th class="num" style="width:130px">Diskon Diberikan</th><th class="num" style="width:130px">Potongan Event</th><th class="num" style="width:130px">Realisasi</th></tr></thead>
-        <tbody>${isi}</tbody>
+        <tbody>${isi}${barisSo}</tbody>
         <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td>TOTAL</td><td class="num mono">${fmtRp(tk)}</td><td class="num mono">${td?'−'+fmtRp(td):'Rp0'}</td><td class="num mono">${tp?'−'+fmtRp(tp):'Rp0'}</td><td class="num mono">${fmtRp(tk-td-tp)}</td></tr></tfoot>
       </table></div></div>`;
   }
   function calc(){
-    const tot=sumKasir(), diff=net-tot, ok=Math.abs(diff)<1;
+    const tot=sumDiakui(), diff=net-tot, ok=Math.abs(diff)<1;
     document.getElementById('bd_efek').innerHTML=kartuEfek();
     /* Baris bernominal yang shift-nya belum ditentukan. Ini TIDAK mengunci
        simpan — omset kasirnya sendiri bisa saja sudah benar dan balance, dan
@@ -1825,11 +1881,13 @@ function viewBreakdown(){
        adalah peringatan yang menyebut akibatnya. */
     const dTot=sumDiskon(), dHari=num(d.discount), dSel=dHari-dTot;
     const lebihan=state.ks.filter(r=>!r.off&&num(r.disc)>num(r.amount));
+    if(num(state.so.disc)>num(state.so.amount)) lebihan.push({kasirId:null,self:true});
+    const namaLebihan=lebihan.map(r=>r.self?'Self Order':esc(empName('kasir',r.kasirId))).join(', ');
     const perDiskon = lebihan.length
-      ? `<div class="notice bad">⚠ ${lebihan.map(r=>esc(empName('kasir',r.kasirId))).join(', ')} diberi diskon lebih besar daripada omset brutonya sendiri. Kolom omset harus diisi <b>bruto</b> (sebelum diskon), bukan setoran bersihnya.</div>`
+      ? `<div class="notice bad">⚠ ${namaLebihan} diberi diskon lebih besar daripada omset brutonya sendiri. Kolom omset harus diisi <b>bruto</b> (sebelum diskon), bukan setoran bersihnya.</div>`
       : (dHari!==dTot
-        ? `<div class="notice warn">⚠ Diskon yang sudah diatribusikan ke kasir <b>${fmtRp(dTot)}</b>, sedangkan Discount di Input Omset Harian <b>${fmtRp(dHari)}</b> — ${dSel>0?`masih ada ${fmtRp(dSel)} yang belum ditulis atas nama kasir mana pun`:`kelebihan ${fmtRp(-dSel)}`}. Selama belum cocok, tidak ada catatan siapa yang memberi diskon itu — meski total omsetnya tetap benar.</div>`
-        : (dHari>0?`<div class="notice ok">✓ Seluruh diskon ${fmtRp(dHari)} sudah tercatat atas nama kasir yang memberikannya.</div>`:''));
+        ? `<div class="notice warn">⚠ Diskon yang sudah diatribusikan <b>${fmtRp(dTot)}</b>, sedangkan Discount di Input Omset Harian <b>${fmtRp(dHari)}</b> — ${dSel>0?`masih ada ${fmtRp(dSel)} yang belum ditulis atas nama kasir mana pun (atau Self Order)`:`kelebihan ${fmtRp(-dSel)}`}. Selama belum cocok, tidak ada catatan siapa yang memberi diskon itu — meski total omsetnya tetap benar.</div>`
+        : (dHari>0?`<div class="notice ok">✓ Seluruh diskon ${fmtRp(dHari)} sudah tercatat atas nama pemberinya.</div>`:''));
     document.getElementById('bd_warn').innerHTML = perDiskon + (belum.length
       ? `<div class="notice warn">⚠ ${belum.length} baris belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+porsiPic(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
       : '');
@@ -1837,7 +1895,8 @@ function viewBreakdown(){
       <div class="bnums">
         <div class="bi">Total Omset Diakui<b class="mono">${fmtRp(tot)}</b></div>
         <div class="bi">Total Omset (net)<b class="mono">${fmtRp(net)}</b></div>
-        <div class="bi">Diskon Kasir<b class="mono" style="color:${dHari===dTot?'var(--ok)':'var(--muted)'}">${fmtRp(dTot)} / ${fmtRp(dHari)}</b></div>
+        <div class="bi">Self Order<b class="mono">${fmtRp(num(state.so.amount)-num(state.so.disc))}</b></div>
+        <div class="bi">Diskon Tercatat<b class="mono" style="color:${dHari===dTot?'var(--ok)':'var(--muted)'}">${fmtRp(dTot)} / ${fmtRp(dHari)}</b></div>
         <div class="bi">Selisih<b class="mono" style="color:${ok?'var(--ok)':'var(--danger)'}">${diff===0?'Rp0':(diff>0?'Kurang '+fmtRp(diff):'Lebih '+fmtRp(-diff))}</b></div>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
@@ -1845,14 +1904,14 @@ function viewBreakdown(){
         <button class="btn btn-primary" id="bd_save" ${ok?'':'disabled'}>Simpan Breakdown</button>
       </div>`;
     document.getElementById('bd_save').onclick=()=>{
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks};d.bdValid=true;save();render();
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so};d.bdValid=true;save();render();
     };
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
   // 2026) juga dibaca sebagai non-ticketing, jadi keduanya konsisten.
   document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
   document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawEv();calc();};
-  drawMk();drawEv();drawKs();calc();
+  drawMk();drawEv();drawKs();drawSo();calc();
 }
 
 /* ============ 3. DASHBOARD BULANAN ============ */
@@ -1905,6 +1964,7 @@ function cetakDashboardOmset(){
         <tr><td>Service Charge</td><td class="num">${fmtRp(r.svcOnly)}</td><td>Tax</td><td class="num">${fmtRp(r.taxOnly)}</td></tr>
         <tr><td>Total Discount</td><td class="num">${fmtRp(r.disc)}</td><td>Total Compliment</td><td class="num">${fmtRp(r.compBulan)}</td></tr>
         <tr><td>Total Traffic</td><td class="num">${r.T.traffic.toLocaleString('id-ID')}</td><td>Tax &amp; Service</td><td class="num">${fmtRp(r.tax)}</td></tr>
+        <tr><td>Omset Self Order</td><td class="num">${fmtRp(r.self)} (${r.selfPct.toFixed(1)}%)</td><td>Omset Lewat Kasir</td><td class="num">${fmtRp(r.real-r.self)}</td></tr>
       </tbody>
     </table>
     ${r.harian?'':`<h2>Rincian Harian</h2>
@@ -1947,6 +2007,10 @@ function waDashboardOmset(){
     `• Beverage : ${fmtRp(r.T.bev)}`,
     `• Lainnya  : ${fmtRp(r.T.lainnya)}`,
     '',
+    '*Jalur Pemesanan*',
+    `📱 Self Order  : ${fmtRp(r.self)} (${r.selfPct.toFixed(1)}%)`,
+    `🧑‍💼 Lewat Kasir : ${fmtRp(r.real-r.self)}`,
+    '',
     '*Indikator*',
     `• UPT : ${fmtDec(r.upt)}`,
     `• ATV : ${fmtRp(r.atv)}`,
@@ -1975,6 +2039,12 @@ function viewBulanan(){
   const taxOnly=days.reduce((s,d)=>s+num(d.tax),0);
   const compBulan=compsRentang().reduce((s,c)=>s+num(c.nominal),0);
   const disc=days.reduce((s,d)=>s+num(d.discount),0);
+  /* Self Order digabung ke sini (dan ke Analytics) sesuai permintaan user
+     3 Agustus 2026 — laporannya memang berbeda dari kasir, jadi ia tidak
+     muncul di Performa Kasir sama sekali. `real` tidak ditambah: self order
+     BAGIAN dari omset net, bukan tambahan di atasnya. */
+  const self=days.reduce((s,d)=>s+selfOmset(d),0);
+  const selfPct=pct(self,real);
   const ach=pct(real,target), selisih=target-real;
   const T={food:0,bev:0,lainnya:0,traffic:0,bill:0,qfood:0,qbev:0,qothers:0};
   days.forEach(d=>{T.food+=num(d.food);T.bev+=num(d.bev);T.lainnya+=num(d.lainnya);T.traffic+=num(d.traffic);T.bill+=num(d.bill);T.qfood+=num(d.qty_food);T.qbev+=num(d.qty_bev);T.qothers+=num(d.qty_others);});
@@ -1997,7 +2067,7 @@ function viewBulanan(){
      Diisi di sini, dibaca tombol di bawah — tombolnya cuma ada selama view ini
      terpasang, jadi ia tidak pernah bisa dibaca sebelum terisi. */
   RINGKAS_OMSET={label:labelRentang(),harian:modeHarian(),
-                 target,real,ach,selisih,tax,svcOnly,taxOnly,compBulan,disc,
+                 target,real,ach,selisih,tax,svcOnly,taxOnly,compBulan,disc,self,selfPct,
                  T,totalItem,upt,atv,aps,dtgt,
                  hari:days.map(d=>({date:d.date,net:netOf(d)}))};
 
@@ -2022,6 +2092,10 @@ function viewBulanan(){
     <div class="grid g2">
       <div class="stat" style="background:var(--warn-bg-t)"><div class="lab">💰 Tax &amp; Service Bulanan</div><div class="val sm">${fmtRp(tax)}</div><div class="foot">di luar omset, akumulasi harian</div></div>
       <div class="stat" style="background:var(--danger-bg-t)"><div class="lab">🏷️ Total Discount Bulanan</div><div class="val sm">${fmtRp(disc)}</div><div class="foot">total potongan diberikan</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="stat" style="background:var(--gold-glow)"><div class="lab">📱 Omset Self Order</div><div class="val sm mono">${fmtRp(self)}</div><div class="foot">tamu order sendiri lewat barcode · ${selfPct.toFixed(1)}% dari omset net</div></div>
+      <div class="stat"><div class="lab">🧑‍💼 Omset Lewat Kasir</div><div class="val sm mono">${fmtRp(real-self)}</div><div class="foot">sisanya, dilayani kasir · ${pct(real-self,real).toFixed(1)}% dari omset net</div></div>
     </div>
     <div class="grid g3">
       <div class="stat" style="background:var(--info-bg-t)"><div class="lab">🧾 Unit Per Transaction (UPT)</div><div class="val sm">${fmtDec(upt)}</div><div class="foot">${totalItem.toLocaleString('id-ID')} item ÷ ${T.bill.toLocaleString('id-ID')} bill</div></div>
@@ -2067,7 +2141,7 @@ function viewAnalytics(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
   const comp={Food:0,Beverage:0,Lainnya:0};
-  const src={Marketing:0,Event:0,'Walk In':0};
+  const src={Marketing:0,Event:0,'Walk In':0,'Self Order':0};
   const byMk={},byEv={},byKs={},byDisc={};
   let totDisc=0;
   days.forEach(d=>{
@@ -2079,6 +2153,11 @@ function viewAnalytics(){
     (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
     (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=omsetKasir(r)-potonganHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;
       const dc=diskonKasir(r); if(dc){ byDisc[r.kasirId]=(byDisc[r.kasirId]||0)+dc; totDisc+=dc; }}});
+    /* Self Order berdiri sebagai sumber tersendiri, bukan bagian Walk In:
+       tidak ada kasir yang melayani, jadi menyatukannya akan membuat grafik
+       Kontribusi Kasir menjanjikan omset yang tidak diakui siapa pun. */
+    src['Self Order']+=selfOmset(d);
+    totDisc+=selfDiskon(d);
   });
   // Diskon harian yang diinput di Input Omset, sebagai pembanding: selisihnya
   // = diskon yang belum ditulis atas nama kasir mana pun di Breakdown.
@@ -2088,7 +2167,7 @@ function viewAnalytics(){
     <div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
-      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · porsi PIC dipotong dari kasir shift</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir), Self Order · porsi PIC dipotong dari kasir shift; Self Order tidak dilayani kasir mana pun</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
       <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
@@ -2104,7 +2183,7 @@ function viewAnalytics(){
     charts.push(new Chart(document.getElementById('a_comp'),{type:'doughnut',data:{labels:Object.keys(comp),datasets:[{data:Object.values(comp),backgroundColor:PAL}]},options:pieOpts()}));
   else emptyCanvas('a_comp');
   if(hasBd)
-    charts.push(new Chart(document.getElementById('a_src'),{type:'doughnut',data:{labels:Object.keys(src),datasets:[{data:Object.values(src),backgroundColor:['#2F7FC4','#7C5FC0','#1F9D8F']}]},options:pieOpts()}));
+    charts.push(new Chart(document.getElementById('a_src'),{type:'doughnut',data:{labels:Object.keys(src),datasets:[{data:Object.values(src),backgroundColor:['#2F7FC4','#7C5FC0','#1F9D8F','#C8961F']}]},options:pieOpts()}));
   else emptyCanvas('a_src','Belum ada breakdown');
   barCanvas('a_mk',DB.employees.marketing,byMk,'#2F7FC4');
   barCanvas('a_ev',DB.employees.event,byEv,'#7C5FC0');
