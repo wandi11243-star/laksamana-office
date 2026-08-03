@@ -439,6 +439,22 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -599,6 +615,8 @@ function go() { gambarTopnav(); gambarBarHp(); }
 
 
 function mulai() { muatAkun(); gambarTopnav(); dariHash(); }
+
+
 
 
 
