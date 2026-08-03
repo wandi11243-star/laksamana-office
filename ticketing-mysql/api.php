@@ -37,6 +37,13 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, x-callback-token');
 header('Content-Type: application/json; charset=utf-8');
+/* Jawaban API memuat data pesanan & token akses. Jangan disimpan peramban
+   maupun perantara di jalan: satu tautan e-ticket yang tersangkut di cache
+   bersama (mis. warnet, wifi kantor) bisa terbuka oleh orang berikutnya. */
+header('Cache-Control: no-store');
+header('X-Content-Type-Options: nosniff');
+// Endpoint ini tidak pernah untuk dilihat di dalam bingkai halaman lain.
+header('X-Frame-Options: DENY');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 function keluar($o) { echo json_encode($o, JSON_UNESCAPED_UNICODE); exit; }

@@ -5403,10 +5403,109 @@ function renderCheckin(){
     <div class="field"><input id="ci_token" placeholder="…atau tempel QR token di sini"></div>
     <button class="btn ghost" onclick="doScan(document.getElementById('ci_token').value)">Cek token ini</button>
     <div id="scanResult" style="margin-top:16px"></div>
-  </div>`;
+  </div>
+  ${ciTabelHTML(eid)}`;
   // Diskalakan sesudah HTML-nya terpasang — sebelum itu lebar wadahnya nol.
   setTimeout(ciPasDenah, 0);
 }
+/* ================= DAFTAR TAMU: SUDAH & BELUM CHECK-IN =================
+   Pemindai menjawab "orang ini boleh masuk?". Yang tidak dijawabnya: "siapa
+   saja yang belum datang?" — pertanyaan yang muncul terus-menerus menjelang
+   acara mulai, dan sebelumnya hanya bisa dijawab dengan menghitung kotak merah
+   di denah satu per satu.
+
+   Daftar ini sengaja bukan sekadar tabel: di pintu masuk yang dicari selalu
+   SATU nama, jadi pencarian dan saringan "belum datang" lebih penting daripada
+   melihat semuanya sekaligus. Halamannya dibatasi 25 baris karena acara 500
+   tiket berarti 500 baris yang harus digambar ulang tiap kali satu tamu masuk —
+   itu yang dulu membuat halaman ini berat di HP. */
+const CI_PER_HAL=25;
+let _ciFilter={q:'',mode:'belum',hal:1};
+
+function ciBaris(eid){
+  return ciTiket(eid).map(function(tk){
+    const o=DB.orders.find(x=>x.id===tk.order_item_id)||{};
+    const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
+    const ci=DB.checkins.find(x=>x.ticket_id===tk.id);
+    return {tk:tk, nama:o.buyer_name||'Tamu', hp:o.phone||'', kelas:c?c.name:'—',
+            tempat:seatTeks(tk), masuk:tk.status==='Checked-In',
+            jam:ci?fmtDateTime(ci.checked_in_at):''};
+  });
+}
+function ciTabelHTML(eid){
+  const b=ciBaris(eid);
+  const belum=b.filter(x=>!x.masuk).length, sudah=b.length-belum;
+  const chip=(m,t,n)=>'<button class="btn sm ci-chip'+(_ciFilter.mode===m?' blue':' ghost')+'" data-m="'+m+'" '
+    +'onclick="ciMode(\'' + m + '\')">'+t+' <b>'+n+'</b></button>';
+  return '<div class="card" style="margin-top:16px"><h3 class="sec">🧾 Daftar Tamu</h3>'
+    +'<div class="toolbar" style="margin-bottom:10px">'
+      +chip('belum','Belum datang',belum)+chip('sudah','Sudah datang',sudah)+chip('semua','Semua',b.length)
+      +'<input id="ci_cari" placeholder="Cari nama / no. tiket / kursi…" value="'+esc(_ciFilter.q)+'" '
+        +'oninput="ciCari(this.value)" style="flex:1;min-width:180px">'
+    +'</div>'
+    +'<div id="ciTabelIsi">'+ciTabelIsiHTML(eid)+'</div>'
+  +'</div>';
+}
+function ciTabelIsiHTML(eid){
+  let b=ciBaris(eid);
+  if(_ciFilter.mode==='belum') b=b.filter(x=>!x.masuk);
+  else if(_ciFilter.mode==='sudah') b=b.filter(x=>x.masuk);
+  const q=_ciFilter.q.trim().toLowerCase();
+  if(q) b=b.filter(x=>(x.nama+' '+x.tk.ticket_number+' '+x.tempat+' '+x.hp).toLowerCase().indexOf(q)>=0);
+
+  if(!b.length) return '<div class="empty">'+(q?'Tidak ada yang cocok dengan "'+esc(_ciFilter.q)+'".'
+    :(_ciFilter.mode==='belum'?'Semua tamu sudah datang. 🎉':'Belum ada yang check-in.'))+'</div>';
+
+  const halMax=Math.max(1,Math.ceil(b.length/CI_PER_HAL));
+  if(_ciFilter.hal>halMax) _ciFilter.hal=halMax;
+  const mulai=(_ciFilter.hal-1)*CI_PER_HAL;
+  const tampil=b.slice(mulai,mulai+CI_PER_HAL);
+
+  let h='<div class="tbl-scroll"><table><thead><tr>'
+   +'<th>Tamu</th><th>Tiket</th><th>Tempat</th><th>Kelas</th><th>Status</th><th></th></tr></thead><tbody>';
+  tampil.forEach(function(x){
+    h+='<tr><td><b>'+esc(x.nama)+'</b>'+(x.hp?'<div class="mini">'+esc(x.hp)+'</div>':'')+'</td>'
+     +'<td class="mono">'+esc(x.tk.ticket_number)+'</td>'
+     +'<td class="mini">'+x.tempat+'</td>'
+     +'<td class="mini">'+esc(x.kelas)+'</td>'
+     +'<td>'+(x.masuk
+        ? '<span class="badge b-green">Sudah datang</span>'+(x.jam?'<div class="mini">'+x.jam+'</div>':'')
+        : '<span class="badge b-grey">Belum datang</span>')+'</td>'
+     +'<td>'+(x.masuk
+        ? '<button class="btn ghost sm" onclick="batalCheckin(\''+x.tk.id+'\')">Batalkan</button>'
+        : '<button class="btn sm" onclick="checkinDariDenah(\''+x.tk.id+'\')">Check-in</button>')+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  if(halMax>1){
+    h+='<div class="pager">'
+     +'<button class="btn ghost sm" '+(_ciFilter.hal<=1?'disabled':'')+' onclick="ciHal(-1)">‹ Sebelumnya</button>'
+     +'<span class="mini">Halaman '+_ciFilter.hal+' dari '+halMax+' · '+b.length+' tamu</span>'
+     +'<button class="btn ghost sm" '+(_ciFilter.hal>=halMax?'disabled':'')+' onclick="ciHal(1)">Berikutnya ›</button>'
+     +'</div>';
+  }
+  return h;
+}
+/* Hanya ISI tabel yang digambar ulang, bukan seluruh kartunya — kalau kotak
+   pencariannya ikut dibuat ulang, fokusnya hilang dan huruf berikutnya jatuh ke
+   halaman, bukan ke kotaknya. Persis alasan yang sama dengan paintCRM di
+   Marketing. */
+function ciPaintTabel(){
+  const el=document.getElementById('ciTabelIsi');
+  if(el && window._ciEvent) el.innerHTML=ciTabelIsiHTML(window._ciEvent);
+}
+function ciCari(v){ _ciFilter.q=v; _ciFilter.hal=1; ciPaintTabel(); }
+function ciHal(d){ _ciFilter.hal=Math.max(1,_ciFilter.hal+d); ciPaintTabel(); }
+function ciMode(m){
+  _ciFilter.mode=m; _ciFilter.hal=1;
+  // Warna chip diganti langsung, bukan lewat menggambar ulang toolbar — lihat
+  // alasan fokus di atas.
+  document.querySelectorAll('.ci-chip').forEach(function(b){
+    const on=b.dataset.m===m;
+    b.classList.toggle('blue',on); b.classList.toggle('ghost',!on);
+  });
+  ciPaintTabel();
+}
+
 function ciStatHTML(tickets){
   const masuk=tickets.filter(t=>t.status==='Checked-In').length;
   const occ=tickets.length?Math.round(masuk/tickets.length*100):0;
@@ -5427,6 +5526,9 @@ function segarkanCheckin(){
   if(s) s.innerHTML=ciStatHTML(ciTiket(eid));
   const d=document.getElementById('liveDenah');
   if(d){ d.innerHTML=liveDenahHTML(eid); ciPasDenah(); }
+  // Daftar tamu ikut menyesuaikan: baris yang baru masuk berpindah sendiri dari
+  // "Belum datang" ke "Sudah datang" tanpa perlu menyegarkan halaman.
+  ciPaintTabel();
 }
 /* DENAH CHECK-IN DIPASKAN KE LEBAR LAYAR.
    Kanvas denah kustom berukuran tetap (biasanya 1600px lebih) karena koordinat

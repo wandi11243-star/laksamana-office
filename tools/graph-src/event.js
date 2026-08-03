@@ -5370,7 +5370,7 @@ function approveRefund() { save(); toast(); renderTicketDetail(); }
 function rejectRefund() { save(); renderTicketDetail(); toast(); }
 
 
-function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDenahHTML(); toggleKamera(); doScan(); }
+function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDenahHTML(); toggleKamera(); doScan(); ciTabelHTML(); }
 
 
 
@@ -5397,6 +5397,105 @@ function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDe
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciBaris() { ciTiket(); seatTeks(); fmtDateTime(); }
+
+
+
+
+
+
+
+
+
+function ciTabelHTML() { ciBaris(); }
+
+
+function chip() { ciMode(); esc(); ciCari(); ciTabelIsiHTML(); }
+
+
+
+
+
+
+
+
+
+
+function ciTabelIsiHTML() { ciBaris(); esc(); batalCheckin(); checkinDariDenah(); ciHal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciPaintTabel() { ciTabelIsiHTML(); }
+
+
+
+function ciCari() { ciPaintTabel(); }
+function ciHal() { ciPaintTabel(); }
+function ciMode() { ciPaintTabel(); }
 
 
 
@@ -5421,7 +5520,10 @@ function ciTiket() { renderCheckin(); }
 
 
 
-function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); ciPasDenah(); }
+function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); ciPasDenah(); ciPaintTabel(); }
+
+
+
 
 
 

@@ -122,7 +122,11 @@ function identitas() {
   return array_merge(cek_db(), array(
     'env'        => env_nyata(),
     'env_config' => defined('ENV_LABEL') ? ENV_LABEL : '?',
-    'db'     => DB_NAME,
+    /* Nama database TIDAK lagi disebut di endpoint publik: ia setengah dari
+       pasangan yang dibutuhkan penyerang, dan tidak menolong siapa pun yang
+       memang berhak — yang berhak bisa membacanya di config. Yang dilaporkan
+       cukup "tersambung atau tidak". */
+    'penahan_percobaan' => penahan_aktif() ? 'aktif' : 'TIDAK AKTIF (tabel tix_gagal belum dibuat)',
     'versi'  => LIB_VERSI,
     // Mode Xendit dibaca dari awalan kuncinya sendiri, bukan dari tulisan
     // terpisah yang bisa lupa diubah saat kunci diganti.
@@ -595,6 +599,86 @@ function lepas_kursi($holdToken, $seatIds = null) {
   return array('released' => $st->rowCount());
 }
 
+/* ==================== PENAHAN PERCOBAAN BERULANG ====================
+   Password 8 karakter aman dari tebakan ACAK, tapi tidak dari daftar password
+   yang paling sering dipakai orang: mesin bisa mencoba ribuan per menit tanpa
+   penahan apa pun. Di sistem yang memegang uang, itu satu-satunya pintu yang
+   tidak butuh kecerdasan untuk dibuka — cukup kesabaran.
+
+   Yang dicatat hanya percobaan GAGAL, dan yang disimpan cuma sidik jarinya
+   (hash dari kunci), bukan email atau IP-nya sendiri: tabel ini tidak boleh
+   berubah jadi daftar siapa mencoba masuk dari mana.
+
+   TIDAK MEMBLOKIR SELAMANYA, dan tidak memblokir akunnya. Yang ditahan
+   pasangan (email + alamat asal) selama beberapa menit — memblokir akun berarti
+   siapa pun bisa mengunci akun orang lain hanya dengan salah memasukkan
+   password sepuluh kali.
+
+   Kalau tabelnya belum ada (schema-tambahan.sql belum dijalankan), penahannya
+   DIAM-DIAM tidak aktif — sengaja, supaya pemasangan yang belum lengkap tidak
+   membuat seluruh situs tak bisa dipakai. ?action=ping melaporkan keadaannya
+   supaya ketidakaktifan itu tidak luput dari perhatian. */
+function asal_pemanggil() {
+  $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '?';
+  return $ip;
+}
+function kunci_gagal($jenis, $siapa) {
+  // Digabung dengan callback token sebagai garam supaya isi tabelnya tidak bisa
+  // dicocokkan balik ke daftar email lewat pencocokan hash.
+  $garam = defined('XENDIT_CALLBACK') ? XENDIT_CALLBACK : 'lm';
+  return hash('sha256', $jenis . '|' . strtolower(trim((string)$siapa)) . '|' . asal_pemanggil() . '|' . $garam);
+}
+function tahan_percobaan($jenis, $siapa, $maks = 8, $menit = 15) {
+  $k = kunci_gagal($jenis, $siapa);
+  try {
+    $st = db()->prepare('SELECT COUNT(*) FROM tix_gagal WHERE kunci = :k AND at > :t');
+    $st->execute(array(':k' => $k, ':t' => now_ms() - $menit * 60000));
+    if ((int)$st->fetchColumn() >= $maks)
+      throw new Exception('Terlalu banyak percobaan. Coba lagi dalam ' . $menit . ' menit.');
+  } catch (PDOException $e) { /* tabel belum ada — lihat catatan di atas */ }
+}
+function catat_gagal($jenis, $siapa) {
+  try {
+    db()->prepare('INSERT INTO tix_gagal (id,kunci,at) VALUES (:i,:k,:a)')
+        ->execute(array(':i' => uid('g'), ':k' => kunci_gagal($jenis, $siapa), ':a' => now_ms()));
+    // Sapu jejak lama: tabel ini tidak punya guna sebagai arsip.
+    db()->prepare('DELETE FROM tix_gagal WHERE at < :t')->execute(array(':t' => now_ms() - 24 * 3600000));
+  } catch (PDOException $e) { /* tabel belum ada */ }
+}
+function penahan_aktif() {
+  try { db()->query('SELECT 1 FROM tix_gagal LIMIT 1'); return true; }
+  catch (Throwable $e) { return false; }
+}
+
+/* ==================== MEMASTIKAN PEMBAYARAN KE XENDIT ====================
+   Webhook dipercaya karena membawa callback token rahasia. Tapi token itu satu
+   nilai statis yang hidup di config, dikirim lewat jaringan tiap kali, dan
+   pernah tertulis di tempat yang tidak seharusnya (percakapan, tangkapan
+   layar). Kalau ia bocor, siapa pun yang tahu alamat webhook bisa mengirim
+   {external_id, status:PAID} dan MENCETAK TIKET TANPA MEMBAYAR — kerugiannya
+   langsung berupa kursi yang hilang dan tamu yang tidak bisa masuk.
+
+   Karena itu webhook tidak lagi jadi bukti tunggal: sebelum tiket terbit,
+   status invoicenya DITANYAKAN LANGSUNG ke Xendit dengan secret key kita. Yang
+   bisa memalsukan itu hanya orang yang sudah memegang secret key — dan pada
+   titik itu tokennya bukan lagi masalah terbesar.
+
+   Kalau Xendit tidak bisa dihubungi, webhooknya DITOLAK dengan 500 supaya
+   Xendit mengirim ulang beberapa saat lagi; halaman e-ticket juga tetap
+   menanyakan sendiri (selaraskan_xendit). Jadi tiket tidak hilang, cuma
+   tertunda. */
+function xendit_invoice_lunas($invoiceId) {
+  if ($invoiceId === '' || strpos($invoiceId, 'SIM-') === 0) return null;  // invoice simulasi
+  if (strpos(xendit_mode(), 'belum diisi') === 0) return null;             // kunci belum dipasang
+  $ch = curl_init('https://api.xendit.co/v2/invoices/' . rawurlencode($invoiceId));
+  curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_USERPWD => XENDIT_SECRET . ':', CURLOPT_TIMEOUT => 20));
+  $res = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+  if ($res === false || $code >= 300) return null;   // tak terjangkau: BUKAN berarti lunas
+  $d  = json_decode($res, true);
+  $st = strtoupper(isset($d['status']) ? $d['status'] : '');
+  return array('lunas' => ($st === 'PAID' || $st === 'SETTLED'), 'status' => $st, 'data' => $d);
+}
+
 /* ==================== AKUN PEMBELI ====================
    Sengaja TIDAK memakai tabel `users` milik Office: itu akun kru dengan role
    dan hak akses modul. Satu kebocoran di situs publik tidak boleh menyentuh
@@ -672,11 +756,15 @@ function daftar($b) {
 function masuk($b) {
   $email = email_rapi(isset($b['email']) ? $b['email'] : '');
   $pass  = (string)(isset($b['password']) ? $b['password'] : '');
+  tahan_percobaan('masuk', $email);          // lihat catatan di tahan_percobaan()
   $u = user_baris($email);
   /* Pesan yang sama untuk email tak terdaftar dan password salah. Pesan yang
      membedakan keduanya memberi tahu orang asing email mana yang punya akun
      di sini — itu daftar yang tidak perlu dibagikan. */
-  if (!$u || !password_verify($pass, $u['pass_hash'])) throw new Exception('Email atau password salah.');
+  if (!$u || !password_verify($pass, $u['pass_hash'])) {
+    catat_gagal('masuk', $email);
+    throw new Exception('Email atau password salah.');
+  }
   tautkan_pesanan_lama($u['id'], $u['email']);
   return array('user' => user_publik($u), 'token' => buat_sesi($u['id']));
 }
@@ -807,6 +895,11 @@ function event_satu_apa_adanya($id) {
    bisa memakai halaman ini untuk memeriksa email mana yang punya akun di sini
    — daftar yang tidak perlu dibagikan ke orang asing. */
 function lupa_password($email) {
+  /* Dibatasi supaya kotak masuk seseorang tidak bisa dijadikan sasaran kiriman
+     bertubi-tubi lewat formulir ini, dan supaya jatah kirim SMTP tidak habis
+     dalam semenit. */
+  tahan_percobaan('lupa', $email, 5, 30);
+  catat_gagal('lupa', $email);   // tiap permintaan dihitung, berhasil atau tidak
   $u = user_baris($email);
   if ($u) {
     // Token lama dibuang: satu permintaan baru harus membatalkan yang lama,
@@ -1120,7 +1213,25 @@ function webhook_xendit($body, $headerToken) {
   $status = strtoupper(isset($body['status']) ? $body['status'] : '');
   if ($oid === '') throw new Exception('external_id kosong.');
 
-  if ($status === 'PAID' || $status === 'SETTLED') return lunaskan($oid, $body);
+  if ($status === 'PAID' || $status === 'SETTLED') {
+    /* TOKEN SAJA TIDAK CUKUP UNTUK MENERBITKAN TIKET.
+       Lihat catatan panjang di xendit_invoice_lunas(): kalau callback token
+       bocor, badan permintaan bisa dikarang siapa pun. Jadi status lunasnya
+       ditanyakan langsung ke Xendit memakai secret key kita sebelum satu tiket
+       pun terbit. */
+    $rows = ambil('SELECT data FROM orders WHERE id = :i', array(':i' => $oid));
+    if (!$rows) throw new Exception('Pesanan tidak ditemukan: ' . $oid);
+    $inv = isset($rows[0]['payment']['invoice_id']) ? $rows[0]['payment']['invoice_id'] : '';
+    $cek = xendit_invoice_lunas($inv);
+    if ($cek === null && $inv !== '' && strpos($inv, 'SIM-') !== 0) {
+      // Tidak bisa memastikan → JANGAN terbitkan. 500 membuat Xendit mengirim
+      // ulang; halaman e-ticket juga menanyakan sendiri saat dibuka.
+      throw new Exception('Belum bisa memastikan status ke Xendit — coba lagi.');
+    }
+    if ($cek !== null && !$cek['lunas'])
+      throw new Exception('Xendit menyatakan invoice belum lunas (' . $cek['status'] . ') — webhook diabaikan.');
+    return lunaskan($oid, $cek ? $cek['data'] : $body);
+  }
   if ($status === 'EXPIRED' || $status === 'FAILED') return batalkan($oid, $status);
   return array('diabaikan' => $status);
 }
@@ -1426,11 +1537,18 @@ function selaraskan_xendit($o) {
   return $o;
 }
 function status_pesanan($ref, $akses) {
+  /* Ditahan juga di sini: access_token 24 karakter acak memang tidak realistis
+     ditebak, tapi endpoint ini membuka DATA PEMBELI (nama, email) dan QR-nya.
+     Membiarkan ribuan percobaan per menit berjalan diam-diam berarti tidak ada
+     yang pernah tahu kalau ada yang mencoba. */
+  tahan_percobaan('tiket', $ref, 20, 10);
   $rows = ambil('SELECT data FROM orders WHERE payment_ref = :r', array(':r' => $ref));
-  if (!$rows) throw new Exception('Pesanan tidak ditemukan.');
+  if (!$rows) { catat_gagal('tiket', $ref); throw new Exception('Pesanan tidak ditemukan.'); }
   $o = $rows[0];
-  if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses))
+  if (!isset($o['access_token']) || !hash_equals((string)$o['access_token'], (string)$akses)) {
+    catat_gagal('tiket', $ref);
     throw new Exception('Tautan tiket tidak sah.');
+  }
   $o = selaraskan_xendit($o);
   $ev = event_satu($o['event_id']);
   $tiket = array();

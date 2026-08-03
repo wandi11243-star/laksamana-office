@@ -89,3 +89,24 @@ CREATE TABLE IF NOT EXISTS tix_reset (
   KEY idx_tr_user (user_id),
   KEY idx_tr_exp  (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/* ---------------------------------------------------------------------
+   PENAHAN PERCOBAAN BERULANG (tebak password, tebak tautan tiket, banjir
+   email lupa-password).
+   ---------------------------------------------------------------------
+   Yang disimpan HANYA sidik jarinya: sha256 dari (jenis + email + alamat asal
+   + garam). Tabel ini tidak boleh berubah jadi daftar siapa mencoba masuk dari
+   mana — kalau ia bocor, yang didapat cuma deretan hash tanpa arti.
+
+   Barisnya berumur pendek; kode menyapu yang lebih tua dari 24 jam sendiri.
+
+   Kalau tabel ini TIDAK dibuat, situs tetap jalan tapi penahannya mati diam-
+   diam — itu sebabnya ?action=ping melaporkan "penahan_percobaan: TIDAK AKTIF".
+   --------------------------------------------------------------------- */
+CREATE TABLE IF NOT EXISTS tix_gagal (
+  id    VARCHAR(64) NOT NULL PRIMARY KEY,
+  kunci CHAR(64)        NULL,
+  at    BIGINT      NOT NULL DEFAULT 0,
+  KEY idx_tg_kunci (kunci, at),
+  KEY idx_tg_at (at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
