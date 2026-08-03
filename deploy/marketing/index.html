@@ -1162,7 +1162,16 @@ div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> te
 .vip-chip i{font-style:normal;font-weight:600;font-size:10.5px;opacity:.8}
 .vip-slot-total{font-size:12.5px;color:var(--sand-dim)}
 .vip-slot-total.kurang{color:var(--warn)}
-/* --- pemilih lantai di pemilih meja Reservasi VIP --- */
+/* --- daftar meja yang sudah dikunci, dibaca sebelum memilih --- */
+.vip-terkunci{margin-top:12px;padding:10px 13px;border-radius:11px;
+  background:var(--danger-bg);border:1px solid var(--danger);color:var(--danger)}
+.vip-terkunci.kosong{background:var(--ink-900);border-color:var(--line);color:var(--sand-dim)}
+.vip-terkunci b{font-size:12.5px;display:block;margin-bottom:7px}
+.vip-terkunci-list{display:flex;flex-wrap:wrap;gap:7px}
+.vip-tk{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;
+  padding:3px 9px;border-radius:999px;background:var(--ink-900);border:1px solid var(--danger);color:var(--sand)}
+.vip-tk i{font-style:normal;font-weight:800;color:var(--danger)}
+/* --- pemilih denah di pemilih meja Reservasi VIP --- */
 .vip-lantai{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 0}
 .vip-lantai button{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;
   border:1px solid var(--line-hard);background:var(--ink-880);color:var(--sand-dim);
@@ -8620,19 +8629,23 @@ function rsvDaftarMeja(d){
 
 let VIP_FORM=null;         // draft yang sedang diisi (belum tersimpan)
 let vipFilter='';
-/* LANTAI MANA YANG SEDANG DILIHAT di pemilih meja.
-   Sebelumnya Reservasi VIP hanya mengenal denah lantai 1 (Weekday/Weekend),
-   padahal denah lantai 2 sudah lama ada di assets/venue-layouts.js dan dipakai
-   modul Reservasi. Akibatnya meja lantai 2 tidak pernah bisa dikunci dari
-   Marketing — harus dititipkan ke kru Reservasi lewat pesan terpisah.
-   Nilainya 'l1' (weekday/weekend mengikuti tanggal) atau 'lantai2'. */
-let VIP_LANTAI='l1';
+/* DENAH MANA YANG SEDANG DILIHAT di pemilih meja.
+   Sebelumnya Reservasi VIP hanya mengenal denah lantai 1 (Weekday/Weekend
+   mengikuti tanggal), padahal modul Reservasi punya lebih dari itu: Weekday,
+   Weekend, Lantai 2, dan template custom apa pun yang dibuat kru di sana.
+   Akibatnya meja lantai 2 tidak pernah bisa dikunci dari Marketing, dan denah
+   Weekday tidak bisa dilihat pada hari Sabtu walaupun ruangannya memang ditata
+   begitu untuk acara itu.
+
+   '' berarti IKUT TANGGAL (weekday/weekend/override) — itu bawaannya, karena
+   denah hari itulah yang benar sembilan dari sepuluh kali. */
+let VIP_LAYOUT='';
 /* Data Reservasi hasil pengambilan terakhir. Disimpan supaya tombol pindah
-   lantai menggambar ulang dari data yang SUDAH ada — menembak server lagi tiap
-   kali orang menengok lantai 2 membuat tombolnya terasa berat, dan bisa gagal
+   denah menggambar ulang dari data yang SUDAH ada — menembak server lagi tiap
+   kali orang menengok denah lain membuat tombolnya terasa berat, dan bisa gagal
    di tengah pemilihan yang belum tersimpan. */
 let VIP_RSV=null;
-let VIP_MEJA_LT={};        // {idMeja: 1|2} — dipakai chip ringkasan slot
+let VIP_MEJA_LT={};        // {idMeja: 1|2} — lantai fisik, dipakai chip ringkasan
 
 function vipKosong(){
   return {id:uid('vip'),jenis:'Assisted',nama:'',clientId:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
@@ -8749,10 +8762,11 @@ function vipForm(id){
   const v=id?(S.vip||[]).find(x=>x.id===id):vipKosong();
   if(!v)return toast('Tidak ditemukan','Reservasi VIP ini sudah dihapus.','err');
   VIP_FORM=JSON.parse(JSON.stringify(v));
-  /* Tiap form dimulai dari lantai 1 — lantai yang terakhir dilihat pada
-     reservasi SEBELUMNYA bukan petunjuk apa pun untuk yang ini, dan denah yang
-     terbuka bukan yang diharapkan membuat orang mengira mejanya pindah. */
-  VIP_LANTAI='l1';
+  /* Tiap form dimulai dari denah harian (VIP_LAYOUT kosong) — denah yang
+     terakhir dilihat pada reservasi SEBELUMNYA bukan petunjuk apa pun untuk
+     yang ini, dan denah yang terbuka bukan yang diharapkan membuat orang
+     mengira mejanya pindah. */
+  VIP_LAYOUT='';
   vipFormUI();
 }
 /* Menggambar form dari VIP_FORM yang SEDANG hidup, tanpa memuat ulang dari
@@ -8817,6 +8831,12 @@ function vipFormUI(){
       orang melewati pemilih meja hanya untuk membetulkan satu digit nomor HP
       itu yang justru mengundang salah pencet di layar kuncian meja. */
    +(id?'<button class="btn" onclick="vipSimpanSaja()">'+svg(IC.check)+'Simpan</button>':'')
+   /* Melihat dulu, memilih belakangan. Tombol ini sengaja TIDAK menuntut
+      formulirnya lengkap: pertanyaan "malam itu meja mana yang masih kosong"
+      biasanya muncul justru saat menelepon tamu, sebelum nama & jumlah orangnya
+      pasti — dan sebelumnya satu-satunya cara menjawabnya adalah membuka modul
+      Reservasi di tab lain. */
+   +'<button class="btn" onclick="vipCekKetersediaan()">Lihat Meja Terkunci</button>'
    +'<button class="btn pri" onclick="vipLanjutMeja()">'+((f.meja||[]).length?'Ubah Meja &amp; Kunci →':'Pilih Meja &amp; Kunci →')+'</button></div>');
 }
 function vipClientBaruToggle(){
@@ -8940,17 +8960,41 @@ async function vipLanjutMeja(){
    kalau ada override manual untuk tanggal itu pakai itu; kalau tidak, akhir
    pekan (Jumat/Sabtu) pakai denah Weekend, selebihnya Weekday. Denah hasil edit
    yang tersimpan di server (master.layouts) menimpa yang bawaan. */
-function vipDenahKey(d,tanggal,lantai){
-  /* Lantai 2 punya SATU denah, tidak kenal weekday/weekend — sama seperti di
-     modul Reservasi (LAYOUT_LANTAI di sana). Jadi begitu lantai 2 dipilih,
-     tanggal tidak lagi menentukan apa pun. */
-  if((lantai||VIP_LANTAI)==='lantai2') return 'lantai2';
-  return vipDenahKeyL1(d,tanggal);
+function vipDenahKey(d,tanggal,pilihan){
+  /* Denah yang dipilih manual menang atas denah harian. Denah selain
+     weekday/weekend tidak kenal tanggal sama sekali — sama seperti
+     LAYOUT_LANTAI di modul Reservasi. */
+  const k=(pilihan===undefined?VIP_LAYOUT:pilihan);
+  if(k && vipDenah(d,k)) return k;
+  return vipDenahKeyOtomatis(d,tanggal);
 }
-/* Denah lantai 1 untuk sebuah tanggal, TANPA melihat lantai yang sedang
-   dipilih. Dipakai untuk label tombol lantai 1 dan untuk mengumpulkan
-   kapasitas meja lantai 1 walaupun yang tergambar sedang lantai 2. */
-function vipDenahKeyL1(d,tanggal){
+/* Semua denah yang tersedia — persis daftar yang dipakai modul Reservasi:
+   tiga bawaan + template custom yang dibuat kru di sana (master.layouts).
+   Disalin daftarnya, bukan definisinya: definisi meja tetap satu sumber. */
+const VIP_DENAH_BAWAAN=['weekday','weekend','lantai2'];
+const VIP_DENAH_LABEL={weekday:'Weekday · Lt.1', weekend:'Weekend · Lt.1', lantai2:'Lantai 2'};
+function vipDenahKeys(d){
+  const keys=VIP_DENAH_BAWAAN.slice();
+  const custom=(d&&d.master&&d.master.layouts)||{};
+  if(custom&&!Array.isArray(custom)) Object.keys(custom).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
+  // Denah yang definisinya kosong tidak ditawarkan: tombol yang membuka denah
+  // kosong hanya membuat orang mengira dendanya rusak.
+  return keys.filter(k=>{ const L=vipDenah(d,k); return L&&Array.isArray(L.tables)&&L.tables.length; });
+}
+function vipDenahLabel(d,key){
+  const L=vipDenah(d,key);
+  return (L&&L.name)||VIP_DENAH_LABEL[key]||key;
+}
+/* Lantai fisik sebuah denah. Dipakai penanda Lt.1/Lt.2 pada chip ringkasan —
+   template custom mengikuti namanya, dan kalau namanya tidak menyebut lantai
+   dianggap lantai 1 (denah venue ini memang bertumpu di lantai 1). */
+function vipDenahLantai(d,key){
+  if(key==='lantai2') return 2;
+  return /lantai\s*2|lt\.?\s*2/i.test(vipDenahLabel(d,key))?2:1;
+}
+/* Denah yang mengikuti TANGGAL, tanpa melihat pilihan manual. Dipakai untuk
+   menandai denah "hari ini" di daftar tombol. */
+function vipDenahKeyOtomatis(d,tanggal){
   const ov=(d&&d.master&&d.master.layoutOverrides)||{};
   if(ov&&ov[tanggal]&&vipDenah(d,ov[tanggal])) return ov[tanggal];
   const hari=new Date(tanggal+'T00:00:00').getDay();
@@ -8962,13 +9006,21 @@ function vipDenahKeyL1(d,tanggal){
    semua mejanya pudar tanpa satu pun yang tersorot, yang terbaca sebagai
    "mejanya hilang". Jadi dipilih denah yang paling banyak memuat mejanya. */
 function vipDenahKunci(d,tanggal,dipilih){
-  const l1=vipDenahKeyL1(d,tanggal);
+  const otomatis=vipDenahKeyOtomatis(d,tanggal);
   const cocok=k=>{
     const L=vipDenah(d,k); if(!L||!Array.isArray(L.tables)) return -1;
     const id={}; L.tables.forEach(t=>{ id[t.id]=1; });
     return (dipilih||[]).filter(m=>id[m]).length;
   };
-  return cocok('lantai2')>cocok(l1) ? 'lantai2' : l1;
+  /* Semua denah dipertimbangkan, bukan cuma dua. Denah harian dipakai sebagai
+     patokan awal supaya reservasi biasa tetap digambar di denah hari itu saat
+     mejanya kebetulan ada di beberapa denah sekaligus. */
+  let terbaik=otomatis, nilai=cocok(otomatis);
+  vipDenahKeys(d).forEach(function(k){
+    const n=cocok(k);
+    if(n>nilai){ nilai=n; terbaik=k; }
+  });
+  return terbaik;
 }
 function vipDenah(d,key){
   const custom=(d&&d.master&&d.master.layouts)||{};
@@ -9015,7 +9067,7 @@ function vipSegarkanRingkas(){
   const el=$('vip_ringkas'); if(el) el.innerHTML=vipRingkasSlotHTML();
   // Hitungan "n dipilih" di tombol lantai ikut disegarkan; kalau tidak, angka
   // di tombol lantai sebelah masih angka lama sampai lantainya dibuka.
-  const lt=$('vip_lantai'); if(lt) lt.innerHTML=vipLantaiHTML();
+  const lt=$('vip_lantai'); if(lt) lt.innerHTML=vipDenahBarHTML();
 }
 /* opts.tanggal  — dipakai panel Detail, yang tidak punya VIP_FORM.
    opts.bacaSaja — denah cuma dipandang: mejanya tidak bisa diklik. Dipakai saat
@@ -9039,9 +9091,15 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
      sudah dipilih — seolah pilihannya rusak. */
   if(!bacaSaja){
     VIP_CAP={}; VIP_MEJA_LT={};
-    [[vipDenahKeyL1(d,tgl),1],['lantai2',2]].forEach(function(p){
-      const X=vipDenah(d,p[0]); if(!X||!Array.isArray(X.tables)) return;
-      X.tables.forEach(function(t){ VIP_CAP[t.id]=mejaKapasitas(t.cap); VIP_MEJA_LT[t.id]=p[1]; });
+    vipDenahKeys(d).forEach(function(k){
+      const X=vipDenah(d,k); if(!X||!Array.isArray(X.tables)) return;
+      const lt=vipDenahLantai(d,k);
+      X.tables.forEach(function(t){
+        VIP_CAP[t.id]=mejaKapasitas(t.cap);
+        // Meja yang muncul di beberapa denah: lantainya sama saja, jadi yang
+        // pertama menang dan sisanya tidak perlu menimpa.
+        if(!VIP_MEJA_LT[t.id]) VIP_MEJA_LT[t.id]=lt;
+      });
     });
   }
   const W=window.LM_SEAT_W||1600, H=window.LM_SEAT_H||1160;
@@ -9077,28 +9135,101 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
    +'<span class="cell-sub">Denah: '+esc(L.name||kunci)+'</span></div>';
   return h;
 }
-/* Pindah lantai tanpa mengambil ulang data Reservasi — pilihan meja yang sudah
-   dibuat di lantai sebelumnya TIDAK hilang, karena yang berubah cuma denah yang
+/* Pindah denah tanpa mengambil ulang data Reservasi — pilihan meja yang sudah
+   dibuat di denah sebelumnya TIDAK hilang, karena yang berubah cuma yang
    digambar; daftar f.meja tetap utuh. Satu reservasi memang boleh memakai meja
    di dua lantai sekaligus (rombongan besar yang meluber ke atas). */
-function vipSetLantai(l){
-  VIP_LANTAI=l;
+function vipSetDenah(k){
+  VIP_LAYOUT=k;
   if(VIP_RSV) vipPilihMejaUI(VIP_RSV);
 }
-/* Tombol lantai. Label lantai 1 ikut menyebut denah harinya (Weekday/Weekend)
-   supaya jelas denah lantai 1 berubah mengikuti tanggal sementara lantai 2
-   tidak. Jumlah meja terpilih ditulis di tiap tombol — tanpa itu, meja yang
-   sudah dikunci di lantai sebelah tidak terlihat sama sekali dari lantai yang
-   sedang dibuka, dan orang mengira pilihannya hilang saat berpindah. */
-function vipLantaiHTML(){
+/* Tombol denah — SEMUA denah yang dikenal modul Reservasi, bukan cuma dua:
+   Weekday, Weekend, Lantai 2, plus template custom yang dibuat kru di sana.
+   Denah yang sesuai tanggalnya ditandai "hari ini" supaya orang tahu mana yang
+   akan dipakai kalau ia tidak memilih apa-apa, dan jumlah meja terpilih ditulis
+   di tiap tombol — tanpa itu, meja yang sudah dikunci di denah sebelah tidak
+   terlihat sama sekali dan orang mengira pilihannya hilang saat berpindah. */
+function vipDenahBarHTML(){
   const d=VIP_RSV||{}, f=VIP_FORM||{}, dipilih=f.meja||[];
-  const L1=vipDenah(d,vipDenahKeyL1(d,f.tanggal||today()));
-  const n=lt=>dipilih.filter(m=>VIP_MEJA_LT[m]===lt).length;
-  const cap=lt=>n(lt)?' <i>'+n(lt)+' dipilih</i>':'';
-  return '<button type="button" class="'+(VIP_LANTAI==='lantai2'?'':'on')+'" onclick="vipSetLantai(\'l1\')">'
-      +'Lantai 1 <span class="mini">'+esc((L1&&L1.name)||'Weekday')+'</span>'+cap(1)+'</button>'
-    +'<button type="button" class="'+(VIP_LANTAI==='lantai2'?'on':'')+'" onclick="vipSetLantai(\'lantai2\')">'
-      +'Lantai 2'+cap(2)+'</button>';
+  const tgl=f.tanggal||today();
+  const otomatis=vipDenahKeyOtomatis(d,tgl);
+  const aktif=vipDenahKey(d,tgl);
+  return vipDenahKeys(d).map(function(k){
+    const L=vipDenah(d,k);
+    const id={}; (L&&L.tables||[]).forEach(t=>{ id[t.id]=1; });
+    const n=dipilih.filter(m=>id[m]).length;
+    return '<button type="button" class="'+(k===aktif?'on':'')+'" onclick="vipSetDenah(\''+escJs(k)+'\')">'
+      +esc(vipDenahLabel(d,k))
+      +(k===otomatis?'<span class="mini">hari ini</span>':'')
+      +(n?' <i>'+n+' dipilih</i>':'')
+      +'</button>';
+  }).join('');
+}
+/* Daftar meja yang SUDAH DIKUNCI pada tanggal itu, ditulis apa adanya.
+   Sebelumnya keterangan ini cuma ada di tooltip meja merah — harus ditunjuk
+   satu per satu dengan mouse, dan di layar sentuh tidak muncul sama sekali.
+   Jadi sebelum memilih, kru tidak punya cara melihat "malam itu siapa saja yang
+   sudah pesan" selain membuka modul Reservasi di tab lain. */
+function vipTerpakaiHTML(terpakai){
+  const meja=Object.keys(terpakai||{});
+  if(!meja.length) return '<div class="vip-terkunci kosong">Belum ada meja yang dikunci untuk tanggal ini — semuanya masih bebas.</div>';
+  const per={};
+  meja.forEach(function(m){ const n=terpakai[m]||'terpakai'; (per[n]=per[n]||[]).push(m); });
+  let h='<div class="vip-terkunci"><b>Sudah dikunci tanggal ini ('+meja.length+' meja)</b><div class="vip-terkunci-list">';
+  Object.keys(per).forEach(function(n){
+    h+='<span class="vip-tk"><i>'+esc(per[n].join(', '))+'</i>'+esc(n)+'</span>';
+  });
+  return h+'</div></div>';
+}
+/* LIHAT DULU, PILIH BELAKANGAN.
+   Bedanya dengan vipLanjutMeja(): tidak memvalidasi formulir (cuma butuh
+   tanggal) dan mejanya tidak bisa diklik. Yang dijawab layar ini satu:
+   tanggal itu meja mana yang sudah dikunci, dan atas nama siapa. */
+async function vipCekKetersediaan(){
+  const f=VIP_FORM; if(!f) return;
+  // Tanggal dibaca dari isian yang SEDANG diketik, bukan dari draft terakhir —
+  // orang biasanya baru mengganti tanggalnya lalu ingin langsung mengecek.
+  const tgl=($('vip_tanggal')&&$('vip_tanggal').value)||f.tanggal||today();
+  f.tanggal=tgl;
+  modal('<div class="modal-head"><div><h3>Memuat denah…</h3><p>Menghubungi modul Reservasi</p></div></div>'
+    +'<div class="modal-body"><div class="cell-sub">Melihat meja yang sudah dikunci pada '+fmtDate(tgl)+'.</div></div>');
+  let d;
+  try{ d=await rsvAmbil(); }
+  catch(e){ return modal('<div class="modal-head"><div><h3>Reservasi tidak terjangkau</h3></div><div class="x" onclick="vipFormUI()">'+svg(IC.x)+'</div></div>'
+    +'<div class="modal-body"><div class="tbl-note">'+svg(IC.alert)+'<span>'+esc(e.message)+'</span></div></div>'
+    +'<div class="modal-foot"><button class="btn" onclick="vipFormUI()">← Kembali</button><button class="btn pri" onclick="vipCekKetersediaan()">Coba Lagi</button></div>'); }
+  VIP_RSV=d;
+  const terpakai=rsvMejaTerpakai(d,tgl);
+  let h='<div class="modal-head"><div><h3>Meja Terkunci</h3><p>'+fmtDate(tgl)+' · dari modul Reservasi</p></div><div class="x" onclick="vipFormUI()">'+svg(IC.x)+'</div></div>';
+  h+='<div class="modal-body">';
+  h+=vipTerpakaiHTML(terpakai);
+  h+='<div class="vip-lantai" id="vip_lantai">'+vipDenahBarHTML()+'</div>';
+  // Denah dipakai dalam mode BACA-SAJA: yang merah sudah dikunci, sisanya bebas.
+  // Meja tidak bisa diklik di sini supaya tidak ada yang terkunci tanpa sengaja
+  // dari layar yang niatnya cuma melihat.
+  const L=vipDenah(d,vipDenahKey(d,tgl));
+  if(L&&Array.isArray(L.tables)&&L.tables.length){
+    const W=window.LM_SEAT_W||1600, H=window.LM_SEAT_H||1160;
+    const px=v=>(v/W*100).toFixed(3)+'%', py=v=>(v/H*100).toFixed(3)+'%';
+    h+='<div class="denah"><div class="denah-in">';
+    (L.fixed||[]).forEach(function(fx){
+      h+='<div class="dn-fix" style="left:'+px(fx.x)+';top:'+py(fx.y)+';width:'+px(fx.w)+';height:'+py(fx.h)+'">'+esc(fx.label||'')+'</div>';
+    });
+    L.tables.forEach(function(t){
+      const off=!!terpakai[t.id];
+      h+='<div class="dn-meja'+(off?' off':' dn-pudar')+'" style="left:'+px(t.x)+';top:'+py(t.y)+';width:'+px(t.w)+';height:'+py(t.h)+'"'
+        +' title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':'')+(off?' — dikunci '+terpakai[t.id]:' — masih bebas'))+'">'
+        +'<span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</div>';
+    });
+    h+='</div></div>';
+    h+='<div class="dn-legend"><span><i style="background:var(--danger-bg);border:1.5px solid var(--danger)"></i>Sudah dikunci</span>'
+     +'<span><i style="background:var(--ink-880);border:1.5px solid var(--line-hard)"></i>Masih bebas</span>'
+     +'<span class="cell-sub">Denah: '+esc(vipDenahLabel(d,vipDenahKey(d,tgl)))+'</span></div>';
+  }
+  h+='</div><div class="modal-foot"><button class="btn" onclick="vipFormUI()">← Kembali ke formulir</button>'
+   +'<button class="btn pri" onclick="vipLanjutMeja()">Pilih Meja →</button></div>';
+  modal(h);
+  $('modal').classList.add('wide');
 }
 function vipPilihMejaUI(d){
   const f=VIP_FORM;
@@ -9110,12 +9241,10 @@ function vipPilihMejaUI(d){
   const denah=vipDenahHTML(d,terpakai,dipilih);
   if(denah){
     h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
-    /* Pemilih lantai. Label lantai 1 ikut menyebut denah harinya (Weekday /
-       Weekend) supaya jelas denah lantai 1 berubah mengikuti tanggal sementara
-       lantai 2 tidak. Jumlah meja terpilih per lantai ditulis di tombolnya —
-       kalau tidak, meja yang sudah dikunci di lantai sebelah tidak terlihat
-       sama sekali dari lantai yang sedang dibuka. */
-    h+='<div class="vip-lantai" id="vip_lantai">'+vipLantaiHTML()+'</div>';
+    // Yang sudah dikunci dibaca DULU, sebelum memilih — bukan ditemukan satu per
+    // satu lewat tooltip meja merah saat sedang memilih.
+    h+=vipTerpakaiHTML(terpakai);
+    h+='<div class="vip-lantai" id="vip_lantai">'+vipDenahBarHTML()+'</div>';
     h+=denah;
   }else{
     /* Denah tidak terbaca (assets/venue-layouts.js gagal dimuat, atau tanggalnya
