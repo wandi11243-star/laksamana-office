@@ -1134,7 +1134,7 @@ function saveDaily() { v(); grossOf(); repOf(); repPay(); tagihanOf(); getDay();
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); selisihSeharusnya(); fmtWaktu(); }
+function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); fmtWaktu(); }
 
 
 
@@ -1257,6 +1257,22 @@ function hitung() { inputVal(); catatanMetode(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function inputVal() { hitung(); save(); dateLabel(); render(); }
 
 
@@ -1306,8 +1322,6 @@ function penjelasHari() { bonRingkasHari(); }
 
 
 function catatanMetode() {  }
-
-
 
 
 

@@ -909,7 +909,7 @@ function viewReport(){
   const thBon = bh.ada ? '<th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode — selisih dihitung otomatis. Boleh disubmit kapan saja, tidak perlu menunggu omset harian.</div></div>
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
     <div class="card">
@@ -936,7 +936,7 @@ function viewReport(){
       <div class="stat accent"><div class="lab">Total POS</div><div class="val sm mono" id="rc_pos">Rp0</div><div class="foot">angka dari mesin kasir</div></div>
       <div class="stat"><div class="lab">Total Actual</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">uang & mutasi yang benar-benar ada</div></div>
       ${bh.ada
-        ? `<div class="stat"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot">seharusnya <b>${fmtSel(selisihSeharusnya(bh))}</b> hari ini</div></div>
+        ? `<div class="stat"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot">seharusnya <b class="js-harus">Rp0</b></div></div>
            <div class="stat" id="rc_box"><div class="lab">Sisa Selisih</div><div class="val sm mono" id="rc_sisa">Rp0</div><div class="foot" id="rc_foot"></div></div>`
 
         : `<div class="stat" id="rc_box"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>`}
@@ -948,7 +948,7 @@ function viewReport(){
     </div>`;
 
   const hitung=()=>{
-    let tp=0,ta=0;
+    let tp=0,ta=0,th=0;
     /* Metode yang angkanya tidak cocok, dikumpulkan untuk catatan di bawah
        tabel. Inilah pengganti dua kolom yang dibuang: kasir tidak perlu
        memindai 13 baris mencari yang merah — nama metodenya disebut. */
@@ -961,15 +961,26 @@ function viewReport(){
       c.textContent=fmtSel(s);
       c.style.color = s===0?'var(--muted)' : (s>0?'var(--ok)':'var(--danger)');
       c.style.fontWeight = s===0?'500':'800';
-      /* Sisa per metode. Bon menahan uang yang mesin sudah catat (jadi selisih
-         kurang), pelunasan memasukkan uang yang mesin TIDAK catat hari ini
-         (jadi selisih lebih). Membalik keduanya menghasilkan angka yang
-         seharusnya nol kalau kasirnya benar. */
-      const bb=num(bh.baru[p.k]), bl=num(bh.lunas[p.k]);
-      const z=s-num(bh.harus[p.k]);
+      /* BARIS YANG BELUM DIISI TIDAK DINILAI.
+
+         POS 0 dan Actual 0 berarti kasir belum sampai ke baris itu, bukan
+         berarti tidak ada uangnya. Bonnya sendiri SUDAH termasuk di angka POS
+         yang nanti diketik, jadi selama POS-nya masih kosong, membandingkannya
+         dengan bon cuma menghasilkan tuduhan palsu — persis yang terjadi pada
+         4 Agustus 2026: "EDC BCA — POS Rp0, Actual Rp0, selisih Rp0 (bon
+         Rp222.222, sisa +Rp222.222)". Kalimat yang menyalahkan dirinya sendiri.
+
+         Bonnya dikeluarkan dari TOTAL juga (th), bukan cuma dari daftar:
+         kalau hanya barisnya yang disembunyikan, totalnya tetap memperingatkan
+         angka yang tidak bisa ditunjuk asalnya di layar. */
+      const kosong = pos===0 && act===0;
+      const bb=kosong?0:num(bh.baru[p.k]), bl=kosong?0:num(bh.lunas[p.k]);
+      const hk=kosong?0:num(bh.harus[p.k]);
+      const z=s-hk;
+      th+=hk;
       if(bh.ada){
         const cz=document.getElementById('rz_'+p.k);
-        cz.textContent=fmtSel(z);
+        cz.textContent=kosong?'—':fmtSel(z);
         /* Sengaja TIDAK pernah merah. Sisa per metode bukan vonis: selama
            totalnya seimbang, metode yang lebih dan yang kurang cuma dua sisi
            dari uang yang sama berpindah tempat. Yang berhak merah cuma total. */
@@ -990,7 +1001,7 @@ function viewReport(){
        pelunasan. Selisih per metode tidak ikut menentukan apa pun — lihat
        catatan di catatanMetode(). Submit tetap tidak pernah dikunci: kasir
        mengisi lebih dulu, sering sebelum omset harian ada. */
-    const sisa=tsel-bh.totHarus;
+    const sisa=tsel-th;
     const abs=Math.abs(sisa);
     const aman=abs<=SELISIH_TOLERANSI;   // Rp5.000 TEPAT masih dianggap aman
     if(bh.ada){
@@ -999,6 +1010,11 @@ function viewReport(){
       document.getElementById('rc_sisa').textContent=fmtSel(sisa);
       const bx=document.getElementById('bn_sisa'); if(bx) bx.textContent=fmtSel(sisa);
       const bs=document.getElementById('bn_sel');  if(bs) bs.textContent=fmtSel(tsel);
+      /* "Seharusnya" ikut hidup di KETIGA tempat yang memajangnya (kartu stat,
+         tabel waterfall, kalimat catatan). Nilainya menyusut selama baris-
+         barisnya belum diisi (lihat catatan `kosong` di atas), jadi angka
+         statis akan bertengkar dengan sisa yang ditulis tepat di bawahnya. */
+      el.querySelectorAll('.js-harus').forEach(x=>{ x.textContent=fmtSel(th); });
     }
     catatanMetode(bermasalah,bh,sisa);
     document.getElementById('rc_pos').textContent=fmtRp(tp);
@@ -1071,19 +1087,17 @@ function catatanMetode(rows,bh,sisa){
   }
   const li=rows.map(r=>{
     const jelas=[];
-    if(r.bb) jelas.push(`bon belum dibayar ${fmtRp(r.bb)}`);
-    if(r.bl) jelas.push(`pelunasan masuk ${fmtRp(r.bl)}`);
-    return `<div style="margin-top:4px">· <b>${esc(r.n)}</b> — POS ${fmtRp(r.pos)}, Actual <b>${fmtRp(r.act)}</b>, selisih <b>${fmtSel(r.s)}</b>`
-      + (jelas.length?` (sudah dihitung ${jelas.join(' & ')}, <b>sisa ${fmtSel(r.z)}</b>)`:'')
+    if(r.bb) jelas.push(`bon ${fmtRp(r.bb)}`);
+    if(r.bl) jelas.push(`pelunasan ${fmtRp(r.bl)}`);
+    return `<div style="margin-top:3px">· <b>${esc(r.n)}</b> — POS ${fmtRp(r.pos)}, Actual ${fmtRp(r.act)}, selisih <b>${fmtSel(r.s)}</b>`
+      + (jelas.length?` (${jelas.join(' + ')} → sisa <b>${fmtSel(r.z)}</b>)`:'')
       + `</div>`;
   }).join('');
   box.innerHTML = lewat
     ? `<div class="notice bad" style="margin:14px 0 0;display:block">
-        <b>⚠ Total selisih ${fmtSel(sisa)} — melebihi toleransi ${fmtRp(SELISIH_TOLERANSI)}.</b>
-        Ini bukan sekadar uang berpindah antar metode: ada ${sisa>0?'kelebihan':'kekurangan'} yang belum ada penjelasannya. Report tetap boleh disubmit, tapi selisihnya perlu ditelusuri.${li}</div>`
+        <b>⚠ Total selisih ${fmtSel(sisa)} — lewat toleransi ${fmtRp(SELISIH_TOLERANSI)}, perlu ditelusuri.</b>${li}</div>`
     : `<div class="notice ok" style="margin:14px 0 0;display:block">
-        <b>✓ Selisih antar metode saling menutup — total ${fmtSel(sisa)}, masih dalam toleransi ${fmtRp(SELISIH_TOLERANSI)}.</b>
-        Uang berpindah antar metode (mis. tamu bayar QRIS lalu uangnya dikembalikan tunai) memang membuat satu metode lebih dan satunya kurang. Tidak perlu ditindaklanjuti.${li}</div>`;
+        <b>✓ Selisih antar metode saling menutup — total ${fmtSel(sisa)}, masih dalam toleransi ${fmtRp(SELISIH_TOLERANSI)}.</b>${li}</div>`;
 }
 
 /* Selisih yang WAJAR terjadi pada satu hari karena bon & pelunasan. Positif =
@@ -1104,13 +1118,13 @@ function catatanSelisihHari(bh){
      BARIS MANA di tabel di atas yang seharusnya tidak cocok. */
   const perMetode=obj=>Object.keys(obj).filter(k=>num(obj[k])>0)
     .map(k=>`<b>${esc(payName(k))}</b> ${fmtRp(num(obj[k]))}`).join(' + ');
+  /* Ditulis sependek mungkin (permintaan user 4 Agustus 2026). Versi sebelumnya
+     mengulang penjelasan konsepnya tiap hari — kasir sudah tahu apa itu bon
+     setelah membacanya sekali, yang dibutuhkan tiap malam cuma angka & nama. */
   const kal=[];
-  if(bh.totBaru>0) kal.push(`ada <b>${bh.listBaru.length} bill yang belum dibayar</b> senilai <b>${fmtRp(bh.totBaru)}</b> atas nama ${esc(namaUnik(bh.listBaru))} — billnya sudah ditutup di POS lewat ${perMetode(bh.baru)}, tapi uangnya tidak ada di laci, jadi <u>metode itulah yang seharusnya kurang</u>`);
-  if(bh.totLunas>0) kal.push(`ada <b>${bh.listLunas.length} pelunasan bon hari lain</b> senilai <b>${fmtRp(bh.totLunas)}</b> dari ${esc(namaUnik(bh.listLunas))} — uangnya masuk hari ini lewat ${perMetode(bh.lunas)} padahal billnya tidak tercatat di POS hari ini, jadi <u>metode itulah yang seharusnya lebih</u>`);
-  const penutup = harus===0
-    ? `Kebetulan besarnya sama persis sehingga saling meniadakan, jadi selisih POS vs Actual hari ini <b>seharusnya tetap Rp0</b>.`
-    : `Karena itu selisih POS vs Actual hari ini <b>seharusnya ${fmtSel(harus)}</b>, bukan Rp0 — ${harus<0?'uang memang kurang sebesar catatan di atas':'uang memang lebih sebesar catatan di atas'}.`;
-  return `<div class="notice ${harus===0?'info':'warn'}">📌 <div>Hari ini ${kal.join(', dan ')}. ${penutup} Yang perlu ditelusuri hanya <b>sisa</b> di luar angka itu.</div></div>`;
+  if(bh.totBaru>0) kal.push(`<b>${bh.listBaru.length} bon belum dibayar ${fmtRp(bh.totBaru)}</b> (${esc(namaUnik(bh.listBaru))}) lewat ${perMetode(bh.baru)}`);
+  if(bh.totLunas>0) kal.push(`<b>${bh.listLunas.length} pelunasan bon lama ${fmtRp(bh.totLunas)}</b> (${esc(namaUnik(bh.listLunas))}) lewat ${perMetode(bh.lunas)}`);
+  return `<div class="notice ${harus===0?'info':'warn'}">📌 <div>${kal.join(' · ')} → selisih seharusnya <b class="js-harus">Rp0</b>.</div></div>`;
 }
 /* Kartu penjelas di bawah tabel Report Daily: urutan penguranganya ditulis
    apa adanya (bon → pelunasan → seharusnya → sebenarnya → sisa)
@@ -1139,7 +1153,7 @@ function kartuPenjelasan(bh){
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div><h3>Penjelasan Selisih Hari Ini</h3>
-        <div class="card-sub">Bon = bill yang ditutup di POS padahal uangnya belum diterima, jadi uang hari itu kurang. Pelunasan = bon hari lain yang dibayar hari ini, jadi uang hari ini lebih.</div></div>
+        <div class="card-sub">Bon &amp; pelunasan yang jatuh pada tanggal ini.</div></div>
         <button class="btn btn-ghost btn-sm" onclick="go('piutang')">Buka halaman Piutang →</button>
       </div>
       <div style="margin-top:12px">${catatanSelisihHari(bh)}</div>
@@ -1149,7 +1163,7 @@ function kartuPenjelasan(bh){
           ${baris('Pelunasan bon hari lain, diterima hari ini',fmtSel(bh.totLunas),'var(--ok)')}
           <tr style="font-weight:800;border-top:2px solid var(--line)">
             <td>Selisih yang <u>SEHARUSNYA</u> terjadi</td>
-            <td class="num mono">${fmtSel(harus)}</td></tr>
+            <td class="num mono"><span class="js-harus">Rp0</span></td></tr>
           ${baris('Selisih sebenarnya (Actual − POS)','<span id="bn_sel">Rp0</span>')}
           <tr style="font-weight:800;border-top:2px solid var(--line)">
             <td>= Sisa yang belum terjelaskan</td>
@@ -1283,13 +1297,13 @@ function viewPiutang(){
         <div class="field" style="margin:0"><label>&nbsp;</label>
           <button class="btn btn-primary btn-block bn-lunas" data-g="${gid}">Lunasi Terpilih · <span id="bnsum_${gid}">Rp0</span></button></div>
       </div>
-      <div class="helper" style="margin:8px 0 0">Uang dicatat masuk pada tanggal di atas, bukan tanggal billnya — Report Daily tanggal itu akan menampilkannya sebagai <b>Pelunasan (+)</b>.</div>
+      <div class="helper" style="margin:8px 0 0">Uang dicatat masuk pada tanggal di atas, bukan tanggal billnya.</div>
     </div>`;
   }).join('');
 
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Catat Bon Baru</h3><div class="card-sub">Bill yang sudah ditutup di POS tapi uangnya belum diterima. Pilih metode POS yang dipakai menutup bill — itu yang menjelaskan metode mana yang kurang di Report Daily.</div></div>
+      <div><h3>Catat Bon Baru</h3><div class="card-sub">Bill yang sudah ditutup di POS tapi uangnya belum diterima.</div></div>
       <div class="field" style="margin:0"><label>Tanggal Bill</label><div class="calwrap" id="bn_cal">${calInner('bn')}</div></div>
     </div>
     <div class="card">
@@ -1329,7 +1343,7 @@ function viewPiutang(){
       ? (grupHtml || '<div class="card"><div class="empty"><div class="big">✅</div>Tidak ada bon yang belum lunas.</div></div>')
       : `<div class="card">
           <h3>Riwayat Pelunasan</h3>
-          <div class="card-sub">80 pelunasan terakhir. Kolom <b>Tanggal Uang Masuk</b> adalah hari yang Report Daily-nya kelebihan uang — itu bukan salah hitung, itu bon lama yang dibayar hari itu.</div>
+          <div class="card-sub">80 pelunasan terakhir.</div>
           <div class="tbl-wrap" style="margin-top:12px"><table>
             <thead><tr><th>Nama</th><th>Tanggal Bill</th><th>No. Bill</th><th class="num">Nominal</th><th>Tanggal Uang Masuk</th><th>Metode Pelunasan</th><th>Dilunasi Oleh</th><th></th></tr></thead>
             <tbody>${lunas.length?lunas.map(b=>`<tr>

@@ -890,7 +890,23 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); selisihSeharusnya(); fmtWaktu(); inputVal(); catatanMetode(); }
+function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); fmtWaktu(); inputVal(); catatanMetode(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1062,8 +1078,6 @@ function penjelasHari() { bonRingkasHari(); }
 
 
 function catatanMetode() {  }
-
-
 
 
 
