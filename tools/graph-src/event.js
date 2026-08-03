@@ -669,6 +669,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -5397,6 +5405,8 @@ function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDe
 
 
 
+
+
 function ciStatHTML() { stat(); }
 
 
@@ -5411,7 +5421,41 @@ function ciTiket() { renderCheckin(); }
 
 
 
-function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); }
+function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); ciPasDenah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciPasDenah() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

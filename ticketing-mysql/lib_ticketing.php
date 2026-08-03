@@ -459,10 +459,22 @@ function denah($eid, $holdToken = '') {
     if ($r['status'] === 'Cancelled') continue;
     $terjual[$r['seat_id']] = $r['status'] === 'Checked-In' ? 'checked' : 'sold';
   }
-  $hold = array(); $holdExp = array();
-  $st = db()->prepare('SELECT seat_id, hold_token, expires_at FROM seat_holds WHERE event_id = :e');
+  /* KUNCI YANG SUDAH TERIKAT PESANAN bukan lagi isi keranjang.
+     Begitu checkout jadi, kunci kursinya diberi order_id dan masa tahannya
+     diperpanjang jadi satu jam. Kursi itu sedang menunggu DIBAYAR — ia bukan
+     pilihan yang masih menggantung di halaman denah.
+     Dulu keduanya tak dibedakan, jadi membuka halaman "Pilih tempat" lagi
+     memunculkan delapan kursi tercentang sendiri dari pesanan-pesanan lama,
+     dengan hitung mundur 57 menit (sisa satu jam) alih-alih 10 menit.
+     Dilaporkan 3 Agustus 2026. */
+  $hold = array(); $holdExp = array(); $holdOrder = array();
+  $st = db()->prepare('SELECT seat_id, hold_token, expires_at, order_id FROM seat_holds WHERE event_id = :e');
   $st->execute(array(':e' => $eid));
-  foreach ($st as $r) { $hold[$r['seat_id']] = $r['hold_token']; $holdExp[$r['seat_id']] = (float)$r['expires_at']; }
+  foreach ($st as $r) {
+    $hold[$r['seat_id']]      = $r['hold_token'];
+    $holdExp[$r['seat_id']]   = (float)$r['expires_at'];
+    $holdOrder[$r['seat_id']] = isset($r['order_id']) ? (string)$r['order_id'] : '';
+  }
 
   $out = array();
   foreach ($seats as $s) {
@@ -477,7 +489,12 @@ function denah($eid, $holdToken = '') {
     if ($kind === 'area')                          $status = 'area';   // dekorasi/zona, tidak dijual
     else if (isset($terjual[$id]))                 $status = $terjual[$id];
     else if (($s['status'] ?? '') === 'Sold')      $status = 'sold';
-    else if (isset($hold[$id]))                    $status = ($holdToken !== '' && $hold[$id] === $holdToken) ? 'mine' : 'held';
+    else if (isset($hold[$id])) {
+      // Milik sendiri HANYA kalau belum terikat pesanan; kalau sudah, ia sedang
+      // menunggu pembayaran dan harus tampil terkunci — juga bagi pemesannya.
+      $punyaku = ($holdToken !== '' && $hold[$id] === $holdToken && $holdOrder[$id] === '');
+      $status  = $punyaku ? 'mine' : 'held';
+    }
 
     /* MEJA TIDAK DIJUAL PER MEJA.
        Keputusan user 31 Juli 2026: tidak ada yang memesan satu meja utuh, jadi

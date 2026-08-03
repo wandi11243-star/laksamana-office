@@ -293,6 +293,78 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bersihTeks() {  }
+
+
+
+
+
+
+
 function tgl() {  }
 
 
@@ -525,7 +597,11 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
-function gambarEvent() { go(); posterUrl(); tgl(); jam(); punyaDenah(); ringkasHTML(); }
+function gambarEvent() { go(); posterUrl(); tgl(); jam(); bersihTeks(); punyaDenah(); ringkasHTML(); }
+
+
+
+
 
 
 
@@ -620,7 +696,7 @@ function punyaDenah() {  }
 
 
 
-function kelasHTML() { go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); }
+function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); }
 
 
 

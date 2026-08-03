@@ -148,6 +148,14 @@ h1,h2,h3,h4{font-family:var(--ff-display)}
      samping, dan tiap sentuhan menggeser layar alih-alih memilih kursi —
      itulah "check-in ngeframe" di HP. */
   #liveDenah{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* Kanvas denah kustom diperkecil oleh ciPasDenah() supaya muat lebar layar;
+     ini menjaga pembungkusnya tidak ikut melebar dan mendorong halaman. */
+  #liveDenah .ldz-wrap{max-width:100%;padding:8px}
+  #liveDenah .ldz-canvas{box-shadow:none}
+  /* Denah TEMPLATE (bukan kanvas) memakai kotak 34px per kursi — di 360px itu
+     sembilan kursi sebaris, cukup terbaca, dan sisanya menggulir di dalam
+     kartunya sendiri. */
+  #liveDenah .seatmap{padding:10px;gap:5px}
   /* Kartu angka check-in tetap bertiga sebaris: tiga angka pendek tidak perlu
      tiga baris penuh, dan menggulir untuk melihat occupancy itu mengganggu. */
   #ciStat{grid-template-columns:repeat(3,1fr);gap:8px}
@@ -5396,6 +5404,8 @@ function renderCheckin(){
     <button class="btn ghost" onclick="doScan(document.getElementById('ci_token').value)">Cek token ini</button>
     <div id="scanResult" style="margin-top:16px"></div>
   </div>`;
+  // Diskalakan sesudah HTML-nya terpasang — sebelum itu lebar wadahnya nol.
+  setTimeout(ciPasDenah, 0);
 }
 function ciStatHTML(tickets){
   const masuk=tickets.filter(t=>t.status==='Checked-In').length;
@@ -5416,8 +5426,42 @@ function segarkanCheckin(){
   const s=document.getElementById('ciStat');
   if(s) s.innerHTML=ciStatHTML(ciTiket(eid));
   const d=document.getElementById('liveDenah');
-  if(d) d.innerHTML=liveDenahHTML(eid);
+  if(d){ d.innerHTML=liveDenahHTML(eid); ciPasDenah(); }
 }
+/* DENAH CHECK-IN DIPASKAN KE LEBAR LAYAR.
+   Kanvas denah kustom berukuran tetap (biasanya 1600px lebih) karena koordinat
+   mejanya memang digambar pada kanvas sebesar itu. Di layar HP yang lebarnya
+   360px, yang terlihat cuma pojok kiri atasnya — petugas mengira denahnya tidak
+   muncul, padahal ia ada di luar layar. Digulir pun tidak menolong: tidak ada
+   yang bisa mengenali ruangan dari potongan sebesar itu.
+   Jadi kanvasnya diperkecil dengan transform sampai muat, dan kotak
+   pembungkusnya dipatok setinggi hasil skala — transform tidak mengubah ukuran
+   layout, jadi tanpa itu akan ada ruang kosong sepanjang tinggi aslinya. */
+function ciPasDenah(){
+  const box=document.getElementById('liveDenah'); if(!box) return;
+  const kanvas=box.querySelector('.ldz-canvas'); if(!kanvas) return;
+  const wrap=kanvas.parentElement; if(!wrap) return;
+  const asli  =parseFloat(kanvas.style.width)  || kanvas.offsetWidth;
+  const tinggi=parseFloat(kanvas.style.height) || kanvas.offsetHeight;
+  const ruang =(wrap.clientWidth||box.clientWidth||0)-24;   // padding .ldz-wrap
+  if(!asli||!tinggi||ruang<=0) return;
+  const f=Math.min(1, ruang/asli);
+  kanvas.style.transformOrigin='0 0';
+  if(f<1){
+    kanvas.style.transform='scale('+f+')';
+    wrap.style.height=Math.ceil(tinggi*f+24)+'px';
+    wrap.style.overflowX='hidden';
+  }else{
+    kanvas.style.transform='none';
+    wrap.style.height=''; wrap.style.overflowX='';
+  }
+}
+/* Memutar HP mengubah lebar layar; tanpa ini denahnya tetap memakai skala
+   potret dan menyisakan setengah layar kosong setelah diputar. */
+window.addEventListener('resize', function(){
+  clearTimeout(window._ciResize);
+  window._ciResize=setTimeout(ciPasDenah, 150);
+});
 /* Live Occupancy = denah venue yang sama dengan Ticketing (Lantai 1 meja &
    Lantai 2 Reguler+), tapi READ-ONLY dan diwarnai status kedatangan. Memakai
    seatMapBody dengan window._denahRO supaya tak ada duplikasi tata letak. */
