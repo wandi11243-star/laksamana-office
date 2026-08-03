@@ -150,8 +150,11 @@ input,select,textarea{font-family:inherit}
 .g2{grid-template-columns:repeat(2,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
-@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}}
-@media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
+/* g5 dipakai baris ringkasan Performa Kasir — sama persis dengan Kompas. */
+.g5{grid-template-columns:repeat(5,1fr)}
+@media(max-width:1200px){.g5{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.g2,.g3,.g4,.g5{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
 .row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 
 /* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
@@ -577,6 +580,12 @@ function normalizeDB(d){
     }
     if(x.service_charge===undefined) x.service_charge=0;
     if(x.tax===undefined) x.tax=0;
+    /* Dua bidang di bawah HARUS diisi persis seperti di Kompas. Bukan sekadar
+       kerapian: kalau cuma satu modul yang menambahkannya, dua modul akan
+       bergantian menulis bentuk yang berbeda ke blob yang sama, dan modul yang
+       tidak mengenalnya akan menghapusnya diam-diam saat menyimpan. */
+    if(x.bd&&Array.isArray(x.bd.kasir)) x.bd.kasir.forEach(r=>{ if(r.disc===undefined) r.disc=0; });
+    if(x.bd&&(!x.bd.self||typeof x.bd.self!=='object'||Array.isArray(x.bd.self))) x.bd.self={amount:0,disc:0};
   });
   return d;
 }
@@ -680,6 +689,16 @@ function taxSvcOf(d){ return num(d.service_charge)+num(d.tax); }
 function tagihanOf(d){ return netOf(d)+taxSvcOf(d); }
 function avgSpendOf(d){ const b=num(d.bill); return b>0?netOf(d)/b:0; }
 function itemsOf(d){ return num(d.qty_food)+num(d.qty_bev)+num(d.qty_others); }
+
+/* ---- DISKON BILL PER KASIR (3 Agustus 2026) ----
+   Disalin apa adanya dari Kompas — bentuk datanya WAJIB sama, blob-nya satu.
+     amount = omset BRUTO kasir itu (sebelum diskon)
+     disc   = diskon bill yang DIA berikan ke tamu
+     diakui = amount − disc     ← inilah yang masuk pengakuan omset
+   Data lama punya disc=0 dan amount yang sudah neto, jadi angkanya tidak
+   berubah sama sekali. Lihat catatan lengkapnya di deploy/kompas/index.html. */
+function omsetKasir(r){ return num(r&&r.amount)-num(r&&r.disc); }
+function diskonKasir(r){ return r&&r.off?0:num(r&&r.disc); }
 /* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
 const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
 function pembagiHari(monthKey){
@@ -765,7 +784,7 @@ const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   rokok:['Daily Stock Rokok','Barang masuk & keluar per hari, per item'],
-  kasir:['Performa Kasir','Omset per kasir sesudah potongan event'],
+  kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
   dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
 };
@@ -1337,6 +1356,64 @@ function viewRokok(){
 }
 
 /* ============ 4. PERFORMA KASIR ============ */
+/* Halaman ini disamakan dengan Kompas (3 Agustus 2026). Justru DI SINI yang
+   paling penting: modul inilah yang dibuka kasir sendiri, sedangkan Performa
+   Kasir di Kompas hanya bisa dilihat pemegang level penuh. Kalau salah satu
+   tertinggal, kasir dan atasannya membaca angka yang berbeda untuk orang yang
+   sama — dan yang salah selalu dianggap yang dibaca kasir.
+
+   ---- BONUS KASIR (skema SDM, dokumen "Skema Target & Bonus — Tim Kasir") ----
+   Tangga bonus dari omset yang DIAKUI untuk kasir itu sendiri. Batas atas
+   TIDAK dipatok: dokumen berhenti di Rp 250 juta, tapi omset di atas itu tetap
+   berhak atas level tertinggi. Satu-satunya tempat mengubah nilainya adalah
+   tabel ini — dan salinannya di deploy/kompas/index.html. */
+const BONUS_KASIR=[
+  { min:200000000, bonus:500000, label:'Level 4' },
+  { min:150000000, bonus:300000, label:'Level 3' },
+  { min:100000000, bonus:150000, label:'Level 2' },
+  { min: 80000000, bonus: 50000, label:'Level 1' },
+];
+function bonusKasir(real){
+  const t=BONUS_KASIR.find(x=>real>=x.min);
+  if(t) return { ...t, next:BONUS_KASIR[BONUS_KASIR.indexOf(t)-1]||null };
+  return { min:0, bonus:0, label:'Standar kerja', next:BONUS_KASIR[BONUS_KASIR.length-1] };
+}
+/* Baris ringkasan: target, omset diakui, achievement, bonus, dan jarak ke
+   level berikutnya dalam SATU baris — dibaca sebagai satu cerita. */
+function baguRingkasKasir(a, tgt, ach, harian, targetBulanan){
+  const b=bonusKasir(a.real);
+  const kurang=b.next?Math.max(0,b.next.min-a.real):0;
+  return `<div class="grid g5">
+    <div class="stat accent"><div class="lab">Target ${harian?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${harian?`<div class="foot">dari target bulanan ${fmtRp(targetBulanan)}</div>`:''}</div>
+    <div class="stat"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">angka final · dasar bonus</div></div>
+    <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+    <div class="stat ${b.bonus?'accent':''}"><div class="lab">Bonus Saat Ini</div><div class="val sm mono">${fmtRp(b.bonus)}</div><div class="foot">${esc(b.label)}</div></div>
+    <div class="stat"><div class="lab">${b.next?'Menuju '+b.next.label:'Level Tertinggi'}</div>
+      <div class="val sm mono">${b.next?fmtRp(kurang):'—'}</div>
+      <div class="foot">${b.next?`lagi untuk bonus ${fmtRp(b.next.bonus)}`:'sudah di level teratas'}</div></div>
+  </div>`;
+}
+function kartuBonusKasir(real, semua){
+  const b=bonusKasir(real);
+  const baris=BONUS_KASIR.slice().reverse().map(t=>{
+    const aktif=t.label===b.label;
+    return `<tr${aktif?' style="background:var(--gold-soft)"':''}>
+      <td>${aktif?'<b>'+t.label+'</b> ✓':t.label}</td>
+      <td class="num mono">${fmtRp(t.min)}</td>
+      <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>💰 Tangga Bonus ${semua?'(gabungan semua kasir)':''}</h3>
+    <div class="card-sub">Posisi saat ini ada di baris ringkasan paling atas. ${
+      semua?'Angka gabungan itu hanya gambaran; bonus dinilai per kasir, pilih namanya di atas.':''}</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Level</th><th class="num">Omset Diakui Minimal</th><th class="num">Bonus per Orang</th></tr></thead><tbody>
+      <tr${b.bonus?'':' style="background:var(--gold-soft)"'}><td>${b.bonus?'Standar kerja':'<b>Standar kerja</b> ✓'}</td><td class="num mono">&lt; ${fmtRp(80000000)}</td><td class="num mono">—</td></tr>
+      ${baris}
+    </tbody></table></div>
+    <div class="helper" style="margin-top:10px">Angka nett (sebelum tax &amp; service). Pencairan tetap lewat verifikasi SM/CEO dan persetujuan Finance, HRD &amp; CEO — kartu ini hanya menunjukkan posisi capaian.</div>
+  </div>`;
+}
+
 function viewKasir(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
@@ -1345,15 +1422,23 @@ function viewKasir(){
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0});
   days.forEach(d=>{
     (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
-      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,amount:0,potong:0,off:true});}
+      if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,real:0,off:true});}
       else{
         // Potongan dihitung dari shift tiap baris event, bukan dari kehadiran
         // hari itu: kasir yang masuk tapi tidak kena shift event tidak dipotong.
         const potong=potonganHari(d,r.kasirId);
-        agg[r.kasirId].real+=num(r.amount)-potong;
+        /* `real` sudah bersih: bruto − diskon yang dia berikan − potongan
+           event. Riwayat di bawah SENGAJA hanya memajang angka ini, tidak
+           lagi memecahnya jadi kolom omset + kolom potongan (permintaan user
+           3 Agustus 2026): kasir membaca deretan potongan sebagai hukuman,
+           padahal yang menentukan bonusnya cuma angka finalnya. Rinciannya
+           tidak hilang — ada di kartu "Efek ke Realisasi Kasir" di Breakdown
+           milik Kompas, tempat orang yang memang perlu memeriksa mencarinya. */
+        const real=omsetKasir(r)-potong;
+        agg[r.kasirId].real+=real;
         agg[r.kasirId].potong+=potong;
         agg[r.kasirId].masuk++;
-        agg[r.kasirId].hist.push({date:d.date,amount:num(r.amount),potong,off:false});
+        agg[r.kasirId].hist.push({date:d.date,real,off:false});
       }
     }});
   });
@@ -1364,6 +1449,16 @@ function viewKasir(){
     agg[k.id].compRows=cr;
     agg[k.id].comp=cr.reduce((s,c)=>s+num(c.nominal),0);
     agg[k.id].real-=agg[k.id].comp;
+    /* Compliment ikut diturunkan di hari kejadiannya, bukan cuma dari total.
+       Sejak riwayat memajang angka final, jumlah kolomnya HARUS sama dengan
+       Omset Diakui di kotak atas — kalau tidak, dua angka di halaman yang sama
+       bercerita beda dan tidak ada yang tahu mana yang benar.
+       Compliment pada hari yang tidak punya baris kasir (mis. dia OFF) tetap
+       dimunculkan sebagai barisnya sendiri supaya nominalnya tidak lenyap. */
+    const perTgl={};
+    cr.forEach(c=>{ perTgl[c.date]=(perTgl[c.date]||0)+num(c.nominal); });
+    agg[k.id].hist.forEach(h=>{ if(perTgl[h.date]){ h.real-=perTgl[h.date]; delete perTgl[h.date]; } });
+    Object.keys(perTgl).forEach(dt=>agg[k.id].hist.push({date:dt,real:-perTgl[dt],off:false,extra:true}));
   });
   const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
   /* Hari yang punya baris event tanpa kasir shift. Potongannya tidak dibebankan
@@ -1385,25 +1480,29 @@ function viewKasir(){
     if(!k||!a) return;
     const tgt=targetPic(k.target);   // bulanan diproporsikan di mode harian
     const ach=pct(a.real,tgt),avg=a.masuk>0?a.real/a.masuk:0;
-    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off?'—':fmtRp(h.amount)}</td><td class="num mono">${h.off?'—':(h.potong?'−'+fmtRp(h.potong):'<span class="muted">—</span>')}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off&&!h.real?'<span class="muted">—</span>':fmtRp(h.real)}</td><td>${h.extra?'<span class="chip warn">Compliment</span>':h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
     document.getElementById('ks_body').innerHTML=`
-      <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(k.target)}</div>`:''}</div>
-        <div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.potong?`sesudah potongan event ${fmtRp(a.potong)}`:''}${a.potong&&a.comp?' · ':''}${a.comp?`dipotong compliment ${fmtRp(a.comp)}`:''}${!a.potong&&!a.comp?'tanpa potongan':''}</div></div>
-        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
-        <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
-      </div>
-      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(tgt)}</div></div>
+      ${baguRingkasKasir(a, tgt, ach, modeHarian(), k.target)}
+      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · omset diakui ${fmtRp(a.real)} dari ${fmtRp(tgt)} · ${a.masuk} hari masuk, ${a.off} hari OFF (rata-rata ${fmtRp(avg)}/hari)</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
-        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · <b>Potongan</b> = porsi PIC dari event yang shift-nya dipegang</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Kasir</th><th class="num">Potongan</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>, jumlahnya tepat sama dengan Omset Diakui di atas</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Diakui</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
       </div>
+      ${kartuBonusKasir(a.real, kid==='__all__')}
       ${kartuCompliment(a.compRows||[], kid==='__all__')}`;
-    clearChartsExcept();
+    /* clearCharts(), bukan clearChartsExcept(). Nama kedua itu ada di Kompas
+       tapi TIDAK PERNAH ikut terbawa waktu modul ini dipecah, jadi baris ini
+       melempar ReferenceError setiap kali Performa Kasir digambar — grafik
+       Omset Harian tidak pernah muncul dan grafik lama tidak pernah dibuang.
+       Halamannya tetap tampil (innerHTML sudah diisi sebelum baris ini), jadi
+       tidak ada gejala selain kotak grafik yang diam. Ketahuan 3 Agustus 2026
+       saat halaman ini disamakan dengan Kompas. */
+    clearCharts();
     const h=[...a.hist].sort((x,y)=>x.date<y.date?-1:1);
-    // Batangnya memakai omset SESUDAH potongan supaya totalnya sama dengan
-    // Realisasi di kotak atas; kalau hanya amount, grafiknya bercerita lain.
-    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.amount-(x.potong||0)),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
+    // Batangnya memakai angka final yang sama dengan riwayat supaya totalnya
+    // sama dengan Omset Diakui di kotak atas; kalau memakai bruto, grafiknya
+    // bercerita lain dari tabel tepat di sebelahnya.
+    if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.real),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
     else emptyCanvas('ks_chart','Belum ada data');
   };
   document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
