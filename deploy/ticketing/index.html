@@ -209,8 +209,8 @@ img{max-width:100%;display:block}
 .zoomctl button{width:38px;height:38px;border-radius:10px;border:1.5px solid var(--line);
   background:var(--surface);font-size:17px;line-height:1;color:var(--ink)}
 .zoomctl button:hover{border-color:var(--gold-2);background:var(--gold-soft)}
-.zoomctl .muat{width:auto;padding:0 13px;font-size:13px;font-weight:600}
-.zoomctl .ket{font-size:11.5px;color:var(--muted-2);padding:0 4px;min-width:38px;text-align:right}
+
+
 /* Versi HP dari panduan: satu baris, bukan tiga kartu. */
 .panduan-hp{display:none}
 @media(max-width:900px){
@@ -862,10 +862,13 @@ function gambarDenah(){
      +'<div class="denah-wrap" id="denahWrap">'
        +'<div class="denah" id="denah"></div>'
        +'<div class="zoomctl">'
+         /* Tinggal dua tombol. "Muat layar" dan angka persen dibuang: keduanya
+            menjelaskan mesin, bukan menolong pembeli — yang dibutuhkan cuma
+            "lebih besar" dan "lebih kecil". Mengembalikan denah ke tampilan
+            penuh tetap bisa dengan menekan − sampai mentok, dan berpindah
+            lantai selalu menata ulang dari awal. */
          +'<button type="button" onclick="zoomDenah(-1)" aria-label="Perkecil">−</button>'
          +'<button type="button" onclick="zoomDenah(1)" aria-label="Perbesar">+</button>'
-         +'<button type="button" class="muat" onclick="muatLayar()">Muat layar</button>'
-         +'<span class="ket" id="zoomTeks">100%</span>'
        +'</div>'
      +'</div>'
      /* Kursi terpilih terlihat TANPA menggulir ke ringkasan — di HP, ringkasan
@@ -993,7 +996,6 @@ function terapkanView(){
   const box=$('#denah'); if(!box) return;
   rapikanGeser();
   box.style.transform='translate('+VIEW.x+'px,'+VIEW.y+'px) scale('+VIEW.z+')';
-  const t=$('#zoomTeks'); if(t) t.textContent=Math.round(VIEW.z*100)+'%';
 }
 
 function pasangGerak(wrap){
@@ -1014,7 +1016,18 @@ function pasangGerak(wrap){
 
   wrap.addEventListener('pointerdown', e=>{
     jari.set(e.pointerId,{x:e.clientX,y:e.clientY});
-    if(wrap.setPointerCapture) { try{ wrap.setPointerCapture(e.pointerId); }catch(_){} }
+    /* JANGAN setPointerCapture UNTUK SATU JARI.
+       Menangkap pointer memindahkan sasaran event berikutnya — termasuk `click`
+       — ke elemen penangkapnya. Akibatnya ketukan pada kursi mendarat di kotak
+       denah, bukan di kursinya, dan onclick kursi tidak pernah jalan: denah
+       tampak hidup (bisa digeser & dicubit) tapi tidak bisa dipesan sama
+       sekali. Dilaporkan 3 Agustus 2026, tepat setelah cubit-geser dipasang.
+
+       Penangkapan hanya dipakai saat jari KEDUA menempel, yaitu saat gerakannya
+       sudah pasti mencubit dan tidak ada klik yang perlu diteruskan. */
+    if(jari.size===2 && wrap.setPointerCapture){
+      jari.forEach((v,id)=>{ try{ wrap.setPointerCapture(id); }catch(_){} });
+    }
     bergerak=0; _geserJauh=false;
     if(jari.size===1) geserDari={x:e.clientX-VIEW.x, y:e.clientY-VIEW.y};
     else if(jari.size===2){ mulaiJarak=jarak(); mulaiZ=VIEW.z; mulaiTitik=titikTengah(); geserDari=null; }
@@ -1050,6 +1063,11 @@ function pasangGerak(wrap){
   };
   wrap.addEventListener('pointerup', lepas);
   wrap.addEventListener('pointercancel', lepas);
+  /* Jari yang diangkat DI LUAR kotak denah tidak mengirim pointerup ke kotak
+     itu — tanpa penadah di window, keadaannya tertinggal "sedang menggeser" dan
+     ketukan berikutnya diabaikan diam-diam. */
+  window.addEventListener('pointerup', lepas);
+  window.addEventListener('pointercancel', lepas);
   wrap.addEventListener('wheel', e=>{
     if(e.cancelable) e.preventDefault();
     const r=wrap.getBoundingClientRect();

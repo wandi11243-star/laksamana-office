@@ -884,6 +884,9 @@ function gambarDenah() { go(); langkahHTML(); ringkasHTML(); petakanObjek(); gam
 
 
 
+
+
+
 function gambarPilihanBar() { gambarDenah(); }
 
 
@@ -995,7 +998,6 @@ function terapkanView() { rapikanGeser(); }
 
 
 
-
 function pasangGerak() {  }
 
 
@@ -1008,6 +1010,22 @@ function titikTengah() { kumpul(); }
 
 
 function jarak() { kumpul(); titikTengah(); ubahZoom(); terapkanView(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
