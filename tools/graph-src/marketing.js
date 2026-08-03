@@ -1282,6 +1282,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -8611,6 +8621,19 @@ function rsvDaftarMeja() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function vipKosong() { uid(); today(); }
 
 
@@ -8722,6 +8745,10 @@ function vipChip() { esc(); }
 
 
 function vipForm() { can(); toast(); vipKosong(); vipFormUI(); }
+
+
+
+
 
 
 
@@ -8913,7 +8940,31 @@ function vipLanjutMeja() { vipKumpulkan(); toast(); modal(); fmtDate(); rsvAmbil
 
 
 
-function vipDenahKey() { vipDenah(); }
+function vipDenahKey() { vipDenahKeyL1(); }
+
+
+
+
+
+
+
+
+
+function vipDenahKeyL1() { vipDenah(); }
+
+
+
+
+
+
+
+
+
+
+function vipDenahKunci() { vipDenahKeyL1(); vipDenah(); }
+
+
+
 
 
 
@@ -8955,20 +9006,12 @@ function vipRingkasSlotHTML() { vipPax(); esc(); }
 
 
 
-function vipSegarkanRingkas() { $(); vipRingkasSlotHTML(); }
 
 
 
 
 
-
-
-function vipDenahHTML() { today(); vipDenah(); vipDenahKey(); mejaKapasitas(); esc(); vipToggleMeja(); escJs(); }
-
-
-
-
-
+function vipSegarkanRingkas() { $(); vipRingkasSlotHTML(); vipLantaiHTML(); }
 
 
 
@@ -8979,7 +9022,7 @@ function vipDenahHTML() { today(); vipDenah(); vipDenahKey(); mejaKapasitas(); e
 
 
 
-
+function vipDenahHTML() { today(); vipDenahKunci(); vipDenahKey(); vipDenah(); vipDenahKeyL1(); mejaKapasitas(); esc(); vipToggleMeja(); escJs(); }
 
 
 
@@ -9006,7 +9049,65 @@ function vipDenahHTML() { today(); vipDenah(); vipDenahKey(); mejaKapasitas(); e
 
 
 
-function vipPilihMejaUI() { rsvMejaTerpakai(); esc(); fmtDate(); vipJam(); vipPax(); closeModal(); svg(); vipDenahHTML(); rsvDaftarMeja(); vipToggleMeja(); escJs(); vipRingkasSlotHTML(); vipFormUI(); vipSimpanKunci(); modal(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipSetLantai() { vipPilihMejaUI(); }
+
+
+
+
+
+
+
+
+function vipLantaiHTML() { vipDenah(); vipDenahKeyL1(); today(); vipSetLantai(); esc(); }
+
+
+
+
+
+
+
+
+
+function vipPilihMejaUI() { rsvMejaTerpakai(); esc(); fmtDate(); vipJam(); vipPax(); closeModal(); svg(); vipDenahHTML(); vipLantaiHTML(); rsvDaftarMeja(); vipToggleMeja(); escJs(); vipRingkasSlotHTML(); vipFormUI(); vipSimpanKunci(); modal(); $(); }
+
+
+
+
+
+
+
 
 
 
