@@ -228,6 +228,15 @@ img{max-width:100%;display:block}
 
 
 /* Versi HP dari panduan: satu baris, bukan tiga kartu. */
+/* Spanduk mode upgrade — sengaja mencolok: layar ini terlihat sama persis
+   dengan pembelian biasa, dan satu ketukan di sini artinya berbeda. */
+.tbl-upg{background:var(--gold-soft);border:1px solid var(--gold-2);border-radius:var(--radius-sm);
+  padding:11px 14px;margin-bottom:12px;color:var(--gold-dim)}
+.tbl-upg .mini{color:var(--muted);margin-top:2px}
+/* Lapisan konfirmasi upgrade. */
+.modal-lapis{position:fixed;inset:0;background:rgba(30,26,20,.55);z-index:120;display:none;
+  align-items:center;justify-content:center;padding:18px;overflow:auto}
+.modal-lapis .modal-isi{width:100%;max-width:440px}
 .panduan-hp{display:none}
 @media(max-width:900px){
   .panduan{display:none}
@@ -447,7 +456,7 @@ const API = '../ticketing-api/api.php';
 /* Versi berkas ini. NAIKKAN tiap kali situs customer diubah — inilah satu-
    satunya cara membedakan "bugnya belum diperbaiki" dari "peramban masih
    memegang salinan lama". Ditulis di kaki halaman. */
-const APP_VERSI = '2026-08-03g';
+const APP_VERSI = '2026-08-03h';
 
 const $  = s => document.querySelector(s);
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -866,14 +875,47 @@ Layar.denah = async (id)=>{
   gambarDenah();
   // Hitung mundur dilanjutkan hanya kalau memang masih ada yang ditahan.
   if(Beli.items.length) Beli.mulaiJam();
+  mulaiSegarDenah();
 };
+/* DENAH DISEGARKAN BERKALA — sedekat mungkin dengan "realtime" tanpa server
+   yang bisa mendorong perubahan sendiri. Hosting ini tidak punya WebSocket,
+   jadi yang bisa dilakukan adalah bertanya ulang: tiap 15 detik, selama
+   halamannya memang sedang dibuka dan tabnya terlihat.
+
+   Kursi yang SEDANG dipilih dipertahankan sebagai milik sendiri — kalau tidak,
+   jawaban server yang datang sepersekian detik sebelum kunci barunya tercatat
+   akan membuat kursi itu berkedip jadi kosong di layar pemiliknya. */
+let _segarDenah=null;
+function mulaiSegarDenah(){
+  clearInterval(_segarDenah);
+  _segarDenah=setInterval(async ()=>{
+    if(location.hash.indexOf('#denah')!==0){ clearInterval(_segarDenah); _segarDenah=null; return; }
+    if(document.hidden) return;                  // tab di belakang: tak perlu menembak server
+    const m=document.getElementById('modalUpg');
+    if(m && m.style.display==='flex') return;    // sedang mengonfirmasi upgrade
+    let baru;
+    try{ baru = await api('action=denah&id='+encodeURIComponent(Beli.eventId)+'&hold='+encodeURIComponent(Beli.holdToken)); }
+    catch(e){ return; }                          // gangguan sesaat: diamkan, coba lagi 15 detik lagi
+    if(location.hash.indexOf('#denah')!==0) return;
+    const punyaku={}; Beli.items.forEach(i=>{ punyaku[i.seat_id]=1; });
+    DENAH=baru.map(o=>punyaku[o.id]?Object.assign({},o,{status:'mine'}):o);
+    petakanObjek(); gambarPilihanBar();
+  }, 15000);
+}
 function gambarDenah(){
   const lantaiAda=[...new Set(DENAH.map(o=>o.floor))].sort();
   $('#app').innerHTML=
     '<div class="crumb"><button onclick="go(\'events\')">Event</button> › '
       +'<button onclick="go(\'event\',\''+esc(Beli.eventId)+'\')">'+esc(EVENT_KINI?EVENT_KINI.title:'Event')+'</button> › <span>Pilih tempat</span></div>'
    +langkahHTML(1)
-   +'<div class="head"><h1>Pilih tempat</h1><p class="sembunyi-hp">Denah di bawah ini sama persis dengan tata ruang aslinya di venue.</p></div>'
+   +(UPG
+      ? '<div class="tbl-upg">'
+        +'<b>Naik kelas: '+esc(UPG.tier||'')+' '+esc(UPG.label||'')+' → pilih kursi tujuan</b>'
+        +'<div class="mini">Yang dibayar hanya selisih harganya. Kursi lamamu baru dilepas setelah selisih itu lunas.</div>'
+        +'<button class="btn btn-ghost sm" style="margin-top:8px" onclick="batalUpgrade()">Batal, kembali ke tiketku</button>'
+        +'</div>'
+      : '')
+   +'<div class="head"><h1>'+(UPG?'Pilih kursi tujuan':'Pilih tempat')+'</h1><p class="sembunyi-hp">Denah di bawah ini sama persis dengan tata ruang aslinya di venue.</p></div>'
    /* DUA BENTUK PANDUAN, SATU ISI.
       Di layar lebar tiga kartu masih terbaca sekilas. Di HP tiga kartu itu
       memakan setengah layar sebelum denahnya sempat muncul — dan halaman jadi
@@ -1149,6 +1191,11 @@ window.ketukTempat = async (seatId)=>{
      saat jari diangkat ikut terkunci 10 menit. */
   if(_geserJauh) return;
   const o=DENAH.find(x=>x.id===seatId); if(!o) return;
+  /* MODE UPGRADE: mengetuk kursi berarti MEMINDAHKAN tiket, bukan menambah
+     keranjang. Kursinya tidak ditahan lewat jalur keranjang — penguncian
+     dikerjakan server saat upgrade dimulai, dan menahannya dua kali dengan dua
+     token berbeda justru membuat kursi itu bentrok dengan dirinya sendiri. */
+  if(UPG) return ketukUpgrade(o);
   if(o.status==='mine'){
     try{ await api('release',{hold_token:Beli.holdToken, seats:[seatId]}); }
     catch(e){ return toast(e.message,'err'); }
@@ -1486,6 +1533,7 @@ Layar.tiketsaya = async ()=>{
 };
 
 /* ---------- 5. E-TICKET ---------- */
+let TIKET_KINI=null;   // pesanan yang sedang dibuka, dipakai tombol upgrade
 Layar.tiket = async (ref, token)=>{
   /* PESANAN MANA YANG SEDANG DIBUKA.
      Pemeriksa otomatis di bawah menembak ulang tiap 4 detik. Penjaganya dulu
@@ -1506,6 +1554,7 @@ Layar.tiket = async (ref, token)=>{
   // dibuang: menggambarnya berarti menimpa layar pesanan yang sedang dilihat.
   if(window._tiketAktif !== ref) return;
   simpanTiketku(ref, token);
+  TIKET_KINI=Object.assign({}, o, {ref:ref, token:token});
 
   /* PESANAN YANG SUDAH SELESAI TAPI TIDAK BERTIKET.
      Refund yang disetujui kru mengubah status pesanan jadi 'Refunded'; pesanan
@@ -1555,11 +1604,72 @@ Layar.tiket = async (ref, token)=>{
     +'<h1 style="font-size:24px">Pembayaran berhasil</h1>'
     +'<p style="color:var(--muted)">Tunjukkan QR di bawah ke petugas saat masuk.'
       +(o.tickets.length>1?'<br><b>'+o.tickets.length+' tiket</b> — tiap tamu memakai QR-nya sendiri, jadi bagikan satu per orang.':'')+'</p>'
-    +o.tickets.map(t=>tiketHTML(t,o)).join('')
+    +o.tickets.map((t,i)=>tiketHTML(t,Object.assign({},o,{idx:i}))).join('')
     +'<p class="mini" style="margin-top:14px">Simpan halaman ini. Bisa dibuka lagi lewat tautan yang sama.</p>'
     +'<button class="btn btn-ghost btn-block" style="margin-top:12px" onclick="go(\'events\')">Lihat Event Lain</button>'
    +'</div>';
 };
+/* ---------- UPGRADE TIKET (sisi pembeli) ----------
+   Alurnya sengaja memakai denah yang SAMA dengan pembelian biasa: pembeli sudah
+   tahu cara membacanya, dan denah kedua yang mirip-tapi-beda hanya menambah hal
+   yang harus dipelajari. Bedanya cuma satu ketukan: di mode ini, mengetuk kursi
+   berarti "pindahkan tiketku ke sini", bukan "tambahkan ke keranjang". */
+let UPG=null;   // {ticket_id, nomor, label, tier, terbayar, ref, token}
+window.mulaiUpgrade=(ref,token,idx)=>{
+  const o=TIKET_KINI; if(!o||!o.tickets||!o.tickets[idx]) return;
+  const t=o.tickets[idx];
+  UPG={ticket_id:t.id, nomor:t.ticket_number, label:t.seat_label, tier:t.tier,
+       terbayar:+t.terbayar||0, ref:ref, token:token};
+  toast('Pilih kursi tujuan','Ketuk kursi yang kamu mau. Yang dibayar hanya selisih harganya.','ok');
+  go('denah', o.event_id);
+};
+window.batalUpgrade=()=>{ UPG=null; go('tiket', TIKET_KINI?TIKET_KINI.ref:'', TIKET_KINI?TIKET_KINI.token:''); };
+
+/* Ketukan kursi saat mode upgrade. Tidak menahan kursi lewat jalur keranjang:
+   penguncian dilakukan server begitu upgrade dimulai, dan menahannya dua kali
+   dengan dua token berbeda justru membuat kursinya bentrok dengan dirinya
+   sendiri. */
+async function ketukUpgrade(o){
+  if(!UPG) return;
+  const selisih=(+o.price||0)-UPG.terbayar;
+  if(selisih<=0){
+    toast('Bukan upgrade','Kursi itu tidak lebih tinggi dari tiketmu sekarang.','warn');
+    return;
+  }
+  modal(
+    '<div class="tengah" style="max-width:420px">'
+   +'<h2 style="margin-bottom:6px">Pindah ke '+esc(o.tier||'')+' '+esc(o.label||'')+'?</h2>'
+   +'<div class="card sec" style="text-align:left">'
+     +'<dl class="kv-list">'
+       +'<dt>Tiketmu sekarang</dt><dd>'+esc(UPG.tier||'')+' '+esc(UPG.label||'')+'</dd>'
+       +'<dt>Sudah dibayar</dt><dd class="mono">'+rp(UPG.terbayar)+'</dd>'
+       +'<dt>Harga kursi baru</dt><dd class="mono">'+rp(o.price)+'</dd>'
+     +'</dl>'
+     +'<div class="cost tot"><span>Selisih yang dibayar</span><span class="mono">'+rp(selisih)+'</span></div>'
+     +'<p class="mini" style="margin-top:10px">Kursi lamamu baru dilepas setelah selisih ini lunas — kalau pembayarannya batal, tiketmu yang sekarang tetap berlaku.</p>'
+   +'</div>'
+   +'<button class="btn btn-pri btn-block" id="upg-go">Bayar selisih '+rp(selisih)+'</button>'
+   +'<button class="btn btn-ghost btn-block" style="margin-top:8px" onclick="tutupModal()">Batal</button>'
+   +'</div>');
+  const b=document.getElementById('upg-go');
+  b.onclick=async ()=>{
+    b.disabled=true; b.innerHTML='<span class="spinner"></span> Menyiapkan pembayaran…';
+    let r;
+    try{ r=await api('upgradeMulai',{sesi:Akun.sesi, ticket_id:UPG.ticket_id, seat_id:o.id}); }
+    catch(e){ b.disabled=false; b.textContent='Coba lagi'; return toast('Gagal',e.message,'err'); }
+    simpanTiketku(r.ref, r.access_token);
+    UPG=null;
+    location.href=r.invoice_url;
+  };
+}
+function modal(html){
+  let m=document.getElementById('modalUpg');
+  if(!m){ m=document.createElement('div'); m.id='modalUpg'; m.className='modal-lapis'; document.body.appendChild(m); }
+  m.innerHTML='<div class="modal-isi">'+html+'</div>';
+  m.style.display='flex';
+}
+window.tutupModal=()=>{ const m=document.getElementById('modalUpg'); if(m) m.style.display='none'; };
+
 function tiketHTML(t,o){
   const ci=t.status==='Checked-In';
   /* Tiket yang dibatalkan (refund disetujui kru) tetap digambar sebagai kartu,
@@ -1587,6 +1697,13 @@ function tiketHTML(t,o){
    +'</div>'
    +'<div class="ts'+(batal?' batal':(ci?' ci':''))+'">'
      +(batal?'✕ Tiket dibatalkan (refund)':(ci?'✓ Sudah check-in':'✓ Tiket sah'))+'</div>'
+   /* Naik kelas hanya ditawarkan untuk tiket yang MASIH berlaku dan belum
+      dipakai masuk: menawarkannya pada tiket yang sudah discan berarti
+      menjanjikan kursi kepada orang yang sudah duduk di dalam. */
+   +((!batal && !ci && o.idx!==undefined && t.id)
+      ? '<div style="padding:0 20px 16px"><button class="btn btn-ghost btn-block" '
+        +'onclick="mulaiUpgrade(\''+escJsId(o.ref||'')+'\',\''+escJsId(o.token||'')+'\','+o.idx+')">'
+        +'Naik kelas — bayar selisihnya</button></div>' : '')
   +'</div>';
 }
 

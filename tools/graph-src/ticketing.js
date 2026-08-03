@@ -455,6 +455,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -797,7 +806,7 @@ function punyaDenah() {  }
 
 
 
-function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); }
+function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); mulaiSegarDenah(); }
 
 
 
@@ -852,6 +861,32 @@ function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mulaiSegarDenah() { api(); petakanObjek(); gambarPilihanBar(); }
 
 
 
@@ -868,6 +903,13 @@ function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(
 
 
 function gambarDenah() { go(); langkahHTML(); ringkasHTML(); petakanObjek(); gambarPilihanBar(); gambarBarHp(); }
+
+
+
+
+
+
+
 
 
 
@@ -1135,7 +1177,12 @@ function labelStatus() {  }
 function warnaMuda() { hex2rgb(); }
 function kontras() { hex2rgb(); }
 
-function hex2rgb() { api(); toast(); gambarDenah(); }
+function hex2rgb() { ketukUpgrade(); api(); toast(); gambarDenah(); }
+
+
+
+
+
 
 
 
@@ -1560,7 +1607,77 @@ function kirimAkun() { toast(); api(); gambarTopnav(); dariHash(); go(); memuat(
 
 
 
-function tiketHTML() { tgl(); jam(); qrSvg(); api(); toast(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ketukUpgrade() { toast(); modal(); api(); simpanTiketku(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function modal() {  }
+
+
+
+
+
+
+
+function tiketHTML() { tgl(); jam(); qrSvg(); escJsId(); api(); toast(); go(); }
+
+
+
+
+
+
+
 
 
 
