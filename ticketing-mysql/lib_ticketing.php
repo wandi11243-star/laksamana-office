@@ -211,6 +211,79 @@ function ambil($sql, $args = array()) {
 function sapu_hold() {
   db()->prepare('DELETE FROM seat_holds WHERE expires_at < :t AND (order_id IS NULL OR order_id = "")')
       ->execute(array(':t' => now_ms()));
+  /* Pesanan yang lewat batas bayarnya ikut ditutup di sini — lihat catatan di
+     sapu_pesanan_kedaluwarsa(). Urutannya sesudah baris di atas: kunci milik
+     pesanan baru boleh dilepas setelah pesanannya resmi Expired. */
+  sapu_pesanan_kedaluwarsa();
+}
+
+/* ==================== BATAS WAKTU MEMBAYAR ====================
+   Dulu pesanan diberi waktu SATU JAM sementara kursinya ditahan sejak awal —
+   dan itu menghasilkan keadaan yang membingungkan: kursi sudah dilepas, tapi
+   halaman pembayarannya masih hidup dan masih bisa dibayar. Kalau benar-benar
+   dibayar, uangnya masuk untuk kursi yang barangkali sudah jadi milik orang
+   lain.
+
+   Sekarang satu angka mengatur ketiganya: masa tahan kursi, umur invoice
+   Xendit, dan umur pesanan. Habis waktunya berarti habis semuanya sekaligus. */
+function menit_bayar() {
+  $m = defined('BAYAR_MENIT') ? (int)BAYAR_MENIT : 10;
+  return max(3, min(60, $m));   // di bawah 3 menit tidak manusiawi, di atas 60 tidak ada gunanya
+}
+
+/* Pesanan yang lewat batas waktunya ditutup, dan kursinya dikembalikan.
+   Dipanggil dari sapu_hold() — jalur yang sudah dilewati hampir semua
+   permintaan — jadi tidak butuh cron sama sekali. Dibatasi 50 baris supaya
+   satu permintaan tidak berubah jadi pekerjaan pembersihan raksasa. */
+function sapu_pesanan_kedaluwarsa() {
+  try {
+    $st = db()->query("SELECT id, data FROM orders WHERE payment_status = 'Pending' ORDER BY created_at DESC LIMIT 50");
+    $now = time();
+    foreach ($st as $row) {
+      $o = json_decode($row['data'], true);
+      if (!is_array($o) || empty($o['expires_at'])) continue;
+      if (strtotime($o['expires_at']) >= $now) continue;
+      batalkan($row['id'], 'EXPIRED');   // menandai Expired + melepas kunci kursinya
+    }
+  } catch (Throwable $e) { /* pembersihan tidak boleh menggagalkan permintaan aslinya */ }
+}
+
+/* ==================== MEMERIKSA PEMBAYARAN TANPA DIMINTA ====================
+   Webhook Xendit adalah jalur utama, tapi ia bisa tidak pernah sampai: URL
+   salah didaftarkan, server sempat mati, jaringan putus. Sebelumnya jaring
+   pengamannya hanya bekerja kalau PEMBELI membuka halaman tiketnya — jadi
+   pesanan yang sudah dibayar tetap tertulis "menunggu pembayaran" sampai
+   orangnya sendiri mengecek, dan kursinya ikut menggantung.
+
+   Sekarang tiap permintaan biasa (membuka daftar event, membuka denah, membuka
+   Tiket Saya) sekalian menanyakan beberapa pesanan yang masih menggantung ke
+   Xendit. Tanpa cron, tanpa pekerjaan latar — cukup menumpang lalu lintas yang
+   memang sudah ada.
+
+   Dua penjaga supaya ini tidak berubah jadi beban: tiap pesanan hanya
+   ditanyakan sekali per menit (_cek_at), dan sekali jalan paling banyak
+   beberapa pesanan. */
+function sapu_pending_xendit($maks = 3) {
+  if (strpos(xendit_mode(), 'belum diisi') === 0) return 0;   // kunci belum dipasang
+  $n = 0;
+  try {
+    $st = db()->query("SELECT id, data FROM orders WHERE payment_status = 'Pending' ORDER BY created_at DESC LIMIT 30");
+    $now = now_ms();
+    foreach ($st as $row) {
+      if ($n >= $maks) break;
+      $o = json_decode($row['data'], true);
+      if (!is_array($o)) continue;
+      $inv = isset($o['payment']['invoice_id']) ? $o['payment']['invoice_id'] : '';
+      if ($inv === '' || strpos($inv, 'SIM-') === 0) continue;
+      // Sudah ditanyakan kurang dari semenit lalu → lewati.
+      if (isset($o['_cek_at']) && ($now - (float)$o['_cek_at']) < 60000) continue;
+      $o['_cek_at'] = $now;
+      simpan_order($o);
+      selaraskan_xendit($o);   // yang menerbitkan tiket / membatalkan kalau perlu
+      $n++;
+    }
+  } catch (Throwable $e) { /* jangan sampai menggagalkan permintaan aslinya */ }
+  return $n;
 }
 
 /* ==================== EVENT ====================
@@ -236,6 +309,8 @@ function boleh_dijual($status) {
   return $status === 'Upcoming' || $status === 'Today';
 }
 function events_publik() {
+  // Menumpang lalu lintas yang memang sudah ada — lihat sapu_pending_xendit().
+  sapu_pending_xendit(2);
   $rows = ambil('SELECT data FROM events ORDER BY start_datetime ASC');
   $out = array();
   foreach ($rows as $e) {
@@ -824,6 +899,11 @@ function jml_pax($items) {
    diam-diam berbeda aturannya. */
 function tiket_saya($u) {
   if (!$u) throw new Exception('Silakan masuk dulu.');
+  /* Ditanyakan ke Xendit DULU, baru daftarnya disusun — supaya pembeli yang
+     baru saja membayar langsung melihat "Lunas" begitu halaman ini terbuka,
+     bukan harus mengetuk pesanannya satu per satu untuk memicu pemeriksaan.
+     Itu keluhannya: "saya klik dulu baru dia mengecek". */
+  sapu_pending_xendit(5);
   $pesanan = array();
   $st = db()->prepare('SELECT id, data FROM orders WHERE email = :e ORDER BY created_at DESC');
   $st->execute(array(':e' => $u['email']));
@@ -1092,7 +1172,7 @@ function checkout($b) {
     // Pemiliknya sudah dipastikan di awal fungsi ini — pesanan tanpa akun tidak
     // pernah sampai ke baris ini.
     'user_id' => $sesiUser['id'],
-    'expires_at' => gmdate('c', (int)(now_ms() / 1000) + 3600),
+    'expires_at' => gmdate('c', (int)(now_ms() / 1000) + menit_bayar() * 60),
     'created' => gmdate('c'),
   );
   simpan_order($order);
@@ -1104,7 +1184,7 @@ function checkout($b) {
   if ($seatIds) {
     $in = implode(',', array_fill(0, count($seatIds), '?'));
     db()->prepare("UPDATE seat_holds SET order_id = ?, expires_at = ? WHERE seat_id IN ($in)")
-        ->execute(array_merge(array($oid, now_ms() + 3600000), $seatIds));
+        ->execute(array_merge(array($oid, now_ms() + menit_bayar() * 60000), $seatIds));
   }
   } finally { tx_unlock(); }   // di sinilah pembeli berikutnya boleh masuk
 
@@ -1169,7 +1249,8 @@ function xendit_invoice($o, $ev) {
     'amount'                => $o['total'],
     'payer_email'           => $o['email'],
     'description'           => $ev['title'] . ' — ' . count($o['items']) . ' tiket',
-    'invoice_duration'      => 3600,
+    // Invoice mati bersamaan dengan kursinya — lihat menit_bayar().
+    'invoice_duration'      => menit_bayar() * 60,
     'success_redirect_url'  => site_url() . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
     'failure_redirect_url'  => site_url() . '/#gagal/' . $o['payment_ref'],
     'customer'              => array('given_names' => $o['buyer_name'], 'email' => $o['email'], 'mobile_number' => $o['phone']),

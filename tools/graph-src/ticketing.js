@@ -953,7 +953,19 @@ function gambarPilihanBar() { gambarDenah(); }
 
 
 
-function petakanObjek() { warnaMuda(); kontras(); labelStatus(); escJsId(); pasangGerak(); }
+function petakanObjek() { warnaMuda(); kontras(); labelStatus(); escJsId(); pasangGerak(); terapkanView(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

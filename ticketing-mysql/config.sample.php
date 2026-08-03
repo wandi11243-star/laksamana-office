@@ -61,6 +61,16 @@ define('ADMIN_FEE', 5000);
    kursinya dilepas sendiri dan boleh diambil orang lain. */
 define('HOLD_MINUTES', 10);
 
+/* Berapa lama pembeli boleh membayar sesudah menekan "Lanjut ke pembayaran".
+   SATU angka ini mengatur tiga hal sekaligus: umur invoice di Xendit, umur
+   pesanannya, dan masa tahan kursinya.
+
+   Dulu ketiganya berbeda (kursi 10 menit, invoice 1 jam) dan hasilnya
+   membingungkan: kursinya sudah dilepas ke orang lain, tapi halaman pembayaran
+   lama masih hidup dan masih bisa dibayar. Kalau benar-benar dibayar, uangnya
+   masuk untuk kursi yang barangkali sudah menjadi milik orang lain. */
+define('BAYAR_MENIT', 10);
+
 /* ---------- POSTER EVENT ----------
    Poster diunggah lewat EMS dan disimpan sebagai BERKAS di disk, bukan di
    database — jadi berbagi database saja tidak cukup untuk menampilkannya di

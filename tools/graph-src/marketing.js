@@ -1520,6 +1520,16 @@ function normalizeState() { uid(); MENU_DB_AWAL(); getFbFormats(); migrateRoleAc
 
 
 
+
+
+
+
+
+
+
+
+
+
 function _sig() {  }
 function _eachRow() {  }
 function _dirty() { _sig(); buildPayload(); }
@@ -1864,6 +1874,12 @@ function daysBetween() {  }
 function daysTo() { daysBetween(); today(); esc(); }
 
 function ago() { autoCloseEvents(); }
+
+
+
+
+
+
 
 
 

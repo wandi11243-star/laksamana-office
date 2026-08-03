@@ -1367,6 +1367,16 @@ function migrateRoleAcc(oldNav, oldPerms){
 function normalizeState(s){
   s=s||{};
   MKT_COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  /* MIGRASI: tahap "Negotiation" dihapus (lihat PIPE_COLS).
+     Event yang terlanjur berada di sana dipindahkan ke "Quotation Terkirim" —
+     tahap terdekat yang maknanya sama: penawaran sudah di tangan client dan
+     keputusannya belum turun. Tanpa migrasi ini, kartunya hilang dari papan
+     pipeline: kolomnya tidak ada lagi, tapi datanya masih menyebut nama itu. */
+  (s.events||[]).forEach(function(e){
+    if(!e) return;
+    if(e.pipeCol==='Negotiation') e.pipeCol='Quotation Terkirim';
+    if(e.status==='Negotiation')  e.status='Quotation Terkirim';
+  });
   /* Database menu: { "Karbohidrat":["Nasi Putih",...], ... }
      Belum pernah ada  -> isi contoh awal supaya halamannya tidak kosong melompong.
      Sudah ada tapi []  -> itu objek KOSONG yang pulang dari PHP sebagai array
@@ -1868,23 +1878,29 @@ function ago(dt){ const s=Math.floor((Date.now()-new Date(dt))/1000); if(s<60)re
 /* ---------- STATUS META ---------- */
 const CLIENT_STATUS = {
   Lead:{c:'--muted',t:'Lead'}, Prospect:{c:'--info',t:'Prospect'},
-  Negotiation:{c:'--warn',t:'Negotiation'}, 'Quotation Terkirim':{c:'--violet',t:'Quotation Terkirim'},
+  'Quotation Terkirim':{c:'--violet',t:'Quotation Terkirim'},
   Confirmed:{c:'--gold',t:'Confirmed'}, Deal:{c:'--ok',t:'Deal'},
   'Event Done':{c:'--teal',t:'Event Done'}, Lost:{c:'--danger',t:'Lost'}
 };
 // Alur: quotation dikirim lebih dulu, baru masuk tahap negosiasi.
-const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Lost'];
+/* TAHAP "Negotiation" DIHAPUS (keputusan user 3 Agustus 2026).
+   Di lapangan ia tidak pernah jadi tahap tersendiri: begitu penawaran dikirim,
+   tawar-menawar terjadi di dalam tahap itu juga, dan memindahkan kartunya
+   bolak-balik antara "Quotation Terkirim" dan "Negotiation" cuma pekerjaan
+   tambahan tanpa keputusan baru. Event lama yang terlanjur ada di sana
+   dipindahkan ke Quotation Terkirim oleh normalizeState — lihat di sana. */
+const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Deal','Lost'];
 /* "Event Done" sengaja TIDAK punya kolom di kanban. Pipeline itu papan peluang
    yang masih digarap; event yang sudah selesai bukan lagi pekerjaan di sana dan
    hanya membuat papannya panjang. Menutup event dilakukan lewat tombol "Tandai
    Event Selesai" di form event, atau otomatis oleh autoCloseEvents() di H+2 —
    dan hasilnya dilihat di daftar Input & Event, bukan di kanban. */
 // Tahap "peluang masih terbuka" — hanya event di tahap ini yang perlu di-follow up.
-const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim','Negotiation'];
+const OPEN_STAGES = ['Lead','Prospect','Quotation Terkirim'];
 // Hasil follow up -> tahap pipeline event. null = status tidak berubah.
 const FU_RESULT = {
   'Tertarik / kebutuhan jelas':'Prospect',
-  'Nego harga':'Negotiation',
+  'Nego harga':'Quotation Terkirim',
   'Quotation dikirim':'Quotation Terkirim',
   'Belum jawab / masih pikir':null,
   'Deal':'Deal',
@@ -3008,7 +3024,7 @@ function renderDashboard(V){
   // Closing = event yang benar-benar sudah closing (Deal/Confirmed/Event Done), bukan yang masih di pipeline.
   const closingMonth = S.events.filter(e=>{const t=new Date(e.tanggal); return t.getMonth()===thisMonth && ['Deal','Confirmed','Event Done'].includes(e.status);}).length;
   const evTotal = S.events.length;
-  const EV_STATUSES = ['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
+  const EV_STATUSES = ['Lead','Prospect','Quotation Terkirim','Deal','Event Done','Lost'];
   const evTally = {}; EV_STATUSES.forEach(s=>evTally[s]=0);
   // 'Confirmed' = status lama sebelum pindah ke 'Deal' — hitung sebagai Deal biar total cocok
   S.events.forEach(e=>{ const st = e.status==='Confirmed' ? 'Deal' : e.status; if(evTally[st]!==undefined) evTally[st]++; });
@@ -3762,7 +3778,7 @@ function pipeStatusOfEv(e){
 }
 function pipeKanban(){
   const cols=PIPE_COLS;
-  const colColor={Lead:'--muted',Prospect:'--info',Negotiation:'--warn','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
+  const colColor={Lead:'--muted',Prospect:'--info','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
   const mine=ME.role==='marketing';
   let h='<div class="kanban">';
   cols.forEach(col=>{
@@ -3853,7 +3869,7 @@ function doDelEvent(id){
    pipeline itu catatan kemajuan negosiasi, bukan sertifikat kelengkapan data,
    dan datanya di lapangan memang sering baru lengkap belakangan. Sekarang tahap
    SELALU boleh naik; yang kurang cuma diingatkan lewat toast. */
-const STAGE_NEEDS_BASIC=['Negotiation','Quotation Terkirim','Deal'];
+const STAGE_NEEDS_BASIC=['Quotation Terkirim','Deal'];
 function missingBasic(ev){
   const sec=SEC_BY_ID['basic']; if(!sec)return [];
   // hanya blok "info inti" (sebelum sub-judul Dekorasi) yang mengunci kenaikan tahap —
@@ -3899,7 +3915,7 @@ function pipeFollowUp(){
    +stat('Progress Hari Ini',myFUcount+'/'+S.settings.fuTarget,progressBar(myFUcount,S.settings.fuTarget),'pipe')
    +stat('Jatuh Tempo Hari Ini',dueEvs.length,'peluang perlu di-follow up','clock')
    +stat('Perlu Ditindaklanjuti',staleEvs.length,'≥ '+(+S.settings.staleDays||7)+' hari belum di-follow up','alert')
-   +stat('Peluang Aktif',openEvs.length,'Lead → Negotiation','flag')
+   +stat('Peluang Aktif',openEvs.length,'Lead → Quotation','flag')
    +'</div>';
   // --- antrian peluang (event) ---
   h+='<div class="card pad0" style="margin-bottom:14px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Antrian Follow Up · Peluang Aktif</h3><div class="cell-sub">Hasil follow up langsung menggerakkan tahap event di Pipeline.</div></div>';
@@ -7208,7 +7224,7 @@ window.addEventListener('afterprint',function(){
 let calDate=new Date(); calDate.setDate(1);
 let calStatusFilter='';
 function renderCalendar(V){
-  const statusOpts=['Lead','Prospect','Quotation Terkirim','Negotiation','Deal','Event Done','Lost'];
+  const statusOpts=['Lead','Prospect','Quotation Terkirim','Deal','Event Done','Lost'];
   let h=pageHead('Modul F','Kalender','Satu jadwal untuk seluruh venue — hindari dobel booking.',
     '<select class="inp" style="width:auto;padding:7px 12px" onchange="calStatusFilter=this.value;go(\'calendar\')"><option value=""'+(calStatusFilter===''?' selected':'')+'>Semua status</option>'+statusOpts.map(s=>'<option'+(calStatusFilter===s?' selected':'')+'>'+s+'</option>').join('')+'</select>'
     +'<button class="btn sm" onclick="calNav(-1)">←</button><button class="btn sm" onclick="calToday()">Hari Ini</button><button class="btn sm" onclick="calNav(1)">→</button>');
@@ -8020,7 +8036,7 @@ function delTaskCategory(name){
    ============================================================ */
 function renderInvoices(V){
   let h=pageHead('Modul G','Invoice & Payment','Status pembayaran tiap event, real-time untuk Finance & Marketing.','');
-  const evs=S.events.filter(e=>['Confirmed','Deal','Event Done','Negotiation','Quotation Terkirim'].includes(e.status)).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
+  const evs=S.events.filter(e=>['Confirmed','Deal','Event Done','Quotation Terkirim'].includes(e.status)).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
   const totalOut=evs.reduce((a,e)=>a+eventFinance(e).remaining,0);
   const overdue=evs.filter(e=>invStatus(e)==='Overdue');
   h+='<div class="grid g-3" style="margin-bottom:16px">'
@@ -8492,7 +8508,7 @@ function renderPerformance(V){
   // Omzet 0 padahal ada event closing = biaya di tab Quotation belum diisi
   if(closed.length && !omzet) h+='<div class="tbl-note" style="margin-top:-6px;margin-bottom:16px">'+svg(IC.alert)+'<span>Ada <em>'+closed.length+' event closing</em> tapi omzet masih Rp0 — nilai event dihitung dari biaya <em>Sewa Venue, F&amp;B, Sound/Lighting, Lain-lain</em> di tab Event Brief &amp; Quotation. Isi di sana agar omzet terhitung.</span></div>';
   // funnel
-  const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Negotiation',atStage('Negotiation')],['Deal',deals],['Lost',atStage('Lost')]];
+  const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
   h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang.</p>';
   const maxF=Math.max(1,...funnel.map(f=>f[1]));
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
