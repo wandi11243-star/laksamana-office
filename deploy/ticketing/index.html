@@ -1098,10 +1098,24 @@ Layar.tiketsaya = async ()=>{
 
 /* ---------- 5. E-TICKET ---------- */
 Layar.tiket = async (ref, token)=>{
+  /* PESANAN MANA YANG SEDANG DIBUKA.
+     Pemeriksa otomatis di bawah menembak ulang tiap 4 detik. Penjaganya dulu
+     hanya bertanya "masih di halaman tiket?" — bukan "tiket yang MANA?". Jadi
+     kalau pembeli sempat membuka pesanan lama yang belum lunas lalu berpindah
+     ke pesanan yang baru saja dibayar, timer milik pesanan LAMA tetap hidup dan
+     menimpa layar dengan "Menunggu pembayaran" atas nama pesanan lain — persis
+     yang dilaporkan 3 Agustus 2026: alamatnya LM6BD78CB3, tulisannya LMC605E4B6.
+     Pembelinya melihat pembayarannya seolah tidak masuk padahal tiketnya sudah
+     terbit. */
+  window._tiketAktif = ref;
+  clearTimeout(window._cekLagi);
   memuat('Memeriksa pembayaran…');
   let o;
   try{ o = await api('action=order&ref='+encodeURIComponent(ref)+'&token='+encodeURIComponent(token)); }
   catch(e){ return galat(e.message); }
+  // Jawaban yang datang terlambat untuk pesanan yang sudah ditinggalkan
+  // dibuang: menggambarnya berarti menimpa layar pesanan yang sedang dilihat.
+  if(window._tiketAktif !== ref) return;
   simpanTiketku(ref, token);
 
   if(o.status!=='Paid'){
@@ -1118,7 +1132,10 @@ Layar.tiket = async (ref, token)=>{
       +'</div></div>'
       +'<p class="mini" style="margin-top:10px"><span class="spinner"></span> Memeriksa otomatis…</p></div>';
     clearTimeout(window._cekLagi);
-    window._cekLagi=setTimeout(()=>{ if(location.hash.indexOf('#tiket/')===0) Layar.tiket(ref,token); }, 4000);
+    window._cekLagi=setTimeout(()=>{
+      // Dua syarat, bukan satu: masih di halaman tiket DAN masih tiket ini.
+      if(location.hash.indexOf('#tiket/')===0 && window._tiketAktif===ref) Layar.tiket(ref,token);
+    }, 4000);
     return;
   }
 
