@@ -284,6 +284,18 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .rowdel{width:26px;height:26px;border:none;background:none;color:var(--muted);font-size:18px;
   line-height:1;border-radius:6px;cursor:pointer}
 .rowdel:hover{background:var(--red);color:#fff}
+/* Tabel yang sama dalam keadaan tidak boleh diubah (event selesai / peran hanya
+   Lihat). Kotaknya dimatikan, bukan diganti tabel kedua — satu jalur render
+   saja, jadi tidak ada versi baca yang diam-diam ketinggalan dari versi edit. */
+.tbl-edit.baca{max-height:none}
+.tbl-edit.baca .inp{background:none;border-color:transparent;opacity:1;-webkit-text-fill-color:var(--txt);
+  padding-left:0;pointer-events:none}
+.tbl-edit.baca .inp option{color:var(--txt)}
+/* Baris yang belum diisi: ditandai halus supaya jelas mana yang baru ditambah
+   dan masih menunggu diketik, tanpa terlihat seperti galat. */
+.tbl-edit tr.baru td{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.sek-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.sek-head h3{margin:0}
 /* Edit cepat & ganti status langsung dari kartu event */
 .card-edit{position:absolute;top:8px;left:8px;width:30px;height:30px;border:none;border-radius:8px;
   background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;cursor:pointer;
@@ -2336,10 +2348,15 @@ let evtFilter='all';
 const EVT_STATUS = ['Planning','Upcoming','Event Done'];
 
 /* ---------- PERAN & HAK AKSES (pola yang sama dengan modul Marketing) ----------
-   Marketing memakai matriks (halaman × peran) dengan tiga tingkat:
-     0 = tak terlihat   1 = boleh lihat   2 = boleh ubah
+   Marketing memakai matriks (halaman × peran) dengan tiga tingkat. Angkanya
+   (0/1/2) hanya bentuk simpanan — dipilih karena bertingkat, sehingga
+   pemeriksaannya cukup `>= 1` / `>= 2` tanpa tabel pemetaan. Angka itu TIDAK
+   pernah ditampilkan: orang yang mengatur izin membaca "Tak Terlihat / Lihat /
+   Boleh Ubah", persis seperti di Marketing (lihat PERM_OPT di sana).
    EMS memakai bentuk yang sama supaya kru tidak perlu belajar dua sistem izin
    yang berbeda di dua modul yang mereka buka bergantian. */
+const EMS_IZIN = [[0,'Tak Terlihat'],[1,'Lihat'],[2,'Boleh Ubah']];
+function labelIzin(v){ const t=EMS_IZIN.find(function(x){ return x[0]===(+v||0); }); return t?t[1]:'Tak Terlihat'; }
 const EMS_PERAN = {
   manajemen: 'Manajemen',        // Howandi, Wandi, super admin — yang menyetujui
   event:     'Tim Event',        // menyusun rencana, menjalankan acara
@@ -2592,7 +2609,7 @@ function renderAkses(){
   h+='</div>';
 
   h+='<div class="card" style="margin-top:16px"><h3 class="sec">Matriks Izin</h3>'
-   +'<p class="mini" style="margin-bottom:10px">0 = tidak terlihat · 1 = boleh lihat · 2 = boleh ubah. Halaman yang bernilai 0 hilang dari menu <b>dan</b> ditolak kalau alamatnya diketik langsung.</p>'
+   +'<p class="mini" style="margin-bottom:10px">Halaman yang disetel <b>Tak Terlihat</b> hilang dari menu <b>dan</b> ditolak kalau alamatnya diketik langsung.</p>'
    +'<div class="tbl-scroll"><table><thead><tr><th>Halaman</th>'
    +peran.map(r=>'<th>'+EMS_PERAN[r]+'</th>').join('')+'</tr></thead><tbody>';
   Object.keys(EMS_HALAMAN).forEach(function(hal){
@@ -2601,8 +2618,8 @@ function renderAkses(){
       const v=(P[hal]&&P[hal][r])||0;
       h+='<td>'+(boleh
         ? '<select onchange="setIzin(\''+hal+'\',\''+r+'\',this.value)">'
-          +[0,1,2].map(x=>'<option value="'+x+'"'+(v===x?' selected':'')+'>'+x+'</option>').join('')+'</select>'
-        : v)+'</td>';
+          +EMS_IZIN.map(x=>'<option value="'+x[0]+'"'+(v===x[0]?' selected':'')+'>'+x[1]+'</option>').join('')+'</select>'
+        : esc(labelIzin(v)))+'</td>';
     });
     h+='</tr>';
   });
@@ -2746,7 +2763,13 @@ function ensureDetails(id){if(!DB.eventDetails[id])DB.eventDetails[id]={timeline
 function renderEventDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/events';return;}
   const d=ensureDetails(id);
-  const locked=e.status==='Finished';
+  /* Dulu ditulis e.status==='Finished' — status itu sudah tidak ada sejak EMS
+     dipangkas jadi tiga, jadi syaratnya tidak pernah benar dan event yang sudah
+     selesai masih bisa diubah diam-diam. Sekarang dua-duanya diperiksa: event
+     yang sudah lewat dikunci, dan orang yang perannya cuma Lihat tidak diberi
+     kotak isian sama sekali. */
+  const locked=e.status==='Event Done';
+  const boleh=!locked&&bisaUbah('events');
   setTop(e.title,'<a href="#/events" style="color:var(--accent)">Events</a> / '+esc(e.title),
     `<select class="card-status st-${String(e.status).replace(/ /g,"_")}" style="width:auto;margin:0" onchange="setEventStatusDetail('${id}',this.value)">${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select> <button class="btn ghost sm" onclick="eventForm('${id}')">✎ Edit</button>`);
 
@@ -2761,15 +2784,15 @@ function renderEventDetail(id){
     <div class="k">Status</div><div>${statusBadge(e.status)}</div><div class="k">Ticketed</div><div>${e.is_ticketed?'Ya · '+sold+' terjual':'Tidak'}</div></div>
     <div style="margin-top:12px" class="mini">${e.description}</div></div>
     <div class="card"><h3 class="sec">🎨 Materi Marketing</h3><div class="grid g3">${['Poster','Video','Caption','Reels','Story','Ads'].map(m=>`<div class="card" style="background:var(--panel2);text-align:center;padding:12px"><div style="font-size:24px">🎨</div>${m}</div>`).join('')}</div>${e.is_ticketed?`<div style="margin-top:14px"><a class="btn blue sm" href="#/ticketing/${id}">🎟️ Kelola Ticketing →</a></div>`:''}</div></div>`;
-  const timeline=`<div class="card"><h3 class="sec">⏱️ Timeline Event <span class="mini">(checklist)</span></h3><div class="checklist">${TIMELINE_PHASES.map(p=>`<label><input type="checkbox" ${d.timeline[p]?'checked':''} ${locked?'disabled':''} onchange="toggleTimeline('${id}','${p}')"> ${p}</label>`).join('')}</div></div>`;
-  const rundown=`<div class="card"><h3 class="sec">🗓️ Rundown</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editRundown('${id}')">✎ Kelola Rundown</button>`:''}<table><thead><tr><th>Jam</th><th>Activity</th><th>PIC</th><th>Notes</th></tr></thead><tbody>${d.rundown.map(r=>`<tr><td>${esc(r.time)}${r.endtime?'–'+esc(r.endtime):''}</td><td>${esc(r.activity)}</td><td>${esc(r.pic)}</td><td>${esc(r.notes||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">Belum ada rundown.</td></tr>'}</tbody></table></div>`;
-  const vendor=`<div class="card"><h3 class="sec">🤝 Vendor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editVendor('${id}')">✎ Kelola Vendor</button>`:''}<table><thead><tr><th>Vendor</th><th>PIC</th><th>Phone</th><th>Cost</th><th>Status</th></tr></thead><tbody>${d.vendors.map(v=>`<tr><td>${esc(v.name)}</td><td>${esc(v.pic)}</td><td>${esc(v.phone)}</td><td>${IDR(v.cost)}</td><td>${statusBadge(v.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada vendor.</td></tr>'}</tbody></table></div>`;
-  const inc=d.budget.filter(b=>b.type==='Income'),exp=d.budget.filter(b=>b.type==='Expense');const sumB=a=>a.reduce((s,b)=>s+b.budget,0),sumA=a=>a.reduce((s,b)=>s+b.actual,0);const profit=sumA(inc)-sumA(exp);
-  const budget=`<div class="grid g3" style="margin-bottom:16px">${stat('Income (Actual)',IDR(sumA(inc)),'budget '+IDR(sumB(inc)))}${stat('Expense (Actual)',IDR(sumA(exp)),'budget '+IDR(sumB(exp)))}${stat('Profit',IDR(profit),profit>=0?'surplus':'defisit')}</div>
-    <div class="card"><h3 class="sec">💰 Budget <span class="mini">— Actual vs Budget vs Variance</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editBudget('${id}')">✎ Kelola Budget</button>`:''}<table><thead><tr><th>Item</th><th>Tipe</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead><tbody>${d.budget.map(b=>{const v=b.actual-b.budget;return `<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.budget)}</td><td>${IDR(b.actual)}</td><td style="color:${v<0?'var(--green)':v>0?'var(--red)':'var(--muted)'}">${v>0?'+':''}${IDR(v)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada budget.</td></tr>'}</tbody></table></div>`;
-  const sponsor=`<div class="card"><h3 class="sec">🏷️ Sponsor</h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editSponsor('${id}')">✎ Kelola Sponsor</button>`:''}<table><thead><tr><th>Sponsor</th><th>Package</th><th>Nominal</th><th>Agreement</th><th>Status</th></tr></thead><tbody>${d.sponsors.map(s=>`<tr><td>${s.logo||''} ${esc(s.name)}</td><td>${esc(s.package)}</td><td>${IDR(s.nominal)}</td><td>${esc(s.agreement)}</td><td>${statusBadge(s.status)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty">Belum ada sponsor.</td></tr>'}<tr><td colspan="2" style="text-align:right"><b>Total sponsor masuk</b></td><td><b>${IDR(d.sponsors.filter(x=>x.status!=='Cancelled').reduce((a,x)=>a+(+x.nominal||0),0))}</b></td><td colspan="2"></td></tr>
-  </tbody></table></div>`;
-  const task=`<div class="card"><h3 class="sec">✅ Task Internal <span class="mini">(sinkron Task Management)</span></h3>${!locked?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="editTask('${id}')">✎ Kelola Task</button>`:''}<table><thead><tr><th>✓</th><th>Task</th><th>Assignee</th><th>Due Date</th></tr></thead><tbody>${d.tasks.map((t,i)=>`<tr><td><input type="checkbox" style="width:auto" ${t.done?'checked':''} onchange="toggleTask('${id}',${i})"></td><td ${t.done?'style="text-decoration:line-through;color:var(--muted)"':''}>${esc(t.title)}</td><td>${esc(t.assignee)}</td><td>${fmtDate(t.due)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">Belum ada task.</td></tr>'}</tbody></table></div>`;
+  const timeline=`<div class="card"><h3 class="sec">⏱️ Timeline Event <span class="mini">(checklist)</span></h3><div class="checklist">${TIMELINE_PHASES.map(p=>`<label><input type="checkbox" ${d.timeline[p]?'checked':''} ${boleh?'':'disabled'} onchange="toggleTimeline('${id}','${p}')"> ${p}</label>`).join('')}</div></div>`;
+  /* Kelima seksi ini digambar oleh satu mesin yang sama (seksiHTML) dan langsung
+     bisa diisi di tempat — tidak ada lagi tombol "Kelola X" yang membuka modal. */
+  const rundown=seksiHTML(id,'rundown',boleh);
+  const vendor=seksiHTML(id,'vendors',boleh);
+  const budget=`<div class="grid g3" id="bg_stat" style="margin-bottom:16px">${budgetStatHTML(d)}</div>`
+    +seksiHTML(id,'budget',boleh);
+  const sponsor=seksiHTML(id,'sponsors',boleh);
+  const task=seksiHTML(id,'tasks',boleh);
   const sec=(html)=>`<div style="margin-top:16px">${html}</div>`;
   const banner=`<div class="evt-banner"><div class="poster-head" style="width:64px;height:64px">${posterKecilHTML(e,64)}</div>
     <div class="eb-info"><div class="eb-title">${esc(e.title)}</div>
@@ -2787,11 +2810,18 @@ function setEventStatusDetail(id,st){
    persetujuan manajemen. Perpindahan yang sah sekarang cuma dua, dan keduanya
    punya jalannya sendiri: setujuiRencana() dan setEventStatus(). */
 function toggleTimeline(id,p){DB.eventDetails[id].timeline[p]=!DB.eventDetails[id].timeline[p];save();}
-function toggleTask(id,i){DB.eventDetails[id].tasks[i].done=!DB.eventDetails[id].tasks[i].done;save();renderEventDetail(id);}
-/* Rundown, Vendor & Task dulu diisi lewat prompt() beruntun — kotak abu-abu
-   browser, tanpa validasi, tidak bisa mundur, dan hilang semua kalau salah
-   satu di-Cancel. Sekarang barisnya diedit langsung di tabel: tekan tambah,
-   baris kosong muncul, isi di tempat, lalu Simpan. */
+/* toggleTask() DIHAPUS: centang "selesai" sekarang jadi kolom biasa di tabel
+   task (data-r="done") dan ikut tersimpan lewat simpanSeksi seperti kolom lain. */
+/* Rundown, Vendor, Budget, Sponsor & Task diisi LANGSUNG di tabel yang sedang
+   dilihat. Dua generasi sebelumnya sudah dibuang: prompt() beruntun (hilang
+   semua kalau satu di-Cancel), lalu tombol "✎ Kelola X" yang membuka modal
+   berisi tabel KEDUA. Modal itu punya cacat yang sama tiap kali: tabel yang
+   dibaca bukan tabel yang diisi, layarnya menutupi konteks yang justru sedang
+   dipakai memutuskan, dan menambah satu vendor perlu empat ketukan (buka,
+   tambah, isi, simpan) — plus semuanya hangus kalau modalnya keburu ditutup.
+   Sekarang: tekan Tambah, baris kosong muncul di tempat, isi, selesai.
+   Tersimpan sendiri begitu kotaknya ditinggalkan, jadi tidak ada lagi keadaan
+   "sudah diketik tapi belum tersimpan" yang bisa hilang. */
 function ambilBaris(wrapId,kolom){
   const wrap=document.getElementById(wrapId); if(!wrap)return [];
   return [...wrap.querySelectorAll('tbody tr')].map(tr=>{
@@ -2813,129 +2843,180 @@ function barisTambah(wrapId,html){
   b.appendChild(tmp.firstElementChild);
   const inp=b.lastElementChild.querySelector('input,select'); if(inp)inp.focus();
 }
+/* Hapus baris. Kalau barisnya ada di dalam seksi detail event, seksinya
+   digambar ulang seutuhnya — bukan sekadar dicabut dari DOM — supaya pesan
+   "belum ada isi" dan angka turunannya (total, variance) ikut benar. */
 function barisHapus(btn){
-  const b=btn.closest('tbody'); btn.closest('tr').remove();
-  if(!b.querySelector('tr')) b.innerHTML='<tr class="kosong"><td colspan="9" class="empty">Belum ada baris — tekan Tambah.</td></tr>';
+  const wrap=btn.closest('.tbl-edit'), tb=btn.closest('tbody');
+  btn.closest('tr').remove();
+  if(wrap&&wrap.dataset.ev){ simpanSeksi(wrap.dataset.ev,wrap.dataset.sek,true); return; }
+  if(!tb.querySelector('tr')) tb.innerHTML='<tr class="kosong"><td colspan="9" class="empty">Belum ada baris — tekan Tambah.</td></tr>';
 }
 function bersihkanKosong(wrapId){ const k=document.querySelector('#'+wrapId+' tr.kosong'); if(k)k.remove(); }
 
-const RD_COLS=['time','endtime','activity','pic','notes'];
-function rundownRowHTML(r){r=r||{};return `<tr>
-  <td><input class="inp" type="time" data-r="time" value="${esc(r.time||'')}"></td>
-  <td><input class="inp" type="time" data-r="endtime" value="${esc(r.endtime||'')}"></td>
-  <td><input class="inp" data-r="activity" value="${esc(r.activity||'')}" placeholder="kegiatan"></td>
-  <td><input class="inp" data-r="pic" value="${esc(r.pic||'')}" placeholder="PIC"></td>
-  <td><input class="inp" data-r="notes" value="${esc(r.notes||'')}" placeholder="catatan"></td>
-  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
-function editRundown(id){
-  const d=ensureDetails(id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Rundown</h3>
-  <p class="mini" style="margin-bottom:10px">Isi langsung di tabel. Baris diurutkan otomatis berdasarkan jam mulai saat disimpan.</p>
-  <div id="rd_wrap" class="tbl-edit"><table><thead><tr><th style="width:110px">Mulai</th><th style="width:110px">Selesai</th><th>Activity</th><th style="width:130px">PIC</th><th>Notes</th><th style="width:36px"></th></tr></thead>
-  <tbody>${d.rundown.length?d.rundown.map(rundownRowHTML).join(''):'<tr class="kosong"><td colspan="6" class="empty">Belum ada baris — tekan Tambah.</td></tr>'}</tbody></table></div>
-  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('rd_wrap');barisTambah('rd_wrap',rundownRowHTML())">+ Tambah Baris</button>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanRundown('${id}')">Simpan</button></div>`,true);
-}
-function simpanRundown(id){
-  const rows=ambilBaris('rd_wrap',RD_COLS).filter(r=>r.time||r.activity);
-  rows.sort((a,b)=>String(a.time).localeCompare(String(b.time)));
-  ensureDetails(id).rundown=rows;save();closeModal();renderEventDetail(id);toast('✓ Rundown tersimpan ('+rows.length+' baris).');
-}
+/* Argumen kedua tiap pembuat baris: boleh diubah atau tidak. Kotaknya dimatikan
+   lewat `disabled` dan tombol hapusnya tidak digambar — bentuknya tetap sama
+   supaya kolom yang dibaca sama persis dengan kolom yang diisi. */
+function matikan(boleh){ return boleh===false?' disabled':''; }
+function selHapus(boleh){ return boleh===false?'<td></td>'
+  :'<td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td>'; }
 
+const RD_COLS=['time','endtime','activity','pic','notes'];
+function rundownRowHTML(r,b){r=r||{};const m=matikan(b);return `<tr>
+  <td><input class="inp" type="time" data-r="time" value="${esc(r.time||'')}"${m}></td>
+  <td><input class="inp" type="time" data-r="endtime" value="${esc(r.endtime||'')}"${m}></td>
+  <td><input class="inp" data-r="activity" value="${esc(r.activity||'')}" placeholder="kegiatan"${m}></td>
+  <td><input class="inp" data-r="pic" value="${esc(r.pic||'')}" placeholder="PIC"${m}></td>
+  <td><input class="inp" data-r="notes" value="${esc(r.notes||'')}" placeholder="catatan"${m}></td>
+  ${selHapus(b)}</tr>`;}
 const VD_COLS=['name','pic','phone','cost','status'];
 const VD_STATUS=['Pending','Confirmed','Paid','Cancelled'];
-function vendorRowHTML(v){v=v||{};return `<tr>
-  <td><input class="inp" data-r="name" value="${esc(v.name||'')}" placeholder="nama vendor"></td>
-  <td><input class="inp" data-r="pic" value="${esc(v.pic||'')}" placeholder="PIC"></td>
-  <td><input class="inp" data-r="phone" value="${esc(v.phone||'')}" placeholder="08…"></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"></td>
-  <td><select class="inp" data-r="status">${VD_STATUS.map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
-  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
-function editVendor(id){
-  const d=ensureDetails(id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Vendor</h3>
-  <div id="vd_wrap" class="tbl-edit"><table><thead><tr><th>Vendor</th><th style="width:130px">PIC</th><th style="width:130px">Phone</th><th style="width:140px">Cost (IDR)</th><th style="width:130px">Status</th><th style="width:36px"></th></tr></thead>
-  <tbody>${d.vendors.length?d.vendors.map(vendorRowHTML).join(''):'<tr class="kosong"><td colspan="6" class="empty">Belum ada vendor — tekan Tambah.</td></tr>'}</tbody></table></div>
-  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('vd_wrap');barisTambah('vd_wrap',vendorRowHTML())">+ Tambah Vendor</button>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanVendor('${id}')">Simpan</button></div>`,true);
-}
-function simpanVendor(id){
-  const rows=ambilBaris('vd_wrap',VD_COLS).filter(v=>v.name).map(v=>Object.assign(v,{cost:+v.cost||0,attachment:''}));
-  ensureDetails(id).vendors=rows;save();closeModal();renderEventDetail(id);toast('✓ Vendor tersimpan ('+rows.length+' vendor).');
-}
-
+function vendorRowHTML(v,b){v=v||{};const m=matikan(b);return `<tr>
+  <td><input class="inp" data-r="name" value="${esc(v.name||'')}" placeholder="nama vendor"${m}></td>
+  <td><input class="inp" data-r="pic" value="${esc(v.pic||'')}" placeholder="PIC"${m}></td>
+  <td><input class="inp" data-r="phone" value="${esc(v.phone||'')}" placeholder="08…"${m}></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><select class="inp" data-r="status"${m}>${VD_STATUS.map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+  ${selHapus(b)}</tr>`;}
 const TK_COLS=['title','assignee','due','done'];
-function taskRowHTML(t){t=t||{};const due=t.due?String(t.due).slice(0,10):'';return `<tr>
-  <td><input class="inp" data-r="title" value="${esc(t.title||'')}" placeholder="judul task"></td>
-  <td><input class="inp" data-r="assignee" value="${esc(t.assignee||'')}" placeholder="assignee"></td>
-  <td><input class="inp" type="date" data-r="due" value="${due}"></td>
-  <td style="text-align:center"><input type="checkbox" data-r="done" ${t.done?'checked':''} style="width:auto"></td>
-  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
-function editTask(id){
-  const d=ensureDetails(id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Internal Task</h3>
-  <div id="tk_wrap" class="tbl-edit"><table><thead><tr><th>Task</th><th style="width:150px">Assignee</th><th style="width:150px">Due Date</th><th style="width:60px">Selesai</th><th style="width:36px"></th></tr></thead>
-  <tbody>${d.tasks.length?d.tasks.map(taskRowHTML).join(''):'<tr class="kosong"><td colspan="5" class="empty">Belum ada task — tekan Tambah.</td></tr>'}</tbody></table></div>
-  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('tk_wrap');barisTambah('tk_wrap',taskRowHTML())">+ Tambah Task</button>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanTask('${id}')">Simpan</button></div>`,true);
-}
-function simpanTask(id){
-  const rows=ambilBaris('tk_wrap',TK_COLS).filter(t=>t.title)
-    .map(t=>({title:t.title,assignee:t.assignee,due:t.due?new Date(t.due).toISOString():new Date().toISOString(),done:!!t.done}));
-  ensureDetails(id).tasks=rows;save();closeModal();renderEventDetail(id);toast('✓ Task tersimpan ('+rows.length+' task).');
-}
-
+function taskRowHTML(t,b){t=t||{};const m=matikan(b);const due=t.due?String(t.due).slice(0,10):'';return `<tr>
+  <td><input class="inp" data-r="title" value="${esc(t.title||'')}" placeholder="judul task"${m}></td>
+  <td><input class="inp" data-r="assignee" value="${esc(t.assignee||'')}" placeholder="assignee"${m}></td>
+  <td><input class="inp" type="date" data-r="due" value="${due}"${m}></td>
+  <td style="text-align:center"><input type="checkbox" data-r="done" ${t.done?'checked':''} style="width:auto"${m}></td>
+  ${selHapus(b)}</tr>`;}
 /* ---- BUDGET & SPONSOR ----
    Dua bagian ini sebelumnya HANYA bisa dibaca: tabelnya digambar dari
    d.budget / d.sponsors, tapi tidak ada satu pun tombol yang bisa mengisinya
    — jadi selamanya berbunyi "Belum ada budget". Sekarang keduanya memakai
-   pola baris-langsung yang sama dengan Rundown/Vendor/Task: tekan Tambah,
-   baris kosong muncul di tempat, isi, Simpan. */
+   pola baris-langsung yang sama dengan Rundown/Vendor/Task. */
 const BG_COLS=['item','type','budget','actual'];
 const BG_TYPES=['Expense','Income'];
-function budgetRowHTML(b){b=b||{};return `<tr>
-  <td><input class="inp" data-r="item" value="${esc(b.item||'')}" placeholder="nama item"></td>
-  <td><select class="inp" data-r="type">${BG_TYPES.map(x=>`<option ${b.type===x?'selected':''}>${x}</option>`).join('')}</select></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"></td>
-  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
-function editBudget(id){
-  const d=ensureDetails(id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>💰 Budget Event</h3>
-  <p class="mini" style="margin-bottom:10px"><b>Budget</b> = rencana, <b>Actual</b> = yang benar-benar keluar/masuk. Selisihnya dihitung sendiri sebagai Variance.</p>
-  <div id="bg_wrap" class="tbl-edit"><table><thead><tr><th>Item</th><th style="width:130px">Tipe</th><th style="width:150px">Budget</th><th style="width:150px">Actual</th><th style="width:36px"></th></tr></thead>
-  <tbody>${d.budget.length?d.budget.map(budgetRowHTML).join(''):'<tr class="kosong"><td colspan="5" class="empty">Belum ada item — tekan Tambah.</td></tr>'}</tbody></table></div>
-  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('bg_wrap');barisTambah('bg_wrap',budgetRowHTML())">+ Tambah Item</button>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanBudget('${id}')">Simpan</button></div>`,true);
-}
-function simpanBudget(id){
-  const rows=ambilBaris('bg_wrap',BG_COLS).filter(b=>b.item)
-    .map(b=>({item:b.item,type:b.type||'Expense',budget:+b.budget||0,actual:+b.actual||0}));
-  ensureDetails(id).budget=rows;save();closeModal();renderEventDetail(id);
-  toast('✓ Budget tersimpan ('+rows.length+' item).');
-}
+function budgetRowHTML(b,bo){b=b||{};const m=matikan(bo);
+  const v=(+b.actual||0)-(+b.budget||0);
+  const warna=v<0?'var(--green)':v>0?'var(--red)':'var(--muted)';
+  return `<tr>
+  <td><input class="inp" data-r="item" value="${esc(b.item||'')}" placeholder="nama item"${m}></td>
+  <td><select class="inp" data-r="type"${m}>${BG_TYPES.map(x=>`<option ${b.type===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"${m}></td>
+  <td class="bg-var" style="color:${warna}">${v>0?'+':''}${IDR(v)}</td>
+  ${selHapus(bo)}</tr>`;}
 const SP_COLS=['name','package','nominal','agreement','status'];
 const SP_STATUS=['Pending','Confirmed','Paid','Cancelled'];
-function sponsorRowHTML(sp){sp=sp||{};return `<tr>
-  <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"></td>
-  <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"></td>
-  <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"></td>
-  <td><select class="inp" data-r="status">${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
-  <td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td></tr>`;}
-function editSponsor(id){
-  const d=ensureDetails(id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>🏷️ Sponsor Event</h3>
-  <div id="sp_wrap" class="tbl-edit"><table><thead><tr><th>Sponsor</th><th style="width:170px">Package</th><th style="width:150px">Nominal</th><th style="width:150px">Agreement</th><th style="width:130px">Status</th><th style="width:36px"></th></tr></thead>
-  <tbody>${d.sponsors.length?d.sponsors.map(sponsorRowHTML).join(''):'<tr class="kosong"><td colspan="6" class="empty">Belum ada sponsor — tekan Tambah.</td></tr>'}</tbody></table></div>
-  <button class="btn ghost sm" style="margin-top:10px" onclick="bersihkanKosong('sp_wrap');barisTambah('sp_wrap',sponsorRowHTML())">+ Tambah Sponsor</button>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="simpanSponsor('${id}')">Simpan</button></div>`,true);
+function sponsorRowHTML(sp,b){sp=sp||{};const m=matikan(b);return `<tr>
+  <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"${m}></td>
+  <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"${m}></td>
+  <td><input class="inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"${m}></td>
+  <td><select class="inp" data-r="status"${m}>${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  ${selHapus(b)}</tr>`;}
+/* ---- MESIN SEKSI DETAIL EVENT ----
+   Kelima seksi berbeda hanya pada kolomnya, jadi yang dibedakan cuma data ini;
+   cara menggambar, menambah, menyimpan, dan menghapusnya satu jalur untuk
+   semuanya. Menambah seksi keenam nanti = menambah satu entri di sini. */
+const SEKSI={
+  rundown:{judul:'🗓️ Rundown', catatan:'urut jam mulai', tambah:'Tambah baris',
+    kosong:'Belum ada rundown.', kolom:RD_COLS, baris:rundownRowHTML,
+    th:'<th style="width:118px">Mulai</th><th style="width:118px">Selesai</th><th>Activity</th><th style="width:140px">PIC</th><th>Notes</th>',
+    isi:function(r){ return !!(r.time||r.activity); },
+    rapi:function(r){ return r; },
+    /* Diurutkan saat DISIMPAN, bukan saat digambar: kalau barisnya melompat
+       posisi tiap kali jam diketik, mustahil mengisinya. Urutan barunya baru
+       terlihat waktu halaman ini dibuka lagi. */
+    urut:function(a,b){ return String(a.time).localeCompare(String(b.time)); }},
+  vendors:{judul:'🤝 Vendor', tambah:'Tambah vendor', kosong:'Belum ada vendor.',
+    kolom:VD_COLS, baris:vendorRowHTML,
+    th:'<th>Vendor</th><th style="width:140px">PIC</th><th style="width:140px">Phone</th><th style="width:150px">Cost (IDR)</th><th style="width:136px">Status</th>',
+    isi:function(v){ return !!v.name; },
+    rapi:function(v){ return {name:v.name,pic:v.pic,phone:v.phone,cost:+v.cost||0,status:v.status||'Pending',attachment:''}; }},
+  budget:{judul:'💰 Budget', catatan:'Budget = rencana, Actual = yang benar-benar keluar/masuk',
+    tambah:'Tambah item', kosong:'Belum ada item budget.', kolom:BG_COLS, baris:budgetRowHTML,
+    th:'<th>Item</th><th style="width:136px">Tipe</th><th style="width:150px">Budget</th><th style="width:150px">Actual</th><th style="width:130px">Variance</th>',
+    isi:function(b){ return !!b.item; },
+    rapi:function(b){ return {item:b.item,type:b.type||'Expense',budget:+b.budget||0,actual:+b.actual||0}; }},
+  sponsors:{judul:'🏷️ Sponsor', tambah:'Tambah sponsor', kosong:'Belum ada sponsor.',
+    kolom:SP_COLS, baris:sponsorRowHTML,
+    th:'<th>Sponsor</th><th style="width:170px">Package</th><th style="width:150px">Nominal</th><th style="width:150px">Agreement</th><th style="width:136px">Status</th>',
+    isi:function(s){ return !!s.name; },
+    rapi:function(s){ return {name:s.name,package:s.package,nominal:+s.nominal||0,agreement:s.agreement,status:s.status||'Pending'}; },
+    kaki:function(d){ return '<tr><td colspan="2" style="text-align:right"><b>Total sponsor masuk</b></td>'
+      +'<td colspan="4"><b id="sp_total">'+IDR(totalSponsor(d))+'</b></td></tr>'; }},
+  tasks:{judul:'✅ Task Internal', catatan:'sinkron Task Management', tambah:'Tambah task',
+    kosong:'Belum ada task.', kolom:TK_COLS, baris:taskRowHTML,
+    th:'<th>Task</th><th style="width:160px">Assignee</th><th style="width:160px">Due Date</th><th style="width:70px">Selesai</th>',
+    isi:function(t){ return !!t.title; },
+    rapi:function(t){ return {title:t.title,assignee:t.assignee,
+      due:t.due?new Date(t.due).toISOString():new Date().toISOString(), done:!!t.done}; }}
+};
+function totalSponsor(d){ return (d.sponsors||[]).filter(function(x){ return x.status!=='Cancelled'; })
+  .reduce(function(a,x){ return a+(+x.nominal||0); },0); }
+function wrapSeksi(k){ return 'sek_'+k+'_wrap'; }
+
+/* Satu seksi utuh: judul, tombol tambah, dan tabelnya. `boleh` = orangnya
+   memang boleh mengubah (peran + event belum selesai). Kalau tidak boleh,
+   tabel yang SAMA digambar dengan kotak yang dimatikan — bukan tabel baca
+   tersendiri, supaya tidak ada dua tampilan yang bisa saling ketinggalan. */
+function seksiHTML(id,k,boleh){
+  const s=SEKSI[k], d=ensureDetails(id), rows=d[k]||[];
+  const kolTotal=(s.th.match(/<th/g)||[]).length+1;
+  return '<div class="card" id="sek_'+k+'">'
+   +'<div class="sek-head"><h3 class="sec" style="border:none;padding:0">'+s.judul
+     +(s.catatan?' <span class="mini">('+s.catatan+')</span>':'')+'</h3>'
+   +(boleh?'<button class="btn ghost sm" onclick="tambahBarisSeksi(\''+id+'\',\''+k+'\')">+ '+s.tambah+'</button>':'')
+   +'</div>'
+   +'<div class="tbl-edit'+(boleh?'':' baca')+'" id="'+wrapSeksi(k)+'" data-ev="'+esc(id)+'" data-sek="'+k+'"'
+     +(boleh?' onchange="simpanSeksi(\''+id+'\',\''+k+'\')"':'')+'>'
+   +'<table><thead><tr>'+s.th+'<th style="width:36px"></th></tr></thead><tbody>'
+   +(rows.length?rows.map(function(r){ return s.baris(r,boleh); }).join('')
+     :'<tr class="kosong"><td colspan="'+kolTotal+'" class="empty">'+s.kosong
+      +(boleh?' Tekan <b>'+s.tambah+'</b> untuk mengisi.':'')+'</td></tr>')
+   +'</tbody>'+(s.kaki?'<tfoot>'+s.kaki(d)+'</tfoot>':'')+'</table></div></div>';
 }
-function simpanSponsor(id){
-  const rows=ambilBaris('sp_wrap',SP_COLS).filter(x=>x.name)
-    .map(x=>({name:x.name,package:x.package,nominal:+x.nominal||0,agreement:x.agreement,status:x.status||'Pending'}));
-  ensureDetails(id).sponsors=rows;save();closeModal();renderEventDetail(id);
-  toast('✓ Sponsor tersimpan ('+rows.length+' sponsor).');
+function tambahBarisSeksi(id,k){
+  const w=wrapSeksi(k);
+  bersihkanKosong(w);
+  barisTambah(w,SEKSI[k].baris(null,true));
+  const tr=document.querySelector('#'+w+' tbody tr:last-child'); if(tr) tr.classList.add('baru');
+}
+/* Menyimpan seksi. Dipanggil dari event `change` yang menggelembung dari
+   seluruh tabel — jadi satu penangan untuk semua kotak, dan tersimpan tepat
+   saat kotaknya ditinggalkan. `gambarUlang` hanya dipakai sesudah menghapus:
+   di luar itu tabelnya sengaja TIDAK digambar ulang, karena itu akan merebut
+   fokus dari kotak berikutnya yang sedang dituju orangnya. */
+function simpanSeksi(id,k,gambarUlang){
+  const s=SEKSI[k];
+  const rows=ambilBaris(wrapSeksi(k),s.kolom).filter(s.isi).map(s.rapi);
+  if(s.urut) rows.sort(s.urut);
+  ensureDetails(id)[k]=rows;
+  save();
+  if(gambarUlang){ const c=document.getElementById('sek_'+k); if(c) c.outerHTML=seksiHTML(id,k,true); }
+  else { document.querySelectorAll('#'+wrapSeksi(k)+' tr.baru').forEach(function(tr){ tr.classList.remove('baru'); }); }
+  paintTurunan(id);
+}
+/* Angka yang dihitung dari isi tabel (kartu ringkas budget, variance per
+   baris, total sponsor). Diperbarui di tempat supaya tidak perlu menggambar
+   ulang tabel yang sedang diketik. */
+function paintTurunan(id){
+  const d=ensureDetails(id);
+  const st=document.getElementById('bg_stat'); if(st) st.innerHTML=budgetStatHTML(d);
+  const tot=document.getElementById('sp_total'); if(tot) tot.innerHTML=IDR(totalSponsor(d));
+  document.querySelectorAll('#'+wrapSeksi('budget')+' tbody tr').forEach(function(tr){
+    const sel=function(n){ const el=tr.querySelector('[data-r="'+n+'"]'); return el?+String(el.value).replace(/\D/g,'')||0:0; };
+    const v=sel('actual')-sel('budget'), td=tr.querySelector('.bg-var'); if(!td) return;
+    td.textContent=(v>0?'+':'')+IDR(v);
+    td.style.color=v<0?'var(--green)':v>0?'var(--red)':'var(--muted)';
+  });
+}
+function budgetStatHTML(d){
+  const inc=(d.budget||[]).filter(function(b){ return b.type==='Income'; });
+  const exp=(d.budget||[]).filter(function(b){ return b.type==='Expense'; });
+  const sumB=function(a){ return a.reduce(function(s,b){ return s+(+b.budget||0); },0); };
+  const sumA=function(a){ return a.reduce(function(s,b){ return s+(+b.actual||0); },0); };
+  const profit=sumA(inc)-sumA(exp);
+  return stat('Income (Actual)',IDR(sumA(inc)),'budget '+IDR(sumB(inc)))
+        +stat('Expense (Actual)',IDR(sumA(exp)),'budget '+IDR(sumB(exp)))
+        +stat('Profit',IDR(profit),profit>=0?'surplus':'defisit');
 }
 
 /* ============ TICKETING ============ */

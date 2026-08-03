@@ -422,6 +422,7 @@
 
 
 
+
 function pct() {  }
 
 
@@ -544,6 +545,7 @@ function bolehLihat() {  }
 
 
 
+
 function seed() {  }
 
 
@@ -555,7 +557,28 @@ function seed() {  }
 
 
 
+
 function normalizeDB() { seed(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -788,6 +811,7 @@ function syncKendaliPeriode() { modeHarian(); }
 
 
 
+
 function go() { bolehLihat(); render(); }
 
 
@@ -839,7 +863,58 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); calInner(); repPay(); fmtWaktu(); inputVal(); }
+function viewReport() { repOf(); bonRingkasHari(); calInner(); repPay(); kartuPenjelasanBon(); selisihSeharusnya(); fmtWaktu(); inputVal(); catatanMetode(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -922,7 +997,347 @@ function inputVal() { hitung(); save(); dateLabel(); render(); }
 
 
 
-function fmtWaktu() { todayISO(); }
+function fmtWaktu() {  }
+
+
+
+
+
+
+
+
+
+
+function catatanMetode() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function selisihSeharusnya() {  }
+
+
+
+
+function catatanSelisihBon() { selisihSeharusnya(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuPenjelasanBon() { selisihSeharusnya(); bonGrupBelum(); }
+
+
+
+function baris() {  }
+function daftar() { go(); catatanSelisihBon(); baris(); todayISO(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bonSemua() {  }
+function bonBelum() { bonSemua(); }
+function bonBaruOn() { bonSemua(); }
+function bonLunasOn() { bonSemua(); }
+
+
+
+
+
+function bonRingkasHari() { bonBaruOn(); bonLunasOn(); }
+
+
+
+
+
+
+
+
+
+function bonGrupBelum() { bonBelum(); }
+
+
+
+
+
+
+
+
+
+
+
+function setBonTab() { render(); }
+
+function viewPiutang() { bonGrupBelum(); bonRingkasHari(); bonSemua(); hapusBon(); todayISO(); calInner(); bonBelum(); dateLabel(); setBonTab(); batalLunas(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hitungGrup() { lunasiGrup(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lunasiGrup() { todayISO(); dateLabel(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function batalLunas() { save(); render(); }
+
+
+
+
+
+
+
+function hapusBon() { save(); render(); todayISO(); }
+
+
+
+
 
 
 
@@ -1178,6 +1593,7 @@ function barisTanpaShift() { potonganBaris(); }
 
 
 
+
 function ymdLocal() {  }
 function dateLabel() {  }
 function paintCal() { calInner(); }
@@ -1306,7 +1722,7 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); fmtW
 
 
 function nilai() {  }
-function hitung() { nilai(); save(); dateLabel(); render(); }
+function hitung() { nilai(); daftar(); save(); dateLabel(); render(); }
 
 
 
