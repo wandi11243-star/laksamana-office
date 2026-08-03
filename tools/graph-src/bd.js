@@ -2488,7 +2488,17 @@ function hapusPr() { prItems(); save(); render(); toast(); }
 
 
 
-function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); selRealisasi(); selOverbudget(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
