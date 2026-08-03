@@ -153,8 +153,14 @@ input,select,textarea{font-family:inherit}
 .g2{grid-template-columns:repeat(2,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
 .g4{grid-template-columns:repeat(4,1fr)}
-@media(max-width:900px){.g2,.g3,.g4{grid-template-columns:1fr 1fr}}
-@media(max-width:620px){.g2,.g3,.g4{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
+/* g5 dipakai baris ringkasan Performa Kasir: target, omset diakui,
+   achievement, bonus, dan jarak ke level berikutnya dibaca sebagai SATU
+   cerita, jadi dipajang satu baris — bukan dipecah ke dua kartu yang
+   masing-masing mengulang "Omset Diakui". */
+.g5{grid-template-columns:repeat(5,1fr)}
+@media(max-width:1200px){.g5{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.g2,.g3,.g4,.g5{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
 .row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 
 /* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
@@ -2141,9 +2147,11 @@ function viewAnalytics(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
   const comp={Food:0,Beverage:0,Lainnya:0};
-  const src={Marketing:0,Event:0,'Walk In':0,'Self Order':0};
+  const src={Marketing:0,Event:0,'Walk In':0};
   const byMk={},byEv={},byKs={},byDisc={};
-  let totDisc=0;
+  let totDisc=0, selfTot=0;
+  const selfHari=[];
+  const netTot=days.reduce((s,d)=>s+netOf(d),0);
   days.forEach(d=>{
     comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Lainnya+=num(d.lainnya);
     /* Memakai aturan yang sama dengan Performa & Ranking: omset kasir yang
@@ -2153,10 +2161,14 @@ function viewAnalytics(){
     (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
     (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=omsetKasir(r)-potonganHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;
       const dc=diskonKasir(r); if(dc){ byDisc[r.kasirId]=(byDisc[r.kasirId]||0)+dc; totDisc+=dc; }}});
-    /* Self Order berdiri sebagai sumber tersendiri, bukan bagian Walk In:
-       tidak ada kasir yang melayani, jadi menyatukannya akan membuat grafik
-       Kontribusi Kasir menjanjikan omset yang tidak diakui siapa pun. */
-    src['Self Order']+=selfOmset(d);
+    /* Self Order SENGAJA tidak masuk pie "Sumber Omset" (permintaan user
+       3 Agustus 2026): pie itu menjawab "omset ini diakui siapa", dan self
+       order tidak diakui kasir maupun PIC mana pun — memasukkannya membuat
+       satu irisan yang tidak bisa ditindaklanjuti siapa pun. Ia dapat kartu
+       sendiri di bawah, yang menjawab pertanyaan yang berbeda: "bulan ini
+       sudah berapa yang masuk lewat barcode". */
+    selfHari.push({date:d.date, nilai:selfOmset(d)});
+    selfTot+=selfOmset(d);
     totDisc+=selfDiskon(d);
   });
   // Diskon harian yang diinput di Input Omset, sebagai pembanding: selisihnya
@@ -2167,13 +2179,21 @@ function viewAnalytics(){
     <div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
-      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir), Self Order · porsi PIC dipotong dari kasir shift; Self Order tidak dilayani kasir mana pun</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · porsi PIC dipotong dari kasir shift. <b>Self Order dipisah</b> ke kartunya sendiri di bawah — tidak ada kasir/PIC yang mengakuinya.</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
       <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
       <div class="card"><h3>Kontribusi Event</h3><div class="card-sub">per PIC event</div><div class="chart-box sm"><canvas id="a_ev"></canvas></div></div>
       <div class="card"><h3>Kontribusi Kasir</h3><div class="card-sub">per kasir</div><div class="chart-box sm"><canvas id="a_ks"></canvas></div></div>
     </div>
+    <div class="card"><h3>📱 Self Order — ${esc(labelRentang())}</h3>
+      <div class="card-sub">Tamu memesan sendiri lewat barcode, tanpa dilayani kasir. Nominalnya <b>bagian dari</b> omset net, bukan tambahan di atasnya — jadi persentase di bawah menunjukkan seberapa besar penjualan yang sudah berpindah ke jalur mandiri.</div>
+      <div class="grid g3" style="margin-bottom:14px">
+        <div class="stat accent"><div class="lab">Omset Self Order</div><div class="val sm mono">${fmtRp(selfTot)}</div><div class="foot">${modeHarian()?'hari ini':'akumulasi periode ini'}</div></div>
+        <div class="stat"><div class="lab">Porsi dari Omset Net</div><div class="val sm">${pct(selfTot,netTot).toFixed(1)}%</div><div class="foot">dari ${fmtRp(netTot)} omset net</div></div>
+        <div class="stat"><div class="lab">Rata-rata per Hari</div><div class="val sm mono">${fmtRp(selfHari.length?selfTot/selfHari.length:0)}</div><div class="foot">${selfHari.length} hari terinput</div></div>
+      </div>
+      <div class="chart-box sm"><canvas id="a_self"></canvas></div></div>
     <div class="card"><h3>Diskon Diberikan per Kasir</h3>
       <div class="card-sub">Diskon bill yang diberikan ke tamu, atas nama kasir yang memberikannya. Nominal ini <b>tidak pernah dihitung sebagai omset</b> siapa pun — grafik Kontribusi Kasir di atas sudah bersih darinya.${
         discInput!==totDisc?` <span style="color:var(--danger);font-weight:700">Baru ${fmtRp(totDisc)} dari ${fmtRp(discInput)} yang tercatat atas nama kasir</span> — sisanya belum dirinci di Breakdown.`:''}</div>
@@ -2183,12 +2203,16 @@ function viewAnalytics(){
     charts.push(new Chart(document.getElementById('a_comp'),{type:'doughnut',data:{labels:Object.keys(comp),datasets:[{data:Object.values(comp),backgroundColor:PAL}]},options:pieOpts()}));
   else emptyCanvas('a_comp');
   if(hasBd)
-    charts.push(new Chart(document.getElementById('a_src'),{type:'doughnut',data:{labels:Object.keys(src),datasets:[{data:Object.values(src),backgroundColor:['#2F7FC4','#7C5FC0','#1F9D8F','#C8961F']}]},options:pieOpts()}));
+    charts.push(new Chart(document.getElementById('a_src'),{type:'doughnut',data:{labels:Object.keys(src),datasets:[{data:Object.values(src),backgroundColor:['#2F7FC4','#7C5FC0','#1F9D8F']}]},options:pieOpts()}));
   else emptyCanvas('a_src','Belum ada breakdown');
   barCanvas('a_mk',DB.employees.marketing,byMk,'#2F7FC4');
   barCanvas('a_ev',DB.employees.event,byEv,'#7C5FC0');
   barCanvas('a_ks',DB.employees.kasir,byKs,'#1F9D8F');
   barCanvas('a_disc',DB.employees.kasir,byDisc,'#C9432B');
+  // Batang harian, bukan per orang — self order tidak punya "orang".
+  if(selfTot>0)
+    charts.push(new Chart(document.getElementById('a_self'),{type:'bar',data:{labels:selfHari.map(x=>x.date.slice(8)),datasets:[{data:selfHari.map(x=>x.nilai),backgroundColor:'#C8961F',borderRadius:5}]},options:barOpts()}));
+  else emptyCanvas('a_self','Belum ada omset Self Order pada periode ini');
   function barCanvas(id,list,map,color){
     const labels=list.map(e=>e.name),data=list.map(e=>map[e.id]||0);
     if(data.some(x=>x>0))charts.push(new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:color,borderRadius:5}]},options:barOpts(true)}));
@@ -2396,11 +2420,29 @@ function bonusKasir(real){
   if(t) return { ...t, next:BONUS_KASIR[BONUS_KASIR.indexOf(t)-1]||null };
   return { min:0, bonus:0, label:'Standar kerja', next:BONUS_KASIR[BONUS_KASIR.length-1] };
 }
-/* Kartu bonus. Yang ditonjolkan dua hal yang benar-benar ditanya kasir:
-   "sekarang saya dapat berapa" dan "kurang berapa lagi ke level berikutnya". */
+/* Baris ringkasan Performa Kasir. Target, omset diakui, achievement, bonus,
+   dan jarak ke level berikutnya digabung jadi SATU baris (permintaan user
+   3 Agustus 2026). Sebelumnya terpisah dua kartu — kotak stat di atas dan
+   kotak bonus di bawah — dan keduanya sama-sama memajang "Omset Diakui"
+   dengan angka yang sama, jadi orang harus membandingkan dua tempat untuk
+   menjawab satu pertanyaan: "capaian saya sekarang bagaimana". */
+function baguRingkasKasir(a, tgt, ach, harian, targetBulanan){
+  const b=bonusKasir(a.real);
+  const kurang=b.next?Math.max(0,b.next.min-a.real):0;
+  return `<div class="grid g5">
+    <div class="stat accent"><div class="lab">Target ${harian?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${harian?`<div class="foot">dari target bulanan ${fmtRp(targetBulanan)}</div>`:''}</div>
+    <div class="stat"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">angka final · dasar bonus</div></div>
+    <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+    <div class="stat ${b.bonus?'accent':''}"><div class="lab">Bonus Saat Ini</div><div class="val sm mono">${fmtRp(b.bonus)}</div><div class="foot">${esc(b.label)}</div></div>
+    <div class="stat"><div class="lab">${b.next?'Menuju '+b.next.label:'Level Tertinggi'}</div>
+      <div class="val sm mono">${b.next?fmtRp(kurang):'—'}</div>
+      <div class="foot">${b.next?`lagi untuk bonus ${fmtRp(b.next.bonus)}`:'sudah di level teratas'}</div></div>
+  </div>`;
+}
+/* Kartu bonus, sekarang tinggal TANGGA levelnya saja — tiga kotak stat yang
+   dulu ada di sini pindah ke baguRingkasKasir() di atas. */
 function kartuBonusKasir(real, semua){
   const b=bonusKasir(real);
-  const kurang=b.next?Math.max(0,b.next.min-real):0;
   const baris=BONUS_KASIR.slice().reverse().map(t=>{
     const aktif=t.label===b.label;
     return `<tr${aktif?' style="background:var(--gold-soft)"':''}>
@@ -2409,16 +2451,9 @@ function kartuBonusKasir(real, semua){
       <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
   }).join('');
   return `<div class="card">
-    <h3>💰 Bonus ${semua?'(gabungan semua kasir)':''}</h3>
-    <div class="card-sub">Dihitung dari <b>omset yang diakui</b> — angka final di kartu atas. ${
-      semua?'Angka gabungan ini hanya gambaran; bonus dinilai per kasir, pilih namanya di atas.':''}</div>
-    <div class="grid g3" style="margin-bottom:14px">
-      <div class="stat ${b.bonus?'accent':''}"><div class="lab">Bonus Saat Ini</div><div class="val sm mono">${fmtRp(b.bonus)}</div><div class="foot">${esc(b.label)}</div></div>
-      <div class="stat"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(real)}</div><div class="foot">dasar perhitungan bonus</div></div>
-      <div class="stat"><div class="lab">${b.next?'Menuju '+b.next.label:'Level Tertinggi'}</div>
-        <div class="val sm mono">${b.next?fmtRp(kurang):'—'}</div>
-        <div class="foot">${b.next?`lagi untuk bonus ${fmtRp(b.next.bonus)}`:'sudah di level teratas'}</div></div>
-    </div>
+    <h3>💰 Tangga Bonus ${semua?'(gabungan semua kasir)':''}</h3>
+    <div class="card-sub">Posisi saat ini ada di baris ringkasan paling atas. ${
+      semua?'Angka gabungan itu hanya gambaran; bonus dinilai per kasir, pilih namanya di atas.':''}</div>
     <div class="tbl-wrap"><table><thead><tr><th>Level</th><th class="num">Omset Diakui Minimal</th><th class="num">Bonus per Orang</th></tr></thead><tbody>
       <tr${b.bonus?'':' style="background:var(--gold-soft)"'}><td>${b.bonus?'Standar kerja':'<b>Standar kerja</b> ✓'}</td><td class="num mono">&lt; ${fmtRp(80000000)}</td><td class="num mono">—</td></tr>
       ${baris}
@@ -2494,13 +2529,8 @@ function viewKasir(){
     const ach=pct(a.real,tgt),avg=a.masuk>0?a.real/a.masuk:0;
     const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off&&!h.real?'<span class="muted">—</span>':fmtRp(h.real)}</td><td>${h.extra?'<span class="chip warn">Compliment</span>':h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
     document.getElementById('ks_body').innerHTML=`
-      <div class="grid g4">
-        <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(k.target)}</div>`:''}</div>
-        <div class="stat"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">angka final · dasar perhitungan bonus</div></div>
-        <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
-        <div class="stat"><div class="lab">Hari Masuk / OFF</div><div class="val sm">${a.masuk} / ${a.off}</div><div class="foot">avg ${fmtRp(avg)}/hari</div></div>
-      </div>
-      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · realisasi ${fmtRp(a.real)} dari ${fmtRp(tgt)}</div></div>
+      ${baguRingkasKasir(a, tgt, ach, modeHarian(), k.target)}
+      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · omset diakui ${fmtRp(a.real)} dari ${fmtRp(tgt)} · ${a.masuk} hari masuk, ${a.off} hari OFF (rata-rata ${fmtRp(avg)}/hari)</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
         <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>, jumlahnya tepat sama dengan Omset Diakui di atas</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Diakui</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
