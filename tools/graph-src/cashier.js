@@ -1205,6 +1205,7 @@ function daftar() { go(); catatanSelisihHari(); baris(); todayISO(); }
 
 
 
+
 function bonSemua() {  }
 function bonBelum() { bonSemua(); }
 function bonBaruOn() { bonSemua(); }
@@ -1238,7 +1239,39 @@ function bonGrupBelum() { bonBelum(); }
 
 function setBonTab() { render(); }
 
-function viewPiutang() { bonGrupBelum(); bonRingkasHari(); hapusOwner(); bonSemua(); hapusBon(); todayISO(); calInner(); bonBelum(); dateLabel(); setBonTab(); batalLunas(); }
+
+
+
+function editBon() { render(); }
+
+
+
+
+
+
+function batalEditBon() { render(); }
+
+function viewPiutang() { bonGrupBelum(); bonRingkasHari(); bonSemua(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function pilih() { hapusOwner(); bonSemua(); editBon(); hapusBon(); todayISO(); calInner(); batalEditBon(); bonBelum(); dateLabel(); setBonTab(); batalLunas(); }
+
+
+
+
+
+
+
 
 
 
@@ -1420,6 +1453,19 @@ function syncTipe() { tampil(); daftar(); save(); render(); ambilRoster(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function hitungGrup() { lunasiGrup(); }
 
 
@@ -1471,6 +1517,7 @@ function batalLunas() { save(); render(); }
 
 
 function hapusBon() { save(); render(); }
+
 
 
 
