@@ -211,6 +211,79 @@ function ambil($sql, $args = array()) {
 function sapu_hold() {
   db()->prepare('DELETE FROM seat_holds WHERE expires_at < :t AND (order_id IS NULL OR order_id = "")')
       ->execute(array(':t' => now_ms()));
+  /* Pesanan yang lewat batas bayarnya ikut ditutup di sini — lihat catatan di
+     sapu_pesanan_kedaluwarsa(). Urutannya sesudah baris di atas: kunci milik
+     pesanan baru boleh dilepas setelah pesanannya resmi Expired. */
+  sapu_pesanan_kedaluwarsa();
+}
+
+/* ==================== BATAS WAKTU MEMBAYAR ====================
+   Dulu pesanan diberi waktu SATU JAM sementara kursinya ditahan sejak awal —
+   dan itu menghasilkan keadaan yang membingungkan: kursi sudah dilepas, tapi
+   halaman pembayarannya masih hidup dan masih bisa dibayar. Kalau benar-benar
+   dibayar, uangnya masuk untuk kursi yang barangkali sudah jadi milik orang
+   lain.
+
+   Sekarang satu angka mengatur ketiganya: masa tahan kursi, umur invoice
+   Xendit, dan umur pesanan. Habis waktunya berarti habis semuanya sekaligus. */
+function menit_bayar() {
+  $m = defined('BAYAR_MENIT') ? (int)BAYAR_MENIT : 10;
+  return max(3, min(60, $m));   // di bawah 3 menit tidak manusiawi, di atas 60 tidak ada gunanya
+}
+
+/* Pesanan yang lewat batas waktunya ditutup, dan kursinya dikembalikan.
+   Dipanggil dari sapu_hold() — jalur yang sudah dilewati hampir semua
+   permintaan — jadi tidak butuh cron sama sekali. Dibatasi 50 baris supaya
+   satu permintaan tidak berubah jadi pekerjaan pembersihan raksasa. */
+function sapu_pesanan_kedaluwarsa() {
+  try {
+    $st = db()->query("SELECT id, data FROM orders WHERE payment_status = 'Pending' ORDER BY created_at DESC LIMIT 50");
+    $now = time();
+    foreach ($st as $row) {
+      $o = json_decode($row['data'], true);
+      if (!is_array($o) || empty($o['expires_at'])) continue;
+      if (strtotime($o['expires_at']) >= $now) continue;
+      batalkan($row['id'], 'EXPIRED');   // menandai Expired + melepas kunci kursinya
+    }
+  } catch (Throwable $e) { /* pembersihan tidak boleh menggagalkan permintaan aslinya */ }
+}
+
+/* ==================== MEMERIKSA PEMBAYARAN TANPA DIMINTA ====================
+   Webhook Xendit adalah jalur utama, tapi ia bisa tidak pernah sampai: URL
+   salah didaftarkan, server sempat mati, jaringan putus. Sebelumnya jaring
+   pengamannya hanya bekerja kalau PEMBELI membuka halaman tiketnya — jadi
+   pesanan yang sudah dibayar tetap tertulis "menunggu pembayaran" sampai
+   orangnya sendiri mengecek, dan kursinya ikut menggantung.
+
+   Sekarang tiap permintaan biasa (membuka daftar event, membuka denah, membuka
+   Tiket Saya) sekalian menanyakan beberapa pesanan yang masih menggantung ke
+   Xendit. Tanpa cron, tanpa pekerjaan latar — cukup menumpang lalu lintas yang
+   memang sudah ada.
+
+   Dua penjaga supaya ini tidak berubah jadi beban: tiap pesanan hanya
+   ditanyakan sekali per menit (_cek_at), dan sekali jalan paling banyak
+   beberapa pesanan. */
+function sapu_pending_xendit($maks = 3) {
+  if (strpos(xendit_mode(), 'belum diisi') === 0) return 0;   // kunci belum dipasang
+  $n = 0;
+  try {
+    $st = db()->query("SELECT id, data FROM orders WHERE payment_status = 'Pending' ORDER BY created_at DESC LIMIT 30");
+    $now = now_ms();
+    foreach ($st as $row) {
+      if ($n >= $maks) break;
+      $o = json_decode($row['data'], true);
+      if (!is_array($o)) continue;
+      $inv = isset($o['payment']['invoice_id']) ? $o['payment']['invoice_id'] : '';
+      if ($inv === '' || strpos($inv, 'SIM-') === 0) continue;
+      // Sudah ditanyakan kurang dari semenit lalu → lewati.
+      if (isset($o['_cek_at']) && ($now - (float)$o['_cek_at']) < 60000) continue;
+      $o['_cek_at'] = $now;
+      simpan_order($o);
+      selaraskan_xendit($o);   // yang menerbitkan tiket / membatalkan kalau perlu
+      $n++;
+    }
+  } catch (Throwable $e) { /* jangan sampai menggagalkan permintaan aslinya */ }
+  return $n;
 }
 
 /* ==================== EVENT ====================
@@ -233,9 +306,21 @@ function sapu_hold() {
      Finished  sudah lewat
      Cancelled batal */
 function boleh_dijual($status) {
+  /* HANYA EVENT YANG SUDAH DISETUJUI MANAJEMEN.
+     Sejak 3 Agustus 2026 EMS cuma punya tiga status: Planning (rencana, belum
+     disetujui), Upcoming (disetujui), Event Done (sudah lewat). Yang boleh
+     dijual hanya Upcoming — dan itu justru inti dari alur persetujuannya:
+     rencana yang belum diketok manajemen tidak boleh sampai menagih uang orang
+     untuk acara yang barangkali tidak jadi.
+
+     'Today' dipertahankan di sini demi data lama yang belum ikut termigrasi
+     (migrasinya berjalan saat EMS dibuka, bukan di database), supaya event
+     hari-H tidak mendadak hilang dari situs customer di tengah acara. */
   return $status === 'Upcoming' || $status === 'Today';
 }
 function events_publik() {
+  // Menumpang lalu lintas yang memang sudah ada — lihat sapu_pending_xendit().
+  sapu_pending_xendit(2);
   $rows = ambil('SELECT data FROM events ORDER BY start_datetime ASC');
   $out = array();
   foreach ($rows as $e) {
@@ -824,6 +909,11 @@ function jml_pax($items) {
    diam-diam berbeda aturannya. */
 function tiket_saya($u) {
   if (!$u) throw new Exception('Silakan masuk dulu.');
+  /* Ditanyakan ke Xendit DULU, baru daftarnya disusun — supaya pembeli yang
+     baru saja membayar langsung melihat "Lunas" begitu halaman ini terbuka,
+     bukan harus mengetuk pesanannya satu per satu untuk memicu pemeriksaan.
+     Itu keluhannya: "saya klik dulu baru dia mengecek". */
+  sapu_pending_xendit(5);
   $pesanan = array();
   $st = db()->prepare('SELECT id, data FROM orders WHERE email = :e ORDER BY created_at DESC');
   $st->execute(array(':e' => $u['email']));
@@ -1092,7 +1182,7 @@ function checkout($b) {
     // Pemiliknya sudah dipastikan di awal fungsi ini — pesanan tanpa akun tidak
     // pernah sampai ke baris ini.
     'user_id' => $sesiUser['id'],
-    'expires_at' => gmdate('c', (int)(now_ms() / 1000) + 3600),
+    'expires_at' => gmdate('c', (int)(now_ms() / 1000) + menit_bayar() * 60),
     'created' => gmdate('c'),
   );
   simpan_order($order);
@@ -1104,7 +1194,7 @@ function checkout($b) {
   if ($seatIds) {
     $in = implode(',', array_fill(0, count($seatIds), '?'));
     db()->prepare("UPDATE seat_holds SET order_id = ?, expires_at = ? WHERE seat_id IN ($in)")
-        ->execute(array_merge(array($oid, now_ms() + 3600000), $seatIds));
+        ->execute(array_merge(array($oid, now_ms() + menit_bayar() * 60000), $seatIds));
   }
   } finally { tx_unlock(); }   // di sinilah pembeli berikutnya boleh masuk
 
@@ -1135,6 +1225,209 @@ function simpan_order($o) {
   $st->execute(array(':i' => $o['id'], ':e' => $o['event_id'], ':b' => $o['buyer_name'], ':p' => $o['phone'],
     ':m' => $o['email'], ':t' => $o['total'], ':s' => $o['payment_status'], ':r' => $o['payment_ref'],
     ':u' => now_ms(), ':c' => now_ms(), ':d' => json_encode($o, JSON_UNESCAPED_UNICODE)));
+}
+
+/* ==================== UPGRADE TIKET ====================
+   Pembeli sudah memegang tiket Reguler+ (Rp150.000) dan ingin pindah ke VIP
+   (Rp300.000). Yang dibayar hanya SELISIHNYA — Rp150.000 — dan kursinya
+   berpindah begitu selisih itu lunas.
+
+   TIGA HAL YANG TIDAK BOLEH TERJADI, dan bagaimana masing-masing dijaga:
+
+   1. KURSI BARU DIREBUT ORANG LAIN DI TENGAH PEMBAYARAN.
+      Kursi tujuan dikunci di seat_holds begitu upgrade dimulai — tabel yang
+      sama, penjaga yang sama (UNIQUE seat_id + kunci MySQL) dengan pembelian
+      biasa. Jadi selama pembeli ini di halaman pembayaran, kursi itu tidak
+      muncul sebagai tersedia bagi siapa pun.
+
+   2. KURSI LAMA DILEPAS PADAHAL UPGRADE-NYA GAGAL.
+      Kursi lama TIDAK disentuh sama sekali sampai selisihnya benar-benar lunas.
+      Kalau pembayarannya batal atau kedaluwarsa, yang terjadi cuma satu: kunci
+      kursi barunya dilepas. Tiket lamanya utuh, kursinya tetap miliknya, dan
+      tidak ada satu pun perubahan yang perlu dibatalkan.
+
+   3. SATU TIKET DI-UPGRADE DUA KALI SEKALIGUS.
+      Tiket yang sedang punya upgrade menunggu bayar ditolak untuk diajukan
+      lagi. Tanpa itu, dua invoice bisa hidup bersamaan untuk satu tiket dan
+      yang kedua lunas belakangan akan menerbitkan tiket ketiga.
+
+   Perpindahannya sendiri (tiket lama batal, kursi lama bebas, kuota kelas
+   digeser) dikerjakan di dalam kunci yang SAMA dengan penerbitan tiket barunya
+   — lihat terapkan_upgrade(), yang dipanggil dari lunaskan(). Jadi tidak ada
+   sesaat pun ketika pembeli memegang dua tiket atau nol tiket. */
+
+function tiket_untuk_upgrade($tiketId, $user) {
+  $rows = ambil('SELECT data FROM tickets WHERE id = :i', array(':i' => (string)$tiketId));
+  if (!$rows) throw new Exception('Tiket tidak ditemukan.');
+  $tk = $rows[0];
+  if (($tk['status'] ?? '') !== 'Valid') throw new Exception('Tiket ini tidak berlaku lagi.');
+
+  $ords = ambil('SELECT data FROM orders WHERE id = :i', array(':i' => (string)$tk['order_item_id']));
+  if (!$ords) throw new Exception('Pesanan tiket ini tidak ditemukan.');
+  $o = $ords[0];
+  if (($o['payment_status'] ?? '') !== 'Paid') throw new Exception('Tiket ini belum lunas.');
+  // Hanya pemiliknya. Tanpa ini, siapa pun yang tahu id tiket bisa memindahkan
+  // kursi orang lain — dan pemilik aslinya baru sadar di pintu masuk.
+  if (empty($o['user_id']) || $o['user_id'] !== $user['id'])
+    throw new Exception('Tiket ini bukan milik akunmu.');
+
+  $ev = event_satu($o['event_id']);   // menolak event yang tidak lagi dijual
+  if (!$ev) throw new Exception('Event ini sudah tidak menerima perubahan tiket.');
+  return array($tk, $o, $ev);
+}
+
+/* Harga yang SUDAH dibayar untuk satu tiket. Bukan harga kelasnya hari ini:
+   harga bisa naik setelah pembeliannya, dan menagih selisih dari harga baru
+   berarti menagih kenaikan yang tidak pernah ia setujui. */
+function harga_terbayar($tk, $o) {
+  foreach (($o['items'] ?? array()) as $it) {
+    if (!empty($tk['seat_id']) && ($it['seat_id'] ?? '') === $tk['seat_id']) {
+      $pax = max(1, (int)($it['capacity'] ?? 1));
+      return (int)round(((int)($it['price'] ?? 0)) / $pax);
+    }
+    if (empty($tk['seat_id']) && ($it['class_id'] ?? '') === ($tk['ticket_class_id'] ?? '')) {
+      $pax = max(1, (int)($it['capacity'] ?? 1));
+      return (int)round(((int)($it['price'] ?? 0)) / $pax);
+    }
+  }
+  return 0;
+}
+
+/* Mulai upgrade: mengunci kursi tujuan, membuat pesanan selisih, dan
+   mengembalikan tautan pembayarannya. */
+function upgrade_mulai($b) {
+  $user = user_dari_sesi(isset($b['sesi']) ? $b['sesi'] : '');
+  if (!$user) throw new Exception('Silakan masuk dulu.');
+  $tiketId = isset($b['ticket_id']) ? (string)$b['ticket_id'] : '';
+  $seatBaru = isset($b['seat_id']) ? (string)$b['seat_id'] : '';
+  if ($tiketId === '' || $seatBaru === '') throw new Exception('Tiket dan kursi tujuan wajib dipilih.');
+
+  list($tk, $o, $ev) = tiket_untuk_upgrade($tiketId, $user);
+
+  tx_lock();
+  try {
+    sapu_hold();
+    // Satu tiket, satu upgrade yang hidup — lihat penjaga nomor 3 di atas.
+    $st = db()->prepare("SELECT data FROM orders WHERE payment_status = 'Pending' ORDER BY created_at DESC LIMIT 50");
+    $st->execute();
+    foreach ($st as $row) {
+      $p = json_decode($row['data'], true);
+      if (is_array($p) && ($p['upgrade']['tiket_lama'] ?? '') === $tiketId)
+        throw new Exception('Upgrade untuk tiket ini sedang menunggu pembayaran. Selesaikan atau tunggu waktunya habis.');
+    }
+
+    $peta = array(); foreach (denah($o['event_id'], '') as $s) $peta[$s['id']] = $s;
+    $baru = isset($peta[$seatBaru]) ? $peta[$seatBaru] : null;
+    if (!$baru || empty($baru['dijual'])) throw new Exception('Kursi tujuan tidak dijual.');
+    if ($baru['status'] !== 'available')   throw new Exception('Kursi ' . $baru['label'] . ' sedang tidak tersedia.');
+    if (!empty($tk['seat_id']) && $seatBaru === $tk['seat_id']) throw new Exception('Itu kursimu sendiri.');
+
+    $terbayar = harga_terbayar($tk, $o);
+    $selisih  = (int)$baru['price'] - $terbayar;
+    /* UPGRADE, BUKAN DOWNGRADE. Pindah ke kelas yang lebih murah berarti kami
+       berutang uang kembali — itu refund, dan refund punya jalurnya sendiri
+       (persetujuan kru + pengembalian lewat Xendit), bukan tombol mandiri di
+       halaman pembeli. */
+    if ($selisih <= 0) throw new Exception('Kursi itu tidak lebih tinggi dari tiketmu sekarang. Untuk pindah ke kelas yang lebih murah, hubungi kami.');
+
+    // Kursi tujuan dikunci — penjaga nomor 1.
+    $exp = now_ms() + menit_bayar() * 60000;
+    $ins = db()->prepare('INSERT INTO seat_holds (id,event_id,seat_id,hold_token,expires_at,created_at)
+                          VALUES (:i,:e,:s,:t,:x,:c)
+                          ON DUPLICATE KEY UPDATE
+                            hold_token = IF(hold_token = VALUES(hold_token), hold_token, hold_token)');
+    $tokUp = 'up_' . token_acak(10);
+    $ins->execute(array(':i' => uid('hold'), ':e' => $o['event_id'], ':s' => $seatBaru,
+                        ':t' => $tokUp, ':x' => $exp, ':c' => now_ms()));
+    $cek = db()->prepare('SELECT hold_token FROM seat_holds WHERE seat_id = :s');
+    $cek->execute(array(':s' => $seatBaru));
+    $row = $cek->fetch();
+    if (!$row || $row['hold_token'] !== $tokUp)
+      throw new Exception('Kursi ' . $baru['label'] . ' baru saja diambil orang lain. Pilih kursi lain.');
+
+    $oid   = uid('ord');
+    $ref   = 'UP' . strtoupper(bin2hex(random_bytes(4)));
+    $akses = token_acak(18);
+    $order = array(
+      'id' => $oid, 'event_id' => $o['event_id'], 'buyer_name' => $o['buyer_name'],
+      'phone' => $o['phone'], 'email' => $o['email'],
+      'subtotal' => $selisih, 'fee' => 0, 'total' => $selisih,
+      /* Biaya admin TIDAK ditagih lagi: ia sudah dibayar saat tiket ini dibeli,
+         dan menagihnya dua kali untuk satu kursi yang sama tidak punya dasar. */
+      'payment_status' => 'Pending', 'payment_ref' => $ref,
+      'recorded_by' => 'Website', 'recorded_via' => 'ticketing-upgrade', 'channel' => 'online',
+      'items' => array(array('seat_id' => $seatBaru, 'label' => $baru['label'], 'tier' => $baru['tier'],
+                             'class_id' => $baru['class_id'], 'kind' => 'seat',
+                             'capacity' => 1, 'price' => $selisih)),
+      'upgrade' => array(
+        'tiket_lama' => $tk['id'], 'nomor_lama' => $tk['ticket_number'],
+        'seat_lama'  => $tk['seat_id'] ?? '', 'kelas_lama' => $tk['ticket_class_id'] ?? '',
+        'label_lama' => $tk['seat_label'] ?? '', 'tier_lama' => $tk['tier'] ?? '',
+        'terbayar'   => $terbayar, 'harga_baru' => (int)$baru['price'],
+        'order_lama' => $o['id'], 'hold_token' => $tokUp,
+      ),
+      'access_token' => $akses, 'user_id' => $user['id'],
+      'expires_at' => gmdate('c', (int)(now_ms() / 1000) + menit_bayar() * 60),
+      'created' => gmdate('c'),
+    );
+    simpan_order($order);
+    db()->prepare('UPDATE seat_holds SET order_id = :o WHERE seat_id = :s')
+        ->execute(array(':o' => $oid, ':s' => $seatBaru));
+  } finally { tx_unlock(); }
+
+  try {
+    $inv = xendit_invoice($order, $ev);
+  } catch (Throwable $e) {
+    batalkan($oid, 'FAILED');   // kunci kursi tujuan dilepas; tiket lama tak tersentuh
+    throw $e;
+  }
+  $order['payment'] = $inv;
+  simpan_order($order);
+  return array('order_id' => $oid, 'ref' => $ref, 'access_token' => $akses,
+               'selisih' => $selisih, 'invoice_url' => $inv['invoice_url'] ?? '');
+}
+
+/* Dipanggil dari lunaskan(), DI DALAM kunci yang sama dengan penerbitan tiket
+   barunya. Urutannya: tiket baru sudah terbit (oleh lunaskan), lalu di sini
+   yang lama dimatikan dan kursinya dikembalikan. */
+function terapkan_upgrade($o) {
+  $u = $o['upgrade'] ?? null;
+  if (!$u || empty($u['tiket_lama'])) return;
+
+  // 1. Tiket lama dibatalkan — QR-nya berhenti berlaku di pintu masuk.
+  $rows = ambil('SELECT data FROM tickets WHERE id = :i', array(':i' => $u['tiket_lama']));
+  if ($rows) {
+    $tk = $rows[0]; $tk['status'] = 'Cancelled'; $tk['upgrade_ke'] = $o['id'];
+    db()->prepare('UPDATE tickets SET status = :s, updated_at = :t, data = :d WHERE id = :i')
+        ->execute(array(':s' => 'Cancelled', ':t' => now_ms(),
+                        ':d' => json_encode($tk, JSON_UNESCAPED_UNICODE), ':i' => $u['tiket_lama']));
+  }
+  // 2. Kursi lama dibebaskan — hanya kalau memang tidak ada tiket hidup lain di
+  //    sana (satu meja bisa memuat beberapa tiket).
+  if (!empty($u['seat_lama'])) {
+    $sisa = ambil('SELECT data FROM tickets WHERE seat_id = :s', array(':s' => $u['seat_lama']));
+    $masihDipakai = false;
+    foreach ($sisa as $t) if (($t['status'] ?? '') !== 'Cancelled') $masihDipakai = true;
+    if (!$masihDipakai) {
+      $sr = ambil('SELECT data FROM seats WHERE id = :i', array(':i' => $u['seat_lama']));
+      if ($sr) {
+        $s = $sr[0]; $s['status'] = 'Available';
+        db()->prepare('UPDATE seats SET status = "Available", updated_at = :u, data = :d WHERE id = :i')
+            ->execute(array(':u' => now_ms(), ':d' => json_encode($s, JSON_UNESCAPED_UNICODE), ':i' => $u['seat_lama']));
+      }
+    }
+  }
+  // 3. Kuota kelas lama turun satu. Kelas barunya sudah dinaikkan naikkan_sold()
+  //    lewat item pesanan ini — jadi di sini hanya sisi yang ditinggalkan.
+  if (!empty($u['kelas_lama'])) {
+    $cr = ambil('SELECT data FROM ticket_classes WHERE id = :i', array(':i' => $u['kelas_lama']));
+    if ($cr) {
+      $c = $cr[0]; $c['sold'] = max(0, (int)$c['sold'] - 1);
+      db()->prepare('UPDATE ticket_classes SET sold = :s, updated_at = :u, data = :d WHERE id = :i')
+          ->execute(array(':s' => $c['sold'], ':u' => now_ms(),
+                          ':d' => json_encode($c, JSON_UNESCAPED_UNICODE), ':i' => $u['kelas_lama']));
+    }
+  }
 }
 
 /* ==================== XENDIT ==================== */
@@ -1169,7 +1462,8 @@ function xendit_invoice($o, $ev) {
     'amount'                => $o['total'],
     'payer_email'           => $o['email'],
     'description'           => $ev['title'] . ' — ' . count($o['items']) . ' tiket',
-    'invoice_duration'      => 3600,
+    // Invoice mati bersamaan dengan kursinya — lihat menit_bayar().
+    'invoice_duration'      => menit_bayar() * 60,
     'success_redirect_url'  => site_url() . '/#tiket/' . $o['payment_ref'] . '/' . $o['access_token'],
     'failure_redirect_url'  => site_url() . '/#gagal/' . $o['payment_ref'],
     'customer'              => array('given_names' => $o['buyer_name'], 'email' => $o['email'], 'mobile_number' => $o['phone']),
@@ -1316,6 +1610,11 @@ function lunaskan($oid, $body = array()) {
     }
     // Kuota kelas tiket ikut naik, supaya angka "sisa" di EMS benar.
     naikkan_sold($o['items']);
+    /* Kalau ini pesanan upgrade: tiket barunya sudah terbit di atas, dan di
+       sinilah sisi yang ditinggalkan dibereskan — tiket lama dibatalkan, kursi
+       lama dibebaskan, kuota kelas lama turun. Dikerjakan DI DALAM kunci yang
+       sama supaya tidak ada sesaat pun ketika pembeli memegang dua tiket. */
+    terapkan_upgrade($o);
     $o['email_eticket'] = kirim_eticket($o, $tiket);
     simpan_order($o);
     // Kunci kursi dilepas: perannya sudah digantikan tiket + status Sold.
@@ -1554,7 +1853,10 @@ function status_pesanan($ref, $akses) {
   $tiket = array();
   if ($o['payment_status'] === 'Paid') {
     foreach (ambil('SELECT data FROM tickets WHERE order_item_id = :o', array(':o' => $o['id'])) as $t) {
-      $tiket[] = array('ticket_number' => $t['ticket_number'], 'qr_token' => $t['qr_token'],
+      $tiket[] = array('id' => $t['id'], 'ticket_number' => $t['ticket_number'], 'qr_token' => $t['qr_token'],
+                       // Dipakai halaman upgrade untuk memperkirakan selisihnya
+                       // sebelum server menghitung ulang angka yang sebenarnya.
+                       'terbayar' => harga_terbayar($t, $o),
                        'seat_label' => isset($t['seat_label']) ? $t['seat_label'] : '',
                        'kind' => isset($t['kind']) ? $t['kind'] : 'seat',
                        'pax_no' => (int)(isset($t['pax_no']) ? $t['pax_no'] : 1),
@@ -1565,6 +1867,10 @@ function status_pesanan($ref, $akses) {
   return array(
     'ref' => $ref, 'status' => $o['payment_status'], 'total' => (int)$o['total'],
     'buyer' => $o['buyer_name'], 'email' => $o['email'],
+    'event_id' => $o['event_id'],
+    // Pesanan upgrade dikenali halaman tiket supaya bisa menjelaskan dirinya
+    // ("kursi 12 → VIP 3") alih-alih tampil seperti pembelian biasa.
+    'upgrade' => isset($o['upgrade']) ? $o['upgrade'] : null,
     'invoice_url' => isset($o['payment']['invoice_url']) ? $o['payment']['invoice_url'] : '',
     'event' => $ev ? array('title' => $ev['title'], 'start' => $ev['start'], 'venue' => $ev['venue']) : null,
     'items' => $o['items'], 'tickets' => $tiket,

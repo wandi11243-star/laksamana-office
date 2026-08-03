@@ -20,6 +20,7 @@
  *   GET  ?action=saya&sesi=                    -> akun yang sedang masuk
  *   GET  ?action=tiketSaya&sesi=               -> riwayat tiket akun itu
  *   GET  ?action=ujiEmail&ke=                  -> uji SMTP (bukan di produksi)
+ *   POST {action:"upgradeMulai",sesi,ticket_id,seat_id} -> bayar selisih kelas
  *   GET  ?action=order&ref=&token=             -> status + e-ticket
  *
  * Sengaja TIDAK ada endpoint yang memulangkan seluruh isi database, dan
@@ -133,6 +134,10 @@ try {
     $s = $B('seats', null);
     if (is_array($s)) $s = array_values(array_filter(array_map('idBersih', array_slice($s, 0, 50))));
     keluar(array('ok' => true, 'data' => lepas_kursi(idBersih($B('hold_token')), is_array($s) ? $s : null)));
+
+  } else if ($aksi === 'upgradeMulai') {
+    // Pindah kelas tiket dengan membayar selisihnya — lihat upgrade_mulai().
+    keluar(array('ok' => true, 'data' => upgrade_mulai($body)));
 
   } else if ($aksi === 'checkout') {
     keluar(array('ok' => true, 'data' => checkout($body)));

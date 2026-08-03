@@ -677,6 +677,8 @@
 
 
 
+
+
 function uid() {  }
 
 
@@ -803,6 +805,29 @@ function pratinjauBerkas() { modal(); closeModal(); esc(); fileUrl(); }
 
 
 function normalize() { ldzSet(); bawaanKosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1278,7 +1303,17 @@ function svg() {  }
 
 
 
-function buildNav() { router(); svg(); }
+
+
+
+
+
+
+
+
+function buildNav() { bisaLihat(); router(); svg(); }
+
+
 
 
 
@@ -1313,7 +1348,15 @@ function toggleNav() {  }
 
 
 
-function router() { buildNav(); toggleSidebar(); matikanKamera(); autoSelesaikanEvent(); autoSelesaikanJadwal(); }
+function router() { buildNav(); toggleSidebar(); matikanKamera(); autoSelesaikanEvent(); autoSelesaikanJadwal(); bisaLihat(); setTop(); C(); esc(); peranSaya(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1427,6 +1470,11 @@ function kartuPerhatian() { perhatian(); esc(); }
 
 
 function renderDashboard() { setTop(); dstr(); C(); kartuPerhatian(); stat(); esc(); barChart(); fmtDateTime(); statusBadge(); }
+
+
+
+
+
 
 
 
@@ -2273,7 +2321,152 @@ function payHistory() { modal(); closeModal(); esc(); statusBadge(); fmtDateTime
 
 
 
-function setEventStatus() { save(); renderEvents(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function emsPermBawaan() {  }
+
+
+
+
+
+
+
+
+
+
+function emsPerm() { emsPermBawaan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function emsSesi() {  }
+
+
+
+function peranSaya() { emsSesi(); }
+
+
+
+
+
+
+
+function bisaLihat() { emsPerm(); peranSaya(); }
+function bisaUbah() { emsPerm(); peranSaya(); }
+
+
+function bisaSetujui() { peranSaya(); }
+
+
+
+
+
+
+function pengajuan() {  }
+function statusPengajuan() { pengajuan(); }
+function ajukanRencana() { toast(); pengajuan(); namaKru(); save(); router(); }
+
+
+
+
+
+
+
+
+
+
+
+function setujuiRencana() { bisaSetujui(); toast(); namaKru(); save(); router(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function tolakRencana() { bisaSetujui(); toast(); modal(); closeModal(); esc(); tolakRencanaYakin(); }
+
+
+
+
+
+
+
+
+
+
+function tolakRencanaYakin() { toast(); namaKru(); save(); closeModal(); router(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setEventStatus() { toast(); renderPlanning(); bisaSetujui(); save(); renderEvents(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2311,7 +2504,148 @@ function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast
 
 
 
-function renderEvents() { autoSelesaikanEvent(); setTop(); eventForm(); C(); posterCoverHTML(); esc(); fmtDateTime(); setEventStatus(); }
+
+
+
+
+
+function renderPlanning() { bisaUbah(); bisaSetujui(); setTop(); eventForm(); statusPengajuan(); }
+
+
+
+
+
+
+
+
+
+
+function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); peranSaya(); esc(); setPeran(); tambahPeran(); setIzin(); resetIzin(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setPeran() { bisaUbah(); save(); buildNav(); renderAkses(); toast(); }
+
+
+
+
+
+
+
+function tambahPeran() { toast(); setPeran(); }
+
+
+
+
+function setIzin() { bisaUbah(); emsPerm(); toast(); save(); buildNav(); renderAkses(); }
+
+
+
+
+
+
+
+
+
+
+
+function resetIzin() { emsPermBawaan(); save(); buildNav(); renderAkses(); toast(); }
+
+function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); C(); posterCoverHTML(); esc(); eventForm(); fmtDateTime(); setEventStatus(); }
+
+
+
+
+
+
+
 
 
 
@@ -2443,12 +2777,15 @@ function sec() { posterKecilHTML(); esc(); statusBadge(); fmtDate(); C(); }
 
 
 
-function setEventStatusDetail() { save(); renderEventDetail(); toast(); }
+function setEventStatusDetail() { save(); renderEventDetail(); toast(); setujuiRencana(); setEventStatus(); }
 
 
 
 
-function cycleEventStatus() { save(); toast(); renderEventDetail(); }
+
+
+
+
 function toggleTimeline() { save(); }
 function toggleTask() { save(); renderEventDetail(); }
 
@@ -2603,6 +2940,12 @@ function simpanSponsor() { ambilBaris(); ensureDetails(); save(); closeModal(); 
 
 
 function renderTicketing() { renderTicketDetail(); setTop(); C(); posterKecilHTML(); esc(); statusBadge(); fmtDate(); }
+
+
+
+
+
+
 
 
 
