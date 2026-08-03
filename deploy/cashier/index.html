@@ -1202,6 +1202,7 @@ let BON_TAB='open';   // 'open' | 'lunas'
    ("g0", "g1"), bukan lewat nama: nama tamu bisa memuat kutip dan tanda baca
    yang merusak atribut HTML, dan indeks tidak pernah bisa. */
 let BON_GRUP=[];
+let BON_EDIT=null;   // id bon yang sedang diubah; null = form dalam mode tambah
 const BON_TIPE=[{k:'tamu',n:'Tamu'},{k:'owner',n:'Owner'},{k:'staff',n:'Staff'},{k:'lain',n:'Lainnya'}];
 const bonTipeNama=k=>{ const t=BON_TIPE.find(x=>x.k===k); return t?t.n:'Lainnya'; };
 const payName=k=>{ const p=PAYS.find(x=>x.k===k); return p?p.n:(k||'—'); };
@@ -1237,6 +1238,18 @@ function bonGrupBelum(){
   return arr;
 }
 function setBonTab(t){ BON_TAB=t; render(); }
+/* Ubah bon: form di atas halaman berganti mode, terisi nilai bon ini. Tanggal
+   bill dipegang oleh kalender, jadi bonDate ikut dipindahkan ke tanggal bon —
+   kalau tidak, menyimpan tanpa menyentuh kalender akan diam-diam memindahkan
+   bonnya ke tanggal yang sedang dilihat. */
+function editBon(id){
+  const b=(DB.piutang||[]).find(x=>x.id===id);
+  if(!b) return;
+  BON_EDIT=id; bonDate=b.date; PERIOD=monthKeyOf(b.date);
+  render();
+  try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(_){ window.scrollTo(0,0); }
+}
+function batalEditBon(){ BON_EDIT=null; render(); }
 
 function viewPiutang(){
   CAL_ST.bn.open=false;
@@ -1244,20 +1257,34 @@ function viewPiutang(){
   BON_GRUP=bonGrupBelum();
   const totBelum=BON_GRUP.reduce((s,g)=>s+g.total,0);
   const bh=bonRingkasHari(bonDate);
-  const optPay=PAYS.map(p=>`<option value="${p.k}">${esc(p.n)}</option>`).join('');
-  const optTipe=BON_TIPE.map(t=>`<option value="${t.k}">${esc(t.n)}</option>`).join('');
+  /* Mode ubah memakai FORM YANG SAMA dengan mode tambah, cuma terisi lebih
+     dulu. Membuat form kedua khusus edit berarti menyalin aturan tipe/PIC dan
+     seluruh validasinya — dan dua salinan aturan yang sama selalu berakhir
+     berbeda setelah beberapa kali revisi. Bon yang sedang diubah bisa saja
+     sudah dihapus dari sesi lain, jadi hasil find() dicek, bukan diasumsikan. */
+  const edit = BON_EDIT ? bonSemua().find(b=>b.id===BON_EDIT) : null;
+  if(BON_EDIT && !edit) BON_EDIT=null;
+  const pilih=(v,k)=>v===k?' selected':'';
+  const optPay=PAYS.map(p=>`<option value="${p.k}"${pilih(edit?edit.payKey:'',p.k)}>${esc(p.n)}</option>`).join('');
+  const optTipe=BON_TIPE.map(t=>`<option value="${t.k}"${pilih(edit?edit.tipe:'',t.k)}>${esc(t.n)}</option>`).join('');
   /* Owner dipilih dari daftar, bukan diketik: nama yang sama diketik ulang tiap
      malam dengan ejaan berbeda ("Pak Howandi" / "pak howandy") memecah satu
      orang jadi beberapa baris hutang, dan tidak ada yang menyadarinya sampai
      ada yang menagih. */
-  const optOwner=(DB.owners||[]).map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  /* Nama owner pada bon yang sedang diubah ikut dimasukkan ke daftar pilihan
+     walau sudah dibuang dari DB.owners — kalau tidak, membuka bon lama untuk
+     mengubah nominalnya saja akan diam-diam mengganti namanya jadi nama lain
+     yang kebetulan paling atas. */
+  const ownerOpsi=(DB.owners||[]).slice();
+  if(edit && edit.tipe==='owner' && edit.nama && !ownerOpsi.some(n=>n.toLowerCase()===String(edit.nama).toLowerCase())) ownerOpsi.push(edit.nama);
+  const optOwner=ownerOpsi.map(n=>`<option value="${esc(n)}"${pilih(edit?edit.nama:'',n)}>${esc(n)}</option>`).join('');
   const chipOwner=(DB.owners||[]).length
     ? (DB.owners||[]).map((n,i)=>`<span class="chip mute" style="margin:2px 3px 0 0">${esc(n)} <a href="javascript:void(0)" onclick="hapusOwner(${i})" style="color:var(--danger);font-weight:800;text-decoration:none">✕</a></span>`).join('')
     : 'Belum ada nama owner — pilih "+ nama lain…" untuk menambah yang pertama.';
   /* PIC penghandle tamu ditarik dari roster Office yang sama dengan PIC
      compliment (kasir/marketing/event/office). Satu sumber, supaya tidak ada
      dua daftar orang yang lama-lama berbeda isinya. */
-  const optPic=(COMP_ROSTER||[]).map(u=>`<option value="${esc(u.id)}">${esc(u.name)} — ${esc(u.div)}</option>`).join('');
+  const optPic=(COMP_ROSTER||[]).map(u=>`<option value="${esc(u.id)}"${pilih(edit?edit.picOfficeId:'',u.id)}>${esc(u.name)} — ${esc(u.div)}</option>`).join('');
   const lunas=bonSemua().filter(b=>b.status==='lunas')
     .sort((a,b)=>String(b.lunasDate||'').localeCompare(String(a.lunasDate||''))).slice(0,80);
 
@@ -1285,7 +1312,8 @@ function viewPiutang(){
           <td><span class="chip warn">${esc(payName(b.payKey))}</span></td>
           <td class="num mono" style="font-weight:700">${fmtRp(num(b.nominal))}</td>
           <td class="muted" style="font-size:12px">${esc(b.by||'—')}</td>
-          <td><button class="btn btn-xs btn-danger" onclick="hapusBon('${esc(b.id)}')">✕</button></td>
+          <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" onclick="editBon('${esc(b.id)}')">Ubah</button>
+            <button class="btn btn-xs btn-danger" onclick="hapusBon('${esc(b.id)}')">✕</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
       <div id="bnerr_${gid}"></div>
@@ -1303,10 +1331,11 @@ function viewPiutang(){
 
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Catat Bon Baru</h3><div class="card-sub">Bill yang sudah ditutup di POS tapi uangnya belum diterima.</div></div>
+      <div><h3>${edit?'Ubah Bon':'Catat Bon Baru'}</h3><div class="card-sub">${edit?'Sedang mengubah bon yang sudah tercatat.':'Bill yang sudah ditutup di POS tapi uangnya belum diterima.'}</div></div>
       <div class="field" style="margin:0"><label>Tanggal Bill</label><div class="calwrap" id="bn_cal">${calInner('bn')}</div></div>
     </div>
-    <div class="card">
+    <div class="card"${edit?' style="border:1.5px solid var(--gold)"':''}>
+      ${edit?`<div class="notice info">✎ <div>Mengubah bon <b>${esc(edit.nama)}</b> ${fmtRp(num(edit.nominal))} tanggal ${esc(edit.date)}${edit.status==='lunas'?' <span class="chip ok">sudah lunas</span>':''}. Tanggal bill diubah lewat kalender di atas.</div></div>`:''}
       <div class="row-in">
         <div class="field"><label>Tipe</label><select id="bn_tipe">${optTipe}</select></div>
         <div class="field" id="bn_ownerbox"><label>Nama Owner</label>
@@ -1315,19 +1344,22 @@ function viewPiutang(){
         <div class="field" id="bn_barubox"><label>Nama Owner Baru</label>
           <input id="bn_ownerbaru" placeholder="cth. Pak Rudi">
           <div class="helper">akan ikut tersimpan ke daftar owner</div></div>
-        <div class="field" id="bn_namabox"><label>Nama yang Berhutang</label><input id="bn_nama" placeholder="cth. Pak Budi (nama tamunya)"></div>
+        <div class="field" id="bn_namabox"><label>Nama yang Berhutang</label><input id="bn_nama" placeholder="cth. Pak Budi (nama tamunya)" value="${edit&&edit.tipe!=='owner'?esc(edit.nama):''}"></div>
         <div class="field" id="bn_picbox"><label>PIC yang Menghandle</label>
           <select id="bn_pic"><option value="">— pilih PIC —</option>${optPic}</select>
           ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}.</div>`
             :(COMP_ROSTER===null?'<div class="helper">Memuat daftar dari Office…</div>'
               :(!COMP_ROSTER.length?'<div class="helper">Belum ada akun Office ber-Tim/Keterangan Kasir, Marketing, Event, atau Office.</div>'
                 :'<div class="helper">kasir / marketing / event / office</div>'))}</div>
-        <div class="field"><label>No. Bill / Keterangan</label><input id="bn_bill" placeholder="cth. #1042 meja 7"></div>
-        <div class="field"><label>Nominal</label><input class="mono rp" id="bn_nominal" inputmode="numeric" value="0"></div>
+        <div class="field"><label>No. Bill / Keterangan</label><input id="bn_bill" placeholder="cth. #1042 meja 7" value="${edit?esc(edit.bill||''):''}"></div>
+        <div class="field"><label>Nominal</label><input class="mono rp" id="bn_nominal" inputmode="numeric" value="${edit?num(edit.nominal):0}"></div>
         <div class="field"><label>Metode POS Sementara</label><select id="bn_pay">${optPay}</select></div>
       </div>
       <div id="bn_err"></div>
-      <button class="btn btn-primary" id="bn_add">+ Tambah Bon</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="bn_add">${edit?'Simpan Perubahan':'+ Tambah Bon'}</button>
+        ${edit?'<button class="btn btn-ghost" onclick="batalEditBon()">Batal</button>':''}
+      </div>
     </div>
     <div class="grid g4">
       <div class="stat accent"><div class="lab">Total Belum Lunas</div><div class="val sm mono">${fmtRp(totBelum)}</div><div class="foot">seluruh tanggal</div></div>
@@ -1354,7 +1386,8 @@ function viewPiutang(){
               <td class="mono"><span class="chip ok">${esc(b.lunasDate||'—')}</span></td>
               <td>${esc(payName(b.lunasPayKey))}</td>
               <td class="muted" style="font-size:12px">${esc(b.lunasBy||'—')}</td>
-              <td><button class="btn btn-xs btn-ghost" onclick="batalLunas('${esc(b.id)}')">Batal Lunas</button></td>
+              <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" onclick="editBon('${esc(b.id)}')">Ubah</button>
+                <button class="btn btn-xs btn-ghost" onclick="batalLunas('${esc(b.id)}')">Batal Lunas</button></td>
             </tr>`).join(''):'<tr><td colspan="8" class="empty">Belum ada pelunasan tercatat.</td></tr>'}</tbody>
           </table></div>
         </div>`}`;
@@ -1406,15 +1439,28 @@ function viewPiutang(){
       // dibanding huruf kecil supaya "Pak Rudi" tidak masuk dua kali sebagai "pak rudi"
       if(!DB.owners.some(n=>n.toLowerCase()===ownerBaru.toLowerCase())) DB.owners.push(ownerBaru);
     }
-    DB.piutang=DB.piutang||[];
-    DB.piutang.push({
-      id:'pt'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
+    const isi={
       date:bonDate, nama, tipe, bill, nominal,
       payKey:document.getElementById('bn_pay').value,
-      picName:pic?pic.name:'', picOfficeId:pic?pic.id:'', picDiv:pic?pic.div:'',
-      status:'open', lunasDate:'', lunasPayKey:'', lunasBy:'', lunasAt:0,
-      by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
-    });
+      picName:pic?pic.name:'', picOfficeId:pic?pic.id:'', picDiv:pic?pic.div:''
+    };
+    if(edit){
+      /* Status pelunasan SENGAJA tidak ikut disentuh di sini. Mengubah nominal
+         bon yang sudah lunas hanya membetulkan catatan; kapan & lewat apa
+         uangnya masuk tetap urusan tombol Batal Lunas, supaya tidak ada dua
+         jalan berbeda yang mengubah hal yang sama. */
+      Object.assign(edit,isi);
+      edit.ubahBy=CURRENT_USER?CURRENT_USER.name:''; edit.ubahAt=Date.now();
+      BON_EDIT=null;
+    }else{
+      DB.piutang=DB.piutang||[];
+      DB.piutang.push(Object.assign({
+        id:'pt'+Date.now().toString(36)+Math.floor(Math.random()*1e4)
+      },isi,{
+        status:'open', lunasDate:'', lunasPayKey:'', lunasBy:'', lunasAt:0,
+        by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
+      }));
+    }
     save(); render();
   });
   // Roster belum ada → ambil sekali, lalu gambar ulang supaya dropdown PIC terisi.
@@ -1473,6 +1519,7 @@ function batalLunas(id){
 function hapusBon(id){
   if(!confirm('Hapus catatan bon ini?\n\nSelisih Report Daily tanggal billnya akan kembali tidak terjelaskan.')) return;
   DB.piutang=(DB.piutang||[]).filter(b=>b.id!==id);
+  if(BON_EDIT===id) BON_EDIT=null;   // jangan tinggalkan form menunjuk bon yang sudah tidak ada
   save(); render();
 }
 /* Nama owner dibuang dari DAFTAR PILIHAN saja. Bon yang terlanjur memakai nama
