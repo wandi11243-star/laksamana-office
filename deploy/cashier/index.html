@@ -336,6 +336,7 @@ tbody tr:hover{background:var(--gold-soft)}
              membaca. Tidak ada Input Omset / Breakdown / Target di sini —
              kalau butuh, itu pekerjaan Kompas, bukan kasir. -->
         <a data-view="report"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></span> Report Daily</a>
+        <a data-view="piutang"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9.5 12.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/></svg></span> Piutang / Bon</a>
         <a data-view="compliment"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span> Compliment</a>
         <a data-view="rokok"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="13" width="16" height="6" rx="1"/><path d="M13 13v6"/><path d="M20 12v2M20 17v2"/><path d="M17 5c0 2 2 2 2 4"/></svg></span> Daily Stock Rokok</a>
         <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
@@ -551,7 +552,8 @@ function seed(){
     daily:[],
     reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted}
     rokok:{},        // "YYYY-MM-DD" -> {items:{<kunci>:{in,out}}, by, at}
-    compliments:[]   // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
+    compliments:[],  // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
+    piutang:[]       // [{id,date,nama,tipe,bill,nominal,payKey,status,lunasDate,lunasPayKey,lunasBy,lunasAt,by,at}]
   };
 }
 /* Jaga bentuk data supaya view tidak pernah menemui field hilang. */
@@ -571,6 +573,26 @@ function normalizeDB(d){
      bergaya "hapus kunci asing", data ini yang pertama hilang. */
   if(!d.rokok||typeof d.rokok!=='object'||Array.isArray(d.rokok)) d.rokok={};
   if(!Array.isArray(d.compliments)) d.compliments=[];
+  /* Bon/piutang. Sama seperti rokok: ikut di blob yang sama dengan Kompas, dan
+     aman karena tidak ada modul yang membuang kunci asing saat menyimpan.
+     Bidang yang hilang diisi di sini supaya baris lama (kalau bentuknya pernah
+     berubah) tidak pernah membuat halaman blank karena `undefined.length`. */
+  if(!Array.isArray(d.piutang)) d.piutang=[];
+  d.piutang.forEach(b=>{
+    if(b.status!=='lunas') b.status='open';
+    if(b.tipe===undefined) b.tipe='tamu';
+    if(b.payKey===undefined) b.payKey='cash';
+    if(b.bill===undefined) b.bill='';
+    b.nominal=num(b.nominal);
+    /* Bon berstatus lunas TANPA tanggal pelunasan tidak boleh ada: Report Daily
+       menjumlahkan pelunasan berdasarkan lunasDate, jadi baris seperti itu akan
+       hilang dari semua hari dan uangnya seolah tidak pernah masuk. Jatuhkan ke
+       tanggal billnya — hari terdekat yang pasti benar-benar ada. */
+    if(b.status==='lunas'){
+      if(!b.lunasDate) b.lunasDate=b.date;
+      if(!b.lunasPayKey) b.lunasPayKey=b.payKey;
+    }
+  });
   /* Migrasi: "Total Tax & Service" dulu SATU angka (tax_service). Sekarang
      dipecah jadi service_charge + tax. Nilai lama seluruhnya dianggap tax —
      menebak pembagiannya justru mengarang angka yang tidak pernah diinput. */
@@ -782,6 +804,7 @@ function syncKendaliPeriode(){
 /* ============ ROUTER ============ */
 const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
+  piutang:['Piutang / Bon','Bill yang belum dibayar tamu & owner — beserta metode POS sementaranya'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   rokok:['Daily Stock Rokok','Barang masuk & keluar per hari, per item'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
@@ -818,7 +841,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({report:viewReport,compliment:viewCompliment,rokok:viewRokok,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
+  ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -843,6 +866,14 @@ function viewReport(){
   CAL_ST.rp.open=false;
   const el=document.getElementById('app-view');
   const rec=repOf(repDate);
+  /* Bon & pelunasan tanggal ini — lihat catatan panjang di bagian Piutang.
+     Dua angka inilah yang menjelaskan kenapa Actual boleh berbeda dari POS
+     tanpa ada uang yang benar-benar hilang. Kolom dan kartunya HANYA muncul
+     kalau hari itu memang ada bon/pelunasan; hari biasa tetap sepolos dulu,
+     supaya halaman ini tidak jadi rumit untuk mayoritas hari yang tidak ada
+     hutang sama sekali. */
+  const bh=bonRingkasHari(repDate);
+  const thBon = bh.ada ? '<th class="num">Bon Baru (−)</th><th class="num">Pelunasan (+)</th><th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode — selisih dihitung otomatis. Boleh disubmit kapan saja, tidak perlu menunggu omset harian.</div></div>
@@ -850,22 +881,35 @@ function viewReport(){
     </div>
     <div class="card">
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th></tr></thead>
-        <tbody>${PAYS.map(p=>{const v0=repPay(rec,p.k);return `<tr>
+        <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
+        <tbody>${PAYS.map(p=>{
+          const v0=repPay(rec,p.k);
+          const bb=num(bh.baru[p.k]), bl=num(bh.lunas[p.k]);
+          return `<tr>
           <td><b>${esc(p.n)}</b></td>
           <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="pos" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.pos}"></td>
           <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="actual" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.actual}"></td>
           <td class="num mono" id="rs_${p.k}">Rp0</td>
+          ${bh.ada?`<td class="num mono" style="color:${bb?'var(--danger)':'var(--muted-2)'}">${bb?fmtSel(-bb):'—'}</td>
+          <td class="num mono" style="color:${bl?'var(--ok)':'var(--muted-2)'}">${bl?fmtSel(bl):'—'}</td>
+          <td class="num mono" id="rz_${p.k}">Rp0</td>`:''}
         </tr>`;}).join('')}</tbody>
         <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
           <td>TOTAL</td><td class="num mono" id="rt_pos">Rp0</td><td class="num mono" id="rt_act">Rp0</td><td class="num mono" id="rt_sel">Rp0</td>
+          ${bh.ada?`<td class="num mono" style="color:var(--danger)">${bh.totBaru?fmtSel(-bh.totBaru):'—'}</td>
+          <td class="num mono" style="color:var(--ok)">${bh.totLunas?fmtSel(bh.totLunas):'—'}</td>
+          <td class="num mono" id="rt_sisa">Rp0</td>`:''}
         </tr></tfoot>
       </table></div>
     </div>
-    <div class="grid g3">
+    ${bh.ada?kartuPenjelasanBon(bh):''}
+    <div class="grid ${bh.ada?'g4':'g3'}">
       <div class="stat accent"><div class="lab">Total POS</div><div class="val sm mono" id="rc_pos">Rp0</div><div class="foot">angka dari mesin kasir</div></div>
       <div class="stat"><div class="lab">Total Actual</div><div class="val sm mono" id="rc_act">Rp0</div><div class="foot">uang & mutasi yang benar-benar ada</div></div>
-      <div class="stat" id="rc_box"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>
+      ${bh.ada
+        ? `<div class="stat"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot">sebelum bon & pelunasan diperhitungkan</div></div>
+           <div class="stat" id="rc_box"><div class="lab">Sisa Selisih</div><div class="val sm mono" id="rc_sisa">Rp0</div><div class="foot" id="rc_foot"></div></div>`
+        : `<div class="stat" id="rc_box"><div class="lab">Selisih POS vs Actual</div><div class="val sm mono" id="rc_sel">Rp0</div><div class="foot" id="rc_foot"></div></div>`}
     </div>
     <div id="rp_err"></div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
@@ -883,6 +927,17 @@ function viewReport(){
       c.textContent=fmtSel(s);
       c.style.color = s===0?'var(--muted)' : (s>0?'var(--ok)':'var(--danger)');
       c.style.fontWeight = s===0?'500':'800';
+      /* Sisa per metode. Bon menahan uang yang mesin sudah catat (jadi selisih
+         kurang), pelunasan memasukkan uang yang mesin TIDAK catat hari ini
+         (jadi selisih lebih). Membalik keduanya menghasilkan angka yang
+         seharusnya nol kalau kasirnya benar. */
+      if(bh.ada){
+        const z=(s+num(bh.baru[p.k])-num(bh.lunas[p.k]));
+        const cz=document.getElementById('rz_'+p.k);
+        cz.textContent=fmtSel(z);
+        cz.style.color = z===0?'var(--muted)' : (Math.abs(z)<SELISIH_TOLERANSI?'var(--warn)':'var(--danger)');
+        cz.style.fontWeight = z===0?'500':'800';
+      }
     });
     document.getElementById('rt_pos').textContent=fmtRp(tp);
     document.getElementById('rt_act').textContent=fmtRp(ta);
@@ -890,22 +945,31 @@ function viewReport(){
     const tf=document.getElementById('rt_sel');
     tf.textContent=fmtSel(tsel);
     tf.style.color = tsel===0?'var(--muted)':(tsel>0?'var(--ok)':'var(--danger)');
-    /* Ringkasan bawah = pengulangan baris TOTAL, murni POS vs Actual. Tidak
-       ada lagi pembanding ke omset di halaman ini, dan submit tidak pernah
-       dikunci: kasir mengisi lebih dulu, sering sebelum omset harian ada. */
-    const abs=Math.abs(tsel);
+    /* Angka yang dinilai: sisa selisih SESUDAH bon & pelunasan. Hari tanpa bon
+       sisanya sama persis dengan selisih POS vs Actual, jadi perilaku lama
+       tidak berubah sedikit pun. Submit tetap tidak pernah dikunci: kasir
+       mengisi lebih dulu, sering sebelum omset harian ada. */
+    const sisa=tsel+bh.totBaru-bh.totLunas;
+    const abs=Math.abs(sisa);
+    if(bh.ada){
+      document.getElementById('rt_sisa').textContent=fmtSel(sisa);
+      document.getElementById('rt_sisa').style.color = sisa===0?'var(--muted)':(abs<SELISIH_TOLERANSI?'var(--warn)':'var(--danger)');
+      document.getElementById('rc_sisa').textContent=fmtSel(sisa);
+      const bx=document.getElementById('bn_sisa'); if(bx) bx.textContent=fmtSel(sisa);
+      const bs=document.getElementById('bn_sel');  if(bs) bs.textContent=fmtSel(tsel);
+    }
     document.getElementById('rc_pos').textContent=fmtRp(tp);
     document.getElementById('rc_act').textContent=fmtRp(ta);
     document.getElementById('rc_sel').textContent=fmtSel(tsel);
     document.getElementById('rc_box').style.background =
-      tsel===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
-    document.getElementById('rc_foot').innerHTML = tsel===0
-      ? 'POS dan Actual cocok ✓'
+      sisa===0?'var(--ok-bg-t)' : abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)';
+    document.getElementById('rc_foot').innerHTML = sisa===0
+      ? (bh.ada?'cocok setelah bon & pelunasan diperhitungkan ✓':'POS dan Actual cocok ✓')
       : abs<SELISIH_TOLERANSI
         ? `beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)})`
-        : tsel>0 ? 'uang lebih dari catatan mesin — cek metode yang selisihnya besar'
+        : sisa>0 ? 'uang lebih dari catatan mesin — cek metode yang selisihnya besar'
                  : 'uang kurang dari catatan mesin — cek metode yang selisihnya besar';
-    return {tp,ta,sel:tsel,abs};
+    return {tp,ta,sel:tsel,sisa,abs};
   };
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
@@ -917,12 +981,285 @@ function viewReport(){
     DB.reports=DB.reports||{};
     DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true};
     save();
-    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan selisih POS vs Actual ${fmtRp(h.abs)}`:''}.</div>`;
+    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div>`;
     setTimeout(()=>render(),700);
   });
   hitung();
 }
 function fmtWaktu(ts){ const d=new Date(ts); return isNaN(d)?'':d.toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+
+/* Kartu penjelas di bawah tabel Report Daily: urutan penguranganya ditulis
+   apa adanya (selisih → +bon → −pelunasan → sisa) supaya tidak perlu ada yang
+   menghitung di kepala, plus daftar SIAPA yang berhutang dan bon mana yang
+   dilunasi. Tanpa daftar nama, angka bonnya benar tapi tidak bisa ditagih. */
+function kartuPenjelasanBon(bh){
+  const baris=(l,v,warna)=>`<tr><td>${l}</td><td class="num mono" style="color:${warna||'inherit'}">${v}</td></tr>`;
+  const daftar=(judul,rows,kosong)=>`
+    <div>
+      <div class="mini-lab">${judul}</div>
+      ${rows.length?`<div class="tbl-wrap"><table>${rows.join('')}</table></div>`:`<div class="helper" style="margin:6px 0 0">${kosong}</div>`}
+    </div>`;
+  const rBaru=bh.listBaru.map(b=>`<tr>
+    <td><b>${esc(b.nama)}</b> <span class="chip mute">${esc(bonTipeNama(b.tipe))}</span>${b.bill?`<div class="muted" style="font-size:11px">${esc(b.bill)}</div>`:''}</td>
+    <td class="muted" style="font-size:12px">POS: ${esc(payName(b.payKey))}</td>
+    <td class="num mono" style="color:var(--danger)">${fmtSel(-num(b.nominal))}</td></tr>`);
+  const rLunas=bh.listLunas.map(b=>`<tr>
+    <td><b>${esc(b.nama)}</b>${b.bill?`<div class="muted" style="font-size:11px">${esc(b.bill)}</div>`:''}</td>
+    <td class="muted" style="font-size:12px">bill ${esc(b.date)} · ${esc(payName(b.lunasPayKey))}</td>
+    <td class="num mono" style="color:var(--ok)">${fmtSel(num(b.nominal))}</td></tr>`);
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div><h3>Penjelasan Selisih — Bon &amp; Pelunasan</h3>
+        <div class="card-sub">Bon = bill yang ditutup di POS padahal uangnya belum diterima, jadi uang hari itu kurang. Pelunasan = bon hari lain yang dibayar hari ini, jadi uang hari ini lebih.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="go('piutang')">Buka halaman Piutang →</button>
+      </div>
+      <div class="grid g2" style="align-items:start;margin-top:12px">
+        <div class="tbl-wrap"><table>
+          ${baris('Selisih POS vs Actual','<span id="bn_sel">Rp0</span>')}
+          ${baris('+ Bon baru hari ini (uang belum diterima)',fmtRp(bh.totBaru),'var(--danger)')}
+          ${baris('− Pelunasan diterima hari ini',fmtRp(bh.totLunas),'var(--ok)')}
+          <tr style="font-weight:800;border-top:2px solid var(--line)"><td>= Sisa selisih yang belum terjelaskan</td><td class="num mono"><span id="bn_sisa">Rp0</span></td></tr>
+        </table></div>
+        <div style="display:grid;gap:12px">
+          ${daftar('Bon baru hari ini',rBaru,'Tidak ada bon baru pada tanggal ini.')}
+          ${daftar('Pelunasan diterima hari ini',rLunas,'Tidak ada pelunasan pada tanggal ini.')}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ============ 1b. PIUTANG / BON ============
+   Kenapa halaman ini ada: POS tidak mengenal "belum bayar". Supaya bill bisa
+   ditutup, kasir terpaksa memilih SATU metode pembayaran padahal uangnya belum
+   masuk — biasanya Cash. Akibatnya Report Daily hari itu selalu terlihat kurang
+   sebesar bon tersebut, dan sebelum halaman ini ada tidak ada apa pun di layar
+   yang menjelaskan kenapa; selisihnya terbaca seperti uang hilang.
+
+   Yang dicatat karena itu ada tiga: nominalnya, SIAPA yang berhutang, dan
+   metode POS sementara yang dipakai menutup billnya. Yang ketiga bukan
+   kelengkapan — tanpanya selisih hanya bisa dijelaskan di tingkat total, dan
+   metode MANA yang kurang tetap tidak ketahuan.
+
+   Pelunasan SENGAJA dicatat pada tanggal uangnya diterima, bukan dimundurkan
+   ke tanggal bill. Uangnya memang masuk hari itu; memundurkannya akan mengubah
+   report yang sudah disubmit dan tetap meninggalkan hari pelunasan kelebihan
+   uang tanpa sebab. Itu persis keluhan yang melahirkan halaman ini: 3 bon lama
+   dilunasi sekaligus, dan report hari itu berlebih. Sekarang kelebihan itu
+   muncul sebagai kolom "Pelunasan (+)" dengan nama orangnya. */
+let bonDate=todayISO();
+let BON_TAB='open';   // 'open' | 'lunas'
+/* Hasil pengelompokan render terakhir. Tombol Lunasi merujuk grup lewat indeks
+   ("g0", "g1"), bukan lewat nama: nama tamu bisa memuat kutip dan tanda baca
+   yang merusak atribut HTML, dan indeks tidak pernah bisa. */
+let BON_GRUP=[];
+const BON_TIPE=[{k:'tamu',n:'Tamu'},{k:'owner',n:'Owner'},{k:'staff',n:'Staff'},{k:'lain',n:'Lainnya'}];
+const bonTipeNama=k=>{ const t=BON_TIPE.find(x=>x.k===k); return t?t.n:'Lainnya'; };
+const payName=k=>{ const p=PAYS.find(x=>x.k===k); return p?p.n:(k||'—'); };
+function bonSemua(){ return DB.piutang||[]; }
+function bonBelum(){ return bonSemua().filter(b=>b.status!=='lunas'); }
+function bonBaruOn(date){ return bonSemua().filter(b=>b.date===date); }
+function bonLunasOn(date){ return bonSemua().filter(b=>b.status==='lunas'&&b.lunasDate===date); }
+/* Ringkasan satu tanggal, per metode pembayaran — inilah yang dipakai Report
+   Daily. Bon yang dibuat DAN dilunasi pada hari yang sama sengaja ikut di
+   kedua ember: kalau metodenya sama keduanya saling meniadakan (memang benar,
+   uangnya keluar-masuk di hari yang sama), kalau berbeda selisih antar
+   metodenya justru yang harus terlihat. */
+function bonRingkasHari(date){
+  const baru={},lunas={}; let totBaru=0,totLunas=0;
+  const listBaru=bonBaruOn(date), listLunas=bonLunasOn(date);
+  listBaru.forEach(b=>{ const n=num(b.nominal); baru[b.payKey]=(baru[b.payKey]||0)+n; totBaru+=n; });
+  listLunas.forEach(b=>{ const n=num(b.nominal); lunas[b.lunasPayKey]=(lunas[b.lunasPayKey]||0)+n; totLunas+=n; });
+  return {baru,lunas,totBaru,totLunas,listBaru,listLunas,ada:listBaru.length>0||listLunas.length>0};
+}
+/* Bon belum lunas dikelompokkan per orang. Kuncinya nama (huruf kecil, tanpa
+   spasi tepi) + tipe, supaya "Pak Budi" dan "pak budi " tidak jadi dua orang —
+   nama diketik ulang tiap kali, dan itu satu-satunya pengait yang ada. */
+function bonGrupBelum(){
+  const map=new Map();
+  bonBelum().forEach(b=>{
+    const key=String(b.nama||'').trim().toLowerCase()+'|'+b.tipe;
+    if(!map.has(key)) map.set(key,{nama:b.nama,tipe:b.tipe,items:[],total:0});
+    const g=map.get(key); g.items.push(b); g.total+=num(b.nominal);
+  });
+  const arr=[...map.values()];
+  arr.forEach(g=>g.items.sort((a,b)=>a.date<b.date?-1:1));
+  arr.sort((a,b)=>b.total-a.total);
+  return arr;
+}
+function setBonTab(t){ BON_TAB=t; render(); }
+
+function viewPiutang(){
+  CAL_ST.bn.open=false;
+  const el=document.getElementById('app-view');
+  BON_GRUP=bonGrupBelum();
+  const totBelum=BON_GRUP.reduce((s,g)=>s+g.total,0);
+  const bh=bonRingkasHari(bonDate);
+  const optPay=PAYS.map(p=>`<option value="${p.k}">${esc(p.n)}</option>`).join('');
+  const optTipe=BON_TIPE.map(t=>`<option value="${t.k}">${esc(t.n)}</option>`).join('');
+  const lunas=bonSemua().filter(b=>b.status==='lunas')
+    .sort((a,b)=>String(b.lunasDate||'').localeCompare(String(a.lunasDate||''))).slice(0,80);
+
+  const grupHtml=BON_GRUP.map((g,i)=>{
+    const gid='g'+i;
+    return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div><h3 style="margin:0">${esc(g.nama)} <span class="chip mute">${esc(bonTipeNama(g.tipe))}</span></h3>
+          <div class="card-sub" style="margin:2px 0 0">${g.items.length} bon belum lunas</div></div>
+        <div style="text-align:right"><div class="mini-lab" style="margin:0">Total Hutang</div>
+          <div class="mono" style="font-size:20px;font-weight:800;color:var(--danger)">${fmtRp(g.total)}</div></div>
+      </div>
+      <div class="tbl-wrap" style="margin-top:12px"><table>
+        <thead><tr>
+          <th style="width:36px"><input type="checkbox" class="bnall" data-g="${gid}" checked></th>
+          <th>Tanggal Bill</th><th>No. Bill / Keterangan</th><th>Metode POS Sementara</th>
+          <th class="num">Nominal</th><th>Dicatat Oleh</th><th></th>
+        </tr></thead>
+        <tbody>${g.items.map(b=>`<tr>
+          <td><input type="checkbox" class="bnck" data-g="${gid}" data-id="${esc(b.id)}" data-nom="${num(b.nominal)}" checked></td>
+          <td class="mono">${esc(b.date)}</td>
+          <td>${b.bill?esc(b.bill):'<span class="muted">—</span>'}</td>
+          <td><span class="chip warn">${esc(payName(b.payKey))}</span></td>
+          <td class="num mono" style="font-weight:700">${fmtRp(num(b.nominal))}</td>
+          <td class="muted" style="font-size:12px">${esc(b.by||'—')}</td>
+          <td><button class="btn btn-xs btn-danger" onclick="hapusBon('${esc(b.id)}')">✕</button></td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+      <div id="bnerr_${gid}"></div>
+      <div class="row-in" style="margin-top:12px;align-items:end">
+        <div class="field" style="margin:0"><label>Tanggal Uang Diterima</label>
+          <input type="date" class="bn-tgl" data-g="${gid}" value="${todayISO()}"></div>
+        <div class="field" style="margin:0"><label>Metode Pembayaran Pelunasan</label>
+          <select class="bn-pay" data-g="${gid}">${optPay}</select></div>
+        <div class="field" style="margin:0"><label>&nbsp;</label>
+          <button class="btn btn-primary btn-block bn-lunas" data-g="${gid}">Lunasi Terpilih · <span id="bnsum_${gid}">Rp0</span></button></div>
+      </div>
+      <div class="helper" style="margin:8px 0 0">Uang dicatat masuk pada tanggal di atas, bukan tanggal billnya — Report Daily tanggal itu akan menampilkannya sebagai <b>Pelunasan (+)</b>.</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Catat Bon Baru</h3><div class="card-sub">Bill yang sudah ditutup di POS tapi uangnya belum diterima. Pilih metode POS yang dipakai menutup bill — itu yang menjelaskan metode mana yang kurang di Report Daily.</div></div>
+      <div class="field" style="margin:0"><label>Tanggal Bill</label><div class="calwrap" id="bn_cal">${calInner('bn')}</div></div>
+    </div>
+    <div class="card">
+      <div class="row-in">
+        <div class="field"><label>Nama yang Berhutang</label><input id="bn_nama" placeholder="cth. Pak Budi / Owner Andi"></div>
+        <div class="field"><label>Tipe</label><select id="bn_tipe">${optTipe}</select></div>
+        <div class="field"><label>No. Bill / Keterangan</label><input id="bn_bill" placeholder="cth. #1042 meja 7"></div>
+        <div class="field"><label>Nominal</label><input class="mono rp" id="bn_nominal" inputmode="numeric" value="0"></div>
+        <div class="field"><label>Metode POS Sementara</label><select id="bn_pay">${optPay}</select></div>
+      </div>
+      <div id="bn_err"></div>
+      <button class="btn btn-primary" id="bn_add">+ Tambah Bon</button>
+    </div>
+    <div class="grid g4">
+      <div class="stat accent"><div class="lab">Total Belum Lunas</div><div class="val sm mono">${fmtRp(totBelum)}</div><div class="foot">seluruh tanggal</div></div>
+      <div class="stat"><div class="lab">Orang Berhutang</div><div class="val sm">${BON_GRUP.length}</div><div class="foot">${bonBelum().length} bon</div></div>
+      <div class="stat"><div class="lab">Bon Baru ${esc(dateLabel(bonDate))}</div><div class="val sm mono" style="color:var(--danger)">${fmtRp(bh.totBaru)}</div><div class="foot">${bh.listBaru.length} bon · mengurangi uang hari itu</div></div>
+      <div class="stat"><div class="lab">Pelunasan ${esc(dateLabel(bonDate))}</div><div class="val sm mono" style="color:var(--ok)">${fmtRp(bh.totLunas)}</div><div class="foot">${bh.listLunas.length} bon · menambah uang hari itu</div></div>
+    </div>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm ${BON_TAB==='open'?'btn-primary':'btn-ghost'}" onclick="setBonTab('open')">Belum Lunas (${bonBelum().length})</button>
+      <button class="btn btn-sm ${BON_TAB==='lunas'?'btn-primary':'btn-ghost'}" onclick="setBonTab('lunas')">Riwayat Pelunasan</button>
+    </div>
+    ${BON_TAB==='open'
+      ? (grupHtml || '<div class="card"><div class="empty"><div class="big">✅</div>Tidak ada bon yang belum lunas.</div></div>')
+      : `<div class="card">
+          <h3>Riwayat Pelunasan</h3>
+          <div class="card-sub">80 pelunasan terakhir. Kolom <b>Tanggal Uang Masuk</b> adalah hari yang Report Daily-nya kelebihan uang — itu bukan salah hitung, itu bon lama yang dibayar hari itu.</div>
+          <div class="tbl-wrap" style="margin-top:12px"><table>
+            <thead><tr><th>Nama</th><th>Tanggal Bill</th><th>No. Bill</th><th class="num">Nominal</th><th>Tanggal Uang Masuk</th><th>Metode Pelunasan</th><th>Dilunasi Oleh</th><th></th></tr></thead>
+            <tbody>${lunas.length?lunas.map(b=>`<tr>
+              <td><b>${esc(b.nama)}</b> <span class="chip mute">${esc(bonTipeNama(b.tipe))}</span></td>
+              <td class="mono">${esc(b.date)}</td>
+              <td>${b.bill?esc(b.bill):'<span class="muted">—</span>'}</td>
+              <td class="num mono" style="font-weight:700">${fmtRp(num(b.nominal))}</td>
+              <td class="mono"><span class="chip ok">${esc(b.lunasDate||'—')}</span></td>
+              <td>${esc(payName(b.lunasPayKey))}</td>
+              <td class="muted" style="font-size:12px">${esc(b.lunasBy||'—')}</td>
+              <td><button class="btn btn-xs btn-ghost" onclick="batalLunas('${esc(b.id)}')">Batal Lunas</button></td>
+            </tr>`).join(''):'<tr><td colspan="8" class="empty">Belum ada pelunasan tercatat.</td></tr>'}</tbody>
+          </table></div>
+        </div>`}`;
+
+  document.getElementById('bn_add').addEventListener('click',()=>{
+    const nama=(document.getElementById('bn_nama').value||'').trim();
+    const bill=(document.getElementById('bn_bill').value||'').trim();
+    const nominal=num(document.getElementById('bn_nominal').value);
+    const box=document.getElementById('bn_err');
+    const errs=[];
+    if(!nama) errs.push('Nama yang berhutang wajib diisi.');
+    if(nominal<=0) errs.push('Nominal harus lebih dari nol.');
+    if(errs.length){ box.innerHTML='<div class="notice bad">⚠ '+errs.join(' ')+'</div>'; return; }
+    DB.piutang=DB.piutang||[];
+    DB.piutang.push({
+      id:'pt'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
+      date:bonDate, nama, tipe:document.getElementById('bn_tipe').value, bill, nominal,
+      payKey:document.getElementById('bn_pay').value,
+      status:'open', lunasDate:'', lunasPayKey:'', lunasBy:'', lunasAt:0,
+      by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
+    });
+    save(); render();
+  });
+
+  function hitungGrup(gid){
+    let t=0,n=0;
+    el.querySelectorAll(`.bnck[data-g="${gid}"]:checked`).forEach(x=>{ t+=num(x.dataset.nom); n++; });
+    const s=document.getElementById('bnsum_'+gid); if(s) s.textContent=fmtRp(t);
+    const btn=el.querySelector(`.bn-lunas[data-g="${gid}"]`); if(btn) btn.disabled=!n;
+  }
+  el.querySelectorAll('.bnall').forEach(c=>c.addEventListener('change',e=>{
+    const gid=e.target.dataset.g;
+    el.querySelectorAll(`.bnck[data-g="${gid}"]`).forEach(x=>{ x.checked=e.target.checked; });
+    hitungGrup(gid);
+  }));
+  el.querySelectorAll('.bnck').forEach(c=>c.addEventListener('change',e=>hitungGrup(e.target.dataset.g)));
+  el.querySelectorAll('.bn-lunas').forEach(b=>b.addEventListener('click',e=>lunasiGrup(e.currentTarget.dataset.g)));
+  BON_GRUP.forEach((g,i)=>hitungGrup('g'+i));
+}
+
+/* Lunasi bon yang dicentang dalam satu grup sekaligus — kasus "3 bill satu
+   orang, dibayar barengan" memang bentuk normalnya, bukan pengecualian. */
+function lunasiGrup(gid){
+  const el=document.getElementById('app-view');
+  const g=BON_GRUP[parseInt(String(gid).slice(1),10)];
+  if(!g) return;
+  const dicentang=[...el.querySelectorAll(`.bnck[data-g="${gid}"]:checked`)];
+  const box=document.getElementById('bnerr_'+gid);
+  if(!dicentang.length){ if(box) box.innerHTML='<div class="notice bad">⚠ Belum ada bon yang dicentang.</div>'; return; }
+  const tglEl=el.querySelector(`.bn-tgl[data-g="${gid}"]`);
+  const tgl=(tglEl&&tglEl.value)||todayISO();
+  const payEl=el.querySelector(`.bn-pay[data-g="${gid}"]`);
+  const pay=(payEl&&payEl.value)||'cash';
+  const tot=dicentang.reduce((s,x)=>s+num(x.dataset.nom),0);
+  const ids=new Set(dicentang.map(x=>x.dataset.id));
+  if(!confirm(`Lunasi ${ids.size} bon atas nama ${g.nama} senilai ${fmtRp(tot)}?\n\nUang dicatat masuk pada ${dateLabel(tgl)} lewat ${payName(pay)}. Report Daily tanggal itu akan menampilkannya sebagai pelunasan.`)) return;
+  (DB.piutang||[]).forEach(b=>{
+    if(!ids.has(b.id)) return;
+    b.status='lunas'; b.lunasDate=tgl; b.lunasPayKey=pay;
+    b.lunasBy=CURRENT_USER?CURRENT_USER.name:''; b.lunasAt=Date.now();
+  });
+  save(); render();
+}
+/* Salah tanggal / salah metode pelunasan diperbaiki dengan mengembalikannya ke
+   belum lunas lalu melunasi ulang — bukan dengan menyunting diam-diam, supaya
+   report hari yang salah ikut kembali benar. */
+function batalLunas(id){
+  if(!confirm('Kembalikan bon ini ke status BELUM LUNAS?\n\nPelunasannya akan hilang dari Report Daily tanggal tersebut.')) return;
+  (DB.piutang||[]).forEach(b=>{
+    if(b.id!==id) return;
+    b.status='open'; b.lunasDate=''; b.lunasPayKey=''; b.lunasBy=''; b.lunasAt=0;
+  });
+  save(); render();
+}
+function hapusBon(id){
+  if(!confirm('Hapus catatan bon ini?\n\nSelisih Report Daily tanggal billnya akan kembali tidak terjelaskan.')) return;
+  DB.piutang=(DB.piutang||[]).filter(b=>b.id!==id);
+  save(); render();
+}
 
 /* ============ 2. COMPLIMENT ============
    Di luar kalkulasi metode pembayaran: ini catatan SIAPA yang merelakan omset
@@ -1175,9 +1512,10 @@ const CAL_MON=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus
 const CAL_REG={
   rp:{ box:'rp_cal', get:()=>repDate,            set:ds=>{ repDate=ds; PERIOD=monthKeyOf(ds); } },
   cp:{ box:'cp_cal', get:()=>compDate,           set:ds=>{ compDate=ds; PERIOD=monthKeyOf(ds); } },
-  rk:{ box:'rk_cal', get:()=>rokokDate,          set:ds=>{ rokokDate=ds; PERIOD=monthKeyOf(ds); } }
+  rk:{ box:'rk_cal', get:()=>rokokDate,          set:ds=>{ rokokDate=ds; PERIOD=monthKeyOf(ds); } },
+  bn:{ box:'bn_cal', get:()=>bonDate,            set:ds=>{ bonDate=ds; PERIOD=monthKeyOf(ds); } }
 };
-const CAL_ST={ rp:{open:false,month:null}, cp:{open:false,month:null}, rk:{open:false,month:null} };
+const CAL_ST={ rp:{open:false,month:null}, cp:{open:false,month:null}, rk:{open:false,month:null}, bn:{open:false,month:null} };
 function ymdLocal(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function dateLabel(ds){ const d=new Date(ds+'T00:00:00'); return isNaN(d)?ds:d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'short',year:'numeric'}); }
 function paintCal(key){ const el=document.getElementById(CAL_REG[key].box); if(el) el.innerHTML=calInner(key); }
