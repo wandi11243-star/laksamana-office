@@ -61,6 +61,19 @@ define('ADMIN_FEE', 5000);
    kursinya dilepas sendiri dan boleh diambil orang lain. */
 define('HOLD_MINUTES', 10);
 
+/* ---------- POSTER EVENT ----------
+   Poster diunggah lewat EMS dan disimpan sebagai BERKAS di disk, bukan di
+   database — jadi berbagi database saja tidak cukup untuk menampilkannya di
+   situs customer. Dua baris ini hanya perlu diisi kalau ?action=ping melaporkan
+   poster: {"cara":"tidak ada jalan"} atau posternya tetap tidak muncul.
+
+   EVENT_FILES_DIR = folder 'files' milik event-api-mysql (lihat berkas_dir()
+   di event-mysql/lib_event_mysql.php; bawaannya <akun>/event-db/files).
+   EVENT_API_URL   = alamat api.php milik EMS. Dipakai sebagai jalan kedua:
+   browser pembeli diarahkan ke sana untuk mengambil gambarnya. */
+// define('EVENT_FILES_DIR', '/home/NAMAAKUN/event-db/files');
+// define('EVENT_API_URL',   'https://office.laksamanamuda.id/event-api-mysql/api.php');
+
 /* Batas lembar tiket reguler per kategori dalam satu pesanan. Penahannya bukan
    kesopanan: pesanan Pending ikut mengurangi sisa kuota sampai invoicenya
    kedaluwarsa, jadi satu orang yang memesan 500 lembar lalu tidak membayar

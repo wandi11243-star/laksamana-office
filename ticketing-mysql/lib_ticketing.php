@@ -129,6 +129,18 @@ function identitas() {
     'xendit' => xendit_mode(),
     'simulasi_bayar' => mode_simulasi(),
     'config' => defined('CONFIG_DIPAKAI') ? CONFIG_DIPAKAI : '?',
+    /* POSTER: dari mana gambarnya diambil.
+       Poster pernah gagal tampil dua kali berturut-turut karena letak folder
+       berkas EMS berbeda antara dev dan produksi, dan dari luar kegagalannya
+       terlihat sama saja: kotak kosong. Sekarang ping menjawabnya langsung —
+       'berkas' kalau ketemu di disk (beserta foldernya), 'alihkan' kalau
+       browser diarahkan ke API EMS, atau 'tidak ada jalan' kalau dua-duanya
+       gagal. Satu buka halaman, bukan satu putaran tebak-tebakan. */
+    'poster' => (($d = event_files_dir()) !== '')
+      ? array('cara' => 'berkas', 'folder' => $d)
+      : (($u = poster_url_ems('CONTOH.jpg')) !== ''
+          ? array('cara' => 'alihkan', 'ke' => $u)
+          : array('cara' => 'tidak ada jalan')),
   ));
 }
 /* Tiga sebab "belum diisi" DIBEDAKAN, karena penanganannya berbeda dan dari
@@ -325,23 +337,68 @@ function sisa_kelas($eid) {
    berkas_dir() di lib_event_mysql.php). Keduanya di-deploy ke server yang sama
    dan sama-sama satu tingkat di bawah docroot, jadi jalur relatifnya sama
    persis. Kalau hostingnya lain, isi EVENT_FILES_DIR di config. */
+/* KENAPA KANDIDATNYA BANYAK, BUKAN SATU TEBAKAN.
+   Versi pertama menebak satu jalur dengan anggapan ticketing-api dan
+   event-api-mysql sama-sama satu tingkat di bawah docroot. Di dev memang begitu,
+   TAPI DI PRODUKSI TIDAK: modul Office tinggal di /public_html/office/ sementara
+   situs customer di /public_html/ticketing/ — jadi "naik tiga tingkat" dari
+   ticketing-api mendarat di tempat yang berbeda, dan posternya tetap 404.
+   Itu sebab bug ini tidak selesai pada percobaan pertama.
+
+   Sekarang semua susunan yang masuk akal dicoba, dan yang ketemu diingat.
+   Kalau tak satu pun ketemu, masih ada jalan kedua (lihat poster_url_ems). */
 function event_files_dir() {
-  if (defined('EVENT_FILES_DIR') && EVENT_FILES_DIR !== '') return rtrim(EVENT_FILES_DIR, '/\\');
-  foreach (array(__DIR__ . '/../../../event-db/files',   // di luar public_html (bawaan)
-                 __DIR__ . '/../event-api-mysql/db/files') as $d) {
-    if (is_dir($d)) return $d;
+  static $ketemu = null;
+  if ($ketemu !== null) return $ketemu;
+  if (defined('EVENT_FILES_DIR') && EVENT_FILES_DIR !== '' && is_dir(EVENT_FILES_DIR))
+    return $ketemu = rtrim(EVENT_FILES_DIR, '/\\');
+  $doc = isset($_SERVER['DOCUMENT_ROOT']) ? rtrim($_SERVER['DOCUMENT_ROOT'], '/\\') : '';
+  $cal = array(
+    __DIR__ . '/../../../event-db/files',                 // ticketing-api sejajar event-api (dev)
+    __DIR__ . '/../../event-db/files',
+    __DIR__ . '/../event-db/files',
+    __DIR__ . '/../event-api-mysql/db/files',             // berkas terpaksa di dalam web
+    __DIR__ . '/../office/event-api-mysql/db/files',
+    __DIR__ . '/../../office/event-api-mysql/db/files',
+  );
+  if ($doc !== '') {
+    $cal[] = $doc . '/../event-db/files';
+    $cal[] = $doc . '/../../event-db/files';
+    $cal[] = $doc . '/event-api-mysql/db/files';
+    $cal[] = $doc . '/office/event-api-mysql/db/files';
   }
-  return '';
+  foreach ($cal as $d) if (is_dir($d)) return $ketemu = $d;
+  return $ketemu = '';
+}
+/* JALAN KEDUA: minta gambarnya ke API EMS sendiri.
+   EMS sudah menyajikan poster yang sama dengan sukses lewat ?action=file, jadi
+   kalau berkasnya tidak terjangkau dari sini, browser pembeli tinggal diarahkan
+   ke sana. Gambar tidak terikat aturan CORS, jadi beda domain bukan masalah.
+   Alamatnya boleh dipatok di config (EVENT_API_URL); kalau tidak, disimpulkan
+   dari host — produksi memakai subdomain office, dev satu domain dengan
+   modulnya. */
+function poster_url_ems($key) {
+  if (defined('EVENT_API_URL') && EVENT_API_URL !== '')
+    return EVENT_API_URL . '?action=file&key=' . rawurlencode($key);
+  $h = strtolower(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
+  if ($h === '') return '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  $host  = (strpos($h, 'dev.') === 0) ? $h : ('office.' . preg_replace('/^www\./', '', $h));
+  return $skema . '://' . $host . '/event-api-mysql/api.php?action=file&key=' . rawurlencode($key);
 }
 function sajikan_poster($eid) {
   $rows = ambil('SELECT data FROM events WHERE id = :i', array(':i' => (string)$eid));
   if (!$rows || !boleh_dijual(isset($rows[0]['status']) ? $rows[0]['status'] : '')) { http_response_code(404); exit; }
   $key = isset($rows[0]['poster_img']['key']) ? (string)$rows[0]['poster_img']['key'] : '';
+  if ($key === '') { http_response_code(404); exit; }
   $dir = event_files_dir();
-  if ($key === '' || $dir === '') { http_response_code(404); exit; }
   // Nama berkas dibersihkan dengan aturan yang sama seperti saat disimpan.
-  $p = $dir . '/' . preg_replace('/[^A-Za-z0-9._-]/', '_', $key);
-  if (!is_file($p)) { http_response_code(404); exit; }
+  $p = $dir === '' ? '' : $dir . '/' . preg_replace('/[^A-Za-z0-9._-]/', '_', $key);
+  if ($p === '' || !is_file($p)) {
+    $alt = poster_url_ems($key);
+    if ($alt !== '') { header('Location: ' . $alt, true, 302); exit; }
+    http_response_code(404); exit;
+  }
   $ext  = strtolower(pathinfo($p, PATHINFO_EXTENSION));
   $peta = array('jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png',
                 'webp'=>'image/webp','gif'=>'image/gif');

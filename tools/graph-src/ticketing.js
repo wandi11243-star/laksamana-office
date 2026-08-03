@@ -522,7 +522,13 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
+
+
 function gambarEvent() { go(); posterUrl(); tgl(); jam(); punyaDenah(); ringkasHTML(); }
+
+
+
+
 
 
 
