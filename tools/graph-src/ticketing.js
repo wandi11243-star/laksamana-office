@@ -1298,6 +1298,12 @@ function gambarBarHp() { go(); toast(); langkahHTML(); ringkasHTML(); api(); sim
 
 
 
+
+
+
+
+
+
 function simpanTiketku() { go(); kirimAkun(); }
 
 
