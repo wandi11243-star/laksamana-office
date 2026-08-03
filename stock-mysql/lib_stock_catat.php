@@ -37,6 +37,9 @@ function pur_data_obj($raw) {
    ini tumbuh terus dan tidak ada gunanya mengirim setahun penuh ke browser
    hanya untuk membuang 90%-nya di sana. */
 function pur_filter_tanggal(&$sql, &$par, $kolom = 'tanggal') {
+  // Nama kolom juga tidak bisa diparameterkan — alasannya sama persis dengan
+  // pur_ada_baris() di bawah.
+  if (!preg_match('/^[a-z_]{1,32}$/', (string)$kolom)) throw new Exception('Kolom tidak dikenal.');
   $dari = trim((string)($_GET['dari'] ?? ''));
   $ke   = trim((string)($_GET['ke']   ?? ''));
   if ($dari !== '') { $sql .= " AND `$kolom` >= ?"; $par[] = $dari; }
@@ -48,6 +51,13 @@ function pur_filter_tanggal(&$sql, &$par, $kolom = 'tanggal') {
    Fungsi ini yang membedakan keduanya, supaya menyimpan tanpa perubahan
    tidak dilaporkan sebagai gagal. */
 function pur_ada_baris($pdo, $tabel, $id) {
+  /* Nama tabel TIDAK bisa diparameterkan di SQL, jadi ia harus datang dari
+     daftar tertutup. Hari ini semua pemanggilnya menulis nama tabel sebagai
+     teks tetap — aman. Daftar ini menjaga hari esok: satu pemanggil baru yang
+     meneruskan nilai dari permintaan pengguna berhenti di sini, bukan berubah
+     jadi celah injeksi yang tidak kelihatan di tempat kejadiannya. */
+  $boleh = array('usage_events', 'waste', 'opname', 'orders', 'purchase_requests');
+  if (!in_array($tabel, $boleh, true)) throw new Exception('Tabel tidak dikenal: ' . $tabel);
   $st = $pdo->prepare("SELECT 1 FROM `$tabel` WHERE `id`=? LIMIT 1");
   $st->execute([$id]);
   return (bool)$st->fetchColumn();

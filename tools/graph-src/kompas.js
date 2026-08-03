@@ -415,6 +415,8 @@
 
 
 
+
+
 function pct() {  }
 
 
@@ -579,7 +581,15 @@ function seed() {  }
 
 
 
-function normalizeDB() { seed(); }
+function normalizeDB() { seed(); omsetKasir(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -701,6 +711,41 @@ function taxSvcOf() {  }
 function tagihanOf() { netOf(); taxSvcOf(); }
 function avgSpendOf() { netOf(); }
 function itemsOf() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function omsetKasir() {  }
+function diskonKasir() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function selfRow() {  }
+function selfOmset() { selfRow(); }
+function selfDiskon() { selfRow(); }
 
 
 
@@ -1526,7 +1571,12 @@ function calInner() { todayISO(); calToggle(); dateLabel(); getDay(); calPickDay
 
 
 
-function viewBreakdown() { daysOfMonth(); todayISO(); getDay(); calInner(); dateLabel(); netOf(); taxSvcOf(); compsOn(); }
+function viewBreakdown() { daysOfMonth(); todayISO(); getDay(); calInner(); dateLabel(); netOf(); omsetKasir(); selfOmset(); taxSvcOf(); compsOn(); }
+
+
+
+
+
 
 
 
@@ -1639,7 +1689,7 @@ function kasirAktif() {  }
 
 
 
-function bukaBagi() { modalBagiHasil(); calc(); sumKasir(); save(); potonganBaris(); kasirAktif(); }
+function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBaris(); kasirAktif(); }
 
 
 
@@ -1723,6 +1773,28 @@ function drawKs() { empName(); calc(); buangDariShift(); drawMk(); drawEv(); isi
 
 
 
+
+
+
+
+
+
+
+function drawSo() { calc(); sumDiakui(); formatAllRp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bind() { segarkanBagi(); calc(); }
 
 
@@ -1737,11 +1809,6 @@ function bind() { segarkanBagi(); calc(); }
 
 
 
-function sumKasir() {  }
-
-
-
-function isiSisa() { sumKasir(); drawKs(); calc(); }
 
 
 
@@ -1749,16 +1816,17 @@ function isiSisa() { sumKasir(); drawKs(); calc(); }
 
 
 
+function sumKasirSaja() { omsetKasir(); }
+function sumDiakui() { sumKasirSaja(); }
 
 
-function kartuEfek() { potonganBaris(); empName(); }
+function sumDiskon() { diskonKasir(); }
 
 
 
 
 
-
-
+function isiSisa() { omsetKasir(); sumDiakui(); drawKs(); calc(); }
 
 
 
@@ -1768,9 +1836,52 @@ function kartuEfek() { potonganBaris(); empName(); }
 
 
 
+function kartuEfek() { potonganBaris(); diskonKasir(); omsetKasir(); empName(); }
 
 
-function calc() { sumKasir(); kartuEfek(); potonganBaris(); porsiPic(); save(); render(); drawMk(); drawEv(); drawKs(); viewBulanan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empName(); porsiPic(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); viewBulanan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1877,6 +1988,7 @@ function cetakDashboardOmset() { pct(); }
 
 
 
+
 function waDashboardOmset() {  }
 
 
@@ -1913,11 +2025,11 @@ function waDashboardOmset() {  }
 
 
 
-function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); compsRentang(); pct(); modeHarian(); dailyTarget(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
 
 
 
 
+function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); dailyTarget(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
 
 
 
@@ -2011,7 +2123,36 @@ function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); c
 
 
 
-function viewAnalytics() { rentangAktif(); porsiPic(); potonganHari(); modeHarian(); labelRentang(); pieOpts(); emptyCanvas(); barCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewAnalytics() { rentangAktif(); porsiPic(); omsetKasir(); potonganHari(); diskonKasir(); selfOmset(); selfDiskon(); modeHarian(); labelRentang(); pieOpts(); emptyCanvas(); barCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2286,7 +2427,26 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2369,7 +2529,7 @@ function viewSummary() { rentangAktif(); porsiPic(); potonganHari(); }
 
 
 
-function realBy() { potonganHari(); porsiPic(); compPicRentang(); targetPic(); }
+function realBy() { omsetKasir(); potonganHari(); porsiPic(); compPicRentang(); targetPic(); }
 
 
 

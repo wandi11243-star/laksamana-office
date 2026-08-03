@@ -51,8 +51,19 @@ function keluar($o) { echo json_encode($o, JSON_UNESCAPED_UNICODE); exit; }
 $metode = $_SERVER['REQUEST_METHOD'];
 $body = array();
 if ($metode === 'POST') {
-  $raw = file_get_contents('php://input');
-  $body = json_decode($raw, true);
+  /* BATAS UKURAN BADAN PERMINTAAN.
+     Endpoint ini tidak pernah menerima kiriman besar: yang terbesar pun cuma
+     daftar kursi dan data pemesan. Tanpa batas, satu permintaan berisi puluhan
+     megabyte JSON cukup untuk membuat PHP menghabiskan memori server — tidak
+     butuh celah apa pun, cukup koneksi cepat dan kesabaran. */
+  $raw = file_get_contents('php://input', false, null, 0, 256 * 1024 + 1);
+  if (strlen($raw) > 256 * 1024) {
+    http_response_code(413);
+    keluar(array('ok' => false, 'error' => 'Permintaan terlalu besar.'));
+  }
+  /* Kedalaman JSON dibatasi: struktur bersarang ribuan tingkat bisa membuat
+     parsernya kehabisan tumpukan sebelum satu baris kode kita sempat jalan. */
+  $body = json_decode($raw, true, 16);
   if (!is_array($body)) $body = array();
 }
 $aksi = $metode === 'POST'
@@ -65,7 +76,26 @@ $aksi = $metode === 'POST'
 $hdr = isset($_SERVER['HTTP_X_CALLBACK_TOKEN']) ? $_SERVER['HTTP_X_CALLBACK_TOKEN'] : '';
 if ($metode === 'POST' && $hdr !== '' && $aksi === '') $aksi = 'webhook';
 
-$G = function ($k, $d = '') { return isset($_GET[$k]) ? $_GET[$k] : $d; };
+/* PENJAGA BENTUK MASUKAN.
+   Semua kueri di sini sudah memakai prepared statement, jadi ini bukan tambalan
+   untuk injeksi — ia lapis kedua. Nilai yang bentuknya jelas salah (id sepanjang
+   sepuluh ribu huruf, larik di tempat yang seharusnya teks) dihentikan di pintu
+   masuk, bukan dibiarkan mengembara ke dalam logika. Dua alasannya:
+
+   1. Kalau suatu hari ada kueri yang lalai memakai placeholder, nilai yang
+      sudah tersaring bentuknya tidak bisa berubah jadi perintah SQL.
+   2. Galat yang muncul jadi jujur ("id tidak sah") alih-alih pesan aneh dari
+      kedalaman kode, yang selalu lebih sulit ditelusuri.
+
+   Id, token, dan kode pesanan di sistem ini seluruhnya dibuat sendiri oleh
+   server dari huruf, angka, titik, garis bawah, dan strip. */
+function idBersih($v, $maks = 128) {
+  if (is_array($v) || is_object($v)) return '';
+  $v = trim((string)$v);
+  if ($v === '' || strlen($v) > $maks) return '';
+  return preg_match('/^[A-Za-z0-9._\-]+$/', $v) ? $v : '';
+}
+$G = function ($k, $d = '') { $v = isset($_GET[$k]) ? $_GET[$k] : $d; return is_array($v) ? $d : $v; };
 $B = function ($k, $d = '') use ($body) { return isset($body[$k]) ? $body[$k] : $d; };
 
 try {
@@ -77,25 +107,32 @@ try {
     keluar(array('ok' => true, 'data' => events_publik()));
 
   } else if ($aksi === 'event') {
-    $e = event_satu($G('id'));
+    $e = event_satu(idBersih($G('id')));
     if (!$e) keluar(array('ok' => false, 'error' => 'Event tidak ditemukan atau belum dijual.'));
     keluar(array('ok' => true, 'data' => $e));
 
   } else if ($aksi === 'poster') {
     // Bukan JSON — sajikan_poster() mengatur header gambarnya lalu keluar.
-    sajikan_poster($G('id'));
+    sajikan_poster(idBersih($G('id')));
 
   } else if ($aksi === 'denah') {
-    keluar(array('ok' => true, 'data' => denah($G('id'), $G('hold'))));
+    keluar(array('ok' => true, 'data' => denah(idBersih($G('id')), idBersih($G('hold')))));
 
   } else if ($aksi === 'hold') {
     $seats = $B('seats', array());
     if (!is_array($seats) || !$seats) keluar(array('ok' => false, 'error' => 'Tidak ada kursi yang dipilih.'));
-    keluar(array('ok' => true, 'data' => tahan_kursi($B('event_id'), $seats, $B('hold_token'))));
+    /* Sekali menahan paling banyak 20 kursi, dan tiap idnya disaring bentuknya.
+       Batasnya bukan soal sopan santun: satu permintaan berisi sepuluh ribu id
+       menahan kunci basis data selama pemeriksaannya berjalan, dan selama itu
+       tidak ada pembeli lain yang bisa memilih apa pun. */
+    $seats = array_values(array_filter(array_map('idBersih', array_slice($seats, 0, 20))));
+    if (!$seats) keluar(array('ok' => false, 'error' => 'Daftar kursi tidak sah.'));
+    keluar(array('ok' => true, 'data' => tahan_kursi(idBersih($B('event_id')), $seats, idBersih($B('hold_token')))));
 
   } else if ($aksi === 'release') {
     $s = $B('seats', null);
-    keluar(array('ok' => true, 'data' => lepas_kursi($B('hold_token'), is_array($s) ? $s : null)));
+    if (is_array($s)) $s = array_values(array_filter(array_map('idBersih', array_slice($s, 0, 50))));
+    keluar(array('ok' => true, 'data' => lepas_kursi(idBersih($B('hold_token')), is_array($s) ? $s : null)));
 
   } else if ($aksi === 'checkout') {
     keluar(array('ok' => true, 'data' => checkout($body)));
@@ -105,7 +142,7 @@ try {
 
   } else if ($aksi === 'simbayar') {
     // Hanya hidup di server non-produksi yang menyalakan XENDIT_MOCK.
-    keluar(array('ok' => true, 'data' => simulasi_bayar($B('ref'), $B('token'))));
+    keluar(array('ok' => true, 'data' => simulasi_bayar(idBersih($B('ref')), idBersih($B('token')))));
 
   /* ---- akun pembeli ----
      Token sesi dikirim di badan (POST) atau ?sesi= (GET). Tidak memakai
@@ -118,7 +155,7 @@ try {
     keluar(array('ok' => true, 'data' => masuk($body)));
 
   } else if ($aksi === 'keluar') {
-    keluar(array('ok' => true, 'data' => keluar_sesi($B('sesi'))));
+    keluar(array('ok' => true, 'data' => keluar_sesi(idBersih($B('sesi')))));
 
   } else if ($aksi === 'lupaPassword') {
     keluar(array('ok' => true, 'data' => lupa_password($B('email'))));
@@ -127,10 +164,10 @@ try {
     keluar(array('ok' => true, 'data' => reset_password($B('token'), $B('password'))));
 
   } else if ($aksi === 'saya') {
-    keluar(array('ok' => true, 'data' => user_publik(user_dari_sesi($G('sesi')))));
+    keluar(array('ok' => true, 'data' => user_publik(user_dari_sesi(idBersih($G('sesi'))))));
 
   } else if ($aksi === 'tiketSaya') {
-    keluar(array('ok' => true, 'data' => tiket_saya(user_dari_sesi($G('sesi')))));
+    keluar(array('ok' => true, 'data' => tiket_saya(user_dari_sesi(idBersih($G('sesi'))))));
 
   } else if ($aksi === 'ujiEmail') {
     /* Uji kirim sebelum ada pembeli sungguhan yang mengandalkannya. Hanya di
@@ -148,7 +185,7 @@ try {
     keluar(array('ok' => true, 'data' => array('terkirim_ke' => $G('ke'))));
 
   } else if ($aksi === 'order') {
-    keluar(array('ok' => true, 'data' => status_pesanan($G('ref'), $G('token'))));
+    keluar(array('ok' => true, 'data' => status_pesanan(idBersih($G('ref')), idBersih($G('token')))));
 
   } else {
     keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $aksi));
@@ -167,5 +204,14 @@ try {
     $tokenSalah = strpos($e->getMessage(), 'callback') !== false || strpos($e->getMessage(), 'Token') !== false;
     http_response_code($tokenSalah ? 401 : 500);
   }
-  keluar(array('ok' => false, 'error' => $e->getMessage()));
+  /* GALAT DATABASE TIDAK DICERITAKAN KE PUBLIK.
+     Pesan PDO memuat potongan SQL, nama tabel, kadang nama kolom dan pengguna
+     database — peta gratis bagi siapa pun yang sedang mencari celah. Pesan
+     buatan kita sendiri (Exception) memang ditujukan untuk dibaca pembeli
+     ("Kursi 12 keburu terjual"), jadi itu tetap diteruskan apa adanya.
+     Yang teknis dicatat ke log server, tempat kru bisa membacanya. */
+  $internal = ($e instanceof PDOException) || ($e instanceof Error);
+  if ($internal) error_log('[ticketing] ' . $e->getMessage());
+  keluar(array('ok' => false,
+    'error' => $internal ? 'Terjadi gangguan di server. Coba lagi sebentar lagi.' : $e->getMessage()));
 }
