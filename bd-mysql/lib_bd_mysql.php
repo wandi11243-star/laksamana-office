@@ -29,7 +29,11 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-23d');
+/* Dinaikkan tiap kali berkas ini diunggah ulang. bd-mysql TIDAK ikut deploy
+   otomatis (tidak ada di .github/workflows) — ia diunggah manual, jadi angka
+   inilah satu-satunya cara memastikan yang di server memang versi terbaru:
+   buka <host>/bd-api-mysql/api.php?action=ping dan cocokkan `versi`. */
+define('LIB_VERSI', '2026-08-03a');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -276,6 +280,18 @@ function baca_state() {
   // Fokus harian per orang: {peopleId: {teks, tgl}}
   $out['focus'] = get_setting('focus', new stdClass());
 
+  /* Susunan penanda tangan PR: [{id,nama,bawaan,orang:[peopleId,…]}, …].
+     Disimpan di tabel `settings`, BUKAN sebagai koleksi bertabel sendiri.
+     Alasannya bukan kemalasan: koleksi lewat saveAll direkonsiliasi (baris
+     yang tidak ikut dikirim DIHAPUS), dan untuk daftar sependek ini tabel
+     tersendiri berarti satu migrasi SQL lagi yang harus dijalankan manual di
+     dua database — dan migrasi yang tertinggal di produksi sudah pernah
+     mematikan satu modul di repo ini.
+
+     Bawaannya array kosong, bukan objek: frontend membacanya dengan
+     Array.isArray(). */
+  $out['approverSets'] = get_setting('approverSets', array());
+
   /* Jam SERVER saat state ini dibaca. Klien menyimpannya lalu mengirimkannya
      balik sebagai `sinceTs` waktu menyimpan — itulah yang menentukan baris
      mana yang boleh dihapus (lihat hapus_yang_hilang).
@@ -424,6 +440,11 @@ function save_all($state, $sinceTs = 0) {
     }
 
     if (isset($state['focus'])) put_setting($pdo, 'focus', $state['focus']);
+    /* isset() saja TIDAK cukup di sini kalau nanti nilainya boleh null —
+       array_key_exists dipakai supaya set yang sengaja dikosongkan (semua set
+       dihapus) benar-benar tersimpan sebagai kosong, bukan diabaikan sehingga
+       daftar lama hidup lagi di muat berikutnya. */
+    if (array_key_exists('approverSets', $state)) put_setting($pdo, 'approverSets', $state['approverSets']);
 
     $pdo->commit();
   } catch (Throwable $e) {
