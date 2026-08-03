@@ -713,11 +713,16 @@ const PR_COLOR     = {Draft:"p-mute",Diajukan:"p-warn",Disetujui:"p-sea",Selesai
    dibuat, bukan dibaca dari sini tiap kali ditampilkan: PR tahun lalu harus
    tetap menunjukkan siapa yang menyetujuinya waktu itu, walau jabatannya
    sekarang dipegang orang lain. */
-const PENYETUJU = [
-  {k:'finance', l:'FINANCE', nama:'Dina Mariana'},
-  {k:'ceo',     l:'CEO',     nama:'Howandi Chandra'},
-  {k:'head',    l:'HEAD',    nama:'Wandi Pranata'}
-];
+/* PENYETUJU_BIBIT — dipakai HANYA sekali, saat data belum punya satu pun set
+   penyetuju (lihat setDefault). Sesudah itu daftarnya hidup di DB.approverSets
+   dan diatur lewat sub-tab Purchasing → Penyetuju.
+
+   Dulu konstanta ini yang dipakai langsung: tiga jabatan dipatok di kode
+   beserta namanya. Dua hal jadi tidak mungkin — jabatannya mengikuti
+   Tim/Keterangan di User Database, dan PR dari divisi berbeda memakai
+   penanda tangan yang berbeda (Marketing tidak sama dengan Business
+   Development). */
+const PENYETUJU_BIBIT = ['Dina Mariana','Howandi Chandra','Wandi Pranata'];
 
 /* ============ ALAT ============ */
 function $(s){return document.querySelector(s);}
@@ -1078,11 +1083,18 @@ function terapkanRoster(members){
     }
     if(!p){
       DB.people.push({id:uid('u'),officeUserId:m.id,name:m.name||'(tanpa nama)',
-        role:'',div:'',boss:'',active:m.active!==false});
+        ket:m.keterangan||'',role:'',div:'',boss:'',active:m.active!==false});
       berubah=true; return;
     }
-    // Nama & keaktifan milik Office — di sini cuma disalin, tidak pernah diedit.
+    /* Nama, keaktifan, dan KETERANGAN milik Office — di sini cuma disalin,
+       tidak pernah diedit. `ket` (Tim/Keterangan di Office) dipakai sebagai
+       jabatan yang tercetak di kolom tanda tangan PR: FINANCE/CEO/HEAD tidak
+       lagi dipatok di kode, melainkan mengikuti apa yang tertulis di User
+       Database. Dibedakan dari `role`/`div` yang memang milik BD OS sendiri
+       dan boleh diedit di Kru BD. */
     if(p.name!==m.name && m.name){ p.name=m.name; berubah=true; }
+    var ketBaru=m.keterangan||'';
+    if(String(p.ket||'')!==ketBaru){ p.ket=ketBaru; berubah=true; }
     var aktif=m.active!==false;
     if(!!p.active!==aktif){ p.active=aktif; berubah=true; }
     if(p.tanpaAkses){ delete p.tanpaAkses; berubah=true; }
@@ -2132,6 +2144,7 @@ function vPurchasing(){
       '<button class="'+(poMode==='pr'?'on':'')+'" onclick="APP.setPoMode(\'pr\')">PR Mingguan</button>'+
       '<button class="'+(poMode==='daftar'?'on':'')+'" onclick="APP.setPoMode(\'daftar\')">Semua Item</button>'+
       '<button class="'+(poMode==='minggu'?'on':'')+'" onclick="APP.setPoMode(\'minggu\')">Rekap</button>'+
+    '<button class="'+(poMode==='setuju'?'on':'')+'" onclick="APP.setPoMode(\'setuju\')">Penyetuju</button>'+
     '</div>'+
     '<button class="btn pri" onclick="APP.requestModal()">'+ic('plus')+'Request Order</button>');
 
@@ -2141,7 +2154,10 @@ function vPurchasing(){
     stat('Nilai berjalan',fRpPenuh(nilai),'belum diterima','tl')+
   '</div>';
 
-  return h+(poMode==='pr'?vPrList():(poMode==='minggu'?poRekapMingguan():poDaftar()));
+  return h+(poMode==='pr'?vPrList()
+          :poMode==='minggu'?poRekapMingguan()
+          :poMode==='setuju'?vPenyetuju()
+          :poDaftar());
 }
 
 function poDaftar(){
@@ -2412,7 +2428,7 @@ function vPrList(){
   return h+'<div class="tw"><table><thead><tr>'+
     '<th>PR No</th><th>Tanggal</th><th>Periode</th><th>Penyusun</th><th>Dept</th>'+
     '<th>Isi lembar</th><th>Item</th><th>Grand total</th>'+
-    PENYETUJU.map(function(s){return '<th>'+s.l+'</th>';}).join('')+
+    penyetujuPr(null).map(function(s){return '<th>'+esc(s.l)+'</th>';}).join('')+
     '<th>Status</th><th></th></tr></thead><tbody>'+
     urut.map(function(x){
       var t=prTotal(x.id), items=prItems(x.id);
@@ -2428,7 +2444,7 @@ function vPrList(){
           (nama.length?esc(nama.join(', '))+(sisa?' <b>+'+sisa+' lagi</b>':''):'<i>belum ada item</i>')+'</span></td>'+
         '<td><span class="num">'+items.length+'</span>'+(t.belum?'<div>'+pill(t.belum+' tanpa harga','p-warn')+'</div>':'')+'</td>'+
         '<td><span class="nm num" style="white-space:nowrap">'+fRpPenuh(t.grand)+'</span></td>'+
-        PENYETUJU.map(function(s){
+        penyetujuPr(x).map(function(s){
           var a=(x.approvals||{})[s.k]||{};
           return '<td>'+(a.at?pill('✓ '+fTgl(a.at),'p-go'):pill('belum','p-mute'))+'</td>';
         }).join('')+
@@ -2463,7 +2479,7 @@ function buatPr(){
 
   var senin=awalMinggu(todayISO());
   var approvals={};
-  PENYETUJU.forEach(function(s){ approvals[s.k]={nama:s.nama, at:'', oleh:''}; });
+  penyetujuPr(null).forEach(function(s){ approvals[s.k]={nama:s.nama, at:'', oleh:''}; });
   var pr={
     id:uid('pr'), no:prNoBerikut(),
     nama:(AKU&&AKU.name)||((sesi()||{}).name)||'—',
@@ -2477,7 +2493,13 @@ function buatPr(){
   save(); bukaPr(pr.id);
   toast('PR-'+pr.no+' dibuat dari '+bebas.length+' request');
 }
-function bukaPr(id){ prAktif=id; view='prDetail'; render(); window.scrollTo(0,0); }
+function bukaPr(id){
+  prAktif=id;
+  // Persetujuan lama berkunci 'finance'/'ceo'/'head' dipindah ke id orang saat
+  // lembarnya dibuka — kalau tidak, PR yang sudah disetujui tampil kosong lagi.
+  migrasiApprovals(DB.pr.find(function(x){return x.id===id;}));
+  view='prDetail'; render(); window.scrollTo(0,0);
+}
 function hapusPr(id){
   var n=prItems(id).length;
   if(!confirm('Hapus dokumen PR ini?\n\n'+n+' item di dalamnya TIDAK ikut terhapus — '+
@@ -2606,8 +2628,25 @@ function vPrDetail(){
     })()+
   '</table></div>';
 
+  /* Pemilih set penanda tangan. no-print: yang tercetak kotak tanda tangannya,
+     bukan kontrol untuk menggantinya. Ditaruh tepat di atas blok APPROVE BY
+     supaya jelas apa yang diubahnya. */
+  {
+    var setsAda=approverSets(), setKini=setPr(pr);
+    h+='<div class="no-print" style="max-width:1000px;margin:14px auto 0;display:flex;gap:9px;align-items:center;flex-wrap:wrap">'+
+      '<span style="font-size:12px;color:var(--muted);font-weight:600">Susunan penanda tangan</span>'+
+      '<select onchange="APP.pilihSetPr(this.value)" style="padding:6px 10px;border:1.5px solid var(--line);border-radius:8px">'+
+        setsAda.map(function(st){
+          return '<option value="'+esc(st.id)+'"'+(st.id===(setKini||{}).id?' selected':'')+'>'+
+                 esc(st.nama||'Tanpa nama')+(st.bawaan?' (bawaan)':'')+'</option>';
+        }).join('')+
+      '</select>'+
+      '<span style="font-size:11.5px;color:var(--muted)">Atur daftarnya di <b>Purchasing → Penyetuju</b></span>'+
+    '</div>';
+  }
+
   h+='<div class="doc-ttd"><div class="doc-ttd-h">APPROVE BY</div><div class="doc-ttd-g">'+
-    PENYETUJU.map(function(s){
+    penyetujuPr(pr).map(function(s){
       var a=(pr.approvals||{})[s.k]||{};
       return '<div class="doc-ttd-c">'+
         '<div class="doc-ttd-j">'+s.l+'</div>'+
@@ -2729,6 +2768,140 @@ function isiRealisasi(id,nilai){
   _rzTimer=setTimeout(function(){ save(); }, 500);
 }
 
+/* Sub-tab Purchasing → Penyetuju. Mengatur susunan penanda tangan, boleh
+   lebih dari satu set. Jabatan TIDAK bisa diketik di sini — ia dibaca dari
+   Tim/Keterangan orangnya di User Database Office, dan ditampilkan apa adanya
+   supaya jelas dari mana asalnya. Orang yang keterangannya masih kosong
+   ditandai, karena jabatannya akan tercetak sebagai "—" di lembar PR. */
+function vPenyetuju(){
+  setBawaan();                                  // pastikan minimal ada satu set
+  var sets=approverSets();
+  var bisaAtur=adminModul();
+  var orangOpsi=(DB.people||[]).filter(function(p){return p.active!==false;})
+    .slice().sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''));});
+
+  var h='<div class="card"><div class="card-h"><h3>Susunan Penanda Tangan PR</h3>'+
+    '<span class="tagn">'+sets.length+' set</span></div>'+
+    '<div class="card-b"><p style="color:var(--muted);line-height:1.6;margin:0 0 14px">'+
+      'Tiap lembar PR memakai salah satu set di bawah. Buat set terpisah kalau penanda tangannya '+
+      'berbeda — mis. PR Marketing dan PR Business Development. Set bertanda <b>bawaan</b> dipakai '+
+      'untuk PR baru yang belum memilih.<br>'+
+      '<b>Jabatan diambil dari Tim/Keterangan di User Database Office</b>, tidak diketik di sini — '+
+      'jadi perubahan jabatan di Office langsung ikut ke lembar PR.'+
+    '</p>';
+
+  if(!bisaAtur) h+='<div class="notice">Hanya admin BD yang bisa mengubah susunan ini.</div>';
+
+  sets.forEach(function(st){
+    h+='<div style="border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px">'+
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'+
+        '<input value="'+esc(st.nama||'')+'" '+(bisaAtur?'':'disabled ')+
+          'onchange="APP.setNamaSet(\''+st.id+'\',this.value)" '+
+          'style="font-weight:700;padding:6px 10px;border:1.5px solid var(--line);border-radius:8px;min-width:180px">'+
+        (st.bawaan?'<span class="tag">bawaan</span>'
+                 :(bisaAtur?'<button class="btn sm" onclick="APP.jadikanSetBawaan(\''+st.id+'\')">Jadikan bawaan</button>':''))+
+        '<div style="flex:1"></div>'+
+        (bisaAtur&&sets.length>1&&!st.bawaan?'<button class="btn sm danger" onclick="APP.hapusSet(\''+st.id+'\')">Hapus set</button>':'')+
+      '</div>'+
+      '<div class="tw"><table><thead><tr><th style="width:36px">#</th><th>Nama</th>'+
+        '<th>Jabatan (dari Office)</th><th style="width:44px"></th></tr></thead><tbody>'+
+      ((st.orang||[]).map(function(pid,i){
+        var p=(DB.people||[]).find(function(x){return x.id===pid;});
+        if(!p) return '<tr><td class="c">'+(i+1)+'</td><td colspan="2"><span class="muted">'+
+          'Orang ini sudah tidak ada di daftar kru</span></td>'+
+          '<td class="c">'+(bisaAtur?'<button class="iconbtn" onclick="APP.hapusDariSet(\''+st.id+'\',\''+esc(pid)+'\')">'+ic('x')+'</button>':'')+'</td></tr>';
+        var jab=jabatanOrang(p);
+        return '<tr><td class="c">'+(i+1)+'</td><td><span class="nm">'+esc(p.name)+'</span></td>'+
+          '<td>'+(jab==='—'
+            ? '<span class="muted" title="Tim/Keterangan orang ini masih kosong di Office — jabatannya akan tercetak sebagai — di lembar PR">— belum diisi di Office</span>'
+            : '<span class="tag">'+esc(jab)+'</span>')+'</td>'+
+          '<td class="c">'+(bisaAtur?'<button class="iconbtn" title="Keluarkan" onclick="APP.hapusDariSet(\''+st.id+'\',\''+esc(pid)+'\')">'+ic('x')+'</button>':'')+'</td></tr>';
+      }).join('')||'<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:16px">Belum ada penanda tangan</td></tr>')+
+      '</tbody></table></div>'+
+      (bisaAtur?'<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+
+        '<select id="add_'+st.id+'" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:8px;min-width:200px">'+
+          orangOpsi.map(function(p){
+            return '<option value="'+esc(p.id)+'">'+esc(p.name)+(jabatanOrang(p)!=='—'?' · '+esc(jabatanOrang(p)):'')+'</option>';
+          }).join('')+'</select>'+
+        '<button class="btn sm" onclick="APP.tambahKeSet(\''+st.id+'\')">+ Tambah penanda tangan</button>'+
+      '</div>':'')+
+    '</div>';
+  });
+
+  if(bisaAtur) h+='<button class="btn" onclick="APP.tambahSet()">+ Set penyetuju baru</button>';
+  return h+'</div></div>';
+}
+
+/* ================= SET PENYETUJU =====================================
+   Satu "set" = satu susunan penanda tangan untuk lembar PR. Boleh lebih dari
+   satu: PR Marketing dan PR Business Development memakai orang yang berbeda,
+   dan sebelumnya itu tidak mungkin karena daftarnya dipatok di kode.
+
+   Bentuk: { id, nama, orang:[personId,…], bawaan:true|false }
+   `orang` menyimpan ID BARIS PEOPLE, bukan nama — nama bisa berubah di Office
+   dan set yang menyimpan nama akan diam-diam kehilangan orangnya. Jabatan
+   yang tercetak TIDAK disimpan di sini sama sekali: ia selalu dibaca ulang
+   dari Tim/Keterangan orang itu, jadi promosi yang dicatat di Office langsung
+   ikut ke lembar PR tanpa ada yang perlu menyunting apa pun di BD. */
+function approverSets(){
+  if(!Array.isArray(DB.approverSets)) DB.approverSets=[];
+  return DB.approverSets;
+}
+/* Set bawaan. Dibuat sekali dari PENYETUJU_BIBIT kalau belum ada satu pun —
+   supaya instalasi lama tetap punya susunan yang sama seperti sebelumnya, dan
+   tidak ada lembar PR yang tiba-tiba kehilangan kolom tanda tangannya. */
+function setBawaan(){
+  var s=approverSets();
+  if(!s.length){
+    s.push({ id:uid('as'), nama:'Default', bawaan:true,
+      orang:PENYETUJU_BIBIT.map(function(nm){
+        var p=(DB.people||[]).find(function(x){
+          return String(x.name||'').trim().toLowerCase()===nm.trim().toLowerCase();});
+        return p?p.id:null;
+      }).filter(Boolean) });
+  }
+  return s.find(function(x){return x.bawaan;})||s[0];
+}
+function setPr(pr){
+  var s=approverSets();
+  return (pr&&pr.setId&&s.find(function(x){return x.id===pr.setId;})) || setBawaan();
+}
+/* Jabatan yang tercetak di bawah kotak tanda tangan. Sumbernya Tim/Keterangan
+   Office (p.ket). Kalau kosong, jatuh ke role BD, lalu ke '—' — bukan ke
+   tebakan: kolom jabatan yang mengarang isi pada dokumen yang ditandatangani
+   lebih berbahaya daripada kolom yang mengaku tidak tahu. */
+function jabatanOrang(p){
+  var t=String((p&&p.ket)||'').trim() || String((p&&p.role)||'').trim();
+  return t ? t.toUpperCase() : '—';
+}
+/* Daftar penanda tangan untuk satu PR, dalam bentuk yang dipakai penggambar:
+   {k, l, nama, pid}. `k` = kunci approval, memakai ID ORANG supaya persetujuan
+   tetap menempel pada orangnya walau posisinya di set digeser. */
+function penyetujuPr(pr){
+  var set=setPr(pr);
+  return (set&&set.orang||[]).map(function(pid){
+    var p=(DB.people||[]).find(function(x){return x.id===pid;});
+    if(!p) return null;
+    return { k:p.id, l:jabatanOrang(p), nama:p.name||'—', pid:p.id };
+  }).filter(Boolean);
+}
+/* MIGRASI approvals lama. Sebelum ini kuncinya 'finance'/'ceo'/'head'; sekarang
+   id orang. Dipindahkan saat lembarnya dibuka, berdasarkan urutan set bawaan —
+   itu urutan yang sama dengan konstanta lama. Tanpa ini, PR yang sudah
+   disetujui akan tampil kosong lagi seolah persetujuannya hilang. */
+function migrasiApprovals(pr){
+  if(!pr||!pr.approvals) return;
+  var lama=['finance','ceo','head'], set=setBawaan(), ubah=false;
+  lama.forEach(function(k,i){
+    var a=pr.approvals[k];
+    if(!a) return;
+    var pid=(set&&set.orang||[])[i];
+    if(pid && !pr.approvals[pid]){ pr.approvals[pid]=a; ubah=true; }
+    delete pr.approvals[k]; ubah=true;
+  });
+  if(ubah) save();
+}
+
 /* ---- SIAPA YANG BOLEH MENEKAN SETUJUI --------------------------------
    Nama penyetuju diambil dari User Database Office (DB.people, hasil sinkron
    roster) berdasarkan NAMA di PENYETUJU — bukan dipatok id, karena id akun
@@ -2744,7 +2917,10 @@ function isiRealisasi(id,nilai){
    tetap PDF bertanda tangan. Kalau suatu saat harus jadi otorisasi, tempat
    pemeriksaannya WAJIB di server. */
 function orangPenyetuju(s){
-  var nm=String(s.nama||'').trim().toLowerCase();
+  // s.pid sudah id baris people (dari penyetujuPr). Pencocokan nama hanya
+  // cadangan untuk pemanggil lama yang cuma punya nama.
+  if(s&&s.pid) return (DB.people||[]).find(function(p){return p.id===s.pid;})||null;
+  var nm=String((s&&s.nama)||'').trim().toLowerCase();
   return (DB.people||[]).find(function(p){
     return String(p.name||'').trim().toLowerCase()===nm;
   })||null;
@@ -2752,7 +2928,13 @@ function orangPenyetuju(s){
 function bolehSetuju(s){
   if(adminModul()) return true;                       // admin BD / superadmin
   var aku=String((sesi()||{}).name||'').trim().toLowerCase();
-  return !!aku && aku===String(s.nama||'').trim().toLowerCase();
+  if(!aku) return false;
+  /* Dicocokkan lewat officeUserId kalau ada — nama bisa berbeda tipis antara
+     sesi Office dan baris people ("Howandi" vs "Howandi Chandra"), dan
+     pencocokan nama mentah akan menolak orang yang sebenarnya berhak. */
+  var p=orangPenyetuju(s), sid=(sesi()||{}).id;
+  if(p&&sid&&p.officeUserId&&String(p.officeUserId)===String(sid)) return true;
+  return aku===String((s&&s.nama)||'').trim().toLowerCase();
 }
 /* Alasan tombolnya mati — ditulis apa adanya supaya tidak ada yang mengira
    halamannya rusak. Nama yang BELUM terdaftar di Office disebut terpisah:
@@ -2774,7 +2956,7 @@ function setujuPr(kunci,batal){
   var pr=DB.pr.find(function(x){return x.id===prAktif;});
   if(!pr) return;
   pr.approvals=pr.approvals||{};
-  var def=PENYETUJU.find(function(s){return s.k===kunci;})||{};
+  var def=penyetujuPr(pr).find(function(s){return s.k===kunci;})||{};
   /* Gerbang yang SAMA dipakai tombolnya dan di sini. Tombol yang mati masih
      bisa dipanggil dari konsol, dan membatalkan persetujuan orang lain sama
      seriusnya dengan memberikannya. */
@@ -2788,7 +2970,7 @@ function setujuPr(kunci,batal){
     a.oleh=(sesi()||{}).name||'?';
   }
   pr.approvals[kunci]=a;
-  var semua=PENYETUJU.every(function(s){return (pr.approvals[s.k]||{}).at;});
+  var semua=penyetujuPr(pr).every(function(s){return (pr.approvals[s.k]||{}).at;});
   if(semua && pr.status!=='Selesai') pr.status='Disetujui';
   if(!semua && pr.status==='Disetujui') pr.status='Diajukan';
   save(); render();
@@ -2808,7 +2990,7 @@ function prModal(id){
         '<div class="field"><label>Name (penyusun)</label><input id="r_nama" value="'+esc(pr.nama||'')+'"></div>'+
         '<div class="field"><label>Department</label><input id="r_dept" value="'+esc(pr.dept||'')+'"></div></div>'+
       '<div class="field"><label>Nama penyetuju</label><div class="frow3">'+
-        PENYETUJU.map(function(s){
+      penyetujuPr(pr).map(function(s){
           var a=(pr.approvals||{})[s.k]||{};
           return '<div><label style="font-size:10px">'+s.l+'</label>'+
             '<input id="r_ap_'+s.k+'" value="'+esc(a.nama||s.nama)+'"></div>';
@@ -2834,7 +3016,7 @@ function simpanPr(id){
   pr.no=no; pr.tanggal=g('r_tgl'); pr.nama=g('r_nama').trim(); pr.dept=g('r_dept').trim();
   pr.catatan=g('r_cat').trim();
   pr.approvals=pr.approvals||{};
-  PENYETUJU.forEach(function(s){
+  penyetujuPr(pr).forEach(function(s){
     var a=pr.approvals[s.k]||{at:'',oleh:''};
     a.nama=g('r_ap_'+s.k).trim()||s.nama;
     pr.approvals[s.k]=a;
@@ -3455,6 +3637,55 @@ window.APP={
   },
   statusPr:statusPr, setujuPr:setujuPr, lepasDariPr:lepasDariPr, masukkanKePr:masukkanKePr,
   isiRealisasi:isiRealisasi,
+  /* Pengurus set penyetuju. Semuanya dijaga adminModul() — sama seperti
+     tombol-tombolnya di layar, karena tombol yang disembunyikan masih bisa
+     dipanggil dari konsol. */
+  tambahSet:function(){
+    if(!adminModul()) return toast('Hanya admin BD yang bisa mengubah susunan penyetuju');
+    approverSets().push({id:uid('as'),nama:'Set baru',bawaan:false,orang:[]});
+    save(); render();
+  },
+  hapusSet:function(id){
+    if(!adminModul()) return toast('Hanya admin BD yang bisa mengubah susunan penyetuju');
+    var s=approverSets(), st=s.find(function(x){return x.id===id;});
+    if(!st||st.bawaan) return;
+    var dipakai=(DB.pr||[]).filter(function(p){return p.setId===id;}).length;
+    if(!confirm('Hapus set "'+(st.nama||'')+'"?'+(dipakai?'\n\n'+dipakai+' lembar PR memakainya dan akan kembali ke set bawaan.':''))) return;
+    (DB.pr||[]).forEach(function(p){ if(p.setId===id) delete p.setId; });
+    DB.approverSets=s.filter(function(x){return x.id!==id;});
+    save(); render(); toast('Set dihapus');
+  },
+  setNamaSet:function(id,v){
+    if(!adminModul()) return;
+    var st=approverSets().find(function(x){return x.id===id;});
+    if(st){ st.nama=String(v||'').trim()||'Tanpa nama'; save(); }
+  },
+  jadikanSetBawaan:function(id){
+    if(!adminModul()) return toast('Hanya admin BD yang bisa mengubah susunan penyetuju');
+    approverSets().forEach(function(x){ x.bawaan = (x.id===id); });
+    save(); render(); toast('Set bawaan diganti');
+  },
+  tambahKeSet:function(id){
+    if(!adminModul()) return toast('Hanya admin BD yang bisa mengubah susunan penyetuju');
+    var st=approverSets().find(function(x){return x.id===id;}); if(!st) return;
+    var sel=document.getElementById('add_'+id); if(!sel||!sel.value) return;
+    st.orang=st.orang||[];
+    // Satu orang tidak boleh dua kali di set yang sama — dua kotak tanda
+    // tangan atas nama orang yang sama tidak berarti apa-apa.
+    if(st.orang.indexOf(sel.value)>-1) return toast('Orang itu sudah ada di set ini');
+    st.orang.push(sel.value); save(); render();
+  },
+  hapusDariSet:function(id,pid){
+    if(!adminModul()) return toast('Hanya admin BD yang bisa mengubah susunan penyetuju');
+    var st=approverSets().find(function(x){return x.id===id;}); if(!st) return;
+    st.orang=(st.orang||[]).filter(function(x){return x!==pid;});
+    save(); render();
+  },
+  pilihSetPr:function(v){
+    var pr=DB.pr.find(function(x){return x.id===prAktif;}); if(!pr) return;
+    if(v) pr.setId=v; else delete pr.setId;
+    save(); render();
+  },
   /* Cetak dipanggil setelah satu putaran render selesai. Tanpa jeda, Chrome
      kadang membuka dialog cetak sebelum gambar kop selesai dimuat, dan
      lembarnya tercetak tanpa logo. */

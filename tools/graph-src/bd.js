@@ -720,6 +720,11 @@
 
 
 
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -1062,6 +1067,13 @@ function ambilRoster() {  }
 
 
 function terapkanRoster() { uid(); }
+
+
+
+
+
+
+
 
 
 
@@ -2122,7 +2134,11 @@ function poRequester() { P(); }
 
 
 
-function vPurchasing() { head(); requestModal(); ic(); stat(); fRpPenuh(); vPrList(); poRekapMingguan(); poDaftar(); }
+function vPurchasing() { head(); requestModal(); ic(); stat(); fRpPenuh(); vPrList(); poRekapMingguan(); vPenyetuju(); poDaftar(); }
+
+
+
+
 
 
 
@@ -2342,7 +2358,7 @@ function prNoBerikut() {  }
 
 function poBebas() {  }
 
-function vPrList() { poBebas(); buatPr(); ic(); poModal(); esc(); poRequester(); fRpPenuh(); fTgl(); fWaktu(); hapusPo(); kosong(); prTotal(); prItems(); bukaPr(); labelMinggu(); todayISO(); pill(); hapusPr(); }
+function vPrList() { poBebas(); buatPr(); ic(); poModal(); esc(); poRequester(); fRpPenuh(); fTgl(); fWaktu(); hapusPo(); kosong(); penyetujuPr(); prTotal(); prItems(); bukaPr(); labelMinggu(); todayISO(); pill(); hapusPr(); }
 
 
 
@@ -2442,7 +2458,7 @@ function idTerpilihPr() {  }
 
 
 
-function buatPr() { idTerpilihPr(); poBebas(); toast(); prNoBerikut(); fRpPenuh(); awalMinggu(); todayISO(); uid(); sesi(); prTotal(); save(); bukaPr(); }
+function buatPr() { idTerpilihPr(); poBebas(); toast(); prNoBerikut(); fRpPenuh(); awalMinggu(); todayISO(); penyetujuPr(); uid(); sesi(); prTotal(); save(); bukaPr(); }
 
 
 
@@ -2477,7 +2493,13 @@ function buatPr() { idTerpilihPr(); poBebas(); toast(); prNoBerikut(); fRpPenuh(
 
 
 
-function bukaPr() { render(); }
+function bukaPr() { migrasiApprovals(); render(); }
+
+
+
+
+
+
 function hapusPr() { prItems(); save(); render(); toast(); }
 
 
@@ -2488,7 +2510,24 @@ function hapusPr() { prItems(); save(); render(); toast(); }
 
 
 
-function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); selRealisasi(); selOverbudget(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); selRealisasi(); selOverbudget(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); approverSets(); setPr(); penyetujuPr(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2734,6 +2773,140 @@ function isiRealisasi() { selOverbudget(); save(); }
 
 
 
+function vPenyetuju() { setBawaan(); approverSets(); adminModul(); esc(); ic(); jabatanOrang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function approverSets() {  }
+
+
+
+
+
+
+function setBawaan() { approverSets(); uid(); }
+
+
+
+
+
+
+
+
+
+
+
+function setPr() { approverSets(); setBawaan(); }
+
+
+
+
+
+
+
+function jabatanOrang() {  }
+
+
+
+
+
+
+function penyetujuPr() { setPr(); jabatanOrang(); }
+
+
+
+
+
+
+
+
+
+
+
+function migrasiApprovals() { setBawaan(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2749,7 +2922,16 @@ function orangPenyetuju() {  }
 
 
 
-function bolehSetuju() { adminModul(); sesi(); }
+
+
+
+function bolehSetuju() { adminModul(); sesi(); orangPenyetuju(); }
+
+
+
+
+
+
 
 
 
@@ -2770,7 +2952,7 @@ function alasanTakBolehSetuju() { orangPenyetuju(); }
 
 
 
-function setujuPr() { bolehSetuju(); toast(); alasanTakBolehSetuju(); todayISO(); sesi(); save(); render(); }
+function setujuPr() { penyetujuPr(); bolehSetuju(); toast(); alasanTakBolehSetuju(); todayISO(); sesi(); save(); render(); }
 
 
 
@@ -2794,7 +2976,7 @@ function setujuPr() { bolehSetuju(); toast(); alasanTakBolehSetuju(); todayISO()
 
 
 
-function prModal() { showModal(); esc(); ic(); simpanPr(); }
+function prModal() { showModal(); esc(); ic(); penyetujuPr(); simpanPr(); }
 
 
 
@@ -2821,7 +3003,7 @@ function prModal() { showModal(); esc(); ic(); simpanPr(); }
 
 
 
-function simpanPr() { g(); toast(); save(); render(); }
+function simpanPr() { g(); toast(); penyetujuPr(); save(); render(); }
 
 
 
@@ -3353,7 +3535,56 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 
-function showModal() { $(); taskModal(); render(); barisRequest(); nomoriBarisReq(); ic(); toast(); sinkronRoster(); cetakIdentitas(); }
+function showModal() { $(); taskModal(); render(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
