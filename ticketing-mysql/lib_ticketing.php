@@ -306,6 +306,16 @@ function sapu_pending_xendit($maks = 3) {
      Finished  sudah lewat
      Cancelled batal */
 function boleh_dijual($status) {
+  /* HANYA EVENT YANG SUDAH DISETUJUI MANAJEMEN.
+     Sejak 3 Agustus 2026 EMS cuma punya tiga status: Planning (rencana, belum
+     disetujui), Upcoming (disetujui), Event Done (sudah lewat). Yang boleh
+     dijual hanya Upcoming — dan itu justru inti dari alur persetujuannya:
+     rencana yang belum diketok manajemen tidak boleh sampai menagih uang orang
+     untuk acara yang barangkali tidak jadi.
+
+     'Today' dipertahankan di sini demi data lama yang belum ikut termigrasi
+     (migrasinya berjalan saat EMS dibuka, bukan di database), supaya event
+     hari-H tidak mendadak hilang dari situs customer di tengah acara. */
   return $status === 'Upcoming' || $status === 'Today';
 }
 function events_publik() {

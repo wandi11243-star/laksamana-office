@@ -294,9 +294,11 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .card-status{width:100%;margin-top:10px;padding:6px 8px;border-radius:7px;font:inherit;font-size:12px;
   background:var(--panel2);color:var(--txt);border:1px solid var(--line);cursor:pointer}
 .card-status:hover{border-color:var(--accent)}
-.card-status.st-Finished{color:var(--green)}
-.card-status.st-Cancelled{color:var(--grey)}
-.card-status.st-Today{color:var(--accent)}
+/* Warna status. "Event Done" mengandung spasi, jadi kelasnya ditulis dengan
+   garis bawah oleh kelasStatus() — CSS tidak bisa memakai kelas berspasi. */
+.card-status.st-Event_Done{color:var(--green)}
+.card-status.st-Upcoming{color:var(--accent)}
+.card-status.st-Planning{color:var(--muted)}
 /* Pemindai kamera check-in.
    Kotaknya diberi rasio tetap 4:3 dan videonya mengisi penuh — sebelumnya
    tingginya dibatasi max-height sementara lebarnya ikut layar, jadi di HP
@@ -806,6 +808,29 @@ function normalize(s){
   s=s||{};
   COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
   if(!Array.isArray(s.checkins)) s.checkins=[];
+  /* ---------- MIGRASI STATUS: LIMA JADI TIGA ----------
+     Lihat catatan di EVT_STATUS. Pemetaannya:
+       Draft     → Planning    (rencana yang belum disetujui — memang itu artinya)
+       Today     → Upcoming    ("Today" cuma keterangan tanggal, bukan keputusan)
+       Finished  → Event Done
+       Cancelled → Planning    dengan catatan di pengajuan
+
+     Cancelled sengaja TIDAK dipetakan ke Event Done: "selesai" berarti acaranya
+     terjadi, dan menyamakan yang batal dengan yang terlaksana akan merusak
+     setiap angka rekap yang menghitung acara. Dikembalikan ke Planning berarti
+     ia tetap ada, tidak dihitung sebagai acara, dan bisa dihidupkan lagi kalau
+     ternyata jadi. */
+  const PETA_STATUS={Draft:'Planning', Today:'Upcoming', Finished:'Event Done',
+                     Confirmed:'Upcoming', Ongoing:'Upcoming'};
+  (s.events||[]).forEach(function(e){
+    if(!e) return;
+    if(e.status==='Cancelled'){
+      e.status='Planning';
+      e.pengajuan=Object.assign({status:'Ditolak',oleh:'',pada:'',penyetuju:'sistem',
+        alasan:'Dipindahkan dari status lama "Cancelled" saat status EMS disederhanakan.'}, e.pengajuan||{});
+    } else if(PETA_STATUS[e.status]) e.status=PETA_STATUS[e.status];
+    else if(EVT_STATUS.indexOf(e.status)<0) e.status='Planning';
+  });
   /* ---------- OBJEK DENAH BERTAUT KE KELAS TIKET LEWAT ID ----------
      ldzSet() sudah menulis ticket_class_id sejak objeknya diberi tingkatan,
      tapi objek yang lahir SEBELUM itu — dari denah bawaan, dari template,
@@ -1270,19 +1295,29 @@ const NAV=[
   {h:'schedule',ic:'clock',t:'Talent Schedule'},
   {h:'fee',ic:'money',t:'Fee & Pembayaran'},
   {s:'Event'},
+  /* DUA PINTU UNTUK DUA PEKERJAAN YANG BERBEDA.
+     Menyusun rencana yang belum tentu jadi dan menjalankan acara yang sudah
+     pasti adalah dua kebiasaan kerja yang berbeda — mencampurnya di satu daftar
+     membuat acara yang benar-benar akan berjalan tenggelam di antara belasan
+     wacana. */
+  {h:'planning',ic:'star',t:'Perencanaan Event'},
   {h:'events',ic:'event',t:'Event Management'},
   {h:'ticketing',ic:'ticket',t:'Ticketing'},
   {h:'checkin',ic:'check',t:'Check-In'},
   {s:'Intelligence'},
   {h:'ideas',ic:'star',t:'Event Idea Bank'},
   {h:'history',ic:'timeline',t:'Event History'},
+  {s:'Pengaturan'},
+  {h:'akses',ic:'users',t:'Hak Akses'},
 ];
-const TITLES={dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History'};
+const TITLES={dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',planning:'Perencanaan Event',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History',akses:'Hak Akses'};
 function buildNav(){
   const nav=document.getElementById('nav');nav.innerHTML='';
   const cur=location.hash.replace('#/','').split('/')[0]||'dashboard';
   NAV.forEach(it=>{
     if(it.s){const d=document.createElement('div');d.className='sect';d.textContent=it.s;nav.appendChild(d);return;}
+    // Menu yang halamannya tertutup untuk peran ini tidak digambar sama sekali.
+    if(EMS_HALAMAN[it.h] && !bisaLihat(it.h)) return;
     const a=document.createElement('a');a.href='#/'+it.h;if(cur===it.h)a.className='active';
     /* Menekan menu yang SEDANG aktif tidak mengubah location.hash, jadi
        hashchange tidak berbunyi dan halaman tidak digambar ulang. Selama isi
@@ -1325,7 +1360,15 @@ function router(){
   if(DB && typeof autoSelesaikanJadwal==='function') autoSelesaikanJadwal();
   const parts=location.hash.replace('#/','').split('/');
   const page=parts[0]||'dashboard';const arg=parts[1];
-  const routes={dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,events:arg?renderEventDetail:renderEvents,ticketing:arg?renderTicketDetail:renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory};
+  const routes={dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,planning:renderPlanning,events:arg?renderEventDetail:renderEvents,ticketing:arg?renderTicketDetail:renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory,akses:renderAkses};
+  /* Halaman yang tertutup untuk peran ini dihentikan DI SINI, bukan cuma
+     disembunyikan dari menu — alamat halaman bisa diketik langsung. */
+  if(EMS_HALAMAN[page] && !bisaLihat(page)){
+    setTop(TITLES[page]||'Tidak tersedia','Akses ditolak','');
+    C().innerHTML='<div class="empty">Halaman ini tidak terbuka untuk peranmu ('
+      +esc(EMS_PERAN[peranSaya()]||peranSaya())+').<br><span class="mini">Hubungi manajemen kalau kamu memang perlu membukanya.</span></div>';
+    window.scrollTo(0,0); return;
+  }
   (routes[page]||renderDashboard)(arg);
   window.scrollTo(0,0);
 }
@@ -1363,7 +1406,7 @@ function uangInput(id,nilai,extra){
   return '<input id="'+id+'" inputmode="numeric" autocomplete="off" value="'+esc(uangFormat(nilai||0))
     +'" oninput="uangKetik(this)"'+(extra||'')+'>';
 }
-function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled:'b-yellow',Done:'b-green',Cancelled:'b-grey',Inactive:'b-grey',Paid:'b-green',Waiting:'b-yellow',Rejected:'b-red',Draft:'b-grey',Upcoming:'b-blue',Today:'b-yellow',Finished:'b-purple',Pending:'b-yellow',Approved:'b-green',Sold:'b-red',Available:'b-green','Checked-In':'b-blue',Valid:'b-green',Expired:'b-grey',Failed:'b-red',Refunded:'b-purple',Free:'b-blue',None:'b-grey'};return '<span class="badge '+(map[s]||'b-grey')+'">'+esc(s)+'</span>';}
+function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled:'b-yellow',Done:'b-green',Cancelled:'b-grey',Inactive:'b-grey',Paid:'b-green',Waiting:'b-yellow',Rejected:'b-red',Planning:'b-grey',Upcoming:'b-blue','Event Done':'b-purple',Pending:'b-yellow',Approved:'b-green',Sold:'b-red',Available:'b-green','Checked-In':'b-blue',Valid:'b-green',Expired:'b-grey',Failed:'b-red',Refunded:'b-purple',Free:'b-blue',None:'b-grey'};return '<span class="badge '+(map[s]||'b-grey')+'">'+esc(s)+'</span>';}
 
 /* ============ DASHBOARD ============ */
 /* ==================== OTOMATISASI ====================
@@ -1391,7 +1434,7 @@ function autoSelesaikanJadwal(){
 function perhatian(){
   const out=[]; const hariIni=new Date(); const hari=(d)=>Math.ceil((new Date(d)-hariIni)/86400000);
 
-  DB.events.filter(e=>['Upcoming','Today'].includes(e.status)).forEach(e=>{
+  DB.events.filter(e=>e.status==='Upcoming').forEach(e=>{
     const sisa=hari(e.start_datetime);
     if(sisa<=7 && !e.pic)
       out.push({w:'danger', t:'Event tanpa PIC', d:e.title+' tinggal '+(sisa<=0?'hari ini':sisa+' hari lagi'), go:'#/events/'+e.id});
@@ -1402,7 +1445,7 @@ function perhatian(){
     }
   });
 
-  DB.events.filter(e=>e.is_ticketed && ['Upcoming','Today'].includes(e.status)).forEach(e=>{
+  DB.events.filter(e=>e.is_ticketed && e.status==='Upcoming').forEach(e=>{
     const cls=DB.ticketClasses.filter(c=>c.event_id===e.id);
     const kuota=cls.reduce((a,c)=>a+c.quota,0), laku=cls.reduce((a,c)=>a+c.sold,0);
     if(kuota && laku/kuota>=0.9)
@@ -1430,7 +1473,12 @@ function renderDashboard(){
   setTop('Dashboard','Ringkasan operasional · '+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'}));
   const todayStr=dstr(new Date());
   const upcoming=DB.events.filter(e=>e.status==='Upcoming').length;
-  const todayEv=DB.events.filter(e=>e.status==='Today');
+  /* "Hari ini" sekarang dihitung dari TANGGALNYA, bukan dari status — status
+     'Today' sudah tidak ada (lihat EVT_STATUS). Ini juga lebih jujur: yang
+     menentukan sebuah acara berlangsung hari ini memang tanggalnya. */
+  const hariIni=dstr(new Date());
+  const todayEv=DB.events.filter(e=>e.status==='Upcoming'
+    && String(e.start_datetime||'').slice(0,10)===hariIni);
   const todaySched=DB.schedules.filter(s=>s.date===todayStr);
   const ticketRev=DB.orders.filter(o=>o.payment_status==='Paid').reduce((a,o)=>a+o.total,0);
   const ticketsSold=DB.ticketClasses.reduce((a,c)=>a+c.sold,0);
@@ -1478,7 +1526,7 @@ function renderDashboard(){
   <div class="card" style="margin-top:20px">
     <h3 class="sec">🎪 Event Terdekat</h3>
     <table><thead><tr><th>Event</th><th>Tanggal</th><th>Venue</th><th>PIC</th><th>Status</th><th>Tiket</th></tr></thead><tbody>
-    ${DB.events.filter(e=>['Upcoming','Today'].includes(e.status)).sort((a,b)=>new Date(a.start_datetime)-new Date(b.start_datetime)).map(e=>{const sold=DB.ticketClasses.filter(c=>c.event_id===e.id).reduce((a,c)=>a+c.sold,0);return `<tr style="cursor:pointer" onclick="location.hash='#/events/${e.id}'"><td><b>${e.poster} ${esc(e.title)}</b></td><td>${fmtDateTime(e.start_datetime)}</td><td>${esc(e.venue)}</td><td>${esc(e.pic)}</td><td>${statusBadge(e.status)}</td><td>${e.is_ticketed?sold+' terjual':'—'}</td></tr>`;}).join('')}
+    ${DB.events.filter(e=>e.status==='Upcoming').sort((a,b)=>new Date(a.start_datetime)-new Date(b.start_datetime)).map(e=>{const sold=DB.ticketClasses.filter(c=>c.event_id===e.id).reduce((a,c)=>a+c.sold,0);return `<tr style="cursor:pointer" onclick="location.hash='#/events/${e.id}'"><td><b>${e.poster} ${esc(e.title)}</b></td><td>${fmtDateTime(e.start_datetime)}</td><td>${esc(e.venue)}</td><td>${esc(e.pic)}</td><td>${statusBadge(e.status)}</td><td>${e.is_ticketed?sold+' terjual':'—'}</td></tr>`;}).join('')}
     </tbody></table>
   </div>`;
 }
@@ -2270,17 +2318,162 @@ function payHistory(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=D
 const EVT_CATS=['Free','Paid','Internal','Community','Corporate','Wedding','Festival','Music','Launching','Private'];
 const TIMELINE_PHASES=['Preparation','Marketing','Vendor','Talent','Decoration','Opening','Closing','Evaluation'];
 let evtFilter='all';
-const EVT_STATUS=['Draft','Upcoming','Today','Finished','Cancelled'];
+/* ================= TIGA STATUS, SATU ALUR PERSETUJUAN =================
+   Dulu ada lima status (Draft, Upcoming, Today, Finished, Cancelled) yang
+   diputar satu tombol. Tiga di antaranya tidak pernah jadi keputusan siapa pun:
+   "Today" cuma keterangan tanggal, dan "Draft" tidak membedakan rencana yang
+   masih dipikirkan dari rencana yang sudah disetujui manajemen.
+
+   Sekarang tiga, dan tiap perpindahannya adalah keputusan:
+     Planning    — masih disusun tim event; belum boleh jualan tiket
+     Upcoming    — SUDAH DISETUJUI manajemen; jadwal & anggarannya mengikat
+     Event Done  — sudah lewat
+
+   Yang memindahkan Planning → Upcoming BUKAN tombol, melainkan persetujuan.
+   Itu satu-satunya cara membuat "sudah disetujui" berarti sesuatu: kalau siapa
+   pun bisa menggeser statusnya sendiri, tanda setuju itu tidak menjamin apa-apa
+   dan orang berhenti mempercayainya. */
+const EVT_STATUS = ['Planning','Upcoming','Event Done'];
+
+/* ---------- PERAN & HAK AKSES (pola yang sama dengan modul Marketing) ----------
+   Marketing memakai matriks (halaman × peran) dengan tiga tingkat:
+     0 = tak terlihat   1 = boleh lihat   2 = boleh ubah
+   EMS memakai bentuk yang sama supaya kru tidak perlu belajar dua sistem izin
+   yang berbeda di dua modul yang mereka buka bergantian. */
+const EMS_PERAN = {
+  manajemen: 'Manajemen',        // Howandi, Wandi, super admin — yang menyetujui
+  event:     'Tim Event',        // menyusun rencana, menjalankan acara
+  kasir:     'Kasir / Ticketing',
+  lihat:     'Hanya Lihat'
+};
+const EMS_HALAMAN = {
+  dashboard:'Dashboard', calendar:'Event Calendar', talents:'Talent Management',
+  schedule:'Talent Schedule', fee:'Fee & Pembayaran', planning:'Perencanaan Event',
+  events:'Event Management', ticketing:'Ticketing', checkin:'Check-In',
+  ideas:'Event Idea Bank', history:'Event History', akses:'Hak Akses'
+};
+/* Bawaan yang dipilih supaya sistemnya bisa langsung dipakai tanpa disetel:
+   tim event mengerjakan semuanya kecuali menyetujui rencananya sendiri dan
+   mengatur hak akses; kasir hanya menyentuh penjualan & pintu masuk. */
+function emsPermBawaan() {
+  const P = {};
+  Object.keys(EMS_HALAMAN).forEach(function(h) {
+    P[h] = { manajemen: 2, event: 2, kasir: 1, lihat: 1 };
+  });
+  P.planning.kasir = 0;  P.planning.lihat = 1;
+  P.fee.kasir      = 0;  P.fee.lihat      = 0;   // angka honor talent bukan konsumsi umum
+  P.akses          = { manajemen: 2, event: 0, kasir: 0, lihat: 0 };
+  P.ticketing.kasir= 2;  P.checkin.kasir  = 2;
+  return P;
+}
+function emsPerm() {
+  if (!DB.perm || typeof DB.perm !== 'object' || Array.isArray(DB.perm)) DB.perm = emsPermBawaan();
+  // Halaman baru yang belum ada di data lama diberi bawaannya, bukan dibiarkan
+  // kosong — kosong berarti tak terlihat oleh siapa pun, termasuk manajemen.
+  const bawaan = emsPermBawaan();
+  Object.keys(bawaan).forEach(function(h) { if (!DB.perm[h]) DB.perm[h] = bawaan[h]; });
+  return DB.perm;
+}
+/* Peran orang yang sedang membuka. Sumbernya sesi Office yang sama dengan
+   modul lain; pemetaannya disimpan di DB.peran supaya bisa diatur dari layar
+   Hak Akses tanpa menyentuh Office. Yang belum pernah diatur: admin modul event
+   (adminModules) dianggap manajemen, sisanya tim event — itu keadaan paling
+   masuk akal untuk modul yang baru dipasang. */
+function emsSesi() {
+  try { return JSON.parse(localStorage.getItem('lm_session') || 'null') || {}; }
+  catch (_) { return {}; }
+}
+function peranSaya() {
+  const s = emsSesi();
+  if (!DB.peran || typeof DB.peran !== 'object' || Array.isArray(DB.peran)) DB.peran = {};
+  const id = s.userId || s.username || s.name || '';
+  if (id && DB.peran[id]) return DB.peran[id];
+  const admin = (s.adminModules || []).some(function (m) { return m === '*' || m === 'event'; });
+  return admin ? 'manajemen' : 'event';
+}
+function bisaLihat(h) { const p = emsPerm()[h]; return !!p && (p[peranSaya()] || 0) >= 1; }
+function bisaUbah(h)  { const p = emsPerm()[h]; return !!p && (p[peranSaya()] || 0) >= 2; }
+/* Menyetujui rencana bukan sekadar "boleh ubah halaman Planning" — itu
+   kewenangan yang berdiri sendiri, dan sengaja hanya milik manajemen. */
+function bisaSetujui() { return peranSaya() === 'manajemen'; }
+
+/* ---------- PENGAJUAN RENCANA ----------
+   Bentuk datanya sengaja sederhana: satu objek di dalam event, bukan koleksi
+   tersendiri. Satu event hanya punya satu pengajuan yang hidup, dan riwayat
+   penolakannya cukup disimpan sebagai catatan terakhir — kalau butuh jejak
+   panjang, tempatnya di log aktivitas, bukan di sini. */
+function pengajuan(e) { return (e && e.pengajuan) || null; }
+function statusPengajuan(e) { const p = pengajuan(e); return p ? p.status : 'Belum diajukan'; }
+function ajukanRencana(id) {
+  const e = DB.events.find(function (x) { return x.id === id; }); if (!e) return;
+  if (e.status !== 'Planning') { toast('Hanya rencana yang bisa diajukan.'); return; }
+  if (!e.title || !e.start_datetime || !e.venue) {
+    toast('Lengkapi dulu judul, tanggal, dan venue sebelum diajukan.'); return;
+  }
+  const p = pengajuan(e);
+  if (p && p.status === 'Menunggu') { toast('Rencana ini sudah diajukan dan sedang menunggu keputusan.'); return; }
+  e.pengajuan = { status:'Menunggu', oleh:namaKru(), pada:new Date().toISOString(), alasan:'' };
+  save(); toast('✓ Diajukan ke manajemen. Statusnya berubah begitu disetujui.');
+  router();
+}
+function setujuiRencana(id) {
+  if (!bisaSetujui()) { toast('Hanya manajemen yang bisa menyetujui rencana.'); return; }
+  const e = DB.events.find(function (x) { return x.id === id; }); if (!e) return;
+  e.pengajuan = Object.assign({}, e.pengajuan || {}, {
+    status:'Disetujui', penyetuju:namaKru(), disetujuiPada:new Date().toISOString(), alasan:''
+  });
+  /* Persetujuanlah yang memindahkan statusnya — bukan tombol status. statusAt
+     ikut dicatat supaya perapian otomatis tidak menarik balik event yang baru
+     saja disetujui (lihat autoSelesaikanEvent). */
+  e.status = 'Upcoming'; e.statusAt = Date.now();
+  save(); toast('✓ Disetujui — event pindah ke Upcoming dan tiketnya boleh dijual.');
+  router();
+}
+function tolakRencana(id) {
+  if (!bisaSetujui()) { toast('Hanya manajemen yang bisa menolak rencana.'); return; }
+  const e = DB.events.find(function (x) { return x.id === id; }); if (!e) return;
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Tolak Rencana</h3>'
+    +'<p class="mini">' + esc(e.title) + '</p>'
+    +'<div class="field"><label>Alasan *</label><textarea id="tol_alasan" rows="3" '
+    +'placeholder="mis. anggaran belum masuk, tanggal bentrok dengan acara lain"></textarea>'
+    +'<div class="mini">Alasannya wajib: penolakan tanpa alasan cuma memantulkan pekerjaan bolak-balik.</div></div>'
+    +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+    +'<button class="btn danger" onclick="tolakRencanaYakin(\'' + id + '\')">Tolak</button></div>');
+}
+function tolakRencanaYakin(id) {
+  const alasan = (document.getElementById('tol_alasan').value || '').trim();
+  if (!alasan) { toast('Alasan wajib diisi.'); return; }
+  const e = DB.events.find(function (x) { return x.id === id; }); if (!e) return;
+  e.pengajuan = Object.assign({}, e.pengajuan || {}, {
+    status:'Ditolak', penyetuju:namaKru(), disetujuiPada:new Date().toISOString(), alasan:alasan
+  });
+  e.status = 'Planning';   // tetap di perencanaan, boleh diperbaiki lalu diajukan lagi
+  save(); closeModal(); toast('Rencana ditolak — alasannya tercatat di kartunya.');
+  router();
+}
+
 /* Status diubah langsung dari dropdown di kartu, tidak perlu masuk ke detail
    lalu menekan "Ubah Status" berkali-kali sampai sampai ke status yang mau. */
 function setEventStatus(id,st){
   const e=DB.events.find(x=>x.id===id); if(!e)return;
+  /* PLANNING → UPCOMING TIDAK BISA LEWAT SINI.
+     Perpindahan itu hasil persetujuan manajemen (setujuiRencana). Kalau tombol
+     status bisa melakukannya juga, tanda "sudah disetujui" berhenti berarti
+     apa pun — siapa saja bisa menerbitkannya sendiri. */
+  if(e.status==='Planning' && st!=='Planning'){
+    toast('Rencana hanya naik ke Upcoming lewat persetujuan manajemen.');
+    renderPlanning(); return;
+  }
+  if(st==='Planning' && e.status!=='Planning' && !bisaSetujui()){
+    toast('Hanya manajemen yang bisa menarik event kembali ke Perencanaan.');
+    return;
+  }
   const lama=e.status; e.status=st;
   /* Jejak "status ini dipilih manusia, jam sekian". Dipakai autoSelesaikanEvent
      untuk tahu mana status yang boleh ia rapikan dan mana yang tidak. */
   e.statusAt=Date.now();
   save(); renderEvents();
-  toast('Status '+e.title+': '+lama+' → '+st+(st==='Finished'?' (data event terkunci)':''));
+  toast('Status '+e.title+': '+lama+' → '+st+(st==='Event Done'?' (data event terkunci)':''));
 }
 /* Event yang tanggalnya sudah lewat tapi masih "Upcoming"/"Today" dinaikkan
    sendiri jadi Finished — dulu harus diubah manual satu per satu, dan yang
@@ -2290,7 +2483,7 @@ function setEventStatus(id,st){
 function autoSelesaikanEvent(){
   const skrg=Date.now(); let ubah=0;
   DB.events.forEach(e=>{
-    if(!['Upcoming','Today'].includes(e.status))return;
+    if(e.status!=='Upcoming')return;   // Planning tidak pernah 'lewat' sendiri
     const selesai=new Date(e.end_datetime||e.start_datetime).getTime();
     if(!selesai||isNaN(selesai))return;
     /* PILIHAN MANUSIA MENANG ATAS PERAPIAN OTOMATIS.
@@ -2306,16 +2499,157 @@ function autoSelesaikanEvent(){
        berakhir — itu memang maksud aslinya: menyapu yang terlupakan, bukan
        membatalkan keputusan yang baru saja diambil. */
     if(e.statusAt && e.statusAt > selesai) return;
-    if(selesai<skrg){ e.status='Finished'; ubah++; }
+    if(selesai<skrg){ e.status='Event Done'; ubah++; }
   });
-  if(ubah){ save(); toast(ubah+' event yang tanggalnya sudah lewat dipindah ke Finished.'); }
+  if(ubah){ save(); toast(ubah+' event yang tanggalnya sudah lewat dipindah ke Event Done.'); }
   return ubah;
 }
+/* ============ PERENCANAAN EVENT ============
+   Isinya HANYA event berstatus Planning. Yang sudah disetujui pindah sendiri ke
+   Event Management — jadi halaman ini selalu berisi pekerjaan yang belum
+   selesai, bukan arsip. */
+let planFilter='all';
+function renderPlanning(){
+  const boleh=bisaUbah('planning'), setuju=bisaSetujui();
+  setTop('Perencanaan Event','Rencana yang belum disetujui manajemen',
+    boleh?'<button class="btn" onclick="eventForm(null,{status:\'Planning\'})">+ Rencana Baru</button>':'');
+  const semua=DB.events.filter(e=>e.status==='Planning');
+  const st=e=>statusPengajuan(e);
+  const saring={all:semua,
+    belum:semua.filter(e=>st(e)==='Belum diajukan'),
+    nunggu:semua.filter(e=>st(e)==='Menunggu'),
+    tolak:semua.filter(e=>st(e)==='Ditolak')};
+  const list=saring[planFilter]||semua;
+  const tab=(k,t)=>`<button class="${planFilter===k?'active':''}" onclick="planFilter='${k}';renderPlanning()">${t} (${saring[k].length})</button>`;
+
+  let h=`<div class="tabs">${tab('all','Semua')}${tab('belum','Belum diajukan')}${tab('nunggu','Menunggu keputusan')}${tab('tolak','Ditolak')}</div>`;
+  /* Manajemen melihat lebih dulu apa yang menunggu keputusannya — itu satu-
+     satunya alasan mereka membuka halaman ini. */
+  if(setuju && saring.nunggu.length)
+    h+=`<div class="tbl-note">${svg(IC.alert)}<span><b>${saring.nunggu.length} rencana</b> menunggu keputusanmu.</span></div>`;
+  if(!list.length){
+    h+='<div class="empty">'+(planFilter==='nunggu'?'Tidak ada yang menunggu keputusan.':'Belum ada rencana di sini.')+'</div>';
+    C().innerHTML=h; return;
+  }
+  h+='<div class="grid g3">'+list.map(function(e){
+    const p=pengajuan(e), s=st(e);
+    const chip=s==='Menunggu'?'<span class="badge b-yellow">Menunggu keputusan</span>'
+      :s==='Ditolak'?'<span class="badge b-red">Ditolak</span>'
+      :'<span class="badge b-grey">Belum diajukan</span>';
+    return `<div class="ecard">
+      <div class="cover" onclick="location.hash='#/events/${e.id}'">${posterCoverHTML(e)}
+        <span class="cat">${esc(e.category||'')}</span></div>
+      <div class="body">
+        <div class="t">${esc(e.title||'(tanpa judul)')}</div>
+        <div class="meta">📅 ${fmtDateTime(e.start_datetime)}</div>
+        <div class="meta">📍 ${esc(e.venue||'—')}</div>
+        <div class="meta">👤 ${esc(e.pic||'—')}</div>
+        <div style="margin:8px 0">${chip}</div>
+        ${p&&p.status==='Menunggu'?`<div class="mini">Diajukan ${esc(p.oleh||'')} · ${fmtDateTime(p.pada)}</div>`:''}
+        ${p&&p.status==='Ditolak'&&p.alasan?`<div class="mini" style="color:var(--red)">Alasan: ${esc(p.alasan)}</div>`:''}
+        <div class="pill-row" style="margin-top:10px">
+          <button class="btn ghost sm" onclick="location.hash='#/events/${e.id}'">Buka</button>
+          ${boleh&&s!=='Menunggu'?`<button class="btn sm" onclick="ajukanRencana('${e.id}')">Ajukan ke manajemen</button>`:''}
+          ${setuju&&s==='Menunggu'?`<button class="btn sm" onclick="setujuiRencana('${e.id}')">Setujui</button>
+            <button class="btn danger sm" onclick="tolakRencana('${e.id}')">Tolak</button>`:''}
+        </div>
+      </div></div>`;
+  }).join('')+'</div>';
+  C().innerHTML=h;
+}
+
+/* ============ HAK AKSES ============
+   Dua hal yang diatur di sini, dan sengaja dipisah karena pertanyaannya
+   berbeda: "siapa berperan apa" dan "peran itu boleh apa". */
+function renderAkses(){
+  const boleh=bisaUbah('akses');
+  setTop('Hak Akses','Siapa berperan apa, dan peran itu boleh membuka apa','');
+  const P=emsPerm();
+  const peran=Object.keys(EMS_PERAN);
+
+  let h='<div class="card"><h3 class="sec">Orang & Perannya</h3>'
+   +'<p class="mini" style="margin-bottom:10px">Nama diambil dari sesi Office. Yang belum pernah diatur dianggap <b>Tim Event</b>, kecuali admin modul Event yang dianggap <b>Manajemen</b>.</p>';
+  const s=emsSesi();
+  const idSaya=s.userId||s.username||s.name||'';
+  const daftar=Object.assign({}, DB.peran||{});
+  if(idSaya && !daftar[idSaya]) daftar[idSaya]=peranSaya();
+  h+='<div class="tbl-scroll"><table><thead><tr><th>Pengguna</th><th>Peran</th></tr></thead><tbody>';
+  Object.keys(daftar).forEach(function(id){
+    h+='<tr><td><b>'+esc(id)+'</b>'+(id===idSaya?' <span class="mini">(kamu)</span>':'')+'</td>'
+     +'<td>'+(boleh
+        ? '<select onchange="setPeran(\''+esc(id)+'\',this.value)">'+peran.map(function(r){
+            return '<option value="'+r+'"'+(daftar[id]===r?' selected':'')+'>'+EMS_PERAN[r]+'</option>'; }).join('')+'</select>'
+        : esc(EMS_PERAN[daftar[id]]||daftar[id]))+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  if(boleh){
+    h+='<div class="toolbar" style="margin-top:10px">'
+     +'<input id="ak_id" placeholder="Username / nama orang di Office" style="flex:1;min-width:200px">'
+     +'<select id="ak_peran">'+peran.map(r=>'<option value="'+r+'">'+EMS_PERAN[r]+'</option>').join('')+'</select>'
+     +'<button class="btn" onclick="tambahPeran()">Tambah</button></div>'
+     +'<p class="mini">Tulis persis seperti username Office-nya. Salah ketik berarti orangnya tetap memakai peran bawaan, bukan yang kamu pilih.</p>';
+  }
+  h+='</div>';
+
+  h+='<div class="card" style="margin-top:16px"><h3 class="sec">Matriks Izin</h3>'
+   +'<p class="mini" style="margin-bottom:10px">0 = tidak terlihat · 1 = boleh lihat · 2 = boleh ubah. Halaman yang bernilai 0 hilang dari menu <b>dan</b> ditolak kalau alamatnya diketik langsung.</p>'
+   +'<div class="tbl-scroll"><table><thead><tr><th>Halaman</th>'
+   +peran.map(r=>'<th>'+EMS_PERAN[r]+'</th>').join('')+'</tr></thead><tbody>';
+  Object.keys(EMS_HALAMAN).forEach(function(hal){
+    h+='<tr><td>'+esc(EMS_HALAMAN[hal])+'</td>';
+    peran.forEach(function(r){
+      const v=(P[hal]&&P[hal][r])||0;
+      h+='<td>'+(boleh
+        ? '<select onchange="setIzin(\''+hal+'\',\''+r+'\',this.value)">'
+          +[0,1,2].map(x=>'<option value="'+x+'"'+(v===x?' selected':'')+'>'+x+'</option>').join('')+'</select>'
+        : v)+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  if(boleh) h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="resetIzin()">Kembalikan ke bawaan</button></div>';
+  h+='</div>';
+  C().innerHTML=h;
+}
+function setPeran(id,r){
+  if(!bisaUbah('akses')) return;
+  if(!DB.peran||Array.isArray(DB.peran)) DB.peran={};
+  DB.peran[id]=r; save();
+  /* Menggambar ulang seluruh halaman, bukan cuma barisnya: mengubah peran bisa
+     mengubah menu yang boleh dilihat orang itu — termasuk peranmu sendiri. */
+  buildNav(); renderAkses(); toast('Peran '+id+' → '+EMS_PERAN[r]);
+}
+function tambahPeran(){
+  const id=(document.getElementById('ak_id').value||'').trim();
+  if(!id){ toast('Isi dulu username atau namanya.'); return; }
+  setPeran(id, document.getElementById('ak_peran').value);
+}
+function setIzin(hal,peran,nilai){
+  if(!bisaUbah('akses')) return;
+  const P=emsPerm(); P[hal]=P[hal]||{}; P[hal][peran]=+nilai;
+  /* PENJAGA: manajemen tidak boleh mengunci dirinya sendiri keluar dari halaman
+     Hak Akses. Kalau itu terjadi, satu-satunya jalan pulih adalah menyunting
+     database langsung — dan tidak ada seorang pun di lapangan yang bisa. */
+  if(hal==='akses' && peran==='manajemen' && +nilai<2){
+    P.akses.manajemen=2;
+    toast('Manajemen harus tetap bisa membuka Hak Akses — kalau tidak, tidak ada yang bisa membukanya lagi.');
+  }
+  save(); buildNav(); renderAkses();
+}
+function resetIzin(){ DB.perm=emsPermBawaan(); save(); buildNav(); renderAkses(); toast('Matriks izin dikembalikan ke bawaan.'); }
+
 function renderEvents(){
   autoSelesaikanEvent();
-  setTop('Event Management','Kelola event dari draft hingga selesai','<button class="btn" onclick="eventForm()">+ Event Baru</button>');
-  const filters=['all','Upcoming','Today','Finished','Cancelled','Draft'];
-  let list=DB.events.filter(e=>evtFilter==='all'||e.status===evtFilter);
+  setTop('Event Management','Event yang sudah disetujui manajemen',
+    bisaLihat('planning')?'<button class="btn ghost" onclick="location.hash=\'#/planning\'">Lihat Perencanaan</button>':'');
+  /* HALAMAN INI HANYA UNTUK YANG SUDAH PASTI.
+     Rencana yang belum disetujui punya rumahnya sendiri (Perencanaan Event) —
+     mencampur keduanya membuat acara yang benar-benar akan berjalan tenggelam
+     di antara wacana yang belum tentu jadi. Tombol "+ Event Baru" ikut pindah
+     ke sana: tidak ada event yang lahir langsung dalam keadaan disetujui. */
+  const filters=['all','Upcoming','Event Done'];
+  let list=DB.events.filter(e=>e.status!=='Planning')
+                    .filter(e=>evtFilter==='all'||e.status===evtFilter);
   C().innerHTML=`
   <div class="tabs">${filters.map(f=>`<button class="${evtFilter===f?'active':''}" onclick="evtFilter='${f}';renderEvents()">${f==='all'?'Semua':f}</button>`).join('')}</div>
   <div class="grid g3">
@@ -2329,7 +2663,7 @@ function renderEvents(){
     <div class="meta">📍 ${esc(e.venue)}</div>
     <div class="meta">👤 ${esc(e.pic)}</div>
     ${e.is_ticketed?`<div class="meta" style="margin-top:6px;color:var(--accent)">🎟️ ${sold} tiket · ${IDR(rev)}</div>`:'<div class="meta" style="margin-top:6px"><span class="pill">Non-ticketed</span></div>'}
-    <select class="card-status st-${e.status}" onclick="event.stopPropagation()" onchange="setEventStatus('${e.id}',this.value)">
+    <select class="card-status st-${String(e.status).replace(/ /g,"_")}" onclick="event.stopPropagation()" onchange="setEventStatus('${e.id}',this.value)">
       ${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}
     </select>
     </div></div>`;}).join('')||'<div class="empty">Tidak ada event.</div>'}
@@ -2414,7 +2748,7 @@ function renderEventDetail(id){
   const d=ensureDetails(id);
   const locked=e.status==='Finished';
   setTop(e.title,'<a href="#/events" style="color:var(--accent)">Events</a> / '+esc(e.title),
-    `<select class="card-status st-${e.status}" style="width:auto;margin:0" onchange="setEventStatusDetail('${id}',this.value)">${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select> <button class="btn ghost sm" onclick="eventForm('${id}')">✎ Edit</button>`);
+    `<select class="card-status st-${String(e.status).replace(/ /g,"_")}" style="width:auto;margin:0" onchange="setEventStatusDetail('${id}',this.value)">${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select> <button class="btn ghost sm" onclick="eventForm('${id}')">✎ Edit</button>`);
 
   /* Tujuh "tab" lama (Info & Marketing, Timeline, Rundown, Vendor, Budget,
      Sponsor, Task) DIGABUNG jadi satu halaman bertumpuk — seluruh detail event
@@ -2448,7 +2782,10 @@ function setEventStatusDetail(id,st){
   const lama=e.status; e.status=st; save(); renderEventDetail(id);
   toast('Status: '+lama+' → '+st+(st==='Finished'?' — data terkunci & masuk History.':''));
 }
-function cycleEventStatus(id){const order=['Draft','Upcoming','Today','Finished'];const e=DB.events.find(x=>x.id===id);const i=order.indexOf(e.status);if(e.status==='Cancelled'){e.status='Draft';}else if(i>=order.length-1){e.status='Cancelled';}else{e.status=order[i+1];}save();if(e.status==='Finished')toast('Event Finished → data terkunci & masuk History.');renderEventDetail(id);}
+/* Pemutar status lama DIHAPUS. Ia memutar lima status dalam satu lingkaran —
+   bentuk yang tidak lagi punya arti sejak Planning→Upcoming hanya boleh lewat
+   persetujuan manajemen. Perpindahan yang sah sekarang cuma dua, dan keduanya
+   punya jalannya sendiri: setujuiRencana() dan setEventStatus(). */
 function toggleTimeline(id,p){DB.eventDetails[id].timeline[p]=!DB.eventDetails[id].timeline[p];save();}
 function toggleTask(id,i){DB.eventDetails[id].tasks[i].done=!DB.eventDetails[id].tasks[i].done;save();renderEventDetail(id);}
 /* Rundown, Vendor & Task dulu diisi lewat prompt() beruntun — kotak abu-abu
@@ -2604,8 +2941,14 @@ function simpanSponsor(id){
 /* ============ TICKETING ============ */
 function renderTicketing(id){
   if(id)return renderTicketDetail(id);
-  setTop('Ticketing','Event ber-tiket, kelas tiket & penjualan','');
-  const evs=DB.events.filter(e=>e.is_ticketed);
+  setTop('Ticketing','Event ber-tiket yang sudah disetujui','');
+  /* RENCANA TIDAK PUNYA TIKET.
+     Event Planning belum diketok manajemen — menjualnya, entah lewat kasir di
+     sini atau lewat situs customer, berarti menagih uang orang untuk acara yang
+     barangkali tidak jadi. Situs customer sudah menolaknya di server
+     (boleh_dijual di lib_ticketing.php); halaman ini dulu belum, jadi kelas
+     tiket & penjualannya masih bisa dibuka dari sini. */
+  const evs=DB.events.filter(e=>e.is_ticketed && e.status!=='Planning');
   C().innerHTML=`<div class="grid g2">${evs.map(e=>{const cls=DB.ticketClasses.filter(c=>c.event_id===e.id);const sold=cls.reduce((a,c)=>a+c.sold,0);const quota=cls.reduce((a,c)=>a+c.quota,0);const rev=DB.orders.filter(o=>o.event_id===e.id&&o.payment_status==='Paid').reduce((a,o)=>a+o.total,0);const pct=quota?Math.round(sold/quota*100):0;return `<div class="ecard" onclick="location.hash='#/ticketing/${e.id}'"><div class="body">
     <div style="display:flex;justify-content:space-between"><div class="t">${posterKecilHTML(e,22)} ${esc(e.title)}</div>${statusBadge(e.status)}</div>
     <div class="meta">📅 ${fmtDate(e.start_datetime)} · 📍 ${esc(e.venue)}</div>

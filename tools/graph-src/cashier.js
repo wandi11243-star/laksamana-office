@@ -419,6 +419,9 @@
 
 
 
+
+
+
 function pct() {  }
 
 
@@ -587,6 +590,12 @@ function normalizeDB() { seed(); }
 
 
 
+
+
+
+
+
+
 function purgeSeedKasir() {  }
 
 
@@ -680,6 +689,16 @@ function taxSvcOf() {  }
 function tagihanOf() { netOf(); taxSvcOf(); }
 function avgSpendOf() { netOf(); }
 function itemsOf() {  }
+
+
+
+
+
+
+
+
+function omsetKasir() {  }
+function diskonKasir() {  }
 
 
 function pembagiHari() { daysInMonth(); }
@@ -1337,7 +1356,87 @@ function hitung() { nilai(); save(); dateLabel(); render(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); kartuCompliment(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bonusKasir() {  }
+
+
+
+
+
+
+function baguRingkasKasir() { bonusKasir(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuBonusKasir() { bonusKasir(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearCharts(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
