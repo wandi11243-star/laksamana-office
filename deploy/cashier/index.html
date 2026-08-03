@@ -524,6 +524,7 @@ const PAYS=[
   {k:'qris_bri',    n:'QRIS BRI'},
   {k:'qris_esb',    n:'QRIS ESB'},
   {k:'qris_mandiri',n:'QRIS Mandiri'},
+  {k:'transfer_uob',n:'Transfer UOB'},
   {k:'voucher',     n:'Voucher'}
 ];
 /* Batas selisih yang masih boleh disubmit. "Selisih 3 digit terakhir" =
@@ -873,7 +874,12 @@ function viewReport(){
      supaya halaman ini tidak jadi rumit untuk mayoritas hari yang tidak ada
      hutang sama sekali. */
   const bh=bonRingkasHari(repDate);
-  const thBon = bh.ada ? '<th class="num">Bon Baru (−)</th><th class="num">Pelunasan (+)</th><th class="num">Sisa Selisih</th>' : '';
+  /* Kolom "Bon Baru (−)" dan "Pelunasan (+)" DIHAPUS 3 Agustus 2026 atas
+     permintaan user: tujuh kolom terlalu lebar untuk layar kasir, dan dua
+     kolom itu isinya hampir selalu "—" sehingga membuat tabel ramai tanpa
+     memberi tahu apa pun. Angkanya tidak hilang — pindah ke catatan di bawah
+     tabel, yang justru menyebut metode pembayarannya dengan nama. */
+  const thBon = bh.ada ? '<th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode — selisih dihitung otomatis. Boleh disubmit kapan saja, tidak perlu menunggu omset harian.</div></div>
@@ -884,23 +890,19 @@ function viewReport(){
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
         <tbody>${PAYS.map(p=>{
           const v0=repPay(rec,p.k);
-          const bb=num(bh.baru[p.k]), bl=num(bh.lunas[p.k]);
           return `<tr>
           <td><b>${esc(p.n)}</b></td>
           <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="pos" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.pos}"></td>
           <td class="num"><input class="mono rp rf" data-k="${p.k}" data-f="actual" inputmode="numeric" style="text-align:right;width:150px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px" value="${v0.actual}"></td>
           <td class="num mono" id="rs_${p.k}">Rp0</td>
-          ${bh.ada?`<td class="num mono" style="color:${bb?'var(--danger)':'var(--muted-2)'}">${bb?fmtSel(-bb):'—'}</td>
-          <td class="num mono" style="color:${bl?'var(--ok)':'var(--muted-2)'}">${bl?fmtSel(bl):'—'}</td>
-          <td class="num mono" id="rz_${p.k}">Rp0</td>`:''}
+          ${bh.ada?`<td class="num mono" id="rz_${p.k}">Rp0</td>`:''}
         </tr>`;}).join('')}</tbody>
         <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
           <td>TOTAL</td><td class="num mono" id="rt_pos">Rp0</td><td class="num mono" id="rt_act">Rp0</td><td class="num mono" id="rt_sel">Rp0</td>
-          ${bh.ada?`<td class="num mono" style="color:var(--danger)">${bh.totBaru?fmtSel(-bh.totBaru):'—'}</td>
-          <td class="num mono" style="color:var(--ok)">${bh.totLunas?fmtSel(bh.totLunas):'—'}</td>
-          <td class="num mono" id="rt_sisa">Rp0</td>`:''}
+          ${bh.ada?`<td class="num mono" id="rt_sisa">Rp0</td>`:''}
         </tr></tfoot>
       </table></div>
+      <div id="rp_notepay"></div>
     </div>
     ${bh.ada?kartuPenjelasanBon(bh):''}
     <div class="grid ${bh.ada?'g4':'g3'}">
@@ -919,6 +921,10 @@ function viewReport(){
 
   const hitung=()=>{
     let tp=0,ta=0;
+    /* Metode yang angkanya tidak cocok, dikumpulkan untuk catatan di bawah
+       tabel. Inilah pengganti dua kolom yang dibuang: kasir tidak perlu
+       memindai 13 baris mencari yang merah — nama metodenya disebut. */
+    const bermasalah=[];
     PAYS.forEach(p=>{
       const pos=num(inputVal(p.k,'pos')), act=num(inputVal(p.k,'actual'));
       tp+=pos; ta+=act;
@@ -931,14 +937,19 @@ function viewReport(){
          kurang), pelunasan memasukkan uang yang mesin TIDAK catat hari ini
          (jadi selisih lebih). Membalik keduanya menghasilkan angka yang
          seharusnya nol kalau kasirnya benar. */
+      const bb=num(bh.baru[p.k]), bl=num(bh.lunas[p.k]);
+      const z=s+bb-bl;
       if(bh.ada){
-        const z=(s+num(bh.baru[p.k])-num(bh.lunas[p.k]));
         const cz=document.getElementById('rz_'+p.k);
         cz.textContent=fmtSel(z);
         cz.style.color = z===0?'var(--muted)' : (Math.abs(z)<SELISIH_TOLERANSI?'var(--warn)':'var(--danger)');
         cz.style.fontWeight = z===0?'500':'800';
       }
+      // Yang dilaporkan adalah angka SESUDAH bon (z) — hari tanpa bon z===s,
+      // jadi hari biasa tetap melaporkan selisih POS vs Actual apa adanya.
+      if(z!==0) bermasalah.push({n:p.n,pos,act,s,bb,bl,z});
     });
+    catatanMetode(bermasalah,bh);
     document.getElementById('rt_pos').textContent=fmtRp(tp);
     document.getElementById('rt_act').textContent=fmtRp(ta);
     const tsel=ta-tp;
@@ -988,6 +999,35 @@ function viewReport(){
 }
 function fmtWaktu(ts){ const d=new Date(ts); return isNaN(d)?'':d.toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
 
+/* Catatan "metode mana yang selisih", digambar ulang tiap kali angka diketik.
+   Menggantikan kolom Bon Baru / Pelunasan yang dibuang: tabelnya kembali
+   ramping, dan yang dicari kasir — METODE MANA yang bermasalah dan berapa
+   Actual-nya — justru jadi kalimat, bukan sel yang harus dipindai sendiri.
+
+   Angka yang dilaporkan selalu SESUDAH bon & pelunasan diperhitungkan. Metode
+   yang selisihnya persis sebesar bonnya tidak muncul di sini sama sekali —
+   memang tidak ada yang perlu dicek di situ, dan itu inti dari seluruh fitur
+   ini. */
+function catatanMetode(rows,bh){
+  const box=document.getElementById('rp_notepay');
+  if(!box) return;
+  if(!rows.length){
+    box.innerHTML=`<div class="notice ok" style="margin:14px 0 0">✓ <div>Semua metode pembayaran cocok antara POS dan Actual${bh.ada?', setelah bon &amp; pelunasan hari ini diperhitungkan':''}.</div></div>`;
+    return;
+  }
+  const parah=rows.some(r=>Math.abs(r.z)>=SELISIH_TOLERANSI);
+  const li=rows.map(r=>{
+    const jelas=[];
+    if(r.bb) jelas.push(`bon belum dibayar ${fmtRp(r.bb)}`);
+    if(r.bl) jelas.push(`pelunasan masuk ${fmtRp(r.bl)}`);
+    return `<div style="margin-top:4px">· <b>${esc(r.n)}</b> — POS ${fmtRp(r.pos)}, Actual <b>${fmtRp(r.act)}</b>, selisih <b>${fmtSel(r.s)}</b>`
+      + (jelas.length?` (sudah dihitung ${jelas.join(' & ')}, <b>sisa ${fmtSel(r.z)}</b>)`:'')
+      + `</div>`;
+  }).join('');
+  box.innerHTML=`<div class="notice ${parah?'bad':'warn'}" style="margin:14px 0 0;display:block">
+    <b>${parah?'⚠':'ℹ'} Metode yang masih selisih${bh.ada?' di luar bon &amp; pelunasan':''}:</b>${li}</div>`;
+}
+
 /* Selisih yang WAJAR terjadi pada satu hari, semata-mata karena bon &
    pelunasannya. Positif = uang seharusnya lebih dari catatan POS (ada bon lama
    yang dilunasi), negatif = seharusnya kurang (ada yang berhutang hari itu). */
@@ -1002,9 +1042,14 @@ function catatanSelisihBon(bh){
     const s=[...new Set(l.map(b=>String(b.nama||'').trim()).filter(Boolean))];
     return s.length>3 ? s.slice(0,3).join(', ')+' dkk' : s.join(', ');
   };
+  /* Metode pembayarannya disebut namanya, bukan cuma totalnya: sejak kolom
+     per-metode dibuang, kalimat inilah satu-satunya tempat kasir bisa tahu
+     BARIS MANA di tabel di atas yang seharusnya tidak cocok. */
+  const perMetode=obj=>Object.keys(obj).filter(k=>num(obj[k])>0)
+    .map(k=>`<b>${esc(payName(k))}</b> ${fmtRp(num(obj[k]))}`).join(' + ');
   const kal=[];
-  if(bh.totBaru>0) kal.push(`ada <b>${bh.listBaru.length} bill yang belum dibayar</b> senilai <b>${fmtRp(bh.totBaru)}</b> atas nama ${esc(namaUnik(bh.listBaru))} — billnya sudah ditutup di POS, tapi uangnya tidak ada di laci`);
-  if(bh.totLunas>0) kal.push(`ada <b>${bh.listLunas.length} pelunasan bon hari lain</b> senilai <b>${fmtRp(bh.totLunas)}</b> dari ${esc(namaUnik(bh.listLunas))} — uangnya masuk hari ini padahal billnya tidak tercatat di POS hari ini`);
+  if(bh.totBaru>0) kal.push(`ada <b>${bh.listBaru.length} bill yang belum dibayar</b> senilai <b>${fmtRp(bh.totBaru)}</b> atas nama ${esc(namaUnik(bh.listBaru))} — billnya sudah ditutup di POS lewat ${perMetode(bh.baru)}, tapi uangnya tidak ada di laci, jadi <u>metode itulah yang seharusnya kurang</u>`);
+  if(bh.totLunas>0) kal.push(`ada <b>${bh.listLunas.length} pelunasan bon hari lain</b> senilai <b>${fmtRp(bh.totLunas)}</b> dari ${esc(namaUnik(bh.listLunas))} — uangnya masuk hari ini lewat ${perMetode(bh.lunas)} padahal billnya tidak tercatat di POS hari ini, jadi <u>metode itulah yang seharusnya lebih</u>`);
   const penutup = harus===0
     ? `Kebetulan besarnya sama persis sehingga saling meniadakan, jadi selisih POS vs Actual hari ini <b>seharusnya tetap Rp0</b>.`
     : `Karena itu selisih POS vs Actual hari ini <b>seharusnya ${fmtSel(harus)}</b>, bukan Rp0 — ${harus<0?'uang memang kurang sebesar bon yang belum dibayar':'uang memang lebih sebesar bon lama yang baru dilunasi'}.`;

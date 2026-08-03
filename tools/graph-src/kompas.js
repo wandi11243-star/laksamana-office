@@ -578,6 +578,7 @@ function pasangMenu() { levelSaya(); go(); bolehLihat(); }
 
 
 
+
 function seed() {  }
 
 
@@ -1161,7 +1162,17 @@ function viewReport() { repOf(); bonRingkasHari(); calInner(); repPay(); kartuPe
 
 
 
-function hitung() { inputVal(); }
+
+function hitung() { inputVal(); catatanMetode(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1235,12 +1246,46 @@ function fmtWaktu() {  }
 
 
 
+
+
+
+
+
+
+function catatanMetode() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function selisihSeharusnya() {  }
 
 
 
 
 function catatanSelisihBon() { selisihSeharusnya(); }
+
+
+
+
+
 
 
 
