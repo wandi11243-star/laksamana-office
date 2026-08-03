@@ -8600,7 +8600,36 @@ async function rsvSisipkan(buatRecord){
     const data=Object.assign({},d);
     delete data._ver;
     data.reservations=(Array.isArray(d.reservations)?d.reservations.slice():[]);
-    data.reservations.push(rec);
+    /* MENGUBAH, BUKAN MENAMBAH BARIS KEDUA.
+       Reservasi VIP memakai id tetap ('vip-<id draft>'), jadi menyimpannya lagi
+       — menambah meja, membetulkan jam — dulu MENDORONG baris baru dengan id
+       yang sama ke modul Reservasi: satu tamu muncul dua kali di denah hari-H,
+       dan mejanya terhitung dobel.
+
+       Saat menimpa, yang dicatat kru Reservasi selama acara berjalan DIPERTAHANKAN.
+       Marketing tidak tahu apa-apa soal kedatangan tamu; menimpanya berarti tamu
+       yang sudah check-in mendadak "belum datang" hanya karena marketing
+       membetulkan satu digit nomor HP. */
+    const idx=data.reservations.findIndex(x=>x&&x.id===rec.id);
+    if(idx<0) data.reservations.push(rec);
+    else{
+      const lama=data.reservations[idx]||{};
+      data.reservations[idx]=Object.assign({},lama,rec,{
+        createdAt: lama.createdAt||rec.createdAt,
+        createdBy: lama.createdBy||rec.createdBy,
+        // Jejak kedatangan: milik modul Reservasi sepenuhnya.
+        checkinAt: lama.checkinAt||0, leftAt: lama.leftAt||0,
+        actualPax: lama.actualPax||rec.actualPax||0,
+        arrivals: Array.isArray(lama.arrivals)?lama.arrivals:(rec.arrivals||[]),
+        followups: Array.isArray(lama.followups)?lama.followups:(rec.followups||[]),
+        // Status yang sudah bergerak melewati Confirmed tidak ditarik mundur.
+        status: (lama.status==='Datang'||lama.status==='No-show'||lama.status==='Cancelled')?lama.status:rec.status,
+        // DP & dokumen yang diunggah di modul Reservasi juga bukan milik kita.
+        dpStatus: lama.dpStatus||rec.dpStatus, dpMethod: lama.dpMethod||rec.dpMethod,
+        dpAmount: lama.dpAmount||rec.dpAmount,
+        dpProofData: lama.dpProofData||rec.dpProofData, dpProofName: lama.dpProofName||rec.dpProofName
+      });
+    }
     const res=await fetch(RSV_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({action:'saveAll',data,baseVer})});
     const j=await res.json();
@@ -8612,10 +8641,17 @@ async function rsvSisipkan(buatRecord){
 }
 /* Meja yang sudah terpakai pada satu tanggal. Field `table` di Reservasi berisi
    daftar dipisah koma (satu tamu bisa memakai beberapa meja), jadi dipecah. */
-function rsvMejaTerpakai(d,tanggal){
+/* kecualiId — reservasi yang sedang DIUBAH sendiri.
+   Tanpa ini, kunciannya sendiri terbaca sebagai milik tamu lain: membuka lagi
+   reservasi VIP yang mejanya sudah dikunci membuat meja itu tampil "sudah
+   dipesan", tidak bisa ditambah temannya, dan tombol Simpan ditolak dengan
+   "Meja M39, M40 baru saja dipesan tamu lain" — padahal yang memesannya
+   reservasi itu sendiri. Dilaporkan 3 Agustus 2026. */
+function rsvMejaTerpakai(d,tanggal,kecualiId){
   const out={};
   (d&&d.reservations||[]).forEach(r=>{
     if(!r||r.date!==tanggal) return;
+    if(kecualiId && r.id===kecualiId) return;
     /* Status yang MEMBEBASKAN meja. Dulu di sini tertulis 'batal' — istilah
        Indonesia yang tidak pernah ada di modul Reservasi; kosakatanya
        Pending / Confirmed / Datang / Cancelled / No-show. Akibatnya syarat ini
@@ -9218,7 +9254,7 @@ async function vipCekKetersediaan(){
     +'<div class="modal-body"><div class="tbl-note">'+svg(IC.alert)+'<span>'+esc(e.message)+'</span></div></div>'
     +'<div class="modal-foot"><button class="btn" onclick="vipFormUI()">← Kembali</button><button class="btn pri" onclick="vipCekKetersediaan()">Coba Lagi</button></div>'); }
   VIP_RSV=d;
-  const terpakai=rsvMejaTerpakai(d,tgl);
+  const terpakai=rsvMejaTerpakai(d,tgl,'vip-'+f.id);
   let h='<div class="modal-head"><div><h3>Meja Terkunci</h3><p>'+fmtDate(tgl)+' · dari modul Reservasi</p></div><div class="x" onclick="vipFormUI()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
   h+=vipTerpakaiHTML(terpakai);
@@ -9253,7 +9289,7 @@ async function vipCekKetersediaan(){
 function vipPilihMejaUI(d){
   const f=VIP_FORM;
   VIP_RSV=d;
-  const terpakai=rsvMejaTerpakai(d,f.tanggal);
+  const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id);
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
@@ -9311,7 +9347,8 @@ async function vipSimpanKunci(){
     const hasil=await rsvSisipkan(function(d){
       // Diperiksa ULANG di dalam putaran simpan: meja bisa saja baru diambil
       // orang lain di sela-sela kita memilih.
-      const terpakai=rsvMejaTerpakai(d,f.tanggal);
+      // Kunciannya SENDIRI tidak dihitung bentrok — lihat rsvMejaTerpakai().
+      const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id);
       const bentrok=(f.meja||[]).filter(m=>terpakai[m]);
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
