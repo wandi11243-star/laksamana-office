@@ -862,7 +862,7 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); bonRingkasHari(); calInner(); repPay(); kartuPenjelasanBon(); fmtWaktu(); inputVal(); }
+function viewReport() { repOf(); bonRingkasHari(); calInner(); repPay(); kartuPenjelasanBon(); selisihSeharusnya(); fmtWaktu(); inputVal(); }
 
 
 
@@ -991,10 +991,43 @@ function fmtWaktu() {  }
 
 
 
+function selisihSeharusnya() {  }
 
-function kartuPenjelasanBon() {  }
+
+
+
+function catatanSelisihBon() { selisihSeharusnya(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuPenjelasanBon() { selisihSeharusnya(); bonGrupBelum(); }
+
+
+
 function baris() {  }
-function daftar() { go(); baris(); todayISO(); }
+function daftar() { go(); catatanSelisihBon(); baris(); todayISO(); }
+
+
+
+
+
+
+
 
 
 
