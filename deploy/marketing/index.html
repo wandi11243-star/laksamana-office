@@ -2615,6 +2615,12 @@ function eventFinance(ev){
   const remaining=Math.max(0,grand-paid);
   return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,paid,remaining};
 }
+/* Sebutan DP di layar & dokumen. Sejak DP diisi nominal, menulis "DP 50%" di
+   invoice adalah bohong: angkanya tidak pernah lagi dihitung dari persen itu.
+   Persentase hanya disebut kalau nominalnya memang dikosongkan dan angkanya
+   BENAR-BENAR datang dari persentase bawaan. */
+function dpLabel(f){ return f && f.dpDariNominal ? 'DP' : ('DP '+((f&&f.dpPct)||0)+'%'); }
+
 /* ---------- NOMOR INVOICE & KWITANSI ----------
    Dulu nomor invoice dihitung dari posisi baris (String(1000+i)) sehingga bergeser
    tiap ada event baru — nomor yang sudah dikirim ke klien jadi tidak cocok.
@@ -4177,7 +4183,7 @@ function renderEventForm(V,id){
   // finance strip
   h+='<div class="grid g-4" style="margin-bottom:18px">'
    +'<div class="card stat"><div class="sl">Grand Total</div><div class="sv num" style="font-size:24px">'+rpShort(f.grand)+'</div><div class="sd">'+rp(f.grand)+'</div></div>'
-   +'<div class="card stat"><div class="sl">DP'+(f.dpDariNominal?'':' '+f.dpPct+'%')+'</div><div class="sv num" style="font-size:24px">'+rpShort(f.dp)+'</div><div class="sd">'+(f.paid>=f.dp?'✓ terpenuhi':'belum masuk')+'</div></div>'
+   +'<div class="card stat"><div class="sl">'+dpLabel(f)+'</div><div class="sv num" style="font-size:24px">'+rpShort(f.dp)+'</div><div class="sd">'+(f.paid>=f.dp?'✓ terpenuhi':'belum masuk')+'</div></div>'
    /* "Sisa" adalah Grand Total dikurangi yang SUDAH dibayar — itu angka yang
       ditanyakan client dan finance, dan sekarang ditulis besar di kartunya
       sendiri alih-alih jadi keterangan kecil di bawah "Terbayar". */
@@ -6344,7 +6350,18 @@ function financeTab(ev,canEdit){
    +'<div class="field"><label>Kena Biaya Service? ('+st.serviceCharge+'%)</label>'+ynSeg('efd_svcApply',f.svcOn,canEdit)+'</div>'
    +'<div class="field"><label>Harga sudah termasuk pajak? ('+st.pb1+'%)</label>'+ynSeg('efd_taxInclude',f.taxInc,canEdit)+'<div class="fh">Ya = pajak sudah di dalam harga. Tidak = pajak ditambahkan di atas.</div></div>'
    +'</div>';
-  h+='<div class="field"><label>DP Persentase (%)</label><input class="inp" type="number" id="efd_dpPercent" value="'+(ev.dpPercent||st.dpPercent)+'" '+dis+'></div>';
+  /* DP DIISI NOMINAL RUPIAH, bukan persentase.
+     Yang disepakati dengan client di lapangan selalu angka rupiah ("DP 5 juta"),
+     bukan persen. Kotak persentase memaksa marketing menghitung mundur dari
+     Grand Total, dan hasil pembulatannya tidak pernah sama persis dengan yang
+     benar-benar ditransfer — lalu invoice menagih angka yang tidak pernah
+     disebutkan ke siapa pun.
+     Isian ini SATU tempat dengan "Deposit — Nominal" di tab Kasir: dua kotak
+     untuk satu angka pasti lambat laun berbeda isinya. */
+  h+='<div class="field"><label>DP / Uang Muka (Rp)</label>'
+   +rupiahInputHTML('efd_dpNominal',(d.depositNominal===''||d.depositNominal==null)?'':d.depositNominal,dis)
+   +'<div class="fh">Angka yang disepakati dengan client. Dikosongkan = dihitung otomatis '
+   +(ev.dpPercent||st.dpPercent)+'% dari Grand Total, seperti bawaan lama.</div></div>';
   h+='<div class="field"><label>Data Perusahaan / NPWP (untuk invoice)</label><textarea class="inp" id="efd_npwp" '+dis+'>'+esc(d.npwp||'')+'</textarea></div>';
   // Tombol simpan bagian ini sengaja dihapus: sekarang tab Finance punya satu
   // tombol Simpan di bawah yang mencakup Kasir + Finance sekaligus.
@@ -6370,7 +6387,7 @@ function finHitungHTML(ev){
    +'</dl>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold-deep)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
-  h+='<dl class="kv-list"><dt>DP'+(f.dpDariNominal?' (nominal)':' ('+f.dpPct+'%)')+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
+  h+='<dl class="kv-list"><dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
   h+=paymentHistoryHtml(ev);
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
@@ -6398,7 +6415,9 @@ function finBayangan(ev){
   const elFb=$('efd_fbManual'); if(elFb) b.detail.fbManual=fbDariKotak(ev,elFb.value);
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
-  const dp=$('efd_dpPercent'); if(dp)b.dpPercent=+dp.value||S.settings.dpPercent;
+  // DP kini nominal; kotaknya menulis ke detail.depositNominal — sama dengan
+  // "Deposit — Nominal" di tab Kasir, supaya satu angka satu tempat.
+  const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); b.detail.depositNominal=dg===''?'':(+dg); }
   // Mode & isi tabel Harga Deal, supaya angka di panel kanan ikut yang di layar
   // sekarang — bukan yang terakhir disimpan.
   const dOn=$('efd_fbDealOn'); if(dOn) b.detail.fbDealOn=dOn.classList.contains('on');
@@ -6458,7 +6477,7 @@ function collectFinanceInto(ev){
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
-  ev.dpPercent=+$('efd_dpPercent').value||S.settings.dpPercent;
+  const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); ev.detail.depositNominal=dg===''?'':(+dg); }
   const dOn=$('efd_fbDealOn'); if(dOn) ev.detail.fbDealOn=dOn.classList.contains('on');
   const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) ev.detail.fbDeal=dRows;
   return true;
@@ -7044,7 +7063,7 @@ function buildBriefDoc(id,mode){
     const vg=venueGallery();
     if(vg.length) body+='<div style="margin-top:16px"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px">Galeri Venue — Laksamana Muda</div>'+pdfGambar(vg)+'</div>';
     // Syarat & Ketentuan — pakai yang diisi di form Penawaran bila ada.
-    const terms=(pen.terms&&pen.terms.trim())?pen.terms:('DP minimum '+f.dpPct+'% ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.\nPelunasan maksimal H-7 sebelum acara.\nPenambahan hari-H dilunasi hari yang sama.');
+    const terms=(pen.terms&&pen.terms.trim())?pen.terms:(dpLabel(f).replace('DP','DP minimum')+' ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.\nPelunasan maksimal H-7 sebelum acara.\nPenambahan hari-H dilunasi hari yang sama.');
     body+='<div style="margin-top:16px;font-size:12px;color:#444;line-height:1.75"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px;color:#1a1a1a">Syarat &amp; Ketentuan</div><div style="white-space:pre-wrap">'+esc(terms)+'</div></div>';
     if(pen.validUntil) body+='<div style="margin-top:8px;font-size:11.5px;color:#B8860B;font-weight:600">Penawaran ini berlaku sampai '+fmtDateLong(pen.validUntil)+'.</div>';
     body+='<div style="font-size:12.5px;line-height:1.75;margin-top:18px">Kami siap mendiskusikan penyesuaian sesuai kebutuhan Anda. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.</div>';
@@ -7127,16 +7146,16 @@ function buildBriefDoc(id,mode){
         +'<tbody>'+rows.join('')+'</tbody></table>';
     });
     if(mode==='internal'){
-      body+='<div style="background:#F6F4EE;border-radius:10px;padding:14px 18px;margin-top:8px"><div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Ringkasan Finance</div><div style="font-size:13px">Grand Total <b>'+rp(f.grand)+'</b> · DP '+f.dpPct+'% '+rp(f.dp)+' · Terbayar '+rp(f.paid)+' · Sisa '+rp(f.remaining)+'</div></div>';
+      body+='<div style="background:#F6F4EE;border-radius:10px;padding:14px 18px;margin-top:8px"><div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Ringkasan Finance</div><div style="font-size:13px">Grand Total <b>'+rp(f.grand)+'</b> · '+dpLabel(f)+' '+rp(f.dp)+' · Terbayar '+rp(f.paid)+' · Sisa '+rp(f.remaining)+'</div></div>';
     } else {
-      body+='<div style="background:#FBF3D8;border-radius:10px;padding:14px 18px;margin-top:8px;font-size:12.5px;line-height:1.7"><b>Ketentuan Pembayaran</b><br>DP '+f.dpPct+'% ('+rp(f.dp)+') maks. 3 hari setelah disetujui · Pelunasan maks H-7 · Semua sajian 100% non-alkohol.</div>';
+      body+='<div style="background:#FBF3D8;border-radius:10px;padding:14px 18px;margin-top:8px;font-size:12.5px;line-height:1.7"><b>Ketentuan Pembayaran</b><br>'+dpLabel(f)+' ('+rp(f.dp)+') maks. 3 hari setelah disetujui · Pelunasan maks H-7 · Semua sajian 100% non-alkohol.</div>';
     }
   }
   const foot='<div style="margin-top:28px;padding-top:12px;border-top:1px solid #eee;font-size:10px;color:#aaa;display:flex;justify-content:space-between"><span>Laksamana Muda Coffee & Live Space · @laksamanamuda.id</span><span>Digenerate '+fmtDateLong(today())+' oleh '+esc(ME.name)+'</span></div>';
   const doc='<div class="doc" style="max-width:800px;margin:0 auto;padding:34px 40px;font-family:Inter,sans-serif;color:#1a1a1a">'+body+foot+'</div>';
 
   // WA message
-  const waMsg='Halo '+(c.pic||c.nama)+', berikut '+ (mode==='quote'?'penawaran':'detail acara')+' untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+').\nGrand Total: '+rp(f.grand)+'\nDP '+f.dpPct+'%: '+rp(f.dp)+'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
+  const waMsg='Halo '+(c.pic||c.nama)+', berikut '+ (mode==='quote'?'penawaran':'detail acara')+' untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+').\nGrand Total: '+rp(f.grand)+'\n'+dpLabel(f)+': '+rp(f.dp)+'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
   const modeLabels={internal:'Versi Internal (semua divisi)',client:'Versi Client (ringkas)',quote:'Draft Negotiation — referensi internal'};
   // Pintasan ke PDF penawaran — hanya di Draft Negotiation, dan hanya bila
   // berkasnya memang sudah diunggah.
@@ -7230,7 +7249,7 @@ function calEventPopup(id){
     +row('Lantai / Area',d.area)
     +row('Sifat Acara',d.privacy)
     +row('Grand Total',rp(f.grand))
-    +row('DP '+f.dpPct+'%',rp(f.dp))
+    +row(dpLabel(f),rp(f.dp))
     +'</table></div>';
   h+='<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="closeModal();go(\'event\',\''+e.id+'\')">'+svg(IC.chevR)+'Buka Detail Event</button></div>';
   modal(h);
@@ -8018,7 +8037,7 @@ function renderInvoices(V){
   const pInv=tblPage(urutInv,'invoices');
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
   pInv.items.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
-    h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target DP '+f.dpPct+'%: '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
+    h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target '+dpLabel(f)+': '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
      +'<td><div class="pill-row"><button class="btn sm" title="Buka tab Finance event" onclick="curTab=\'finance\';go(\'event\',\''+e.id+'\')">'+svg(IC.eye)+'</button><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.perf)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button><button class="btn sm" title="Kirim invoice via WhatsApp" onclick="waInvoice(\''+e.id+'\',\''+invNo+'\')">'+svg(IC.wa)+'</button>'+(f.paid<f.dp?'<button class="btn sm" title="Reminder DP via WhatsApp" onclick="waReminderDP(\''+e.id+'\')">'+svg(IC.clock)+'</button>':'')+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+(can('del_event')?'<button class="btn sm danger" title="Hapus event/invoice" onclick="delEvent(\''+e.id+'\')">'+svg(IC.trash)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
@@ -8050,7 +8069,7 @@ function waInvoice(evId,invNo){
     'Halo '+c.nama+', berikut rincian invoice untuk event *'+e.nama+'* ('+fmtDate(e.tanggal)+'):',
     '',
     'Grand Total : '+rp(f.grand),
-    'DP ('+f.dpPct+'%) : '+rp(f.dp),
+    dpLabel(f)+' : '+rp(f.dp),
     'Terbayar : '+rp(f.paid),
     'Sisa tagihan : '+rp(f.remaining),
     '',
@@ -8075,7 +8094,7 @@ function waReminderDP(id){
     'Tanggal event : '+fmtDate(e.tanggal),
     '',
     'Grand Total : '+rp(f.grand),
-    'DP ('+f.dpPct+'%) : '+rp(f.dp),
+    dpLabel(f)+' : '+rp(f.dp),
     'Terbayar : '+rp(f.paid),
     'Kurang : '+rp(Math.max(0,f.dp-f.paid)),
     '',
@@ -10586,7 +10605,7 @@ function renderSettings(V){
   const txt=(id,val)=>'<input class="inp" id="'+id+'" value="'+esc(val==null?'':val)+'">';
   h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Aturan Bisnis & Tarif</h3><div class="cell-sub" style="margin-top:2px">Angka bisa dikalibrasi ulang setelah 2–3 bulan data aktual.</div></div>'
    +'<div class="tbl-wrap"><table class="tbl set-tbl"><thead><tr><th>Pengaturan</th><th>Nilai</th><th>Keterangan</th></tr></thead><tbody>'
-   +setRow('DP Default (%)',num('set_dp',st.dpPercent),'DP awal 50%, pelunasan 50% sisanya.')
+   +setRow('DP Default (%)',num('set_dp',st.dpPercent),'Cadangan saja. DP tiap event sekarang diisi NOMINAL rupiah di tab Finance; persentase ini hanya dipakai kalau nominalnya dikosongkan.')
    +setRow('PB1 / Pajak (%)',num('set_pb1',st.pb1),'Dihitung dari subtotal setelah diskon + service charge.')
    +setRow('Service Charge (%)',num('set_service',st.serviceCharge),'Dihitung dari subtotal setelah diskon.')
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')

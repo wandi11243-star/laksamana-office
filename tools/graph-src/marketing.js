@@ -2586,7 +2586,7 @@ function eventFbCost() { fbDitimpa(); fbDealAktif(); fbDealTotal(); fbPax(); fbH
 
 
 function eventSubtotal() { eventFbCost(); }
-function eventFinance() { eventFbCost(); eventSubtotal(); ynBool(); baris(); }
+function eventFinance() { eventFbCost(); eventSubtotal(); ynBool(); }
 
 
 
@@ -2614,6 +2614,12 @@ function eventFinance() { eventFbCost(); eventSubtotal(); ynBool(); baris(); }
 
 
 
+
+
+
+
+
+function dpLabel() { baris(); }
 
 
 
@@ -4124,7 +4130,7 @@ function submitNewEvent() { $(); toast(); jenisEvent(); uid(); today(); logAct()
 
 
 
-function renderEventForm() { empty(); eventFinance(); $(); clientName(); fmtDate(); can(); esc(); statusChip(); go(); genBriefFor(); svg(); isOpenEvent(); logFollowUp(); confirmEvent(); autoCloseEvents(); tandaiSelesai(); delEvent(); bookingConflicts(); setEventStage(); taskProgress(); eventCats(); divProgress(); penawaranCard(); userName(); ringkasIsianHTML(); visibleTabs(); switchEventTab(); renderEventTab(); }
+function renderEventForm() { empty(); eventFinance(); $(); clientName(); fmtDate(); can(); esc(); statusChip(); go(); genBriefFor(); svg(); isOpenEvent(); logFollowUp(); confirmEvent(); autoCloseEvents(); tandaiSelesai(); delEvent(); bookingConflicts(); setEventStage(); dpLabel(); taskProgress(); eventCats(); divProgress(); penawaranCard(); userName(); ringkasIsianHTML(); visibleTabs(); switchEventTab(); renderEventTab(); }
 
 
 
@@ -6358,7 +6364,18 @@ function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); p
 
 
 
-function finHitungHTML() { eventFinance(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); can(); addPayment(); svg(); }
+
+
+
+
+
+
+
+
+
+
+
+function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); can(); addPayment(); svg(); }
 
 
 
@@ -6390,6 +6407,8 @@ function finHitungHTML() { eventFinance(); statusChip(); invStatus(); INV_STATUS
 
 
 function finBayangan() { $(); fbDariKotak(); segVal(); dealBaca(); }
+
+
 
 
 
@@ -6951,7 +6970,7 @@ function pdfNilai() { detailVal(); pdfRundownTabel(); pdfMenuTabel(); pdfBarangT
 
 
 
-function buildBriefDoc() { toast(); eventFinance(); esc(); fmtDateLong(); userName(); today(); penFile(); attachUrl(); qrow(); pdfGambar(); venueGallery(); namaTtd(); }
+function buildBriefDoc() { toast(); eventFinance(); esc(); fmtDateLong(); userName(); today(); penFile(); attachUrl(); qrow(); pdfGambar(); venueGallery(); dpLabel(); namaTtd(); }
 
 
 
@@ -7079,7 +7098,7 @@ function namaTtd() { userName(); fmtDateLong(); }
 
 
 
-function sigBlock() { esc(); pdfSecOn(); pdfLewati(); pdfNilai(); pdfAdaGambar(); detailVal(); fmtDateLong(); today(); fmtDate(); penFile(); attachUrl(); svg(); modal(); waLink(); printBrief(); closeModal(); $(); }
+function sigBlock() { esc(); pdfSecOn(); pdfLewati(); pdfNilai(); pdfAdaGambar(); detailVal(); dpLabel(); fmtDateLong(); today(); fmtDate(); penFile(); attachUrl(); svg(); modal(); waLink(); printBrief(); closeModal(); $(); }
 
 
 
@@ -7219,7 +7238,7 @@ function calToday() { go(); }
 function calEventPopup() { eventFinance(); }
 
 
-function row() { esc(); statusChip(); fmtDateLong(); closeModal(); svg(); clientName(); userName(); go(); modal(); }
+function row() { esc(); statusChip(); fmtDateLong(); closeModal(); svg(); clientName(); userName(); dpLabel(); go(); modal(); }
 
 
 
@@ -7999,7 +8018,7 @@ function delTaskCategory() { subsOf(); confirmUI(); esc(); getCats(); getSubs();
 
 
 
-function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); ensureInvNos(); tblUrut(); tblPage(); tblHead(); invoiceNo(); esc(); clientName(); statusChip(); INV_STATUS_MAP(); go(); svg(); viewPaymentHistory(); genBriefFor(); waInvoice(); waReminderDP(); can(); addPayment(); delEvent(); tblPagerHtml(); }
+function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); ensureInvNos(); tblUrut(); tblPage(); tblHead(); invoiceNo(); esc(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); go(); svg(); viewPaymentHistory(); genBriefFor(); waInvoice(); waReminderDP(); can(); addPayment(); delEvent(); tblPagerHtml(); }
 
 
 
@@ -8038,7 +8057,7 @@ function viewPaymentHistory() { eventFinance(); modal(); esc(); clientName(); cl
 
 
 
-function waInvoice() { toast(); eventFinance(); fmtDate(); invStatus(); waLink(); logAct(); save(); buildNav(); go(); }
+function waInvoice() { toast(); eventFinance(); fmtDate(); dpLabel(); invStatus(); waLink(); logAct(); save(); buildNav(); go(); }
 
 
 
@@ -8064,7 +8083,7 @@ function waInvoice() { toast(); eventFinance(); fmtDate(); invStatus(); waLink()
 
 
 
-function waReminderDP() { toast(); eventFinance(); fmtDate(); waLink(); logAct(); save(); }
+function waReminderDP() { toast(); eventFinance(); fmtDate(); dpLabel(); waLink(); logAct(); save(); }
 
 
 
