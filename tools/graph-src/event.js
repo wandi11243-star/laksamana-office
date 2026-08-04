@@ -1268,7 +1268,12 @@ function qrSvg() { qrMatrix(); }
 
 
 
-function bawaanKosong() {  }
+function bawaanKosong() { svg(); }
+
+
+
+
+
 
 
 
@@ -1361,6 +1366,20 @@ function toggleNav() {  }
 
 
 function router() { buildNav(); toggleSidebar(); matikanKamera(); autoSelesaikanEvent(); autoSelesaikanJadwal(); bisaLihat(); setTop(); C(); esc(); peranSaya(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2538,6 +2557,29 @@ function renderPlanning() { bisaUbah(); bisaSetujui(); setTop(); eventForm(); st
 
 
 function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

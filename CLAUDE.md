@@ -23,7 +23,14 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 ```
 
 Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `kompas`
-`radar` `stock` `howandi_life`.
+`radar` `stock` `howandi_life` `jadwal`.
+
+`jadwal` (Jadwal Shift, Agustus 2026) satu-satunya yang **tidak** memakai pola
+`save()` kirim-seluruh-state: tiap divisi punya head sendiri yang menyusun
+jadwal minggu depan di waktu berdekatan, jadi blob satu baris membuat head yang
+menyimpan belakangan menghapus kerja head lain tanpa error. Penulisannya
+granular per sel `(user_id, tgl)` lewat aksi `simpanSel`. Jangan "rapikan"
+kembali jadi `saveAll`.
 
 **Abaikan sepenuhnya** (jangan dibaca, jangan di-grep): `node_modules/`,
 `vendor/`, `*.zip` di root (itu paket rilis backend, bukan sumber),
@@ -173,6 +180,7 @@ node tools/smoke-modul.js               # semua modul; keluar 1 kalau ada yang g
 |---|---|
 | `marketing` | 22 halaman dirender satu per satu + wadah render tidak kosong |
 | `event` | 10 halaman dirender + wadah render tidak kosong |
+| `jadwal` | 5 halaman dirender + wadah render tidak kosong |
 | `kompas` | 12 halaman dirender (wadahnya tak dikenali, jadi hanya "tidak melempar") |
 | `cashier` | 6 halaman dirender (wadah tak dikenali) |
 | sisanya | hanya boot — router/daftar halamannya tidak terbaca dari luar |

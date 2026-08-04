@@ -1295,7 +1295,12 @@ const IC={
   /* ikon "riwayat" (panah putar + jarum jam) — sengaja BEDA dari `clock`
      yang dipakai Talent Schedule, supaya dua menu itu tidak kembar */
   timeline:'<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l3.5 2"/>',
-  ship:'<path d="M2 20a6 6 0 0 0 3-1 6 6 0 0 0 7 0 6 6 0 0 0 7 0 6 6 0 0 0 3 1"/><path d="M4 18l-2-6h20l-2 6M12 2v10M8 6h8"/>'
+  ship:'<path d="M2 20a6 6 0 0 0 3-1 6 6 0 0 0 7 0 6 6 0 0 0 7 0 6 6 0 0 0 3 1"/><path d="M4 18l-2-6h20l-2 6M12 2v10M8 6h8"/>',
+  /* Dipakai catatan "X rencana menunggu keputusanmu" di Perencanaan Event.
+     Sempat TIDAK ada di sini padahal sudah dipanggil sebagai IC.alert, dan
+     akibatnya svg(undefined) menulis kata "undefined" ke dalam <svg> — tidak
+     melempar, tidak masuk console, cuma ikon yang diam-diam tidak muncul. */
+  alert:'<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/>'
 };
 function svg(p){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 const NAV=[
@@ -1381,7 +1386,21 @@ function router(){
       +esc(EMS_PERAN[peranSaya()]||peranSaya())+').<br><span class="mini">Hubungi manajemen kalau kamu memang perlu membukanya.</span></div>';
     window.scrollTo(0,0); return;
   }
-  (routes[page]||renderDashboard)(arg);
+  /* Kalau penggambar halaman melempar, baris `C().innerHTML=...` di ujungnya
+     TIDAK pernah dijalankan — yang tertinggal di layar adalah sisa halaman
+     sebelumnya, sering berupa kepala halaman baru dengan badan kosong
+     melompong. Tidak ada pesan, tidak ada tanda apa pun; satu-satunya yang
+     bisa dilaporkan user adalah "kosong", dan itu tidak menunjuk ke mana-mana.
+     Ditangkap di sini supaya galatnya justru TAMPIL di layar, bukan cuma di
+     console yang tidak pernah dibuka orang. */
+  try{
+    (routes[page]||renderDashboard)(arg);
+  }catch(err){
+    console.error('Gagal menggambar halaman '+page+':', err);
+    C().innerHTML='<div class="empty">Halaman <b>'+esc(TITLES[page]||page)+'</b> gagal digambar.'
+      +'<br><span class="mini">'+esc((err&&err.message)||String(err))+'</span>'
+      +'<br><span class="mini">Tunjukkan pesan ini saat melapor — halaman lain tetap bisa dibuka.</span></div>';
+  }
   window.scrollTo(0,0);
 }
 window.addEventListener('hashchange',router);
@@ -2548,7 +2567,13 @@ function renderPlanning(){
     h+='<div class="empty">'+(planFilter==='nunggu'?'Tidak ada yang menunggu keputusan.':'Belum ada rencana di sini.')+'</div>';
     C().innerHTML=h; return;
   }
+  /* Satu kartu yang gagal digambar TIDAK boleh menghapus tiga kartu lain.
+     Tanpa penjaga ini, satu event dengan data cacat membuat seluruh .map()
+     melempar, `C().innerHTML` tidak pernah ditulis, dan yang tampak di layar
+     adalah tab dengan hitungan yang benar di atas daftar yang kosong sama
+     sekali — gejala yang mustahil dilacak karena angkanya justru meyakinkan. */
   h+='<div class="grid g3">'+list.map(function(e){
+   try{
     const p=pengajuan(e), s=st(e);
     const chip=s==='Menunggu'?'<span class="badge b-yellow">Menunggu keputusan</span>'
       :s==='Ditolak'?'<span class="badge b-red">Ditolak</span>'
@@ -2571,6 +2596,23 @@ function renderPlanning(){
             <button class="btn danger sm" onclick="tolakRencana('${e.id}')">Tolak</button>`:''}
         </div>
       </div></div>`;
+   }catch(err){
+    console.error('Kartu rencana gagal digambar:', e, err);
+    /* Kartu pengganti ini TIDAK BOLEH membaca isi `e` tanpa penjaga sendiri.
+       Yang membuat kartu aslinya gagal biasanya justru salah satu propertinya,
+       dan membacanya lagi di sini melempar untuk kedua kalinya — kali ini di
+       LUAR try, sehingga seluruh daftar ikut hilang lagi dan penjaga ini
+       menjadi sia-sia. Persis itu yang terjadi saat penjaga ini pertama diuji:
+       ecard=0, sama saja dengan sebelum ada penjaga. */
+    let judul='(rencana rusak)';
+    try{ if(e&&e.title) judul=String(e.title); }catch(_){}
+    let sebab='penyebab tidak terbaca';
+    try{ sebab=(err&&err.message)||String(err); }catch(_){}
+    return '<div class="ecard"><div class="body">'
+      +'<div class="t">'+esc(judul)+'</div>'
+      +'<div class="meta" style="color:var(--red)">Kartu ini gagal digambar.</div>'
+      +'<div class="mini">'+esc(sebab)+'</div></div></div>';
+   }
   }).join('')+'</div>';
   C().innerHTML=h;
 }

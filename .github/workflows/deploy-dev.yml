@@ -317,6 +317,44 @@ jobs:
             **/*.md
           timeout: 300000
 
+      - name: Deploy backend jadwal-api-mysql
+        id: ftpjdw
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./jadwal-mysql/
+          server-dir: /jadwal-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend jadwal-api-mysql (percobaan 2)
+        if: steps.ftpjdw.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./jadwal-mysql/
+          server-dir: /jadwal-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Verifikasi HARUS membuktikan file di server = file di repo.
       # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
       # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.
@@ -330,7 +368,7 @@ jobs:
         if: always()
         run: |
           gagal=0
-          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ bd/ kompas/ cashier/; do
+          for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ bd/ kompas/ cashier/ jadwal/; do
             src="deploy/${m}index.html"
             if [ ! -f "$src" ]; then echo "LEWAT   ${m:-/} (tidak ada di repo)"; continue; fi
             url="https://dev.laksamanamuda.id/${m}index.html"
@@ -441,6 +479,29 @@ jobs:
             *'Payload kosong'*) echo "OK      koneksi DB sehat, jalur simpan terbuka" ;;
             *SQLSTATE*)         echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database kompas"; gagal=1 ;;
             *)                  echo "GAGAL   probe menjawab tak terduga"; gagal=1 ;;
+          esac
+
+          echo "--- jadwal-api-mysql ---"
+          jdw=$(curl -s -m 60 "https://dev.laksamanamuda.id/jadwal-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $jdw"
+          case "$jdw" in
+            *'"env":"dev"'*) echo "OK      env=dev" ;;
+            *) echo "GAGAL   env BUKAN dev — config.php belum diunggah manual ke /jadwal-api-mysql/ atau salah isi"; gagal=1 ;;
+          esac
+
+          # Probe tulis: simpanSel TANPA rows/hapus membuka transaksi (dan
+          # CREATE TABLE IF NOT EXISTS) lalu commit tanpa menulis apa pun.
+          # Ini menyentuh DB sungguhan, jadi grant yang salah muncul sebagai
+          # SQLSTATE — sesuatu yang ping dan stats sama sekali tidak bisa
+          # lihat (stats menelan galat DB dan membalas nol).
+          jdwp=$(curl -s -m 60 -X POST "https://dev.laksamanamuda.id/jadwal-api-mysql/api.php" \
+                   -H 'Content-Type: text/plain;charset=utf-8' \
+                   -d '{"action":"simpanSel"}')
+          echo "probe tulis: $(printf '%s' "$jdwp" | head -c 300)"
+          case "$jdwp" in
+            *'"isi":0'*) echo "OK      koneksi DB sehat, tabel siap, tidak ada baris ditulis" ;;
+            *SQLSTATE*)  echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database jadwal"; gagal=1 ;;
+            *)           echo "GAGAL   probe menjawab tak terduga"; gagal=1 ;;
           esac
 
           exit $gagal

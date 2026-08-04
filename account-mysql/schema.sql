@@ -157,7 +157,8 @@ INSERT IGNORE INTO `modules` (`key`, `label`, `active`, `urut`) VALUES
   ('marketing',    'Marketing',         1, 70),
   ('hr',           'Staff Performance', 1, 80),
   ('howandi_life', 'Howandi Life OS',   1, 90),
-  ('kompas',       'Kompas Laksamana',  1,100);
+  ('kompas',       'Kompas Laksamana',  1,100),
+  ('jadwal',       'Jadwal Shift',      1,110);
 
 -- ---------------------------------------------------------------------
 -- SESSIONS — token sesi Office, dipakai modul lain untuk MEMBUKTIKAN
