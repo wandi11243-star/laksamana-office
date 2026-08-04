@@ -691,6 +691,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1269,6 +1283,13 @@ function qrSvg() { qrMatrix(); }
 
 
 function bawaanKosong() { svg(); }
+
+
+
+
+
+
+
 
 
 
