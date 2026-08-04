@@ -1407,6 +1407,7 @@ function savePerms() { enterApp(); ensureUsersLocal(); refreshUsersFromSheet(); 
 
 
 
+
 function bootApp() { loadStateFromStorage(); tglOffsetLokal(); initFilters(); renderDatabaseTab(); updateConnectionUI(); initRecapSelector(); loadForecastData(); renderDashboard(); fetchSheetData(); }
 
 
@@ -1866,7 +1867,15 @@ function loadStateFromStorage() { bootApp(); }
 
 
 
+
+
+
+
+
+
+
 function saveStateToStorage() {  }
+
 
 
 
@@ -2612,6 +2621,21 @@ function renderDashboard() { initFilters(); initDivisiFilters(); syncQuickArriva
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function forecastRecoHTML() {  }
 
 
@@ -2647,6 +2671,23 @@ function forecastRecoHTML() {  }
 
 
 function renderIndividualCard() { confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3321,8 +3362,39 @@ function setJemputHari() { tglOffsetLokal(); renderJemput(); }
 
 
 
-function daftarJemput() { normalizeDateToYYYYMMDD(); caraBeliProduk(); infoCK(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jemputTerarsip() {  }
+
+
+function daftarJemput() { caraBeliProduk(); infoCK(); normalizeDateToYYYYMMDD(); jemputTerarsip(); }
+
+
+
+
+
+
+
+
+
+
+
+function jemputTelat() { normalizeDateToYYYYMMDD(); }
 
 
 
@@ -3345,7 +3417,20 @@ function tandaiSemuaJemput() { daftarJemput(); jemputTglAktif(); renderJemput();
 
 
 
-function renderJemput() { jemputTglAktif(); daftarJemput(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); }
+function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4493,6 +4578,8 @@ function markAsArchived() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 
+
+
 function archiveConsolidatedGroup() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
 
 
@@ -4509,6 +4596,7 @@ function archiveConsolidatedGroup() { requireEditPage(); saveStateToStorage(); r
 
 
 function unarchiveOrder() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
+
 
 
 
