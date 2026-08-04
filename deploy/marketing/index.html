@@ -244,6 +244,19 @@ table.tbl tr:last-child td{border-bottom:none}
 .row-click{cursor:pointer}
 .cell-strong{font-weight:600}
 .cell-sub{font-size:11px;color:var(--muted);margin-top:2px}
+/* Tiga aksi Generate dulu memakai .pill-row yang boleh melipat, dan di kolom
+   selebar itu ketiganya turun jadi tiga baris — satu baris tabel jadi
+   setinggi tiga baris tanpa alasan. Sekarang dipaksa satu baris; kalau
+   layarnya sempit, yang bergeser tabelnya (sudah punya tbl-wrap), bukan
+   tombolnya yang menumpuk. */
+.aksi-1baris{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end}
+.aksi-1baris .btn{white-space:nowrap;flex:none}
+/* Pemisah bulan DI DALAM tabel — bukan tabel terpisah per bulan, supaya
+   pengurutan, pencarian, dan paginasi tetap satu perlakuan. */
+.bulan-sep td{background:var(--ink-880);font-weight:700;font-size:11.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--gold-deep);padding:7px 12px;
+  border-top:1px solid var(--line-hard);border-bottom:1px solid var(--line-soft)}
+.bulan-sep td span{float:right;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted)}
 /* Baris alat di atas daftar (Briefing, VIP): kotak cari + penghitung hasil.
    Kelas ini dipakai tapi TIDAK pernah punya aturan, dan akibatnya terlihat:
    .inp lebarnya 100%, jadi penghitung "12 dari 40 event" terdorong ke baris
@@ -1868,6 +1881,12 @@ function eventPadaTgl(e,ds){
   if(b<a) b=a;
   return ds>=a && ds<=b;
 }
+/* '2026-08' -> 'Agustus 2026'. Dipakai pemisah bulan di tabel. */
+function labelBulan(ym){
+  const b=String(ym||'').split('-');
+  const i=(+b[1])-1;
+  return (MONTHS_F[i]||'?')+' '+(b[0]||'');
+}
 function fmtRentang(e){
   if(!multiHari(e)) return fmtDate(e&&e.tanggal);
   return fmtDate(e.tanggal)+' – '+fmtDate(e.tanggalSelesai);
@@ -3446,10 +3465,13 @@ function refreshView(){
    sesi ini — bukan di S. Ini pilihan tampilan satu orang; kalau ikut S, ia
    akan tersimpan ke server dan mengubah tampilan semua orang.
    ============================================================ */
-const TBL_PER_HAL_DEF=25;
-// Baris yang tinggi (banyak chip / teks berparagraf) diberi jatah lebih sedikit.
-const TBL_PER_HAL={crm:15, events:15, invoices:15, approval:15, pegawai:20, timeline:30, riwayat:20,
-                   todo:10, upcoming:10};   // dua ini menumpang di Dashboard, jangan sampai mendominasi
+/* 10 baris per halaman untuk SEMUA tabel — diminta begitu supaya perilakunya
+   sama di mana pun, tidak perlu diingat tabel mana yang 15 dan mana yang 30.
+   Peta per-tabel sengaja dikosongkan, bukan diisi 10 satu per satu: kalau
+   dibiarkan berisi, tabel baru yang lupa didaftarkan diam-diam kembali ke
+   angka lain dan perbedaannya baru ketahuan saat dipakai. */
+const TBL_PER_HAL_DEF=10;
+const TBL_PER_HAL={};
 const TBL_HAL={};      // kunci -> nomor halaman aktif
 const TBL_SIG={};      // kunci -> sidik jari saringan terakhir
 const TBL_SORT={};     // kunci -> {k, arah}
@@ -6703,7 +6725,33 @@ function renderBrief(V){
   const urut=tblUrut(evs,'brief',KOL_BRIEF);
   const p=tblPage(urut,'brief',q);
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('brief',KOL_BRIEF)+'<tbody>';
-  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="draftNegotiation(\''+e.id+'\')" title="Pilih: PDF yang diunggah sendiri, atau template otomatis dari sistem">Draft Negotiation</button></div></td></tr>'; });
+  /* Pemisah bulan HANYA saat tabel diurut menurut tanggal. Diurut menurut
+     nama klien, judul bulan di tengah daftar tidak menandai apa pun dan
+     justru membuat orang mengira barisnya dikelompokkan padahal tidak. */
+  const sBrief=tblUrutState('brief',KOL_BRIEF);
+  const pisahBulan=!sBrief || sBrief.k==='tanggal';
+  let bulanKini=null;
+  p.items.forEach(e=>{
+    if(pisahBulan){
+      const bl=String(e.tanggal||'').slice(0,7);
+      if(bl!==bulanKini){
+        bulanKini=bl;
+        /* Jumlahnya dihitung dari SELURUH hasil saring, bukan dari halaman
+           yang sedang dibuka: 'Agustus 2026 · 9 event' harus tetap 9 walau
+           halaman ini cuma memuat tiga di antaranya. */
+        const nBulan=urut.filter(x=>String(x.tanggal||'').slice(0,7)===bl).length;
+        h+='<tr class="bulan-sep"><td colspan="5">'+esc(bl?labelBulan(bl):'Tanpa tanggal')
+          +'<span>'+nBulan+' event</span></td></tr>';
+      }
+    }
+    h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td>'
+     +'<td class="mono">'+fmtRentang(e)+'</td><td>'+statusChip(e.status)+'</td>'
+     +'<td><div class="aksi-1baris">'
+     +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'internal\')" title="Briefing internal untuk tim">Internal</button>'
+     +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'client\')" title="Versi yang dikirim ke client">Client</button>'
+     +'<button class="btn sm ghost" onclick="draftNegotiation(\''+e.id+'\')" title="Draft Negotiation \u2014 pilih: PDF yang diunggah sendiri, atau template otomatis dari sistem">Draft</button>'
+     +'</div></td></tr>';
+  });
   h+='</tbody></table></div>'+tblPagerHtml(p,'brief')+'</div>';
   V.innerHTML=h;
 }

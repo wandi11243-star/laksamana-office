@@ -1307,6 +1307,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -1864,6 +1877,12 @@ function eventPadaTgl() { tglSelesai(); }
 
 
 
+
+
+
+
+
+function labelBulan() {  }
 
 
 
@@ -3415,6 +3434,9 @@ function setJobProg() { save(); toggleJobSelesai(); divProgress(); refreshView()
 
 
 function refreshView() { simpanGulir(); $(); go(); tblHead(); tblUrut(); tblPage(); tblPagerHtml(); }
+
+
+
 
 
 
@@ -6677,7 +6699,33 @@ function deletePayment() { can(); toast(); logAct(); save(); eventFinance(); go(
 
 
 
-function renderBrief() { pageHead(); empty(); fmtDate(); esc(); $(); tblUrut(); tblPage(); tblHead(); clientName(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
+function renderBrief() { pageHead(); empty(); fmtDate(); esc(); $(); tblUrut(); tblPage(); tblHead(); tblUrutState(); labelBulan(); clientName(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
