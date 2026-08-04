@@ -3534,6 +3534,30 @@
             if (!pack) return dasar;
             return `${dasar} <span class="text-slate-400 font-semibold">(≈ ${ckNum(pack)} Pack)</span>`;
         }
+        /* ---- PACK SEBAGAI ANGKA UTAMA (permintaan user, 4 Agustus 2026) ----
+           Di rak Central Kitchen barang berpindah dalam PACK: yang diambil,
+           dikirim, dan dihitung saat opname semuanya pack utuh. Satuan dasarnya
+           (Pcs/Gram) cuma keterangan isi. Menuliskan "2500 Gram (≈ 5 Pack)"
+           membuat orang membagi sendiri tiap kali ia ingin tahu berapa pack
+           yang tersisa — padahal itu satu-satunya angka yang dipakainya.
+           Sekarang dibalik: pack besar, satuan dasar kecil di bawahnya.
+
+           Barang CURAH (packIsi 0) tetap memakai satuan dasarnya sebagai angka
+           utama — di sana "Pack" tidak berarti apa-apa, dan memaksakannya cuma
+           akan memunculkan angka yang tidak bisa dipertanggungjawabkan. */
+        function ckPackAngka(qtyDasar, p) {
+            if (p && p.packIsi > 0) return `${ckNum(qtyDasar / p.packIsi)} Pack`;
+            return `${ckNum(qtyDasar)} ${(p && p.packSatuan) || ''}`.trim();
+        }
+        function ckPackUtama(qtyDasar, p, o) {
+            o = o || {};
+            const tanda = o.tanda || '';
+            const utama = `<div class="${o.kelas || ''}">${tanda}${ckPackAngka(qtyDasar, p)}</div>`;
+            // Baris kecil hanya ditulis kalau memang menambah keterangan —
+            // untuk barang curah isinya akan mengulang baris di atasnya persis.
+            if (!p || !(p.packIsi > 0)) return utama;
+            return utama + `<div class="text-[10px] text-slate-400 font-semibold leading-tight">${tanda}${ckNum(qtyDasar)} ${p.packSatuan || ''}</div>`;
+        }
 
         function setSubCK(v) {
             // Sub-tab lama yang sudah tidak ada bisa masih tersimpan di
@@ -3802,11 +3826,14 @@
                         <div class="font-bold text-slate-800">${s.item}${badge}</div>
                         <div class="text-[10px] text-slate-400">${s.packIsi > 0 ? `1 Pack = ${ckNum(s.packIsi)} ${s.packSatuan}` : (s.packSatuan || '')}${s.hilang ? ' · <span class="text-amber-700 font-bold">tidak lagi terdaftar sebagai barang CK</span>' : ''}</div>
                     </td>
-                    <td class="py-2.5 px-2 text-right whitespace-nowrap ${g.masuk ? 'text-emerald-700 font-bold' : 'text-slate-300'}">${g.masuk ? '+' + ckNum(g.masuk) : '—'}</td>
-                    <td class="py-2.5 px-2 text-right whitespace-nowrap ${g.keluar ? 'text-rose-600 font-bold' : 'text-slate-300'}">${g.keluar ? '−' + ckNum(g.keluar) : '—'}</td>
-                    <td class="py-2.5 px-2 text-right whitespace-nowrap text-slate-400">${ckNum(s.masuk)} / ${ckNum(s.keluar)}</td>
+                    <td class="py-2.5 px-2 text-right whitespace-nowrap">${g.masuk ? ckPackUtama(g.masuk, p, { tanda: '+', kelas: 'text-emerald-700 font-bold' }) : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="py-2.5 px-2 text-right whitespace-nowrap">${g.keluar ? ckPackUtama(g.keluar, p, { tanda: '−', kelas: 'text-rose-600 font-bold' }) : '<span class="text-slate-300">—</span>'}</td>
+                    <td class="py-2.5 px-2 text-right whitespace-nowrap">
+                        <div class="text-slate-500 font-bold">${ckPackAngka(s.masuk, p)} / ${ckPackAngka(s.keluar, p)}</div>
+                        ${p.packIsi > 0 ? `<div class="text-[10px] text-slate-400 font-semibold leading-tight">${ckNum(s.masuk)} / ${ckNum(s.keluar)} ${p.packSatuan || ''}</div>` : ''}
+                    </td>
                     <td class="py-2.5 pl-2 text-right whitespace-nowrap">
-                        <div class="font-black ${habis ? 'text-rose-600' : 'text-slate-900'}">${ckJumlahTeks(s.saldo, p)}</div>
+                        ${ckPackUtama(s.saldo, p, { kelas: 'font-black text-base ' + (habis ? 'text-rose-600' : 'text-slate-900') })}
                     </td>
                 </tr>`;
             }).join('');
@@ -3816,7 +3843,8 @@
                 <h3 class="text-sm font-black text-slate-800 mb-1">Stok Item</h3>
                 <p class="text-[10px] text-slate-400 mb-3">
                     ${daftar.length} barang${habisCount ? ` · <span class="text-rose-600 font-bold">${habisCount} habis</span>` : ''}.
-                    Semua angka dalam satuan dasar tiap barang. Sisa = seluruh masuk − seluruh keluar, dihitung ulang dari riwayat.
+                    Angka besar = <b>jumlah pack</b>; angka kecil abu-abu di bawahnya = satuan dasarnya (Pcs/Gram). Barang curah tetap memakai satuan dasarnya.
+                    Sisa = seluruh masuk − seluruh keluar, dihitung ulang dari riwayat.
                 </p>
                 <div class="overflow-x-auto -mx-1 px-1">
                     <table class="w-full text-xs min-w-[560px]">
@@ -4254,9 +4282,13 @@
                         </div>
                         ${m.catatan ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate">${m.catatan}</div>` : ''}
                     </div>
+                    <!-- Pack di depan, satuan dasar kecil di bawahnya — sama seperti
+                         tabel Stok Item. Riwayat yang menuliskannya terbalik dari
+                         tabel stok memaksa orang menerjemahkan dua kali saat
+                         mencocokkan "keluar berapa" dengan "sisa berapa". -->
                     <div class="shrink-0 text-right">
-                        <div class="text-[13px] font-black ${masuk ? 'text-emerald-700' : 'text-rose-600'}">${masuk ? '+' : '−'}${ckNum(m.qtyInput)} ${m.unitInput}</div>
-                        ${m.unitInput !== m.packSatuan ? `<div class="text-[9px] text-slate-400">${ckNum(m.qty)} ${m.packSatuan}</div>` : ''}
+                        ${ckPackUtama(m.qty, { packIsi: m.packIsi, packSatuan: m.packSatuan },
+                            { tanda: masuk ? '+' : '−', kelas: 'text-[13px] font-black ' + (masuk ? 'text-emerald-700' : 'text-rose-600') })}
                     </div>
                     ${(bisaHapus && !otomatis) ? `<button onclick="hapusMutasiCK('${m.id}')" class="shrink-0 w-8 h-8 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-all" title="Hapus mutasi"><i class="fa-solid fa-trash text-[11px]"></i></button>` : ''}
                 </div>`;

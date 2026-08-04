@@ -3535,6 +3535,30 @@ function ckJumlahTeks() { ckNum(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+function ckPackAngka() { ckNum(); }
+
+
+
+function ckPackUtama() { ckPackAngka(); ckNum(); }
+
+
+
+
+
+
+
+
+
 function setSubCK() { renderCK(); }
 
 
@@ -3755,7 +3779,11 @@ function sembunyikanPagerCKStok() {  }
 
 
 
-function renderCKSaldo() { sembunyikanPagerCKStok(); ckGerakHariIni(); potongHalaman(); ckNum(); ckJumlahTeks(); }
+function renderCKSaldo() { sembunyikanPagerCKStok(); ckGerakHariIni(); potongHalaman(); ckNum(); ckPackUtama(); ckPackAngka(); }
+
+
+
+
 
 
 
@@ -4215,7 +4243,11 @@ function set() { renderCKMutasi(); }
 
 
 
-function renderCKMutasi() { canEditPage(); ckNum(); hapusMutasiCK(); }
+function renderCKMutasi() { canEditPage(); ckPackUtama(); hapusMutasiCK(); }
+
+
+
+
 
 
 

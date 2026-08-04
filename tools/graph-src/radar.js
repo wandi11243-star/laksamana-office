@@ -534,7 +534,28 @@
 
 
 
-function pendek() { fbFormats(); }
+function pendek() {  }
+
+
+
+
+
+
+
+
+
+
+
+function pendekUnik() { pendek(); fbFormats(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -844,7 +865,13 @@ function isianTerisi() {  }
 
 
 
-function compassSVG() { kesiapan(); evDivisi(); evSubs(); divStatus(); subStatus(); esc(); pendek(); }
+function compassSVG() { kesiapan(); evDivisi(); evSubs(); pendekUnik(); divStatus(); subStatus(); esc(); pendek(); }
+
+
+
+
+
+
 
 
 
@@ -1407,7 +1434,8 @@ function paxBln() { stat(); paxRes(); pad(); agendaTgl(); resTgl(); paxTgl(); es
 
 
 
-function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); esc(); pendek(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
+function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); pendekUnik(); esc(); pendek(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
+
 
 
 

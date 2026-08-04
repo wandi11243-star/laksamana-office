@@ -535,6 +535,27 @@ var PENDEK = {Kitchen:'KIT',Bar:'BAR',Floor:'FLR',Design:'DSG',Event:'EVT',Secur
    ditambahkan ke sana, karena daftarnya dikelola pengguna di Marketing.
    Yang tak dikenal dipendekkan sendiri, bukan tampil sebagai 'undefined'. */
 function pendek(d){ return PENDEK[d] || String(d||'').slice(0,3).toUpperCase(); }
+/* Label pendek yang DIJAMIN berbeda satu sama lain dalam satu gambar.
+   pendek() sendirian memotong tiga huruf, dan dua sub kategori yang tiga huruf
+   awalnya sama — mis. "Chef Action" dan "Cheese Platter" — menjadi dua lengan
+   mawar yang sama-sama berlabel "CHE". Tidak ada cara membedakannya dari
+   layar; pemakainya bertanya "CHE ini apa ya" (4 Agustus 2026), dan itu
+   pertanyaan yang tidak seharusnya perlu ditanyakan.
+
+   Yang bentrok diperpanjang huruf demi huruf sampai unik. Kalau namanya
+   memang persis sama sampai habis, baru diberi angka — itu berarti ada dua
+   sub kategori bernama sama di Marketing, dan angka di belakangnya justru
+   memperlihatkan masalah itu alih-alih menyembunyikannya. */
+function pendekUnik(list){
+  var peta={}, dipakai={};
+  (list||[]).forEach(function(d){
+    var nama=String(d||''), s=pendek(d), n=3;
+    while(dipakai[s] && n<nama.length){ n++; s=nama.slice(0,n).toUpperCase(); }
+    if(dipakai[s]){ var i=2; while(dipakai[s+i]) i++; s=s+i; }
+    dipakai[s]=1; peta[d]=s;
+  });
+  return peta;
+}
 /* Bibit saja. Daftar yang berlaku dikirim Marketing bersama datanya
    (data.fbFormats) karena di sana kategorinya sudah bisa ditambah/dihapus —
    lihat fbFormats() di bawah. */
@@ -850,6 +871,7 @@ function compassSVG(ev){
   g+='<circle class="cp-ring" cx="100" cy="100" r="88"/><circle class="cp-ring" cx="100" cy="100" r="60"/><circle class="cp-ring" cx="100" cy="100" r="30"/>';
   var cat=evDivisi(ev)[0]||'', dv=evSubs(ev);
   if(!dv.length && cat) dv=[cat];   // format tanpa sub kategori: satu lengan
+  var lbl=pendekUnik(dv);
   dv.forEach(function(d,i){
     var a=(i/dv.length)*Math.PI*2 - Math.PI/2;
     var x0=cx+Math.cos(a)*r0, y0=cy+Math.sin(a)*r0, x1=cx+Math.cos(a)*r1, y1=cy+Math.sin(a)*r1;
@@ -857,7 +879,12 @@ function compassSVG(ev){
     var st=(d===cat)?divStatus(ev,d):subStatus(ev,cat,d);
     var anchor=Math.abs(Math.cos(a))<0.35?'middle':(Math.cos(a)>0?'start':'end');
     g+='<line class="cp-arm s'+st+'" x1="'+x0.toFixed(1)+'" y1="'+y0.toFixed(1)+'" x2="'+x1.toFixed(1)+'" y2="'+y1.toFixed(1)+'"/>';
-    g+='<text class="cp-lbl'+(st?' on':'')+'" x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+'" text-anchor="'+anchor+'">'+esc(pendek(d))+'</text>';
+    /* <title> di dalam <text>: nama panjangnya muncul sebagai tooltip bawaan
+       peramban saat lengannya disentuh. Matriks kesiapan sudah punya title=
+       sejak awal, mawar ini tidak — dan justru mawar inilah yang dilihat
+       lebih dulu di halaman depan. */
+    g+='<text class="cp-lbl'+(st?' on':'')+'" x="'+lx.toFixed(1)+'" y="'+(ly+3).toFixed(1)+'" text-anchor="'+anchor+'">'
+      +esc(lbl[d]||pendek(d))+'<title>'+esc(d)+'</title></text>';
   });
   g+='<text class="cp-core" x="100" y="102">'+k.pct+'%</text>';
   g+='<text class="cp-core-s" x="100" y="118">Kesiapan</text></svg>';
@@ -1425,7 +1452,8 @@ function vKoordinasi(){
   else{
     h+='<div style="overflow-x:auto"><div class="mgrid" style="grid-template-columns:230px repeat('+DIVISI.length+',minmax(0,1fr))">';
     h+='<div class="mh" style="text-align:left">Event</div>';
-    DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+esc(pendek(d))+'</div>';});
+    var lblM=pendekUnik(DIVISI);
+    DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+esc(lblM[d]||pendek(d))+'</div>';});
     // Matriks ikut dipaginasi: barisnya tumbuh seiring event, dan matriks
     // sepanjang lima layar tidak bisa dibandingkan dengan mata.
     pgIris('koord',list).forEach(function(a){

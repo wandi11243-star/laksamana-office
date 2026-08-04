@@ -425,6 +425,13 @@
 
 
 
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -525,6 +532,11 @@ function seed() {  }
 
 
 function normalizeState() { seed(); }
+
+
+
+
+
 
 
 
@@ -1024,7 +1036,7 @@ function dashDiv() { render(); }
 
 
 
-function viewBulanan() { bulanDari(); hariIni(); kruDivisi(); pitaBulan(); bolehUbah(); esc(); namaDivisi(); isAdmin(); tglPendek(); idxHari(); isHeadUser(); jabatanDari(); selHtml(); sel(); rekapBulan(); segDivisi(); geserBulanAktif(); labelBulan(); bulanIni(); panelKosongRoster(); legendaShift(); exportPNG(); exportWA(); statBox(); }
+function viewBulanan() { bulanDari(); hariIni(); kruDivisi(); pitaBulan(); bolehUbah(); esc(); namaDivisi(); isAdmin(); tglPendek(); idxHari(); isHeadUser(); jabatanDari(); selHtml(); sel(); rekapBulan(); segDivisi(); geserBulanAktif(); labelBulan(); bulanIni(); panelKosongRoster(); legendaShift(); exportPNG(); exportWA(); statBox(); panelBeban(); }
 
 
 
@@ -1051,6 +1063,81 @@ function viewBulanan() { bulanDari(); hariIni(); kruDivisi(); pitaBulan(); boleh
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bebanKru() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); jamSel(); durasiJam(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jedaKeBesok() { sel(); addD(); shiftDef(); jamSel(); }
+
+
+
+
+
+function men() {  }
+
+
+
+
+function peringatanBulan() { awalBulan(); akhirBulan(); bebanKru(); addD(); jedaKeBesok(); tglManusia(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelBeban() { bebanKru(); esc(); jabatanDari(); peringatanBulan(); }
 
 
 
@@ -1494,7 +1581,14 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); ubahJabatan(); ubahShiftKru(); shiftKru(); ulangRoster(); panelKosongRoster(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); ubahJabatan(); ubahShiftKru(); shiftKru(); ubahAmbang(); ulangRoster(); panelKosongRoster(); }
+
+
+
+
+
+
+
 
 
 
@@ -1587,6 +1681,16 @@ function ubahHead() { simpanSetting(); render(); toast(); namaKru(); namaDivisi(
 
 
 function ubahDivisi() { simpanSetting(); render(); }
+
+
+
+
+
+
+
+function ubahAmbang() { simpanSetting(); render(); }
+
+
 
 
 

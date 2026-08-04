@@ -382,6 +382,7 @@
                  bergantian. Riwayat dipisah dari kedua formnya, mengikuti
                  pola yang sama dengan halaman lain di modul ini. -->
             <div class="border-b border-slate-200 flex gap-1 overflow-x-auto whitespace-nowrap">
+                <button onclick="setSubCKOrder('stok')"    id="subcko-stok"    class="subcko-btn shrink-0 border-b-2 px-3 sm:px-4 py-2.5 text-sm font-bold">📦 Stok CK Sekarang</button>
                 <button onclick="setSubCKOrder('minta')"   id="subcko-minta"   class="subcko-btn shrink-0 border-b-2 px-3 sm:px-4 py-2.5 text-sm font-bold">📥 Minta dari CK</button>
                 <button onclick="setSubCKOrder('kirim')"   id="subcko-kirim"   class="subcko-btn shrink-0 border-b-2 px-3 sm:px-4 py-2.5 text-sm font-bold">📤 Kirim ke CK</button>
                 <button onclick="setSubCKOrder('riwayat')" id="subcko-riwayat" class="subcko-btn shrink-0 border-b-2 px-3 sm:px-4 py-2.5 text-sm font-bold">🧾 Riwayat Kiriman</button>
@@ -393,6 +394,29 @@
             <div id="ck-kosong-warn" class="hidden text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
                 ⚠️ Belum ada barang Central Kitchen yang terdaftar. Minta admin mendaftarkannya di
                 <b>Purchasing → Database &amp; Vendor → Atur Produk</b>, pilih sumber <b>Central Kitchen</b>.
+            </div>
+
+            <!-- STOK CK SEKARANG. Sebelum ini sisa stok cuma terbaca satu per
+                 satu di dalam form Minta, sesudah barangnya dipilih — jadi
+                 pertanyaan "CK masih punya apa saja?" hanya bisa dijawab
+                 dengan mengisi baris satu per satu lalu menghapusnya lagi.
+                 Angkanya sumber yang sama persis dengan yang dipakai form
+                 (ckSaldoPeta), jadi tidak mungkin dua layar ini berselisih. -->
+            <div id="ckoview-stok" class="hidden bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
+                <div class="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+                    <div>
+                        <span class="text-xs font-black text-slate-400 uppercase tracking-wider">Sisa Stok Central Kitchen</span>
+                        <p class="text-[10px] text-slate-400 mt-0.5">Angka besar = <b>jumlah pack</b>, angka kecil = satuan dasarnya. <span id="cko-stok-waktu"></span></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="search" id="cko-stok-cari" oninput="renderStokCKOrder()" placeholder="Cari barang…"
+                               class="w-full sm:w-52 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:border-teal-400">
+                        <button type="button" onclick="segarkanStokCKOrder()" class="shrink-0 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold px-3 py-2 rounded-xl text-xs transition-all" title="Ambil ulang angka dari server">
+                            <i class="fa-solid fa-rotate text-[11px]"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="cko-stok-wrap" class="p-4"></div>
             </div>
 
             <div id="ckoview-minta" class="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-visible">
@@ -2132,7 +2156,7 @@
 
         function setSubCKOrder(v) {
             subCKOrder = v;
-            ['minta', 'kirim', 'riwayat'].forEach(k => {
+            ['stok', 'minta', 'kirim', 'riwayat'].forEach(k => {
                 const on = (k === v);
                 const btn = document.getElementById('subcko-' + k);
                 if (btn) btn.className = 'subcko-btn shrink-0 border-b-2 px-3 sm:px-4 py-2.5 text-sm font-bold ' +
@@ -2145,6 +2169,7 @@
                yang mengaku sedang melakukan hal yang berbeda dari yang
                sebenarnya terjadi. */
             const JUDUL = {
+                stok:    ['Stok Central Kitchen Sekarang', '👤 PIC'],
                 minta:   ['Pengajuan ke Central Kitchen', '👤 PIC (Pemohon)'],
                 kirim:   ['Kirim Barang ke Central Kitchen', '👤 PIC (Pengirim)'],
                 riwayat: ['Riwayat Kiriman ke Central Kitchen', '👤 PIC']
@@ -2170,6 +2195,78 @@
                 updateKirimSummary();
             }
             if (v === 'riwayat') muatRiwayatKiriman();
+            // Stok ditarik ulang tiap kali tab dibuka: angka yang dilihat
+            // sebelum menaruh pengajuan harus angka sekarang, bukan angka saat
+            // halaman pertama kali dimuat berjam-jam lalu.
+            if (v === 'stok') segarkanStokCKOrder();
+        }
+        /* ---- STOK CK DI MODUL ORDERING ----
+           Pack ditulis sebagai angka utama, satuan dasar kecil di bawahnya —
+           sama persis dengan tabel Stok Item di Purchasing. Kru yang sama
+           membaca kedua layar itu; menuliskannya dengan urutan berbeda memaksa
+           ia menerjemahkan ulang tiap kali berpindah. */
+        function ckPackUtamaOrder(qtyDasar, p, kelas) {
+            const utama = `<div class="${kelas || ''}">${ckTeksPack(qtyDasar, p)}</div>`;
+            if (!p || !(p.packIsi > 0)) return utama;
+            return utama + `<div class="text-[10px] text-slate-400 font-semibold leading-tight">${ckNum(qtyDasar)} ${p.packSatuan || ''}</div>`;
+        }
+        async function segarkanStokCKOrder() {
+            const w = document.getElementById('cko-stok-waktu');
+            if (w) w.textContent = 'memuat…';
+            await muatSaldoCK();
+            if (w) w.textContent = 'per ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+            renderStokCKOrder();
+        }
+        function renderStokCKOrder() {
+            const wrap = document.getElementById('cko-stok-wrap');
+            if (!wrap) return;
+            const q = ((document.getElementById('cko-stok-cari') || {}).value || '').trim().toLowerCase();
+            const semua = daftarBarangCK();
+            const daftar = q ? semua.filter(n => n.toLowerCase().includes(q)) : semua;
+
+            if (!semua.length) {
+                wrap.innerHTML = `<div class="py-10 text-center text-slate-500 text-sm">Belum ada barang Central Kitchen yang terdaftar.</div>`;
+                return;
+            }
+            if (!daftar.length) {
+                wrap.innerHTML = `<div class="py-10 text-center text-slate-500 text-sm">Tidak ada barang CK yang namanya memuat "${q}".</div>`;
+                return;
+            }
+            /* Saldo yang TIDAK diketahui dibedakan tegas dari saldo nol.
+               Keduanya sama-sama "tidak bisa diambil", tapi sebabnya berbeda:
+               yang satu barangnya habis, yang satu endpoint CK belum terpasang
+               / gagal dimuat. Menyamakannya membuat kru menagih dapur untuk
+               barang yang sebenarnya masih ada. */
+            const baris = daftar.map(n => {
+                const p = infoCKItem(n);
+                const sisa = ckSaldoPeta[n];
+                const tahu = (sisa !== undefined && sisa !== null);
+                const habis = tahu && sisa <= 0;
+                return `<tr class="border-b border-slate-100">
+                    <td class="py-2.5 pr-2">
+                        <div class="font-bold text-slate-800">${n}</div>
+                        <div class="text-[10px] text-slate-400">${p && p.packIsi > 0 ? `1 Pack = ${ckNum(p.packIsi)} ${p.packSatuan || ''}` : ((p && p.packSatuan) || '')}</div>
+                    </td>
+                    <td class="py-2.5 pl-2 text-right whitespace-nowrap">
+                        ${tahu
+                            ? ckPackUtamaOrder(sisa, p, 'font-black text-base ' + (habis ? 'text-rose-600' : 'text-slate-900'))
+                            : '<span class="text-slate-300 font-bold">stok ?</span>'}
+                    </td>
+                </tr>`;
+            }).join('');
+
+            const habisCount = daftar.filter(n => { const s = ckSaldoPeta[n]; return s !== undefined && s !== null && s <= 0; }).length;
+            wrap.innerHTML = `
+                <p class="text-[10px] text-slate-400 mb-2">${daftar.length} barang${habisCount ? ` · <span class="text-rose-600 font-bold">${habisCount} habis</span>` : ''}</p>
+                <div class="overflow-x-auto -mx-1 px-1">
+                    <table class="w-full text-xs min-w-[320px]">
+                        <thead><tr class="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-left border-b border-slate-100">
+                            <th class="py-2 pr-2">Barang</th>
+                            <th class="py-2 pl-2 text-right whitespace-nowrap">Sisa Sekarang</th>
+                        </tr></thead>
+                        <tbody>${baris}</tbody>
+                    </table>
+                </div>`;
         }
 
         function bukaFormCK() {
