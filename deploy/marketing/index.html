@@ -244,6 +244,19 @@ table.tbl tr:last-child td{border-bottom:none}
 .row-click{cursor:pointer}
 .cell-strong{font-weight:600}
 .cell-sub{font-size:11px;color:var(--muted);margin-top:2px}
+/* Tiga aksi Generate dulu memakai .pill-row yang boleh melipat, dan di kolom
+   selebar itu ketiganya turun jadi tiga baris — satu baris tabel jadi
+   setinggi tiga baris tanpa alasan. Sekarang dipaksa satu baris; kalau
+   layarnya sempit, yang bergeser tabelnya (sudah punya tbl-wrap), bukan
+   tombolnya yang menumpuk. */
+.aksi-1baris{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end}
+.aksi-1baris .btn{white-space:nowrap;flex:none}
+/* Pemisah bulan DI DALAM tabel — bukan tabel terpisah per bulan, supaya
+   pengurutan, pencarian, dan paginasi tetap satu perlakuan. */
+.bulan-sep td{background:var(--ink-880);font-weight:700;font-size:11.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--gold-deep);padding:7px 12px;
+  border-top:1px solid var(--line-hard);border-bottom:1px solid var(--line-soft)}
+.bulan-sep td span{float:right;font-weight:600;letter-spacing:0;text-transform:none;color:var(--muted)}
 /* Baris alat di atas daftar (Briefing, VIP): kotak cari + penghitung hasil.
    Kelas ini dipakai tapi TIDAK pernah punya aturan, dan akibatnya terlihat:
    .inp lebarnya 100%, jadi penghitung "12 dari 40 event" terdorong ke baris
@@ -1852,6 +1865,42 @@ const DAYS_F=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
 function fmtDate(d){ if(!d)return '—'; const x=new Date(d+'T00:00:00');
   return DAYS[x.getDay()]+', '+x.getDate()+' '+MONTHS[x.getMonth()]+' '+x.getFullYear(); }
 function fmtDateLong(d){ if(!d)return '—'; const x=new Date(d+'T00:00:00'); return DAYS_F[x.getDay()]+', '+x.getDate()+' '+MONTHS_F[x.getMonth()]+' '+x.getFullYear(); }
+/* ---------- EVENT LINTAS HARI ----------
+   Acara sehari TIDAK punya tanggalSelesai sama sekali. Ketiga fungsi ini yang
+   menyembunyikan perbedaannya, supaya pemanggil tidak perlu tahu ada dua
+   bentuk data — dan supaya tidak ada tempat yang lupa menangani salah satunya. */
+function tglSelesai(e){ return (e&&e.tanggalSelesai)||(e&&e.tanggal)||''; }
+function multiHari(e){ return !!(e&&e.tanggal&&e.tanggalSelesai&&e.tanggalSelesai>e.tanggal); }
+/* Apakah event menyentuh tanggal ini. Dipakai kalender supaya acara dua hari
+   muncul di KEDUA kotaknya, bukan hanya hari pertama. */
+function eventPadaTgl(e,ds){
+  if(!e||!e.tanggal||!ds) return false;
+  const a=e.tanggal; let b=tglSelesai(e);
+  // Tanggal selesai lebih awal dari mulai = salah isi; diperlakukan sehari,
+  // bukan dibiarkan menghasilkan rentang kosong yang menghilangkan acaranya.
+  if(b<a) b=a;
+  return ds>=a && ds<=b;
+}
+/* '2026-08' -> 'Agustus 2026'. Dipakai pemisah bulan di tabel. */
+function labelBulan(ym){
+  const b=String(ym||'').split('-');
+  const i=(+b[1])-1;
+  return (MONTHS_F[i]||'?')+' '+(b[0]||'');
+}
+function fmtRentang(e){
+  if(!multiHari(e)) return fmtDate(e&&e.tanggal);
+  return fmtDate(e.tanggal)+' – '+fmtDate(e.tanggalSelesai);
+}
+/* Kotak <input type="date"> menampilkan dd/mm/yyyy tanpa nama hari, padahal di
+   pekerjaan ini harinya yang menentukan: Sabtu dan Selasa beda perlakuan, dan
+   menghitungnya sendiri dari angka tanggal adalah sumber salah paham yang mahal
+   saat menjadwalkan kru. Nama hari ditulis tepat di bawah kotaknya dan ikut
+   berubah begitu tanggalnya diganti. */
+function hariHint(el){
+  if(!el) return;
+  const t=document.getElementById(el.id+'_hari');
+  if(t) t.textContent = el.value ? fmtDateLong(el.value) : '';
+}
 /* Tanggal (YYYY-MM-DD) menurut JAM DINDING SETEMPAT, bukan UTC.
    ------------------------------------------------------------------
    Dulu today() memakai `new Date().toISOString().slice(0,10)`. toISOString
@@ -2237,6 +2286,15 @@ const EVENT_SCHEMA = [
   {k:'fbFormat',l:'Format F&B',t:'sel',o:()=>getFbFormats().concat(['Lainnya']),req:1},
   {k:'fbFormatLain',l:'Format F&B — tulis sendiri',t:'text',cond:{k:'fbFormat',v:'Lainnya'}},
   {k:'tanggal',l:'Tanggal Event',t:'date',req:1},
+  /* Acara yang jalan lebih dari sehari (gathering dua hari, wedding H-1 + H)
+     dulu terpaksa dibuat sebagai dua event terpisah — dan itu memecah
+     financenya, memecah daftar tugasnya, dan membuat kalender menampilkan dua
+     baris untuk satu acara. Sekarang satu event dengan tanggal selesai.
+     Kolom tanggal selesai baru muncul kalau sakelarnya dinyalakan; acara
+     sehari tetap sesederhana sebelumnya. */
+  {k:'multiHari',l:'Berlangsung lebih dari satu hari',t:'tog',
+   help:'Nyalakan kalau acaranya lintas hari. Tanggal selesai akan muncul di bawah, dan acaranya tampil di semua hari itu pada kalender.'},
+  {k:'tanggalSelesai',l:'Tanggal Selesai',t:'date',cond:{k:'multiHari',v:true},req:1},
   {k:'mulaiSetup',l:'Mulai Setup',t:'time',req:1},
   {k:'tamuDatang',l:'Tamu Datang / Jam Mulai',t:'time',req:1},
   {k:'selesai',l:'Estimasi Selesai',t:'time',req:1},
@@ -3071,7 +3129,7 @@ function renderDashboard(V){
           +'aria-expanded="'+(buka?'true':'false')+'" title="'+(buka?'Tutup':'Lihat')+' daftar tugas event ini" '
           +'onclick="event.stopPropagation();toggleDashTask(\''+e.id+'\')">'+svg(IC.chevR)+'</button></td>'
         +'<td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
-        +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+rlbl+'</div></td>'
+        +'<td class="mono">'+fmtRentang(e)+'<div class="cell-sub">'+rlbl+'</div></td>'
         +'<td class="mono">'+(e.pax||'—')+'</td>'
         +'<td style="min-width:130px"><div class="progress"><div class="bar" style="width:'+c.pct+'%"></div></div>'
           +'<div class="cell-sub">'+c.selesai+'/'+c.total+' tugas · '+c.pct+'%</div></td></tr>';
@@ -3407,10 +3465,13 @@ function refreshView(){
    sesi ini — bukan di S. Ini pilihan tampilan satu orang; kalau ikut S, ia
    akan tersimpan ke server dan mengubah tampilan semua orang.
    ============================================================ */
-const TBL_PER_HAL_DEF=25;
-// Baris yang tinggi (banyak chip / teks berparagraf) diberi jatah lebih sedikit.
-const TBL_PER_HAL={crm:15, events:15, invoices:15, approval:15, pegawai:20, timeline:30, riwayat:20,
-                   todo:10, upcoming:10};   // dua ini menumpang di Dashboard, jangan sampai mendominasi
+/* 10 baris per halaman untuk SEMUA tabel — diminta begitu supaya perilakunya
+   sama di mana pun, tidak perlu diingat tabel mana yang 15 dan mana yang 30.
+   Peta per-tabel sengaja dikosongkan, bukan diisi 10 satu per satu: kalau
+   dibiarkan berisi, tabel baru yang lupa didaftarkan diam-diam kembali ke
+   angka lain dan perbedaannya baru ketahuan saat dipakai. */
+const TBL_PER_HAL_DEF=10;
+const TBL_PER_HAL={};
 const TBL_HAL={};      // kunci -> nomor halaman aktif
 const TBL_SIG={};      // kunci -> sidik jari saringan terakhir
 const TBL_SORT={};     // kunci -> {k, arah}
@@ -3662,7 +3723,7 @@ function viewClient(id){
   h+='<dl class="kv-list"><dt>Kontak</dt><dd>'+esc(c.hp)+(c.email?' · '+esc(c.email):'')+(c.ig?' · '+esc(c.ig):'')+'</dd><dt>Alamat</dt><dd>'+esc(c.alamat||'—')+'</dd><dt>Input</dt><dd>'+fmtDate(c.createdAt)+'</dd><dt>Kontak terakhir</dt><dd>'+fmtDate(c.lastContact)+'</dd><dt>Next follow up</dt><dd>'+(c.nextFU?fmtDate(c.nextFU):'—')+'</dd><dt>Catatan</dt><dd>'+esc(c.catatan||'—')+'</dd></dl>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:10px">Riwayat Event</h4>';
   if(!evs.length)h+='<div class="muted">Belum ada event.</div>';
-  else evs.forEach(e=>h+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft)"><div><b>'+esc(e.nama)+'</b><div class="cell-sub">'+fmtDate(e.tanggal)+'</div></div><div style="text-align:right">'+statusChip(e.status)+'<div class="cell-sub mono">'+rp(eventFinance(e).grand)+'</div></div></div>');
+  else evs.forEach(e=>h+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line-soft)"><div><b>'+esc(e.nama)+'</b><div class="cell-sub">'+fmtRentang(e)+'</div></div><div style="text-align:right">'+statusChip(e.status)+'<div class="cell-sub mono">'+rp(eventFinance(e).grand)+'</div></div></div>');
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:10px">Riwayat Follow Up</h4>';
   if(!fus.length)h+='<div class="muted">Belum ada follow up.</div>';
   else { h+='<div class="timeline">'; fus.forEach(f=>{ const fe=f.eventId?S.events.find(e=>e.id===f.eventId):null;
@@ -3717,7 +3778,7 @@ function delClient(id){
      +'<div class="tbl-note">'+svg(IC.alert)+'<span>Pindahkan event ke client lain, atau hapus event-nya lebih dulu (butuh izin hapus event). Sesudah client ini tidak memegang event mana pun, tombol hapus akan muncul.</span></div>'
      +'<h4 style="font-size:14px;margin:16px 0 10px">Event yang masih terhubung ('+evs.length+')</h4>'
      +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Tanggal</th><th>Tahap</th><th></th></tr></thead><tbody>'
-     +evs.map(e=>'<tr><td class="cell-strong">'+esc(e.nama)+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td>'
+     +evs.map(e=>'<tr><td class="cell-strong">'+esc(e.nama)+'</td><td class="mono">'+fmtRentang(e)+'</td><td>'+statusChip(e.status)+'</td>'
        +'<td><button class="btn sm" onclick="closeModal();go(\'event\',\''+e.id+'\')">Buka</button></td></tr>').join('')
      +'</tbody></table></div>'
      +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
@@ -3935,7 +3996,7 @@ function pipeFollowUp(){
     });
     h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tahap</th><th>Terakhir FU</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
     list.forEach(e=>{ const overdue=e.nextFU&&e.nextFU<today(); const dueToday=e.nextFU===today(); const stale=isStale(e); const d=daysSinceFU(e);
-      h+='<tr><td class="row-click" onclick="go(\'event\',\''+e.id+'\')"><div class="cell-strong">'+esc(e.nama)+(stale?' <span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Perlu ditindaklanjuti</span>':'')+'</div><div class="cell-sub">'+fmtDate(e.tanggal)+'</div></td>'
+      h+='<tr><td class="row-click" onclick="go(\'event\',\''+e.id+'\')"><div class="cell-strong">'+esc(e.nama)+(stale?' <span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Perlu ditindaklanjuti</span>':'')+'</div><div class="cell-sub">'+fmtRentang(e)+'</div></td>'
        +'<td>'+esc(clientName(e.clientId))+'</td><td>'+statusChip(e.status)+'</td>'
        +'<td class="mono" style="color:'+(stale?'var(--danger)':'inherit')+'">'+(lastFUDate(e)?d+' hari lalu':'—')+'</td>'
        +'<td class="mono" style="color:'+(overdue?'var(--danger)':dueToday?'var(--gold)':'inherit')+'">'+(e.nextFU?fmtDate(e.nextFU):'—')+(overdue?' ⚠':dueToday?' • hari ini':'')+'</td>'
@@ -4056,7 +4117,7 @@ function paintEvents(){
   p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
     h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
      +'<td><span class="chip" style="background:color-mix(in srgb,var('+(EVENT_COLOR[e.jenis]||'--muted')+') 15%,transparent);color:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"><span class="cd" style="background:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"></span>'+esc(jenisEvent(e))+'</span></td>'
-     +'<td class="mono">'+fmtDate(e.tanggal)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
+     +'<td class="mono">'+fmtRentang(e)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
      +'<td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(p,'events');
@@ -4452,7 +4513,9 @@ function renderField(ev,fl,canEdit){
          yang begitu satu nama terpilih tidak lagi mau menampilkan nama lain. */
       inp=comboHTML(id,staffList().map(function(x){ return x.name; }),val,!canEdit,'pilih / ketik nama');
     } else {
-      inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis+'>';
+      inp='<input class="inp" type="'+ty+'" id="'+id+'" value="'+esc(val==null?'':val)+'" '+dis
+         +(fl.t==='date'?' oninput="hariHint(this)" onchange="hariHint(this)"':'')+'>'
+         +(fl.t==='date'?'<div class="fh" id="'+id+'_hari">'+(val?esc(fmtDateLong(val)):'')+'</div>':'');
     }
   } else if(fl.t==='cur'){
     inp=rupiahInputHTML(id,val,dis);
@@ -5977,7 +6040,14 @@ function autoSaveCommit(){
   const secs=visibleSecsOfTab(curTab); if(!secs.length)return;
   const ev=S.events.find(e=>e.id===_asEvId); if(!ev)return;
   secs.forEach(sec=>sec.fields.forEach(fl=>{ if(!fieldVisible(ev,fl))return; const v=collectField(fl); if(v===undefined)return; ev.detail[fl.k]=v; }));
-  if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
+  if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax;
+    /* Tanggal selesai ikut dicerminkan ke tingkat atas seperti tanggal mulai,
+       sebab kalender, Radar, dan daftar membacanya dari sana — bukan dari
+       detail. Sakelar dimatikan = tanggal selesai DIHAPUS, tidak sekadar
+       disembunyikan: kalau ditinggal, acara yang dikembalikan jadi sehari
+       tetap membentang di kalender tanpa ada yang kelihatan salah di form. */
+    if(ev.detail.multiHari===true && ev.detail.tanggalSelesai) ev.tanggalSelesai=ev.detail.tanggalSelesai;
+    else { delete ev.tanggalSelesai; delete ev.detail.tanggalSelesai; ev.detail.multiHari=false; } }
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
   // Sinkron ke server lewat save() (bukan POST mentah) supaya cap versi &
   // penjaga bentrok ikut berlaku. Dijeda agar tidak membanjiri tiap ketukan.
@@ -6032,7 +6102,14 @@ function saveEventTab(id,goNext){
   const adaFinance=visibleSecsOfTab(tab.id).some(s=>s.id==='finance');
   if(adaFinance) collectFinanceInto(ev);
   // sync top-level fields
-  if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax; }
+  if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax;
+    /* Tanggal selesai ikut dicerminkan ke tingkat atas seperti tanggal mulai,
+       sebab kalender, Radar, dan daftar membacanya dari sana — bukan dari
+       detail. Sakelar dimatikan = tanggal selesai DIHAPUS, tidak sekadar
+       disembunyikan: kalau ditinggal, acara yang dikembalikan jadi sehari
+       tetap membentang di kalender tanpa ada yang kelihatan salah di form. */
+    if(ev.detail.multiHari===true && ev.detail.tanggalSelesai) ev.tanggalSelesai=ev.detail.tanggalSelesai;
+    else { delete ev.tanggalSelesai; delete ev.detail.tanggalSelesai; ev.detail.multiHari=false; } }
   if(changes.length)logAct('event',id,'Detail diperbarui: '+tab.title,changes.join(', '));
   if(adaFinance) logAct('event',id,'Finance diperbarui',rp(eventFinance(ev).grand));
   /* Dulu di sini ada syncApproval(): diskon ≥ ambang otomatis melempar event
@@ -6648,7 +6725,33 @@ function renderBrief(V){
   const urut=tblUrut(evs,'brief',KOL_BRIEF);
   const p=tblPage(urut,'brief',q);
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('brief',KOL_BRIEF)+'<tbody>';
-  p.items.forEach(e=>{ h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td><td class="mono">'+fmtDate(e.tanggal)+'</td><td>'+statusChip(e.status)+'</td><td><div class="pill-row"><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'internal\')">Internal</button><button class="btn sm" onclick="genBriefFor(\''+e.id+'\',\'client\')">Versi Client</button><button class="btn sm" onclick="draftNegotiation(\''+e.id+'\')" title="Pilih: PDF yang diunggah sendiri, atau template otomatis dari sistem">Draft Negotiation</button></div></td></tr>'; });
+  /* Pemisah bulan HANYA saat tabel diurut menurut tanggal. Diurut menurut
+     nama klien, judul bulan di tengah daftar tidak menandai apa pun dan
+     justru membuat orang mengira barisnya dikelompokkan padahal tidak. */
+  const sBrief=tblUrutState('brief',KOL_BRIEF);
+  const pisahBulan=!sBrief || sBrief.k==='tanggal';
+  let bulanKini=null;
+  p.items.forEach(e=>{
+    if(pisahBulan){
+      const bl=String(e.tanggal||'').slice(0,7);
+      if(bl!==bulanKini){
+        bulanKini=bl;
+        /* Jumlahnya dihitung dari SELURUH hasil saring, bukan dari halaman
+           yang sedang dibuka: 'Agustus 2026 · 9 event' harus tetap 9 walau
+           halaman ini cuma memuat tiga di antaranya. */
+        const nBulan=urut.filter(x=>String(x.tanggal||'').slice(0,7)===bl).length;
+        h+='<tr class="bulan-sep"><td colspan="5">'+esc(bl?labelBulan(bl):'Tanpa tanggal')
+          +'<span>'+nBulan+' event</span></td></tr>';
+      }
+    }
+    h+='<tr><td class="cell-strong">'+esc(e.nama)+'</td><td>'+esc(clientName(e.clientId))+'</td>'
+     +'<td class="mono">'+fmtRentang(e)+'</td><td>'+statusChip(e.status)+'</td>'
+     +'<td><div class="aksi-1baris">'
+     +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'internal\')" title="Briefing internal untuk tim">Internal</button>'
+     +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'client\')" title="Versi yang dikirim ke client">Client</button>'
+     +'<button class="btn sm ghost" onclick="draftNegotiation(\''+e.id+'\')" title="Draft Negotiation \u2014 pilih: PDF yang diunggah sendiri, atau template otomatis dari sistem">Draft</button>'
+     +'</div></td></tr>';
+  });
   h+='</tbody></table></div>'+tblPagerHtml(p,'brief')+'</div>';
   V.innerHTML=h;
 }
@@ -7246,7 +7349,7 @@ function renderCalendar(V){
   cells.forEach(cell=>{
     const ds=cell.other?'':y+'-'+String(m+1).padStart(2,'0')+'-'+String(cell.d).padStart(2,'0');
     const isToday=ds===today();
-    const evs=cell.other?[]:S.events.filter(e=>e.tanggal===ds&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
+    const evs=cell.other?[]:S.events.filter(e=>eventPadaTgl(e,ds)&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
     h+='<div class="cell'+(cell.other?' other':'')+(isToday?' today':'')+'"><div class="dn">'+cell.d+'</div>';
     evs.forEach(e=>{ const col=EVENT_COLOR[e.jenis]||'--muted'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+'">'+esc(e.nama)+'</div>'; });
     h+='</div>';

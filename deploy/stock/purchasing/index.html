@@ -3549,6 +3549,16 @@
             if (p && p.packIsi > 0) return `${ckNum(qtyDasar / p.packIsi)} Pack`;
             return `${ckNum(qtyDasar)} ${(p && p.packSatuan) || ''}`.trim();
         }
+        /* Laju pemakaian per hari. Pembulatannya dilakukan SESUDAH dibagi isi
+           pack, bukan sebelumnya: membulatkan satuan dasar dulu lalu membaginya
+           menghasilkan angka seperti "0.267 Pack" yang tidak pernah dipakai
+           siapa pun untuk memutuskan apa-apa. Satu desimal sudah cukup untuk
+           menjawab "sehari habis berapa pack". */
+        function ckPackRate(qtyDasar, p) {
+            const perPack = !!(p && p.packIsi > 0);
+            const v = perPack ? qtyDasar / p.packIsi : qtyDasar;
+            return `${ckNum(Math.round(v * 10) / 10)} ${perPack ? 'Pack' : ((p && p.packSatuan) || '')}`.trim();
+        }
         function ckPackUtama(qtyDasar, p, o) {
             o = o || {};
             const tanda = o.tanda || '';
@@ -4038,7 +4048,7 @@
                                 <div class="h-full bg-indigo-500 rounded-full" style="width:${lebar}%"></div>
                             </div>
                             <span class="shrink-0 text-[10px] font-semibold text-slate-400 whitespace-nowrap">
-                                ${ckNum(r.keluar)} ${r.packSatuan || ''} · sisa ${ckNum(r.saldo)}
+                                ${ckPackAngka(r.keluar, r)} · sisa ${ckPackAngka(r.saldo, r)}
                             </span>
                         </div>
                     </div>`;
@@ -4143,14 +4153,14 @@
                     <div class="text-[10px] text-slate-400">${r.packIsi > 0 ? `1 Pack = ${ckNum(r.packIsi)} ${r.packSatuan}` : (r.packSatuan || '')}</div>
                 </td>
                 <td class="py-2.5 px-2 text-right whitespace-nowrap ${r.ambil ? 'text-slate-800 font-bold' : 'text-slate-300'}">${r.ambil || '—'}</td>
-                <td class="py-2.5 px-2 text-right whitespace-nowrap ${r.keluar ? 'text-rose-600 font-bold' : 'text-slate-300'}">${r.keluar ? ckNum(r.keluar) : '—'}</td>
-                <td class="py-2.5 px-2 text-right whitespace-nowrap ${r.masuk ? 'text-emerald-700 font-bold' : 'text-slate-300'}">${r.masuk ? ckNum(r.masuk) : '—'}</td>
-                <td class="py-2.5 px-2 text-right whitespace-nowrap text-slate-500">${r.laju ? ckNum(Math.round(r.laju * 10) / 10) : '—'}</td>
+                <td class="py-2.5 px-2 text-right whitespace-nowrap">${r.keluar ? ckPackUtama(r.keluar, r, { kelas: 'text-rose-600 font-bold' }) : '<span class="text-slate-300">—</span>'}</td>
+                <td class="py-2.5 px-2 text-right whitespace-nowrap">${r.masuk ? ckPackUtama(r.masuk, r, { kelas: 'text-emerald-700 font-bold' }) : '<span class="text-slate-300">—</span>'}</td>
+                <td class="py-2.5 px-2 text-right whitespace-nowrap text-slate-500">${r.laju ? ckPackRate(r.laju, r) : '—'}</td>
                 <td class="py-2.5 px-2 text-right whitespace-nowrap ${(r.sisaHari !== null && r.sisaHari < 3) ? 'text-amber-700 font-bold' : 'text-slate-500'}">${
                     r.sisaHari === null ? '—' : `${ckNum(Math.round(r.sisaHari * 10) / 10)} hari`}</td>
                 <td class="py-2.5 px-2 text-right whitespace-nowrap text-slate-400">${r.terakhir || '—'}</td>
                 <td class="py-2.5 pl-2 text-right whitespace-nowrap">
-                    <span class="font-black ${r.saldo <= 0 ? 'text-rose-600' : 'text-slate-900'}">${ckJumlahTeks(r.saldo, r)}</span>
+                    ${ckPackUtama(r.saldo, r, { kelas: 'font-black ' + (r.saldo <= 0 ? 'text-rose-600' : 'text-slate-900') })}
                 </td>
             </tr>`).join('');
 
@@ -4159,7 +4169,8 @@
                 <p class="text-[10px] text-slate-400 mb-3">
                     Diurutkan menurut yang paling cepat habis. Keluar/masuk dihitung dalam periode terpilih (${hari} hari);
                     <b>sisa stok selalu keadaan sekarang</b>, tidak ikut disaring periode.
-                    Laju = rata-rata keluar per hari dalam satuan dasar barang itu.
+                    Angka besar = <b>jumlah pack</b>, angka kecil abu-abu di bawahnya = satuan dasarnya.
+                    Laju = rata-rata keluar per hari, juga dalam pack. Barang curah memakai satuan dasarnya.
                 </p>
                 ${semua.length ? `<div class="overflow-x-auto -mx-1 px-1">
                     <table class="w-full text-xs min-w-[760px]">

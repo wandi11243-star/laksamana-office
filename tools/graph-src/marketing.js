@@ -1307,6 +1307,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -1851,7 +1864,43 @@ function rupiahInputHTML() { onRupiahInput(); }
 
 function fmtDate() {  }
 
-function fmtDateLong() { today(); }
+function fmtDateLong() {  }
+
+
+
+
+function tglSelesai() {  }
+function multiHari() {  }
+
+
+function eventPadaTgl() { tglSelesai(); }
+
+
+
+
+
+
+
+
+function labelBulan() {  }
+
+
+
+
+function fmtRentang() { multiHari(); fmtDate(); }
+
+
+
+
+
+
+
+
+function hariHint() { fmtDateLong(); today(); }
+
+
+
+
 
 
 
@@ -2220,6 +2269,15 @@ function userPerms() { viewPerm(); }
 
 function hasCustomAccess() {  }
 function can() { userPerms(); getFbFormats(); menuGroupsOf(); visibleTabs(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3017,7 +3075,7 @@ function empty() { svg(); }
 
 
 
-function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(); newClient(); svg(); stat(); progressBar(); esc(); empty(); tblPage(); tblUrut(); tblHead(); eventItemCount(); toggleDashTask(); clientName(); fmtDate(); eventTaskListHTML(); tblPagerHtml(); penStatus(); bisaPutusPenawaran(); }
+function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(); newClient(); svg(); stat(); progressBar(); esc(); empty(); tblPage(); tblUrut(); tblHead(); eventItemCount(); toggleDashTask(); clientName(); fmtRentang(); eventTaskListHTML(); tblPagerHtml(); penStatus(); bisaPutusPenawaran(); }
 
 
 
@@ -3415,6 +3473,9 @@ function refreshView() { simpanGulir(); $(); go(); tblHead(); tblUrut(); tblPage
 
 
 
+
+
+
 function tblPerHal() {  }
 function tblGambar() { refreshView(); }
 
@@ -3651,7 +3712,7 @@ function saveClient() { $(); g(); toast(); cfSourceValue(); today(); logAct(); u
 
 
 
-function viewClient() { clientSpending(); esc(); userName(); closeModal(); svg(); clientTags(); clientEventCount(); fmtDate(); statusChip(); eventFinance(); can(); delClient(); waLink(); editClient(); logFollowUp(); modal(); clientName(); }
+function viewClient() { clientSpending(); esc(); userName(); closeModal(); svg(); clientTags(); clientEventCount(); fmtDate(); fmtRentang(); statusChip(); eventFinance(); can(); delClient(); waLink(); editClient(); logFollowUp(); modal(); clientName(); }
 
 
 
@@ -3697,7 +3758,7 @@ function viewClient() { clientSpending(); esc(); userName(); closeModal(); svg()
 
 
 
-function delClient() { can(); toast(); esc(); closeModal(); svg(); clientSpending(); modal(); fmtDate(); statusChip(); go(); viewClient(); namaCocok(); doDelClient(); $(); }
+function delClient() { can(); toast(); esc(); closeModal(); svg(); clientSpending(); modal(); fmtRentang(); statusChip(); go(); viewClient(); fmtDate(); namaCocok(); doDelClient(); $(); }
 
 
 
@@ -3909,7 +3970,7 @@ function moveEventPipe() { ingatkanStage(); logAct(); genTasks(); toast(); save(
 
 
 
-function pipeFollowUp() { isOpenEvent(); today(); clientOpenEvents(); stat(); progressBar(); empty(); isStale(); daysSinceFU(); go(); esc(); fmtDate(); clientName(); statusChip(); lastFUDate(); logFollowUp(); svg(); viewClient(); clientTags(); }
+function pipeFollowUp() { isOpenEvent(); today(); clientOpenEvents(); stat(); progressBar(); empty(); isStale(); daysSinceFU(); go(); esc(); fmtRentang(); clientName(); statusChip(); lastFUDate(); fmtDate(); logFollowUp(); svg(); viewClient(); clientTags(); }
 
 
 
@@ -4046,7 +4107,7 @@ function renderEvents() { can(); pageHead(); newEvent(); svg(); paintEvents(); e
 
 
 
-function paintEvents() { clientName(); tblUrut(); $(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtDate(); statusChip(); invStatus(); INV_STATUS_MAP(); svg(); tblPagerHtml(); }
+function paintEvents() { clientName(); tblUrut(); $(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtRentang(); statusChip(); invStatus(); INV_STATUS_MAP(); svg(); tblPagerHtml(); }
 
 
 
@@ -4429,7 +4490,9 @@ function fieldOpts() {  }
 
 
 
-function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); itemRowHTML(); itemAddRow(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); hariHint(); fmtDateLong(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); itemRowHTML(); itemAddRow(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+
+
 
 
 
@@ -5997,6 +6060,13 @@ function autoSaveCommit() { visibleSecsOfTab(); fieldVisible(); collectField(); 
 
 
 
+
+
+
+
+
+
+
 function autoSaveDenyutMulai() { $(); autoSaveCommit(); }
 
 
@@ -6020,6 +6090,13 @@ function segarkanRingkas() { ringkasIsianHTML(); }
 
 
 function saveEventTab() { genericSecsOfTab(); fieldVisible(); collectField(); visibleSecsOfTab(); collectFinanceInto(); logAct(); eventFinance(); save(); buildNav(); toast(); isOpenEvent(); nextTabId(); go(); }
+
+
+
+
+
+
+
 
 
 
@@ -6622,7 +6699,33 @@ function deletePayment() { can(); toast(); logAct(); save(); eventFinance(); go(
 
 
 
-function renderBrief() { pageHead(); empty(); fmtDate(); esc(); $(); tblUrut(); tblPage(); tblHead(); clientName(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
+function renderBrief() { pageHead(); empty(); fmtDate(); esc(); $(); tblUrut(); tblPage(); tblHead(); tblUrutState(); labelBulan(); clientName(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7229,7 +7332,7 @@ function printBrief() { $(); toast(); tungguGambar(); }
 
 
 
-function renderCalendar() { pageHead(); go(); calNav(); calToday(); today(); calEventPopup(); esc(); }
+function renderCalendar() { pageHead(); go(); calNav(); calToday(); today(); eventPadaTgl(); calEventPopup(); esc(); }
 
 
 

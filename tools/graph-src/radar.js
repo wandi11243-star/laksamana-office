@@ -534,7 +534,6 @@
 
 
 
-function pendek() {  }
 
 
 
@@ -546,7 +545,52 @@ function pendek() {  }
 
 
 
-function pendekUnik() { pendek(); fbFormats(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -865,13 +909,26 @@ function isianTerisi() {  }
 
 
 
-function compassSVG() { kesiapan(); evDivisi(); evSubs(); pendekUnik(); divStatus(); subStatus(); esc(); pendek(); }
 
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelKesiapan() { kesiapan(); evDivisi(); evSubs(); divStatus(); subStatus(); divProgress(); subProgress(); esc(); }
 
 
 
@@ -1193,7 +1250,7 @@ function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(
 
 
 
-function paxOf() { labelPeriode(); kendaliPeriode(); selFb(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); compassSVG(); agendaTampil(); cocokFb(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
+function paxOf() { labelPeriode(); kendaliPeriode(); selFb(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); panelKesiapan(); agendaTampil(); cocokFb(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
 
 
 
@@ -1434,7 +1491,7 @@ function paxBln() { stat(); paxRes(); pad(); agendaTgl(); resTgl(); paxTgl(); es
 
 
 
-function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); pendekUnik(); esc(); pendek(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
+function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); esc(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
 
 
 
@@ -1548,8 +1605,8 @@ function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); pendekUnik(); esc(
 
 
 
+function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); todayISO(); bulanISO(); }
 
-function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); compassSVG(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); todayISO(); bulanISO(); }
 
 
 
@@ -1637,9 +1694,40 @@ function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumb
 
 
 
-function agendaTersaring() { agendaTampil(); dalamPeriode(); cocokFb(); }
 
 
+
+
+
+
+
+
+
+
+function agSudahLewat() { dDay(); }
+function agSelesai() {  }
+
+
+
+function agendaTersaringDasar() { agendaTampil(); dalamPeriode(); cocokFb(); }
+
+
+
+
+
+
+
+
+function agendaTersaring() { agendaTersaringDasar(); agSudahLewat(); }
+
+
+
+
+
+
+
+
+function swWaktuAgenda() {  }
 
 
 
@@ -1673,7 +1761,24 @@ function tabelAgenda() { pgIris(); dDay(); esc(); fTglP(); dLabel(); badgeSumber
 
 
 
-function vAgendaList() { pitaGagal(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); selFb(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+function vAgendaList() { pitaGagal(); agendaTersaringDasar(); agSudahLewat(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); selFb(); swWaktuAgenda(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1959,7 +2064,7 @@ function detailFields() { fmtDetVal(); detLabel(); }
 
 
 
-function drawerAgenda() { dDay(); $(); kesiapan(); badgeSumber(); pill(); fTgl(); dLabel(); klienMkt(); kvRow(); esc(); namaMkt(); compassSVG(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); talentEvt(); ico(); bukaDrw(); }
+function drawerAgenda() { dDay(); $(); kesiapan(); badgeSumber(); pill(); fTgl(); dLabel(); klienMkt(); kvRow(); esc(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); talentEvt(); ico(); bukaDrw(); }
 
 
 
