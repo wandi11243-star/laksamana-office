@@ -2431,21 +2431,130 @@ function emsPerm() {
   Object.keys(bawaan).forEach(function(h) { if (!DB.perm[h]) DB.perm[h] = bawaan[h]; });
   return DB.perm;
 }
-/* Peran orang yang sedang membuka. Sumbernya sesi Office yang sama dengan
-   modul lain; pemetaannya disimpan di DB.peran supaya bisa diatur dari layar
-   Hak Akses tanpa menyentuh Office. Yang belum pernah diatur: admin modul event
-   (adminModules) dianggap manajemen, sisanya tim event — itu keadaan paling
-   masuk akal untuk modul yang baru dipasang. */
+/* ---------- PERAN DITURUNKAN DARI DATABASE USER OFFICE ----------
+   Dulu peran diketik satu per satu di layar Hak Akses lalu disimpan di
+   DB.peran. Dua hal membuatnya salah terus-menerus: id-nya harus diketik
+   PERSIS seperti di Office — satu huruf meleset berarti orangnya diam-diam
+   memakai peran bawaan tanpa pesan apa pun — dan kru baru tidak pernah muncul
+   sampai ada yang ingat menambahkannya manual. Sekarang sumbernya satu:
+   database user Office (account-mysql), sama seperti modul lain.
+
+   Dipakai `listModuleRoster` saja, BUKAN listDivisiRoster seperti Marketing:
+   pertanyaan di modul ini adalah "siapa yang bisa membuka EMS dan berperan
+   apa", dan itu persis isi listModuleRoster. Menarik seluruh pegawai kantor
+   cuma akan mendaftar puluhan orang yang gerbang SSO-nya memang menolak.
+   Endpoint ini tanpa gerbang PIN — balasannya memang tidak pernah memuat PIN.
+
+   DB.peran tidak lagi dibaca. Isinya sengaja TIDAK dihapus dari database:
+   kalau penurunan otomatis ini ternyata salah untuk seseorang, pemetaan
+   lamanya masih utuh untuk dilihat. */
+const OFFICE_URL = '../account-api-mysql/api.php';
+let EMS_ROSTER = null;      // array roster terakhir; null = belum/gagal dimuat
+let EMS_ROSTER_ERR = '';
+
 function emsSesi() {
   try { return JSON.parse(localStorage.getItem('lm_session') || 'null') || {}; }
   catch (_) { return {}; }
 }
+/* Kolom "Tim / Keterangan" di Office adalah teks bebas ("Event", "Bar",
+   "Event Manager", "Kasir"), jadi perannya diturunkan dengan pencocokan KATA
+   UTUH — supaya "Barista" tidak terbaca sebagai "bar" dan "Administrasi"
+   tidak terbaca sebagai "admin".
+
+   URUTAN PENTING dan sengaja begini: yang lebih berkuasa diperiksa lebih
+   dulu, sama seperti ROLE_JABATAN di Marketing. "Event Manager" harus jatuh
+   ke Manajemen, bukan Tim Event — kalau urutannya dibalik, orang yang
+   berwenang MENYETUJUI rencana justru kehilangan hak setujunya. */
+const EMS_PERAN_TIM = [
+  [['owner'],'manajemen'],   [['direktur'],'manajemen'],   [['director'],'manajemen'],
+  [['manager'],'manajemen'], [['manajer'],'manajemen'],    [['manajemen'],'manajemen'],
+  [['management'],'manajemen'], [['gm'],'manajemen'],      [['kepala'],'manajemen'],
+  [['supervisor'],'manajemen'],
+  [['kasir'],'kasir'],       [['cashier'],'kasir'],        [['ticketing'],'kasir'],
+  [['finance'],'kasir'],     [['keuangan'],'kasir'],
+  [['event'],'event'],       [['mc'],'event'],             [['talent'],'event'],
+  [['produksi'],'event'],    [['production'],'event'],     [['crew'],'event'],
+  [['magang'],'lihat'],      [['intern'],'lihat'],         [['trainee'],'lihat']
+];
+function peranDariTim(ket) {
+  const kata = String(ket || '').toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  if (!kata.length) return '';
+  const cocok = EMS_PERAN_TIM.find(function (x) {
+    return x[0].every(function (k) { return kata.indexOf(k) >= 0; });
+  });
+  return cocok ? cocok[1] : '';
+}
+/* Satu baris roster -> satu peran EMS.
+   Admin modul di Office DIDAHULUKAN: itu pemberian wewenang yang disengaja,
+   dan kalau sampai kalah oleh kolom Tim yang kebetulan belum diisi, orang
+   yang berhak mengatur justru terkunci di luar halaman Hak Akses.
+   Kolom Tim yang tidak terbaca jatuh ke 'event' — bukan 'lihat' — karena
+   orang ini sudah diberi akses modul Event di Office; itu juga persis
+   perilaku bawaan sebelum perubahan ini, jadi tidak ada yang tiba-tiba
+   kehilangan menu gara-gara kolom Tim-nya kosong. */
+function peranDariRoster(m) {
+  if (!m) return '';
+  if (m.isModuleAdmin) return 'manajemen';
+  return peranDariTim(m.keterangan) || 'event';
+}
+/* Baris roster milik orang yang sedang membuka. `id` adalah kunci utama —
+   nama bisa kembar, id tidak. Username & nama cuma cadangan untuk sesi lama
+   yang belum menyimpan userId. */
+function rosterSaya(s) {
+  if (!Array.isArray(EMS_ROSTER)) return null;
+  s = s || emsSesi();
+  const id = String(s.userId || '').trim();
+  if (id) {
+    const byId = EMS_ROSTER.find(function (m) { return String(m.id) === id; });
+    if (byId) return byId;
+  }
+  const nm = String(s.username || s.name || '').trim().toLowerCase();
+  if (!nm) return null;
+  return EMS_ROSTER.find(function (m) {
+    return String(m.username || '').toLowerCase() === nm || String(m.name || '').toLowerCase() === nm;
+  }) || null;
+}
+async function ambilOffice(payload) {
+  const stop = new AbortController();
+  const jam = setTimeout(function () { stop.abort(); }, 8000);
+  try {
+    const r = await fetch(OFFICE_URL, { method: 'POST', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload), signal: stop.signal });
+    const t = await r.text();
+    let j = null; try { j = JSON.parse(t); } catch (_) {}
+    if (!j) throw new Error('Office membalas bukan JSON (account-api-mysql belum terpasang?)');
+    if (!j.ok) throw new Error(j.error || 'ditolak');
+    return Array.isArray(j.members) ? j.members : [];
+  } finally { clearTimeout(jam); }
+}
+/* Menelan galatnya sendiri dan TIDAK pernah melempar: modul harus tetap bisa
+   dipakai waktu account-api sedang mati, dan peranSaya() sudah punya jalan
+   mundur. Yang gagal cuma ketelitian perannya, bukan seluruh EMS. */
+async function muatRosterOffice() {
+  try {
+    const anggota = await ambilOffice({ action: 'listModuleRoster', module: 'event' });
+    EMS_ROSTER = anggota.filter(function (m) { return m && m.id; }).map(function (m) {
+      return { id: m.id, name: m.name || '', username: m.username || '',
+               keterangan: m.keterangan || '', active: m.active !== false,
+               isModuleAdmin: !!m.isModuleAdmin };
+    });
+    EMS_ROSTER_ERR = '';
+  } catch (e) {
+    EMS_ROSTER = null;
+    EMS_ROSTER_ERR = (e && e.name === 'AbortError')
+      ? 'Office tidak menjawab dalam 8 detik'
+      : ((e && e.message) || 'gagal');
+  }
+}
 function peranSaya() {
   const s = emsSesi();
-  if (!DB.peran || typeof DB.peran !== 'object' || Array.isArray(DB.peran)) DB.peran = {};
-  const id = s.userId || s.username || s.name || '';
-  if (id && DB.peran[id]) return DB.peran[id];
-  const admin = (s.adminModules || []).some(function (m) { return m === '*' || m === 'event'; });
+  const m = rosterSaya(s);
+  if (m) return peranDariRoster(m);
+  /* Jalan mundur waktu roster belum sempat dimuat atau Office tidak menjawab.
+     Sengaja sama persis dengan perilaku lama supaya kegagalan menarik roster
+     tidak pernah berarti orang terkunci di luar modulnya sendiri. */
+  const admin = (s.adminModules || []).some(function (x) { return x === '*' || x === 'event'; });
   return admin ? 'manajemen' : 'event';
 }
 function bisaLihat(h) { const p = emsPerm()[h]; return !!p && (p[peranSaya()] || 0) >= 1; }
@@ -2647,28 +2756,38 @@ function renderAkses(){
   const P=emsPerm();
   const peran=Object.keys(EMS_PERAN);
 
+  /* Read-only dan memang harus begitu: daftarnya milik Office. Menambah atau
+     mencabut akses dilakukan di Kelola Akses milik Office, dan perannya
+     dibetulkan lewat kolom Tim di Kelola User — bukan di sini. Dua tempat
+     mengatur satu hal yang sama adalah persis keadaan yang baru dibereskan. */
   let h='<div class="card"><h3 class="sec">Orang & Perannya</h3>'
-   +'<p class="mini" style="margin-bottom:10px">Nama diambil dari sesi Office. Yang belum pernah diatur dianggap <b>Tim Event</b>, kecuali admin modul Event yang dianggap <b>Manajemen</b>.</p>';
+   +'<p class="mini" style="margin-bottom:10px">Ditarik otomatis dari <b>database user Office</b>: isinya kru yang diberi akses modul Event. '
+   +'Perannya diturunkan dari kolom <b>Tim / Keterangan</b> di Office, dan admin modul Event selalu <b>Manajemen</b> — tidak ada lagi yang perlu diketik di sini. '
+   +'Kalau ada peran yang salah, yang dibetulkan adalah kolom Tim orang itu di <b>Office &rarr; Kelola User</b>.</p>';
   const s=emsSesi();
-  const idSaya=s.userId||s.username||s.name||'';
-  const daftar=Object.assign({}, DB.peran||{});
-  if(idSaya && !daftar[idSaya]) daftar[idSaya]=peranSaya();
-  h+='<div class="tbl-scroll"><table><thead><tr><th>Pengguna</th><th>Peran</th></tr></thead><tbody>';
-  Object.keys(daftar).forEach(function(id){
-    h+='<tr><td><b>'+esc(id)+'</b>'+(id===idSaya?' <span class="mini">(kamu)</span>':'')+'</td>'
-     +'<td>'+(boleh
-        ? '<select onchange="setPeran(\''+esc(id)+'\',this.value)">'+peran.map(function(r){
-            return '<option value="'+r+'"'+(daftar[id]===r?' selected':'')+'>'+EMS_PERAN[r]+'</option>'; }).join('')+'</select>'
-        : esc(EMS_PERAN[daftar[id]]||daftar[id]))+'</td></tr>';
-  });
-  h+='</tbody></table></div>';
-  if(boleh){
-    h+='<div class="toolbar" style="margin-top:10px">'
-     +'<input id="ak_id" placeholder="Username / nama orang di Office" style="flex:1;min-width:200px">'
-     +'<select id="ak_peran">'+peran.map(r=>'<option value="'+r+'">'+EMS_PERAN[r]+'</option>').join('')+'</select>'
-     +'<button class="btn" onclick="tambahPeran()">Tambah</button></div>'
-     +'<p class="mini">Tulis persis seperti username Office-nya. Salah ketik berarti orangnya tetap memakai peran bawaan, bukan yang kamu pilih.</p>';
+  if(EMS_ROSTER===null){
+    h+='<div class="tbl-note">'+svg(IC.alert)+'<span>'
+     +(EMS_ROSTER_ERR
+        ? 'Gagal menarik roster dari Office: <b>'+esc(EMS_ROSTER_ERR)+'</b>. Sementara ini peran memakai jalan mundur — admin modul Event dianggap Manajemen, sisanya Tim Event.'
+        : 'Roster Office belum dimuat.')
+     +'</span></div>';
+  }else{
+    const saya=rosterSaya(s);
+    const baris=EMS_ROSTER.slice().sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||'')); });
+    h+='<div class="tbl-scroll"><table><thead><tr><th>Pengguna</th><th>Tim / Keterangan</th><th>Status</th><th>Peran EMS</th></tr></thead><tbody>';
+    if(!baris.length){
+      h+='<tr><td colspan="4"><span class="mini">Belum ada kru yang diberi akses modul Event di Office.</span></td></tr>';
+    }
+    baris.forEach(function(m){
+      const r=peranDariRoster(m);
+      h+='<tr><td><b>'+esc(m.name||m.id)+'</b>'+(saya&&saya.id===m.id?' <span class="mini">(kamu)</span>':'')+'</td>'
+       +'<td>'+(m.keterangan?esc(m.keterangan):'<span class="mini">belum diisi</span>')+'</td>'
+       +'<td>'+(m.active?'Aktif':'<span class="mini">Nonaktif</span>')+'</td>'
+       +'<td>'+esc(EMS_PERAN[r]||r)+(m.isModuleAdmin?' <span class="mini">(admin modul)</span>':'')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
   }
+  h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="segarkanRoster()">&#8635; Segarkan dari Office</button></div>';
   h+='</div>';
 
   h+='<div class="card" style="margin-top:16px"><h3 class="sec">Matriks Izin</h3>'
@@ -2691,18 +2810,14 @@ function renderAkses(){
   h+='</div>';
   C().innerHTML=h;
 }
-function setPeran(id,r){
-  if(!bisaUbah('akses')) return;
-  if(!DB.peran||Array.isArray(DB.peran)) DB.peran={};
-  DB.peran[id]=r; save();
-  /* Menggambar ulang seluruh halaman, bukan cuma barisnya: mengubah peran bisa
-     mengubah menu yang boleh dilihat orang itu — termasuk peranmu sendiri. */
-  buildNav(); renderAkses(); toast('Peran '+id+' → '+EMS_PERAN[r]);
-}
-function tambahPeran(){
-  const id=(document.getElementById('ak_id').value||'').trim();
-  if(!id){ toast('Isi dulu username atau namanya.'); return; }
-  setPeran(id, document.getElementById('ak_peran').value);
+/* Menarik ulang roster tanpa memuat ulang halaman — dipakai setelah seseorang
+   baru saja dibetulkan kolom Tim-nya di Office. Menggambar ulang MENU juga,
+   bukan cuma tabelnya: peran yang berubah bisa mengubah menu yang boleh
+   dilihat, termasuk peranmu sendiri. */
+async function segarkanRoster(){
+  await muatRosterOffice();
+  buildNav(); renderAkses();
+  toast(EMS_ROSTER ? 'Roster Office dimuat ulang.' : 'Gagal memuat roster: '+EMS_ROSTER_ERR);
 }
 function setIzin(hal,peran,nilai){
   if(!bisaUbah('akses')) return;
@@ -6483,6 +6598,12 @@ function logout(){ location.replace('../'); }
 (async function init(){
   try{
     await load();
+    /* DITUNGGU, bukan dijalankan di latar: buildNav() di dalam router()
+       langsung bertanya "peranku apa", dan kalau rosternya belum sampai,
+       menu digambar dengan peran jalan-mundur lalu berubah sendiri sedetik
+       kemudian. Fungsinya menelan galatnya sendiri, jadi Office yang mati
+       tidak pernah menggagalkan boot — paling lama menunda 8 detik. */
+    await muatRosterOffice();
     paintSideUser();
     if(!location.hash)location.hash='#/dashboard';
     router();
