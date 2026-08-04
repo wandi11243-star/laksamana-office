@@ -1101,9 +1101,48 @@ function customLayouts(){
   if(!m.layouts || Array.isArray(m.layouts)) m.layouts={};
   return m.layouts;
 }
-// Ambil definisi layout efektif: hasil edit (custom) menimpa built-in.
-function getLayout(key){ return (customLayouts()[key]) || DEFAULT_VENUE_LAYOUTS[key] || null; }
-function layoutName(key){ const L=getLayout(key); return (L&&L.name)||key; }
+/* ===== DENAH KHUSUS SATU TANGGAL =====
+   Beda dengan template. Template ("Weekday", "Lantai 2") dipakai berulang oleh
+   banyak tanggal; menggesernya menggeser SEMUA hari yang memakainya. Padahal
+   yang paling sering terjadi justru sebaliknya: meja digeser untuk SATU malam
+   saja, dan besoknya kembali seperti biasa.
+
+   Sebelum ini satu-satunya jalan adalah mengedit template Weekday, yang
+   berarti denah semua hari biasa ikut berubah — lalu kru menggesernya balik
+   keesokan harinya, dan reservasi kemarin ikut tergambar di posisi baru.
+
+   Denah tanggal disimpan UTUH (bukan sekadar nama template) di
+   master.layoutTanggal, dialamati dengan kunci sintetis "tgl:<tanggal>:<lt>".
+   Kunci itu ikut mengalir ke seluruh kode yang sudah ada — getLayout(),
+   seatMapMarkup(), kapasitasTanggal() — tanpa satu pun dari mereka perlu tahu
+   bahwa ada jenis denah baru. */
+function layoutTanggal(){
+  const m=STATE.master;
+  if(!m.layoutTanggal || Array.isArray(m.layoutTanggal)) m.layoutTanggal={};
+  return m.layoutTanggal;
+}
+function keyTanggal(date,lt){ return "tgl:"+date+":"+((lt===2)?2:1); }
+/* Dikembalikan {date,lt} kalau kuncinya kunci-tanggal, null kalau bukan.
+   Isinya diperiksa polanya, bukan cuma awalannya: template custom bernama
+   aneh tidak boleh lolos jadi "tanggal" lalu dicari di tempat yang salah. */
+function parseKeyTanggal(key){
+  const m=/^tgl:(\d{4}-\d{2}-\d{2}):([12])$/.exec(String(key||""));
+  return m ? {date:m[1], lt:+m[2]} : null;
+}
+function adaDenahTanggal(date,lt){ return !!layoutTanggal()[keyTanggal(date,lt)]; }
+
+// Ambil definisi layout efektif: denah tanggal > hasil edit (custom) > built-in.
+function getLayout(key){
+  if(parseKeyTanggal(key)) return layoutTanggal()[key] || null;
+  return (customLayouts()[key]) || DEFAULT_VENUE_LAYOUTS[key] || null;
+}
+function layoutName(key){
+  const L=getLayout(key);
+  if(L&&L.name) return L.name;
+  const p=parseKeyTanggal(key);
+  if(p) return "Denah "+fmtDateShort(p.date)+" · Lt."+p.lt;
+  return key;
+}
 function isBuiltinLayout(key){ return BUILTIN_LAYOUT_KEYS.includes(key); }
 // Semua template yang tersedia (built-in + custom) untuk dipilih/dikelola.
 function allLayoutKeys(){
@@ -1164,8 +1203,21 @@ function defaultDayTypeLt(date,lt){ const c=ltCfg(lt); return hariAkhirPekan(dat
    atas bawaan hari. Inilah satu-satunya fungsi yang boleh dipakai untuk
    menjawab "denah mana yang berlaku" — supaya tidak ada tempat yang lupa
    memeriksa jadwalnya. */
-function dayTypeLayoutLt(date,lt){ const ov=ovLantai(lt)[date]; return (ov && getLayout(ov))?ov:defaultDayTypeLt(date,lt); }
-function hasOverrideLt(date,lt){ const ov=ovLantai(lt)[date]; return !!(ov && getLayout(ov)); }
+function dayTypeLayoutLt(date,lt){
+  // Denah khusus tanggal menang atas segalanya — ia dibuat justru untuk
+  // menyimpang dari template hari itu.
+  const kt=keyTanggal(date,lt);
+  if(layoutTanggal()[kt]) return kt;
+  const ov=ovLantai(lt)[date];
+  return (ov && getLayout(ov))?ov:defaultDayTypeLt(date,lt);
+}
+/* "Hari ini tidak memakai denah bawaannya" — entah karena dijadwalkan memakai
+   template lain, atau karena mejanya digeser khusus tanggal itu. Dua-duanya
+   layak diberi tanda ⚑, karena akibatnya bagi kru sama saja. */
+function hasOverrideLt(date,lt){
+  if(adaDenahTanggal(date,lt)) return true;
+  const ov=ovLantai(lt)[date]; return !!(ov && getLayout(ov));
+}
 function defaultDayType(date){ return defaultDayTypeLt(date,1); }
 function dayTypeLayout(date){ return dayTypeLayoutLt(date,1); }
 function dayTypeLayout2(date){ return dayTypeLayoutLt(date,2); }
@@ -1543,6 +1595,10 @@ function tableObj(tableId){
    meja baru otomatis ikut lantai denah tempat ia digambar. */
 const LAYOUT_LANTAI = { weekday:1, weekend:1, lantai2:2, lantai2_weekend:2 };
 function lantaiLayout(key){
+  // Denah tanggal membawa lantainya di dalam kuncinya sendiri — diperiksa lebih
+  // dulu, karena namanya ("Denah 5 Agu · Lt.2") tidak boleh jadi satu-satunya
+  // sumber: nama bisa diketik ulang orang, kunci tidak.
+  const p=parseKeyTanggal(key); if(p) return p.lt;
   if(LAYOUT_LANTAI[key] != null) return LAYOUT_LANTAI[key];
   // Layout buatan sendiri (template baru): tebak dari namanya — "Lantai 2",
   // "Lt 2", "Floor 2". Tidak disebut = dianggap Lantai 1, karena itu yang
@@ -2263,7 +2319,7 @@ function mergeById(baseArr, mine, theirs){
    JSON.stringify membuangnya diam-diam. Akibatnya layoutOverrides["2026-07-20"]="weekend"
    terlihat berhasil di layar, tapi HILANG begitu disimpan/refresh.
    Jadi tiap kali menerima master dari server, kunci yang MEMANG objek dipulihkan. */
-const MASTER_OBJ_KEYS = ["layoutOverrides","layoutOverrides2","layouts"];
+const MASTER_OBJ_KEYS = ["layoutOverrides","layoutOverrides2","layouts","layoutTanggal"];
 function normalizeMaster(m){
   if(!m || typeof m!=="object") return m;
   MASTER_OBJ_KEYS.forEach(k=>{ if(Array.isArray(m[k])) m[k]={}; });
@@ -4096,7 +4152,7 @@ function renderDashboard(){
      ${HARIH_Q&&!perTanggal?`<span class="harih-result">${list.length} hasil untuk “${esc(HARIH_Q)}”</span>`:""}
      ${inMap&&canEdit?`<span style="margin-left:auto;display:inline-flex;gap:6px">
        <button class="btn btn-sm ${hasLayoutOverride(HARIH_DATE)?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings()" title="Pilih layout denah khusus tanggal ini (event); besok balik default">⚙️ Layout: ${layoutName(harihL1())}${hasLayoutOverride(HARIH_DATE)?" ⚑":""}</button>
-       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihLayoutKey())" title="Kelola &amp; atur posisi meja denah ${esc(layoutName(harihLayoutKey()))}">✏️ Editor Denah: ${esc(layoutName(harihLayoutKey()))}</button>
+       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihLayoutKey(),HARIH_DATE,harihLantai())" title="Ubah posisi meja untuk tanggal ini — template tidak ikut berubah kecuali sengaja dipilih">✏️ Editor Denah: ${esc(layoutName(harihLayoutKey()))}</button>
      </span>`:""}
    </div>
 
@@ -4539,7 +4595,9 @@ function harihMapView(){
       </div>
       <span class="seat-selinfo">Klik meja <b>terisi</b> → detail/aksi, <b>🤝 sharing</b> → kelola & tambah tamu, <b>kosong</b> → walk-in</span>
     </div>
-    ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ Denah <b>${curLabel}</b> dipakai khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (jadwal khusus ${ltCfg(lt).nama}). Tanggal lain otomatis kembali ke default. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}',${lt})" style="margin-left:6px;font-weight:600">Kembalikan ke default</a>`:""}</div>`:""}
+    ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ ${adaDenahTanggal(HARIH_DATE,lt)
+        ? `Meja <b>${ltCfg(lt).nama}</b> digeser khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (denah tanggal). Template Weekday/Weekend tidak ikut berubah.`
+        : `Denah <b>${curLabel}</b> dijadwalkan khusus untuk <b>${fmtDate(HARIH_DATE)}</b>.`} Tanggal lain otomatis kembali ke bawaan. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}',${lt})" style="margin-left:6px;font-weight:600">Kembalikan ke bawaan</a>`:""}</div>`:""}
     ${nSoon?`<div class="inline-info" style="margin:0 0 10px">🔒 ${nSoon} meja masih kosong tapi sudah dipesan nanti — meja terkunci <b>otomatis 3 jam sebelum jam booking</b> (tanda 🔒 + jamnya). Sebelum itu meja masih boleh dipakai walk-in.</div>`:""}
     <div class="seat-map" id="harihMap">${seatMapMarkup(layoutKey,"view",occ,later)}</div>
     <div class="seat-viewlegend">
@@ -4600,8 +4658,15 @@ function openLayoutSettings(lt){
   }).join("");
   // Daftar jadwal khusus yang masih akan datang (hari ini ke depan), lantai ini saja
   const today=todayStr();
-  const upcoming=Object.entries(ovLantai(lt)).filter(([d,v])=>getLayout(v)&&d>=today).sort((a,b)=>a[0].localeCompare(b[0]));
-  const list=upcoming.length?upcoming.map(([d,v])=>`<div class="master-tag"><b>${fmtDateShort(d)}</b> → ${esc(layoutName(v))}${d===date?" (dipilih)":""}<button title="Hapus" onclick="clearLayoutOverride('${d}',${lt},true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada jadwal khusus untuk ${esc(C.nama)}.</span>`;
+  /* Dua sumber digabung: tanggal yang dijadwalkan memakai template lain, dan
+     tanggal yang mejanya digeser sendiri. Keduanya "tanggal yang denahnya tidak
+     biasa" — memisahkannya jadi dua daftar cuma membuat orang mengecek dua
+     tempat sebelum yakin. */
+  const jadwal=Object.entries(ovLantai(lt)).filter(([d,v])=>getLayout(v)&&d>=today).map(([d,v])=>[d,layoutName(v),false]);
+  const khusus=Object.keys(layoutTanggal()).map(parseKeyTanggal).filter(p=>p&&p.lt===lt&&p.date>=today)
+    .map(p=>[p.date,"denah digeser sendiri",true]);
+  const upcoming=[...khusus,...jadwal.filter(j=>!khusus.some(k=>k[0]===j[0]))].sort((a,b)=>a[0].localeCompare(b[0]));
+  const list=upcoming.length?upcoming.map(([d,nm,kh])=>`<div class="master-tag">${kh?"📌 ":""}<b>${fmtDateShort(d)}</b> → ${esc(nm)}${d===date?" (dipilih)":""}<button title="Kembalikan ke bawaan" onclick="clearLayoutOverride('${d}',${lt},true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada jadwal khusus untuk ${esc(C.nama)}.</span>`;
   // Berapa banyak tanggal terjadwal di lantai satunya — supaya tab yang tidak
   // sedang dibuka tetap memberi tahu bahwa di sana ada yang sudah diatur.
   const lain=lt===1?2:1;
@@ -4614,8 +4679,9 @@ function openLayoutSettings(lt){
      ${opt("",`Bawaan hari (otomatis: ${esc(layoutName(def))})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
      ${tplOpts}
      <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
-       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(defaultDayTypeLt(date,lt))}')">✏️ Editor Denah ${esc(layoutName(defaultDayTypeLt(date,lt)))} (atur posisi meja)</button>
-       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(lt===1?C.we:C.we)}')" title="Atur posisi meja denah akhir pekan">🗓️ Editor Denah ${esc(layoutName(C.we))}</button>
+       <button class="btn btn-sm btn-ok" onclick="closeModal();openLayoutEditor(dayTypeLayoutLt('${date}',${lt}),'${date}',${lt})">📌 Ubah Denah Khusus ${fmtDateShort(date)} (tanggal ini saja)</button>
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(C.wd)}')">✏️ Editor Template ${esc(layoutName(C.wd))}</button>
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(C.we)}')">🗓️ Editor Template ${esc(layoutName(C.we))}</button>
      </div>
      <p class="hint" style="margin-top:6px">Template baru dibuat dari dalam Editor Denah (Simpan Sebagai). Beri nama yang menyebut <b>Lantai 2</b> kalau template itu untuk lantai atas — dari situlah lantainya dikenali.</p>
 
@@ -4706,10 +4772,19 @@ function saveLayoutOverride(date, lt){
    (date, true) akan mengirim `true` sebagai lantai — karena itu lt disaring
    ketat ke 1/2, bukan dipakai apa adanya: salah lantai berarti menghapus
    jadwal lantai yang tidak diminta siapa pun. */
+/* "Kembalikan ke bawaan" membuang KEDUA bentuk penyimpangan sekaligus: jadwal
+   template khusus DAN denah yang digambar khusus untuk tanggal itu. Dari sudut
+   pandang kru keduanya satu hal yang sama ("hari ini denahnya beda"), jadi
+   membersihkan cuma salah satunya akan meninggalkan tanda ⚑ yang tidak bisa
+   dihilangkan lewat tombol mana pun. */
 function clearLayoutOverride(date, lt, keepModal){
   lt=(lt===2)?2:1;
-  const ov=ovLantai(lt); if(!ov[date]) return;
-  delete ov[date]; logAudit("Reset Denah Tanggal",`${ltCfg(lt).nama} · ${fmtDateShort(date)} → bawaan`);
+  const ov=ovLantai(lt), kt=keyTanggal(date,lt);
+  const adaJadwal=!!ov[date], adaKhusus=!!layoutTanggal()[kt];
+  if(!adaJadwal && !adaKhusus) return;
+  if(adaJadwal) delete ov[date];
+  if(adaKhusus) delete layoutTanggal()[kt];
+  logAudit("Reset Denah Tanggal",`${ltCfg(lt).nama} · ${fmtDateShort(date)} → bawaan`);
   saveState(); renderHariH();
   if(keepModal) openLayoutSettings(lt); else closeModal?.();
   toast(`${ltCfg(lt).nama} dikembalikan ke bawaan hari`,"ok");
@@ -4720,12 +4795,33 @@ let LE=null;   // { key, data:{name,fixed,tables}, sel, dirty, drag }
 function leClone(o){ return JSON.parse(JSON.stringify(o)); }
 function lePx(v){ return (v/SEAT_W*100).toFixed(3)+"%"; }
 function lePy(v){ return (v/SEAT_H*100).toFixed(3)+"%"; }
-function openLayoutEditor(key){
+/* openLayoutEditor(key, ctxDate, ctxLt)
+
+   ctxDate/ctxLt = "editor ini sedang membuka denah UNTUK SATU TANGGAL". Dengan
+   konteks itu editor menawarkan tombol simpan kedua: simpan khusus tanggal ini
+   tanpa menyentuh template. Tanpa konteks (dibuka dari pengelolaan template),
+   perilakunya persis seperti dulu. */
+function openLayoutEditor(key, ctxDate, ctxLt){
   if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
   key=key||"weekday"; if(!getLayout(key)) key="weekday";
+  const p=parseKeyTanggal(key);
+  // Kunci-tanggal membawa konteksnya sendiri: membuka denah 5 Agu berarti
+  // sedang menggarap 5 Agu, tidak perlu diberi tahu lagi dari luar.
+  const ctx = p ? {date:p.date, lt:p.lt}
+                : (ctxDate ? {date:ctxDate, lt:(ctxLt===2?2:1)} : null);
   const data=leClone(getLayout(key)); data.tables=data.tables||[]; data.fixed=data.fixed||[]; if(!data.name) data.name=layoutName(key);
-  LE={ key, data, sel:null, dirty:false, drag:null };
+  LE={ key, data, ctx, sel:null, dirty:false, drag:null };
   leRender();
+}
+/* Pindah tanggal TANPA menutup editor — "tinggal pindah tanggal terus langsung
+   ubah denahnya". Denah yang dimuat = denah efektif tanggal itu, jadi tanggal
+   yang sudah punya denah khusus langsung terbuka apa adanya, dan tanggal yang
+   belum punya terbuka dari template hari itu sebagai titik mulai. */
+function leGantiTanggal(d){
+  if(!LE || !d) return;
+  if(LE.dirty && !confirm("Perubahan yang belum disimpan akan hilang. Pindah tanggal?")) { leRender(); return; }
+  const lt=LE.ctx?LE.ctx.lt:1;
+  openLayoutEditor(dayTypeLayoutLt(d,lt), d, lt);
 }
 function leCanvasHtml(){
   const fx=(LE.data.fixed||[]).map(f=>`<div class="seat-fix seat-${f.t}" style="left:${lePx(f.x)};top:${lePy(f.y)};width:${lePx(f.w)};height:${lePy(f.h)}">${esc(f.label||"")}</div>`).join("");
@@ -4750,7 +4846,18 @@ function leInspectorHtml(){
   </div>`;
 }
 function leRender(){
-  const custom=!isBuiltinLayout(LE.key), edited=!!customLayouts()[LE.key];
+  /* Kunci yang sedang dibuka bisa berupa denah-tanggal, dan denah-tanggal
+     BUKAN template: ia tidak boleh muncul di pemilih template, tidak boleh
+     ditawari "Hapus Template", dan tombol "Simpan ke template" harus menunjuk
+     template yang menaunginya — yaitu template terjadwal tanggal itu, atau
+     bawaan harinya kalau tidak ada. */
+  const pTgl=parseKeyTanggal(LE.key);
+  const tplKey = pTgl
+    ? ((ovLantai(pTgl.lt)[pTgl.date] && getLayout(ovLantai(pTgl.lt)[pTgl.date]))
+        ? ovLantai(pTgl.lt)[pTgl.date] : defaultDayTypeLt(pTgl.date,pTgl.lt))
+    : LE.key;
+  const custom=!pTgl && !isBuiltinLayout(LE.key), edited=!pTgl && !!customLayouts()[LE.key];
+  const adaKhusus=!!(LE.ctx && adaDenahTanggal(LE.ctx.date,LE.ctx.lt));
   /* Pemilih template DIKELOMPOKKAN PER LANTAI. Sebelumnya satu daftar datar,
      dan "Lantai 2" tenggelam di antara Weekday/Weekend/template custom —
      padahal ia bukan varian denah lantai 1, melainkan lantai yang lain sama
@@ -4760,18 +4867,25 @@ function leRender(){
   allLayoutKeys().forEach(k=>{ const n=lantaiLayout(k); (perLantai[n]=perLantai[n]||[]).push(k); });
   const sel=Object.keys(perLantai).sort((a,b)=>a-b).map(n=>
     `<optgroup label="Lantai ${n}">`+
-    perLantai[n].map(k=>`<option value="${k}" ${k===LE.key?'selected':''}>${esc(layoutName(k))}${isBuiltinLayout(k)?'':' (custom)'}</option>`).join("")+
+    perLantai[n].map(k=>`<option value="${k}" ${k===tplKey?'selected':''}>${esc(layoutName(k))}${isBuiltinLayout(k)?'':' (custom)'}</option>`).join("")+
     `</optgroup>`).join("");
   const lt=lantaiLayout(LE.key);
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)leTryClose()"><div class="modal" style="max-width:1120px;width:100%">
     <div class="modal-head"><h3>✏️ Editor Denah ${esc(LE.data.name||"")} <span class="badge-status tag-new" style="vertical-align:middle">Lantai ${lt}</span>${LE.dirty?' •':''}</h3><button class="close-x" onclick="leTryClose()">×</button></div>
     <div class="modal-body" style="max-height:80vh">
+      ${LE.ctx?`<div class="le-tools" style="margin-bottom:8px">
+        <label style="margin:0;font-weight:600;font-size:13px">📅 Denah untuk tanggal</label>
+        <input type="date" value="${LE.ctx.date}" onchange="leGantiTanggal(this.value)" style="max-width:180px">
+        <span class="badge-status ${adaKhusus?'tag-new':''}" style="align-self:center">${adaKhusus?'sudah punya denah khusus':'masih ikut template '+esc(layoutName(tplKey))}</span>
+        ${adaKhusus?`<button class="btn btn-sm btn-danger" onclick="leHapusDenahTanggal()" title="Kembalikan tanggal ini ke denah bawaan/terjadwal">↺ Hapus Denah Khusus</button>`:""}
+      </div>`:""}
       <div class="le-tools">
-        <select onchange="leSwitch(this.value)" title="Pilih template">${sel}</select>
+        <select onchange="leSwitch(this.value)" title="${LE.ctx?'Mulai dari template lain':'Pilih template'}">${sel}</select>
         <button class="btn btn-sm btn-ghost" onclick="leDuplicate()">⧉ Duplikat jadi Baru</button>
         ${custom?`<button class="btn btn-sm btn-ghost" onclick="leRename()">✏️ Ganti Nama</button>`:""}
-        ${custom?`<button class="btn btn-sm btn-danger" onclick="leDeleteTemplate()">🗑️ Hapus Template</button>`:(edited?`<button class="btn btn-sm btn-ghost" onclick="leResetDefault()">↺ Reset ke Bawaan</button>`:`<span class="muted" style="font-size:12px">Template bawaan — perubahan tersimpan sbg custom-nya.</span>`)}
+        ${custom?`<button class="btn btn-sm btn-danger" onclick="leDeleteTemplate()">🗑️ Hapus Template</button>`:(edited?`<button class="btn btn-sm btn-ghost" onclick="leResetDefault()">↺ Reset ke Bawaan</button>`:"")}
       </div>
+      ${LE.ctx?`<p class="hint" style="margin:0 0 10px">Tombol <b>Simpan untuk ${fmtDateShort(LE.ctx.date)} saja</b> tidak mengubah template — Weekday &amp; Weekend tetap seperti semula, dan tanggal lain tidak ikut bergeser.</p>`:""}
       <div class="le-wrap">
         <div>
           <div class="le-canvas" id="leCanvas">${leCanvasHtml()}</div>
@@ -4786,9 +4900,36 @@ function leRender(){
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="leTryClose()">Tutup</button>
-      <button class="btn btn-primary" onclick="leSave()">💾 Simpan${LE.dirty?' *':''}</button>
+      ${LE.ctx?`<button class="btn btn-ghost" onclick="leSave()" title="Berlaku untuk SEMUA tanggal yang memakai template ini">📋 Simpan ke template ${esc(layoutName(tplKey))}</button>
+        <button class="btn btn-primary" onclick="leSimpanTanggal()">📌 Simpan untuk ${fmtDateShort(LE.ctx.date)} saja${LE.dirty?' *':''}</button>`
+      : `<button class="btn btn-primary" onclick="leSave()">💾 Simpan${LE.dirty?' *':''}</button>`}
     </div>
   </div></div>`;
+}
+/* Simpan denah ini KHUSUS untuk satu tanggal. Template tidak disentuh sama
+   sekali — itu seluruh gunanya: weekday & weekend tetap seperti semula, dan
+   besoknya denah kembali normal dengan sendirinya. */
+function leSimpanTanggal(){
+  if(!LE || !LE.ctx) return;
+  const {date,lt}=LE.ctx, k=keyTanggal(date,lt);
+  const d=leClone(LE.data);
+  d.name="Denah "+fmtDateShort(date)+" · Lt."+lt;
+  layoutTanggal()[k]=d;
+  LE.key=k; LE.dirty=false;
+  saveState(); logAudit("Simpan Denah Tanggal",`${fmtDateShort(date)} Lt.${lt} (${(d.tables||[]).length} meja)`);
+  toast(`Denah ${fmtDateShort(date)} disimpan — template tidak ikut berubah ✓`,"ok");
+  leRender(); renderHariH();
+}
+function leHapusDenahTanggal(){
+  if(!LE || !LE.ctx) return;
+  const {date,lt}=LE.ctx, k=keyTanggal(date,lt);
+  if(!layoutTanggal()[k]) return;
+  if(!confirm("Hapus denah khusus "+fmtDateShort(date)+" (Lt."+lt+")?\n\nTanggal itu kembali memakai denah bawaan/terjadwal hari tersebut.")) return;
+  delete layoutTanggal()[k];
+  saveState(); logAudit("Hapus Denah Tanggal",`${fmtDateShort(date)} Lt.${lt}`);
+  toast("Denah khusus tanggal dihapus — kembali ke bawaan","ok");
+  renderHariH();
+  openLayoutEditor(dayTypeLayoutLt(date,lt), date, lt);
 }
 function leDragStart(e,i){
   e.preventDefault(); LE.sel=i;
@@ -4840,12 +4981,16 @@ function leAddTable(){
 function leDeleteTable(){ if(!LE||LE.sel==null) return; LE.data.tables.splice(LE.sel,1); LE.sel=null; LE.dirty=true; leRender(); }
 function leSwitch(key){
   if(LE.dirty && !confirm("Ada perubahan belum disimpan. Pindah template & buang perubahan?")){ leRender(); return; }
-  openLayoutEditor(key);
+  // Konteks tanggal dipertahankan: memilih template lain saat sedang menggarap
+  // sebuah tanggal berarti "mulai dari denah itu untuk tanggal ini", bukan
+  // "tinggalkan tanggalnya".
+  openLayoutEditor(key, LE.ctx?LE.ctx.date:null, LE.ctx?LE.ctx.lt:null);
 }
 function leDuplicate(){
   const key="lyt"+uid(); const data=leClone(LE.data); data.name=(LE.data.name||layoutName(LE.key))+" (copy)";
   customLayouts()[key]=data; saveState(); logAudit("Duplikat Layout",data.name);
-  toast("Template disalin: "+data.name,"ok"); openLayoutEditor(key);
+  toast("Template disalin: "+data.name,"ok");
+  openLayoutEditor(key, LE.ctx?LE.ctx.date:null, LE.ctx?LE.ctx.lt:null);
 }
 function leRename(){
   const nm=prompt("Nama template:", LE.data.name||""); if(nm===null) return;
@@ -4865,10 +5010,25 @@ function leDeleteTemplate(){
   delete customLayouts()[LE.key]; saveState(); logAudit("Hapus Layout",LE.key);
   toast("Template dihapus","ok"); openLayoutEditor("weekday");
 }
+/* Template yang menaungi apa yang sedang dibuka. Kalau yang dibuka denah
+   khusus tanggal, templatenya = yang berlaku untuk tanggal itu seandainya
+   denah khususnya tidak ada. Dipakai leSave() maupun leRender(). */
+function leTplKey(){
+  const p=parseKeyTanggal(LE.key);
+  if(!p) return LE.key;
+  const ov=ovLantai(p.lt)[p.date];
+  return (ov && getLayout(ov)) ? ov : defaultDayTypeLt(p.date,p.lt);
+}
+/* Simpan ke TEMPLATE — berlaku untuk semua tanggal yang memakainya. Sengaja
+   bukan tombol utama saat sedang menggarap satu tanggal: inilah tombol yang
+   dulu tidak sengaja dipakai orang lalu menggeser denah semua hari biasa. */
 function leSave(){
-  customLayouts()[LE.key]=leClone(LE.data); LE.dirty=false;
-  saveState(); logAudit("Simpan Layout",`${layoutName(LE.key)} (${LE.data.tables.length} meja)`);
-  toast("Denah disimpan ✓","ok"); leRender();
+  const key=leTplKey();
+  if(parseKeyTanggal(key)) return;   // tidak mungkin, tapi jangan sampai denah tanggal masuk registry template
+  customLayouts()[key]=leClone(LE.data); LE.key=key; LE.dirty=false;
+  saveState(); logAudit("Simpan Layout",`${layoutName(key)} (${LE.data.tables.length} meja)`);
+  toast(`Template ${layoutName(key)} disimpan — berlaku untuk semua tanggal yang memakainya`,"ok");
+  leRender(); renderHariH();
 }
 function leTryClose(){
   if(LE&&LE.dirty && !confirm("Ada perubahan belum disimpan. Tutup & buang perubahan?")) return;
