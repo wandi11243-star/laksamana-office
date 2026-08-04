@@ -1092,7 +1092,7 @@ if(!window.LM_VENUE_LAYOUTS){
 }
 const SEAT_W=window.LM_SEAT_W, SEAT_H=window.LM_SEAT_H;
 const DEFAULT_VENUE_LAYOUTS=window.LM_VENUE_LAYOUTS;
-const BUILTIN_LAYOUT_KEYS = ["weekday","weekend","lantai2"];
+const BUILTIN_LAYOUT_KEYS = ["weekday","weekend","lantai2","lantai2_weekend"];
 // Registry layout custom tersimpan (edit built-in / template baru) di master agar tersinkron.
 // Array [] ikut dianggap kosong (backend PHP mengembalikan objek kosong sebagai []) —
 // tanpa ini, layouts["template-baru"]=… menempel di array lalu dibuang JSON.stringify.
@@ -1113,17 +1113,37 @@ function allLayoutKeys(){
 }
 
 let SEAT_SELS=[], SEAT_LAYOUT="weekday";
-const LAYOUT_LABEL={weekday:"Weekday, Lt.1", weekend:"Weekend, Lt.1", lantai2:"Lantai 2"};
+const LAYOUT_LABEL={weekday:"Weekday, Lt.1", weekend:"Weekend, Lt.1", lantai2:"Weekday, Lt.2", lantai2_weekend:"Weekend, Lt.2"};
 // ===== Override layout per tanggal (event) =====
 // Simpan di master agar ikut tersinkron. Kosong = pakai default weekday/weekend by hari.
 /* Objek {tanggal → layoutKey}. Array [] ikut dianggap kosong dan diganti objek — lihat
    normalizeMaster(): backend PHP mengembalikan objek kosong sebagai []. Tanpa penjaga ini,
    ov["2026-07-20"]="weekend" menempel di ARRAY dan dibuang JSON.stringify → override hilang. */
-function layoutOverrides(){
-  const m=STATE.master;
-  if(!m.layoutOverrides || Array.isArray(m.layoutOverrides)) m.layoutOverrides={};
-  return m.layoutOverrides;
+/* Lantai 1 dan Lantai 2 punya mesin yang sama persis: dua denah bawaan
+   (hari biasa / akhir pekan) + jadwal penggantian per tanggal + template
+   buatan sendiri. Yang berbeda cuma DI MANA jadwalnya disimpan dan denah
+   bawaannya yang mana, jadi keduanya dijalankan dari satu tabel ini.
+
+   Lantai 2 memakai kunci `layoutOverrides2` yang TERPISAH, bukan menumpang di
+   objek yang sama dengan awalan tanggal. Dengan begitu data lama tidak perlu
+   dimigrasi sama sekali: jadwal Lt.1 yang sudah ada tetap terbaca apa adanya,
+   dan Lt.2 mulai dari kosong. */
+const LT_CFG = {
+  1:{ ovKey:"layoutOverrides",  wd:"weekday", we:"weekend",         nama:"Lantai 1" },
+  2:{ ovKey:"layoutOverrides2", wd:"lantai2", we:"lantai2_weekend", nama:"Lantai 2" }
+};
+function ltCfg(lt){ return LT_CFG[lt]||LT_CFG[1]; }
+/* Objek {tanggal → layoutKey} milik satu lantai. Array [] ikut dianggap kosong
+   dan diganti objek — lihat normalizeMaster(): backend PHP mengembalikan objek
+   kosong sebagai []. Tanpa penjaga ini, ov["2026-07-20"]="weekend" menempel di
+   ARRAY lalu dibuang JSON.stringify → jadwalnya hilang diam-diam. */
+function ovLantai(lt){
+  const m=STATE.master, k=ltCfg(lt).ovKey;
+  if(!m[k] || Array.isArray(m[k])) m[k]={};
+  return m[k];
 }
+function layoutOverrides(){ return ovLantai(1); }
+function layoutOverrides2(){ return ovLantai(2); }
 /* Tipe layout default menurut hari: JUMAT, SABTU, MINGGU = weekend.
    getDay(): 0=Minggu, 5=Jumat, 6=Sabtu.
 
@@ -1134,13 +1154,22 @@ function layoutOverrides(){
    "Layout" di Recap (layoutOverrides), mis. event di hari Rabu. Tanggal yang
    sudah pernah ditimpa TIDAK berubah oleh perubahan ini — lihat dayTypeLayout,
    override selalu menang. */
-function defaultDayType(date){
+function hariAkhirPekan(date){
   const dg=new Date(date+"T00:00:00").getDay();
-  return (dg===0||dg===5||dg===6)?"weekend":"weekday";
+  return (dg===0||dg===5||dg===6);
 }
-// Template Lt.1 efektif untuk sebuah tanggal: override (bila ada & valid) > default hari.
-function dayTypeLayout(date){ const ov=layoutOverrides()[date]; return (ov && getLayout(ov))?ov:defaultDayType(date); }
-function hasLayoutOverride(date){ const ov=layoutOverrides()[date]; return !!(ov && getLayout(ov)); }
+/* Denah bawaan sebuah lantai pada sebuah tanggal — sebelum jadwal khusus. */
+function defaultDayTypeLt(date,lt){ const c=ltCfg(lt); return hariAkhirPekan(date)?c.we:c.wd; }
+/* Denah EFEKTIF: jadwal khusus tanggal itu (kalau ada & masih valid) menang
+   atas bawaan hari. Inilah satu-satunya fungsi yang boleh dipakai untuk
+   menjawab "denah mana yang berlaku" — supaya tidak ada tempat yang lupa
+   memeriksa jadwalnya. */
+function dayTypeLayoutLt(date,lt){ const ov=ovLantai(lt)[date]; return (ov && getLayout(ov))?ov:defaultDayTypeLt(date,lt); }
+function hasOverrideLt(date,lt){ const ov=ovLantai(lt)[date]; return !!(ov && getLayout(ov)); }
+function defaultDayType(date){ return defaultDayTypeLt(date,1); }
+function dayTypeLayout(date){ return dayTypeLayoutLt(date,1); }
+function dayTypeLayout2(date){ return dayTypeLayoutLt(date,2); }
+function hasLayoutOverride(date){ return hasOverrideLt(date,1); }
 // id meja yg dipakai sebuah reservasi (dukung banyak meja: "12, 13")
 function tablesOf(r){ return String(r&&r.table||"").split(",").map(s=>s.trim()).filter(Boolean); }
 // Meja ASLI tamu yang sedang dialihkan sementara (r.tableAsli), dipisah sama seperti tablesOf.
@@ -1512,7 +1541,7 @@ function tableObj(tableId){
    seperti itu langsung basi begitu ada meja baru ditambahkan lewat Editor
    Denah, dan tidak ada yang mengingatkan. Dengan menurunkannya dari layout,
    meja baru otomatis ikut lantai denah tempat ia digambar. */
-const LAYOUT_LANTAI = { weekday:1, weekend:1, lantai2:2 };
+const LAYOUT_LANTAI = { weekday:1, weekend:1, lantai2:2, lantai2_weekend:2 };
 function lantaiLayout(key){
   if(LAYOUT_LANTAI[key] != null) return LAYOUT_LANTAI[key];
   // Layout buatan sendiri (template baru): tebak dari namanya — "Lantai 2",
@@ -1869,6 +1898,12 @@ function formOccupied(){
   return occupiedMap(date, time, EDIT_ID);
 }
 function setSeatLayout(l){ SEAT_LAYOUT=l; renderSeatMap(); }
+/* Tombol "Lantai 2" tidak lagi menunjuk satu denah tetap: sejak Lt.2 punya
+   versi weekday & weekend plus jadwal per tanggal, denah yang benar tergantung
+   TANGGAL yang sedang diisi di form. Memakai kunci tetap "lantai2" berarti
+   memilih meja di denah yang belum tentu dipasang hari itu. */
+function formTanggal(){ return byId("resForm")?.elements.date?.value || todayStr(); }
+function setSeatLantai2(){ setSeatLayout(dayTypeLayout2(formTanggal())); }
 function pickSeat(id){
   const occ=formOccupied();
   const i=SEAT_SELS.indexOf(id);
@@ -1995,7 +2030,12 @@ function renderSeatMap(){
   const map=byId("seatMap"); if(!map) return;
   map.innerHTML=seatMapMarkup(SEAT_LAYOUT,"select",formOccupied());
   const lbl=byId("seatSelLabel"); if(lbl) lbl.innerHTML = SEAT_SELS.length?`Terpilih: <b>${esc(SEAT_SELS.join(", "))}</b>`:"Belum ada meja dipilih";
-  document.querySelectorAll("#resForm .seat-switch button").forEach(b=>b.classList.toggle("on", b.dataset.l===SEAT_LAYOUT));
+  /* Tombol "Lantai 2" cocok dengan DUA kunci (lantai2 & lantai2_weekend) dan
+     dengan template custom lantai atas, jadi pencocokannya lewat lantai —
+     bukan lewat kunci persis. Tanpa ini tombolnya tidak pernah menyala di
+     akhir pekan padahal denah yang tergambar memang denah lantai 2. */
+  document.querySelectorAll("#resForm .seat-switch button").forEach(b=>b.classList.toggle("on",
+    b.dataset.l==='lantai2' ? lantaiLayout(SEAT_LAYOUT)===2 : (b.dataset.l===SEAT_LAYOUT)));
 }
 
 const DEFAULT_MASTER = {
@@ -2223,7 +2263,7 @@ function mergeById(baseArr, mine, theirs){
    JSON.stringify membuangnya diam-diam. Akibatnya layoutOverrides["2026-07-20"]="weekend"
    terlihat berhasil di layar, tapi HILANG begitu disimpan/refresh.
    Jadi tiap kali menerima master dari server, kunci yang MEMANG objek dipulihkan. */
-const MASTER_OBJ_KEYS = ["layoutOverrides","layouts"];
+const MASTER_OBJ_KEYS = ["layoutOverrides","layoutOverrides2","layouts"];
 function normalizeMaster(m){
   if(!m || typeof m!=="object") return m;
   MASTER_OBJ_KEYS.forEach(k=>{ if(Array.isArray(m[k])) m[k]={}; });
@@ -3370,7 +3410,7 @@ function renderInput(editId){
            <div class="seat-switch">
              <button type="button" data-l="weekday" onclick="setSeatLayout('weekday')">Weekday</button>
              <button type="button" data-l="weekend" onclick="setSeatLayout('weekend')">Weekend</button>
-             <button type="button" data-l="lantai2" onclick="setSeatLayout('lantai2')">Lantai 2</button>
+             <button type="button" data-l="lantai2" onclick="setSeatLantai2()">Lantai 2</button>
            </div>
            <span class="seat-selinfo" id="seatSelLabel">Belum ada meja dipilih</span>
            <label class="share-toggle"><input type="checkbox" name="sharing" id="resSharing" ${r?.sharing?"checked":""} onchange="checkConflict()"> 🤝 Sharing table <span class="hint" style="font-weight:400">(boleh digabung tamu lain)</span></label>
@@ -3574,7 +3614,10 @@ function checkConflict(){
 }
 function onDateChange(){
   const f=byId("resForm"); const d=f?.elements.date?.value;
-  if(d){ SEAT_LAYOUT=dayTypeLayout(d); }
+  // Ganti tanggal ikut mengganti denah, TAPI tetap di lantai yang sedang
+  // dibuka — dulu selalu melompat balik ke Lantai 1 dan meja yang baru saja
+  // dipilih di lantai atas seolah lenyap.
+  if(d){ SEAT_LAYOUT = (lantaiLayout(SEAT_LAYOUT)===2) ? dayTypeLayout2(d) : dayTypeLayout(d); }
   checkConflict();
 }
 function checkBigEvent(v){
@@ -4438,7 +4481,7 @@ function refreshDenahSaja(){
   map.innerHTML=seatMapMarkup(harihLayoutKey(),"view",occ,later);
   return true;
 }
-function harihL1(){ return dayTypeLayout(HARIH_DATE); }
+function harihL1(){ return dayTypeLayoutLt(HARIH_DATE,1); }
 
 /* ===== KAPASITAS VENUE PADA SEBUAH TANGGAL =====
    Dijumlahkan dari denah yang BERLAKU hari itu: Lantai 1 (weekday/weekend/
@@ -4455,7 +4498,7 @@ function harihL1(){ return dayTypeLayout(HARIH_DATE); }
    supaya tidak ada dua sumber yang bisa berselisih. */
 function kapasitasTanggal(date){
   let pax=0, meja=0;
-  [dayTypeLayout(date), "lantai2"].forEach(k=>{
+  [dayTypeLayout(date), dayTypeLayout2(date)].forEach(k=>{
     const seen=new Set();
     ((getLayout(k)||{}).tables||[]).forEach(t=>{
       const id=String(t.id);
@@ -4473,24 +4516,30 @@ function kapasitasLayout(data){
   return ((data&&data.tables)||[]).reduce((a,t)=>a+capMax(t.cap), 0);
 }
 // renderHariHListOnly() PINDAH ke atas, bersama renderDashboard gabungan.
-function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?"lantai2":harihL1(); }
+function harihL2(){ return dayTypeLayout2(HARIH_DATE); }
+function harihLayoutKey(){ return (HARIH_LAYOUT==="lantai2")?harihL2():harihL1(); }
+function harihLantai(){ return (HARIH_LAYOUT==="lantai2")?2:1; }
 function harihMapView(){
   const layoutKey=harihLayoutKey();
   const {occ,later}=harihOccupancy();
   HARIH_SIG=occSig(occ,later);
   const nSoon=[...later.keys()].length;
-  const l1label=layoutName(harihL1());
-  const ovOn=hasLayoutOverride(HARIH_DATE);
+  const l1label=layoutName(harihL1()), l2label=layoutName(harihL2());
+  /* Penanda ⚑ dipasang per lantai. Dulu cuma Lt.1 yang punya jadwal, jadi satu
+     penanda cukup; sekarang Lt.2 bisa dijadwalkan sendiri dan lantai yang
+     tidak sedang dilihat pun harus terlihat kalau sedang memakai denah khusus. */
+  const ov1=hasOverrideLt(HARIH_DATE,1), ov2=hasOverrideLt(HARIH_DATE,2);
+  const lt=harihLantai(), ovOn=(lt===2?ov2:ov1), curLabel=(lt===2?l2label:l1label);
   const canEdit=CAN.input(SESSION.role);
   return `<div class="panel"><div class="panel-body">
     <div class="seat-toolbar">
       <div class="seat-switch">
-        <button class="${HARIH_LAYOUT!=='lantai2'?'on':''}" onclick="HARIH_LAYOUT='l1';renderHariH()">Lantai 1 (${l1label}${ovOn?" ⚑":""})</button>
-        <button class="${HARIH_LAYOUT==='lantai2'?'on':''}" onclick="HARIH_LAYOUT='lantai2';renderHariH()">Lantai 2</button>
+        <button class="${HARIH_LAYOUT!=='lantai2'?'on':''}" onclick="HARIH_LAYOUT='l1';renderHariH()">Lantai 1 (${l1label}${ov1?" ⚑":""})</button>
+        <button class="${HARIH_LAYOUT==='lantai2'?'on':''}" onclick="HARIH_LAYOUT='lantai2';renderHariH()">Lantai 2 (${l2label}${ov2?" ⚑":""})</button>
       </div>
       <span class="seat-selinfo">Klik meja <b>terisi</b> → detail/aksi, <b>🤝 sharing</b> → kelola & tambah tamu, <b>kosong</b> → walk-in</span>
     </div>
-    ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ Layout <b>${l1label}</b> dipakai khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (override event). Tanggal lain otomatis kembali ke default. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}')" style="margin-left:6px;font-weight:600">Kembalikan ke default</a>`:""}</div>`:""}
+    ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ Denah <b>${curLabel}</b> dipakai khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (jadwal khusus ${ltCfg(lt).nama}). Tanggal lain otomatis kembali ke default. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}',${lt})" style="margin-left:6px;font-weight:600">Kembalikan ke default</a>`:""}</div>`:""}
     ${nSoon?`<div class="inline-info" style="margin:0 0 10px">🔒 ${nSoon} meja masih kosong tapi sudah dipesan nanti — meja terkunci <b>otomatis 3 jam sebelum jam booking</b> (tanda 🔒 + jamnya). Sebelum itu meja masih boleh dipakai walk-in.</div>`:""}
     <div class="seat-map" id="harihMap">${seatMapMarkup(layoutKey,"view",occ,later)}</div>
     <div class="seat-viewlegend">
@@ -4509,10 +4558,20 @@ function harihMapView(){
     </div>
   </div></div>`;
 }
-// ===== Atur layout template per tanggal (event) =====
-function openLayoutSettings(){
+// ===== Atur denah per tanggal (jadwal khusus) =====
+/* Satu modal untuk KEDUA lantai, dipilih lewat dua tombol di atasnya. Lantai
+   yang terbuka lebih dulu = lantai yang sedang dilihat di Denah Meja, karena
+   itu yang hampir selalu ingin diubah orangnya.
+
+   Kenapa tidak dua modal terpisah: isinya sama persis (bawaan hari, daftar
+   template, terapkan ke banyak tanggal, daftar terjadwal), dan dua salinan
+   layar yang sama selalu berakhir berbeda setelah beberapa revisi — persis
+   alasan form bon dipakai ulang untuk mode ubah. */
+function openLayoutSettings(lt){
   if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
-  const date=HARIH_DATE, def=defaultDayType(date), cur=layoutOverrides()[date]||"";
+  lt = (lt===2||lt===1) ? lt : harihLantai();
+  const C=ltCfg(lt);
+  const date=HARIH_DATE, def=defaultDayTypeLt(date,lt), cur=ovLantai(lt)[date]||"";
   const opt=(val,label,sub)=>`<label class="wa-target" style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;margin-bottom:8px">
     <input type="radio" name="lyov" value="${val}" ${((val==="")?cur==="":cur===val)?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
     <div><h4 style="margin:0">${esc(label)}</h4><p style="margin:2px 0 0">${sub}</p></div></label>`;
@@ -4520,11 +4579,16 @@ function openLayoutSettings(){
   // Template custom diberi tombol 🗑️ di sini — sebelumnya hapus hanya ada di dalam Editor
   // Denah sehingga sulit ditemukan. Tombolnya DI LUAR <label> supaya klik hapus tidak
   // ikut memilih radio-nya.
-  const tplKeys=allLayoutKeys().filter(k=>k!=="lantai2");
+  /* Template yang ditawarkan disaring per LANTAI. Menawarkan denah Lt.1 sebagai
+     jadwal Lt.2 (atau sebaliknya) berarti menggambar meja lantai yang salah
+     seharian penuh — dan gejalanya "meja saya hilang", bukan pesan galat.
+     Template custom ikut lantainya lewat lantaiLayout(), yang membacanya dari
+     nama template ("… Lantai 2"). */
+  const tplKeys=allLayoutKeys().filter(k=>lantaiLayout(k)===lt);
   const tplOpts=tplKeys.map(k=>{
     const builtin=isBuiltinLayout(k);
-    const sub=builtin?(k==="weekend"?"Denah akhir pekan / event.":"Denah hari biasa."):"Template denah buatan sendiri.";
-    const dipakai=Object.values(layoutOverrides()).filter(v=>v===k).length;
+    const sub=builtin?(/weekend/.test(k)?"Denah akhir pekan / event.":"Denah hari biasa."):"Template denah buatan sendiri.";
+    const dipakai=Object.values(ovLantai(lt)).filter(v=>v===k).length;
     return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <label class="wa-target" style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;flex:1;margin:0">
         <input type="radio" name="lyov" value="${esc(k)}" ${cur===k?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
@@ -4534,37 +4598,41 @@ function openLayoutSettings(){
       ${builtin?"":`<button class="btn btn-sm btn-danger" title="Hapus template ini" onclick="hapusTemplate('${esc(k)}')">🗑️</button>`}
     </div>`;
   }).join("");
-  // Daftar override yang masih akan datang (hari ini ke depan)
+  // Daftar jadwal khusus yang masih akan datang (hari ini ke depan), lantai ini saja
   const today=todayStr();
-  const upcoming=Object.entries(layoutOverrides()).filter(([d,v])=>getLayout(v)&&d>=today).sort((a,b)=>a[0].localeCompare(b[0]));
-  const list=upcoming.length?upcoming.map(([d,v])=>`<div class="master-tag"><b>${fmtDateShort(d)}</b> → ${esc(layoutName(v))}${d===date?" (dipilih)":""}<button title="Hapus" onclick="clearLayoutOverride('${d}',true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada override terjadwal.</span>`;
-  openModal(`<div class="modal-head"><h3>⚙️ Layout Event, ${fmtDate(date)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+  const upcoming=Object.entries(ovLantai(lt)).filter(([d,v])=>getLayout(v)&&d>=today).sort((a,b)=>a[0].localeCompare(b[0]));
+  const list=upcoming.length?upcoming.map(([d,v])=>`<div class="master-tag"><b>${fmtDateShort(d)}</b> → ${esc(layoutName(v))}${d===date?" (dipilih)":""}<button title="Hapus" onclick="clearLayoutOverride('${d}',${lt},true)">×</button></div>`).join(""):`<span class="muted" style="font-size:13px">Belum ada jadwal khusus untuk ${esc(C.nama)}.</span>`;
+  // Berapa banyak tanggal terjadwal di lantai satunya — supaya tab yang tidak
+  // sedang dibuka tetap memberi tahu bahwa di sana ada yang sudah diatur.
+  const lain=lt===1?2:1;
+  const nLain=Object.entries(ovLantai(lain)).filter(([d,v])=>getLayout(v)&&d>=today).length;
+  const tab=(n,label)=>`<button class="btn btn-sm ${n===lt?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings(${n})">${label}${n!==lt&&nLain?` · ${nLain} terjadwal`:''}</button>`;
+  openModal(`<div class="modal-head"><h3>⚙️ Denah ${esc(C.nama)}, ${fmtDate(date)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px"><div>Pilih template layout untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — besoknya otomatis kembali ke default (Jumat/Sabtu/Minggu = Weekend, selain itu Weekday).</div></div>
-     ${opt("",`Default (otomatis: ${def==="weekend"?"Weekend":"Weekday"})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
+     <div style="display:flex;gap:8px;margin-bottom:12px">${tab(1,"Lantai 1")}${tab(2,"Lantai 2")}</div>
+     <div class="inline-info" style="margin-bottom:14px"><div>Pilih denah <b>${esc(C.nama)}</b> untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — tanggal lain otomatis kembali ke bawaan hari (Jumat/Sabtu/Minggu = Weekend, selain itu Weekday). Lantai 1 dan Lantai 2 dijadwalkan <b>sendiri-sendiri</b>.</div></div>
+     ${opt("",`Bawaan hari (otomatis: ${esc(layoutName(def))})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
      ${tplOpts}
-     <!-- Ikut lantai yang sedang dilihat, sama alasannya dengan tombol Editor
-          Denah di toolbar Hari-H. -->
      <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
-       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor(harihLayoutKey())">✏️ Buka / Buat Template Denah (atur posisi meja)</button>
-       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('lantai2')" title="Atur posisi meja Lantai 2">🪜 Editor Denah Lantai 2</button>
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(defaultDayTypeLt(date,lt))}')">✏️ Editor Denah ${esc(layoutName(defaultDayTypeLt(date,lt)))} (atur posisi meja)</button>
+       <button class="btn btn-sm btn-ghost" onclick="closeModal();openLayoutEditor('${esc(lt===1?C.we:C.we)}')" title="Atur posisi meja denah akhir pekan">🗓️ Editor Denah ${esc(layoutName(C.we))}</button>
      </div>
-     <p class="hint" style="margin-top:6px">Denah <b>Lantai 2</b> tidak ikut daftar template di atas — ia bukan pilihan untuk satu tanggal, melainkan lantai tersendiri yang selalu tersedia lewat saklar Lantai 1 / Lantai 2 di Denah Meja. Mengaturnya lewat tombol di sebelah.</p>
+     <p class="hint" style="margin-top:6px">Template baru dibuat dari dalam Editor Denah (Simpan Sebagai). Beri nama yang menyebut <b>Lantai 2</b> kalau template itu untuk lantai atas — dari situlah lantainya dikenali.</p>
 
-     <div class="section-title" style="margin-top:16px">📅 Terapkan Template ke Banyak Tanggal</div>
-     <p class="hint" style="margin-top:0">Pilih salah satu template di atas, lalu tambahkan tanggal-tanggal yang memakai template itu. Bisa banyak hari sekaligus.</p>
+     <div class="section-title" style="margin-top:16px">📅 Terapkan ke Banyak Tanggal</div>
+     <p class="hint" style="margin-top:0">Untuk perubahan meja yang sudah bisa direncanakan jauh hari. Pilih salah satu denah di atas, lalu tambahkan tanggal-tanggalnya satu per satu.</p>
      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
        <div class="field" style="margin:0"><label>Tanggal</label><input type="date" id="lyAddDate" value="${date}"></div>
-       <button class="btn btn-sm btn-ok" onclick="addLayoutDate()">➕ Tambahkan Tanggal</button>
-       <span class="hint" style="align-self:center">Template yang dipakai = yang dipilih di atas.</span>
+       <button class="btn btn-sm btn-ok" onclick="addLayoutDate(${lt})">➕ Tambahkan Tanggal</button>
+       <span class="hint" style="align-self:center">Denah yang dipakai = yang dipilih di atas.</span>
      </div>
 
-     <div class="section-title" style="margin-top:14px">Tanggal Terjadwal (hari ini ke depan)</div>
+     <div class="section-title" style="margin-top:14px">Tanggal Terjadwal ${esc(C.nama)} (hari ini ke depan)</div>
      <div class="master-list">${list}</div>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
-     <button class="btn btn-primary" onclick="saveLayoutOverride('${date}')">Terapkan untuk ${fmtDateShort(date)}</button>
+     <button class="btn btn-primary" onclick="saveLayoutOverride('${date}',${lt})">Terapkan untuk ${fmtDateShort(date)}</button>
    </div>`);
 }
 /* Hapus template denah custom, dari modal Layout Event. Pakai popup aplikasi (bukan
@@ -4574,7 +4642,10 @@ function hapusTemplate(key){
   if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
   if(isBuiltinLayout(key)){ toast("Template bawaan tidak bisa dihapus","err"); return; }
   const nama=layoutName(key);
-  const dipakai=Object.entries(layoutOverrides()).filter(([d,v])=>v===key).map(([d])=>d).sort();
+  // Template bisa dipakai di jadwal lantai mana pun — dua-duanya diperiksa,
+  // kalau tidak, dampak di lantai satunya tidak disebut lalu terjadi diam-diam.
+  const dipakai=[...Object.entries(ovLantai(1)),...Object.entries(ovLantai(2))]
+    .filter(([d,v])=>v===key).map(([d])=>d).sort();
   openModal(`<div class="modal-head"><h3>🗑️ Hapus Template — ${esc(nama)}</h3>
      <button class="close-x" onclick="openLayoutSettings()">×</button></div>
    <div class="modal-body">
@@ -4594,14 +4665,14 @@ async function konfirmHapusTemplate(key){
   const nama=layoutName(key);
   // Cadangkan dulu: kalau tulisan ke database gagal, kembalikan seperti semula.
   const bLay=JSON.parse(JSON.stringify(customLayouts()));
-  const bOv=JSON.parse(JSON.stringify(layoutOverrides()));
-  const ov=layoutOverrides();
-  Object.keys(ov).forEach(d=>{ if(ov[d]===key) delete ov[d]; });
+  const bOv=JSON.parse(JSON.stringify(ovLantai(1)));
+  const bOv2=JSON.parse(JSON.stringify(ovLantai(2)));
+  [1,2].forEach(lt=>{ const ov=ovLantai(lt); Object.keys(ov).forEach(d=>{ if(ov[d]===key) delete ov[d]; }); });
   delete customLayouts()[key];
   logAudit("Hapus Layout",`${nama} (${key})`);
   const ok=await commit("Menghapus template…");
   if(!ok){
-    STATE.master.layouts=bLay; STATE.master.layoutOverrides=bOv;
+    STATE.master.layouts=bLay; STATE.master.layoutOverrides=bOv; STATE.master.layoutOverrides2=bOv2;
     closeModal(); toast("Gagal menghapus — template dikembalikan","err"); return;
   }
   closeModal(); buildNav(); renderHariH();
@@ -4609,32 +4680,39 @@ async function konfirmHapusTemplate(key){
 }
 // Terapkan template yang sedang dipilih (radio) ke satu tanggal tambahan, lalu tetap
 // buka modal supaya bisa menambah tanggal lain. Untuk "template dipakai di banyak hari".
-function addLayoutDate(){
+function addLayoutDate(lt){
+  lt=(lt===2)?2:1;
   const sel=document.querySelector('input[name=lyov]:checked'); const val=sel?sel.value:"";
   const d=byId("lyAddDate")?.value;
   if(!d){ toast("Pilih tanggalnya dulu","err"); return; }
-  if(!val || !getLayout(val)){ toast("Pilih template dulu (bukan Default)","err"); return; }
-  const ov=layoutOverrides(); ov[d]=val;
-  logAudit("Set Layout Event",`${fmtDateShort(d)} → ${val}`);
+  if(!val || !getLayout(val)){ toast("Pilih denahnya dulu (bukan Bawaan hari)","err"); return; }
+  const ov=ovLantai(lt); ov[d]=val;
+  logAudit("Set Denah Tanggal",`${ltCfg(lt).nama} · ${fmtDateShort(d)} → ${val}`);
   saveState(); renderHariH();
   toast(`${layoutName(val)} dipakai untuk ${fmtDateShort(d)} ✓`,"ok");
-  openLayoutSettings();   // segarkan daftar, biarkan pilihan template tetap
+  openLayoutSettings(lt);   // segarkan daftar, biarkan pilihan denah tetap
   const sel2=document.querySelector(`input[name=lyov][value="${val}"]`); if(sel2) sel2.checked=true;
 }
-function saveLayoutOverride(date){
+function saveLayoutOverride(date, lt){
+  lt=(lt===2)?2:1;
   const sel=document.querySelector('input[name=lyov]:checked'); const val=sel?sel.value:"";
-  const ov=layoutOverrides();
-  if(val && getLayout(val)){ ov[date]=val; logAudit("Set Layout Event",`${fmtDateShort(date)} → ${val}`); }
-  else { delete ov[date]; logAudit("Reset Layout",`${fmtDateShort(date)} → default`); }
+  const ov=ovLantai(lt), nama=ltCfg(lt).nama;
+  if(val && getLayout(val)){ ov[date]=val; logAudit("Set Denah Tanggal",`${nama} · ${fmtDateShort(date)} → ${val}`); }
+  else { delete ov[date]; logAudit("Reset Denah Tanggal",`${nama} · ${fmtDateShort(date)} → bawaan`); }
   saveState(); closeModal(); renderHariH();
-  toast(val?`Layout ${layoutName(val)} dipakai untuk ${fmtDateShort(date)}`:"Layout dikembalikan ke default","ok");
+  toast(val?`${nama}: ${layoutName(val)} dipakai untuk ${fmtDateShort(date)}`:`${nama} dikembalikan ke bawaan hari`,"ok");
 }
-function clearLayoutOverride(date, keepModal){
-  const ov=layoutOverrides(); if(!ov[date]) return;
-  delete ov[date]; logAudit("Reset Layout",`${fmtDateShort(date)} → default`);
+/* Tanda tangannya (date, lt, keepModal). Pemanggil lama yang cuma mengirim
+   (date, true) akan mengirim `true` sebagai lantai — karena itu lt disaring
+   ketat ke 1/2, bukan dipakai apa adanya: salah lantai berarti menghapus
+   jadwal lantai yang tidak diminta siapa pun. */
+function clearLayoutOverride(date, lt, keepModal){
+  lt=(lt===2)?2:1;
+  const ov=ovLantai(lt); if(!ov[date]) return;
+  delete ov[date]; logAudit("Reset Denah Tanggal",`${ltCfg(lt).nama} · ${fmtDateShort(date)} → bawaan`);
   saveState(); renderHariH();
-  if(keepModal) openLayoutSettings(); else closeModal?.();
-  toast("Layout dikembalikan ke default","ok");
+  if(keepModal) openLayoutSettings(lt); else closeModal?.();
+  toast(`${ltCfg(lt).nama} dikembalikan ke bawaan hari`,"ok");
 }
 
 /* ===== EDITOR DENAH — atur posisi meja sendiri (drag & drop) ===== */
@@ -4781,7 +4859,9 @@ function leResetDefault(){
 function leDeleteTemplate(){
   if(isBuiltinLayout(LE.key)) return;
   if(!confirm("Hapus template ini? Override tanggal yang memakainya juga dilepas.")) return;
-  const ov=layoutOverrides(); Object.keys(ov).forEach(d=>{ if(ov[d]===LE.key) delete ov[d]; });
+  // Kedua lantai dibersihkan: template custom boleh dipakai di jadwal lantai
+  // mana pun, dan yang tertinggal akan menunjuk denah yang sudah tidak ada.
+  [1,2].forEach(lt=>{ const ov=ovLantai(lt); Object.keys(ov).forEach(d=>{ if(ov[d]===LE.key) delete ov[d]; }); });
   delete customLayouts()[LE.key]; saveState(); logAudit("Hapus Layout",LE.key);
   toast("Template dihapus","ok"); openLayoutEditor("weekday");
 }

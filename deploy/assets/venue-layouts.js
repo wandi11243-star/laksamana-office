@@ -108,7 +108,7 @@ window.LM_VENUE_LAYOUTS = (function(){
     ],
   };
   const lantai2={
-    name:"Lantai 2",
+    name:"Lantai 2 (Weekday)",
     fixed:[
       {t:"stage",label:"VIDEOTRON",x:340,y:35,w:820,h:70},
       {t:"floor2",label:"LAYOUT LANTAI 2",x:340,y:120,w:820,h:475},
@@ -131,6 +131,15 @@ window.LM_VENUE_LAYOUTS = (function(){
       ...row([81,82,83,84,85,86],770,910,120,100,15,"4","diamond"),
     ],
   };
-  return { weekday, weekend, lantai2 };
+  /* Lantai 2 punya dua denah bawaan, sama seperti Lantai 1: hari biasa dan
+     akhir pekan. Isinya SENGAJA dimulai identik dengan versi weekday —
+     mengarang susunan meja akhir pekan yang tidak pernah dipasang siapa pun
+     hanya akan menghasilkan denah yang salah tapi terlihat resmi. Kru
+     menggesernya sendiri lewat Editor Denah, dan sejak itu keduanya hidup
+     terpisah. */
+  const lantai2_weekend=JSON.parse(JSON.stringify(lantai2));
+  lantai2_weekend.name="Lantai 2 (Weekend)";
+
+  return { weekday, weekend, lantai2, lantai2_weekend };
 })();
 
