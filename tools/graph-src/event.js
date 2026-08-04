@@ -2436,11 +2436,120 @@ function emsPerm() { emsPermBawaan(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function emsSesi() {  }
 
 
 
-function peranSaya() { emsSesi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function peranDariTim() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function peranDariRoster() { peranDariTim(); }
+
+
+
+
+
+
+
+function rosterSaya() { emsSesi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ambilOffice() { peranSaya(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatRosterOffice() { ambilOffice(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function peranSaya() { emsSesi(); rosterSaya(); peranDariRoster(); }
+
+
 
 
 
@@ -2641,7 +2750,7 @@ function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); e
 
 
 
-function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); peranSaya(); esc(); setPeran(); tambahPeran(); setIzin(); labelIzin(); resetIzin(); C(); }
+function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); svg(); esc(); rosterSaya(); peranDariRoster(); segarkanRoster(); setIzin(); labelIzin(); resetIzin(); C(); }
 
 
 
@@ -2691,7 +2800,6 @@ function renderAkses() { bisaUbah(); setTop(); emsPerm(); emsSesi(); peranSaya()
 
 
 
-function setPeran() { bisaUbah(); save(); buildNav(); renderAkses(); toast(); }
 
 
 
@@ -2699,7 +2807,14 @@ function setPeran() { bisaUbah(); save(); buildNav(); renderAkses(); toast(); }
 
 
 
-function tambahPeran() { toast(); setPeran(); }
+
+
+
+
+
+
+
+function segarkanRoster() { muatRosterOffice(); buildNav(); renderAkses(); toast(); }
 
 
 
@@ -6478,4 +6593,4 @@ function paintSideUser() { initials(); }
 
 
 
-function logout() { load(); paintSideUser(); router(); esc(); }
+function logout() { load(); buildNav(); router(); muatRosterOffice(); paintSideUser(); esc(); }
