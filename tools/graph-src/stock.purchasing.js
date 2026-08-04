@@ -1276,6 +1276,7 @@
 
 
 
+
 function pagePerm() {  }
 
 
@@ -2384,11 +2385,6 @@ function renderRecapTable() { recapUnitShort(); shiftMonthStr(); recapMonthStr()
 
 
 
-function getActiveIndividualCount() {  }
-
-
-
-function getActiveConsolidatedCount() {  }
 
 
 
@@ -2400,7 +2396,42 @@ function getActiveConsolidatedCount() {  }
 
 
 
-function getArchivedCount() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function pesananCK() {  }
+
+
+
+
+function pesananBelanja() { pesananCK(); }
+
+function getActiveIndividualCount() { pesananBelanja(); }
+
+
+
+function getActiveConsolidatedCount() { pesananBelanja(); }
+
+
+
+
+
+
+
+
+
+
+
+function getArchivedCount() { pesananBelanja(); }
 
 
 
@@ -2422,7 +2453,11 @@ function lonceng() { clearDateFilters(); resetSemuaFilter(); }
 
 
 
-function renderDashboard() { initFilters(); initDivisiFilters(); syncQuickArrivalButtons(); syncFilterBadge(); updateSubTabCounts(); divisiOrder(); normalizeDateToYYYYMMDD(); renderIndividualCard(); renderConsolidatedCard(); formatFriendlyDate(); toggleArsipBatch(); }
+function renderDashboard() { initFilters(); initDivisiFilters(); syncQuickArrivalButtons(); syncFilterBadge(); updateSubTabCounts(); pesananCK(); divisiOrder(); normalizeDateToYYYYMMDD(); renderIndividualCard(); renderConsolidatedCard(); formatFriendlyDate(); toggleArsipBatch(); }
+
+
+
+
 
 
 
@@ -2670,7 +2705,8 @@ function forecastRecoHTML() {  }
 
 
 
-function renderIndividualCard() { confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+function renderIndividualCard() { pesananCK(); confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+
 
 
 

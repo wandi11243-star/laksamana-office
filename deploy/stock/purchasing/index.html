@@ -239,7 +239,8 @@
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
                 <div>
                     <h2 class="text-2xl font-bold text-slate-900">Antrean Pesanan Bahan Baku</h2>
-                    <p class="text-slate-500 text-sm mt-1">Kelola, gabungkan, dan arsipkan kebutuhan kitchen secara real-time.</p>
+                    <p class="text-slate-500 text-sm mt-1">Kelola, gabungkan, dan arsipkan <b>pembelian ke vendor</b> secara real-time.
+                        Permintaan ke Central Kitchen tidak masuk sini &mdash; ada di <b>Jemput Hari Ini</b> dan <b>Central Kitchen</b>.</p>
                 </div>
             </div>
 
@@ -2384,12 +2385,42 @@
             });
         }
 
+        /* ===== MONITOR ORDER = FORM ORDER BELANJA SAJA =====
+           Pengajuan ke Central Kitchen tersimpan sebagai baris order yang sama
+           persis dengan pembelian ke vendor. Itu disengaja waktu modulnya
+           dibangun — supaya jemputan CK bisa memakai mesin kedatangan yang
+           sudah ada — tapi akibatnya ia ikut nongkrong di Monitor Order,
+           padahal di sana tidak ada satu pun tindakan yang berlaku untuknya:
+           tidak ada vendor untuk di-WA, tidak ada yang perlu dibeli. Kartunya
+           cuma menambah antrean yang harus dilewati sebelum sampai ke
+           pembelian yang sebenarnya.
+
+           Dikenali dari DUA arah, karena satu saja tidak cukup:
+
+           1. batchName 'Central Kitchen' — penanda BARIS, dikirim
+              submitCKOrder() di modul Ordering. Ini yang paling tepat: barang
+              "Vendor & CK" yang dibeli lewat form belanja biasa TETAP masuk
+              Monitor Order, hanya yang diminta ke dapur yang keluar. Menyaring
+              dari sumber barang saja akan membuang keduanya.
+           2. sumber 'ck' — barang yang hanya ada di CK tidak pernah bisa
+              dibeli ke siapa pun, jadi baris apa pun untuknya pasti permintaan
+              CK. Ini yang menangkap baris lama yang batchName-nya kosong.
+
+           Jejaknya tidak hilang ke mana-mana: semuanya tetap ada di
+           "Jemput Hari Ini" dan di Central Kitchen → Riwayat. */
+        function pesananCK(o) {
+            if (String((o && o.batchName) || '').trim().toLowerCase() === 'central kitchen') return true;
+            const m = appState.products[o && o.item];
+            return !!(m && m.sumber === 'ck');
+        }
+        function pesananBelanja(o) { return !pesananCK(o); }
+
         function getActiveIndividualCount() {
-            return appState.orders.filter(o => o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder)).length;
+            return appState.orders.filter(o => pesananBelanja(o) && o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder)).length;
         }
 
         function getActiveConsolidatedCount() {
-            const active = appState.orders.filter(o => o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder));
+            const active = appState.orders.filter(o => pesananBelanja(o) && o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder));
             const groups = {};
             active.forEach(o => {
                 const mapping = appState.products[o.item];
@@ -2401,7 +2432,7 @@
         }
 
         function getArchivedCount() {
-            return appState.orders.filter(o => o.status === "Arsip" || appState.archivedOrderIds.includes(o.nomorOrder)).length;
+            return appState.orders.filter(o => pesananBelanja(o) && (o.status === "Arsip" || appState.archivedOrderIds.includes(o.nomorOrder))).length;
         }
 
         function updateSubTabCounts() {
@@ -2445,6 +2476,10 @@
             const divisiBerlaku = appState.viewMode !== 'active-consolidated';
 
             let filtered = appState.orders.filter(ord => {
+                // Permintaan ke Central Kitchen bukan pembelian — disaring lebih
+                // dulu, sebelum filter apa pun, supaya ia tidak pernah terhitung
+                // di ketiga sub-tab maupun di lonceng jumlahnya.
+                if (pesananCK(ord)) return false;
                 const matchesDivisi = !divisiBerlaku || appState.divisiFilter === 'ALL'
                                       || divisiOrder(ord) === appState.divisiFilter;
                 if (!matchesDivisi) return false;
@@ -2477,7 +2512,7 @@
 
                 if (sorted.length === 0) {
                     noOrders.classList.remove('hidden');
-                    document.getElementById('empty-state-desc').innerText = "Belum ada pesanan kitchen baru atau tidak ada kecocokan tanggal filter.";
+                    document.getElementById('empty-state-desc').innerText = "Belum ada pembelian ke vendor yang perlu diproses, atau tidak ada yang cocok dengan filter. Permintaan ke Central Kitchen ada di tab Jemput Hari Ini.";
                     return;
                 }
                 noOrders.classList.add('hidden');
@@ -2674,17 +2709,18 @@
             const mapping = appState.products[ord.item];
             const vendorUtama = mapping?.utama || "Tidak Terdaftar";
             const vendorsCadangan = mapping?.cadangan || [];
-            /* BARANG CENTRAL KITCHEN TIDAK PUNYA VENDOR, DAN MEMANG TIDAK PERLU.
-               Sebelum ini kartunya diberi garis merah + "belum dipetakan ke Vendor
-               manapun. Atur terlebih dahulu di tab Database" — padahal admin SUDAH
-               mengaturnya dengan benar: sumbernya Central Kitchen, jadi vendornya
-               kosong atas kemauan sendiri. Pesan itu menyuruh membetulkan sesuatu
-               yang tidak rusak, dan satu-satunya cara "membetulkannya" adalah
-               mengarang vendor untuk barang yang tidak dibeli ke siapa pun.
+            /* JARING PENGAMAN, bukan jalur utama. Permintaan CK sudah disaring
+               keluar dari Monitor Order oleh pesananCK() — kartu ini seharusnya
+               tidak pernah tergambar untuk barang CK.
 
-               'both' (Vendor & CK) TIDAK termasuk: barang itu memang dibeli ke
-               vendor, cuma disimpannya di CK — vendor kosong di sana benar-benar
-               kelalaian dan peringatannya tetap berlaku. */
+               Tetap dipertahankan untuk baris yang lolos saringan: barang
+               "Vendor & CK" yang batchName-nya hilang di jalur penggabungan
+               server masih bisa mendarat di sini. Kalau itu terjadi, lebih baik
+               ia menjelaskan dirinya sebagai barang CK daripada mengulang
+               tuduhan lama "belum dipetakan ke Vendor manapun" — pesan yang
+               menyuruh membetulkan sesuatu yang tidak rusak, dan yang satu-
+               satunya cara "membetulkannya" adalah mengarang vendor untuk
+               barang yang tidak dibeli ke siapa pun. */
             const dariCK = (mapping?.sumber === 'ck');
             const tanpaVendor = (vendorUtama === 'Tidak Terdaftar');
 
