@@ -1048,37 +1048,51 @@ function viewInput(){
 
     /* Pencocokan ke Report Daily. Arahnya SENGAJA begini: kasir menyetor
        duluan, angkanya jadi acuan, dan omset yang diinput belakangan harus
-       menghasilkan tagihan yang sama. Tanpa report untuk tanggal itu tidak ada
-       yang bisa dicocokkan — simpan tidak dikunci, karena mengunci berarti
-       omset tidak akan pernah bisa diinput untuk hari yang kasirnya lupa. */
+       menghasilkan tagihan yang sama.
+
+       BON IKUT DIPERHITUNGKAN (4 Agustus 2026). Bill yang belum dibayar tamu
+       tetap masuk tagihan — barangnya keluar, omsetnya diakui — tapi uangnya
+       tidak ada di setoran. Tanpa koreksi ini, setiap hari yang ada piutang
+       selalu selisih sebesar bonnya dan input omsetnya terkunci, padahal tidak
+       ada yang salah sama sekali:
+
+         setoran seharusnya = tagihan − bon baru + pelunasan bon lama
+         selisih            = tagihan − setoran + (pelunasan − bon)
+
+       SIMPAN TIDAK PERNAH DIKUNCI LAGI, sejalan dengan Report Daily. Mengunci
+       cuma memaksa admin mengarang angka food/bev sampai cocok supaya datanya
+       bisa masuk — dan angka karangan yang cocok jauh lebih berbahaya daripada
+       selisih yang jujur dan kelihatan. Yang tersisa: peringatan. */
     const tagihan=tagihanOf(t);
+    const bhIn=bonRingkasHari(inputDate);
+    const koreksi=bhIn.totLunas-bhIn.totBaru;
     const isi=document.getElementById('i_cocok_isi');
     const btn=document.getElementById('i_save');
-    let kunci=false;
     if(setoran===null){
       isi.innerHTML=`<div class="notice warn">⚠ Report Daily tanggal ${esc(dateLabel(inputDate))} belum ada. Omset tetap bisa disimpan, tapi belum ada yang mencocokkan. Minta kasir mengisi <b>Report Daily</b> dulu kalau memungkinkan.</div>`;
     }else{
-      const sel=tagihan-setoran, abs=Math.abs(sel);
-      kunci=abs>=SELISIH_TOLERANSI;
+      const sel=tagihan-setoran+koreksi, abs=Math.abs(sel);
+      const lewat=abs>SELISIH_TOLERANSI;
+      const rinci=[];
+      if(bhIn.totBaru>0) rinci.push(`bon belum dibayar <b>${fmtRp(bhIn.totBaru)}</b>`);
+      if(bhIn.totLunas>0) rinci.push(`pelunasan bon lama <b>${fmtRp(bhIn.totLunas)}</b>`);
       isi.innerHTML=`
         <div class="grid g3" style="margin-top:4px">
           <div class="stat"><div class="lab">Setoran Kasir (Actual)</div><div class="val sm mono">${fmtRp(setoran)}</div><div class="foot">${esc(rep.by||'—')}${rep.at?` · ${fmtWaktu(rep.at)}`:''}</div></div>
           <div class="stat"><div class="lab">Tagihan dari Input Ini</div><div class="val sm mono">${fmtRp(tagihan)}</div><div class="foot">omset ${fmtRp(netOf(t))} + service ${fmtRp(t.service_charge)} + tax ${fmtRp(t.tax)}</div></div>
-          <div class="stat" style="background:${abs===0?'var(--ok-bg-t)':abs<SELISIH_TOLERANSI?'var(--warn-bg-t)':'var(--danger-bg-t)'}">
+          <div class="stat" style="background:${abs===0?'var(--ok-bg-t)':!lewat?'var(--warn-bg-t)':'var(--danger-bg-t)'}">
             <div class="lab">Selisih</div><div class="val sm mono">${fmtSel(sel)}</div>
-            <div class="foot">${abs===0?'cocok ✓':abs<SELISIH_TOLERANSI?`beda pembulatan (&lt; ${fmtRp(SELISIH_TOLERANSI)}) — boleh disimpan`:`di atas batas ${fmtRp(SELISIH_TOLERANSI)} — simpan dikunci`}</div>
+            <div class="foot">${abs===0?'cocok ✓':!lewat?`masih dalam toleransi ${fmtRp(SELISIH_TOLERANSI)} ✓`:`lewat toleransi ${fmtRp(SELISIH_TOLERANSI)}`}</div>
           </div>
         </div>
-        ${kunci?`<div class="notice bad" style="margin-top:12px">⚠ Selisih ${fmtRp(abs)} melebihi batas ${fmtRp(SELISIH_TOLERANSI)}. ${sel>0?'Tagihan dari input ini <b>lebih besar</b> dari setoran kasir':'Tagihan dari input ini <b>lebih kecil</b> dari setoran kasir'} — perbaiki angka food/beverage/lainnya/diskon/service/tax sampai selisihnya di bawah ${fmtRp(SELISIH_TOLERANSI)}.</div>`:''}`;
+        ${rinci.length?`<div class="helper" style="margin-top:8px">Sudah memperhitungkan ${rinci.join(' dan ')} pada tanggal ini — lihat halaman <b>Piutang / Bon</b>.</div>`:''}
+        ${lewat?`<div class="notice bad" style="margin-top:12px">⚠ Selisih ${fmtRp(abs)} lewat toleransi ${fmtRp(SELISIH_TOLERANSI)}. Tagihan dari input ini <b>lebih ${sel>0?'besar':'kecil'}</b> dari setoran kasir. Data tetap boleh disimpan, tapi selisihnya perlu ditelusuri${bhIn.totBaru>0||bhIn.totLunas>0?'':' — kalau sebabnya ada tamu yang berhutang, catat dulu di halaman Piutang / Bon'}.</div>`:''}`;
     }
-    // Di luar cabang: kalau report-nya belum ada, tombol harus AKTIF lagi —
-    // pernah ada kasus tombol tertinggal disabled karena pengaturannya hanya
-    // dilakukan di cabang "ada setoran".
-    btn.disabled=kunci;
-    btn.style.opacity=kunci?'.45':'';
-    btn.style.cursor=kunci?'not-allowed':'';
-    btn.title=kunci?'Selisih terhadap Report Daily masih di atas batas':'';
-    return {tagihan,kunci};
+    // Tombol dikembalikan aktif tanpa syarat. Dulu di sini ada btn.disabled dan
+    // pernah tertinggal `true` karena pengaturannya cuma dilakukan di salah satu
+    // cabang; sekarang tidak ada cabang yang bisa mengunci sama sekali.
+    btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; btn.title='';
+    return {tagihan};
   };
   el.querySelectorAll('.ci').forEach(i=>i.addEventListener('input',recalc));
   document.getElementById('i_save').addEventListener('click',saveDaily);
@@ -1097,16 +1111,17 @@ function saveDaily(){
   if(grossOf(rec)===0)errs.push('Pendapatan tidak boleh kosong.');
   if(rec.discount>grossOf(rec))errs.push('Diskon melebihi total pendapatan.');
   if(rec.traffic<rec.bill)errs.push('Traffic harus ≥ jumlah Bill.');
-  /* Gerbang selisih ditegakkan di sini juga, bukan cuma lewat tombol yang
-     di-disable: tombol bisa dilewati (Enter di form, atau saveDaily dipanggil
-     dari tempat lain), dan yang menjaga data harus jalur simpannya. */
-  const rp0=repOf(date);
-  if(rp0){
-    const setoran0=PAYS.reduce((s,p)=>s+repPay(rp0,p.k).actual,0);
-    const abs0=Math.abs(tagihanOf(rec)-setoran0);
-    if(abs0>=SELISIH_TOLERANSI)
-      errs.push(`Selisih ${fmtRp(abs0)} terhadap Report Daily (setoran ${fmtRp(setoran0)}) melebihi batas ${fmtRp(SELISIH_TOLERANSI)}.`);
-  }
+  /* Gerbang selisih terhadap Report Daily DIBUANG 4 Agustus 2026. Dulu ada di
+     sini sebagai lapis kedua di belakang tombol yang di-disable; sekarang
+     tidak ada yang dikunci sama sekali, jadi menyisakannya berarti tombolnya
+     bisa ditekan tapi datanya diam-diam tidak tersimpan — kegagalan yang jauh
+     lebih membingungkan daripada tombol mati.
+
+     Sebab utamanya piutang: hari yang ada bon SELALU selisih sebesar bonnya,
+     dan admin tidak punya cara membetulkannya selain mengarang angka
+     food/bev. Selisihnya sekarang cuma diperingatkan di layar (lihat recalc),
+     lengkap dengan koreksi bon supaya hari yang piutangnya sudah tercatat
+     tidak selisih sama sekali. Validasi lain di atas tetap berlaku. */
   const box=document.getElementById('i_err');
   if(errs.length){box.innerHTML='<div class="notice bad">⚠ '+[...new Set(errs)].join(' ')+'</div>';return;}
   const ex=getDay(date);
