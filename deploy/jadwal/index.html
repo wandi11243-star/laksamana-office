@@ -147,6 +147,18 @@ a{color:var(--gold-dim)}
 
 /* Tabel jadwal */
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+/* Tabel daftar biasa (Dashboard). Beda dari table.sched yang berupa kisi
+   jadwal: yang ini baris per orang, dibaca dari atas ke bawah. */
+table.list{border-collapse:separate;border-spacing:0;width:100%;min-width:600px}
+table.list th{background:var(--gold-soft);font-family:var(--font-display);font-size:11.5px;font-weight:700;
+  color:var(--ink);padding:8px 10px;text-align:left;white-space:nowrap}
+table.list td{padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+table.list tbody tr:last-child td{border-bottom:none}
+table.list tbody tr.klik{cursor:pointer}
+table.list tbody tr.klik:hover{background:#FDFCFA}
+table.list .no{width:34px;color:var(--muted-2);font-size:12px}
+table.list .nama{font-weight:700}
+table.list .kecil{font-size:11px;color:var(--muted-2)}
 table.sched{border-collapse:separate;border-spacing:0;width:100%;min-width:900px}
 table.sched th,table.sched td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:0}
 table.sched .no{width:40px;text-align:center;font-size:12px;color:var(--muted-2);font-weight:600}
@@ -406,6 +418,7 @@ const AJU_KE_SHIFT = {OFF:'OFF', IZIN:'IZIN', CUTI:'CUTI'};
    isi halaman keluar layar tanpa galat apa pun. Sudah kejadian di modul Event
    (3 Agustus 2026) dan butuh satu sesi penuh untuk dilacak. */
 const IC = {
+  dash:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   kalender:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
   pena:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   orang:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
@@ -418,6 +431,7 @@ function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="n
    smoke test menyaringnya sendiri lewat `filter(x=>x&&x.k)`, jadi aman. */
 const NAV_DEF = [
   {s:'Jadwal'},
+  {k:'dashboard',  t:'Dashboard',      ic:'dash',     sub:'Siapa masuk hari ini'},
   {k:'bulanan',    t:'Jadwal Bulanan', ic:'kalender', sub:'Lembar sebulan per divisi'},
   {k:'minggu',     t:'Input Mingguan', ic:'pena',     sub:'Susun jadwal minggu ini'},
   {s:'Kru'},
@@ -432,7 +446,9 @@ let S = null;            // {setting:{shifts,heads,divOverride,jabatan}, sel:{},
 let ME = null;           // {id,name,keterangan,admin}
 let ROSTER = [];         // dari Office: [{id,name,keterangan,active}]
 let ROSTER_ERR = '';
-let VIEW = 'bulanan';
+let VIEW = 'dashboard';
+let DASH_TGL = '';                     // tanggal yang dilihat di Dashboard
+let DASH_DIV = 'ALL';                  // 'ALL' atau salah satu kode divisi
 let DIV = 'bar';                       // divisi yang sedang dilihat
 let BULAN_AKTIF = '';                  // 'YYYY-MM'
 let MINGGU_AKTIF = '';                 // tanggal Senin, 'YYYY-MM-DD'
@@ -671,6 +687,14 @@ function rentangDibutuhkan(){
     if(addD(MINGGU_AKTIF,-7)<dari) dari=addD(MINGGU_AKTIF,-7);
     if(addD(MINGGU_AKTIF,13)>sampai) sampai=addD(MINGGU_AKTIF,13);
   }
+  /* Dashboard bisa dibawa ke tanggal jauh di luar bulan yang sedang dibuka.
+     Tanpa baris ini selnya tidak pernah ikut terambil, dan layar melaporkan
+     "belum dijadwalkan" untuk hari yang sebenarnya sudah terisi — kesalahan
+     yang paling berbahaya di modul ini karena kelihatan meyakinkan. */
+  if(DASH_TGL){
+    if(addD(DASH_TGL,-7)<dari)  dari=addD(DASH_TGL,-7);
+    if(addD(DASH_TGL,7)>sampai) sampai=addD(DASH_TGL,7);
+  }
   return {dari,sampai};
 }
 let MUAT_JALAN=false;
@@ -797,6 +821,7 @@ function buildNav(){
   if(foot) foot.innerHTML='Kru terjadwal: '+DIVISI.reduce(function(n,d){ return n+kruDivisi(d.k).length; },0);
 }
 const TITLES={
+  dashboard: ['Dashboard','Siapa masuk dan siapa libur hari ini'],
   bulanan:   ['Jadwal Bulanan','Lembar sebulan penuh per divisi'],
   minggu:    ['Input Mingguan','Susun jadwal satu minggu'],
   saya:      ['Jadwal Saya','Shift saya bulan ini'],
@@ -827,7 +852,8 @@ function render(){
   buildNav(); setTop();
   const V=document.getElementById('view'); if(!V) return;
   if(!S) S=seed();
-  if(VIEW==='bulanan')         V.innerHTML=viewBulanan();
+  if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
+  else if(VIEW==='bulanan')    V.innerHTML=viewBulanan();
   else if(VIEW==='minggu')     V.innerHTML=viewMinggu();
   else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pengajuan')  V.innerHTML=viewPengajuan();
@@ -872,6 +898,126 @@ function panelKosongRoster(){
     '<button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="ulangRoster()">Coba lagi</button></div>';
 }
 async function ulangRoster(){ await muatRoster(); render(); }
+
+/* =====================================================================
+   HALAMAN 0 — DASHBOARD
+   Pertanyaan pertama tiap pagi bukan "bagaimana sebulan ini", melainkan
+   "hari ini siapa yang masuk dan siapa yang libur". Itu yang dijawab di sini,
+   dalam DUA tabel terpisah supaya keduanya terbaca sekaligus tanpa harus
+   memindai satu daftar campur.
+
+   Kru yang selnya BELUM diisi sengaja TIDAK ikut ke tabel "tidak masuk".
+   Belum dijadwalkan bukan berarti libur, dan menaruhnya di sana membuat head
+   mengira jumlah orangnya sudah pas padahal ada lubang. Ia dilaporkan
+   terpisah sebagai peringatan.
+   ===================================================================== */
+function dashTgl(){ return DASH_TGL||hariIni(); }
+function dashKru(){
+  return ROSTER.filter(function(u){
+    if(u.active===false) return false;
+    var d=divisiDari(u);
+    if(d===DIV_NONSHIFT) return false;
+    return DASH_DIV==='ALL' ? true : d===DASH_DIV;
+  }).sort(function(a,b){
+    return String(namaDivisi(divisiDari(a))).localeCompare(namaDivisi(divisiDari(b)))
+        || String(a.name||'').localeCompare(String(b.name||''));
+  });
+}
+function viewDashboard(){
+  const tgl=dashTgl(), ini=(tgl===hariIni());
+  const emps=dashKru();
+  const masuk=[], libur=[], belum=[];
+  emps.forEach(function(u){
+    const c=sel(u.id,tgl);
+    if(!c) belum.push(u);
+    else if(shiftDef(c.t).libur) libur.push({u:u,c:c});
+    else masuk.push({u:u,c:c});
+  });
+  /* Urut jam masuk: yang datang paling pagi di atas, seperti orang membaca
+     daftar giliran. Yang tanpa jam ditaruh belakangan lewat '99:99'. */
+  masuk.sort(function(a,b){
+    const ja=jamSel(a.c), jb=jamSel(b.c);
+    return (ja?ja.m:'99:99').localeCompare(jb?jb.m:'99:99')
+        || String(a.u.name||'').localeCompare(String(b.u.name||''));
+  });
+
+  function klikSel(u){
+    return bolehUbah(divisiDari(u))
+      ? ' class="klik" onclick="bukaEditor(&#39;'+escJs(u.id)+'&#39;,&#39;'+tgl+'&#39;)"' : '';
+  }
+  function kolomOrang(u){
+    return '<td><span class="nama">'+esc(u.name)+'</span><div class="kecil">'+esc(jabatanDari(u))+'</div></td>'
+         + '<td>'+esc(namaDivisi(divisiDari(u)))+'</td>';
+  }
+  function pil(c){
+    const d=shiftDef(c.t);
+    return '<span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(labelSel(c))+'</span>';
+  }
+
+  const barisMasuk=masuk.map(function(r,i){
+    const j=jamSel(r.c);
+    return '<tr'+klikSel(r.u)+'><td class="no">'+(i+1)+'</td>'+kolomOrang(r.u)
+      +'<td>'+pil(r.c)+'</td>'
+      +'<td class="mono">'+(j?esc(j.m+' \u2013 '+j.s):'\u2014')+'</td></tr>';
+  }).join('');
+  const barisLibur=libur.map(function(r,i){
+    return '<tr'+klikSel(r.u)+'><td class="no">'+(i+1)+'</td>'+kolomOrang(r.u)
+      +'<td>'+pil(r.c)+'</td></tr>';
+  }).join('');
+
+  // Rincian per shift — sekilas cukup untuk tahu shift pagi kurang orang atau tidak.
+  const rinci=daftarShift().filter(function(k){ return !shiftDef(k).libur; }).map(function(k){
+    const n=masuk.filter(function(r){ return r.c.t===k; }).length;
+    if(!n) return '';
+    const d=shiftDef(k);
+    return '<span class="chip"><span class="sw" style="background:'+esc(d.w)+'"></span>'+esc(d.n)+' <b>'+n+'</b></span>';
+  }).join('');
+
+  const seg='<div class="seg"><button class="'+(DASH_DIV==='ALL'?'active':'')+'" onclick="dashDiv(&#39;ALL&#39;)">Semua</button>'
+    +DIVISI.map(function(d){
+      return '<button class="'+(DASH_DIV===d.k?'active':'')+'" onclick="dashDiv(&#39;'+d.k+'&#39;)">'+d.ic+' '+esc(d.n)+'</button>';
+    }).join('')+'</div>';
+
+  const bolehApaPun=DIVISI.some(function(d){ return bolehUbah(d.k); });
+
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>'+(ini?'Hari Ini':esc(HARI[idxHari(tgl)]))+', '+esc(tglPanjang(tgl))+'</h2>'
+    +(ini?'':'<span class="chip">bukan hari ini</span>')
+    +'<div class="spacer"></div>'
+    +'<div class="navdate"><button class="iconbtn" onclick="dashGeser(-1)" title="Hari sebelumnya">\u2039</button>'
+    +'<input type="date" class="inp" value="'+tgl+'" onchange="dashSet(this.value)" style="font-weight:600">'
+    +'<button class="iconbtn" onclick="dashGeser(1)" title="Hari berikutnya">\u203a</button>'
+    +'<button class="btn btn-ghost btn-sm" onclick="dashHariIni()">Hari Ini</button></div></div>'
+    +panelKosongRoster()
+    +'<div class="rowbar">'+seg+'<div class="spacer"></div><div class="legend">'+rinci+'</div></div>'
+    +'<div class="stats">'+statBox(masuk.length,'Masuk')+statBox(libur.length,'Tidak Masuk')
+      +statBox(belum.length,'Belum Diatur')+statBox(emps.length,'Total Kru')+'</div>'
+    +(belum.length
+      ? '<div class="note w"><b>'+belum.length+' kru belum dijadwalkan</b> pada tanggal ini: '
+        +esc(belum.map(function(u){ return u.name; }).join(', '))
+        +'. Belum dijadwalkan bukan berarti libur \u2014 isi dulu lewat Input Mingguan.</div>'
+      : '')
+    +'</div>'
+
+    +'<div class="panel"><div class="rowbar"><h2>\u2705 Masuk</h2>'
+    +'<span class="chip">'+masuk.length+' orang</span><div class="spacer"></div></div>'
+    +(masuk.length
+      ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Divisi</th><th>Shift</th><th>Jam</th></tr></thead><tbody>'+barisMasuk+'</tbody></table></div>'
+      : '<div class="empty"><div class="ic">\ud83c\udf19</div>Tidak ada yang masuk pada tanggal ini.</div>')
+    +'</div>'
+
+    +'<div class="panel"><div class="rowbar"><h2>\ud83c\udfd6\ufe0f Tidak Masuk</h2>'
+    +'<span class="chip">'+libur.length+' orang</span><div class="spacer"></div></div>'
+    +(libur.length
+      ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Divisi</th><th>Status</th></tr></thead><tbody>'+barisLibur+'</tbody></table></div>'
+      : '<div class="empty"><div class="ic">\ud83d\udcaa</div>Tidak ada yang libur, izin, atau cuti pada tanggal ini.</div>')
+    +(bolehApaPun?'<p class="mutedhint" style="margin-top:10px">Klik baris mana pun untuk mengubah shift orang itu pada tanggal ini.</p>':'')
+    +'</div>';
+}
+function dashGeser(n){ DASH_TGL=addD(dashTgl(),n); muatDanGambar(); }
+function dashSet(v){ if(v){ DASH_TGL=v; muatDanGambar(); } }
+function dashHariIni(){ DASH_TGL=hariIni(); muatDanGambar(); }
+function dashDiv(k){ DASH_DIV=k; render(); }
 
 /* =====================================================================
    HALAMAN 1 — JADWAL BULANAN
@@ -1647,6 +1793,7 @@ function tampilkanGerbang(judul,pesan){
 }
 async function boot(){
   BULAN_AKTIF=bulanDari(hariIni());
+  DASH_TGL=hariIni();
   MINGGU_AKTIF=seninDari(hariIni());
   S=bacaCache()||seed();
 
@@ -1676,7 +1823,7 @@ async function boot(){
   DIV = kuasa.length ? kuasa[0] : divisiSaya();
   // Yang tidak dijadwalkan tidak punya lembar sendiri; jatuhkan ke Bar.
   if(DIVISI.every(d=>d.k!==DIV)) DIV='bar';
-  if(!bolehBuka(VIEW)) VIEW='bulanan';
+  if(!bolehBuka(VIEW)) VIEW='dashboard';
 
   document.getElementById('su-ur').textContent=labelPeran();
   render();
