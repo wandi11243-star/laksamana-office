@@ -1096,14 +1096,53 @@ function normStatus() {  }
 
 
 
-function customLayouts() {  }
+function customLayouts() { getLayout(); seatMapMarkup(); kapasitasTanggal(); }
 
 
 
 
 
-function getLayout() { customLayouts(); }
-function layoutName() { getLayout(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function layoutTanggal() {  }
+
+
+
+
+function keyTanggal() {  }
+
+
+
+function parseKeyTanggal() {  }
+
+
+
+function adaDenahTanggal() { layoutTanggal(); keyTanggal(); }
+
+
+function getLayout() { parseKeyTanggal(); layoutTanggal(); customLayouts(); }
+
+
+
+function layoutName() { getLayout(); parseKeyTanggal(); fmtDateShort(); }
+
+
+
+
+
+
 function isBuiltinLayout() {  }
 
 function allLayoutKeys() { customLayouts(); normalizeMaster(); }
@@ -1164,8 +1203,21 @@ function defaultDayTypeLt() { ltCfg(); hariAkhirPekan(); }
 
 
 
-function dayTypeLayoutLt() { ovLantai(); getLayout(); defaultDayTypeLt(); }
-function hasOverrideLt() { ovLantai(); getLayout(); }
+function dayTypeLayoutLt() { keyTanggal(); layoutTanggal(); ovLantai(); getLayout(); defaultDayTypeLt(); }
+
+
+
+
+
+
+
+
+
+
+function hasOverrideLt() { adaDenahTanggal(); ovLantai(); getLayout(); }
+
+
+
 function defaultDayType() { defaultDayTypeLt(); }
 function dayTypeLayout() { dayTypeLayoutLt(); }
 function dayTypeLayout2() { dayTypeLayoutLt(); }
@@ -1542,7 +1594,11 @@ function tableObj() { allLayoutKeys(); getLayout(); }
 
 
 
-function lantaiLayout() { layoutName(); }
+function lantaiLayout() { parseKeyTanggal(); layoutName(); }
+
+
+
+
 
 
 
@@ -4052,7 +4108,7 @@ function renderDashboard() { resetOccCache(); resetLantaiCache(); recapList(); t
 
 
 
-function tabBtn() { dashTab(); byId(); openCoordWA(); newReservation(); fmtDateShort(); esc(); fmtDur(); waitMinutes(); icon(); afterSearch(); renderDashboard(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); dashSetMode(); recapSetFrom(); setDenahTgl(); timeSelectHtml(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); denahFilterAktif(); todayStr(); recapReset(); fmtDate(); recapMultiDay(); waitlistView(); harihMapView(); dashCalendar(); recapTable(); updateHarihTimers(); }
+function tabBtn() { dashTab(); byId(); openCoordWA(); newReservation(); fmtDateShort(); esc(); fmtDur(); waitMinutes(); icon(); afterSearch(); renderDashboard(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); harihLantai(); dashSetMode(); recapSetFrom(); setDenahTgl(); timeSelectHtml(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); denahFilterAktif(); todayStr(); recapReset(); fmtDate(); recapMultiDay(); waitlistView(); harihMapView(); dashCalendar(); recapTable(); updateHarihTimers(); }
 
 
 
@@ -4519,7 +4575,7 @@ function kapasitasLayout() { capMax(); renderHariHListOnly(); }
 function harihL2() { dayTypeLayout2(); }
 function harihLayoutKey() { harihL2(); harihL1(); }
 function harihLantai() {  }
-function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); renderHariH(); fmtDate(); ltCfg(); clearLayoutOverride(); seatMapMarkup(); }
+function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); renderHariH(); adaDenahTanggal(); ltCfg(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
 
 
 
@@ -4567,9 +4623,9 @@ function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutNa
 
 
 
-function openLayoutSettings() { toast(); harihLantai(); ltCfg(); defaultDayTypeLt(); ovLantai(); esc(); lantaiLayout(); allLayoutKeys(); isBuiltinLayout(); layoutName(); hapusTemplate(); todayStr(); getLayout(); fmtDateShort(); clearLayoutOverride(); }
 
 
+function openLayoutSettings() { toast(); harihLantai(); ltCfg(); defaultDayTypeLt(); ovLantai(); esc(); lantaiLayout(); allLayoutKeys(); isBuiltinLayout(); layoutName(); hapusTemplate(); todayStr(); getLayout(); layoutTanggal(); fmtDateShort(); clearLayoutOverride(); }
 
 
 
@@ -4606,7 +4662,17 @@ function openLayoutSettings() { toast(); harihLantai(); ltCfg(); defaultDayTypeL
 
 
 
-function tab() { openLayoutSettings(); openModal(); esc(); fmtDate(); closeModal(); opt(); layoutName(); openLayoutEditor(); defaultDayTypeLt(); addLayoutDate(); saveLayoutOverride(); fmtDateShort(); }
+
+
+
+
+
+
+
+
+
+function tab() { openLayoutSettings(); openModal(); esc(); fmtDate(); closeModal(); opt(); layoutName(); openLayoutEditor(); dayTypeLayoutLt(); fmtDateShort(); addLayoutDate(); saveLayoutOverride(); }
+
 
 
 
@@ -4706,7 +4772,16 @@ function saveLayoutOverride() { ovLantai(); ltCfg(); getLayout(); logAudit(); fm
 
 
 
-function clearLayoutOverride() { ovLantai(); logAudit(); ltCfg(); fmtDateShort(); saveState(); renderHariH(); openLayoutSettings(); toast(); }
+
+
+
+
+
+function clearLayoutOverride() { ovLantai(); keyTanggal(); layoutTanggal(); logAudit(); ltCfg(); fmtDateShort(); saveState(); renderHariH(); openLayoutSettings(); toast(); }
+
+
+
+
 
 
 
@@ -4719,9 +4794,30 @@ function clearLayoutOverride() { ovLantai(); logAudit(); ltCfg(); fmtDateShort()
 
 function leClone() {  }
 function lePx() {  }
-function lePy() {  }
-function openLayoutEditor() { toast(); getLayout(); leClone(); layoutName(); leRender(); }
+function lePy() { openLayoutEditor(); }
 
+
+
+
+
+
+function openLayoutEditor() { toast(); getLayout(); parseKeyTanggal(); leClone(); layoutName(); leRender(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function leGantiTanggal() { leRender(); openLayoutEditor(); dayTypeLayoutLt(); }
 
 
 
@@ -4749,7 +4845,7 @@ function leInspectorHtml() { leAddTable(); esc(); leSet(); leDeleteTable(); }
 
 
 
-function leRender() { isBuiltinLayout(); customLayouts(); lantaiLayout(); allLayoutKeys(); esc(); layoutName(); byId(); leTryClose(); leSwitch(); leDuplicate(); leRename(); leDeleteTemplate(); leResetDefault(); leCanvasHtml(); kapasitasLayout(); leInspectorHtml(); leSave(); }
+function leRender() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayTypeLt(); isBuiltinLayout(); customLayouts(); adaDenahTanggal(); lantaiLayout(); allLayoutKeys(); esc(); layoutName(); byId(); leTryClose(); leGantiTanggal(); leHapusDenahTanggal(); leSwitch(); leDuplicate(); leRename(); leDeleteTemplate(); leResetDefault(); fmtDateShort(); leCanvasHtml(); kapasitasLayout(); leInspectorHtml(); leSave(); leSimpanTanggal(); }
 
 
 
@@ -4780,6 +4876,51 @@ function leRender() { isBuiltinLayout(); customLayouts(); lantaiLayout(); allLay
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function leSimpanTanggal() { keyTanggal(); leClone(); fmtDateShort(); layoutTanggal(); saveState(); logAudit(); toast(); leRender(); renderHariH(); }
+
+
+
+
+
+
+
+
+
+
+function leHapusDenahTanggal() { keyTanggal(); layoutTanggal(); fmtDateShort(); saveState(); logAudit(); toast(); renderHariH(); openLayoutEditor(); dayTypeLayoutLt(); }
 
 
 
@@ -4842,7 +4983,11 @@ function leSwitch() { leRender(); openLayoutEditor(); }
 
 
 
+
+
+
 function leDuplicate() { uid(); leClone(); layoutName(); customLayouts(); saveState(); logAudit(); toast(); openLayoutEditor(); }
+
 
 
 
@@ -4856,7 +5001,7 @@ function leResetDefault() { customLayouts(); saveState(); logAudit(); toast(); o
 
 
 
-function leDeleteTemplate() { isBuiltinLayout(); ovLantai(); customLayouts(); saveState(); logAudit(); toast(); openLayoutEditor(); }
+function leDeleteTemplate() { isBuiltinLayout(); ovLantai(); customLayouts(); saveState(); logAudit(); toast(); openLayoutEditor(); leSave(); leRender(); }
 
 
 
@@ -4865,7 +5010,22 @@ function leDeleteTemplate() { isBuiltinLayout(); ovLantai(); customLayouts(); sa
 
 
 
-function leSave() { customLayouts(); leClone(); saveState(); logAudit(); layoutName(); toast(); leRender(); }
+
+
+
+function leTplKey() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayTypeLt(); }
+
+
+
+
+
+
+
+
+function leSave() { leTplKey(); parseKeyTanggal(); customLayouts(); leClone(); saveState(); logAudit(); layoutName(); toast(); leRender(); renderHariH(); }
+
+
+
 
 
 
