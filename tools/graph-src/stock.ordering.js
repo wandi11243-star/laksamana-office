@@ -1017,6 +1017,30 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function injectPwaManifest() {  }
 
 
@@ -2130,7 +2154,80 @@ function chipSisaCK() { ckTeksPack(); }
 
 
 
-function setSubCKOrder() { daftarBarangCK(); daftarBarangKirimCK(); addKirimRow(); gambarBannerDraf(); updateKirimSummary(); muatRiwayatKiriman(); }
+function setSubCKOrder() { daftarBarangCK(); daftarBarangKirimCK(); addKirimRow(); gambarBannerDraf(); updateKirimSummary(); muatRiwayatKiriman(); segarkanStokCKOrder(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ckPackUtamaOrder() { ckTeksPack(); ckNum(); }
+
+
+
+
+function segarkanStokCKOrder() { muatSaldoCK(); renderStokCKOrder(); }
+
+
+
+
+
+
+function renderStokCKOrder() { daftarBarangCK(); infoCKItem(); ckNum(); ckPackUtamaOrder(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
