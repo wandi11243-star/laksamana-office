@@ -1276,6 +1276,7 @@
 
 
 
+
 function pagePerm() {  }
 
 
@@ -1315,6 +1316,7 @@ function loadPerms() { loadStateFromStorage(); }
 
 
 function savePerms() { enterApp(); ensureUsersLocal(); refreshUsersFromSheet(); loadPerms(); officeUser(); }
+
 
 
 
@@ -1866,7 +1868,15 @@ function loadStateFromStorage() { bootApp(); }
 
 
 
+
+
+
+
+
+
+
 function saveStateToStorage() {  }
+
 
 
 
@@ -2375,11 +2385,6 @@ function renderRecapTable() { recapUnitShort(); shiftMonthStr(); recapMonthStr()
 
 
 
-function getActiveIndividualCount() {  }
-
-
-
-function getActiveConsolidatedCount() {  }
 
 
 
@@ -2391,7 +2396,42 @@ function getActiveConsolidatedCount() {  }
 
 
 
-function getArchivedCount() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function pesananCK() {  }
+
+
+
+
+function pesananBelanja() { pesananCK(); }
+
+function getActiveIndividualCount() { pesananBelanja(); }
+
+
+
+function getActiveConsolidatedCount() { pesananBelanja(); }
+
+
+
+
+
+
+
+
+
+
+
+function getArchivedCount() { pesananBelanja(); }
 
 
 
@@ -2413,7 +2453,26 @@ function lonceng() { clearDateFilters(); resetSemuaFilter(); }
 
 
 
-function renderDashboard() { initFilters(); initDivisiFilters(); syncQuickArrivalButtons(); syncFilterBadge(); updateSubTabCounts(); divisiOrder(); normalizeDateToYYYYMMDD(); renderIndividualCard(); renderConsolidatedCard(); formatFriendlyDate(); toggleArsipBatch(); }
+function renderDashboard() { initFilters(); initDivisiFilters(); syncQuickArrivalButtons(); syncFilterBadge(); updateSubTabCounts(); pesananCK(); divisiOrder(); normalizeDateToYYYYMMDD(); renderIndividualCard(); renderConsolidatedCard(); formatFriendlyDate(); toggleArsipBatch(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2646,7 +2705,25 @@ function forecastRecoHTML() {  }
 
 
 
-function renderIndividualCard() { confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+function renderIndividualCard() { pesananCK(); confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3321,8 +3398,39 @@ function setJemputHari() { tglOffsetLokal(); renderJemput(); }
 
 
 
-function daftarJemput() { normalizeDateToYYYYMMDD(); caraBeliProduk(); infoCK(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jemputTerarsip() {  }
+
+
+function daftarJemput() { caraBeliProduk(); infoCK(); normalizeDateToYYYYMMDD(); jemputTerarsip(); }
+
+
+
+
+
+
+
+
+
+
+
+function jemputTelat() { normalizeDateToYYYYMMDD(); }
 
 
 
@@ -3345,7 +3453,20 @@ function tandaiSemuaJemput() { daftarJemput(); jemputTglAktif(); renderJemput();
 
 
 
-function renderJemput() { jemputTglAktif(); daftarJemput(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); }
+function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4493,6 +4614,8 @@ function markAsArchived() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 
+
+
 function archiveConsolidatedGroup() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
 
 
@@ -4509,6 +4632,7 @@ function archiveConsolidatedGroup() { requireEditPage(); saveStateToStorage(); r
 
 
 function unarchiveOrder() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
+
 
 
 

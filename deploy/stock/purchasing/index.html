@@ -239,7 +239,8 @@
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
                 <div>
                     <h2 class="text-2xl font-bold text-slate-900">Antrean Pesanan Bahan Baku</h2>
-                    <p class="text-slate-500 text-sm mt-1">Kelola, gabungkan, dan arsipkan kebutuhan kitchen secara real-time.</p>
+                    <p class="text-slate-500 text-sm mt-1">Kelola, gabungkan, dan arsipkan <b>pembelian ke vendor</b> secara real-time.
+                        Permintaan ke Central Kitchen tidak masuk sini &mdash; ada di <b>Jemput Hari Ini</b> dan <b>Central Kitchen</b>.</p>
                 </div>
             </div>
 
@@ -1371,6 +1372,7 @@
             templateConsolidated: "",
             orders: [],
             archivedOrderIds: [],
+            archivedAt: {},          // nomorOrder -> waktu diarsipkan (ms), untuk urutan tab Arsip
             activeFilter: 'ALL',
             // Divisi pemesan: 'ALL' | 'Kitchen' | 'Bar' | 'Floor' | '(Lainnya)'
             divisiFilter: 'ALL',
@@ -1853,6 +1855,13 @@
 
             const savedArchivedIds = localStorage.getItem('purchasing_archivedOrderIds');
             appState.archivedOrderIds = savedArchivedIds ? JSON.parse(savedArchivedIds) : [];
+            /* KAPAN sebuah order diarsipkan. Tidak ada di data server — status
+               di sana cuma "Arsip", tanpa waktu — jadi dicatat sendiri di sini
+               saat tombolnya ditekan. Dipakai mengurutkan tab Arsip: yang baru
+               saja diarsipkan harus di paling atas, karena itulah yang orang
+               cari begitu ia sadar salah menekan. */
+            try { appState.archivedAt = JSON.parse(localStorage.getItem('purchasing_archivedAt') || '{}') || {}; }
+            catch (e) { appState.archivedAt = {}; }
 
             // Nama usaha tidak lagi punya kolom input; header memakai nilai tetap.
             document.getElementById('headerCafeName').innerText = KAFE_NAMA;
@@ -1880,6 +1889,7 @@
             localStorage.setItem('purchasing_templateConsolidated', appState.templateConsolidated);
             localStorage.setItem('purchasing_orders', JSON.stringify(appState.orders));
             localStorage.setItem('purchasing_archivedOrderIds', JSON.stringify(appState.archivedOrderIds));
+            localStorage.setItem('purchasing_archivedAt', JSON.stringify(appState.archivedAt || {}));
         }
 
         function normalizeDateToYYYYMMDD(dateVal) {
@@ -2375,12 +2385,42 @@
             });
         }
 
+        /* ===== MONITOR ORDER = FORM ORDER BELANJA SAJA =====
+           Pengajuan ke Central Kitchen tersimpan sebagai baris order yang sama
+           persis dengan pembelian ke vendor. Itu disengaja waktu modulnya
+           dibangun — supaya jemputan CK bisa memakai mesin kedatangan yang
+           sudah ada — tapi akibatnya ia ikut nongkrong di Monitor Order,
+           padahal di sana tidak ada satu pun tindakan yang berlaku untuknya:
+           tidak ada vendor untuk di-WA, tidak ada yang perlu dibeli. Kartunya
+           cuma menambah antrean yang harus dilewati sebelum sampai ke
+           pembelian yang sebenarnya.
+
+           Dikenali dari DUA arah, karena satu saja tidak cukup:
+
+           1. batchName 'Central Kitchen' — penanda BARIS, dikirim
+              submitCKOrder() di modul Ordering. Ini yang paling tepat: barang
+              "Vendor & CK" yang dibeli lewat form belanja biasa TETAP masuk
+              Monitor Order, hanya yang diminta ke dapur yang keluar. Menyaring
+              dari sumber barang saja akan membuang keduanya.
+           2. sumber 'ck' — barang yang hanya ada di CK tidak pernah bisa
+              dibeli ke siapa pun, jadi baris apa pun untuknya pasti permintaan
+              CK. Ini yang menangkap baris lama yang batchName-nya kosong.
+
+           Jejaknya tidak hilang ke mana-mana: semuanya tetap ada di
+           "Jemput Hari Ini" dan di Central Kitchen → Riwayat. */
+        function pesananCK(o) {
+            if (String((o && o.batchName) || '').trim().toLowerCase() === 'central kitchen') return true;
+            const m = appState.products[o && o.item];
+            return !!(m && m.sumber === 'ck');
+        }
+        function pesananBelanja(o) { return !pesananCK(o); }
+
         function getActiveIndividualCount() {
-            return appState.orders.filter(o => o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder)).length;
+            return appState.orders.filter(o => pesananBelanja(o) && o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder)).length;
         }
 
         function getActiveConsolidatedCount() {
-            const active = appState.orders.filter(o => o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder));
+            const active = appState.orders.filter(o => pesananBelanja(o) && o.status !== "Arsip" && !appState.archivedOrderIds.includes(o.nomorOrder));
             const groups = {};
             active.forEach(o => {
                 const mapping = appState.products[o.item];
@@ -2392,7 +2432,7 @@
         }
 
         function getArchivedCount() {
-            return appState.orders.filter(o => o.status === "Arsip" || appState.archivedOrderIds.includes(o.nomorOrder)).length;
+            return appState.orders.filter(o => pesananBelanja(o) && (o.status === "Arsip" || appState.archivedOrderIds.includes(o.nomorOrder))).length;
         }
 
         function updateSubTabCounts() {
@@ -2436,6 +2476,10 @@
             const divisiBerlaku = appState.viewMode !== 'active-consolidated';
 
             let filtered = appState.orders.filter(ord => {
+                // Permintaan ke Central Kitchen bukan pembelian — disaring lebih
+                // dulu, sebelum filter apa pun, supaya ia tidak pernah terhitung
+                // di ketiga sub-tab maupun di lonceng jumlahnya.
+                if (pesananCK(ord)) return false;
                 const matchesDivisi = !divisiBerlaku || appState.divisiFilter === 'ALL'
                                       || divisiOrder(ord) === appState.divisiFilter;
                 if (!matchesDivisi) return false;
@@ -2468,7 +2512,7 @@
 
                 if (sorted.length === 0) {
                     noOrders.classList.remove('hidden');
-                    document.getElementById('empty-state-desc').innerText = "Belum ada pesanan kitchen baru atau tidak ada kecocokan tanggal filter.";
+                    document.getElementById('empty-state-desc').innerText = "Belum ada pembelian ke vendor yang perlu diproses, atau tidak ada yang cocok dengan filter. Permintaan ke Central Kitchen ada di tab Jemput Hari Ini.";
                     return;
                 }
                 noOrders.classList.add('hidden');
@@ -2539,8 +2583,23 @@
 
                 let nomorPanel = 0;   // id DOM yang aman, tidak memakai batchId mentah
 
-                Object.keys(perHari).sort((a, b) => b.localeCompare(a)).forEach(hari => {
-                    const isi = perHari[hari].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                /* URUTANNYA MENGIKUTI KAPAN DIARSIPKAN, bukan tanggal kedatangan
+                   (permintaan user 4 Agustus 2026: "yang paling atas itu arsip
+                   yang terakhir"). Yang baru saja diarsipkan memang yang paling
+                   sering dicari kembali — biasanya karena salah tekan — dan dulu
+                   ia bisa mendarat di tengah daftar kalau tanggal kedatangannya
+                   kebetulan lama.
+
+                   Order yang diarsipkan SEBELUM perubahan ini tidak punya waktu
+                   arsip (server hanya menyimpan status "Arsip", tanpa jam), jadi
+                   jatuh ke waktu submit-nya. Itu bukan tebakan yang sempurna,
+                   tapi searah: yang lebih baru tetap di atas. */
+                const waktuArsip = o => Number(appState.archivedAt && appState.archivedAt[o.nomorOrder])
+                                     || Date.parse(o.timestamp) || 0;
+                const arsipTerbaruHari = h => perHari[h].reduce((m, o) => Math.max(m, waktuArsip(o)), 0);
+
+                Object.keys(perHari).sort((a, b) => (arsipTerbaruHari(b) - arsipTerbaruHari(a)) || b.localeCompare(a)).forEach(hari => {
+                    const isi = perHari[hari].sort((a, b) => waktuArsip(b) - waktuArsip(a));
                     const hitungDivisi = {};
                     isi.forEach(o => { const d = divisiOrder(o); hitungDivisi[d] = (hitungDivisi[d] || 0) + 1; });
                     const rincianDivisi = Object.keys(hitungDivisi).sort()
@@ -2650,14 +2709,32 @@
             const mapping = appState.products[ord.item];
             const vendorUtama = mapping?.utama || "Tidak Terdaftar";
             const vendorsCadangan = mapping?.cadangan || [];
-            
+            /* JARING PENGAMAN, bukan jalur utama. Permintaan CK sudah disaring
+               keluar dari Monitor Order oleh pesananCK() — kartu ini seharusnya
+               tidak pernah tergambar untuk barang CK.
+
+               Tetap dipertahankan untuk baris yang lolos saringan: barang
+               "Vendor & CK" yang batchName-nya hilang di jalur penggabungan
+               server masih bisa mendarat di sini. Kalau itu terjadi, lebih baik
+               ia menjelaskan dirinya sebagai barang CK daripada mengulang
+               tuduhan lama "belum dipetakan ke Vendor manapun" — pesan yang
+               menyuruh membetulkan sesuatu yang tidak rusak, dan yang satu-
+               satunya cara "membetulkannya" adalah mengarang vendor untuk
+               barang yang tidak dibeli ke siapa pun. */
+            const dariCK = (mapping?.sumber === 'ck');
+            const tanpaVendor = (vendorUtama === 'Tidak Terdaftar');
+
             const card = document.createElement('div');
-            card.className = "bg-white border border-slate-200 rounded-2xl p-5 flex flex-col md:flex-row justify-between gap-4 border-l-4 " + 
-                             (vendorUtama === 'Tidak Terdaftar' ? 'border-l-rose-500' : 'border-l-indigo-500') + " order-card";
+            card.className = "bg-white border border-slate-200 rounded-2xl p-5 flex flex-col md:flex-row justify-between gap-4 border-l-4 " +
+                             (dariCK ? 'border-l-teal-500' : (tanpaVendor ? 'border-l-rose-500' : 'border-l-indigo-500')) + " order-card";
 
             let actionsHTML = '';
             if (!isArchivedView) {
-                if (vendorUtama !== 'Tidak Terdaftar') {
+                if (dariCK) {
+                    actionsHTML += `<div class="p-3 bg-teal-50 text-teal-800 text-xs font-semibold rounded-xl text-center leading-relaxed">
+                        🍳 Barang <b>Central Kitchen</b> — diproduksi dapur sendiri, tidak dipesan ke vendor.
+                        Permintaannya dilayani lewat modul <b>Ordering → Central Kitchen</b>.</div>`;
+                } else if (!tanpaVendor) {
                     let optionsHTML = `<option value="${vendorUtama}">Utama: ${vendorUtama}</option>`;
                     vendorsCadangan.forEach(vc => {
                         if (appState.vendors[vc]) {
@@ -2694,7 +2771,7 @@
                 <div class="flex-1 space-y-3">
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">${ord.nomorOrder}</span>
-                        <span class="text-[11px] font-extrabold text-indigo-600 uppercase tracking-wider">${vendorUtama}</span>
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider ${dariCK ? 'text-teal-600' : 'text-indigo-600'}">${dariCK ? 'Central Kitchen' : vendorUtama}</span>
                         ${vendorsCadangan.length > 0 ? `<span class="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">Tersedia ${vendorsCadangan.length} Vendor Alternatif</span>` : ''}
                     </div>
                     <h4 class="text-lg font-bold text-slate-900 leading-tight">${ord.item}</h4>
@@ -3321,11 +3398,42 @@
            untuknya, dan mensyaratkannya berarti pengambilan CK tidak akan
            pernah muncul di sini sampai ada yang menebak harus mengisi "cara
            beli" untuk barang yang tidak dibeli. */
+        /* JEMPUTAN YANG TERLEWAT IKUT TERBAWA KE HARI BERIKUTNYA.
+
+           Dulu daftarnya cocok TANGGAL PERSIS, jadi barang yang jadwalnya
+           kemarin tapi belum sempat dijemput langsung lenyap dari layar hari
+           ini — tidak ada satu pun tempat di modul ini yang masih menyebutnya,
+           dan satu-satunya cara menemukannya kembali adalah menebak tanggalnya
+           lalu memundurkan pemilih tanggal. Barang yang hilang begitu tidak
+           pernah dijemput, dan tidak ada yang tahu.
+
+           Sekarang ia tetap muncul tiap hari sampai benar-benar dicentang.
+           Yang menentukan bukan tanggal, melainkan `kedatangan === 'Datang'`:
+           itu penanda yang sama yang dipakai kru saat menyerahkan barang, jadi
+           tidak ada keadaan "sudah dijemput tapi masih nongkrong di daftar".
+
+           Order yang sudah DIARSIPKAN tidak ikut terbawa — mengarsipkan berarti
+           urusannya selesai, dan menariknya kembali tiap pagi membuat arsip
+           tidak ada gunanya. */
+        function jemputTerarsip(o) {
+            return o.status === 'Arsip' || (appState.archivedOrderIds || []).includes(o.nomorOrder);
+        }
         function daftarJemput(tgl) {
-            return (appState.orders || []).filter(o =>
-                normalizeDateToYYYYMMDD(o.tglDatang) === tgl &&
-                (caraBeliProduk(o.item) === 'jemput' || !!infoCK(o.item))
-            );
+            return (appState.orders || []).filter(o => {
+                if (!(caraBeliProduk(o.item) === 'jemput' || !!infoCK(o.item))) return false;
+                const d = normalizeDateToYYYYMMDD(o.tglDatang);
+                if (!d) return false;
+                if (d === tgl) return true;
+                // ISO "YYYY-MM-DD" aman dibandingkan sebagai teks — urutannya sama
+                // dengan urutan waktunya, jadi tidak perlu Date() sama sekali.
+                return d < tgl && (o.kedatangan || '') !== 'Datang' && !jemputTerarsip(o);
+            });
+        }
+        // Berapa hari sebuah jemputan tertunda dari jadwal aslinya. 0 = hari ini.
+        function jemputTelat(o, tgl) {
+            const d = normalizeDateToYYYYMMDD(o.tglDatang);
+            if (!d || d >= tgl) return 0;
+            return Math.round((Date.parse(tgl + 'T00:00:00') - Date.parse(d + 'T00:00:00')) / 86400000);
         }
 
         function toggleJemputBaris(rowIndex) {
@@ -3365,8 +3473,10 @@
             const btnSimpan = document.getElementById('btn-jemput-simpan');
             const btnSemua = document.getElementById('btn-jemput-semua');
 
+            const telat = daftar.filter(o => jemputTelat(o, tgl)).length;
             if (ringkas) ringkas.innerHTML = daftar.length
                 ? `<span class="${sudah === daftar.length ? 'text-emerald-600' : 'text-slate-800'}">${sudah} dari ${daftar.length} barang sudah dijemput</span>`
+                  + (telat ? ` <span class="text-rose-600 text-sm font-bold">· ${telat} tertunda dari hari sebelumnya</span>` : '')
                 : 'Tidak ada barang yang perlu dijemput';
             if (ringkasSub) ringkasSub.textContent = daftar.length
                 ? (sudah === tersimpan
@@ -3418,7 +3528,11 @@
                 return a.localeCompare(b);
             });
             wrap.innerHTML = urutGrup.map(vendor => {
-                const items = grup[vendor].sort((a, b) => String(a.item || '').localeCompare(String(b.item || '')));
+                // Yang paling lama tertunda naik ke atas — itu yang paling
+                // berisiko terlewat lagi. Sisanya tetap urut nama.
+                const items = grup[vendor].sort((a, b) =>
+                    (jemputTelat(b, tgl) - jemputTelat(a, tgl)) ||
+                    String(a.item || '').localeCompare(String(b.item || '')));
                 const nSudah = items.filter(o => jemputCentang.has(Number(o.rowIndex))).length;
                 const beres = nSudah === items.length;
                 const baris = items.map(o => {
@@ -3433,6 +3547,13 @@
                         <span class="min-w-0 flex-1">
                             <span class="block text-[13px] font-bold ${on ? 'text-emerald-800 line-through decoration-emerald-300' : 'text-slate-800'} truncate">${o.item}</span>
                             <span class="block text-[10px] text-slate-500 mt-0.5">${div}${o.pic ? ' &middot; ' + o.pic : ''}</span>
+                            <!-- Jadwal ASLINYA ikut ditulis untuk yang tertunda. Tanpa itu
+                                 barangnya muncul di hari ini seolah memang dipesan untuk
+                                 hari ini, dan tidak ada yang tahu ia sudah menunggu tiga
+                                 hari — padahal justru itu yang menentukan mana yang harus
+                                 dijemput lebih dulu. -->
+                            ${jemputTelat(o, tgl) ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                                ⏳ Tertunda ${jemputTelat(o, tgl)} hari · dijadwalkan ${formatFriendlyDate(o.tglDatang, false)}</span>` : ''}
                             ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
                         </span>
                         <!-- JUMLAH dipindah ke kanan dan dibesarkan (permintaan
@@ -4476,6 +4597,8 @@
             if (!appState.archivedOrderIds.includes(orderId)) {
                 appState.archivedOrderIds.push(orderId);
             }
+            appState.archivedAt = appState.archivedAt || {};
+            appState.archivedAt[orderId] = Date.now();
             const targetIdx = appState.orders.findIndex(o => o.nomorOrder === orderId);
             if (targetIdx !== -1) appState.orders[targetIdx].status = "Arsip";
             saveStateToStorage();
@@ -4511,6 +4634,7 @@
         async function unarchiveOrder(orderId, rowIndex = 0) {
             if (!requireEditPage('dashboard', 'Monitor Order')) return;
             appState.archivedOrderIds = appState.archivedOrderIds.filter(id => id !== orderId);
+            if (appState.archivedAt) delete appState.archivedAt[orderId];   // dipulihkan = tidak lagi punya waktu arsip
             const targetIdx = appState.orders.findIndex(o => o.nomorOrder === orderId);
             if (targetIdx !== -1) appState.orders[targetIdx].status = "Aktif";
             saveStateToStorage();
