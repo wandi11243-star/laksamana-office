@@ -1030,7 +1030,21 @@ function viewInput() { getDay(); calInner(); go(); repOf(); repPay(); }
 
 
 
-function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); dateLabel(); fmtWaktu(); save(); render(); }
+function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); bonRingkasHari(); dateLabel(); fmtWaktu(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1089,7 +1103,8 @@ function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf();
 
 function v() {  }
 
-function saveDaily() { v(); grossOf(); repOf(); repPay(); tagihanOf(); getDay(); save(); render(); todayISO(); }
+function saveDaily() { v(); grossOf(); getDay(); save(); render(); todayISO(); }
+
 
 
 
