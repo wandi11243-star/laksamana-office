@@ -3549,6 +3549,16 @@ function ckPackAngka() { ckNum(); }
 
 
 
+
+
+
+
+
+function ckPackRate() { ckNum(); }
+
+
+
+
 function ckPackUtama() { ckPackAngka(); ckNum(); }
 
 
@@ -4015,7 +4025,7 @@ function ambilRekap() { normalizeDateToYYYYMMDD(); ckKartuKpi(); renderCKDashSer
 
 
 
-function renderCKDashSering() { ckNum(); }
+function renderCKDashSering() { ckPackAngka(); }
 
 
 
@@ -4130,7 +4140,8 @@ function renderCKDashRinci() {  }
 
 
 
-function status() { ckNum(); ckJumlahTeks(); }
+function status() { ckNum(); ckPackUtama(); ckPackRate(); }
+
 
 
 
