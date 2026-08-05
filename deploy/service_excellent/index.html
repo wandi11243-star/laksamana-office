@@ -41,7 +41,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Reservasi LM">
+<meta name="apple-mobile-web-app-title" content="Service Excellent LM">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -756,11 +756,11 @@ svg.lc{display:block;flex:none}
     <div class="login-promo">
       <div class="logo-row">
         <img id="loginLogo" alt="Laksamana Muda">
-        <div><b>Laksamana Muda</b><span>Reservasi</span></div>
+        <div><b>Laksamana Muda</b><span>Service Excellent</span></div>
       </div>
-      <h1>Sistem Reservasi Digital</h1>
+      <h1>Service Excellent</h1>
       <div class="quote">"Sail to Good Taste, Stay for the Vibes"</div>
-      <p class="blurb">Satu dek komando untuk seluruh reservasi, dari input tamu, kedatangan Hari-H, sampai analitik performa lintas periode.</p>
+      <p class="blurb">Satu papan untuk kepuasan tamu: catat feedback, kejar Google Review, dan lihat capaian seluruh tim.</p>
       <div class="brand-pills">
         <span class="pill"><span class="dot"></span>Coffee &amp; Live Space</span>
         <span class="pill"><span class="dot"></span>Dermaga, Rooftop</span>
@@ -787,7 +787,7 @@ svg.lc{display:block;flex:none}
   <aside class="sidebar">
     <div class="side-brand">
       <img id="topLogo" alt="">
-      <div class="bt">Laksamana Muda<span>Reservasi</span></div>
+      <div class="bt">Laksamana Muda<span>Service Excellent</span></div>
     </div>
     <nav class="side-nav" id="navBar"></nav>
     <div class="side-user">
@@ -909,39 +909,36 @@ function roleSE(r){
 }
 
 // Hak akses per role -> menu yang bisa dibuka
+/* Halaman awal tiap TINGKAT. Isinya HARUS memakai kunci yang sama dengan
+   ROLE_KEYS — DEFAULT_PERMS dibangun dari sini, dan tingkat yang tidak
+   tercantum lahir tanpa satu halaman pun.
+
+   Itu persis yang terjadi 5 Agustus 2026: ROLE_KEYS sudah diganti jadi
+   staff/manager/admin, tapi tabel ini masih memuat host/marketing/cashier/
+   viewer. Akibatnya (ROLE_NAV["staff"]||[]) kosong, seluruh baris izin lahir
+   PERM_NONE, dan modulnya terbuka dengan MENU KOSONG — tidak ada satu pun
+   halaman yang bisa dibuka siapa pun yang bukan admin. */
 const ROLE_NAV = {
-  host:      ["dashboard","input","riwayat","analitik","review"],
-  marketing: ["dashboard","input","riwayat","analitik","review"],
-  cashier:   ["dashboard","finance","riwayat"],
-  manager:   ["dashboard","input","finance","riwayat","analitik","review","master","audit"],
-  // VIEW ONLY — hanya menonton, tidak pernah bisa mengubah apa pun.
-  //
-  // Halaman awal sengaja dibatasi ke yang bersifat MEMBACA. Yang tidak masuk
-  // dan alasannya:
-  //   input   — isinya formulir pembuatan reservasi; tak ada yang bisa dilihat
-  //             di sana selain kolom kosong.
-  //   finance — menyangkut uang masuk (DP). Tidak diberikan secara diam-diam;
-  //             kalau memang perlu, admin menyalakannya sendiri di matriks.
-  //   master  — pengaturan modul, termasuk daftar kru dan hak akses.
-  //   audit   — jejak siapa mengubah apa.
-  //
-  // Ini cuma NILAI AWAL. Admin tetap bisa mengatur halaman mana yang terlihat
-  // lewat "Hak Akses per Role"; yang TIDAK bisa diberikan lewat matriks itu
-  // adalah izin mengubah — lihat kunci di pagePerm().
-  viewer:    ["dashboard","riwayat","analitik","review"],
-  admin:     ["dashboard","input","finance","riwayat","analitik","review","master","audit"],
+  // Staff: mengerjakan review & feedback, tapi tidak mengatur siapa boleh apa.
+  staff:   ["capaian","review","feedback"],
+  manager: ["capaian","review","feedback","peran"],
+  admin:   ["capaian","review","feedback","peran"],
 };
 // Default lama (dipakai sebagai seed DEFAULT_PERMS di bawah, dan dipertahankan
 // sebagai fallback bila perms per-halaman entah kenapa tidak termuat).
 const CAN_DEFAULT = {
-  input:  r => ["host","marketing","manager","admin"].includes(r),
-  editStatus: r => ["host","marketing","manager","admin"].includes(r),
+  // `input` di modul ini = MENCATAT feedback/review, pekerjaan sehari-hari
+  // staff. Nilai warisan Reservasi (host/marketing/…) tidak memuat satu pun
+  // tingkat modul ini, jadi barisnya lahir "Lihat saja" dan tombol Catat
+  // Feedback hilang untuk semua orang kecuali manager.
+  input:  r => ["staff","manager","admin"].includes(r),
+  editStatus: r => ["staff","manager","admin"].includes(r),
   deleteReservation: r => ["manager","admin"].includes(r),
   deleteReview: r => ["manager","admin"].includes(r),
   master: r => ["manager","admin"].includes(r),
   // Diarahkan ke baris matriks `mintaReview` lewat ACTION_PAGE di bawah, jadi
   // yang menentukan adalah pengaturan role — bukan daftar peran yang dipatri.
-  mintaReview: r => ["host","manager","admin"].includes(r),
+  mintaReview: r => ["staff","manager","admin"].includes(r),
   audit:  r => ["manager","admin"].includes(r),
   manageUsers: r => r==="admin",   // hanya admin modul (Office adminModules '*'/'reservasi'): atur role kru & hak akses
   seeDP:  () => true, // semua bisa lihat DP di detail; cashier memang butuh
@@ -964,11 +961,17 @@ const CAN_DEFAULT = {
    (inputDelete, financeDelete): baris matriks EKSTRA, bukan halaman nav baru
    — visibilitasnya tetap ikut halaman induknya (pageAllowed tak berubah),
    cuma level Ubah-nya independen. */
+/* Baris yang ditunjuk di sini WAJIB ada di PERM_ROWS (= NAV_PAGES + baris
+   ekstra). Menunjuk ke baris yang tidak ada bukan error — pagePerm() jatuh ke
+   PERM_VIEW, jadi aksinya diam-diam MATI untuk semua orang termasuk manager.
+   Itu yang bikin "Link & target diatur oleh manager" muncul walau yang login
+   memang manager: `master` masih menunjuk halaman Master Data milik Reservasi
+   yang tidak ikut dibawa ke sini. Sekarang diarahkan ke `peran` (Kelola Role),
+   satu-satunya halaman pengurus di modul ini. */
 const ACTION_PAGE = {
-  input:'input', editStatus:'input', deleteReservation:'inputDelete',
+  input:'feedback', editStatus:'feedback',
   deleteReview:'review',
-  master:'master', audit:'audit', mintaReview:'mintaReview',
-  finance:'finance', deleteDp:'financeDelete',
+  master:'peran', audit:'peran', mintaReview:'mintaReview',
 };
 // Baris izin EKSTRA: id -> {label, page (halaman nav yang menaunginya, untuk
 // visibilitas), afterPage (dirender tepat setelah baris page ini di matriks)}.
@@ -1066,11 +1069,8 @@ const DEFAULT_PERMS = (()=>{
     const visPage = permRowVisPage(row);
     ROLE_KEYS.forEach(r=>{
       if(!(ROLE_NAV[r]||[]).includes(visPage)){ p[row][r]=PERM_NONE; return; }
-      // viewer: terlihat, tapi TIDAK PERNAH "Boleh Ubah". Dikecualikan sebelum
-      // aturan warisan di bawah, karena baris tanpa aksi terikat (dashboard,
-      // riwayat, analitik) default-nya PERM_EDIT — yang akan membuat role
-      // bernama "View Only" lahir dengan status Ubah di matriks.
-      if(r==="viewer"){ p[row][r]=PERM_VIEW; return; }
+      // (Pengecualian `viewer` dari Reservasi dibuang: modul ini cuma punya
+      //  tiga tingkat, dan cabang itu tak pernah bisa jalan lagi.)
       // Baris yang jadi pemilik satu atau lebih aksi: level Ubah diwarisi dari
       // aksi TERLONGGAR yang terikat ke baris itu (mis. finance mewarisi dari
       // CAN.finance saja sekarang — deleteDp sudah baris sendiri).
@@ -3058,9 +3058,19 @@ async function boot(){
      begitu mengangkat seseorang jadi manager di sini tidak menyentuh perannya
      di Reservasi sama sekali. */
   const kru = seKru(u.id) || seKru(office.userId);
-  const dariOffice = (oAdm.includes('*')||oAdm.includes('service_excellent')) ? 'admin' : 'staff';
+  const adminOffice = oAdm.includes('*')||oAdm.includes('service_excellent');
+  /* JALUR PERTAMA KALI. Kelola Role satu-satunya tempat mengangkat manager/
+     admin, dan halaman itu sendiri cuma terbuka untuk manager/admin. Sementara
+     sinkronisasi roster Office menuliskan SEMUA orang sebagai staff, hasilnya
+     modul yang terkunci rapat sejak menit pertama — tidak ada seorang pun yang
+     bisa membuka pintunya (kejadian 5 Agustus 2026).
+     Selama daftar kru modul ini belum memuat satu pun manager/admin, siapa pun
+     yang berhak membuka modul masuk sebagai admin supaya bisa menunjuk yang
+     pertama. Begitu satu orang diangkat, jalur ini mati sendiri. */
+  const belumAdaPengurus = !seCrew().some(k=>k.role==="manager"||k.role==="admin");
+  const peranKru = (kru && ROLE_KEYS.includes(kru.role)) ? kru.role : null;
   SESSION = { id:u.id, name:u.name,
-              role: (kru && ROLE_KEYS.includes(kru.role)) ? kru.role : dariOffice,
+              role: (adminOffice || belumAdaPengurus) ? 'admin' : (peranKru || 'staff'),
               divisi: String((kru && kru.divisi) || office.keterangan || "") };
   try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION)); }catch(e){}   // divisi ikut bertahan setelah muat ulang
   SELECTED_CREW = u.id;
