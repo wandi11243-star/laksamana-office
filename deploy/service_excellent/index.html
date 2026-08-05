@@ -3058,7 +3058,11 @@ async function boot(){
      apa pun. Role `cashier` sudah ada di matriks itu dengan Dana Masuk =
      Boleh Ubah, jadi tidak ada aturan baru yang ditambahkan di sini. */
   if(EMBED && !punyaResv) effRole = 'cashier';
-  SESSION = {id:u.id, name:u.name, role:roleSE(effRole)};   // selalu salah satu dari tiga tingkat
+  /* `divisi` = Tim/Keterangan orang ini di Office. Dibawa masuk karena
+     panel "Tamu Belum Diminta Review" dibatasi per divisi, bukan per role —
+     lihat bolehLihatMintaReview(). Peran (staff/manager/admin) menjawab
+     "boleh mengubah apa"; divisi menjawab "ini pekerjaan siapa". */
+  SESSION = {id:u.id, name:u.name, role:roleSE(effRole), divisi:String(office.keterangan||"")};
   SELECTED_CREW = u.id;
   bs.classList.add("hidden");
   await enterApp();
@@ -7410,6 +7414,30 @@ function reviewCfg(){
 // Satu-satunya tempat yang memutuskan "ajakan WA boleh dikirim atau tidak".
 // Dipusatkan supaya tombol dan pengiriman tidak pernah bisa berbeda pendapat.
 function waReviewAktif(){ return reviewCfg().waAktif!==false; }
+
+/* SIAPA YANG MELIHAT PANEL "TAMU BELUM DIMINTA REVIEW".
+
+   Dibatasi per DIVISI Office, bukan per role (permintaan user 5 Agustus 2026:
+   "yang bisa ditampilkan hanya Office, CEO, CFO, Host dan admin saja").
+   Keduanya menjawab pertanyaan yang berbeda dan tidak bisa saling menggantikan:
+   role menjawab "boleh mengubah apa", divisi menjawab "ini pekerjaan siapa".
+   Kitchen boleh saja manager, tapi mengejar ulasan Google bukan urusannya.
+
+   Dicocokkan sebagai KATA UTUH pada keterangan Office, yang isinya bisa lebih
+   dari satu tim ("office, marketing"). Memakai indexOf() biasa akan membuat
+   "backoffice" ikut lolos karena memuat "office".
+
+   admin selalu boleh — ia yang mengatur saklarnya, dan mengunci pengatur dari
+   layar yang diaturnya hanya menghasilkan pengaturan yang tidak bisa diuji. */
+const DIVISI_MINTA_REVIEW = ["office","ceo","cfo","host"];
+function bolehLihatMintaReview(){
+  if(SESSION && SESSION.role==="admin") return true;
+  const kata=String((SESSION&&SESSION.divisi)||"").toLowerCase().split(/[\s,;/]+/).filter(Boolean);
+  return DIVISI_MINTA_REVIEW.some(d=>kata.indexOf(d)>-1);
+}
+/* Panel tampil hanya kalau fiturnya memang dipakai DAN memang pekerjaan orang
+   ini. Dua syarat, dua sebab berbeda — dan keduanya harus benar. */
+function panelMintaReviewTampil(){ return waReviewAktif() && bolehLihatMintaReview(); }
 /* Target sebulan untuk satu host. 0 = belum ditetapkan (tidak dinilai). */
 function reviewTargetOf(nama){ return Math.max(0, Number(reviewCfg().targets[String(nama||"").trim()])||0); }
 /* Target AKUMULASI tim = jumlah target semua host. Bukan angka terpisah:
@@ -7513,7 +7541,14 @@ function reviewsInRange(r){ return reviews().filter(x=>inRange(x.date, r)); }
    halaman lain. rvPage/rvPagerHtml dipertahankan sebagai nama panggilan supaya
    pemanggil di halaman ini tidak perlu diubah. */
 let RVQ = { belum:"", daftar:"", fb:"" };     // kata kunci pencarian per tabel
-["belum","daftar","fb","host"].forEach(k=>{ TBL_RENDER[k]=()=>renderReview(); });
+/* Tiap tabel menggambar ulang HALAMANNYA SENDIRI. Versi sebelumnya
+   mengarahkan semuanya ke renderReview(), jadi tombol ‹ › di tabel Catat
+   Feedback dan Dashboard menggambar ulang halaman Google Review — nomor
+   halamannya berpindah tapi layar yang dilihat tidak berubah, persis terbaca
+   sebagai "next tidak bisa diklik" (dilaporkan user 5 Agustus 2026). */
+["belum","daftar","host"].forEach(k=>{ TBL_RENDER[k]=()=>renderReview(); });
+TBL_RENDER.fb      = () => renderFeedbackPage();
+TBL_RENDER.capaian = () => renderCapaian();
 function rvResetPages(){ ["belum","daftar","fb"].forEach(k=>{ TBL_HAL[k]=1; }); }
 function rvSetQ(kunci, v){ RVQ[kunci]=v; TBL_HAL[kunci]=1; afterSearch("rvq_"+kunci, renderReview); }
 const rvPage      = (arr, kunci) => tblPage(arr, kunci);
@@ -8328,7 +8363,11 @@ function reviewGoogleView(){
     </tr>`;
   }).join("");
 
-  return `
+  /* SELURUH PANEL disembunyikan, bukan cuma tombolnya (permintaan user
+     5 Agustus 2026). Daftar nomor HP tamu yang tidak boleh dihubungi siapa pun
+     bukan sekadar tidak berguna — ia data pribadi tamu yang dipajang tanpa
+     satu pun tindakan yang bisa dilakukan atasnya. */
+  const panelBelum = !panelMintaReviewTampil() ? "" : `
    <div class="panel">
      <div class="panel-head"><h3>📤 Tamu Belum Diminta Review</h3>
        <span class="muted" style="font-size:12.5px">${tgt.belum.length} dari ${tgt.layak.length} tamu ber-nomor HP</span></div>
@@ -8365,7 +8404,10 @@ function reviewGoogleView(){
              ? `Tidak ada tamu yang cocok dengan “${esc(qBelum)}”.`
              : `Semua tamu yang datang pada ${esc(reviewRangeLabel())} sudah diminta review.`}</div>`}
      </div>
-   </div>
+   </div>`;
+
+  return `
+   ${panelBelum}
 
    <div class="panel">
      <div class="panel-head"><h3>📋 Daftar Review${canCfg?"":" Saya"}, ${esc(reviewRangeLabel())}</h3><span class="muted" style="font-size:12.5px">${dasarDaftar.length} catatan</span></div>

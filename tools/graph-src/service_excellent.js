@@ -3020,7 +3020,11 @@ function initLogin() { byId(); renderCrew(); }
 
 
 
-function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); roleSE(); enterApp(); syncRosterLatar(); }
+function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); bolehLihatMintaReview(); roleSE(); enterApp(); syncRosterLatar(); }
+
+
+
+
 
 
 
@@ -7411,6 +7415,30 @@ function reviewCfg() {  }
 
 function waReviewAktif() { reviewCfg(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bolehLihatMintaReview() {  }
+
+
+
+
+
+
+function panelMintaReviewTampil() { waReviewAktif(); bolehLihatMintaReview(); }
+
 function reviewTargetOf() { reviewCfg(); }
 
 
@@ -7497,7 +7525,14 @@ function reviewTargetMonth() { reviewRange(); }
 function inRange() {  }
 
 function reviewsOfMonth() { reviews(); }
-function reviewsInRange() { reviews(); inRange(); requestReview(); renderReview(); }
+function reviewsInRange() { reviews(); inRange(); requestReview(); renderReview(); renderFeedbackPage(); renderCapaian(); }
+
+
+
+
+
+
+
 
 
 
@@ -8293,7 +8328,14 @@ function reviewGoogleView() { reviewCfg(); reviewRange(); reviewsInRange(); revi
 
 
 
-function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
+function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); panelMintaReviewTampil(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
+
+
+
+
+
+
+
 
 
 
