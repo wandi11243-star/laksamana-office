@@ -176,7 +176,17 @@ td.cell.editable{cursor:pointer}
 td.cell.editable:hover{filter:brightness(.94)}
 td.cell .tm{display:block;font-size:9.5px;font-weight:600;opacity:.85;letter-spacing:0}
 td.cell.kosong{color:#C9C3B7;font-weight:600;font-size:16px}
-tr.bandgap td{height:12px;border:none;background:transparent}
+/* Jarak antar blok minggu. Dibuat lebih lebar daripada sebelumnya (12px)
+   karena sekarang ada blok DAILY WORKER yang duduk di antara dua minggu —
+   dengan celah tipis, batas antar minggu tidak terbaca dan blok DW seperti
+   menggantung di antara keduanya. */
+tr.bandgap td{height:22px;border:none;background:transparent}
+/* Kepala tiap blok minggu: MINGGU 1 · 3 Agu – 9 Agu 2026 */
+tr.wkhdr th{background:var(--ink);color:#fff;font-family:var(--font-display);
+  font-size:11.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  padding:7px 12px;text-align:left;border-right:none;border-bottom:none}
+tr.wkhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
+  opacity:.62;font-size:11px;margin-left:6px}
 
 /* ---------- Blok DAILY WORKER di dalam lembar yang sama ----------
    Pekerja harian digambar di TABEL YANG SAMA dengan kru tetap — satu lembar
@@ -517,6 +527,10 @@ const IC = {
   pena:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   orang:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   surat:'<path d="M4 4h16v12H7l-3 3z"/><path d="M8 9h8M8 12h5"/>',
+  /* Rekap: sumbu grafik + garis tren. Sengaja bukan ikon `orang` (sudah
+     dipakai Jadwal Saya) — dua menu berikon sama membuat orang menekan yang
+     salah, dan keduanya kebetulan sama-sama soal jadwal satu orang. */
+  rekap:'<path d="M3 3v18h18"/><path d="M7 14.5l3.5-4 3 2.5L20 7"/>',
   gir:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.43.65.79.79H21a2 2 0 1 1 0 4h-.09c-.36.14-.65.43-.79.79Z"/>'
 };
 function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p||'')+'</svg>'; }
@@ -528,6 +542,7 @@ const NAV_DEF = [
   {k:'dashboard',  t:'Dashboard',      ic:'dash',     sub:'Siapa masuk hari ini'},
   {k:'bulanan',    t:'Jadwal Bulanan', ic:'kalender', sub:'Lembar sebulan per divisi'},
   {k:'minggu',     t:'Input Mingguan', ic:'pena',     sub:'Susun jadwal minggu ini'},
+  {k:'rekap',      t:'Rekap Pegawai',  ic:'rekap',    sub:'Jadwal & jam kerja satu orang'},
   {s:'Kru'},
   {k:'saya',       t:'Jadwal Saya',    ic:'orang',    sub:'Shift saya bulan ini'},
   {k:'pengajuan',  t:'Pengajuan',      ic:'surat',    sub:'Off, izin, cuti, tukar shift'},
@@ -632,6 +647,14 @@ function normalizeState(d){
   Object.keys((st.shifts)||{}).forEach(k=>{ if(!shifts[k]) shifts[k]=Object.assign({n:k,m:'',s:'',w:'#7A756B',libur:0,urut:90}, st.shifts[k]); });
   b.setting.shifts=shifts;
   b.setting.heads=(st.heads&&typeof st.heads==='object')?st.heads:{};
+  /* Daftar manajemen — orang yang boleh melihat rekap jadwal SELURUH kru
+     tanpa menjadi head divisi mana pun (owner, GM, HR).
+
+     Ditunjuk EKSPLISIT di Pengaturan, tidak ditebak dari kolom jabatan. Itu
+     sudah dicoba untuk head dan terbukti rapuh: "Head Bar" ditulis bermacam
+     cara, dan salah tebak berarti orang yang salah melihat jam kerja seluruh
+     perusahaan. Alasannya sama persis dengan `heads`. */
+  b.setting.manajemen=Array.isArray(st.manajemen)?st.manajemen:[];
   b.setting.divOverride=(st.divOverride&&typeof st.divOverride==='object')?st.divOverride:{};
   b.setting.jabatan=(st.jabatan&&typeof st.jabatan==='object')?st.jabatan:{};
   b.setting.shiftKru=(st.shiftKru&&typeof st.shiftKru==='object')?st.shiftKru:{};
@@ -727,6 +750,13 @@ function namaKru(id){ const u=kruById(id); return u?u.name:'—'; }
    ===================================================================== */
 function isAdmin(){ return !!(ME && ME.admin); }
 function isHeadUser(uid,div){ return ((S&&S.setting.heads[div])||[]).indexOf(uid)>-1; }
+function isManajemen(){ return !!(ME && ((S&&S.setting.manajemen)||[]).indexOf(ME.id)>-1); }
+/* Siapa yang boleh membuka Rekap Pegawai: admin modul, head divisi mana pun,
+   dan manajemen. Kru biasa tidak — halaman itu memperlihatkan jam kerja dan
+   pola libur orang lain sekaligus, dan itu bahan perbandingan antar kru yang
+   ujungnya selalu jadi keributan di grup. Jadwalnya sendiri memang terbuka di
+   Jadwal Bulanan; yang dibatasi di sini adalah rekap dan angkanya. */
+function bolehRekap(){ return isAdmin() || divisiKuasa().length>0 || isManajemen(); }
 function bolehUbah(div){ return isAdmin() || (!!ME && isHeadUser(ME.id,div)); }
 /* Divisi mana saja yang boleh disunting orang ini — dipakai untuk memilih
    tab default dan untuk menyaring pengajuan yang bisa ia putuskan. */
@@ -858,8 +888,13 @@ function blokDW(div,hari){
   if(!orang.length) return '';
   const kolom=3+hari.length;
   let h='<tr class="dwsep"><td colspan="'+kolom+'"></td></tr>';
+  /* Rentang tanggalnya ikut ditulis, bukan cuma "DAILY WORKER". Blok ini
+     duduk di antara dua minggu, dan tanpa tanggalnya pembaca harus menebak
+     apakah ia milik pita di atas atau di bawah — tebakan yang salah berarti
+     orang dikira masuk di hari yang salah. */
   h+='<tr class="dwhdr"><th colspan="'+kolom+'">DAILY WORKER · '+orang.length+' orang'
-    +' <span>disetujui HR di modul Daily Worker</span></th></tr>';
+    +' <span>'+esc(tglManusia(hari[0])+' – '+tglManusia(hari[hari.length-1]))
+    +' · disetujui HR di modul Daily Worker</span></th></tr>';
   orang.forEach(function(u,i){
     h+='<tr class="dwrow"><td class="no">'+(i+1)+'</td>'
       +'<td class="nm"><b>'+esc(u.nama)+'</b><i>daily worker</i></td>'
@@ -1001,6 +1036,7 @@ async function muatRoster(){
 function bolehBuka(k){
   if(k==='pengaturan') return isAdmin();
   if(k==='minggu')     return divisiKuasa().length>0;
+  if(k==='rekap')      return bolehRekap();
   return true;
 }
 function buildNav(){
@@ -1028,6 +1064,7 @@ const TITLES={
   dashboard: ['Dashboard','Siapa masuk dan siapa libur hari ini'],
   bulanan:   ['Jadwal Bulanan','Lembar sebulan penuh per divisi'],
   minggu:    ['Input Mingguan','Susun jadwal satu minggu'],
+  rekap:     ['Rekap Pegawai','Jadwal sebulan dan jam kerja satu orang'],
   saya:      ['Jadwal Saya','Shift saya bulan ini'],
   pengajuan: ['Pengajuan','Off, izin, cuti, dan tukar shift'],
   pengaturan:['Pengaturan','Definisi shift, head divisi, penempatan kru']
@@ -1059,6 +1096,7 @@ function render(){
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
   else if(VIEW==='bulanan')    V.innerHTML=viewBulanan();
   else if(VIEW==='minggu')     V.innerHTML=viewMinggu();
+  else if(VIEW==='rekap')      V.innerHTML=viewRekap();
   else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pengajuan')  V.innerHTML=viewPengajuan();
   else if(VIEW==='pengaturan') V.innerHTML=viewPengaturan();
@@ -1294,6 +1332,17 @@ function viewBulanan(){
     let body='';
     pita.forEach((p,pi)=>{
       if(pi) body+='<tr class="bandgap"><td colspan="'+(3+p.hari.length)+'"></td></tr>';
+      /* Pita berlabel MINGGU N di kepala tiap blok.
+
+         Tanpa ini lembarnya ambigu justru di tempat yang paling penting: blok
+         DAILY WORKER duduk di ANTARA dua minggu, dan pembaca tidak punya cara
+         tahu ia milik minggu di atasnya atau minggu di bawahnya — padahal
+         salah baca berarti salah orang dikira masuk di hari yang salah.
+         Sekarang tiap minggu punya kepala sendiri, dan blok DW berada jelas di
+         dalam kepala itu. Rentang tanggalnya ikut ditulis supaya pita ini bisa
+         dibaca sendirian saat lembarnya dicetak dan ditempel di papan. */
+      body+='<tr class="wkhdr"><th colspan="'+(3+p.hari.length)+'">MINGGU '+(pi+1)
+        +' <span>'+esc(rentangMinggu(p.senin))+'</span></th></tr>';
       body+='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>TGL</th>'+
         p.hari.map(d=>'<th>'+tglPendek(d)+'</th>').join('')+'</tr>';
       body+='<tr class="hdr2"><th></th><th></th><th>HARI</th>'+
@@ -1421,6 +1470,170 @@ function rekapBulan(emps,mk){
   });
   return {masuk,libur,kosong};
 }
+/* =====================================================================
+   HALAMAN — REKAP PEGAWAI  (head / admin / manajemen)
+   Menjawab pertanyaan yang selama ini dijawab dengan memelototi lembar
+   bulanan sambil menghitung kolom pakai jari: "sebulan ini si A masuk berapa
+   hari, berapa jam, dan off-nya berapa". Lembar bulanan bagus untuk melihat
+   SATU DIVISI sekaligus, tapi buruk untuk melihat SATU ORANG utuh — matanya
+   harus menyusuri satu baris melewati lima pita minggu.
+
+   Angkanya sengaja dihitung ulang lewat bebanKru()/jedaKeBesok() yang sama
+   dengan panel Beban Kerja, bukan rumus baru: dua tempat yang menghitung jam
+   kerja dengan cara sedikit berbeda adalah cara tercepat kehilangan
+   kepercayaan pada keduanya.
+   ===================================================================== */
+let REKAP_UID='';
+/* Semua kru yang memang dijadwalkan, diurut per divisi lalu nama — bentuk
+   yang sama dengan cara orang menyebut mereka ("anak bar", "anak kitchen"). */
+function rekapKandidat(){
+  const out=[];
+  DIVISI.forEach(function(d){ kruDivisi(d.k).forEach(function(u){ out.push({u:u, div:d.k}); }); });
+  return out;
+}
+/* Berapa kali tiap kode shift dipakai orang ini sebulan. Inilah yang
+   menjawab "kok dia SIANG terus" dengan angka, bukan dengan perasaan. */
+function rincianShift(uid,mk){
+  const a=awalBulan(mk), z=akhirBulan(mk);
+  const n={};
+  for(let d=a; d<=z; d=addD(d,1)){
+    const c=sel(uid,d); if(!c) continue;
+    n[c.t]=(n[c.t]||0)+1;
+  }
+  return n;
+}
+function rekapDetail(uid,mk){
+  const a=awalBulan(mk), z=akhirBulan(mk);
+  let wknd=0, jedaMin=null;
+  for(let d=a; d<=z; d=addD(d,1)){
+    const c=sel(uid,d);
+    if(c && !shiftDef(c.t).libur && idxHari(d)>=5) wknd++;
+    if(d<z){
+      const j=jedaKeBesok(uid,d);
+      if(j!==null && (jedaMin===null || j<jedaMin)) jedaMin=j;
+    }
+  }
+  return {wknd, jedaMin};
+}
+function viewRekap(){
+  if(!bolehRekap()){
+    return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
+      +'Halaman ini untuk head divisi, manajemen, dan admin modul.'
+      +'<div class="mutedhint" style="margin-top:6px">Jadwal Anda sendiri ada di <b>Jadwal Saya</b>.</div></div></div>';
+  }
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const kandidat=rekapKandidat();
+  if(!kandidat.length){
+    return '<div class="panel">'+panelKosongRoster()
+      +'<div class="empty"><div class="ic">👥</div>Belum ada kru yang ditempatkan di divisi shift.</div></div>';
+  }
+  /* Kalau belum memilih siapa pun, jatuh ke orang pertama — halaman yang
+     dibuka dengan seluruh angka kosong terbaca seperti rusak. */
+  if(!REKAP_UID || !kruById(REKAP_UID)) REKAP_UID=kandidat[0].u.id;
+  const u=kruById(REKAP_UID);
+  const div=divisiDari(u);
+  const b=bebanKru(u,mk);
+  const det=rekapDetail(u.id,mk);
+  const rinci=rincianShift(u.id,mk);
+  const rata=b.masuk?Math.round(b.jam/b.masuk*10)/10:0;
+
+  const pilih='<select class="inp" style="min-width:230px" onchange="pilihRekap(this.value)">'
+    +DIVISI.map(function(d){
+        const isi=kandidat.filter(x=>x.div===d.k);
+        if(!isi.length) return '';
+        return '<optgroup label="'+esc(d.ic+' '+d.n)+'">'
+          +isi.map(x=>'<option value="'+esc(x.u.id)+'"'+(x.u.id===REKAP_UID?' selected':'')+'>'+esc(x.u.name)+'</option>').join('')
+          +'</optgroup>';
+      }).join('')
+    +'</select>';
+
+  /* Kalender sebulan — bentuk yang sama dengan Jadwal Saya, supaya head yang
+     sudah terbiasa membaca punyanya sendiri tidak perlu belajar lagi. */
+  const a=awalBulan(mk), z=akhirBulan(mk);
+  let kal='<div class="kal">'
+    +HARI.map((h,i)=>'<div class="kh'+(i>=5?' wknd':'')+'">'+esc(h.slice(0,3))+'</div>').join('');
+  pitaBulan(mk).forEach(function(p){
+    p.hari.forEach(function(d){
+      if(d<a || d>z){ kal+='<div class="kd kosong"></div>'; return; }
+      const c=sel(u.id,d), sd=c?shiftDef(c.t):null, jm=jamSel(c);
+      const bisa=bolehUbah(div);
+      kal+='<div class="kd'+(d===hariIni()?' ini':'')+'"'
+        +(bisa?' onclick="bukaEditor(\''+escJs(u.id)+'\',\''+d+'\')" title="Klik untuk mengubah"':' style="cursor:default"')+'>'
+        +'<div class="tg">'+parseD(d).getDate()+'</div>'
+        +(c
+          ? '<div class="sf" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'">'+esc(labelSel(c))+'</div>'
+            +(jm?'<div class="jm">'+esc(jm.m+'–'+jm.s)+'</div>':'')
+          : '<div class="blm">belum diatur</div>')
+        +'</div>';
+    });
+  });
+  kal+='</div>';
+
+  const chipShift=Object.keys(rinci).sort((x,y)=>(shiftDef(x).urut||99)-(shiftDef(y).urut||99))
+    .map(function(k){
+      const d=shiftDef(k);
+      return '<span class="chip"><span class="sw" style="background:'+esc(d.w)+'"></span>'+esc(d.n)+' <b>'+rinci[k]+'×</b></span>';
+    }).join('');
+
+  const maks=(S.setting.maksBeruntun)||6, batasJeda=(S.setting.jedaMin)||10;
+  const alarm=[];
+  if(b.maxBeruntun>maks) alarm.push('<b>'+b.maxBeruntun+' hari masuk beruntun</b> tanpa libur (batas '+maks+')');
+  if(det.jedaMin!==null && det.jedaMin<batasJeda) alarm.push('jeda tersingkat antar shift hanya <b>'+det.jedaMin+' jam</b> (batas '+batasJeda+')');
+  if(b.kosong) alarm.push('<b>'+b.kosong+' hari</b> belum diatur sama sekali');
+
+  const ajuOrang=(S.pengajuan||[]).filter(function(x){
+    return x.userId===u.id && !(x.sampai<a || x.dari>z);
+  }).sort((x,y)=>String(x.dari).localeCompare(String(y.dari)));
+
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>📈 Rekap Pegawai</h2><div class="spacer"></div>'
+    +'<div class="navdate noprint"><button class="iconbtn" onclick="geserBulanAktif(-1)" aria-label="Bulan sebelumnya">‹</button>'
+    +'<b>'+esc(labelBulan(mk))+'</b>'
+    +'<button class="iconbtn" onclick="geserBulanAktif(1)" aria-label="Bulan berikutnya">›</button>'
+    +tombolKembali('bulanIni', mk===bulanDari(hariIni()), 'Bulan berjalan')+'</div></div>'
+    +panelKosongRoster()
+    +'<div class="rowbar">'+pilih
+    +'<span class="chip">'+esc(ikonDivisiJadwal(div)+' '+namaDivisi(div))+'</span>'
+    +'<span class="chip">'+esc(jabatanDari(u))+'</span>'
+    +(isHeadUser(u.id,div)?'<span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">head divisi</span>':'')
+    +'<div class="spacer"></div>'
+    +'<button class="btn btn-ghost btn-sm noprint" onclick="window.print()">🖨️ Print / PDF</button></div>'
+
+    +'<div class="stats">'
+      +statBox(b.masuk,'Hari Masuk')
+      +statBox(b.libur,'Off / Cuti')
+      +statBox(b.jam?b.jam:'—','Total Jam')
+      +statBox(rata?rata:'—','Rata Jam/Hari')
+      +statBox(b.maxBeruntun,'Beruntun Terpanjang')
+      +statBox(det.wknd,'Masuk Akhir Pekan')
+      +statBox(det.jedaMin===null?'—':det.jedaMin,'Jeda Tersingkat (jam)')
+      +statBox(b.kosong,'Belum Diatur')
+    +'</div>'
+    +(alarm.length
+      ? '<div class="note w"><b>Perlu dilihat:</b><ul style="margin:6px 0 0 18px">'
+        +alarm.map(x=>'<li>'+x+'</li>').join('')+'</ul></div>'
+      : '<div class="note i">Tidak ada yang melewati batas hari beruntun maupun jeda antar-shift.</div>')
+    +(chipShift?'<div class="rowbar"><span class="mutedhint">Rincian shift:</span><div class="legend">'+chipShift+'</div></div>':'')
+    +kal
+    +(bolehUbah(div)
+      ? '<p class="mutedhint noprint" style="margin-top:10px">Klik tanggal mana pun untuk mengubah shift '+esc(u.name)+'.</p>'
+      : '<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</p>')
+    +'</div>'
+    +(ajuOrang.length
+      ? '<div class="panel"><div class="rowbar"><h2>Pengajuan bulan ini</h2>'
+        +'<span class="chip">'+ajuOrang.length+'</span></div>'
+        +ajuOrang.map(function(x){
+            const rentang=(x.dari===x.sampai)?tglPanjang(x.dari):(tglManusia(x.dari)+' – '+tglPanjang(x.sampai));
+            return '<div class="row"><div class="who"><b>'+esc(JENIS_AJU[x.jenis]||x.jenis)+'</b>'
+              +'<span>'+esc(rentang)+(x.alasan?' — '+esc(x.alasan):'')+'</span></div>'
+              +pilShiftAju(x)+'<span class="stpill st-'+esc(x.status)+'">'+esc(x.status)+'</span></div>';
+          }).join('')
+        +'</div>'
+      : '');
+}
+function pilihRekap(id){ REKAP_UID=id; render(); }
+function ikonDivisiJadwal(k){ const d=DIVISI.find(x=>x.k===k); return d?d.ic:'•'; }
+
 function gantiDiv(k){ DIV=k; render(); }
 function geserBulanAktif(n){ BULAN_AKTIF=geserBulan(BULAN_AKTIF||bulanDari(hariIni()),n); muatDanGambar(); }
 function bulanIni(){ BULAN_AKTIF=bulanDari(hariIni()); muatDanGambar(); }
@@ -2114,6 +2327,25 @@ function viewPengaturan(){
       +'<div style="margin-top:8px">'+(pil||'<span class="mutedhint">Belum ada kru di divisi ini.</span>')+'</div></div>';
   }).join('');
 
+  /* Kandidat manajemen = SELURUH pegawai aktif, bukan cuma kru shift. Justru
+     orang yang tidak dijadwalkan (owner, GM, HR) yang paling mungkin perlu
+     akses ini — membatasinya ke kru divisi shift akan membuat mereka tidak
+     bisa dicentang sama sekali. */
+  const mnj=(S.setting.manajemen||[]);
+  const barisManajemen='<div class="row" style="flex-direction:column;align-items:stretch">'
+    +'<div style="display:flex;align-items:center;gap:8px"><b>Manajemen</b>'
+    +'<div class="spacer"></div>'
+    +'<span class="stpill" style="background:'+(mnj.length?'var(--ok-bg);color:var(--ok)':'var(--paper);color:var(--muted-2)')+'">'
+    +(mnj.length?mnj.length+' orang':'belum ada')+'</span></div>'
+    +'<div style="margin-top:8px">'
+    +(ROSTER.filter(u=>u.active!==false)
+        .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
+        .map(u=>'<label style="display:inline-flex;align-items:center;gap:5px;margin:0 10px 6px 0;font-size:12.5px">'
+          +'<input type="checkbox"'+(mnj.indexOf(u.id)>-1?' checked':'')+' onchange="ubahManajemen(\''+escJs(u.id)+'\',this.checked)" style="width:auto">'
+          +esc(u.name)+'</label>').join('')
+      || '<span class="mutedhint">Roster kosong.</span>')
+    +'</div></div>';
+
   const barisKru=ROSTER.filter(u=>u.active!==false)
     .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
     .map(u=>{
@@ -2160,6 +2392,11 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Head menyusun jadwal divisinya dan memutuskan pengajuan kru divisinya. Sengaja ditunjuk manual, bukan ditebak dari jabatan: salah tebak berarti tombol Setujui dipegang orang yang salah. Boleh lebih dari satu per divisi.</p>'
     +barisHead+'</div>'
 
+    +'<div class="panel"><div class="rowbar"><h2>📈 Akses Rekap Pegawai</h2></div>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Halaman <b>Rekap Pegawai</b> memperlihatkan jam kerja, pola libur, dan peringatan beban kerja satu per satu orang. Yang otomatis bisa membukanya: <b>admin modul</b> dan <b>head divisi</b>. Centang di bawah untuk memberi akses ke manajemen yang bukan head — owner, GM, HR.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Kru biasa sengaja tidak bisa membukanya. Jadwalnya sendiri memang terbuka di Jadwal Bulanan; yang ditahan di sini adalah <b>rekap dan angkanya</b>, karena itu bahan perbandingan antar kru yang ujungnya selalu jadi keributan di grup.</p>'
+    +barisManajemen+'</div>'
+
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2><div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm" onclick="ulangRoster()">↻ Tarik Ulang dari Office</button></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Kolom jabatan dipakai di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>).</p>'
@@ -2178,6 +2415,13 @@ function ubahHead(div,uid,on){
   S.setting.heads[div]=l;
   simpanSetting(); render();
   toast(on?(namaKru(uid)+' jadi head '+namaDivisi(div)):(namaKru(uid)+' bukan head lagi'));
+}
+function ubahManajemen(uid,on){
+  const l=(S.setting.manajemen||[]).filter(x=>x!==uid);
+  if(on) l.push(uid);
+  S.setting.manajemen=l;
+  simpanSetting(); render();
+  toast(on?(namaKru(uid)+' bisa membuka Rekap Pegawai'):(namaKru(uid)+' tidak lagi bisa membukanya'));
 }
 function ubahDivisi(uid,k){
   if(k) S.setting.divOverride[uid]=k; else delete S.setting.divOverride[uid];
