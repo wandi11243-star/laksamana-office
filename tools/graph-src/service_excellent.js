@@ -854,6 +854,8 @@ function punya() { boot(); navigate(); }
 
 
 
+
+
 function fetchOffice() {  }
 
 
@@ -3205,7 +3207,7 @@ function afterSearch() { byId(); }
 
 
 
-function navigate() { allowedPages(); byId(); renderCapaian(); renderReview(); renderPeran(); renderAudit(); }
+function navigate() { allowedPages(); byId(); renderCapaian(); renderReview(); renderFeedbackPage(); renderPeran(); }
 
 
 
@@ -7419,7 +7421,7 @@ function reviewTargetTim() { reviewCfg(); }
 
 
 
-function reviewHosts() { getUsers(); todayStr(); }
+function reviewHosts() { getUsers(); todayStr(); renderReview(); }
 
 
 
@@ -7442,8 +7444,19 @@ function reviewHosts() { getUsers(); todayStr(); }
 
 
 
-function setReviewTab() { renderReview(); }
-function setReviewMonth() { todayStr(); rvResetPages(); renderReview(); }
+
+
+
+
+
+function gambarUlangHalamanIni() { renderCapaian(); renderFeedbackPage(); renderReview(); }
+
+
+
+
+
+
+function setReviewMonth() { todayStr(); rvResetPages(); gambarUlangHalamanIni(); }
 
 
 
@@ -7452,8 +7465,8 @@ function setReviewMonth() { todayStr(); rvResetPages(); renderReview(); }
 
 
 
-function setReviewMode() { rvResetPages(); renderReview(); }
-function setReviewDate() { todayStr(); rvResetPages(); renderReview(); }
+function setReviewMode() { rvResetPages(); gambarUlangHalamanIni(); }
+function setReviewDate() { todayStr(); rvResetPages(); gambarUlangHalamanIni(); }
 
 
 function reviewRange() { ymdOf(); }
@@ -8164,70 +8177,6 @@ function feedbackView() { reviewRange(); feedbacksInRange(); fbCat(); rvPage(); 
 
 
 function rvHostOf() {  }
-function rvDashboardHtml() { reviewCfg(); reviewsOfMonth(); }
-
-
-
-
-
-
-
-
-
-function isi() { rvHostOf(); reviewTargetOf(); reviewTargetTim(); fmtMonth(); openRvTargetForm(); esc(); tblPage(); tblPagerHtml(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -8284,7 +8233,11 @@ function simpanRvTarget() { reviewCfg(); logAudit(); saveState(); closeModal(); 
 
 
 
-function renderReview() { reviewRange(); feedbacksInRange(); reviewsInRange(); byId(); reviewCfg(); copyReviewLink(); openReviewForm(); openFeedbackForm(); setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); setReviewTab(); feedbackView(); reviewGoogleView(); }
+
+
+
+
+function kepalaPeriode() { setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); }
 
 
 
@@ -8311,10 +8264,14 @@ function renderReview() { reviewRange(); feedbacksInRange(); reviewsInRange(); b
 
 
 
+function renderReview() { byId(); kepalaPeriode(); reviewCfg(); copyReviewLink(); openReviewForm(); reviewGoogleView(); }
 
 
 
 
+
+
+function renderFeedbackPage() { byId(); kepalaPeriode(); openFeedbackForm(); feedbackView(); }
 
 
 
@@ -8336,9 +8293,7 @@ function reviewGoogleView() { reviewCfg(); reviewRange(); reviewsInRange(); revi
 
 
 
-function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); rvDashboardHtml(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
-
-
+function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
 
 
 
@@ -8743,7 +8698,7 @@ function kruCapaian() { getUsers(); }
 
 
 
-function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); isi(); rvHostOf(); reviewTargetOf(); tblPage(); byId(); esc(); reviewRangeLabel(); rvChipsHtml(); fmtMonth(); tblPagerHtml(); }
+function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); fmtMonth(); tblPagerHtml(); logAudit(); normPhone(); }
 
 
 
@@ -8833,8 +8788,6 @@ function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); 
 
 
 
-
-function renderAudit() { byId(); tblPage(); fmtTs(); esc(); tblPagerHtml(); normPhone(); }
 
 
 
