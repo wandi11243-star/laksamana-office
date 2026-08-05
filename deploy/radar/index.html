@@ -408,6 +408,12 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
 .pkt input{padding:8px 11px;border:1.5px solid var(--line-hard);border-radius:10px;background:#fff;
   font-size:13.5px;font-weight:600;color:var(--sand);font-family:inherit}
 .pkt input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-glow)}
+/* ‹ › geser minggu. Dibuat setinggi kotak tanggal di sebelahnya supaya
+   ketiganya terbaca sebagai satu kendali, bukan dua tombol yang kebetulan
+   berdiri di dekat kalender. */
+.mggnav{border:1.5px solid var(--line-hard);background:#fff;color:var(--ink-3);
+  width:34px;height:34px;border-radius:10px;font-size:17px;line-height:1;font-weight:700;cursor:pointer}
+.mggnav:hover{border-color:var(--gold);color:var(--gold-deep);background:var(--gold-glow)}
 
 /* ---------- TOTAL PAX DI SEL KALENDER ----------
    Dibesarkan (9.5px → 13px) setelah dicoba di layar: pada 9.5px angkanya
@@ -1125,27 +1131,77 @@ function pager(kunci,total,satuan){
    ke Bulanan lalu kembali ke Harian harus mengembalikan tanggal yang tadi
    dipilih, bukan melompat ke hari ini. */
 function bulanISO(d){ d=d||new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1); }
-function periodeBaru(mode){ return {mode:mode||'bulan', tgl:todayISO(), bln:bulanISO()}; }
+/* ---------- MINGGUAN ----------
+   Minggu kerja dimulai SENIN, bukan Minggu. Itu yang dipakai kru saat menyusun
+   jadwal ("minggu depan"), dan getDay() JavaScript memakai 0=Minggu — kalau
+   dipakai apa adanya, acara hari Minggu masuk minggu berikutnya dan hilang
+   dari rapat koordinasi hari Senin yang membahasnya.
+
+   Yang disimpan ANCHOR-nya (tanggal Senin), bukan nomor minggu. Nomor minggu
+   ISO punya kasus tepi tahun yang tidak sepadan dengan gunanya di sini, dan
+   <input type="week"> tidak didukung Firefox — jadi pemilihnya tetap
+   <input type="date"> biasa yang tanggalnya di-snap ke Senin. */
+function seninMinggu(iso){
+  var d=pDate(iso||todayISO()); var g=d.getDay();
+  d.setDate(d.getDate()-(g===0?6:g-1));
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+}
+function geserHari(iso,n){
+  var d=pDate(iso); d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+}
+function mggAktif(st){ return st.mgg || seninMinggu(todayISO()); }
+function periodeBaru(mode){ return {mode:mode||'bulan', tgl:todayISO(), mgg:seninMinggu(todayISO()), bln:bulanISO()}; }
 function dalamPeriode(iso,st){
   if(!iso) return false;
-  return st.mode==='hari' ? String(iso)===st.tgl : String(iso).slice(0,7)===st.bln;
+  if(st.mode==='hari')   return String(iso)===st.tgl;
+  if(st.mode==='minggu'){ var s=mggAktif(st); return String(iso)>=s && String(iso)<=geserHari(s,6); }
+  return String(iso).slice(0,7)===st.bln;
 }
 function labelPeriode(st){
   if(st.mode==='hari') return fTgl(st.tgl);
+  if(st.mode==='minggu'){
+    var s=mggAktif(st), e=geserHari(s,6), ds=pDate(s), de=pDate(e);
+    // Tahun ditulis sekali di belakang; bulannya ikut ditulis dua kali hanya
+    // kalau minggunya memang menyeberang bulan.
+    return ds.getMonth()===de.getMonth()
+      ? ds.getDate()+' – '+de.getDate()+' '+BLN[de.getMonth()]+' '+de.getFullYear()
+      : fTglP(s)+' – '+fTglP(e)+' '+de.getFullYear();
+  }
   var p=String(st.bln||'').split('-');
   return (BULAN[(+p[1]||1)-1]||'')+' '+(p[0]||'');
 }
+/* Satu pintu untuk semua perubahan penyaring, supaya aturan minggu tidak
+   perlu diulang di tiga pemanggil APP. 'mggPilih' = tanggal apa pun dari
+   kalender; yang disimpan Senin-nya. Tanpa snap ini, memilih Rabu akan
+   menghasilkan "minggu" Rabu–Selasa yang tidak sama dengan minggu siapa pun. */
+function setPeriode(st,k,v){
+  if(k==='mggPilih'){ st.mgg=seninMinggu(v); return; }
+  st[k]=v;
+  // Baru pindah ke Mingguan: pakai minggu dari tanggal yang tadi sedang
+  // dilihat, bukan melompat ke minggu ini — sama alasannya dengan tgl/bln
+  // yang disimpan terpisah.
+  if(k==='mode' && v==='minggu' && !st.mgg) st.mgg=seninMinggu(st.tgl||todayISO());
+}
 function kendaliPeriode(fn,st){
-  var hari=st.mode==='hari';
+  var m=st.mode, s=mggAktif(st);
+  var tombol=function(v,teks){
+    return '<button type="button" class="'+(m===v?'on':'')+'" onclick="APP.'+fn+'(\'mode\',\''+v+'\')">'+teks+'</button>';
+  };
+  var isi;
+  if(m==='hari')        isi='<input type="date" value="'+esc(st.tgl)+'" onchange="APP.'+fn+'(\'tgl\',this.value)">';
+  else if(m==='minggu') isi=
+      // ‹ › digeser SEMINGGU penuh, bukan sehari: memindahkan minggu itu
+      // gerakan yang paling sering dilakukan di layar ini, dan memilihnya
+      // lewat kalender berarti mengingat tanggal berapa Senin depan.
+      '<button type="button" class="mggnav" onclick="APP.'+fn+'(\'mgg\',\''+geserHari(s,-7)+'\')" title="Minggu sebelumnya">‹</button>'+
+      '<input type="date" value="'+esc(s)+'" onchange="APP.'+fn+'(\'mggPilih\',this.value)" title="Pilih tanggal mana pun — otomatis ke minggunya">'+
+      '<button type="button" class="mggnav" onclick="APP.'+fn+'(\'mgg\',\''+geserHari(s,7)+'\')" title="Minggu berikutnya">›</button>';
+  else                  isi='<input type="month" value="'+esc(st.bln)+'" onchange="APP.'+fn+'(\'bln\',this.value)">';
   return '<span class="pkt no-print">'+
-    '<span class="modesw">'+
-      '<button type="button" class="'+(hari?'on':'')+'" onclick="APP.'+fn+'(\'mode\',\'hari\')">Harian</button>'+
-      '<button type="button" class="'+(hari?'':'on')+'" onclick="APP.'+fn+'(\'mode\',\'bulan\')">Bulanan</button>'+
-    '</span>'+
-    '<span class="pkt-lbl"><i></i>'+(hari?'Tanggal':'Periode')+'</span>'+
-    (hari
-      ? '<input type="date" value="'+esc(st.tgl)+'" onchange="APP.'+fn+'(\'tgl\',this.value)">'
-      : '<input type="month" value="'+esc(st.bln)+'" onchange="APP.'+fn+'(\'bln\',this.value)">')+
+    '<span class="modesw">'+tombol('hari','Harian')+tombol('minggu','Mingguan')+tombol('bulan','Bulanan')+'</span>'+
+    '<span class="pkt-lbl"><i></i>'+(m==='hari'?'Tanggal':(m==='minggu'?'Minggu':'Periode'))+'</span>'+
+    isi+
   '</span>';
 }
 
@@ -1698,7 +1754,12 @@ function vDetailEvent(){
    disiapkan siapa pun lagi. Mode Harian tidak butuh pemisahan ini: satu hari
    seluruhnya lewat atau seluruhnya belum, jadi saklarnya hanya akan
    menghasilkan satu ember kosong. */
-var fAg={view:'grid', sumber:'', status:'', fb:'', q:'', waktu:'akan', mode:'hari', tgl:todayISO(), bln:bulanISO()};
+/* Terbuka di MINGGUAN (permintaan user 4 Agustus 2026). Koordinasi acara
+   dikerjakan per minggu — rapat Senin membahas "minggu ini", bukan hari ini
+   dan bukan sebulan penuh. Harian terlalu sempit untuk merencanakan, bulanan
+   terlalu ramai untuk dibaca sekali lihat. */
+var fAg={view:'grid', sumber:'', status:'', fb:'', q:'', waktu:'akan',
+         mode:'minggu', tgl:todayISO(), mgg:seninMinggu(todayISO()), bln:bulanISO()};
 /* Acara "sudah lewat" ditentukan TANGGAL, bukan status. Acara kemarin yang
    statusnya masih Upcoming (lupa ditutup) tetap acara yang sudah lewat, dan
    membiarkannya di daftar akan datang membuat kru menyiapkan sesuatu yang
@@ -1720,7 +1781,12 @@ function agendaTersaringDasar(){
 }
 function agendaTersaring(){
   var list=agendaTersaringDasar();
-  if(fAg.mode!=='bulan') return list;            // harian: tidak dipisah
+  /* Mode HARIAN tidak dipisah: satu hari seluruhnya lewat atau seluruhnya
+     belum, jadi saklarnya cuma akan menghasilkan satu ember kosong. Mingguan
+     IKUT dipisah sejak mingguan jadi tampilan bawaan — kalau tidak, layar
+     pertama yang dilihat orang kembali penuh acara yang sudah selesai, persis
+     keadaan yang pemisahan ini dibuat untuk memperbaiki. */
+  if(fAg.mode==='hari') return list;
   return list.filter(function(a){ return fAg.waktu==='lewat' ? agSudahLewat(a) : !agSudahLewat(a); });
 }
 /* Saklar Akan Datang / Sudah Lewat, lengkap dengan jumlah isinya masing-masing
@@ -1764,7 +1830,7 @@ function tabelAgenda(list){
 function vAgendaList(){
   var h=pitaGagal();
   var dasar=agendaTersaringDasar();
-  var bulanan=(fAg.mode==='bulan');
+  var bulanan=(fAg.mode!=='hari');   // mingguan & bulanan sama-sama dipisah akan/lewat
   var akan  = bulanan ? dasar.filter(function(a){return !agSudahLewat(a);}) : dasar;
   var lewat = bulanan ? dasar.filter(agSudahLewat) : [];
   var list=agendaTersaring();
@@ -1791,7 +1857,7 @@ function vAgendaList(){
     '<div style="flex:1"></div>'+(bulanan?swWaktuAgenda(akan,lewat):'')+swView('fAg',fAg.view)+
   '</div>';
   h+='<div class="muted no-print" style="font-size:11.5px;margin:-6px 0 13px;line-height:1.6">'+
-     (bulanan?'Tampilan bulanan terbuka di <b>Akan Datang</b>. Acara yang tanggalnya sudah lewat pindah ke <b>Sudah Lewat</b> — tetap bisa dibuka, lengkap dengan mana yang berstatus selesai. ':'')+
+     (bulanan?'Terbuka di <b>Akan Datang</b>. Acara yang tanggalnya sudah lewat pindah ke <b>Sudah Lewat</b> — tetap bisa dibuka, lengkap dengan mana yang berstatus selesai. ':'')+
      'Hanya acara yang sudah pasti jalan — <b>Marketing:</b> Deal &amp; Event Done · <b>Event:</b> Upcoming, Today &amp; Finished. '+
      'Tahapan jualan (Lead, Prospect, Quotation, Negotiation, Lost) dan Draft/Cancelled tidak ditampilkan di sini.</div>';
   /* Ember yang kosong sementara ember satunya berisi diberi jalan keluar yang
@@ -1826,10 +1892,13 @@ function vAgendaList(){
    terbaca lebih besar dari kenyataan — persis kesalahan yang dulu bikin floor
    menyiapkan meja untuk tamu yang sudah membatalkan. Jejaknya tidak hilang:
    pilih statusnya di penyaring untuk memunculkannya kembali. */
-/* Sama seperti tab Event: terbuka di mode Harian pada hari ini. Di sini itu
-   sekaligus berarti lembar tengok harian langsung siap begitu tab dibuka —
-   siapa saja tamunya, permintaan khususnya, siap di-WA atau dicetak. */
-var fRs={view:'tabel', status:'', kategori:'', q:'', mode:'hari', tgl:todayISO(), bln:bulanISO()};
+/* Sama seperti tab Event: terbuka di mode MINGGUAN (4 Agustus 2026). Sebelumnya
+   Harian, supaya lembar tengok hari ini langsung siap begitu tab dibuka. Yang
+   dibutuhkan ternyata lebih sering gambaran seminggu — berapa booking Jumat dan
+   Sabtu sudah masuk, mana malam yang masih kosong. Lembar harian tidak hilang:
+   tekan Harian, dan tanggalnya masih tanggal yang tadi dilihat. */
+var fRs={view:'tabel', status:'', kategori:'', q:'',
+         mode:'minggu', tgl:todayISO(), mgg:seninMinggu(todayISO()), bln:bulanISO()};
 function resHidup(r){ return !resBatal(r) && !resNoShow(r); }
 function resTersaring(){
   var list=(D.rsv&&D.rsv.reservations||[]).filter(function(r){return r&&r.date;});
@@ -2235,9 +2304,9 @@ var APP={
      terlihat seperti "tidak ada datanya" — padahal datanya ada di halaman 1.
      Saklar grid/tabel ikut disetel ulang: dua tampilan itu memuat jumlah baris
      yang sama, tapi tetap lebih jelas kembali ke awal saat bentuknya berganti. */
-  fAg:function(k,v){ fAg[k]=v; pgReset(); render(); },
-  fRs:function(k,v){ fRs[k]=v; pgReset(); render(); },
-  fRd:function(k,v){ fRd[k]=v; pgReset(); render(); },
+  fAg:function(k,v){ setPeriode(fAg,k,v); pgReset(); render(); },
+  fRs:function(k,v){ setPeriode(fRs,k,v); pgReset(); render(); },
+  fRd:function(k,v){ setPeriode(fRd,k,v); pgReset(); render(); },
   /* Chip sumber kalender itu saklar nyala/mati, bukan pilihan tunggal — orang
      sering mau melihat "Marketing + Reservasi saja" sekaligus. */
   fCal:function(k){ fCal[k]=!fCal[k]; render(); },
