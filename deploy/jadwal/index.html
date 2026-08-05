@@ -548,12 +548,7 @@ const NAV_DEF = [
   {k:'saya',       t:'Jadwal Saya',    ic:'orang',    sub:'Shift saya bulan ini'},
   {k:'pengajuan',  t:'Pengajuan',      ic:'surat',    sub:'Off, izin, cuti, tukar shift'},
   {s:'Pengaturan'},
-  {k:'pengaturan', t:'Pengaturan',     ic:'gir',      sub:'Shift, head divisi, penempatan kru'},
-  /* Tautan KELUAR ke modul Daily Worker — bukan halaman modul ini. Portal
-     sudah menggabungkan keduanya jadi satu kartu, jadi begitu masuk lewat
-     kartu itu harus ada jalan menyeberang tanpa kembali ke portal dulu.
-     Ditandai `luar` supaya buildNav menggambarnya sebagai <a href> biasa. */
-  {t:'Daily Worker', ic:'dwadd', sub:'Pekerja harian & part time', luar:'../dw/', butuh:'dw'}
+  {k:'pengaturan', t:'Pengaturan',     ic:'gir',      sub:'Shift, head divisi, penempatan kru'}
 ];
 
 /* ---------- State ---------- */
@@ -674,15 +669,51 @@ function normalizeState(d){
   return b;
 }
 function shiftDef(k){ return (S&&S.setting.shifts[k]) || SHIFT_BAWAAN[k] || {n:k,m:'',s:'',w:'#7A756B',libur:1,urut:99}; }
-/* Shift kebiasaan seorang kru. Dipakai saat membuka sel kosong dan saat
-   mengisi minggu secara massal. Kosong = belum pernah diatur; jatuh ke shift
-   pertama yang bukan libur (PAGI pada susunan bawaan), bukan ke kode 'PAGI'
-   yang dipatok — nama shift boleh diubah admin, dan memaksa 'PAGI' membuat
-   modul mengacu ke shift yang mungkin sudah tidak ada. */
-function shiftKru(uid){
+/* Shift bawaan seorang kru untuk SATU TANGGAL: apa yang ia kerjakan pada hari
+   yang sama MINGGU LALU.
+
+   Inilah cara jadwal benar-benar disusun di sini — pola tiap orang berulang
+   minggu demi minggu, dan yang berubah cuma satu-dua hari. Sebelumnya bawaan
+   diambil dari satu shift tetap yang diketik admin sekali di Pengaturan, dan
+   itu salah untuk hampir semua orang begitu rotasinya bergeser: head tetap
+   harus membetulkan hampir setiap sel yang baru saja "dibantu" isi.
+
+   Urutan jatuhnya, dari yang paling dipercaya:
+     1. sel orang itu pada hari yang sama minggu lalu (mis. Senin ini ikut
+        Senin lalu) — termasuk kalau minggu lalu OFF, karena pola liburnya
+        justru yang paling ingin dipertahankan;
+     2. shift yang PALING SERING ia pakai sepanjang minggu lalu, dipakai saat
+        hari itu sendiri kosong minggu lalu;
+     3. pilihan manual di Pengaturan (untuk kru baru yang belum punya riwayat);
+     4. shift pertama yang bukan libur.
+
+   `tgl` boleh dikosongkan — pemanggil yang tidak punya konteks tanggal
+   langsung memakai langkah 3 dan 4. */
+function shiftKru(uid,tgl){
+  if(tgl){
+    const lalu=sel(uid, addD(tgl,-7));
+    if(lalu && lalu.t && S.setting.shifts[lalu.t]) return lalu.t;
+    const k=shiftTersering(uid, addD(seninDari(tgl),-7));
+    if(k) return k;
+  }
   const pilih=S&&S.setting.shiftKru&&S.setting.shiftKru[uid];
   if(pilih && S.setting.shifts[pilih]) return pilih;
   return daftarShift().find(k=>!shiftDef(k).libur) || daftarShift()[0] || 'PAGI';
+}
+/* Shift yang paling sering dipakai seseorang dalam minggu yang dimulai
+   `senin`. Yang libur TIDAK ikut dihitung: kalau seluruh minggu lalu cuma
+   berisi OFF dan satu PAGI, yang dicari orang jelas PAGI — mengembalikan OFF
+   sebagai "kebiasaan" akan mengisi minggu baru dengan libur semua. */
+function shiftTersering(uid,senin){
+  const n={};
+  for(let i=0;i<7;i++){
+    const c=sel(uid, addD(senin,i));
+    if(!c || !c.t || shiftDef(c.t).libur) continue;
+    n[c.t]=(n[c.t]||0)+1;
+  }
+  let top='', max=0;
+  Object.keys(n).forEach(function(k){ if(n[k]>max){ max=n[k]; top=k; } });
+  return top;
 }
 function daftarShift(){
   return Object.keys(S.setting.shifts).sort((a,b)=>(shiftDef(a).urut||99)-(shiftDef(b).urut||99));
@@ -756,7 +787,6 @@ function namaKru(id){ const u=kruById(id); return u?u.name:'—'; }
    ===================================================================== */
 function isAdmin(){ return !!(ME && ME.admin); }
 function isHeadUser(uid,div){ return ((S&&S.setting.heads[div])||[]).indexOf(uid)>-1; }
-function punyaModul(k){ const m=(ME&&ME.modul)||[]; return m.indexOf('*')>-1 || m.indexOf(k)>-1; }
 function isManajemen(){ return !!(ME && ((S&&S.setting.manajemen)||[]).indexOf(ME.id)>-1); }
 /* Siapa yang boleh membuka Rekap Pegawai: admin modul, head divisi mana pun,
    dan manajemen. Kru biasa tidak — halaman itu memperlihatkan jam kerja dan
@@ -1014,12 +1044,6 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('jadwal')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
-            /* Daftar modul ikut disimpan supaya sidebar bisa menampilkan
-               tautan ke modul Daily Worker HANYA untuk yang memang berhak.
-               Kartu di portal sudah digabung jadi satu, tapi kunci izinnya
-               tetap dua — menampilkan tautan ke orang yang tidak punya `dw`
-               cuma mengantarkannya ke layar "tidak punya akses". */
-            modul:m,
             admin:(adm.indexOf('*')>-1 || adm.indexOf('jadwal')>-1)};
   }catch(e){ return null; }
 }
@@ -1061,19 +1085,6 @@ function buildNav(){
        bawahnya yang boleh dibuka orang ini. Tanpa itu kru biasa melihat judul
        "PENGATURAN" menggantung tanpa satu pun menu di bawahnya. */
     if(n.s){ tunda=n.s; return; }
-    /* Tautan ke modul lain: bukan halaman di sini, jadi tidak lewat go().
-       Disembunyikan kalau akun ini tidak punya kunci modulnya — mengantarkan
-       orang ke layar "tidak punya akses" lebih buruk daripada tidak
-       menawarkan jalannya sama sekali. */
-    if(n.luar){
-      if(n.butuh && !punyaModul(n.butuh)) return;
-      if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
-      adaIsi=true;
-      h+='<a href="'+esc(n.luar)+'" title="'+esc(n.sub||n.t)+'">'
-        +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'
-        +'<span style="margin-left:auto;opacity:.45;font-size:14px">↗</span></a>';
-      return;
-    }
     if(!bolehBuka(n.k)) return;
     if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
     adaIsi=true;
@@ -1406,15 +1417,22 @@ function viewBulanan(){
     +tabel
     +(bisa?'<p class="mutedhint noprint" style="margin-top:10px">Klik sel mana pun untuk mengubahnya. Untuk mengisi satu minggu sekaligus, pakai <b>Input Mingguan</b>.</p>'
           :'<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</p>')
-    +'</div>'
-    +panelBeban(emps,mk);
+    /* Panel "Beban Kerja Bulan Ini" dihapus 5 Agustus 2026 atas permintaan.
+       Angka yang sama kini dibaca per orang di halaman Rekap Pegawai, dan
+       tabel sepanjang divisi di kaki lembar ini jarang dipakai sementara ia
+       memanjangkan halaman yang justru dibuka untuk melihat kisi jadwalnya. */
+    +'</div>';
 }
 /* Beban kerja sebulan per kru: berapa hari masuk, berapa libur, berapa jam,
    dan rangkaian hari masuk terpanjang tanpa sela.
 
    Ini yang paling sering jadi keributan di grup: "kenapa OFF saya cuma dua",
    dan head tidak punya cara cepat membuktikannya selain menghitung manual
-   tiga puluh kolom. Sekarang angkanya ada di bawah lembarnya sendiri. */
+   tiga puluh kolom.
+
+   Panel yang dulu memakainya di kaki Jadwal Bulanan sudah dihapus; angkanya
+   sekarang dibaca PER ORANG di halaman Rekap Pegawai. Fungsinya tetap di sini
+   karena Rekap memanggilnya. */
 function bebanKru(u,mk){
   const a=awalBulan(mk), z=akhirBulan(mk);
   let masuk=0, libur=0, kosong=0, jam=0, beruntun=0, maxBeruntun=0;
@@ -1443,46 +1461,15 @@ function jedaKeBesok(uid,tgl){
   const mulaiBesok=1440+men(j2.m);
   return Math.round((mulaiBesok-selesai)/60*10)/10;
 }
-function peringatanBulan(emps,mk){
-  const maks=(S.setting.maksBeruntun)||6, jedaMin=(S.setting.jedaMin)||10;
-  const a=awalBulan(mk), z=akhirBulan(mk);
-  const out=[];
-  emps.forEach(function(u){
-    const b=bebanKru(u,mk);
-    if(b.maxBeruntun>maks)
-      out.push({n:u.name, t:b.maxBeruntun+" hari masuk beruntun tanpa libur (batas "+maks+")"});
-    for(let d=a; d<z; d=addD(d,1)){
-      const j=jedaKeBesok(u.id,d);
-      if(j!==null && j<jedaMin)
-        out.push({n:u.name, t:"jeda hanya "+j+" jam antara "+tglManusia(d)+" dan "+tglManusia(addD(d,1))+" (batas "+jedaMin+")"});
-    }
-  });
-  return out;
-}
-function panelBeban(emps,mk){
-  if(!emps.length) return "";
-  const baris=emps.map(function(u,i){
-    const b=bebanKru(u,mk);
-    return "<tr><td class=\"no\">"+(i+1)+"</td>"
-      +"<td><span class=\"nama\">"+esc(u.name)+"</span><div class=\"kecil\">"+esc(jabatanDari(u))+"</div></td>"
-      +"<td class=\"mono\">"+b.masuk+"</td>"
-      +"<td class=\"mono\">"+b.libur+"</td>"
-      +"<td class=\"mono\">"+(b.jam?b.jam:"\u2014")+"</td>"
-      +"<td class=\"mono\">"+b.maxBeruntun+"</td>"
-      +"<td class=\"mono\">"+(b.kosong?("<b style=\"color:var(--warn)\">"+b.kosong+"</b>"):"0")+"</td></tr>";
-  }).join("");
-  const p=peringatanBulan(emps,mk);
-  const daftar=p.length
-    ? '<div class="note w" style="margin-top:12px"><b>'+p.length+' hal perlu dilihat:</b><ul style="margin:6px 0 0 18px">'
-      +p.slice(0,12).map(function(x){ return "<li><b>"+esc(x.n)+"</b> \u2014 "+esc(x.t)+"</li>"; }).join("")
-      +(p.length>12?("<li>\u2026 dan "+(p.length-12)+" lagi</li>"):"")+"</ul></div>"
-    : '<div class="note i" style="margin-top:12px">Tidak ada yang melewati batas hari beruntun maupun jeda antar-shift.</div>';
-  return '<div class="panel noprint"><div class="rowbar"><h2>\u2696\ufe0f Beban Kerja Bulan Ini</h2>'
-    +'<div class="spacer"></div><span class="mutedhint">batas: '+((S.setting.maksBeruntun)||6)+' hari beruntun, jeda min '+((S.setting.jedaMin)||10)+' jam</span></div>'
-    +'<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th>'
-    +'<th>Masuk</th><th>Libur</th><th>Jam</th><th>Beruntun</th><th>Belum Diatur</th></tr></thead><tbody>'
-    +baris+'</tbody></table></div>'+daftar+'</div>';
-}
+/* peringatanBulan() dan panelBeban() dihapus 5 Agustus 2026 bersama panel
+   "Beban Kerja Bulan Ini" di kaki Jadwal Bulanan. Keduanya tidak punya
+   pemanggil lain, dan fungsi tanpa pemanggil ikut muncul saat mencari lalu
+   membuat pembaca berikutnya mengira masih ada layar yang memakainya.
+
+   Peringatan yang setara tetap ada, tapi PER ORANG di halaman Rekap Pegawai \u2014
+   di sana ia menempel pada orang yang sedang dilihat, bukan sebagai tabel
+   sepanjang divisi yang memanjangkan halaman yang justru dibuka untuk
+   melihat kisi jadwalnya. */
 function rekapBulan(emps,mk){
   const a=awalBulan(mk), z=akhirBulan(mk);
   let masuk=0,libur=0,kosong=0;
@@ -1744,11 +1731,11 @@ function bukaEditor(uid,tgl){
   const div=divisiDari(u);
   if(!bolehUbah(div)){ toast('Hanya head divisi '+namaDivisi(div)+' yang bisa mengatur jadwal ini'); return; }
   const c=sel(uid,tgl);
-  /* Sel kosong dibuka dengan shift KEBIASAAN orang itu, bukan selalu PAGI.
-     Kebanyakan kru memegang shift yang sama hampir tiap hari, jadi tebakan
-     yang benar menghemat satu klik di hampir setiap sel — dan sel yang
+  /* Sel kosong dibuka dengan shift orang itu pada hari yang sama MINGGU LALU,
+     bukan selalu PAGI. Pola tiap orang berulang minggu demi minggu, jadi
+     tebakan yang benar menghemat satu klik di hampir setiap sel — dan sel yang
      salah tebak tetap tinggal dipilih ulang seperti biasa. */
-  const bawaan=shiftKru(uid);
+  const bawaan=shiftKru(uid,tgl);
   EDIT={uid, tgl, t:(c?c.t:bawaan), m:(c?c.m:''), s:(c?c.s:''), n:(c?c.n:''), ada:!!c};
   gambarEditor();
 }
@@ -1814,13 +1801,15 @@ function pilihShiftModal(judul,pesan,cb,pakaiBawaan){
       +esc(sd.n)+'<small>'+(sd.libur?'&nbsp;':(sd.m+'–'+sd.s))+'</small></button>';
   }).join('');
   /* Tombol paling atas, memenuhi lebar: inilah pilihan yang dipakai hampir
-     tiap minggu. Tiap kru punya shift kebiasaan sendiri, jadi "isi semua
+     tiap minggu. Pola tiap kru berulang minggu demi minggu, jadi "isi semua
      dengan SIANG" justru jarang benar untuk seluruh divisi sekaligus. */
   const bawaan = pakaiBawaan
     ? '<button class="btn btn-primary" style="width:100%;margin-bottom:10px" onclick="PILIH_CB(&#39;'+PILIH_BAWAAN+'&#39;)">'
-      +'⭐ Shift bawaan tiap kru</button>'
-      +'<p class="mutedhint" style="margin:-4px 0 12px">Tiap orang diisi shift kebiasaannya masing-masing '
-      +'(diatur di Pengaturan → Penempatan Kru). Atau pilih satu shift untuk semua di bawah ini.</p>'
+      +'⭐ Ikut minggu lalu</button>'
+      +'<p class="mutedhint" style="margin:-4px 0 12px">Tiap sel kosong diisi shift orang itu pada '
+      +'<b>hari yang sama minggu lalu</b> — termasuk OFF-nya, jadi pola liburnya ikut terbawa. '
+      +'Kru yang belum punya riwayat minggu lalu memakai shift kebiasaannya di Pengaturan. '
+      +'Atau pilih satu shift untuk semua di bawah ini.</p>'
     : '';
   window.PILIH_CB=function(k){ tutupModal(); cb(k); };
   document.getElementById('modalRoot').innerHTML=
@@ -1861,18 +1850,22 @@ function isiSisa(){
   pilihShiftModal('Isi Sel Kosong','Hanya sel yang masih kosong di minggu ini yang diisi. Yang sudah terisi tidak disentuh.',function(pilihan){
     const rows=[];
     kruDivisi(DIV).forEach(function(u){
-      // Shift ditentukan PER ORANG saat memakai bawaan, sekali di luar loop
-      // hari supaya tidak dihitung ulang tujuh kali.
-      const k=(pilihan===PILIH_BAWAAN)?shiftKru(u.id):pilihan;
-      const d=shiftDef(k);
       for(let i=0;i<7;i++){
         const tgl=addD(senin,i);
-        if(!sel(u.id,tgl)) rows.push({u:u.id, d:tgl, t:k, m:d.libur?'':d.m, s:d.libur?'':d.s, n:''});
+        if(sel(u.id,tgl)) continue;
+        /* Shift dihitung PER HARI, bukan sekali per orang: bawaannya kini
+           berarti "ikut hari yang sama minggu lalu", jadi Senin dan Selasa
+           bisa berbeda. Menghitungnya sekali di luar loop — seperti dulu —
+           akan menyalin satu shift ke tujuh hari dan justru menghapus pola
+           liburnya. */
+        const k=(pilihan===PILIH_BAWAAN)?shiftKru(u.id,tgl):pilihan;
+        const d=shiftDef(k);
+        rows.push({u:u.id, d:tgl, t:k, m:d.libur?'':d.m, s:d.libur?'':d.s, n:''});
       }
     });
     if(!rows.length){ toast('Tidak ada sel kosong'); return; }
     tulisSel(rows,[]);
-    toast(rows.length+' sel diisi '+(pilihan===PILIH_BAWAAN?'shift bawaan tiap kru':shiftDef(pilihan).n));
+    toast(rows.length+' sel diisi '+(pilihan===PILIH_BAWAAN?'mengikuti minggu lalu':shiftDef(pilihan).n));
   }, true);
 }
 /* ---------- Isi Satu Baris: klik beruntun, satu hari per klik ----------
@@ -2182,7 +2175,9 @@ function bukaAjukan(tglAwal){
       +'</select></div>'
     : '';
   const hari=(typeof tglAwal==='string' && /^\d{4}-\d{2}-\d{2}$/.test(tglAwal)) ? tglAwal : hariIni();
-  AJU_SHIFT = shiftKru(pool.length?pool[0].id:(ME&&ME.id));
+  /* Shift yang disodorkan = shift orang itu pada hari yang sama minggu lalu
+     relatif terhadap tanggal yang sedang diajukan. */
+  AJU_SHIFT = shiftKru(pool.length?pool[0].id:(ME&&ME.id), hari);
   document.getElementById('modalRoot').innerHTML=
     '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
     +'<div class="mh"><h3>Ajukan Perubahan Jadwal</h3><button class="xbtn" onclick="tutupModal()">×</button></div>'
@@ -2228,7 +2223,10 @@ function gambarShiftAju(){
       +'<span>Sel jadwal pada tanggal itu akan diisi <b>'+esc(d.n)+'</b> begitu disetujui.</span></div>';
     return;
   }
-  if(!AJU_SHIFT || !S.setting.shifts[AJU_SHIFT]) AJU_SHIFT=shiftKru(ME&&ME.id);
+  if(!AJU_SHIFT || !S.setting.shifts[AJU_SHIFT]){
+    const el2=document.getElementById("ajDari");
+    AJU_SHIFT=shiftKru(ME&&ME.id, el2?el2.value:"");
+  }
   const d=shiftDef(AJU_SHIFT);
   box.innerHTML='<div class="field"><label>Shift yang diminta</label>'
     +'<div class="pick">'+daftarShift().filter(k=>!shiftDef(k).libur).map(function(k){
@@ -2402,7 +2400,7 @@ function viewPengaturan(){
            dijadwalkan, jadi disembunyikan untuk yang tidak. */
         +(d===DIV_NONSHIFT ? '' :
           '<select class="inp" style="width:134px" title="Shift kebiasaan" onchange="ubahShiftKru(&#39;'+escJs(u.id)+'&#39;,this.value)">'
-          +'<option value="">Bawaan: '+esc(shiftDef(shiftKru(u.id)).n)+'</option>'
+          +'<option value="">Cadangan: '+esc(shiftDef(shiftKru(u.id)).n)+'</option>'
           +daftarShift().map(function(k){
               return '<option value="'+esc(k)+'"'+((S.setting.shiftKru[u.id]===k)?' selected':'')+'>'+esc(shiftDef(k).n)+'</option>';
             }).join('')
@@ -2432,7 +2430,7 @@ function viewPengaturan(){
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2><div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm" onclick="ulangRoster()">↻ Tarik Ulang dari Office</button></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Kolom terakhir adalah <b>shift kebiasaan</b> tiap kru. Dipakai di dua tempat: sel kosong yang diklik langsung terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Shift bawaan tiap kru</b> mengisi satu minggu penuh sesuai kebiasaan masing-masing. Kebanyakan kru memegang shift yang sama hampir tiap hari, jadi ini memangkas hampir semua klik input mingguan.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Kolom terakhir adalah <b>shift kebiasaan</b> tiap kru — dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
     +panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>';
 }

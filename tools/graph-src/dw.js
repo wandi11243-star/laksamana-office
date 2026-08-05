@@ -500,11 +500,6 @@ function svg() {  }
 
 
 
-
-
-
-
-
 function esc() {  }
 function escJs() {  }
 function pad() {  }
@@ -665,7 +660,6 @@ function biayaAjuan() { tarifPosisi(); }
 function isDW() {  }
 
 
-function punyaModul() {  }
 function isAdmin() {  }
 function isOffice() {  }
 function namaSaya() { isDW(); }
@@ -780,10 +774,6 @@ function bacaSesi() {  }
 
 
 
-
-
-
-
 function bacaSesiDW() {  }
 
 
@@ -837,21 +827,7 @@ function bolehBuka() { isDW(); isAdmin(); }
 
 
 
-function buildNav() { isDW(); ajuanPerluHadir(); go(); punyaModul(); esc(); svg(); bolehBuka(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function buildNav() { isDW(); ajuanPerluHadir(); bolehBuka(); esc(); go(); svg(); }
 
 
 
