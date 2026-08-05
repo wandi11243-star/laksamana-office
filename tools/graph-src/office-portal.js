@@ -733,7 +733,9 @@ function moduleLabel() { appModuleList(); }
 
 
 
-function moduleLabels() { canOpen(); }
+function moduleLabels() { punyaKunci(); canOpen(); }
+
+
 
 
 
@@ -975,6 +977,18 @@ function setSession() {  }
 
 
 function clearSession() {  }
+
+
+
+
+
+
+function tujuanKartu() {  }
+
+
+function punyaKunci() {  }
+
+
 
 function canOpen() { isSuperadmin(); }
 
@@ -1664,7 +1678,7 @@ function svgIcon() {  }
 
 
 
-function renderSuper() {  }
+function renderSuper() { tujuanKartu(); }
 
 
 
@@ -1692,7 +1706,7 @@ function renderSuper() {  }
 
 
 
-function renderBranches() { canOpen(); svgIcon(); }
+function renderBranches() { canOpen(); tujuanKartu(); svgIcon(); }
 
 
 

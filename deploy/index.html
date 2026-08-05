@@ -866,26 +866,28 @@
                melihat jadwalnya. Siapa yang boleh MENYUSUN jadwal ditentukan
                di dalam modul (Pengaturan -> Head Divisi), bukan di sini —
                memberi akses modul tidak sama dengan menjadikan orang head. */
-            key:'jadwal', href:'./jadwal/', icon:'shift', access:['jadwal'],
-            title:'Jadwal Shift', tag:'Roster & Absensi Kru',
-            desc:'Lembar jadwal bulanan per divisi seperti di papan, disusun per minggu oleh head divisi. Kru mengajukan off, izin, dan tukar shift untuk disetujui head.',
-            scope:['Jadwal Bulanan','Input Mingguan','Pengajuan']
-        },
-        {
-            /* Daily Worker — pekerja harian / part time, BUKAN kru tetap.
-               Mereka tidak punya akun Office (daftarnya berganti tiap bulan,
-               dan mendaftarkan mereka di sini akan mencemari roster setiap
-               modul); mereka masuk ke modulnya sendiri pakai no HP + PIN dari
-               HR untuk mengajukan tanggal kerjanya.
+            /* SATU kartu untuk dua modul: Jadwal Shift (kru tetap) dan Daily
+               Worker (part time). Keduanya memang satu urusan — DW yang
+               disetujui HR langsung muncul di kalender Jadwal Shift — dan dua
+               kartu berdampingan yang saling menunjuk cuma membuat orang
+               menebak harus masuk lewat yang mana.
 
-               Akses modul ini diberikan ke HR dan head yang perlu menyetujui.
-               Yang sudah disetujui otomatis muncul di kalender Jadwal Shift,
-               di blok terpisah di bawah kru tetap — jadi head TIDAK perlu
-               diberi akses modul ini hanya untuk melihat siapa DW hari itu. */
-            key:'dw', href:'./dw/', icon:'dwadd', access:['dw'],
-            title:'Daily Worker', tag:'Pekerja Harian & Part Time',
-            desc:'Daily worker mengajukan sendiri tanggal dan jam kerjanya lewat no HP + PIN, HR menyetujui, lalu namanya otomatis masuk ke kalender Jadwal Shift. Lengkap dengan talent pool, catatan kehadiran, dan estimasi biaya.',
-            scope:['Antrean Ajuan','Database DW','Kehadiran']
+               Polanya sama dengan kartu Stock: KUNCI IZINNYA TETAP DUA
+               (`jadwal` dan `dw`), yang digabung hanya kartunya. Itu
+               disengaja — modul DW memuat nomor HP, PIN, dan tombol setujui
+               ajuan, sedangkan akses `jadwal` diberikan ke hampir seluruh kru
+               supaya mereka bisa melihat jadwalnya sendiri. Menyatukannya
+               jadi satu kunci berarti setiap kru bisa membuka talent pool DW.
+
+               `href` berupa fungsi karena tujuannya bergantung pada kunci yang
+               dipegang: HR yang hanya punya `dw` tidak boleh dilempar ke
+               ./jadwal/ dan mendarat di layar "tidak punya akses". */
+            key:'jadwal', icon:'shift', access:['jadwal','dw'],
+            href:(s)=> punyaKunci(s,'jadwal') ? './jadwal/' : './dw/',
+            accessLabels:{ jadwal:'Jadwal Shift', dw:'Jadwal · Daily Worker' },
+            title:'Jadwal Shift', tag:'Roster Kru & Daily Worker',
+            desc:'Lembar jadwal bulanan per divisi seperti di papan, disusun per minggu oleh head divisi. Kru mengajukan off, izin, dan tukar shift; daily worker mengajukan tanggal kerjanya sendiri lewat no HP + PIN, dan yang disetujui HR langsung muncul di kalender yang sama.',
+            scope:['Jadwal Bulanan','Input Mingguan','Rekap Pegawai','Daily Worker']
         },
         {
             /* Modul kasir, dipisah dari Kompas 28 Juli 2026. Isinya empat
@@ -976,6 +978,18 @@
 
     function clearSession(){ localStorage.removeItem(SESSION_KEY); }
 
+    /* Tujuan kartu boleh berupa fungsi, bukan cuma string. Dibutuhkan kartu
+       gabungan yang menaungi DUA modul dengan kunci izin berbeda: HR yang
+       hanya punya `dw` tidak boleh dilempar ke ./jadwal/ dan mendarat di
+       layar "tidak punya akses" — kartunya kelihatan, tapi tujuannya salah.
+       Kartu berkunci tunggal tetap memakai string seperti sebelumnya. */
+    function tujuanKartu(branch, session){
+        return (typeof branch.href === 'function') ? branch.href(session) : branch.href;
+    }
+    function punyaKunci(session, key){
+        const m = session.modules || [];
+        return m.includes('*') || m.includes(key);
+    }
     function canOpen(branch, session){
         /* superOnly diperiksa DULU, dan '*' tidak boleh melewatinya.
            Grant modul menjawab "boleh buka apa"; superOnly menjawab "boleh
@@ -1674,7 +1688,7 @@
         if(!shown.length){ sec.hidden = true; grid.innerHTML = ''; return; }
         const crown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 16 3 7l5.5 4L12 5l3.5 6L21 7l-2 9H5z"/><path d="M5 20h14"/></svg>';
         const go = '<svg class="s-go" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
-        grid.innerHTML = shown.map(b => `<a href="${b.href}" class="super-tile" aria-label="Buka ${b.title}">
+        grid.innerHTML = shown.map(b => `<a href="${tujuanKartu(b, session)}" class="super-tile" aria-label="Buka ${b.title}">
                 <div class="s-ico">${crown}</div>
                 <div class="s-body">
                     <span class="s-badge">${b.badge}</span>
@@ -1710,7 +1724,7 @@
             
             // Semua modul kini lokal (folder di ./). Hand-off SSO ke Laravel dihapus
             // bersama kartu Manajemen/Event/Finance.
-            return `<a href="${b.href}" class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
+            return `<a href="${tujuanKartu(b, session)}" class="tile rise" style="animation-delay:${delay}s" aria-label="Buka modul ${b.title}">
                 <div class="head"><div class="ico">${svgIcon(b.icon)}</div>${arrow}</div>
                 <h2>${b.title}</h2>
                 <p class="kicker">${b.tag}</p>

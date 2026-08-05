@@ -531,6 +531,7 @@ const IC = {
      dipakai Jadwal Saya) — dua menu berikon sama membuat orang menekan yang
      salah, dan keduanya kebetulan sama-sama soal jadwal satu orang. */
   rekap:'<path d="M3 3v18h18"/><path d="M7 14.5l3.5-4 3 2.5L20 7"/>',
+  dwadd:'<path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
   gir:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.43.65.79.79H21a2 2 0 1 1 0 4h-.09c-.36.14-.65.43-.79.79Z"/>'
 };
 function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p||'')+'</svg>'; }
@@ -547,7 +548,12 @@ const NAV_DEF = [
   {k:'saya',       t:'Jadwal Saya',    ic:'orang',    sub:'Shift saya bulan ini'},
   {k:'pengajuan',  t:'Pengajuan',      ic:'surat',    sub:'Off, izin, cuti, tukar shift'},
   {s:'Pengaturan'},
-  {k:'pengaturan', t:'Pengaturan',     ic:'gir',      sub:'Shift, head divisi, penempatan kru'}
+  {k:'pengaturan', t:'Pengaturan',     ic:'gir',      sub:'Shift, head divisi, penempatan kru'},
+  /* Tautan KELUAR ke modul Daily Worker — bukan halaman modul ini. Portal
+     sudah menggabungkan keduanya jadi satu kartu, jadi begitu masuk lewat
+     kartu itu harus ada jalan menyeberang tanpa kembali ke portal dulu.
+     Ditandai `luar` supaya buildNav menggambarnya sebagai <a href> biasa. */
+  {t:'Daily Worker', ic:'dwadd', sub:'Pekerja harian & part time', luar:'../dw/', butuh:'dw'}
 ];
 
 /* ---------- State ---------- */
@@ -750,6 +756,7 @@ function namaKru(id){ const u=kruById(id); return u?u.name:'—'; }
    ===================================================================== */
 function isAdmin(){ return !!(ME && ME.admin); }
 function isHeadUser(uid,div){ return ((S&&S.setting.heads[div])||[]).indexOf(uid)>-1; }
+function punyaModul(k){ const m=(ME&&ME.modul)||[]; return m.indexOf('*')>-1 || m.indexOf(k)>-1; }
 function isManajemen(){ return !!(ME && ((S&&S.setting.manajemen)||[]).indexOf(ME.id)>-1); }
 /* Siapa yang boleh membuka Rekap Pegawai: admin modul, head divisi mana pun,
    dan manajemen. Kru biasa tidak — halaman itu memperlihatkan jam kerja dan
@@ -1007,6 +1014,12 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('jadwal')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
+            /* Daftar modul ikut disimpan supaya sidebar bisa menampilkan
+               tautan ke modul Daily Worker HANYA untuk yang memang berhak.
+               Kartu di portal sudah digabung jadi satu, tapi kunci izinnya
+               tetap dua — menampilkan tautan ke orang yang tidak punya `dw`
+               cuma mengantarkannya ke layar "tidak punya akses". */
+            modul:m,
             admin:(adm.indexOf('*')>-1 || adm.indexOf('jadwal')>-1)};
   }catch(e){ return null; }
 }
@@ -1048,6 +1061,19 @@ function buildNav(){
        bawahnya yang boleh dibuka orang ini. Tanpa itu kru biasa melihat judul
        "PENGATURAN" menggantung tanpa satu pun menu di bawahnya. */
     if(n.s){ tunda=n.s; return; }
+    /* Tautan ke modul lain: bukan halaman di sini, jadi tidak lewat go().
+       Disembunyikan kalau akun ini tidak punya kunci modulnya — mengantarkan
+       orang ke layar "tidak punya akses" lebih buruk daripada tidak
+       menawarkan jalannya sama sekali. */
+    if(n.luar){
+      if(n.butuh && !punyaModul(n.butuh)) return;
+      if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
+      adaIsi=true;
+      h+='<a href="'+esc(n.luar)+'" title="'+esc(n.sub||n.t)+'">'
+        +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'
+        +'<span style="margin-left:auto;opacity:.45;font-size:14px">↗</span></a>';
+      return;
+    }
     if(!bolehBuka(n.k)) return;
     if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
     adaIsi=true;
@@ -1665,7 +1691,10 @@ function viewMinggu(){
   emps.forEach((u,ui)=>{
     body+='<tr><td class="no">'+(ui+1)+'</td>'
       +'<td class="nm"><b>'+esc(u.name)+'</b><i>'+esc(jabatanDari(u))+'</i></td>'
-      +'<td class="jb"><button class="btn btn-ghost btn-sm" title="Isi seluruh baris" onclick="isiBaris(\''+escJs(u.id)+'\')">baris</button></td>'
+      /* Dulu tombol ini cuma bertulis "baris" dan tidak ada yang menebak
+         gunanya. Namanya sekarang menyebut pekerjaannya: mengisi satu minggu
+         penuh untuk orang itu, satu klik satu hari. */
+      +'<td class="jb"><button class="btn btn-ghost btn-sm" title="Isi seluruh minggu untuk kru ini — satu klik satu hari" onclick="isiBaris(\''+escJs(u.id)+'\')">Input Mingguan</button></td>'
       +hari.map(d=>selHtml(sel(u.id,d),u.id,d,true)).join('')+'</tr>';
   });
   /* Blok daily worker ikut tampil saat head menyusun minggu depan — justru di
@@ -2362,7 +2391,11 @@ function viewPengaturan(){
         +DIVISI.concat([{k:DIV_NONSHIFT,n:'Tidak dijadwalkan'}])
           .map(x=>'<option value="'+x.k+'"'+((S.setting.divOverride[u.id]===x.k)?' selected':'')+'>'+esc(x.n)+'</option>').join('')
         +'</select>'
-        +'<input class="inp" style="width:130px" placeholder="Jabatan di lembar" value="'+esc(S.setting.jabatan[u.id]||'')+'" onchange="ubahJabatan(\''+escJs(u.id)+'\',this.value)" title="Kosong = pakai keterangan Office">'
+        /* Kotak "Jabatan di lembar" dihapus 5 Agustus 2026 atas permintaan.
+           Jabatan sekarang SELALU ikut kolom keterangan di Office — satu
+           sumber, tidak ada lagi dua tempat yang bisa berbeda isi.
+           `S.setting.jabatan` yang lama tetap dibaca jabatanDari(), jadi
+           penyesuaian yang terlanjur diisi tidak hilang begitu saja. */
         +'<span class="chip"'+(d===DIV_NONSHIFT?' style="opacity:.6"':'')+'>'+esc(namaDivisi(d))+'</span>'
         
         /* Shift kebiasaan orang ini. Hanya berarti untuk kru yang memang
@@ -2381,13 +2414,12 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Nama, jam bawaan, dan warna tiap shift. Mengubah jam di sini berlaku untuk sel yang <b>belum</b> punya jam khusus — sel yang jamnya sudah ditimpa per orang tidak ikut berubah.</p>'
     +barisShift+'</div>'
 
-    +'<div class="panel"><div class="rowbar"><h2>⚖️ Batas Beban Kerja</h2></div>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Dipakai panel <b>Beban Kerja</b> di halaman Jadwal Bulanan untuk menandai jadwal yang perlu dilihat ulang. Ini <b>peringatan, bukan larangan</b> — jadwal tetap bisa disimpan, cuma ikut terdaftar supaya tidak lolos tanpa disadari.</p>'
-    +'<div class="row"><div class="who"><b>Maksimal hari masuk beruntun</b><span>Tanpa satu pun libur di antaranya</span></div>'
-    +'<input class="inp" type="number" min="1" max="31" style="width:90px" value="'+((S.setting.maksBeruntun)||6)+'" onchange="ubahAmbang(&#39;maksBeruntun&#39;,this.value)"> hari</div>'
-    +'<div class="row"><div class="who"><b>Jeda minimal antar shift</b><span>Dari jam pulang ke jam masuk hari berikutnya</span></div>'
-    +'<input class="inp" type="number" min="1" max="24" style="width:90px" value="'+((S.setting.jedaMin)||10)+'" onchange="ubahAmbang(&#39;jedaMin&#39;,this.value)"> jam</div>'
-    +'</div>'
+    /* Panel "Batas Beban Kerja" dihapus 5 Agustus 2026 atas permintaan.
+       Peringatannya SENDIRI tetap jalan (panel Beban Kerja di Jadwal Bulanan
+       dan alarm di Rekap Pegawai) — yang hilang cuma layar untuk menyetelnya,
+       jadi keduanya memakai angka bawaan: 6 hari beruntun, jeda 10 jam.
+       Kalau suatu saat perlu disetel lagi, `S.setting.maksBeruntun` dan
+       `S.setting.jedaMin` masih dibaca di semua tempat pemakainya. */
     +'<div class="panel"><div class="rowbar"><h2>👑 Head Divisi</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Head menyusun jadwal divisinya dan memutuskan pengajuan kru divisinya. Sengaja ditunjuk manual, bukan ditebak dari jabatan: salah tebak berarti tombol Setujui dipegang orang yang salah. Boleh lebih dari satu per divisi.</p>'
     +barisHead+'</div>'
@@ -2399,7 +2431,7 @@ function viewPengaturan(){
 
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2><div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm" onclick="ulangRoster()">↻ Tarik Ulang dari Office</button></div>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Kolom jabatan dipakai di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>).</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Kolom terakhir adalah <b>shift kebiasaan</b> tiap kru. Dipakai di dua tempat: sel kosong yang diklik langsung terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Shift bawaan tiap kru</b> mengisi satu minggu penuh sesuai kebiasaan masing-masing. Kebanyakan kru memegang shift yang sama hampir tiap hari, jadi ini memangkas hampir semua klik input mingguan.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
     +panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>';
@@ -2427,23 +2459,18 @@ function ubahDivisi(uid,k){
   if(k) S.setting.divOverride[uid]=k; else delete S.setting.divOverride[uid];
   simpanSetting(); render();
 }
-/* Ambang beban kerja. Nilai di luar akal (0, kosong, huruf) diabaikan dan
-   dikembalikan ke bawaannya, bukan disimpan apa adanya — ambang 0 membuat
-   SETIAP kru muncul di daftar peringatan, dan daftar yang selalu penuh sama
-   tidak bergunanya dengan tidak ada peringatan sama sekali. */
-function ubahAmbang(k,v){
-  const n=Math.round(Number(v));
-  const bawaan={maksBeruntun:6, jedaMin:10};
-  S.setting[k] = (isFinite(n) && n>0) ? n : bawaan[k];
-  simpanSetting(); render();
-}
+/* ubahAmbang() dan ubahJabatan() dihapus 5 Agustus 2026 bersama dua panel
+   Pengaturan yang memanggilnya (Batas Beban Kerja & kotak "Jabatan di
+   lembar"). Fungsi tanpa pemanggil lebih berbahaya daripada tidak ada: ia
+   ikut muncul saat mencari, dan pembaca berikutnya mengira masih ada layar
+   yang memakainya.
+
+   Nilai yang dulu mereka tulis TETAP dibaca: `S.setting.maksBeruntun` /
+   `jedaMin` oleh peringatan beban kerja (kini memakai bawaan 6 hari & 10 jam
+   kalau belum pernah diisi), dan `S.setting.jabatan` oleh jabatanDari() —
+   jadi penyesuaian lama tidak hilang, cuma tidak bisa diubah dari sini lagi. */
 function ubahShiftKru(uid,k){
   if(k) S.setting.shiftKru[uid]=k; else delete S.setting.shiftKru[uid];
-  simpanSetting(); render();
-}
-function ubahJabatan(uid,v){
-  v=String(v||'').trim();
-  if(v) S.setting.jabatan[uid]=v; else delete S.setting.jabatan[uid];
   simpanSetting(); render();
 }
 

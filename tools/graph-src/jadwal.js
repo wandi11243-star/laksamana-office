@@ -533,7 +533,13 @@
 
 
 
+
 function svg() {  }
+
+
+
+
+
 
 
 
@@ -750,6 +756,7 @@ function namaKru() { kruById(); }
 
 function isAdmin() {  }
 function isHeadUser() {  }
+function punyaModul() {  }
 function isManajemen() {  }
 
 
@@ -1014,6 +1021,12 @@ function bacaSesi() {  }
 
 
 
+
+
+
+
+
+
 function muatRoster() {  }
 
 
@@ -1039,7 +1052,20 @@ function bolehBuka() { isAdmin(); divisiKuasa(); bolehRekap(); }
 
 
 
-function buildNav() { bisaPutuskan(); bolehBuka(); esc(); go(); svg(); kruDivisi(); }
+function buildNav() { bisaPutuskan(); go(); punyaModul(); esc(); svg(); bolehBuka(); kruDivisi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1702,6 +1728,9 @@ function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruD
 
 
 
+
+
+
 function gantiDivMinggu() { divisiKuasa(); toast(); namaDivisi(); render(); }
 function geserMinggu() { addD(); seninDari(); hariIni(); muatDanGambar(); }
 function mingguIni() { seninDari(); hariIni(); muatDanGambar(); }
@@ -2293,7 +2322,10 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); ubahManajemen(); divisiDari(); ubahDivisi(); divisiDariMurni(); ubahJabatan(); ubahShiftKru(); shiftKru(); ubahAmbang(); ulangRoster(); panelKosongRoster(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); ubahManajemen(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); ulangRoster(); panelKosongRoster(); }
+
+
+
 
 
 
@@ -2423,7 +2455,7 @@ function ubahManajemen() { simpanSetting(); render(); toast(); namaKru(); }
 
 
 
-function ubahDivisi() { simpanSetting(); render(); }
+function ubahDivisi() { simpanSetting(); render(); jabatanDari(); }
 
 
 
@@ -2431,18 +2463,13 @@ function ubahDivisi() { simpanSetting(); render(); }
 
 
 
-function ubahAmbang() { simpanSetting(); render(); }
+
 
 
 
 
 
 function ubahShiftKru() { simpanSetting(); render(); }
-
-
-
-function ubahJabatan() { simpanSetting(); render(); }
-
 
 
 
