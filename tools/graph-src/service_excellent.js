@@ -854,7 +854,7 @@ function punya() { boot(); navigate(); }
 
 
 
-function fetchOffice() { pagePerm(); savePerms(); canEdit(); }
+function fetchOffice() {  }
 
 
 
@@ -883,6 +883,23 @@ function fetchOffice() { pagePerm(); savePerms(); canEdit(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function roleSE() { pagePerm(); savePerms(); canEdit(); }
 
 
 
@@ -3001,7 +3018,7 @@ function initLogin() { byId(); renderCrew(); }
 
 
 
-function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); enterApp(); syncRosterLatar(); }
+function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); roleSE(); enterApp(); syncRosterLatar(); }
 
 
 
@@ -8487,7 +8504,11 @@ function addMaster() { byId(); logAudit(); saveState(); renderMaster(); }
 function delMaster() { logAudit(); saveState(); renderMaster(); }
 
 
-function userAccessBlock() { getUsers(); getPerms(); avatarColor(); crewInitials(); esc(); openUserForm(); }
+function userAccessBlock() { getUsers(); getPerms(); avatarColor(); crewInitials(); esc(); }
+
+
+
+
 
 
 
@@ -8686,7 +8707,54 @@ function renderPeran() { byId(); getUsers(); userAccessBlock(); reviews(); feedb
 
 
 
-function renderCapaian() { reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); getUsers(); isi(); rvHostOf(); reviewTargetOf(); tblPage(); byId(); esc(); reviewRangeLabel(); rvChipsHtml(); fmtMonth(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatRosterTim() { fetchOffice(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kruCapaian() { getUsers(); }
+
+
+
+
+function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); isi(); rvHostOf(); reviewTargetOf(); tblPage(); byId(); esc(); reviewRangeLabel(); rvChipsHtml(); fmtMonth(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

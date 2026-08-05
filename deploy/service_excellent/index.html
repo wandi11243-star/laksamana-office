@@ -887,7 +887,24 @@ const USERS = [
   {id:"u8", name:"Howandi Chandra", role:"manager"},
   {id:"u9", name:"Admin Sistem", role:"admin"},
 ];
-const ROLE_LABEL = {host:"Host / Captain", marketing:"Marketing (PIC)", cashier:"Cashier", manager:"Manajer / Owner", viewer:"View Only", admin:"Admin Sistem"};
+/* TIGA TINGKAT SAJA di modul ini (permintaan user 5 Agustus 2026).
+   Modul Reservasi memakai enam peran (host, marketing, cashier, manager,
+   viewer, admin) dan daftar krunya SATU database dengan modul ini. Peran yang
+   tersimpan di database TIDAK diubah — yang dilakukan cuma memetakannya ke
+   tiga tingkat saat dibaca (lihat roleSE). Menuliskan "staff" ke database
+   berarti Reservasi menemui peran yang tidak dikenalnya, dan orang itu
+   terkunci dari modulnya sendiri tanpa pesan apa pun. */
+const ROLE_LABEL = {staff:"Staff", manager:"Manajer / Owner", admin:"Admin Sistem"};
+/* Peran Office/Reservasi -> tingkat modul ini. Apa pun yang bukan manager atau
+   admin adalah staff: host, marketing, cashier, viewer, dan peran baru apa pun
+   yang muncul nanti. Bawaan yang aman — tingkat paling rendah, bukan paling
+   tinggi. */
+function roleSE(r){
+  const s=String(r||"").toLowerCase();
+  if(s==="admin") return "admin";
+  if(s==="manager") return "manager";
+  return "staff";
+}
 
 // Hak akses per role -> menu yang bisa dibuka
 const ROLE_NAV = {
@@ -1026,7 +1043,7 @@ const NAV_SECTIONS = [
 // Semua halaman nav (id) + label utk matriks hak akses
 const NAV_PAGES  = NAV_SECTIONS.flatMap(s=>s.items.map(i=>i.id));
 const PAGE_LABEL = {}; NAV_SECTIONS.forEach(s=>s.items.forEach(i=>{ PAGE_LABEL[i.id]=i.label; }));
-const ROLE_KEYS  = ["host","marketing","cashier","manager","viewer","admin"];
+const ROLE_KEYS  = ["staff","manager","admin"];
 // Kru default (dipakai bila Sheet belum punya daftar users). PIN awal = 1234.
 const DEFAULT_USERS = USERS.map(u=>({ id:u.id, name:u.name, role:u.role, pin:DEFAULT_PIN }));
 // Semua baris izin di matriks = halaman nav + baris ekstra (lihat EXTRA_PERM_ROWS).
@@ -2930,7 +2947,7 @@ async function autoSyncOfficeRoster(){
   let data;
   try{
     const res = await fetchOffice( {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'listModuleRoster', module:'reservasi'})});
+      body: JSON.stringify({action:'listModuleRoster', module:'service_excellent'})});
     data = await res.json();
   }catch(e){ return; }
   if(!data || !data.ok || !Array.isArray(data.members)) return;
@@ -2943,7 +2960,7 @@ async function autoSyncOfficeRoster(){
     let u = users.find(x=>x.id===m.id)
           || users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
     if(!u){
-      users.push({ id:m.id, name:m.name||'(tanpa nama)', role:(m.isModuleAdmin?'admin':'host'), pin:'' });
+      users.push({ id:m.id, name:m.name||'(tanpa nama)', role:(m.isModuleAdmin?'admin':'staff'), pin:'' });
       changed=true;
     }else{
       // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
@@ -3039,7 +3056,7 @@ async function boot(){
      apa pun. Role `cashier` sudah ada di matriks itu dengan Dana Masuk =
      Boleh Ubah, jadi tidak ada aturan baru yang ditambahkan di sini. */
   if(EMBED && !punyaResv) effRole = 'cashier';
-  SESSION = {id:u.id, name:u.name, role:effRole};
+  SESSION = {id:u.id, name:u.name, role:roleSE(effRole)};   // selalu salah satu dari tiga tingkat
   SELECTED_CREW = u.id;
   bs.classList.add("hidden");
   await enterApp();
@@ -8495,7 +8512,11 @@ function userAccessBlock(){
       <span class="av" style="background:${avatarColor(u.id)}">${crewInitials(u.name)}</span>
       <span class="who"><b>${esc(u.name)}${u.id===SESSION.id?', <span style="color:var(--gold-dim)">kamu</span>':''}</b>
         <span><span class="role-badge">${ROLE_LABEL[u.role]||u.role}</span></span></span>
-      <button class="btn btn-xs btn-ghost" onclick="openUserForm('${u.id}')">✎ Atur Role</button>
+      <!-- "✎ Atur Role" DIBUANG di modul ini: peran tersimpan di database yang
+           SAMA dengan Reservasi, dan menuliskan "staff" ke sana membuat Reservasi
+           menemui peran yang tidak dikenalnya. Tingkat seseorang ditentukan dari
+           perannya di Office; yang diatur DI SINI adalah apa yang boleh dilakukan
+           tiap tingkat (matriks di bawah). -->
     </div>`).join("");
   // Tiap sel: None/Lihat/Ubah, tombol satu-klik bersiklus (klik = geser ke
   // status berikutnya, warnanya berubah). "Ubah" hanya berarti sesuatu kalau
@@ -8686,7 +8707,45 @@ function renderPeran(){
    Tabelnya BERPAGINASI lewat tblPage/tblPagerHtml yang sudah dipakai tabel
    lain di modul ini. Daftar kru bisa puluhan orang, dan tabel tanpa halaman
    memaksa orang menggulir melewati seluruh tim untuk melihat baris terakhir. */
+/* DAFTAR KRU UNTUK PAPAN CAPAIAN — dari database user Office, bukan dari
+   daftar kru modul (permintaan user 5 Agustus 2026: "semua kru diambil dari
+   database user").
+
+   Bedanya penting. STATE.master.users hanya memuat orang yang punya akses
+   modul ini; papan capaian justru harus memuat SELURUH tim Laksamana Muda,
+   termasuk yang tidak pernah membuka modul ini sama sekali.
+
+   Disimpan di variabel modul, TIDAK ditulis ke STATE.master.users: daftar kru
+   itu satu database dengan Reservasi, dan menuangkan seluruh karyawan ke sana
+   akan menambah puluhan baris ke matriks hak akses modul lain.
+
+   Gagal memuat dibiarkan diam dan jatuh ke daftar kru modul — papan capaian
+   yang tampil dengan lebih sedikit nama masih berguna; papan yang kosong
+   karena jaringan sedang bermasalah tidak. */
+let SE_ROSTER = null;
+async function muatRosterTim(){
+  if(SE_ROSTER || !OFFICE_WEBAPP_URL) return SE_ROSTER;
+  try{
+    const res = await fetchOffice({ method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({action:'listDivisiRoster'}) });
+    const d = await res.json();
+    if(!d || !d.ok || !Array.isArray(d.members)) return null;
+    SE_ROSTER = d.members.filter(u=>u && u.active!==false)
+      .map(u=>({ id:u.id, name:String(u.name||'').trim(), div:String(u.keterangan||'').trim() }))
+      .filter(u=>u.name);
+    return SE_ROSTER;
+  }catch(e){ return null; }
+}
+// Nama kru yang dipakai papan capaian. Roster Office kalau sudah ada,
+// kalau belum jatuh ke daftar kru modul supaya papannya tidak pernah kosong.
+function kruCapaian(){
+  if(SE_ROSTER && SE_ROSTER.length) return SE_ROSTER.map(u=>u.name);
+  return getUsers().map(u=>String(u.name||'').trim()).filter(Boolean);
+}
+
 function renderCapaian(){
+  // Roster ditarik sekali, lalu halamannya digambar ulang begitu tiba.
+  if(SE_ROSTER===null) muatRosterTim().then(r=>{ if(r && CURRENT_PAGE==='capaian') renderCapaian(); });
   const rg=reviewRange(), tm=reviewTargetMonth();
   const rv=reviewsInRange(rg), fb=feedbacksInRange(rg);
   const sah=rv.filter(x=>x.status==="terverifikasi");
@@ -8703,7 +8762,7 @@ function renderCapaian(){
      capaian dan tidak ada yang menyadarinya. */
   const peta={};
   const isi=n=>{ const k=String(n||"—").trim()||"—"; if(!peta[k]) peta[k]={nama:k,minta:0,klaim:0,sah:0,tolak:0,fb:0}; return peta[k]; };
-  getUsers().forEach(u=>isi(u.name));
+  kruCapaian().forEach(n=>isi(n));
   diminta.forEach(x=>isi(x.askedBy||rvHostOf(x)).minta++);
   klaim.forEach(x=>isi(rvHostOf(x)).klaim++);
   sah.forEach(x=>isi(rvHostOf(x)).sah++);
@@ -8722,9 +8781,18 @@ function renderCapaian(){
   byId("page-capaian").innerHTML=`
    <div class="panel">
      <div class="panel-head"><h3>📈 Pencapaian Tim, ${esc(reviewRangeLabel())}</h3>
-       <span class="muted" style="font-size:12.5px">${getUsers().length} kru · target tim ${targetTim||"belum diatur"}</span></div>
+       <span class="muted" style="font-size:12.5px">${kruCapaian().length} kru${SE_ROSTER?" (seluruh tim)":" (kru modul — roster Office belum termuat)"} · target tim ${targetTim||"belum diatur"}</span></div>
      <div class="panel-body">
-       ${rvChipsHtml("Periode",[["hari","Harian"],["minggu","Mingguan"],["bulan","Bulanan"]],REVIEW_MODE,"setReviewMode")}
+       <!-- rvChipsHtml menunggu objek {v,label}, BUKAN pasangan array. Versi
+            pertama halaman ini mengirim [["hari","Harian"],…] sehingga o.v dan
+            o.label dua-duanya undefined — tombolnya tergambar tapi kosong
+            tanpa tulisan sama sekali (dilaporkan user 5 Agustus 2026). -->
+       ${rvChipsHtml("Periode",[
+          {v:"hari",   label:"Harian"},
+          {v:"minggu", label:"Mingguan"},
+          {v:"bulan",  label:"Bulanan"}
+        ],REVIEW_MODE,"setReviewMode")}
+       <div class="muted" style="font-size:11.5px;margin-top:6px">Menampilkan <b>${esc(reviewRangeLabel())}</b>. Sama dengan periode yang dipilih di halaman Feedback &amp; Review.</div>
        <div class="rv-progress" style="margin:12px 0 10px"><i style="width:${pctTim}%"></i></div>
        <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:16px">
          <span><b style="color:var(--ink);font-size:15px">${targetTim?pctTim:0}%</b> tercapai</span>
