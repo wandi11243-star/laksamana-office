@@ -852,7 +852,20 @@ function punya() { boot(); navigate(); }
 
 
 
-function fetchOffice() { pagePerm(); canEdit(); }
+
+
+function fetchOffice() { pagePerm(); savePerms(); canEdit(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -983,6 +996,8 @@ function fetchOffice() { pagePerm(); canEdit(); }
 
 
 function icon() { navigate(); allowedPages(); renderDashboard(); }
+
+
 
 
 
@@ -3173,7 +3188,9 @@ function afterSearch() { byId(); }
 
 
 
-function navigate() { allowedPages(); byId(); renderReview(); renderAudit(); }
+function navigate() { allowedPages(); byId(); renderCapaian(); renderReview(); renderPeran(); renderAudit(); }
+
+
 
 
 
@@ -7559,6 +7576,12 @@ function requestReview() { waReviewAktif(); toast(); reviewCfg(); navigate(); re
 
 
 
+
+
+
+
+
+
 function openReviewForm() { reviews(); openModal(); closeModal(); esc(); displayPhone(); todayStr(); byId(); fileToData(); saveReview(); }
 
 
@@ -7737,7 +7760,7 @@ function viewReviewProof() { reviews(); toast(); showBusy(); loadFile(); hideBus
 
 
 
-function saveReviewCfg() { reviewCfg(); byId(); logAudit(); saveState(); renderReview(); toast(); saveReview(); renderCoordWA(); todayStr(); }
+function saveReviewCfg() { reviewCfg(); byId(); logAudit(); saveState(); renderReview(); toast(); saveReview(); renderCoordWA(); }
 
 
 
@@ -7761,122 +7784,6 @@ function saveReviewCfg() { reviewCfg(); byId(); logAudit(); saveState(); renderR
 
 
 
-function setRvRepDate() { todayStr(); renderRvReport(); }
-
-
-function buildReviewReport() { reviews(); sameDayTs(); askedTs(); reviewsOfMonth(); reviewTargetTim(); fmtDate(); fmtMonth(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function buildFeedbackReport() { feedbacks(); reviews(); fbCatLabel(); fmtDate(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function openRvReport() { todayStr(); renderRvReport(); }
-function renderRvReport() { buildReviewReport(); buildFeedbackReport(); esc(); copyWA(); byId(); sendRvReport(); openModal(); closeModal(); setRvRepDate(); card(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function sendRvReport() { byId(); logAudit(); fmtDate(); sendWA(); }
 
 
 
@@ -8360,11 +8267,7 @@ function simpanRvTarget() { reviewCfg(); logAudit(); saveState(); closeModal(); 
 
 
 
-function renderReview() { reviewRange(); feedbacksInRange(); reviewsInRange(); byId(); openRvReport(); reviewCfg(); copyReviewLink(); openReviewForm(); openFeedbackForm(); setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); setReviewTab(); feedbackView(); reviewGoogleView(); }
-
-
-
-
+function renderReview() { reviewRange(); feedbacksInRange(); reviewsInRange(); byId(); reviewCfg(); copyReviewLink(); openReviewForm(); openFeedbackForm(); setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); setReviewTab(); feedbackView(); reviewGoogleView(); }
 
 
 
@@ -8417,6 +8320,10 @@ function reviewGoogleView() { reviewCfg(); reviewRange(); reviewsInRange(); revi
 
 
 function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); rvDashboardHtml(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
+
+
+
+
 
 
 
@@ -8689,7 +8596,19 @@ function cyclePerm() {  }
 
 
 
-function savePerms() { ensureUsersPerms(); pagePerm(); logAudit(); saveState(); buildNav(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+function savePerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); toast(); }
+
 
 
 
@@ -8726,7 +8645,125 @@ function dataTools() { openModal(); closeModal(); backupJSON(); restoreJSON(); w
 
 function backupJSON() { todayStr(); toast(); }
 function restoreJSON() { saveState(); logAudit(); toast(); closeModal(); navigate(); }
-function wipeData() { saveState(); toast(); closeModal(); navigate(); }
+function wipeData() { saveState(); toast(); closeModal(); navigate(); savePerms(); }
+
+
+
+
+
+
+
+function renderPeran() { byId(); getUsers(); userAccessBlock(); reviews(); feedbacks(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderCapaian() { reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); getUsers(); isi(); rvHostOf(); reviewTargetOf(); tblPage(); byId(); esc(); reviewRangeLabel(); rvChipsHtml(); fmtMonth(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 function renderAudit() { byId(); tblPage(); fmtTs(); esc(); tblPagerHtml(); normPhone(); }

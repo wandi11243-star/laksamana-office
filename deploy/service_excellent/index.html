@@ -812,7 +812,9 @@ svg.lc{display:block;flex:none}
     <div id="page-finance" class="page hidden"></div>
     <div id="page-riwayat" class="page hidden"></div>
     <div id="page-analitik" class="page hidden"></div>
+    <div id="page-capaian" class="page hidden"></div>
     <div id="page-review" class="page hidden"></div>
+    <div id="page-peran" class="page hidden"></div>
     <div id="page-master" class="page hidden"></div>
     <div id="page-audit" class="page hidden"></div>
     </div>
@@ -918,6 +920,9 @@ const CAN_DEFAULT = {
   deleteReservation: r => ["manager","admin"].includes(r),
   deleteReview: r => ["manager","admin"].includes(r),
   master: r => ["manager","admin"].includes(r),
+  // Diarahkan ke baris matriks `mintaReview` lewat ACTION_PAGE di bawah, jadi
+  // yang menentukan adalah pengaturan role — bukan daftar peran yang dipatri.
+  mintaReview: r => ["host","manager","admin"].includes(r),
   audit:  r => ["manager","admin"].includes(r),
   manageUsers: r => r==="admin",   // hanya admin modul (Office adminModules '*'/'reservasi'): atur role kru & hak akses
   seeDP:  () => true, // semua bisa lihat DP di detail; cashier memang butuh
@@ -943,14 +948,22 @@ const CAN_DEFAULT = {
 const ACTION_PAGE = {
   input:'input', editStatus:'input', deleteReservation:'inputDelete',
   deleteReview:'review',
-  master:'master', audit:'audit',
+  master:'master', audit:'audit', mintaReview:'mintaReview',
   finance:'finance', deleteDp:'financeDelete',
 };
 // Baris izin EKSTRA: id -> {label, page (halaman nav yang menaunginya, untuk
 // visibilitas), afterPage (dirender tepat setelah baris page ini di matriks)}.
+/* Baris izin milik modul ini. `mintaReview` DIPISAH dari izin halaman: banyak
+   orang boleh MELIHAT papan review (rekap, daftar, capaian) tanpa boleh
+   mengirim ajakan ke nomor tamu — dan itu justru pengaturan yang diminta
+   (5 Agustus 2026: "saya perlu mengatur yang 📤 Tamu Belum Diminta Review").
+
+   inputDelete/financeDelete milik Reservasi TIDAK ikut dibawa: modul ini tidak
+   punya halaman input maupun finance, dan mencantumkannya membuat matriksnya
+   menawarkan izin untuk layar yang tidak ada. Barisnya sendiri tetap aman di
+   database — savePerms() di bawah tidak menyentuh baris yang bukan miliknya. */
 const EXTRA_PERM_ROWS = {
-  inputDelete:   { label:'↳ Hapus Reservasi', page:'input',   afterPage:'input' },
-  financeDelete: { label:'↳ Hapus Catatan DP', page:'finance', afterPage:'finance' },
+  mintaReview: { label:'↳ Kirim Ajakan Review (WhatsApp)', page:'review', afterPage:'review' },
 };
 /* CAN.<aksi>(role) = boleh EDIT (bukan cuma lihat) baris izin pemilik aksi itu,
    menurut matriks perms yang superadmin atur. manageUsers/seeDP tidak terikat
@@ -1000,9 +1013,11 @@ function icon(name, size=18){
    hubungannya dengan yang sedang dikerjakan orang. */
 const NAV_SECTIONS = [
   {title:"Service Excellent", items:[
+    {id:"capaian",   label:"Dashboard Pencapaian", ico:"bar-chart"},
     {id:"review",    label:"Feedback & Review", ico:"star"},
   ]},
   {title:"Kontrol", items:[
+    {id:"peran",     label:"Kelola Role", ico:"sliders"},
     {id:"audit",     label:"Audit Log", ico:"shield"},
   ]},
 ];
@@ -3198,7 +3213,9 @@ function navigate(page){
 
 
 
-  if(page==="review") renderReview();
+  if(page==="capaian") renderCapaian();
+  else if(page==="review") renderReview();
+  else if(page==="peran") renderPeran();
 
   else if(page==="audit") renderAudit();
 }
@@ -7536,6 +7553,12 @@ function requestReview(resId){
     toast("Ajakan review lewat WhatsApp sedang dimatikan di Setelan","err");
     return;
   }
+  // Dua gerbang, dua pertanyaan berbeda: saklar global menjawab "fitur ini
+  // dipakai atau tidak", role menjawab "orang ini boleh atau tidak".
+  if(!CAN.mintaReview(SESSION.role)){
+    toast("Role kamu tidak berhak mengirim ajakan review","err");
+    return;
+  }
   const cfg=reviewCfg();
   if(!cfg.link){ toast("Link Google Review belum diatur — isi dulu di halaman Google Review","err"); navigate("review"); return; }
   let rv=reviews().find(x=>x.resId===resId);
@@ -7760,128 +7783,12 @@ function saveReviewCfg(){
 
    Pola menyusul renderCoordWA(): pratinjau + Salin + Buka WhatsApp. Grup tidak
    bisa dituju lewat tautan, jadi sendWA menyalin teks lalu membuka aplikasi. */
-let RVREP_DATE = todayStr();
-function setRvRepDate(v){ RVREP_DATE = v || todayStr(); renderRvReport(); }
-
-// Laporan angka Google Review untuk satu hari.
-function buildReviewReport(ymd){
-  const semua=reviews();
-  const dimintaHariItu = semua.filter(x=>sameDayTs(askedTs(x), ymd));
-  // Dari yang diminta HARI ITU, siapa yang akhirnya mengisi. Inilah angka yang
-  // ditanyakan: hasil ajakan hari itu, bukan total klaim yang masuk hari itu.
-  const ngisi = dimintaHariItu.filter(x=>["diklaim","terverifikasi"].includes(x.status));
-  // Klaim yang MASUK hari itu (bisa dari ajakan hari sebelumnya) — dilaporkan
-  // terpisah supaya dua hal ini tidak tertukar.
-  const klaimMasuk = semua.filter(x=>sameDayTs(Number(x.claimedAt)||0, ymd));
-  const ymOf = ymd.slice(0,7);
-  const bulanIni = reviewsOfMonth(ymOf).filter(x=>x.status==="terverifikasi");
-  const target = reviewTargetTim();   // tim = jumlah target semua host
-  const konv = dimintaHariItu.length ? Math.round(ngisi.length/dimintaHariItu.length*100) : 0;
-
-  const baris = ngisi.length
-    ? ngisi.map(x=>`• ${x.name}${x.rating?` — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))}`:""}`).join("\n")
-    : "—";
-  const belumIsi = dimintaHariItu.filter(x=>x.status==="diminta");
-
-  return [
-    `⭐ *LAPORAN GOOGLE REVIEW*`,
-    `${fmtDate(ymd)}`,
-    ``,
-    `📤 Diminta hari ini : *${dimintaHariItu.length}* tamu`,
-    `✍️ Sudah mengisi    : *${ngisi.length}* tamu (${konv}%)`,
-    `⏳ Belum mengisi    : *${belumIsi.length}* tamu`,
-    ``,
-    `Yang sudah mengisi:`,
-    baris,
-    ``,
-    `📥 Klaim masuk hari ini: ${klaimMasuk.length} (termasuk ajakan hari sebelumnya)`,
-    ``,
-    `📈 *Progres ${fmtMonth(ymOf)}*`,
-    `Terverifikasi: ${bulanIni.length}${target?` / ${target}`:""}${target?` (${Math.round(bulanIni.length/target*100)}%)`:""}`,
-    target>bulanIni.length?`Kurang ${target-bulanIni.length} review lagi 💪`:(target?`Target tercapai 🎉`:""),
-  ].filter(x=>x!==null).join("\n").replace(/\n{3,}/g,"\n\n");
-}
-
-// Laporan tanggapan tamu (positif & negatif) untuk satu hari.
-function buildFeedbackReport(ymd){
-  const fbHariItu = feedbacks().filter(x=>String(x.date||"")===ymd);
-  // Catatan lama tidak punya `tone`; isinya memang keluhan, jadi negatif.
-  const pos = fbHariItu.filter(x=>x.tone==="positif");
-  const neg = fbHariItu.filter(x=>x.tone!=="positif");
-  // Sisi "bagus" juga datang dari rating review: 4-5 bintang = pujian, 1-3 =
-  // tanda ada yang perlu dibenahi walau tamunya tidak mengeluh langsung.
-  const rvHariItu = reviews().filter(x=>String(x.date||"")===ymd && ["diklaim","terverifikasi"].includes(x.status));
-  const rvBagus = rvHariItu.filter(x=>(Number(x.rating)||0)>=4);
-  const rvKurang= rvHariItu.filter(x=>(Number(x.rating)||0)>0 && (Number(x.rating)||0)<=3);
-
-  const itemLines = fb => (Array.isArray(fb.items)?fb.items:[]).map(it=>`   ${fbCatLabel(it)} — ${it.text}`).join("\n");
-  const blokPos = [
-    ...pos.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
-    ...rvBagus.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review)`),
-  ];
-  const blokNeg = [
-    ...neg.map(fb=>`• *${fb.name}*\n${itemLines(fb)}`),
-    ...rvKurang.map(x=>`• *${x.name}* — ${"⭐".repeat(Math.max(0,Math.min(5,Number(x.rating)||0)))} (Google Review, perlu ditindaklanjuti)`),
-  ];
-  // Divisi mana yang paling sering disebut di keluhan hari itu — supaya yang
-  // membaca langsung tahu ke mana harus menoleh.
-  const perDivisi={};
-  neg.forEach(fb=>(Array.isArray(fb.items)?fb.items:[]).forEach(it=>{
-    const k=fbCatLabel(it); perDivisi[k]=(perDivisi[k]||0)+1;
-  }));
-  const ringkasDivisi=Object.entries(perDivisi).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${k} ${v}`).join(", ");
-
-  return [
-    `💬 *LAPORAN TANGGAPAN TAMU*`,
-    `${fmtDate(ymd)}`,
-    ``,
-    `😊 Positif : *${blokPos.length}*`,
-    `😟 Negatif : *${blokNeg.length}*`,
-    ringkasDivisi?`\n🔎 Divisi tersorot: ${ringkasDivisi}`:``,
-    ``,
-    `*— POSITIF —*`,
-    blokPos.length?blokPos.join("\n"):"—",
-    ``,
-    `*— PERLU DIBENAHI —*`,
-    blokNeg.length?blokNeg.join("\n"):"— tidak ada keluhan hari ini 🙌",
-  ].join("\n").replace(/\n{3,}/g,"\n\n");
-}
-
-function openRvReport(){ RVREP_DATE = todayStr(); renderRvReport(); }
-function renderRvReport(){
-  const rev = buildReviewReport(RVREP_DATE);
-  const fbk = buildFeedbackReport(RVREP_DATE);
-  const card = (id, ico, title, sub, txt)=>`
-    <div class="wa-target">
-      <h4>${ico} ${title}</h4>
-      <p>${sub}</p>
-      <div class="wa-preview" id="${id}" style="max-height:280px;overflow:auto">${esc(txt)}</div>
-      <div class="wa-actions" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-sm btn-ghost" onclick="copyWA(this, byId('${id}').textContent)">📋 Salin</button>
-        <button class="btn btn-sm btn-wa" onclick="sendRvReport('${title}','${id}')">💬 Buka WhatsApp</button>
-      </div>
-    </div>`;
-  openModal(`
-    <div class="modal-head"><h3>📤 Laporan Harian ke Grup</h3><button class="close-x" onclick="closeModal()">×</button></div>
-    <div class="modal-body">
-      <div class="wa-target" style="border-style:dashed">
-        <h4>🗓️ Tanggal Laporan</h4>
-        <p>Pilih tanggal yang mau direkap. Bawaannya hari ini.</p>
-        <input type="date" value="${RVREP_DATE}" onchange="setRvRepDate(this.value)">
-      </div>
-      <div class="inline-info" style="margin:14px 0">Grup WhatsApp tidak bisa dituju lewat tautan. Menekan <b>Buka WhatsApp</b> akan menyalin pesannya lalu membuka aplikasi — tinggal tempel di grup tujuan.</div>
-      ${card("rvrepGoogle","⭐","Laporan Google Review","Berapa yang diminta hari itu dan berapa yang akhirnya mengisi.",rev)}
-      ${card("rvrepFeedback","💬","Laporan Tanggapan Tamu","Pujian & keluhan hari itu, lengkap dengan divisi yang tersorot.",fbk)}
-    </div>
-    <div class="modal-foot"><button class="btn btn-ink" onclick="closeModal()">Tutup</button></div>
-  `, true);
-}
-function sendRvReport(label, previewId){
-  const txt = byId(previewId).textContent;
-  logAudit("Laporan Harian", `${label}, ${fmtDate(RVREP_DATE)}`);
-  sendWA("group","",txt);
-}
-
+/* LAPORAN HARIAN KE GRUP DIBUANG (5 Agustus 2026, permintaan user).
+   Tombolnya beserta seluruh mesinnya — RVREP_DATE, setRvRepDate,
+   buildReviewReport, buildFeedbackReport, openRvReport, renderRvReport,
+   sendRvReport — dihapus, bukan sekadar tombolnya disembunyikan. Fungsi yang
+   tidak punya pemanggil cepat atau lambat dipanggil lagi dari tempat baru,
+   dan yang hidup kembali adalah fitur yang sudah diputuskan tidak dipakai. */
 function copyReviewLink(){
   const cfg=reviewCfg();
   if(!cfg.link){ toast("Link belum diatur","err"); return; }
@@ -8368,10 +8275,6 @@ function renderReview(){
    <div class="page-head">
      <div><h2>Feedback</h2><div class="desc">Google Review & keluhan customer — dalam satu tempat.</div></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-       <!-- Satu tombol untuk kedua laporan: keduanya per-hari dan biasanya
-            dikirim sekaligus saat tutup shift, jadi tidak ada gunanya dipisah
-            jadi dua tombol yang membuka modal yang mirip. -->
-       <button class="btn btn-sm btn-wa" onclick="openRvReport()">📤 Laporan Harian</button>
        ${REVIEW_TAB==="google"
          ? `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
             <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`
@@ -8481,7 +8384,7 @@ function reviewGoogleView(){
                 sekadar dinonaktifkan. Tombol abu-abu yang tidak bisa ditekan
                 mengundang pertanyaan "kenapa mati" tiap hari; tidak ada tombol
                 sama sekali langsung terbaca sebagai "memang bukan tugas kita". -->
-           <td>${waReviewAktif()
+           <td>${(waReviewAktif() && CAN.mintaReview(SESSION.role))
              ? `<div class="mini-actions"><button class="btn btn-xs btn-primary" onclick="requestReview('${r.id}')">⭐ Minta Review</button></div>`
              : `<span class="muted" style="font-size:11.5px">—</span>`}</td>
          </tr>`).join("")}</tbody></table></div>
@@ -8522,9 +8425,13 @@ function reviewGoogleView(){
        <!-- Saklar ajakan WhatsApp. Ditaruh di Setelan, bukan di daftar tamu:
             ini keputusan kebijakan yang diambil sekali oleh manager, bukan
             tombol yang dipakai host tiap hari. -->
-       <label class="toggle-row" style="margin-top:12px;display:flex;gap:11px;align-items:flex-start;cursor:pointer">
-         <input type="checkbox" id="rvcfg_wa" ${cfg.waAktif!==false?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
-         <span><b style="display:block">Izinkan host meminta review lewat WhatsApp</b>
+       <!-- SENGAJA TIDAK memakai kelas .toggle-row: kelas itu dibuat untuk pilihan
+            bergaya pil dan menyembunyikan input-nya (.toggle-row input{display:none}),
+            sehingga kotak centangnya tidak pernah tergambar — persis yang terjadi
+            5 Agustus 2026: tulisannya muncul, kotaknya tidak ada. -->
+       <label style="margin-top:14px;display:flex;gap:11px;align-items:flex-start;cursor:pointer;padding:12px 14px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:#fff">
+         <input type="checkbox" id="rvcfg_wa" ${cfg.waAktif!==false?"checked":""} style="width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--gold)">
+         <span><b style="display:block;color:var(--ink)">Izinkan host meminta review lewat WhatsApp</b>
            <span class="muted" style="font-size:12px">Kalau dimatikan, tombol <b>⭐ Minta Review</b> di daftar "Tamu Belum Diminta Review" hilang dan tidak ada ajakan yang bisa dikirim.
            Catatan review yang sudah ada, verifikasi, dan target tidak terpengaruh.</span></span>
        </label>
@@ -8689,23 +8596,35 @@ function cyclePerm(btn){
   btn.textContent = PERM_OPT[next][2];
   btn.title = PERM_OPT[next][1] + (putaran===2 ? " — View Only hanya bisa Tak Terlihat / Lihat" : " — klik untuk ubah");
 }
+/* MENULIS HANYA BARIS MILIK MODUL INI.
+
+   Versi aslinya (disalin dari Reservasi) melakukan STATE.master.perms = next —
+   membuang seluruh objek lalu menuliskannya ulang dari PERM_ROWS. Di Reservasi
+   itu benar, karena PERM_ROWS di sana memuat semua halamannya. Di sini PERM_ROWS
+   cuma review + audit + mintaReview, jadi menyimpannya akan MENGHAPUS izin
+   halaman Reservasi (dashboard, input, finance, riwayat, analitik, master) dari
+   database yang SAMA — seluruh kru terkunci dari modul Reservasi, dan tidak ada
+   satu pun pesan yang menjelaskan kenapa.
+
+   Karena itu barisnya digabung, bukan diganti. */
 function savePerms(){
   ensureUsersPerms();
-  const next={}; PERM_ROWS.forEach(p=>{ next[p]={}; ROLE_KEYS.forEach(r=>next[p][r]=PERM_NONE); });
-  // :not([disabled]) — tombol Admin terkunci tidak punya data-p/data-r (kolom
-  // itu selalu Boleh Ubah, diset paksa di bawah), jadi jangan ikut dibaca di sini.
-  document.querySelectorAll(".perm-btn:not([disabled])").forEach(btn=>{ next[btn.dataset.p][btn.dataset.r]=Number(btn.dataset.v); });
-  // admin selalu penuh (disimpan eksplisit agar konsisten, walau pagePerm()
-  // sudah menganggap admin selalu PERM_EDIT terlepas dari isi matriks ini)
-  PERM_ROWS.forEach(p=>{ next[p].admin=PERM_EDIT; });
-  // viewer tidak pernah melebihi "Lihat". Dijepit lagi di sini — pagePerm()
-  // sudah menjaganya saat dibaca, tapi menyimpan angka 2 ke database berarti
-  // menaruh data yang bertentangan dengan namanya sendiri, dan siapa pun yang
-  // membacanya nanti (laporan, migrasi, modul lain) akan salah menyimpulkan.
-  PERM_ROWS.forEach(p=>{ next[p].viewer = Math.min(next[p].viewer ?? PERM_NONE, PERM_VIEW); });
-  STATE.master.perms=next; logAudit("Hak Akses","Perbarui matriks hak akses");
+  const perms = STATE.master.perms || (STATE.master.perms={});
+  document.querySelectorAll(".perm-btn:not([disabled])").forEach(btn=>{
+    const p=btn.dataset.p, r=btn.dataset.r;
+    if(!PERM_ROWS.includes(p)) return;          // jangan pernah menulis baris asing
+    if(!perms[p] || typeof perms[p]!=="object") perms[p]={};
+    perms[p][r]=Number(btn.dataset.v);
+  });
+  PERM_ROWS.forEach(p=>{
+    if(!perms[p] || typeof perms[p]!=="object") perms[p]={};
+    perms[p].admin=PERM_EDIT;                                    // admin selalu penuh
+    perms[p].viewer=Math.min(perms[p].viewer ?? PERM_NONE, PERM_VIEW);   // viewer tak pernah melebihi Lihat
+  });
+  logAudit("Hak Akses","Perbarui hak akses Service Excellent");
   saveState(); buildNav(); toast("Hak akses diperbarui","ok");
 }
+
 function resetPerms(){
   if(!confirm("Kembalikan semua hak akses ke pengaturan default?")) return;
   ensureUsersPerms();
@@ -8729,6 +8648,124 @@ function restoreJSON(input){ const f=input.files[0]; if(!f)return; const rd=new 
 function wipeData(){ if(!confirm("Hapus SEMUA data reservasi & histori? Tidak bisa dibatalkan!"))return; if(!confirm("Yakin 100%? Backup dulu kalau perlu."))return; STATE.reservations=[]; STATE.audit=[]; saveState(); toast("Semua data dihapus","err"); closeModal(); navigate("dashboard"); }
 
 /* ================= AUDIT LOG ================= */
+/* ================= KELOLA ROLE =================
+   Matriks hak akses, tapi HANYA baris milik modul ini. Barisnya sedikit
+   (Dashboard Pencapaian, Feedback & Review, Kirim Ajakan Review, Kelola Role,
+   Audit Log) — dan itu memang seluruh isinya, bukan potongan. Baris milik
+   Reservasi tidak ditampilkan DAN tidak ditulis; lihat savePerms(). */
+function renderPeran(){
+  const el=byId("page-peran");
+  if(!CAN.master(SESSION.role)){
+    el.innerHTML=`<div class="panel"><div class="panel-body"><div class="empty" style="padding:30px">
+      <div class="big">🔒</div>Hanya <b>manager</b> dan <b>admin</b> yang bisa mengatur hak akses.</div></div></div>`;
+    return;
+  }
+  el.innerHTML=`
+   <div class="panel">
+     <div class="panel-head"><h3>🛡️ Kelola Role — Service Excellent</h3>
+       <span class="muted" style="font-size:12.5px">${getUsers().length} kru</span></div>
+     <div class="panel-body">
+       <div class="inline-info" style="margin-bottom:12px">
+         Baris <b>↳ Kirim Ajakan Review (WhatsApp)</b> mengatur siapa yang boleh menekan
+         <b>⭐ Minta Review</b> di daftar <b>📤 Tamu Belum Diminta Review</b>. Diberi <b>Lihat</b> berarti
+         daftarnya terbaca tapi ajakannya tidak bisa dikirim.
+         Saklar <b>global</b> on/off ajakan WhatsApp ada terpisah di <b>Feedback &amp; Review → ⚙️ Setelan</b> —
+         kalau saklar itu mati, tombolnya hilang untuk semua role tanpa kecuali.
+       </div>
+       ${userAccessBlock()}
+     </div>
+   </div>`;
+}
+
+/* ================= DASHBOARD PENCAPAIAN =================
+   Papan capaian SELURUH TIM, bukan cuma host (permintaan user 5 Agustus 2026).
+   Sumber angkanya sama persis dengan halaman Feedback & Review — reviews() dan
+   feedbacks() yang itu-itu juga — supaya tidak mungkin ada dua layar yang
+   menyebut angka berbeda untuk periode yang sama.
+
+   Tabelnya BERPAGINASI lewat tblPage/tblPagerHtml yang sudah dipakai tabel
+   lain di modul ini. Daftar kru bisa puluhan orang, dan tabel tanpa halaman
+   memaksa orang menggulir melewati seluruh tim untuk melihat baris terakhir. */
+function renderCapaian(){
+  const rg=reviewRange(), tm=reviewTargetMonth();
+  const rv=reviewsInRange(rg), fb=feedbacksInRange(rg);
+  const sah=rv.filter(x=>x.status==="terverifikasi");
+  const klaim=rv.filter(x=>x.status==="diklaim");
+  const tolak=rv.filter(x=>x.status==="ditolak");
+  const diminta=rv.filter(x=>askedTs(x)>0);
+  const tgt=reviewTargetsInRange(rg);
+  const targetTim=reviewTargetTim();
+  const pctTim=targetTim?Math.min(100,Math.round(sah.length/targetTim*100)):0;
+
+  /* Satu baris per KRU, bukan per host yang kebetulan punya review. Kru yang
+     belum menghasilkan apa pun justru yang paling perlu terlihat — kalau
+     hanya yang punya angka yang ditampilkan, yang nol menghilang dari papan
+     capaian dan tidak ada yang menyadarinya. */
+  const peta={};
+  const isi=n=>{ const k=String(n||"—").trim()||"—"; if(!peta[k]) peta[k]={nama:k,minta:0,klaim:0,sah:0,tolak:0,fb:0}; return peta[k]; };
+  getUsers().forEach(u=>isi(u.name));
+  diminta.forEach(x=>isi(x.askedBy||rvHostOf(x)).minta++);
+  klaim.forEach(x=>isi(rvHostOf(x)).klaim++);
+  sah.forEach(x=>isi(rvHostOf(x)).sah++);
+  tolak.forEach(x=>isi(rvHostOf(x)).tolak++);
+  fb.forEach(x=>isi(x.by).fb++);
+  const baris=Object.values(peta).map(o=>{
+    o.target=reviewTargetOf(o.nama);
+    o.pct=o.target?Math.min(100,Math.round(o.sah/o.target*100)):null;
+    return o;
+  }).sort((a,b)=> b.sah-a.sah || b.minta-a.minta || a.nama.localeCompare(b.nama));
+
+  const p=tblPage(baris,"capaian", rg.from+"|"+rg.to+"|"+baris.length);
+  const fbSelesai=fb.filter(x=>x.status==="selesai").length;
+  const cakupan=tgt.layak.length?Math.round(tgt.sudah.length/tgt.layak.length*100):0;
+
+  byId("page-capaian").innerHTML=`
+   <div class="panel">
+     <div class="panel-head"><h3>📈 Pencapaian Tim, ${esc(reviewRangeLabel())}</h3>
+       <span class="muted" style="font-size:12.5px">${getUsers().length} kru · target tim ${targetTim||"belum diatur"}</span></div>
+     <div class="panel-body">
+       ${rvChipsHtml("Periode",[["hari","Harian"],["minggu","Mingguan"],["bulan","Bulanan"]],REVIEW_MODE,"setReviewMode")}
+       <div class="rv-progress" style="margin:12px 0 10px"><i style="width:${pctTim}%"></i></div>
+       <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:16px">
+         <span><b style="color:var(--ink);font-size:15px">${targetTim?pctTim:0}%</b> tercapai</span>
+         <span>${targetTim?(sah.length>=targetTim?"🎉 target tim tercapai":`kurang <b>${targetTim-sah.length}</b> review lagi`):"target tim belum diatur"}</span>
+       </div>
+       <div class="recap-grid">
+         <div class="recap info"><div class="lbl">📤 Diminta</div><div class="val">${diminta.length}</div><div class="sub">ajakan terkirim</div></div>
+         <div class="recap warn"><div class="lbl">⏳ Perlu Verifikasi</div><div class="val">${klaim.length}</div><div class="sub">tamu sudah klaim</div></div>
+         <div class="recap ok"><div class="lbl">✅ Terverifikasi</div><div class="val">${sah.length}</div><div class="sub">sah dihitung</div></div>
+         <div class="recap ${tolak.length?'danger':''}"><div class="lbl">✖ Ditolak</div><div class="val">${tolak.length}</div><div class="sub">tak ada di Google</div></div>
+         <div class="recap purple"><div class="lbl">📊 Cakupan Tamu</div><div class="val">${cakupan}<small>%</small></div><div class="sub">${tgt.sudah.length} dari ${tgt.layak.length} ber-nomor</div></div>
+         <div class="recap"><div class="lbl">💬 Feedback</div><div class="val">${fb.length}</div><div class="sub">${fbSelesai} selesai ditangani</div></div>
+       </div>
+     </div>
+   </div>
+
+   <div class="panel">
+     <div class="panel-head"><h3>👥 Perolehan per Kru</h3>
+       <span class="muted" style="font-size:12.5px">${baris.length} kru · target bulan ${esc(fmtMonth(tm))}</span></div>
+     <div class="panel-body">
+       <div class="table-wrap"><table>
+         <thead><tr><th>Kru</th><th>Diminta</th><th>Diklaim</th><th>Terverifikasi</th><th>Ditolak</th><th>Feedback</th><th>Target</th><th>Capaian</th></tr></thead>
+         <tbody>${p.items.map(o=>`<tr>
+           <td><div class="name">${esc(o.nama)}</div></td>
+           <td>${o.minta||'<span class="muted">—</span>'}</td>
+           <td>${o.klaim||'<span class="muted">—</span>'}</td>
+           <td><b>${o.sah||0}</b></td>
+           <td>${o.tolak?`<span style="color:var(--danger)">${o.tolak}</span>`:'<span class="muted">—</span>'}</td>
+           <td>${o.fb||'<span class="muted">—</span>'}</td>
+           <td>${o.target||'<span class="muted">—</span>'}</td>
+           <td>${o.pct===null
+                 ? '<span class="muted">target belum diatur</span>'
+                 : `<div class="rv-progress" style="min-width:90px"><i style="width:${o.pct}%"></i></div>
+                    <span style="font-size:11.5px;color:var(--muted)">${o.pct}%</span>`}</td>
+         </tr>`).join("")}</tbody>
+       </table></div>
+       ${tblPagerHtml(p,"capaian")}
+     </div>
+   </div>`;
+}
+
 function renderAudit(){
   if(!CAN.audit(SESSION.role)){ byId("page-audit").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
   // Audit log tumbuh terus dan tidak pernah dipangkas, jadi ini tabel yang
