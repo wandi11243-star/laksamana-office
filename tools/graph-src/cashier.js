@@ -1562,8 +1562,10 @@ function ambilRoster() {  }
 
 
 
+
+
 function compsOn() {  }
-function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(); save(); render(); ambilRoster(); }
+function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(); }
 
 
 
@@ -1597,6 +1599,30 @@ function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hitungTotal() { save(); render(); ambilRoster(); }
 
 
 
@@ -1665,22 +1691,6 @@ function compPic() { compListPic(); }
 
 
 function compListPicRentang() { compFilterPic(); compsRentang(); }
-
-
-
-function kartuCompliment() {  }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2025,7 +2035,16 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
 
 
 
