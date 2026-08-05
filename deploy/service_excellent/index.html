@@ -667,6 +667,10 @@ svg.lc{display:block;flex:none}
 .user-row .who b{display:block;font-size:14px;color:var(--ink)}
 .user-row .who span{font-size:12px;color:var(--muted)}
 .role-badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;background:var(--gold-soft);color:var(--gold-dim)}
+/* Pemilih tingkat di tiap baris kru. flex:none supaya tidak ikut menyusut saat
+   nama kru panjang — dropdown yang terpotong jadi 3 huruf tidak terbaca. */
+.kru-role{flex:none;width:auto;min-width:150px;padding:6px 10px;font-size:12.5px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);cursor:pointer}
+.kru-role:focus{outline:none;border-color:var(--gold)}
 .perm-matrix{width:100%;border-collapse:collapse;font-size:13px}
 .perm-matrix th,.perm-matrix td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
 .perm-matrix th:first-child,.perm-matrix td:first-child{text-align:left;font-weight:600}
@@ -926,26 +930,25 @@ const ROLE_NAV = {
 };
 // Default lama (dipakai sebagai seed DEFAULT_PERMS di bawah, dan dipertahankan
 // sebagai fallback bila perms per-halaman entah kenapa tidak termuat).
+/* Nilai BAWAAN tiap aksi — cuma dipakai sebagai benih DEFAULT_PERMS. Begitu
+   matriks disimpan, yang berlaku adalah isi matriks, bukan daftar di sini.
+   Semuanya ditulis dengan tingkat modul ini (staff/manager/admin); peran
+   warisan Reservasi tidak boleh muncul lagi, karena tingkat yang tidak
+   tercantum lahir tanpa izin apa pun. */
 const CAN_DEFAULT = {
-  // `input` di modul ini = MENCATAT feedback/review, pekerjaan sehari-hari
-  // staff. Nilai warisan Reservasi (host/marketing/…) tidak memuat satu pun
-  // tingkat modul ini, jadi barisnya lahir "Lihat saja" dan tombol Catat
-  // Feedback hilang untuk semua orang kecuali manager.
+  // Pekerjaan harian staff: mencatat tanggapan tamu & review.
   input:  r => ["staff","manager","admin"].includes(r),
   editStatus: r => ["staff","manager","admin"].includes(r),
-  deleteReservation: r => ["manager","admin"].includes(r),
-  deleteReview: r => ["manager","admin"].includes(r),
-  master: r => ["manager","admin"].includes(r),
-  // Diarahkan ke baris matriks `mintaReview` lewat ACTION_PAGE di bawah, jadi
-  // yang menentukan adalah pengaturan role — bukan daftar peran yang dipatri.
+  catatReview: r => ["staff","manager","admin"].includes(r),
   mintaReview: r => ["staff","manager","admin"].includes(r),
+  // Pekerjaan pengurus: mengesahkan klaim, mengatur link & target, menghapus
+  // catatan, dan mengatur role kru.
+  master: r => ["manager","admin"].includes(r),
+  deleteReview: r => ["manager","admin"].includes(r),
+  kelolaRole: r => ["manager","admin"].includes(r),
+  manageUsers: r => ["manager","admin"].includes(r),
   audit:  r => ["manager","admin"].includes(r),
-  manageUsers: r => r==="admin",   // hanya admin modul (Office adminModules '*'/'reservasi'): atur role kru & hak akses
-  seeDP:  () => true, // semua bisa lihat DP di detail; cashier memang butuh
-  finance: r => ["cashier","manager","admin"].includes(r),   // verifikasi dana masuk (DP)
-  // Hapus catatan uang masuk: HANYA Admin Sistem. Cashier/manajer boleh menolak
-  // buktinya, tapi tidak boleh menghilangkan jejak transaksinya.
-  deleteDp: r => r==="admin",
+  seeDP:  () => true,
 };
 /* Setiap aksi edit terikat ke satu BARIS IZIN — itulah yang dikontrol matriks
    Hak Akses per Role (kolom Lihat/Ubah). Diikat menurut JENIS DATA yang diubah,
@@ -970,8 +973,11 @@ const CAN_DEFAULT = {
    satu-satunya halaman pengurus di modul ini. */
 const ACTION_PAGE = {
   input:'feedback', editStatus:'feedback',
-  deleteReview:'review',
-  master:'peran', audit:'peran', mintaReview:'mintaReview',
+  catatReview:'review',
+  mintaReview:'mintaReview',
+  master:'verifikasi', audit:'verifikasi',
+  deleteReview:'hapusCatatan',
+  kelolaRole:'peran', manageUsers:'peran',
 };
 // Baris izin EKSTRA: id -> {label, page (halaman nav yang menaunginya, untuk
 // visibilitas), afterPage (dirender tepat setelah baris page ini di matriks)}.
@@ -985,13 +991,24 @@ const ACTION_PAGE = {
    menawarkan izin untuk layar yang tidak ada. Barisnya sendiri tetap aman di
    database — savePerms() di bawah tidak menyentuh baris yang bukan miliknya. */
 const EXTRA_PERM_ROWS = {
-  mintaReview: { label:'↳ Kirim Ajakan Review (WhatsApp)', page:'review', afterPage:'review' },
+  mintaReview:  { label:'↳ Kirim Ajakan Review (WhatsApp)', page:'review',   afterPage:'review' },
+  // Pekerjaan pengurus di halaman Google Review: mengesahkan/menolak klaim,
+  // mengatur link & target, dan MELIHAT review seluruh kru (yang tidak punya
+  // baris ini cuma melihat review atas namanya sendiri).
+  verifikasi:   { label:'↳ Verifikasi Klaim, Link &amp; Target', page:'review', afterPage:'review' },
+  // Menghapus dipisah dari mencatat: mencatat itu pekerjaan harian, menghapus
+  // menghilangkan jejak. Berlaku untuk catatan review MAUPUN feedback.
+  hapusCatatan: { label:'↳ Hapus Catatan Review / Feedback', page:'feedback', afterPage:'feedback' },
 };
 /* CAN.<aksi>(role) = boleh EDIT (bukan cuma lihat) baris izin pemilik aksi itu,
    menurut matriks perms yang superadmin atur. manageUsers/seeDP tidak terikat
    baris izin, tetap dari CAN_DEFAULT. */
+/* manageUsers TIDAK lagi dikecualikan: mengatur role kru sekarang ikut matriks
+   seperti aksi lain (baris Kelola Role). Sebelumnya ia dipatri "admin saja",
+   sehingga manajer bisa membuka halamannya tapi tidak bisa mengubah apa pun
+   di sana — halaman pengaturan yang tak bisa dipakai mengatur. */
 const CAN = new Proxy({}, { get(_, action){
-  if(action==='manageUsers' || action==='seeDP') return CAN_DEFAULT[action];
+  if(action==='seeDP') return CAN_DEFAULT[action];
   const row = ACTION_PAGE[action];
   return role => row ? canEdit(row, role) : (CAN_DEFAULT[action] ? CAN_DEFAULT[action](role) : false);
 }});
@@ -1016,6 +1033,11 @@ const ICON_PATHS = {
   star:'<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.12 2.12 0 0 0 1.597-1.16z"/>',
   hourglass:'<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
 receipt:'<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8"/><path d="M8 12h6"/><path d="M8 16h4"/>',
+  // Catat Feedback dulu memakai `history` (jam berputar) — itu ikon RIWAYAT,
+  // sisa dari waktu halaman ini masih bernama "Riwayat Feedback" di Reservasi.
+  // Balon percakapan berisi baris tulisan jauh lebih terbaca sebagai "catat
+  // apa kata tamu".
+  "message-write":'<path d="M21 14a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 8h8"/><path d="M8 12h5"/>',
 };
 function icon(name, size=18){
   const p = ICON_PATHS[name] || '';
@@ -1037,10 +1059,10 @@ const NAV_SECTIONS = [
   {title:"Service Excellent", items:[
     {id:"capaian",   label:"Dashboard", ico:"bar-chart"},
     {id:"review",    label:"Google Review", ico:"star"},
-    {id:"feedback",  label:"Catat Feedback", ico:"history"},
+    {id:"feedback",  label:"Catat Feedback", ico:"message-write"},
   ]},
   {title:"Kontrol", items:[
-    {id:"peran",     label:"Kelola Role", ico:"sliders"},
+    {id:"peran",     label:"Kelola Role", ico:"shield"},
   ]},
 ];
 
@@ -2888,24 +2910,22 @@ function sinkronSeCrew(roster){
 function seKru(id){ return seCrew().find(u=>u.id===id) || null; }
 function getUsers(){ const k=seCrew(); return k.length?k:DEFAULT_USERS; }
 function getPerms(){ return sePerms(); }
-/* Dua role dikunci di KODE, bukan di data — supaya artinya tidak bisa hilang
-   karena salah klik di matriks atau karena isi perms yang tersimpan aneh:
-     admin  selalu PERM_EDIT  (sudah ada sebelumnya)
-     viewer TIDAK PERNAH melebihi PERM_VIEW
+/* SATU pintu untuk seluruh hak akses modul ini. Semua yang menanyakan "boleh
+   tidak" — sidebar (buildNav), pindah halaman (navigate), dan tiap tombol
+   lewat CAN.<aksi> — berakhir di sini. Tidak ada jalur kedua.
 
-   Untuk viewer, matriks tetap berguna: admin memakainya untuk memilih halaman
-   mana yang TERLIHAT (0 atau 1). Yang tidak bisa diberikan lewat sana adalah
-   izin mengubah — kalau nilai 2 sempat tersimpan (mis. dari data lama atau
-   penyuntingan manual), di sini tetap diturunkan jadi 1. Tanpa batas ini,
-   sebuah role bernama "View Only" bisa diam-diam punya tombol hapus. */
+   `admin` dikunci di KODE, bukan di data: satu klik salah di matriks tidak
+   boleh bisa mengunci semua orang keluar dari halaman pengaturannya sendiri.
+
+   Pengecualian `viewer` milik Reservasi dibuang — tingkat itu tidak ada di
+   modul ini, dan cabangnya cuma bikin orang mengira ada tingkat keempat. */
 function pagePerm(page, role){
   if(role==="admin") return PERM_EDIT;
   const p=getPerms()[page];
-  // Fallback PERM_VIEW saat baris izin tak dikenal TIDAK berlaku untuk viewer
-  // maupun role lain di sini — viewer memang mentok di PERM_VIEW, jadi hasilnya
-  // sama; yang penting nilainya tidak pernah bisa naik ke PERM_EDIT.
-  const v = !p ? PERM_VIEW : (typeof p[role]==="number" ? p[role] : PERM_VIEW);
-  return role==="viewer" ? Math.min(v, PERM_VIEW) : v;
+  // Baris izin yang tak dikenal jatuh ke "Lihat", bukan ke "Ubah": kesalahan
+  // pemetaan harus berakhir sebagai fitur yang mati, bukan sebagai izin yang
+  // diberikan diam-diam.
+  return !p ? PERM_VIEW : (typeof p[role]==="number" ? p[role] : PERM_VIEW);
 }
 function canEdit(page, role){ return pagePerm(page, role) >= PERM_EDIT; }
 
@@ -4046,7 +4066,10 @@ function applyFilter(list){
 const TBL_PER_HAL_DEF = 25;
 // Baris yang tinggi (isinya teks berparagraf / banyak chip) diberi jatah lebih
 // sedikit supaya satu halaman tetap muat di layar tanpa menggulung jauh.
-const TBL_PER_HAL = { fb:10, belum:10, daftar:10, audit:50 };
+// `kru` sengaja kecil: daftar kru Laksamana Muda puluhan orang, dan barisnya
+// tinggi (avatar + nama + pemilih role). Tanpa halaman, matriks Hak Akses di
+// bawahnya terdorong jauh ke bawah layar.
+const TBL_PER_HAL = { fb:10, belum:10, daftar:10, audit:50, kru:8 };
 const TBL_HAL = {};      // kunci -> nomor halaman aktif
 const TBL_SIG = {};      // kunci -> sidik jari saringan terakhir
 const TBL_RENDER = {};   // kunci -> fungsi gambar ulang halaman pemilik tabel
@@ -7658,6 +7681,10 @@ function requestReview(resId){
 }
 // Catat / perbarui klaim review tamu (dengan bukti screenshot)
 function openReviewForm(resId, rvId){
+  // Penjaga, bukan sekadar tombol yang disembunyikan: fungsi ini dipanggil juga
+  // dari baris tabel dan dari layar yang belum sempat digambar ulang setelah
+  // hak aksesnya diubah orang lain.
+  if(!CAN.catatReview(SESSION.role)){ toast("Role kamu tidak berhak mencatat review","err"); return; }
   const rv = rvId ? reviews().find(x=>x.id===rvId) : (resId ? reviews().find(x=>x.resId===resId) : null);
   const r  = resId ? STATE.reservations.find(x=>x.id===resId) : (rv&&rv.resId ? STATE.reservations.find(x=>x.id===rv.resId) : null);
   PENDING_FILES={};
@@ -7722,6 +7749,7 @@ function openReviewForm(resId, rvId){
    </div>`, true);
 }
 function saveReview(rvId, resId){
+  if(!CAN.catatReview(SESSION.role)){ toast("Role kamu tidak berhak mencatat review","err"); return; }
   const name=(byId("rv_name").value||"").trim();
   const reviewer=(byId("rv_reviewer").value||"").trim();
   const tableNo=(byId("rv_table").value||"").trim();   // opsional
@@ -7836,6 +7864,9 @@ async function viewReviewProof(id){
   }catch(e){ hideBusy(); toast("Gagal memuat bukti: "+e.message,"err"); }
 }
 function saveReviewCfg(){
+  // Saklar WhatsApp & link Google ada di panel Setelan yang memang cuma
+  // digambar untuk pengurus, tapi form-nya bisa dikirim dari layar lama.
+  if(!CAN.master(SESSION.role)){ toast("Role kamu tidak berhak mengubah setelan review","err"); return; }
   const cfg=reviewCfg();
   cfg.link=(byId("rvcfg_link").value||"").trim();
   const sw=byId("rvcfg_wa"); if(sw) cfg.waAktif=!!sw.checked;
@@ -7946,6 +7977,7 @@ function fbGuestPhone(v){
   if(g && nm && !nm.value.trim()) nm.value=g.name;
 }
 function openFeedbackForm(resId, fbId){
+  if(!CAN.input(SESSION.role)){ toast("Role kamu tidak berhak mencatat feedback","err"); return; }
   const fb = fbId ? feedbacks().find(x=>x.id===fbId) : null;
   const r  = resId ? STATE.reservations.find(x=>x.id===resId) : (fb&&fb.resId ? STATE.reservations.find(x=>x.id===fb.resId) : null);
   PENDING_FILES={};
@@ -8016,6 +8048,7 @@ function fbToggleAksi(){
   byId("fb_aksi_wrap")?.classList.toggle("hidden", s==="baru");
 }
 function saveFeedback(fbId, resId){
+  if(!CAN.input(SESSION.role)){ toast("Role kamu tidak berhak mencatat feedback","err"); return; }
   fbSyncItems();
   const name=(byId("fb_name").value||"").trim();
   if(!name){ toast("Nama tamu wajib diisi","err"); return; }
@@ -8063,7 +8096,7 @@ function saveFeedback(fbId, resId){
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
 }
 function setFbStatus(id, status){
-  if(!CAN.input(SESSION.role)){ toast("Tidak ada akses","err"); return; }
+  if(!CAN.editStatus(SESSION.role)){ toast("Role kamu tidak berhak mengubah status feedback","err"); return; }
   const fb=feedbacks().find(x=>x.id===id); if(!fb) return;
   if(status==="selesai"){
     const note=prompt("Tindakan yang sudah dilakukan (mis. sudah minta maaf & ganti minuman):", fb.actionNote||"");
@@ -8072,7 +8105,7 @@ function setFbStatus(id, status){
   }
   fb.status=status; fb.handledBy=SESSION.name; fb.handledAt=Date.now();
   logAudit("Feedback", `Feedback ${fb.name} → ${FB_STATUS[status].label}`);
-  saveState(); renderReview();
+  saveState(); gambarUlangHalamanIni();
   toast(`Feedback ditandai ${FB_STATUS[status].label}`, status==="selesai"?"ok":"");
 }
 function delFeedback(id){
@@ -8081,7 +8114,7 @@ function delFeedback(id){
   if(!confirm(`Hapus feedback dari "${fb.name}"?`)) return;
   STATE.master.feedbacks = feedbacks().filter(x=>x.id!==id);
   logAudit("Feedback", `Feedback ${fb.name} dihapus`);
-  saveState(); renderReview(); toast("Dihapus","");
+  saveState(); gambarUlangHalamanIni(); toast("Dihapus","");
 }
 function viewFeedbackProof(id){
   const fb=feedbacks().find(x=>x.id===id); if(!fb||!fb.proofData){ toast("Tidak ada foto","err"); return; }
@@ -8095,13 +8128,13 @@ function waFeedback(id){
 }
 
 let FB_FILTER = "";   // "" = semua kategori
-function setFbFilter(v){ FB_FILTER=v; TBL_HAL.fb=1; renderReview(); }
+function setFbFilter(v){ FB_FILTER=v; TBL_HAL.fb=1; renderFeedbackPage(); }
 /* Penyaring STATUS. Daftar feedback dipakai sebagai bahan evaluasi, jadi
    pertanyaan yang paling sering diajukan adalah "mana yang belum selesai" —
    itu harus bisa dijawab dalam satu klik, bukan dengan memelototi kolom status
    baris per baris. */
 let FB_STATUS_F = "";   // "" = semua | baru | proses | selesai
-function setFbStatusFilter(v){ FB_STATUS_F=v; TBL_HAL.fb=1; renderReview(); }
+function setFbStatusFilter(v){ FB_STATUS_F=v; TBL_HAL.fb=1; renderFeedbackPage(); }
 
 function feedbackView(){
   const rg=reviewRange();
@@ -8131,6 +8164,7 @@ function feedbackView(){
     .slice().sort((a,b)=>(b.at||0)-(a.at||0));
   const pFb = rvPage(fbTersaring, "fb");
 
+  const bolehUbahFb = CAN.input(SESSION.role);
   const rows = pFb.items.map(fb=>{
     const st=FB_STATUS[fb.status]||FB_STATUS.baru;
     return `<tr>
@@ -8147,9 +8181,9 @@ function feedbackView(){
       <td><div class="mini-actions">
         ${fb.proofData?`<button class="btn btn-xs btn-ghost" onclick="viewFeedbackProof('${fb.id}')" title="Lihat foto bukti">🖼️</button>`:""}
         ${fb.phone?`<button class="btn btn-xs btn-wa" onclick="waFeedback('${fb.id}')" title="Minta maaf / tindak lanjut via WhatsApp">💬</button>`:""}
-        ${fb.status==="baru"?`<button class="btn btn-xs btn-ghost" onclick="setFbStatus('${fb.id}','proses')" title="Sedang ditangani">🔧 Proses</button>`:""}
-        ${fb.status!=="selesai"?`<button class="btn btn-xs btn-ok" onclick="setFbStatus('${fb.id}','selesai')" title="Sudah ditindaklanjuti">✅ Selesai</button>`:""}
-        <button class="btn btn-xs btn-ghost" onclick="openFeedbackForm('','${fb.id}')" title="Ubah">✏️</button>
+        ${bolehUbahFb&&fb.status==="baru"?`<button class="btn btn-xs btn-ghost" onclick="setFbStatus('${fb.id}','proses')" title="Sedang ditangani">🔧 Proses</button>`:""}
+        ${bolehUbahFb&&fb.status!=="selesai"?`<button class="btn btn-xs btn-ok" onclick="setFbStatus('${fb.id}','selesai')" title="Sudah ditindaklanjuti">✅ Selesai</button>`:""}
+        ${bolehUbahFb?`<button class="btn btn-xs btn-ghost" onclick="openFeedbackForm('','${fb.id}')" title="Ubah">✏️</button>`:""}
         ${CAN.deleteReview(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delFeedback('${fb.id}')">🗑️</button>`:""}
       </div></td>
     </tr>`;
@@ -8273,7 +8307,10 @@ function simpanRvTarget(){
   cfg.targets=t;
   cfg.target=Object.values(t).reduce((a,v)=>a+v,0);   // tim = jumlah target host
   logAudit("Google Review", `Target diperbarui: ${Object.keys(t).length} host, tim otomatis ${cfg.target}/bulan`);
-  saveState(); closeModal(); renderReview();
+  // 🎯 Atur Target sekarang berdiri di halaman Dashboard. renderReview() di sini
+  // menggambar ulang halaman LAIN — angka target di layar yang sedang dilihat
+  // tidak berubah sampai halamannya dibuka ulang.
+  saveState(); closeModal(); gambarUlangHalamanIni();
   toast("Target disimpan ✓","ok");
 }
 
@@ -8309,17 +8346,20 @@ function kepalaPeriode(judul, desc, aksiHtml){
    — dan sub-tab di dalam halaman yang sudah punya menu sendiri di kiri berarti
    dua lapis navigasi untuk dua pekerjaan yang sama sekali tidak berhubungan:
    mengejar ulasan Google versus mencatat keluhan tamu. */
+/* Tombol pembuat data digambar HANYA kalau role-nya boleh mengubah. Halaman
+   yang disetel "Lihat" di matriks memang harus terbuka — tapi terbuka sebagai
+   bacaan, bukan sebagai layar penuh tombol yang semuanya menolak saat ditekan. */
 function renderReview(){
   byId("page-review").innerHTML =
     kepalaPeriode("Google Review","Ajakan review ke tamu, klaim, dan verifikasinya.",
       `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
-       <button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`)
+       ${CAN.catatReview(SESSION.role)?`<button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`:""}`)
     + reviewGoogleView();
 }
 function renderFeedbackPage(){
   byId("page-feedback").innerHTML =
     kepalaPeriode("Catat Feedback","Pujian &amp; keluhan tamu, dikategorikan per divisi.",
-      `<button class="btn btn-sm btn-primary" onclick="openFeedbackForm()">➕ Catat Feedback</button>`)
+      CAN.input(SESSION.role)?`<button class="btn btn-sm btn-primary" onclick="openFeedbackForm()">➕ Catat Feedback</button>`:"")
     + feedbackView();
 }
 
@@ -8367,7 +8407,7 @@ function reviewGoogleView(){
         ${(x.proofData||x.proof2Data)?`<button class="btn btn-xs btn-ghost" onclick="viewReviewProof('${x.id}')" title="Lihat bukti">🖼️</button>`:""}
         ${x.status==="diklaim"&&canCfg&&!perluFoto2?`<button class="btn btn-xs btn-ok" onclick="verifyReview('${x.id}')">✅ Verifikasi</button>
           <button class="btn btn-xs btn-danger" onclick="rejectReview('${x.id}')">✖</button>`:""}
-        ${x.status!=="terverifikasi"?`<button class="btn btn-xs btn-ghost" onclick="openReviewForm('','${x.id}')" title="Catat / perbarui klaim">✏️</button>`:""}
+        ${x.status!=="terverifikasi"&&CAN.catatReview(SESSION.role)?`<button class="btn btn-xs btn-ghost" onclick="openReviewForm('','${x.id}')" title="Catat / perbarui klaim">✏️</button>`:""}
         ${CAN.deleteReview(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delReview('${x.id}')">🗑️</button>`:""}
       </div></td>
     </tr>`;
@@ -8511,19 +8551,30 @@ function addMaster(key){ const v=byId("add_"+key).value.trim(); if(!v)return; ST
 function delMaster(key,i){ const v=STATE.master[key][i]; STATE.master[key].splice(i,1); logAudit("Master −",`${key}: ${v}`); saveState(); renderMaster(); }
 
 /* ================= SUPER ADMIN: KELOLA KRU & HAK AKSES ================= */
-function userAccessBlock(){
-  const users=getUsers(), perms=getPerms();
+/* `bolehUbah` = role yang sedang login boleh MENGUBAH halaman ini (matriks
+   baris Kelola Role = "Boleh Ubah"). Kalau cuma "Lihat", isinya tetap
+   digambar utuh tapi sebagai bacaan: pemilih role dikunci, tombol Simpan &
+   Default hilang, sel matriks tidak bisa diklik. */
+function userAccessBlock(bolehUbah){
+  const perms=getPerms();
   const editableRoles=ROLE_KEYS.filter(r=>r!=="admin");   // admin selalu akses penuh
-  const usersHtml = users.map(u=>`
+  /* Urut pengurus dulu, lalu abjad. Yang dicari orang di halaman ini hampir
+     selalu "siapa saja yang punya kuasa di sini", dan itu tidak boleh terkubur
+     di halaman 4 di antara puluhan staff. */
+  const bobot={admin:0,manager:1,staff:2};
+  const users=getUsers().slice().sort((a,b)=>
+    (bobot[a.role]??3)-(bobot[b.role]??3) || String(a.name||"").localeCompare(String(b.name||"")));
+  const pKru=tblPage(users,"kru", users.length+"|"+(bolehUbah?1:0));
+  const usersHtml = pKru.items.map(u=>`
     <div class="user-row">
       <span class="av" style="background:${avatarColor(u.id)}">${crewInitials(u.name)}</span>
       <span class="who"><b>${esc(u.name)}${u.id===SESSION.id?', <span style="color:var(--gold-dim)">kamu</span>':''}</b>
-        <span><span class="role-badge">${ROLE_LABEL[u.role]||u.role}</span></span></span>
-      <!-- "✎ Atur Role" DIBUANG di modul ini: peran tersimpan di database yang
-           SAMA dengan Reservasi, dan menuliskan "staff" ke sana membuat Reservasi
-           menemui peran yang tidak dikenalnya. Tingkat seseorang ditentukan dari
-           perannya di Office; yang diatur DI SINI adalah apa yang boleh dilakukan
-           tiap tingkat (matriks di bawah). -->
+        <span class="muted" style="font-size:11.5px">${esc(u.divisi||"—")}</span></span>
+      ${bolehUbah
+        ? `<select class="kru-role" onchange="setKruRole('${u.id}', this.value)" title="Ganti tingkat akses kru ini">
+             ${ROLE_KEYS.map(r=>`<option value="${r}" ${u.role===r?"selected":""}>${ROLE_LABEL[r]}</option>`).join("")}
+           </select>`
+        : `<span class="role-badge">${ROLE_LABEL[u.role]||u.role}</span>`}
     </div>`).join("");
   // Tiap sel: None/Lihat/Ubah, tombol satu-klik bersiklus (klik = geser ke
   // status berikutnya, warnanya berubah). "Ubah" hanya berarti sesuatu kalau
@@ -8531,7 +8582,7 @@ function userAccessBlock(){
   // riwayat/analitik murni informasi, jadi selalu berlaku sebagai lihat-saja
   // walau disetel Ubah.
   const legend = `<div class="perm-legend">${PERM_OPT.map(([val,lbl,short])=>`<span class="lg-item"><span class="lg-dot n${val}"></span>${lbl}</span>`).join("")}
-    <span class="muted" style="font-size:11.5px">Klik sel untuk geser status</span></div>`;
+    <span class="muted" style="font-size:11.5px">${bolehUbah?"Klik sel untuk geser status":"Kamu hanya bisa melihat pengaturan ini"}</span></div>`;
   const extraForPage = {}; Object.keys(EXTRA_PERM_ROWS).forEach(id=>{
     const p=EXTRA_PERM_ROWS[id].afterPage; (extraForPage[p]=extraForPage[p]||[]).push(id);
   });
@@ -8546,11 +8597,9 @@ function userAccessBlock(){
         // halaman induknya — kunci ke "Tak Terlihat", jangan biarkan superadmin
         // menyalakan hapus-DP untuk role yang Finance-nya sendiri tersembunyi.
         const parentVisible = !isExtra || pagePerm(visPage, r) >= PERM_VIEW;
-        // viewer mentok di "Lihat": nilainya dijepit di sini supaya tombol tidak
-        // pernah menampilkan "Ubah" walau data lama sempat menyimpan 2.
-        const vv = (r==="viewer") ? Math.min(v, PERM_VIEW) : v;
+        const vv = v;
         return parentVisible
-          ? `<td><button type="button" class="perm-btn" data-p="${id}" data-r="${r}" data-v="${vv}" title="${PERM_OPT[vv][1]}${r==="viewer"?" — View Only hanya bisa Tak Terlihat / Lihat":" — klik untuk ubah"}" onclick="cyclePerm(this)">${PERM_OPT[vv][2]}</button></td>`
+          ? `<td><button type="button" class="perm-btn" data-p="${id}" data-r="${r}" data-v="${vv}" ${bolehUbah?"":"disabled"} title="${PERM_OPT[vv][1]}${bolehUbah?" — klik untuk ubah":""}" onclick="cyclePerm(this)">${PERM_OPT[vv][2]}</button></td>`
           : `<td><span class="perm-lock muted" title="Halaman induk tersembunyi untuk role ini">Tak Terlihat</span></td>`;
       }).join("")}
       <td><button type="button" class="perm-btn" data-v="2" disabled title="Admin selalu akses penuh, tidak bisa diubah">Ubah</button></td>
@@ -8565,49 +8614,67 @@ function userAccessBlock(){
     </tbody></table></div>`;
   return `
    <div class="panel" style="margin-top:6px">
-     <div class="panel-head"><h3>⚓ Role Kru</h3></div>
+     <div class="panel-head"><h3>⚓ Role Kru</h3>
+       <div style="display:flex;gap:8px;align-items:center">
+         <span class="muted" style="font-size:12.5px">${users.length} kru</span>
+         ${bolehUbah?`<button class="btn btn-sm btn-ghost" onclick="segarkanKru()" title="Tarik ulang daftar kru dari Office">↻ Segarkan</button>`:""}
+       </div></div>
      <div class="panel-body">
-       ${usersHtml}
-       <p class="hint" style="margin-top:6px">Atur <b>role</b> tiap kru untuk menentukan halaman apa yang bisa mereka buka (lihat tabel Hak Akses per Role). Akun kru & login dikelola di Office, bukan di sini.</p>
+       ${usersHtml||`<div class="empty" style="padding:24px"><div class="big">👥</div>Daftar kru belum termuat dari Office.</div>`}
+       ${tblPagerHtml(pKru,"kru")}
+       <p class="hint" style="margin-top:6px">Ganti <b>tingkat</b> tiap kru di sini — berlaku <b>hanya di modul Service Excellent</b>, tidak menyentuh peran mereka di Reservasi atau modul lain. Apa yang boleh dilakukan tiap tingkat diatur di tabel di bawah. Akun & login kru tetap dikelola di Office.</p>
      </div>
    </div>
    <div class="panel">
      <div class="panel-head"><h3>🔑 Hak Akses per Role</h3>
        <div style="display:flex;gap:8px">
-         <button class="btn btn-sm btn-ghost" onclick="resetPerms()">↺ Default</button>
-         <button class="btn btn-sm btn-primary" onclick="savePerms()">💾 Simpan Hak Akses</button></div></div>
+         ${bolehUbah?`<button class="btn btn-sm btn-ghost" onclick="resetPerms()">↺ Default</button>
+         <button class="btn btn-sm btn-primary" onclick="savePerms()">💾 Simpan Hak Akses</button>`:""}</div></div>
      <div class="panel-body">
        <p class="hint" style="margin-bottom:12px">Atur per halaman: <b>Tak Terlihat</b> (hilang dari menu), <b>Lihat</b> (buka halamannya tapi tombol ubah/hapus disembunyikan), atau <b>Boleh Ubah</b>. Perubahan langsung memengaruhi menu sidebar. <b>Admin</b> selalu akses penuh.</p>
        ${matrix}
      </div>
    </div>`;
 }
-function openUserForm(id){
-  if(!CAN.manageUsers(SESSION.role)){ toast("Hanya admin modul yang bisa mengatur role","err"); return; }
-  const u = id ? userById(id) : null;
-  if(!u){ toast("Kru tidak ditemukan","err"); return; }   // tidak ada lagi mode "tambah"
-  const roleOpts = ROLE_KEYS.map(r=>`<option value="${r}" ${u.role===r?"selected":""}>${ROLE_LABEL[r]}</option>`).join("");
-  openModal(`<div class="modal-head"><h3>Atur Role Kru</h3><button class="close-x" onclick="closeModal()">×</button></div>
-   <div class="modal-body">
-     <div class="form-grid">
-       <div class="field full"><label>Nama Kru</label><input value="${esc(u.name)}" disabled style="background:var(--paper);color:var(--muted);cursor:not-allowed"></div>
-       <div class="field full"><label>Role / Jabatan</label><select id="us_role">${roleOpts}</select></div>
-     </div>
-     <p class="hint" style="margin-top:10px">Role menentukan halaman apa yang bisa dibuka kru ini (atur di tabel <b>Hak Akses per Role</b>). Nama & login dikelola di Office.</p>
-   </div>
-   <div class="modal-foot">
-     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
-     <button class="btn btn-primary" onclick="saveUserRow('${u.id}')">Simpan</button>
-   </div>`);
-}
-function saveUserRow(id){
-  ensureUsersPerms();
-  const role=byId("us_role").value;
-  const u=userById(id); if(!u){ toast("Kru tidak ditemukan","err"); return; }
-  u.role=role; logAudit("Role Kru",`${u.name} -> ${role}`);
-  // Bila mengubah role diri sendiri, sesi ikut diperbarui agar sidebar langsung menyesuaikan.
-  if(id===SESSION.id){ SESSION.role=role; sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION)); byId("userRole").textContent=ROLE_LABEL[role]; }
-  saveState(); closeModal(); buildNav(); renderPeran(); toast("Role kru disimpan ⚓","ok");
+/* Ganti tingkat seorang kru. Langsung dari pemilih di barisnya — popup "Atur
+   Role" yang lama dibuang: satu-satunya isinya cuma dropdown ini, dan mengatur
+   sepuluh orang berarti sepuluh kali buka-pilih-simpan-tutup.
+
+   Yang ditulis SELALU seCrew (daftar kru modul ini), tidak pernah
+   STATE.master.users milik Reservasi — lihat sePerms/seCrew. */
+function setKruRole(id, role){
+  if(!CAN.manageUsers(SESSION.role)){ toast("Role kamu tidak berhak mengatur role kru","err"); renderPeran(); return; }
+  if(!ROLE_KEYS.includes(role)){ toast("Tingkat tidak dikenal","err"); renderPeran(); return; }
+  const u=seKru(id);
+  if(!u){ toast("Kru belum ada di daftar modul ini — tekan ↻ Segarkan dulu","err"); renderPeran(); return; }
+  /* Penjaga pintu terakhir. Menurunkan satu-satunya pengurus akan mengunci
+     halaman ini untuk SEMUA orang, dan tidak ada layar lain yang bisa
+     membukanya kembali — modulnya harus dibongkar lewat database.
+     (Jalur darurat "belum ada pengurus" di enterApp memang menutup celah itu,
+     tapi ia baru menyala kalau daftar pengurusnya benar-benar kosong; jangan
+     andalkan itu sebagai jaring dari kesalahan klik.) */
+  const pengurusLain = seCrew().filter(k=>k.id!==id && (k.role==="manager"||k.role==="admin")).length;
+  if(!pengurusLain && role==="staff"){
+    toast("Harus ada minimal satu Manajer/Admin di modul ini","err"); renderPeran(); return;
+  }
+  const dulu=u.role;
+  if(dulu===role){ return; }
+  u.role=role;
+  logAudit("Role Kru", `${u.name}: ${ROLE_LABEL[dulu]||dulu} → ${ROLE_LABEL[role]||role}`);
+  saveState();
+  toast(`${u.name} sekarang ${ROLE_LABEL[role]}`,"ok");
+  // Mengubah role DIRI SENDIRI berlaku seketika: sidebar, nama tingkat di
+  // pojok, dan halaman yang boleh dibuka semuanya ikut berubah tanpa perlu
+  // login ulang.
+  if(id===SESSION.id){
+    SESSION.role=role;
+    try{ sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION)); }catch(e){}
+    const lbl=byId("userRole"); if(lbl) lbl.textContent=ROLE_LABEL[role]||role;
+    buildNav();
+    // Menurunkan diri sendiri bisa berarti halaman ini tidak lagi boleh dibuka.
+    if(!pageAllowed("peran", SESSION.role)){ navigate(allowedPages(SESSION.role)[0]); return; }
+  }
+  renderPeran();
 }
 // Tombol siklus di matriks Hak Akses: klik geser None(0) -> Lihat(1) -> Ubah(2)
 // -> None, warna+label ikut berubah. Cuma ubah tampilan tombol; tersimpan
@@ -8616,9 +8683,9 @@ function cyclePerm(btn){
   // btn.dataset.v menulis atribut data-v juga (sama hal), dan CSS .perm-btn[data-v="n"]
   // di atas membaca atribut itu untuk warnanya — jadi baris ini SEKALIGUS mengganti warna.
   //
-  // Kolom View Only berputar 2 keadaan saja (Tak Terlihat <-> Lihat), bukan 3.
-  // "Boleh Ubah" sengaja tidak bisa dicapai: itu yang membuat role ini berarti.
-  const putaran = (btn.dataset.r === "viewer") ? 2 : 3;
+  // Ketiga tingkat modul ini boleh mencapai "Boleh Ubah"; pengecualian
+  // "View Only" milik Reservasi tidak ikut dibawa (tingkatnya tidak ada di sini).
+  const putaran = 3;
   const next = (Number(btn.dataset.v)+1)%putaran;
   btn.dataset.v = String(next);
   btn.textContent = PERM_OPT[next][2];
@@ -8636,6 +8703,7 @@ function cyclePerm(btn){
 
    Karena itu barisnya digabung, bukan diganti. */
 function savePerms(){
+  if(!CAN.kelolaRole(SESSION.role)){ toast("Role kamu tidak berhak mengubah hak akses","err"); return; }
   ensureUsersPerms();
   const perms = sePerms();   // milik modul ini, bukan objek bersama dengan Reservasi
   document.querySelectorAll(".perm-btn:not([disabled])").forEach(btn=>{
@@ -8654,6 +8722,7 @@ function savePerms(){
 }
 
 function resetPerms(){
+  if(!CAN.kelolaRole(SESSION.role)){ toast("Role kamu tidak berhak mengubah hak akses","err"); return; }
   if(!confirm("Kembalikan semua hak akses ke pengaturan default?")) return;
   ensureUsersPerms();
   STATE.master.sePerms=JSON.parse(JSON.stringify(DEFAULT_PERMS));
@@ -8699,27 +8768,51 @@ function renderPeran(){
   if(SE_ROSTER===null) muatRosterTim().then(r=>{
     if(r && sinkronSeCrew(r)){ saveState(); if(CURRENT_PAGE==='peran') renderPeran(); }
   });
-  if(!CAN.master(SESSION.role)){
+  /* Dua pertanyaan berbeda, jangan digabung:
+       pageAllowed  -> boleh MELIHAT halaman ini?  (navigate sudah menjaganya)
+       canEdit      -> boleh MENGUBAH isinya?
+     Versi sebelumnya cuma menanyakan yang kedua, jadi role yang matriksnya
+     disetel "Lihat" pada baris Kelola Role tetap dapat layar gembok — padahal
+     "Lihat" justru berarti boleh membacanya. */
+  if(!pageAllowed("peran", SESSION.role)){
     el.innerHTML=`<div class="panel"><div class="panel-body"><div class="empty" style="padding:30px">
-      <div class="big">🔒</div>Hanya <b>manager</b> dan <b>admin</b> yang bisa mengatur hak akses.</div></div></div>`;
+      <div class="big">🔒</div>Role kamu tidak punya akses ke halaman ini.</div></div></div>`;
     return;
   }
+  const bolehUbah = CAN.kelolaRole(SESSION.role);
+  /* Peringatan jalur darurat. Selama daftar kru belum memuat satu pun
+     Manajer/Admin, SIAPA PUN yang membuka modul ini masuk sebagai Admin Sistem
+     (lihat enterApp) — kalau tidak, tidak akan pernah ada orang yang bisa
+     menunjuk pengurus pertama. Keadaan itu harus kelihatan, bukan diam-diam:
+     user melaporkan 5 Agustus 2026 "semua yg login masih diakui admin sistem". */
+  const belumAdaPengurus = !seCrew().some(k=>k.role==="manager"||k.role==="admin");
   el.innerHTML=`
    <div class="panel">
      <div class="panel-head"><h3>🛡️ Kelola Role — Service Excellent</h3>
        <span class="muted" style="font-size:12.5px">${getUsers().length} kru</span></div>
      <div class="panel-body">
+       ${belumAdaPengurus?`<div class="inline-warn" style="margin-bottom:12px">
+         <div>⚠️ <b>Belum ada Manajer/Admin di modul ini.</b> Selama itu, <b>semua orang</b> yang membuka
+         Service Excellent otomatis masuk sebagai <b>Admin Sistem</b> — jika tidak, tidak akan ada
+         yang bisa menunjuk pengurus pertama.<br>
+         Tetapkan minimal satu orang jadi <b>Manajer / Owner</b> atau <b>Admin Sistem</b> di daftar
+         <b>⚓ Role Kru</b> di bawah. Begitu ada, semua kru lain langsung turun ke <b>Staff</b>.</div>
+       </div>`:""}
        <div class="inline-info" style="margin-bottom:12px">
+         <b>Tingkat</b> (Staff / Manajer / Admin) menjawab <i>orang ini siapa</i>; tabel
+         <b>🔑 Hak Akses per Role</b> menjawab <i>tingkat itu boleh apa</i>. Keduanya berlaku
+         hanya di modul ini.<br>
          Baris <b>↳ Kirim Ajakan Review (WhatsApp)</b> mengatur siapa yang boleh menekan
-         <b>⭐ Minta Review</b> di daftar <b>📤 Tamu Belum Diminta Review</b>. Diberi <b>Lihat</b> berarti
-         daftarnya terbaca tapi ajakannya tidak bisa dikirim.
-         Saklar <b>global</b> on/off ajakan WhatsApp ada terpisah di <b>Feedback &amp; Review → ⚙️ Setelan</b> —
-         kalau saklar itu mati, tombolnya hilang untuk semua role tanpa kecuali.
+         <b>⭐ Minta Review</b>. Saklar <b>global</b> on/off ajakan WhatsApp ada terpisah di
+         <b>Google Review → ⚙️ Setelan</b> — kalau saklar itu mati, tombolnya hilang untuk semua
+         tingkat tanpa kecuali.
        </div>
-       ${userAccessBlock()}
+       ${userAccessBlock(bolehUbah)}
      </div>
    </div>`;
 }
+// Pager daftar kru menggambar ulang HALAMAN INI, bukan halaman lain.
+TBL_RENDER.kru = ()=>renderPeran();
 
 /* ================= DASHBOARD PENCAPAIAN =================
    Papan capaian SELURUH TIM, bukan cuma host (permintaan user 5 Agustus 2026).

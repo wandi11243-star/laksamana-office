@@ -856,6 +856,10 @@ function punya() { boot(); navigate(); }
 
 
 
+
+
+
+
 function fetchOffice() {  }
 
 
@@ -902,6 +906,24 @@ function fetchOffice() {  }
 
 
 function roleSE() { pagePerm(); savePerms(); canEdit(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2897,9 +2919,7 @@ function getPerms() { sePerms(); }
 
 
 
-
 function pagePerm() { getPerms(); }
-
 
 
 
@@ -4002,6 +4022,9 @@ function sendWA() { normPhone(); waOpen(); toast(); lantaiRes(); todayStr(); }
 
 
 function applyFilter() { customerProfile(); lantaiRes(); renderReview(); }
+
+
+
 
 
 
@@ -7657,7 +7680,7 @@ function requestReview() { waReviewAktif(); toast(); reviewCfg(); navigate(); re
 
 
 
-function openReviewForm() { reviews(); openModal(); closeModal(); esc(); displayPhone(); todayStr(); byId(); fileToData(); saveReview(); }
+function openReviewForm() { toast(); reviews(); openModal(); closeModal(); esc(); displayPhone(); todayStr(); byId(); fileToData(); saveReview(); }
 
 
 
@@ -7721,7 +7744,12 @@ function openReviewForm() { reviews(); openModal(); closeModal(); esc(); display
 
 
 
-function saveReview() { byId(); toast(); reviews(); normPhone(); fmtDateShort(); uid(); todayStr(); logAudit(); saveState(); closeModal(); navigate(); }
+
+
+
+
+function saveReview() { toast(); byId(); reviews(); normPhone(); fmtDateShort(); uid(); todayStr(); logAudit(); saveState(); closeModal(); navigate(); }
+
 
 
 
@@ -7835,7 +7863,10 @@ function viewReviewProof() { reviews(); toast(); showBusy(); loadFile(); hideBus
 
 
 
-function saveReviewCfg() { reviewCfg(); byId(); logAudit(); saveState(); renderReview(); toast(); saveReview(); renderCoordWA(); }
+function saveReviewCfg() { toast(); reviewCfg(); byId(); logAudit(); saveState(); renderReview(); saveReview(); renderCoordWA(); }
+
+
+
 
 
 
@@ -7945,7 +7976,8 @@ function fbGuestPhone() { findGuestByPhone(); byId(); }
 
 
 
-function openFeedbackForm() { feedbacks(); fbBlankItem(); openModal(); closeModal(); esc(); fbGuestName(); displayPhone(); fbGuestPhone(); guestDirectory(); todayStr(); fileToData(); fbItemsHtml(); fbAddItem(); fbToggleAksi(); saveFeedback(); }
+function openFeedbackForm() { toast(); feedbacks(); fbBlankItem(); openModal(); closeModal(); esc(); fbGuestName(); displayPhone(); fbGuestPhone(); guestDirectory(); todayStr(); fileToData(); fbItemsHtml(); fbAddItem(); fbToggleAksi(); saveFeedback(); }
+
 
 
 
@@ -8015,7 +8047,7 @@ function fbToggleAksi() { byId(); }
 
 
 
-function saveFeedback() { fbSyncItems(); byId(); toast(); feedbacks(); uid(); normPhone(); todayStr(); logAudit(); fbCatLabel(); saveState(); closeModal(); navigate(); }
+function saveFeedback() { toast(); fbSyncItems(); byId(); feedbacks(); uid(); normPhone(); todayStr(); logAudit(); fbCatLabel(); saveState(); closeModal(); navigate(); }
 
 
 
@@ -8062,7 +8094,8 @@ function saveFeedback() { fbSyncItems(); byId(); toast(); feedbacks(); uid(); no
 
 
 
-function setFbStatus() { toast(); feedbacks(); logAudit(); saveState(); renderReview(); }
+
+function setFbStatus() { toast(); feedbacks(); logAudit(); saveState(); gambarUlangHalamanIni(); }
 
 
 
@@ -8075,7 +8108,7 @@ function setFbStatus() { toast(); feedbacks(); logAudit(); saveState(); renderRe
 
 
 
-function delFeedback() { toast(); feedbacks(); logAudit(); saveState(); renderReview(); }
+function delFeedback() { toast(); feedbacks(); logAudit(); saveState(); gambarUlangHalamanIni(); }
 
 
 
@@ -8095,15 +8128,16 @@ function waFeedback() { feedbacks(); toast(); waOpen(); }
 
 
 
-function setFbFilter() { renderReview(); }
+function setFbFilter() { renderFeedbackPage(); }
 
 
 
 
 
-function setFbStatusFilter() { renderReview(); }
+function setFbStatusFilter() { renderFeedbackPage(); }
 
 function feedbackView() { reviewRange(); feedbacksInRange(); fbCat(); rvPage(); esc(); displayPhone(); fbCatLabel(); fmtDateShort(); viewFeedbackProof(); waFeedback(); setFbStatus(); openFeedbackForm(); delFeedback(); reviewRangeLabel(); rvSearchHtml(); rvHitHtml(); rvChipsHtml(); rvPagerHtml(); }
+
 
 
 
@@ -8263,7 +8297,10 @@ function rvtHitungTim() { byId(); }
 
 
 
-function simpanRvTarget() { reviewCfg(); logAudit(); saveState(); closeModal(); renderReview(); toast(); }
+function simpanRvTarget() { reviewCfg(); logAudit(); renderReview(); saveState(); closeModal(); gambarUlangHalamanIni(); toast(); }
+
+
+
 
 
 
@@ -8283,6 +8320,9 @@ function simpanRvTarget() { reviewCfg(); logAudit(); saveState(); closeModal(); 
 
 
 function kepalaPeriode() { setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); }
+
+
+
 
 
 
@@ -8511,11 +8551,11 @@ function addMaster() { byId(); logAudit(); saveState(); renderMaster(); }
 function delMaster() { logAudit(); saveState(); renderMaster(); }
 
 
-function userAccessBlock() { getUsers(); getPerms(); avatarColor(); crewInitials(); esc(); }
 
 
 
 
+function userAccessBlock() { getPerms(); getUsers(); tblPage(); avatarColor(); crewInitials(); esc(); setKruRole(); }
 
 
 
@@ -8535,7 +8575,6 @@ function userAccessBlock() { getUsers(); getPerms(); avatarColor(); crewInitials
 
 
 
-function permRow() { permRowVisPage(); pagePerm(); cyclePerm(); resetPerms(); savePerms(); }
 
 
 
@@ -8547,6 +8586,7 @@ function permRow() { permRowVisPage(); pagePerm(); cyclePerm(); resetPerms(); sa
 
 
 
+function permRow() { permRowVisPage(); pagePerm(); cyclePerm(); segarkanKru(); tblPagerHtml(); resetPerms(); savePerms(); seCrew(); }
 
 
 
@@ -8582,7 +8622,6 @@ function permRow() { permRowVisPage(); pagePerm(); cyclePerm(); resetPerms(); sa
 
 
 
-function openUserForm() { toast(); userById(); openModal(); closeModal(); esc(); saveUserRow(); }
 
 
 
@@ -8600,7 +8639,35 @@ function openUserForm() { toast(); userById(); openModal(); closeModal(); esc();
 
 
 
-function saveUserRow() { ensureUsersPerms(); byId(); userById(); toast(); logAudit(); saveState(); closeModal(); buildNav(); renderPeran(); }
+
+
+
+function setKruRole() { toast(); renderPeran(); seKru(); seCrew(); logAudit(); saveState(); byId(); buildNav(); pageAllowed(); navigate(); allowedPages(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8635,7 +8702,7 @@ function cyclePerm() {  }
 
 
 
-function savePerms() { ensureUsersPerms(); sePerms(); logAudit(); saveState(); buildNav(); toast(); }
+function savePerms() { toast(); ensureUsersPerms(); sePerms(); logAudit(); saveState(); buildNav(); }
 
 
 
@@ -8653,7 +8720,9 @@ function savePerms() { ensureUsersPerms(); sePerms(); logAudit(); saveState(); b
 
 
 
-function resetPerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); renderPeran(); toast(); }
+
+function resetPerms() { toast(); ensureUsersPerms(); logAudit(); saveState(); buildNav(); renderPeran(); }
+
 
 
 
@@ -8693,7 +8762,31 @@ function segarkanKru() { muatRosterTim(); toast(); sinkronSeCrew(); saveState();
 
 
 
-function renderPeran() { byId(); muatRosterTim(); sinkronSeCrew(); saveState(); getUsers(); userAccessBlock(); reviews(); feedbacks(); }
+function renderPeran() { byId(); muatRosterTim(); sinkronSeCrew(); saveState(); pageAllowed(); seCrew(); getUsers(); userAccessBlock(); reviews(); feedbacks(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
