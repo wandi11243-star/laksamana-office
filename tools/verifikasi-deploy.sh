@@ -26,8 +26,8 @@ base="${base%/}"
 ci="${GITHUB_SHA:-manual-$(date +%s)}"   # pemecah cache; tanpa ini bisa kena salinan lama CDN/proxy
 gagal=0
 
-for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ bd/ kompas/ cashier/ jadwal/ dw/; do
-  src="deploy/${m}index.html"
+for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ stock/ordering/ stock/purchasing/ \
+         bd/ kompas/ cashier/ jadwal/ radar/ dw/ service_excellent/; do  src="deploy/${m}index.html"
   if [ ! -f "$src" ]; then
     echo "LEWAT   ${m:-/} (tidak ada di repo)"
     continue

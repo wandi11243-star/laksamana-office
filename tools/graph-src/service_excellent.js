@@ -1,6 +1,15 @@
 // DIHASILKAN OTOMATIS oleh tools/graph-src.ps1 - JANGAN DISUNTING.
-// Kerangka panggilan antar fungsi deploy/reservasi/index.html, untuk dibaca graphify.
-// Nomor baris di sini SAMA dengan nomor baris di deploy/reservasi/index.html - sunting DI SANA.
+// Kerangka panggilan antar fungsi deploy/service_excellent/index.html, untuk dibaca graphify.
+// Nomor baris di sini SAMA dengan nomor baris di deploy/service_excellent/index.html - sunting DI SANA.
+
+
+
+
+
+
+
+
+
 
 
 
@@ -973,18 +982,7 @@ function fetchOffice() { pagePerm(); canEdit(); }
 
 
 
-function icon() { navigate(); ensureUsersPerms(); }
-
-
-
-
-
-
-
-
-
-
-
+function icon() { navigate(); allowedPages(); renderDashboard(); }
 
 
 
@@ -2954,7 +2952,9 @@ function syncRosterLatar() { autoSyncOfficeRoster(); dialogTerbuka(); navigate()
 
 function userById() { getUsers(); }
 
-function pageAllowed() { pagePerm(); }
+function pageAllowed() { pagePerm(); navigate(); }
+
+
 function allowedPages() { pageAllowed(); }
 function avatarColor() { getUsers(); }
 
@@ -3173,7 +3173,7 @@ function afterSearch() { byId(); }
 
 
 
-function navigate() { allowedPages(); byId(); renderDashboard(); renderInput(); renderFinance(); renderRiwayat(); renderAnalitik(); renderMaster(); renderAudit(); }
+function navigate() { allowedPages(); byId(); renderReview(); renderAudit(); }
 
 
 
@@ -3951,7 +3951,7 @@ function sendWA() { normPhone(); waOpen(); toast(); lantaiRes(); todayStr(); }
 
 
 
-function applyFilter() { customerProfile(); lantaiRes(); }
+function applyFilter() { customerProfile(); lantaiRes(); renderReview(); }
 
 
 
@@ -6001,9 +6001,7 @@ function openDetail() { customerProfile(); }
 
 
 
-function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); displayPhone(); fmtDate(); arrivedPax(); paxBadge(); remainingPax(); fmtDateShort(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); hasDP(); kwitansiNo(); dpBadge(); fmtTs(); viewProof(); openTfEdit(); verifyTf(); rejectTf(); delDp(); openAddDp(); kwitansiPDF(); viewFile(); arrivalsOf(); latenessLabel(); seatTimerHtml(); fmtDur(); dineDuration(); statusButtons(); delReservation(); canAddArrival(); addArrival(); guestLeft(); openWAModal(); editReservation(); }
-
-
+function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); displayPhone(); fmtDate(); arrivedPax(); paxBadge(); remainingPax(); fmtDateShort(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); hasDP(); kwitansiNo(); dpBadge(); fmtTs(); viewProof(); openTfEdit(); verifyTf(); rejectTf(); delDp(); openAddDp(); kwitansiPDF(); viewFile(); arrivalsOf(); latenessLabel(); seatTimerHtml(); fmtDur(); dineDuration(); statusButtons(); delReservation(); canAddArrival(); addArrival(); guestLeft(); requestReview(); openReviewForm(); openFeedbackForm(); openWAModal(); editReservation(); }
 
 
 
@@ -6585,7 +6583,7 @@ function finRange() { todayStr(); ymdOf(); renderFinance(); }
 
 
 
-function financeList() { financeTx(); txBank(); txScanned(); txMismatch(); txName(); txDate(); txTime(); }
+function financeList() { financeTx(); inRange(); txBank(); txScanned(); txMismatch(); txName(); txDate(); txTime(); }
 
 
 
@@ -7280,6 +7278,1179 @@ function bar() { esc(); arrivedPax(); setPerfMode(); sw(); setAnalitikMonth(); s
 
 
 function renderAnalitik() { esc(); byId(); dailyPerfPanel(); normPhone(); bar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reviews() {  }
+function reviewCfg() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function waReviewAktif() { reviewCfg(); }
+
+function reviewTargetOf() { reviewCfg(); }
+
+
+
+
+
+function reviewTargetTim() { reviewCfg(); }
+
+
+
+function reviewHosts() { getUsers(); todayStr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setReviewTab() { renderReview(); }
+function setReviewMonth() { todayStr(); rvResetPages(); renderReview(); }
+
+
+
+
+
+
+
+
+function setReviewMode() { rvResetPages(); renderReview(); }
+function setReviewDate() { todayStr(); rvResetPages(); renderReview(); }
+
+
+function reviewRange() { ymdOf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reviewRangeLabel() { reviewRange(); fmtDate(); fmtDateShort(); fmtMonth(); }
+
+
+
+
+
+
+
+
+function reviewTargetMonth() { reviewRange(); }
+function inRange() {  }
+
+function reviewsOfMonth() { reviews(); }
+function reviewsInRange() { reviews(); inRange(); requestReview(); renderReview(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rvResetPages() {  }
+function rvSetQ() { afterSearch(); }
+function rvPage() { tblPage(); }
+function rvPagerHtml() { tblPagerHtml(); }
+
+
+
+function rvSearchHtml() { icon(); esc(); rvSetQ(); }
+
+
+
+
+
+
+
+
+
+
+function rvHitHtml() { esc(); }
+
+
+
+
+
+function rvChipsHtml() { esc(); }
+
+
+
+
+
+
+
+function reviewTargetsInRange() { reviews(); inRange(); normPhone(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function askedTs() {  }
+function sameDayTs() {  }
+
+
+
+
+function stars() {  }
+
+
+function requestReview() { waReviewAktif(); toast(); reviewCfg(); navigate(); reviews(); uid(); todayStr(); logAudit(); saveState(); waOpen(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function openReviewForm() { reviews(); openModal(); closeModal(); esc(); displayPhone(); todayStr(); byId(); fileToData(); saveReview(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function saveReview() { byId(); toast(); reviews(); normPhone(); fmtDateShort(); uid(); todayStr(); logAudit(); saveState(); closeModal(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function verifyReview() { toast(); reviews(); logAudit(); saveState(); renderReview(); }
+
+
+
+
+
+
+
+
+
+
+function rejectReview() { toast(); reviews(); logAudit(); saveState(); renderReview(); }
+
+
+
+
+
+
+
+function delReview() { toast(); reviews(); logAudit(); saveState(); renderReview(); }
+
+
+
+
+
+
+
+function viewReviewProof() { reviews(); toast(); showBusy(); loadFile(); hideBusy(); openModal(); esc(); closeModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function saveReviewCfg() { reviewCfg(); byId(); logAudit(); saveState(); renderReview(); toast(); saveReview(); renderCoordWA(); todayStr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setRvRepDate() { todayStr(); renderRvReport(); }
+
+
+function buildReviewReport() { reviews(); sameDayTs(); askedTs(); reviewsOfMonth(); reviewTargetTim(); fmtDate(); fmtMonth(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function buildFeedbackReport() { feedbacks(); reviews(); fbCatLabel(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function openRvReport() { todayStr(); renderRvReport(); }
+function renderRvReport() { buildReviewReport(); buildFeedbackReport(); esc(); copyWA(); byId(); sendRvReport(); openModal(); closeModal(); setRvRepDate(); card(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sendRvReport() { byId(); logAudit(); fmtDate(); sendWA(); }
+
+
+
+
+
+function copyReviewLink() { reviewCfg(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+function feedbacks() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fbCat() {  }
+function fbCatLabel() { fbCat(); }
+
+
+
+
+
+function feedbacksInRange() { feedbacks(); inRange(); }
+
+
+
+function fbBlankItem() {  }
+function fbSyncItems() { byId(); }
+
+
+
+
+
+
+
+function fbItemsHtml() { fbDelItem(); fbCatChange(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fbRedrawItems() { byId(); fbItemsHtml(); }
+function fbAddItem() { fbSyncItems(); fbBlankItem(); fbRedrawItems(); }
+function fbDelItem() { fbSyncItems(); fbBlankItem(); fbRedrawItems(); }
+function fbCatChange() { fbSyncItems(); fbRedrawItems(); }
+
+
+function fbGuestName() { findGuestByName(); byId(); displayPhone(); }
+
+
+
+function fbGuestPhone() { findGuestByPhone(); byId(); }
+
+
+
+function openFeedbackForm() { feedbacks(); fbBlankItem(); openModal(); closeModal(); esc(); fbGuestName(); displayPhone(); fbGuestPhone(); guestDirectory(); todayStr(); fileToData(); fbItemsHtml(); fbAddItem(); fbToggleAksi(); saveFeedback(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fbToggleAksi() { byId(); }
+
+
+
+function saveFeedback() { fbSyncItems(); byId(); toast(); feedbacks(); uid(); normPhone(); todayStr(); logAudit(); fbCatLabel(); saveState(); closeModal(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setFbStatus() { toast(); feedbacks(); logAudit(); saveState(); renderReview(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function delFeedback() { toast(); feedbacks(); logAudit(); saveState(); renderReview(); }
+
+
+
+
+
+
+
+function viewFeedbackProof() { feedbacks(); toast(); withFile(); }
+
+
+
+function waFeedback() { feedbacks(); toast(); waOpen(); }
+
+
+
+
+
+
+
+function setFbFilter() { renderReview(); }
+
+
+
+
+
+function setFbStatusFilter() { renderReview(); }
+
+function feedbackView() { reviewRange(); feedbacksInRange(); fbCat(); rvPage(); esc(); displayPhone(); fbCatLabel(); fmtDateShort(); viewFeedbackProof(); waFeedback(); setFbStatus(); openFeedbackForm(); delFeedback(); reviewRangeLabel(); rvSearchHtml(); rvHitHtml(); rvChipsHtml(); rvPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rvHostOf() {  }
+function rvDashboardHtml() { reviewCfg(); reviewsOfMonth(); }
+
+
+
+
+
+
+
+
+
+function isi() { rvHostOf(); reviewTargetOf(); reviewTargetTim(); fmtMonth(); openRvTargetForm(); esc(); tblPage(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function openRvTargetForm() { toast(); reviewHosts(); openModal(); closeModal(); esc(); reviewTargetOf(); rvtHitungTim(); reviewTargetTim(); simpanRvTarget(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rvtHitungTim() { byId(); }
+
+
+
+
+function simpanRvTarget() { reviewCfg(); logAudit(); saveState(); closeModal(); renderReview(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderReview() { reviewRange(); feedbacksInRange(); reviewsInRange(); byId(); openRvReport(); reviewCfg(); copyReviewLink(); openReviewForm(); openFeedbackForm(); setReviewMode(); setReviewMonth(); setReviewDate(); esc(); reviewRangeLabel(); setReviewTab(); feedbackView(); reviewGoogleView(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reviewGoogleView() { reviewCfg(); reviewRange(); reviewsInRange(); reviewTargetsInRange(); reviewTargetMonth(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rvMilikSaya() { rvPage(); esc(); displayPhone(); fmtDateShort(); viewReviewProof(); verifyReview(); rejectReview(); openReviewForm(); delReview(); rvDashboardHtml(); rvSearchHtml(); rvHitHtml(); waReviewAktif(); requestReview(); rvPagerHtml(); reviewRangeLabel(); saveReviewCfg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
