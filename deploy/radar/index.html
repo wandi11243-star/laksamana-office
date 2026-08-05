@@ -243,6 +243,21 @@ tbody tr.clk:hover{background:var(--gold-glow)}
 .ksp-st{font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--muted)}
 .ksp-st.s1{color:var(--warn)} .ksp-st.s2{color:var(--ok)}
 
+/* ---------- SOROTAN DRAWER EVENT ----------
+   Isian yang paling sering dicari saat kartu event ditekan, ditaruh paling
+   atas supaya tidak perlu membuka "detail lengkap" yang berisi seratusan
+   field. Sengaja bergaris emas di kiri: ia harus terbaca sebagai kutipan
+   isian, bukan sebagai baris data biasa seperti kv di bawahnya. */
+.sorot-wrap{display:grid;gap:9px;margin-bottom:16px}
+.sorot{background:#fff;border:1px solid var(--line-soft);border-left:3px solid var(--gold);
+  border-radius:10px;padding:10px 13px}
+.sorot-h{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--gold-deep);margin-bottom:5px}
+/* pre-wrap: menu & rundown datang sebagai teks BERBARIS. Tanpa ini seluruh
+   isinya menyatu jadi satu paragraf yang tidak bisa dibaca sebagai daftar. */
+.sorot-b{font-size:13px;line-height:1.6;color:var(--sand);white-space:pre-wrap;
+  max-height:210px;overflow:auto}
+
 /* ---------- KARTU AGENDA ---------- */
 .ev{display:flex;border:1px solid var(--line-soft);border-radius:var(--radius);background:#fff;
   overflow:hidden;transition:.16s;box-shadow:var(--shadow);text-align:left;width:100%}
@@ -2133,6 +2148,41 @@ function detailFields(ev){
   return out;
 }
 
+/* Isian yang DISOROT saat kartu event ditekan (permintaan user 5 Agustus 2026).
+   Semuanya urusan dapur & bar — itu yang ditanyakan lebih dulu tiap kali
+   sebuah acara dibuka, dan sebelum ini jawabannya cuma ada di halaman "detail
+   lengkap" yang memuat seratusan field berurutan.
+
+   Ditulis sebagai daftar berurut, bukan disaring dari MKT_LABEL: urutannya
+   sengaja mengikuti urutan orang bertanya (catatan dulu, baru menunya), dan
+   itu bukan urutan skema Marketing.
+
+   "Jika ada" berlaku harfiah — field kosong tidak digambar sama sekali, juga
+   tidak sebagai baris "—". Kotak kosong di bagian yang bernama "yang perlu
+   disiapkan" justru membuat orang mengira isiannya hilang. */
+var SOROT_MKT=[
+  ['kNote',     '📝 Catatan Kitchen'],
+  ['dietary',   '⚠️ Dietary / Permintaan Khusus'],
+  ['itemTambah','➕ Item Tambahan / Pesanan Khusus'],
+  ['barVIP',    '⭐ Special Handling VIP'],
+  ['barNote',   '📝 Catatan Bar'],
+  ['menuFinal', '🍽️ Menu Final'],
+  ['barMenu',   '🍹 Menu Bar']
+];
+function sorotanEvent(ev){
+  var d=(ev&&ev.detail)||{}, blok=[];
+  SOROT_MKT.forEach(function(p){
+    if(!(p[0] in d)) return;
+    var t=fmtDetVal(d[p[0]]);
+    if(!t || !String(t).trim()) return;
+    blok.push('<div class="sorot"><div class="sorot-h">'+p[1]+'</div>'+
+              '<div class="sorot-b">'+esc(t)+'</div></div>');
+  });
+  if(!blok.length) return '';
+  return '<div class="sec-h" style="margin-top:0"><h2>Yang perlu disiapkan</h2><span class="rule"></span></div>'+
+         '<div class="sorot-wrap">'+blok.join('')+'</div>';
+}
+
 function drawerAgenda(a){
   var d=dDay(a.tgl);
   $('#drwEye').textContent = (a.sumber==='mkt'?'Marketing · Event Klien':'Event · Jadwal Acara');
@@ -2144,6 +2194,10 @@ function drawerAgenda(a){
   var h='';
   if(a.sumber==='mkt'){
     var e=a.mentah, cl=klienMkt(e.clientId), byr=(e.payments||[]).length;
+    // Sorotan dapur & bar DULUAN, sebelum data administratif. Yang membuka
+    // kartu ini hampir selalu sedang menyiapkan sesuatu, bukan sedang mencari
+    // nomor telepon klien.
+    h+=sorotanEvent(e);
     h+='<div class="kv">'+
       kvRow('Waktu', (a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
       kvRow('Tempat', esc(a.tempat||''))+
@@ -2164,18 +2218,17 @@ function drawerAgenda(a){
        hanya dibaca sekali, angkanya dibaca setiap kali.
        Beban venue per tanggal dibaca di halaman Reservasi atau lembar Briefing,
        yang memang berbasis TANGGAL, bukan berbasis event. */
-    if(k){
-      h+='<div class="sec-h" style="margin-top:6px"><h2>Kesiapan divisi</h2><span class="rule"></span></div>';
-      if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
-      else{
-        h+='<div style="margin:0 0 12px">'+panelKesiapan(a.mentah)+'</div><div class="pill-row">';
-        var cat2=evDivisi(a.mentah)[0]||'';
-        (cat2?evSubs(a.mentah):[]).forEach(function(dv){
-          if(!tmplEvDiv(a.mentah,cat2).filter(function(t){return (t.sub||'')===dv;}).length) return;
-          var p=subProgress(a.mentah,cat2,dv); h+=pill(dv+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad')); });
-        h+='</div>';
-      }
-    }
+    /* RINCIAN KESIAPAN DIVISI DIBUANG DARI DRAWER (5 Agustus 2026, permintaan
+       user: "tidak perlu ditampilkan semua di bagian detail daftar event").
+
+       Panel penuh + satu pil per sub-divisi mendorong isian yang benar-benar
+       dicari — catatan kitchen, menu — jauh ke bawah, padahal angka per divisi
+       tidak menjawab apa pun yang bisa dikerjakan dari layar ini: Radar hanya
+       membaca, dan job dicentangnya di modul Marketing.
+
+       Ringkasannya TIDAK ikut hilang: pil "Siap 62%" tetap berdiri di deretan
+       pil atas drawer, dan rincian per divisi lengkap tetap ada di halaman
+       Detail Lengkap — satu tombol di bawah. */
   }else{
     var e2=a.mentah, tal=talentEvt(a.id);
     h+='<div class="kv">'+
