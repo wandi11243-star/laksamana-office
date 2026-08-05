@@ -66,6 +66,33 @@ function jam_valid($v) {
   return preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) ? $v : '';
 }
 
+/* Menambahkan kolom yang lahir belakangan ke tabel yang SUDAH ada.
+
+   Dibutuhkan karena CREATE TABLE IF NOT EXISTS diam saja kalau tabelnya
+   sudah ada — termasuk saat bentuknya sudah ketinggalan. Pemasangan lama
+   akan terus jalan tanpa kolom baru, dan gejalanya muncul jauh dari
+   sebabnya: satu INSERT gagal "Unknown column" di server, yang di layar kru
+   cuma terbaca "gagal mengirim pengajuan".
+
+   MySQL tidak punya ADD COLUMN IF NOT EXISTS (itu MariaDB), jadi
+   keberadaannya ditanyakan dulu ke information_schema. Dibungkus try/catch
+   karena kegagalan di sini tidak boleh mematikan seluruh modul: kalau
+   kolomnya memang sudah ada, ALTER hanya akan melempar dan sisa aplikasi
+   tetap berjalan seperti biasa. */
+function pastikan_kolom($pdo, $tabel, $kolom, $ddl) {
+  try {
+    $st = $pdo->prepare(
+      'SELECT COUNT(*) c FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :k');
+    $st->execute(array(':t' => $tabel, ':k' => $kolom));
+    $row = $st->fetch();
+    if ($row && (int)$row['c'] > 0) return;
+    $pdo->exec('ALTER TABLE `' . $tabel . '` ADD COLUMN `' . $kolom . '` ' . $ddl);
+  } catch (Throwable $e) {
+    // Diam: kolomnya kemungkinan sudah ada, atau user DB tidak punya ALTER.
+  }
+}
+
 /* Semua tabel dibuat saat pertama dipakai, jadi pemasangan tidak pernah
    gagal cuma karena schema.sql lupa dijalankan. schema.sql tetap ada
    sebagai dokumentasi bentuk tabel. */
@@ -102,6 +129,14 @@ function pastikan_tabel($pdo) {
        KEY `idx_aju_user` (`user_id`),
        KEY `idx_aju_status` (`status`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Kolom yang lahir belakangan. CREATE TABLE IF NOT EXISTS TIDAK menyentuh
+     tabel yang sudah ada, jadi tanpa tiga baris ini pemasangan lama akan
+     terus berjalan tanpa kolomnya dan setiap simpan_pengajuan gagal dengan
+     "Unknown column" — di server, bukan di sini, dan cuma kelihatan sebagai
+     "kirim pengajuan gagal" di layar kru. */
+  pastikan_kolom($pdo, 'jadwal_pengajuan', 'shift',       "VARCHAR(16)  NOT NULL DEFAULT ''");
+  pastikan_kolom($pdo, 'jadwal_pengajuan', 'jam_mulai',   "VARCHAR(5)   NOT NULL DEFAULT ''");
+  pastikan_kolom($pdo, 'jadwal_pengajuan', 'jam_selesai', "VARCHAR(5)   NOT NULL DEFAULT ''");
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `jadwal_setting` (
        `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -156,6 +191,14 @@ function baca_semua($dari, $sampai) {
       'id' => $r['id'], 'userId' => $r['user_id'], 'jenis' => $r['jenis'],
       'dari' => $r['tgl_mulai'], 'sampai' => $r['tgl_selesai'],
       'alasan' => (string)$r['alasan'], 'status' => $r['status'],
+      /* Shift yang DIMINTA kru. Diisi untuk jenis TUKAR/UBAH — sebelumnya
+         maksudnya cuma ada di dalam kalimat `alasan`, dan head harus
+         menerjemahkan prosa jadi sel jadwal sendiri sesudah menyetujui.
+         isset() dipakai karena kolomnya lahir belakangan: baris lama
+         (dan pemasangan yang ALTER-nya gagal) tidak punya kuncinya. */
+      'shift' => isset($r['shift']) ? (string)$r['shift'] : '',
+      'jamMulai' => isset($r['jam_mulai']) ? (string)$r['jam_mulai'] : '',
+      'jamSelesai' => isset($r['jam_selesai']) ? (string)$r['jam_selesai'] : '',
       'dibuatAt' => (int)$r['dibuat_at'], 'dibuatOleh' => $r['dibuat_oleh'],
       'putusAt' => (int)$r['putus_at'], 'putusOleh' => $r['putus_oleh'],
       'putusNota' => $r['putus_nota'],
@@ -271,15 +314,26 @@ function simpan_pengajuan($row, $by) {
 
   $st = $pdo->prepare(
     'INSERT INTO `jadwal_pengajuan`
-       (`id`,`user_id`,`jenis`,`tgl_mulai`,`tgl_selesai`,`alasan`,`status`,`dibuat_at`,`dibuat_oleh`)
-     VALUES (:id,:u,:j,:a,:b,:al,\'MENUNGGU\',:t,:by)
+       (`id`,`user_id`,`jenis`,`tgl_mulai`,`tgl_selesai`,`alasan`,`status`,`dibuat_at`,`dibuat_oleh`,
+        `shift`,`jam_mulai`,`jam_selesai`)
+     VALUES (:id,:u,:j,:a,:b,:al,\'MENUNGGU\',:t,:by,:sh,:jm,:js)
      ON DUPLICATE KEY UPDATE
        `jenis`=VALUES(`jenis`), `tgl_mulai`=VALUES(`tgl_mulai`),
-       `tgl_selesai`=VALUES(`tgl_selesai`), `alasan`=VALUES(`alasan`)');
+       `tgl_selesai`=VALUES(`tgl_selesai`), `alasan`=VALUES(`alasan`),
+       `shift`=VALUES(`shift`), `jam_mulai`=VALUES(`jam_mulai`),
+       `jam_selesai`=VALUES(`jam_selesai`)');
   $st->execute(array(
     ':id' => $id, ':u' => $u, ':j' => $jenis, ':a' => $a, ':b' => $b,
     ':al' => mb_substr(s(isset($row['alasan']) ? $row['alasan'] : ''), 0, 2000),
     ':t' => ms(), ':by' => mb_substr(s($by), 0, 120),
+    /* Shift yang diminta. TIDAK divalidasi terhadap daftar shift: definisi
+       shift tinggal di jadwal_setting sebagai blob JSON dan admin bebas
+       menambah/mengganti namanya, jadi daftar sah di sini akan selalu
+       ketinggalan. Frontend hanya menawarkan shift yang ada, dan putusan
+       akhir tetap di tangan head yang menyetujui. */
+    ':sh' => mb_substr(s(isset($row['shift']) ? $row['shift'] : ''), 0, 16),
+    ':jm' => jam_valid(isset($row['jamMulai']) ? $row['jamMulai'] : ''),
+    ':js' => jam_valid(isset($row['jamSelesai']) ? $row['jamSelesai'] : ''),
   ));
   return array('saved' => true, 'id' => $id);
 }

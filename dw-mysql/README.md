@@ -71,15 +71,21 @@ sering didaftar ulang.
 | `putusAjuan` | POST | `{id,status,nota,by}` |
 | `putusBanyak` | POST | `{ids:[…],status,nota,by}` — satu transaksi |
 | `hapusAjuan` | POST | `{id}` |
-| `simpanNilai` | POST | `{id,hadir,nilai,nota,by}` — `hadir` = HADIR/TELAT/ALFA |
+| `simpanHadir` | POST | `{id,hadir,nota,by}` — `hadir` = HADIR/TELAT/ALFA. **Tidak ada penilaian**: skor bintang 1–5 dibuang 5 Agustus 2026 karena tidak pernah dipakai memutuskan apa pun tapi selalu menuntut diisi |
 | `simpanSetting` | POST | `{data:{tarif,jam,posisi,kuota,batasHari}, by}` |
 
-> Selama pemasangan di atas belum dikerjakan, workflow deploy hanya mencetak
-> `CATATAN modul Daily Worker belum siap` dan **tidak** menggagalkan build —
-> build merah yang sudah dianggap normal berhenti dibaca orang, termasuk saat
-> yang merah itu sesuatu yang sungguhan. Naikkan jadi `gagal=1` (ikuti pola
-> `jadwal` tepat di atasnya di `.github/workflows/`) begitu database dan
-> `config.php`-nya terpasang.
+> Database kedua lingkungan sudah terpasang (5 Agustus 2026) dan verifikasi di
+> `.github/workflows/` sekarang **menggagalkan build** kalau salah satu dari
+> ini terjadi: `env` tidak sesuai lingkungan, atau `stats` tidak membalas
+> `"ada":true`.
+>
+> Pemeriksaannya sengaja memakai **`stats`, bukan `ping`**. `ping` hanya
+> membacakan isi `config.php` tanpa menjalankan satu kueri pun, jadi ia tetap
+> hijau walau database menolak kredensialnya — dan itu sudah benar-benar
+> terjadi: pada 5 Agustus 2026 `ping` membalas `"env":"produksi"` dengan
+> meyakinkan selama satu siklus deploy penuh sementara MySQL menolak
+> passwordnya (`1045`), sehingga modulnya tidak bisa menyimpan apa pun.
+> `stats` yang menyentuh DB sungguhan.
 
 ## Kunci unik yang penting dipahami
 

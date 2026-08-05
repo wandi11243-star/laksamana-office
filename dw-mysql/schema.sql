@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS `dw_pekerja` (
   `divisi`       VARCHAR(16)  NOT NULL DEFAULT '',    -- bar|kitchen|floor|cashier — kode SAMA dengan modul Jadwal
   `posisi`       VARCHAR(60)  NOT NULL DEFAULT '',
   `skill`        VARCHAR(255) NOT NULL DEFAULT '',    -- dipisah koma
-  `status`       VARCHAR(16)  NOT NULL DEFAULT 'AKTIF', -- AKTIF | PANTAU | BLOKIR | NONAKTIF
+  -- AKTIF | NONAKTIF saja. Nilai lama PANTAU/BLOKIR masih mungkin ada di baris
+  -- yang dibuat sebelum 5 Agustus 2026; keduanya dipetakan saat dibaca
+  -- (PANTAU->AKTIF, BLOKIR->NONAKTIF) dan BLOKIR tetap ditolak saat login.
+  `status`       VARCHAR(16)  NOT NULL DEFAULT 'AKTIF',
   `catatan`      VARCHAR(255) NOT NULL DEFAULT '',
   `dibuat_at`    BIGINT       NOT NULL DEFAULT 0,
   `dibuat_oleh`  VARCHAR(120) NOT NULL DEFAULT '',
@@ -63,9 +66,17 @@ CREATE TABLE IF NOT EXISTS `dw_pekerja` (
 -- salah menurut basis data. Pengajuan ulang MENIMPA baris yang sudah ada
 -- dan mengembalikan statusnya ke MENUNGGU.
 --
--- Penilaian (hadir/nilai) menempel di baris yang sama, bukan tabel sendiri:
--- satu shift kerja = satu penilaian, jadi tabel terpisah hanya melahirkan
--- baris yatim ketika ajuannya dihapus.
+-- Kehadiran menempel di baris yang sama, bukan tabel sendiri: satu shift
+-- kerja = satu catatan kehadiran, jadi tabel terpisah hanya melahirkan baris
+-- yatim ketika ajuannya dihapus.
+--
+-- TIDAK ADA kolom penilaian. Sempat ada skor bintang 1–5 (`nilai`,
+-- `nilai_nota`, …) dan itu dibuang 5 Agustus 2026: ia pendapat satu orang
+-- tentang shift semalam, tidak pernah dipakai memutuskan apa pun, tapi selalu
+-- menuntut diisi — dan kolom wajib yang tidak berguna adalah cara tercepat
+-- membuat orang berhenti mengisi SELURUH formulirnya, termasuk kehadiran yang
+-- justru penting. Kolom lamanya sengaja tidak di-DROP di pemasangan yang
+-- sudah jalan; ia cuma menganggur (lihat pastikan_kolom di lib_dw_mysql.php).
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `dw_ajuan` (
   `id`          VARCHAR(32)  NOT NULL PRIMARY KEY,
@@ -83,10 +94,9 @@ CREATE TABLE IF NOT EXISTS `dw_ajuan` (
   `putus_oleh`  VARCHAR(120) NOT NULL DEFAULT '',
   `putus_nota`  VARCHAR(255) NOT NULL DEFAULT '',
   `hadir`       VARCHAR(10)  NOT NULL DEFAULT '',    -- '' | HADIR | TELAT | ALFA
-  `nilai`       TINYINT      NOT NULL DEFAULT 0,     -- 0 = belum dinilai, 1..5
-  `nilai_nota`  VARCHAR(255) NOT NULL DEFAULT '',
-  `nilai_oleh`  VARCHAR(120) NOT NULL DEFAULT '',
-  `nilai_at`    BIGINT       NOT NULL DEFAULT 0,
+  `hadir_nota`  VARCHAR(255) NOT NULL DEFAULT '',
+  `hadir_oleh`  VARCHAR(120) NOT NULL DEFAULT '',
+  `hadir_at`    BIGINT       NOT NULL DEFAULT 0,
   UNIQUE KEY `uq_ajuan_orang_tgl` (`dw_id`, `tgl`),
   KEY `idx_ajuan_tgl` (`tgl`),
   KEY `idx_ajuan_status` (`status`)

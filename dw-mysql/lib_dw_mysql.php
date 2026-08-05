@@ -42,6 +42,25 @@ function db() {
   return $pdo;
 }
 
+/* Menambahkan kolom yang lahir belakangan ke tabel yang SUDAH ada.
+   CREATE TABLE IF NOT EXISTS diam saja kalau tabelnya sudah ada — termasuk
+   saat bentuknya sudah ketinggalan. MySQL tidak punya ADD COLUMN IF NOT
+   EXISTS (itu MariaDB), jadi keberadaannya ditanyakan dulu ke
+   information_schema. Kegagalan di sini tidak boleh mematikan modul. */
+function pastikan_kolom($pdo, $tabel, $kolom, $ddl) {
+  try {
+    $st = $pdo->prepare(
+      'SELECT COUNT(*) c FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :k');
+    $st->execute(array(':t' => $tabel, ':k' => $kolom));
+    $row = $st->fetch();
+    if ($row && (int)$row['c'] > 0) return;
+    $pdo->exec('ALTER TABLE `' . $tabel . '` ADD COLUMN `' . $kolom . '` ' . $ddl);
+  } catch (Throwable $e) {
+    // Diam: kolomnya kemungkinan sudah ada, atau user DB tidak punya ALTER.
+  }
+}
+
 function json_enc($v) { return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }
 function s($v) { return trim((string)$v); }
 function ms() { return (int)(microtime(true) * 1000); }
@@ -124,14 +143,22 @@ function pastikan_tabel($pdo) {
        `putus_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
        `putus_nota`  VARCHAR(255) NOT NULL DEFAULT \'\',
        `hadir`       VARCHAR(10)  NOT NULL DEFAULT \'\',
-       `nilai`       TINYINT      NOT NULL DEFAULT 0,
-       `nilai_nota`  VARCHAR(255) NOT NULL DEFAULT \'\',
-       `nilai_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
-       `nilai_at`    BIGINT       NOT NULL DEFAULT 0,
+       `hadir_nota`  VARCHAR(255) NOT NULL DEFAULT \'\',
+       `hadir_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
+       `hadir_at`    BIGINT       NOT NULL DEFAULT 0,
        UNIQUE KEY `uq_ajuan_orang_tgl` (`dw_id`, `tgl`),
        KEY `idx_ajuan_tgl` (`tgl`),
        KEY `idx_ajuan_status` (`status`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Tabel yang sudah terlanjur dibuat masih memakai nama lama (nilai_*) dan
+     tidak akan berubah oleh CREATE TABLE IF NOT EXISTS. Tiga kolom di bawah
+     ditambahkan agar pemasangan lama ikut punya bentuk yang baru. Kolom
+     `nilai*` yang lama sengaja TIDAK di-DROP: menghapus kolom tidak pernah
+     bisa dibatalkan, sedangkan membiarkannya menganggur tidak merugikan apa
+     pun karena semua kueri di sini menyebut kolomnya satu per satu. */
+  pastikan_kolom($pdo, 'dw_ajuan', 'hadir_nota', "VARCHAR(255) NOT NULL DEFAULT ''");
+  pastikan_kolom($pdo, 'dw_ajuan', 'hadir_oleh', "VARCHAR(120) NOT NULL DEFAULT ''");
+  pastikan_kolom($pdo, 'dw_ajuan', 'hadir_at',   "BIGINT       NOT NULL DEFAULT 0");
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `dw_setting` (
        `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -201,8 +228,11 @@ function bentuk_ajuan($r) {
     'dibuatAt' => (int)$r['dibuat_at'], 'dibuatOleh' => $r['dibuat_oleh'],
     'putusAt' => (int)$r['putus_at'], 'putusOleh' => $r['putus_oleh'],
     'putusNota' => $r['putus_nota'],
-    'hadir' => $r['hadir'], 'nilai' => (int)$r['nilai'],
-    'nilaiNota' => $r['nilai_nota'], 'nilaiOleh' => $r['nilai_oleh'],
+    /* isset() karena kolomnya berganti nama 5 Agustus 2026 (nilai_* -> hadir_*):
+       baris dari tabel yang belum sempat di-ALTER tidak punya kuncinya. */
+    'hadir' => $r['hadir'],
+    'hadirNota' => isset($r['hadir_nota']) ? $r['hadir_nota'] : '',
+    'hadirOleh' => isset($r['hadir_oleh']) ? $r['hadir_oleh'] : '',
   );
 }
 
@@ -286,8 +316,15 @@ function simpan_pekerja($row, $by) {
   $baru = ($id === '');
   if ($baru) $id = id_baru('DW');
 
+  /* Hanya dua status. Tiga label lama (PANTAU/BLOKIR/…) bukan fakta melainkan
+     penilaian, dan batas antar mereka tidak pernah jelas — "Pantau" vs
+     "Blokir" berakhir jadi perdebatan label, sedangkan "Blokir" dan
+     "Tidak Aktif" sama saja akibatnya. Yang perlu diputuskan HR cuma satu:
+     orang ini masih dipakai atau tidak. Baris lama dipetakan, bukan ditolak. */
   $status = strtoupper(pot(isset($row['status']) ? $row['status'] : 'AKTIF', 16));
-  if (!in_array($status, array('AKTIF', 'PANTAU', 'BLOKIR', 'NONAKTIF'), true)) $status = 'AKTIF';
+  if ($status === 'PANTAU') $status = 'AKTIF';      // dulu masih boleh dijadwalkan
+  if ($status === 'BLOKIR') $status = 'NONAKTIF';   // dulu tidak boleh
+  if (!in_array($status, array('AKTIF', 'NONAKTIF'), true)) $status = 'AKTIF';
 
   /* PIN hanya ditulis kalau memang dikirim. Form sunting yang tidak
      menyertakan field PIN karena tidak diubah TIDAK boleh mengosongkannya —
@@ -314,11 +351,20 @@ function simpan_pekerja($row, $by) {
 
   if ($baru) {
     $arg[':pin'] = $pin;
+    /* `:t2`/`:by2` BUKAN kelebihan — koneksi ini memakai
+       PDO::ATTR_EMULATE_PREPARES => false, jadi prepared statement-nya asli
+       MySQL dan penanda bernama diikat BERDASARKAN POSISI. Satu nama yang
+       dipakai dua kali (dulu `:t` untuk dibuat_at DAN updated_at) membuat
+       jumlah parameter tidak cocok, dan PDO menolaknya dengan
+       "SQLSTATE[HY093]: Invalid parameter number" — pesan yang sama sekali
+       tidak menyebut nama kolom mana pun. Tiap penanda harus unik. */
+    $arg[':t2']  = $now;
+    $arg[':by2'] = $by;
     $st = $pdo->prepare(
       'INSERT INTO `dw_pekerja`
          (`id`,`nama`,`no_hp`,`pin`,`gender`,`area`,`bank`,`divisi`,`posisi`,`skill`,
           `status`,`catatan`,`dibuat_at`,`dibuat_oleh`,`updated_at`,`updated_oleh`)
-       VALUES (:id,:nm,:hp,:pin,:g,:ar,:bk,:dv,:ps,:sk,:st,:ct,:t,:by,:t,:by)');
+       VALUES (:id,:nm,:hp,:pin,:g,:ar,:bk,:dv,:ps,:sk,:st,:ct,:t,:by,:t2,:by2)');
     $st->execute($arg);
   } else {
     $sqlPin = $adaPin ? '`pin`=:pin, ' : '';
@@ -334,7 +380,7 @@ function simpan_pekerja($row, $by) {
   return array('saved' => true, 'id' => $id, 'baru' => $baru);
 }
 
-/* Menghapus pekerja TIDAK menghapus ajuannya. Riwayat kerja dan penilaian
+/* Menghapus pekerja TIDAK menghapus ajuannya. Riwayat kerja dan kehadiran
    adalah catatan yang sudah terjadi; membuangnya bersama orangnya membuat
    rekap bulan lalu berubah angka setelah HR merapikan daftar. Ajuan yang
    yatim tetap tergambar dengan nama "(DW dihapus)" — lihat jadwal_dw. */
@@ -368,8 +414,13 @@ function login_dw($hp, $pin) {
     // Pesan sengaja tidak membedakan "nomor tidak ada" dan "PIN salah".
     throw new Exception('No. HP atau PIN salah. Kalau lupa, hubungi HR.');
   }
-  if ($r['status'] === 'BLOKIR')   throw new Exception('Akun Anda sedang diblokir. Hubungi HR.');
-  if ($r['status'] === 'NONAKTIF') throw new Exception('Akun Anda tidak aktif. Hubungi HR.');
+  /* BLOKIR ikut ditolak walau statusnya sudah dihapus dari daftar pilihan:
+     baris lama di database masih bisa memuatnya, dan yang dulu diblokir
+     jelas tidak boleh tiba-tiba bisa masuk lagi hanya karena labelnya
+     dipensiunkan. */
+  if ($r['status'] === 'NONAKTIF' || $r['status'] === 'BLOKIR') {
+    throw new Exception('Akun Anda sudah tidak aktif. Hubungi HR.');
+  }
 
   return array('dw' => array(
     'id' => $r['id'], 'nama' => $r['nama'], 'hp' => $r['no_hp'],
@@ -411,8 +462,9 @@ function simpan_ajuan($row, $by) {
   $orang->execute(array(':id' => $dw));
   $o = $orang->fetch();
   if (!$o) throw new Exception('DW tidak ditemukan: ' . $dw);
-  if ($o['status'] === 'BLOKIR')   throw new Exception($o['nama'] . ' sedang diblokir dan tidak bisa dijadwalkan.');
-  if ($o['status'] === 'NONAKTIF') throw new Exception($o['nama'] . ' berstatus tidak aktif.');
+  if ($o['status'] === 'NONAKTIF' || $o['status'] === 'BLOKIR') {
+    throw new Exception($o['nama'] . ' berstatus tidak aktif dan tidak bisa dijadwalkan.');
+  }
 
   /* Divisi/posisi ikut disalin ke barisnya, bukan selalu diambil dari
      master. Seorang DW bisa dipanggil ke Bar minggu ini dan Kitchen minggu
@@ -522,25 +574,28 @@ function hapus_ajuan($id) {
   return array('deleted' => true, 'id' => s($id));
 }
 
-/* ==================== PENILAIAN SETELAH KERJA ====================
-   Kehadiran dan nilai ditulis ke baris ajuan yang sama. `hadir` = ALFA
-   itulah yang jadi catatan no-show — angka yang paling dicari HR sebelum
-   memanggil orang yang sama lagi. */
-function simpan_nilai($id, $hadir, $nilai, $nota, $by) {
+/* ==================== KEHADIRAN SETELAH KERJA ====================
+   Ditulis ke baris ajuan yang sama. `hadir` = ALFA itulah yang jadi catatan
+   no-show — angka yang paling dicari HR sebelum memanggil orang yang sama
+   lagi.
+
+   TIDAK ADA PENILAIAN di sini. Sempat ada skor bintang 1–5, dan itu dibuang:
+   ia pendapat satu orang tentang shift semalam, tidak pernah dipakai untuk
+   memutuskan apa pun, tapi selalu menuntut diisi. Kolom wajib yang tidak
+   berguna adalah cara tercepat membuat orang berhenti mengisi SELURUH
+   formulirnya — termasuk kehadiran yang justru penting. */
+function simpan_hadir($id, $hadir, $nota, $by) {
   $pdo = db();
   pastikan_tabel($pdo);
   $hadir = strtoupper(s($hadir));
   if (!in_array($hadir, array('', 'HADIR', 'TELAT', 'ALFA'), true)) {
     throw new Exception('Kehadiran tidak dikenal: ' . $hadir);
   }
-  $nilai = (int)$nilai;
-  if ($nilai < 0 || $nilai > 5) $nilai = 0;
   $st = $pdo->prepare(
-    'UPDATE `dw_ajuan` SET `hadir`=:h, `nilai`=:v, `nilai_nota`=:n,
-            `nilai_oleh`=:by, `nilai_at`=:t
+    'UPDATE `dw_ajuan` SET `hadir`=:h, `hadir_nota`=:n, `hadir_oleh`=:by, `hadir_at`=:t
       WHERE `id`=:id');
   $st->execute(array(
-    ':h' => $hadir, ':v' => $nilai, ':n' => pot($nota, 255),
+    ':h' => $hadir, ':n' => pot($nota, 255),
     ':by' => pot($by, 120), ':t' => ms(), ':id' => s($id),
   ));
   return array('saved' => true, 'id' => s($id));

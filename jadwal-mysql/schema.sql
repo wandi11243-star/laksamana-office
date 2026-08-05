@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS `jadwal_pengajuan` (
   `tgl_mulai`   DATE         NOT NULL,
   `tgl_selesai` DATE         NOT NULL,               -- sama dengan tgl_mulai kalau satu hari
   `alasan`      TEXT         NULL,
+  -- Shift yang DIMINTA kru, diisi untuk jenis TUKAR/UBAH. Sebelum kolom ini
+  -- ada, maksudnya cuma tertulis di dalam kalimat `alasan` ("Kamis jadi PAGI
+  -- ya"), dan head harus menerjemahkan prosa jadi sel jadwal SENDIRI sesudah
+  -- menekan Setujui — langkah yang paling sering lupa dikerjakan, sehingga
+  -- pengajuan berstatus DISETUJUI tapi jadwalnya tidak pernah berubah.
+  -- Kolom ini lahir belakangan; lihat pastikan_kolom() di lib_jadwal_mysql.php
+  -- yang menambahkannya ke pemasangan lama.
+  `shift`       VARCHAR(16)  NOT NULL DEFAULT '',
+  `jam_mulai`   VARCHAR(5)   NOT NULL DEFAULT '',    -- hanya untuk UBAH (jam khusus)
+  `jam_selesai` VARCHAR(5)   NOT NULL DEFAULT '',
   `status`      VARCHAR(16)  NOT NULL DEFAULT 'MENUNGGU',  -- MENUNGGU | DISETUJUI | DITOLAK
   `dibuat_at`   BIGINT       NOT NULL DEFAULT 0,
   `dibuat_oleh` VARCHAR(120) NOT NULL DEFAULT '',

@@ -19,7 +19,7 @@
  *   POST {action:'putusAjuan',    id, status, nota, by}
  *   POST {action:'putusBanyak',   ids:[...], status, nota, by}
  *   POST {action:'hapusAjuan',    id}
- *   POST {action:'simpanNilai',   id, hadir, nilai, nota, by}
+ *   POST {action:'simpanHadir',   id, hadir, nota, by}
  *   POST {action:'simpanSetting', data:{...}, by}
  *
  * Penulisan sengaja GRANULAR (bukan saveAll satu blob) — alasannya panjang
@@ -100,9 +100,9 @@ try {
     case 'hapusAjuan':
       keluar(array('ok' => true, 'data' => hapus_ajuan(ambil($body, 'id'))));
 
-    case 'simpanNilai':
-      keluar(array('ok' => true, 'data' => simpan_nilai(
-        ambil($body, 'id'), ambil($body, 'hadir'), ambil($body, 'nilai'),
+    case 'simpanHadir':
+      keluar(array('ok' => true, 'data' => simpan_hadir(
+        ambil($body, 'id'), ambil($body, 'hadir'),
         ambil($body, 'nota'), ambil($body, 'by'))));
 
     case 'simpanSetting':
