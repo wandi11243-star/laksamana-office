@@ -869,6 +869,14 @@ function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean()
 
 
 function statBox() { esc(); }
+
+
+
+
+function tombolKembali() { esc(); }
+
+
+
 function pilStatus() { esc(); }
 function pilStatusDW() { esc(); }
 function pilHadir() { esc(); }
@@ -958,7 +966,7 @@ function viewDashboard() { dashTgl(); biayaAjuan(); durasiJam(); esc(); tglManus
 
 
 
-function navTanggal() { esc(); }
+function navTanggal() { esc(); tombolKembali(); hariIni(); }
 
 
 
@@ -1078,7 +1086,7 @@ function warnaStatus() {  }
 
 
 
-function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); pekerjaById(); warnaStatus(); bukaAjuan(); escJs(); jamAjuan(); segDivisi(); geserBulanAktif(); bulanIni(); statBox(); durasiJam(); rp(); biayaAjuan(); }
+function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); pekerjaById(); warnaStatus(); bukaAjuan(); escJs(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); statBox(); durasiJam(); rp(); biayaAjuan(); }
 
 
 
