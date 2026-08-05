@@ -234,6 +234,12 @@ tbody tr:hover{background:var(--gold-soft)}
 .kschip:hover{border-color:var(--gold)}
 .kschip.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
 .mini-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:8px}
+/* Mode UBAH catatan compliment. Kartu form dan barisnya di daftar ditandai
+   bersamaan — tanpa itu, form yang sudah terisi terlihat persis seperti form
+   tambah-baru, dan orang menekan Simpan mengira sedang menambah. */
+.card.edit-on{border-color:var(--accent,#C9A227);box-shadow:0 0 0 2px rgba(201,162,39,.16)}
+tr.baris-edit{background:rgba(201,162,39,.10)}
+.mini-actions{display:inline-flex;gap:5px;align-items:center}
 .balance-bar{position:sticky;bottom:0;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:var(--shadow-lg);flex-wrap:wrap;margin-top:8px}
 .balance-bar .bnums{display:flex;gap:26px;flex-wrap:wrap}
 .balance-bar .bnums .bi{font-size:12px;color:var(--muted)}
@@ -1565,74 +1571,126 @@ function ambilRoster(){
     .catch(e=>{ COMP_ROSTER_ERR=e.message||'gagal'; COMP_ROSTER=[]; return COMP_ROSTER; });
 }
 function compsOn(date){ return (DB.compliments||[]).filter(c=>c.date===date); }
+function divPemberi(u){
+  const d=(u&&u.divs)||[(u&&u.div)||''];
+  return d.indexOf('marketing')>-1?'marketing':(d.indexOf('event')>-1?'event':'');
+}
+/* DUA PIC, dua pertanyaan yang berbeda (permintaan user 5 Agustus 2026):
+     PIC Kasir   — siapa yang menutup bill-nya di POS. Selalu kasir.
+     PIC Pemberi — siapa yang MEMBERIKAN compliment itu (marketing / event).
+   Dua-duanya boleh "Tamu". Yang ber-PIC Tamu tidak memotong realisasi siapa
+   pun — itulah gunanya: compliment untuk tamu umum memang bukan beban orang.
+
+   Sebelum ini hanya ada satu PIC, jadi compliment yang diputuskan marketing
+   tapi ditutup kasir harus dipilih salah satu, dan yang tidak dipilih tidak
+   pernah terlihat menanggungnya. */
+let COMP_EDIT='';   // id catatan yang sedang diubah; '' = sedang menambah baru
+function compById(id){ return (DB.compliments||[]).find(c=>c.id===id)||null; }
+function editCompliment(id){
+  const c=compById(id); if(!c) return;
+  // Catatan tanggal lain: pindahkan dulu tanggal aktifnya, kalau tidak formnya
+  // terisi tapi daftarnya menampilkan hari yang berbeda.
+  COMP_EDIT=id; compDate=c.date; render(); window.scrollTo(0,0);
+}
+function batalEditCompliment(){ COMP_EDIT=''; render(); }
 function viewCompliment(){
   CAL_ST.cp.open=false;
   const el=document.getElementById('app-view');
   const list=compsOn(compDate);
   const total=list.reduce((s,c)=>s+num(c.nominal),0);
-  /* PIC compliment HANYA KASIR (permintaan user 5 Agustus 2026). Kembar persis
-     dengan viewCompliment() di deploy/kompas/index.html. */
+  /* Catatan yang sedang diubah bisa lenyap (dihapus dari tab lain, atau
+     datanya disegarkan dari server). Form yang menunjuk baris tak-ada akan
+     menyimpan ke ruang kosong tanpa pesan apa pun. */
+  let edit=COMP_EDIT?compById(COMP_EDIT):null;
+  if(COMP_EDIT&&!edit) COMP_EDIT='';
+  /* PIC Kasir HANYA dari yang bertim Kasir; PIC Pemberi dari marketing/event.
+     Kembar persis di deploy/kompas/index.html dan deploy/cashier/index.html —
+     kalau salah satu diubah, ubah keduanya. */
   const kasirRoster=(COMP_ROSTER||[]).filter(u=>(u.divs||[u.div]).indexOf('kasir')>-1);
-  const opsi=kasirRoster.map(u=>`<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('');
+  const pemberiRoster=(COMP_ROSTER||[]).filter(u=>!!divPemberi(u));
+  const pilih=(a,b)=>a===b?' selected':'';
+  const opsiKasir=kasirRoster.map(u=>`<option value="${esc(u.id)}"${pilih(edit?edit.picOfficeId:'',u.id)}>${esc(u.name)}</option>`).join('');
+  const opsiPemberi=pemberiRoster.map(u=>`<option value="${esc(u.id)}"${pilih(edit?edit.pemberiOfficeId:'',u.id)}>${esc(u.name)} — ${esc(divPemberi(u))}</option>`).join('');
+  // Kolom rincian hanya berguna kalau ADA yang punya rinciannya. Catatan lama
+  // cuma menyimpan satu angka `nominal`; tiga kolom "—" bukan informasi.
   const adaRincian=list.some(c=>c.subTotal!=null||c.tax!=null||c.service!=null);
+  const nilai=(k,bawaan)=>edit&&edit[k]!=null?num(edit[k]):bawaan;
+  const selTamu=(v)=>v?'':' selected';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut.</div></div>
+      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut sebesar <b>Sub Total</b>-nya.</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="cp_cal">${calInner('cp')}</div></div>
     </div>
-    <div class="card">
-      <div class="mini-lab">Tambah Compliment</div>
+    <div class="card${edit?' edit-on':''}">
+      <div class="mini-lab">${edit?`✏️ Ubah Compliment — <b>${esc(edit.nama||'')}</b>`:'Tambah Compliment'}</div>
       <div class="row-in">
-        <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake"></div>
-        <div class="field"><label>Sub Total</label><input class="mono rp" id="c_sub" inputmode="numeric" value="0"></div>
-        <div class="field"><label>Tax</label><input class="mono rp" id="c_tax" inputmode="numeric" value="0"></div>
-        <div class="field"><label>Service Charge</label><input class="mono rp" id="c_svc" inputmode="numeric" value="0"></div>
+        <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake" value="${edit?esc(edit.nama||''):''}"></div>
+        <div class="field"><label>Sub Total</label><input class="mono rp" id="c_sub" inputmode="numeric" value="${nilai('subTotal',0)}"></div>
+        <div class="field"><label>Tax</label><input class="mono rp" id="c_tax" inputmode="numeric" value="${nilai('tax',0)}"></div>
+        <div class="field"><label>Service Charge</label><input class="mono rp" id="c_svc" inputmode="numeric" value="${nilai('service',0)}"></div>
         <div class="field"><label>PIC Kasir</label>
           <select id="c_pic">
-            <option value="${PIC_TAMU}">Tamu</option>
-            ${opsi}
+            <option value="${PIC_TAMU}"${selTamu(edit&&edit.picOfficeId)}>Tamu</option>
+            ${opsiKasir}
           </select>
           ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}. Hanya "Tamu" yang tersedia.</div>`
-            :(COMP_ROSTER===null?'<div class="helper">Memuat daftar kasir dari Office…</div>'
-              :(!kasirRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Kasir</b>. Isi di Office &rarr; Kelola User.</div>`:''))}
+            :(COMP_ROSTER===null?'<div class="helper">Memuat daftar dari Office…</div>'
+              :(!kasirRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Kasir</b>.</div>`:''))}
+        </div>
+        <div class="field"><label>PIC Pemberi</label>
+          <select id="c_pemberi">
+            <option value="${PIC_TAMU}"${selTamu(edit&&edit.pemberiOfficeId)}>Tamu</option>
+            ${opsiPemberi}
+          </select>
+          ${COMP_ROSTER&&!COMP_ROSTER_ERR&&!pemberiRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Marketing</b> atau <b>Event</b>.</div>`:''}
         </div>
       </div>
+      <!-- Total dijumlahkan otomatis dan DIPERLIHATKAN sebelum disimpan: dari
+           angka inilah Sub Total yang memotong realisasi diambil, jadi kasir
+           harus bisa mencocokkannya dengan bill di tangan. -->
       <div class="notice" id="c_total" style="margin-top:6px"></div>
       <div id="c_err"></div>
-      <button class="btn btn-primary" id="c_add">+ Tambah</button>
+      <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
+      ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
-    <!-- Kartu "Membebani PIC" dibuang 30 Juli 2026 atas permintaan user; dibuang di
-         Kompas juga supaya halaman Compliment kedua modul tetap kembar persis. -->
     <div class="grid">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
     </div>
     <div class="card">
       <h3>Daftar Compliment Hari Ini</h3>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nama</th>${adaRincian?'<th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th>':''}<th class="num">Total</th><th>PIC</th><th>Dicatat Oleh</th><th></th></tr></thead>
-        <tbody>${list.length?list.map(c=>`<tr>
+        <thead><tr><th>Nama</th>${adaRincian?'<th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th>':''}<th class="num">Total</th><th>PIC Kasir</th><th>Pemberi</th><th>Dicatat Oleh</th><th></th></tr></thead>
+        <tbody>${list.length?list.map(c=>`<tr${c.id===COMP_EDIT?' class="baris-edit"':''}>
           <td><b>${esc(c.nama)}</b>${c.alasan?`<div class="muted" style="font-size:11px">${esc(c.alasan)}</div>`:''}</td>
           ${adaRincian?`<td class="num mono">${c.subTotal!=null?fmtRp(num(c.subTotal)):'<span class="muted">—</span>'}</td>
           <td class="num mono">${c.tax!=null?fmtRp(num(c.tax)):'<span class="muted">—</span>'}</td>
           <td class="num mono">${c.service!=null?fmtRp(num(c.service)):'<span class="muted">—</span>'}</td>`:''}
           <td class="num mono"><b>${fmtRp(num(c.nominal))}</b></td>
-          <td>${c.picDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.picName)} <span class="muted" style="font-size:11px">· ${esc(c.picDiv)}</span>`}</td>
+          <td>${c.picDiv==='tamu'||!c.picName?'<span class="chip">Tamu</span>':esc(c.picName)}</td>
+          <td>${!c.pemberiName||c.pemberiDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.pemberiName)} <span class="muted" style="font-size:11px">· ${esc(c.pemberiDiv)}</span>`}</td>
           <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
-          <td><button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button></td>
-        </tr>`).join(''):`<tr><td colspan="${adaRincian?8:5}" class="empty">Belum ada compliment pada tanggal ini.</td></tr>`}</tbody>
+          <td><div class="mini-actions">
+            <button class="btn btn-xs" onclick="editCompliment('${esc(c.id)}')" title="Ubah catatan ini">✏️</button>
+            <button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button>
+          </div></td>
+        </tr>`).join(''):`<tr><td colspan="${adaRincian?9:6}" class="empty">Belum ada compliment pada tanggal ini.</td></tr>`}</tbody>
       </table></div>
     </div>`;
+  // Total hidup: dijumlah ulang tiap ketikan di ketiga kotak angka.
   const hitungTotal=()=>{
     const sub=num(document.getElementById('c_sub').value);
     const tax=num(document.getElementById('c_tax').value);
     const svc=num(document.getElementById('c_svc').value);
     document.getElementById('c_total').innerHTML =
       `Total compliment: <b class="mono">${fmtRp(sub+tax+svc)}</b>` +
-      `<span class="muted" style="font-size:12px"> &nbsp;(sub total ${fmtRp(sub)} + tax ${fmtRp(tax)} + service ${fmtRp(svc)})</span>`;
+      `<span class="muted" style="font-size:12px"> &nbsp;(sub total ${fmtRp(sub)} + tax ${fmtRp(tax)} + service ${fmtRp(svc)})</span>` +
+      `<br><span class="muted" style="font-size:12px">Yang memotong realisasi PIC: <b>${fmtRp(sub)}</b> — tax &amp; service charge bukan omset siapa pun.</span>`;
     return sub+tax+svc;
   };
   ['c_sub','c_tax','c_svc'].forEach(id=>document.getElementById(id).addEventListener('input',hitungTotal));
   hitungTotal();
+  const batal=document.getElementById('c_batal');
+  if(batal) batal.addEventListener('click',batalEditCompliment);
   document.getElementById('c_add').addEventListener('click',()=>{
     const nama=(document.getElementById('c_nama').value||'').trim();
     const subTotal=num(document.getElementById('c_sub').value);
@@ -1640,21 +1698,40 @@ function viewCompliment(){
     const service=num(document.getElementById('c_svc').value);
     const nominal=subTotal+tax+service;
     const picId=document.getElementById('c_pic').value;
+    const pemberiId=document.getElementById('c_pemberi').value;
     const box=document.getElementById('c_err');
     const errs=[];
     if(!nama) errs.push('Nama compliment wajib diisi.');
     if(nominal<=0) errs.push('Sub total, tax, dan service charge tidak boleh nol semua.');
     if(errs.length){ box.innerHTML='<div class="notice bad">⚠ '+errs.join(' ')+'</div>'; return; }
     const u=kasirRoster.find(x=>x.id===picId);
-    DB.compliments=DB.compliments||[];
-    // `nominal` tetap disimpan sebagai jumlahnya — seluruh perhitungan lain
-    // membaca field itu, bukan menghitung ulang dari rinciannya.
-    DB.compliments.push({
-      id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
-      date:compDate, nama, alasan:'', subTotal, tax, service, nominal,
+    const pv=pemberiRoster.find(x=>x.id===pemberiId);
+    /* `nominal` TETAP disimpan sebagai jumlahnya, bukan dihitung ulang di tempat
+       lain: rekap bulanan, laporan WA, dan kartu rincian semuanya membaca field
+       itu. Yang memotong realisasi PIC bukan angka ini melainkan subTotal —
+       lihat compPotong(). */
+    const isi={
+      date:compDate, nama, subTotal, tax, service, nominal,
       picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?'kasir':'tamu',
-      by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
-    });
+      pemberiName:pv?pv.name:'Tamu', pemberiOfficeId:pv?pv.id:'', pemberiDiv:pv?divPemberi(pv):'tamu'
+    };
+    DB.compliments=DB.compliments||[];
+    const lama=COMP_EDIT?compById(COMP_EDIT):null;
+    if(lama){
+      /* Yang TIDAK ditimpa: id, siapa yang mencatat, dan kapan. Baris yang
+         diperbaiki tetap milik pencatat aslinya — mengganti `by` dengan nama
+         orang yang mengoreksi menghapus jejak siapa yang sebenarnya
+         memberikan compliment itu. `alasan` catatan lama juga dipertahankan. */
+      Object.assign(lama, isi);
+      lama.ubahOleh=CURRENT_USER?CURRENT_USER.name:'';
+      lama.ubahAt=Date.now();
+      COMP_EDIT='';
+    }else{
+      DB.compliments.push(Object.assign({
+        id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4), alasan:'',
+        by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
+      }, isi));
+    }
     save(); render();
   });
   // Roster belum ada → ambil sekali, lalu gambar ulang supaya dropdown terisi.
@@ -1662,6 +1739,7 @@ function viewCompliment(){
 }
 function hapusCompliment(id){
   if(!confirm('Hapus catatan compliment ini?')) return;
+  if(COMP_EDIT===id) COMP_EDIT='';   // jangan tinggalkan form menunjuk baris yang sudah tiada
   DB.compliments=(DB.compliments||[]).filter(c=>c.id!==id);
   save(); render();
 }
@@ -1677,18 +1755,37 @@ function compsBulan(monthKey){ return (DB.compliments||[]).filter(c=>monthKeyOf(
    dipakai — sebulan maupun rentang aktif yang bisa cuma sehari. Tanpa
    pemisahan ini, Performa Kasir versi harian akan memotong realisasi memakai
    compliment SEBULAN penuh. Bentuknya disamakan dengan modul Kompas. */
+/* Berapa yang dipotong sebuah compliment dari realisasi PIC-nya.
+   SUB TOTAL saja (permintaan user 5 Agustus 2026), bukan totalnya: tax dan
+   service charge bukan omset siapa pun — keduanya titipan yang memang tidak
+   pernah diakui sebagai pencapaian, jadi memotongnya berarti menghukum PIC
+   untuk uang yang tak pernah jadi haknya.
+
+   Catatan LAMA tidak punya rincian; nominal-nya tetap dipakai apa adanya
+   supaya angka bulan-bulan yang sudah ditutup tidak berubah surut. */
+function compPotong(c){ return c && c.subTotal!=null ? num(c.subTotal) : num(c&&c.nominal); }
+/* Cocok kalau `emp` adalah PIC KASIR-nya ATAU PEMBERI-nya.
+   Satu compliment sekarang menyebut dua orang, dan dua-duanya menanggung:
+   kasir karena barang keluar lewat mejanya, marketing/event karena dialah yang
+   memutuskan memberikannya. Keduanya dinilai di halaman Performa yang berbeda,
+   jadi tidak ada satu angka pun yang terpotong dua kali di tempat yang sama.
+   Sisi yang ber-PIC "Tamu" tidak menunjuk siapa pun, jadi tidak pernah cocok. */
 function compFilterPic(list, emp){
   if(!emp) return [];
   const nama=String(emp.name||'').trim().toLowerCase();
-  return list.filter(c=>{
-    if(c.picDiv==='tamu') return false;
-    if(emp.officeUserId && c.picOfficeId) return c.picOfficeId===emp.officeUserId;
-    return String(c.picName||'').trim().toLowerCase()===nama;
-  });
+  const cocok=(div, oid, pnama)=>{
+    if(div==='tamu') return false;
+    if(emp.officeUserId && oid) return oid===emp.officeUserId;
+    if(!pnama) return false;
+    return String(pnama).trim().toLowerCase()===nama;
+  };
+  return list.filter(c=>
+    cocok(c.picDiv, c.picOfficeId, c.picName) ||
+    cocok(c.pemberiDiv, c.pemberiOfficeId, c.pemberiName));
 }
 function compListPic(monthKey, emp){ return compFilterPic(compsBulan(monthKey), emp); }
 function compPic(monthKey, emp){
-  return compListPic(monthKey, emp).reduce((s,c)=>s+num(c.nominal),0);
+  return compListPic(monthKey, emp).reduce((s,c)=>s+compPotong(c),0);
 }
 function compListPicRentang(emp){ return compFilterPic(compsRentang(), emp); }
 /* kartuCompliment() DIBUANG dari modul ini 5 Agustus 2026 bersama kartunya di
@@ -2070,7 +2167,7 @@ function viewKasir(){
   list.forEach(k=>{
     const cr=compListPicRentang(k);
     agg[k.id].compRows=cr;
-    agg[k.id].comp=cr.reduce((s,c)=>s+num(c.nominal),0);
+    agg[k.id].comp=cr.reduce((s,c)=>s+compPotong(c),0);
     agg[k.id].real-=agg[k.id].comp;
     /* Compliment ikut diturunkan di hari kejadiannya, bukan cuma dari total.
        Sejak riwayat memajang angka final, jumlah kolomnya HARUS sama dengan
@@ -2079,7 +2176,7 @@ function viewKasir(){
        Compliment pada hari yang tidak punya baris kasir (mis. dia OFF) tetap
        dimunculkan sebagai barisnya sendiri supaya nominalnya tidak lenyap. */
     const perTgl={};
-    cr.forEach(c=>{ perTgl[c.date]=(perTgl[c.date]||0)+num(c.nominal); });
+    cr.forEach(c=>{ perTgl[c.date]=(perTgl[c.date]||0)+compPotong(c); });
     agg[k.id].hist.forEach(h=>{ if(perTgl[h.date]){ h.real-=perTgl[h.date]; delete perTgl[h.date]; } });
     Object.keys(perTgl).forEach(dt=>agg[k.id].hist.push({date:dt,real:-perTgl[dt],off:false,extra:true}));
   });

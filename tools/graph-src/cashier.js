@@ -423,6 +423,12 @@
 
 
 
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -1565,7 +1571,51 @@ function ambilRoster() {  }
 
 
 function compsOn() {  }
-function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(); }
+function divPemberi() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function compById() {  }
+function editCompliment() { compById(); render(); }
+
+
+
+
+
+function batalEditCompliment() { render(); }
+function viewCompliment() { compsOn(); compById(); divPemberi(); pilih(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function nilai() {  }
+function selTamu() { calInner(); nilai(); dateLabel(); editCompliment(); hapusCompliment(); }
 
 
 
@@ -1622,7 +1672,34 @@ function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(
 
 
 
-function hitungTotal() { save(); render(); ambilRoster(); }
+
+
+
+
+
+function hitungTotal() { compPotong(); divPemberi(); compById(); save(); render(); ambilRoster(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1669,8 +1746,24 @@ function hapusCompliment() { save(); render(); }
 
 
 
+
 function compsBulan() { compPic(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function compPotong() {  }
 
 
 
@@ -1680,6 +1773,10 @@ function compsBulan() { compPic(); }
 function compFilterPic() {  }
 
 
+function cocok() {  }
+
+
+
 
 
 
@@ -1687,7 +1784,7 @@ function compFilterPic() {  }
 
 
 function compListPic() { compFilterPic(); compsBulan(); }
-function compPic() { compListPic(); }
+function compPic() { compListPic(); compPotong(); }
 
 
 function compListPicRentang() { compFilterPic(); compsRentang(); }
@@ -1926,7 +2023,7 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); fmtW
 
 
 
-function nilai() {  }
+
 function hitung() { nilai(); daftar(); save(); dateLabel(); render(); }
 
 
@@ -2035,7 +2132,7 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
 
 
 
