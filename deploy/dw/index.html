@@ -481,7 +481,12 @@ const NAV_DEF = [
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
   {k:'kehadiran', t:'Kehadiran',      ic:'centang', sub:'Catat siapa datang setelah shift lewat'},
   {s:'Pengaturan'},
-  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, kuota'}
+  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, kuota'},
+  /* Tautan KELUAR ke modul Jadwal Shift — bukan halaman modul ini. Portal
+     menggabungkan keduanya jadi satu kartu, jadi harus ada jalan menyeberang
+     tanpa kembali ke portal dulu. Hanya untuk staf Office yang memegang kunci
+     `jadwal`; daily worker tidak pernah melihatnya. */
+  {t:'Jadwal Shift', ic:'kalender', sub:'Lembar shift kru tetap', luar:'../jadwal/', butuh:'jadwal'}
 ];
 
 /* ---------- State ---------- */
@@ -658,6 +663,9 @@ function biayaAjuan(a){ return tarifPosisi(a.posisi); }
      - daily worker : HANYA Ajukan Jadwal & Ajuan Saya
    ===================================================================== */
 function isDW(){ return !!MEDW; }
+/* Kunci modul yang dipegang akun Office ini. Daily worker tidak punya sesi
+   Office sama sekali, jadi selalu false untuknya. */
+function punyaModul(k){ const m=(ME&&ME.modul)||[]; return m.indexOf('*')>-1 || m.indexOf(k)>-1; }
 function isAdmin(){ return !!(ME && ME.admin); }
 function isOffice(){ return !!ME; }
 function namaSaya(){ return isDW() ? (MEDW.nama+' (DW)') : ((ME&&ME.name)||''); }
@@ -769,6 +777,10 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('dw')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
+            /* Dipakai untuk memutuskan apakah tautan balik ke modul Jadwal
+               Shift ditampilkan. Portal sudah menggabungkan keduanya jadi
+               satu kartu, tapi kunci izinnya tetap dua. */
+            modul:m,
             admin:(adm.indexOf('*')>-1 || adm.indexOf('dw')>-1)};
   }catch(e){ return null; }
 }
@@ -835,6 +847,20 @@ function buildNav(){
        di bawahnya yang boleh dibuka orang ini. Tanpa itu DW melihat judul
        "PENGATURAN" menggantung tanpa satu pun menu di bawahnya. */
     if(n.s){ tunda=n.s; return; }
+    /* Tautan ke modul lain: bukan halaman di sini, jadi tidak lewat go().
+       Disembunyikan kalau akun ini tidak punya kunci modulnya — mengantarkan
+       orang ke layar "tidak punya akses" lebih buruk daripada tidak
+       menawarkan jalannya sama sekali. Daily worker tidak pernah punya kunci
+       modul apa pun, jadi ia otomatis tidak melihatnya. */
+    if(n.luar){
+      if(n.butuh && !punyaModul(n.butuh)) return;
+      if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
+      adaIsi=true;
+      h+='<a href="'+esc(n.luar)+'" title="'+esc(n.sub||n.t)+'">'
+        +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'
+        +'<span style="margin-left:auto;opacity:.45;font-size:14px">↗</span></a>';
+      return;
+    }
     if(!bolehBuka(n.k)) return;
     if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
     adaIsi=true;
@@ -1194,11 +1220,39 @@ function bulanIni(){ BULAN_AKTIF=bulanDari(hariIni()); muatDanGambar(); }
    Dipakai dua pihak: daily worker untuk dirinya sendiri, dan staf Office
    yang mengisikan atas nama DW yang menelepon. Bedanya hanya pemilih nama.
    ===================================================================== */
-let AJU_TGL='', AJU_M='', AJU_S='', AJU_DW='';
+/* SELURUH isian form disimpan di state, bukan hanya dibaca dari DOM saat
+   kirim. Sebelumnya hanya sebagian yang disimpan, dan `pilihJam()` cuma
+   menyetel nilai <input> tanpa menyentuh state — jadi begitu halaman digambar
+   ulang, jamnya kembali ke bawaan. Halaman ini digambar ulang SENDIRI di dua
+   keadaan yang sering terjadi: saat muatData() pertama selesai (beberapa detik
+   setelah dibuka) dan tiap kali tab kembali aktif. Gejalanya persis seperti
+   yang dilaporkan — "tombol jam siap pakai tidak bisa": tombolnya bekerja,
+   hasilnya yang dihapus render berikutnya. */
+let AJU_TGL='', AJU_M='', AJU_S='', AJU_DW='', AJU_DIV='', AJU_POS='', AJU_CAT='';
+/* Serap isi form ke state SEBELUM apa pun yang menggambar ulang. Dipanggil
+   dari pilihJam() dan kirimAjuan(). */
+function serapAjukan(){
+  const el=x=>document.getElementById(x);
+  if(el('ajTgl')) AJU_TGL=el('ajTgl').value;
+  if(el('ajM'))   AJU_M  =el('ajM').value;
+  if(el('ajS'))   AJU_S  =el('ajS').value;
+  if(el('ajDw'))  AJU_DW =el('ajDw').value;
+  if(el('ajDiv')) AJU_DIV=el('ajDiv').value;
+  if(el('ajPos')) AJU_POS=el('ajPos').value;
+  if(el('ajCat')) AJU_CAT=el('ajCat').value;
+}
 function viewAjukan(){
   const t=AJU_TGL||addD(hariIni(), Math.max(1,S.setting.batasHari||0));
   const jam=S.setting.jam||[];
   const posisi=S.setting.posisi||POSISI_BAWAAN;
+  /* Nilai yang BENAR-BENAR dipakai untuk menggambar: state kalau sudah pernah
+     diisi, kalau belum baru jatuh ke bawaan. Sebelumnya divisi/posisi/catatan
+     selalu digambar dari bawaan, jadi render apa pun di tengah pengisian
+     mengembalikannya diam-diam. */
+  const mSekarang  = AJU_M   || (jam[0]?jam[0].m:'16:00');
+  const sSekarang  = AJU_S   || (jam[0]?jam[0].s:'23:00');
+  const divSekarang= AJU_DIV || (isDW()?MEDW.divisi:'');
+  const posSekarang= AJU_POS || (isDW()?MEDW.posisi:'');
 
   const siapa = isDW()
     ? '<div class="field"><label>Daily Worker</label><input class="inp" style="width:100%" value="'+esc(MEDW.nama)+'" disabled></div>'
@@ -1223,20 +1277,28 @@ function viewAjukan(){
       +'<input id="ajTgl" class="inp" style="width:100%" type="date" value="'+esc(t)+'" min="'+esc(addD(hariIni(),S.setting.batasHari||0))+'">'
       +'<div class="hint">'+(S.setting.batasHari>0?('Paling cepat H-'+S.setting.batasHari+' dari hari kerjanya.'):'Boleh untuk hari ini juga.')+'</div></div>'
     +'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
-    +'<div class="pick">'+jam.map((j,i)=>'<button type="button" onclick="pilihJam('+i+')">'+esc(j.n)+'<small>'+esc(j.m)+'–'+esc(j.s)+'</small></button>').join('')+'</div>'
+    /* Tombol yang sedang terpakai ditandai. Tanpa penanda, satu-satunya bukti
+       kliknya berhasil adalah dua kotak jam di bawahnya — dan di layar HP
+       keduanya sering di luar pandangan saat tombolnya ditekan, sehingga
+       terasa seperti tidak terjadi apa-apa. */
+    +'<div class="pick">'+jam.map(function(j,i){
+        const aktif=(mSekarang===j.m && sSekarang===j.s);
+        return '<button type="button" class="'+(aktif?'sel':'')+'" onclick="pilihJam('+i+')">'
+          +esc(j.n)+'<small>'+esc(j.m)+'–'+esc(j.s)+'</small></button>';
+      }).join('')+'</div>'
     +'<div class="duo">'
-      +'<div class="field"><label>Jam mulai *</label><input id="ajM" type="time" value="'+esc(AJU_M||(jam[0]?jam[0].m:'16:00'))+'"></div>'
-      +'<div class="field"><label>Jam selesai *</label><input id="ajS" type="time" value="'+esc(AJU_S||(jam[0]?jam[0].s:'23:00'))+'"></div>'
+      +'<div class="field"><label>Jam mulai *</label><input id="ajM" type="time" value="'+esc(mSekarang)+'"></div>'
+      +'<div class="field"><label>Jam selesai *</label><input id="ajS" type="time" value="'+esc(sSekarang)+'"></div>'
     +'</div>'
     +'<div class="duo">'
       +'<div class="field"><label>Divisi</label><select id="ajDiv">'
-        +DIVISI.map(d=>'<option value="'+d.k+'"'+((isDW()&&MEDW.divisi===d.k)?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
+        +DIVISI.map(d=>'<option value="'+d.k+'"'+(divSekarang===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
       +'</select></div>'
       +'<div class="field"><label>Posisi</label><select id="ajPos">'
-        +posisi.map(p=>'<option'+((isDW()&&MEDW.posisi===p)?' selected':'')+'>'+esc(p)+'</option>').join('')
+        +posisi.map(p=>'<option'+(posSekarang===p?' selected':'')+'>'+esc(p)+'</option>').join('')
       +'</select></div>'
     +'</div>'
-    +'<div class="field"><label>Catatan untuk HR</label><textarea id="ajCat" placeholder="Mis. bisa datang lebih awal, atau minta pulang tepat waktu karena kuliah"></textarea></div>'
+    +'<div class="field"><label>Catatan untuk HR</label><textarea id="ajCat" placeholder="Mis. bisa datang lebih awal, atau minta pulang tepat waktu karena kuliah">'+esc(AJU_CAT)+'</textarea></div>'
     +'<button class="btn btn-primary btn-block" onclick="kirimAjuan()">Kirim Ajuan</button>'
     +'<p class="mutedhint" style="margin-top:10px">Satu orang hanya bisa punya <b>satu</b> ajuan per tanggal. Mengirim ulang untuk tanggal yang sama akan <b>mengganti</b> ajuan lama dan statusnya kembali menunggu HR.</p>'
     +'</div>'
@@ -1247,34 +1309,37 @@ function viewAjukan(){
 }
 function pilihJam(i){
   const j=(S.setting.jam||[])[i]; if(!j) return;
-  const m=document.getElementById('ajM'), s=document.getElementById('ajS');
-  if(m) m.value=j.m; if(s) s.value=j.s;
+  /* Serap dulu isian lain, baru ubah jamnya, baru gambar ulang. Menulis
+     langsung ke <input> saja TIDAK cukup: render berikutnya menggambar dari
+     state, dan pilihan yang tidak pernah masuk state akan hilang tanpa jejak. */
+  serapAjukan();
+  AJU_M=j.m; AJU_S=j.s;
+  render();
 }
 async function kirimAjuan(){
-  const el=x=>document.getElementById(x);
-  const dwId = isDW() ? MEDW.id : (el('ajDw')?el('ajDw').value:'');
-  const tgl  = el('ajTgl')?el('ajTgl').value:'';
-  const m    = el('ajM')?el('ajM').value:'';
-  const s    = el('ajS')?el('ajS').value:'';
+  /* Serap SELURUH isian ke state lebih dulu. Kalau kirimannya gagal, form
+     digambar ulang dari state — dan tanpa langkah ini semua yang baru saja
+     diketik lenyap tepat pada saat orangnya paling kesal. */
+  serapAjukan();
+  const dwId = isDW() ? MEDW.id : AJU_DW;
+  const tgl=AJU_TGL, m=AJU_M, s=AJU_S;
   if(!dwId){ toast('Pilih daily worker dulu', true); return; }
   if(!tgl){ toast('Tanggal kerja wajib diisi', true); return; }
   if(!m||!s){ toast('Jam mulai dan jam selesai wajib diisi', true); return; }
   const batas=addD(hariIni(), S.setting.batasHari||0);
   if(tgl<batas){ toast('Paling cepat '+tglManusia(batas)+' (H-'+(S.setting.batasHari||0)+')', true); return; }
 
-  /* Ingat pilihannya SEBELUM kirim: kalau gagal, form digambar ulang dan
-     tanpa ini seluruh isian yang baru saja diketik lenyap. */
-  AJU_TGL=tgl; AJU_M=m; AJU_S=s; AJU_DW=dwId;
-
   try{
     await apiPost({action:'simpanAjuan', row:{
       dwId, tgl, m, s,
-      divisi:(el('ajDiv')?el('ajDiv').value:''),
-      posisi:(el('ajPos')?el('ajPos').value:''),
-      catatan:(el('ajCat')?el('ajCat').value:'')
+      divisi:AJU_DIV, posisi:AJU_POS, catatan:AJU_CAT
     }});
     toast('Ajuan '+tglManusia(tgl)+' terkirim — menunggu HR');
-    AJU_TGL='';
+    /* Hanya tanggal & catatan yang dikosongkan. Jam, divisi, dan posisi
+       sengaja DIPERTAHANKAN: HR yang memasukkan lima DW untuk malam Sabtu
+       memilih jam yang sama lima kali, dan mengulang tiga isian itu tiap
+       orang adalah alasan paling umum orang kembali mencatat di kertas. */
+    AJU_TGL=''; AJU_CAT='';
     await muatData(true); render();
   }catch(e){
     toast('Gagal mengirim: '+e.message, true);

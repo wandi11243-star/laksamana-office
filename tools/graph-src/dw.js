@@ -500,6 +500,11 @@ function svg() {  }
 
 
 
+
+
+
+
+
 function esc() {  }
 function escJs() {  }
 function pad() {  }
@@ -658,6 +663,9 @@ function biayaAjuan() { tarifPosisi(); }
 
 
 function isDW() {  }
+
+
+function punyaModul() {  }
 function isAdmin() {  }
 function isOffice() {  }
 function namaSaya() { isDW(); }
@@ -772,6 +780,10 @@ function bacaSesi() {  }
 
 
 
+
+
+
+
 function bacaSesiDW() {  }
 
 
@@ -825,7 +837,21 @@ function bolehBuka() { isDW(); isAdmin(); }
 
 
 
-function buildNav() { isDW(); ajuanPerluHadir(); bolehBuka(); esc(); go(); svg(); }
+function buildNav() { isDW(); ajuanPerluHadir(); go(); punyaModul(); esc(); svg(); bolehBuka(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1187,7 +1213,27 @@ function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pit
 
 function kalenderDiv() { render(); }
 function geserBulanAktif() { geserBulan(); bulanDari(); hariIni(); muatDanGambar(); }
-function bulanIni() { bulanDari(); hariIni(); muatDanGambar(); }
+function bulanIni() { bulanDari(); hariIni(); muatDanGambar(); pilihJam(); muatData(); kirimAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function serapAjukan() {  }
+
+
 
 
 
@@ -1245,13 +1291,32 @@ function viewAjukan() { addD(); hariIni(); isDW(); esc(); namaDivisi(); pilihJam
 
 
 
-function pilihJam() {  }
 
 
 
 
-function kirimAjuan() { isDW(); toast(); addD(); hariIni(); tglManusia(); apiPost(); muatData(); render(); }
 
+
+
+
+
+
+
+
+
+
+
+
+function pilihJam() { serapAjukan(); render(); }
+
+
+
+
+
+
+
+
+function kirimAjuan() { serapAjukan(); isDW(); toast(); addD(); hariIni(); tglManusia(); apiPost(); muatData(); render(); }
 
 
 
