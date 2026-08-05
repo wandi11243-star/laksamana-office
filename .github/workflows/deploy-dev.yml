@@ -355,6 +355,47 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # dw-mysql ikut sejak modulnya lahir, alasan yang sama dengan jadwal di atas:
+      # backend yang tidak pernah masuk workflow akan tertinggal versi lama
+      # berbulan-bulan tanpa ada gejala yang jelas.
+      - name: Deploy backend dw-api-mysql
+        id: ftpdw
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./dw-mysql/
+          server-dir: /dw-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend dw-api-mysql (percobaan 2)
+        if: steps.ftpdw.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./dw-mysql/
+          server-dir: /dw-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # Verifikasi HARUS membuktikan file di server = file di repo.
       # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
       # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.
@@ -532,6 +573,23 @@ jobs:
             *'"isi":0'*) echo "OK      koneksi DB sehat, tabel siap, tidak ada baris ditulis" ;;
             *SQLSTATE*)  echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database jadwal"; gagal=1 ;;
             *)           echo "GAGAL   probe menjawab tak terduga"; gagal=1 ;;
+          esac
+
+          # --- dw-api-mysql ---------------------------------------------
+          # SENGAJA TIDAK meng-gagalkan build (tidak ada gagal=1). Modul Daily
+          # Worker baru lahir dan config.php-nya diunggah MANUAL sekali per
+          # lingkungan; sampai itu dikerjakan, gerbang keras di sini akan
+          # membuat SETIAP deploy merah karena modul yang bahkan belum dipakai —
+          # dan build merah yang sudah dianggap normal berhenti dibaca orang,
+          # termasuk saat yang merah itu sesuatu yang sungguhan.
+          # Naikkan jadi gagal=1 (ikuti pola jadwal di atas) begitu database dan
+          # config.php-nya sudah terpasang.
+          echo "--- dw-api-mysql ---"
+          dwp=$(curl -s -m 60 "https://dev.laksamanamuda.id/dw-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          echo "ping: $dwp"
+          case "$dwp" in
+            *'"env":"dev"'*) echo "OK      env=dev" ;;
+            *) echo "CATATAN modul Daily Worker belum siap — config.php belum diunggah manual ke /dw-api-mysql/ (belum menggagalkan build)" ;;
           esac
 
           exit $gagal

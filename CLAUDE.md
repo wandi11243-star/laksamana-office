@@ -23,14 +23,46 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 ```
 
 Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `kompas`
-`radar` `stock` `howandi_life` `jadwal`.
+`radar` `stock` `howandi_life` `jadwal` `dw`.
 
-`jadwal` (Jadwal Shift, Agustus 2026) satu-satunya yang **tidak** memakai pola
-`save()` kirim-seluruh-state: tiap divisi punya head sendiri yang menyusun
-jadwal minggu depan di waktu berdekatan, jadi blob satu baris membuat head yang
-menyimpan belakangan menghapus kerja head lain tanpa error. Penulisannya
-granular per sel `(user_id, tgl)` lewat aksi `simpanSel`. Jangan "rapikan"
-kembali jadi `saveAll`.
+`jadwal` (Jadwal Shift, Agustus 2026) dan `dw` (Daily Worker, Agustus 2026)
+adalah dua modul yang **tidak** memakai pola `save()` kirim-seluruh-state: tiap
+divisi punya head sendiri yang menyusun jadwal minggu depan di waktu berdekatan,
+jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
+lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
+`simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
+
+### `dw` ↔ `jadwal`: satu arah, dan sengaja begitu
+
+`dw` menyimpan pekerja harian (part time). Mereka **bukan** user Office — tidak
+ada di `account-mysql`, tidak muncul di `listDivisiRoster`, dan masuk ke
+modulnya sendiri pakai **no HP + PIN** (`loginDW`). Itu sebabnya `dw` punya
+tabel orang sendiri (`dw_pekerja`) padahal `jadwal` sengaja tidak punya:
+mendaftarkan puluhan part-timer sebagai user Office akan mencemari roster
+**setiap** modul.
+
+Ajuan yang sudah `DISETUJUI` muncul di kalender `jadwal`. Yang terjadi adalah
+**pembacaan**, bukan penyalinan baris ke `jadwal_sel`:
+
+```
+deploy/jadwal/index.html  →  GET ../dw-api-mysql/api.php?action=jadwalDW&dari=&sampai=
+                          →  DW_ROWS  →  blokDW()  →  baris di bawah kru tetap
+```
+
+Konsekuensi yang harus dijaga saat menyunting keduanya:
+
+- **Kode divisi (`bar` `kitchen` `floor` `cashier`) wajib identik** di `DIVISI`
+  kedua modul. Mengganti salah satu membuat DW divisi itu hilang dari lembarnya
+  tanpa error apa pun, dan tidak ada tempat yang melaporkannya.
+- `muatDW()` di jadwal **tidak pernah melempar**. Backend `dw` yang mati tidak
+  boleh membuat lembar kru tetap ikut blank — paling jauh satu baris peringatan
+  (`panelGagalDW()`).
+- Baris DW di lembar jadwal **read-only**. Yang mengubahnya HR di modul `dw`.
+- `jadwalDW` sengaja tidak membalas `no_hp`/`pin`. Modul jadwal dibuka seluruh
+  kru yang punya akses jadwal.
+- Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
+  baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
+  satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).
 
 **Abaikan sepenuhnya** (jangan dibaca, jangan di-grep): `node_modules/`,
 `vendor/`, `*.zip` di root (itu paket rilis backend, bukan sumber),
