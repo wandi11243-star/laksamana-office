@@ -60,6 +60,10 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
 - Baris DW di lembar jadwal **read-only**. Yang mengubahnya HR di modul `dw`.
 - `jadwalDW` sengaja tidak membalas `no_hp`/`pin`. Modul jadwal dibuka seluruh
   kru yang punya akses jadwal.
+- Semua backend memakai `PDO::ATTR_EMULATE_PREPARES => false`, jadi penanda
+  bernama diikat **berdasarkan posisi**: satu nama yang dipakai dua kali dalam
+  satu `prepare()` gagal dengan `SQLSTATE[HY093]` yang tidak menyebut kolom apa
+  pun. Sudah kejadian 5 Agustus 2026 di `simpan_pekerja`.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
   baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
   satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).

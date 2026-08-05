@@ -195,8 +195,8 @@ tr.bandgap td{height:12px;border:none;background:transparent}
 .st-DITOLAK{background:var(--danger-bg);color:var(--danger)}
 .st-BATAL{background:var(--paper);color:var(--muted-2)}
 .st-AKTIF{background:var(--ok-bg);color:var(--ok)}
-.st-PANTAU{background:var(--warn-bg);color:var(--warn)}
-.st-BLOKIR{background:var(--danger-bg);color:var(--danger)}
+
+
 .st-NONAKTIF{background:var(--paper);color:var(--muted-2)}
 .st-HADIR{background:var(--ok-bg);color:var(--ok)}
 .st-TELAT{background:var(--warn-bg);color:var(--warn)}
@@ -235,9 +235,9 @@ tr.bandgap td{height:12px;border:none;background:transparent}
   font-weight:800;font-size:12px;display:flex;flex-direction:column;gap:2px;align-items:center;line-height:1.15;color:var(--ink)}
 .pick button small{font-weight:600;font-size:9.5px;color:var(--muted-2)}
 .pick button.sel{border-color:var(--gold);background:var(--gold-soft)}
-.bintang{display:flex;gap:5px}
-.bintang button{font-size:25px;line-height:1;background:none;border:none;color:var(--line);padding:0}
-.bintang button.on{color:var(--gold-2)}
+
+
+
 
 /* Toast & kosong */
 #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(30px);background:var(--ink);color:#fff;
@@ -421,12 +421,29 @@ const DIVISI = [
    (setting.posisi); daftar di bawah cuma bawaan awal. */
 const POSISI_BAWAAN = ['Kitchen Helper','Bar Helper','Waiter/Waitress','Host','Cashier','Runner','Dishwasher','Cleaning','Event Crew'];
 
+/* HANYA dua status, dan itu disengaja.
+
+   Sebelumnya ada empat (Aktif / Pantau / Blokir / Tidak Aktif). Tiga di
+   antaranya bukan fakta melainkan penilaian, dan penilaian yang disimpan
+   sebagai status membuat orang berdebat soal labelnya alih-alih memakainya:
+   beda "Pantau" dan "Blokir" tidak pernah punya batas yang jelas, dan
+   "Blokir" vs "Tidak Aktif" berakhir sama saja di layar — dua-duanya tidak
+   bisa dijadwalkan. Yang benar-benar perlu diputuskan HR cuma satu:
+   orang ini masih dipakai atau tidak.
+
+   NONAKTIF = tidak bisa masuk sistem lagi DAN tidak bisa dijadwalkan.
+   Penegakannya di backend (login_dw + simpan_ajuan), bukan cuma disaring di
+   layar — kalau hanya disembunyikan, ajuannya tetap bisa dikirim ke API. */
 const STATUS_DW = {
-  AKTIF   :{n:'Aktif',       k:'Boleh dijadwalkan'},
-  PANTAU  :{n:'Pantau',      k:'Boleh, tapi perlu diperhatikan'},
-  BLOKIR  :{n:'Blokir',      k:'Tidak boleh dijadwalkan sama sekali'},
-  NONAKTIF:{n:'Tidak Aktif', k:'Sudah tidak dipanggil lagi'}
+  AKTIF   :{n:'Aktif',    k:'Boleh masuk sistem dan dijadwalkan'},
+  NONAKTIF:{n:'Nonaktif', k:'Tidak bisa masuk sistem lagi'}
 };
+/* Status lama dipetakan ke dua status baru. PANTAU dulunya masih boleh
+   dijadwalkan, jadi ia jatuh ke AKTIF; BLOKIR tidak boleh, jadi NONAKTIF.
+   Tanpa peta ini baris lama akan menampilkan status kosong dan hilang dari
+   semua saringan — data yang tidak muncul di mana pun jauh lebih berbahaya
+   daripada label yang usang. */
+const STATUS_DW_LAMA = {PANTAU:'AKTIF', BLOKIR:'NONAKTIF'};
 const STATUS_AJU = {MENUNGGU:'Menunggu HR', DISETUJUI:'Disetujui', DITOLAK:'Ditolak', BATAL:'Dibatalkan'};
 const HADIR_LBL  = {HADIR:'Hadir', TELAT:'Telat', ALFA:'Tidak datang'};
 
@@ -443,7 +460,7 @@ const IC = {
   surat:'<path d="M4 4h16v12H7l-3 3z"/><path d="M8 9h8M8 12h5"/>',
   kalender:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
   orang:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-  bintang:'<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
+  centang:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>',
   pena:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   gir:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.43.65.79.79H21a2 2 0 1 1 0 4h-.09c-.36.14-.65.43-.79.79Z"/>'
 };
@@ -462,7 +479,7 @@ const NAV_DEF = [
   {k:'saya',      t:'Ajuan Saya',     ic:'kalender', sub:'Riwayat & status ajuan saya', dw:1},
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
-  {k:'penilaian', t:'Kehadiran & Nilai', ic:'bintang', sub:'Isi setelah DW selesai kerja'},
+  {k:'kehadiran', t:'Kehadiran',      ic:'centang', sub:'Catat siapa datang setelah shift lewat'},
   {s:'Pengaturan'},
   {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, kuota'}
 ];
@@ -554,7 +571,7 @@ function normalizeState(d){
       id:String(p.id), nama:String(p.nama||''), hp:String(p.hp||''),
       adaPin:!!p.adaPin, gender:String(p.gender||''), area:String(p.area||''),
       bank:String(p.bank||''), divisi:String(p.divisi||''), posisi:String(p.posisi||''),
-      skill:String(p.skill||''), status:String(p.status||'AKTIF'),
+      skill:String(p.skill||''), status:statusDW(p.status),
       catatan:String(p.catatan||''), dibuatAt:+p.dibuatAt||0
     });
   });
@@ -567,8 +584,13 @@ function normalizeState(d){
       catatan:String(a.catatan||''), status:String(a.status||'MENUNGGU'),
       dibuatAt:+a.dibuatAt||0, dibuatOleh:String(a.dibuatOleh||''),
       putusAt:+a.putusAt||0, putusOleh:String(a.putusOleh||''), putusNota:String(a.putusNota||''),
-      hadir:String(a.hadir||''), nilai:+a.nilai||0,
-      nilaiNota:String(a.nilaiNota||''), nilaiOleh:String(a.nilaiOleh||'')
+      /* Kehadiran DIPERTAHANKAN, penilaian (skor bintang) dihapus. Keduanya
+         sempat ada bersama, dan itu keliru: hadir/telat/tidak-datang adalah
+         FAKTA yang menentukan apakah orang ini dipanggil lagi, sedangkan
+         skor bintang adalah pendapat satu orang tentang shift semalam —
+         angka yang tidak pernah dipakai untuk memutuskan apa pun tapi selalu
+         menuntut diisi. */
+      hadir:String(a.hadir||''), hadirNota:String(a.hadirNota||''), hadirOleh:String(a.hadirOleh||'')
     });
   });
   return out;
@@ -605,6 +627,14 @@ function normalSetting(x){
   };
 }
 
+/* Satu-satunya tempat status pekerja dibakukan. Baris lama yang masih
+   PANTAU/BLOKIR dipetakan di sini, jadi seluruh sisa modul cukup tahu dua
+   nilai saja dan tidak ada satu pun tempat yang perlu ingat sejarahnya. */
+function statusDW(v){
+  const s=String(v||'AKTIF').toUpperCase();
+  const p=STATUS_DW_LAMA[s]||s;
+  return STATUS_DW[p]?p:'AKTIF';
+}
 function pekerjaById(id){ return (S.pekerja||[]).find(p=>p.id===id)||null; }
 function namaDW(id){
   const p=pekerjaById(id);
@@ -798,7 +828,7 @@ function bolehBuka(k){
 function buildNav(){
   const el=document.getElementById('nav'); if(!el) return;
   const menunggu=isDW()?0:(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
-  const perluNilai=isDW()?0:ajuanPerluNilai().length;
+  const perluHadir=isDW()?0:ajuanPerluHadir().length;
   let h='', adaIsi=false, tunda='';
   NAV_DEF.forEach(function(n){
     /* Judul kelompok ditahan dulu, baru ditulis kalau ternyata ada halaman
@@ -810,7 +840,7 @@ function buildNav(){
     adaIsi=true;
     let badge='';
     if(n.k==='antrean'  && menunggu)   badge='<span class="badge">'+menunggu+'</span>';
-    if(n.k==='penilaian'&& perluNilai) badge='<span class="badge">'+perluNilai+'</span>';
+    if(n.k==='kehadiran'&& perluHadir) badge='<span class="badge">'+perluHadir+'</span>';
     h+='<a class="'+(VIEW===n.k?'active':'')+'" onclick="go(&#39;'+n.k+'&#39;)" title="'+esc(n.sub||n.t)+'">'
       +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'+badge+'</a>';
   });
@@ -830,7 +860,7 @@ const TITLES={
   ajukan:    ['Ajukan Jadwal','Pilih tanggal dan jam kerja'],
   saya:      ['Ajuan Saya','Riwayat dan status ajuan'],
   pekerja:   ['Database DW','Talent pool daily worker'],
-  penilaian: ['Kehadiran & Nilai','Diisi setelah DW selesai bekerja'],
+  kehadiran: ['Kehadiran','Dicatat setelah shift DW lewat'],
   pengaturan:['Pengaturan','Tarif, jam bawaan, dan kuota per divisi']
 };
 function setTop(){
@@ -860,7 +890,7 @@ function render(){
   else if(VIEW==='ajukan')     V.innerHTML=viewAjukan();
   else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pekerja')    V.innerHTML=viewPekerja();
-  else if(VIEW==='penilaian')  V.innerHTML=viewPenilaian();
+  else if(VIEW==='kehadiran')  V.innerHTML=viewKehadiran();
   else if(VIEW==='pengaturan') V.innerHTML=viewPengaturan();
   else V.innerHTML='<div class="panel"><div class="empty">Halaman tidak dikenal.</div></div>';
 }
@@ -1174,8 +1204,8 @@ function viewAjukan(){
     ? '<div class="field"><label>Daily Worker</label><input class="inp" style="width:100%" value="'+esc(MEDW.nama)+'" disabled></div>'
     : '<div class="field"><label>Daily Worker *</label><select id="ajDw">'
         +'<option value="">— pilih daily worker —</option>'
-        +(S.pekerja||[]).filter(p=>p.status==='AKTIF'||p.status==='PANTAU')
-          .map(p=>'<option value="'+esc(p.id)+'"'+(AJU_DW===p.id?' selected':'')+'>'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))+(p.status==='PANTAU'?' · pantau':'')+'</option>').join('')
+        +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
+          .map(p=>'<option value="'+esc(p.id)+'"'+(AJU_DW===p.id?' selected':'')+'>'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))+'</option>').join('')
         +'</select><div class="hint">Yang berstatus Blokir / Tidak Aktif sengaja tidak ada di daftar ini.</div></div>';
 
   /* Ajuan milik sendiri yang akan datang — supaya DW melihat apa yang sudah
@@ -1277,8 +1307,7 @@ function viewSaya(){
   const setuju=mine.filter(a=>a.status==='DISETUJUI');
   const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
   const alfa=mine.filter(a=>a.hadir==='ALFA').length;
-  const nilaiAda=mine.filter(a=>a.nilai>0);
-  const rerata=nilaiAda.length?(nilaiAda.reduce((n,a)=>n+a.nilai,0)/nilaiAda.length):0;
+  const telat=mine.filter(a=>a.hadir==='TELAT').length;
 
   return '<div class="panel">'
     +'<div class="rowbar"><h2>Halo, '+esc(MEDW.nama)+'</h2><div class="spacer"></div>'
@@ -1286,7 +1315,7 @@ function viewSaya(){
     +'<div class="stats">'
       +statBox(setuju.length,'Shift Disetujui')
       +statBox(Math.round(jam*10)/10,'Total Jam')
-      +statBox(rerata?rerata.toFixed(1):'—','Rata Nilai')
+      +statBox(telat,'Telat')
       +statBox(alfa,'Tidak Datang')
     +'</div>'
     +(alfa?'<div class="note w">Ada <b>'+alfa+'</b> catatan tidak datang. Ini yang dilihat HR lebih dulu sebelum menyetujui ajuan berikutnya.</div>':'')
@@ -1303,14 +1332,12 @@ function viewSaya(){
 function statistikDW(id){
   const mine=(S.ajuan||[]).filter(a=>a.dwId===id);
   const kerja=mine.filter(a=>a.status==='DISETUJUI');
-  const nilaiAda=mine.filter(a=>a.nilai>0);
   return {
     total:kerja.length,
     jam:Math.round(kerja.reduce((n,a)=>n+durasiJam(a.m,a.s),0)*10)/10,
     hadir:mine.filter(a=>a.hadir==='HADIR').length,
     telat:mine.filter(a=>a.hadir==='TELAT').length,
-    alfa :mine.filter(a=>a.hadir==='ALFA').length,
-    nilai:nilaiAda.length?(nilaiAda.reduce((n,a)=>n+a.nilai,0)/nilaiAda.length):0
+    alfa :mine.filter(a=>a.hadir==='ALFA').length
   };
 }
 function viewPekerja(){
@@ -1327,15 +1354,14 @@ function viewPekerja(){
   return '<div class="panel">'
     +'<div class="rowbar">'
       +'<div class="seg">'+chip('ALL','Semua ('+(S.pekerja||[]).length+')')
-        +chip('AKTIF','Aktif ('+hitung.AKTIF+')')+chip('PANTAU','Pantau ('+hitung.PANTAU+')')
-        +chip('BLOKIR','Blokir ('+hitung.BLOKIR+')')+chip('NONAKTIF','Nonaktif ('+hitung.NONAKTIF+')')+'</div>'
+        +chip('AKTIF','Aktif ('+hitung.AKTIF+')')+chip('NONAKTIF','Nonaktif ('+hitung.NONAKTIF+')')+'</div>'
       +'<div class="spacer"></div>'
       +'<input class="inp" placeholder="Cari nama / HP / skill…" value="'+esc(CARI_PEKERJA)+'" oninput="cariPekerja(this.value)">'
       +'<button class="btn btn-primary btn-sm" onclick="bukaPekerja(\'\')">+ DW Baru</button>'
     +'</div>'
     +(list.length?'<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Nama</th><th>No. HP</th><th>Divisi / Posisi</th>'
-      +'<th class="kanan">Kerja</th><th class="kanan">Alfa</th><th class="kanan">Nilai</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>'
+      +'<th class="kanan">Kerja</th><th class="kanan">Telat</th><th class="kanan">Alfa</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>'
       +list.map(function(p,i){
         const st=statistikDW(p.id);
         return '<tr>'
@@ -1345,7 +1371,7 @@ function viewPekerja(){
           +'<td>'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div></td>'
           +'<td class="kanan mono">'+st.total+'×<div class="kecil">'+st.jam+' jam</div></td>'
           +'<td class="kanan mono"'+(st.alfa?' style="color:var(--danger);font-weight:700"':'')+'>'+st.alfa+'</td>'
-          +'<td class="kanan mono">'+(st.nilai?st.nilai.toFixed(1):'—')+'</td>'
+
           +'<td>'+(p.adaPin?'<span class="stpill st-AKTIF">ada</span>':'<span class="stpill st-NONAKTIF">belum</span>')+'</td>'
           +'<td>'+pilStatusDW(p.status)+'</td>'
           +'<td><button class="btn btn-ghost btn-sm" onclick="bukaProfil(\''+escJs(p.id)+'\')">Profil</button></td>'
@@ -1436,7 +1462,7 @@ function bukaProfil(id){
       +'<span class="chip">'+esc(p.posisi||'—')+'</span></div>'
     +'<div class="stats">'
       +statBox(st.total,'Kali Kerja')+statBox(st.jam,'Total Jam')
-      +statBox(st.nilai?st.nilai.toFixed(1):'—','Rata Nilai')
+      +statBox(st.hadir,'Hadir')
       +statBox(st.telat,'Telat')+statBox(st.alfa,'Tidak Datang')
     +'</div>'
     +(p.bank?'<div class="row"><div class="who"><b>Rekening</b><span>'+esc(p.bank)+'</span></div></div>':'')
@@ -1464,20 +1490,27 @@ function hapusPekerja(id){
 }
 
 /* =====================================================================
-   HALAMAN — KEHADIRAN & NILAI
+   HALAMAN — KEHADIRAN
    Yang perlu diisi = ajuan DISETUJUI yang tanggalnya SUDAH LEWAT dan belum
    punya catatan kehadiran. Yang tanggalnya masih di depan sengaja tidak
-   ikut: menilai orang sebelum ia bekerja tidak ada artinya, dan daftar yang
-   dipenuhi baris "belum waktunya" membuat yang benar-benar tertunggak
-   tenggelam.
+   ikut: mencatat kehadiran sebelum orangnya bekerja tidak ada artinya, dan
+   daftar yang dipenuhi baris "belum waktunya" membuat yang benar-benar
+   tertunggak tenggelam.
+
+   Halaman ini SEMPAT memuat penilaian bintang 1–5, dan itu dibuang. Yang
+   dicatat sekarang cuma fakta: datang, telat, atau tidak datang. Skor
+   bintang adalah pendapat satu orang tentang shift semalam — tidak pernah
+   dipakai untuk memutuskan apa pun, tapi selalu menuntut diisi, dan kolom
+   wajib yang tidak berguna adalah cara tercepat membuat orang berhenti
+   mengisi SELURUH formulirnya, termasuk kehadiran yang justru penting.
    ===================================================================== */
-function ajuanPerluNilai(){
+function ajuanPerluHadir(){
   const kmr=addD(hariIni(),0);
   return (S.ajuan||[]).filter(a=>a.status==='DISETUJUI' && a.tgl<=kmr && !a.hadir)
     .sort((a,b)=>b.tgl.localeCompare(a.tgl));
 }
-function viewPenilaian(){
-  const perlu=ajuanPerluNilai();
+function viewKehadiran(){
+  const perlu=ajuanPerluHadir();
   const sudah=(S.ajuan||[]).filter(a=>a.hadir).sort((a,b)=>b.tgl.localeCompare(a.tgl)).slice(0,20);
   const alfa=(S.ajuan||[]).filter(a=>a.hadir==='ALFA').length;
 
@@ -1486,34 +1519,29 @@ function viewPenilaian(){
     +'<span class="chip">'+perlu.length+' tertunggak</span></div>'
     +(alfa?'<div class="note w">Total <b>'+alfa+'</b> catatan tidak datang di rentang ini. Angka inilah yang paling dicari sebelum memanggil orang yang sama lagi.</div>':'')
     +(perlu.length?perlu.map(a=>barisAjuan(a,{tanggal:true, aksi:
-        '<button class="btn btn-primary btn-sm" onclick="bukaNilai(\''+escJs(a.id)+'\')">Catat</button>'})).join('')
+        '<button class="btn btn-primary btn-sm" onclick="bukaHadir(\''+escJs(a.id)+'\')">Catat</button>'})).join('')
       :'<div class="empty"><div class="ic">⭐</div>Semua shift yang sudah lewat sudah dicatat kehadirannya.</div>')
     +'</div>'
     +(sudah.length?'<div class="panel"><div class="rowbar"><h2>Sudah dicatat</h2><div class="mutedhint">20 terakhir</div></div>'
       +sudah.map(a=>barisAjuan(a,{tanggal:true, aksi:
-          '<button class="btn btn-ghost btn-sm" onclick="bukaNilai(\''+escJs(a.id)+'\')">Ubah</button>'
-          +(a.nilai?'<span class="chip">'+'★'.repeat(a.nilai)+'</span>':'')})).join('')
+          '<button class="btn btn-ghost btn-sm" onclick="bukaHadir(\''+escJs(a.id)+'\')">Ubah</button>'
+})).join('')
       +'</div>':'');
 }
-let NILAI_VAL=0;
-function bukaNilai(id){
+function bukaHadir(id){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
-  NILAI_VAL=a.nilai||0;
-  modal('Kehadiran & Nilai — '+esc(namaDW(a.dwId)),
+  modal('Kehadiran — '+esc(namaDW(a.dwId)),
     '<div class="rowbar"><span class="chip">'+esc(tglPanjang(a.tgl))+'</span>'
       +'<span class="chip mono">'+esc(jamAjuan(a))+'</span>'
       +'<span class="chip">'+esc(namaDivisi(a.divisi))+' · '+esc(a.posisi||'—')+'</span></div>'
-    +'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Kehadiran *</label>'
+    +'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Yang terjadi hari itu *</label>'
     +'<div class="pick" id="nlHadir">'
       +['HADIR','TELAT','ALFA'].map(h=>'<button type="button" class="'+(a.hadir===h?'sel':'')+'" onclick="pilihHadir(this,\''+h+'\')">'+esc(HADIR_LBL[h])+'</button>').join('')
     +'</div>'
-    +'<div class="field"><label>Nilai kerja</label><div class="bintang" id="nlBintang">'
-      +[1,2,3,4,5].map(i=>'<button type="button" onclick="pilihNilai('+i+')" class="'+(i<=NILAI_VAL?'on':'')+'">★</button>').join('')
-    +'</div><div class="hint">Boleh dikosongkan kalau tidak perlu dinilai.</div></div>'
-    +'<div class="field"><label>Catatan</label><textarea id="nlNota" placeholder="Mis. cepat belajar, atau datang telat 40 menit tanpa kabar">'+esc(a.nilaiNota||'')+'</textarea></div>',
-    [{t:'Simpan',c:'btn-primary',f:function(){ return simpanNilai(id); }}]);
-  /* Nilai awal disimpan di atribut supaya pilihan kehadiran tidak hilang saat
-     modal digambar ulang oleh tombol bintang. */
+    +'<div class="field"><label>Catatan (opsional)</label><textarea id="nlNota" placeholder="Mis. datang telat 40 menit tanpa kabar">'+esc(a.hadirNota||'')+'</textarea></div>',
+    [{t:'Simpan',c:'btn-primary',f:function(){ return simpanHadir(id); }}]);
+  /* Pilihan disimpan di dataset, bukan di variabel global: modal ini bisa
+     dibuka ulang untuk baris lain sebelum yang lama sempat disimpan. */
   const w=document.getElementById('nlHadir');
   if(w) w.dataset.pilih=a.hadir||'';
 }
@@ -1523,18 +1551,13 @@ function pilihHadir(btn,h){
   btn.classList.add('sel');
   w.dataset.pilih=h;
 }
-function pilihNilai(v){
-  NILAI_VAL=v;
-  const w=document.getElementById('nlBintang'); if(!w) return;
-  Array.prototype.forEach.call(w.querySelectorAll('button'),(b,i)=>b.classList.toggle('on', i<v));
-}
-async function simpanNilai(id){
+async function simpanHadir(id){
   const w=document.getElementById('nlHadir');
   const hadir=(w&&w.dataset.pilih)||'';
   if(!hadir){ toast('Pilih kehadiran dulu', true); return false; }
   const nota=(document.getElementById('nlNota')||{}).value||'';
   try{
-    await apiPost({action:'simpanNilai', id, hadir, nilai:NILAI_VAL, nota});
+    await apiPost({action:'simpanHadir', id, hadir, nota});
     tutupModal(); toast('Kehadiran tercatat');
     await muatData(true); render();
     return true;
@@ -1610,7 +1633,7 @@ function bukaAjuan(id){
   const aksi=[];
   if(boleh && a.status!=='DISETUJUI') aksi.push({t:'Setujui',c:'btn-ok',f:function(){ tutupModal(); setujuiAjuan(id); return false; }});
   if(boleh && a.status!=='DITOLAK')   aksi.push({t:'Tolak',c:'btn-danger',f:function(){ tutupModal(); tolakAjuan(id); return false; }});
-  if(boleh && a.status==='DISETUJUI' && a.tgl<=hariIni()) aksi.push({t:'Catat kehadiran',c:'btn-primary',f:function(){ tutupModal(); bukaNilai(id); return false; }});
+  if(boleh && a.status==='DISETUJUI' && a.tgl<=hariIni()) aksi.push({t:'Catat kehadiran',c:'btn-primary',f:function(){ tutupModal(); bukaHadir(id); return false; }});
 
   modal('Ajuan — '+esc(namaDW(a.dwId)),
     '<div class="rowbar">'+pilStatus(a.status)+pilHadir(a.hadir)
@@ -1621,7 +1644,7 @@ function bukaAjuan(id){
     +(p&&boleh?'<div class="row"><div class="who"><b>Kontak</b><span class="mono">'+esc(p.hp)+(p.bank?' · '+esc(p.bank):'')+'</span></div></div>':'')
     +(a.catatan?'<div class="note i"><b>Catatan DW:</b> '+esc(a.catatan)+'</div>':'')
     +(a.putusNota?'<div class="note w"><b>Catatan HR:</b> '+esc(a.putusNota)+(a.putusOleh?' — '+esc(a.putusOleh):'')+'</div>':'')
-    +(a.nilai?'<div class="note o"><b>Nilai:</b> '+'★'.repeat(a.nilai)+(a.nilaiNota?' — '+esc(a.nilaiNota):'')+'</div>':'')
+    +(a.hadirNota?'<div class="note o"><b>Catatan kehadiran:</b> '+esc(a.hadirNota)+'</div>':'')
     +'<p class="mutedhint">Dikirim '+(a.dibuatOleh?esc(a.dibuatOleh):'—')+(a.dibuatAt?' · '+new Date(a.dibuatAt).toLocaleString('id-ID'):'')+'</p>',
     aksi, true);
 }

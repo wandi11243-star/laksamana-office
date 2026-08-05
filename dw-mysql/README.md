@@ -71,7 +71,7 @@ sering didaftar ulang.
 | `putusAjuan` | POST | `{id,status,nota,by}` |
 | `putusBanyak` | POST | `{ids:[…],status,nota,by}` — satu transaksi |
 | `hapusAjuan` | POST | `{id}` |
-| `simpanNilai` | POST | `{id,hadir,nilai,nota,by}` — `hadir` = HADIR/TELAT/ALFA |
+| `simpanHadir` | POST | `{id,hadir,nota,by}` — `hadir` = HADIR/TELAT/ALFA. **Tidak ada penilaian**: skor bintang 1–5 dibuang 5 Agustus 2026 karena tidak pernah dipakai memutuskan apa pun tapi selalu menuntut diisi |
 | `simpanSetting` | POST | `{data:{tarif,jam,posisi,kuota,batasHari}, by}` |
 
 > Database kedua lingkungan sudah terpasang (5 Agustus 2026) dan verifikasi di

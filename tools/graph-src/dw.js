@@ -447,6 +447,23 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -545,7 +562,12 @@ function seed() { normalSetting(); }
 
 
 
-function normalizeState() { normalSetting(); }
+function normalizeState() { normalSetting(); statusDW(); }
+
+
+
+
+
 
 
 
@@ -601,6 +623,14 @@ function normalSetting() {  }
 
 
 
+
+
+
+
+
+
+
+function statusDW() {  }
 
 
 
@@ -795,7 +825,7 @@ function bolehBuka() { isDW(); isAdmin(); }
 
 
 
-function buildNav() { isDW(); ajuanPerluNilai(); bolehBuka(); esc(); go(); svg(); }
+function buildNav() { isDW(); ajuanPerluHadir(); bolehBuka(); esc(); go(); svg(); }
 
 
 
@@ -850,7 +880,7 @@ function toggleNav() {  }
 
 
 function go() { toggleSidebar(); render(); }
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewAjukan(); viewSaya(); viewPekerja(); viewPenilaian(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewAjukan(); viewSaya(); viewPekerja(); viewKehadiran(); viewPengaturan(); }
 
 
 
@@ -1299,10 +1329,7 @@ function viewSaya() { isDW(); durasiJam(); esc(); go(); statBox(); barisAjuan();
 
 
 
-
 function statistikDW() { durasiJam(); }
-
-
 
 
 
@@ -1323,7 +1350,6 @@ function viewPekerja() {  }
 
 
 function chip() { filterPekerja(); esc(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
-
 
 
 
@@ -1471,12 +1497,6 @@ function hapusPekerja() { pekerjaById(); konfirmasi(); apiPost(); tutupModal(); 
 
 
 
-function ajuanPerluNilai() { addD(); hariIni(); }
-
-
-
-
-function viewPenilaian() { ajuanPerluNilai(); barisAjuan(); bukaNilai(); escJs(); }
 
 
 
@@ -1484,6 +1504,12 @@ function viewPenilaian() { ajuanPerluNilai(); barisAjuan(); bukaNilai(); escJs()
 
 
 
+function ajuanPerluHadir() { addD(); hariIni(); }
+
+
+
+
+function viewKehadiran() { ajuanPerluHadir(); barisAjuan(); bukaHadir(); escJs(); }
 
 
 
@@ -1496,11 +1522,13 @@ function viewPenilaian() { ajuanPerluNilai(); barisAjuan(); bukaNilai(); escJs()
 
 
 
-function bukaNilai() { modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); namaDivisi(); pilihHadir(); pilihNilai(); simpanNilai(); }
 
 
 
 
+
+
+function bukaHadir() { modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); namaDivisi(); pilihHadir(); simpanHadir(); }
 
 
 
@@ -1523,12 +1551,7 @@ function pilihHadir() {  }
 
 
 
-function pilihNilai() {  }
-
-
-
-
-function simpanNilai() { toast(); apiPost(); tutupModal(); muatData(); render(); }
+function simpanHadir() { toast(); apiPost(); tutupModal(); muatData(); render(); }
 
 
 
@@ -1603,7 +1626,7 @@ function ubahBatas() { simpanSetting(); toast(); }
 
 
 
-function bukaAjuan() { pekerjaById(); isOffice(); tutupModal(); setujuiAjuan(); tolakAjuan(); hariIni(); bukaNilai(); modal(); esc(); namaDW(); pilStatus(); pilHadir(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
+function bukaAjuan() { pekerjaById(); isOffice(); tutupModal(); setujuiAjuan(); tolakAjuan(); hariIni(); bukaHadir(); modal(); esc(); namaDW(); pilStatus(); pilHadir(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
 
 
 

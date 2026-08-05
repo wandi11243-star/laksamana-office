@@ -207,6 +207,38 @@ td.cell.dwkosong{background:#FDFBF6}
 /* Baris DW di tabel daftar biasa (Dashboard) — hanya penanda kiri. */
 table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
 
+/* ---------- Kalender bulanan "Jadwal Saya" ----------
+   Menggantikan daftar 31 baris memanjang. Pertanyaan yang dibawa kru ke
+   halaman ini hampir selalu "minggu depan saya masuk hari apa saja" — dan
+   daftar vertikal memaksanya membaca satu per satu sambil menghitung hari
+   sendiri, persis pekerjaan yang dihindari orang dengan memotret jadwal di
+   papan. Bentuk kalender menjawabnya sekali lihat.
+
+   Kotak hari di luar bulan tetap dirender (kelas `kosong`) supaya kolomnya
+   tidak bergeser: tanpa itu Senin tidak lagi berada di bawah judul SEN. */
+.kal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.kal .kh{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted-2);
+  text-align:center;padding:4px 0;text-transform:uppercase}
+.kal .kh.wknd{color:var(--danger)}
+.kal .kd{border:1.5px solid var(--line);border-radius:10px;min-height:74px;padding:6px;
+  display:flex;flex-direction:column;gap:4px;background:var(--surface);cursor:pointer;transition:.14s}
+.kal .kd:hover{border-color:var(--gold-2);background:#FFFDF7}
+.kal .kd.kosong{background:transparent;border:none;cursor:default;min-height:0;padding:0}
+.kal .kd .tg{font-size:12px;font-weight:700;color:var(--muted);display:flex;align-items:center;gap:4px}
+.kal .kd .tg .tt{color:var(--warn);font-size:16px;line-height:0}
+.kal .kd.ini{border-color:var(--gold);box-shadow:var(--ring)}
+.kal .kd.ini .tg{color:var(--gold-dim)}
+.kal .kd .sf{border-radius:6px;font-size:10.5px;font-weight:800;padding:4px 5px;text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kal .kd .jm{font-size:9.5px;color:var(--muted-2);text-align:center;font-variant-numeric:tabular-nums}
+.kal .kd .blm{font-size:10px;color:#C9C3B7;text-align:center;padding-top:8px}
+@media(max-width:560px){
+  .kal{gap:3px}
+  .kal .kd{min-height:56px;padding:4px;border-radius:8px}
+  .kal .kd .sf{font-size:9px;padding:3px 2px}
+  .kal .kd .jm,.kal .kd .blm{display:none}
+}
+
 /* Ringkasan */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:14px}
 .stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px}
@@ -1751,31 +1783,70 @@ function viewSaya(){
   const div=divisiDari(u);
   const a=awalBulan(mk), z=akhirBulan(mk);
   let masuk=0, libur=0, jam=0;
-  let baris='';
   for(let d=a; d<=z; d=addD(d,1)){
-    const c=sel(uid,d);
-    const sd=c?shiftDef(c.t):null;
-    const jm=jamSel(c);
-    if(c){ if(sd.libur) libur++; else { masuk++; if(jm) jam+=durasiJam(jm.m,jm.s); } }
-    const ini=(d===hariIni());
-    baris+='<div class="row" style="'+(ini?'border-color:var(--gold-2);background:#FFFDF7':'')+'">'
-      +'<div class="who"><b>'+HARI[idxHari(d)]+', '+esc(tglManusia(d))+'</b>'
-      +'<span>'+(ini?'hari ini':'')+'</span></div>'
-      +(c?'<span class="stpill" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'">'+esc(labelSel(c))+'</span>':'<span class="stpill" style="background:var(--line);color:var(--muted)">belum diatur</span>')
-      +(jm?'<span class="mono" style="font-size:12px;color:var(--muted)">'+jm.m+' – '+jm.s+'</span>':'')
-      +'</div>';
+    const c=sel(uid,d); if(!c) continue;
+    if(shiftDef(c.t).libur) libur++;
+    else { masuk++; const jm=jamSel(c); if(jm) jam+=durasiJam(jm.m,jm.s); }
   }
+
+  /* Tanggal yang sedang/pernah diajukan, supaya kru tidak mengirim pengajuan
+     kedua untuk hari yang sama hanya karena tidak ingat. Yang MENUNGGU
+     menang atas yang sudah diputus — itu yang perlu dilihat. */
+  const ajuPeta={};
+  ajuSaya().forEach(function(x){
+    if(x.status==='DITOLAK') return;
+    for(let d=x.dari; d<=x.sampai; d=addD(d,1)){
+      if(ajuPeta[d]!=='MENUNGGU') ajuPeta[d]=x.status;
+    }
+  });
+
+  let kal='<div class="kal">'
+    +HARI.map((h,i)=>'<div class="kh'+(i>=5?' wknd':'')+'">'+esc(h.slice(0,3))+'</div>').join('');
+  pitaBulan(mk).forEach(function(p){
+    p.hari.forEach(function(d){
+      /* Hari di luar bulan yang sedang dilihat tetap memakan satu kotak —
+         tanpa itu kolom harinya bergeser dan Senin tidak lagi di bawah SEN. */
+      if(d<a || d>z){ kal+='<div class="kd kosong"></div>'; return; }
+      const c=sel(uid,d), sd=c?shiftDef(c.t):null, jm=jamSel(c);
+      const ini=(d===hariIni());
+      const st=ajuPeta[d];
+      kal+='<div class="kd'+(ini?' ini':'')+'" onclick="bukaAjukan(\''+d+'\')" title="Klik untuk mengajukan perubahan '+esc(tglPanjang(d))+'">'
+        +'<div class="tg">'+parseD(d).getDate()+(st==='MENUNGGU'?'<span class="tt" title="pengajuan menunggu">•</span>':'')+'</div>'
+        +(c
+          ? '<div class="sf" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'">'+esc(labelSel(c))+'</div>'
+            +(jm?'<div class="jm">'+esc(jm.m+'–'+jm.s)+'</div>':'')
+          : '<div class="blm">belum diatur</div>')
+        +'</div>';
+    });
+  });
+  kal+='</div>';
+
+  const menunggu=ajuSaya().filter(x=>x.status==='MENUNGGU');
   return '<div class="panel">'
     +'<div class="rowbar"><h2>👤 Jadwal Saya</h2>'
     +'<span class="chip">'+esc(u.name)+' · '+esc(namaDivisi(div))+'</span>'
     +'<div class="spacer"></div>'
     +'<button class="btn btn-primary btn-sm" onclick="bukaAjukan()">+ Ajukan Off / Izin</button>'
-    +'<div class="navdate"><button class="iconbtn" onclick="geserBulanAktif(-1)">‹</button><b>'+esc(labelBulan(mk))
-    +'</b><button class="iconbtn" onclick="geserBulanAktif(1)">›</button></div></div>'
+    +'<div class="navdate"><button class="iconbtn" onclick="geserBulanAktif(-1)" aria-label="Bulan sebelumnya">‹</button><b>'+esc(labelBulan(mk))
+    +'</b><button class="iconbtn" onclick="geserBulanAktif(1)" aria-label="Bulan berikutnya">›</button>'
+    +tombolKembali('bulanIni', mk===bulanDari(hariIni()), 'Bulan berjalan')+'</div></div>'
     +'<div class="stats">'+statBox(masuk,'Hari Masuk')+statBox(libur,'Off / Cuti')
-      +statBox(Math.round(jam*10)/10,'Total Jam')+statBox(ajuSaya().filter(x=>x.status==='MENUNGGU').length,'Pengajuan Menunggu')+'</div>'
-    +baris
-    +'</div>';
+      +statBox(Math.round(jam*10)/10,'Total Jam')+statBox(menunggu.length,'Pengajuan Menunggu')+'</div>'
+    +kal
+    +'<div class="rowbar" style="margin:14px 0 0">'+legendaShift()+'<div class="spacer"></div>'
+    +'<span class="mutedhint">Klik tanggal mana pun untuk mengajukan perubahan di hari itu.</span></div>'
+    +'</div>'
+    +(menunggu.length
+      ? '<div class="panel"><div class="rowbar"><h2>Pengajuan menunggu</h2><div class="spacer"></div>'
+        +'<button class="btn btn-ghost btn-sm" onclick="go(&#39;pengajuan&#39;)">Lihat semua</button></div>'
+        +menunggu.map(function(x){
+            const rentang=(x.dari===x.sampai)?tglPanjang(x.dari):(tglManusia(x.dari)+' – '+tglPanjang(x.sampai));
+            return '<div class="row"><div class="who"><b>'+esc(JENIS_AJU[x.jenis]||x.jenis)+'</b>'
+              +'<span>'+esc(rentang)+'</span></div>'+pilShiftAju(x)
+              +'<span class="stpill st-MENUNGGU">MENUNGGU</span></div>';
+          }).join('')
+        +'</div>'
+      : '');
 }
 function durasiJam(m,s){
   const t=x=>{ const p=String(x).split(':'); return (+p[0])*60+(+p[1]); };
@@ -1794,6 +1865,15 @@ function bisaPutuskan(a){
   const u=kruById(a.userId);
   if(!u || !ME) return false;
   return isHeadUser(ME.id, divisiDari(u));
+}
+/* Pil shift pada kartu pengajuan. Kosong untuk pengajuan lama yang memang
+   belum punya kolomnya — bukan diganti tebakan. */
+function pilShiftAju(a){
+  const k = AJU_KE_SHIFT[a.jenis] || a.shift || '';
+  if(!k || !S.setting.shifts[k]) return '';
+  const d=shiftDef(k);
+  const jam=(!d.libur && a.jamMulai && a.jamSelesai) ? ' '+esc(a.jamMulai+'–'+a.jamSelesai) : '';
+  return ' <span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(d.n)+jam+'</span>';
 }
 function viewPengajuan(){
   const semua=(S.pengajuan||[]).slice();
@@ -1822,7 +1902,11 @@ function viewPengajuan(){
       +'<b>'+esc(u?u.name:namaKru(a.userId))+'</b>'
       +'<span style="font-size:11px;color:var(--muted-2)">'+esc(namaDivisi(div))+'</span>'
       +'<div class="spacer"></div><span class="stpill st-'+esc(a.status)+'">'+esc(a.status)+'</span></div>'
-      +'<div class="isi"><b>'+esc(rentang)+'</b>'+(a.alasan?' — '+esc(a.alasan):'')+'</div>'
+      /* Shift yang diminta ditampilkan sebagai pil berwarna, bukan dititip di
+         dalam kalimat alasan: inilah satu-satunya hal yang benar-benar perlu
+         dilihat head sebelum menekan Setujui, karena itu juga yang akan
+         ditulis ke sel jadwalnya. */
+      +'<div class="isi"><b>'+esc(rentang)+'</b>'+pilShiftAju(a)+(a.alasan?' — '+esc(a.alasan):'')+'</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+jejak
       +'<div class="spacer"></div>'+putus+batal+'</div></div>';
   });
@@ -1839,7 +1923,10 @@ function viewPengajuan(){
     +' Pengajuan <b>Off/Izin/Cuti</b> yang disetujui langsung mengisi sel jadwalnya.</p>'
     +kartu+'</div>';
 }
-function bukaAjukan(){
+/* `tglAwal` diisi saat dipanggil dari kotak tanggal di kalender Jadwal Saya.
+   Kru yang mengklik tanggal 12 sudah menyatakan hari mana yang ia maksud;
+   membiarkannya memilih ulang di dalam modal cuma mengundang salah tanggal. */
+function bukaAjukan(tglAwal){
   const kuasa=divisiKuasa();
   /* Head boleh mengajukan atas nama kru divisinya — kru dapur sering titip
      lewat WhatsApp, dan memaksanya login sendiri berarti pengajuannya tidak
@@ -1852,21 +1939,73 @@ function bukaAjukan(){
       +pool.map(u=>'<option value="'+esc(u.id)+'"'+(u.id===(ME&&ME.id)?' selected':'')+'>'+esc(u.name)+' — '+esc(namaDivisi(divisiDari(u)))+'</option>').join('')
       +'</select></div>'
     : '';
-  const hari=hariIni();
+  const hari=(typeof tglAwal==='string' && /^\d{4}-\d{2}-\d{2}$/.test(tglAwal)) ? tglAwal : hariIni();
+  AJU_SHIFT = shiftKru(pool.length?pool[0].id:(ME&&ME.id));
   document.getElementById('modalRoot').innerHTML=
     '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
     +'<div class="mh"><h3>Ajukan Perubahan Jadwal</h3><button class="xbtn" onclick="tutupModal()">×</button></div>'
     +'<div class="mb">'+opsiKru
-    +'<div class="field"><label>Jenis</label><select id="ajJenis">'
+    +'<div class="field"><label>Jenis</label><select id="ajJenis" onchange="gambarShiftAju()">'
     +Object.keys(JENIS_AJU).map(k=>'<option value="'+k+'">'+esc(JENIS_AJU[k])+'</option>').join('')+'</select></div>'
     +'<div class="timerow"><div class="field"><label>Dari Tanggal</label><input id="ajDari" type="date" value="'+hari+'"></div>'
     +'<div class="field"><label>Sampai Tanggal</label><input id="ajSampai" type="date" value="'+hari+'"></div></div>'
+    +'<div id="ajShiftBox"></div>'
     +'<div class="field"><label>Alasan / Keterangan</label>'
-    +'<textarea id="ajAlasan" rows="3" placeholder="Contoh: tukar shift dengan Yuza, Kamis jadi PAGI karena ada urusan keluarga"></textarea></div>'
-    +'<p class="mutedhint">Pengajuan masuk ke head divisi untuk disetujui. Yang berjenis Off/Izin/Cuti akan langsung mengisi jadwal begitu disetujui.</p>'
+    +'<textarea id="ajAlasan" rows="3" placeholder="Contoh: ada urusan keluarga, sudah dibicarakan dengan Yuza"></textarea></div>'
+    +'<p class="mutedhint">Pengajuan masuk ke head divisi untuk disetujui. Begitu disetujui, jadwalnya <b>langsung terisi</b> sesuai shift yang dipilih di atas — head tidak perlu mengetik ulang.</p>'
     +'</div><div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
     +'<button class="btn btn-primary" onclick="kirimAju()">Kirim Pengajuan</button></div></div></div>';
+  gambarShiftAju();
 }
+/* Shift yang diminta, dipilih dari tombol — bukan diketik di dalam kalimat
+   alasan.
+
+   Dulu satu-satunya tempat menuliskan "Kamis jadi PAGI" adalah kotak alasan,
+   dan itu memindahkan pekerjaan ke tempat yang salah: head menekan Setujui,
+   menganggap urusannya selesai, lalu sel jadwalnya tidak pernah berubah
+   karena tidak ada yang bisa disimpulkan mesin dari prosa. Pengajuan
+   berstatus DISETUJUI dengan jadwal yang masih shift lama adalah kesalahan
+   paling mahal di modul ini — kru merasa sudah beres, absensi berkata lain.
+
+   Sekarang bentuknya eksplisit, jadi TUKAR dan UBAH ikut bisa mengisi sel
+   otomatis seperti OFF/IZIN/CUTI. */
+let AJU_SHIFT='';
+function gambarShiftAju(){
+  const box=document.getElementById('ajShiftBox'); if(!box) return;
+  const el=document.getElementById('ajJenis');
+  const jenis=el?el.value:'OFF';
+  const tetap=AJU_KE_SHIFT[jenis];
+
+  /* OFF/IZIN/CUTI shift-nya sudah pasti dari jenisnya sendiri. Menyodorkan
+     pemilih di situ cuma mengundang kombinasi yang tidak masuk akal
+     ("Izin, tapi shift SIANG"). Yang ditampilkan cukup keterangan. */
+  if(tetap){
+    const d=shiftDef(tetap);
+    box.innerHTML='<div class="note i" style="display:flex;align-items:center;gap:8px">'
+      +'<span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(d.n)+'</span>'
+      +'<span>Sel jadwal pada tanggal itu akan diisi <b>'+esc(d.n)+'</b> begitu disetujui.</span></div>';
+    return;
+  }
+  if(!AJU_SHIFT || !S.setting.shifts[AJU_SHIFT]) AJU_SHIFT=shiftKru(ME&&ME.id);
+  const d=shiftDef(AJU_SHIFT);
+  box.innerHTML='<div class="field"><label>Shift yang diminta</label>'
+    +'<div class="pick">'+daftarShift().filter(k=>!shiftDef(k).libur).map(function(k){
+        const sd=shiftDef(k);
+        return '<button type="button" class="'+(k===AJU_SHIFT?'sel':'')+'" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'" '
+          +'onclick="pilihShiftAju(&#39;'+escJs(k)+'&#39;)">'+esc(sd.n)+'<small>'+esc(sd.m+'–'+sd.s)+'</small></button>';
+      }).join('')+'</div></div>'
+    /* Jam khusus hanya untuk UBAH — itu memang seluruh isi jenis tersebut.
+       Untuk TUKAR, jam ikut shift tujuannya dan kotak tambahan cuma satu
+       tempat lagi yang bisa diisi tidak konsisten. */
+    +(jenis==='UBAH'
+      ? '<div class="timerow"><div class="field"><label>Jam mulai</label>'
+        +'<input id="ajJamM" type="time" value="'+esc(d.m)+'"></div>'
+        +'<div class="field"><label>Jam selesai</label>'
+        +'<input id="ajJamS" type="time" value="'+esc(d.s)+'"></div></div>'
+        +'<p class="mutedhint" style="margin-top:-6px">Kosongkan kalau jamnya ikut bawaan shift di atas.</p>'
+      : '');
+}
+function pilihShiftAju(k){ AJU_SHIFT=k; gambarShiftAju(); }
 async function kirimAju(){
   const el=id=>document.getElementById(id);
   const uid=el('ajKru')?el('ajKru').value:(ME&&ME.id);
@@ -1877,8 +2016,16 @@ async function kirimAju(){
   if(!dari){ toast('Tanggal belum diisi', true); return; }
   if(sampai<dari){ const t=dari; dari=sampai; sampai=t; }
   if(!alasan){ toast('Isi alasannya dulu', true); return; }
+  /* Shift ikut dikirim SEBELUM modal ditutup — sesudahnya elemennya sudah
+     tidak ada dan nilainya hilang tanpa jejak. */
+  const tetap=AJU_KE_SHIFT[jenis];
+  const shift=tetap||AJU_SHIFT||'';
+  const jamM=(!tetap&&el('ajJamM'))?el('ajJamM').value:'';
+  const jamS=(!tetap&&el('ajJamS'))?el('ajJamS').value:'';
+  if(!shift){ toast('Pilih shift yang diminta dulu', true); return; }
   tutupModal();
-  const row={id:'A'+Date.now().toString(36)+Math.floor(Math.random()*900+100), userId:uid, jenis, dari, sampai, alasan};
+  const row={id:'A'+Date.now().toString(36)+Math.floor(Math.random()*900+100), userId:uid, jenis, dari, sampai, alasan,
+             shift, jamMulai:jamM, jamSelesai:jamS};
   try{
     await apiPost({action:'simpanPengajuan', row});
     S.pengajuan.unshift(Object.assign({status:'MENUNGGU', dibuatAt:Date.now(), dibuatOleh:(ME&&ME.name)||'', putusOleh:'', putusAt:0}, row));
@@ -1894,11 +2041,28 @@ async function putuskan(id,status){
   try{
     await apiPost({action:'putusPengajuan', id, status, nota:''});
     a.status=status; a.putusOleh=(ME&&ME.name)||''; a.putusAt=Date.now();
-    if(status==='DISETUJUI' && AJU_KE_SHIFT[a.jenis]){
-      const t=AJU_KE_SHIFT[a.jenis], rows=[];
-      for(let d=a.dari; d<=a.sampai; d=addD(d,1)) rows.push({u:a.userId, d, t, m:'', s:'', n:''});
+    /* Shift tujuan: OFF/IZIN/CUTI disimpulkan dari jenisnya, TUKAR/UBAH
+       dibaca dari yang DIPILIH kru saat mengajukan. Sebelum kolom `shift`
+       ada, dua jenis terakhir sengaja tidak pernah mengisi sel — tidak ada
+       satu shift pun yang bisa disimpulkan dari kalimat alasan. Sekarang
+       bisa, jadi head tidak perlu mengetik ulang apa yang baru saja ia
+       setujui: langkah itulah yang paling sering terlewat, dan hasilnya
+       pengajuan DISETUJUI dengan jadwal yang masih shift lama.
+
+       Pengajuan LAMA (dikirim sebelum ada kolom ini) tidak punya `shift`,
+       jadi TUKAR/UBAH-nya tetap berperilaku seperti dulu — disetujui tanpa
+       menyentuh sel. Menebak shift untuknya jauh lebih berbahaya daripada
+       membiarkan head mengisinya sendiri. */
+    const tShift = AJU_KE_SHIFT[a.jenis] || (a.shift && S.setting.shifts[a.shift] ? a.shift : '');
+    if(status==='DISETUJUI' && tShift){
+      const libur=shiftDef(tShift).libur;
+      const rows=[];
+      for(let d=a.dari; d<=a.sampai; d=addD(d,1)){
+        rows.push({u:a.userId, d, t:tShift,
+          m:libur?'':(a.jamMulai||''), s:libur?'':(a.jamSelesai||''), n:''});
+      }
       await tulisSel(rows,[]);
-      toast('Disetujui — '+rows.length+' hari diisi '+t);
+      toast('Disetujui — '+rows.length+' hari diisi '+shiftDef(tShift).n);
     }else{
       simpanCache(); render();
       toast(status==='DISETUJUI'?'Pengajuan disetujui':'Pengajuan ditolak');
