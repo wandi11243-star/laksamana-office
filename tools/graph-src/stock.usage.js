@@ -864,11 +864,20 @@
 
 
 
-function timSaya() {  }
 
 
 
 
+
+
+function timSayaList() {  }
+
+
+
+
+
+
+function timSaya() { timSayaList(); }
 
 
 function timBawaan() { timSaya(); }
@@ -880,7 +889,7 @@ function timBawaan() { timSaya(); }
 
 
 
-function kunciPilihanTim() { timSaya(); }
+function kunciPilihanTim() { timSayaList(); }
 
 
 
@@ -907,7 +916,21 @@ function label() {  }
 
 
 
-function setNilaiTim() { timSaya(); }
+
+
+
+
+
+
+
+
+
+
+function setNilaiTim() { timSayaList(); }
+
+
+
+
 
 
 
@@ -941,6 +964,7 @@ function timBelumDiisi() { sayaAdmin(); }
 
 
 function pesanTimKosong() { gantiSub(); renderFilterJenis(); renderFilterTim(); renderFilterSebabWaste(); renderFilterTimWaste(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+
 
 
 
@@ -1646,7 +1670,12 @@ function lihatFotoWaste() { timSaya(); }
 
 
 
+
+
+
+
 function soAreaCocok() { timSaya(); }
+
 
 
 

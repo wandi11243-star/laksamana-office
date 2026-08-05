@@ -1821,8 +1821,13 @@ function ambilRoster() {  }
 
 
 
+
+
+
+
+
 function compsOn() {  }
-function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(); save(); render(); ambilRoster(); }
+function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(); }
 
 
 
@@ -1855,6 +1860,44 @@ function viewCompliment() { compsOn(); calInner(); dateLabel(); hapusCompliment(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hitungTotal() { save(); render(); ambilRoster(); }
 
 
 
@@ -1932,6 +1975,13 @@ function compPicRentang() { compListPicRentang(); }
 
 
 function kartuCompliment() {  }
+
+
+
+
+
+
+
 
 
 

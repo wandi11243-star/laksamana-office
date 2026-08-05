@@ -1808,14 +1808,19 @@ function ambilRoster(){
     .then(r=>r.json())
     .then(j=>{
       if(!j||!j.ok||!Array.isArray(j.members)) throw new Error(j&&j.error||'balasan tidak dikenal');
-      COMP_ROSTER=j.members.filter(u=>{
-        if(u.active===false) return false;
+      /* `divs` (JAMAK) sejak Office boleh memberi satu orang lebih dari satu
+         tim. Sebelumnya cuma `div` = kecocokan PERTAMA menurut urutan COMP_DIV,
+         jadi orang ber-keterangan "Kasir, Marketing" tercatat sebagai marketing
+         saja — dan hilang dari daftar PIC compliment yang khusus kasir tanpa
+         ada yang bisa menebak sebabnya. `div` dipertahankan untuk tampilan
+         ringkas (chip di tabel) dan data lama. */
+      COMP_ROSTER=j.members.map(u=>{
+        if(u.active===false) return null;
         const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
-        return COMP_DIV.some(dv=>ket.indexOf(dv)>-1);
-      }).map(u=>{
-        const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
-        return {id:u.id,name:String(u.name||'').trim(),div:COMP_DIV.find(dv=>ket.indexOf(dv)>-1)||''};
-      }).filter(u=>u.name);
+        const divs=COMP_DIV.filter(dv=>ket.indexOf(dv)>-1);
+        if(!divs.length) return null;
+        return {id:u.id,name:String(u.name||'').trim(),div:divs[0],divs};
+      }).filter(u=>u&&u.name);
       COMP_ROSTER_ERR='';
       return COMP_ROSTER;
     })
@@ -1827,7 +1832,18 @@ function viewCompliment(){
   const el=document.getElementById('app-view');
   const list=compsOn(compDate);
   const total=list.reduce((s,c)=>s+num(c.nominal),0);
-  const opsi=(COMP_ROSTER||[]).map(u=>`<option value="${esc(u.id)}">${esc(u.name)} — ${esc(u.div)}</option>`).join('');
+  /* PIC compliment SEKARANG HANYA KASIR (permintaan user 5 Agustus 2026).
+     Compliment adalah barang yang keluar tanpa uang masuk, dan yang menutup
+     bill-nya di POS selalu kasir — dialah yang bisa ditanya. Marketing/Event/
+     Office tetap ada di COMP_DIV karena halaman Piutang memakai roster yang
+     sama; yang dipersempit cuma daftar PIC di sini.
+     Catatan lama yang PIC-nya marketing/event/office TIDAK diubah — potongan
+     realisasinya tetap berlaku seperti saat dicatat. */
+  const kasirRoster=(COMP_ROSTER||[]).filter(u=>(u.divs||[u.div]).indexOf('kasir')>-1);
+  const opsi=kasirRoster.map(u=>`<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('');
+  // Kolom rincian hanya berguna kalau ADA yang punya rinciannya. Catatan lama
+  // cuma menyimpan satu angka `nominal`; tiga kolom "—" bukan informasi.
+  const adaRincian=list.some(c=>c.subTotal!=null||c.tax!=null||c.service!=null);
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
       <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut.</div></div>
@@ -1837,17 +1853,23 @@ function viewCompliment(){
       <div class="mini-lab">Tambah Compliment</div>
       <div class="row-in">
         <div class="field"><label>Nama Compliment</label><input id="c_nama" placeholder="cth. Birthday Cake"></div>
-        <div class="field"><label>Alasan / Untuk Apa</label><input id="c_alasan" placeholder="cth. Ulang tahun tamu VIP"></div>
-        <div class="field"><label>Nominal</label><input class="mono rp" id="c_nominal" inputmode="numeric" value="0"></div>
-        <div class="field"><label>PIC</label>
+        <div class="field"><label>Sub Total</label><input class="mono rp" id="c_sub" inputmode="numeric" value="0"></div>
+        <div class="field"><label>Tax</label><input class="mono rp" id="c_tax" inputmode="numeric" value="0"></div>
+        <div class="field"><label>Service Charge</label><input class="mono rp" id="c_svc" inputmode="numeric" value="0"></div>
+        <div class="field"><label>PIC Kasir</label>
           <select id="c_pic">
             <option value="${PIC_TAMU}">Tamu</option>
             ${opsi}
           </select>
           ${COMP_ROSTER_ERR?`<div class="helper" style="color:var(--danger)">Daftar PIC gagal dimuat dari Office: ${esc(COMP_ROSTER_ERR)}. Hanya "Tamu" yang tersedia.</div>`
-            :(COMP_ROSTER&&!COMP_ROSTER.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan Marketing, Office, atau Event.</div>`:'')}
+            :(COMP_ROSTER===null?'<div class="helper">Memuat daftar kasir dari Office…</div>'
+              :(!kasirRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Kasir</b>. Isi di Office &rarr; Kelola User.</div>`:''))}
         </div>
       </div>
+      <!-- Total dijumlahkan otomatis dan DIPERLIHATKAN sebelum disimpan.
+           Angka inilah yang memotong realisasi PIC, jadi kasir harus bisa
+           mencocokkannya dengan bill di tangan sebelum menekan Tambah. -->
+      <div class="notice" id="c_total" style="margin-top:6px"></div>
       <div id="c_err"></div>
       <button class="btn btn-primary" id="c_add">+ Tambah</button>
     </div>
@@ -1861,33 +1883,54 @@ function viewCompliment(){
     <div class="card">
       <h3>Daftar Compliment Hari Ini</h3>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nama</th><th>Alasan</th><th class="num">Nominal</th><th>PIC</th><th>Dicatat Oleh</th><th></th></tr></thead>
+        <thead><tr><th>Nama</th>${adaRincian?'<th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th>':''}<th class="num">Total</th><th>PIC</th><th>Dicatat Oleh</th><th></th></tr></thead>
         <tbody>${list.length?list.map(c=>`<tr>
-          <td><b>${esc(c.nama)}</b></td>
-          <td class="muted">${esc(c.alasan||'—')}</td>
-          <td class="num mono">${fmtRp(num(c.nominal))}</td>
+          <td><b>${esc(c.nama)}</b>${c.alasan?`<div class="muted" style="font-size:11px">${esc(c.alasan)}</div>`:''}</td>
+          ${adaRincian?`<td class="num mono">${c.subTotal!=null?fmtRp(num(c.subTotal)):'<span class="muted">—</span>'}</td>
+          <td class="num mono">${c.tax!=null?fmtRp(num(c.tax)):'<span class="muted">—</span>'}</td>
+          <td class="num mono">${c.service!=null?fmtRp(num(c.service)):'<span class="muted">—</span>'}</td>`:''}
+          <td class="num mono"><b>${fmtRp(num(c.nominal))}</b></td>
           <td>${c.picDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.picName)} <span class="muted" style="font-size:11px">· ${esc(c.picDiv)}</span>`}</td>
           <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
           <td><button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button></td>
-        </tr>`).join(''):'<tr><td colspan="6" class="empty">Belum ada compliment pada tanggal ini.</td></tr>'}</tbody>
+        </tr>`).join(''):`<tr><td colspan="${adaRincian?8:5}" class="empty">Belum ada compliment pada tanggal ini.</td></tr>`}</tbody>
       </table></div>
     </div>`;
+  // Total hidup: dijumlah ulang tiap ketikan di ketiga kotak angka.
+  const hitungTotal=()=>{
+    const sub=num(document.getElementById('c_sub').value);
+    const tax=num(document.getElementById('c_tax').value);
+    const svc=num(document.getElementById('c_svc').value);
+    document.getElementById('c_total').innerHTML =
+      `Total compliment: <b class="mono">${fmtRp(sub+tax+svc)}</b>` +
+      `<span class="muted" style="font-size:12px"> &nbsp;(sub total ${fmtRp(sub)} + tax ${fmtRp(tax)} + service ${fmtRp(svc)})</span>`;
+    return sub+tax+svc;
+  };
+  ['c_sub','c_tax','c_svc'].forEach(id=>document.getElementById(id).addEventListener('input',hitungTotal));
+  hitungTotal();
   document.getElementById('c_add').addEventListener('click',()=>{
     const nama=(document.getElementById('c_nama').value||'').trim();
-    const alasan=(document.getElementById('c_alasan').value||'').trim();
-    const nominal=num(document.getElementById('c_nominal').value);
+    const subTotal=num(document.getElementById('c_sub').value);
+    const tax=num(document.getElementById('c_tax').value);
+    const service=num(document.getElementById('c_svc').value);
+    const nominal=subTotal+tax+service;
     const picId=document.getElementById('c_pic').value;
     const box=document.getElementById('c_err');
     const errs=[];
     if(!nama) errs.push('Nama compliment wajib diisi.');
-    if(nominal<=0) errs.push('Nominal harus lebih dari nol.');
+    if(nominal<=0) errs.push('Sub total, tax, dan service charge tidak boleh nol semua.');
     if(errs.length){ box.innerHTML='<div class="notice bad">⚠ '+errs.join(' ')+'</div>'; return; }
-    const u=(COMP_ROSTER||[]).find(x=>x.id===picId);
+    const u=kasirRoster.find(x=>x.id===picId);
     DB.compliments=DB.compliments||[];
+    /* `nominal` TETAP disimpan sebagai jumlahnya, bukan dihitung ulang di
+       tempat lain. Seluruh modul (potongan realisasi PIC, rekap bulanan,
+       laporan WA, kartu rincian) membaca field itu — mengubahnya jadi turunan
+       berarti setiap pembaca harus tahu rumusnya, dan yang lupa akan diam-diam
+       melaporkan angka lebih kecil. */
     DB.compliments.push({
       id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4),
-      date:compDate, nama, alasan, nominal,
-      picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?u.div:'tamu',
+      date:compDate, nama, alasan:'', subTotal, tax, service, nominal,
+      picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?'kasir':'tamu',
       by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
     });
     save(); render();
@@ -1938,14 +1981,21 @@ function kartuCompliment(rows, pakaiKolomPic){
       <td>${esc(c.date)}</td>
       ${pakaiKolomPic?`<td>${esc(c.picName||'—')}</td>`:''}
       <td><b>${esc(c.nama||'—')}</b></td>
-      <td>${esc(c.alasan||'—')}</td>
+      <!-- Kolom ini dulu "Alasan". Sejak input compliment dipecah jadi
+           Sub Total / Tax / Service (5 Agustus 2026) alasannya tidak lagi
+           diminta, jadi yang ditampilkan rinciannya. Catatan lama tetap
+           menunjukkan alasannya — datanya masih ada, cuma tidak diisi lagi. -->
+      <td class="muted" style="font-size:12px">${
+        (c.subTotal!=null||c.tax!=null||c.service!=null)
+          ? `sub ${fmtRp(num(c.subTotal))} + tax ${fmtRp(num(c.tax))} + svc ${fmtRp(num(c.service))}`
+          : esc(c.alasan||'—')}</td>
       <td class="num mono">${fmtRp(num(c.nominal))}</td>
     </tr>`).join('');
   return `<div class="card">
     <h3>Rincian Compliment</h3>
     <div class="card-sub">${rows.length} compliment senilai ${fmtRp(total)} — sudah dipotong dari Realisasi di atas.</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th style="width:110px">Tanggal</th>${pakaiKolomPic?'<th>PIC</th>':''}<th>Compliment</th><th>Alasan</th><th class="num" style="width:130px">Nominal</th></tr></thead>
+      <thead><tr><th style="width:110px">Tanggal</th>${pakaiKolomPic?'<th>PIC</th>':''}<th>Compliment</th><th>Rincian</th><th class="num" style="width:130px">Nominal</th></tr></thead>
       <tbody>${baris}</tbody>
       <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td colspan="${pakaiKolomPic?4:3}">TOTAL POTONGAN</td><td class="num mono">${fmtRp(total)}</td></tr></tfoot>
     </table></div>

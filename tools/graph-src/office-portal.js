@@ -709,6 +709,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -1328,6 +1337,59 @@ function readPickGrid() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function polaTim() {  }
+
+
+
+function pisahKeterangan() { polaTim(); }
+
+
+
+
+
+
+
+
+
+
+function gabungKeterangan() {  }
+
+
+function renderTimGrid() { esc(); }
+
+
+
+
+
+
+
+
+
+
+
+function readTimGrid() {  }
+
+
+
 function loadAdminUsers() { adminCall(); esc(); renderPickGrid(); renderAdminList(); }
 
 
@@ -1415,7 +1477,7 @@ function toggleAdminUser() { askConfirm(); adminCall(); notify(); loadAdminUsers
 
 
 
-function resetAdminForm() { add(); renderPickGrid(); }
+function resetAdminForm() { renderTimGrid(); add(); renderPickGrid(); }
 
 
 
@@ -1433,7 +1495,10 @@ function resetAdminForm() { add(); renderPickGrid(); }
 
 
 
-function fillAdminForm() { renderPickGrid(); grantEfektif(); }
+
+function fillAdminForm() { pisahKeterangan(); renderTimGrid(); renderPickGrid(); grantEfektif(); }
+
+
 
 
 
@@ -1473,7 +1538,7 @@ function pesanAdminErr() {  }
 
 
 
-function submitAdminForm() { readPickGrid(); grantEfektif(); adminCall(); pesanAdminErr(); katalogModul(); resetAdminForm(); loadAdminUsers(); }
+function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); resetAdminForm(); loadAdminUsers(); }
 
 
 

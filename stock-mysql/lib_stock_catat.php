@@ -65,14 +65,14 @@ function pur_ada_baris($pdo, $tabel, $id) {
 
 /* ======================== PEMAKAIAN BAHAN UNTUK EVENT ======================== */
 
-/* $batasTim: null = semua, '' = tidak boleh apa pun, 'Bar' = tim itu saja.
-   Lihat pur_batas_tim(). Disaring DI SQL, bukan sesudah baris terkirim —
-   yang tidak boleh dilihat memang tidak pernah meninggalkan server. */
+/* $batasTim: null = semua, [] = tidak boleh apa pun, ['Bar','Floor'] = tim-tim
+   itu saja. Lihat pur_batas_tim(). Disaring DI SQL, bukan sesudah baris
+   terkirim — yang tidak boleh dilihat memang tidak pernah meninggalkan
+   server. */
 function pur_usage_ambil($pdo, $batasTim = null) {
-  if ($batasTim === '') return [];
   $sql = "SELECT * FROM `usage_events` WHERE 1=1";
   $par = [];
-  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
+  if (!pur_sql_batas_tim($sql, $par, $batasTim)) return [];
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql); $st->execute($par);
@@ -170,12 +170,11 @@ function pur_usage_hapus($pdo, $id) {
    megabita hanya untuk menampilkan tabel. Frontend cukup tahu ADA/TIDAKNYA
    foto (`adaFoto`), lalu menariknya satu per satu lewat ?action=foto. */
 function pur_waste_ambil($pdo, $batasTim = null) {
-  if ($batasTim === '') return [];
   $sql = "SELECT `id`,`tanggal`,`item`,`qty`,`unit`,`sebab`,`pic`,`tim`,`waktu`,
                  `foto_nama`, (`foto` <> '') AS ada_foto, `data`
           FROM `waste` WHERE 1=1";
   $par = [];
-  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
+  if (!pur_sql_batas_tim($sql, $par, $batasTim)) return [];
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql); $st->execute($par);
@@ -367,12 +366,11 @@ function pur_opname_hapus($pdo, $id) {
    Pola foto & tim SAMA dengan waste: daftar tidak memuat foto (cuma
    `adaFoto`), foto ditarik terpisah lewat ?action=foto. */
 function pur_serah_ambil($pdo, $batasTim = null) {
-  if ($batasTim === '') return [];
   $sql = "SELECT `id`,`tanggal`,`tujuan`,`penerima`,`pic`,`tim`,`waktu`,
                  `foto_nama`, (`foto` <> '') AS ada_foto, `data`
           FROM `serah_terima` WHERE 1=1";
   $par = [];
-  if ($batasTim !== null) { $sql .= " AND `tim` = ?"; $par[] = $batasTim; }
+  if (!pur_sql_batas_tim($sql, $par, $batasTim)) return [];
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql); $st->execute($par);
@@ -576,23 +574,32 @@ function pur_pemanggil_admin($u) {
   return in_array('*', $adm, true) || in_array('usage', $adm, true);
 }
 
-/* Tim pemanggil, dinormalkan ke salah satu dari Kitchen/Bar/Floor.
+/* SEMUA tim pemanggil, dinormalkan ke Kitchen/Bar/Floor. Mengembalikan ARRAY
+   — [] artinya tidak bisa ditentukan.
    Sumbernya `keterangan` di akun Office — kolom yang memang ditujukan untuk
    tim, tapi isinya teks bebas ("Kitchen Senior", "crew bar"), jadi dicocokkan
-   longgar. '' = tidak bisa ditentukan. */
+   longgar.
+
+   Dulu fungsi ini mengembalikan SATU tim: kecocokan pertama menurut urutan
+   Kitchen -> Bar -> Floor. Sejak Office boleh memberi satu orang beberapa tim
+   (5 Agustus 2026, keterangan "Bar, Floor"), itu diam-diam membuang tim
+   kedua — kru merasa sudah diberi akses Floor tapi catatannya tidak pernah
+   muncul, dan tidak ada pesan galat di mana pun karena secara teknis tidak
+   ada yang gagal. */
 function pur_tim_pemanggil($u) {
   $ket = strtolower(trim((string)($u['keterangan'] ?? '')));
-  if ($ket === '') return '';
+  if ($ket === '') return [];
+  $out = [];
   foreach (['Kitchen', 'Bar', 'Floor'] as $t) {
-    if (strpos($ket, strtolower($t)) !== false) return $t;
+    if (strpos($ket, strtolower($t)) !== false) $out[] = $t;
   }
-  return '';
+  return $out;
 }
 
-/* Tim mana yang boleh dilihat pemanggil ini.
- *   null  -> tanpa batas (lihat semua)
- *   ''    -> TIDAK BOLEH melihat apa pun
- *   'Bar' -> hanya baris tim itu
+/* Tim mana saja yang boleh dilihat pemanggil ini.
+ *   null            -> tanpa batas (lihat semua)
+ *   []              -> TIDAK BOLEH melihat apa pun
+ *   ['Bar','Floor'] -> hanya baris tim-tim itu
  *
  * Kru tanpa tim sengaja tidak melihat apa pun, bukan melihat semua: kalau
  * dibalik, satu keterangan yang lupa diisi diam-diam memberi akses penuh —
@@ -601,7 +608,28 @@ function pur_tim_pemanggil($u) {
 function pur_batas_tim($body = null) {
   if (!defined('BATAS_PER_TIM') || !BATAS_PER_TIM) return null;   // saklar mati = perilaku lama
   $u = pur_whoami(pur_token_sesi($body));
-  if (!$u) return '';                       // tak terbukti siapa = tidak melihat apa pun
+  if (!$u) return [];                       // tak terbukti siapa = tidak melihat apa pun
   if (pur_pemanggil_admin($u)) return null; // admin modul melihat semua
   return pur_tim_pemanggil($u);
+}
+
+/* Tempelkan penyaring tim ke sebuah kueri.
+ *
+ * Dipisah jadi satu fungsi karena dipakai TIGA tabel (usage/waste/serah) dan
+ * bentuk nilainya sekarang bisa null / string / array. Kalau ditulis ulang di
+ * tiap tempat, cukup satu yang lupa menangani array untuk membuat kru
+ * multi-tim melihat data tim lain — kebocoran yang tidak akan terlihat
+ * sebagai galat.
+ *
+ * Mengembalikan false kalau pemanggilnya tidak boleh melihat apa pun; yang
+ * memanggil harus langsung membalas daftar kosong.
+ */
+function pur_sql_batas_tim(&$sql, &$par, $batasTim) {
+  if ($batasTim === null) return true;                 // tanpa batas
+  $tim = is_array($batasTim) ? array_values(array_filter($batasTim, 'strlen'))
+                             : (strlen((string)$batasTim) ? [(string)$batasTim] : []);
+  if (!$tim) return false;                             // '' atau [] = tidak melihat apa pun
+  $sql .= ' AND `tim` IN (' . implode(',', array_fill(0, count($tim), '?')) . ')';
+  foreach ($tim as $t) $par[] = $t;
+  return true;
 }

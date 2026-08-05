@@ -864,11 +864,20 @@
      Ini sumber yang sama dengan yang dipakai server saat menyaring
      (pur_tim_pemanggil), jadi apa yang dicatat di layar tidak akan
      bertentangan dengan apa yang boleh dilihat sesudahnya. */
-  function timSaya() {
+  /* SEMUA tim milik pemilik sesi. Office boleh memberi satu orang beberapa tim
+     (keterangan "Bar, Floor") sejak 5 Agustus 2026, dan server sudah menyaring
+     dengan `tim IN (…)` — lihat pur_sql_batas_tim di lib_stock_catat.php.
+     Kalau di sini tetap diambil satu, kru melihat catatan tim keduanya tetapi
+     tidak bisa MENCATAT untuk tim itu: dropdown timnya terkunci di tim
+     pertama. */
+  function timSayaList() {
     const ket = String((SESI && SESI.keterangan) || timSesi(SESI) || '').toLowerCase();
-    const cocok = TIM_OPSI.find(([v]) => ket.includes(v.toLowerCase()));
-    return cocok ? cocok[0] : '';
+    return TIM_OPSI.filter(([v]) => ket.includes(v.toLowerCase())).map(([v]) => v);
   }
+  // Tim UTAMA — dipakai untuk nilai bawaan form, area item, dan sudut pandang
+  // "keluar/masuk" di ringkasan serah terima. Yang bertim banyak memakai yang
+  // pertama; tempat-tempat itu memang butuh satu jawaban, bukan daftar.
+  function timSaya() { return timSayaList()[0] || ''; }
   // Kalau timnya sudah pasti, itu yang dipakai. Yang tidak punya tim (admin)
   // tetap memilih sendiri, dan pilihan pertama jadi bawaannya.
   function timBawaan() { return timSaya() || TIM_OPSI[0][0]; }
@@ -882,14 +891,24 @@
      jadi tanpa pilihan mereka tidak bisa mencatat untuk tim mana pun. */
   function kunciPilihanTim(sel) {
     if (!sel) return;
-    const saya = timSaya();
-    if (!saya) {                       // bebas memilih
+    const punya = timSayaList();
+    if (!punya.length) {               // bebas memilih
       sel.innerHTML = TIM_OPSI.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
       sel.classList.remove('pointer-events-none', 'locked');
       return;
     }
-    const label = (TIM_OPSI.find(([v]) => v === saya) || [saya, saya])[1];
-    sel.innerHTML = `<option value="${saya}">${label}</option>`;
+    const label = (v) => (TIM_OPSI.find(([k]) => k === v) || [v, v])[1];
+    sel.innerHTML = punya.map(v => `<option value="${v}">${label(v)}</option>`).join('');
+    /* Bertim BANYAK berarti benar-benar memilih — daftarnya cuma dipersempit ke
+       tim yang memang miliknya. Menguncinya di tim pertama akan membuat kru
+       Bar+Floor tidak pernah bisa mencatat untuk Floor, padahal catatannya
+       terlihat olehnya. */
+    if (punya.length > 1) {
+      sel.value = punya[0];
+      sel.classList.remove('pointer-events-none', 'locked');
+      return;
+    }
+    const saya = punya[0];
     sel.value = saya;
     /* pointer-events-none, BUKAN atribut disabled: select yang disabled
        tampil pudar seperti sesuatu yang rusak, dan pada sebagian browser
@@ -909,7 +928,11 @@
      tersimpan ia lenyap dari pandangan tim yang seharusnya memilikinya. */
   function setNilaiTim(sel, nilai) {
     if (!sel) return;
-    if (timSaya()) { sel.value = timSaya(); return; }
+    const punya = timSayaList();
+    /* Bertim banyak: tim ASLI catatan dipertahankan selama masih salah satu
+       miliknya. Memaksanya ke tim pertama akan memindahkan catatan Floor ke
+       Bar hanya karena orangnya membuka form untuk memperbaiki salah ketik. */
+    if (punya.length) { sel.value = punya.indexOf(nilai) > -1 ? nilai : punya[0]; return; }
     const ada = TIM_OPSI.some(([v]) => v === nilai);
     if (!ada) {
       const label = nilai ? nilai : '(belum ada tim)';
@@ -942,7 +965,8 @@
   }
   function pesanTimKosong() {
     return 'Tim Anda belum diisi, jadi belum ada catatan yang bisa ditampilkan. '
-         + 'Minta admin mengisi keterangan akun Anda dengan Kitchen, Bar, atau Floor.';
+         + 'Minta admin mencentang Kitchen, Bar, atau Floor di Office → Kelola User '
+         + '(boleh lebih dari satu).';
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -1643,11 +1667,16 @@
   let SO_KELUAR_CAMPUR = {}; // {namaItem: true} kalau ada keluar bersatuan tak terkonversi
   let SO_EDIT_ID = '';    // id entri hari+tim terpilih, kalau sudah pernah disimpan
 
-  /* Area item cocok dengan tim yang login? Bar melihat item Bar + Umum,
-     Kitchen melihat Kitchen + Umum. Tim lain / admin (timSaya() null) melihat
-     semua. Item tanpa area ('') = Umum, selalu tampil. */
+  /* Area item cocok dengan tim yang SEDANG DIPILIH di Daily SO? Bar melihat
+     item Bar + Umum, Kitchen melihat Kitchen + Umum. Tim lain / admin melihat
+     semua. Item tanpa area ('') = Umum, selalu tampil.
+
+     Patokannya tim di layar, bukan timSaya(): kru bertim banyak (Bar+Kitchen)
+     yang memindah dropdown ke Kitchen tetap akan disodori daftar item Bar
+     kalau yang dibaca tim utamanya saja. */
   function soAreaCocok(nama) {
-    const saya = timSaya();
+    const sel = document.getElementById('so-tim');
+    const saya = (sel && sel.value) || timSaya();
     if (saya !== 'Bar' && saya !== 'Kitchen') return true;   // Floor/admin: semua
     const p = INFO_BAHAN && INFO_BAHAN[nama];
     const area = (p && typeof p.area === 'string') ? p.area.trim() : '';

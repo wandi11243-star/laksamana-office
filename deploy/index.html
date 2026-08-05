@@ -249,6 +249,9 @@
     .admin-form{background:#FCFBF8; border:1px solid var(--line); border-radius:14px; padding:16px}
     .af-title{font-size:12px; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--gold-dim); margin-bottom:12px}
     .af-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+    /* Tim/Keterangan memakai satu baris penuh: pilihan timnya belasan chip,
+       dan dipaksa ke setengah lebar membuatnya menumpuk jadi enam baris. */
+    .af-full{grid-column:1 / -1}
     .admin-form .field{margin-bottom:0}
     .admin-form .field input, .admin-form .field select{padding:10px 11px; font-size:14px}
     .af-active{display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--ink); margin-top:12px; cursor:pointer}
@@ -558,16 +561,19 @@
                                  inilah yang menentukan seorang kru melihat
                                  catatan tim mana — jadi menyebutnya opsional
                                  keliru dan menyesatkan. -->
-                            <div class="field"><label for="af-ket">Tim / Keterangan</label>
-                                <input id="af-ket" type="text" list="af-ket-tim" placeholder="Kitchen / Bar / Floor">
-                                <datalist id="af-ket-tim">
-                                    <option value="Kitchen"></option>
-                                    <option value="Bar"></option>
-                                    <option value="Floor"></option>
-                                    <option value="Marketing"></option>
-                                    <option value="Event"></option>
-                                    <option value="Kasir"></option>
-                                </datalist></div>
+                            <!-- Satu orang boleh punya BEBERAPA tim (permintaan
+                                 user 5 Agustus 2026). Sebelumnya ini kotak teks
+                                 tunggal, jadi kasir yang juga pegang Floor harus
+                                 dipilih salah satu — dan yang tidak dipilih
+                                 kehilangan aksesnya di modul terkait tanpa ada
+                                 layar mana pun yang menjelaskan kenapa.
+                                 Disimpan tetap sebagai SATU teks dipisah koma
+                                 ("Kasir, Floor"): seluruh modul membacanya
+                                 dengan pencocokan kata, jadi tidak ada backend
+                                 yang perlu ikut berubah bentuk datanya. -->
+                            <div class="field af-full"><label>Tim / Keterangan</label>
+                                <div id="af-tim" class="pick-grid"></div>
+                                <input id="af-ket" type="text" placeholder="Keterangan tambahan, mis. Senior (opsional)" style="margin-top:7px"></div>
                             <div class="field"><label for="af-talenta">Talenta ID</label>
                                 <input id="af-talenta" type="text" inputmode="numeric" placeholder="cth: 118825"></div>
                             <div class="field"><label for="af-hp">No HP / WhatsApp</label>
@@ -575,8 +581,11 @@
                             <div class="field"><label for="af-display">Nama panggilan (login)</label>
                                 <input id="af-display" type="text" maxlength="40" placeholder="cth: arfan"></div>
                         </div>
-                        <p class="pick-hint" style="margin-top:6px"><b>Tim</b> menentukan catatan mana yang boleh dilihat kru di modul Stock: isi <b>Kitchen</b>, <b>Bar</b>, atau <b>Floor</b>. Kru hanya melihat catatan pemakaian bahan dan waste dari timnya sendiri. Yang timnya <b>kosong tidak melihat apa pun</b> — kecuali admin modul, yang selalu melihat semua tim. Boleh ditambah keterangan lain (mis. "Kitchen Senior"), asalkan nama timnya ada di dalamnya.</p>
-                        <p class="pick-hint">Untuk modul <b>Kompas</b> (omset): isi <b>Marketing</b>, <b>Event</b>, atau <b>Kasir</b> — kru dengan tim itu bisa ditarik otomatis jadi PIC omset di Kompas lewat tombol "Tarik dari Office".</p>
+                        <p class="pick-hint" style="margin-top:6px"><b>Boleh dicentang lebih dari satu.</b> Kasir yang juga pegang Floor cukup dicentang dua-duanya — aksesnya berlaku di semua modul terkait sekaligus. Yang <b>tidak dicentang sama sekali tidak melihat apa pun</b> di modul yang membatasi per tim, kecuali admin modul.</p>
+                        <p class="pick-hint"><b>Stock</b> (Kitchen / Bar / Floor): kru hanya melihat catatan pemakaian bahan &amp; waste dari timnya. Dicentang dua tim berarti melihat dua-duanya.<br>
+                            <b>Kompas</b> (Marketing / Event / Kasir): bisa ditarik jadi PIC omset lewat "Tarik dari Office"; PIC compliment hanya diambil dari yang bertim <b>Kasir</b>.<br>
+                            <b>Service Excellent</b> (Office / CEO / CFO / Host): menentukan siapa yang melihat panel "Tamu Belum Diminta Review".</p>
+                        <p class="pick-hint">Kotak <b>keterangan tambahan</b> untuk catatan bebas (mis. "Senior") — isinya tidak diperiksa modul mana pun, jadi jangan menulis nama tim di situ.</p>
                         <p class="pick-hint">Talenta ID adalah <b>Employee ID</b> di aplikasi absensi. Dipakai modul Kehadiran untuk mencocokkan report bulanan dengan akun ini. Kosongkan kalau yang bersangkutan tidak absen lewat Talenta.</p>
                         <p class="pick-hint">Nama panggilan dipakai sebagai <b>nama login pendek</b> supaya kru tidak perlu mengetik nama lengkap. Nama resmi tetap bisa dipakai login, dan tetap yang tampil di daftar akses, absensi, serta penilaian. Kru bisa mengaturnya sendiri lewat menu akun.</p>
                         <div class="field" style="margin-top:12px">
@@ -1328,6 +1337,59 @@
         return Array.from(container.querySelectorAll('input:checked')).map(i => i.value);
     }
 
+    /* ---------- TIM / KETERANGAN (boleh lebih dari satu) ----------
+       Tersimpan tetap sebagai SATU teks dipisah koma, mis. "Kasir, Floor".
+       Bentuk itu dipertahankan dengan sengaja: semua pembacanya sudah
+       mencocokkan per KATA, bukan menyamakan seluruh teks —
+         stock  : pur_tim_pemanggil() cari kata Kitchen/Bar/Floor
+         kompas : keterangan.split(/[\s,;/]+/) lalu cari marketing/event/kasir
+         service excellent : divisi dipecah lalu dicocokkan ke office/ceo/cfo/host
+       jadi tidak ada satu pun backend yang perlu ikut berubah bentuknya.
+
+       Daftarnya bukan sekadar saran: inilah kata yang benar-benar diperiksa
+       modul lain. Menulis "Kasi" atau "Cashier" tidak akan dikenali oleh
+       siapa pun, dan gejalanya cuma "akunnya tidak bisa lihat apa-apa". */
+    const TIM_PILIHAN = [
+        ['Kitchen', 'Stock'], ['Bar', 'Stock'], ['Floor', 'Stock'],
+        ['Marketing', 'Kompas'], ['Event', 'Kompas'], ['Kasir', 'Kompas'],
+        ['Office', 'Service Excellent'], ['CEO', 'Service Excellent'],
+        ['CFO', 'Service Excellent'], ['Host', 'Service Excellent']
+    ];
+    // Kata tim dicari sebagai KATA UTUH supaya "Barista" tidak terbaca "Bar".
+    function polaTim(t){ return new RegExp('(^|[^A-Za-z])' + t + '([^A-Za-z]|$)', 'i'); }
+    /* Pecah teks keterangan jadi {tim:[…], sisa:'…'}.
+       Nilai lama yang menyatu ("Kitchen Senior") tetap terbaca benar: Kitchen
+       tercentang, "Senior" jatuh ke kotak keterangan tambahan. */
+    function pisahKeterangan(ket){
+        let sisa = String(ket || '');
+        const tim = [];
+        TIM_PILIHAN.forEach(([t]) => {
+            if(polaTim(t).test(sisa)){
+                tim.push(t);
+                sisa = sisa.replace(new RegExp('(^|[^A-Za-z])' + t + '([^A-Za-z]|$)', 'ig'), '$1 $2');
+            }
+        });
+        return { tim, sisa: sisa.replace(/[\s,;/]+/g, ' ').trim() };
+    }
+    function gabungKeterangan(tim, sisa){
+        return tim.concat(String(sisa || '').trim() ? [String(sisa).trim()] : []).join(', ');
+    }
+    function renderTimGrid(terpilih){
+        const dipilih = new Set((terpilih || []).map(t => String(t).toLowerCase()));
+        const box = document.getElementById('af-tim');
+        box.innerHTML = TIM_PILIHAN.map(([t, modul]) => {
+            const on = dipilih.has(t.toLowerCase());
+            return `<label class="pick${on?' on':''}" title="Dipakai modul ${esc(modul)}">
+                <input type="checkbox" name="af-tim" value="${esc(t)}" ${on?'checked':''}> ${esc(t)}</label>`;
+        }).join('');
+        box.querySelectorAll('input').forEach(inp => {
+            inp.addEventListener('change', () => inp.closest('.pick').classList.toggle('on', inp.checked));
+        });
+    }
+    function readTimGrid(){
+        return Array.from(document.querySelectorAll('#af-tim input:checked')).map(i => i.value);
+    }
+
     async function loadAdminUsers(){
         const list = document.getElementById('admin-list');
         list.innerHTML = '<div class="empty">Memuat...</div>';
@@ -1421,6 +1483,7 @@
         document.getElementById('af-name').value = '';
         document.getElementById('af-pin').value = '';
         document.getElementById('af-ket').value = '';
+        renderTimGrid([]);
         document.getElementById('af-talenta').value = '';
         document.getElementById('af-hp').value = '';
         document.getElementById('af-display').value = '';
@@ -1438,7 +1501,9 @@
         document.getElementById('af-id').value = u.id;
         document.getElementById('af-name').value = u.name;
         document.getElementById('af-pin').value = u.pin;
-        document.getElementById('af-ket').value = u.keterangan || '';
+        const ket = pisahKeterangan(u.keterangan);
+        renderTimGrid(ket.tim);
+        document.getElementById('af-ket').value = ket.sisa;
         document.getElementById('af-talenta').value = u.talentaId || '';
         document.getElementById('af-hp').value = u.noHp || '';
         document.getElementById('af-display').value = u.username || '';
@@ -1496,7 +1561,7 @@
 
         const payload = {
             id: editId, name, pin,
-            keterangan: document.getElementById('af-ket').value.trim(),
+            keterangan: gabungKeterangan(readTimGrid(), document.getElementById('af-ket').value),
             talentaId: document.getElementById('af-talenta').value.trim(),
             noHp: document.getElementById('af-hp').value.trim(),
             username: document.getElementById('af-display').value.trim(),
