@@ -571,6 +571,13 @@ function svg() {  }
 
 
 
+
+
+
+
+
+
+
 function esc() {  }
 function escJs() {  }
 function pad() {  }
@@ -1218,7 +1225,7 @@ function dashKru() { divisiDari(); namaDivisi(); }
 
 
 
-function viewDashboard() { dashTgl(); hariIni(); dashKru(); sel(); shiftDef(); jamSel(); }
+function viewDashboard() { dashTgl(); hariIni(); dashKru(); sel(); shiftDef(); }
 
 
 
@@ -1229,6 +1236,28 @@ function viewDashboard() { dashTgl(); hariIni(); dashKru(); sel(); shiftDef(); j
 
 
 
+
+
+
+
+
+function urutDash() { namaDivisi(); divisiDari(); jamSel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jepit() {  }
 
 
 
@@ -1244,7 +1273,7 @@ function kolomOrang() { esc(); jabatanDari(); namaDivisi(); divisiDari(); }
 
 
 
-function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); jamSel(); klikSel(); kolomOrang(); daftarShift(); dashDiv(); bolehUbah(); namaDivisi(); idxHari(); tglPanjang(); dashGeser(); dashSet(); tombolKembali(); panelKosongRoster(); panelGagalDW(); statBox(); }
+function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); potong(); jamSel(); klikSel(); kolomOrang(); dashUrut(); }
 
 
 
@@ -1274,6 +1303,7 @@ function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); jamSel(); klikSel()
 
 
 
+function pagerDash() { daftarShift(); shiftDef(); esc(); dashDiv(); bolehUbah(); namaDivisi(); idxHari(); tglPanjang(); dashGeser(); dashSet(); tombolKembali(); panelKosongRoster(); panelGagalDW(); statBox(); }
 
 
 
@@ -1338,6 +1368,42 @@ function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); jamSel(); klikSel()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dashUrut() { render(); }
+function dashHal() { render(); }
+function dashHal2() { render(); }
 
 
 function dashGeser() { addD(); dashTgl(); muatDanGambar(); }
@@ -2320,7 +2386,12 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); ubahManajemen(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); panelKosongRoster(); ulangRoster(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); panelKosongRoster(); ulangRoster(); }
+
+
+
+
+
 
 
 

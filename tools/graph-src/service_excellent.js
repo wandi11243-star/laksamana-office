@@ -1014,6 +1014,9 @@ function roleSE() { pagePerm(); savePerms(); canEdit(); }
 
 
 
+
+
+
 function icon() { navigate(); allowedPages(); renderDashboard(); }
 
 
@@ -1060,9 +1063,6 @@ function permRowVisPage() {  }
 
 
 function DEFAULT_PERMS() { permRowVisPage(); }
-
-
-
 
 
 
@@ -3011,7 +3011,17 @@ function initLogin() { byId(); renderCrew(); }
 
 
 
-function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); bolehLihatMintaReview(); seKru(); enterApp(); syncRosterLatar(); }
+function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); bolehLihatMintaReview(); seKru(); seCrew(); enterApp(); syncRosterLatar(); }
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -558,6 +558,13 @@ let ROSTER = [];         // dari Office: [{id,name,keterangan,active}]
 let ROSTER_ERR = '';
 let VIEW = 'dashboard';
 let DASH_TGL = '';                     // tanggal yang dilihat di Dashboard
+/* Tabel Dashboard dipenggal 10 baris. Divisi besar membuat tabel "Masuk"
+   memanjang belasan baris, dan panel "Tidak Masuk" di bawahnya terdorong
+   keluar layar — padahal keduanya dibaca berpasangan. */
+const DASH_PER = 10;
+let DASH_URUT = 'jam';                 // jam | nama | divisi
+let DASH_HAL  = 1;                     // halaman tabel Masuk
+let DASH_HAL2 = 1;                     // halaman tabel Tidak Masuk
 let DASH_DIV = 'ALL';                  // 'ALL' atau salah satu kode divisi
 let DIV = 'bar';                       // divisi yang sedang dilihat
 let BULAN_AKTIF = '';                  // 'YYYY-MM'
@@ -1228,13 +1235,35 @@ function viewDashboard(){
     else if(shiftDef(c.t).libur) libur.push({u:u,c:c});
     else masuk.push({u:u,c:c});
   });
-  /* Urut jam masuk: yang datang paling pagi di atas, seperti orang membaca
-     daftar giliran. Yang tanpa jam ditaruh belakangan lewat '99:99'. */
-  masuk.sort(function(a,b){
+  /* Urutan bisa dipilih. Bawaannya JAM MASUK — yang datang paling pagi di
+     atas, seperti orang membaca daftar giliran. Dua urutan lain ada karena
+     dicari untuk pertanyaan yang berbeda: "nama" saat mencari satu orang
+     tertentu, "divisi" saat melihat Semua dan ingin tahu tiap divisi terisi
+     berapa. Nama selalu jadi pemecah seri supaya urutannya tidak pernah
+     berubah-ubah sendiri antar render. */
+  const urutDash=function(a,b){
+    if(DASH_URUT==='nama') return String(a.u.name||'').localeCompare(String(b.u.name||''));
+    if(DASH_URUT==='divisi')
+      return String(namaDivisi(divisiDari(a.u))).localeCompare(String(namaDivisi(divisiDari(b.u))))
+          || String(a.u.name||'').localeCompare(String(b.u.name||''));
     const ja=jamSel(a.c), jb=jamSel(b.c);
     return (ja?ja.m:'99:99').localeCompare(jb?jb.m:'99:99')
         || String(a.u.name||'').localeCompare(String(b.u.name||''));
-  });
+  };
+  masuk.sort(urutDash);
+  libur.sort(urutDash);
+
+  /* Halaman dijepit ke rentang yang masih ada. Tanpa ini, berpindah tanggal
+     saat sedang di halaman 3 meninggalkan tabel KOSONG di hari yang cuma
+     punya satu halaman — dan tabel kosong terbaca sebagai "tidak ada yang
+     masuk", kesalahan yang paling mahal di halaman ini. */
+  const jepit=function(hal,total){
+    const maks=Math.max(1,Math.ceil(total/DASH_PER));
+    return Math.min(Math.max(1,hal),maks);
+  };
+  DASH_HAL =jepit(DASH_HAL, masuk.length);
+  DASH_HAL2=jepit(DASH_HAL2,libur.length);
+  const potong=function(list,hal){ return list.slice((hal-1)*DASH_PER, hal*DASH_PER); };
 
   function klikSel(u){
     return bolehUbah(divisiDari(u))
@@ -1249,16 +1278,43 @@ function viewDashboard(){
     return '<span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(labelSel(c))+'</span>';
   }
 
-  const barisMasuk=masuk.map(function(r,i){
+  /* Nomor baris meneruskan hitungan antar halaman (11, 12, \u2026 di halaman 2),
+     bukan mulai dari 1 lagi \u2014 nomor yang mengulang membuat orang mengira ia
+     sedang melihat daftar yang sama. */
+  const awalM=(DASH_HAL-1)*DASH_PER, awalL=(DASH_HAL2-1)*DASH_PER;
+  const barisMasuk=potong(masuk,DASH_HAL).map(function(r,i){
     const j=jamSel(r.c);
-    return '<tr'+klikSel(r.u)+'><td class="no">'+(i+1)+'</td>'+kolomOrang(r.u)
+    return '<tr'+klikSel(r.u)+'><td class="no">'+(awalM+i+1)+'</td>'+kolomOrang(r.u)
       +'<td>'+pil(r.c)+'</td>'
       +'<td class="mono">'+(j?esc(j.m+' \u2013 '+j.s):'\u2014')+'</td></tr>';
   }).join('');
-  const barisLibur=libur.map(function(r,i){
-    return '<tr'+klikSel(r.u)+'><td class="no">'+(i+1)+'</td>'+kolomOrang(r.u)
+  const barisLibur=potong(libur,DASH_HAL2).map(function(r,i){
+    return '<tr'+klikSel(r.u)+'><td class="no">'+(awalL+i+1)+'</td>'+kolomOrang(r.u)
       +'<td>'+pil(r.c)+'</td></tr>';
   }).join('');
+
+  /* Pemilih urutan & pager hanya muncul kalau memang ada gunanya: satu
+     halaman tidak butuh tombol pindah halaman, dan tiga baris tidak butuh
+     pemilih urutan. Kontrol yang selalu ada tapi tak pernah berubah hasilnya
+     cuma menambah hal yang harus diabaikan. */
+  const segUrut = masuk.length>1
+    ? '<div class="seg" style="margin-left:auto">'
+      +[['jam','Jam'],['nama','Nama'],['divisi','Divisi']].map(function(x){
+          return '<button class="'+(DASH_URUT===x[0]?'active':'')+'" onclick="dashUrut(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>';
+        }).join('')+'</div>'
+    : '';
+  function pagerDash(total,hal,fn){
+    const maks=Math.ceil(total/DASH_PER);
+    if(maks<=1) return '';
+    const a=(hal-1)*DASH_PER+1, z=Math.min(hal*DASH_PER,total);
+    return '<div class="rowbar noprint" style="margin:10px 0 0">'
+      +'<span class="mutedhint">'+a+'\u2013'+z+' dari '+total+' orang</span><div class="spacer"></div>'
+      +'<div class="navdate">'
+      +'<button class="iconbtn" onclick="'+fn+'('+(hal-1)+')"'+(hal<=1?' disabled':'')+' aria-label="Halaman sebelumnya">\u2039</button>'
+      +'<b style="min-width:auto;padding:0 6px">'+hal+' / '+maks+'</b>'
+      +'<button class="iconbtn" onclick="'+fn+'('+(hal+1)+')"'+(hal>=maks?' disabled':'')+' aria-label="Halaman berikutnya">\u203a</button>'
+      +'</div></div>';
+  }
 
   // Rincian per shift — sekilas cukup untuk tahu shift pagi kurang orang atau tidak.
   const rinci=daftarShift().filter(function(k){ return !shiftDef(k).libur; }).map(function(k){
@@ -1324,9 +1380,10 @@ function viewDashboard(){
     +'</div>'
 
     +'<div class="panel"><div class="rowbar"><h2>\u2705 Masuk</h2>'
-    +'<span class="chip">'+masuk.length+' orang</span><div class="spacer"></div></div>'
+    +'<span class="chip">'+masuk.length+' orang</span>'+segUrut+'</div>'
     +(masuk.length
       ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Divisi</th><th>Shift</th><th>Jam</th></tr></thead><tbody>'+barisMasuk+'</tbody></table></div>'
+        +pagerDash(masuk.length,DASH_HAL,'dashHal')
       : '<div class="empty"><div class="ic">\ud83c\udf19</div>Tidak ada yang masuk pada tanggal ini.</div>')
     +'</div>'
 
@@ -1336,14 +1393,23 @@ function viewDashboard(){
     +'<span class="chip">'+libur.length+' orang</span><div class="spacer"></div></div>'
     +(libur.length
       ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Divisi</th><th>Status</th></tr></thead><tbody>'+barisLibur+'</tbody></table></div>'
+        +pagerDash(libur.length,DASH_HAL2,'dashHal2')
       : '<div class="empty"><div class="ic">\ud83d\udcaa</div>Tidak ada yang libur, izin, atau cuti pada tanggal ini.</div>')
     +(bolehApaPun?'<p class="mutedhint" style="margin-top:10px">Klik baris mana pun untuk mengubah shift orang itu pada tanggal ini.</p>':'')
     +'</div>';
 }
-function dashGeser(n){ DASH_TGL=addD(dashTgl(),n); muatDanGambar(); }
-function dashSet(v){ if(v){ DASH_TGL=v; muatDanGambar(); } }
-function dashHariIni(){ DASH_TGL=hariIni(); muatDanGambar(); }
-function dashDiv(k){ DASH_DIV=k; render(); }
+/* Ganti urutan MENGEMBALIKAN pembacaan ke halaman 1. Mempertahankan halaman
+   lama setelah urutannya berubah berarti orang yang sedang mencari satu nama
+   mendarat di tengah daftar yang isinya sudah lain sama sekali. */
+function dashUrut(k){ DASH_URUT=k; DASH_HAL=1; DASH_HAL2=1; render(); }
+function dashHal(n){ DASH_HAL=Math.max(1,n); render(); }
+function dashHal2(n){ DASH_HAL2=Math.max(1,n); render(); }
+/* Pindah tanggal / divisi juga kembali ke halaman 1 — jumlah orangnya
+   berbeda, jadi halaman 3 kemarin belum tentu ada hari ini. */
+function dashGeser(n){ DASH_HAL=1; DASH_HAL2=1; DASH_TGL=addD(dashTgl(),n); muatDanGambar(); }
+function dashSet(v){ if(v){ DASH_HAL=1; DASH_HAL2=1; DASH_TGL=v; muatDanGambar(); } }
+function dashHariIni(){ DASH_HAL=1; DASH_HAL2=1; DASH_TGL=hariIni(); muatDanGambar(); }
+function dashDiv(k){ DASH_HAL=1; DASH_HAL2=1; DASH_DIV=k; render(); }
 
 /* =====================================================================
    HALAMAN 1 — JADWAL BULANAN
@@ -2354,24 +2420,13 @@ function viewPengaturan(){
       +'<div style="margin-top:8px">'+(pil||'<span class="mutedhint">Belum ada kru di divisi ini.</span>')+'</div></div>';
   }).join('');
 
-  /* Kandidat manajemen = SELURUH pegawai aktif, bukan cuma kru shift. Justru
-     orang yang tidak dijadwalkan (owner, GM, HR) yang paling mungkin perlu
-     akses ini — membatasinya ke kru divisi shift akan membuat mereka tidak
-     bisa dicentang sama sekali. */
+  /* Akses Rekap Pegawai dulu punya panel sendiri berisi deretan centang nama.
+     Dipindah ke baris tiap pegawai di Penempatan Kru: di panel terpisah, satu
+     orang muncul DUA KALI di halaman yang sama — sekali untuk divisinya,
+     sekali untuk aksesnya — dan admin harus mencarinya dua kali untuk satu
+     orang yang sama. Sekarang semua yang bisa diatur tentang seseorang ada di
+     satu baris. */
   const mnj=(S.setting.manajemen||[]);
-  const barisManajemen='<div class="row" style="flex-direction:column;align-items:stretch">'
-    +'<div style="display:flex;align-items:center;gap:8px"><b>Manajemen</b>'
-    +'<div class="spacer"></div>'
-    +'<span class="stpill" style="background:'+(mnj.length?'var(--ok-bg);color:var(--ok)':'var(--paper);color:var(--muted-2)')+'">'
-    +(mnj.length?mnj.length+' orang':'belum ada')+'</span></div>'
-    +'<div style="margin-top:8px">'
-    +(ROSTER.filter(u=>u.active!==false)
-        .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
-        .map(u=>'<label style="display:inline-flex;align-items:center;gap:5px;margin:0 10px 6px 0;font-size:12.5px">'
-          +'<input type="checkbox"'+(mnj.indexOf(u.id)>-1?' checked':'')+' onchange="ubahManajemen(\''+escJs(u.id)+'\',this.checked)" style="width:auto">'
-          +esc(u.name)+'</label>').join('')
-      || '<span class="mutedhint">Roster kosong.</span>')
-    +'</div></div>';
 
   const barisKru=ROSTER.filter(u=>u.active!==false)
     .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
@@ -2405,6 +2460,26 @@ function viewPengaturan(){
               return '<option value="'+esc(k)+'"'+((S.setting.shiftKru[u.id]===k)?' selected':'')+'>'+esc(shiftDef(k).n)+'</option>';
             }).join('')
           +'</select>')
+
+        /* Akses Rekap Pegawai, per orang, di baris orangnya sendiri.
+
+           Head divisi dan admin modul TIDAK perlu dicentang — keduanya sudah
+           otomatis berhak (lihat bolehRekap()), dan menampilkan centang yang
+           tidak berpengaruh apa-apa untuk mereka cuma mengundang admin
+           mengira aksesnya dicabut saat kotaknya kosong. Karena itu untuk
+           mereka yang muncul keterangan, bukan kotak. */
+        +(function(){
+            const otomatis = isHeadUser(u.id,d) ? 'head divisi' : '';
+            if(otomatis){
+              return '<span class="stpill" style="background:var(--ok-bg);color:var(--ok)" '
+                +'title="Rekap Pegawai selalu terbuka untuk '+esc(otomatis)+'">📈 otomatis</span>';
+            }
+            return '<label class="chip" style="cursor:pointer;gap:6px" '
+              +'title="Boleh membuka halaman Rekap Pegawai — jam kerja & pola libur seluruh kru">'
+              +'<input type="checkbox"'+(mnj.indexOf(u.id)>-1?' checked':'')
+              +' onchange="ubahManajemen(&#39;'+escJs(u.id)+'&#39;,this.checked)" style="width:auto;margin:0">'
+              +'📈 Rekap</label>';
+          })()
         +'</div>';
     }).join('');
 
@@ -2422,11 +2497,6 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Head menyusun jadwal divisinya dan memutuskan pengajuan kru divisinya. Sengaja ditunjuk manual, bukan ditebak dari jabatan: salah tebak berarti tombol Setujui dipegang orang yang salah. Boleh lebih dari satu per divisi.</p>'
     +barisHead+'</div>'
 
-    +'<div class="panel"><div class="rowbar"><h2>📈 Akses Rekap Pegawai</h2></div>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Halaman <b>Rekap Pegawai</b> memperlihatkan jam kerja, pola libur, dan peringatan beban kerja satu per satu orang. Yang otomatis bisa membukanya: <b>admin modul</b> dan <b>head divisi</b>. Centang di bawah untuk memberi akses ke manajemen yang bukan head — owner, GM, HR.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Kru biasa sengaja tidak bisa membukanya. Jadwalnya sendiri memang terbuka di Jadwal Bulanan; yang ditahan di sini adalah <b>rekap dan angkanya</b>, karena itu bahan perbandingan antar kru yang ujungnya selalu jadi keributan di grup.</p>'
-    +barisManajemen+'</div>'
-
     /* Tombol "Tarik Ulang dari Office" dihapus 5 Agustus 2026 atas permintaan.
        Roster memang sudah ditarik sendiri tiap kali modul dibuka, jadi
        tombolnya hanya berguna pada satu keadaan sempit — dan untuk keadaan itu
@@ -2435,7 +2505,8 @@ function viewPengaturan(){
        memakainya. */
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Kolom terakhir adalah <b>shift kebiasaan</b> tiap kru — dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Centang <b>📈 Rekap</b> untuk memberi orang itu akses ke halaman <b>Rekap Pegawai</b> (jam kerja, pola libur, dan peringatan beban kerja seluruh kru). <b>Head divisi dan admin modul otomatis berhak</b> — barisnya bertanda <i>otomatis</i> dan tidak perlu dicentang. Kru biasa sengaja tidak bisa membukanya: jadwalnya sendiri memang terbuka di Jadwal Bulanan, yang ditahan adalah rekap dan angkanya, karena itu bahan perbandingan antar kru yang ujungnya jadi keributan di grup.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Kolom <b>shift kebiasaan</b> tiap kru dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
     +panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>';
 }
