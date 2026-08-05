@@ -733,7 +733,9 @@ function moduleLabel() { appModuleList(); }
 
 
 
-function moduleLabels() { punyaKunci(); canOpen(); }
+function moduleLabels() { canOpen(); }
+
+
 
 
 
@@ -983,11 +985,10 @@ function clearSession() {  }
 
 
 
+
+
+
 function tujuanKartu() {  }
-
-
-function punyaKunci() {  }
-
 
 
 function canOpen() { isSuperadmin(); }
