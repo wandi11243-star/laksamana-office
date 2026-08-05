@@ -2820,30 +2820,11 @@ function customerProfile() { normPhone(); }
 function crewInitials() {  }
 
 
-function ensureUsersPerms() {  }
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function nilai() { ensureUsersPerms(); }
-
-
-
-
+function ensureUsersPerms() { sePerms(); sinkronSeCrew(); }
 
 
 
@@ -2871,13 +2852,42 @@ function nilai() { ensureUsersPerms(); }
 
 
 
+function seCrew() {  }
+
+
+
+
+function sePerms() {  }
 
 
 
 
 
-function getUsers() {  }
-function getPerms() {  }
+
+
+function sinkronSeCrew() { seCrew(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function seKru() { seCrew(); }
+function getUsers() { seCrew(); }
+function getPerms() { sePerms(); }
 
 
 
@@ -2923,28 +2933,7 @@ function readLmSession() {  }
 
 
 
-function resolveReservasiUser() { getUsers(); saveState(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function autoSyncOfficeRoster() { fetchOffice(); saveState(); }
+function resolveReservasiUser() { getUsers(); seCrew(); saveState(); }
 
 
 
@@ -2967,6 +2956,8 @@ function autoSyncOfficeRoster() { fetchOffice(); saveState(); }
 
 
 
+
+function autoSyncOfficeRoster() { muatRosterTim(); sinkronSeCrew(); saveState(); }
 
 
 
@@ -3020,7 +3011,16 @@ function initLogin() { byId(); renderCrew(); }
 
 
 
-function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); bolehLihatMintaReview(); roleSE(); enterApp(); syncRosterLatar(); }
+function boot() { readLmSession(); byId(); initLogin(); loadState(); resolveReservasiUser(); bolehLihatMintaReview(); seKru(); enterApp(); syncRosterLatar(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8590,7 +8590,7 @@ function openUserForm() { toast(); userById(); openModal(); closeModal(); esc();
 
 
 
-function saveUserRow() { ensureUsersPerms(); byId(); userById(); toast(); logAudit(); saveState(); closeModal(); buildNav(); renderMaster(); }
+function saveUserRow() { ensureUsersPerms(); byId(); userById(); toast(); logAudit(); saveState(); closeModal(); buildNav(); renderPeran(); }
 
 
 
@@ -8625,7 +8625,7 @@ function cyclePerm() {  }
 
 
 
-function savePerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); toast(); }
+function savePerms() { ensureUsersPerms(); sePerms(); logAudit(); saveState(); buildNav(); toast(); }
 
 
 
@@ -8643,7 +8643,7 @@ function savePerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); 
 
 
 
-function resetPerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); renderMaster(); toast(); }
+function resetPerms() { ensureUsersPerms(); logAudit(); saveState(); buildNav(); renderPeran(); toast(); }
 
 
 
@@ -8671,7 +8671,23 @@ function wipeData() { saveState(); toast(); closeModal(); navigate(); savePerms(
 
 
 
-function renderPeran() { byId(); getUsers(); userAccessBlock(); reviews(); feedbacks(); }
+
+
+
+function segarkanKru() { muatRosterTim(); toast(); sinkronSeCrew(); saveState(); renderPeran(); }
+
+
+
+
+
+
+
+
+function renderPeran() { byId(); muatRosterTim(); sinkronSeCrew(); saveState(); getUsers(); userAccessBlock(); reviews(); feedbacks(); }
+
+
+
+
 
 
 
