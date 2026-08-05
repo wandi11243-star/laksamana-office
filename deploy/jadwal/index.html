@@ -2427,8 +2427,13 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Kru biasa sengaja tidak bisa membukanya. Jadwalnya sendiri memang terbuka di Jadwal Bulanan; yang ditahan di sini adalah <b>rekap dan angkanya</b>, karena itu bahan perbandingan antar kru yang ujungnya selalu jadi keributan di grup.</p>'
     +barisManajemen+'</div>'
 
-    +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2><div class="spacer"></div>'
-    +'<button class="btn btn-ghost btn-sm" onclick="ulangRoster()">↻ Tarik Ulang dari Office</button></div>'
+    /* Tombol "Tarik Ulang dari Office" dihapus 5 Agustus 2026 atas permintaan.
+       Roster memang sudah ditarik sendiri tiap kali modul dibuka, jadi
+       tombolnya hanya berguna pada satu keadaan sempit — dan untuk keadaan itu
+       sudah ada tombol "Coba lagi" di panelKosongRoster() yang muncul persis
+       saat roster gagal diambil. ulangRoster() tetap ada karena panel itu
+       memakainya. */
+    +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Kolom terakhir adalah <b>shift kebiasaan</b> tiap kru — dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
@@ -2494,24 +2499,117 @@ function judulLembar(lingkup){
     : 'SCHEDULE '+nama+' — '+labelBulan(BULAN_AKTIF||bulanDari(hariIni())).toUpperCase();
 }
 
+/* Isi satu hari, dikelompokkan per shift, plus daftar daily worker hari itu.
+   Dipakai KEDUA bentuk teks WA (mingguan yang lapang dan bulanan yang padat)
+   supaya keduanya tidak pernah bisa melaporkan hari yang sama secara berbeda. */
+function isiHariWA(emps,tgl){
+  const per={};
+  emps.forEach(function(u){
+    const c=sel(u.id,tgl); if(!c) return;
+    (per[c.t]=per[c.t]||[]).push(u.name);
+  });
+  return {
+    per: per,
+    urut: daftarShift().filter(function(k){ return per[k]; }),
+    dw: DW_ROWS.filter(function(x){ return x.divisi===DIV && x.tgl===tgl; })
+               .sort(function(a,b){ return String(a.m||'').localeCompare(String(b.m||'')); }),
+    kosong: emps.filter(function(u){ return !sel(u.id,tgl); }).length
+  };
+}
+/* Teks WhatsApp.
+
+   Disusun PER HARI, bukan per orang. Bentuk lama menulis satu baris koma
+   panjang untuk tiap kru ("Sen PAGI, Sel PAGI, Rab SIANG, …") — dan itu dua
+   kali salah: di layar HP baris itu melipat di tempat yang tidak terduga
+   sehingga kolomnya tidak pernah sejajar, dan pertanyaan yang sebenarnya
+   dibawa orang ke grup bukan "si A minggu ini bagaimana" melainkan "Sabtu
+   siapa yang masuk". Pengelompokan per hari menjawabnya tanpa dibaca dua kali.
+
+   Daily worker IKUT. Sebelumnya tidak, dan itu membuat teks WA diam-diam
+   berbeda isi dengan lembar yang dipajang di papan — tepat pada hari yang
+   paling ramai, karena hari itulah DW dipanggil.
+
+   Dua kerapatan, satu jalur: seminggu ditulis lapang (satu blok per hari),
+   sebulan ditulis padat (satu baris per hari). Sebulan dalam bentuk lapang
+   menjadi 150-an baris dan tidak ada yang membacanya sampai habis. */
 function exportWA(lingkup){
   const emps=kruDivisi(DIV);
-  if(!emps.length){ toast('Belum ada kru untuk diekspor'); return; }
   const pita=(lingkup==='minggu')?pitaMingguAktif():pitaBulanAktif();
-  let txt='*'+judulLembar(lingkup)+'*\nLaksamana Muda\n';
-  pita.forEach(p=>{
-    // Pemisah minggu tidak ada gunanya kalau memang cuma satu minggu.
-    if(pita.length>1) txt+='\n──────────────\n_'+rentangMinggu(p.senin)+'_\n';
-    else txt+='\n';
-    emps.forEach(u=>{
-      const isi=p.hari.map(d=>{
-        const c=sel(u.id,d);
-        return HARI[idxHari(d)].slice(0,3)+' '+(c?labelSel(c):'-');
-      }).join(', ');
-      txt+='*'+u.name+'* ('+jabatanDari(u)+')\n'+isi+'\n';
+  const mingguan=(lingkup==='minggu');
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const a=awalBulan(mk), z=akhirBulan(mk);
+
+  if(!emps.length && !DW_ROWS.some(function(x){ return x.divisi===DIV; })){
+    toast('Belum ada kru untuk diekspor'); return;
+  }
+
+  const garis='━━━━━━━━━━━━━━━';
+  let txt='*JADWAL SHIFT — '+namaDivisi(DIV).toUpperCase()+'*\n'
+    +'_'+(mingguan ? rentangMinggu(MINGGU_AKTIF||seninDari(hariIni())) : labelBulan(mk))+'_\n'
+    +garis+'\n';
+
+  const dipakai={};       // shift yang benar-benar muncul → legenda tidak jadi daftar mati
+  let totalKosong=0, adaDW=false;
+
+  pita.forEach(function(p,pi){
+    /* Label minggu hanya kalau memang lebih dari satu — untuk satu minggu ia
+       cuma mengulang judul yang baru saja dibaca. */
+    if(pita.length>1) txt+='\n_MINGGU '+(pi+1)+' · '+rentangMinggu(p.senin)+'_\n';
+
+    p.hari.forEach(function(d){
+      // Lembar bulanan memakai pita Senin–Minggu, jadi ujungnya menjulur ke
+      // bulan tetangga. Hari di luar bulan yang diekspor tidak ikut ditulis.
+      if(!mingguan && (d<a || d>z)) return;
+
+      const h=isiHariWA(emps,d);
+      totalKosong+=h.kosong;
+      h.urut.forEach(function(k){ dipakai[k]=1; });
+      if(h.dw.length) adaDW=true;
+
+      const kepala=(mingguan?HARI_PJG[idxHari(d)]:HARI[idxHari(d)].slice(0,3))
+        +' · '+tglManusia(d)+(idxHari(d)>=5?' 🔴':'');
+
+      if(!h.urut.length && !h.dw.length){
+        txt+=(mingguan?'\n*'+kepala+'*\n_belum diatur_\n':'*'+kepala+'* _belum diatur_\n');
+        return;
+      }
+
+      if(mingguan){
+        txt+='\n*'+kepala+'*\n';
+        h.urut.forEach(function(k){
+          const sd=shiftDef(k);
+          txt+='▪ '+sd.n+(sd.libur?'':' _'+sd.m+'–'+sd.s+'_')+'\n';
+          h.per[k].forEach(function(n){ txt+='   • '+n+'\n'; });
+        });
+        if(h.dw.length){
+          txt+='▪ Daily Worker\n';
+          h.dw.forEach(function(x){
+            txt+='   • '+x.nama+' _('+(x.posisi||'DW')
+              +((x.m&&x.s)?(' · '+x.m+'–'+x.s):'')+')_\n';
+          });
+        }
+      }else{
+        /* Padat: satu baris per hari. Shift libur ditaruh paling belakang —
+           yang dicari orang di baris ini selalu siapa yang MASUK. */
+        const bagian=h.urut.slice()
+          .sort(function(x,y){ return (shiftDef(x).libur?1:0)-(shiftDef(y).libur?1:0); })
+          .map(function(k){ return shiftDef(k).n+': '+h.per[k].join(', '); });
+        if(h.dw.length) bagian.push('DW: '+h.dw.map(function(x){ return x.nama; }).join(', '));
+        txt+='*'+kepala+'* '+bagian.join(' · ')+'\n';
+      }
     });
   });
-  txt+='\n_'+daftarShift().map(k=>shiftDef(k).n+(shiftDef(k).libur?'':' '+shiftDef(k).m+'-'+shiftDef(k).s)).join(' · ')+'_';
+
+  txt+='\n'+garis+'\n';
+  const legenda=Object.keys(dipakai)
+    .sort(function(x,y){ return (shiftDef(x).urut||99)-(shiftDef(y).urut||99); })
+    .filter(function(k){ return !shiftDef(k).libur; })
+    .map(function(k){ return shiftDef(k).n+' '+shiftDef(k).m+'–'+shiftDef(k).s; });
+  if(legenda.length) txt+='_'+legenda.join('  ·  ')+'_\n';
+  if(adaDW)      txt+='_DW = daily worker (pekerja harian)_\n';
+  if(totalKosong) txt+='_⚠️ '+totalKosong+' sel belum diatur_\n';
+  txt+='_Laksamana Muda_';
+
   salinTeks(txt);
 }
 function salinTeks(txt){
