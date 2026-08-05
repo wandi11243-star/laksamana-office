@@ -613,6 +613,12 @@
 
 
 
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -1125,17 +1131,67 @@ function pager() { pgHal(); esc(); pgNomor(); }
 
 
 function bulanISO() { pad(); }
-function periodeBaru() { todayISO(); bulanISO(); }
-function dalamPeriode() {  }
-
-
-
-function labelPeriode() { fTgl(); }
 
 
 
 
-function kendaliPeriode() { esc(); }
+
+
+
+
+
+
+function seninMinggu() { pDate(); todayISO(); pad(); }
+
+
+
+
+function geserHari() { pDate(); pad(); }
+
+
+
+function mggAktif() { seninMinggu(); todayISO(); }
+function periodeBaru() { todayISO(); seninMinggu(); bulanISO(); }
+function dalamPeriode() { mggAktif(); geserHari(); }
+
+
+
+
+
+function labelPeriode() { fTgl(); mggAktif(); geserHari(); pDate(); fTglP(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setPeriode() { seninMinggu(); todayISO(); }
+
+
+
+
+
+
+
+function kendaliPeriode() { mggAktif(); }
+
+function tombol() { esc(); geserHari(); }
+
+
+
+
+
+
 
 
 
@@ -1605,7 +1661,12 @@ function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); esc(); pgIris(); k
 
 
 
-function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); todayISO(); bulanISO(); }
+function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); todayISO(); seninMinggu(); bulanISO(); }
+
+
+
+
+
 
 
 
@@ -1727,6 +1788,11 @@ function agendaTersaring() { agendaTersaringDasar(); agSudahLewat(); }
 
 
 
+
+
+
+
+
 function swWaktuAgenda() {  }
 
 
@@ -1761,7 +1827,10 @@ function tabelAgenda() { pgIris(); dDay(); esc(); fTglP(); dLabel(); badgeSumber
 
 
 
-function vAgendaList() { pitaGagal(); agendaTersaringDasar(); agSudahLewat(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); selFb(); swWaktuAgenda(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); bulanISO(); }
+function vAgendaList() { pitaGagal(); agendaTersaringDasar(); agSudahLewat(); agendaTersaring(); kendaliPeriode(); esc(); labelPeriode(); stat(); statusPasti(); selFb(); swWaktuAgenda(); swView(); kosong(); tabelAgenda(); pgIris(); agendaCard(); pager(); todayISO(); seninMinggu(); bulanISO(); }
+
+
+
 
 
 
@@ -2211,7 +2280,7 @@ function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender()
 
 
 
-function segarSenyap() { muat(); render(); todayISO(); pgReset(); toast(); drawerAgenda(); drawerRes(); $(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
+function segarSenyap() { muat(); render(); todayISO(); pgReset(); setPeriode(); toast(); drawerAgenda(); drawerRes(); $(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
 
 
 
