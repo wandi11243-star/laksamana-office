@@ -619,6 +619,21 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -2133,7 +2148,45 @@ function detailFields() { fmtDetVal(); detLabel(); }
 
 
 
-function drawerAgenda() { dDay(); $(); kesiapan(); badgeSumber(); pill(); fTgl(); dLabel(); klienMkt(); kvRow(); esc(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); talentEvt(); ico(); bukaDrw(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sorotanEvent() { fmtDetVal(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drawerAgenda() { dDay(); $(); kesiapan(); badgeSumber(); pill(); fTgl(); dLabel(); klienMkt(); sorotanEvent(); kvRow(); esc(); namaMkt(); talentEvt(); ico(); bukaDrw(); }
+
+
+
 
 
 
