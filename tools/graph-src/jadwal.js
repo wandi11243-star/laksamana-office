@@ -2494,7 +2494,100 @@ function judulLembar() { namaDivisi(); rentangMinggu(); seninDari(); hariIni(); 
 
 
 
-function exportWA() { kruDivisi(); toast(); pitaMingguAktif(); pitaBulanAktif(); judulLembar(); rentangMinggu(); sel(); idxHari(); labelSel(); jabatanDari(); daftarShift(); shiftDef(); salinTeks(); }
+
+
+
+function isiHariWA() { sel(); daftarShift(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function exportWA() { kruDivisi(); pitaMingguAktif(); pitaBulanAktif(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); toast(); namaDivisi(); rentangMinggu(); seninDari(); labelBulan(); isiHariWA(); idxHari(); tglManusia(); shiftDef(); salinTeks(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
