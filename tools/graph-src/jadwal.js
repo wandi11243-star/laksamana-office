@@ -471,6 +471,22 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -1037,6 +1053,22 @@ function legendaShift() { daftarShift(); shiftDef(); esc(); }
 
 
 function statBox() { esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function tombolKembali() { esc(); }
+
+
+
 function selHtml() { bukaEditor(); escJs(); shiftDef(); jamSel(); esc(); warnaTeks(); labelSel(); }
 
 
@@ -1105,7 +1137,7 @@ function kolomOrang() { esc(); jabatanDari(); namaDivisi(); divisiDari(); }
 
 
 
-function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); jamSel(); klikSel(); kolomOrang(); daftarShift(); dashDiv(); bolehUbah(); namaDivisi(); idxHari(); tglPanjang(); dashGeser(); dashSet(); dashHariIni(); panelKosongRoster(); panelGagalDW(); statBox(); }
+function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); jamSel(); klikSel(); kolomOrang(); daftarShift(); dashDiv(); bolehUbah(); namaDivisi(); idxHari(); tglPanjang(); dashGeser(); dashSet(); tombolKembali(); panelKosongRoster(); panelGagalDW(); statBox(); }
 
 
 
@@ -1211,7 +1243,7 @@ function dashDiv() { render(); }
 
 
 
-function viewBulanan() { bulanDari(); hariIni(); kruDivisi(); pitaBulan(); bolehUbah(); dwOrang(); awalBulan(); akhirBulan(); esc(); namaDivisi(); isAdmin(); tglPendek(); idxHari(); isHeadUser(); jabatanDari(); selHtml(); sel(); blokDW(); rekapBulan(); segDivisi(); geserBulanAktif(); labelBulan(); bulanIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); exportPNG(); exportWA(); statBox(); panelBeban(); }
+function viewBulanan() { bulanDari(); hariIni(); kruDivisi(); pitaBulan(); bolehUbah(); dwOrang(); awalBulan(); akhirBulan(); esc(); namaDivisi(); isAdmin(); tglPendek(); idxHari(); isHeadUser(); jabatanDari(); selHtml(); sel(); blokDW(); rekapBulan(); segDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); panelKosongRoster(); panelGagalDW(); legendaShift(); exportPNG(); exportWA(); statBox(); panelBeban(); }
 
 
 
@@ -1366,7 +1398,7 @@ function muatDanGambar() { render(); muatData(); }
 
 
 
-function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruDivisi(); tglPendek(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); segDivisi(); geserMinggu(); rentangMinggu(); mingguIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportPNG(); exportWA(); }
+function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruDivisi(); tglPendek(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); segDivisi(); geserMinggu(); rentangMinggu(); tombolKembali(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportPNG(); exportWA(); }
 
 
 
@@ -1569,7 +1601,122 @@ function isiSisa() { seninDari(); hariIni(); pilihShiftModal(); kruDivisi(); shi
 
 
 
-function isiBaris() { kruById(); seninDari(); hariIni(); pilihShiftModal(); shiftDef(); tujuhHari(); tulisSel(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiBaris() { kruById(); seninDari(); hariIni(); tujuhHari(); sel(); isiBarisKosongPertama(); gambarIsiBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiBarisKosongPertama() {  }
+
+
+
+
+function gambarIsiBaris() { tujuhHari(); shiftDef(); esc(); warnaTeks(); isiBarisKe(); tglPendek(); daftarShift(); isiBarisPilih(); escJs(); tglManusia(); tutupModal(); isiBarisMundur(); isiBarisKosongkan(); isiBarisSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiBarisKe() { gambarIsiBaris(); }
+function isiBarisMundur() { gambarIsiBaris(); }
+
+
+
+function isiBarisKosongkan() { gambarIsiBaris(); }
+
+
+
+function isiBarisPilih() { toast(); shiftDef(); isiBarisKosongPertama(); isiBarisSimpan(); gambarIsiBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiBarisSimpan() { tujuhHari(); sel(); tutupModal(); tulisSel(); toast(); }
+
+
+
+
+
+
+
+
+
 
 
 
