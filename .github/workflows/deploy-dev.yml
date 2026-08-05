@@ -453,6 +453,42 @@ jobs:
           state-name: .ftp-deploy-paksa-${{ github.run_id }}.json
           timeout: 300000
 
+      # Unggah paksa cuma SEKALI ternyata belum cukup. 5 Agustus 2026:
+      # service_excellent/index.html (601KB, terbesar kedua setelah marketing)
+      # tidak mendarat di percobaan biasa MAUPUN di unggah paksa — server tetap
+      # memegang berkas commit sebelumnya, utuh 600.599 byte. Deploy gagal
+      # gara-gara satu berkas, dan tidak ada kesempatan kedua.
+      #
+      # Gerbangnya VERIFIKASI, bukan outcome langkah FTP sebelumnya: unggah
+      # paksa bisa saja melaporkan sukses padahal berkasnya dilewati — itu
+      # justru penyakit yang sedang diobati di sini. Jadi diperiksa dulu, baru
+      # diputuskan perlu-tidaknya percobaan kedua.
+      - name: Verifikasi setelah unggah paksa
+        id: cek2
+        if: always() && steps.cek1.outcome == 'failure'
+        continue-on-error: true
+        run: bash tools/verifikasi-deploy.sh https://dev.laksamanamuda.id
+
+      # Jeda panjang: kegagalan yang sampai di titik ini bukan gangguan sesaat
+      # (sudah lewat 1-3 percobaan biasa + 1 unggah paksa), jadi menembak lagi
+      # dalam hitungan detik menabrak dinding yang sama.
+      - name: Jeda sebelum unggah paksa 2
+        if: always() && steps.cek2.outcome == 'failure'
+        run: sleep 90
+
+      - name: Unggah paksa 2 (kesempatan terakhir)
+        if: always() && steps.cek2.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /
+          state-name: .ftp-deploy-paksa2-${{ github.run_id }}.json
+          timeout: 300000
+
       - name: Verifikasi ulang (penentu lulus/tidak)
         if: always()
         run: bash tools/verifikasi-deploy.sh https://dev.laksamanamuda.id
