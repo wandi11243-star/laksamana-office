@@ -2820,64 +2820,74 @@ let SELECTED_CREW = null;
 function crewInitials(name){ return (name||"?").split(" ").map(w=>w[0]).slice(0,2).join("").toUpperCase(); }
 
 /* ---- Users & Hak Akses (sumber: STATE.master, fallback default) ---- */
+/* Hanya menyiapkan milik modul ini. Pengisian users/perms Reservasi dan migrasi
+   baris hariH->dashboard DIBUANG dari sini: keduanya milik modul sebelah, dan
+   menjalankannya dari sini berarti dua modul menulis objek yang sama dari dua
+   tempat berbeda. */
 function ensureUsersPerms(){
-  if(!STATE.master) STATE.master={};
-  if(!Array.isArray(STATE.master.users) || !STATE.master.users.length)
-    STATE.master.users = JSON.parse(JSON.stringify(DEFAULT_USERS));
-  if(!STATE.master.perms || typeof STATE.master.perms!=="object")
-    STATE.master.perms = JSON.parse(JSON.stringify(DEFAULT_PERMS));
-  /* MIGRASI: baris izin `hariH` (Recap Reservasi) dilebur ke `dashboard`,
-     karena kedua halamannya kini satu. Hak yang dipakai adalah yang TERTINGGI
-     dari keduanya — supaya tidak ada kru yang tiba-tiba kehilangan halaman
-     yang dibukanya tiap hari. Bawaan sistem memang sudah menyamakan keduanya
-     untuk semua role, jadi ini hanya berpengaruh pada instalasi yang
-     matriksnya pernah disetel manual.
-
-     Dijalankan SEBELUM loop PERM_ROWS di bawah, karena `hariH` sudah tidak ada
-     di PERM_ROWS lagi dan loop itu tidak akan menyentuhnya. Bentuk lama
-     (array daftar role, sebelum matriks View/Ubah) ikut ditangani: sama
-     seperti di loop, role yang ada di array dianggap PERM_EDIT. */
-  const lamaHariH = STATE.master.perms.hariH;
-  if(lamaHariH){
-    const nilai = (src, role) => Array.isArray(src) ? (src.includes(role)?PERM_EDIT:PERM_NONE)
-                 : (src && typeof src[role]==="number" ? src[role] : null);
-    const dash = STATE.master.perms.dashboard;
-    const gabung = {};
-    ROLE_KEYS.forEach(r=>{
-      const a = nilai(dash, r), b = nilai(lamaHariH, r);
-      const bawaan = (DEFAULT_PERMS.dashboard||{})[r] ?? PERM_NONE;
-      gabung[r] = Math.max(a==null?bawaan:a, b==null?bawaan:b);
-    });
-    STATE.master.perms.dashboard = gabung;
-    delete STATE.master.perms.hariH;
-    /* TIDAK dicatat ke audit log. ensureUsersPerms() jalan tiap kali data
-       master masuk dari server, dan selama server masih mengirim baris lama
-       itu, mencatatnya akan menghasilkan baris audit yang sama berulang-ulang
-       tiap sinkronisasi. Peleburannya sendiri tetap ikut tersimpan pada
-       penyimpanan berikutnya. */
-  }
-  // PERM_ROWS = NAV_PAGES + baris ekstra (inputDelete, financeDelete, lihat
-  // EXTRA_PERM_ROWS). Baris ekstra tak ada di data lama sama sekali (fitur ini
-  // baru), jadi selalu jatuh ke cabang "belum ada" di bawah dan terisi dari
-  // DEFAULT_PERMS, yang sudah meniru cakupan role CAN_DEFAULT lama persis.
+  const p=sePerms();
   PERM_ROWS.forEach(pg=>{
-    const cur = STATE.master.perms[pg];
-    if(Array.isArray(cur)){
-      // Data LAMA (sebelum matriks View/Ubah): perms[halaman] = daftar role yang
-      // boleh lihat. Naikkan jadi objek {role: 0|1|2}, dan role yang tadinya
-      // boleh lihat otomatis dapat level EDIT (perilaku sebelumnya: lihat = boleh
-      // ubah, tak ada beda) supaya migrasi TIDAK diam-diam mengunci siapa pun.
-      const up={}; ROLE_KEYS.forEach(r=>{ up[r]=cur.includes(r)?PERM_EDIT:PERM_NONE; });
-      STATE.master.perms[pg]=up;
-    } else if(!cur || typeof cur!=="object"){
-      STATE.master.perms[pg]=JSON.parse(JSON.stringify(DEFAULT_PERMS[pg]||{}));
-    } else {
-      ROLE_KEYS.forEach(r=>{ if(typeof cur[r]!=="number") cur[r]=(DEFAULT_PERMS[pg]||{})[r] ?? PERM_NONE; });
+    if(!p[pg] || typeof p[pg]!=="object" || Array.isArray(p[pg]))
+      p[pg]=JSON.parse(JSON.stringify(DEFAULT_PERMS[pg]||{}));
+    else ROLE_KEYS.forEach(r=>{ if(typeof p[pg][r]!=="number") p[pg][r]=(DEFAULT_PERMS[pg]||{})[r] ?? PERM_NONE; });
+  });
+  // Baris yang bukan milik modul ini tidak ikut dibuat maupun dihapus.
+}
+/* ===== KRU & HAK AKSES MILIK MODUL INI SENDIRI =====
+   Sampai 5 Agustus 2026 modul ini memakai STATE.master.users dan .perms — dua
+   objek yang SAMA dengan modul Reservasi. Akibatnya hak akses Service
+   Excellent tidak bisa berbeda dari hak akses Reservasi: mengangkat seseorang
+   jadi manager di sini otomatis mengangkatnya di sana juga. Itu yang diminta
+   dipisah.
+
+   Sekarang keduanya punya rumah sendiri di blob yang sama:
+     master.seCrew  — daftar kru modul ini  {id, name, divisi, role}
+     master.sePerms — matriks hak aksesnya  {baris: {tingkat: 0|1|2}}
+
+   Kunci BARU, bukan kunci lama yang dipakai bersama. Reservasi tidak pernah
+   membaca maupun menulis keduanya — normalizeMaster di sana hanya menyentuh
+   baris yang dikenalnya, dan kunci asing dibiarkan apa adanya (sudah terbukti
+   waktu review & feedback dipindah ke sini).
+
+   DAFTAR KRUNYA DARI DATABASE USER OFFICE, bukan diketik ulang: sinkronSeCrew()
+   menuangkan roster Office ke sini, menambah yang baru dan memperbarui nama &
+   divisinya, TAPI tidak pernah menimpa `role` yang sudah disetel manusia. */
+function seCrew(){
+  if(!STATE.master) STATE.master={};
+  if(!Array.isArray(STATE.master.seCrew)) STATE.master.seCrew=[];
+  return STATE.master.seCrew;
+}
+function sePerms(){
+  if(!STATE.master) STATE.master={};
+  if(!STATE.master.sePerms || typeof STATE.master.sePerms!=="object" || Array.isArray(STATE.master.sePerms))
+    STATE.master.sePerms=JSON.parse(JSON.stringify(DEFAULT_PERMS));
+  return STATE.master.sePerms;
+}
+/* Roster Office -> daftar kru modul. Mengembalikan true kalau ada yang berubah,
+   supaya pemanggilnya tahu perlu menyimpan & menggambar ulang atau tidak. */
+function sinkronSeCrew(roster){
+  if(!Array.isArray(roster) || !roster.length) return false;
+  const kru=seCrew(); let berubah=false;
+  roster.forEach(m=>{
+    if(!m || !m.id) return;
+    let u=kru.find(x=>x.id===m.id)
+        || kru.find(x=>String(x.name||"").toLowerCase()===String(m.name||"").toLowerCase());
+    if(!u){
+      // Bawaan `staff` — tingkat paling rendah. Menaikkannya urusan manusia.
+      kru.push({id:m.id, name:m.name, divisi:m.div||"", role:"staff"});
+      berubah=true;
+    }else{
+      if(m.id && u.id!==m.id){ u.id=m.id; berubah=true; }
+      if(m.name && u.name!==m.name){ u.name=m.name; berubah=true; }
+      if(m.div!=null && u.divisi!==m.div){ u.divisi=m.div; berubah=true; }
+      if(!ROLE_KEYS.includes(u.role)){ u.role="staff"; berubah=true; }
     }
   });
+  return berubah;
 }
-function getUsers(){ return (STATE.master && Array.isArray(STATE.master.users) && STATE.master.users.length) ? STATE.master.users : DEFAULT_USERS; }
-function getPerms(){ return (STATE.master && STATE.master.perms) ? STATE.master.perms : DEFAULT_PERMS; }
+function seKru(id){ return seCrew().find(u=>u.id===id) || null; }
+function getUsers(){ const k=seCrew(); return k.length?k:DEFAULT_USERS; }
+function getPerms(){ return sePerms(); }
 /* Dua role dikunci di KODE, bukan di data — supaya artinya tidak bisa hilang
    karena salah klik di matriks atau karena isi perms yang tersimpan aneh:
      admin  selalu PERM_EDIT  (sudah ada sebelumnya)
@@ -2930,10 +2940,9 @@ function resolveReservasiUser(s){
     // Kru yang belum dikenal modul ini. Yang datang lewat pintu embed (modul
     // Cashier) dibuat langsung ber-role `cashier` supaya Master Data tidak
     // memajangnya sebagai `host` sementara sesinya berjalan sebagai kasir.
-    u = { id:s.userId, name:s.name, role: OFFICE_TO_RESERVASI_ROLE[s.role] || (EMBED?'cashier':'host'), pin:'' };
-    if(!STATE.master) STATE.master={};
-    if(!Array.isArray(STATE.master.users)) STATE.master.users = DEFAULT_USERS.slice();
-    STATE.master.users.push(u);   // in-memory; ikut tersimpan saat ada saveState() berikutnya
+    // Kru baru masuk ke daftar MODUL INI, bukan ke daftar kru Reservasi.
+    u = { id:s.userId, name:s.name, divisi:String(s.keterangan||''), role:'staff' };
+    seCrew().push(u);   // in-memory; ikut tersimpan saat ada saveState() berikutnya
   }
   return u;
 }
@@ -2944,36 +2953,18 @@ function resolveReservasiUser(s){
    Read-only, tanpa PIN (Office listModuleRoster_, TERPISAH dari API_URL modul).
    Kru baru dibuat role admin bila admin modul Office, selain itu host.
    Non-blocking, diam saat offline. */
+/* Roster Office -> daftar kru MODUL INI. Memakai listDivisiRoster (seluruh
+   karyawan), bukan listModuleRoster: papan capaian dan pengaturan peran modul
+   ini memang tentang seluruh tim Laksamana Muda, bukan cuma pemegang aksesnya.
+   Hasilnya juga dipakai halaman Dashboard lewat SE_ROSTER. */
 async function autoSyncOfficeRoster(){
-  if(!OFFICE_WEBAPP_URL) return;
-  let data;
-  try{
-    const res = await fetchOffice( {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify({action:'listModuleRoster', module:'service_excellent'})});
-    data = await res.json();
-  }catch(e){ return; }
-  if(!data || !data.ok || !Array.isArray(data.members)) return;
-  if(!STATE.master) STATE.master={};
-  if(!Array.isArray(STATE.master.users)) STATE.master.users = DEFAULT_USERS.slice();
-  const users = STATE.master.users;
-  let changed=false;
-  data.members.forEach(m=>{
-    if(!m||!m.id) return;
-    let u = users.find(x=>x.id===m.id)
-          || users.find(x=>String(x.name||'').toLowerCase()===String(m.name||'').toLowerCase());
-    if(!u){
-      users.push({ id:m.id, name:m.name||'(tanpa nama)', role:(m.isModuleAdmin?'admin':'staff'), pin:'' });
-      changed=true;
-    }else{
-      // Satukan ke id Office (dulu hanya mengisi id kosong, lihat konten/akademi).
-      if(m.id && u.id!==m.id){ u.id=m.id; changed=true; }
-      if(m.name && u.name!==m.name){ u.name=m.name; changed=true; }
-      if(m.isModuleAdmin && u.role!=='admin'){ u.role='admin'; changed=true; }
-    }
-  });
-  if(changed){ try{ saveState(); }catch(e){} }
-  return changed;
+  const roster = await muatRosterTim();
+  if(!roster) return false;
+  const berubah = sinkronSeCrew(roster);
+  if(berubah){ try{ saveState(); }catch(e){} }
+  return berubah;
 }
+
 /* Jalankan roster Office di LATAR. Panggilan ini ke Apps Script dan diukur ~10,8 DETIK
    (302 /exec → googleusercontent /echo) — dulu di-await saat boot, sehingga membuka
    halaman Reservasi butuh 10-12 detik padahal datanya sendiri (api.php) cuma ~58 ms.
@@ -3062,7 +3053,16 @@ async function boot(){
      panel "Tamu Belum Diminta Review" dibatasi per divisi, bukan per role —
      lihat bolehLihatMintaReview(). Peran (staff/manager/admin) menjawab
      "boleh mengubah apa"; divisi menjawab "ini pekerjaan siapa". */
-  SESSION = {id:u.id, name:u.name, role:roleSE(effRole), divisi:String(office.keterangan||"")};
+  /* Peran diambil dari daftar kru MODUL INI kalau sudah pernah disetel di
+     halaman Kelola Kru; kalau belum, dari status admin modul di Office. Dengan
+     begitu mengangkat seseorang jadi manager di sini tidak menyentuh perannya
+     di Reservasi sama sekali. */
+  const kru = seKru(u.id) || seKru(office.userId);
+  const dariOffice = (oAdm.includes('*')||oAdm.includes('service_excellent')) ? 'admin' : 'staff';
+  SESSION = { id:u.id, name:u.name,
+              role: (kru && ROLE_KEYS.includes(kru.role)) ? kru.role : dariOffice,
+              divisi: String((kru && kru.divisi) || office.keterangan || "") };
+  try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION)); }catch(e){}   // divisi ikut bertahan setelah muat ulang
   SELECTED_CREW = u.id;
   bs.classList.add("hidden");
   await enterApp();
@@ -8597,7 +8597,7 @@ function saveUserRow(id){
   u.role=role; logAudit("Role Kru",`${u.name} -> ${role}`);
   // Bila mengubah role diri sendiri, sesi ikut diperbarui agar sidebar langsung menyesuaikan.
   if(id===SESSION.id){ SESSION.role=role; sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION)); byId("userRole").textContent=ROLE_LABEL[role]; }
-  saveState(); closeModal(); buildNav(); renderMaster(); toast("Role kru disimpan ⚓","ok");
+  saveState(); closeModal(); buildNav(); renderPeran(); toast("Role kru disimpan ⚓","ok");
 }
 // Tombol siklus di matriks Hak Akses: klik geser None(0) -> Lihat(1) -> Ubah(2)
 // -> None, warna+label ikut berubah. Cuma ubah tampilan tombol; tersimpan
@@ -8627,7 +8627,7 @@ function cyclePerm(btn){
    Karena itu barisnya digabung, bukan diganti. */
 function savePerms(){
   ensureUsersPerms();
-  const perms = STATE.master.perms || (STATE.master.perms={});
+  const perms = sePerms();   // milik modul ini, bukan objek bersama dengan Reservasi
   document.querySelectorAll(".perm-btn:not([disabled])").forEach(btn=>{
     const p=btn.dataset.p, r=btn.dataset.r;
     if(!PERM_ROWS.includes(p)) return;          // jangan pernah menulis baris asing
@@ -8646,8 +8646,8 @@ function savePerms(){
 function resetPerms(){
   if(!confirm("Kembalikan semua hak akses ke pengaturan default?")) return;
   ensureUsersPerms();
-  STATE.master.perms=JSON.parse(JSON.stringify(DEFAULT_PERMS));
-  logAudit("Hak Akses","Reset ke default"); saveState(); buildNav(); renderMaster(); toast("Hak akses direset","ok");
+  STATE.master.sePerms=JSON.parse(JSON.stringify(DEFAULT_PERMS));
+  logAudit("Hak Akses","Reset ke default"); saveState(); buildNav(); renderPeran(); toast("Hak akses direset","ok");
 }
 function dataTools(){
   openModal(`<div class="modal-head"><h3>🛠️ Data & Backup</h3><button class="close-x" onclick="closeModal()">×</button></div>
@@ -8671,8 +8671,24 @@ function wipeData(){ if(!confirm("Hapus SEMUA data reservasi & histori? Tidak bi
    (Dashboard Pencapaian, Feedback & Review, Kirim Ajakan Review, Kelola Role,
    Audit Log) — dan itu memang seluruh isinya, bukan potongan. Baris milik
    Reservasi tidak ditampilkan DAN tidak ditulis; lihat savePerms(). */
+/* Tarik ulang daftar kru dari database user Office. Dipanggil tombol di
+   halaman ini dan sekali otomatis saat halaman dibuka pertama kali — kru baru
+   di Office harus bisa diberi peran tanpa siapa pun perlu tahu tombol ini ada. */
+async function segarkanKru(){
+  SE_ROSTER=null;                       // paksa ambil ulang, bukan pakai yang tersimpan
+  const roster=await muatRosterTim();
+  if(!roster){ toast("Roster Office tidak bisa dimuat — coba lagi","err"); return; }
+  const berubah=sinkronSeCrew(roster);
+  if(berubah) saveState();
+  renderPeran();
+  toast(berubah?`Daftar kru diperbarui (${roster.length} orang)`:"Daftar kru sudah paling baru","ok");
+}
 function renderPeran(){
   const el=byId("page-peran");
+  // Sekali tarik otomatis saat pertama dibuka, lalu gambar ulang begitu tiba.
+  if(SE_ROSTER===null) muatRosterTim().then(r=>{
+    if(r && sinkronSeCrew(r)){ saveState(); if(CURRENT_PAGE==='peran') renderPeran(); }
+  });
   if(!CAN.master(SESSION.role)){
     el.innerHTML=`<div class="panel"><div class="panel-body"><div class="empty" style="padding:30px">
       <div class="big">🔒</div>Hanya <b>manager</b> dan <b>admin</b> yang bisa mengatur hak akses.</div></div></div>`;
