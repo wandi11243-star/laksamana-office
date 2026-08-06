@@ -586,6 +586,17 @@ function svg() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function esc() {  }
 function escJs() {  }
 function pad() {  }
@@ -1096,7 +1107,11 @@ function bolehBuka() { isDW(); isAdmin(); }
 
 
 
-function buildNav() { isDW(); bolehBuka(); esc(); go(); svg(); }
+function buildNav() { isDW(); bolehBuka(); go(); esc(); svg(); }
+
+
+
+
 
 
 
@@ -1931,7 +1946,14 @@ function serapAjukan() {  }
 
 
 
-function viewAjukan() { hariIni(); isDW(); esc(); namaDivisi(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); }
+function viewAjukan() { hariIni(); isDW(); esc(); namaDivisi(); isOffice(); go(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); }
+
+
+
+
+
+
+
 
 
 
