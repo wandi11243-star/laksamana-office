@@ -511,6 +511,21 @@ const STATUS_DW = {
    daripada label yang usang. */
 const STATUS_DW_LAMA = {PANTAU:'AKTIF', BLOKIR:'NONAKTIF'};
 const STATUS_AJU = {MENUNGGU:'Menunggu HR', DISETUJUI:'Disetujui', DITOLAK:'Ditolak', BATAL:'Dibatalkan'};
+/* Tujuan pembayaran DW. Tiga saja: transfer bank, GoPay, DANA — dua yang
+   terakhir memakai nomor HP, bukan nomor rekening, dan itulah satu-satunya
+   yang membedakan bentuk isiannya. Menambah kanal lain (OVO, ShopeePay)
+   tinggal satu baris di sini; yang tidak boleh adalah membiarkannya jadi
+   teks bebas, karena halaman Pembayaran menggabungkan orang berdasarkan
+   kesamaan nomor tujuannya. */
+const BAYAR = {
+  BANK :{n:'Transfer Bank', ic:'🏦', ket:'No. rekening', hint:'Sertakan nama banknya di kolom nomor, mis. "BCA 1234567890"'},
+  GOPAY:{n:'GoPay',         ic:'🟢', ket:'No. HP GoPay', hint:'Nomor HP yang terdaftar di GoPay'},
+  DANA :{n:'DANA',          ic:'🔵', ket:'No. HP DANA',  hint:'Nomor HP yang terdaftar di DANA'}
+};
+function bayarJenisSah(v){
+  const k=String(v||'').toUpperCase();
+  return BAYAR[k] ? k : 'BANK';
+}
 
 /* Ikon sidebar. SVG garis, bukan emoji — emoji berbeda bentuk di tiap sistem
    operasi dan tidak bisa mewarisi warna menu aktif.
@@ -526,6 +541,7 @@ const IC = {
   kalender:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
   orang:'<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   pena:'<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+  uang:'<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/>',
   gir:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.43.65.79.79H21a2 2 0 1 1 0 4h-.09c-.36.14-.65.43-.79.79Z"/>'
 };
 function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p||'')+'</svg>'; }
@@ -544,6 +560,7 @@ const NAV_DEF = [
   {k:'saya',      t:'Ajuan Saya',     ic:'kalender', sub:'Riwayat & status ajuan saya', dw:1},
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
+  {k:'bayar',     t:'Pembayaran',     ic:'uang',     sub:'Rekap mingguan & daftar transfer'},
   {s:'Pengaturan'},
   {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, panduan jumlah DW'}
 ];
@@ -587,6 +604,13 @@ function labelBulan(mk){ const p=mk.split('-'); return BULAN[(+p[1])-1]+' '+p[0]
 function awalBulan(mk){ return mk+'-01'; }
 function akhirBulan(mk){ const p=mk.split('-'); return fmtD(new Date(+p[0], +p[1], 0)); }
 function geserBulan(mk,n){ const p=mk.split('-'); const d=new Date(+p[0],(+p[1]-1)+n,1); return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+/* Label rentang satu minggu: "3 Agu – 9 Agu 2026". Sama persis dengan modul
+   Jadwal Shift supaya dua modul menyebut minggu yang sama dengan cara yang
+   sama. */
+function rentangMinggu(senin){
+  const a=parseD(senin), b=parseD(addD(senin,6));
+  return a.getDate()+' '+BULAN_PDK[a.getMonth()]+' – '+b.getDate()+' '+BULAN_PDK[b.getMonth()]+' '+b.getFullYear();
+}
 function inisial(n){ const p=String(n||'?').trim().split(/\s+/); return ((p[0]||'?')[0]+(p[1]?p[1][0]:'')).toUpperCase(); }
 function fmtRibuan(n){ return Math.round(+n||0).toLocaleString('id-ID'); }
 function rp(n){ return 'Rp '+fmtRibuan(n); }
@@ -643,7 +667,14 @@ function normalizeState(d){
     out.pekerja.push({
       id:String(p.id), nama:String(p.nama||''), hp:String(p.hp||''),
       adaPin:!!p.adaPin, gender:String(p.gender||''), area:String(p.area||''),
-      bank:String(p.bank||''), divisi:String(p.divisi||''), posisi:String(p.posisi||''),
+      bank:String(p.bank||''),
+      /* Tujuan pembayaran. `bank` yang lama (teks bebas "BCA · 1234xxxx")
+         tetap dibawa dan ditampilkan sebagai keterangan sampai HR sempat
+         memisahnya — dihapus begitu saja berarti satu-satunya catatan ke mana
+         orang ini dibayar hilang tanpa ada yang tahu. */
+      bayarJenis:bayarJenisSah(p.bayarJenis),
+      bayarNomor:String(p.bayarNomor||''), bayarNama:String(p.bayarNama||''),
+      divisi:String(p.divisi||''), posisi:String(p.posisi||''),
       skill:String(p.skill||''), status:statusDW(p.status),
       catatan:String(p.catatan||''), dibuatAt:+p.dibuatAt||0
     });
@@ -823,6 +854,14 @@ function rentangDibutuhkan(){
   if(DASH_TGL){
     if(addD(DASH_TGL,-7)<dari)  dari=addD(DASH_TGL,-7);
     if(addD(DASH_TGL,7)>sampai) sampai=addD(DASH_TGL,7);
+  }
+  /* Halaman Pembayaran punya penggeser mingguannya sendiri dan bisa jauh dari
+     bulan yang sedang dibuka. Tanpa baris ini, menggeser ke minggu lalu
+     menampilkan tabel kosong yang terbaca sebagai "tidak ada yang perlu
+     dibayar" — kesalahan yang paling mahal di halaman ini. */
+  if(BAYAR_MINGGU){
+    if(BAYAR_MINGGU<dari)          dari=BAYAR_MINGGU;
+    if(addD(BAYAR_MINGGU,6)>sampai) sampai=addD(BAYAR_MINGGU,6);
   }
   return {dari,sampai};
 }
@@ -1085,6 +1124,7 @@ const TITLES={
   ajukan:    ['Ajukan Jadwal','Pilih tanggal dan jam kerja'],
   saya:      ['Ajuan Saya','Riwayat dan status ajuan'],
   pekerja:   ['Database DW','Talent pool daily worker'],
+  bayar:     ['Pembayaran','Rekap seminggu per DW dan daftar transfernya'],
   pengaturan:['Pengaturan','Tarif, jam bawaan, dan panduan jumlah DW per divisi']
 };
 function setTop(){
@@ -1122,6 +1162,7 @@ function render(){
   else if(VIEW==='ajukan')     V.innerHTML=viewAjukan();
   else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pekerja')    V.innerHTML=viewPekerja();
+  else if(VIEW==='bayar')      V.innerHTML=viewBayar();
   else if(VIEW==='pengaturan') V.innerHTML=viewPengaturan();
   else V.innerHTML='<div class="panel"><div class="empty">Halaman tidak dikenal.</div></div>';
 }
@@ -2088,7 +2129,22 @@ function bukaPekerja(id){
         +['','Pria','Wanita'].map(g=>'<option value="'+g+'"'+(p&&p.gender===g?' selected':'')+'>'+(g||'—')+'</option>').join('')+'</select></div>'
       +'<div class="field"><label>Area tinggal</label><input id="pkArea" value="'+esc(p?p.area:'')+'" placeholder="Mis. Denpasar"></div>'
     +'</div>'
-    +'<div class="field"><label>Rekening</label><input id="pkBank" value="'+esc(p?p.bank:'')+'" placeholder="BCA · 1234xxxx"></div>'
+    /* Tujuan pembayaran: jenis dipilih, nomornya diketik. Dulu satu kotak
+       teks bebas, dan itu membuat tiga orang yang dibayar ke rekening yang
+       SAMA tertulis tiga cara berbeda — lalu tidak bisa digabung jadi satu
+       transfer di halaman Pembayaran. */
+    +'<div class="duo">'
+      +'<div class="field"><label>Bayar lewat</label><select id="pkBayarJenis" onchange="ubahJenisBayar(this.value)">'
+        +Object.keys(BAYAR).map(k=>'<option value="'+k+'"'+((p?bayarJenisSah(p.bayarJenis):'BANK')===k?' selected':'')+'>'
+          +BAYAR[k].ic+' '+esc(BAYAR[k].n)+'</option>').join('')
+      +'</select></div>'
+      +'<div class="field"><label id="pkBayarLbl">'+esc(BAYAR[p?bayarJenisSah(p.bayarJenis):'BANK'].ket)+'</label>'
+        +'<input id="pkBayarNomor" inputmode="numeric" value="'+esc(p?p.bayarNomor:'')+'">'
+        +'<div class="hint" id="pkBayarHint">'+esc(BAYAR[p?bayarJenisSah(p.bayarJenis):'BANK'].hint)+'</div></div>'
+    +'</div>'
+    +'<div class="field"><label>Atas nama</label><input id="pkBayarNama" value="'+esc(p?p.bayarNama:'')+'" placeholder="Kosongkan kalau sama dengan nama DW">'
+      +(p&&p.bank&&!p.bayarNomor
+          ?'<div class="hint">Catatan rekening lama: <b>'+esc(p.bank)+'</b> — pindahkan ke dua kolom di atas, lalu baris ini hilang sendiri.</div>':'')+'</div>'
     +'<div class="field"><label>Skill</label><input id="pkSkill" value="'+esc(p?p.skill:'')+'" placeholder="Dipisah koma: Bar, Runner"></div>'
     +'<div class="field"><label>Status</label><select id="pkStatus">'
       +Object.keys(STATUS_DW).map(k=>'<option value="'+k+'"'+((p?p.status:'AKTIF')===k?' selected':'')+'>'+esc(STATUS_DW[k].n)+' — '+esc(STATUS_DW[k].k)+'</option>').join('')+'</select></div>'
@@ -2097,6 +2153,11 @@ function bukaPekerja(id){
 }
 async function simpanPekerja(id){
   const el=x=>document.getElementById(x);
+  /* Keterangan rekening lama dikirim ulang APA ADANYA. Form ini tidak lagi
+     punya kotak untuk mengubahnya, dan tidak mengirimnya sama saja dengan
+     menghapusnya — satu-satunya catatan ke mana orang ini pernah dibayar
+     lenyap gara-gara HR memperbaiki ejaan namanya. */
+  const lama=id?pekerjaById(id):null;
   const nama=(el('pkNama')||{}).value||'';
   const hp=normalHp((el('pkHp')||{}).value);
   if(!nama.trim()){ toast('Nama wajib diisi', true); return false; }
@@ -2105,7 +2166,11 @@ async function simpanPekerja(id){
     id, nama:nama.trim(), hp,
     divisi:(el('pkDiv')||{}).value||'', posisi:(el('pkPos')||{}).value||'',
     gender:(el('pkGen')||{}).value||'', area:(el('pkArea')||{}).value||'',
-    bank:(el('pkBank')||{}).value||'', skill:(el('pkSkill')||{}).value||'',
+    bank:lama?lama.bank:'',
+    bayarJenis:bayarJenisSah((el('pkBayarJenis')||{}).value),
+    bayarNomor:String((el('pkBayarNomor')||{}).value||'').trim(),
+    bayarNama:String((el('pkBayarNama')||{}).value||'').trim(),
+    skill:(el('pkSkill')||{}).value||'',
     status:(el('pkStatus')||{}).value||'AKTIF', catatan:(el('pkCat')||{}).value||''
   };
   /* `pin` hanya IKUT DIKIRIM kalau diisi. Backend menulis kolom PIN hanya
@@ -2122,6 +2187,17 @@ async function simpanPekerja(id){
     return true;
   }catch(e){ toast(e.message, true); return false; }
 }
+/* Label dan contohnya ikut berubah saat jenis pembayaran diganti — "No.
+   rekening" yang tetap tertulis padahal yang dipilih GoPay adalah cara
+   tercepat membuat kolomnya diisi salah. Diubah di tempat, bukan lewat
+   render(): halaman ini sedang berupa modal yang belum tersimpan. */
+function ubahJenisBayar(v){
+  const b=BAYAR[bayarJenisSah(v)];
+  const lbl=document.getElementById('pkBayarLbl');
+  const hint=document.getElementById('pkBayarHint');
+  if(lbl) lbl.textContent=b.ket;
+  if(hint) hint.textContent=b.hint;
+}
 function bukaProfil(id){
   const p=pekerjaById(id); if(!p) return;
   const st=statistikDW(id);
@@ -2131,11 +2207,12 @@ function bukaProfil(id){
       +'<span class="chip mono">'+esc(p.hp)+'</span>'
       +'<span class="chip">'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'</span>'
       +'<span class="chip">'+esc(p.posisi||'—')+'</span></div>'
+    +'<div class="row"><div class="who"><b>Tujuan pembayaran</b><span>'+esc(labelTujuan(p))+'</span></div></div>'
     +'<div class="stats">'
       +statBox(st.total,'Kali Kerja')+statBox(st.jam,'Total Jam')
       +statBox(st.menunggu,'Ajuan Menunggu')
     +'</div>'
-    +(p.bank?'<div class="row"><div class="who"><b>Rekening</b><span>'+esc(p.bank)+'</span></div></div>':'')
+    +(p.bank&&!p.bayarNomor?'<div class="row"><div class="who"><b>Catatan rekening lama</b><span>'+esc(p.bank)+'</span></div></div>':'')
     +(p.skill?'<div class="row"><div class="who"><b>Skill</b><span>'+esc(p.skill)+'</span></div></div>':'')
     +(p.catatan?'<div class="note w">'+esc(p.catatan)+'</div>':'')
     +'<div class="mutedhint" style="margin:12px 0 6px"><b>Riwayat terakhir</b></div>'
@@ -2157,6 +2234,217 @@ function hapusPekerja(id){
         await muatData(true); render();
       }catch(e){ toast('Gagal menghapus: '+e.message, true); }
     });
+}
+
+/* =====================================================================
+   HALAMAN — PEMBAYARAN MINGGUAN
+
+   Pertanyaan yang dijawab: "minggu ini si A masuk berapa kali, dan berapa
+   yang harus ditransfer?" — dan sesudah itu, pertanyaan yang sebenarnya
+   memakan waktu: "berapa kali saya harus buka m-banking?"
+
+   Karena itu ada DUA tampilan atas data yang sama:
+     Per orang    — untuk mencocokkan dengan orangnya kalau ia bertanya.
+     Per tujuan   — untuk mengerjakan transfernya. Tiga DW yang nomor
+                    tujuannya sama digabung jadi satu baris, satu jumlah,
+                    sekali transfer. Inilah alasan nomor rekening dipecah
+                    jadi kolom sendiri (lihat BAYAR di atas): selama ia teks
+                    bebas, "BCA 1234" dan "bca-1234" adalah dua tujuan
+                    berbeda bagi komputer dan satu tujuan bagi manusia.
+
+   Yang dihitung hanya ajuan DISETUJUI. Yang masih menunggu belum tentu
+   jadi, dan memasukkannya ke daftar transfer berarti uang keluar untuk
+   orang yang mungkin tidak pernah datang.
+   ===================================================================== */
+let BAYAR_MINGGU='';          // tanggal Senin, '' = minggu berjalan
+let BAYAR_FILTER='ALL';       // ALL | BANK | GOPAY | DANA
+let BAYAR_GABUNG=true;        // true = per tujuan transfer, false = per orang
+
+function bayarSenin(){ return BAYAR_MINGGU||seninDari(hariIni()); }
+function bayarGeser(n){ BAYAR_MINGGU=addD(bayarSenin(), n*7); muatDanGambar(); }
+function bayarMingguIni(){ BAYAR_MINGGU=seninDari(hariIni()); muatDanGambar(); }
+function bayarFilter(k){ BAYAR_FILTER=k; render(); }
+function bayarGabung(v){ BAYAR_GABUNG=!!v; render(); }
+
+/* Kunci penggabungan: jenis + nomor, dengan nomor dibersihkan dari spasi,
+   titik, dan tanda hubung. "1234 5678" dan "1234-5678" adalah rekening yang
+   sama, dan kalau dibiarkan beda ia menghasilkan dua transfer ke tempat yang
+   persis sama — persis kebalikan dari gunanya halaman ini.
+   Yang belum punya nomor tujuan TIDAK digabung dengan siapa pun; masing-masing
+   berdiri sendiri supaya kelihatan bahwa datanya memang belum lengkap. */
+function kunciBayar(p){
+  const nomor=String(p&&p.bayarNomor||'').replace(/[\s.\-]/g,'');
+  if(!nomor) return 'KOSONG|'+(p?p.id:'');
+  return bayarJenisSah(p.bayarJenis)+'|'+nomor.toLowerCase();
+}
+/* Rekap satu minggu: {uid → {p, kali, jam, total}} */
+function rekapBayar(senin){
+  const hari=[]; for(let i=0;i<7;i++) hari.push(addD(senin,i));
+  const dari=hari[0], sampai=hari[6];
+  const peta={};
+  (S.ajuan||[]).forEach(function(a){
+    if(a.status!=='DISETUJUI') return;
+    if(a.tgl<dari || a.tgl>sampai) return;
+    const p=pekerjaById(a.dwId);
+    const k=a.dwId;
+    if(!peta[k]) peta[k]={id:k, p:p, nama:namaDW(k), kali:0, jam:0, total:0, tgl:[]};
+    peta[k].kali++;
+    peta[k].jam+=durasiJam(a.m,a.s);
+    peta[k].total+=biayaAjuan(a);
+    peta[k].tgl.push(a.tgl);
+  });
+  return Object.keys(peta).map(k=>peta[k])
+    .sort((x,y)=>String(x.nama).localeCompare(String(y.nama)));
+}
+function labelTujuan(p){
+  if(!p) return 'Data DW terhapus';
+  const j=BAYAR[bayarJenisSah(p.bayarJenis)];
+  if(!p.bayarNomor) return j.ic+' '+j.n+' — nomor belum diisi';
+  return j.ic+' '+j.n+' '+p.bayarNomor+(p.bayarNama?' a.n. '+p.bayarNama:' a.n. '+p.nama);
+}
+function viewBayar(){
+  const senin=bayarSenin();
+  const hari=[]; for(let i=0;i<7;i++) hari.push(addD(senin,i));
+  let baris=rekapBayar(senin);
+  if(BAYAR_FILTER!=='ALL'){
+    baris=baris.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===BAYAR_FILTER);
+  }
+  const totalRp=baris.reduce((n,x)=>n+x.total,0);
+  const totalKali=baris.reduce((n,x)=>n+x.kali,0);
+
+  /* Berapa transfer yang benar-benar perlu dilakukan — bukan berapa orang.
+     Angka inilah yang dicari sebelum membuka m-banking. */
+  const kelompok={};
+  baris.forEach(function(x){
+    const k=kunciBayar(x.p);
+    if(!kelompok[k]) kelompok[k]={kunci:k, p:x.p, orang:[], total:0, kali:0};
+    kelompok[k].orang.push(x); kelompok[k].total+=x.total; kelompok[k].kali+=x.kali;
+  });
+  const grup=Object.keys(kelompok).map(k=>kelompok[k])
+    .sort((a,b)=>b.total-a.total);
+
+  const chip=(k,l)=>'<button class="'+(BAYAR_FILTER===k?'active':'')+'" onclick="bayarFilter(\''+k+'\')">'+esc(l)+'</button>';
+  const hitungJenis=function(k){
+    return rekapBayar(senin).filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===k).length;
+  };
+
+  let isi;
+  if(!baris.length){
+    isi='<div class="empty"><div class="ic">💸</div>Tidak ada shift disetujui pada '+esc(rentangMinggu(senin))+
+        (BAYAR_FILTER==='ALL'?'.':' untuk metode ini.')+'</div>';
+  }else if(BAYAR_GABUNG){
+    isi='<div class="tablewrap"><table class="list">'
+      +'<thead><tr><th class="no">No.</th><th>Tujuan transfer</th><th>Untuk</th>'
+      +'<th class="kanan">Shift</th><th class="kanan">Jumlah</th></tr></thead><tbody>'
+      +grup.map(function(g,i){
+        return '<tr>'
+          +'<td class="no">'+(i+1)+'</td>'
+          +'<td class="nama">'+esc(labelTujuan(g.p))
+            +(g.orang.length>1?'<div class="kecil">'+g.orang.length+' orang sekali transfer</div>':'')+'</td>'
+          +'<td>'+g.orang.map(function(o){
+              return esc(o.nama)+' <span class="kecil">('+o.kali+'× · '+rp(o.total)+')</span>';
+            }).join('<br>')+'</td>'
+          +'<td class="kanan mono">'+g.kali+'×</td>'
+          +'<td class="kanan mono"><b>'+esc(rp(g.total))+'</b></td>'
+        +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }else{
+    isi='<div class="tablewrap"><table class="list">'
+      +'<thead><tr><th class="no">No.</th><th>Daily Worker</th><th>Divisi / Posisi</th>'
+      +'<th class="kanan">Shift</th><th class="kanan">Jam</th><th>Tujuan transfer</th>'
+      +'<th class="kanan">Jumlah</th></tr></thead><tbody>'
+      +baris.map(function(x,i){
+        const p=x.p;
+        return '<tr>'
+          +'<td class="no">'+(i+1)+'</td>'
+          +'<td class="nama">'+esc(x.nama)
+            +'<div class="kecil">'+esc(x.tgl.map(t=>HARI[idxHari(t)].slice(0,3)).join(', '))+'</div></td>'
+          +'<td>'+(p?esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div>':'—')+'</td>'
+          +'<td class="kanan mono">'+x.kali+'×</td>'
+          +'<td class="kanan mono">'+(Math.round(x.jam*10)/10)+'</td>'
+          +'<td class="kecil">'+esc(labelTujuan(p))+'</td>'
+          +'<td class="kanan mono"><b>'+esc(rp(x.total))+'</b></td>'
+        +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }
+
+  /* Yang nomornya belum diisi diangkat sebagai pita, bukan dibiarkan
+     tenggelam di tabel: transfernya tidak bisa dikerjakan malam itu juga,
+     dan itu perlu ketahuan SEBELUM HR mulai membuka m-banking. */
+  const belum=baris.filter(x=>!(x.p&&x.p.bayarNomor));
+
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>Pembayaran mingguan</h2><div class="spacer"></div>'
+    +'<div class="navdate noprint"><button class="iconbtn" onclick="bayarGeser(-1)" aria-label="Minggu sebelumnya">‹</button>'
+    +'<b>'+esc(rentangMinggu(senin))+'</b>'
+    +'<button class="iconbtn" onclick="bayarGeser(1)" aria-label="Minggu berikutnya">›</button>'
+    +tombolKembali('bayarMingguIni', senin===seninDari(hariIni()), 'Kembali ke minggu ini')+'</div></div>'
+    +'<div class="stats">'
+      +statBox(baris.length,'Daily Worker')
+      +statBox(totalKali,'Total Shift')
+      +statBox(grup.length,'Transfer')
+      +statUang(rp(totalRp),'Total Dibayar')
+    +'</div>'
+    +(belum.length?'<div class="note w"><b>'+belum.length+' orang</b> belum punya nomor tujuan: '
+      +esc(belum.map(x=>x.nama).join(', '))+'. Lengkapi di <b>Database DW</b> supaya bisa ikut digabung.</div>':'')
+    +'<div class="rowbar">'
+      +'<div class="seg">'+chip('ALL','Semua ('+rekapBayar(senin).length+')')
+        +Object.keys(BAYAR).map(k=>chip(k,BAYAR[k].ic+' '+BAYAR[k].n+' ('+hitungJenis(k)+')')).join('')+'</div>'
+      +'<div class="spacer"></div>'
+      +'<div class="seg">'
+        +'<button class="'+(BAYAR_GABUNG?'active':'')+'" onclick="bayarGabung(1)" title="Gabungkan yang tujuannya sama">Per tujuan</button>'
+        +'<button class="'+(BAYAR_GABUNG?'':'active')+'" onclick="bayarGabung(0)">Per orang</button>'
+      +'</div>'
+      +'<button class="btn btn-ghost btn-sm noprint" onclick="salinBayar()">📋 Salin daftar</button>'
+      +'<button class="btn btn-ghost btn-sm noprint" onclick="window.print()">🖨️ Print</button>'
+    +'</div>'
+    +isi
+    +'<p class="mutedhint" style="margin-top:10px">Yang dihitung hanya shift yang <b>sudah disetujui</b> pada '
+    +esc(rentangMinggu(senin))+'. Nominalnya dari tarif per posisi di Pengaturan — '
+    +'kalau tarifnya berubah, angka minggu yang sudah lewat ikut berubah.</p>'
+    +'</div>';
+}
+/* Daftar transfer sebagai teks polos, untuk ditempel ke WhatsApp atau catatan
+   sendiri saat mengerjakan transfernya. Disusun dari kelompok yang sama
+   dengan yang di layar, bukan dihitung ulang. */
+function salinBayar(){
+  const senin=bayarSenin();
+  let baris=rekapBayar(senin);
+  if(BAYAR_FILTER!=='ALL') baris=baris.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===BAYAR_FILTER);
+  const kelompok={};
+  baris.forEach(function(x){
+    const k=kunciBayar(x.p);
+    if(!kelompok[k]) kelompok[k]={p:x.p, orang:[], total:0};
+    kelompok[k].orang.push(x); kelompok[k].total+=x.total;
+  });
+  const grup=Object.keys(kelompok).map(k=>kelompok[k]).sort((a,b)=>b.total-a.total);
+  if(!grup.length){ toast('Tidak ada yang perlu ditransfer minggu ini'); return; }
+  let t='PEMBAYARAN DAILY WORKER\n'+rentangMinggu(senin)+'\n';
+  grup.forEach(function(g,i){
+    t+='\n'+(i+1)+'. '+labelTujuan(g.p)+'\n';
+    g.orang.forEach(function(o){ t+='   - '+o.nama+' '+o.kali+'x = '+rp(o.total)+'\n'; });
+    t+='   TRANSFER: '+rp(g.total)+'\n';
+  });
+  t+='\nTOTAL: '+rp(grup.reduce((n,g)=>n+g.total,0));
+  salinTeks(t);
+}
+function salinTeks(t){
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){ toast('Daftar transfer disalin'); },
+        function(){ salinLewatKotak(t); });
+      return;
+    }
+  }catch(e){}
+  salinLewatKotak(t);
+}
+/* Peramban lama / halaman tanpa izin clipboard: tampilkan teksnya supaya
+   tetap bisa disalin manual, bukan diam-diam gagal. */
+function salinLewatKotak(t){
+  modal('Daftar transfer', '<textarea style="width:100%;height:260px" readonly>'+esc(t)+'</textarea>'
+    +'<p class="mutedhint">Peramban ini tidak mengizinkan salin otomatis — pilih semua teks di atas lalu salin sendiri.</p>', []);
 }
 
 /* =====================================================================

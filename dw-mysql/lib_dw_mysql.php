@@ -94,6 +94,15 @@ function hp_normal($v) {
   return substr($d, 0, 20);
 }
 
+/* Tiga saja, dan divalidasi di SINI juga — bukan cuma di layar. Nilai asing
+   yang lolos ke kolom ini membuat halaman Pembayaran menggabungkan orang ke
+   kelompok yang tidak ada di daftar penyaringnya, lalu mereka hilang dari
+   layar tanpa satu pun galat. */
+function bayar_jenis_sah($v) {
+  $v = strtoupper(preg_replace('/[^A-Za-z]/', '', (string)$v));
+  return in_array($v, array('BANK', 'GOPAY', 'DANA'), true) ? $v : 'BANK';
+}
+
 function id_baru($awalan) {
   return $awalan . base_convert((string)ms(), 10, 36) . random_int(100, 999);
 }
@@ -113,6 +122,9 @@ function pastikan_tabel($pdo) {
        `gender`       VARCHAR(10)  NOT NULL DEFAULT \'\',
        `area`         VARCHAR(80)  NOT NULL DEFAULT \'\',
        `bank`         VARCHAR(120) NOT NULL DEFAULT \'\',
+       `bayar_jenis`  VARCHAR(16)  NOT NULL DEFAULT \'BANK\',
+       `bayar_nomor`  VARCHAR(60)  NOT NULL DEFAULT \'\',
+       `bayar_nama`   VARCHAR(120) NOT NULL DEFAULT \'\',
        `divisi`       VARCHAR(16)  NOT NULL DEFAULT \'\',
        `posisi`       VARCHAR(60)  NOT NULL DEFAULT \'\',
        `skill`        VARCHAR(255) NOT NULL DEFAULT \'\',
@@ -159,6 +171,16 @@ function pastikan_tabel($pdo) {
   pastikan_kolom($pdo, 'dw_ajuan', 'hadir_nota', "VARCHAR(255) NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_ajuan', 'hadir_oleh', "VARCHAR(120) NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_ajuan', 'hadir_at',   "BIGINT       NOT NULL DEFAULT 0");
+  /* Tujuan pembayaran dipecah tiga kolom, bukan satu teks bebas seperti
+     `bank` yang lama. Alasannya bukan kerapian: halaman Pembayaran
+     MENGGABUNGKAN orang yang tujuannya sama supaya sekali transfer bisa
+     untuk beberapa orang, dan penggabungan itu mustahil kalau nomornya
+     ditulis "BCA 1234", "bca-1234", dan "1234 (BCA)" oleh tiga orang yang
+     berbeda. Kolom `bank` yang lama TIDAK di-DROP: isinya masih ditampilkan
+     sebagai keterangan sampai HR sempat memisahnya sendiri. */
+  pastikan_kolom($pdo, 'dw_pekerja', 'bayar_jenis', "VARCHAR(16)  NOT NULL DEFAULT 'BANK'");
+  pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nomor', "VARCHAR(60)  NOT NULL DEFAULT ''");
+  pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nama',  "VARCHAR(120) NOT NULL DEFAULT ''");
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `dw_setting` (
        `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -182,7 +204,8 @@ function baca_semua($dari, $sampai) {
 
   $pekerja = array();
   $q = $pdo->query(
-    'SELECT `id`,`nama`,`no_hp`,`pin`,`gender`,`area`,`bank`,`divisi`,`posisi`,
+    'SELECT `id`,`nama`,`no_hp`,`pin`,`gender`,`area`,`bank`,
+            `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,
             `skill`,`status`,`catatan`,`dibuat_at`
        FROM `dw_pekerja` ORDER BY `nama`');
   foreach ($q->fetchAll() as $r) {
@@ -193,6 +216,9 @@ function baca_semua($dari, $sampai) {
          hanya menambah satu tempat lagi ia bisa bocor. */
       'adaPin' => ($r['pin'] !== '' ? 1 : 0),
       'gender' => $r['gender'], 'area' => $r['area'], 'bank' => $r['bank'],
+      'bayarJenis' => isset($r['bayar_jenis']) ? $r['bayar_jenis'] : 'BANK',
+      'bayarNomor' => isset($r['bayar_nomor']) ? $r['bayar_nomor'] : '',
+      'bayarNama'  => isset($r['bayar_nama'])  ? $r['bayar_nama']  : '',
       'divisi' => $r['divisi'], 'posisi' => $r['posisi'],
       'skill' => $r['skill'], 'status' => $r['status'],
       'catatan' => $r['catatan'], 'dibuatAt' => (int)$r['dibuat_at'],
@@ -341,6 +367,9 @@ function simpan_pekerja($row, $by) {
     ':g'  => pot(isset($row['gender']) ? $row['gender'] : '', 10),
     ':ar' => pot(isset($row['area']) ? $row['area'] : '', 80),
     ':bk' => pot(isset($row['bank']) ? $row['bank'] : '', 120),
+    ':bj' => bayar_jenis_sah(isset($row['bayarJenis']) ? $row['bayarJenis'] : ''),
+    ':bn' => pot(isset($row['bayarNomor']) ? $row['bayarNomor'] : '', 60),
+    ':ba' => pot(isset($row['bayarNama']) ? $row['bayarNama'] : '', 120),
     ':dv' => pot(isset($row['divisi']) ? $row['divisi'] : '', 16),
     ':ps' => pot(isset($row['posisi']) ? $row['posisi'] : '', 60),
     ':sk' => pot(isset($row['skill']) ? $row['skill'] : '', 255),
@@ -362,9 +391,10 @@ function simpan_pekerja($row, $by) {
     $arg[':by2'] = $by;
     $st = $pdo->prepare(
       'INSERT INTO `dw_pekerja`
-         (`id`,`nama`,`no_hp`,`pin`,`gender`,`area`,`bank`,`divisi`,`posisi`,`skill`,
+         (`id`,`nama`,`no_hp`,`pin`,`gender`,`area`,`bank`,
+          `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,`skill`,
           `status`,`catatan`,`dibuat_at`,`dibuat_oleh`,`updated_at`,`updated_oleh`)
-       VALUES (:id,:nm,:hp,:pin,:g,:ar,:bk,:dv,:ps,:sk,:st,:ct,:t,:by,:t2,:by2)');
+       VALUES (:id,:nm,:hp,:pin,:g,:ar,:bk,:bj,:bn,:ba,:dv,:ps,:sk,:st,:ct,:t,:by,:t2,:by2)');
     $st->execute($arg);
   } else {
     $sqlPin = $adaPin ? '`pin`=:pin, ' : '';
@@ -372,6 +402,7 @@ function simpan_pekerja($row, $by) {
     $st = $pdo->prepare(
       'UPDATE `dw_pekerja` SET
          `nama`=:nm, `no_hp`=:hp, ' . $sqlPin . '`gender`=:g, `area`=:ar, `bank`=:bk,
+         `bayar_jenis`=:bj, `bayar_nomor`=:bn, `bayar_nama`=:ba,
          `divisi`=:dv, `posisi`=:ps, `skill`=:sk, `status`=:st, `catatan`=:ct,
          `updated_at`=:t, `updated_oleh`=:by
        WHERE `id`=:id');

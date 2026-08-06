@@ -522,6 +522,22 @@
 
 
 
+function bayarJenisSah() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -529,6 +545,7 @@
 
 
 function svg() {  }
+
 
 
 
@@ -587,6 +604,13 @@ function labelBulan() {  }
 function awalBulan() {  }
 function akhirBulan() { fmtD(); }
 function geserBulan() { pad(); }
+
+
+
+function rentangMinggu() { parseD(); addD(); }
+
+
+
 function inisial() {  }
 function fmtRibuan() {  }
 function rp() { fmtRibuan(); }
@@ -635,7 +659,14 @@ function seed() { normalSetting(); }
 
 
 
-function normalizeState() { normalSetting(); statusDW(); }
+function normalizeState() { normalSetting(); bayarJenisSah(); statusDW(); }
+
+
+
+
+
+
+
 
 
 
@@ -817,6 +848,14 @@ function apiGet() {  }
 
 
 function rentangDibutuhkan() { bulanDari(); hariIni(); addD(); seninDari(); awalBulan(); akhirBulan(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1087,6 +1126,7 @@ function buildNav() { isDW(); bolehBuka(); esc(); go(); svg(); }
 
 
 
+
 function setTop() {  }
 
 
@@ -1111,7 +1151,8 @@ function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewBayar(); viewPengaturan(); }
+
 
 
 
@@ -2066,7 +2107,7 @@ function cariPekerja() { render(); }
 
 function filterPekerja() { render(); }
 
-function bukaPekerja() { pekerjaById(); modal(); esc(); simpanPekerja(); }
+function bukaPekerja() { pekerjaById(); modal(); esc(); ubahJenisBayar(); bayarJenisSah(); simpanPekerja(); }
 
 
 
@@ -2095,7 +2136,22 @@ function bukaPekerja() { pekerjaById(); modal(); esc(); simpanPekerja(); }
 
 
 
-function simpanPekerja() { normalHp(); toast(); apiPost(); tutupModal(); muatData(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanPekerja() { pekerjaById(); normalHp(); toast(); bayarJenisSah(); apiPost(); tutupModal(); muatData(); render(); }
 
 
 
@@ -2122,7 +2178,28 @@ function simpanPekerja() { normalHp(); toast(); apiPost(); tutupModal(); muatDat
 
 
 
-function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); statBox(); barisAjuan(); hapusPekerja(); tutupModal(); bukaPekerja(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ubahJenisBayar() { bayarJenisSah(); }
+
+
+
+
+
+
+function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); labelTujuan(); statBox(); barisAjuan(); hapusPekerja(); tutupModal(); bukaPekerja(); go(); }
+
 
 
 
@@ -2155,6 +2232,217 @@ function hapusPekerja() { pekerjaById(); konfirmasi(); apiPost(); tutupModal(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bayarSenin() { seninDari(); hariIni(); }
+function bayarGeser() { addD(); bayarSenin(); muatDanGambar(); }
+function bayarMingguIni() { seninDari(); hariIni(); muatDanGambar(); }
+function bayarFilter() { render(); }
+function bayarGabung() { render(); }
+
+
+
+
+
+
+
+function kunciBayar() { bayarJenisSah(); }
+
+
+
+
+
+function rekapBayar() { addD(); pekerjaById(); namaDW(); durasiJam(); biayaAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function labelTujuan() { bayarJenisSah(); }
+
+
+
+
+
+function viewBayar() { bayarSenin(); addD(); rekapBayar(); bayarJenisSah(); kunciBayar(); bayarFilter(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hitungJenis() { rekapBayar(); bayarJenisSah(); esc(); rentangMinggu(); labelTujuan(); rp(); idxHari(); ikonDivisi(); namaDivisi(); bayarGeser(); tombolKembali(); seninDari(); hariIni(); statBox(); statUang(); chip(); bayarGabung(); salinBayar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function salinBayar() { bayarSenin(); rekapBayar(); bayarJenisSah(); kunciBayar(); toast(); rentangMinggu(); labelTujuan(); rp(); salinTeks(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function salinTeks() { toast(); salinLewatKotak(); }
+
+
+
+
+
+
+
+
+
+
+
+function salinLewatKotak() { modal(); esc(); }
 
 
 
