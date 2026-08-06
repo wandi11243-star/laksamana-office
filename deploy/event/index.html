@@ -515,6 +515,19 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .tpl-canvas{position:relative;border:1px solid var(--line);border-radius:8px;background:var(--panel2);overflow:hidden}
 .tpl-canvas i{position:absolute;display:block;border-radius:2px}
 .salesbar{height:9px;border-radius:6px;background:var(--panel2);overflow:hidden}
+/* Baris kategori yang bisa dibuka jadi daftar pembelinya. Kepalanya sebuah
+   <button> penuh lebar, bukan teks yang kebetulan bisa diklik: kalau tidak,
+   satu-satunya petunjuk bahwa baris itu bisa dibuka adalah orang yang
+   kebetulan mencobanya. */
+.katrow{margin-bottom:10px;border-radius:10px;padding:2px}
+.katrow.on{background:var(--panel2);padding:8px;margin-bottom:14px}
+.kathead{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;
+  padding:2px 0 4px;cursor:pointer;color:inherit;font:inherit;text-align:left}
+.kathead .mini{margin-left:auto}
+.kathead:hover .ldz-tier{text-decoration:underline}
+.kat-caret{font-size:11px;color:var(--muted);width:12px;text-align:center}
+.katlist{margin-top:10px;background:var(--panel);border-radius:8px;overflow:hidden}
+.katlist table{font-size:12.5px}
 .salesbar i{display:block;height:100%;border-radius:6px}
 /* Tabel penjualan bisa panjang: digulir di dalam kartunya sendiri supaya
    kepala tabel & pager tidak ikut hilang dari layar. */
@@ -3306,25 +3319,121 @@ function salesRingkas(eid){
       const c=DB.ticketClasses.find(x=>x.id===t.ticket_class_id);
       const nama=c?c.name:'(tanpa kelas)';
       const harga=c?(+c.price||0):0;
-      per[nama]=per[nama]||{n:0,rp:0,warna:ldzTierInfo(eid,nama).c};
+      per[nama]=per[nama]||{n:0,rp:0,warna:ldzTierInfo(eid,nama).c,pembeli:[],_idx:{}};
+      /* PEMBELI DIKUMPULKAN PER KATEGORI, satu baris per pesanan — bukan satu
+         baris per tiket. Satu orang yang membeli 6 tiket VIP adalah SATU
+         pembeli yang membawa 6 orang, dan mendaftarnya enam kali membuat
+         "berapa orang yang beli VIP" tidak bisa dijawab dari layar.
+
+         Yang di-refund tetap didaftar (dengan penanda), cuma tidak ikut
+         menambah uang maupun jumlah tiket sah: pertanyaan "siapa saja yang
+         pernah beli VIP" tetap perlu dijawab lengkap, sedangkan angka
+         omzetnya tidak boleh ikut naik. */
+      let b=per[nama]._idx[o.id];
+      if(!b){
+        b={ order:o, nama:o.buyer_name, hp:o.phone, email:o.email,
+            jml:0, rp:0, refund:refund, kursi:{}, masuk:0 };
+        per[nama]._idx[o.id]=b; per[nama].pembeli.push(b);
+      }
+      b.jml++;
+      if(t.status==='Checked-In') b.masuk++;
+      const st=t.seat_id?DB.seats.find(x=>x.id===t.seat_id):null;
+      if(st){ const l=String(st.table_no||st.seat_no); b.kursi[l]=(b.kursi[l]||0)+1; }
       if(refund){ dikembalikan+=harga; return; }
+      b.rp+=harga;
       per[nama].n++; per[nama].rp+=harga; omzet+=harga; tiketSah++;
     });
   });
+  /* Pembeli terbesar di atas: yang paling sering ditanyakan dari daftar ini
+     adalah "siapa yang borong", bukan urutan waktu belinya. */
+  Object.keys(per).forEach(function(k){
+    per[k].pembeli.sort(function(a,b){ return b.jml-a.jml || String(a.nama).localeCompare(String(b.nama)); });
+    delete per[k]._idx;
+  });
   return {per:per, omzet:omzet, dikembalikan:dikembalikan, tiketSah:tiketSah, orders:orders};
 }
-function salesGrafikHTML(r){
+/* ---- Rincian pembeli per kategori ----
+   Baris kategori bisa dibuka jadi daftar siapa saja yang membelinya. Sebelum
+   ini, satu-satunya cara menjawab "siapa saja yang beli VIP" adalah membaca
+   seluruh tabel pesanan di bawah sambil menyaring sendiri di kepala \u2014 dan
+   tabel itu diurutkan waktu beli, jadi pembeli satu kategori tersebar di
+   beberapa halaman.
+
+   Yang dibuka HANYA SATU pada satu waktu. Membuka semuanya sekaligus
+   mengembalikan masalah yang sama: halaman panjang yang harus dipindai.
+   Halamannya sendiri berukuran 8 baris dan berdiri sendiri per kategori,
+   supaya membuka kategori lain tidak melempar pembacaan ke halaman 3. */
+let _katBuka='';
+let _katHal={};
+const KAT_PER_HAL=8;
+function toggleKat(eid,i){
+  const k=String(i);
+  _katBuka = (_katBuka===k ? '' : k);
+  if(_katBuka) _katHal[k]=_katHal[k]||1;
+  renderTicketDetail(eid);
+}
+function katHal(eid,i,n){ _katHal[String(i)]=Math.max(1,n); renderTicketDetail(eid); }
+/* Kategori dirujuk lewat INDEKS, bukan namanya. Nama kelas tiket diketik
+   bebas ("VIP Meja 'A'"), dan menempelkannya ke dalam atribut onclick adalah
+   satu tanda kutip dari halaman yang rusak. */
+function katPembeliHTML(eid,v,i){
+  const list=v.pembeli||[];
+  const total=list.length;
+  const halMax=Math.max(1,Math.ceil(total/KAT_PER_HAL));
+  let hal=+(_katHal[String(i)]||1); if(hal>halMax) hal=halMax;
+  const mulai=(hal-1)*KAT_PER_HAL;
+  const tampil=list.slice(mulai,mulai+KAT_PER_HAL);
+  let h='<div class="katlist">';
+  if(!total){
+    h+='<div class="empty" style="padding:14px">Belum ada pembeli di kategori ini.</div>';
+  }else{
+    h+='<div class="tbl-scroll"><table><thead><tr>'
+     +'<th>Pembeli</th><th>Kontak</th><th>Tiket</th><th>Tempat</th><th>Nilai</th><th>Check-in</th></tr></thead><tbody>';
+    tampil.forEach(function(b){
+      const kursi=Object.keys(b.kursi).map(function(l){
+        return b.kursi[l]>1 ? l+' ('+b.kursi[l]+')' : l;
+      });
+      h+='<tr><td><b>'+esc(b.nama)+'</b>'
+        +(b.refund?' <span class="badge b-grey">Refunded</span>':'')
+        +'<div class="mini">'+fmtDateTime(b.order.created)+'</div></td>'
+       +'<td class="mini">'+esc(b.hp||'')+(b.email?'<br>'+esc(b.email):'')+'</td>'
+       +'<td><b>'+b.jml+'</b> tiket</td>'
+       +'<td class="mini">'+(kursi.length?esc(kursi.join(', ')):'\u2014')+'</td>'
+       +'<td>'+(b.refund?'<span class="mini">dikembalikan</span>':IDR(b.rp))+'</td>'
+       +'<td class="mini">'+(b.masuk?b.masuk+' / '+b.jml:'\u2014')+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    if(halMax>1){
+      h+='<div class="pager">'
+       +'<button class="btn ghost sm" '+(hal<=1?'disabled':'')+' onclick="katHal(\''+eid+'\','+i+','+(hal-1)+')">\u2039</button>'
+       +'<span class="mini">'+(mulai+1)+'\u2013'+Math.min(mulai+KAT_PER_HAL,total)+' dari '+total+' pembeli</span>'
+       +'<button class="btn ghost sm" '+(hal>=halMax?'disabled':'')+' onclick="katHal(\''+eid+'\','+i+','+(hal+1)+')">\u203a</button>'
+       +'</div>';
+    }
+  }
+  return h+'</div>';
+}
+function salesGrafikHTML(r,eid){
   const nama=Object.keys(r.per);
   if(!nama.length) return '';
   const maks=Math.max.apply(null,nama.map(function(k){ return r.per[k].rp; }))||1;
   return '<div class="card" style="margin-bottom:16px"><h3 class="sec">Penjualan per Kategori</h3>'
-   +nama.map(function(k){
+   +'<p class="mini" style="margin:-6px 0 10px">Klik kategorinya untuk melihat siapa saja pembelinya.</p>'
+   +nama.map(function(k,i){
       const v=r.per[k], w=Math.round(v.rp/maks*100);
-      return '<div style="margin-bottom:10px">'
-       +'<div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px">'
-         +'<span><span class="ldz-tier"><i style="background:'+v.warna+'"></i>'+esc(k)+'</span></span>'
-         +'<span class="mini"><b>'+v.n+' tiket</b> \u00b7 '+IDR(v.rp)+'</span></div>'
-       +'<div class="salesbar"><i style="width:'+w+'%;background:'+v.warna+'"></i></div></div>';
+      const buka=(_katBuka===String(i));
+      const jmlPembeli=(v.pembeli||[]).length;
+      return '<div class="katrow'+(buka?' on':'')+'">'
+       +'<button type="button" class="kathead" onclick="toggleKat(\''+eid+'\','+i+')" '
+         +'aria-expanded="'+(buka?'true':'false')+'">'
+         +'<span class="ldz-tier"><i style="background:'+v.warna+'"></i>'+esc(k)+'</span>'
+         +'<span class="mini"><b>'+v.n+' tiket</b> \u00b7 '+IDR(v.rp)
+           +' \u00b7 '+jmlPembeli+' pembeli</span>'
+         +'<span class="kat-caret">'+(buka?'\u25b4':'\u25be')+'</span>'
+       +'</button>'
+       +'<div class="salesbar"><i style="width:'+w+'%;background:'+v.warna+'"></i></div>'
+       +(buka?katPembeliHTML(eid,v,i):'')
+       +'</div>';
    }).join('')
    +'</div>';
 }
@@ -3356,7 +3465,7 @@ function salesBody(eid){
    +stat('Omzet Bersih',IDR(r.omzet),r.tiketSah+' tiket sah')
    +stat('Dikembalikan',IDR(r.dikembalikan),'refund disetujui')
    +stat('Jumlah Pesanan',r.orders.length,'termasuk yang direfund')
-   +'</div>'+salesGrafikHTML(r);
+   +'</div>'+salesGrafikHTML(r,eid);
 
   const baris=[];
   r.orders.slice().reverse().forEach(function(o){
