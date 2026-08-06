@@ -15,6 +15,19 @@
 # KALI dalam satu run: sekali untuk memutuskan perlu-tidaknya unggah paksa,
 # sekali lagi sesudahnya sebagai penentu. Menyalin skripnya dua kali di dalam
 # YAML berarti dua salinan yang lambat laun berbeda.
+#
+# DAFTAR MODULNYA TIDAK DITULIS TANGAN LAGI (6 Agustus 2026).
+# Versi lama menyebutkan modulnya satu per satu, dan `stock/usage/` tidak
+# pernah masuk daftar itu — juga stock/tree, howandi_life, hr, dan ticketing.
+# Akibatnya, ketika deploy/stock/usage/index.html gagal mendarat di server dev,
+# verifikasi tetap melaporkan hijau: SELURUH jaring pengaman di workflow
+# (3 percobaan FTP + 2 unggah paksa) digerbangi oleh keluaran skrip ini, jadi
+# tak satu pun menyala. Yang tersisa cuma laporan user "kok belum berubah",
+# dan berkasnya diam di versi commit sebelumnya selama berhari-hari.
+#
+# Daftar yang harus diingat manusia akan selalu tertinggal dari repo yang
+# bertambah. Sekarang diambil dari repo itu sendiri: setiap deploy/**/index.html
+# diperiksa, jadi modul baru ikut terjaga tanpa ada yang perlu menambahkannya.
 # ============================================================================
 set -u
 base="${1:-}"
@@ -26,8 +39,23 @@ base="${base%/}"
 ci="${GITHUB_SHA:-manual-$(date +%s)}"   # pemecah cache; tanpa ini bisa kena salinan lama CDN/proxy
 gagal=0
 
-for m in "" marketing/ reservasi/ event/ akademi/ konten/ stock/ stock/ordering/ stock/purchasing/ \
-         bd/ kompas/ cashier/ jadwal/ radar/ dw/ roster/ service_excellent/; do  src="deploy/${m}index.html"
+# Root ditandai "." (bukan string kosong): ekspansi `for m in $daftar` tanpa
+# tanda kutip MEMBUANG baris kosong, jadi root index.html justru jadi satu-
+# satunya halaman yang tidak pernah diperiksa.
+daftar=$(cd deploy && find . -name index.html | sed 's|/index\.html$||; s|^\./||' | sort)
+jumlah=$(printf '%s\n' "$daftar" | grep -c '' )
+# Penjaga: find yang gagal / folder deploy yang kosong akan membuat loop di
+# bawah tidak memeriksa apa pun DAN keluar dengan status 0 — persis kegagalan
+# diam-diam yang skrip ini dibuat untuk menangkap.
+if [ "$jumlah" -lt 5 ]; then
+  echo "GAGAL   cuma $jumlah halaman yang ditemukan di deploy/ — daftarnya tidak masuk akal" >&2
+  exit 1
+fi
+echo "Memeriksa $jumlah halaman terhadap ${base}"
+
+for p in $daftar; do
+  if [ "$p" = "." ]; then m=""; else m="$p/"; fi
+  src="deploy/${m}index.html"
   if [ ! -f "$src" ]; then
     echo "LEWAT   ${m:-/} (tidak ada di repo)"
     continue
