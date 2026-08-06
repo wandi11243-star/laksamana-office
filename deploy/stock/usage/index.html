@@ -1655,12 +1655,9 @@
     renderWasteReport();
   }
 
-  async function lihatFotoWaste(id) {
-    try {
-      const d = await apiGet('waste.php', { action: 'foto', id });
-      if (d && d.status === 'success' && d.foto) window.open(d.foto, '_blank');
-      else toast('Foto tidak ada', '', 'err');
-    } catch (e) { toast('Gagal memuat foto', 'Cek koneksi.', 'err'); }
+  function lihatFotoWaste(id) {
+    const r = DATA_WASTE.find(x => String(x.id) === String(id));
+    bukaFoto('waste.php', id, r ? `${r.item || 'Waste'} — ${fmtTgl(r.tanggal)}` : 'Foto waste');
   }
 
   /* ======================= DAILY STOCK OPNAME =======================
@@ -2340,12 +2337,9 @@
     } catch (e) { toast('Gagal terhubung', 'Cek koneksi.', 'err'); }
   }
 
-  async function lihatFotoSerah(id) {
-    try {
-      const d = await apiGet('serah.php', { action: 'foto', id });
-      if (d && d.status === 'success' && d.foto) window.open(d.foto, '_blank');
-      else toast('Foto tidak ada', '', 'err');
-    } catch (e) { toast('Gagal memuat foto', 'Cek koneksi.', 'err'); }
+  function lihatFotoSerah(id) {
+    const s = SRH_DATA.find(x => String(x.id) === String(id));
+    bukaFoto('serah.php', id, s ? `Serah terima ${fmtTgl(s.tanggal)} → ${s.tujuan || '—'}` : 'Foto serah terima');
   }
 
   function rentangSerah() {
@@ -2488,6 +2482,78 @@
       p[nm] = { qty: b.total, unit: b.unit };
     });
     return p;
+  }
+
+  /* ===================== PENAMPIL FOTO =====================
+     Dulu: `window.open(d.foto, '_blank')`, dengan d.foto berupa data URI
+     (`data:image/jpeg;base64,...` — begitulah backend menyimpannya, lihat
+     serah.php & waste.php). Chrome MEMBLOKIR navigasi top-level ke URL `data:`
+     sejak 2017 sebagai perlindungan dari phishing, jadi tabnya tidak pernah
+     jadi terbuka: yang terlihat user cuma tab kosong atau tidak terjadi
+     apa-apa. Fotonya sendiri utuh di database — dilaporkan 6 Agustus 2026
+     sebagai "tidak bisa view gambar, error" di Serah Terima dan Waste.
+
+     Yang TIDAK diblokir: <img src="data:..."> di dalam halaman ini sendiri,
+     dan <a download href="data:..."> untuk mengunduhnya. Jadi fotonya
+     ditampilkan di overlay, bukan di tab baru.
+
+     src & href disetel lewat PROPERTI, bukan lewat string HTML: data URI foto
+     kamera bisa berukuran megabyte dan menempelkannya ke innerHTML memaksa
+     browser memparse ulang string sepanjang itu sebagai markup. */
+  let _fotoEsc = null;
+  function tutupFoto() {
+    const el = document.getElementById('foto-overlay');
+    if (el) el.remove();
+    if (_fotoEsc) { document.removeEventListener('keydown', _fotoEsc); _fotoEsc = null; }
+  }
+  function overlayFoto(judul) {
+    tutupFoto();
+    const ov = document.createElement('div');
+    ov.id = 'foto-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(16,13,9,.88);'
+      + 'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:18px';
+    ov.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;max-width:100%;color:#fff">
+        <b style="font-size:13.5px">${esc(judul || 'Foto')}</b>
+        <a id="foto-unduh" download style="display:none;font-size:12.5px;font-weight:600;color:#fff;
+           background:rgba(255,255,255,.14);border-radius:8px;padding:6px 12px;text-decoration:none">⬇️ Unduh</a>
+        <button type="button" onclick="tutupFoto()" style="font-size:12.5px;font-weight:600;color:#fff;
+           background:rgba(255,255,255,.14);border:none;border-radius:8px;padding:6px 12px;cursor:pointer">✕ Tutup</button>
+      </div>
+      <div id="foto-isi" style="color:#fff;font-size:13px">⏳ Memuat foto…</div>`;
+    // Klik latar = tutup. Klik gambarnya sendiri tidak — orang memperbesar
+    // foto justru dengan menekan gambarnya.
+    ov.addEventListener('click', e => { if (e.target === ov) tutupFoto(); });
+    document.body.appendChild(ov);
+    _fotoEsc = e => { if (e.key === 'Escape') tutupFoto(); };
+    document.addEventListener('keydown', _fotoEsc);
+    return ov;
+  }
+  async function bukaFoto(berkas, id, judul) {
+    overlayFoto(judul);
+    let d;
+    try {
+      d = await apiGet(berkas, { action: 'foto', id });
+    } catch (e) {
+      // Sebab aslinya ikut ditulis. "Cek koneksi" pada kegagalan yang sebenarnya
+      // HTTP 500 membuat orang mengejar wifi selama setengah jam.
+      const isi = document.getElementById('foto-isi');
+      if (isi) isi.textContent = '⚠️ Gagal memuat foto: ' + (e && e.message ? e.message : 'tidak diketahui');
+      return;
+    }
+    const isi = document.getElementById('foto-isi');
+    if (!isi) return;                                   // keburu ditutup user
+    if (!d || d.status !== 'success' || !d.foto) {
+      isi.textContent = 'Foto tidak ditemukan untuk catatan ini.';
+      return;
+    }
+    const img = document.createElement('img');
+    img.alt = judul || 'Foto';
+    img.style.cssText = 'max-width:100%;max-height:78vh;object-fit:contain;border-radius:10px;background:#fff';
+    img.src = d.foto;
+    isi.replaceWith(img);
+    const unduh = document.getElementById('foto-unduh');
+    if (unduh) { unduh.href = d.foto; unduh.download = d.fotoNama || 'foto.jpg'; unduh.style.display = ''; }
   }
 
   function kosong(ikon, pesan) {
