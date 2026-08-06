@@ -16,25 +16,15 @@
   var ok=hidup&&(mods.indexOf('*')>-1||mods.indexOf('service_excellent')>-1);
   if(!ok)location.replace('../');}catch(e){location.replace('../');}})();
 </script>
-<script>
-(function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
-  var hidup=s&&s.expiry&&Date.now()<s.expiry;
-  var mods=(s&&s.modules)||[];
-  var punya=function(k){return mods.indexOf(k)>-1;};
-  /* Modul Cashier menampilkan halaman Dana Masuk (DP) MILIK MODUL INI apa
-     adanya lewat <iframe src="../reservasi/?embed=finance">. Pemegang modul
-     `cashier` karena itu ikut boleh masuk — TAPI hanya lewat pintu embed, dan
-     di dalamnya terkunci ke halaman Dana Masuk saja (lihat EMBED di boot()
-     dan navigate()). Tanpa parameter embed, `cashier` tidak membuka apa pun.
-
-     Dipilih begini supaya halaman Dana Masuk cuma ada SATU di seluruh repo.
-     Menyalinnya ke modul Cashier berarti menyalin juga mesin OCR pembaca
-     bukti, pengunduh berkas bukti, dan jalur simpan verifikasi — lalu
-     membiarkan dua salinan itu pelan-pelan berbeda. */
-  var embed=/[?&]embed=finance(&|$)/.test(location.search);
-  var ok=hidup&&(punya('*')||punya('reservasi')||(embed&&punya('cashier')));
-  if(!ok)location.replace('../');}catch(e){location.replace('../');}})();
-</script>
+<!-- Guard KEDUA milik Reservasi sudah dihapus dari sini (6 Agustus 2026).
+     Isinya `punya('*')||punya('reservasi')||(embed&&punya('cashier'))` — warisan
+     salin-tempel yang tidak pernah menyebut `service_excellent` sama sekali.
+     Akibatnya siapa pun yang di Office cuma diberi modul Service Excellent
+     (tanpa Reservasi, tanpa '*') dipantulkan balik ke portal tanpa pesan:
+     guard pertama meloloskannya, guard ini mengusirnya sepersekian detik
+     kemudian, dan gejalanya "modulnya tidak bisa dibuka" tanpa jejak apa pun.
+     Guard pertama di atas sudah menanyakan hal yang benar; tidak ada halaman
+     embed di modul ini yang perlu dijaga guard kedua. -->
 <!-- ===== PWA ===== -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f7f6f4">
@@ -3056,19 +3046,13 @@ async function boot(){
      ~10,8 detik → itulah 10-12 detik saat membuka halaman. Dipindah ke latar (bawah). */
   // Identitas dari Office, dipetakan ke kru Reservasi -> langsung masuk (tanpa PIN lokal).
   const u = resolveReservasiUser(office);
-  // Admin modul dari Office (adminModules mengandung '*' atau 'reservasi') -> role
-  // admin untuk sesi ini, tanpa mengubah role kru tersimpan. Membuka Master Data.
   const oAdm = (office.adminModules||[]);
-  const oMod = (office.modules||[]);
-  const punyaResv = oMod.includes('*')||oMod.includes('service_excellent');
-  let effRole = (oAdm.includes('*')||oAdm.includes('service_excellent')) ? 'admin' : u.role;
-  /* Orang yang datang dari modul Cashier dan TIDAK punya akses reservasi
-     sendiri masuk sebagai role `cashier`. Tanpa baris ini dia jatuh ke `host`
-     lewat resolveReservasiUser(), dan matriks Hak Akses menyembunyikan Dana
-     Masuk dari host — bingkai embed-nya akan terbuka kosong tanpa keterangan
-     apa pun. Role `cashier` sudah ada di matriks itu dengan Dana Masuk =
-     Boleh Ubah, jadi tidak ada aturan baru yang ditambahkan di sini. */
-  if(EMBED && !punyaResv) effRole = 'cashier';
+  /* `effRole` warisan Reservasi DIHAPUS dari sini (6 Agustus 2026). Ia dihitung
+     lalu tidak pernah dibaca satu baris pun — tingkat sesi ditentukan di bawah.
+     Berbahaya justru karena namanya meyakinkan: siapa pun yang membaca cepat
+     akan mengira di situlah tingkat orang ditetapkan, lalu "memperbaiki" role
+     di tempat yang tidak berpengaruh apa-apa. Cabang `cashier`-nya juga tidak
+     berlaku: modul ini tidak punya halaman Dana Masuk untuk ditumpangi. */
   /* `divisi` = Tim/Keterangan orang ini di Office. Dibawa masuk karena
      panel "Tamu Belum Diminta Review" dibatasi per divisi, bukan per role —
      lihat bolehLihatMintaReview(). Peran (staff/manager/admin) menjawab
@@ -3089,8 +3073,31 @@ async function boot(){
      pertama. Begitu satu orang diangkat, jalur ini mati sendiri. */
   const belumAdaPengurus = !seCrew().some(k=>k.role==="manager"||k.role==="admin");
   const peranKru = (kru && ROLE_KEYS.includes(kru.role)) ? kru.role : null;
-  SESSION = { id:u.id, name:u.name,
-              role: (adminOffice || belumAdaPengurus) ? 'admin' : (peranKru || 'staff'),
+  /* URUTAN TIGA BARIS INI YANG MENENTUKAN, dan sempat salah — dilaporkan
+     6 Agustus 2026: "ketika di-set Staff, masih tetap bisa kelola role".
+
+     Dulu: `(adminOffice || belumAdaPengurus) ? 'admin' : (peranKru || 'staff')`.
+     Status admin modul di Office menang atas APA PUN. Orang yang diturunkan
+     ke Staff di halaman Kelola Role tetap masuk sebagai Admin Sistem, dan
+     tidak ada satu pun tulisan di layar yang menjelaskan kenapa — halamannya
+     seolah menyimpan lalu tidak melakukan apa-apa. Yang menyembunyikannya:
+     penurunan itu MEMANG tersimpan di database dan terlihat benar di daftar
+     kru; yang tidak berubah cuma sesi orangnya.
+
+     Sekarang tingkat di MODUL INI yang menang, persis seperti janji
+     halamannya ("berlaku hanya di modul Service Excellent"). Status admin
+     Office turun pangkat jadi BAWAAN untuk orang yang belum ada di daftar
+     kru modul ini — bukan lagi kunci induk.
+
+     Tidak bisa mengunci diri sendiri: setKruRole menolak menurunkan pengurus
+     terakhir, dan selama daftar kru belum memuat satu pun Manajer/Admin,
+     jalur darurat di baris pertama tetap membuka pintu untuk siapa saja. */
+  const roleSesi = belumAdaPengurus ? 'admin'
+                 : (peranKru || (adminOffice ? 'admin' : 'staff'));
+  SESSION = { id:u.id, name:u.name, role: roleSesi,
+              // Dipakai halaman Kelola Role untuk menjelaskan ke orangnya
+              // kenapa tingkatnya bisa berbeda dari dugaannya.
+              adminOffice: adminOffice,
               divisi: String((kru && kru.divisi) || office.keterangan || "") };
   try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION)); }catch(e){}   // divisi ikut bertahan setelah muat ulang
   SELECTED_CREW = u.id;
@@ -7442,7 +7449,78 @@ function reviewCfg(){
      Yang dimatikan HANYA tombolnya. Catatan review yang sudah ada, verifikasi,
      target, dan seluruh rekapnya tidak tersentuh sama sekali. */
   if(typeof c.waAktif!=="boolean") c.waAktif=true;
+  normalisasiReward(c);
   return c;
+}
+
+/* ===================== REWARD REVIEW =====================
+   Permintaan user 6 Agustus 2026: "minimal 30 review, dibuat tier — capai 40
+   dapat 40.000, capai 70 dapat 70.000, capai 100 ke atas dapat 200.000. Tapi
+   jumlah bonus dan total review, tambahkan di pengaturan supaya bisa disetel
+   nominalnya juga."
+
+   Dua hal yang sengaja DIPISAH, karena menjawab pertanyaan berbeda:
+     min   — syarat minimum ikut program. Di bawah ini tidak dapat apa pun,
+             berapa pun tangga yang kebetulan terlewati.
+     tiers — tangga bonus. Yang dibayar tangga TERTINGGI yang sudah dilewati,
+             bukan penjumlahan semua tangga di bawahnya: 105 review dibayar
+             200.000, bukan 40.000+70.000+200.000.
+
+   Angkanya semua bisa diubah di ⚙️ Setelan — yang di sini cuma nilai awal
+   supaya modul yang belum pernah disetel tetap punya aturan yang masuk akal. */
+const REWARD_MIN_AWAL   = 30;
+const REWARD_TIER_AWAL  = [{rv:40,bonus:40000},{rv:70,bonus:70000},{rv:100,bonus:200000}];
+function normalisasiReward(c){
+  if(!c.reward || typeof c.reward!=="object" || Array.isArray(c.reward)) c.reward={};
+  const r=c.reward;
+  if(typeof r.min!=="number" || !isFinite(r.min) || r.min<0) r.min=REWARD_MIN_AWAL;
+  if(!Array.isArray(r.tiers)) r.tiers=JSON.parse(JSON.stringify(REWARD_TIER_AWAL));
+  /* Dibersihkan & DIURUT NAIK di sini, satu kali, bukan di tiap pembaca.
+     rewardOf() berjalan dari tangga terkecil ke terbesar dan memakai yang
+     terakhir cocok — kalau daftarnya tidak urut, tangga 40 yang kebetulan
+     ditulis paling belakang akan mengalahkan tangga 100 dan orang dengan 120
+     review dibayar 40.000. */
+  r.tiers = r.tiers
+    .map(t=>({ rv:Math.max(0,Math.round(Number(t&&t.rv)||0)), bonus:Math.max(0,Math.round(Number(t&&t.bonus)||0)) }))
+    .filter(t=>t.rv>0)
+    .sort((a,b)=>a.rv-b.rv);
+  return r;
+}
+function rewardCfg(){ return normalisasiReward(reviewCfg()); }
+/* Bonus seorang kru dari jumlah review TERVERIFIKASI-nya (bukan yang baru
+   diklaim — yang belum dicocokkan ke Google tidak boleh ikut dibayar).
+   -> {n, layak, bonus, tier, berikut, kurang, min} */
+function rewardOf(sah){
+  const r=rewardCfg();
+  const n=Math.max(0, Number(sah)||0);
+  const layak = n >= r.min;
+  let tier=null;
+  r.tiers.forEach(t=>{ if(n>=t.rv) tier=t; });          // tangga tertinggi yang terlewati
+  const berikut = r.tiers.find(t=>n<t.rv) || null;
+  return { n, layak, tier,
+           // Syarat minimum menang atas tangga. Kalau manager menyetel min=50
+           // sementara tangga terendah 40, orang dengan 45 review MELEWATI
+           // tangga tapi belum memenuhi syarat — dan yang berlaku syaratnya.
+           bonus: (layak && tier) ? tier.bonus : 0,
+           berikut, kurang: berikut ? berikut.rv-n : 0, min:r.min };
+}
+// Ringkasan satu baris untuk kolom Reward di papan capaian.
+function rewardTeks(sah){
+  const w=rewardOf(sah);
+  if(w.bonus>0) return `<b style="color:var(--ok)">${esc(rpDot(w.bonus))}</b>
+    <span class="muted" style="font-size:11px;display:block">tangga ${w.tier.rv} review${w.berikut?` · ${w.kurang} lagi ke ${esc(rpDot(w.berikut.bonus))}`:""}</span>`;
+  if(!w.layak) return `<span class="muted">belum layak</span>
+    <span class="muted" style="font-size:11px;display:block">kurang ${w.min-w.n} dari minimal ${w.min}</span>`;
+  return `<span class="muted">—</span>
+    <span class="muted" style="font-size:11px;display:block">${w.berikut?`kurang ${w.kurang} ke ${esc(rpDot(w.berikut.bonus))}`:"tidak ada tangga"}</span>`;
+}
+// Aturan yang sedang berlaku, ditulis apa adanya. Dipajang di papan capaian
+// supaya kru tidak perlu membuka Setelan cuma untuk tahu targetnya berapa.
+function rewardAturanTeks(){
+  const r=rewardCfg();
+  if(!r.tiers.length) return `minimal <b>${r.min}</b> review · belum ada tangga bonus`;
+  return `minimal <b>${r.min}</b> review · `
+    + r.tiers.map(t=>`<b>${t.rv}</b> → ${esc(rpDot(t.bonus))}`).join(" · ");
 }
 // Satu-satunya tempat yang memutuskan "ajakan WA boleh dikirim atau tidak".
 // Dipusatkan supaya tombol dan pengiriman tidak pernah bisa berbeda pendapat.
@@ -7465,8 +7543,42 @@ function waReviewAktif(){ return reviewCfg().waAktif!==false; }
 const DIVISI_MINTA_REVIEW = ["office","ceo","cfo","host"];
 function bolehLihatMintaReview(){
   if(SESSION && SESSION.role==="admin") return true;
-  const kata=String((SESSION&&SESSION.divisi)||"").toLowerCase().split(/[\s,;/]+/).filter(Boolean);
-  return DIVISI_MINTA_REVIEW.some(d=>kata.indexOf(d)>-1);
+  return divisiCocok(SESSION&&SESSION.divisi, DIVISI_MINTA_REVIEW);
+}
+
+/* ===== SIAPA YANG MASUK DAFTAR — dua daftar, dua pertanyaan berbeda =====
+   (permintaan user 6 Agustus 2026)
+
+   DIVISI_REVIEW — siapa yang DINILAI review-nya: Kasir, Host, Floor. Tiga
+     posisi yang benar-benar bertemu tamu dan bisa meminta ulasan. Nama di luar
+     ini tidak perlu muncul di papan capaian maupun di 🎯 Atur Target — kolom
+     targetnya cuma jadi baris kosong yang tak pernah diisi siapa pun.
+
+   DIVISI_KRU — siapa yang MUNCUL di ⚓ Role Kru: sama, DITAMBAH Office. Office
+     mengatur modulnya (tingkat, hak akses, verifikasi klaim) tapi tidak ikut
+     dinilai perolehan review-nya. Itu sebabnya daftarnya tidak bisa satu.
+
+   'cashier' ikut disertakan sebagai ejaan lain 'kasir': keterangan Office
+   diketik manusia dan kedua ejaan sama-sama dipakai di sana. */
+const DIVISI_REVIEW = ["kasir","cashier","host","floor"];
+const DIVISI_KRU    = DIVISI_REVIEW.concat(["office"]);
+/* Dicocokkan sebagai KATA UTUH. Keterangan Office bisa memuat lebih dari satu
+   tim ("office, marketing"), dan indexOf() biasa membuat "backoffice" ikut
+   lolos karena memuat "office" — jebakan yang sudah tercatat di
+   bolehLihatMintaReview dan sekarang dipakai bersama lewat fungsi ini. */
+function divisiCocok(divisi, daftar){
+  const kata=String(divisi||"").toLowerCase().split(/[\s,;/]+/).filter(Boolean);
+  return daftar.some(d=>kata.indexOf(d)>-1);
+}
+/* Kru yang divisinya belum terisi TIDAK disaring keluar.
+   Daftar kru bisa lahir dari sinkronisasi roster yang keterangannya kosong,
+   dan menyembunyikan mereka membuat orang hilang dari Kelola Kru tanpa ada
+   satu pun tulisan yang menjelaskan ke mana — persis kelas bug yang paling
+   sulit dilacak di modul ini. Yang divisinya kosong tetap tampil; yang
+   divisinya JELAS di luar daftar yang disembunyikan (dan dihitung). */
+function kruTersaring(list, daftar){
+  const dipakai = list.filter(u=>!String(u.divisi||"").trim() || divisiCocok(u.divisi, daftar));
+  return { dipakai, tersembunyi: list.length - dipakai.length };
 }
 /* Panel tampil hanya kalau fiturnya memang dipakai DAN memang pekerjaan orang
    ini. Dua syarat, dua sebab berbeda — dan keduanya harus benar. */
@@ -7481,9 +7593,11 @@ function reviewTargetOf(nama){ return Math.max(0, Number(reviewCfg().targets[Str
 function reviewTargetTim(){
   return Object.values(reviewCfg().targets||{}).reduce((a,v)=>a+Math.max(0,Number(v)||0),0);
 }
-/* Daftar nama host yang bisa dipilih: kru yang terdaftar di modul ini. */
+/* Daftar nama host yang bisa dipilih: kru modul ini yang divisinya termasuk
+   yang dinilai review (Kasir/Host/Floor — lihat DIVISI_REVIEW). */
 function reviewHosts(){
-  return getUsers().map(u=>String(u.name||"").trim()).filter(Boolean)
+  return kruTersaring(getUsers(), DIVISI_REVIEW).dipakai
+    .map(u=>String(u.name||"").trim()).filter(Boolean)
     .filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a.localeCompare(b));
 }
 /* VERIFIKASI MANUAL. Tidak ada penarikan/pencocokan otomatis ke Google —
@@ -7863,6 +7977,26 @@ async function viewReviewProof(id){
       </div>`, true);
   }catch(e){ hideBusy(); toast("Gagal memuat bukti: "+e.message,"err"); }
 }
+/* Satu baris tangga bonus di ⚙️ Setelan. Sengaja tanpa id unik: yang dibaca
+   saat menyimpan adalah data-atributnya lewat querySelectorAll, jadi baris
+   boleh ditambah/dihapus sesuka hati tanpa ada penomoran yang harus dijaga
+   tetap rapat. */
+function rvTierRowHtml(rv, bonus){
+  return `<div class="rv-tier-row" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">
+    <div class="field" style="margin:0;flex:1;min-width:120px"><label>Jumlah review</label>
+      <input type="number" min="0" data-tier-rv value="${Number(rv)||0}"></div>
+    <div class="field" style="margin:0;flex:1.4;min-width:150px"><label>Bonus (Rp)</label>
+      <input type="number" min="0" step="1000" data-tier-bonus value="${Number(bonus)||0}"></div>
+    <button type="button" class="btn btn-sm btn-ghost" onclick="rvTierHapus(this)" title="Hapus tangga ini">✕</button>
+  </div>`;
+}
+function rvTierTambah(){
+  const box=byId("rvcfg_tiers"); if(!box) return;
+  box.insertAdjacentHTML("beforeend", rvTierRowHtml(0,0));
+}
+function rvTierHapus(btn){
+  const row=btn.closest(".rv-tier-row"); if(row) row.remove();
+}
 function saveReviewCfg(){
   // Saklar WhatsApp & link Google ada di panel Setelan yang memang cuma
   // digambar untuk pengurus, tapi form-nya bisa dikirim dari layar lama.
@@ -7870,9 +8004,24 @@ function saveReviewCfg(){
   const cfg=reviewCfg();
   cfg.link=(byId("rvcfg_link").value||"").trim();
   const sw=byId("rvcfg_wa"); if(sw) cfg.waAktif=!!sw.checked;
+  /* Reward. Kolom-kolomnya BOLEH tidak ada: panel Setelan cuma digambar untuk
+     pengurus, dan layar lama yang masih terbuka bisa memanggil fungsi ini
+     tanpa punya kolom reward sama sekali. Kalau tidak dijaga, cfg.reward
+     ditimpa nilai kosong dan seluruh tangga bonus lenyap tanpa ada yang
+     menyentuhnya. */
+  const elMin=byId("rvcfg_rw_min"), boxTier=byId("rvcfg_tiers");
+  if(elMin) cfg.reward.min=Math.max(0, Math.round(Number(elMin.value)||0));
+  if(boxTier){
+    cfg.reward.tiers=[...boxTier.querySelectorAll(".rv-tier-row")].map(row=>({
+      rv:    Number(row.querySelector("[data-tier-rv]")?.value)||0,
+      bonus: Number(row.querySelector("[data-tier-bonus]")?.value)||0
+    }));
+  }
+  normalisasiReward(cfg);   // buang tangga kosong, urutkan naik
   // Target tim TIDAK diatur di sini lagi — otomatis dari jumlah target host
   // (lihat simpanRvTarget). Yang tersisa di Setelan cuma link.
-  logAudit("Google Review", "Setelan review diperbarui (link, ajakan WA "+(cfg.waAktif?"AKTIF":"DIMATIKAN")+")");
+  logAudit("Google Review", "Setelan review diperbarui (link, ajakan WA "+(cfg.waAktif?"AKTIF":"DIMATIKAN")
+    +", reward min "+cfg.reward.min+" & "+cfg.reward.tiers.length+" tangga)");
   saveState(); renderReview(); toast("Setelan review disimpan ✓","ok");
 }
 /* saveReviewCount() DIHAPUS bersama panel "Rekonsiliasi dengan Google".
@@ -8500,7 +8649,32 @@ function reviewGoogleView(){
            Catatan review yang sudah ada, verifikasi, dan target tidak terpengaruh.</span></span>
        </label>
        <div class="muted" style="font-size:11.5px;margin-top:8px">Target per bulan diatur di <b>🎯 Atur Target</b> (per nama) — target tim dihitung otomatis dari jumlahnya.</div>
-       <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
+
+       <!-- ===== REWARD ===== Nominal & jumlah review dibuat bisa disetel
+            (permintaan user 6 Agustus 2026). Barisnya ditambah/dihapus langsung
+            di DOM, bukan lewat state: kalau menekan ➕ sudah mengubah cfg, maka
+            menutup halaman tanpa menekan Simpan tetap meninggalkan perubahan —
+            tombol Simpan yang tidak berarti apa-apa. Yang tersimpan HANYA apa
+            yang terbaca dari baris-baris ini saat Simpan ditekan. -->
+       <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
+         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+           <b style="color:var(--ink)">🏅 Reward Review</b>
+           <button type="button" class="btn btn-sm btn-ghost" onclick="rvTierTambah()">➕ Tambah Tangga</button>
+         </div>
+         <div class="muted" style="font-size:11.5px;margin:6px 0 12px">
+           Dihitung dari review <b>terverifikasi</b>. Yang dibayar <b>satu tangga tertinggi</b> yang dilewati,
+           bukan dijumlah — 105 review dapat tangga 100, bukan 40+70+100.
+         </div>
+         <div class="form-grid">
+           <div class="field"><label>Minimal review untuk ikut program</label>
+             <input type="number" min="0" id="rvcfg_rw_min" value="${Number(cfg.reward.min)||0}"></div>
+         </div>
+         <div class="muted" style="font-size:11.5px;margin:10px 0 6px">Tangga bonus — jumlah review dan nominalnya:</div>
+         <div id="rvcfg_tiers">${cfg.reward.tiers.map(t=>rvTierRowHtml(t.rv,t.bonus)).join("")}</div>
+         <div class="muted" style="font-size:11.5px;margin-top:6px">Tangga dengan jumlah review 0 dibuang saat disimpan; urutannya dirapikan otomatis.</div>
+       </div>
+
+       <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
        :`<div class="inline-info">Link & target diatur oleh manager.</div>`}
      </div>
    </div>`;
@@ -8537,7 +8711,10 @@ function renderMaster(){
        <p class="hint">Grup Cashier & Koordinasi sudah otomatis dengan template siap pakai. Untuk grup lain, gunakan opsi "Custom" saat kirim WA.</p>
      </div></div>
    </div>
-   ${CAN.manageUsers(SESSION.role) ? userAccessBlock() : ""}`;
+   <!-- Argumennya WAJIB diisi: userAccessBlock() tanpa argumen menggambar
+        seluruh blok dalam mode baca-saja (bolehUbah undefined), jadi manager
+        yang berhak pun mendapat pemilih role yang mati tanpa penjelasan. -->
+   ${CAN.manageUsers(SESSION.role) ? userAccessBlock(CAN.kelolaRole(SESSION.role)) : ""}`;
 }
 function saveDineEst(){
   const n=Number(byId("dineEstInput").value||0);
@@ -8562,7 +8739,11 @@ function userAccessBlock(bolehUbah){
      selalu "siapa saja yang punya kuasa di sini", dan itu tidak boleh terkubur
      di halaman 4 di antara puluhan staff. */
   const bobot={admin:0,manager:1,staff:2};
-  const users=getUsers().slice().sort((a,b)=>
+  /* Yang boleh berdiri di daftar ini: Kasir, Host, Floor, dan Office
+     (DIVISI_KRU). Office ada di sini tapi TIDAK ada di papan capaian — ia
+     mengatur modulnya, bukan dinilai perolehannya. */
+  const saring=kruTersaring(getUsers(), DIVISI_KRU);
+  const users=saring.dipakai.slice().sort((a,b)=>
     (bobot[a.role]??3)-(bobot[b.role]??3) || String(a.name||"").localeCompare(String(b.name||"")));
   const pKru=tblPage(users,"kru", users.length+"|"+(bolehUbah?1:0));
   const usersHtml = pKru.items.map(u=>`
@@ -8623,6 +8804,9 @@ function userAccessBlock(bolehUbah){
        ${usersHtml||`<div class="empty" style="padding:24px"><div class="big">👥</div>Daftar kru belum termuat dari Office.</div>`}
        ${tblPagerHtml(pKru,"kru")}
        <p class="hint" style="margin-top:6px">Ganti <b>tingkat</b> tiap kru di sini — berlaku <b>hanya di modul Service Excellent</b>, tidak menyentuh peran mereka di Reservasi atau modul lain. Apa yang boleh dilakukan tiap tingkat diatur di tabel di bawah. Akun & login kru tetap dikelola di Office.</p>
+       <!-- Yang disaring keluar DIHITUNG dan disebut, bukan hilang diam-diam:
+            "kok si A tidak ada di sini" harus punya jawaban di layar. -->
+       <p class="hint" style="margin-top:4px">Yang ditampilkan hanya tim <b>Kasir, Host, Floor,</b> dan <b>Office</b>${saring.tersembunyi?` — <b>${saring.tersembunyi} kru</b> tim lain disembunyikan.`:"."} Tim dibaca dari <b>Keterangan</b> akun di Office; kru yang keterangannya masih kosong tetap ditampilkan.</p>
      </div>
    </div>
    <div class="panel">
@@ -8789,8 +8973,14 @@ function renderPeran(){
   el.innerHTML=`
    <div class="panel">
      <div class="panel-head"><h3>🛡️ Kelola Role — Service Excellent</h3>
-       <span class="muted" style="font-size:12.5px">${getUsers().length} kru</span></div>
+       <span class="muted" style="font-size:12.5px">${kruTersaring(getUsers(), DIVISI_KRU).dipakai.length} kru</span></div>
      <div class="panel-body">
+       ${(SESSION.adminOffice && SESSION.role!=="admin")?`<div class="inline-info" style="margin-bottom:12px">
+         ℹ️ Akun Anda <b>admin modul ini di Office</b>, tapi tingkat Anda di modul ini
+         <b>${esc(ROLE_LABEL[SESSION.role]||SESSION.role)}</b> — dan yang berlaku tingkat modul.
+         Sejak 6 Agustus 2026 status admin Office tidak lagi menimpa apa yang disetel di halaman ini;
+         kalau tidak, menurunkan seseorang ke Staff di sini tidak pernah benar-benar berlaku untuknya.
+       </div>`:""}
        ${belumAdaPengurus?`<div class="inline-warn" style="margin-bottom:12px">
          <div>⚠️ <b>Belum ada Manajer/Admin di modul ini.</b> Selama itu, <b>semua orang</b> yang membuka
          Service Excellent otomatis masuk sebagai <b>Admin Sistem</b> — jika tidak, tidak akan ada
@@ -8852,11 +9042,19 @@ async function muatRosterTim(){
     return SE_ROSTER;
   }catch(e){ return null; }
 }
-// Nama kru yang dipakai papan capaian. Roster Office kalau sudah ada,
-// kalau belum jatuh ke daftar kru modul supaya papannya tidak pernah kosong.
+/* Nama kru yang dipakai papan capaian. Roster Office kalau sudah ada, kalau
+   belum jatuh ke daftar kru modul supaya papannya tidak pernah kosong.
+
+   Disaring ke divisi yang dinilai (Kasir/Host/Floor). Penyaringan ini cuma
+   menentukan siapa yang DIBERI BARIS KOSONG di papan: siapa pun yang benar-
+   benar punya review tetap muncul, karena renderCapaian menambahkan barisnya
+   dari data review itu sendiri (lihat isi() di sana). Jadi tidak ada angka
+   yang bisa hilang gara-gara divisinya salah ketik. */
 function kruCapaian(){
-  if(SE_ROSTER && SE_ROSTER.length) return SE_ROSTER.map(u=>u.name);
-  return getUsers().map(u=>String(u.name||'').trim()).filter(Boolean);
+  const src = (SE_ROSTER && SE_ROSTER.length)
+    ? SE_ROSTER.map(u=>({name:u.name, divisi:u.div}))
+    : getUsers().map(u=>({name:String(u.name||'').trim(), divisi:u.divisi}));
+  return kruTersaring(src, DIVISI_REVIEW).dipakai.map(u=>u.name).filter(Boolean);
 }
 
 function renderCapaian(){
@@ -8887,8 +9085,13 @@ function renderCapaian(){
   const baris=Object.values(peta).map(o=>{
     o.target=reviewTargetOf(o.nama);
     o.pct=o.target?Math.min(100,Math.round(o.sah/o.target*100)):null;
+    o.reward=rewardOf(o.sah);
     return o;
   }).sort((a,b)=> b.sah-a.sah || b.minta-a.minta || a.nama.localeCompare(b.nama));
+  // Total bonus dihitung dari SELURUH baris, bukan cuma halaman yang tampil —
+  // pager tidak boleh mengubah angka yang dibaca orang sebagai "total".
+  const totalBonus=baris.reduce((a,o)=>a+o.reward.bonus,0);
+  const kruDapat=baris.filter(o=>o.reward.bonus>0).length;
 
   const p=tblPage(baris,"capaian", rg.from+"|"+rg.to+"|"+baris.length);
   const fbSelesai=fb.filter(x=>x.status==="selesai").length;
@@ -8926,6 +9129,11 @@ function renderCapaian(){
          <div class="recap ${tolak.length?'danger':''}"><div class="lbl">✖ Ditolak</div><div class="val">${tolak.length}</div><div class="sub">tak ada di Google</div></div>
          <div class="recap purple"><div class="lbl">📊 Cakupan Tamu</div><div class="val">${cakupan}<small>%</small></div><div class="sub">${tgt.sudah.length} dari ${tgt.layak.length} ber-nomor</div></div>
          <div class="recap"><div class="lbl">💬 Feedback</div><div class="val">${fb.length}</div><div class="sub">${fbSelesai} selesai ditangani</div></div>
+         <!-- Reward: angka yang paling ditunggu kru, jadi berdiri sebagai kartu
+              sendiri dan bukan cuma kolom di tabel yang perlu digulir. -->
+         <div class="recap ${totalBonus?'ok':''}"><div class="lbl">🏅 Total Reward</div>
+           <div class="val" style="font-size:22px">${esc(rpDot(totalBonus))}</div>
+           <div class="sub">${kruDapat} kru mencapai tangga bonus</div></div>
        </div>
      </div>
    </div>
@@ -8934,8 +9142,14 @@ function renderCapaian(){
      <div class="panel-head"><h3>👥 Perolehan per Kru</h3>
        <span class="muted" style="font-size:12.5px">${baris.length} kru · target bulan ${esc(fmtMonth(tm))}</span></div>
      <div class="panel-body">
+       <div class="inline-info" style="margin-bottom:12px">
+         🏅 <b>Reward</b>: ${rewardAturanTeks()}.
+         Dihitung dari review <b>terverifikasi</b> pada <b>${esc(reviewRangeLabel())}</b> — yang baru diklaim belum ikut.
+         Yang dibayar <b>satu tangga tertinggi</b> yang dilewati, bukan dijumlah.
+         ${CAN.master(SESSION.role)?`Nominal &amp; jumlah review diatur di <b>Google Review → ⚙️ Setelan</b>.`:""}
+       </div>
        <div class="table-wrap"><table>
-         <thead><tr><th>Kru</th><th>Diminta</th><th>Diklaim</th><th>Terverifikasi</th><th>Ditolak</th><th>Feedback</th><th>Target</th><th>Capaian</th></tr></thead>
+         <thead><tr><th>Kru</th><th>Diminta</th><th>Diklaim</th><th>Terverifikasi</th><th>Ditolak</th><th>Feedback</th><th>Target</th><th>Capaian</th><th>Reward</th></tr></thead>
          <tbody>${p.items.map(o=>`<tr>
            <td><div class="name">${esc(o.nama)}</div></td>
            <td>${o.minta||'<span class="muted">—</span>'}</td>
@@ -8948,6 +9162,7 @@ function renderCapaian(){
                  ? '<span class="muted">target belum diatur</span>'
                  : `<div class="rv-progress" style="min-width:90px"><i style="width:${o.pct}%"></i></div>
                     <span style="font-size:11.5px;color:var(--muted)">${o.pct}%</span>`}</td>
+           <td>${rewardTeks(o.sah)}</td>
          </tr>`).join("")}</tbody>
        </table></div>
        ${tblPagerHtml(p,"capaian")}
