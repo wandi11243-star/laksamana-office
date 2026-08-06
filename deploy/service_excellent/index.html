@@ -812,6 +812,7 @@ svg.lc{display:block;flex:none}
     <div id="page-review" class="page hidden"></div>
     <div id="page-feedback" class="page hidden"></div>
     <div id="page-peran" class="page hidden"></div>
+    <div id="page-setelan" class="page hidden"></div>
     <div id="page-master" class="page hidden"></div>
     </div>
   </div>
@@ -915,8 +916,8 @@ function roleSE(r){
 const ROLE_NAV = {
   // Staff: mengerjakan review & feedback, tapi tidak mengatur siapa boleh apa.
   staff:   ["capaian","review","feedback"],
-  manager: ["capaian","review","feedback","peran"],
-  admin:   ["capaian","review","feedback","peran"],
+  manager: ["capaian","review","feedback","peran","setelan"],
+  admin:   ["capaian","review","feedback","peran","setelan"],
 };
 // Default lama (dipakai sebagai seed DEFAULT_PERMS di bawah, dan dipertahankan
 // sebagai fallback bila perms per-halaman entah kenapa tidak termuat).
@@ -1053,6 +1054,12 @@ const NAV_SECTIONS = [
   ]},
   {title:"Kontrol", items:[
     {id:"peran",     label:"Kelola Role", ico:"shield"},
+    /* Setelan dipindah keluar dari halaman Google Review (permintaan user
+       6 Agustus 2026). Di sana ia panel keempat yang harus digulir melewati
+       daftar review tiap kali, padahal isinya keputusan yang diambil sekali —
+       link, saklar WA, dan nominal reward. Tempatnya memang di Kontrol,
+       bersebelahan dengan Kelola Role. */
+    {id:"setelan",   label:"Setelan", ico:"sliders"},
   ]},
 ];
 
@@ -3277,6 +3284,7 @@ function navigate(page){
   else if(page==="review") renderReview();
   else if(page==="feedback") renderFeedbackPage();
   else if(page==="peran") renderPeran();
+  else if(page==="setelan") renderSetelan();
 
 }
 
@@ -7570,19 +7578,43 @@ function divisiCocok(divisi, daftar){
   const kata=String(divisi||"").toLowerCase().split(/[\s,;/]+/).filter(Boolean);
   return daftar.some(d=>kata.indexOf(d)>-1);
 }
-/* Kru yang divisinya belum terisi TIDAK disaring keluar.
-   Daftar kru bisa lahir dari sinkronisasi roster yang keterangannya kosong,
-   dan menyembunyikan mereka membuat orang hilang dari Kelola Kru tanpa ada
-   satu pun tulisan yang menjelaskan ke mana — persis kelas bug yang paling
-   sulit dilacak di modul ini. Yang divisinya kosong tetap tampil; yang
-   divisinya JELAS di luar daftar yang disembunyikan (dan dihitung). */
+/* Kru yang Tim/Keterangan-nya KOSONG ikut disaring keluar (permintaan user
+   6 Agustus 2026). Versi pertama sengaja membiarkannya tampil supaya tidak ada
+   orang yang hilang tanpa penjelasan — tapi hasilnya daftar kru penuh nama
+   dari seluruh Office yang keterangannya memang tidak pernah diisi, dan yang
+   dicari justru tenggelam di antaranya.
+   Supaya tetap bisa dilacak: yang tersaring DIHITUNG dan jumlahnya ditulis di
+   layar, jadi "kok si A tidak ada" tetap punya jawaban — isi Keterangan
+   akunnya di Office. */
 function kruTersaring(list, daftar){
-  const dipakai = list.filter(u=>!String(u.divisi||"").trim() || divisiCocok(u.divisi, daftar));
+  const dipakai = list.filter(u=>divisiCocok(u.divisi, daftar));
   return { dipakai, tersembunyi: list.length - dipakai.length };
 }
 /* Panel tampil hanya kalau fiturnya memang dipakai DAN memang pekerjaan orang
    ini. Dua syarat, dua sebab berbeda — dan keduanya harus benar. */
 function panelMintaReviewTampil(){ return waReviewAktif() && bolehLihatMintaReview(); }
+
+/* SIAPA YANG MELIHAT DAFTAR REVIEW SELURUH TIM (permintaan user 6 Agustus 2026:
+   "masing-masing hanya menampilkan bagian dia saja, tetapi admin dan tim Office
+   bisa melihat keseluruhan").
+
+   Tiga pintu, dan yang ketiga bukan tambahan sembarangan:
+     admin        — pemegang kunci modul.
+     divisi Office— pengawas yang diminta user.
+     CAN.master   — pemegang izin "Verifikasi Klaim". Orang inilah yang menekan
+                    ✅ Verifikasi pada klaim ORANG LAIN. Kalau daftarnya
+                    disaring jadi miliknya sendiri, klaim host lain tidak akan
+                    pernah muncul di layarnya dan tidak ada yang bisa disahkan —
+                    tombol verifikasi jadi tombol yang tak pernah bisa ditekan.
+   Kalau memang ingin manajer non-Office hanya melihat miliknya sendiri, cabut
+   baris izin "↳ Verifikasi Klaim, Link & Target" untuk tingkat Manajer di
+   matriks Hak Akses; penyaringan ini ikut sendiri. */
+function bolehLihatSemuaReview(){
+  if(!SESSION) return false;
+  if(SESSION.role==="admin") return true;
+  if(divisiCocok(SESSION.divisi, ["office"])) return true;
+  return CAN.master(SESSION.role);
+}
 /* Target sebulan untuk satu host. 0 = belum ditetapkan (tidak dinilai). */
 function reviewTargetOf(nama){ return Math.max(0, Number(reviewCfg().targets[String(nama||"").trim()])||0); }
 /* Target AKUMULASI tim = jumlah target semua host. Bukan angka terpisah:
@@ -7806,7 +7838,7 @@ function openReviewForm(resId, rvId){
   const phone= rv?.phone|| r?.phone|| "";
   openModal(`<div class="modal-head"><h3>⭐ Catat Google Review</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">Isi sesuai <b>screenshot review tamu</b>. Statusnya jadi <b>Perlu Verifikasi</b> — baru dihitung ke target setelah manager mencocokkannya dengan Google Business Profile.</div>
+     <div class="hint" style="margin-bottom:14px">Isi sesuai <b>screenshot review tamu</b>. Baru dihitung ke target setelah diverifikasi manager.</div>
      <!-- HOST otomatis = yang sedang login. Poin selalu masuk ke dirinya, jadi
           tidak ada yang dipilih; ditampilkan supaya jelas atas nama siapa. -->
      <div class="inline-info" style="margin-bottom:12px;background:var(--go-bg,#e7f0e5)">
@@ -8022,7 +8054,7 @@ function saveReviewCfg(){
   // (lihat simpanRvTarget). Yang tersisa di Setelan cuma link.
   logAudit("Google Review", "Setelan review diperbarui (link, ajakan WA "+(cfg.waAktif?"AKTIF":"DIMATIKAN")
     +", reward min "+cfg.reward.min+" & "+cfg.reward.tiers.length+" tangga)");
-  saveState(); renderReview(); toast("Setelan review disimpan ✓","ok");
+  saveState(); renderSetelan(); toast("Setelan review disimpan ✓","ok");
 }
 /* saveReviewCount() DIHAPUS bersama panel "Rekonsiliasi dengan Google".
    Angkanya diketik manual dari Google Business Profile, dan karena tidak
@@ -8137,7 +8169,7 @@ function openFeedbackForm(resId, fbId){
   const phone= fb?.phone|| r?.phone|| "";
   openModal(`<div class="modal-head"><h3>💬 ${fb?"Ubah":"Catat"} Feedback Customer</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">Catat tanggapan tamu <b>apa adanya</b>. Kalau satu tamu menyebut beberapa hal, tekan <b>➕ Tambah Catatan</b> supaya masing-masing masuk ke kategori divisinya sendiri.</div>
+     <div class="hint" style="margin-bottom:14px">Catat <b>apa adanya</b>. Satu tamu menyebut beberapa hal → tekan <b>➕ Tambah Catatan</b> supaya tiap hal masuk kategori divisinya sendiri.</div>
      <div class="form-grid">
        <!-- Sifat tanggapan. Dulu tab ini HANYA menampung keluhan, jadi pujian
             lisan tamu tidak punya tempat dan hilang begitu saja. Catatan lama
@@ -8421,9 +8453,8 @@ function openRvTargetForm(){
   const hosts=reviewHosts();
   openModal(`<div class="modal-head"><h3>🎯 Atur Target per Nama</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-info" style="margin-bottom:14px">
-       Isi target sebulan tiap nama. <b>Target tim dihitung otomatis</b> = jumlah semua target di bawah.
-       Kosongkan / 0 kalau nama itu tidak dinilai.
+     <div class="hint" style="margin-bottom:14px">
+       Target sebulan per nama. Kosong / 0 = tidak dinilai. Target tim = jumlah semuanya.
      </div>
      <div class="form-grid">
        ${hosts.map(n=>`<div class="field"><label>${esc(n)}</label>
@@ -8513,7 +8544,8 @@ function renderFeedbackPage(){
 }
 
 function reviewGoogleView(){
-  const cfg=reviewCfg();
+  // `cfg` sudah tidak dibaca di sini sejak panel Setelan pindah ke halamannya
+  // sendiri; canCfg tetap dipakai untuk tombol ✅ Verifikasi di tiap baris.
   const canCfg=CAN.master(SESSION.role);
   const rg=reviewRange();
   const mine=reviewsInRange(rg);
@@ -8523,12 +8555,10 @@ function reviewGoogleView(){
   // "Harian" akan membuat target sebulan terlihat nyaris tak tersentuh.
   const tm=reviewTargetMonth();          // angka target/report semuanya di dashboard
   // --- Daftar Review: HANYA review milik sendiri ---
-  // Tiap host cuma melihat review yang dia catat / atas namanya, bukan punya
-  // orang lain. Manager (bisa verifikasi) tetap melihat semua — kalau tidak,
-  // tidak ada yang bisa mengesahkan klaim host lain.
   const sayaNama=String(SESSION.name||"").trim().toLowerCase();
   const rvMilikSaya=(x)=>[x.host, x.claimedBy, x.by].some(v=>String(v||"").trim().toLowerCase()===sayaNama);
-  const dasarDaftar = canCfg ? mine : mine.filter(rvMilikSaya);
+  const semua = bolehLihatSemuaReview();
+  const dasarDaftar = semua ? mine : mine.filter(rvMilikSaya);
   // --- saring pencarian dulu, baru potong per halaman ---
   const qDaftar=(RVQ.daftar||"").trim().toLowerCase();
   const daftarTersaring = dasarDaftar
@@ -8609,9 +8639,9 @@ function reviewGoogleView(){
    ${panelBelum}
 
    <div class="panel">
-     <div class="panel-head"><h3>📋 Daftar Review${canCfg?"":" Saya"}, ${esc(reviewRangeLabel())}</h3><span class="muted" style="font-size:12.5px">${dasarDaftar.length} catatan</span></div>
+     <div class="panel-head"><h3>📋 Daftar Review${semua?"":" Saya"}, ${esc(reviewRangeLabel())}</h3><span class="muted" style="font-size:12.5px">${dasarDaftar.length} catatan</span></div>
      <div class="panel-body">
-       ${canCfg?"":`<div class="inline-info" style="margin-bottom:12px">Kamu hanya melihat review yang <b>kamu catat sendiri</b>. Review nama lain tidak ditampilkan.</div>`}
+       ${semua?"":`<div class="hint" style="margin-bottom:12px">Hanya review atas nama Anda sendiri.</div>`}
        <div class="rv-toolbar">
          ${rvSearchHtml("daftar","Cari nama tamu, akun Google, atau pencatat…")}
          ${rvHitHtml("daftar", daftarTersaring.length)}
@@ -8624,20 +8654,30 @@ function reviewGoogleView(){
              ? `Tidak ada catatan yang cocok dengan “${esc(qDaftar)}”.`
              : `Belum ada catatan review pada ${esc(reviewRangeLabel())}.<br><span class="muted">Kirim ajakan review dari detail reservasi tamu yang sudah selesai duduk.</span>`}</div>`}
      </div>
-   </div>
+   </div>`;
+}
 
+/* ================= HALAMAN SETELAN =================
+   Dulu panel keempat di halaman Google Review. Dipindah ke tab sendiri di
+   grup Kontrol supaya tidak perlu digulir melewati daftar review tiap kali —
+   isinya keputusan yang diambil sekali, bukan pekerjaan harian. */
+function renderSetelan(){
+  const cfg=reviewCfg();
+  const canCfg=CAN.master(SESSION.role);
+  byId("page-setelan").innerHTML = `
+   <div class="page-head"><div>
+     <h2>⚙️ Setelan</h2>
+     <div class="desc">Link Google Review, saklar ajakan WhatsApp, dan reward. Cukup diisi sekali.</div>
+   </div></div>
    <div class="panel">
-     <div class="panel-head"><h3>⚙️ Setelan</h3><span class="muted" style="font-size:12.5px">cukup diisi sekali</span></div>
      <div class="panel-body">
-       ${canCfg?`<div class="inline-info" style="margin-bottom:12px">Link review didapat dari <b>Google Business Profile → Minta ulasan → Salin tautan</b>. Link inilah yang otomatis dikirim ke WhatsApp tamu saat host menekan <b>⭐ Minta Review</b>.</div>
-       ${cfg.waAktif===false?`<div class="inline-warn" style="margin-bottom:12px">⏸️ Ajakan review lewat WhatsApp sedang <b>dimatikan</b> — tombol ⭐ Minta Review tidak muncul untuk siapa pun. Data review yang sudah ada tetap utuh.</div>`:""}
+       ${canCfg?`
+       ${cfg.waAktif===false?`<div class="inline-warn" style="margin-bottom:12px">⏸️ Ajakan WhatsApp <b>dimatikan</b> — tombol ⭐ Minta Review hilang untuk semua orang. Data review tetap utuh.</div>`:""}
        <div class="form-grid">
          <div class="field full"><label>Link Google Review</label>
-           <input id="rvcfg_link" value="${esc(cfg.link||"")}" placeholder="https://g.page/r/xxxxxxxx/review"></div>
+           <input id="rvcfg_link" value="${esc(cfg.link||"")}" placeholder="https://g.page/r/xxxxxxxx/review">
+           <div class="hint">Dari Google Business Profile → Minta ulasan → Salin tautan. Link inilah yang dikirim ke WhatsApp tamu.</div></div>
        </div>
-       <!-- Saklar ajakan WhatsApp. Ditaruh di Setelan, bukan di daftar tamu:
-            ini keputusan kebijakan yang diambil sekali oleh manager, bukan
-            tombol yang dipakai host tiap hari. -->
        <!-- SENGAJA TIDAK memakai kelas .toggle-row: kelas itu dibuat untuk pilihan
             bergaya pil dan menyembunyikan input-nya (.toggle-row input{display:none}),
             sehingga kotak centangnya tidak pernah tergambar — persis yang terjadi
@@ -8645,37 +8685,31 @@ function reviewGoogleView(){
        <label style="margin-top:14px;display:flex;gap:11px;align-items:flex-start;cursor:pointer;padding:12px 14px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:#fff">
          <input type="checkbox" id="rvcfg_wa" ${cfg.waAktif!==false?"checked":""} style="width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--gold)">
          <span><b style="display:block;color:var(--ink)">Izinkan kru meminta review lewat WhatsApp</b>
-           <span class="muted" style="font-size:12px">Kalau dimatikan, tombol <b>⭐ Minta Review</b> di daftar "Tamu Belum Diminta Review" hilang dan tidak ada ajakan yang bisa dikirim.
-           Catatan review yang sudah ada, verifikasi, dan target tidak terpengaruh.</span></span>
+           <span class="muted" style="font-size:12px">Kalau dimatikan, tombol ⭐ Minta Review hilang. Catatan yang sudah ada tidak terpengaruh.</span></span>
        </label>
-       <div class="muted" style="font-size:11.5px;margin-top:8px">Target per bulan diatur di <b>🎯 Atur Target</b> (per nama) — target tim dihitung otomatis dari jumlahnya.</div>
+       <div class="hint" style="margin-top:8px">Target sebulan per nama diatur di <b>Dashboard → 🎯 Atur Target</b>.</div>
 
-       <!-- ===== REWARD ===== Nominal & jumlah review dibuat bisa disetel
-            (permintaan user 6 Agustus 2026). Barisnya ditambah/dihapus langsung
-            di DOM, bukan lewat state: kalau menekan ➕ sudah mengubah cfg, maka
-            menutup halaman tanpa menekan Simpan tetap meninggalkan perubahan —
-            tombol Simpan yang tidak berarti apa-apa. Yang tersimpan HANYA apa
-            yang terbaca dari baris-baris ini saat Simpan ditekan. -->
+       <!-- ===== REWARD ===== Barisnya ditambah/dihapus langsung di DOM, bukan
+            lewat state: kalau menekan ➕ sudah mengubah cfg, maka menutup halaman
+            tanpa menekan Simpan tetap meninggalkan perubahan — tombol Simpan yang
+            tidak berarti apa-apa. Yang tersimpan HANYA apa yang terbaca dari
+            baris-baris ini saat Simpan ditekan. -->
        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line)">
          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
            <b style="color:var(--ink)">🏅 Reward Review</b>
            <button type="button" class="btn btn-sm btn-ghost" onclick="rvTierTambah()">➕ Tambah Tangga</button>
          </div>
-         <div class="muted" style="font-size:11.5px;margin:6px 0 12px">
-           Dihitung dari review <b>terverifikasi</b>. Yang dibayar <b>satu tangga tertinggi</b> yang dilewati,
-           bukan dijumlah — 105 review dapat tangga 100, bukan 40+70+100.
-         </div>
+         <div class="hint" style="margin:6px 0 12px">Dari review <b>terverifikasi</b>. Dibayar <b>satu tangga tertinggi</b> yang dilewati, bukan dijumlah.</div>
          <div class="form-grid">
            <div class="field"><label>Minimal review untuk ikut program</label>
              <input type="number" min="0" id="rvcfg_rw_min" value="${Number(cfg.reward.min)||0}"></div>
          </div>
-         <div class="muted" style="font-size:11.5px;margin:10px 0 6px">Tangga bonus — jumlah review dan nominalnya:</div>
+         <div class="hint" style="margin:10px 0 6px">Tangga bonus — jumlah review dan nominalnya. Yang jumlahnya 0 dibuang saat disimpan.</div>
          <div id="rvcfg_tiers">${cfg.reward.tiers.map(t=>rvTierRowHtml(t.rv,t.bonus)).join("")}</div>
-         <div class="muted" style="font-size:11.5px;margin-top:6px">Tangga dengan jumlah review 0 dibuang saat disimpan; urutannya dirapikan otomatis.</div>
        </div>
 
        <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-sm btn-primary" onclick="saveReviewCfg()">💾 Simpan Setelan</button></div>`
-       :`<div class="inline-info">Link & target diatur oleh manager.</div>`}
+       :`<div class="inline-info">Setelan diatur oleh manager.</div>`}
      </div>
    </div>`;
 }
@@ -8803,10 +8837,10 @@ function userAccessBlock(bolehUbah){
      <div class="panel-body">
        ${usersHtml||`<div class="empty" style="padding:24px"><div class="big">👥</div>Daftar kru belum termuat dari Office.</div>`}
        ${tblPagerHtml(pKru,"kru")}
-       <p class="hint" style="margin-top:6px">Ganti <b>tingkat</b> tiap kru di sini — berlaku <b>hanya di modul Service Excellent</b>, tidak menyentuh peran mereka di Reservasi atau modul lain. Apa yang boleh dilakukan tiap tingkat diatur di tabel di bawah. Akun & login kru tetap dikelola di Office.</p>
        <!-- Yang disaring keluar DIHITUNG dan disebut, bukan hilang diam-diam:
             "kok si A tidak ada di sini" harus punya jawaban di layar. -->
-       <p class="hint" style="margin-top:4px">Yang ditampilkan hanya tim <b>Kasir, Host, Floor,</b> dan <b>Office</b>${saring.tersembunyi?` — <b>${saring.tersembunyi} kru</b> tim lain disembunyikan.`:"."} Tim dibaca dari <b>Keterangan</b> akun di Office; kru yang keterangannya masih kosong tetap ditampilkan.</p>
+       <p class="hint" style="margin-top:6px">Tingkat berlaku <b>hanya di modul ini</b>. Akun & login tetap dari Office.
+         Yang tampil hanya tim <b>Kasir, Host, Floor, Office</b>${saring.tersembunyi?` — <b>${saring.tersembunyi}</b> disembunyikan (tim lain atau Keterangan Office masih kosong).`:"."}</p>
      </div>
    </div>
    <div class="panel">
@@ -8815,7 +8849,7 @@ function userAccessBlock(bolehUbah){
          ${bolehUbah?`<button class="btn btn-sm btn-ghost" onclick="resetPerms()">↺ Default</button>
          <button class="btn btn-sm btn-primary" onclick="savePerms()">💾 Simpan Hak Akses</button>`:""}</div></div>
      <div class="panel-body">
-       <p class="hint" style="margin-bottom:12px">Atur per halaman: <b>Tak Terlihat</b> (hilang dari menu), <b>Lihat</b> (buka halamannya tapi tombol ubah/hapus disembunyikan), atau <b>Boleh Ubah</b>. Perubahan langsung memengaruhi menu sidebar. <b>Admin</b> selalu akses penuh.</p>
+       <p class="hint" style="margin-bottom:12px"><b>Tak Terlihat</b> = hilang dari menu · <b>Lihat</b> = boleh buka, tombol ubah disembunyikan · <b>Boleh Ubah</b> = penuh. <b>Admin</b> selalu penuh.</p>
        ${matrix}
      </div>
    </div>`;
@@ -8976,26 +9010,14 @@ function renderPeran(){
        <span class="muted" style="font-size:12.5px">${kruTersaring(getUsers(), DIVISI_KRU).dipakai.length} kru</span></div>
      <div class="panel-body">
        ${(SESSION.adminOffice && SESSION.role!=="admin")?`<div class="inline-info" style="margin-bottom:12px">
-         ℹ️ Akun Anda <b>admin modul ini di Office</b>, tapi tingkat Anda di modul ini
-         <b>${esc(ROLE_LABEL[SESSION.role]||SESSION.role)}</b> — dan yang berlaku tingkat modul.
-         Sejak 6 Agustus 2026 status admin Office tidak lagi menimpa apa yang disetel di halaman ini;
-         kalau tidak, menurunkan seseorang ke Staff di sini tidak pernah benar-benar berlaku untuknya.
+         ℹ️ Anda admin modul ini di Office, tapi tingkat Anda di sini <b>${esc(ROLE_LABEL[SESSION.role]||SESSION.role)}</b> — yang berlaku tingkat modul.
        </div>`:""}
        ${belumAdaPengurus?`<div class="inline-warn" style="margin-bottom:12px">
-         <div>⚠️ <b>Belum ada Manajer/Admin di modul ini.</b> Selama itu, <b>semua orang</b> yang membuka
-         Service Excellent otomatis masuk sebagai <b>Admin Sistem</b> — jika tidak, tidak akan ada
-         yang bisa menunjuk pengurus pertama.<br>
-         Tetapkan minimal satu orang jadi <b>Manajer / Owner</b> atau <b>Admin Sistem</b> di daftar
-         <b>⚓ Role Kru</b> di bawah. Begitu ada, semua kru lain langsung turun ke <b>Staff</b>.</div>
+         <div>⚠️ <b>Belum ada Manajer/Admin di modul ini</b>, jadi <b>semua orang</b> masuk sebagai Admin Sistem.
+         Tetapkan satu orang di <b>⚓ Role Kru</b> di bawah — sesudah itu yang lain turun ke Staff.</div>
        </div>`:""}
-       <div class="inline-info" style="margin-bottom:12px">
-         <b>Tingkat</b> (Staff / Manajer / Admin) menjawab <i>orang ini siapa</i>; tabel
-         <b>🔑 Hak Akses per Role</b> menjawab <i>tingkat itu boleh apa</i>. Keduanya berlaku
-         hanya di modul ini.<br>
-         Baris <b>↳ Kirim Ajakan Review (WhatsApp)</b> mengatur siapa yang boleh menekan
-         <b>⭐ Minta Review</b>. Saklar <b>global</b> on/off ajakan WhatsApp ada terpisah di
-         <b>Google Review → ⚙️ Setelan</b> — kalau saklar itu mati, tombolnya hilang untuk semua
-         tingkat tanpa kecuali.
+       <div class="hint" style="margin-bottom:12px">
+         <b>Tingkat</b> = orang ini siapa. Tabel <b>🔑 Hak Akses</b> = tingkat itu boleh apa. Saklar global ajakan WhatsApp ada di <b>Kontrol → ⚙️ Setelan</b>.
        </div>
        ${userAccessBlock(bolehUbah)}
      </div>
@@ -9142,11 +9164,9 @@ function renderCapaian(){
      <div class="panel-head"><h3>👥 Perolehan per Kru</h3>
        <span class="muted" style="font-size:12.5px">${baris.length} kru · target bulan ${esc(fmtMonth(tm))}</span></div>
      <div class="panel-body">
-       <div class="inline-info" style="margin-bottom:12px">
-         🏅 <b>Reward</b>: ${rewardAturanTeks()}.
-         Dihitung dari review <b>terverifikasi</b> pada <b>${esc(reviewRangeLabel())}</b> — yang baru diklaim belum ikut.
-         Yang dibayar <b>satu tangga tertinggi</b> yang dilewati, bukan dijumlah.
-         ${CAN.master(SESSION.role)?`Nominal &amp; jumlah review diatur di <b>Google Review → ⚙️ Setelan</b>.`:""}
+       <div class="hint" style="margin-bottom:12px">
+         🏅 <b>Reward</b>: ${rewardAturanTeks()} — dari review <b>terverifikasi</b> ${esc(reviewRangeLabel())}, dibayar satu tangga tertinggi.
+         ${CAN.master(SESSION.role)?`Diatur di <b>Kontrol → ⚙️ Setelan</b>.`:""}
        </div>
        <div class="table-wrap"><table>
          <thead><tr><th>Kru</th><th>Diminta</th><th>Diklaim</th><th>Terverifikasi</th><th>Ditolak</th><th>Feedback</th><th>Target</th><th>Capaian</th><th>Reward</th></tr></thead>
