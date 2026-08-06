@@ -718,6 +718,61 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -743,6 +798,10 @@ function moduleLabel() { appModuleList(); }
 
 
 function moduleLabels() { canOpen(); }
+
+
+
+
 
 
 
@@ -1772,7 +1831,7 @@ function renderSuper() { tujuanKartu(); }
 
 
 
-function renderBranches() { canOpen(); tujuanKartu(); svgIcon(); }
+function renderBranches() { canOpen(); esc(); tujuanKartu(); svgIcon(); }
 
 
 
@@ -1804,6 +1863,47 @@ function renderBranches() { canOpen(); tujuanKartu(); svgIcon(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function modeRingkas() {  }
+
+
+function terapkanTampilan() { modeRingkas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tukarTampilan() { modeRingkas(); terapkanTampilan(); }
 
 
 
@@ -1843,7 +1943,8 @@ function showLogin() { add(); }
 
 
 
-function showApp() { add(); namaSapaan(); greetingText(); renderSuper(); renderBranches(); updateClock(); isSuperadmin(); }
+function showApp() { add(); namaSapaan(); greetingText(); renderSuper(); renderBranches(); terapkanTampilan(); updateClock(); isSuperadmin(); }
+
 
 
 
