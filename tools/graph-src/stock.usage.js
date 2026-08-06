@@ -870,6 +870,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function timSayaList() {  }
 
 
@@ -1347,7 +1355,15 @@ function muat() { rentang(); render(); }
 
 
 
-function render() { kartu(); }
+function render() { barisPemakaian(); totalPerSatuan(); kartu(); teksTotal(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2426,13 +2442,63 @@ function gambarBars() { fmtQty(); }
 
 
 
+
+
+
+
+
+
+
+function gambarBarsQty() { totalPerSatuan(); urutSatuan(); teksTotal(); fmtQty(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function petaQty() {  }
+
+
+
+
+
+
+
+
+
 function kosong() {  }
 
 
 
 
 
-function renderSerahReport() { srhAturTujuan(); segAktif(); kartu(); timSaya(); gambarBars(); kosong(); timBelumDiisi(); pesanTimKosong(); blokSerah(); kartuSerah(); }
+function renderSerahReport() { srhAturTujuan(); segAktif(); rekapBaris(); barisSerah(); totalPerSatuan(); kartu(); teksTotal(); timSaya(); gambarBars(); gambarBarsQty(); petaQty(); panelRekap(); kosong(); timBelumDiisi(); pesanTimKosong(); blokSerah(); kartuSerah(); }
+
+
 
 
 
@@ -2554,7 +2620,7 @@ function kartuSerah() { fmtQty(); lihatFotoSerah(); editSerah(); hapusSerah(); }
 
 
 
-function renderWasteReport() { segAktif(); kartu(); gambarBars(); kosong(); timBelumDiisi(); pesanTimKosong(); fmtQty(); lihatFotoWaste(); editWaste(); hapusWaste(); }
+function renderWasteReport() { segAktif(); rekapBaris(); barisWaste(); totalPerSatuan(); kartu(); teksTotal(); gambarBars(); gambarBarsQty(); petaQty(); panelRekap(); kosong(); timBelumDiisi(); pesanTimKosong(); fmtQty(); lihatFotoWaste(); editWaste(); hapusWaste(); }
 
 
 
@@ -2640,7 +2706,6 @@ function renderWasteReport() { segAktif(); kartu(); gambarBars(); kosong(); timB
 
 
 
-function rekapBahan() { soUnitInfo(); soUnit(); soKonversi(); }
 
 
 
@@ -2650,6 +2715,7 @@ function rekapBahan() { soUnitInfo(); soUnit(); soKonversi(); }
 
 
 
+function bariskan() { soUnitInfo(); soUnit(); soKonversi(); }
 
 
 
@@ -2664,6 +2730,7 @@ function rekapBahan() { soUnitInfo(); soUnit(); soKonversi(); }
 
 
 
+function rekapBaris() { bariskan(); }
 
 
 
@@ -2674,6 +2741,65 @@ function rekapBahan() { soUnitInfo(); soUnit(); soKonversi(); }
 
 
 
+
+
+
+
+
+
+
+function barisPemakaian() {  }
+
+
+
+
+
+function barisWaste() {  }
+
+
+function barisSerah() {  }
+
+
+
+
+
+function rekapBahan() { rekapBaris(); barisPemakaian(); bariskan(); }
+
+
+
+
+
+
+
+
+
+
+function totalPerSatuan() { soUnitInfo(); soKonversi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function urutSatuan() {  }
+
+
+
+
+
+function teksTotal() { urutSatuan(); fmtQty(); }
 
 
 
@@ -2689,6 +2815,51 @@ function fmtQty() {  }
 
 function renderRekapBahan() { rekapBahan(); fmtQty(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelRekap() { totalPerSatuan(); teksTotal(); fmtQty(); }
 
 
 
