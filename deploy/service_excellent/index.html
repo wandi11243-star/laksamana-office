@@ -3105,6 +3105,14 @@ async function boot(){
               // Dipakai halaman Kelola Role untuk menjelaskan ke orangnya
               // kenapa tingkatnya bisa berbeda dari dugaannya.
               adminOffice: adminOffice,
+              /* Tingkat ini datang dari jalur darurat, bukan dari yang disetel
+                 manusia. Dibawa supaya bisa DITULIS di layar — user melaporkan
+                 6 Agustus 2026 "pojok kiri bawah Admin Sistem padahal di Role
+                 Kru semuanya sudah Staff". Setelannya tidak gagal tersimpan;
+                 yang kurang cuma keterangan bahwa keadaan itu memang sementara,
+                 dan satu-satunya tempat yang mengatakannya ada di halaman
+                 Kelola Role yang harus dibuka dulu. */
+              daruratAdmin: belumAdaPengurus,
               divisi: String((kru && kru.divisi) || office.keterangan || "") };
   try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(SESSION)); }catch(e){}   // divisi ikut bertahan setelah muat ulang
   SELECTED_CREW = u.id;
@@ -3170,12 +3178,27 @@ function applyNavPref(){
   let hide=false; try{ hide=localStorage.getItem("rsv_nav_hidden")==="1"; }catch(e){}
   byId("app").classList.toggle("nav-hidden", hide);
 }
+/* Tulisan tingkat di pojok kiri bawah. Kalau tingkatnya datang dari JALUR
+   DARURAT (belum ada satu pun Manajer/Admin di modul ini, jadi semua orang
+   masuk sebagai Admin Sistem), itu harus kelihatan di situ juga — bukan hanya
+   di halaman Kelola Role. Tanpa ini, layar bilang "Admin Sistem" sementara
+   daftar krunya bilang "Staff", dan yang membaca wajar menyimpulkan
+   setelannya tidak tersimpan. */
+function pasangLabelTingkat(){
+  const el=byId("userRole"); if(!el || !SESSION) return;
+  const darurat = !!SESSION.daruratAdmin;
+  el.textContent = (ROLE_LABEL[SESSION.role]||SESSION.role) + (darurat ? " · sementara" : "");
+  el.title = darurat
+    ? "Sementara: belum ada Manajer/Admin di modul ini, jadi semua orang masuk sebagai Admin Sistem. "
+      + "Tetapkan satu orang di Kontrol → Kelola Role, lalu yang lain otomatis turun ke Staff."
+    : "";
+}
 async function enterApp(){
   byId("loginScreen").classList.add("hidden");
   byId("app").classList.remove("hidden");
   applyNavPref();
   byId("userName").textContent = SESSION.name;
-  byId("userRole").textContent = ROLE_LABEL[SESSION.role];
+  pasangLabelTingkat();
   const av=byId("userAvatar"); av.textContent = crewInitials(SESSION.name); av.style.background = avatarColor(SESSION.id);
   // tombol + sudah tidak ada di appbar modul ini
   buildNav();
@@ -8835,6 +8858,17 @@ function userAccessBlock(bolehUbah){
          ${bolehUbah?`<button class="btn btn-sm btn-ghost" onclick="segarkanKru()" title="Tarik ulang daftar kru dari Office">↻ Segarkan</button>`:""}
        </div></div>
      <div class="panel-body">
+       <!-- Peringatan yang SAMA juga berdiri di kepala halaman, tapi daftar kru
+            ada jauh di bawahnya dan peringatannya sudah tergulir hilang saat
+            orang membaca dropdown-nya. Di situlah pertanyaannya muncul: "semua
+            sudah Staff, kenapa saya masih Admin Sistem?" — jadi jawabannya
+            ditaruh menempel pada daftar itu juga. -->
+       ${!seCrew().some(k=>k.role==="manager"||k.role==="admin")?`<div class="inline-warn" style="margin-bottom:10px">
+         <div>⚠️ Daftar ini belum punya satu pun <b>Manajer / Owner</b> atau <b>Admin Sistem</b>.
+         Selama itu <b>semua orang</b> masuk sebagai <b>Admin Sistem</b> — termasuk yang di sini tertulis
+         <b>Staff</b>. Ubah <b>satu</b> orang lewat pemilih di sebelah kanan namanya; sesudah itu
+         yang lain benar-benar jadi Staff.</div>
+       </div>`:""}
        ${usersHtml||`<div class="empty" style="padding:24px"><div class="big">👥</div>Daftar kru belum termuat dari Office.</div>`}
        ${tblPagerHtml(pKru,"kru")}
        <!-- Yang disaring keluar DIHITUNG dan disebut, bukan hilang diam-diam:
@@ -8881,13 +8915,23 @@ function setKruRole(id, role){
   logAudit("Role Kru", `${u.name}: ${ROLE_LABEL[dulu]||dulu} → ${ROLE_LABEL[role]||role}`);
   saveState();
   toast(`${u.name} sekarang ${ROLE_LABEL[role]}`,"ok");
+  /* Begitu ada satu pengurus, jalur darurat MATI — dan tulisan "· sementara"
+     di pojok kiri bawah harus ikut hilang saat itu juga, bukan menunggu muat
+     ulang. Dihitung ulang dari daftar kru yang baru saja berubah, bukan dari
+     nilai lama yang dibawa sejak boot. */
+  const masihDarurat = !seCrew().some(k=>k.role==="manager"||k.role==="admin");
+  if(SESSION.daruratAdmin !== masihDarurat){
+    SESSION.daruratAdmin = masihDarurat;
+    try{ sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION)); }catch(e){}
+    pasangLabelTingkat();
+  }
   // Mengubah role DIRI SENDIRI berlaku seketika: sidebar, nama tingkat di
   // pojok, dan halaman yang boleh dibuka semuanya ikut berubah tanpa perlu
   // login ulang.
   if(id===SESSION.id){
     SESSION.role=role;
     try{ sessionStorage.setItem(SESSION_KEY,JSON.stringify(SESSION)); }catch(e){}
-    const lbl=byId("userRole"); if(lbl) lbl.textContent=ROLE_LABEL[role]||role;
+    pasangLabelTingkat();
     buildNav();
     // Menurunkan diri sendiri bisa berarti halaman ini tidak lagi boleh dibuka.
     if(!pageAllowed("peran", SESSION.role)){ navigate(allowedPages(SESSION.role)[0]); return; }
