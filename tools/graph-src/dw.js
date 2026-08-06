@@ -528,13 +528,7 @@
 
 
 
-
-
-
-
-
 function svg() {  }
-
 
 
 
@@ -642,6 +636,8 @@ function seed() { normalSetting(); }
 
 
 function normalizeState() { normalSetting(); statusDW(); }
+
+
 
 
 
@@ -1013,10 +1009,7 @@ function bolehBuka() { isDW(); isAdmin(); }
 
 
 
-function buildNav() { isDW(); ajuanPerluHadir(); bolehBuka(); esc(); go(); svg(); }
-
-
-
+function buildNav() { isDW(); bolehBuka(); esc(); go(); svg(); }
 
 
 
@@ -1076,8 +1069,7 @@ function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewKehadiran(); viewPengaturan(); }
-
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewPengaturan(); }
 
 
 
@@ -1106,7 +1098,6 @@ function tombolKembali() { esc(); }
 
 function pilStatus() { esc(); }
 function pilStatusDW() { esc(); }
-function pilHadir() { esc(); }
 function segDivisi() { esc(); }
 
 
@@ -1114,8 +1105,7 @@ function segDivisi() { esc(); }
 
 
 function jamAjuan() {  }
-function barisAjuan() { namaDW(); esc(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); tglManusia(); rp(); biayaAjuan(); pilHadir(); pilStatus(); }
-
+function barisAjuan() { namaDW(); esc(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); tglManusia(); rp(); biayaAjuan(); pilStatus(); }
 
 
 
@@ -1143,8 +1133,7 @@ function barisAjuan() { namaDW(); esc(); ikonDivisi(); namaDivisi(); jamAjuan();
 
 
 function dashTgl() { hariIni(); }
-function viewDashboard() { dashTgl(); biayaAjuan(); durasiJam(); esc(); tglManusia(); bukaAjuan(); escJs(); namaDW(); ikonDivisi(); namaDivisi(); jamAjuan(); pilHadir(); rp(); normalSetting(); tglPanjang(); navTanggal(); statBox(); statUang(); go(); barisAjuan(); }
-
+function viewDashboard() { dashTgl(); biayaAjuan(); durasiJam(); esc(); tglManusia(); bukaAjuan(); escJs(); namaDW(); ikonDivisi(); namaDivisi(); jamAjuan(); rp(); normalSetting(); tglPanjang(); navTanggal(); statBox(); statUang(); go(); barisAjuan(); }
 
 
 
@@ -1847,12 +1836,7 @@ function viewSaya() { isDW(); durasiJam(); esc(); go(); statBox(); barisAjuan();
 
 
 
-
-
-
 function statistikDW() { durasiJam(); }
-
-
 
 
 
@@ -1871,8 +1855,6 @@ function viewPekerja() {  }
 
 
 function chip() { filterPekerja(); esc(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
-
-
 
 
 
@@ -1996,83 +1978,7 @@ function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusD
 
 
 
-
 function hapusPekerja() { pekerjaById(); konfirmasi(); apiPost(); tutupModal(); toast(); muatData(); render(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function ajuanPerluHadir() { addD(); hariIni(); }
-
-
-
-
-function viewKehadiran() { ajuanPerluHadir(); barisAjuan(); bukaHadir(); escJs(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function bukaHadir() { modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); namaDivisi(); pilihHadir(); simpanHadir(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function pilihHadir() {  }
-
-
-
-
-
-function simpanHadir() { toast(); apiPost(); tutupModal(); muatData(); render(); }
 
 
 
@@ -2160,9 +2066,7 @@ function ubahBatas() { simpanSetting(); toast(); }
 
 
 
-function bukaAjuan() { pekerjaById(); isOffice(); tutupModal(); setujuiAjuan(); tolakAjuan(); hariIni(); bukaHadir(); modal(); esc(); namaDW(); pilStatus(); pilHadir(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
-
-
+function bukaAjuan() { pekerjaById(); isOffice(); tutupModal(); setujuiAjuan(); tolakAjuan(); modal(); esc(); namaDW(); pilStatus(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
 
 
 
