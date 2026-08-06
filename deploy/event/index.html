@@ -523,7 +523,17 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .katrow.on{background:var(--panel2);padding:8px;margin-bottom:14px}
 .kathead{display:flex;align-items:center;gap:10px;width:100%;background:none;border:none;
   padding:2px 0 4px;cursor:pointer;color:inherit;font:inherit;text-align:left}
-.kathead .mini{margin-left:auto}
+/* Angka kanan disejajarkan: mata membaca kolom, bukan kalimat. Jumlah tiket
+   dibuat paling besar karena itu yang dicari lebih dulu; rupiahnya menyusul
+   di baris kedua supaya keduanya tidak berebut perhatian. */
+.kathead .kat-angka{margin-left:auto;text-align:right;line-height:1.15;flex-shrink:0}
+.kathead .kat-angka b{font-size:16px;font-weight:800}
+.kathead .kat-angka .mini{font-size:11px;color:var(--muted)}
+.kathead .kat-rp{display:block;font-size:11.5px;color:var(--muted);font-weight:600}
+.katfoot{display:flex;justify-content:space-between;gap:10px;margin-top:5px;flex-wrap:wrap}
+.katfoot b{color:var(--txt)}
+.kat-habis{color:var(--red)}
+.salesbar{position:relative}
 .kathead:hover .ldz-tier{text-decoration:underline}
 .kat-caret{font-size:11px;color:var(--muted);width:12px;text-align:center}
 .katlist{margin-top:10px;background:var(--panel);border-radius:8px;overflow:hidden}
@@ -3319,7 +3329,8 @@ function salesRingkas(eid){
       const c=DB.ticketClasses.find(x=>x.id===t.ticket_class_id);
       const nama=c?c.name:'(tanpa kelas)';
       const harga=c?(+c.price||0):0;
-      per[nama]=per[nama]||{n:0,rp:0,warna:ldzTierInfo(eid,nama).c,pembeli:[],_idx:{}};
+      per[nama]=per[nama]||{n:0,rp:0,warna:ldzTierInfo(eid,nama).c,pembeli:[],_idx:{},
+                            harga:harga, kuota:(c?(+c.quota||0):0)};
       /* PEMBELI DIKUMPULKAN PER KATEGORI, satu baris per pesanan — bukan satu
          baris per tiket. Satu orang yang membeli 6 tiket VIP adalah SATU
          pembeli yang membawa 6 orang, dan mendaftarnya enam kali membuat
@@ -3413,25 +3424,47 @@ function katPembeliHTML(eid,v,i){
   }
   return h+'</div>';
 }
+/* Bar-nya mengukur TERJUAL terhadap KUOTA, bukan omzet terhadap kategori
+   terlaris. Bar perbandingan omzet hanya menjawab "mana yang paling banyak
+   menghasilkan" \u2014 dan itu sudah dijawab angka rupiah di sebelahnya. Yang
+   tidak terjawab di mana pun sebelumnya: "VIP tinggal berapa?" Itu yang
+   menentukan tindakan hari itu \u2014 menutup penjualan, menambah kursi, atau
+   mendorong kategori yang sepi. Porsi omzetnya tetap ada, sebagai persen di
+   baris keterangan. */
 function salesGrafikHTML(r,eid){
   const nama=Object.keys(r.per);
-  if(!nama.length) return '';
-  const maks=Math.max.apply(null,nama.map(function(k){ return r.per[k].rp; }))||1;
+  if(!nama.length){
+    return '<div class="card" style="margin-bottom:16px"><h3 class="sec">Penjualan per Kategori</h3>'
+      +'<div class="empty">Belum ada tiket terjual di event ini.</div></div>';
+  }
+  const totalRp=nama.reduce(function(a,k){ return a+r.per[k].rp; },0)||1;
   return '<div class="card" style="margin-bottom:16px"><h3 class="sec">Penjualan per Kategori</h3>'
-   +'<p class="mini" style="margin:-6px 0 10px">Klik kategorinya untuk melihat siapa saja pembelinya.</p>'
+   +'<p class="mini" style="margin:-6px 0 12px">Panjang bar = terjual terhadap kuota. '
+   +'Klik kategorinya untuk melihat siapa saja pembelinya.</p>'
    +nama.map(function(k,i){
-      const v=r.per[k], w=Math.round(v.rp/maks*100);
+      const v=r.per[k];
+      const kuota=+v.kuota||0;
+      const w=kuota?Math.min(100,Math.round(v.n/kuota*100)):(v.n?100:0);
+      const sisa=kuota?Math.max(0,kuota-v.n):null;
       const buka=(_katBuka===String(i));
       const jmlPembeli=(v.pembeli||[]).length;
+      const porsi=Math.round(v.rp/totalRp*100);
       return '<div class="katrow'+(buka?' on':'')+'">'
        +'<button type="button" class="kathead" onclick="toggleKat(\''+eid+'\','+i+')" '
          +'aria-expanded="'+(buka?'true':'false')+'">'
          +'<span class="ldz-tier"><i style="background:'+v.warna+'"></i>'+esc(k)+'</span>'
-         +'<span class="mini"><b>'+v.n+' tiket</b> \u00b7 '+IDR(v.rp)
-           +' \u00b7 '+jmlPembeli+' pembeli</span>'
+         +'<span class="kat-angka"><b>'+v.n+'</b>'+(kuota?'<span class="mini">/'+kuota+'</span>':'')
+           +'<span class="kat-rp">'+IDR(v.rp)+'</span></span>'
          +'<span class="kat-caret">'+(buka?'\u25b4':'\u25be')+'</span>'
        +'</button>'
        +'<div class="salesbar"><i style="width:'+w+'%;background:'+v.warna+'"></i></div>'
+       +'<div class="katfoot mini">'
+         +'<span>'+jmlPembeli+' pembeli'+(v.harga?' \u00b7 '+IDR(v.harga)+'/tiket':'')+'</span>'
+         +'<span>'+porsi+'% dari omzet'
+           +(sisa===null ? ''
+             : sisa===0  ? ' \u00b7 <b class="kat-habis">HABIS</b>'
+                         : ' \u00b7 sisa <b>'+sisa+'</b>')+'</span>'
+       +'</div>'
        +(buka?katPembeliHTML(eid,v,i):'')
        +'</div>';
    }).join('')
@@ -3461,8 +3494,19 @@ function salesBody(eid){
        +'<button class="'+(ldzLantai()==='2'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'2\')">Lantai 2</button>'
      +'</div>'+ldzCanvasHTML(eid,false)+'</div>';
   }
-  h+='<div class="grid g3" style="margin-bottom:16px">'
-   +stat('Omzet Bersih',IDR(r.omzet),r.tiketSah+' tiket sah')
+  /* Empat angka, bukan tiga. "Terjual" dan sisa kuotanya adalah yang paling
+     sering ditanyakan menjelang hari-H, dan sebelum ini harus dijumlahkan
+     sendiri dari bar per kategori. Rata-rata per pesanan ikut ditulis di
+     keterangan omzet: itu yang membedakan 40 pesanan satuan dari 10 rombongan
+     besar, dua keadaan yang sama omzetnya tapi sama sekali beda pekerjaannya
+     di pintu masuk. */
+  const kuotaTotal=DB.ticketClasses.filter(c=>c.event_id===eid).reduce((a,c)=>a+(+c.quota||0),0);
+  const sisaTotal=Math.max(0,kuotaTotal-r.tiketSah);
+  const rata=r.orders.length?Math.round(r.omzet/r.orders.length):0;
+  h+='<div class="grid g4" style="margin-bottom:16px">'
+   +stat('Omzet Bersih',IDR(r.omzet),r.orders.length?('rata-rata '+IDR(rata)+' / pesanan'):'belum ada pesanan')
+   +stat('Tiket Terjual',r.tiketSah+(kuotaTotal?' / '+kuotaTotal:''),
+         kuotaTotal?(sisaTotal?('sisa '+sisaTotal+' tiket'):'kuota habis'):'kuota belum disetel')
    +stat('Dikembalikan',IDR(r.dikembalikan),'refund disetujui')
    +stat('Jumlah Pesanan',r.orders.length,'termasuk yang direfund')
    +'</div>'+salesGrafikHTML(r,eid);
@@ -3508,7 +3552,11 @@ function salesBody(eid){
      +(o.recorded_by?' · oleh '+esc(o.recorded_by):'')+'</div>'
      +'<div class="mini">'+esc(o.payment_ref||'')+'</div></td>'
      +'<td class="mini">'+esc(o.phone)+'<br>'+esc(o.email)+'</td>'
-     +'<td>'+(cls?esc(cls.name):'-')+(tks.length>1?' <span class="badge b-blue">'+tks.length+' tiket</span>':'')+'</td>'
+     /* Titik warna kategorinya ikut, sama dengan warna di panel atas: satu
+        bahasa warna untuk seluruh halaman, jadi mata bisa melompat dari bar
+        "VIP" ke baris-baris VIP di tabel tanpa membaca namanya lagi. */
+     +'<td>'+(cls?'<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,cls.name).c+'"></i>'+esc(cls.name)+'</span>':'-')
+       +(tks.length>1?' <span class="badge b-blue">'+tks.length+' tiket</span>':'')+'</td>'
      +'<td class="mini">'+(kursi.length?esc(kursi.join(', ')):'\u2014')+'</td>'
      +'<td>'+IDR(o.total)+'</td>'
      +'<td>'+statusBadge(o.payment_status)+'</td>'
@@ -6139,7 +6187,7 @@ function renderCheckin(){
    itu yang dulu membuat halaman ini berat di HP. */
 // 10 per halaman, sama dengan tabel lain (lihat SALES_PER_HAL).
 const CI_PER_HAL=10;
-let _ciFilter={q:'',mode:'belum',hal:1};
+let _ciFilter={q:'',mode:'belum',kelas:'',hal:1};
 
 function ciBaris(eid){
   return ciTiket(eid).map(function(tk){
@@ -6159,6 +6207,7 @@ function ciTabelHTML(eid){
   return '<div class="card" style="margin-top:16px"><h3 class="sec">🧾 Daftar Tamu</h3>'
     +'<div class="toolbar" style="margin-bottom:10px">'
       +chip('belum','Belum datang',belum)+chip('sudah','Sudah datang',sudah)+chip('semua','Semua',b.length)
+      +'<span id="ciKelasWrap">'+ciPilihKelasHTML(eid)+'</span>'
       +'<input id="ci_cari" placeholder="Cari nama / no. tiket / kursi…" value="'+esc(_ciFilter.q)+'" '
         +'oninput="ciCari(this.value)" style="flex:1;min-width:180px">'
     +'</div>'
@@ -6169,11 +6218,19 @@ function ciTabelIsiHTML(eid){
   let b=ciBaris(eid);
   if(_ciFilter.mode==='belum') b=b.filter(x=>!x.masuk);
   else if(_ciFilter.mode==='sudah') b=b.filter(x=>x.masuk);
+  /* Saringan kategori. Di pintu masuk, antrean VIP dan reguler dibuka lewat
+     jalur berbeda — petugas jalur VIP tidak perlu (dan tidak boleh keliru
+     membaca) 400 nama reguler di layarnya. */
+  if(_ciFilter.kelas) b=b.filter(x=>x.kelas===_ciFilter.kelas);
   const q=_ciFilter.q.trim().toLowerCase();
   if(q) b=b.filter(x=>(x.nama+' '+x.tk.ticket_number+' '+x.tempat+' '+x.hp).toLowerCase().indexOf(q)>=0);
 
-  if(!b.length) return '<div class="empty">'+(q?'Tidak ada yang cocok dengan "'+esc(_ciFilter.q)+'".'
-    :(_ciFilter.mode==='belum'?'Semua tamu sudah datang. 🎉':'Belum ada yang check-in.'))+'</div>';
+  if(!b.length){
+    const kls=_ciFilter.kelas?' di kategori '+esc(_ciFilter.kelas):'';
+    return '<div class="empty">'+(q?'Tidak ada yang cocok dengan "'+esc(_ciFilter.q)+'"'+kls+'.'
+      :(_ciFilter.mode==='belum'?'Semua tamu'+kls+' sudah datang. 🎉'
+                                :'Belum ada yang check-in'+kls+'.'))+'</div>';
+  }
 
   const halMax=Math.max(1,Math.ceil(b.length/CI_PER_HAL));
   if(_ciFilter.hal>halMax) _ciFilter.hal=halMax;
@@ -6212,6 +6269,36 @@ function ciPaintTabel(){
   const el=document.getElementById('ciTabelIsi');
   if(el && window._ciEvent) el.innerHTML=ciTabelIsiHTML(window._ciEvent);
 }
+/* Pemilih kategori dibuat dari kelas yang BENAR-BENAR punya tiket di event
+   ini, bukan dari seluruh daftar kelas: kelas yang dibuat lalu tidak jadi
+   dijual akan berdiri sebagai pilihan yang selalu menghasilkan tabel kosong.
+   Angkanya = yang belum/sudah datang sesuai mode yang sedang aktif, jadi
+   "VIP 12" berarti dua belas yang benar-benar masih ditunggu. */
+function ciPilihKelasHTML(eid){
+  /* Angkanya mengikuti MODE yang sedang aktif: saat "Belum datang" terpilih,
+     "VIP (12)" berarti dua belas orang yang benar-benar masih ditunggu, bukan
+     jumlah tiket VIP yang terjual. Itu angka yang dibaca petugas pintu. */
+  let src=ciBaris(eid);
+  if(_ciFilter.mode==='belum') src=src.filter(x=>!x.masuk);
+  else if(_ciFilter.mode==='sudah') src=src.filter(x=>x.masuk);
+  const n={};
+  src.forEach(function(x){ n[x.kelas]=(n[x.kelas]||0)+1; });
+  /* Daftar kategorinya diambil dari SELURUH tiket, bukan cuma yang lolos
+     mode. Kalau tidak, kategori yang tamunya sudah datang semua akan lenyap
+     dari pemilih justru saat petugas sedang menyaring "belum datang" — dan
+     saringan yang sedang aktif ikut hilang tanpa jejak. */
+  const kelas=[]; ciBaris(eid).forEach(function(x){ if(kelas.indexOf(x.kelas)<0) kelas.push(x.kelas); });
+  kelas.sort();
+  if(kelas.length<2) return '';        // satu kategori saja: tidak ada yang perlu disaring
+  return '<select id="ci_kelas" onchange="ciKelas(this.value)" style="width:auto">'
+    +'<option value="">Semua kategori ('+src.length+')</option>'
+    +kelas.map(function(k){
+        return '<option value="'+esc(k)+'"'+(_ciFilter.kelas===k?' selected':'')+'>'
+          +esc(k)+' ('+(n[k]||0)+')</option>';
+      }).join('')
+    +'</select>';
+}
+function ciKelas(v){ _ciFilter.kelas=v; _ciFilter.hal=1; ciPaintTabel(); }
 function ciCari(v){ _ciFilter.q=v; _ciFilter.hal=1; ciPaintTabel(); }
 function ciHal(d){ _ciFilter.hal=Math.max(1,_ciFilter.hal+d); ciPaintTabel(); }
 function ciMode(m){
@@ -6222,6 +6309,11 @@ function ciMode(m){
     const on=b.dataset.m===m;
     b.classList.toggle('blue',on); b.classList.toggle('ghost',!on);
   });
+  /* Pemilih kategori ikut digambar ulang — angkanya mengikuti mode, dan
+     angka yang tertinggal di mode sebelumnya adalah angka yang berbohong.
+     Kotak pencarian TIDAK ikut, supaya fokusnya tidak hilang. */
+  const wrap=document.getElementById('ciKelasWrap');
+  if(wrap && window._ciEvent) wrap.innerHTML=ciPilihKelasHTML(window._ciEvent);
   ciPaintTabel();
 }
 

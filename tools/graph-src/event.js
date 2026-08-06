@@ -723,6 +723,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -3366,6 +3376,7 @@ function salesRingkas() { ldzTierInfo(); }
 
 
 
+
 function toggleKat() { renderTicketDetail(); }
 
 
@@ -3377,6 +3388,13 @@ function katHal() { renderTicketDetail(); }
 
 
 function katPembeliHTML() { esc(); fmtDateTime(); katHal(); }
+
+
+
+
+
+
+
 
 
 
@@ -3441,7 +3459,37 @@ function salesGrafikHTML() { toggleKat(); esc(); katPembeliHTML(); }
 
 
 
-function salesBody() { salesRingkas(); purchaseFlow(); ldzSemuaItems(); ldzJualAktif(); ldzToggleJual(); ldzBarJualHTML(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function salesBody() { salesRingkas(); purchaseFlow(); ldzSemuaItems(); ldzJualAktif(); ldzToggleJual(); ldzBarJualHTML(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6154,7 +6202,8 @@ function ciBaris() { ciTiket(); seatTeks(); fmtDateTime(); }
 function ciTabelHTML() { ciBaris(); }
 
 
-function chip() { ciMode(); esc(); ciCari(); ciTabelIsiHTML(); }
+function chip() { ciMode(); ciPilihKelasHTML(); esc(); ciCari(); ciTabelIsiHTML(); }
+
 
 
 
@@ -6208,13 +6257,56 @@ function ciTabelIsiHTML() { ciBaris(); esc(); batalCheckin(); checkinDariDenah()
 
 
 
+
+
+
+
+
+
+
+
 function ciPaintTabel() { ciTabelIsiHTML(); }
 
 
 
+
+
+
+
+
+function ciPilihKelasHTML() { ciBaris(); ciKelas(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciKelas() { ciPaintTabel(); }
 function ciCari() { ciPaintTabel(); }
 function ciHal() { ciPaintTabel(); }
-function ciMode() { ciPaintTabel(); }
+function ciMode() { ciPilihKelasHTML(); ciPaintTabel(); }
+
+
+
+
+
 
 
 
