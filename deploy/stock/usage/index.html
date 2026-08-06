@@ -681,10 +681,14 @@
               <div class="panel-body"><div id="wr-sebab" class="bars"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>Produk Paling Sering Terbuang</h3><span class="sub" id="wr-item-sub"></span></div>
+              <div class="panel-head"><h3>Produk Terbanyak Terbuang</h3><span class="sub" id="wr-item-sub"></span></div>
               <div class="panel-body"><div id="wr-item" class="bars"></div></div>
             </div>
           </div>
+
+          <!-- Rincian "berapa banyak yang terbuang" per produk. Grafik di atas
+               cuma memuat 8 teratas; yang ini memuat semuanya. -->
+          <div id="rekap-waste"></div>
 
           <div>
             <div class="section-title">Catatan waste satu per satu</div>
@@ -796,10 +800,14 @@
               <div class="panel-body"><div id="sr-arah" class="bars"></div></div>
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>Barang Paling Sering Diserahkan</h3><span class="sub" id="sr-barang-sub"></span></div>
+              <div class="panel-head"><h3>Barang Terbanyak Diserahkan</h3><span class="sub" id="sr-barang-sub"></span></div>
               <div class="panel-body"><div id="sr-barang" class="bars"></div></div>
             </div>
           </div>
+
+          <!-- Rincian "berapa banyak yang keluar" per barang. Grafik di atas
+               cuma memuat 8 teratas; yang ini memuat semuanya. -->
+          <div id="rekap-serah"></div>
 
           <div>
             <div class="section-title">Catatan serah terima</div>
@@ -1368,9 +1376,17 @@
     list.forEach(r => { perJenis[r.jenis || 'Lainnya'] = (perJenis[r.jenis || 'Lainnya'] || 0) + 1; });
     const teratas = Object.entries(perJenis).sort((a, b) => b[1] - a[1])[0];
 
+    /* Yang dijumlahkan JUMLAH BAHANNYA, bukan berapa baris — dan hanya yang
+       berstatus Selesai. Rencana belum keluar dari gudang; memasukkannya ke
+       angka "sudah keluar" membuat orang mengira barangnya sudah terpakai. */
+    const barisSudah = barisPemakaian(list).filter(b => !b.rencana);
+    const totQty = totalPerSatuan(barisSudah);
+
     document.getElementById('ringkas').innerHTML = `
+      ${kartu('📦 Total Bahan Keluar', teksTotal(totQty),
+              rencana ? `${totalItem} baris bahan · rencana belum dihitung` : `${totalItem} baris bahan`,
+              'info', true)}
       ${kartu('📋 Total Catatan', list.length, 'kegiatan tercatat')}
-      ${kartu('📦 Baris Bahan', totalItem, 'total item dipakai', 'info')}
       ${kartu('⏳ Masih Rencana', rencana, rencana ? 'belum diambil dari gudang' : 'semua sudah keluar', rencana ? 'warn' : 'ok')}
       ${kartu('🔥 Terbanyak', teratas ? teratas[0] : '—', teratas ? `${teratas[1]} catatan` : 'belum ada', 'purple')}`;
 
@@ -2426,6 +2442,54 @@
           : '');
   }
 
+  /* Varian gambarBars untuk JUMLAH BARANG, bukan berapa kali.
+     Bedanya dua, dan dua-duanya soal kejujuran angka:
+     - persentase terhadap total TIDAK ditulis. Satu grafik bisa memuat "5 Kg"
+       dan "40 Pcs"; persen dari campuran satuan itu bilangan karangan.
+     - kalau satuannya memang bercampur, urutannya diberi tanda di subjudul —
+       panjang batang cuma pembanding kasar, bukan peringkat sebenarnya.
+     `peta` = {nama: {qty, unit}}. */
+  function gambarBarsQty(id, peta, idSub, kelas, maksBaris) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const sub = idSub ? document.getElementById(idSub) : null;
+    const baris = Object.entries(peta).filter(([, v]) => v.qty > 0).sort((a, b) => b[1].qty - a[1].qty);
+    if (!baris.length) {
+      box.innerHTML = `<div class="text-[13px]" style="color:var(--muted-2)">Belum ada data pada periode ini.</div>`;
+      if (sub) sub.textContent = '';
+      return;
+    }
+    const maks = baris[0][1].qty;
+    const tot = totalPerSatuan(baris.map(([, v]) => v));
+    const campur = urutSatuan(tot).length > 1;
+    if (sub) sub.textContent = teksTotal(tot, true) + (campur ? ' · satuan campur' : '');
+    const tampil = maksBaris ? baris.slice(0, maksBaris) : baris;
+    box.innerHTML = tampil.map(([k, v]) => `
+      <div class="bar-row ${kelas || ''}">
+        <div class="top">
+          <span class="k">${esc(k)}</span>
+          <span class="v">${fmtQty(v.qty)} ${esc(v.unit || '')}</span>
+        </div>
+        <div class="track"><div class="fill" style="width:${Math.max(2, Math.round(v.qty / maks * 100))}%"></div></div>
+      </div>`).join('')
+      + (baris.length > tampil.length
+          ? `<div class="text-[12px] pt-1" style="color:var(--muted-2)">+${baris.length - tampil.length} lainnya tidak digambar</div>`
+          : '');
+  }
+
+  /* Peta {nama: {qty, unit}} dari hasil rekapBaris — satu bahan satu batang.
+     Bahan yang tercatat dua satuan tak sekeluarga (Pcs & Kg) muncul dua baris
+     yang dibedakan satuannya, persis seperti di tabel rekap. */
+  function petaQty(baris) {
+    const p = {};
+    baris.forEach(b => {
+      let nm = b.item;
+      if (p[nm]) nm = `${b.item} (${b.unit || 'tanpa satuan'})`;   // yang kedua diberi keterangan
+      p[nm] = { qty: b.total, unit: b.unit };
+    });
+    return p;
+  }
+
   function kosong(ikon, pesan) {
     return `<div class="empty"><div class="big">${ikon}</div><div class="msg">${esc(pesan)}</div></div>`;
   }
@@ -2443,6 +2507,11 @@
         .some(v => String(v || '').toLowerCase().includes(q)));
 
     const totalItem = list.reduce((a, s) => a + (s.items || []).length, 0);
+    /* Yang dihitung JUMLAH BARANGNYA, bukan berapa baris. "40 baris barang"
+       tidak memberi tahu apa pun soal berapa banyak yang benar-benar
+       berpindah tangan; "12,5 Liter · 8 Kg · 47 Pcs" memberi tahu. */
+    const rekap = rekapBaris(barisSerah(list));
+    const totQty = totalPerSatuan(barisSerah(list));
     const berfoto = list.filter(s => s.adaFoto).length;
     const perTujuan = {};
     list.forEach(s => { const k = s.tujuan || '—'; perTujuan[k] = (perTujuan[k] || 0) + 1; });
@@ -2453,7 +2522,8 @@
        "12" tidak memberi tahu apa pun kalau catatannya ada 40. */
     document.getElementById('serah-ringkas').innerHTML = `
       ${kartu('🤝 Total Serah Terima', list.length, 'catatan pada periode ini')}
-      ${kartu('📦 Baris Barang', totalItem, 'item berpindah tangan', 'info')}
+      ${kartu('📦 Total Barang Diserahkan', teksTotal(totQty),
+              `${totalItem} baris · ${rekap.length} jenis barang`, 'info', true)}
       ${kartu('📷 Berfoto', list.length ? berfoto + '/' + list.length : '—',
               !list.length ? 'belum ada catatan'
               : berfoto === list.length ? 'semua ada buktinya' : 'sisanya tanpa bukti',
@@ -2476,12 +2546,8 @@
     }
     gambarBars('sr-arah', arah, 'catatan', 'sr-arah-sub');
 
-    const perBarang = {};
-    list.forEach(s => (s.items || []).forEach(i => {
-      const nm = String(i.item || '').trim();
-      if (nm) perBarang[nm] = (perBarang[nm] || 0) + 1;
-    }));
-    gambarBars('sr-barang', perBarang, 'kali diserahkan', 'sr-barang-sub', 'purple', 8);
+    gambarBarsQty('sr-barang', petaQty(rekap), 'sr-barang-sub', 'purple', 8);
+    panelRekap('rekap-serah', '📦 Total Barang yang Diserahkan', rekap, 'Berapa catatan');
 
     const box = document.getElementById('serah-daftar');
     if (!list.length) {
@@ -2564,31 +2630,34 @@
       .filter(r => !q || [r.item, r.sebab, r.pic, r.catatan, r.tim]
         .some(v => String(v || '').toLowerCase().includes(q)));
 
-    const perSebab = {}, perItem = {};
+    const perSebab = {};
     list.forEach(r => {
       const sb = r.sebab || 'Lainnya';
       perSebab[sb] = (perSebab[sb] || 0) + 1;
-      const nm = String(r.item || '').trim();
-      if (nm) perItem[nm] = (perItem[nm] || 0) + 1;
     });
     const teratas = Object.entries(perSebab).sort((a, b) => b[1] - a[1])[0];
     const berfoto = list.filter(r => r.adaFoto).length;
-    const itemUnik = Object.keys(perItem).length;
 
-    /* Jumlah TIDAK dijumlahkan jadi satu angka besar. Waste dicatat dalam
-       satuan campur (2 Kg ayam + 3 Pcs roti + 1 Liter susu), dan "6" dari
-       penjumlahan itu bilangan yang tidak berarti apa-apa. Yang dihitung
-       jumlah KEJADIAN dan jumlah PRODUK BERBEDA — keduanya bisa dipercaya
-       apa pun satuannya. */
+    /* Jumlah waste DIJUMLAHKAN, tidak lagi cuma dihitung kejadiannya.
+       Dulu di sini tertulis "jangan dijumlah, satuannya campur" — dan itu
+       benar kalau 2 Kg ayam + 3 Pcs roti dipaksa jadi "5". Yang dilakukan
+       sekarang bukan itu: tiap keluarga satuan punya angkanya sendiri
+       (semua berat → Kg, semua volume → Liter, ML ikut ke Liter), yang
+       diskrit tetap terpisah. "12,5 Liter · 8 Kg · 47 Pcs" — tiap suku
+       bisa dipercaya, dan barulah kelihatan berapa banyak yang terbuang. */
+    const rekap = rekapBaris(barisWaste(list));
+    const totQty = totalPerSatuan(barisWaste(list));
+
     document.getElementById('waste-ringkas').innerHTML = `
       ${kartu('🗑️ Total Catatan', list.length, 'kejadian waste', list.length ? 'danger' : 'ok')}
-      ${kartu('🥕 Produk Berbeda', itemUnik, 'jenis barang terbuang', 'info')}
+      ${kartu('📦 Total Terbuang', teksTotal(totQty), `${rekap.length} jenis barang`, 'danger', true)}
       ${kartu('🔥 Sebab Terbanyak', teratas ? teratas[0] : '—', teratas ? `${teratas[1]} kejadian` : 'belum ada', 'warn')}
       ${kartu('📷 Berfoto', list.length ? berfoto + '/' + list.length : '—',
               list.length ? 'ada buktinya' : 'belum ada catatan', 'purple')}`;
 
     gambarBars('wr-sebab', perSebab, 'kejadian', 'wr-sebab-sub', 'danger');
-    gambarBars('wr-item', perItem, 'kejadian', 'wr-item-sub', 'warn', 8);
+    gambarBarsQty('wr-item', petaQty(rekap), 'wr-item-sub', 'warn', 8);
+    panelRekap('rekap-waste', '📦 Total Waste per Produk', rekap, 'Berapa kejadian');
 
     const box = document.getElementById('waste-daftar');
     if (!list.length) {
@@ -2640,44 +2709,101 @@
      akan membuat orang mengira barangnya sudah terpakai. */
   // Satuan dasar per keluarga untuk penggabungan (kalau produk belum punya).
   const REKAP_FAM_BASE = { berat: 'Kg', volume: 'Liter' };
-  function rekapBahan(list) {
+
+  /* Satu baris catatan (bahan, jumlah, satuan) → jumlah dalam satuan gabungan.
+     Satuan yang SEKELUARGA (Gram+Kg, ML+Liter) dijadikan satu, dikonversi ke
+     satu satuan target: satuan utama produk kalau sekeluarga, kalau tidak ke
+     Kg/Liter. Satuan DISKRIT (Pcs/Dus/…) tidak punya rasio universal, jadi
+     tetap berdiri sendiri — 3 Pcs + 2 Dus tidak pernah dijadikan "5". */
+  function bariskan(nama, qty, unit) {
+    const u = String(unit || '').trim();
+    const q = Number(qty) || 0;
+    const info = soUnitInfo(u);                  // [keluarga, faktor] | undefined
+    if (!info) return { qty: q, unit: u, kunciSat: 'u:' + u.toLowerCase() };
+    const keluarga = info[0];
+    const pu = soUnit(nama), puInfo = soUnitInfo(pu);
+    const target = (puInfo && puInfo[0] === keluarga) ? pu : REKAP_FAM_BASE[keluarga];
+    const c = soKonversi(q, u, target);
+    return { qty: c === null ? q : c, unit: target, kunciSat: 'fam:' + keluarga };
+  }
+
+  /* Rekap per bahan dari daftar baris {item, qty, unit, rencana?}.
+     Dipakai bertiga: pemakaian, waste, dan serah terima — yang membedakan
+     cuma cara memanen barisnya dari catatan masing-masing. */
+  function rekapBaris(baris) {
     const peta = new Map();
-    list.forEach(r => {
-      const selesai = r.status === 'Selesai';
-      (r.items || []).forEach(i => {
-        const nama = String(i.item || '').trim();
-        if (!nama) return;                       // baris kosong tidak dihitung
-        const unit = String(i.unit || '').trim();
-        const q = Number(i.qty) || 0;
-
-        /* Satuan yang SEKELUARGA (Gram+Kg, ML+Liter) digabung jadi satu baris,
-           dikonversi ke satu satuan target: satuan utama produk kalau
-           sekeluarga, kalau tidak ke Kg/Liter. Satuan DISKRIT (Pcs/Dus/…)
-           tidak bisa dikonversi, jadi tetap satu baris per satuan. */
-        const info = soUnitInfo(unit);           // [keluarga, faktor] | undefined
-        let target = unit, kunciSat;
-        let qv = q;
-        if (info) {
-          const keluarga = info[0];
-          const pu = soUnit(nama), puInfo = soUnitInfo(pu);
-          target = (puInfo && puInfo[0] === keluarga) ? pu : REKAP_FAM_BASE[keluarga];
-          const c = soKonversi(q, unit, target);
-          if (c !== null) qv = c;
-          kunciSat = 'fam:' + keluarga;          // satu bucket per keluarga
-        } else {
-          kunciSat = 'u:' + unit.toLowerCase();  // diskrit: per satuan sendiri
-        }
-
-        const kunci = nama.toLowerCase() + '|' + kunciSat;
-        const b = peta.get(kunci) || { item: nama, unit: target, selesai: 0, rencana: 0, dipakai: 0 };
-        if (selesai) b.selesai += qv; else b.rencana += qv;
-        b.dipakai += 1;                          // berapa catatan menyebut bahan ini
-        peta.set(kunci, b);
-      });
+    baris.forEach(b => {
+      const nama = String(b.item || '').trim();
+      if (!nama) return;                         // baris kosong tidak dihitung
+      const k = bariskan(nama, b.qty, b.unit);
+      const kunci = nama.toLowerCase() + '|' + k.kunciSat;
+      const o = peta.get(kunci) || { item: nama, unit: k.unit, selesai: 0, rencana: 0, dipakai: 0 };
+      if (b.rencana) o.rencana += k.qty; else o.selesai += k.qty;
+      o.dipakai += 1;                            // berapa catatan menyebut bahan ini
+      peta.set(kunci, o);
     });
     return Array.from(peta.values())
       .map(b => Object.assign(b, { total: b.selesai + b.rencana }))
       .sort((a, b) => b.total - a.total || a.item.localeCompare(b.item));
+  }
+
+  // Panen baris bahan dari catatan pemakaian; yang belum "Selesai" = rencana.
+  function barisPemakaian(list) {
+    const out = [];
+    list.forEach(r => (r.items || []).forEach(i =>
+      out.push({ item: i.item, qty: i.qty, unit: i.unit, rencana: r.status !== 'Selesai' })));
+    return out;
+  }
+  function barisWaste(list) {
+    return list.map(r => ({ item: r.item, qty: r.qty, unit: r.unit }));
+  }
+  function barisSerah(list) {
+    const out = [];
+    list.forEach(s => (s.items || []).forEach(i =>
+      out.push({ item: i.item, qty: i.qty, unit: i.unit })));
+    return out;
+  }
+  function rekapBahan(list) { return rekapBaris(barisPemakaian(list)); }
+
+  /* ---------- TOTAL LINTAS BAHAN ----------
+     "Berapa banyak barang yang keluar" — pertanyaan yang dulu tidak dijawab
+     report mana pun: yang tertulis cuma berapa KALI sesuatu dicatat, dan
+     "Air Mineral 12 kali" tidak memberi tahu 12 botol atau 12 dus.
+
+     Di sini satuan dasar produk SENGAJA diabaikan (tidak lewat bariskan()):
+     dua bahan sekeluarga bisa punya satuan dasar berbeda — Gram untuk bumbu,
+     Kg untuk daging — dan menjumlahkannya apa adanya membuat 300 gram terbaca
+     300 Kg. Semua berat dibawa ke Kg, semua volume ke Liter. */
+  function totalPerSatuan(baris) {
+    const tot = {};
+    baris.forEach(b => {
+      const u = String(b.unit || '').trim();
+      const q = Number(b.qty) || 0;
+      const info = soUnitInfo(u);
+      if (info) {
+        const base = REKAP_FAM_BASE[info[0]];
+        const c = soKonversi(q, u, base);
+        tot[base] = (tot[base] || 0) + (c === null ? q : c);
+      } else {
+        tot[u || 'tanpa satuan'] = (tot[u || 'tanpa satuan'] || 0) + q;
+      }
+    });
+    return tot;
+  }
+  // Urutan tetap: Kg, Liter, lalu satuan diskrit dari yang terbanyak. Bukan
+  // urut nilai murni — "47 Pcs" mendahului "12 Kg" cuma karena 47 > 12 itu
+  // perbandingan yang tidak ada artinya.
+  function urutSatuan(tot) {
+    const rank = u => u === 'Kg' ? 0 : u === 'Liter' ? 1 : 2;
+    return Object.entries(tot).filter(([, v]) => v > 0)
+      .sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1] || a[0].localeCompare(b[0]));
+  }
+  // Teks total siap tempel. `polos` untuk tempat yang tidak menerima HTML.
+  function teksTotal(tot, polos) {
+    const e = urutSatuan(tot);
+    if (!e.length) return '—';
+    return e.map(([u, v]) => polos ? `${fmtQty(v)} ${u}`
+      : `${fmtQty(v)} <small>${esc(u)}</small>`).join(' · ');
   }
 
   // Angka pemakaian sering pecahan (0.25 galon). Nol di belakang koma dibuang
@@ -2729,16 +2855,61 @@
       </div>`;
   }
 
+  /* Tabel rekap versi ringkas — untuk Waste & Serah Terima, yang tidak punya
+     pemisahan "rencana vs sudah dipakai" seperti pemakaian. Isinya menjawab
+     "berapa banyak barang yang keluar", bukan "berapa kali dicatat": angka
+     besar di kolom Total, jumlah catatan didorong ke kolom paling kanan. */
+  function panelRekap(idBox, judul, baris, labelHitung) {
+    const box = document.getElementById(idBox);
+    if (!box) return;
+    if (!baris.length) { box.innerHTML = ''; return; }
+    const tot = totalPerSatuan(baris.map(b => ({ qty: b.total, unit: b.unit })));
+    box.innerHTML = `
+      <div class="panel overflow-hidden">
+        <div class="panel-head">
+          <h3>${judul}</h3>
+          <span class="sub">${baris.length} barang · ${esc(teksTotal(tot, true))}</span>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Barang</th>
+                <th style="text-align:right">Total Keluar</th>
+                <th style="text-align:right">${esc(labelHitung)}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${baris.map(b => `
+                <tr>
+                  <td class="nm">${esc(b.item)}</td>
+                  <td class="num">${fmtQty(b.total)} ${esc(b.unit)}</td>
+                  <td class="num" style="font-weight:500;color:var(--muted)">${b.dipakai}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <p class="px-4 py-2.5 text-[11.5px] leading-relaxed" style="color:var(--muted-2);border-top:1px solid var(--line)">
+          Dihitung dari catatan yang sedang tampil — ubah periode atau penyaring di atas untuk mempersempitnya.
+          Satuan sekeluarga (Gram+Kg, ML+Liter) digabung otomatis; satuan yang tak bisa dikonversi (Pcs, Dus, dll) tetap dipisah barisnya.
+        </p>
+      </div>`;
+  }
+
   /* Kartu angka besar, bentuk .recap milik Reservasi: rel warna di sisi kiri
      + pendar emas di sudut kanan atas. `warna` memilih warna relnya —
      '' emas (netral) · ok · warn · danger · info · purple.
 
      Nilai TIDAK di-esc dua kali: sudah lewat esc() di sini, jadi pemanggil
-     cukup mengirim teks apa adanya. */
-  function kartu(label, nilai, sub, warna) {
+     cukup mengirim teks apa adanya.
+
+     `mentah` untuk nilai yang SUDAH berbentuk HTML — dipakai kartu total
+     barang, yang menulis satuannya dengan <small> supaya "12,5 Liter · 8 Kg"
+     tetap terbaca di kotak selebar 168px. Pemanggilnya yang wajib meng-esc. */
+  function kartu(label, nilai, sub, warna, mentah) {
     return `<div class="recap ${warna || ''}">
       <div class="lbl">${label}</div>
-      <div class="val">${esc(String(nilai))}</div>
+      <div class="val">${mentah ? nilai : esc(String(nilai))}</div>
       <div class="sub">${esc(sub)}</div>
     </div>`;
   }
