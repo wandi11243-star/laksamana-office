@@ -580,6 +580,7 @@ let RANGE = null;                      // {dari,sampai} rentang ajuan yang sudah
 let TAMU = [];                         // agenda gabungan Marketing + Event
 let TAMU_ERR = '';                     // sumber yang tidak bisa dihubungi
 let TAMU_ADA = false;                  // sudah pernah berhasil dimuat minimal satu sumber
+let TAMU_AT = 0;                       // kapan terakhir berhasil ditarik
 let TAMU_JALAN = false;
 
 /* =====================================================================
@@ -1001,6 +1002,7 @@ async function muatTamu(paksa){
     return String(a.jam||'zz').localeCompare(String(b.jam||'zz'));
   });
   TAMU_ADA=true;
+  TAMU_AT=Date.now();
 }
 async function muatTamuDanGambar(paksa){ await muatTamu(paksa); render(); }
 function tamuTgl(iso){ return TAMU.filter(function(a){ return a.tgl===iso; }); }
@@ -1370,14 +1372,19 @@ function viewAntrean(){
   }else{
     isi=tgls.map(function(t){
       const list=perTgl[t];
-      const sudah=(S.ajuan||[]).filter(a=>a.tgl===t&&a.status==='DISETUJUI').length;
+      /* Ikut saringan divisi yang sedang aktif. Sebelumnya selalu menghitung
+         SEMUA divisi, jadi saat HR menyaring "Bar" ia membaca "5 sudah
+         disetujui" yang isinya kitchen dan floor — lalu menolak ajuan bar
+         yang sebenarnya masih kurang. */
+      const sudah=(S.ajuan||[]).filter(a=>a.tgl===t && a.status==='DISETUJUI'
+        && (ANTREAN_DIV==='ALL' || a.divisi===ANTREAN_DIV)).length;
       const ids=list.map(a=>a.id);
       /* Panduan hari itu ditulis di kepala kelompoknya — di sinilah putusan
          diambil, dan HR tidak perlu mengingat angka dari halaman Pengaturan. */
       return '<div class="daygrp"><div class="dh">'
         +'<b>'+esc(tglPanjang(t))+'</b>'
         +'<span class="chip">'+list.length+' menunggu</span>'
-        +'<span class="chip">'+sudah+' sudah disetujui</span>'
+        +'<span class="chip">'+sudah+' sudah disetujui'+(ANTREAN_DIV==='ALL'?'':' di '+esc(namaDivisi(ANTREAN_DIV)))+'</span>'
         +'<span class="chip" title="'+esc(panduanTeks(t))+'">'+esc(KONTEKS_LBL[konteksHari(t)])+'</span>'
         +'<div class="spacer"></div>'
         +'<button class="btn btn-ok btn-sm" onclick="setujuiBanyak('+JSON.stringify(ids).replace(/"/g,'&quot;')+')">Setujui semua ('+list.length+')</button>'
@@ -1430,7 +1437,12 @@ function tolakAjuan(id){
    kebenaran, bukan menyimpan putusan yang sebenarnya tidak pernah terjadi. */
 async function putusAjuan(id,status,nota){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
-  const lama=a.status;
+  /* Seluruh jejak putusan disimpan, bukan cuma statusnya. Dulu hanya
+     `status` yang dikembalikan saat kiriman gagal, jadi barisnya kembali
+     MENUNGGU tapi tetap membawa nama pemutus dan catatan penolakan dari
+     percobaan yang gagal — dan itu terbaca di layar seolah sudah pernah
+     diputuskan orang lain. */
+  const lama={status:a.status, nota:a.putusNota, oleh:a.putusOleh, at:a.putusAt};
   a.status=status; a.putusNota=nota||''; a.putusOleh=namaSaya(); a.putusAt=Date.now();
   simpanCache(); render();
   try{
@@ -1438,7 +1450,7 @@ async function putusAjuan(id,status,nota){
     setSync('');
     toast(namaDW(a.dwId)+' — '+(STATUS_AJU[status]||status));
   }catch(e){
-    a.status=lama;
+    a.status=lama.status; a.putusNota=lama.nota; a.putusOleh=lama.oleh; a.putusAt=lama.at;
     toast('Gagal menyimpan: '+e.message, true);
     await muatData(true); render();
   }
@@ -1805,11 +1817,20 @@ function gambarAjukanTgl(){
        tercatat. Cukup diberi tahu, supaya salah klik tanggal tetap kelihatan. */
     +(b.tgl<hariIni()?'<div class="note w">Tanggal ini sudah lewat. Boleh saja — ajuan susulan tetap tercatat seperti biasa.</div>':'')
     +'<hr style="border:none;border-top:1px solid var(--line);margin:14px 0">'
+    /* Yang sudah punya ajuan hari itu DITANDAI di daftarnya, bukan cuma
+       ditegur setelah tombol kirim ditekan. Nama yang sama dipilih dua kali
+       adalah kesalahan yang paling gampang terjadi saat memasukkan lima orang
+       berturut-turut, dan mencegahnya di daftar jauh lebih murah daripada
+       menjelaskannya di kotak peringatan. */
     +'<div class="field"><label>Daily Worker *</label><select id="ajtDw">'
       +'<option value="">— pilih daily worker —</option>'
       +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
-        .map(p=>'<option value="'+esc(p.id)+'"'+(b.dw===p.id?' selected':'')+'>'
-          +esc(p.nama)+' · '+esc(namaDivisi(p.divisi))+'</option>').join('')
+        .map(function(p){
+          const ada=ajuanOrangTgl(p.id, b.tgl);
+          return '<option value="'+esc(p.id)+'"'+(b.dw===p.id?' selected':'')+'>'
+            +esc(p.nama)+' · '+esc(namaDivisi(p.divisi))
+            +(ada?' — sudah ada ('+esc(STATUS_AJU[ada.status]||ada.status)+')':'')+'</option>';
+        }).join('')
       +'</select></div>'
     +(jam.length?'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
       +'<div class="pick">'+tombolJam(b.m,b.s,'ajtJam')+'</div>':'')
@@ -1839,6 +1860,21 @@ async function kirimAjukanTgl(){
      termasuk yang masih menunggu: orangnya sudah dipesan, dan menambah orang
      keenam ke hari berpanduan empat tetap keputusan yang layak ditanyakan
      sekali walau belum satu pun disetujui. */
+  /* Orang yang sama, tanggal yang sama → menimpa ajuan lama. Ditanya lebih
+     dulu, dan kalimatnya menyebut akibat yang paling mudah terlewat: yang
+     sudah DISETUJUI turun lagi jadi menunggu. */
+  const sudahAda=(b.dw && b.tgl) ? ajuanOrangTgl(b.dw, b.tgl) : null;
+  if(sudahAda && !b.lanjutkanTimpa){
+    modal('Sudah ada ajuan untuk '+esc(namaDW(b.dw)),
+      '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(b.dw))+' sudah punya ajuan '
+      +esc(tglPanjang(b.tgl))+' ('+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
+      +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
+      +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang.':'')+'</p>',
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ gambarAjukanTgl(); return false; }},
+       {t:'Ya, ganti ajuannya', c:'btn-danger', f:function(){ b.lanjutkanTimpa=true; kirimAjukanTgl(); return false; }}]);
+    return;
+  }
+  b.lanjutkanTimpa=false;
   const l=(b.dw && b.tgl) ? lampauiPanduan(b.tgl, b.div, ['DISETUJUI','MENUNGGU'], '') : null;
   if(l && !b.lanjutkanLebih){
     /* Dipasang dengan modal() dan bukan konfirmasi(), supaya "Batal" bisa
@@ -1974,6 +2010,22 @@ function pilihJam(i){
    tempat: pintu yang lupa memeriksanya akan mengirim ajuan yang ditolak
    backend dengan pesan yang jauh lebih membingungkan.
    Mengembalikan true kalau benar-benar tersimpan. */
+/* Ajuan yang sudah ada untuk orang + tanggal yang sama. Backend memakai kunci
+   unik (dw_id, tgl) dan MENIMPA lewat ON DUPLICATE KEY — barisnya kembali
+   MENUNGGU, jejak putusannya dihapus. Itu benar sebagai perilaku, tapi
+   berbahaya kalau terjadi tanpa disadari: HR yang memasukkan lima orang untuk
+   malam Sabtu lalu salah memilih nama yang sama dua kali TIDAK melihat
+   jumlahnya bertambah — yang terjadi justru shift yang tadi sudah disetujui
+   turun lagi jadi menunggu, dan tidak ada satu pun pesan yang menyebutkannya.
+
+   Yang dianggap "sudah ada" hanya ajuan yang MASIH HIDUP (menunggu atau
+   disetujui). Yang DITOLAK dan DIBATALKAN sengaja tidak dihitung: menimpanya
+   justru yang diinginkan — HR berubah pikiran, dan menanyakan konfirmasi
+   untuk baris yang memang sudah mati cuma melatih orang menekan lanjut. */
+function ajuanOrangTgl(dwId,tgl){
+  return (S.ajuan||[]).find(a=>a.dwId===dwId && a.tgl===tgl
+    && (a.status==='MENUNGGU' || a.status==='DISETUJUI')) || null;
+}
 async function simpanAjuanRow(row){
   if(!row.dwId){ toast('Pilih daily worker dulu', true); return false; }
   if(!row.tgl){ toast('Tanggal kerja wajib diisi', true); return false; }
@@ -2277,9 +2329,13 @@ function bayarGabung(v){ BAYAR_GABUNG=!!v; render(); }
    persis sama — persis kebalikan dari gunanya halaman ini.
    Yang belum punya nomor tujuan TIDAK digabung dengan siapa pun; masing-masing
    berdiri sendiri supaya kelihatan bahwa datanya memang belum lengkap. */
-function kunciBayar(p){
+function kunciBayar(p, dwId){
   const nomor=String(p&&p.bayarNomor||'').replace(/[\s.\-]/g,'');
-  if(!nomor) return 'KOSONG|'+(p?p.id:'');
+  /* Yang belum punya nomor berdiri sendiri-sendiri. Kuncinya memakai id
+     orangnya (dwId), BUKAN p.id — kalau ia sudah dihapus dari talent pool,
+     `p` bernilai null dan semua yang null akan menyatu jadi SATU baris
+     transfer berisi beberapa orang yang tidak ada hubungannya. */
+  if(!nomor) return 'KOSONG|'+(dwId||(p?p.id:''));
   return bayarJenisSah(p.bayarJenis)+'|'+nomor.toLowerCase();
 }
 /* Rekap satu minggu: {uid → {p, kali, jam, total}} */
@@ -2310,9 +2366,13 @@ function labelTujuan(p){
 function viewBayar(){
   const senin=bayarSenin();
   const hari=[]; for(let i=0;i<7;i++) hari.push(addD(senin,i));
-  let baris=rekapBayar(senin);
+  /* Dihitung SEKALI untuk seluruh halaman. rekapBayar() menyapu semua ajuan
+     yang termuat; memanggilnya lagi untuk tiap chip penyaring adalah lima
+     sapuan untuk angka yang sama persis. */
+  const semua=rekapBayar(senin);
+  let baris=semua;
   if(BAYAR_FILTER!=='ALL'){
-    baris=baris.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===BAYAR_FILTER);
+    baris=semua.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===BAYAR_FILTER);
   }
   const totalRp=baris.reduce((n,x)=>n+x.total,0);
   const totalKali=baris.reduce((n,x)=>n+x.kali,0);
@@ -2321,7 +2381,7 @@ function viewBayar(){
      Angka inilah yang dicari sebelum membuka m-banking. */
   const kelompok={};
   baris.forEach(function(x){
-    const k=kunciBayar(x.p);
+    const k=kunciBayar(x.p, x.id);
     if(!kelompok[k]) kelompok[k]={kunci:k, p:x.p, orang:[], total:0, kali:0};
     kelompok[k].orang.push(x); kelompok[k].total+=x.total; kelompok[k].kali+=x.kali;
   });
@@ -2330,7 +2390,7 @@ function viewBayar(){
 
   const chip=(k,l)=>'<button class="'+(BAYAR_FILTER===k?'active':'')+'" onclick="bayarFilter(\''+k+'\')">'+esc(l)+'</button>';
   const hitungJenis=function(k){
-    return rekapBayar(senin).filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===k).length;
+    return semua.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===k).length;
   };
 
   let isi;
@@ -2379,6 +2439,7 @@ function viewBayar(){
      tenggelam di tabel: transfernya tidak bisa dikerjakan malam itu juga,
      dan itu perlu ketahuan SEBELUM HR mulai membuka m-banking. */
   const belum=baris.filter(x=>!(x.p&&x.p.bayarNomor));
+  const nol=baris.filter(x=>x.total<=0);
 
   return '<div class="panel">'
     +'<div class="rowbar"><h2>Pembayaran mingguan</h2><div class="spacer"></div>'
@@ -2394,8 +2455,15 @@ function viewBayar(){
     +'</div>'
     +(belum.length?'<div class="note w"><b>'+belum.length+' orang</b> belum punya nomor tujuan: '
       +esc(belum.map(x=>x.nama).join(', '))+'. Lengkapi di <b>Database DW</b> supaya bisa ikut digabung.</div>':'')
+    /* Nominal nol hampir selalu berarti tarif posisinya belum disetel, bukan
+       orangnya memang tidak dibayar. Tanpa pita ini, satu baris Rp 0 di antara
+       belasan baris lain tidak pernah tertangkap mata — dan orangnya tetap
+       bekerja tanpa dibayar. */
+    +(nol.length?'<div class="note d">Nominal <b>Rp 0</b> untuk '
+      +esc(nol.map(x=>x.nama+' ('+((x.p&&x.p.posisi)||'tanpa posisi')+')').join(', '))
+      +'. Tarif posisinya belum disetel di <b>Pengaturan → Tarif per shift</b>.</div>':'')
     +'<div class="rowbar">'
-      +'<div class="seg">'+chip('ALL','Semua ('+rekapBayar(senin).length+')')
+      +'<div class="seg">'+chip('ALL','Semua ('+semua.length+')')
         +Object.keys(BAYAR).map(k=>chip(k,BAYAR[k].ic+' '+BAYAR[k].n+' ('+hitungJenis(k)+')')).join('')+'</div>'
       +'<div class="spacer"></div>'
       +'<div class="seg">'
@@ -2420,7 +2488,7 @@ function salinBayar(){
   if(BAYAR_FILTER!=='ALL') baris=baris.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===BAYAR_FILTER);
   const kelompok={};
   baris.forEach(function(x){
-    const k=kunciBayar(x.p);
+    const k=kunciBayar(x.p, x.id);
     if(!kelompok[k]) kelompok[k]={p:x.p, orang:[], total:0};
     kelompok[k].orang.push(x); kelompok[k].total+=x.total;
   });
@@ -2666,7 +2734,15 @@ async function boot(){
 /* Tab yang dibiarkan terbuka semalaman memegang antrean kemarin. Saat kembali
    aktif, ambil ulang — HR lain mungkin sudah memutuskan sebagiannya. */
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible' && (ME||MEDW)){ muatData(true).then(render); }
+  if(document.visibilityState!=='visible' || !(ME||MEDW)) return;
+  muatData(true).then(render);
+  /* Agenda tamu ikut disegarkan, tapi hanya kalau sudah basi lebih dari 10
+     menit. Ia dipakai untuk menentukan "hari event" di panduan jumlah DW,
+     dan tab yang dibiarkan terbuka semalaman akan menilai acara yang baru
+     di-deal hari ini sebagai hari biasa. Tidak setiap kali tab kembali
+     aktif: getAll Marketing membawa seluruh isi modul itu, dan HR berpindah
+     tab puluhan kali sehari. */
+  if(isOffice() && TAMU_AT && (Date.now()-TAMU_AT)>600000) muatTamuDanGambar(true);
 });
 
 boot();
