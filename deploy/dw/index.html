@@ -766,10 +766,14 @@ function normalSetting(x){
        ketiga konteksnya sekaligus. Tidak dikali-kalikan sendiri — menebak
        "weekend = biasa + 2" atas nama orang lain justru membuat panduan yang
        tidak pernah mereka setujui muncul sebagai peringatan. */
-    kuota: normalKuota(s.kuota),
-    /* Berapa hari sebelum tanggal kerja ajuan masih diterima. 0 = boleh
-       mengajukan untuk hari ini juga. */
-    batasHari: (typeof s.batasHari==='number') ? s.batasHari : 1
+    /* `batasHari` DIHAPUS 6 Agustus 2026. Aturannya "paling cepat H-n"
+       menolak ajuan yang justru paling sering terjadi: tambahan mendadak
+       untuk malam ini juga. Yang ditolak sistem tidak berarti tidak terjadi
+       — orangnya tetap dipanggil lewat WhatsApp, cuma tidak tercatat di
+       sini, dan sejak itu seluruh angka di modul ini meleset. Setelan
+       lamanya sengaja tidak dibaca lagi; kalau masih ada di database ia
+       diabaikan begitu saja. */
+    kuota: normalKuota(s.kuota)
   };
 }
 
@@ -1758,7 +1762,6 @@ function gambarAjukanTgl(){
   const pax=ags.reduce((n,x)=>n+(+x.pax||0),0);
   const jam=S.setting.jam||[];
   const posisi=S.setting.posisi||POSISI_BAWAAN;
-  const batas=addD(hariIni(), S.setting.batasHari||0);
 
   const daftarAcara = ags.length
     ? ags.map(function(x){
@@ -1797,8 +1800,10 @@ function gambarAjukanTgl(){
     +(perDiv?'<div class="rowbar" style="margin-top:8px">'+perDiv+'</div>':'')
     +'<p class="mutedhint" style="margin:8px 0 0">'+esc(panduanTeks(b.tgl))+'</p>'
     +(TAMU_ERR?'<div class="note w">Agenda belum lengkap — '+esc(TAMU_ERR)+'.</div>':'')
-    +(b.tgl<batas?'<div class="note w">Tanggal ini lebih cepat dari batas pengajuan (paling cepat '
-        +esc(tglManusia(batas))+'). Ubah batasnya di Pengaturan kalau memang perlu.</div>':'')
+    /* Tanggal yang sudah lewat TIDAK dilarang — ajuan susulan untuk orang
+       yang terlanjur dipanggil kemarin adalah hal yang wajar dan justru perlu
+       tercatat. Cukup diberi tahu, supaya salah klik tanggal tetap kelihatan. */
+    +(b.tgl<hariIni()?'<div class="note w">Tanggal ini sudah lewat. Boleh saja — ajuan susulan tetap tercatat seperti biasa.</div>':'')
     +'<hr style="border:none;border-top:1px solid var(--line);margin:14px 0">'
     +'<div class="field"><label>Daily Worker *</label><select id="ajtDw">'
       +'<option value="">— pilih daily worker —</option>'
@@ -1891,7 +1896,7 @@ function serapAjukan(){
   if(el('ajCat')) AJU_CAT=el('ajCat').value;
 }
 function viewAjukan(){
-  const t=AJU_TGL||addD(hariIni(), Math.max(1,S.setting.batasHari||0));
+  const t=AJU_TGL||hariIni();
   const jam=S.setting.jam||[];
   const posisi=S.setting.posisi||POSISI_BAWAAN;
   /* Nilai yang BENAR-BENAR dipakai untuk menggambar: state kalau sudah pernah
@@ -1923,8 +1928,10 @@ function viewAjukan(){
     +'<div class="note i">Ajuan masuk ke antrean HR. Begitu <b>disetujui</b>, nama Anda otomatis muncul di kalender Jadwal Shift hari itu — tidak perlu mengabari siapa pun lagi.</div>'
     +siapa
     +'<div class="field"><label>Tanggal kerja *</label>'
-      +'<input id="ajTgl" class="inp" style="width:100%" type="date" value="'+esc(t)+'" min="'+esc(addD(hariIni(),S.setting.batasHari||0))+'">'
-      +'<div class="hint">'+(S.setting.batasHari>0?('Paling cepat H-'+S.setting.batasHari+' dari hari kerjanya.'):'Boleh untuk hari ini juga.')+'</div></div>'
+      /* Tanpa `min`: tidak ada tanggal yang dikunci, termasuk hari ini dan
+         hari yang sudah lewat. Lihat alasannya di normalSetting(). */
+      +'<input id="ajTgl" class="inp" style="width:100%" type="date" value="'+esc(t)+'">'
+      +'<div class="hint">Boleh untuk hari ini juga, bahkan untuk tanggal yang sudah lewat kalau ini ajuan susulan.</div></div>'
     +'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
     /* Tombol yang sedang terpakai ditandai. Tanpa penanda, satu-satunya bukti
        kliknya berhasil adalah dua kotak jam di bawahnya — dan di layar HP
@@ -1963,7 +1970,7 @@ function pilihJam(i){
 }
 /* SATU jalur penulisan ajuan untuk DUA pintu: form halaman Ajukan Jadwal dan
    modal cepat di Kalender Tamu. Aturan yang menahan kesalahan — wajib pilih
-   orang, wajib jam, dan batas H-n dari Pengaturan — tidak boleh hidup di dua
+   orang dan wajib jam — tidak boleh hidup di dua
    tempat: pintu yang lupa memeriksanya akan mengirim ajuan yang ditolak
    backend dengan pesan yang jauh lebih membingungkan.
    Mengembalikan true kalau benar-benar tersimpan. */
@@ -1971,8 +1978,6 @@ async function simpanAjuanRow(row){
   if(!row.dwId){ toast('Pilih daily worker dulu', true); return false; }
   if(!row.tgl){ toast('Tanggal kerja wajib diisi', true); return false; }
   if(!row.m||!row.s){ toast('Jam mulai dan jam selesai wajib diisi', true); return false; }
-  const batas=addD(hariIni(), S.setting.batasHari||0);
-  if(row.tgl<batas){ toast('Paling cepat '+tglManusia(batas)+' (H-'+(S.setting.batasHari||0)+')', true); return false; }
   try{
     await apiPost({action:'simpanAjuan', row:row});
     return true;
@@ -2499,10 +2504,6 @@ function viewPengaturan(){
           +'value="'+(+(((st.kuota||{})[d.k]||{})[k])||0)+'" onchange="ubahKuota(\''+d.k+'\',\''+k+'\',this.value)"></td>';
       }).join('')+'</tr>').join('')
     +'</tbody></table></div>'
-    +'<div class="row"><div class="who"><b>Batas paling cepat mengajukan</b>'
-      +'<span>0 = boleh untuk hari ini juga</span></div>'
-      +'<input class="inp mono" style="width:90px;text-align:right" type="number" min="0" max="30" '
-      +'value="'+(+st.batasHari||0)+'" onchange="ubahBatas(this.value)"> <span class="chip">hari sebelumnya</span></div>'
     +'</div>';
 }
 function ubahTarif(p,v,el){
@@ -2529,7 +2530,6 @@ function ubahKuota(div,konteks,v){
   kuota[div][konteks]=Math.max(0,+v||0);
   simpanSetting();
 }
-function ubahBatas(v){ S.setting.batasHari=Math.max(0,Math.min(30,+v||0)); simpanSetting(); toast('Batas pengajuan disimpan'); }
 
 /* =====================================================================
    DETAIL AJUAN

@@ -776,6 +776,10 @@ function normalSetting() { normalKuota(); }
 
 
 
+
+
+
+
 function statusDW() {  }
 
 
@@ -1752,7 +1756,8 @@ function ajtJam() { serapAjukanTgl(); gambarAjukanTgl(); }
 
 
 
-function gambarAjukanTgl() { tamuTgl(); addD(); hariIni(); esc(); ajuanHidupTgl(); namaDW(); jamAjuan(); panduanTeks(); tglManusia(); namaDivisi(); tombolJam(); modal(); tglPanjang(); kirimAjukanTgl(); }
+function gambarAjukanTgl() { tamuTgl(); esc(); ajuanHidupTgl(); namaDW(); jamAjuan(); panduanTeks(); hariIni(); namaDivisi(); tombolJam(); modal(); tglPanjang(); kirimAjukanTgl(); }
+
 
 
 
@@ -1890,7 +1895,9 @@ function serapAjukan() {  }
 
 
 
-function viewAjukan() { addD(); hariIni(); isDW(); esc(); namaDivisi(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); }
+function viewAjukan() { hariIni(); isDW(); esc(); namaDivisi(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); }
+
+
 
 
 
@@ -1967,9 +1974,7 @@ function pilihJam() { serapAjukan(); render(); }
 
 
 
-function simpanAjuanRow() { toast(); addD(); hariIni(); tglManusia(); apiPost(); }
-
-
+function simpanAjuanRow() { toast(); apiPost(); }
 
 
 
@@ -2450,11 +2455,7 @@ function salinLewatKotak() { modal(); esc(); }
 
 
 
-function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJs(); tambahPosisi(); tambahJam(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); ubahBatas(); }
-
-
-
-
+function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJs(); tambahPosisi(); tambahJam(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); }
 
 
 
@@ -2529,7 +2530,6 @@ function ubahKuota() { normalKuota(); simpanSetting(); }
 
 
 
-function ubahBatas() { simpanSetting(); toast(); }
 
 
 
