@@ -618,8 +618,13 @@
                   <label>Jumlah</label>
                   <div class="flex gap-2">
                     <input type="number" id="w-qty" value="1" min="0" step="0.01" class="w-20 text-center font-bold">
-                    <select id="w-unit" class="flex-1 min-w-0"></select>
+                    <select id="w-unit" class="flex-1 min-w-0" onchange="cekSatuanLain(true)"></select>
                   </div>
+                  <!-- Muncul hanya kalau "+ Satuan lain…" dipilih. Satuan
+                       disimpan sebagai teks bebas di server, jadi apa pun yang
+                       diketik di sini sah. -->
+                  <input type="text" id="w-unit-lain" class="hidden mt-2"
+                         placeholder="Tulis satuannya, mis. Toples" autocomplete="off">
                 </div>
               </div>
 
@@ -628,6 +633,10 @@
                 <input type="text" id="w-item" placeholder="Nama produk atau bahan…" autocomplete="off">
                 <div id="w-ac" class="hidden absolute left-0 right-0 top-full mt-1 z-20 overflow-y-auto"
                      style="background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);max-height:210px"></div>
+                <!-- Bahan di luar daftar memang boleh — tapi dulu tidak ada satu
+                     pun tulisan yang mengatakannya, dan saran yang menghilang
+                     saat tidak ada yang cocok justru terbaca sebagai penolakan. -->
+                <p id="w-item-info" class="hint"></p>
               </div>
 
               <div class="field">
@@ -1509,18 +1518,90 @@
   let SEBAB_WASTE = 'ALL';
   let TIM_WASTE = 'ALL';      // hanya berarti bagi admin; kru selalu 'ALL'
 
+  /* ---------- BAHAN & SATUAN DI LUAR DAFTAR ----------
+     Waste tidak sama dengan pemesanan: yang terbuang bisa produk jadi, bahan
+     titipan, atau apa pun yang memang tidak pernah terdaftar di Purchasing.
+     Backend sudah menerimanya (pur_waste_simpan menyimpan `item` dan `unit`
+     sebagai teks apa adanya, tanpa dicocokkan ke daftar produk) — yang kurang
+     cuma di form ini:
+
+       1. Tidak ada satu pun tulisan yang mengatakan nama bebas itu boleh, dan
+          daftar saran yang MENGHILANG saat tidak ada yang cocok justru
+          terbaca sebagai "nama ini ditolak".
+       2. Daftar satuan cuma diperbarui saat sebuah saran DIKLIK. Jadi kalau
+          kru sempat memilih bahan bersatuan sempit (mis. Susu → hanya Liter)
+          lalu mengetik nama lain yang tidak terdaftar, pilihan satuannya
+          tetap terkunci di "Liter" — satuan yang dia butuhkan tidak ada, dan
+          tidak ada cara mengubahnya selain memuat ulang halaman.
+
+     Sekarang satuannya dihitung ulang di TIAP ketikan, dan ada pilihan
+     terakhir "+ Satuan lain…" untuk satuan yang memang belum ada di daftar
+     mana pun. */
+  const SATUAN_LAIN = '__lain__';
+  function pasangSatuanWaste(nama, terpilih) {
+    const sel = document.getElementById('w-unit');
+    const lain = document.getElementById('w-unit-lain');
+    const daftar = satuanBahan(nama) || SATUAN_TERSEDIA;
+    const t = String(terpilih || '').trim();
+    /* "+ Satuan lain…" hanya untuk satuan yang BENAR-BENAR tak dikenal.
+       Satuan baku yang kebetulan di luar daftar produk (mis. Pcs pada bahan
+       yang di Purchasing hanya bersatuan Liter) tetap dianggap salah pilih dan
+       dikembalikan ke satuan produknya — kalau tidak, tiap kali kru berpindah
+       bahan, satuan lama ikut terbawa sebagai "satuan lain" yang keliru. */
+    const kustom = t !== '' && !daftar.includes(t) && !SATUAN_TERSEDIA.includes(t);
+    sel.innerHTML =
+      daftar.map(u => `<option value="${esc(u)}"${u === t ? ' selected' : ''}>${esc(u)}</option>`).join('')
+      + `<option value="${SATUAN_LAIN}"${kustom ? ' selected' : ''}>+ Satuan lain…</option>`;
+    if (!kustom && !daftar.includes(t)) sel.value = daftar[0];
+    lain.value = kustom ? t : '';
+    cekSatuanLain(false);
+  }
+  // `fokus` hanya true saat kru sendiri yang memilihnya dari dropdown. Dipanggil
+  // juga tiap penggambaran ulang, dan fokus yang berpindah sendiri di situ akan
+  // menendang kursor keluar dari kolom nama yang sedang diketik.
+  function cekSatuanLain(fokus) {
+    const sel = document.getElementById('w-unit');
+    const lain = document.getElementById('w-unit-lain');
+    if (!sel || !lain) return;
+    const aktif = sel.value === SATUAN_LAIN;
+    lain.classList.toggle('hidden', !aktif);
+    if (aktif && fokus) lain.focus();
+  }
+  // Satuan yang benar-benar akan disimpan.
+  function satuanWaste() {
+    const sel = document.getElementById('w-unit');
+    if (sel.value !== SATUAN_LAIN) return sel.value;
+    return (document.getElementById('w-unit-lain').value || '').trim();
+  }
+  // Beri tahu apakah nama yang diketik dikenal — dan kalau tidak, katakan
+  // bahwa itu tidak apa-apa.
+  function tandaBahanWaste() {
+    const el = document.getElementById('w-item-info');
+    if (!el) return;
+    const n = document.getElementById('w-item').value.trim();
+    if (!n) { el.textContent = ''; return; }
+    const terdaftar = DAFTAR_BAHAN.some(x => String(x).toLowerCase() === n.toLowerCase());
+    el.innerHTML = terdaftar
+      ? '✓ Terdaftar — satuannya mengikuti data Purchasing.'
+      : `⊕ <b>${esc(n)}</b> belum terdaftar. Tetap bisa dicatat apa adanya, dan <b>semua satuan</b> bisa dipilih.`;
+  }
+  function perbaruiSatuanWaste() {
+    pasangSatuanWaste(document.getElementById('w-item').value.trim(), satuanWaste());
+    tandaBahanWaste();
+  }
+
   function siapkanWaste() {
     document.getElementById('w-sebab').innerHTML =
       SEBAB_OPSI.map(s => `<option value="${s}">${s}</option>`).join('');
     kunciPilihanTim(document.getElementById('w-tim'));
-    document.getElementById('w-unit').innerHTML = opsiSatuan('', '');
+    pasangSatuanWaste('', '');
+    // Dihitung ulang tiap ketikan, bukan cuma saat saran diklik — lihat poin 2
+    // di catatan di atas.
+    document.getElementById('w-item').addEventListener('input', perbaruiSatuanWaste);
     pasangAutocomplete(
       document.getElementById('w-item'),
       document.getElementById('w-ac'),
-      (nama) => {
-        const sel = document.getElementById('w-unit');
-        sel.innerHTML = opsiSatuan(nama, sel.value);
-      });
+      () => perbaruiSatuanWaste());
     document.getElementById('w-foto').addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) { FOTO_WASTE = null; document.getElementById('w-foto-info').textContent = ''; return; }
@@ -1542,7 +1623,8 @@
     document.getElementById('w-tim').value = timBawaan();
     document.getElementById('w-item').value = '';
     document.getElementById('w-qty').value = 1;
-    document.getElementById('w-unit').innerHTML = opsiSatuan('', '');
+    pasangSatuanWaste('', '');
+    tandaBahanWaste();
     document.getElementById('w-catatan').value = '';
     document.getElementById('w-foto').value = '';
     document.getElementById('w-foto-info').textContent = '';
@@ -1560,7 +1642,11 @@
     setNilaiTim(document.getElementById('w-tim'), r.tim);
     document.getElementById('w-item').value = r.item || '';
     document.getElementById('w-qty').value = r.qty || 0;
-    document.getElementById('w-unit').innerHTML = opsiSatuan(r.item || '', r.unit || '');
+    // Catatan lama boleh saja bersatuan yang tidak ada di daftar mana pun —
+    // pasangSatuanWaste memulihkannya lewat "+ Satuan lain…", bukan diam-diam
+    // menggantinya dengan satuan pertama.
+    pasangSatuanWaste(r.item || '', r.unit || '');
+    tandaBahanWaste();
     document.getElementById('w-catatan').value = r.catatan || '';
     document.getElementById('w-foto').value = '';
     // null = fotonya TIDAK disentuh saat menyimpan. Tanpa ini, mengubah teks
@@ -1580,13 +1666,16 @@
     if (!item) { toast('Produk kosong', 'Isi nama produk atau bahan yang terbuang.', 'err'); return; }
     const qty = Number(document.getElementById('w-qty').value) || 0;
     if (qty <= 0) { toast('Jumlah kosong', 'Isi jumlah yang terbuang.', 'err'); return; }
+    const unit = satuanWaste();
+    // "+ Satuan lain…" yang dipilih tapi tidak diisi akan tersimpan sebagai
+    // satuan kosong — dan angka tanpa satuan tidak bisa direkap sama sekali.
+    if (!unit) { toast('Satuan kosong', 'Tulis satuannya, atau pilih dari daftar.', 'err'); return; }
 
     const body = {
       action: 'simpan',
       id: document.getElementById('w-id').value,
       tanggal: document.getElementById('w-tanggal').value,
-      item, qty,
-      unit: document.getElementById('w-unit').value,
+      item, qty, unit,
       sebab: document.getElementById('w-sebab').value,
       pic: SESI.name || '',
       tim: document.getElementById('w-tim').value,
