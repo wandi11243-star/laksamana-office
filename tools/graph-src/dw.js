@@ -464,7 +464,71 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
+
+
+
+
+
 
 
 
@@ -737,7 +801,114 @@ function muatData() { rentangDibutuhkan(); isDW(); apiPost(); normalizeState(); 
 
 
 
-function muatDanGambar() { render(); muatData(); }
+function muatDanGambar() { render(); muatData(); muatTamu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pecahWaktu() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tamuPasti() {  }
+
+
+
+
+
+function ambilSumber() {  }
+
+
+
+
+
+
+
+
+
+function muatTamu() { isDW(); ambilSumber(); pecahWaktu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatTamuDanGambar() { muatTamu(); render(); }
+function tamuTgl() {  }
+function paxTgl() { tamuTgl(); }
 
 
 
@@ -865,6 +1036,7 @@ function buildNav() { isDW(); ajuanPerluHadir(); bolehBuka(); esc(); go(); svg()
 
 
 
+
 function setTop() {  }
 
 
@@ -875,14 +1047,22 @@ function toggleSidebar() {  }
 
 
 
-function toggleNav() {  }
+function toggleNav() { muatTamu(); }
 
 
 
 
 
-function go() { toggleSidebar(); render(); }
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewAjukan(); viewSaya(); viewPekerja(); viewKehadiran(); viewPengaturan(); }
+
+
+
+function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
+
+
+
+
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewKehadiran(); viewPengaturan(); }
+
 
 
 
@@ -1189,7 +1369,239 @@ function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pit
 
 function kalenderDiv() { render(); }
 function geserBulanAktif() { geserBulan(); bulanDari(); hariIni(); muatDanGambar(); }
-function bulanIni() { bulanDari(); hariIni(); muatDanGambar(); pilihJam(); muatData(); kirimAjuan(); }
+function bulanIni() { bulanDari(); hariIni(); muatDanGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ajuanHidupTgl() {  }
+
+
+
+
+
+function viewTamu() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); seninDari(); esc(); muatTamuDanGambar(); addD(); paxTgl(); tamuTgl(); ajuanHidupTgl(); tglPanjang(); ajukanTgl(); parseD(); idxHari(); geserBulanAktif(); labelBulan(); tombolKembali(); statBox(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ajukanTgl() { isOffice(); toast(); gambarAjukanTgl(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function serapAjukanTgl() {  }
+
+
+
+
+
+
+
+
+
+function ajtJam() { serapAjukanTgl(); gambarAjukanTgl(); }
+
+
+
+function gambarAjukanTgl() { tamuTgl(); addD(); hariIni(); esc(); ajuanHidupTgl(); namaDivisi(); tglManusia(); ajtJam(); modal(); tglPanjang(); kirimAjukanTgl(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimAjukanTgl() { serapAjukanTgl(); simpanAjuanRow(); toast(); namaDW(); tglManusia(); muatData(); render(); gambarAjukanTgl(); pilihJam(); kirimAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1292,7 +1704,13 @@ function pilihJam() { serapAjukan(); render(); }
 
 
 
-function kirimAjuan() { serapAjukan(); isDW(); toast(); addD(); hariIni(); tglManusia(); apiPost(); muatData(); render(); }
+
+
+
+
+
+
+function simpanAjuanRow() { toast(); addD(); hariIni(); tglManusia(); apiPost(); }
 
 
 
@@ -1304,6 +1722,9 @@ function kirimAjuan() { serapAjukan(); isDW(); toast(); addD(); hariIni(); tglMa
 
 
 
+
+
+function kirimAjuan() { serapAjukan(); isDW(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); }
 
 
 
