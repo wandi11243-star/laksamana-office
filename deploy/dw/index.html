@@ -545,7 +545,7 @@ const NAV_DEF = [
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
   {s:'Pengaturan'},
-  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, kuota'}
+  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, jam bawaan, panduan jumlah DW'}
 ];
 
 /* ---------- State ---------- */
@@ -670,6 +670,35 @@ function normalizeState(d){
   });
   return out;
 }
+/* Tiga konteks hari, dan hanya tiga. Ditambah lagi (tanggal merah, awal
+   bulan, gajian) panduannya jadi tabel yang tidak ada yang mengisi. */
+const KONTEKS = ['biasa','weekend','event'];
+const KONTEKS_LBL = {biasa:'Hari biasa', weekend:'Akhir pekan', event:'Hari event'};
+const KUOTA_BAWAAN = {
+  bar:    {biasa:2, weekend:3, event:4},
+  kitchen:{biasa:3, weekend:4, event:6},
+  floor:  {biasa:4, weekend:6, event:8},
+  cashier:{biasa:1, weekend:1, event:2}
+};
+function normalKuota(x){
+  const s=(x&&typeof x==='object')?x:{};
+  const out={};
+  DIVISI.forEach(function(d){
+    const bawaan=KUOTA_BAWAAN[d.k]||{biasa:0,weekend:0,event:0};
+    const v=s[d.k];
+    if(typeof v==='number'){            // bentuk lama: satu angka untuk semua konteks
+      out[d.k]={biasa:v, weekend:v, event:v};
+    }else if(v&&typeof v==='object'){
+      out[d.k]={};
+      KONTEKS.forEach(function(k){
+        out[d.k][k] = (typeof v[k]==='number') ? Math.max(0,v[k]) : (bawaan[k]||0);
+      });
+    }else{
+      out[d.k]={biasa:bawaan.biasa, weekend:bawaan.weekend, event:bawaan.event};
+    }
+  });
+  return out;
+}
 function normalSetting(x){
   const s = (x&&typeof x==='object') ? x : {};
   return {
@@ -695,7 +724,18 @@ function normalSetting(x){
        Larangan keras di sini akan menghambat malam Sabtu yang memang butuh
        tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang
        mencatatnya di luar sistem. */
-    kuota: (s.kuota&&typeof s.kuota==='object') ? s.kuota : {bar:2,kitchen:3,floor:4,cashier:1},
+    /* Bentuknya {divisi:{biasa,weekend,event}} — SATU angka per divisi tidak
+       pernah benar. Malam Sabtu dan hari Selasa adalah dua pekerjaan yang
+       berbeda jumlah orangnya, dan hari yang ada acara 300 pax lebih berbeda
+       lagi. Selama panduannya cuma satu angka, ia disetel di tengah-tengah:
+       terlalu banyak untuk hari biasa, terlalu sedikit untuk hari ramai, dan
+       akhirnya tidak dipercaya di kedua-duanya.
+
+       Angka lama (satu bilangan per divisi) tetap terbaca: ia menjadi nilai
+       ketiga konteksnya sekaligus. Tidak dikali-kalikan sendiri — menebak
+       "weekend = biasa + 2" atas nama orang lain justru membuat panduan yang
+       tidak pernah mereka setujui muncul sebagai peringatan. */
+    kuota: normalKuota(s.kuota),
     /* Berapa hari sebelum tanggal kerja ajuan masih diterima. 0 = boleh
        mengajukan untuk hari ini juga. */
     batasHari: (typeof s.batasHari==='number') ? s.batasHari : 1
@@ -817,10 +857,12 @@ async function muatDanGambar(){ render(); await muatData(); render(); }
 /* =====================================================================
    AGENDA TAMU — dibaca dari Marketing & Event (Kalender Tamu)
 
-   Ditarik MALAS: hanya saat halaman Kalender Tamu dibuka, bukan saat boot.
-   Halaman ini bukan yang paling sering dipakai, sedangkan getAll Marketing
-   membawa seluruh isi modul itu — memaksanya ikut di setiap boot akan
-   memperlambat Antrean Ajuan, yang justru dibuka HR belasan kali sehari.
+   Ditarik SEKALI per sesi, di latar belakang dan tanpa ditunggu (lihat
+   mulaiAplikasi). Dulu ia malas — hanya saat halaman Kalender Tamu dibuka —
+   dan itu tidak lagi cukup sejak panduan jumlah DW memakai "hari event":
+   Antrean Ajuan harus tahu hari itu ada acaranya atau tidak, padahal HR
+   sering tidak pernah membuka Kalender Tamu sama sekali. Karena tidak
+   di-await, getAll Marketing yang besar itu tidak menahan satu layar pun.
 
    muatTamu() TIDAK PERNAH melempar. Modul tetangga yang mati tidak boleh
    membuat halaman ini blank: paling jauh satu pita peringatan, dan kisi
@@ -1043,7 +1085,7 @@ const TITLES={
   ajukan:    ['Ajukan Jadwal','Pilih tanggal dan jam kerja'],
   saya:      ['Ajuan Saya','Riwayat dan status ajuan'],
   pekerja:   ['Database DW','Talent pool daily worker'],
-  pengaturan:['Pengaturan','Tarif, jam bawaan, dan kuota per divisi']
+  pengaturan:['Pengaturan','Tarif, jam bawaan, dan panduan jumlah DW per divisi']
 };
 function setTop(){
   const t=TITLES[VIEW]||['Daily Worker','Laksamana Muda'];
@@ -1161,18 +1203,20 @@ function viewDashboard(){
       +'</tbody></table></div>';
   }
 
-  /* Peringatan kuota: dihitung per divisi untuk tanggal yang sedang dilihat.
-     Bukan larangan — lihat komentar `kuota` di normalSetting(). */
+  /* Peringatan panduan: dihitung per divisi untuk tanggal yang sedang dilihat,
+     dengan angka yang sesuai KONTEKS hari itu (biasa / akhir pekan / event).
+     Bukan larangan — lihat komentar di bagian PANDUAN JUMLAH DW. */
   const lebih=DIVISI.map(function(d){
     const n=setuju.filter(a=>a.divisi===d.k).length;
-    const k=+((S.setting.kuota||{})[d.k]);
+    const k=kuotaDiv(d.k,t);
     return (k>0 && n>k) ? (d.n+' '+n+'/'+k) : '';
   }).filter(Boolean);
 
   return '<div class="panel">'
     +'<div class="rowbar"><h2>'+esc(tglPanjang(t))+'</h2><div class="spacer"></div>'
     +navTanggal('dashGeser','dashSet','dashHariIni',t)+'</div>'
-    +(lebih.length?'<div class="note w">Melebihi kuota harian: <b>'+esc(lebih.join(', '))+'</b>. Bukan larangan — pastikan saja anggarannya memang disiapkan.</div>':'')
+    +'<p class="mutedhint" style="margin:-4px 0 12px">'+esc(panduanTeks(t))+'</p>'
+    +(lebih.length?'<div class="note w">Lebih dari panduan: <b>'+esc(lebih.join(', '))+'</b>. Bukan larangan — pastikan saja anggarannya memang disiapkan.</div>':'')
     +'<div class="stats">'
       +statBox(setuju.length,'DW Masuk')
       +statBox(tungguHariItu.length,'Menunggu (hari ini)')
@@ -1201,6 +1245,62 @@ function dashSet(v){ if(v){ DASH_TGL=v; muatDanGambar(); } }
 function dashHariIni(){ DASH_TGL=hariIni(); muatDanGambar(); }
 
 /* =====================================================================
+   PANDUAN JUMLAH DW — bukan pengunci
+
+   Tiga hal yang dijaga di bagian ini:
+
+   1. Panduannya BERGANTUNG HARI. Hari yang ada acaranya (pax dari Marketing
+      atau Event) memakai angka "hari event"; Sabtu–Minggu memakai angka akhir
+      pekan; sisanya hari biasa. Jumat dihitung hari biasa — kalau ternyata
+      Jumat malam sudah seramai Sabtu, ubah satu baris di konteksHari().
+
+   2. Melebihi panduan TIDAK PERNAH DILARANG, cuma ditanya sekali. Larangan
+      keras akan menghambat malam Sabtu yang butuh tambahan mendadak, dan yang
+      terjadi berikutnya selalu sama: orang mencatatnya di luar sistem, lalu
+      seluruh angka di modul ini berhenti bisa dipercaya.
+
+   3. Panduan 0 = tidak diatur, dan tidak menghasilkan pertanyaan apa pun.
+      Peringatan yang muncul untuk divisi yang memang belum disetel cuma
+      melatih orang menekan "lanjut" tanpa membaca.
+
+   Yang dihitung berbeda di dua tempat, dan itu disengaja — kalimat pesannya
+   menyebutkan yang mana:
+     - saat MENYETUJUI  → yang sudah DISETUJUI (yang benar-benar akan datang)
+     - saat MEMBUAT     → disetujui + menunggu (orangnya sudah dipesan)
+   ===================================================================== */
+function konteksHari(tgl){
+  if(paxTgl(tgl)>0) return 'event';
+  return idxHari(tgl)>=5 ? 'weekend' : 'biasa';
+}
+function kuotaDiv(div,tgl){
+  const k=(S.setting.kuota||{})[div];
+  if(!k) return 0;
+  return +k[konteksHari(tgl)] || 0;
+}
+/* Baris panduan untuk satu tanggal: "Hari event — Bar 4 · Kitchen 6 · …" */
+function panduanTeks(tgl){
+  const isi=DIVISI.map(function(d){
+    const k=kuotaDiv(d.k,tgl);
+    return k ? (d.ic+' '+d.n+' '+k) : '';
+  }).filter(Boolean);
+  return KONTEKS_LBL[konteksHari(tgl)] + (isi.length ? ' — panduan '+isi.join(' · ') : ' — panduan belum disetel');
+}
+function terpakaiDiv(tgl,div,status,kecualiId){
+  return (S.ajuan||[]).filter(function(a){
+    return a.tgl===tgl && a.divisi===div && status.indexOf(a.status)>-1 && a.id!==kecualiId;
+  }).length;
+}
+/* Mengembalikan keterangan kalau penambahan ini melewati panduan, atau null
+   kalau tidak (termasuk saat panduannya belum disetel). */
+function lampauiPanduan(tgl,div,status,kecualiId){
+  const k=kuotaDiv(div,tgl);
+  if(!k) return null;
+  const kini=terpakaiDiv(tgl,div,status,kecualiId);
+  if(kini+1<=k) return null;
+  return {tgl:tgl, div:div, kuota:k, kini:kini, jadi:kini+1, konteks:konteksHari(tgl)};
+}
+
+/* =====================================================================
    HALAMAN — ANTREAN AJUAN (HR)
    Dikelompokkan per TANGGAL, bukan per orang. HR memutuskan sambil melihat
    satu hari utuh ("Sabtu sudah berapa orang?"), dan daftar rata yang
@@ -1227,10 +1327,13 @@ function viewAntrean(){
       const list=perTgl[t];
       const sudah=(S.ajuan||[]).filter(a=>a.tgl===t&&a.status==='DISETUJUI').length;
       const ids=list.map(a=>a.id);
+      /* Panduan hari itu ditulis di kepala kelompoknya — di sinilah putusan
+         diambil, dan HR tidak perlu mengingat angka dari halaman Pengaturan. */
       return '<div class="daygrp"><div class="dh">'
         +'<b>'+esc(tglPanjang(t))+'</b>'
         +'<span class="chip">'+list.length+' menunggu</span>'
         +'<span class="chip">'+sudah+' sudah disetujui</span>'
+        +'<span class="chip" title="'+esc(panduanTeks(t))+'">'+esc(KONTEKS_LBL[konteksHari(t)])+'</span>'
         +'<div class="spacer"></div>'
         +'<button class="btn btn-ok btn-sm" onclick="setujuiBanyak('+JSON.stringify(ids).replace(/"/g,'&quot;')+')">Setujui semua ('+list.length+')</button>'
         +'</div><div class="db">'
@@ -1257,7 +1360,19 @@ function viewAntrean(){
 }
 function antreanDiv(k){ ANTREAN_DIV=k; render(); }
 
-async function setujuiAjuan(id){ await putusAjuan(id,'DISETUJUI',''); }
+async function setujuiAjuan(id){
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  const l=lampauiPanduan(a.tgl, a.divisi, ['DISETUJUI'], id);
+  if(l){
+    konfirmasi('Lebih dari panduan '+namaDivisi(l.div)+'?',
+      KONTEKS_LBL[l.konteks]+' '+tglPanjang(l.tgl)+': panduan '+namaDivisi(l.div)+' '+l.kuota+' orang, '
+      +'sudah disetujui '+l.kini+'. Kalau ini ikut disetujui jadi '+l.jadi+'. '
+      +'Bukan larangan — lanjutkan saja kalau memang perlu.',
+      function(){ putusAjuan(id,'DISETUJUI',''); });
+    return;
+  }
+  await putusAjuan(id,'DISETUJUI','');
+}
 function tolakAjuan(id){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
   tanyaTeks('Tolak ajuan '+namaDW(a.dwId), 'Alasan penolakan (dilihat DW)', '', async function(nota){
@@ -1283,8 +1398,39 @@ async function putusAjuan(id,status,nota){
     await muatData(true); render();
   }
 }
+/* "Setujui semua" satu hari sekaligus. Diperiksa PER DIVISI dan sekali saja
+   di depan — bukan satu pertanyaan per orang, karena menekan Lanjut lima kali
+   berturut-turut sama dengan tidak membaca satu pun di antaranya. */
+function lampauiBanyak(ids){
+  const per={};
+  ids.forEach(function(id){
+    const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+    per[a.tgl+'|'+a.divisi]=(per[a.tgl+'|'+a.divisi]||0)+1;
+  });
+  const out=[];
+  Object.keys(per).forEach(function(kunci){
+    const bagi=kunci.split('|'), tgl=bagi[0], div=bagi[1];
+    const k=kuotaDiv(div,tgl); if(!k) return;
+    const jadi=terpakaiDiv(tgl,div,['DISETUJUI'],'')+per[kunci];
+    if(jadi>k) out.push({tgl:tgl, div:div, kuota:k, jadi:jadi, konteks:konteksHari(tgl)});
+  });
+  return out;
+}
 async function setujuiBanyak(ids){
   if(!ids||!ids.length) return;
+  const lampau=lampauiBanyak(ids);
+  if(lampau.length){
+    konfirmasi('Lebih dari panduan di '+lampau.length+' divisi?',
+      lampau.map(function(x){
+        return KONTEKS_LBL[x.konteks]+' '+tglManusia(x.tgl)+' · '+namaDivisi(x.div)
+          +': panduan '+x.kuota+', jadi '+x.jadi+'.';
+      }).join(' ')+' Bukan larangan — lanjutkan saja kalau memang perlu.',
+      function(){ setujuiBanyakLangsung(ids); });
+    return;
+  }
+  await setujuiBanyakLangsung(ids);
+}
+async function setujuiBanyakLangsung(ids){
   ids.forEach(function(id){ const a=(S.ajuan||[]).find(x=>x.id===id); if(a) a.status='DISETUJUI'; });
   simpanCache(); render();
   try{
@@ -1608,6 +1754,7 @@ function gambarAjukanTgl(){
       +'<span class="chip">'+(hidup.length?hidup.length+' DW di hari ini':'belum ada DW')+'</span></div>'
     +daftarAcara
     +(perDiv?'<div class="rowbar" style="margin-top:8px">'+perDiv+'</div>':'')
+    +'<p class="mutedhint" style="margin:8px 0 0">'+esc(panduanTeks(b.tgl))+'</p>'
     +(TAMU_ERR?'<div class="note w">Agenda belum lengkap — '+esc(TAMU_ERR)+'.</div>':'')
     +(b.tgl<batas?'<div class="note w">Tanggal ini lebih cepat dari batas pengajuan (paling cepat '
         +esc(tglManusia(batas))+'). Ubah batasnya di Pengaturan kalau memang perlu.</div>':'')
@@ -1642,6 +1789,27 @@ function gambarAjukanTgl(){
 async function kirimAjukanTgl(){
   const b=AJT; if(!b) return;
   serapAjukanTgl();
+  /* Panduan diperiksa SEBELUM dikirim, bukan sesudah. Yang dihitung di sini
+     termasuk yang masih menunggu: orangnya sudah dipesan, dan menambah orang
+     keenam ke hari berpanduan empat tetap keputusan yang layak ditanyakan
+     sekali walau belum satu pun disetujui. */
+  const l=(b.dw && b.tgl) ? lampauiPanduan(b.tgl, b.div, ['DISETUJUI','MENUNGGU'], '') : null;
+  if(l && !b.lanjutkanLebih){
+    /* Dipasang dengan modal() dan bukan konfirmasi(), supaya "Batal" bisa
+       MENGEMBALIKAN form yang sudah diisi. konfirmasi() cuma menutup — dan
+       isian yang lenyap gara-gara satu peringatan adalah cara tercepat
+       membuat orang berhenti membaca peringatannya. */
+    modal('Lebih dari panduan '+esc(namaDivisi(l.div))+'?',
+      '<p style="font-size:13.5px;color:var(--muted)">'
+      +esc(KONTEKS_LBL[l.konteks]+' '+tglPanjang(l.tgl))+': panduan <b>'+esc(namaDivisi(l.div))+' '+l.kuota+' orang</b>, '
+      +'sudah ada '+l.kini+' (termasuk yang masih menunggu). Dengan ini jadi <b>'+l.jadi+'</b>.</p>'
+      +'<p class="mutedhint">Bukan larangan — lanjutkan saja kalau memang perlu. '
+      +'Angkanya diatur di Pengaturan → Panduan jumlah DW.</p>',
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ gambarAjukanTgl(); return false; }},
+       {t:'Ya, tetap ajukan', c:'btn-primary', f:function(){ b.lanjutkanLebih=true; kirimAjukanTgl(); return false; }}]);
+    return;
+  }
+  b.lanjutkanLebih=false;
   const ok=await simpanAjuanRow({dwId:b.dw, tgl:b.tgl, m:b.m, s:b.s,
     divisi:b.div, posisi:b.pos, catatan:b.cat});
   if(!ok) return;
@@ -2031,11 +2199,18 @@ function viewPengaturan(){
     +'</div>'
 
     +'<div class="panel">'
-    +'<div class="rowbar"><h2>Kuota DW per hari</h2></div>'
-    +'<p class="mutedhint" style="margin-bottom:10px">Bukan larangan — melebihi kuota hanya memunculkan peringatan di Dashboard. Larangan keras akan menghambat malam Sabtu yang memang butuh tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang mencatatnya di luar sistem.</p>'
-    +DIVISI.map(d=>'<div class="row"><div class="who"><b>'+d.ic+' '+esc(d.n)+'</b></div>'
-      +'<input class="inp mono" style="width:90px;text-align:right" type="number" min="0" '
-      +'value="'+(+((st.kuota||{})[d.k])||0)+'" onchange="ubahKuota(\''+d.k+'\',this.value)"></div>').join('')
+    +'<div class="rowbar"><h2>Panduan jumlah DW per hari</h2></div>'
+    +'<p class="mutedhint" style="margin-bottom:10px">Panduan, <b>bukan penguncian</b>. Melebihinya hanya memunculkan satu pertanyaan yang bisa dilanjutkan — larangan keras akan menghambat malam Sabtu yang butuh tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang mencatatnya di luar sistem.</p>'
+    +'<p class="mutedhint" style="margin-bottom:10px"><b>Hari event</b> = hari yang ada acaranya di Marketing atau Event (lihat Kalender Tamu). <b>Akhir pekan</b> = Sabtu &amp; Minggu. Sisanya hari biasa. Isi <b>0</b> untuk divisi yang tidak perlu dipandu — nol tidak pernah memunculkan pertanyaan.</p>'
+    +'<div class="tablewrap"><table class="list">'
+    +'<thead><tr><th>Divisi</th>'
+      +KONTEKS.map(k=>'<th class="kanan">'+esc(KONTEKS_LBL[k])+'</th>').join('')+'</tr></thead><tbody>'
+    +DIVISI.map(d=>'<tr><td class="nama">'+d.ic+' '+esc(d.n)+'</td>'
+      +KONTEKS.map(function(k){
+        return '<td class="kanan"><input class="inp mono" style="width:78px;text-align:right" type="number" min="0" '
+          +'value="'+(+(((st.kuota||{})[d.k]||{})[k])||0)+'" onchange="ubahKuota(\''+d.k+'\',\''+k+'\',this.value)"></td>';
+      }).join('')+'</tr>').join('')
+    +'</tbody></table></div>'
     +'<div class="row"><div class="who"><b>Batas paling cepat mengajukan</b>'
       +'<span>0 = boleh untuk hari ini juga</span></div>'
       +'<input class="inp mono" style="width:90px;text-align:right" type="number" min="0" max="30" '
@@ -2060,7 +2235,12 @@ function tambahPosisi(){
 function tambahJam(){ (S.setting.jam=S.setting.jam||[]).push({n:'Shift Baru',m:'16:00',s:'23:00'}); simpanSetting(); render(); }
 function ubahJam(i,f,v){ const j=(S.setting.jam||[])[i]; if(!j) return; j[f]=v; simpanSetting(); render(); }
 function hapusJam(i){ (S.setting.jam||[]).splice(i,1); simpanSetting(); render(); }
-function ubahKuota(k,v){ (S.setting.kuota=S.setting.kuota||{})[k]=Math.max(0,+v||0); simpanSetting(); }
+function ubahKuota(div,konteks,v){
+  const kuota=(S.setting.kuota=normalKuota(S.setting.kuota));
+  kuota[div]=kuota[div]||{};
+  kuota[div][konteks]=Math.max(0,+v||0);
+  simpanSetting();
+}
 function ubahBatas(v){ S.setting.batasHari=Math.max(0,Math.min(30,+v||0)); simpanSetting(); toast('Batas pengajuan disimpan'); }
 
 /* =====================================================================
@@ -2153,6 +2333,14 @@ async function mulaiAplikasi(){
   render();                       // gambar dari cache dulu — layar tidak pernah kosong menunggu jaringan
   await muatData(true);
   render();
+
+  /* Agenda tamu ditarik di LATAR, tanpa ditunggu. Bukan cuma untuk halaman
+     Kalender Tamu: panduan jumlah DW memakai angka "hari event", dan tanpa
+     data ini hari yang ada acara 300 pax akan dinilai sebagai hari biasa —
+     peringatan yang paling penting justru tidak muncul. Karena tidak
+     di-await, halaman tetap tampil seketika; angkanya menajam sendiri
+     beberapa saat kemudian lewat render() di bawah. */
+  if(isOffice()) muatTamuDanGambar();
 }
 async function boot(){
   const lg=document.getElementById("brand-logo"); if(lg) lg.src=LOGO_URI;
