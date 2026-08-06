@@ -173,9 +173,9 @@ async function muatBahan() {
 /* Satuan yang sah untuk sebuah bahan. null = belum diatur purchasing, dan
    itu berarti SEMUA satuan boleh — perilaku yang sama dengan form order,
    supaya dua halaman tidak memberi jawaban berbeda untuk bahan yang sama. */
-// "Liter" ditambahkan 31 Juli 2026 — lihat catatan di SATUAN_TERSEDIA
-// ordering/purchasing. Ketiganya HARUS tetap sama persis.
-const SATUAN_TERSEDIA = ["Kg", "Gram", "Liter", "ML", "Pcs", "Pack", "Dus", "Sack", "Jerigen", "Rim", "Botol",
+// "Liter" ditambahkan 31 Juli 2026, "Porsi" 6 Agustus 2026 — lihat catatan di
+// SATUAN_TERSEDIA ordering/purchasing. Ketiganya HARUS tetap sama persis.
+const SATUAN_TERSEDIA = ["Kg", "Gram", "Liter", "ML", "Pcs", "Porsi", "Pack", "Dus", "Sack", "Jerigen", "Rim", "Botol",
                          "Ekor", "Slice", "Tabung", "Bal", "Buah", "Kaleng", "Ikat", "Papan"];
 function satuanBahan(nama) {
   const p = INFO_BAHAN && INFO_BAHAN[nama];
