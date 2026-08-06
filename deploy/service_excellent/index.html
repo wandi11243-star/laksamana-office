@@ -3069,7 +3069,18 @@ async function boot(){
      begitu mengangkat seseorang jadi manager di sini tidak menyentuh perannya
      di Reservasi sama sekali. */
   const kru = seKru(u.id) || seKru(office.userId);
-  const adminOffice = oAdm.includes('*')||oAdm.includes('service_excellent');
+  /* DUA status Office yang berbeda, dan bedanya menentukan siapa yang bisa
+     terkunci di luar (dilaporkan 6 Agustus 2026: "jadinya saya nggak bisa buka
+     lagi nih"):
+       superOffice  — pemegang '*' di Office: superadmin seluruh Office. Kunci
+                      induk. Modul TIDAK BOLEH bisa mengunci orang ini, karena
+                      dialah satu-satunya yang tersisa kalau semua pengurus
+                      modul hilang, keluar, atau salah disetel. Tidak ada layar
+                      lain yang bisa membuka modul ini kembali.
+       adminOffice  — admin modul ini saja. Boleh diatur dari sini, karena
+                      kalau salah masih ada superOffice sebagai jalan pulang. */
+  const superOffice = oAdm.includes('*');
+  const adminOffice = superOffice || oAdm.includes('service_excellent');
   /* JALUR PERTAMA KALI. Kelola Role satu-satunya tempat mengangkat manager/
      admin, dan halaman itu sendiri cuma terbuka untuk manager/admin. Sementara
      sinkronisasi roster Office menuliskan SEMUA orang sebagai staff, hasilnya
@@ -3091,20 +3102,41 @@ async function boot(){
      penurunan itu MEMANG tersimpan di database dan terlihat benar di daftar
      kru; yang tidak berubah cuma sesi orangnya.
 
-     Sekarang tingkat di MODUL INI yang menang, persis seperti janji
-     halamannya ("berlaku hanya di modul Service Excellent"). Status admin
-     Office turun pangkat jadi BAWAAN untuk orang yang belum ada di daftar
-     kru modul ini — bukan lagi kunci induk.
+     Perbaikan pertama membuat tingkat modul menang atas apa pun — dan itu
+     KEBABLASAN. Dilaporkan hari yang sama, beberapa jam kemudian: "jadinya
+     saya nggak bisa buka lagi nih". Sebabnya, `sinkronSeCrew` menuliskan
+     SETIAP orang dari roster Office sebagai `staff`. Baris `staff` yang lahir
+     dari sinkronisasi itu tidak bisa dibedakan dari `staff` yang benar-benar
+     dipilih manusia lewat dropdown — jadi begitu satu orang diangkat jadi
+     Manajer (jalur darurat mati), admin Office pun ikut jatuh ke Staff karena
+     namanya sudah telanjur ada di daftar dengan bawaan `staff`. Halaman
+     pengaturannya hilang untuk semua orang yang tersisa.
 
-     Tidak bisa mengunci diri sendiri: setKruRole menolak menurunkan pengurus
-     terakhir, dan selama daftar kru belum memuat satu pun Manajer/Admin,
-     jalur darurat di baris pertama tetap membuka pintu untuk siapa saja. */
+     Sekarang keduanya dibedakan. `roleSetAt` ditulis HANYA oleh setKruRole —
+     artinya "ini keputusan orang, bukan bawaan sinkronisasi":
+
+       1. belum ada pengurus  -> admin  (jalur darurat, supaya ada yang bisa
+                                         menunjuk pengurus pertama)
+       2. superadmin Office   -> admin  (kunci induk, tidak bisa dikunci modul)
+       3. pernah disetel orang-> tingkat itu, apa adanya. INILAH yang membuat
+                                 "di-set Staff" benar-benar berarti Staff,
+                                 walaupun orangnya admin modul di Office.
+       4. sisanya             -> admin kalau admin modul di Office, selain itu
+                                 staff. Ini cuma BAWAAN untuk yang tingkatnya
+                                 belum pernah disentuh siapa pun.
+
+     Jadi menurunkan admin modul ke Staff tetap berlaku sungguhan (poin 3),
+     tapi tidak ada keadaan yang menutup pintu buat semua orang (poin 1 & 2). */
+  const disetelManusia = !!(kru && kru.roleSetAt && peranKru);
   const roleSesi = belumAdaPengurus ? 'admin'
-                 : (peranKru || (adminOffice ? 'admin' : 'staff'));
+                 : superOffice      ? 'admin'
+                 : disetelManusia   ? peranKru
+                 : (adminOffice ? 'admin' : (peranKru || 'staff'));
   SESSION = { id:u.id, name:u.name, role: roleSesi,
               // Dipakai halaman Kelola Role untuk menjelaskan ke orangnya
               // kenapa tingkatnya bisa berbeda dari dugaannya.
               adminOffice: adminOffice,
+              superOffice: superOffice,
               /* Tingkat ini datang dari jalur darurat, bukan dari yang disetel
                  manusia. Dibawa supaya bisa DITULIS di layar — user melaporkan
                  6 Agustus 2026 "pojok kiri bawah Admin Sistem padahal di Role
@@ -8807,7 +8839,10 @@ function userAccessBlock(bolehUbah){
     <div class="user-row">
       <span class="av" style="background:${avatarColor(u.id)}">${crewInitials(u.name)}</span>
       <span class="who"><b>${esc(u.name)}${u.id===SESSION.id?', <span style="color:var(--gold-dim)">kamu</span>':''}</b>
-        <span class="muted" style="font-size:11.5px">${esc(u.divisi||"—")}</span></span>
+        <!-- "bawaan" = tingkatnya belum pernah dipilih siapa pun di sini, masih
+             hasil sinkronisasi roster. Bedanya nyata: yang bawaan masih tunduk
+             pada status admin Office (lihat boot), yang sudah dipilih tidak. -->
+        <span class="muted" style="font-size:11.5px">${esc(u.divisi||"—")}${u.roleSetAt?"":' · <i>bawaan</i>'}</span></span>
       ${bolehUbah
         ? `<select class="kru-role" onchange="setKruRole('${u.id}', this.value)" title="Ganti tingkat akses kru ini">
              ${ROLE_KEYS.map(r=>`<option value="${r}" ${u.role===r?"selected":""}>${ROLE_LABEL[r]}</option>`).join("")}
@@ -8875,6 +8910,8 @@ function userAccessBlock(bolehUbah){
             "kok si A tidak ada di sini" harus punya jawaban di layar. -->
        <p class="hint" style="margin-top:6px">Tingkat berlaku <b>hanya di modul ini</b>. Akun & login tetap dari Office.
          Yang tampil hanya tim <b>Kasir, Host, Floor, Office</b>${saring.tersembunyi?` — <b>${saring.tersembunyi}</b> disembunyikan (tim lain atau Keterangan Office masih kosong).`:"."}</p>
+       <p class="hint" style="margin-top:4px">Bertanda <i>bawaan</i> = tingkatnya belum pernah dipilih di sini, jadi admin modul di Office masih otomatis jadi Admin Sistem.
+         Pilih tingkatnya sekali (boleh yang sama) untuk menguncinya. <b>Superadmin Office selalu Admin Sistem</b> dan tidak bisa dikunci dari sini — itu jalan pulang kalau setelan ini salah.</p>
      </div>
    </div>
    <div class="panel">
@@ -8910,8 +8947,23 @@ function setKruRole(id, role){
     toast("Harus ada minimal satu Manajer/Admin di modul ini","err"); renderPeran(); return;
   }
   const dulu=u.role;
-  if(dulu===role){ return; }
+  /* Kalau tingkatnya sama, yang berubah cuma SATU hal — dan hal itu penting:
+     baris ini jadi bertanda "dipilih manusia". `staff` hasil sinkronisasi
+     roster dan `staff` yang benar-benar dipilih di dropdown ini terlihat sama
+     persis di database; hanya `roleSetAt` yang membedakannya, dan boot()
+     memakai bedanya untuk memutuskan apakah status admin Office masih berlaku
+     (lihat komentar panjang di sana). Karena itu jangan return lebih awal:
+     menekan "Staff" pada orang yang sudah tertulis Staff adalah cara user
+     menegaskan "ya, memang Staff", dan itu harus tercatat. */
   u.role=role;
+  u.roleSetAt=Date.now();
+  u.roleSetBy=SESSION.name||"";
+  if(dulu===role){
+    saveState();
+    toast(`${u.name} ditetapkan ${ROLE_LABEL[role]}`,"ok");
+    renderPeran();
+    return;
+  }
   logAudit("Role Kru", `${u.name}: ${ROLE_LABEL[dulu]||dulu} → ${ROLE_LABEL[role]||role}`);
   saveState();
   toast(`${u.name} sekarang ${ROLE_LABEL[role]}`,"ok");
@@ -9054,7 +9106,7 @@ function renderPeran(){
        <span class="muted" style="font-size:12.5px">${kruTersaring(getUsers(), DIVISI_KRU).dipakai.length} kru</span></div>
      <div class="panel-body">
        ${(SESSION.adminOffice && SESSION.role!=="admin")?`<div class="inline-info" style="margin-bottom:12px">
-         ℹ️ Anda admin modul ini di Office, tapi tingkat Anda di sini <b>${esc(ROLE_LABEL[SESSION.role]||SESSION.role)}</b> — yang berlaku tingkat modul.
+         ℹ️ Anda admin modul ini di Office, tapi tingkat Anda di sini sudah ditetapkan <b>${esc(ROLE_LABEL[SESSION.role]||SESSION.role)}</b> — yang berlaku tingkat modul.
        </div>`:""}
        ${belumAdaPengurus?`<div class="inline-warn" style="margin-bottom:12px">
          <div>⚠️ <b>Belum ada Manajer/Admin di modul ini</b>, jadi <b>semua orang</b> masuk sebagai Admin Sistem.
