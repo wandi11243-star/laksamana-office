@@ -464,6 +464,23 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -660,6 +677,59 @@ function galat() { go(); memuat(); api(); }
 
 
 function posterUrl() {  }
+
+
+
+
+function hariLagi() {  }
+
+
+
+
+
+
+function labelHitungMundur() { hariLagi(); }
+
+
+
+
+
+
+
+
+
+
+
+function sisaEvent() {  }
+
+
+
+function totalEvent() {  }
+
+
+
+
+
+function bagikanHTML() { tgl(); }
+
+
+
+
+
+
+
+
+
+
+function beres() { toast(); }
+
+
+
+
+
+
+
+
 function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(); gambarEvent(); }
 
 
@@ -706,7 +776,23 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
-function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); bersihTeks(); punyaDenah(); ringkasHTML(); }
+function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -807,6 +893,16 @@ function punyaDenah() {  }
 
 
 function kelasHTML() { bersihTeks(); go(); gambarEvent(); gambarBarHp(); memuat(); api(); galat(); gambarDenah(); mulaiSegarDenah(); }
+
+
+
+
+
+
+
+
+
+
 
 
 

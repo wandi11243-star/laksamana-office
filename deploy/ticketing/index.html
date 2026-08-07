@@ -84,6 +84,23 @@ img{max-width:100%;display:block}
 .kelas{border:1px solid var(--line);border-radius:var(--radius);padding:15px 17px;margin-bottom:10px;
   display:flex;gap:14px;align-items:flex-start;background:var(--surface)}
 .kelas .warna{width:6px;align-self:stretch;border-radius:20px;flex:none;min-height:44px}
+/* Kategori yang sudah habis tetap DITAMPILKAN, cuma diredupkan: menghapusnya
+   membuat pembeli mengira kategori itu tidak pernah ada, lalu bertanya lewat
+   WhatsApp. */
+.kelas-habis{opacity:.62}
+/* Bar ketersediaan. "12 tersisa" tidak berarti apa-apa tanpa tahu dari berapa. */
+.sisa-bar{height:5px;border-radius:5px;background:rgba(60,55,45,.13);margin-top:9px;overflow:hidden}
+.sisa-bar i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#E4B849,#A9791F)}
+.sisa-ket{margin-top:5px}
+.tanda-hampir{display:block;margin-top:6px;font-size:10.5px;font-weight:800;letter-spacing:.03em;
+  color:#b5831a;text-transform:uppercase}
+/* Deretan keterangan singkat di kepala halaman event. */
+.chipbar{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 4px}
+.chip-i{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;
+  padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+.chip-i.kuat{border-color:#E4B849;background:linear-gradient(135deg,#FDF3D8,#F7E7B8);color:#7a560f}
+.chip-i.habis{border-color:rgba(201,67,43,.35);background:rgba(201,67,43,.08);color:#a63421}
+.bagikan{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .kelas .isi{flex:1;min-width:0}
 .kelas .isi b{font-size:15px}
 .kelas .isi p{font-size:12.5px;color:var(--muted);margin-top:4px}
@@ -660,6 +677,59 @@ Layar.events = async ()=>{
    isinya emoji cadangan, dan memasangnya ke <img src> menghasilkan gambar
    rusak. Itu sebab poster tidak pernah muncul sebelum ini. */
 function posterUrl(e){ return e.poster_img ? API+'?action=poster&id='+encodeURIComponent(e.id) : ''; }
+
+/* ---------- Keterangan yang dicari pembeli sebelum memutuskan ----------
+   Semuanya dihitung dari data yang SUDAH dikirim server (start, end, classes),
+   jadi tidak ada permintaan tambahan dan tidak ada kolom baru di backend. */
+function hariLagi(iso){
+  if(!iso) return null;
+  const d=new Date(iso); if(isNaN(d)) return null;
+  const a=new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const k=new Date(); const b=new Date(k.getFullYear(),k.getMonth(),k.getDate());
+  return Math.round((a-b)/86400000);
+}
+function labelHitungMundur(iso){
+  const n=hariLagi(iso);
+  if(n===null) return '';
+  if(n<0)  return 'sudah lewat';
+  if(n===0) return 'HARI INI';
+  if(n===1) return 'besok';
+  if(n<=7) return n+' hari lagi';
+  return n+' hari lagi';
+}
+/* Sisa tiket seluruh event. Yang dihitung hanya kategori berbayar — kelas
+   berharga nol biasanya tanda undangan/komplimen, bukan barang dagangan, dan
+   memasukkannya membuat "tersisa 300" untuk acara yang tiket jualnya tinggal 5. */
+function sisaEvent(e){
+  return (e.classes||[]).filter(c=>+c.price>0)
+    .reduce(function(a,c){ return a+Math.max(0,+c.sisa||0); },0);
+}
+function totalEvent(e){
+  return (e.classes||[]).filter(c=>+c.price>0)
+    .reduce(function(a,c){ return a+Math.max(0,+c.quota||0); },0);
+}
+/* Bagikan: WhatsApp lebih dulu karena ke situlah tautan acara sebenarnya
+   beredar di sini. Tombol salin disediakan untuk yang lain. */
+function bagikanHTML(e){
+  const url=location.href;
+  const teks=e.title+' — '+tgl(e.start)+' di '+e.venue+'\n'+url;
+  return '<div class="bagikan">'
+   +'<a class="btn btn-ghost sm" target="_blank" rel="noopener" '
+   +'href="https://wa.me/?text='+encodeURIComponent(teks)+'">Bagikan ke WhatsApp</a>'
+   +'<button class="btn btn-ghost sm" onclick="salinTautan()">Salin tautan</button>'
+   +'</div>';
+}
+window.salinTautan=function(){
+  const u=location.href;
+  const beres=function(){ toast('Tautan halaman ini disalin'); };
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(u).then(beres,function(){ prompt('Salin tautan ini:',u); });
+      return;
+    }
+  }catch(err){}
+  prompt('Salin tautan ini:',u);
+};
 function kartuEvent(e){
   const img=posterUrl(e);
   return '<article class="card ev rise" onclick="go(\'event\',\''+esc(e.id)+'\')">'
@@ -750,7 +820,23 @@ function gambarEvent(){
         +'</div>':'')
       +'<div class="card sec rise">'
         +'<h1 style="font-size:26px;margin-bottom:8px">'+esc(e.title)+'</h1>'
-        +'<div class="mini" style="font-size:13px;color:var(--muted)">📅 '+esc(tgl(e.start))+' · '+esc(jam(e.start))+'<br>📍 '+esc(e.venue)+'</div>'
+        /* Deretan chip menggantikan dua baris teks kecil. Yang ditanyakan
+           pembeli sebelum memutuskan selalu itu-itu juga — kapan, jam berapa,
+           sampai jam berapa, di mana, tinggal berapa lama lagi, dan masih ada
+           tiket atau tidak — dan enam pertanyaan itu tidak boleh dijawab oleh
+           satu paragraf yang harus dibaca sampai habis. */
+        +'<div class="chipbar">'
+          +(e.category?'<span class="chip-i">'+esc(e.category)+'</span>':'')
+          +'<span class="chip-i">📅 '+esc(tgl(e.start))+'</span>'
+          +'<span class="chip-i">🕒 '+esc(jam(e.start))+(jam(e.end)?' – '+esc(jam(e.end)):'')+'</span>'
+          +'<span class="chip-i">📍 '+esc(e.venue)+'</span>'
+          +(labelHitungMundur(e.start)
+            ? '<span class="chip-i '+(hariLagi(e.start)<=1?'kuat':'')+'">'+esc(labelHitungMundur(e.start))+'</span>' : '')
+          +(sisaEvent(e)>0
+            ? '<span class="chip-i '+(sisaEvent(e)<=Math.max(5,totalEvent(e)*0.1)?'kuat':'')+'">🎟️ '+sisaEvent(e)+' tiket tersisa</span>'
+            : '<span class="chip-i habis">🎟️ Tiket habis</span>')
+        +'</div>'
+        +bagikanHTML(e)
         /* Deskripsi dari EMS disimpan sebagai HTML ('<p>…</p>'). Di-esc mentah
            membuat tagnya ikut TERBACA pembeli. Tagnya dibuang, isinya yang
            ditampilkan — bukan di-render sebagai HTML, karena teks dari EMS
@@ -809,13 +895,22 @@ function punyaDenah(){ return DENAH_DETIL.some(o=>o.dijual); }
 function kelasHTML(c){
   const warna=(DENAH_DETIL.find(o=>o.tier===c.name&&(o.warna||o.warna_tepi))||{});
   const sisa=Math.max(0,+c.sisa||0);
+  const kuota=Math.max(0,+c.quota||0);
   const qty=Beli.qtyUmum(c.id);
-  return '<div class="kelas">'
+  /* Bar ketersediaan: "12 tersisa" tidak berarti apa-apa tanpa tahu dari
+     berapa. Dua belas dari lima belas itu hampir habis; dua belas dari tiga
+     ratus itu masih lega, dan pembeli memutuskan berbeda di dua keadaan itu. */
+  const pctTerjual=kuota?Math.min(100,Math.round((kuota-sisa)/kuota*100)):0;
+  const hampir=(kuota&&sisa>0&&sisa<=Math.max(3,Math.round(kuota*0.2)));
+  return '<div class="kelas'+(sisa?'':' kelas-habis')+'">'
     +'<i class="warna" style="background:'+esc(warna.warna||warna.warna_tepi||'#A9791F')+'"></i>'
     +'<div class="isi"><b>'+esc(c.name)+'</b>'
       +(c.benefit?'<p><b style="color:var(--ink)">Benefit:</b> '+esc(bersihTeks(c.benefit))+'</p>':'')
       +(c.description?'<p>'+esc(bersihTeks(c.description))+'</p>':'')
       +'<p>'+(c.is_seated?'Tempat duduk dipilih sendiri di denah':'Tanpa nomor tempat — bebas berdiri/duduk')+'</p>'
+      +(kuota?'<div class="sisa-bar" title="'+(kuota-sisa)+' dari '+kuota+' sudah terjual">'
+          +'<i style="width:'+pctTerjual+'%"></i></div>'
+        +'<p class="mini sisa-ket">'+(sisa?((kuota-sisa)+' dari '+kuota+' terjual'):'semua terjual')+'</p>':'')
       +(c.is_seated||!sisa?''
         : '<div class="jumlah">'
           +'<button class="jbtn" '+(qty<1?'disabled':'')+' onclick="ubahUmum(\''+esc(c.id)+'\',-1)" aria-label="Kurangi">−</button>'
@@ -826,6 +921,7 @@ function kelasHTML(c){
     +'</div>'
     +'<div class="harga"><b>'+rp(c.price)+'</b>'
       +'<span>'+(sisa?sisa+' tersisa':'habis')+'</span>'
+      +(hampir?'<span class="tanda-hampir">Hampir habis</span>':'')
       +(c.is_seated&&sisa?'<button class="btn btn-ghost sm" style="margin-top:8px" onclick="go(\'denah\',\''+esc(EVENT_DETIL.id)+'\')">Pilih tempat</button>':'')
     +'</div></div>';
 }
