@@ -549,6 +549,15 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # HOSTNAME PRODUKSI ADALAH team.laksamanamuda.id, BUKAN office.laksamanamuda.id.
+      # Yang kedua sudah tidak punya catatan DNS sama sekali (NXDOMAIN), jadi
+      # SELURUH langkah verifikasi di bawah selalu gagal — sementara file-nya
+      # sebenarnya mendarat dengan benar. Akibatnya deploy produksi selalu
+      # merah, dan lampu merah yang selalu menyala berhenti berarti apa pun:
+      # kegagalan yang sungguhan pun tidak akan disadari siapa pun.
+      # Diperbaiki 7 Agustus 2026, sesudah dipastikan satu per satu bahwa tiap
+      # alamat di bawah menjawab 200 di team.laksamanamuda.id.
+
       # Deploy FTP bisa "sukses" walau file terpotong ATAU sama sekali tidak mendarat,
       # jadi jangan percaya status hijau saja. Cek "</html>" saja TIDAK CUKUP: file LAMA
       # yang masih utuh (dan halaman 404) juga punya </html>, sehingga deploy yang gagal
@@ -568,7 +577,7 @@ jobs:
       # daftar itu dari repo, jadi tidak ada lagi yang perlu diingat.
       - name: Verifikasi file di server benar-benar versi ini
         if: always()
-        run: bash tools/verifikasi-deploy.sh https://office.laksamanamuda.id
+        run: bash tools/verifikasi-deploy.sh https://team.laksamanamuda.id
 
       # Berkas PHP tidak bisa dibandingkan isinya lewat HTTP — yang dikirim
       # server adalah hasil eksekusinya. Jadi yang diuji perilakunya.
@@ -581,14 +590,14 @@ jobs:
           gagal=0
 
           echo "--- account-api-mysql ---"
-          acc=$(curl -s -m 60 "https://office.laksamanamuda.id/account-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          acc=$(curl -s -m 60 "https://team.laksamanamuda.id/account-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
           echo "ping: $acc"
           case "$acc" in
             *'"env":"produksi"'*) echo "OK      env=produksi" ;;
             *) echo "GAGAL   env BUKAN produksi — config.php salah atau API tidak terjangkau"; gagal=1 ;;
           esac
 
-          who=$(curl -s -m 60 -X POST "https://office.laksamanamuda.id/account-api-mysql/api.php" \
+          who=$(curl -s -m 60 -X POST "https://team.laksamanamuda.id/account-api-mysql/api.php" \
                   -H 'Content-Type: text/plain;charset=utf-8' \
                   -d '{"action":"whoami","token":"ci-probe-token-yang-pasti-salah"}')
           echo "whoami: $who"
@@ -599,7 +608,7 @@ jobs:
           esac
 
           echo "--- stock-api-mysql ---"
-          stk=$(curl -s -m 60 "https://office.laksamanamuda.id/stock-api-mysql/usage.php?action=ping&ci=$GITHUB_SHA")
+          stk=$(curl -s -m 60 "https://team.laksamanamuda.id/stock-api-mysql/usage.php?action=ping&ci=$GITHUB_SHA")
           echo "ping: $stk"
           case "$stk" in
             *'"env":"produksi"'*) echo "OK      env=produksi" ;;
@@ -609,7 +618,7 @@ jobs:
           # ?action=ping TIDAK cukup: _boot menjawabnya lalu berhenti SEBELUM
           # lib_stock_catat di-require, jadi galat parse di sana tidak ketahuan.
           kode=$(curl -s -m 60 -o /tmp/usage.json -w '%{http_code}' \
-                 "https://office.laksamanamuda.id/stock-api-mysql/usage.php?dari=2000-01-01&ke=2000-01-02&ci=$GITHUB_SHA")
+                 "https://team.laksamanamuda.id/stock-api-mysql/usage.php?dari=2000-01-01&ke=2000-01-02&ci=$GITHUB_SHA")
           echo "daftar usage: HTTP $kode -> $(head -c 200 /tmp/usage.json)"
           if [ "$kode" = "200" ]; then
             echo "OK      usage.php memuat lib_stock_catat tanpa galat"
@@ -650,7 +659,7 @@ jobs:
           fi
 
           echo "--- kompas-api-mysql ---"
-          kmp=$(curl -s -m 60 "https://office.laksamanamuda.id/kompas-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          kmp=$(curl -s -m 60 "https://team.laksamanamuda.id/kompas-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
           echo "ping: $kmp"
           case "$kmp" in
             *'"env":"produksi"'*) echo "OK      env=produksi" ;;
@@ -661,7 +670,7 @@ jobs:
           # query lewat lib_kompas_mysql — jadi galat parse / skema hilang yang
           # lolos dari ping akan tertangkap di sini.
           kode=$(curl -s -m 60 -o /tmp/kmp.json -w '%{http_code}' \
-                 "https://office.laksamanamuda.id/kompas-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
+                 "https://team.laksamanamuda.id/kompas-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
           echo "stats: HTTP $kode -> $(head -c 300 /tmp/kmp.json)"
           if [ "$kode" = "200" ]; then
             echo "OK      stats jalan (lib_kompas_mysql termuat tanpa galat)"
@@ -688,7 +697,7 @@ jobs:
           # saveAll TANPA field `data` memaksa jalur tulis dibuka — db_lock()
           # menyentuh DB lebih dulu — lalu berhenti di validasi payload, jadi
           # TIDAK ADA yang ditulis. "Payload kosong/invalid" = koneksi sehat.
-          probe=$(curl -s -m 60 -X POST "https://office.laksamanamuda.id/kompas-api-mysql/api.php" \
+          probe=$(curl -s -m 60 -X POST "https://team.laksamanamuda.id/kompas-api-mysql/api.php" \
                     -H 'Content-Type: text/plain;charset=utf-8' \
                     -d '{"action":"saveAll"}')
           echo "probe tulis: $(printf '%s' "$probe" | head -c 300)"
@@ -699,7 +708,7 @@ jobs:
           esac
 
           echo "--- jadwal-api-mysql ---"
-          jdw=$(curl -s -m 60 "https://office.laksamanamuda.id/jadwal-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          jdw=$(curl -s -m 60 "https://team.laksamanamuda.id/jadwal-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
           echo "ping: $jdw"
           case "$jdw" in
             *'"env":"produksi"'*) echo "OK      env=produksi" ;;
@@ -711,7 +720,7 @@ jobs:
           # Ini menyentuh DB sungguhan, jadi grant yang salah muncul sebagai
           # SQLSTATE — sesuatu yang ping dan stats sama sekali tidak bisa
           # lihat (stats menelan galat DB dan membalas nol).
-          jdwp=$(curl -s -m 60 -X POST "https://office.laksamanamuda.id/jadwal-api-mysql/api.php" \
+          jdwp=$(curl -s -m 60 -X POST "https://team.laksamanamuda.id/jadwal-api-mysql/api.php" \
                    -H 'Content-Type: text/plain;charset=utf-8' \
                    -d '{"action":"simpanSel"}')
           echo "probe tulis: $(printf '%s' "$jdwp" | head -c 300)"
@@ -725,7 +734,7 @@ jobs:
           # Database dan config.php kedua lingkungan sudah terpasang (5 Agustus
           # 2026), jadi gerbangnya sekarang KERAS seperti jadwal di atas.
           echo "--- dw-api-mysql ---"
-          dwp=$(curl -s -m 60 "https://office.laksamanamuda.id/dw-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
+          dwp=$(curl -s -m 60 "https://team.laksamanamuda.id/dw-api-mysql/api.php?action=ping&ci=$GITHUB_SHA")
           echo "ping: $dwp"
           case "$dwp" in
             *'"env":"produksi"'*) echo "OK      env=produksi" ;;
@@ -738,7 +747,7 @@ jobs:
           # selama satu siklus deploy penuh pada 5 Agustus 2026: ping OK, env
           # benar, dan modulnya tetap tidak bisa menyimpan apa pun.
           # stats-lah yang menyentuh DB sungguhan dan melaporkan "ada":true.
-          dws=$(curl -s -m 60 "https://office.laksamanamuda.id/dw-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
+          dws=$(curl -s -m 60 "https://team.laksamanamuda.id/dw-api-mysql/api.php?action=stats&ci=$GITHUB_SHA")
           echo "stats: $(printf '%s' "$dws" | head -c 300)"
           case "$dws" in
             *'"ada":true'*) echo "OK      koneksi DB sehat, tabel siap" ;;
