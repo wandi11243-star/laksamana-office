@@ -522,6 +522,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -545,6 +557,8 @@ function bayarJenisSah() {  }
 
 
 function svg() {  }
+
+
 
 
 
@@ -792,6 +806,21 @@ function normalSetting() { normalKuota(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function statusDW() {  }
 
 
@@ -823,6 +852,17 @@ function isDW() {  }
 
 
 function isAdmin() {  }
+
+
+
+function daftarHR() {  }
+function isHR() { isOffice(); isAdmin(); daftarHR(); }
+
+
+
+
+
+
 function isOffice() {  }
 function namaSaya() { isDW(); }
 
@@ -1016,6 +1056,27 @@ function muatTamu() { isDW(); ambilSumber(); pecahWaktu(); }
 
 
 function muatTamuDanGambar() { muatTamu(); render(); }
+
+
+
+
+function muatRoster() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatRosterDanGambar() { muatRoster(); render(); }
 function tamuTgl() {  }
 function paxTgl() { tamuTgl(); }
 
@@ -1099,7 +1160,13 @@ function keluarDW() {  }
 
 
 
-function bolehBuka() { isDW(); isAdmin(); }
+
+
+
+
+
+function bolehBuka() { isDW(); isAdmin(); isHR(); }
+
 
 
 
@@ -1172,7 +1239,17 @@ function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewBayar(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewBayar(); viewPengaturan(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1450,7 +1527,11 @@ function tolakAjuan() { tanyaTeks(); namaDW(); putusAjuan(); }
 
 
 
-function putusAjuan() { namaSaya(); simpanCache(); render(); apiPost(); setSync(); toast(); namaDW(); muatData(); }
+function putusAjuan() { isHR(); toast(); namaSaya(); simpanCache(); render(); apiPost(); setSync(); namaDW(); muatData(); }
+
+
+
+
 
 
 
@@ -1502,7 +1583,8 @@ function setujuiBanyak() { lampauiBanyak(); konfirmasi(); tglManusia(); namaDivi
 
 
 
-function setujuiBanyakLangsung() { simpanCache(); render(); apiPost(); toast(); setSync(); muatData(); }
+function setujuiBanyakLangsung() { isHR(); toast(); simpanCache(); render(); apiPost(); setSync(); muatData(); }
+
 
 
 
@@ -2230,7 +2312,8 @@ function bukaPekerja() { pekerjaById(); modal(); esc(); ubahJenisBayar(); bayarJ
 
 
 
-function simpanPekerja() { pekerjaById(); normalHp(); toast(); bayarJenisSah(); apiPost(); tutupModal(); muatData(); render(); }
+function simpanPekerja() { isHR(); toast(); pekerjaById(); normalHp(); bayarJenisSah(); apiPost(); tutupModal(); muatData(); render(); }
+
 
 
 
@@ -2302,7 +2385,8 @@ function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusD
 
 
 
-function hapusPekerja() { pekerjaById(); konfirmasi(); apiPost(); tutupModal(); toast(); muatData(); render(); }
+function hapusPekerja() { isHR(); toast(); pekerjaById(); konfirmasi(); apiPost(); tutupModal(); muatData(); render(); }
+
 
 
 
@@ -2545,7 +2629,7 @@ function salinLewatKotak() { modal(); esc(); }
 
 
 
-function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJs(); tambahPosisi(); tambahJam(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); }
+function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJs(); tambahPosisi(); tambahJam(); ubahJam(); durasiJam(); hapusJam(); hakAksesPanelHTML(); ubahKuota(); }
 
 
 
@@ -2590,6 +2674,56 @@ function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJ
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hakAksesPanelHTML() { daftarHR(); esc(); muatRosterDanGambar(); toggleHR(); escJs(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function toggleHR() { isAdmin(); toast(); simpanSetting(); render(); }
 
 
 
@@ -2624,7 +2758,7 @@ function ubahKuota() { normalKuota(); simpanSetting(); }
 
 
 
-function bukaAjuan() { pekerjaById(); isOffice(); tutupModal(); setujuiAjuan(); tolakAjuan(); modal(); esc(); namaDW(); pilStatus(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
+function bukaAjuan() { pekerjaById(); isHR(); tutupModal(); setujuiAjuan(); tolakAjuan(); modal(); esc(); namaDW(); pilStatus(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); rp(); biayaAjuan(); }
 
 
 

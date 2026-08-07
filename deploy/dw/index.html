@@ -123,6 +123,15 @@ a{color:var(--gold-dim)}
 .rowbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
 .rowbar h2{font-size:17px}
 .rowbar .spacer{flex:1}
+/* Pemilih orang di panel Hak Akses. Daftar centang, bukan <select multiple>:
+   yang terakhir menyembunyikan pilihan yang sudah dicentang di balik gulungan
+   dan tidak pernah menjawab "siapa saja yang sekarang berhak" sekali lihat. */
+.pilihhr{display:flex;flex-wrap:wrap;gap:8px}
+.hrchip{border:1.5px solid var(--line);background:var(--surface);border-radius:22px;
+  padding:7px 13px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit}
+.hrchip:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.hrchip.on{border-color:var(--gold-dim);background:var(--gold-soft);color:var(--gold-dim)}
+.hrchip .mini{font-weight:500;color:var(--muted-2)}
 .seg{display:inline-flex;background:var(--gold-soft);border:1px solid var(--line);border-radius:30px;padding:3px;flex-wrap:wrap}
 .seg button{border:none;background:transparent;padding:7px 13px;border-radius:30px;font-weight:600;font-size:13px;color:var(--muted)}
 .seg button.active{background:var(--surface);color:var(--ink);box-shadow:0 1px 4px rgba(50,42,28,.12)}
@@ -463,6 +472,9 @@ const TAMU_SUMBER = [
   {id:'mkt', nama:'Marketing', url:'../marketing-api-mysql/api.php'},
   {id:'evt', nama:'Event',     url:'../event-api-mysql/api.php'}
 ];
+/* Roster Office dipakai HANYA di Pengaturan, untuk memilih siapa yang berhak
+   memutuskan ajuan. Sama dengan yang dipakai modul Jadwal Shift. */
+const ACC_URL   = '../account-api-mysql/api.php';
 const SESSION_KEY = 'lm_session';        // sesi Office (SSO), sama dengan modul lain
 const DW_SESI_KEY = 'lm_dw_sesi_v1';     // sesi daily worker di perangkatnya sendiri
 const CACHE_KEY   = 'lm_dw_cache_v1';
@@ -593,6 +605,8 @@ let TAMU_ERR = '';                     // sumber yang tidak bisa dihubungi
 let TAMU_ADA = false;                  // sudah pernah berhasil dimuat minimal satu sumber
 let TAMU_AT = 0;                       // kapan terakhir berhasil ditarik
 let TAMU_JALAN = false;
+let ROSTER = [];                       // daftar user Office, untuk pemilih HR
+let ROSTER_ERR = '';
 
 /* =====================================================================
    BANTU: teks, tanggal, angka
@@ -785,7 +799,22 @@ function normalSetting(x){
        sini, dan sejak itu seluruh angka di modul ini meleset. Setelan
        lamanya sengaja tidak dibaca lagi; kalau masih ada di database ia
        diabaikan begitu saja. */
-    kuota: normalKuota(s.kuota)
+    kuota: normalKuota(s.kuota),
+    /* HAK AKSES. Daftar user id Office yang boleh MEMUTUSKAN di modul ini:
+       menyetujui/menolak ajuan, menyunting talent pool, dan membuka daftar
+       pembayaran. Selebihnya (Dashboard, Kalender DW, Kalender Tamu) terbuka
+       untuk siapa pun yang punya akses modul.
+
+       Kenapa perlu: akses modul di Office cuma satu saklar hidup/mati, dan
+       modul ini memuat nomor HP seluruh talent pool, PIN, dan daftar transfer
+       — sementara yang benar-benar perlu dibuka banyak orang cuma "hari ini
+       siapa yang masuk". Sebelum ini, satu centang modul memberi semuanya.
+
+       KOSONG = belum disetel, dan saat kosong SEMUA staf Office dianggap
+       berhak. Itu disengaja: pemasangan yang sudah jalan tidak boleh mendadak
+       mengunci semua orang di luar begitu versi ini mendarat — termasuk admin
+       yang seharusnya mengisi daftarnya. */
+    hr: Array.isArray(s.hr) ? s.hr.map(String).filter(Boolean) : []
   };
 }
 
@@ -823,6 +852,17 @@ function isDW(){ return !!MEDW; }
 /* Kunci modul yang dipegang akun Office ini. Daily worker tidak punya sesi
    Office sama sekali, jadi selalu false untuknya. */
 function isAdmin(){ return !!(ME && ME.admin); }
+/* Berhak memutuskan? Admin modul selalu boleh. Selebihnya menurut daftar di
+   Pengaturan — dan selama daftarnya masih kosong, semua staf Office boleh
+   (lihat alasannya di normalSetting). */
+function daftarHR(){ return (S&&S.setting&&S.setting.hr)||[]; }
+function isHR(){
+  if(!isOffice()) return false;
+  if(isAdmin()) return true;
+  const d=daftarHR();
+  if(!d.length) return true;
+  return d.indexOf(String(ME&&ME.id))>-1;
+}
 function isOffice(){ return !!ME; }
 function namaSaya(){ return isDW() ? (MEDW.nama+' (DW)') : ((ME&&ME.name)||''); }
 
@@ -1016,6 +1056,27 @@ async function muatTamu(paksa){
   TAMU_AT=Date.now();
 }
 async function muatTamuDanGambar(paksa){ await muatTamu(paksa); render(); }
+
+/* Daftar user Office. Ditarik hanya saat halaman Pengaturan dibuka: satu-
+   satunya tempat yang membutuhkannya, dan modul ini tidak boleh membayar satu
+   permintaan jaringan lagi di tiap boot untuk layar yang jarang dibuka. */
+async function muatRoster(){
+  if(ROSTER.length) return;
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),8000);
+  try{
+    const r=await fetch(ACC_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'}), signal:stop.signal});
+    clearTimeout(jam);
+    const j=await r.json();
+    if(!j||!j.ok||!Array.isArray(j.members)) throw new Error(j&&j.error||'balasan tidak dikenali');
+    ROSTER=j.members; ROSTER_ERR='';
+  }catch(e){
+    clearTimeout(jam);
+    ROSTER=[]; ROSTER_ERR=(e.name==='AbortError')?'Office tidak menjawab dalam 8 detik':e.message;
+  }
+}
+async function muatRosterDanGambar(){ await muatRoster(); render(); }
 function tamuTgl(iso){ return TAMU.filter(function(a){ return a.tgl===iso; }); }
 function paxTgl(iso){ return tamuTgl(iso).reduce(function(n,a){ return n+(+a.pax||0); },0); }
 
@@ -1099,9 +1160,15 @@ function keluarDW(){
 /* =====================================================================
    ROUTER
    ===================================================================== */
+/* Halaman yang hanya untuk yang berhak memutuskan. Dipisah jadi daftar
+   sendiri, bukan disebar sebagai `if` di tiap halaman: daftar yang tertulis
+   di satu tempat bisa dibaca sekali dan dipastikan lengkap, sedangkan
+   pemeriksaan yang tersebar selalu menyisakan satu halaman yang terlupa. */
+const HALAMAN_HR = ['antrean','pekerja','bayar'];
 function bolehBuka(k){
   if(isDW()) return k==='ajukan' || k==='saya';
   if(k==='pengaturan') return isAdmin();
+  if(HALAMAN_HR.indexOf(k)>-1) return isHR();
   /* Halaman DW ("Ajukan Jadwal") tetap terbuka untuk staf Office: HR memang
      sering mengisikan ajuan atas nama DW yang meneleponnya. Yang berbeda
      hanya isinya — di sisi Office ada pemilih nama DW. */
@@ -1176,6 +1243,16 @@ function render(){
   buildNav(); setTop();
   const V=document.getElementById('view'); if(!V) return;
   if(!S) S=seed();
+  /* Dihentikan DI SINI juga, bukan cuma disembunyikan dari menu: go() bisa
+     dipanggil dari tombol mana pun, dan halaman yang tidak boleh dibuka harus
+     mengatakannya — bukan tampil kosong. */
+  if(!bolehBuka(VIEW)){
+    V.innerHTML='<div class="panel"><div class="empty"><div class="ic">🔒</div>'
+      +'Halaman ini untuk yang berhak memutuskan ajuan DW.'
+      +'<div class="mutedhint" style="margin-top:6px">Minta admin modul menambahkan Anda di '
+      +'<b>Pengaturan → Hak Akses</b>.</div></div></div>';
+    return;
+  }
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
   else if(VIEW==='antrean')    V.innerHTML=viewAntrean();
   else if(VIEW==='kalender')   V.innerHTML=viewKalender();
@@ -1451,6 +1528,10 @@ function tolakAjuan(id){
    kiriman gagal, datanya dimuat ULANG dari server: layar kembali ke
    kebenaran, bukan menyimpan putusan yang sebenarnya tidak pernah terjadi. */
 async function putusAjuan(id,status,nota){
+  /* Dijaga di TINDAKANNYA, bukan cuma di halaman yang memuat tombolnya.
+     Tombol bisa sampai ke tangan orang lewat jalan lain — detail ajuan yang
+     dibuka dari Dashboard, misalnya, yang memang terbuka untuk semua staf. */
+  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa mengubah status ajuan', true); return; }
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
   /* Seluruh jejak putusan disimpan, bukan cuma statusnya. Dulu hanya
      `status` yang dikembalikan saat kiriman gagal, jadi barisnya kembali
@@ -1503,6 +1584,7 @@ async function setujuiBanyak(ids){
   await setujuiBanyakLangsung(ids);
 }
 async function setujuiBanyakLangsung(ids){
+  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa menyetujui ajuan', true); return; }
   ids.forEach(function(id){ const a=(S.ajuan||[]).find(x=>x.id===id); if(a) a.status='DISETUJUI'; });
   simpanCache(); render();
   try{
@@ -2231,6 +2313,7 @@ function bukaPekerja(id){
     [{t:(p?'Simpan':'Daftarkan'),c:'btn-primary',f:function(){ return simpanPekerja(p?p.id:''); }}]);
 }
 async function simpanPekerja(id){
+  if(!isHR()){ toast('Hanya yang berhak yang bisa mengubah data daily worker', true); return false; }
   const el=x=>document.getElementById(x);
   /* Keterangan rekening lama dikirim ulang APA ADANYA. Form ini tidak lagi
      punya kotak untuk mengubahnya, dan tidak mengirimnya sama saja dengan
@@ -2303,6 +2386,7 @@ function bukaProfil(id){
     true);
 }
 function hapusPekerja(id){
+  if(!isHR()){ toast('Hanya yang berhak yang bisa menghapus daily worker', true); return; }
   const p=pekerjaById(id); if(!p) return;
   konfirmasi('Hapus '+p.nama+' dari database?',
     'Riwayat kerjanya TIDAK ikut terhapus — rekap bulan lalu tidak akan berubah angka. Yang hilang hanya datanya dari talent pool.',
@@ -2547,6 +2631,10 @@ function salinLewatKotak(t){
    ===================================================================== */
 function viewPengaturan(){
   const st=S.setting;
+  /* Roster ditarik saat halaman ini digambar, lalu halamannya digambar ulang
+     sekali begitu datanya sampai. Tidak di-await: layar Pengaturan tidak boleh
+     menunggu jaringan hanya untuk menampilkan tarif. */
+  if(!ROSTER.length && !ROSTER_ERR) setTimeout(muatRosterDanGambar,0);
   const posisi=st.posisi||POSISI_BAWAAN;
   return '<div class="panel">'
     +'<div class="rowbar"><h2>Tarif per shift</h2><div class="spacer"></div>'
@@ -2581,6 +2669,7 @@ function viewPengaturan(){
       +'<button class="btn btn-ghost btn-sm" onclick="hapusJam('+i+')">Hapus</button></div>').join('')
     +'</div>'
 
+    +hakAksesPanelHTML()
     +'<div class="panel">'
     +'<div class="rowbar"><h2>Panduan jumlah DW per hari</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:10px">Panduan, <b>bukan penguncian</b>. Melebihinya hanya memunculkan satu pertanyaan yang bisa dilanjutkan — larangan keras akan menghambat malam Sabtu yang butuh tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang mencatatnya di luar sistem.</p>'
@@ -2595,6 +2684,51 @@ function viewPengaturan(){
       }).join('')+'</tr>').join('')
     +'</tbody></table></div>'
     +'</div>';
+}
+/* ---- HAK AKSES ----
+   Satu daftar: siapa yang boleh MEMUTUSKAN. Bukan matriks halaman × peran
+   seperti modul lain, dan itu disengaja — modul ini cuma punya dua macam
+   pekerjaan (melihat jadwal DW, dan memutuskan/mengelola), jadi matriks
+   sembilan baris di sini akan diisi asal-asalan sekali lalu tidak pernah
+   dibuka lagi. */
+function hakAksesPanelHTML(){
+  const d=daftarHR();
+  const daftar=ROSTER.slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+  let isi;
+  if(ROSTER_ERR){
+    isi='<div class="note w">Daftar user Office belum bisa diambil ('+esc(ROSTER_ERR)+'). '
+      +'<button class="btn btn-ghost btn-sm" style="margin-left:6px" onclick="muatRosterDanGambar()">Coba lagi</button></div>';
+  }else if(!daftar.length){
+    isi='<div class="mutedhint">Mengambil daftar user Office…</div>';
+  }else{
+    isi='<div class="pilihhr">'+daftar.map(function(u){
+      const on=d.indexOf(String(u.id))>-1;
+      return '<button type="button" class="hrchip'+(on?' on':'')+'" onclick="toggleHR(\''+escJs(u.id)+'\')">'
+        +(on?'☑':'☐')+' '+esc(u.name)
+        +(u.keterangan?'<span class="mini"> · '+esc(u.keterangan)+'</span>':'')+'</button>';
+    }).join('')+'</div>';
+  }
+  return '<div class="panel">'
+   +'<div class="rowbar"><h2>Hak Akses</h2><div class="spacer"></div>'
+   +'<span class="chip">'+(d.length?d.length+' orang dipilih':'belum disetel')+'</span></div>'
+   +'<p class="mutedhint" style="margin-bottom:10px">Yang dicentang boleh membuka <b>Antrean Ajuan</b>, '
+   +'<b>Database DW</b>, dan <b>Pembayaran</b> — yaitu menyetujui ajuan, menyunting talent pool, dan '
+   +'melihat daftar transfer. Sisanya tetap bisa membuka Dashboard, Kalender DW, dan Kalender Tamu.</p>'
+   +'<p class="mutedhint" style="margin-bottom:12px">Modul ini memuat nomor HP seluruh talent pool, PIN, '
+   +'dan daftar transfer, sementara yang benar-benar perlu dibuka banyak orang cuma "hari ini siapa yang masuk". '
+   +'Akses modul di Office cuma satu saklar hidup/mati, jadi pemisahannya diatur di sini.</p>'
+   +(d.length?'':'<div class="note w">Selama daftarnya masih kosong, <b>semua staf Office</b> yang punya akses modul ini dianggap berhak — supaya tidak ada yang mendadak terkunci di luar. Centang minimal satu orang untuk mulai membatasi.</div>')
+   +isi
+   +'<p class="mutedhint" style="margin-top:10px">Admin modul (dari Kelola Akses di Office) selalu berhak, '
+   +'dicentang atau tidak.</p>'
+   +'</div>';
+}
+function toggleHR(uid){
+  if(!isAdmin()){ toast('Hanya admin modul yang bisa mengubah hak akses', true); return; }
+  const d=(S.setting.hr=Array.isArray(S.setting.hr)?S.setting.hr:[]);
+  const i=d.indexOf(String(uid));
+  if(i>-1) d.splice(i,1); else d.push(String(uid));
+  simpanSetting(); render();
 }
 function ubahTarif(p,v,el){
   /* Semua yang bukan angka dibuang: kotaknya kini bertitik ribuan, dan
@@ -2627,7 +2761,7 @@ function ubahKuota(div,konteks,v){
 function bukaAjuan(id){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
   const p=pekerjaById(a.dwId);
-  const boleh=isOffice();
+  const boleh=isHR();
   const aksi=[];
   if(boleh && a.status!=='DISETUJUI') aksi.push({t:'Setujui',c:'btn-ok',f:function(){ tutupModal(); setujuiAjuan(id); return false; }});
   if(boleh && a.status!=='DITOLAK')   aksi.push({t:'Tolak',c:'btn-danger',f:function(){ tutupModal(); tolakAjuan(id); return false; }});
