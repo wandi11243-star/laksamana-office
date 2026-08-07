@@ -733,6 +733,41 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1415,6 +1450,9 @@ function toggleNav() {  }
 
 
 function router() { buildNav(); toggleSidebar(); matikanKamera(); autoSelesaikanEvent(); autoSelesaikanJadwal(); bisaLihat(); setTop(); C(); esc(); peranSaya(); }
+
+
+
 
 
 
@@ -2714,7 +2752,14 @@ function renderPlanning() { bisaUbah(); bisaSetujui(); setTop(); eventForm(); st
 
 
 
+
+
+
+
+
 function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+
+
 
 
 
@@ -3261,7 +3306,55 @@ function renderTicketDetail() { setTop(); esc(); }
 
 
 
-function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); fmtDate(); delTicketClass(); purchaseFlow(); denahTabBody(); salesBody(); C(); }
+
+
+
+
+
+
+function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); fmtDate(); delTicketClass(); denahTabBody(); jualBody(); salesBody(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jualBody() { ldzSemuaItems(); purchaseFlow(); ldzJualAktif(); ldzToggleJual(); ldzBarJualHTML(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3377,17 +3470,15 @@ function salesRingkas() { ldzTierInfo(); }
 
 
 
-function toggleKat() { renderTicketDetail(); }
 
 
 
 
+function renderKategoriDetail() { ldzTierInfo(); salesRingkas(); setTop(); esc(); ldzSemuaItems(); ldzAdalahArea(); ldzStatusCls(); stat(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); fmtDateTime(); katJualHal(); C(); ciPasDenah(); }
 
-function katHal() { renderTicketDetail(); }
 
 
 
-function katPembeliHTML() { esc(); fmtDateTime(); katHal(); }
 
 
 
@@ -3431,7 +3522,6 @@ function katPembeliHTML() { esc(); fmtDateTime(); katHal(); }
 
 
 
-function salesGrafikHTML() { toggleKat(); esc(); katPembeliHTML(); }
 
 
 
@@ -3474,8 +3564,8 @@ function salesGrafikHTML() { toggleKat(); esc(); katPembeliHTML(); }
 
 
 
-function salesBody() { salesRingkas(); purchaseFlow(); ldzSemuaItems(); ldzJualAktif(); ldzToggleJual(); ldzBarJualHTML(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
 
+function katJualHal() { renderKategoriDetail(); }
 
 
 
@@ -3484,8 +3574,57 @@ function salesBody() { salesRingkas(); purchaseFlow(); ldzSemuaItems(); ldzJualA
 
 
 
+function salesGrafikHTML() { esc(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function salesBody() { salesRingkas(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
 
 
 
@@ -4228,6 +4367,11 @@ function ldzBulkGo() { ldzRekam(); toast(); ldzTierClass(); ldzUkuranBaku(); ldz
 
 function ldzStatusCls() { seatCls(); }
 function ldzItemHTML() { ldzTierInfo(); ldzStatusCls(); ldzIsSel(); ldzAdalahArea(); ldzWarnaRuang(); ldzWarnaObjek(); ldzDown(); ldzRename(); ldzJualAktif(); beliToggleSeat(); beliSel(); ciKursi(); toggleSeat(); esc(); }
+
+
+
+
+
 
 
 
@@ -6332,6 +6476,9 @@ function ciTiket() { renderCheckin(); }
 
 
 function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); ciPasDenah(); ciPaintTabel(); }
+
+
+
 
 
 
