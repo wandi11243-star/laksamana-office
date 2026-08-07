@@ -780,6 +780,10 @@
 
 
 
+
+
+
+
 function uid() {  }
 
 
@@ -5763,6 +5767,17 @@ function ldzHapusTemplateGo() { ldzTemplates(); save(); closeModal(); toast(); }
 
 function ldzJualAktif() {  }
 function ldzToggleJual() { beliSetSel(); renderTicketDetail(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
