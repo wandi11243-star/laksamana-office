@@ -1571,7 +1571,22 @@ function ambilRoster() {  }
 
 
 function compsOn() {  }
-function divPemberi() {  }
+
+
+
+
+
+function divPemberi() { compStatusPemberi(); }
+
+
+
+
+
+
+
+
+
+function compStatusPemberi() {  }
 
 
 
@@ -1593,7 +1608,37 @@ function editCompliment() { compById(); render(); }
 
 
 function batalEditCompliment() { render(); }
-function viewCompliment() { compsOn(); compById(); divPemberi(); pilih(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function angkaRD() { repOf(); repPay(); }
+
+
+
+
+
+
+
+function kartuCocokRD() {  }
+
+
+
+
+
+
+
+
+function viewCompliment() { compsOn(); angkaRD(); compById(); divPemberi(); pilih(); }
+
 
 
 
@@ -1615,7 +1660,13 @@ function viewCompliment() { compsOn(); compById(); divPemberi(); pilih(); }
 
 
 function nilai() {  }
-function selTamu() { calInner(); nilai(); dateLabel(); editCompliment(); hapusCompliment(); }
+function selTamu() { calInner(); nilai(); dateLabel(); kartuCocokRD(); compStatusPemberi(); editCompliment(); hapusCompliment(); }
+
+
+
+
+
+
 
 
 
@@ -1678,6 +1729,17 @@ function selTamu() { calInner(); nilai(); dateLabel(); editCompliment(); hapusCo
 
 
 function hitungTotal() { compPotong(); divPemberi(); compById(); save(); render(); ambilRoster(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -878,6 +878,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 function timSayaList() {  }
 
 
@@ -1509,7 +1518,79 @@ function muatLagi() { render(); }
 
 
 
-function siapkanWaste() { kunciPilihanTim(); resetWaste(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pasangSatuanWaste() { cekSatuanLain(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cekSatuanLain() {  }
+
+
+
+
+
+
+
+
+function satuanWaste() {  }
+
+
+
+
+
+
+function tandaBahanWaste() {  }
+
+
+
+
+
+
+
+
+
+function perbaruiSatuanWaste() { pasangSatuanWaste(); satuanWaste(); tandaBahanWaste(); }
+
+
+
+
+function siapkanWaste() { kunciPilihanTim(); pasangSatuanWaste(); perbaruiSatuanWaste(); resetWaste(); }
 
 
 
@@ -1532,26 +1613,7 @@ function siapkanWaste() { kunciPilihanTim(); resetWaste(); }
 
 
 
-function resetWaste() { kunciPilihanTim(); timBawaan(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function editWaste() { setNilaiTim(); buka(); }
+function resetWaste() { kunciPilihanTim(); timBawaan(); pasangSatuanWaste(); tandaBahanWaste(); }
 
 
 
@@ -1571,11 +1633,38 @@ function editWaste() { setNilaiTim(); buka(); }
 
 
 
+function editWaste() { setNilaiTim(); pasangSatuanWaste(); tandaBahanWaste(); buka(); }
 
 
 
 
-function simpanWaste() { resetWaste(); muatWaste(); buka(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanWaste() { satuanWaste(); resetWaste(); muatWaste(); buka(); }
+
+
+
 
 
 
@@ -1655,10 +1744,7 @@ function muatWaste() { rentangWaste(); renderWasteReport(); }
 
 
 
-function lihatFotoWaste() { timSaya(); }
-
-
-
+function lihatFotoWaste() { bukaFoto(); timSaya(); }
 
 
 
@@ -2340,10 +2426,7 @@ function hapusSerah() { muatSerah(); soMuatKeluar(); }
 
 
 
-function lihatFotoSerah() {  }
-
-
-
+function lihatFotoSerah() { bukaFoto(); }
 
 
 
@@ -2481,6 +2564,78 @@ function gambarBarsQty() { totalPerSatuan(); urutSatuan(); teksTotal(); fmtQty()
 
 
 function petaQty() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tutupFoto() {  }
+
+
+
+
+function overlayFoto() { tutupFoto(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bukaFoto() { overlayFoto(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

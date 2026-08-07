@@ -786,6 +786,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -6416,7 +6427,8 @@ function ciBaris() { ciTiket(); seatTeks(); fmtDateTime(); }
 function ciTabelHTML() { ciBaris(); }
 
 
-function chip() { ciMode(); ciPilihKelasHTML(); esc(); ciCari(); ciTabelIsiHTML(); }
+function chip() { ciMode(); ciPilihKelasHTML(); esc(); ciCari(); ciHitungKelasHTML(); ciTabelIsiHTML(); }
+
 
 
 
@@ -6479,7 +6491,13 @@ function ciTabelIsiHTML() { ciBaris(); esc(); batalCheckin(); checkinDariDenah()
 
 
 
-function ciPaintTabel() { ciTabelIsiHTML(); }
+function ciPaintTabel() { ciTabelIsiHTML(); ciHitungKelasHTML(); }
+
+
+
+
+
+
 
 
 
@@ -6498,6 +6516,33 @@ function ciPilihKelasHTML() { ciBaris(); ciKelas(); esc(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciHitungKelasHTML() { ciBaris(); ldzTierInfo(); esc(); }
 
 
 
