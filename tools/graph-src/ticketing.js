@@ -632,6 +632,111 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -874,6 +979,27 @@ function jaminanHTML() { ikon(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ikon() {  }
 
 
@@ -898,7 +1024,268 @@ function kontakHTML() { kepalaBagian(); ikon(); }
 
 
 
-function ajakanHTML() { go(); memuat(); api(); galat(); sisaEvent(); hariLagi(); ikon(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
+function ajakanHTML() { go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tentangHTML() { kepalaBagian(); faktaBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function keBagian() {  }
+function lompat() { go(); }
+
+
+
+
+
+
+
+
+function faktaBaris() { ikon(); }
+
+
+
+
+function jenisAcaraHTML() { kepalaBagian(); ikon(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ragamTiketHTML() { kepalaBagian(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bayarCaraHTML() { kepalaBagian(); ikon(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hariHHTML() { kepalaBagian(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function aturanHTML() {  }
+
+
+
+
+
+
+
+
+
+
+function li() { ikon(); kepalaBagian(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tanyaJawabHTML() { kepalaBagian(); ikon(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sewaHTML() { ikon(); memuat(); api(); galat(); tentangHTML(); jenisAcaraHTML(); tanyaJawabHTML(); kontakHTML(); sisaEvent(); hariLagi(); labelHitungMundur(); kepalaBagian(); ragamTiketHTML(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); hariHHTML(); aturanHTML(); ajakanHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1023,7 +1410,7 @@ function beres() { toast(); }
 
 
 
-function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(); gambarEvent(); }
+function kartuEvent() { posterUrl(); go(); ikon(); tgl(); jam(); memuat(); api(); galat(); gambarEvent(); }
 
 
 
@@ -1069,7 +1456,15 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
-function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); ikon(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
+function gambarEvent() { go(); langkahHTML(); posterUrl(); ikon(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); hariHHTML(); aturanHTML(); tanyaJawabHTML(); kontakHTML(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1838,7 +2233,7 @@ function simpanTiketku() { go(); kirimAkun(); }
 
 
 
-function kirimAkun() { toast(); api(); gambarTopnav(); dariHash(); go(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
+function kirimAkun() { toast(); api(); gambarTopnav(); dariHash(); go(); ikon(); memuat(); galat(); tgl(); simpanTiketku(); tiketHTML(); }
 
 
 
