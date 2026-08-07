@@ -737,6 +737,10 @@
 
 
 
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -885,6 +889,9 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
+
+
+
 function go() { gambarTopnav(); gambarBarHp(); }
 
 
@@ -936,6 +943,10 @@ function kepalaBagian() {  }
 
 
 function langkahHTML2() {  }
+
+
+
+
 
 
 
@@ -1057,6 +1068,29 @@ function ajakanHTML() { go(); }
 
 
 
+
+
+
+
+
+function keBagian() {  }
+function lompat() { go(); }
+
+
+
+
+
+
+
+
+function faktaBaris() { ikon(); }
+
+
+
+
+
+
+
 function tentangHTML() { kepalaBagian(); faktaBaris(); }
 
 
@@ -1084,50 +1118,11 @@ function tentangHTML() { kepalaBagian(); faktaBaris(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-function keBagian() {  }
-function lompat() { go(); }
-
-
-
-
-
-
-
-
-function faktaBaris() { ikon(); }
-
-
-
-
 function jenisAcaraHTML() { kepalaBagian(); ikon(); }
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-function ragamTiketHTML() { kepalaBagian(); }
 
 
 
@@ -1147,6 +1142,9 @@ function ragamTiketHTML() { kepalaBagian(); }
 
 
 function bayarCaraHTML() { kepalaBagian(); ikon(); }
+
+
+
 
 
 
@@ -1209,7 +1207,20 @@ function li() { ikon(); kepalaBagian(); }
 
 
 
-function tanyaJawabHTML() { kepalaBagian(); ikon(); }
+
+function tanyaTautanHTML() { ikon(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+function tanyaJawabHTML() { ikon(); hariHHTML(); aturanHTML(); kontakHTML(); go(); memuat(); api(); galat(); tentangHTML(); jenisAcaraHTML(); tanyaTautanHTML(); sisaEvent(); hariLagi(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); ajakanHTML(); }
 
 
 
@@ -1241,16 +1252,6 @@ function tanyaJawabHTML() { kepalaBagian(); ikon(); }
 
 
 
-
-
-
-
-
-
-
-
-
-function sewaHTML() { ikon(); memuat(); api(); galat(); tentangHTML(); jenisAcaraHTML(); tanyaJawabHTML(); kontakHTML(); sisaEvent(); hariLagi(); labelHitungMundur(); kepalaBagian(); ragamTiketHTML(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); hariHHTML(); aturanHTML(); ajakanHTML(); }
 
 
 
@@ -1456,10 +1457,7 @@ function kartuEvent() { posterUrl(); go(); ikon(); tgl(); jam(); memuat(); api()
 
 
 
-function gambarEvent() { go(); langkahHTML(); posterUrl(); ikon(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); hariHHTML(); aturanHTML(); tanyaJawabHTML(); kontakHTML(); }
-
-
-
+function gambarEvent() { go(); langkahHTML(); posterUrl(); ikon(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); tanyaTautanHTML(); kontakHTML(); }
 
 
 
