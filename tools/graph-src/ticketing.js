@@ -741,6 +741,143 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -800,7 +937,6 @@ function muatAkun() { api(); }
 
 
 
-function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
@@ -815,11 +951,13 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
+function inisial() {  }
 
 
 
 
 
+function gambarTopnav() { go(); keBagian(); profilHTML(); }
 
 
 
@@ -843,6 +981,7 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
+function profilHTML() { inisial(); togglProfil(); ikon(); tutupProfil(); go(); }
 
 
 
@@ -857,11 +996,13 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
+function togglProfil() {  }
 
 
 
 
 
+function tutupProfil() {  }
 
 
 
@@ -874,8 +1015,10 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
+function bukaNav() {  }
 
 
+function tutupNav() { api(); gambarTopnav(); toast(); go(); klok(); gambarBarHp(); }
 
 
 
@@ -892,7 +1035,71 @@ function gambarTopnav() { go(); api(); toast(); klok(); gambarBarHp(); }
 
 
 
-function go() { gambarTopnav(); gambarBarHp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function go() { tutupNav(); gambarTopnav(); gambarBarHp(); }
+
 
 
 
@@ -1073,7 +1280,8 @@ function ajakanHTML() { go(); }
 
 
 
-function keBagian() {  }
+function keBagian() { tutupNav(); }
+
 function lompat() { go(); }
 
 
@@ -1083,15 +1291,6 @@ function lompat() { go(); }
 
 
 
-function faktaBaris() { ikon(); }
-
-
-
-
-
-
-
-function tentangHTML() { kepalaBagian(); faktaBaris(); }
 
 
 
@@ -1103,6 +1302,7 @@ function tentangHTML() { kepalaBagian(); faktaBaris(); }
 
 
 
+function tentangHTML() { ikon(); }
 
 
 
@@ -1116,9 +1316,6 @@ function tentangHTML() { kepalaBagian(); faktaBaris(); }
 
 
 
-
-
-function jenisAcaraHTML() { kepalaBagian(); ikon(); }
 
 
 
@@ -1220,7 +1417,20 @@ function tanyaTautanHTML() { ikon(); go(); }
 
 
 
-function tanyaJawabHTML() { ikon(); hariHHTML(); aturanHTML(); kontakHTML(); go(); memuat(); api(); galat(); tentangHTML(); jenisAcaraHTML(); tanyaTautanHTML(); sisaEvent(); hariLagi(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); ajakanHTML(); }
+function tanyaJawabHTML() { ikon(); hariHHTML(); aturanHTML(); kontakHTML(); go(); memuat(); api(); galat(); tentangHTML(); tanyaTautanHTML(); sisaEvent(); hariLagi(); keBagian(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); ajakanHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
