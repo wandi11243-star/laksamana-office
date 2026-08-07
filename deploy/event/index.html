@@ -223,22 +223,28 @@ h3.sec::before{content:'';width:4px;height:16px;border-radius:3px;flex:none;
   background:linear-gradient(var(--accent-soft),var(--accent2))}
 h3.sec:first-child{margin-top:0}
 table{width:100%;border-collapse:collapse;font-size:13px}
-/* Kepala tabel diberi latar emas samar dan garis bawah tegas. Sebelumnya kepala
-   dan isi tabel sama-sama putih dengan garis tipis yang sama, jadi pada tabel
-   panjang mata kehilangan jejak mana baris judul — terutama sesudah menggulir. */
-thead th{text-align:left;padding:10px;background:linear-gradient(rgba(169,121,31,.09),rgba(169,121,31,.05));
-  border-bottom:2px solid rgba(169,121,31,.28);color:var(--accent2);font-size:10.5px;
-  text-transform:uppercase;letter-spacing:.5px;font-weight:700;white-space:nowrap}
+/* Kepala tabel TANPA latar berwarna — yang membedakannya dari isi cukup
+   tulisan tebal berwarna emas tua dan garis bawah tegas. Latar berwarna di
+   belakang teks kecil justru menurunkan kontrasnya, dan pada tabel selebar
+   Penjualan hasilnya terbaca buram. */
+thead th{text-align:left;padding:10px;background:transparent;
+  border-bottom:2px solid rgba(169,121,31,.38);color:var(--accent2);font-size:11px;
+  text-transform:uppercase;letter-spacing:.5px;font-weight:800;white-space:nowrap}
 thead th:first-child{border-top-left-radius:10px}
 thead th:last-child{border-top-right-radius:10px}
 th{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
-td{padding:9px 10px;border-bottom:1px solid var(--line-soft)}
-/* Zebra + hover: pada tabel selebar Penjualan, mata gampang tergelincir satu
-   baris saat menelusuri ke kanan. */
-tbody tr:nth-child(even){background:rgba(60,55,45,.022)}
-tbody tr:hover{background:rgba(169,121,31,.07)}
+td{padding:10px;border-bottom:1px solid rgba(122,86,15,.14)}
+/* ZEBRA DIBUANG. Baris berselang warna membuat separuh tabel bertulisan di
+   atas latar keruh, dan itu justru menurunkan keterbacaan yang mau ditolong.
+   Penjaga mata saat menelusuri ke kanan sekarang: garis antar baris yang
+   lebih tegas + satu baris yang menyala saat disentuh kursor. */
+tbody tr{background:transparent}
+tbody tr:hover{background:rgba(169,121,31,.10)}
 tbody tr:last-child td{border-bottom:none}
-tr:hover td{background:var(--panel2)}
+/* Isi sel dipertebal, bukan diberi latar: 500 masih terbaca sebagai teks
+   biasa tapi jelas lebih padat daripada 400 di layar terang. */
+td{font-weight:500;color:var(--txt)}
+td b{font-weight:800}
 /* Tombol utama: emas yang benar-benar emas — gradien terang ke tua plus
    sedikit kilau di tepi atas. Yang lama gradiennya rata dan gelap, jadi
    terbaca cokelat kusam. */
@@ -668,6 +674,12 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ldz-hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .ldz-hint b{color:var(--txt)}
 .ldz-wrap{overflow:auto;background:var(--panel2);border:1px solid var(--line-soft);border-radius:12px;padding:12px}
+/* Denah yang cuma DIBACA (Kursi Terisi Langsung & rincian kategori) tidak
+   pernah digulir: seluruh denah diperkecil sampai muat. Menggulir denah
+   berarti kehilangan gambaran ruangan secara utuh — dan gambaran utuh itulah
+   satu-satunya alasan denah ditampilkan. Yang bisa DIEDIT tetap bergulir;
+   di sana orang memang bekerja pada satu sudut ruangan. */
+#liveDenah .ldz-wrap,#katDenah .ldz-wrap{overflow:hidden}
 @media(max-width:900px){ .ldz-app{flex-direction:column} .ldz-palette{width:auto;flex-direction:row;flex-wrap:wrap;border-right:none;border-bottom:1px solid var(--line)}
   .ldz-side{width:auto;height:auto;border-left:none;border-top:1px solid var(--line)} .ldz-stage{height:52vh}
   /* Panel sudah bertumpuk vertikal di layar sempit, jadi rail tipis di samping
@@ -3493,9 +3505,24 @@ function renderKategoriDetail(eid, clsId){
      diredupkan lewat CSS beratribut. Bukan digambar ulang dengan aturan
      berbeda — dua penggambar untuk satu denah berarti salah satunya pasti
      tertinggal saat bentuk objeknya berubah. */
-  const punyaDenah=ldzSemuaItems(eid).some(function(i){ return String(i.tier||'')===c.name; });
-  const kursi=ldzSemuaItems(eid).filter(function(i){ return String(i.tier||'')===c.name && !ldzAdalahArea(i); });
+  const milikKat=ldzSemuaItems(eid).filter(function(i){ return String(i.tier||'')===c.name; });
+  const punyaDenah=milikKat.length>0;
+  const kursi=milikKat.filter(function(i){ return !ldzAdalahArea(i); });
   const terjual=kursi.filter(function(i){ const st=ldzStatusCls(i); return st==='sold'||st==='checked'; }).length;
+
+  /* LANTAI YANG DITAMPILKAN MENGIKUTI KATEGORINYA. Lantai aktif itu milik
+     bersama seluruh modul (window._ldzLantai), jadi membuka rincian VIP
+     sesudah menengok Lantai 2 di tab lain menampilkan lantai kosong — denah
+     tanpa satu pun kursi VIP, yang terbaca sebagai "VIP tidak punya denah".
+     Di sini lantainya dipilihkan: kalau lantai yang sedang aktif tidak punya
+     kursi kategori ini, pindah sendiri ke lantai yang punya. */
+  const lantaiKat=[];
+  milikKat.forEach(function(i){
+    const f=ldzLantaiObjek(i);
+    if(lantaiKat.indexOf(f)<0) lantaiKat.push(f);
+  });
+  lantaiKat.sort();
+  if(punyaDenah && lantaiKat.indexOf(ldzLantai())<0) window._ldzLantai=lantaiKat[0];
 
   let h='<div class="fbar">'
    +'<button class="fchip" onclick="location.hash=\'#/ticketing/'+eid+'\'">‹ Kembali ke Penjualan</button>'
@@ -3521,10 +3548,16 @@ function renderKategoriDetail(eid, clsId){
       +'<h3 class="sec">Denah — kursi '+esc(c.name)+'</h3>'
       +'<p class="mini" style="margin-bottom:10px">Yang berwarna penuh adalah kursi kategori ini; sisanya diredupkan. '
       +'Kursi yang sudah dipesan tampil sesuai warna statusnya — sama dengan denah di tab Denah &amp; Booking.</p>'
-      +'<div class="lm-floors" style="margin:0 0 10px">'
-        +'<button class="'+(ldzLantai()==='1'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'1\');renderKategoriDetail(\''+eid+'\',\''+clsId+'\')">Lantai 1</button>'
-        +'<button class="'+(ldzLantai()==='2'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'2\');renderKategoriDetail(\''+eid+'\',\''+clsId+'\')">Lantai 2</button>'
-      +'</div>'
+      /* Hanya lantai yang PUNYA kursi kategori ini yang diberi tombol. Tombol
+         menuju lantai kosong cuma menawarkan layar hampa. */
+      +(lantaiKat.length>1
+        ? '<div class="lm-floors" style="margin:0 0 10px">'
+          +lantaiKat.map(function(f){
+              return '<button class="'+(ldzLantai()===f?'on':'')+'" '
+                +'onclick="ldzSetLantai(\''+eid+'\',\''+f+'\');renderKategoriDetail(\''+eid+'\',\''+clsId+'\')">Lantai '+f+'</button>';
+            }).join('')
+          +'</div>'
+        : '<p class="mini" style="margin-bottom:10px">Seluruh kursi '+esc(c.name)+' ada di <b>Lantai '+(lantaiKat[0]||'1')+'</b>.</p>')
       +'<div id="katDenah">'+ldzCanvasHTML(eid,false)+'</div></div>';
   }
 
@@ -6510,10 +6543,16 @@ function ciPasDenah(idWadah){
   if(f<1){
     kanvas.style.transform='scale('+f+')';
     wrap.style.height=Math.ceil(tinggi*f+24)+'px';
-    wrap.style.overflowX='hidden';
+    /* KEDUA sumbu disembunyikan, bukan cuma mendatar. Kanvasnya memakai
+       `position:relative` (lihat ldzCanvasHTML), jadi ia TETAP setinggi
+       ukuran aslinya di perhitungan tata letak walau tampilannya sudah
+       diperkecil — dan wadah yang tingginya sudah disetel pas itu langsung
+       memunculkan batang gulir vertikal. Yang tergulir bukan denahnya
+       melainkan ruang kosong di bawahnya. */
+    wrap.style.overflow='hidden';
   }else{
     kanvas.style.transform='none';
-    wrap.style.height=''; wrap.style.overflowX='';
+    wrap.style.height=''; wrap.style.overflow='';
   }
 }
 /* Memutar HP mengubah lebar layar; tanpa ini denahnya tetap memakai skala

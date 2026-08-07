@@ -768,6 +768,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -3474,7 +3486,28 @@ function salesRingkas() { ldzTierInfo(); }
 
 
 
-function renderKategoriDetail() { ldzTierInfo(); salesRingkas(); setTop(); esc(); ldzSemuaItems(); ldzAdalahArea(); ldzStatusCls(); stat(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); fmtDateTime(); katJualHal(); C(); ciPasDenah(); }
+function renderKategoriDetail() { ldzTierInfo(); salesRingkas(); setTop(); esc(); ldzSemuaItems(); ldzAdalahArea(); ldzStatusCls(); ldzLantaiObjek(); ldzLantai(); stat(); ldzSetLantai(); ldzCanvasHTML(); fmtDateTime(); katJualHal(); C(); ciPasDenah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6498,6 +6531,12 @@ function segarkanCheckin() { ciStatHTML(); ciTiket(); liveDenahHTML(); ciPasDena
 
 
 function ciPasDenah() {  }
+
+
+
+
+
+
 
 
 
