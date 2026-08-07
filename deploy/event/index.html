@@ -3083,7 +3083,7 @@ function renderEventDetail(id){
 function setEventStatusDetail(id,st){
   const e=DB.events.find(x=>x.id===id); if(!e)return;
   const lama=e.status; e.status=st; save(); renderEventDetail(id);
-  toast('Status: '+lama+' → '+st+(st==='Finished'?' — data terkunci & masuk History.':''));
+  toast('Status: '+lama+' → '+st+(st==='Event Done'?' — data terkunci & masuk History.':''));
 }
 /* Pemutar status lama DIHAPUS. Ia memutar lima status dalam satu lingkaran —
    bentuk yang tidak lagi punya arti sejak Planning→Upcoming hanya boleh lewat
@@ -7019,7 +7019,22 @@ function spawnEvent(id){
 let histFilter={year:'',cat:''};
 function renderHistory(){
   setTop('Event History','Arsip event selesai (read-only)','');
-  let list=DB.events.filter(e=>e.status==='Finished');
+  /* SEBABNYA HALAMAN INI SELALU KOSONG selama berbulan-bulan: syaratnya masih
+     'Finished', padahal status itu sudah tidak ada sejak EMS dipangkas jadi
+     tiga (Planning / Upcoming / Event Done). normalize() memetakan data lama
+     Finished → Event Done, dan autoSelesaikanEvent() menulis 'Event Done'
+     juga — jadi tidak ada satu pun event di database yang bisa lolos syarat
+     ini, dan halaman selalu berkata "Belum ada event selesai" meski arsipnya
+     penuh. Tidak ada galat, tidak ada yang aneh di layar: itu sebabnya ia
+     bertahan begitu lama.
+
+     'Finished' tetap ikut diterima supaya data yang belum sempat lewat
+     normalize() — mis. cadangan lama yang baru dipulihkan — tidak hilang dari
+     arsip untuk kedua kalinya. */
+  let list=DB.events.filter(e=>e.status==='Event Done'||e.status==='Finished');
+  /* Yang terbaru di atas. Arsip tanpa urutan memaksa orang memindai seluruh
+     kartu untuk menemukan acara bulan lalu. */
+  list.sort((a,b)=>String(b.start_datetime).localeCompare(String(a.start_datetime)));
   const years=[...new Set(list.map(e=>e.start_datetime.slice(0,4)))];
   if(histFilter.year)list=list.filter(e=>e.start_datetime.startsWith(histFilter.year));
   if(histFilter.cat)list=list.filter(e=>e.category===histFilter.cat);
@@ -7033,7 +7048,7 @@ function renderHistoryDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/history';return;}
   const idea=e.idea_id?DB.ideas.find(i=>i.id===e.idea_id):null;const ev=idea&&idea.evaluations[0];
   const d=DB.eventDetails[id];
-  setTop(e.title,'<a href="#/history" style="color:var(--accent)">History</a> / '+esc(e.title),statusBadge('Finished'));
+  setTop(e.title,'<a href="#/history" style="color:var(--accent)">History</a> / '+esc(e.title),statusBadge(e.status));
   C().innerHTML=`<div style="display:flex;gap:16px;align-items:center;margin-bottom:16px"><div class="poster-head">${posterKecilHTML(e,54)}</div><div><h3 style="font-size:20px">${esc(e.title)}</h3><span class="mini">${e.category} · ${esc(e.venue)} · ${fmtDate(e.start_datetime)}</span></div></div>
   <div class="grid g2"><div class="card"><h3 class="sec">📊 Hasil</h3><div class="kv">
     <div class="k">Omzet</div><div><b>${ev?IDR(ev.omzet):'—'}</b></div>
