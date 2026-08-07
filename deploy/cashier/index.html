@@ -1571,9 +1571,24 @@ function ambilRoster(){
     .catch(e=>{ COMP_ROSTER_ERR=e.message||'gagal'; COMP_ROSTER=[]; return COMP_ROSTER; });
 }
 function compsOn(date){ return (DB.compliments||[]).filter(c=>c.date===date); }
+/* 'office' DITAMBAHKAN 7 Agustus 2026 — compliment yang diputuskan manajemen
+   sebelumnya tidak punya tempat dan terpaksa dicatat "Tamu", yang artinya
+   tidak ada seorang pun tercatat sebagai pemberinya. Namanya sengaja tidak
+   ditulis di kode; daftarnya ikut Tim/Keterangan akun Office.
+   KEMBAR PERSIS dengan deploy/kompas/index.html — ubah dua-duanya. */
 function divPemberi(u){
   const d=(u&&u.divs)||[(u&&u.div)||''];
-  return d.indexOf('marketing')>-1?'marketing':(d.indexOf('event')>-1?'event':'');
+  return d.indexOf('marketing')>-1?'marketing'
+       :(d.indexOf('event')>-1?'event'
+       :(d.indexOf('office')>-1?'office':''));
+}
+/* Status putusan potong/tidak untuk sisi PEMBERI. Modul ini tidak memutuskan
+   apa pun — keputusannya diambil di halaman Performa Marketing/Event modul
+   Kompas — tapi tetap perlu MEMBACA statusnya supaya kasir tahu catatannya
+   sudah diputus atau belum. KEMBAR dengan compStatusPemberi() di kompas. */
+function compStatusPemberi(c){
+  const s=String((c&&c.pemberiStatus)||'menunggu');
+  return (s==='potong'||s==='tidak')?s:'menunggu';
 }
 /* DUA PIC, dua pertanyaan yang berbeda (permintaan user 5 Agustus 2026):
      PIC Kasir   — siapa yang menutup bill-nya di POS. Selalu kasir.
@@ -1593,11 +1608,41 @@ function editCompliment(id){
   COMP_EDIT=id; compDate=c.date; render(); window.scrollTo(0,0);
 }
 function batalEditCompliment(){ COMP_EDIT=''; render(); }
+/* ---- PENCOCOKAN KE REPORT DAILY (7 Agustus 2026) ----
+   Compliment dan Member Deposit sama-sama metode pembayaran yang tidak
+   membawa uang masuk: barangnya keluar, bill-nya ditutup tanpa setoran. Total
+   catatan Compliment hari itu HARUS sama dengan POS Compliment + POS Member
+   Deposit hari yang sama.
+
+   Kartunya ada di modul ini justru karena kasir yang menginput KEDUANYA —
+   selisihnya paling murah diperbaiki saat orangnya masih di depan layar,
+   bukan sebulan kemudian saat rekap. Yang dipakai angka POS, bukan Actual:
+   compliment memang tidak pernah punya uangnya, jadi membandingkan ke Actual
+   akan selalu selisih sebesar nilainya sendiri.
+   KEMBAR dengan angkaRD/kartuCocokRD di deploy/kompas/index.html. */
+function angkaRD(date, totalComp){
+  const rec=repOf(date);
+  const comp=repPay(rec,'compliment').pos;
+  const dep=repPay(rec,'member_dep').pos;
+  const total=comp+dep;
+  const selisih=num(totalComp)-total;
+  return { ada:!!rec, comp, dep, total, catat:num(totalComp), selisih, cocok:!!rec && selisih===0 };
+}
+function kartuCocokRD(rd){
+  if(!rd.ada) return `<div class="notice info">ℹ️ <b>Report Daily tanggal ini belum diisi.</b> Total compliment di bawah belum bisa dicocokkan. Isi Compliment &amp; Member Deposit di menu <b>Report Daily</b>, lalu angkanya harus sama persis dengan total di sini.</div>`;
+  if(rd.cocok) return `<div class="notice ok">✓ Cocok dengan Report Daily — Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)} = <b>${fmtRp(rd.total)}</b>.</div>`;
+  const kurang=rd.selisih<0;
+  return `<div class="notice bad">⚠ <b>Tidak cocok dengan Report Daily.</b> Catatan di halaman ini <b>${fmtRp(rd.catat)}</b>, sedangkan POS Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)} = <b>${fmtRp(rd.total)}</b> — ${kurang
+      ? `masih ada ${fmtRp(-rd.selisih)} yang belum ditulis catatannya di sini, jadi barang segitu keluar tanpa PIC yang menanggungnya`
+      : `catatan di sini kelebihan ${fmtRp(rd.selisih)} dibanding angka mesin kasir`}. Perbaiki salah satunya sebelum tutup hari.</div>`;
+}
+
 function viewCompliment(){
   CAL_ST.cp.open=false;
   const el=document.getElementById('app-view');
   const list=compsOn(compDate);
   const total=list.reduce((s,c)=>s+num(c.nominal),0);
+  const rd=angkaRD(compDate, total);
   /* Catatan yang sedang diubah bisa lenyap (dihapus dari tab lain, atau
      datanya disegarkan dari server). Form yang menunjuk baris tak-ada akan
      menyimpan ke ruang kosong tanpa pesan apa pun. */
@@ -1618,7 +1663,7 @@ function viewCompliment(){
   const selTamu=(v)=>v?'':' selected';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut sebesar <b>Sub Total</b>-nya.</div></div>
+      <div><h3>Catatan Compliment</h3><div class="card-sub"><b>PIC Kasir</b> selain Tamu langsung dipotong realisasinya sebesar <b>Sub Total</b>. <b>PIC Pemberi</b> tidak — potongannya baru berlaku setelah disetujui di halaman Performa Marketing/Event (modul Kompas).</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="cp_cal">${calInner('cp')}</div></div>
     </div>
     <div class="card${edit?' edit-on':''}">
@@ -1642,7 +1687,7 @@ function viewCompliment(){
             <option value="${PIC_TAMU}"${selTamu(edit&&edit.pemberiOfficeId)}>Tamu</option>
             ${opsiPemberi}
           </select>
-          ${COMP_ROSTER&&!COMP_ROSTER_ERR&&!pemberiRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Marketing</b> atau <b>Event</b>.</div>`:''}
+          ${COMP_ROSTER&&!COMP_ROSTER_ERR&&!pemberiRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Marketing</b>, <b>Event</b>, atau <b>Office</b>.</div>`:''}
         </div>
       </div>
       <!-- Total dijumlahkan otomatis dan DIPERLIHATKAN sebelum disimpan: dari
@@ -1653,9 +1698,12 @@ function viewCompliment(){
       <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
       ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
-    <div class="grid">
+    <div class="grid g3">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
+      <div class="stat"><div class="lab">Report Daily (POS)</div><div class="val sm mono">${fmtRp(rd.total)}</div><div class="foot">Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)}</div></div>
+      <div class="stat"><div class="lab">Selisih</div><div class="val sm mono" style="color:${rd.cocok?'var(--ok)':'var(--danger)'}">${rd.ada?fmtSel(total-rd.total):'—'}</div><div class="foot">${rd.ada?(rd.cocok?'cocok':'harus dicocokkan'):'Report Daily belum diisi'}</div></div>
     </div>
+    ${kartuCocokRD(rd)}
     <div class="card">
       <h3>Daftar Compliment Hari Ini</h3>
       <div class="tbl-wrap"><table>
@@ -1667,7 +1715,10 @@ function viewCompliment(){
           <td class="num mono">${c.service!=null?fmtRp(num(c.service)):'<span class="muted">—</span>'}</td>`:''}
           <td class="num mono"><b>${fmtRp(num(c.nominal))}</b></td>
           <td>${c.picDiv==='tamu'||!c.picName?'<span class="chip">Tamu</span>':esc(c.picName)}</td>
-          <td>${!c.pemberiName||c.pemberiDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.pemberiName)} <span class="muted" style="font-size:11px">· ${esc(c.pemberiDiv)}</span>`}</td>
+          <td>${!c.pemberiName||c.pemberiDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.pemberiName)} <span class="muted" style="font-size:11px">· ${esc(c.pemberiDiv)}</span><div style="margin-top:3px">${
+            compStatusPemberi(c)==='potong'?'<span class="chip bad">Dipotong</span>'
+            :compStatusPemberi(c)==='tidak'?'<span class="chip ok">Tidak dipotong</span>'
+            :'<span class="chip">Menunggu keputusan</span>'}</div>`}</td>
           <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
           <td><div class="mini-actions">
             <button class="btn btn-xs" onclick="editCompliment('${esc(c.id)}')" title="Ubah catatan ini">✏️</button>
@@ -1684,7 +1735,7 @@ function viewCompliment(){
     document.getElementById('c_total').innerHTML =
       `Total compliment: <b class="mono">${fmtRp(sub+tax+svc)}</b>` +
       `<span class="muted" style="font-size:12px"> &nbsp;(sub total ${fmtRp(sub)} + tax ${fmtRp(tax)} + service ${fmtRp(svc)})</span>` +
-      `<br><span class="muted" style="font-size:12px">Yang memotong realisasi PIC: <b>${fmtRp(sub)}</b> — tax &amp; service charge bukan omset siapa pun.</span>`;
+      `<br><span class="muted" style="font-size:12px">Yang memotong realisasi: <b>${fmtRp(sub)}</b> — tax &amp; service charge bukan omset siapa pun. Langsung berlaku untuk <b>PIC Kasir</b>; untuk <b>PIC Pemberi</b> menunggu persetujuan di Performa.</span>`;
     return sub+tax+svc;
   };
   ['c_sub','c_tax','c_svc'].forEach(id=>document.getElementById(id).addEventListener('input',hitungTotal));
@@ -1722,13 +1773,24 @@ function viewCompliment(){
          diperbaiki tetap milik pencatat aslinya — mengganti `by` dengan nama
          orang yang mengoreksi menghapus jejak siapa yang sebenarnya
          memberikan compliment itu. `alasan` catatan lama juga dipertahankan. */
+      /* Putusan potong/tidak dipertahankan selama pemberinya orang yang sama;
+         kalau pemberinya diganti, putusannya direset — keputusan itu diambil
+         atas nama orang lain. KEMBAR dengan kompas. */
+      const gantiPemberi = String(lama.pemberiOfficeId||'')!==String(isi.pemberiOfficeId||'')
+                        || String(lama.pemberiName||'')!==String(isi.pemberiName||'');
+      const putusanLama = gantiPemberi ? null : {
+        pemberiStatus: lama.pemberiStatus, putusOleh: lama.putusOleh, putusAt: lama.putusAt
+      };
       Object.assign(lama, isi);
+      if(putusanLama) Object.assign(lama, putusanLama);
+      else { lama.pemberiStatus='menunggu'; lama.putusOleh=''; lama.putusAt=0; }
       lama.ubahOleh=CURRENT_USER?CURRENT_USER.name:'';
       lama.ubahAt=Date.now();
       COMP_EDIT='';
     }else{
       DB.compliments.push(Object.assign({
         id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4), alasan:'',
+        pemberiStatus:'menunggu', putusOleh:'', putusAt:0,
         by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
       }, isi));
     }

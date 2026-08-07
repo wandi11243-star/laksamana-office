@@ -497,14 +497,35 @@ function toggleNav(){
    (field `keterangan`), jadi gerbangnya tetap sinkron — tidak perlu memanggil
    roster dan menunggu jaringan sebelum tahu boleh masuk atau tidak.
 
-     adminModules '*'  → 'full' : semua grup menu (termasuk Sistem)
-     selain itu        → 'ops'  : HANYA grup Operasional
+     adminModules '*' / 'kompas'   → 'full'  : semua grup menu (termasuk Sistem)
+     Tim/Keterangan memuat 'kasir' → 'kasir' : Operasional + Performa Kasir
+     selain itu                    → 'ops'   : HANYA grup Operasional
 
    Yang bukan superadmin sengaja jatuh ke 'ops', bukan ditolak: hak paling
    kecil adalah default yang aman, dan kalau keterangannya belum diisi di
-   Office kasir tetap bisa bekerja. */
+   Office kasir tetap bisa bekerja.
+
+   LEVEL 'kasir' DITAMBAHKAN 7 Agustus 2026. Kasir perlu melihat capaian dan
+   posisi bonus timnya sendiri — angka yang menentukan penghasilannya, dan
+   satu-satunya yang selama ini cuma bisa dilihat orang lain. Yang TIDAK ikut
+   terbuka: Performa Marketing & Event (di sanalah keputusan potongan
+   compliment diambil), seluruh grup Dashboard, dan Sistem.
+
+   Pencocokan keterangannya PER KATA, bukan seluruh teks. Akun sering diisi
+   dobel seperti "kasir floor" atau "Floor, Kasir"; membandingkan seluruh
+   string membuat orang seperti itu jatuh ke 'ops' tanpa ada yang bisa menebak
+   sebabnya — persis jebakan yang sama sudah pernah memakan daftar PIC
+   compliment (lihat COMP_DIV/ambilRoster). */
 let CURRENT_USER=null;
-const LEVEL_GRUP={ ops:['Operasional'], full:['Operasional','Dashboard','Performa','Sistem'] };
+const LEVEL_GRUP={
+  ops:  ['Operasional'],
+  kasir:['Operasional','Performa'],
+  full: ['Operasional','Dashboard','Performa','Sistem']
+};
+/* View yang TETAP tertutup walau grupnya terbuka. Menyembunyikan menunya saja
+   tidak cukup — go() masih bisa dipanggil dari kode lain, dan bolehLihat()
+   memakai peta ini juga. */
+const LEVEL_TUTUP={ kasir:['marketing','event'] };
 function bacaSesi(){
   try{
     const s=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');
@@ -514,22 +535,41 @@ function bacaSesi(){
     // Admin global ('*') MAUPUN admin modul kompas dapat level penuh — sepadan
     // dengan flag isModuleAdmin yang dipakai roster Office di Kelola Akses.
     const adm=s.adminModules||[];
-    const level=(adm.indexOf('*')>-1||adm.indexOf('kompas')>-1) ? 'full' : 'ops';
+    const ket=String(s.keterangan||'').toLowerCase().split(/[\s,;/]+/);
+    const level=(adm.indexOf('*')>-1||adm.indexOf('kompas')>-1) ? 'full'
+              : (ket.indexOf('kasir')>-1 ? 'kasir' : 'ops');
     return {id:s.userId,name:s.name,keterangan:s.keterangan||'',level};
   }catch(e){ return null; }
 }
 function levelSaya(){ return CURRENT_USER?CURRENT_USER.level:'ops'; }
-function bolehLihat(view){ return VIEW_GRUP[view] ? LEVEL_GRUP[levelSaya()].indexOf(VIEW_GRUP[view])>-1 : false; }
-/* Sembunyikan grup menu yang tidak boleh dilihat. Dijalankan sesudah sesi
-   dibaca, sebelum halaman pertama digambar. */
+function bolehLihat(view){
+  if(!VIEW_GRUP[view]) return false;
+  const lv=levelSaya();
+  if((LEVEL_TUTUP[lv]||[]).indexOf(view)>-1) return false;
+  return LEVEL_GRUP[lv].indexOf(VIEW_GRUP[view])>-1;
+}
+/* Sembunyikan menu yang tidak boleh dilihat. Dijalankan sesudah sesi dibaca,
+   sebelum halaman pertama digambar.
+
+   Sekarang per-TAUTAN, bukan cuma per-grup: level 'kasir' membuka grup
+   Performa tapi hanya satu dari tiga halamannya. Grup yang seluruh tautannya
+   tersembunyi ikut disembunyikan — label grup kosong menggantung lebih
+   membingungkan daripada grup yang hilang sama sekali. */
 function pasangMenu(){
   const boleh=LEVEL_GRUP[levelSaya()];
   document.querySelectorAll('.nav-group').forEach(g=>{
     const nama=(g.querySelector('.nav-label')||{}).textContent||'';
-    g.style.display = boleh.indexOf(nama.trim())>-1 ? '' : 'none';
+    const grupBoleh = boleh.indexOf(nama.trim())>-1;
+    let tampil=0;
+    g.querySelectorAll('a[data-view]').forEach(a=>{
+      const ok = grupBoleh && bolehLihat(a.dataset.view);
+      a.style.display = ok?'':'none';
+      if(ok) tampil++;
+    });
+    g.style.display = tampil?'':'none';
   });
   const badge=document.querySelector('.su-info span');
-  if(badge) badge.textContent = levelSaya()==='full' ? 'super admin' : 'operasional';
+  if(badge) badge.textContent = {full:'super admin',kasir:'kasir',ops:'operasional'}[levelSaya()]||'operasional';
 }
 
 /* Peta view -> grup menu. Sumber tunggal untuk sidebar DAN untuk router:
@@ -1833,9 +1873,24 @@ function ambilRoster(){
     .catch(e=>{ COMP_ROSTER_ERR=e.message||'gagal'; COMP_ROSTER=[]; return COMP_ROSTER; });
 }
 function compsOn(date){ return (DB.compliments||[]).filter(c=>c.date===date); }
+/* Divisi seorang PEMBERI compliment. 'office' DITAMBAHKAN 7 Agustus 2026:
+   sebelumnya hanya marketing/event yang bisa dipilih, sehingga compliment yang
+   diputuskan manajemen (mis. M. Tegar Junindri, Wandi Pranata, Howandi
+   Chandra) tidak punya tempat sama sekali dan terpaksa dicatat sebagai "Tamu"
+   — yang artinya tidak ada seorang pun tercatat sebagai pemberinya.
+
+   Namanya SENGAJA tidak ditulis di kode: daftarnya ikut Tim/Keterangan akun
+   Office, jadi orang baru muncul sendiri dan orang yang keluar hilang sendiri.
+   Daftar nama di kode akan basi tanpa ada yang menyadarinya.
+
+   Pemberi ber-divisi 'office' tidak memotong realisasi siapa pun — ia tidak
+   punya baris di DB.employees.marketing/event, jadi tidak ada target yang bisa
+   dipotong. Catatannya tetap ada, dan itu memang yang dibutuhkan. */
 function divPemberi(u){
   const d=(u&&u.divs)||[(u&&u.div)||''];
-  return d.indexOf('marketing')>-1?'marketing':(d.indexOf('event')>-1?'event':'');
+  return d.indexOf('marketing')>-1?'marketing'
+       :(d.indexOf('event')>-1?'event'
+       :(d.indexOf('office')>-1?'office':''));
 }
 /* DUA PIC, dua pertanyaan yang berbeda (permintaan user 5 Agustus 2026):
      PIC Kasir   — siapa yang menutup bill-nya di POS. Selalu kasir.
@@ -1855,6 +1910,41 @@ function editCompliment(id){
   COMP_EDIT=id; compDate=c.date; render(); window.scrollTo(0,0);
 }
 function batalEditCompliment(){ COMP_EDIT=''; render(); }
+
+/* ---- PENCOCOKAN KE REPORT DAILY (7 Agustus 2026) ----
+   Compliment dan Member Deposit sama-sama "metode pembayaran" di Report Daily
+   yang tidak membawa uang masuk: barangnya keluar, bill-nya ditutup tanpa
+   setoran. Karena itu total catatan Compliment hari itu HARUS sama dengan
+   POS Compliment + POS Member Deposit hari yang sama.
+
+   Sebelum ini tidak ada satu layar pun yang membandingkan keduanya, jadi
+   catatan yang kurang satu baris baru ketahuan saat rekap bulanan — kalau
+   ketahuan sama sekali. Yang membuatnya berbahaya: selisihnya selalu berarti
+   ada barang keluar yang tidak dibebankan ke PIC mana pun.
+
+   Yang dipakai angka POS, bukan Actual. Actual itu uang yang benar-benar ada,
+   dan compliment memang tidak pernah punya uangnya — membandingkan ke sana
+   akan selalu selisih sebesar nilainya sendiri. Toleransi Rp5.000 yang berlaku
+   di Report Daily TIDAK dipakai di sini: itu toleransi untuk uang yang
+   berpindah antar metode, sedangkan ini dua catatan atas kejadian yang sama
+   persis — kalau beda, memang ada baris yang belum diinput. */
+function angkaRD(date, totalComp){
+  const rec=repOf(date);
+  const comp=repPay(rec,'compliment').pos;
+  const dep=repPay(rec,'member_dep').pos;
+  const total=comp+dep;
+  const selisih=num(totalComp)-total;
+  return { ada:!!rec, comp, dep, total, catat:num(totalComp), selisih, cocok:!!rec && selisih===0 };
+}
+function kartuCocokRD(rd){
+  if(!rd.ada) return `<div class="notice info">ℹ️ <b>Report Daily tanggal ini belum diisi.</b> Total compliment di bawah belum bisa dicocokkan. Isi Compliment &amp; Member Deposit di menu <b>Report Daily</b>, lalu angkanya harus sama persis dengan total di sini.</div>`;
+  if(rd.cocok) return `<div class="notice ok">✓ Cocok dengan Report Daily — Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)} = <b>${fmtRp(rd.total)}</b>.</div>`;
+  const kurang=rd.selisih<0;
+  return `<div class="notice bad">⚠ <b>Tidak cocok dengan Report Daily.</b> Catatan di halaman ini <b>${fmtRp(rd.catat)}</b>, sedangkan POS Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)} = <b>${fmtRp(rd.total)}</b> — ${kurang
+      ? `masih ada ${fmtRp(-rd.selisih)} yang belum ditulis catatannya di sini, jadi barang segitu keluar tanpa PIC yang menanggungnya`
+      : `catatan di sini kelebihan ${fmtRp(rd.selisih)} dibanding angka mesin kasir`}. Perbaiki salah satunya sebelum bulan ditutup.</div>`;
+}
+
 function viewCompliment(){
   CAL_ST.cp.open=false;
   const el=document.getElementById('app-view');
@@ -1876,11 +1966,12 @@ function viewCompliment(){
   // Kolom rincian hanya berguna kalau ADA yang punya rinciannya. Catatan lama
   // cuma menyimpan satu angka `nominal`; tiga kolom "—" bukan informasi.
   const adaRincian=list.some(c=>c.subTotal!=null||c.tax!=null||c.service!=null);
+  const rd=angkaRD(compDate, total);
   const nilai=(k,bawaan)=>edit&&edit[k]!=null?num(edit[k]):bawaan;
   const selTamu=(v)=>v?'':' selected';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Catatan Compliment</h3><div class="card-sub">Di luar perhitungan metode pembayaran. PIC selain <b>Tamu</b> akan memotong realisasi orang tersebut sebesar <b>Sub Total</b>-nya.</div></div>
+      <div><h3>Catatan Compliment</h3><div class="card-sub"><b>PIC Kasir</b> selain Tamu langsung dipotong realisasinya sebesar <b>Sub Total</b>. <b>PIC Pemberi</b> tidak — potongannya baru berlaku setelah disetujui di halaman <b>Performa Marketing/Event</b>.</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="cp_cal">${calInner('cp')}</div></div>
     </div>
     <div class="card${edit?' edit-on':''}">
@@ -1904,7 +1995,7 @@ function viewCompliment(){
             <option value="${PIC_TAMU}"${selTamu(edit&&edit.pemberiOfficeId)}>Tamu</option>
             ${opsiPemberi}
           </select>
-          ${COMP_ROSTER&&!COMP_ROSTER_ERR&&!pemberiRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Marketing</b> atau <b>Event</b>.</div>`:''}
+          ${COMP_ROSTER&&!COMP_ROSTER_ERR&&!pemberiRoster.length?`<div class="helper">Belum ada akun Office ber-Tim/Keterangan <b>Marketing</b>, <b>Event</b>, atau <b>Office</b>.</div>`:''}
         </div>
       </div>
       <!-- Total dijumlahkan otomatis dan DIPERLIHATKAN sebelum disimpan: dari
@@ -1915,9 +2006,12 @@ function viewCompliment(){
       <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
       ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
-    <div class="grid">
+    <div class="grid g3">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
+      <div class="stat"><div class="lab">Report Daily (POS)</div><div class="val sm mono">${fmtRp(rd.total)}</div><div class="foot">Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)}</div></div>
+      <div class="stat"><div class="lab">Selisih</div><div class="val sm mono" style="color:${rd.cocok?'var(--ok)':'var(--danger)'}">${rd.ada?fmtSel(total-rd.total):'—'}</div><div class="foot">${rd.ada?(rd.cocok?'cocok':'harus dicocokkan'):'Report Daily belum diisi'}</div></div>
     </div>
+    ${kartuCocokRD(rd)}
     <div class="card">
       <h3>Daftar Compliment Hari Ini</h3>
       <div class="tbl-wrap"><table>
@@ -1929,7 +2023,13 @@ function viewCompliment(){
           <td class="num mono">${c.service!=null?fmtRp(num(c.service)):'<span class="muted">—</span>'}</td>`:''}
           <td class="num mono"><b>${fmtRp(num(c.nominal))}</b></td>
           <td>${c.picDiv==='tamu'||!c.picName?'<span class="chip">Tamu</span>':esc(c.picName)}</td>
-          <td>${!c.pemberiName||c.pemberiDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.pemberiName)} <span class="muted" style="font-size:11px">· ${esc(c.pemberiDiv)}</span>`}</td>
+          <!-- Status putusan ditempel di kolom Pemberi, bukan jadi kolom
+               sendiri: tabel ini sudah 9 kolom di layar kasir, dan statusnya
+               memang cuma berarti untuk sisi pemberi. -->
+          <td>${!c.pemberiName||c.pemberiDiv==='tamu'?'<span class="chip">Tamu</span>':`${esc(c.pemberiName)} <span class="muted" style="font-size:11px">· ${esc(c.pemberiDiv)}</span><div style="margin-top:3px">${
+            compStatusPemberi(c)==='potong'?'<span class="chip bad">Dipotong</span>'
+            :compStatusPemberi(c)==='tidak'?'<span class="chip ok">Tidak dipotong</span>'
+            :'<span class="chip">Menunggu keputusan</span>'}</div>`}</td>
           <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
           <td><div class="mini-actions">
             <button class="btn btn-xs" onclick="editCompliment('${esc(c.id)}')" title="Ubah catatan ini">✏️</button>
@@ -1946,7 +2046,7 @@ function viewCompliment(){
     document.getElementById('c_total').innerHTML =
       `Total compliment: <b class="mono">${fmtRp(sub+tax+svc)}</b>` +
       `<span class="muted" style="font-size:12px"> &nbsp;(sub total ${fmtRp(sub)} + tax ${fmtRp(tax)} + service ${fmtRp(svc)})</span>` +
-      `<br><span class="muted" style="font-size:12px">Yang memotong realisasi PIC: <b>${fmtRp(sub)}</b> — tax &amp; service charge bukan omset siapa pun.</span>`;
+      `<br><span class="muted" style="font-size:12px">Yang memotong realisasi: <b>${fmtRp(sub)}</b> — tax &amp; service charge bukan omset siapa pun. Langsung berlaku untuk <b>PIC Kasir</b>; untuk <b>PIC Pemberi</b> menunggu persetujuan di Performa.</span>`;
     return sub+tax+svc;
   };
   ['c_sub','c_tax','c_svc'].forEach(id=>document.getElementById(id).addEventListener('input',hitungTotal));
@@ -1984,13 +2084,27 @@ function viewCompliment(){
          diperbaiki tetap milik pencatat aslinya — mengganti `by` dengan nama
          orang yang mengoreksi menghapus jejak siapa yang sebenarnya
          memberikan compliment itu. `alasan` catatan lama juga dipertahankan. */
+      /* Putusan potong/tidak DIPERTAHANKAN selama pemberinya orang yang sama.
+         Kalau pemberinya diganti, putusannya ikut direset ke 'menunggu':
+         keputusan itu diambil atas nama orang lain, dan membiarkannya menempel
+         berarti memotong realisasi orang yang tidak pernah diputuskan. */
+      const gantiPemberi = String(lama.pemberiOfficeId||'')!==String(isi.pemberiOfficeId||'')
+                        || String(lama.pemberiName||'')!==String(isi.pemberiName||'');
+      const putusanLama = gantiPemberi ? null : {
+        pemberiStatus: lama.pemberiStatus, putusOleh: lama.putusOleh, putusAt: lama.putusAt
+      };
       Object.assign(lama, isi);
+      if(putusanLama) Object.assign(lama, putusanLama);
+      else { lama.pemberiStatus='menunggu'; lama.putusOleh=''; lama.putusAt=0; }
       lama.ubahOleh=CURRENT_USER?CURRENT_USER.name:'';
       lama.ubahAt=Date.now();
       COMP_EDIT='';
     }else{
+      // pemberiStatus mulai 'menunggu' — sisi pemberi tidak pernah memotong
+      // sebelum ada yang memutuskannya di halaman Performa.
       DB.compliments.push(Object.assign({
         id:'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4), alasan:'',
+        pemberiStatus:'menunggu', putusOleh:'', putusAt:0,
         by:CURRENT_USER?CURRENT_USER.name:'', at:Date.now()
       }, isi));
     }
@@ -2032,18 +2146,52 @@ function compPotong(c){ return c && c.subTotal!=null ? num(c.subTotal) : num(c&&
    memutuskan memberikannya. Keduanya dinilai di halaman Performa yang berbeda,
    jadi tidak ada satu angka pun yang terpotong dua kali di tempat yang sama.
    Sisi yang ber-PIC "Tamu" tidak menunjuk siapa pun, jadi tidak pernah cocok. */
+function compCocok(emp, div, oid, pnama){
+  if(!emp || div==='tamu') return false;
+  if(emp.officeUserId && oid) return oid===emp.officeUserId;
+  if(!pnama) return false;
+  return String(pnama).trim().toLowerCase()===String(emp.name||'').trim().toLowerCase();
+}
+function compIsPicKasir(c, emp){ return compCocok(emp, c.picDiv, c.picOfficeId, c.picName); }
+function compIsPemberi(c, emp){ return compCocok(emp, c.pemberiDiv, c.pemberiOfficeId, c.pemberiName); }
+/* ---- APPROVAL SISI PEMBERI (7 Agustus 2026) ----
+   Sisi PIC KASIR tetap memotong otomatis: barang benar-benar keluar lewat
+   mejanya, tidak ada yang perlu diputuskan. Sisi PEMBERI (marketing/event)
+   TIDAK lagi langsung memotong — sering kali compliment memang alat kerja
+   marketing untuk menutup deal, dan memotongnya otomatis berarti menghukum
+   orang atas biaya yang justru menghasilkan omset. Sekarang harus diputus
+   dulu di halaman Performa Marketing/Event.
+
+   Catatan LAMA (tanpa field ini) dibaca sebagai 'menunggu', jadi potongannya
+   ikut lepas surut. Disengaja: memilih 'potong' sebagai default berarti
+   menerapkan keputusan yang belum pernah diambil siapa pun, dan angka yang
+   sudah telanjur memotong itulah yang dikeluhkan. Bulan lama bisa dirapikan
+   dengan memutuskannya satu per satu di halaman Performa. */
+function compStatusPemberi(c){
+  const s=String((c&&c.pemberiStatus)||'menunggu');
+  return (s==='potong'||s==='tidak')?s:'menunggu';
+}
+/* Compliment yang membebani `emp`. Sisi pemberi cuma ikut kalau sudah
+   DIPUTUS potong. */
 function compFilterPic(list, emp){
   if(!emp) return [];
-  const nama=String(emp.name||'').trim().toLowerCase();
-  const cocok=(div, oid, pnama)=>{
-    if(div==='tamu') return false;
-    if(emp.officeUserId && oid) return oid===emp.officeUserId;
-    if(!pnama) return false;
-    return String(pnama).trim().toLowerCase()===nama;
-  };
   return list.filter(c=>
-    cocok(c.picDiv, c.picOfficeId, c.picName) ||
-    cocok(c.pemberiDiv, c.pemberiOfficeId, c.pemberiName));
+    compIsPicKasir(c, emp) ||
+    (compIsPemberi(c, emp) && compStatusPemberi(c)==='potong'));
+}
+/* Semua compliment yang MENYEBUT emp sebagai pemberi, apa pun status
+   putusannya. Dipakai kartu approval di Performa — yang sudah diputus pun
+   tetap tampil supaya keputusannya bisa dibalik. */
+function compListPemberi(list, emp){
+  if(!emp) return [];
+  return list.filter(c=>compIsPemberi(c, emp));
+}
+function putusCompliment(id, status){
+  const c=compById(id); if(!c) return;
+  c.pemberiStatus = status==='potong'?'potong':'tidak';
+  c.putusOleh = CURRENT_USER?CURRENT_USER.name:'';
+  c.putusAt = Date.now();
+  save(); render();
 }
 function compListPic(monthKey, emp){ return compFilterPic(compsBulan(monthKey), emp); }
 function compPic(monthKey, emp){
@@ -2083,6 +2231,62 @@ function kartuCompliment(rows, pakaiKolomPic){
       <tbody>${baris}</tbody>
       <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td colspan="${pakaiKolomPic?4:3}">TOTAL POTONGAN</td><td class="num mono">${fmtRp(total)}</td></tr></tfoot>
     </table></div>
+  </div>`;
+}
+
+/* Kartu keputusan potong/tidak untuk compliment yang PEMBERI-nya PIC divisi
+   ini. Ditaruh di halaman Performa, bukan di halaman Compliment: yang berhak
+   memutuskan bukan kasir yang menginputnya, dan halaman Performa memang cuma
+   terbuka untuk level penuh.
+
+   Yang sudah diputus TETAP ditampilkan. Kartu yang cuma memajang antrean
+   membuat keputusan yang keliru tidak bisa dibatalkan tanpa menghapus lalu
+   menginput ulang catatannya — dan itu menghapus jejak siapa pencatat asalnya. */
+function kartuApprovalCompliment(divi, list){
+  const rentang=compsRentang();
+  const rows=[];
+  list.forEach(e=>compListPemberi(rentang, e).forEach(c=>{
+    if(!rows.some(x=>x.c.id===c.id)) rows.push({c, emp:e});
+  }));
+  const labDiv=divi==='marketing'?'Marketing':'Event';
+  if(!rows.length){
+    return `<div class="card"><h3>🎁 Persetujuan Potongan Compliment</h3>
+      <div class="empty" style="padding:18px 10px">Tidak ada compliment yang diberikan PIC ${esc(labDiv)} pada periode ini.</div></div>`;
+  }
+  rows.sort((a,b)=>a.c.date<b.c.date?-1:1);
+  const menunggu=rows.filter(x=>compStatusPemberi(x.c)==='menunggu');
+  const dipotong=rows.filter(x=>compStatusPemberi(x.c)==='potong');
+  const nilaiTunggu=menunggu.reduce((s,x)=>s+compPotong(x.c),0);
+  const nilaiPotong=dipotong.reduce((s,x)=>s+compPotong(x.c),0);
+  const chip=st=>st==='potong'?'<span class="chip bad">Dipotong</span>'
+              :st==='tidak'?'<span class="chip ok">Tidak dipotong</span>'
+              :'<span class="chip">Menunggu</span>';
+  const isi=rows.map(({c,emp})=>{
+    const st=compStatusPemberi(c);
+    const rinci=(c.subTotal!=null||c.tax!=null||c.service!=null)
+      ? `sub ${fmtRp(num(c.subTotal))} + tax ${fmtRp(num(c.tax))} + svc ${fmtRp(num(c.service))}`
+      : esc(c.alasan||'—');
+    return `<tr>
+      <td>${esc(c.date)}</td>
+      <td><b>${esc(c.nama||'—')}</b><div class="muted" style="font-size:11px">${rinci}</div></td>
+      <td>${esc(emp.name)}</td>
+      <td class="num mono">${fmtRp(compPotong(c))}</td>
+      <td>${chip(st)}${c.putusOleh?`<div class="muted" style="font-size:11px">${esc(c.putusOleh)}</div>`:''}</td>
+      <td><div class="mini-actions">
+        <button class="btn btn-xs ${st==='potong'?'btn-danger':''}" onclick="putusCompliment('${esc(c.id)}','potong')" title="Potong realisasi ${esc(emp.name)} sebesar ${fmtRp(compPotong(c))}">Potong</button>
+        <button class="btn btn-xs" onclick="putusCompliment('${esc(c.id)}','tidak')" title="Biarkan realisasi ${esc(emp.name)} utuh">Tidak</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>🎁 Persetujuan Potongan Compliment</h3>
+    <div class="card-sub">Compliment yang <b>diberikan</b> PIC ${esc(labDiv)} tidak memotong realisasinya sampai diputus di sini. ${
+      menunggu.length?`<b>${menunggu.length} menunggu keputusan</b> senilai ${fmtRp(nilaiTunggu)}.`:'Semua sudah diputus.'} Yang sudah dipotong ${fmtRp(nilaiPotong)} — itulah yang muncul di kotak Realisasi &amp; Rincian Compliment di atas.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th style="width:110px">Tanggal</th><th>Compliment</th><th style="width:150px">Pemberi</th><th class="num" style="width:140px">Nilai Potong</th><th style="width:140px">Status</th><th style="width:130px"></th></tr></thead>
+      <tbody>${isi}</tbody>
+    </table></div>
+    <div class="helper" style="margin-top:10px">Angkanya <b>Sub Total</b> — tax &amp; service charge tidak pernah ikut dipotong. Keputusan boleh diubah kapan saja; realisasi langsung ikut berubah.</div>
   </div>`;
 }
 
@@ -2143,9 +2347,42 @@ function kartuCompliment(rows, pakaiKolomPic){
    tanpa migrasi. Invariannya tetap sama seperti sebelumnya — potongan kasir =
    porsi PIC (uang yang sama, cuma berpindah pemilik), jadi jumlah seluruh
    realisasi tetap sama dengan omset net. */
-function porsiPic(r){
-  return num(r.amount);
+
+/* ATURAN 7 AGUSTUS 2026 — marketing dan event TIDAK LAGI SAMA.
+   Sampai kemarin kedua section memakai satu rumus yang sama persis. Sekarang
+   tidak, dan itu sebabnya `divi` WAJIB dikirim ke porsiPic(): memanggilnya
+   tanpa divi akan diam-diam memberi PIC event dua kali lipat haknya, tanpa
+   error apa pun dan tanpa ada satu halaman pun yang melaporkannya.
+
+   MARKETING — nilai event punya tiga komponen, dan ketiganya diakui:
+     realisasi PIC   = omset + tax + service
+     dipotong kasir  = omset SAJA
+   Kenapa yang dipotong hanya omsetnya: omset kasir di Section A itu angka NET
+   (tax & service charge memang di luar omset, lihat netOf/taxSvcOf). Memotong
+   tax & service dari sana berarti mengurangi realisasi kasir dengan uang yang
+   tidak pernah jadi omsetnya — dan Breakdown tidak akan pernah balance lagi.
+
+   EVENT — diakui SEPARUH, dan kasir tidak dipotong sama sekali:
+     realisasi PIC   = omset / 2
+     dipotong kasir  = 0
+   Event tidak punya kolom tax/service dan tidak punya pengaturan kasir shift:
+   kasir tetap dapat perhitungan target penuh atas omset event, tidak ada
+   potongan. Konsekuensinya invarian lama (potongan kasir = porsi PIC) SUDAH
+   TIDAK BERLAKU untuk event — separuh nilai event sekarang memang sengaja
+   diakui dua kali: penuh untuk kasir, separuh untuk PIC event. Itu keputusan
+   user, bukan kelalaian; jangan "diperbaiki" dengan mengembalikan potongannya.
+
+   Data lama TIDAK dimigrasi, sama seperti dua perubahan aturan sebelumnya:
+   bentuk datanya tidak berubah, hanya cara membacanya. Baris event lama yang
+   terlanjur menyimpan `shift` dibiarkan — potonganHari() tidak lagi membacanya. */
+function porsiPic(r, divi){
+  if(divi==='event') return Math.round(num(r.amount)/2);
+  return num(r.amount)+num(r.tax)+num(r.service);
 }
+/* Yang benar-benar dipotong dari kasir shift. Dipisah dari porsiPic() karena
+   sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
+   Hanya dipakai baris MARKETING — event tidak memotong siapa pun. */
+function potongKasir(r){ return num(r.amount); }
 /* Potongan yang ditanggung kasir karena SATU baris event, dibagi per SHIFT —
    bukan rata ke semua kasir yang masuk hari itu. Kasir yang masuk tapi tidak
    kebagian shift event tersebut tidak ikut dipotong.
@@ -2168,7 +2405,7 @@ function porsiPic(r){
    dibebankan ke siapa pun. UI menandainya merah supaya ketahuan, daripada
    diam-diam membebankannya ke orang yang tidak bertugas. */
 function potonganBaris(r){
-  const total=porsiPic(r);
+  const total=potongKasir(r);
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
   const pembagi=ids.length;
@@ -2177,9 +2414,15 @@ function potonganBaris(r){
 }
 /* Total potongan yang ditanggung satu kasir tetap dari seluruh event pada satu
    hari. Dipakai apa adanya oleh Performa Kasir, Ranking, dan Analytics. */
+/* Sejak 7 Agustus 2026 hanya baris MARKETING yang dibaca di sini. Section
+   event tidak lagi memotong kasir sama sekali (lihat porsiPic), jadi
+   memasukkan d.bd.event ke perulangan ini akan menghidupkan kembali potongan
+   yang sudah sengaja dihapus — termasuk pada baris event lama yang `shift`-nya
+   terlanjur tersimpan. Berlaku surut ke bulan-bulan yang sudah lewat: realisasi
+   kasir pada hari yang ada event-nya jadi lebih besar dari sebelumnya. */
 function potonganHari(d,kasirId){
   let s=0;
-  [...(d.bd?.marketing||[]),...(d.bd?.event||[])].forEach(r=>{
+  (d.bd?.marketing||[]).forEach(r=>{
     const b=potonganBaris(r);
     if(b.ids.indexOf(kasirId)>-1) s+=b.per;
   });
@@ -2190,7 +2433,7 @@ function potonganHari(d,kasirId){
    sekarang setiap baris event memotong kasir, bukan cuma yang free entry, jadi
    semuanya butuh shift. */
 function barisTanpaShift(d){
-  return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
+  return (d.bd?.marketing||[])
     .filter(r=>num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
@@ -2221,7 +2464,8 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
      oleh perhitungan mana pun (lihat potonganBaris), jadi membiarkannya lebih
      aman daripada menulis ulang data lama demi kerapian. */
   let pilih=new Set((Array.isArray(row.shift)?row.shift.filter(Boolean):[]).filter(id=>sah.has(id)));
-  const potong=porsiPic(row);
+  // Yang dipotong kolom OMSET saja — tax & service marketing tidak ikut.
+  const potong=potongKasir(row);
 
   const ovl=document.createElement('div');
   ovl.className='ovl';
@@ -2344,7 +2588,7 @@ function viewBreakdown(){
   if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
   const d=getDay(bdDate);
   const pickBar=`<div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Isi omset per kasir dulu — totalnya harus tepat sama dengan Total Omset net harian. Marketing &amp; event memotong dari kasir yang kena shift-nya.</div></div>
+      <div><h3>Alokasi Sumber Omset</h3><div class="card-sub">Isi omset per kasir dulu — totalnya harus tepat sama dengan Total Omset net harian. <b>Marketing</b> memotong kasir yang kena shift-nya; <b>Event</b> tidak memotong siapa pun.</div></div>
       <div class="field" style="margin:0"><label>Pilih Hari</label><div class="calwrap" id="bd_cal">${calInner('bd')}</div></div>
     </div>`;
   if(!d){
@@ -2384,12 +2628,12 @@ function viewBreakdown(){
       <div id="bd_so"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Tiap baris memotong omset kasir yang kena shift event itu — tentukan shift-nya lewat tombol potongan di baris tersebut. <b>Seluruh</b> nominalnya dipotong dari kasir shift dan diakui penuh untuk PIC — sejak 1 Agustus 2026 tidak ada lagi baris yang dibagi dua.</div>
+      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.</div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
-      <span class="divlabel ev" style="margin-top:24px">Section C — Event Internal <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Aturannya sama dengan Section B.</div>
+      <span class="divlabel ev" style="margin-top:24px">Section C — Event Internal <span style="opacity:.75;font-weight:600">(diakui 50%, kasir tidak dipotong)</span></span>
+      <div class="helper" style="margin-bottom:10px">Beda dari Section B. Yang diakui untuk target PIC event <b>separuh nominalnya</b>, dihitung otomatis — tidak perlu diisi manual. Kasir <b>tidak dipotong sama sekali</b>: omset event tetap dihitung penuh untuk target kasir yang menerimanya, jadi section ini tidak punya pengaturan kasir shift.</div>
       <div id="bd_ev"></div>
       <button class="btn btn-ghost btn-sm" id="add_ev">+ Tambah Data Event</button>
     </div>
@@ -2438,6 +2682,12 @@ function viewBreakdown(){
      section saat nominalnya sedang diketik akan merebut fokus dari kolomnya. */
   function segarkanBagi(key,i){
     const r=state[key][i]; if(!r) return;
+    /* Angka "Diakui PIC" ikut ditambal di sini, dengan alasan yang sama seperti
+       tombolnya: ia dihitung dari kotak yang sedang diketik, jadi menunggu
+       drawMk/drawEv berarti angkanya membeku pada nominal lama — dan section
+       marketing sekarang punya TIGA kotak yang membentuknya. */
+    const box=document.querySelector('#bd_'+key+' .'+key+'diakui[data-i="'+i+'"]');
+    if(box) box.textContent=fmtRp(porsiPic(r, key==='ev'?'event':'marketing'));
     const btn=document.querySelector('#bd_'+key+' .'+key+'bagi[data-i="'+i+'"]');
     if(!btn) return;
     const tmp=document.createElement('div');
@@ -2482,7 +2732,10 @@ function viewBreakdown(){
       <div class="brow mk">
         <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
-        <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
+        <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}" title="Hanya kolom ini yang dipotong dari kasir shift"></div>
+        <div class="field"><label>Tax</label><input data-i="${i}" data-f="tax" class="mkf mono rp" inputmode="numeric" value="${r.tax||0}" title="Ikut diakui untuk PIC, tapi tidak dipotong dari kasir"></div>
+        <div class="field"><label>Service</label><input data-i="${i}" data-f="service" class="mkf mono rp" inputmode="numeric" value="${r.service||0}" title="Ikut diakui untuk PIC, tapi tidak dipotong dari kasir"></div>
+        <div class="field"><label>Diakui PIC</label><div class="mono mkdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'marketing'))}</div></div>
         ${tombolBagi(r,i,'mk')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
@@ -2503,17 +2756,18 @@ function viewBreakdown(){
         <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        ${tombolBagi(r,i,'ev')}
+        <div class="field"><label>Diakui PIC (50%)</label><div class="mono evdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'event'))}</div></div>
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
         </div>
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data event.</div>';
     bind('evf','ev',drawEv);
-    /* Penangan centang Free Entry DIHAPUS bersama kotaknya: sejak pembagian
-       50/50 dibuang, ia tidak lagi memengaruhi angka apa pun. Pembukaan modal
-       shift saat nominal terisi tapi shift kosong tetap ada di penangan
-       nominalnya (lihat bind di atas). */
-    document.querySelectorAll('.evbagi').forEach(b=>b.onclick=()=>bukaBagi('ev',+b.dataset.i));
+    /* Tombol "Atur kasir shift" DIHAPUS dari section ini (7 Agustus 2026).
+       Event tidak lagi memotong kasir, jadi membiarkan tombolnya tampil cuma
+       membuat orang mengira pilihannya masih menentukan sesuatu — persis
+       kesalahan yang dulu dibuat dengan kotak Free Entry. Baris event lama
+       yang sudah menyimpan `shift` tidak dihapus datanya; ia cuma tidak lagi
+       dibaca oleh potonganHari(). */
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
     formatAllRp(document.getElementById('bd_ev'));
   }
@@ -2561,12 +2815,18 @@ function viewBreakdown(){
     };
     formatAllRp(document.getElementById('bd_so'));
   }
+  // Kotak yang isinya nominal, bukan teks. `tax`/`service` masuk daftar ini
+  // sejak Section B punya tiga kolom angka (7 Agustus 2026) — tanpa itu
+  // keduanya tersimpan sebagai STRING "1.500.000" dan num() di porsiPic
+  // membacanya benar tapi save() menulis bentuk yang tidak konsisten.
+  const KOTAK_RP=['amount','tax','service'];
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
       inp.oninput=inp.onchange=()=>{
         const i=+inp.dataset.i,f=inp.dataset.f;
-        state[key][i][f]=f==='amount'?num(inp.value):inp.value;
-        if(f==='amount') segarkanBagi(key,i);
+        const rp=KOTAK_RP.indexOf(f)>-1;
+        state[key][i][f]=rp?num(inp.value):inp.value;
+        if(rp) segarkanBagi(key,i);
         calc();
       };
     });
@@ -2607,8 +2867,8 @@ function viewBreakdown(){
     // Hari yang seluruh kasirnya OFF tapi ada self order tetap perlu kartu ini
     // — omsetnya ada, cuma tidak ada yang mengakuinya sebagai kasir.
     if(!rows.length && !num(state.so.amount)) return '';
-    const semua=[...state.mk,...state.ev];
-    const pot=id=>semua.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
+    // Hanya baris MARKETING — event tidak memotong kasir lagi (lihat porsiPic).
+    const pot=id=>state.mk.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
     const isi=rows.map(r=>{
       const p=pot(r.kasirId), dc=diskonKasir(r), real=omsetKasir(r)-p;
       return `<tr><td>${esc(empName('kasir',r.kasirId))}</td><td class="num mono">${fmtRp(num(r.amount))}</td><td class="num mono">${dc?'−'+fmtRp(dc):'<span class="muted">—</span>'}</td><td class="num mono">${p?'−'+fmtRp(p):'<span class="muted">—</span>'}</td><td class="num mono"><b>${fmtRp(real)}</b></td></tr>`;
@@ -2639,7 +2899,7 @@ function viewBreakdown(){
        mengunci di sini berarti angka yang sudah betul tidak bisa disimpan.
        Tapi peringatannya sekarang menyebut akibatnya terang-terangan: potongan
        yang tidak dibebankan membuat uang yang sama dihitung dua kali. */
-    const belum=[...state.mk,...state.ev].filter(r=>num(r.amount)>0&&potonganBaris(r).pembagi<=0);
+    const belum=state.mk.filter(r=>num(r.amount)>0&&potonganBaris(r).pembagi<=0);
     /* Atribusi diskon TIDAK mengunci simpan — beda dengan balance omset. Kalau
        dikunci, hari yang alokasi omsetnya sudah benar jadi tidak bisa disimpan
        cuma gara-gara diskonnya belum dirinci, dan orang akan mengakalinya
@@ -2655,7 +2915,7 @@ function viewBreakdown(){
         ? `<div class="notice warn">⚠ Diskon yang sudah diatribusikan <b>${fmtRp(dTot)}</b>, sedangkan Discount di Input Omset Harian <b>${fmtRp(dHari)}</b> — ${dSel>0?`masih ada ${fmtRp(dSel)} yang belum ditulis atas nama kasir mana pun (atau Self Order)`:`kelebihan ${fmtRp(-dSel)}`}. Selama belum cocok, tidak ada catatan siapa yang memberi diskon itu — meski total omsetnya tetap benar.</div>`
         : (dHari>0?`<div class="notice ok">✓ Seluruh diskon ${fmtRp(dHari)} sudah tercatat atas nama pemberinya.</div>`:''));
     document.getElementById('bd_warn').innerHTML = perDiskon + (belum.length
-      ? `<div class="notice warn">⚠ ${belum.length} baris belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+porsiPic(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
+      ? `<div class="notice warn">⚠ ${belum.length} baris <b>marketing</b> belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+potongKasir(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
       : '');
     document.getElementById('bd_balance').innerHTML=`
       <div class="bnums">
@@ -2675,8 +2935,10 @@ function viewBreakdown(){
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
   // 2026) juga dibaca sebagai non-ticketing, jadi keduanya konsisten.
-  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
-  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0,shift:[]});drawEv();calc();};
+  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tax:0,service:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
+  // Baris event TIDAK diberi `shift`: section ini tidak punya pengaturan kasir
+  // lagi, jadi field kosong yang tak pernah diisi cuma jadi umpan salah baca.
+  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0});drawEv();calc();};
   drawMk();drawEv();drawKs();drawSo();calc();
 }
 
@@ -2917,8 +3179,8 @@ function viewAnalytics(){
     /* Memakai aturan yang sama dengan Performa & Ranking: omset kasir yang
        diinput sudah memuat event, jadi porsi PIC-nya DIPOTONG dari kasir.
        Totalnya tidak berubah — hanya pindah kategori. */
-    (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r);src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
-    (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r);src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
+    (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r,'marketing');src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
+    (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r,'event');src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
     (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=omsetKasir(r)-potonganHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;
       const dc=diskonKasir(r); if(dc){ byDisc[r.kasirId]=(byDisc[r.kasirId]||0)+dc; totDisc+=dc; }}});
     /* Self Order SENGAJA tidak masuk pie "Sumber Omset" (permintaan user
@@ -2939,7 +3201,7 @@ function viewAnalytics(){
     <div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
     <div class="grid g2" style="align-items:start">
       <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
-      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing, Event, Walk In (Kasir) · porsi PIC dipotong dari kasir shift. <b>Self Order dipisah</b> ke kartunya sendiri di bawah — tidak ada kasir/PIC yang mengakuinya.</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing (omset + tax + service, dipotong dari kasir shift), Event (50% dan <b>tidak</b> memotong kasir), Walk In (Kasir). Irisannya proporsi pengakuan, bukan pembagian omset net — sejak event diakui tanpa potongan, jumlah ketiganya memang tidak lagi sama dengan omset net. <b>Self Order dipisah</b> ke kartunya sendiri di bawah.</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
     </div>
     <div class="grid g3" style="align-items:start">
       <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
@@ -3057,13 +3319,14 @@ function viewPerforma(divi){
   const list=DB.employees[divi];
   const agg={};
   list.forEach(e=>agg[e.id]={real:0,events:[]});
-  // Realisasi memakai porsiPic(), bukan r.amount mentah: ticketing hanya
-  // separuhnya yang jadi milik PIC. `amount` (penuh) tetap disimpan supaya
-  // tabelnya bisa menunjukkan nilai event yang sebenarnya.
+  /* Realisasi memakai porsiPic(r,divi) — dan `divi` bukan hiasan: sejak
+     7 Agustus 2026 marketing diakui omset+tax+service sedangkan event cuma
+     separuh omsetnya. `amount` (penuh) tetap disimpan supaya tabelnya bisa
+     menunjukkan nilai event yang sebenarnya di samping yang diakui. */
   days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{if(agg[r.picId]){
-    const p=porsiPic(r);
+    const p=porsiPic(r,divi);
     agg[r.picId].real+=p;
-    agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),porsi:p,tiket:!!r.tiket});
+    agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),tax:num(r.tax),service:num(r.service),porsi:p,tiket:!!r.tiket});
   }});});
   // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
   // Barisnya ikut disimpan, bukan cuma totalnya, supaya bisa dirinci di bawah.
@@ -3082,7 +3345,11 @@ function viewPerforma(divi){
         <button class="btn btn-primary" id="pf_pdf">📄 Simpan PDF</button>
       </div>
     </div>
-    <div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>`;
+    <div class="seg" id="pf_seg">${seg}</div><div id="pf_body"></div>
+    <!-- Antrean keputusan potongan compliment. DI LUAR #pf_body karena isinya
+         satu divisi, bukan satu PIC — memindahkannya ke dalam berarti daftar
+         yang sama digambar ulang tiap ganti segmen dengan isi yang identik. -->
+    ${kartuApprovalCompliment(divi, list)}`;
   /* PIC yang sedang ditampilkan. Tombol cetak ada DI LUAR #pf_body supaya
      tidak perlu dipasang ulang tiap ganti segmen, jadi datanya dititipkan ke
      sini oleh drawPic. */
@@ -3111,7 +3378,15 @@ function viewPerforma(divi){
        bercerita hal yang sama. Yang dijumlahkan ke realisasi tetap kolom
        "diakui" (porsi), bukan nilai event. */
     const nilaiEv=a.events.reduce((s,x)=>s+x.amount,0);
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td><td class="num mono">${fmtRp(ev.porsi)}</td></tr>`).join('');
+    /* Kolom Tax & Service hanya untuk MARKETING — section event tidak punya
+       kedua kolom itu, dan memajangnya di sana berarti dua kolom "Rp0" yang
+       membuat orang mengira lupa mengisinya. */
+    const mk=divi==='marketing';
+    const kolTax=mk?'<th class="num">Tax</th><th class="num">Service</th>':'';
+    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td>${mk?`<td class="num mono">${fmtRp(ev.tax||0)}</td><td class="num mono">${fmtRp(ev.service||0)}</td>`:''}<td class="num mono">${fmtRp(ev.porsi)}</td></tr>`).join('');
+    const ketDiakui=mk
+      ? `nilai omset total ${fmtRp(nilaiEv)} · diakui <b>omset + tax + service</b>, dan omsetnya dipotong dari kasir shift`
+      : `nilai total ${fmtRp(nilaiEv)} · diakui <b>50%</b>, kasir tidak dipotong`;
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(e.target)}</div>`:''}</div>
@@ -3122,7 +3397,7 @@ function viewPerforma(divi){
       <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
-        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · nilai total ${fmtRp(nilaiEv)} · seluruhnya <b>diakui penuh</b> dan dipotong dari kasir shift</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">Nilai Event</th><th class="num">Diakui</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="empty">Belum ada event.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">${mk?'Omset':'Nilai Event'}</th>${kolTax}<th class="num">Diakui</th></tr></thead><tbody>${rows||`<tr><td colspan="${mk?6:4}" class="empty">Belum ada event.</td></tr>`}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], pid==='__all__')}`;
     clearChartsExcept();
@@ -3325,7 +3600,7 @@ function viewSummary(){
       if(divi==='kasir'){
         (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=omsetKasir(r)-potonganHari(d,id); });
       }else{
-        (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r); });
+        (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r,divi); });
       }
     });
     return s-compPicRentang((DB.employees[divi]||[]).find(e=>e.id===id));
