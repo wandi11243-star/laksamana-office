@@ -156,6 +156,56 @@ function pastikan_tabel($pdo) {
    selalu kelihatan oleh head, termasuk kalau tanggalnya di luar bulan yang
    sedang dilihat — justru itu yang perlu diputuskan lebih dulu. Yang sudah
    diputus dibatasi 200 terbaru supaya tidak menumpuk selamanya. */
+/* Shift satu/semua kru pada rentang tanggal — endpoint SEMPIT untuk modul
+   absensi. Dibuat terpisah dari baca_semua() bukan demi kerapian: absensi
+   memanggilnya SETIAP KALI seseorang menekan tombol, dan baca_semua
+   memulangkan seluruh sel + 200 pengajuan terakhir. Satu ketukan absen
+   tidak boleh menyeret seluruh jadwal perusahaan lewat kabel.
+
+   `libur` ikut dibalas supaya absensi bisa membedakan dua keadaan yang
+   sangat berbeda: TIDAK DIJADWALKAN (tidak ada barisnya) dan DIJADWALKAN
+   LIBUR (OFF/IZIN/CUTI). Absen saat OFF harus tetap bisa diajukan, dengan
+   sebab yang menyebut OFF-nya — bukan ditolak sebagai "tanpa shift".
+
+   Jam yang dibalas sudah DIISI dari definisi shift kalau selnya kosong:
+   jadwal_sel menyimpan '' yang berarti "pakai jam bawaan shift", dan
+   pemanggil di luar modul ini tidak punya cara tahu aturan itu. */
+function shift_hari_rentang($user, $dari, $sampai) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $a = tgl_valid($dari); $b = tgl_valid($sampai);
+  if ($a === '' || $b === '') throw new Exception('shiftHari butuh dari & sampai (YYYY-MM-DD)');
+  if ($b < $a) { $t = $a; $a = $b; $b = $t; }
+
+  $sql = 'SELECT `user_id`,`tgl`,`shift`,`jam_mulai`,`jam_selesai`
+            FROM `jadwal_sel` WHERE `tgl` BETWEEN :a AND :b';
+  $par = array(':a' => $a, ':b' => $b);
+  $u = (string)$user;
+  if ($u !== '') { $sql .= ' AND `user_id` = :u'; $par[':u'] = $u; }
+  $st = $pdo->prepare($sql); $st->execute($par);
+
+  /* baca_setting() di modul ini memulangkan OBJEK (stdClass), bukan array —
+     lihat json_decode tanpa argumen kedua di sana. Dilewatkan json_encode/
+     decode(true) supaya kode di bawah tidak perlu tahu bentuknya, dan supaya
+     ia tidak diam-diam patah kalau bentuknya berubah suatu saat. */
+  $set = json_decode(json_encode(baca_setting()), true);
+  $def = (is_array($set) && isset($set['shift']) && is_array($set['shift'])) ? $set['shift'] : array();
+
+  $rows = array();
+  foreach ($st->fetchAll() as $r) {
+    $kode = (string)$r['shift'];
+    $d = isset($def[$kode]) && is_array($def[$kode]) ? $def[$kode] : array();
+    $m = (string)$r['jam_mulai'];   if ($m === '' && isset($d['m'])) $m = (string)$d['m'];
+    $s = (string)$r['jam_selesai']; if ($s === '' && isset($d['s'])) $s = (string)$d['s'];
+    $rows[] = array(
+      'u' => $r['user_id'], 'd' => $r['tgl'], 't' => $kode,
+      'm' => $m, 's' => $s,
+      'libur' => (isset($d['libur']) && $d['libur']) ? 1 : 0,
+    );
+  }
+  return array('dari' => $a, 'sampai' => $b, 'rows' => $rows);
+}
+
 function baca_semua($dari, $sampai) {
   $pdo = db();
   pastikan_tabel($pdo);

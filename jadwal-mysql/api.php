@@ -57,6 +57,15 @@ try {
         isset($_GET['sampai']) ? $_GET['sampai'] : ''
       )));
 
+    /* Endpoint SEMPIT untuk modul absensi: shift satu kru pada satu hari.
+       Read-only, tanpa PIN, tanpa data pengajuan — sengaja setipis mungkin
+       karena ia dipanggil tiap kali seseorang menekan tombol absen. */
+    case 'shiftHari':
+      keluar(array('ok' => true, 'data' => shift_hari_rentang(
+        isset($_GET['user']) ? $_GET['user'] : ambil($body, 'user', ''),
+        isset($_GET['dari']) ? $_GET['dari'] : ambil($body, 'dari', ''),
+        isset($_GET['sampai']) ? $_GET['sampai'] : ambil($body, 'sampai', ''))));
+
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
 

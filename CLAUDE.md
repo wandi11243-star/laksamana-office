@@ -23,7 +23,8 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 ```
 
 Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `kompas`
-`radar` `stock` `howandi_life` `jadwal` `dw`.
+`radar` `stock` `howandi_life` `jadwal` `dw` — plus `absensi`, yang letaknya
+BERBEDA (lihat di bawah).
 
 `jadwal` (Jadwal Shift, Agustus 2026) dan `dw` (Daily Worker, Agustus 2026)
 adalah dua modul yang **tidak** memakai pola `save()` kirim-seluruh-state: tiap
@@ -67,6 +68,43 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
   baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
   satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).
+
+### `absensi` — SATU-SATUNYA modul yang TIDAK di bawah `deploy/`
+
+```
+absensi/                    ← FRONTEND (PWA)  -> /public_html/absensi/
+                               = absensi.laksamanamuda.id
+absensi-mysql/              ← BACKEND         -> /public_html/absensi-api/
+```
+
+Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
+
+- **`absensi/` bukan di `deploy/`.** Ia berdiri sebagai situs sendiri di
+  subdomain sendiri, seperti `deploy/ticketing/` → `/public_html/ticketing/`.
+  Backend-nya SEJAJAR (`../absensi-api/api.php`), bukan di dalam.
+- **Sesi Office tidak terbaca dari sana.** `localStorage` terikat origin, jadi
+  `lm_session` milik `team.laksamanamuda.id` tidak ada di subdomain absensi.
+  Modul ini punya login sendiri (kunci `lm_absensi_sesi`, 30 hari) yang
+  **diteruskan backend-nya** ke `account-api` lewat `action=masuk` — akun tetap
+  akun Office yang sama, tapi peramban tidak pernah menyentuh API akun langsung.
+- **`ACCOUNT_API_URL` / `JADWAL_API_URL` / `DW_API_URL` WAJIB diisi di
+  `config.php`.** Modul lain menebaknya dari host yang melayani; di subdomain
+  sendiri tebakan itu salah dan tidak menimbulkan galat — absensi dev akan
+  menghitung telat terhadap jadwal produksi dengan angka yang terlihat wajar.
+
+Absensi **membaca** shift, tidak menyalinnya: `jadwal-api-mysql?action=shiftHari`
+(kru tetap) dan `dw-api-mysql?action=jadwalDW` (pekerja harian). `shiftHari`
+adalah endpoint sempit yang dibuat khusus untuk ini — jangan diganti `getAll`,
+yang memulangkan seluruh sel + 200 pengajuan tiap kali orang menekan tombol.
+
+Yang **tidak** disimpan, dan jangan "dioptimalkan" jadi disimpan: telat, lembur,
+durasi kerja. Semuanya dihitung ulang dari ketukan + shift tiap kali dibaca,
+karena shift bisa berubah sesudah absen dan pengajuan bisa disetujui
+berhari-hari kemudian.
+
+Berkas berat yang memang harus ikut ter-deploy: `absensi/vendor/face-api.min.js`
+(1,3 MB) dan `absensi/models/` (6,5 MB). Tanpa model, pengenalan wajah mati
+total tanpa satu pun pesan galat.
 
 **Abaikan sepenuhnya** (jangan dibaca, jangan di-grep): `node_modules/`,
 `vendor/`, `*.zip` di root (itu paket rilis backend, bukan sumber),
