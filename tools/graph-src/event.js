@@ -784,6 +784,8 @@
 
 
 
+
+
 function uid() {  }
 
 
@@ -3350,7 +3352,19 @@ function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); f
 
 
 
-function jualBody() { ldzSemuaItems(); purchaseFlow(); ldzJualAktif(); ldzToggleJual(); ldzBarJualHTML(); ldzLantai(); ldzSetLantai(); ldzCanvasHTML(); }
+
+
+
+
+
+
+
+
+function jualBody() { pfKelasBerubah(); esc(); doPurchase(); }
+
+
+
+
 
 
 
@@ -6152,6 +6166,14 @@ function doPurchase() {  }
 
 
 function lepas() { toast(); beliSel(); beliBisaDipilih(); pfGambarDenah(); uid(); namaKru(); beliSetSel(); save(); closeModal(); renderTicketDetail(); showETicket(); }
+
+
+
+
+
+
+
+
 
 
 

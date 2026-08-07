@@ -3348,44 +3348,56 @@ function renderTicketDetail(id){
     +`${tb('jual','Jual Tiket')}${tb('sales','Penjualan & Refund')}</div>${body}`;
 }
 /* ---- TAB JUAL TIKET ----
-   Satu-satunya halaman yang dibuka kasir saat ada orang di depan meja. Isinya
-   cuma dua: tombol mencatat penjualan, dan denah untuk memilih kursinya.
-   Tidak ada tabel rekap, tidak ada grafik — apa pun yang perlu digulir dulu
-   adalah waktu yang dihabiskan sambil pembeli menunggu. */
+   Satu-satunya halaman yang dibuka kasir saat ada orang di depan meja.
+
+   FORMNYA DI HALAMAN, BUKAN DI POP-UP. Modal memaksa denah muat di dalam
+   kotak yang tingginya dibatasi layar, jadi denah venue penuh harus digulir
+   di dalam kotak yang juga bisa digulir — sambil pembeli menunggu. Di halaman
+   sendiri denahnya dapat lebar penuh dan langsung terlihat utuh, dan isian
+   formnya tepat di atasnya: baca nama, pilih kelas, tunjuk kursinya, simpan.
+
+   Isian dan tombolnya memakai id yang SAMA PERSIS dengan modal lama
+   (pf_class, pf_seatwrap, pf_name, …), jadi seluruh mesin di baliknya —
+   pfKelasBerubah, pfGambarDenah, pfRingkas, doPurchase — dipakai apa adanya
+   tanpa satu pun cabang "kalau di halaman". */
 function jualBody(eid){
+  const e=DB.events.find(x=>x.id===eid)||{};
   const kelas=DB.ticketClasses.filter(c=>c.event_id===eid);
   if(!kelas.length){
     return '<div class="empty">Event ini belum punya satu kelas tiket pun.<br>'
       +'<span class="mini">Buat dulu di tab <b>Kelas Tiket</b> — tanpa itu tidak ada yang bisa dijual.</span></div>';
   }
-  const adaDenah=ldzSemuaItems(eid).length>0;
-  let h='<div class="card" style="margin-bottom:16px">'
-   +'<h3 class="sec">Catat penjualan</h3>'
+  /* Digambar sesudah HTML-nya menempel: pfKelasBerubah menulis ke dalam
+     #pf_seatwrap, yang belum ada saat string ini masih disusun. */
+  setTimeout(function(){
+    if(document.getElementById('pf_class')) pfKelasBerubah(eid);
+  },0);
+
+  return '<div class="card" style="margin-bottom:16px">'
+   +'<h3 class="sec">Catat penjualan tiket</h3>'
    +'<p class="mini" style="margin-bottom:12px">Untuk pembeli yang membayar langsung di tempat — '
-   +'tiketnya terbit begitu dicatat, lengkap dengan QR untuk check-in.</p>'
-   +'<button class="btn" onclick="purchaseFlow(\''+eid+'\')">+ Catat Penjualan Tiket</button>'
-   +(adaDenah
-      ? ' <button class="btn '+(ldzJualAktif()?'':'ghost')+'" onclick="ldzToggleJual(\''+eid+'\')">🎫 '
-        +(ldzJualAktif()?'Tutup pemilih kursi':'Pesankan kursi di denah')+'</button>'
-      : '')
-   +'</div>';
-  if(!adaDenah){
-    h+='<div class="card"><p class="mini">Event ini belum punya denah kursi. Kalau tiketnya bernomor, '
-      +'susun denahnya dulu di tab <b>Denah &amp; Booking</b> — sesudah itu kursinya bisa dipesankan dari sini.</p></div>';
-    return h;
-  }
-  if(ldzJualAktif()){
-    h+=ldzBarJualHTML(eid)
-     +'<div class="card"><h3 class="sec">Denah — Lantai '+ldzLantai()+'</h3>'
-     +'<div class="lm-floors" style="margin:0 0 10px">'
-       +'<button class="'+(ldzLantai()==='1'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'1\')">Lantai 1</button>'
-       +'<button class="'+(ldzLantai()==='2'?'on':'')+'" onclick="ldzSetLantai(\''+eid+'\',\'2\')">Lantai 2</button>'
-     +'</div>'+ldzCanvasHTML(eid,false)+'</div>';
-  }else{
-    h+='<div class="card"><p class="mini">Tekan <b>Pesankan kursi di denah</b> untuk memilih kursi '
-      +'langsung dari denah — cocok saat pembeli menunjuk meja yang ia mau.</p></div>';
-  }
-  return h;
+   +'tiketnya terbit begitu disimpan, lengkap dengan QR untuk check-in.</p>'
+   +'<div class="field"><label>Pilih Tiket</label>'
+     +'<select id="pf_class" onchange="pfKelasBerubah(\''+eid+'\')">'
+     +kelas.map(function(c){
+        const habis=(c.sold>=c.quota);
+        return '<option value="'+c.id+'"'+(habis?' disabled':'')+'>'+esc(c.name)+' — '+IDR(c.price)
+          +(habis?' (HABIS)':' ('+(c.quota-c.sold)+' tersisa)')+'</option>';
+      }).join('')
+     +'</select></div>'
+   +'<div class="grid g2">'
+     +'<div class="field"><label>Nama *</label><input id="pf_name" placeholder="Nama pembeli"></div>'
+     +'<div class="field"><label>No. HP *</label><input id="pf_phone" value="+628"></div>'
+     +'<div class="field"><label>Email *</label><input id="pf_email" placeholder="untuk kirim e-ticket"></div>'
+     +'<div class="field"><label>Tgl Lahir</label><input id="pf_bd" type="date"></div>'
+   +'</div>'
+   +'<div id="pf_total" class="mini" style="margin:10px 0"></div>'
+   +'<button class="btn" id="pf_go" onclick="doPurchase(\''+eid+'\')">Simpan &amp; Tandai Lunas</button>'
+   +'</div>'
+   /* Denah tinggal di kartunya sendiri, di BAWAH form — pf_seatwrap yang
+      mengisinya, dan isinya berganti sendiri mengikuti kelas yang dipilih:
+      denah untuk kelas berkursi, kotak jumlah untuk kelas bebas berdiri. */
+   +'<div class="card" id="pf_seatwrap"></div>';
 }
 /* Tab Denah: perancang denah kustom + contoh denah template venue yang hanya
    muncul kalau diminta. Tombol Mode Jual mengubah denah jadi alat pemesanan. */
@@ -6193,7 +6205,15 @@ function doPurchase(eid){
   window._pfSibuk=false;
   save();closeModal();
   toast('✓ '+jumlah+' tiket tercatat lunas'+(kursi.length?' · kursi '+kursi.map(id=>{const s=DB.seats.find(x=>x.id===id);return (s&&(s.table_no||s.seat_no))||'?';}).join(', '):'')+'.');
-  window._tixTab='sales';renderTicketDetail(eid);
+  /* TETAP DI TAB JUAL. Dulu dilempar ke halaman rekap — masuk akal waktu
+     formnya masih pop-up (menutup modal harus mendaratkan orang di suatu
+     tempat), tapi sekarang kasir hampir selalu melayani orang berikutnya di
+     antrean yang sama. Formnya digambar ulang dalam keadaan kosong, dan
+     denahnya ikut memperbarui kursi yang barusan terjual.
+     Yang dipanggil dari tempat lain (mis. tombol Booking di bar denah tab
+     Denah & Booking) tetap kembali ke tabnya sendiri. */
+  if(window._tixTab!=='layout') window._tixTab='jual';
+  renderTicketDetail(eid);
   // E-ticket pertama dibuka; sisanya lewat daftar pembeli — membuka 6 modal
   // bertumpuk tidak menolong siapa pun.
   setTimeout(()=>showETicket(dibuat[0].id),400);
