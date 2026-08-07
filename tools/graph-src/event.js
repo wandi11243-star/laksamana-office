@@ -7017,7 +7017,22 @@ function spawnEvent() { esc(); eventForm(); toast(); }
 
 
 
-function renderHistory() { setTop(); selesai(); C(); esc(); fmtDate(); }
+function renderHistory() { setTop(); selesai(); normalize(); autoSelesaikanEvent(); C(); esc(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

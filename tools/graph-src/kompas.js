@@ -430,6 +430,66 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -1076,7 +1136,50 @@ function viewInput() { getDay(); calInner(); go(); repOf(); repPay(); }
 
 
 
-function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); bonRingkasHari(); dateLabel(); fmtWaktu(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); daysOfMonth(); labelPeriode(); bonRingkasHari(); dateLabel(); fmtWaktu(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2955,7 +3058,85 @@ function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empNam
 
 
 
-function cetakDashboardOmset() { pct(); }
+
+
+
+
+
+
+function lembarKop() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lembarKaki() {  }
+
+
+
+
+
+
+
+
+
+
+function lembarSeksi() {  }
+
+
+
+
+
+
+function cetakDashboardOmset() { pct(); lembarKop(); lembarSeksi(); lembarKaki(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3057,7 +3238,76 @@ function waDashboardOmset() {  }
 
 
 
-function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); dailyTarget(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); dailyTarget(); daysOfMonth(); labelPeriode(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3275,7 +3525,13 @@ function cetakAchievement() { kartuCompliment(); }
 
 
 
-function kunci() { compPotong(); modeHarian(); labelRentang(); }
+function kunci() { compPotong(); lembarKop(); labelRentang(); modeHarian(); lembarSeksi(); lembarKaki(); }
+
+
+
+
+
+
 
 
 
