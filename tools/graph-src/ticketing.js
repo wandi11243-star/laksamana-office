@@ -627,6 +627,11 @@
 
 
 
+
+
+
+
+
 function bersihTeks() {  }
 
 
@@ -786,7 +791,14 @@ function go() { gambarTopnav(); gambarBarHp(); }
 
 
 
-function mulai() { muatAkun(); gambarTopnav(); dariHash(); }
+function mulai() { ikon(); muatAkun(); gambarTopnav(); dariHash(); }
+
+
+
+
+
+
+
 
 
 
@@ -827,7 +839,7 @@ function langkahHTML2() {  }
 
 
 
-function jaminanHTML() {  }
+function jaminanHTML() { ikon(); }
 
 
 
@@ -843,7 +855,6 @@ function jaminanHTML() {  }
 
 
 
-function kontakHTML() { kepalaBagian(); }
 
 
 
@@ -858,7 +869,47 @@ function kontakHTML() { kepalaBagian(); }
 
 
 
-function ajakanHTML() { go(); memuat(); api(); galat(); sisaEvent(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
+
+
+
+
+
+function ikon() {  }
+
+
+
+
+
+
+
+
+function kontakHTML() { kepalaBagian(); ikon(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ajakanHTML() { go(); memuat(); api(); galat(); sisaEvent(); hariLagi(); ikon(); labelHitungMundur(); kepalaBagian(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1018,7 +1069,7 @@ function kartuEvent() { posterUrl(); go(); tgl(); jam(); memuat(); api(); galat(
 
 
 
-function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
+function gambarEvent() { go(); langkahHTML(); posterUrl(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); ikon(); langkahHTML2(); jaminanHTML(); kontakHTML(); }
 
 
 
