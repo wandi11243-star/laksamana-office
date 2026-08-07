@@ -161,6 +161,33 @@ async function ping(url){
     .catch(e => mati('Import ke dev gagal: ' + e.message));
   console.log('\nImport selesai: ' + JSON.stringify(hasil.diproses || {}));
 
+  /* KREDENSIAL PEMANGGIL BISA MATI DI TENGAH JALAN — dan pernah kejadian
+     (7 Agustus 2026): akun yang dipakai untuk menulis ke dev ikut termasuk
+     yang ditimpa, PIN-nya berganti mengikuti produksi, dan SELURUH panggilan
+     berikutnya ditolak `forbidden`. Bukan galat yang menjelaskan dirinya:
+     yang terbaca di layar cuma tiga puluh nama yang gagal.
+
+     Perbaikannya bukan menyuruh orang mengingat PIN barunya, tapi mengambil
+     sendiri PIN itu dari data yang BARU SAJA kita salin — sumbernya sudah ada
+     di tangan. */
+  const cariPin = function(nama){
+    const n = String(nama || '').trim().toLowerCase();
+    const u = users.find(x => String(x.username || '').trim().toLowerCase() === n && n !== '')
+           || users.find(x => String(x.name || '').trim().toLowerCase() === n);
+    return u ? { pin: u.pin, admin: (u.adminModules || []).indexOf('*') > -1 } : null;
+  };
+  const akun = cariPin(cred.dev.callerName);
+  if (akun && akun.pin && akun.pin !== cred.dev.callerPin) {
+    console.log('  PIN akun "' + cred.dev.callerName + '" di dev ikut tertimpa oleh PIN produksi —'
+      + ' kredensial untuk langkah berikutnya disesuaikan sendiri.');
+    cred.dev.callerPin = akun.pin;
+  }
+  if (akun && !akun.admin) {
+    console.log('  Peringatan: di produksi, "' + cred.dev.callerName + '" BUKAN superadmin. Sesudah impor ini'
+      + ' ia juga bukan superadmin di dev, jadi langkah berikutnya akan ditolak.'
+      + ' Jalankan ulang dengan DEV_ADMIN/DEV_PIN yang sama dengan PROD_ADMIN/PROD_PIN.');
+  }
+
   /* Susulan: username & no HP. `import` tidak membawa keduanya (bentuknya
      dirancang untuk impor dari Sheet lama yang memang tidak punya kolom itu),
      padahal username dipakai untuk login. Dikirim satu per satu lewat
@@ -179,12 +206,29 @@ async function ping(url){
   }
   console.log('Username & no HP: ' + ok + '/' + perlu.length + ' tersalin.');
   if (gagal.length) {
-    console.log('  Yang gagal (datanya tetap masuk lewat import, cuma username/HP-nya belum):');
-    gagal.forEach(x => console.log('      · ' + x));
+    /* Semua gagal dengan sebab yang sama = masalahnya kredensial, bukan
+       datanya. Ditulis sekali sebagai kalimat, bukan tiga puluh baris nama
+       yang menyembunyikan satu-satunya hal yang perlu dibaca. */
+    const semuaForbidden = gagal.length === perlu.length && gagal.every(x => /forbidden/.test(x));
+    if (semuaForbidden) {
+      console.log('  SEMUANYA ditolak `forbidden` — itu masalah kredensial, bukan datanya.');
+      console.log('  Data pokoknya SUDAH masuk lewat import di atas; yang belum hanya username & no HP.');
+      console.log('  Jalankan ulang dengan DEV_ADMIN/DEV_PIN yang sama persis dengan PROD_ADMIN/PROD_PIN');
+      console.log('  (sesudah impor, login dev memang sama dengan login produksi).');
+    } else {
+      console.log('  Yang gagal (datanya tetap masuk lewat import, cuma username/HP-nya belum):');
+      gagal.forEach(x => console.log('      · ' + x));
+    }
   }
 
-  const cek = await api(DEV, Object.assign({ action: 'listUsers' }, cred.dev));
-  console.log('\nDev sekarang berisi ' + (cek.users || []).length + ' user.\n');
+  /* Pemeriksaan penutup tidak boleh menjatuhkan seluruh proses: pekerjaannya
+     sudah selesai, ini cuma laporan. */
+  try {
+    const cek = await api(DEV, Object.assign({ action: 'listUsers' }, cred.dev));
+    console.log('\nDev sekarang berisi ' + (cek.users || []).length + ' user.\n');
+  } catch(e) {
+    console.log('\n(Tidak bisa membaca ulang dev untuk memastikan: ' + e.message + ')\n');
+  }
 })().catch(e => {
   console.error('\n✗ ' + e.message + '\n');
   process.exitCode = 1;
