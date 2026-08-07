@@ -189,7 +189,20 @@ function shift_hari_rentang($user, $dari, $sampai) {
      decode(true) supaya kode di bawah tidak perlu tahu bentuknya, dan supaya
      ia tidak diam-diam patah kalau bentuknya berubah suatu saat. */
   $set = json_decode(json_encode(baca_setting()), true);
-  $def = (is_array($set) && isset($set['shift']) && is_array($set['shift'])) ? $set['shift'] : array();
+  /* KUNCINYA `shifts`, BUKAN `shift`.
+     Versi pertama fungsi ini menebak `shift` dan tebakan itu salah — akibatnya
+     TIDAK terlihat sebagai galat: jam bawaan tidak pernah terisi, jadi tiap
+     baris pulang dengan m='' s=''. Modul absensi membaca itu sebagai "tidak
+     punya jam shift", lalu MENGIRIM SELURUH ABSENSI KE ANTREAN PENGAJUAN
+     setiap hari. Ketahuan 7 Agustus 2026 hanya karena data dev diperiksa
+     langsung: 7 dari 7 sel di sana jamnya kosong — memang begitulah bentuk
+     normalnya, karena hampir semua sel memakai jam bawaan shift-nya.
+     `shift` tetap diterima sebagai cadangan untuk data yang sangat lama. */
+  $def = array();
+  if (is_array($set)) {
+    if (isset($set['shifts']) && is_array($set['shifts']))     $def = $set['shifts'];
+    else if (isset($set['shift']) && is_array($set['shift']))  $def = $set['shift'];
+  }
 
   $rows = array();
   foreach ($st->fetchAll() as $r) {
