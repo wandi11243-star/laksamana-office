@@ -589,6 +589,17 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 /* Hanya melebar, tidak pernah membatasi tinggi — paginasi yang menahan
    panjangnya, bukan kotak bergulir. */
 .tbl-lebar{overflow-x:auto}
+/* Pita hitungan kategori di halaman Check-In. Dua angka besar berdampingan —
+   sudah masuk & belum datang — karena keduanya ditanyakan bersamaan. */
+.ci-hitung{display:flex;align-items:center;gap:14px;flex-wrap:wrap;position:relative;
+  background:var(--panel2);border:1px solid var(--line-soft);border-radius:10px;
+  padding:11px 14px 15px;margin-bottom:12px}
+.ci-hitung .ci-ang{font-size:13px;font-weight:600}
+.ci-hitung .ci-ang b{font-size:19px;font-weight:800;margin-right:4px}
+.ci-hitung .ci-sudah b{color:var(--green)}
+.ci-hitung .ci-belum b{color:var(--orange)}
+.ci-bar{position:absolute;left:14px;right:14px;bottom:7px;height:4px;border-radius:4px;background:rgba(60,55,45,.14)}
+.ci-bar i{display:block;height:100%;border-radius:4px;background:var(--green)}
 .tbl-scroll thead th{position:sticky;top:0;z-index:1;background:var(--panel)}
 .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--line)}
 /* Kotak pilihan + 8 pegangan ukuran, meniru draw.io. Pegangannya diperbesar
@@ -6425,6 +6436,7 @@ function ciTabelHTML(eid){
       +'<input id="ci_cari" placeholder="Cari nama / no. tiket / kursi…" value="'+esc(_ciFilter.q)+'" '
         +'oninput="ciCari(this.value)" style="flex:1;min-width:180px">'
     +'</div>'
+    +'<div id="ciHitungKelas">'+ciHitungKelasHTML(eid)+'</div>'
     +'<div id="ciTabelIsi">'+ciTabelIsiHTML(eid)+'</div>'
   +'</div>';
 }
@@ -6480,8 +6492,14 @@ function ciTabelIsiHTML(eid){
    halaman, bukan ke kotaknya. Persis alasan yang sama dengan paintCRM di
    Marketing. */
 function ciPaintTabel(){
+  if(!window._ciEvent) return;
   const el=document.getElementById('ciTabelIsi');
-  if(el && window._ciEvent) el.innerHTML=ciTabelIsiHTML(window._ciEvent);
+  if(el) el.innerHTML=ciTabelIsiHTML(window._ciEvent);
+  /* Pita hitungan per kategori ikut digambar ulang di sini — angkanya
+     berubah tiap kali ada tamu yang check-in, dan pita yang tertinggal di
+     angka lama persis jenis kesalahan yang paling merugikan di pintu masuk. */
+  const p=document.getElementById('ciHitungKelas');
+  if(p) p.innerHTML=ciHitungKelasHTML(window._ciEvent);
 }
 /* Pemilih kategori dibuat dari kelas yang BENAR-BENAR punya tiket di event
    ini, bukan dari seluruh daftar kelas: kelas yang dibuat lalu tidak jadi
@@ -6511,6 +6529,33 @@ function ciPilihKelasHTML(eid){
           +esc(k)+' ('+(n[k]||0)+')</option>';
       }).join('')
     +'</select>';
+}
+/* Pita hitungan untuk kategori yang sedang disaring.
+
+   Angka di dalam <option> tidak cukup: yang terbaca di situ hanya SATU angka
+   (mengikuti mode yang aktif), sedangkan pertanyaan di pintu masuk selalu
+   dua sekaligus — "VIP sudah berapa yang masuk, dan tinggal berapa yang
+   ditunggu". Menjawabnya dengan menyuruh petugas menekan chip mode
+   bolak-balik sambil membaca dropdown adalah tiga sentuhan untuk satu
+   pertanyaan.
+
+   Ditampilkan HANYA saat sebuah kategori dipilih. Untuk "Semua kategori"
+   angkanya sudah ada di chip Belum/Sudah di sebelahnya, dan mengulanginya
+   cuma menambah baris yang tidak membedakan apa pun. */
+function ciHitungKelasHTML(eid){
+  if(!_ciFilter.kelas) return '';
+  const b=ciBaris(eid).filter(function(x){ return x.kelas===_ciFilter.kelas; });
+  if(!b.length) return '';
+  const masuk=b.filter(function(x){ return x.masuk; }).length;
+  const belum=b.length-masuk;
+  const pct=b.length?Math.round(masuk/b.length*100):0;
+  return '<div class="ci-hitung">'
+   +'<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,_ciFilter.kelas).c+'"></i><b>'+esc(_ciFilter.kelas)+'</b></span>'
+   +'<span class="ci-ang ci-sudah"><b>'+masuk+'</b> sudah masuk</span>'
+   +'<span class="ci-ang ci-belum"><b>'+belum+'</b> belum datang</span>'
+   +'<span class="mini">dari '+b.length+' tiket · '+pct+'%</span>'
+   +'<div class="ci-bar"><i style="width:'+pct+'%"></i></div>'
+   +'</div>';
 }
 function ciKelas(v){ _ciFilter.kelas=v; _ciFilter.hal=1; ciPaintTabel(); }
 function ciCari(v){ _ciFilter.q=v; _ciFilter.hal=1; ciPaintTabel(); }
