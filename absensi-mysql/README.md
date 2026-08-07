@@ -14,19 +14,24 @@ tidak bergantung pada layanan yang bisa hilang.
 
 ## Letaknya di server — BEDA dengan modul Office lain
 
-| Yang ini | Ke mana |
-|---|---|
-| `absensi/` (frontend) | `/public_html/absensi/` → **absensi.laksamanamuda.id** |
-| `absensi-mysql/` (backend) | `/public_html/absensi-api/` |
+| Yang ini | Produksi | Dev |
+|---|---|---|
+| `absensi/` (frontend) | `/public_html/absensi/` → **absensi.laksamanamuda.id** | `/absensi/` → dev.laksamanamuda.id/absensi/ |
+| `absensi-mysql/` (backend) | `/public_html/absensi/api/` | `/absensi/api/` |
 
 **Bukan** di dalam `/office/`. Modul ini dipasang sebagai aplikasi di layar
 depan HP kru; ia tidak boleh menuntut orang membuka portal Office lebih dulu
 setiap pagi.
 
-Backend diletakkan **sejajar** dengan situsnya, sama seperti pasangan
-`ticketing` / `ticketing-api`, supaya `../absensi-api/api.php` di dalam
-`index.html` menemukannya — jalur relatif yang sama benar di dev maupun
-produksi, jadi satu berkas untuk dua server.
+Backend diletakkan **DI DALAM** folder situsnya (`absensi/api/`), bukan
+sebagai folder tetangga. Kalau docroot subdomain adalah
+`/public_html/absensi/`, maka `../absensi-api/` menunjuk **ke luar docroot**
+dan tidak bisa dicapai lewat `absensi.laksamanamuda.id` sama sekali. Di dalam,
+jalur `api/api.php` benar apa pun cara subdomainnya dibuat — dan juga benar di
+dev, tempat situsnya duduk sebagai subfolder biasa.
+
+Aman ditumpuk begini: FTP-Deploy-Action hanya menghapus berkas yang ada di
+berkas state-nya sendiri, jadi job situs tidak menyapu `api/` milik job lain.
 
 ---
 
@@ -46,7 +51,8 @@ produksi, jadi satu berkas untuk dua server.
    Tabel dibuat sendiri saat pertama dipakai; `schema.sql` cuma untuk dibaca.
 
 3. **config.php.** Salin `config.sample.php` → `config.php`, isi password,
-   lalu unggah **manual** ke `/absensi-api/`. Workflow FTP sengaja tidak
+   lalu unggah **manual** ke `/public_html/absensi/api/` (dev:
+   `.../dev.laksamanamuda.id/absensi/api/`). Workflow FTP sengaja tidak
    mengirim `config*.php`.
 
 4. **Alamat modul tetangga.** Ini bagian yang paling mudah terlewat.

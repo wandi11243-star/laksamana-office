@@ -74,14 +74,22 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
 ```
 absensi/                    ← FRONTEND (PWA)  -> /public_html/absensi/
                                = absensi.laksamanamuda.id
-absensi-mysql/              ← BACKEND         -> /public_html/absensi-api/
+                               (dev: dev.laksamanamuda.id/absensi/)
+absensi-mysql/              ← BACKEND         -> /public_html/absensi/api/
+                               dipanggil sebagai 'api/api.php' — DI DALAM,
+                               bukan folder tetangga
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
 
 - **`absensi/` bukan di `deploy/`.** Ia berdiri sebagai situs sendiri di
-  subdomain sendiri, seperti `deploy/ticketing/` → `/public_html/ticketing/`.
-  Backend-nya SEJAJAR (`../absensi-api/api.php`), bukan di dalam.
+  subdomain sendiri. Backend-nya DI DALAM (`api/api.php`), bukan sejajar
+  seperti ticketing: kalau docroot subdomain adalah `/public_html/absensi/`,
+  maka `../` menunjuk ke luar docroot dan tidak bisa dicapai lewat host itu.
+- **Punya job SENDIRI di KEDUA workflow.** `deploy.yml` hanya untuk `main`,
+  `deploy-dev.yml` hanya untuk `develop` — menambah modul di satu berkas saja
+  membuat push ke cabang satunya tidak menghasilkan apa pun, tanpa galat.
+  Sudah kejadian saat modul ini lahir.
 - **Sesi Office tidak terbaca dari sana.** `localStorage` terikat origin, jadi
   `lm_session` milik `team.laksamanamuda.id` tidak ada di subdomain absensi.
   Modul ini punya login sendiri (kunci `lm_absensi_sesi`, 30 hari) yang

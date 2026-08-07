@@ -396,6 +396,86 @@ jobs:
             **/*.md
           timeout: 300000
 
+      # ==================================================================
+      # ABSENSI — SITUS SENDIRI, BUKAN BAGIAN DARI OFFICE
+      # ------------------------------------------------------------------
+      # Di produksi ia berdiri di absensi.laksamanamuda.id. Di dev tidak perlu
+      # subdomain terpisah: ia cukup jadi subfolder biasa
+      # (dev.laksamanamuda.id/absensi/), dan backend-nya DI DALAM folder itu
+      # sehingga jalur relatif 'api/api.php' benar di kedua server tanpa satu
+      # pun syarat yang harus diingat orang.
+      #
+      # Isi folder absensi/ berat (7,8 MB: pustaka wajah + bobot model) dan
+      # memang harus ikut ter-deploy. Tanpa model, pengenalan wajah mati total
+      # tanpa satu pun pesan galat yang menjelaskan kenapa. Timeout-nya
+      # digandakan karena alasan itu.
+      - name: Deploy situs absensi
+        id: ftpabs
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./absensi/
+          server-dir: /absensi/
+          timeout: 600000
+
+      - name: Jeda sebelum percobaan 2 absensi
+        if: steps.ftpabs.outcome == 'failure'
+        run: sleep 45
+
+      - name: Deploy situs absensi (percobaan 2)
+        if: steps.ftpabs.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./absensi/
+          server-dir: /absensi/
+          timeout: 600000
+
+      - name: Deploy backend absensi
+        id: ftpabsapi
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./absensi-mysql/
+          server-dir: /absensi/api/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend absensi (percobaan 2)
+        if: steps.ftpabsapi.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./absensi-mysql/
+          server-dir: /absensi/api/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+
       # Verifikasi HARUS membuktikan file di server = file di repo.
       # Cek lama hanya mencari "</html>" — itu lolos juga pada halaman 404 dan pada file LAMA
       # yang masih utuh, sehingga deploy yang sama sekali tidak mendarat tetap dilaporkan OK.

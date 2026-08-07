@@ -20,7 +20,7 @@
 --    sudah tidak berlaku.
 --
 -- 3. TIDAK ADA TABEL REKAP HARIAN. Telat, lembur, dan durasi kerja SELALU
---    dihitung ulang dari punch + shift saat dibaca. Menyimpannya berarti
+--    dihitung ualang dari punch + shift saat dibaca. Menyimpannya berarti
 --    angka rekap tidak ikut berubah ketika sebuah pengajuan disetujui
 --    belakangan — dan itu tepat jenis kesalahan yang tidak menimbulkan
 --    galat, cuma laporan yang salah.

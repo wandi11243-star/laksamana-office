@@ -20,7 +20,7 @@ define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
 define('DB_NAME', 'lakk5493_db_dev_absensi');
 define('DB_USER', 'lakk5493_dev_absensi');
-define('DB_PASS', 'ISI_PASSWORD_DI_SINI');
+define('DB_PASS', '&_nN;i#SlBAx%H~p');
 define('DB_CHARSET', 'utf8mb4');
 
 // Ikut dibalas ?action=ping — satu-satunya cara cepat memastikan config dev
