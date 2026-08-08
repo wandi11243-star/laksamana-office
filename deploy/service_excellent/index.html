@@ -9193,18 +9193,31 @@ function kruCapaian(){
 
    Konsekuensinya diterima dan memang disengaja: kalau orang ber-Office itu
    ternyata punya review, angkanya ikut keluar dari tabel. Karena itu jumlahnya
-   ditulis di bawah tabel (lihat barisOffice di renderCapaian) — supaya kartu
-   "Terverifikasi" di atas yang tidak ikut berkurang tetap bisa dijelaskan.
+   ditulis di bawah tabel (lihat barisTersembunyi di renderCapaian) — supaya
+   kartu "Terverifikasi" di atas yang tidak ikut berkurang tetap bisa dijelaskan.
 
-   Superadmin dan Admin Sistem tetap melihat semuanya: merekalah yang
-   memverifikasi klaim dan mengaudit angkanya, dan papan yang menyembunyikan
-   baris justru dari orang yang bertugas memeriksanya tidak bisa dipercaya.
-   SESSION.role 'admin' sudah mencakup superadmin Office (lihat roleSesi di
-   boot: superOffice selalu jatuh ke 'admin'); superOffice tetap diperiksa
-   terpisah supaya syaratnya tidak ikut berubah kalau pemetaan itu diubah. */
-function bolehLihatOfficeDiPapan(){
-  return !!SESSION && (SESSION.role === "admin" || SESSION.superOffice === true);
-}
+   PENGURUS IKUT KELUAR, DAN TIDAK ADA PENGECUALIAN UNTUK YANG MELIHAT.
+   Versi sebelumnya membaca "kecuali superadmin dan admin" sebagai pengecualian
+   bagi PEMBACA layar — sehingga papan yang dilihat superadmin tetap memuat
+   Office. User memperjelasnya 8 Agustus 2026: "superadmin, admin dan office
+   tidak perlu ditampilkan nama mereka disana". Jadi yang dimaksud siapa yang
+   DISEMBUNYIKAN, bukan siapa yang boleh melihat. Sekarang papannya sama untuk
+   semua mata, dan pengurus pun tidak berdiri di sana.
+
+   DUA PENANDA, karena cuma dua itu yang benar-benar ada datanya per orang:
+     1. Tim/Keterangan memuat "office"  (dari roster Office)
+     2. Tingkat modulnya "Admin Sistem" (dari Kelola Role)
+   Superadmin Office TIDAK punya penanda sendiri di sini: listDivisiRoster
+   hanya membalas {id,name,keterangan,active} — tidak ada flag admin sama
+   sekali. Dalam praktiknya ia selalu tertangkap salah satu penanda di atas
+   (orangnya memang tim Office, dan/atau tingkatnya Admin Sistem di modul ini).
+   Kalau suatu saat ada superadmin yang tidak bertanda dua-duanya, ia akan
+   tetap muncul — dan jalan keluarnya satu centang "Office" di akun Office-nya,
+   bukan perubahan backend. Ditulis di sini supaya tidak dikira sudah tertutup.
+
+   Manajer / Owner SENGAJA TIDAK ikut disembunyikan: user menyebut superadmin,
+   admin, dan office — tidak menyebut manajer, dan di banyak outlet manajer
+   memang ikut melayani tamu serta dinilai reviewnya. */
 /* Divisi seseorang menurut NAMA. Papan capaian berkunci nama, bukan id —
    review menyimpan nama host apa adanya — jadi pencocokannya pun lewat nama,
    tanpa memandang besar-kecil huruf. Roster Office didahulukan karena ia
@@ -9219,10 +9232,22 @@ function divisiKruNama(nama){
   const u = getUsers().find(x=>String(x.name||"").trim().toLowerCase()===k);
   return u ? String(u.divisi||"") : "";
 }
+/* Tingkat modul seseorang menurut NAMA. Sumbernya seCrew() (yang disunting di
+   Kelola Role), BUKAN roster Office — roster tidak membawa tingkat sama sekali.
+   Nama yang tidak dikenal mengembalikan "" dan karenanya tidak pernah
+   tersembunyi: papan ini lebih baik memuat satu baris berlebih daripada diam-
+   diam membuang orang yang datanya belum tersinkron. */
+function tingkatKruNama(nama){
+  const k = String(nama||"").trim().toLowerCase();
+  if(!k) return "";
+  const u = getUsers().find(x=>String(x.name||"").trim().toLowerCase()===k);
+  return u ? String(u.role||"") : "";
+}
 /* divisiCocok() mencocokkan KATA UTUH, jadi "backoffice" tetap tidak ikut
    tersaring — itu jebakan lama yang sudah dicatat di definisinya. */
-function timAdaOffice(nama){
-  return divisiCocok(divisiKruNama(nama), ["office"]);
+function keluarDariPapan(nama){
+  if(divisiCocok(divisiKruNama(nama), ["office"])) return true;
+  return tingkatKruNama(nama) === "admin";
 }
 
 function renderCapaian(){
@@ -9257,17 +9282,17 @@ function renderCapaian(){
     return o;
   }).sort((a,b)=> b.sah-a.sah || b.minta-a.minta || a.nama.localeCompare(b.nama));
 
-  /* Baris tim Office dikeluarkan di sini, sesudah angkanya lengkap terhitung —
-     bukan dengan mencegahnya masuk ke `peta`. Bedanya penting: yang tersembunyi
-     tetap bisa DIHITUNG, dan jumlahnya ditulis di bawah tabel. Kalau tidak,
-     kartu "Terverifikasi" di atas akan selalu lebih besar daripada penjumlahan
-     tabel tanpa satu pun keterangan yang menjelaskan selisihnya — dan angka
-     yang tidak bisa dijelaskan adalah angka yang berhenti dipercaya. */
-  const lihatSemua=bolehLihatOfficeDiPapan();
-  const barisOffice=lihatSemua?[]:semuaBaris.filter(o=>timAdaOffice(o.nama));
-  const baris=lihatSemua?semuaBaris:semuaBaris.filter(o=>!timAdaOffice(o.nama));
-  const sahOffice=barisOffice.reduce((a,o)=>a+(o.sah||0),0);
-  const fbOffice=barisOffice.reduce((a,o)=>a+(o.fb||0),0);
+  /* Baris pengurus & tim Office dikeluarkan di sini, sesudah angkanya lengkap
+     terhitung — bukan dengan mencegahnya masuk ke `peta`. Bedanya penting: yang
+     tersembunyi tetap bisa DIHITUNG, dan jumlahnya ditulis di bawah tabel.
+     Kalau tidak, kartu "Terverifikasi" di atas akan selalu lebih besar daripada
+     penjumlahan tabel tanpa satu pun keterangan yang menjelaskan selisihnya —
+     dan angka yang tidak bisa dijelaskan adalah angka yang berhenti dipercaya.
+     Tidak ada lagi cabang "siapa yang melihat": papannya sama untuk semua. */
+  const barisTersembunyi=semuaBaris.filter(o=>keluarDariPapan(o.nama));
+  const baris=semuaBaris.filter(o=>!keluarDariPapan(o.nama));
+  const sahOffice=barisTersembunyi.reduce((a,o)=>a+(o.sah||0),0);
+  const fbOffice=barisTersembunyi.reduce((a,o)=>a+(o.fb||0),0);
 
   /* Total reward tetap dihitung dari baris yang TAMPIL. Office tidak pernah
      berhak atas tangga bonus (ia tidak dinilai), jadi memasukkannya ke total
@@ -9351,11 +9376,10 @@ function renderCapaian(){
             yang tidak pernah menyentuh review sama sekali tidak perlu
             diumumkan, ia cuma menambah keramaian tanpa menjelaskan selisih apa
             pun (selisihnya nol). -->
-       ${barisOffice.length && (sahOffice||fbOffice) ? `<div class="hint" style="margin-top:12px">
-         ℹ️ <b>${barisOffice.length} orang tim Office</b> tidak ditampilkan di papan ini — mereka mengatur modulnya, bukan dinilai perolehannya.
+       ${barisTersembunyi.length && (sahOffice||fbOffice) ? `<div class="hint" style="margin-top:12px">
+         ℹ️ <b>${barisTersembunyi.length} orang</b> tidak ditampilkan di papan ini — tim <b>Office</b> dan pemegang <b>Admin Sistem</b> mengatur modulnya, bukan dinilai perolehannya.
          Angka mereka yang tidak ikut tabel: <b>${sahOffice}</b> review terverifikasi${fbOffice?` &amp; <b>${fbOffice}</b> feedback`:''}.
          Itulah selisih antara penjumlahan tabel dan kartu <b>Terverifikasi</b> di atas.
-         <span class="muted">Superadmin &amp; Admin Sistem melihatnya utuh.</span>
        </div>` : ''}
      </div>
    </div>`;

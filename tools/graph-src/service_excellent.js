@@ -9202,14 +9202,6 @@ function kruCapaian() { getUsers(); kruTersaring(); }
 
 
 
-function bolehLihatOfficeDiPapan() { kruCapaian(); }
-
-
-
-
-
-
-function divisiKruNama() { getUsers(); divisiCocok(); }
 
 
 
@@ -9221,12 +9213,44 @@ function divisiKruNama() { getUsers(); divisiCocok(); }
 
 
 
-function timAdaOffice() { divisiCocok(); divisiKruNama(); }
 
 
 
-function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); bolehLihatOfficeDiPapan(); timAdaOffice(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); fmtMonth(); rewardAturanTeks(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
 
+
+
+
+
+
+function divisiKruNama() { getUsers(); seCrew(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tingkatKruNama() { getUsers(); divisiCocok(); }
+
+
+
+
+
+
+
+function keluarDariPapan() { divisiCocok(); divisiKruNama(); tingkatKruNama(); }
+
+
+
+
+function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); keluarDariPapan(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); fmtMonth(); rewardAturanTeks(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
 
 
 
