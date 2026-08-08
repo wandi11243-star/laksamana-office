@@ -10,6 +10,7 @@
  *       batchId:'' (kosong = batch baru), batchName:'' (opsional), tim:''}
  * POST {action:'archive',   rows:[rowIndex] | orderIds:['LKS-...']}
  * POST {action:'unarchive', rowIndex:N     | orderIds:['LKS-...']}
+ * POST {action:'updateTglJemput', updates:[{rowIndex, tglJemput:'YYYY-MM-DD'|''}]}
  *
  * Path sendiri (bukan api.php?src=orders) karena frontend menempel
  * `?t=<timestamp>` ke URL ini — tanda tanya dobel akan merusaknya.
@@ -69,6 +70,9 @@ try {
       }
       pur_json($hasil);
     }
+    // Jadwal penjemputan (vendor yang barangnya tidak bisa diambil hari itu).
+    // Tidak menyentuh stok CK: menjadwalkan penjemputan bukan kedatangan barang.
+    if ($a === 'updateTglJemput')  pur_json(pur_orders_update_tgl_jemput($pdo, $b->updates ?? []));
     if ($a === 'updateOrderQty')   pur_json(pur_orders_update_qty($pdo, $b->rowIndex ?? 0, $b->newQty ?? null));
     if ($a === 'deleteRow')        pur_json(pur_orders_delete_row($pdo, $b->rowIndex ?? 0));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);

@@ -98,13 +98,15 @@ tanpa mengubah frontend.
 ```
 GET  orders.php               -> [ {rowIndex, nomorOrder, timestamp, item, qty,
                                     unit, note, tglDatang, pic, status,
-                                    kedatangan, catatan}, ... ]   (array telanjang)
+                                    kedatangan, catatan, tglJemput}, ... ]  (array telanjang)
 POST orders.php  {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}]}
 POST orders.php  {action:'archive',   orderIds:['LKS-...'] | rows:[rowIndex]}
 POST orders.php  {action:'unarchive', orderIds:['LKS-...'] | rowIndex:N}
+POST orders.php  {action:'updateTglJemput', updates:[{rowIndex, tglJemput:'YYYY-MM-DD'|''}]}
 
-GET  vendors.php              -> {vendors: {"Nama": {whatsapp}}}
-POST vendors.php {action:'addVendor', vendorName, vendorPhone, oldVendorName}
+GET  vendors.php              -> {vendors: {"Nama": {whatsapp, perluJadwalJemput}}}
+POST vendors.php {action:'addVendor', vendorName, vendorPhone, oldVendorName,
+                  perluJadwalJemput}   <- tidak dikirim = pertahankan yang lama
 POST vendors.php {action:'deleteVendor', vendorName}
 
 GET  items.php                -> {products: {"Nama": {utama, cadangan[]}}}

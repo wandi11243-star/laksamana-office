@@ -85,6 +85,14 @@ function pur_order_dari_baris($r) {
   $o->batchId    = $r['batch_id']   ?? '';
   $o->batchName  = $r['batch_name'] ?? '';
   $o->tim        = $r['tim']        ?? '';
+  /* tglJemput: jadwal PENJEMPUTAN yang disepakati, untuk vendor yang barangnya
+     tidak bisa diambil di hari yang sama. Sengaja hidup di dalam `data` JSON,
+     BUKAN kolom sendiri — kolom baru menuntut ALTER TABLE, dan migrasi di
+     modul ini berkali-kali tertinggal di produksi sehingga endpointnya
+     membalas 500 sementara di dev semuanya hijau. Kolom `data` sudah ada di
+     semua lingkungan sejak awal.
+     Dinormalkan ke string supaya frontend tidak pernah menerima undefined. */
+  $o->tglJemput  = isset($o->tglJemput) ? (string)$o->tglJemput : '';
   return $o;
 }
 
@@ -470,6 +478,49 @@ function pur_orders_update_kedatangan($pdo, $updates) {
   }
 }
 
+/* JADWAL PENJEMPUTAN. Payload: {action:'updateTglJemput', updates:[{rowIndex, tglJemput}]}
+   Dipakai Monitor Order sebelum mengarsipkan order dari vendor yang ditandai
+   "tidak bisa dijemput hari yang sama".
+
+   Ditulis HANYA ke `data` JSON — tidak ada kolom `tgl_jemput`, dan itu
+   disengaja (lihat catatan di pur_order_dari_baris). JSON_SET pada
+   IF(JSON_VALID(...)) mempertahankan seluruh kunci lain, jadi aman dipanggil
+   berkali-kali dan tidak mengganggu kedatangan/catatan yang sudah ada.
+
+   Tanggal kosong DIBOLEHKAN dan berarti "batalkan jadwalnya" — frontend yang
+   memutuskan kapan boleh kosong, karena hanya frontend yang tahu vendor mana
+   yang ditandai perlu jadwal. Bentuknya divalidasi di sini: apa pun selain
+   YYYY-MM-DD ditolak, supaya tidak ada tanggal berformat asing yang lolos ke
+   daftar jemput dan tidak pernah cocok dengan tanggal mana pun. */
+function pur_orders_update_tgl_jemput($pdo, $updates) {
+  if (!is_array($updates) || !$updates) return ['status' => 'error', 'message' => 'updates kosong'];
+
+  $pdo->beginTransaction();
+  try {
+    $st = $pdo->prepare(
+      "UPDATE `orders`
+          SET `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'), '$.tglJemput', ?)
+        WHERE `row_index` = ?");
+    $n = 0;
+    foreach ($updates as $u) {
+      if (!is_object($u) || !isset($u->rowIndex)) continue;
+      $row = (int)$u->rowIndex;
+      if ($row <= 0) continue;
+      $tgl = trim((string)($u->tglJemput ?? ''));
+      if ($tgl !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $tgl)) {
+        return ['status' => 'error', 'message' => 'format tanggal jemput harus YYYY-MM-DD'];
+      }
+      $st->execute([$tgl, $row]);
+      $n += $st->rowCount();
+    }
+    $pdo->commit();
+    return ['status' => 'success', 'updated' => $n];
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
 /* Ubah jumlah satu order. Payload: {action:'updateOrderQty', rowIndex, newQty} */
 function pur_orders_update_qty($pdo, $rowIndex, $newQty) {
   $row = (int)$rowIndex;
@@ -504,17 +555,44 @@ function pur_vendors_ambil($pdo) {
   $out = [];
   foreach ($pdo->query("SELECT `nama`, `data` FROM `vendors` ORDER BY `nama`")->fetchAll() as $r) {
     $v = json_decode($r['data']);
-    $out[$r['nama']] = is_object($v) ? $v : (object)['whatsapp' => ''];
+    if (!is_object($v)) $v = (object)['whatsapp' => ''];
+    /* perluJadwalJemput: barang dari vendor ini TIDAK bisa dijemput di hari
+       yang sama, jadi Monitor Order wajib meminta tanggal penjemputan sebelum
+       ordernya boleh diarsipkan. Dinormalkan ke bool DI SINI supaya frontend
+       tidak perlu memeriksa tipenya tiap pemakaian — 35 vendor lama tidak
+       punya kunci ini sama sekali, dan `undefined` di sisi JS akan membuat
+       centangnya tampil setengah-setengah (tidak tercentang, tapi juga tidak
+       pernah sama dengan false saat dibandingkan ketat). */
+    $v->perluJadwalJemput = isset($v->perluJadwalJemput) ? (bool)$v->perluJadwalJemput : false;
+    $out[$r['nama']] = $v;
   }
   // (object) supaya peta kosong terkirim sebagai {} bukan [] — lihat
   // catatan aturan JSON di kepala berkas.
   return (object)$out;
 }
 
-function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '') {
+function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJemput = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama vendor kosong'];
-  $rec = (object)['whatsapp' => (string)$telp];
+
+  /* preserve-if-null, aturan yang sama dengan pur_product_simpan: null berarti
+     pemanggil tidak menyertakan field ini, jadi pertahankan nilai lama. Tanpa
+     ini, jalur lama mana pun yang menyimpan vendor tanpa mengirim
+     perluJadwalJemput akan diam-diam mematikan penandanya — dan akibatnya
+     tidak terlihat sampai ada order yang lolos diarsipkan tanpa jadwal
+     penjemputan. */
+  if ($perluJadwalJemput === null) {
+    $st = $pdo->prepare("SELECT `data` FROM `vendors` WHERE `nama`=?");
+    $st->execute([$namaLama !== '' ? $namaLama : $nama]);
+    $row = $st->fetch();
+    $perluJadwalJemput = false;
+    if ($row) {
+      $lama = json_decode($row['data']);
+      if (is_object($lama) && isset($lama->perluJadwalJemput)) $perluJadwalJemput = (bool)$lama->perluJadwalJemput;
+    }
+  }
+
+  $rec = (object)['whatsapp' => (string)$telp, 'perluJadwalJemput' => (bool)$perluJadwalJemput];
 
   $pdo->beginTransaction();
   try {
