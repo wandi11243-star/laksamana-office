@@ -9175,7 +9175,73 @@ function kruCapaian() { getUsers(); kruTersaring(); }
 
 
 
-function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); fmtMonth(); rewardAturanTeks(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bolehLihatOfficeDiPapan() { kruCapaian(); }
+
+
+
+
+
+
+function divisiKruNama() { getUsers(); }
+
+
+
+
+
+
+
+
+
+function murniOffice() { divisiKruNama(); divisiCocok(); }
+
+
+
+
+function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); bolehLihatOfficeDiPapan(); murniOffice(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); fmtMonth(); rewardAturanTeks(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

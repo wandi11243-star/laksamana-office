@@ -9175,6 +9175,47 @@ function kruCapaian(){
   return kruTersaring(src, DIVISI_REVIEW).dipakai.map(u=>u.name).filter(Boolean);
 }
 
+/* ===== OFFICE TIDAK BERDIRI DI PAPAN CAPAIAN (permintaan user 8 Agustus 2026)
+   kruCapaian() di atas memang sudah tidak memberi Office baris kosong — tapi
+   isi() di renderCapaian menambahkan baris dari DATA review/feedback itu
+   sendiri (lihat catatannya di sana). Jadi orang Office yang pernah meminta
+   review atau menangani feedback tetap muncul di Perolehan per Kru, lengkap
+   dengan kolom Target dan Reward yang tidak pernah berlaku untuknya.
+
+   Yang disembunyikan hanya yang MURNI Office. Keterangan Office diketik
+   manusia dan bisa memuat lebih dari satu tim ("office, host"); orang seperti
+   itu benar-benar melayani tamu dan memang dinilai, jadi ia tetap tampil.
+   Tanpa syarat kedua ini, satu kata tambahan di keterangan akun akan
+   menghapus seseorang dari papan tanpa ada yang bisa menebak sebabnya.
+
+   Superadmin dan Admin Sistem tetap melihat semuanya: merekalah yang
+   memverifikasi klaim dan mengaudit angkanya, dan papan yang menyembunyikan
+   baris justru dari orang yang bertugas memeriksanya tidak bisa dipercaya.
+   SESSION.role 'admin' sudah mencakup superadmin Office (lihat roleSesi di
+   boot: superOffice selalu jatuh ke 'admin'); superOffice tetap diperiksa
+   terpisah supaya syaratnya tidak ikut berubah kalau pemetaan itu diubah. */
+function bolehLihatOfficeDiPapan(){
+  return !!SESSION && (SESSION.role === "admin" || SESSION.superOffice === true);
+}
+/* Divisi seseorang menurut NAMA. Papan capaian berkunci nama, bukan id —
+   review menyimpan nama host apa adanya — jadi pencocokannya pun lewat nama,
+   tanpa memandang besar-kecil huruf. Roster Office didahulukan karena ia
+   sumber yang sama dengan yang dipakai kruCapaian(). */
+function divisiKruNama(nama){
+  const k = String(nama||"").trim().toLowerCase();
+  if(!k) return "";
+  if(SE_ROSTER && SE_ROSTER.length){
+    const r = SE_ROSTER.find(u=>String(u.name||"").trim().toLowerCase()===k);
+    if(r) return String(r.div||"");
+  }
+  const u = getUsers().find(x=>String(x.name||"").trim().toLowerCase()===k);
+  return u ? String(u.divisi||"") : "";
+}
+function murniOffice(nama){
+  const d = divisiKruNama(nama);
+  return divisiCocok(d, ["office"]) && !divisiCocok(d, DIVISI_REVIEW);
+}
+
 function renderCapaian(){
   // Roster ditarik sekali, lalu halamannya digambar ulang begitu tiba.
   if(SE_ROSTER===null) muatRosterTim().then(r=>{ if(r && CURRENT_PAGE==='capaian') renderCapaian(); });
@@ -9200,14 +9241,28 @@ function renderCapaian(){
   sah.forEach(x=>isi(rvHostOf(x)).sah++);
   tolak.forEach(x=>isi(rvHostOf(x)).tolak++);
   fb.forEach(x=>isi(x.by).fb++);
-  const baris=Object.values(peta).map(o=>{
+  const semuaBaris=Object.values(peta).map(o=>{
     o.target=reviewTargetOf(o.nama);
     o.pct=o.target?Math.min(100,Math.round(o.sah/o.target*100)):null;
     o.reward=rewardOf(o.sah);
     return o;
   }).sort((a,b)=> b.sah-a.sah || b.minta-a.minta || a.nama.localeCompare(b.nama));
-  // Total bonus dihitung dari SELURUH baris, bukan cuma halaman yang tampil —
-  // pager tidak boleh mengubah angka yang dibaca orang sebagai "total".
+
+  /* Baris tim Office dikeluarkan di sini, sesudah angkanya lengkap terhitung —
+     bukan dengan mencegahnya masuk ke `peta`. Bedanya penting: yang tersembunyi
+     tetap bisa DIHITUNG, dan jumlahnya ditulis di bawah tabel. Kalau tidak,
+     kartu "Terverifikasi" di atas akan selalu lebih besar daripada penjumlahan
+     tabel tanpa satu pun keterangan yang menjelaskan selisihnya — dan angka
+     yang tidak bisa dijelaskan adalah angka yang berhenti dipercaya. */
+  const lihatSemua=bolehLihatOfficeDiPapan();
+  const barisOffice=lihatSemua?[]:semuaBaris.filter(o=>murniOffice(o.nama));
+  const baris=lihatSemua?semuaBaris:semuaBaris.filter(o=>!murniOffice(o.nama));
+  const sahOffice=barisOffice.reduce((a,o)=>a+(o.sah||0),0);
+  const fbOffice=barisOffice.reduce((a,o)=>a+(o.fb||0),0);
+
+  /* Total reward tetap dihitung dari baris yang TAMPIL. Office tidak pernah
+     berhak atas tangga bonus (ia tidak dinilai), jadi memasukkannya ke total
+     berarti melaporkan uang yang tidak akan pernah dibayarkan. */
   const totalBonus=baris.reduce((a,o)=>a+o.reward.bonus,0);
   const kruDapat=baris.filter(o=>o.reward.bonus>0).length;
 
@@ -9282,6 +9337,17 @@ function renderCapaian(){
          </tr>`).join("")}</tbody>
        </table></div>
        ${tblPagerHtml(p,"capaian")}
+       <!-- Keterangan baris tim Office yang disembunyikan. Hanya muncul kalau
+            memang ada yang disembunyikan DAN angkanya bukan nol — orang Office
+            yang tidak pernah menyentuh review sama sekali tidak perlu
+            diumumkan, ia cuma menambah keramaian tanpa menjelaskan selisih apa
+            pun (selisihnya nol). -->
+       ${barisOffice.length && (sahOffice||fbOffice) ? `<div class="hint" style="margin-top:12px">
+         ℹ️ <b>${barisOffice.length} orang tim Office</b> tidak ditampilkan di papan ini — mereka mengatur modulnya, bukan dinilai perolehannya.
+         Angka mereka yang tidak ikut tabel: <b>${sahOffice}</b> review terverifikasi${fbOffice?` &amp; <b>${fbOffice}</b> feedback`:''}.
+         Itulah selisih antara penjumlahan tabel dan kartu <b>Terverifikasi</b> di atas.
+         <span class="muted">Superadmin &amp; Admin Sistem melihatnya utuh.</span>
+       </div>` : ''}
      </div>
    </div>`;
 }
