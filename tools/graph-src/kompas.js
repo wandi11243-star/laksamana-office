@@ -490,6 +490,38 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -3103,7 +3135,42 @@ function lembarSeksi() {  }
 
 
 
-function cetakDashboardOmset() { pct(); lembarKop(); lembarSeksi(); lembarKaki(); }
+
+
+
+function lembarKpi() {  }
+
+
+
+
+
+
+
+
+
+function lembarTabelKolom() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cetakDashboardOmset() { baris(); pct(); lembarKop(); lembarKpi(); lembarSeksi(); lembarTabelKolom(); lembarKaki(); }
+
+
+
+
+
+
+
 
 
 
@@ -3525,7 +3592,7 @@ function cetakAchievement() { kartuCompliment(); }
 
 
 
-function kunci() { compPotong(); lembarKop(); labelRentang(); modeHarian(); lembarSeksi(); lembarKaki(); }
+function kunci() { compPotong(); lembarKop(); labelRentang(); modeHarian(); lembarKpi(); lembarTabelKolom(); lembarKaki(); }
 
 
 

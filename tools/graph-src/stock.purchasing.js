@@ -1277,6 +1277,60 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -2705,7 +2759,97 @@ function forecastRecoHTML() {  }
 
 
 
-function renderIndividualCard() { pesananCK(); confirmIndividualWA(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vendorPerluJadwal() {  }
+
+
+
+function vendorUtamaOrder() {  }
+
+
+
+function orderPerluJadwalJemput() { vendorPerluJadwal(); vendorUtamaOrder(); }
+
+
+
+
+
+
+
+function tglJemputEfektif() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+function kotakJadwalJemput() { segarkanTombolArsip(); }
+
+
+
+
+
+
+
+function segarkanTombolArsip() {  }
+
+
+
+
+
+
+
+
+
+function bacaTglJemput() {  }
+
+
+
+
+
+
+
+function simpanTglJemput() { saveStateToStorage(); sendPostRequest(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function renderIndividualCard() { pesananCK(); orderPerluJadwalJemput(); confirmIndividualWA(); kotakJadwalJemput(); markAsArchived(); unarchiveOrder(); formatFriendlyDate(); forecastRecoHTML(); teamBadge(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2822,7 +2966,20 @@ function triggerWAFromCard() { showToast(); compileTemplateChat(); }
 
 
 
-function renderConsolidatedCard() { teamBadge(); formatFriendlyDate(); prepareConsolidatedWA(); archiveConsolidatedGroup(); }
+function renderConsolidatedCard() { teamBadge(); vendorPerluJadwal(); formatFriendlyDate(); kotakJadwalJemput(); prepareConsolidatedWA(); archiveConsolidatedGroup(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2947,7 +3104,7 @@ function potongHalaman() {  }
 
 
 
-function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDeleteVendorConfirm(); openEditProductModal(); triggerDeleteProductConfirm(); }
+function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDeleteVendorConfirm(); }
 
 
 
@@ -2999,6 +3156,49 @@ function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDe
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chip() { vendorPerluJadwal(); openEditProductModal(); triggerDeleteProductConfirm(); }
 
 
 
@@ -3418,7 +3618,7 @@ function setJemputHari() { tglOffsetLokal(); renderJemput(); }
 function jemputTerarsip() {  }
 
 
-function daftarJemput() { caraBeliProduk(); infoCK(); normalizeDateToYYYYMMDD(); jemputTerarsip(); }
+function daftarJemput() { caraBeliProduk(); infoCK(); tglJemputEfektif(); jemputTerarsip(); }
 
 
 
@@ -3430,7 +3630,22 @@ function daftarJemput() { caraBeliProduk(); infoCK(); normalizeDateToYYYYMMDD();
 
 
 
-function jemputTelat() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jemputTelat() { tglJemputEfektif(); }
 
 
 
@@ -4592,7 +4807,7 @@ function sendPostRequest() { showToast(); }
 
 
 
-function markAsArchived() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
+function markAsArchived() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); vendorUtamaOrder(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); sendPostRequest(); }
 
 
 
@@ -4616,7 +4831,50 @@ function markAsArchived() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 
-function archiveConsolidatedGroup() { requireEditPage(); saveStateToStorage(); renderDashboard(); showToast(); sendPostRequest(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function archiveConsolidatedGroup() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); sendPostRequest(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4654,6 +4912,12 @@ function unarchiveOrder() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 function submitAddVendor() { requireEditPage(); showToast(); sendPostRequest(); closeVendorModal(); fetchSheetData(); }
+
+
+
+
+
+
 
 
 
@@ -4858,6 +5122,14 @@ function updateBackupCheckboxes() {  }
 
 
 function submitProductMapping() { requireEditPage(); showToast(); sendPostRequest(); closeProductModal(); fetchSheetData(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -5168,7 +5440,9 @@ function openAddVendorModal() { toggleModal(); }
 
 
 
+
 function openEditVendorModal() { toggleModal(); }
+
 
 
 
@@ -5178,7 +5452,7 @@ function openEditVendorModal() { toggleModal(); }
 
 function closeVendorModal() { toggleModal(); }
 
-function openAddProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); toggleModal(); }
+function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); toggleModal(); }
 
 
 
@@ -5202,7 +5476,15 @@ function openAddProductModal() { populateVendorDropdowns(); updateBackupCheckbox
 
 
 
-function openEditProductModal() { populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+
+
+
+
+
+
 
 
 
@@ -5241,6 +5523,19 @@ function openEditProductModal() { populateVendorDropdowns(); updateBackupCheckbo
 
 
 function closeProductModal() { toggleModal(); }
+
+
+
+
+function cekGantiNamaProduk() {  }
+
+
+
+
+
+
+
+
 
 function populateVendorDropdowns() {  }
 
