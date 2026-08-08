@@ -1776,6 +1776,19 @@ function lihatFotoWaste() { bukaFoto(); timSaya(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function soAreaCocok() { timSaya(); }
 
 

@@ -1148,9 +1148,22 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Kategori (untuk Daily SO)</label>
                         <input list="prod-kat-opsi" id="prod-kategori" placeholder="cth: DRY ITEM" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <!-- HARUS SAMA PERSIS dengan SO_KATEGORI di
+                             deploy/stock/usage/index.html. Kalau berbeda:
+                             kategori yang cuma ada di sini tetap bisa diketik
+                             dan tersimpan, tapi di Daily SO ia jatuh ke urutan
+                             paling belakang di antara kategori tak dikenal —
+                             dan yang cuma ada di sana tidak pernah muncul
+                             sebagai saran di kotak ini. Menambah di satu berkas
+                             saja tidak akan menimbulkan galat apa pun.
+                             Sembilan nilai terakhir ditambahkan 8 Agustus 2026
+                             atas permintaan user. -->
                         <datalist id="prod-kat-opsi">
                           <option value="DRY ITEM"><option value="CHILLER ITEM"><option value="FRESH">
                           <option value="OPERATIONAL"><option value="STORE ITEM">
+                          <option value="Liquid/Syrup"><option value="Tea Section"><option value="Fresh Fruits">
+                          <option value="Cake"><option value="Kelapa"><option value="Buah Prep">
+                          <option value="Packaging"><option value="Powder"><option value="Powder Herbs">
                         </datalist>
                         <span class="text-[10px] text-slate-400 mt-1 block">Pengelompokan item di <b>Daily SO</b>.</span>
                     </div>
@@ -3618,6 +3631,19 @@
         function jemputTerarsip(o) {
             return o.status === 'Arsip' || (appState.archivedOrderIds || []).includes(o.nomorOrder);
         }
+        /* BATAS TERBAWA. Sesudah syarat "belum diarsipkan" dibuang (lihat
+           daftarJemput), satu-satunya yang menghentikan sebuah jemputan adalah
+           check-in kedatangan. Tanpa batas ini, order lama yang memang tidak
+           pernah di-check-in — termasuk ratusan order dari masa sebelum fitur
+           check-in ada — akan menumpuk di daftar hari ini sekaligus, dan
+           daftar yang isinya ratusan baris basi lebih tidak berguna daripada
+           daftar yang kehilangan satu baris.
+
+           Dua minggu: cukup panjang untuk menampung libur panjang dan vendor
+           yang menunda berhari-hari, cukup pendek supaya yang muncul memang
+           masih layak dikejar. Angkanya boleh dikalibrasi — ia sengaja berdiri
+           sendiri di sini, bukan tertanam di dalam penyaringnya. */
+        const JEMPUT_TELAT_MAKS_HARI = 14;
         function daftarJemput(tgl) {
             return (appState.orders || []).filter(o => {
                 /* Sejak 8 Agustus 2026 ada jalan MASUK ketiga: order yang punya
@@ -3630,18 +3656,32 @@
                 const d = tglJemputEfektif(o);
                 if (!d) return false;
                 if (d === tgl) return true;
-                /* ISO "YYYY-MM-DD" aman dibandingkan sebagai teks — urutannya sama
-                   dengan urutan waktunya, jadi tidak perlu Date() sama sekali.
+                // ISO "YYYY-MM-DD" aman dibandingkan sebagai teks — urutannya sama
+                // dengan urutan waktunya, jadi tidak perlu Date() sama sekali.
+                if (d >= tgl) return false;
+                /* SATU-SATUNYA penanda "sudah selesai" adalah kedatangan.
 
-                   ORDER TERARSIP YANG PUNYA JADWAL TETAP IKUT TERBAWA. Pengecualian
-                   arsip di baris ini dibuat saat mengarsipkan selalu berarti
-                   "urusannya selesai". Untuk order berjadwal artinya kebalikannya:
-                   arsip ditekan JUSTRU SEBELUM barangnya dijemput — itu memang
-                   alur yang diminta. Tanpa pengecualian ini, jadwal yang lewat
-                   sehari langsung lenyap dari layar dan barangnya tinggal di
-                   vendor tanpa ada satu tempat pun yang menyebutnya. */
-                return d < tgl && (o.kedatangan || '') !== 'Datang'
-                    && (!!o.tglJemput || !jemputTerarsip(o));
+                   Syarat `!jemputTerarsip(o)` DIHAPUS di sini (8 Agustus 2026).
+                   Ia dibuat saat mengarsipkan dianggap selalu berarti "urusannya
+                   selesai" — dan itu keliru untuk jemputan: tombol Arsipkan di
+                   Monitor Order berarti "pesanan sudah diteruskan ke vendor",
+                   bukan "barangnya sudah diambil". Karena hampir semua order
+                   memang diarsipkan begitu dikirim, syarat itu membuang nyaris
+                   SEMUA jemputan tertunda.
+
+                   Akibatnya persis yang dilaporkan user: barang yang tidak
+                   sempat dijemput kemarin tetap tampil di tanggalnya sendiri
+                   (cabang `d === tgl` di atas tidak memeriksa arsip) lalu lenyap
+                   total keesokan harinya — satu order, keadaan yang sama, hilang
+                   karena alasan yang tidak ada hubungannya dengan apakah ia
+                   sudah diambil. Dilihat di dev 8 Agustus 2026: "Buns Burger"
+                   (Andersen) tercentang 0/1 pada 7 Agustus dan tidak muncul
+                   sama sekali pada 8 Agustus.
+
+                   `kedatangan === 'Datang'` sudah jadi penanda selesai sejak
+                   awal — itu pula yang dipakai centang awal renderJemput(). */
+                return (o.kedatangan || '') !== 'Datang'
+                    && jemputTelat(o, tgl) <= JEMPUT_TELAT_MAKS_HARI;
             });
         }
         // Berapa hari sebuah jemputan tertunda dari jadwal aslinya. 0 = hari ini.
@@ -3688,10 +3728,14 @@
             const btnSimpan = document.getElementById('btn-jemput-simpan');
             const btnSemua = document.getElementById('btn-jemput-semua');
 
-            const telat = daftar.filter(o => jemputTelat(o, tgl)).length;
+            // Yang dihitung: tertunda DAN belum dicentang. Yang sudah dicentang
+            // memang terlambat, tapi tidak menuntut apa-apa lagi hari ini —
+            // memasukkannya membuat angka peringatan tidak pernah turun ke nol
+            // walau semuanya sudah diambil.
+            const telat = daftar.filter(o => jemputTelat(o, tgl) && !jemputCentang.has(Number(o.rowIndex))).length;
             if (ringkas) ringkas.innerHTML = daftar.length
                 ? `<span class="${sudah === daftar.length ? 'text-emerald-600' : 'text-slate-800'}">${sudah} dari ${daftar.length} barang sudah dijemput</span>`
-                  + (telat ? ` <span class="text-rose-600 text-sm font-bold">· ${telat} tertunda dari hari sebelumnya</span>` : '')
+                  + (telat ? ` <span class="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[11px] font-black align-middle">⚠️ ${telat} TERTUNDA</span>` : '')
                 : 'Tidak ada barang yang perlu dijemput';
             if (ringkasSub) ringkasSub.textContent = daftar.length
                 ? (sudah === tersimpan
@@ -3750,12 +3794,21 @@
                     String(a.item || '').localeCompare(String(b.item || '')));
                 const nSudah = items.filter(o => jemputCentang.has(Number(o.rowIndex))).length;
                 const beres = nSudah === items.length;
+                const nTelat = items.filter(o => jemputTelat(o, tgl) && !jemputCentang.has(Number(o.rowIndex))).length;
                 const baris = items.map(o => {
                     const on = jemputCentang.has(Number(o.rowIndex));
                     const div = divisiOrder(o);
+                    /* Barisnya sendiri diwarnai merah muda, bukan cuma diberi
+                       lencana kecil. Lencana saja terbukti terlewat: ia berada
+                       di baris ketiga meta yang abu-abu, sementara yang dipindai
+                       mata saat membuka daftar ini adalah blok barisnya. Warna
+                       dicabut begitu dicentang — sesudah diambil, keterlambatannya
+                       tidak lagi menuntut apa pun. */
+                    const telat = jemputTelat(o, tgl);
+                    const tandaTelat = telat && !on;
                     return `
                     <button type="button" ${bisaUbah ? `onclick="toggleJemputBaris(${Number(o.rowIndex)})"` : 'disabled'}
-                        class="w-full text-left flex items-center gap-3 px-4 py-3 border-t border-slate-100 transition-all ${on ? 'bg-emerald-50/60' : 'hover:bg-slate-50'} ${bisaUbah ? '' : 'cursor-default'}">
+                        class="w-full text-left flex items-center gap-3 px-4 py-3 border-t transition-all ${on ? 'bg-emerald-50/60 border-slate-100' : (tandaTelat ? 'bg-rose-50/70 border-rose-100 border-l-4 border-l-rose-500 hover:bg-rose-50' : 'border-slate-100 hover:bg-slate-50')} ${bisaUbah ? '' : 'cursor-default'}">
                         <span class="w-5 h-5 flex-none rounded-md border-2 flex items-center justify-center text-[10px] ${on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 text-transparent'}">
                             <i class="fa-solid fa-check"></i>
                         </span>
@@ -3767,8 +3820,8 @@
                                  hari ini, dan tidak ada yang tahu ia sudah menunggu tiga
                                  hari — padahal justru itu yang menentukan mana yang harus
                                  dijemput lebih dulu. -->
-                            ${jemputTelat(o, tgl) ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
-                                ⏳ Tertunda ${jemputTelat(o, tgl)} hari · dijadwalkan ${formatFriendlyDate(o.tglDatang, false)}</span>` : ''}
+                            ${telat ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg ${on ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-rose-600 text-white border border-rose-600'} text-[10px] font-black uppercase tracking-wide">
+                                ⚠️ Tertunda ${telat} hari · jadwal ${formatFriendlyDate(tglJemputEfektif(o), false)}</span>` : ''}
                             ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
                         </span>
                         <!-- JUMLAH dipindah ke kanan dan dibesarkan (permintaan
@@ -3789,14 +3842,21 @@
                     </button>`;
                 }).join('');
 
+                /* Kepala grup ikut menandai keterlambatan. Kartu jemputan sering
+                   dilihat sambil berjalan dengan layar setengah tergulir — kalau
+                   penandanya cuma ada di dalam barisnya, grup yang barisnya
+                   belum kelihatan tidak menyiratkan apa pun. */
                 return `
-                <div class="bg-white border ${beres ? 'border-emerald-200' : 'border-slate-200'} rounded-2xl shadow-sm overflow-hidden">
-                    <div class="px-4 py-3 flex items-center justify-between gap-3 ${beres ? 'bg-emerald-50' : 'bg-slate-50'}">
+                <div class="bg-white border ${beres ? 'border-emerald-200' : (nTelat ? 'border-rose-300' : 'border-slate-200')} rounded-2xl shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 flex items-center justify-between gap-3 ${beres ? 'bg-emerald-50' : (nTelat ? 'bg-rose-50' : 'bg-slate-50')}">
                         <div class="min-w-0">
                             <div class="text-[13px] font-black text-slate-800 truncate">${vendor === JEMPUT_GRUP_CK ? '👨‍🍳' : '🏪'} ${vendor}</div>
                             <div class="text-[10px] text-slate-500 mt-0.5">${items.length} barang${vendor === JEMPUT_GRUP_CK ? ' · mencentang di sini langsung memotong stok CK' : ''}</div>
                         </div>
-                        <span class="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-black ${beres ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${nSudah}/${items.length}</span>
+                        <div class="shrink-0 flex items-center gap-1.5">
+                            ${nTelat ? `<span class="px-2 py-1 rounded-full text-[10px] font-black bg-rose-600 text-white whitespace-nowrap">⚠️ ${nTelat} tertunda</span>` : ''}
+                            <span class="px-2.5 py-1 rounded-full text-[10px] font-black ${beres ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${nSudah}/${items.length}</span>
+                        </div>
                     </div>
                     ${baris}
                 </div>`;

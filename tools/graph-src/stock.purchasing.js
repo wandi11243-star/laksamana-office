@@ -1331,6 +1331,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3618,7 +3631,34 @@ function setJemputHari() { tglOffsetLokal(); renderJemput(); }
 function jemputTerarsip() {  }
 
 
-function daftarJemput() { caraBeliProduk(); infoCK(); tglJemputEfektif(); jemputTerarsip(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function daftarJemput() { caraBeliProduk(); infoCK(); tglJemputEfektif(); jemputTerarsip(); renderJemput(); jemputTelat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3668,7 +3708,27 @@ function tandaiSemuaJemput() { daftarJemput(); jemputTglAktif(); renderJemput();
 
 
 
-function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); }
+function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); tglJemputEfektif(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
