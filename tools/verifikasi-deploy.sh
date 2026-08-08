@@ -28,14 +28,51 @@
 # Daftar yang harus diingat manusia akan selalu tertinggal dari repo yang
 # bertambah. Sekarang diambil dari repo itu sendiri: setiap deploy/**/index.html
 # diperiksa, jadi modul baru ikut terjaga tanpa ada yang perlu menambahkannya.
+#
+# TIDAK SEMUA MODUL BERDIRI DI BAWAH SATU BASE (8 Agustus 2026).
+# Pengambilan daftar dari repo di atas membawa satu anggapan diam-diam: setiap
+# deploy/<modul>/ pasti dapat alamat <base>/<modul>/. Di dev itu benar. Di
+# PRODUKSI tidak: `ticketing` adalah situs CUSTOMER yang punya alamat sendiri
+# di laksamanamuda.id/ticketing, dan deploy.yml SENGAJA mengecualikannya dari
+# unggahan Office (`exclude: ticketing/**`) supaya tidak ada salinan kedua di
+# team.laksamanamuda.id/office/ticketing/ yang ../ticketing-api/-nya menunjuk
+# folder tak pernah ada.
+#
+# Akibatnya verifikasi produksi mencari ticketing di host yang memang tidak
+# pernah memilikinya, dan membalas 404 setinggi 1.251 byte — GAGAL yang pasti
+# terjadi di SETIAP deploy produksi, untuk berkas yang sebenarnya sudah
+# mendarat sempurna di tempat yang benar. Dilaporkan user 8 Agustus 2026.
+#
+# Karena itu modul boleh diberi base sendiri lewat argumen tambahan:
+#   bash tools/verifikasi-deploy.sh https://team.laksamanamuda.id \
+#        ticketing=https://laksamanamuda.id/ticketing
+#
+# Ini MENGALIHKAN, bukan melewati. Isinya tetap dibandingkan byte per byte —
+# menambahkan "lewati saja" akan mengubah satu-satunya penjaga yang membuktikan
+# berkas benar-benar mendarat menjadi penjaga yang bisa dimatikan diam-diam,
+# dan itulah persis kegagalan yang skrip ini dibuat untuk menangkap.
 # ============================================================================
 set -u
 base="${1:-}"
 if [ -z "$base" ]; then
-  echo "pemakaian: bash tools/verifikasi-deploy.sh <base-url>" >&2
+  echo "pemakaian: bash tools/verifikasi-deploy.sh <base-url> [modul=<base-url-lain> ...]" >&2
   exit 2
 fi
 base="${base%/}"
+shift
+# Sisa argumen = daftar override "modul=url". Kosong pun aman: `$*` jadi string
+# kosong dan perulangan di bawah tidak pernah berjalan.
+override="$*"
+# Base khusus untuk satu modul, kalau ada. Mengembalikan status 1 kalau tidak.
+base_modul() {
+  _kunci="$1"
+  for _kv in $override; do
+    case "$_kv" in
+      "$_kunci="*) printf '%s' "${_kv#*=}"; return 0 ;;
+    esac
+  done
+  return 1
+}
 ci="${GITHUB_SHA:-manual-$(date +%s)}"   # pemecah cache; tanpa ini bisa kena salinan lama CDN/proxy
 gagal=0
 
@@ -60,13 +97,23 @@ for p in $daftar; do
     echo "LEWAT   ${m:-/} (tidak ada di repo)"
     continue
   fi
-  curl -s -m 90 "${base}/${m}index.html?ci=${ci}" -o /tmp/live.html || true
+  # Alamat yang ditembak: base biasa, atau base khusus modul ini kalau
+  # diberikan. Base khusus DITULIS di keluaran supaya kalau ia salah, yang
+  # membaca log bisa melihat ke mana skrip ini sebenarnya menembak.
+  if bm=$(base_modul "$p"); then
+    url="${bm%/}/index.html?ci=${ci}"
+    ket=" [base khusus: ${bm%/}]"
+  else
+    url="${base}/${m}index.html?ci=${ci}"
+    ket=""
+  fi
+  curl -s -m 90 "$url" -o /tmp/live.html || true
   tr -d '\r' < "$src" > /tmp/a
   tr -d '\r' < /tmp/live.html > /tmp/b
   if cmp -s /tmp/a /tmp/b; then
-    echo "OK      ${m:-/} ($(wc -c < /tmp/b) byte, sama persis dgn repo)"
+    echo "OK      ${m:-/} ($(wc -c < /tmp/b) byte, sama persis dgn repo)${ket}"
   else
-    echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong / salah folder)"
+    echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong / salah folder)${ket}"
     echo "        repo=$(wc -c < /tmp/a) byte, server=$(wc -c < /tmp/b) byte"
     grep -q '</html>' /tmp/b || echo "        server tidak punya </html> → terpotong atau 404"
     gagal=1
