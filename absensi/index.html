@@ -588,8 +588,27 @@ let POS_WATCH=null;
    supaya layar langsung punya angka, lalu watchPosition akurasi tinggi yang
    menajamkannya sendiri begitu GPS mengunci. terimaPos hanya menerima yang
    lebih baik, jadi yang kasar tidak pernah menimpa yang sudah tajam. */
+/* HALAMAN TIDAK AMAN = GPS MATI, DAN TANPA PESAN APA PUN.
+   Peramban menolak geolocation di luar konteks aman (https, atau localhost).
+   Yang membuatnya sulit dilacak: penolakannya TIDAK seragam — sebagian
+   peramban membalas kode 1 "izin ditolak", yang tidak bisa dibedakan dari
+   orang yang benar-benar menolak, dan sebagian lagi tidak memanggil callback
+   mana pun sehingga layar diam selamanya di "Mencari sinyal". Diperiksa lebih
+   dulu supaya penyebabnya disebut namanya, bukan ditebak-tebak. */
+function konteksAman(){
+  if(typeof isSecureContext!=='undefined') return !!isSecureContext;
+  return location.protocol==='https:' || location.hostname==='localhost'
+      || location.hostname==='127.0.0.1';
+}
 function mulaiLokasi(){
   if(!navigator.geolocation){ POS_ERR='Peramban ini tidak mendukung GPS.'; return; }
+  if(!konteksAman()){
+    POS_ERR='Halaman ini dibuka lewat '+location.protocol.replace(':','').toUpperCase()
+      +', dan peramban hanya mengizinkan GPS di halaman HTTPS. '
+      +'Buka lewat alamat https://'+location.host+location.pathname;
+    segarkanLokasiDiLayar();
+    return;
+  }
   /* Izin yang SUDAH ditolak permanen tidak akan pernah memunculkan kotak izin
      lagi, berapa kali pun diminta. Dikatakan apa adanya, bukan dibiarkan
      berputar selamanya di "Mencari sinyal". */
@@ -634,7 +653,11 @@ function terimaPos(p){
 }
 function tolakPos(e){
   POS_ERR = e && e.code===1
-      ? 'Izin lokasi ditolak. Ketuk ikon gembok di sebelah alamat, lalu izinkan Lokasi untuk situs ini.'
+      ? ('Izin lokasi ditolak. Ketuk ikon gembok di sebelah alamat, lalu izinkan Lokasi untuk situs ini.'
+         /* Halaman non-HTTPS juga membalas kode 1 di sebagian peramban, dan
+            gejalanya sama persis — disebut di sini supaya orang tidak
+            menghabiskan waktu mencari izin yang sebenarnya sudah diberikan. */
+         + (konteksAman()?'':' Halaman ini juga bukan HTTPS, dan itu sendiri sudah cukup untuk mematikan GPS.'))
     : e && e.code===3
       ? 'Sinyal GPS belum didapat. Coba keluar dari ruangan tertutup, lalu ketuk "Ambil lokasi" lagi.'
     : e && e.code===2
@@ -660,9 +683,25 @@ function segarkanLokasiDiLayar(){
 function mintaLokasi(){
   return new Promise(function(selesai){
     if(!navigator.geolocation){ POS_ERR='Peramban ini tidak mendukung GPS.'; segarkanLokasiDiLayar(); return selesai(false); }
+    if(!konteksAman()){
+      POS_ERR='Halaman ini bukan HTTPS, jadi peramban mematikan GPS. Buka lewat https://'+location.host+location.pathname;
+      segarkanLokasiDiLayar(); return selesai(false);
+    }
+    /* SEBAGIAN PERAMBAN TIDAK MEMANGGIL CALLBACK MANA PUN — tidak berhasil,
+       tidak gagal, tidak juga kena timeout bawaannya (WebView di dalam
+       aplikasi chat, dan Android dengan penghemat baterai menyala). Tanpa
+       penjaga ini tombolnya berputar selamanya dan tidak ada yang tahu
+       kenapa. */
+    let sudah=false;
+    const jaga=setTimeout(function(){
+      if(sudah) return; sudah=true;
+      POS_ERR='GPS tidak menjawab sama sekali. Kalau halaman ini dibuka dari dalam aplikasi lain '
+        +'(WhatsApp/Instagram), buka di Chrome atau Safari. Periksa juga penghemat baterai.';
+      segarkanLokasiDiLayar(); selesai(false);
+    }, 25000);
     navigator.geolocation.getCurrentPosition(
-      function(p){ terimaPos(p); selesai(true); },
-      function(e){ tolakPos(e); selesai(false); },
+      function(p){ if(sudah) return; sudah=true; clearTimeout(jaga); terimaPos(p); selesai(true); },
+      function(e){ if(sudah) return; sudah=true; clearTimeout(jaga); tolakPos(e); selesai(false); },
       /* maximumAge:0 memaksa pembacaan BARU. Tanpa itu peramban boleh
          menjawab dengan posisi lama yang di-cache — dan orang yang berdiri di
          kantor untuk menandai titiknya bisa mendapat koordinat rumahnya. */
@@ -690,7 +729,9 @@ function gpsKotakHTML(){
   if(!POS){
     return '<div class="gps cari"><div class="ic"><span class="spinner"></span></div>'
       +'<div class="is"><b>Mencari sinyal GPS…</b>'
-      +'<span>Kalau kotak izin tidak muncul, ketuk tombol di bawah.</span></div></div>';
+      +'<span>Kalau kotak izin tidak muncul, ketuk tombol di bawah.'
+      +(konteksAman()?'':' <b style="color:var(--danger)">Halaman ini bukan HTTPS — GPS tidak akan pernah jalan sebelum itu dibetulkan.</b>')
+      +'</span></div></div>';
   }
   const a=POS.akurasi;
   const nilai = a<=20 ? ['baik','Akurat'] : a<=60 ? ['sedang','Cukup akurat'] : ['buruk','Kurang akurat'];
