@@ -918,6 +918,14 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 /* Pratinjau tagihan di panel Finance. Lebarnya sempit, jadi tabelnya boleh
    digulir mendatar sendiri daripada memaksa kolomnya menyempit sampai tak
    terbaca. */
+/* Tabel rincian yang diketik: di HP ia digulir mendatar daripada kolomnya
+   diperas sampai tak terbaca. */
+.rinci-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.rinci-wrap table{min-width:620px}
+.rinci-wrap tr[data-jenis="free"] td{background:rgba(31,157,95,.07)}
+.rinci-wrap tr[data-jenis="tbc"] td{background:rgba(181,131,26,.09)}
+.rinci-wrap .rundown-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
 .inv-pratinjau{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
   border-radius:9px;padding:12px;background:#fff;color:#1a1a1a}
 .inv-pratinjau table{min-width:460px}
@@ -2661,6 +2669,16 @@ const EVENT_SCHEMA = [
      berbayar. Ditaruh di tab Finance, bukan di Pengaturan saja, karena tiap
      acara memang berbeda: yang gratis di gathering kantor belum tentu gratis
      di wedding. Kosong = pakai template umum di Pengaturan. */
+  /* SATU TABEL, BENTUKNYA SAMA DENGAN YANG DICETAK.
+     Dicentang dulu supaya event yang sudah jalan tidak berubah angkanya
+     hanya karena tabel ini ditambahkan — pola yang sama dengan Harga Deal
+     di atas. Kalau dicentang, jumlah baris "Ditagih" menggantikan tiga kotak
+     rupiah di atasnya, dan baris FREE/belum-pasti menggantikan dua kotak
+     teks di bawahnya. */
+  {k:'rincianOn',l:'Ketik Rincian sebagai Tabel',t:'tog',full:1,
+   help:'Kalau dinyalakan, biaya tambahan dihitung dari tabel di bawah — bukan dari Sewa Venue / Teknis / Lain-lain, dan bukan dari dua kotak teks FREE di bawahnya.'},
+  {k:'rincianItem',l:'Rincian Tagihan',t:'rincitbl',full:1,cond:{k:'rincianOn',v:true},
+   help:'Kolomnya sama persis dengan lembar tagihan yang dicetak. Jenis "Belum pasti" tercetak sebagai "to be confirm" — harganya sengaja dikunci, karena baris yang punya angka bukan lagi baris yang belum pasti.'},
   {k:'itemFree',l:'Fasilitas Termasuk (FREE)',t:'ta',full:1,
    help:'Satu baris satu fasilitas. Muncul di penawaran bertuliskan FREE. Kosongkan untuk memakai template umum di Pengaturan. Penanda {jika-sewa-gratis} / {jika-teknis-gratis} membuat barisnya hilang sendiri kalau komponen itu ternyata ditagihkan.'},
   {k:'itemTbc',l:'Item Belum Pasti Harganya',t:'ta',full:1,
@@ -2829,7 +2847,14 @@ function eventFbCost(ev){
   const pax=fbPax(ev), bp=fbHargaPax(ev);
   return bp>0 ? Math.round(pax*bp) : (+d.biayaFB||0);
 }
-function eventSubtotal(ev){ const d=ev.detail||{}; return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0); }
+function eventSubtotal(ev){
+  const d=ev.detail||{};
+  /* Tabel rincian, kalau dinyalakan, MENGGANTIKAN tiga kotak rupiah — bukan
+     menambahinya. Kalau ditambahkan, orang yang memindahkan isi kotak lama ke
+     tabel akan menagih dua kali tanpa ada yang terlihat salah di layar. */
+  if(rinciAktif(ev)) return eventFbCost(ev)+rinciTotalBayar(ev);
+  return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0);
+}
 function eventFinance(ev){
   const st=S.settings, d=ev.detail||{};
   const fb=eventFbCost(ev);
@@ -4768,6 +4793,8 @@ function renderField(ev,fl,canEdit){
        +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="itemAddRow(\''+id+'\')">'+svg(IC.plus)+'Tambah Item</button>'
           +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
        +'</div>';
+  } else if(fl.t==='rincitbl'){
+    inp=rinciTblHTML(id,val,canEdit);
   } else if(fl.t==='dealtbl'){
     inp=dealTblHTML(id,ev,val,canEdit);
   } else if(fl.t==='barangtbl'){
@@ -5124,6 +5151,159 @@ function dealTotal(wrap){
    fungsi supaya keduanya tidak bisa berbeda bentuk — id-nya tetap mengikuti
    konvensi efd_<key>, jadi collectField() & auto-save membacanya tanpa perlu
    tahu siapa yang menggambar. */
+/* ============================================================
+   TABEL RINCIAN YANG BISA DIKETIK LANGSUNG
+
+   Sebelum ini isi lembar tagihan datang dari empat tempat berbeda: tiga
+   kotak rupiah (Sewa Venue / Teknis / Lain-lain) dan dua kotak teks
+   bertingkat baris (FREE / to be confirm). Yang diketik tidak berbentuk
+   seperti yang dicetak, jadi menyusun penawaran berarti membayangkan
+   hasilnya — dan kesalahan baru ketahuan sesudah menekan Cetak.
+
+   Sekarang satu tabel dengan kolom yang SAMA PERSIS dengan lembar tagihan:
+   Deskripsi | Qty | Harga | Jenis. Yang diketik adalah yang dicetak.
+
+   JENIS menentukan arti barisnya, dan ketiganya sengaja tidak bisa
+   terlihat sama:
+     bayar -> masuk hitungan
+     free  -> tercetak FREE, tidak menambah apa pun
+     tbc   -> tercetak "to be confirm"; harga sengaja dikunci, karena baris
+              yang punya angka bukan lagi baris yang belum pasti.
+   ============================================================ */
+const RINCI_JENIS=[['bayar','Ditagih'],['free','FREE'],['tbc','Belum pasti']];
+
+function rinciRowHTML(r,canEdit,idx){
+  r=r||{}; const dis=canEdit?'':'disabled';
+  const jenis=r.jenis||'bayar', jml=+r.jumlah||0, harga=+r.harga||0;
+  return '<tr data-jenis="'+esc(jenis)+'">'
+   +'<td><input class="inp" data-r="desc" value="'+esc(r.desc||'')+'" '
+     +'placeholder="mis. Biaya Konsumsi Event: Paketan 75rb" '+dis+' oninput="rinciHitung(this)"></td>'
+   +'<td><input class="inp" data-r="jumlah" type="number" min="0" value="'+(jml||'')+'" '
+     +'placeholder="0" '+dis+' oninput="rinciHitung(this)"></td>'
+   +'<td><input class="inp" data-r="harga" inputmode="numeric" value="'+esc(harga?rp(harga):'')+'" '
+     +'placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);rinciHitung(this)"></td>'
+   +'<td><select class="inp" data-r="jenis" '+dis+' onchange="rinciGantiJenis(this)">'
+     +RINCI_JENIS.map(function(j){
+        return '<option value="'+j[0]+'"'+(jenis===j[0]?' selected':'')+'>'+j[1]+'</option>'; }).join('')
+     +'</select></td>'
+   +'<td class="mono r" data-r="total" style="white-space:nowrap">'+rinciTeksTotal(jenis,jml,harga)+'</td>'
+   +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rinciDelRow(this)">&times;</button></td>':'')
+   +'</tr>';
+}
+function rinciTeksTotal(jenis,jml,harga){
+  if(jenis==='free') return '<b>FREE</b>';
+  if(jenis==='tbc')  return '<i style="color:var(--sand-dim)">to be confirm</i>';
+  return (jml&&harga)?rp(jml*harga):'—';
+}
+function rinciTblHTML(id,rows,canEdit){
+  rows=Array.isArray(rows)?rows:[];
+  const body=(rows.length?rows:[{}]).map(function(r,i){ return rinciRowHTML(r,canEdit,i); }).join('');
+  return '<div class="rundown-wrap rinci-wrap" id="'+id+'">'
+   +'<table class="rundown-tbl"><thead><tr>'
+     +'<th>Deskripsi</th><th style="width:74px">Qty</th><th style="width:130px">Harga</th>'
+     +'<th style="width:118px">Jenis</th><th style="width:130px;text-align:right">Total</th>'
+     +(canEdit?'<th style="width:34px"></th>':'')
+   +'</tr></thead><tbody id="'+id+'_body">'+body+'</tbody></table>'
+   +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="rinciAddRow(\''+id+'\')">'
+      +svg(IC.plus)+'Tambah Baris</button>'
+      +'<button type="button" class="btn sm" onclick="rinciIsiTemplate(\''+id+'\')">Sisipkan template FREE</button>'
+      +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
+   +'</div>';
+}
+/* Baris "belum pasti" tidak boleh punya harga: baris yang punya angka bukan
+   lagi baris yang belum pasti, dan angkanya akan ikut terbaca sebagai janji. */
+function rinciGantiJenis(el){
+  const tr=el.closest('tr'); if(!tr) return;
+  const j=el.value;
+  tr.setAttribute('data-jenis',j);
+  const hv=tr.querySelector('[data-r="harga"]'), jv=tr.querySelector('[data-r="jumlah"]');
+  const mati=(j!=='bayar');
+  if(hv){ hv.disabled=mati; if(mati) hv.value=''; }
+  if(jv){ jv.disabled=mati; if(mati) jv.value=''; }
+  rinciHitung(el);
+}
+function rinciHitung(el){
+  const tr=el.closest?el.closest('tr'):null;
+  if(tr){
+    const j=(tr.querySelector('[data-r="jenis"]')||{}).value||'bayar';
+    const jml=+((tr.querySelector('[data-r="jumlah"]')||{}).value)||0;
+    const hd=rupiahDigits(((tr.querySelector('[data-r="harga"]')||{}).value)||'');
+    const sel=tr.querySelector('[data-r="total"]');
+    if(sel) sel.innerHTML=rinciTeksTotal(j,jml,hd===''?0:+hd);
+  }
+  const wrap=el.closest?el.closest('.rinci-wrap'):null;
+  if(wrap){
+    const tot=$(wrap.id+'_tot');
+    if(tot){
+      const n=rinciBaca(wrap.id)||[];
+      const jml=n.filter(function(r){return r.jenis==='bayar';})
+                 .reduce(function(a,r){return a+r.jumlah*r.harga;},0);
+      tot.textContent='Total ditagih: '+rp(jml);
+    }
+  }
+  finLive();
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
+function rinciBaca(id){
+  const body=$(id+'_body'); if(!body) return undefined;
+  return [...body.querySelectorAll('tr')].map(function(tr){
+    const g=function(k){ const e=tr.querySelector('[data-r="'+k+'"]'); return e?e.value:''; };
+    const h=rupiahDigits(g('harga'));
+    return {desc:String(g('desc')).trim(), jumlah:+g('jumlah')||0,
+            harga:h===''?0:(+h), jenis:g('jenis')||'bayar'};
+  /* Baris yang benar-benar kosong dibuang — sisa "Tambah Baris" yang tidak
+     jadi diisi tidak boleh ikut tersimpan lalu tercetak sebagai baris hampa. */
+  }).filter(function(r){ return r.desc || r.jumlah || r.harga; });
+}
+function rinciAddRow(id){
+  const body=$(id+'_body'); if(!body)return;
+  const tmp=document.createElement('tbody');
+  tmp.innerHTML=rinciRowHTML({},true,'x'+Date.now());
+  body.appendChild(tmp.firstElementChild);
+}
+function rinciDelRow(btn){
+  const tr=btn.closest('tr'), body=tr?tr.parentNode:null;
+  if(!tr||!body) return;
+  tr.remove();
+  if(!body.querySelector('tr')) rinciAddRow(body.id.replace(/_body$/,''));
+  rinciHitung(body.parentNode.querySelector('input')||btn);
+}
+/* Menyisipkan template FREE sebagai baris-baris siap pakai. Lebih baik
+   daripada menyuruh orang mengetik ulang lima fasilitas yang sama di tiap
+   event — dan lebih baik daripada memasukkannya diam-diam, karena yang
+   gratis di satu acara belum tentu gratis di acara lain. */
+function rinciIsiTemplate(id){
+  const body=$(id+'_body'); if(!body)return;
+  const ada={};
+  [...body.querySelectorAll('[data-r="desc"]')].forEach(function(e){ ada[String(e.value).trim().toLowerCase()]=1; });
+  const tmpl=bacaTemplateBaris((S.settings||{}).freeTemplate || FREE_TEMPLATE_BAWAAN);
+  let n=0;
+  tmpl.forEach(function(t){
+    const teks=t.replace(/\{[a-z-]+\}/gi,'').trim();
+    if(!teks || ada[teks.toLowerCase()]) return;
+    const tmp=document.createElement('tbody');
+    tmp.innerHTML=rinciRowHTML({desc:teks,jenis:'free'},true,'t'+(n++)+Date.now());
+    body.appendChild(tmp.firstElementChild);
+  });
+  if(!n) toast('Sudah ada semua','Semua baris template sudah ada di tabel.','info');
+  else { toast('Template disisipkan',n+' baris FREE ditambahkan.','ok');
+         rinciHitung(body.querySelector('input')||body); }
+}
+
+/* Jumlah yang DITAGIH dari tabel rincian. Dipakai eventSubtotal kalau
+   tabelnya dinyalakan. */
+function rinciTotalBayar(ev){
+  const rows=(ev&&ev.detail&&ev.detail.rincianItem)||[];
+  if(!Array.isArray(rows)) return 0;
+  return rows.reduce(function(a,r){
+    return a+((r.jenis||'bayar')==='bayar' ? (+r.jumlah||0)*(+r.harga||0) : 0);
+  },0);
+}
+function rinciAktif(ev){
+  const d=(ev&&ev.detail)||{};
+  return ynBool(d.rincianOn,false) && Array.isArray(d.rincianItem) && d.rincianItem.length>0;
+}
+
 function dealTblHTML(id,ev,rows,canEdit){
   rows=Array.isArray(rows)?rows:[];
   const bodyH=(rows.length?rows:[{}]).map(function(r,i){ return dealRowHTML(ev,r,canEdit,i); }).join('');
@@ -6001,6 +6181,7 @@ function collectField(fl){
       return {nama:nm?nm.value.trim():'', nominal:d===''?'':(+d)};
     }).filter(r=>r.nama||r.nominal!=='');
   }
+  if(fl.t==='rincitbl'){ return rinciBaca('efd_'+fl.k); }
   if(fl.t==='dealtbl'){ return dealBaca('efd_'+fl.k); }
   if(fl.t==='barangtbl'){
     const body=$('efd_'+fl.k+'_body'); if(!body)return undefined;
@@ -7165,6 +7346,23 @@ function rincianPenawaran(ev){
       out.push({desc:'Biaya Konsumsi Event'+(pax?' ('+pax+' pax)':''),
                 qty:cocok?px:null, unit:cocok?hp:null, total:fb});
     }
+  }
+
+  /* TABEL RINCIAN MENANG ATAS SEMUANYA.
+     Kalau dinyalakan, ia satu-satunya sumber baris di luar F&B — termasuk
+     baris FREE dan "belum pasti". Mencampurnya dengan kotak lama berarti satu
+     fasilitas bisa tercetak dua kali dengan bunyi yang berbeda. */
+  if(rinciAktif(ev)){
+    (d.rincianItem||[]).forEach(function(r){
+      const jenis=r.jenis||'bayar';
+      const desc=String(r.desc||'').trim();
+      if(!desc) return;
+      if(jenis==='free'){ out.push({desc:desc, qty:null, unit:null, total:0, gratis:true}); return; }
+      if(jenis==='tbc'){  out.push({desc:desc, qty:null, unit:null, total:0, tbc:true});   return; }
+      const jml=+r.jumlah||0, hrg=+r.harga||0;
+      out.push({desc:desc, qty:jml||null, unit:hrg||null, total:jml*hrg});
+    });
+    return out;
   }
 
   if(+d.sewaVenue)   out.push({desc:'Biaya Sewa Venue', qty:null, unit:null, total:+d.sewaVenue});
