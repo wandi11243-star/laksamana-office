@@ -841,6 +841,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1956,7 +1966,20 @@ function talentSimpanInline() { toast(); uangNilai(); save(); renderTalentDetail
 
 
 
-function renderSchedule() { setTop(); dailyRulesModal(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); C(); }
+function renderSchedule() { setTop(); dailyRulesModal(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2186,7 +2209,18 @@ function hasConflict() { overlaps(); }
 
 
 
-function scheduleForm() { modal(); closeModal(); dstr(); talPilihUbah(); esc(); uangFormat(); uangKetik(); saveSchedule(); }
+
+
+
+function scheduleForm() { dstr(); modal(); closeModal(); fmtDate(); esc(); talPilihUbah(); uangFormat(); uangKetik(); saveSchedule(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2227,6 +2261,11 @@ function talPilihUbah() {  }
 
 
 function saveSchedule() { toast(); hasConflict(); fmtDate(); uid(); uangNilai(); save(); closeModal(); renderSchedule(); }
+
+
+
+
+
 
 
 

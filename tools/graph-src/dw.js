@@ -610,7 +610,6 @@ function svg() {  }
 
 
 
-
 function esc() {  }
 function escJs() {  }
 function pad() {  }
@@ -1950,7 +1949,7 @@ function gambarAjukanTgl() { tamuTgl(); esc(); ajuanHidupTgl(); namaDW(); jamAju
 
 
 
-function kirimAjukanTgl() { serapAjukanTgl(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); gambarAjukanTgl(); lampauiPanduan(); konfirmasi(); namaDivisi(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); pilihJam(); kirimAjuan(); }
+function kirimAjukanTgl() { serapAjukanTgl(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); gambarAjukanTgl(); lampauiPanduan(); konfirmasi(); namaDivisi(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); pilihJam(); selesai(); kirimAjuan(); }
 
 
 
@@ -2224,7 +2223,31 @@ function viewPekerja() {  }
 
 
 
-function chip() { filterPekerja(); esc(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
+function chip() { filterPekerja(); esc(); cariPekerja(); bukaPekerja(); tautanDW(); salinTautanDW(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); kirimAksesDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2360,7 +2383,7 @@ function ubahJenisBayar() { bayarJenisSah(); }
 
 
 
-function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); labelTujuan(); statBox(); barisAjuan(); hapusPekerja(); tutupModal(); bukaPekerja(); go(); }
+function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); labelTujuan(); statBox(); barisAjuan(); hapusPekerja(); tutupModal(); bukaPekerja(); kirimAksesDW(); go(); }
 
 
 
@@ -2377,6 +2400,55 @@ function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusD
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tautanDW() {  }
+
+
+function waNomor() {  }
+
+
+
+
+
+
+
+function pesanAksesDW() { tautanDW(); }
+
+
+
+
+
+
+
+function kirimAksesDW() { pekerjaById(); toast(); waNomor(); pesanAksesDW(); }
+
+
+
+
+
+
+
+
+function salinTautanDW() { tautanDW(); }
+
+
+
+
+function selesai() { toast(); }
 
 
 
