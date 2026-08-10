@@ -2342,7 +2342,6 @@ function refreshIfStale() { adaBelumNaik(); cobaKirimSekarang(); normalizeState(
 
 
 function uid() {  }
-function resetData() { seed(); save(); }
 
 
 
@@ -3476,6 +3475,11 @@ function doLogin() { $(); buildNav(); updateTopUser(); bootRoute(); }
 
 
 function updateTopUser() { $(); go(); permViewKeys(); can(); }
+
+
+
+
+
 
 
 
@@ -8048,6 +8052,32 @@ function fmtFieldVal() { fieldByKey(); fmtMenuTbl(); rundownRows(); ynnoteVal();
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function renderOverview() { visibleSections(); pdfLewati(); fieldVisible(); pdfNilai(); pdfAdaGambar(); detailVal(); esc(); fmtDateLong(); userName(); }
 
 
@@ -8432,6 +8462,64 @@ function pdfItemTabel() { pdfTblBuka(); pdfTblBaris(); }
 
 
 
+
+
+function pdfRincianTabel() { pdfTblBuka(); pdfTblBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pdfDealTabel() { pdfTblBuka(); pdfTblBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pdfAdaGambar() {  }
 function pdfGambar() { fotoKah(); esc(); attachUrl(); }
 
@@ -8478,7 +8566,9 @@ function pdfLewati() {  }
 
 
 
-function pdfNilai() { detailVal(); pdfRundownTabel(); pdfMenuTabel(); pdfBarangTabel(); pdfItemTabel(); pdfGambar(); fmtFieldVal(); pdfJadwalTabel(); esc(); }
+function pdfNilai() { detailVal(); pdfRundownTabel(); pdfMenuTabel(); pdfBarangTabel(); pdfItemTabel(); pdfRincianTabel(); pdfDealTabel(); pdfGambar(); fmtFieldVal(); pdfJadwalTabel(); esc(); }
+
+
 
 
 
@@ -12764,7 +12854,17 @@ function setRow() {  }
 
 
 function num() {  }
-function txt() { esc(); setRow(); num(); saveSettings(); svg(); logout(); venueGalleryHTML(); uploadVenueFoto(); resetData(); }
+function txt() { esc(); setRow(); num(); saveSettings(); svg(); logout(); venueGalleryHTML(); uploadVenueFoto(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
