@@ -327,6 +327,33 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .tbl-edit .inp{width:100%;margin:0;padding:7px 8px;background:var(--panel2);color:var(--txt);
   border:1px solid transparent;border-radius:6px;font:inherit}
 .tbl-edit .inp:focus{border-color:var(--accent);outline:none;background:var(--panel)}
+/* Daftar pilih talent: seluruh barisnya bisa diketuk, dan kotak fee duduk
+   di ujung kanan baris yang sama. Fee yang terpisah dari namanya membuat
+   orang harus mengingat urutan sambil mengetik angka. */
+.tal-pilih{max-height:280px;overflow-y:auto;border:1px solid var(--line-hard);border-radius:10px;padding:6px}
+.tal-baris{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;
+  border:1.5px solid transparent}
+.tal-baris:hover{background:rgba(0,0,0,.03)}
+.tal-baris.on{border-color:var(--accent);background:rgba(247,187,14,.08)}
+.tal-baris input[type=checkbox]{position:absolute;opacity:0;width:0;height:0}
+.tal-baris .tik{width:20px;height:20px;border-radius:5px;border:2px solid var(--line-hard);flex:none;position:relative}
+.tal-baris.on .tik{background:var(--accent);border-color:var(--accent)}
+.tal-baris.on .tik::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:10px;
+  border:solid #241d05;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+.tal-baris .nm{flex:1;min-width:0}
+.tal-baris .nm b{display:block;font-size:13px}
+.tal-baris .nm span{display:block;font-size:11.5px;color:var(--muted)}
+.tal-baris .fee{flex:none;width:130px}
+.tal-baris .fee .inp{text-align:right;padding:6px 8px;font-size:12.5px}
+.tal-baris .fee .inp:disabled{opacity:.45}
+
+/* Pemilih periode fee. Tiga tombol, bukan dropdown: pilihannya cuma tiga dan
+   semuanya sering dipakai. */
+.seg-per{display:inline-flex;border:1px solid var(--line-hard);border-radius:9px;overflow:hidden}
+.seg-per button{border:none;background:none;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--muted)}
+.seg-per button+button{border-left:1px solid var(--line-hard)}
+.seg-per button.on{background:var(--accent);color:#241d05;font-weight:700}
+
 .rowdel{width:28px;height:28px;border:none;background:none;color:var(--muted);line-height:0;display:inline-flex;align-items:center;justify-content:center;
   line-height:1;border-radius:6px;cursor:pointer}
 .rowdel:hover{background:var(--red);color:#fff}
@@ -2138,26 +2165,87 @@ function modalInfo(judul, isi){
 
 function delSched(id){DB.schedules=DB.schedules.filter(x=>x.id!==id);save();closeModal();renderSchedule();toast('Jadwal dihapus.');}
 function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>s.talent_id===talent_id&&s.date===date&&s.status!=='Cancelled'&&s.id!==ignoreId&&overlaps(st,et,s.start_time,s.end_time));}
+/* ---------- SATU HARI, BISA BANYAK TALENT ----------
+   Formulir lama hanya menerima SATU talent per simpan. Padahal satu malam
+   sering diisi beberapa penampil (pembuka, band utama, DJ penutup), dan
+   memasukkannya berarti membuka formulir yang sama tiga kali sambil
+   mengetik ulang tanggal dan jam yang persis sama. Yang mengetik ulang
+   akhirnya salah ketik, dan jadwal jadi tidak cocok dengan kenyataan.
+
+   Sekarang talent dicentang — berapa pun. Tiap centang jadi SATU baris
+   jadwal sendiri, bukan satu baris berisi banyak nama: fee dibayar per
+   orang, konflik diperiksa per orang, dan rekap fee menghitung per orang.
+   Satu baris berisi banyak nama akan merusak ketiganya sekaligus.
+
+   FEE TETAP PER ORANG. Kotak fee terisi otomatis dari fee harian
+   masing-masing talent dan masih bisa diubah satu per satu — dua penampil
+   di malam yang sama jarang dibayar sama besar. */
 function scheduleForm(){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>Tambah Jadwal</h3>
+  const t=DB.talents.filter(x=>x.status!=='Inactive');
+  modal(`<button class="close" onclick="closeModal()">&times;</button><h3>Tambah Jadwal</h3>
+  <p class="mini" style="margin-bottom:10px">Centang semua talent yang tampil di tanggal ini &mdash;
+     tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
   <div class="grid g2">
-    <div class="field"><label>Talent *</label><select id="s_tal">${DB.talents.map(t=>`<option value="${t.id}" data-fee="${t.default_fee}" data-cat="${t.category}">${esc(t.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Tanggal *</label><input id="s_date" type="date" value="${dstr(new Date())}"></div>
+    <div class="field"><label>Tipe Performance</label><select id="s_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Jam Mulai</label><input id="s_start" type="time" value="20:00"></div>
     <div class="field"><label>Jam Selesai</label><input id="s_end" type="time" value="23:00"></div>
-    <div class="field"><label>Tipe Performance</label><select id="s_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
-    <div class="field"><label>Fee (IDR)</label>${uangInput('s_fee',1500000)}</div>
   </div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
-  document.getElementById('s_tal').onchange=function(){document.getElementById('s_fee').value=uangFormat(this.selectedOptions[0].dataset.fee);document.getElementById('s_type').value=this.selectedOptions[0].dataset.cat;};
-  document.getElementById('s_tal').dispatchEvent(new Event('change'));
+  <div class="field" style="margin-top:6px"><label>Talent *</label>
+    <div class="tal-pilih" id="s_talwrap">${
+      t.length
+      ? t.map(x=>`<label class="tal-baris">
+          <input type="checkbox" class="s_tal_cb" value="${x.id}" data-fee="${x.default_fee||0}"
+                 onchange="talPilihUbah(this)">
+          <span class="tik"></span>
+          <span class="nm"><b>${esc(x.name)}</b><span>${esc(x.category||'')} &middot; ${IDR(x.default_fee||0)}/hari</span></span>
+          <span class="fee"><input class="inp" id="s_fee_${x.id}" value="${uangFormat(x.default_fee||0)}"
+                 oninput="uangKetik(this)" disabled></span>
+        </label>`).join('')
+      : '<div class="empty">Belum ada talent. Tambahkan dulu di Talent Management.</div>'}</div>
+    <div class="mini" id="s_talinfo" style="margin-top:6px">Belum ada talent dipilih.</div>
+  </div>
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>
+    <button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
+}
+/* Kotak fee baru bisa diketik kalau talentnya dicentang. Kotak aktif yang
+   isinya diabaikan (karena orangnya tidak dipilih) adalah cara paling cepat
+   membuat orang mengira fee-nya tersimpan padahal tidak. */
+function talPilihUbah(cb){
+  const f=document.getElementById('s_fee_'+cb.value);
+  if(f) f.disabled=!cb.checked;
+  cb.closest('.tal-baris').classList.toggle('on',cb.checked);
+  const n=document.querySelectorAll('.s_tal_cb:checked').length;
+  const info=document.getElementById('s_talinfo');
+  if(info) info.textContent = n ? (n+' talent dipilih — akan dibuat '+n+' baris jadwal.')
+                               : 'Belum ada talent dipilih.';
 }
 function saveSchedule(){
-  const g=x=>document.getElementById(x).value;const tid=g('s_tal'),date=g('s_date'),st=g('s_start'),et=g('s_end');
-  if(st>=et){toast('Jam selesai harus > jam mulai.');return;}
-  if(hasConflict(tid,date,st,et)){const t=DB.talents.find(x=>x.id===tid);toast('⛔ Talent already booked — '+t.name+' bentrok di '+fmtDate(date));return;}
-  DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date,start_time:st,end_time:et,performance_type:g('s_type'),fee:uangNilai('s_fee'),status:'Scheduled',recurring_rule_id:null,source:'manual'});
-  save();closeModal();renderSchedule();toast('Jadwal tersimpan (tanpa konflik).');
+  const g=x=>document.getElementById(x).value;
+  const date=g('s_date'), st=g('s_start'), et=g('s_end'), type=g('s_type');
+  const pilih=[...document.querySelectorAll('.s_tal_cb:checked')];
+  if(!pilih.length){ toast('Centang minimal satu talent dulu.'); return; }
+  if(st>=et){ toast('Jam selesai harus > jam mulai.'); return; }
+
+  /* Konflik diperiksa untuk SEMUA yang dicentang SEBELUM satu pun disimpan.
+     Kalau diperiksa sambil menyimpan, sebagian sudah masuk lalu prosesnya
+     berhenti di tengah — dan orang harus menebak mana yang sudah tersimpan
+     dan mana yang belum. */
+  const bentrok=pilih.filter(cb=>hasConflict(cb.value,date,st,et))
+                     .map(cb=>(DB.talents.find(x=>x.id===cb.value)||{}).name||cb.value);
+  if(bentrok.length){
+    toast('Bentrok di '+fmtDate(date)+': '+bentrok.join(', '));
+    return;
+  }
+  pilih.forEach(cb=>{
+    const fEl=document.getElementById('s_fee_'+cb.value);
+    DB.schedules.push({id:uid(),talent_id:cb.value,event_id:null,date,start_time:st,end_time:et,
+      performance_type:type, fee: fEl?uangNilai('s_fee_'+cb.value):(+cb.dataset.fee||0),
+      status:'Scheduled', recurring_rule_id:null, source:'manual'});
+  });
+  save(); closeModal(); renderSchedule();
+  toast(pilih.length>1 ? pilih.length+' jadwal tersimpan (tanpa konflik).'
+                       : 'Jadwal tersimpan (tanpa konflik).');
 }
 function recurringModal(){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>🔁 Recurring Schedule</h3><p class="mini" style="margin-bottom:12px">Buat aturan berulang, sistem auto-generate dalam rentang tanpa duplikasi (idempotent).</p>
