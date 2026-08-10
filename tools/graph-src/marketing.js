@@ -1471,6 +1471,68 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2473,12 +2535,7 @@ function userPerms() { viewPerm(); }
 
 
 function hasCustomAccess() {  }
-function can() { userPerms(); getFbFormats(); menuGroupsOf(); visibleTabs(); }
-
-
-
-
-
+function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visibleTabs(); }
 
 
 
@@ -5275,6 +5332,17 @@ function baris() { dpLabel(); }
 
 
 
+
+
+
+function rinciCentang() { $(); finLive(); autoSaveTrigger(); }
+
+
+
+
+
+
+
 function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg(); rinciIsiTemplate(); }
 
 
@@ -6839,7 +6907,61 @@ function penawaranCard() { penStatus(); eventFinance(); bisaPutusPenawaran(); pe
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); curField(); ynSeg(); esc(); finLive(); finHitungHTML(); }
+
+
+
+
+
+
+
+
+function finBaris() {  }
+
+
+
+
+
+
+function finBarisLebar() {  }
+
+
+
+
+function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); ynSeg(); rinciCentang(); rinciTblHTML(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8050,7 +8172,93 @@ function printBrief() { $(); toast(); tungguGambar(); }
 
 
 
-function renderCalendar() { pageHead(); go(); calNav(); calToday(); today(); eventPadaTgl(); calEventPopup(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatEventEms() { go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelGagalEms() { svg(); esc(); muatEventEms(); }
+
+
+
+
+
+
+
+
+function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); today(); eventPadaTgl(); calEventPopup(); esc(); emsEventPopup(); muatEventEms(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11001,6 +11209,7 @@ function renderKalkulator() { kalkMenuAll(); kalkPilihMenu(); esc(); kalkLabel()
 
 
 
+
 function kalkRowsHTML() { kalkNormalRows(); kalkSelHTML(); kalkSetRow(); kalkSamakanPax(); kalkHapusRow(); }
 
 
@@ -11037,9 +11246,127 @@ function kalkRowsHTML() { kalkNormalRows(); kalkSelHTML(); kalkSetRow(); kalkSam
 
 
 
-function kalkSelHTML() { kalkLabelRef(); kalkBukaPilihBaris(); kalkTitikKat(); esc(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSelHTML() { kalkLabelRef(); kalkTitikKat(); esc(); kalkSaranKetik(); kalkSaranTombol(); kalkSaranTutupNanti(); kalkPilihMenu(); kalkBukaPilihBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSaranKetik() { $(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaranPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSaranPakai() { $(); kalkSetRow(); renderKalkulator(); }
+
+
+
+
+
+
+
+
+
+
+function kalkSaranTombol() { $(); kalkSaranPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSaranTutupNanti() {  }
 
 
 

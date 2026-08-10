@@ -808,6 +808,39 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2138,12 +2171,53 @@ function modalInfo() { modal(); esc(); closeModal(); }
 
 function delSched() { save(); closeModal(); renderSchedule(); toast(); }
 function hasConflict() { overlaps(); }
-function scheduleForm() { modal(); closeModal(); esc(); dstr(); uangInput(); saveSchedule(); uangFormat(); }
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+function scheduleForm() { modal(); closeModal(); dstr(); talPilihUbah(); esc(); uangFormat(); uangKetik(); saveSchedule(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function talPilihUbah() {  }
 
 
 
@@ -2153,6 +2227,26 @@ function scheduleForm() { modal(); closeModal(); esc(); dstr(); uangInput(); sav
 
 
 function saveSchedule() { toast(); hasConflict(); fmtDate(); uid(); uangNilai(); save(); closeModal(); renderSchedule(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2297,7 +2391,73 @@ function ruleHari() { ruleNormal(); dstr(); }
 
 
 
-function renderFee() { setTop(); C(); esc(); statusBadge(); payAction(); payHistory(); genPayment(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function feeRentang() { dstr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function feeLabelPeriode() { feeRentang(); fmtDate(); }
+
+
+
+
+
+
+
+function feeKunci() { feeRentang(); }
+
+
+
+function feeSetMode() { dstr(); renderFee(); }
+
+
+
+
+function feeGeser() { feeRentang(); dstr(); renderFee(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderFee() { setTop(); feeRentang(); feeKunci(); C(); feeSetMode(); feeGeser(); feeLabelPeriode(); esc(); statusBadge(); payAction(); payHistory(); genPayment(); }
 
 
 
@@ -2327,7 +2487,28 @@ function renderFee() { setTop(); C(); esc(); statusBadge(); payAction(); payHist
 
 
 
-function genPayment() { uid(); save(); renderFee(); modal(); closeModal(); esc(); fmtDate(); payAction(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function genPayment() { feeRentang(); uid(); feeKunci(); save(); renderFee(); modal(); closeModal(); esc(); feeLabelPeriode(); fmtDate(); payAction(); }
+
 
 
 
@@ -7122,11 +7303,156 @@ function doScan() { toast(); konfirmasiScan(); }
 
 
 
-function renderCalendar() { setTop(); dstr(); esc(); C(); }
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatEventMarketing() { renderCalendar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelGagalMkt() { esc(); muatEventMarketing(); }
+
+
+
+
+
+
+
+function renderCalendar() { setTop(); dstr(); calEventPopup(); calJadwalPopup(); calMktPopup(); muatEventMarketing(); esc(); C(); panelGagalMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calEventPopup() { modal(); closeModal(); esc(); statusBadge(); fmtDateTime(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calJadwalPopup() { modal(); closeModal(); esc(); statusBadge(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calMktPopup() { modal(); closeModal(); esc(); fmtDate(); }
 
 
 
