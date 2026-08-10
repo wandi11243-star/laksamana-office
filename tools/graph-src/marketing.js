@@ -1587,6 +1587,50 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -7103,7 +7147,21 @@ function finBarisLebar() {  }
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); ynSeg(); rinciCentang(); rinciTblHTML(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); ynSeg(); rinciCentang(); rinciTblHTML(); bacaTemplateBaris(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11098,8 +11156,23 @@ function kalkRefLabel() {  }
 
 
 
-function kalkWarnaKat() {  }
+function kalkWarnaKat() { kalkWarnaIdx(); }
 
+
+
+
+
+
+function kalkWarnaIdx() {  }
+
+
+
+
+
+
+
+
+function kalkUrutKat() { kalkWarnaIdx(); }
 
 
 
@@ -11110,7 +11183,10 @@ function kalkTitikKat() { kalkWarnaKat(); }
 
 
 
-function kalkKategori() { menuDbJenis(); mdbItems(); }
+function kalkKategori() { menuDbJenis(); mdbItems(); kalkUrutKat(); }
+
+
+
 
 
 
@@ -11325,7 +11401,11 @@ function kalkTerapkanPilih() { kalkBarisBaru(); closeModal(); renderKalkulator()
 
 function escJsAttr() {  }
 
-function kalkMenuAll() { menuDbJenis(); mdbItems(); }
+function kalkMenuAll() { kalkUrutKat(); menuDbJenis(); mdbItems(); }
+
+
+
+
 
 
 
@@ -11501,6 +11581,19 @@ function kalkSaranLayer() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSaranGulir() { kalkSaranTutup(); }
 
 
 
