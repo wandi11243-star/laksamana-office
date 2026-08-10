@@ -925,6 +925,11 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 .rinci-wrap tr[data-jenis="free"] td{background:rgba(31,157,95,.07)}
 .rinci-wrap tr[data-jenis="tbc"] td{background:rgba(181,131,26,.09)}
 .rinci-wrap .rundown-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+/* Kaki tabel: baris hitungan, bukan baris barang. Dibedakan latarnya supaya
+   tidak terbaca sebagai item yang bisa dihapus. */
+.rinci-wrap tr.rk td{background:var(--bg-soft,rgba(0,0,0,.04));font-weight:600;text-align:right}
+.rinci-wrap tr.rk td:first-child{text-align:right;padding-right:14px}
+.rinci-wrap tr.rk.kuat td{font-size:14px;color:var(--gold-deep)}
 
 .inv-pratinjau{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
   border-radius:9px;padding:12px;background:#fff;color:#1a1a1a}
@@ -5195,9 +5200,45 @@ function rinciTeksTotal(jenis,jml,harga){
   if(jenis==='tbc')  return '<i style="color:var(--sand-dim)">to be confirm</i>';
   return (jml&&harga)?rp(jml*harga):'—';
 }
+/* KAKI TABEL — bentuk yang sama dengan lembar tagihan.
+   Barisnya MUNCUL SENDIRI hanya kalau memang berlaku: discount cuma tampil
+   kalau ada diskonnya, service charge kalau saklarnya menyala, DP kalau
+   nominalnya diisi. Baris "Discount Rp0" atau "DP Rp0" bukan keterangan —
+   ia cuma membuat orang bertanya angka apa yang hilang.
+
+   Angkanya BACA-SAJA di sini: yang mengubahnya tetap kotak Discount, saklar
+   Service Charge, dan Deposit di kolom kiri. Dua tempat mengetik satu angka
+   yang sama adalah cara paling cepat membuat keduanya berselisih. */
+function rinciKakiHTML(){
+  const ev=S.events.find(function(x){ return x.id===_asEvId; });
+  if(!ev) return '';
+  /* Dihitung dari BAYANGAN — isi kotak & tabel yang sedang di layar, bukan
+     yang terakhir disimpan. */
+  const f=eventFinance(typeof finBayangan==='function'?finBayangan(ev):ev);
+  const baris=function(label,nilai,tebal){
+    return '<tr class="rk'+(tebal?' kuat':'')+'"><td colspan="4">'+label+'</td>'
+      +'<td class="mono r">'+nilai+'</td><td></td></tr>';
+  };
+  let h='';
+  h+=baris('Subtotal',rp(f.sub));
+  if(f.disc)               h+=baris('Discount','− '+rp(f.disc));
+  if(f.svcOn && f.service) h+=baris('Service Charge ('+S.settings.serviceCharge+'%)',rp(f.service));
+  if(f.tax)                h+=baris('PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
+  h+=baris('TOTAL',rp(f.grand),true);
+  /* Baris DP hanya untuk acara yang MEMANG memakai DP. eventFinance selalu
+     memulangkan angka DP (jatuh ke persentase bawaan kalau nominalnya kosong),
+     jadi tanpa penyaring ini "DP 50%" ikut tercetak pada acara yang dibayar
+     penuh di awal — angka yang tidak pernah disepakati siapa pun. */
+  const pakaiDp = (ev.detail||{}).sistemBayar==='DP' || +((ev.detail||{}).depositNominal)>0;
+  if(pakaiDp && f.dp) h+=baris(dpLabel(f),rp(f.dp));
+  if(f.paid)          h+=baris('Terbayar',rp(f.paid));
+  if((pakaiDp&&f.dp)||f.paid) h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
+  return h;
+}
 function rinciTblHTML(id,rows,canEdit){
   rows=Array.isArray(rows)?rows:[];
-  const body=(rows.length?rows:[{}]).map(function(r,i){ return rinciRowHTML(r,canEdit,i); }).join('');
+  const body=(rows.length?rows:[{}]).map(function(r,i){ return rinciRowHTML(r,canEdit,i); }).join('')
+    +rinciKakiHTML();
   return '<div class="rundown-wrap rinci-wrap" id="'+id+'">'
    +'<table class="rundown-tbl"><thead><tr>'
      +'<th>Deskripsi</th><th style="width:74px">Qty</th><th style="width:130px">Harga</th>'
@@ -6900,6 +6941,10 @@ function finBayangan(ev){
   // sekarang — bukan yang terakhir disimpan.
   const dOn=$('efd_fbDealOn'); if(dOn) b.detail.fbDealOn=dOn.classList.contains('on');
   const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) b.detail.fbDeal=dRows;
+  /* Tabel rincian juga: tanpa ini kaki tabel & Grand Total baru bergerak
+     sesudah Simpan, dan orang menyimpulkan angkanya tidak ikut dihitung. */
+  const rOn=$('efd_rincianOn'); if(rOn) b.detail.rincianOn=rOn.classList.contains('on');
+  const rRows=rinciBaca('efd_rincianItem'); if(rRows!==undefined) b.detail.rincianItem=rRows;
   return b;
 }
 function finLive(){
