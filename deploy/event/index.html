@@ -7297,6 +7297,74 @@ function doScan(token){
 
 /* ============ EVENT CALENDAR ============ */
 let calMonth=new Date();let calFilter='all';
+/* ---------- KALENDER LINTAS MODUL: EMS MEMBACA EVENT MARKETING ----------
+   Dua modul ini memakai kalender yang sama di dunia nyata — venue-nya cuma
+   satu. Tapi masing-masing hanya menggambar eventnya sendiri, jadi kru EMS
+   tidak pernah melihat acara yang sedang disiapkan Marketing, dan dobel
+   booking baru ketahuan di hari-H.
+
+   YANG TERJADI ADALAH PEMBACAAN, BUKAN PENYALINAN. Baris Marketing tidak
+   pernah masuk DB.events di sini. Kalau disalin, ada dua kebenaran untuk
+   satu acara: acara yang dibatalkan di Marketing tidak ikut hilang dari
+   kalender ini, dan yang salah selalu yang jarang dilihat. Pola yang sama
+   dipakai modul jadwal saat membaca DW.
+
+   TIDAK PERNAH MELEMPAR. Backend Marketing yang mati tidak boleh membuat
+   kalender EMS ikut kosong — paling jauh satu baris peringatan di atas
+   legenda, lengkap dengan tombol coba lagi. */
+const MKT_URL = '../marketing-api-mysql/api.php';
+let MKT_EVENTS = [];
+let MKT_ERR    = '';
+let MKT_MUAT   = false;
+let MKT_SUDAH  = false;
+
+async function muatEventMarketing(paksa){
+  if(MKT_MUAT) return;
+  if(MKT_SUDAH && !paksa) return;
+  MKT_MUAT=true;
+  const stop=new AbortController();
+  const jam=setTimeout(function(){ stop.abort(); }, 8000);
+  try{
+    const r=await fetch(MKT_URL+'?action=getAll&t='+Date.now(),
+      {method:'GET', redirect:'follow', signal:stop.signal});
+    const j=await r.json();
+    if(!j || !j.ok || !j.data) throw new Error('balasan tidak dikenali');
+    const cl={};
+    (j.data.clients||[]).forEach(function(c){ if(c&&c.id) cl[c.id]=c.nama||''; });
+    /* Yang ditampilkan hanya yang benar-benar akan terjadi. Peluang berstatus
+       Lost tetap ada di Marketing sebagai riwayat, tapi memajangnya di
+       kalender venue berarti memperlihatkan tanggal yang sebenarnya kosong —
+       dan orang lalu menghindari tanggal yang seharusnya bisa dipakai. */
+    MKT_EVENTS=(j.data.events||[])
+      .filter(function(e){ return e && e.tanggal && e.status!=='Lost'; })
+      .map(function(e){ return {tanggal:e.tanggal, nama:e.nama||'(tanpa nama)',
+              client:cl[e.clientId]||'', status:e.status||'', pax:+e.pax||0}; });
+    MKT_ERR='';
+  }catch(err){
+    MKT_EVENTS=[];
+    MKT_ERR = (err && err.name==='AbortError')
+      ? 'Modul Marketing tidak menjawab dalam 8 detik.'
+      : 'Tidak bisa membaca event Marketing: '+((err&&err.message)||'gagal');
+  }finally{
+    clearTimeout(jam);
+    MKT_MUAT=false; MKT_SUDAH=true;
+    /* Digambar ulang HANYA kalau kalendernya masih terbuka — kalau tidak,
+       balasan yang datang terlambat akan menimpa halaman lain yang sedang
+       dibaca orang. */
+    if(location.hash.indexOf('#/calendar')===0) renderCalendar();
+  }
+}
+/* Baris peringatan, bukan layar galat. Kalender yang kehilangan satu sumber
+   masih berguna; kalender yang DIAM soal itu tidak — orang akan mengira
+   Marketing memang sedang tidak punya acara. */
+function panelGagalMkt(){
+  if(!MKT_ERR) return '';
+  return '<div class="mini" style="margin:8px 0;padding:9px 12px;border-radius:8px;'
+    +'background:rgba(229,72,77,.09);border:1px solid rgba(229,72,77,.3)">'
+    +esc(MKT_ERR)+' Acara Marketing tidak ikut tergambar. '
+    +'<button class="btn ghost sm" style="margin-left:6px" onclick="muatEventMarketing(true)">Coba lagi</button></div>';
+}
+
 function renderCalendar(){
   setTop('Event Calendar','Kalender terpadu multi-sumber','');
   const y=calMonth.getFullYear(),m=calMonth.getMonth();
@@ -7307,12 +7375,18 @@ function renderCalendar(){
   DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.poster+' '+e.title,'yellow','Event'));
   DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'green','Entertainment');});
   DB.calendarExtra.forEach(x=>push(x.date,x.title,x.color==='purple'?'purple':x.color==='orange'?'orange':x.color==='red'?'red':'blue',x.type));
+  /* Event Marketing — dibaca, tidak disalin. Ditandai jingga dan diberi
+     awalan supaya jelas ia milik modul lain dan tidak bisa disunting di sini. */
+  MKT_EVENTS.forEach(function(e){
+    push(e.tanggal, '[MKT] '+e.nama+(e.client?' - '+e.client:''), 'orange', 'Marketing'); });
+  muatEventMarketing();
   let cells='';for(let i=0;i<startDow;i++)cells+='<div class="cell other"></div>';
   for(let d=1;d<=days;d++){const ds=dstr(new Date(y,m,d));const its=items[ds]||[];cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${its.slice(0,4).map(it=>`<span class="evt-dot b-${it.color}">${esc(it.title)}</span>`).join('')}${its.length>4?`<span class="mini">+${its.length-4} lagi</span>`:''}</div>`;}
   const types=['all','Event','Entertainment','Reservation','Marketing','Holiday','Birthday'];
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
   <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
-  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Event</span><span><i class="dotc" style="background:var(--green)"></i>Talent</span><span><i class="dotc" style="background:var(--purple)"></i>Reservation</span><span><i class="dotc" style="background:var(--orange)"></i>Marketing</span><span><i class="dotc" style="background:var(--red)"></i>Holiday</span><span><i class="dotc" style="background:var(--blue)"></i>Birthday</span></div>
+  ${panelGagalMkt()}
+  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Event</span><span><i class="dotc" style="background:var(--green)"></i>Talent</span><span><i class="dotc" style="background:var(--purple)"></i>Reservation</span><span><i class="dotc" style="background:var(--orange)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:var(--red)"></i>Holiday</span><span><i class="dotc" style="background:var(--blue)"></i>Birthday</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 
