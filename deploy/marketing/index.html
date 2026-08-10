@@ -8034,11 +8034,37 @@ function fmtFieldVal(fl,val){
       return (jam?jam+dur+' — ':'')+(r.kegiatan||'');
     }).join('\n'); }
   if(fl.t==='ynnote'){ const o=ynnoteVal(val); if(o.v===undefined&&!o.note)return null; return (o.v?'Ya':'Tidak')+(o.note?' — '+o.note:''); }
+  if(fl.t==='rincitbl'){
+    const rows=Array.isArray(val)?val:[]; if(!rows.length)return null;
+    const baris=rows.map(function(r){
+      const desc=String((r&&r.desc)||'').trim(); if(!desc) return '';
+      const jenis=r.jenis||'bayar', jml=+r.jumlah||0, hrg=+r.harga||0;
+      if(jenis==='free') return desc+' — FREE';
+      if(jenis==='tbc')  return desc+' — to be confirm';
+      return desc+(jml?' — '+jml+' x '+rp(hrg):'')+' — '+rp((jml||1)*hrg);
+    }).filter(Boolean);
+    return baris.length?baris.join('\n'):null;
+  }
+  if(fl.t==='dealtbl'){
+    const rows=Array.isArray(val)?val:[]; if(!rows.length)return null;
+    const baris=rows.map(function(r){
+      const nama=String((r&&r.nama)||'').trim(); if(!nama) return '';
+      return nama+' — '+(+r.jumlah||0)+' x '+rp(+r.harga||0);
+    }).filter(Boolean);
+    return baris.length?baris.join('\n'):null;
+  }
   if(fl.t==='multi')return val.join(', ');
   if(fl.t==='tog')return (val===true||(val&&val.v))?'Ya':null;
   if(fl.t==='yn'){ const v=val&&val.v!==undefined?val.v:val; return v===true?'Ya':v===false?'Tidak':null; }
   if(fl.t==='cur')return rp(val);
   if(fl.t==='num')return String(val);
+  /* JARING PENGAMAN. String() atas sebuah objek menghasilkan "[object Object]"
+     — dan yang tercetak begitu bukan cuma layar Rangkuman, tapi juga
+     dokumen yang dikirim ke client. Jenis isian bertabel yang belum punya
+     penyaji lebih baik DIAM daripada mencetak sampah: kolomnya hilang dari
+     rangkuman, dan itu terlihat sebagai isian yang belum diisi — keliru,
+     tapi tidak memalukan. Sudah kejadian 10 Agustus 2026 pada 'rincitbl'. */
+  if(val&&typeof val==='object') return null;
   return String(val);
 }
 /* ---------- Tab OVERVIEW ----------
@@ -8432,6 +8458,64 @@ function pdfItemTabel(val){
     +'<td style="padding:5px 8px;border:'+PDF_GARIS+';text-align:right;font-weight:700">'+rp(total)+'</td></tr>';
   return h+'</tbody></table>';
 }
+/* Rincian Tagihan di Rangkuman & PDF. Tanpa penyaji sendiri, nilainya jatuh
+   ke String(val) di ujung fmtFieldVal dan tercetak "[object Object]," sebanyak
+   barisnya — di layar Rangkuman DAN di dokumen yang dikirim ke client.
+
+   Bentuknya sama dengan lembar tagihan: No / Deskripsi / Qty / Harga / Total,
+   dengan FREE dan "to be confirm" ditulis sebagaimana ia akan tercetak, bukan
+   sebagai Rp0. */
+function pdfRincianTabel(val){
+  const rows=Array.isArray(val)?val:[];
+  if(!rows.length) return null;
+  let total=0;
+  let h=pdfTblBuka([{l:'No',w:'30px'},{l:'Deskripsi'},{l:'Qty',w:'46px',r:1},
+                    {l:'Harga',w:'96px',r:1},{l:'Total',w:'110px',r:1}]);
+  let n=0;
+  rows.forEach(function(r,i){
+    const desc=String((r&&r.desc)||'').trim();
+    if(!desc) return;
+    const jenis=(r.jenis||'bayar');
+    const jml=+r.jumlah||0, hrg=+r.harga||0;
+    /* Qty kosong berarti SATU, bukan nol — aturan yang sama dengan tabelnya
+       di layar (lihat rinciTeksTotal). */
+    const nilai = jenis==='free' ? '<b>FREE</b>'
+                : jenis==='tbc'  ? '<i>to be confirm</i>'
+                                 : rp((jml||1)*hrg);
+    if(jenis==='bayar') total+=(jml||1)*hrg;
+    h+=pdfTblBaris([{v:String(++n)},{v:desc},
+                    {v:jml?String(jml):'–',r:1},
+                    {v:jenis==='bayar'?(hrg?rp(hrg):'–'):(jenis==='free'?'FREE':''),r:1},
+                    {h:nilai,r:1}], i);
+  });
+  if(!n) return null;
+  if(total) h+='<tr><td colspan="4" style="padding:5px 8px;border:'+PDF_GARIS+';text-align:right;font-weight:700">Total Ditagih</td>'
+    +'<td style="padding:5px 8px;border:'+PDF_GARIS+';text-align:right;font-weight:700">'+rp(total)+'</td></tr>';
+  return h+'</tbody></table>';
+}
+/* Harga Deal per Jenis Makanan sudah dipensiunkan, tapi event lama yang belum
+   pernah dibuka masih memuat datanya — dan tanpa penyaji ini ia tercetak
+   "[object Object]" di rangkumannya. */
+function pdfDealTabel(val){
+  const rows=Array.isArray(val)?val:[];
+  if(!rows.length) return null;
+  let total=0;
+  let h=pdfTblBuka([{l:'Keterangan Makanan'},{l:'Jumlah',w:'62px',r:1},
+                    {l:'Harga Deal',w:'104px',r:1},{l:'Total',w:'110px',r:1}]);
+  let n=0;
+  rows.forEach(function(r,i){
+    const nama=String((r&&r.nama)||'').trim();
+    if(!nama) return;
+    const jml=+r.jumlah||0, hrg=+r.harga||0;
+    total+=jml*hrg; n++;
+    h+=pdfTblBaris([{v:nama},{v:jml?String(jml):'–',r:1},
+                    {v:hrg?rp(hrg):'–',r:1},{v:rp(jml*hrg),r:1}], i);
+  });
+  if(!n) return null;
+  return h+'<tr><td colspan="3" style="padding:5px 8px;border:'+PDF_GARIS+';text-align:right;font-weight:700">Total</td>'
+    +'<td style="padding:5px 8px;border:'+PDF_GARIS+';text-align:right;font-weight:700">'+rp(total)+'</td></tr>'
+    +'</tbody></table>';
+}
 /* Gambar lampiran ikut tercetak. Dibatasi tingginya supaya satu denah tidak
    memakan satu halaman penuh, dan diberi keterangan namanya. */
 /* Hanya baris yang BENAR-BENAR memuat gambar yang dilebarkan. Lampiran
@@ -8490,6 +8574,8 @@ function pdfNilai(fl,ev){
   if(fl.t==='menutbl')  return {h:pdfMenuTabel(val,fl.bar)};
   if(fl.t==='barangtbl')return {h:pdfBarangTabel(val)};
   if(fl.t==='itemtbl')  return {h:pdfItemTabel(val)};
+  if(fl.t==='rincitbl') return {h:pdfRincianTabel(val)};
+  if(fl.t==='dealtbl')  return {h:pdfDealTabel(val)};
   if(fl.t==='files')    return {h:pdfGambar(val)};
   if(fl.jadwal){
     const jam=fmtFieldVal(fl,val), tbl=pdfJadwalTabel(ev);
