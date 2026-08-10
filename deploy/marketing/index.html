@@ -959,7 +959,13 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
    dalamnya yang menggulir. */
 .fin-tbl td.fin-lebar{max-width:0}
 .fin-tbl td.fin-lebar>div{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.fin-tbl td.fin-lebar .rinci-wrap table{min-width:520px}
+/* table-layout:fixed + Deskripsi tanpa lebar = Deskripsi mendapat SELURUH
+   sisa ruang. Tanpa ini tata letak otomatis membagi lebar menurut isi tiap
+   kolom, dan kolom berisi kotak angka bertumbuh melebihi lebar yang diminta
+   kepalanya — yang tergencet justru satu-satunya kolom berisi kalimat. */
+.fin-tbl td.fin-lebar .rinci-wrap table{min-width:470px;table-layout:fixed}
+.rinci-wrap td .inp{width:100%;min-width:0}
+.rinci-wrap td[data-r="total"]{overflow:hidden;text-overflow:ellipsis}
 
 @media(max-width:640px){
   .fin-tbl{table-layout:auto}
@@ -5378,15 +5384,23 @@ function rinciRowHTML(r,canEdit,idx){
    +'<td class="no"></td>'
    +'<td><input class="inp" data-r="desc" value="'+esc(r.desc||'')+'" '
      +'placeholder="mis. Biaya Konsumsi Event: Paketan 75rb" '+dis+' oninput="rinciHitung(this)"></td>'
-   /* Placeholder "0" salah dua kali: Qty kosong TIDAK berarti nol (berarti
+   /* SETIAP SEL BISA DIKETIK, apa pun jenis barisnya. Dulu Qty & Harga baris
+      FREE / belum-pasti dikunci, dengan alasan "baris yang punya angka bukan
+      lagi baris yang belum pasti". Alasannya benar untuk YANG DICETAK, bukan
+      untuk yang disimpan: nilai fasilitas gratis tetap perlu dicatat (mau tahu
+      berapa yang sebenarnya diberikan cuma-cuma), dan mengunci selnya membuat
+      angka itu tidak punya tempat sama sekali.
+      Yang menentukan apa yang TERCETAK tetap kolom Jenis — FREE tetap
+      tercetak "FREE" dan belum-pasti tetap "to be confirm", berapa pun yang
+      diketik, dan keduanya tetap tidak ikut dijumlahkan.
+
+      Placeholder "0" salah dua kali: Qty kosong TIDAK berarti nol (berarti
       satu), dan kolom yang seluruhnya berisi "0" pucat terbaca seperti kolom
-      yang sudah diisi nol. Baris FREE / belum-pasti tidak boleh memajang
-      "Rp 0" sama sekali — nol berarti gratis, dan itu bukan yang sedang
-      dikatakan baris "belum pasti". */
+      yang sudah diisi nol. */
    +'<td><input class="inp" data-r="jumlah" type="number" min="0" value="'+(jml||'')+'" '
-     +'placeholder="'+(jenis==='bayar'?'–':'')+'" '+(jenis==='bayar'?dis:'disabled')+' oninput="rinciHitung(this)"></td>'
+     +'placeholder="–" '+dis+' oninput="rinciHitung(this)"></td>'
    +'<td><input class="inp" data-r="harga" inputmode="numeric" value="'+esc(harga?rp(harga):'')+'" '
-     +'placeholder="'+(jenis==='bayar'?'Rp 0':'')+'" '+(jenis==='bayar'?dis:'disabled')+' oninput="itemRupiah(this);rinciHitung(this)"></td>'
+     +'placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);rinciHitung(this)"></td>'
    +'<td><select class="inp" data-r="jenis" '+dis+' onchange="rinciGantiJenis(this)">'
      +RINCI_JENIS.map(function(j){
         return '<option value="'+j[0]+'"'+(jenis===j[0]?' selected':'')+'>'+j[1]+'</option>'; }).join('')
@@ -5526,9 +5540,9 @@ function rinciTblHTML(id,rows,canEdit){
         "Videotron (6 x 3 meter, Lighting, Soundsystem, Panggung, dll)"
         terpotong jadi "Videotron (6". */
      +'<th>Deskripsi</th>'
-     +'<th style="width:62px" title="Kosongkan kalau harganya sudah total baris ini">Qty</th>'
-     +'<th style="width:124px">Harga</th>'
-     +'<th style="width:104px">Jenis</th><th style="width:124px;text-align:right">Total</th>'
+     +'<th style="width:58px" title="Kosongkan kalau harganya sudah total baris ini">Qty</th>'
+     +'<th style="width:116px">Harga</th>'
+     +'<th style="width:96px">Jenis</th><th style="width:116px;text-align:right">Total</th>'
      +(canEdit?'<th style="width:34px"></th>':'')
    +'</tr></thead><tbody id="'+id+'_body">'+body+'</tbody></table>'
    +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="rinciAddRow(\''+id+'\')">'
@@ -5538,16 +5552,14 @@ function rinciTblHTML(id,rows,canEdit){
       +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
    +'</div>';
 }
-/* Baris "belum pasti" tidak boleh punya harga: baris yang punya angka bukan
-   lagi baris yang belum pasti, dan angkanya akan ikut terbaca sebagai janji. */
+/* Mengganti Jenis TIDAK lagi mengunci maupun mengosongkan Qty & Harga.
+   Dulu begitu, dan akibatnya satu ketukan salah pada kolom Jenis menghapus
+   angka yang sudah diketik tanpa bisa dibatalkan. Yang berubah cuma apa yang
+   TERCETAK dan apa yang ikut dijumlahkan — angkanya sendiri tetap
+   tersimpan, dan kembali muncul begitu jenisnya dikembalikan. */
 function rinciGantiJenis(el){
   const tr=el.closest('tr'); if(!tr) return;
-  const j=el.value;
-  tr.setAttribute('data-jenis',j);
-  const hv=tr.querySelector('[data-r="harga"]'), jv=tr.querySelector('[data-r="jumlah"]');
-  const mati=(j!=='bayar');
-  if(hv){ hv.disabled=mati; if(mati) hv.value=''; }
-  if(jv){ jv.disabled=mati; if(mati) jv.value=''; }
+  tr.setAttribute('data-jenis',el.value);
   rinciHitung(el);
 }
 function rinciHitung(el){
