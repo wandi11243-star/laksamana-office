@@ -2911,14 +2911,26 @@
                 if (filtered.length === 0) {
                     resultsContainer.innerHTML = `<div class="p-3 text-xs text-rose-500 font-bold italic text-center border-b-2 border-rose-100 bg-white">Bahan tidak ada di Database!</div>`;
                 } else {
-                    // Barang Central Kitchen ditandai DI DAFTARNYA, bukan baru
-                    // setelah dipilih: yang mengajukan perlu tahu barang ini
-                    // datang dari dapur sendiri sebelum memilihnya, karena
-                    // ketersediaannya ditentukan produksi — bukan vendor.
+                    /* Lencana "CK" HANYA untuk barang CK murni (10 Agustus 2026).
+                       Barang 'both' dulu ikut berlencana, dan di form yang
+                       khusus vendor ini lencana itu terbaca sebagai "ini
+                       dipesan ke dapur" — sebab yang sama dengan panel CK yang
+                       dibuang dari refreshRowForecast. Bahwa barangnya juga ada
+                       di rak CK tetap dikatakan, tapi di tempat yang tidak bisa
+                       disalahartikan: kolom "Stok CK" pada panel barisnya,
+                       sesudah dipilih.
+
+                       Yang murni CK praktis tidak pernah muncul di sini (sudah
+                       disaring dari globalItemsData); lencananya dipertahankan
+                       untuk nama yang lolos dari cache lama. */
+                    const ckMurni = it => {
+                        const p = infoCKItem(it);
+                        return !!(p && String(p.sumber || '').toLowerCase() === 'ck');
+                    };
                     resultsContainer.innerHTML = filtered.map(item => `
                         <div onmousedown="selectAutocompleteItem('${item.replace(/'/g, "\\'")}', ${rowId})" class="p-3 text-xs font-bold text-slate-700 hover:bg-indigo-50 cursor-pointer border-b border-slate-50 bg-white transition-colors flex items-center justify-between gap-2">
                             <span class="min-w-0 truncate">${item}</span>
-                            ${infoCKItem(item) ? '<span class="shrink-0 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">CK</span>' : ''}
+                            ${ckMurni(item) ? '<span class="shrink-0 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">CK</span>' : ''}
                         </div>
                     `).join('');
                 }
@@ -3696,24 +3708,63 @@
             const name = itemInput ? itemInput.value.trim() : "";
             if (!name) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
 
-            /* Jaring pengaman untuk barang CENTRAL KITCHEN. Normalnya tidak
-               pernah kena: barang CK sudah dibuang dari globalItemsData, jadi
-               tidak bisa dipilih di form belanja — ia punya tab sendiri.
-               Yang masih bisa lolos ke sini cuma nama dari cache
-               `kitchen_cached_items` lama, yang dibuat sebelum penyaringan itu
-               ada. Prakiraan stok tetap tidak boleh dipakai untuknya: angka
-               forecast dihitung dari pola pembelian ke vendor, dan "saran
-               pesan" untuk barang produksi sendiri tidak ada yang bisa
-               menjalankannya. */
+            /* PANEL CK HANYA UNTUK BARANG CK MURNI (permintaan user 10 Agustus
+               2026). Sebelumnya barang 'both' (Vendor & CK) ikut mendapatkannya,
+               lengkap dengan tulisan "Sumber: Central Kitchen" dan peringatan
+               "dapur yang menentukan bisa atau tidak" — kalimat yang membuat
+               orang mengira pengajuannya dikirim ke dapur. Padahal form ini
+               KHUSUS VENDOR: submitnya lewat batchOrder biasa, dan purchasing
+               memang memperlakukannya sebagai pembelian (pesananCK() hanya
+               benar untuk sumber 'ck' atau batch bernama Central Kitchen).
+               Jadi yang salah cuma tampilannya, dan tampilan yang salah di sini
+               menghasilkan barang yang tidak pernah dipesan ke siapa pun karena
+               dua pihak sama-sama merasa pihak lain yang mengurus.
+
+               Barang 'both' sekarang memakai panel prakiraan yang sama dengan
+               barang vendor lain — bedanya "Stok kini" DIPECAH jadi Stok CK dan
+               Stok Outlet, karena barang ini memang punya dua tumpukan di dua
+               tempat dan yang menentukan perlu-tidaknya membeli adalah
+               keduanya, bukan salah satu.
+
+               Yang CK MURNI tetap dapat panel lama. Ia normalnya tidak pernah
+               sampai ke sini (sudah dibuang dari globalItemsData); yang masih
+               bisa lolos cuma nama dari cache `kitchen_cached_items` lama. */
             const pck = infoCKItem(name);
-            if (pck) { renderPanelCK(rowId, panel, name, pck); return; }
+            const murniCK = !!(pck && String(pck.sumber || '').toLowerCase() === 'ck');
+            if (murniCK) { renderPanelCK(rowId, panel, name, pck); return; }
 
             const a = forecastBook.assess(name);
-            if (!a.hasForecast) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+            /* Barang 'both' TETAP dapat panel walau prakiraannya belum ada:
+               saldo CK-nya diketahui dari ck.php, dan justru angka itu yang
+               paling sering menjawab "perlu beli atau ambil dari CK dulu". */
+            if (!a.hasForecast && !pck) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
 
             const F = LaksForecast;
             const qty = parseFloat(document.getElementById(`batch-row-qty-${rowId}`).value) || 0;
             const unit = document.getElementById(`batch-row-unit-${rowId}`).value;
+
+            /* Sisa stok di rak Central Kitchen. Tidak diketahui (endpoint CK
+               belum terpasang / gagal dimuat) DIBEDAKAN tegas dari nol — sama
+               seperti di panel CK. Menyamakannya membuat kru mengira barangnya
+               habis padahal cuma angkanya yang tidak sampai. */
+            const sisaCK = pck ? ckSaldoPeta[name] : undefined;
+            const stokCKTxt = (sisaCK === undefined || sisaCK === null)
+                ? '<span class="text-slate-400 italic font-medium">tidak diketahui</span>'
+                : ckTeksPack(sisaCK, pck);
+
+            if (!a.hasForecast) {
+                // 'both' tanpa prakiraan: yang bisa dikatakan cuma dua saldo itu.
+                panel.classList.remove('hidden');
+                panel.innerHTML = `
+                    <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
+                        <div class="flex flex-nowrap items-stretch text-[11px] min-w-full">
+                            ${metricCell('Stok CK', stokCKTxt)}
+                            ${metricCell('Stok outlet', '<span class="text-slate-400 italic font-medium">unggah Stok Hari Ini</span>')}
+                        </div>
+                    </div>`;
+                return;
+            }
+
             const lasts = forecastBook.howLongWillLast(name, qty, unit);
 
             const st = a.status;
@@ -3739,11 +3790,21 @@
                 : (lasts == null ? '-' : `<span class="font-bold">${F.fmtDays(lasts)}</span>`);
             const showSuggest = st.key !== 'safe' && a.suggestOrderPacks != null;
 
+            /* Barang 'both' punya DUA tumpukan di dua tempat, jadi satu kolom
+               "Stok kini" menyembunyikan separuh kenyataannya. Yang lain tetap
+               satu kolom seperti semula.
+               Disusun DI SINI sebagai variabel, bukan sebagai percabangan di
+               dalam template — komentar penjelas di dalam template ikut terkirim
+               ke innerHTML dan menempel di DOM tiap baris tanpa guna. */
+            const selStok = pck
+                ? metricCell('Stok CK', stokCKTxt) + metricCell('Stok outlet', stokTxt)
+                : metricCell('Stok kini', stokTxt);
+
             panel.classList.remove('hidden');
             panel.innerHTML = `
                 <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-x-auto">
                     <div class="flex flex-nowrap items-stretch text-[11px] min-w-full">
-                        ${metricCell('Stok kini', stokTxt)}
+                        ${selStok}
                         ${metricCell('Cukup', coverTxt, false, noUsage ? null : st.bg)}
                         ${showSuggest ? metricCell('Saran pesan',
                             a.suggestOrderPacks > 0

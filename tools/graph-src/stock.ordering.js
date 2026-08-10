@@ -2896,7 +2896,19 @@ function applyUnitOptions() { satuanUntukItem(); }
 
 
 
-function handleItemSearch() { selectAutocompleteItem(); infoCKItem(); }
+function handleItemSearch() { infoCKItem(); selectAutocompleteItem(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3689,7 +3701,56 @@ function sel() { ckNum(); ckTeksPack(); }
 
 
 
-function refreshRowForecast() { infoCKItem(); renderPanelCK(); metricCell(); }
+function refreshRowForecast() { infoCKItem(); renderPanelCK(); ckTeksPack(); metricCell(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
