@@ -582,22 +582,46 @@ function catat_punch($p, $pemanggil) {
     $dalamShift = dalam_rentang_shift($menit, $shift['mulai'], $shift['selesai'],
                                       (int)$set['awalMenit'], (int)$set['akhirMenit']);
 
-  $w = array('skor' => 1.0, 'ok' => false, 'terdaftar' => false);
-  if (isset($p['descriptor']) && is_array($p['descriptor']))
-    $w = cocok_wajah($tipe, $id, $p['descriptor']);
-  /* Wajah tidak wajib DAN belum terdaftar = tidak menghalangi. Wajah wajib
-     tapi belum terdaftar = menghalangi, dengan pesan yang menyebut
-     pendaftaran — bukan "wajah tidak cocok", yang akan membuat kru mencoba
-     lagi berkali-kali tanpa tahu masalahnya. */
-  $wajahHalangi = false;
-  if (!empty($set['wajahWajib'])) $wajahHalangi = !$w['ok'];
+  /* SELALU dipanggil, walau descriptor-nya tidak dikirim. Sebelumnya
+     pemanggilannya dibungkus `if (isset($p['descriptor']))`, dan itu lubang
+     yang paling lebar di seluruh modul ini: siapa pun yang mengirim
+     permintaan TANPA descriptor tercatat sebagai "wajah belum terdaftar" dan
+     lolos tanpa diperiksa sama sekali. cocok_wajah sendiri sudah menjawab
+     terdaftar=true, ok=false untuk descriptor yang tidak sah. */
+  $w = cocok_wajah($tipe, $id, isset($p['descriptor']) ? $p['descriptor'] : null);
+
+  /* SIAPA YANG WAJAHNYA SUDAH DIDAFTARKAN, WAJIB COCOK — tanpa perlu
+     menyalakan setelan apa pun.
+
+     Sampai 10 Agustus 2026 pemeriksaan ini seluruhnya bergantung pada
+     setelan `wajahWajib`, yang bawaannya MATI supaya modul bisa dipakai
+     sejak hari pertama sementara pendaftaran wajah masih berjalan. Akibatnya
+     wajah yang jelas-jelas BUKAN orangnya tetap menghasilkan absen VALID:
+     skornya dicatat, ketidakcocokannya dicatat, dan tidak ada satu pun yang
+     terjadi karenanya. Sudah diuji orang dan memang tembus.
+
+     Aturan sekarang dipisah menurut keadaan, bukan menurut satu saklar:
+       sudah terdaftar  -> HARUS cocok. Tidak cocok = masuk antrean HR.
+       belum terdaftar  -> hanya dihalangi kalau `wajahWajib` menyala.
+     Yang belum terdaftar tidak mungkin dicocokkan dengan apa pun, jadi
+     menghalanginya secara bawaan cuma mengunci seluruh kru di hari pertama
+     — dan yang terjadi berikutnya selalu sama: setelannya dimatikan orang,
+     dan pemeriksaannya hilang untuk semua orang sekaligus. */
+  $wajahHalangi = $w['terdaftar'] ? !$w['ok'] : !empty($set['wajahWajib']);
 
   $sebab = '';
   if (!$dalamArea)                          $sebab = 'LUAR_AREA';
   else if (!$shift)                         $sebab = empty($set['tanpaShiftBoleh']) ? 'TANPA_SHIFT' : '';
   else if (!empty($shift['libur']))         $sebab = 'HARI_LIBUR';
   else if (!$dalamShift)                    $sebab = 'LUAR_SHIFT';
-  if ($sebab === '' && $wajahHalangi)       $sebab = 'WAJAH';
+  /* Dua sebab yang berbeda, dan bedanya penting bagi yang membacanya:
+     WAJAH        = wajahnya terdaftar tapi tidak cocok — ini yang harus
+                    dilihat HR dengan curiga.
+     WAJAH_KOSONG = wajahnya belum pernah didaftarkan — pekerjaan admin,
+                    bukan kecurigaan. Menyamakan keduanya membuat HR
+                    menyetujui yang pertama sesering yang kedua. */
+  if ($sebab === '' && $wajahHalangi)
+    $sebab = $w['terdaftar'] ? 'WAJAH' : 'WAJAH_KOSONG';
 
   $status = $sebab === '' ? 'VALID' : 'MENUNGGU';
   $alasan = trim(s(isset($p['alasan']) ? $p['alasan'] : ''));
