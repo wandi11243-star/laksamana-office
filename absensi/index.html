@@ -255,6 +255,9 @@ img{max-width:100%;display:block}
 .diag .dg.n{border-left-color:var(--danger)}
 .diag .dg.n b{color:var(--danger)}
 
+.syarat .s.ketuk{cursor:pointer}
+.syarat .s.ketuk:active{transform:scale(.99)}
+
 .kosong-lok{padding:26px 20px;text-align:center}
 .kosong-lok .ic{width:54px;height:54px;border-radius:50%;margin:0 auto 12px;display:grid;
   place-items:center;background:var(--gold-soft);color:var(--gold-dim)}
@@ -555,6 +558,23 @@ async function kirimMasuk(){
        tempat (config.php), bukan juga di dalam HTML. */
     const d=await api('masuk',{nama:nama, pin:pin});
     ME=simpanSesi(d.user);
+    /* GPS DINYALAKAN DI SINI JUGA — dan inilah sebab "sudah GPS tapi tetap
+       tidak terbaca" yang dilaporkan 10 Agustus 2026.
+
+       mulai() memanggil mulaiLokasi(), TAPI ia keluar lebih dulu kalau belum
+       ada sesi:  ME=bacaSesi(); if(!ME) return viewMasuk('');
+       Artinya siapa pun yang harus login — perangkat baru, sesi habis,
+       sesudah menekan Keluar — menjalani SELURUH sesinya tanpa pemantauan
+       GPS pernah dinyalakan sekali pun. POS tetap null selamanya, kotaknya
+       terus bertuliskan "Mencari sinyal GPS", dan tidak ada satu pun galat
+       yang muncul karena memang tidak ada yang pernah dipanggil.
+
+       Yang membuatnya sulit dikenali: sesudah aplikasinya ditutup dan dibuka
+       lagi, sesinya sudah ada, mulai() lolos ke mulaiLokasi(), dan semuanya
+       bekerja — jadi gejalanya datang-pergi tanpa pola yang kelihatan.
+
+       Aman dipanggil dua kali: watch yang lama dihentikan lebih dulu. */
+    mulaiLokasi();
     await muatKonteks();
     $('#tabbar').style.display='';
     gambarTab(); go('absen');
@@ -1241,9 +1261,17 @@ function gambarSyarat(){
     lokKelas='mati'; lokJudul='Lokasi belum disetel';
     lokKet='Admin belum menandai titik kerja. Sementara ini semua absen dianggap di dalam area.';
   }else if(POS_ERR){
-    lokKelas='no'; lokJudul='Lokasi belum terbaca'; lokKet=POS_ERR;
+    lokKelas='no'; lokJudul='Lokasi belum terbaca'; lokKet=POS_ERR+' — ketuk baris ini untuk mencoba lagi.';
   }else if(!POS){
-    lokKelas='no'; lokJudul='Mencari sinyal GPS…'; lokKet='Tunggu sebentar, atau keluar dari ruangan tertutup.';
+    /* SEBAGIAN PERAMBAN HP HANYA MEMUNCULKAN KOTAK IZIN KALAU PERMINTAANNYA
+       DATANG DARI SENTUHAN. Panggilan otomatis saat halaman dimuat diabaikan
+       diam-diam — tidak ada kotak izin, tidak ada galat, dan kotak ini
+       berputar selamanya. Sampai sekarang satu-satunya tombol yang berupa
+       sentuhan ada di halaman Titik Kerja, yang cuma dibuka admin; kru biasa
+       tidak punya jalan sama sekali. Sekarang barisnya sendiri yang bisa
+       diketuk. */
+    lokKelas='no'; lokJudul='Mencari sinyal GPS…';
+    lokKet='Kalau lama tidak berubah, <b>ketuk baris ini</b> untuk meminta lokasi sekarang.';
   }else if(dekat && dekat.jarak<=dekat.lokasi.radius){
     lokKelas='ya'; lokJudul='Di '+dekat.lokasi.nama;
     lokKet=dekat.jarak+' m dari titik · akurasi ±'+POS.akurasi+' m';
@@ -1268,9 +1296,15 @@ function gambarSyarat(){
     wjKet = 'Wajib cocok. Wajah yang tidak cocok tetap terekam, tapi masuk antrean persetujuan HR.';
   }
 
+  /* Ketukan hanya dipasang saat lokasinya MEMANG belum terbaca — baris yang
+     sudah hijau tidak boleh ikut bereaksi, karena ketukan yang tidak
+     menghasilkan apa-apa membuat orang mengira barisnya rusak. */
+  const bisaKetuk = (lokKelas==='no');
   w.innerHTML='<div class="syarat">'
-    +'<div class="s '+lokKelas+'"><div class="ic">'+ikon('pin',17)+'</div>'
-      +'<div><b>'+esc(lokJudul)+'</b><span>'+esc(lokKet)+'</span></div></div>'
+    +'<div class="s '+lokKelas+(bisaKetuk?' ketuk':'')+'"'
+      +(bisaKetuk?' role="button" tabindex="0" onclick="ambilLokasiSekarang()"':'')+'>'
+      +'<div class="ic">'+ikon('pin',17)+'</div>'
+      +'<div><b>'+esc(lokJudul)+'</b><span>'+lokKet+'</span></div></div>'
     +'<div class="s '+wjKelas+'"><div class="ic">'+ikon('wajah',17)+'</div>'
       +'<div><b>'+esc(wjJudul)+'</b><span>'+esc(wjKet)+'</span></div></div>'
   +'</div>';
