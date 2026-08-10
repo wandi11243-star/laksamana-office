@@ -1650,6 +1650,120 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -1713,7 +1827,31 @@ function migrateRoleAcc() { permViewKeys(); }
 
 
 
-function normalizeState() { ynBool(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2675,10 +2813,6 @@ function userPerms() { viewPerm(); }
 
 function hasCustomAccess() {  }
 function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visibleTabs(); }
-
-
-
-
 
 
 
@@ -5414,7 +5548,7 @@ function dealTotal() { $(); finLive(); collectField(); baris(); }
 
 
 
-function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis(); rinciTeksTotal(); rinciDelRow(); svg(); }
+function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciJenisLabel(); rjKetik(); rjTombol(); rjTutupNanti(); rjSemua(); rinciTeksTotal(); rinciDelRow(); svg(); }
 
 
 
@@ -5445,6 +5579,142 @@ function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis();
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciJenisLabel() {  }
+
+
+
+
+
+
+
+function rinciJenisKode() {  }
+
+
+
+
+
+
+
+
+
+
+function rjLayer() { rjTutup(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rjTutup() {  }
+
+
+
+
+
+
+function rjPosisi() { rjLayer(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function rjKetik() { rjLayer(); rjPakai(); esc(); rjPosisi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rjSemua() { rjTutup(); rjKetik(); }
+
+
+
+
+
+function rjPakai() { rinciJenisLabel(); rjTutup(); rinciGantiJenis(); }
+
+
+
+
+
+
+
+function rjTombol() { rjPakai(); rinciJenisKode(); rjTutup(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rjTutupNanti() { rjTutup(); rinciJenisKode(); rinciJenisLabel(); rinciGantiJenis(); }
 
 
 
@@ -5597,6 +5867,10 @@ function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg();
 
 
 
+
+
+
+
 function rinciGantiJenis() { rinciHitung(); }
 
 
@@ -5635,10 +5909,16 @@ function rinciHitung() { rinciTeksTotal(); rinciKakiHTML(); $(); rinciBaca(); fi
 
 
 
+
+
+
+
 function rinciBaca() { $(); }
 
 
 function g() { Kaki(); }
+
+
 
 
 
@@ -7199,11 +7479,7 @@ function finBarisLebar() {  }
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); finBarisLebar(); dealTblHTML(); ynSeg(); rinciCentang(); esc(); finLive(); finHitungHTML(); rinciPanelHTML(); }
-
-
-
-
+function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); ynSeg(); rinciCentang(); finBarisLebar(); esc(); finLive(); finHitungHTML(); rinciPanelHTML(); }
 
 
 
