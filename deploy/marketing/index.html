@@ -749,6 +749,11 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 /* Ikon tong sampah, bukan tanda silang. Silang di ujung baris terbaca
    ambigu — bisa berarti "tutup", "batal", atau "hapus", dan ketiganya
    punya akibat yang sangat berbeda. Tong sampah cuma punya satu arti. */
+/* Acara milik EMS di kalender Marketing: abu bergaris putus, jadi terbaca
+   sebagai "milik modul lain" bahkan sebelum diklik. */
+.cal .ev-ems{background:rgba(120,120,120,.10);border-left:3px dashed var(--muted);color:var(--muted)}
+.cal .ev-ems:hover{background:rgba(120,120,120,.18)}
+
 .rundown-del{width:28px;height:28px;border:none;background:none;color:var(--muted);line-height:0;
   border-radius:6px;cursor:pointer;transition:.14s;display:inline-flex;align-items:center;justify-content:center}
 .rundown-del svg{width:15px;height:15px}
@@ -886,13 +891,16 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   .pilih-hitung{flex:1 1 100%;order:-1;text-align:center}
 }
 /* Sel Menu di tabel: tombol selebar sel, bukan kotak ketik. */
-.kalk-sel{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:9px 12px;
-  border:1.5px solid var(--line);border-radius:9px;background:var(--card);color:var(--sand-dim);
-  text-align:left;cursor:pointer;font-size:13.5px;transition:border-color .15s}
-.kalk-sel:hover{border-color:var(--gold)}
-.kalk-sel.isi{color:inherit;font-weight:600}
-.kalk-sel .tk{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.kalk-sel .pn{flex:none;color:var(--sand-dim);font-size:11px}
+.kalk-sel-wrap{display:flex;align-items:stretch;gap:6px;min-width:230px}
+.kalk-sel-wrap .kalk-titik-sel{display:flex;align-items:center;flex:none}
+.kalk-sel-wrap .kalk-ketik{flex:1;min-width:0;margin:0}
+/* Tombol dropdown BERDIRI SENDIRI di sebelah kotak, 40px penuh — bukan ikon
+   belasan piksel yang menempel di dalam kotak dan berebut ruang dengan
+   teksnya. Itu keluhan yang membuat dropdown lama sulit ditekan. */
+.kalk-drop{flex:none;width:40px;border:1.5px solid var(--line);border-radius:9px;
+  background:var(--card);color:var(--sand-dim);cursor:pointer;font-size:12px;
+  display:flex;align-items:center;justify-content:center;transition:border-color .15s,color .15s}
+.kalk-drop:hover{border-color:var(--gold);color:var(--gold)}
 
 /* Titik warna kategori. Warnanya diturunkan dari NAMA kategori, jadi semua
    menu dalam satu kategori otomatis sewarna, dan warnanya tidak bergeser
@@ -8050,13 +8058,93 @@ window.addEventListener('afterprint',function(){
    ============================================================ */
 let calDate=new Date(); calDate.setDate(1);
 let calStatusFilter='';
+/* ---------- KALENDER LINTAS MODUL: MARKETING MEMBACA EVENT EMS ----------
+   Pasangan dari muatEventMarketing() di modul EMS. Venue-nya cuma satu, jadi
+   kedua kalender harus memperlihatkan isi yang sama — kalau cuma satu arah,
+   Marketing tetap bisa menjanjikan tanggal yang sudah dipakai acara internal.
+
+   DIBACA, TIDAK DISALIN. Barisnya tidak pernah masuk S.events: kalau disalin,
+   ia akan ikut terkirim balik ke database Marketing pada saveAll berikutnya,
+   lalu muncul sebagai peluang palsu di pipeline dan ikut terhitung di rekap
+   revenue. */
+const EMS_URL   = '../event-api-mysql/api.php';
+let EMS_EVENTS  = [];
+let EMS_ERR     = '';
+let EMS_MUAT    = false;
+let EMS_SUDAH   = false;
+
+async function muatEventEms(paksa){
+  if(EMS_MUAT) return;
+  if(EMS_SUDAH && !paksa) return;
+  EMS_MUAT=true;
+  const stop=new AbortController();
+  const jam=setTimeout(function(){ stop.abort(); }, 8000);
+  try{
+    const r=await fetch(EMS_URL+'?action=getAll&t='+Date.now(),
+      {method:'GET', redirect:'follow', signal:stop.signal});
+    const j=await r.json();
+    if(!j || !j.ok || !j.data) throw new Error('balasan tidak dikenali');
+    /* Status EMS: Planning / Upcoming / Event Done. Planning sengaja TIDAK
+       ikut — ia rencana yang belum disetujui manajemen, dan menandai tanggal
+       sebagai terpakai karena rencana yang mungkin batal berarti menolak
+       booking yang sebenarnya masih bisa diterima. */
+    EMS_EVENTS=(j.data.events||[])
+      .filter(function(e){ return e && e.start_datetime && e.status!=='Planning'; })
+      .map(function(e){
+        return {id:e.id, tgl:String(e.start_datetime).slice(0,10), nama:e.title||'(tanpa judul)',
+                venue:e.venue||'', kategori:e.category||'', status:e.status||'', pic:e.pic||''};
+      });
+    EMS_ERR='';
+  }catch(err){
+    EMS_EVENTS=[];
+    EMS_ERR = (err && err.name==='AbortError')
+      ? 'Modul Event (EMS) tidak menjawab dalam 8 detik.'
+      : 'Tidak bisa membaca event EMS: '+((err&&err.message)||'gagal');
+  }finally{
+    clearTimeout(jam);
+    EMS_MUAT=false; EMS_SUDAH=true;
+    /* Digambar ulang hanya kalau kalendernya masih terbuka — balasan yang
+       datang terlambat tidak boleh menimpa halaman lain yang sedang dibaca. */
+    if(String(location.hash).indexOf('calendar')>-1) go('calendar');
+  }
+}
+function panelGagalEms(){
+  if(!EMS_ERR) return '';
+  return '<div class="tbl-note" style="margin:0 0 12px;border-color:var(--danger);color:var(--danger)">'
+    +svg(IC.alert)+'<span>'+esc(EMS_ERR)+' Acara dari modul Event tidak ikut tergambar. '
+    +'<a href="#" onclick="muatEventEms(true);return false"><b>Coba lagi</b></a></span></div>';
+}
+/* Popup untuk acara milik EMS. Read-only dengan sengaja: yang boleh
+   mengubahnya adalah modul Event, dan tombol ubah di sini cuma akan
+   melahirkan dua tempat menyunting satu acara yang sama. */
+function emsEventPopup(id){
+  const e=EMS_EVENTS.find(function(x){ return x.id===id; }); if(!e) return;
+  modal('<div class="modal-head"><div><h3>'+esc(e.nama)+'</h3>'
+     +'<p>Acara dari modul Event (EMS) \u00b7 hanya bisa dilihat di sini</p></div>'
+     +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body"><dl class="kv-list">'
+     +'<dt>Tanggal</dt><dd>'+fmtDate(e.tgl)+'</dd>'
+     +'<dt>Lokasi</dt><dd>'+esc(e.venue||'\u2014')+'</dd>'
+     +'<dt>Kategori</dt><dd>'+esc(e.kategori||'\u2014')+'</dd>'
+     +'<dt>Status</dt><dd>'+esc(e.status||'\u2014')+'</dd>'
+     +'<dt>PIC</dt><dd>'+esc(e.pic||'\u2014')+'</dd>'
+   +'</dl>'
+   +'<p class="fh" style="margin-top:12px">Tanggal ini sudah dipakai acara internal. '
+   +'Untuk mengubahnya, buka modul Event.</p></div>'
+   +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button></div>');
+}
+
 function renderCalendar(V){
   const statusOpts=['Lead','Prospect','Quotation Terkirim','Deal','Event Done','Lost'];
   let h=pageHead('Modul F','Kalender','Satu jadwal untuk seluruh venue — hindari dobel booking.',
     '<select class="inp" style="width:auto;padding:7px 12px" onchange="calStatusFilter=this.value;go(\'calendar\')"><option value=""'+(calStatusFilter===''?' selected':'')+'>Semua status</option>'+statusOpts.map(s=>'<option'+(calStatusFilter===s?' selected':'')+'>'+s+'</option>').join('')+'</select>'
     +'<button class="btn sm" onclick="calNav(-1)">←</button><button class="btn sm" onclick="calToday()">Hari Ini</button><button class="btn sm" onclick="calNav(1)">→</button>');
+  h+=panelGagalEms();
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="font-size:18px">'+MONTHS_F[calDate.getMonth()]+' '+calDate.getFullYear()+'</h3>';
-  h+='<div class="pill-row" style="font-size:11px">'+Object.keys(EVENT_COLOR).slice(0,5).map(t=>'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var('+EVENT_COLOR[t]+')"></span>'+t+'</span>').join('')+'</div></div>';
+  h+='<div class="pill-row" style="font-size:11px">'+Object.keys(EVENT_COLOR).slice(0,5).map(t=>'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var('+EVENT_COLOR[t]+')"></span>'+t+'</span>').join('')
+   +'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var(--muted)"></span>Acara EMS'
+   +(EMS_EVENTS.length?' ('+EMS_EVENTS.length+')':'')+'</span>'
+   +'</div></div>';
   h+='<div class="cal">'+DAYS.map(d=>'<div class="dow">'+d+'</div>').join('');
   const y=calDate.getFullYear(),m=calDate.getMonth();
   const first=new Date(y,m,1).getDay(); const dim=new Date(y,m+1,0).getDate(); const prevDim=new Date(y,m,0).getDate();
@@ -8070,10 +8158,16 @@ function renderCalendar(V){
     const evs=cell.other?[]:S.events.filter(e=>eventPadaTgl(e,ds)&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
     h+='<div class="cell'+(cell.other?' other':'')+(isToday?' today':'')+'"><div class="dn">'+cell.d+'</div>';
     evs.forEach(e=>{ const col=EVENT_COLOR[e.jenis]||'--muted'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+'">'+esc(e.nama)+'</div>'; });
+    /* Acara milik EMS. Warnanya sengaja beda (abu bergaris putus) supaya
+       jelas ia bukan peluang Marketing dan tidak bisa disunting dari sini. */
+    if(!cell.other) EMS_EVENTS.filter(x=>x.tgl===ds).forEach(x=>{
+      h+='<div class="ev ev-ems" onclick="emsEventPopup(\''+esc(x.id)+'\')" title="Acara EMS: '
+        +esc(x.nama)+'">'+esc(x.nama)+'</div>'; });
     h+='</div>';
   });
   h+='</div></div>';
   V.innerHTML=h;
+  muatEventEms();
 }
 function calNav(n){ calDate.setMonth(calDate.getMonth()+n); go('calendar'); }
 function calToday(){ calDate=new Date(); calDate.setDate(1); go('calendar'); }
@@ -10968,7 +11062,8 @@ function renderKalkulator(V){
       +'Rasio per pax dihitung sendiri.</div>'
     +'</div>';
 
-  // datalist dipasang sekali di halaman; tiap kotak menu menunjuk ke sini.
+  /* datalist dipasang sekali di halaman; tiap kotak menu menunjuk ke sini.
+     Inilah yang membuat kotaknya bisa dicari sambil diketik. */
   h+=opts;
   h+='<div class="card pad0" style="margin-bottom:16px"><div class="tbl-wrap"><table class="tbl kalk-tbl"><thead><tr>'
     +'<th style="width:34px">#</th><th>Menu</th><th style="width:158px">Porsi (pcs)</th>'
@@ -11037,13 +11132,32 @@ function kalkRowsHTML(){
 /* Isi sel Menu: tombol yang memperlihatkan pilihan sekarang. Kosong pun
    tetap tombol — sel kosong yang tidak terlihat bisa ditekan adalah sel yang
    tidak pernah ditekan. */
+/* Sel Menu = KOTAK KETIK + TOMBOL DROPDOWN TERPISAH.
+
+   Dua cara memilih, dan keduanya memang dipakai orang yang berbeda:
+     - yang HAFAL namanya mengetik dan menyaring lewat daftar saran;
+     - yang belum hafal menekan tombol di sebelahnya lalu memilih dari
+       kotak kategori.
+
+   Versi sebelumnya membuang cara pertama dan menyisakan tombol saja — cepat
+   untuk yang baru, tapi menghukum yang sudah hafal: mengetik tiga huruf jauh
+   lebih cepat daripada membuka lembar, mencari kategori, lalu menggulir.
+
+   TOMBOLNYA DI LUAR KOTAK KETIK, bukan ikon kecil menempel di dalamnya.
+   Ikon di dalam kotak berbagi ruang dengan teks yang panjang, dan target
+   sentuhnya menyusut jadi belasan piksel di ujung — persis keluhan yang
+   membuat dropdown lama sulit ditekan. */
 function kalkSelHTML(i,r){
   const kat=r.ref?String(r.ref).slice(0,String(r.ref).indexOf('|')):'';
   const lbl=kalkLabelRef(r.ref);
-  return '<button type="button" class="kalk-sel'+(lbl?' isi':'')+'" onclick="kalkBukaPilihBaris('+i+')">'
-    +(kat?kalkTitikKat(kat):'')
-    +'<span class="tk">'+(lbl?esc(lbl):'Pilih menu…')+'</span>'
-    +'<span class="pn">&#9662;</span></button>';
+  return '<div class="kalk-sel-wrap">'
+    +(kat?'<span class="kalk-titik-sel">'+kalkTitikKat(kat)+'</span>':'')
+    +'<input class="inp kalk-ketik" list="kalk_menulist" autocomplete="off" '
+      +'placeholder="Ketik untuk cari menu\u2026" value="'+esc(lbl)+'" '
+      +'onchange="kalkPilihMenu('+i+',this)">'
+    +'<button type="button" class="kalk-drop" title="Pilih dari daftar kategori" '
+      +'onclick="kalkBukaPilihBaris('+i+')">&#9662;</button>'
+    +'</div>';
 }
 function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+')'); }
 function kalkLabelRef(ref){

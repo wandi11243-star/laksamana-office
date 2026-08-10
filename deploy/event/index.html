@@ -330,6 +330,12 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 /* Daftar pilih talent: seluruh barisnya bisa diketuk, dan kotak fee duduk
    di ujung kanan baris yang sama. Fee yang terpisah dari namanya membuat
    orang harus mengingat urutan sambil mengetik angka. */
+/* Item kalender yang bisa diklik. Kursor & sedikit angkat saat disentuh —
+   tanpa penanda, orang tidak tahu mana yang merespons dan mana yang tidak,
+   lalu berhenti mencoba sama sekali. */
+.evt-dot.bisa{cursor:pointer;transition:filter .12s,transform .12s}
+.evt-dot.bisa:hover{filter:brightness(1.12);transform:translateY(-1px)}
+
 .tal-pilih{max-height:280px;overflow-y:auto;border:1px solid var(--line-hard);border-radius:10px;padding:6px}
 .tal-baris{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;cursor:pointer;
   border:1.5px solid transparent}
@@ -7371,23 +7377,94 @@ function renderCalendar(){
   const startDow=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate();const todayStr=dstr(new Date());
   // aggregate items
   const items={};// date -> [{title,color,type}]
-  const push=(date,title,color,type)=>{if(calFilter!=='all'&&calFilter!==type)return;(items[date]=items[date]||[]).push({title,color,type});};
-  DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.poster+' '+e.title,'yellow','Event'));
-  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'green','Entertainment');});
+  /* `klik` = pemanggil popup untuk item itu. Kosong berarti item tidak bisa
+     diklik (mis. hari libur) — dan itu ditandai di layar lewat kursor, supaya
+     orang tidak menekan sesuatu yang memang tidak akan merespons. */
+  const push=(date,title,color,type,klik)=>{if(calFilter!=='all'&&calFilter!==type)return;(items[date]=items[date]||[]).push({title,color,type,klik});};
+  DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.poster+' '+e.title,'yellow','Event',"calEventPopup('"+e.id+"')"));
+  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'green','Entertainment',"calJadwalPopup('"+s.id+"')");});
   DB.calendarExtra.forEach(x=>push(x.date,x.title,x.color==='purple'?'purple':x.color==='orange'?'orange':x.color==='red'?'red':'blue',x.type));
   /* Event Marketing — dibaca, tidak disalin. Ditandai jingga dan diberi
      awalan supaya jelas ia milik modul lain dan tidak bisa disunting di sini. */
-  MKT_EVENTS.forEach(function(e){
-    push(e.tanggal, '[MKT] '+e.nama+(e.client?' - '+e.client:''), 'orange', 'Marketing'); });
+  MKT_EVENTS.forEach(function(e,i){
+    push(e.tanggal, '[MKT] '+e.nama+(e.client?' - '+e.client:''), 'orange', 'Marketing',
+         'calMktPopup('+i+')'); });
   muatEventMarketing();
   let cells='';for(let i=0;i<startDow;i++)cells+='<div class="cell other"></div>';
-  for(let d=1;d<=days;d++){const ds=dstr(new Date(y,m,d));const its=items[ds]||[];cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${its.slice(0,4).map(it=>`<span class="evt-dot b-${it.color}">${esc(it.title)}</span>`).join('')}${its.length>4?`<span class="mini">+${its.length-4} lagi</span>`:''}</div>`;}
+  for(let d=1;d<=days;d++){const ds=dstr(new Date(y,m,d));const its=items[ds]||[];cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${its.slice(0,4).map(it=>`<span class="evt-dot b-${it.color}${it.klik?' bisa':''}"${it.klik?` onclick="${it.klik}"`:''}>${esc(it.title)}</span>`).join('')}${its.length>4?`<span class="mini">+${its.length-4} lagi</span>`:''}</div>`;}
   const types=['all','Event','Entertainment','Reservation','Marketing','Holiday','Birthday'];
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
   <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
   ${panelGagalMkt()}
   <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Event</span><span><i class="dotc" style="background:var(--green)"></i>Talent</span><span><i class="dotc" style="background:var(--purple)"></i>Reservation</span><span><i class="dotc" style="background:var(--orange)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:var(--red)"></i>Holiday</span><span><i class="dotc" style="background:var(--blue)"></i>Birthday</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
+}
+
+/* ---------- POPUP DETAIL DARI KALENDER ----------
+   Sebelum ini kalender EMS cuma memajang nama. Untuk tahu jam berapa, di
+   mana, atau siapa PIC-nya, orang harus mengingat nama acaranya lalu mencari
+   sendiri di halaman Event Management — dan kalender yang tidak bisa
+   menjawab pertanyaan paling sederhana tentang isinya berhenti dipakai.
+
+   Popup, bukan langsung pindah halaman: yang membuka kalender biasanya
+   sedang MEMBANDINGKAN beberapa tanggal, dan berpindah halaman berarti
+   kehilangan tempatnya lalu harus menggulir balik ke bulan yang tadi. */
+function calEventPopup(id){
+  const e=DB.events.find(x=>x.id===id); if(!e) return;
+  const kelas=DB.ticketClasses.filter(c=>c.event_id===id);
+  const terjual=kelas.reduce((a,c)=>a+(+c.sold||0),0);
+  const kuota=kelas.reduce((a,c)=>a+(+c.quota||0),0);
+  const omzet=DB.orders.filter(o=>o.event_id===id&&o.payment_status==='Paid')
+                       .reduce((a,o)=>a+(+o.total||0),0);
+  modal(`<button class="close" onclick="closeModal()">&times;</button>
+   <h3>${esc(e.title)}</h3>
+   <p class="mini" style="margin-bottom:12px">${esc(e.category||'')} &middot; ${statusBadge(e.status)}</p>
+   <div class="kv" style="margin-bottom:14px">
+     <div class="k">Waktu</div><div>${fmtDateTime(e.start_datetime)}${e.end_datetime?' &ndash; '+fmtDateTime(e.end_datetime):''}</div>
+     <div class="k">Lokasi</div><div>${esc(e.venue||'&mdash;')}</div>
+     <div class="k">PIC</div><div>${esc(e.pic||'&mdash;')}</div>
+     ${kelas.length?`<div class="k">Tiket</div><div>${terjual} / ${kuota} terjual</div>`:''}
+     ${omzet?`<div class="k">Omzet lunas</div><div><b>${IDR(omzet)}</b></div>`:''}
+   </div>
+   <div class="modal-actions">
+     <button class="btn ghost" onclick="closeModal()">Tutup</button>
+     <button class="btn" onclick="closeModal();location.hash='#/events/${e.id}'">Buka Detail Event</button>
+   </div>`);
+}
+function calJadwalPopup(id){
+  const s=DB.schedules.find(x=>x.id===id); if(!s) return;
+  const t=DB.talents.find(x=>x.id===s.talent_id)||{};
+  modal(`<button class="close" onclick="closeModal()">&times;</button>
+   <h3>${esc(t.name||'(talent dihapus)')}</h3>
+   <p class="mini" style="margin-bottom:12px">Jadwal talent &middot; ${statusBadge(s.status)}</p>
+   <div class="kv" style="margin-bottom:14px">
+     <div class="k">Tanggal</div><div>${fmtDate(s.date)}</div>
+     <div class="k">Jam</div><div>${esc(s.start_time||'')} &ndash; ${esc(s.end_time||'')}</div>
+     <div class="k">Jenis</div><div>${esc(s.performance_type||'&mdash;')}</div>
+     <div class="k">Fee hari ini</div><div><b>${IDR(s.fee||0)}</b></div>
+     ${t.whatsapp?`<div class="k">Kontak</div><div>${esc(t.whatsapp)}</div>`:''}
+   </div>
+   <div class="modal-actions">
+     <button class="btn ghost" onclick="closeModal()">Tutup</button>
+     <button class="btn" onclick="closeModal();location.hash='#/schedule'">Buka Talent Schedule</button>
+   </div>`);
+}
+/* Acara milik Marketing. Read-only dengan sengaja: yang boleh mengubahnya
+   adalah modul Marketing, dan tombol ubah di sini cuma akan melahirkan dua
+   tempat menyunting satu acara yang sama. */
+function calMktPopup(i){
+  const e=MKT_EVENTS[i]; if(!e) return;
+  modal(`<button class="close" onclick="closeModal()">&times;</button>
+   <h3>${esc(e.nama)}</h3>
+   <p class="mini" style="margin-bottom:12px">Acara dari modul Marketing &middot; hanya bisa dilihat di sini</p>
+   <div class="kv" style="margin-bottom:14px">
+     <div class="k">Tanggal</div><div>${fmtDate(e.tanggal)}</div>
+     <div class="k">Client</div><div>${esc(e.client||'&mdash;')}</div>
+     <div class="k">Status</div><div>${esc(e.status||'&mdash;')}</div>
+     ${e.pax?`<div class="k">Estimasi Tamu</div><div>${e.pax} pax</div>`:''}
+   </div>
+   <p class="mini">Tanggal ini sudah dipegang Marketing. Untuk mengubahnya, buka modul Marketing.</p>
+   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Tutup</button></div>`);
 }
 
 /* ============ IDEA BANK ============ */
