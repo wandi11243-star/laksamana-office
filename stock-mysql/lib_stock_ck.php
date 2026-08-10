@@ -325,12 +325,32 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
 
   $isi = implode(',', array_fill(0, count($rows), '?'));
   $st = $pdo->prepare("SELECT `nomor_order`,`row_index`,`item`,`qty`,`unit`,`tgl_datang`,
-                              `kedatangan`,`tim`,`pic`
+                              `kedatangan`,`tim`,`pic`,`batch_name`
                          FROM `orders` WHERE `row_index` IN ($isi)");
   $st->execute($rows);
 
   $n = 0;
   foreach ($st->fetchAll() as $o) {
+    /* HANYA PENGAJUAN DARI TAB CENTRAL KITCHEN YANG MENYENTUH STOK CK
+       (permintaan user 10 Agustus 2026: "yang CK itu hanya dari menu tab
+       Central Kitchen").
+
+       Yang menentukan BUKAN jenis barangnya, melainkan LEWAT MANA ia diajukan.
+       pur_ck_produk() memulangkan 'ck' DAN 'both', jadi tanpa penjagaan ini
+       barang 'both' yang DIBELI KE VENDOR lewat Form Order Belanja ikut
+       diproses di sini: begitu di-check-in, ia menulis mutasi 'keluar' dan
+       MENGURANGI saldo Central Kitchen — untuk barang yang justru baru saja
+       datang dari vendor dan tidak pernah diambil dari rak CK.
+
+       Salah dua kali sekaligus: arahnya terbalik, dan gudangnya bukan gudang
+       yang bersangkutan. Saldo CK ikut turun tiap kali outlet berbelanja
+       barang 'both', tanpa satu pun tanda di layar mana pun.
+
+       Penandanya `batch_name` — nilai yang sama yang ditulis submitCKOrder dan
+       dibaca pesananCK() di purchasing serta dariFormCK() di ordering. Satu
+       istilah, satu arti, di empat tempat. */
+    if (strtolower(trim((string)($o['batch_name'] ?? ''))) !== 'central kitchen') continue;
+
     $namaMaster = isset($produk[$o['item']]) ? $o['item'] : ($petaLower[pur_lower($o['item'])] ?? '');
     if ($namaMaster === '') continue;              // bukan barang CK — tidak diurus di sini
     $p = $produk[$namaMaster];

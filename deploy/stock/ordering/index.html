@@ -3921,6 +3921,13 @@
                Disusun DI SINI sebagai variabel, bukan sebagai percabangan di
                dalam template — komentar penjelas di dalam template ikut terkirim
                ke innerHTML dan menempel di DOM tiap baris tanpa guna. */
+            /* "Stok CK" di form belanja adalah ANGKA SAJA — dipastikan ulang
+               dengan user 10 Agustus 2026. Memesan dari form ini tidak pernah
+               menyentuh saldo Central Kitchen: sejak tanggal yang sama,
+               pur_ck_sinkron_order() hanya memproses pengajuan yang datang dari
+               tab Central Kitchen (batch_name-nya). Kolomnya ada supaya orang
+               tidak membeli barang yang ternyata masih menumpuk di rak CK,
+               bukan karena form ini ada hubungannya dengan CK. */
             const selStok = pck
                 ? metricCell('Stok CK', stokCKTxt) + metricCell('Stok outlet', stokTxt)
                 : metricCell('Stok kini', stokTxt);
@@ -4882,7 +4889,9 @@
                filter tim di atas. */
             if (sumberFilter !== 'all') {
                 groups = groups.filter(g => g.items.some(it => {
-                    const ck = !!infoCKItem(it.item);
+                    // Asal ORDER, bukan jenis barang: pembelian vendor atas
+                    // barang 'both' bukan urusan Central Kitchen.
+                    const ck = dariFormCK(it);
                     return sumberFilter === 'ck' ? ck : !ck;
                 }));
             }
@@ -4965,7 +4974,7 @@
                                         ? `<span class="px-2 py-0.5 text-[9px] font-black rounded-full uppercase tracking-wider bg-rose-600 text-white flex items-center gap-1"><i class="fa-solid fa-clock text-[8px]"></i> Tertunda ${telat} hari</span>`
                                         : '';
                                 })()}
-                                ${g.items.some(it => infoCKItem(it.item))
+                                ${g.items.some(it => dariFormCK(it))
                                     ? '<span class="px-2 py-0.5 text-[9px] font-black rounded-full uppercase tracking-wider bg-teal-100 text-teal-700 border border-teal-200 flex items-center gap-1"><i class="fa-solid fa-kitchen-set text-[8px]"></i> Central Kitchen</span>'
                                     : ''}
                             </div>
@@ -5094,13 +5103,20 @@
                 const catatanAktual = row.catatan || "";
                 const isChecked = (row.kedatangan || "") === "Datang";
 
-                /* Barang Central Kitchen ditandai di sini. Bukan hiasan:
+                /* Pengajuan Central Kitchen ditandai di sini. Bukan hiasan:
                    mencentangnya juga MEMOTONG STOK Central Kitchen (server
                    yang melakukannya, lihat pur_ck_sinkron_order), jadi orang
                    yang mencentang perlu tahu barisnya bukan sekadar catatan
                    kedatangan biasa. Padanan pack ikut ditulis supaya "2 Pack"
-                   bisa dicocokkan dengan barang fisik di depannya. */
-                const pCK = infoCKItem(itemName);
+                   bisa dicocokkan dengan barang fisik di depannya.
+
+                   YANG DINILAI ASAL ORDER-nya (dariFormCK), bukan jenis
+                   barangnya. Barang 'both' yang DIBELI KE VENDOR lewat Form
+                   Order Belanja bukan pengambilan dari CK — mencentangnya tidak
+                   memotong saldo CK sama sekali sejak 10 Agustus 2026, jadi
+                   menandainya "CK" di sini cuma menakut-nakuti untuk sesuatu
+                   yang tidak terjadi. */
+                const pCK = dariFormCK(row) ? infoCKItem(itemName) : null;
                 const padananCK = (pCK && pCK.packIsi > 0 && String(unitVal).toLowerCase() === 'pack')
                     ? ` <span class="text-indigo-400 font-semibold">(${ckNum(ckKeDasar(qtyVal, unitVal, pCK))} ${pCK.packSatuan})</span>`
                     : '';

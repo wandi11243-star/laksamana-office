@@ -3941,6 +3941,13 @@ function refreshRowForecast() { infoCKItem(); renderPanelCK(); ckTeksPack(); met
 
 
 
+
+
+
+
+
+
+
 function metricCell() {  }
 
 
@@ -4850,7 +4857,9 @@ function setTimFilter() { timTerkunci(); renderPoCards(); }
 
 
 
-function renderPoCards() { groupRecordsByPo(); timTerkunci(); orderUntukTim(); infoCKItem(); computePoStatus(); }
+function renderPoCards() { groupRecordsByPo(); timTerkunci(); orderUntukTim(); dariFormCK(); computePoStatus(); }
+
+
 
 
 
@@ -4925,7 +4934,7 @@ function ketBadge() {  }
 
 
 
-function cardHTML() { computePoStatus(); fmtTgl(); getKeterangan(); ketBadge(); selisihHari(); isoLokal(); infoCKItem(); openPoDetail(); fmtTglJudul(); }
+function cardHTML() { computePoStatus(); fmtTgl(); getKeterangan(); ketBadge(); selisihHari(); isoLokal(); dariFormCK(); openPoDetail(); fmtTglJudul(); }
 
 
 
@@ -5059,7 +5068,14 @@ function openPoDetail() { groupRecordsByPo(); showToast(); computePoStatus(); ge
 
 
 
-function renderDetailItems() { saveCheckinData(); timTerkunci(); timDariRecord(); infoCKItem(); ckNum(); ckKeDasar(); promptEditQty(); promptDeleteOrder(); toggleRowStyle(); }
+function renderDetailItems() { saveCheckinData(); timTerkunci(); timDariRecord(); dariFormCK(); infoCKItem(); ckNum(); ckKeDasar(); promptEditQty(); promptDeleteOrder(); toggleRowStyle(); }
+
+
+
+
+
+
+
 
 
 
