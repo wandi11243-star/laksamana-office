@@ -257,6 +257,38 @@ img{max-width:100%;display:block}
   display:flex;align-items:center;justify-content:center;gap:6px}
 .pilih-cara .pc.on{border-color:var(--gold-2);background:var(--gold-soft);color:var(--gold-dim)}
 
+/* ---------- PETA ----------
+   Bingkainya diberi tinggi TETAP, bukan aspect-ratio: lembar ini bisa dibuka
+   di layar yang sangat pendek (HP mendatar), dan peta yang tingginya ikut
+   lebar akan mendorong tombol "Pakai titik" keluar layar. */
+.pilih-cara.tiga{grid-template-columns:1fr 1fr 1fr}
+.peta-bingkai{position:relative;height:260px;border-radius:var(--radius);overflow:hidden;
+  border:1.5px solid var(--line);background:var(--bg)}
+#peta{position:absolute;inset:0}
+.peta-tunggu,.peta-gagal{position:absolute;inset:0;display:grid;place-items:center;
+  gap:6px;text-align:center;padding:18px;font-size:13px;color:var(--muted);line-height:1.6}
+.peta-gagal b{display:block;color:var(--danger);margin-bottom:4px}
+/* Penanda tengah: TIDAK boleh menangkap sentuhan, kalau tidak ia menelan
+   gerakan geser dan petanya jadi terasa macet. Ujung pin ada di bawah, jadi
+   titiknya digeser ke atas separuh tinggi ikonnya. */
+.peta-silang{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);
+  pointer-events:none;z-index:500;color:var(--danger);filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.peta-silang::after{content:'';position:absolute;left:50%;top:100%;width:6px;height:6px;
+  margin-left:-3px;margin-top:-2px;border-radius:50%;background:var(--danger);opacity:.85}
+.peta-saya{position:absolute;right:10px;bottom:10px;z-index:500;width:40px;height:40px;
+  border-radius:12px;border:1.5px solid var(--line);background:var(--surface);
+  color:var(--gold-dim);display:grid;place-items:center;box-shadow:var(--shadow-lg)}
+.peta-koord{margin-top:9px;text-align:center;font-size:13px;color:var(--muted)}
+.peta-cari{display:flex;gap:8px;margin-bottom:9px}
+.peta-cari input{flex:1;min-width:0}
+.peta-hasil{display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+.peta-hasil:empty{display:none}
+.peta-hasil-baris{text-align:left;padding:10px 12px;border-radius:var(--radius-sm);
+  border:1px solid var(--line);background:var(--surface);font-size:12.5px;line-height:1.5;
+  color:var(--text)}
+.peta-hasil-baris:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.peta-ket{font-size:12.5px;color:var(--muted);padding:4px 2px}
+
 .koord{margin-top:12px}
 .koord .kosong{padding:13px 15px;border-radius:var(--radius-sm);border:1.5px dashed var(--line);
   color:var(--muted-2);font-size:13px;text-align:center}
@@ -542,16 +574,61 @@ async function kirimMasuk(){
    "lokasi belum terbaca" tanpa pernah bisa diperbaiki.
 
    Karena itu ada mintaLokasi(): dipanggil dari tombol, jadi ia sentuhan. */
+let POS_WATCH=null;
+/* DUA TAHAP, dan urutannya yang penting.
+
+   Dulu satu-satunya panggilan adalah watchPosition dengan
+   enableHighAccuracy:true. Di HP, permintaan akurasi tinggi menyalakan GPS
+   perangkat keras dan itu butuh 5–30 detik di dalam bangunan — sepanjang
+   waktu itu tidak ada satu pun jawaban, layar cuma bertuliskan "Mencari
+   sinyal", dan orang menyimpulkan fiturnya rusak. Padahal posisi kasar dari
+   Wi-Fi/menara sudah tersedia hampir seketika.
+
+   Sekarang: satu pembacaan KASAR lebih dulu (cepat, dari Wi-Fi/seluler)
+   supaya layar langsung punya angka, lalu watchPosition akurasi tinggi yang
+   menajamkannya sendiri begitu GPS mengunci. terimaPos hanya menerima yang
+   lebih baik, jadi yang kasar tidak pernah menimpa yang sudah tajam. */
 function mulaiLokasi(){
   if(!navigator.geolocation){ POS_ERR='Peramban ini tidak mendukung GPS.'; return; }
+  /* Izin yang SUDAH ditolak permanen tidak akan pernah memunculkan kotak izin
+     lagi, berapa kali pun diminta. Dikatakan apa adanya, bukan dibiarkan
+     berputar selamanya di "Mencari sinyal". */
+  if(navigator.permissions && navigator.permissions.query){
+    try{
+      navigator.permissions.query({name:'geolocation'}).then(function(st){
+        if(st.state==='denied'){
+          POS_ERR='Izin lokasi ditolak untuk situs ini. Ketuk ikon gembok di sebelah alamat → Izin situs → Lokasi → Izinkan.';
+          segarkanLokasiDiLayar();
+        }
+        /* Begitu izinnya berubah (orang membukanya dari setelan peramban),
+           langsung dicoba lagi tanpa perlu memuat ulang halaman. */
+        st.onchange=function(){ if(st.state==='granted'){ POS_ERR=''; mulaiLokasi(); } };
+      }).catch(function(){});
+    }catch(e){}
+  }
   try{
-    navigator.geolocation.watchPosition(terimaPos, tolakPos,
-      {enableHighAccuracy:true, timeout:20000, maximumAge:10000});
+    navigator.geolocation.getCurrentPosition(terimaPos, function(){},
+      {enableHighAccuracy:false, timeout:8000, maximumAge:120000});
+    if(POS_WATCH!==null) navigator.geolocation.clearWatch(POS_WATCH);
+    POS_WATCH=navigator.geolocation.watchPosition(terimaPos, tolakPos,
+      {enableHighAccuracy:true, timeout:25000, maximumAge:5000});
   }catch(e){ POS_ERR='GPS tidak bisa dijalankan: '+e.message; }
 }
+/* Tab yang dibiarkan terbuka semalaman memegang posisi kemarin, dan sebagian
+   peramban menghentikan watchPosition saat tabnya tersembunyi. Saat kembali
+   aktif, pantauannya dijalankan lagi. */
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState==='visible' && !POS) mulaiLokasi();
+});
 function terimaPos(p){
-  POS={lat:p.coords.latitude, lng:p.coords.longitude,
-       akurasi:Math.round(p.coords.accuracy||0), at:Date.now()};
+  const baru={lat:p.coords.latitude, lng:p.coords.longitude,
+              akurasi:Math.round(p.coords.accuracy||0), at:Date.now()};
+  /* Yang lebih KASAR tidak boleh menimpa yang sudah tajam — kecuali yang
+     lama sudah basi (>2 menit), yang berarti orangnya mungkin sudah pindah.
+     Tanpa aturan ini, pembacaan kasar tahap pertama bisa datang belakangan
+     dan menghapus kunci GPS yang sudah didapat. */
+  if(POS && baru.akurasi>POS.akurasi && (Date.now()-POS.at)<120000) return;
+  POS=baru;
   POS_ERR='';
   segarkanLokasiDiLayar();
 }
@@ -573,6 +650,8 @@ function segarkanLokasiDiLayar(){
   if(HAL==='absen') gambarSyarat();
   const kotak=$('#gpsKotak'); if(kotak) kotak.innerHTML=gpsKotakHTML();
   const b=$('#btPakaiGps'); if(b) b.disabled=!POS;
+  /* Lingkaran "posisi saya" di peta ikut bergerak selama petanya terbuka. */
+  if(typeof petaSegarkanSaya==='function') petaSegarkanSaya();
 }
 
 /* Minta lokasi SEKARANG, dari sentuhan pengguna. Mengembalikan janji supaya
@@ -655,6 +734,161 @@ function bacaKoordinat(teks){
   if(lat<-90||lat>90)   return {galat:'Lintang harus antara -90 dan 90. Mungkin urutannya tertukar?'};
   if(lng<-180||lng>180) return {galat:'Bujur harus antara -180 dan 180.'};
   return {lat:lat, lng:lng};
+}
+
+/* ---------------------------------------------------------------------
+   PETA — MENANDAI TITIK KERJA DENGAN MENGGESER PETA
+
+   Cara yang sudah dikenal semua orang dari Shopee / Gojek / Grab: petanya
+   digeser, penanda diam di tengah, dan yang dipilih adalah titik di bawah
+   penanda. Sengaja BUKAN "ketuk untuk menaruh pin" — di layar HP jari
+   menutupi titik yang sedang ditunjuk, dan yang tertaruh selalu meleset
+   beberapa puluh meter.
+
+   Petanya Leaflet + ubin OpenStreetMap: gratis dan tanpa kunci API, sesuai
+   syarat modul ini (Google Maps JS API menuntut kunci + penagihan aktif).
+   Leaflet DITANAM di vendor/, bukan diambil dari CDN — modul ini sudah
+   pernah mati total gara-gara satu berkas luar yang tidak terunduh, dan
+   jaringan kantor yang menyaring domain luar akan mematikannya lagi.
+
+   DIMUAT MALAS: 160 KB tidak boleh ikut menahan layar absen yang dibuka
+   ratusan kali sehari. Petanya cuma dipakai admin, sesekali, saat menandai
+   titik kerja — jadi berkasnya baru diambil ketika tab Peta dibuka.
+   ------------------------------------------------------------------- */
+let PETA=null, PETA_SIAP=null, PETA_LINGKARAN=null, PETA_SAYA=null;
+
+function muatPeta(){
+  if(PETA_SIAP) return PETA_SIAP;
+  PETA_SIAP=new Promise(function(selesai,gagal){
+    if(window.L) return selesai(window.L);
+    const css=document.createElement('link');
+    css.rel='stylesheet'; css.href='vendor/leaflet.css';
+    document.head.appendChild(css);
+    const js=document.createElement('script');
+    js.src='vendor/leaflet.js';
+    js.onload=function(){ selesai(window.L); };
+    /* Kegagalan dikatakan apa adanya. Peta yang tidak muncul tanpa pesan
+       membuat orang menunggu tanpa batas lalu menyimpulkan modulnya rusak. */
+    js.onerror=function(){ PETA_SIAP=null; gagal(new Error('Berkas peta gagal dimuat.')); };
+    document.head.appendChild(js);
+  });
+  return PETA_SIAP;
+}
+
+/* Titik awal: koordinat yang sudah tersimpan kalau ada, kalau tidak posisi
+   GPS sekarang, kalau tidak juga jatuh ke Pekanbaru. Membuka peta di tengah
+   samudra memaksa orang menggeser separuh dunia sebelum bisa mulai. */
+function petaTitikAwal(){
+  if(LOK_LAT || LOK_LNG) return {lat:LOK_LAT, lng:LOK_LNG, z:18};
+  if(POS) return {lat:POS.lat, lng:POS.lng, z:17};
+  return {lat:0.5071, lng:101.4478, z:13};
+}
+
+async function siapkanPeta(){
+  if(PETA) { setTimeout(function(){ if(PETA) PETA.invalidateSize(); },60); return; }
+  const el=$('#peta'); if(!el) return;
+  el.innerHTML='<div class="peta-tunggu"><span class="spinner"></span> Memuat peta…</div>';
+  try{ await muatPeta(); }
+  catch(e){
+    el.innerHTML='<div class="peta-gagal"><b>'+esc(e.message)+'</b>'
+      +'<span>Pakai cara <b>Dari GPS</b> atau <b>Tempel koordinat</b> sebagai gantinya — keduanya tidak butuh jaringan ke luar.</span></div>';
+    return;
+  }
+  /* Wadahnya baru punya ukuran sesudah lembarnya benar-benar tampil. Leaflet
+     yang dipasang pada wadah setinggi 0 menggambar ubinnya di tempat yang
+     salah dan tidak pernah membetulkannya sendiri. */
+  await new Promise(function(r){ setTimeout(r,60); });
+  if(!$('#peta')) return;
+  el.innerHTML='';
+  const t=petaTitikAwal();
+  PETA=L.map(el,{zoomControl:true, attributionControl:false}).setView([t.lat,t.lng], t.z);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(PETA);
+  /* Lingkaran radius ikut digambar: yang sedang ditandai bukan sebuah titik,
+     melainkan AREA yang dianggap "di kantor". Tanpa lingkarannya, "120 m"
+     cuma angka — dengan lingkarannya langsung terlihat apakah ia menelan
+     jalan raya di depan, yang berarti orang bisa absen dari dalam mobil. */
+  PETA_LINGKARAN=L.circle([t.lat,t.lng],{radius:radiusSekarang(),
+    color:'#A9791F', weight:2, fillColor:'#C8940A', fillOpacity:.15}).addTo(PETA);
+  PETA.on('move', petaBergerak);
+  petaBergerak();
+  petaSegarkanSaya();
+  setTimeout(function(){ if(PETA) PETA.invalidateSize(); },120);
+}
+function radiusSekarang(){
+  const r=parseInt(($('#lRad')||{}).value,10);
+  return (r>=30 && r<=2000) ? r : 120;
+}
+function petaBergerak(){
+  if(!PETA) return;
+  const c=PETA.getCenter();
+  const k=$('#pKoord'); if(k) k.textContent=c.lat.toFixed(6)+', '+c.lng.toFixed(6);
+  if(PETA_LINGKARAN) PETA_LINGKARAN.setLatLng(c);
+}
+/* Radius diubah di kotak di bawah — lingkarannya harus ikut, kalau tidak
+   angkanya dan gambarnya mengatakan dua hal yang berbeda. */
+function petaSegarkanRadius(){
+  if(PETA_LINGKARAN) PETA_LINGKARAN.setRadius(radiusSekarang());
+}
+/* Titik biru "posisi saya", supaya orang tahu ia sedang menandai di mana
+   relatif terhadap dirinya sendiri. Ini BUKAN titik yang dipilih — yang
+   dipilih tetap yang ada di bawah penanda tengah. */
+function petaSegarkanSaya(){
+  if(!PETA || !window.L || !POS) return;
+  if(PETA_SAYA) PETA_SAYA.setLatLng([POS.lat,POS.lng]);
+  else PETA_SAYA=L.circleMarker([POS.lat,POS.lng],
+    {radius:6, color:'#fff', weight:2, fillColor:'#2F7FC4', fillOpacity:1}).addTo(PETA);
+}
+async function petaKeSaya(){
+  if(!POS) await mintaLokasi();
+  if(!POS) return toast(POS_ERR||'Lokasi belum terbaca.','warn');
+  if(PETA) PETA.setView([POS.lat,POS.lng], Math.max(PETA.getZoom(),17));
+  petaSegarkanSaya();
+}
+/* Pencarian alamat lewat Nominatim (OpenStreetMap) — gratis, tanpa kunci.
+   Hanya dipanggil saat tombol Cari ditekan, bukan tiap ketukan: layanan ini
+   milik proyek nirlaba dan aturan pemakaiannya melarang permintaan beruntun. */
+async function cariAlamat(){
+  const q=String(($('#pCari')||{}).value||'').trim();
+  const kotak=$('#pCariHasil'); if(!kotak) return;
+  if(q.length<3){ kotak.innerHTML='<div class="peta-ket">Ketik minimal 3 huruf.</div>'; return; }
+  const b=$('#pCariBtn'); if(b){ b.disabled=true; b.textContent='Mencari…'; }
+  kotak.innerHTML='<div class="peta-ket">Mencari…</div>';
+  try{
+    const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=5&q='
+      +encodeURIComponent(q), {headers:{'Accept':'application/json'}});
+    const j=await r.json();
+    if(!Array.isArray(j) || !j.length){
+      kotak.innerHTML='<div class="peta-ket">Tidak ketemu. Coba nama jalan atau nama tempat yang lebih umum.</div>';
+      return;
+    }
+    kotak.innerHTML=j.map(function(x){
+      return '<button type="button" class="peta-hasil-baris" '
+        +'onclick="petaKe('+Number(x.lat)+','+Number(x.lon)+')">'+esc(x.display_name)+'</button>';
+    }).join('');
+  }catch(e){
+    /* Jaringan yang menyaring domain luar gagal di sini. Petanya tetap bisa
+       digeser tangan, jadi ini bukan jalan buntu — dan itu yang dikatakan,
+       bukan "gagal" tanpa keterangan. */
+    kotak.innerHTML='<div class="peta-ket">Pencarian tidak bisa dipakai sekarang. Geser petanya tangan saja.</div>';
+  }finally{ if(b){ b.disabled=false; b.textContent='Cari'; } }
+}
+function petaKe(lat,lng){
+  if(PETA) PETA.setView([lat,lng],18);
+  const k=$('#pCariHasil'); if(k) k.innerHTML='';
+}
+function pakaiTitikPeta(){
+  if(!PETA) return toast('Petanya belum siap.','warn');
+  const c=PETA.getCenter();
+  setKoord(c.lat, c.lng);
+  toast('Titik diambil dari peta.','ok');
+}
+/* Peta HARUS dibongkar saat lembarnya ditutup. Leaflet memasang pendengar
+   pada window dan menahan wadah DOM-nya; membuka-tutup lembar ini beberapa
+   kali tanpa remove() meninggalkan peta-peta lama yang masih hidup, dan
+   halamannya tersendat tanpa sebab yang kelihatan. */
+function buangPeta(){
+  if(PETA){ try{ PETA.remove(); }catch(e){} }
+  PETA=null; PETA_LINGKARAN=null; PETA_SAYA=null;
 }
 
 /* Jarak ke lokasi kerja terdekat — dihitung ulang DI LAYAR hanya untuk
@@ -1320,16 +1554,41 @@ function gambarLokasi(){ if(HAL==='atur') viewAtur(); }
 function bukaLokasi(id){
   const l=((KTX&&KTX.lokasi)||[]).find(x=>x.id===id) || {id:'',nama:'',lat:0,lng:0,radius:120};
   bukaSheet('<h3>'+(id?'Ubah':'Tambah')+' Titik Kerja</h3>'
-   +'<p class="ket">Dua cara: berdiri di lokasinya lalu ambil dari GPS, atau tempel koordinat dari Google Maps.</p>'
+   +'<p class="ket">Tandai di peta seperti di Gojek/Grab, ambil dari GPS saat berdiri di sana, atau tempel koordinat dari Google Maps.</p>'
    +'<div class="field"><label>Nama titik</label>'
      +'<input id="lNama" value="'+esc(l.nama)+'" placeholder="Kantor / Outlet Sudirman"></div>'
 
-   +'<div class="pilih-cara">'
-     +'<button class="pc on" id="pcGps" onclick="pilihCara(\'gps\')">'+ikon('pin',16)+' Dari GPS</button>'
-     +'<button class="pc" id="pcTempel" onclick="pilihCara(\'tempel\')">Tempel koordinat</button>'
+   /* PETA JADI CARA PERTAMA. Dua cara lama tetap ada dan tidak diubah:
+      GPS untuk yang memang sedang berdiri di lokasinya, tempel koordinat
+      untuk yang menyiapkannya dari laptop tanpa jaringan ke luar. */
+   +'<div class="pilih-cara tiga">'
+     +'<button class="pc on" id="pcPeta" onclick="pilihCara(\'peta\')">'+ikon('pin',16)+' Peta</button>'
+     +'<button class="pc" id="pcGps" onclick="pilihCara(\'gps\')">Dari GPS</button>'
+     +'<button class="pc" id="pcTempel" onclick="pilihCara(\'tempel\')">Tempel</button>'
    +'</div>'
 
-   +'<div id="caraGps">'
+   +'<div id="caraPeta">'
+     +'<div class="peta-cari">'
+       +'<input id="pCari" placeholder="Cari alamat atau nama tempat\u2026" '
+         +'onkeydown="if(event.key===\'Enter\'){event.preventDefault();cariAlamat()}">'
+       +'<button type="button" class="btn btn-ghost" id="pCariBtn" onclick="cariAlamat()">Cari</button>'
+     +'</div>'
+     +'<div id="pCariHasil" class="peta-hasil"></div>'
+     +'<div class="peta-bingkai">'
+       +'<div id="peta"></div>'
+       /* Penanda DIAM di tengah, petanya yang digeser — di layar HP jari
+          menutupi titik yang sedang ditunjuk, dan pin yang ditaruh dengan
+          mengetuk selalu meleset beberapa puluh meter. */
+       +'<div class="peta-silang">'+ikon('pin',34)+'</div>'
+       +'<button type="button" class="peta-saya" onclick="petaKeSaya()" title="Ke posisi saya">'
+         +ikon('pin',17)+'</button>'
+     +'</div>'
+     +'<div class="peta-koord mono" id="pKoord">\u2014</div>'
+     +'<p class="mini" style="margin:6px 0 9px">Peta &copy; OpenStreetMap</p>'
+     +'<button class="btn btn-ok btn-block" onclick="pakaiTitikPeta()">Pakai titik di penanda</button>'
+   +'</div>'
+
+   +'<div id="caraGps" style="display:none">'
      +'<div id="gpsKotak">'+gpsKotakHTML()+'</div>'
      +'<button class="btn btn-ghost btn-block" style="margin-top:9px" id="btGps" onclick="ambilLokasiSekarang()">'
        +ikon('pin',17)+' Ambil lokasi saya</button>'
@@ -1347,7 +1606,8 @@ function bukaLokasi(id){
    +'<div class="koord" id="koordKotak">'+koordKotakHTML(l.lat,l.lng)+'</div>'
 
    +'<div class="field" style="margin-top:12px"><label>Radius</label>'
-     +'<div class="satuan"><input type="number" id="lRad" value="'+l.radius+'" min="30" max="2000"><span>meter</span></div></div>'
+     +'<div class="satuan"><input type="number" id="lRad" value="'+l.radius+'" min="30" max="2000" '
+     +'oninput="petaSegarkanRadius()"><span>meter</span></div></div>'
    +'<div class="cepat">'
      +[80,120,200,400].map(r=>'<button onclick="setRadius('+r+')">'+r+' m</button>').join('')
    +'</div>'
@@ -1361,6 +1621,10 @@ function bukaLokasi(id){
      angka pecahan 7 digit yang bolak-balik lewat input bertipe teks gampang
      kehilangan ketelitian karena pemformatan. */
   LOK_LAT=l.lat; LOK_LNG=l.lng;
+  /* Petanya dipasang begitu lembarnya terbuka — tab Peta memang yang aktif
+     dari awal, jadi menundanya sampai tabnya "dipilih" berarti ia tidak
+     pernah terpasang sama sekali. */
+  siapkanPeta();
 }
 let LOK_LAT=0, LOK_LNG=0;
 function koordKotakHTML(lat,lng){
@@ -1370,11 +1634,15 @@ function koordKotakHTML(lat,lng){
     +'<span class="mono">'+Number(lat).toFixed(6)+', '+Number(lng).toFixed(6)+'</span></div>';
 }
 function pilihCara(c){
-  const gps=c==='gps';
-  $('#caraGps').style.display   = gps?'':'none';
-  $('#caraTempel').style.display= gps?'none':'';
-  $('#pcGps').classList.toggle('on', gps);
-  $('#pcTempel').classList.toggle('on', !gps);
+  [['peta','#caraPeta','#pcPeta'],['gps','#caraGps','#pcGps'],['tempel','#caraTempel','#pcTempel']]
+    .forEach(function(x){
+      const aktif=(c===x[0]);
+      const isi=$(x[1]); if(isi) isi.style.display=aktif?'':'none';
+      const tb=$(x[2]);  if(tb)  tb.classList.toggle('on', aktif);
+    });
+  /* Petanya baru dipasang saat tabnya benar-benar dibuka — 160 KB tidak
+     boleh ikut menahan lembar yang dibuka cuma untuk mengubah radius. */
+  if(c==='peta') siapkanPeta();
 }
 function setKoord(lat,lng){
   LOK_LAT=lat; LOK_LNG=lng;
@@ -1392,7 +1660,7 @@ function pakaiTempelan(){
   setKoord(r.lat, r.lng);
   toast('Koordinat terbaca.','ok');
 }
-function setRadius(r){ $('#lRad').value=r; }
+function setRadius(r){ $('#lRad').value=r; petaSegarkanRadius(); }
 
 async function simpanLokasi(id){
   const nama=$('#lNama').value.trim();
@@ -1433,7 +1701,7 @@ async function simpanAturan(){
    Lembar bawah
    ------------------------------------------------------------------- */
 function bukaSheet(html){ $('#sheetIsi').innerHTML=html; $('#sheet').classList.add('buka'); }
-function tutupSheet(){ matikanKamera(); $('#sheet').classList.remove('buka'); }
+function tutupSheet(){ matikanKamera(); buangPeta(); $('#sheet').classList.remove('buka'); }
 
 /* ---------------------------------------------------------------------
    Mulai

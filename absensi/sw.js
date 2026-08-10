@@ -19,12 +19,21 @@
    yang diabsen tidak mencatat apa pun yang berarti. Kru yang tidak punya
    sinyal diberi pesan jelas, bukan janji palsu bahwa absennya "tersimpan".
    ===================================================================== */
-const VERSI  = 'abs-v1';
+/* Versi dinaikkan tiap kali kerangka atau daftar berkasnya berubah — cache
+   lama dibuang di 'activate'. Tanpa menaikkannya, HP yang sudah memasang
+   aplikasinya akan terus memakai index.html lama selamanya, dan perbaikan
+   apa pun tidak pernah sampai ke orangnya. */
+const VERSI  = 'abs-v2';
 const KERANGKA = [
   './',
   './index.html',
   './manifest.webmanifest',
   './vendor/face-api.min.js',
+  /* Leaflet TIDAK ikut di sini. Ia cuma dipakai admin saat menandai titik
+     kerja, sesekali — memaksanya ikut terunduh saat pemasangan berarti tiap
+     kru membawa 160 KB untuk halaman yang tidak akan pernah ia buka. Ia
+     tetap ikut ter-cache sendiri saat pertama dipakai, lewat aturan
+     cache-first untuk /vendor/ di bawah. */
   './models/tiny_face_detector_model-weights_manifest.json',
   './models/tiny_face_detector_model.bin',
   './models/face_landmark_68_tiny_model-weights_manifest.json',
