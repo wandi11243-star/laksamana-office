@@ -431,6 +431,16 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .cal .cell{min-height:88px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px;font-size:11px}
 .cal .cell .dn{color:var(--muted);font-weight:600;margin-bottom:3px}
 .cal .cell.today{border-color:var(--accent)}
+/* Sel yang bisa diklik harus TERLIHAT bisa diklik. Tanpa tanda apa pun,
+   satu-satunya cara menemukannya adalah kebetulan menekannya — dan yang
+   tidak pernah kebetulan menekannya akan terus memakai tombol di pojok atas
+   lalu memilih ulang tanggal yang sudah ia tunjuk di layar. */
+.cal .cell.klik{cursor:pointer;position:relative;transition:border-color .12s,background .12s}
+.cal .cell.klik:hover{border-color:var(--accent);background:var(--panel)}
+.cal .cell.klik:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.cal .cell .cell-plus{position:absolute;right:5px;top:3px;font-size:14px;line-height:1;
+  color:var(--accent);opacity:0;transition:opacity .12s;pointer-events:none;font-weight:700}
+.cal .cell.klik:hover .cell-plus,.cal .cell.klik:focus-visible .cell-plus{opacity:1}
 .cal .cell.other{opacity:.35}
 .evt-dot{display:block;font-size:10px;padding:2px 5px;border-radius:4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 /* Seat map */
@@ -1966,14 +1976,27 @@ function renderSchedule(){
   for(let d=1;d<=days;d++){
     const ds=dstr(new Date(y,m,d));
     const daySched=DB.schedules.filter(s=>s.date===ds);
-    cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${daySched.map(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);const col={Scheduled:'b-yellow',Confirmed:'b-blue',Done:'b-green',Cancelled:'b-grey'}[s.status];return `<span class="evt-dot ${col}" onclick="event.stopPropagation();schedInfo('${s.id}')">${s.start_time} ${esc(t?t.name:'')}</span>`;}).join('')}</div>`;
+    /* SELNYA SENDIRI YANG DIKLIK, seperti lembar Jadwal Shift: menekan hari
+       mana pun langsung membuka formulir dengan tanggal itu sudah terisi.
+       Sebelumnya satu-satunya jalan adalah tombol "+ Jadwal" di pojok atas,
+       lalu memilih ulang tanggal di dalam formulir — padahal orang sudah
+       menunjuk tanggalnya di layar. event.stopPropagation() pada tiap balon
+       jadwal sudah ada sejak dulu, menunggu penangan klik sel yang tidak
+       pernah dipasang; sekarang ia benar-benar ada gunanya. */
+    const isiHari=daySched.map(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);const col={Scheduled:'b-yellow',Confirmed:'b-blue',Done:'b-green',Cancelled:'b-grey'}[s.status];return `<span class="evt-dot ${col}" onclick="event.stopPropagation();schedInfo('${s.id}')">${s.start_time} ${esc(t?t.name:'')}</span>`;}).join('');
+    cells+=`<div class="cell klik ${ds===todayStr?'today':''}" tabindex="0" role="button"
+      title="Tambah jadwal talent ${fmtDate(ds)}"
+      onclick="scheduleForm('${ds}')"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();scheduleForm('${ds}')}">
+      <div class="dn">${d}</div>${isiHari}<span class="cell-plus">+</span></div>`;
   }
   C().innerHTML=`
   <div class="toolbar"><button class="btn ghost sm" onclick="schMonth=new Date(${y},${m-1},1);renderSchedule()">‹</button>
   <b style="min-width:150px;text-align:center">${MONTHS[m]} ${y}</b>
   <button class="btn ghost sm" onclick="schMonth=new Date(${y},${m+1},1);renderSchedule()">›</button>
   <span class="pill">${DB.schedules.filter(s=>s.date.startsWith(y+'-'+pad(m+1))).length} jadwal bulan ini</span></div>
-  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Scheduled</span><span><i class="dotc" style="background:var(--blue)"></i>Confirmed</span><span><i class="dotc" style="background:var(--green)"></i>Done</span><span><i class="dotc" style="background:var(--grey)"></i>Cancelled</span></div>
+  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Scheduled</span><span><i class="dotc" style="background:var(--blue)"></i>Confirmed</span><span><i class="dotc" style="background:var(--green)"></i>Done</span><span><i class="dotc" style="background:var(--grey)"></i>Cancelled</span>
+  <span class="mini" style="margin-left:auto">Klik tanggal untuk menambah jadwal talent hari itu.</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 function schedInfo(id){
@@ -2186,13 +2209,24 @@ function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>
    FEE TETAP PER ORANG. Kotak fee terisi otomatis dari fee harian
    masing-masing talent dan masih bisa diubah satu per satu — dua penampil
    di malam yang sama jarang dibayar sama besar. */
-function scheduleForm(){
+/* `tgl` datang dari sel kalender yang diklik. Tetap boleh kosong — tombol
+   "+ Jadwal" di pojok atas memanggilnya tanpa argumen, dan jatuh ke hari ini
+   seperti sebelumnya. */
+function scheduleForm(tgl){
   const t=DB.talents.filter(x=>x.status!=='Inactive');
+  const tanggal=tgl||dstr(new Date());
+  /* Jadwal yang SUDAH ada di tanggal itu ikut diperlihatkan. Tanpa ini orang
+     yang mengklik tanggal ramai tidak tahu siapa saja yang sudah masuk, dan
+     bentroknya baru ketahuan sesudah menekan Simpan. */
+  const sudah=DB.schedules.filter(x=>x.date===tanggal);
   modal(`<button class="close" onclick="closeModal()">&times;</button><h3>Tambah Jadwal</h3>
-  <p class="mini" style="margin-bottom:10px">Centang semua talent yang tampil di tanggal ini &mdash;
-     tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
+  <p class="mini" style="margin-bottom:10px">${fmtDate(tanggal)} &mdash; centang semua talent yang tampil
+     hari itu; tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
+  ${sudah.length?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">
+     <b>Sudah dijadwalkan hari ini:</b> ${sudah.map(x=>{const tt=DB.talents.find(y=>y.id===x.talent_id);
+       return esc((tt?tt.name:'?')+' ('+x.start_time+')');}).join(', ')}</div>`:''}
   <div class="grid g2">
-    <div class="field"><label>Tanggal *</label><input id="s_date" type="date" value="${dstr(new Date())}"></div>
+    <div class="field"><label>Tanggal *</label><input id="s_date" type="date" value="${tanggal}"></div>
     <div class="field"><label>Tipe Performance</label><select id="s_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
     <div class="field"><label>Jam Mulai</label><input id="s_start" type="time" value="20:00"></div>
     <div class="field"><label>Jam Selesai</label><input id="s_end" type="time" value="23:00"></div>
@@ -2249,7 +2283,12 @@ function saveSchedule(){
       performance_type:type, fee: fEl?uangNilai('s_fee_'+cb.value):(+cb.dataset.fee||0),
       status:'Scheduled', recurring_rule_id:null, source:'manual'});
   });
-  save(); closeModal(); renderSchedule();
+  save(); closeModal();
+  /* Pindah ke bulan tanggalnya kalau perlu — menyimpan jadwal bulan depan
+     lalu dikembalikan ke bulan ini membuat orang mengira simpanannya gagal. */
+  const dt=new Date(date+'T00:00:00');
+  if(!isNaN(dt)) schMonth=new Date(dt.getFullYear(),dt.getMonth(),1);
+  renderSchedule();
   toast(pilih.length>1 ? pilih.length+' jadwal tersimpan (tanpa konflik).'
                        : 'Jadwal tersimpan (tanpa konflik).');
 }
