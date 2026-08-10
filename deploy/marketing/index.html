@@ -6936,6 +6936,117 @@ function renderOverview(ev){
     + (h || '<section class="ov-sec"><p class="section-desc">Belum ada isian sama sekali.</p></section>')
     + '</div>';
 }
+/* ============================================================
+   RINCIAN PENAWARAN PER BARIS
+
+   Dulu tabelnya cuma dua kolom (Komponen | Jumlah) dengan empat baris
+   gabungan: F&B, Sewa Venue, Teknis, Lain-lain. Client yang menerimanya
+   membaca satu angka besar untuk "Food & Beverage" tanpa tahu isinya apa —
+   dan pertanyaan pertama yang selalu datang balik adalah "ini rinciannya
+   apa saja?". Marketing lalu mengetik ulang rinciannya di WhatsApp, dari
+   data yang sebenarnya sudah ada di sistem.
+
+   Sekarang tiap hidangan jadi satu baris sendiri lengkap dengan jumlah dan
+   harga satuannya, persis seperti tabel penawaran yang selama ini dibuat
+   manual di Word.
+
+   FASILITAS GRATIS IKUT JADI BARIS, bertuliskan FREE. Itu bukan hiasan:
+   fasilitas yang tidak tertulis dianggap tidak ada oleh client, dan yang
+   tertulis "FREE" justru memperlihatkan nilai yang sudah diberikan
+   cuma-cuma. Barisnya tidak menambah apa pun ke total.
+   ============================================================ */
+
+/* Satu baris rincian: {desc, qty, unit, total, gratis}.
+   qty/unit boleh null — artinya kolomnya ditulis "-" (bukan 0, yang
+   terbaca seolah jumlahnya nol). */
+function rincianPenawaran(ev){
+  const d=ev.detail||{}, out=[];
+  const pax=+ev.pax||0;
+
+  /* --- F&B, mengikuti urutan kewenangan yang sama dengan eventFbCost() ---
+     Kalau tabel Harga Deal dipakai, tiap barisnya jadi satu baris rincian.
+     Kalau tidak, F&B tetap satu baris gabungan — memecahnya jadi rincian
+     palsu yang tidak pernah disepakati siapa pun. */
+  if(!fbDitimpa(ev) && fbDealAktif(ev)){
+    (d.fbDeal||[]).forEach(function(r){
+      const jml=+r.jumlah||0, hrg=+r.harga||0;
+      if(!jml && !hrg) return;
+      out.push({desc:'Biaya Konsumsi Event: '+(r.nama||'—'), qty:jml||null, unit:hrg||null, total:jml*hrg});
+    });
+  }else{
+    const fb=eventFbCost(ev);
+    if(fb){
+      const hp=fbHargaPax(ev), px=fbPax(ev);
+      /* Harga satuan hanya ditulis kalau totalnya MEMANG hasil pax x harga.
+         Kalau angkanya diketik tangan (fbManual), menuliskan "x pax" akan
+         membuat perkaliannya tidak cocok dengan totalnya sendiri. */
+      const cocok = !fbDitimpa(ev) && hp>0 && px>0 && Math.round(px*hp)===fb;
+      out.push({desc:'Biaya Konsumsi Event'+(pax?' ('+pax+' pax)':''),
+                qty:cocok?px:null, unit:cocok?hp:null, total:fb});
+    }
+  }
+
+  if(+d.sewaVenue)   out.push({desc:'Biaya Sewa Venue', qty:null, unit:null, total:+d.sewaVenue});
+  if(+d.biayaTeknis) out.push({desc:'Sound, Lighting & Kebutuhan Teknis', qty:null, unit:null, total:+d.biayaTeknis});
+  if(+d.biayaLain)   out.push({desc:(d.biayaLainKet||'Biaya Lain-lain'), qty:null, unit:null, total:+d.biayaLain});
+
+  /* --- Yang sudah termasuk, tanpa biaya tambahan ---
+     Hanya dicetak kalau komponen berbayarnya TIDAK diisi. Menulis "Sewa
+     Venue FREE" di bawah baris "Sewa Venue Rp5.000.000" adalah dua
+     pernyataan yang saling membantah dalam satu dokumen. */
+  const gratis=[];
+  if(!+d.sewaVenue)   gratis.push('Biaya Sewa Venue (AC & Listrik)');
+  if(!+d.biayaTeknis) gratis.push('Videotron, Lighting, Soundsystem & Panggung');
+  gratis.push('Penyesuaian Layout');
+  gratis.push('Operator Teknis (Audio & Multimedia)');
+  gratis.push('Koordinasi Full Event (Before – During – After)');
+  gratis.forEach(function(g){ out.push({desc:g, qty:null, unit:null, total:0, gratis:true}); });
+
+  return out;
+}
+
+/* Tabel rincian untuk dokumen cetak. Gaya tabelnya sengaja bergaris penuh
+   (bukan garis bawah tipis seperti tabel layar): dokumen ini dicetak, dan
+   di atas kertas kolom tanpa garis pemisah gampang terbaca bergeser. */
+function rincianTabelHTML(ev, f){
+  const items=rincianPenawaran(ev);
+  const g='border:1px solid #C9C4B8;padding:8px 10px';
+  const kanan=g+';text-align:right;white-space:nowrap';
+  const tengah=g+';text-align:center;white-space:nowrap';
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">'
+   +'<thead><tr style="background:var(--gold-deep);color:#fff">'
+     +'<th style="'+g+';width:30px;text-align:center">No</th>'
+     +'<th style="'+g+';text-align:left">Deskripsi</th>'
+     +'<th style="'+g+';width:52px;text-align:center">Qty</th>'
+     +'<th style="'+g+';width:110px;text-align:right">Harga Satuan</th>'
+     +'<th style="'+g+';width:120px;text-align:right">Total</th>'
+   +'</tr></thead><tbody>';
+  items.forEach(function(it,i){
+    const bar = it.gratis ? 'font-weight:700' : '';
+    h+='<tr>'
+      +'<td style="'+tengah+'">'+(i+1)+'</td>'
+      +'<td style="'+g+'">'+esc(it.desc)+'</td>'
+      +'<td style="'+tengah+'">'+(it.qty?it.qty:'-')+'</td>'
+      +'<td style="'+kanan+'">'+(it.gratis?'FREE':(it.unit?rp(it.unit):'-'))+'</td>'
+      +'<td style="'+kanan+';'+bar+'">'+(it.gratis?'FREE':rp(it.total))+'</td>'
+    +'</tr>';
+  });
+  /* Subtotal dst. tetap ditulis TERPISAH di bawah tabel barang. Menyelipkan
+     diskon dan pajak sebagai "barang" bernomor membuat client mengira itu
+     item yang bisa dicoret. */
+  const baris=function(label,nilai,gaya){
+    return '<tr><td colspan="4" style="'+g+';text-align:right;'+(gaya||'')+'">'+label+'</td>'
+      +'<td style="'+kanan+';'+(gaya||'')+'">'+nilai+'</td></tr>';
+  };
+  h+=baris('Subtotal', rp(f.sub));
+  if(f.disc)  h+=baris('Discount', '− '+rp(f.disc), 'color:#C0392B');
+  if(f.svcOn) h+=baris('Service Charge ('+S.settings.serviceCharge+'%)', rp(f.service));
+  h+=baris('PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' · termasuk':'')+')', rp(f.tax));
+  h+=baris('TOTAL', rp(f.grand), 'font-weight:700;font-size:14px;background:#FBF3D8;color:#8a6a12');
+  h+='</tbody></table>';
+  return h;
+}
+
 function qrow(label,val){ val=+val||0; if(!val)return ''; return '<tr><td style="padding:7px 14px;border-bottom:1px solid #f0f0f0">'+label+'</td><td style="text-align:right;padding:7px 14px;border-bottom:1px solid #f0f0f0">'+rp(val)+'</td></tr>'; }
 // Field yang tampil di dokumen VERSI CLIENT — hanya info yang penting/perlu dikonfirmasi client,
 // bukan detail operasional internal. Sesuaikan daftar ini bila perlu.
@@ -7198,16 +7309,11 @@ function buildBriefDoc(id,mode){
       : '<div style="background:#FDF0F0;border-left:4px solid #C0392B;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:12.5px">'
         +'<div style="font-size:10px;letter-spacing:.14em;color:#a3342a;font-weight:700;margin-bottom:5px">BERKAS SURAT PENAWARAN</div>'
         +'Belum ada PDF yang diunggah. Unggah lewat kartu <b>Surat Penawaran</b> di detail event — dokumen ini tidak menggantikannya.</div>';
+    /* Rincian PER BARIS, bukan empat angka gabungan. Alasannya panjang di
+       kepala rincianPenawaran() — singkatnya: client selalu menanyakan
+       isinya, dan datanya memang sudah ada di sistem. */
     body+='<div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Rincian Penawaran</div>'
-     +'<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px">'
-     +'<tr style="background:var(--gold-deep);color:#fff"><th style="text-align:left;padding:10px 14px">Komponen</th><th style="text-align:right;padding:10px 14px">Jumlah</th></tr>'
-     +qrow('Food & Beverage ('+(ev.pax||0)+' pax)',f.fb)+qrow('Sewa Venue',ev.detail.sewaVenue)+qrow('Sound, Lighting & Teknis',ev.detail.biayaTeknis)+qrow('Lain-lain',ev.detail.biayaLain)
-     +'<tr><td style="padding:8px 14px;border-top:1px solid #ddd">Subtotal</td><td style="text-align:right;padding:8px 14px;border-top:1px solid #ddd">'+rp(f.sub)+'</td></tr>'
-     +(f.disc?'<tr><td style="padding:6px 14px">Discount</td><td style="text-align:right;padding:6px 14px;color:#C0392B">− '+rp(f.disc)+'</td></tr>':'')
-     +(f.svcOn?'<tr><td style="padding:6px 14px">Service Charge ('+S.settings.serviceCharge+'%)</td><td style="text-align:right;padding:6px 14px">'+rp(f.service)+'</td></tr>':'')
-     +'<tr><td style="padding:6px 14px">PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' · termasuk':'')+')</td><td style="text-align:right;padding:6px 14px">'+rp(f.tax)+'</td></tr>'
-     +'<tr style="background:#FBF3D8"><td style="padding:12px 14px;font-weight:700;font-size:15px">GRAND TOTAL</td><td style="text-align:right;padding:12px 14px;font-weight:700;font-size:15px;color:#B8860B">'+rp(f.grand)+'</td></tr>'
-     +'</table>';
+     +rincianTabelHTML(ev,f);
     // Fasilitas yang sudah termasuk — dari komponen yang terisi.
     const inc=[];
     if(f.fb) inc.push('Paket Food &amp; Beverage untuk '+(ev.pax||0)+' pax'+(+ev.detail.budgetPax?' ('+rp(ev.detail.budgetPax)+'/pax)':''));
