@@ -880,6 +880,41 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   .pilih-foot .btn{flex:1;justify-content:center}
   .pilih-hitung{flex:1 1 100%;order:-1;text-align:center}
 }
+/* Sel Menu di tabel: tombol selebar sel, bukan kotak ketik. */
+.kalk-sel{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:9px 12px;
+  border:1.5px solid var(--line);border-radius:9px;background:var(--card);color:var(--sand-dim);
+  text-align:left;cursor:pointer;font-size:13.5px;transition:border-color .15s}
+.kalk-sel:hover{border-color:var(--gold)}
+.kalk-sel.isi{color:inherit;font-weight:600}
+.kalk-sel .tk{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kalk-sel .pn{flex:none;color:var(--sand-dim);font-size:11px}
+
+/* Titik warna kategori. Warnanya diturunkan dari NAMA kategori, jadi semua
+   menu dalam satu kategori otomatis sewarna, dan warnanya tidak bergeser
+   waktu kategori baru ditambahkan. */
+.kat-titik{display:inline-block;width:9px;height:9px;border-radius:50%;flex:none;margin-right:7px;
+  vertical-align:middle}
+
+/* Daftar yang sudah dipilih, di halaman kategori. */
+.terpilih{margin-bottom:14px;padding:12px 13px;border-radius:11px;background:var(--bg-soft,rgba(0,0,0,.03));
+  border:1px solid var(--line)}
+.terpilih.kosong{color:var(--sand-dim);font-size:12.5px;text-align:center;padding:14px}
+.terpilih-kepala{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+.terpilih-kepala b{flex:1;font-size:13px}
+.terpilih-grup{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:5px 0 5px 10px;
+  border-left:3px solid var(--kw);margin-bottom:5px}
+.terpilih-kat{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--kw);width:100%}
+.keping{display:inline-flex;align-items:center;gap:6px;padding:6px 9px 6px 11px;border-radius:20px;
+  border:1.5px solid var(--kw);background:transparent;color:inherit;font-size:12.5px;cursor:pointer;
+  min-height:32px}
+.keping:hover{background:var(--kw);color:#fff}
+.keping .x{font-size:15px;line-height:1;opacity:.65}
+
+.kat-box{border-left-width:4px!important;border-left-color:var(--kw)!important}
+.kat-nama::before{content:'';display:inline-block;width:9px;height:9px;border-radius:50%;
+  background:var(--kw);margin-right:7px;vertical-align:middle}
+
 .kalk-tbl td{vertical-align:middle}
 .kalk-tbl .kalk-sel{min-width:220px}
 .kalk-tbl input{margin:0}
@@ -10208,6 +10243,33 @@ let KALK_PILIH={kat:null, cari:'', dipilih:{}};
 
 function kalkRefLabel(kat,nama){ return kat+'|'+nama; }
 
+/* ---------- WARNA PER KATEGORI ----------
+   Diturunkan dari NAMA kategorinya, bukan dari urutannya. Kalau dari urutan,
+   menambah satu kategori baru di Database Menu akan menggeser warna semua
+   kategori sesudahnya — dan warna yang berubah-ubah justru lebih buruk
+   daripada tidak ada warna sama sekali: orang sudah terlanjur menghafalnya.
+
+   Palet dibatasi enam yang jelas berbeda satu sama lain bahkan bagi mata
+   yang sulit membedakan merah-hijau (perbedaannya ada di terang-gelap dan
+   biru-kuning, bukan cuma corak). */
+const KALK_PALET=[
+  {b:'#C8940A', t:'#4a3603'},   // emas
+  {b:'#2F7FC4', t:'#0f3552'},   // biru
+  {b:'#1F9D5F', t:'#0b3d25'},   // hijau
+  {b:'#B5561F', t:'#4a2109'},   // jingga bata
+  {b:'#7B5CD6', t:'#2e2158'},   // ungu
+  {b:'#0E8C8C', t:'#053636'}    // tosca
+];
+function kalkWarnaKat(kat){
+  const t=String(kat||'');
+  let n=0;
+  for(let i=0;i<t.length;i++) n=(n*31+t.charCodeAt(i))>>>0;
+  return KALK_PALET[n%KALK_PALET.length];
+}
+function kalkTitikKat(kat){
+  return '<span class="kat-titik" style="background:'+kalkWarnaKat(kat).b+'"></span>';
+}
+
 /* Kategori + jumlah item + rentang harganya. Rentang harga ikut ditampilkan
    supaya orang bisa memilih kategori tanpa membukanya satu per satu. */
 function kalkKategori(){
@@ -10220,10 +10282,24 @@ function kalkKategori(){
   }).filter(function(k){ return k.jml>0; });
 }
 
+/* Membuka pemilih untuk SATU baris tabel. Bedanya dengan mode biasa: begitu
+   satu menu diketuk, ia langsung dipakai dan lembarnya menutup — orang yang
+   cuma mengganti isi satu baris tidak perlu menekan "Pakai Pilihan" lagi. */
+function kalkBukaPilihBaris(i){
+  if(!KALK.rows[i]) return;
+  kalkBukaPilih();
+  KALK_PILIH.baris=i;
+  /* Langsung buka kategori menu yang sedang terpasang di baris itu — kalau
+     orang menekan sel yang sudah berisi, yang ia cari hampir selalu ada di
+     kategori yang sama. */
+  const ref=KALK.rows[i].ref;
+  if(ref){ const j=String(ref).indexOf('|'); if(j>0) KALK_PILIH.kat=String(ref).slice(0,j); }
+  kalkGambarPilih();
+}
 function kalkBukaPilih(){
-  KALK_PILIH={kat:null, cari:'', dipilih:{}};
+  KALK_PILIH={kat:null, cari:'', dipilih:{}, baris:null};
   (KALK.rows||[]).forEach(function(r){ if(r.ref) KALK_PILIH.dipilih[r.ref]=true; });
-  modal('<div class="modal-head"><div><h3>Pilih Menu</h3>'
+  modal('<div class="modal-head"><div><h3 id="kalkPilihJudul">Pilih Menu</h3>'
      +'<p id="kalkPilihSub">Ketuk kategori untuk melihat isinya.</p></div>'
      +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body pilih-body" id="kalkPilihBody"></div>'
@@ -10253,17 +10329,65 @@ function kalkGambarHitung(){
   el.textContent = n ? n+' menu dipilih' : 'Belum ada yang dipilih';
 }
 
+/* DAFTAR YANG SUDAH DIPILIH, di halaman kategori.
+   Lencana angka di kotak kategori memberi tahu BERAPA, tapi tidak APA. Orang
+   yang sudah membuka empat kategori kehilangan jejak apa saja yang sudah ia
+   centang, dan satu-satunya cara memeriksanya dulu adalah membuka ulang
+   kategori satu per satu.
+
+   Tiap keping bisa diketuk untuk mencabut — mencabut satu menu yang salah
+   pilih tidak perlu lagi menyelam ke kategorinya. */
+function kalkTerpilihHTML(){
+  if(KALK_PILIH.baris!=null) return '';        // mode satu baris: tidak relevan
+  const ref=Object.keys(KALK_PILIH.dipilih).filter(function(k){ return KALK_PILIH.dipilih[k]; });
+  if(!ref.length){
+    return '<div class="terpilih kosong">Belum ada menu yang dipilih. Ketuk salah satu kategori di bawah.</div>';
+  }
+  /* Dikelompokkan per kategori dan diurutkan, supaya urutannya tidak berubah
+     tiap kali satu menu dicabut — daftar yang melompat-lompat sulit dibaca. */
+  const per={};
+  ref.forEach(function(r){
+    const i=r.indexOf('|'); if(i<0) return;
+    const kat=r.slice(0,i), nm=r.slice(i+1);
+    (per[kat]=per[kat]||[]).push({ref:r, n:nm});
+  });
+  const kats=Object.keys(per).sort(function(a,b){ return a.localeCompare(b); });
+  let h='<div class="terpilih"><div class="terpilih-kepala">'
+    +'<b>'+ref.length+' menu dipilih</b>'
+    +'<button type="button" class="btn sm" onclick="kalkKosongkanPilihan()">Kosongkan semua</button></div>';
+  kats.forEach(function(kat){
+    const w=kalkWarnaKat(kat);
+    h+='<div class="terpilih-grup" style="--kw:'+w.b+'">'
+      +'<span class="terpilih-kat">'+esc(kat)+'</span>'
+      +per[kat].sort(function(a,b){ return a.n.localeCompare(b.n); }).map(function(x){
+          return '<button type="button" class="keping" onclick="kalkCabut('+escJsAttr(x.ref)+')" '
+            +'title="Ketuk untuk mencabut">'+esc(x.n)+'<span class="x">&times;</span></button>';
+        }).join('')
+    +'</div>';
+  });
+  return h+'</div>';
+}
+function kalkCabut(ref){
+  delete KALK_PILIH.dipilih[ref];
+  kalkGambarPilih();
+}
+function kalkKosongkanPilihan(){
+  KALK_PILIH.dipilih={};
+  kalkGambarPilih();
+}
 function kalkPilihKatHTML(){
   const ks=kalkKategori();
   if(!ks.length) return '<div class="empty-mini">Database Menu masih kosong. Isi dulu di halaman Database Menu.</div>';
-  return '<div class="kat-grid">'+ks.map(function(k){
+  return kalkTerpilihHTML()+'<div class="kat-grid">'+ks.map(function(k){
     /* Angka di pojok = berapa item kategori ini yang SUDAH dipilih. Tanpa itu,
        orang harus membuka tiap kategori satu per satu cuma untuk mengingat
        mana yang sudah ia sentuh. */
     const dipilih=(mdbItems(k.kat)||[]).filter(function(m){
       return KALK_PILIH.dipilih[kalkRefLabel(k.kat,m.n)]; }).length;
     const harga = k.min ? (k.min===k.max ? rp(k.min) : rp(k.min)+' – '+rp(k.max)) : 'harga belum diisi';
-    return '<button type="button" class="kat-box'+(dipilih?' ada':'')+'" onclick="kalkPilihKat('+escJsAttr(k.kat)+')">'
+    const w=kalkWarnaKat(k.kat);
+    return '<button type="button" class="kat-box'+(dipilih?' ada':'')+'" '
+      +'style="--kw:'+w.b+'" onclick="kalkPilihKat('+escJsAttr(k.kat)+')">'
       +(dipilih?'<span class="kat-badge">'+dipilih+'</span>':'')
       +'<span class="kat-nama">'+esc(k.kat)+'</span>'
       +'<span class="kat-sub">'+k.jml+' menu</span>'
@@ -10294,7 +10418,7 @@ function kalkPilihItemHTML(){
     return '<label class="menu-baris'+(on?' on':'')+'">'
       +'<input type="checkbox" '+(on?'checked':'')+' onchange="kalkTogglePilih('+escJsAttr(ref)+',this.checked)">'
       +'<span class="tik"></span>'
-      +'<span class="mn"><b>'+esc(m.n)+'</b>'
+      +'<span class="mn"><b>'+kalkTitikKat(kat)+esc(m.n)+'</b>'
         +'<span>'+(m.h==null||m.h===''?'harga belum diisi':rp(m.h))+'</span></span>'
     +'</label>';
   }).join('')+'</div>';
@@ -10315,6 +10439,13 @@ function kalkPilihCari(v){
   if(lama) lama.replaceWith(baru); else if(kosong) kosong.replaceWith(baru);
 }
 function kalkTogglePilih(ref,on){
+  /* Mode satu baris: pilihan lama baris itu diganti, bukan ditambah. */
+  if(KALK_PILIH.baris!=null){
+    if(!on) return;
+    KALK.rows[KALK_PILIH.baris].ref=ref;
+    closeModal(); renderKalkulator($('view'));
+    return;
+  }
   if(on) KALK_PILIH.dipilih[ref]=true; else delete KALK_PILIH.dipilih[ref];
   const lb=event&&event.target?event.target.closest('.menu-baris'):null;
   if(lb) lb.classList.toggle('on',!!on);
@@ -10430,12 +10561,17 @@ function kalkRowsHTML(){
   return KALK.rows.map(function(r,i){
     return '<tr>'
       +'<td class="mono">'+(i+1)+'</td>'
-      /* Kotak ketik + datalist, bukan <select>: bisa dicari. Dipakai `change`
-         (bukan `input`) supaya baris belum dianggap berubah selagi orang masih
-         mengetik separuh nama. */
-      +'<td><input class="inp kalk-sel" list="kalk_menulist" autocomplete="off" '
-        +'placeholder="Ketik untuk cari menu..." value="'+esc(kalkLabelRef(r.ref))+'" '
-        +'onchange="kalkPilihMenu('+i+',this)"></td>'
+      /* TOMBOL, bukan kotak ketik ber-datalist.
+         Daftar saran bawaan peramban muncul MENEMPEL di bawah kotaknya,
+         selebar kotak itu, dan menutupi baris di bawahnya — di HP ia sering
+         menutupi kotaknya sendiri, dan tiap barisnya cuma setinggi ~24px.
+         Menekan satu menu di sana berarti membidik sasaran sempit yang
+         melayang di atas isi yang juga bisa ditekan.
+
+         Tombol ini membuka lembar pemilih yang sama dengan tombol besar di
+         bawah tabel — satu cara memilih menu untuk seluruh halaman, dengan
+         target sentuh selebar sel dan daftar yang punya ruangnya sendiri. */
+      +'<td>'+kalkSelHTML(i,r)+'</td>'
       /* Tombol "= pax" menyamakan porsi dengan jumlah pax dalam satu klik --
          kasus paling sering (semua tamu kebagian satu). Eksplisit, bukan diam-
          diam mengikuti pax: porsi yang sengaja dibuat beda (80 dari 100) tidak
@@ -10453,6 +10589,17 @@ function kalkRowsHTML(){
 /* Label yang dilihat orang di kotak pencarian. Satu tempat saja: dipakai untuk
    MENGISI datalist dan untuk MEMBACA balik pilihannya, jadi keduanya tidak
    mungkin berbeda bentuk. */
+/* Isi sel Menu: tombol yang memperlihatkan pilihan sekarang. Kosong pun
+   tetap tombol — sel kosong yang tidak terlihat bisa ditekan adalah sel yang
+   tidak pernah ditekan. */
+function kalkSelHTML(i,r){
+  const kat=r.ref?String(r.ref).slice(0,String(r.ref).indexOf('|')):'';
+  const lbl=kalkLabelRef(r.ref);
+  return '<button type="button" class="kalk-sel'+(lbl?' isi':'')+'" onclick="kalkBukaPilihBaris('+i+')">'
+    +(kat?kalkTitikKat(kat):'')
+    +'<span class="tk">'+(lbl?esc(lbl):'Pilih menu…')+'</span>'
+    +'<span class="pn">&#9662;</span></button>';
+}
 function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+')'); }
 function kalkLabelRef(ref){
   if(!ref) return '';
