@@ -4381,6 +4381,28 @@
         // ==========================================
         let checkinAllRecords = [];    // semua record dalam rentang terpilih (mentah)
         let checkinCurrentDate = "";   // ringkasan label tanggal yang sedang ditampilkan
+        /* Batas terbawa untuk PO yang belum lengkap. Tanpa batas, order lama
+           yang memang tidak pernah di-check-in — termasuk dari masa sebelum
+           fitur check-in ada — akan menumpuk sekaligus di layar hari ini, dan
+           daftar berisi ratusan kartu basi lebih tidak berguna daripada daftar
+           yang kehilangan satu kartu. Dua minggu: cukup panjang untuk libur
+           panjang dan vendor yang menunda, cukup pendek supaya yang muncul
+           masih layak dikejar. Sengaja berdiri sendiri supaya bisa dikalibrasi. */
+        const CHECKIN_TERTUNDA_MAKS_HARI = 14;
+        function selisihHari(dariISO, sampaiISO) {
+            const a = Date.parse(dariISO + 'T00:00:00'), b = Date.parse(sampaiISO + 'T00:00:00');
+            if (isNaN(a) || isNaN(b)) return 0;
+            return Math.round((b - a) / 86400000);
+        }
+        /* Kunci "satu rombongan kedatangan", sejalan dengan cara
+           groupRecordsByPo mengelompokkan: batchId kalau ada (itu identitas
+           sungguhan yang tersimpan), kalau tidak jatuh ke nomor PO + tanggal. */
+        function kunciRombongan(o) {
+            const b = String((o && o.batchId) || '').trim();
+            if (b) return 'B:' + b;
+            return 'P:' + (extractPoNumber(o) || '') + '||' + ((o && o.tglDatang) || '-');
+        }
+
         let poFilter = "all";          // all | progress | partial | complete
         let timFilter = "all";         // all | Kitchen | Bar | Floor
         let sumberFilter = "all";      // all | belanja | ck
@@ -4443,6 +4465,12 @@
 
             if (!dateFrom || !dateTo) return;
 
+            /* Carry-over hanya berlaku kalau yang dilihat MENYENTUH HARI INI
+               atau ke depan. Membuka rentang bulan lalu itu menengok riwayat,
+               dan menyusupkan PO tertunda dari sebelum rentang itu ke sana
+               justru membuat riwayatnya berbohong. */
+            const bawaTertunda = dateTo >= isoLokal(new Date());
+
             // Selalu kembali ke tampilan daftar saat menarik data baru
             backToPoList();
 
@@ -4465,6 +4493,40 @@
                     const t = order.tglDatang;
                     return t && t !== "-" && t >= dateFrom && t <= dateTo;
                 });
+
+                /* PO YANG BELUM LENGKAP IKUT TERBAWA (permintaan user 10
+                   Agustus 2026). Sebelumnya Check-in hanya menampilkan PO yang
+                   tanggal kedatangannya tepat di rentang terpilih, jadi PO
+                   berstatus "In Progress" atau "Partially complete" dari
+                   kemarin lenyap begitu tanggalnya lewat — padahal justru di
+                   situlah masih ada barang yang belum ditandai datang, dan
+                   tidak ada satu layar pun yang menyebutnya lagi.
+
+                   Yang dibawa SELURUH barisnya, bukan cuma yang belum datang.
+                   Kalau hanya yang tertunda yang ikut, kartunya akan menghitung
+                   dirinya "In Progress 0 dari 2" padahal 3 barang lain sudah
+                   diterima — angka yang salah, dan orang akan mencentang ulang
+                   barang yang sudah masuk. */
+                if (bawaTertunda) {
+                    const kunciTertunda = new Set();
+                    records.forEach(o => {
+                        const t = o.tglDatang;
+                        if (!t || t === '-' || t >= dateFrom) return;
+                        if ((o.kedatangan || '') === 'Datang') return;
+                        if (selisihHari(t, dateFrom) > CHECKIN_TERTUNDA_MAKS_HARI) return;
+                        kunciTertunda.add(kunciRombongan(o));
+                    });
+                    if (kunciTertunda.size) {
+                        const sudahAda = new Set(filteredRecords.map(o => o.nomorOrder));
+                        records.forEach(o => {
+                            const t = o.tglDatang;
+                            if (!t || t === '-' || t >= dateFrom) return;
+                            if (!kunciTertunda.has(kunciRombongan(o))) return;
+                            if (sudahAda.has(o.nomorOrder)) return;
+                            filteredRecords.push(o);
+                        });
+                    }
+                }
                 filteredRecords.sort((a, b) => {
                     const d = String(a.tglDatang).localeCompare(String(b.tglDatang));
                     return d !== 0 ? d : (a.rowIndex || 0) - (b.rowIndex || 0);
@@ -4616,6 +4678,26 @@
             if (!row) return "";
             return (row.tim || "").trim() || getKeterangan(row.pic || "");
         }
+        /* Tim BAKU sebuah order: Kitchen / Bar / Floor, atau "" kalau bukan
+           salah satunya.
+
+           "" BUKAN berarti tidak diketahui — ia berarti MILIK SEMUA. Pembelian
+           yang diajukan tim Office (atau CEO, atau akun tanpa keterangan)
+           dibeli untuk outlet, bukan untuk satu tim. Sebelum 10 Agustus 2026
+           order seperti itu dibandingkan mentah-mentah dengan 'Kitchen'/'Bar'/
+           'Floor', dan karena "Office" tidak pernah sama dengan ketiganya,
+           barangnya TIDAK PERNAH muncul di Check-in Penerimaan siapa pun —
+           barang datang tanpa ada satu layar pun yang bisa menerimanya.
+
+           Dipakai lewat orderUntukTim() supaya aturan "kosong = semua" hidup
+           di satu tempat saja. */
+        function timBakuRecord(row) {
+            return timDariKeterangan(timDariRecord(row));
+        }
+        function orderUntukTim(row, tim) {
+            const t = timBakuRecord(row);
+            return !t || t === tim;
+        }
 
         // ==========================================
         //  KUNCI TIM DI CHECK-IN
@@ -4696,7 +4778,7 @@
             const kunciTim = timTerkunci();
             const timAktif = kunciTim || timFilter;
             if (timAktif !== 'all') {
-                groups = groups.filter(g => g.items.some(it => timDariRecord(it) === timAktif));
+                groups = groups.filter(g => g.items.some(it => orderUntukTim(it, timAktif)));
             }
 
             /* Filter SUMBER. Sebuah batch ikut tampil bila ADA SATU saja
@@ -4777,6 +4859,18 @@
                             <div class="flex flex-col items-end gap-1.5 shrink-0">
                                 <span class="px-2.5 py-1 text-[10px] font-black rounded-full uppercase tracking-wider ${st.cls}">${st.label}</span>
                                 ${ketBadge(ket)}
+                                <!-- PO yang terbawa dari hari sebelumnya ditandai
+                                     tegas. Tanpa ini kartunya duduk di antara
+                                     kedatangan hari ini dan terbaca seolah memang
+                                     dijadwalkan hari ini — dan yang paling perlu
+                                     dikejar justru yang sudah menunggu paling lama. -->
+                                ${(function(){
+                                    const t = g.tglDatang;
+                                    const telat = (t && t !== '-') ? selisihHari(t, isoLokal(new Date())) : 0;
+                                    return telat > 0
+                                        ? `<span class="px-2 py-0.5 text-[9px] font-black rounded-full uppercase tracking-wider bg-rose-600 text-white flex items-center gap-1"><i class="fa-solid fa-clock text-[8px]"></i> Tertunda ${telat} hari</span>`
+                                        : '';
+                                })()}
                                 ${g.items.some(it => infoCKItem(it.item))
                                     ? '<span class="px-2 py-0.5 text-[9px] font-black rounded-full uppercase tracking-wider bg-teal-100 text-teal-700 border border-teal-200 flex items-center gap-1"><i class="fa-solid fa-kitchen-set text-[8px]"></i> Central Kitchen</span>'
                                     : ''}

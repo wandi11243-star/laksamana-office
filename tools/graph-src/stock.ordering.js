@@ -4387,6 +4387,28 @@ function confirmSubmission() { closeModal(); kirimCKKeServer(); executeFormSubmi
 
 
 
+
+
+function selisihHari() {  }
+
+
+
+
+
+
+
+function kunciRombongan() { extractPoNumber(); }
+
+
+
+
+
+
+
+
+
+
+
 function setDateMode() { fetchHistoryData(); setNilaiKalender(); isoLokal(); }
 
 
@@ -4423,7 +4445,47 @@ function setDateMode() { fetchHistoryData(); setNilaiKalender(); isoLokal(); }
 
 
 
-function fetchHistoryData() { showToast(); backToPoList(); renderPoCards(); }
+function fetchHistoryData() { showToast(); isoLokal(); backToPoList(); selisihHari(); kunciRombongan(); renderPoCards(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4612,7 +4674,27 @@ function setPoFilter() { renderPoCards(); }
 
 
 
-function timDariRecord() { getKeterangan(); }
+function timDariRecord() { getKeterangan(); orderUntukTim(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function timBakuRecord() { timDariKeterangan(); timDariRecord(); }
+
+
+function orderUntukTim() { timBakuRecord(); }
 
 
 
@@ -4674,7 +4756,7 @@ function setTimFilter() { timTerkunci(); renderPoCards(); }
 
 
 
-function renderPoCards() { groupRecordsByPo(); timTerkunci(); timDariRecord(); infoCKItem(); computePoStatus(); }
+function renderPoCards() { groupRecordsByPo(); timTerkunci(); orderUntukTim(); infoCKItem(); computePoStatus(); }
 
 
 
@@ -4749,7 +4831,19 @@ function ketBadge() {  }
 
 
 
-function cardHTML() { computePoStatus(); fmtTgl(); getKeterangan(); ketBadge(); infoCKItem(); openPoDetail(); fmtTglJudul(); }
+function cardHTML() { computePoStatus(); fmtTgl(); getKeterangan(); ketBadge(); selisihHari(); isoLokal(); infoCKItem(); openPoDetail(); fmtTglJudul(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
