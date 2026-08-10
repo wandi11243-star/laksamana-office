@@ -910,7 +910,9 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 /* Tabel isian Finance. Kolom keterangan lebarnya tetap supaya seluruh kotak
    angka berbaris di satu garis vertikal — itu yang membuatnya terbaca sebagai
    lembar, bukan sebagai daftar. */
-.fin-wrap{overflow-x:visible}
+.fin-grid{min-width:0}
+.fin-grid>*{min-width:0}
+.fin-wrap{overflow-x:visible;min-width:0}
 .fin-tbl{width:100%;table-layout:fixed}
 .fin-tbl td.fin-ket{width:52%;padding:10px 12px!important;vertical-align:top}
 .fin-tbl td.fin-ket b{display:block;font-size:13px;font-weight:600;line-height:1.4}
@@ -948,6 +950,17 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
    bukan bagian dari lembar yang sama. */
 .fin-tbl td.fin-lebar .rundown-wrap{border-radius:8px}
 
+
+
+/* JANGAN TERPOTONG. Sel di tabel table-layout:fixed punya lebar pasti, tapi
+   isinya tidak ikut dipaksa — tabel Rincian yang lebar minimumnya ratusan
+   piksel menyembul keluar kartu dan kolom Total terpotong di tengah angka.
+   max-width:0 memaksa selnya menghormati lebar kolomnya, dan pembungkus di
+   dalamnya yang menggulir. */
+.fin-tbl td.fin-lebar{max-width:0}
+.fin-tbl td.fin-lebar>div{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.fin-tbl td.fin-lebar .rinci-wrap table{min-width:520px}
+
 @media(max-width:640px){
   .fin-tbl{table-layout:auto}
   .fin-tbl td.fin-ket{width:auto;display:block;border-bottom:none!important;padding-bottom:0!important}
@@ -972,6 +985,10 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
    menunya seperti tidak muncul sama sekali. */
 .kalk-saran{display:none;position:fixed;z-index:900;
   max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  /* Gulir di dalam daftar berhenti di daftar, tidak diteruskan ke halaman di
+     belakangnya — kalau diteruskan, mencapai ujung daftar membuat halaman
+     ikut bergulir dan daftarnya menutup sendiri. */
+  overscroll-behavior:contain;
   background:var(--card,#fff);border:1.5px solid var(--line-hard);border-radius:11px;
   box-shadow:0 14px 40px rgba(0,0,0,.16);padding:5px}
 .kalk-saran.buka{display:block}
@@ -1082,6 +1099,33 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 .sheet-tbl tbody{counter-reset:sheetrow}
 .sheet-tbl tbody tr:not(.rk){counter-increment:sheetrow}
 .sheet-tbl tbody tr:not(.rk) td.no::before{content:counter(sheetrow)}
+
+/* KOTAK TEKS HARUS TERLIHAT SEBAGAI KOTAK.
+   Ditulis DI SINI, sesudah aturan .sheet-tbl di atas — bukan di blok
+   .fin-tbl yang letaknya lebih awal. Kedua aturan sama-sama !important, dan
+   walau specificity-nya menang, aturan yang bergantung pada urutan berkas
+   untuk menang adalah aturan yang akan kalah diam-diam begitu blok di atas
+   dipindah atau ditambahi.
+   .sheet-tbl td .inp membuang bingkai & latar SEMUA isian di dalam sel —
+   benar untuk kotak angka satu baris, yang memang selnya sendiri jadi
+   bingkainya. Tapi textarea di baris selebar tabel tidak punya sel sempit
+   yang membingkainya: hasilnya bidang kosong tanpa tepi, tanpa latar, dan
+   tanpa satu pun tanda bahwa ia bisa diketik — yang terlihat cuma gagang
+   penarik di pojok kanan bawah. */
+.fin-tbl td.fin-lebar textarea.inp{
+  /* Ditulis longhand, bukan singkatan `border:` / `background:`. Singkatan
+     yang memuat var() gagal diurai sebagian pengurai CSS dan SELURUH
+     deklarasinya dibuang diam-diam — kotaknya kembali tanpa tepi tanpa
+     ada yang salah kelihatannya di berkas ini. */
+  border-width:1.5px!important;border-style:solid!important;
+  border-color:var(--line-hard)!important;border-radius:9px!important;
+  /* #fff langsung: --card tidak pernah didefinisikan di berkas ini, jadi
+     var(--card,#fff) di tempat-tempat lain SELALU jatuh ke cadangannya. */
+  background-color:#fff!important;
+  width:100%;min-height:84px;padding:10px 12px!important;line-height:1.6;font-size:13px}
+.fin-tbl td.fin-lebar textarea.inp:focus{
+  border-color:var(--gold)!important;box-shadow:0 0 0 2px var(--gold-soft,rgba(247,187,14,.35))}
+.fin-tbl td.fin-lebar textarea.inp::placeholder{color:var(--sand-dim);opacity:.8}
 
 .inv-pratinjau{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
   border-radius:9px;padding:12px;background:#fff;color:#1a1a1a}
@@ -7108,7 +7152,11 @@ function financeTab(ev,canEdit){
   const finVisible = ME.role!=='operational';
   if(!finVisible)return '<div class="muted">Detail finance hanya untuk Marketing, Finance & Manager.</div>';
   const dis=canEdit?'':'disabled';
-  let h='<div class="grid g-2" style="align-items:start">';
+  /* min-width:0 pada kedua kolom: bawaan grid adalah min-width:auto, yang
+     membuat kolom MELAR mengikuti isi terlebarnya — tabel Rincian di dalam
+     kolom kiri lalu mendorong seluruh panel keluar kartu, dan yang terpotong
+     justru kolom Total di ujung kanan. */
+  let h='<div class="grid g-2 fin-grid" style="align-items:start">';
   // left: inputs
   /* F&B: dulu kotak mati yang hanya memajang hasil hitungan. Sekarang bisa
      ditimpa — harga F&B sering hasil kesepakatan yang tidak jatuh persis di
@@ -7200,16 +7248,26 @@ function financeTab(ev,canEdit){
    +'<span class="fh">Kolomnya sama persis dengan lembar tagihan yang dicetak. Jenis "Belum pasti" tercetak sebagai "to be confirm".</span>'
    +'<div style="margin-top:7px">'+rinciTblHTML('efd_rincianItem',d.rincianItem,canEdit)+'</div></td></tr>';
 
+  /* Placeholder-nya template yang SEDANG berlaku, bukan contoh karangan.
+     Kotak kosong tanpa contoh membuat orang mengira daftarnya memang harus
+     dibiarkan kosong — padahal yang dipakai kalau kosong adalah template
+     umum di Pengaturan, dan itu tidak terlihat dari sini. */
+  const tmplFree=bacaTemplateBaris((S.settings||{}).freeTemplate || FREE_TEMPLATE_BAWAAN)
+                   .map(function(t){ return t.replace(/\{[a-z-]+\}/gi,'').trim(); })
+                   .filter(function(t){ return t; }).join('\n');
   h+=finBarisLebar('Fasilitas Termasuk (FREE)',
-      '<textarea class="inp" id="efd_itemFree" rows="3" '+dis+'>'+esc(d.itemFree||'')+'</textarea>',
-      'Satu baris satu fasilitas. Kosongkan untuk memakai template umum di Pengaturan. Penanda {jika-sewa-gratis} / {jika-teknis-gratis} membuat barisnya hilang kalau komponen itu ternyata ditagihkan.');
+      '<textarea class="inp" id="efd_itemFree" rows="4" '+dis
+       +' placeholder="'+esc(tmplFree)+'">'+esc(d.itemFree||'')+'</textarea>',
+      'Satu baris satu fasilitas, <b>boleh diketik sendiri</b> — yang diketik di sini menang atas template umum di Pengaturan. Dibiarkan kosong = memakai template itu (yang tertulis samar di dalam kotak). Penanda {jika-sewa-gratis} / {jika-teknis-gratis} membuat barisnya hilang kalau komponen itu ternyata ditagihkan.');
   h+=finBarisLebar('Item Belum Pasti Harganya',
-      '<textarea class="inp" id="efd_itemTbc" rows="2" '+dis+'>'+esc(d.itemTbc||'')+'</textarea>',
+      '<textarea class="inp" id="efd_itemTbc" rows="3" '+dis
+       +' placeholder="mis. Dekorasi tambahan&#10;Extra sound system">'+esc(d.itemTbc||'')+'</textarea>',
       'Satu baris satu item. Tercetak "to be confirm" — bukan Rp0, karena nol berarti gratis dan itu janji yang tidak bisa ditarik lagi.');
 
   h+=finSeksi('Data untuk Invoice');
   h+=finBarisLebar('Data Perusahaan / NPWP <span class="mini">(untuk invoice)</span>',
-      '<textarea class="inp" id="efd_npwp" rows="2" '+dis+'>'+esc(d.npwp||'')+'</textarea>', '');
+      '<textarea class="inp" id="efd_npwp" rows="3" '+dis
+       +' placeholder="Nama perusahaan&#10;Alamat&#10;NPWP">'+esc(d.npwp||'')+'</textarea>', '');
 
   h+='</tbody></table></div>';
   // Tombol simpan bagian ini sengaja dihapus: sekarang tab Finance punya satu
@@ -11098,11 +11156,26 @@ const KALK_PALET=[
   {b:'#7B5CD6', t:'#2e2158'},   // ungu
   {b:'#0E8C8C', t:'#053636'}    // tosca
 ];
-function kalkWarnaKat(kat){
+function kalkWarnaKat(kat){ return KALK_PALET[kalkWarnaIdx(kat)]; }
+/* Nomor warna kategori di dalam palet. Dipakai untuk MENGURUTKAN, bukan cuma
+   mewarnai: dua kategori berbeda bisa jatuh ke warna yang sama (paletnya enam,
+   kategorinya bisa lebih), dan kalau keduanya terpisah jauh di daftar, warna
+   yang sama muncul dua kali di tempat berjauhan — orang membacanya sebagai
+   dua kelompok yang tidak berhubungan, lalu ragu apakah warnanya berarti apa
+   pun. Diurutkan per warna, seluruh yang sewarna berdampingan. */
+function kalkWarnaIdx(kat){
   const t=String(kat||'');
   let n=0;
   for(let i=0;i<t.length;i++) n=(n*31+t.charCodeAt(i))>>>0;
-  return KALK_PALET[n%KALK_PALET.length];
+  return n%KALK_PALET.length;
+}
+/* Urutan baku daftar menu di mana pun ia muncul: warna dulu, lalu nama
+   kategori, lalu nama menunya. Satu urutan untuk semua tempat supaya kotak
+   kategori dan daftar saran tidak menampilkan susunan yang berbeda. */
+function kalkUrutKat(a,b){
+  const wa=kalkWarnaIdx(a), wb=kalkWarnaIdx(b);
+  if(wa!==wb) return wa-wb;
+  return String(a).localeCompare(String(b),'id');
 }
 function kalkTitikKat(kat){
   return '<span class="kat-titik" style="background:'+kalkWarnaKat(kat).b+'"></span>';
@@ -11117,7 +11190,10 @@ function kalkKategori(){
     return {kat:j, jml:it.length,
             min:hrg.length?Math.min.apply(null,hrg):0,
             max:hrg.length?Math.max.apply(null,hrg):0};
-  }).filter(function(k){ return k.jml>0; });
+  }).filter(function(k){ return k.jml>0; })
+  /* Kotak kategori ikut urutan yang sama dengan daftar sarannya — dua
+     susunan berbeda untuk barang yang sama membuat orang mencari dua kali. */
+    .sort(function(a,b){ return kalkUrutKat(a.kat,b.kat); });
 }
 
 /* Membuka pemilih untuk SATU baris tabel. Bedanya dengan mode biasa: begitu
@@ -11327,7 +11403,11 @@ function escJsAttr(v){ return "'"+String(v==null?'':v).replace(/\\/g,'\\\\').rep
 
 function kalkMenuAll(){
   var out=[];
-  menuDbJenis().forEach(function(j){ mdbItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); }); });
+  /* Kategorinya diurutkan per warna lebih dulu — seluruh yang merah
+     berdampingan, baru yang hijau, dan seterusnya. Lihat kalkUrutKat(). */
+  menuDbJenis().slice().sort(kalkUrutKat).forEach(function(j){
+    mdbItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); });
+  });
   return out;
 }
 function renderKalkulator(V){
@@ -11500,11 +11580,24 @@ function kalkSaranLayer(){
   if(!_saranPasang){
     _saranPasang=true;
     /* Karena posisinya fixed, ia tidak ikut bergerak saat halaman digulir —
-       jadi ia harus ditutup, bukan dibiarkan menggantung di tempat lamanya. */
-    window.addEventListener('scroll', kalkSaranTutup, true);
+       jadi ia harus ditutup, bukan dibiarkan menggantung di tempat lamanya.
+       Dipasang dengan capture supaya gulir di WADAH MANA PUN ikut tertangkap
+       (peristiwa scroll tidak menggelembung), dan justru itu yang membuat
+       daftarnya sendiri ikut menutup begitu digulir ke bawah: gulir DI DALAM
+       daftar juga lewat sini. Karena itu asalnya diperiksa lebih dulu. */
+    window.addEventListener('scroll', kalkSaranGulir, true);
     window.addEventListener('resize', kalkSaranTutup);
   }
   return el;
+}
+/* Gulir DI DALAM daftar bukan alasan menutupnya — itu justru orang yang
+   sedang membaca isinya. Yang harus menutup daftar adalah gulir halaman di
+   belakangnya, karena kotaknya position:fixed dan tidak ikut bergerak. */
+function kalkSaranGulir(e){
+  const el=document.getElementById('kalk_saran_layer');
+  const t=e&&e.target;
+  if(el && t && (t===el || (el.contains && t.nodeType && el.contains(t)))) return;
+  kalkSaranTutup();
 }
 function kalkSaranTutup(){
   const el=document.getElementById('kalk_saran_layer');
