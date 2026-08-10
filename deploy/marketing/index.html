@@ -913,7 +913,11 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 /* Panel Rincian berdiri selebar isi tab, di bawah kisi dua kolom. */
 .fin-panel{min-width:0}
 .rinci-panel{margin-top:14px}
-.rinci-panel .rinci-wrap table{min-width:640px;table-layout:fixed}
+/* 760px = 34 No + 74 Qty + 142 Harga + 112 Jenis + 132 Total + 34 tong sampah
+   + 232 sisa untuk Deskripsi. Kalau angkanya diubah, jangan lupa lebar kolom
+   di rinciTblHTML — yang tergencet duluan selalu Deskripsi, satu-satunya
+   kolom tanpa lebar tetap. */
+.rinci-panel .rinci-wrap table{min-width:760px;table-layout:fixed}
 .rinci-panel .rundown-wrap{border-radius:11px}
 
 /* KOTAK ISIAN HARUS TERBACA SEBAGAI KOTAK ISIAN. Sel tanpa tanda apa pun
@@ -1198,6 +1202,18 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
   background-color:#fff!important;padding:9px 11px!important;font-size:12.5px;font-weight:600;
   transition:border-color .12s ease, box-shadow .12s ease}
 .rinci-wrap table td .inp:hover{border-color:var(--line-hard)!important}
+/* PANAH NAIK-TURUN BAWAAN DIBUANG. Di kotak selebar 74px ia memakan hampir
+   sepertiga ruangnya, dan yang tersisa untuk angkanya cuma cukup untuk satu
+   digit — "80" terbaca "8". Qty di sini selalu diketik, tidak pernah
+   dinaik-turunkan satu per satu. */
+.rinci-wrap table td .inp[type="number"]{appearance:textfield;-moz-appearance:textfield}
+.rinci-wrap table td .inp[type="number"]::-webkit-outer-spin-button,
+.rinci-wrap table td .inp[type="number"]::-webkit-inner-spin-button{
+  -webkit-appearance:none;appearance:none;margin:0}
+/* Kotaknya menghitung padding & bingkai KE DALAM lebarnya — tanpa ini
+   width:100% berarti 100% + padding + bingkai, dan isinya menyembul keluar
+   selnya. */
+.rinci-wrap table td .inp{box-sizing:border-box;padding-left:10px!important;padding-right:10px!important}
 .rinci-wrap table td .inp:focus{border-color:var(--gold)!important;
   box-shadow:0 0 0 3px var(--gold-soft,rgba(247,187,14,.3))!important;outline:none}
 .rinci-wrap td{padding:7px 8px!important;
@@ -1212,6 +1228,36 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 /* Tombol hapus baris: bulat, abu-abu, memerah saat disentuh — sama dengan
    tombol tong sampah di tiap baris form Ordering. */
 .rinci-wrap .rundown-del{width:34px;height:34px;border-radius:10px;margin:0 auto}
+
+/* ---- Kolom Jenis: kotak ketik + tombol panah TERPISAH ----
+   Panahnya di luar kotak ketik, bukan di dalamnya: ikon di dalam kotak
+   berebut ruang dengan teksnya dan target sentuhnya menyusut jadi belasan
+   piksel di ujung. */
+.rj-wrap{display:flex;align-items:center;gap:5px;min-width:0}
+.rj-wrap .rj-ketik{flex:1;min-width:0}
+.rj-drop{flex:none;width:28px;height:34px;
+  border-width:1.5px;border-style:solid;border-color:var(--line);
+  border-top-left-radius:9px;border-top-right-radius:9px;
+  border-bottom-left-radius:9px;border-bottom-right-radius:9px;
+  background:transparent;color:var(--sand-dim);cursor:pointer;line-height:0;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.rj-drop:hover{border-color:var(--gold);color:var(--gold);
+  background:var(--gold-soft,rgba(247,187,14,.1))}
+.rj-ketik.salah{border-color:var(--danger,#C9432B)!important}
+
+/* Daftarnya melayang di <body> — sama seperti daftar menu Kalkulator, dan
+   karena alasan yang sama: tabelnya duduk di dalam pembungkus ber-overflow,
+   dan kotak yang diposisikan absolut di dalamnya dipotong habis. */
+.rj-saran .opsi{display:flex;align-items:center;gap:9px;min-height:40px;padding:7px 10px;
+  border-radius:8px;cursor:pointer;font-size:12.5px;font-weight:600}
+.rj-saran .opsi:hover,.rj-saran .opsi.pilih{background:var(--gold-soft,rgba(247,187,14,.13))}
+.rj-saran .opsi.kini{color:var(--gold-deep,#8a6b12)}
+.rj-saran .opsi .tt{width:8px;height:8px;border-radius:50%;flex:none}
+/* Titiknya sewarna dengan arti barisnya di tabel: hijau = FREE, kuning =
+   belum pasti, netral = ditagih. */
+.rj-saran .opsi .tt-bayar{background:var(--sand-dim,#928C80)}
+.rj-saran .opsi .tt-free{background:var(--ok,#1F9D5F)}
+.rj-saran .opsi .tt-tbc{background:var(--warn,#B5831A)}
 .rinci-wrap .rundown-del:hover{background:var(--danger,#C9432B);color:#fff}
 
 .inv-pratinjau{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
@@ -5529,10 +5575,26 @@ function rinciRowHTML(r,canEdit,idx){
      +'placeholder="–" '+dis+' oninput="rinciHitung(this)"></td>'
    +'<td><input class="inp" data-r="harga" inputmode="numeric" value="'+esc(harga?rp(harga):'')+'" '
      +'placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);rinciHitung(this)"></td>'
-   +'<td><select class="inp" data-r="jenis" '+dis+' onchange="rinciGantiJenis(this)">'
-     +RINCI_JENIS.map(function(j){
-        return '<option value="'+j[0]+'"'+(jenis===j[0]?' selected':'')+'>'+j[1]+'</option>'; }).join('')
-     +'</select></td>'
+   /* JENIS JUGA DIKETIK, bukan dipilih dari <select>. Daftar bawaan peramban
+      terbuka MENUTUPI kotaknya sendiri — yang sedang dilihat orang justru
+      tertutup oleh daftarnya — dan hurufnya tidak bisa disamakan dengan
+      kotak-kotak di sebelahnya. Penggantinya: kotak ketik biasa + tombol
+      panah terpisah di sebelahnya, dan daftarnya terbuka DI BAWAH kotak,
+      bukan di atasnya. Mengetik "fr" sudah cukup untuk memilih FREE.
+
+      Nilai yang sebenarnya disimpan di data-v; yang tertulis di kotak adalah
+      labelnya. rinciBaca & rinciHitung membaca data-v. */
+   +'<td><div class="rj-wrap">'
+     +'<input class="inp rj-ketik" data-r="jenis" data-v="'+esc(jenis)+'" '
+       +'value="'+esc(rinciJenisLabel(jenis))+'" autocomplete="off" '+dis+' '
+       +'oninput="rjKetik(this)" onfocus="rjKetik(this)" onkeydown="rjTombol(event,this)" '
+       +'onblur="rjTutupNanti(this)">'
+     +(canEdit?'<button type="button" class="rj-drop" tabindex="-1" title="Pilih jenis" '
+       +'onmousedown="event.preventDefault()" onclick="rjSemua(this)">'
+       +'<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" '
+       +'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+       +'<path d="m6 9 6 6 6-6"/></svg></button>':'')
+   +'</div></td>'
    +'<td class="mono r" data-r="total" style="white-space:nowrap">'+rinciTeksTotal(jenis,jml,harga)+'</td>'
    +(canEdit?'<td><button type="button" class="rundown-del" title="Hapus baris" onclick="rinciDelRow(this)">'+svg(IC.trash)+'</button></td>':'')
    +'</tr>';
@@ -5542,6 +5604,126 @@ function rinciRowHTML(r,canEdit,idx){
    Qty dan tanpa Price — hanya satu angka di kolom AMOUNT. Aturan lama
    (total = qty x harga) memaksa mengetik Qty 1 supaya angkanya muncul, dan
    angka 1 itu ikut tercetak di lembar yang dikirim ke client. */
+function rinciJenisLabel(kode){
+  const j=RINCI_JENIS.find(function(x){ return x[0]===kode; });
+  return j?j[1]:RINCI_JENIS[0][1];
+}
+/* Kode dari apa yang diketik. Dicocokkan dari awal kata dulu, baru di mana
+   saja — "be" harus jatuh ke "Belum pasti", bukan ke "Ditagih" yang juga
+   memuat huruf b dan e. Kode aslinya ('free','tbc') ikut diterima supaya
+   menempel data lama tidak pernah gagal. */
+function rinciJenisKode(teks){
+  const q=String(teks||'').trim().toLowerCase();
+  if(!q) return null;
+  let j=RINCI_JENIS.find(function(x){ return x[1].toLowerCase()===q || x[0]===q; });
+  if(j) return j[0];
+  j=RINCI_JENIS.find(function(x){ return x[1].toLowerCase().indexOf(q)===0; });
+  if(j) return j[0];
+  j=RINCI_JENIS.find(function(x){ return x[1].toLowerCase().indexOf(q)>-1; });
+  return j?j[0]:null;
+}
+let _rjTutup=null, _rjIdx=-1, _rjPasang=false, _rjEl=null;
+function rjLayer(){
+  let el=document.getElementById('rinci_jenis_layer');
+  if(!el){
+    el=document.createElement('div');
+    el.id='rinci_jenis_layer'; el.className='kalk-saran rj-saran';
+    document.body.appendChild(el);
+  }
+  if(!_rjPasang){
+    _rjPasang=true;
+    /* Sama dengan daftar menu Kalkulator: karena position:fixed, ia tidak ikut
+       bergerak saat halaman digulir — jadi ditutup, bukan dibiarkan
+       menggantung. Gulir DI DALAM daftarnya sendiri tidak dihitung. */
+    window.addEventListener('scroll', function(e){
+      const l=document.getElementById('rinci_jenis_layer');
+      const t=e&&e.target;
+      if(l && t && (t===l || (l.contains && t.nodeType && l.contains(t)))) return;
+      rjTutup();
+    }, true);
+    window.addEventListener('resize', rjTutup);
+  }
+  return el;
+}
+function rjTutup(){
+  const el=document.getElementById('rinci_jenis_layer');
+  if(el) el.classList.remove('buka');
+  _rjIdx=-1; _rjEl=null;
+}
+/* DI BAWAH kotaknya, tidak pernah di atasnya — itu keluhan yang membuat
+   <select> diganti. Kalau ruang di bawah benar-benar habis barulah ia naik. */
+function rjPosisi(inp){
+  const l=rjLayer(), r=inp.getBoundingClientRect();
+  const bawah=window.innerHeight-r.bottom;
+  l.style.left=Math.max(8,r.left)+'px';
+  l.style.width=Math.max(150,r.width)+'px';
+  if(bawah<150 && r.top>bawah){
+    l.style.top='auto'; l.style.bottom=(window.innerHeight-r.top+4)+'px';
+    l.style.maxHeight=Math.min(220,r.top-14)+'px';
+  }else{
+    l.style.bottom='auto'; l.style.top=(r.bottom+4)+'px';
+    l.style.maxHeight=Math.min(220,Math.max(120,bawah-14))+'px';
+  }
+}
+function rjKetik(inp,semua){
+  const l=rjLayer(); _rjEl=inp; _rjIdx=-1;
+  const q=semua?'':String(inp.value||'').trim().toLowerCase();
+  const hasil=RINCI_JENIS.filter(function(x){
+    return !q || x[1].toLowerCase().indexOf(q)>-1 || x[0].indexOf(q)>-1; });
+  const daftar=hasil.length?hasil:RINCI_JENIS;
+  l.innerHTML=daftar.map(function(x,n){
+    const aktif=(inp.dataset.v===x[0]);
+    return '<div class="opsi'+(aktif?' kini':'')+'" data-n="'+n+'" data-k="'+x[0]+'" '
+      +'onmousedown="event.preventDefault();rjPakai(\''+x[0]+'\')">'
+      +'<span class="tt tt-'+x[0]+'"></span><span class="nm">'+esc(x[1])+'</span></div>';
+  }).join('');
+  rjPosisi(inp);
+  l.classList.add('buka');
+}
+function rjSemua(btn){
+  const inp=btn.parentNode.querySelector('.rj-ketik'); if(!inp) return;
+  const l=document.getElementById('rinci_jenis_layer');
+  if(l && l.classList.contains('buka') && _rjEl===inp){ rjTutup(); return; }
+  inp.focus(); rjKetik(inp,true);
+}
+function rjPakai(kode){
+  const inp=_rjEl; if(!inp) return;
+  inp.dataset.v=kode;
+  inp.value=rinciJenisLabel(kode);
+  inp.classList.remove('salah');
+  rjTutup();
+  rinciGantiJenis(inp);
+}
+function rjTombol(e,inp){
+  const l=document.getElementById('rinci_jenis_layer');
+  if(!l||!l.classList.contains('buka')||_rjEl!==inp) return;
+  const opsi=[...l.querySelectorAll('.opsi')]; if(!opsi.length) return;
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    _rjIdx += (e.key==='ArrowDown'?1:-1);
+    if(_rjIdx<0) _rjIdx=opsi.length-1;
+    if(_rjIdx>=opsi.length) _rjIdx=0;
+    opsi.forEach(function(o,k){ o.classList.toggle('pilih',k===_rjIdx); });
+  }else if(e.key==='Enter'){
+    e.preventDefault();
+    rjPakai(_rjIdx>=0 ? opsi[_rjIdx].dataset.k : (rinciJenisKode(inp.value)||inp.dataset.v));
+  }else if(e.key==='Escape'){ rjTutup(); }
+}
+/* Ditutup dengan jeda — menekan satu baris daftar membuat kotaknya
+   kehilangan fokus lebih dulu. Yang diketik lalu dirapikan: kalau cocok
+   dengan salah satu jenis, ia dipakai; kalau tidak, kotaknya dikembalikan ke
+   nilai yang sah. Membiarkan teks asal-asalan berarti baris yang jenisnya
+   tidak jelas ikut tercetak di lembar yang dikirim ke client. */
+function rjTutupNanti(inp){
+  clearTimeout(_rjTutup);
+  _rjTutup=setTimeout(function(){
+    rjTutup();
+    const kode=rinciJenisKode(inp.value);
+    if(kode){ inp.dataset.v=kode; }
+    inp.value=rinciJenisLabel(inp.dataset.v||'bayar');
+    rinciGantiJenis(inp);
+  }, 150);
+}
 function rinciTeksTotal(jenis,jml,harga){
   if(jenis==='free') return '<b>FREE</b>';
   if(jenis==='tbc')  return '<i style="color:var(--sand-dim)">to be confirm</i>';
@@ -5651,7 +5833,7 @@ function rinciSeedKe(id,ev){
   /* Baris "belum pasti" & FREE harus tetap terkunci harganya — kuncinya
      dipasang rinciGantiJenis, yang tidak ikut jalan saat HTML disisipkan. */
   [...body.querySelectorAll('[data-r="jenis"]')].forEach(function(sel){
-    if(sel.value!=='bayar') rinciGantiJenis(sel);
+    rinciGantiJenis(sel);
   });
   return rows.length;
 }
@@ -5668,9 +5850,13 @@ function rinciTblHTML(id,rows,canEdit){
         "Videotron (6 x 3 meter, Lighting, Soundsystem, Panggung, dll)"
         terpotong jadi "Videotron (6". */
      +'<th>Deskripsi</th>'
-     +'<th style="width:58px" title="Kosongkan kalau harganya sudah total baris ini">Qty</th>'
-     +'<th style="width:116px">Harga</th>'
-     +'<th style="width:96px">Jenis</th><th style="width:116px;text-align:right">Total</th>'
+     /* Lebarnya dihitung untuk ISI KOTAKNYA, bukan untuk teksnya saja: sejak
+        tiap isian punya bingkai + sudut membulat + padding sendiri, kotak
+        selebar teksnya membuat angkanya terpotong di dalam kotak —
+        "Rp 2.000.00", "8" untuk 80. */
+     +'<th style="width:74px" title="Kosongkan kalau harganya sudah total baris ini">Qty</th>'
+     +'<th style="width:142px">Harga</th>'
+     +'<th style="width:112px">Jenis</th><th style="width:132px;text-align:right">Total</th>'
      +(canEdit?'<th style="width:34px"></th>':'')
    +'</tr></thead><tbody id="'+id+'_body">'+body+'</tbody></table>'
    +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="rinciAddRow(\''+id+'\')">'
@@ -5687,13 +5873,17 @@ function rinciTblHTML(id,rows,canEdit){
    tersimpan, dan kembali muncul begitu jenisnya dikembalikan. */
 function rinciGantiJenis(el){
   const tr=el.closest('tr'); if(!tr) return;
-  tr.setAttribute('data-jenis',el.value);
+  tr.setAttribute('data-jenis',(el.dataset&&el.dataset.v)||el.value||'bayar');
   rinciHitung(el);
 }
 function rinciHitung(el){
   const tr=el.closest?el.closest('tr'):null;
   if(tr){
-    const j=(tr.querySelector('[data-r="jenis"]')||{}).value||'bayar';
+    /* Kolom Jenis kini kotak ketik: nilainya di data-v, sedangkan .value
+       adalah labelnya ("Ditagih"). Membaca .value akan memulangkan label
+       yang tidak dikenali siapa pun sebagai kode jenis. */
+    const jEl=tr.querySelector('[data-r="jenis"]');
+    const j=(jEl&&(jEl.dataset?jEl.dataset.v:null))||'bayar';
     const jml=+((tr.querySelector('[data-r="jumlah"]')||{}).value)||0;
     const hd=rupiahDigits(((tr.querySelector('[data-r="harga"]')||{}).value)||'');
     const sel=tr.querySelector('[data-r="total"]');
@@ -5728,8 +5918,10 @@ function rinciBaca(id){
   return [...body.querySelectorAll('tr')].map(function(tr){
     const g=function(k){ const e=tr.querySelector('[data-r="'+k+'"]'); return e?e.value:''; };
     const h=rupiahDigits(g('harga'));
+    const jEl=tr.querySelector('[data-r="jenis"]');
+    const jen=(jEl&&(jEl.dataset?jEl.dataset.v:null))||'bayar';
     return {desc:String(g('desc')).trim(), jumlah:+g('jumlah')||0,
-            harga:h===''?0:(+h), jenis:g('jenis')||'bayar'};
+            harga:h===''?0:(+h), jenis:jen};
   /* Baris yang benar-benar kosong dibuang — sisa "Tambah Baris" yang tidak
      jadi diisi tidak boleh ikut tersimpan lalu tercetak sebagai baris hampa. */
   }).filter(function(r){ return r.desc || r.jumlah || r.harga; });
