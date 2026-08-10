@@ -5292,6 +5292,11 @@ function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis();
 
 
 
+
+
+
+
+
 function rinciTeksTotal() {  }
 
 
@@ -5335,7 +5340,69 @@ function baris() { dpLabel(); }
 
 
 
-function rinciCentang() { $(); finLive(); autoSaveTrigger(); }
+function rinciCentang() { $(); rinciBaca(); rinciSeedKe(); toast(); finLive(); autoSaveTrigger(); rincianPenawaran(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciSeedRows() { eventFbCost(); rincianPenawaran(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciSeedKe() { $(); rinciSeedRows(); rinciRowHTML(); rinciKakiHTML(); rinciGantiJenis(); }
+
+
+
+
+
 
 
 
@@ -5344,6 +5411,8 @@ function rinciCentang() { $(); finLive(); autoSaveTrigger(); }
 
 
 function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg(); rinciIsiTemplate(); }
+
+
 
 
 
@@ -5442,7 +5511,16 @@ function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); toast();
 
 
 
-function rinciTotalBayar() {  }
+
+
+
+
+
+
+
+function rinciTotalBayar() { rinciTeksTotal(); }
+
+
 
 
 
@@ -7579,6 +7657,9 @@ function bacaTemplateBaris() {  }
 
 
 function rincianPenawaran() { eventFbCost(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); rinciAktif(); bacaTemplateBaris(); }
+
+
+
 
 
 
