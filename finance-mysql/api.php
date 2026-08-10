@@ -108,12 +108,48 @@ try {
     case 'aktifKategori':    keluar(array('ok' => true, 'data' => aktif_daftar('kk_kategori', $id, true)));
     case 'hapusKategori':    keluar(array('ok' => true, 'data' => hapus_kategori($id)));
 
-    case 'ping':             keluar(array('ok' => true, 'data' => ping()));
+    /* ping sengaja tetap ok:true walau DB gagal — gunanya justru MELAPORKAN
+       keadaan itu, bukan ikut mati. Petunjuknya ditempel di sini, bukan di
+       lib: lib tidak boleh tahu apa-apa soal cPanel. */
+    case 'ping':
+      $pg = ping();
+      if (isset($pg['db']) && $pg['db'] !== 'ok') $pg['db'] = petunjuk_galat($pg['db']);
+      keluar(array('ok' => true, 'data' => $pg));
     case 'stats':            keluar(array('ok' => true, 'data' => stats()));
 
     default:
       keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
   }
 } catch (Throwable $e) {
-  keluar(array('ok' => false, 'error' => $e->getMessage()));
+  keluar(array('ok' => false, 'error' => petunjuk_galat($e->getMessage())));
+}
+
+/* Tiga galat MySQL yang pasti ditemui siapa pun saat memasang modul ini
+   pertama kali, dan tidak satu pun menyebut apa yang harus dilakukan.
+   Pesannya ditempeli petunjuk, BUKAN diganti — teks aslinya tetap dibawa
+   karena itu yang bisa dicari kalau petunjuknya ternyata meleset. */
+function petunjuk_galat($pesan) {
+  $p = (string)$pesan;
+
+  /* URUTANNYA PENTING. Pesan 1044 berbunyi "Access denied for user 'x'@'host'
+     TO DATABASE 'y'" — jadi ia memuat frasa yang sama dengan 1045. Kalau
+     cabang 1045 diperiksa lebih dulu, galat "user belum dikaitkan ke
+     database" akan dijawab dengan petunjuk "password salah", dan orangnya
+     akan berputar-putar mengganti password yang sebenarnya sudah benar. */
+  if (strpos($p, '1044') !== false || stripos($p, 'to database') !== false) {
+    return $p . '  ->  User-nya benar tapi belum dikaitkan ke database. '
+      . 'cPanel > MySQL Databases > "Add User To Database" -> pilih database yang sama dengan DB_NAME '
+      . '-> ALL PRIVILEGES.';
+  }
+  if (strpos($p, '1049') !== false || stripos($p, 'Unknown database') !== false) {
+    return $p . '  ->  Database-nya belum dibuat. cPanel > MySQL Databases > "Create New Database", '
+      . 'namanya harus sama persis dengan DB_NAME di config.php (awalan lakk5493_ ditambahkan cPanel sendiri).';
+  }
+  if (strpos($p, '1045') !== false || stripos($p, 'Access denied for user') !== false) {
+    return $p . '  ->  User MySQL-nya belum ada, ATAU password di config.php beda dengan yang '
+      . 'tersimpan di cPanel. Galat ini TIDAK membedakan keduanya. Cek cPanel > MySQL Databases > '
+      . 'Current Users: kalau user-nya belum terdaftar, buat dulu; kalau sudah, pakai "Change Password" '
+      . 'dan tempel PERSIS isi DB_PASS (awas spasi ikut tersalin).';
+  }
+  return $p;
 }
