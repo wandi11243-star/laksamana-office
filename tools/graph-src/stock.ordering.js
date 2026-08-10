@@ -1955,6 +1955,20 @@ function loadItemsFromAppScript() { applyUnitOptions(); }
 
 
 
+
+
+
+
+
+
+
+
+
+function dariFormCK() {  }
+
+
+
+
 function infoCKItem() { adaDiCK(); }
 
 
@@ -2447,7 +2461,7 @@ function updateCKSummary() {  }
 
 
 
-function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); buangDraf(); addCKRow(); updateCKSummary(); }
+function submitCKOrder() { showToast(); infoCKItem(); cekDuplikatCK(); showDuplicateModal(); kirimCKKeServer(); }
 
 
 
@@ -2494,6 +2508,72 @@ function submitCKOrder() { showToast(); infoCKItem(); timSaatIni(); buangDraf();
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cekDuplikatCK() { dariFormCK(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimCKKeServer() { timSaatIni(); showToast(); buangDraf(); addCKRow(); updateCKSummary(); }
 
 
 
@@ -3974,7 +4054,24 @@ function setBatchMode() {  }
 
 
 
-function muatDaftarBatch() { timSaatIni(); fmtTglPendek(); }
+function muatDaftarBatch() { timSaatIni(); dariFormCK(); fmtTglPendek(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4037,7 +4134,22 @@ function fmtTglPendek() {  }
 
 
 
-function confirmAndCheckServer() { closeModal(); showDuplicateModal(); executeFormSubmission(); }
+function confirmAndCheckServer() { dariFormCK(); closeModal(); showDuplicateModal(); executeFormSubmission(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4203,6 +4315,11 @@ function executeFormSubmission() { showToast(); timSaatIni(); buangDraf(); addNe
 
 
 
+
+
+
+
+
 function showDuplicateModal() { fmtTglPendek(); openModal(); }
 
 
@@ -4246,7 +4363,15 @@ function cancelSubmission() { closeModal(); }
 
 
 
-function confirmSubmission() { closeModal(); executeFormSubmission(); }
+
+
+
+
+function confirmSubmission() { closeModal(); kirimCKKeServer(); executeFormSubmission(); }
+
+
+
+
 
 
 

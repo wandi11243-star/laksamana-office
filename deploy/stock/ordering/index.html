@@ -1955,6 +1955,20 @@
         const CK_URL = "../../stock-api-mysql/ck.php";
         let ckSaldoPeta = {};   // {nama: saldo dalam satuan dasar}
 
+        /* ===== DARI FORM MANA SEBUAH ORDER BERASAL (10 Agustus 2026) =====
+           Penandanya `batchName`, bukan `sumber` barangnya. Itu penting:
+           barang 'both' bisa dipesan dari DUA form yang berbeda, dan yang
+           menentukan urusannya ke vendor atau ke dapur bukan jenis barangnya
+           melainkan lewat mana ia diajukan. Nilai 'Central Kitchen' ditulis
+           submitCKOrder dan dibaca pesananCK() di purchasing — satu istilah
+           yang sama dipakai bertiga, jadi ia diberi nama di sini alih-alih
+           diketik ulang di tiap tempat. */
+        const BATCH_CK_NAMA = 'Central Kitchen';
+        function dariFormCK(row) {
+            const n = (row && (row.batchName !== undefined ? row.batchName : row.batch_name)) || '';
+            return String(n).trim().toLowerCase() === BATCH_CK_NAMA.toLowerCase();
+        }
+
         function infoCKItem(nama) {
             const n = String(nama || '').trim();
             if (!n) return null;
@@ -2494,6 +2508,72 @@
             if (adaBarisRusak) return showToast("Baris Belum Lengkap", "Ada baris yang barangnya atau jumlahnya belum diisi.", "warning");
             if (!pesanan.length) return showToast("Belum Ada Barang", "Pilih minimal satu barang.", "warning");
 
+            /* PEMERIKSA DUPLIKAT SISI CK (10 Agustus 2026). Sebelumnya form ini
+               tidak punya sama sekali — hanya form belanja yang memilikinya,
+               dan pemeriksa itu justru mengadu CK dengan belanja (dua hal yang
+               memang boleh berbarengan) sambil membiarkan dua pengajuan CK
+               untuk barang yang sama pada hari yang sama lolos begitu saja.
+               Yang kedua itulah yang benar-benar merugikan: dapur menyiapkan
+               dua kali untuk satu kebutuhan. */
+            // Tombol dikunci SELAMA pemeriksaan juga, bukan cuma saat mengirim:
+            // pemeriksaannya menembak jaringan, dan klik kedua di sela itu
+            // menghasilkan dua pengajuan yang dua-duanya lolos.
+            const btnCek = document.getElementById('btn-ck-submit');
+            const htmlCek = btnCek ? btnCek.innerHTML : '';
+            if (btnCek) {
+                btnCek.disabled = true;
+                btnCek.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Mengecek riwayat...`;
+            }
+            let dup = [];
+            try { dup = await cekDuplikatCK(pesanan, tgl); }
+            finally { if (btnCek) { btnCek.disabled = false; btnCek.innerHTML = htmlCek; } }
+
+            if (dup.length) {
+                pendingSubmission = { ck: true, pesanan: pesanan, tgl: tgl, pic: pic };
+                showDuplicateModal(dup, tgl, false);
+                return;
+            }
+            await kirimCKKeServer(pesanan, tgl, pic);
+        }
+
+        /* Rekap pengajuan CK yang masih aktif untuk tanggal itu, lalu cocokkan
+           dengan yang sedang diajukan. Hanya order ber-batchName "Central
+           Kitchen" yang dihitung — pembelian ke vendor untuk barang yang sama
+           bukan duplikat, ia jalur yang berbeda.
+           Gagal memuat riwayat TIDAK memblokir: pengajuan yang tertahan karena
+           jaringan lebih merugikan daripada satu duplikat yang lolos. */
+        async function cekDuplikatCK(pesanan, tgl) {
+            try {
+                if (!state.appScriptUrlHistory) return [];
+                const res = await fetch(state.appScriptUrlHistory);
+                if (!res.ok) return [];
+                const data = await res.json();
+                const records = Array.isArray(data) ? data : [];
+                const rekap = {};
+                records.forEach(row => {
+                    if (row.tglDatang !== tgl) return;
+                    if ((row.status || '') === 'Arsip') return;
+                    if (!dariFormCK(row)) return;
+                    const nama = String(row.item || '');
+                    if (!nama) return;
+                    const k = nama.toLowerCase();
+                    if (!rekap[k]) rekap[k] = { nama: nama, satuan: {} };
+                    const u = String(row.unit || '').trim() || '-';
+                    rekap[k].satuan[u] = (rekap[k].satuan[u] || 0) + (parseFloat(row.qty) || 0);
+                });
+                return pesanan.filter(o => rekap[String(o.item).toLowerCase()]).map(o => {
+                    const r = rekap[String(o.item).toLowerCase()];
+                    const sudah = Object.keys(r.satuan)
+                        .map(u => `${r.satuan[u]} ${u === '-' ? '' : u}`.trim()).join(' + ');
+                    return { item: o.item, sudah: sudah, tambah: `${o.qty} ${o.unit}` };
+                });
+            } catch (e) {
+                console.warn('Gagal cek duplikat CK:', e.message);
+                return [];
+            }
+        }
+
+        async function kirimCKKeServer(pesanan, tgl, pic) {
             const btn = document.getElementById('btn-ck-submit');
             const htmlAsli = btn.innerHTML;
             btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Mengirim ${pesanan.length} barang...`;
@@ -2504,7 +2584,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({
-                        action: 'batchOrder', batchId: '', batchName: 'Central Kitchen',
+                        action: 'batchOrder', batchId: '', batchName: BATCH_CK_NAMA,
                         tim: timSaatIni(), orders: pesanan
                     })
                 });
@@ -4010,7 +4090,24 @@
                                  "Kemungkinan besar orders.php di server belum diperbarui.");
                     return;
                 }
-                daftarBatch = arr;
+                /* BATCH CENTRAL KITCHEN DIBUANG DARI PILIHAN (10 Agustus 2026).
+                   Sebelumnya seluruh batch aktif ditawarkan, termasuk yang
+                   dibuat form Central Kitchen — dan setiap pengajuan CK memang
+                   membuat batch baru bernama "Central Kitchen", jadi daftarnya
+                   penuh pilihan itu.
+
+                   Menggabung belanja vendor ke sana BUKAN sekadar salah tempat:
+                   pur_orders_batch() membuat baris yang digabung MEWARISI
+                   batch_name batch tujuan, sehingga pesanan vendornya berubah
+                   jadi ber-batchName "Central Kitchen" — dan pesananCK() di
+                   purchasing langsung membuangnya dari Monitor Order. Barangnya
+                   tidak pernah dipesan ke vendor mana pun, tanpa satu pun galat
+                   yang muncul di layar.
+
+                   Jadi form belanja hanya boleh menggabung ke batch belanja.
+                   Form CK sendiri selalu membuat batch baru (batchId ''), jadi
+                   ia tidak pernah bisa nyasar ke arah sebaliknya. */
+                daftarBatch = arr.filter(b => !dariFormCK(b));
             } catch (e) {
                 console.warn("Gagal memuat daftar batch:", e.message);
                 // Gagal memuat BUKAN alasan memblokir pengiriman: mode "Batch Baru"
@@ -4062,10 +4159,25 @@
                         const data = await response.json();
                         let records = Array.isArray(data) ? data : [];
 
-                        // Order arsip TIDAK dihitung: itu pesanan yang urusannya
-                        // sudah ditutup, bukan jumlah yang akan datang hari itu.
+                        /* Order arsip TIDAK dihitung: itu pesanan yang urusannya
+                           sudah ditutup, bukan jumlah yang akan datang hari itu.
+
+                           ORDER CENTRAL KITCHEN JUGA TIDAK DIHITUNG (10 Agustus
+                           2026). Dulu semua order sehari dijumlahkan tanpa
+                           memandang asalnya, jadi barang yang WAJAR diminta dari
+                           dua arah — sebagian diambil dari rak CK, sebagian
+                           dibeli ke vendor — selalu memicu "Peringatan
+                           Duplikasi". Peringatan yang muncul untuk keadaan
+                           normal akan selalu ditekan "Lanjutkan" tanpa dibaca,
+                           dan begitu itu terjadi ia berhenti menahan duplikat
+                           yang sungguhan.
+
+                           Yang dijaga sekarang tepat sasaran: dobel DI DALAM
+                           form yang sama. Belanja diadu dengan belanja, CK
+                           dengan CK (lihat cekDuplikatCK). */
                         const aktifHariItu = records.filter(row =>
-                            row.tglDatang === date && (row.status || '') !== 'Arsip');
+                            row.tglDatang === date && (row.status || '') !== 'Arsip'
+                            && !dariFormCK(row));
 
                         // item(huruf kecil) -> { nama, satuan: {unit: qty} }
                         const rekap = {};
@@ -4203,9 +4315,14 @@
         // `dups` = [{ item, sudah, tambah }] — lihat confirmAndCheckServer.
         // Menampilkan JUMLAH, bukan cuma nama barang: "Mie Kwetiau sudah dipesan"
         // tidak cukup untuk memutuskan, "sudah 5 Kg, akan jadi 10 Kg" cukup.
-        function showDuplicateModal(dups, tanggal) {
+        /* `gabungOpsional` dilewatkan eksplisit karena modal ini sekarang
+           dipakai DUA form. `batchMode` itu milik form belanja; form CK tidak
+           pernah menggabung (batchId selalu kosong), jadi membiarkannya
+           membaca batchMode akan membuat pengajuan CK memakai kalimat
+           "jumlahnya akan ditambahkan" yang tidak pernah benar di sana. */
+        function showDuplicateModal(dups, tanggal, gabungOpsional) {
             const list = document.getElementById('duplicate-items-list');
-            const gabung = batchMode === 'join';
+            const gabung = (gabungOpsional === undefined) ? (batchMode === 'join') : !!gabungOpsional;
 
             list.innerHTML = dups.map(d => `
                 <div class="bg-white px-3 py-2 rounded-lg shadow-sm border border-amber-100">
@@ -4246,9 +4363,17 @@
             pendingSubmission = null; 
         }
 
+        /* Satu tombol "Lanjutkan", dua form. pendingSubmission dikosongkan
+           SEBELUM meneruskan, bukan sesudah: kalau pengirimannya melempar,
+           sisa antrean yang tertinggal akan ikut terkirim pada konfirmasi
+           berikutnya — pesanan yang orangnya tidak pernah tekan kirim. */
         function confirmSubmission() {
             closeModal('duplicate-modal');
-            if(pendingSubmission) executeFormSubmission(pendingSubmission.orders, pendingSubmission.pic, pendingSubmission.date);
+            const p = pendingSubmission;
+            pendingSubmission = null;
+            if (!p) return;
+            if (p.ck) { kirimCKKeServer(p.pesanan, p.tgl, p.pic); return; }
+            executeFormSubmission(p.orders, p.pic, p.date);
         }
 
         // ==========================================
