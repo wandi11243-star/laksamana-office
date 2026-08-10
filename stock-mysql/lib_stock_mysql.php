@@ -148,13 +148,31 @@ function pur_batch_id() {
  * form, penggabungan tidak pernah lagi diam-diam memindahkan tanggal order.
  */
 function pur_orders_batches($pdo, $tim = '', $tgl = '') {
+  /* BATCH YANG SUDAH DIARSIPKAN IKUT DITAWARKAN (10 Agustus 2026).
+     Sebelumnya di sini ada `status = 'Aktif'`, dan itu membuat fitur gabung
+     batch praktis mati: purchasing mengarsipkan order begitu diteruskan ke
+     vendor — sering dalam hitungan menit — jadi jendela sebuah batch masih
+     "Aktif" nyaris tidak pernah bertepatan dengan saat kru ingat ada barang
+     yang tertinggal. Dilaporkan user 10 Agustus 2026: Batch #17 berdiri jelas
+     di Check-in (24 item, 0 datang) tapi dropdown gabung berkata "Belum ada
+     batch tim Kitchen pada 10 Agu". Diperiksa di produksi: seluruh 29 order
+     tanggal itu berstatus Arsip.
+
+     Yang TETAP menghalangi cuma `jml_datang = 0`, dan itu memang harus:
+     menyisipkan barang ke batch yang penerimaannya sudah berjalan membuat kru
+     menerima barang yang tidak ada di kertas yang mereka pegang.
+
+     `jml_aktif` ikut dipulangkan supaya frontend bisa MENGATAKAN batch mana
+     yang sudah diarsipkan — menawarkannya diam-diam sama menyesatkannya
+     dengan tidak menawarkannya sama sekali. */
   $sql = "SELECT `batch_id`, `batch_name`, `tgl_datang`, `tim`,
                  MIN(`pic`)   AS pic,
                  MIN(`waktu`) AS waktu,
                  COUNT(*)     AS jml_item,
-                 SUM(CASE WHEN `kedatangan` = 'Datang' THEN 1 ELSE 0 END) AS jml_datang
+                 SUM(CASE WHEN `kedatangan` = 'Datang' THEN 1 ELSE 0 END) AS jml_datang,
+                 SUM(CASE WHEN `status` = 'Aktif' THEN 1 ELSE 0 END)      AS jml_aktif
           FROM `orders`
-          WHERE `status` = 'Aktif' AND `batch_id` <> ''";
+          WHERE `batch_id` <> ''";
   $par = [];
   if ($tim !== '') { $sql .= " AND `tim` = ?";        $par[] = $tim; }
   if ($tgl !== '') { $sql .= " AND `tgl_datang` = ?"; $par[] = $tgl; }
@@ -175,6 +193,9 @@ function pur_orders_batches($pdo, $tim = '', $tgl = '') {
       'pic'       => $r['pic'],
       'waktu'     => $r['waktu'],
       'jmlItem'   => (int)$r['jml_item'],
+      // true = seluruh barisnya sudah diarsipkan purchasing. Frontend memakai
+      // ini untuk memberi tahu, bukan untuk menyembunyikan.
+      'terarsip'  => ((int)$r['jml_aktif'] === 0),
     ];
   }
   return $out;
@@ -219,8 +240,13 @@ function pur_orders_batch($pdo, $orders, $meta = null) {
     $adaBaris = [];      // lower(item) => baris existing
     $gabung   = false;
     if ($batchId !== '') {
+      /* `status = 'Aktif'` DIBUANG dari syarat ini (10 Agustus 2026), sejalan
+         dengan pur_orders_batches di atas. Kalau tidak, batch yang sudah
+         diarsipkan tetap muncul di daftar tapi menolak saat dikirim dengan
+         pesan "batch tujuan tidak ditemukan atau sudah tidak aktif" — dan
+         itulah yang dibaca kru sebagai "gabung batch error". */
       $st = $pdo->prepare("SELECT * FROM `orders`
-                           WHERE `batch_id` = ? AND `status` = 'Aktif' FOR UPDATE");
+                           WHERE `batch_id` = ? FOR UPDATE");
       $st->execute([$batchId]);
       $baris = $st->fetchAll();
       if (!$baris) {
@@ -242,7 +268,14 @@ function pur_orders_batch($pdo, $orders, $meta = null) {
     $stIns = $pdo->prepare("INSERT INTO `orders`
       (`nomor_order`,`row_index`,`waktu`,`item`,`qty`,`unit`,`tgl_datang`,`pic`,`status`,`kedatangan`,`batch_id`,`batch_name`,`tim`,`data`)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    $stUpd = $pdo->prepare("UPDATE `orders` SET `qty` = ?, `data` = ? WHERE `nomor_order` = ?");
+    /* `status` IKUT DIKEMBALIKAN KE 'Aktif' saat sebuah baris ditambahi.
+       Tanpa ini: menambah 3 Kg ke baris yang batch-nya sudah diarsipkan cuma
+       menaikkan angkanya, statusnya tetap 'Arsip', dan purchasing TIDAK PERNAH
+       melihatnya lagi di Monitor Order — tambahan itu tidak akan pernah
+       diteruskan ke vendor, tanpa satu pun tanda di layar siapa pun. Baris yang
+       BARU sudah lahir 'Aktif'; yang ditambahi harus diperlakukan sama. */
+    $stUpd = $pdo->prepare("UPDATE `orders` SET `qty` = ?, `data` = ?, `status` = 'Aktif'
+                             WHERE `nomor_order` = ?");
 
     $dibuat    = [];
     $digabung  = [];
@@ -266,6 +299,8 @@ function pur_orders_batch($pdo, $orders, $meta = null) {
         $rec = json_decode($lama['data']);
         if (!is_object($rec)) $rec = (object)[];
         $rec->qty = $qtyBaru;
+        // `data` JSON diselaraskan dengan kolomnya — lihat catatan di $stUpd.
+        $rec->status = 'Aktif';
         // Catatan baris baru ikut dilampirkan, jangan dibuang: itu satu-satunya
         // jejak bahwa penambahan ini pernah diminta terpisah.
         $noteBaru = isset($o->note) && $o->note !== '' && $o->note !== '-' ? (string)$o->note : '';

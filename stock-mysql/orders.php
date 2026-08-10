@@ -4,8 +4,12 @@
  *            tglDatang, pic, status, kedatangan, catatan,
  *            batchId, batchName, tim}, ... ]
  * GET  ?action=batches[&tim=Kitchen][&tgl=2026-07-19] -> [ {batchId, batchName,
- *            tglDatang, tim, pic, waktu, jmlItem}, ... ]  batch aktif yang
- *            boleh digabungi (disaring per tim dan per tanggal kedatangan)
+ *            tglDatang, tim, pic, waktu, jmlItem, terarsip}, ... ]
+ *            Batch yang boleh digabungi, disaring per tim & tanggal kedatangan.
+ *            Yang SUDAH DIARSIPKAN ikut (terarsip:true) — purchasing
+ *            mengarsipkan begitu order diteruskan ke vendor, jadi menyaringnya
+ *            keluar membuat fitur gabung batch praktis tidak pernah bisa
+ *            dipakai. Yang penerimaannya sudah berjalan tetap dikecualikan.
  * POST {action:'batchOrder', orders:[{item,qty,unit,note,tglDatang,pic}],
  *       batchId:'' (kosong = batch baru), batchName:'' (opsional), tim:''}
  * POST {action:'archive',   rows:[rowIndex] | orderIds:['LKS-...']}

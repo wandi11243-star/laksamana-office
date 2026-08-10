@@ -1414,6 +1414,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2417,6 +2425,14 @@ function userPerms() { viewPerm(); }
 
 function hasCustomAccess() {  }
 function can() { userPerms(); getFbFormats(); menuGroupsOf(); visibleTabs(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -6641,7 +6657,22 @@ function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); p
 
 
 
-function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); can(); addPayment(); svg(); }
+function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); genBriefFor(); svg(); invoiceKepalaHTML(); rincianTabelHTML(); can(); addPayment(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7090,7 +7121,50 @@ function renderOverview() { visibleSections(); pdfLewati(); fieldVisible(); pdfN
 
 
 
-function rincianPenawaran() { eventFbCost(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bacaTemplateBaris() {  }
+
+
+
+
+
+function rincianPenawaran() { eventFbCost(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); bacaTemplateBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7165,7 +7239,42 @@ function rincianTabelHTML() { rincianPenawaran(); esc(); }
 
 
 
-function baris() {  }
+
+
+
+
+
+
+
+
+function kaki() { dpLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invoiceKepalaHTML() { esc(); invoiceNo(); fmtDate(); today(); }
+
+
+
 
 
 
@@ -7373,7 +7482,10 @@ function pdfNilai() { detailVal(); pdfRundownTabel(); pdfMenuTabel(); pdfBarangT
 
 
 
-function buildBriefDoc() { toast(); eventFinance(); esc(); fmtDateLong(); userName(); today(); penFile(); attachUrl(); rincianPenawaran(); rincianTabelHTML(); pdfGambar(); venueGallery(); dpLabel(); namaTtd(); }
+function buildBriefDoc() { toast(); eventFinance(); esc(); fmtDateLong(); userName(); today(); penFile(); attachUrl(); rincianPenawaran(); invoiceKepalaHTML(); rincianTabelHTML(); pdfGambar(); venueGallery(); dpLabel(); namaTtd(); }
+
+
+
 
 
 
@@ -9818,9 +9930,9 @@ function vipSimpanNominal() { $(); logAct(); vipNominal(); save(); closeModal();
 
 
 
-function vipDetail() { modal(); esc(); vipPerusahaan(); closeModal(); svg(); baris(); fmtDateLong(); vipJam(); vipPax(); userName(); vipBelumNominal(); vipNominal(); vipDenahHTML(); can(); vipForm(); vipIsiNominal(); vipDetailDenahAsli(); vipDenahKey(); rsvAmbil(); }
+function vipDetail() {  }
 
-
+function baris() { modal(); esc(); vipPerusahaan(); closeModal(); svg(); fmtDateLong(); vipJam(); vipPax(); userName(); vipBelumNominal(); vipNominal(); vipDenahHTML(); can(); vipForm(); vipIsiNominal(); vipDetailDenahAsli(); vipDenahKey(); rsvAmbil(); }
 
 
 
@@ -11359,7 +11471,18 @@ function txt() { esc(); setRow(); num(); saveSettings(); svg(); logout(); venueG
 
 
 
+
+
+
+
+
+
+
+
+
+
 function saveSettings() { $(); save(); toast(); }
+
 
 
 

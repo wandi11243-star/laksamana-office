@@ -895,15 +895,22 @@
                            class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/60">
                 </div>
 
-                <!-- Gabung: daftar batch aktif milik tim yang sama -->
+                <!-- Gabung: batch tim yang sama di tanggal yang sama. Yang sudah
+                     diarsipkan purchasing IKUT ditawarkan, dengan peringatannya
+                     sendiri di bawah — lihat catatan di muatDaftarBatch(). -->
                 <div id="batch-join-box" class="hidden">
-                    <select id="batch-join-select"
+                    <select id="batch-join-select" onchange="segarkanCatatanBatch()"
                             class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
                         <option value="">Memuat batch…</option>
                     </select>
                     <p class="text-[10px] text-slate-400 font-semibold mt-1.5 leading-relaxed">
                         Hanya batch <b>tim yang sama</b> di <b>tanggal kedatangan yang sama</b>.
                         Item yang sama akan <b>dijumlahkan</b>, bukan jadi baris baru.
+                    </p>
+                    <p id="batch-join-warn" class="hidden text-[10px] font-bold mt-1.5 leading-relaxed rounded-lg px-2.5 py-2 bg-amber-50 text-amber-800 border border-amber-200">
+                        ⚠️ Batch ini <b>sudah dikirim ke vendor</b>. Barang yang kamu tambahkan
+                        belum ada di chat yang terkirim — purchasing akan melihatnya lagi di
+                        Monitor Order dan perlu menyusulkannya.
                     </p>
                 </div>
             </div>
@@ -4172,10 +4179,34 @@
                 return;
             }
 
+            /* Batch yang sudah diarsipkan DITANDAI, bukan disembunyikan.
+               Purchasing mengarsipkan begitu order diteruskan ke vendor, jadi
+               menyembunyikannya membuat fitur ini praktis tidak pernah bisa
+               dipakai (lihat catatan di pur_orders_batches). Tapi menawarkannya
+               tanpa keterangan sama menyesatkannya: barang yang ditambahkan ke
+               sana TIDAK ikut di chat yang sudah terkirim, dan purchasing perlu
+               mengirimkannya menyusul. Baris yang ditambahi dikembalikan ke
+               status Aktif oleh server supaya ia muncul lagi di Monitor Order —
+               jadi tambahannya memang bisa ditindaklanjuti, asal orangnya tahu
+               itu tambahan. */
             sel.innerHTML = daftarBatch.map(b => {
                 const nama = b.batchName || `Batch ${b.pic || ''}`.trim();
-                return `<option value="${b.batchId}">${nama} — ${b.jmlItem} item</option>`;
+                const tanda = b.terarsip ? ' · sudah dikirim ke vendor' : '';
+                return `<option value="${b.batchId}">${nama} — ${b.jmlItem} item${tanda}</option>`;
             }).join('');
+            segarkanCatatanBatch();
+        }
+
+        /* Peringatan "sudah dikirim ke vendor" mengikuti batch yang SEDANG
+           dipilih, bukan sekadar "ada batch terarsip di daftar" — daftarnya
+           bisa memuat keduanya, dan peringatan yang menyala untuk pilihan yang
+           tidak bermasalah akan diabaikan pada saat ia benar-benar berlaku. */
+        function segarkanCatatanBatch() {
+            const sel = document.getElementById('batch-join-select');
+            const box = document.getElementById('batch-join-warn');
+            if (!sel || !box) return;
+            const b = (daftarBatch || []).find(x => x && x.batchId === sel.value);
+            box.classList.toggle('hidden', !(b && b.terarsip));
         }
 
         function fmtTglPendek(iso) {

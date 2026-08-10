@@ -1041,6 +1041,13 @@
 
 
 
+
+
+
+
+
+
+
 function injectPwaManifest() {  }
 
 
@@ -4092,7 +4099,7 @@ function setBatchMode() {  }
 
 
 
-function muatDaftarBatch() { timSaatIni(); timTerkunci(); dariFormCK(); fmtTglPendek(); }
+function muatDaftarBatch() { timSaatIni(); timTerkunci(); dariFormCK(); fmtTglPendek(); segarkanCatatanBatch(); }
 
 
 
@@ -4171,6 +4178,30 @@ function muatDaftarBatch() { timSaatIni(); timTerkunci(); dariFormCK(); fmtTglPe
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function segarkanCatatanBatch() {  }
 
 
 
