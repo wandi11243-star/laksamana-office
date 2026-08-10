@@ -1533,6 +1533,60 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -5297,6 +5351,11 @@ function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis();
 
 
 
+
+
+
+
+
 function rinciTeksTotal() {  }
 
 
@@ -5431,6 +5490,12 @@ function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg();
 
 
 
+
+
+
+
+
+
 function rinciGantiJenis() { rinciHitung(); }
 
 
@@ -5441,7 +5506,18 @@ function rinciGantiJenis() { rinciHitung(); }
 
 
 
-function rinciHitung() { rinciTeksTotal(); $(); rinciBaca(); finLive(); autoSaveTrigger(); }
+function rinciHitung() { rinciTeksTotal(); rinciKakiHTML(); $(); rinciBaca(); finLive(); autoSaveTrigger(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5466,7 +5542,7 @@ function rinciHitung() { rinciTeksTotal(); $(); rinciBaca(); finLive(); autoSave
 function rinciBaca() { $(); }
 
 
-function g() {  }
+function g() { Kaki(); }
 
 
 
@@ -5474,7 +5550,16 @@ function g() {  }
 
 
 
-function rinciAddRow() { $(); rinciRowHTML(); }
+
+
+
+
+
+function rinciSisip() {  }
+
+
+
+function rinciAddRow() { $(); rinciRowHTML(); rinciSisip(); }
 
 
 
@@ -5491,7 +5576,11 @@ function rinciDelRow() { rinciAddRow(); rinciHitung(); }
 
 
 
-function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); toast(); rinciHitung(); }
+function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); rinciSisip(); rinciGantiJenis(); toast(); rinciHitung(); }
+
+
+
+
 
 
 
@@ -7000,12 +7089,27 @@ function finBaris() {  }
 
 
 
+
+
+
+
+
+
+function finSeksi() {  }
+
+
 function finBarisLebar() {  }
 
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); ynSeg(); rinciCentang(); rinciTblHTML(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); fbDealCentang(); dealTblHTML(); ynSeg(); rinciCentang(); rinciTblHTML(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+
+
+
+
+
+
 
 
 
@@ -11342,7 +11446,7 @@ function kalkRowsHTML() { kalkNormalRows(); kalkSelHTML(); kalkSetRow(); kalkSam
 
 
 
-function kalkSelHTML() { kalkLabelRef(); kalkTitikKat(); esc(); kalkSaranKetik(); kalkSaranTombol(); kalkSaranTutupNanti(); kalkPilihMenu(); kalkBukaPilihBaris(); }
+function kalkSelHTML() { kalkLabelRef(); kalkTitikKat(); esc(); kalkSaranKetik(); kalkSaranTombol(); kalkSaranTutupNanti(); kalkPilihMenu(); kalkSaranSemua(); }
 
 
 
@@ -11380,12 +11484,12 @@ function kalkSelHTML() { kalkLabelRef(); kalkTitikKat(); esc(); kalkSaranKetik()
 
 
 
-function kalkSaranKetik() { $(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaranPakai(); }
 
 
 
 
 
+function kalkSaranLayer() {  }
 
 
 
@@ -11402,6 +11506,7 @@ function kalkSaranKetik() { $(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaran
 
 
 
+function kalkSaranTutup() {  }
 
 
 
@@ -11409,6 +11514,7 @@ function kalkSaranKetik() { $(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaran
 
 
 
+function kalkSaranPosisi() { kalkSaranLayer(); }
 
 
 
@@ -11416,7 +11522,6 @@ function kalkSaranKetik() { $(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaran
 
 
 
-function kalkSaranPakai() { $(); kalkSetRow(); renderKalkulator(); }
 
 
 
@@ -11426,8 +11531,70 @@ function kalkSaranPakai() { $(); kalkSetRow(); renderKalkulator(); }
 
 
 
+function kalkSaranSemua() { $(); kalkSaranTutup(); kalkSaranKetik(); }
 
-function kalkSaranTombol() { $(); kalkSaranPakai(); }
+
+
+
+
+
+function kalkSaranKetik() { kalkSaranLayer(); kalkSaranPosisi(); kalkMenuAll(); esc(); kalkWarnaKat(); kalkSaranPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSaranPakai() { kalkSetRow(); renderKalkulator(); $(); }
+
+
+
+
+
+
+
+
+
+
+function kalkSaranTombol() { kalkSaranPakai(); }
+
 
 
 
@@ -11448,8 +11615,6 @@ function kalkSaranTombol() { $(); kalkSaranPakai(); }
 
 
 function kalkSaranTutupNanti() {  }
-
-
 
 
 
