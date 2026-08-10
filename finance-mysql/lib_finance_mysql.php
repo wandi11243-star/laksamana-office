@@ -1,0 +1,347 @@
+<?php
+/************************************************************************
+ * FINANCE LAKSAMANA — Backend PHP + MySQL (Kas Kecil)
+ * ---------------------------------------------------------------------
+ * BUKAN penyimpan blob JSON, dan itu perbedaan paling penting dari
+ * kompas-api-mysql yang berdiri di sebelahnya.
+ *
+ * Kompas dipakai satu penyunting dan bentuk datanya berkembang bebas, jadi
+ * di sana blob satu baris memang pilihan yang tepat. Kas Kecil sebaliknya:
+ * beberapa orang finance mencatat di jam yang berdekatan, dan blob satu
+ * baris membuat yang menyimpan belakangan MENGHAPUS catatan yang lain tanpa
+ * satu pun pesan galat. Untuk data uang itu tidak bisa diterima. Jadi di
+ * sini tabel sungguhan, satu transaksi satu baris, tulisan granular.
+ *
+ * SALDO TIDAK PERNAH DISIMPAN. Ia selalu dihitung ulang di frontend dari
+ * seluruh riwayat pos, urut tanggal lalu id. Menyimpan saldo berarti punya
+ * dua sumber kebenaran untuk angka yang sama, dan yang satu pasti akan
+ * ketinggalan begitu ada transaksi disisipkan bertanggal mundur — persis
+ * penyakit lembar spreadsheet yang digantikan modul ini.
+ *
+ * SEMUA PENANDA BERNAMA DIIKAT BERDASARKAN POSISI (EMULATE_PREPARES=false).
+ * Satu nama yang dipakai dua kali dalam satu prepare() gagal dengan
+ * SQLSTATE[HY093] yang tidak menyebut kolom apa pun. Sudah kejadian
+ * 5 Agustus 2026 di modul dw (simpan_pekerja) — jangan diulang di sini.
+ *
+ * File ini HANYA berisi fungsi (tanpa efek samping saat di-include).
+ ************************************************************************/
+
+if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.local.php';
+else                                            require_once __DIR__ . '/config.php';
+
+function db() {
+  static $pdo = null;
+  if ($pdo !== null) return $pdo;
+  $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
+  $pdo = new PDO($dsn, DB_USER, DB_PASS, array(
+    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_EMULATE_PREPARES   => false,
+  ));
+  return $pdo;
+}
+
+/* Tabel dibuat kalau belum ada, dijalankan di awal SETIAP permintaan.
+   Alasannya bukan kemalasan: migrasi-*.sql di repo ini tidak ikut ter-deploy
+   dan produksi sering tertinggal, sehingga endpoint baru membalas 500
+   sementara tetangganya 200 — gejala yang mahal dilacak. Skema kas kecil
+   cukup kecil untuk dijamin dari kode. */
+function pastikan_tabel() {
+  $pdo = db();
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_pos` (
+       `id`    INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `nama`  VARCHAR(120) NOT NULL,
+       `urut`  INT          NOT NULL DEFAULT 0,
+       `aktif` TINYINT(1)   NOT NULL DEFAULT 1,
+       UNIQUE KEY `uq_pos_nama` (`nama`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_kategori` (
+       `id`    INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `nama`  VARCHAR(120) NOT NULL,
+       `urut`  INT          NOT NULL DEFAULT 0,
+       `aktif` TINYINT(1)   NOT NULL DEFAULT 1,
+       UNIQUE KEY `uq_kat_nama` (`nama`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* kategori_id BOLEH NULL dan ON DELETE SET NULL: kategori yang belum
+     terpakai boleh dihapus, dan transaksi lama tidak boleh ikut hilang
+     karenanya. Kategori yang SUDAH terpakai tidak pernah sampai ke sini —
+     frontend menawarkan nonaktifkan, dan hapus_kategori() menolaknya. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_trx` (
+       `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `tgl`         DATE         NOT NULL,
+       `keterangan`  VARCHAR(255) NOT NULL DEFAULT \'\',
+       `kategori_id` INT UNSIGNED NULL,
+       `input`       TINYINT(1)   NOT NULL DEFAULT 0,
+       `bon`         TINYINT(1)   NOT NULL DEFAULT 0,
+       `dibuat_at`   BIGINT       NOT NULL DEFAULT 0,
+       `dibuat_oleh` VARCHAR(120) NOT NULL DEFAULT \'\',
+       KEY `idx_trx_tgl` (`tgl`),
+       CONSTRAINT `fk_trx_kat` FOREIGN KEY (`kategori_id`)
+         REFERENCES `kk_kategori`(`id`) ON DELETE SET NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Satu transaksi bisa dibagi ke beberapa pos (mis. sebagian Kas Kecil,
+     sebagian PO), jadi barisnya tabel sendiri. UNIQUE (trx_id,pos_id)
+     menahan bug diam-diam: dua baris untuk pos yang sama pada satu
+     transaksi akan terhitung dua kali di saldo dan tidak ada tempat yang
+     melaporkannya. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_trx_pos` (
+       `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `trx_id` INT UNSIGNED NOT NULL,
+       `pos_id` INT UNSIGNED NOT NULL,
+       `debet`  BIGINT       NOT NULL DEFAULT 0,
+       `kredit` BIGINT       NOT NULL DEFAULT 0,
+       UNIQUE KEY `uq_trx_pos` (`trx_id`,`pos_id`),
+       KEY `idx_tp_pos` (`pos_id`),
+       CONSTRAINT `fk_tp_trx` FOREIGN KEY (`trx_id`)
+         REFERENCES `kk_trx`(`id`) ON DELETE CASCADE,
+       CONSTRAINT `fk_tp_pos` FOREIGN KEY (`pos_id`)
+         REFERENCES `kk_pos`(`id`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+
+  seed_awal();
+}
+
+/* Isi awal, HANYA saat tabelnya benar-benar masih kosong. Tanpa ini, modul
+   yang baru dipasang menyambut orang dengan form yang tidak bisa diisi
+   ("belum ada pos") — dan pos/kategori yang dipakai finance sudah diketahui
+   dari lembar yang selama ini berjalan. */
+function seed_awal() {
+  $pdo = db();
+  $adaPos = (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_pos`')->fetch()['n'];
+  if ($adaPos === 0) {
+    $st = $pdo->prepare('INSERT INTO `kk_pos` (`nama`,`urut`) VALUES (:nama, :urut)');
+    $i = 10;
+    foreach (array('Kas Kecil', 'Pengajuan Pembayaran (PO)', 'Pengajuan Pembayaran') as $nama) {
+      $st->execute(array(':nama' => $nama, ':urut' => $i));
+      $i += 10;
+    }
+  }
+  $adaKat = (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_kategori`')->fetch()['n'];
+  if ($adaKat === 0) {
+    $st = $pdo->prepare('INSERT INTO `kk_kategori` (`nama`,`urut`) VALUES (:nama, :urut)');
+    $i = 10;
+    foreach (array('SP', 'RND', 'COGS', 'Cleaning', 'Delivery', 'Maintenance',
+                   'Bonus', 'Partime', 'Technology', 'Dekorasi', 'Spesial',
+                   'Memorial Journal') as $nama) {
+      $st->execute(array(':nama' => $nama, ':urut' => $i));
+      $i += 10;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- baca */
+function baca_semua() {
+  pastikan_tabel();
+  $pdo = db();
+  $pos = $pdo->query('SELECT `id`,`nama`,`urut`,`aktif` FROM `kk_pos` ORDER BY `urut`,`id`')->fetchAll();
+  $kat = $pdo->query('SELECT `id`,`nama`,`urut`,`aktif` FROM `kk_kategori` ORDER BY `urut`,`id`')->fetchAll();
+  $trx = $pdo->query(
+    'SELECT `id`,`tgl`,`keterangan`,`kategori_id`,`input`,`bon`,`dibuat_at`,`dibuat_oleh`
+       FROM `kk_trx` ORDER BY `tgl`,`id`')->fetchAll();
+  $baris = $pdo->query('SELECT `trx_id`,`pos_id`,`debet`,`kredit` FROM `kk_trx_pos` ORDER BY `id`')->fetchAll();
+
+  /* Baris ditempelkan ke transaksinya di sini, bukan lewat satu query per
+     transaksi: buku kas setahun mudah mencapai ribuan baris, dan pola
+     query-di-dalam-loop itulah yang membuat halaman terasa mati padahal
+     datanya sedikit. */
+  $peta = array();
+  foreach ($trx as $i => $t) {
+    $trx[$i]['id']          = (int)$t['id'];
+    $trx[$i]['kategori_id'] = $t['kategori_id'] === null ? null : (int)$t['kategori_id'];
+    $trx[$i]['input']       = (int)$t['input'];
+    $trx[$i]['bon']         = (int)$t['bon'];
+    $trx[$i]['dibuat_at']   = (int)$t['dibuat_at'];
+    $trx[$i]['baris']       = array();
+    $peta[(int)$t['id']]    = $i;
+  }
+  foreach ($baris as $b) {
+    $id = (int)$b['trx_id'];
+    if (!isset($peta[$id])) continue;
+    $trx[$peta[$id]]['baris'][] = array(
+      'pos_id' => (int)$b['pos_id'],
+      'debet'  => (int)$b['debet'],
+      'kredit' => (int)$b['kredit'],
+    );
+  }
+  foreach ($pos as $i => $p) { $pos[$i]['id'] = (int)$p['id']; $pos[$i]['urut'] = (int)$p['urut']; $pos[$i]['aktif'] = ((int)$p['aktif']) === 1; }
+  foreach ($kat as $i => $k) { $kat[$i]['id'] = (int)$k['id']; $kat[$i]['urut'] = (int)$k['urut']; $kat[$i]['aktif'] = ((int)$k['aktif']) === 1; }
+
+  return array('pos' => $pos, 'kategori' => $kat, 'trx' => array_values($trx));
+}
+
+/* -------------------------------------------------------------- tulis */
+function simpan_trx($in) {
+  pastikan_tabel();
+  $pdo = db();
+
+  $tgl = isset($in['tgl']) ? trim((string)$in['tgl']) : '';
+  if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tgl)) throw new Exception('Tanggal tidak sah.');
+  $ket = isset($in['keterangan']) ? trim((string)$in['keterangan']) : '';
+  if ($ket === '') throw new Exception('Keterangan wajib diisi.');
+  $kat = (isset($in['kategori_id']) && $in['kategori_id'] !== '' && $in['kategori_id'] !== null)
+       ? (int)$in['kategori_id'] : null;
+
+  $baris = isset($in['baris']) && is_array($in['baris']) ? $in['baris'] : array();
+  $bersih = array();
+  foreach ($baris as $b) {
+    $pid = isset($b['pos_id']) ? (int)$b['pos_id'] : 0;
+    $d   = isset($b['debet'])  ? (int)$b['debet']  : 0;
+    $k   = isset($b['kredit']) ? (int)$b['kredit'] : 0;
+    if ($pid <= 0) continue;
+    if ($d === 0 && $k === 0) continue;
+    if ($d < 0 || $k < 0) throw new Exception('Nominal tidak boleh negatif.');
+    /* Satu baris tidak boleh debet DAN kredit sekaligus: itu bukan satu
+       transaksi melainkan dua, dan menggabungkannya membuat saldo benar
+       secara total tapi kolom Debet/Kredit di layar tidak bisa dicocokkan
+       dengan nota mana pun. */
+    if ($d > 0 && $k > 0) throw new Exception('Satu pos tidak boleh debet dan kredit sekaligus.');
+    if (isset($bersih[$pid])) throw new Exception('Pos yang sama dikirim dua kali.');
+    $bersih[$pid] = array('debet' => $d, 'kredit' => $k);
+  }
+  if (!$bersih) throw new Exception('Belum ada nominal di satu pos pun.');
+
+  $id    = (isset($in['id']) && $in['id']) ? (int)$in['id'] : 0;
+  $input = !empty($in['input']) ? 1 : 0;
+  $bon   = !empty($in['bon'])   ? 1 : 0;
+  $oleh  = isset($in['oleh']) ? substr(trim((string)$in['oleh']), 0, 120) : '';
+
+  $pdo->beginTransaction();
+  try {
+    if ($id > 0) {
+      $st = $pdo->prepare(
+        'UPDATE `kk_trx` SET `tgl`=:tgl, `keterangan`=:ket, `kategori_id`=:kat,
+                             `input`=:input, `bon`=:bon WHERE `id`=:id');
+      $st->execute(array(':tgl' => $tgl, ':ket' => $ket, ':kat' => $kat,
+                         ':input' => $input, ':bon' => $bon, ':id' => $id));
+      if ($st->rowCount() === 0) {
+        $ada = $pdo->prepare('SELECT COUNT(*) AS n FROM `kk_trx` WHERE `id`=:id');
+        $ada->execute(array(':id' => $id));
+        if ((int)$ada->fetch()['n'] === 0) throw new Exception('Transaksi sudah tidak ada — mungkin dihapus orang lain.');
+      }
+      /* Baris lama DIHAPUS lalu ditulis ulang, bukan ditambal satu per satu.
+         Menambal berarti harus menebak baris mana yang hilang dari kiriman,
+         dan pos yang dikosongkan orang akan tertinggal sebagai baris lama
+         yang tetap ikut menghitung saldo. */
+      $del = $pdo->prepare('DELETE FROM `kk_trx_pos` WHERE `trx_id`=:id');
+      $del->execute(array(':id' => $id));
+    } else {
+      $st = $pdo->prepare(
+        'INSERT INTO `kk_trx` (`tgl`,`keterangan`,`kategori_id`,`input`,`bon`,`dibuat_at`,`dibuat_oleh`)
+         VALUES (:tgl,:ket,:kat,:input,:bon,:at,:oleh)');
+      $st->execute(array(':tgl' => $tgl, ':ket' => $ket, ':kat' => $kat,
+                         ':input' => $input, ':bon' => $bon,
+                         ':at' => (int)round(microtime(true) * 1000), ':oleh' => $oleh));
+      $id = (int)$pdo->lastInsertId();
+    }
+    $ins = $pdo->prepare('INSERT INTO `kk_trx_pos` (`trx_id`,`pos_id`,`debet`,`kredit`) VALUES (:trx,:pos,:d,:k)');
+    foreach ($bersih as $pid => $v) {
+      $ins->execute(array(':trx' => $id, ':pos' => $pid, ':d' => $v['debet'], ':k' => $v['kredit']));
+    }
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return array('id' => $id);
+}
+
+function hapus_trx($id) {
+  pastikan_tabel();
+  $id = (int)$id;
+  if ($id <= 0) throw new Exception('Id transaksi tidak sah.');
+  // kk_trx_pos ikut terhapus lewat ON DELETE CASCADE.
+  $st = db()->prepare('DELETE FROM `kk_trx` WHERE `id`=:id');
+  $st->execute(array(':id' => $id));
+  return array('dihapus' => $st->rowCount());
+}
+
+/* Centang Input / Bon diubah TANPA menyentuh transaksinya. Keduanya penanda
+   administrasi yang dicentang belakangan, sering oleh orang yang berbeda dan
+   berhari-hari sesudah transaksinya dicatat — mengirimnya lewat simpan_trx
+   berarti seluruh isi transaksi ikut ditulis ulang dari layar yang mungkin
+   sudah basi. */
+function tandai_trx($id, $field, $nilai) {
+  pastikan_tabel();
+  $id = (int)$id;
+  if ($id <= 0) throw new Exception('Id transaksi tidak sah.');
+  if ($field !== 'input' && $field !== 'bon') throw new Exception('Penanda tidak dikenal: ' . $field);
+  $kolom = $field === 'input' ? '`input`' : '`bon`';   // whitelist, bukan interpolasi bebas
+  $st = db()->prepare('UPDATE `kk_trx` SET ' . $kolom . '=:v WHERE `id`=:id');
+  $st->execute(array(':v' => $nilai ? 1 : 0, ':id' => $id));
+  return array('diubah' => $st->rowCount());
+}
+
+/* ------------------------------------------------- pos & kategori */
+function simpan_daftar($tabel, $in) {
+  pastikan_tabel();
+  $nama = isset($in['nama']) ? trim((string)$in['nama']) : '';
+  if ($nama === '') throw new Exception('Nama wajib diisi.');
+  $urut = isset($in['urut']) ? (int)$in['urut'] : 0;
+  $id   = (isset($in['id']) && $in['id']) ? (int)$in['id'] : 0;
+  $pdo  = db();
+  try {
+    if ($id > 0) {
+      $st = $pdo->prepare('UPDATE `' . $tabel . '` SET `nama`=:nama, `urut`=:urut WHERE `id`=:id');
+      $st->execute(array(':nama' => $nama, ':urut' => $urut, ':id' => $id));
+    } else {
+      $st = $pdo->prepare('INSERT INTO `' . $tabel . '` (`nama`,`urut`) VALUES (:nama,:urut)');
+      $st->execute(array(':nama' => $nama, ':urut' => $urut));
+      $id = (int)$pdo->lastInsertId();
+    }
+  } catch (PDOException $e) {
+    // 23000 = pelanggaran UNIQUE. Pesannya diganti supaya terbaca manusia.
+    if ($e->getCode() === '23000') throw new Exception('"' . $nama . '" sudah ada dalam daftar.');
+    throw $e;
+  }
+  return array('id' => $id);
+}
+function aktif_daftar($tabel, $id, $aktif) {
+  pastikan_tabel();
+  $st = db()->prepare('UPDATE `' . $tabel . '` SET `aktif`=:a WHERE `id`=:id');
+  $st->execute(array(':a' => $aktif ? 1 : 0, ':id' => (int)$id));
+  return array('diubah' => $st->rowCount());
+}
+/* Hapus DITOLAK kalau sudah terpakai. Frontend sudah memeriksanya lebih dulu
+   dan menawarkan nonaktifkan, tapi pemeriksaan di layar bukan penjaga: dua
+   orang bisa menghapus dan memakai pos yang sama pada detik yang sama.
+   Penjaga sebenarnya di sini. */
+function hapus_pos($id) {
+  pastikan_tabel();
+  $id = (int)$id;
+  $st = db()->prepare('SELECT COUNT(*) AS n FROM `kk_trx_pos` WHERE `pos_id`=:id');
+  $st->execute(array(':id' => $id));
+  if ((int)$st->fetch()['n'] > 0) throw new Exception('Pos ini sudah dipakai transaksi — nonaktifkan saja.');
+  $d = db()->prepare('DELETE FROM `kk_pos` WHERE `id`=:id');
+  $d->execute(array(':id' => $id));
+  return array('dihapus' => $d->rowCount());
+}
+function hapus_kategori($id) {
+  pastikan_tabel();
+  $id = (int)$id;
+  $st = db()->prepare('SELECT COUNT(*) AS n FROM `kk_trx` WHERE `kategori_id`=:id');
+  $st->execute(array(':id' => $id));
+  if ((int)$st->fetch()['n'] > 0) throw new Exception('Kategori ini sudah dipakai transaksi — nonaktifkan saja.');
+  $d = db()->prepare('DELETE FROM `kk_kategori` WHERE `id`=:id');
+  $d->execute(array(':id' => $id));
+  return array('dihapus' => $d->rowCount());
+}
+
+function ping() {
+  $db = 'gagal';
+  try { db()->query('SELECT 1'); $db = 'ok'; } catch (Throwable $e) { $db = $e->getMessage(); }
+  return array('pong' => true, 'env' => defined('ENV_LABEL') ? ENV_LABEL : '?', 'db' => $db);
+}
+function stats() {
+  pastikan_tabel();
+  $pdo = db();
+  return array(
+    'pos'      => (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_pos`')->fetch()['n'],
+    'kategori' => (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_kategori`')->fetch()['n'],
+    'trx'      => (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_trx`')->fetch()['n'],
+    'baris'    => (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_trx_pos`')->fetch()['n'],
+  );
+}
