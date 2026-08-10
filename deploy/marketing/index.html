@@ -1563,6 +1563,25 @@ function stampChanges(){
     if(!r.createdAt) r.createdAt = now;
   });
 }
+/* ---------- KOLEKSI YANG TIDAK IKUT PENJAGA BENTROK ----------
+   `users` dan `staff` BUKAN data yang disunting orang di sini — isinya cermin
+   roster Office, ditulis ulang autoSyncOfficeRoster() tiap kali modul dibuka,
+   di SETIAP peramban.
+
+   Akibatnya penjaga bentrok selalu salah alarm di sana. Andi membuka
+   Marketing pagi hari; siang, Budi membuka Marketing dan sinkronisasinya
+   menyentuh lima baris user; sore, Andi menyimpan satu event — dan yang
+   muncul di layar Andi adalah "Sebagian Perubahan Tidak Tersimpan" berisi
+   lima nama orang yang tidak pernah ia sentuh. Eventnya sendiri tersimpan,
+   tapi Andi tidak punya cara tahu itu, dan diminta memuat ulang tanpa alasan.
+
+   Bentrok pada baris cermin memang tidak punya arti: sumber kebenarannya
+   Office, tiap peramban menghitungnya dari sumber yang sama, dan yang kalah
+   akan pulih sendiri pada pembukaan berikutnya. Jadi baris ini dikirim TANPA
+   baseUpdatedAt — penjaga urutan `updated_at >=` di server tetap berlaku,
+   yang dilepas hanya alarmnya. */
+const KOL_TANPA_JAGA = {users:1, staff:1};
+
 /* Versi server yang kita pegang saat memuat. Dikirim balik sebagai `_sejak`
    supaya server tahu batas mana yang boleh ia anggap "dihapus user".
 
@@ -1578,7 +1597,11 @@ let _sejakVersi = 0;
 // kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
 function buildPayload(){
   const p = JSON.parse(JSON.stringify(S));
-  _eachRow(p,(key,r)=>{ if(_dirty(key,r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+  _eachRow(p,(key,r)=>{
+    if(!_dirty(key,r)) return;
+    if(KOL_TANPA_JAGA[key.split(':')[0]]) return;   // baris cermin: tanpa alarm bentrok
+    r.baseUpdatedAt = _serverVer[key] || 0;
+  });
   p._sejak = _sejakVersi;
   /* `_versi` milik server, bukan bagian data kita — jangan dipantulkan balik
      supaya ia tidak tersimpan sebagai setelan 'extra:'. */
@@ -2097,6 +2120,19 @@ async function autoSyncOfficeRoster(){
     try{ anggota=await ambilOffice({action:'listModuleRoster',module:'marketing'}); }catch(_){}
     const adminModul={}, anggotaModul={};
     (anggota||[]).forEach(m=>{ if(!m||!m.id)return; anggotaModul[m.id]=true; if(m.isModuleAdmin) adminModul[m.id]=true; });
+    /* DAFTAR ANGGOTA GAGAL DIAMBIL = TIDAK TAHU, BUKAN "BUKAN ANGGOTA".
+       Panggilan ini boleh gagal sendirian (lihat catch di atas), dan dulu
+       kegagalannya diperlakukan sebagai jawaban: adminModul kosong berarti
+       admin modul kehilangan status super_admin-nya, dan anggotaModul kosong
+       berarti orang tanpa jabatan jatuh ke 'operational'.
+
+       Yang terjadi berikutnya adalah role BERGOYANG antar peramban — satu
+       peramban menaikkan, peramban lain menurunkan, masing-masing menulis
+       ulang baris user dan mencap ulang versinya. Itulah yang membuat lima
+       nama muncul di kotak bentrok tanpa ada yang pernah menyuntingnya.
+
+       Sekarang kegagalan berarti role tidak disentuh sama sekali. */
+    const anggotaTerbaca = Array.isArray(anggota);
 
     /* ROLE MENGIKUTI JABATAN DI OFFICE (Kelola User -> kolom keterangan).
        Sebelum ini role hanya ditebak dari keanggotaan modul: siapa pun yang
@@ -2111,6 +2147,7 @@ async function autoSyncOfficeRoster(){
          jabatan terbaca           -> role sesuai jabatan
          jabatan tak terbaca       -> anggota modul: Marketing, selainnya Operational */
     const roleSeharusnya=m=>{
+      if(!anggotaTerbaca) return null;        // tidak tahu = jangan ubah apa pun
       /* Admin modul di Office tetap didahulukan: itu pemberian akses yang
          disengaja, dan kalau ikut dikosongkan gara-gara kolom Tim belum diisi,
          orang yang berwenang mengisi Tim justru terkunci di luar. */
