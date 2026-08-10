@@ -568,18 +568,17 @@ const NAV_DEF = [
   {k:'tamu',      t:'Kalender Tamu',  ic:'kalender', sub:'Jumlah tamu dari Marketing & Event — klik hari untuk ajukan DW'},
   {s:'Daily Worker'},
   {k:'antrean',   t:'Antrean Ajuan',  ic:'surat',    sub:'Setujui atau tolak ajuan DW'},
-  /* `dwSaja` = tidak ditampilkan di sidebar staf Office, tapi halamannya
-     TETAP boleh dibuka (lihat bolehBuka).
+  /* "Ajukan Jadwal" PUNYA BARIS SIDEBAR LAGI, untuk DW maupun staf Office.
+     Sebelumnya ia disembunyikan dari sidebar Office dengan alasan pintu
+     masuknya sudah ada di tempat lain (tombol di Antrean, tombol di profil
+     DW). Alasan itu benar untuk yang sudah tahu; bagi yang belum, halaman
+     itu praktis tidak ada — dan pertanyaan yang muncul persis
+     "ngajuinnya dari mana?". Menu yang tidak terlihat sama saja dengan menu
+     yang tidak ada.
 
-     "Ajukan Jadwal" sudah punya pintu masuk yang lebih tepat: tombol
-     "+ Buat ajuan atas nama DW" di halaman Antrean — di situlah HR berada
-     saat ia perlu mengisikan ajuan untuk DW yang menelepon. Menaruhnya juga
-     di sidebar berarti satu baris menu permanen untuk pekerjaan yang selalu
-     dimulai dari halaman lain.
-
-     "Ajuan Saya" isinya memang cuma untuk DW; bagi staf Office ia halaman
-     yang isinya satu kalimat "halaman ini untuk daily worker". */
-  {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Pilih tanggal & jam kerja', dw:1, dwSaja:1},
+     `dwSaja` tetap dipakai untuk "Ajuan Saya", yang bagi staf Office memang
+     cuma halaman berisi satu kalimat "halaman ini untuk daily worker". */
+  {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Pilih tanggal & jam kerja', dw:1},
   {k:'saya',      t:'Ajuan Saya',     ic:'kalender', sub:'Riwayat & status ajuan saya', dw:1, dwSaja:1},
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
@@ -2234,6 +2233,19 @@ function viewPekerja(){
       +'<input class="inp" placeholder="Cari nama / HP / skill…" value="'+esc(CARI_PEKERJA)+'" oninput="cariPekerja(this.value)">'
       +'<button class="btn btn-primary btn-sm" onclick="bukaPekerja(\'\')">+ DW Baru</button>'
     +'</div>'
+    /* CARA DW MASUK, ditulis di halaman tempat HR mendaftarkan mereka.
+       Pertanyaan "ngajuinnya dari mana?" muncul karena jawabannya memang
+       tidak tertulis di mana pun: DW tidak punya akun Office, jadi tidak ada
+       satu pun menu di portal yang menuntun ke sini. Tautannya harus dikirim
+       tangan, dan halaman ini yang menyediakannya. */
+    +'<div class="note i" style="margin-bottom:12px">'
+      +'<b>DW mengajukan jadwalnya sendiri</b> — mereka tidak punya akun Office, '
+      +'jadi tautannya harus dikirim sekali ke tiap orang.<br>'
+      +'Buka <span class="mono">'+esc(tautanDW())+'</span> → masuk pakai <b>No. HP + PIN</b> '
+      +'→ menu <b>Ajukan Jadwal</b>. Ajuannya masuk ke <b>Antrean Ajuan</b> di sini.<br>'
+      +'<button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="salinTautanDW()">Salin tautan</button> '
+      +'<span class="mutedhint">PIN dibuat lewat <b>Sunting</b> pada tiap DW — tanpa PIN ia tidak bisa masuk.</span>'
+    +'</div>'
     +(list.length?'<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Nama</th><th>No. HP</th><th>Divisi / Posisi</th>'
       +'<th class="kanan">Kerja</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>'
@@ -2245,9 +2257,20 @@ function viewPekerja(){
           +'<td class="mono">'+esc(p.hp)+'</td>'
           +'<td>'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div></td>'
           +'<td class="kanan mono">'+st.total+'×<div class="kecil">'+st.jam+' jam</div></td>'
-          +'<td>'+(p.adaPin?'<span class="stpill st-AKTIF">ada</span>':'<span class="stpill st-NONAKTIF">belum</span>')+'</td>'
+          /* "belum" bukan sekadar keterangan: selama PIN kosong orang ini
+             TIDAK BISA masuk sama sekali, dan itu penyebab paling sering
+             ajuannya tidak pernah datang. */
+          +'<td>'+(p.adaPin?'<span class="stpill st-AKTIF">ada</span>'
+                           :'<span class="stpill st-NONAKTIF" title="Belum bisa masuk — buatkan PIN lewat Sunting">belum</span>')+'</td>'
           +'<td>'+pilStatusDW(p.status)+'</td>'
-          +'<td><button class="btn btn-ghost btn-sm" onclick="bukaProfil(\''+escJs(p.id)+'\')">Profil</button></td>'
+          +'<td class="aksi-dw">'
+        +'<button class="btn btn-ghost btn-sm" onclick="bukaProfil(\''+escJs(p.id)+'\')">Profil</button>'
+        /* Tombolnya di baris daftarnya sendiri, bukan cuma di dalam profil:
+           yang mengirimkannya biasanya sedang menyisir seluruh daftar sekali
+           duduk, bukan membuka satu orang untuk dibaca. */
+        +'<button class="btn btn-ghost btn-sm" title="Kirim cara masuk lewat WhatsApp" '
+          +'onclick="kirimAksesDW(\''+escJs(p.id)+'\')">Kirim akses</button>'
+      +'</td>'
         +'</tr>';
       }).join('')+'</tbody></table></div>'
       :'<div class="empty"><div class="ic">👥</div>'+(q||FILTER_PEKERJA!=='ALL'?'Tidak ada yang cocok dengan saringan ini.':'Belum ada daily worker terdaftar.')
@@ -2382,8 +2405,57 @@ function bukaProfil(id){
       :'<div class="mutedhint">Belum pernah dijadwalkan.</div>'),
     [{t:'Hapus',c:'btn-danger',f:function(){ hapusPekerja(id); return false; }},
      {t:'Sunting',c:'btn-ghost',f:function(){ tutupModal(); bukaPekerja(id); return false; }},
+     /* Yang paling sering dibutuhkan bukan "buatkan ajuan", tapi memberi tahu
+        orangnya cara mengajukan sendiri — sekali dikirim, ia tidak bertanya
+        lagi dan HR berhenti jadi juru ketik. */
+     {t:'Kirim cara masuk',c:'btn-ghost',f:function(){ kirimAksesDW(id); return false; }},
      {t:'Buatkan ajuan',c:'btn-primary',f:function(){ tutupModal(); AJU_DW=id; go('ajukan'); return false; }}],
     true);
+}
+/* Tautan halaman ini, tanpa query & tanpa hash. Dipakai untuk memberi tahu
+   DW harus membuka apa — pertanyaan pertama mereka selalu itu, dan selama
+   tidak terjawab tidak ada satu pun ajuan yang masuk lewat sistem. */
+function tautanDW(){
+  return location.origin + location.pathname.replace(/[^/]*$/,'');
+}
+function waNomor(hp){
+  const d=String(hp||'').replace(/\D+/g,'');
+  return d.slice(0,1)==='0' ? '62'+d.slice(1) : d;
+}
+/* Pesan siap kirim: tautannya, nomornya sendiri, dan pengingat PIN.
+   PIN-nya TIDAK ikut ditulis — halaman ini tidak pernah menerimanya dari
+   server (backend hanya membalas adaPin), dan menuliskannya di pesan yang
+   bisa diteruskan ke mana saja juga bukan hal yang pantas dilakukan sistem. */
+function pesanAksesDW(p){
+  return 'Halo '+(p.nama||'')+', ini cara mengajukan jadwal kerja di Laksamana Muda:'
+    +'\n\n1. Buka: '+tautanDW()
+    +'\n2. Masuk pakai No. HP: '+(p.hp||'')+' dan PIN yang sudah diberikan HR'
+    +'\n3. Pilih menu *Ajukan Jadwal*, isi tanggal & jamnya, lalu Kirim Ajuan'
+    +'\n\nSetelah disetujui HR, nama kamu otomatis muncul di jadwal hari itu.'
+    +'\nSimpan tautannya supaya tidak perlu bertanya lagi. Terima kasih ⚓';
+}
+function kirimAksesDW(id){
+  const p=pekerjaById(id); if(!p) return;
+  if(!p.hp){ toast('Nomor HP-nya belum diisi', true); return; }
+  if(!p.adaPin){
+    toast('PIN-nya belum dibuat — isi dulu lewat Sunting, kalau tidak ia tidak bisa masuk', true);
+    return;
+  }
+  window.open('https://wa.me/'+waNomor(p.hp)+'?text='+encodeURIComponent(pesanAksesDW(p)), '_blank');
+}
+function salinTautanDW(){
+  const t=tautanDW();
+  /* navigator.clipboard tidak ada di konteks non-HTTPS dan di sebagian
+     peramban dalam aplikasi — kalau gagal, tautannya tetap diperlihatkan
+     supaya bisa disalin tangan, bukan sekadar "gagal menyalin". */
+  const selesai=function(){ toast('Tautan disalin: '+t); };
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(selesai, function(){ prompt('Salin tautan ini:', t); });
+      return;
+    }
+  }catch(e){}
+  prompt('Salin tautan ini:', t);
 }
 function hapusPekerja(id){
   if(!isHR()){ toast('Hanya yang berhak yang bisa menghapus daily worker', true); return; }
