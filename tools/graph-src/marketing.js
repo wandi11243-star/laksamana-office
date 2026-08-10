@@ -1422,6 +1422,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2744,6 +2757,16 @@ function can() { userPerms(); getFbFormats(); menuGroupsOf(); visibleTabs(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
 function visibleSecsOfTab() { visibleSections(); }
 
 
@@ -2829,7 +2852,14 @@ function eventFbCost() { fbDitimpa(); fbDealAktif(); fbDealTotal(); fbPax(); fbH
 
 
 
-function eventSubtotal() { eventFbCost(); }
+function eventSubtotal() { rinciAktif(); eventFbCost(); rinciTotalBayar(); }
+
+
+
+
+
+
+
 function eventFinance() { eventFbCost(); eventSubtotal(); ynBool(); }
 
 
@@ -4673,7 +4703,9 @@ function fieldOpts() {  }
 
 
 
-function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); hariHint(); fmtDateLong(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); itemRowHTML(); itemAddRow(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); hariHint(); fmtDateLong(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); itemRowHTML(); itemAddRow(); rinciTblHTML(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+
+
 
 
 
@@ -5107,7 +5139,7 @@ function dealHitung() { dealTotal(); }
 
 
 
-function dealTotal() { $(); finLive(); collectField(); }
+function dealTotal() { $(); finLive(); collectField(); baris(); }
 
 
 
@@ -5120,6 +5152,195 @@ function dealTotal() { $(); finLive(); collectField(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis(); rinciTeksTotal(); rinciDelRow(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciTeksTotal() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciKakiHTML() { eventFinance(); finBayangan(); }
+
+
+
+
+
+function baris() { dpLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg(); rinciIsiTemplate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciGantiJenis() { rinciHitung(); }
+
+
+
+
+
+
+
+
+
+function rinciHitung() { rinciTeksTotal(); $(); rinciBaca(); finLive(); autoSaveTrigger(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciBaca() { $(); }
+
+
+function g() {  }
+
+
+
+
+
+
+
+function rinciAddRow() { $(); rinciRowHTML(); }
+
+
+
+
+
+function rinciDelRow() { rinciAddRow(); rinciHitung(); }
+
+
+
+
+
+
+
+
+
+
+function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); toast(); rinciHitung(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciTotalBayar() {  }
+
+
+
+
+
+
+function rinciAktif() { ynBool(); }
 
 
 
@@ -5978,7 +6199,7 @@ function syncConds() { $(); condMetLive(); }
 
 
 
-function collectField() { $(); collectMenuTbl(); dealBaca(); g(); }
+function collectField() { $(); collectMenuTbl(); rinciBaca(); dealBaca(); g(); }
 
 
 
@@ -6012,7 +6233,8 @@ function collectField() { $(); collectMenuTbl(); dealBaca(); g(); }
 
 
 
-function g() {  }
+
+
 
 
 
@@ -6703,7 +6925,11 @@ function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus();
 
 
 
-function finBayangan() { $(); fbDariKotak(); segVal(); dealBaca(); }
+function finBayangan() { $(); fbDariKotak(); segVal(); dealBaca(); rinciBaca(); }
+
+
+
+
 
 
 
@@ -7140,7 +7366,24 @@ function bacaTemplateBaris() {  }
 
 
 
-function rincianPenawaran() { eventFbCost(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); bacaTemplateBaris(); }
+function rincianPenawaran() { eventFbCost(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); rinciAktif(); bacaTemplateBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9930,9 +10173,9 @@ function vipSimpanNominal() { $(); logAct(); vipNominal(); save(); closeModal();
 
 
 
-function vipDetail() {  }
+function vipDetail() { modal(); esc(); vipPerusahaan(); closeModal(); svg(); baris(); fmtDateLong(); vipJam(); vipPax(); userName(); vipBelumNominal(); vipNominal(); vipDenahHTML(); can(); vipForm(); vipIsiNominal(); vipDetailDenahAsli(); vipDenahKey(); rsvAmbil(); }
 
-function baris() { modal(); esc(); vipPerusahaan(); closeModal(); svg(); fmtDateLong(); vipJam(); vipPax(); userName(); vipBelumNominal(); vipNominal(); vipDenahHTML(); can(); vipForm(); vipIsiNominal(); vipDetailDenahAsli(); vipDenahKey(); rsvAmbil(); }
+
 
 
 

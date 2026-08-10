@@ -3837,7 +3837,19 @@ function jemputTerarsip() {  }
 
 
 
-function daftarJemput() { caraBeliProduk(); infoCK(); tglJemputEfektif(); jemputTerarsip(); renderJemput(); jemputTelat(); }
+function daftarJemput() { infoCK(); pesananCK(); caraBeliProduk(); tglJemputEfektif(); jemputTerarsip(); renderJemput(); jemputTelat(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3901,7 +3913,12 @@ function tandaiSemuaJemput() { daftarJemput(); jemputTglAktif(); renderJemput();
 
 
 
-function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); infoCK(); divisiOrder(); toggleJemputBaris(); tglJemputEfektif(); }
+function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); pesananCK(); divisiOrder(); toggleJemputBaris(); tglJemputEfektif(); }
+
+
+
+
+
 
 
 
