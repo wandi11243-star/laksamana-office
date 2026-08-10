@@ -348,6 +348,17 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   opacity:0;transition:.15s;display:flex;align-items:center;justify-content:center}
 .ecard:hover .card-edit{opacity:1}
 .card-edit:hover{background:var(--accent)}
+/* Tombol hapus di kartu: SEBELAHAN dengan edit, warna merah hanya saat
+   disentuh. Merah permanen di tiap kartu membuat daftar terlihat penuh
+   peringatan, dan orang berhenti memperhatikannya. */
+.card-del{position:absolute;top:8px;left:44px;width:30px;height:30px;border:none;border-radius:8px;
+  background:rgba(0,0,0,.45);color:#fff;font-size:17px;line-height:1;cursor:pointer;opacity:0;
+  transition:opacity .15s,background .15s}
+.ecard:hover .card-del{opacity:1}
+.card-del:hover{background:var(--red)}
+/* Di layar sentuh tidak ada hover — tombolnya harus selalu terlihat, kalau
+   tidak ia praktis tidak ada. */
+@media(hover:none){ .card-edit,.card-del{opacity:1} }
 @media (hover:none){.card-edit{opacity:1}}   /* di HP tidak ada hover */
 .card-status{width:100%;margin-top:10px;padding:6px 8px;border-radius:7px;font:inherit;font-size:12px;
   background:var(--panel2);color:var(--txt);border:1px solid var(--line);cursor:pointer}
@@ -1715,7 +1726,7 @@ function renderTalents(){
     <span class="pill">${list.length} talent</span>
   </div>
   <div class="card" style="padding:0">
-  <table><thead><tr><th>Talent</th><th>Kategori</th><th>Kontak</th><th>Manager</th><th>Default Fee</th><th>Status Kontrak</th><th>Status Talent</th></tr></thead><tbody>
+  <table><thead><tr><th>Talent</th><th>Kategori</th><th>Kontak</th><th>Manager</th><th>Default Fee</th><th>Status Kontrak</th><th>Status Talent</th><th style="width:34px"></th></tr></thead><tbody>
   ${list.map(t=>`<tr style="cursor:pointer" onclick="location.hash='#/talents/${t.id}'">
     <td><div style="display:flex;align-items:center;gap:10px"><div class="avatar">${initials(t.name)}</div><div><b>${esc(t.name)}</b><br><span class="mini">${esc(t.instagram)}</span></div></div></td>
     <td><span class="badge b-blue">${t.category}</span></td>
@@ -1724,7 +1735,8 @@ function renderTalents(){
     <td>${IDR(t.default_fee)}</td>
     <td>${badgeKontrak(t)}</td>
     <td>${badgeAktif(t)}</td>
-  </tr>`).join('')||'<tr><td colspan="7" class="empty">Tidak ada talent.</td></tr>'}
+    <td>${bisaUbah('talents')?`<button class="rowdel" title="Hapus talent" onclick="event.stopPropagation();hapusTalent('${t.id}')">×</button>`:''}</td>
+  </tr>`).join('')||'<tr><td colspan="8" class="empty">Tidak ada talent.</td></tr>'}
   </tbody></table></div>`;
 }
 function talentForm(id){
@@ -1929,6 +1941,189 @@ function schedInfo(id){
     <button class="btn" onclick="closeModal()">Tutup</button></div>`);
 }
 function cycleSchedStatus(id){const order=['Scheduled','Confirmed','Done','Cancelled'];const s=DB.schedules.find(x=>x.id===id);s.status=order[(order.indexOf(s.status)+1)%order.length];save();closeModal();renderSchedule();toast('Status → '+s.status);}
+/* ============================================================
+   MENGHAPUS DI MODUL EMS
+
+   Sampai 8 Agustus 2026 modul ini hanya bisa MEMBUAT dan MENGUBAH. Satu-
+   satunya yang bisa dihapus adalah jadwal talent; event, talent, ide, dan
+   kategori tiket tidak punya jalan keluar sama sekali. Akibatnya event
+   percobaan, salah ketik, dan acara batal menumpuk selamanya di daftar —
+   dan yang menumpuk di daftar akhirnya ikut terhitung di rekap.
+
+   DUA ATURAN YANG DIPEGANG SELURUH FUNGSI DI BAWAH:
+
+   1. TIDAK ADA YATIM. Menghapus event berarti menghapus SEMUA yang
+      menggantung padanya: kategori tiket, denah, pesanan, tiket, check-in,
+      refund, dan detail eventnya. Baris yang menggantung ke event yang sudah
+      tidak ada tidak akan pernah terlihat lagi di layar mana pun, tapi tetap
+      ikut terhitung di rekap — kegagalan yang tidak menimbulkan galat dan
+      cuma memunculkan angka yang tidak bisa dijelaskan siapa pun.
+
+   2. UANG MENGUNCI PENGHAPUSAN. Kalau sudah ada pesanan LUNAS, event tidak
+      bisa dihapus — bukan karena teknis, tapi karena penghapusannya
+      menghapus jejak uang yang benar-benar masuk. Yang begitu harus
+      diselesaikan lewat refund, bukan lewat tombol hapus.
+   ============================================================ */
+
+/* Semua baris yang menggantung pada sebuah event. Dikumpulkan sekali supaya
+   dialog konfirmasi dan penghapusannya memakai hitungan YANG SAMA — kalau
+   dihitung dua kali dengan dua cara, angka di layar bisa berbeda dari yang
+   benar-benar dihapus. */
+function emsIsiEvent(eid){
+  const kelas=DB.ticketClasses.filter(c=>c.event_id===eid);
+  const kelasId=kelas.map(c=>c.id);
+  const seats=DB.seats.filter(s=>s.event_id===eid);
+  const orders=DB.orders.filter(o=>o.event_id===eid);
+  const orderId=orders.map(o=>o.id);
+  /* Tiket menggantung ke ORDER, bukan langsung ke event. Kalau yang dicari
+     cuma t.event_id, tiket yang lahir dari pesanan tidak akan ikut terhapus
+     dan tetap bisa dipindai di pintu masuk acara yang sudah tidak ada. */
+  const tickets=DB.tickets.filter(t=>t.event_id===eid || orderId.indexOf(t.order_item_id)>-1
+                                  || kelasId.indexOf(t.ticket_class_id)>-1);
+  const ticketId=tickets.map(t=>t.id);
+  const checkins=(DB.checkins||[]).filter(c=>ticketId.indexOf(c.ticket_id)>-1);
+  const refunds=(DB.refunds||[]).filter(r=>r.event_id===eid || orderId.indexOf(r.order_id)>-1);
+  const lunas=orders.filter(o=>o.payment_status==='Paid');
+  return {kelas,seats,orders,tickets,checkins,refunds,lunas};
+}
+
+function hapusEvent(eid){
+  if(!bisaUbah('events')) return toast('Tidak berwenang menghapus event.');
+  const e=DB.events.find(x=>x.id===eid);
+  if(!e) return toast('Event tidak ditemukan — mungkin sudah dihapus orang lain.');
+  const isi=emsIsiEvent(eid);
+
+  if(isi.lunas.length){
+    /* Ditolak, bukan diminta konfirmasi. Konfirmasi untuk hal yang memang
+       tidak boleh dilakukan cuma melatih orang menekan "Ya". */
+    return modalInfo('Tidak Bisa Dihapus',
+      '<p>Event <b>'+esc(e.title)+'</b> sudah punya <b>'+isi.lunas.length+' pesanan lunas</b>. '
+      +'Menghapusnya berarti menghapus jejak uang yang benar-benar masuk.</p>'
+      +'<p style="margin-top:10px">Kalau acaranya batal, selesaikan lewat <b>refund</b> pada pesanan '
+      +'itu dulu. Kalau cuma ingin menyembunyikannya dari daftar aktif, ubah statusnya jadi '
+      +'<b>Event Done</b>.</p>');
+  }
+
+  const rincian=[
+    isi.kelas.length   ? isi.kelas.length+' kategori tiket' : '',
+    isi.seats.length   ? isi.seats.length+' objek denah' : '',
+    isi.orders.length  ? isi.orders.length+' pesanan (belum lunas)' : '',
+    isi.tickets.length ? isi.tickets.length+' tiket terbit' : '',
+    isi.checkins.length? isi.checkins.length+' catatan check-in' : '',
+    isi.refunds.length ? isi.refunds.length+' catatan refund' : ''
+  ].filter(Boolean);
+
+  konfirmasiHapus('Hapus Event',
+    '<p>Event <b>'+esc(e.title)+'</b> ('+fmtDate(e.start_datetime)+') akan dihapus permanen.</p>'
+    +(rincian.length
+      ? '<p style="margin-top:10px">Ikut terhapus:</p><ul style="margin:6px 0 0 18px;line-height:1.8">'
+        +rincian.map(x=>'<li>'+x+'</li>').join('')+'</ul>'
+      : '<p style="margin-top:10px" class="mini">Tidak ada data lain yang menggantung pada event ini.</p>')
+    +'<p style="margin-top:10px" class="mini">Tidak bisa dibatalkan.</p>',
+    function(){
+      const kelasId=isi.kelas.map(c=>c.id), orderId=isi.orders.map(o=>o.id), tikId=isi.tickets.map(t=>t.id);
+      DB.events        = DB.events.filter(x=>x.id!==eid);
+      DB.ticketClasses = DB.ticketClasses.filter(c=>c.event_id!==eid);
+      DB.seats         = DB.seats.filter(s=>s.event_id!==eid);
+      DB.orders        = DB.orders.filter(o=>o.event_id!==eid);
+      DB.tickets       = DB.tickets.filter(t=>tikId.indexOf(t.id)<0);
+      if(Array.isArray(DB.checkins)) DB.checkins=DB.checkins.filter(c=>{
+        return !isi.checkins.some(x=>x.id===c.id || x.ticket_id===c.ticket_id); });
+      if(Array.isArray(DB.refunds))  DB.refunds =DB.refunds.filter(r=>!isi.refunds.some(x=>x.id===r.id));
+      if(DB.eventDetails) delete DB.eventDetails[eid];
+      save();
+      toast('Event "'+e.title+'" dihapus.');
+      location.hash='#/events';
+      if(typeof renderEvents==='function' && document.getElementById('content')) renderEvents();
+    });
+}
+
+/* --- TALENT ---
+   Jadwal & pembayarannya ikut, karena keduanya tidak punya arti tanpa
+   orangnya. Pembayaran yang sudah Paid MENGUNCI, alasannya sama dengan
+   pesanan lunas di atas: itu catatan uang yang sudah keluar. */
+function hapusTalent(tid){
+  if(!bisaUbah('talents')) return toast('Tidak berwenang menghapus talent.');
+  const t=DB.talents.find(x=>x.id===tid);
+  if(!t) return toast('Talent tidak ditemukan.');
+  const sched=DB.schedules.filter(s=>s.talent_id===tid);
+  const bayar=(DB.talentPayments||[]).filter(p=>p.talent_id===tid);
+  const lunas=bayar.filter(p=>p.status==='Paid');
+  if(lunas.length){
+    return modalInfo('Tidak Bisa Dihapus',
+      '<p><b>'+esc(t.name)+'</b> punya <b>'+lunas.length+' pembayaran berstatus Paid</b>. '
+      +'Menghapusnya menghilangkan catatan uang yang sudah keluar.</p>'
+      +'<p style="margin-top:10px">Kalau ia sudah tidak tampil lagi, ubah statusnya jadi '
+      +'<b>Inactive</b> — datanya tetap ada untuk laporan.</p>');
+  }
+  konfirmasiHapus('Hapus Talent',
+    '<p><b>'+esc(t.name)+'</b> akan dihapus permanen.</p>'
+    +(sched.length||bayar.length
+      ? '<p style="margin-top:10px">Ikut terhapus: '
+        +[sched.length?sched.length+' jadwal':'',bayar.length?bayar.length+' catatan fee':''].filter(Boolean).join(' · ')
+        +'</p>' : '')
+    +'<p style="margin-top:10px" class="mini">Tidak bisa dibatalkan.</p>',
+    function(){
+      DB.talents=DB.talents.filter(x=>x.id!==tid);
+      DB.schedules=DB.schedules.filter(s=>s.talent_id!==tid);
+      if(Array.isArray(DB.talentPayments)) DB.talentPayments=DB.talentPayments.filter(p=>p.talent_id!==tid);
+      save(); toast('Talent "'+t.name+'" dihapus.');
+      location.hash='#/talents';
+      if(typeof renderTalents==='function') renderTalents();
+    });
+}
+
+/* --- IDE ---
+   Ide yang sudah jadi event TIDAK boleh hilang: event menyimpan idea_id, dan
+   halaman History membaca evaluasinya dari sana. Menghapusnya membuat
+   evaluasi acara yang sudah berjalan lenyap tanpa jejak. */
+function hapusIde(iid){
+  if(!bisaUbah('ideas')) return toast('Tidak berwenang menghapus ide.');
+  const i=DB.ideas.find(x=>x.id===iid);
+  if(!i) return toast('Ide tidak ditemukan.');
+  const dipakai=DB.events.filter(e=>e.idea_id===iid);
+  if(dipakai.length){
+    return modalInfo('Tidak Bisa Dihapus',
+      '<p>Ide <b>'+esc(i.title||i.judul||iid)+'</b> sudah dipakai '+dipakai.length+' event: '
+      +dipakai.map(e=>'<b>'+esc(e.title)+'</b>').join(', ')+'.</p>'
+      +'<p style="margin-top:10px">Evaluasi acara itu dibaca dari ide ini — menghapusnya membuat '
+      +'halaman History kehilangan angkanya.</p>');
+  }
+  konfirmasiHapus('Hapus Ide',
+    '<p>Ide <b>'+esc(i.title||i.judul||iid)+'</b> akan dihapus permanen.</p>'
+    +'<p style="margin-top:10px" class="mini">Tidak bisa dibatalkan.</p>',
+    function(){
+      DB.ideas=DB.ideas.filter(x=>x.id!==iid);
+      save(); toast('Ide dihapus.');
+      if(typeof renderIdeas==='function') renderIdeas();
+    });
+}
+
+/* Kategori tiket TIDAK diberi fungsi hapus baru di sini: delTicketClass()
+   sudah ada dan sudah dijaga (menolak kalau tiketnya terjual, dan melepas
+   tautan objek denah yang memakainya). Menambah cara kedua untuk pekerjaan
+   yang sama berarti dua tempat yang harus diingat saat aturannya berubah,
+   dan cepat atau lambat salah satunya tertinggal. */
+
+/* Dialog konfirmasi dengan tombol merah. Dipisah supaya keempat fungsi di
+   atas tidak menuliskan bentuknya sendiri-sendiri — kalau ditulis ulang tiap
+   kali, cepat atau lambat ada satu yang lupa memakai tombol merah dan
+   terlihat seperti tindakan biasa. */
+let _hapusCb=null;
+function konfirmasiHapus(judul, isi, cb){
+  _hapusCb=cb;
+  modal(`<h3>${esc(judul)}</h3><div style="margin-top:10px;line-height:1.65">${isi}</div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Batal</button>
+      <button class="btn danger" onclick="jalankanHapus()">Hapus Permanen</button>
+    </div>`);
+}
+function jalankanHapus(){ const cb=_hapusCb; _hapusCb=null; closeModal(); if(cb) cb(); }
+function modalInfo(judul, isi){
+  modal(`<h3>${esc(judul)}</h3><div style="margin-top:10px;line-height:1.65">${isi}</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Mengerti</button></div>`);
+}
+
 function delSched(id){DB.schedules=DB.schedules.filter(x=>x.id!==id);save();closeModal();renderSchedule();toast('Jadwal dihapus.');}
 function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>s.talent_id===talent_id&&s.date===date&&s.status!=='Cancelled'&&s.id!==ignoreId&&overlaps(st,et,s.start_time,s.end_time));}
 function scheduleForm(){
@@ -2954,6 +3149,7 @@ function renderEvents(){
     <div class="cover">${posterCoverHTML(e)}
       <span class="cat">${esc(e.category||'')}</span>
       <button class="card-edit" title="Edit event" onclick="event.stopPropagation();eventForm('${e.id}')">✎</button>
+      ${bisaUbah('events')?`<button class="card-del" title="Hapus event" onclick="event.stopPropagation();hapusEvent('${e.id}')">×</button>`:''}
     </div>
     <div class="body"><div class="t">${esc(e.title)}</div>
     <div class="meta">📅 ${fmtDateTime(e.start_datetime)}</div>
@@ -6949,7 +7145,7 @@ function renderIdeas(){
     <div class="mini" style="margin:6px 0">${esc(i.description)}</div>
     <div class="kv" style="font-size:12px"><div class="k">Target</div><div>${esc(i.target_market)}</div><div class="k">Budget</div><div>${IDR(i.budget)}</div><div class="k">Potensi</div><div>${IDR(i.potential_revenue)} <span class="mini">(ROI ~${roi}%)</span></div><div class="k">Frekuensi</div><div>${i.frequency}</div><div class="k">Tingkat Kesulitan</div><div>${statusBadge(i.difficulty==='Easy'?'Active':i.difficulty==='Hard'?'Rejected':'Waiting')} ${i.difficulty}</div></div>
     ${ev?`<div class="mini" style="margin-top:6px;color:var(--green)">✓ Pernah dibuat — omzet ${IDR(ev.omzet)}, ${ev.attendance} hadir, skor ${ev.score}/10</div>`:'<div class="mini" style="margin-top:6px">Belum pernah dieksekusi</div>'}
-    <div style="margin-top:10px;display:flex;gap:6px"><button class="btn blue sm" onclick="spawnEvent('${i.id}')">→ Buat Event</button>${!ev?`<button class="btn ghost sm" onclick="evalIdea('${i.id}')">+ Evaluasi</button>`:''}</div>
+    <div style="margin-top:10px;display:flex;gap:6px"><button class="btn blue sm" onclick="spawnEvent('${i.id}')">→ Buat Event</button>${!ev?`<button class="btn ghost sm" onclick="evalIdea('${i.id}')">+ Evaluasi</button>`:''}${bisaUbah('ideas')?`<button class="btn ghost sm" style="margin-left:auto;color:var(--red)" onclick="hapusIde('${i.id}')">Hapus</button>`:''}</div>
   </div>`;}).join('')||'<div class="empty">Tidak ada ide.</div>'}</div>`;
 }
 function ideaForm(){
