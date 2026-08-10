@@ -1059,7 +1059,7 @@ function injectPwaManifest() {  }
 
 
 
-function registerServiceWorker() { loadSettings(); injectPwaManifest(); ensureUsers(); officeUser(); syncUsersFromServer(); syncOfficeRoster(); enterApp(); resolveOfficeUser(); }
+function registerServiceWorker() { loadSettings(); catatLog(); }
 
 
 
@@ -1123,6 +1123,40 @@ function registerServiceWorker() { loadSettings(); injectPwaManifest(); ensureUs
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function catatLog() { timSaatIni(); injectPwaManifest(); registerServiceWorker(); ensureUsers(); officeUser(); syncUsersFromServer(); syncOfficeRoster(); enterApp(); resolveOfficeUser(); }
 
 
 
@@ -2573,7 +2607,11 @@ function cekDuplikatCK() { dariFormCK(); }
 
 
 
-function kirimCKKeServer() { timSaatIni(); showToast(); buangDraf(); addCKRow(); updateCKSummary(); }
+function kirimCKKeServer() { timSaatIni(); showToast(); catatLog(); buangDraf(); addCKRow(); updateCKSummary(); }
+
+
+
+
 
 
 
@@ -4230,7 +4268,13 @@ function confirmAndCheckServer() { dariFormCK(); closeModal(); showDuplicateModa
 
 
 
-function executeFormSubmission() { showToast(); timSaatIni(); buangDraf(); addNewBatchRow(); updateSummaryText(); setBatchMode(); }
+function executeFormSubmission() { showToast(); timSaatIni(); catatLog(); buangDraf(); addNewBatchRow(); updateSummaryText(); setBatchMode(); }
+
+
+
+
+
+
 
 
 
@@ -5074,7 +5118,15 @@ function toggleRowStyle() {  }
 
 
 
-function saveCheckinData() { showToast(); muatSaldoCK(); fetchHistoryData(); }
+function saveCheckinData() { showToast(); catatLog(); muatSaldoCK(); fetchHistoryData(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -5146,7 +5198,9 @@ function promptEditQty() { openModal(); }
 
 
 
-function submitEditQty() { showToast(); closeEditModal(); fetchHistoryData(); }
+function submitEditQty() { showToast(); catatLog(); closeEditModal(); fetchHistoryData(); }
+
+
 
 
 
@@ -5174,7 +5228,9 @@ function promptDeleteOrder() { openModal(); }
 
 
 
-function submitDeleteOrder() { showToast(); closeDeleteModal(); fetchHistoryData(); }
+function submitDeleteOrder() { showToast(); catatLog(); closeDeleteModal(); fetchHistoryData(); }
+
+
 
 
 

@@ -193,6 +193,12 @@
               <button onclick="switchTab('users')" id="tab-users" class="nav-side w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
                   <i class="fa-solid fa-users-gear w-5 text-center"></i> Kelola Akses
               </button>
+              <!-- Log Aktivitas duduk di grup Admin bersama Kelola Akses: ia
+                   menjawab "siapa yang mengubah ini", dan itu pertanyaan
+                   pengurus, bukan pekerjaan harian kru. -->
+              <button onclick="switchTab('log')" id="tab-log" class="nav-side w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
+                  <i class="fa-solid fa-clock-rotate-left w-5 text-center"></i> Log Aktivitas
+              </button>
             </div>
         </nav>
         <div class="border-t border-slate-100 p-3 flex items-center gap-2.5">
@@ -875,6 +881,72 @@
         <!-- Dipindah dari gear+modal topbar ke halaman      -->
         <!-- sendiri di sidebar, sejajar modul lain.         -->
         <!-- ============================================== -->
+        <!-- ============================================== -->
+        <!-- LOG AKTIVITAS — jejak Ordering + Purchasing.   -->
+        <!-- Dua modul menulis ke tabel yang sama, jadi     -->
+        <!-- halaman ini bisa menampilkannya berdampingan:  -->
+        <!-- "barang ini dipesan kru jam berapa, dan siapa  -->
+        <!-- yang mengarsipkannya" terjawab di satu layar.  -->
+        <!-- ============================================== -->
+        <section id="content-log" class="tab-content hidden">
+            <div class="rounded-2xl p-6 text-white shadow-md space-y-2 mb-6" style="background:linear-gradient(120deg,#2A2620,#7A560F)">
+                <span class="text-[10px] font-bold tracking-widest text-amber-200 uppercase block">Khusus Admin</span>
+                <h2 class="text-xl font-black">Log Aktivitas</h2>
+                <p class="text-xs text-amber-100/80 font-semibold leading-relaxed">
+                    Jejak tindakan yang <b>mengubah</b> data di Ordering &amp; Purchasing — pengajuan, check-in,
+                    arsip, dan perubahan database. Membuka halaman atau mengganti filter tidak dicatat.
+                </p>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm mb-5">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Dari Tanggal</label>
+                        <input type="date" id="log-dari" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Sampai</label>
+                        <input type="date" id="log-ke" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Modul</label>
+                        <select id="log-modul" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold bg-white">
+                            <option value="">Semua</option>
+                            <option value="ordering">Ordering</option>
+                            <option value="purchasing">Purchasing</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1.5">Cari</label>
+                        <input type="text" id="log-cari" placeholder="nama orang / barang…" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold">
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 mt-4">
+                    <button onclick="muatLog()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all">
+                        <i class="fa-solid fa-magnifying-glass mr-1"></i> Tampilkan
+                    </button>
+                    <span id="log-ringkas" class="text-[11px] font-bold text-slate-400"></span>
+                </div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                                <th class="py-3 px-4">Waktu</th>
+                                <th class="py-3 px-4">Modul</th>
+                                <th class="py-3 px-4">Aksi</th>
+                                <th class="py-3 px-4">Oleh</th>
+                                <th class="py-3 px-4">Keterangan</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-body" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <section id="content-users" class="tab-content hidden">
             <div class="rounded-2xl p-6 text-white shadow-md space-y-2 mb-6" style="background:linear-gradient(120deg,#2A2620,#7A560F)">
                 <span class="text-[10px] font-bold tracking-widest text-amber-200 uppercase block">Khusus Admin</span>
@@ -1416,6 +1488,37 @@
         const SESSION_HOURS = 24; // masa berlaku sesi login
 
         let currentUser = null;    // { id, name, pin, role, keterangan }
+
+        /* ================= LOG AKTIVITAS =================
+           KEMBAR dengan catatLog() di deploy/stock/ordering/index.html — beda
+           hanya `modul`. Keduanya menulis ke tabel yang sama lewat log.php,
+           jadi satu halaman Log bisa menampilkan dua modul berdampingan.
+
+           Yang dicatat hanya tindakan yang MENGUBAH sesuatu. Membuka halaman,
+           mengganti filter, dan mencari TIDAK dicatat: log yang penuh kejadian
+           tak berakibat adalah log yang berhenti dibaca.
+
+           TIDAK di-await dan TIDAK PERNAH melempar — mencatat jejak tidak boleh
+           menahan apalagi menggagalkan pekerjaan orang. Waktu diisi SERVER,
+           bukan dari sini: jam perangkat sering meleset, dan log yang urutannya
+           kacau tidak menjawab "mana yang terjadi lebih dulu". */
+        const LOG_URL = "../../stock-api-mysql/log.php";
+        function catatLog(aksi, ringkas, data) {
+            try {
+                const entri = [{
+                    modul: 'purchasing', aksi: String(aksi || ''),
+                    aktor: (currentUser && currentUser.name) || 'tidak dikenal',
+                    tim: (currentUser && currentUser.keterangan) || '',
+                    ringkas: String(ringkas || ''),
+                    data: data || {}
+                }];
+                fetch(LOG_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'catat', entri: entri })
+                }).catch(() => {});
+            } catch (e) { /* jejak boleh hilang; pekerjaan tidak boleh */ }
+        }
         let usersCache = [];       // daftar user termuat (Sheet atau lokal)
         let appBooted = false;     // cegah init ganda
 
@@ -2026,7 +2129,9 @@
                 showToast("Akses Ditolak", "Anda tidak punya akses ke halaman itu.", "danger");
                 tabId = canViewPage('dashboard') ? 'dashboard' : (canViewPage('overview') ? 'overview' : 'database');
             }
-            if (tabId === 'users' && !(currentUser && currentUser.role === 'admin')) tabId = 'dashboard';
+            // Log Aktivitas digerbangi sama kerasnya dengan Kelola Akses: ia
+            // memuat nama orang beserta apa yang mereka ubah.
+            if ((tabId === 'users' || tabId === 'log') && !(currentUser && currentUser.role === 'admin')) tabId = 'dashboard';
             document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('block'));
 
@@ -2064,7 +2169,93 @@
                 updateOverviewStats();
             } else if (tabId === 'users') {
                 openUserManager();
+            } else if (tabId === 'log') {
+                siapkanLog();
             }
+        }
+
+        /* ================= HALAMAN LOG AKTIVITAS =================
+           Rentang bawaan 7 hari terakhir, bukan "semua": tabel ini tumbuh terus,
+           dan halaman yang menarik seluruh isinya akan makin lambat tiap minggu
+           tanpa ada yang menyadari kapan mulainya. */
+        function siapkanLog() {
+            const d = document.getElementById('log-dari'), k = document.getElementById('log-ke');
+            if (d && !d.value) {
+                const t = new Date(); const a = new Date(Date.now() - 6 * 86400000);
+                const iso = x => `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+                d.value = iso(a); if (k) k.value = iso(t);
+            }
+            muatLog();
+        }
+
+        const LOG_AKSI_LABEL = {
+            order_kirim:          ['Order belanja',      'bg-indigo-50 text-indigo-700 border-indigo-200'],
+            ck_ajukan:            ['Pengajuan CK',       'bg-teal-50 text-teal-700 border-teal-200'],
+            checkin_simpan:       ['Check-in',           'bg-emerald-50 text-emerald-700 border-emerald-200'],
+            order_ubah_qty:       ['Ubah jumlah',        'bg-amber-50 text-amber-800 border-amber-200'],
+            order_hapus:          ['Hapus baris',        'bg-rose-50 text-rose-700 border-rose-200'],
+            order_arsip:          ['Arsipkan',           'bg-slate-100 text-slate-700 border-slate-200'],
+            order_arsip_borongan: ['Arsip borongan',     'bg-slate-100 text-slate-700 border-slate-200'],
+            jemput_simpan:        ['Selesai dijemput',   'bg-emerald-50 text-emerald-700 border-emerald-200'],
+            vendor_tambah:        ['Vendor baru',        'bg-sky-50 text-sky-700 border-sky-200'],
+            vendor_ubah:          ['Vendor diubah',      'bg-sky-50 text-sky-700 border-sky-200'],
+            vendor_hapus:         ['Vendor dihapus',     'bg-rose-50 text-rose-700 border-rose-200'],
+            bahan_tambah:         ['Bahan baru',         'bg-violet-50 text-violet-700 border-violet-200'],
+            bahan_ubah:           ['Bahan diubah',       'bg-violet-50 text-violet-700 border-violet-200'],
+            bahan_hapus:          ['Bahan dihapus',      'bg-rose-50 text-rose-700 border-rose-200']
+        };
+
+        async function muatLog() {
+            const body = document.getElementById('log-body');
+            const ring = document.getElementById('log-ringkas');
+            if (!body) return;
+            body.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-xs text-slate-400 italic">Memuat…</td></tr>`;
+            if (ring) ring.textContent = '';
+            const q = new URLSearchParams({
+                dari:  (document.getElementById('log-dari')  || {}).value || '',
+                ke:    (document.getElementById('log-ke')    || {}).value || '',
+                modul: (document.getElementById('log-modul') || {}).value || '',
+                q:     (document.getElementById('log-cari')  || {}).value || '',
+                limit: '300', t: String(Date.now())
+            });
+            let rows = [];
+            try {
+                const res = await fetch(`${LOG_URL}?${q.toString()}`);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                rows = Array.isArray(data) ? data : [];
+            } catch (e) {
+                body.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-xs text-rose-500 font-bold">Gagal memuat log — ${String(e.message || e)}</td></tr>`;
+                return;
+            }
+            if (!rows.length) {
+                body.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-xs text-slate-400 italic">Tidak ada aktivitas pada rentang ini.</td></tr>`;
+                return;
+            }
+            if (ring) ring.textContent = `${rows.length} aktivitas${rows.length >= 300 ? ' (dibatasi 300 terbaru)' : ''}`;
+            const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+            body.innerHTML = rows.map(r => {
+                const [lab, cls] = LOG_AKSI_LABEL[r.aksi] || [r.aksi, 'bg-slate-100 text-slate-600 border-slate-200'];
+                const jam = String(r.waktu || '').slice(11, 16);
+                const tgl = String(r.waktu || '').slice(0, 10);
+                return `<tr class="hover:bg-slate-50/60 align-top">
+                    <td class="py-3 px-4 whitespace-nowrap">
+                        <div class="text-xs font-bold text-slate-800">${esc(jam)}</div>
+                        <div class="text-[10px] text-slate-400">${esc(tgl)}</div>
+                    </td>
+                    <td class="py-3 px-4">
+                        <span class="inline-flex px-2 py-0.5 rounded-lg text-[10px] font-bold border ${r.modul === 'ordering' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-indigo-50 text-indigo-700 border-indigo-200'}">${esc(r.modul)}</span>
+                    </td>
+                    <td class="py-3 px-4 whitespace-nowrap">
+                        <span class="inline-flex px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cls}">${esc(lab)}</span>
+                    </td>
+                    <td class="py-3 px-4 whitespace-nowrap">
+                        <div class="text-xs font-bold text-slate-800">${esc(r.aktor)}</div>
+                        ${r.tim ? `<div class="text-[10px] text-slate-400">${esc(r.tim)}</div>` : ''}
+                    </td>
+                    <td class="py-3 px-4 text-xs text-slate-600 leading-relaxed">${esc(r.ringkas)}</td>
+                </tr>`;
+            }).join('');
         }
 
         function switchViewMode(mode) {
@@ -3375,6 +3566,7 @@
                         const result = await sendPostRequest({ action: 'deleteVendor', vendorName: name }, 'vendors');
                         if (result && result.status === 'success') {
                             showToast("Dihapus!", `Vendor "${name}" berhasil dihapus dari Google Sheets.`, "success");
+                            catatLog("vendor_hapus", `Hapus vendor "${name}"`, { nama: name });
                             await fetchSheetData();
                         } else {
                             showToast("Gagal Menghapus", result ? result.message : "Kesalahan server backend.", "danger");
@@ -3402,6 +3594,7 @@
                         const result = await sendPostRequest({ action: 'deleteProduct', productName: name }, 'items');
                         if (result && result.status === 'success') {
                             showToast("Dihapus!", `Aturan produk "${name}" berhasil dihapus dari Google Sheets.`, "success");
+                            catatLog("bahan_hapus", `Hapus bahan baku "${name}"`, { nama: name });
                             await fetchSheetData();
                         } else {
                             showToast("Gagal Menghapus", result ? result.message : "Kesalahan server backend.", "danger");
@@ -4769,6 +4962,8 @@
                 // ada angka basi yang perlu dibetulkan.
                 if (ckSiapDimuat) muatCK(true);
                 showToast("Tersimpan", `${updates.length} barang diperbarui. Check-in Penerimaan otomatis ikut tercentang.`, "success");
+                catatLog("jemput_simpan", `Selesai dijemput: ${updates.length} barang ditandai datang`,
+                         { jumlah: updates.length });
             } catch (e) {
                 console.error(e);
                 showToast("Gagal Menyimpan", "Status jemputan tidak tersimpan ke server.", "danger");
@@ -4901,6 +5096,9 @@
             saveStateToStorage();
             renderDashboard();
             if (!silent) showToast("Order Selesai Diproses!", "Order dipindahkan ke tab Arsip.", "success");
+            catatLog("order_arsip",
+                `Arsipkan order ${orderId}${ordCek ? ` — ${ordCek.item} ${ordCek.qty} ${ordCek.unit}` : ''}`,
+                { nomorOrder: orderId, item: ordCek ? ordCek.item : '' });
             if (appState.webAppUrlOrders) {
                 // orderIds dikirim BERSAMA rows: server mengutamakan orderIds.
                 // rowIndex itu POSISI, bukan identitas — jalur offline di
@@ -4944,6 +5142,8 @@
             saveStateToStorage();
             renderDashboard();
             if (!silent) showToast("Gabungan Order Selesai!", "Seluruh item dipindahkan ke tab Arsip.", "success");
+            catatLog("order_arsip_borongan", `Arsipkan ${ids.length} order sekaligus`,
+                     { nomorOrder: ids, jumlah: ids.length });
             if (appState.webAppUrlOrders && ids && ids.length > 0) {
                 await sendPostRequest({ action: 'archive', orderIds: ids, rows: rowIndices || [] }, 'orders');
             }
@@ -5007,6 +5207,11 @@
                 const result = await sendPostRequest({ action: 'addVendor', vendorName: name, vendorPhone: phone, oldVendorName: editKey, perluJadwalJemput: perluJadwalJemput }, 'vendors');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Vendor "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
+                    catatLog(editKey ? "vendor_ubah" : "vendor_tambah",
+                        (editKey && editKey !== name)
+                            ? `Ganti nama vendor "${editKey}" jadi "${name}"`
+                            : `${editKey ? 'Ubah' : 'Tambah'} vendor "${name}"`,
+                        { nama: name, namaLama: editKey, perluJadwalJemput: perluJadwalJemput });
                     closeVendorModal();
                     await fetchSheetData();
                 } else {
@@ -5251,6 +5456,11 @@
                 const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet }, 'items');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Aturan "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
+                    catatLog(editKey ? "bahan_ubah" : "bahan_tambah",
+                        (editKey && editKey !== name)
+                            ? `Ganti nama bahan "${editKey}" jadi "${name}"`
+                            : `${editKey ? 'Ubah' : 'Tambah'} bahan baku "${name}"`,
+                        { nama: name, namaLama: editKey, vendorUtama: primary, sumber: sumber });
                     closeProductModal();
                     await fetchSheetData();
                 } else {

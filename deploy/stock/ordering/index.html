@@ -1138,6 +1138,40 @@
         let stockAsOf = null;
 
         let currentUser = null;   // { id, name, pin, role, keterangan }
+
+        /* ================= LOG AKTIVITAS =================
+           Yang dicatat hanya tindakan yang MENGUBAH sesuatu. Membuka halaman,
+           mengganti filter, dan mencari TIDAK dicatat: log yang penuh kejadian
+           tak berakibat adalah log yang berhenti dibaca, dan begitu ia berhenti
+           dibaca ia tidak lagi bisa menjawab "siapa yang mengubah ini".
+
+           TIDAK DI-await DAN TIDAK PERNAH MELEMPAR. Mencatat jejak tidak boleh
+           menahan — apalagi menggagalkan — pekerjaan yang sedang dilakukan
+           orang. Order yang gagal terkirim gara-gara log-nya bermasalah adalah
+           kerugian yang jauh lebih besar daripada satu baris jejak yang hilang.
+           Karena itu pemanggilnya cukup menulis catatLog(...) tanpa await.
+
+           Waktu TIDAK dikirim dari sini: server yang mengisinya. Jam perangkat
+           kru sering meleset berjam-jam, dan log yang urutannya kacau tidak
+           menjawab "mana yang terjadi lebih dulu" — satu-satunya pertanyaan
+           yang membuat log ini ada. */
+        const LOG_URL = "../../stock-api-mysql/log.php";
+        function catatLog(aksi, ringkas, data) {
+            try {
+                const entri = [{
+                    modul: 'ordering', aksi: String(aksi || ''),
+                    aktor: (currentUser && currentUser.name) || 'tidak dikenal',
+                    tim: timSaatIni(),
+                    ringkas: String(ringkas || ''),
+                    data: data || {}
+                }];
+                fetch(LOG_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'catat', entri: entri })
+                }).catch(() => {});
+            } catch (e) { /* jejak boleh hilang; pekerjaan tidak boleh */ }
+        }
         let appInitialized = false;
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -2597,6 +2631,10 @@
                 if (dibuat) bagian.push(`${dibuat} barang baru`);
                 if (digabung) bagian.push(`${digabung} barang digabung`);
                 showToast("Pengajuan Terkirim", `${bagian.join(' & ') || 'Pengajuan'} tercatat. Central Kitchen akan menyiapkannya.`, "success");
+                catatLog("ck_ajukan",
+                    `Pengajuan Central Kitchen ${tgl}: ${pesanan.length} barang — ${pesanan.map(p => `${p.item} ${p.qty} ${p.unit}`).join(', ')}`,
+                    { tglDatang: tgl, jumlahBaris: pesanan.length, dibuat: dibuat, digabung: digabung,
+                      items: pesanan.map(p => ({ item: p.item, qty: p.qty, unit: p.unit })) });
 
                 buangDraf('ck', true);            // sudah terkirim — drafnya tidak berlaku lagi
             document.getElementById('ck-rows-wrapper').innerHTML = '';
@@ -4297,6 +4335,12 @@
             btn.innerHTML = oldHTML;
 
             if (successfulCount > 0 || mergedCount > 0) {
+                catatLog("order_kirim",
+                    `Order belanja ${tglDatang} (${batchMode === 'join' ? 'gabung batch' : 'batch baru'}): `
+                    + `${submittedOrders.length} baris — ${submittedOrders.map(o => `${o.item} ${o.qty} ${o.unit}`).join(', ')}`,
+                    { tglDatang: tglDatang, mode: batchMode, batchId: batchId, batchName: batchName,
+                      dibuat: successfulCount, digabung: mergedCount,
+                      items: submittedOrders.map(o => ({ item: o.item, qty: o.qty, unit: o.unit })) });
                 const bagian = [];
                 if (successfulCount > 0) bagian.push(`${successfulCount} item baru`);
                 if (mergedCount > 0)     bagian.push(`${mergedCount} item digabung`);
@@ -5111,6 +5155,14 @@
                 });
                 if(!response.ok) throw new Error("Gagal menyimpan update");
                 showToast("Berhasil Disimpan", "Data kedatangan berhasil di-update.", "success");
+                {
+                    // Yang berarti bukan "berapa baris disentuh" melainkan berapa
+                    // yang benar-benar ditandai datang — itu yang mengubah stok.
+                    const nDatang = updatesToPush.filter(u => u.kedatangan === 'Datang').length;
+                    catatLog("checkin_simpan",
+                        `Check-in penerimaan ${dateStr || ''}: ${nDatang} dari ${updatesToPush.length} barang ditandai datang`.trim(),
+                        { tanggal: dateStr || '', datang: nDatang, total: updatesToPush.length });
+                }
                 // Mencentang barang Central Kitchen memotong stoknya di server,
                 // jadi angka sisa stok yang ditarik saat halaman dibuka sudah
                 // basi begitu ini selesai. Ditarik ulang supaya panel di form
@@ -5161,6 +5213,8 @@
                 });
                 if(!res.ok) throw new Error("Gagal Server");
                 showToast("Sukses", `Jumlah ${actionTargetName} diubah jadi ${newQty}`, "success");
+                catatLog("order_ubah_qty", `Ubah jumlah ${actionTargetName} jadi ${newQty}`,
+                         { rowIndex: actionTargetId, item: actionTargetName, qtyBaru: newQty });
                 closeEditModal();
                 fetchHistoryData(); // Refresh Data
             } catch (err) { showToast("Gagal", "Tidak dapat menghubungi server.", "danger"); }
@@ -5187,6 +5241,8 @@
                 });
                 if(!res.ok) throw new Error("Gagal Server");
                 showToast("Dihapus", `Pesanan ${actionTargetName} berhasil dihapus.`, "success");
+                catatLog("order_hapus", `Hapus baris pesanan ${actionTargetName}`,
+                         { rowIndex: actionTargetId, item: actionTargetName });
                 closeDeleteModal();
                 fetchHistoryData(); // Refresh Data
             } catch (err) { showToast("Gagal", "Tidak dapat menghapus data di server.", "danger"); }

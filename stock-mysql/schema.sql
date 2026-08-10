@@ -340,3 +340,30 @@ CREATE TABLE IF NOT EXISTS ck_stock (
   KEY idx_ck_arah (arah),
   KEY idx_ck_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------------------------------------------------------------------
+-- ACTIVITY LOG — jejak tindakan di Ordering & Purchasing.
+--
+-- Satu baris = satu tindakan yang MENGUBAH sesuatu. Yang cuma dibaca
+-- (buka halaman, ganti filter) tidak dicatat: log yang penuh kejadian tak
+-- berakibat adalah log yang berhenti dibaca.
+--
+-- Tabel ini JUGA dibuat sendiri oleh log.php saat pertama dipakai
+-- (CREATE TABLE IF NOT EXISTS di pur_log_siap), jadi lingkungan yang
+-- terlanjur berjalan tanpa menjalankan schema.sql lagi tetap aman. Ditulis
+-- di sini supaya pemasangan dari nol tetap lengkap dalam satu berkas.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_log (
+  id      VARCHAR(64)  NOT NULL PRIMARY KEY,
+  waktu   VARCHAR(30)  NOT NULL DEFAULT '',   -- 'YYYY-MM-DD HH:MM:SS' waktu SERVER
+  tanggal VARCHAR(20)  NOT NULL DEFAULT '',   -- YYYY-MM-DD, untuk saring per hari
+  modul   VARCHAR(30)  NOT NULL DEFAULT '',   -- ordering | purchasing
+  aksi    VARCHAR(40)  NOT NULL DEFAULT '',   -- kode pendek, mis. order_kirim
+  aktor   VARCHAR(120) NOT NULL DEFAULT '',
+  tim     VARCHAR(40)  NOT NULL DEFAULT '',
+  ringkas VARCHAR(500) NOT NULL DEFAULT '',   -- satu kalimat siap tampil
+  data    LONGTEXT     NOT NULL,              -- rincian bebas, JSON
+  KEY idx_log_tgl (tanggal),
+  KEY idx_log_modul (modul),
+  KEY idx_log_aksi (aksi)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

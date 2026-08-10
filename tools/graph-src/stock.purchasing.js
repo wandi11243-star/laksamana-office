@@ -1344,6 +1344,78 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -1382,7 +1454,7 @@ function loadPerms() { loadStateFromStorage(); }
 
 
 
-function savePerms() { enterApp(); ensureUsersLocal(); refreshUsersFromSheet(); loadPerms(); officeUser(); }
+function savePerms() { catatLog(); }
 
 
 
@@ -1401,6 +1473,37 @@ function savePerms() { enterApp(); ensureUsersLocal(); refreshUsersFromSheet(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function catatLog() { enterApp(); ensureUsersLocal(); refreshUsersFromSheet(); loadPerms(); officeUser(); }
 
 
 
@@ -2018,7 +2121,95 @@ function formatFriendlyDate() {  }
 
 
 
-function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); }
+function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); siapkanLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function siapkanLog() { muatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatLog() {  }
+
+
+
+
 
 
 
@@ -3360,7 +3551,7 @@ function confirmConsolidatedWA() { openWAConfirmModal(); }
 
 
 
-function triggerDeleteVendorConfirm() { requireEditPage(); openConfirmModal(); showToast(); sendPostRequest(); fetchSheetData(); }
+function triggerDeleteVendorConfirm() { requireEditPage(); openConfirmModal(); showToast(); sendPostRequest(); catatLog(); fetchSheetData(); }
 
 
 
@@ -3387,7 +3578,9 @@ function triggerDeleteVendorConfirm() { requireEditPage(); openConfirmModal(); s
 
 
 
-function triggerDeleteProductConfirm() { requireEditPage(); openConfirmModal(); showToast(); sendPostRequest(); fetchSheetData(); }
+
+function triggerDeleteProductConfirm() { requireEditPage(); openConfirmModal(); showToast(); sendPostRequest(); catatLog(); fetchSheetData(); }
+
 
 
 
@@ -4731,7 +4924,9 @@ function hapusMutasiCK() { requireEditPage(); openConfirmModal(); muatCK(); show
 
 
 
-function simpanJemput() { requireEditPage(); showToast(); jemputTglAktif(); daftarJemput(); sendPostRequest(); saveStateToStorage(); renderJemput(); muatCK(); }
+function simpanJemput() { requireEditPage(); showToast(); jemputTglAktif(); daftarJemput(); sendPostRequest(); saveStateToStorage(); renderJemput(); muatCK(); catatLog(); }
+
+
 
 
 
@@ -4867,7 +5062,7 @@ function sendPostRequest() { showToast(); }
 
 
 
-function markAsArchived() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); vendorUtamaOrder(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); sendPostRequest(); }
+function markAsArchived() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); vendorUtamaOrder(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); catatLog(); sendPostRequest(); }
 
 
 
@@ -4913,7 +5108,12 @@ function markAsArchived() { requireEditPage(); orderPerluJadwalJemput(); bacaTgl
 
 
 
-function archiveConsolidatedGroup() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); sendPostRequest(); }
+
+
+
+function archiveConsolidatedGroup() { requireEditPage(); orderPerluJadwalJemput(); bacaTglJemput(); showToast(); simpanTglJemput(); saveStateToStorage(); renderDashboard(); catatLog(); sendPostRequest(); }
+
+
 
 
 
@@ -4971,7 +5171,12 @@ function unarchiveOrder() { requireEditPage(); saveStateToStorage(); renderDashb
 
 
 
-function submitAddVendor() { requireEditPage(); showToast(); sendPostRequest(); closeVendorModal(); fetchSheetData(); }
+function submitAddVendor() { requireEditPage(); showToast(); sendPostRequest(); catatLog(); closeVendorModal(); fetchSheetData(); }
+
+
+
+
+
 
 
 
@@ -5181,7 +5386,12 @@ function updateBackupCheckboxes() {  }
 
 
 
-function submitProductMapping() { requireEditPage(); showToast(); sendPostRequest(); closeProductModal(); fetchSheetData(); }
+function submitProductMapping() { requireEditPage(); showToast(); sendPostRequest(); catatLog(); closeProductModal(); fetchSheetData(); }
+
+
+
+
+
 
 
 
