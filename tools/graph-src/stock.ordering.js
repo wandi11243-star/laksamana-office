@@ -4092,7 +4092,19 @@ function setBatchMode() {  }
 
 
 
-function muatDaftarBatch() { timSaatIni(); dariFormCK(); fmtTglPendek(); }
+function muatDaftarBatch() { timSaatIni(); timTerkunci(); dariFormCK(); fmtTglPendek(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4718,7 +4730,13 @@ function setPoFilter() { renderPoCards(); }
 
 
 
-function timDariRecord() { getKeterangan(); orderUntukTim(); }
+function timDariRecord() { getKeterangan(); }
+
+
+
+
+
+function timBakuRecord() { timDariKeterangan(); timDariRecord(); timTerkunci(); }
 
 
 
@@ -4735,11 +4753,12 @@ function timDariRecord() { getKeterangan(); orderUntukTim(); }
 
 
 
-function timBakuRecord() { timDariKeterangan(); timDariRecord(); }
+
+
+
 
 
 function orderUntukTim() { timBakuRecord(); }
-
 
 
 

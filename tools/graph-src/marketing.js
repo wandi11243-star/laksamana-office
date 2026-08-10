@@ -1320,6 +1320,100 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -10127,12 +10221,278 @@ function kalkNormalRows() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkRefLabel() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkWarnaKat() {  }
+
+
+
+
+
+function kalkTitikKat() { kalkWarnaKat(); }
+
+
+
+
+
+function kalkKategori() { menuDbJenis(); mdbItems(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkBukaPilihBaris() { kalkBukaPilih(); kalkGambarPilih(); }
+
+
+
+
+
+
+
+
+
+
+function kalkBukaPilih() { modal(); closeModal(); svg(); kalkTerapkanPilih(); kalkGambarPilih(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkGambarPilih() { $(); kalkPilihKatHTML(); kalkPilihItemHTML(); kalkGambarHitung(); }
+
+
+
+
+
+
+
+
+
+
+
+function kalkGambarHitung() { $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkTerpilihHTML() { kalkKosongkanPilihan(); kalkWarnaKat(); esc(); kalkCabut(); escJsAttr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkCabut() { kalkGambarPilih(); }
+
+
+
+function kalkKosongkanPilihan() { kalkGambarPilih(); }
+
+
+
+function kalkPilihKatHTML() { kalkKategori(); kalkTerpilihHTML(); mdbItems(); kalkRefLabel(); kalkWarnaKat(); kalkPilihKat(); escJsAttr(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkPilihItemHTML() { mdbItems(); kalkRefLabel(); kalkPilihKembali(); esc(); kalkPilihCari(); kalkPilihSemua(); kalkTogglePilih(); escJsAttr(); kalkTitikKat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkPilihKat() { kalkGambarPilih(); }
+function kalkPilihKembali() { kalkGambarPilih(); }
+function kalkPilihCari() { $(); kalkPilihItemHTML(); }
+
+
+
+
+
+
+
+
+
+
+function kalkTogglePilih() { closeModal(); renderKalkulator(); $(); kalkGambarHitung(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkPilihSemua() { mdbItems(); kalkRefLabel(); kalkGambarPilih(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkTerapkanPilih() { kalkBarisBaru(); closeModal(); renderKalkulator(); $(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function escJsAttr() {  }
+
 function kalkMenuAll() { menuDbJenis(); mdbItems(); }
 
 
 
 
-function renderKalkulator() { kalkMenuAll(); kalkPilihMenu(); esc(); kalkLabel(); pageHead(); empty(); kalkSet(); kalkRowsHTML(); kalkTambahRow(); svg(); poRibuan(); kalkHitung(); }
+function renderKalkulator() { kalkMenuAll(); kalkPilihMenu(); esc(); kalkLabel(); pageHead(); empty(); kalkSet(); kalkRowsHTML(); kalkBukaPilih(); svg(); kalkTambahRow(); poRibuan(); kalkHitung(); }
 
 
 
@@ -10191,12 +10551,12 @@ function renderKalkulator() { kalkMenuAll(); kalkPilihMenu(); esc(); kalkLabel()
 
 
 
-function kalkRowsHTML() { kalkNormalRows(); esc(); kalkLabelRef(); kalkPilihMenu(); kalkSetRow(); kalkSamakanPax(); kalkHapusRow(); }
 
 
 
 
 
+function kalkRowsHTML() { kalkNormalRows(); kalkSelHTML(); kalkSetRow(); kalkSamakanPax(); kalkHapusRow(); }
 
 
 
@@ -10212,6 +10572,27 @@ function kalkRowsHTML() { kalkNormalRows(); esc(); kalkLabelRef(); kalkPilihMenu
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalkSelHTML() { kalkLabelRef(); kalkBukaPilihBaris(); kalkTitikKat(); esc(); }
 
 
 

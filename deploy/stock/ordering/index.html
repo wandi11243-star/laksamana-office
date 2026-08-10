@@ -4098,7 +4098,19 @@
             daftarBatch = [];
             sel.innerHTML = '<option value="">Memuat batch…</option>';
 
-            const tim = timSaatIni();
+            /* Yang dikirim TIM YANG MENGUNCI, bukan tim si pengirim.
+               Dulu di sini dipakai timSaatIni(), yang memulangkan keterangan
+               akun apa adanya — untuk akun Office nilainya "Office", dan
+               backend lalu menyaring `tim = 'Office'`. Batch yang dibuat kru
+               Kitchen/Bar/Floor tidak pernah ikut, jadi daftar "gabung ke
+               batch" SELALU KOSONG untuk orang Office. Itulah "gabung batch
+               ga muncul datanya" yang dilaporkan 10 Agustus 2026.
+
+               timTerkunci() memulangkan "" untuk yang boleh melihat semua tim
+               (Office & admin) — dan "" berarti backend tidak menyaring tim
+               sama sekali. Kru yang terkunci tetap hanya melihat batch timnya,
+               aturan yang sama persis dengan yang dipakai Check-in. */
+            const tim = timTerkunci();
             const tgl = document.getElementById('batch-arrival-date').value || "";
             try {
                 // Disaring per TIM dan per TANGGAL: batch tujuan harus kedatangan
@@ -4723,24 +4735,31 @@
             return (row.tim || "").trim() || getKeterangan(row.pic || "");
         }
         /* Tim BAKU sebuah order: Kitchen / Bar / Floor, atau "" kalau bukan
-           salah satunya.
-
-           "" BUKAN berarti tidak diketahui — ia berarti MILIK SEMUA. Pembelian
-           yang diajukan tim Office (atau CEO, atau akun tanpa keterangan)
-           dibeli untuk outlet, bukan untuk satu tim. Sebelum 10 Agustus 2026
-           order seperti itu dibandingkan mentah-mentah dengan 'Kitchen'/'Bar'/
-           'Floor', dan karena "Office" tidak pernah sama dengan ketiganya,
-           barangnya TIDAK PERNAH muncul di Check-in Penerimaan siapa pun —
-           barang datang tanpa ada satu layar pun yang bisa menerimanya.
-
-           Dipakai lewat orderUntukTim() supaya aturan "kosong = semua" hidup
-           di satu tempat saja. */
+           salah satunya (Office, CEO, akun tanpa keterangan). */
         function timBakuRecord(row) {
             return timDariKeterangan(timDariRecord(row));
         }
+        /* SIAPA MELIHAT ORDER SIAPA — dijawab di satu tempat.
+
+           Aturannya KETAT, dan ini pembalikan dari versi 10 Agustus 2026 pagi.
+           Waktu itu order bertim "" (Office/CEO/tanpa keterangan) dibuat
+           terlihat oleh SEMUA tim, dengan alasan pembelian Office dibeli untuk
+           outlet. Akibatnya kebablasan: pembelian Floor pun bocor ke layar
+           Kitchen, dan user membetulkannya di hari yang sama — "floor hanya
+           floor saja, bar hanya bar saja, kitchen hanya kitchen saja, office
+           bisa melihat semua".
+
+           Jadi yang membuat Office tetap terlayani BUKAN order-nya yang
+           dilonggarkan, melainkan PEMBACANYA: timTerkunci() memulangkan ""
+           untuk akun Office & admin, dan "" membuat penyaring tim dilewati
+           sepenuhnya. Satu aturan, dua sisi yang jelas — bukan dua aturan yang
+           saling menambal.
+
+           Konsekuensi yang diterima: order bertim Office TIDAK tampil di layar
+           kru Kitchen/Bar/Floor. Yang men-check-in barang Office adalah orang
+           Office sendiri, yang memang melihat semuanya. */
         function orderUntukTim(row, tim) {
-            const t = timBakuRecord(row);
-            return !t || t === tim;
+            return timBakuRecord(row) === tim;
         }
 
         // ==========================================
