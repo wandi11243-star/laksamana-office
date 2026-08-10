@@ -243,6 +243,18 @@ img{max-width:100%;display:block}
 .gps.cari  .ic{background:var(--gold-soft);color:var(--gold-dim)}
 
 /* Keadaan kosong yang MENJELASKAN, bukan sekadar "belum ada data". */
+/* Diagnosa lokasi: satu baris satu hal, dengan tanda yang bisa dibaca
+   sekilas. Hijau = sudah benar, merah = inilah penyebabnya. */
+.diag{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.diag .dg{display:flex;flex-direction:column;gap:2px;padding:11px 13px;border-bottom:1px solid var(--line);
+  border-left:4px solid var(--line)}
+.diag .dg:last-child{border-bottom:none}
+.diag .dg b{font-size:13px}
+.diag .dg span{font-size:12px;color:var(--muted);line-height:1.5;word-break:break-word}
+.diag .dg.y{border-left-color:var(--ok)}
+.diag .dg.n{border-left-color:var(--danger)}
+.diag .dg.n b{color:var(--danger)}
+
 .kosong-lok{padding:26px 20px;text-align:center}
 .kosong-lok .ic{width:54px;height:54px;border-radius:50%;margin:0 auto 12px;display:grid;
   place-items:center;background:var(--gold-soft);color:var(--gold-dim)}
@@ -652,6 +664,7 @@ function terimaPos(p){
   segarkanLokasiDiLayar();
 }
 function tolakPos(e){
+  POS_KODE = (e && e.code) || 0;
   POS_ERR = e && e.code===1
       ? ('Izin lokasi ditolak. Ketuk ikon gembok di sebelah alamat, lalu izinkan Lokasi untuk situs ini.'
          /* Halaman non-HTTPS juga membalas kode 1 di sebagian peramban, dan
@@ -742,6 +755,65 @@ function gpsKotakHTML(){
     +'<div class="is"><b>'+nilai[1]+' · ±'+a+' m</b>'
     +'<span class="mono">'+POS.lat.toFixed(6)+', '+POS.lng.toFixed(6)+'</span>'
     +'<span>'+saran+'</span></div></div>';
+}
+
+/* ---------------------------------------------------------------------
+   KENAPA LOKASI BELUM TERBACA — diagnosa yang bisa dibaca orangnya sendiri
+
+   "Lokasinya tidak bisa ke-detect" bisa berarti enam hal yang berbeda, dan
+   lima di antaranya BUKAN kesalahan aplikasi ini: halaman bukan HTTPS, izin
+   situs ditolak, layanan lokasi perangkat mati (Windows maupun Android),
+   halaman dibuka di dalam aplikasi lain, atau peramban yang memang tidak
+   punya geolocation. Kelimanya bergejala sama persis di layar: tidak ada
+   angka yang muncul.
+
+   Panel ini menuliskan keadaan yang sebenarnya, satu baris satu hal, supaya
+   yang melapor tinggal mengirim tangkapan layarnya — bukan menebak-nebak
+   bersama-sama lewat pesan. Kode galat terakhir ikut ditulis apa adanya:
+   1=izin ditolak, 2=perangkat tidak bisa menentukan posisi, 3=kehabisan
+   waktu. Nomor 2 hampir selalu berarti layanan lokasi PERANGKAT mati, bukan
+   izin situs — dan itu yang paling sering tertukar. */
+let POS_KODE=0;
+function diagnosaHTML(){
+  const b=[];
+  const baris=function(ok,judul,ket){
+    return '<div class="dg '+(ok===null?'x':(ok?'y':'n'))+'"><b>'+judul+'</b><span>'+ket+'</span></div>';
+  };
+  b.push(baris(konteksAman(),'Halaman aman (HTTPS)',
+    konteksAman() ? location.protocol+'//'+location.host+' — memenuhi syarat'
+                  : 'Dibuka lewat '+location.protocol+' — peramban mematikan GPS di halaman non-HTTPS'));
+  b.push(baris(!!navigator.geolocation,'Peramban mendukung GPS',
+    navigator.geolocation ? 'Tersedia' : 'Tidak ada geolocation di peramban ini'));
+  /* Di dalam iframe, izin lokasi harus diberikan induknya lewat
+     allow="geolocation" — tanpa itu ia ditolak tanpa kotak izin. */
+  let diBingkai=false; try{ diBingkai = window.top!==window.self; }catch(e){ diBingkai=true; }
+  b.push(baris(!diBingkai,'Bukan di dalam bingkai',
+    diBingkai ? 'Halaman ini termuat di dalam halaman lain — buka langsung alamatnya' : 'Dibuka langsung'));
+  b.push(baris(POS?true:null,'Posisi terbaca',
+    POS ? POS.lat.toFixed(6)+', '+POS.lng.toFixed(6)+' (±'+POS.akurasi+' m)' : 'Belum ada'));
+  if(POS_KODE){
+    const arti={1:'Izin situs ditolak — buka lewat ikon gembok di sebelah alamat',
+                2:'Perangkat tidak bisa menentukan posisi — layanan lokasi HP/Windows kemungkinan mati',
+                3:'Kehabisan waktu — sinyalnya belum dapat, coba di area terbuka'};
+    b.push(baris(false,'Galat terakhir (kode '+POS_KODE+')', arti[POS_KODE]||'Tidak dikenali'));
+  }
+  b.push('<div class="dg x"><b>Izin situs</b><span id="dgIzin">memeriksa…</span></div>');
+  setTimeout(function(){
+    const el=$('#dgIzin'); if(!el) return;
+    if(!(navigator.permissions && navigator.permissions.query)){ el.textContent='Tidak bisa diperiksa di peramban ini'; return; }
+    navigator.permissions.query({name:'geolocation'}).then(function(st){
+      el.textContent = st.state==='granted' ? 'Sudah diizinkan'
+                     : st.state==='denied'  ? 'DITOLAK — ini penyebabnya. Buka ikon gembok → Izin situs → Lokasi → Izinkan'
+                                            : 'Belum ditanyakan — ketuk "Ambil lokasi saya"';
+    }).catch(function(){ el.textContent='Tidak bisa diperiksa'; });
+  },0);
+  return '<div class="diag">'+b.join('')+'</div>';
+}
+function togglDiagnosa(){
+  const w=$('#diagKotak'); if(!w) return;
+  const buka=w.style.display==='none' || !w.style.display;
+  w.style.display = buka?'':'none';
+  if(buka) w.innerHTML=diagnosaHTML();
 }
 
 /* Terima koordinat yang DITEMPEL, bukan hanya dari GPS.
@@ -1546,6 +1618,11 @@ function viewAtur(){
    +'<div id="gpsKotak">'+gpsKotakHTML()+'</div>'
    +'<button class="btn btn-ghost btn-block" id="btGps" style="margin-top:9px" onclick="ambilLokasiSekarang()">'
      +ikon('pin',17)+(POS?' Ambil lokasi lagi':' Ambil lokasi saya')+'</button>'
+   /* Jalan keluar dari "tidak bisa ke-detect": daripada menebak lewat pesan,
+      yang melapor tinggal membuka ini dan mengirim tangkapan layarnya. */
+   +'<button class="btn btn-ghost btn-block" style="margin-top:7px;font-size:12.5px" '
+     +'onclick="togglDiagnosa()">Kenapa lokasi belum terbaca?</button>'
+   +'<div id="diagKotak" style="display:none;margin-top:9px"></div>'
    +(l.length? '<div class="card" style="margin-top:12px">'+l.map(lokBarisHTML).join('')+'</div>'
              : '<div class="card kosong-lok" style="margin-top:12px">'
                +'<div class="ic">'+ikon('pin',26)+'</div>'
