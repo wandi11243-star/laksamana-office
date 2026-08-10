@@ -963,7 +963,14 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 .mini{font-weight:500;font-size:11.5px;color:var(--sand-dim);letter-spacing:0}
 
 .kalk-sel-wrap{position:relative}
-.kalk-saran{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:60;
+/* DAFTARNYA position:fixed DAN MENEMPEL DI <body>, bukan di dalam selnya.
+   Tabel kalkulator duduk di dalam .card.pad0{overflow:hidden} dan
+   .tbl-wrap{overflow-x:auto} — dan overflow-x:auto membuat sumbu Y ikut
+   jadi auto, bukan visible. Kotak yang diposisikan absolut di dalam keduanya
+   DIPOTONG HABIS: elemennya ada di DOM, kelas .buka-nya menyala, isinya
+   lengkap, tapi tidak pernah terlihat sepiksel pun. Itu yang bikin daftar
+   menunya seperti tidak muncul sama sekali. */
+.kalk-saran{display:none;position:fixed;z-index:900;
   max-height:320px;overflow-y:auto;-webkit-overflow-scrolling:touch;
   background:var(--card,#fff);border:1.5px solid var(--line-hard);border-radius:11px;
   box-shadow:0 14px 40px rgba(0,0,0,.16);padding:5px}
@@ -11449,14 +11456,17 @@ function kalkSelHTML(i,r){
       +'oninput="kalkSaranKetik('+i+',this)" onfocus="kalkSaranKetik('+i+',this)" '
       +'onkeydown="kalkSaranTombol(event,'+i+')" '
       +'onblur="kalkSaranTutupNanti()" onchange="kalkPilihMenu('+i+',this)">'
-    +'<div class="kalk-saran" id="kalk_saran_'+i+'"></div>'
     /* Chevron SVG, bukan karakter &#9662;. Karakter itu ukurannya ditentukan
        font dan di sebagian huruf ia digambar mungil di tengah kotak — tidak
        ada cara mengatur ketebalannya. SVG bisa dipastikan 18px dengan garis
        yang cukup tebal untuk terlihat di layar HP. */
-    +'<button type="button" class="kalk-drop" title="Pilih dari daftar kategori" '
-      +'aria-label="Pilih menu dari daftar kategori" '
-      +'onclick="kalkBukaPilihBaris('+i+')">'
+    /* Panah ke bawah = dropdown biasa: seluruh menu langsung terbuka, tanpa
+       harus mengetik apa pun. Sebelumnya ia membuka lembar pemilih kategori
+       — bentuknya panah, tapi yang terjadi bukan yang dijanjikan panah.
+       Lembar kategori tetap ada, di tombol emasnya sendiri di bawah tabel. */
+    +'<button type="button" class="kalk-drop" title="Tampilkan semua menu" '
+      +'aria-label="Tampilkan semua menu" '
+      +'onmousedown="event.preventDefault()" onclick="kalkSaranSemua('+i+')">'
       +'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" '
       +'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
       +'<path d="m6 9 6 6 6-6"/></svg></button>'
@@ -11475,11 +11485,64 @@ function kalkSelHTML(i,r){
 
    Daftar ini menggantikannya: hurufnya huruf halaman, tiap baris 44px,
    bertitik warna kategori, dan bisa dijalankan dengan panah + Enter. */
-let _saranIdx=-1, _saranTutup=null;
+let _saranIdx=-1, _saranTutup=null, _saranBaris=-1, _saranPasang=false;
 
-function kalkSaranKetik(i,el){
-  const q=String(el.value||'').trim().toLowerCase();
-  const kotak=$('kalk_saran_'+i); if(!kotak) return;
+/* Satu lapisan dipakai bergantian semua baris. Dibuat sekali, ditempel di
+   <body> supaya lepas dari pemotong-pemotong di atas tabelnya. */
+function kalkSaranLayer(){
+  let el=document.getElementById('kalk_saran_layer');
+  if(!el){
+    el=document.createElement('div');
+    el.id='kalk_saran_layer';
+    el.className='kalk-saran';
+    document.body.appendChild(el);
+  }
+  if(!_saranPasang){
+    _saranPasang=true;
+    /* Karena posisinya fixed, ia tidak ikut bergerak saat halaman digulir —
+       jadi ia harus ditutup, bukan dibiarkan menggantung di tempat lamanya. */
+    window.addEventListener('scroll', kalkSaranTutup, true);
+    window.addEventListener('resize', kalkSaranTutup);
+  }
+  return el;
+}
+function kalkSaranTutup(){
+  const el=document.getElementById('kalk_saran_layer');
+  if(el) el.classList.remove('buka');
+  _saranBaris=-1;
+}
+/* Ditaruh tepat di bawah kotak ketiknya. Kalau ruang di bawah tidak cukup ia
+   dibuka ke atas: di layar HP baris terakhir tabel hampir selalu menempel di
+   tepi bawah layar, dan daftar yang terbuka ke bawah di situ tidak terbaca. */
+function kalkSaranPosisi(inp){
+  const layer=kalkSaranLayer(), r=inp.getBoundingClientRect();
+  const bawah=window.innerHeight-r.bottom;
+  layer.style.left=Math.max(8,r.left)+'px';
+  layer.style.width=Math.max(240,Math.min(r.width, window.innerWidth-16))+'px';
+  if(bawah<220 && r.top>bawah){
+    layer.style.top='auto';
+    layer.style.bottom=(window.innerHeight-r.top+4)+'px';
+    layer.style.maxHeight=Math.min(320,r.top-14)+'px';
+  }else{
+    layer.style.bottom='auto';
+    layer.style.top=(r.bottom+4)+'px';
+    layer.style.maxHeight=Math.min(320,Math.max(160,bawah-14))+'px';
+  }
+}
+/* Dipanggil tombol panah: seluruh menu, tanpa memandang apa yang sudah
+   diketik — itu yang diharapkan orang dari sebuah panah dropdown. */
+function kalkSaranSemua(i){
+  const inp=$('kalk_ketik_'+i); if(!inp) return;
+  const layer=document.getElementById('kalk_saran_layer');
+  if(layer && layer.classList.contains('buka') && _saranBaris===i){ kalkSaranTutup(); return; }
+  inp.focus();
+  kalkSaranKetik(i,inp,true);
+}
+function kalkSaranKetik(i,el,semua){
+  const q=semua?'':String(el.value||'').trim().toLowerCase();
+  const kotak=kalkSaranLayer(); if(!kotak) return;
+  _saranBaris=i;
+  kalkSaranPosisi(el);
   /* Yang dicocokkan nama DAN kategorinya, dan potongannya boleh ada di mana
      saja — orang mengetik "goreng" untuk mencari "Nasi Goreng Kampoeng",
      bukan mengetik dari huruf pertama. */
@@ -11494,7 +11557,13 @@ function kalkSaranKetik(i,el){
   const lebih=hasil.length-60; hasil=hasil.slice(0,60);
   _saranIdx=-1;
   if(!hasil.length){
-    kotak.innerHTML='<div class="kosong">Tidak ada menu yang cocok dengan "'+esc(q)+'"</div>';
+    /* Database Menu yang memang masih kosong bukan hal yang sama dengan
+       pencarian yang tidak ketemu — dan yang pertama tidak akan pernah
+       selesai sendiri kalau tidak dikatakan. */
+    kotak.innerHTML='<div class="kosong">'
+      +(kalkMenuAll().length ? 'Tidak ada menu yang cocok dengan "'+esc(q)+'"'
+                            : 'Database Menu masih kosong. Isi dulu di halaman <b>Database Menu</b>.')
+      +'</div>';
     kotak.classList.add('buka'); return;
   }
   let katSekarang='';
@@ -11514,7 +11583,7 @@ function kalkSaranKetik(i,el){
   kotak.classList.add('buka');
 }
 function kalkSaranPakai(i,n){
-  const kotak=$('kalk_saran_'+i); if(!kotak) return;
+  const kotak=document.getElementById('kalk_saran_layer'); if(!kotak) return;
   let daftar=[]; try{ daftar=JSON.parse(kotak.dataset.hasil||'[]'); }catch(e){}
   const ref=daftar[n]; if(!ref) return;
   kalkSetRow(i,'ref',ref);
@@ -11525,7 +11594,8 @@ function kalkSaranPakai(i,n){
    tetikus, dan yang mengisi sepuluh baris berturut-turut harus melepas
    tangan dari papan ketik tiap satu baris. */
 function kalkSaranTombol(e,i){
-  const kotak=$('kalk_saran_'+i); if(!kotak||!kotak.classList.contains('buka')) return;
+  const kotak=document.getElementById('kalk_saran_layer');
+  if(!kotak||!kotak.classList.contains('buka')||_saranBaris!==i) return;
   const opsi=[...kotak.querySelectorAll('.opsi')];
   if(!opsi.length) return;
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){
@@ -11546,9 +11616,7 @@ function kalkSaranTombol(e,i){
    mendarat di tempat daftar itu tadi berada. */
 function kalkSaranTutupNanti(){
   clearTimeout(_saranTutup);
-  _saranTutup=setTimeout(function(){
-    document.querySelectorAll('.kalk-saran.buka').forEach(function(k){ k.classList.remove('buka'); });
-  }, 140);
+  _saranTutup=setTimeout(kalkSaranTutup, 140);
 }
 function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+')'); }
 function kalkLabelRef(ref){
