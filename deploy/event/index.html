@@ -2383,13 +2383,82 @@ function ruleHari(dow){
   return r?ruleNormal(r):ruleNormal({});
 }
 
-/* ============ FEE & PAYMENT ============ */
+/* ============ FEE & PAYMENT ============
+   FEE YANG DIISI DI TALENT MANAGEMENT ADALAH FEE PER HARI TAMPIL.
+   Rekap di bawah menjumlahkannya per periode: tiap jadwal berstatus Done
+   adalah satu hari tampil, jadi total = jumlah hari x fee hari itu. Fee tiap
+   jadwal disimpan per baris, bukan diambil ulang dari profil talent — kalau
+   diambil ulang, menaikkan fee seseorang bulan ini akan diam-diam mengubah
+   tagihan bulan-bulan yang sudah lewat.
+
+   PERIODENYA BISA MINGGUAN. Sebelumnya hanya bulanan, dan itu tidak cocok
+   dengan cara bayar yang sebenarnya: banyak penampil dibayar tiap akhir
+   pekan, bukan menunggu tanggal 1. Yang membayar mingguan terpaksa
+   menghitung sendiri dari daftar bulanan — dan hitungan tangan yang diulang
+   tiap minggu pasti meleset suatu saat. */
+let feeMode='bulan';          // 'minggu' | 'bulan' | 'rentang'
 let feeMonth=dstr(new Date()).slice(0,7);
+let feeDari='', feeSampai='';
+
+/* Rentang tanggal periode yang sedang dipilih, apa pun modenya. Satu tempat
+   supaya rekap, tombol Generate, dan rincian tagihan tidak pernah memakai
+   rentang yang berbeda. */
+function feeRentang(){
+  if(feeMode==='rentang'){
+    const a=feeDari||dstr(new Date()), b=feeSampai||a;
+    return a<=b?{a:a,b:b}:{a:b,b:a};
+  }
+  if(feeMode==='minggu'){
+    /* Senin sampai Minggu. Awal pekan Senin, bukan Minggu: itu yang dipakai
+       modul jadwal shift dan cara orang di sini menyebut "minggu ini". */
+    const d=feeDari?new Date(feeDari+'T00:00:00'):new Date();
+    const geser=(d.getDay()+6)%7;
+    const sen=new Date(d); sen.setDate(d.getDate()-geser);
+    const min=new Date(sen); min.setDate(sen.getDate()+6);
+    return {a:dstr(sen), b:dstr(min)};
+  }
+  const th=+feeMonth.slice(0,4), bl=+feeMonth.slice(5,7);
+  return {a:feeMonth+'-01', b:dstr(new Date(th, bl, 0))};
+}
+function feeLabelPeriode(){
+  const r=feeRentang();
+  if(feeMode==='bulan') return MONTHS[+feeMonth.slice(5)-1]+' '+feeMonth.slice(0,4);
+  return fmtDate(r.a)+' - '+fmtDate(r.b);
+}
+/* Kunci periode untuk baris pembayaran. Bulanan tetap memakai 'YYYY-MM'
+   supaya tagihan lama tetap ketemu; periode lain memakai rentangnya, jadi
+   tagihan mingguan tidak pernah tertukar dengan tagihan bulanan. */
+function feeKunci(){
+  const r=feeRentang();
+  return feeMode==='bulan' ? feeMonth : (r.a+'..'+r.b);
+}
+function feeSetMode(m){
+  feeMode=m;
+  if(m!=='bulan' && !feeDari) feeDari=dstr(new Date());
+  renderFee();
+}
+function feeGeser(arah){
+  const r=feeRentang();
+  if(feeMode==='bulan'){
+    feeMonth=dstr(new Date(+feeMonth.slice(0,4), +feeMonth.slice(5,7)-1+arah, 1)).slice(0,7);
+  }else if(feeMode==='minggu'){
+    const d=new Date(r.a+'T00:00:00'); d.setDate(d.getDate()+7*arah); feeDari=dstr(d);
+  }else{
+    const a=new Date(r.a+'T00:00:00'), b=new Date(r.b+'T00:00:00');
+    const n=Math.round((b-a)/86400000)+1;
+    a.setDate(a.getDate()+n*arah); b.setDate(b.getDate()+n*arah);
+    feeDari=dstr(a); feeSampai=dstr(b);
+  }
+  renderFee();
+}
 function renderFee(){
   setTop('Fee & Pembayaran Talent','Rekap otomatis show Done × fee','');
   // build recap per talent for month
+  const per=feeRentang();
   const recap={};
-  DB.schedules.filter(s=>s.date.startsWith(feeMonth)&&s.status==='Done').forEach(s=>{recap[s.talent_id]=recap[s.talent_id]||{count:0,total:0};recap[s.talent_id].count++;recap[s.talent_id].total+=s.fee;});
+  DB.schedules.filter(s=>s.date>=per.a && s.date<=per.b && s.status==='Done')
+    .forEach(s=>{recap[s.talent_id]=recap[s.talent_id]||{count:0,total:0};
+                 recap[s.talent_id].count++; recap[s.talent_id].total+=s.fee;});
   /* Dulu tabel ini hanya memuat talent yang PUNYA show Done bulan itu, jadi
      talent yang baru ditambah seolah-olah tidak masuk sistem fee sama sekali.
      Sekarang semua talent Active ikut tampil (0 show), plus talent Inactive
@@ -2398,17 +2467,34 @@ function renderFee(){
   DB.talents.filter(t=>t.status==='Active').forEach(t=>ids.add(t.id));
   const rows=[...ids].map(tid=>{
     const t=DB.talents.find(x=>x.id===tid); if(!t)return null;
-    const pay=DB.talentPayments.find(p=>p.talent_id===tid&&p.period_month===feeMonth);
+    const pay=DB.talentPayments.find(p=>p.talent_id===tid&&p.period_month===feeKunci());
     return {t,count:0,total:0,...(recap[tid]||{}),pay};
   }).filter(Boolean)
     // yang ada show-nya di atas, lalu nominal terbesar, lalu abjad
     .sort((a,b)=>(b.count-a.count)||(b.total-a.total)||a.t.name.localeCompare(b.t.name));
   C().innerHTML=`
-  <div class="toolbar"><label style="margin:0">Periode:</label><input type="month" value="${feeMonth}" onchange="feeMonth=this.value;renderFee()" style="width:auto">
-  <span class="pill">Total show Done: ${Object.values(recap).reduce((a,r)=>a+r.count,0)}</span>
-  <span class="pill">Total fee: ${IDR(Object.values(recap).reduce((a,r)=>a+r.total,0))}</span></div>
-  <div class="card" style="padding:0"><table><thead><tr><th>Talent</th><th>Bank</th><th>Show Done</th><th>Total Fee</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr${r.count?'':' style="opacity:.62"'}><td><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} show</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak ada show bulan ini</span>')}</td>
+  <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+    <div class="seg-per">
+      ${[['minggu','Mingguan'],['bulan','Bulanan'],['rentang','Rentang']].map(m=>
+        `<button class="${feeMode===m[0]?'on':''}" onclick="feeSetMode('${m[0]}')">${m[1]}</button>`).join('')}
+    </div>
+    <button class="btn ghost sm" title="Periode sebelumnya" onclick="feeGeser(-1)">&lsaquo;</button>
+    ${feeMode==='bulan'
+      ? `<input type="month" value="${feeMonth}" onchange="feeMonth=this.value;renderFee()" style="width:auto">`
+      : feeMode==='minggu'
+      ? `<input type="date" value="${per.a}" onchange="feeDari=this.value;renderFee()" style="width:auto">`
+      : `<input type="date" value="${per.a}" onchange="feeDari=this.value;renderFee()" style="width:auto">
+         <span class="mini">s/d</span>
+         <input type="date" value="${per.b}" onchange="feeSampai=this.value;renderFee()" style="width:auto">`}
+    <button class="btn ghost sm" title="Periode berikutnya" onclick="feeGeser(1)">&rsaquo;</button>
+    <span class="pill">${feeLabelPeriode()}</span>
+    <span class="pill">Total hari tampil: ${Object.values(recap).reduce((a,r)=>a+r.count,0)}</span>
+    <span class="pill">Total fee: ${IDR(Object.values(recap).reduce((a,r)=>a+r.total,0))}</span>
+  </div>
+  <p class="mini" style="margin:-4px 0 12px">Fee di profil talent adalah <b>fee per hari tampil</b>.
+     Total di bawah = jumlah hari berstatus <b>Done</b> pada periode ini &times; fee hari itu.</p>
+  <div class="card" style="padding:0"><table><thead><tr><th>Talent</th><th>Bank</th><th>Hari Tampil</th><th>Total Fee</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
+  ${rows.map(r=>`<tr${r.count?'':' style="opacity:.62"'}><td><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} hari</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak tampil di periode ini</span>')}</td>
     <td>${r.pay?(r.pay.status==='Waiting'?`<button class="btn sm" onclick="payAction('${r.pay.id}')">Bayar</button> <button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`:`<button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`):(r.count?`<button class="btn blue sm" onclick="genPayment('${r.t.id}',${r.total},${r.count})">Generate Payment</button>`:'<span class="mini">—</span>')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada talent. Tambahkan di menu Talent Management.</td></tr>'}
   </tbody></table></div>`;
 }
@@ -2417,17 +2503,18 @@ function renderFee(){
    periode, jumlah show, rekening tujuan, dan tombol lanjut ke pembayaran. */
 function genPayment(tid,total,count){
   const t=DB.talents.find(x=>x.id===tid);
-  const p={id:uid(),talent_id:tid,period_month:feeMonth,show_count:count,total_amount:total,
+  const per=feeRentang();
+  const p={id:uid(),talent_id:tid,period_month:feeKunci(),show_count:count,total_amount:total,
            status:'Waiting',bank:'',transfer_proof:null,pic_finance:'',paid_at:null,
            created_at:new Date().toISOString()};
   DB.talentPayments.push(p);save();renderFee();
-  const shows=DB.schedules.filter(s=>s.talent_id===tid&&s.date.startsWith(feeMonth)&&s.status==='Done')
+  const shows=DB.schedules.filter(s=>s.talent_id===tid&&s.date>=per.a&&s.date<=per.b&&s.status==='Done')
                           .sort((a,b)=>a.date.localeCompare(b.date));
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Tagihan Dibuat — ${esc(t.name)}</h3>
   <p class="mini" style="margin-bottom:12px">Status <b>Waiting</b>: tagihan sudah tercatat, belum dibayar. Rinciannya dari show berstatus Done pada periode ini.</p>
   <div class="kv" style="margin-bottom:14px">
-    <div class="k">Periode</div><div>${MONTHS[+feeMonth.slice(5)-1]} ${feeMonth.slice(0,4)}</div>
-    <div class="k">Jumlah Show</div><div>${count} show</div>
+    <div class="k">Periode</div><div>${feeLabelPeriode()}</div>
+    <div class="k">Hari Tampil</div><div>${count} hari</div>
     <div class="k">Total</div><div><b style="color:var(--accent);font-size:16px">${IDR(total)}</b></div>
     <div class="k">Rekening</div><div>${esc(t.bank_name||'—')}${t.bank_account?' · '+esc(t.bank_account):''}${t.account_holder?'<br><span class="mini">a/n '+esc(t.account_holder)+'</span>':''}</div>
   </div>
