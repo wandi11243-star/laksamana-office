@@ -915,6 +915,14 @@ table.tbl tr.baris-tugas>td{padding:0 14px 14px;border-bottom:1px solid var(--li
 .kat-nama::before{content:'';display:inline-block;width:9px;height:9px;border-radius:50%;
   background:var(--kw);margin-right:7px;vertical-align:middle}
 
+/* Pratinjau tagihan di panel Finance. Lebarnya sempit, jadi tabelnya boleh
+   digulir mendatar sendiri daripada memaksa kolomnya menyempit sampai tak
+   terbaca. */
+.inv-pratinjau{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);
+  border-radius:9px;padding:12px;background:#fff;color:#1a1a1a}
+.inv-pratinjau table{min-width:460px}
+.inv-pratinjau a{color:inherit}
+
 .kalk-tbl td{vertical-align:middle}
 .kalk-tbl .kalk-sel{min-width:220px}
 .kalk-tbl input{margin:0}
@@ -2649,6 +2657,14 @@ const EVENT_SCHEMA = [
   {k:'sewaVenue',l:'Sewa Venue',t:'cur'},
   {k:'biayaTeknis',l:'Sound, Lighting, dll',t:'cur'},
   {k:'biayaLain',l:'Lain-lain',t:'cur'},
+  /* Dua template ini yang menentukan isi tabel penawaran di luar komponen
+     berbayar. Ditaruh di tab Finance, bukan di Pengaturan saja, karena tiap
+     acara memang berbeda: yang gratis di gathering kantor belum tentu gratis
+     di wedding. Kosong = pakai template umum di Pengaturan. */
+  {k:'itemFree',l:'Fasilitas Termasuk (FREE)',t:'ta',full:1,
+   help:'Satu baris satu fasilitas. Muncul di penawaran bertuliskan FREE. Kosongkan untuk memakai template umum di Pengaturan. Penanda {jika-sewa-gratis} / {jika-teknis-gratis} membuat barisnya hilang sendiri kalau komponen itu ternyata ditagihkan.'},
+  {k:'itemTbc',l:'Item Belum Pasti Harganya',t:'ta',full:1,
+   help:'Satu baris satu item. Muncul bertuliskan "to be confirm" — bukan Rp0, karena nol berarti gratis dan itu janji yang tidak bisa ditarik lagi.'},
   // Item tambahan diketik sekali di Kasir, lalu tampil di sini supaya Finance
   // tahu isi "Lain-lain" itu apa saja tanpa harus buka tab Kasir.
   {k:'m_itemTambah',l:'Item Tambahan dari Kasir',t:'mirror',from:'itemTambah',full:1},
@@ -6655,6 +6671,21 @@ function finHitungHTML(ev){
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
   h+='<dl class="kv-list"><dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
   h+=paymentHistoryHtml(ev);
+  /* PRATINJAU LEMBAR TAGIHAN — bentuk yang PERSIS diterima client.
+     Sebelum ini, isi dokumen baru terlihat sesudah menekan Print, dan yang
+     paling sering ketahuan di situ justru hal-hal yang seharusnya ketahuan
+     lebih awal: fasilitas gratis yang salah daftar, item yang harganya belum
+     pasti, atau angka DP yang belum diisi. Menaruhnya di sini membuat
+     kesalahan itu terlihat saat masih murah diperbaiki. */
+  h+='<div class="divider"></div>'
+   +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+     +'<h4 style="font-size:14px;flex:1">Pratinjau Lembar Tagihan</h4>'
+     +'<button class="btn sm" onclick="genBriefFor(\''+ev.id+'\',\'quote\')">'+svg(IC.print)+'Cetak</button>'
+   +'</div>'
+   +'<div class="inv-pratinjau">'+invoiceKepalaHTML(ev,S.clients.find(c=>c.id===ev.clientId))
+   +rincianTabelHTML(ev,f)+'</div>'
+   +'<div class="fh" style="margin-top:7px">Baris FREE &amp; "to be confirm" diambil dari dua kotak template di sebelah kiri. '
+   +'Kosongkan kotak FREE untuk memakai template umum di Pengaturan.</div>';
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
   h+='</div>';
@@ -7090,6 +7121,25 @@ function renderOverview(ev){
 /* Satu baris rincian: {desc, qty, unit, total, gratis}.
    qty/unit boleh null — artinya kolomnya ditulis "-" (bukan 0, yang
    terbaca seolah jumlahnya nol). */
+/* Template bawaan fasilitas gratis. Dipakai kalau Pengaturan belum diisi.
+   Penanda {jika-...} membuat baris itu hilang sendiri begitu komponennya
+   ternyata ditagihkan. */
+const FREE_TEMPLATE_BAWAAN = [
+  'Biaya Sewa Venue (AC & Listrik) {jika-sewa-gratis}',
+  'Videotron (6 x 3 meter, Lighting, Soundsystem, Panggung, dll) {jika-teknis-gratis}',
+  'Penyesuaian Layout',
+  'Operator Teknis (Audio & Multimedia)',
+  'Koordinasi Full Event (Before – During – After)'
+].join('\n');
+
+/* Teks bertingkat baris jadi daftar. Baris kosong dibuang, spasi dirapikan —
+   orang menempel dari Word dan meninggalkan baris kosong di mana-mana. */
+function bacaTemplateBaris(v){
+  if(Array.isArray(v)) v=v.join('\n');
+  return String(v==null?'':v).split(/\r?\n/)
+    .map(function(x){ return x.trim(); })
+    .filter(function(x){ return x.length>0; });
+}
 function rincianPenawaran(ev){
   const d=ev.detail||{}, out=[];
   const pax=+ev.pax||0;
@@ -7121,61 +7171,120 @@ function rincianPenawaran(ev){
   if(+d.biayaTeknis) out.push({desc:'Sound, Lighting & Kebutuhan Teknis', qty:null, unit:null, total:+d.biayaTeknis});
   if(+d.biayaLain)   out.push({desc:(d.biayaLainKet||'Biaya Lain-lain'), qty:null, unit:null, total:+d.biayaLain});
 
+  /* --- Baris tambahan yang harganya BELUM PASTI ---
+     Ditulis "to be confirm", bukan Rp0. Nol berarti gratis; belum pasti
+     berarti belum ada angkanya, dan dua hal itu tidak boleh terlihat sama di
+     mata client. Barisnya tidak ikut dijumlahkan. */
+  bacaTemplateBaris(d.itemTbc).forEach(function(t){
+    out.push({desc:t, qty:null, unit:null, total:0, tbc:true});
+  });
+
   /* --- Yang sudah termasuk, tanpa biaya tambahan ---
-     Hanya dicetak kalau komponen berbayarnya TIDAK diisi. Menulis "Sewa
-     Venue FREE" di bawah baris "Sewa Venue Rp5.000.000" adalah dua
-     pernyataan yang saling membantah dalam satu dokumen. */
-  const gratis=[];
-  if(!+d.sewaVenue)   gratis.push('Biaya Sewa Venue (AC & Listrik)');
-  if(!+d.biayaTeknis) gratis.push('Videotron, Lighting, Soundsystem & Panggung');
-  gratis.push('Penyesuaian Layout');
-  gratis.push('Operator Teknis (Audio & Multimedia)');
-  gratis.push('Koordinasi Full Event (Before – During – After)');
-  gratis.forEach(function(g){ out.push({desc:g, qty:null, unit:null, total:0, gratis:true}); });
+     Daftarnya TEMPLATE, bukan tulisan di dalam kode: tiap acara punya
+     fasilitas gratis yang berbeda, dan yang harus mengubahnya adalah
+     marketing, bukan orang yang menyunting berkas ini.
+
+     Urutan kewenangan: daftar milik event ini (kalau diisi) menang atas
+     template umum di Pengaturan. */
+  const tmpl = bacaTemplateBaris(d.itemFree);
+  const dipakai = tmpl.length ? tmpl : bacaTemplateBaris((S.settings||{}).freeTemplate || FREE_TEMPLATE_BAWAAN);
+  dipakai.forEach(function(t){
+    /* Penanda {jika-sewa-gratis} / {jika-teknis-gratis}: barisnya hanya
+       dicetak kalau komponen berbayarnya memang tidak diisi. Menulis "Sewa
+       Venue FREE" tepat di bawah "Sewa Venue Rp5.000.000" adalah dua
+       pernyataan yang saling membantah dalam satu dokumen. */
+    let teks=t, lewati=false;
+    teks=teks.replace(/\{jika-sewa-gratis\}/gi, function(){ if(+d.sewaVenue) lewati=true; return ''; });
+    teks=teks.replace(/\{jika-teknis-gratis\}/gi, function(){ if(+d.biayaTeknis) lewati=true; return ''; });
+    teks=teks.trim();
+    if(lewati || !teks) return;
+    out.push({desc:teks, qty:null, unit:null, total:0, gratis:true});
+  });
 
   return out;
 }
 
-/* Tabel rincian untuk dokumen cetak. Gaya tabelnya sengaja bergaris penuh
-   (bukan garis bawah tipis seperti tabel layar): dokumen ini dicetak, dan
-   di atas kertas kolom tanpa garis pemisah gampang terbaca bergeser. */
-function rincianTabelHTML(ev, f){
+/* Tabel rincian untuk dokumen cetak & pratinjau layar.
+   Bentuknya mengikuti lembar penawaran yang selama ini dibuat manual di
+   Excel — No / DESCRIPTION / QTY / PRICE / AMOUNT, ditutup TOTAL, DP, dan
+   SISA PELUNASAN. Ditiru persis bukan demi nostalgia: client sudah terbiasa
+   membacanya, dan dokumen yang bentuknya berubah selalu dibaca ulang dari
+   awal dengan curiga.
+
+   Bergaris penuh, bukan garis bawah tipis seperti tabel layar: ini dicetak,
+   dan di atas kertas kolom tanpa garis pemisah gampang terbaca bergeser. */
+function rincianTabelHTML(ev, f, opsi){
+  opsi=opsi||{};
   const items=rincianPenawaran(ev);
-  const g='border:1px solid #C9C4B8;padding:8px 10px';
+  const g='border:1px solid #999;padding:7px 10px';
   const kanan=g+';text-align:right;white-space:nowrap';
   const tengah=g+';text-align:center;white-space:nowrap';
-  let h='<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px">'
-   +'<thead><tr style="background:var(--gold-deep);color:#fff">'
-     +'<th style="'+g+';width:30px;text-align:center">No</th>'
-     +'<th style="'+g+';text-align:left">Deskripsi</th>'
-     +'<th style="'+g+';width:52px;text-align:center">Qty</th>'
-     +'<th style="'+g+';width:110px;text-align:right">Harga Satuan</th>'
-     +'<th style="'+g+';width:120px;text-align:right">Total</th>'
+  let h='<table style="width:100%;border-collapse:collapse;font-size:12px">'
+   +'<thead><tr style="background:#EFEAD9">'
+     +'<th style="'+g+';width:34px;text-align:center">No</th>'
+     +'<th style="'+g+';text-align:center">DESCRIPTION</th>'
+     +'<th style="'+g+';width:52px;text-align:center">QTY</th>'
+     +'<th style="'+g+';width:112px;text-align:center">PRICE</th>'
+     +'<th style="'+g+';width:130px;text-align:center">AMOUNT</th>'
    +'</tr></thead><tbody>';
   items.forEach(function(it,i){
-    const bar = it.gratis ? 'font-weight:700' : '';
+    /* Tiga bentuk baris yang artinya BERBEDA, dan tidak boleh terlihat sama:
+         berbayar     -> angka
+         gratis       -> FREE, tebal
+         belum pasti  -> "to be confirm", miring
+       Menulis Rp0 untuk yang belum pasti adalah kesalahan yang mahal: client
+       membacanya sebagai gratis, dan tagihan yang datang belakangan jadi
+       terlihat seperti biaya siluman. */
+    const nilai = it.gratis ? '<b>FREE</b>'
+                : it.tbc    ? '<i style="color:#555">to be confirm</i>'
+                            : rp(it.total);
+    const harga = it.gratis ? 'FREE' : it.tbc ? '' : (it.unit?rp(it.unit):'-');
     h+='<tr>'
       +'<td style="'+tengah+'">'+(i+1)+'</td>'
       +'<td style="'+g+'">'+esc(it.desc)+'</td>'
-      +'<td style="'+tengah+'">'+(it.qty?it.qty:'-')+'</td>'
-      +'<td style="'+kanan+'">'+(it.gratis?'FREE':(it.unit?rp(it.unit):'-'))+'</td>'
-      +'<td style="'+kanan+';'+bar+'">'+(it.gratis?'FREE':rp(it.total))+'</td>'
+      +'<td style="'+tengah+'">'+(it.qty?it.qty:(it.tbc?'':'-'))+'</td>'
+      +'<td style="'+kanan+'">'+harga+'</td>'
+      +'<td style="'+kanan+'">'+nilai+'</td>'
     +'</tr>';
   });
-  /* Subtotal dst. tetap ditulis TERPISAH di bawah tabel barang. Menyelipkan
-     diskon dan pajak sebagai "barang" bernomor membuat client mengira itu
-     item yang bisa dicoret. */
-  const baris=function(label,nilai,gaya){
-    return '<tr><td colspan="4" style="'+g+';text-align:right;'+(gaya||'')+'">'+label+'</td>'
-      +'<td style="'+kanan+';'+(gaya||'')+'">'+nilai+'</td></tr>';
+  const kaki=function(label,nilai,tebal){
+    return '<tr><td colspan="4" style="'+g+';text-align:center;font-weight:700'
+      +(tebal?';font-size:13px':'')+'">'+label+'</td>'
+      +'<td style="'+kanan+';font-weight:700'+(tebal?';font-size:13px':'')+'">'+nilai+'</td></tr>';
   };
-  h+=baris('Subtotal', rp(f.sub));
-  if(f.disc)  h+=baris('Discount', '− '+rp(f.disc), 'color:#C0392B');
-  if(f.svcOn) h+=baris('Service Charge ('+S.settings.serviceCharge+'%)', rp(f.service));
-  h+=baris('PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' · termasuk':'')+')', rp(f.tax));
-  h+=baris('TOTAL', rp(f.grand), 'font-weight:700;font-size:14px;background:#FBF3D8;color:#8a6a12');
+  /* Diskon/service/pajak hanya ditulis kalau memang ada. Baris "Discount Rp0"
+     membuat client bertanya diskon apa yang hilang. */
+  if(f.disc)  h+=kaki('DISCOUNT','− '+rp(f.disc));
+  if(f.svcOn && f.service) h+=kaki('SERVICE CHARGE ('+S.settings.serviceCharge+'%)',rp(f.service));
+  if(f.tax)   h+=kaki('PB1 / PAJAK ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
+  h+=kaki('TOTAL',rp(f.grand),true);
+  /* DP & sisa hanya untuk dokumen yang memang berfungsi sebagai tagihan.
+     Di surat penawaran, angka "sisa pelunasan" belum punya arti — belum ada
+     yang membayar apa pun. */
+  if(opsi.tagihan!==false){
+    h+=kaki(dpLabel(f).toUpperCase(), rp(f.dp));
+    h+=kaki('SISA PELUNASAN', rp(Math.max(0, f.grand-f.paid)));
+  }
   h+='</tbody></table>';
   return h;
+}
+
+/* Kepala dokumen bergaya invoice: nama customer di kiri, nomor & tanggal di
+   kanan. Dipisah dari tabelnya supaya bisa dipakai di pratinjau layar juga. */
+function invoiceKepalaHTML(ev, c){
+  const kol='padding:3px 0;font-size:12.5px';
+  return '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">'
+   +'<tr>'
+     +'<td style="'+kol+';width:120px;color:#555">Customer Name</td>'
+     +'<td style="'+kol+'">: <b>'+esc(c&&(c.perusahaan||c.nama)||'—')+'</b></td>'
+     +'<td style="'+kol+';width:120px;color:#555;text-align:right">Invoice Number</td>'
+     +'<td style="'+kol+';width:170px">: '+esc(invoiceNo(ev))+'</td>'
+   +'</tr><tr>'
+     +'<td style="'+kol+';color:#555">Acara</td>'
+     +'<td style="'+kol+'">: '+esc(ev.nama||'—')+'</td>'
+     +'<td style="'+kol+';color:#555;text-align:right">Invoice Date</td>'
+     +'<td style="'+kol+'">: '+fmtDate(today())+'</td>'
+   +'</tr></table>';
 }
 
 function qrow(label,val){ val=+val||0; if(!val)return ''; return '<tr><td style="padding:7px 14px;border-bottom:1px solid #f0f0f0">'+label+'</td><td style="text-align:right;padding:7px 14px;border-bottom:1px solid #f0f0f0">'+rp(val)+'</td></tr>'; }
@@ -7444,7 +7553,10 @@ function buildBriefDoc(id,mode){
        kepala rincianPenawaran() — singkatnya: client selalu menanyakan
        isinya, dan datanya memang sudah ada di sistem. */
     body+='<div style="font-family:Georgia,serif;font-weight:700;font-size:14px;margin-bottom:8px">Rincian Penawaran</div>'
-     +rincianTabelHTML(ev,f);
+     +invoiceKepalaHTML(ev,c)
+     /* tagihan:false — di surat penawaran, "sisa pelunasan" belum punya arti:
+        belum ada seorang pun yang membayar apa pun. */
+     +rincianTabelHTML(ev,f,{tagihan:false});
     // Fasilitas yang sudah termasuk — dari komponen yang terisi.
     const inc=[];
     if(f.fb) inc.push('Paket Food &amp; Beverage untuk '+(ev.pax||0)+' pax'+(+ev.detail.budgetPax?' ('+rp(ev.detail.budgetPax)+'/pax)':''));
@@ -11338,6 +11450,16 @@ function renderSettings(V){
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
    +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
+   /* Template fasilitas gratis, dipakai SEMUA event yang tidak mengisi
+      daftarnya sendiri di tab Finance. Ditaruh di sini supaya mengubah
+      standar penawaran tidak perlu menyunting berkas. */
+   +setRow('Template Fasilitas FREE',
+      '<textarea class="inp" id="set_free" rows="5" style="font-family:inherit">'
+      +esc(st.freeTemplate||FREE_TEMPLATE_BAWAAN)+'</textarea>',
+      'Satu baris satu fasilitas, muncul di penawaran bertuliskan FREE. Penanda '
+      +'<b>{jika-sewa-gratis}</b> / <b>{jika-teknis-gratis}</b> membuat barisnya hilang sendiri '
+      +'kalau komponen itu ternyata ditagihkan — supaya dokumennya tidak menulis "FREE" '
+      +'tepat di bawah baris yang ada harganya. Bisa ditimpa per event di tab Finance.')
    // "Baseline Revenue Harian" dihapus bersama kartu Baseline vs Uplift di Reporting.
    +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
    +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
@@ -11364,7 +11486,8 @@ function saveSettings(){
   // discountThreshold DIBUANG bersama approval berbasis ambang diskon. Kotaknya
   // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
   // seluruh Simpan Pengaturan gagal tanpa pesan.
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7});
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7,
+    freeTemplate:($('set_free')?$('set_free').value:(S.settings.freeTemplate||''))});
   // S.baseline TIDAK dibaca lagi: kotaknya sudah tidak ada di halaman ini, dan
   // membacanya berarti `null.value` — persis kegagalan diam yang sudah pernah
   // terjadi pada discountThreshold di atas.
