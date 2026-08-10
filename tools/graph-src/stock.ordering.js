@@ -5039,6 +5039,23 @@ function cardHTML() { computePoStatus(); fmtTgl(); getKeterangan(); ketBadge(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function openPoDetail() { groupRecordsByPo(); showToast(); computePoStatus(); getKeterangan(); renderDetailItems(); }
 
 

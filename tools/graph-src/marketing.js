@@ -1435,6 +1435,42 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -4985,7 +5021,7 @@ function menuGroupHTML() { menuKolom1(); menuRowHTML(); menuSalinDari(); esc(); 
 
 
 
-function menuRowHTML() { menuKolom1(); esc(); menuDelRow(); }
+function menuRowHTML() { menuKolom1(); esc(); menuDelRow(); svg(); }
 
 
 
@@ -5078,7 +5114,7 @@ function menuPasangSemua() {  }
 
 
 
-function itemRowHTML() { esc(); itemRupiah(); itemDelRow(); }
+function itemRowHTML() { esc(); itemRupiah(); itemDelRow(); svg(); }
 
 
 
@@ -5115,7 +5151,7 @@ function ambil() {  }
 
 
 
-function dealRowHTML() { comboHTML(); dealNamaMenu(); esc(); dealHitung(); itemRupiah(); dealDelRow(); }
+function dealRowHTML() { comboHTML(); dealNamaMenu(); esc(); dealHitung(); itemRupiah(); dealDelRow(); svg(); }
 
 
 
@@ -5177,7 +5213,11 @@ function dealTotal() { $(); finLive(); collectField(); baris(); }
 
 
 
-function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis(); rinciTeksTotal(); rinciDelRow(); }
+function rinciRowHTML() { esc(); rinciHitung(); itemRupiah(); rinciGantiJenis(); rinciTeksTotal(); rinciDelRow(); svg(); }
+
+
+
+
 
 
 
@@ -5236,6 +5276,7 @@ function baris() { dpLabel(); }
 
 
 function rinciTblHTML() { rinciRowHTML(); rinciKakiHTML(); rinciAddRow(); svg(); rinciIsiTemplate(); }
+
 
 
 
@@ -5420,7 +5461,7 @@ function itemDelRow() { itemAddRow(); itemTotal(); }
 
 
 
-function barangRowHTML() { esc(); barangDelRow(); }
+function barangRowHTML() { esc(); barangDelRow(); svg(); }
 
 
 
@@ -6340,7 +6381,7 @@ function rundownSambung() { rundownHitung(); }
 
 
 
-function rundownRowHTML() { rundownHitung(); jamCell(); esc(); rundownDelRow(); }
+function rundownRowHTML() { rundownHitung(); jamCell(); esc(); rundownDelRow(); svg(); }
 
 
 
@@ -7005,8 +7046,57 @@ function collectFinanceInto() { $(); fbDariKotak(); segVal(); dealBaca(); }
 
 
 
-function addPayment() { eventFinance(); modal(); esc(); closeModal(); svg(); rupiahInputHTML(); today(); savePayment(); }
+function addPayment() { eventFinance(); }
 
+
+
+
+
+
+
+
+
+
+
+
+function opsi() { modal(); esc(); clientName(); closeModal(); svg(); rupiahInputHTML(); today(); savePayment(); paySisaLive(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paySisaLive() { $(); eventFinance(); }
 
 
 

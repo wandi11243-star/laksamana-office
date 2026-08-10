@@ -797,6 +797,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1097,6 +1108,18 @@ function fmtDateTime() {  }
 
 
 function toast() {  }
+
+
+
+
+function svgTong() {  }
+
+
+
+
+
+
+
 function esc() {  }
 function initials() {  }
 function timeStr() {  }
@@ -1700,7 +1723,8 @@ function badgeKontrak() {  }
 
 
 
-function renderTalents() { setTop(); talentForm(); C(); esc(); initials(); badgeKontrak(); badgeAktif(); }
+function renderTalents() { setTop(); talentForm(); C(); esc(); initials(); badgeKontrak(); badgeAktif(); bisaUbah(); hapusTalent(); svgTong(); }
+
 
 
 
@@ -1919,7 +1943,7 @@ function renderSchedule() { setTop(); dailyRulesModal(); recurringModal(); month
 
 
 
-function schedInfo() { modal(); closeModal(); esc(); fmtDate(); statusBadge(); cycleSchedStatus(); delSched(); }
+function schedInfo() { modal(); closeModal(); esc(); fmtDate(); statusBadge(); cycleSchedStatus(); delSched(); svgTong(); }
 
 
 
@@ -1929,6 +1953,189 @@ function schedInfo() { modal(); closeModal(); esc(); fmtDate(); statusBadge(); c
 
 
 function cycleSchedStatus() { save(); closeModal(); renderSchedule(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function emsIsiEvent() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hapusEvent() { bisaUbah(); toast(); emsIsiEvent(); modalInfo(); esc(); konfirmasiHapus(); fmtDate(); save(); renderEvents(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hapusTalent() { bisaUbah(); toast(); modalInfo(); esc(); konfirmasiHapus(); save(); renderTalents(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hapusIde() { bisaUbah(); toast(); modalInfo(); esc(); konfirmasiHapus(); save(); renderIdeas(); delTicketClass(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function konfirmasiHapus() { modal(); esc(); closeModal(); jalankanHapus(); }
+
+
+
+
+
+
+
+function jalankanHapus() { closeModal(); }
+function modalInfo() { modal(); esc(); closeModal(); }
+
+
+
+
 function delSched() { save(); closeModal(); renderSchedule(); toast(); }
 function hasConflict() { overlaps(); }
 function scheduleForm() { modal(); closeModal(); esc(); dstr(); uangInput(); saveSchedule(); uangFormat(); }
@@ -2935,7 +3142,8 @@ function setIzin() { bisaUbah(); emsPerm(); toast(); save(); buildNav(); renderA
 
 function resetIzin() { emsPermBawaan(); save(); buildNav(); renderAkses(); toast(); }
 
-function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); C(); posterCoverHTML(); esc(); eventForm(); fmtDateTime(); setEventStatus(); }
+function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); C(); posterCoverHTML(); esc(); eventForm(); bisaUbah(); hapusEvent(); svgTong(); fmtDateTime(); setEventStatus(); }
+
 
 
 
@@ -6937,7 +7145,7 @@ function renderCalendar() { setTop(); dstr(); esc(); C(); }
 
 
 
-function renderIdeas() { setTop(); ideaForm(); C(); esc(); statusBadge(); spawnEvent(); evalIdea(); }
+function renderIdeas() { setTop(); ideaForm(); C(); esc(); statusBadge(); spawnEvent(); evalIdea(); bisaUbah(); hapusIde(); svgTong(); }
 
 
 
