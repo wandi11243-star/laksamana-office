@@ -1563,11 +1563,26 @@ function stampChanges(){
     if(!r.createdAt) r.createdAt = now;
   });
 }
+/* Versi server yang kita pegang saat memuat. Dikirim balik sebagai `_sejak`
+   supaya server tahu batas mana yang boleh ia anggap "dihapus user".
+
+   Tanpa ini, kiriman kita — yang berisi state utuh versi kita — membuat
+   server menghapus SEMUA baris yang lahir sesudah kita memuat halaman.
+   Itu berarti event yang baru dibuat kru lain lenyap begitu kita menekan
+   simpan, tanpa galat di layar siapa pun. Terbukti lewat harness pada
+   8 Agustus 2026: satu kiriman Andi menghapus event Budi, client-nya, dan
+   baris user Budi sekaligus. */
+let _sejakVersi = 0;
+
 // Salinan S untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
 // kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
 function buildPayload(){
   const p = JSON.parse(JSON.stringify(S));
   _eachRow(p,(key,r)=>{ if(_dirty(key,r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+  p._sejak = _sejakVersi;
+  /* `_versi` milik server, bukan bagian data kita — jangan dipantulkan balik
+     supaya ia tidak tersimpan sebagai setelan 'extra:'. */
+  delete p._versi;
   return p;
 }
 /* ---------- Selamatkan perubahan yang belum sampai ke server ----------
@@ -1663,6 +1678,7 @@ async function apiLoad(){
        yang satu masih memegang perubahan lokal, yang satunya tidak pernah
        menerimanya karena memang tidak pernah sampai ke database. */
     S = srv;
+    _sejakVersi = +(json.data && json.data._versi) || 0;   // batas hapus yang sah
     API_READY = true;
     refreshSnapshot();                            // versi server = acuan
     if(adaBelumNaik()) await pulihkanBelumNaik(srv);
@@ -1805,7 +1821,8 @@ async function refreshIfStale(){
     const srv=normalizeState(j.data);
     // Bandingkan hanya data yang berarti (buang metadata versi yang selalu beda).
     if(JSON.stringify(srv)===JSON.stringify(S)) return;   // tidak ada perubahan
-    S=srv; localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
+    S=srv; _sejakVersi = +(j.data && j.data._versi) || _sejakVersi;
+    localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
     setSyncBadge('ok'); buildNav(); paintStaffDatalist(); paintMenuDatalist(); refreshView();
     toast('Data disegarkan','Ada perubahan dari kru lain — tampilan diperbarui.','ok');
   }catch(e){ /* offline: biarkan, badge diurus oleh save() */ }
@@ -3824,9 +3841,26 @@ function doDelClient(id){
    MODUL C — SALES PIPELINE & FOLLOW UP
    ============================================================ */
 let pipeTab='kanban';
+/* SATU PIPELINE UNTUK SATU TIM, bukan satu pipeline per orang.
+
+   Dulu penyaringnya `mine = ME.role==='marketing'` — dan itu berarti tiap
+   marketing HANYA melihat kartunya sendiri, tanpa saklar untuk melihat yang
+   lain. Akibatnya: event yang dibuat rekan tidak pernah muncul, dan yang
+   terbaca oleh kru adalah "event saya tidak masuk pipeline" padahal ia masuk
+   di papan orang lain. Pipeline yang tidak bisa dilihat bersama juga
+   kehilangan gunanya sebagai papan tim — tidak ada yang bisa mengoper
+   peluang, dan tidak ada yang tahu beban rekannya.
+
+   Sekarang bawaannya SEMUA, dengan saklar untuk menyempitkan ke milik
+   sendiri. Nama PIC sudah tercetak di tiap kartu, jadi "punya siapa" tetap
+   terbaca tanpa perlu menyaring. */
+let pipeMilikku=false;
 function renderPipeline(V){
+  const segMilik='<div class="seg" style="margin-left:8px">'
+    +'<button class="'+(!pipeMilikku?'on':'')+'" onclick="pipeMilikku=false;go(\'pipeline\')">Semua Tim</button>'
+    +'<button class="'+(pipeMilikku?'on':'')+'" onclick="pipeMilikku=true;go(\'pipeline\')">Punya Saya</button></div>';
   let h=pageHead('Modul C','Sales Pipeline & Follow Up','Target '+S.settings.fuTarget+' follow up/hari. Geser kartu antar tahap saat status berubah.',
-    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';go(\'pipeline\')">Kanban</button><button class="'+(pipeTab==='followup'?'on':'')+'" onclick="pipeTab=\'followup\';go(\'pipeline\')">Follow Up Harian</button></div>');
+    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';go(\'pipeline\')">Kanban</button><button class="'+(pipeTab==='followup'?'on':'')+'" onclick="pipeTab=\'followup\';go(\'pipeline\')">Follow Up Harian</button></div>'+segMilik);
   if(pipeTab==='followup')h+=pipeFollowUp();
   else { pipeTab='kanban'; h+=pipeKanban(); }
   V.innerHTML=h;
@@ -3846,7 +3880,7 @@ function pipeStatusOfEv(e){
 function pipeKanban(){
   const cols=PIPE_COLS;
   const colColor={Lead:'--muted',Prospect:'--info','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
-  const mine=ME.role==='marketing';
+  const mine=pipeMilikku;
   let h='<div class="kanban">';
   cols.forEach(col=>{
     const items=S.events.filter(e=>pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
@@ -3971,7 +4005,9 @@ function moveEventPipe(id,col){
   save(); go('pipeline');
 }
 function pipeFollowUp(){
-  const mine = ME.role==='marketing';
+  /* Ikut saklar yang sama dengan kanban. Dua daftar di satu halaman yang
+     isinya berbeda tanpa penjelasan lebih membingungkan daripada berguna. */
+  const mine = pipeMilikku;
   const openEvs=S.events.filter(e=>isOpenEvent(e) && (!mine||e.mktPIC===ME.id));
   const dueEvs=openEvs.filter(e=>e.nextFU && e.nextFU<=today());
   const myFUcount=S.followups.filter(f=>(!mine||f.by===ME.id)&&f.at.slice(0,10)===today()).length;

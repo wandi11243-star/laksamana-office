@@ -511,6 +511,22 @@ function baca_state() {
   if (!isset($out['settings']) || !is_array($out['settings'])) $out['settings'] = new stdClass();
   if (!isset($out['baseline'])) $out['baseline'] = 0;
 
+  /* `_versi` = cap tertinggi di seluruh tabel saat data ini dibaca.
+     Klien menyimpannya lalu mengirimkannya balik sebagai `_sejak` waktu
+     menyimpan, dan itulah yang menahan kirimannya menghapus baris yang lahir
+     sesudah ia memuat halaman (lihat hapus_yang_hilang).
+
+     Diambil dari kolom updated_at TABEL YANG SAMA, bukan dari jam server —
+     jadi perbandingannya tetap sahih walau jam tiap perangkat berbeda. */
+  $maks = 0;
+  foreach (collections() as $c) {
+    try {
+      $v = (int)$pdo->query('SELECT COALESCE(MAX(updated_at),0) FROM ' . $c['table'])->fetchColumn();
+      if ($v > $maks) $maks = $v;
+    } catch (Throwable $e) { /* tabel belum ada: abaikan */ }
+  }
+  $out['_versi'] = $maks;
+
   return $out;
 }
 
@@ -540,7 +556,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -619,18 +635,47 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
     $st->execute($args);
   }
 
-  hapus_yang_hilang($pdo, $tabel, 'id', $ids);
+  hapus_yang_hilang($pdo, $tabel, 'id', $ids, $sejak);
   return count($ids);
 }
 
 /* Hapus baris yang tidak ada di kiriman.
-   JAGA-JAGA: kiriman KOSONG tidak pernah mengosongkan tabel — lindungi dari
-   state kosong yang tak sengaja (mis. aplikasi gagal load lalu menyimpan). */
-function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids) {
-  if (count($ids) === 0) return;
+
+   INI PERNAH MENGHAPUS KERJA ORANG LAIN, dan tanpa satu pun galat.
+
+   Aplikasi mengirim state UTUH, jadi "tidak ada di kiriman" dulu langsung
+   diartikan "dihapus user". Padahal ada arti kedua yang jauh lebih sering:
+   "dibuat orang lain SESUDAH aku memuat halaman". Kejadiannya sehari-hari —
+   Andi membuka Marketing pagi hari, Budi membuat event jam 10, Andi membuat
+   event jam 10.05: kiriman Andi tidak memuat event Budi, dan baris Budi
+   dihapus. Ikut terhapus juga client-nya, baris user-nya, dan log
+   aktivitasnya. Terbukti lewat harness pada 8 Agustus 2026.
+
+   Sekarang penghapusan dibatasi `updated_at <= :sejak`, dengan `sejak` =
+   versi server yang dipegang klien saat memuat. Artinya:
+     - baris yang memang sudah ada saat klien memuat, lalu hilang dari
+       kiriman  -> benar-benar dihapus user. Dihapus.
+     - baris yang lahir/berubah SESUDAH itu -> klien tidak mungkin tahu, jadi
+       ketiadaannya bukan keputusan siapa pun. DILINDUNGI.
+
+   `sejak` 0 atau tidak dikirim = klien versi lama yang belum mengenal
+   mekanisme ini: TIDAK MENGHAPUS APA PUN. Arah gagal ini disengaja — baris
+   yang seharusnya hilang tapi masih ada bisa dihapus ulang; baris yang
+   hilang padahal tidak seharusnya tidak bisa dikembalikan.
+
+   JAGA-JAGA LAMA yang tetap dipertahankan: kiriman KOSONG tidak pernah
+   mengosongkan tabel (mis. aplikasi gagal load lalu menyimpan). */
+function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
+  if (count($ids) === 0) return 0;
+  $sejak = (int)$sejak;
+  if ($sejak <= 0) return 0;
   $place = implode(',', array_fill(0, count($ids), '?'));
-  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE ' . $kolomId . ' NOT IN (' . $place . ')');
-  $del->execute($ids);
+  $del = $pdo->prepare('DELETE FROM ' . $tabel . '
+                         WHERE ' . $kolomId . ' NOT IN (' . $place . ')
+                           AND updated_at <= ?');
+  $par = $ids; $par[] = $sejak;
+  $del->execute($par);
+  return $del->rowCount();
 }
 
 /* ==================== SIMPAN ==================== */
@@ -642,13 +687,16 @@ function save_all($state) {
   try {
     $hitung = array();
     $bentrok = array();
-    $known = array('activities', '_rev');
+    /* `_sejak` = versi server yang dipegang klien saat ia memuat data.
+       Dipakai HANYA untuk membatasi penghapusan — lihat hapus_yang_hilang(). */
+    $sejak = isset($state['_sejak']) ? ms_valid($state['_sejak']) : 0;
+    $known = array('activities', '_rev', '_sejak', '_versi');
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama);
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak);
     }
 
     // ---- activities: append-only ----
