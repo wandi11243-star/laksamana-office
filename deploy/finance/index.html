@@ -2482,11 +2482,22 @@ function kkApi(action,payload){
     method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify(isi)
   }).then(function(r){
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    return r.json();
-  }).then(function(d){
-    if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
-    return d.data||{};
+    /* Balasan dibaca sebagai TEKS dulu, baru diurai — bukan r.json() langsung.
+       Waktu backend mati sebelum sempat membalas JSON (config belum ada, galat
+       fatal PHP, folder salah), yang datang adalah halaman HTML server. Dengan
+       r.json() satu-satunya yang sampai ke layar adalah "HTTP 500", dan
+       penyebabnya — yang tertulis jelas di badan balasan — hilang. Sudah
+       memakan satu putaran pada 10 Agustus 2026. */
+    return r.text().then(function(teks){
+      var d=null;
+      try{ d=JSON.parse(teks); }catch(e){}
+      if(!d){
+        var cuplik=String(teks||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,200);
+        throw new Error('HTTP '+r.status+' — balasan bukan JSON'+(cuplik?': '+cuplik:' (kosong)'));
+      }
+      if(!d.ok) throw new Error(d.error||'ditolak server');
+      return d.data||{};
+    });
   });
 }
 function muatKk(){

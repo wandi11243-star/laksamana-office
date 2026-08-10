@@ -21,8 +21,13 @@
  * mengirim keduanya; query string dipakai supaya permintaan yang gagal masih
  * bisa dikenali dari access log server, yang tidak pernah memuat body POST.
  ************************************************************************/
-require __DIR__ . '/lib_finance_mysql.php';
-
+/* Header DULU, require BELAKANGAN — urutannya penting dan sempat terbalik.
+   Dulu lib di-require di baris pertama, sebelum header dan sebelum try/catch.
+   Akibatnya galat fatal apa pun di dalamnya (paling sering: config.php belum
+   ada karena masih bernama config.prod.php) keluar sebagai HTTP 500 berisi
+   halaman HTML server — frontend cuma bisa melaporkan "HTTP 500" dan
+   penyebabnya tidak pernah sampai ke layar. Sudah kejadian 10 Agustus 2026
+   saat modul ini pertama dipasang. */
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
@@ -30,6 +35,34 @@ header('Content-Type: application/json; charset=utf-8');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 function keluar($o) { echo json_encode($o, JSON_UNESCAPED_UNICODE); exit; }
+
+/* Jaring pengaman terakhir: galat FATAL (parse error, kelas tak dikenal, batas
+   memori) tidak bisa ditangkap try/catch, dan tanpa ini ia keluar sebagai
+   badan HTML yang membuat JSON.parse di frontend gagal dengan pesan yang
+   tidak menyebut apa pun tentang sebabnya. Di sini ia diterjemahkan jadi
+   JSON yang bisa dibaca orang yang sedang memasang modulnya. */
+register_shutdown_function(function () {
+  $e = error_get_last();
+  if (!$e) return;
+  if (!in_array($e['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR), true)) return;
+  if (!headers_sent()) { http_response_code(200); header('Content-Type: application/json; charset=utf-8'); }
+  echo json_encode(array(
+    'ok'    => false,
+    'error' => 'PHP fatal: ' . $e['message'] . ' (' . basename($e['file']) . ':' . $e['line'] . ')'
+  ), JSON_UNESCAPED_UNICODE);
+});
+
+/* Pemeriksaan yang paling sering menjawab pertanyaan "kenapa 500": config-nya
+   memang belum ada. Disebut TERPISAH dari galat fatal biasa karena
+   perbaikannya beda sama sekali — bukan kode yang salah, melainkan satu
+   berkas yang belum diunggah atau belum diganti namanya. */
+if (!file_exists(__DIR__ . '/config.local.php') && !file_exists(__DIR__ . '/config.php')) {
+  keluar(array('ok' => false, 'error' =>
+    'config.php belum ada di ' . __DIR__ . '. Unggah config.prod.php (produksi) atau ' .
+    'config.dev.php (dev) ke folder ini, LALU GANTI NAMANYA JADI config.php.'));
+}
+
+require __DIR__ . '/lib_finance_mysql.php';
 
 $body = array();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
