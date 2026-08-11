@@ -10,7 +10,7 @@
  *   GET  ?action=ping                   -> {ok,data:{pong,env,db,versi,ts}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
  *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
- *                                       -> {ok,data:{events:[...],settings:{...}}}
+ *                                       -> {ok,data:{events:[...],vip:[...],settings:{...}}}
  *
  * Catatan: `bentrok` berisi baris yang ditolak karena orang lain menyimpan
  * duluan. saveAll TETAP ok:true — perubahan lain yang tidak bertabrakan

@@ -2801,6 +2801,15 @@ function tutup() { prev(); }
 
 
 
+
+
+
+
+
+
+
+
+
 function evhFetch() {  }
 
 
@@ -2811,6 +2820,11 @@ function evhFetch() {  }
 
 
 function muatEventHari() { evhFetch(); }
+
+
+
+
+
 
 
 
@@ -3036,6 +3050,7 @@ function mkSelect() {  }
 
 
 
+
 function cocokPic() {  }
 
 
@@ -3076,7 +3091,35 @@ function serapOtomatis() { mkFinance(); cocokPic(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
+
+
+
+
+
+
+
 
 
 
@@ -3204,6 +3247,11 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 function pitaBaris() {  }
+
+
+
+
+
 
 
 

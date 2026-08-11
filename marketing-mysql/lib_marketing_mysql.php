@@ -769,6 +769,12 @@ function save_all($state) {
    hari itu secara otomatis, supaya orang finance tidak mengetik ulang nama
    event & PIC yang sudah ada di sini.
 
+   MEMULANGKAN DUA DAFTAR, bukan satu (11 Agustus 2026): `events` (tabel
+   events) dan `vip` (Reservasi VIP). Keduanya sama-sama omset yang ditutup
+   marketing dan sama-sama masuk perhitungan Marketing Performance, jadi
+   Breakdown yang cuma menarik `events` diam-diam melewatkan setengah kerja
+   tim marketing — dan yang terlewat itu tidak muncul di layar mana pun.
+
    Endpoint ini SENGAJA SEMPIT, bukan getAll. getAll memulangkan seluruh
    database marketing (megabyte, tumbuh tiap bulan) dan halaman Breakdown
    dibuka tiap hari — polanya sama persis dengan `shiftHari` yang dibuat untuk
@@ -825,6 +831,7 @@ function events_hari($tgl) {
   if (!is_array($set)) $set = array();
   return array(
     'events'   => $out,
+    'vip'      => vip_hari($pdo, $tgl),
     /* Dua angka ini bagian dari rumus nilai event, jadi harus datang dari
        sumber yang sama dengan eventnya. Kalau pemanggil memakai persentasenya
        sendiri, nilai yang tampil di Breakdown akan beda dari yang tertulis di
@@ -834,6 +841,106 @@ function events_hari($tgl) {
       'pb1'           => isset($set['pb1'])           ? (float)$set['pb1']           : 10,
     ),
   );
+}
+
+/* ---------- RESERVASI VIP SATU HARI ----------
+   Bagian kedua dari events_hari(). Dipisah jadi fungsi sendiri karena sumber
+   datanya sama sekali berbeda dari tabel `events`.
+
+   VIP TIDAK PUNYA TABEL. `S.vip` adalah kunci top-level yang belum dikenal
+   backend, jadi ia tersimpan utuh sebagai SATU baris JSON di tabel settings
+   dengan kunci 'extra:vip' (lihat baca_state/simpan_state). Artinya di sini
+   tidak ada `WHERE tanggal = ?` yang bisa dipakai — seluruh daftar terpaksa
+   di-decode lalu disaring di PHP. Itu masih jauh lebih murah daripada getAll
+   (satu baris settings, bukan seluruh database), tapi kalau suatu hari VIP
+   dipromosikan jadi tabel sungguhan, ganti bagian ini dengan query bertanggal
+   dan jangan pertahankan pola blob-nya.
+
+   YANG DITARIK HANYA 'Assisted' YANG TIDAK DIBATALKAN:
+   - Regular = marketing cuma membantukan booking meja; nominalnya bukan omzet
+     marketing (lihat vipNominal() di deploy/marketing/index.html, yang juga
+     memulangkan 0 untuk Regular). Menariknya ke Breakdown berarti memotong
+     kasir untuk uang yang tidak diakui ke PIC mana pun.
+   - `batalAt` terisi = reservasi dibatalkan. Sudah dikeluarkan dari seluruh
+     angka omzet di modul marketing; kalau ikut ke sini, Breakdown akan
+     menuntut alokasi untuk uang yang tidak pernah masuk.
+
+   Nominalnya SATU angka, tanpa pecahan tax/service — beda dari event, yang
+   punya rumus tiga komponen. Pemanggil menaruhnya di kolom Omset saja. */
+function vip_hari($pdo, $tgl) {
+  $vq = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $vq->execute(array(':k' => 'extra:vip'));
+  $semua = json_decode((string)$vq->fetchColumn(), true);
+  if (!is_array($semua)) return array();
+
+  $pilih = array();
+  foreach ($semua as $v) {
+    if (!is_array($v)) continue;
+    if (tanggal_valid(isset($v['tanggal']) ? $v['tanggal'] : '') !== $tgl) continue;
+    if (!empty($v['batalAt'])) continue;
+    if ((isset($v['jenis']) ? $v['jenis'] : '') !== 'Assisted') continue;
+    $pilih[] = $v;
+  }
+  if (!$pilih) return array();
+
+  /* Nama PIC & perusahaan diambil belakangan, hanya untuk baris yang lolos
+     saringan — bukan dengan memuat seluruh tabel users/clients lebih dulu.
+     Tabel clients di sini bisa puluhan ribu baris. */
+  $userIds = array(); $clientIds = array();
+  foreach ($pilih as $v) {
+    if (!empty($v['mktPIC']))  $userIds[(string)$v['mktPIC']]   = 1;
+    if (!empty($v['clientId'])) $clientIds[(string)$v['clientId']] = 1;
+  }
+  $namaUser   = peta_kolom($pdo, 'users',   'name',       array_keys($userIds));
+  $namaClient = peta_kolom($pdo, 'clients', 'perusahaan', array_keys($clientIds));
+  $namaOrang  = peta_kolom($pdo, 'clients', 'nama',       array_keys($clientIds));
+
+  $out = array();
+  foreach ($pilih as $v) {
+    $cid = isset($v['clientId']) ? (string)$v['clientId'] : '';
+    /* Sama urutannya dengan vipPerusahaan() di modul marketing: perusahaan
+       client dulu, namanya kalau kosong, teks lama `perusahaan` paling akhir.
+       Kalau urutannya beda, satu reservasi tampil dengan dua nama berbeda di
+       dua layar dan tidak ada yang tahu mana yang benar. */
+    $pt = ($cid !== '' && isset($namaClient[$cid]) && $namaClient[$cid] !== '') ? $namaClient[$cid]
+        : (($cid !== '' && isset($namaOrang[$cid])) ? $namaOrang[$cid]
+        : (isset($v['perusahaan']) ? (string)$v['perusahaan'] : ''));
+    $pid = isset($v['mktPIC']) ? (string)$v['mktPIC'] : '';
+    $jam = trim(implode(' - ', array_filter(array(
+      isset($v['jamMulai'])   ? (string)$v['jamMulai']   : '',
+      isset($v['jamSelesai']) ? (string)$v['jamSelesai'] : ''))));
+    $out[] = array(
+      'id'         => isset($v['id']) ? $v['id'] : '',
+      'nama'       => isset($v['nama']) ? $v['nama'] : '',
+      'perusahaan' => $pt,
+      'tanggal'    => $tgl,
+      'jam'        => $jam,
+      // paxMax dulu, sama seperti vipPax() di modul marketing.
+      'pax'        => (int)(!empty($v['paxMax']) ? $v['paxMax'] : (isset($v['paxMin']) ? $v['paxMin'] : 0)),
+      'meja'       => isset($v['meja']) && is_array($v['meja']) ? array_values($v['meja']) : array(),
+      /* WAJIB (int), JANGAN (float). Pemanggilnya membaca angka dengan num()
+         (deploy/finance/omset/index.html), yang MEMBUANG semua karakter bukan
+         digit sebelum parseInt — jadi 5000000.0 yang keluar dari json_encode
+         terbaca sebagai 50000000. Sepuluh kali lipat, tanpa galat, dan angkanya
+         terlihat wajar di layar. Rupiah memang tidak berdesimal. */
+      'nominal'    => (int)round((float)(isset($v['nominal']) ? $v['nominal'] : 0)),
+      'picId'      => $pid,
+      'picName'    => ($pid !== '' && isset($namaUser[$pid])) ? $namaUser[$pid] : null,
+    );
+  }
+  return $out;
+}
+/* {id => <kolom>} untuk sekumpulan id. Placeholder-nya POSISIONAL (`?`):
+   EMULATE_PREPARES mati, jadi penanda bernama yang dipakai berulang akan
+   gagal dengan HY093 tanpa menyebut kolom apa pun. */
+function peta_kolom($pdo, $tabel, $kolom, $ids) {
+  if (!$ids) return array();
+  $tanya = implode(',', array_fill(0, count($ids), '?'));
+  $st = $pdo->prepare('SELECT id, ' . $kolom . ' AS v FROM ' . $tabel . ' WHERE id IN (' . $tanya . ')');
+  $st->execute(array_values($ids));
+  $peta = array();
+  foreach ($st->fetchAll() as $r) $peta[(string)$r['id']] = (string)$r['v'];
+  return $peta;
 }
 
 /* ==================== DIAGNOSTIK ==================== */
