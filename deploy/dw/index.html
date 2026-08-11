@@ -2470,13 +2470,50 @@ async function simpanPekerja(id){
   const pin=String((el('pkPin')||{}).value||'').replace(/\D+/g,'');
   if(pin) row.pin=pin;
 
+  /* Dihitung SEBELUM menyimpan, selagi status lamanya masih terbaca.
+     Menonaktifkan orang meninggalkan lubang yang sama persis dengan
+     menghapusnya: backend menolaknya masuk dan menolak ajuan barunya, tapi
+     shift yang TERLANJUR disetujui tetap digambar di lembar Jadwal Shift —
+     jadwal_dw tidak memeriksa status orangnya sama sekali. Head divisi lalu
+     menghitung orang yang sudah tidak bekerja di sini sebagai kru yang akan
+     datang, dan baru tahu pada hari-H. */
+  const jadiNonaktif = !!(id && lama && lama.status!=='NONAKTIF' && row.status==='NONAKTIF');
+  const nanti = jadiNonaktif ? shiftDepan(id) : [];
+
   try{
     await apiPost({action:'simpanPekerja', row});
     tutupModal();
     toast(id?'Data DW diperbarui':'Daily worker didaftarkan');
     await muatData(true); render();
+    /* Ditanyakan SESUDAH tersimpan, bukan sebagai penghalang sebelumnya:
+       menonaktifkannya sendiri sudah benar dan tidak perlu dikonfirmasi
+       ulang. Yang belum diputuskan hanya nasib shift yang terlanjur ada. */
+    if(nanti.length) tanyaShiftTertinggal(row.nama, nanti,
+      row.nama+' dinonaktifkan');
     return true;
   }catch(e){ toast(e.message, true); return false; }
+}
+/* Dipakai sesudah seseorang dinonaktifkan. Bentuknya sengaja sama dengan
+   yang muncul saat menghapus — keduanya meninggalkan akibat yang sama di
+   kalender, jadi tidak ada alasan orangnya harus mengenali dua bentuk
+   peringatan yang berbeda. */
+function tanyaShiftTertinggal(nama, list, sebab){
+  modal(esc(nama)+' masih punya shift di kalender',
+    '<div class="note w"><b>'+list.length+' shift yang sudah disetujui</b> masih berdiri di kalender '
+    +'<b>Jadwal Shift</b>:<br><span class="mono">'+esc(daftarShiftDepan(list))+'</span><br><br>'
+    +'Status tidak aktif hanya menahan ajuan BARU — yang terlanjur disetujui tetap digambar, '
+    +'dan head divisi tetap menghitungnya sebagai orang yang akan datang.</div>'
+    +'<p style="font-size:13.5px;color:var(--muted)">Riwayat yang sudah lewat tidak tersentuh — '
+    +'rekap Pembayaran tetap sama.</p>',
+    [{t:'Batalkan '+list.length+' shift itu', c:'btn-primary', f:async function(){
+        const g=await batalkanShiftDepan(list, sebab);
+        tutupModal();
+        toast(g? (g+' shift gagal dibatalkan — coba lagi') : (list.length+' shift dibatalkan'), !!g);
+        await muatData(true); render();
+        return false;
+      }},
+     {t:'Biarkan', c:'btn-ghost', f:function(){ tutupModal(); return false; }}],
+    true);
 }
 /* Label dan contohnya ikut berubah saat jenis pembayaran diganti — "No.
    rekening" yang tetap tertulis padahal yang dipilih GoPay adalah cara
@@ -2563,18 +2600,80 @@ function salinTautanDW(){
   }catch(e){}
   prompt('Salin tautan ini:', t);
 }
+/* Shift yang sudah DISETUJUI dan tanggalnya BELUM lewat.
+
+   Inilah yang tertinggal jadi baris hantu. `jadwal_dw` memulangkan setiap
+   ajuan DISETUJUI tanpa memeriksa apakah orangnya masih ada atau masih
+   aktif — pekerja yang barisnya sudah dihapus sekalipun tetap digambar di
+   lembar Jadwal Shift, dengan nama pengganti "(DW dihapus)". Itu memang
+   disengaja di sisi sana (sel yang hilang dari kalender lebih berbahaya
+   daripada nama yang aneh), tapi berarti tempat yang benar untuk
+   membereskannya adalah DI SINI, saat HR menghapus atau menonaktifkan
+   orangnya — bukan di modul jadwal, yang tidak tahu apa-apa soal keputusan
+   itu.
+
+   Yang sudah LEWAT sengaja tidak diikutkan: orangnya benar-benar bekerja
+   hari itu dan uangnya masih harus ditransfer. Membatalkannya berarti
+   menghapus baris itu dari halaman Pembayaran, yang hanya menghitung yang
+   DISETUJUI. */
+function shiftDepan(id){
+  return (S.ajuan||[]).filter(function(a){
+    return a.dwId===id && a.status==='DISETUJUI' && a.tgl>=hariIni();
+  }).sort(function(a,b){ return a.tgl.localeCompare(b.tgl); });
+}
+function daftarShiftDepan(list){
+  return list.map(function(a){
+    return tglManusia(a.tgl)+' '+namaDivisi(a.divisi)+' '+(a.m||'—')+'–'+(a.s||'—');
+  }).join(' · ');
+}
+/* Membatalkan beruntun, satu per satu — modul ini memang menulis granular
+   (tidak ada saveAll). Yang gagal dilaporkan apa adanya, bukan ditelan:
+   shift yang dikira sudah dibatalkan padahal masih berdiri di kalender
+   persis kesalahan yang sedang dicegah di sini. */
+async function batalkanShiftDepan(list, sebab){
+  let gagal=0;
+  for(const a of list){
+    try{
+      await apiPost({action:'putusAjuan', id:a.id, status:'BATAL', nota:sebab});
+    }catch(e){ gagal++; }
+  }
+  return gagal;
+}
 function hapusPekerja(id){
   if(!isHR()){ toast('Hanya yang berhak yang bisa menghapus daily worker', true); return; }
   const p=pekerjaById(id); if(!p) return;
-  konfirmasi('Hapus '+p.nama+' dari database?',
-    'Riwayat kerjanya TIDAK ikut terhapus — rekap bulan lalu tidak akan berubah angka. Yang hilang hanya datanya dari talent pool.',
-    async function(){
-      try{
-        await apiPost({action:'hapusPekerja', id});
-        tutupModal(); toast(p.nama+' dihapus');
-        await muatData(true); render();
-      }catch(e){ toast('Gagal menghapus: '+e.message, true); }
-    });
+  const nanti=shiftDepan(id);
+
+  const lakukan=async function(batalkanDulu){
+    try{
+      if(batalkanDulu){
+        const g=await batalkanShiftDepan(nanti, p.nama+' dihapus dari talent pool');
+        if(g){ toast(g+' shift gagal dibatalkan — hapus dibatalkan, coba lagi', true); return; }
+      }
+      await apiPost({action:'hapusPekerja', id});
+      tutupModal(); toast(p.nama+' dihapus');
+      await muatData(true); render();
+    }catch(e){ toast('Gagal menghapus: '+e.message, true); }
+  };
+
+  if(!nanti.length){
+    konfirmasi('Hapus '+p.nama+' dari database?',
+      'Riwayat kerjanya TIDAK ikut terhapus — rekap bulan lalu tidak akan berubah angka. Yang hilang hanya datanya dari talent pool.',
+      function(){ lakukan(false); });
+    return;
+  }
+  /* Dua pilihan yang berbeda akibatnya, jadi dua tombol — bukan satu tombol
+     "Ya" yang diam-diam memilihkan salah satunya. */
+  modal('Hapus '+esc(p.nama)+'?',
+    '<div class="note w"><b>'+nanti.length+' shift yang sudah disetujui</b> masih berdiri di kalender '
+    +'<b>Jadwal Shift</b>:<br><span class="mono">'+esc(daftarShiftDepan(nanti))+'</span><br><br>'
+    +'Menghapus orangnya TIDAK menghapus shift itu — yang terjadi barisnya tetap ada, '
+    +'berganti nama jadi <b>(DW dihapus)</b>, dan head divisi tetap menghitungnya sebagai orang yang akan datang.</div>'
+    +'<p style="font-size:13.5px;color:var(--muted)">Riwayat kerja yang sudah lewat tidak ikut '
+    +'tersentuh apa pun pilihannya — rekap Pembayaran minggu lalu tetap sama.</p>',
+    [{t:'Batalkan shift itu, lalu hapus', c:'btn-primary', f:function(){ lakukan(true); return false; }},
+     {t:'Hapus saja, shift dibiarkan', c:'btn-danger', f:function(){ lakukan(false); return false; }}],
+    true);
 }
 
 /* =====================================================================

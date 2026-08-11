@@ -2441,7 +2441,7 @@ function bukaPekerja() { pekerjaById(); modal(); esc(); ubahJenisBayar(); bayarJ
 
 
 
-function simpanPekerja() { isHR(); toast(); pekerjaById(); normalHp(); bayarJenisSah(); apiPost(); tutupModal(); muatData(); render(); }
+function simpanPekerja() { isHR(); toast(); pekerjaById(); normalHp(); bayarJenisSah(); shiftDepan(); apiPost(); tutupModal(); muatData(); render(); tanyaShiftTertinggal(); }
 
 
 
@@ -2461,6 +2461,43 @@ function simpanPekerja() { isHR(); toast(); pekerjaById(); normalHp(); bayarJeni
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tanyaShiftTertinggal() { modal(); esc(); daftarShiftDepan(); batalkanShiftDepan(); tutupModal(); toast(); muatData(); render(); }
 
 
 
@@ -2563,7 +2600,69 @@ function selesai() { toast(); }
 
 
 
-function hapusPekerja() { isHR(); toast(); pekerjaById(); konfirmasi(); apiPost(); tutupModal(); muatData(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function shiftDepan() { hariIni(); }
+
+
+
+
+function daftarShiftDepan() { tglManusia(); namaDivisi(); }
+
+
+
+
+
+
+
+
+function batalkanShiftDepan() { apiPost(); }
+
+
+
+
+
+
+
+
+function hapusPekerja() { isHR(); toast(); pekerjaById(); shiftDepan(); }
+
+
+
+
+function lakukan() { batalkanShiftDepan(); toast(); apiPost(); tutupModal(); muatData(); render(); konfirmasi(); modal(); esc(); daftarShiftDepan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
