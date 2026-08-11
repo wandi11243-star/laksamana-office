@@ -2530,7 +2530,7 @@ const DEFAULT_SETTINGS = {
   kwPrefix:'KW/LM/2026/', kwSeq:1,
   waBooking:'6285365234898',
   fuNextDays:3,    // jeda default jadwal follow up berikutnya
-  staleDays:7      // peluang tanpa follow up selama ini ditandai perlu ditindaklanjuti
+  staleDays:7      // peluang tanpa kontak selama ini dianggap "mulai dingin"
 };
 
 /* ---------- FORMAT HELPERS ---------- */
@@ -3573,7 +3573,8 @@ function bookingConflicts(ev){
     return a===b;
   });
 }
-// Peluang yang sudah lama tidak di-follow up (perlu ditindaklanjuti)
+// Peluang yang sudah lama tidak dihubungi — "mulai dingin" (lihat panel
+// bernama sama di Dashboard, dan ambangnya di Pengaturan)
 function lastFUDate(ev){
   const fs=S.followups.filter(f=>f.eventId===ev.id);
   if(!fs.length) return ev.createdAt||'';
@@ -3944,7 +3945,27 @@ function renderDashboard(V){
    +'<div class="cell-sub" style="margin-bottom:8px">Nilai event yang ditutup tiap marketing.</div>';
   h+=papanClosing();
 
-  h+='<div class="divider"></div><h3 style="font-size:15px;margin-bottom:10px">Perlu Digarap</h3>';
+  /* Keterangan satuannya ditulis DI SINI, bukan diserahkan ke tooltip.
+     Angka telanjang di kanan nama event tidak menerangkan dirinya sendiri —
+     dan panel di atasnya (Pendapatan, Closing) sama-sama punya baris ini,
+     jadi yang satu ini tanpa keterangan justru jadi ganjil. Ambangnya
+     dibaca dari S.settings.staleDays, bukan ditulis 7: angkanya bisa diubah
+     di Pengaturan, dan keterangan yang menyebut angka mati akan berbohong
+     begitu ada yang mengubahnya. */
+  /* "Mulai Dingin", bukan "Perlu Digarap".
+
+     Yang pertama menyebut KEADAAN peluangnya — kosakata yang sudah
+     dipakai orang penjualan di mana pun: prospek yang lama tidak
+     disentuh mendingin, lalu mati. Yang kedua cuma menyebut tugas, dan
+     'digarap' bisa berarti apa saja: ditawar, dibuatkan brief, ditagih.
+
+     Namanya juga DISERAGAMKAN dengan halaman Pengaturan, yang dulu
+     menyebut hal yang sama "Perlu Ditindaklanjuti". Satu konsep dengan
+     dua nama di dua layar membuat orang mengira itu dua hitungan
+     berbeda, lalu mencari-cari bedanya. */
+  h+='<div class="divider"></div><h3 style="font-size:15px;margin-bottom:2px">Mulai Dingin</h3>'
+   +'<div class="cell-sub" style="margin-bottom:8px">Peluang aktif yang paling lama tidak dihubungi. '
+   +'Angka di kanan = <b>hari sejak kontak terakhir</b>; '+(+S.settings.staleDays||7)+' hari ke atas masuk daftar ini.</div>';
   h+=panelPerluDigarap();
   h+='</div>';
   V.innerHTML=h;
@@ -4013,13 +4034,25 @@ function panelPerluDigarap(){
   const list=(S.events||[]).filter(function(e){ return isOpenEvent(e) && isStale(e); })
     .sort(function(a,b){ return daysSinceFU(b)-daysSinceFU(a); });
   if(!list.length) return '<div class="muted" style="font-size:12.5px;padding:6px 0">'
-    +'Semua peluang aktif baru di-follow up. \u2693</div>';
+    +'Tidak ada yang mendingin \u2014 semua peluang aktif baru dihubungi. \u2693</div>';
   return list.slice(0,5).map(function(e){
     const d=daysSinceFU(e);
-    return '<div class="lb-row row-click" onclick="go(\'event\',\''+e.id+'\')">'
+    /* 'hari', BUKAN 'hr'. Singkatan itu terbaca sebagai JAM \u2014 dan "13 jam
+       belum dihubungi" tidak mendesak sama sekali, sementara "13 hari" adalah
+       peluang yang hampir hilang. Satu huruf yang membalik artinya.
+
+       lastFUDate() jatuh ke ev.createdAt kalau belum pernah ada follow up,
+       jadi angkanya tetap benar untuk peluang yang belum pernah disentuh:
+       dihitung sejak eventnya dibuat. Bedanya disebut di tooltip, karena
+       "belum pernah dihubungi sama sekali" dan "terakhir dihubungi 13 hari
+       lalu" menuntut tindakan yang berbeda. */
+    const pernah=S.followups.some(function(f){ return f.eventId===e.id; });
+    return '<div class="lb-row row-click" onclick="go(\'event\',\''+e.id+'\')" '
+      +'title="'+esc(e.nama)+' \u2014 '+d+' hari sejak '
+        +(pernah?'follow up terakhir':'eventnya dibuat; belum pernah di-follow up')+'">'
       +'<span class="nm">'+esc(e.nama)
         +'<span class="cell-sub"> \u00b7 '+esc(clientName(e.clientId))+'</span></span>'
-      +'<span class="vl" style="color:var(--danger)">'+d+' hr</span></div>';
+      +'<span class="vl" style="color:var(--danger);white-space:nowrap">'+d+' hari</span></div>';
   }).join('');
 }
 /* Kolom Kesiapan dan kolom penarik dropdown DICABUT.
@@ -13592,7 +13625,7 @@ function renderSettings(V){
    +setRow('Service Charge (%)',num('set_service',st.serviceCharge),'Dihitung dari subtotal setelah diskon.')
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
-   +setRow('Ambang Perlu Ditindaklanjuti (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa follow up selama ini ditandai "Perlu ditindaklanjuti" & naik ke atas antrian.')
+   +setRow('Ambang Mulai Dingin (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa kontak selama ini dianggap <b>mulai dingin</b>: ditandai merah di Pipeline & muncul di panel Mulai Dingin pada Dashboard.')
    /* Template fasilitas gratis, dipakai SEMUA event yang tidak mengisi
       daftarnya sendiri di tab Finance. Ditaruh di sini supaya mengubah
       standar penawaran tidak perlu menyunting berkas. */
