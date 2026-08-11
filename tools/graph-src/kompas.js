@@ -3897,7 +3897,14 @@ function kasirMurni() { ketKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); ketKasir(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); ketKasir(); modeHarian(); labelRentang(); targetPic(); pct(); }
 
 
 
@@ -3959,6 +3966,29 @@ function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); po
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarRiwayat() { baguRingkasKasir(); modeHarian(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
 
 
 

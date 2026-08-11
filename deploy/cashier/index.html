@@ -2277,9 +2277,17 @@ function kasirMurni(e){
   const t=String(ket).toLowerCase().split(/[\s,;/]+/).filter(Boolean);
   return t.length===1 && t[0]==='kasir';
 }
+/* Pager tabel Riwayat (11 Agustus 2026). Sebulan penuh bisa lewat 30 baris, dan
+   kartunya berdiri BERSEBELAHAN dengan grafik Omset Harian: tabel sepanjang itu
+   membuat barisnya memanjang jauh melewati grafik, dan tangga bonus di bawahnya
+   terdorong keluar layar. KS_HAL global (bukan di dalam viewKasir) supaya
+   bertahan saat hanya tabelnya yang digambar ulang. */
+const KS_PER_HAL=12;
+let KS_HAL=1;
 function viewKasir(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
+  KS_HAL=1;   // masuk halaman / ganti rentang selalu mulai dari halaman pertama
   /* Roster Office belum pernah ditarik kalau halaman Compliment belum dibuka.
      Tarik sekali, lalu gambar ulang — bukan menunggu, supaya halaman tetap
      tampil seketika. */
@@ -2358,23 +2366,61 @@ function viewKasir(){
     if(!k||!a) return;
     const tgt=targetPic(k.target);   // bulanan diproporsikan di mode harian
     const ach=pct(a.real,tgt),avg=a.masuk>0?a.real/a.masuk:0;
-    const rows=[...a.hist].sort((x,y)=>x.date<y.date?-1:1).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off&&!h.real?'<span class="muted">—</span>':fmtRp(h.real)}</td><td>${h.extra?'<span class="chip warn">Compliment</span>':h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+    /* Riwayat di MODUL INI hanya berstatus Masuk dan OFF (permintaan user
+       11 Agustus 2026). Baris `extra` — potongan compliment yang jatuh di hari
+       tanpa omset, jadi tampil sebagai baris tersendiri bernominal minus —
+       dibuang dari tabel. Lanjutan dari keputusan 3 & 5 Agustus 2026 yang sudah
+       membuang kolom potongan dan kartu rincian compliment dari modul ini:
+       halaman ini dibuka kasirnya sendiri, dan deretan angka minus dibaca
+       sebagai daftar hukuman padahal yang menentukan bonusnya cuma angka final.
+       Yang perlu memeriksa compliment mana membebani siapa membukanya di
+       Kompas → Performa Kasir, tempat barisnya tetap ada.
+
+       Potongannya TIDAK hilang dari perhitungan — a.real sudah dikurangi di
+       viewKasir, dan hari yang punya baris omset tetap memajang angka yang
+       sudah dipotong. Yang hilang cuma barisnya sendiri, jadi kalau ada
+       compliment di hari OFF jumlah kolom tabel ini TIDAK lagi sama persis
+       dengan Omset Diakui. Selisih itu disebutkan di card-sub, bukan
+       dibiarkan tampak seperti salah hitung. */
+    const histUrut=[...a.hist].filter(h=>!h.extra).sort((x,y)=>x.date<y.date?-1:1);
+    const compLuar=a.hist.filter(h=>h.extra).reduce((s,h)=>s+h.real,0);   // negatif
+    /* Tabelnya digambar TERPISAH dari ks_body (lihat #ks_riw di bawah) supaya
+       ganti halaman tidak membangun ulang seluruh kartu — kalau ks_body ikut
+       digambar ulang, Chart.js membuat ulang grafik Omset Harian tiap klik dan
+       gulir melompat kembali ke atas halaman. */
+    const gambarRiwayat=()=>{
+      const wadah=document.getElementById('ks_riw'); if(!wadah) return;
+      const totalHal=Math.max(1,Math.ceil(histUrut.length/KS_PER_HAL));
+      if(KS_HAL>totalHal) KS_HAL=totalHal;
+      if(KS_HAL<1) KS_HAL=1;
+      const mulai=(KS_HAL-1)*KS_PER_HAL, akhir=Math.min(mulai+KS_PER_HAL,histUrut.length);
+      const rows=histUrut.slice(mulai,akhir).map(h=>`<tr><td>${h.date}${h.kasir?` <span class="muted" style="font-size:11px">· ${esc(h.kasir)}</span>`:''}</td><td class="num mono">${h.off&&!h.real?'<span class="muted">—</span>':fmtRp(h.real)}</td><td>${h.off?'<span class="chip warn">OFF</span>':'<span class="chip ok">Masuk</span>'}</td></tr>`).join('');
+      const pager=totalHal>1?`<div id="ks_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" data-hal="${KS_HAL-1}"${KS_HAL<=1?' disabled':''}>‹ Sebelumnya</button>
+        <span class="muted" style="font-size:12.5px">Baris ${mulai+1}–${akhir} dari ${histUrut.length} · halaman ${KS_HAL}/${totalHal}</span>
+        <button class="btn btn-ghost btn-sm" data-hal="${KS_HAL+1}"${KS_HAL>=totalHal?' disabled':''}>Berikutnya ›</button>
+      </div>`:'';
+      wadah.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Diakui</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada data.</td></tr>'}</tbody></table></div>${pager}`;
+      wadah.querySelectorAll('#ks_pager button').forEach(b=>{ if(!b.disabled) b.onclick=()=>{ KS_HAL=num(b.dataset.hal); gambarRiwayat(); }; });
+    };
     document.getElementById('ks_body').innerHTML=`
       ${baguRingkasKasir(a, tgt, ach, modeHarian(), k.target)}
       <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · omset diakui ${fmtRp(a.real)} dari ${fmtRp(tgt)} · ${a.masuk} hari masuk, ${a.off} hari OFF (rata-rata ${fmtRp(avg)}/hari)</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
-        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>, jumlahnya tepat sama dengan Omset Diakui di atas</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Omset Diakui</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="3" class="empty">Belum ada data.</td></tr>'}</tbody></table></div></div>
+        <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>${compLuar?` · ada ${fmtRp(-compLuar)} potongan compliment yang jatuh di hari tanpa omset, jadi tidak punya barisnya sendiri di sini — Omset Diakui di atas sudah memperhitungkannya`:', jumlahnya tepat sama dengan Omset Diakui di atas'}</div><div id="ks_riw"></div></div>
       </div>
       ${kartuBonusKasir(a.real, kid==='__all__')}`;
+    gambarRiwayat();
     /* Kartu "Rincian Compliment" DIBUANG dari modul ini (permintaan user
        5 Agustus 2026) — di modul Kompas kartunya tetap ada.
        Bedanya siapa yang membaca: modul ini dibuka kasir sendiri, dan yang ia
-       perlukan cuma angka omset yang diakui. Potongannya sudah kelihatan di
-       ringkasan atas ("sudah dipotong compliment …") dan di baris berlabel
-       "Compliment" pada tabel Riwayat, jadi kartunya cuma mengulang hal yang
-       sama dalam bentuk panjang. Manajer yang perlu tahu compliment mana
-       membebani siapa tetap melihatnya di Kompas → Performa Kasir. */
+       perlukan cuma angka omset yang diakui. Manajer yang perlu tahu compliment
+       mana membebani siapa tetap melihatnya di Kompas → Performa Kasir.
+       Sejak 11 Agustus 2026 baris "Compliment" di tabel Riwayat pun ikut hilang
+       dari sini (lihat histUrut di atas), jadi satu-satunya yang tersisa
+       menyebut potongannya di halaman ini adalah ringkasan atas dan satu
+       kalimat di card-sub Riwayat. Itu memang yang diminta — bukan kelalaian. */
     /* clearCharts(), bukan clearChartsExcept(). Nama kedua itu ada di Kompas
        tapi TIDAK PERNAH ikut terbawa waktu modul ini dipecah, jadi baris ini
        melempar ReferenceError setiap kali Performa Kasir digambar — grafik
@@ -2383,14 +2429,19 @@ function viewKasir(){
        tidak ada gejala selain kotak grafik yang diam. Ketahuan 3 Agustus 2026
        saat halaman ini disamakan dengan Kompas. */
     clearCharts();
+    /* Grafik memakai SELURUH a.hist, termasuk baris compliment yang tidak
+       ditampilkan di tabel: yang dijaga di sini adalah totalnya tetap sama
+       dengan Omset Diakui di kotak atas. Kalau baris itu ikut dibuang dari
+       grafik juga, batangnya akan menjumlah lebih besar dari angka yang
+       dipakai menghitung bonus — dan tidak ada tempat lain di modul ini yang
+       bisa menjelaskan selisihnya. */
     const h=[...a.hist].sort((x,y)=>x.date<y.date?-1:1);
-    // Batangnya memakai angka final yang sama dengan riwayat supaya totalnya
-    // sama dengan Omset Diakui di kotak atas; kalau memakai bruto, grafiknya
-    // bercerita lain dari tabel tepat di sebelahnya.
     if(h.length)charts.push(new Chart(document.getElementById('ks_chart'),{type:'bar',data:{labels:h.map(x=>x.date.slice(8)),datasets:[{data:h.map(x=>x.real),backgroundColor:'#1F9D8F',borderRadius:5}]},options:barOpts()}));
     else emptyCanvas('ks_chart','Belum ada data');
   };
-  document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
+  // Ganti kasir = daftar riwayat lain sama sekali; bertahan di halaman 3 milik
+  // orang sebelumnya cuma memajang layar kosong pada kasir yang riwayatnya pendek.
+  document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');KS_HAL=1;draw(b.dataset.k);});
   if(list.length)draw('__all__');
   else document.getElementById('ks_body').innerHTML=semuaPic.length
     ? '<div class="card"><div class="empty">Tidak ada kasir yang dinilai di sini. Semua nama yang ada bertim rangkap atau bukan kasir — lihat keterangan di atas.</div></div>'
