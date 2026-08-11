@@ -546,7 +546,21 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .kcard:hover{border-color:var(--gold-deep);transform:translateY(-1px)}
 .kcard:active{cursor:grabbing}
 .kcard .kn{font-weight:600;font-size:13px}
+/* PIC menempel di baris nama, bukan berdiri sebagai tag sendiri di bawah.
+   Sebagai tag ia setinggi satu baris penuh dan terbaca sekeras nama
+   eventnya — padahal yang dicari orang saat menyisir papan ini adalah
+   nama acaranya; PIC cuma keterangan. */
+.kcard .kpic{font-weight:500;font-size:10.5px;color:var(--sand-dim);white-space:nowrap}
 .kcard .kco{font-size:11px;color:var(--muted);margin-top:2px}
+/* Kartu yang sedang dibuka. Rinciannya menyusul DI DALAM kartu, bukan di
+   modal: yang membuka papan ini sedang membandingkan beberapa peluang,
+   dan modal menutup semua yang lain tiap kali satu nama diperiksa. */
+.kcard.buka{cursor:default;border-color:var(--gold-deep);box-shadow:0 6px 18px rgba(50,42,28,.10)}
+.kcard .kdet{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft);font-size:11.5px}
+.kcard .kdet dl{display:grid;grid-template-columns:64px 1fr;gap:4px 8px;margin:0}
+.kcard .kdet dt{color:var(--muted)}
+.kcard .kdet dd{margin:0;word-break:break-word}
+.kcard .kdet .kact{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .kcard .kmeta{display:flex;align-items:center;gap:8px;margin-top:9px;font-size:11px;color:var(--sand-dim)}
 .kcard .kv{font-family:var(--ff-display);font-weight:600;color:var(--gold-deep);font-size:13px}
 
@@ -3502,7 +3516,6 @@ const NAV_DEF=[
   // Materi presentasi ke client — satu kelompok dengan Brief & Quotation,
   // karena ketiganya dibuka di depan client, bukan untuk kerja internal.
   {k:'katalog',t:'Katalog',i:'katalog'},
-  {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
   {k:'vip',t:'Reservasi VIP',i:'star'},
   {g:'Finance & Kontrol'},
   // Kalkulator dipindah ke sini: keluarannya angka harga, bukan pekerjaan event.
@@ -3515,6 +3528,11 @@ const NAV_DEF=[
   {k:'reports',t:'Reporting',i:'report'},
   {k:'timeline',t:'Timeline & Audit Log',i:'timeline'},
   {g:'Sistem'},
+  /* Task Divisi turun ke sini. Isinya handover ke operasional — dibuka
+     sesekali oleh divisi lain, bukan bagian dari alur harian marketing
+     (peluang -> detailing -> brief), dan kehadirannya di kelompok Event
+     memisahkan tiga langkah yang seharusnya berurutan. */
+  {k:'tasks',t:'Task Divisi (Handover)',i:'task'},
   // data induk — jarang diubah, tapi seluruh modul bersandar padanya
   {k:'crm',t:'Database Client',i:'crm'},
   {k:'menudb',t:'Database Menu',i:'brief'},
@@ -4117,7 +4135,12 @@ function tblUrut(rows,k,kolom){
 }
 function tblHead(k,kolom){
   const s=tblUrutState(k,kolom);
-  return '<thead><tr>'+kolom.map(c=>{
+  /* `hide:1` = kolom yang isinya sudah dilebur ke kolom lain, tapi kuncinya
+     sengaja DIPERTAHANKAN di daftar. Alasannya tblUrutState(): urutan yang
+     tersimpan menunjuk ke sebuah `k`, dan mencabut barisnya dari daftar
+     membuat urutan lama tidak dikenali lagi — tabelnya diam-diam kembali ke
+     urutan bawaan tanpa ada yang mengubah apa pun. */
+  return '<thead><tr>'+kolom.filter(c=>!c.hide).map(c=>{
     const atr=(c.cls?' class="'+c.cls+'"':'')+(c.w?' style="width:'+c.w+'"':'');
     if(!c.k||!c.v) return '<th'+atr+'>'+(c.t||'')+'</th>';
     const aktif=s&&s.k===c.k;
@@ -4408,17 +4431,55 @@ let pipeTab='kanban';
    Sekarang bawaannya SEMUA, dengan saklar untuk menyempitkan ke milik
    sendiri. Nama PIC sudah tercetak di tiap kartu, jadi "punya siapa" tetap
    terbaca tanpa perlu menyaring. */
-let pipeMilikku=false;
+/* Penyaring PIC, menggantikan saklar Semua Tim / Punya Saya.
+
+   Saklar lama cuma bisa menjawab satu pertanyaan ("mana punyaku?"), dan
+   pertanyaan yang sebenarnya lebih sering muncul di papan tim justru
+   "Devani lagi pegang apa saja?" — yang dulu tidak ada jalannya sama
+   sekali kecuali membaca satu per satu tag di tiap kartu.
+
+   '' = semua. Isinya nama orang yang BENAR-BENAR punya kartu di papan,
+   bukan seluruh daftar pegawai: tombol untuk orang yang tidak pernah
+   memegang event hanya membuat barisnya panjang dan tiap kali ditekan
+   menghasilkan papan kosong. */
+let pipePIC='';
+let pipeBuka='';   // id kartu yang sedang dibuka; '' = semua tertutup
+function pipeDaftarPIC(){
+  const ada={};
+  (S.events||[]).forEach(function(e){ if(e&&e.mktPIC) ada[e.mktPIC]=1; });
+  return Object.keys(ada).sort(function(a,b){ return userName(a).localeCompare(userName(b)); });
+}
+function pipeSetPIC(id){ pipePIC=id; pipeBuka=''; go('pipeline'); }
+function pipeCocokPIC(e){ return !pipePIC || e.mktPIC===pipePIC; }
 function renderPipeline(V){
-  const segMilik='<div class="seg" style="margin-left:8px">'
-    +'<button class="'+(!pipeMilikku?'on':'')+'" onclick="pipeMilikku=false;go(\'pipeline\')">Semua Tim</button>'
-    +'<button class="'+(pipeMilikku?'on':'')+'" onclick="pipeMilikku=true;go(\'pipeline\')">Punya Saya</button></div>';
-  let h=pageHead('Modul C','Sales Pipeline & Follow Up','Target '+S.settings.fuTarget+' follow up/hari. Geser kartu antar tahap saat status berubah.',
-    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';go(\'pipeline\')">Kanban</button><button class="'+(pipeTab==='followup'?'on':'')+'" onclick="pipeTab=\'followup\';go(\'pipeline\')">Follow Up Harian</button></div>'+segMilik);
-  if(pipeTab==='followup')h+=pipeFollowUp();
-  else { pipeTab='kanban'; h+=pipeKanban(); }
+  const segPIC='<div class="seg" style="margin-left:8px">'
+    +'<button class="'+(!pipePIC?'on':'')+'" onclick="pipeSetPIC(\'\')">Semua</button>'
+    +pipeDaftarPIC().map(function(id){
+        return '<button class="'+(pipePIC===id?'on':'')+'" onclick="pipeSetPIC(\''+id+'\')">'
+          +esc(userName(id).split(' ')[0])+'</button>'; }).join('')
+    +'</div>';
+  /* DUA tab. 'Follow Up Harian' dicabut dari sini: antrian follow up itu
+     pekerjaan harian per orang, sedangkan papan ini dibuka untuk melihat
+     posisi seluruh peluang — dua pertanyaan berbeda yang dipaksa berbagi
+     satu halaman. Gantinya Riwayat Event, yang justru tidak punya tempat
+     di mana pun: event selesai sengaja tersaring keluar dari kanban
+     (lihat pipeStatusOfEv), jadi begitu acaranya lewat ia lenyap dari
+     papan tanpa ada daftar yang masih memuatnya. */
+  let h=pageHead('Modul C','Sales Pipeline','Geser kartu antar tahap saat status berubah. Tekan kartu untuk melihat rincian clientnya.',
+    '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeTab=\'kanban\';pipeBuka=\'\';go(\'pipeline\')">Kanban Pipeline</button>'
+    +'<button class="'+(pipeTab==='riwayat'?'on':'')+'" onclick="pipeTab=\'riwayat\';go(\'pipeline\')">Riwayat Event</button></div>'+segPIC);
+  if(pipeTab==='riwayat') h+=pipeRiwayat();
+  else { pipeTab='kanban'; h+='<div id="kanban-box">'+pipeKanban()+'</div>'; }
   V.innerHTML=h;
   if(pipeTab==='kanban')bindKanban();
+}
+/* Membuka/menutup kartu TIDAK lewat go('pipeline'): render penuh menarik
+   halaman kembali ke atas, dan kartu yang baru saja ditekan di kolom
+   paling kanan langsung keluar dari pandangan. */
+function pipeToggle(id){
+  pipeBuka = (pipeBuka===id) ? '' : id;
+  const box=$('kanban-box'); if(!box) return go('pipeline');
+  box.innerHTML=pipeKanban(); bindKanban();
 }
 function pipeStatusOfEv(e){
   /* Status 'Event Done' dibaca lebih dulu daripada pipeCol, dan sengaja
@@ -4434,17 +4495,80 @@ function pipeStatusOfEv(e){
 function pipeKanban(){
   const cols=PIPE_COLS;
   const colColor={Lead:'--muted',Prospect:'--info','Quotation Terkirim':'--violet',Deal:'--ok',Lost:'--danger'};
-  const mine=pipeMilikku;
   let h='<div class="kanban">';
   cols.forEach(col=>{
-    const items=S.events.filter(e=>pipeStatusOfEv(e)===col && (!mine||e.mktPIC===ME.id));
+    const items=S.events.filter(e=>pipeStatusOfEv(e)===col && pipeCocokPIC(e));
     h+='<div class="kcol" data-col="'+col+'"><div class="kcol-head"><span class="cd" style="width:8px;height:8px;border-radius:50%;background:var('+colColor[col]+')"></span><span class="kt">'+col+'</span><span class="kc">'+items.length+'</span></div><div class="kcol-body" data-col="'+col+'">';
-    items.forEach(e=>{ const val=eventFinance(e).grand;
-      h+='<div class="kcard" draggable="true" data-id="'+e.id+'" onclick="go(\'event\',\''+e.id+'\')"><div class="kn">'+esc(e.nama)+'</div><div class="kco">'+esc(clientName(e.clientId))+' · '+esc(e.jenis)+'</div><div class="kmeta"><span class="tag">'+esc(userName(e.mktPIC).split(' ')[0])+'</span>'+(val?'<span class="kv">'+rpShort(val)+'</span>':'')+'</div></div>'; });
+    items.forEach(e=>{ h+=pipeKartu(e); });
     h+='</div></div>';
   });
   h+='</div>';
   return h;
+}
+/* Satu kartu. Tertutup: nama + PIC kecil di sebelahnya, client, dan nilai.
+   Terbuka: rincian client yang sebelumnya hanya bisa didapat dengan
+   meninggalkan papan ini dan membuka halaman event. */
+function pipeKartu(e){
+  const val=eventFinance(e).grand;
+  const buka=(pipeBuka===e.id);
+  const c=(S.clients||[]).find(function(x){ return x.id===e.clientId; });
+  let h='<div class="kcard'+(buka?' buka':'')+'" draggable="true" data-id="'+e.id+'" '
+    +'onclick="pipeToggle(\''+e.id+'\')">'
+    +'<div class="kn">'+esc(e.nama)
+      +' <span class="kpic">· '+esc(userName(e.mktPIC).split(' ')[0])+'</span></div>'
+    +'<div class="kco">'+esc(clientName(e.clientId))+' · '+esc(jenisEvent(e))+'</div>';
+  if(val) h+='<div class="kmeta"><span class="kv">'+rpShort(val)+'</span></div>';
+  if(buka){
+    /* stopPropagation di tiap tombol: tanpa itu menekan WhatsApp ikut
+       terbaca sebagai klik kartu, dan kartunya menutup tepat saat
+       isinya mau dipakai. */
+    const henti='event.stopPropagation();';
+    h+='<div class="kdet" onclick="'+henti+'"><dl>'
+      +'<dt>Client</dt><dd><b>'+esc(clientName(e.clientId))+'</b></dd>'
+      +(c&&c.perusahaan?'<dt>Perusahaan</dt><dd>'+esc(c.perusahaan)+'</dd>':'')
+      +(c&&c.pic?'<dt>PIC client</dt><dd>'+esc(c.pic)+'</dd>':'')
+      +'<dt>Kontak</dt><dd class="mono">'+esc((c&&c.hp)||'—')+'</dd>'
+      +'<dt>Tanggal</dt><dd class="mono">'+esc(fmtRentang(e))+'</dd>'
+      +'<dt>Pax</dt><dd class="mono">'+(e.pax||'—')+'</dd>'
+      +'<dt>Marketing</dt><dd>'+esc(userName(e.mktPIC))+'</dd>'
+      +(c&&c.source?'<dt>Sumber</dt><dd>'+esc(c.source)+'</dd>':'')
+      +'<dt>Nilai</dt><dd class="mono">'+(val?rp(val):'belum ada angka')+'</dd>'
+      +(e.nextFU?'<dt>Next FU</dt><dd class="mono">'+fmtDate(e.nextFU)+'</dd>':'')
+      +'</dl><div class="kact">'
+      +(c&&c.hp?'<a class="btn sm" target="_blank" href="'+waLink(c.hp,'Halo '+c.nama+', dari tim Laksamana Muda \ud83d\udc4b')+'">'+svg(IC.wa)+'WhatsApp</a>':'')
+      +'<button class="btn sm" onclick="'+henti+'viewClient(\''+esc(e.clientId)+'\')">Detail Client</button>'
+      +'<button class="btn sm pri" onclick="'+henti+'go(\'event\',\''+e.id+'\')">Buka Event</button>'
+      +'</div></div>';
+  }
+  return h+'</div>';
+}
+/* Event yang sudah selesai. Sengaja TIDAK memuat Lost — yang batal masih
+   punya kolomnya sendiri di kanban, dan memindahkannya ke sini membuat
+   papan berhenti menampilkan peluang yang baru saja hilang. */
+function pipeRiwayat(){
+  const list=(S.events||[]).filter(function(e){
+      return pipeStatusOfEv(e)==='Event Done' && pipeCocokPIC(e); })
+    .sort(function(a,b){ return String(b.tanggal||'').localeCompare(String(a.tanggal||'')); });
+  if(!list.length) return empty('Belum ada event selesai',
+    'Event pindah ke sini sendiri setelah acaranya lewat dan statusnya jadi Event Done.','event');
+  const total=list.reduce(function(n,e){ return n+eventFinance(e).grand; },0);
+  let h='<div class="grid g-4" style="margin-bottom:16px">'
+    +stat('Event Selesai',list.length,pipePIC?('PIC '+esc(userName(pipePIC))):'seluruh tim','event')
+    +stat('Total Nilai',rpShort(total),'dari event yang sudah jalan','money')
+    +'</div>';
+  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr>'
+    +'<th>Event</th><th>Tanggal</th><th>Pax</th><th>Marketing</th><th>Nilai</th><th></th></tr></thead><tbody>';
+  list.forEach(function(e){
+    h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')">'
+      +'<td><div class="cell-strong">'+esc(e.nama)+'</div>'
+        +'<div class="cell-sub">'+esc(clientName(e.clientId))+' · '+esc(jenisEvent(e))+'</div></td>'
+      +'<td class="mono">'+esc(fmtRentang(e))+'</td>'
+      +'<td class="mono">'+(e.pax||'\u2014')+'</td>'
+      +'<td>'+esc(userName(e.mktPIC))+'</td>'
+      +'<td class="mono">'+rp(eventFinance(e).grand)+'</td>'
+      +'<td>'+svg(IC.chevR,'')+'</td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
 }
 let dragId=null;
 function bindKanban(){
@@ -4558,54 +4682,6 @@ function moveEventPipe(id,col){
   if(col==='Deal'){ genTasks(e); toast('Deal! ⚓',e.nama+' masuk tahap eksekusi & handover divisi.','ok'); }
   save(); go('pipeline');
 }
-function pipeFollowUp(){
-  /* Ikut saklar yang sama dengan kanban. Dua daftar di satu halaman yang
-     isinya berbeda tanpa penjelasan lebih membingungkan daripada berguna. */
-  const mine = pipeMilikku;
-  const openEvs=S.events.filter(e=>isOpenEvent(e) && (!mine||e.mktPIC===ME.id));
-  const dueEvs=openEvs.filter(e=>e.nextFU && e.nextFU<=today());
-  const myFUcount=S.followups.filter(f=>(!mine||f.by===ME.id)&&f.at.slice(0,10)===today()).length;
-  // nurture: client tanpa peluang aktif tapi sengaja dijadwalkan FU (after-sales / repeat)
-  const nurture=S.clients.filter(c=>c.nextFU && !clientOpenEvents(c.id).length && (!mine||c.mktPIC===ME.id));
-  const staleEvs=openEvs.filter(isStale);
-  let h='<div class="grid g-4" style="margin-bottom:16px">'
-   +stat('Progress Hari Ini',myFUcount+'/'+S.settings.fuTarget,progressBar(myFUcount,S.settings.fuTarget),'pipe')
-   +stat('Jatuh Tempo Hari Ini',dueEvs.length,'peluang perlu di-follow up','clock')
-   +stat('Perlu Ditindaklanjuti',staleEvs.length,'≥ '+(+S.settings.staleDays||7)+' hari belum di-follow up','alert')
-   +stat('Peluang Aktif',openEvs.length,'Lead → Quotation','flag')
-   +'</div>';
-  // --- antrian peluang (event) ---
-  h+='<div class="card pad0" style="margin-bottom:14px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Antrian Follow Up · Peluang Aktif</h3><div class="cell-sub">Hasil follow up langsung menggerakkan tahap event di Pipeline.</div></div>';
-  if(!openEvs.length)h+=empty('Tidak ada peluang aktif','Semua event sudah Deal atau Lost. Buat peluang baru lewat Input & Event, atau lewat Catat FU → "Peluang baru".','pipe');
-  else{
-    // yang perlu ditindaklanjuti naik ke atas — yang paling sering hilang karena lupa, bukan ditolak
-    const list=openEvs.slice().sort((a,b)=>{
-      const sa=isStale(a)?0:1, sb=isStale(b)?0:1;
-      if(sa!==sb) return sa-sb;
-      return (a.nextFU||'9999').localeCompare(b.nextFU||'9999');
-    });
-    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>Client</th><th>Tahap</th><th>Terakhir FU</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
-    list.forEach(e=>{ const overdue=e.nextFU&&e.nextFU<today(); const dueToday=e.nextFU===today(); const stale=isStale(e); const d=daysSinceFU(e);
-      h+='<tr><td class="row-click" onclick="go(\'event\',\''+e.id+'\')"><div class="cell-strong">'+esc(e.nama)+(stale?' <span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)"><span class="cd" style="background:var(--danger)"></span>Perlu ditindaklanjuti</span>':'')+'</div><div class="cell-sub">'+fmtRentang(e)+'</div></td>'
-       +'<td>'+esc(clientName(e.clientId))+'</td><td>'+statusChip(e.status)+'</td>'
-       +'<td class="mono" style="color:'+(stale?'var(--danger)':'inherit')+'">'+(lastFUDate(e)?d+' hari lalu':'—')+'</td>'
-       +'<td class="mono" style="color:'+(overdue?'var(--danger)':dueToday?'var(--gold)':'inherit')+'">'+(e.nextFU?fmtDate(e.nextFU):'—')+(overdue?' ⚠':dueToday?' • hari ini':'')+'</td>'
-       +'<td><button class="btn sm" onclick="logFollowUp(\''+e.clientId+'\',\''+e.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
-    h+='</tbody></table></div>';
-  }
-  h+='</div>';
-  // --- nurture / after-sales (tidak dihitung ke target harian) ---
-  if(nurture.length){
-    h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Nurture / After-sales</h3><div class="cell-sub">Client tanpa peluang aktif tapi dijadwalkan follow up. Tidak dihitung ke target harian.</div></div>';
-    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Client</th><th>Kontak</th><th>Next FU</th><th>Aksi</th></tr></thead><tbody>';
-    nurture.slice().sort((a,b)=>(a.nextFU||'9999').localeCompare(b.nextFU||'9999')).forEach(c=>{
-      h+='<tr><td class="row-click" onclick="viewClient(\''+c.id+'\')"><div class="cell-strong">'+esc(c.nama)+'</div><div class="pill-row">'+clientTags(c.id)+'</div></td>'
-       +'<td>'+esc(c.hp||'—')+'</td><td class="mono">'+fmtDate(c.nextFU)+'</td>'
-       +'<td><button class="btn sm" onclick="logFollowUp(\''+c.id+'\')">'+svg(IC.plus)+'Catat FU</button></td></tr>'; });
-    h+='</tbody></table></div></div>';
-  }
-  return h;
-}
 /* Follow Up menempel ke EVENT (peluang). Kalau belum ada peluang, bisa dibuat
    di sini juga, atau dicatat sebagai FU umum/after-sales (tak mengubah status). */
 function logFollowUp(clientId,presetEventId){
@@ -4688,13 +4764,25 @@ function renderEvents(V){
   V.innerHTML=h; paintEvents();
 }
 const KOL_EVENTS=[
+  /* Jenis menyatu ke kolom Event, tidak lagi berdiri sendiri: satu kata
+     pendek yang memakan satu kolom penuh mendorong Tanggal dan Grand
+     Total keluar layar, padahal keduanya yang dicari orang. Kuncinya
+     tetap ada supaya kolomnya masih bisa diurutkan per jenis. */
   {k:'nama',    t:'Event',       v:e=>e.nama},
-  {k:'jenis',   t:'Jenis',       v:e=>e.jenis},
+  {k:'jenis',   t:'Jenis',       v:e=>e.jenis, hide:1},
   {k:'tanggal', t:'Tanggal',     v:e=>e.tanggal, cls:'mono', turun:1, def:1},
   {k:'pax',     t:'Pax',         v:e=>+e.pax||0, cls:'mono', turun:1},
   {k:'status',  t:'Status',      v:e=>e.status},
   {k:'grand',   t:'Grand Total', v:e=>eventFinance(e).grand, cls:'mono', turun:1},
-  {k:'inv',     t:'Invoice',     v:e=>invStatus(e)},
+  /* Dulu kolom ini berisi status invoice (Draft/Sent/Pending/Paid/Overdue).
+     Status itu sudah punya rumahnya sendiri di menu Invoice & Payment, dan
+     di daftar ini ia cuma keterangan yang tidak bisa ditindaklanjuti.
+     Gantinya tiga dokumen yang memang dibuat dari baris ini — sama persis
+     dengan tombol di Event Brief, supaya tidak ada yang perlu pindah
+     halaman hanya untuk menggenerate brief. Ketiganya berbagi SATU kolom;
+     tiga kolom terpisah untuk tiga tombol pendek membuang lebar yang
+     dibutuhkan nama event. */
+  {t:'Dokumen'},
   {t:''}
 ];
 function paintEvents(){
@@ -4705,10 +4793,21 @@ function paintEvents(){
   const p=tblPage(evs,'events',evFilter||'');
   let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('events',KOL_EVENTS)+'<tbody>';
   p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
-    h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)+'</div><div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
-     +'<td><span class="chip" style="background:color-mix(in srgb,var('+(EVENT_COLOR[e.jenis]||'--muted')+') 15%,transparent);color:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"><span class="cd" style="background:var('+(EVENT_COLOR[e.jenis]||'--muted')+')"></span>'+esc(jenisEvent(e))+'</span></td>'
+    const wj=EVENT_COLOR[e.jenis]||'--muted';
+    h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)
+     +' <span class="chip" style="background:color-mix(in srgb,var('+wj+') 15%,transparent);color:var('+wj+')"><span class="cd" style="background:var('+wj+')"></span>'+esc(jenisEvent(e))+'</span></div>'
+     +'<div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
      +'<td class="mono">'+fmtRentang(e)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
-     +'<td class="mono">'+rp(f.grand)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td><td>'+svg(IC.chevR,'')+'</td></tr>';
+     +'<td class="mono">'+rp(f.grand)+'</td>'
+     /* stopPropagation: seluruh barisnya row-click ke detail event, jadi
+        tanpa ini menekan Internal membuka halaman event alih-alih
+        membuat briefnya. */
+     +'<td onclick="event.stopPropagation()"><div class="aksi-1baris">'
+       +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'internal\')" title="Briefing internal untuk tim">Internal</button>'
+       +'<button class="btn sm ghost" onclick="genBriefFor(\''+e.id+'\',\'client\')" title="Versi yang dikirim ke client">Client</button>'
+       +'<button class="btn sm ghost" onclick="draftNegotiation(\''+e.id+'\')" title="Draft Negotiation — bahan referensi internal; Surat Penawaran resmi diunggah sendiri di detail event">Draft</button>'
+     +'</div></td>'
+     +'<td>'+svg(IC.chevR,'')+'</td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(p,'events');
   $('ev-table').innerHTML=h;
@@ -7916,8 +8015,43 @@ function deletePayment(id,paymentId){
    MODUL E — EVENT BRIEF & QUOTATION
    ============================================================ */
 let briefCari='';
+/* Penyaring periode. '' = semua.
+
+   Yang dicari orang di halaman ini hampir selalu terikat waktu — brief
+   untuk acara hari ini, atau menyiapkan yang seminggu ke depan — dan
+   sebelumnya satu-satunya jalan ke sana adalah mengetik tanggalnya di
+   kotak pencarian, yang cuma cocok persis satu hari. */
+let briefPeriode='';
+const BRIEF_PERIODE=[['','Semua'],['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini']];
+/* Minggu = Senin–Minggu, sama dengan modul Jadwal Shift dan cara orang di
+   sini menyebut "minggu ini". Bulan = bulan kalender berjalan, bukan 30
+   hari ke depan: yang ditanyakan manajemen adalah "Agustus ada berapa". */
+function briefRentang(){
+  const t=today();
+  if(briefPeriode==='hari')   return {a:t,b:t};
+  if(briefPeriode==='minggu'){
+    const d=new Date(t+'T00:00:00');
+    const sen=new Date(d); sen.setDate(d.getDate()-((d.getDay()+6)%7));
+    const min=new Date(sen); min.setDate(sen.getDate()+6);
+    const f=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+    return {a:f(sen),b:f(min)};
+  }
+  if(briefPeriode==='bulan'){
+    const bl=t.slice(0,7);
+    const akhir=new Date(+bl.slice(0,4),+bl.slice(5,7),0);
+    return {a:bl+'-01',b:bl+'-'+String(akhir.getDate()).padStart(2,'0')};
+  }
+  return null;
+}
+function briefSetPeriode(k){ briefPeriode=k; renderBrief($('view')); }
 function renderBrief(V){
-  let h=pageHead('Modul E','Event Brief & Quotation','Satu klik dari data Modul D → briefing internal atau versi client. <b>Surat Penawaran resmi tidak lagi digenerate di sini</b> — dibuat sendiri lalu diunggah PDF-nya di kartu Surat Penawaran pada detail event; tombol Draft Negotiation di bawah hanya bahan referensi internal — di dalamnya PDF yang sudah diunggah ikut ditautkan.','');
+  /* Kepala halaman sengaja pendek. Paragraf lama menjelaskan seluruh
+     kebijakan Surat Penawaran di tempat yang dibaca setiap kali halaman
+     dibuka — lima baris teks yang mendorong tabelnya turun, padahal
+     isinya cuma perlu diketahui sekali. Keterangannya sekarang menempel
+     di tombol Draft (title) dan di kartu Surat Penawaran pada detail
+     event, tempat keputusannya benar-benar diambil. */
+  let h=pageHead('Modul E','Event Brief & Quotation','Briefing internal & versi client, satu klik dari data event.','');
   const semua=S.events.slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
   if(!semua.length){
     h+=empty('Belum ada event','Brief & quotation dibuat dari event yang sudah ada. Buat event dulu di menu Input & Event.','brief');
@@ -7926,17 +8060,31 @@ function renderBrief(V){
   /* Pencarian menjangkau nama event, klien, jenis, dan tanggal — empat hal
      yang dipakai orang untuk mengingat sebuah acara. */
   const q=(briefCari||'').trim().toLowerCase();
-  const evs=!q ? semua : semua.filter(e=>{
+  /* Periode disaring LEBIH DULU, baru pencarian teks. Urutannya penting
+     untuk angka "x dari y" di bawah: y harus berarti "event pada periode
+     ini", bukan seluruh event yang pernah ada — kalau tidak, menyaring ke
+     Hari ini menghasilkan "2 dari 340" yang tidak menerangkan apa pun. */
+  const r=briefRentang();
+  const seperiode=!r ? semua : semua.filter(function(e){
+    const t=String(e.tanggal||''); return t && t>=r.a && t<=r.b; });
+  const evs=!q ? seperiode : seperiode.filter(e=>{
     const c=S.clients.find(x=>x.id===e.clientId);
     return [e.nama,e.jenis,e.status,e.tanggal,fmtDate(e.tanggal),c&&c.nama,c&&c.perusahaan]
       .filter(Boolean).join(' ').toLowerCase().includes(q);
   });
-  h+='<div class="toolbar"><input class="inp" id="brief-cari" placeholder="Cari nama event, klien, jenis, atau tanggal…" '
+  h+='<div class="toolbar"><div class="seg">'
+    +BRIEF_PERIODE.map(function(x){
+        return '<button class="'+(briefPeriode===x[0]?'on':'')+'" '
+          +'onclick="briefSetPeriode(\''+x[0]+'\')">'+esc(x[1])+'</button>'; }).join('')
+    +'</div>'
+    +'<input class="inp" id="brief-cari" placeholder="Cari nama event, klien, jenis, atau tanggal…" '
     +'value="'+esc(briefCari||'')+'" oninput="briefCari=this.value;renderBrief($(\'view\'));'
     +'const b=$(\'brief-cari\'); if(b){b.focus();b.setSelectionRange(b.value.length,b.value.length);}">'
-    +'<span class="cell-sub">'+evs.length+' dari '+semua.length+' event</span></div>';
+    +'<span class="cell-sub">'+evs.length+' dari '+seperiode.length+' event'
+      +(r?' · '+esc(fmtDate(r.a))+(r.a!==r.b?' – '+esc(fmtDate(r.b)):''):'')+'</span></div>';
   if(!evs.length){
-    h+=empty('Tidak ada yang cocok','Coba kata kunci lain, atau kosongkan pencariannya.','brief');
+    h+=empty(briefPeriode&&!q?'Tidak ada event pada periode ini':'Tidak ada yang cocok',
+      briefPeriode&&!q?'Pilih Semua untuk melihat seluruh event.':'Coba kata kunci lain, atau kosongkan pencariannya.','brief');
     V.innerHTML=h; return;
   }
   const urut=tblUrut(evs,'brief',KOL_BRIEF);
@@ -10363,6 +10511,38 @@ async function rsvSisipkan(buatRecord){
    dipesan", tidak bisa ditambah temannya, dan tombol Simpan ditolak dengan
    "Meja M39, M40 baru saja dipesan tamu lain" — padahal yang memesannya
    reservasi itu sendiri. Dilaporkan 3 Agustus 2026. */
+/* Menyunting SATU baris reservasi yang sudah ada, atau membuangnya.
+
+   Bentuknya sengaja meminjam rsvSisipkan(): pola baca -> ubah -> saveAll
+   dengan baseVer dan pengulangan saat bentrok. Modul Reservasi menyimpan
+   seluruh datanya sebagai satu blob bernomor versi, jadi menulis tanpa
+   baseVer berarti menimpa apa pun yang kru Reservasi catat di detik yang
+   sama — termasuk kedatangan tamu yang sedang berlangsung.
+
+   `ubah(rec)` mengembalikan baris pengganti, atau null untuk MENGHAPUS
+   barisnya. Baris yang tidak ketemu bukan kegagalan: reservasinya memang
+   sudah tidak ada di sana, dan itu persis keadaan yang kita tuju. */
+async function rsvUbahBaris(resId,ubah){
+  for(let coba=0;coba<6;coba++){
+    const d=await rsvAmbil();
+    const baseVer=(d&&d._ver!==undefined)?d._ver:null;
+    const data=Object.assign({},d);
+    delete data._ver;
+    data.reservations=(Array.isArray(d.reservations)?d.reservations.slice():[]);
+    const idx=data.reservations.findIndex(x=>x&&x.id===resId);
+    if(idx<0) return {ok:true,adaBarisnya:false};
+    const baru=ubah(Object.assign({},data.reservations[idx]));
+    if(baru===null) data.reservations.splice(idx,1);
+    else data.reservations[idx]=baru;
+    const res=await fetch(RSV_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'saveAll',data,baseVer})});
+    const j=await res.json();
+    if(j&&j.conflict) continue;
+    if(!j||!j.ok) throw new Error((j&&j.error)||'Gagal menyimpan ke Reservasi.');
+    return {ok:true,adaBarisnya:true};
+  }
+  throw new Error('Modul Reservasi sedang sibuk — coba lagi sebentar.');
+}
 function rsvMejaTerpakai(d,tanggal,kecualiId){
   const out={};
   (d&&d.reservations||[]).forEach(r=>{
@@ -10476,14 +10656,18 @@ function renderVIP(V){
   const list=!q?semua:semua.filter(v=>[v.nama,vipPerusahaan(v),v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
     .filter(Boolean).join(' ').toLowerCase().includes(q));
 
-  const asst=semua.filter(v=>v.jenis==='Assisted');
+  /* Yang batal keluar dari SEMUA angka di atas — terutama omzet Assisted.
+     Reservasi yang dibatalkan tidak menghasilkan uang, dan membiarkannya
+     terhitung membuat Marketing Performance melebihkan orangnya. */
+  const hidup=semua.filter(v=>!v.batalAt);
+  const asst=hidup.filter(v=>v.jenis==='Assisted');
   h+='<div class="grid g-4" style="margin-bottom:16px">'
-   +stat('Total Reservasi',semua.length,'VIP tercatat','star')
+   +stat('Total Reservasi',hidup.length,semua.length>hidup.length?((semua.length-hidup.length)+' dibatalkan'):'VIP tercatat','star')
    +stat('Assisted',asst.length,'masuk laporan omzet','money')
-   +stat('Regular',semua.filter(v=>v.jenis==='Regular').length,'bantu booking saja','cal')
+   +stat('Regular',hidup.filter(v=>v.jenis==='Regular').length,'bantu booking saja','cal')
    +stat('Nominal Assisted',rpShort(asst.reduce((a,v)=>a+vipNominal(v),0)),'dihitung sebagai omzet','report')
    +'</div>';
-  const belum=semua.filter(vipBelumNominal);
+  const belum=hidup.filter(vipBelumNominal);
   if(belum.length) h+='<div class="tbl-note" style="border-color:var(--warn)">'+svg(IC.alert)
     +'<span><b>'+belum.length+' reservasi Assisted belum ada nominalnya</b> — omzetnya belum terhitung. Isi lewat tombol <em>Isi Nominal</em> di barisnya.</span></div>';
 
@@ -10513,7 +10697,9 @@ function renderVIP(V){
      +'<td><div class="pill-row">'
        +(bolehUbah&&v.jenis==='Assisted'?'<button class="btn sm'+(vipBelumNominal(v)?' pri':'')+'" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
        +'<button class="btn sm" onclick="vipDetail(\''+v.id+'\')">Detail</button>'
-       +(bolehUbah?'<button class="btn sm" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
+       +(bolehUbah&&!v.batalAt?'<button class="btn sm" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
+       +(bolehUbah&&!v.batalAt?'<button class="btn sm" title="Batalkan — meja dilepas, jejaknya tetap ada di Reservasi" onclick="vipBatal(\''+v.id+'\')">Batalkan</button>':'')
+       +(bolehUbah?'<button class="btn sm danger" title="Hapus permanen dari sini dan dari modul Reservasi" onclick="vipHapus(\''+v.id+'\')">'+svg(IC.trash)+'</button>':'')
      +'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(p,'vip')+'</div>';
@@ -10521,8 +10707,96 @@ function renderVIP(V){
 }
 TBL_RENDER.vip=function(){ renderVIP($('view')); };
 
+/* ---------- BATALKAN & HAPUS RESERVASI VIP ----------
+
+   Keduanya WAJIB menyentuh modul Reservasi, bukan cuma daftar di sini.
+   Sebelum ini tidak ada satu pun jalan membatalkan: satu-satunya cara
+   melepas meja yang salah pesan adalah membuka modul Reservasi dan
+   mencari barisnya sendiri — dan kalau tidak ketemu, mejanya terkunci
+   sampai hari-H untuk tamu yang tidak akan datang.
+
+   Bedanya dua tombol ini:
+     Batalkan — barisnya TETAP ada di Reservasi dengan status 'Cancelled'.
+                Mejanya langsung bebas (lihat rsvMejaTerpakai), tapi kru
+                Reservasi masih bisa melihat pernah ada pesanan di situ.
+                Ini yang benar untuk tamu yang membatalkan.
+     Hapus    — barisnya DIBUANG dari Reservasi dan dari sini. Untuk salah
+                input, bukan untuk pembatalan: jejaknya hilang sama sekali.
+
+   Yang sudah 'Datang' tidak boleh dihapus dari sini — itu catatan kru
+   Reservasi tentang tamu yang benar-benar hadir, bukan milik Marketing. */
+function vipBatal(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  if(v.batalAt) return toast('Sudah dibatalkan','Reservasi ini sudah berstatus batal.','err');
+  konfirmasiVIP('Batalkan reservasi '+esc(v.nama||'')+'?',
+    'Meja <b>'+esc((v.meja||[]).join(', ')||'—')+'</b> pada '+esc(fmtDate(v.tanggal))
+      +' langsung dilepas di modul Reservasi dan bisa dipesan tamu lain.'
+      +(v.jenis==='Assisted'&&vipNominal(v)?' Nominalnya juga berhenti dihitung sebagai omzet.':''),
+    'Ya, batalkan', 'btn danger', async function(btn){
+      try{
+        if(v.resId) await rsvUbahBaris(v.resId,function(rec){
+          rec.status='Cancelled'; rec.updatedAt=Date.now();
+          rec.notes=String(rec.notes||'')+'\n[Dibatalkan dari modul Marketing oleh '+(ME?ME.name:'')+']';
+          return rec;
+        });
+        v.batalAt=new Date().toISOString(); v.batalOleh=(ME?ME.name:'');
+        logAct('vip',v.id,'Reservasi VIP dibatalkan',v.nama+' · '+fmtDate(v.tanggal)+' · meja '+((v.meja||[]).join(', ')||'—'));
+        save(); closeModal();
+        toast('Dibatalkan',(v.meja||[]).length?('Meja '+v.meja.join(', ')+' sudah bebas lagi di Reservasi.'):'Reservasi ditandai batal.','ok');
+        go('vip');
+      }catch(e){ if(btn){btn.disabled=false;btn.textContent='Ya, batalkan';} toast('Gagal membatalkan',e.message,'err'); }
+    });
+}
+function vipHapus(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin menghapus Reservasi VIP.','err');
+  konfirmasiVIP('Hapus reservasi '+esc(v.nama||'')+'?',
+    'Barisnya dibuang dari daftar ini <b>dan</b> dari modul Reservasi — mejanya bebas, dan tidak ada jejak bahwa pernah ada pesanan.'
+      +'<br><br>Untuk tamu yang membatalkan, pakai <b>Batalkan</b>: jejaknya tetap tersimpan di Reservasi.',
+    'Ya, hapus permanen', 'btn danger', async function(btn){
+      try{
+        let ditolak='';
+        if(v.resId) await rsvUbahBaris(v.resId,function(rec){
+          /* Tamu yang sudah tercatat datang: barisnya dibiarkan, cukup
+             ditandai batal. Menghapus catatan kehadiran dari modul lain
+             bukan wewenang halaman ini. */
+          if(rec.status==='Datang'||rec.checkinAt){
+            ditolak='tamu sudah tercatat datang'; rec.status='Cancelled'; rec.updatedAt=Date.now(); return rec;
+          }
+          return null;
+        });
+        S.vip=(S.vip||[]).filter(x=>x.id!==id);
+        logAct('vip',id,'Reservasi VIP dihapus',v.nama+' · '+fmtDate(v.tanggal)+' · meja '+((v.meja||[]).join(', ')||'—'));
+        save(); closeModal();
+        toast('Dihapus', ditolak
+          ? ('Dihapus dari Marketing. Di Reservasi barisnya ditandai batal, bukan dibuang — '+ditolak+'.')
+          : 'Reservasi hilang dari daftar ini dan dari modul Reservasi.','ok');
+        go('vip');
+      }catch(e){ if(btn){btn.disabled=false;btn.textContent='Ya, hapus permanen';} toast('Gagal menghapus',e.message,'err'); }
+    });
+}
+/* Konfirmasi dengan tombol yang bisa dimatikan selagi menunggu jaringan.
+   Menekan dua kali karena tidak ada tanda apa pun sedang berjalan adalah
+   cara paling mudah mengirim dua permintaan saveAll beruntun ke modul
+   Reservasi. */
+function konfirmasiVIP(judul,pesan,tombol,kelas,fn){
+  modal('<div class="modal-head"><div><h3>'+judul+'</h3></div>'
+   +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body"><p style="font-size:13.5px;color:var(--muted)">'+pesan+'</p></div>'
+   +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="'+kelas+'" id="vip_konfirm_btn">'+tombol+'</button></div>');
+  const b=$('vip_konfirm_btn');
+  if(b) b.onclick=function(){ b.disabled=true; b.textContent='Memproses…'; fn(b); };
+}
+
 function vipChip(v){
   const asst=v.jenis==='Assisted';
+  /* Yang batal ditandai lebih dulu daripada apa pun. Tanpa penanda, baris
+     batal terbaca persis sama dengan yang masih berlaku, dan mejanya
+     dikira masih terkunci padahal sudah dilepas. */
+  if(v.batalAt) return '<span class="tag" style="background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger)">Dibatalkan</span>'
+    +'<div class="cell-sub" style="margin-top:3px">meja sudah dilepas</div>';
   return '<span class="tag" style="background:color-mix(in srgb,var('+(asst?'--ok':'--muted')+') 16%,transparent);color:var('+(asst?'--ok':'--muted')+')">'+esc(v.jenis)+'</span>'
     +(v.resId?'<div class="cell-sub" style="margin-top:3px">✓ terkunci di Reservasi</div>':'<div class="cell-sub" style="margin-top:3px">belum dikirim</div>');
 }
@@ -11161,11 +11435,17 @@ function vipDetail(id){
    +(vipDenahHTML({}, {}, (v.meja||[]), {tanggal:v.tanggal, bacaSaja:true})
       || '<div class="cell-sub">Denah untuk tanggal ini tidak tersedia. Meja terkunci: <b>'+esc((v.meja||[]).join(', ')||'—')+'</b></div>')
    +'</div>'
-   +(v.resId?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.check)+'<span>Sudah tercatat di modul Reservasi — mejanya terkunci untuk seluruh kru.</span></div>'
+   +(v.batalAt
+      ?'<div class="tbl-note" style="margin-top:12px;border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
+        +'<span><b>Dibatalkan</b> '+esc(fmtDate(String(v.batalAt).slice(0,10)))+(v.batalOleh?' oleh '+esc(v.batalOleh):'')
+        +' — mejanya sudah dilepas di modul Reservasi dan bisa dipesan tamu lain.</span></div>'
+      :v.resId?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.check)+'<span>Sudah tercatat di modul Reservasi — mejanya terkunci untuk seluruh kru.</span></div>'
             :'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span>Belum dikirim ke modul Reservasi.</span></div>')
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
-   +(can('edit_vip')?'<button class="btn" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'Ubah</button>':'')
-   +(can('edit_vip')&&v.jenis==='Assisted'?'<button class="btn" onclick="closeModal();vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
+   +(can('edit_vip')&&!v.batalAt?'<button class="btn" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'Ubah</button>':'')
+   +(can('edit_vip')&&v.jenis==='Assisted'&&!v.batalAt?'<button class="btn" onclick="closeModal();vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
+   +(can('edit_vip')&&!v.batalAt?'<button class="btn danger" onclick="vipBatal(\''+v.id+'\')">Batalkan</button>':'')
+   +(can('edit_vip')?'<button class="btn danger" title="Hapus permanen" onclick="vipHapus(\''+v.id+'\')">'+svg(IC.trash)+'</button>':'')
    +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>'
    ,'wide');   // denah butuh ruang: sama seperti pemilih meja & dokumen brief
   vipDetailDenahAsli(v);
@@ -11198,12 +11478,17 @@ async function vipDetailDenahAsli(v){
   if(h) el.innerHTML=h;
 }
 /* Omzet Reservasi VIP Assisted per marketing — dipakai Marketing Performance.
-   Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
+   Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian.
+   Yang DIBATALKAN juga tidak: mejanya sudah dilepas dan tamunya tidak datang,
+   jadi menghitungnya berarti menilai orang dari uang yang tidak pernah masuk. */
 function vipOmzetPIC(uid){
-  return (S.vip||[]).filter(v=>v.mktPIC===uid && v.jenis==='Assisted').reduce((a,v)=>a+vipNominal(v),0);
+  return (S.vip||[]).filter(v=>v.mktPIC===uid && v.jenis==='Assisted' && !v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
 }
 function vipOmzetTotal(){
-  return (S.vip||[]).filter(v=>v.jenis==='Assisted').reduce((a,v)=>a+vipNominal(v),0);
+  /* !v.batalAt: reservasi batal tidak menghasilkan omzet. Tanpa ini,
+     membatalkan booking justru tidak mengubah angka performa sama
+     sekali — dan angka itulah yang dipakai menilai orangnya. */
+  return (S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
 }
 
 /* ============================================================
