@@ -1898,6 +1898,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2514,6 +2548,24 @@ function uid() {  }
 
 
 
+
+
+
+
+
+
+
+function rpRingkas() {  }
+
+
+
+
+
+
+
+
+
+
 function onRupiahInput() {  }
 function rupiahInputHTML() { onRupiahInput(); }
 
@@ -2592,6 +2644,12 @@ function daysBetween() {  }
 function daysTo() { daysBetween(); today(); esc(); }
 
 function ago() { autoCloseEvents(); }
+
+
+
+
+
+
 
 
 
@@ -3608,7 +3666,21 @@ function doLogin() { $(); buildNav(); updateTopUser(); bootRoute(); }
 
 
 
-function updateTopUser() { $(); go(); permViewKeys(); can(); }
+function updateTopUser() { $(); can(); buildNav(); permViewKeys(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3882,7 +3954,6 @@ function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(
 
 
 
-
 function pendapatanPerBulan() { eventFinance(); }
 
 
@@ -3896,7 +3967,7 @@ function pendapatanPerBulan() { eventFinance(); }
 
 
 
-function grafikPendapatan() { pendapatanPerBulan(); esc(); }
+function grafikPendapatan() { pendapatanPerBulan(); rpRingkas(); esc(); }
 
 
 
@@ -3913,7 +3984,7 @@ function grafikPendapatan() { pendapatanPerBulan(); esc(); }
 
 
 
-function papanClosing() { today(); eventFinance(); userName(); esc(); }
+function papanClosing() { today(); eventFinance(); userName(); esc(); rpRingkas(); }
 
 
 
@@ -4654,6 +4725,11 @@ function pipeKanban() { pipeStatusOfEv(); pipeCocokPIC(); pipeKartu(); }
 
 
 
+
+
+
+
+
 function pipeKartu() { eventFinance(); pipeToggle(); userName(); esc(); clientName(); jenisEvent(); fmtRentang(); fmtDate(); go(); }
 
 
@@ -4714,7 +4790,15 @@ function pipeAktif() { pipeStatusOfEv(); pipeCocokPIC(); }
 
 
 
-function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
+
+
+function pipeRingkas() { pipeAktif(); eventFinance(); rpRingkas(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
 
 
 
@@ -4963,6 +5047,7 @@ function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(
 
 
 
+
 function renderEvents() { can(); pageHead(); newEvent(); svg(); briefSetPeriode(); esc(); paintEvents(); eventFinance(); }
 
 
@@ -5000,7 +5085,27 @@ function renderEvents() { can(); pageHead(); newEvent(); svg(); briefSetPeriode(
 
 
 
+
+
+
+
+
+
+
+
+
+
 function paintEvents() { briefRentang(); clientName(); tblUrut(); $(); call(); fmtDate(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
