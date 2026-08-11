@@ -3006,6 +3006,10 @@ function viewBreakdown() { daysOfMonth(); todayISO(); getDay(); calInner(); date
 
 
 
+
+
+
+
 function buangDariShift() { calc(); }
 
 
@@ -3083,6 +3087,13 @@ function pitaSumber() { dateLabel(); }
 
 
 
+
+
+
+
+
+
+
 function tombolBagi() { potonganBaris(); }
 
 
@@ -3127,6 +3138,8 @@ function kasirAktif() {  }
 
 
 function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBaris(); kasirAktif(); }
+
+
 
 
 
@@ -3234,7 +3247,7 @@ function drawMk() { pitaBaris(); mkSelect(); porsiPic(); tombolBagi(); panelOb()
 
 
 
-function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bindOb(); potonganHari(); hapusBaris(); formatAllRp(); }
+function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bindOb(); potonganHari(); hapusBaris(); formatAllRp(); serapOtomatis(); }
 
 
 
@@ -3266,8 +3279,15 @@ function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bind
 
 
 
-function hapusBaris() { save(); pitaSumber(); calc(); }
 
+
+
+
+
+
+
+
+function hapusBaris() { pitaSumber(); calc(); }
 
 
 

@@ -3001,7 +3001,11 @@ function viewBreakdown(){
     <div id="bd_warn"></div>
     <div class="balance-bar" id="bd_balance"></div>`;
 
-  const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows)),so:JSON.parse(JSON.stringify(d.bd.self))};
+  /* `abaikan` ikut masuk ke `state` seperti tiga section lainnya — daftar
+     event otomatis yang dibuang adalah suntingan biasa, yang baru mengikat
+     saat Simpan Breakdown. Yang di `d.bd.abaikan` adalah yang SUDAH tersimpan;
+     salinannya di sini boleh bertambah tanpa menyentuh server. */
+  const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows)),so:JSON.parse(JSON.stringify(d.bd.self)),abaikan:(d.bd.abaikan||[]).slice()};
 
   /* Cabut satu kasir dari seluruh baris shift marketing & event. Dipakai saat
      kasir dicentang OFF, dan sekali saat halaman dibuka untuk merapikan data
@@ -3038,7 +3042,7 @@ function viewBreakdown(){
   }
   function serapOtomatis(){
     if(EVHARI.tgl!==bdDate || EVHARI.st!=='ok') return false;
-    const abai=new Set(d.bd.abaikan||[]);
+    const abai=new Set(state.abaikan);
     let tambah=0;
     const sudahAda=key=>[...state.mk,...state.ev].some(r=>r.srcId===key);
     EVHARI.mk.forEach(ev=>{
@@ -3074,9 +3078,16 @@ function viewBreakdown(){
       box.innerHTML=`<div class="notice warn">⚠ Daftar event otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div>`; return;
     }
     const n=EVHARI.mk.length+EVHARI.ev.length;
-    const dibuang=(d.bd.abaikan||[]).length;
+    /* Dua angka yang berbeda dan tidak boleh ditukar: `tersimpan` sudah ada di
+       server, `belum` baru dibuang di layar ini. Yang kedua harus disebut
+       terang-terangan bahwa ia belum mengikat — kalau tidak, orang menutup
+       halaman mengira barisnya sudah hilang, lalu besok ia ada lagi. */
+    const tersimpan=(d.bd.abaikan||[]).length;
+    const belum=state.abaikan.length-tersimpan;
+    const catatanBuang=(tersimpan?` <span style="opacity:.8">· ${tersimpan} baris pernah dibuang dan tidak dimunculkan lagi.</span>`:'')
+      +(belum>0?` <span style="opacity:.8">· ${belum} baris baru dibuang di layar ini — <b>belum tersimpan</b>, akan muncul lagi kalau halaman ditutup sebelum Simpan Breakdown.</span>`:'');
     box.innerHTML = n
-      ? `<div class="notice ok">✓ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))} — barisnya sudah dibuatkan di bawah, tinggal diisi nominalnya.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}${dibuang?` <span style="opacity:.8">· ${dibuang} baris pernah dibuang dan tidak dimunculkan lagi.</span>`:''}</div>`
+      ? `<div class="notice ok">✓ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))} — barisnya sudah dibuatkan di bawah, tinggal diisi nominalnya.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}${catatanBuang}</div>`
       : `<div class="notice info">ℹ️ Tidak ada event berstatus Deal/Upcoming di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}</div>`;
   }
 
@@ -3137,9 +3148,11 @@ function viewBreakdown(){
          `bdValid` tidak dinaikkan begitu saja: alokasi omsetnya bisa saja
          belum balance, jadi flagnya diisi apa adanya supaya tidak berbohong
          soal hari yang sebenarnya masih selisih. */
-      // `abaikan` ikut dibawa — ia BUKAN bagian dari `state`, dan menulis d.bd
-      // dari nol tanpa menyalinnya membuat baris otomatis yang sudah dibuang
-      // muncul lagi begitu halaman digambar ulang.
+      /* `abaikan` yang ditulis di sini adalah yang SUDAH tersimpan, bukan
+         `state.abaikan`. Tombol ini menyimpan pembagian shift, bukan mengikat
+         pembuangan baris — pembuangan baru mengikat lewat Simpan Breakdown
+         (lihat hapusBaris). Kalau state.abaikan yang ditulis, menekan Simpan
+         Pembagian akan diam-diam mengunci pembuangan yang belum disetujui. */
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:d.bd.abaikan||[]};
       d.bdValid=Math.abs(net-sumDiakui())<1;
       save();
@@ -3260,18 +3273,25 @@ function viewBreakdown(){
     document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{hapusBaris('ev',+b.dataset.i,drawEv);});
     formatAllRp(document.getElementById('bd_ev'));
   }
-  /* Menghapus baris. Baris OTOMATIS harus sekaligus dicatat di `d.bd.abaikan`,
-     kalau tidak ia muncul lagi begitu halaman digambar ulang dan orangnya akan
-     menghapusnya berkali-kali tanpa pernah berhasil. Daftar abaikan disimpan
-     saat itu juga — bukan menunggu "Simpan Breakdown" — karena hari yang belum
-     balance tidak bisa disimpan, dan justru di hari seperti itulah orang
-     membuang baris event yang batal. */
+  /* Menghapus baris. Baris OTOMATIS dicatat di `state.abaikan` supaya ia tidak
+     langsung diserap ulang oleh serapOtomatis() dan muncul lagi di layar yang
+     sama — tanpa itu tombol ✕ tidak akan pernah kelihatan bekerja.
+
+     TAPI hanya di `state`, TIDAK disimpan ke server saat itu juga (permintaan
+     user 11 Agustus 2026, mengubah perilaku hari sebelumnya). Menghapus baris
+     itu keputusan yang sama sifatnya dengan mengubah nominal: baru mengikat
+     setelah Simpan Breakdown ditekan. Kalau orangnya salah pencet lalu me-
+     refresh halaman, barisnya harus kembali — dan dulu tidak: sekali ✕, event
+     itu hilang selamanya dari tanggal tersebut tanpa ada satu pun tempat untuk
+     mengembalikannya.
+
+     Konsekuensi yang disengaja: hari yang belum balance tidak bisa disimpan,
+     jadi pembuangan barisnya juga belum mengikat. Itu memang yang diminta. */
   function hapusBaris(key,i,redraw){
     const r=state[key][i]; if(!r) return;
     state[key].splice(i,1);
     if(r.srcId){
-      d.bd.abaikan=Array.isArray(d.bd.abaikan)?d.bd.abaikan:[];
-      if(d.bd.abaikan.indexOf(r.srcId)<0){ d.bd.abaikan.push(r.srcId); save(); }
+      if(state.abaikan.indexOf(r.srcId)<0) state.abaikan.push(r.srcId);
       pitaSumber();
     }
     redraw(); calc();
@@ -3453,10 +3473,10 @@ function viewBreakdown(){
         <button class="btn btn-primary" id="bd_save" ${ok?'':'disabled'}>Simpan Breakdown</button>
       </div>`;
     document.getElementById('bd_save').onclick=()=>{
-      // `abaikan` ikut dibawa — ia BUKAN bagian dari `state`, dan menulis d.bd
-      // dari nol tanpa menyalinnya membuat baris otomatis yang sudah dibuang
-      // muncul lagi begitu halaman digambar ulang.
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:d.bd.abaikan||[]};d.bdValid=true;save();render();
+      // Di SINI-lah pembuangan baris otomatis mengikat: state.abaikan yang
+      // ditulis, bukan d.bd.abaikan. Sebelum tombol ini ditekan, baris yang
+      // dibuang hanya hilang dari layar dan akan kembali kalau di-refresh.
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:state.abaikan};d.bdValid=true;save();render();
     };
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
