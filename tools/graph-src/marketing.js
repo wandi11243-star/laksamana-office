@@ -1853,6 +1853,22 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -3753,7 +3769,7 @@ function empty() { svg(); }
 
 
 
-function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(); newClient(); svg(); stat(); progressBar(); esc(); empty(); tblPage(); tblUrut(); tblHead(); eventItemCount(); toggleDashTask(); clientName(); fmtRentang(); eventTaskListHTML(); tblPagerHtml(); penStatus(); bisaPutusPenawaran(); }
+function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(); newClient(); svg(); stat(); progressBar(); esc(); empty(); tblPage(); tblUrut(); tblHead(); go(); clientName(); fmtRentang(); tblPagerHtml(); grafikPendapatan(); papanClosing(); panelPerluDigarap(); }
 
 
 
@@ -3838,6 +3854,7 @@ function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(
 
 
 
+function pendapatanPerBulan() { eventFinance(); }
 
 
 
@@ -3850,14 +3867,13 @@ function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(
 
 
 
+function grafikPendapatan() { pendapatanPerBulan(); esc(); }
 
-function toggleDashTask() { refreshView(); }
 
 
 
 
 
-function tugasJatuhTempo() { jobField(); tglLokal(); }
 
 
 
@@ -3868,12 +3884,12 @@ function tugasJatuhTempo() { jobField(); tglLokal(); }
 
 
 
+function papanClosing() { today(); eventFinance(); userName(); esc(); }
 
 
 
 
 
-function eventTaskItems() { genTasks(); eventCats(); eventDivTemplates(); jobField(); jobSelesai(); tugasJatuhTempo(); }
 
 
 
@@ -3889,18 +3905,11 @@ function eventTaskItems() { genTasks(); eventCats(); eventDivTemplates(); jobFie
 
 
 
-function eventTaskListHTML() { eventTaskItems(); can(); eventCats(); openTaskEvent(); escJs(); daysTo(); toggleJobSelesai(); svg(); esc(); fmtDate(); eventItemCount(); }
 
 
 
 
-
-
-
-
-
-
-
+function panelPerluDigarap() { isOpenEvent(); isStale(); daysSinceFU(); go(); esc(); clientName(); eventFinance(); }
 
 
 
@@ -4542,7 +4551,8 @@ function pipeDaftarPIC() { userName(); }
 
 function pipeSetPIC() { go(); }
 function pipeCocokPIC() {  }
-function renderPipeline() { pipeDaftarPIC(); svg(); pipeSetPIC(); userName(); esc(); inisial(); pageHead(); go(); pipeTabel(); pipeKanban(); bindKanban(); }
+function renderPipeline() { pipeDaftarPIC(); svg(); pipeSetPIC(); userName(); esc(); inisial(); pageHead(); go(); pipeRingkas(); pipeTabel(); pipeKanban(); bindKanban(); }
+
 
 
 
@@ -4584,7 +4594,11 @@ function pipeToggle() { $(); go(); pipeKanban(); bindKanban(); }
 
 
 
-function pipeStatusOfEv() { autoCloseEvents(); }
+function pipeStatusOfEv() { autoCloseEvents(); pipeKanban(); }
+
+
+
+
 
 
 
@@ -4656,15 +4670,57 @@ function pipeKartu() { eventFinance(); pipeToggle(); userName(); esc(); clientNa
 
 
 
+function pipeAktif() { pipeStatusOfEv(); pipeCocokPIC(); }
 
 
 
 
-function pipeTabel() { pipeStatusOfEv(); pipeCocokPIC(); empty(); esc(); userName(); eventFinance(); stat(); go(); clientName(); jenisEvent(); statusChip(); fmtRentang(); svg(); }
 
 
 
 
+
+
+
+
+
+
+function pipeRingkas() { pipeAktif(); eventFinance(); stat(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); statusChip(); fmtRentang(); eventFinance(); svg(); }
 
 
 
@@ -4884,7 +4940,7 @@ function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(
 
 
 
-function renderEvents() { can(); pageHead(); newEvent(); svg(); paintEvents(); eventFinance(); }
+function renderEvents() { can(); pageHead(); newEvent(); svg(); briefSetPeriode(); esc(); paintEvents(); eventFinance(); }
 
 
 
@@ -4914,7 +4970,32 @@ function renderEvents() { can(); pageHead(); newEvent(); svg(); paintEvents(); e
 
 
 
-function paintEvents() { clientName(); tblUrut(); $(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+function paintEvents() { briefRentang(); clientName(); tblUrut(); $(); call(); fmtDate(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8155,6 +8236,10 @@ function deletePayment() { can(); toast(); logAct(); save(); eventFinance(); go(
 
 
 
+
+
+
+
 function briefRentang() { today(); }
 
 
@@ -8172,20 +8257,8 @@ function briefRentang() { today(); }
 
 
 
-function briefSetPeriode() { renderBrief(); $(); }
-function renderBrief() { pageHead(); empty(); briefRentang(); fmtDate(); briefSetPeriode(); esc(); $(); tblUrut(); tblPage(); tblHead(); tblUrutState(); labelBulan(); clientName(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
-
-
-
-
-
-
-
-
-
-
-
-
+function briefSetPeriode() { paintEvents(); }
+function renderBrief() { pageHead(); empty(); fmtDate(); esc(); $(); tblUrut(); tblPage(); tblHead(); tblUrutState(); labelBulan(); clientName(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); tblPagerHtml(); kirimPenawaran(); }
 
 
 
@@ -10105,7 +10178,11 @@ function delTaskCategory() { subsOf(); confirmUI(); esc(); getCats(); getSubs();
 
 
 
-function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); ensureInvNos(); tblUrut(); tblPage(); tblHead(); invoiceNo(); esc(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); go(); svg(); viewPaymentHistory(); genBriefFor(); waInvoice(); waReminderDP(); can(); addPayment(); delEvent(); tblPagerHtml(); }
+function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); ensureInvNos(); tblUrut(); tblPage(); tblHead(); invoiceNo(); esc(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); viewPaymentHistory(); svg(); genBriefFor(); can(); addPayment(); delEvent(); tblPagerHtml(); }
+
+
+
+
 
 
 
