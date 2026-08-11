@@ -1872,6 +1872,11 @@ function badgeKontrak() {  }
 
 
 
+
+
+
+
+
 function renderTalents() { setTop(); talentForm(); C(); esc(); initials(); badgeKontrak(); badgeAktif(); bisaUbah(); hapusTalent(); svgTong(); }
 
 
