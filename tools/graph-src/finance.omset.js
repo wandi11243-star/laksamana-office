@@ -1349,7 +1349,8 @@ function saveDaily() { v(); grossOf(); getDay(); save(); render(); todayISO(); }
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); fmtWaktu(); }
+function viewReport() { repOf(); penjelasHari(); calInner(); jejakHtml(); repPay(); kartuPenjelasan(); }
+
 
 
 
@@ -1488,7 +1489,8 @@ function hitung() { inputVal(); catatanMetode(); }
 
 
 
-function inputVal() { hitung(); save(); dateLabel(); render(); }
+function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
+
 
 
 
@@ -1504,6 +1506,46 @@ function inputVal() { hitung(); save(); dateLabel(); render(); }
 
 
 function fmtWaktu() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tambahJejak() {  }
+
+
+
+
+
+
+
+function jejakList() {  }
+
+
+
+function jejakHtml() { jejakList(); fmtWaktu(); }
+
+
+
+
+
+
+
+
+
 
 
 

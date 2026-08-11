@@ -591,8 +591,10 @@ function seed(){
     settings:{ companyMonthlyTarget:300000000, useWorkingDays:false, workingDaysPerMonth:26 },
     employees:{ marketing:[], event:[], kasir:[] },
     daily:[],
-    reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted}
-    rokok:{},        // "YYYY-MM-DD" -> {items:{<kunci>:{in,out}}, by, at}
+    /* by/at = penyimpan TERAKHIR (dipakai modul lain), log = jejak SEMUA yang
+       pernah submit tanggal itu: [{by,at}, …] maks 20. Lihat tambahJejak(). */
+    reports:{},      // "YYYY-MM-DD" -> {pay:{<kunci>:{pos,actual}}, by, at, submitted, log}
+    rokok:{},        // "YYYY-MM-DD" -> {items:{<kunci>:{in,out}}, by, at, log}
     compliments:[],  // [{id,date,nama,alasan,nominal,picName,picOfficeId,picDiv,by,at}]
     piutang:[],      // [{id,date,nama,tipe,bill,nominal,payKey,picName,picOfficeId,picDiv,status,lunasDate,lunasPayKey,lunasBy,lunasAt,by,at}]
     /* Daftar owner untuk dropdown bon. Diisi contoh yang memang ada supaya
@@ -941,6 +943,7 @@ function viewReport(){
       <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
+    ${jejakHtml(rec)}
     <div class="card">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
@@ -973,7 +976,7 @@ function viewReport(){
     <div id="rp_err"></div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
       <button class="btn btn-primary" id="rp_save">${rec&&rec.submitted?'Update Report':'Submit Report'}</button>
-      <div class="helper" style="margin:0">PIC: <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b>${rec&&rec.by?` · terakhir disimpan oleh <b>${esc(rec.by)}</b>${rec.at?` (${fmtWaktu(rec.at)})`:''}`:''}</div>
+      <div class="helper" style="margin:0">Submit atas nama <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b> — nama dan jamnya ikut tercatat di laporan ini.</div>
     </div>`;
 
   const hitung=()=>{
@@ -1066,7 +1069,8 @@ function viewReport(){
     const pay={};
     PAYS.forEach(p=>{ pay[p.k]={pos:num(inputVal(p.k,'pos')),actual:num(inputVal(p.k,'actual'))}; });
     DB.reports=DB.reports||{};
-    DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true};
+    const jejak=tambahJejak(DB.reports[repDate]);
+    DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true,log:jejak};
     save();
     box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div>`;
     setTimeout(()=>render(),700);
@@ -1074,6 +1078,46 @@ function viewReport(){
   hitung();
 }
 function fmtWaktu(ts){ const d=new Date(ts); return isNaN(d)?'':d.toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+
+/* ============ JEJAK SUBMIT (Report Daily & Daily Stock Rokok) ============
+   Siapa yang mengisi, dan jam berapa. Ditambahkan 11 Agustus 2026.
+
+   Jejaknya sengaja MENUMPUK, bukan menimpa. Satu tanggal biasa disubmit lebih
+   dari sekali oleh orang yang berbeda — kasir shift sore mengisi, lalu ada yang
+   mengoreksi satu baris dan menekan Update. Sampai hari ini yang tersimpan cuma
+   `by`/`at` penyimpan TERAKHIR, jadi begitu ada yang mengoreksi, nama orang yang
+   benar-benar mengisi hilang tanpa bekas — padahal justru itu yang dicari kalau
+   angkanya bermasalah.
+
+   Dibatasi 20 entri terakhir: DB ini SATU blob untuk seluruh perusahaan, dan
+   riwayat yang tumbuh tanpa batas membebani setiap pemuatan halaman di semua
+   modul yang ikut blob ini, bukan cuma halaman ini.
+
+   `by`/`at` di baris tetap ditulis seperti dulu — modul lain (Kompas/Finance
+   Omset) dan tampilan lama masih membacanya. */
+const JEJAK_MAKS=20;
+function tambahJejak(lama){
+  const log=Array.isArray(lama&&lama.log)?lama.log.slice():[];
+  log.push({by:(CURRENT_USER&&CURRENT_USER.name)||'', at:Date.now()});
+  return log.slice(-JEJAK_MAKS);
+}
+/* Baris yang dibuat SEBELUM jejak ini ada tidak punya `log`. Dibaca mundur dari
+   by/at lamanya supaya tanggal-tanggal lama tidak terlihat seperti "tidak ada
+   yang pernah mengisi". */
+function jejakList(rec){
+  if(rec&&Array.isArray(rec.log)&&rec.log.length) return rec.log;
+  return (rec&&rec.at)?[{by:rec.by||'',at:rec.at}]:[];
+}
+function jejakHtml(rec){
+  const log=jejakList(rec);
+  if(!log.length) return '';
+  const akhir=log[log.length-1];
+  const sebelum=log.slice(0,-1).reverse();
+  return `<div class="notice info">
+      📝 Disubmit oleh <b>${esc(akhir.by||'—')}</b> · <b>${esc(fmtWaktu(akhir.at))}</b>
+      ${sebelum.length?`<div style="font-size:12px;margin-top:6px;opacity:.78">Sebelumnya diisi/diubah oleh ${sebelum.map(x=>`${esc(x.by||'—')} (${esc(fmtWaktu(x.at))})`).join(' · ')}</div>`:''}
+    </div>`;
+}
 
 /* Sebab selisih yang WAJAR pada satu tanggal, per metode. Report Daily cuma
    perlu memanggil ini.
@@ -2103,7 +2147,7 @@ function viewRokok(){
       <div><h3>Daily Stock Rokok</h3><div class="card-sub" style="margin:0">Isi jumlah yang <b>masuk</b> dan <b>keluar</b> hari itu. Item yang tidak bergerak biarkan <b>0</b> — itu tetap tercatat sebagai "sudah diperiksa, tidak ada pergerakan".</div></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rk_cal">${calInner('rk')}</div></div>
     </div>
-    ${rec&&rec.at?`<div class="notice info">📝 Terakhir disimpan ${esc(fmtWaktu(rec.at))}${rec.by?` oleh ${esc(rec.by)}`:''}.</div>`:''}
+    ${jejakHtml(rec)}
     <div class="card" style="padding:0;overflow:hidden">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Item</th><th class="num">Sisa Awal</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num">Sisa Akhir</th></tr></thead>
@@ -2166,7 +2210,8 @@ function viewRokok(){
     Object.keys(lama).forEach(k=>{ if(!ROKOK_ITEMS.some(it=>it.k===k)) items[k]=lama[k]; });
     ROKOK_ITEMS.forEach(it=>{ items[it.k]={in:nilai(it.k,'in'),out:nilai(it.k,'out')}; });
     DB.rokok=DB.rokok||{};
-    DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now()};
+    const jejak=tambahJejak(DB.rokok[rokokDate]);
+    DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),log:jejak};
     save();
     document.getElementById('rk_err').innerHTML=`<div class="notice ok">✓ Stock ${esc(dateLabel(rokokDate))} tersimpan.</div>`;
     setTimeout(()=>render(),700);
