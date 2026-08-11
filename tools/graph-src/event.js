@@ -919,6 +919,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1796,8 +1806,42 @@ function kartuPerhatian() { perhatian(); esc(); }
 
 
 
-function renderDashboard() { setTop(); dstr(); C(); kartuPerhatian(); stat(); esc(); barChart(); fmtDateTime(); statusBadge(); }
 
+
+
+
+function dashSetPeriode() { renderDashboard(); }
+function renderDashboard() { setTop(); dstr(); rentangPeriode(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dalamPeriode() { C(); kartuPerhatian(); dashSetPeriode(); fmtDate(); esc(); stat(); barChart(); fmtDateTime(); statusBadge(); }
 
 
 
@@ -3649,7 +3693,7 @@ function setIzin() { bisaUbah(); emsPerm(); toast(); save(); buildNav(); renderA
 
 function resetIzin() { emsPermBawaan(); save(); buildNav(); renderAkses(); toast(); }
 
-function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); C(); posterCoverHTML(); esc(); eventForm(); bisaUbah(); hapusEvent(); svgTong(); fmtDateTime(); setEventStatus(); }
+function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); evtRentang(); evtSetPeriode(); esc(); sorotCari(); C(); posterKecilHTML(); fmtDateTime(); statusBadge(); }
 
 
 
@@ -3668,6 +3712,79 @@ function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); C(); pos
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sorotCari() { C(); }
+
+
+
+
+
+
+
+function evtSetPeriode() { renderEvents(); }
+function evtRentang() { rentangPeriode(); }
+
+
+
+
+
+function rentangPeriode() { f(); }
 
 
 
