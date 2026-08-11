@@ -1083,7 +1083,7 @@ const TITLES={
   report:['Report Daily Kasir','Setoran per metode pembayaran: POS vs Actual'],
   piutang:['Piutang / Bon','Bill yang belum dibayar tamu & owner — beserta metode POS sementaranya'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
-  breakdown:['Breakdown Sumber Omset','Isi omset per kasir, lalu potong untuk event marketing & internal'],
+  breakdown:['Breakdown Sumber Omset','Isi omset per kasir, lalu potong untuk event marketing, Reservasi VIP & event internal'],
   target:['Pengaturan Target','Target perusahaan & masing-masing PIC'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Kompas']
 };
@@ -2784,6 +2784,15 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
    di server, jadi jangan menyaring ulang di sini dengan daftar status kedua
    yang pasti akan ketinggalan zaman.
 
+   DARI MARKETING DATANG DUA DAFTAR, bukan satu (revisi 11 Agustus 2026):
+   `events` (peluang/event yang di-deal) dan `vip` (Reservasi VIP Assisted).
+   Keduanya omset yang ditutup marketing dan sama-sama dihitung di Marketing
+   Performance sebelah, jadi menarik `events` saja membuat Breakdown melewatkan
+   reservasi VIP tanpa satu pun layar yang melaporkannya — orang finance baru
+   sadar waktu total realisasi PIC tidak cocok dengan laporan marketing.
+   Saringan 'Assisted' + belum dibatalkan dikerjakan di server; jangan menyaring
+   ulang di sini.
+
    TIDAK PERNAH MELEMPAR, dan tidak pernah membuat halaman kosong. Backend
    marketing/event yang mati tidak boleh membuat orang finance berhenti bisa
    mengalokasikan omset hari itu — paling jauh satu pita peringatan. Pola yang
@@ -2793,7 +2802,7 @@ const EVT_API='../../event-api-mysql/api.php';
 /* Satu tanggal saja yang disimpan: pindah tanggal berarti tarik ulang. Hari
    yang sedang dikerjakan hampir selalu satu, dan cache per-tanggal yang
    menumpuk justru menyimpan angka basi dari marketing yang baru saja direvisi. */
-let EVHARI={tgl:null,st:'idle',mk:[],ev:[],galat:'',antre:[]};
+let EVHARI={tgl:null,st:'idle',mk:[],vp:[],ev:[],galat:'',antre:[]};
 /* Nomor gambar-ulang halaman Breakdown. Penarikan event itu asinkron, jadi
    balasannya bisa datang SESUDAH halaman digambar ulang (ganti tanggal, klik
    OFF, simpan). Tanpa penanda ini, penangan milik render lama akan menulis
@@ -2817,7 +2826,7 @@ function muatEventHari(tgl,sesudah){
      yang membereskannya cuma penangan milik render yang sudah usang. */
   if(EVHARI.tgl===tgl && EVHARI.st==='muat'){ if(sesudah) EVHARI.antre.push(sesudah); return; }
   if(EVHARI.tgl===tgl && EVHARI.st==='ok'){ if(sesudah) sesudah(); return; }
-  EVHARI={tgl,st:'muat',mk:[],ev:[],galat:'',antre:sesudah?[sesudah]:[]};
+  EVHARI={tgl,st:'muat',mk:[],vp:[],ev:[],galat:'',antre:sesudah?[sesudah]:[]};
   const q='?action=eventsHari&tgl='+encodeURIComponent(tgl)+'&t='+Date.now();
   /* allSettled, bukan all: satu modul yang mati tidak boleh menghapus hasil
      modul satunya. Dua-duanya gagal barulah dilaporkan sebagai galat. */
@@ -2826,6 +2835,11 @@ function muatEventHari(tgl,sesudah){
     const gagal=[];
     if(m.status==='fulfilled'){
       EVHARI.mk=Array.isArray(m.value.events)?m.value.events:[];
+      /* `vip` baru ada sejak 11 Agustus 2026. Backend marketing yang belum
+         diperbarui memulangkan balasan TANPA kunci ini — dan itu bukan galat,
+         cuma tidak ada baris VIP. Jangan dijadikan syarat gagal: satu server
+         dev yang tertinggal akan mematikan seluruh penarikan event. */
+      EVHARI.vp=Array.isArray(m.value.vip)?m.value.vip:[];
       EVHARI.set=m.value.settings||null;
     } else gagal.push('marketing ('+(m.reason&&m.reason.message||'gagal')+')');
     if(e.status==='fulfilled') EVHARI.ev=Array.isArray(e.value.events)?e.value.events:[];
@@ -2884,6 +2898,45 @@ function mkFinance(ev,set){
   if(mkYn(d.taxInclude,false)){ grand=afterDisc+service; tax=Math.round(grand*taxPct/(100+taxPct)); }
   else { tax=Math.round((afterDisc+service)*taxPct/100); grand=afterDisc+service+tax; }
   return {omset:afterDisc,service,tax,grand};
+}
+
+/* ---- MEMECAH NOMINAL RESERVASI VIP JADI OMSET / TAX / SERVICE ----
+   Modul marketing cuma meminta SATU angka untuk Reservasi VIP, dan angka itu
+   NOMINAL YANG DITAGIHKAN KE TAMU — sudah termasuk tax & service charge.
+
+   Buktinya dari layar user 11 Agustus 2026, dan angkanya bulat sempurna:
+   VIP "Vio / Lawstar Group" (Kam, 6 Agu 2026) bernilai Rp4.433.250 di modul
+   marketing, sementara baris yang diketik TANGAN oleh finance untuk hari yang
+   sama berbunyi Omset 3.855.000 + Tax 385.500 + Service 192.750 — jumlahnya
+   Rp4.433.250, dan 3.855.000 x 1,15 = 4.433.250 tepat.
+
+   KENAPA INI PENTING, dan kenapa bukan sekadar kerapian: yang dipotong dari
+   kasir shift adalah kolom OMSET saja (lihat potongKasir). Menaruh 4.433.250
+   di sana berarti memotong kasir Rp578.250 untuk uang yang tidak pernah jadi
+   omsetnya — omset kasir di Section A itu angka net, tax & service ada di
+   luarnya. Breakdown-nya tidak akan pernah balance dan tidak ada satu pun
+   layar yang menyebutkan sebabnya.
+
+   PEMBAGINYA DATAR (1 + svc% + tax%), BUKAN BERANTAI seperti mkFinance().
+   Sengaja berbeda, jangan "disamakan": mkFinance menyalin rumus Surat
+   Penawaran, yang menghitung tax di atas (omset + service). Reservasi VIP
+   tidak lewat Surat Penawaran — nominalnya disusun dengan dua persentase
+   yang sama-sama dihitung dari omset, persis seperti contoh di atas. Kalau
+   dipakai rumus berantai, omsetnya keluar Rp3.838.311 dan tidak ada satu
+   angka pun yang cocok dengan yang ditulis finance sendiri.
+
+   Sisa pembulatan ditaruh di TAX, bukan di Omset: kolom Omset yang menentukan
+   potongan kasir, jadi ia harus tetap angka bulat hasil pembagian, sementara
+   ketiganya tetap wajib berjumlah tepat sama dengan nominal aslinya. */
+function vipPecah(nominal,set){
+  const n=num(nominal);
+  const svc=set&&set.serviceCharge!=null?+set.serviceCharge:5;
+  const pjk=set&&set.pb1!=null?+set.pb1:10;
+  const bagi=1+(svc+pjk)/100;
+  if(n<=0||!isFinite(bagi)||bagi<=0) return {omset:Math.max(0,n),tax:0,service:0};
+  const omset=Math.round(n/bagi);
+  const service=Math.round(omset*svc/100);
+  return {omset,service,tax:Math.max(0,n-omset-service)};
 }
 
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
@@ -2988,7 +3041,7 @@ function viewBreakdown(){
       <div id="bd_so"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.<br>Event yang sudah berstatus <b>Deal</b> di modul Marketing muncul sendiri di bawah — nama PIC, nama event, dan nilainya sudah terisi; yang perlu diisi tinggal nominal yang benar-benar masuk.</div>
+      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.<br>Dua hal dari modul Marketing muncul sendiri di bawah: event berstatus <b>Deal</b> dan <b>Reservasi VIP</b> berjenis <b>Assisted</b> yang belum dibatalkan (barisnya diawali <em>VIP —</em>). Nama PIC, namanya, dan nilainya sudah terisi; yang perlu diisi tinggal nominal yang benar-benar masuk. Nominal Reservasi VIP di modul Marketing <b>sudah termasuk tax &amp; service</b>, jadi tombol <em>salin ke kolom</em> memecahnya lebih dulu — hanya bagian Omset-nya yang memotong kasir. Reservasi VIP <b>Regular</b> tidak ikut: marketing hanya membantu bookingnya, omsetnya bukan miliknya.</div>
       <div id="bd_src"></div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
@@ -3025,7 +3078,8 @@ function viewBreakdown(){
   const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
 
   /* ---- MENYERAP EVENT HARI ITU DARI MODUL MARKETING & EVENT ----
-     Baris otomatis ditandai `srcId` ("mkt:<id>" / "evt:<id>"). Penanda itulah
+     Baris otomatis ditandai `srcId` ("mkt:<id>" event marketing / "vip:<id>"
+     Reservasi VIP / "evt:<id>" event internal). Penanda itulah
      yang mencegah baris yang sama masuk dua kali saat halaman digambar ulang,
      dan yang menghubungkannya ke daftar `abaikan` kalau orangnya membuangnya.
 
@@ -3057,6 +3111,25 @@ function viewBreakdown(){
         srcOmset:f.omset, srcTax:f.tax, srcService:f.service});
       tambah++;
     });
+    /* Reservasi VIP masuk ke Section B (marketing), bukan section sendiri:
+       PIC-nya orang marketing, uangnya lewat meja kasir persis seperti event,
+       dan aturan potongannya sama. Section ketiga cuma akan menggandakan
+       seluruh logika shift/Open Bill untuk perbedaan yang tidak ada.
+
+       Nominalnya SATU angka di modul marketing, tapi angka itu SUDAH TERMASUK
+       tax & service — jadi ia TIDAK boleh masuk kolom Omset apa adanya. Lihat
+       vipPecah() di bawah untuk buktinya dan untuk sebab pembagiannya. */
+    EVHARI.vp.forEach(v=>{
+      const key='vip:'+v.id;
+      if(abai.has(key)||sudahAda(key)) return;
+      const pt=v.perusahaan?' ('+v.perusahaan+')':'';
+      const p=vipPecah(v.nominal,EVHARI.set);
+      state.mk.push({picId:cocokPic('marketing',v.picName)||undefined,
+        eventName:'VIP — '+(v.nama||'(tanpa nama)')+pt, amount:0, tax:0, service:0, shift:[],
+        srcId:key, srcPic:v.picName||'', srcNominal:num(v.nominal),
+        srcOmset:p.omset, srcTax:p.tax, srcService:p.service});
+      tambah++;
+    });
     EVHARI.ev.forEach(ev=>{
       const key='evt:'+ev.id;
       if(abai.has(key)||sudahAda(key)) return;
@@ -3079,12 +3152,19 @@ function viewBreakdown(){
   function pitaSumber(){
     const box=document.getElementById('bd_src'); if(!box) return;
     if(EVHARI.tgl!==bdDate || EVHARI.st==='muat'){
-      box.innerHTML=`<div class="notice info"><div>⏳ Mengambil event ${esc(dateLabel(bdDate))} dari modul Marketing &amp; Event…</div></div>`; return;
+      box.innerHTML=`<div class="notice info"><div>⏳ Mengambil event &amp; Reservasi VIP ${esc(dateLabel(bdDate))} dari modul Marketing &amp; Event…</div></div>`; return;
     }
     if(EVHARI.st==='galat'){
-      box.innerHTML=`<div class="notice warn"><div>⚠ Daftar event otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div></div>`; return;
+      box.innerHTML=`<div class="notice warn"><div>⚠ Daftar otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div></div>`; return;
     }
-    const n=EVHARI.mk.length+EVHARI.ev.length;
+    const n=EVHARI.mk.length+EVHARI.vp.length+EVHARI.ev.length;
+    /* Rincian sumbernya disebut satu per satu. Angka gabungan saja membuat
+       "3 ditemukan, 3 dipasang" terlihat benar padahal Reservasi VIP-nya nol
+       karena backend marketing di server itu belum diperbarui — dan tidak ada
+       cara lain melihatnya dari layar ini. */
+    const rinci=[EVHARI.mk.length?`${EVHARI.mk.length} event Marketing`:'',
+                 EVHARI.vp.length?`${EVHARI.vp.length} Reservasi VIP`:'',
+                 EVHARI.ev.length?`${EVHARI.ev.length} event Event`:''].filter(Boolean).join(' + ');
     /* Dua angka yang berbeda dan tidak boleh ditukar: `tersimpan` sudah ada di
        server, `belum` baru dibuang di layar ini. Yang kedua harus disebut
        terang-terangan bahwa ia belum mengikat — kalau tidak, orang menutup
@@ -3107,9 +3187,9 @@ function viewBreakdown(){
     const galatTxt=EVHARI.galat?` (${esc(EVHARI.galat)} tidak terbaca)`:'';
     box.innerHTML = n
       ? `<div class="notice ${tampil?'ok':'warn'}"><div>${tampil
-          ? `✓ ${tampil} dari ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> untuk ${esc(dateLabel(bdDate))} sudah dibuatkan barisnya di bawah — tinggal diisi nominalnya.`
-          : `⚠ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))}, tapi <b>tidak ada satu pun yang dipasang</b> karena semuanya pernah dibuang.`}${galatTxt}${catatanBuang}</div></div>`
-      : `<div class="notice info"><div>ℹ️ Tidak ada event berstatus Deal/Upcoming di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${galatTxt}${catatanBuang}</div></div>`;
+          ? `✓ ${tampil} dari ${n} sumber untuk ${esc(dateLabel(bdDate))} (${rinci}) sudah dibuatkan barisnya di bawah — tinggal diisi nominalnya.`
+          : `⚠ ${n} sumber ditemukan untuk ${esc(dateLabel(bdDate))} (${rinci}), tapi <b>tidak ada satu pun yang dipasang</b> karena semuanya pernah dibuang.`}${galatTxt}${catatanBuang}</div></div>`
+      : `<div class="notice info"><div>ℹ️ Tidak ada event berstatus <b>Deal</b>/<b>Upcoming</b> maupun <b>Reservasi VIP Assisted</b> di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${galatTxt}${catatanBuang}</div></div>`;
     const tp=document.getElementById('bd_pulih');
     if(tp) tp.onclick=()=>{
       /* Dikosongkan di DUA tempat sekaligus dan langsung disimpan: yang di
@@ -3205,10 +3285,30 @@ function viewBreakdown(){
      tanpa ada orang yang menyetujuinya. */
   function pitaBaris(r,i,key){
     if(!r.srcId) return '';
-    const dari=r.srcId.slice(0,3)==='mkt'?'Marketing':'Event';
+    /* Dibaca dari awalan srcId, dan HARUS memakai perbandingan yang tepat —
+       bukan `slice(0,3)==='mkt' ? … : 'Event'` seperti dulu. Awalan ketiga
+       ('vip') masuk ke cabang else dan seluruh baris Reservasi VIP akan
+       mengaku datang "dari modul Event", lengkap dengan PIC marketing di
+       dalamnya. */
+    const dari={mkt:'Marketing',vip:'Marketing (Reservasi VIP)',evt:'Event'}[r.srcId.slice(0,3)]||'modul lain';
     const pic=r.srcPic?` · PIC di ${dari}: <b>${esc(r.srcPic)}</b>`:'';
+    /* Baris VIP wajib menyebutkan bahwa nominalnya sudah termasuk tax &
+       service, dan berapa hasil pecahannya. Tanpa itu orang membandingkan
+       Rp4.433.250 di pita dengan Rp3.855.000 yang masuk kolom Omset dan
+       menyangka tombol salinnya salah hitung — padahal justru itu yang benar
+       (lihat vipPecah).
+
+       Seluruh rinciannya dibungkus SATU <span>. `.esrc` itu display:flex,
+       jadi tiap potongan teks dan tiap penebalan di dalamnya jadi flex item
+       sendiri — kalimat panjang yang ditaruh telanjang akan pecah jadi
+       kolom-kolom sempit, kesalahan yang sudah dua kali dicatat di berkas ini
+       (modalBagiHasil dan pitaSumber). */
+    const vip=r.srcId.slice(0,3)==='vip';
+    const rinci=vip&&num(r.srcNominal)>0
+      ? ` <span style="opacity:.85">(sudah termasuk tax &amp; service → Omset ${fmtRp(num(r.srcOmset))} + Tax ${fmtRp(num(r.srcTax))} + Service ${fmtRp(num(r.srcService))})</span>`
+      : '';
     const nilai=num(r.srcNominal)>0
-      ? ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b> <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`
+      ? ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b>${rinci} <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`
       : '';
     return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${nilai}</div>`;
   }

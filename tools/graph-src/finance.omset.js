@@ -2801,6 +2801,15 @@ function tutup() { prev(); }
 
 
 
+
+
+
+
+
+
+
+
+
 function evhFetch() {  }
 
 
@@ -2811,6 +2820,11 @@ function evhFetch() {  }
 
 
 function muatEventHari() { evhFetch(); }
+
+
+
+
+
 
 
 
@@ -2873,9 +2887,48 @@ function mkSubtotal() { mkRinciAktif(); mkRinciTotal(); mkFbCost(); }
 
 
 
-function mkFinance() { mkSubtotal(); mkYn(); todayISO(); }
+function mkFinance() { mkSubtotal(); mkYn(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipPecah() { todayISO(); }
 
 
 
@@ -3036,13 +3089,33 @@ function mkSelect() {  }
 
 
 
+
 function cocokPic() {  }
 
 
 
 
 
-function serapOtomatis() { mkFinance(); cocokPic(); }
+function serapOtomatis() { mkFinance(); cocokPic(); vipPecah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3077,6 +3150,13 @@ function serapOtomatis() { mkFinance(); cocokPic(); }
 
 
 function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
+
+
+
+
+
+
+
 
 
 
@@ -3204,6 +3284,26 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 function pitaBaris() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

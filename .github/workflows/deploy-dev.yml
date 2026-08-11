@@ -185,6 +185,51 @@ jobs:
           timeout: 300000
 
 
+      # marketing-mysql ADA di deploy.yml (produksi) tapi TIDAK di sini —
+      # ketimpangan yang persis diperingatkan CLAUDE.md: menambah backend di
+      # satu workflow saja membuat cabang satunya tidak menghasilkan apa pun,
+      # tanpa galat. Ketahuan 11 Agustus 2026 waktu endpoint eventsHari mulai
+      # ikut memulangkan Reservasi VIP: di dev, `vip` tidak pernah ada, jadi
+      # Breakdown-nya terlihat "bekerja tapi tidak menemukan apa-apa" dan tidak
+      # ada satu pun cara membedakannya dari hari yang memang tanpa VIP.
+      - name: Deploy backend marketing-api-mysql
+        id: ftpmkt
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./marketing-mysql/
+          server-dir: /marketing-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
+      - name: Deploy backend marketing-api-mysql (percobaan 2)
+        if: steps.ftpmkt.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.DEV_FTP_SERVER }}
+          username: ${{ secrets.DEV_FTP_USERNAME }}
+          password: ${{ secrets.DEV_FTP_PASSWORD }}
+          local-dir: ./marketing-mysql/
+          server-dir: /marketing-api-mysql/
+          exclude: |
+            config*.php
+            **/config*.php
+            *.sql
+            **/*.sql
+            *.md
+            **/*.md
+          timeout: 300000
+
       # event-mysql sebelumnya TIDAK ada di workflow mana pun. Akibatnya setiap
       # perubahan backend EMS hanya hidup di repo: pustaka template denah
       # (layoutTemplates) tersimpan di frontend, dikirim ke server, lalu DIBUANG
@@ -761,6 +806,33 @@ jobs:
             *1044*)      echo "GAGAL   user MySQL dw belum di-Add User To Database (ALL PRIVILEGES)"; gagal=1 ;;
             *SQLSTATE*)  echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database dw"; gagal=1 ;;
             *)           echo "GAGAL   stats menjawab tak terduga"; gagal=1 ;;
+          esac
+
+          # --- marketing-api-mysql --------------------------------------
+          # Backend ini baru masuk workflow dev 11 Agustus 2026 (sebelumnya
+          # cuma ada di deploy.yml). Yang diuji BUKAN sekadar hidup, tapi
+          # apakah versi yang mendarat sudah mengenal `vip` di eventsHari —
+          # Finance > Breakdown membaca kunci itu, dan backend lama membalas
+          # ok:true TANPA kunci tsb. Frontend sengaja memperlakukannya sebagai
+          # "tidak ada VIP", bukan galat, jadi tanpa gerbang ini backend basi
+          # akan lolos dengan layar yang terlihat normal.
+          echo "--- marketing-api-mysql ---"
+          mkt=$(curl -s -m 60 "https://dev.laksamanamuda.id/marketing-api-mysql/api.php?action=eventsHari&tgl=2000-01-01&ci=$GITHUB_SHA")
+          echo "eventsHari: $(printf '%s' "$mkt" | head -c 300)"
+          # Gerbangnya SETENGAH KERAS, dan itu disengaja. Yang menggagalkan
+          # deploy hanya satu hal yang pasti salah: balasan sah yang memuat
+          # `events` tapi TIDAK memuat `vip` — itu berarti berkas lama masih
+          # duduk di server. Endpoint yang tidak terjangkau sama sekali hanya
+          # jadi peringatan, karena belum dipastikan database marketing di dev
+          # memang sudah disiapkan; menggagalkan seluruh deploy dev karena
+          # backend yang mungkin memang belum pernah ada di sana akan menahan
+          # setiap modul lain tanpa sebab. Kalau nanti sudah terbukti ada,
+          # naikkan cabang terakhir jadi gagal=1 seperti jadwal & dw.
+          case "$mkt" in
+            *'"vip"'*)    echo "OK      eventsHari memulangkan vip (versi baru mendarat)" ;;
+            *'"events"'*) echo "GAGAL   eventsHari TANPA kunci vip — lib_marketing_mysql.php di server masih versi lama"; gagal=1 ;;
+            *SQLSTATE*)   echo "GAGAL   DB menolak — cek user/grant di cPanel untuk database marketing"; gagal=1 ;;
+            *)            echo "PERINGATAN  marketing-api-mysql tidak menjawab seperti API — kemungkinan backend/DB marketing memang belum disiapkan di dev. Breakdown akan tampil tanpa baris otomatis." ;;
           esac
 
           exit $gagal
