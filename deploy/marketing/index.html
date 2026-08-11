@@ -637,18 +637,47 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
   .ov-k{width:auto;font-size:12px} .ov-v{padding-bottom:10px;border-bottom:1px solid var(--line)} }
 
 /* kanban */
-.kanban{display:grid;grid-template-columns:repeat(6,minmax(210px,1fr));gap:12px;overflow-x:auto;padding-bottom:8px}
+/* SATU LAYAR, tanpa geser mendatar.
+
+   Dua hal yang dulu membuatnya meluber:
+
+   1. `repeat(6,...)` — padahal PIPE_COLS cuma lima. Kolom keenam yang
+      tidak pernah diisi tetap mengambil jatah lebar, jadi papan selalu
+      seperlima lebih lebar daripada yang dibutuhkan dan menyisakan lubang
+      di kanan Lost. Angkanya sekarang TIDAK ditulis di sini melainkan
+      dipasang pipeKanban() dari cols.length, supaya menambah atau
+      mengurangi tahap tidak lagi menuntut ada yang ingat menyunting CSS.
+
+   2. `minmax(210px,1fr)` — lantai 210px membuat lima kolom menuntut 1.100px
+      sendiri, dan bersama sidebar 250px itu melewati layar laptop 1366px.
+      `minmax(0,1fr)` membiarkan kolom menyusut mengikuti ruang yang ada.
+
+   Di bawah 1000px lantai lebarnya dikembalikan dan geser mendatar
+   dihidupkan lagi: lima kolom selebar 140px bukan papan yang bisa dibaca,
+   dan di layar sesempit itu menggeser memang jawaban yang benar. */
+.kanban{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding-bottom:4px}
+@media(max-width:1000px){
+  .kanban{grid-auto-columns:minmax(210px,1fr);grid-auto-flow:column;
+    grid-template-columns:none;overflow-x:auto;padding-bottom:8px}
+}
 /* Baki kolom bernada HANGAT, kartunya putih murni. Sejak halaman jadi
    putih, --ink-900 ikut putih — dan baki putih berisi kartu putih di atas
    halaman putih berarti tidak ada satu pun batas yang terlihat: papannya
    terbaca seperti daftar melayang tanpa kolom. Urutannya sekarang
    bertingkat: halaman putih -> baki krem -> kartu putih. */
-.kcol{background:var(--ink-850);border:1px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;min-height:180px}
+/* Tinggi kolom diikat ke sisa layar, dan isinya yang menggulir — bukan
+   halamannya. Sebelumnya kolom Deal berisi delapan kartu memanjangkan
+   seluruh papan, jadi untuk melihat kartu terakhir orang menggulir sampai
+   kepala kolom lain ikut hilang dari layar dan lupa sedang melihat tahap
+   yang mana. 100vh dikurangi kepala halaman + strip ringkasan. */
+.kcol{background:var(--ink-850);border:1px solid var(--line);border-radius:var(--radius);
+  display:flex;flex-direction:column;min-height:180px;max-height:calc(100vh - 268px)}
 .kcol.drag-over{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-glow) inset}
 .kcol-head{padding:13px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;position:sticky;top:0}
 .kcol-head .kt{font-size:12px;font-weight:700;letter-spacing:.02em}
 .kcol-head .kc{margin-left:auto;font-size:11px;color:var(--gold-deep);background:#fff;border:1px solid var(--line);padding:1px 8px;border-radius:12px;font-weight:700}
-.kcol-body{padding:10px;display:flex;flex-direction:column;gap:9px;flex:1}
+.kcol-body{padding:10px;display:flex;flex-direction:column;gap:9px;flex:1;
+  overflow-y:auto;overflow-x:hidden;min-height:0}
 .kcard{background:#ffffff;border:1px solid var(--line);border-radius:11px;padding:12px;cursor:grab;transition:.14s;
   box-shadow:0 1px 3px rgba(50,42,28,.06)}
 .kcard:hover{border-color:var(--gold-deep);transform:translateY(-1px)}
@@ -4667,7 +4696,12 @@ const PIPE_COL_COLOR={Lead:'--muted',Prospect:'--info','Quotation Terkirim':'--v
 function pipeKanban(){
   const cols=PIPE_COLS;
   const colColor=PIPE_COL_COLOR;
-  let h='<div class="kanban">';
+  /* Jumlah kolom dikirim dari data. Kalau PIPE_COLS berubah, papan ikut
+     tanpa ada yang perlu ingat menyunting CSS-nya — persis kelalaian yang
+     membuat kisi ini enam kolom untuk lima tahap. Media query di bawah
+     1000px memakai grid-template-columns:none, jadi nilai ini diabaikan
+     di sana dan tidak perlu ikut dikondisikan. */
+  let h='<div class="kanban" style="grid-template-columns:repeat('+cols.length+',minmax(0,1fr))">';
   cols.forEach(col=>{
     const items=S.events.filter(e=>pipeStatusOfEv(e)===col && pipeCocokPIC(e));
     h+='<div class="kcol" data-col="'+col+'"><div class="kcol-head"><span class="cd" style="width:8px;height:8px;border-radius:50%;background:var('+colColor[col]+')"></span><span class="kt">'+col+'</span><span class="kc">'+items.length+'</span></div><div class="kcol-body" data-col="'+col+'">';

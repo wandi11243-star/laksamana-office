@@ -1903,6 +1903,35 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -4665,6 +4694,11 @@ function pipeStatusOfEv() { autoCloseEvents(); pipeKanban(); }
 
 
 function pipeKanban() { pipeStatusOfEv(); pipeCocokPIC(); pipeKartu(); }
+
+
+
+
+
 
 
 
