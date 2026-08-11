@@ -95,6 +95,132 @@ function save_all($state) {
   return array('saved' => true, 'ts' => gmdate('c'));
 }
 
+/* ==================== OMSET PER PIC MARKETING (dibaca modul lain) ====
+   Dipakai modul Marketing > Marketing Performance untuk memajang totalan
+   KEDUA di sampingnya sendiri: berapa yang benar-benar dialokasikan finance
+   di Breakdown Sumber Omset untuk tiap PIC marketing, pada rentang tanggal
+   tertentu.
+
+   KENAPA ENDPOINT SENDIRI, bukan getAll. State kompas itu satu blob berisi
+   SELURUH riwayat harian — tiap hari menambah baris omset per kasir, baris
+   breakdown, report daily, compliment, piutang. Halaman Performance dibuka
+   berkali-kali sehari oleh seluruh tim marketing; menariknya utuh berarti
+   memindahkan megabyte hanya untuk mendapat satu angka per orang. Pola yang
+   sama dengan events_hari() di marketing dan shiftHari() di jadwal.
+
+   YANG DIBACA HANYA SECTION B (bd.marketing). Section C (bd.event) itu milik
+   PIC event internal, dan Section A milik kasir — memasukkannya ke sini akan
+   membuat angka marketing membengkak oleh kerja divisi lain.
+
+   RUMUS PENGAKUANNYA DISALIN dari porsiPic(r,'marketing') di
+   deploy/finance/omset/index.html:
+       diakui = amount + tax + service + openBill
+   Kalau rumus di sana berubah, ubah di sini juga. Gejala kalau lupa: angka
+   "menurut Breakdown" di modul Marketing beda dari "Diakui PIC" yang tertulis
+   di layar Finance untuk baris yang sama, tanpa ada yang salah di keduanya. */
+function kp_tgl($d) {
+  $d = trim((string)$d);
+  return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : null;
+}
+/* Cerminan num() di sisi aplikasi: buang semua yang bukan digit/minus lalu
+   ambil bilangan bulatnya. Nilai di blob bisa datang sebagai angka JSON
+   maupun string hasil ketikan berformat ("3.855.000"), dan (int) polos akan
+   memulangkan 3 untuk yang kedua. */
+function kp_num($v) {
+  if (is_int($v))   return $v;
+  if (is_float($v)) return (int)round($v);
+  $s = preg_replace('/[^0-9-]/', '', (string)$v);
+  return ($s === '' || $s === '-') ? 0 : (int)$s;
+}
+function kp_state_assoc() {
+  try {
+    $row = db()->query('SELECT `data` FROM `app_state` WHERE `id`=1')->fetch();
+  } catch (Throwable $e) { return array(); }
+  if (!$row || !isset($row['data']) || $row['data'] === '') return array();
+  $s = json_decode((string)$row['data'], true);
+  return is_array($s) ? $s : array();
+}
+function omset_pic($dari, $sampai) {
+  $dari = kp_tgl($dari); $sampai = kp_tgl($sampai);
+  if (!$dari || !$sampai) throw new Exception('rentang tanggal tidak sah (pakai YYYY-MM-DD)');
+  if (strcmp($dari, $sampai) > 0) { $t = $dari; $dari = $sampai; $sampai = $t; }
+
+  $s = kp_state_assoc();
+
+  /* Peta PIC. `officeUserId` itu id user Office yang sama dengan yang dipakai
+     modul Marketing, jadi pemanggil bisa mencocokkan lewat id — bukan lewat
+     nama, yang selalu meleset begitu ada yang berganti ejaan. Namanya tetap
+     ikut dikirim sebagai cadangan untuk PIC lama yang belum punya
+     officeUserId (dibuat manual sebelum sinkronisasi roster ada). */
+  $peta = array();
+  $emp = isset($s['employees']['marketing']) && is_array($s['employees']['marketing'])
+       ? $s['employees']['marketing'] : array();
+  foreach ($emp as $e) {
+    if (!is_array($e) || !isset($e['id'])) continue;
+    $peta[(string)$e['id']] = array(
+      'name'         => isset($e['name']) ? (string)$e['name'] : '',
+      'officeUserId' => isset($e['officeUserId']) ? (string)$e['officeUserId'] : '',
+    );
+  }
+
+  $agg = array();
+  $hariAda = 0; $hariIsi = 0;
+  $daily = isset($s['daily']) && is_array($s['daily']) ? $s['daily'] : array();
+  foreach ($daily as $d) {
+    if (!is_array($d)) continue;
+    $tgl = kp_tgl(isset($d['date']) ? $d['date'] : '');
+    if (!$tgl || strcmp($tgl, $dari) < 0 || strcmp($tgl, $sampai) > 0) continue;
+    $hariAda++;
+    $baris = isset($d['bd']['marketing']) && is_array($d['bd']['marketing'])
+           ? $d['bd']['marketing'] : array();
+    if ($baris) $hariIsi++;
+    foreach ($baris as $r) {
+      if (!is_array($r)) continue;
+      $pid = isset($r['picId']) ? (string)$r['picId'] : '';
+      $om  = kp_num(isset($r['amount'])  ? $r['amount']  : 0);
+      $tax = kp_num(isset($r['tax'])     ? $r['tax']     : 0);
+      $svc = kp_num(isset($r['service']) ? $r['service'] : 0);
+      /* Open Bill hanya dihitung kalau centangnya HIDUP. Angkanya sengaja
+         tidak dinolkan waktu centang dicabut (lihat catatan di bindOb), jadi
+         membacanya tanpa memeriksa `ob` akan mengakui uang yang sudah
+         dibatalkan orangnya. */
+      $ob = (isset($r['ob']) && $r['ob'])
+          ? kp_num(isset($r['obAmount'])  ? $r['obAmount']  : 0)
+          + kp_num(isset($r['obTax'])     ? $r['obTax']     : 0)
+          + kp_num(isset($r['obService']) ? $r['obService'] : 0)
+          : 0;
+      if (!isset($agg[$pid])) $agg[$pid] = array(
+        'picId' => $pid, 'name' => '', 'officeUserId' => '',
+        'omset' => 0, 'tax' => 0, 'service' => 0, 'openBill' => 0, 'diakui' => 0, 'baris' => 0);
+      $agg[$pid]['omset']    += $om;
+      $agg[$pid]['tax']      += $tax;
+      $agg[$pid]['service']  += $svc;
+      $agg[$pid]['openBill'] += $ob;
+      $agg[$pid]['diakui']   += $om + $tax + $svc + $ob;
+      $agg[$pid]['baris']++;
+    }
+  }
+
+  $pic = array();
+  $tot = array('omset' => 0, 'tax' => 0, 'service' => 0, 'openBill' => 0, 'diakui' => 0, 'baris' => 0);
+  foreach ($agg as $pid => $a) {
+    if (isset($peta[$pid])) { $a['name'] = $peta[$pid]['name']; $a['officeUserId'] = $peta[$pid]['officeUserId']; }
+    foreach (array('omset','tax','service','openBill','diakui','baris') as $k) $tot[$k] += $a[$k];
+    $pic[] = $a;
+  }
+  usort($pic, function ($a, $b) { return $b['diakui'] - $a['diakui']; });
+
+  return array(
+    'dari' => $dari, 'sampai' => $sampai,
+    /* Dua angka yang mudah tertukar dan dua-duanya perlu. `hariAda` = hari
+       yang punya catatan omset sama sekali; `hariIsi` = hari yang breakdown
+       Section B-nya benar-benar terisi. Pemanggil butuh keduanya untuk bisa
+       membedakan "finance belum mengisi apa pun" dari "sudah diisi, memang
+       tidak ada event" — dua keadaan yang sama-sama memulangkan Rp0. */
+    'hariAda' => $hariAda, 'hariIsi' => $hariIsi,
+    'pic' => $pic, 'total' => $tot,
+  );
+}
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',

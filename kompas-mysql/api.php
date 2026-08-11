@@ -3,6 +3,9 @@
  * KOMPAS LAKSAMANA — Endpoint API
  * ---------------------------------------------------------------------
  *   GET  ?action=getAll  -> {ok,data:{daily,targets,cashiers,pics,settings,log}}
+ *   GET  ?action=omsetPic&dari=YYYY-MM-DD&sampai=YYYY-MM-DD
+ *                        -> {ok,data:{dari,sampai,hariAda,hariIsi,pic:[...],total:{...}}}
+ *                           Read-only, dipakai modul Marketing > Performance.
  *   GET  ?action=stats   -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved,jumlah}}
@@ -37,6 +40,9 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 
 try {
   if ($action === 'getAll')      keluar(array('ok' => true, 'data' => baca_state()));
+  else if ($action === 'omsetPic') keluar(array('ok' => true, 'data' => omset_pic(
+    isset($_GET['dari'])   ? $_GET['dari']   : '',
+    isset($_GET['sampai']) ? $_GET['sampai'] : '')));
   else if ($action === 'stats')  keluar(array('ok' => true, 'data' => stats()));
   else if ($action === 'ping')   keluar(array('ok' => true, 'data' => ping()));
   else if ($action === 'saveAll') {

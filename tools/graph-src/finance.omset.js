@@ -2599,7 +2599,36 @@ function porsiPic() { obTotal(); }
 
 
 
-function potongKasir() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function menuFixRow() {  }
+function potongKasirAktif() { menuFixRow(); }
+function potongKasir() { potongKasirAktif(); }
 
 
 function openBillHari() { openBillList(); }
@@ -2667,7 +2696,12 @@ function potonganHari() { potonganBaris(); }
 
 
 
-function barisTanpaShift() { potonganBaris(); modalBagiHasil(); }
+
+
+
+
+
+function barisTanpaShift() { potongKasirAktif(); potonganBaris(); modalBagiHasil(); }
 
 
 
@@ -3149,6 +3183,28 @@ function serapOtomatis() { mkFinance(); cocokPic(); vipPecah(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
 
 
@@ -3208,7 +3264,13 @@ function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv()
 
 
 
-function tombolBagi() { potonganBaris(); }
+function tombolBagi() { menuFixRow(); potonganBaris(); }
+
+
+
+
+
+
 
 
 
@@ -3283,7 +3345,16 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 
-function pitaBaris() {  }
+function pitaBaris() { menuFixRow(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3568,7 +3639,8 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 
-function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
 
 
 

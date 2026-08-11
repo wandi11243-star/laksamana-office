@@ -5453,6 +5453,7 @@ function renderEventForm(V,id){
 
   // Kartu Penawaran — unggah PDF, approval Manager, lalu kirim ke client (di atas detailing).
   h+=penawaranCard(ev,canEdit);
+  h+=menuFixCard(ev,canEdit);
 
   // riwayat follow up peluang ini — supaya bisa ditelusuri langsung dari halaman
   // event, tidak cuma dari Database Client (yang menggabung semua event client itu).
@@ -8018,6 +8019,87 @@ function suratPenawaranPDF(id){
 function dealPenawaran(id){ confirmEvent(id); }
 /* Kartu Penawaran di halaman detail event — menampilkan status + aksi sesuai
    tahap & peran (Marketing unggah/ajukan/kirim; Manager / Approver setujui/tolak). */
+/* ============ PENGAKUAN OMSET — MENU DITETAPKAN vs DIPILIH DI TEMPAT ============
+   Ditambahkan 12 Agustus 2026 atas permintaan user. Satu pertanyaan yang
+   menentukan SIAPA YANG DIAKUI menerima omset acara ini, dan karena itu juga
+   menentukan apakah ada kasir yang saldo omsetnya dipotong:
+
+     'tetap'    menunya sudah disepakati sebelum hari-H. Omsetnya milik
+                MARKETING. Di Finance > Breakdown Sumber Omset, baris acara ini
+                harus menyebut kasir yang menginput, dan kasir itu dipotong
+                sebesar nilainya (uang yang sama berpindah pemilik).
+     'ditempat' tamu memesan sendiri di meja pada hari-H. Omsetnya tetap milik
+                KASIR yang melayani — tidak ada yang dipotong, dan baris di
+                Breakdown tidak memakai pilihan kasir sama sekali.
+
+   KOSONG BUKAN BERARTI SALAH SATU, dan itu disengaja. Bawaan diam-diam ke
+   'tetap' akan membuat seluruh acara lama memotong kasir begitu bagian
+   Breakdown menyusul; bawaan ke 'ditempat' membuat omset marketing hilang
+   dari pengakuan tanpa ada yang tahu. Dua-duanya salah dengan cara yang tidak
+   menimbulkan galat apa pun, jadi yang belum diisi ditandai sebagai belum
+   diisi dan harus diputuskan orangnya.
+
+   YANG BERUBAH DI SINI BARU SISI MARKETING. Konsekuensinya di Breakdown
+   (tombol kasir muncul/tidak) dikerjakan menyusul di deploy/finance/omset/
+   — permintaan user: sisi marketing dulu supaya bisa direview. Sampai itu
+   terpasang, penanda ini tersimpan tapi belum mengubah angka siapa pun. */
+const MENU_FIX=[
+  {v:'tetap',    t:'Menu sudah ditetapkan',
+   d:'Paketnya disepakati sebelum hari-H. Omsetnya diakui untuk <b>Marketing</b> — di Finance → Breakdown Sumber Omset barisnya menyebut kasir yang menginput, dan saldo omset kasir itu dipotong sebesar nilainya.'},
+  {v:'ditempat', t:'Menu dipilih di tempat',
+   d:'Tamu memesan sendiri di meja pada hari-H. Omsetnya tetap diakui <b>kasir</b> yang melayani — tidak ada kasir yang dipotong, dan barisnya di Breakdown tidak memakai pilihan kasir.'}
+];
+function menuFix(o){ const v=String((o&&o.menuFix)||''); return MENU_FIX.some(x=>x.v===v)?v:''; }
+function menuFixInfo(v){ return MENU_FIX.find(x=>x.v===v)||null; }
+/* Penanda ringkas untuk daftar & tabel. Yang belum diisi TIDAK dibiarkan
+   kosong — kekosongan di tabel terbaca sebagai "tidak ada masalah", padahal
+   justru inilah baris yang perlu diputuskan orangnya. */
+function menuFixChip(o){
+  const v=menuFix(o);
+  if(v==='tetap')    return '<span class="tag" style="background:var(--gold-glow);color:var(--gold-deep)">Menu ditetapkan</span>';
+  if(v==='ditempat') return '<span class="tag">Pilih di tempat</span>';
+  return '<span class="tag" style="background:var(--warn-bg);color:var(--warn)">Menu belum ditentukan</span>';
+}
+function menuFixSegHTML(id,val,fn,bisaUbah){
+  return '<div class="seg" id="'+id+'">'
+    +MENU_FIX.map(x=>'<button type="button"'+(bisaUbah?'':' disabled')+' class="'+(val===x.v?'on':'')
+      +'" data-v="'+x.v+'" onclick="'+fn+'(\''+x.v+'\')">'+esc(x.t)+'</button>').join('')
+    +'</div>';
+}
+function menuFixHelpHTML(val){
+  const i=menuFixInfo(val);
+  if(!i) return '<div class="fh" style="color:var(--warn)"><b>Belum ditentukan.</b> Selama belum dipilih, Finance tidak bisa tahu apakah omset acara ini memotong kasir atau tidak.</div>';
+  return '<div class="fh">'+i.d+'</div>';
+}
+
+/* Kartu Pengakuan Omset di halaman event. Ditaruh bersebelahan dengan Surat
+   Penawaran, bukan diselipkan ke salah satu tab: ia soal uang dan harus
+   terlihat tanpa orang membuka tab dulu — persis alasan yang sama kenapa
+   ringkasan pengisian dipindah ke atas tab. */
+function menuFixCard(ev,canEdit){
+  const v=menuFix(ev);
+  return '<div class="card" style="margin-bottom:18px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px">'
+    +'<h3 style="font-size:15px;display:flex;align-items:center;gap:9px">'+svg(IC.money)+'Pengakuan Omset</h3>'
+    +menuFixChip(ev)+'</div>'
+    +menuFixSegHTML('ev_menufix',v,'setMenuFixEvent',canEdit)
+    +menuFixHelpHTML(v)+'</div>';
+}
+function setMenuFixEvent(v){
+  if(!can('edit_event')) return toast('Akses ditolak','Kamu tidak punya izin mengubah event.','err');
+  const ev=curEvent; if(!ev) return;
+  if(menuFix(ev)===v) return;                 // tidak ada yang berubah
+  ev.menuFix=v;
+  const i=menuFixInfo(v);
+  logAct('event',ev.id,'Pengakuan omset diubah',(i?i.t:'—')+' · '+ev.nama);
+  save();
+  /* Digambar ulang seluruh halaman event, bukan cuma kartunya: penanda ini
+     ikut muncul di ringkasan pengisian dan di kepala halaman, jadi menambal
+     satu simpul DOM akan meninggalkan dua tempat yang menyebut nilai lama. */
+  go('event',ev.id);
+  toast('Tersimpan',(i?i.t:'—')+'.','ok');
+}
+
 function penawaranCard(ev,canEdit){
   const st=penStatus(ev), p=ev.penawaran, f=eventFinance(ev), superA=bisaPutusPenawaran();
   const pf=penFile(ev);
@@ -10972,8 +11054,149 @@ function decideApproval(id,decision){
 /* ============================================================
    MODUL J — MARKETING PERFORMANCE
    ============================================================ */
+/* ============ DUA SUMBER ANGKA DI MARKETING PERFORMANCE ============
+   Diminta user 12 Agustus 2026. Halaman ini sekarang memajang DUA totalan
+   untuk hal yang sama, dan itu memang tujuannya:
+
+     1. MENURUT MARKETING — dihitung dari isian modul ini sendiri: nilai event
+        yang sudah berstatus closing + nominal Reservasi VIP Assisted. Ini
+        angka yang DISEPAKATI (Surat Penawaran / nominal yang diketik PIC).
+     2. MENURUT BREAKDOWN — dibaca dari Finance > Omset > Breakdown Sumber
+        Omset: berapa yang benar-benar dialokasikan finance atas nama tiap PIC
+        pada hari acaranya. Ini angka yang MASUK.
+
+   Keduanya memang tidak harus sama, dan selisihnya justru informasi:
+   pembayaran yang belum penuh, Open Bill yang menambah, event yang batal di
+   hari-H, atau — yang paling sering — hari yang breakdown-nya belum diisi
+   finance. Karena itu jumlah hari terisi ikut dilaporkan; tanpa itu, "Rp0"
+   karena finance belum bekerja tidak bisa dibedakan dari "Rp0" karena
+   memang tidak ada event.
+
+   KENAPA HALAMAN INI PUNYA PERIODE SEKARANG. Sebelumnya seluruh angkanya
+   sepanjang masa. Breakdown datanya per hari, jadi dua angka tanpa cakupan
+   yang sama tidak bisa dibandingkan sama sekali — "menurut marketing sejak
+   2024" di sebelah "menurut finance bulan ini" adalah dua kalimat yang
+   berbeda yang dipajang seolah-olah satu perbandingan. Pilihan "Semua Waktu"
+   tetap ada supaya angka lama tidak hilang.
+
+   PENARIKANNYA TIDAK PERNAH MELEMPAR dan tidak pernah mengosongkan halaman:
+   backend kompas yang mati tidak boleh membuat tim marketing kehilangan
+   papan performanya sendiri. Paling jauh satu pita peringatan — pola yang
+   sama dengan muatDW() di modul Jadwal dan muatEventHari() di Finance. */
+const KOMPAS_API='../kompas-api-mysql/api.php';
+let perfPeriode=today().slice(0,7);        // 'YYYY-MM'; '' = semua waktu
+let PERF_BD={key:null,st:'idle',pic:[],total:null,hariAda:0,hariIsi:0,galat:''};
+function perfBulanOpsi(){
+  const set={};
+  const tambah=t=>{ const b=String(t||'').slice(0,7); if(/^\d{4}-\d{2}$/.test(b)) set[b]=1; };
+  S.events.forEach(e=>tambah(e.tanggal));
+  (S.vip||[]).forEach(v=>tambah(v.tanggal));
+  set[today().slice(0,7)]=1;               // bulan berjalan selalu bisa dipilih
+  return Object.keys(set).sort().reverse();
+}
+function perfDalam(tgl){
+  if(!perfPeriode) return true;
+  return String(tgl||'').slice(0,7)===perfPeriode;
+}
+function perfRentang(){
+  /* Semua Waktu tetap memakai rentang, bukan endpoint tanpa tanggal: backend
+     membandingkan tanggal sebagai STRING, jadi batas selebar ini menangkap
+     segalanya tanpa perlu cabang kedua yang harus dijaga terpisah. */
+  if(!perfPeriode) return {a:'1900-01-01',b:'2999-12-31'};
+  const akhir=new Date(+perfPeriode.slice(0,4),+perfPeriode.slice(5,7),0).getDate();
+  return {a:perfPeriode+'-01',b:perfPeriode+'-'+String(akhir).padStart(2,'0')};
+}
+function perfLabelPeriode(){ return perfPeriode?labelBulan(perfPeriode):'Semua Waktu'; }
+function perfGantiPeriode(v){
+  perfPeriode=v;
+  go('performance');
+}
+/* Mencocokkan PIC breakdown (milik modul Finance) dengan user modul ini.
+   LEWAT officeUserId LEBIH DULU, nama cuma cadangan: dua modul menyimpan
+   daftar PIC-nya sendiri-sendiri dan id internalnya beda ruang, tapi keduanya
+   sama-sama menyimpan id user Office. Cadangan nama tetap ada untuk PIC lama
+   yang dibuat manual di Finance sebelum sinkronisasi roster ada — tanpa itu
+   omzet orang tersebut hilang dari kolom breakdown tanpa jejak. */
+function perfBdUntuk(u){
+  if(!PERF_BD.pic.length||!u) return null;
+  const uid=String(u.id||'');
+  let hit=PERF_BD.pic.find(p=>p.officeUserId&&String(p.officeUserId)===uid);
+  if(!hit){
+    const n=String(u.name||'').trim().toLowerCase();
+    if(n) hit=PERF_BD.pic.find(p=>String(p.name||'').trim().toLowerCase()===n);
+  }
+  return hit||null;
+}
+function muatPerfBD(){
+  const key=perfPeriode||'all';
+  if(PERF_BD.key===key&&(PERF_BD.st==='muat'||PERF_BD.st==='ok'||PERF_BD.st==='galat')) return;
+  const r=perfRentang();
+  PERF_BD={key,st:'muat',pic:[],total:null,hariAda:0,hariIsi:0,galat:''};
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),9000);
+  fetch(KOMPAS_API+'?action=omsetPic&dari='+encodeURIComponent(r.a)+'&sampai='+encodeURIComponent(r.b)+'&t='+Date.now(),
+        {method:'GET',redirect:'follow',signal:stop.signal})
+    .then(res=>{ clearTimeout(jam); return res.text(); })
+    .then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON (kompas-api-mysql belum terpasang?)');
+      if(!j.ok) throw new Error(j.error||'ditolak');
+      const d=j.data||{};
+      if(PERF_BD.key!==key) return;          // user sudah pindah periode duluan
+      PERF_BD.pic=Array.isArray(d.pic)?d.pic:[];
+      PERF_BD.total=d.total||null;
+      PERF_BD.hariAda=+d.hariAda||0; PERF_BD.hariIsi=+d.hariIsi||0;
+      PERF_BD.st='ok';
+    })
+    .catch(err=>{
+      clearTimeout(jam);
+      if(PERF_BD.key!==key) return;
+      PERF_BD.st='galat';
+      PERF_BD.galat=(err&&err.name==='AbortError')?'Finance tidak menjawab dalam 9 detik.'
+                                                  :((err&&err.message)||'gagal');
+    })
+    .then(()=>{
+      /* Dua syarat saja: periodenya belum berpindah, dan halaman ini masih
+         yang terbuka.
+
+         SENGAJA TIDAK memeriksa nomor render. Pernah ditulis begitu dan itu
+         salah: kalau halaman kebetulan digambar ulang selagi penarikan masih
+         jalan, nomornya sudah tidak cocok, redraw dilewati, dan pitanya macet
+         di "Mengambil alokasi…" selamanya walaupun datanya sudah ada di
+         PERF_BD. Yang ditulis di sini state, bukan DOM, jadi menggambar ulang
+         selalu aman — persis sebab `antre` ada di muatEventHari milik Finance. */
+      if(PERF_BD.key!==key) return;
+      if(String(location.hash).indexOf('performance')<0) return;
+      go('performance');
+    });
+}
+/* Pita status penarikan. Selalu satu elemen blok di dalamnya — kelas .tbl-note
+   berperilaku sama seperti .notice di modul Finance. */
+function perfPitaBD(){
+  if(PERF_BD.st==='muat')
+    return '<div class="tbl-note" style="margin-bottom:16px"><span>⏳ Mengambil alokasi Breakdown '+esc(perfLabelPeriode())+' dari Finance…</span></div>';
+  if(PERF_BD.st==='galat')
+    return '<div class="tbl-note" style="margin-bottom:16px;border-color:var(--warn);color:var(--warn)">'+svg(IC.alert)
+      +'<span>Alokasi Breakdown tidak bisa dibaca ('+esc(PERF_BD.galat)+'). Angka menurut Marketing di bawah tetap benar; kolom Breakdown dikosongkan. '
+      +'<a href="#" onclick="PERF_BD.key=null;muatPerfBD();return false"><b>Coba lagi</b></a></span></div>';
+  if(PERF_BD.st==='ok'&&!PERF_BD.hariIsi)
+    return '<div class="tbl-note" style="margin-bottom:16px;border-color:var(--warn);color:var(--warn)">'+svg(IC.alert)
+      +'<span><b>Finance belum mengisi Breakdown Sumber Omset</b> untuk '+esc(perfLabelPeriode())+' ('+PERF_BD.hariAda+' hari punya catatan omset, tapi belum ada satu pun baris marketing). Kolom Breakdown wajar kosong — bukan berarti tidak ada event.</span></div>';
+  return '';
+}
+
 function renderPerformance(V){
+  muatPerfBD();
   let h=pageHead('Modul J','Marketing Performance','Ukur performa objektif — bukan kesan, tapi angka.','');
+  /* Pemilih periode di kepala halaman. <select>, bukan deretan tombol seperti
+     penyaring Input & Event: daftar bulannya tumbuh terus dan deretan tombol
+     yang melipat jadi tiga baris justru mendorong halamannya turun. */
+  h+='<div class="toolbar" style="margin-bottom:16px">'
+   +'<div class="field" style="margin:0;min-width:220px"><label>Periode</label>'
+   +'<select class="inp" onchange="perfGantiPeriode(this.value)">'
+   +'<option value=""'+(perfPeriode?'':' selected')+'>Semua Waktu</option>'
+   +perfBulanOpsi().map(b=>'<option value="'+b+'"'+(b===perfPeriode?' selected':'')+'>'+esc(labelBulan(b))+'</option>').join('')
+   +'</select></div>'
+   +'<span class="cell-sub">Seluruh angka di halaman ini mengikuti periode yang dipilih, termasuk kolom yang dibaca dari Finance.</span></div>';
   /* SIAPA YANG DIUKUR DI SINI: anggota TIM MARKETING yang masih aktif.
      Timnya dibaca dari satu kolom di Office -> Kelola User -> "Tim /
      Keterangan", lewat timMarketing(). Jadi papan ini diatur dari Office,
@@ -10998,19 +11221,28 @@ function renderPerformance(V){
      tetap tersimpan di S.users (riwayat event lamanya menunjuk ke id itu),
      dan tanpa saringan ini papan memajang batang kosong atas nama orang yang
      sudah tidak bekerja di sini. */
-  const punyaKontribusi=id=>S.events.some(e=>e.mktPIC===id) || (S.vip||[]).some(v=>v.mktPIC===id);
+  /* SEMUA daftar di bawah ini sudah tersaring periode. Disiapkan satu kali di
+     sini, bukan disaring ulang di tiap tempat yang memakainya: dulu ada empat
+     tempat yang menjumlahkan sendiri-sendiri dan yang satu terlewat membuat
+     angka orang yang sama berbeda antar bagian di satu halaman. */
+  const evPer=S.events.filter(e=>perfDalam(e.tanggal));
+  const vipPer=(S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt&&perfDalam(v.tanggal));
+  const vipPicPer=uid=>vipPer.filter(v=>v.mktPIC===uid).reduce((a,v)=>a+vipNominal(v),0);
+  const punyaKontribusi=id=>evPer.some(e=>e.mktPIC===id) || vipPer.some(v=>v.mktPIC===id);
   const mkt=S.users.filter(u=>u.active!==false && (timMarketing(u) || punyaKontribusi(u.id)));
   // team totals
-  const closed=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
+  const closed=evPer.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   // Omzet tim = event closing + seluruh Reservasi VIP Assisted.
   const omzetEvent=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
-  const omzetVip=vipOmzetTotal();
+  const omzetVip=vipPer.reduce((a,v)=>a+vipNominal(v),0);
   const omzet=omzetEvent+omzetVip;
   // Distribusi berbasis EVENT: tiap peluang dihitung SEKALI, di tahapnya saat ini.
-  const leads=S.events.length; const deals=closed.length;
+  const leads=evPer.length; const deals=closed.length;
   const convRate=leads?Math.round(deals/leads*100):0;
-  const atStage=s=>S.events.filter(e=>e.status===s).length;
+  const atStage=s=>evPer.filter(e=>e.status===s).length;
   const avgVal=closed.length?Math.round(omzet/closed.length):0;
+  // Totalan kedua: yang benar-benar dialokasikan finance untuk periode ini.
+  const bdTotal=(PERF_BD.st==='ok'&&PERF_BD.total)?(+PERF_BD.total.diakui||0):null;
   h+='<div class="grid g-4" style="margin-bottom:18px">'
    /* Omzet dipecah jadi TIGA kartu, bukan satu angka gabungan.
 
@@ -11021,22 +11253,62 @@ function renderPerformance(V){
       reservasi" — tidak bisa dijawab tanpa membuka dua halaman lain.
       Totalnya tetap ada, di kartu ketiga. */
    +stat('Omzet Client Event',rpShort(omzetEvent),closed.length+' event closing','event')
-   +stat('Omzet Reservasi VIP',rpShort(omzetVip),(S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt).length+' reservasi Assisted','star')
+   +stat('Omzet Reservasi VIP',rpShort(omzetVip),vipPer.length+' reservasi Assisted','star')
    +stat('Total Omzet',rpShort(omzet),'event + reservasi','money')
    +stat('Conversion Rate',convRate+'%',deals+' deal / '+leads+' peluang','pipe')
    +'</div>';
+  h+=perfPitaBD();
+  /* ---- KARTU PEMBANDING DUA SUMBER ----
+     Ditaruh langsung di bawah kartu omzet, sebelum apa pun yang lain: inilah
+     pertanyaan yang membuat halaman ini direvisi, dan menaruhnya di bawah
+     grafik berarti tidak akan pernah dilihat. */
+  {
+    const sel=(bdTotal===null)?null:(bdTotal-omzet);
+    const nilaiBd=(bdTotal===null)
+      ? '<span class="cell-sub">'+(PERF_BD.st==='muat'?'menunggu Finance…':'tidak terbaca')+'</span>'
+      : '<b class="mono" style="font-size:20px">'+rp(bdTotal)+'</b>';
+    const nilaiSel=(sel===null)?'<span class="cell-sub">—</span>'
+      : '<b class="mono" style="font-size:20px;color:'+(sel===0?'var(--muted)':(sel<0?'var(--danger)':'var(--gold-deep)'))+'">'
+        +(sel>0?'+':'')+rp(sel)+'</b>';
+    h+='<div class="card" style="margin-bottom:18px">'
+     +'<h3 style="font-size:15px;margin-bottom:4px">Dua Sumber Angka · '+esc(perfLabelPeriode())+'</h3>'
+     +'<p class="cell-sub" style="margin-bottom:14px">Kiri: yang <b>disepakati</b> — dari isian modul ini. Kanan: yang <b>dialokasikan</b> finance di Breakdown Sumber Omset. Keduanya tidak harus sama.</p>'
+     +'<div class="grid g-3">'
+     +'<div><div class="cell-sub">Menurut Marketing</div><b class="mono" style="font-size:20px">'+rp(omzet)+'</b>'
+       +'<div class="cell-sub">'+closed.length+' event closing + '+vipPer.length+' Reservasi VIP</div></div>'
+     +'<div><div class="cell-sub">Menurut Breakdown Finance</div>'+nilaiBd
+       +'<div class="cell-sub">'+(PERF_BD.st==='ok'?(PERF_BD.hariIsi+' dari '+PERF_BD.hariAda+' hari sudah dibreakdown'):'—')+'</div></div>'
+     +'<div><div class="cell-sub">Selisih</div>'+nilaiSel
+       +'<div class="cell-sub">Breakdown − Marketing</div></div>'
+     +'</div>'
+     /* Sebab selisih disebutkan terang-terangan. Tanpa daftar ini, angka yang
+        berbeda otomatis dibaca sebagai "salah satunya salah", dan yang paling
+        sering terjadi justru bukan kesalahan: hari yang belum dibreakdown. */
+     +'<div class="tbl-note" style="margin-top:14px">'+svg(IC.alert)
+     +'<span>Selisih itu wajar dan biasanya berarti salah satu dari ini: '
+     +'<em>hari acaranya belum dibreakdown finance</em> (paling sering) · '
+     +'<em>tamu membayar tidak penuh</em> atau justru menambah lewat <em>Open Bill</em> · '
+     +'<em>acara batal di hari-H</em> tapi statusnya di sini masih Deal · '
+     +'<em>nilai yang disepakati berubah</em> setelah Surat Penawaran dibuat. '
+     +'Yang perlu ditelusuri adalah selisih pada hari yang <b>sudah</b> dibreakdown.</span></div>'
+     +'</div>';
+  }
   /* Baris kedua: dua angka yang sebelumnya berdesakan di baris pertama.
      Tidak dibuang — keduanya tetap dipakai, hanya bukan yang pertama
      dicari orang saat membuka halaman ini. */
   h+='<div class="grid g-2" style="margin-bottom:18px">'
    +stat('Avg Event Value',rpShort(avgVal),'per event closing','event')
-   +stat('Repeat Customer',S.clients.filter(c=>clientEventCount(c.id)>1).length,'klien balik lagi','star')
+   /* Repeat Customer SENGAJA tetap sepanjang masa dan disebutkan begitu di
+      keterangannya: "klien yang pernah balik lagi" tidak punya arti kalau
+      dipotong satu bulan — dua eventnya hampir selalu ada di bulan berbeda,
+      jadi menyaringnya per periode akan selalu memulangkan nol. */
+   +stat('Repeat Customer',S.clients.filter(c=>clientEventCount(c.id)>1).length,'klien balik lagi (sepanjang masa)','star')
    +'</div>';
   // Omzet 0 padahal ada event closing = biaya di tab Quotation belum diisi
   if(closed.length && !omzet) h+='<div class="tbl-note" style="margin-top:-6px;margin-bottom:16px">'+svg(IC.alert)+'<span>Ada <em>'+closed.length+' event closing</em> tapi omzet masih Rp0 — nilai event dihitung dari biaya <em>Sewa Venue, F&amp;B, Sound/Lighting, Lain-lain</em> di tab Event Brief &amp; Quotation. Isi di sana agar omzet terhitung.</span></div>';
   // funnel
   const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
-  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang.</p>';
+  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang dengan tanggal acara di '+esc(perfLabelPeriode())+'.</p>';
   const maxF=Math.max(1,...funnel.map(f=>f[1]));
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
   h+='</div>';
@@ -11048,26 +11320,33 @@ function renderPerformance(V){
     /* Omzet per orang = event closing + Reservasi VIP ASSISTED miliknya.
        VIP Regular tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
     const perM=mkt.map(u=>({u,
-      v:S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status)).reduce((a,e)=>a+eventFinance(e).grand,0)
-        + vipOmzetPIC(u.id)}));
+      v:closed.filter(e=>e.mktPIC===u.id).reduce((a,e)=>a+eventFinance(e).grand,0)
+        + vipPicPer(u.id)}));
     const maxM=Math.max(1,...perM.map(x=>x.v));
     perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:9.5px;color:var(--gold-deep);white-space:nowrap">'+rp(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
     h+='</div>';
   }
   h+='</div></div>';
   // leaderboard + detail per marketing (digabung: diurutkan omzet terbesar, juara 1 dapat bintang)
-  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard Marketing</h3><div class="cell-sub">Diurutkan dari omzet terbesar.</div></div>';
+  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard Marketing · '+esc(perfLabelPeriode())+'</h3><div class="cell-sub">Diurutkan dari omzet terbesar. <b>Omzet (Marketing)</b> = nilai yang disepakati di modul ini; <b>Omzet (Breakdown)</b> = yang dialokasikan finance atas nama orang ini di Finance → Breakdown Sumber Omset.</div></div>';
   if(!mkt.length){ h+='<div style="padding:8px 20px 20px">'+empty('Belum ada anggota Tim Marketing','Tabel ini merinci performa tiap anggota Tim Marketing. Timnya diatur di Office &rarr; Kelola User, kolom <b>Tim / Keterangan</b>.','crm')+'</div>'; V.innerHTML=h+'</div>'; return; }
   const rows=mkt.map(u=>{
-    const ev=S.events.filter(e=>e.mktPIC===u.id&&['Confirmed','Deal','Event Done'].includes(e.status));
+    const ev=closed.filter(e=>e.mktPIC===u.id);
     /* Kolom Omzet = event closing + Reservasi VIP Assisted, SAMA dengan batang
        "Omzet per Marketing" di atasnya. Dulu di sini hanya event, jadi tabel
        dan grafik di satu halaman menyebut dua angka berbeda untuk orang yang
        sama. Avg Value tetap dihitung dari omzet EVENT saja — labelnya memang
        "per event closing", dan VIP bukan event. */
     const omEv=ev.reduce((a,e)=>a+eventFinance(e).grand,0);
-    const om=omEv+vipOmzetPIC(u.id);
-    return {u,ev,om,omEv,fu:S.followups.filter(f=>f.by===u.id).length,rep:S.clients.filter(c=>c.mktPIC===u.id&&clientEventCount(c.id)>1).length};
+    const om=omEv+vipPicPer(u.id);
+    /* Kolom kedua: alokasi finance untuk orang ini. `null` DIBEDAKAN dari 0 —
+       nol berarti finance sudah membreakdown dan orang ini memang tidak
+       kebagian, null berarti angkanya belum/ tidak terbaca sama sekali.
+       Menyamakan keduanya jadi 0 akan menuduh orang tidak menghasilkan apa
+       pun setiap kali backend Finance sedang mati. */
+    const bdRow=perfBdUntuk(u);
+    const bd=(PERF_BD.st==='ok')?(bdRow?(+bdRow.diakui||0):0):null;
+    return {u,ev,om,omEv,bd,fu:S.followups.filter(f=>f.by===u.id).length,rep:S.clients.filter(c=>c.mktPIC===u.id&&clientEventCount(c.id)>1).length};
   });
   /* Peringkat dipatok pada urutan OMZET, bukan pada urutan tampil. Kalau
      tabelnya diurutkan menurut kolom lain, "#1" tetap menunjuk orang dengan
@@ -11080,7 +11359,13 @@ function renderPerformance(V){
   pLb.items.forEach(s=>{
     const i=peringkat[s.u.id]-1;
     const rank=(i===0&&s.om>0)?'<span style="color:var(--gold-deep)" title="Omzet tertinggi">'+svg(IC.star)+'</span>':'<span class="mono">'+(i+1)+'</span>';
-    h+='<tr><td>'+rank+'</td><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+s.u.name[0]+'</div>'+esc(s.u.name)+'</div></td><td class="mono">'+s.fu+'</td><td class="mono">'+s.ev.length+'</td><td class="mono">'+s.rep+'</td><td class="mono" style="color:var(--gold-deep);font-weight:600">'+rp(s.om)+'</td><td class="mono">'+rp(s.ev.length?Math.round(s.omEv/s.ev.length):0)+'</td></tr>';
+    const selP=(s.bd===null)?null:(s.bd-s.om);
+    const selTxt=(selP===null)?'<span class="cell-sub">—</span>'
+      : '<span style="color:'+(selP===0?'var(--muted)':(selP<0?'var(--danger)':'var(--gold-deep)'))+'">'+(selP>0?'+':'')+rp(selP)+'</span>';
+    h+='<tr><td>'+rank+'</td><td><div style="display:flex;align-items:center;gap:9px"><div class="avatar" style="width:26px;height:26px;font-size:11px">'+s.u.name[0]+'</div>'+esc(s.u.name)+'</div></td><td class="mono">'+s.fu+'</td><td class="mono">'+s.ev.length+'</td><td class="mono">'+s.rep+'</td><td class="mono" style="color:var(--gold-deep);font-weight:600">'+rp(s.om)+'</td>'
+     +'<td class="mono">'+(s.bd===null?'<span class="cell-sub">—</span>':rp(s.bd))+'</td>'
+     +'<td class="mono">'+selTxt+'</td>'
+     +'<td class="mono">'+rp(s.ev.length?Math.round(s.omEv/s.ev.length):0)+'</td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(pLb,'leaderboard')+'</div>';
   V.innerHTML=h;
@@ -11091,7 +11376,12 @@ const KOL_LEADERBOARD=[
   {k:'fu',    t:'Follow Up', v:s=>s.fu,        cls:'mono', turun:1},
   {k:'close', t:'Closing',   v:s=>s.ev.length, cls:'mono', turun:1},
   {k:'rep',   t:'Repeat',    v:s=>s.rep,       cls:'mono', turun:1},
-  {k:'omzet', t:'Omzet',     v:s=>s.om,        cls:'mono', turun:1, def:1},
+  {k:'omzet', t:'Omzet (Marketing)', v:s=>s.om, cls:'mono', turun:1, def:1},
+  /* Yang belum terbaca diurutkan sebagai -1, bukan 0: kalau disamakan dengan
+     nol, orang yang angkanya tidak terbaca berselang-seling dengan orang yang
+     benar-benar nol dan urutannya berubah tiap kali backend Finance mengedip. */
+  {k:'bd',    t:'Omzet (Breakdown)', v:s=>s.bd===null?-1:s.bd, cls:'mono', turun:1},
+  {k:'sel',   t:'Selisih',   v:s=>s.bd===null?-Infinity:(s.bd-s.om), cls:'mono', turun:1},
   {k:'avg',   t:'Avg Value', v:s=>s.ev.length?Math.round(s.omEv/s.ev.length):0, cls:'mono', turun:1}
 ];
 
@@ -11279,7 +11569,7 @@ let VIP_MEJA_LT={};        // {idMeja: 1|2} — lantai fisik, dipakai chip ringk
 
 function vipKosong(){
   return {id:uid('vip'),jenis:'Assisted',nama:'',clientId:'',perusahaan:'',tanggal:today(),jamMulai:'',jamSelesai:'',
-    hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,nominal:'',clientBaru:false,
+    hp:'',paxMin:'',paxMax:'',layoutReq:'',tv:false,speaker:false,nominal:'',clientBaru:false,menuFix:'',
     meja:[],mktPIC:(ME?ME.id:''),catatan:'',resId:'',kirimAt:'',createdAt:new Date().toISOString(),createdBy:(ME?ME.name:'')};
 }
 /* Nominal HANYA berlaku untuk Assisted. Regular yang pernah diketik nominalnya
@@ -11367,7 +11657,11 @@ function renderVIP(V){
     h+='<tr>'
      +'<td class="mono">'+fmtDate(v.tanggal)+'<div class="cell-sub">'+esc(vipJam(v))+'</div></td>'
      +'<td><div class="cell-strong">'+esc(v.nama||'—')+'</div><div class="cell-sub">'+esc(vipPerusahaan(v))+'</div></td>'
-     +'<td>'+vipChip(v)+'</td>'
+     /* Penanda menu ikut di kolom Jenis, hanya untuk Assisted. Ditaruh di sini
+        supaya reservasi yang belum diputuskan pengakuan omsetnya kelihatan
+        dari daftar — kalau hanya ada di dalam form, tidak akan pernah ada yang
+        membukanya lagi untuk memeriksa. */
+     +'<td>'+vipChip(v)+(v.jenis==='Assisted'?'<div style="margin-top:5px">'+menuFixChip(v)+'</div>':'')+'</td>'
      +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
      +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
      /* Tombolnya duduk DI KOLOM NOMINAL, bukan di kolom Aksi.
@@ -11540,7 +11834,14 @@ function vipFormUI(){
    +'<div id="vip_nominal_wrap" style="display:'+(f.jenis==='Assisted'?'block':'none')+'">'
      +'<div class="field"><label>Nominal Pendapatan (Rp)</label>'
      +rupiahInputHTML('vip_nominal',f.nominal,'')
-     +'<div class="fh">Boleh dikosongkan dulu — diisi setelah acaranya selesai lewat tombol <b>Isi Nominal</b> di daftar. Inilah angka yang masuk laporan.</div></div></div>'
+     +'<div class="fh">Boleh dikosongkan dulu — diisi setelah acaranya selesai lewat tombol <b>Isi Nominal</b> di daftar. Inilah angka yang masuk laporan. Nominalnya <b>sudah termasuk tax &amp; service</b> — begitu yang dibaca Finance saat memecahnya di Breakdown.</div></div>'
+     /* Pertanyaan menu hanya muncul untuk ASSISTED, dan ikut di dalam wrap
+        yang sama. Untuk Regular marketing memang tidak mengaku menerima
+        omset apa pun, jadi menanyakan siapa yang diakui cuma menambah satu
+        isian yang jawabannya tidak dipakai di mana-mana. */
+     +'<div class="field"><label>Pengakuan Omset<span class="req">*</span></label>'
+     +menuFixSegHTML('vip_menufix',menuFix(f),'setMenuFixVip',true)
+     +menuFixHelpHTML(menuFix(f))+'</div></div>'
    +'<div class="form-grid">'
      +ff('Atas Nama','vip_nama',f.nama,'text',1)
      +'<div class="field"><label>Client / Perusahaan</label>'
@@ -11614,6 +11915,19 @@ function vipSimpanSaja(){
   toast('Tersimpan',f.nama+' diperbarui.'+(f.resId?' Meja & kuncian di modul Reservasi tidak berubah.':''),'ok');
   go('vip');
 }
+/* Penanda menu di form VIP. Menulis langsung ke VIP_FORM (bukan ke S.vip):
+   form ini baru mengikat saat Simpan / Kunci Meja, sama seperti seluruh isian
+   lainnya, jadi menekan tombol lalu menutup modal memang tidak menyimpan apa
+   pun. Bagian bantuannya ikut berganti supaya akibat pilihannya terbaca saat
+   itu juga, bukan setelah halaman digambar ulang. */
+function setMenuFixVip(v){
+  if(!VIP_FORM) return;
+  VIP_FORM.menuFix=v;
+  const seg=$('vip_menufix');
+  if(seg) [...seg.children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  const fh=seg&&seg.parentNode?seg.parentNode.querySelector('.fh'):null;
+  if(fh) fh.outerHTML=menuFixHelpHTML(v);
+}
 function vipPilihJenis(btn,jenis){
   [...btn.parentNode.children].forEach(b=>b.classList.remove('on'));
   btn.classList.add('on');
@@ -11663,6 +11977,13 @@ function vipKumpulkan(){
   /* Nominal SENGAJA tidak wajib di sini. Angkanya baru diketahui sesudah
      acaranya jalan, jadi memaksanya di depan cuma memancing orang mengarang
      angka supaya formnya mau lanjut. Yang belum terisi ditandai di daftar. */
+  /* Pengakuan omset SEBALIKNYA wajib, dan cuma untuk Assisted. Jawabannya
+     sudah diketahui sejak reservasinya dibuat (menunya dipesan di depan atau
+     tidak), dan yang dikosongkan tidak akan pernah kembali diisi — sementara
+     Finance-lah yang menanggung akibatnya: ia tidak bisa tahu apakah baris
+     ini memotong kasir atau tidak. Regular tidak ditanya sama sekali. */
+  if(f.jenis==='Assisted' && !menuFix(f))
+    return 'Pengakuan Omset wajib dipilih: menunya sudah ditetapkan, atau dipilih di tempat.';
   return '';
 }
 /* Menautkan reservasi ke Database Client, membuat barisnya kalau perlu.
