@@ -1,6 +1,6 @@
 // DIHASILKAN OTOMATIS oleh tools/graph-src.ps1 - JANGAN DISUNTING.
-// Kerangka panggilan antar fungsi deploy/kompas/index.html, untuk dibaca graphify.
-// Nomor baris di sini SAMA dengan nomor baris di deploy/kompas/index.html - sunting DI SANA.
+// Kerangka panggilan antar fungsi deploy/finance/omset/index.html, untuk dibaca graphify.
+// Nomor baris di sini SAMA dengan nomor baris di deploy/finance/omset/index.html - sunting DI SANA.
 
 
 

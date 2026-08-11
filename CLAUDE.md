@@ -22,9 +22,34 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 .github/workflows/          ← deploy FTP otomatis
 ```
 
-Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `kompas`
+Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `finance`
 `radar` `stock` `howandi_life` `jadwal` `dw` — plus `absensi`, yang letaknya
 BERBEDA (lihat di bawah).
+
+### Modul berpanel: `stock` dan `finance`
+
+Dua modul TIDAK berbentuk satu `index.html`. `deploy/<modul>/index.html`-nya
+adalah **pemilih panel** (~280 baris, tanpa aplikasi di dalamnya), dan
+aplikasinya ada satu tingkat lebih dalam:
+
+```
+deploy/stock/index.html          pemilih   →  ordering/ purchasing/ tree/ usage/
+deploy/finance/index.html        pemilih   →  omset/ kas/
+deploy/finance/omset/index.html  BEKAS deploy/kompas/  (izin 'kompas')
+deploy/finance/kas/index.html    BEKAS deploy/finance/ (izin 'finance')
+```
+
+**`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
+sebagai panel `omset`; `deploy/kompas/index.html` tinggal halaman pengalih
+(alamat lama sudah tersebar sebagai pintasan di HP kasir). Kunci izinnya tetap
+`kompas` — dua panel, dua kunci, supaya kasir yang mengisi omset tidak dengan
+sendirinya melihat kas kecil perusahaan.
+
+Konsekuensi yang paling sering menggigit: **seluruh jalur relatif di kedua
+panel itu `../../`, bukan `../`** (`../../account-api-mysql/api.php`,
+`../../assets/`, `location.replace('../../')`). Yang tertinggal satu tingkat
+tidak melempar — ia memulangkan halaman 404 server, dan yang sampai ke layar
+cuma "balasan bukan JSON".
 
 `jadwal` (Jadwal Shift, Agustus 2026) dan `dw` (Daily Worker, Agustus 2026)
 adalah dua modul yang **tidak** memakai pola `save()` kirim-seluruh-state: tiap
@@ -171,8 +196,8 @@ graphify update .                      # bangun ulang graf (tanpa LLM, tanpa bia
 ```
 
 **Nomor baris yang dilaporkan graphify LANGSUNG dipakai.** `explain` menjawab
-`tools/graph-src/kompas.js L1497`, dan baris **1497** di
-`deploy/kompas/index.html` memang `function viewBreakdown(){`. Berkas kerangka
+`tools/graph-src/finance.omset.js L1497`, dan baris **1497** di
+`deploy/finance/omset/index.html` memang `function viewBreakdown(){`. Berkas kerangka
 itu ditulis sejajar baris demi baris dengan aslinya justru untuk ini — jadi
 `explain` lalu `Read` dengan `offset` itu, tanpa `Grep` sama sekali.
 
@@ -263,7 +288,7 @@ node tools/smoke-modul.js               # semua modul; keluar 1 kalau ada yang g
 | `marketing` | 22 halaman dirender satu per satu + wadah render tidak kosong |
 | `event` | 10 halaman dirender + wadah render tidak kosong |
 | `jadwal` | 5 halaman dirender + wadah render tidak kosong |
-| `kompas` | 12 halaman dirender (wadahnya tak dikenali, jadi hanya "tidak melempar") |
+| `finance.omset` | 12 halaman dirender (wadahnya tak dikenali, jadi hanya "tidak melempar") |
 | `cashier` | 6 halaman dirender (wadah tak dikenali) |
 | sisanya | hanya boot — router/daftar halamannya tidak terbaca dari luar |
 

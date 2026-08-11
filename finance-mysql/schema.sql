@@ -87,8 +87,14 @@ CREATE TABLE IF NOT EXISTS `kk_trx_pos` (
 
 -- Isi awal. lib menjalankan ini sendiri HANYA saat tabelnya benar-benar masih
 -- kosong — tanpa pos, form Input Transaksi tidak bisa diisi sama sekali.
+-- Nama pos dibakukan 11 Agustus 2026. Dua nama lama, "Pengajuan Pembayaran
+-- (PO)" dan "Pengajuan Pembayaran", beda satu kurung saja — di dropdown
+-- setinggi 3 baris keduanya terbaca sama, dan tidak ada cara menebak mana yang
+-- PO tanpa membuka halaman Pos & Kategori. Pemasangan yang SUDAH jalan tidak
+-- ikut berubah dari sini (INSERT IGNORE hanya untuk tabel kosong) —
+-- gantinya migrasi-2026-08-11-nama-pos.sql.
 INSERT IGNORE INTO `kk_pos` (`nama`,`urut`) VALUES
-  ('Kas Kecil', 10), ('Pengajuan Pembayaran (PO)', 20), ('Pengajuan Pembayaran', 30);
+  ('Kas Kecil', 10), ('Purchase Order', 20), ('Pengajuan Terpisah', 30);
 
 INSERT IGNORE INTO `kk_kategori` (`nama`,`urut`) VALUES
   ('SP',10), ('RND',20), ('COGS',30), ('Cleaning',40), ('Delivery',50),

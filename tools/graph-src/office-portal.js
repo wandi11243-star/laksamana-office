@@ -840,23 +840,7 @@ function moduleLabel() { appModuleList(); }
 
 
 
-function moduleLabels() { canOpen(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function moduleLabels() {  }
 
 
 
