@@ -820,6 +820,13 @@ function events_hari($tgl) {
       'pax'     => (int)$r['pax'],
       'picId'   => $r['mkt_pic'],
       'picName' => $r['pic_name'],
+      /* Penentu SIAPA YANG DIAKUI menerima omsetnya, dan karena itu penentu
+         ada tidaknya potongan kasir di Breakdown. 'tetap' = menu disepakati
+         di depan, omsetnya milik marketing, kasir dipotong. 'ditempat' = tamu
+         memesan di meja, omsetnya tetap milik kasir. Kosong = belum diputuskan
+         orangnya, dan Finance HARUS memperlakukannya sebagai belum diputuskan
+         — bukan diam-diam salah satu. Lihat MENU_FIX di deploy/marketing. */
+      'menuFix' => isset($d['menuFix']) ? (string)$d['menuFix'] : '',
       'detail'  => isset($d['detail']) && is_array($d['detail']) ? $d['detail'] : array(),
     );
   }
@@ -926,6 +933,8 @@ function vip_hari($pdo, $tgl) {
       'nominal'    => (int)round((float)(isset($v['nominal']) ? $v['nominal'] : 0)),
       'picId'      => $pid,
       'picName'    => ($pid !== '' && isset($namaUser[$pid])) ? $namaUser[$pid] : null,
+      // Sama artinya dengan menuFix pada event — lihat catatan di events_hari().
+      'menuFix'    => isset($v['menuFix']) ? (string)$v['menuFix'] : '',
     );
   }
   return $out;

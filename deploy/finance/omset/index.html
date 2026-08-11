@@ -2599,7 +2599,36 @@ function porsiPic(r, divi){
    sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
    Hanya dipakai baris MARKETING — event tidak memotong siapa pun.
    Open Bill TIDAK ikut di sini, dengan sengaja (lihat obTotal). */
-function potongKasir(r){ return num(r.amount); }
+/* ---- MENU DITETAPKAN vs DIPILIH DI TEMPAT (12 Agustus 2026) ----
+   Penanda yang diisi marketing waktu membuat event / Reservasi VIP, ikut
+   terbawa ke baris otomatis lewat `menuFix`:
+
+     'tetap'    Menu disepakati sebelum hari-H. Paketnya dibayar sebagai satu
+                tagihan yang memang hasil kerja marketing → omsetnya diakui
+                MARKETING, dan kasir yang menginput DIPOTONG sebesar nilainya.
+                Ini perilaku lama, tidak berubah.
+     'ditempat' Tamu memesan sendiri di meja pada hari-H. Uangnya masuk sebagai
+                transaksi kasir biasa → tetap diakui KASIR. Tidak ada kasir yang
+                dipotong, dan tombol pengatur shift TIDAK ditampilkan sama
+                sekali: menampilkannya berarti mengundang orang menentukan
+                sesuatu yang tidak menentukan apa pun, persis kesalahan yang
+                sudah dicatat pada kotak Free Entry dan tombol shift Section C.
+     ''         Belum diputuskan marketing. DIPERLAKUKAN SEPERTI 'tetap' —
+                perilaku lama dipertahankan supaya seluruh baris yang sudah
+                ada tidak berubah angkanya diam-diam — tapi barisnya DITANDAI
+                supaya finance tahu ada yang perlu ditanyakan. Menganggapnya
+                'ditempat' akan menghapus potongan kasir pada ratusan hari lama
+                tanpa ada yang meminta.
+
+   PIC TETAP DIAKUI pada baris 'ditempat'. Yang hilang cuma potongan kasirnya,
+   bukan pengakuan marketingnya — jadi uang yang sama memang diakui dua kali:
+   penuh untuk kasir (uangnya nyata ada di setorannya) dan penuh untuk PIC.
+   Itu pola yang sama persis dengan Open Bill dan dengan aturan 50% Section C,
+   dua-duanya keputusan yang sudah diambil sebelumnya — bukan kelalaian, jangan
+   "diperbaiki" dengan mengurangi porsiPic(). */
+function menuFixRow(r){ const v=String((r&&r.menuFix)||''); return (v==='tetap'||v==='ditempat')?v:''; }
+function potongKasirAktif(r){ return menuFixRow(r)!=='ditempat'; }
+function potongKasir(r){ return potongKasirAktif(r) ? num(r.amount) : 0; }
 /* Open Bill yang diakui atas nama satu kasir pada satu hari, dari kedua
    section. Angka ini TIDAK mengubah realisasi — ia keterangan, lihat obTotal. */
 function openBillHari(d,kasirId){
@@ -2667,9 +2696,14 @@ function potonganHari(d,kasirId){
    Breakdown dan Performa Kasir. Filter `r.tiket` yang dulu ada di sini DIHAPUS:
    sekarang setiap baris event memotong kasir, bukan cuma yang free entry, jadi
    semuanya butuh shift. */
+/* Baris "menu dipilih di tempat" TIDAK ikut: ia memang tidak memotong siapa
+   pun, jadi shift kosong di sana bukan pekerjaan yang tertinggal. Tanpa
+   saringan ini setiap acara yang menunya dipilih di tempat akan berdiri
+   permanen di daftar peringatan, dan daftar peringatan yang selalu berisi
+   sama saja dengan tidak ada peringatan. */
 function barisTanpaShift(d){
   return (d.bd?.marketing||[])
-    .filter(r=>num(r.amount)>0 && potonganBaris(r).pembagi<=0);
+    .filter(r=>potongKasirAktif(r) && num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
 /* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
@@ -3041,7 +3075,7 @@ function viewBreakdown(){
       <div id="bd_so"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.<br>Dua hal dari modul Marketing muncul sendiri di bawah: event berstatus <b>Deal</b> dan <b>Reservasi VIP</b> berjenis <b>Assisted</b> yang belum dibatalkan (barisnya diawali <em>VIP —</em>). Nama PIC, namanya, dan nilainya sudah terisi; yang perlu diisi tinggal nominal yang benar-benar masuk. Nominal Reservasi VIP di modul Marketing <b>sudah termasuk tax &amp; service</b>, jadi tombol <em>salin ke kolom</em> memecahnya lebih dulu — hanya bagian Omset-nya yang memotong kasir. Reservasi VIP <b>Regular</b> tidak ikut: marketing hanya membantu bookingnya, omsetnya bukan miliknya.</div>
+      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.<br>Dua hal dari modul Marketing muncul sendiri di bawah: event berstatus <b>Deal</b> dan <b>Reservasi VIP</b> berjenis <b>Assisted</b> yang belum dibatalkan (barisnya diawali <em>VIP —</em>). Nama PIC, namanya, dan nilainya sudah terisi; yang perlu diisi tinggal nominal yang benar-benar masuk. Nominal Reservasi VIP di modul Marketing <b>sudah termasuk tax &amp; service</b>, jadi tombol <em>salin ke kolom</em> memecahnya lebih dulu — hanya bagian Omset-nya yang memotong kasir. Reservasi VIP <b>Regular</b> tidak ikut: marketing hanya membantu bookingnya, omsetnya bukan miliknya.<br><b>Tidak semua baris memotong kasir.</b> Yang menentukan penanda <em>menu</em> yang diisi marketing: <b>menu ditetapkan</b> → paketnya hasil kerja marketing, kasir yang menginput dipotong; <b>menu dipilih di tempat</b> → tamu memesan sendiri di meja, omsetnya tetap diakui kasir, jadi tidak ada potongan dan tidak ada pengaturan shift. PIC tetap diakui pada kedua-duanya. Baris yang penandanya <em>belum ditentukan</em> untuk sementara diperlakukan seperti <b>menu ditetapkan</b> — tanyakan ke marketing supaya tidak ada kasir yang dipotong keliru.</div>
       <div id="bd_src"></div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
@@ -3099,14 +3133,35 @@ function viewBreakdown(){
   function serapOtomatis(){
     if(EVHARI.tgl!==bdDate || EVHARI.st!=='ok') return false;
     const abai=new Set(state.abaikan);
-    let tambah=0;
+    let tambah=0, ubah=0;
     const sudahAda=key=>[...state.mk,...state.ev].some(r=>r.srcId===key);
+    /* Penanda menu milik MARKETING, bukan milik baris ini — jadi ia disegarkan
+       tiap kali halaman dibuka, bukan cuma saat barisnya lahir.
+
+       Tanpa ini perbaikan 12 Agustus 2026 tidak akan pernah terlihat pada
+       baris yang SUDAH tersimpan: sudahAda() melewatinya, jadi `menuFix`-nya
+       tetap kosong selamanya dan tombol potongan kasir tetap muncul di acara
+       yang jelas-jelas ditandai "dipilih di tempat" di modul marketing. Persis
+       yang dilaporkan user pada VIP 28 Juli 2026.
+
+       Yang disegarkan HANYA penanda ini. Nominal & nama sengaja tidak ikut:
+       keduanya sudah boleh disunting finance di layar ini, dan menimpanya dari
+       modul sebelah berarti menghapus koreksi orang tanpa peringatan. */
+    const menuSumber={};
+    EVHARI.mk.forEach(ev=>{ menuSumber['mkt:'+ev.id]=String(ev.menuFix||''); });
+    EVHARI.vp.forEach(v =>{ menuSumber['vip:'+v.id]=String(v.menuFix||''); });
+    [...state.mk,...state.ev].forEach(r=>{
+      if(!r.srcId || !(r.srcId in menuSumber)) return;
+      if(String(r.menuFix||'')===menuSumber[r.srcId]) return;
+      r.menuFix=menuSumber[r.srcId]; ubah++;
+    });
     EVHARI.mk.forEach(ev=>{
       const key='mkt:'+ev.id;
       if(abai.has(key)||sudahAda(key)) return;
       const f=mkFinance(ev,EVHARI.set);
       state.mk.push({picId:cocokPic('marketing',ev.picName)||undefined,
         eventName:ev.nama||'', amount:0, tax:0, service:0, shift:[],
+        menuFix:String(ev.menuFix||''),
         srcId:key, srcPic:ev.picName||'', srcNominal:f.grand,
         srcOmset:f.omset, srcTax:f.tax, srcService:f.service});
       tambah++;
@@ -3126,6 +3181,7 @@ function viewBreakdown(){
       const p=vipPecah(v.nominal,EVHARI.set);
       state.mk.push({picId:cocokPic('marketing',v.picName)||undefined,
         eventName:'VIP — '+(v.nama||'(tanpa nama)')+pt, amount:0, tax:0, service:0, shift:[],
+        menuFix:String(v.menuFix||''),
         srcId:key, srcPic:v.picName||'', srcNominal:num(v.nominal),
         srcOmset:p.omset, srcTax:p.tax, srcService:p.service});
       tambah++;
@@ -3140,7 +3196,7 @@ function viewBreakdown(){
         srcId:key, srcPic:ev.picName||''});
       tambah++;
     });
-    return tambah>0;
+    return tambah>0||ubah>0;
   }
   /* Pita status penarikan. Ditaruh di atas Section B karena di situlah baris
      otomatisnya muncul. */
@@ -3209,6 +3265,12 @@ function viewBreakdown(){
      hanya yang free entry: setiap baris event memotong kasir, centang Free Entry
      cuma menentukan besarnya (50% atau 100%). */
   function tombolBagi(r,i,key){
+    /* Baris "dipilih di tempat" tidak punya potongan untuk diatur. Yang muncul
+       keterangan, BUKAN tombol mati: tombol yang tidak bisa ditekan tetap
+       terbaca sebagai pekerjaan yang belum dikerjakan, dan orang akan terus
+       mencoba menekannya. */
+    if(menuFixRow(r)==='ditempat')
+      return `<div class="bhbtn" style="cursor:default;border-style:dashed"><b>Tidak ada potongan kasir</b>menu dipilih di tempat — omset tetap diakui kasir</div>`;
     const b=potonganBaris(r);
     const belum=num(r.amount)>0 && b.pembagi<=0;
     // Baris yang nominalnya masih 0 belum punya apa-apa untuk dipotong — jangan
@@ -3310,7 +3372,16 @@ function viewBreakdown(){
     const nilai=num(r.srcNominal)>0
       ? ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b>${rinci} <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`
       : '';
-    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${nilai}</div>`;
+    /* Penanda menu ikut di pita, bukan hanya tersirat dari ada/tidaknya tombol
+       potongan. Yang KOSONG paling penting disebut: ia diperlakukan seperti
+       'tetap' (kasir tetap dipotong), dan kalau itu tidak tertulis, tidak ada
+       cara apa pun bagi finance untuk tahu bahwa marketing belum memutuskan. */
+    const mf=menuFixRow(r);
+    const menu = mf==='ditempat'
+      ? ' · <span class="tag">menu dipilih di tempat</span>'
+      : (mf==='tetap' ? ' · <span class="tag">menu ditetapkan</span>'
+        : ' · <span class="tag" title="Marketing belum memilih. Untuk sementara diperlakukan seperti menu ditetapkan, jadi kasir tetap dipotong." style="background:var(--warn-bg,#fdf3e3);color:var(--warn)">menu belum ditentukan</span>');
+    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${menu}${nilai}</div>`;
   }
   /* Panel Open Bill. Kotaknya baru muncul setelah dicentang — kalau selalu
      tampil, tiap event polos ikut memajang empat kotak kosong dan halaman ini
@@ -3576,7 +3647,8 @@ function viewBreakdown(){
        mengunci di sini berarti angka yang sudah betul tidak bisa disimpan.
        Tapi peringatannya sekarang menyebut akibatnya terang-terangan: potongan
        yang tidak dibebankan membuat uang yang sama dihitung dua kali. */
-    const belum=state.mk.filter(r=>num(r.amount)>0&&potonganBaris(r).pembagi<=0);
+    // Saringan potongKasirAktif: lihat catatan di barisTanpaShift().
+    const belum=state.mk.filter(r=>potongKasirAktif(r)&&num(r.amount)>0&&potonganBaris(r).pembagi<=0);
     /* Atribusi diskon TIDAK mengunci simpan — beda dengan balance omset. Kalau
        dikunci, hari yang alokasi omsetnya sudah benar jadi tidak bisa disimpan
        cuma gara-gara diskonnya belum dirinci, dan orang akan mengakalinya
