@@ -1673,7 +1673,11 @@ function kartuEvent() { posterUrl(); go(); ikon(); tgl(); jam(); memuat(); api()
 
 
 
-function gambarEvent() { go(); langkahHTML(); posterUrl(); ikon(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); langkahHTML2(); bayarCaraHTML(); jaminanHTML(); tanyaTautanHTML(); kontakHTML(); }
+function gambarEvent() { go(); langkahHTML(); posterUrl(); ikon(); tgl(); jam(); labelHitungMundur(); hariLagi(); sisaEvent(); totalEvent(); bagikanHTML(); bersihTeks(); punyaDenah(); ringkasHTML(); kepalaBagian(); tanyaTautanHTML(); kontakHTML(); }
+
+
+
+
 
 
 
@@ -2296,6 +2300,14 @@ function ringkasHTML() { go(); gambarEvent(); gambarBarHp(); }
 
 
 function gambarBarHp() { go(); toast(); langkahHTML(); ringkasHTML(); api(); simpanTiketku(); }
+
+
+
+
+
+
+
+
 
 
 
