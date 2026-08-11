@@ -1613,6 +1613,14 @@ function svg() {  }
 
 
 
+
+
+
+
+
+
+
+
 function buildNav() { bisaLihat(); router(); svg(); }
 
 
@@ -3067,7 +3075,28 @@ function payHistory() { modal(); closeModal(); esc(); labelPeriodeBayar(); statu
 
 
 
-function labelIzin() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function labelIzin() { emsPermBawaan(); }
+
+
+
+
 
 
 
@@ -3253,7 +3282,16 @@ function ajukanRencana() { toast(); pengajuan(); namaKru(); save(); router(); }
 
 
 
+
+
+
+
 function setujuiRencana() { bisaSetujui(); toast(); namaKru(); save(); router(); }
+
+
+
+
+
 
 
 
@@ -3278,6 +3316,9 @@ function tolakRencana() { bisaSetujui(); toast(); modal(); closeModal(); esc(); 
 
 
 function tolakRencanaYakin() { toast(); namaKru(); save(); closeModal(); router(); }
+
+
+
 
 
 
@@ -3317,7 +3358,7 @@ function setEventStatus() { toast(); renderPlanning(); bisaSetujui(); save(); re
 
 
 
-function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); }
+function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); tab(); bisaSetujui(); }
 
 
 
@@ -3346,7 +3387,18 @@ function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast
 
 
 
-function renderPlanning() { bisaUbah(); bisaSetujui(); setTop(); eventForm(); statusPengajuan(); }
+
+
+
+
+
+
+
+
+
+
+function setApprEmsTab() { router(); }
+function renderApprovalEms() { bisaSetujui(); setTop(); pengajuan(); statusPengajuan(); setApprEmsTab(); C(); esc(); fmtDateTime(); fmtDate(); statusBadge(); setujuiRencana(); tolakRencana(); }
 
 
 
@@ -3362,7 +3414,93 @@ function renderPlanning() { bisaUbah(); bisaSetujui(); setTop(); eventForm(); st
 
 
 
-function tab() { renderPlanning(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setPlanTab() { renderPlanning(); }
+function planTabsHTML() { setPlanTab(); }
+
+
+
+
+
+function renderPlanning() { bisaUbah(); bisaSetujui(); renderIdeas(); C(); planTabsHTML(); setTop(); renderHistory(); eventForm(); statusPengajuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tab() { renderPlanning(); planTabsHTML(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+
+
+
+
 
 
 
