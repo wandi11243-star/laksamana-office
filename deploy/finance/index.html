@@ -460,6 +460,8 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
         <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Dashboard Omset</a>
+        <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
+        <a data-view="summary"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg></span> Ranking PIC</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Performa</div>
@@ -1055,6 +1057,8 @@ const TITLES={
   kk_buku:['Buku Kas Kecil','Semua transaksi berikut saldo berjalan tiap pos'],
   kk_pos:['Pos & Kategori','Daftar pos pembayaran dan kategori belanja'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
+  analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
+  summary:['Ranking Seluruh PIC','Leaderboard achievement bulanan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
   event:['Performa Event','Kontribusi omset per PIC event'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
@@ -1092,7 +1096,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bulanan:viewBulanan,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -2136,6 +2140,137 @@ function cetakAchievement(divi,e,a,ach,tgt){
   window.print();
   setTimeout(()=>{ sheet.innerHTML=''; },500);
 }
+/* ============ ANALYTICS & RANKING (pindahan dari modul Kompas,
+   11 Agustus 2026) ============
+   Dua halaman ini DIPINDAH, bukan disalin: di Kompas keduanya sudah dihapus
+   berikut menunya. Alasan pindahnya, sama dengan Dashboard Omset dan Performa
+   yang lebih dulu ada di sini — yang membaca angka capaian adalah finance dan
+   manajemen, sedangkan Kompas dibuka kasir tiap malam untuk MENGISI. Satu
+   modul untuk mengisi, satu modul untuk membaca.
+
+   Sumber datanya tetap SATU: blob omset milik Kompas (API_URL), dibaca lewat
+   apiGet() dan tidak pernah ditulis dari modul ini. Seluruh penolong yang
+   dipakai di bawah (netOf, porsiPic, potonganHari, omsetKasir, selfOmset,
+   compPicRentang, targetPic) sudah lebih dulu ada di modul ini karena
+   Dashboard Omset & Performa memakainya juga — tidak ada satu pun yang ikut
+   disalin dari Kompas. */
+function viewAnalytics(){
+  const el=document.getElementById('app-view');
+  const days=rentangAktif();
+  const comp={Food:0,Beverage:0,Lainnya:0};
+  const src={Marketing:0,Event:0,'Walk In':0};
+  const byMk={},byEv={},byKs={},byDisc={};
+  let totDisc=0, selfTot=0;
+  const selfHari=[];
+  const netTot=days.reduce((s,d)=>s+netOf(d),0);
+  days.forEach(d=>{
+    comp.Food+=num(d.food);comp.Beverage+=num(d.bev);comp.Lainnya+=num(d.lainnya);
+    /* Memakai aturan yang sama dengan Performa & Ranking: omset kasir yang
+       diinput sudah memuat event, jadi porsi PIC-nya DIPOTONG dari kasir.
+       Totalnya tidak berubah — hanya pindah kategori. */
+    (d.bd?.marketing||[]).forEach(r=>{const p=porsiPic(r,'marketing');src.Marketing+=p;byMk[r.picId]=(byMk[r.picId]||0)+p;});
+    (d.bd?.event||[]).forEach(r=>{const p=porsiPic(r,'event');src.Event+=p;byEv[r.picId]=(byEv[r.picId]||0)+p;});
+    (d.bd?.kasir||[]).forEach(r=>{if(!r.off){const b=omsetKasir(r)-potonganHari(d,r.kasirId);src['Walk In']+=b;byKs[r.kasirId]=(byKs[r.kasirId]||0)+b;
+      const dc=diskonKasir(r); if(dc){ byDisc[r.kasirId]=(byDisc[r.kasirId]||0)+dc; totDisc+=dc; }}});
+    /* Self Order SENGAJA tidak masuk pie "Sumber Omset" (permintaan user
+       3 Agustus 2026): pie itu menjawab "omset ini diakui siapa", dan self
+       order tidak diakui kasir maupun PIC mana pun — memasukkannya membuat
+       satu irisan yang tidak bisa ditindaklanjuti siapa pun. Ia dapat kartu
+       sendiri di bawah, yang menjawab pertanyaan yang berbeda: "bulan ini
+       sudah berapa yang masuk lewat barcode". */
+    selfHari.push({date:d.date, nilai:selfOmset(d)});
+    selfTot+=selfOmset(d);
+    totDisc+=selfDiskon(d);
+  });
+  // Diskon harian yang diinput di Input Omset, sebagai pembanding: selisihnya
+  // = diskon yang belum ditulis atas nama kasir mana pun di Breakdown.
+  const discInput=days.reduce((s,d)=>s+num(d.discount),0);
+  const hasBd=src.Marketing+src.Event+src['Walk In']>0;
+  el.innerHTML=`
+    <div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>
+    <div class="grid g2" style="align-items:start">
+      <div class="card"><h3>Komposisi Pendapatan</h3><div class="card-sub">Food, Beverage, Lainnya</div><div class="chart-box"><canvas id="a_comp"></canvas></div></div>
+      <div class="card"><h3>Sumber Omset</h3><div class="card-sub">Marketing (omset + tax + service, dipotong dari kasir shift), Event (50% dan <b>tidak</b> memotong kasir), Walk In (Kasir). Irisannya proporsi pengakuan, bukan pembagian omset net — sejak event diakui tanpa potongan, jumlah ketiganya memang tidak lagi sama dengan omset net. <b>Self Order dipisah</b> ke kartunya sendiri di bawah.</div><div class="chart-box"><canvas id="a_src"></canvas></div></div>
+    </div>
+    <div class="grid g3" style="align-items:start">
+      <div class="card"><h3>Kontribusi Marketing</h3><div class="card-sub">per marketing</div><div class="chart-box sm"><canvas id="a_mk"></canvas></div></div>
+      <div class="card"><h3>Kontribusi Event</h3><div class="card-sub">per PIC event</div><div class="chart-box sm"><canvas id="a_ev"></canvas></div></div>
+      <div class="card"><h3>Kontribusi Kasir</h3><div class="card-sub">per kasir</div><div class="chart-box sm"><canvas id="a_ks"></canvas></div></div>
+    </div>
+    <div class="card"><h3>📱 Self Order — ${esc(labelRentang())}</h3>
+      <div class="card-sub">Tamu memesan sendiri lewat barcode, tanpa dilayani kasir. Nominalnya <b>bagian dari</b> omset net, bukan tambahan di atasnya — jadi persentase di bawah menunjukkan seberapa besar penjualan yang sudah berpindah ke jalur mandiri.</div>
+      <div class="grid g3" style="margin-bottom:14px">
+        <div class="stat accent"><div class="lab">Omset Self Order</div><div class="val sm mono">${fmtRp(selfTot)}</div><div class="foot">${modeHarian()?'hari ini':'akumulasi periode ini'}</div></div>
+        <div class="stat"><div class="lab">Porsi dari Omset Net</div><div class="val sm">${pct(selfTot,netTot).toFixed(1)}%</div><div class="foot">dari ${fmtRp(netTot)} omset net</div></div>
+        <div class="stat"><div class="lab">Rata-rata per Hari</div><div class="val sm mono">${fmtRp(selfHari.length?selfTot/selfHari.length:0)}</div><div class="foot">${selfHari.length} hari terinput</div></div>
+      </div>
+      <div class="chart-box sm"><canvas id="a_self"></canvas></div></div>
+    <div class="card"><h3>Diskon Diberikan per Kasir</h3>
+      <div class="card-sub">Diskon bill yang diberikan ke tamu, atas nama kasir yang memberikannya. Nominal ini <b>tidak pernah dihitung sebagai omset</b> siapa pun — grafik Kontribusi Kasir di atas sudah bersih darinya.${
+        discInput!==totDisc?` <span style="color:var(--danger);font-weight:700">Baru ${fmtRp(totDisc)} dari ${fmtRp(discInput)} yang tercatat atas nama kasir</span> — sisanya belum dirinci di Breakdown.`:''}</div>
+      <div class="chart-box sm"><canvas id="a_disc"></canvas></div></div>`;
+  const PAL=['#A9791F','#2F7FC4','#1F9D5F','#7C5FC0','#1F9D8F','#B5831A','#C9432B'];
+  if(Object.values(comp).some(x=>x>0))
+    charts.push(new Chart(document.getElementById('a_comp'),{type:'doughnut',data:{labels:Object.keys(comp),datasets:[{data:Object.values(comp),backgroundColor:PAL}]},options:pieOpts()}));
+  else emptyCanvas('a_comp');
+  if(hasBd)
+    charts.push(new Chart(document.getElementById('a_src'),{type:'doughnut',data:{labels:Object.keys(src),datasets:[{data:Object.values(src),backgroundColor:['#2F7FC4','#7C5FC0','#1F9D8F']}]},options:pieOpts()}));
+  else emptyCanvas('a_src','Belum ada breakdown');
+  barCanvas('a_mk',DB.employees.marketing,byMk,'#2F7FC4');
+  barCanvas('a_ev',DB.employees.event,byEv,'#7C5FC0');
+  barCanvas('a_ks',DB.employees.kasir,byKs,'#1F9D8F');
+  barCanvas('a_disc',DB.employees.kasir,byDisc,'#C9432B');
+  // Batang harian, bukan per orang — self order tidak punya "orang".
+  if(selfTot>0)
+    charts.push(new Chart(document.getElementById('a_self'),{type:'bar',data:{labels:selfHari.map(x=>x.date.slice(8)),datasets:[{data:selfHari.map(x=>x.nilai),backgroundColor:'#C8961F',borderRadius:5}]},options:barOpts()}));
+  else emptyCanvas('a_self','Belum ada omset Self Order pada periode ini');
+  function barCanvas(id,list,map,color){
+    const labels=list.map(e=>e.name),data=list.map(e=>map[e.id]||0);
+    if(data.some(x=>x>0))charts.push(new Chart(document.getElementById(id),{type:'bar',data:{labels,datasets:[{data,backgroundColor:color,borderRadius:5}]},options:barOpts(true)}));
+    else emptyCanvas(id,'Belum ada data');
+  }
+}
+
+function viewSummary(){
+  const el=document.getElementById('app-view');
+  const days=rentangAktif();
+  /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
+     ranking di sini memakai angka yang sama dengan halaman Performa. */
+  /* Aturan potongan dipakai di sini juga — lewat porsiPic() untuk
+     marketing/event dan potonganHari() untuk kasir. Sempat dihitung
+     dengan r.amount mentah di sini, dan hasilnya ranking menampilkan realisasi
+     yang berbeda dari halaman Performa untuk orang yang sama. */
+  const realBy=(divi,id)=>{
+    let s=0;
+    days.forEach(d=>{
+      if(divi==='kasir'){
+        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=omsetKasir(r)-potonganHari(d,id); });
+      }else{
+        (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r,divi); });
+      }
+    });
+    return s-compPicRentang((DB.employees[divi]||[]).find(e=>e.id===id));
+  };
+  /* Target diproporsikan di mode harian lewat targetPic(), sama seperti halaman
+     Performa. Kalau di sini tidak diproporsikan, ranking harian akan memakai
+     target sebulan sementara Performa memakai target sehari — dan achievement
+     orang yang sama beda antara dua halaman, persis kesalahan yang dicatat di
+     komentar porsiPic() di atas. */
+  const mkTable=(divi,list)=>{
+    const rows=list.map(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target),ach=pct(real,tgt);return{e,real,ach,tgt};}).sort((a,b)=>b.ach-a.ach);
+    return rows.map(r=>`<tr><td><b>${esc(r.e.name)}</b></td><td class="num mono">${fmtRp(r.tgt)}</td><td class="num mono">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td>${r.real>=r.tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</td></tr>`).join('');
+  };
+  const all=[];
+  [['marketing','Marketing'],['event','Event'],['kasir','Kasir']].forEach(([divi,lab])=>DB.employees[divi].forEach(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target);all.push({name:e.name,div:lab,ach:pct(real,tgt),real,target:tgt});}));
+  all.sort((a,b)=>b.ach-a.ach);
+  const lb=all.map((r,i)=>`<div class="leader ${i===0?'top1':''}"><div class="rank">${i+1}</div><div><div class="ln">${esc(r.name)} <span class="pill" style="margin-left:4px">${r.div}</span></div><div class="lm">${fmtRp(r.real)} / ${fmtRp(r.target)}</div></div><div class="lspace"></div><div style="text-align:right"><div class="ln">${r.ach.toFixed(0)}%</div><div class="lm">${r.real>=r.target?'Achieve':'Belum'}</div></div></div>`).join('');
+  el.innerHTML=`
+    <div class="card"><h3>🏆 Top Performer ${modeHarian()?'Harian':'Bulanan'}</h3><div class="card-sub">Leaderboard berdasarkan persentase achievement · ${esc(labelRentang())}</div>${lb||'<div class="empty">Belum ada data.</div>'}</div>
+    <div class="card"><span class="divlabel mk">Marketing</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('marketing',DB.employees.marketing)}</tbody></table></div></div>
+    <div class="card"><span class="divlabel ev">Event</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('event',DB.employees.event)}</tbody></table></div></div>
+    <div class="card"><span class="divlabel ks">Kasir</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('kasir',DB.employees.kasir)}</tbody></table></div></div>`;
+}
+
 function viewPerforma(divi){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
@@ -2581,7 +2716,12 @@ let KK=null;          // {pos:[],kategori:[],trx:[]} — null = belum termuat
 let KK_ERR='';
 let KK_SIBUK=false;   // ada tulisan yang sedang jalan; tombol dikunci
 let KK_EDIT=null;     // id transaksi yang sedang diubah; null = mode tambah
-let KK_FILTER={pos:'',kat:'',q:'',belum:false};
+/* `status` menggantikan tombol "Belum lengkap (n)" yang dulu berdiri sendiri di
+   pojok kanan atas (11 Agustus 2026). Tombol itu cuma satu saringan dari
+   sekian yang mungkin, dan tempatnya jauh dari deretan saringan lain — orang
+   yang mencari "tampilkan yang belum ada bon" tidak akan menemukannya di sana.
+   Sekarang ia satu kotak pilihan sebaris dengan Cari/Pos/Kategori. */
+let KK_FILTER={pos:'',kat:'',q:'',status:''};
 
 function kkApi(action,payload){
   const isi=Object.assign({action:action},payload||{});
@@ -2696,7 +2836,12 @@ function kkTerpakai(t){
   const q=String(KK_FILTER.q||'').toLowerCase();
   if(KK_FILTER.pos){ const v=kkNilai(t,KK_FILTER.pos); if(v.debet===0&&v.kredit===0) return false; }
   if(KK_FILTER.kat && String(t.kategori_id||'')!==String(KK_FILTER.kat)) return false;
-  if(KK_FILTER.belum && t.input && t.bon) return false;
+  const st=KK_FILTER.status;
+  if(st==='input_belum'  &&  t.input) return false;
+  if(st==='input_sudah'  && !t.input) return false;
+  if(st==='bon_belum'    &&  t.bon)   return false;
+  if(st==='bon_sudah'    && !t.bon)   return false;
+  if(st==='belum_lengkap'&&  t.input && t.bon) return false;
   if(q && String(t.keterangan||'').toLowerCase().indexOf(q)<0) return false;
   return true;
 }
@@ -2720,7 +2865,26 @@ function viewKkBuku(){
   const baris=kkRentang().filter(kkTerpakai);
   const totD=baris.reduce(function(s,t){return s+kkNilai(t,KK_FILTER.pos).debet;},0);
   const totK=baris.reduce(function(s,t){return s+kkNilai(t,KK_FILTER.pos).kredit;},0);
-  const belum=kkRentang().filter(function(t){return !t.input||!t.bon;}).length;
+  /* Ringkasan kelengkapan (11 Agustus 2026). Dihitung dari `baris` — yaitu
+     persis transaksi yang sedang TAMPIL, sesudah semua saringan — bukan dari
+     seluruh periode: kartunya berdiri tepat di atas tabelnya, dan angka yang
+     tidak bisa dicocokkan dengan tabel di bawahnya cuma jadi bahan curiga.
+     Nilainya debet+kredit, bukan selisihnya: yang dijawab di sini "berapa
+     rupiah yang sudah/belum masuk pembukuan", bukan arah uangnya. */
+  const nilaiTrx=function(t){ const v=kkNilai(t,KK_FILTER.pos); return v.debet+v.kredit; };
+  const rpSemua=baris.reduce(function(s,t){return s+nilaiTrx(t);},0);
+  const nInput=baris.filter(function(t){return !!t.input;}).length;
+  const nBon=baris.filter(function(t){return !!t.bon;}).length;
+  const rpInput=baris.reduce(function(s,t){return t.input?s+nilaiTrx(t):s;},0);
+  const rpBon=baris.reduce(function(s,t){return t.bon?s+nilaiTrx(t):s;},0);
+  const kotakLengkap=function(lab,n,rp,warna){
+    const sisaN=baris.length-n, sisaRp=rpSemua-rp;
+    return '<div class="stat" style="background:'+warna+'">'+
+      '<div class="lab">'+lab+'</div>'+
+      '<div class="val sm mono">'+fmtRp(rp)+'</div>'+
+      '<div class="foot">'+n+' dari '+baris.length+' transaksi'+
+        (sisaN?' · sisa '+sisaN+' senilai '+fmtRp(sisaRp):' · <b>sudah lengkap</b>')+'</div></div>';
+  };
 
   const kartuPos=pos.map(function(p){
     const s=kkSaldoPos(p.id);
@@ -2746,6 +2910,9 @@ function viewKkBuku(){
   const totalSemua=kkSaldoPos('');
   const selisihNonaktif=totalSemua-totalAktif;
   const semuaPosTampil=!KK_FILTER.pos;
+  /* Kartu total dipasang PALING KIRI (permintaan user 11 Agustus 2026) — mata
+     membaca dari kiri, dan angka yang paling sering dicari tidak boleh jadi
+     yang terakhir dilihat. */
   const kartuTotal=pos.length?('<div class="card" style="margin:0;cursor:pointer;background:var(--gold-soft)'+
       (semuaPosTampil?';border-color:var(--gold);box-shadow:0 0 0 2px rgba(201,162,39,.16)':'')+'"'+
       ' onclick="kkSetFilter(\'pos\',\'\')" title="Klik untuk menampilkan seluruh pos di buku di bawah">'+
@@ -2756,7 +2923,7 @@ function viewKkBuku(){
         (selisihNonaktif?'<br>+ '+fmtRp(selisihNonaktif)+' di pos nonaktif':'')+'</div></div>'):'';
 
   el.innerHTML=
-    (pos.length?'<div class="grid g'+Math.min(pos.length+1,5)+'" style="margin-bottom:18px">'+kartuPos+kartuTotal+'</div>'
+    (pos.length?'<div class="grid g'+Math.min(pos.length+1,5)+'" style="margin-bottom:18px">'+kartuTotal+kartuPos+'</div>'
       :'<div class="notice warn">⚠ <div>Belum ada pos pembayaran. Tambahkan dulu di <b>Pos &amp; Kategori</b> — tanpa pos, transaksi tidak punya tempat untuk dicatat.</div></div>')+
     (KK_ERR?'<div class="notice bad">⚠ <div>'+esc(KK_ERR)+'</div></div>':'')+
     '<div class="card">'+
@@ -2764,10 +2931,9 @@ function viewKkBuku(){
         '<div><h3>Buku Kas Kecil — '+esc(labelRentang())+'</h3>'+
           '<div class="card-sub" style="margin:0">'+baris.length+' transaksi ditampilkan'+(KK_FILTER.pos?' · pos <b>'+esc(kkPosNama(KK_FILTER.pos))+'</b>':'')+'</div></div>'+
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-          (belum?'<button class="btn btn-ghost btn-sm" onclick="kkSetFilter(\'belum\','+(KK_FILTER.belum?'false':'true')+')">'+(KK_FILTER.belum?'✓ ':'')+'Belum lengkap ('+belum+')</button>':'')+
           '<button class="btn btn-primary btn-sm" onclick="KK_EDIT=null;go(\'kk_input\')">+ Transaksi</button>'+
         '</div></div>'+
-      '<div class="grid g3" style="margin-top:14px">'+
+      '<div class="grid g4" style="margin-top:14px">'+
         '<div class="field" style="margin:0"><label>Cari keterangan</label>'+
           '<input id="kkQ" value="'+esc(KK_FILTER.q)+'" placeholder="mis. bensin" oninput="KK_FILTER.q=this.value" onchange="render()"></div>'+
         '<div class="field" style="margin:0"><label>Pos</label>'+
@@ -2776,7 +2942,19 @@ function viewKkBuku(){
         '<div class="field" style="margin:0"><label>Kategori</label>'+
           '<select onchange="kkSetFilter(\'kat\',this.value)"><option value="">Semua kategori</option>'+
             kkKatAktif().map(function(k){return '<option value="'+esc(String(k.id))+'"'+(String(KK_FILTER.kat)===String(k.id)?' selected':'')+'>'+esc(k.nama)+'</option>';}).join('')+'</select></div>'+
-      '</div></div>'+
+        '<div class="field" style="margin:0"><label>Kelengkapan</label>'+
+          '<select onchange="kkSetFilter(\'status\',this.value)">'+
+            [['','Semua transaksi'],['belum_lengkap','Belum lengkap (input / bon)'],
+             ['input_belum','Belum masuk pembukuan'],['input_sudah','Sudah masuk pembukuan'],
+             ['bon_belum','Bon belum ada'],['bon_sudah','Bon sudah ada']]
+              .map(function(o){return '<option value="'+o[0]+'"'+(KK_FILTER.status===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+
+          '</select></div>'+
+      '</div>'+
+      (baris.length?'<div class="grid g2" style="margin-top:14px">'+
+        kotakLengkap('Sudah Masuk Pembukuan',nInput,rpInput,'var(--ok-bg)')+
+        kotakLengkap('Bon Sudah Ada',nBon,rpBon,'var(--info-bg)')+
+      '</div>':'')+
+      '</div>'+
 
     '<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap"><table>'+
       '<thead><tr>'+
@@ -2791,7 +2969,12 @@ function viewKkBuku(){
         const sal=saldoPeta[t.id];
         const chips=(t.baris||[]).filter(function(b){return num(b.debet)||num(b.kredit);})
           .map(function(b){return '<span class="chip mute" style="margin:1px 2px 1px 0">'+esc(kkPosNama(b.pos_id))+' '+fmtRp(num(b.debet)||num(b.kredit))+'</span>';}).join('');
-        return '<tr'+((!t.input||!t.bon)?' style="background:var(--warn-bg)"':'')+'>'+
+        /* Baris TIDAK lagi diberi latar kuning seluruhnya (11 Agustus 2026):
+           warnanya sekarang di dua sel Input & Bon saja. Latar sebaris penuh
+           tidak memberi tahu MANA dari keduanya yang kurang — dan pada bulan
+           berjalan hampir semua baris kuning, jadi yang tersisa cuma tabel
+           kuning yang tidak lagi menandakan apa pun. */
+        return '<tr>'+
           '<td class="mono" style="white-space:nowrap">'+esc(t.tgl)+'</td>'+
           '<td><b>'+esc(t.keterangan||'(tanpa keterangan)')+'</b></td>'+
           '<td class="muted" style="font-size:12.5px">'+esc(kkKatNama(t.kategori_id))+'</td>'+
@@ -2799,16 +2982,16 @@ function viewKkBuku(){
           '<td class="mono" style="text-align:right">'+(v.debet?fmtRp(v.debet):'<span class="muted">—</span>')+'</td>'+
           '<td class="mono" style="text-align:right">'+(v.kredit?fmtRp(v.kredit):'<span class="muted">—</span>')+'</td>'+
           '<td class="mono" style="text-align:right;font-weight:700">'+(sal==null?'<span class="muted">—</span>':fmtRp(sal))+'</td>'+
-          '<td style="text-align:center"><input type="checkbox" '+(t.input?'checked':'')+' '+(KK_SIBUK?'disabled':'')+
-            ' onchange="kkTandai('+t.id+',\'input\',this.checked?1:0)" title="Sudah masuk pembukuan"></td>'+
-          '<td style="text-align:center"><input type="checkbox" '+(t.bon?'checked':'')+' '+(KK_SIBUK?'disabled':'')+
-            ' onchange="kkTandai('+t.id+',\'bon\',this.checked?1:0)" title="Nota fisik sudah ada"></td>'+
+          '<td style="text-align:center;background:'+(t.input?'var(--ok-bg)':'var(--warn-bg)')+'"><input type="checkbox" '+(t.input?'checked':'')+' '+(KK_SIBUK?'disabled':'')+
+            ' onchange="kkTandai('+t.id+',\'input\',this.checked?1:0)" title="'+(t.input?'Sudah masuk pembukuan':'BELUM masuk pembukuan')+'"></td>'+
+          '<td style="text-align:center;background:'+(t.bon?'var(--info-bg)':'var(--warn-bg)')+'"><input type="checkbox" '+(t.bon?'checked':'')+' '+(KK_SIBUK?'disabled':'')+
+            ' onchange="kkTandai('+t.id+',\'bon\',this.checked?1:0)" title="'+(t.bon?'Nota fisik sudah ada':'Nota fisik BELUM ada')+'"></td>'+
           '<td style="white-space:nowrap;text-align:right">'+
             '<button class="btn btn-ghost btn-xs" onclick="kkEdit('+t.id+')">Ubah</button> '+
             '<button class="btn btn-danger btn-xs" onclick="kkHapus('+t.id+')">Hapus</button></td></tr>';
       }).join('')
       :'<tr><td colspan="10" class="empty"><div class="big">🧾</div>Belum ada transaksi pada '+esc(labelRentang())+
-        ((KK_FILTER.q||KK_FILTER.pos||KK_FILTER.kat||KK_FILTER.belum)?' dengan saringan ini':'')+'.</td></tr>')+
+        ((KK_FILTER.q||KK_FILTER.pos||KK_FILTER.kat||KK_FILTER.status)?' dengan saringan ini':'')+'.</td></tr>')+
       '</tbody>'+
       (baris.length?'<tfoot><tr>'+
         '<th colspan="4" style="text-align:right">Total '+esc(labelRentang())+'</th>'+
@@ -2817,7 +3000,8 @@ function viewKkBuku(){
         '<th class="mono" style="text-align:right">'+fmtRp(totD-totK)+'</th>'+
         '<th colspan="3"></th></tr></tfoot>':'')+
     '</table></div></div>'+
-    '<div class="foot muted" style="font-size:12px">Baris berlatar kuning = <b>Input</b> atau <b>Bon</b>-nya belum dicentang. '+
+    '<div class="foot muted" style="font-size:12px">Sel <b>kuning</b> di kolom Input/Bon = belum dicentang; '+
+      'hijau = sudah masuk pembukuan, biru = notanya sudah ada. Pakai kotak <b>Kelengkapan</b> di atas untuk menyaringnya. '+
       'Kolom Saldo dihitung dari seluruh riwayat'+(KK_FILTER.pos?' pos ini':' semua pos digabung')+', bukan dari awal periode.</div>';
 }
 
@@ -3100,6 +3284,27 @@ function kkHapusPos(id){
   kkKirim('hapusPos',{id:id},'Gagal menghapus pos');
 }
 function kkAktifkanPos(id){ kkKirim('aktifPos',{id:id},'Gagal mengaktifkan pos'); }
+/* Ubah nama pos/kategori (11 Agustus 2026). Backend-nya SUDAH bisa sejak awal —
+   simpan_daftar() melakukan UPDATE begitu `id` ikut dikirim — yang tidak ada
+   cuma tombolnya, jadi satu-satunya cara memperbaiki nama yang salah ketik
+   adalah lewat SQL. Yang diganti hanya namanya: id tetap, sehingga seluruh
+   transaksi lama tetap menunjuk pos yang sama dan saldo historis tidak
+   bergerak. `urut` ikut dikirim apa adanya karena UPDATE-nya menimpa kolom itu
+   juga — tanpa ini, mengganti nama diam-diam melempar pos ke urutan 0. */
+function kkUbahNama(jenis,id){
+  const daftar=(KK&&KK[jenis==='pos'?'pos':'kategori'])||[];
+  const r=daftar.find(function(x){return String(x.id)===String(id);});
+  if(!r) return;
+  const baru=prompt('Nama baru untuk "'+r.nama+'":',r.nama);
+  if(baru===null) return;
+  const nama=String(baru).trim();
+  if(!nama){ KK_ERR='Nama tidak boleh kosong.'; render(); return; }
+  if(nama===r.nama) return;
+  KK_ERR='';
+  kkKirim(jenis==='pos'?'simpanPos':'simpanKategori',
+    {id:id,nama:nama,urut:num(r.urut)},
+    'Gagal mengubah nama');
+}
 function kkSimpanKat(){
   const nama=String((document.getElementById('kk_katNama')||{}).value||'').trim();
   if(!nama){ KK_ERR='Nama kategori belum diisi.'; render(); return; }
@@ -3125,12 +3330,13 @@ function viewKkPos(){
   const pakaiPos=function(id){ return (KK.trx||[]).filter(function(t){return (t.baris||[]).some(function(b){return String(b.pos_id)===String(id);});}).length; };
   const pakaiKat=function(id){ return (KK.trx||[]).filter(function(t){return String(t.kategori_id||'')===String(id);}).length; };
 
-  const daftar=function(rows,pakai,hapus,aktifkan,kosong){
+  const daftar=function(rows,pakai,hapus,aktifkan,kosong,jenis){
     return rows.length?rows.map(function(r){
       return '<tr'+(r.aktif===false?' style="opacity:.55"':'')+'>'+
         '<td><b>'+esc(r.nama)+'</b>'+(r.aktif===false?' <span class="chip mute">nonaktif</span>':'')+'</td>'+
         '<td class="mono muted" style="text-align:right">'+pakai(r.id)+' transaksi</td>'+
         '<td style="text-align:right;white-space:nowrap">'+
+          '<button class="btn btn-ghost btn-xs" onclick="kkUbahNama(\''+jenis+'\','+r.id+')">Ubah nama</button> '+
           (r.aktif===false?'<button class="btn btn-ghost btn-xs" onclick="'+aktifkan+'('+r.id+')">Aktifkan</button>'
                           :'<button class="btn btn-danger btn-xs" onclick="'+hapus+'('+r.id+')">Hapus</button>')+
         '</td></tr>';
@@ -3145,14 +3351,14 @@ function viewKkPos(){
     '<div class="grid g2">'+
       '<div class="card" style="margin:0">'+
         '<h3>Pos Pembayaran</h3><div class="card-sub">Tiap pos punya saldo berjalan sendiri</div>'+
-        '<div class="tbl-wrap"><table><tbody>'+daftar(pos,pakaiPos,'kkHapusPos','kkAktifkanPos','Belum ada pos.')+'</tbody></table></div>'+
+        '<div class="tbl-wrap"><table><tbody>'+daftar(pos,pakaiPos,'kkHapusPos','kkAktifkanPos','Belum ada pos.','pos')+'</tbody></table></div>'+
         '<div style="display:flex;gap:8px;margin-top:14px">'+
           '<input id="kk_posNama" placeholder="Nama pos baru" style="flex:1;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
           '<button class="btn btn-primary btn-sm" onclick="kkSimpanPos()" '+(KK_SIBUK?'disabled':'')+'>Tambah</button>'+
         '</div></div>'+
       '<div class="card" style="margin:0">'+
         '<h3>Kategori Belanja</h3><div class="card-sub">Untuk menyaring &amp; merekap, tidak memengaruhi saldo</div>'+
-        '<div class="tbl-wrap"><table><tbody>'+daftar(kat,pakaiKat,'kkHapusKat','kkAktifkanKat','Belum ada kategori.')+'</tbody></table></div>'+
+        '<div class="tbl-wrap"><table><tbody>'+daftar(kat,pakaiKat,'kkHapusKat','kkAktifkanKat','Belum ada kategori.','kategori')+'</tbody></table></div>'+
         '<div style="display:flex;gap:8px;margin-top:14px">'+
           '<input id="kk_katNama" placeholder="Nama kategori baru" style="flex:1;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
           '<button class="btn btn-primary btn-sm" onclick="kkSimpanKat()" '+(KK_SIBUK?'disabled':'')+'>Tambah</button>'+

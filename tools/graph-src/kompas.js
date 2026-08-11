@@ -518,10 +518,6 @@
 
 
 
-
-
-
-
 function pct() {  }
 
 
@@ -618,9 +614,8 @@ function toggleNav() { go(); bolehLihat(); }
 
 
 
+
 function bacaSesi() {  }
-
-
 
 
 
@@ -648,8 +643,6 @@ function bolehLihat() { levelSaya(); }
 
 
 function pasangMenu() { levelSaya(); bolehLihat(); go(); }
-
-
 
 
 
@@ -976,7 +969,14 @@ function dailyTarget() { pembagiHari(); }
 
 function daysOfMonth() {  }
 function getDay() {  }
-function empName() { todayISO(); daysOfMonth(); porsiPic(); }
+function empName() { todayISO(); daysOfMonth(); porsiPic(); syncKendaliPeriode(); }
+
+
+
+
+
+
+
 
 
 
@@ -1071,13 +1071,11 @@ function syncKendaliPeriode() { modeHarian(); }
 
 
 
+function go() { bolehLihat(); levelSaya(); render(); clearCharts(); }
 
 
 
 
-
-
-function go() { bolehLihat(); levelSaya(); render(); }
 
 
 
@@ -1101,7 +1099,7 @@ function go() { bolehLihat(); levelSaya(); render(); }
 
 function clearCharts() {  }
 
-function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); formatAllRp(); todayISO(); }
+function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO(); }
 
 
 
@@ -1987,7 +1985,7 @@ function hapusBon() { save(); render(); }
 
 
 
-function hapusOwner() { save(); render(); todayISO(); kasirMurni(); }
+function hapusOwner() { save(); render(); todayISO(); }
 
 
 
@@ -2372,39 +2370,6 @@ function compPic() { compListPic(); compPotong(); }
 
 function compListPicRentang() { compFilterPic(); compsRentang(); }
 function compPicRentang() { compListPicRentang(); compPotong(); }
-
-
-
-function kartuCompliment() { compPotong(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -3063,7 +3028,7 @@ function kartuEfek() { potonganBaris(); diskonKasir(); omsetKasir(); empName(); 
 
 
 
-function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); viewBulanan(); }
+function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); labelRentang(); }
 
 
 
@@ -3107,495 +3072,6 @@ function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empNam
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function lembarKop() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function lembarKaki() {  }
-
-
-
-
-
-
-
-
-
-
-function lembarSeksi() {  }
-
-
-
-
-
-
-
-
-
-function lembarKpi() {  }
-
-
-
-
-
-
-
-
-
-function lembarTabelKolom() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function cetakDashboardOmset() { baris(); pct(); lembarKop(); lembarKpi(); lembarSeksi(); lembarTabelKolom(); lembarKaki(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function waDashboardOmset() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function viewBulanan() { rentangAktif(); targetRentang(); netOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); dailyTarget(); daysOfMonth(); labelPeriode(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function viewAnalytics() { rentangAktif(); netOf(); porsiPic(); omsetKasir(); potonganHari(); diskonKasir(); selfOmset(); selfDiskon(); modeHarian(); labelRentang(); pct(); pieOpts(); emptyCanvas(); barCanvas(); barOpts(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function barCanvas() { barOpts(); emptyCanvas(); }
-
-
-
-
-
-function emptyCanvas() {  }
 
 
 
@@ -3613,7 +3089,6 @@ function labelPeriode() {  }
 
 
 
-function cetakAchievement() { kartuCompliment(); }
 
 
 
@@ -3623,440 +3098,6 @@ function cetakAchievement() { kartuCompliment(); }
 
 
 
-
-
-
-
-
-
-function kunci() { compPotong(); lembarKop(); labelRentang(); modeHarian(); lembarKpi(); lembarTabelKolom(); lembarKaki(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function viewPerforma() { rentangAktif(); porsiPic(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); kartuApprovalCompliment(); targetPic(); pct(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function aturTombolKirim() { cetakAchievement(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function clearChartsExcept() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function bonusKasir() { baris(); }
-
-
-
-
-
-
-
-
-
-
-function baguRingkasKasir() { bonusKasir(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function kartuBonusKasir() { bonusKasir(); ketKasir(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function ketKasir() {  }
-
-
-
-
-
-
-
-
-function kasirMurni() { ketKasir(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function gambarRiwayat() { baguRingkasKasir(); modeHarian(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function viewSummary() { rentangAktif(); porsiPic(); potonganHari(); }
-
-
-
-
-
-
-
-
-function realBy() { omsetKasir(); potonganHari(); porsiPic(); compPicRentang(); targetPic(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function mkTable() { realBy(); targetPic(); pct(); modeHarian(); labelRentang(); }
 
 
 
@@ -4204,9 +3245,8 @@ function viewAkses() { muatAkses(); }
 
 
 
-function lineOpts() {  }
-function barOpts() {  }
-function pieOpts() {  }
+
+
 
 
 function boot() { bacaSesi(); pasangMenu(); setSync(); render(); apiGet(); normalizeDB(); todayISO(); purgeSeedKasir(); go(); save(); syncPicOffice(); seed(); }
