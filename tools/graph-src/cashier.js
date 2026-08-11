@@ -586,7 +586,9 @@ function bolehLihat() {  }
 
 
 
-function seed() {  }
+function seed() { tambahJejak(); }
+
+
 
 
 
@@ -919,7 +921,7 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 function repOf() {  }
 function repPay() {  }
-function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenjelasan(); fmtWaktu(); inputVal(); catatanMetode(); }
+function viewReport() { repOf(); penjelasHari(); calInner(); jejakHtml(); repPay(); kartuPenjelasan(); inputVal(); catatanMetode(); }
 
 
 
@@ -1058,7 +1060,9 @@ function viewReport() { repOf(); penjelasHari(); calInner(); repPay(); kartuPenj
 
 
 
-function inputVal() { hitung(); save(); dateLabel(); render(); }
+
+function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
+
 
 
 
@@ -1074,6 +1078,46 @@ function inputVal() { hitung(); save(); dateLabel(); render(); }
 
 
 function fmtWaktu() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tambahJejak() {  }
+
+
+
+
+
+
+
+function jejakList() {  }
+
+
+
+function jejakHtml() { jejakList(); fmtWaktu(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2083,7 +2127,7 @@ function rokokSisaAwal() { rokokItem(); }
 
 
 
-function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); fmtWaktu(); }
+function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); jejakHtml(); }
 
 
 
@@ -2125,7 +2169,8 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); fmtW
 
 
 
-function hitung() { nilai(); daftar(); save(); dateLabel(); render(); }
+function hitung() { nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
+
 
 
 
