@@ -256,11 +256,40 @@ svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 .stat .si{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--gold-glow);color:var(--gold-deep)}
 .stat .si svg{width:18px;height:18px;stroke-width:2}
 .ev-status-grid{grid-template-columns:repeat(7,1fr);gap:12px}
-/* Lima tahap pipeline. Kisi sendiri, bukan menumpang ev-status-grid yang
-   tujuh kolom: lima kartu di kisi tujuh menyisakan dua lubang di kanan. */
-.pipe-stage-grid{grid-template-columns:repeat(5,1fr);gap:12px}
-@media(max-width:1100px){.pipe-stage-grid{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:680px){.pipe-stage-grid{grid-template-columns:repeat(2,1fr)}}
+/* Ringkasan pipeline dalam SATU pita.
+
+   Bentuk sebelumnya: dua kartu angka besar, lalu judul "Status Event",
+   lalu lima kartu lagi — tiga baris dan sekitar 350px tinggi untuk tujuh
+   angka pendek, sebelum papan yang jadi alasan halaman ini dibuka muncul
+   sama sekali. Di layar laptop itu berarti kolom kanban mulai di bawah
+   lipatan, dan tiap kali halaman dibuka orang harus menggulir dulu.
+
+   Angkanya tetap tujuh, tempatnya satu baris. Yang dikorbankan cuma ukuran
+   hurufnya — dan angka ini memang dibaca sekilas, bukan dipelototi. */
+.pipe-sum{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--ink-880);border:1px solid var(--line);border-radius:var(--radius);
+  padding:10px 14px;margin-bottom:14px;box-shadow:0 2px 10px rgba(122,86,15,.06);
+  position:relative;overflow:hidden}
+/* Pita emas tipis di tepi atas, penanda yang sama dipakai kartu angka. */
+.pipe-sum::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;
+  background:linear-gradient(90deg,var(--gold),var(--gold-soft) 60%,transparent)}
+.pipe-sum .tot{display:flex;align-items:baseline;gap:7px;padding-right:13px;
+  border-right:1px solid var(--line-soft);flex:none}
+.pipe-sum .tot b{font-family:var(--ff-display);font-size:21px;font-weight:700;line-height:1}
+.pipe-sum .tot .rp{font-family:var(--ff-display);font-size:15px;font-weight:700;color:var(--gold-deep)}
+.pipe-sum .tot i{font-style:normal;font-size:11px;color:var(--muted)}
+.pipe-sum .tahap{display:flex;gap:7px;flex-wrap:wrap;flex:1;min-width:0}
+.pipe-sum .tp{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  border:1px solid var(--line-soft);background:#ffffff;font-size:11.5px;white-space:nowrap;
+  color:var(--sand-dim)}
+.pipe-sum .tp .d{width:7px;height:7px;border-radius:50%;flex:none}
+.pipe-sum .tp .n{font-weight:800;color:var(--sand)}
+.pipe-sum .tp .v{color:var(--gold-deep);font-weight:600}
+/* Tahap kosong diredupkan, bukan disembunyikan: hilangnya "Lead 0" dari
+   baris ini terbaca sebagai tahap yang tidak ada, bukan tahap yang sedang
+   kosong — dan justru nol di Lead yang perlu kelihatan. */
+.pipe-sum .tp.nol{opacity:.45}
+@media(max-width:900px){.pipe-sum .tot{border-right:none;padding-right:0;width:100%}}
 @media(max-width:1200px){.ev-status-grid{grid-template-columns:repeat(4,1fr)}}
 @media(max-width:680px){.ev-status-grid{grid-template-columns:repeat(2,1fr)}}
 .evtile{padding:14px 15px}
@@ -4688,29 +4717,23 @@ function pipeAktif(){
 function pipeRingkas(){
   const list=pipeAktif();
   const total=list.reduce(function(n,e){ return n+eventFinance(e).grand; },0);
-  let h='<div class="grid g-2" style="margin-bottom:14px">'
-    +stat('Peluang di Pipeline',list.length,
-          pipePIC?('PIC '+esc(userName(pipePIC))):'seluruh tim','pipe')
-    +stat('Total Nilai',rpShort(total),'kalau semuanya jadi','money')
-    +'</div>';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 10px">'
-    +'<div class="eyebrow">Status Event</div>'
-    +'<span class="tag">'+list.length+' peluang aktif</span></div>';
-  h+='<div class="grid pipe-stage-grid" style="margin-bottom:16px">';
+  let h='<div class="pipe-sum">'
+    +'<div class="tot"><b class="num">'+list.length+'</b><i>peluang</i>'
+      +'<span class="rp num">'+rpShort(total)+'</span>'
+      +'<i>'+(pipePIC?esc(userName(pipePIC)):'seluruh tim')+'</i></div>'
+    +'<div class="tahap">';
   PIPE_COLS.forEach(function(k){
     const it=list.filter(function(e){ return pipeStatusOfEv(e)===k; });
     const nilai=it.reduce(function(n,e){ return n+eventFinance(e).grand; },0);
     const c=PIPE_COL_COLOR[k]||'--muted';
-    h+='<div class="card evtile"><div class="et-h">'
-      +'<span class="et-dot" style="background:var('+c+')"></span>'
-      +'<span class="et-name">'+esc(k)+'</span></div>'
-      +'<div class="et-v num">'+it.length+'</div>'
-      /* Nilainya, bukan kata "event". Jumlahnya sudah jadi angka besar di
-         atas; baris kecil di bawah lebih berguna dipakai untuk hal yang
-         belum terbaca di mana pun. */
-      +'<div class="et-d">'+(nilai?rpShort(nilai):'belum ada nilai')+'</div></div>';
+    h+='<span class="tp'+(it.length?'':' nol')+'" title="'+esc(k)+': '+it.length+' peluang'
+      +(nilai?' · '+rp(nilai):'')+'">'
+      +'<span class="d" style="background:var('+c+')"></span>'
+      +esc(k)+' <span class="n num">'+it.length+'</span>'
+      +(nilai?' <span class="v num">'+rpShort(nilai)+'</span>':'')
+      +'</span>';
   });
-  return h+'</div>';
+  return h+'</div></div>';
 }
 /* Isi yang SAMA dengan kanban — seluruh event yang masih berjalan di
    pipeline — tapi dibaca sebagai daftar. Yang tidak bisa diberikan kanban

@@ -1869,6 +1869,35 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -4685,13 +4714,7 @@ function pipeAktif() { pipeStatusOfEv(); pipeCocokPIC(); }
 
 
 
-function pipeRingkas() { pipeAktif(); eventFinance(); stat(); esc(); userName(); pipeStatusOfEv(); }
-
-
-
-
-
-
+function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeStatusOfEv(); }
 
 
 
