@@ -1557,10 +1557,12 @@ function jejakHtml(rec){
   if(!log.length) return '';
   const akhir=log[log.length-1];
   const sebelum=log.slice(0,-1).reverse();
-  return `<div class="notice info">
+  /* Dibungkus SATU div: `.notice` display:flex, jadi tanpa pembungkus tiap
+     penebalan jadi kolomnya sendiri dan kalimatnya pecah bertumpuk. */
+  return `<div class="notice info"><div>
       📝 Disubmit oleh <b>${esc(akhir.by||'—')}</b> · <b>${esc(fmtWaktu(akhir.at))}</b>
       ${sebelum.length?`<div style="font-size:12px;margin-top:6px;opacity:.78">Sebelumnya diisi/diubah oleh ${sebelum.map(x=>`${esc(x.by||'—')} (${esc(fmtWaktu(x.at))})`).join(' · ')}</div>`:''}
-    </div>`;
+    </div></div>`;
 }
 
 /* Sebab selisih yang WAJAR pada satu tanggal, per metode. Report Daily cuma
@@ -3069,13 +3071,18 @@ function viewBreakdown(){
   }
   /* Pita status penarikan. Ditaruh di atas Section B karena di situlah baris
      otomatisnya muncul. */
+  /* SETIAP isi `.notice` WAJIB dibungkus SATU elemen blok. `.notice` itu
+     display:flex, jadi tiap potongan teks dan tiap penebalan di dalamnya jadi
+     flex item sendiri — kalimatnya pecah jadi kolom-kolom sempit yang saling
+     bertumpuk, bukan satu paragraf. Terlihat di layar user 11 Agustus 2026
+     pada pita ini, persis kesalahan yang sudah dicatat di modalBagiHasil. */
   function pitaSumber(){
     const box=document.getElementById('bd_src'); if(!box) return;
     if(EVHARI.tgl!==bdDate || EVHARI.st==='muat'){
-      box.innerHTML=`<div class="notice info">⏳ Mengambil event ${esc(dateLabel(bdDate))} dari modul Marketing &amp; Event…</div>`; return;
+      box.innerHTML=`<div class="notice info"><div>⏳ Mengambil event ${esc(dateLabel(bdDate))} dari modul Marketing &amp; Event…</div></div>`; return;
     }
     if(EVHARI.st==='galat'){
-      box.innerHTML=`<div class="notice warn">⚠ Daftar event otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div>`; return;
+      box.innerHTML=`<div class="notice warn"><div>⚠ Daftar event otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div></div>`; return;
     }
     const n=EVHARI.mk.length+EVHARI.ev.length;
     /* Dua angka yang berbeda dan tidak boleh ditukar: `tersimpan` sudah ada di
@@ -3084,11 +3091,38 @@ function viewBreakdown(){
        halaman mengira barisnya sudah hilang, lalu besok ia ada lagi. */
     const tersimpan=(d.bd.abaikan||[]).length;
     const belum=state.abaikan.length-tersimpan;
-    const catatanBuang=(tersimpan?` <span style="opacity:.8">· ${tersimpan} baris pernah dibuang dan tidak dimunculkan lagi.</span>`:'')
-      +(belum>0?` <span style="opacity:.8">· ${belum} baris baru dibuang di layar ini — <b>belum tersimpan</b>, akan muncul lagi kalau halaman ditutup sebelum Simpan Breakdown.</span>`:'');
+    /* Tombol pemulih. Tanpa ini, baris yang pernah dibuang TIDAK PUNYA jalan
+       kembali sama sekali: srcId-nya tersimpan di blob dan tidak ada satu pun
+       layar yang bisa menyentuhnya. Sudah menggigit 11 Agustus 2026 — event
+       marketing yang sah tidak muncul dan yang tampil cuma keterangan
+       "1 baris pernah dibuang", tanpa cara apa pun untuk memunculkannya. */
+    const catatanBuang=(tersimpan?` · ${tersimpan} baris pernah dibuang. <button type="button" class="btn btn-ghost btn-sm" id="bd_pulih">Munculkan lagi</button>`:'')
+      +(belum>0?` · ${belum} baris baru dibuang di layar ini — <b>belum tersimpan</b>, akan muncul lagi kalau halaman ditutup sebelum Simpan Breakdown.`:'');
+    /* Berapa yang BENAR-BENAR terpasang di bawah, bukan berapa yang ditemukan.
+       Dua angka itu berbeda begitu ada yang pernah dibuang, dan kalimat lama
+       memakai angka temuan — jadi layar bisa berbunyi "1 event ditemukan,
+       barisnya sudah dibuatkan di bawah" tepat di atas tulisan "Belum ada data
+       marketing". Kejadian 11 Agustus 2026. */
+    const tampil=[...state.mk,...state.ev].filter(r=>r.srcId).length;
+    const galatTxt=EVHARI.galat?` (${esc(EVHARI.galat)} tidak terbaca)`:'';
     box.innerHTML = n
-      ? `<div class="notice ok">✓ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))} — barisnya sudah dibuatkan di bawah, tinggal diisi nominalnya.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}${catatanBuang}</div>`
-      : `<div class="notice info">ℹ️ Tidak ada event berstatus Deal/Upcoming di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}</div>`;
+      ? `<div class="notice ${tampil?'ok':'warn'}"><div>${tampil
+          ? `✓ ${tampil} dari ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> untuk ${esc(dateLabel(bdDate))} sudah dibuatkan barisnya di bawah — tinggal diisi nominalnya.`
+          : `⚠ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))}, tapi <b>tidak ada satu pun yang dipasang</b> karena semuanya pernah dibuang.`}${galatTxt}${catatanBuang}</div></div>`
+      : `<div class="notice info"><div>ℹ️ Tidak ada event berstatus Deal/Upcoming di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${galatTxt}${catatanBuang}</div></div>`;
+    const tp=document.getElementById('bd_pulih');
+    if(tp) tp.onclick=()=>{
+      /* Dikosongkan di DUA tempat sekaligus dan langsung disimpan: yang di
+         `state` supaya barisnya muncul detik itu juga, yang di `d.bd` supaya
+         tidak ada lagi yang tersaring saat halaman dibuka besok. Ini memang
+         menyimpan tanpa menunggu Simpan Breakdown — arahnya memulihkan, bukan
+         membuang, jadi tidak ada kerja siapa pun yang bisa hilang karenanya. */
+      state.abaikan=[];
+      d.bd.abaikan=[];
+      save();
+      if(serapOtomatis()){ drawMk(); drawEv(); calc(); }
+      pitaSumber();
+    };
   }
 
   /* Ringkasan potongan per baris. Sekarang muncul di SEMUA baris, tidak lagi
@@ -3426,7 +3460,7 @@ function viewBreakdown(){
       : '';
     return `<div class="card"><h3>Efek ke Realisasi Kasir</h3>
       <div class="card-sub">Rincian lengkap ada di sini, bukan di halaman Performa Kasir — di sana yang tampil hanya angka finalnya. Diskon yang diberikan seorang kasir tidak pernah jadi omsetnya.</div>
-      ${obYatim.length?`<div class="notice warn">⚠ ${obYatim.length} Open Bill belum ditunjuk kasirnya (${esc(obYatim.map(r=>r.eventName||'event tanpa nama').join(', '))}) senilai <b>${fmtRp(obYatim.reduce((s,r)=>s+obTotal(r),0))}</b>. Nominalnya tetap diakui untuk PIC, tapi tidak ada kasir yang tercatat melayaninya.</div>`:''}
+      ${obYatim.length?`<div class="notice warn"><div>⚠ ${obYatim.length} Open Bill belum ditunjuk kasirnya (${esc(obYatim.map(r=>r.eventName||'event tanpa nama').join(', '))}) senilai <b>${fmtRp(obYatim.reduce((s,r)=>s+obTotal(r),0))}</b>. Nominalnya tetap diakui untuk PIC, tapi tidak ada kasir yang tercatat melayaninya.</div></div>`:''}
       <div class="tbl-wrap"><table>
         <thead><tr><th>Kasir</th><th class="num" style="width:130px">Omset Bruto</th><th class="num" style="width:130px">Diskon Diberikan</th><th class="num" style="width:130px">Potongan Event</th><th class="num" style="width:130px">Realisasi</th><th class="num" style="width:150px">Open Bill</th></tr></thead>
         <tbody>${isi}${barisSo}</tbody>
@@ -3495,8 +3529,11 @@ function viewBreakdown(){
   const pasang=()=>{
     // Render lama, atau user sudah pindah halaman/tanggal — jangan sentuh DOM.
     if(tokenRender!==BD_RENDER || CURRENT!=='breakdown' || bdDate!==EVHARI.tgl) return;
-    pitaSumber();
+    // Serap DULU, baru gambar pitanya: pita menyebut berapa baris yang
+    // benar-benar terpasang, jadi kalau urutannya dibalik angkanya selalu
+    // ketinggalan satu putaran.
     if(serapOtomatis()){ drawMk(); drawEv(); calc(); }
+    pitaSumber();
   };
   muatEventHari(bdDate,pasang);
 }

@@ -1576,6 +1576,8 @@ function jejakHtml() { jejakList(); fmtWaktu(); }
 
 
 
+
+
 function penjelasHari() { bonRingkasHari(); }
 
 
@@ -3069,7 +3071,39 @@ function serapOtomatis() { mkFinance(); cocokPic(); }
 
 
 
-function pitaSumber() { dateLabel(); }
+
+
+
+
+
+function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3492,7 +3526,10 @@ function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empNam
 
 
 
-function pasang() { pitaSumber(); serapOtomatis(); drawMk(); drawEv(); calc(); muatEventHari(); labelRentang(); }
+function pasang() { serapOtomatis(); drawMk(); drawEv(); calc(); pitaSumber(); muatEventHari(); labelRentang(); }
+
+
+
 
 
 
