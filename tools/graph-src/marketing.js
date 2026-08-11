@@ -4882,7 +4882,12 @@ function pindahBoleh() { penStatus(); }
 
 
 
-function pipeRingkas() { pipeAktif(); eventFinance(); rpRingkas(); esc(); userName(); pipeStatusOfEv(); }
+function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
+
+
 
 
 
@@ -5049,7 +5054,7 @@ function ingatkanStage() { missingBasic(); toast(); }
 
 
 
-function setEventStage() { pindahBoleh(); toast(); genTasks(); logAct(); save(); ingatkanStage(); go(); }
+function setEventStage() { pindahBoleh(); toast(); confirmUI(); esc(); ubahTahapSekarang(); }
 
 
 
@@ -5058,12 +5063,59 @@ function setEventStage() { pindahBoleh(); toast(); genTasks(); logAct(); save();
 
 
 
-function moveEventPipe() { go(); pindahBoleh(); toast(); ingatkanStage(); logAct(); genTasks(); save(); }
 
 
 
 
 
+
+
+
+
+function ubahTahapSekarang() { genTasks(); logAct(); save(); toast(); ingatkanStage(); go(); }
+
+
+
+
+
+
+function moveEventPipe() { go(); pindahBoleh(); toast(); pipeStatusOfEv(); genTasks(); confirmUI(); esc(); pindahTahapSekarang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pindahTahapSekarang() { ingatkanStage(); logAct(); genTasks(); toast(); save(); go(); }
 
 
 
