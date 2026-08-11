@@ -185,6 +185,61 @@ h1,h2,h3,h4{font-family:var(--ff-display)}
   #ciStat .stat .val{font-size:19px}
   #ciStat .stat .lbl,#ciStat .stat .sub{font-size:10.5px}
   #topActions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+
+  /* ---------- 16px, DAN ITU ANGKA WAJIB — BUKAN SELERA ----------
+     Safari di iOS memperbesar sendiri seluruh halaman begitu kursor masuk ke
+     kolom isian yang font-nya di bawah 16px, DAN TIDAK MENGEMBALIKANNYA.
+     Isian di modul ini 13px, jadi tiap kali kasir menyentuh kolom di layar
+     Catat Penjualan — atau petugas pintu menempel token di Check-In —
+     halamannya melompat membesar dan sisa pekerjaan dikerjakan sambil
+     menggeser layar ke kiri-kanan. Persis gejala "ngeframe di HP", dan
+     penyebabnya tidak pernah kelihatan dari kodenya.
+
+     Jangan diperbaiki dengan `maximum-scale=1` di <meta viewport>: itu
+     memang mematikan zoom-nya, sekaligus mematikan cubit-untuk-memperbesar
+     bagi yang matanya memang perlu. */
+  input,select,textarea,.tbl-edit .inp{font-size:16px}
+  /* Kolom di dalam tabel sunting tetap muat: tingginya yang dipangkas,
+     bukan hurufnya. */
+  .tbl-edit .inp{padding:6px 7px}
+
+  /* Laci menu tidak boleh memakan hampir seluruh layar 320px — sisakan
+     bagian gelap yang jelas bisa ditekan untuk menutupnya. */
+  #sidebar{width:min(84vw,270px)}
+
+  /* Modal: 40px kosong di atas itu mahal di layar 640px tinggi. */
+  .overlay{padding:18px 10px}
+  /* Tombol modal jadi selebar layar dan berurutan ke bawah. Deretan tombol
+     rapat di pojok kanan adalah cara tercepat menekan "Hapus" saat yang
+     dimaksud "Batal". */
+  .modal-actions{flex-wrap:wrap;gap:8px}
+  .modal-actions .btn{flex:1 1 140px}
+  /* Pasangan label–isi: 130px label di layar 320px menyisakan 150px untuk
+     nomor rekening dan nama acara. */
+  .kv{grid-template-columns:104px 1fr;gap:6px 10px}
+
+  /* Sasaran sentuh. .btn.sm hanya setinggi ±24px — di bawah batas yang bisa
+     ditekan dengan tepat sambil berdiri di pintu masuk. */
+  .btn.sm{padding:8px 12px;font-size:12.5px}
+}
+/* ---------- KALENDER DI LAYAR SEMPIT ----------
+   Tujuh kolom tetap dipertahankan: bentuk kalender itu sendiri yang membuat
+   orang bisa membaca "Sabtu depan" tanpa berpikir. Yang disesuaikan adalah
+   apa yang dimuat tiap sel — jarak dipersempit supaya lebar teksnya
+   bertambah, dan pil acara dibuat lebih TINGGI supaya benar-benar bisa
+   ditekan (itu satu-satunya jalan ke popup rincian; sel kosongnya sendiri
+   tidak membuka apa-apa).
+
+   Nama acara sengaja TIDAK disembunyikan seperti di modul Daily Worker: di
+   sana selnya sendiri sebuah tombol yang membuka rincian hari itu, di sini
+   tidak — menyembunyikan pilnya berarti menghapus satu-satunya pintu ke
+   isinya. */
+@media(max-width:620px){
+  .cal{gap:3px}
+  .cal .cell{min-height:76px;padding:3px;font-size:10px}
+  .cal .cell .dn{margin-bottom:2px}
+  .evt-dot{padding:4px 4px;margin-bottom:3px;line-height:1.25}
+  .legend{font-size:11px;gap:8px}
 }
 /* Sentuhan kecil: fokus keyboard terlihat, dan tombol tidak terasa mati */
 .btn:active{transform:translateY(1px)}
@@ -1906,7 +1961,15 @@ function renderTalentDetail(id){
     <p class="mini" style="margin-bottom:12px">KTP, NPWP, Kontrak & Portfolio — PDF/JPG/PNG, maks 8MB per berkas. Tersimpan di server sendiri, di luar folder web.</p>
     <div class="grid g4">${TAL_DOCS.map(d=>docCardHTML(t,d)).join('')}</div></div>`;
   const history=`<div class="card"><h3 class="sec">Performance History</h3><table><thead><tr><th>Tanggal</th><th>Jenis Show</th><th>Jam</th><th>Fee</th><th>Status Bayar</th></tr></thead><tbody>
-    ${scheds.map(s=>{const paid=DB.talentPayments.some(p=>p.talent_id===id&&p.period_month===s.date.slice(0,7)&&p.status==='Paid')&&s.status==='Done';return `<tr><td>${fmtDate(s.date)}</td><td>${s.performance_type}</td><td>${s.start_time}–${s.end_time}</td><td>${IDR(s.fee)}</td><td>${s.status==='Done'?(paid?statusBadge('Paid'):statusBadge('Waiting')):statusBadge(s.status)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada history.</td></tr>'}
+    ${scheds.map(s=>{const paid=s.status==='Done'&&DB.talentPayments.some(p=>{
+      if(p.talent_id!==id||p.status!=='Paid') return false;
+      /* Dicocokkan lewat RENTANG kuncinya, bukan perbandingan teks. Tagihan
+         mingguan berkunci '2026-08-03..2026-08-09' tidak akan pernah sama
+         dengan '2026-08', jadi cara lama membuat show yang sudah DIBAYAR
+         tetap tertulis "Waiting" di profil talent selamanya. */
+      const r=rentangPeriodeBayar(p.period_month);
+      return !!r && s.date>=r.a && s.date<=r.b;
+    });return `<tr><td>${fmtDate(s.date)}</td><td>${s.performance_type}</td><td>${s.start_time}–${s.end_time}</td><td>${IDR(s.fee)}</td><td>${s.status==='Done'?(paid?statusBadge('Paid'):statusBadge('Waiting')):statusBadge(s.status)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="empty">Belum ada history.</td></tr>'}
   </tbody></table></div>`;
   const monthly=`<div class="card"><h3 class="sec">Monthly Income</h3><table><thead><tr><th>Bulan</th><th>Jumlah Show</th><th>Total Fee</th></tr></thead><tbody>
     ${Object.keys(income).sort().reverse().map(mm=>`<tr><td>${MONTHS[+mm.slice(5)-1]} ${mm.slice(0,4)}</td><td>${income[mm].count} show</td><td><b>${IDR(income[mm].total)}</b></td></tr>`).join('')||'<tr><td colspan="3" class="empty">Belum ada income (show Done).</td></tr>'}
@@ -2477,6 +2540,36 @@ function feeKunci(){
   const r=feeRentang();
   return feeMode==='bulan' ? feeMonth : (r.a+'..'+r.b);
 }
+/* Dua bentuk kunci periode, jadi dua bentuk pembacanya — dan KEDUANYA harus
+   lewat sini.
+
+   Yang dulu salah: layar Bayar, Tandai Lunas, dan Detail sama-sama menulis
+   `MONTHS[+p.period_month.slice(5)-1] + ' ' + p.period_month.slice(0,4)`,
+   yaitu menganggap kuncinya SELALU 'YYYY-MM'. Untuk tagihan mingguan/rentang
+   kuncinya 'YYYY-MM-DD..YYYY-MM-DD', jadi slice(5) menghasilkan '08-03..…',
+   `+` atasnya NaN, dan MONTHS[NaN-1] undefined. Yang terbaca petugas finance
+   tepat sebelum mentransfer uang: "**undefined 2026**" — tanpa satu pun galat
+   di console, karena secara teknis tidak ada yang gagal. */
+function labelPeriodeBayar(kunci){
+  const k=String(kunci||'');
+  const p=k.split('..');
+  if(p.length===2) return fmtDate(p[0])+' - '+fmtDate(p[1]);
+  if(/^\d{4}-\d{2}$/.test(k)) return MONTHS[+k.slice(5)-1]+' '+k.slice(0,4);
+  return k||'—';
+}
+/* Rentang tanggal yang DICAKUP satu kunci periode. Dipakai riwayat di profil
+   talent untuk menentukan show mana yang sudah terbayar. Sebelumnya di sana
+   ditulis `p.period_month === s.date.slice(0,7)`, yang berarti tagihan
+   mingguan TIDAK PERNAH cocok dengan show mana pun: fee-nya sudah ditransfer
+   dan statusnya Paid, tapi profil talent tetap memajang "Waiting" selamanya —
+   dan yang menagih ulang berdasarkan layar itu adalah talentnya sendiri. */
+function rentangPeriodeBayar(kunci){
+  const k=String(kunci||'');
+  const p=k.split('..');
+  if(p.length===2) return {a:p[0], b:p[1]};
+  if(/^\d{4}-\d{2}$/.test(k)) return {a:k+'-01', b:dstr(new Date(+k.slice(0,4), +k.slice(5,7), 0))};
+  return null;
+}
 function feeSetMode(m){
   feeMode=m;
   if(m!=='bulan' && !feeDari) feeDari=dstr(new Date());
@@ -2573,7 +2666,7 @@ function genPayment(tid,total,count){
 function payAction(pid){
   const p=DB.talentPayments.find(x=>x.id===pid);const t=DB.talents.find(x=>x.id===p.talent_id);
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Proses Pembayaran — ${esc(t.name)}</h3>
-  <div class="kv" style="margin-bottom:14px"><div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div><div class="k">Jumlah Show</div><div>${p.show_count}</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div></div>
+  <div class="kv" style="margin-bottom:14px"><div class="k">Periode</div><div>${labelPeriodeBayar(p.period_month)}</div><div class="k">Jumlah Show</div><div>${p.show_count}</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div></div>
   <div class="field"><label>Bank Tujuan</label><input id="pay_bank" value="${esc(p.bank||((t.bank_name||'')+(t.bank_account?' - '+t.bank_account:'')))}"></div>
   <div class="field"><label>Bukti Transfer</label><div id="pay_proof">${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div>
     <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
@@ -2854,7 +2947,7 @@ function markPaid(pid){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Tandai Lunas — ${esc(t.name||'-')}</h3>
   <p class="mini" style="margin-bottom:12px">Setelah ditandai lunas, status berubah jadi <b>Paid</b>, tercatat di Performance History talent, dan tidak bisa dikembalikan dari layar ini.</p>
   <div class="kv" style="margin-bottom:12px">
-    <div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div>
+    <div class="k">Periode</div><div>${labelPeriodeBayar(p.period_month)}</div>
     <div class="k">Jumlah Show</div><div>${p.show_count} show</div>
     <div class="k">Total Dibayar</div><div><b style="color:var(--accent);font-size:17px">${IDR(p.total_amount)}</b></div>
     <div class="k">Rekening Tujuan</div><div>${esc(p.bank||t.bank_name||'—')}${t.account_holder?'<br><span class="mini">a/n '+esc(t.account_holder)+'</span>':''}</div>
@@ -2885,7 +2978,7 @@ function rejectPay(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=DB
   // Konfirmasi dulu — supaya salah tekan tidak langsung menolak tagihan.
   if(!confirm('Tolak (Reject) pembayaran ini?\n\nTalent: '+(t?t.name:'-')+'\nTotal: '+IDR(p.total_amount)))return;
   p.status='Rejected';save();closeModal();renderFee();toast('Payment ditolak.');}
-function payHistory(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=DB.talents.find(x=>x.id===p.talent_id);modal(`<button class="close" onclick="closeModal()">×</button><h3>Payment History</h3><div class="kv"><div class="k">Talent</div><div>${esc(t.name)}</div><div class="k">Periode</div><div>${MONTHS[+p.period_month.slice(5)-1]} ${p.period_month.slice(0,4)}</div><div class="k">Jumlah Show</div><div>${p.show_count} show</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div><div class="k">Status</div><div>${statusBadge(p.status)}</div><div class="k">Bank</div><div>${esc(p.bank||'-')}</div><div class="k">PIC Finance</div><div>${esc(p.pic_finance||'-')}</div><div class="k">Dibayar</div><div>${p.paid_at?fmtDateTime(p.paid_at):'-'}</div><div class="k">Bukti</div><div>${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div></div>
+function payHistory(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=DB.talents.find(x=>x.id===p.talent_id);modal(`<button class="close" onclick="closeModal()">×</button><h3>Payment History</h3><div class="kv"><div class="k">Talent</div><div>${esc(t.name)}</div><div class="k">Periode</div><div>${labelPeriodeBayar(p.period_month)}</div><div class="k">Jumlah Show</div><div>${p.show_count} show</div><div class="k">Total</div><div><b>${IDR(p.total_amount)}</b></div><div class="k">Status</div><div>${statusBadge(p.status)}</div><div class="k">Bank</div><div>${esc(p.bank||'-')}</div><div class="k">PIC Finance</div><div>${esc(p.pic_finance||'-')}</div><div class="k">Dibayar</div><div>${p.paid_at?fmtDateTime(p.paid_at):'-'}</div><div class="k">Bukti</div><div>${buktiHTML(p.transfer_proof||p.transfer_proof_url)}</div></div>
   <div class="modal-actions">${p.status==='Waiting'?`<button class="btn" onclick="payAction('${pid}')">Proses Pembayaran</button>`:''}<button class="btn ghost" onclick="closeModal()">Tutup</button></div>`);}
 
 /* ============ EVENT MANAGEMENT ============ */
