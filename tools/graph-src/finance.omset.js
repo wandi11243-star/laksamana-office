@@ -2887,9 +2887,48 @@ function mkSubtotal() { mkRinciAktif(); mkRinciTotal(); mkFbCost(); }
 
 
 
-function mkFinance() { mkSubtotal(); mkYn(); todayISO(); }
+function mkFinance() { mkSubtotal(); mkYn(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipPecah() { todayISO(); }
 
 
 
@@ -3057,9 +3096,7 @@ function cocokPic() {  }
 
 
 
-function serapOtomatis() { mkFinance(); cocokPic(); }
-
-
+function serapOtomatis() { mkFinance(); cocokPic(); vipPecah(); }
 
 
 
@@ -3247,6 +3284,21 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 function pitaBaris() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
