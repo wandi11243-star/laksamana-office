@@ -851,6 +851,61 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1868,7 +1923,15 @@ function hapusDoc() { save(); renderTalentDetail(); toast(); }
 
 
 
-function renderTalentDetail() { setTop(); esc(); talentForm(); talentEditInline(); badgeAktif(); badgeKontrak(); docCardHTML(); fmtDate(); statusBadge(); C(); initials(); }
+function renderTalentDetail() { setTop(); esc(); talentForm(); talentEditInline(); badgeAktif(); badgeKontrak(); docCardHTML(); rentangPeriodeBayar(); fmtDate(); statusBadge(); C(); initials(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2477,6 +2540,36 @@ function feeKunci() { feeRentang(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+function labelPeriodeBayar() { fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function rentangPeriodeBayar() { dstr(); }
+
+
+
+
+
+
 function feeSetMode() { dstr(); renderFee(); }
 
 
@@ -2570,7 +2663,7 @@ function genPayment() { feeRentang(); uid(); feeKunci(); save(); renderFee(); mo
 
 
 
-function payAction() { modal(); closeModal(); esc(); buktiHTML(); pilihBuktiTransfer(); periksaUlangBukti(); uangInput(); uangKetik(); payCocok(); buktiPeriksaHTML(); rejectPay(); simpanNominalBukti(); markPaid(); }
+function payAction() { modal(); closeModal(); esc(); labelPeriodeBayar(); buktiHTML(); pilihBuktiTransfer(); periksaUlangBukti(); uangInput(); uangKetik(); payCocok(); buktiPeriksaHTML(); rejectPay(); simpanNominalBukti(); markPaid(); }
 
 
 
@@ -2842,7 +2935,7 @@ function pilihBuktiTransfer() { pilihBerkas(); save(); buktiHTML(); toast(); per
 
 
 
-function markPaid() { toast(); modal(); closeModal(); esc(); buktiHTML(); buktiPeriksaHTML(); payAction(); markPaidGo(); }
+function markPaid() { toast(); modal(); closeModal(); esc(); labelPeriodeBayar(); buktiHTML(); buktiPeriksaHTML(); payAction(); markPaidGo(); }
 
 
 
@@ -2885,7 +2978,7 @@ function rejectPay() { save(); closeModal(); renderFee(); toast(); }
 
 
 
-function payHistory() { modal(); closeModal(); esc(); statusBadge(); fmtDateTime(); buktiHTML(); payAction(); }
+function payHistory() { modal(); closeModal(); esc(); labelPeriodeBayar(); statusBadge(); fmtDateTime(); buktiHTML(); payAction(); }
 
 
 

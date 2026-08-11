@@ -534,6 +534,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1860,11 +1870,25 @@ function serapAjukanTgl() {  }
 
 
 
-function ajtJam() { serapAjukanTgl(); gambarAjukanTgl(); }
+function ajtJam() { serapAjukanTgl(); gambarAjukanTgl(); pilihDwAjukan(); ajukanTgl(); }
 
 
 
-function gambarAjukanTgl() { tamuTgl(); esc(); ajuanHidupTgl(); namaDW(); jamAjuan(); panduanTeks(); hariIni(); ajuanOrangTgl(); namaDivisi(); tombolJam(); modal(); tglPanjang(); kirimAjukanTgl(); }
+
+
+
+
+function ajtPilihDw() { serapAjukanTgl(); pekerjaById(); gambarAjukanTgl(); }
+
+
+
+
+
+
+
+
+
+function gambarAjukanTgl() { tamuTgl(); esc(); ajuanHidupTgl(); namaDW(); jamAjuan(); panduanTeks(); hariIni(); ajtPilihDw(); ajuanOrangTgl(); namaDivisi(); tombolJam(); modal(); tglPanjang(); kirimAjukanTgl(); }
 
 
 
@@ -2017,6 +2041,11 @@ function kirimAjukanTgl() { serapAjukanTgl(); ajuanOrangTgl(); modal(); esc(); n
 
 
 
+
+
+
+
+
 function serapAjukan() {  }
 
 
@@ -2027,7 +2056,7 @@ function serapAjukan() {  }
 
 
 
-function viewAjukan() { hariIni(); isDW(); esc(); namaDivisi(); isOffice(); go(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); }
+function viewAjukan() { hariIni(); isDW(); esc(); pilihDwAjukan(); namaDivisi(); isOffice(); go(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); serapAjukan(); }
 
 
 
@@ -2090,6 +2119,28 @@ function viewAjukan() { hariIni(); isDW(); esc(); namaDivisi(); isOffice(); go()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihDwAjukan() { serapAjukan(); pekerjaById(); render(); }
 
 
 
@@ -2141,7 +2192,62 @@ function simpanAjuanRow() { toast(); apiPost(); }
 
 
 
-function kirimAjuan() { serapAjukan(); isDW(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); }
+
+
+
+function kirimAjuan() { serapAjukan(); isDW(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); tutupModal(); lampauiPanduan(); namaDivisi(); simpanAjuanRow(); jalankanAksiModal(); toast(); tglManusia(); muatData(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

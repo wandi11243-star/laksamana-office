@@ -339,6 +339,16 @@ tr.bandgap td{height:22px;border:none;background:transparent}
   table.sched .jb{min-width:74px}
   .row .who{min-width:100%}
   .modal{max-height:92vh}
+  /* 16px, dan itu angka wajib. Safari di iOS memperbesar sendiri seluruh
+     halaman begitu kursor masuk ke isian yang font-nya di bawah 16px, dan
+     TIDAK mengembalikannya. Modul ini dibuka daily worker dari HP-nya
+     sendiri (masuk pakai no HP + PIN), jadi isian pertama yang disentuh
+     siapa pun di sini — kotak nomor HP di layar masuk — langsung membuat
+     sisa pekerjaannya dilakukan sambil menggeser layar ke kiri-kanan.
+     Bukan diperbaiki lewat maximum-scale=1: itu sekalian mematikan
+     cubit-untuk-memperbesar bagi yang matanya memang perlu. */
+  .inp,input,select,textarea,
+  .field input,.field select,.field textarea{font-size:16px}
 }
 @media(max-width:420px){
   .duo{flex-direction:column;gap:0}
@@ -1864,6 +1874,20 @@ function ajtJam(i){
   const j=(S.setting.jam||[])[i]; if(!j||!AJT) return;
   serapAjukanTgl(); AJT.m=j.m; AJT.s=j.s; gambarAjukanTgl();
 }
+/* Divisi & posisi mengikuti nama yang baru dipilih — alasan lengkapnya di
+   pilihDwAjukan(). TIDAK bertabrakan dengan pertahanan div/pos antar-orang
+   yang disengaja di ajukanTgl(): yang itu berlaku saat modal DIBUKA ULANG
+   untuk orang berikutnya, yang ini hanya saat namanya benar-benar diganti. */
+function ajtPilihDw(id){
+  if(!AJT) return;
+  serapAjukanTgl();
+  const p=pekerjaById(id);
+  if(p){
+    if(p.divisi) AJT.div=p.divisi;
+    if(p.posisi) AJT.pos=p.posisi;
+  }
+  gambarAjukanTgl();
+}
 function gambarAjukanTgl(){
   const b=AJT; if(!b) return;
   const ags=tamuTgl(b.tgl);
@@ -1918,7 +1942,7 @@ function gambarAjukanTgl(){
        adalah kesalahan yang paling gampang terjadi saat memasukkan lima orang
        berturut-turut, dan mencegahnya di daftar jauh lebih murah daripada
        menjelaskannya di kotak peringatan. */
-    +'<div class="field"><label>Daily Worker *</label><select id="ajtDw">'
+    +'<div class="field"><label>Daily Worker *</label><select id="ajtDw" onchange="ajtPilihDw(this.value)">'
       +'<option value="">— pilih daily worker —</option>'
       +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
         .map(function(p){
@@ -1971,7 +1995,12 @@ async function kirimAjukanTgl(){
     return;
   }
   b.lanjutkanTimpa=false;
-  const l=(b.dw && b.tgl) ? lampauiPanduan(b.tgl, b.div, ['DISETUJUI','MENUNGGU'], '') : null;
+  /* Ajuan yang sedang DITIMPA dikecualikan dari hitungan — orangnya sudah
+     masuk angka itu, jadi mengganti jam/divisinya bukan penambahan orang.
+     Tanpa `sudahAda.id` peringatan ini muncul untuk perubahan yang tidak
+     menambah siapa pun, dan peringatan yang keliru itulah yang melatih orang
+     menekan "lanjut" tanpa membaca. */
+  const l=(b.dw && b.tgl) ? lampauiPanduan(b.tgl, b.div, ['DISETUJUI','MENUNGGU'], sudahAda?sudahAda.id:'') : null;
   if(l && !b.lanjutkanLebih){
     /* Dipasang dengan modal() dan bukan konfirmasi(), supaya "Batal" bisa
        MENGEMBALIKAN form yang sudah diisi. konfirmasi() cuma menutup — dan
@@ -2042,7 +2071,7 @@ function viewAjukan(){
 
   const siapa = isDW()
     ? '<div class="field"><label>Daily Worker</label><input class="inp" style="width:100%" value="'+esc(MEDW.nama)+'" disabled></div>'
-    : '<div class="field"><label>Daily Worker *</label><select id="ajDw">'
+    : '<div class="field"><label>Daily Worker *</label><select id="ajDw" onchange="pilihDwAjukan(this.value)">'
         +'<option value="">— pilih daily worker —</option>'
         +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
           .map(p=>'<option value="'+esc(p.id)+'"'+(AJU_DW===p.id?' selected':'')+'>'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))+'</option>').join('')
@@ -2098,6 +2127,28 @@ function viewAjukan(){
         ?'<button class="btn btn-ghost btn-sm" onclick="batalkanAjuan(\''+escJs(a.id)+'\')">Batalkan</button>':''})).join('')
       +'</div>':'');
 }
+/* Ganti nama DW → divisi & posisi IKUT nama itu.
+
+   Tanpa ini keduanya diam di bawaan (Bar + posisi pertama), karena kedua
+   <select> tidak punya pilihan kosong sehingga peramban memilih opsi pertama
+   dan serapAjukan() menyimpannya apa adanya. Staf Office yang memilih
+   "Budi · Kitchen" dari daftar lalu langsung menekan Kirim mengirim ajuan
+   berdivisi BAR — dan divisi itulah yang menentukan di lembar mana namanya
+   digambar modul Jadwal Shift (lihat dwOrang/blokDW di sana). Gejalanya:
+   Budi hilang dari lembar Kitchen dan muncul di Bar, tanpa galat, tanpa
+   ada yang menyebut divisi sama sekali.
+
+   Tetap bisa diubah sesudahnya — DW memang boleh dipanggil lintas divisi;
+   yang diperbaiki di sini hanya BAWAANNYA. */
+function pilihDwAjukan(id){
+  serapAjukan();
+  const p=pekerjaById(id);
+  if(p){
+    if(p.divisi) AJU_DIV=p.divisi;
+    if(p.posisi) AJU_POS=p.posisi;
+  }
+  render();
+}
 function pilihJam(i){
   const j=(S.setting.jam||[])[i]; if(!j) return;
   /* Serap dulu isian lain, baru ubah jamnya, baru gambar ulang. Menulis
@@ -2141,6 +2192,9 @@ async function simpanAjuanRow(row){
     return false;
   }
 }
+/* Dua penanda "sudah dijawab", sepasang dengan b.lanjutkanTimpa /
+   b.lanjutkanLebih di pintu Kalender Tamu. */
+let AJU_TIMPA=false, AJU_LEBIH=false;
 async function kirimAjuan(){
   /* Serap SELURUH isian ke state lebih dulu. Kalau kirimannya gagal, form
      digambar ulang dari state — dan tanpa langkah ini semua yang baru saja
@@ -2148,9 +2202,61 @@ async function kirimAjuan(){
   serapAjukan();
   const dwId = isDW() ? MEDW.id : AJU_DW;
   const tgl=AJU_TGL;
+
+  /* DUA PERIKSA YANG SAMA PERSIS dengan pintu di Kalender Tamu
+     (kirimAjukanTgl). Sebelumnya keduanya hanya hidup di sana, padahal
+     halaman inilah pintu yang dipakai paling sering — DW untuk dirinya
+     sendiri, dan staf Office yang mengisikan atas nama DW yang menelepon.
+
+     Akibat yang hilang tanpa periksa pertama persis seperti yang ditulis di
+     kepala ajuanOrangTgl: backend MENIMPA lewat kunci (dw_id, tgl), jadi
+     mengirim ulang nama yang sama untuk tanggal yang sama TIDAK menambah
+     orang — ia menurunkan ajuan yang tadi sudah DISETUJUI kembali jadi
+     MENUNGGU. Nama orang itu lalu HILANG dari kalender Jadwal Shift hari
+     itu (jadwal_dw hanya memulangkan yang DISETUJUI), tanpa satu pun pesan.
+     Kalimat statis di bawah tombol Kirim tidak cukup: yang salah pilih nama
+     memang sedang tidak membacanya. */
+  const sudahAda=(dwId&&tgl)?ajuanOrangTgl(dwId,tgl):null;
+  if(sudahAda && !AJU_TIMPA){
+    modal('Sudah ada ajuan untuk '+esc(namaDW(dwId)),
+      '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(dwId))+' sudah punya ajuan '
+      +esc(tglPanjang(tgl))+' ('+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
+      +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
+      +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang — namanya hilang dulu dari kalender Jadwal Shift.':'')+'</p>',
+      /* "Kembali ke form" cukup menutup modal: formnya masih utuh di
+         belakang, karena serapAjukan() di atas sudah menyimpan seluruh
+         isian ke state. */
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ tutupModal(); }},
+       {t:'Ya, ganti ajuannya', c:'btn-danger', f:function(){ AJU_TIMPA=true; kirimAjuan(); return false; }}]);
+    return;
+  }
+  AJU_TIMPA=false;
+
+  /* Panduan jumlah DW per divisi. Bukan larangan — cuma ditanyakan sekali,
+     sama seperti di pintu satunya. Ajuan yang sedang DITIMPA dikecualikan
+     dari hitungan: orangnya sudah masuk angka itu, jadi tanpa pengecualian
+     ini peringatan muncul untuk penambahan yang sebenarnya tidak menambah. */
+  const l=(dwId&&tgl)?lampauiPanduan(tgl, AJU_DIV, ['DISETUJUI','MENUNGGU'], sudahAda?sudahAda.id:''):null;
+  if(l && !AJU_LEBIH){
+    modal('Lebih dari panduan '+esc(namaDivisi(l.div))+'?',
+      '<p style="font-size:13.5px;color:var(--muted)">'
+      +esc(KONTEKS_LBL[l.konteks]+' '+tglPanjang(l.tgl))+': panduan <b>'+esc(namaDivisi(l.div))+' '+l.kuota+' orang</b>, '
+      +'sudah ada '+l.kini+' (termasuk yang masih menunggu). Dengan ini jadi <b>'+l.jadi+'</b>.</p>'
+      +'<p class="mutedhint">Bukan larangan — lanjutkan saja kalau memang perlu. '
+      +'Angkanya diatur di Pengaturan → Panduan jumlah DW.</p>',
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ tutupModal(); }},
+       {t:'Ya, tetap ajukan', c:'btn-primary', f:function(){ AJU_LEBIH=true; kirimAjuan(); return false; }}]);
+    return;
+  }
+  AJU_LEBIH=false;
+
   const ok=await simpanAjuanRow({dwId, tgl, m:AJU_M, s:AJU_S,
     divisi:AJU_DIV, posisi:AJU_POS, catatan:AJU_CAT});
   if(!ok) return;
+  /* Modal peringatan (kalau tadi muncul) ditutup DI SINI, bukan oleh
+     tombolnya: jalankanAksiModal() sengaja mengabaikan nilai balik, jadi
+     tidak ada yang menutup modal selain kode ini. */
+  tutupModal();
   toast('Ajuan '+tglManusia(tgl)+' terkirim — menunggu HR');
   /* Hanya tanggal & catatan yang dikosongkan. Jam, divisi, dan posisi
      sengaja DIPERTAHANKAN: HR yang memasukkan lima DW untuk malam Sabtu
