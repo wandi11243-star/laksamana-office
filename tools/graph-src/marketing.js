@@ -3574,6 +3574,7 @@ function bookingConflicts() {  }
 
 
 
+
 function lastFUDate() {  }
 
 
@@ -3954,6 +3955,26 @@ function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pendapatanPerBulan() { eventFinance(); }
 
 
@@ -4009,7 +4030,19 @@ function papanClosing() { today(); eventFinance(); userName(); esc(); rpRingkas(
 
 
 
-function panelPerluDigarap() { isOpenEvent(); isStale(); daysSinceFU(); go(); esc(); clientName(); eventFinance(); }
+function panelPerluDigarap() { isOpenEvent(); isStale(); daysSinceFU(); lastFUDate(); go(); esc(); clientName(); eventFinance(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
