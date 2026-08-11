@@ -929,6 +929,46 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1597,7 +1637,11 @@ function bawaanKosong() { svg(); }
 
 
 
+
+
+
 function svg() {  }
+
 
 
 
@@ -3363,6 +3407,111 @@ function tolakRencanaYakin() { toast(); namaKru(); save(); closeModal(); router(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setPipeTabEms() { router(); }
+function renderPipelineEms() { setTop(); setPipeTabEms(); esc(); fmtDateTime(); statusBadge(); C(); bindKanbanEms(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bindKanbanEms() { C(); pindahTahapEms(); setEventStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pindahTahapEms() { router(); modal(); closeModal(); esc(); setEventStatus(); }
 
 
 
