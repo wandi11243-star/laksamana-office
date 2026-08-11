@@ -1898,6 +1898,11 @@
 
 
 
+
+
+
+
+
 function svg() {  }
 
 
@@ -2504,6 +2509,24 @@ function uid() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rpRingkas() {  }
 
 
 
@@ -3669,6 +3692,9 @@ function updateTopUser() { $(); go(); permViewKeys(); can(); }
 
 
 
+
+
+
 function buildNav() { userNav(); $(); pendingApprovals(); pendingPenawaran(); unreadNotif(); go(); svg(); }
 
 
@@ -3896,7 +3922,7 @@ function pendapatanPerBulan() { eventFinance(); }
 
 
 
-function grafikPendapatan() { pendapatanPerBulan(); esc(); }
+function grafikPendapatan() { pendapatanPerBulan(); rpRingkas(); esc(); }
 
 
 
@@ -3913,7 +3939,7 @@ function grafikPendapatan() { pendapatanPerBulan(); esc(); }
 
 
 
-function papanClosing() { today(); eventFinance(); userName(); esc(); }
+function papanClosing() { today(); eventFinance(); userName(); esc(); rpRingkas(); }
 
 
 
@@ -4714,7 +4740,15 @@ function pipeAktif() { pipeStatusOfEv(); pipeCocokPIC(); }
 
 
 
-function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
+
+
+function pipeRingkas() { pipeAktif(); eventFinance(); rpRingkas(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
 
 
 
