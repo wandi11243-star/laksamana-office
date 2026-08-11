@@ -1829,6 +1829,30 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -3705,7 +3729,23 @@ function fokusJobTertunda() {  }
 function statusChip() { esc(); }
 function clientName() {  }
 function userName() {  }
+
+
+
+function inisial() {  }
+
+
+
 function waLink() {  }
+
+
+
+
+
+
+
+
+
 function pageHead() {  }
 
 
@@ -4502,7 +4542,19 @@ function pipeDaftarPIC() { userName(); }
 
 function pipeSetPIC() { go(); }
 function pipeCocokPIC() {  }
-function renderPipeline() { pipeSetPIC(); pipeDaftarPIC(); esc(); userName(); pageHead(); go(); pipeRiwayat(); pipeKanban(); bindKanban(); }
+function renderPipeline() { pipeDaftarPIC(); svg(); pipeSetPIC(); userName(); esc(); inisial(); pageHead(); go(); pipeTabel(); pipeKanban(); bindKanban(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4559,7 +4611,7 @@ function pipeKanban() { pipeStatusOfEv(); pipeCocokPIC(); pipeKartu(); }
 
 
 
-function pipeKartu() { eventFinance(); pipeToggle(); esc(); userName(); clientName(); jenisEvent(); fmtRentang(); fmtDate(); waLink(); svg(); viewClient(); go(); }
+function pipeKartu() { eventFinance(); pipeToggle(); userName(); esc(); clientName(); jenisEvent(); fmtRentang(); fmtDate(); go(); }
 
 
 
@@ -4596,7 +4648,33 @@ function pipeKartu() { eventFinance(); pipeToggle(); esc(); userName(); clientNa
 
 
 
-function pipeRiwayat() { pipeStatusOfEv(); pipeCocokPIC(); empty(); eventFinance(); stat(); esc(); userName(); go(); clientName(); jenisEvent(); fmtRentang(); svg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function pipeTabel() { pipeStatusOfEv(); pipeCocokPIC(); empty(); esc(); userName(); eventFinance(); stat(); go(); clientName(); jenisEvent(); statusChip(); fmtRentang(); svg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10790,6 +10868,15 @@ function vipJam() { vipPax(); vipNominal(); }
 
 
 function renderVIP() { can(); pageHead(); vipForm(); svg(); vipPerusahaan(); stat(); vipNominal(); esc(); $(); empty(); tblPage(); tblUrut(); tblHead(); fmtDate(); vipJam(); vipChip(); vipPax(); vipBelumNominal(); vipIsiNominal(); vipDetail(); vipBatal(); vipHapus(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
 
 
 
