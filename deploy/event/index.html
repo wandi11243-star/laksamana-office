@@ -410,6 +410,16 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 
 /* Pemilih periode fee. Tiga tombol, bukan dropdown: pilihannya cuma tiga dan
    semuanya sering dipakai. */
+/* Kartu rincian status event — bentuk yang sama dipakai Dashboard modul
+   Marketing (.evtile di sana). Lebih rendah daripada .stat karena isinya
+   cuma satu angka pendek, dan sepuluh kartu setinggi .stat mendorong
+   seluruh isi dashboard keluar layar. */
+.evtile{padding:13px 14px}
+.evtile .et-h{display:flex;align-items:flex-start;gap:7px;min-height:26px}
+.evtile .et-name{font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--muted);
+  line-height:1.25;text-transform:uppercase}
+.evtile .et-v{font-family:var(--ff-display);font-size:24px;font-weight:700;margin-top:6px;line-height:1}
+.evtile .et-d{font-size:11px;color:var(--muted);margin-top:5px}
 .seg-per{display:inline-flex;border:1px solid var(--line-hard);border-radius:9px;overflow:hidden}
 .seg-per button{border:none;background:none;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--muted)}
 .seg-per button+button{border-left:1px solid var(--line-hard)}
@@ -1796,6 +1806,11 @@ function kartuPerhatian(){
         + '<b>'+esc(x.t)+'</b><span>'+esc(x.d)+'</span></a>').join('')
     + '</div></div>';
 }
+/* Saringan periode Dashboard. Bawaannya '' (semua) — dashboard dibuka untuk
+   melihat keadaan menyeluruh dulu, baru dipersempit. */
+let dashPeriode='';
+const DASH_PERIODE=[['','Semua'],['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini']];
+function dashSetPeriode(k){ dashPeriode=k; renderDashboard(); }
 function renderDashboard(){
   setTop('Dashboard','Ringkasan operasional · '+new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'}));
   const todayStr=dstr(new Date());
@@ -1821,8 +1836,37 @@ function renderDashboard(){
   const showByT={};DB.schedules.filter(s=>s.status==='Done').forEach(s=>showByT[s.talent_id]=(showByT[s.talent_id]||0)+1);
   const topTid=Object.keys(showByT).sort((a,b)=>showByT[b]-showByT[a])[0];
   const topTalent=DB.talents.find(t=>t.id===topTid);
+  /* Saringan periode + rincian status event.
+     Rentangnya dihitung rentangPeriode() — fungsi yang SAMA dengan daftar
+     Event Management, supaya dua layar tidak pernah melaporkan jumlah berbeda
+     untuk hari yang sama. */
+  const rD=rentangPeriode(dashPeriode);
+  const dalamPeriode=function(e){
+    if(!rD) return true;
+    const t=String(e.start_datetime||'').slice(0,10);
+    return t && t>=rD.a && t<=rD.b;
+  };
+  const evPeriode=DB.events.filter(dalamPeriode);
+  const tally={}; EVT_STATUS.forEach(function(x){ tally[x]=0; });
+  evPeriode.forEach(function(e){ if(tally[e.status]!==undefined) tally[e.status]++; });
+
   C().innerHTML=`
   ${kartuPerhatian()}
+  <div class="toolbar">
+    <div class="seg-per">${DASH_PERIODE.map(function(x){
+      return '<button class="'+(dashPeriode===x[0]?'on':'')+'" '
+        +'onclick="dashSetPeriode(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')}</div>
+    <span class="pill">${evPeriode.length} event${rD?' · '+fmtDate(rD.a)+(rD.a!==rD.b?' – '+fmtDate(rD.b):''):''}</span>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 10px">
+    <div class="eyebrow">Status Event</div></div>
+  <div class="grid g4" style="margin-bottom:18px">
+    ${EVT_STATUS.map(function(st){
+      return '<div class="card evtile"><div class="et-h">'
+        +'<span class="et-name">'+esc(st)+'</span></div>'
+        +'<div class="et-v num">'+tally[st]+'</div>'
+        +'<div class="et-d">event</div></div>'; }).join('')}
+  </div>
   <div class="grid g4">
     ${stat('Upcoming Events',upcoming,'event akan datang')}
     ${stat('Event Hari Ini',todayEv.length,todayEv.map(e=>e.title).join(', ')||'—')}
@@ -3658,28 +3702,101 @@ function renderEvents(){
      mencampur keduanya membuat acara yang benar-benar akan berjalan tenggelam
      di antara wacana yang belum tentu jadi. Tombol "+ Event Baru" ikut pindah
      ke sana: tidak ada event yang lahir langsung dalam keadaan disetujui. */
-  const filters=['all','Upcoming','Event Done'];
-  let list=DB.events.filter(e=>e.status!=='Planning')
-                    .filter(e=>evtFilter==='all'||e.status===evtFilter);
-  C().innerHTML=`
-  <div class="tabs">${filters.map(f=>`<button class="${evtFilter===f?'active':''}" onclick="evtFilter='${f}';renderEvents()">${f==='all'?'Semua':f}</button>`).join('')}</div>
-  <div class="grid g3">
-  ${list.map(e=>{const sold=DB.ticketClasses.filter(c=>c.event_id===e.id).reduce((a,c)=>a+c.sold,0);const rev=DB.orders.filter(o=>o.event_id===e.id&&o.payment_status==='Paid').reduce((a,o)=>a+o.total,0);return `<div class="ecard" onclick="location.hash='#/events/${e.id}'">
-    <div class="cover">${posterCoverHTML(e)}
-      <span class="cat">${esc(e.category||'')}</span>
-      <button class="card-edit" title="Edit event" onclick="event.stopPropagation();eventForm('${e.id}')">✎</button>
-      ${bisaUbah('events')?`<button class="card-del" title="Hapus event" onclick="event.stopPropagation();hapusEvent('${e.id}')">${svgTong(15)}</button>`:''}
-    </div>
-    <div class="body"><div class="t">${esc(e.title)}</div>
-    <div class="meta">📅 ${fmtDateTime(e.start_datetime)}</div>
-    <div class="meta">📍 ${esc(e.venue)}</div>
-    <div class="meta">👤 ${esc(e.pic)}</div>
-    ${e.is_ticketed?`<div class="meta" style="margin-top:6px;color:var(--accent)">🎟️ ${sold} tiket · ${IDR(rev)}</div>`:'<div class="meta" style="margin-top:6px"><span class="pill">Non-ticketed</span></div>'}
-    <select class="card-status st-${String(e.status).replace(/ /g,"_")}" onclick="event.stopPropagation()" onchange="setEventStatus('${e.id}',this.value)">
-      ${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}
-    </select>
-    </div></div>`;}).join('')||'<div class="empty">Tidak ada event.</div>'}
-  </div>`;
+  /* TABEL, bukan kisi kartu — bentuk yang sama dengan Input & Event di
+     modul Marketing.
+
+     Kartu bergambar bagus untuk sepuluh event; begitu setahun berjalan dan
+     isinya seratus, mencari satu acara berarti menggulir layar demi layar
+     sambil membaca poster. Yang dicari orang di halaman ini selalu berupa
+     baris data — tanggal, venue, tiket terjual, omzet — dan itu paling
+     cepat dibaca berjajar dalam kolom yang sejajar.
+
+     Posternya tidak hilang: ikut sebagai gambar kecil di kolom Event. */
+  const filters=['all'].concat(EVT_STATUS.filter(function(x){ return x!=='Planning' && x!=='Prospect'; }));
+  const q=(evtCari||'').trim().toLowerCase();
+  const r=evtRentang();
+  let semua=DB.events.filter(function(e){ return e.status!=='Planning' && e.status!=='Prospect'; });
+  /* Periode disaring LEBIH DULU, baru status, baru teks — supaya angka
+     "x dari y" berarti "event pada periode ini". */
+  if(r) semua=semua.filter(function(e){
+    const t=String(e.start_datetime||'').slice(0,10);
+    return t && t>=r.a && t<=r.b; });
+  let list=semua.filter(function(e){ return evtFilter==='all'||e.status===evtFilter; });
+  if(q) list=list.filter(function(e){
+    return [e.title,e.venue,e.pic,e.category].filter(Boolean).join(' ').toLowerCase().indexOf(q)>-1; });
+  list=list.slice().sort(function(a,b){
+    return String(b.start_datetime||'').localeCompare(String(a.start_datetime||'')); });
+
+  let h='<div class="tabs">'+filters.map(function(f){
+      return '<button class="'+(evtFilter===f?'active':'')+'" '
+        +'onclick="evtFilter=&#39;'+f+'&#39;;renderEvents()">'+(f==='all'?'Semua':f)+'</button>'; }).join('')+'</div>';
+  h+='<div class="toolbar">'
+    +'<div class="seg-per">'+EVT_PERIODE.map(function(x){
+        return '<button class="'+(evtPeriode===x[0]?'on':'')+'" '
+          +'onclick="evtSetPeriode(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')+'</div>'
+    +'<input placeholder="\u{1F50D} Cari event, venue, atau PIC..." value="'+esc(evtCari||'')+'" '
+      +'oninput="evtCari=this.value;renderEvents();sorotCari()">'
+    +'<span class="pill">'+list.length+' dari '+semua.length+' event</span>'
+    +'</div>';
+  if(!list.length){
+    C().innerHTML=h+'<div class="empty">'
+      +((q||evtPeriode)?'Tidak ada yang cocok dengan saringan ini.':'Belum ada event.')+'</div>';
+    return;
+  }
+  h+='<div class="card" style="padding:0"><div class="tbl-lebar"><table><thead><tr>'
+    +'<th>Event</th><th>Tanggal</th><th>Venue</th><th>PIC</th>'
+    +'<th>Tiket</th><th>Omzet</th><th>Status</th></tr></thead><tbody>';
+  list.forEach(function(e){
+    const sold=DB.ticketClasses.filter(function(c){ return c.event_id===e.id; })
+      .reduce(function(a,c){ return a+(+c.sold||0); },0);
+    const kuota=DB.ticketClasses.filter(function(c){ return c.event_id===e.id; })
+      .reduce(function(a,c){ return a+(+c.quota||0); },0);
+    const rev=DB.orders.filter(function(o){ return o.event_id===e.id && o.payment_status==='Paid'; })
+      .reduce(function(a,o){ return a+(+o.total||0); },0);
+    h+='<tr style="cursor:pointer" onclick="location.hash=&#39;#/events/'+e.id+'&#39;">'
+      +'<td><div style="display:flex;align-items:center;gap:9px">'+posterKecilHTML(e,32)
+        +'<div><div style="font-weight:600">'+esc(e.title||'(tanpa judul)')+'</div>'
+        +'<div class="mini">'+esc(e.category||'')+'</div></div></div></td>'
+      +'<td>'+esc(fmtDateTime(e.start_datetime))+'</td>'
+      +'<td>'+esc(e.venue||'\u2014')+'</td>'
+      +'<td>'+esc(e.pic||'\u2014')+'</td>'
+      +'<td>'+(e.is_ticketed?(sold+(kuota?' / '+kuota:'')):'<span class="mini">\u2014</span>')+'</td>'
+      +'<td>'+(rev?IDR(rev):'<span class="mini">\u2014</span>')+'</td>'
+      +'<td>'+statusBadge(e.status)+'</td></tr>';
+  });
+  C().innerHTML=h+'</tbody></table></div></div>';
+}
+/* Kotak pencarian kehilangan fokus tiap kali renderEvents() menggambar
+   ulang seluruh halaman — dikembalikan di tempat, sama seperti cariPekerja()
+   di modul DW dan brief-cari di Marketing. */
+function sorotCari(){
+  const i=C().querySelector('.toolbar input'); if(!i) return;
+  i.focus(); i.setSelectionRange(i.value.length,i.value.length);
+}
+/* Saringan periode, bentuk & kosakata yang sama dengan Input & Event di
+   Marketing supaya kru tidak belajar dua istilah untuk satu hal. */
+let evtCari='', evtPeriode='';
+const EVT_PERIODE=[['','Semua'],['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini']];
+function evtSetPeriode(k){ evtPeriode=k; renderEvents(); }
+function evtRentang(){ return rentangPeriode(evtPeriode); }
+/* Satu penghitung rentang untuk SELURUH modul — dipakai daftar event dan
+   dashboard. Dua salinan aturan "minggu ini" pasti lambat laun berbeda,
+   dan bedanya cuma ketahuan saat dua layar melaporkan jumlah yang tidak
+   sama untuk hari yang sama. Minggu = Senin–Minggu, sama dengan modul
+   Jadwal Shift dan cara orang di sini menyebutnya. */
+function rentangPeriode(mode){
+  if(!mode) return null;
+  const f=function(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
+  const t=new Date();
+  if(mode==='hari') return {a:f(t),b:f(t)};
+  if(mode==='minggu'){
+    const sen=new Date(t); sen.setDate(t.getDate()-((t.getDay()+6)%7));
+    const min=new Date(sen); min.setDate(sen.getDate()+6);
+    return {a:f(sen),b:f(min)};
+  }
+  const awal=new Date(t.getFullYear(),t.getMonth(),1);
+  const akhir=new Date(t.getFullYear(),t.getMonth()+1,0);
+  return {a:f(awal),b:f(akhir)};
 }
 /* ---- Poster event ----
    Dulu cuma emoji. Sekarang boleh gambar sungguhan (e.poster_img); emoji

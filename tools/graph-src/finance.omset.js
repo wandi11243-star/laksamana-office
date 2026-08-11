@@ -1576,6 +1576,8 @@ function jejakHtml() { jejakList(); fmtWaktu(); }
 
 
 
+
+
 function penjelasHari() { bonRingkasHari(); }
 
 
@@ -3006,6 +3008,10 @@ function viewBreakdown() { daysOfMonth(); todayISO(); getDay(); calInner(); date
 
 
 
+
+
+
+
 function buangDariShift() { calc(); }
 
 
@@ -3065,7 +3071,46 @@ function serapOtomatis() { mkFinance(); cocokPic(); }
 
 
 
-function pitaSumber() { dateLabel(); }
+
+
+
+
+
+function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3127,6 +3172,8 @@ function kasirAktif() {  }
 
 
 function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBaris(); kasirAktif(); }
+
+
 
 
 
@@ -3234,7 +3281,7 @@ function drawMk() { pitaBaris(); mkSelect(); porsiPic(); tombolBagi(); panelOb()
 
 
 
-function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bindOb(); potonganHari(); hapusBaris(); formatAllRp(); }
+function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bindOb(); potonganHari(); hapusBaris(); formatAllRp(); serapOtomatis(); }
 
 
 
@@ -3266,8 +3313,15 @@ function drawEv() { pitaBaris(); mkSelect(); porsiPic(); panelOb(); bind(); bind
 
 
 
-function hapusBaris() { save(); pitaSumber(); calc(); }
 
+
+
+
+
+
+
+
+function hapusBaris() { pitaSumber(); calc(); }
 
 
 
@@ -3472,7 +3526,10 @@ function calc() { sumDiakui(); kartuEfek(); potonganBaris(); sumDiskon(); empNam
 
 
 
-function pasang() { pitaSumber(); serapOtomatis(); drawMk(); drawEv(); calc(); muatEventHari(); labelRentang(); }
+function pasang() { serapOtomatis(); drawMk(); drawEv(); calc(); pitaSumber(); muatEventHari(); labelRentang(); }
+
+
+
 
 
 

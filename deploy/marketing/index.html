@@ -4893,8 +4893,8 @@ function pipeRingkas(){
     +'<div class="sel utama" title="'+list.length+' peluang · '+rp(total)+'">'
       +'<div class="k">Peluang Aktif</div>'
       +'<div class="n num">'+list.length+'</div>'
-      +'<div class="v num">'+rpRingkas(total)
-        +' · '+(pipePIC?esc(userName(pipePIC).split(' ')[0]):'seluruh tim')+'</div>'
+      +'<div class="v" style="color:var(--muted);font-weight:500">'
+        +(pipePIC?esc(userName(pipePIC).split(' ')[0]):'seluruh tim')+'</div>'
     +'</div>';
   PIPE_COLS.forEach(function(k){
     const it=list.filter(function(e){ return pipeStatusOfEv(e)===k; });
@@ -4905,7 +4905,12 @@ function pipeRingkas(){
       +'<div class="k"><span class="d" style="background:var('+c+')"></span>'
         +esc(PIPE_LABEL_PENDEK[k]||k)+'</div>'
       +'<div class="n num">'+it.length+'</div>'
-      +'<div class="v num">'+(nilai?rpRingkas(nilai):'—')+'</div>'
+      /* Nilai rupiah TIDAK ditulis di sini lagi. Papan ini menjawab "peluang
+         ada di mana", dan angka uang di tiap sel membuat mata menyisir dua
+         deret angka yang tidak sebanding — jumlah orang dan jumlah rupiah —
+         dalam satu baris. Nilainya tetap terbaca di tooltip tiap sel, dan
+         lengkap per baris di tab Tabel Event. */
+      +'<div class="v" style="color:var(--muted);font-weight:500">peluang</div>'
     +'</div>';
   });
   return h+'</div>';
@@ -5053,6 +5058,22 @@ function setEventStage(id,col){
   const e=S.events.find(x=>x.id===id); if(!e||e.status===col)return;
   const tolak=pindahBoleh(e,col);
   if(tolak) return toast('Belum bisa ke Quotation Terkirim',tolak,'err');
+  /* Pintu kedua ke perubahan yang sama — ikut ditanya, dengan kalimat yang
+     sama persis. Gerbang yang cuma dipasang di salah satu pintu bukan
+     gerbang. */
+  const dari=e.status;
+  return confirmUI({
+    title:'Ubah tahap ke '+col+'?',
+    sub:e.nama,
+    body:'Tahapnya berubah dari <b>'+esc(dari)+'</b> jadi <b>'+esc(col)+'</b>.'
+      +(col==='Deal'?' Task handover per divisi ikut dibuat.':'')
+      +(col==='Lost'?' Event ini berhenti dihitung sebagai peluang aktif.':''),
+    ok:'Ya, ubah',
+    onYes:function(){ ubahTahapSekarang(id,col); }
+  });
+}
+function ubahTahapSekarang(id,col){
+  const e=S.events.find(x=>x.id===id); if(!e)return;
   const prev=e.status; e.status=col; e.pipeCol=col;
   if(col==='Deal') genTasks(e);
   logAct('event',id,'Tahap diubah',prev+' → '+col);
@@ -5065,6 +5086,37 @@ function moveEventPipe(id,col){
      berubah. */
   const tolak=pindahBoleh(e,col);
   if(tolak){ toast('Belum bisa ke Quotation Terkirim',tolak,'err'); return go('pipeline'); }
+  const dari=pipeStatusOfEv(e);
+  if(dari===col) return go('pipeline');
+  /* DITANYA DULU, apa pun arah pindahnya.
+
+     Menggeser kartu itu gerakan yang gampang terjadi tanpa diniatkan — satu
+     seret meleset di trackpad sudah cukup, dan di layar sentuh lebih mudah
+     lagi. Yang berubah bukan tampilan: tahap menentukan event masuk laporan
+     mana, memicu genTasks() saat Deal, dan menentukan boleh-tidaknya invoice
+     terbit. Sebelum ini tidak ada satu pun langkah yang bisa membatalkannya,
+     dan satu-satunya cara memperbaiki adalah menyeret balik — kalau sadar.
+
+     Batal = papan digambar ulang dari data yang belum berubah, jadi kartunya
+     kembali ke kolom asal dengan sendirinya. */
+  confirmUI({
+    title:'Pindahkan ke '+col+'?',
+    sub:e.nama,
+    body:'Tahapnya berubah dari <b>'+esc(dari)+'</b> jadi <b>'+esc(col)+'</b>.'
+      +(col==='Deal'?' Task handover per divisi ikut dibuat.':'')
+      +(col==='Lost'?' Event ini berhenti dihitung sebagai peluang aktif.':''),
+    ok:'Ya, pindahkan',
+    onYes:function(){ pindahTahapSekarang(id,col); }
+    /* Tidak ada onNo: confirmUI hanya menutup dialognya. Papan sudah digambar
+       ulang tepat di bawah ini dari data yang belum berubah, jadi kartunya
+       kembali ke kolom asal dengan sendirinya. */
+  });
+  go('pipeline');
+}
+/* Perpindahan yang SUDAH dikonfirmasi. Dipisah supaya satu-satunya jalan ke
+   sini adalah lewat gerbang di atas. */
+function pindahTahapSekarang(id,col){
+  const e=S.events.find(x=>x.id===id); if(!e)return;
   ingatkanStage(e,col);
   e.pipeCol=col;
   const prev=e.status; e.status=col;
