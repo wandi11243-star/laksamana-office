@@ -2494,6 +2494,22 @@ function setSyncBadge(state){
    kembali aktif, cek apakah server sudah lebih baru. */
 async function refreshIfStale(){
   if(!S || saveInFlight || _conflictShown) return;
+  /* JANGAN menggambar ulang saat orang sedang bekerja di layar ini.
+
+     Pemicunya visibilitychange — tiap kali tab kembali aktif. Selama
+     mengerjakan satu event orang bolak-balik ke tab lain (WhatsApp client,
+     berkas penawaran, kalkulator), dan tiap kali kembali seluruh halaman
+     digambar ulang: posisi gulir pindah, dropdown yang sedang terbuka
+     tertutup, dan sebuah toast muncul lagi. Terbacanya "halamannya
+     ke-refresh terus sendiri".
+
+     Dua penjaga di bawah menunda penyegaran sampai orangnya benar-benar
+     tidak sedang memegang apa pun. Data server tidak hilang — penyegaran
+     berikutnya tetap mengambilnya. */
+  const fokus=document.activeElement;
+  if(fokus && /^(INPUT|TEXTAREA|SELECT)$/.test(fokus.tagName||'')) return;
+  const mb=document.getElementById('modal-bg');
+  if(mb && mb.classList.contains('on')) return;
   // Jangan menimpa perubahan yang belum sempat naik ke server (mis. sedang
   // mengetik lalu pindah tab); tampilan baru boleh diganti kalau kita bersih.
   if(savePending) return;
@@ -2506,6 +2522,13 @@ async function refreshIfStale(){
     if(!j||!j.ok||!j.data) return;
     const srv=normalizeState(j.data);
     // Bandingkan hanya data yang berarti (buang metadata versi yang selalu beda).
+    /* Versi server dulu, baru perbandingan isi. _versi naik HANYA saat ada
+       yang benar-benar menyimpan, jadi ia jawaban yang murah dan pasti;
+       JSON.stringify atas seluruh state gampang berbeda karena urutan kunci
+       atau cap waktu, dan setiap beda palsu berarti satu gambar-ulang penuh
+       yang tidak dibutuhkan siapa pun. */
+    const vSrv=+(j.data && j.data._versi)||0;
+    if(vSrv && _sejakVersi && vSrv===_sejakVersi) return;
     if(JSON.stringify(srv)===JSON.stringify(S)) return;   // tidak ada perubahan
     S=srv; _sejakVersi = +(j.data && j.data._versi) || _sejakVersi;
     localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
@@ -10363,12 +10386,29 @@ function delTaskCategory(name){
 function renderInvoices(V){
   let h=pageHead('Modul G','Invoice & Payment','Status pembayaran tiap event, real-time untuk Finance & Marketing.','');
   const evs=S.events.filter(e=>['Confirmed','Deal','Event Done','Quotation Terkirim'].includes(e.status)).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
-  const totalOut=evs.reduce((a,e)=>a+eventFinance(e).remaining,0);
-  const overdue=evs.filter(e=>invStatus(e)==='Overdue');
-  h+='<div class="grid g-3" style="margin-bottom:16px">'
-   +stat('Total Piutang',rpShort(totalOut),'belum terbayar','money')
+
+  /* PIUTANG dan POTENSI dipisah — dulu keduanya menyatu jadi satu angka.
+
+     Daftar di bawah sengaja memuat 'Quotation Terkirim' juga: penawaran yang
+     menggantung memang perlu dipantau di halaman ini. Tapi menjumlahkannya
+     ke "Total Piutang" itu keliru — penawaran baru dikirim, client belum
+     setuju, invoice belum terbit, belum ada satu pun pihak yang berutang.
+     Akibatnya angka piutang selalu lebih besar daripada omzet di Reporting,
+     dan selisihnya persis sebesar nilai penawaran yang belum jadi — itulah
+     yang bikin dua layar tidak pernah bisa dicocokkan.
+
+     Sekarang: Piutang = yang benar-benar sudah closing dan belum lunas.
+     Potensi = penawaran terkirim yang belum diputuskan client. */
+  const evsTagih=evs.filter(e=>e.status!=='Quotation Terkirim');
+  const evsPotensi=evs.filter(e=>e.status==='Quotation Terkirim');
+  const totalOut=evsTagih.reduce((a,e)=>a+eventFinance(e).remaining,0);
+  const totalPotensi=evsPotensi.reduce((a,e)=>a+eventFinance(e).grand,0);
+  const overdue=evsTagih.filter(e=>invStatus(e)==='Overdue');
+  h+='<div class="grid g-4" style="margin-bottom:16px">'
+   +stat('Total Piutang',rpShort(totalOut),evsTagih.length+' invoice sudah closing','money')
+   +stat('Potensi',rpShort(totalPotensi),evsPotensi.length+' penawaran terkirim','brief')
    +stat('Invoice Overdue',overdue.length,'lewat H-7','alert')
-   +stat('Lunas',evs.filter(e=>invStatus(e)==='Paid').length,'dari '+evs.length+' invoice','check')
+   +stat('Lunas',evsTagih.filter(e=>invStatus(e)==='Paid').length,'dari '+evsTagih.length+' invoice','check')
    +'</div>';
   if(!evs.length){
     h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');

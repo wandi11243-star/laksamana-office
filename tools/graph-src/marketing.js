@@ -2514,6 +2514,29 @@ function refreshIfStale() { adaBelumNaik(); cobaKirimSekarang(); normalizeState(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -10361,6 +10384,23 @@ function delTaskCategory() { subsOf(); confirmUI(); esc(); getCats(); getSubs();
 
 
 function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); ensureInvNos(); tblUrut(); tblPage(); tblHead(); invoiceNo(); esc(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); viewPaymentHistory(); svg(); genBriefFor(); can(); addPayment(); delEvent(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

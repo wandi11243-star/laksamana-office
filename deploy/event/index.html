@@ -863,9 +863,22 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
       <div><div class="bt">Laksamana Muda</div><div class="bs">Event</div></div>
     </div>
     <nav class="nav" id="nav"></nav>
+    <!-- Kaki sidebar dikosongkan.
+
+         "Data: Tersimpan" praktis selalu berbunyi sama, jadi ia berhenti
+         dibaca justru pada saat isinya berubah — dan yang benar-benar perlu
+         diketahui (gagal simpan) sudah muncul sebagai toast merah.
+
+         "Kosongkan semua data" menghapus SELURUH data EMS di database untuk
+         semua kru, tanpa pembatalan. Tombol seberbahaya itu tidak pantas
+         menempel permanen di sudut layar yang dilewati mata setiap hari;
+         satu salah klik dari mana pun di aplikasi hanya berjarak satu
+         dialog. Fungsinya sengaja DIBIARKAN hidup di kode (resetData) untuk
+         keadaan darurat lewat console, tapi tidak lagi punya tombol.
+
+         #syncState ikut hilang — setSync() di bawah sudah menjaga diri
+         dengan `if(!el) return`. -->
     <div class="side-foot">
-      <div>Data: <b id="syncState" style="color:var(--green)">Tersimpan</b></div>
-      <button onclick="resetData()" title="Menghapus seluruh data EMS di database">Kosongkan semua data</button>
     </div>
     <div class="side-user">
       <div class="su-avatar" id="su-avatar">?</div>
@@ -1174,12 +1187,50 @@ async function syncNowForce(){_dirty=true;await syncNow();}
 setInterval(async()=>{
   if(_dirty||_saving||document.hidden) return;
   if(document.getElementById('modalRoot').innerHTML) return;
+  /* Sedang mengetik = jangan disentuh. Isian yang hilang di tengah
+     pengetikan lebih mahal daripada data yang telat 20 detik. */
+  const f=document.activeElement;
+  if(f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName||'')) return;
   try{
     const s=normalize(await apiGet('getAll'));
     if(JSON.stringify(s)===JSON.stringify(DB)) return;
-    DB=s; refreshSnapshot(); router();
+    DB=s; refreshSnapshot();
+    /* router() menggambar ULANG SELURUH halaman dan diakhiri
+       window.scrollTo(0,0). Tiap 20 detik layar melompat ke atas sendiri —
+       dan di Check-In hari-H, saat petugas sedang menyisir denah di tengah
+       halaman, itu membuat halamannya praktis tidak bisa dipakai.
+
+       Di halaman Check-In yang memang HARUS tetap mutakhir, yang digambar
+       ulang cuma tiga bagian yang isinya berubah: kartu angka, denah, dan
+       tabel tamu. Posisi gulir halaman maupun gulir mendatar di dalam denah
+       dipertahankan. Halaman lain tetap lewat router(), tapi posisi
+       gulirnya dikembalikan sesudahnya. */
+    if(String(location.hash).indexOf('checkin')>-1){ segarkanCheckin(); return; }
+    const gy=window.scrollY||window.pageYOffset||0;
+    router();
+    window.scrollTo(0,gy);
   }catch(e){ /* diam: polling gagal bukan alasan mengganggu kerja */ }
 },20000);
+/* Penyegaran SEBAGIAN untuk layar Check-In. Dipanggil polling di atas;
+   sengaja memakai penggambar yang sama dengan renderCheckin supaya tidak
+   ada dua versi tampilan yang bisa menyimpang. */
+function segarkanCheckin(){
+  const eid=window._ciEvent; if(!eid) return;
+  const st=document.getElementById('ciStat');
+  if(st) st.innerHTML=ciStatHTML(ciTiket(eid));
+  const dn=document.getElementById('liveDenah');
+  if(dn){
+    /* Gulir mendatar di dalam denah ikut dipertahankan: di HP denah venue
+       lebih lebar daripada layar, dan petugas biasanya sedang berhenti di
+       satu blok meja. */
+    const gx=dn.scrollLeft;
+    dn.innerHTML=liveDenahHTML(eid);
+    dn.scrollLeft=gx;
+    setTimeout(ciPasDenah,0);
+  }
+  const tb=document.getElementById('ciTabel');
+  if(tb) tb.innerHTML=ciTabelHTML(eid);
+}
 
 /* Dulu tombol ini MENGEMBALIKAN data contoh: satu-satunya cara membersihkan
    data karangan justru memasang data karangan yang baru. Sekarang ia benar-benar
@@ -6916,7 +6967,7 @@ function renderCheckin(){
     <button class="btn ghost" onclick="doScan(document.getElementById('ci_token').value)">Cek token ini</button>
     <div id="scanResult" style="margin-top:16px"></div>
   </div>
-  ${ciTabelHTML(eid)}`;
+  <div id="ciTabel">${ciTabelHTML(eid)}</div>`;
   // Diskalakan sesudah HTML-nya terpasang — sebelum itu lebar wadahnya nol.
   setTimeout(ciPasDenah, 0);
 }

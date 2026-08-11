@@ -906,6 +906,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1166,7 +1179,45 @@ function load() { normalize(); refreshSnapshot(); }
 
 
 
-function syncNowForce() { syncNow(); normalize(); refreshSnapshot(); router(); }
+function syncNowForce() { syncNow(); normalize(); refreshSnapshot(); router(); segarkanCheckin(); ciStatHTML(); ciTiket(); liveDenahHTML(); ciTabelHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
