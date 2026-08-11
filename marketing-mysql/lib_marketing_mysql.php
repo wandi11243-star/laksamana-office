@@ -28,7 +28,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-27');
+define('LIB_VERSI', '2026-08-11');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -761,6 +761,78 @@ function save_all($state) {
     'bentrok' => $bentrok,
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
+  );
+}
+
+/* ==================== EVENT SATU HARI (dibaca modul lain) ====================
+   Dipakai Finance > Omset > Breakdown Sumber untuk memunculkan event marketing
+   hari itu secara otomatis, supaya orang finance tidak mengetik ulang nama
+   event & PIC yang sudah ada di sini.
+
+   Endpoint ini SENGAJA SEMPIT, bukan getAll. getAll memulangkan seluruh
+   database marketing (megabyte, tumbuh tiap bulan) dan halaman Breakdown
+   dibuka tiap hari — polanya sama persis dengan `shiftHari` yang dibuat untuk
+   absensi, dengan alasan yang sama.
+
+   Yang dipulangkan hanya event yang SUDAH JADI: status 'Deal' dan
+   'Event Done'. Lead/Prospect/Quotation Terkirim/Lost tidak ikut — event yang
+   belum tentu terjadi tidak boleh muncul sebagai baris omset yang menunggu
+   diisi. (Permintaan user 11 Agustus 2026.)
+
+   `data` TIDAK dipulangkan mentah-mentah: yang dibutuhkan pemanggil cuma
+   `detail` (bahan rumus nilai event) — payments/tasks di dalamnya bisa
+   berlipat-lipat lebih besar dan tidak dipakai sama sekali.
+
+   Rumus nilainya sendiri TIDAK dihitung di sini. Ia hidup di JavaScript
+   (eventFinance di deploy/marketing/index.html) dan bercabang banyak
+   (fbManual/fbDeal/rincian/pax x harga, tax inclusive, service opsional);
+   menyalinnya ke PHP berarti dua rumus yang pasti berbeda diam-diam begitu
+   salah satunya diubah. Pemanggil menyalin rumus JS-nya apa adanya, dan
+   `settings` di bawah adalah dua angka yang dibutuhkannya. */
+function events_hari($tgl) {
+  if (!tanggal_valid($tgl)) throw new Exception('tanggal tidak sah: ' . $tgl);
+  $pdo = db();
+  /* LEFT JOIN, bukan JOIN: event yang PIC-nya kosong atau menunjuk user yang
+     sudah dihapus tetap harus muncul — kalau hilang, orang finance mengira
+     event itu memang tidak ada dan mengetiknya lagi sebagai baris manual. */
+  $st = $pdo->prepare(
+    "SELECT e.id, e.nama, e.tanggal, e.status, e.pax, e.mkt_pic, e.data, u.name AS pic_name
+       FROM events e
+       LEFT JOIN users u ON u.id = e.mkt_pic
+      WHERE e.tanggal = :tgl AND e.status IN ('Deal', 'Event Done')
+      ORDER BY e.nama");
+  $st->execute(array(':tgl' => $tgl));
+  $out = array();
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
+    if (!is_array($d)) $d = array();
+    $out[] = array(
+      'id'      => $r['id'],
+      'nama'    => $r['nama'],
+      'tanggal' => $r['tanggal'],
+      'status'  => $r['status'],
+      'pax'     => (int)$r['pax'],
+      'picId'   => $r['mkt_pic'],
+      'picName' => $r['pic_name'],
+      'detail'  => isset($d['detail']) && is_array($d['detail']) ? $d['detail'] : array(),
+    );
+  }
+  /* Tabel `settings` di sini bentuknya k/v dengan v berupa JSON — seluruh
+     objek S.settings tersimpan di bawah satu kunci 'settings'. */
+  $sq = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $sq->execute(array(':k' => 'settings'));
+  $set = json_decode((string)$sq->fetchColumn(), true);
+  if (!is_array($set)) $set = array();
+  return array(
+    'events'   => $out,
+    /* Dua angka ini bagian dari rumus nilai event, jadi harus datang dari
+       sumber yang sama dengan eventnya. Kalau pemanggil memakai persentasenya
+       sendiri, nilai yang tampil di Breakdown akan beda dari yang tertulis di
+       Surat Penawaran tanpa ada yang salah di kedua layar. */
+    'settings' => array(
+      'serviceCharge' => isset($set['serviceCharge']) ? (float)$set['serviceCharge'] : 5,
+      'pb1'           => isset($set['pb1'])           ? (float)$set['pb1']           : 10,
+    ),
   );
 }
 

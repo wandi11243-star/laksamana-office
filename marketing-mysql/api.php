@@ -9,6 +9,8 @@
  *   GET  ?action=stats                  -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping                   -> {ok,data:{pong,env,db,versi,ts}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
+ *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
+ *                                       -> {ok,data:{events:[...],settings:{...}}}
  *
  * Catatan: `bentrok` berisi baris yang ditolak karena orang lain menyimpan
  * duluan. saveAll TETAP ok:true — perubahan lain yang tidak bertabrakan
@@ -67,6 +69,11 @@ try {
   } else if ($action === 'ping') {
     keluar(array('ok' => true, 'data' => array_merge(
       array('pong' => true, 'backend' => 'php-mysql'), identitas(), array('ts' => gmdate('c')))));
+
+  } else if ($action === 'eventsHari') {
+    // Event 'Deal'/'Event Done' pada SATU tanggal — dibaca Finance > Omset >
+    // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.
+    keluar(array('ok' => true, 'data' => events_hari(isset($_GET['tgl']) ? $_GET['tgl'] : '')));
 
   } else if ($action === 'receipt') {
     // Sajikan file bukti transfer langsung ke browser (gambar/PDF).

@@ -2514,6 +2514,29 @@ function refreshIfStale() { adaBelumNaik(); cobaKirimSekarang(); normalizeState(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2649,6 +2672,12 @@ function daysBetween() {  }
 function daysTo() { daysBetween(); today(); esc(); }
 
 function ago() { autoCloseEvents(); }
+
+
+
+
+
+
 
 
 
@@ -4833,7 +4862,31 @@ function pipeAktif() { pipeStatusOfEv(); pipeCocokPIC(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+function pindahBoleh() { penStatus(); }
+
+
+
+
+
+
+
+
+
 function pipeRingkas() { pipeAktif(); eventFinance(); rpRingkas(); esc(); userName(); pipeStatusOfEv(); }
+
+
+
+
 
 
 
@@ -4996,14 +5049,21 @@ function ingatkanStage() { missingBasic(); toast(); }
 
 
 
-function setEventStage() { genTasks(); logAct(); save(); toast(); ingatkanStage(); go(); }
+function setEventStage() { pindahBoleh(); toast(); genTasks(); logAct(); save(); ingatkanStage(); go(); }
 
 
 
 
 
 
-function moveEventPipe() { ingatkanStage(); logAct(); genTasks(); toast(); save(); go(); }
+
+
+function moveEventPipe() { go(); pindahBoleh(); toast(); ingatkanStage(); logAct(); genTasks(); save(); }
+
+
+
+
+
 
 
 
@@ -7846,6 +7906,12 @@ function ajukanPenawaran() { can(); toast(); penFile(); eventFinance(); logAct()
 
 
 
+
+
+
+
+
+
 function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif(); save(); buildNav(); go(); }
 
 
@@ -7859,7 +7925,15 @@ function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif()
 
 
 
+
+
+
+
+
 function kirimPenawaran() { can(); toast(); logAct(); save(); buildNav(); eventFinance(); fmtDate(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); waLink(); }
+
+
+
 
 
 
@@ -9507,7 +9581,7 @@ function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
 
 
 
-function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); today(); eventPadaTgl(); calEventPopup(); esc(); jenisEvent(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); calTotalPax(); today(); eventPadaTgl(); calEventPopup(); esc(); jenisEvent(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
 
 
 
@@ -9568,6 +9642,26 @@ function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEm
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calTotalPax() {  }
 
 
 
@@ -10398,6 +10492,23 @@ function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); emp
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function viewPaymentHistory() { eventFinance(); modal(); esc(); clientName(); closeModal(); svg(); paymentHistoryHtml(); }
 
 
@@ -10646,6 +10757,9 @@ function poKirimKeBD() { poBacaRp(); toast(); poBarisMkt(); esc(); }
 
 
 
+
+
+
 function setApprFilter() { go(); }
 
 
@@ -10698,7 +10812,23 @@ function approvalRows() { penStatus(); fmtDate(); eventFinance(); }
 
 
 
-function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); svg(); setApprFilter(); empty(); tblPage(); tblUrut(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); setApprFilter(); empty(); tblPage(); tblUrut(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); svg(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10791,6 +10921,21 @@ function decideApproval() { logAct(); pushNotif(); save(); buildNav(); toast(); 
 
 
 function renderPerformance() { pageHead(); timMarketing(); eventFinance(); vipOmzetTotal(); stat(); clientEventCount(); svg(); empty(); vipOmzetPIC(); esc(); tblUrut(); tblPage(); tblHead(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

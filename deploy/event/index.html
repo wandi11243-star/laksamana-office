@@ -863,9 +863,22 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
       <div><div class="bt">Laksamana Muda</div><div class="bs">Event</div></div>
     </div>
     <nav class="nav" id="nav"></nav>
+    <!-- Kaki sidebar dikosongkan.
+
+         "Data: Tersimpan" praktis selalu berbunyi sama, jadi ia berhenti
+         dibaca justru pada saat isinya berubah — dan yang benar-benar perlu
+         diketahui (gagal simpan) sudah muncul sebagai toast merah.
+
+         "Kosongkan semua data" menghapus SELURUH data EMS di database untuk
+         semua kru, tanpa pembatalan. Tombol seberbahaya itu tidak pantas
+         menempel permanen di sudut layar yang dilewati mata setiap hari;
+         satu salah klik dari mana pun di aplikasi hanya berjarak satu
+         dialog. Fungsinya sengaja DIBIARKAN hidup di kode (resetData) untuk
+         keadaan darurat lewat console, tapi tidak lagi punya tombol.
+
+         #syncState ikut hilang — setSync() di bawah sudah menjaga diri
+         dengan `if(!el) return`. -->
     <div class="side-foot">
-      <div>Data: <b id="syncState" style="color:var(--green)">Tersimpan</b></div>
-      <button onclick="resetData()" title="Menghapus seluruh data EMS di database">Kosongkan semua data</button>
     </div>
     <div class="side-user">
       <div class="su-avatar" id="su-avatar">?</div>
@@ -1174,12 +1187,50 @@ async function syncNowForce(){_dirty=true;await syncNow();}
 setInterval(async()=>{
   if(_dirty||_saving||document.hidden) return;
   if(document.getElementById('modalRoot').innerHTML) return;
+  /* Sedang mengetik = jangan disentuh. Isian yang hilang di tengah
+     pengetikan lebih mahal daripada data yang telat 20 detik. */
+  const f=document.activeElement;
+  if(f && /^(INPUT|TEXTAREA|SELECT)$/.test(f.tagName||'')) return;
   try{
     const s=normalize(await apiGet('getAll'));
     if(JSON.stringify(s)===JSON.stringify(DB)) return;
-    DB=s; refreshSnapshot(); router();
+    DB=s; refreshSnapshot();
+    /* router() menggambar ULANG SELURUH halaman dan diakhiri
+       window.scrollTo(0,0). Tiap 20 detik layar melompat ke atas sendiri —
+       dan di Check-In hari-H, saat petugas sedang menyisir denah di tengah
+       halaman, itu membuat halamannya praktis tidak bisa dipakai.
+
+       Di halaman Check-In yang memang HARUS tetap mutakhir, yang digambar
+       ulang cuma tiga bagian yang isinya berubah: kartu angka, denah, dan
+       tabel tamu. Posisi gulir halaman maupun gulir mendatar di dalam denah
+       dipertahankan. Halaman lain tetap lewat router(), tapi posisi
+       gulirnya dikembalikan sesudahnya. */
+    if(String(location.hash).indexOf('checkin')>-1){ segarkanCheckin(); return; }
+    const gy=window.scrollY||window.pageYOffset||0;
+    router();
+    window.scrollTo(0,gy);
   }catch(e){ /* diam: polling gagal bukan alasan mengganggu kerja */ }
 },20000);
+/* Penyegaran SEBAGIAN untuk layar Check-In. Dipanggil polling di atas;
+   sengaja memakai penggambar yang sama dengan renderCheckin supaya tidak
+   ada dua versi tampilan yang bisa menyimpang. */
+function segarkanCheckin(){
+  const eid=window._ciEvent; if(!eid) return;
+  const st=document.getElementById('ciStat');
+  if(st) st.innerHTML=ciStatHTML(ciTiket(eid));
+  const dn=document.getElementById('liveDenah');
+  if(dn){
+    /* Gulir mendatar di dalam denah ikut dipertahankan: di HP denah venue
+       lebih lebar daripada layar, dan petugas biasanya sedang berhenti di
+       satu blok meja. */
+    const gx=dn.scrollLeft;
+    dn.innerHTML=liveDenahHTML(eid);
+    dn.scrollLeft=gx;
+    setTimeout(ciPasDenah,0);
+  }
+  const tb=document.getElementById('ciTabel');
+  if(tb) tb.innerHTML=ciTabelHTML(eid);
+}
 
 /* Dulu tombol ini MENGEMBALIKAN data contoh: satu-satunya cara membersihkan
    data karangan justru memasang data karangan yang baru. Sekarang ia benar-benar
@@ -1555,13 +1606,21 @@ const NAV=[
   {h:'events',ic:'event',t:'Event Management'},
   {h:'ticketing',ic:'ticket',t:'Ticketing'},
   {h:'checkin',ic:'check',t:'Check-In'},
-  {s:'Intelligence'},
-  {h:'ideas',ic:'star',t:'Event Idea Bank'},
-  {h:'history',ic:'timeline',t:'Event History'},
+  /* Approval Flow — meja putusan manajemen, bentuk yang sama dengan modul
+     Marketing. Halamannya sendiri sudah menyaring: yang bukan manajemen
+     melihat daftar baca-saja tanpa tombol putusan. */
+  {h:'approval',ic:'check',t:'Approval Flow'},
+  /* Event Idea Bank & Event History TIDAK lagi berdiri sendiri di sini —
+     keduanya jadi tab di Perencanaan Event. Ide, rencana yang sedang
+     digarap, dan acara yang sudah lewat adalah tiga wujud dari satu benda
+     yang sama, dan menaruhnya di tiga menu berbeda membuat orang membuka
+     tiga halaman untuk satu pertanyaan ("pernah bikin yang seperti ini
+     belum?"). Rutenya sengaja DIPERTAHANKAN supaya tautan lama & izin
+     tidak putus. */
   {s:'Pengaturan'},
   {h:'akses',ic:'users',t:'Hak Akses'},
 ];
-const TITLES={dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',planning:'Perencanaan Event',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History',akses:'Hak Akses'};
+const TITLES={approval:'Approval Flow',dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',planning:'Perencanaan Event',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History',akses:'Hak Akses'};
 function buildNav(){
   const nav=document.getElementById('nav');nav.innerHTML='';
   const cur=location.hash.replace('#/','').split('/')[0]||'dashboard';
@@ -1614,7 +1673,7 @@ function router(){
      (#/ticketing/<event>/<kelas>). Sebelumnya router memotong di segmen
      kedua, jadi alamat sedalam itu terbaca sebagai halaman ticketing biasa. */
   const page=parts[0]||'dashboard';const arg=parts[1];const arg2=parts[2];
-  const routes={dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,planning:renderPlanning,events:arg?renderEventDetail:renderEvents,ticketing:arg?(arg2?renderKategoriDetail:renderTicketDetail):renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory,akses:renderAkses};
+  const routes={approval:renderApprovalEms,dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,planning:renderPlanning,events:arg?renderEventDetail:renderEvents,ticketing:arg?(arg2?renderKategoriDetail:renderTicketDetail):renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory,akses:renderAkses};
   /* Halaman yang tertutup untuk peran ini dihentikan DI SINI, bukan cuma
      disembunyikan dari menu — alamat halaman bisa diketik langsung. */
   if(EMS_HALAMAN[page] && !bisaLihat(page)){
@@ -1820,7 +1879,12 @@ function badgeKontrak(t){
   const v=peta[k]||peta.None;
   return '<span class="badge '+v[0]+'">'+v[1]+'</span>';
 }
-let talFilter={q:'',cat:'',status:'',kontrak:''};
+/* status:'Active' sebagai BAWAAN — bukan '' (semua).
+   Yang dicari saat membuka halaman ini hampir selalu talent yang masih
+   dipakai; yang nonaktif disimpan untuk riwayat jadwal & fee, bukan untuk
+   dibaca tiap hari. Dulu bawaannya semua, jadi daftar makin panjang tiap
+   bulan oleh nama yang sudah tidak pernah tampil lagi. */
+let talFilter={q:'',cat:'',status:'Active',kontrak:''};
 function renderTalents(){
   setTop('Talent Management','Kelola profil, jadwal & fee talent','<button class="btn" onclick="talentForm()">+ Talent Baru</button>');
   let list=DB.talents.filter(t=>(!talFilter.q||t.name.toLowerCase().includes(talFilter.q.toLowerCase()))
@@ -3000,7 +3064,24 @@ let evtFilter='all';
    Itu satu-satunya cara membuat "sudah disetujui" berarti sesuatu: kalau siapa
    pun bisa menggeser statusnya sendiri, tanda setuju itu tidak menjamin apa-apa
    dan orang berhenti mempercayainya. */
-const EVT_STATUS = ['Planning','Upcoming','Event Done'];
+/* LIMA tahap, dua di antaranya baru (Prospect & Approval).
+
+   Dulu tiga: Planning -> Upcoming -> Event Done, dan persetujuan manajemen
+   memindahkan rencana LANGSUNG dari Planning ke Upcoming. Akibatnya dua
+   keadaan yang sangat berbeda memakai label yang sama: rencana yang baru
+   ditulis dan rencana yang sudah diajukan dan sedang ditunggu keputusannya
+   dua-duanya berbunyi 'Planning'. Tidak ada layar yang bisa menjawab "mana
+   yang sedang di meja manajemen".
+
+   Sekarang:
+     Planning   rencana yang masih digarap sendiri
+     Prospect   sudah diajukan, menunggu keputusan manajemen
+     Approval   sudah disetujui — dipindahkan OTOMATIS oleh setujuiRencana,
+                bukan tombol status. Tiketnya sudah boleh disiapkan, tapi
+                acaranya belum dinyatakan berjalan.
+     Upcoming   dinyatakan berjalan
+     Event Done sudah lewat */
+const EVT_STATUS = ['Planning','Prospect','Approval','Upcoming','Event Done'];
 
 /* ---------- PERAN & HAK AKSES (pola yang sama dengan modul Marketing) ----------
    Marketing memakai matriks (halaman × peran) dengan tiga tingkat. Angkanya
@@ -3022,7 +3103,11 @@ const EMS_HALAMAN = {
   dashboard:'Dashboard', calendar:'Event Calendar', talents:'Talent Management',
   schedule:'Talent Schedule', fee:'Fee & Pembayaran', planning:'Perencanaan Event',
   events:'Event Management', ticketing:'Ticketing', checkin:'Check-In',
-  ideas:'Event Idea Bank', history:'Event History', akses:'Hak Akses'
+  ideas:'Event Idea Bank', history:'Event History', akses:'Hak Akses',
+  /* Halaman baru. Ikut matriks izin seperti halaman lain — bawaannya
+     diatur emsPermBawaan(); yang bukan manajemen tetap boleh MELIHAT
+     antriannya, yang dibatasi hanya tombol putusannya (bisaSetujui). */
+  approval:'Approval Flow'
 };
 /* Bawaan yang dipilih supaya sistemnya bisa langsung dipakai tanpa disetel:
    tim event mengerjakan semuanya kecuali menyetujui rencananya sendiri dan
@@ -3194,7 +3279,11 @@ function ajukanRencana(id) {
   const p = pengajuan(e);
   if (p && p.status === 'Menunggu') { toast('Rencana ini sudah diajukan dan sedang menunggu keputusan.'); return; }
   e.pengajuan = { status:'Menunggu', oleh:namaKru(), pada:new Date().toISOString(), alasan:'' };
-  save(); toast('✓ Diajukan ke manajemen. Statusnya berubah begitu disetujui.');
+  /* Tahapnya ikut pindah ke Prospect. Tanpa ini rencana yang sudah diajukan
+     tetap berlabel Planning, jadi papan manajemen dan papan tim melihat
+     hal yang sama dan tidak ada yang tahu bolanya di tangan siapa. */
+  e.status = 'Prospect'; e.statusAt = Date.now();
+  save(); toast('✓ Diajukan ke manajemen — tahapnya kini Prospect.');
   router();
 }
 function setujuiRencana(id) {
@@ -3206,8 +3295,13 @@ function setujuiRencana(id) {
   /* Persetujuanlah yang memindahkan statusnya — bukan tombol status. statusAt
      ikut dicatat supaya perapian otomatis tidak menarik balik event yang baru
      saja disetujui (lihat autoSelesaikanEvent). */
-  e.status = 'Upcoming'; e.statusAt = Date.now();
-  save(); toast('✓ Disetujui — event pindah ke Upcoming dan tiketnya boleh dijual.');
+  /* Disetujui = naik ke APPROVAL, bukan langsung Upcoming. Dua hal yang
+     berbeda: manajemen menyetujui rencananya, dan tim menyatakan acaranya
+     benar-benar berjalan. Menggabungkannya membuat persetujuan di atas
+     kertas terbaca sebagai acara yang sudah pasti jalan — dan tiket mulai
+     dijual untuk acara yang venue-nya belum dikunci. */
+  e.status = 'Approval'; e.statusAt = Date.now();
+  save(); toast('✓ Disetujui — tahapnya naik ke Approval. Lanjutkan ke Upcoming kalau acaranya sudah pasti berjalan.');
   router();
 }
 function tolakRencana(id) {
@@ -3228,7 +3322,10 @@ function tolakRencanaYakin(id) {
   e.pengajuan = Object.assign({}, e.pengajuan || {}, {
     status:'Ditolak', penyetuju:namaKru(), disetujuiPada:new Date().toISOString(), alasan:alasan
   });
-  e.status = 'Planning';   // tetap di perencanaan, boleh diperbaiki lalu diajukan lagi
+  /* Ditolak = kembali ke Planning, apa pun tahapnya saat itu. Membiarkannya
+     di Prospect berarti papan manajemen memajang antrian yang sudah kosong,
+     dan yang harus memperbaikinya tidak punya penanda bahwa bolanya balik. */
+  e.status = 'Planning'; e.statusAt = Date.now();
   save(); closeModal(); toast('Rencana ditolak — alasannya tercatat di kartunya.');
   router();
 }
@@ -3290,11 +3387,104 @@ function autoSelesaikanEvent(){
    Event Management — jadi halaman ini selalu berisi pekerjaan yang belum
    selesai, bukan arsip. */
 let planFilter='all';
+/* ---------- APPROVAL FLOW (EMS) ----------
+   Bentuknya sengaja MENIRU modul Marketing: satu kartu angka (berapa yang
+   menunggu), dua tab (Antrian / Riwayat), tabel di bawahnya. Kru yang
+   bolak-balik antara dua modul tidak perlu belajar dua tata letak untuk
+   pekerjaan yang sama persis.
+
+   Yang bukan manajemen tetap boleh membuka halamannya — melihat antrian itu
+   berguna bagi yang mengajukan ("punyaku sudah diputuskan belum?"). Yang
+   disaring bisaSetujui() hanya tombol Setujui/Tolak. */
+let apprEmsTab='antri';
+function setApprEmsTab(v){ apprEmsTab=v; router(); }
+function renderApprovalEms(){
+  const setuju=bisaSetujui();
+  setTop('Approval Flow','Meja putusan manajemen','');
+  const diajukan=DB.events.filter(function(e){ return !!pengajuan(e); });
+  const antri=diajukan.filter(function(e){ return statusPengajuan(e)==='Menunggu'; });
+  const riwayat=diajukan.filter(function(e){ return statusPengajuan(e)!=='Menunggu'; })
+    .sort(function(a,b){ return String((b.pengajuan||{}).disetujuiPada||'').localeCompare(String((a.pengajuan||{}).disetujuiPada||'')); });
+  const list = apprEmsTab==='riwayat' ? riwayat : antri;
+
+  let h='<div class="grid g4" style="margin-bottom:18px">'
+    +'<div class="card stat"><div class="lbl">Menunggu Keputusan</div>'
+    +'<div class="val num">'+antri.length+'</div>'
+    +'<div class="sub">'+(antri.length?'perlu ditindak':'semua sudah diputuskan')+'</div></div>'
+    +'</div>';
+  h+='<div class="tabs">'
+    +'<button class="'+(apprEmsTab==='antri'?'active':'')+'" onclick="setApprEmsTab(&#39;antri&#39;)">Antrian'+(antri.length?' ('+antri.length+')':'')+'</button>'
+    +'<button class="'+(apprEmsTab==='riwayat'?'active':'')+'" onclick="setApprEmsTab(&#39;riwayat&#39;)">Riwayat Approval'+(riwayat.length?' ('+riwayat.length+')':'')+'</button>'
+    +'</div>';
+  if(!list.length){
+    C().innerHTML=h+'<div class="empty">'+(apprEmsTab==='antri'
+      ?'Tidak ada rencana yang menunggu keputusan. ⚓'
+      :'Belum ada keputusan yang tercatat.')+'</div>';
+    return;
+  }
+  h+='<div class="card" style="padding:0"><table><thead><tr>'
+    +'<th>Event</th><th>Tanggal</th><th>Venue</th><th>Diajukan</th><th>Status</th>'
+    +(setuju&&apprEmsTab==='antri'?'<th>Aksi</th>':'<th></th>')+'</tr></thead><tbody>';
+  list.forEach(function(e){
+    const p=pengajuan(e)||{};
+    h+='<tr><td><div style="font-weight:600">'+esc(e.title||'(tanpa judul)')+'</div>'
+      +'<div class="mini">'+esc(e.category||'')+'</div></td>'
+      +'<td>'+esc(fmtDateTime(e.start_datetime))+'</td>'
+      +'<td>'+esc(e.venue||'—')+'</td>'
+      +'<td>'+esc(p.oleh||'—')+'<div class="mini">'+(p.pada?esc(fmtDate(String(p.pada).slice(0,10))):'')+'</div></td>'
+      +'<td>'+statusBadge(statusPengajuan(e))
+        +(p.alasan?'<div class="mini" style="color:var(--red)">'+esc(p.alasan)+'</div>':'')+'</td>'
+      +'<td>'+((setuju&&apprEmsTab==='antri')
+        ?'<div class="aksi-1baris">'
+          +'<button class="btn sm" onclick="setujuiRencana(&#39;'+e.id+'&#39;)">Setujui</button>'
+          +'<button class="btn ghost sm" onclick="tolakRencana(&#39;'+e.id+'&#39;)">Tolak</button></div>'
+        :'<button class="btn ghost sm" onclick="location.hash=&#39;#/events/'+e.id+'&#39;">Buka</button>')
+      +'</td></tr>';
+  });
+  C().innerHTML=h+'</tbody></table></div>';
+}
+/* TIGA TAB di satu halaman: rencana yang sedang digarap, bank ide, dan
+   riwayat acara yang sudah lewat.
+
+   Ketiganya dulu berdiri sebagai menu sendiri-sendiri di kelompok
+   "Intelligence". Padahal ide, rencana, dan acara yang sudah jalan adalah
+   tiga wujud dari benda yang SAMA pada tiga waktu berbeda — dan pertanyaan
+   yang membawa orang ke sini hampir selalu melintasi ketiganya: "pernah
+   bikin yang seperti ini belum, hasilnya bagaimana, ada idenya di bank?".
+   Tiga menu berarti tiga halaman untuk satu pertanyaan.
+
+   renderIdeas & renderHistory dipanggil APA ADANYA, isinya tidak disalin:
+   keduanya masih punya rutenya sendiri (#/ideas, #/history) supaya tautan
+   lama dan baris izinnya tidak putus. Keduanya menulis ke C() sendiri, jadi
+   pita tab ditempelkan sesudahnya. */
+let planTab='rencana';
+function setPlanTab(v){ planTab=v; renderPlanning(); }
+function planTabsHTML(){
+  const t=[['rencana','Perencanaan'],['ide','Event Idea Bank'],['riwayat','Event History']];
+  return '<div class="tabs">'+t.map(function(x){
+    return '<button class="'+(planTab===x[0]?'active':'')+'" '
+      +'onclick="setPlanTab(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')+'</div>';
+}
 function renderPlanning(){
   const boleh=bisaUbah('planning'), setuju=bisaSetujui();
+  if(planTab==='ide'){
+    renderIdeas();
+    C().innerHTML=planTabsHTML()+C().innerHTML;
+    setTop('Perencanaan Event','Bank ide — bahan untuk rencana berikutnya','');
+    return;
+  }
+  if(planTab==='riwayat'){
+    renderHistory();
+    C().innerHTML=planTabsHTML()+C().innerHTML;
+    setTop('Perencanaan Event','Acara yang sudah lewat — bisa dibuat ulang','');
+    return;
+  }
   setTop('Perencanaan Event','Rencana yang belum disetujui manajemen',
     boleh?'<button class="btn" onclick="eventForm(null,{status:\'Planning\'})">+ Rencana Baru</button>':'');
-  const semua=DB.events.filter(e=>e.status==='Planning');
+  /* Tahap Prospect ikut: rencana yang sudah diajukan dan sedang ditunggu
+     manajemen masih pekerjaan halaman ini — yang mengajukan perlu melihat
+     miliknya sampai diputuskan. */
+  const semua=DB.events.filter(e=>e.status==='Planning'||e.status==='Prospect');
   const st=e=>statusPengajuan(e);
   const saring={all:semua,
     belum:semua.filter(e=>st(e)==='Belum diajukan'),
@@ -3309,7 +3499,11 @@ function renderPlanning(){
   const tab=(k,t)=>`<button class="fchip${planFilter===k?' on':''}" onclick="planFilter='${k}';renderPlanning()">`
     +`${t} <b>${saring[k].length}</b></button>`;
 
-  let h=`<div class="fbar">${tab('all','Semua')}${tab('belum','Belum diajukan')}`
+  /* Pita tab di paling atas, di atas chip saringan: tab berpindah HALAMAN
+     (rencana / ide / riwayat), chip cuma menyaring daftar yang sama. Dua
+     tingkat yang berbeda, jadi urutannya harus jelas dari atas ke bawah. */
+  let h=planTabsHTML()
+    +`<div class="fbar">${tab('all','Semua')}${tab('belum','Belum diajukan')}`
     +`${tab('nunggu','Menunggu keputusan')}${tab('tolak','Ditolak')}</div>`;
   /* Manajemen melihat lebih dulu apa yang menunggu keputusannya — itu satu-
      satunya alasan mereka membuka halaman ini. */
@@ -6916,7 +7110,7 @@ function renderCheckin(){
     <button class="btn ghost" onclick="doScan(document.getElementById('ci_token').value)">Cek token ini</button>
     <div id="scanResult" style="margin-top:16px"></div>
   </div>
-  ${ciTabelHTML(eid)}`;
+  <div id="ciTabel">${ciTabelHTML(eid)}</div>`;
   // Diskalakan sesudah HTML-nya terpasang — sebelum itu lebar wadahnya nol.
   setTimeout(ciPasDenah, 0);
 }

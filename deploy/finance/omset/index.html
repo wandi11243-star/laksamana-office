@@ -214,7 +214,23 @@ tbody tr:hover{background:var(--gold-soft)}
 .brow.ks{grid-template-columns:1.2fr .9fr 1fr auto}
 .brow.so{grid-template-columns:1.2fr .9fr auto}
 .brow .field{margin-bottom:0}
-@media(max-width:760px){.brow.mk,.brow.ks,.brow.so{grid-template-columns:1fr}}
+.brow.ob{grid-template-columns:.9fr .9fr .9fr 1.2fr auto;margin-bottom:4px}
+@media(max-width:760px){.brow.mk,.brow.ks,.brow.so,.brow.ob{grid-template-columns:1fr}}
+/* Satu event = satu kotak. Sebelum ada Open Bill, satu baris event cukup satu
+   `.brow`; sekarang satu event bisa punya tiga lapis (pita sumber otomatis,
+   kolom utama, panel Open Bill) dan tanpa kotak pembungkus tidak ada yang bisa
+   melihat panel Open Bill itu milik event yang mana. */
+.ebox{border:1.5px solid var(--line);border-radius:12px;padding:12px 12px 2px;margin-bottom:12px}
+.ebox.auto{border-color:var(--gold);background:var(--gold-soft)}
+.esrc{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:10px}
+.esrc .tag{background:var(--gold);color:#fff;border-radius:999px;padding:2px 9px;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase}
+.esrc b{color:var(--text)}
+/* Centang Open Bill. Sengaja berbingkai dan setinggi tombol, bukan centang
+   telanjang: ia menghidupkan empat kotak isian di bawahnya, jadi harus
+   terbaca sebagai saklar, bukan sebagai keterangan. */
+.obtoggle{display:inline-flex;align-items:center;gap:8px;border:1.5px dashed var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;margin-bottom:10px}
+.obtoggle:hover{border-color:var(--gold)}
+.obtoggle.on{border-style:solid;border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
 /* Centang Free Entry (dulu "Ticketing") di baris breakdown. Dibuat setinggi field di sebelahnya
    supaya tidak melayang saat baris ikut memanjang. */
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
@@ -2554,14 +2570,52 @@ function kartuApprovalCompliment(divi, list){
    Data lama TIDAK dimigrasi, sama seperti dua perubahan aturan sebelumnya:
    bentuk datanya tidak berubah, hanya cara membacanya. Baris event lama yang
    terlanjur menyimpan `shift` dibiarkan — potonganHari() tidak lagi membacanya. */
+/* ---- OPEN BILL (11 Agustus 2026) ----
+   Pesanan tambahan tamu event yang dibayar langsung ke kasir, di luar paket
+   yang disepakati marketing. Dicentang per baris event, punya omset/tax/service
+   sendiri, dan menyebut kasir yang melayaninya.
+
+   Aturannya diputuskan user 11 Agustus 2026 dan sengaja beda dari nominal
+   paket: nominal Open Bill DIAKUI untuk PIC event/marketing, tapi kasir
+   TIDAK dipotong sepeser pun. Jadi ia memang diakui dua kali — penuh untuk
+   kasir (uangnya sudah ada di omset brutonya) dan penuh untuk PIC. Sama
+   polanya dengan aturan 50% Section C: itu keputusan, bukan kelalaian, jangan
+   "diperbaiki" dengan menambahkannya ke potongKasir().
+
+   Kasir yang dipilih tidak mendapat penambahan angka apa pun — uangnya sudah
+   masuk omset brutonya hari itu. Yang ia dapat adalah PENGAKUAN bernama:
+   Open Bill event X sekian, muncul di kartu Efek ke Realisasi Kasir dan di
+   Performa Kasir. Menambahkannya lagi ke realisasi berarti satu uang dihitung
+   dua kali di sisi kasir juga. */
+function obAktif(r){ return !!(r && r.ob); }
+function obTotal(r){ return obAktif(r) ? num(r.obAmount)+num(r.obTax)+num(r.obService) : 0; }
 function porsiPic(r, divi){
-  if(divi==='event') return Math.round(num(r.amount)/2);
-  return num(r.amount)+num(r.tax)+num(r.service);
+  if(divi==='event') return Math.round(num(r.amount)/2)+obTotal(r);
+  return num(r.amount)+num(r.tax)+num(r.service)+obTotal(r);
 }
 /* Yang benar-benar dipotong dari kasir shift. Dipisah dari porsiPic() karena
    sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
-   Hanya dipakai baris MARKETING — event tidak memotong siapa pun. */
+   Hanya dipakai baris MARKETING — event tidak memotong siapa pun.
+   Open Bill TIDAK ikut di sini, dengan sengaja (lihat obTotal). */
 function potongKasir(r){ return num(r.amount); }
+/* Open Bill yang diakui atas nama satu kasir pada satu hari, dari kedua
+   section. Angka ini TIDAK mengubah realisasi — ia keterangan, lihat obTotal. */
+function openBillHari(d,kasirId){
+  return openBillList(d).reduce((s,x)=>s+(x.kasirId===kasirId?x.total:0),0);
+}
+/* Rincian Open Bill satu hari: [{kasirId,eventName,total,divi}]. Dipakai
+   kartu Efek ke Realisasi Kasir di sini dan Performa Kasir di modul Cashier. */
+function openBillList(d){
+  const out=[];
+  [['marketing','marketing'],['event','event']].forEach(([key,divi])=>{
+    ((d.bd&&d.bd[key])||[]).forEach(r=>{
+      if(!obAktif(r)) return;
+      const t=obTotal(r); if(t<=0 && !r.obKasirId) return;
+      out.push({kasirId:r.obKasirId||'', eventName:r.eventName||'', total:t, divi});
+    });
+  });
+  return out;
+}
 /* Potongan yang ditanggung kasir karena SATU baris event, dibagi per SHIFT —
    bukan rata ke semua kasir yang masuk hari itu. Kasir yang masuk tapi tidak
    kebagian shift event tersebut tidak ikut dipotong.
@@ -2711,6 +2765,125 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
   setTimeout(()=>{ const c=ovl.querySelector('.kschip input'); if(c) c.focus(); },30);
 }
 
+/* ============ EVENT HARI ITU, DITARIK DARI MODUL LAIN ============
+   Ditambahkan 11 Agustus 2026 atas permintaan user: event yang sudah dibuat
+   marketing/event untuk tanggal itu muncul sendiri di Breakdown, lengkap
+   dengan nama PIC, nama event, dan nilai yang sudah dihitung marketing —
+   supaya orang finance tidak mengetik ulang tiga hal yang sudah ada di modul
+   sebelah, dan supaya event yang terlewat tidak diam-diam hilang dari alokasi.
+
+   ENDPOINT-NYA SEMPIT, bukan getAll: `?action=eventsHari&tgl=`. getAll
+   memulangkan seluruh database marketing (megabyte, tumbuh tiap bulan) dan
+   halaman ini dibuka tiap hari. Lihat catatan panjang di events_hari() pada
+   marketing-mysql/lib_marketing_mysql.php.
+
+   Yang ditarik hanya event yang SUDAH JADI — marketing: 'Deal' & 'Event Done';
+   event internal: apa pun kecuali yang masih rencana. Penyaringannya dikerjakan
+   di server, jadi jangan menyaring ulang di sini dengan daftar status kedua
+   yang pasti akan ketinggalan zaman.
+
+   TIDAK PERNAH MELEMPAR, dan tidak pernah membuat halaman kosong. Backend
+   marketing/event yang mati tidak boleh membuat orang finance berhenti bisa
+   mengalokasikan omset hari itu — paling jauh satu pita peringatan. Pola yang
+   sama dengan muatDW() di modul Jadwal. */
+const MKT_API='../../marketing-api-mysql/api.php';
+const EVT_API='../../event-api-mysql/api.php';
+/* Satu tanggal saja yang disimpan: pindah tanggal berarti tarik ulang. Hari
+   yang sedang dikerjakan hampir selalu satu, dan cache per-tanggal yang
+   menumpuk justru menyimpan angka basi dari marketing yang baru saja direvisi. */
+let EVHARI={tgl:null,st:'idle',mk:[],ev:[],galat:'',antre:[]};
+/* Nomor gambar-ulang halaman Breakdown. Penarikan event itu asinkron, jadi
+   balasannya bisa datang SESUDAH halaman digambar ulang (ganti tanggal, klik
+   OFF, simpan). Tanpa penanda ini, penangan milik render lama akan menulis
+   `state` lama ke DOM baru — baris yang sudah dibuang hidup lagi, dan angka
+   yang baru diketik tertimpa. Tiap render menaikkan angkanya; penangan yang
+   nomornya sudah tidak sama diam saja. */
+let BD_RENDER=0;
+function evhFetch(url,ms){
+  const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),ms||9000);
+  return fetch(url,{method:'GET',redirect:'follow',signal:stop.signal})
+    .then(r=>{ clearTimeout(jam); return r.text(); })
+    .then(t=>{ let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON');
+      if(!j.ok) throw new Error(j.error||'ditolak');
+      return j.data||{}; });
+}
+function muatEventHari(tgl,sesudah){
+  /* Permintaan yang sedang berjalan TIDAK diulang — tapi penangannya wajib
+     ikut diantre. Kalau tidak, halaman yang digambar ulang saat penarikan
+     masih jalan akan berhenti selamanya di pita "Mengambil event…", karena
+     yang membereskannya cuma penangan milik render yang sudah usang. */
+  if(EVHARI.tgl===tgl && EVHARI.st==='muat'){ if(sesudah) EVHARI.antre.push(sesudah); return; }
+  if(EVHARI.tgl===tgl && EVHARI.st==='ok'){ if(sesudah) sesudah(); return; }
+  EVHARI={tgl,st:'muat',mk:[],ev:[],galat:'',antre:sesudah?[sesudah]:[]};
+  const q='?action=eventsHari&tgl='+encodeURIComponent(tgl)+'&t='+Date.now();
+  /* allSettled, bukan all: satu modul yang mati tidak boleh menghapus hasil
+     modul satunya. Dua-duanya gagal barulah dilaporkan sebagai galat. */
+  Promise.allSettled([evhFetch(MKT_API+q),evhFetch(EVT_API+q)]).then(([m,e])=>{
+    if(EVHARI.tgl!==tgl) return;   // user sudah pindah tanggal duluan
+    const gagal=[];
+    if(m.status==='fulfilled'){
+      EVHARI.mk=Array.isArray(m.value.events)?m.value.events:[];
+      EVHARI.set=m.value.settings||null;
+    } else gagal.push('marketing ('+(m.reason&&m.reason.message||'gagal')+')');
+    if(e.status==='fulfilled') EVHARI.ev=Array.isArray(e.value.events)?e.value.events:[];
+    else gagal.push('event ('+(e.reason&&e.reason.message||'gagal')+')');
+    EVHARI.galat=gagal.join(' · ');
+    EVHARI.st=gagal.length===2?'galat':'ok';
+    const antre=EVHARI.antre.slice(); EVHARI.antre=[];
+    antre.forEach(f=>{ try{ f(); }catch(e){} });
+  });
+}
+
+/* ---- SALINAN RUMUS NILAI EVENT MILIK MODUL MARKETING ----
+   Sumbernya `eventFinance()` dkk di deploy/marketing/index.html. Disalin apa
+   adanya, bukan dihitung di backend: rumusnya bercabang banyak (timpaan
+   manual, tabel harga deal, tabel rincian, pax x harga, pajak inklusif,
+   service opsional) dan menulis ulang cabang sebanyak itu di PHP berarti dua
+   rumus yang PASTI berbeda diam-diam begitu salah satunya disentuh.
+
+   KALAU RUMUS DI MARKETING BERUBAH, UBAH DI SINI JUGA. Gejala kalau lupa:
+   angka "nilai dari Marketing" di baris otomatis beda dari yang tertulis di
+   Surat Penawaran, tanpa ada yang salah di kedua layar. Angka ini cuma
+   pembanding — ia tidak pernah masuk perhitungan omset sendiri — jadi
+   selisihnya tidak merusak apa pun, hanya membingungkan. */
+function mkYn(val,def){ if(val&&typeof val==='object'&&'v' in val) return val.v===true; if(typeof val==='boolean') return val; return def===true; }
+function mkPaxTeks(v){ const a=String(v==null?'':v).match(/\d+/g); return a?a.reduce((x,n)=>x+(+n||0),0):0; }
+function mkFbPax(d,pax){ return mkPaxTeks(d.estimasiOTS)||+d.pax||+pax||0; }
+function mkFbHarga(d){ return +d.dealPax||+d.budgetPax||0; }
+function mkFbOtomatis(d,pax){ return Math.round(mkFbPax(d,pax)*mkFbHarga(d)); }
+function mkFbDitimpa(d){ const v=d.fbManual; return v!==''&&v!=null&&!isNaN(+v); }
+function mkFbDealTotal(d){ const rows=d.fbDeal; if(!Array.isArray(rows)) return 0;
+  return rows.reduce((a,r)=>a+((+r.jumlah||0)*(+r.harga||0)),0); }
+function mkFbDealAktif(d){ return mkYn(d.fbDealOn,false) && mkFbDealTotal(d)>0; }
+function mkFbCost(d,pax){
+  if(mkFbDitimpa(d)) return +d.fbManual||0;
+  if(mkFbDealAktif(d)) return mkFbDealTotal(d);
+  const bp=mkFbHarga(d);
+  return bp>0 ? Math.round(mkFbPax(d,pax)*bp) : (+d.biayaFB||0);
+}
+function mkRinciTotal(d){ const rows=d.rincianItem; if(!Array.isArray(rows)) return 0;
+  return rows.reduce((a,r)=>a+((r.jenis||'bayar')==='bayar' ? ((+r.jumlah||0)||1)*(+r.harga||0) : 0),0); }
+function mkRinciAktif(d){ return mkYn(d.rincianOn,false) && Array.isArray(d.rincianItem) && d.rincianItem.length>0; }
+function mkSubtotal(d,pax){
+  if(mkRinciAktif(d)) return mkRinciTotal(d);
+  return mkFbCost(d,pax)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0);
+}
+/* Memulangkan tiga angka yang bentuknya PERSIS sama dengan tiga kolom Section
+   B: omset (sesudah diskon), service, tax. */
+function mkFinance(ev,set){
+  const d=(ev&&ev.detail)||{};
+  const sub=mkSubtotal(d,ev&&ev.pax);
+  const afterDisc=Math.max(0,sub-(+d.diskon||0));
+  const svcPct=set&&set.serviceCharge!=null?+set.serviceCharge:5;
+  const taxPct=set&&set.pb1!=null?+set.pb1:10;
+  const service=mkYn(d.svcApply,true)?Math.round(afterDisc*svcPct/100):0;
+  let tax,grand;
+  if(mkYn(d.taxInclude,false)){ grand=afterDisc+service; tax=Math.round(grand*taxPct/(100+taxPct)); }
+  else { tax=Math.round((afterDisc+service)*taxPct/100); grand=afterDisc+service+tax; }
+  return {omset:afterDisc,service,tax,grand};
+}
+
 /* ============ 2. BREAKDOWN SUMBER OMSET ============ */
 let bdDate=null;
 // Penghapus konfirmasi "pembagian tersimpan". Di luar viewBreakdown supaya
@@ -2762,6 +2935,7 @@ function calInner(key){
 
 function viewBreakdown(){
   CAL_ST.bd.open=false;   // selalu mulai tertutup saat halaman digambar ulang
+  const tokenRender=++BD_RENDER;   // lihat catatan di BD_RENDER
   const el=document.getElementById('app-view');
   const days=daysOfMonth(PERIOD);
   if(!bdDate) bdDate=days.length?days[days.length-1].date:todayISO();
@@ -2777,6 +2951,11 @@ function viewBreakdown(){
   const net=netOf(d);
   d.bd=d.bd||{marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};
   if(!d.bd.self||typeof d.bd.self!=='object') d.bd.self={amount:0,disc:0};
+  /* Event otomatis yang sudah dibuang orangnya. Tanpa daftar ini, baris yang
+     dihapus akan muncul lagi tiap kali halaman dibuka — dan itu bukan cuma
+     menjengkelkan: event yang memang tidak jadi hari itu akan terus-menerus
+     minta diisi, sampai orang menyerah dan mengisinya nol supaya diam. */
+  if(!Array.isArray(d.bd.abaikan)) d.bd.abaikan=[];
   // pastikan baris kasir ada untuk semua kasir
   const kasirRows=DB.employees.kasir.map(k=>{ const ex=d.bd.kasir.find(r=>r.kasirId===k.id); return ex||{kasirId:k.id,amount:0,disc:0,off:false}; });
 
@@ -2807,12 +2986,13 @@ function viewBreakdown(){
       <div id="bd_so"></div>
 
       <span class="divlabel mk" style="margin-top:24px">Section B — Marketing <span style="opacity:.75;font-weight:600">(memotong kasir shift)</span></span>
-      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.</div>
+      <div class="helper" style="margin-bottom:10px">Nilai event marketing dipecah tiga: <b>Omset</b>, <b>Tax</b>, dan <b>Service</b>. Realisasi PIC di Performa Marketing = <b>ketiganya dijumlahkan</b>. Yang dipotong dari kasir shift <b>hanya kolom Omset</b> — tax &amp; service charge memang di luar omset net, jadi memotongnya dari kasir berarti mengurangi omset yang tidak pernah ada. Tentukan kasir shift-nya lewat tombol potongan di baris tersebut.<br>Event yang sudah berstatus <b>Deal</b> di modul Marketing muncul sendiri di bawah — nama PIC, nama event, dan nilainya sudah terisi; yang perlu diisi tinggal nominal yang benar-benar masuk.</div>
+      <div id="bd_src"></div>
       <div id="bd_mk"></div>
       <button class="btn btn-ghost btn-sm" id="add_mk">+ Tambah Data Marketing</button>
 
       <span class="divlabel ev" style="margin-top:24px">Section C — Event Internal <span style="opacity:.75;font-weight:600">(diakui 50%, kasir tidak dipotong)</span></span>
-      <div class="helper" style="margin-bottom:10px">Beda dari Section B. Yang diakui untuk target PIC event <b>separuh nominalnya</b>, dihitung otomatis — tidak perlu diisi manual. Kasir <b>tidak dipotong sama sekali</b>: omset event tetap dihitung penuh untuk target kasir yang menerimanya, jadi section ini tidak punya pengaturan kasir shift.</div>
+      <div class="helper" style="margin-bottom:10px">Beda dari Section B. Yang diakui untuk target PIC event <b>separuh nominalnya</b>, dihitung otomatis — tidak perlu diisi manual. Kasir <b>tidak dipotong sama sekali</b>: omset event tetap dihitung penuh untuk target kasir yang menerimanya, jadi section ini tidak punya pengaturan kasir shift. Event yang sudah <b>Upcoming</b>/<b>Event Done</b> di modul Event muncul sendiri dengan nama &amp; PIC-nya; nominalnya diisi tangan karena modul Event memang tidak menyimpan nilai rupiah. <b>Open Bill diakui penuh</b>, tidak ikut dibagi dua.</div>
       <div id="bd_ev"></div>
       <button class="btn btn-ghost btn-sm" id="add_ev">+ Tambah Data Event</button>
     </div>
@@ -2837,6 +3017,68 @@ function viewBreakdown(){
   state.ks.filter(r=>r.off).forEach(r=>buangDariShift(r.kasirId));
 
   const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
+
+  /* ---- MENYERAP EVENT HARI ITU DARI MODUL MARKETING & EVENT ----
+     Baris otomatis ditandai `srcId` ("mkt:<id>" / "evt:<id>"). Penanda itulah
+     yang mencegah baris yang sama masuk dua kali saat halaman digambar ulang,
+     dan yang menghubungkannya ke daftar `abaikan` kalau orangnya membuangnya.
+
+     PIC dicocokkan lewat NAMA, bukan id. Id PIC di modul marketing itu id
+     user marketing, sedangkan Section B memakai id pegawai milik modul ini —
+     dua ruang id yang berbeda, dan tidak ada tabel yang memetakan keduanya.
+     Nama adalah satu-satunya yang sama, karena keduanya sama-sama datang dari
+     roster Office. Yang tidak ketemu dibiarkan memakai PIC pertama seperti
+     baris manual; namanya tetap ditulis di pita sumber supaya orangnya tahu
+     harus membetulkan pilihan siapa. */
+  function cocokPic(divi,nama){
+    const n=String(nama||'').trim().toLowerCase();
+    if(!n) return null;
+    const e=(DB.employees[divi]||[]).find(x=>String(x.name||'').trim().toLowerCase()===n);
+    return e?e.id:null;
+  }
+  function serapOtomatis(){
+    if(EVHARI.tgl!==bdDate || EVHARI.st!=='ok') return false;
+    const abai=new Set(d.bd.abaikan||[]);
+    let tambah=0;
+    const sudahAda=key=>[...state.mk,...state.ev].some(r=>r.srcId===key);
+    EVHARI.mk.forEach(ev=>{
+      const key='mkt:'+ev.id;
+      if(abai.has(key)||sudahAda(key)) return;
+      const f=mkFinance(ev,EVHARI.set);
+      state.mk.push({picId:cocokPic('marketing',ev.picName)||undefined,
+        eventName:ev.nama||'', amount:0, tax:0, service:0, shift:[],
+        srcId:key, srcPic:ev.picName||'', srcNominal:f.grand,
+        srcOmset:f.omset, srcTax:f.tax, srcService:f.service});
+      tambah++;
+    });
+    EVHARI.ev.forEach(ev=>{
+      const key='evt:'+ev.id;
+      if(abai.has(key)||sudahAda(key)) return;
+      /* Modul event tidak menyimpan nilai rupiah event, jadi tidak ada
+         srcNominal di sini — yang dihemat cuma nama event & PIC-nya. */
+      state.ev.push({picId:cocokPic('event',ev.picName)||undefined,
+        eventName:ev.nama||'', amount:0, shift:[],
+        srcId:key, srcPic:ev.picName||''});
+      tambah++;
+    });
+    return tambah>0;
+  }
+  /* Pita status penarikan. Ditaruh di atas Section B karena di situlah baris
+     otomatisnya muncul. */
+  function pitaSumber(){
+    const box=document.getElementById('bd_src'); if(!box) return;
+    if(EVHARI.tgl!==bdDate || EVHARI.st==='muat'){
+      box.innerHTML=`<div class="notice info">⏳ Mengambil event ${esc(dateLabel(bdDate))} dari modul Marketing &amp; Event…</div>`; return;
+    }
+    if(EVHARI.st==='galat'){
+      box.innerHTML=`<div class="notice warn">⚠ Daftar event otomatis tidak bisa diambil (${esc(EVHARI.galat)}). Breakdown tetap bisa diisi seperti biasa — tambahkan barisnya manual.</div>`; return;
+    }
+    const n=EVHARI.mk.length+EVHARI.ev.length;
+    const dibuang=(d.bd.abaikan||[]).length;
+    box.innerHTML = n
+      ? `<div class="notice ok">✓ ${n} event berstatus <b>Deal</b>/<b>Upcoming</b> ditemukan untuk ${esc(dateLabel(bdDate))} — barisnya sudah dibuatkan di bawah, tinggal diisi nominalnya.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}${dibuang?` <span style="opacity:.8">· ${dibuang} baris pernah dibuang dan tidak dimunculkan lagi.</span>`:''}</div>`
+      : `<div class="notice info">ℹ️ Tidak ada event berstatus Deal/Upcoming di modul Marketing &amp; Event untuk ${esc(dateLabel(bdDate))}.${EVHARI.galat?` <span style="opacity:.8">(${esc(EVHARI.galat)} tidak terbaca)</span>`:''}</div>`;
+  }
 
   /* Ringkasan potongan per baris. Sekarang muncul di SEMUA baris, tidak lagi
      hanya yang free entry: setiap baris event memotong kasir, centang Free Entry
@@ -2895,7 +3137,10 @@ function viewBreakdown(){
          `bdValid` tidak dinaikkan begitu saja: alokasi omsetnya bisa saja
          belum balance, jadi flagnya diisi apa adanya supaya tidak berbohong
          soal hari yang sebenarnya masih selisih. */
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so};
+      // `abaikan` ikut dibawa — ia BUKAN bagian dari `state`, dan menulis d.bd
+      // dari nol tanpa menyalinnya membuat baris otomatis yang sudah dibuang
+      // muncul lagi begitu halaman digambar ulang.
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:d.bd.abaikan||[]};
       d.bdValid=Math.abs(net-sumDiakui())<1;
       save();
       const b=potonganBaris(row), box=document.getElementById('bd_info');
@@ -2906,8 +3151,65 @@ function viewBreakdown(){
       }
     }, kasirAktif());
   }
+  /* Pita di atas baris otomatis: dari mana asalnya, PIC yang tertulis di modul
+     sumber, dan nilai yang sudah dihitung marketing. Nilai itu PEMBANDING,
+     bukan angka yang dipakai — tombol "salin" yang memindahkannya ke kolom,
+     supaya angka dari modul sebelah tidak pernah masuk ke perhitungan omset
+     tanpa ada orang yang menyetujuinya. */
+  function pitaBaris(r,i,key){
+    if(!r.srcId) return '';
+    const dari=r.srcId.slice(0,3)==='mkt'?'Marketing':'Event';
+    const pic=r.srcPic?` · PIC di ${dari}: <b>${esc(r.srcPic)}</b>`:'';
+    const nilai=num(r.srcNominal)>0
+      ? ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b> <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`
+      : '';
+    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${nilai}</div>`;
+  }
+  /* Panel Open Bill. Kotaknya baru muncul setelah dicentang — kalau selalu
+     tampil, tiap event polos ikut memajang empat kotak kosong dan halaman ini
+     jadi dua kali lebih panjang untuk hari yang tidak punya open bill sama
+     sekali (mayoritas hari). */
+  function panelOb(r,i,key){
+    const on=obAktif(r);
+    const kasir=kasirAktif();
+    const opsi=`<option value="">— pilih kasir —</option>`+kasir.map(k=>`<option value="${esc(k.id)}" ${r.obKasirId===k.id?'selected':''}>${esc(k.name)}</option>`).join('');
+    const cek=`<label class="obtoggle${on?' on':''}"><input type="checkbox" class="${key}obc" data-i="${i}" ${on?'checked':''}> Open Bill</label>`;
+    if(!on) return cek;
+    const t=obTotal(r);
+    return cek+`
+      <div class="brow ob">
+        <div class="field"><label>OB — Omset</label><input data-i="${i}" data-f="obAmount" class="${key}f mono rp" inputmode="numeric" value="${r.obAmount||0}"></div>
+        <div class="field"><label>OB — Tax</label><input data-i="${i}" data-f="obTax" class="${key}f mono rp" inputmode="numeric" value="${r.obTax||0}"></div>
+        <div class="field"><label>OB — Service</label><input data-i="${i}" data-f="obService" class="${key}f mono rp" inputmode="numeric" value="${r.obService||0}"></div>
+        <div class="field"><label>Kasir yang menginput</label><select data-i="${i}" data-f="obKasirId" class="${key}f">${opsi}</select></div>
+        <div class="field"><label>Open Bill</label><div class="mono" style="padding:9px 0;font-weight:800">${fmtRp(t)}</div></div>
+      </div>
+      <div class="helper" style="margin:0 0 10px">${t>0&&!r.obKasirId?'⚠ <b>Belum ada kasir yang dipilih</b> — nominal ini akan diakui untuk PIC tanpa ada kasir yang tercatat melayaninya. ':''}Nominal Open Bill <b>ikut diakui untuk PIC</b> dan <b>tidak dipotong dari kasir mana pun</b>: uangnya memang sudah masuk omset bruto kasir hari itu. Kasir yang dipilih mendapat pengakuan Open Bill atas nama event ini di Performa Kasir.</div>`;
+  }
+  /* Penangan yang sama untuk dua section: centang Open Bill dan tombol salin.
+     Redraw penuh memang dilakukan di sini — dua-duanya menambah/menghapus
+     kotak isian, jadi tidak ada fokus ketikan yang bisa direbut. */
+  function bindOb(key,redraw){
+    document.querySelectorAll('.'+key+'obc').forEach(c=>c.onchange=()=>{
+      const r=state[key][+c.dataset.i];
+      r.ob=c.checked;
+      /* Angka TIDAK dinolkan saat centangnya dicabut. Orang mencabut centang
+         untuk melihat efeknya lalu memasangnya lagi; menghapus tiga kotak
+         yang baru diketik karena itu adalah kehilangan kerja tanpa peringatan.
+         obTotal() sudah memulangkan 0 selama `ob` mati, jadi angka yang
+         tertinggal tidak pernah ikut dihitung. */
+      redraw(); calc();
+    });
+    document.querySelectorAll('.'+key+'salin').forEach(b=>b.onclick=()=>{
+      const r=state[key][+b.dataset.i];
+      r.amount=num(r.srcOmset); r.tax=num(r.srcTax); r.service=num(r.srcService);
+      redraw(); calc();
+    });
+  }
   function drawMk(){
     document.getElementById('bd_mk').innerHTML=state.mk.map((r,i)=>`
+      <div class="ebox${r.srcId?' auto':''}">
+      ${pitaBaris(r,i,'mk')}
       <div class="brow mk">
         <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
@@ -2919,36 +3221,60 @@ function viewBreakdown(){
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
         </div>
+      </div>
+      ${panelOb(r,i,'mk')}
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data marketing.</div>';
     bind('mkf','mk',drawMk);
+    bindOb('mk',drawMk);
     /* Penangan centang Free Entry DIHAPUS bersama kotaknya: sejak pembagian
        50/50 dibuang, ia tidak lagi memengaruhi angka apa pun. Pembukaan modal
        shift saat nominal terisi tapi shift kosong tetap ada di penangan
        nominalnya (lihat bind di atas). */
     document.querySelectorAll('.mkbagi').forEach(b=>b.onclick=()=>bukaBagi('mk',+b.dataset.i));
-    document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{state.mk.splice(+b.dataset.i,1);drawMk();calc();});
+    document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{hapusBaris('mk',+b.dataset.i,drawMk);});
     formatAllRp(document.getElementById('bd_mk'));
   }
   function drawEv(){
     document.getElementById('bd_ev').innerHTML=state.ev.map((r,i)=>`
+      <div class="ebox${r.srcId?' auto':''}">
+      ${pitaBaris(r,i,'ev')}
       <div class="brow mk">
         <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
-        <div class="field"><label>Diakui PIC (50%)</label><div class="mono evdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'event'))}</div></div>
+        <div class="field"><label>Diakui PIC</label><div class="mono evdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'event'))}</div></div>
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm evdel" data-i="${i}">✕</button>
         </div>
+      </div>
+      ${panelOb(r,i,'ev')}
       </div>`).join('')||'<div class="helper" style="margin-bottom:8px">Belum ada data event.</div>';
     bind('evf','ev',drawEv);
+    bindOb('ev',drawEv);
     /* Tombol "Atur kasir shift" DIHAPUS dari section ini (7 Agustus 2026).
        Event tidak lagi memotong kasir, jadi membiarkan tombolnya tampil cuma
        membuat orang mengira pilihannya masih menentukan sesuatu — persis
        kesalahan yang dulu dibuat dengan kotak Free Entry. Baris event lama
        yang sudah menyimpan `shift` tidak dihapus datanya; ia cuma tidak lagi
        dibaca oleh potonganHari(). */
-    document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{state.ev.splice(+b.dataset.i,1);drawEv();calc();});
+    document.querySelectorAll('.evdel').forEach(b=>b.onclick=()=>{hapusBaris('ev',+b.dataset.i,drawEv);});
     formatAllRp(document.getElementById('bd_ev'));
+  }
+  /* Menghapus baris. Baris OTOMATIS harus sekaligus dicatat di `d.bd.abaikan`,
+     kalau tidak ia muncul lagi begitu halaman digambar ulang dan orangnya akan
+     menghapusnya berkali-kali tanpa pernah berhasil. Daftar abaikan disimpan
+     saat itu juga — bukan menunggu "Simpan Breakdown" — karena hari yang belum
+     balance tidak bisa disimpan, dan justru di hari seperti itulah orang
+     membuang baris event yang batal. */
+  function hapusBaris(key,i,redraw){
+    const r=state[key][i]; if(!r) return;
+    state[key].splice(i,1);
+    if(r.srcId){
+      d.bd.abaikan=Array.isArray(d.bd.abaikan)?d.bd.abaikan:[];
+      if(d.bd.abaikan.indexOf(r.srcId)<0){ d.bd.abaikan.push(r.srcId); save(); }
+      pitaSumber();
+    }
+    redraw(); calc();
   }
   function drawKs(){
     document.getElementById('bd_ks').innerHTML=state.ks.map((r,i)=>`
@@ -2998,7 +3324,7 @@ function viewBreakdown(){
   // sejak Section B punya tiga kolom angka (7 Agustus 2026) — tanpa itu
   // keduanya tersimpan sebagai STRING "1.500.000" dan num() di porsiPic
   // membacanya benar tapi save() menulis bentuk yang tidak konsisten.
-  const KOTAK_RP=['amount','tax','service'];
+  const KOTAK_RP=['amount','tax','service','obAmount','obTax','obService'];
   function bind(cls,key,redraw){
     document.querySelectorAll('.'+cls).forEach(inp=>{
       inp.oninput=inp.onchange=()=>{
@@ -3048,10 +3374,26 @@ function viewBreakdown(){
     if(!rows.length && !num(state.so.amount)) return '';
     // Hanya baris MARKETING — event tidak memotong kasir lagi (lihat porsiPic).
     const pot=id=>state.mk.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
+    /* Open Bill: dibaca dari `state`, bukan dari d.bd — yang sedang diketik
+       belum tersimpan, dan kartu ini justru dipakai untuk memeriksa sebelum
+       menyimpan. Kolomnya TIDAK ikut menambah/mengurangi Realisasi; ia
+       keterangan, lihat catatan panjang di obTotal(). */
+    const ob=id=>[...state.mk,...state.ev]
+      .filter(r=>obAktif(r)&&r.obKasirId===id)
+      .reduce((s,r)=>s+obTotal(r),0);
+    const obNama=id=>[...state.mk,...state.ev]
+      .filter(r=>obAktif(r)&&r.obKasirId===id&&obTotal(r)>0)
+      .map(r=>r.eventName||'event tanpa nama');
     const isi=rows.map(r=>{
-      const p=pot(r.kasirId), dc=diskonKasir(r), real=omsetKasir(r)-p;
-      return `<tr><td>${esc(empName('kasir',r.kasirId))}</td><td class="num mono">${fmtRp(num(r.amount))}</td><td class="num mono">${dc?'−'+fmtRp(dc):'<span class="muted">—</span>'}</td><td class="num mono">${p?'−'+fmtRp(p):'<span class="muted">—</span>'}</td><td class="num mono"><b>${fmtRp(real)}</b></td></tr>`;
+      const p=pot(r.kasirId), dc=diskonKasir(r), real=omsetKasir(r)-p, o=ob(r.kasirId);
+      const nm=obNama(r.kasirId);
+      return `<tr><td>${esc(empName('kasir',r.kasirId))}</td><td class="num mono">${fmtRp(num(r.amount))}</td><td class="num mono">${dc?'−'+fmtRp(dc):'<span class="muted">—</span>'}</td><td class="num mono">${p?'−'+fmtRp(p):'<span class="muted">—</span>'}</td><td class="num mono"><b>${fmtRp(real)}</b></td><td class="num mono">${o?`${fmtRp(o)}${nm.length?`<div style="font-size:11px;font-weight:600;opacity:.7">${esc(nm.join(', '))}</div>`:''}`:'<span class="muted">—</span>'}</td></tr>`;
     }).join('');
+    const tob=rows.reduce((s,r)=>s+ob(r.kasirId),0);
+    /* Open Bill yang belum ditunjuk kasirnya. Kalau didiamkan, nominalnya tetap
+       diakui untuk PIC tapi tidak ada satu pun kasir yang tercatat melayaninya
+       — persis kesalahan yang dulu terjadi pada baris tanpa kasir shift. */
+    const obYatim=[...state.mk,...state.ev].filter(r=>obAktif(r)&&obTotal(r)>0&&!r.obKasirId);
     const tp=rows.reduce((s,r)=>s+pot(r.kasirId),0);
     const tk=rows.reduce((s,r)=>s+num(r.amount),0)+num(state.so.amount);
     const td=rows.reduce((s,r)=>s+diskonKasir(r),0)+num(state.so.disc);
@@ -3060,15 +3402,17 @@ function viewBreakdown(){
        orang akan mengira ada omset yang hilang. Ditandai jelas supaya tidak
        terbaca sebagai nama kasir. */
     const barisSo=(num(state.so.amount)||num(state.so.disc))
-      ? `<tr style="color:var(--muted)"><td><i>Self Order (tanpa kasir)</i></td><td class="num mono">${fmtRp(num(state.so.amount))}</td><td class="num mono">${num(state.so.disc)?'−'+fmtRp(num(state.so.disc)):'—'}</td><td class="num mono">—</td><td class="num mono"><b>${fmtRp(num(state.so.amount)-num(state.so.disc))}</b></td></tr>`
+      ? `<tr style="color:var(--muted)"><td><i>Self Order (tanpa kasir)</i></td><td class="num mono">${fmtRp(num(state.so.amount))}</td><td class="num mono">${num(state.so.disc)?'−'+fmtRp(num(state.so.disc)):'—'}</td><td class="num mono">—</td><td class="num mono"><b>${fmtRp(num(state.so.amount)-num(state.so.disc))}</b></td><td class="num mono">—</td></tr>`
       : '';
     return `<div class="card"><h3>Efek ke Realisasi Kasir</h3>
       <div class="card-sub">Rincian lengkap ada di sini, bukan di halaman Performa Kasir — di sana yang tampil hanya angka finalnya. Diskon yang diberikan seorang kasir tidak pernah jadi omsetnya.</div>
+      ${obYatim.length?`<div class="notice warn">⚠ ${obYatim.length} Open Bill belum ditunjuk kasirnya (${esc(obYatim.map(r=>r.eventName||'event tanpa nama').join(', '))}) senilai <b>${fmtRp(obYatim.reduce((s,r)=>s+obTotal(r),0))}</b>. Nominalnya tetap diakui untuk PIC, tapi tidak ada kasir yang tercatat melayaninya.</div>`:''}
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Kasir</th><th class="num" style="width:130px">Omset Bruto</th><th class="num" style="width:130px">Diskon Diberikan</th><th class="num" style="width:130px">Potongan Event</th><th class="num" style="width:130px">Realisasi</th></tr></thead>
+        <thead><tr><th>Kasir</th><th class="num" style="width:130px">Omset Bruto</th><th class="num" style="width:130px">Diskon Diberikan</th><th class="num" style="width:130px">Potongan Event</th><th class="num" style="width:130px">Realisasi</th><th class="num" style="width:150px">Open Bill</th></tr></thead>
         <tbody>${isi}${barisSo}</tbody>
-        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td>TOTAL</td><td class="num mono">${fmtRp(tk)}</td><td class="num mono">${td?'−'+fmtRp(td):'Rp0'}</td><td class="num mono">${tp?'−'+fmtRp(tp):'Rp0'}</td><td class="num mono">${fmtRp(tk-td-tp)}</td></tr></tfoot>
-      </table></div></div>`;
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td>TOTAL</td><td class="num mono">${fmtRp(tk)}</td><td class="num mono">${td?'−'+fmtRp(td):'Rp0'}</td><td class="num mono">${tp?'−'+fmtRp(tp):'Rp0'}</td><td class="num mono">${fmtRp(tk-td-tp)}</td><td class="num mono">${tob?fmtRp(tob):'Rp0'}</td></tr></tfoot>
+      </table></div>
+      <div class="helper" style="margin:10px 0 0">Kolom <b>Open Bill</b> tidak menambah maupun mengurangi Realisasi di sebelahnya — uangnya sudah ada di dalam Omset Bruto kasir itu. Ia menandai bagian mana yang datang dari pesanan tambahan event, dan event mana. Nominal yang sama juga diakui untuk PIC event-nya, dan <b>tidak dipotong</b> dari kasir mana pun.</div></div>`;
   }
   function calc(){
     const tot=sumDiakui(), diff=net-tot, ok=Math.abs(diff)<1;
@@ -3109,7 +3453,10 @@ function viewBreakdown(){
         <button class="btn btn-primary" id="bd_save" ${ok?'':'disabled'}>Simpan Breakdown</button>
       </div>`;
     document.getElementById('bd_save').onclick=()=>{
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so};d.bdValid=true;save();render();
+      // `abaikan` ikut dibawa — ia BUKAN bagian dari `state`, dan menulis d.bd
+      // dari nol tanpa menyalinnya membuat baris otomatis yang sudah dibuang
+      // muncul lagi begitu halaman digambar ulang.
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:d.bd.abaikan||[]};d.bdValid=true;save();render();
     };
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
@@ -3119,6 +3466,19 @@ function viewBreakdown(){
   // lagi, jadi field kosong yang tak pernah diisi cuma jadi umpan salah baca.
   document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0});drawEv();calc();};
   drawMk();drawEv();drawKs();drawSo();calc();
+
+  /* Penarikan event otomatis dijalankan PALING AKHIR, sesudah halaman lengkap
+     tergambar. Menunggunya lebih dulu berarti Breakdown baru muncul setelah
+     dua modul lain menjawab — dan kalau salah satunya mati, halaman ini ikut
+     menggantung padahal isinya sama sekali tidak bergantung padanya. */
+  pitaSumber();
+  const pasang=()=>{
+    // Render lama, atau user sudah pindah halaman/tanggal — jangan sentuh DOM.
+    if(tokenRender!==BD_RENDER || CURRENT!=='breakdown' || bdDate!==EVHARI.tgl) return;
+    pitaSumber();
+    if(serapOtomatis()){ drawMk(); drawEv(); calc(); }
+  };
+  muatEventHari(bdDate,pasang);
 }
 
 /* Nama bulan untuk label periode. Dulu tinggal di blok Performa; blok itu
