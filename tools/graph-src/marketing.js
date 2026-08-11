@@ -1778,6 +1778,57 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -9000,7 +9051,7 @@ function printBrief() { $(); toast(); tungguGambar(); }
 
 
 
-function muatEventEms() { go(); }
+function muatEventEms() { go(); rsvAmbil(); }
 
 
 
@@ -9016,6 +9067,84 @@ function muatEventEms() { go(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatReservasi() { rsvAmbil(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelGagalRsv() { svg(); esc(); muatReservasi(); }
+
+
+
+
+
+
+
+
+function rsvHariPopup() { esc(); fmtDateLong(); closeModal(); svg(); modal(); }
 
 
 
@@ -9061,7 +9190,23 @@ function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
 
 
 
-function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); today(); eventPadaTgl(); calEventPopup(); esc(); emsEventPopup(); muatEventEms(); }
+function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); today(); eventPadaTgl(); calEventPopup(); esc(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
