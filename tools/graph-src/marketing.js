@@ -2682,6 +2682,12 @@ function ago() { autoCloseEvents(); }
 
 
 
+
+
+
+
+
+
 function jenisEvent() { getFbFormats(); }
 
 
@@ -3660,7 +3666,18 @@ function doLogin() { $(); buildNav(); updateTopUser(); bootRoute(); }
 
 
 
-function updateTopUser() { $(); go(); permViewKeys(); can(); }
+function updateTopUser() { $(); can(); buildNav(); permViewKeys(); go(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3854,7 +3871,6 @@ function empty() { svg(); }
 
 
 function renderDashboard() { today(); eventFinance(); daysTo(); pageHead(); can(); newClient(); svg(); stat(); progressBar(); esc(); empty(); tblPage(); tblUrut(); tblHead(); go(); clientName(); fmtRentang(); tblPagerHtml(); grafikPendapatan(); papanClosing(); panelPerluDigarap(); }
-
 
 
 
@@ -5031,6 +5047,7 @@ function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(
 
 
 
+
 function renderEvents() { can(); pageHead(); newEvent(); svg(); briefSetPeriode(); esc(); paintEvents(); eventFinance(); }
 
 
@@ -5068,7 +5085,27 @@ function renderEvents() { can(); pageHead(); newEvent(); svg(); briefSetPeriode(
 
 
 
+
+
+
+
+
+
+
+
+
+
 function paintEvents() { briefRentang(); clientName(); tblUrut(); $(); call(); fmtDate(); empty(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); esc(); jenisEvent(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
 
 
 

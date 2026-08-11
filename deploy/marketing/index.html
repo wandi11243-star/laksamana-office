@@ -2660,6 +2660,12 @@ const CLIENT_STATUS = {
    tambahan tanpa keputusan baru. Event lama yang terlanjur ada di sana
    dipindahkan ke Quotation Terkirim oleh normalizeState — lihat di sana. */
 const PIPE_COLS = ['Lead','Prospect','Quotation Terkirim','Deal','Lost'];
+/* SELURUH status event, termasuk 'Event Done' yang tidak punya kolom di
+   kanban. Dulu daftar ini hidup sebagai const LOKAL di dalam
+   renderDashboard — jadi begitu halaman lain (penyaring status di Input &
+   Event) membutuhkannya, yang terjadi bukan error yang kelihatan
+   melainkan 'EV_STATUSES is not defined' saat halamannya dibuka. */
+const EV_STATUSES = ['Lead','Prospect','Quotation Terkirim','Deal','Event Done','Lost'];
 /* "Event Done" sengaja TIDAK punya kolom di kanban. Pipeline itu papan peluang
    yang masih digarap; event yang sudah selesai bukan lagi pekerjaan di sana dan
    hanya membuat papannya panjang. Menutup event dilakukan lewat tombol "Tandai
@@ -3684,7 +3690,18 @@ const NAV_DEF=[
   // alur: peluang masuk & digarap dulu, baru detailing, brief, jadwal, handover
   {k:'pipeline',t:'Sales Pipeline',i:'pipe'},
   {k:'events',t:'Input & Event',i:'event'},
-  {k:'brief',t:'Event Brief & Quotation',i:'brief'},
+  /* DISEMBUNYIKAN dari sidebar, BUKAN dihapus dari NAV_DEF.
+
+     Daftar view untuk matriks hak akses diambil dari NAV_DEF ini
+     (permViewKeys), jadi mencabut barisnya ikut mencabut baris izinnya —
+     dan can('...') untuk brief akan menjawab tidak-boleh untuk semua
+     orang, termasuk yang seharusnya berhak. Halamannya sendiri masih
+     hidup dan tetap dituju dari tombol Internal / Client / Draft di
+     Input & Event, jadi izinnya justru MASIH dipakai.
+
+     `hidden:1` adalah bentuk yang sudah dipakai baris users di bawah:
+     buildNav() melewatinya, permViewKeys() tetap menghitungnya. */
+  {k:'brief',t:'Event Brief & Quotation',i:'brief',hidden:1},
   {k:'vip',t:'Reservasi VIP',i:'star'},
   {g:'Finance & Kontrol'},
   // Kalkulator dipindah ke sini: keluarannya angka harga, bukan pekerjaan event.
@@ -3866,7 +3883,6 @@ function renderDashboard(V){
   // Closing = event yang benar-benar sudah closing (Deal/Confirmed/Event Done), bukan yang masih di pipeline.
   const closingMonth = S.events.filter(e=>{const t=new Date(e.tanggal); return t.getMonth()===thisMonth && ['Deal','Confirmed','Event Done'].includes(e.status);}).length;
   const evTotal = S.events.length;
-  const EV_STATUSES = ['Lead','Prospect','Quotation Terkirim','Deal','Event Done','Lost'];
   const evTally = {}; EV_STATUSES.forEach(s=>evTally[s]=0);
   // 'Confirmed' = status lama sebelum pindah ke 'Deal' — hitung sebagai Deal biar total cocok
   S.events.forEach(e=>{ const st = e.status==='Confirmed' ? 'Deal' : e.status; if(evTally[st]!==undefined) evTally[st]++; });
@@ -5031,6 +5047,7 @@ function saveFollowUp(clientId){
    MODUL D — INPUT EVENT & EVENT DETAILING
    ============================================================ */
 let evFilter='';
+let evStatus='';        // '' = semua status
 function renderEvents(V){
   const canEdit=can('edit_event');
   let h=pageHead('Modul D','Input & Event','Detailing lengkap per divisi. Marketing isi bertahap, tiap divisi buka tab yang relevan.',
@@ -5041,6 +5058,16 @@ function renderEvents(V){
        return '<button class="'+(briefPeriode===x[0]?'on':'')+'" '
          +'onclick="briefSetPeriode(\''+x[0]+'\')">'+esc(x[1])+'</button>'; }).join('')
    +'</div>'
+   /* Status pakai <select>, bukan deretan tombol seperti periode: enam
+      status ditambah "Semua" jadi tujuh tombol, dan berjajar di samping
+      empat tombol periode + kotak pencarian itu pasti melipat jadi dua
+      baris. Periode cuma empat dan dipakai jauh lebih sering, jadi yang
+      itu yang pantas memakan lebar. */
+   +'<select class="inp" style="width:auto" onchange="evStatus=this.value;paintEvents()">'
+   +'<option value=""'+(evStatus===''?' selected':'')+'>Semua status</option>'
+   +EV_STATUSES.map(function(x){
+       return '<option value="'+esc(x)+'"'+(evStatus===x?' selected':'')+'>'+esc(x)+'</option>'; }).join('')
+   +'</select>'
    +'<div class="searchbar">'+svg(IC.search)+'<input placeholder="Cari event / client..." oninput="evFilter=this.value;paintEvents()"></div>'
    +'<span class="cell-sub" id="ev-hitung"></span>';
   h+='</div><div class="card pad0"><div id="ev-table"></div></div>';
@@ -5077,6 +5104,12 @@ function paintEvents(){
   const seperiode=!r ? S.events.slice() : S.events.filter(function(e){
     const t=String(e.tanggal||''); return t && t>=r.a && t<=r.b; });
   let evs=seperiode.slice();
+  /* Status disaring SESUDAH periode tapi SEBELUM pencarian teks, dan
+     sengaja tidak ikut menghitung "dari y" di bawah: y berarti "event pada
+     periode ini", jadi menyaring status ke Deal harus terbaca "3 dari 40"
+     — itulah yang memberi tahu bahwa 37 lainnya berstatus lain, bukan
+     bahwa datanya hilang. */
+  if(evStatus) evs=evs.filter(function(e){ return e.status===evStatus; });
   if(evFilter){ const q=evFilter.toLowerCase(); evs=evs.filter(e=>(e.nama+' '+clientName(e.clientId)).toLowerCase().includes(q)); }
   evs=tblUrut(evs,'events',KOL_EVENTS);
   /* Tombol periode hidup di kepala halaman yang TIDAK digambar ulang oleh
@@ -5088,9 +5121,13 @@ function paintEvents(){
   const hit=$('ev-hitung');
   if(hit) hit.textContent=evs.length+' dari '+seperiode.length+' event'
     +(r?' · '+fmtDate(r.a)+(r.a!==r.b?' – '+fmtDate(r.b):''):'');
-  if(!evs.length)return $('ev-table').innerHTML=empty(
-    briefPeriode&&!evFilter?'Tidak ada event pada periode ini':'Belum ada event',
-    briefPeriode&&!evFilter?'Pilih Semua untuk melihat seluruh event.':'Buat event dari client yang sudah Deal.','event');
+  if(!evs.length){
+    const adaSaringan=briefPeriode||evStatus||evFilter;
+    return $('ev-table').innerHTML=empty(
+      adaSaringan?'Tidak ada yang cocok':'Belum ada event',
+      adaSaringan?'Longgarkan saringan periode/status, atau kosongkan pencariannya.'
+                 :'Buat event dari client yang sudah Deal.','event');
+  }
   const p=tblPage(evs,'events',evFilter||'');
   let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('events',KOL_EVENTS)+'<tbody>';
   p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
