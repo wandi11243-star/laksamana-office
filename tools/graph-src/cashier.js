@@ -1555,7 +1555,14 @@ function hapusBon() { save(); render(); }
 
 
 
-function hapusOwner() { save(); render(); todayISO(); }
+function hapusOwner() { save(); render(); todayISO(); kasirMurni(); }
+
+
+
+
+
+
+
 
 
 
@@ -1571,6 +1578,15 @@ function hapusOwner() { save(); render(); todayISO(); }
 
 
 function ambilRoster() {  }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2196,7 +2212,7 @@ function baguRingkasKasir() { bonusKasir(); }
 
 
 
-function kartuBonusKasir() { bonusKasir(); }
+function kartuBonusKasir() { bonusKasir(); ketKasir(); }
 
 
 
@@ -2217,7 +2233,67 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ketKasir() {  }
+
+
+
+
+
+
+
+
+function kasirMurni() { ketKasir(); }
+
+
+
+
+
+
+
+function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); ketKasir(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

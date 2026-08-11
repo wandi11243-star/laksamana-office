@@ -1076,7 +1076,14 @@ function go() { bolehLihat(); render(); }
 
 function clearCharts() {  }
 
-function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); formatAllRp(); todayISO(); }
+function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); formatAllRp(); todayISO(); kasirMurni(); }
+
+
+
+
+
+
+
 
 
 
@@ -1090,6 +1097,15 @@ function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); formatA
 
 
 function ambilRoster() {  }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2273,7 +2289,7 @@ function baguRingkasKasir() { bonusKasir(); }
 
 
 
-function kartuBonusKasir() { bonusKasir(); }
+function kartuBonusKasir() { bonusKasir(); boot(); ketKasir(); }
 
 
 
@@ -2294,7 +2310,65 @@ function kartuBonusKasir() { bonusKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ketKasir() {  }
+
+
+
+
+
+
+
+
+function kasirMurni() { ketKasir(); }
+
+
+
+
+
+
+
+function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); ketKasir(); modeHarian(); labelRentang(); targetPic(); pct(); baguRingkasKasir(); kartuBonusKasir(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2470,6 +2544,17 @@ function viewAkses() { muatAkses(); save(); }
 
 
 function kkApi() {  }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

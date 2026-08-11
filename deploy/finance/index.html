@@ -1089,6 +1089,13 @@ function render(){
 /* ============ 1. INPUT OMSET HARIAN ============ */
 let compDate=todayISO();
 let COMP_ROSTER=null, COMP_ROSTER_ERR='';
+/* Peta Tim/Keterangan MENTAH dari Office (kunci '#id' dan '@nama' → teks apa
+   adanya), diisi berbarengan dengan COMP_ROSTER dari balasan yang sama.
+   Dipisah karena COMP_ROSTER sudah TERSARING: ia hanya menyimpan divisi yang
+   dikenal COMP_DIV, jadi akun ber-keterangan "kasir floor" tersimpan sebagai
+   divs:['kasir'] — persis sama dengan kasir murni, tidak bisa dibedakan lagi.
+   Penyaringan Performa Kasir butuh teks aslinya. Lihat kasirMurni(). */
+let KET_MAP=null;
 function ambilRoster(){
   if(COMP_ROSTER!==null) return Promise.resolve(COMP_ROSTER);
   return fetch('../account-api-mysql/api.php',{method:'POST',redirect:'follow',
@@ -1103,6 +1110,15 @@ function ambilRoster(){
          saja — dan hilang dari daftar PIC compliment yang khusus kasir tanpa
          ada yang bisa menebak sebabnya. `div` dipertahankan untuk tampilan
          ringkas (chip di tabel) dan data lama. */
+      /* Diisi SEBELUM penyaringan di bawah, dan tanpa membuang yang nonaktif:
+         ini kamus keterangan, bukan daftar orang yang boleh dipilih. */
+      KET_MAP={};
+      j.members.forEach(u=>{
+        const teks=String(u.keterangan||'');
+        if(u.id!=null&&u.id!=='') KET_MAP['#'+u.id]=teks;
+        const nm=String(u.name||'').trim().toLowerCase();
+        if(nm) KET_MAP['@'+nm]=teks;
+      });
       COMP_ROSTER=j.members.map(u=>{
         if(u.active===false) return null;
         const ket=String(u.keterangan||'').toLowerCase().split(/[\s,;/]+/);
@@ -2294,10 +2310,58 @@ function kartuBonusKasir(real, semua){
   </div>`;
 }
 
+/* ---- SIAPA YANG DINILAI DI HALAMAN INI (11 Agustus 2026) ----
+   Performa Kasir hanya memajang akun yang Tim/Keterangan-nya di Office PERSIS
+   "kasir". Dua golongan sengaja hilang dari sini:
+
+     - yang keterangannya bukan kasir sama sekali (PIC lama, atau akun yang
+       timnya sudah dipindah di Office tapi barisnya tertinggal di sini);
+     - yang bertim rangkap — "kasir floor", "Kasir, Office".
+
+   Alasannya: halaman ini menilai TARGET dan BONUS kasir penuh waktu. Orang yang
+   cuma sesekali memegang POS akan selalu terlihat gagal target, dan angkanya
+   ikut menyeret kotak "Semua" — dua angka yang dipakai untuk memutuskan uang,
+   dihitung dari orang yang tidak diukur dengan ukuran itu.
+
+   Yang TIDAK ikut berubah, dan memang tidak boleh: pilihan kasir di Input Omset
+   /Breakdown (milik Kompas), Ranking, dan Pengaturan Target. Omset mereka tetap
+   boleh dialokasikan dan tetap tercatat — cuma tidak dinilai di sini.
+
+   Dasarnya keterangan MENTAH dari Office (KET_MAP), bukan salinan di DB —
+   penting justru di modul ini: Finance TIDAK menjalankan syncPicOffice (lihat
+   boot()), jadi kalau penyaringnya bergantung pada field yang ditulis modul
+   lain, halaman ini akan menyaring dengan data basi tanpa ada yang tahu. Kalau
+   Office belum menjawab (atau orangnya sudah tidak ada di sana), ketKasir()
+   memulangkan null dan orangnya TETAP DITAMPILKAN — sesaat memajang satu nama
+   berlebih jauh lebih tidak berbahaya daripada menyembunyikan kasir sungguhan
+   beserta bonusnya cuma karena jaringan belum selesai. */
+function ketKasir(e){
+  if(!e) return null;
+  if(KET_MAP){
+    if(e.officeUserId!=null){ const a=KET_MAP['#'+e.officeUserId]; if(a!==undefined) return a; }
+    const b=KET_MAP['@'+String(e.name||'').trim().toLowerCase()];
+    if(b!==undefined) return b;
+  }
+  return null;
+}
+function kasirMurni(e){
+  const ket=ketKasir(e);
+  if(ket===null) return true;                       // belum diketahui → jangan sembunyikan
+  // Pemisahnya sama dengan seluruh modul (spasi, koma, titik koma, garis miring)
+  // supaya "Floor, Kasir" dan "kasir/office" terbaca dua kata, bukan satu.
+  const t=String(ket).toLowerCase().split(/[\s,;/]+/).filter(Boolean);
+  return t.length===1 && t[0]==='kasir';
+}
 function viewKasir(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
-  const list=DB.employees.kasir;
+  /* Roster Office belum pernah ditarik kalau halaman Compliment belum dibuka.
+     Tarik sekali, lalu gambar ulang — bukan menunggu, supaya halaman tetap
+     tampil seketika. */
+  if(COMP_ROSTER===null) ambilRoster().then(()=>{ if(CURRENT==='kasir') render(); });
+  const semuaPic=DB.employees.kasir;
+  const list=semuaPic.filter(kasirMurni);
+  const disaring=semuaPic.filter(e=>!kasirMurni(e));
   const agg={};
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0});
   days.forEach(d=>{
@@ -2348,7 +2412,14 @@ function viewKasir(){
   const peringatan=hariBelum.length
     ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya baris event yang belum ditentukan kasir shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Potongannya belum dibebankan ke kasir mana pun, jadi realisasi di bawah masih terlalu besar — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
     : '';
-  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  /* Nama yang disaring DISEBUT, tidak cuma dihilangkan. Orang yang mencari
+     namanya sendiri dan tidak menemukannya akan mengira halamannya rusak, dan
+     satu-satunya cara memperbaikinya (ubah Tim/Keterangan di Office) tidak ada
+     di halaman ini. */
+  const catatanSaring=disaring.length
+    ? `<div class="notice info">ℹ️ <b>${disaring.length} nama tidak dinilai di halaman ini</b> karena Tim/Keterangan-nya di Office bukan <b>kasir saja</b>: ${esc(disaring.slice(0,8).map(e=>{const k=ketKasir(e);return e.name+(k?` (${k})`:'');}).join(', '))}${disaring.length>8?', …':''}. Kasir rangkap tidak diukur dengan target &amp; bonus kasir penuh, jadi angkanya juga tidak ikut ke kotak <b>Semua</b>. Omsetnya tetap tercatat dan tetap boleh diinput seperti biasa. Perbaiki Tim/Keterangan di <b>Office</b> kalau ada yang seharusnya kasir penuh.</div>`
+    : '';
+  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+catatanSaring+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
     let k,a;
     if(kid==='__all__'){
@@ -2378,7 +2449,10 @@ function viewKasir(){
     else emptyCanvas('ks_chart','Belum ada data');
   };
   document.querySelectorAll('#ks_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#ks_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');draw(b.dataset.k);});
-  if(list.length)draw('__all__'); else document.getElementById('ks_body').innerHTML='<div class="card"><div class="empty">Belum ada kasir. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
+  if(list.length)draw('__all__');
+  else document.getElementById('ks_body').innerHTML=semuaPic.length
+    ? '<div class="card"><div class="empty">Tidak ada kasir yang dinilai di sini. Semua nama yang ada bertim rangkap atau bukan kasir — lihat keterangan di atas.</div></div>'
+    : '<div class="card"><div class="empty">Belum ada kasir. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
 }
 
 /* ============ 7. SUMMARY / RANKING ============ */
