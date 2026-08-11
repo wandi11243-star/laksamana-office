@@ -86,6 +86,16 @@ input,select,textarea{font-family:inherit}
 .field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px}
 .field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;transition:border-color .15s,box-shadow .15s}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+/* Tabel input Kas Kecil (halaman Input Transaksi). Kotak isian di dalam sel
+   tabel TIDAK kena aturan ".field input" di atas — tanpa blok ini bentuknya
+   jadi kotak bawaan peramban dan satu-satunya tabel di modul ini yang tidak
+   sebentuk dengan sisanya. Ukurannya sengaja lebih kecil dari .field: satu
+   baris memuat 9 kolom, dan padding 11px membuatnya tidak muat di layar 13". */
+.kkd input,.kkd select{width:100%;padding:8px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px}
+.kkd input:focus,.kkd select:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+.kkd input[type=checkbox]{width:auto;padding:0}
+.kkd td{vertical-align:middle;padding:7px 8px}
+.kkd .num input{text-align:right}
 
 /* ===== LAYOUT ===== */
 .app{display:flex;min-height:100vh}
@@ -443,7 +453,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
              daftarnya: daftar transaksi bulan berjalan panjangnya puluhan
              baris, dan form yang menempel di atasnya membuat orang menggulir
              melewati form yang sama tiap kali ingin memeriksa satu angka. -->
-        <a data-view="kk_buku"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h7"/></svg></span> Buku Kas</a>
+        <a data-view="kk_buku"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/><path d="M9 7h7M9 11h7"/></svg></span> Buku Kas Kecil</a>
         <a data-view="kk_input"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></span> Input Transaksi</a>
         <a data-view="kk_pos"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span> Pos &amp; Kategori</a>
       </div>
@@ -1041,8 +1051,8 @@ function syncKendaliPeriode(){
 
 /* ============ ROUTER ============ */
 const TITLES={
-  kk_input:['Input Transaksi Kas Kecil','Satu transaksi bisa dibagi ke beberapa pos pembayaran'],
-  kk_buku:['Buku Kas','Semua transaksi berikut saldo berjalan tiap pos'],
+  kk_input:['Input Transaksi Kas Kecil','Satu baris = satu transaksi; tambah baris sebanyak yang perlu lalu simpan sekaligus'],
+  kk_buku:['Buku Kas Kecil','Semua transaksi berikut saldo berjalan tiap pos'],
   kk_pos:['Pos & Kategori','Daftar pos pembayaran dan kategori belanja'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
@@ -2692,7 +2702,7 @@ function kkTerpakai(t){
 }
 function kkSetFilter(k,v){ KK_FILTER[k]=v; render(); }
 
-/* ---- halaman: BUKU KAS ---- */
+/* ---- halaman: BUKU KAS KECIL ---- */
 function viewKkBuku(){
   const el=document.getElementById('app-view');
   if(KK===null && !KK_ERR){
@@ -2722,13 +2732,36 @@ function viewKkBuku(){
       '<div class="muted" style="font-size:11.5px;margin-top:4px">saldo seluruh riwayat'+(aktif?' · <b>sedang disaring</b>':'')+'</div></div>';
   }).join('');
 
+  /* KARTU TOTAL (11 Agustus 2026, permintaan user). Tiga kartu pos menjawab
+     "berapa sisa di masing-masing", tapi pertanyaan yang paling sering diajukan
+     — "seluruhnya kita pegang berapa" — sebelumnya harus dijumlah di kepala
+     tiap kali halaman dibuka.
+
+     Yang dijumlah adalah pos AKTIF, yaitu persis kartu-kartu yang terlihat di
+     sebelahnya; total yang tidak sama dengan jumlah angka di layar akan dibaca
+     sebagai salah hitung. Kalau ada pos nonaktif yang saldonya belum nol, uang
+     itu tetap ada dan tidak boleh menghilang tanpa kabar — selisihnya disebut
+     di baris kecil di bawah angkanya. */
+  const totalAktif=pos.reduce(function(s,p){ return s+kkSaldoPos(p.id); },0);
+  const totalSemua=kkSaldoPos('');
+  const selisihNonaktif=totalSemua-totalAktif;
+  const semuaPosTampil=!KK_FILTER.pos;
+  const kartuTotal=pos.length?('<div class="card" style="margin:0;cursor:pointer;background:var(--gold-soft)'+
+      (semuaPosTampil?';border-color:var(--gold);box-shadow:0 0 0 2px rgba(201,162,39,.16)':'')+'"'+
+      ' onclick="kkSetFilter(\'pos\',\'\')" title="Klik untuk menampilkan seluruh pos di buku di bawah">'+
+      '<div class="card-sub" style="margin:0 0 6px"><b>Total Semua Pos</b></div>'+
+      '<div class="mono" style="font-size:20px;font-weight:800;color:'+(totalAktif<0?'var(--danger)':'var(--ink)')+'">'+fmtRp(totalAktif)+'</div>'+
+      '<div class="muted" style="font-size:11.5px;margin-top:4px">gabungan '+pos.length+' pos'+
+        (semuaPosTampil?' · <b>sedang ditampilkan</b>':'')+
+        (selisihNonaktif?'<br>+ '+fmtRp(selisihNonaktif)+' di pos nonaktif':'')+'</div></div>'):'';
+
   el.innerHTML=
-    (pos.length?'<div class="grid g'+Math.min(pos.length,4)+'" style="margin-bottom:18px">'+kartuPos+'</div>'
+    (pos.length?'<div class="grid g'+Math.min(pos.length+1,5)+'" style="margin-bottom:18px">'+kartuPos+kartuTotal+'</div>'
       :'<div class="notice warn">⚠ <div>Belum ada pos pembayaran. Tambahkan dulu di <b>Pos &amp; Kategori</b> — tanpa pos, transaksi tidak punya tempat untuk dicatat.</div></div>')+
     (KK_ERR?'<div class="notice bad">⚠ <div>'+esc(KK_ERR)+'</div></div>':'')+
     '<div class="card">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">'+
-        '<div><h3>Buku Kas — '+esc(labelRentang())+'</h3>'+
+        '<div><h3>Buku Kas Kecil — '+esc(labelRentang())+'</h3>'+
           '<div class="card-sub" style="margin:0">'+baris.length+' transaksi ditampilkan'+(KK_FILTER.pos?' · pos <b>'+esc(kkPosNama(KK_FILTER.pos))+'</b>':'')+'</div></div>'+
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
           (belum?'<button class="btn btn-ghost btn-sm" onclick="kkSetFilter(\'belum\','+(KK_FILTER.belum?'false':'true')+')">'+(KK_FILTER.belum?'✓ ':'')+'Belum lengkap ('+belum+')</button>':'')+
@@ -2803,112 +2836,248 @@ function viewKkInput(){
   const el=document.getElementById('app-view');
   if(KK===null){ el.innerHTML='<div class="card"><div class="empty"><div class="big">⏳</div>Memuat kas kecil…</div></div>'; return; }
   const pos=kkPosAktif(), kat=kkKatAktif();
-  const t=KK_EDIT?kkTrxById(KK_EDIT):null;
-  const nilaiPos=function(id){
-    if(!t) return '';
-    const b=(t.baris||[]).find(function(x){return String(x.pos_id)===String(id);});
-    if(!b) return '';
-    const n=num(b.debet)||num(b.kredit);
-    return n?String(n):'';
-  };
-  const arah=t?((kkNilai(t).debet>0)?'debet':'kredit'):'kredit';
-
   if(!pos.length){
     el.innerHTML='<div class="notice warn">⚠ <div><b>Belum ada pos pembayaran.</b> Transaksi tidak punya tempat untuk dicatat. '+
       'Tambahkan dulu di <b>Pos &amp; Kategori</b>.</div></div>'+
       '<div class="card"><button class="btn btn-primary btn-sm" onclick="go(\'kk_pos\')">Buka Pos &amp; Kategori</button></div>';
     return;
   }
+  kkSiapkanDraft();
+  const edit=!!KK_EDIT;
   el.innerHTML=
     (KK_ERR?'<div class="notice bad">⚠ <div>'+esc(KK_ERR)+'</div></div>':'')+
-    '<div class="card'+(t?' edit-on':'')+'">'+
+    '<div class="card'+(edit?' edit-on':'')+'">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
-        '<div><h3>'+(t?'Ubah Transaksi':'Transaksi Baru')+'</h3>'+
-          '<div class="card-sub" style="margin:0">'+(t?'Menyunting transaksi tanggal '+esc(t.tgl):'Satu transaksi bisa dibayar dari beberapa pos sekaligus')+'</div></div>'+
-        (t?'<button class="btn btn-ghost btn-sm" onclick="kkBatalEdit()">Batal ubah</button>':'')+
+        '<div><h3>'+(edit?'Ubah Transaksi':'Transaksi Baru')+'</h3>'+
+          '<div class="card-sub" style="margin:0">'+(edit
+            ? 'Menyunting satu transaksi yang sudah tersimpan'
+            : 'Satu baris = satu transaksi. Tambah baris sebanyak yang perlu, lalu simpan sekaligus.')+'</div></div>'+
+        (edit?'<button class="btn btn-ghost btn-sm" onclick="kkBatalEdit()">Batal ubah</button>':'')+
       '</div>'+
-      '<div class="grid g2" style="margin-top:14px">'+
-        '<div class="field"><label>Tanggal</label><input type="date" id="kk_tgl" value="'+esc(t?t.tgl:todayISO())+'"></div>'+
-        '<div class="field"><label>Kategori</label><select id="kk_kat">'+
-          '<option value="">— tanpa kategori —</option>'+
-          kat.map(function(k){return '<option value="'+esc(String(k.id))+'"'+((t&&String(t.kategori_id)===String(k.id))?' selected':'')+'>'+esc(k.nama)+'</option>';}).join('')+
-        '</select></div>'+
-      '</div>'+
-      '<div class="field"><label>Keterangan</label>'+
-        '<input id="kk_ket" value="'+esc(t?t.keterangan:'')+'" placeholder="mis. Pembelian Mie Kwetiau 2kg"></div>'+
-      '<div class="field"><label>Jenis</label>'+
-        '<select id="kk_arah" onchange="kkHitungTotal()">'+
-          '<option value="kredit"'+(arah==='kredit'?' selected':'')+'>Kredit — uang keluar (belanja, pembayaran)</option>'+
-          '<option value="debet"'+(arah==='debet'?' selected':'')+'>Debet — uang masuk (pengisian dana, saldo awal, bunga)</option>'+
-        '</select></div>'+
-      '<div class="card-sub" style="margin:18px 0 8px"><b>Pembagian ke pos</b> — isi hanya pos yang dipakai. '+
-        'Satu belanja boleh dibagi, mis. sebagian Kas Kecil sebagian PO.</div>'+
-      '<div class="grid g2">'+
-        pos.map(function(p){return '<div class="field" style="margin-bottom:10px"><label>'+esc(p.nama)+'</label>'+
-          '<input class="rp mono" inputmode="numeric" id="kk_p_'+esc(String(p.id))+'" value="'+nilaiPos(p.id)+'"'+
-          ' oninput="kkHitungTotal()" placeholder="0"></div>';}).join('')+
-      '</div>'+
-      '<div class="notice info" id="kk_totalBox" style="margin-top:6px">Σ <div>Total transaksi: <b id="kk_total">Rp0</b></div></div>'+
-      '<div style="display:flex;gap:18px;flex-wrap:wrap;margin:6px 0 16px">'+
-        '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600">'+
-          '<input type="checkbox" id="kk_input" '+((t&&t.input)?'checked':'')+'> Sudah masuk pembukuan</label>'+
-        '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600">'+
-          '<input type="checkbox" id="kk_bon" '+((t&&t.bon)?'checked':'')+'> Nota fisik sudah ada</label>'+
-      '</div>'+
+      '<div class="tbl-wrap kkd" style="margin-top:14px"><table><thead><tr>'+
+        '<th style="min-width:145px">Tanggal</th>'+
+        '<th style="min-width:210px">Keterangan</th>'+
+        '<th style="min-width:145px">Kategori</th>'+
+        '<th style="min-width:135px">Jenis</th>'+
+        pos.map(function(p){return '<th style="text-align:right;min-width:115px">'+esc(p.nama)+'</th>';}).join('')+
+        '<th style="text-align:right;min-width:110px">Total</th>'+
+        '<th style="text-align:center" title="Sudah masuk pembukuan">Input</th>'+
+        '<th style="text-align:center" title="Nota fisik sudah ada">Bon</th>'+
+        (edit?'':'<th></th>')+
+      '</tr></thead><tbody id="kkd_body"></tbody></table></div>'+
+      (edit?'':'<div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="kkTambahBaris()">+ Tambah baris</button></div>')+
+      '<div class="notice info" id="kkd_grandBox" style="margin-top:12px">Σ <div id="kkd_grand"></div></div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-        '<button class="btn btn-primary" id="kk_simpan" onclick="kkSimpan()" '+(KK_SIBUK?'disabled':'')+'>'+
-          (KK_SIBUK?'Menyimpan…':(t?'Simpan perubahan':'Simpan transaksi'))+'</button>'+
-        '<button class="btn btn-ghost" onclick="KK_EDIT=null;go(\'kk_buku\')">Ke Buku Kas</button>'+
+        '<button class="btn btn-primary" id="kk_simpan" onclick="kkSimpanSemua()" '+(KK_SIBUK?'disabled':'')+'>'+
+          (KK_SIBUK?'Menyimpan…':(edit?'Simpan perubahan':'Simpan semua baris'))+'</button>'+
+        '<button class="btn btn-ghost" onclick="KK_EDIT=null;go(\'kk_buku\')">Ke Buku Kas Kecil</button>'+
       '</div>'+
-    '</div>';
-  kkHitungTotal();
+    '</div>'+
+    '<div class="foot muted" style="font-size:12px">Kolom pos diisi hanya yang dipakai — satu belanja boleh dibagi, '+
+      'mis. sebagian Kas Kecil sebagian PO; totalnya dijumlah otomatis di kolom Total. '+
+      'Baris yang seluruhnya kosong diabaikan saat menyimpan, jadi tidak perlu dibuang dulu.</div>';
+  kkGambarDraft();
 }
-/* Total dihitung ulang tiap ketikan dan ditulis LANGSUNG ke DOM, tidak lewat
-   render(): render menggambar ulang seluruh halaman dan itu membuang fokus
-   beserta posisi kursor di kotak yang sedang diketik. Pola yang sama dipakai
-   paintCRM & kalkHitung di modul marketing. */
-function kkHitungTotal(){
+/* Satu baris draf. `nilai` dikunci String(pos_id) — id pos datang dari MySQL
+   sebagai angka di satu tempat dan string di tempat lain, dan objek JS diam-diam
+   memperlakukan 3 dan "3" sebagai kunci yang SAMA hanya karena keduanya
+   distringkan; yang tidak sama adalah pembandingan `===` di tempat lain. Satu
+   bentuk saja, di semua tempat. */
+function kkDraftBaru(){ return {id:null,tgl:todayISO(),ket:'',kat:'',arah:'kredit',input:false,bon:false,nilai:{}}; }
+function kkDraftDari(t){
+  const d=kkDraftBaru();
+  if(!t) return d;
+  d.id=t.id; d.tgl=t.tgl||todayISO(); d.ket=t.keterangan||'';
+  d.kat=t.kategori_id?String(t.kategori_id):'';
+  d.arah=(kkNilai(t).debet>0)?'debet':'kredit';
+  d.input=!!t.input; d.bon=!!t.bon;
+  (t.baris||[]).forEach(function(b){
+    const n=num(b.debet)||num(b.kredit);
+    if(n) d.nilai[String(b.pos_id)]=n;
+  });
+  return d;
+}
+/* Draf disiapkan SEKALI per keperluan, bukan tiap render: viewKkInput dipanggil
+   ulang setiap kali apa pun di halaman berubah (centang, galat, muat ulang),
+   dan membangun ulang draf di situ akan menghapus yang sedang diketik. KUNCI
+   menandai draf ini milik siapa — 'baru' atau 'e<id>' — jadi berpindah dari
+   tambah ke ubah (dan sebaliknya) tetap menyegarkannya. */
+let KK_DRAFT=[], KK_DRAFT_KUNCI='';
+function kkSiapkanDraft(){
+  const kunci=KK_EDIT?('e'+KK_EDIT):'baru';
+  if(KK_DRAFT_KUNCI!==kunci){
+    KK_DRAFT_KUNCI=kunci;
+    KK_DRAFT=KK_EDIT?[kkDraftDari(kkTrxById(KK_EDIT))]:[kkDraftBaru()];
+  }
+  if(!KK_DRAFT.length) KK_DRAFT.push(kkDraftBaru());
+}
+/* Isi kotak dibaca BALIK ke KK_DRAFT sebelum tabelnya digambar ulang. Tanpa ini,
+   menambah baris ke-4 akan mengosongkan tiga baris yang sudah diketik — kotak
+   isian HTML tidak menyimpan apa pun begitu innerHTML diganti. */
+function kkBacaDraft(){
+  const pos=kkPosAktif();
+  KK_DRAFT.forEach(function(d,i){
+    const el=function(f){ return document.getElementById('kkd_'+i+'_'+f); };
+    const teks=function(f,ke){ const e=el(f); if(e) d[ke]=e.value; };
+    teks('tgl','tgl'); teks('ket','ket'); teks('kat','kat'); teks('arah','arah');
+    const ci=el('input'); if(ci) d.input=!!ci.checked;
+    const cb=el('bon');   if(cb) d.bon=!!cb.checked;
+    pos.forEach(function(p){
+      const e=document.getElementById('kkd_'+i+'_p_'+p.id);
+      if(e) d.nilai[String(p.id)]=num(e.value);
+    });
+  });
+}
+function kkBarisHtml(d,i,pos,kat){
+  return '<tr>'+
+    '<td><input type="date" id="kkd_'+i+'_tgl" value="'+esc(d.tgl||'')+'"></td>'+
+    '<td><input id="kkd_'+i+'_ket" value="'+esc(d.ket||'')+'" placeholder="mis. Pembelian Mie Kwetiau 2kg"></td>'+
+    '<td><select id="kkd_'+i+'_kat"><option value="">— tanpa kategori —</option>'+
+      kat.map(function(k){return '<option value="'+esc(String(k.id))+'"'+(String(d.kat)===String(k.id)?' selected':'')+'>'+esc(k.nama)+'</option>';}).join('')+
+    '</select></td>'+
+    '<td><select id="kkd_'+i+'_arah" onchange="kkHitungBaris('+i+')">'+
+      '<option value="kredit"'+(d.arah==='kredit'?' selected':'')+' title="uang keluar: belanja, pembayaran">Kredit — keluar</option>'+
+      '<option value="debet"'+(d.arah==='debet'?' selected':'')+' title="uang masuk: pengisian dana, saldo awal, bunga">Debet — masuk</option>'+
+    '</select></td>'+
+    pos.map(function(p){
+      const v=d.nilai[String(p.id)];
+      return '<td class="num"><input class="rp mono" inputmode="numeric" id="kkd_'+i+'_p_'+esc(String(p.id))+'"'+
+        ' value="'+(v?String(v):'')+'" placeholder="0" oninput="kkHitungBaris('+i+')"></td>';
+    }).join('')+
+    '<td class="mono" style="text-align:right;font-weight:700" id="kkd_'+i+'_tot">—</td>'+
+    '<td style="text-align:center"><input type="checkbox" id="kkd_'+i+'_input"'+(d.input?' checked':'')+'></td>'+
+    '<td style="text-align:center"><input type="checkbox" id="kkd_'+i+'_bon"'+(d.bon?' checked':'')+'></td>'+
+    (KK_EDIT?'':'<td style="text-align:right"><button class="btn btn-danger btn-xs" onclick="kkHapusBaris('+i+')" title="Buang baris ini">✕</button></td>')+
+  '</tr>';
+}
+function kkGambarDraft(){
+  const body=document.getElementById('kkd_body'); if(!body) return;
+  const pos=kkPosAktif(), kat=kkKatAktif();
+  body.innerHTML=KK_DRAFT.map(function(d,i){ return kkBarisHtml(d,i,pos,kat); }).join('');
+  formatAllRp(body);
+  KK_DRAFT.forEach(function(d,i){ kkHitungBaris(i); });
+}
+function kkTambahBaris(){
+  kkBacaDraft();
+  /* Baris baru MEWARISI tanggal, jenis, dan kategori baris terakhir. Yang
+     dikerjakan di halaman ini hampir selalu setumpuk nota hari yang sama;
+     mengetik ulang tanggal 12 kali adalah cara paling mudah membuat satu di
+     antaranya salah tanpa ada yang menyadarinya. */
+  const akhir=KK_DRAFT[KK_DRAFT.length-1];
+  const b=kkDraftBaru();
+  if(akhir){ b.tgl=akhir.tgl||b.tgl; b.arah=akhir.arah||b.arah; b.kat=akhir.kat||''; }
+  KK_DRAFT.push(b);
+  kkGambarDraft();
+  const f=document.getElementById('kkd_'+(KK_DRAFT.length-1)+'_ket'); if(f) f.focus();
+}
+function kkHapusBaris(i){
+  kkBacaDraft();
+  KK_DRAFT.splice(i,1);
+  if(!KK_DRAFT.length) KK_DRAFT.push(kkDraftBaru());
+  kkGambarDraft();
+}
+/* Total ditulis LANGSUNG ke DOM, tidak lewat render(): render menggambar ulang
+   seluruh halaman dan itu membuang fokus beserta posisi kursor di kotak yang
+   sedang diketik. Pola yang sama dipakai paintCRM & kalkHitung di marketing. */
+function kkHitungBaris(i){
   if(!KK) return;
   let tot=0;
   kkPosAktif().forEach(function(p){
-    const inp=document.getElementById('kk_p_'+p.id);
-    if(inp) tot+=num(inp.value);
+    const e=document.getElementById('kkd_'+i+'_p_'+p.id);
+    if(e) tot+=num(e.value);
   });
-  const box=document.getElementById('kk_total');
-  if(box) box.textContent=fmtRp(tot);
-  const sel=document.getElementById('kk_arah');
-  const wrap=document.getElementById('kk_totalBox');
-  if(wrap) wrap.className='notice '+(tot>0?((sel&&sel.value==='debet')?'ok':'info'):'warn');
+  const arah=((document.getElementById('kkd_'+i+'_arah')||{}).value)||'kredit';
+  const sel=document.getElementById('kkd_'+i+'_tot');
+  if(sel){
+    sel.textContent=tot?((arah==='debet'?'+ ':'− ')+fmtRp(tot)):'—';
+    sel.style.color=tot?(arah==='debet'?'var(--ink)':'var(--danger)'):'var(--muted)';
+  }
+  kkHitungGrand();
 }
-function kkSimpan(){
-  if(KK_SIBUK) return;
-  const tgl=(document.getElementById('kk_tgl')||{}).value||'';
-  const ket=String((document.getElementById('kk_ket')||{}).value||'').trim();
-  const kat=(document.getElementById('kk_kat')||{}).value||'';
-  const arah=(document.getElementById('kk_arah')||{}).value||'kredit';
-  const baris=[];
-  kkPosAktif().forEach(function(p){
-    const n=num((document.getElementById('kk_p_'+p.id)||{}).value);
-    if(n>0) baris.push({pos_id:p.id,debet:arah==='debet'?n:0,kredit:arah==='kredit'?n:0});
+function kkHitungGrand(){
+  let masuk=0,keluar=0,isi=0;
+  KK_DRAFT.forEach(function(d,i){
+    let tot=0;
+    kkPosAktif().forEach(function(p){
+      const e=document.getElementById('kkd_'+i+'_p_'+p.id);
+      if(e) tot+=num(e.value);
+    });
+    if(!tot) return;
+    isi++;
+    const arah=((document.getElementById('kkd_'+i+'_arah')||{}).value)||'kredit';
+    if(arah==='debet') masuk+=tot; else keluar+=tot;
   });
-  /* Tiga penolakan di depan, sebelum menyentuh jaringan. Semuanya keadaan yang
-     di lembar spreadsheet menghasilkan baris diam-diam salah, bukan galat. */
-  if(!tgl){ KK_ERR='Tanggal belum diisi.'; render(); return; }
-  if(!ket){ KK_ERR='Keterangan belum diisi — buku kas tanpa keterangan tidak bisa diperiksa siapa pun.'; render(); return; }
-  if(!baris.length){ KK_ERR='Belum ada nominal di satu pos pun. Isi minimal satu.'; render(); return; }
-  KK_ERR='';
-  const id=KK_EDIT;
-  KK_EDIT=null;
-  CURRENT='kk_buku';
-  document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active',a.dataset.view==='kk_buku'); });
-  document.getElementById('pageTitle').textContent=TITLES.kk_buku[0];
-  document.getElementById('pageSub').textContent=TITLES.kk_buku[1];
-  kkKirim('simpanTrx',{
-    id:id||null, tgl:tgl, keterangan:ket, kategori_id:kat||null,
-    input:(document.getElementById('kk_input')||{}).checked?1:0,
-    bon:(document.getElementById('kk_bon')||{}).checked?1:0,
-    baris:baris
-  },'Gagal menyimpan transaksi');
+  const box=document.getElementById('kkd_grand');
+  if(box) box.innerHTML='<b>'+isi+'</b> baris siap disimpan · uang masuk <b class="mono">'+fmtRp(masuk)+
+    '</b> · uang keluar <b class="mono">'+fmtRp(keluar)+'</b>';
+  const w=document.getElementById('kkd_grandBox');
+  if(w) w.className='notice '+(isi?'info':'warn');
+}
+function kkSimpanSemua(){
+  if(KK_SIBUK) return;
+  kkBacaDraft();
+  const pos=kkPosAktif();
+  const kirim=[], salah=[];
+  KK_DRAFT.forEach(function(d,i){
+    const isi=pos.map(function(p){ return {pos_id:p.id,n:num(d.nilai[String(p.id)])}; })
+                 .filter(function(x){ return x.n>0; });
+    const ket=String(d.ket||'').trim();
+    /* Baris yang SELURUHNYA kosong dilewati tanpa suara — bukan galat.
+       Tabelnya selalu menyisakan baris kosong di bawah, dan memaksa orang
+       membuangnya dulu sebelum boleh menyimpan cuma menambah satu langkah
+       yang tidak menghasilkan apa-apa. */
+    if(!ket && !isi.length) return;
+    /* Tiga penolakan di depan, sebelum menyentuh jaringan. Semuanya keadaan
+       yang di lembar spreadsheet menghasilkan baris diam-diam salah, bukan
+       galat — dan nomor barisnya disebut, karena di tabel 12 baris "tanggal
+       belum diisi" tanpa nomor tidak bisa ditindaklanjuti. */
+    if(!d.tgl){ salah.push('Baris '+(i+1)+': tanggal belum diisi'); return; }
+    if(!ket){ salah.push('Baris '+(i+1)+': keterangan belum diisi — buku kas tanpa keterangan tidak bisa diperiksa siapa pun'); return; }
+    if(!isi.length){ salah.push('Baris '+(i+1)+' ("'+ket+'"): belum ada nominal di satu pos pun'); return; }
+    kirim.push({idx:i,ok:false,data:{
+      id:d.id||null, tgl:d.tgl, keterangan:ket, kategori_id:d.kat||null,
+      input:d.input?1:0, bon:d.bon?1:0,
+      baris:isi.map(function(x){ return {pos_id:x.pos_id,debet:d.arah==='debet'?x.n:0,kredit:d.arah==='debet'?0:x.n}; })
+    }});
+  });
+  if(salah.length){ KK_ERR=salah.join(' · '); render(); return; }
+  if(!kirim.length){ KK_ERR='Belum ada baris yang bisa disimpan — semuanya masih kosong.'; render(); return; }
+
+  KK_ERR=''; KK_SIBUK=true; render();
+  /* Dikirim SATU PER SATU dan BERURUTAN, bukan Promise.all: backend menyimpan
+     per transaksi, dan kalau satu gagal harus ketahuan baris mana. Berurutan
+     juga membuat id yang diberikan server naik searah dengan urutan di layar,
+     yang dipakai kkUrut() untuk membedakan transaksi bertanggal sama. */
+  const gagal=[];
+  let rantai=Promise.resolve();
+  kirim.forEach(function(k){
+    rantai=rantai.then(function(){
+      return kkApi('simpanTrx',k.data).then(function(){ k.ok=true; },function(e){
+        gagal.push('Baris '+(k.idx+1)+': '+String(e&&e.message||e));
+      });
+    });
+  });
+  rantai.then(function(){
+    KK_SIBUK=false;
+    if(gagal.length){
+      /* Yang sudah masuk DIBUANG dari draf, yang gagal ditinggal apa adanya.
+         Kalau seluruh draf dipertahankan, menekan Simpan sekali lagi akan
+         menggandakan baris yang tadi berhasil — untuk buku kas itu kesalahan
+         yang baru ketahuan saat saldonya tidak cocok berminggu-minggu kemudian. */
+      const sisa=[];
+      kirim.forEach(function(k){ if(!k.ok) sisa.push(KK_DRAFT[k.idx]); });
+      KK_DRAFT=sisa.length?sisa:[kkDraftBaru()];
+      KK_ERR=gagal.length+' baris gagal disimpan: '+gagal.join(' · ')+
+        '. Baris yang berhasil sudah dibuang dari tabel; yang tertinggal di bawah tinggal dicoba lagi.';
+      return muatKk();
+    }
+    KK_EDIT=null; KK_DRAFT=[kkDraftBaru()]; KK_DRAFT_KUNCI='baru';
+    CURRENT='kk_buku';
+    document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active',a.dataset.view==='kk_buku'); });
+    document.getElementById('pageTitle').textContent=TITLES.kk_buku[0];
+    document.getElementById('pageSub').textContent=TITLES.kk_buku[1];
+    return muatKk();
+  });
 }
 
 /* ---- halaman: POS & KATEGORI ---- */

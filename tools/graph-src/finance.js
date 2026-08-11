@@ -546,6 +546,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -2789,6 +2799,29 @@ function viewKkBuku() { render(); muatKk(); kkPosAktif(); kkPetaSaldo(); kkRenta
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kkTrxById() {  }
 function kkEdit() { go(); }
 function kkBatalEdit() { render(); }
@@ -2799,12 +2832,11 @@ function kkHapus() { kkTrxById(); kkKirim(); }
 
 function kkTandai() { kkKirim(); }
 
-function viewKkInput() { kkPosAktif(); kkKatAktif(); kkTrxById(); }
+function viewKkInput() { kkPosAktif(); kkKatAktif(); go(); kkSiapkanDraft(); kkBatalEdit(); kkTambahBaris(); kkSimpanSemua(); kkGambarDraft(); }
 
 
 
 
-function nilaiPos() { kkNilai(); go(); kkBatalEdit(); todayISO(); kkHitungTotal(); kkSimpan(); render(); }
 
 
 
@@ -2851,6 +2883,8 @@ function nilaiPos() { kkNilai(); go(); kkBatalEdit(); todayISO(); kkHitungTotal(
 
 
 
+function kkDraftBaru() { todayISO(); }
+function kkDraftDari() { kkDraftBaru(); todayISO(); kkNilai(); }
 
 
 
@@ -2867,9 +2901,9 @@ function nilaiPos() { kkNilai(); go(); kkBatalEdit(); todayISO(); kkHitungTotal(
 
 
 
-function kkHitungTotal() { kkPosAktif(); }
 
 
+function kkSiapkanDraft() { kkDraftDari(); kkTrxById(); kkDraftBaru(); }
 
 
 
@@ -2880,7 +2914,142 @@ function kkHitungTotal() { kkPosAktif(); }
 
 
 
-function kkSimpan() { kkPosAktif(); render(); kkKirim(); }
+function kkBacaDraft() { kkPosAktif(); }
+
+
+function el() {  }
+function teks() { el(); }
+
+
+
+
+
+
+
+
+
+function kkBarisHtml() { kkHitungBaris(); kkHapusBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kkGambarDraft() { kkPosAktif(); kkKatAktif(); kkBarisHtml(); formatAllRp(); kkHitungBaris(); }
+
+
+
+
+
+
+function kkTambahBaris() { kkBacaDraft(); kkDraftBaru(); kkGambarDraft(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function kkHapusBaris() { kkBacaDraft(); kkDraftBaru(); kkGambarDraft(); render(); }
+
+
+
+
+
+
+
+
+function kkHitungBaris() { kkPosAktif(); kkHitungGrand(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kkHitungGrand() { kkPosAktif(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kkSimpanSemua() { kkBacaDraft(); kkPosAktif(); render(); kkUrut(); kkApi(); kkDraftBaru(); muatKk(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
