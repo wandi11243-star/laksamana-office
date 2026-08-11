@@ -911,8 +911,13 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
    punya akibat yang sangat berbeda. Tong sampah cuma punya satu arti. */
 /* Acara milik EMS di kalender Marketing: abu bergaris putus, jadi terbaca
    sebagai "milik modul lain" bahkan sebelum diklik. */
-.cal .ev-ems{background:rgba(120,120,120,.10);border-left:3px dashed var(--muted);color:var(--muted)}
-.cal .ev-ems:hover{background:rgba(120,120,120,.18)}
+/* EMS ungu, bukan abu-abu. Abu-abu di kisi ini terbaca sebagai "nonaktif"
+   atau "di luar bulan ini" — warna yang sudah dipakai sel .other — jadi
+   acara EMS tampak redup seolah tidak berlaku. Garis putus-putusnya tetap:
+   itu penanda "tidak bisa disunting dari sini", bukan penanda warna. */
+.cal .ev-ems{background:color-mix(in srgb,var(--violet) 12%,transparent);
+  border-left:3px dashed var(--violet);color:var(--violet)}
+.cal .ev-ems:hover{background:color-mix(in srgb,var(--violet) 22%,transparent)}
 /* Reservasi TIDAK digambar satu baris per tamu. Satu hari akhir pekan bisa
    berisi 40 reservasi; empat puluh baris di dalam satu kotak tanggal
    menenggelamkan event Marketing yang justru jadi alasan halaman ini
@@ -9509,8 +9514,21 @@ function renderCalendar(V){
     +'<button class="btn sm" onclick="calNav(-1)">←</button><button class="btn sm" onclick="calToday()">Hari Ini</button><button class="btn sm" onclick="calNav(1)">→</button>');
   h+=panelGagalEms()+panelGagalRsv();
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px"><h3 style="font-size:18px">'+MONTHS_F[calDate.getMonth()]+' '+calDate.getFullYear()+'</h3>';
-  h+='<div class="pill-row" style="font-size:11px">'+Object.keys(EVENT_COLOR).slice(0,5).map(t=>'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var('+EVENT_COLOR[t]+')"></span>'+t+'</span>').join('')
-   +'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var(--muted)"></span>Acara EMS'
+  /* TIGA WARNA, dan tiganya menjawab pertanyaan yang sama: baris ini
+     MILIK SIAPA. Sebelumnya legenda memuat delapan kotak — lima jenis event
+     Marketing (Wedding/Corporate/Birthday/…) plus EMS plus Reservasi — dan
+     kelima warna pertama itu menjawab pertanyaan yang berbeda ("acara jenis
+     apa"), padahal yang dicari saat membuka kalender adalah "tanggal ini
+     sudah dipakai siapa". Dua sumbu warna di satu kisi membuat keduanya
+     tidak terbaca: pita ungu bisa berarti Launching, bisa berarti bukan
+     milik Marketing, dan mata tidak punya cara memastikannya.
+
+     Jenis eventnya TIDAK hilang — tetap tertulis di popup saat pitanya
+     ditekan, tempat yang memang dibuka kalau seseorang benar-benar ingin
+     tahu acara apa. */
+  h+='<div class="pill-row" style="font-size:11px">'
+   +'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var(--gold)"></span>Event Marketing</span>'
+   +'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var(--violet)"></span>Acara EMS'
    +(EMS_EVENTS.length?' ('+EMS_EVENTS.length+')':'')+'</span>'
    +'<span class="pill-row" style="gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:var(--teal)"></span>Reservasi'
    +(Object.keys(RSV_HARI).length?' ('+Object.keys(RSV_HARI).length+' hari)':'')+'</span>'
@@ -9527,7 +9545,10 @@ function renderCalendar(V){
     const isToday=ds===today();
     const evs=cell.other?[]:S.events.filter(e=>eventPadaTgl(e,ds)&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
     h+='<div class="cell'+(cell.other?' other':'')+(isToday?' today':'')+'"><div class="dn">'+cell.d+'</div>';
-    evs.forEach(e=>{ const col=EVENT_COLOR[e.jenis]||'--muted'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+'">'+esc(e.nama)+'</div>'; });
+    /* Emas = milik Marketing, apa pun jenis acaranya. Jenisnya tetap ikut
+       ditulis di title, jadi yang tidak menekan pitanya pun masih bisa tahu
+       dengan menyorotnya. */
+    evs.forEach(e=>{ const col='--gold'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+' — '+esc(jenisEvent(e))+'">'+esc(e.nama)+'</div>'; });
     /* Acara milik EMS. Warnanya sengaja beda (abu bergaris putus) supaya
        jelas ia bukan peluang Marketing dan tidak bisa disunting dari sini. */
     if(!cell.other) EMS_EVENTS.filter(x=>x.tgl===ds).forEach(x=>{
@@ -11132,7 +11153,6 @@ function renderVIP(V){
   if(belum.length) h+='<div class="tbl-note" style="border-color:var(--warn)">'+svg(IC.alert)
     +'<span><b>'+belum.length+' reservasi Assisted belum ada nominalnya</b> — omzetnya belum terhitung. Isi lewat tombol <em>Isi Nominal</em> di barisnya.</span></div>';
 
-  h+='<div class="tbl-note">'+svg(IC.alert)+'<span><em>Assisted</em> = marketing yang mencarikan &amp; menutup dealnya — nominalnya diketik sendiri dan ikut jadi omzet orang itu di Marketing Performance. <em>Regular</em> = sekadar membantu membookingkan, tanpa nominal dan tidak masuk laporan. Keduanya sama-sama mengunci meja di modul Reservasi.</span></div>';
 
   h+='<div class="toolbar"><input class="inp" id="vip-cari" placeholder="Cari nama, perusahaan, no. HP, tanggal, meja…" '
    +'value="'+esc(vipFilter||'')+'" oninput="vipFilter=this.value;renderVIP($(\'view\'));'
@@ -11153,19 +11173,35 @@ function renderVIP(V){
      +'<td>'+vipChip(v)+'</td>'
      +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
      +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
-     +'<td class="mono r">'+(v.jenis!=='Assisted'?'<span class="cell-sub">—</span>'
-        :(vipBelumNominal(v)?'<span class="tag" style="background:var(--warn-bg);color:var(--warn)">belum diisi</span>':rp(vipNominal(v))))+'</td>'
+     /* Tombolnya duduk DI KOLOM NOMINAL, bukan di kolom Aksi.
+
+        Sebelumnya kolom Nominal cuma memajang label "belum diisi", dan
+        tombol yang mengisinya berdiri lima kolom di kanan bersama Detail,
+        Ubah, Batalkan, Hapus. Jadi yang membaca "belum diisi" harus
+        menyeberangi seluruh baris untuk menemukan jawabannya, lalu
+        memastikan lagi bahwa tombol yang ditekan memang milik baris itu.
+        Sekarang keduanya bersebelahan: keterangannya dan cara
+        membereskannya jadi satu benda.
+
+        Yang SUDAH terisi tetap ditulis sebagai angka biasa, dengan tombol
+        kecil di sampingnya untuk membetulkan — angka yang berbentuk tombol
+        mengundang orang menekannya untuk sekadar membaca. */
+     +'<td class="mono r">'+(v.jenis!=='Assisted' ? '<span class="cell-sub">—</span>'
+        : (vipBelumNominal(v)
+            ? (bolehUbah&&!v.batalAt
+                ? '<button class="btn sm pri" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>'
+                : '<span class="tag" style="background:var(--warn-bg);color:var(--warn)">belum diisi</span>')
+            : rp(vipNominal(v))
+              +(bolehUbah&&!v.batalAt
+                 ? ' <button class="btn sm" style="padding:3px 7px" title="Ubah nominal" '
+                   +'onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.edit)+'</button>' : '')
+          ))+'</td>'
      /* SATU baris, ikon saja. Lima tombol bertuliskan teks melipat jadi dua
         baris dan membuat tiap baris tabel setinggi dua kali lipat — daftar
         20 reservasi jadi tidak muat satu layar. Yang tetap bertuliskan
         hanya "Isi Nominal" saat memang belum diisi: itu satu-satunya yang
         menuntut tindakan, dan justru harus menonjol. */
      +'<td><div class="aksi-1baris">'
-       +(bolehUbah&&v.jenis==='Assisted'
-          ?(vipBelumNominal(v)
-             ?'<button class="btn sm pri" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>'
-             :'<button class="btn sm" title="Ubah nominal" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'</button>')
-          :'')
        +'<button class="btn sm" title="Lihat detail & denah meja" onclick="vipDetail(\''+v.id+'\')">'+svg(IC.eye)+'</button>'
        +(bolehUbah&&!v.batalAt?'<button class="btn sm" title="Ubah reservasi" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
        +(bolehUbah&&!v.batalAt?'<button class="btn sm" title="Batalkan — meja dilepas, jejaknya tetap ada di Reservasi" onclick="vipBatal(\''+v.id+'\')">'+svg(IC.x)+'</button>':'')

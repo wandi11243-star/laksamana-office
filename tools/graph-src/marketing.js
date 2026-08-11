@@ -1932,6 +1932,11 @@
 
 
 
+
+
+
+
+
 function svg() {  }
 
 
@@ -9502,7 +9507,23 @@ function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
 
 
 
-function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); today(); eventPadaTgl(); calEventPopup(); esc(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); today(); eventPadaTgl(); calEventPopup(); esc(); jenisEvent(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11106,6 +11127,21 @@ function vipJam() { vipPax(); vipNominal(); }
 
 
 function renderVIP() { can(); pageHead(); vipForm(); svg(); vipPerusahaan(); stat(); vipNominal(); esc(); $(); empty(); tblPage(); tblUrut(); tblHead(); fmtDate(); vipJam(); vipChip(); vipPax(); vipBelumNominal(); vipIsiNominal(); vipDetail(); vipBatal(); vipHapus(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
