@@ -12,6 +12,8 @@
  *   POST {action:"upload", dataBase64, fileName, mimeType}
  *                                       -> {ok,data:{key,name,size,at}}
  *   GET  ?action=file&key=...           -> berkasnya sendiri (bukan JSON)
+ *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
+ *                                       -> {ok,data:{events:[...]}}
  *
  * Semua respons: {ok:true,data:...} atau {ok:false,error:"..."}.
  ************************************************************************/
@@ -61,6 +63,11 @@ try {
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
+
+  } else if ($action === 'eventsHari') {
+    // Event satu tanggal (yang belum jadi dibuang) — dibaca Finance > Omset >
+    // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.
+    keluar(array('ok' => true, 'data' => events_hari(isset($_GET['tgl']) ? $_GET['tgl'] : '')));
 
   } else if ($action === 'file') {
     // Menyajikan berkas (bukti transfer, dokumen talent, poster event).

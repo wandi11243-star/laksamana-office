@@ -29,7 +29,7 @@ else                                            require_once __DIR__ . '/config.
    punya salinannya masing-masing), jadi tanpa penanda ini tidak ada cara
    memastikan server mana yang sudah dapat perbaikan dan mana yang belum.
    Cukup buka ?action=ping dan bandingkan dengan nilai di repo. */
-define('LIB_VERSI', '2026-07-22');
+define('LIB_VERSI', '2026-08-11');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -444,6 +444,49 @@ function save_all($state) {
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
   );
+}
+
+/* ==================== EVENT SATU HARI (dibaca modul lain) ====================
+   Pasangan dari events_hari() di marketing-mysql, dipakai Finance > Omset >
+   Breakdown Sumber untuk memunculkan event internal hari itu secara otomatis.
+   Sempit dengan sengaja — getAll memulangkan seluruh database event (talent,
+   tiket, order, checkin), dan halaman Breakdown dibuka tiap hari.
+
+   Yang TIDAK ikut hanya event yang belum jadi. Filternya ditulis sebagai
+   daftar-yang-dibuang, bukan daftar-yang-diambil, justru karena status di
+   tabel ini bercampur dua generasi: migrasi lima-status-jadi-tiga
+   (Draft/Today/Finished/Confirmed/Ongoing -> Planning/Upcoming/Event Done)
+   hidup di JavaScript dan baru tertulis ke DB saat event itu tersentuh
+   simpan. Baris lama yang tidak pernah disentuh lagi MASIH berstatus 'Today'
+   atau 'Finished' di kolom ini. Daftar-yang-diambil akan membuang event yang
+   benar-benar terjadi, diam-diam, dan tidak ada layar yang melaporkannya.
+
+   Nominal TIDAK dipulangkan: modul event tidak menyimpan nilai rupiah event
+   (yang ada cuma penjualan tiket, itu pun tidak selalu). Kolom Nominal di
+   Breakdown tetap diisi tangan; yang dihemat endpoint ini adalah nama event
+   dan PIC-nya. */
+function events_hari($tgl) {
+  if (!tanggal_valid($tgl)) throw new Exception('tanggal tidak sah: ' . $tgl);
+  $pdo = db();
+  $st = $pdo->prepare(
+    "SELECT id, title, status, venue, pic, start_datetime
+       FROM events
+      WHERE DATE(start_datetime) = :tgl
+        AND status NOT IN ('Planning', 'Draft', 'Cancelled')
+      ORDER BY start_datetime, title");
+  $st->execute(array(':tgl' => $tgl));
+  $out = array();
+  foreach ($st->fetchAll() as $r) {
+    $out[] = array(
+      'id'      => $r['id'],
+      'nama'    => $r['title'],
+      'status'  => $r['status'],
+      'venue'   => $r['venue'],
+      'picName' => $r['pic'],          // di modul ini PIC memang teks nama
+      'mulai'   => $r['start_datetime'],
+    );
+  }
+  return array('events' => $out);
 }
 
 /* ==================== DIAGNOSTIK ==================== */

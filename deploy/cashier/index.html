@@ -1980,6 +1980,34 @@ function porsiPic(r){
   const a=num(r.amount);
   return r.tiket ? Math.round(a*PORSI_PIC_TIKET) : a;
 }
+/* ---- OPEN BILL (11 Agustus 2026) ----
+   Pesanan tambahan tamu event yang dibayar langsung ke kasir, di luar paket
+   marketing. Diisi di Breakdown Sumber (modul Finance > Omset); di sini ia
+   hanya DIBACA, untuk memberi kasir pengakuan bernama atas event mana.
+
+   TIDAK BOLEH masuk ke porsiPic() di atas. porsiPic() dipakai potonganBaris()
+   sebagai besar POTONGAN ke kasir shift — menambahkan Open Bill ke sana akan
+   memotong kasir untuk uang yang justru sengaja tidak dipotong (keputusan user
+   11 Agustus 2026: Open Bill diakui PIC, kasir tidak dipotong).
+
+   Angkanya juga TIDAK ditambahkan ke realisasi kasir. Uangnya sudah ada di
+   dalam omset bruto kasir hari itu; menambahkannya lagi berarti satu uang
+   terhitung dua kali di sisi kasir. Yang ditampilkan adalah keterangan. */
+function obAktif(r){ return !!(r && r.ob); }
+function obTotal(r){ return obAktif(r) ? num(r.obAmount)+num(r.obTax)+num(r.obService) : 0; }
+/* Rincian Open Bill satu hari: [{kasirId,eventName,total}]. Bentuknya sama
+   dengan openBillList() di Finance > Omset — dua salinan, satu aturan. */
+function openBillList(d){
+  const out=[];
+  ['marketing','event'].forEach(key=>{
+    ((d.bd&&d.bd[key])||[]).forEach(r=>{
+      if(!obAktif(r)) return;
+      const t=obTotal(r); if(t<=0) return;
+      out.push({kasirId:r.obKasirId||'', eventName:r.eventName||'', total:t});
+    });
+  });
+  return out;
+}
 /* Potongan yang ditanggung kasir karena SATU baris event, dibagi per SHIFT —
    bukan rata ke semua kasir yang masuk hari itu. Kasir yang masuk tapi tidak
    kebagian shift event tersebut tidak ikut dipotong.
@@ -2257,6 +2285,28 @@ function baguRingkasKasir(a, tgt, ach, harian, targetBulanan){
       <div class="foot">${b.next?`lagi untuk bonus ${fmtRp(b.next.bonus)}`:'sudah di level teratas'}</div></div>
   </div>`;
 }
+/* Pengakuan Open Bill. Kartunya hanya muncul kalau memang ada — mayoritas
+   kasir dan mayoritas rentang tidak punya satu pun, dan kartu kosong yang
+   nangkring permanen adalah persis yang sudah dibuang dari halaman ini
+   sebelumnya (rincian compliment, catatan nama tersaring).
+
+   Angkanya SENGAJA tidak dijumlahkan ke Omset Diakui di kotak atas. Uang open
+   bill sudah masuk lewat meja kasir, jadi sudah ada di dalam omset brutonya
+   hari itu; menambahkannya lagi di sini akan membuat satu uang terhitung dua
+   kali dan bonusnya jadi lebih besar dari omset yang benar-benar ada. Yang
+   diberikan kartu ini adalah PENGAKUAN: open bill event mana, berapa. */
+function kartuOpenBill(rows){
+  if(!Array.isArray(rows)||!rows.length) return '';
+  const tot=rows.reduce((s,x)=>s+num(x.total),0);
+  const urut=rows.slice().sort((x,y)=>x.date<y.date?-1:1);
+  return `<div class="card"><h3>Pengakuan Open Bill</h3>
+    <div class="card-sub">Pesanan tambahan tamu event yang dilayani lewat meja kasir, di luar paket marketing. Total <b>${fmtRp(tot)}</b> dalam rentang ini. Nominalnya <b>sudah termasuk</b> di dalam Omset Diakui di atas — kartu ini menyebutkan event mana, bukan menambah angka.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Tanggal</th><th>Event</th>${rows[0]&&rows[0].kasir!==undefined?'<th>Kasir</th>':''}<th class="num">Nominal</th></tr></thead>
+      <tbody>${urut.map(x=>`<tr><td>${esc(x.date)}</td><td><b>${esc(x.eventName||'Event tanpa nama')}</b></td>${x.kasir!==undefined?`<td>${esc(x.kasir||'—')}</td>`:''}<td class="num mono">${fmtRp(num(x.total))}</td></tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)"><td colspan="${rows[0]&&rows[0].kasir!==undefined?3:2}">TOTAL</td><td class="num mono">${fmtRp(tot)}</td></tr></tfoot>
+    </table></div></div>`;
+}
 function kartuBonusKasir(real, semua){
   const b=bonusKasir(real);
   const baris=BONUS_KASIR.slice().reverse().map(t=>{
@@ -2341,7 +2391,16 @@ function viewKasir(){
   const list=semuaPic.filter(kasirMurni);
   const disaring=semuaPic.filter(e=>!kasirMurni(e));
   const agg={};
-  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0});
+  list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0,ob:[]});
+  /* Open Bill dikumpulkan dari SELURUH hari dalam rentang, terpisah dari
+     perulangan baris kasir di bawah — Open Bill bisa jatuh di hari yang kasir
+     bersangkutan tidak punya baris omset sama sekali (mis. ia melayani open
+     bill lalu sisa shiftnya diambil orang lain), dan kalau ikut di dalam sana
+     baris itu hilang tanpa jejak. Angkanya tidak menambah `real`: uangnya
+     sudah ada di dalam omset bruto hari itu (lihat obTotal). */
+  days.forEach(d=>{
+    openBillList(d).forEach(x=>{ if(agg[x.kasirId]) agg[x.kasirId].ob.push({date:d.date,eventName:x.eventName,total:x.total}); });
+  });
   days.forEach(d=>{
     (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
       if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,real:0,off:true});}
@@ -2405,8 +2464,8 @@ function viewKasir(){
     let k,a;
     if(kid==='__all__'){
       k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};
-      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],potong:0};
-      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.potong+=(g.potong||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));});
+      a={real:0,masuk:0,off:0,hist:[],comp:0,compRows:[],potong:0,ob:[]};
+      list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.potong+=(g.potong||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));(g.ob||[]).forEach(o=>a.ob.push(Object.assign({kasir:x.name},o)));});
     } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
     if(!k||!a) return;
     const tgt=targetPic(k.target);   // bulanan diproporsikan di mode harian
@@ -2455,6 +2514,7 @@ function viewKasir(){
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
         <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>${compLuar?` · ada ${fmtRp(-compLuar)} potongan compliment yang jatuh di hari tanpa omset, jadi tidak punya barisnya sendiri di sini — Omset Diakui di atas sudah memperhitungkannya`:', jumlahnya tepat sama dengan Omset Diakui di atas'}</div><div id="ks_riw"></div></div>
       </div>
+      ${kartuOpenBill(a.ob||[])}
       ${kartuBonusKasir(a.real, kid==='__all__')}`;
     gambarRiwayat();
     /* Kartu "Rincian Compliment" DIBUANG dari modul ini (permintaan user
