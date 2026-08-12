@@ -379,6 +379,28 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function todayISO() {  }
 
 
@@ -460,6 +482,9 @@ function pay() {  }
 
 
 
+
+
+
 function semuaKunciPay() {  }
 
 
@@ -469,13 +494,48 @@ function semuaKunciPay() {  }
 
 
 
+
+
+
+
 function recOf() {  }
-function omsetOf() {  }
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function omsetRec() {  }
+function rinciJual() { omsetRec(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bonHari() {  }
 
 
 
@@ -512,7 +572,16 @@ function adaUbah() {  }
 
 function hitungHari() { recOf(); }
 
-function sisi() { pay(); mdrOf(); omsetOf(); }
+function sisi() { pay(); mdrOf(); rinciJual(); bonHari(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -538,6 +607,9 @@ function sisi() { pay(); mdrOf(); omsetOf(); }
 
 
 function ringkasBulan() { hariDalamBulan(); hitungHari(); tandaOf(); setorOf(); }
+
+
+
 
 
 
@@ -590,6 +662,10 @@ function kartu() {  }
 
 
 function kartuBulan() { kartu(); }
+
+
+
+
 
 
 
@@ -690,6 +766,32 @@ function detailHari() { hitungHari(); tandaOf(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bukaHari() { detailHari(); }
 
 
@@ -700,7 +802,10 @@ function bukaHari() { detailHari(); }
 
 
 
-function viewInput() { hitungHari(); kartu(); labelTglPanjang(); setorOf(); tandaOf(); render(); }
+function viewInput() { hitungHari(); kartu(); setorOf(); labelTglPanjang(); tandaOf(); render(); }
+
+
+
 
 
 
@@ -928,7 +1033,11 @@ function apiGet() { fetchTimeout(); }
 
 
 
-function normalize() {  }
+function normalize() { bonHari(); }
+
+
+
+
 
 
 
