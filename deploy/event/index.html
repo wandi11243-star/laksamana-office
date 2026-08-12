@@ -466,6 +466,13 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .seg-per button{border:none;background:none;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--muted)}
 .seg-per button+button{border-left:1px solid var(--line-hard)}
 .seg-per button.on{background:var(--accent);color:#241d05;font-weight:700}
+/* Kotak uang dengan awalan "Rp" menempel di dalamnya. Awalannya tidak bisa
+   diklik (pointer-events:none) supaya mengetuk "Rp" tetap menaruh kursor di
+   angkanya, bukan menelan ketukan itu. */
+.uang-wrap{position:relative;display:block}
+.uang-wrap .uang-rp{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+  font-size:12.5px;font-weight:700;color:var(--muted);pointer-events:none}
+.uang-wrap .uang-inp{width:100%;padding-left:34px!important;font-variant-numeric:tabular-nums}
 
 .rowdel{width:28px;height:28px;border:none;background:none;color:var(--muted);line-height:0;display:inline-flex;align-items:center;justify-content:center;
   line-height:1;border-radius:6px;cursor:pointer}
@@ -1804,10 +1811,21 @@ function uangNilai(id){
   return +String(el.value).replace(/\D/g,'')||0;
 }
 /* Kotak uang siap pakai. inputmode=numeric memunculkan papan angka di ponsel
-   tanpa memaksa type=number, yang tidak bisa memuat titik. */
+   tanpa memaksa type=number, yang tidak bisa memuat titik.
+
+   AWALAN "Rp" DITEMPEL DI DALAM KOTAK, bukan diketik pemakai. Sebelumnya isinya
+   cuma "1.500.000" — angka telanjang yang di formulir berisi jam, kapasitas,
+   dan jumlah hari tidak langsung terbaca sebagai uang, dan fee 1,5 juta vs 15
+   juta gampang tertukar saat memeriksa sekilas.
+
+   Ditempel sebagai elemen terpisah (span), BUKAN ikut ke dalam value: kalau
+   "Rp" masuk ke value, uangNilai() yang membuang non-digit tetap benar tapi
+   uangKetik() akan menghitung ulang posisi kursor terhadap teks yang ada
+   awalannya, dan kursor melompat tiap ketukan. */
 function uangInput(id,nilai,extra){
-  return '<input id="'+id+'" inputmode="numeric" autocomplete="off" value="'+esc(uangFormat(nilai||0))
-    +'" oninput="uangKetik(this)"'+(extra||'')+'>';
+  return '<span class="uang-wrap"><span class="uang-rp">Rp</span>'
+    +'<input class="uang-inp" id="'+id+'" inputmode="numeric" autocomplete="off" value="'+esc(uangFormat(nilai||0))
+    +'" oninput="uangKetik(this)"'+(extra||'')+'></span>';
 }
 function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled:'b-yellow',Done:'b-green',Cancelled:'b-grey',Inactive:'b-grey',Paid:'b-green',Waiting:'b-yellow',Rejected:'b-red',Planning:'b-grey',Prospect:'b-yellow',Approval:'b-blue',Upcoming:'b-purple','Event Done':'b-green',Pending:'b-yellow',Approved:'b-green',Sold:'b-red',Available:'b-green','Checked-In':'b-blue',Valid:'b-green',Expired:'b-grey',Failed:'b-red',Refunded:'b-purple',Free:'b-blue',None:'b-grey'};return '<span class="badge '+(map[s]||'b-grey')+'">'+esc(s)+'</span>';}
 
@@ -2671,7 +2689,7 @@ function monthlyGenModal(){
       <td><select class="inp mg_tal" data-dow="${i}" onchange="mgIsiFee(this)"><option value="">— kosong —</option>${pilihan.map(t=>`<option value="${t.id}" data-fee="${t.default_fee||0}">${esc(t.name)}${t.category?' · '+t.category:''}</option>`).join('')}</select></td>
       <td><input class="inp mg_st" type="time" value="${esc(r.start||'20:00')}"></td>
       <td><input class="inp mg_et" type="time" value="${esc(r.end||'23:00')}"></td>
-      <td><input class="inp mg_fee uang" inputmode="numeric" value="${uangFormat(r.fee||0)}" oninput="uangKetik(this)" placeholder="ikut default talent"></td>
+      <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp mg_fee uang" inputmode="numeric" value="${uangFormat(r.fee||0)}" oninput="uangKetik(this)" placeholder="ikut default talent"></span></td>
     </tr>`;}).join('')}
   </tbody></table></div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="genMonthly()">Generate Bulan Ini</button></div>`,true);
@@ -3602,10 +3620,15 @@ function setPipeTabEms(v){ pipeTabEms=v; router(); }
 function renderPipelineEms(){
   setTop('Event Pipeline','Geser kartu antar tahap saat statusnya berubah','');
   const semua=DB.events.slice();
-  let h='<div class="tabs">'
-    +'<button class="'+(pipeTabEms==='kanban'?'active':'')+'" onclick="setPipeTabEms(&#39;kanban&#39;)">Kanban Pipeline</button>'
-    +'<button class="'+(pipeTabEms==='tabel'?'active':'')+'" onclick="setPipeTabEms(&#39;tabel&#39;)">Tabel Event</button>'
-    +'</div>';
+  /* Bentuknya disamakan dengan Marketing: sepasang tombol tersegmen (.seg-per,
+     kembaran .seg di sana), bukan tab bergaris bawah. Kru membuka kedua modul
+     bergantian di hari yang sama, dan dua bentuk berbeda untuk pilihan yang
+     persis sama - Kanban vs Tabel - membuat yang satu terasa seperti navigasi
+     halaman dan yang lain seperti saringan. */
+  let h='<div class="toolbar"><div class="seg-per">'
+    +'<button class="'+(pipeTabEms==='kanban'?'on':'')+'" onclick="setPipeTabEms(&#39;kanban&#39;)">Kanban Pipeline</button>'
+    +'<button class="'+(pipeTabEms==='tabel'?'on':'')+'" onclick="setPipeTabEms(&#39;tabel&#39;)">Tabel Event</button>'
+    +'</div></div>';
   /* Pita ringkasan: jumlah per tahap, tanpa nominal — aturan yang sama
      dengan papan Marketing sejak 11 Agustus 2026. */
   h+='<div class="pipe-sum" style="grid-template-columns:1.3fr repeat('+EVT_STATUS.length+',1fr)">'
@@ -4486,7 +4509,7 @@ function vendorRowHTML(v,b){v=v||{};const m=matikan(b);return `<tr>
   <td><input class="inp" data-r="name" value="${esc(v.name||'')}" placeholder="nama vendor"${m}></td>
   <td><input class="inp" data-r="pic" value="${esc(v.pic||'')}" placeholder="PIC"${m}></td>
   <td><input class="inp" data-r="phone" value="${esc(v.phone||'')}" placeholder="08…"${m}></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"${m}></span></td>
   <td><select class="inp" data-r="status"${m}>${VD_STATUS.map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
   ${selHapus(b)}</tr>`;}
 const TK_COLS=['title','assignee','due','done'];
@@ -4509,8 +4532,8 @@ function budgetRowHTML(b,bo){b=b||{};const m=matikan(bo);
   return `<tr>
   <td><input class="inp" data-r="item" value="${esc(b.item||'')}" placeholder="nama item"${m}></td>
   <td><select class="inp" data-r="type"${m}>${BG_TYPES.map(x=>`<option ${b.type===x?'selected':''}>${x}</option>`).join('')}</select></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"${m}></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="budget" value="${uangFormat(+b.budget||0)}" oninput="uangKetik(this)"${m}></span></td>
+  <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="actual" value="${uangFormat(+b.actual||0)}" oninput="uangKetik(this)"${m}></span></td>
   <td class="bg-var" style="color:${warna}">${v>0?'+':''}${IDR(v)}</td>
   ${selHapus(bo)}</tr>`;}
 const SP_COLS=['name','package','nominal','agreement','status'];
@@ -4518,7 +4541,7 @@ const SP_STATUS=['Pending','Confirmed','Paid','Cancelled'];
 function sponsorRowHTML(sp,b){sp=sp||{};const m=matikan(b);return `<tr>
   <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"${m}></td>
   <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"${m}></td>
-  <td><input class="inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"${m}></td>
+  <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"${m}></span></td>
   <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"${m}></td>
   <td><select class="inp" data-r="status"${m}>${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
   ${selHapus(b)}</tr>`;}
@@ -5015,10 +5038,11 @@ function salesGrafikHTML(r,eid){
        +'<div class="salesbar"><i style="width:'+w+'%;background:'+v.warna+'"></i></div>'
        +'<div class="katfoot mini">'
          +'<span>'+jmlPembeli+' pembeli'+(v.harga?' \u00b7 '+IDR(v.harga)+'/tiket':'')+'</span>'
-         +'<span>'+porsi+'% dari omzet'
-           +(sisa===null ? ''
-             : sisa===0  ? ' \u00b7 <b class="kat-habis">HABIS</b>'
-                         : ' \u00b7 sisa <b>'+sisa+'</b>')+'</span>'
+         /* "N% dari omzet · sisa M" DICABUT. Porsinya selalu 100% begitu
+            eventnya cuma punya satu kategori - angka yang tidak pernah salah dan
+            tidak pernah berguna - dan sisanya sudah terbaca persis di atasnya
+            sebagai "terjual / kuota". */
+         +(sisa===0?'<span><b class="kat-habis">HABIS</b></span>':'')
        +'</div>'
        +'</div>';
    }).join('')
@@ -5097,7 +5121,10 @@ function salesBody(eid){
       : '<span class="badge b-grey">Ditolak</span>';
     const bisaAjukan = tks.length && !refundAktif(o.id) && o.payment_status!=='Refunded';
     h+='<tr><td><b>'+esc(o.buyer_name)+'</b><div class="mini">'+fmtDateTime(o.created)
-     +(o.recorded_by?' · oleh '+esc(o.recorded_by):'')+'</div>'
+     /* "oleh Website" dibaca seolah ada orang bernama Website. Pesanan online
+    memang tidak dicatat siapa pun — sumbernya yang disebut, bukan pencatatnya.
+    Nilai 'Website' ditulis backend ticketing (lib_ticketing.php). */
+     +(o.recorded_by?' · '+(o.recorded_by==='Website'?'Website':'oleh '+esc(o.recorded_by)):'')+'</div>'
      +'<div class="mini">'+esc(o.payment_ref||'')+'</div></td>'
      +'<td class="mini">'+esc(o.phone)+'<br>'+esc(o.email)+'</td>'
      /* Titik warna kategorinya ikut, sama dengan warna di panel atas: satu
@@ -5425,12 +5452,23 @@ function ldzMuda(hex,f){
 function ldzWarnaObjek(it,warnaTier,terisi){
   const meja=(it&&it.kind==='table');
   if(terisi){
-    const dasar=meja?ldzGelap(warnaTier,0.85):ldzGelap(warnaTier);
-    return {bg:dasar, tepi:ldzGelap(warnaTier,0.55), teks:'#fff'};
+    /* SUDAH TERJUAL / SUDAH CHECK-IN DIPERTEBAL. Angka lamanya (0.85 untuk
+       meja) cuma menggelapkan sedikit, jadi meja terjual dan meja kosong
+       tingkatan yang sama sulit dibedakan justru pada saat paling dibutuhkan:
+       hari-H, di layar terang, sambil orang mengantre. */
+    const dasar=meja?ldzGelap(warnaTier,0.55):ldzGelap(warnaTier,0.45);
+    return {bg:dasar, tepi:ldzGelap(warnaTier,0.3), teks:'#fff'};
   }
+  /* JARAK WARNA MEJA vs KURSI SENGAJA DILEBARKAN. Sebelumnya meja memakai
+     0.55 dari warna tingkatannya - masih cukup pekat sehingga di kanvas penuh,
+     dari jarak baca normal, meja dan kursi tingkatan yang sama terlihat nyaris
+     sama dan orang harus menyorot satu per satu untuk memastikan. Sekarang
+     0.82: meja jelas berupa warna pastel, kursi tetap warna penuh. Garis
+     tepinya juga dibedakan (meja lebih tua daripada isiannya) supaya bentuknya
+     tetap tegas walau isiannya muda. */
   return meja
-    ? {bg:ldzMuda(warnaTier,0.55), tepi:warnaTier,               teks:ldzGelap(warnaTier,0.55)}
-    : {bg:warnaTier,               tepi:ldzGelap(warnaTier),     teks:'#fff'};
+    ? {bg:ldzMuda(warnaTier,0.82), tepi:ldzGelap(warnaTier,0.85), teks:ldzGelap(warnaTier,0.5)}
+    : {bg:warnaTier,               tepi:ldzGelap(warnaTier),      teks:'#fff'};
 }
 function ldzMeta(eid){
   const d=ensureDetails(eid);

@@ -982,6 +982,13 @@
 
 
 
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1799,13 +1806,24 @@ function uangKetik() { uangFormat(); }
 
 
 
-function uangNilai() {  }
+function uangNilai() { uangKetik(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
 
 
 function uangInput() { esc(); uangFormat(); uangKetik(); }
+
 
 
 
@@ -3659,6 +3677,11 @@ function renderPipelineEms() { setTop(); setPipeTabEms(); esc(); fmtDateTime(); 
 
 
 
+
+
+
+
+
 function bindKanbanEms() { C(); pindahTahapEms(); setEventStatus(); }
 
 
@@ -5033,7 +5056,11 @@ function salesGrafikHTML() { esc(); }
 
 
 
+
 function salesBody() { salesRingkas(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
+
+
+
 
 
 
@@ -5423,6 +5450,17 @@ function ldzMuda() { c(); }
 
 
 function ldzWarnaObjek() { ldzGelap(); ldzMuda(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
