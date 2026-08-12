@@ -1664,6 +1664,9 @@ const NAV=[
      Marketing. Halamannya sendiri sudah menyaring: yang bukan manajemen
      melihat daftar baca-saja tanpa tombol putusan. */
   {h:'approval',ic:'check',t:'Approval Flow'},
+  {s:'Analitik'},
+  {h:'performa',ic:'pipe',t:'Event Performance'},
+  {h:'report',ic:'dash',t:'Report & Analytics'},
   /* Event Idea Bank & Event History TIDAK lagi berdiri sendiri di sini —
      keduanya jadi tab di Perencanaan Event. Ide, rencana yang sedang
      digarap, dan acara yang sudah lewat adalah tiga wujud dari satu benda
@@ -1674,7 +1677,7 @@ const NAV=[
   {s:'Pengaturan'},
   {h:'akses',ic:'users',t:'Hak Akses'},
 ];
-const TITLES={pipeline:'Event Pipeline',approval:'Approval Flow',dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',planning:'Perencanaan Event',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History',akses:'Hak Akses'};
+const TITLES={performa:'Event Performance',report:'Report & Analytics',pipeline:'Event Pipeline',approval:'Approval Flow',dashboard:'Dashboard',calendar:'Event Calendar',talents:'Talent Management',schedule:'Talent Schedule',fee:'Fee & Pembayaran Talent',planning:'Perencanaan Event',events:'Event Management',ticketing:'Ticketing',checkin:'Check-In (Hari H)',ideas:'Event Idea Bank',history:'Event History',akses:'Hak Akses'};
 function buildNav(){
   const nav=document.getElementById('nav');nav.innerHTML='';
   const cur=location.hash.replace('#/','').split('/')[0]||'dashboard';
@@ -1727,7 +1730,7 @@ function router(){
      (#/ticketing/<event>/<kelas>). Sebelumnya router memotong di segmen
      kedua, jadi alamat sedalam itu terbaca sebagai halaman ticketing biasa. */
   const page=parts[0]||'dashboard';const arg=parts[1];const arg2=parts[2];
-  const routes={pipeline:renderPipelineEms,approval:renderApprovalEms,dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,planning:renderPlanning,events:arg?renderEventDetail:renderEvents,ticketing:arg?(arg2?renderKategoriDetail:renderTicketDetail):renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory,akses:renderAkses};
+  const routes={performa:renderPerformanceEms,report:renderReportEms,pipeline:renderPipelineEms,approval:renderApprovalEms,dashboard:renderDashboard,calendar:renderCalendar,talents:arg?renderTalentDetail:renderTalents,schedule:renderSchedule,fee:renderFee,planning:renderPlanning,events:arg?renderEventDetail:renderEvents,ticketing:arg?(arg2?renderKategoriDetail:renderTicketDetail):renderTicketing,checkin:renderCheckin,ideas:renderIdeas,history:arg?renderHistoryDetail:renderHistory,akses:renderAkses};
   /* Halaman yang tertutup untuk peran ini dihentikan DI SINI, bukan cuma
      disembunyikan dari menu — alamat halaman bisa diketik langsung. */
   if(EMS_HALAMAN[page] && !bisaLihat(page)){
@@ -2182,7 +2185,7 @@ function talentSimpanInline(id){
 /* ============ TALENT SCHEDULE ============ */
 let schMonth=new Date();
 function renderSchedule(){
-  setTop('Talent Schedule','Kalender jadwal · anti double-booking','<button class="btn ghost sm" onclick="dailyRulesModal()">⚙ Daily Rules</button> <button class="btn ghost sm" onclick="recurringModal()">🔁 Recurring</button> <button class="btn ghost sm" onclick="monthlyGenModal()">📅 Generate Bulanan</button> <button class="btn" onclick="scheduleForm()">+ Jadwal</button>');
+  setTop('Talent Schedule','Kalender jadwal · anti double-booking','<button class="btn ghost sm" onclick="inputMingguan()">📆 Input Mingguan</button><button class="btn ghost sm" onclick="dailyRulesModal()">⚙ Daily Rules</button> <button class="btn ghost sm" onclick="recurringModal()">🔁 Recurring</button> <button class="btn ghost sm" onclick="monthlyGenModal()">📅 Generate Bulanan</button> <button class="btn" onclick="scheduleForm()">+ Jadwal</button>');
   const y=schMonth.getFullYear(),m=schMonth.getMonth();
   const first=new Date(y,m,1),startDow=first.getDay(),days=new Date(y,m+1,0).getDate();
   const todayStr=dstr(new Date());
@@ -2427,6 +2430,66 @@ function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>
 /* `tgl` datang dari sel kalender yang diklik. Tetap boleh kosong — tombol
    "+ Jadwal" di pojok atas memanggilnya tanpa argumen, dan jatuh ke hari ini
    seperti sebelumnya. */
+/* ---------- INPUT MINGGUAN ----------
+   Menyusun jadwal seminggu itu tujuh kali pekerjaan yang sama persis, dan
+   sebelumnya berarti tujuh kali: klik sel → centang talent → Simpan → cari
+   sel berikutnya di kalender. Langkah keempat itu yang paling sering
+   membuat orang berhenti di tengah minggu — dan jadwal setengah jadi lebih
+   buruk daripada tidak ada, karena yang membacanya mengira Rabu memang
+   kosong.
+
+   Sekarang: pilih Senin-nya sekali, lalu formulir yang sama berjalan
+   sendiri Senin → Selasa → … → Minggu. Yang dipakai TETAP scheduleForm()
+   dan saveSchedule() yang sudah ada — termasuk pemeriksaan bentroknya. Satu
+   formulir kedua yang menyalin logika itu pasti lambat laun kehilangan
+   salah satu penjaganya.
+
+   null = sedang tidak dalam mode mingguan. */
+let schMinggu=null;      // {akhir:'YYYY-MM-DD'}
+const HARI_PJG_EMS=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+function tglGeser(t,n){ const d=new Date(t+'T00:00:00'); d.setDate(d.getDate()+n); return dstr(d); }
+function namaHari(t){ const d=new Date(t+'T00:00:00'); return isNaN(d)?'':HARI_PJG_EMS[d.getDay()]; }
+function inputMingguan(){
+  /* Senin dari minggu yang sedang dibuka di kalender, bukan dari hari ini:
+     orang menekan tombol ini setelah menggulir ke bulan yang mau diisi. */
+  const dasar=new Date(schMonth.getFullYear(),schMonth.getMonth(),1);
+  const hariIni=new Date();
+  const acuan=(dasar.getFullYear()===hariIni.getFullYear()&&dasar.getMonth()===hariIni.getMonth())
+    ? hariIni : dasar;
+  const sen=new Date(acuan); sen.setDate(acuan.getDate()-((acuan.getDay()+6)%7));
+  modal('<button class="close" onclick="closeModal()">\u00d7</button>'
+   +'<h3>Input Mingguan</h3>'
+   +'<p class="mini" style="margin-bottom:12px">Isi jadwal tujuh hari berturut-turut. '
+   +'Setiap kali Simpan, formulirnya lanjut sendiri ke hari berikutnya.</p>'
+   +'<div class="field"><label>Mulai dari (Senin)</label>'
+   +'<input id="mg_mulai" type="date" value="'+dstr(sen)+'"></div>'
+   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+   +'<button class="btn" onclick="mulaiMingguan()">Mulai \u2192</button></div>');
+}
+function mulaiMingguan(){
+  const t=(document.getElementById('mg_mulai')||{}).value||'';
+  if(!t){ toast('Pilih tanggal mulainya dulu.'); return; }
+  schMinggu={akhir:tglGeser(t,6)};
+  scheduleForm(t);
+}
+function lewatiHariIni(){
+  if(!schMinggu) return closeModal();
+  const t=(document.getElementById('s_date')||{}).value||'';
+  lanjutMingguan(t);
+}
+/* Satu tempat yang memutuskan "lanjut atau selesai". Dipanggil sesudah
+   simpan DAN sesudah dilewati, supaya dua jalur itu tidak pernah bisa
+   berbeda perilakunya. */
+function lanjutMingguan(tglSekarang){
+  if(!schMinggu) return;
+  const berikut=tglGeser(tglSekarang,1);
+  if(berikut>schMinggu.akhir){
+    schMinggu=null; closeModal(); renderSchedule();
+    toast('\u2713 Seminggu selesai diisi.');
+    return;
+  }
+  scheduleForm(berikut);
+}
 function scheduleForm(tgl){
   const t=DB.talents.filter(x=>x.status!=='Inactive');
   const tanggal=tgl||dstr(new Date());
@@ -2434,7 +2497,12 @@ function scheduleForm(tgl){
      yang mengklik tanggal ramai tidak tahu siapa saja yang sudah masuk, dan
      bentroknya baru ketahuan sesudah menekan Simpan. */
   const sudah=DB.schedules.filter(x=>x.date===tanggal);
-  modal(`<button class="close" onclick="closeModal()">&times;</button><h3>Tambah Jadwal</h3>
+  /* Dalam mode mingguan, kepala formulirnya menyebut hari keberapa yang
+     sedang diisi — tanpa itu tujuh formulir beruntun terlihat sama persis
+     dan orang kehilangan hitungan. */
+  const mg=schMinggu;
+  const judul=mg ? ('Input Mingguan \u00b7 '+namaHari(tanggal)) : 'Tambah Jadwal';
+  modal(`<button class="close" onclick="schMinggu=null;closeModal()">&times;</button><h3>${judul}</h3>${mg?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">Hari ini <b>${fmtDate(tanggal)}</b> \u2014 terakhir <b>${fmtDate(mg.akhir)}</b>. Kosongkan lalu tekan <b>Lewati</b> kalau hari itu memang tidak ada yang tampil.</div>`:''}
   <p class="mini" style="margin-bottom:10px">${fmtDate(tanggal)} &mdash; centang semua talent yang tampil
      hari itu; tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
   ${sudah.length?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">
@@ -2460,8 +2528,7 @@ function scheduleForm(tgl){
       : '<div class="empty">Belum ada talent. Tambahkan dulu di Talent Management.</div>'}</div>
     <div class="mini" id="s_talinfo" style="margin-top:6px">Belum ada talent dipilih.</div>
   </div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>
-    <button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
+  <div class="modal-actions">${mg?`<button class="btn ghost" onclick="schMinggu=null;closeModal();renderSchedule()">Berhenti</button><button class="btn ghost" onclick="lewatiHariIni()">Lewati \u2192</button>`:`<button class="btn ghost" onclick="closeModal()">Batal</button>`}    <button class="btn" onclick="saveSchedule()">${mg?'Simpan &amp; Lanjut \u2192':'Simpan'}</button></div>`,true);
 }
 /* Kotak fee baru bisa diketik kalau talentnya dicentang. Kotak aktif yang
    isinya diabaikan (karena orangnya tidak dipilih) adalah cara paling cepat
@@ -2498,14 +2565,19 @@ function saveSchedule(){
       performance_type:type, fee: fEl?uangNilai('s_fee_'+cb.value):(+cb.dataset.fee||0),
       status:'Scheduled', recurring_rule_id:null, source:'manual'});
   });
-  save(); closeModal();
+  save();
   /* Pindah ke bulan tanggalnya kalau perlu — menyimpan jadwal bulan depan
      lalu dikembalikan ke bulan ini membuat orang mengira simpanannya gagal. */
   const dt=new Date(date+'T00:00:00');
   if(!isNaN(dt)) schMonth=new Date(dt.getFullYear(),dt.getMonth(),1);
-  renderSchedule();
   toast(pilih.length>1 ? pilih.length+' jadwal tersimpan (tanpa konflik).'
                        : 'Jadwal tersimpan (tanpa konflik).');
+  /* Dalam mode mingguan formulirnya TIDAK ditutup — langsung berganti ke
+     hari berikutnya. renderSchedule() ditunda sampai seminggu selesai:
+     menggambar ulang kalender di belakang modal tiap hari cuma membuang
+     kerja yang tidak terlihat siapa pun. */
+  if(schMinggu) return lanjutMingguan(date);
+  closeModal(); renderSchedule();
 }
 function recurringModal(){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>🔁 Recurring Schedule</h3><p class="mini" style="margin-bottom:12px">Buat aturan berulang, sistem auto-generate dalam rentang tanpa duplikasi (idempotent).</p>
@@ -3195,7 +3267,8 @@ const EMS_HALAMAN = {
   /* Halaman baru. Ikut matriks izin seperti halaman lain — bawaannya
      diatur emsPermBawaan(); yang bukan manajemen tetap boleh MELIHAT
      antriannya, yang dibatasi hanya tombol putusannya (bisaSetujui). */
-  approval:'Approval Flow', pipeline:'Event Pipeline'
+  approval:'Approval Flow', pipeline:'Event Pipeline',
+  performa:'Event Performance', report:'Report & Analytics'
 };
 /* Bawaan yang dipilih supaya sistemnya bisa langsung dipakai tanpa disetel:
    tim event mengerjakan semuanya kecuali menyetujui rencananya sendiri dan
@@ -3580,6 +3653,154 @@ function autoSelesaikanEvent(){
    Event Management — jadi halaman ini selalu berisi pekerjaan yang belum
    selesai, bukan arsip. */
 let planFilter='all';
+/* ============ PERFORMANCE & REPORT ============
+   Dua halaman, sepasang dengan Marketing Performance & Reporting di modul
+   Marketing \u2014 bentuk kartu, judul bagian, dan tabelnya sengaja sama supaya
+   kru yang membaca keduanya tidak perlu menerjemahkan dua tata letak.
+
+   SATU SUMBER ANGKA untuk keduanya. Kalau Performance dan Report menghitung
+   sendiri-sendiri, dua halaman yang seharusnya menceritakan hal yang sama
+   akan lambat laun berbeda \u2014 dan yang membacanya tidak punya cara tahu mana
+   yang benar. Semua lewat angkaEms(). */
+function angkaEms(rentang){
+  const dalam=function(tgl){
+    if(!rentang) return true;
+    const t=String(tgl||'').slice(0,10);
+    return t && t>=rentang.a && t<=rentang.b;
+  };
+  const events=DB.events.filter(function(e){ return dalam(e.start_datetime); });
+  const idEv={}; events.forEach(function(e){ idEv[e.id]=1; });
+  const orders=DB.orders.filter(function(o){ return o.payment_status==='Paid' && idEv[o.event_id]; });
+  const omzet=orders.reduce(function(a,o){ return a+(+o.total||0); },0);
+  const kelas=DB.ticketClasses.filter(function(c){ return idEv[c.event_id]; });
+  const terjual=kelas.reduce(function(a,c){ return a+(+c.sold||0); },0);
+  const kuota=kelas.reduce(function(a,c){ return a+(+c.quota||0); },0);
+  /* Check-in dihitung dari tiketnya, bukan dari DB.checkins langsung: satu
+     tamu bisa dipindai dua kali, dan yang ingin diketahui berapa ORANG yang
+     masuk \u2014 bukan berapa kali pemindai berbunyi. */
+  const tiketEv=DB.tickets.filter(function(t){
+    const c=DB.ticketClasses.find(function(x){ return x.id===t.ticket_class_id; });
+    return c && idEv[c.event_id]; });
+  const hadir=tiketEv.filter(function(t){ return t.status==='Checked-In'; }).length;
+  const jadwal=DB.schedules.filter(function(x){ return dalam(x.date) && x.status==='Done'; });
+  return {events:events, orders:orders, omzet:omzet, terjual:terjual, kuota:kuota,
+          tiket:tiketEv.length, hadir:hadir, jadwal:jadwal,
+          selesai:events.filter(function(e){ return e.status==='Event Done'; }).length,
+          isi: kuota?Math.round(terjual/kuota*100):0,
+          hadirPct: tiketEv.length?Math.round(hadir/tiketEv.length*100):0};
+}
+/* Omzet enam bulan terakhir. Yang dihitung pesanan LUNAS \u2014 pesanan yang belum
+   dibayar bukan uang masuk, dan memasukkannya membuat grafik ini berbohong ke
+   arah yang paling menyenangkan. */
+function omzetPerBulanEms(n){
+  const out=[]; const d=new Date(); d.setDate(1);
+  for(let i=n-1;i>=0;i--){
+    const x=new Date(d.getFullYear(),d.getMonth()-i,1);
+    const kunci=x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0');
+    const total=DB.orders.filter(function(o){
+        if(o.payment_status!=='Paid') return false;
+        const e=DB.events.find(function(y){ return y.id===o.event_id; });
+        return e && String(e.start_datetime||'').slice(0,10).slice(0,7)===kunci;
+      }).reduce(function(a,o){ return a+(+o.total||0); },0);
+    out.push([BULAN_PDK_EMS[x.getMonth()], Math.round(total/1000000)]);
+  }
+  return out;
+}
+const BULAN_PDK_EMS=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des'];
+
+let perfPeriode='';
+function perfSetPeriode(k){ perfPeriode=k; router(); }
+function pitaPeriodeEms(aktif,fn,jml){
+  return '<div class="toolbar"><div class="seg-per">'+DASH_PERIODE.map(function(x){
+      return '<button class="'+(aktif===x[0]?'on':'')+'" onclick="'+fn+'(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>';
+    }).join('')+'</div><span class="pill">'+jml+' event</span></div>';
+}
+
+function renderPerformanceEms(){
+  setTop('Event Performance','Ukur hasil event & talent secara objektif','');
+  const r=rentangPeriode(perfPeriode);
+  const a=angkaEms(r);
+  let h=pitaPeriodeEms(perfPeriode,'perfSetPeriode',a.events.length);
+  h+='<div class="grid g4" style="margin-bottom:18px">'
+    +stat('Omzet Tiket',IDR(a.omzet),a.orders.length+' pesanan lunas')
+    +stat('Tiket Terjual',a.terjual,(a.kuota?'dari '+a.kuota+' kuota':'belum ada kuota'))
+    +stat('Keterisian',a.isi+'%','terjual dibanding kuota')
+    +stat('Event Selesai',a.selesai,'dari '+a.events.length+' event')
+    +'</div>';
+  h+='<div class="grid g2" style="align-items:start">';
+
+  /* Talent: jumlah show Done + total fee. Angka yang paling sering ditanya
+     saat menilai siapa yang benar-benar jalan. */
+  const perT={};
+  a.jadwal.forEach(function(x){
+    if(!perT[x.talent_id]) perT[x.talent_id]={n:0,fee:0};
+    perT[x.talent_id].n++; perT[x.talent_id].fee+=(+x.fee||0);
+  });
+  const barisT=Object.keys(perT).map(function(id){
+      const t=DB.talents.find(function(y){ return y.id===id; });
+      return {nama:(t?t.name:'(talent dihapus)'), n:perT[id].n, fee:perT[id].fee}; })
+    .sort(function(x,y){ return y.n-x.n; });
+  h+='<div class="card"><h3 class="sec">Talent Paling Aktif</h3>';
+  if(!barisT.length) h+='<div class="empty">Belum ada show berstatus Done pada periode ini.</div>';
+  else h+='<table><thead><tr><th>Talent</th><th>Show</th><th>Total Fee</th></tr></thead><tbody>'
+    +barisT.slice(0,8).map(function(x){
+      return '<tr><td>'+esc(x.nama)+'</td><td>'+x.n+'</td><td>'+IDR(x.fee)+'</td></tr>'; }).join('')
+    +'</tbody></table>';
+  h+='</div>';
+
+  /* Event dengan omzet terbesar \u2014 pasangan dari daftar talent di sebelahnya. */
+  const perE={};
+  a.orders.forEach(function(o){ perE[o.event_id]=(perE[o.event_id]||0)+(+o.total||0); });
+  const barisE=Object.keys(perE).map(function(id){
+      const e=DB.events.find(function(y){ return y.id===id; });
+      return {nama:(e?e.title:'(event dihapus)'), v:perE[id]}; })
+    .sort(function(x,y){ return y.v-x.v; });
+  h+='<div class="card"><h3 class="sec">Event Omzet Terbesar</h3>';
+  if(!barisE.length) h+='<div class="empty">Belum ada pesanan lunas pada periode ini.</div>';
+  else h+='<table><thead><tr><th>Event</th><th>Omzet</th></tr></thead><tbody>'
+    +barisE.slice(0,8).map(function(x){
+      return '<tr><td>'+esc(x.nama)+'</td><td>'+IDR(x.v)+'</td></tr>'; }).join('')
+    +'</tbody></table>';
+  h+='</div></div>';
+  C().innerHTML=h;
+}
+
+let repPeriode='';
+function repSetPeriode(k){ repPeriode=k; router(); }
+function renderReportEms(){
+  setTop('Report & Analytics','Laporan omzet, tiket & kehadiran','');
+  const r=rentangPeriode(repPeriode);
+  const a=angkaEms(r);
+  let h=pitaPeriodeEms(repPeriode,'repSetPeriode',a.events.length);
+  h+='<div class="grid g4" style="margin-bottom:18px">'
+    +stat('Total Omzet',IDR(a.omzet),'pesanan lunas')
+    +stat('Tiket Terbit',a.tiket,'e-ticket dibuat')
+    +stat('Hadir',a.hadir,a.hadirPct+'% dari tiket terbit')
+    +stat('Avg Harga Tiket',IDR(a.terjual?Math.round(a.omzet/a.terjual):0),'per tiket terjual')
+    +'</div>';
+  h+='<div class="card" style="margin-bottom:18px"><h3 class="sec">Omzet 6 Bulan (juta)</h3>'
+    +barChart(omzetPerBulanEms(6),function(v){ return v+'jt'; })+'</div>';
+
+  /* Per kategori event \u2014 menjawab "jenis acara apa yang paling menghasilkan",
+     pertanyaan yang menentukan acara berikutnya dibuat seperti apa. */
+  const perK={};
+  a.events.forEach(function(e){
+    const k=e.category||'Lainnya';
+    if(!perK[k]) perK[k]={n:0,v:0};
+    perK[k].n++;
+    perK[k].v+=DB.orders.filter(function(o){ return o.event_id===e.id && o.payment_status==='Paid'; })
+      .reduce(function(x,o){ return x+(+o.total||0); },0);
+  });
+  const barisK=Object.keys(perK).sort(function(x,y){ return perK[y].v-perK[x].v; });
+  h+='<div class="card"><h3 class="sec">Per Kategori Event</h3>';
+  if(!barisK.length) h+='<div class="empty">Belum ada event pada periode ini.</div>';
+  else h+='<table><thead><tr><th>Kategori</th><th>Event</th><th>Omzet</th></tr></thead><tbody>'
+    +barisK.map(function(k){
+      return '<tr><td>'+esc(k)+'</td><td>'+perK[k].n+'</td><td>'+IDR(perK[k].v)+'</td></tr>'; }).join('')
+    +'</tbody></table>';
+  h+='</div>';
+  C().innerHTML=h;
+}
 /* ---------- APPROVAL FLOW (EMS) ----------
    Bentuknya sengaja MENIRU modul Marketing: satu kartu angka (berapa yang
    menunggu), dua tab (Antrian / Riwayat), tabel di bawahnya. Kru yang

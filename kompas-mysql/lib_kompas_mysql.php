@@ -221,6 +221,180 @@ function omset_pic($dari, $sampai) {
     'pic' => $pic, 'total' => $tot,
   );
 }
+/* ==================== SIMPAN TARGET SAJA (tulis sempit) ==============
+   Dipakai panel Finance > Kas Kecil & Performa, halaman Pengaturan Target
+   (pindah ke sana 12 Agustus 2026).
+
+   KENAPA BUKAN saveAll. Panel kas SENGAJA tidak pernah menulis blob kompas —
+   lihat save() di deploy/finance/kas/index.html yang dilumpuhkan on purpose.
+   Alasannya: saveAll mengirim SELURUH state, jadi satu penyimpanan dari layar
+   yang salinannya sudah basi akan menimpa omset, breakdown, dan compliment
+   yang baru saja diubah orang di panel Input Omset Harian — tanpa satu pun
+   pesan, karena dari sisi server itu penyimpanan yang sah.
+
+   Endpoint ini menambal HANYA lima hal, dibaca-ubah-tulis di dalam kunci yang
+   sama dengan saveAll (db_lock di api.php):
+     settings.companyMonthlyTarget, settings.useWorkingDays,
+     settings.workingDaysPerMonth, dan employees[divi][].target
+   Apa pun yang tidak disebut di payload TIDAK disentuh. Jadi memindahkan
+   halaman itu ke panel kas tidak menghidupkan kembali bahaya yang justru
+   membuatnya dikeluarkan dari sana dulu.
+
+   PIC YANG SUDAH TIDAK ADA dilaporkan balik, tidak didiamkan. Kalau seseorang
+   membuka halaman target lalu PIC-nya dihapus di Kompas sebelum ia menekan
+   simpan, target untuk id itu tidak punya tempat lagi — dan diam berarti
+   orangnya mengira angkanya tersimpan. */
+function simpan_target($data) {
+  if (!is_array($data)) throw new Exception('Payload kosong/invalid');
+  $pdo = db();
+  pastikan_tabel($pdo);
+
+  $s = kp_state_assoc();
+  if (!$s) throw new Exception('Data omset belum pernah tersimpan — buka panel Input Omset Harian lebih dulu');
+
+  if (!isset($s['settings']) || !is_array($s['settings'])) $s['settings'] = array();
+  if (array_key_exists('companyMonthlyTarget', $data))
+    $s['settings']['companyMonthlyTarget'] = kp_num($data['companyMonthlyTarget']);
+  if (array_key_exists('useWorkingDays', $data))
+    $s['settings']['useWorkingDays'] = !empty($data['useWorkingDays']);
+  if (array_key_exists('workingDaysPerMonth', $data)) {
+    $wd = kp_num($data['workingDaysPerMonth']);
+    // 0 hari kerja = pembagi nol = target harian nol di seluruh dashboard.
+    $s['settings']['workingDaysPerMonth'] = $wd > 0 ? $wd : 26;
+  }
+
+  $tg = (isset($data['target']) && is_array($data['target'])) ? $data['target'] : array();
+  $ubah = 0;
+  foreach (array('marketing', 'event', 'kasir') as $divi) {
+    if (!isset($s['employees'][$divi]) || !is_array($s['employees'][$divi])) continue;
+    foreach ($s['employees'][$divi] as $i => $e) {
+      if (!is_array($e) || !isset($e['id'])) continue;
+      $id = (string)$e['id'];
+      if (!array_key_exists($id, $tg)) continue;
+      $baru = kp_num($tg[$id]);
+      $lama = isset($e['target']) ? kp_num($e['target']) : 0;
+      if ($lama !== $baru) $ubah++;
+      $s['employees'][$divi][$i]['target'] = $baru;
+      unset($tg[$id]);
+    }
+  }
+  // Sisa $tg = id yang tidak cocok dengan satu pun PIC yang ada sekarang.
+  $hilang = array_values(array_map('strval', array_keys($tg)));
+
+  $ub = isset($data['by']) ? (string)$data['by'] : '';
+  $st = $pdo->prepare(
+    'INSERT INTO `app_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
+     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');
+  $st->execute(array(
+    ':d'  => json_enc($s),
+    ':ua' => (int)(microtime(true) * 1000),
+    ':ub' => $ub,
+  ));
+
+  return array(
+    'saved'   => true,
+    'ubah'    => $ubah,
+    'hilang'  => $hilang,
+    'ts'      => gmdate('c'),
+  );
+}
+
+/* ==================== SIMPAN REKAP PENJUALAN (tulis sempit) ==========
+   Dipakai panel Finance > Rekap Penjualan (lahir 12 Agustus 2026), yang
+   menggantikan berkas Excel "Penjualan 2026" sheet 07'26.
+
+   Panel itu MEMBACA hampir semua angkanya dari Daily Report yang sudah ada
+   (reports[tgl].pay[metode].pos/actual) dan dari omset harian. Yang benar-benar
+   miliknya sendiri cuma tiga, dan hanya tiga inilah yang boleh ditulis:
+
+     reports[tgl].mdr   {bri,mandiri,bca}  biaya MDR per bank, diketik tangan
+     reports[tgl].setor bool               cash hari itu sudah disetor
+     reports[tgl].esb   {grup:bool}        "Input ESB" — penanda bahwa nominal
+                                           adjust grup itu sudah dikunci di ESB
+
+   ALASAN ENDPOINT SENDIRI sama persis dengan simpan_target: saveAll mengirim
+   SELURUH state, jadi satu penyimpanan dari panel ini yang salinannya sudah
+   basi akan menimpa omset, breakdown, dan Daily Report yang baru saja diubah
+   orang di panel sebelah — tanpa satu pun pesan galat.
+
+   `pay` SENGAJA TIDAK BISA DITULIS DARI SINI. Angka POS/Actual tetap milik
+   Daily Report di panel Input Omset Harian; kalau panel ini boleh menyentuhnya,
+   dua layar akan menulis satu angka yang sama dan yang belakangan menang tanpa
+   ada yang tahu. Panel rekap cuma menandai dan menghitung. */
+function simpan_rekap($data) {
+  if (!is_array($data)) throw new Exception('Payload kosong/invalid');
+  $baris = isset($data['hari']) && is_array($data['hari']) ? $data['hari'] : null;
+  if ($baris === null) throw new Exception('Payload kosong/invalid: tidak ada daftar hari');
+
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $s = kp_state_assoc();
+  if (!$s) throw new Exception('Data omset belum pernah tersimpan — buka panel Input Omset Harian lebih dulu');
+  if (!isset($s['reports']) || !is_array($s['reports'])) $s['reports'] = array();
+
+  /* Grup "Input ESB" yang dikenal. Daftar TERTUTUP dengan sengaja: kunci yang
+     tidak dikenal berarti panelnya sudah lebih baru daripada backend, dan
+     menyimpannya diam-diam membuat penanda yang tidak pernah terbaca siapa
+     pun. Lebih baik dilaporkan. */
+  $grup = array('cash','qr_order','bri','mandiri','bca','transfer','gofood','grabfood','error');
+  $bank = array('bri','mandiri','bca');
+
+  $ubah = 0; $takDikenal = array();
+  foreach ($baris as $tgl => $isi) {
+    $tgl = kp_tgl($tgl);
+    if (!$tgl || !is_array($isi)) continue;
+    /* Baris report DIBUAT kalau belum ada. Hari yang Daily Report-nya belum
+       diisi tetap boleh ditandai sudah disetor / sudah masuk ESB — urutan
+       kerjanya di lapangan memang tidak selalu report dulu. */
+    if (!isset($s['reports'][$tgl]) || !is_array($s['reports'][$tgl])) $s['reports'][$tgl] = array();
+    $r =& $s['reports'][$tgl];
+
+    if (array_key_exists('setor', $isi)) {
+      $baru = !empty($isi['setor']);
+      if (!isset($r['setor']) || (bool)$r['setor'] !== $baru) $ubah++;
+      $r['setor'] = $baru;
+    }
+    if (isset($isi['mdr']) && is_array($isi['mdr'])) {
+      if (!isset($r['mdr']) || !is_array($r['mdr'])) $r['mdr'] = array();
+      foreach ($bank as $b) {
+        if (!array_key_exists($b, $isi['mdr'])) continue;
+        $baru = kp_num($isi['mdr'][$b]);
+        $lama = isset($r['mdr'][$b]) ? kp_num($r['mdr'][$b]) : 0;
+        if ($lama !== $baru) $ubah++;
+        $r['mdr'][$b] = $baru;
+      }
+    }
+    if (isset($isi['esb']) && is_array($isi['esb'])) {
+      if (!isset($r['esb']) || !is_array($r['esb'])) $r['esb'] = array();
+      foreach ($isi['esb'] as $g => $v) {
+        if (!in_array($g, $grup, true)) { $takDikenal[$g] = 1; continue; }
+        $baru = !empty($v);
+        if (!isset($r['esb'][$g]) || (bool)$r['esb'][$g] !== $baru) $ubah++;
+        $r['esb'][$g] = $baru;
+      }
+    }
+    unset($r);
+  }
+
+  $ub = isset($data['by']) ? (string)$data['by'] : '';
+  $st = $pdo->prepare(
+    'INSERT INTO `app_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
+     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');
+  $st->execute(array(
+    ':d'  => json_enc($s),
+    ':ua' => (int)(microtime(true) * 1000),
+    ':ub' => $ub,
+  ));
+
+  return array(
+    'saved'      => true,
+    'ubah'       => $ubah,
+    'hari'       => count($baris),
+    'takDikenal' => array_values(array_map('strval', array_keys($takDikenal))),
+    'ts'         => gmdate('c'),
+  );
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',

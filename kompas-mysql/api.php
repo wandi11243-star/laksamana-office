@@ -9,6 +9,19 @@
  *   GET  ?action=stats   -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved,jumlah}}
+ *   POST {action:"simpanTarget", data:{companyMonthlyTarget,useWorkingDays,
+ *         workingDaysPerMonth,target:{<idPIC>:<rupiah>},by}}
+ *                        -> {ok,data:{saved,ubah,hilang:[...]}}
+ *                           Tulis SEMPIT: hanya menambal target, tidak pernah
+ *                           mengirim seluruh state. Dipakai panel Finance >
+ *                           Kas Kecil & Performa, yang memang tidak boleh
+ *                           menulis blob ini utuh.
+ *   POST {action:"simpanRekap", data:{hari:{"YYYY-MM-DD":{setor,mdr:{bri,
+ *         mandiri,bca},esb:{grup:bool}}},by}}
+ *                        -> {ok,data:{saved,ubah,hari,takDikenal:[...]}}
+ *                           Tulis SEMPIT juga. Dipakai panel Finance > Rekap
+ *                           Penjualan. TIDAK bisa menulis reports[].pay —
+ *                           angka POS/Actual tetap milik Daily Report.
  *
  * Semua respons: {ok:true,data:...} atau {ok:false,error:"..."}.
  ************************************************************************/
@@ -48,6 +61,21 @@ try {
   else if ($action === 'saveAll') {
     $lock = db_lock();
     try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
+  }
+  /* Kunci yang SAMA dengan saveAll, bukan kunci sendiri. simpan_target
+     membaca-mengubah-menulis blob yang sama; kunci terpisah berarti dua jalur
+     tulis bisa berjalan bersamaan dan yang belakangan menimpa yang duluan. */
+  else if ($action === 'simpanTarget') {
+    $lock = db_lock();
+    try { $out = simpan_target(isset($body['data']) ? $body['data'] : null); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
+  }
+  else if ($action === 'simpanRekap') {
+    $lock = db_lock();
+    try { $out = simpan_rekap(isset($body['data']) ? $body['data'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
   }

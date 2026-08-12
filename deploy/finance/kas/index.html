@@ -471,6 +471,11 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       </div>
       <div class="nav-group">
         <div class="nav-label">Sistem</div>
+        <!-- Pengaturan Target pindah ke sini dari panel Input Omset Harian
+             (12 Agustus 2026, permintaan user). Tempatnya memang di sebelah
+             Performa & Ranking: di sanalah targetnya dipakai, sementara panel
+             sebelah cuma tempat mengetik omset harian. -->
+        <a data-view="target"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span> Pengaturan Target</a>
         <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Kru</a>
       </div>
     </nav>
@@ -656,12 +661,138 @@ function sayaAdmin(){ return !!(CURRENT_USER&&CURRENT_USER.isAdmin); }
    terdaftar tidak. Dipakai router juga, bukan cuma sidebar — menyembunyikan
    menu saja tidak pernah cukup karena go() bisa dipanggil dari tombol mana
    pun di halaman lain. */
-function bolehLihat(view){ return !!TITLES[view]; }
-/* Sidebar tidak perlu disaring lagi (semua pemegang modul melihat semua
-   halaman); yang tersisa cuma lencana peran di pojok bawah. */
+function bolehLihat(view){
+  /* SATU pengecualian: Pengaturan Target hanya untuk admin modul. Di panel
+     sebelah ia duduk di grup 'Sistem' yang memang cuma terbuka untuk level
+     penuh, dan memindahkannya ke sini tanpa gerbang berarti setiap pemegang
+     kunci 'finance' bisa menulis ulang target — angka yang menentukan bonus
+     seluruh kru. Pemindahan halaman tidak boleh diam-diam jadi pelonggaran
+     hak akses. */
+  if(view==='target') return sayaAdmin();
+  return !!TITLES[view];
+}
+/* Sidebar hampir tidak perlu disaring (semua pemegang modul melihat semua
+   halaman); yang tersisa lencana peran di pojok bawah dan satu menu yang
+   memang khusus admin. */
 function pasangMenu(){
   const badge=document.querySelector('.su-info span');
   if(badge) badge.textContent = sayaAdmin()?'admin finance':'finance';
+  /* Menu disembunyikan DAN bolehLihat() menolaknya — dua-duanya, bukan salah
+     satu. Menyembunyikan menu saja tidak pernah cukup: go() bisa dipanggil
+     dari tombol halaman lain, dan alamat lama tetap bisa dibuka. */
+  document.querySelectorAll('.nav a').forEach(a=>{
+    if(a.dataset.view && !bolehLihat(a.dataset.view)) a.style.display='none';
+  });
+}
+
+/* ============ PENGATURAN TARGET ============
+   Pindah ke panel ini 12 Agustus 2026 dari Input Omset Harian. Yang memakai
+   angkanya ada di sini semua — Dashboard Omset, Ranking PIC, dan tiga halaman
+   Performa — sementara panel sebelah cuma tempat mengetik omset tiap malam.
+
+   HALAMAN INI TIDAK BOLEH MEMAKAI save(). save() di modul ini sengaja
+   dilumpuhkan (lihat catatannya): ia cuma menulis localStorage, jadi tombol
+   simpan akan berbunyi "tersimpan" sementara tidak ada satu angka pun yang
+   sampai ke server. Itu persis kegagalan sunyi yang paling mahal di repo ini.
+
+   Yang dipakai `simpanTarget` — endpoint tulis SEMPIT di kompas-api-mysql yang
+   menambal lima field saja di dalam kunci tulis yang sama dengan saveAll.
+   Dengan begitu aturan "Finance tidak pernah menulis blob Kompas utuh" tetap
+   utuh: yang dikirim dari sini bukan state, cuma target.
+
+   Daftar PIC-nya READ-ONLY di sini. Yang menambah/menghapus PIC tetap
+   syncPicOffice() milik panel Input Omset Harian — modul ini sengaja tidak
+   menjalankannya (lihat boot()). Jadi kru yang baru diberi Tim/Keterangan di
+   Office baru muncul di sini setelah panel sebelah dibuka sekali. Disebutkan
+   terang-terangan di layar supaya tidak ditunggu sia-sia. */
+let targetSimpanJalan=false;
+function viewTarget(){
+  const el=document.getElementById('app-view');
+  const [y,m]=PERIOD.split('-').map(Number);
+  const st=DB.settings;
+  el.innerHTML=`
+    <div class="card">
+      <h3>Target Perusahaan</h3><div class="card-sub">Target harian dibagi otomatis dari target bulanan.</div>
+      <div class="row-in">
+        <div class="field"><label>Target Bulanan (Rp)</label><input class="mono rp" id="t_company" inputmode="numeric" value="${st.companyMonthlyTarget}"></div>
+        <div class="field"><label>Pembagi Target Harian</label>
+          <select id="t_mode"><option value="cal" ${!st.useWorkingDays?'selected':''}>Jumlah hari kalender (${daysInMonth(y,m)} hari)</option><option value="work" ${st.useWorkingDays?'selected':''}>Hari kerja</option></select>
+        </div>
+        <div class="field" id="t_wd_wrap" style="${st.useWorkingDays?'':'display:none'}"><label>Jumlah Hari Kerja / Bulan</label><input class="mono" id="t_wd" inputmode="numeric" value="${st.workingDaysPerMonth}"></div>
+      </div>
+      <div class="notice info">Target harian saat ini: <b>${fmtRp(dailyTarget(PERIOD))}</b></div>
+    </div>
+    <div class="notice info" style="margin-bottom:2px">PIC Marketing/Event/Kasir <b>otomatis</b> ditarik dari Tim/Keterangan user di Office oleh panel <b>Input Omset Harian</b>. Di sini kamu tinggal isi <b>targetnya</b>. Kru baru yang belum muncul akan ikut setelah panel itu dibuka sekali.</div>
+    ${divCardTarget('marketing','Marketing','mk')}
+    ${divCardTarget('event','Event Internal','ev')}
+    ${divCardTarget('kasir','Kasir','ks')}
+    <div id="t_pesan"></div>
+    <div style="position:sticky;bottom:0;z-index:5;background:linear-gradient(180deg,transparent,var(--paper) 30%);padding:14px 0 4px;margin-top:6px">
+      <button class="btn btn-primary" id="t_save_all" style="width:100%;padding:14px;font-size:15px">💾 Simpan Semua Target (Perusahaan &amp; PIC)</button>
+    </div>`;
+  document.getElementById('t_mode').onchange=e=>{document.getElementById('t_wd_wrap').style.display=e.target.value==='work'?'':'none';};
+  document.getElementById('t_save_all').onclick=simpanTarget;
+}
+function divCardTarget(divi,label,cls){
+  const rows=(DB.employees[divi]||[]).map(e=>`<tr><td><b>${esc(e.name)}</b></td><td class="num"><input class="mono rp" id="tg_${esc(e.id)}" data-emp="${esc(e.id)}" inputmode="numeric" value="${num(e.target)}" style="width:180px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td></tr>`).join('');
+  return `<div class="card"><span class="divlabel ${cls}">${label}</span><div class="card-sub">Target bulanan masing-masing PIC. Nama datang otomatis dari Office.</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target Bulanan (Rp)</th></tr></thead><tbody>${rows||'<tr><td colspan="2" class="empty">Belum ada — muncul otomatis setelah kru diberi Tim/Keterangan di Office.</td></tr>'}</tbody></table></div>
+  </div>`;
+}
+function simpanTarget(){
+  if(targetSimpanJalan) return;
+  const btn=document.getElementById('t_save_all');
+  const box=document.getElementById('t_pesan');
+  const bacaNum=id=>{ const e=document.getElementById(id); return e?num(e.value):0; };
+  const target={};
+  document.querySelectorAll('#app-view input[data-emp]').forEach(inp=>{ target[inp.dataset.emp]=num(inp.value); });
+  const wd=bacaNum('t_wd')||26;
+  const modeEl=document.getElementById('t_mode');
+  const data={
+    companyMonthlyTarget:bacaNum('t_company'),
+    useWorkingDays:!!(modeEl&&modeEl.value==='work'),
+    workingDaysPerMonth:wd,
+    target,
+    by:(CURRENT_USER&&CURRENT_USER.name)||''
+  };
+  targetSimpanJalan=true;
+  const semula=btn.innerHTML;
+  btn.disabled=true; btn.innerHTML='Menyimpan…';
+  if(box) box.innerHTML='';
+  fetchTimeout(API_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'simpanTarget',data})},40000)
+    .then(r=>r.text())
+    .then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON (kompas-api-mysql belum diperbarui?)');
+      if(!j.ok) throw new Error(j.error||'ditolak server');
+      const h=(j.data&&j.data.hilang)||[];
+      /* Salinan di memori disamakan HANYA setelah server mengiyakan. Kalau
+         diubah lebih dulu, kegagalan simpan meninggalkan layar yang memajang
+         angka baru padahal servernya masih angka lama — dan tidak ada satu
+         pun cara melihatnya sampai halaman dimuat ulang. */
+      DB.settings.companyMonthlyTarget=data.companyMonthlyTarget;
+      DB.settings.useWorkingDays=data.useWorkingDays;
+      DB.settings.workingDaysPerMonth=data.workingDaysPerMonth;
+      ['marketing','event','kasir'].forEach(divi=>(DB.employees[divi]||[]).forEach(e=>{
+        if(Object.prototype.hasOwnProperty.call(target,e.id)) e.target=target[e.id];
+      }));
+      try{ localStorage.setItem(CACHE_KEY,JSON.stringify(DB)); }catch(e){}
+      btn.innerHTML='✓ Tersimpan';
+      if(box) box.innerHTML=h.length
+        /* PIC yang lenyap DISEBUT, tidak didiamkan: kalau seseorang menghapus
+           PIC di panel sebelah selagi halaman ini terbuka, targetnya tidak
+           punya tempat lagi — dan diam berarti orangnya mengira tersimpan. */
+        ? `<div class="notice warn">⚠ Tersimpan, tapi ${h.length} PIC di layar ini <b>sudah tidak ada lagi</b> di daftar (kemungkinan dihapus dari panel Input Omset Harian selagi halaman ini terbuka). Targetnya tidak ikut tersimpan. Muat ulang halaman untuk melihat daftar terbaru.</div>`
+        : `<div class="notice ok">✓ Target tersimpan di server${(j.data&&j.data.ubah)?` — ${j.data.ubah} target PIC berubah`:''}.</div>`;
+      setTimeout(()=>{ if(CURRENT==='target') render(); },900);
+    })
+    .catch(err=>{
+      btn.innerHTML=semula;
+      if(box) box.innerHTML=`<div class="notice bad">✕ Gagal menyimpan: ${esc((err&&err.message)||'gagal')}. Angkanya <b>belum tersimpan</b> — coba lagi setelah jaringan pulih.</div>`;
+    })
+    .then(()=>{ targetSimpanJalan=false; btn.disabled=false; });
 }
 
 /* Metode pembayaran Report Daily. Urutannya sengaja alfabetis seperti yang
@@ -1065,6 +1196,7 @@ const TITLES={
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
   event:['Performa Event','Kontribusi omset per PIC event'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
+  target:['Pengaturan Target','Target perusahaan & masing-masing PIC'],
   akses:['Kelola Kru','Siapa saja yang bisa membuka modul Finance']
 };
 function go(view){
@@ -1099,7 +1231,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 

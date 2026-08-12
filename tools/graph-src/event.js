@@ -1675,6 +1675,9 @@ function svg() {  }
 
 
 
+
+
+
 function buildNav() { bisaLihat(); router(); svg(); }
 
 
@@ -2181,7 +2184,7 @@ function talentSimpanInline() { toast(); uangNilai(); save(); renderTalentDetail
 
 
 
-function renderSchedule() { setTop(); dailyRulesModal(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); }
+function renderSchedule() { setTop(); inputMingguan(); dailyRulesModal(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); }
 
 
 
@@ -2408,7 +2411,7 @@ function modalInfo() { modal(); esc(); closeModal(); }
 
 
 function delSched() { save(); closeModal(); renderSchedule(); toast(); }
-function hasConflict() { overlaps(); }
+function hasConflict() { overlaps(); scheduleForm(); saveSchedule(); }
 
 
 
@@ -2427,7 +2430,71 @@ function hasConflict() { overlaps(); }
 
 
 
-function scheduleForm() { dstr(); modal(); closeModal(); fmtDate(); esc(); talPilihUbah(); uangFormat(); uangKetik(); saveSchedule(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tglGeser() { dstr(); }
+function namaHari() {  }
+function inputMingguan() { modal(); closeModal(); dstr(); mulaiMingguan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mulaiMingguan() { toast(); tglGeser(); scheduleForm(); }
+
+
+
+
+
+function lewatiHariIni() { closeModal(); lanjutMingguan(); }
+
+
+
+
+
+
+
+function lanjutMingguan() { tglGeser(); closeModal(); renderSchedule(); toast(); scheduleForm(); }
+
+
+
+
+
+
+
+
+
+function scheduleForm() { dstr(); namaHari(); modal(); closeModal(); fmtDate(); esc(); talPilihUbah(); uangFormat(); uangKetik(); renderSchedule(); lewatiHariIni(); saveSchedule(); }
+
+
+
+
 
 
 
@@ -2475,7 +2542,12 @@ function talPilihUbah() {  }
 
 
 
-function saveSchedule() { toast(); hasConflict(); fmtDate(); uid(); uangNilai(); save(); closeModal(); renderSchedule(); }
+function saveSchedule() { toast(); hasConflict(); fmtDate(); uid(); uangNilai(); save(); renderSchedule(); lanjutMingguan(); closeModal(); }
+
+
+
+
+
 
 
 
@@ -3200,6 +3272,7 @@ function labelIzin() { emsPermBawaan(); }
 
 
 
+
 function emsPermBawaan() {  }
 
 
@@ -3551,7 +3624,155 @@ function setEventStatus() { toast(); renderPlanning(); bisaSetujui(); save(); re
 
 
 
-function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); tab(); bisaSetujui(); }
+function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); angkaEms(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function angkaEms() {  }
+function dalam() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function omzetPerBulanEms() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfSetPeriode() { router(); }
+function pitaPeriodeEms() {  }
+
+
+
+
+
+function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); esc(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function repSetPeriode() { router(); }
+function renderReportEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); barChart(); omzetPerBulanEms(); esc(); C(); tab(); bisaSetujui(); }
+
+
+
+
+
 
 
 

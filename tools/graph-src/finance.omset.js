@@ -534,6 +534,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -1059,7 +1067,12 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 
-function syncKendaliPeriode() { modeHarian(); }
+function syncKendaliPeriode() { modeHarian(); go(); save(); }
+
+
+
+
+
 
 
 
@@ -1128,6 +1141,11 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 
 function viewInput() { getDay(); calInner(); go(); repOf(); repPay(); }
+
+
+
+
+
 
 
 
@@ -3713,7 +3731,7 @@ function pasang() { serapOtomatis(); drawMk(); drawEv(); calc(); pitaSumber(); m
 
 
 
-function labelPeriode() {  }
+function labelPeriode() { dailyTarget(); }
 
 
 
@@ -3744,7 +3762,6 @@ function labelPeriode() {  }
 
 
 
-function viewTarget() { daysInMonth(); dailyTarget(); divCard(); v(); render(); save(); }
 
 
 
@@ -3761,41 +3778,12 @@ function viewTarget() { daysInMonth(); dailyTarget(); divCard(); v(); render(); 
 
 
 
+function syncPicOffice() { render(); save(); }
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function divCard() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-function syncPicOffice() { save(); render(); }
 
 
 
