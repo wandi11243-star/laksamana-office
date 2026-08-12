@@ -1013,6 +1013,13 @@
 
 
 
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -4516,11 +4523,35 @@ function bersihkanKosong() {  }
 
 
 function matikan() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function selStatus() { statusBadge(); esc(); }
+
+
+
+
+
+
+
+
 function selHapus() { barisHapus(); }
 
 
 
-function rundownRowHTML() { matikan(); esc(); selHapus(); }
+function rundownRowHTML() { matikan(); esc(); selHapus(); selStatus(); }
 
 
 
@@ -4529,7 +4560,11 @@ function rundownRowHTML() { matikan(); esc(); selHapus(); }
 
 
 
-function vendorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus(); }
+
+
+
+
+function vendorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selStatus(); selHapus(); }
 
 
 
@@ -4562,7 +4597,7 @@ function budgetRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus
 
 
 
-function sponsorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selHapus(); totalSponsor(); }
+function sponsorRowHTML() { matikan(); esc(); uangFormat(); uangKetik(); selStatus(); selHapus(); totalSponsor(); }
 
 
 
@@ -4632,6 +4667,29 @@ function seksiHTML() { ensureDetails(); tambahBarisSeksi(); wrapSeksi(); esc(); 
 
 
 function tambahBarisSeksi() { wrapSeksi(); bersihkanKosong(); barisTambah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5123,12 +5181,40 @@ function salesGrafikHTML() { esc(); }
 
 
 
-function salesBody() { salesRingkas(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); renderTicketDetail(); }
+
+
+
+function pagerHTML() {  }
 
 
 
 
 
+
+
+function tbl() {  }
+
+
+
+
+
+
+
+
+
+
+function salesKeHal() { renderTicketDetail(); }
+function ciKeHal() { ciPaintTabel(); }
+
+
+
+
+
+
+
+
+
+function salesBody() { salesRingkas(); stat(); salesGrafikHTML(); refundAktif(); esc(); fmtDateTime(); ldzTierInfo(); statusBadge(); approveRefund(); rejectRefund(); showETicket(); requestRefund(); pagerHTML(); }
 
 
 
@@ -7993,13 +8079,7 @@ function chip() { ciMode(); ciPilihKelasHTML(); esc(); ciCari(); ciHitungKelasHT
 
 
 
-function ciTabelIsiHTML() { ciBaris(); esc(); batalCheckin(); checkinDariDenah(); ciHal(); }
-
-
-
-
-
-
+function ciTabelIsiHTML() { ciBaris(); esc(); batalCheckin(); checkinDariDenah(); pagerHTML(); }
 
 
 

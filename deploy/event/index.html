@@ -805,6 +805,13 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .ci-bar i{display:block;height:100%;border-radius:4px;background:var(--green)}
 .tbl-scroll thead th{position:sticky;top:0;z-index:1;background:var(--panel)}
 .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--line)}
+/* Pager bergaya Marketing (.tbl-pager di sana). Nomornya tombol persegi kecil
+   supaya deretannya terbaca sebagai satu kesatuan, bukan sederet kata. */
+.tbl-pager{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  padding:11px 14px;border-top:1px solid var(--line-soft)}
+.tbl-pager-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.tbl-pager-nav .btn{min-width:30px;padding-left:9px;padding-right:9px;justify-content:center}
+.tbl-pager-gap{color:var(--muted);padding:0 2px;font-size:12px}
 /* Kotak pilihan + 8 pegangan ukuran, meniru draw.io. Pegangannya diperbesar
    (dan diberi area tekan ekstra lewat ::after) karena versi sebelumnya cuma
    satu titik 14px di pojok — itu yang bikin mengubah ukuran terasa susah. */
@@ -4516,6 +4523,30 @@ function bersihkanKosong(wrapId){ const k=document.querySelector('#'+wrapId+' tr
    lewat `disabled` dan tombol hapusnya tidak digambar — bentuknya tetap sama
    supaya kolom yang dibaca sama persis dengan kolom yang diisi. */
 function matikan(boleh){ return boleh===false?' disabled':''; }
+/* PEMILIH STATUS DI TABEL SEKSI.
+   Dulu selalu <select>, termasuk saat seksinya cuma boleh DIBACA — dan select
+   yang disabled tetap menggambar panah dropdown-nya. Yang terlihat: ikon
+   dropdown yang diketuk berkali-kali tanpa terjadi apa-apa, tanpa satu pun
+   petunjuk kenapa. Itu keluhan "vendor kenapa ada icon dropdown tetapi tidak
+   bisa dipakai".
+
+   Mode baca sekarang memakai badge biasa. Yang boleh mengubah tetap dapat
+   select penuh — dan di situlah jawaban "status Confirmed diubah dari mana":
+   dari kolom Status di baris vendornya sendiri, bukan dari layar lain.
+
+   NILAI LAMA YANG SUDAH TIDAK ADA DI DAFTAR tetap ikut jadi pilihan. Tanpa itu
+   vendor lama berstatus 'Cancelled' akan diam-diam terbaca sebagai pilihan
+   PERTAMA ('Pending') begitu barisnya tersentuh — status berubah sendiri tanpa
+   ada yang menyentuhnya. */
+function selStatus(nilai, opsi, boleh, kunci){
+  const skr=String(nilai==null?'':nilai);
+  if(boleh===false) return skr?statusBadge(skr):'<span class="mini">—</span>';
+  const daftar=opsi.slice();
+  if(skr && daftar.indexOf(skr)<0) daftar.push(skr);      // nilai warisan
+  return '<select class="inp" data-r="'+(kunci||'status')+'">'
+    +daftar.map(function(x){ return '<option'+(skr===x?' selected':'')+'>'+esc(x)+'</option>'; }).join('')
+    +'</select>';
+}
 function selHapus(boleh){ return boleh===false?'<td></td>'
   :'<td><button class="rowdel" title="Hapus baris" onclick="barisHapus(this)">×</button></td>'; }
 
@@ -4528,13 +4559,17 @@ function rundownRowHTML(r,b){r=r||{};const m=matikan(b);return `<tr>
   <td><input class="inp" data-r="notes" value="${esc(r.notes||'')}" placeholder="catatan"${m}></td>
   ${selHapus(b)}</tr>`;}
 const VD_COLS=['name','pic','phone','cost','status'];
-const VD_STATUS=['Pending','Confirmed','Paid','Cancelled'];
+/* 'Cancelled' dicabut atas permintaan: vendor yang batal dihapus barisnya,
+   bukan disimpan sebagai baris yang biayanya tetap ikut terbaca di tabel.
+   Baris lama yang terlanjur berstatus itu tetap tampil apa adanya lewat
+   selStatus() dan tidak berubah sendiri. */
+const VD_STATUS=['Pending','Confirmed','Paid'];
 function vendorRowHTML(v,b){v=v||{};const m=matikan(b);return `<tr>
   <td><input class="inp" data-r="name" value="${esc(v.name||'')}" placeholder="nama vendor"${m}></td>
   <td><input class="inp" data-r="pic" value="${esc(v.pic||'')}" placeholder="PIC"${m}></td>
   <td><input class="inp" data-r="phone" value="${esc(v.phone||'')}" placeholder="08…"${m}></td>
   <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="cost" value="${uangFormat(+v.cost||0)}" oninput="uangKetik(this)"${m}></span></td>
-  <td><select class="inp" data-r="status"${m}>${VD_STATUS.map(s=>`<option ${v.status===s?'selected':''}>${s}</option>`).join('')}</select></td>
+  <td>${selStatus(v.status||'Pending',VD_STATUS,b)}</td>
   ${selHapus(b)}</tr>`;}
 const TK_COLS=['title','assignee','due','done'];
 function taskRowHTML(t,b){t=t||{};const m=matikan(b);const due=t.due?String(t.due).slice(0,10):'';return `<tr>
@@ -4561,13 +4596,13 @@ function budgetRowHTML(b,bo){b=b||{};const m=matikan(bo);
   <td class="bg-var" style="color:${warna}">${v>0?'+':''}${IDR(v)}</td>
   ${selHapus(bo)}</tr>`;}
 const SP_COLS=['name','package','nominal','agreement','status'];
-const SP_STATUS=['Pending','Confirmed','Paid','Cancelled'];
+const SP_STATUS=['Pending','Confirmed','Paid'];
 function sponsorRowHTML(sp,b){sp=sp||{};const m=matikan(b);return `<tr>
   <td><input class="inp" data-r="name" value="${esc(sp.name||'')}" placeholder="nama sponsor"${m}></td>
   <td><input class="inp" data-r="package" value="${esc(sp.package||'')}" placeholder="mis. Gold / Media Partner"${m}></td>
   <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp uang" inputmode="numeric" data-r="nominal" value="${uangFormat(+sp.nominal||0)}" oninput="uangKetik(this)"${m}></span></td>
   <td><input class="inp" data-r="agreement" value="${esc(sp.agreement||'')}" placeholder="MoU / kontrak"${m}></td>
-  <td><select class="inp" data-r="status"${m}>${SP_STATUS.map(x=>`<option ${sp.status===x?'selected':''}>${x}</option>`).join('')}</select></td>
+  <td>${selStatus(sp.status||'Pending',SP_STATUS,b)}</td>
   ${selHapus(b)}</tr>`;}
 /* ---- MESIN SEKSI DETAIL EVENT ----
    Kelima seksi berbeda hanya pada kolomnya, jadi yang dibedakan cuma data ini;
@@ -4634,8 +4669,31 @@ function seksiHTML(id,k,boleh){
 function tambahBarisSeksi(id,k){
   const w=wrapSeksi(k);
   bersihkanKosong(w);
-  barisTambah(w,SEKSI[k].baris(null,true));
-  const tr=document.querySelector('#'+w+' tbody tr:last-child'); if(tr) tr.classList.add('baru');
+  /* RUNDOWN BERANTAI, pola yang sama dengan Marketing. Baris baru langsung
+     mulai dari jam SELESAI baris terakhir; kalau tabelnya masih kosong, dari
+     jam mulai acaranya. Rundown selalu disusun berurutan tanpa jeda, jadi
+     mengetik ulang jam mulai yang sama persis dengan jam selesai di atasnya
+     adalah pekerjaan yang tidak pernah punya jawaban lain - dan salah satu
+     tempat paling sering salah ketik. Angkanya tetap bisa ditimpa. */
+  let awal=null;
+  if(k==='rundown'){
+    const akhir=document.querySelector('#'+w+' tbody tr:last-child [data-r="endtime"]');
+    if(akhir && akhir.value) awal=akhir.value;
+    else {
+      const e=DB.events.find(function(x){ return x.id===id; });
+      const t=e&&e.start_datetime?String(e.start_datetime):'';
+      const m=t.match(/T(\d{2}:\d{2})/); if(m) awal=m[1];
+    }
+  }
+  barisTambah(w, SEKSI[k].baris(awal?{time:awal}:null, true));
+  const tr=document.querySelector('#'+w+' tbody tr:last-child');
+  if(tr){
+    tr.classList.add('baru');
+    /* Fokus ke jam SELESAI, bukan jam mulai: jam mulainya sudah terisi, yang
+       perlu diketik berikutnya memang jam selesainya. */
+    const fokus=tr.querySelector(awal?'[data-r="endtime"]':'input,select');
+    if(fokus) fokus.focus();
+  }
 }
 /* Menyimpan seksi. Dipanggil dari event `change` yang menggelembung dari
    seluruh tabel — jadi satu penangan untuk semua kotak, dan tersimpan tepat
@@ -5114,6 +5172,39 @@ function salesGrafikHTML(r,eid){
    }).join('')
    +'</div>';
 }
+/* PAGER BERSAMA, BENTUKNYA SAMA DENGAN MARKETING.
+   Dulu EMS memakai "< Sebelumnya | Halaman 2 dari 7 | Berikutnya >": dua tombol
+   berlabel panjang yang memakan lebar, dan nomor halaman yang cuma bisa DIBACA
+   - melompat ke halaman 5 berarti menekan Berikutnya tiga kali. Marketing sudah
+   memakai deretan nomor yang bisa langsung diketuk, dan kru membuka kedua modul
+   bergantian di hari yang sama.
+
+   Nomornya diringkas seperti di sana: halaman pertama, terakhir, dan tetangga
+   halaman aktif; sisanya jadi satu titik-titik. Tanpa itu, acara 900 pesanan
+   menghasilkan 90 tombol yang justru lebih sulit dipakai daripada dua panah.
+
+   `aksi` = nama fungsi JS yang menerima nomor halaman. */
+function pagerHTML(hal,halMax,total,satuan,aksi){
+  if(halMax<=1) return '';
+  const ELIP='…';
+  const nomor=[];
+  for(let i=1;i<=halMax;i++){
+    if(i===1||i===halMax||Math.abs(i-hal)<=1) nomor.push(i);
+    else if(nomor[nomor.length-1]!==ELIP) nomor.push(ELIP);
+  }
+  const tbl=function(n,label,mati,pri){
+    return '<button class="btn sm'+(pri?' blue':' ghost')+'"'+(mati?' disabled':'')
+      +' onclick="'+aksi+'('+n+')">'+label+'</button>'; };
+  return '<div class="tbl-pager"><span class="mini">'+total+' '+satuan+'</span>'
+    +'<div class="tbl-pager-nav">'
+    +tbl(hal-1,'‹',hal<=1,false)
+    +nomor.map(function(n){ return n===ELIP ? '<span class="tbl-pager-gap">'+ELIP+'</span>'
+        : tbl(n,String(n),false,n===hal); }).join('')
+    +tbl(hal+1,'›',hal>=halMax,false)
+    +'</div></div>';
+}
+function salesKeHal(n){ _salesHal=Math.max(1,n); if(window._tixEid) renderTicketDetail(window._tixEid); }
+function ciKeHal(n){ _ciFilter.hal=Math.max(1,n); ciPaintTabel(); }
 let _salesHal=1;
 /* 10 baris per halaman, disamakan dengan modul Marketing supaya perilaku
    tabel di kedua modul sama — kru membukanya bergantian di hari yang sama. */
@@ -5207,13 +5298,8 @@ function salesBody(eid){
         +(bisaAjukan?' <button class="btn ghost sm" onclick="requestRefund(\''+o.id+'\')">Refund</button>':''):'')+'</td></tr>';
   });
   h+='</tbody></table></div>';
-  if(halMax>1){
-    h+='<div class="pager">'
-     +'<button class="btn ghost sm" '+(_salesHal<=1?'disabled':'')+' onclick="_salesHal--;renderTicketDetail(\''+eid+'\')">\u2039 Sebelumnya</button>'
-     +'<span class="mini">Halaman '+_salesHal+' dari '+halMax+' \u00b7 '+total+' pesanan</span>'
-     +'<button class="btn ghost sm" '+(_salesHal>=halMax?'disabled':'')+' onclick="_salesHal++;renderTicketDetail(\''+eid+'\')">Berikutnya \u203a</button>'
-     +'</div>';
-  }
+  window._tixEid=eid;
+  h+=pagerHTML(_salesHal,halMax,total,'pesanan','salesKeHal');
   h+='</div>';
   return h;
 }
@@ -8031,13 +8117,7 @@ function ciTabelIsiHTML(eid){
         : '<button class="btn sm" onclick="checkinDariDenah(\''+x.tk.id+'\')">Check-in</button>')+'</td></tr>';
   });
   h+='</tbody></table></div>';
-  if(halMax>1){
-    h+='<div class="pager">'
-     +'<button class="btn ghost sm" '+(_ciFilter.hal<=1?'disabled':'')+' onclick="ciHal(-1)">‹ Sebelumnya</button>'
-     +'<span class="mini">Halaman '+_ciFilter.hal+' dari '+halMax+' · '+b.length+' tamu</span>'
-     +'<button class="btn ghost sm" '+(_ciFilter.hal>=halMax?'disabled':'')+' onclick="ciHal(1)">Berikutnya ›</button>'
-     +'</div>';
-  }
+  h+=pagerHTML(_ciFilter.hal,halMax,b.length,'tamu','ciKeHal');
   return h;
 }
 /* Hanya ISI tabel yang digambar ulang, bukan seluruh kartunya — kalau kotak
