@@ -1287,7 +1287,13 @@ function syncNowForce() { syncNow(); normalize(); refreshSnapshot(); router(); s
 
 
 
-function resetData() { normalize(); bawaanKosong(); syncNowForce(); router(); toast(); }
+function resetData() { normalize(); bawaanKosong(); syncNowForce(); router(); toast(); feeAngka(); }
+
+
+
+
+
+
 
 
 
@@ -2799,21 +2805,7 @@ function feeSetMode() { dstr(); renderFee(); }
 
 
 
-function feeGeser() { feeRentang(); dstr(); renderFee(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-function renderFee() { setTop(); feeRentang(); feeKunci(); C(); feeSetMode(); feeGeser(); feeLabelPeriode(); esc(); statusBadge(); payAction(); payHistory(); genPayment(); }
+function feeGeser() { feeRentang(); dstr(); renderFee(); genPayment(); }
 
 
 
@@ -2845,6 +2837,12 @@ function renderFee() { setTop(); feeRentang(); feeKunci(); C(); feeSetMode(); fe
 
 
 
+function feeAngka() {  }
+
+
+
+
+function renderFee() { setTop(); feeRentang(); feeAngka(); feeKunci(); C(); feeSetMode(); feeGeser(); feeLabelPeriode(); esc(); statusBadge(); payAction(); payHistory(); genPayment(); }
 
 
 
@@ -2863,7 +2861,50 @@ function renderFee() { setTop(); feeRentang(); feeKunci(); C(); feeSetMode(); fe
 
 
 
-function genPayment() { feeRentang(); uid(); feeKunci(); save(); renderFee(); modal(); closeModal(); esc(); feeLabelPeriode(); fmtDate(); payAction(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function genPayment() { feeRentang(); feeAngka(); uid(); feeKunci(); save(); renderFee(); modal(); closeModal(); esc(); feeLabelPeriode(); fmtDate(); payAction(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3202,7 +3243,12 @@ function rejectPay() { save(); closeModal(); renderFee(); toast(); }
 
 
 
-function payHistory() { modal(); closeModal(); esc(); labelPeriodeBayar(); statusBadge(); fmtDateTime(); buktiHTML(); payAction(); }
+function payHistory() { modal(); closeModal(); esc(); labelPeriodeBayar(); statusBadge(); fmtDateTime(); buktiHTML(); payAction(); angkaEms(); }
+
+
+
+
+
 
 
 
@@ -3663,7 +3709,27 @@ function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast
 
 
 function angkaEms() {  }
-function dalam() {  }
+function dalam() { regulerAdj(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

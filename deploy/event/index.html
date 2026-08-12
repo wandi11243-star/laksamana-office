@@ -1299,7 +1299,13 @@ function resetData(){
 }
 
 /* ============ HELPERS ============ */
-const IDR=n=>'Rp'+(n||0).toLocaleString('id-ID');
+/* `+n||0` bukan `n||0`: yang masuk ke sini tidak selalu angka. Sebelumnya
+   String.prototype.toLocaleString ikut terpanggil untuk nilai teks, dan
+   'Rp'+'02.000.000undefined' tercetak apa adanya tanpa satu pun galat —
+   petugas finance membacanya tepat sebelum mentransfer uang. Sekarang apa pun
+   yang tidak bisa dibaca sebagai angka jatuh ke 0, dan yang mencegahnya jadi 0
+   diam-diam adalah feeAngka() di hulu. */
+const IDR=n=>'Rp'+(+n||0).toLocaleString('id-ID');
 const pad=n=>String(n).padStart(2,'0');
 function dstr(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
 function fmtDate(s){if(!s)return'-';const d=new Date(s);return d.toLocaleDateString('id-ID',{day:'numeric',month:'short',year:'numeric'});}
@@ -2813,14 +2819,39 @@ function feeGeser(arah){
   }
   renderFee();
 }
+/* Fee satu baris jadwal, SELALU sebagai angka.
+   Sebelum ini rekap memakai `total += s.fee` mentah, dan tiga bentuk data yang
+   sama-sama nyata ada di DB.schedules membuatnya patah tanpa satu pun galat:
+
+     fee: 1500000      angka        -> benar
+     fee: '2.000.000'  teks         -> 0 + '2.000.000' = '02.000.000' (disambung, bukan dijumlah)
+     fee: undefined    tak ada      -> '...' + undefined = '02.000.000undefined'
+     fee: null         dikosongkan  -> 0 + null = 0 (fee-nya hilang diam-diam)
+
+   Akibatnya berlapis: kolom Total Fee mencetak "Rp02.000.000undefined", pil
+   "Total fee" di atasnya jadi sambungan seluruh angka sebulan, dan tombol
+   Generate Payment BERHENTI BEKERJA sama sekali — nilainya ditempelkan
+   langsung ke onclick sebagai `genPayment('t2',02.000.000undefined,2)`, yang
+   bukan JavaScript yang sah, jadi menekannya tidak melakukan apa pun.
+
+   Angka dibaca apa adanya; teks dibersihkan dari pemisah ribuan. Yang tidak
+   bisa dibaca jatuh ke 0 — dan supaya 0 itu tidak diam-diam terbayar, jadwal
+   tanpa fee dihitung tersendiri dan ditandai di layar (lihat tanpaFee). */
+function feeAngka(s){
+  const v=s?s.fee:0;
+  if(typeof v==='number') return isFinite(v)?v:0;
+  return +String(v==null?'':v).replace(/[^\d]/g,'')||0;
+}
 function renderFee(){
   setTop('Fee & Pembayaran Talent','Rekap otomatis show Done × fee','');
   // build recap per talent for month
   const per=feeRentang();
   const recap={};
   DB.schedules.filter(s=>s.date>=per.a && s.date<=per.b && s.status==='Done')
-    .forEach(s=>{recap[s.talent_id]=recap[s.talent_id]||{count:0,total:0};
-                 recap[s.talent_id].count++; recap[s.talent_id].total+=s.fee;});
+    .forEach(s=>{recap[s.talent_id]=recap[s.talent_id]||{count:0,total:0,tanpaFee:0};
+                 const f=feeAngka(s);
+                 recap[s.talent_id].count++; recap[s.talent_id].total+=f;
+                 if(!f) recap[s.talent_id].tanpaFee++;});
   /* Dulu tabel ini hanya memuat talent yang PUNYA show Done bulan itu, jadi
      talent yang baru ditambah seolah-olah tidak masuk sistem fee sama sekali.
      Sekarang semua talent Active ikut tampil (0 show), plus talent Inactive
@@ -2830,7 +2861,7 @@ function renderFee(){
   const rows=[...ids].map(tid=>{
     const t=DB.talents.find(x=>x.id===tid); if(!t)return null;
     const pay=DB.talentPayments.find(p=>p.talent_id===tid&&p.period_month===feeKunci());
-    return {t,count:0,total:0,...(recap[tid]||{}),pay};
+    return {t,count:0,total:0,tanpaFee:0,...(recap[tid]||{}),pay};
   }).filter(Boolean)
     // yang ada show-nya di atas, lalu nominal terbesar, lalu abjad
     .sort((a,b)=>(b.count-a.count)||(b.total-a.total)||a.t.name.localeCompare(b.t.name));
@@ -2856,7 +2887,7 @@ function renderFee(){
   <p class="mini" style="margin:-4px 0 12px">Fee di profil talent adalah <b>fee per hari tampil</b>.
      Total di bawah = jumlah hari berstatus <b>Done</b> pada periode ini &times; fee hari itu.</p>
   <div class="card" style="padding:0"><table><thead><tr><th>Talent</th><th>Bank</th><th>Hari Tampil</th><th>Total Fee</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr${r.count?'':' style="opacity:.62"'}><td><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} hari</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak tampil di periode ini</span>')}</td>
+  ${rows.map(r=>`<tr${r.count?'':' style="opacity:.62"'}><td><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} hari${r.tanpaFee?`<br><span class="mini" style="color:var(--red)" title="Jadwal berstatus Done yang fee-nya kosong atau nol. Isi fee-nya di Talent Schedule sebelum tagihan dibuat.">${r.tanpaFee} tanpa fee</span>`:''}</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak tampil di periode ini</span>')}</td>
     <td>${r.pay?(r.pay.status==='Waiting'?`<button class="btn sm" onclick="payAction('${r.pay.id}')">Bayar</button> <button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`:`<button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`):(r.count?`<button class="btn blue sm" onclick="genPayment('${r.t.id}',${r.total},${r.count})">Generate Payment</button>`:'<span class="mini">—</span>')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada talent. Tambahkan di menu Talent Management.</td></tr>'}
   </tbody></table></div>`;
 }
@@ -2866,12 +2897,21 @@ function renderFee(){
 function genPayment(tid,total,count){
   const t=DB.talents.find(x=>x.id===tid);
   const per=feeRentang();
+  const shows=DB.schedules.filter(s=>s.talent_id===tid&&s.date>=per.a&&s.date<=per.b&&s.status==='Done')
+                          .sort((a,b)=>a.date.localeCompare(b.date));
+  /* Angkanya DIHITUNG ULANG di sini, tidak sekadar dipercaya dari argumen.
+     `total` & `count` datang lewat atribut onclick — ditempelkan sebagai teks
+     ke dalam HTML, jadi bentuknya bergantung pada apa yang tergambar terakhir
+     kali. Yang tersimpan di sini adalah nominal yang nanti benar-benar
+     ditransfer ke rekening orang, dan satu-satunya sumber yang tidak bisa
+     berbohong adalah jadwalnya sendiri. */
+  total=shows.reduce(function(a,s){ return a+feeAngka(s); },0);
+  count=shows.length;
+  const tanpaFee=shows.filter(function(s){ return !feeAngka(s); }).length;
   const p={id:uid(),talent_id:tid,period_month:feeKunci(),show_count:count,total_amount:total,
            status:'Waiting',bank:'',transfer_proof:null,pic_finance:'',paid_at:null,
            created_at:new Date().toISOString()};
   DB.talentPayments.push(p);save();renderFee();
-  const shows=DB.schedules.filter(s=>s.talent_id===tid&&s.date>=per.a&&s.date<=per.b&&s.status==='Done')
-                          .sort((a,b)=>a.date.localeCompare(b.date));
   modal(`<button class="close" onclick="closeModal()">×</button><h3>Tagihan Dibuat — ${esc(t.name)}</h3>
   <p class="mini" style="margin-bottom:12px">Status <b>Waiting</b>: tagihan sudah tercatat, belum dibayar. Rinciannya dari show berstatus Done pada periode ini.</p>
   <div class="kv" style="margin-bottom:14px">
@@ -2881,9 +2921,10 @@ function genPayment(tid,total,count){
     <div class="k">Rekening</div><div>${esc(t.bank_name||'—')}${t.bank_account?' · '+esc(t.bank_account):''}${t.account_holder?'<br><span class="mini">a/n '+esc(t.account_holder)+'</span>':''}</div>
   </div>
   <div class="card" style="padding:0;margin-bottom:12px"><table><thead><tr><th>Tanggal</th><th>Jenis Show</th><th>Jam</th><th>Fee</th></tr></thead><tbody>
-  ${shows.map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${esc(s.performance_type)}</td><td class="mini">${esc(s.start_time)}–${esc(s.end_time)}</td><td>${IDR(s.fee)}</td></tr>`).join('')}
+  ${shows.map(s=>`<tr><td>${fmtDate(s.date)}</td><td>${esc(s.performance_type)}</td><td class="mini">${esc(s.start_time)}–${esc(s.end_time)}</td><td>${feeAngka(s)?IDR(feeAngka(s)):'<b style="color:var(--red)">fee kosong</b>'}</td></tr>`).join('')}
   <tr><td colspan="3" style="text-align:right"><b>Total</b></td><td><b>${IDR(total)}</b></td></tr>
   </tbody></table></div>
+  ${tanpaFee?`<p class="mini" style="color:var(--red)">⚠ ${tanpaFee} hari tampil belum ada fee-nya dan dihitung Rp0. Isi fee-nya di Talent Schedule lalu buat ulang tagihannya — kalau memang gratis, abaikan pesan ini.</p>`:''}
   ${!t.bank_account?'<p class="mini" style="color:var(--red)">⚠ Rekening talent ini belum diisi — lengkapi dulu di profil talent sebelum transfer.</p>':''}
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Nanti</button><button class="btn" onclick="payAction('${p.id}')">Proses Pembayaran →</button></div>`,true);
 }
@@ -3242,6 +3283,11 @@ let evtFilter='all';
      Upcoming   dinyatakan berjalan
      Event Done sudah lewat */
 const EVT_STATUS = ['Planning','Prospect','Approval','Upcoming','Event Done'];
+/* Tahap yang sudah boleh dihitung sebagai HASIL, bukan rencana. Dipakai
+   angkaEms() — satu-satunya sumber angka Performance & Report. Ditulis sebagai
+   daftar terpisah, bukan `slice(2)` dari EVT_STATUS, supaya menyisipkan tahap
+   baru di tengah tidak diam-diam mengubah apa yang masuk laporan. */
+const EVT_STATUS_HASIL = ['Approval','Upcoming','Event Done'];
 
 /* ---------- PERAN & HAK AKSES (pola yang sama dengan modul Marketing) ----------
    Marketing memakai matriks (halaman × peran) dengan tiga tingkat. Angkanya
@@ -3668,11 +3714,31 @@ function angkaEms(rentang){
     const t=String(tgl||'').slice(0,10);
     return t && t>=rentang.a && t<=rentang.b;
   };
-  const events=DB.events.filter(function(e){ return dalam(e.start_datetime); });
+  /* RENCANA TIDAK IKUT DIHITUNG. Sebelum ini penyaringnya cuma tanggal, jadi
+     Performance melaporkan "2 dari 6 event" untuk periode yang sebenarnya cuma
+     berisi 4 acara — dua sisanya rencana yang belum disetujui siapa pun.
+     Akibatnya bukan cuma angka yang salah: Keterisian dan Omzet ikut dibagi
+     dengan acara yang belum pernah menjual satu tiket pun, dan halaman yang
+     dibuat untuk menilai hasil justru selalu memberi nilai lebih rendah dari
+     yang sebenarnya.
+
+     Planning DAN Prospect sama-sama dibuang. Keduanya rencana: Prospect cuma
+     Planning yang sudah diajukan dan masih menunggu keputusan manajemen —
+     sebelum tahap itu dipisah, dua-duanya memang berlabel 'Planning'.
+     Yang mulai dihitung adalah sejak DISETUJUI (Approval), karena sejak itu
+     jadwal & anggarannya mengikat dan tiketnya sudah boleh disiapkan. */
+  const events=DB.events.filter(function(e){
+    return dalam(e.start_datetime) && EVT_STATUS_HASIL.indexOf(e.status)>=0; });
   const idEv={}; events.forEach(function(e){ idEv[e.id]=1; });
   const orders=DB.orders.filter(function(o){ return o.payment_status==='Paid' && idEv[o.event_id]; });
   const omzet=orders.reduce(function(a,o){ return a+(+o.total||0); },0);
   const kelas=DB.ticketClasses.filter(function(c){ return idEv[c.event_id]; });
+  /* `terjual` (c.sold) SENGAJA berbeda dari `tiket` (jumlah e-ticket terbit) —
+     ini bukan ketidakcocokan yang perlu "dirapikan" jadi satu angka. Zona
+     Reguler tanpa nomor dijual walk-in lewat regulerAdj() yang menaikkan
+     c.sold TANPA menerbitkan e-ticket, jadi terjual >= tiket dan keduanya
+     memang mengukur hal berbeda: berapa yang laku, dan berapa yang punya
+     barcode. Kartunya pun berlabel beda ("Tiket Terjual" vs "Tiket Terbit"). */
   const terjual=kelas.reduce(function(a,c){ return a+(+c.sold||0); },0);
   const kuota=kelas.reduce(function(a,c){ return a+(+c.quota||0); },0);
   /* Check-in dihitung dari tiketnya, bukan dari DB.checkins langsung: satu
