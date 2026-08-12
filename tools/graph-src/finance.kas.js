@@ -561,6 +561,11 @@
 
 
 
+
+
+
+
+
 function pct() {  }
 
 
@@ -656,10 +661,136 @@ function sayaAdmin() { go(); }
 
 
 
-function bolehLihat() {  }
+function bolehLihat() { sayaAdmin(); }
 
 
-function pasangMenu() { sayaAdmin(); }
+
+
+
+
+
+
+
+
+
+
+function pasangMenu() { sayaAdmin(); bolehLihat(); go(); save(); boot(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewTarget() { daysInMonth(); dailyTarget(); divCardTarget(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function divCardTarget() {  }
+
+
+
+
+
+function simpanTarget() { fetchTimeout(); daftar(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1037,6 +1168,7 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 function syncKendaliPeriode() { modeHarian(); }
+
 
 
 

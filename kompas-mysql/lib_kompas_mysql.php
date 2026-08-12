@@ -221,6 +221,84 @@ function omset_pic($dari, $sampai) {
     'pic' => $pic, 'total' => $tot,
   );
 }
+/* ==================== SIMPAN TARGET SAJA (tulis sempit) ==============
+   Dipakai panel Finance > Kas Kecil & Performa, halaman Pengaturan Target
+   (pindah ke sana 12 Agustus 2026).
+
+   KENAPA BUKAN saveAll. Panel kas SENGAJA tidak pernah menulis blob kompas —
+   lihat save() di deploy/finance/kas/index.html yang dilumpuhkan on purpose.
+   Alasannya: saveAll mengirim SELURUH state, jadi satu penyimpanan dari layar
+   yang salinannya sudah basi akan menimpa omset, breakdown, dan compliment
+   yang baru saja diubah orang di panel Input Omset Harian — tanpa satu pun
+   pesan, karena dari sisi server itu penyimpanan yang sah.
+
+   Endpoint ini menambal HANYA lima hal, dibaca-ubah-tulis di dalam kunci yang
+   sama dengan saveAll (db_lock di api.php):
+     settings.companyMonthlyTarget, settings.useWorkingDays,
+     settings.workingDaysPerMonth, dan employees[divi][].target
+   Apa pun yang tidak disebut di payload TIDAK disentuh. Jadi memindahkan
+   halaman itu ke panel kas tidak menghidupkan kembali bahaya yang justru
+   membuatnya dikeluarkan dari sana dulu.
+
+   PIC YANG SUDAH TIDAK ADA dilaporkan balik, tidak didiamkan. Kalau seseorang
+   membuka halaman target lalu PIC-nya dihapus di Kompas sebelum ia menekan
+   simpan, target untuk id itu tidak punya tempat lagi — dan diam berarti
+   orangnya mengira angkanya tersimpan. */
+function simpan_target($data) {
+  if (!is_array($data)) throw new Exception('Payload kosong/invalid');
+  $pdo = db();
+  pastikan_tabel($pdo);
+
+  $s = kp_state_assoc();
+  if (!$s) throw new Exception('Data omset belum pernah tersimpan — buka panel Input Omset Harian lebih dulu');
+
+  if (!isset($s['settings']) || !is_array($s['settings'])) $s['settings'] = array();
+  if (array_key_exists('companyMonthlyTarget', $data))
+    $s['settings']['companyMonthlyTarget'] = kp_num($data['companyMonthlyTarget']);
+  if (array_key_exists('useWorkingDays', $data))
+    $s['settings']['useWorkingDays'] = !empty($data['useWorkingDays']);
+  if (array_key_exists('workingDaysPerMonth', $data)) {
+    $wd = kp_num($data['workingDaysPerMonth']);
+    // 0 hari kerja = pembagi nol = target harian nol di seluruh dashboard.
+    $s['settings']['workingDaysPerMonth'] = $wd > 0 ? $wd : 26;
+  }
+
+  $tg = (isset($data['target']) && is_array($data['target'])) ? $data['target'] : array();
+  $ubah = 0;
+  foreach (array('marketing', 'event', 'kasir') as $divi) {
+    if (!isset($s['employees'][$divi]) || !is_array($s['employees'][$divi])) continue;
+    foreach ($s['employees'][$divi] as $i => $e) {
+      if (!is_array($e) || !isset($e['id'])) continue;
+      $id = (string)$e['id'];
+      if (!array_key_exists($id, $tg)) continue;
+      $baru = kp_num($tg[$id]);
+      $lama = isset($e['target']) ? kp_num($e['target']) : 0;
+      if ($lama !== $baru) $ubah++;
+      $s['employees'][$divi][$i]['target'] = $baru;
+      unset($tg[$id]);
+    }
+  }
+  // Sisa $tg = id yang tidak cocok dengan satu pun PIC yang ada sekarang.
+  $hilang = array_values(array_map('strval', array_keys($tg)));
+
+  $ub = isset($data['by']) ? (string)$data['by'] : '';
+  $st = $pdo->prepare(
+    'INSERT INTO `app_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
+     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');
+  $st->execute(array(
+    ':d'  => json_enc($s),
+    ':ua' => (int)(microtime(true) * 1000),
+    ':ub' => $ub,
+  ));
+
+  return array(
+    'saved'   => true,
+    'ubah'    => $ubah,
+    'hilang'  => $hilang,
+    'ts'      => gmdate('c'),
+  );
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',
