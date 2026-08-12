@@ -1960,12 +1960,7 @@ function renderDashboard() { setTop(); dstr(); rentangPeriode(); }
 
 
 
-function dalamPeriode() { C(); kartuPerhatian(); dashSetPeriode(); fmtDate(); esc(); stat(); barChart(); fmtDateTime(); statusBadge(); }
-
-
-
-
-
+function dalamPeriode() { labelPeriodeEms(); C(); kartuPerhatian(); pitaPeriodeEms(); esc(); stat(); barChart(); fmtDateTime(); statusBadge(); }
 
 
 
@@ -2277,7 +2272,6 @@ function talentSimpanInline() { toast(); uangNilai(); save(); renderTalentDetail
 
 
 function renderSchedule() { setTop(); inputMingguan(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); }
-
 
 
 
@@ -3880,13 +3874,6 @@ function omzetPerBulanEms() {  }
 
 
 function perfSetPeriode() { router(); }
-function pitaPeriodeEms() {  }
-
-
-
-
-
-function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); esc(); C(); }
 
 
 
@@ -3895,12 +3882,13 @@ function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPe
 
 
 
+function periodeBulanAktif() {  }
 
 
 
 
 
-
+function periodeGeser() { dstr(); periodeBulanAktif(); }
 
 
 
@@ -3910,10 +3898,107 @@ function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPe
 
 
 
+function pitaPeriodeEms() { periodeBulanAktif(); periodeGeser(); esc(); labelPeriodeEms(); }
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function labelPeriodeEms() { fmtDate(); }
+
+
+
+
+
+
+
+function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); esc(); breakdownEventHTML(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function breakdownEventEms() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function breakdownEventHTML() { breakdownEventEms(); esc(); fmtDate(); }
 
 
 
@@ -3937,7 +4022,8 @@ function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPe
 
 
 function repSetPeriode() { router(); }
-function renderReportEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); barChart(); omzetPerBulanEms(); esc(); C(); tab(); bisaSetujui(); }
+function renderReportEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); barChart(); omzetPerBulanEms(); esc(); breakdownEventHTML(); C(); tab(); bisaSetujui(); }
+
 
 
 
@@ -4324,7 +4410,31 @@ function evtRentang() { rentangPeriode(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function rentangPeriode() { f(); }
+
+
+
+
+
+
+
 
 
 
@@ -8689,6 +8799,21 @@ function panelGagalMkt() { esc(); muatEventMarketing(); }
 
 
 function renderCalendar() { setTop(); dstr(); calEventPopup(); calJadwalPopup(); calMktPopup(); muatEventMarketing(); esc(); C(); panelGagalMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -1969,18 +1969,13 @@ function renderDashboard(){
   /* Nama periode yang sedang dipilih, ditulis apa adanya di kartu Insight.
      Angka persen tanpa keterangan periode tidak bisa ditindaklanjuti: 60%
      "sepanjang masa" dan 60% "bulan ini" menuntut tindakan yang berbeda. */
-  const labelPeriodeDash=(DASH_PERIODE.find(function(x){ return x[0]===dashPeriode; })||['','Semua'])[1];
+  const labelPeriodeDash=labelPeriodeEms(dashPeriode);
   const tally={}; EVT_STATUS.forEach(function(x){ tally[x]=0; });
   evPeriode.forEach(function(e){ if(tally[e.status]!==undefined) tally[e.status]++; });
 
   C().innerHTML=`
   ${kartuPerhatian()}
-  <div class="toolbar">
-    <div class="seg-per">${DASH_PERIODE.map(function(x){
-      return '<button class="'+(dashPeriode===x[0]?'on':'')+'" '
-        +'onclick="dashSetPeriode(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')}</div>
-    <span class="pill">${evPeriode.length} event${rD?' · '+fmtDate(rD.a)+(rD.a!==rD.b?' – '+fmtDate(rD.b):''):''}</span>
-  </div>
+  ${pitaPeriodeEms(dashPeriode,'dashSetPeriode',evPeriode.length)}
   <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 10px">
     <div class="eyebrow">Status Event</div></div>
   <div class="grid g4" style="margin-bottom:18px">
@@ -2306,7 +2301,6 @@ function renderSchedule(){
   <button class="btn ghost sm" onclick="schMonth=new Date(${y},${m+1},1);renderSchedule()">›</button>
   <span class="pill">${DB.schedules.filter(s=>s.date.startsWith(y+'-'+pad(m+1))).length} jadwal bulan ini</span></div>
   <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Scheduled</span><span><i class="dotc" style="background:var(--blue)"></i>Confirmed</span><span><i class="dotc" style="background:var(--green)"></i>Done</span><span><i class="dotc" style="background:var(--grey)"></i>Cancelled</span>
-  <span class="mini" style="margin-left:auto">Klik tanggal untuk menambah jadwal talent hari itu.</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 function schedInfo(id){
@@ -3880,10 +3874,54 @@ const BULAN_PDK_EMS=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt'
 
 let perfPeriode='';
 function perfSetPeriode(k){ perfPeriode=k; router(); }
+/* Pita saringan periode. Selain empat tombol tetap, ada pemilih BULAN dan
+   TANGGAL beserta panah geser — supaya "September kemarin" atau "17 Agustus"
+   bisa dibuka langsung, bukan lewat menghitung mundur dari "bulan ini".
+
+   Panahnya menggeser satuan yang sedang dipakai: mode bulan bergeser sebulan,
+   mode tanggal bergeser sehari. Kalau yang aktif salah satu kata tetap
+   ('hari'/'minggu'/'bulan'), panah menggeser dari bulan berjalan — menekan '<'
+   dari "Bulan ini" mendarat di bulan lalu, yang memang yang dimaksud orang. */
+function periodeBulanAktif(aktif){
+  const m=String(aktif||'');
+  if(/^\d{4}-\d{2}/.test(m)) return m.slice(0,7);
+  const t=new Date();
+  return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0');
+}
+function periodeGeser(aktif,arah,fn){
+  const m=String(aktif||'');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(m)){
+    const d=new Date(m+'T00:00:00'); d.setDate(d.getDate()+arah);
+    return window[fn](dstr(d));
+  }
+  const b=periodeBulanAktif(aktif);
+  const d=new Date(+b.slice(0,4), +b.slice(5,7)-1+arah, 1);
+  window[fn](d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));
+}
 function pitaPeriodeEms(aktif,fn,jml){
-  return '<div class="toolbar"><div class="seg-per">'+DASH_PERIODE.map(function(x){
+  const bln=periodeBulanAktif(aktif);
+  const tgl=/^\d{4}-\d{2}-\d{2}$/.test(String(aktif))?String(aktif):'';
+  return '<div class="toolbar" style="flex-wrap:wrap;gap:8px"><div class="seg-per">'+DASH_PERIODE.map(function(x){
       return '<button class="'+(aktif===x[0]?'on':'')+'" onclick="'+fn+'(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>';
-    }).join('')+'</div><span class="pill">'+jml+' event</span></div>';
+    }).join('')+'</div>'
+   +'<button class="btn ghost sm" title="Geser mundur" onclick="periodeGeser(&#39;'+esc(String(aktif||''))+'&#39;,-1,&#39;'+fn+'&#39;)">‹</button>'
+   +'<input type="month" value="'+esc(bln)+'" title="Pilih bulan" style="width:auto" '
+     +'onchange="'+fn+'(this.value)">'
+   +'<button class="btn ghost sm" title="Geser maju" onclick="periodeGeser(&#39;'+esc(String(aktif||''))+'&#39;,1,&#39;'+fn+'&#39;)">›</button>'
+   +'<input type="date" value="'+esc(tgl)+'" title="Atau pilih satu tanggal" style="width:auto" '
+     +'onchange="if(this.value)'+fn+'(this.value)">'
+   +'<span class="pill">'+jml+' event</span>'
+   +'<span class="pill">'+esc(labelPeriodeEms(aktif))+'</span></div>';
+}
+/* Nama periode yang sedang berlaku, ditulis apa adanya. Angka tanpa keterangan
+   periode tidak bisa ditindaklanjuti - dan sejak bulan bisa dipilih sendiri,
+   tombol yang menyala bukan lagi penanda yang cukup. */
+function labelPeriodeEms(aktif){
+  const m=String(aktif||'');
+  if(/^\d{4}-\d{2}-\d{2}$/.test(m)) return fmtDate(m);
+  if(/^\d{4}-\d{2}$/.test(m)) return MONTHS[+m.slice(5,7)-1]+' '+m.slice(0,4);
+  const t=(DASH_PERIODE.find(function(x){ return x[0]===m; })||['','Semua'])[1];
+  return t;
 }
 
 function renderPerformanceEms(){
@@ -3932,9 +3970,56 @@ function renderPerformanceEms(){
       return '<tr><td>'+esc(x.nama)+'</td><td>'+IDR(x.v)+'</td></tr>'; }).join('')
     +'</tbody></table>';
   h+='</div></div>';
+  h+=breakdownEventHTML(a);          // rincian per event: kategori terlaku & kehadiran
   C().innerHTML=h;
 }
 
+/* BREAKDOWN PER EVENT - tiket terjual, kategori paling laku, dan yang benar-
+   benar hadir di hari-H. Sebelumnya laporan hanya memberi angka gabungan
+   ("340 tiket terjual"), yang tidak menuntun ke keputusan apa pun: yang
+   menentukan acara berikutnya dibuat seperti apa adalah kategori MANA yang
+   laku di acara MANA, dan berapa persen pembeli yang akhirnya datang.
+
+   Hadir dihitung dari tiket berstatus Checked-In, bukan dari DB.checkins: satu
+   tamu bisa dipindai dua kali dan yang ingin diketahui berapa ORANG yang masuk
+   - aturan yang sama dengan angkaEms(). */
+function breakdownEventEms(a){
+  return a.events.map(function(e){
+    const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===e.id; });
+    const tiket=DB.tickets.filter(function(t){
+      return kelas.some(function(c){ return c.id===t.ticket_class_id; }); });
+    const hadir=tiket.filter(function(t){ return t.status==='Checked-In'; }).length;
+    const terjual=kelas.reduce(function(x,c){ return x+(+c.sold||0); },0);
+    const omzet=DB.orders.filter(function(o){ return o.event_id===e.id && o.payment_status==='Paid'; })
+      .reduce(function(x,o){ return x+(+o.total||0); },0);
+    const top=kelas.slice().sort(function(x,y){ return (+y.sold||0)-(+x.sold||0); })[0];
+    return {e:e, terjual:terjual, tiket:tiket.length, hadir:hadir, omzet:omzet,
+            top:(top&&+top.sold)?top:null,
+            hadirPct: tiket.length?Math.round(hadir/tiket.length*100):0};
+  }).sort(function(x,y){ return y.terjual-x.terjual; });
+}
+function breakdownEventHTML(a){
+  const b=breakdownEventEms(a);
+  let h='<div class="card" style="margin-top:18px"><h3 class="sec">Rincian per Event</h3>';
+  if(!b.length) return h+'<div class="empty">Belum ada event pada periode ini.</div></div>';
+  h+='<div class="tbl-lebar"><table><thead><tr><th>Event</th><th>Kategori Paling Laku</th>'
+   +'<th>Tiket Terjual</th><th>Hadir Hari-H</th><th>Omzet</th></tr></thead><tbody>';
+  b.forEach(function(x){
+    h+='<tr style="cursor:pointer" onclick="location.hash=&#39;#/ticketing/'+x.e.id+'&#39;">'
+     +'<td><b>'+esc(x.e.title)+'</b><div class="mini">'+fmtDate(x.e.start_datetime)+'</div></td>'
+     +'<td>'+(x.top?'<b>'+esc(x.top.name)+'</b> <span class="mini">'+(+x.top.sold||0)+' terjual</span>'
+                  :'<span class="mini">belum ada penjualan</span>')+'</td>'
+     +'<td><b>'+x.terjual+'</b></td>'
+     /* Hadir dibandingkan dengan TIKET TERBIT, bukan dengan `terjual`: zona
+        reguler walk-in menaikkan sold tanpa menerbitkan barcode, jadi
+        membaginya dengan sold akan melaporkan kehadiran yang selalu lebih
+        rendah dari kenyataan. */
+     +'<td><b>'+x.hadir+'</b>'
+       +(x.tiket?' <span class="mini">dari '+x.tiket+' e-ticket · '+x.hadirPct+'%</span>':'')+'</td>'
+     +'<td>'+IDR(x.omzet)+'</td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
 let repPeriode='';
 function repSetPeriode(k){ repPeriode=k; router(); }
 function renderReportEms(){
@@ -3969,6 +4054,7 @@ function renderReportEms(){
       return '<tr><td>'+esc(k)+'</td><td>'+perK[k].n+'</td><td>'+IDR(perK[k].v)+'</td></tr>'; }).join('')
     +'</tbody></table>';
   h+='</div>';
+  h+=breakdownEventHTML(a);          // rincian yang sama, halaman yang berbeda
   C().innerHTML=h;
 }
 /* ---------- APPROVAL FLOW (EMS) ----------
@@ -4324,8 +4410,32 @@ function evtRentang(){ return rentangPeriode(evtPeriode); }
    dan bedanya cuma ketahuan saat dua layar melaporkan jumlah yang tidak
    sama untuk hari yang sama. Minggu = Senin–Minggu, sama dengan modul
    Jadwal Shift dan cara orang di sini menyebutnya. */
+/* MODE PERIODE, kini empat bentuk — bukan lagi cuma tiga kata tetap:
+
+     ''            seluruh riwayat
+     'hari'        hari ini
+     'minggu'      Senin-Minggu pekan ini
+     'bulan'       bulan berjalan
+     '2026-09'     BULAN TERTENTU        <- baru
+     '2026-09-05'  TANGGAL TERTENTU      <- baru
+
+   Sebelumnya tiga kata itu satu-satunya pilihan, jadi pertanyaan sesederhana
+   "September kemarin bagaimana?" tidak bisa dijawab sama sekali dari layar —
+   dan menjelang penyusunan acara, membandingkan bulan justru pekerjaan yang
+   paling sering dilakukan.
+
+   Bentuk tanggal & bulan dikenali dari POLANYA, bukan dari saklar terpisah.
+   Dengan begitu seluruh pemanggil lama (dashboard, performance, report, daftar
+   event) ikut mendukungnya tanpa satu baris pun berubah di sana. */
 function rentangPeriode(mode){
   if(!mode) return null;
+  const m=String(mode);
+  if(/^\d{4}-\d{2}-\d{2}$/.test(m)) return {a:m, b:m};
+  if(/^\d{4}-\d{2}$/.test(m)){
+    const th=+m.slice(0,4), bl=+m.slice(5,7);
+    const akh=new Date(th, bl, 0);
+    return {a:m+'-01', b:m+'-'+String(akh.getDate()).padStart(2,'0')};
+  }
   const f=function(x){ return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0'); };
   const t=new Date();
   if(mode==='hari') return {a:f(t),b:f(t)};
@@ -8698,9 +8808,24 @@ function renderCalendar(){
      diklik (mis. hari libur) — dan itu ditandai di layar lewat kursor, supaya
      orang tidak menekan sesuatu yang memang tidak akan merespons. */
   const push=(date,title,color,type,klik)=>{if(calFilter!=='all'&&calFilter!==type)return;(items[date]=items[date]||[]).push({title,color,type,klik});};
+  /* TIGA WARNA SAJA, mengikuti PEMILIKNYA — bukan jenis acaranya.
+     Dulu enam: Event kuning, Entertainment hijau, Reservation ungu, Marketing
+     jingga, Holiday merah, Birthday biru. Enam warna untuk satu kisi kecil
+     berarti tidak ada satu pun yang benar-benar dikenali; yang dicari orang
+     saat membuka kalender terpadu justru cuma satu hal — ini acara siapa,
+     boleh saya pakai tanggalnya atau tidak.
+
+     Sekarang: EMS (kuning) / Marketing (jingga) / Reservasi (ungu). Aturan yang
+     sama dengan kalender Marketing, supaya kru yang membuka keduanya
+     bergantian tidak perlu menghafal dua bahasa warna.
+
+     Jadwal talent, hari libur, dan ulang tahun semuanya milik EMS, jadi ikut
+     kuning. Jenisnya tetap tertulis di label & saringan, jadi tidak ada
+     keterangan yang hilang — yang hilang cuma warna yang tidak menjelaskan
+     apa-apa. */
   DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.title,'yellow','Event',"calEventPopup('"+e.id+"')"));
-  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'green','Entertainment',"calJadwalPopup('"+s.id+"')");});
-  DB.calendarExtra.forEach(x=>push(x.date,x.title,x.color==='purple'?'purple':x.color==='orange'?'orange':x.color==='red'?'red':'blue',x.type));
+  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'yellow','Entertainment',"calJadwalPopup('"+s.id+"')");});
+  DB.calendarExtra.forEach(x=>push(x.date,x.title,x.type==='Reservation'?'purple':'yellow',x.type));
   /* Event Marketing — dibaca, tidak disalin. Ditandai jingga dan diberi
      awalan supaya jelas ia milik modul lain dan tidak bisa disunting di sini. */
   MKT_EVENTS.forEach(function(e,i){
@@ -8713,7 +8838,7 @@ function renderCalendar(){
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
   <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
   ${panelGagalMkt()}
-  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Event</span><span><i class="dotc" style="background:var(--green)"></i>Talent</span><span><i class="dotc" style="background:var(--purple)"></i>Reservation</span><span><i class="dotc" style="background:var(--orange)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:var(--red)"></i>Holiday</span><span><i class="dotc" style="background:var(--blue)"></i>Birthday</span></div>
+  <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>EMS <span class="mini">(event, talent, libur, ulang tahun)</span></span><span><i class="dotc" style="background:var(--orange)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:var(--purple)"></i>Reservasi</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 
