@@ -989,6 +989,30 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -4654,25 +4678,7 @@ function sumA() { stat(); sumB(); }
 
 
 
-function renderTicketing() { renderTicketDetail(); setTop(); C(); posterKecilHTML(); esc(); statusBadge(); fmtDate(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function renderTicketDetail() { setTop(); esc(); }
+function renderTicketing() { renderTicketDetail(); setTop(); }
 
 
 
@@ -4692,10 +4698,70 @@ function renderTicketDetail() { setTop(); esc(); }
 
 
 
+function tb() { renderTicketing(); C(); posterKecilHTML(); esc(); statusBadge(); fmtDate(); kartuKategoriHTML(); }
 
 
 
-function tb() { renderTicketDetail(); ticketClassForm(); esc(); statusBadge(); fmtDate(); delTicketClass(); denahTabBody(); jualBody(); salesBody(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuKategoriHTML() { ldzTiers(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderTicketDetail() { setTop(); esc(); ticketClassForm(); statusBadge(); fmtDate(); delTicketClass(); denahTabBody(); jualBody(); salesBody(); C(); tb(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7840,7 +7906,15 @@ function approveRefund() { save(); toast(); renderTicketDetail(); }
 function rejectRefund() { save(); renderTicketDetail(); toast(); }
 
 
-function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); liveDenahHTML(); toggleKamera(); doScan(); ciTabelHTML(); }
+function renderCheckin() { setTop(); ciTiket(); C(); esc(); ciStatHTML(); ciZoom(); liveDenahHTML(); toggleKamera(); doScan(); ciTabelHTML(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -8021,7 +8095,52 @@ function ciPilihKelasHTML() { ciBaris(); ciKelas(); esc(); }
 
 
 
-function ciHitungKelasHTML() { ciBaris(); ldzTierInfo(); esc(); }
+
+
+
+
+
+
+
+
+function ciHitungSemuaHTML() { ciBaris(); esc(); ciKelas(); ldzTierInfo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciHitungKelasHTML() { ciHitungSemuaHTML(); ciBaris(); ldzTierInfo(); esc(); }
+
+
+
+
+
+
+
 
 
 
@@ -8110,6 +8229,34 @@ function ciPasDenah() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ciZoom() { ciPasDenah(); }
 
 
 

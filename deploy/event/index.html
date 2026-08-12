@@ -473,6 +473,30 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .uang-wrap .uang-rp{position:absolute;left:11px;top:50%;transform:translateY(-50%);
   font-size:12.5px;font-weight:700;color:var(--muted);pointer-events:none}
 .uang-wrap .uang-inp{width:100%;padding-left:34px!important;font-variant-numeric:tabular-nums}
+/* Rincian kategori di kartu event Ticketing. Baris rapat & angka rata kanan
+   supaya empat baris tetap terbaca sebagai daftar, bukan paragraf. */
+.kat-mini{margin-top:9px;border-top:1px solid var(--line-soft);padding-top:7px;display:grid;gap:3px}
+.kat-mini .km-row{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted)}
+.kat-mini .km-row i{width:8px;height:8px;border-radius:3px;flex:none}
+.kat-mini .km-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kat-mini .km-v{flex:none;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
+.kat-mini .km-v .mini{font-weight:500;color:var(--muted)}
+.kat-mini .km-sisa{font-style:italic}
+/* Ringkasan seluruh kategori di atas tabel Check-In. Daftar padat, bukan satu
+   pita per kategori: pita bertumpuk akan mendorong tabel tamu keluar layar di
+   HP, padahal tabel itulah yang dipakai bekerja. */
+.ci-semua{background:var(--panel2);border:1px solid var(--line-soft);border-radius:10px;
+  padding:10px 12px;margin-bottom:12px}
+.ci-semua .cs-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding-bottom:7px;margin-bottom:5px;border-bottom:1px solid var(--line-soft);font-size:13px}
+.ci-semua .cs-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:5px 0;font-size:12px;cursor:pointer;border-radius:6px}
+.ci-semua .cs-row:hover{background:var(--panel)}
+.ci-semua .cs-row .ldz-tier{flex:1;min-width:110px}
+.ci-semua .cs-ang{flex:none;color:var(--muted)}
+.ci-semua .cs-ang b{font-size:13px}
+.ci-semua .cs-tot{flex:none;min-width:88px;text-align:right}
+.ci-semua .ci-bar{flex-basis:100%;height:4px}
 
 .rowdel{width:28px;height:28px;border:none;background:none;color:var(--muted);line-height:0;display:inline-flex;align-items:center;justify-content:center;
   line-height:1;border-radius:6px;cursor:pointer}
@@ -4664,13 +4688,55 @@ function renderTicketing(id){
      (boleh_dijual di lib_ticketing.php); halaman ini dulu belum, jadi kelas
      tiket & penjualannya masih bisa dibuka dari sini. */
   const evs=DB.events.filter(e=>e.is_ticketed && e.status!=='Planning');
-  C().innerHTML=`<div class="grid g2">${evs.map(e=>{const cls=DB.ticketClasses.filter(c=>c.event_id===e.id);const sold=cls.reduce((a,c)=>a+c.sold,0);const quota=cls.reduce((a,c)=>a+c.quota,0);const rev=DB.orders.filter(o=>o.event_id===e.id&&o.payment_status==='Paid').reduce((a,o)=>a+o.total,0);const pct=quota?Math.round(sold/quota*100):0;return `<div class="ecard" onclick="location.hash='#/ticketing/${e.id}'"><div class="body">
+  /* DUA TAB: yang masih berjalan vs yang sudah lewat.
+     Sebelumnya semuanya satu daftar, dan acara yang sudah selesai menumpuk
+     selamanya di antara acara yang tiketnya sedang dijual - persis yang paling
+     sering dibuka jadi paling sulit ditemukan, dan makin lama makin parah.
+     Riwayat tidak dibuang, cuma pindah ke tabnya sendiri. */
+  const sah=['upcoming','riwayat'];
+  if(sah.indexOf(window._tixList)<0) window._tixList='upcoming';
+  const selesai=evs.filter(e=>e.status==='Event Done');
+  const jalan=evs.filter(e=>e.status!=='Event Done');
+  const list=(window._tixList==='riwayat')?selesai:jalan;
+  const tb=(k,l,n)=>`<button class="${window._tixList===k?'on':''}" onclick="window._tixList='${k}';renderTicketing()">${l}${n?' ('+n+')':''}</button>`;
+  C().innerHTML=`<div class="toolbar"><div class="seg-per">${tb('upcoming','Upcoming',jalan.length)}${tb('riwayat','Riwayat Event',selesai.length)}</div></div>
+  <div class="grid g2">${list.map(e=>{const cls=DB.ticketClasses.filter(c=>c.event_id===e.id);const sold=cls.reduce((a,c)=>a+(+c.sold||0),0);const quota=cls.reduce((a,c)=>a+(+c.quota||0),0);const rev=DB.orders.filter(o=>o.event_id===e.id&&o.payment_status==='Paid').reduce((a,o)=>a+(+o.total||0),0);const pct=quota?Math.round(sold/quota*100):0;return `<div class="ecard" onclick="location.hash='#/ticketing/${e.id}'"><div class="body">
     <div style="display:flex;justify-content:space-between"><div class="t">${posterKecilHTML(e,22)} ${esc(e.title)}</div>${statusBadge(e.status)}</div>
     <div class="meta">📅 ${fmtDate(e.start_datetime)} · 📍 ${esc(e.venue)}</div>
     <div style="margin-top:10px;display:flex;justify-content:space-between"><span>${sold}/${quota} tiket (${pct}%)</span><b style="color:var(--accent)">${IDR(rev)}</b></div>
     <div class="progress"><div style="width:${pct}%"></div></div>
+    ${kartuKategoriHTML(e.id,cls)}
     ${pct>=90?'<div class="mini" style="color:var(--red);margin-top:6px">⚠ Tiket hampir habis!</div>':''}
-  </div></div>`;}).join('')||'<div class="empty">Belum ada event ticketed.</div>'}</div>`;
+  </div></div>`;}).join('')||`<div class="empty">${window._tixList==='riwayat'?'Belum ada event yang selesai.':'Belum ada event ber-tiket yang berjalan.'}</div>`}</div>`;
+}
+/* RINCIAN PER KATEGORI DI KARTU EVENT.
+   "120/300 tiket" tidak memberi tahu apa yang sebenarnya perlu ditindak: VIP
+   habis sementara Reguler baru terjual seperempat menuntut keputusan yang
+   sangat berbeda dari sebaliknya, dan selama ini jawabannya cuma bisa didapat
+   dengan membuka eventnya satu per satu.
+
+   Dibatasi EMPAT baris teratas. Kartu di kisi dua kolom tidak boleh tumbuh
+   mengikuti jumlah kategori - event dengan sembilan kelas tiket akan mendorong
+   kartu di sebelahnya sampai daftarnya tidak lagi terbaca sebagai kisi.
+   Sisanya diringkas jadi satu baris. */
+function kartuKategoriHTML(eid,cls){
+  if(!cls || cls.length<2) return '';        // satu kategori: bar di atasnya sudah menjawab
+  const warna=ldzTiers(eid);
+  const urut=cls.slice().sort((a,b)=>(+b.sold||0)-(+a.sold||0));
+  const tampil=urut.slice(0,4), sisa=urut.slice(4);
+  let h='<div class="kat-mini">';
+  tampil.forEach(function(c){
+    const q=+c.quota||0, sd=+c.sold||0;
+    const habis=q>0 && sd>=q;
+    h+='<div class="km-row">'
+      +'<i style="background:'+((warna[c.name]||{}).c||'var(--muted)')+'"></i>'
+      +'<span class="km-n">'+esc(c.name)+'</span>'
+      +'<span class="km-v">'+sd+(q?'<span class="mini">/'+q+'</span>':'')
+      +(habis?' <b class="kat-habis">HABIS</b>':'')+'</span></div>';
+  });
+  if(sisa.length) h+='<div class="km-row km-sisa"><span class="km-n">+'+sisa.length+' kategori lain</span>'
+    +'<span class="km-v">'+sisa.reduce((a,c)=>a+(+c.sold||0),0)+'</span></div>';
+  return h+'</div>';
 }
 function renderTicketDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/ticketing';return;}
@@ -7859,6 +7925,14 @@ function renderCheckin(){
   <div class="grid g3" style="margin-bottom:18px" id="ciStat">${ciStatHTML(tickets)}</div>
   <div class="card" style="margin-bottom:16px"><h3 class="sec">🪑 Kursi Terisi Langsung</h3>
     <p class="mini" style="margin-bottom:10px">Ketuk kursinya untuk melihat data tamu dan mencatat kedatangan tanpa QR.</p>
+    <div class="toolbar" style="margin-bottom:8px">
+      <div class="seg-per">
+        <button onclick="ciZoom(-1)" title="Perkecil">&minus;</button>
+        <button onclick="ciZoom(0)" title="Muat selebar layar">Pas</button>
+        <button onclick="ciZoom(1)" title="Perbesar">+</button>
+      </div>
+      <span class="mini" id="ciZoomLbl">${window._ciZoom?Math.round(window._ciZoom*100)+'%':'pas layar'}</span>
+    </div>
     <div id="liveDenah">${liveDenahHTML(eid)}</div>
   </div>
   <div class="card"><h3 class="sec">📷 Scanner QR</h3>
@@ -8021,8 +8095,53 @@ function ciPilihKelasHTML(eid){
    Ditampilkan HANYA saat sebuah kategori dipilih. Untuk "Semua kategori"
    angkanya sudah ada di chip Belum/Sudah di sebelahnya, dan mengulanginya
    cuma menambah baris yang tidak membedakan apa pun. */
+/* Ringkasan per kategori saat tidak ada saringan. Bentuknya sengaja BERBEDA
+   dari ciHitungKelasHTML: yang ini daftar padat banyak baris, bukan satu pita
+   besar. Satu pita per kategori akan mendorong tabel tamu keluar layar di HP,
+   dan tabel itulah yang dipakai bekerja.
+
+   Tiap barisnya bisa diketuk untuk langsung menyaring ke kategori itu — di
+   pintu masuk, angka yang menarik perhatian dan daftar yang ingin dibuka
+   sesudahnya selalu yang sama. */
+function ciHitungSemuaHTML(eid){
+  const b=ciBaris(eid);
+  if(!b.length) return '';
+  const per={};
+  b.forEach(function(x){
+    const k=x.kelas||'(tanpa kategori)';
+    if(!per[k]) per[k]={n:0,masuk:0};
+    per[k].n++; if(x.masuk) per[k].masuk++;
+  });
+  const nama=Object.keys(per).sort(function(x,y){ return per[y].n-per[x].n; });
+  if(nama.length<2) return '';        // satu kategori: chip di atasnya sudah menjawab
+  const totMasuk=b.filter(function(x){ return x.masuk; }).length;
+  const totPct=Math.round(totMasuk/b.length*100);
+  let h='<div class="ci-semua">'
+   +'<div class="cs-head"><b>Semua kategori</b>'
+     +'<span class="ci-ang ci-sudah"><b>'+totMasuk+'</b> sudah masuk</span>'
+     +'<span class="ci-ang ci-belum"><b>'+(b.length-totMasuk)+'</b> belum datang</span>'
+     +'<span class="mini">dari '+b.length+' tiket · '+totPct+'%</span></div>';
+  nama.forEach(function(k){
+    const v=per[k], pct=v.n?Math.round(v.masuk/v.n*100):0;
+    h+='<div class="cs-row" title="Klik untuk menyaring ke '+esc(k)+'" onclick="ciKelas('+JSON.stringify(k).replace(/"/g,'&quot;')+')">'
+      +'<span class="ldz-tier"><i style="background:'+ldzTierInfo(eid,k).c+'"></i>'+esc(k)+'</span>'
+      +'<span class="cs-ang"><b class="ci-sudah">'+v.masuk+'</b> masuk</span>'
+      +'<span class="cs-ang"><b class="ci-belum">'+(v.n-v.masuk)+'</b> belum</span>'
+      +'<span class="mini cs-tot">'+pct+'% dari '+v.n+'</span>'
+      +'<div class="ci-bar"><i style="width:'+pct+'%"></i></div>'
+      +'</div>';
+  });
+  return h+'</div>';
+}
 function ciHitungKelasHTML(eid){
-  if(!_ciFilter.kelas) return '';
+  /* TANPA SARINGAN KATEGORI = ringkasan SELURUH kategori.
+     Sebelumnya baris ini memulangkan string kosong, jadi justru pada keadaan
+     bawaan ("Semua kategori") — keadaan yang paling sering dilihat petugas
+     pintu — tidak ada satu angka pun di atas tabel. Yang ditanya terus-menerus
+     menjelang acara mulai persis itu: VIP sudah masuk berapa, reguler berapa,
+     mana yang antreannya perlu ditambah petugas. Menjawabnya dulu berarti
+     mengganti saringan satu per satu lalu mengingat angkanya sendiri. */
+  if(!_ciFilter.kelas) return ciHitungSemuaHTML(eid);
   const b=ciBaris(eid).filter(function(x){ return x.kelas===_ciFilter.kelas; });
   if(!b.length) return '';
   const masuk=b.filter(function(x){ return x.masuk; }).length;
@@ -8099,8 +8218,26 @@ function ciPasDenah(idWadah){
   const tinggi=parseFloat(kanvas.style.height) || kanvas.offsetHeight;
   const ruang =(wrap.clientWidth||box.clientWidth||0)-24;   // padding .ldz-wrap
   if(!asli||!tinggi||ruang<=0) return;
-  const f=Math.min(1, ruang/asli);
+  /* ZOOM. Bawaannya tetap "muat selebar wadah" seperti dulu (window._ciZoom
+     null), tapi petugas bisa memperbesar — nomor meja di denah 1200px yang
+     diperkecil jadi 340px di HP benar-benar tidak terbaca, dan itu justru
+     satu-satunya cara mencatat kedatangan tanpa QR.
+
+     Faktornya dikalikan DI ATAS skala pas-muat, bukan menggantikannya, supaya
+     "1x" berarti hal yang sama di layar lebar maupun sempit. Begitu hasilnya
+     melampaui ruang yang ada, wadahnya dibiarkan digulir dua sumbu — di situ
+     menggulir memang yang diinginkan, berbeda dengan keadaan pas-muat yang
+     batang gulirnya cuma ruang kosong (lihat catatan di bawah). */
+  const pas=Math.min(1, ruang/asli);
+  const zoom=+window._ciZoom||0;
+  const f=zoom>0 ? pas*zoom : pas;
   kanvas.style.transformOrigin='0 0';
+  if(zoom>1){
+    kanvas.style.transform='scale('+f+')';
+    wrap.style.height=Math.ceil(tinggi*f+24)+'px';
+    wrap.style.overflow='auto';
+    return;
+  }
   if(f<1){
     kanvas.style.transform='scale('+f+')';
     wrap.style.height=Math.ceil(tinggi*f+24)+'px';
@@ -8115,6 +8252,16 @@ function ciPasDenah(idWadah){
     kanvas.style.transform='none';
     wrap.style.height=''; wrap.style.overflow='';
   }
+}
+/* Tombol zoom denah Check-In. 0 = kembali ke pas-muat. Batasnya 1x-4x: di
+   bawah 1x denah sudah pas layar (memperkecil lagi tidak menolong siapa pun),
+   di atas 4x satu meja memenuhi layar dan orientasinya hilang. */
+function ciZoom(arah){
+  const skr=+window._ciZoom||1;
+  window._ciZoom = arah===0 ? 0 : Math.min(4, Math.max(1, +(skr+arah*0.5).toFixed(2)));
+  const lbl=document.getElementById('ciZoomLbl');
+  if(lbl) lbl.textContent=window._ciZoom?Math.round(window._ciZoom*100)+'%':'pas layar';
+  ciPasDenah('liveDenah');
 }
 /* Memutar HP mengubah lebar layar; tanpa ini denahnya tetap memakai skala
    potret dan menyisakan setengah layar kosong setelah diputar. */
