@@ -4923,7 +4923,9 @@ function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeSta
 
 
 
-function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); statusChip(); fmtRentang(); eventFinance(); svg(); }
+function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); moveEventPipe(); statusChip(); fmtRentang(); eventFinance(); svg(); }
+
+
 
 
 
@@ -6592,7 +6594,19 @@ function rinciTotalBayar() { rinciTeksTotal(); }
 
 
 
-function rinciAktif() { ynBool(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciAktif() {  }
 
 
 
@@ -8909,7 +8923,13 @@ function bacaTemplateBaris() {  }
 
 
 
+
+
+
+
+
 function rincianPenawaran() { eventFbCost(); rinciAktif(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); bacaTemplateBaris(); }
+
 
 
 
@@ -9716,6 +9736,7 @@ function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
 
 
 function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); calTotalPax(); today(); eventPadaTgl(); calEventPopup(); esc(); jenisEvent(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+
 
 
 

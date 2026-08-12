@@ -2136,6 +2136,50 @@ function normalizeState(s){
     });
   })();
   s.settings=Object.assign({}, DEFAULT_SETTINGS, s.settings||{});
+  /* MIGRASI: kotak Sewa Venue / Sound-Lighting / Lain-lain / F&B di tab Finance
+     DILEBUR ke tabel Rincian. Sebelumnya keduanya hidup berdampingan dan saling
+     meniadakan — tabel menyala berarti kotaknya diabaikan, tabel mati berarti
+     tabelnya yang diabaikan — sehingga satu angka bisa terlihat di layar tanpa
+     pernah ikut dihitung, dan tidak ada apa pun di layar yang menyebutkannya.
+
+     Kalau dibiarkan tanpa migrasi, event lama yang tabelnya belum menyala
+     kehilangan SELURUH biayanya begitu berkas ini di-deploy: kotaknya lenyap
+     dari layar, tabelnya kosong, Grand Total jatuh ke nol — pada penawaran yang
+     sudah dikirim ke client.
+
+     GRAND TOTAL TIDAK BERGESER SEDIKIT PUN, dan itu bukan kebetulan:
+       - rinciSeedRows() memetakan tiap baris rincianPenawaran() (yang dihitung
+         seolah tabelnya masih mati, jadi persis isi kotak-kotak lama) menjadi
+         {jumlah, harga}: pakai Qty hanya kalau qty x unit MEMANG sama dengan
+         totalnya, selain itu jumlah=0 dan harga=total.
+       - rinciTotalBayar() menjumlahkan (jumlah||1) x harga. Baris ber-Qty
+         memulangkan qty x unit = total; baris tanpa Qty memulangkan 1 x total.
+       - Jadi jumlahnya = jumlah seluruh it.total = eventFbCost + sewaVenue +
+         biayaTeknis + biayaLain, yaitu eventSubtotal() cabang lama, angka demi
+         angka.
+     Discount, service charge, PB1 dan DP tidak disentuh sama sekali — mereka
+     bekerja pada subtotal, bukan pada barisnya.
+
+     Baris FREE & "to be confirm" IKUT diseed, bukan kelalaian: begitu tabelnya
+     berisi, rincianPenawaran() berhenti membaca kotak Fasilitas FREE di
+     bawahnya (tabel menang atas semuanya supaya satu fasilitas tidak tercetak
+     dua kali). Tanpa langkah ini penawaran lama kehilangan seluruh baris
+     FREE-nya tanpa satu pun peringatan.
+
+     `s.settings` dioper sendiri karena migrasi ini jalan saat `S` masih null.
+     Itu juga sebabnya ia ditaruh SESUDAH baris s.settings di atas, bukan di
+     rombongan migrasi event yang lain. */
+  (s.events||[]).forEach(function(e){
+    if(!e) return;
+    if(!e.detail || typeof e.detail!=='object') e.detail={};
+    const d=e.detail;
+    // Sudah punya baris (termasuk hasil migrasi Harga Deal di atas) = jangan
+    // disentuh. Idempoten: pemuatan berikutnya berhenti di baris ini.
+    if(Array.isArray(d.rincianItem) && d.rincianItem.length){ d.rincianOn=true; return; }
+    const baris=rinciSeedRows(e, s.settings);
+    if(!baris.length) return;          // event tanpa biaya & tanpa template: 0 = 0
+    d.rincianItem=baris; d.rincianOn=true;
+  });
   if(typeof s.baseline!=='number') s.baseline=0;
   if(!s.roleAcc||typeof s.roleAcc!=='object'){
     s.roleAcc={};
@@ -4938,18 +4982,20 @@ function pipeTabel(){
   /* Kartu angka TIDAK diulang di sini — pipeRingkas() sudah menggambarnya
      di atas, untuk kedua tab. */
   let h='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr>'
-    +'<th>Event</th><th>Tahap</th><th>Status Event</th><th>Tanggal</th><th>Pax</th>'
+    +'<th>Event</th><th>Tahap</th><th>Jenis Event</th><th>Tanggal</th><th>Pax</th>'
     +'<th>Marketing</th><th>Nilai</th><th></th></tr></thead><tbody>';
   list.forEach(function(e){
     const tahap=pipeStatusOfEv(e);
     h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')">'
       +'<td><div class="cell-strong">'+esc(e.nama)+'</div>'
         +'<div class="cell-sub">'+esc(clientName(e.clientId))+' · '+esc(jenisEvent(e))+'</div></td>'
-      /* Tahap = kolom kanbannya. Status Event = status yang tersimpan di
-         barisnya. Keduanya ditampilkan karena memang bisa berbeda — kartu
-         yang digeser tangan mengubah pipeCol tanpa mengubah status. */
+      /* Dulu di sini ada DUA kolom: Tahap dan Status Event. Sejak
+         moveEventPipe() menyetel keduanya sekaligus, isinya praktis selalu
+         sama — dan dua kolom yang selalu berbunyi sama membuat orang
+         mencari-cari bedanya, lalu menyimpulkan salah satunya salah.
+         Gantinya jenis event, keterangan yang benar-benar berbeda. */
       +'<td>'+statusChip(tahap)+'</td>'
-      +'<td>'+statusChip(e.status)+'</td>'
+      +'<td>'+esc(jenisEvent(e))+'</td>'
       +'<td class="mono">'+esc(fmtRentang(e))+'</td>'
       +'<td class="mono">'+(e.pax||'\u2014')+'</td>'
       +'<td>'+esc(e.mktPIC?userName(e.mktPIC):'\u2014')+'</td>'
@@ -6402,7 +6448,7 @@ function rinciCentang(el){
    yang membuang baris "Sewa Venue FREE" kalau venue-nya ternyata ditagihkan.
    Hasilnya sama persis dengan lembar yang selama ini dibuat manual, tinggal
    disunting. */
-function rinciSeedRows(ev){
+function rinciSeedRows(ev, st){
   if(!ev) return [];
   const bayangan=Object.assign({},ev,{detail:Object.assign({},ev.detail||{},
     {rincianOn:false, rincianItem:[]})});
@@ -6410,7 +6456,7 @@ function rinciSeedRows(ev){
      "Biaya Konsumsi Event" pun barisnya di sini — bukan angka yang
      ditambahkan diam-diam dari kotak lain. eventSubtotal sudah berhenti
      menjumlahkan F&B secara terpisah begitu tabelnya menyala. */
-  return rincianPenawaran(bayangan).map(function(it){
+  return rincianPenawaran(bayangan, st).map(function(it){
     if(it.gratis) return {desc:it.desc, jumlah:0, harga:0, jenis:'free'};
     if(it.tbc)    return {desc:it.desc, jumlah:0, harga:0, jenis:'tbc'};
     /* Baris yang totalnya bukan hasil qty x harga masuk dengan Qty kosong dan
@@ -6592,9 +6638,21 @@ function rinciTotalBayar(ev){
     return a+((r.jenis||'bayar')==='bayar' ? ((+r.jumlah||0)||1)*(+r.harga||0) : 0);
   },0);
 }
+/* SAKLAR "Ketik Rincian sebagai Tabel" SUDAH TIDAK ADA. Tabel Rincian kini
+   satu-satunya tempat baris tagihan diketik — kotak Sewa Venue / Sound &
+   Lighting / Lain-lain / F&B di tab Finance dilebur menjadi baris di dalamnya
+   (lihat migrasi di normalizeState). Dua tempat untuk satu pekerjaan yang sama
+   hanya membuat orang bertanya yang mana yang dipakai, dan yang menjawabnya
+   selama ini cuma satu baris syarat di eventSubtotal.
+
+   Yang menentukan sekarang hanya ADA TIDAKNYA BARIS. `rincianOn` tetap ditulis
+   `true` oleh migrasi demi data lama yang mungkin dibaca modul lain, tapi tidak
+   lagi ikut menentukan apa pun di sini: event yang barisnya sudah terisi tapi
+   saklarnya tertinggal `false` dulu jatuh ke kotak-kotak yang sudah hilang dari
+   layar, dan Grand Total-nya anjlok tanpa ada yang bisa melihat sebabnya. */
 function rinciAktif(ev){
   const d=(ev&&ev.detail)||{};
-  return ynBool(d.rincianOn,false) && Array.isArray(d.rincianItem) && d.rincianItem.length>0;
+  return Array.isArray(d.rincianItem) && d.rincianItem.length>0;
 }
 
 function dealTblHTML(id,ev,rows,canEdit){
@@ -8909,8 +8967,14 @@ function bacaTemplateBaris(v){
     .map(function(x){ return x.trim(); })
     .filter(function(x){ return x.length>0; });
 }
-function rincianPenawaran(ev){
+/* Parameter `st` = sumber Pengaturan (template FREE umum). Bawaannya S.settings,
+   tapi normalizeState memanggil fungsi ini SEBELUM S terisi — pada pemuatan
+   pertama `S` masih null (lihat `let S = null`), jadi `S.settings` di sana
+   melempar TypeError dan seluruh migrasi ikut mati diam-diam. Migrasi
+   mengoperkan `s.settings` miliknya sendiri. */
+function rincianPenawaran(ev, st){
   const d=ev.detail||{}, out=[];
+  st = st || ((typeof S!=='undefined' && S && S.settings) || {});
   const pax=+ev.pax||0;
 
   /* --- F&B, mengikuti urutan kewenangan yang sama dengan eventFbCost() ---
@@ -8971,7 +9035,7 @@ function rincianPenawaran(ev){
      Urutan kewenangan: daftar milik event ini (kalau diisi) menang atas
      template umum di Pengaturan. */
   const tmpl = bacaTemplateBaris(d.itemFree);
-  const dipakai = tmpl.length ? tmpl : bacaTemplateBaris((S.settings||{}).freeTemplate || FREE_TEMPLATE_BAWAAN);
+  const dipakai = tmpl.length ? tmpl : bacaTemplateBaris(st.freeTemplate || FREE_TEMPLATE_BAWAAN);
   dipakai.forEach(function(t){
     /* Penanda {jika-sewa-gratis} / {jika-teknis-gratis}: barisnya hanya
        dicetak kalau komponen berbayarnya memang tidak diisi. Menulis "Sewa
@@ -9764,9 +9828,10 @@ function renderCalendar(V){
        dengan menyorotnya. */
         /* Pax menempel di PITANYA, bukan cuma di tooltip: kalender ini dibuka
        untuk memutuskan "tanggal ini masih muat?", dan itu menuntut angkanya
-       terbaca sekilas tanpa menyorot satu per satu. Ditulis "120p" karena
-       lebar pita di kisi tujuh kolom cuma cukup untuk nama acara. */
-evs.forEach(e=>{ const col='--gold'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+' — '+esc(jenisEvent(e))+(e.pax?' · '+e.pax+' pax':'')+'">'+esc(e.nama)+(e.pax?'<b style="float:right;margin-left:6px">'+e.pax+'p</b>':'')+'</div>'; });
+       terbaca sekilas tanpa menyorot satu per satu. Ditulis lengkap "120 pax",
+       bukan disingkat "120p": singkatan satu huruf itu tidak terbaca
+       sebagai satuan apa pun oleh yang belum pernah diberi tahu. */
+evs.forEach(e=>{ const col='--gold'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+' — '+esc(jenisEvent(e))+(e.pax?' · '+e.pax+' pax':'')+'">'+esc(e.nama)+(e.pax?'<b style="float:right;margin-left:6px">'+e.pax+' pax</b>':'')+'</div>'; });
     /* Acara milik EMS. Warnanya sengaja beda (abu bergaris putus) supaya
        jelas ia bukan peluang Marketing dan tidak bisa disunting dari sini. */
     if(!cell.other) EMS_EVENTS.filter(x=>x.tgl===ds).forEach(x=>{
