@@ -353,6 +353,32 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function todayISO() {  }
 
 
@@ -523,6 +549,18 @@ function ringkasBulan() { hariDalamBulan(); hitungHari(); tandaOf(); setorOf(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function setSync() {  }
 
 
@@ -568,9 +606,9 @@ function kartuBulan() { kartu(); }
 
 
 
-function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); labelHari(); setorOf(); tandaOf(); }
 
 
+function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); tandaOf(); labelHari(); setorOf(); }
 
 
 
@@ -623,6 +661,7 @@ function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); labelHari(); set
 
 
 
+function detailHari() { hitungHari(); tandaOf(); }
 
 
 
@@ -651,6 +690,7 @@ function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); labelHari(); set
 
 
 
+function bukaHari() { detailHari(); }
 
 
 
@@ -796,6 +836,19 @@ function pasangPenangan() { pilihTanggal(); geserTanggal(); todayISO(); setUbah(
 
 
 
+
+
+
+function pasangDelegasi() { pilihTanggal(); gantiTab(); bukaHari(); }
+
+
+
+
+
+
+
+
+
 function fetchTimeout() {  }
 
 
@@ -881,4 +934,4 @@ function normalize() {  }
 
 
 
-function boot() { bacaSesi(); gantiTab(); render(); isiPeriode(); setSync(); apiGet(); normalize(); pesan(); }
+function boot() { bacaSesi(); gantiTab(); pasangDelegasi(); render(); isiPeriode(); setSync(); apiGet(); normalize(); pesan(); }
