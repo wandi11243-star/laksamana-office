@@ -7982,7 +7982,15 @@ function noSuratBaru() {  }
 
 
 
-function buatPenawaran() { can(); toast(); penStatus(); noSuratBaru(); tglLokal(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); simpanPenawaran(); }
+function buatPenawaran() { can(); toast(); penStatus(); penRevisiKe(); noSuratBaru(); tglLokal(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); simpanPenawaran(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -8038,6 +8046,12 @@ function simpanPenawaran() { $(); toast(); unggahBertahap(); logAct(); save(); c
 
 
 
+
+
+
+
+
+
 function ajukanPenawaran() { can(); toast(); penFile(); eventFinance(); logAct(); pushNotif(); save(); buildNav(); go(); }
 
 
@@ -8057,7 +8071,15 @@ function ajukanPenawaran() { can(); toast(); penFile(); eventFinance(); logAct()
 
 
 
-function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif(); save(); buildNav(); go(); }
+function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif(); penJenis(); save(); buildNav(); go(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -8076,6 +8098,104 @@ function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif()
 
 
 function kirimPenawaran() { can(); toast(); logAct(); save(); buildNav(); eventFinance(); fmtDate(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); waLink(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function penRevisiKe() {  }
+function penJenis() { penRevisiKe(); }
+function ajukanRevisi() { can(); toast(); penStatus(); penRevisiKe(); modal(); esc(); clientName(); closeModal(); svg(); simpanRevisi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanRevisi() { $(); toast(); unggahBertahap(); penRevisiKe(); logAct(); pushNotif(); save(); buildNav(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8192,7 +8312,32 @@ function setMenuFixEvent() { can(); toast(); menuFix(); menuFixInfo(); logAct();
 
 
 
-function penawaranCard() { penStatus(); eventFinance(); bisaPutusPenawaran(); penFile(); suratPenawaranPDF(); svg(); buatPenawaran(); esc(); fmtDate(); attachUrl(); ajukanPenawaran(); putusPenawaran(); kirimPenawaran(); dealPenawaran(); statusChip(); }
+function penawaranCard() { penStatus(); eventFinance(); bisaPutusPenawaran(); penFile(); penRevisiKe(); suratPenawaranPDF(); svg(); buatPenawaran(); esc(); fmtDate(); attachUrl(); userName(); ajukanPenawaran(); putusPenawaran(); kirimPenawaran(); ajukanRevisi(); dealPenawaran(); statusChip(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10991,7 +11136,15 @@ function setApprFilter() { go(); }
 
 
 
-function approvalRows() { penStatus(); fmtDate(); eventFinance(); }
+function approvalRows() { penStatus(); penJenis(); fmtDate(); eventFinance(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -11040,6 +11193,21 @@ function approvalRows() { penStatus(); fmtDate(); eventFinance(); }
 
 
 function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); setApprFilter(); empty(); tblPage(); tblUrut(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); svg(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

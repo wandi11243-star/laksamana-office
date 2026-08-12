@@ -7986,7 +7986,15 @@ function buatPenawaran(id){
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   if(!can('edit_event'))return toast('Akses ditolak','Hanya tim Marketing yang membuat penawaran.','err');
   const st=penStatus(ev);
-  if(st && !['Draft','Ditolak'].includes(st))return toast('Terkunci','Penawaran hanya bisa diubah saat Draft atau setelah ditolak.','err');
+  /* Putaran REVISI yang masih menunggu keputusan tetap boleh disunting, dan itu
+     bukan kelonggaran yang kebablasan: Ajukan Revisi memang membolehkan berkas
+     PDF-nya menyusul (permintaan client sering datang lewat telepon, sementara
+     dokumen revisinya baru jadi sejam kemudian), jadi harus ada jalan
+     memasangnya sebelum manajemen memutuskan. Putaran PERTAMA tidak dapat
+     kelonggaran ini — di sana PDF-nya syarat mutlak sebelum bisa diajukan. */
+  const revisiTertunda = st==='Menunggu Approval' && penRevisiKe(ev)>0;
+  if(st && !revisiTertunda && !['Draft','Ditolak'].includes(st))
+    return toast('Terkunci','Penawaran hanya bisa diubah saat Draft, setelah ditolak, atau saat revisi masih menunggu keputusan.','err');
   const p=ev.penawaran||{};
   const no=p.noSurat||noSuratBaru();
   const vu=p.validUntil||tglLokal(new Date(Date.now()+14*864e5));
@@ -8030,10 +8038,16 @@ async function simpanPenawaran(id){
   p.noSurat=$('pen_no').value.trim();
   p.validUntil=$('pen_vu').value;
   p.note=$('pen_note').value.trim();
-  // Draft baru, atau kembali ke Draft setelah revisi dari Ditolak.
-  p.status='Draft';
+  /* Draft baru, atau kembali ke Draft setelah revisi dari Ditolak — KECUALI
+     putaran revisi yang perkaranya sudah berdiri di antrian Approval Flow.
+     Menjatuhkannya ke Draft di situ akan mencabut perkaranya dari meja
+     manajemen hanya karena Marketing memasang berkas PDF-nya, dan tidak ada
+     apa pun di layar yang menyebutkan perkaranya hilang ke mana. */
+  const masihAntri = p.status==='Menunggu Approval' && (+p.revisiKe||0)>0;
+  p.status = masihAntri ? 'Menunggu Approval' : 'Draft';
   ev.penawaran=p;
-  logAct('event',id,'Penawaran disimpan',p.noSurat+(file?' · PDF diunggah':''));
+  logAct('event',id,'Penawaran disimpan',p.noSurat+(file?' · PDF diunggah':'')
+    +(masihAntri?' · revisi ke-'+p.revisiKe+', tetap di antrian approval':''));
   save(); closeModal();
   toast('Penawaran disimpan','No. '+p.noSurat+(p.file?' — ajukan approval ke Manager.':' — unggah PDF-nya dulu sebelum bisa diajukan.'),'ok');
   go('event',id);
@@ -8070,8 +8084,16 @@ function putusPenawaran(id,decision,dari){
      yang harus memperbaiki penawarannya tidak punya penanda bahwa bolanya
      kembali ke tangannya. */
   if(decision==='Ditolak' && ev.status==='Approval'){ ev.status='Prospect'; ev.pipeCol='Prospect'; }
+  /* DISETUJUI = tahapnya naik ke Approval. Untuk putaran pertama ini tidak
+     mengubah apa pun (ajukanPenawaran sudah menaikkannya saat diajukan), tapi
+     untuk REVISI justru inilah langkahnya: perkara Negosiasi Lanjutan berdiri
+     di Prospect selama menunggu, dan tanpa baris ini penawaran yang sudah
+     disetujui tetap tertinggal di Prospect — kolom Approval kosong padahal
+     ada yang lolos, dan Marketing tidak punya penanda bahwa bolanya sudah
+     kembali ke tangannya untuk dikirim. */
+  if(decision==='Disetujui' && ['Lead','Prospect'].includes(ev.status)){ ev.status='Approval'; ev.pipeCol='Approval'; }
   logAct('event',id,'Penawaran '+decision, note||('oleh '+ME.name));
-  pushNotif('approval','Penawaran '+decision, ev.nama+' — '+(decision==='Disetujui'?'siap dikirim ke client.':('ditolak: '+note)),'#event/'+id);
+  pushNotif('approval',penJenis(ev)+' '+decision, ev.nama+' — '+(decision==='Disetujui'?'siap dikirim ke client.':('ditolak: '+note)),'#event/'+id);
   save(); buildNav(); toast('Penawaran '+decision, ev.nama, decision==='Disetujui'?'ok':'err');
   if(dari==='approvals') go('approvals'); else go('event',id);
 }
@@ -8101,6 +8123,104 @@ function kirimPenawaran(id){
      +'<a class="btn" href="'+esc(attachUrl(file.key))+'" target="_blank" rel="noopener">'+svg(IC.brief)+'Buka / Unduh PDF</a>'
      +'<a class="btn pri" href="'+esc(waLink(c.hp,msg))+'" target="_blank" rel="noopener">'+svg(IC.wa)+'Buka WhatsApp</a>'
    +'</div></div><div class="modal-foot"><button class="btn pri" onclick="closeModal()">Selesai</button></div>');
+}
+/* ---------- REVISI PENAWARAN (Negosiasi Lanjutan) ----------
+   Yang sebenarnya terjadi di lapangan sesudah surat penawaran sampai ke client:
+   client minta disesuaikan lagi. Sebelum ini tidak ada jalannya di sistem —
+   penawaran yang sudah 'Terkirim' terkunci, dan satu-satunya cara meneruskan
+   negosiasi adalah menyeret kartunya mundur di papan lalu mengarang penawaran
+   baru. Akibatnya putaran negosiasi kedua dan seterusnya tidak pernah
+   tercatat sebagai perkara di Approval Flow, padahal justru di situlah harga
+   benar-benar diputuskan.
+
+   Alurnya, dan kenapa tahapnya berpindah begitu:
+
+     Quotation Terkirim --[Ajukan Revisi]--> Prospect + antri di Approval Flow
+                                             sebagai "Negosiasi Lanjutan"
+     disetujui ---------------------------> Approval
+     dikirim Marketing -------------------> Quotation Terkirim
+
+   Tahapnya turun ke Prospect, BUKAN bertahan di Quotation Terkirim: begitu
+   client minta perubahan, penawaran yang di tangannya sudah tidak berlaku
+   lagi, dan membiarkan kartunya di kolom "Quotation Terkirim" membuat papan
+   melaporkan peluang yang sebenarnya sedang ditarik pulang.
+
+   Perkaranya MASUK ANTRIAN SEKETIKA, tidak menunggu diajukan sekali lagi:
+   yang meminta revisi adalah client, jadi tidak ada lagi keputusan yang perlu
+   diambil Marketing sebelum manajemen melihatnya. Itu juga yang diminta —
+   "di tahap prospect yang melewati ajuin revisi maka dia auto ajukan lagi".
+
+   `revisiKe` yang menentukan jenis perkaranya di Approval Flow: 0 = Surat
+   Penawaran, >0 = Negosiasi Lanjutan. Nomor suratnya sengaja TIDAK diganti —
+   yang berubah putaran negosiasinya, bukan suratnya. */
+function penRevisiKe(ev){ return +((ev&&ev.penawaran&&ev.penawaran.revisiKe)||0)||0; }
+function penJenis(ev){ return penRevisiKe(ev)>0 ? 'Negosiasi Lanjutan' : 'Surat Penawaran'; }
+function ajukanRevisi(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
+  if(!can('edit_event'))return toast('Akses ditolak','Hanya tim Marketing yang mengajukan revisi.','err');
+  if(penStatus(ev)!=='Terkirim')
+    return toast('Belum dikirim','Revisi hanya untuk penawaran yang sudah sampai ke client.','err');
+  const ke=penRevisiKe(ev)+1;
+  modal('<div class="modal-head"><div><h3>Ajukan Revisi Penawaran</h3>'
+     +'<p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+' — revisi ke-'+ke+'</p></div>'
+     +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'
+   +'<div class="fh">Apa yang diminta client?</div>'
+   +'<textarea id="rev_alasan" class="inp" rows="3" placeholder="mis. minta tambah videotron & turun 10% dari harga penawaran pertama"></textarea>'
+   +'<div class="cell-sub" style="margin-top:6px">Kalimat ini yang dibaca manajemen di Approval Flow sebagai perkaranya, jadi tulis permintaannya — bukan "revisi".</div>'
+   +'<div class="fh" style="margin-top:12px">Berkas Penawaran Revisi (PDF) <span style="font-weight:400">(boleh menyusul)</span></div>'
+   +'<input id="rev_file" class="inp" type="file" accept="application/pdf,.pdf">'
+   +'<div class="cell-sub" style="margin-top:6px">Kalau belum ada, berkas lama yang dipakai — ganti lewat tombol Ubah sebelum manajemen memutuskan.</div>'
+   +'<div class="card" style="margin-top:12px;background:var(--warn-bg);border-color:var(--warn)">'
+     +'<div style="font-size:12.5px">Tahapnya turun ke <b>Prospect</b> dan perkaranya langsung masuk antrian '
+     +'<b>Negosiasi Lanjutan</b> di Approval Flow. Setelah disetujui, tahapnya naik ke <b>Approval</b> '
+     +'dan kamu sendiri yang mengirim ulang ke client.</div></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" id="rev_save_btn" onclick="simpanRevisi(\''+id+'\')">Ajukan Revisi</button></div>');
+}
+async function simpanRevisi(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev||!ev.penawaran)return;
+  const p=ev.penawaran;
+  const alasan=($('rev_alasan')?$('rev_alasan').value:'').trim();
+  if(!alasan)return toast('Permintaan client wajib','Tanpa ini Approval Flow cuma memajang baris "revisi" yang tidak bisa diputuskan siapa pun.','err');
+  const inp=$('rev_file'), file=inp&&inp.files&&inp.files[0];
+  const btn=$('rev_save_btn');
+  if(file){
+    if(!/\.pdf$/i.test(file.name)&&file.type!=='application/pdf')return toast('Harus PDF','Penawaran revisi diunggah dalam format PDF.','err');
+    if(file.size>MAKS_PDF_PENAWARAN)return toast('File terlalu besar','Berkas PDF maksimal '+(MAKS_PDF_PENAWARAN/1048576)+'MB — punyamu '+(file.size/1048576).toFixed(1)+'MB.','err');
+    if(btn){ btn.disabled=true; btn.textContent='Mengunggah PDF… 0%'; }
+    try{
+      const d=await unggahBertahap(file,pct=>{ if(btn) btn.textContent='Mengunggah PDF… '+pct+'%'; });
+      p.file={key:d.key,name:file.name,size:file.size,at:new Date().toISOString(),by:(ME&&ME.name)||''};
+    }catch(e){
+      if(btn){ btn.disabled=false; btn.textContent='Ajukan Revisi'; }
+      return toast('Gagal unggah','Berkas PDF tidak berhasil diunggah: '+e.message,'err');
+    }
+  }
+  const ke=penRevisiKe(ev)+1;
+  /* Putaran sebelumnya diarsipkan SEBELUM ditimpa. Tanpa ini yang tersisa
+     hanya permintaan terakhir, dan riwayat negosiasi — satu-satunya bukti
+     kenapa harganya sampai di angka sekarang — hilang tiap kali client minta
+     disesuaikan lagi. */
+  p.revisiRiwayat=Array.isArray(p.revisiRiwayat)?p.revisiRiwayat:[];
+  p.revisiRiwayat.push({ke:ke, alasan:alasan, at:new Date().toISOString(), by:ME.id,
+                        sebelumnya:{status:'Terkirim', sentAt:p.sentAt||'', decidedAt:p.decidedAt||''}});
+  p.revisiKe=ke; p.revisiAlasan=alasan;
+  p.status='Menunggu Approval';
+  p.submittedBy=ME.id; p.submittedAt=new Date().toISOString();
+  /* Keputusan putaran lalu dibersihkan, kalau tidak kolom "Diputuskan" di
+     Approval Flow memajang tanggal keputusan LAMA untuk perkara yang belum
+     diputuskan sama sekali. */
+  p.decidedBy=''; p.decidedAt=''; p.rejectNote='';
+  // Tahap turun ke Prospect — kecuali yang sudah lebih jauh (Deal/Event Done),
+  // yang tidak boleh ditarik mundur oleh negosiasi harga.
+  if(!['Deal','Confirmed','Event Done','Lost'].includes(ev.status)){ ev.status='Prospect'; ev.pipeCol='Prospect'; }
+  logAct('event',id,'Revisi penawaran diajukan','revisi ke-'+ke+': '+alasan);
+  pushNotif('approval','Negosiasi Lanjutan menunggu approval',
+    ev.nama+' — revisi ke-'+ke+': '+alasan,'#approvals');
+  save(); buildNav(); closeModal();
+  toast('Revisi diajukan','Tahap turun ke Prospect, perkaranya masuk antrian Negosiasi Lanjutan.','ok');
+  go('event',id);
 }
 // Membaca surat penawaran = membuka berkas PDF yang diunggah Marketing.
 function suratPenawaranPDF(id){
@@ -8195,6 +8315,7 @@ function setMenuFixEvent(v){
 function penawaranCard(ev,canEdit){
   const st=penStatus(ev), p=ev.penawaran, f=eventFinance(ev), superA=bisaPutusPenawaran();
   const pf=penFile(ev);
+  const rev=penRevisiKe(ev);
   const btnPDF='<button class="btn" onclick="suratPenawaranPDF(\''+ev.id+'\')">'+svg(IC.brief)+'Baca PDF</button>';
   let info='', acts='<div class="pill-row">';
   if(!st){
@@ -8210,12 +8331,29 @@ function penawaranCard(ev,canEdit){
       +'</div>';
     if(p.note) info+='<div class="cell-sub" style="margin-top:8px">Catatan: '+esc(p.note)+'</div>';
     if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Approver:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
+    /* RIWAYAT NEGOSIASI. Ditulis di kartunya, bukan cuma di Timeline: yang
+       bertanya "kenapa harganya jadi segini" adalah orang yang sedang membuka
+       event ini, dan menyuruhnya menyaring Audit Log berarti pertanyaannya
+       tidak akan pernah dijawab. */
+    if(Array.isArray(p.revisiRiwayat) && p.revisiRiwayat.length){
+      info+='<div style="margin-top:12px"><div class="cell-sub" style="margin-bottom:6px">Putaran negosiasi</div>';
+      p.revisiRiwayat.forEach(function(r){
+        info+='<div style="display:flex;gap:10px;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line-soft)">'
+          +'<b style="flex:none;color:var(--violet)">Revisi '+(+r.ke||0)+'</b>'
+          +'<span style="flex:1">'+esc(r.alasan||'—')+'</span>'
+          +'<span class="cell-sub" style="flex:none;white-space:nowrap">'+fmtDate(String(r.at||'').slice(0,10))
+          +(r.by?' · '+esc(userName(r.by)):'')+'</span></div>';
+      });
+      info+='</div>';
+    }
     if(st==='Draft' && canEdit){
       acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+(pf?'Ubah':'Unggah PDF')+'</button>'
         +(pf?btnPDF:'')
         +(pf?'<button class="btn pri" onclick="ajukanPenawaran(\''+ev.id+'\')">'+svg(IC.approve)+'Ajukan Approval</button>':'');
     } else if(st==='Menunggu Approval'){
       acts+=btnPDF;
+      // Revisi boleh dilengkapi berkasnya selagi menunggu — lihat buatPenawaran().
+      if(canEdit && rev>0) acts+='<button class="btn" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Ubah / Ganti PDF</button>';
       if(superA) acts+='<button class="btn pri" onclick="putusPenawaran(\''+ev.id+'\',\'Disetujui\')">'+svg(IC.check)+'Setujui</button>'
         +'<button class="btn danger" onclick="putusPenawaran(\''+ev.id+'\',\'Ditolak\')">'+svg(IC.x)+'Tolak</button>';
       else acts+='<span class="tag" style="background:var(--warn-bg);color:var(--warn);padding:8px 12px">Menunggu approval Manager / Approver</span>';
@@ -8225,6 +8363,11 @@ function penawaranCard(ev,canEdit){
     } else if(st==='Terkirim'){
       acts+=btnPDF;
       if(canEdit) acts+='<button class="btn" onclick="kirimPenawaran(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim ulang</button>';
+      /* Jalan resmi untuk putaran negosiasi berikutnya. Sebelum ini tidak ada,
+         dan yang dilakukan orang adalah menyeret kartunya mundur di papan —
+         gerakan yang tidak meninggalkan perkara apa pun di Approval Flow. */
+      if(canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status))
+        acts+='<button class="btn" onclick="ajukanRevisi(\''+ev.id+'\')">'+svg(IC.edit)+'Ajukan Revisi</button>';
       if(canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status)) acts+='<button class="btn pri" onclick="dealPenawaran(\''+ev.id+'\')">'+svg(IC.check)+'Konfirmasi Deal</button>';
     } else if(st==='Ditolak' && canEdit){
       acts+='<button class="btn pri" onclick="buatPenawaran(\''+ev.id+'\')">'+svg(IC.edit)+'Perbaiki & Ajukan Lagi</button>';
@@ -8233,7 +8376,9 @@ function penawaranCard(ev,canEdit){
   acts+='</div>';
   return '<div class="card" style="margin-bottom:18px">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">'
-    +'<h3 style="font-size:15px;display:flex;align-items:center;gap:9px">'+svg(IC.brief)+'Surat Penawaran'+(st?' '+statusChip(st,PEN_STATUS):'')+'</h3>'
+    +'<h3 style="font-size:15px;display:flex;align-items:center;gap:9px">'+svg(IC.brief)+'Surat Penawaran'
+      +(rev?'<span class="tag" style="background:var(--violet-bg,rgba(124,92,255,.14));color:var(--violet)">Negosiasi Lanjutan · revisi ke-'+rev+'</span>':'')
+      +(st?' '+statusChip(st,PEN_STATUS):'')+'</h3>'
     +acts+'</div>'+info+'</div>';
 }
 /* ---------- FINANCE TAB (D.10) ---------- */
@@ -10998,10 +11143,18 @@ function approvalRows(){
     // Draft belum diajukan ke siapa pun, jadi belum jadi perkara di meja ini.
     if(!st||st==='Draft') return;
     const p=e.penawaran||{};
+    /* Jenis perkaranya dibaca dari putaran negosiasinya, bukan ditulis mati:
+       putaran pertama = Surat Penawaran, putaran berikutnya = Negosiasi
+       Lanjutan. Yang membedakan bukan formalitas — yang diputuskan di putaran
+       kedua adalah harga hasil tawar-menawar dengan client, dan manajemen
+       perlu tahu itu sebelum membuka berkasnya. */
+    const rev=+p.revisiKe||0;
     out.push({
-      jenis:'Surat Penawaran', kind:'pen', rid:e.id, ev:e,
-      perkara:p.noSurat||'—',
-      sub:p.validUntil?('berlaku s/d '+fmtDate(p.validUntil)):'',
+      jenis:penJenis(e), kind:'pen', revisi:rev, rid:e.id, ev:e,
+      perkara:(p.noSurat||'—')+(rev?' · revisi ke-'+rev:''),
+      // `sub` di-esc saat digambar, jadi JANGAN di-esc di sini juga.
+      sub:rev?(p.revisiAlasan||'permintaan client')
+             :(p.validUntil?('berlaku s/d '+fmtDate(p.validUntil)):''),
       catatan:p.note||'',
       tolakNote:(st==='Ditolak'?(p.rejectNote||''):''),
       nilai:eventFinance(e).grand,
@@ -11043,20 +11196,31 @@ function renderApprovals(V){
   const bisaPen=bisaPutusPenawaran(), bisaNego=can('approve');
   let semua=approvalRows();
   const nAntri=semua.filter(r=>r.antri).length;
-  const nLama=semua.filter(r=>r.kind==='nego').length;
-  /* Kepala halaman sengaja satu kalimat, dan kartunya TINGGAL SATU.
+  /* TIGA KARTU, dan ketiganya menjawab pertanyaan yang berbeda.
 
-     Yang dulu ada di sini: paragraf empat baris menjelaskan kebijakan
-     approval, tiga kartu angka, dan satu pita peringatan tentang aturan
-     lama. Semuanya berdiri di atas tabel yang justru jadi alasan halaman
-     ini dibuka — dan tiga di antaranya hanya perlu dibaca sekali seumur
-     hidup. Yang benar-benar ditanya tiap kali halaman dibuka cuma satu:
-     ada berapa yang menunggu keputusan saya.
+     Sempat tinggal satu ("Menunggu Keputusan") karena dua kartu sebelumnya
+     hanya mengulang angka yang sudah terbaca dari tabel. Yang mengembalikannya
+     bukan selera: sejak revisi penawaran punya jenis perkaranya sendiri,
+     antrian ini berisi DUA hal yang menuntut pertimbangan berbeda —
+     pengajuan pertama (harga yang belum pernah dilihat client) dan negosiasi
+     lanjutan (harga hasil tawar-menawar, biasanya lebih rendah dan lebih
+     mendesak). "5 menunggu" tidak memberi tahu campurannya, dan itu yang
+     menentukan mana yang dibuka lebih dulu.
 
-     Jumlah Surat Penawaran dan sisa aturan lama tidak hilang — keduanya
-     terbaca dari tabel di bawah, lengkap dengan barisnya. */
+     Angka besarnya = yang MENUNGGU pada jenis itu; barisan kecil di bawahnya
+     menyebut totalnya, supaya kartu tidak berbohong soal "cuma ada segini". */
+  const rowsPen  = semua.filter(r=>r.kind==='pen' && !r.revisi);
+  const rowsRev  = semua.filter(r=>(r.kind==='pen' && r.revisi) || r.kind==='nego');
+  const antriPen = rowsPen.filter(r=>r.antri).length;
+  const antriRev = rowsRev.filter(r=>r.antri).length;
   let h=pageHead('Modul I','Approval Flow','Meja putusan manajemen.','');
-  h+='<div class="grid g-2" style="margin-bottom:16px">'
+  h+='<div class="grid g-3" style="margin-bottom:16px">'
+   +stat('Surat Penawaran',antriPen,
+         rowsPen.length?(antriPen?'menunggu · '+rowsPen.length+' total':'semua '+rowsPen.length+' sudah diputuskan')
+                       :'belum ada pengajuan','brief')
+   +stat('Negosiasi Lanjutan',antriRev,
+         rowsRev.length?(antriRev?'revisi menunggu · '+rowsRev.length+' total':'semua '+rowsRev.length+' sudah diputuskan')
+                       :'belum ada revisi','pipe')
    +stat('Menunggu Keputusan',nAntri,nAntri?'perlu ditindak':'semua sudah diputuskan','approve')
    +'</div>';
   /* Dua TAB, bukan dropdown tiga pilihan.
@@ -11116,7 +11280,11 @@ function renderApprovals(V){
     h+='<tr'+(r.antri?' style="background:var(--gold-glow)"':'')+'>'
       +'<td><div class="cell-strong"><a onclick="go(\'event\',\''+r.ev.id+'\')" style="cursor:pointer">'+esc(r.ev.nama)+'</a></div>'
         +'<div class="cell-sub">'+esc(clientName(r.ev.clientId))+' · '+fmtDate(r.ev.tanggal)+'</div></td>'
-      +'<td><span class="tag"'+(r.kind==='nego'?' style="background:var(--violet-bg);color:var(--violet)"':'')+'>'+esc(r.jenis)+'</span></td>'
+      /* Ungu = perkara negosiasi, bukan pengajuan pertama. Berlaku untuk
+         Negosiasi Lanjutan (revisi penawaran) maupun sisa baris "Negosiasi
+         Harga" dari aturan lama — keduanya sama-sama tawar-menawar harga yang
+         sudah pernah dilihat client. */
+      +'<td><span class="tag"'+((r.kind==='nego'||r.revisi)?' style="background:var(--violet-bg);color:var(--violet)"':'')+'>'+esc(r.jenis)+'</span></td>'
       +'<td><div'+(r.kind==='pen'?' class="mono" style="font-size:12px"':' style="font-size:12px"')+'>'+esc(r.perkara)+'</div>'
         +(r.sub?'<div class="cell-sub">'+esc(r.sub)+'</div>':'')
         +(r.catatan?'<div class="cell-sub">Catatan: '+esc(r.catatan)+'</div>':'')
