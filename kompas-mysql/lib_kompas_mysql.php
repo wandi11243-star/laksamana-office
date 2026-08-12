@@ -309,8 +309,17 @@ function simpan_target($data) {
 
      reports[tgl].mdr   {bri,mandiri,bca}  biaya MDR per bank, diketik tangan
      reports[tgl].setor bool               cash hari itu sudah disetor
-     reports[tgl].esb   {grup:bool}        "Input ESB" — penanda bahwa nominal
-                                           adjust grup itu sudah dikunci di ESB
+     reports[tgl].esb   {grup:bool}        "Input POS" — penanda bahwa nominal
+                                           adjust grup itu sudah dikunci di POS.
+                                           NAMA FIELD-nya tetap `esb`: kata itu
+                                           diganti jadi POS di seluruh layar
+                                           pada 12 Agustus 2026, tapi kuncinya
+                                           TIDAK ikut diganti supaya penanda
+                                           yang sudah tersimpan tidak hilang
+                                           dan supaya deploy yang berhasil
+                                           sebagian (frontend naik, backend
+                                           tidak) tidak membuang centang orang
+                                           diam-diam.
 
    ALASAN ENDPOINT SENDIRI sama persis dengan simpan_target: saveAll mengirim
    SELURUH state, jadi satu penyimpanan dari panel ini yang salinannya sudah
@@ -332,7 +341,7 @@ function simpan_rekap($data) {
   if (!$s) throw new Exception('Data omset belum pernah tersimpan — buka panel Input Omset Harian lebih dulu');
   if (!isset($s['reports']) || !is_array($s['reports'])) $s['reports'] = array();
 
-  /* Grup "Input ESB" yang dikenal. Daftar TERTUTUP dengan sengaja: kunci yang
+  /* Grup "Input POS" yang dikenal. Daftar TERTUTUP dengan sengaja: kunci yang
      tidak dikenal berarti panelnya sudah lebih baru daripada backend, dan
      menyimpannya diam-diam membuat penanda yang tidak pernah terbaca siapa
      pun. Lebih baik dilaporkan. */
@@ -344,7 +353,7 @@ function simpan_rekap($data) {
     $tgl = kp_tgl($tgl);
     if (!$tgl || !is_array($isi)) continue;
     /* Baris report DIBUAT kalau belum ada. Hari yang Daily Report-nya belum
-       diisi tetap boleh ditandai sudah disetor / sudah masuk ESB — urutan
+       diisi tetap boleh ditandai sudah disetor / sudah masuk POS — urutan
        kerjanya di lapangan memang tidak selalu report dulu. */
     if (!isset($s['reports'][$tgl]) || !is_array($s['reports'][$tgl])) $s['reports'][$tgl] = array();
     $r =& $s['reports'][$tgl];

@@ -212,12 +212,155 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function todayISO() {  }
 
 
 
 
 function labelHari() {  }
+function labelTglPanjang() {  }
+
 function hariDalamBulan() {  }
 
 
@@ -248,7 +391,11 @@ function bacaSesi() { todayISO(); }
 
 
 
+
+
+
 function pay() {  }
+
 
 
 
@@ -321,12 +468,11 @@ function setorOf() { recOf(); }
 
 
 
-function esbOf() { recOf(); }
+function tandaOf() { recOf(); }
 
 
 
-function setUbah() { segarkanSimpan(); }
-
+function setUbah() {  }
 
 
 
@@ -334,9 +480,13 @@ function setUbah() { segarkanSimpan(); }
 function adaUbah() {  }
 
 
+
+
+
+
 function hitungHari() { recOf(); }
 
-function sisi() { pay(); omsetOf(); }
+function sisi() { pay(); mdrOf(); omsetOf(); }
 
 
 
@@ -346,6 +496,22 @@ function sisi() { pay(); omsetOf(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ringkasBulan() { hariDalamBulan(); hitungHari(); tandaOf(); setorOf(); }
 
 
 
@@ -362,7 +528,219 @@ function setSync() {  }
 
 
 
-function isiPeriode() { todayISO(); }
+function toggleNav() {  }
+
+
+
+
+function gantiTab() { render(); }
+
+
+
+
+
+
+function isiPeriode() {  }
+
+
+
+
+
+
+
+function kartu() {  }
+
+
+function kartuBulan() { kartu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); labelHari(); setorOf(); tandaOf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewInput() { hitungHari(); kartu(); labelTglPanjang(); setorOf(); tandaOf(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function segarkanTurunan() { hitungHari(); }
+
+
+function set() { segarkanSimpan(); }
+
+
+
+
+
 
 
 
@@ -379,18 +757,20 @@ function segarkanSimpan() {  }
 
 
 
-function render() { hariDalamBulan(); hitungHari(); esbOf(); setorOf(); kartu(); segarkanSimpan(); labelHari(); mdrOf(); pasangPenangan(); }
 
 
+function render() { viewInput(); viewRekap(); pasangPenangan(); }
 
 
 
 
 
 
+function geserTanggal() { pilihTanggal(); }
 
 
 
+function pilihTanggal() { isiPeriode(); render(); }
 
 
 
@@ -400,127 +780,7 @@ function render() { hariDalamBulan(); hitungHari(); esbOf(); setorOf(); kartu();
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function kartu() {  }
-
-
-function pasangPenangan() { setUbah(); segarkanKartu(); render(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function segarkanKartu() { hariDalamBulan(); hitungHari(); esbOf(); setorOf(); kartu(); }
-
-
-
-
+function pasangPenangan() { pilihTanggal(); geserTanggal(); todayISO(); setUbah(); segarkanSimpan(); segarkanTurunan(); }
 
 
 
@@ -541,7 +801,24 @@ function fetchTimeout() {  }
 
 
 
-function simpan() { adaUbah(); fetchTimeout(); pesan(); render(); segarkanSimpan(); }
+function simpan() { adaUbah(); setSync(); fetchTimeout(); pesan(); render(); segarkanSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -604,4 +881,4 @@ function normalize() {  }
 
 
 
-function boot() { bacaSesi(); render(); setSync(); apiGet(); normalize(); isiPeriode(); pesan(); }
+function boot() { bacaSesi(); gantiTab(); render(); isiPeriode(); setSync(); apiGet(); normalize(); pesan(); }
