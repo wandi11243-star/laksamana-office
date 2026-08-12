@@ -2000,7 +2000,72 @@ function migrateRoleAcc() { permViewKeys(); }
 
 
 
-function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); rinciSeedRows(); rinciTotalBayar(); eventSubtotal(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3358,6 +3423,10 @@ function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visi
 
 
 
+
+
+
+
 function visibleSecsOfTab() { visibleSections(); }
 
 
@@ -3444,6 +3513,11 @@ function eventFbCost() { fbDitimpa(); fbDealAktif(); fbDealTotal(); fbPax(); fbH
 
 
 function eventSubtotal() { rinciAktif(); rinciTotalBayar(); eventFbCost(); }
+
+
+
+
+
 
 
 
@@ -4923,7 +4997,9 @@ function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeSta
 
 
 
-function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); statusChip(); fmtRentang(); eventFinance(); svg(); }
+function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); moveEventPipe(); statusChip(); fmtRentang(); eventFinance(); svg(); }
+
+
 
 
 
@@ -6344,30 +6420,13 @@ function rinciKakiHTML() { eventFinance(); finBayangan(); }
 
 
 
-function baris() { dpLabel(); }
+function baris() { dpLabel(); rinciPanelHTML(); rincianPenawaran(); }
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function rinciCentang() { $(); rinciBaca(); rinciSeedKe(); toast(); finLive(); autoSaveTrigger(); rincianPenawaran(); }
 
 
 
@@ -6412,19 +6471,6 @@ function rinciSeedRows() { rincianPenawaran(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-function rinciSeedKe() { $(); rinciSeedRows(); rinciRowHTML(); rinciKakiHTML(); rinciGantiJenis(); }
 
 
 
@@ -6552,11 +6598,45 @@ function rinciDelRow() { rinciAddRow(); rinciHitung(); }
 
 
 
-function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); rinciSisip(); rinciGantiJenis(); toast(); rinciHitung(); }
+function rinciIsiTemplate() { $(); rincianPenawaran(); bacaTemplateBaris(); }
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sisip() { rinciRowHTML(); rinciSisip(); rinciGantiJenis(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function adaBarisDitagih() { sisip(); bacaTemplateBaris(); toast(); rinciHitung(); }
 
 
 
@@ -6592,7 +6672,19 @@ function rinciTotalBayar() { rinciTeksTotal(); }
 
 
 
-function rinciAktif() { ynBool(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciAktif() {  }
 
 
 
@@ -7890,7 +7982,15 @@ function noSuratBaru() {  }
 
 
 
-function buatPenawaran() { can(); toast(); penStatus(); noSuratBaru(); tglLokal(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); simpanPenawaran(); }
+function buatPenawaran() { can(); toast(); penStatus(); penRevisiKe(); noSuratBaru(); tglLokal(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); simpanPenawaran(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -7946,6 +8046,12 @@ function simpanPenawaran() { $(); toast(); unggahBertahap(); logAct(); save(); c
 
 
 
+
+
+
+
+
+
 function ajukanPenawaran() { can(); toast(); penFile(); eventFinance(); logAct(); pushNotif(); save(); buildNav(); go(); }
 
 
@@ -7965,7 +8071,15 @@ function ajukanPenawaran() { can(); toast(); penFile(); eventFinance(); logAct()
 
 
 
-function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif(); save(); buildNav(); go(); }
+function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif(); penJenis(); save(); buildNav(); go(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -7984,6 +8098,104 @@ function putusPenawaran() { bisaPutusPenawaran(); toast(); logAct(); pushNotif()
 
 
 function kirimPenawaran() { can(); toast(); logAct(); save(); buildNav(); eventFinance(); fmtDate(); modal(); esc(); clientName(); closeModal(); svg(); attachUrl(); waLink(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function penRevisiKe() {  }
+function penJenis() { penRevisiKe(); }
+function ajukanRevisi() { can(); toast(); penStatus(); penRevisiKe(); modal(); esc(); clientName(); closeModal(); svg(); simpanRevisi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanRevisi() { $(); toast(); unggahBertahap(); penRevisiKe(); logAct(); pushNotif(); save(); buildNav(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8100,7 +8312,32 @@ function setMenuFixEvent() { can(); toast(); menuFix(); menuFixInfo(); logAct();
 
 
 
-function penawaranCard() { penStatus(); eventFinance(); bisaPutusPenawaran(); penFile(); suratPenawaranPDF(); svg(); buatPenawaran(); esc(); fmtDate(); attachUrl(); ajukanPenawaran(); putusPenawaran(); kirimPenawaran(); dealPenawaran(); statusChip(); }
+function penawaranCard() { penStatus(); eventFinance(); bisaPutusPenawaran(); penFile(); penRevisiKe(); suratPenawaranPDF(); svg(); buatPenawaran(); esc(); fmtDate(); attachUrl(); userName(); ajukanPenawaran(); putusPenawaran(); kirimPenawaran(); ajukanRevisi(); dealPenawaran(); statusChip(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8174,32 +8411,7 @@ function finBarisLebar() {  }
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); ynSeg(); rinciCentang(); finBarisLebar(); esc(); finLive(); finHitungHTML(); rinciPanelHTML(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function financeTab() { eventFinance(); rinciPanelHTML(); finSeksi(); finBaris(); rupiahInputHTML(); ynSeg(); rincianPenawaran(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
 
 
 
@@ -8333,7 +8545,14 @@ function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus();
 
 
 
-function rinciPanelHTML() { ynBool(); rinciTblHTML(); }
+
+
+
+
+
+
+
+function rinciPanelHTML() { rinciSeedRows(); rinciTblHTML(); }
 
 
 
@@ -8352,7 +8571,19 @@ function rinciPanelHTML() { ynBool(); rinciTblHTML(); }
 
 
 
-function finBayangan() { $(); fbDariKotak(); segVal(); dealBaca(); rinciBaca(); }
+
+
+
+
+
+
+
+
+
+
+
+function finBayangan() { rinciBaca(); $(); segVal(); dealBaca(); }
+
 
 
 
@@ -8419,7 +8650,7 @@ function ynSeg() { segPick(); }
 function segVal() { $(); }
 
 
-function collectFinanceInto() { $(); fbDariKotak(); segVal(); dealBaca(); }
+function collectFinanceInto() { $(); segVal(); dealBaca(); }
 
 
 
@@ -8909,7 +9140,13 @@ function bacaTemplateBaris() {  }
 
 
 
+
+
+
+
+
 function rincianPenawaran() { eventFbCost(); rinciAktif(); fbDitimpa(); fbDealAktif(); fbHargaPax(); fbPax(); bacaTemplateBaris(); }
+
 
 
 
@@ -9716,6 +9953,7 @@ function emsEventPopup() { modal(); esc(); closeModal(); svg(); fmtDate(); }
 
 
 function renderCalendar() { pageHead(); go(); calNav(); calToday(); panelGagalEms(); panelGagalRsv(); calTotalPax(); today(); eventPadaTgl(); calEventPopup(); esc(); jenisEvent(); emsEventPopup(); rsvHariPopup(); muatEventEms(); muatReservasi(); }
+
 
 
 
@@ -10898,7 +11136,15 @@ function setApprFilter() { go(); }
 
 
 
-function approvalRows() { penStatus(); fmtDate(); eventFinance(); }
+function approvalRows() { penStatus(); penJenis(); fmtDate(); eventFinance(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -10947,6 +11193,21 @@ function approvalRows() { penStatus(); fmtDate(); eventFinance(); }
 
 
 function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); setApprFilter(); empty(); tblPage(); tblUrut(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); svg(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -247,6 +247,17 @@ input,select,textarea{font-family:inherit}
 .dtile .dr b{color:var(--ink);font-variant-numeric:tabular-nums}
 .dlain{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px dashed var(--line);font-size:12px;color:var(--muted)}
 .dlain b{display:block;color:var(--ink);font-variant-numeric:tabular-nums;font-size:13px}
+/* Bilah pencocokan di kepala rincian: rumus tagihan vs setoran ditulis
+   mendatar sebagai kalimat, bukan tabel dua kolom — yang dicari orang adalah
+   "sukunya apa saja", dan tanda + − = di antaranya yang menjawab itu. */
+.hitung{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;margin-bottom:12px}
+.hitung .hs{min-width:74px}
+.hitung .hs span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted-2)}
+.hitung .hs b{font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.hitung .hs.kuat b{font-family:var(--serif);font-size:15px}
+.hitung .op{font-size:14px;font-weight:700;color:var(--muted-2);padding-bottom:1px}
+.hitung .hsket{flex-basis:100%;font-size:11.5px;color:var(--muted);margin-top:2px}
 @media(max-width:900px){
   .hrow{grid-template-columns:1fr 1fr;row-gap:8px}
   .hrow .hd{grid-column:1/-1}
@@ -326,9 +337,20 @@ input,select,textarea{font-family:inherit}
    DARI MANA ANGKANYA. Hampir semuanya SUDAH ADA dan tidak diketik lagi di
    sini — dibaca dari blob kompas yang sama dengan dua panel Finance lainnya:
 
-     Total Penjualan   omset bruto Input Omset Harian (food+bev+lainnya−disc)
+     Tagihan           Input Omset Harian: (food+bev+lainnya−discount)
+                       + service_charge + tax   ← rumus tagihanOf() di omset
      POS per metode    reports[tgl].pay[metode].pos     ← Daily Report
      Aktual per metode reports[tgl].pay[metode].actual  ← Daily Report
+     Koreksi bon       piutang[]: bon baru & pelunasan pada tanggal itu
+
+   ANGKANYA WAJIB SAMA DENGAN REPORT DAILY. Panel ini tidak punya rumus sendiri
+   satu pun: tagihan, daftar metode yang dijumlahkan, koreksi bon, dan batas
+   toleransi Rp5.000 semuanya disalin dari deploy/finance/omset/index.html.
+   Kalau salah satu di sana berubah, ubah di sini juga — dua layar yang
+   menghitung hal yang sama dengan cara berbeda adalah cara tercepat membuat
+   orang berhenti percaya keduanya. Sudah kejadian 12 Agustus 2026: panel ini
+   memakai omset net tanpa service & tax, dan 1 Agustus terbaca selisih
+   Rp5.035.563 seolah ada uang hilang lima juta.
 
    Yang MILIK panel ini sendiri cuma tiga, dan cuma tiga ini yang ditulis:
      MDR per bank, penanda Setor, dan centang Input POS.
@@ -448,40 +470,78 @@ const GRUP=[
   {k:'error',    n:'Error',     warna:'danger',  pos:[],                          akt:['error_customer','error_floor','error_kasir','error_bar']}
 ];
 const BANK=GRUP.filter(g=>g.mdr).map(g=>g.mdr);   // ['bri','mandiri','bca']
-/* Kolom Aktual yang membentuk REKAP AKTUAL, yaitu pembanding Total Penjualan.
-   Isinya SELURUH metode yang ada di Daily Report kecuali dua di bawah, dan
-   itu keputusan yang perlu ditulis alasannya:
+/* Metode yang dijumlahkan jadi REKAP AKTUAL = SELURUH kunci yang ada di Daily
+   Report, tanpa kecuali.
 
-     error_customer  — berkas Excel-nya TIDAK memasukkannya ke rumus Rekap
-       Aktual (kolom D) pada 28 dari 30 hari; dua hari yang memasukkannya
-       (baris 15 & 16) justru yang menyimpang. Diikuti yang mayoritas.
-     error_kitchen   — tidak punya kolom sama sekali di berkas itu.
+   BERUBAH 12 Agustus 2026, sesudah user membandingkan layar ini dengan Report
+   Daily dan menemukan angkanya tidak sama. Versi pertama meniru berkas Excel:
+   `error_customer` dan `error_kitchen` dikeluarkan dari penjumlahan karena
+   sheet 07'26 memang tidak memasukkannya ke kolom Rekap Aktual. Hasilnya, di
+   hari yang punya error customer, TOTAL di Report Daily dan Rekap Aktual di
+   sini berbeda tanpa ada satu pun keterangan di layar — dan yang dibaca orang
+   tiap hari adalah Report Daily, bukan Excel yang sedang digantikan.
 
-   Keduanya TETAP DITAMPILKAN sebagai kolom sendiri supaya uangnya tidak
-   hilang dari pandangan — yang tidak ikut cuma penjumlahannya. */
-const AKT_LUAR=['error_customer','error_kitchen'];
+   Sekarang daftarnya persis `setoran` di deploy/finance/omset/index.html
+   (PAYS.reduce(actual)). Kalau PAYS di sana bertambah metode baru, tambahkan
+   juga di GRUP/daftar ini — kalau tidak, uangnya masuk Report Daily tapi tidak
+   pernah muncul di rekap. */
 function semuaKunciPay(){
   const out=[];
   GRUP.forEach(g=>g.akt.forEach(k=>{ if(out.indexOf(k)<0) out.push(k); }));
   ['compliment','member_dep','voucher','error_kitchen'].forEach(k=>{ if(out.indexOf(k)<0) out.push(k); });
   return out;
 }
-const PAY_REKAP=semuaKunciPay().filter(k=>AKT_LUAR.indexOf(k)<0);
+const PAY_REKAP=semuaKunciPay();
+/* Batas toleransi selisih, disamakan dengan SELISIH_TOLERANSI di panel omset.
+   Dua layar yang menilai selisih yang sama dengan batas berbeda akan saling
+   membantah: satu bilang "cocok ✓", satunya merah. */
+const TOLERANSI=5000;
 
 /* ---- pembacaan satu hari ---- */
 function recOf(tgl){ return (DB&&DB.reports&&DB.reports[tgl])||null; }
-function omsetOf(tgl){
-  const d=(DB&&DB.daily||[]).find(x=>x.date===tgl);
-  if(!d) return 0;
-  /* Bruto − diskon, sama dengan netOf() di panel omset. Kalau dipakai bruto
-     saja, Total Penjualan akan selalu lebih besar dari Rekap Aktual sebesar
-     diskon hari itu dan setiap hari terlihat selisih.
+/* ---- TAGIHAN: pembanding yang benar untuk setoran kasir ----
+   RUMUSNYA DISALIN dari tagihanOf() di deploy/finance/omset/index.html:
 
-     NAMA FIELD-nya `food`/`bev`/`lainnya`, BUKAN omzet_*. Salah nama di sini
-     tidak melempar apa pun — num(undefined) memulangkan 0 — jadi Total
-     Penjualan akan diam-diam nol sebulan penuh dan seluruh kolom Selisih
-     terlihat sebesar Rekap Aktual. Samakan dengan grossOf() di panel omset. */
-  return num(d.food)+num(d.bev)+num(d.lainnya)-num(d.discount);
+     gross   = food + bev + lainnya
+     net     = gross − discount
+     tagihan = net + service_charge + tax
+
+   Sampai 12 Agustus 2026 panel ini memakai `net` saja, dan itu SEBABNYA angka
+   di layar ini tidak pernah cocok dengan Report Daily: yang dibayar tamu
+   adalah tagihan (sudah termasuk service & tax), sementara yang dibandingkan
+   cuma omset makanan-minumannya. Pada 1 Agustus 2026 bedanya Rp5.035.563 —
+   persis sebesar service charge + tax hari itu — dan terbaca seolah ada uang
+   hilang lima juta.
+
+   NAMA FIELD-nya `food`/`bev`/`lainnya`/`service_charge`/`tax`, BUKAN omzet_*.
+   Salah nama tidak melempar apa pun — num(undefined) memulangkan 0 — jadi
+   Tagihan akan diam-diam nol sebulan penuh dan seluruh Selisih terlihat
+   sebesar Rekap Aktual. */
+function omsetRec(tgl){ return (DB&&DB.daily||[]).find(x=>x.date===tgl)||null; }
+function rinciJual(tgl){
+  const d=omsetRec(tgl);
+  if(!d) return {ada:false,gross:0,disc:0,net:0,svc:0,tax:0,tagihan:0};
+  const gross=num(d.food)+num(d.bev)+num(d.lainnya);
+  const disc=num(d.discount), svc=num(d.service_charge), tax=num(d.tax);
+  const net=gross-disc;
+  return {ada:true,gross,disc,net,svc,tax,tagihan:net+svc+tax};
+}
+/* ---- BON / PIUTANG ----
+   Juga disalin dari panel omset (bonRingkasHari + koreksi di pencocokan):
+
+     setoran seharusnya = tagihan − bon baru + pelunasan bon lama
+     selisih            = tagihan − setoran + (pelunasan − bon baru)
+
+   Tanpa koreksi ini, setiap hari yang ada tamu berhutang selalu terlihat
+   selisih sebesar bonnya padahal tidak ada yang salah — persis alasan yang
+   membuat gerbang selisih di panel omset dilonggarkan 4 Agustus 2026. */
+function bonHari(tgl){
+  let baru=0,lunas=0;
+  ((DB&&DB.piutang)||[]).forEach(b=>{
+    if(b&&b.date===tgl) baru+=num(b.nominal);
+    if(b&&b.status==='lunas'&&b.lunasDate===tgl) lunas+=num(b.nominal);
+  });
+  return {baru,lunas,koreksi:lunas-baru,ada:baru!==0||lunas!==0};
 }
 /* Nilai tersimpan, ditimpa suntingan yang belum disimpan. Satu fungsi untuk
    ketiganya supaya tabel, kaki tabel, dan kartu ringkas tidak pernah membaca
@@ -527,9 +587,18 @@ function hitungHari(tgl){
             adjust:x.pos.length?posN-aktN:aktN};
   });
   const mdrTotal=BANK.reduce((s,b)=>s+mdrOf(tgl,b),0);
-  const rekapAkt=PAY_REKAP.reduce((s,k)=>s+pay(r,k,'actual'),0)-mdrTotal;
-  const jual=omsetOf(tgl);
-  return {r,g,mdrTotal,rekapAkt,jual,selisihTotal:jual-rekapAkt,
+  /* `setoran` = TOTAL kolom Actual di Report Daily, apa adanya. Sengaja
+     disimpan terpisah dari rekapAkt supaya rincian hari bisa memperlihatkan
+     keduanya bersebelahan — angka inilah yang dicari orang waktu membandingkan
+     dua layar, dan kalau yang tampil cuma yang sudah dipotong MDR, bedanya
+     terlihat seperti kesalahan. */
+  const setoran=PAY_REKAP.reduce((s,k)=>s+pay(r,k,'actual'),0);
+  const totPos=PAY_REKAP.reduce((s,k)=>s+pay(r,k,'pos'),0);
+  const rekapAkt=setoran-mdrTotal;
+  const j=rinciJual(tgl), bon=bonHari(tgl);
+  const jual=j.tagihan;
+  return {r,g,mdrTotal,setoran,totPos,rekapAkt,jual,j,bon,
+          selisihTotal:jual-rekapAkt+bon.koreksi,
           comp:pay(r,'compliment','actual'), mdep:pay(r,'member_dep','actual'),
           vou:pay(r,'voucher','actual'), errCust:pay(r,'error_customer','actual'),
           errKit:pay(r,'error_kitchen','actual'),
@@ -545,8 +614,11 @@ function ringkasBulan(){
      jadi tidak mungkin ada dua tempat yang menjumlahkan dengan cara berbeda. */
   const g={}; GRUP.forEach(x=>g[x.k]={pos:0,kotor:0,mdr:0,akt:0,sel:0,adj:0,cek:0,punyaPos:x.pos.length>0});
   const lain={comp:0,mdep:0,vou:0,errC:0,errK:0};
+  let sel=0, svc=0, tax=0, disc=0, net=0, bonBaru=0, bonLunas=0;
   baris.forEach(({tgl,h})=>{
-    jual+=h.jual; akt+=h.rekapAkt; mdr+=h.mdrTotal;
+    jual+=h.jual; akt+=h.rekapAkt; mdr+=h.mdrTotal; sel+=h.selisihTotal;
+    net+=h.j.net; svc+=h.j.svc; tax+=h.j.tax; disc+=h.j.disc;
+    bonBaru+=h.bon.baru; bonLunas+=h.bon.lunas;
     lain.comp+=h.comp; lain.mdep+=h.mdep; lain.vou+=h.vou; lain.errC+=h.errCust; lain.errK+=h.errKit;
     GRUP.forEach(x=>{
       const s=h.g[x.k], t=g[x.k];
@@ -557,7 +629,7 @@ function ringkasBulan(){
     });
     if(setorOf(tgl)) nSetor++;
   });
-  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel:jual-akt,g,lain};
+  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel,net,svc,tax,disc,bonBaru,bonLunas,g,lain};
 }
 
 /* ====================== KERANGKA ====================== */
@@ -591,10 +663,13 @@ function kartu(lab,val,foot,kelas){
 }
 function kartuBulan(R){
   return `<div class="row-in">`
-    +kartu('Total Penjualan',fmtRp(R.jual),R.baris.length+' hari ada data','accent')
-    +kartu('Rekap Aktual',fmtRp(R.akt),'seluruh kolom Aktual, sudah dipotong MDR','')
+    +kartu('Total Tagihan',fmtRp(R.jual),
+        `omset net ${fmtRp(R.net)} + service ${fmtRp(R.svc)} + tax ${fmtRp(R.tax)}`,'accent')
+    +kartu('Rekap Aktual',fmtRp(R.akt),'seluruh kolom Actual Report Daily, dipotong MDR','')
     +kartu('Total MDR',fmtRp(R.mdr),'biaya bank yang mengurangi aktual','')
-    +kartu('Total Selisih',fmtRp(R.sel),'Penjualan − Rekap Aktual',Math.abs(R.sel)<1?'baik':'buruk')
+    +kartu('Total Selisih',fmtRp(R.sel),
+        'Tagihan − Rekap Aktual'+((R.bonBaru||R.bonLunas)?' + koreksi bon':''),
+        Math.abs(R.sel)<=TOLERANSI*R.baris.length?'baik':'buruk')
     /* Yang dijumlahkan nominal ADJUST tiap kelompok yang centang Input POS-nya
        sudah menyala, jadi angka ini menjawab satu pertanyaan: berapa yang sudah
        benar-benar dikunci di POS bulan ini. */
@@ -604,9 +679,10 @@ function kartuBulan(R){
     +kartu('Sudah Setor',R.nSetor+' / '+R.baris.length,'hari yang cash-nya sudah disetor','')
     +`</div>`;
 }
-const chipSelisih=v=>(Math.abs(v)<1
+const chipSelisih=v=>(Math.abs(v)<=TOLERANSI
   ? '<span class="chip ok">cocok</span>'
   : `<span class="chip bad">${esc(fmtRp(v))}</span>`);
+const klsSel=v=>(Math.abs(v)<=TOLERANSI?'sel-ok':'sel-beda');
 
 function viewRekap(){
   const R=ringkasBulan();
@@ -644,10 +720,10 @@ function viewRekap(){
     const nCek=GRUP.filter(g=>tandaOf(tgl,g.k)).length;
     html+=`<button type="button" class="hrow" data-tgl="${tgl}" aria-expanded="false">
         <div class="hd"><b>${esc(labelHari(tgl))}</b><span>${esc(MONTHS_F[+PERIODE.split('-')[1]-1]||'')}</span></div>
-        <div class="hn"><span class="lab">Penjualan</span><b>${rp0(h.jual)}</b></div>
+        <div class="hn"><span class="lab">Tagihan</span><b>${rp0(h.jual)}</b></div>
         <div class="hn"><span class="lab">Rekap Aktual</span><b>${rp0(h.rekapAkt)}</b></div>
         <div class="hn"><span class="lab">MDR</span><b>${rp0(h.mdrTotal)}</b></div>
-        <div class="hn"><span class="lab">Selisih</span><b class="${Math.abs(h.selisihTotal)<1?'sel-ok':'sel-beda'}">${rp0(h.selisihTotal)}</b></div>
+        <div class="hn"><span class="lab">Selisih</span><b class="${klsSel(h.selisihTotal)}">${rp0(h.selisihTotal)}</b></div>
         <div class="hb">${setorOf(tgl)?'<span class="chip ok">✓ Setor</span>':'<span class="chip mute">belum setor</span>'}
           <span class="chip ${nCek===GRUP.length?'ok':(nCek?'warn':'mute')}">POS ${nCek}/${GRUP.length}</span></div>
         <span class="hch">⌄</span>
@@ -663,7 +739,33 @@ function viewRekap(){
 /* Rincian satu hari — digambar saat barisnya dibuka, bukan di muka. */
 function detailHari(tgl){
   const h=hitungHari(tgl);
-  let html='<div class="dg">';
+  /* Bilah pencocokan, DIBACA DARI KIRI KE KANAN sebagai satu kalimat:
+       omset net + service + tax = TAGIHAN
+       total Actual Report Daily − MDR = REKAP AKTUAL
+       (± bon)  →  SELISIH
+     Ini jawaban permanen untuk pertanyaan "kenapa angkanya beda dari Report
+     Daily": tiap suku yang membentuk perbedaan itu kelihatan, jadi tidak ada
+     lagi yang perlu dihitung di kepala atau ditanyakan ke orang lain. */
+  const j=h.j, sel=h.selisihTotal;
+  let html=`<div class="hitung">
+    <div class="hs"><span>Omset net</span><b>${rp0(j.net)}</b></div>
+    <div class="op">+</div>
+    <div class="hs"><span>Service</span><b>${rp0(j.svc)}</b></div>
+    <div class="op">+</div>
+    <div class="hs"><span>Tax</span><b>${rp0(j.tax)}</b></div>
+    <div class="op">=</div>
+    <div class="hs kuat"><span>Tagihan</span><b>${rp0(h.jual)}</b></div>
+    <div class="op">−</div>
+    <div class="hs"><span>Setoran (Actual)</span><b>${rp0(h.setoran)}</b></div>
+    ${h.mdrTotal?`<div class="op">+</div><div class="hs"><span>MDR</span><b>${rp0(h.mdrTotal)}</b></div>`:''}
+    ${h.bon.ada?`<div class="op">+</div><div class="hs"><span>Bon − pelunasan</span><b>${fmtRp(h.bon.koreksi)}</b></div>`:''}
+    <div class="op">=</div>
+    <div class="hs kuat"><span>Selisih</span><b class="${klsSel(sel)}">${rp0(sel)}</b></div>
+    <div class="hsket">${Math.abs(sel)<=TOLERANSI
+      ? 'cocok ✓ (toleransi '+fmtRp(TOLERANSI)+')'
+      : 'lewat toleransi '+fmtRp(TOLERANSI)+' — perlu ditelusuri'}${j.disc?' · diskon hari ini '+fmtRp(j.disc)+' sudah dikurangkan':''}</div>
+  </div>`;
+  html+='<div class="dg">';
   GRUP.forEach(g=>{
     const x=h.g[g.k];
     html+=`<div class="dtile" style="--c:var(--${g.warna})">
@@ -671,14 +773,14 @@ function detailHari(tgl){
       ${x.punyaPos?`<div class="dr"><span>POS</span><b>${rp0(x.pos)}</b></div>`:''}
       <div class="dr"><span>Aktual${x.mdr?' kotor':''}</span><b>${rp0(x.kotor)}</b></div>
       ${x.mdr?`<div class="dr"><span>MDR</span><b>−${fmtRp(x.mdr)}</b></div><div class="dr"><span>Aktual bersih</span><b>${rp0(x.akt)}</b></div>`:''}
-      ${x.punyaPos?`<div class="dr"><span>Selisih</span><b class="${Math.abs(x.selisih)<1?'sel-ok':'sel-beda'}">${rp0(x.selisih)}</b></div>`:''}
+      ${x.punyaPos?`<div class="dr"><span>Selisih</span><b class="${klsSel(x.selisih)}">${rp0(x.selisih)}</b></div>`:''}
       <div class="dr"><span>Adjust</span><b>${rp0(x.adjust)}</b></div>
     </div>`;
   });
   html+='</div>';
-  /* Lain-lain tidak ikut Rekap Aktual (lihat AKT_LUAR & PAY_REKAP), jadi
-     tempatnya di kaki rincian — terlihat, tapi tidak ikut mengaburkan angka
-     yang dicocokkan. */
+  /* Metode yang tidak punya kelompok sendiri. Semuanya IKUT dijumlahkan ke
+     Rekap Aktual (sejak 12 Agustus 2026, lihat PAY_REKAP) — ditaruh di kaki
+     karena jarang dilihat, bukan karena tidak dihitung. */
   html+=`<div class="dlain">
       <div>Compliment<b>${rp0(h.comp)}</b></div>
       <div>Member Deposit<b>${rp0(h.mdep)}</b></div>
@@ -717,10 +819,13 @@ function viewInput(){
   </div>`;
 
   html+=`<div class="row-in">`
-    +kartu('Total Penjualan',fmtRp(h.jual),esc(labelTglPanjang(TANGGAL)),'accent')
-    +kartu('Rekap Aktual',`<span id="o-akt">${fmtRp(h.rekapAkt)}</span>`,'sudah dipotong MDR','')
+    +kartu('Tagihan',fmtRp(h.jual),
+        `omset net ${fmtRp(h.j.net)} + service ${fmtRp(h.j.svc)} + tax ${fmtRp(h.j.tax)}`,'accent')
+    +kartu('Rekap Aktual',`<span id="o-akt">${fmtRp(h.rekapAkt)}</span>`,
+        `setoran ${fmtRp(h.setoran)} − MDR`,'')
     +kartu('Total MDR',`<span id="o-mdr">${fmtRp(h.mdrTotal)}</span>`,'biaya bank hari ini','')
-    +kartu('Selisih',`<span id="o-sel">${fmtRp(h.selisihTotal)}</span>`,'Penjualan − Rekap Aktual','')
+    +kartu('Selisih',`<span id="o-sel">${fmtRp(h.selisihTotal)}</span>`,
+        'Tagihan − Rekap Aktual'+(h.bon.ada?` + koreksi bon ${fmtRp(h.bon.koreksi)}`:''),'')
     +`</div>`;
 
   if(!h.r) html+=`<div class="notice warn"><div>⚠ Daily Report tanggal ini <b>belum ada</b>, jadi seluruh angka POS &amp; Aktual masih nol. MDR dan penandanya tetap boleh diisi sekarang — urutan kerjanya di lapangan memang tidak selalu report dulu.</div></div>`;
@@ -752,7 +857,7 @@ function viewInput(){
           ? `<input inputmode="numeric" data-mdr="${g.mdr}" value="${x.mdr||''}" placeholder="0" aria-label="MDR ${esc(g.n)}">`
           : '<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono" id="o-net-${g.k}">${rp0(x.akt)}</td>
-      <td class="num mono ${x.selisih===null?'':(Math.abs(x.selisih)<1?'sel-ok':'sel-beda')}" id="o-sel-${g.k}">${x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rp0(x.selisih)}</td>
+      <td class="num mono ${x.selisih===null?'':klsSel(x.selisih)}" id="o-sel-${g.k}">${x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rp0(x.selisih)}</td>
       <td class="num mono" id="o-adj-${g.k}">${rp0(x.adjust)}</td>
       <td style="text-align:center"><input type="checkbox" data-tanda="${g.k}" ${tandaOf(TANGGAL,g.k)?'checked':''} style="width:16px;height:16px;accent-color:var(--gold);cursor:pointer"></td>
     </tr>`;
@@ -784,7 +889,7 @@ function segarkanTurunan(){
     const s=$('o-sel-'+g.k);
     if(s){
       s.innerHTML=(x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rp0(x.selisih));
-      s.className='num mono '+(x.selisih===null?'':(Math.abs(x.selisih)<1?'sel-ok':'sel-beda'));
+      s.className='num mono '+(x.selisih===null?'':klsSel(x.selisih));
     }
   });
   segarkanSimpan();
@@ -932,6 +1037,10 @@ function normalize(d){
   d=(d&&typeof d==='object'&&!Array.isArray(d))?d:{};
   if(!Array.isArray(d.daily)) d.daily=[];
   if(!d.reports||typeof d.reports!=='object'||Array.isArray(d.reports)) d.reports={};
+  /* `piutang` dipakai koreksi bon di selisih harian. Tanpa baris ini, blob
+     lama yang belum punya kunci itu membuat bonHari() melempar, dan seluruh
+     halaman blank — bukan cuma kolom bonnya yang kosong. */
+  if(!Array.isArray(d.piutang)) d.piutang=[];
   return d;
 }
 function boot(){
