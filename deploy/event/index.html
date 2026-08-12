@@ -2185,7 +2185,7 @@ function talentSimpanInline(id){
 /* ============ TALENT SCHEDULE ============ */
 let schMonth=new Date();
 function renderSchedule(){
-  setTop('Talent Schedule','Kalender jadwal · anti double-booking','<button class="btn ghost sm" onclick="dailyRulesModal()">⚙ Daily Rules</button> <button class="btn ghost sm" onclick="recurringModal()">🔁 Recurring</button> <button class="btn ghost sm" onclick="monthlyGenModal()">📅 Generate Bulanan</button> <button class="btn" onclick="scheduleForm()">+ Jadwal</button>');
+  setTop('Talent Schedule','Kalender jadwal · anti double-booking','<button class="btn ghost sm" onclick="inputMingguan()">📆 Input Mingguan</button><button class="btn ghost sm" onclick="dailyRulesModal()">⚙ Daily Rules</button> <button class="btn ghost sm" onclick="recurringModal()">🔁 Recurring</button> <button class="btn ghost sm" onclick="monthlyGenModal()">📅 Generate Bulanan</button> <button class="btn" onclick="scheduleForm()">+ Jadwal</button>');
   const y=schMonth.getFullYear(),m=schMonth.getMonth();
   const first=new Date(y,m,1),startDow=first.getDay(),days=new Date(y,m+1,0).getDate();
   const todayStr=dstr(new Date());
@@ -2430,6 +2430,66 @@ function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>
 /* `tgl` datang dari sel kalender yang diklik. Tetap boleh kosong — tombol
    "+ Jadwal" di pojok atas memanggilnya tanpa argumen, dan jatuh ke hari ini
    seperti sebelumnya. */
+/* ---------- INPUT MINGGUAN ----------
+   Menyusun jadwal seminggu itu tujuh kali pekerjaan yang sama persis, dan
+   sebelumnya berarti tujuh kali: klik sel → centang talent → Simpan → cari
+   sel berikutnya di kalender. Langkah keempat itu yang paling sering
+   membuat orang berhenti di tengah minggu — dan jadwal setengah jadi lebih
+   buruk daripada tidak ada, karena yang membacanya mengira Rabu memang
+   kosong.
+
+   Sekarang: pilih Senin-nya sekali, lalu formulir yang sama berjalan
+   sendiri Senin → Selasa → … → Minggu. Yang dipakai TETAP scheduleForm()
+   dan saveSchedule() yang sudah ada — termasuk pemeriksaan bentroknya. Satu
+   formulir kedua yang menyalin logika itu pasti lambat laun kehilangan
+   salah satu penjaganya.
+
+   null = sedang tidak dalam mode mingguan. */
+let schMinggu=null;      // {akhir:'YYYY-MM-DD'}
+const HARI_PJG_EMS=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+function tglGeser(t,n){ const d=new Date(t+'T00:00:00'); d.setDate(d.getDate()+n); return dstr(d); }
+function namaHari(t){ const d=new Date(t+'T00:00:00'); return isNaN(d)?'':HARI_PJG_EMS[d.getDay()]; }
+function inputMingguan(){
+  /* Senin dari minggu yang sedang dibuka di kalender, bukan dari hari ini:
+     orang menekan tombol ini setelah menggulir ke bulan yang mau diisi. */
+  const dasar=new Date(schMonth.getFullYear(),schMonth.getMonth(),1);
+  const hariIni=new Date();
+  const acuan=(dasar.getFullYear()===hariIni.getFullYear()&&dasar.getMonth()===hariIni.getMonth())
+    ? hariIni : dasar;
+  const sen=new Date(acuan); sen.setDate(acuan.getDate()-((acuan.getDay()+6)%7));
+  modal('<button class="close" onclick="closeModal()">\u00d7</button>'
+   +'<h3>Input Mingguan</h3>'
+   +'<p class="mini" style="margin-bottom:12px">Isi jadwal tujuh hari berturut-turut. '
+   +'Setiap kali Simpan, formulirnya lanjut sendiri ke hari berikutnya.</p>'
+   +'<div class="field"><label>Mulai dari (Senin)</label>'
+   +'<input id="mg_mulai" type="date" value="'+dstr(sen)+'"></div>'
+   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+   +'<button class="btn" onclick="mulaiMingguan()">Mulai \u2192</button></div>');
+}
+function mulaiMingguan(){
+  const t=(document.getElementById('mg_mulai')||{}).value||'';
+  if(!t){ toast('Pilih tanggal mulainya dulu.'); return; }
+  schMinggu={akhir:tglGeser(t,6)};
+  scheduleForm(t);
+}
+function lewatiHariIni(){
+  if(!schMinggu) return closeModal();
+  const t=(document.getElementById('s_date')||{}).value||'';
+  lanjutMingguan(t);
+}
+/* Satu tempat yang memutuskan "lanjut atau selesai". Dipanggil sesudah
+   simpan DAN sesudah dilewati, supaya dua jalur itu tidak pernah bisa
+   berbeda perilakunya. */
+function lanjutMingguan(tglSekarang){
+  if(!schMinggu) return;
+  const berikut=tglGeser(tglSekarang,1);
+  if(berikut>schMinggu.akhir){
+    schMinggu=null; closeModal(); renderSchedule();
+    toast('\u2713 Seminggu selesai diisi.');
+    return;
+  }
+  scheduleForm(berikut);
+}
 function scheduleForm(tgl){
   const t=DB.talents.filter(x=>x.status!=='Inactive');
   const tanggal=tgl||dstr(new Date());
@@ -2437,7 +2497,12 @@ function scheduleForm(tgl){
      yang mengklik tanggal ramai tidak tahu siapa saja yang sudah masuk, dan
      bentroknya baru ketahuan sesudah menekan Simpan. */
   const sudah=DB.schedules.filter(x=>x.date===tanggal);
-  modal(`<button class="close" onclick="closeModal()">&times;</button><h3>Tambah Jadwal</h3>
+  /* Dalam mode mingguan, kepala formulirnya menyebut hari keberapa yang
+     sedang diisi — tanpa itu tujuh formulir beruntun terlihat sama persis
+     dan orang kehilangan hitungan. */
+  const mg=schMinggu;
+  const judul=mg ? ('Input Mingguan \u00b7 '+namaHari(tanggal)) : 'Tambah Jadwal';
+  modal(`<button class="close" onclick="schMinggu=null;closeModal()">&times;</button><h3>${judul}</h3>${mg?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">Hari ini <b>${fmtDate(tanggal)}</b> \u2014 terakhir <b>${fmtDate(mg.akhir)}</b>. Kosongkan lalu tekan <b>Lewati</b> kalau hari itu memang tidak ada yang tampil.</div>`:''}
   <p class="mini" style="margin-bottom:10px">${fmtDate(tanggal)} &mdash; centang semua talent yang tampil
      hari itu; tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
   ${sudah.length?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">
@@ -2463,8 +2528,7 @@ function scheduleForm(tgl){
       : '<div class="empty">Belum ada talent. Tambahkan dulu di Talent Management.</div>'}</div>
     <div class="mini" id="s_talinfo" style="margin-top:6px">Belum ada talent dipilih.</div>
   </div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>
-    <button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
+  <div class="modal-actions">${mg?`<button class="btn ghost" onclick="schMinggu=null;closeModal();renderSchedule()">Berhenti</button><button class="btn ghost" onclick="lewatiHariIni()">Lewati \u2192</button>`:`<button class="btn ghost" onclick="closeModal()">Batal</button>`}    <button class="btn" onclick="saveSchedule()">${mg?'Simpan &amp; Lanjut \u2192':'Simpan'}</button></div>`,true);
 }
 /* Kotak fee baru bisa diketik kalau talentnya dicentang. Kotak aktif yang
    isinya diabaikan (karena orangnya tidak dipilih) adalah cara paling cepat
@@ -2501,14 +2565,19 @@ function saveSchedule(){
       performance_type:type, fee: fEl?uangNilai('s_fee_'+cb.value):(+cb.dataset.fee||0),
       status:'Scheduled', recurring_rule_id:null, source:'manual'});
   });
-  save(); closeModal();
+  save();
   /* Pindah ke bulan tanggalnya kalau perlu — menyimpan jadwal bulan depan
      lalu dikembalikan ke bulan ini membuat orang mengira simpanannya gagal. */
   const dt=new Date(date+'T00:00:00');
   if(!isNaN(dt)) schMonth=new Date(dt.getFullYear(),dt.getMonth(),1);
-  renderSchedule();
   toast(pilih.length>1 ? pilih.length+' jadwal tersimpan (tanpa konflik).'
                        : 'Jadwal tersimpan (tanpa konflik).');
+  /* Dalam mode mingguan formulirnya TIDAK ditutup — langsung berganti ke
+     hari berikutnya. renderSchedule() ditunda sampai seminggu selesai:
+     menggambar ulang kalender di belakang modal tiap hari cuma membuang
+     kerja yang tidak terlihat siapa pun. */
+  if(schMinggu) return lanjutMingguan(date);
+  closeModal(); renderSchedule();
 }
 function recurringModal(){
   modal(`<button class="close" onclick="closeModal()">×</button><h3>🔁 Recurring Schedule</h3><p class="mini" style="margin-bottom:12px">Buat aturan berulang, sistem auto-generate dalam rentang tanpa duplikasi (idempotent).</p>
