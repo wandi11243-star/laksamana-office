@@ -5565,8 +5565,66 @@ function ldzSyncQuota(eid){
   LDZ_TIER_NAMES.forEach(t=>{
     const mine=its.filter(i=>i.tier===t);
     if(!mine.length) return;
-    ldzTierClass(eid,t).quota=mine.reduce((a,i)=>a+(+i.capacity||1),0);
+    const c=ldzTierClass(eid,t);
+    const dariDenah=mine.reduce((a,i)=>a+(+i.capacity||1),0);
+    /* KUOTA TIDAK BOLEH TURUN DI BAWAH YANG SUDAH TERJUAL. Denah bisa dirombak
+       kapan saja, termasuk sesudah tiket beredar — dan kuota 50 untuk kelas
+       yang sudah menjual 80 membuat setiap layar yang membandingkan keduanya
+       melaporkan hal yang mustahil ("80 dari 50 terjual", keterisian 160%),
+       tanpa ada yang gagal sehingga tidak ada yang menyadarinya. */
+    c.quota=Math.max(dariDenah, +c.sold||0);
   });
+}
+/* ---- MEMASANG DENAH BARU KE SATU LANTAI ----
+   Dulu kedua jalur pemasangan (Denah Bawaan LM & Muat Template) langsung
+   `DB.seats.concat(baru)`. Menekan tombolnya dua kali menghasilkan denah
+   BERLIPAT — 90 objek jadi 180 — bertumpuk persis di koordinat yang sama
+   sehingga di layar nyaris tidak kelihatan, sementara ldzSyncQuota menaikkan
+   kuota kelasnya jadi dua kali lipat. Yang ketahuan belakangan cuma angka
+   kuota yang tidak masuk akal, jauh sesudah tiketnya dijual.
+
+   Sekarang memasang denah berarti MENGGANTI isi lantai itu, dan penggantinya
+   ditawarkan lebih dulu — bukan dilakukan diam-diam.
+
+   Objek yang tiketnya SUDAH TERJUAL tidak pernah ikut dihapus. Membuangnya
+   akan memutus `tickets.seat_id` dari kursinya: barcode yang sudah di tangan
+   tamu kehilangan tempat duduknya, dan tidak ada layar yang bisa memulihkan
+   pasangan itu. Sisanya dilaporkan apa adanya di toast. */
+function ldzPasangKeLantai(eid, baru, sumber, sesudah){
+  const lama=ldzItems(eid);
+  const pasang=function(ganti){
+    ldzRekam(eid);
+    let disisakan=0;
+    if(ganti && lama.length){
+      const buang={};
+      lama.forEach(function(i){
+        if(ldzTerjual(i)){ disisakan++; return; }   // sudah ada tiketnya: jangan disentuh
+        buang[i.id]=1;
+      });
+      DB.seats=DB.seats.filter(function(s){ return !buang[s.id]; });
+    }
+    DB.seats=DB.seats.concat(baru);
+    ldzSyncQuota(eid); save();
+    if(typeof sesudah==='function') sesudah(disisakan);
+  };
+  if(!lama.length) return pasang(false);
+  modal('<button class="close" onclick="closeModal()">&times;</button>'
+   +'<h3>Lantai '+ldzLantai()+' sudah berisi denah</h3>'
+   +'<p class="mini" style="margin-bottom:12px">Lantai ini sudah punya <b>'+lama.length+' objek</b>. '
+   +sumber+' akan menambahkan <b>'+baru.length+' objek</b> lagi.</p>'
+   +'<div class="kv" style="margin-bottom:14px">'
+     +'<div class="k">Ganti</div><div>Denah lama dihapus, diganti yang baru. '
+       +'Objek yang tiketnya sudah terjual tetap dipertahankan.</div>'
+     +'<div class="k">Tambahkan</div><div>Keduanya berdiri bersamaan — jadi <b>'
+       +(lama.length+baru.length)+' objek</b>. Hampir selalu bukan yang dimaksud: '
+       +'objeknya bertumpuk di koordinat yang sama dan kuota kelasnya ikut berlipat.</div>'
+   +'</div>'
+   +'<div class="modal-actions">'
+     +'<button class="btn ghost" onclick="closeModal()">Batal</button>'
+     +'<button class="btn ghost" onclick="closeModal();window._ldzPasang(false)">Tambahkan saja</button>'
+     +'<button class="btn" onclick="closeModal();window._ldzPasang(true)">Ganti denah lantai ini</button>'
+   +'</div>');
+  window._ldzPasang=pasang;
 }
 function ldzCap(eid){ return ldzItems(eid).filter(function(i){ return !ldzAdalahArea(i); }).reduce((a,i)=>a+(+i.capacity||1),0); }
 function ldzTerjual(it){ return DB.tickets.some(t=>t.seat_id===it.id && t.status!=='Cancelled'); }
@@ -6902,7 +6960,6 @@ function ldzPasangBawaan(eid){
       sale_start:e.start_datetime||'',sale_end:e.start_datetime||'',
       description:'Zona reguler tanpa nomor kursi',benefit:'Area reguler',is_seated:false});
   }
-  ldzRekam(eid);
   const L=ldzMeta(eid);
   L.w=Math.max(L.w,tpl.kanvas.w); L.h=Math.max(L.h,tpl.kanvas.h);
   const baru=tpl.objek.map(function(o){
@@ -6914,13 +6971,16 @@ function ldzPasangBawaan(eid){
             pola:o.pola||'', petak:+o.petak||0,
             table_no:o.lbl,seat_no:o.lbl,status:'Available'};
   });
-  DB.seats=DB.seats.concat(baru);
-  ldzSetSel([]); ldzSyncQuota(eid); save();
-  if(document.querySelector('.tabs')) renderTicketDetail(eid); else ldzRepaint(eid);
-  const kursi=baru.filter(function(i){ return i.kind==='seat'; }).length;
-  const meja=baru.filter(function(i){ return i.kind==='table'; }).length;
-  const luas=baru.filter(function(i){ return i.kind==='area'; }).length;
-  toast('✓ Denah bawaan Lantai '+lantai+' — '+kursi+' kursi bernomor, '+meja+' meja, '+luas+' area. Rapikan lalu Simpan sebagai Template.');
+  ldzPasangKeLantai(eid, baru, 'Denah Bawaan LM', function(disisakan){
+    ldzSetSel([]);
+    if(document.querySelector('.tabs')) renderTicketDetail(eid); else ldzRepaint(eid);
+    const kursi=baru.filter(function(i){ return i.kind==='seat'; }).length;
+    const meja=baru.filter(function(i){ return i.kind==='table'; }).length;
+    const luas=baru.filter(function(i){ return i.kind==='area'; }).length;
+    toast('✓ Denah bawaan Lantai '+lantai+' — '+kursi+' kursi bernomor, '+meja+' meja, '+luas+' area.'
+      +(disisakan?' '+disisakan+' objek lama dipertahankan karena tiketnya sudah terjual.':'')
+      +' Rapikan lalu Simpan sebagai Template.');
+  });
 }
 function ldzTemplates(){ if(!Array.isArray(DB.layoutTemplates)) DB.layoutTemplates=[]; return DB.layoutTemplates; }
 function ldzSimpanTemplate(eid){
@@ -6955,7 +7015,7 @@ function ldzMuatTemplateForm(eid){
   if(!tpl.length) return toast('Belum ada template tersimpan. Gambar denahnya sekali, lalu Simpan sebagai Template.');
   const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===eid; });
   modal('<button class="close" onclick="closeModal()">\u00d7</button><h3>Muat Template Denah</h3>'
-   +'<p class="mini" style="margin-bottom:10px">Objeknya dibuat ulang di <b>Lantai '+ldzLantai()+'</b> event ini. Denah lantai ini yang sekarang <b>tidak dihapus</b> \u2014 template ditambahkan di atasnya, dan bisa dibatalkan dengan Ctrl+Z.</p>'
+   +'<p class="mini" style="margin-bottom:10px">Objeknya dibuat ulang di <b>Lantai '+ldzLantai()+'</b> event ini. Kalau lantai ini sudah berisi denah, kamu akan ditanya dulu mau <b>mengganti</b> atau <b>menambahkan</b> \u2014 dan apa pun pilihannya bisa dibatalkan dengan Ctrl+Z.</p>'
    +'<div id="tpl_prev" class="tpl-prev"></div>'
    +'<div class="field"><label>Template</label><select class="inp" id="tpl_pilih" onchange="ldzMuatPetaKelas(\''+eid+'\')">'
    +tpl.map(function(t,i){ return '<option value="'+i+'">'+esc(t.nama)+' \u00b7 Lantai '+esc(t.lantai||'1')+' \u00b7 '+t.objek.length+' objek</option>'; }).join('')
@@ -7012,7 +7072,6 @@ function ldzMuatTemplateGo(eid){
   document.querySelectorAll('.tpl_map').forEach(function(el){ peta[el.dataset.tier]=el.value; });
   const kelas=DB.ticketClasses.filter(function(c){ return c.event_id===eid; });
   if(!kelas.length) return toast('Buat kelas tiket dulu di tab Kelas Tiket.');
-  ldzRekam(eid);
   const L=ldzMeta(eid);
   if(t.kanvas){ L.w=Math.max(L.w,+t.kanvas.w||0); L.h=Math.max(L.h,+t.kanvas.h||0); }
   const lantai=ldzLantai();
@@ -7025,10 +7084,13 @@ function ldzMuatTemplateGo(eid){
             capacity:+o.capacity||1, table_no:o.table_no, seat_no:o.seat_no,
             status:'Available'};
   });
-  DB.seats=DB.seats.concat(baru);
-  ldzSetSel(baru.map(function(i){ return i.id; }));
-  ldzSyncQuota(eid); save(); closeModal(); renderTicketDetail(eid);
-  toast('\u2713 '+baru.length+' objek dimuat dari template "'+t.nama+'".');
+  closeModal();
+  ldzPasangKeLantai(eid, baru, 'Template "'+t.nama+'"', function(disisakan){
+    ldzSetSel(baru.map(function(i){ return i.id; }));
+    renderTicketDetail(eid);
+    toast('\u2713 '+baru.length+' objek dimuat dari template "'+t.nama+'".'
+      +(disisakan?' '+disisakan+' objek lama dipertahankan karena tiketnya sudah terjual.':''));
+  });
 }
 function ldzHapusTemplate(){
   const tpl=ldzTemplates(); if(!tpl.length) return toast('Belum ada template.');
@@ -7447,8 +7509,21 @@ function doPurchase(eid){
   const lepas=function(){ window._pfSibuk=false; if(tombol){ tombol.disabled=false; tombol.textContent='Simpan & Tandai Lunas'; } };
   window._pfSibuk=true; if(tombol){ tombol.disabled=true; tombol.textContent='Menyimpan\u2026'; }
   const g=x=>{const el=document.getElementById(x);return el?el.value.trim():'';};
-  const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone'),email=g('pf_email');
+  const cid=g('pf_class'),name=g('pf_name'),phone=g('pf_phone');
+  /* EMAIL DINORMALKAN: dibersihkan spasinya lalu dikecilkan seluruhnya.
+     Bukan kerapian — inilah SATU-SATUNYA kunci pembeli ke barcode-nya.
+
+     Situs customer mencocokkan `SELECT ... FROM orders WHERE email = :e`
+     dengan email akun, dan akun disimpan huruf kecil (tix_users.email UNIQUE,
+     lowercase — lihat ticketing-mysql/schema-tambahan.sql). Kasir yang
+     mengetik "Budi@Gmail.com" atau menyisakan satu spasi di ujung membuat
+     pesanannya TIDAK PERNAH ketemu: halaman "Tiket Saya" milik pembeli tampil
+     kosong, tanpa galat di mana pun, dan tidak ada layar yang bisa
+     menjelaskan kenapa tiket yang sudah dibayar tidak ada. */
+  const email=g('pf_email').toLowerCase();
   if(!name||!phone||!email){toast('Nama, phone, email wajib.');lepas();return;}
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+    toast('Email tidak valid. Ini satu-satunya cara pembeli membuka barcode-nya nanti.');lepas();return;}
   const c=DB.ticketClasses.find(x=>x.id===cid); if(!c){toast('Pilih kelas tiket dulu.');lepas();return;}
   const kursi=beliSel().slice();
   const qtyEl=document.getElementById('pf_qty');
@@ -7513,6 +7588,26 @@ function showETicket(tid){
     </div>
   </div>
   <p class="mini" style="margin-top:14px">Terms: QR single-use. Tunjukkan saat check-in.<br><b>Pengiriman otomatis belum aktif</b> — e-ticket ini masih perlu dikirim manual ke pembeli.</p>
+  <!-- CARA PEMBELI MEMBUKA BARCODE-NYA SENDIRI.
+       Pertanyaan yang selama ini tidak terjawab di layar mana pun: pembeli yang
+       dicatat kasir tidak punya akun, jadi bagaimana ia melihat barcode-nya
+       kalau QR di layar ini keburu ditutup?
+
+       Jawabannya sudah ada dan tinggal disebutkan: situs customer mencocokkan
+       pesanan lewat EMAIL, jadi pembeli cukup mendaftar/masuk memakai email
+       yang sama dan tiketnya langsung muncul di "Tiket Saya". Tidak perlu akun
+       dibuatkan lebih dulu — dibuatkan dari sini justru berarti menyimpan
+       password yang tidak pernah dipilih orangnya.
+
+       Emailnya ditulis apa adanya di sini supaya kasir bisa mengoreksi salah
+       ketik SELAGI pembelinya masih berdiri di depan meja. Sesudah itu, satu
+       huruf salah berarti tiketnya tidak akan pernah ketemu. -->
+  <div class="card" style="margin-top:12px;padding:10px 12px">
+    <div class="mini"><b>Pembeli membuka barcode-nya sendiri di</b>
+      <b>laksamanamuda.id/ticketing</b> — daftar atau masuk memakai email
+      <b style="word-break:break-all">${esc(o.email||'—')}</b>, tiketnya langsung muncul di menu
+      <b>Tiket Saya</b>. ${o.email?'':'<span style="color:var(--red)">Pesanan ini belum ada emailnya — pembeli tidak akan bisa menemukannya.</span>'}</div>
+  </div>
   <div class="modal-actions">
     <button class="btn ghost" onclick="copyToken('${tk.qr_token}')">Copy QR Token</button>
     <button class="btn ghost" onclick="unduhQR('${tk.id}')">Unduh QR</button>
