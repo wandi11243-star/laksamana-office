@@ -1675,6 +1675,9 @@ function svg() {  }
 
 
 
+
+
+
 function buildNav() { bisaLihat(); router(); svg(); }
 
 
@@ -3200,6 +3203,7 @@ function labelIzin() { emsPermBawaan(); }
 
 
 
+
 function emsPermBawaan() {  }
 
 
@@ -3551,7 +3555,155 @@ function setEventStatus() { toast(); renderPlanning(); bisaSetujui(); save(); re
 
 
 
-function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); tab(); bisaSetujui(); }
+function autoSelesaikanEvent() { setEventStatus(); renderEvents(); save(); toast(); angkaEms(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function angkaEms() {  }
+function dalam() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function omzetPerBulanEms() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfSetPeriode() { router(); }
+function pitaPeriodeEms() {  }
+
+
+
+
+
+function renderPerformanceEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); esc(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function repSetPeriode() { router(); }
+function renderReportEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriodeEms(); stat(); barChart(); omzetPerBulanEms(); esc(); C(); tab(); bisaSetujui(); }
+
+
+
+
+
 
 
 
