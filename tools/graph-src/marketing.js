@@ -2000,7 +2000,72 @@ function migrateRoleAcc() { permViewKeys(); }
 
 
 
-function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); rinciSeedRows(); rinciTotalBayar(); eventSubtotal(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3358,6 +3423,10 @@ function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visi
 
 
 
+
+
+
+
 function visibleSecsOfTab() { visibleSections(); }
 
 
@@ -3444,6 +3513,11 @@ function eventFbCost() { fbDitimpa(); fbDealAktif(); fbDealTotal(); fbPax(); fbH
 
 
 function eventSubtotal() { rinciAktif(); rinciTotalBayar(); eventFbCost(); }
+
+
+
+
+
 
 
 
@@ -6346,30 +6420,13 @@ function rinciKakiHTML() { eventFinance(); finBayangan(); }
 
 
 
-function baris() { dpLabel(); }
+function baris() { dpLabel(); rinciPanelHTML(); rincianPenawaran(); }
 
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function rinciCentang() { $(); rinciBaca(); rinciSeedKe(); toast(); finLive(); autoSaveTrigger(); rincianPenawaran(); }
 
 
 
@@ -6414,19 +6471,6 @@ function rinciSeedRows() { rincianPenawaran(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-function rinciSeedKe() { $(); rinciSeedRows(); rinciRowHTML(); rinciKakiHTML(); rinciGantiJenis(); }
 
 
 
@@ -6554,11 +6598,45 @@ function rinciDelRow() { rinciAddRow(); rinciHitung(); }
 
 
 
-function rinciIsiTemplate() { $(); bacaTemplateBaris(); rinciRowHTML(); rinciSisip(); rinciGantiJenis(); toast(); rinciHitung(); }
+function rinciIsiTemplate() { $(); rincianPenawaran(); bacaTemplateBaris(); }
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sisip() { rinciRowHTML(); rinciSisip(); rinciGantiJenis(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function adaBarisDitagih() { sisip(); bacaTemplateBaris(); toast(); rinciHitung(); }
 
 
 
@@ -8188,32 +8266,7 @@ function finBarisLebar() {  }
 
 
 
-function financeTab() { eventFinance(); fbDariKotak(); fbOtomatis(); ynBool(); paxDariTeks(); finSeksi(); finBaris(); fbPax(); fbHargaPax(); rupiahInputHTML(); fbDitimpa(); ynSeg(); rinciCentang(); finBarisLebar(); esc(); finLive(); finHitungHTML(); rinciPanelHTML(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function financeTab() { eventFinance(); rinciPanelHTML(); finSeksi(); finBaris(); rupiahInputHTML(); ynSeg(); rincianPenawaran(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
 
 
 
@@ -8347,7 +8400,14 @@ function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus();
 
 
 
-function rinciPanelHTML() { ynBool(); rinciTblHTML(); }
+
+
+
+
+
+
+
+function rinciPanelHTML() { rinciSeedRows(); rinciTblHTML(); }
 
 
 
@@ -8366,7 +8426,19 @@ function rinciPanelHTML() { ynBool(); rinciTblHTML(); }
 
 
 
-function finBayangan() { $(); fbDariKotak(); segVal(); dealBaca(); rinciBaca(); }
+
+
+
+
+
+
+
+
+
+
+
+function finBayangan() { rinciBaca(); $(); segVal(); dealBaca(); }
+
 
 
 
@@ -8433,7 +8505,7 @@ function ynSeg() { segPick(); }
 function segVal() { $(); }
 
 
-function collectFinanceInto() { $(); fbDariKotak(); segVal(); dealBaca(); }
+function collectFinanceInto() { $(); segVal(); dealBaca(); }
 
 
 

@@ -2173,12 +2173,33 @@ function normalizeState(s){
     if(!e) return;
     if(!e.detail || typeof e.detail!=='object') e.detail={};
     const d=e.detail;
-    // Sudah punya baris (termasuk hasil migrasi Harga Deal di atas) = jangan
-    // disentuh. Idempoten: pemuatan berikutnya berhenti di baris ini.
-    if(Array.isArray(d.rincianItem) && d.rincianItem.length){ d.rincianOn=true; return; }
-    const baris=rinciSeedRows(e, s.settings);
-    if(!baris.length) return;          // event tanpa biaya & tanpa template: 0 = 0
-    d.rincianItem=baris; d.rincianOn=true;
+    const punyaBaris=Array.isArray(d.rincianItem) && d.rincianItem.length>0;
+    if(punyaBaris && ynBool(d.rincianOn,false)){
+      // Tabelnya memang sudah dipakai. Angkanya tidak berubah sama sekali.
+      return;
+    }
+    /* SATU KASUS YANG BISA MENGGESER TOTAL, dan karena itu diurus sendiri:
+       baris tabel SUDAH terisi tapi saklarnya mati. Selama ini isi tabel itu
+       diabaikan total — yang ditagih adalah kotak-kotaknya — sementara barisnya
+       tetap ikut tersimpan (rinciBaca membaca DOM, dan kotak yang tersembunyi
+       tetap ada di DOM). Menyalakannya begitu saja berarti mengganti angka yang
+       sudah dikirim ke client dengan angka yang belum pernah dipakai.
+
+       Biasanya keduanya sama persis — tabel itu dulu terisi otomatis dari
+       kotak-kotak yang sama. Kalau ternyata BEDA, yang menang adalah kotaknya
+       (itu yang benar-benar ditagih), dan baris yang tersingkir disimpan di
+       rincianItemDraft supaya ketikan orang tidak hilang tanpa jejak. */
+    const seed=rinciSeedRows(e, s.settings);
+    if(punyaBaris){
+      const totalTabel=rinciTotalBayar(e);
+      const totalKotak=eventFbCost(e)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0);
+      if(totalTabel===totalKotak){ d.rincianOn=true; return; }
+      d.rincianItemDraft=d.rincianItem;
+      d.rincianItem=seed; d.rincianOn=true;
+      return;
+    }
+    if(!seed.length) return;           // event tanpa biaya & tanpa template: 0 = 0
+    d.rincianItem=seed; d.rincianOn=true;
   });
   if(typeof s.baseline!=='number') s.baseline=0;
   if(!s.roleAcc||typeof s.roleAcc!=='object'){
@@ -3311,9 +3332,14 @@ const EVENT_SCHEMA = [
   // metodeBayar (Metode Pembayaran), cPIChp (PIC Client Hari-H Kasir).
 ]},
 { id:'finance', n:'D.9', title:'Finance & Ketentuan Pembayaran', div:[], desc:'Berapa rincian biaya & DP-nya, dan bagaimana ketentuan pembayarannya? (khusus Finance/Marketing)', fin:1, fields:[
-  {k:'sewaVenue',l:'Sewa Venue',t:'cur'},
-  {k:'biayaTeknis',l:'Sound, Lighting, dll',t:'cur'},
-  {k:'biayaLain',l:'Lain-lain',t:'cur'},
+  /* sewaVenue / biayaTeknis / biayaLain / rincianOn DIHAPUS dari daftar ini:
+     kotaknya sudah tidak ada di layar sejak semuanya dilebur jadi baris tabel
+     Rincian. Membiarkannya di sini membuat kelengkapan D.9 selamanya tidak
+     penuh oleh isian yang tidak bisa dibuka siapa pun.
+
+     Nilai lamanya TIDAK dihapus dari ev.detail — collectField melewati kunci
+     yang elemennya tidak ada, jadi angkanya tetap tersimpan sebagai jejak dari
+     mana baris tabelnya berasal. */
   /* Dua template ini yang menentukan isi tabel penawaran di luar komponen
      berbayar. Ditaruh di tab Finance, bukan di Pengaturan saja, karena tiap
      acara memang berbeda: yang gratis di gathering kantor belum tentu gratis
@@ -3321,8 +3347,7 @@ const EVENT_SCHEMA = [
   /* Kunci di bawah TIDAK digambar oleh renderField: seksi D.9 dilukis tangan
      oleh financeTab(). Yang tertulis di sini hanya supaya kelengkapan &
      izinnya ikut terhitung; isiannya yang sebenarnya ada di financeTab. */
-  {k:'rincianOn',l:'Ketik Rincian sebagai Tabel',t:'tog',full:1},
-  {k:'rincianItem',l:'Rincian Tagihan',t:'rincitbl',full:1,cond:{k:'rincianOn',v:true}},
+  {k:'rincianItem',l:'Rincian Tagihan',t:'rincitbl',full:1},
   {k:'itemFree',l:'Fasilitas Termasuk (FREE)',t:'ta',full:1,
    help:'Satu baris satu fasilitas. Muncul di penawaran bertuliskan FREE. Kosongkan untuk memakai template umum di Pengaturan. Penanda {jika-sewa-gratis} / {jika-teknis-gratis} membuat barisnya hilang sendiri kalau komponen itu ternyata ditagihkan.'},
   {k:'itemTbc',l:'Item Belum Pasti Harganya',t:'ta',full:1,
@@ -3489,14 +3514,19 @@ function eventFbCost(ev){
 }
 function eventSubtotal(ev){
   const d=ev.detail||{};
-  /* Tabel rincian, kalau dinyalakan, MENGGANTIKAN tiga kotak rupiah — bukan
-     menambahinya. Kalau ditambahkan, orang yang memindahkan isi kotak lama ke
-     tabel akan menagih dua kali tanpa ada yang terlihat salah di layar. */
-  /* Tabel rincian menggantikan SEMUANYA, termasuk F&B — baris "Biaya
-     Konsumsi Event" ada di dalam tabel itu sendiri. Sebelumnya F&B tetap
-     ditambahkan di luar, dan begitu barisnya ikut masuk ke tabel ia tertagih
-     dua kali. Event lama yang tabelnya sudah menyala tapi belum punya baris
-     F&B dinaikkan di normalizeState — angkanya tidak berubah sedikit pun. */
+  /* Tabel Rincian adalah SATU-SATUNYA sumber baris tagihan — termasuk F&B,
+     sewa venue, teknis dan lain-lain, yang kotak isiannya sudah tidak ada lagi
+     di tab Finance. Kalau kotak-kotak itu masih ikut ditambahkan di sini,
+     event yang barisnya sudah pindah ke tabel akan tertagih dua kali.
+
+     CABANG DI BAWAH BUKAN SISA YANG LUPA DIBUANG. Ia jaring pengaman untuk
+     event yang rincianItem-nya benar-benar kosong: migrasi di normalizeState
+     hanya mengisi tabel yang punya sesuatu untuk diisikan, dan event yang
+     tabelnya kosong memang harus tetap memulangkan angka yang sama seperti
+     dulu — untuk event tanpa biaya sama sekali keduanya sama-sama 0, dan untuk
+     event baru yang tabelnya baru diseed di layar (belum disimpan) angkanya
+     juga persis sama. Membuangnya berarti Grand Total sempat jatuh ke nol di
+     antara membuka tab dan menekan Simpan. */
   if(rinciAktif(ev)) return rinciTotalBayar(ev);
   return eventFbCost(ev)+(+d.sewaVenue||0)+(+d.biayaTeknis||0)+(+d.biayaLain||0);
 }
@@ -6410,30 +6440,13 @@ function rinciKakiHTML(){
   if((pakaiDp&&f.dp)||f.paid) h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
   return h;
 }
-/* Saklar tabel rincian. Kotak yang tersembunyi tetap ada di DOM supaya
-   collectField bisa membacanya — kalau dibuang, mematikan saklar lalu
-   menyimpan akan menghapus isi tabel yang sudah diketik. */
-function rinciCentang(el){
-  const on=!!el.checked;
-  const wrap=$('efd_rincianOn'); if(wrap) wrap.classList.toggle('on',on);
-  const lab=el.closest?el.closest('.cbx'):null; if(lab) lab.classList.toggle('on',on);
-  /* Panelnya sekarang berdiri sendiri selebar layar, bukan baris di dalam
-     tabel isian — tapi id-nya tetap sama, jadi saklarnya tidak berubah. */
-  const box=$('rincianBox'); if(box) box.style.display=on?'':'none';
-  /* Dinyalakan pada tabel yang masih kosong = isi sendiri dengan bentuk
-     lembar penawarannya. Tidak menimpa apa pun: hanya jalan kalau memang
-     belum ada satu baris pun yang terisi. */
-  if(on){
-    const ev=S.events.find(function(x){ return x.id===_asEvId; });
-    const isi=rinciBaca('efd_rincianItem');
-    if(ev && (!isi || !isi.length)){
-      const n=rinciSeedKe('efd_rincianItem',ev);
-      if(n) toast('Rincian terisi',n+' baris disiapkan dari isian yang sudah ada + template FREE. Tinggal disunting.','ok');
-    }
-  }
-  finLive();
-  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
-}
+/* rinciCentang() DIHAPUS bersama saklar "Ketik Rincian sebagai Tabel".
+   Tabel Rincian kini satu-satunya tempat baris tagihan diketik, jadi tidak ada
+   lagi yang perlu dinyalakan — dan tidak ada lagi keadaan "angka terlihat di
+   layar tapi diam-diam tidak ikut dihitung", yang selama ini jadi satu-satunya
+   gunanya saklar itu. Pengisian awal tabel yang masih kosong pindah ke
+   rinciPanelHTML(). */
+
 /* ISI AWAL TABEL RINCIAN — sudah berbentuk lembar penawaran yang jadi.
    Sebelumnya menyalakan saklar memberi satu baris kosong, dan seluruh
    fasilitas FREE harus disisipkan sendiri lewat tombol. Akibatnya bukan cuma
@@ -6467,22 +6480,9 @@ function rinciSeedRows(ev, st){
             harga:pakaiQty?it.unit:(it.total||0), jenis:'bayar'};
   });
 }
-/* Menuliskan isi awal itu ke tabel yang sedang di layar. Dipakai saat
-   saklarnya baru dinyalakan — render ulang penuh tidak dipakai di sini
-   supaya fokus ketik di kotak lain tidak melompat. */
-function rinciSeedKe(id,ev){
-  const body=$(id+'_body'); if(!body) return 0;
-  const rows=rinciSeedRows(ev); if(!rows.length) return 0;
-  const tmp=document.createElement('tbody');
-  tmp.innerHTML=rows.map(function(r,i){ return rinciRowHTML(r,true,i); }).join('')+rinciKakiHTML();
-  body.innerHTML=tmp.innerHTML;
-  /* Baris "belum pasti" & FREE harus tetap terkunci harganya — kuncinya
-     dipasang rinciGantiJenis, yang tidak ikut jalan saat HTML disisipkan. */
-  [...body.querySelectorAll('[data-r="jenis"]')].forEach(function(sel){
-    rinciGantiJenis(sel);
-  });
-  return rows.length;
-}
+/* rinciSeedKe() DIHAPUS bersama saklarnya. Isi awal kini dipasang saat tabelnya
+   digambar (rinciPanelHTML), bukan disuntikkan ke DOM yang sudah jadi — tidak
+   ada lagi saat "tabel sudah di layar tapi masih kosong" yang perlu dikejar. */
 function rinciTblHTML(id,rows,canEdit){
   rows=Array.isArray(rows)?rows:[];
   const body=(rows.length?rows:[{}]).map(function(r,i){ return rinciRowHTML(r,canEdit,i); }).join('')
@@ -6507,7 +6507,7 @@ function rinciTblHTML(id,rows,canEdit){
    +'</tr></thead><tbody id="'+id+'_body">'+body+'</tbody></table>'
    +(canEdit?'<div class="rundown-act"><button type="button" class="btn sm" onclick="rinciAddRow(\''+id+'\')">'
       +svg(IC.plus)+'Tambah Baris</button>'
-      +'<button type="button" class="btn sm" onclick="rinciIsiTemplate(\''+id+'\')">Sisipkan template FREE</button>'
+      +'<button type="button" class="btn sm" onclick="rinciIsiTemplate(\''+id+'\')">Sisipkan FREE &amp; TBC</button>'
       +'<span class="cell-sub">Qty dikosongkan = harganya dianggap total baris itu.</span>'
       +'<span class="cell-sub" id="'+id+'_tot"></span></div>':'')
    +'</div>';
@@ -6602,28 +6602,62 @@ function rinciIsiTemplate(id){
   const body=$(id+'_body'); if(!body)return;
   const ada={};
   [...body.querySelectorAll('[data-r="desc"]')].forEach(function(e){ ada[String(e.value).trim().toLowerCase()]=1; });
-  const tmpl=bacaTemplateBaris((S.settings||{}).freeTemplate || FREE_TEMPLATE_BAWAAN);
+  /* Sumbernya kotak milik EVENT INI dulu, template umum Pengaturan belakangan —
+     urutan kewenangan yang sama dengan rincianPenawaran(). Sebelumnya tombol
+     ini selalu membaca template umum, jadi kotak "Fasilitas Termasuk (FREE)"
+     yang baru saja diketik di panel bawah tidak berpengaruh apa pun dan tidak
+     ada apa pun di layar yang menjelaskan kenapa.
+
+     Dibaca dari DOM, bukan dari state: kotaknya sering baru diketik dan belum
+     disimpan, dan yang dilihat orang adalah yang ada di layar. */
+  const kotakFree=$('efd_itemFree'), kotakTbc=$('efd_itemTbc');
+  const dd=(S.events.find(function(x){ return x.id===_asEvId; })||{}).detail||{};
+  const teksFree=kotakFree?kotakFree.value:(dd.itemFree||'');
+  const teksTbc =kotakTbc ?kotakTbc.value :(dd.itemTbc ||'');
+  const milikEv=bacaTemplateBaris(teksFree);
+  const tmpl=milikEv.length?milikEv:bacaTemplateBaris(((S&&S.settings)||{}).freeTemplate || FREE_TEMPLATE_BAWAAN);
+  let n=0;
+  const sisip=function(teks,jenis){
+    if(!teks || ada[teks.toLowerCase()]) return;
+    ada[teks.toLowerCase()]=1;
+    const tmp=document.createElement('tbody');
+    tmp.innerHTML=rinciRowHTML({desc:teks,jenis:jenis},true,'t'+(n++)+Date.now());
+    const tr=tmp.firstElementChild;
+    rinciSisip(body,tr);
+    /* Kunci harga baris FREE/TBC dipasang rinciGantiJenis, yang tidak ikut
+       jalan saat HTML disisipkan langsung. */
+    const sel=tr.querySelector('[data-r="jenis"]'); if(sel) rinciGantiJenis(sel);
+  };
   /* Penanda {jika-sewa-gratis} / {jika-teknis-gratis} harus dihormati di sini
      juga, bukan cuma saat mencetak: menyisipkan baris "Sewa Venue FREE" ke
      tabel yang barisnya "Sewa Venue Rp2.000.000" adalah dua pernyataan yang
-     saling membantah dalam satu lembar. */
-  const dd=(S.events.find(function(x){ return x.id===_asEvId; })||{}).detail||{};
-  let n=0;
+     saling membantah dalam satu lembar.
+
+     Sejak kotak Sewa Venue & Teknis dilebur jadi baris tabel, yang diperiksa
+     BUKAN lagi kotaknya (selalu 0 untuk event baru) melainkan ada tidaknya
+     baris ditagih yang menyebut hal itu di tabel yang sedang di layar. */
+  const adaBarisDitagih=function(re){
+    return [...body.querySelectorAll('tr')].some(function(tr){
+      const jEl=tr.querySelector('[data-r="jenis"]');
+      const jen=(jEl&&(jEl.dataset?jEl.dataset.v:null))||'bayar';
+      if(jen!=='bayar') return false;
+      const dEl=tr.querySelector('[data-r="desc"]');
+      return !!dEl && re.test(String(dEl.value||''));
+    });
+  };
+  const sewaDitagih  = +dd.sewaVenue   || adaBarisDitagih(/sewa\s*venue/i);
+  const teknisDitagih= +dd.biayaTeknis || adaBarisDitagih(/sound|lighting|teknis/i);
   tmpl.forEach(function(t){
-    if(/\{jika-sewa-gratis\}/i.test(t)   && +dd.sewaVenue)   return;
-    if(/\{jika-teknis-gratis\}/i.test(t) && +dd.biayaTeknis) return;
-    const teks=t.replace(/\{[a-z-]+\}/gi,'').trim();
-    if(!teks || ada[teks.toLowerCase()]) return;
-    const tmp=document.createElement('tbody');
-    tmp.innerHTML=rinciRowHTML({desc:teks,jenis:'free'},true,'t'+(n++)+Date.now());
-    const tr=tmp.firstElementChild;
-    rinciSisip(body,tr);
-    /* Kunci harga baris FREE dipasang rinciGantiJenis, yang tidak ikut jalan
-       saat HTML disisipkan langsung. */
-    const sel=tr.querySelector('[data-r="jenis"]'); if(sel) rinciGantiJenis(sel);
+    if(/\{jika-sewa-gratis\}/i.test(t)   && sewaDitagih)   return;
+    if(/\{jika-teknis-gratis\}/i.test(t) && teknisDitagih) return;
+    sisip(t.replace(/\{[a-z-]+\}/gi,'').trim(),'free');
   });
+  // Item yang harganya belum pasti ikut disisipkan: dua kotak template di panel
+  // bawah, satu tombol. Memisahkannya jadi dua tombol hanya membuat yang kedua
+  // tidak pernah ditekan.
+  bacaTemplateBaris(teksTbc).forEach(function(t){ sisip(String(t).trim(),'tbc'); });
   if(!n) toast('Sudah ada semua','Semua baris template sudah ada di tabel.','info');
-  else { toast('Template disisipkan',n+' baris FREE ditambahkan.','ok');
+  else { toast('Template disisipkan',n+' baris FREE / belum pasti ditambahkan.','ok');
          rinciHitung(body.querySelector('input')||body); }
 }
 
@@ -8237,79 +8271,57 @@ function financeTab(ev,canEdit){
   const finVisible = ME.role!=='operational';
   if(!finVisible)return '<div class="muted">Detail finance hanya untuk Marketing, Finance & Manager.</div>';
   const dis=canEdit?'':'disabled';
-  /* min-width:0 pada kedua kolom: bawaan grid adalah min-width:auto, yang
-     membuat kolom MELAR mengikuti isi terlebarnya — tabel Rincian di dalam
-     kolom kiri lalu mendorong seluruh panel keluar kartu, dan yang terpotong
-     justru kolom Total di ujung kanan. */
-  /* Tabel Rincian digambar DI LUAR kisi dua kolom, selebar panel. Di dalam
-     kolom kiri ia hanya kebagian separuh lebar, dan kolom Deskripsi —
-     satu-satunya kolom berisi kalimat — tinggal belasan piksel setelah
-     lima kolom angka mengambil bagiannya. */
-  let h='<div class="fin-panel">';
-  h+='<div class="grid g-2 fin-grid" style="align-items:start">';
-  // left: inputs
-  /* F&B: dulu kotak mati yang hanya memajang hasil hitungan. Sekarang bisa
-     ditimpa — harga F&B sering hasil kesepakatan yang tidak jatuh persis di
-     pax x harga (paket, bonus, pembulatan).
+  /* SATU TEMPAT UNTUK BARIS TAGIHAN, SATU TEMPAT UNTUK KETENTUANNYA.
 
-     ANGKA OTOMATISNYA IKUT TERTULIS DI KOTAK, bukan cuma jadi placeholder.
-     Percobaan pertama memakai placeholder dan hasilnya kotak yang tampak
-     berisi "Rp 0" — dua sebab sekaligus: rupiahInputHTML sudah memasang
-     placeholder="0" sendiri (atribut duplikat, yang PERTAMA menang), dan
-     placeholder memang bukan tempat memajang angka yang sudah dihitung.
+     Sebelumnya panel ini punya DUA tempat mengetik angka yang sama: kotak
+     Sewa Venue / Sound-Lighting / Lain-lain / F&B di tabel isian, DAN tabel
+     Rincian di bawahnya — dengan saklar "Ketik Rincian sebagai Tabel" yang
+     menentukan mana yang dipakai dan mana yang diam-diam diabaikan. Yang
+     terjadi di lapangan: orang mengisi kotaknya, menyalakan tabel, lalu
+     melihat angka di kotak tidak ikut dihitung sama sekali — tanpa satu pun
+     tanda di layar yang menyebutkan sebabnya.
 
-     Konsekuensinya: kotak ini tidak lagi bisa dibedakan "kosong = otomatis".
-     Yang membedakan sekarang NILAINYA — selama isinya sama dengan hitungan
-     otomatis, ia tetap dianggap otomatis dan akan ikut berubah kalau pax atau
-     harga per pax di tab Kasir dikoreksi. Lihat fbDariKotak(). */
-  const fbOto=fbOtomatis(ev);
-  const dealOn=ynBool(d.fbDealOn,false);
-  const fbSumber=paxDariTeks(d.estimasiOTS)?'Estimasi Tamu + Penambahan OTS & Deal per Pax di tab <b>Kasir</b>'
-                                           :'Pax & Budget per Pax di tab <b>Informasi Dasar</b>';
-  /* ISIAN FINANCE SEBAGAI TABEL: keterangan di satu kolom, angka di kolom
-     lain, berbaris lurus seperti lembar tagihan yang dicetak.
+     Sekarang keduanya DILEBUR. Semua yang ditagih — konsumsi, sewa venue,
+     teknis, lain-lain — adalah BARIS di tabel Rincian, dan tabel itu digambar
+     paling atas selebar panel karena dialah isi pokok tab ini. Di bawahnya
+     tinggal yang memang bukan baris tagihan: potongan, service, pajak, DP,
+     template fasilitas, dan data invoice.
 
-     PENJELASAN SENGAJA PENDEK. Versi sebelumnya menaruh satu paragraf di
-     bawah tiap baris; hasilnya panel setinggi tiga layar yang isinya
-     sebenarnya cuma sembilan angka, dan yang dicari orang selalu di luar
-     pandangan. Yang tersisa hanya keterangan yang mengubah keputusan.
+     Event lama dinaikkan di normalizeState — Grand Total-nya tidak bergeser
+     satu rupiah pun. Lihat migrasi di sana untuk buktinya.
 
      CATATAN UNTUK YANG MENYUNTING NANTI: seksi D.9 digambar TANGAN di sini,
      dan fields:[] miliknya TIDAK pernah dirender oleh renderField. Isian baru
      HARUS ditulis di bawah ini, dengan id 'efd_<kunci>' — kalau tidak, ia
      tidak akan terlihat DAN tidak akan tersimpan. */
-  const rinciOn=ynBool(d.rincianOn,false);
+  let h='<div class="fin-panel">';
+  /* Tabel Rincian selebar panel, DI LUAR kisi dua kolom. Di dalam kolom kiri ia
+     cuma kebagian separuh lebar, dan kolom Deskripsi — satu-satunya kolom
+     berisi kalimat — tinggal belasan piksel setelah lima kolom angka mengambil
+     bagiannya. */
+  h+=rinciPanelHTML(ev,canEdit);
+  /* min-width:0 pada kedua kolom: bawaan grid adalah min-width:auto, yang
+     membuat kolom MELAR mengikuti isi terlebarnya, dan yang terpotong justru
+     kolom Total di ujung kanan. */
+  h+='<div class="grid g-2 fin-grid" style="align-items:start">';
+  /* ISIAN KETENTUAN SEBAGAI TABEL: keterangan di satu kolom, angka di kolom
+     lain, berbaris lurus seperti lembar tagihan yang dicetak.
+
+     PENJELASAN SENGAJA PENDEK. Versi sebelumnya menaruh satu paragraf di
+     bawah tiap baris; hasilnya panel setinggi tiga layar yang isinya
+     sebenarnya cuma sembilan angka, dan yang dicari orang selalu di luar
+     pandangan. Yang tersisa hanya keterangan yang mengubah keputusan. */
   h+='<div><div class="rundown-wrap fin-wrap"><table class="rundown-tbl sheet-tbl fin-tbl"><tbody>';
 
-  h+=finSeksi('Konsumsi');
-  h+=finBaris('Biaya Konsumsi (F&amp;B) <span class="mini">'+fbPax(ev)+' pax &times; '+rp(fbHargaPax(ev))+'</span>',
-      rupiahInputHTML('efd_fbManual',(fbDitimpa(ev)?d.fbManual:fbOto),dis),
-      rinciOn ? 'Dipakai sebagai baris <b>Biaya Konsumsi Event</b> di tabel Rincian di bawah.'
-              : (fbDitimpa(ev)?'<b style="color:var(--warn)">Ditimpa manual</b> — otomatisnya '+rp(fbOto)+'.':''));
-
-  /* HARGA DEAL PER JENIS MAKANAN SUDAH TIDAK ADA DI LAYAR SAMA SEKALI.
-     Pekerjaannya diambil alih tabel Rincian, yang bisa memuat baris apa pun
-     — termasuk beberapa jenis hidangan sekaligus, dengan Qty dan harga
-     masing-masing. Dua tempat untuk satu pekerjaan yang sama hanya membuat
-     orang bertanya yang mana yang dipakai.
-
-     Datanya TIDAK ditinggalkan menggantung: normalizeState memindahkan baris
-     Harga Deal milik event lama ke dalam tabel Rincian, dengan angka yang
-     sama persis, lalu mematikan saklarnya. Lihat migrasi di sana. */
-
-  h+=finSeksi('Biaya Tambahan');
-  h+=finBaris('Sewa Venue', rupiahInputHTML('efd_sewaVenue',d.sewaVenue,dis), '');
-  h+=finBaris('Sound, Lighting, dll', rupiahInputHTML('efd_biayaTeknis',d.biayaTeknis,dis), '');
-  h+=finBaris('Lain-lain', rupiahInputHTML('efd_biayaLain',d.biayaLain,dis), '');
-  h+=finBaris('Discount', rupiahInputHTML('efd_diskon',d.diskon,dis), '');
-
-  h+=finSeksi('Service &amp; Pajak');
+  h+=finSeksi('Potongan, Service &amp; Pajak');
+  h+=finBaris('Discount', rupiahInputHTML('efd_diskon',d.diskon,dis),
+      'Dipotong dari subtotal tabel Rincian di atas.');
   h+=finBaris('Kena Biaya Service? <span class="mini">'+st.serviceCharge+'%</span>',
       ynSeg('efd_svcApply',f.svcOn,canEdit), '');
   h+=finBaris('Harga sudah termasuk pajak? <span class="mini">'+st.pb1+'%</span>',
       ynSeg('efd_taxInclude',f.taxInc,canEdit), '');
 
-  h+=finSeksi('Pembayaran');
+  h+=finSeksi('Ketentuan Pembayaran');
   /* DP diisi NOMINAL, bukan persen: yang disepakati di lapangan selalu angka
      rupiah ("DP 5 juta"), dan menghitung mundur dari Grand Total tidak pernah
      jatuh persis di angka yang benar-benar ditransfer. */
@@ -8317,19 +8329,21 @@ function financeTab(ev,canEdit){
       rupiahInputHTML('efd_dpNominal',(d.depositNominal===''||d.depositNominal==null)?'':d.depositNominal,dis),
       'Kosong = '+(ev.dpPercent||st.dpPercent)+'% dari Grand Total.');
 
-  h+=finSeksi('Rincian &amp; Fasilitas');
-  h+=finBaris('Ketik Rincian sebagai Tabel',
-      '<div id="efd_rincianOn" class="'+(rinciOn?'on':'')+'" style="display:inline-block">'
-       +'<label class="cbx'+(rinciOn?' on':'')+'"><input type="checkbox" '+(rinciOn?'checked ':'')+(canEdit?'':'disabled ')
-       +'onchange="rinciCentang(this)"><span class="cbx-box"></span><span class="cbx-lbl">Aktifkan</span></label></div>',
-      rinciOn ? 'Tagihan dihitung dari tabel di bawah.' : 'Tagihan dihitung dari kotak-kotak di atas.');
-
+  /* Dua kotak ini kini TEMPLATE, bukan isi lembar penawaran. Sejak tabel
+     Rincian jadi satu-satunya sumber baris, rincianPenawaran() tidak lagi
+     membacanya saat mencetak — yang membacanya cuma tombol "Sisipkan FREE &
+     TBC" di kaki tabel. Kalimat bantunya menyebut itu terang-terangan, supaya
+     tidak ada lagi yang mengetik lima fasilitas di sini lalu heran kenapa
+     tidak satu pun muncul di lembar yang dicetak. */
+  h+=finSeksi('Template Fasilitas &amp; Item');
   h+=finBarisLebar('Fasilitas Termasuk (FREE)',
       '<textarea class="inp" id="efd_itemFree" rows="4" '+dis+'>'+esc(d.itemFree||'')+'</textarea>',
-      'Satu baris satu fasilitas. Kosong = pakai template Pengaturan.');
+      'Satu baris satu fasilitas. Kosong = pakai template Pengaturan. '
+      +'Masuk ke lembar penawaran lewat tombol <b>Sisipkan FREE &amp; TBC</b> di kaki tabel Rincian.');
   h+=finBarisLebar('Item Belum Pasti Harganya',
       '<textarea class="inp" id="efd_itemTbc" rows="3" '+dis+'>'+esc(d.itemTbc||'')+'</textarea>',
-      'Tercetak "to be confirm".');
+      'Tercetak "to be confirm" — bukan Rp0, karena nol berarti gratis. '
+      +'Disisipkan ke tabel Rincian lewat tombol yang sama.');
 
   h+=finSeksi('Data untuk Invoice');
   h+=finBarisLebar('Perusahaan / NPWP',
@@ -8342,11 +8356,6 @@ function financeTab(ev,canEdit){
   // right: computed — isinya digambar ulang sendiri tiap ketukan, lihat finLive()
   h+='<div class="card" id="fin-hitung" style="background:var(--ink-900)">'+finHitungHTML(ev)+'</div>';
   h+='</div>';                       // tutup kisi dua kolom
-  /* Tabel Rincian DI LUAR kisi, selebar panel. Di dalam kolom kiri ia cuma
-     kebagian separuh lebar, dan kolom Deskripsi — satu-satunya kolom berisi
-     kalimat — tinggal belasan piksel setelah lima kolom angka mengambil
-     bagiannya. */
-  h+=rinciPanelHTML(ev,canEdit);
   h+='</div>';                       // tutup .fin-panel
   return h;
 }
@@ -8357,8 +8366,15 @@ function financeTab(ev,canEdit){
 function finHitungHTML(ev){
   const f=eventFinance(ev), st=S.settings;
   let h='<h4 style="font-size:14px;margin-bottom:14px">Perhitungan Otomatis</h4>';
+  /* Baris "F&B (n pax)" DIHAPUS dari sini. Sejak konsumsi jadi salah satu baris
+     di tabel Rincian, memajangnya terpisah di atas Subtotal membuatnya terbaca
+     seperti angka yang ditambahkan di luar tabel — padahal ia sudah termasuk di
+     dalam Subtotal. Yang menggantikannya adalah jumlah baris yang ditagih:
+     angka yang benar-benar menjelaskan dari mana Subtotal datang. */
+  const nBayar=((ev.detail||{}).rincianItem||[])
+    .filter(function(r){ return r && (r.jenis||'bayar')==='bayar'; }).length;
   h+='<dl class="kv-list">'
-   +'<dt>F&B ('+(ev.pax||0)+' pax)</dt><dd class="mono">'+rp(f.fb)+'</dd>'
+   +'<dt>Baris ditagih</dt><dd class="mono">'+nBayar+' baris</dd>'
    +'<dt>Subtotal</dt><dd class="mono">'+rp(f.sub)+'</dd>'
    +(f.disc?'<dt>Discount</dt><dd class="mono">− '+rp(f.disc)+'</dd>':'')
    +(f.svcOn?'<dt>Service Charge ('+st.serviceCharge+'%)</dt><dd class="mono">'+rp(f.service)+'</dd>':'<dt>Service Charge</dt><dd class="mono" style="color:var(--muted)">tidak dikenakan</dd>')
@@ -8392,11 +8408,22 @@ function finHitungHTML(ev){
 /* Tabel Rincian, selebar panel. Ditaruh sesudah kisi dua kolom karena ia
    lembar tagihannya sendiri — bukan salah satu isian di antara isian lain. */
 function rinciPanelHTML(ev,canEdit){
-  const rinciOn=ynBool((ev.detail||{}).rincianOn,false);
-  return '<div class="card sec-card rinci-panel" id="rincianBox" style="display:'+(rinciOn?'':'none')+'">'
+  const d=(ev&&ev.detail)||{};
+  /* Tabel yang masih kosong DIISI SENDIRI dari data event yang sudah ada —
+     bukan dibiarkan menganga satu baris hampa. Yang diisikan sama persis
+     dengan yang dulu dihitung dari kotak-kotak yang sekarang sudah tidak ada
+     (rinciSeedRows menghitungnya seolah tabel masih mati), jadi angka di panel
+     kanan tidak berubah walau isian ini belum sempat disimpan: eventSubtotal
+     masih memakai cabang lama selama rincianItem tersimpan kosong, dan
+     finBayangan membaca baris yang sedang di layar ini.
+
+     Baris seedan baru benar-benar tersimpan begitu tombol Simpan ditekan. */
+  const rows=(Array.isArray(d.rincianItem)&&d.rincianItem.length)?d.rincianItem:rinciSeedRows(ev);
+  return '<div class="card sec-card rinci-panel" id="rincianBox">'
     +'<div class="sec-head"><div class="sec-t"><h3 class="section-title">Rincian Tagihan</h3>'
-    +'<p class="section-desc">Persis kolom lembar tagihan yang dicetak.</p></div></div>'
-    +rinciTblHTML('efd_rincianItem',(ev.detail||{}).rincianItem,canEdit)
+    +'<p class="section-desc">Seluruh yang ditagih ada di sini — konsumsi, sewa venue, sound &amp; lighting, '
+    +'sampai lain-lain. Persis kolom lembar tagihan yang dicetak.</p></div></div>'
+    +rinciTblHTML('efd_rincianItem',rows,canEdit)
     +'</div>';
 }
 /* ---------- PERHITUNGAN IKUT HIDUP SAAT MENGETIK ----------
@@ -8412,11 +8439,12 @@ function rinciPanelHTML(ev,canEdit){
    dipakai bersama, mengetik akan mengubah data asli tanpa disimpan. */
 function finBayangan(ev){
   const b=Object.assign({},ev,{detail:Object.assign({},ev.detail)});
-  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{
+  /* Tinggal Discount. Sewa Venue / Teknis / Lain-lain / F&B sudah jadi baris di
+     tabel Rincian, dan barisnya dibaca di bawah lewat rinciBaca(). */
+  ['diskon'].forEach(k=>{
     const el=$('efd_'+k); if(!el)return;
     const d=rupiahDigits(el.value); b.detail[k]=d===''?'':(+d);
   });
-  const elFb=$('efd_fbManual'); if(elFb) b.detail.fbManual=fbDariKotak(ev,elFb.value);
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
   // DP kini nominal; kotaknya menulis ke detail.depositNominal — sama dengan
@@ -8427,8 +8455,8 @@ function finBayangan(ev){
   const dOn=$('efd_fbDealOn'); if(dOn) b.detail.fbDealOn=dOn.classList.contains('on');
   const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) b.detail.fbDeal=dRows;
   /* Tabel rincian juga: tanpa ini kaki tabel & Grand Total baru bergerak
-     sesudah Simpan, dan orang menyimpulkan angkanya tidak ikut dihitung. */
-  const rOn=$('efd_rincianOn'); if(rOn) b.detail.rincianOn=rOn.classList.contains('on');
+     sesudah Simpan, dan orang menyimpulkan angkanya tidak ikut dihitung.
+     Inilah satu-satunya sumber baris tagihan sejak kotak-kotaknya dilebur. */
   const rRows=rinciBaca('efd_rincianItem'); if(rRows!==undefined) b.detail.rincianItem=rRows;
   return b;
 }
@@ -8479,9 +8507,9 @@ function segVal(id){ const el=$(id); if(!el)return undefined; const b=el.querySe
    jadi pengumpulannya dipisah supaya bisa dipakai tombol simpan tab Finance. */
 function collectFinanceInto(ev){
   if(!$('efd_npwp'))return false;                  // bagian finance tidak sedang tampil
-  ['sewaVenue','biayaTeknis','biayaLain','diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
-  // F&B punya aturan sendiri: sama dengan hitungan otomatis = tidak ditimpa.
-  const elFb=$('efd_fbManual'); if(elFb) ev.detail.fbManual=fbDariKotak(ev,elFb.value);
+  // Tinggal Discount: komponen biaya lain sudah jadi baris tabel Rincian, yang
+  // dikumpulkan collectField lewat kunci schema 'rincianItem' (t:'rincitbl').
+  ['diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   ev.detail.npwp=$('efd_npwp').value;
