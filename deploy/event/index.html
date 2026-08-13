@@ -1911,18 +1911,35 @@ function statusBadge(s){const map={Active:'b-green',Confirmed:'b-blue',Scheduled
    pasti dari tanggal. Dijalankan tiap pindah halaman. */
 
 /* Jadwal talent yang tanggalnya sudah lewat dinaikkan sendiri jadi Done.
-   Ini bukan kenyamanan semata: rekap Fee & Pembayaran HANYA menghitung
-   jadwal berstatus Done, jadi jadwal yang lupa diklik = talent tidak
-   terbayar. Yang Cancelled tidak disentuh, dan yang masih Scheduled
-   (belum dikonfirmasi) juga tidak — belum tentu jadi tampil. */
+   Ini bukan kenyamanan semata: rekap Fee & Pembayaran HANYA menghitung jadwal
+   berstatus Done, jadi jadwal yang lupa diklik = talent tidak terbayar.
+
+   VERSI LAMA HANYA MENAIKKAN YANG 'Confirmed', DAN ITU MEMBUAT SELURUH REKAP
+   FEE SELALU NOL. Sebabnya: TIDAK ADA satu pun jalur di modul ini yang
+   menghasilkan status Confirmed. saveSchedule, genRecurring, genMonthly, dan
+   mgSimpan semuanya menulis 'Scheduled'; satu-satunya cara mencapai Confirmed
+   adalah menekan tombol "Ubah Status" di kartu jadwal, yang memutar
+   Scheduled -> Confirmed -> Done -> Cancelled satu klik sekali, per baris.
+   Untuk empat talent seminggu itu belasan klik yang tidak pernah dilakukan
+   siapa pun — jadi tidak ada jadwal yang pernah sampai Confirmed, tidak ada
+   yang pernah jadi Done, dan halaman Fee & Pembayaran memulangkan Rp 0 untuk
+   talent yang benar-benar sudah tampil. Dilaporkan sebagai "perhitungan fee
+   tidak jalan", dan memang begitu.
+
+   Sekarang yang dinaikkan adalah jadwal LEWAT yang tidak dibatalkan — baik
+   Scheduled maupun Confirmed. Penjaganya tetap dua, dan cukup: tanggalnya
+   harus benar-benar sudah lewat (hari ini tidak disentuh, acaranya mungkin
+   belum jalan), dan Cancelled tidak pernah diubah. Talent yang batal tampil
+   ditandai Cancelled — itu memang gunanya status itu, dan satu klik untuk
+   yang batal jauh lebih jarang daripada satu klik untuk semua yang jadi. */
 function autoSelesaikanJadwal(){
   const kmr=dstr(new Date()); let n=0;
   DB.schedules.forEach(s=>{
-    if(s.status!=='Confirmed') return;
+    if(s.status!=='Scheduled' && s.status!=='Confirmed') return;
     if(String(s.date) >= kmr) return;              // hari ini belum lewat
     s.status='Done'; n++;
   });
-  if(n){ save(); toast(n+' jadwal talent yang sudah lewat ditandai Done.'); }
+  if(n){ save(); toast(n+' jadwal talent yang sudah lewat ditandai Done — fee-nya kini terhitung.'); }
   return n;
 }
 
@@ -3077,67 +3094,169 @@ function genRecurring(){
   toast('✓ '+added+' jadwal dibuat untuk '+RECUR_TAL.length+' talent'
     +(skipped?', '+skipped+' dilewati (konflik/duplikat)':'')+'.');
 }
+/* ---------- GENERATE BULANAN: LEMBAR YANG SAMA DENGAN INPUT MINGGUAN ----------
+   Bentuk lamanya tabel tujuh baris berisi dropdown — satu hari, satu talent,
+   selamanya. Dua hal yang tidak bisa dilakukannya, dan dua-duanya keadaan biasa:
+   malam Sabtu yang diisi band pembuka DAN DJ penutup, dan menyusun pola sebulan
+   tanpa membuka tujuh dropdown satu per satu.
+
+   Sekarang bentuknya sama persis dengan Input Mingguan (lihat mgBuka): tujuh
+   kolom, tombol nama talent di bawah, klik mengisi kolom yang ditunjuk lalu
+   penunjuk maju sendiri, dan tombolnya bisa DISERET ke kolom mana pun. Kru
+   yang sudah hafal satu lembar tidak perlu belajar lembar kedua.
+
+   BEDANYA satu, dan ini yang menentukan artinya: kolom di sini bukan TANGGAL
+   melainkan HARI DALAM SEMINGGU. Apa yang ditaruh di kolom Jumat berlaku untuk
+   SETIAP Jumat di bulan yang sedang dibuka — itu memang guna halaman ini.
+   Jumlah tanggal yang akan terbentuk ditulis di kepala lembar supaya tidak ada
+   yang menekan Generate sambil mengira hasilnya cuma tujuh baris.
+
+   Urutan kolom Senin-dulu, sama dengan lembar mingguan. Pemetaan ke getDay()
+   ((i+1)%7) ditulis SEKALI di blLibur(): dua tempat yang memetakan sendiri-
+   sendiri adalah cara paling mudah membuat pola "tiap Jumat" mendarat di Kamis
+   tanpa satu pun galat. */
+let BLN=null;
+function blDow(i){ return (i+1)%7; }          // 0=Senin di lembar  ->  getDay()
 function monthlyGenModal(){
-  /* Seluruh bawaannya KELIHATAN di formulir ini dan bisa ditimpa per hari:
-     20:00–23:00, talent dipilih sendiri, fee kosong = ikut default talent.
-     Sebelum ini jam & fee diam-diam diambil dari Daily Rules, jadi jadwal
-     sebulan bisa ter-generate dengan angka yang tidak pernah dilihat siapa pun
-     sampai muncul di rekap pembayaran. */
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>📅 Monthly Scheduling</h3>
-  <p class="mini" style="margin-bottom:12px">Pola per hari untuk <b>${MONTHS[schMonth.getMonth()]} ${schMonth.getFullYear()}</b>. Isi baris yang dipakai saja; kolom Fee yang dikosongkan mengikuti fee bawaan talent. Tanggal yang bentrok dilewati, tidak ditimpa.</p>
-  <div class="tbl-edit"><table><thead><tr><th style="width:56px">Hari</th><th>Talent</th><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:140px">Fee / show</th></tr></thead><tbody>
-  ${DOW.map((d,i)=>{
-    const r=ruleHari(i);
-    /* Talent yang dipilih lebih dulu: yang kategorinya cocok dengan aturan hari
-       itu. Di dalam kelompok mana pun, urutannya sama dengan lembar mingguan —
-       yang paling sering & paling baru dipakai di atas, supaya nama yang
-       dicari tidak berpindah-pindah tempat antar layar. */
-    const aktif=talentAktif();
-    const cocok=r.category?aktif.filter(t=>t.category===r.category):[];
-    const pilihan=cocok.length?cocok:aktif;
-    return `<tr>
-      <td><b>${d}</b>${r.rule?`<div class="mini" title="${esc(r.rule)}">ℹ</div>`:''}</td>
-      <td><select class="inp mg_tal" data-dow="${i}" onchange="mgIsiFee(this)"><option value="">— kosong —</option>${pilihan.map(t=>`<option value="${t.id}" data-fee="${t.default_fee||0}">${esc(t.name)}${t.category?' · '+t.category:''}</option>`).join('')}</select></td>
-      <td><input class="inp mg_st" type="time" value="${esc(r.start||'20:00')}"></td>
-      <td><input class="inp mg_et" type="time" value="${esc(r.end||'23:00')}"></td>
-      <td><span class="uang-wrap"><span class="uang-rp">Rp</span><input class="inp uang-inp mg_fee uang" inputmode="numeric" value="${uangFormat(r.fee||0)}" oninput="uangKetik(this)" placeholder="ikut default talent"></span></td>
-    </tr>`;}).join('')}
-  </tbody></table></div>
-  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="genMonthly()">Generate Bulan Ini</button></div>`,true);
+  BLN={ i:0, mulai:'20:00', selesai:'23:00', tipe:(TAL_CATS[0]||''),
+        hari:[[],[],[],[],[],[],[]] };
+  gambarBulanan();
 }
-/* Memilih talent mengisi fee-nya, TAPI hanya kalau kotaknya masih kosong —
-   fee yang datang dari Daily Rules atau yang sudah diketik tangan tidak boleh
-   ditimpa hanya karena talentnya diganti. */
-function mgIsiFee(sel){
-  const baris=sel.closest('tr'); if(!baris)return;
-  const kotak=baris.querySelector('.mg_fee'); if(!kotak)return;
-  const adaIsi=+String(kotak.value).replace(/\D/g,'')>0;
-  if(!adaIsi && sel.selectedOptions[0]) kotak.value=uangFormat(sel.selectedOptions[0].dataset.fee||0);
+function blAmbilForm(){
+  if(!BLN) return;
+  const g=function(id){ const el=document.getElementById(id); return el?el.value:null; };
+  BLN.mulai   = g('bl_jam1') || BLN.mulai;
+  BLN.selesai = g('bl_jam2') || BLN.selesai;
+  BLN.tipe    = g('bl_tipe') || BLN.tipe;
+}
+function blKe(i){ if(!BLN) return; blAmbilForm(); BLN.i=i; gambarBulanan(); }
+function blTaruh(tid,i){
+  if(!BLN||i<0||i>6) return false;
+  const t=DB.talents.find(function(x){ return x.id===tid; });
+  if(BLN.hari[i].some(function(x){ return x.id===tid; })){
+    toast(((t&&t.name)||'Talent')+' sudah ada di kolom '+HARI_PJG_EMS[blDow(i)]+'.');
+    return false;
+  }
+  BLN.hari[i].push({id:tid, fee:(t&&+t.default_fee)||0});
+  return true;
+}
+function blKlikTalent(tid){
+  if(!BLN) return;
+  blAmbilForm();
+  if(blTaruh(tid,BLN.i) && BLN.i<6) BLN.i++;
+  gambarBulanan();
+}
+function blBuang(i,k){ if(!BLN) return; blAmbilForm(); BLN.hari[i].splice(k,1); gambarBulanan(); }
+function blKosongkanHari(i){ if(!BLN) return; blAmbilForm(); BLN.hari[i]=[]; gambarBulanan(); }
+let BL_SERET=null;
+function blSeretMulai(ev,tid){
+  BL_SERET=tid;
+  try{ ev.dataTransfer.setData('text/plain',tid); ev.dataTransfer.effectAllowed='copy'; }catch(e){}
+}
+function blSeretAtas(ev,i){ ev.preventDefault(); const el=document.getElementById('bl_h'+i); if(el) el.classList.add('jatuh'); }
+function blSeretKeluar(i){ const el=document.getElementById('bl_h'+i); if(el) el.classList.remove('jatuh'); }
+function blJatuh(ev,i){
+  ev.preventDefault();
+  let tid=BL_SERET;
+  try{ tid=(ev.dataTransfer&&ev.dataTransfer.getData('text/plain'))||tid; }catch(e){}
+  BL_SERET=null;
+  if(!tid||!BLN) return;
+  blAmbilForm(); blTaruh(tid,i); BLN.i=i; gambarBulanan();
+}
+/* Berapa tanggal yang benar-benar akan terbentuk. Dihitung dari kalender bulan
+   yang sedang dibuka, bukan ditaksir 4 minggu: bulan bisa punya lima Jumat, dan
+   selisih satu malam adalah satu talent yang tidak dibayar atau satu malam yang
+   tidak ada penampilnya. */
+function blHitung(){
+  if(!BLN) return {tgl:0, baris:0};
+  const y=schMonth.getFullYear(), m=schMonth.getMonth();
+  const hari=new Date(y,m+1,0).getDate();
+  let tgl=0, baris=0;
+  for(let d=1;d<=hari;d++){
+    const dow=new Date(y,m,d).getDay();
+    const kolom=BLN.hari[(dow+6)%7];
+    if(kolom.length){ tgl++; baris+=kolom.length; }
+  }
+  return {tgl:tgl, baris:baris};
+}
+function gambarBulanan(){
+  if(!BLN) return;
+  const tals=talentAktif();
+  const nama=function(id){ const t=DB.talents.find(function(x){ return x.id===id; }); return t?t.name:'?'; };
+  const n=blHitung();
+
+  const kolom=BLN.hari.map(function(isi,i){
+    const chip=isi.map(function(x,k){
+      return '<span class="mg-c" title="'+esc(nama(x.id))+' — klik untuk membuang" '
+        +'onclick="event.stopPropagation();blBuang('+i+','+k+')">'+esc(nama(x.id))+'</span>';
+    }).join('')||'<span class="mini">·</span>';
+    return '<div class="mg-h'+(i===BLN.i?' sel':'')+'" id="bl_h'+i+'" '
+      +'onclick="blKe('+i+')" ondragover="blSeretAtas(event,'+i+')" '
+      +'ondragleave="blSeretKeluar('+i+')" ondrop="blJatuh(event,'+i+')">'
+      +'<small>'+HARI_PDK_EMS[i]+'</small><b>tiap</b>'+chip+'</div>';
+  }).join('');
+
+  const tombol=tals.map(function(t){
+    return '<button type="button" class="tal-b" draggable="true" data-id="'+t.id+'" '
+      +'ondragstart="blSeretMulai(event,&#39;'+t.id+'&#39;)" '
+      +'onclick="blKlikTalent(&#39;'+t.id+'&#39;)" '
+      +'title="'+esc(t.category||'')+' · '+esc(IDR(t.default_fee||0))+'/hari">'
+      +esc(t.name)+'</button>';
+  }).join('')||'<span class="mini">Belum ada talent. Tambahkan dulu di Talent Management.</span>';
+
+  modal('<button class="close" onclick="BLN=null;closeModal()">&times;</button>'
+   +'<h3>Generate Bulanan</h3>'
+   +'<div class="toolbar" style="margin-bottom:10px">'
+     +'<b style="min-width:170px">'+MONTHS[schMonth.getMonth()]+' '+schMonth.getFullYear()+'</b>'
+     +'<span class="pill">'+n.tgl+' tanggal</span>'
+     +'<span class="pill">'+n.baris+' jadwal akan dibuat</span></div>'
+   +'<div class="mg-hari">'+kolom+'</div>'
+   +'<p class="mini" style="margin:-2px 0 10px">Menunjuk kolom <b>'+esc(HARI_PJG_EMS[blDow(BLN.i)])+'</b> — '
+     +'klik nama talent untuk mengisinya, penunjuk maju sendiri. Seret nama ke kolom lain kalau satu '
+     +'malam diisi lebih dari satu talent. Isi kolom berlaku untuk <b>setiap</b> hari itu sepanjang bulan.</p>'
+   +'<div class="mg-tal">'+tombol+'</div>'
+   +'<div class="grid g3" style="margin-top:12px">'
+     +'<div class="field"><label>Jam Mulai</label><input id="bl_jam1" type="time" value="'+esc(BLN.mulai)+'"></div>'
+     +'<div class="field"><label>Jam Selesai</label><input id="bl_jam2" type="time" value="'+esc(BLN.selesai)+'"></div>'
+     +'<div class="field"><label>Tipe</label><select id="bl_tipe">'
+       +TAL_CATS.map(function(c){ return '<option'+(c===BLN.tipe?' selected':'')+'>'+esc(c)+'</option>'; }).join('')
+     +'</select></div></div>'
+   +'<p class="mini">Jam &amp; tipe berlaku untuk seluruh jadwal yang dibuat. Fee memakai fee bawaan tiap '
+   +'talent. Tanggal yang bentrok dilewati, tidak ditimpa.</p>'
+   +'<div class="modal-actions">'
+     +'<button class="btn ghost" onclick="blKosongkanHari('+BLN.i+')">Kosongkan kolom ini</button>'
+     +'<button class="btn ghost" onclick="BLN=null;closeModal()">Batal</button>'
+     +'<button class="btn" onclick="genMonthly()"'+(n.baris?'':' disabled')+'>Generate'+(n.baris?' '+n.baris+' Jadwal':'')+'</button>'
+   +'</div>',true);
 }
 function genMonthly(){
-  const y=schMonth.getFullYear(),m=schMonth.getMonth(),days=new Date(y,m+1,0).getDate();
-  const rows=[...document.querySelectorAll('.mg_tal')];
-  let added=0,skipped=0,totalFee=0;
-  for(let d=1;d<=days;d++){
-    const dt=new Date(y,m,d),dow=dt.getDay();
-    const row=rows.find(r=>+r.dataset.dow===dow);
-    if(!row||!row.value) continue;
-    const tid=row.value, tr=row.closest('tr');
-    const st=tr.querySelector('.mg_st').value, et=tr.querySelector('.mg_et').value;
-    if(st>=et){ skipped++; continue; }        // jam terbalik: lewati, jangan simpan
-    /* Fee: yang diketik di baris ini menang; kalau dikosongkan barulah jatuh ke
-       default talent. Itu sebabnya kotaknya berlabel "ikut default talent". */
-    const t=DB.talents.find(x=>x.id===tid); if(!t){ skipped++; continue; }
-    const feeKetik=+String(tr.querySelector('.mg_fee').value).replace(/\D/g,'')||0;
-    const fee=feeKetik||(+t.default_fee||0);
-    const ds=dstr(dt);
-    if(hasConflict(tid,ds,st,et)){skipped++;continue;}
-    DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date:ds,start_time:st,end_time:et,
-      performance_type:t.category,fee,status:'Scheduled',recurring_rule_id:null,source:'monthly_generator'});
-    added++; totalFee+=fee;
+  if(!BLN) return;
+  blAmbilForm();
+  const st=BLN.mulai, et=BLN.selesai;
+  if(st>=et) return toast('Jam selesai harus lebih dari jam mulai.');
+  const y=schMonth.getFullYear(), m=schMonth.getMonth(), hari=new Date(y,m+1,0).getDate();
+  /* Sama seperti lembar mingguan: seluruh bulan diperiksa dulu, baru ditulis.
+     Kalau diperiksa sambil menulis, sebagian sudah masuk lalu berhenti di
+     tengah dan yang mengisi harus menebak mana yang jadi. */
+  const tulis=[]; let lewat=0, totalFee=0;
+  for(let d=1;d<=hari;d++){
+    const dt=new Date(y,m,d), ds=dstr(dt);
+    const isi=BLN.hari[(dt.getDay()+6)%7];
+    isi.forEach(function(x){
+      if(hasConflict(x.id,ds,st,et)){ lewat++; return; }
+      const t=DB.talents.find(function(z){ return z.id===x.id; });
+      const fee=(+x.fee)||(t&&+t.default_fee)||0;
+      tulis.push({id:uid(),talent_id:x.id,event_id:null,date:ds,start_time:st,end_time:et,
+        performance_type:BLN.tipe,fee:fee,status:'Scheduled',recurring_rule_id:null,
+        source:'monthly_generator'});
+      totalFee+=fee;
+    });
   }
-  save();closeModal();renderSchedule();
-  toast(`✓ ${added} jadwal ter-generate · total fee ${IDR(totalFee)}${skipped?' · '+skipped+' dilewati (bentrok/jam salah)':''}.`);
+  if(!tulis.length && !lewat) return toast('Belum ada kolom hari yang diisi.');
+  tulis.forEach(function(r){ DB.schedules.push(r); });
+  save(); BLN=null; closeModal(); renderSchedule();
+  toast('✓ '+tulis.length+' jadwal ter-generate · total fee '+IDR(totalFee)
+    +(lewat?' · '+lewat+' dilewati (bentrok)':'')+'.');
 }
 /* ---- DAILY ENTERTAINMENT RULES ----
    Dulu ini cuma satu kotak teks bebas per hari, dan tidak ada satu baris kode
@@ -3190,12 +3309,12 @@ function saveDailyRules(){
    jadwal sebulan adalah bentuk yang paling buruk. Lebih baik tidak ada sama
    sekali daripada ada tapi tidak bisa diperiksa.
 
-   Akibatnya Generate Bulanan jatuh ke bawaannya sendiri (20:00–23:00, seluruh
-   talent, fee mengikuti default talent) — semuanya KELIHATAN di formulirnya
-   dan bisa ditimpa per hari sebelum ditekan.
-
-   Datanya tidak dihapus: dailyRulesModal() masih hidup di kode kalau ternyata
-   fiturnya dibutuhkan lagi. */
+   Sejak Generate Bulanan memakai lembar tujuh kolom (lihat monthlyGenModal),
+   fungsi ini bahkan sudah TIDAK PUNYA PEMANGGIL sama sekali: jam, tipe, dan
+   fee semuanya kelihatan di lembarnya sendiri. Dibiarkan berdiri bersama
+   dailyRulesModal() sebagai satu fitur utuh yang tertidur — kalau kelak
+   dihidupkan lagi, keduanya masih sepasang. Jangan dipanggil dari kode baru:
+   yang tidak bisa diperiksa di layar tidak boleh menentukan angka. */
 function ruleHari(dow){
   return ruleNormal({});
 }
