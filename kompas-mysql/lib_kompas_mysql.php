@@ -345,14 +345,25 @@ function simpan_rekap($data) {
      tidak dikenal berarti panelnya sudah lebih baru daripada backend, dan
      menyimpannya diam-diam membuat penanda yang tidak pernah terbaca siapa
      pun. Lebih baik dilaporkan. */
-  $grup = array('cash','qr_order','bri','mandiri','bca','transfer','gofood','grabfood','error');
-  /* Yang punya MDR. `gofood` & `grabfood` ditambahkan 12 Agustus 2026 atas
-     permintaan user: ojol memotong komisi persis seperti bank memotong MDR,
-     dan sampai kemarin potongannya tidak punya tempat sama sekali. Daftar ini
-     TERTUTUP — kunci di luar daftar dibuang diam-diam, jadi menambah bank/ojol
-     baru di frontend TANPA menambahnya di sini membuat angka yang diketik
-     hilang tanpa satu pun pesan galat. */
-  $bank = array('bri','mandiri','bca','gofood','grabfood');
+  /* EDC DAN QRIS DIPECAH (12 Agustus 2026, permintaan user). Sebelumnya satu
+     kelompok per bank ('bri','mandiri','bca'); sekarang enam, karena tarif MDR
+     EDC dan QRIS berbeda dan menggabungkannya membuat potongan yang sebenarnya
+     mustahil diketik dengan benar. Kunci lama sengaja DIBIARKAN dikenal supaya
+     penanda yang sudah tersimpan tidak jadi "tak dikenal" saat dibaca ulang. */
+  $grup = array('cash','qr_order',
+                'edc_bri','qris_bri','edc_mandiri','qris_mandiri','edc_bca','qris_bca',
+                'transfer','gofood','grabfood','error',
+                'bri','mandiri','bca');   // ← warisan, sebelum EDC/QRIS dipecah
+  /* Yang punya MDR. Bertambah dua kali pada 12 Agustus 2026: `gofood` &
+     `grabfood` (ojol memotong komisi persis seperti bank memotong MDR), lalu
+     `qr_order` plus pemecahan EDC/QRIS. Daftar ini TERTUTUP — kunci di luar
+     daftar dibuang diam-diam, jadi menambah bank/ojol baru di frontend TANPA
+     menambahnya di sini membuat angka yang diketik hilang tanpa satu pun pesan
+     galat. */
+  $bank = array('qr_order',
+                'edc_bri','qris_bri','edc_mandiri','qris_mandiri','edc_bca','qris_bca',
+                'gofood','grabfood',
+                'bri','mandiri','bca');   // ← warisan
 
   $ubah = 0; $takDikenal = array();
   foreach ($baris as $tgl => $isi) {
@@ -391,6 +402,89 @@ function simpan_rekap($data) {
     unset($r);
   }
 
+  /* ---------- SETORAN CASH (12 Agustus 2026, permintaan user) ----------
+     Sebelumnya "sudah setor" cuma satu boolean per hari, dan itu tidak menjawab
+     dua pertanyaan yang justru selalu ditanyakan: BERAPA yang disetor, dan KE
+     MANA. Sekarang satu setoran = satu baris di `rekap_setoran`, boleh
+     mencakup banyak hari sekaligus (kasir memang sering menyetor beberapa hari
+     tumpukan cash dalam satu kali jalan ke bank).
+
+     NOMINALNYA DIHITUNG DI SINI, bukan dikirim peramban. Angka uang yang
+     datang dari layar bisa dikarang, dan yang lebih sering terjadi: layarnya
+     memakai salinan basi sehingga nominal tersimpan tidak sama dengan jumlah
+     cash hari-hari yang dicakupnya. Server membaca cash actual tiap hari dari
+     Report Daily yang sama, jadi angkanya mustahil menyimpang.
+
+     `reports[tgl].setor` TETAP DIPELIHARA sebagai cerminan: true kalau hari itu
+     tercakup salah satu setoran. Bidang itu sudah dibaca panel lain dan
+     penanda lama (sebelum riwayat ini ada) juga masih tersimpan di sana. */
+  $setoran = isset($data['setoran']) && is_array($data['setoran']) ? $data['setoran'] : null;
+  if ($setoran) {
+    if (!isset($s['rekap_setoran']) || !is_array($s['rekap_setoran'])) $s['rekap_setoran'] = array();
+    $tersentuh = array();   // tanggal yang penanda setornya perlu dihitung ulang
+
+    if (isset($setoran['hapus']) && is_array($setoran['hapus'])) {
+      foreach ($setoran['hapus'] as $id) {
+        $id = (string)$id;
+        foreach ($s['rekap_setoran'] as $i => $row) {
+          if (!isset($row['id']) || (string)$row['id'] !== $id) continue;
+          if (isset($row['hari']) && is_array($row['hari'])) {
+            foreach ($row['hari'] as $h) { $h = kp_tgl($h); if ($h) $tersentuh[$h] = 1; }
+          }
+          array_splice($s['rekap_setoran'], $i, 1);
+          $ubah++;
+          break;
+        }
+      }
+    }
+
+    if (isset($setoran['tambah']) && is_array($setoran['tambah'])) {
+      foreach ($setoran['tambah'] as $baru) {
+        if (!is_array($baru)) continue;
+        $tglSetor = kp_tgl(isset($baru['tgl']) ? $baru['tgl'] : '');
+        if (!$tglSetor) throw new Exception('Tanggal setor tidak sah');
+        $hari = array();
+        if (isset($baru['hari']) && is_array($baru['hari'])) {
+          foreach ($baru['hari'] as $h) { $h = kp_tgl($h); if ($h && !in_array($h, $hari, true)) $hari[] = $h; }
+        }
+        if (!count($hari)) throw new Exception('Setoran tanpa satu pun hari yang dicakup');
+        sort($hari);
+        $nominal = 0;
+        foreach ($hari as $h) {
+          if (isset($s['reports'][$h]['pay']['cash']['actual'])) $nominal += kp_num($s['reports'][$h]['pay']['cash']['actual']);
+          $tersentuh[$h] = 1;
+        }
+        $s['rekap_setoran'][] = array(
+          'id'      => 'st' . dechex((int)(microtime(true) * 1000)) . dechex(mt_rand(0, 0xffff)),
+          'tgl'     => $tglSetor,
+          'tujuan'  => mb_substr(trim((string)(isset($baru['tujuan']) ? $baru['tujuan'] : '')), 0, 80),
+          'catatan' => mb_substr(trim((string)(isset($baru['catatan']) ? $baru['catatan'] : '')), 0, 200),
+          'hari'    => $hari,
+          'nominal' => $nominal,
+          'by'      => isset($data['by']) ? (string)$data['by'] : '',
+          'at'      => (int)(microtime(true) * 1000),
+        );
+        $ubah++;
+      }
+    }
+
+    /* Penanda per hari dihitung ULANG dari daftar setoran, bukan disetel
+       searah. Hari yang setorannya dibatalkan harus kembali "belum setor",
+       kecuali masih tercakup setoran lain — dan itu cuma bisa diketahui dengan
+       melihat seluruh daftar. */
+    if (count($tersentuh)) {
+      $tercakup = array();
+      foreach ($s['rekap_setoran'] as $row) {
+        if (!isset($row['hari']) || !is_array($row['hari'])) continue;
+        foreach ($row['hari'] as $h) $tercakup[(string)$h] = 1;
+      }
+      foreach (array_keys($tersentuh) as $h) {
+        if (!isset($s['reports'][$h]) || !is_array($s['reports'][$h])) $s['reports'][$h] = array();
+        $s['reports'][$h]['setor'] = isset($tercakup[$h]);
+      }
+    }
+  }
+
   $ub = isset($data['by']) ? (string)$data['by'] : '';
   $st = $pdo->prepare(
     'INSERT INTO `app_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
@@ -406,6 +500,12 @@ function simpan_rekap($data) {
     'ubah'       => $ubah,
     'hari'       => count($baris),
     'takDikenal' => array_values(array_map('strval', array_keys($takDikenal))),
+    /* Daftar setoran dipulangkan UTUH sesudah menyimpan. Panel rekap memakainya
+       apa adanya untuk menggambar riwayat, jadi id & nominal yang dihitung
+       server langsung terlihat tanpa perlu getAll kedua — dan tidak ada
+       kesempatan bagi layar untuk memajang versi karangannya sendiri. */
+    'setoran'    => isset($s['rekap_setoran']) && is_array($s['rekap_setoran'])
+                      ? array_values($s['rekap_setoran']) : array(),
     'ts'         => gmdate('c'),
   );
 }
