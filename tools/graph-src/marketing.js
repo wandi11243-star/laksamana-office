@@ -9133,34 +9133,7 @@ function ynSeg() { segPick(); }
 function segVal() { $(); }
 
 
-function collectFinanceInto() { $(); segVal(); dealBaca(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-function addPayment() { eventFinance(); }
-
-
-
-
-
-
-
-
-
-
-
-
-function opsi() { modal(); esc(); clientName(); closeModal(); svg(); rupiahInputHTML(); today(); savePayment(); paySisaLive(); $(); }
+function collectFinanceInto() { $(); segVal(); dealBaca(); finBayangan(); }
 
 
 
@@ -9194,10 +9167,103 @@ function opsi() { modal(); esc(); clientName(); closeModal(); svg(); rupiahInput
 
 
 
+function finEvLayar() { $(); finBayangan(); }
 
 
 
-function paySisaLive() { $(); eventFinance(); }
+
+
+
+
+function finBelumTersimpan() { finEvLayar(); eventFinance(); }
+
+
+
+
+
+function addPayment() { eventFinance(); finEvLayar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function opsi() { finPakaiDp(); modal(); esc(); clientName(); closeModal(); svg(); rupiahInputHTML(); today(); paySisaLive(); finBelumTersimpan(); savePayment(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paySisaLive() { $(); addPayment(); eventFinance(); finEvLayar(); }
+
+
+
+
 
 
 

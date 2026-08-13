@@ -561,6 +561,23 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -583,7 +600,22 @@ function bayarJenisSah() {  }
 
 
 
+
+
+
+
+
 function svg() {  }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1191,6 +1223,8 @@ function keluarDW() {  }
 
 
 
+
+
 function bolehBuka() { isDW(); isAdmin(); isHR(); }
 
 
@@ -1201,6 +1235,7 @@ function bolehBuka() { isDW(); isAdmin(); isHR(); }
 
 
 function buildNav() { isDW(); bolehBuka(); go(); esc(); svg(); }
+
 
 
 
@@ -1265,7 +1300,8 @@ function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewBayar(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboard(); viewAntrean(); viewKalender(); viewTamu(); viewAjukan(); viewSaya(); viewPekerja(); viewRekap(); viewBayar(); viewPengaturan(); }
+
 
 
 
@@ -2961,6 +2997,206 @@ function bayarGabung() { render(); }
 
 
 function kunciBayar() { bayarJenisSah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihRekapDW() { render(); }
+
+
+
+
+function rekapAjuanDW() { awalBulan(); akhirBulan(); }
+
+
+
+
+
+
+
+
+
+function rekapBebanDW() { rekapAjuanDW(); durasiJam(); biayaAjuan(); idxHari(); addD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewRekap() { isHR(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); pilStatusDW(); statBox(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
