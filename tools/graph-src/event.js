@@ -1111,6 +1111,60 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2174,6 +2228,12 @@ function barChart() {  }
 
 
 
+
+
+
+
+
+
 function talWarna() {  }
 
 
@@ -2424,7 +2484,30 @@ function talentSimpanInline() { g(); toast(); uangNilai(); save(); renderTalentD
 
 
 
-function renderSchedule() { setTop(); inputMingguan(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); lembarTalentHTML(); }
+function renderSchedule() { setTop(); inputMingguan(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); talWarna(); talTeks(); schedInfo(); esc(); fmtDate(); C(); legendaTalentHTML(); lembarTalentHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4907,6 +4990,9 @@ function renderApprovalEms() { bisaSetujui(); setTop(); pengajuan(); statusPenga
 
 
 function apprTabelEvent() { pengajuan(); esc(); fmtDateTime(); fmtDate(); statusBadge(); statusPengajuan(); setujuiRencana(); tolakRencana(); }
+
+
+
 
 
 
@@ -9971,7 +10057,26 @@ function spawnEvent() { esc(); eventForm(); toast(); }
 
 
 
-function renderHistory() { setTop(); selesai(); normalize(); autoSelesaikanEvent(); C(); fileUrl(); esc(); fmtDate(); }
+function renderHistory() { setTop(); selesai(); normalize(); autoSelesaikanEvent(); C(); breakdownEventEms(); bisaUbah(); buatEventLagi(); fileUrl(); esc(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10026,7 +10131,29 @@ function buatEventLagi() { bisaUbah(); toast(); eventForm(); }
 
 
 
-function renderHistoryDetail() { breakdownEventEms(); setTop(); esc(); statusBadge(); C(); posterKecilHTML(); fmtDate(); buatEventLagi(); }
+function renderHistoryDetail() { breakdownEventEms(); setTop(); esc(); statusBadge(); posterKecilHTML(); fmtDate(); C(); fmtDateTime(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
