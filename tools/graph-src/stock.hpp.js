@@ -257,6 +257,11 @@
 
 
 
+
+
+
+
+
 function kini() {  }
 
 
@@ -361,7 +366,13 @@ function go() { render(); }
 
 function setSync() {  }
 function pesan() {  }
-function render() {  }
+function segarBadge() {  }
+
+
+
+
+function render() { segarBadge(); }
+
 
 
 
@@ -688,7 +699,7 @@ function saranProduk() { skorMirip(); }
 
 
 
-function viewCocok() { kartu(); saranProduk(); dipakaiOleh(); per1(); cocokkan(); bukaBahan(); }
+function viewCocok() { kartu(); daftarSudah(); saranProduk(); dipakaiOleh(); per1(); cocokkan(); bukaBahan(); }
 
 
 
@@ -708,6 +719,56 @@ function viewCocok() { kartu(); saranProduk(); dipakaiOleh(); per1(); cocokkan()
 
 
 
+
+
+
+
+
+
+
+
+
+
+function daftarSudah() { render(); dipakaiOleh(); skorMirip(); bukaBahan(); lepasCocok(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lepasCocok() { kirim(); }
 
 
 

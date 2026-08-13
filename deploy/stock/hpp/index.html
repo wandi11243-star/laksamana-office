@@ -181,7 +181,12 @@ tbody tr:hover{background:var(--gold-soft)}
       <div class="nav-group">
         <div class="nav-label">Bahan</div>
         <a data-view="bahan"><span class="ico">🧂</span> Bahan &amp; Harga</a>
-        <a data-view="cocok"><span class="ico">🔗</span> Cocokkan Bahan</a>
+        <!-- Lencana = berapa bahan yang belum disandingkan. Menunya TIDAK
+             disembunyikan waktu angkanya nol: halaman ini juga satu-satunya
+             tempat memeriksa & melepas sandingan yang salah, dan menu yang
+             hilang begitu pekerjaannya selesai membuat kesalahan lama tidak
+             pernah ketemu lagi. -->
+        <a data-view="cocok"><span class="ico">🔗</span> Cocokkan Bahan <span id="badgeCocok" class="chip warn hidden" style="margin-left:auto"></span></a>
       </div>
       <!-- Tiga menu di bawah lahir dari dua prototipe yang dikirim user
            13 Agustus 2026 (Kontrol Bahan Baku & Galangan HPP). Yang diambil
@@ -361,8 +366,14 @@ function go(v){
 }
 function setSync(st,msg){ const e=$('sync'); e.className='sync'+(st?' '+st:''); e.textContent=msg; }
 function pesan(html){ PESAN=html; $('pesan').innerHTML=html; }
+function segarBadge(){
+  const b=$('badgeCocok'); if(!b) return;
+  const n=S.bahan.filter(x=>!x.produk).length;
+  b.textContent=n; b.classList.toggle('hidden',n===0);
+}
 function render(){
   $('pesan').innerHTML=PESAN;
+  segarBadge();
   $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,cocok:viewCocok,
                         pakai:viewPakai,kalk:viewKalk,atur:viewAtur}[VIEW])();
 }
@@ -697,8 +708,8 @@ function viewCocok(){
     ${kartu('Bahan di purchasing',Object.keys(PRODUK).length,'sumber nama & vendor','')}
   </div>
   <div class="notice info">ℹ️ Mencocokkan berarti bahan ini <b>barang yang sama</b> dengan yang dibeli purchasing — vendornya ikut terisi dari sana. Nama mirip belum tentu barang sama, jadi tidak ada yang disandingkan otomatis. Bahan yang memang tidak dibeli lewat purchasing (mis. Air) tandai saja <b>mandiri</b>.</div>`;
-  if(!belum.length) return h+`<div class="card"><div class="empty"><div class="big">✓</div>Semua bahan sudah dicocokkan.</div></div>`;
-  h+=`<div class="card"><h3>Belum dicocokkan</h3><div class="card-sub">Pilih pasangannya, atau tandai mandiri supaya berhenti muncul di sini.</div>
+  if(!belum.length) h+=`<div class="card"><div class="empty" style="padding:24px"><div class="big">✓</div>Semua bahan sudah disandingkan. Daftar di bawah untuk memeriksa ulang kalau ada yang terasa keliru.</div></div>`+daftarSudah();
+  else h+=`<div class="card"><h3>Belum dicocokkan</h3><div class="card-sub">Pilih pasangannya, atau tandai mandiri supaya berhenti muncul di sini.</div>
     <div class="tbl-wrap"><table><thead><tr><th>Bahan HPP</th><th class="num">Harga/satuan</th><th>Saran dari purchasing</th><th></th></tr></thead><tbody>`;
   belum.slice(0,80).forEach(b=>{
     const s=saranProduk(b.nama);
@@ -710,7 +721,57 @@ function viewCocok(){
         <button class="btn btn-ghost btn-xs" onclick="cocokkan('${esc(b.nama)}','-')">Mandiri</button></td></tr>`;
   });
   h+=`</tbody></table></div>${belum.length>80?`<div class="ket" style="margin-top:10px;font-size:12px;color:var(--muted)">Menampilkan 80 dari ${belum.length}; sisanya muncul setelah yang ini beres.</div>`:''}</div>`;
+  return h+daftarSudah();
+}
+/* DAFTAR YANG SUDAH DISANDINGKAN — kekurangan yang baru terasa sesudah 296
+   bahan selesai dicocokkan (14 Agustus 2026): sebelumnya halaman ini hanya
+   memajang yang BELUM, jadi sandingan yang keliru tidak punya tempat untuk
+   ketahuan. Satu salah sanding memindahkan harga vendor yang salah ke puluhan
+   resep sekaligus, dan tidak ada gejala apa pun di layar mana pun. */
+let FC={q:'',mode:'cocok'};   // 'cocok' | 'mandiri'
+function daftarSudah(){
+  const q=low(FC.q);
+  const semua=S.bahan.filter(b=>FC.mode==='mandiri'?b.produk==='-':(b.produk&&b.produk!=='-'));
+  const hasil=semua.filter(b=>!q||low(b.nama).indexOf(q)>-1||low(b.produk).indexOf(q)>-1||low(b.vendor).indexOf(q)>-1);
+  const nCocok=S.bahan.filter(b=>b.produk&&b.produk!=='-').length;
+  const nMandiri=S.bahan.filter(b=>b.produk==='-').length;
+  let h=`<div class="card"><h3>Tinjau yang sudah disandingkan</h3>
+    <div class="card-sub">Periksa ulang kalau ada yang terasa keliru — terutama bahan yang dipakai banyak resep. Melepas sandingan tidak menghapus bahannya, hanya memutus kaitan ke purchasing.</div>
+    <div class="bar">
+      <div class="seg">
+        <button class="${FC.mode==='cocok'?'active':''}" onclick="FC.mode='cocok';render()">Dicocokkan (${nCocok})</button>
+        <button class="${FC.mode==='mandiri'?'active':''}" onclick="FC.mode='mandiri';render()">Mandiri (${nMandiri})</button>
+      </div>
+      <input type="search" id="qc" placeholder="Cari bahan, produk, atau vendor…" value="${esc(FC.q)}"
+        oninput="FC.q=this.value;render();document.getElementById('qc').focus()">
+    </div>`;
+  if(!hasil.length) return h+`<div class="empty" style="padding:22px">Tidak ada yang cocok dengan pencarian ini.</div></div>`;
+  h+=`<div class="tbl-wrap"><table><thead><tr><th>Bahan HPP</th>
+      <th>${FC.mode==='mandiri'?'Alasan':'Bahan purchasing'}</th><th>Vendor</th>
+      <th class="num">Dipakai</th><th></th></tr></thead><tbody>`;
+  hasil.slice(0,60).forEach(b=>{
+    const n=dipakaiOleh(b.nama).length;
+    /* Sandingan yang namanya jauh berbeda ditandai: itu belum tentu salah
+       (nama internal memang bisa beda), tapi di situlah salah sanding
+       biasanya bersembunyi. */
+    const jauh=FC.mode==='cocok'&&skorMirip(b.nama,b.produk)<70;
+    h+=`<tr><td><b>${esc(b.nama)}</b></td>
+      <td>${FC.mode==='mandiri'
+        ? '<span class="chip mute">tidak dibeli lewat purchasing</span>'
+        : esc(b.produk)+(jauh?' <span class="chip warn" title="namanya jauh berbeda — pastikan memang barang yang sama">beda nama</span>':'')}</td>
+      <td style="font-size:12px">${b.vendor?esc(b.vendor):'<span style="color:var(--muted-2)">—</span>'}</td>
+      <td class="num">${n?n:'<span style="color:var(--muted-2)">0</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
+        <button class="btn btn-ghost btn-xs" onclick="lepasCocok('${esc(b.nama)}')">Lepas</button></td></tr>`;
+  });
+  h+=`</tbody></table></div>${hasil.length>60?`<div class="ket" style="margin-top:10px;font-size:12px;color:var(--muted)">Menampilkan 60 dari ${hasil.length}. Pakai pencarian untuk menyempitkan.</div>`:''}</div>`;
   return h;
+}
+function lepasCocok(nama){
+  const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
+  if(!confirm(`Lepas sandingan "${nama}"${b.produk&&b.produk!=='-'?' dari "'+b.produk+'"':''}?\n\nBahannya tidak dihapus — ia cuma kembali ke daftar "belum dicocokkan".`)) return;
+  kirim({action:'simpanBahan',data:Object.assign({},b,{produk:''})},'Sandingan dilepas.');
 }
 function cocokkan(nama,produk){
   const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
