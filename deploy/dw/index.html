@@ -145,6 +145,31 @@ a{color:var(--gold-dim)}
 .legend{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .tools{display:flex;gap:7px;flex-wrap:wrap}
 .mutedhint{font-size:12px;color:var(--muted-2);margin-top:2px}
+/* Panduan tiga langkah — sama persis dengan modul Jadwal Shift. */
+.langkah{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.langkah .lk{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+.langkah .lk-n{flex:none;width:26px;height:26px;border-radius:50%;
+  background:var(--gold-2);color:#fff;font-weight:800;font-size:13px;
+  display:flex;align-items:center;justify-content:center}
+.langkah .lk-t{min-width:0}
+.langkah .lk-t b{display:block;font-size:13px;margin-bottom:3px}
+.langkah .lk-t span{display:block;font-size:12px;color:var(--muted);line-height:1.5}
+@media(max-width:860px){ .langkah{grid-template-columns:1fr} }
+
+/* Tombol penanda transfer. Dua keadaan yang harus terbaca dari jauh sambil
+   memegang HP di tangan satunya: belum (garis tipis) dan sudah (hijau
+   penuh). Sasaran sentuhnya dijaga >=30px. */
+.lunas{border:1.5px solid var(--line-hard);background:var(--surface);color:var(--muted);
+  border-radius:8px;padding:5px 10px;min-height:30px;font-size:11.5px;font-weight:700;
+  cursor:pointer;white-space:nowrap;font-family:inherit;transition:.12s}
+.lunas:hover{border-color:var(--ok);color:var(--ok)}
+.lunas.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.lunas.on:hover{filter:brightness(1.06);color:#fff}
+/* Baris yang sudah ditandai diredupkan sedikit — yang belum dikerjakan
+   harus lebih menonjol daripada yang sudah. */
+table.list tr:has(.lunas.on){opacity:.62}
+
 .note{border-radius:var(--radius-sm);padding:10px 12px;font-size:12.5px;margin-bottom:12px}
 .note.w{background:var(--warn-bg);color:#6B4E0B}
 .note.i{background:var(--info-bg);color:#1C4E7A}
@@ -616,7 +641,7 @@ const NAV_DEF = [
   {k:'kalender',  t:'Kalender DW',    ic:'kalender', sub:'Sebulan penuh per divisi'},
   {k:'tamu',      t:'Kalender Tamu',  ic:'kalender', sub:'Jumlah tamu dari Marketing & Event — klik hari untuk ajukan DW'},
   {s:'Daily Worker'},
-  {k:'antrean',   t:'Antrean Ajuan',  ic:'surat',    sub:'Setujui atau tolak ajuan DW'},
+  {k:'antrean',   t:'Antrean Pengajuan', ic:'surat', sub:'Setujui atau tolak pengajuan DW'},
   /* "Ajukan Jadwal" PUNYA BARIS SIDEBAR LAGI, untuk DW maupun staf Office.
      Sebelumnya ia disembunyikan dari sidebar Office dengan alasan pintu
      masuknya sudah ada di tempat lain (tombol di Antrean, tombol di profil
@@ -628,7 +653,7 @@ const NAV_DEF = [
      `dwSaja` tetap dipakai untuk "Ajuan Saya", yang bagi staf Office memang
      cuma halaman berisi satu kalimat "halaman ini untuk daily worker". */
   {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Pilih tanggal & jam kerja', dw:1},
-  {k:'saya',      t:'Ajuan Saya',     ic:'kalender', sub:'Riwayat & status ajuan saya', dw:1, dwSaja:1},
+  {k:'saya',      t:'Pengajuan Saya', ic:'kalender', sub:'Riwayat & status pengajuan saya', dw:1, dwSaja:1},
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
   /* REKAP PEGAWAI — bentuk & isinya disamakan dengan halaman bernama sama di
@@ -1266,11 +1291,11 @@ function buildNav(){
 }
 const TITLES={
   dashboard: ['Dashboard','Daily worker yang masuk hari ini'],
-  antrean:   ['Antrean Ajuan','Ajuan yang menunggu keputusan HR'],
+  antrean:   ['Antrean Pengajuan','Pengajuan yang menunggu keputusan HR'],
   kalender:  ['Kalender DW','Sebulan penuh per divisi'],
   tamu:      ['Kalender Tamu','Pax dari Marketing & Event — klik hari untuk ajukan DW'],
   ajukan:    ['Ajukan Jadwal','Pilih tanggal dan jam kerja'],
-  saya:      ['Ajuan Saya','Riwayat dan status ajuan'],
+  saya:      ['Pengajuan Saya','Riwayat dan status pengajuan'],
   pekerja:   ['Database DW','Talent pool daily worker'],
   rekap:     ['Rekap Pegawai','Jadwal sebulan, jam kerja & upah satu daily worker'],
   bayar:     ['Pembayaran','Rekap seminggu per DW dan daftar transfernya'],
@@ -1410,6 +1435,45 @@ function barisAjuan(a,opsi){
    "hari ini siapa DW yang masuk". Itu yang dijawab di sini.
    ===================================================================== */
 function dashTgl(){ return DASH_TGL||hariIni(); }
+/* ================= PANDUAN LANGKAH PERTAMA =================
+   Sepasang dengan panduanAwalHTML() di modul Jadwal Shift — bentuk, kata, dan
+   aturan hilangnya sama persis, karena HR yang sama membuka keduanya.
+
+   Yang ditanyakan HR baru di modul ini selalu tiga: "daftar DW-nya dari mana?",
+   "siapa yang bikin ajuan?", "bayarnya dihitung dari mana?". Panduan ini
+   menjawab ketiganya, lalu HILANG SENDIRI begitu ada satu pun DW terdaftar —
+   panduan yang menetap akan dibaca sekali lalu jadi perabot yang mendorong isi
+   halaman ke bawah selamanya. */
+function panduanAwalDWHTML(){
+  if(!isOffice()) return '';                    // DW punya layarnya sendiri
+  if((S&&S.pekerja||[]).length) return '';      // sudah ada isinya
+  const langkah=[
+    ['1','Daftarkan daily worker dulu',
+     'Buka <b>Database DW</b> lalu tambahkan orangnya: nama, no HP, divisi, posisi, dan nomor rekening. '
+     +'DW <b>bukan</b> user Office — ia masuk ke modul ini pakai <b>no HP + PIN</b>, bukan akun Laksamana Office.'],
+    ['2','Ajuan bisa datang dari dua arah',
+     'DW mengajukan sendiri dari HP-nya, atau Anda yang mengisikan lewat <b>Ajukan Jadwal</b> saat ia menelepon. '
+     +'Keduanya masuk ke <b>Antrean Ajuan</b> untuk Anda setujui atau tolak.'],
+    ['3','Upah dihitung otomatis dari tarif posisi',
+     'Isi tarif tiap posisi di <b>Pengaturan</b>. Shift yang <b>disetujui</b> langsung muncul di '
+     +'<b>Pembayaran</b> beserta nominal dan daftar transfernya — tidak perlu dihitung manual.']
+  ];
+  return '<div class="panel noprint" style="border-color:var(--gold);background:linear-gradient(180deg,#FFFDF7,#fff)">'
+    +'<div class="rowbar"><h2>🧭 Tiga langkah untuk mulai</h2>'
+    +'<div class="spacer"></div>'
+    +'<span class="mutedhint">Panduan ini hilang sendiri begitu ada DW terdaftar.</span></div>'
+    +'<div class="langkah">'
+    +langkah.map(function(l){
+        return '<div class="lk"><div class="lk-n">'+l[0]+'</div>'
+          +'<div class="lk-t"><b>'+esc(l[1])+'</b><span>'+l[2]+'</span></div></div>';
+      }).join('')
+    +'</div>'
+    +'<div class="rowbar" style="margin-top:12px">'
+    +(isHR()?'<button class="btn btn-primary btn-sm" onclick="go(&#39;pekerja&#39;)">Tambah daily worker →</button>':'')
+    +(isAdmin()?'<button class="btn btn-ghost btn-sm" onclick="go(&#39;pengaturan&#39;)">Atur tarif dulu</button>':'')
+    +'</div>'
+    +'</div>';
+}
 function viewDashboard(){
   const t=dashTgl();
   const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t);
@@ -1447,7 +1511,8 @@ function viewDashboard(){
     return (k>0 && n>k) ? (d.n+' '+n+'/'+k) : '';
   }).filter(Boolean);
 
-  return '<div class="panel">'
+  return panduanAwalDWHTML()
+    +'<div class="panel">'
     +'<div class="rowbar"><h2>'+esc(tglPanjang(t))+'</h2><div class="spacer"></div>'
     +navTanggal('dashGeser','dashSet','dashHariIni',t)+'</div>'
     +'<p class="mutedhint" style="margin:-4px 0 12px">'+esc(panduanTeks(t))+'</p>'
@@ -1572,8 +1637,8 @@ function viewAntrean(){
 
   let isi;
   if(!tgls.length){
-    isi='<div class="empty"><div class="ic">✅</div>Tidak ada ajuan yang menunggu.'
-      +'<div class="mutedhint" style="margin-top:6px">Ajuan baru muncul di sini begitu daily worker mengirimnya.</div></div>';
+    isi='<div class="empty"><div class="ic">✅</div>Tidak ada pengajuan yang menunggu.'
+      +'<div class="mutedhint" style="margin-top:6px">Pengajuan baru muncul di sini begitu daily worker mengirimnya.</div></div>';
   }else{
     isi=tgls.map(function(t){
       const list=perTgl[t];
@@ -1611,7 +1676,7 @@ function viewAntrean(){
     +'</div>'
     /* PANEL RIWAYAT SELALU DIGAMBAR, termasuk saat isinya nol — lihat alasannya
        di atas. Yang kosong menjelaskan dirinya sendiri, bukan menghilang. */
-    +'<div class="panel"><div class="rowbar"><h2>🗄️ Riwayat Keputusan</h2>'
+    +'<div class="panel"><div class="rowbar"><h2>🗄️ Riwayat Pengajuan</h2>'
       +'<span class="chip">'+semuaPutus.length+'</span>'
       +(ANTREAN_DIV==='ALL'?'':'<span class="chip">'+esc(namaDivisi(ANTREAN_DIV))+'</span>')
       +'<div class="spacer"></div>'
@@ -1620,7 +1685,7 @@ function viewAntrean(){
       ? putus.map(a=>barisAjuan(a,{tanggal:true, aksi:
           '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(\''+escJs(a.id)+'\')">Detail</button>'})).join('')
         +ajuPagerHTML(AJU_HAL,maksHal,semuaPutus.length)
-      : '<div class="empty"><div class="ic">🗂️</div>Belum ada ajuan yang diputuskan'
+      : '<div class="empty"><div class="ic">🗂️</div>Belum ada pengajuan yang diputuskan'
         +(ANTREAN_DIV==='ALL'?'':' di '+esc(namaDivisi(ANTREAN_DIV)))+'.</div>')
     +'</div>';
 }
@@ -1639,7 +1704,7 @@ function ajuPagerHTML(hal,maks,total){
   return '<div class="rowbar noprint" style="margin-top:10px">'
     +'<button class="btn btn-ghost btn-sm"'+(hal<=1?' disabled':'')
       +' onclick="ajuHal('+(hal-1)+')">‹ Sebelumnya</button>'
-    +'<span class="mutedhint">Halaman <b>'+hal+'</b> dari '+maks+' · '+total+' ajuan</span>'
+    +'<span class="mutedhint">Halaman <b>'+hal+'</b> dari '+maks+' · '+total+' pengajuan</span>'
     +'<div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm"'+(hal>=maks?' disabled':'')
       +' onclick="ajuHal('+(hal+1)+')">Berikutnya ›</button></div>';
@@ -1714,27 +1779,61 @@ function lampauiBanyak(ids){
   });
   return out;
 }
+/* Ringkasan apa yang akan disetujui: berapa orang, berapa shift, berapa
+   rupiah, divisi apa saja. Dipakai konfirmasi "Setujui semua". */
+function ringkasAjuan(ids){
+  const list=(S.ajuan||[]).filter(a=>ids.indexOf(a.id)>-1);
+  const orang={}, divisi={};
+  let upah=0;
+  list.forEach(function(a){
+    orang[a.dwId]=1;
+    divisi[a.divisi]=(divisi[a.divisi]||0)+1;
+    upah+=biayaAjuan(a);
+  });
+  return { n:list.length, orang:Object.keys(orang).length, upah:upah,
+           divisi:Object.keys(divisi).map(k=>({k:k,n:divisi[k]}))
+                   .sort((x,y)=>y.n-x.n), list:list };
+}
 async function setujuiBanyak(ids){
   if(!ids||!ids.length) return;
+  /* KONFIRMASI SELALU, bukan hanya saat melewati panduan.
+     Sebelumnya tombol "Setujui semua (12)" langsung mengeksekusi kecuali
+     kuotanya terlampaui — satu ketukan menyetujui belasan shift sekaligus,
+     dan tiap shift itu uang yang akan ditransfer minggu itu juga. Menyetujui
+     dua belas orang tanpa pernah melihat totalnya adalah keputusan yang
+     diambil tanpa angkanya, dan membatalkannya berarti menolak satu per satu
+     lalu menjelaskan ke dua belas orang.
+
+     Yang ditulis persis tiga hal yang menentukan: berapa orang, berapa
+     rupiah, divisi apa saja. */
+  const r=ringkasAjuan(ids);
   const lampau=lampauiBanyak(ids);
-  if(lampau.length){
-    konfirmasi('Lebih dari panduan di '+lampau.length+' divisi?',
-      lampau.map(function(x){
-        return KONTEKS_LBL[x.konteks]+' '+tglManusia(x.tgl)+' · '+namaDivisi(x.div)
-          +': panduan '+x.kuota+', jadi '+x.jadi+'.';
-      }).join(' ')+' Bukan larangan — lanjutkan saja kalau memang perlu.',
-      function(){ setujuiBanyakLangsung(ids); });
-    return;
-  }
-  await setujuiBanyakLangsung(ids);
+  const isi='<b>'+r.n+' shift</b> untuk <b>'+r.orang+' daily worker</b> akan disetujui.'
+    +'<div style="margin-top:8px">'
+      +r.divisi.map(function(d){ return '<span class="chip">'+esc(ikonDivisi(d.k)+' '+namaDivisi(d.k))+' <b>'+d.n+'</b></span>'; }).join(' ')
+    +'</div>'
+    +'<div class="note i" style="margin-top:10px">Perkiraan upah yang timbul: <b>'+esc(rp(r.upah))+'</b> '
+    +'— muncul di halaman <b>Pembayaran</b> untuk minggu shift-nya.</div>'
+    +'<div class="mutedhint" style="margin-top:8px">Yang disetujui langsung tampil di kalender modul Jadwal Shift. '
+    +'Membatalkannya harus satu per satu.</div>'
+    +(lampau.length
+      ? '<div class="note w" style="margin-top:8px"><b>Melebihi panduan di '+lampau.length+' hari/divisi:</b><br>'
+        +lampau.map(function(x){
+            return esc(KONTEKS_LBL[x.konteks]+' '+tglManusia(x.tgl)+' · '+namaDivisi(x.div)
+              +': panduan '+x.kuota+', jadi '+x.jadi+'.'); }).join('<br>')
+        +'<br>Bukan larangan — lanjutkan saja kalau memang perlu.</div>'
+      : '');
+  konfirmasi('Setujui '+r.n+' ajuan sekaligus?', isi,
+    function(){ setujuiBanyakLangsung(ids); },
+    { html:true, lebar:true, ya:'Ya, setujui '+r.n+' shift' });
 }
 async function setujuiBanyakLangsung(ids){
-  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa menyetujui ajuan', true); return; }
+  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa menyetujui pengajuan', true); return; }
   ids.forEach(function(id){ const a=(S.ajuan||[]).find(x=>x.id===id); if(a) a.status='DISETUJUI'; });
   simpanCache(); render();
   try{
     await apiPost({action:'putusBanyak', ids, status:'DISETUJUI', nota:''});
-    toast(ids.length+' ajuan disetujui');
+    toast(ids.length+' pengajuan disetujui');
     setSync('');
   }catch(e){
     toast('Gagal menyimpan: '+e.message, true);
@@ -3079,6 +3178,58 @@ function bayarGabung(v){ BAYAR_GABUNG=!!v; render(); }
    persis sama — persis kebalikan dari gunanya halaman ini.
    Yang belum punya nomor tujuan TIDAK digabung dengan siapa pun; masing-masing
    berdiri sendiri supaya kelihatan bahwa datanya memang belum lengkap. */
+/* ================= PENANDA "SUDAH DITRANSFER" =================
+   Halaman ini menghitung dengan benar SIAPA harus ditransfer BERAPA, tapi
+   tidak pernah mencatat siapa yang SUDAH. Akibatnya HR mengerjakannya sambil
+   mengingat sampai mana ia tadi — dan begitu terpotong telepon, satu-satunya
+   cara memastikan adalah membuka mutasi bank satu per satu. Yang paling
+   mahal bukan lupa mentransfer, melainkan mentransfer dua kali.
+
+   DISIMPAN DI setting, BUKAN DI BARIS AJUAN. Alasannya bukan kemalasan:
+   tabel ajuan di database tidak punya kolom untuk ini, dan menambah kolom
+   berarti migrasi yang harus dipasang manual di cPanel sebelum modulnya bisa
+   dipakai lagi. setting sudah punya jalur simpannya sendiri (simpanSetting),
+   sudah tersimpan di server, dan penandanya memang bukan milik satu ajuan
+   melainkan milik SATU TRANSFER — yang bisa mencakup beberapa ajuan sekaligus
+   dari orang yang sama, bahkan beberapa orang dengan nomor rekening sama.
+
+   Kuncinya: '<senin>|<kunciTujuan>'. Memakai senin, bukan tanggal transfer:
+   yang ditanya HR selalu "minggu ini sudah beres belum", dan satu tujuan bisa
+   muncul lagi minggu depan dengan nominal berbeda. */
+function bayarLunasPeta(){
+  const x=S&&S.setting&&S.setting.bayarLunas;
+  return (x&&typeof x==='object')?x:{};
+}
+function bayarSudah(senin,kunciTujuan){ return !!bayarLunasPeta()[senin+'|'+kunciTujuan]; }
+function bayarLunasInfo(senin,kunciTujuan){ return bayarLunasPeta()[senin+'|'+kunciTujuan]||null; }
+async function toggleBayarLunas(senin,kunciTujuan){
+  if(!isHR()){ toast('Hanya yang berhak yang bisa menandai pembayaran', true); return; }
+  S.setting=S.setting||{};
+  const peta=Object.assign({}, bayarLunasPeta());
+  const k=senin+'|'+kunciTujuan;
+  if(peta[k]) delete peta[k];
+  else peta[k]={at:Date.now(), oleh:namaSaya()};
+  S.setting.bayarLunas=peta;
+  /* Digambar lebih dulu, disimpan belakangan — menandai 15 transfer berturut-
+     turut tidak boleh menunggu jaringan tiap ketukan. simpanSetting() sendiri
+     yang melaporkan kalau gagal. */
+  render();
+  try{ await apiPost({action:'simpanSetting', data:S.setting}); setSync(''); }
+  catch(e){ setSync('Tanda pembayaran belum tersimpan: '+e.message, true); }
+}
+/* Tombol tandai untuk satu baris transfer. Bentuknya centang besar, bukan
+   teks: ini dikerjakan sambil memegang HP di tangan satunya. */
+function tombolLunasHTML(senin,kunciTujuan){
+  const info=bayarLunasInfo(senin,kunciTujuan);
+  const sudah=!!info;
+  const judul=sudah
+    ? 'Ditandai sudah ditransfer'+(info.oleh?' oleh '+info.oleh:'')
+      +(info.at?' · '+tglManusia(fmtD(new Date(info.at))):'')+'. Klik untuk membatalkan tanda.'
+    : 'Klik kalau transfer ini sudah dikirim';
+  return '<button type="button" class="lunas'+(sudah?' on':'')+'" title="'+esc(judul)+'" '
+    +'onclick="toggleBayarLunas(\''+escJs(senin)+'\',\''+escJs(kunciTujuan)+'\')">'
+    +(sudah?'✓ Sudah':'Tandai')+'</button>';
+}
 function kunciBayar(p, dwId){
   const nomor=String(p&&p.bayarNomor||'').replace(/[\s.\-]/g,'');
   /* Yang belum punya nomor berdiri sendiri-sendiri. Kuncinya memakai id
@@ -3337,6 +3488,13 @@ function viewBayar(){
   });
   const grup=Object.keys(kelompok).map(k=>kelompok[k])
     .sort((a,b)=>b.total-a.total);
+  /* Progres transfer minggu ini. Dihitung dari GRUP, bukan dari orang:
+     yang dikerjakan HR di m-banking adalah transfer, dan dua DW dengan
+     satu rekening cuma satu transfer. Angka sisa inilah yang menjawab
+     pertanyaan yang sebenarnya — "masih ada yang belum saya kirim?". */
+  const grupLunas=grup.filter(function(g){ return bayarSudah(senin,g.kunci); });
+  const sisaRp=grup.filter(function(g){ return !bayarSudah(senin,g.kunci); })
+    .reduce(function(n,g){ return n+g.total; },0);
 
   const chip=(k,l)=>'<button class="'+(BAYAR_FILTER===k?'active':'')+'" onclick="bayarFilter(\''+k+'\')">'+esc(l)+'</button>';
   const hitungJenis=function(k){
@@ -3350,7 +3508,7 @@ function viewBayar(){
   }else if(BAYAR_GABUNG){
     isi='<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Tujuan transfer</th><th>Untuk</th>'
-      +'<th class="kanan">Shift</th><th class="kanan">Jumlah</th></tr></thead><tbody>'
+      +'<th class="kanan">Shift</th><th class="kanan">Jumlah</th><th class="kanan">Transfer</th></tr></thead><tbody>'
       +grup.map(function(g,i){
         return '<tr>'
           +'<td class="no">'+(i+1)+'</td>'
@@ -3361,6 +3519,7 @@ function viewBayar(){
             }).join('<br>')+'</td>'
           +'<td class="kanan mono">'+g.kali+'×</td>'
           +'<td class="kanan mono"><b>'+esc(rp(g.total))+'</b></td>'
+          +'<td class="kanan">'+tombolLunasHTML(senin,g.kunci)+'</td>'
         +'</tr>';
       }).join('')
       +'</tbody></table></div>';
@@ -3368,7 +3527,7 @@ function viewBayar(){
     isi='<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Daily Worker</th><th>Divisi / Posisi</th>'
       +'<th class="kanan">Shift</th><th class="kanan">Jam</th><th>Tujuan transfer</th>'
-      +'<th class="kanan">Jumlah</th></tr></thead><tbody>'
+      +'<th class="kanan">Jumlah</th><th class="kanan">Transfer</th></tr></thead><tbody>'
       +baris.map(function(x,i){
         const p=x.p;
         return '<tr>'
@@ -3380,6 +3539,10 @@ function viewBayar(){
           +'<td class="kanan mono">'+(Math.round(x.jam*10)/10)+'</td>'
           +'<td class="kecil">'+esc(labelTujuan(p))+'</td>'
           +'<td class="kanan mono"><b>'+esc(rp(x.total))+'</b></td>'
+          /* Penandanya per TUJUAN TRANSFER, bukan per orang — dua DW yang
+             memakai satu rekening ditransfer sekali, jadi menandai salah
+             satunya menandai keduanya. Itu memang yang terjadi di bank. */
+          +'<td class="kanan">'+tombolLunasHTML(senin,kunciBayar(p,x.id))+'</td>'
         +'</tr>';
       }).join('')
       +'</tbody></table></div>';
@@ -3400,9 +3563,21 @@ function viewBayar(){
     +'<div class="stats">'
       +statBox(baris.length,'Daily Worker')
       +statBox(totalKali,'Total Shift')
-      +statBox(grup.length,'Transfer')
+      +statBox(grupLunas.length+' / '+grup.length,'Transfer Terkirim')
       +statUang(rp(totalRp),'Total Dibayar')
     +'</div>'
+    /* PITA SISA TRANSFER. Angka yang benar-benar dicari HR di tengah
+       pekerjaan bukan totalnya — itu sudah dilihat di awal — melainkan
+       BERAPA LAGI. Sebelum penanda ini ada, satu-satunya cara menjawabnya
+       adalah membuka mutasi bank satu per satu, dan yang paling mahal
+       bukan lupa mentransfer melainkan mentransfer dua kali. */
+    +(grup.length
+      ? (grupLunas.length>=grup.length
+          ? '<div class="note i">✓ <b>Semua transfer minggu ini sudah ditandai terkirim.</b></div>'
+          : '<div class="note w"><b>'+(grup.length-grupLunas.length)+' transfer belum dikirim</b>'
+            +' · sisa <b>'+esc(rp(sisaRp))+'</b>. Tekan <b>Tandai</b> di kolom Transfer tiap kali satu selesai '
+            +'— tandanya tersimpan di server, jadi tetap ada kalau halaman ditutup.</div>')
+      : '')
     +(belum.length?'<div class="note w"><b>'+belum.length+' orang</b> belum punya nomor tujuan: '
       +esc(belum.map(x=>x.nama).join(', '))+'. Lengkapi di <b>Database DW</b> supaya bisa ikut digabung.</div>':'')
     /* Nominal nol hampir selalu berarti tarif posisinya belum disetel, bukan
@@ -3643,9 +3818,23 @@ function jalankanAksiModal(i){
   a.f();
 }
 function tutupModal(){ const m=document.getElementById('modalRoot'); if(m) m.innerHTML=''; MODAL_AKSI=[]; }
-function konfirmasi(judul,pesan,cb){
-  modal(esc(judul), '<p style="font-size:13.5px;color:var(--muted)">'+esc(pesan)+'</p>',
-    [{t:'Ya, lanjut',c:'btn-danger',f:function(){ tutupModal(); cb(); return false; }}]);
+/* opsi = {html, ya, lebar}. Ditambahkan supaya konfirmasi yang perlu
+   menyebutkan ANGKA bisa memakai daftar & chip, bukan satu paragraf teks —
+   "12 shift, 7 orang, Rp1.680.000" jauh lebih terbaca sebagai tiga potong
+   daripada sebagai satu kalimat panjang.
+
+   Bawaannya TETAP meng-esc: seluruh pemanggil lama mengirim teks biasa yang
+   bisa saja memuat nama tamu bertanda kutip, dan mengubah bawaannya jadi HTML
+   berarti membuka celah di setiap pemanggil itu sekaligus. Yang mengirim HTML
+   harus menyatakannya dengan html:true. */
+function konfirmasi(judul,pesan,cb,opsi){
+  opsi=opsi||{};
+  const isi=opsi.html
+    ? '<div style="font-size:13.5px;color:var(--muted)">'+pesan+'</div>'
+    : '<p style="font-size:13.5px;color:var(--muted)">'+esc(pesan)+'</p>';
+  modal(esc(judul), isi,
+    [{t:opsi.ya||'Ya, lanjut',c:'btn-danger',f:function(){ tutupModal(); cb(); return false; }}],
+    opsi.lebar?true:false);
 }
 function tanyaTeks(judul,label,nilai,cb){
   modal(esc(judul),
