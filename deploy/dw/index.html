@@ -1295,11 +1295,45 @@ function toggleNav(){
 /* Agenda tamu ditarik saat halamannya dibuka, bukan saat boot — lihat
    muatTamu(). Pemanggilan berulang murah: ia langsung kembali kalau sudah
    pernah berhasil. */
+/* ================= HALAMAN AKTIF IKUT ALAMAT (#/halaman) =================
+   Dilaporkan 13 Agustus 2026: tiap kali halaman disegarkan, modul ini kembali
+   ke Dashboard. Sebabnya VIEW cuma variabel JS — alamatnya tidak pernah ikut
+   berubah, jadi memuat ulang berarti memulai dari nilai bawaannya. Yang
+   terkena bukan cuma tombol Refresh: menekan Back, mem-bookmark satu halaman,
+   atau mengirim tautannya ke rekan semuanya berakhir di Dashboard.
+
+   Sama persis dengan modul Jadwal Shift — dua modul yang dipakai bergantian
+   oleh orang yang sama tidak boleh berbeda cara memperlakukan alamatnya. */
+function hashHalaman(){
+  return String(location.hash||'').replace(/^#\/?/,'').split('/')[0]||'';
+}
+/* Halaman yang SAH untuk orang ini. Penting di modul ini karena ada DUA jenis
+   pemakai: staf Office dan daily worker yang masuk pakai HP+PIN — alamat
+   halaman Office yang dibuka DW harus jatuh ke Dashboard, bukan ke layar
+   kosong atau ke data yang tidak boleh ia lihat. */
+function halamanSah(k){ return !!(k && TITLES[k] && bolehBuka(k)); }
+function terapkanHash(){
+  const tujuan=halamanSah(hashHalaman())?hashHalaman():'dashboard';
+  if(VIEW!==tujuan){
+    VIEW=tujuan; render();
+    if(VIEW==='tamu') muatTamuDanGambar();
+  }
+}
 function go(v){
-  VIEW=v; toggleSidebar(false); render();
+  VIEW=v; toggleSidebar(false);
+  /* Alamat ditulis SEBELUM render, dan hanya kalau memang berbeda. Menulis
+     hash yang sama tidak membangkitkan hashchange — itu sebabnya render()
+     tetap dipanggil di sini; kalau digantungkan pada hashchange saja, menekan
+     menu yang sedang aktif tidak menggambar ulang apa pun. Karena VIEW sudah
+     disetel di atas, hashchange yang menyusul berhenti sendiri — tidak ada
+     render dobel, dan muatTamuDanGambar() tidak dipanggil dua kali. */
+  const alamat='#/'+v;
+  if(location.hash!==alamat){ try{ location.hash=alamat; }catch(e){} }
+  render();
   if(v==='tamu') muatTamuDanGambar();
   try{ window.scrollTo(0,0); }catch(e){}
 }
+window.addEventListener('hashchange', terapkanHash);
 function render(){
   buildNav(); setTop();
   const V=document.getElementById('view'); if(!V) return;
@@ -3662,8 +3696,20 @@ async function mulaiAplikasi(){
 
   try{ if(localStorage.getItem('lm_dw_navmini')==='1') document.getElementById('app').classList.add('nav-mini'); }catch(e){}
 
-  if(!bolehBuka(VIEW)) VIEW = isDW() ? 'ajukan' : 'dashboard';
+  /* HALAMAN AWAL DIBACA DARI ALAMAT, bukan selalu dari nilai bawaan VIEW —
+     itulah sebab modul ini selalu kembali ke Dashboard tiap kali disegarkan.
+     Bawaannya berbeda untuk dua jenis pemakai: daily worker mendarat di
+     "Ajukan Jadwal" (Dashboard memang tertutup untuknya), staf Office di
+     Dashboard.
+
+     replaceState, bukan location.hash: alamat yang dirapikan (mis. DW yang
+     membuka #/bayar) tidak boleh menambah entri riwayat — kalau menambah,
+     tombol Back memantul balik ke alamat yang barusan ditolak. */
+  const bawaan = isDW() ? 'ajukan' : 'dashboard';
+  VIEW = halamanSah(hashHalaman()) ? hashHalaman() : bawaan;
+  try{ history.replaceState(null,'','#/'+VIEW); }catch(e){}
   render();                       // gambar dari cache dulu — layar tidak pernah kosong menunggu jaringan
+  if(VIEW==='tamu') muatTamuDanGambar();
   await muatData(true);
   render();
 

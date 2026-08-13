@@ -1205,7 +1205,39 @@ function toggleNav(){
   app.classList.toggle('nav-mini',mini);
   try{ localStorage.setItem('lm_jadwal_navmini',mini?'1':'0'); }catch(e){}
 }
-function go(v){ VIEW=v; toggleSidebar(false); render(); try{ window.scrollTo(0,0); }catch(e){} }
+/* ================= HALAMAN AKTIF IKUT ALAMAT (#/halaman) =================
+   Dilaporkan 13 Agustus 2026: tiap kali halaman disegarkan, modul ini kembali
+   ke Dashboard. Sebabnya VIEW cuma variabel JS — alamatnya tidak pernah ikut
+   berubah, jadi memuat ulang berarti memulai dari nilai bawaannya. Yang
+   terkena bukan cuma tombol Refresh: menekan Back, mem-bookmark satu halaman,
+   atau mengirim tautannya ke head lain semuanya berakhir di Dashboard.
+
+   Bentuknya disamakan dengan modul EMS & Marketing yang memang sudah memakai
+   #/halaman, supaya alamat modul-modul Office terbaca dengan cara yang sama. */
+function hashHalaman(){
+  return String(location.hash||'').replace(/^#\/?/,'').split('/')[0]||'';
+}
+/* Halaman yang SAH untuk orang ini. Alamat karangan, atau alamat halaman yang
+   izinnya baru saja dicabut, jatuh ke Dashboard — bukan ke layar kosong. */
+function halamanSah(k){ return !!(k && TITLES[k] && bolehBuka(k)); }
+function terapkanHash(){
+  const tujuan=halamanSah(hashHalaman())?hashHalaman():'dashboard';
+  if(VIEW!==tujuan){ VIEW=tujuan; render(); }
+}
+function go(v){
+  VIEW=v; toggleSidebar(false);
+  /* Alamat ditulis SEBELUM render, dan hanya kalau memang berbeda. Menulis
+     hash yang sama tidak membangkitkan hashchange — itu sebabnya render()
+     tetap dipanggil di sini; kalau digantungkan pada hashchange saja, menekan
+     menu yang sedang aktif tidak menggambar ulang apa pun. Dan karena VIEW
+     sudah disetel di atas, hashchange yang menyusul akan melihat VIEW===tujuan
+     lalu berhenti — tidak ada render dobel. */
+  const alamat='#/'+v;
+  if(location.hash!==alamat){ try{ location.hash=alamat; }catch(e){} }
+  render();
+  try{ window.scrollTo(0,0); }catch(e){}
+}
+window.addEventListener('hashchange', terapkanHash);
 function render(){
   buildNav(); setTop();
   const V=document.getElementById('view'); if(!V) return;
@@ -3273,6 +3305,24 @@ async function boot(){
      halaman ikut bergeser di depan mata pemakainya. */
   try{ if(localStorage.getItem('lm_jadwal_navmini')==='1') document.getElementById('app').classList.add('nav-mini'); }catch(e){}
 
+  /* TAHAP 1 — halaman dari alamat, SEBELUM render pertama dan sebelum satu pun
+     await. Kalau dibaca sesudah muatRoster()/muatData(), dua hal terjadi:
+     layar sempat memperlihatkan Dashboard lalu melompat ke halaman yang
+     diminta (kedip yang terbaca seperti salah klik), dan kalau jaringannya
+     menggantung — server dev mati, wifi venue putus — halamannya BERHENTI di
+     Dashboard selamanya karena baris pembacaan alamatnya tidak pernah
+     tercapai. Yang diperiksa di sini cuma "halaman ini ada": izinnya belum
+     bisa dinilai karena roster & pengaturan memang belum dimuat. */
+  const dariAlamat=hashHalaman();
+  if(dariAlamat && TITLES[dariAlamat]) VIEW=dariAlamat;
+  /* Alamat dirapikan SEKARANG JUGA, bukan menunggu tahap 2. Dua keadaan yang
+     paling sering ditemui pemakai: dibuka tanpa hash sama sekali (dari
+     pintasan lama), dan hash karangan. Kalau alamatnya baru dibetulkan
+     sesudah jaringan menjawab, menyegarkan halaman saat server sedang mati
+     mengulang keadaan yang sama persis — dan yang mem-bookmark halaman itu
+     menyimpan alamat yang tidak menunjuk ke mana pun. */
+  try{ history.replaceState(null,'','#/'+VIEW); }catch(e){}
+
   render();                                   // gambar dari cache dulu — layar tidak pernah kosong menunggu jaringan
   await muatRoster();
   await muatData(true);
@@ -3283,7 +3333,16 @@ async function boot(){
   DIV = kuasa.length ? kuasa[0] : divisiSaya();
   // Yang tidak dijadwalkan tidak punya lembar sendiri; jatuhkan ke Bar.
   if(DIVISI.every(d=>d.k!==DIV)) DIV='bar';
-  if(!bolehBuka(VIEW)) VIEW='dashboard';
+  /* TAHAP 2 — izinnya baru bisa dinilai SEKARANG: bolehBuka() bergantung pada
+     roster & pengaturan yang baru selesai dimuat dua baris di atas. Yang
+     tidak lolos ditarik ke Dashboard, dan alamatnya ikut dirapikan.
+
+     replaceState, bukan location.hash: alamat yang dirapikan (mis. #/ngawur,
+     atau #/pengaturan yang dibuka non-admin) tidak boleh menambah entri
+     riwayat — kalau menambah, tombol Back memantul balik ke alamat yang
+     barusan ditolak. */
+  if(!halamanSah(VIEW)) VIEW='dashboard';
+  try{ history.replaceState(null,'','#/'+VIEW); }catch(e){}
 
   document.getElementById('su-ur').textContent=labelPeran();
   render();
