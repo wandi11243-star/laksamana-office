@@ -2557,9 +2557,12 @@ function pilShiftAju(a){
 /* Berapa pengajuan yang ditampilkan di daftar utama. Sisanya turun ke panel
    Riwayat yang tertutup. */
 const AJU_TAMPIL=20;
-let AJU_RIWAYAT_BUKA=false;
+let AJU_TAB='antri';      // antri | riwayat | semua
 let AJU_HAL=1;
-function toggleRiwayatAju(){ AJU_RIWAYAT_BUKA=!AJU_RIWAYAT_BUKA; AJU_HAL=1; render(); }
+/* Pindah tab SELALU kembali ke halaman 1. Tanpa itu, berpindah dari Riwayat
+   halaman 7 ke Antrian yang cuma punya satu halaman memperlihatkan daftar
+   kosong — dan yang membacanya menyimpulkan antriannya memang kosong. */
+function ajuTab(k){ AJU_TAB=k; AJU_HAL=1; render(); }
 function ajuHal(n){ AJU_HAL=Math.max(1,n); render(); }
 /* Pager sederhana: Sebelumnya / halaman x dari y / Berikutnya. Sengaja BUKAN
    deretan nomor halaman — riwayat pengajuan tidak pernah dicari per nomor
@@ -2582,19 +2585,43 @@ function viewPengajuan(){
   const urut=semua.filter(a=>isAdmin() || bisaPutuskan(a) || a.userId===(ME&&ME.id))
     .sort((x,y)=>(x.status==='MENUNGGU'?0:1)-(y.status==='MENUNGGU'?0:1) || (y.dibuatAt||0)-(x.dibuatAt||0));
 
-  /* DAFTAR UTAMA DIPOTONG 20 TERBARU, sisanya ke panel Riwayat.
-     Sebelumnya seluruh pengajuan digambar sekaligus; setelah beberapa bulan
-     itu berarti ratusan kartu di satu halaman — yang menunggu keputusan
-     tenggelam, dan halamannya berat digambar ulang tiap satu tombol ditekan.
+  /* TIGA TAB, bukan panel Riwayat yang cuma muncul kalau datanya kebetulan
+     lebih dari 20.
 
-     YANG MENUNGGU TIDAK PERNAH IKUT DIPOTONG, berapa pun jumlahnya. Batas 20
-     itu untuk riwayat, bukan untuk pekerjaan: menyembunyikan pengajuan ke-21
-     yang belum diputuskan berarti ia tidak akan pernah diputuskan. */
+     Bentuk sebelumnya secara teknis benar tapi tidak bisa ditemukan: pada
+     venue yang baru punya satu-dua pengajuan, panel Riwayat maupun pagernya
+     TIDAK PERNAH TERGAMBAR — dan yang membuka halaman ini menyimpulkan
+     riwayatnya memang tidak ada. Kalau sebuah bagian baru muncul setelah
+     datanya banyak, ia tidak pernah dipelajari sebelum dibutuhkan.
+
+     Sekarang ketiga tab SELALU ada beserta angkanya, jadi bentuk halamannya
+     tetap sama sejak hari pertama. Sepasang dengan Approval Flow di EMS &
+     Marketing — kru yang membuka ketiganya tidak belajar tiga tata letak.
+
+     KETIGANYA BERHALAMAN, termasuk Antrian. Sempat dikecualikan dengan alasan
+     "yang menunggu tidak boleh disembunyikan", tapi 60 pengajuan menunggu di
+     satu halaman adalah persis keluhan yang membuat paginasi ini diadakan —
+     dan yang tenggelam di layar kesepuluh sama tidak terlihatnya dengan yang
+     ada di halaman dua.
+
+     Yang menjaga tidak ada pekerjaan hilang bukan "jangan dipotong",
+     melainkan ANGKANYA SELALU DISEBUT UTUH di dua tempat yang tidak ikut
+     dipotong: tab Antrian membawa jumlah totalnya, dan pita peringatan di
+     atas berbunyi "N pengajuan menunggu keputusan Anda" — keduanya dihitung
+     dari seluruh antrian, bukan dari halaman yang sedang tampil. */
   const menunggu=urut.filter(a=>a.status==='MENUNGGU');
   const sudah=urut.filter(a=>a.status!=='MENUNGGU');
-  const sisaKuota=Math.max(0, AJU_TAMPIL-menunggu.length);
-  const list=menunggu.concat(sudah.slice(0,sisaKuota));
-  const riwayat=sudah.slice(sisaKuota);
+  if(['riwayat','semua'].indexOf(AJU_TAB)<0) AJU_TAB='antri';
+  const sumber = AJU_TAB==='riwayat' ? sudah
+               : AJU_TAB==='semua'   ? urut
+               :                       menunggu;
+  /* Halaman dijepit saat menggambar, bukan di ajuHal(): jumlah halaman
+     berubah tiap ada keputusan baru, dan nomor yang melewati batas
+     memulangkan daftar kosong yang terbaca seperti datanya hilang. */
+  const maksHal=Math.max(1,Math.ceil(sumber.length/AJU_TAMPIL));
+  if(AJU_HAL>maksHal) AJU_HAL=maksHal;
+  const mulai=(AJU_HAL-1)*AJU_TAMPIL;
+  const list=sumber.slice(mulai,mulai+AJU_TAMPIL);
 
   const kartuAju=function(a){
     const u=kruById(a.userId);
@@ -2623,10 +2650,24 @@ function viewPengajuan(){
       +'<div class="spacer"></div>'+putus+batal+'</div></div>';
   };
 
+  const kosongTeks = AJU_TAB==='antri'   ? 'Tidak ada pengajuan yang menunggu keputusan.'
+                   : AJU_TAB==='riwayat' ? 'Belum ada pengajuan yang diputuskan.'
+                   :                       'Belum ada pengajuan sama sekali.';
   const kartu=list.length
     ? list.map(kartuAju).join('')
-    : '<div class="empty"><div class="ic">📭</div>Belum ada pengajuan.</div>';
-  const nMenunggu=list.filter(a=>a.status==='MENUNGGU'&&bisaPutuskan(a)).length;
+    : '<div class="empty"><div class="ic">📭</div>'+kosongTeks+'</div>';
+  /* Dihitung dari SELURUH antrian, bukan dari halaman yang sedang tampil:
+     pita peringatan "N menunggu keputusan Anda" harus menyebut pekerjaan yang
+     ada, bukan pekerjaan yang kebetulan muat di layar ini. */
+  const nMenunggu=menunggu.filter(a=>bisaPutuskan(a)).length;
+  /* Tab SELALU digambar lengkap dengan angkanya, TERMASUK saat angkanya nol.
+     Nol yang tertulis adalah keterangan ("memang belum ada"); tab yang hilang
+     adalah teka-teki — dan itulah yang terjadi pada bentuk sebelumnya, waktu
+     panel Riwayat baru muncul setelah pengajuannya lebih dari 20. */
+  const tab=function(k,l,n){
+    return '<button class="'+(AJU_TAB===k?'active':'')+'" onclick="ajuTab(\''+k+'\')">'
+      +esc(l)+' <span style="opacity:.6;font-weight:600">'+n+'</span></button>';
+  };
   return '<div class="panel">'
     +'<div class="rowbar"><h2>📝 Pengajuan Off, Izin &amp; Tukar Shift</h2><div class="spacer"></div>'
     +'<button class="btn btn-primary btn-sm" onclick="bukaAjukan()">+ Ajukan</button></div>'
@@ -2636,43 +2677,23 @@ function viewPengajuan(){
       :(divisiKuasa().length?'Sebagai head '+esc(divisiKuasa().map(namaDivisi).join(', '))+', Anda memutuskan pengajuan kru divisi itu.'
         :'Pengajuan Anda diputuskan oleh head divisi Anda.'))
     +' Pengajuan <b>Off/Izin/Cuti</b> yang disetujui langsung mengisi sel jadwalnya.</p>'
+    +'<div class="rowbar"><div class="seg">'
+      +tab('antri','Antrian',menunggu.length)
+      +tab('riwayat','Riwayat',sudah.length)
+      +tab('semua','Semua',urut.length)
+    +'</div><div class="spacer"></div>'
+    +'<span class="mutedhint">'+(AJU_TAB==='antri'
+        ?'Yang belum diputuskan — semuanya tampil, tidak dipotong.'
+        :AJU_TAB==='riwayat'?'Keputusan yang sudah diambil, terbaru di atas.'
+        :'Seluruh pengajuan; yang menunggu di atas.')+'</span></div>'
     +kartu
-    +(riwayat.length
-      ? '<p class="mutedhint" style="margin-top:10px">Menampilkan '+list.length+' terbaru. '
-        +riwayat.length+' pengajuan lama ada di Riwayat di bawah.</p>'
-      : '')
+    +ajuPagerHTML(AJU_HAL,maksHal,sumber.length)
     +'</div>'
-    /* PANEL RIWAYAT — TERTUTUP secara bawaan, dan isinya benar-benar TIDAK
-       DIGAMBAR saat tertutup (bukan disembunyikan CSS). Halaman ini digambar
-       ulang penuh tiap satu tombol ditekan; menyembunyikan ratusan kartu
-       dengan display:none tetap membayar ongkos merangkai HTML-nya setiap
-       kali, dan itulah yang membuat halaman ini melambat setelah beberapa
-       bulan berjalan. */
-    +(riwayat.length
-      ? '<div class="panel"><div class="rowbar">'
-        +'<h2>🗄️ Riwayat Pengajuan</h2><span class="chip">'+riwayat.length+'</span>'
-        +'<div class="spacer"></div>'
-        +'<button class="btn btn-ghost btn-sm" onclick="toggleRiwayatAju()">'
-        +(AJU_RIWAYAT_BUKA?'Tutup':'Buka')+'</button></div>'
-        /* BERHALAMAN, bukan digulir semuanya. Riwayat setahun bisa ratusan
-           kartu; menggambar seluruhnya sekali jalan membuat halaman ini berat
-           tiap kali satu tombol di panel atas ditekan — dan render di modul
-           ini selalu total, bukan diferensial.
-           AJU_HAL dijepit di sini, bukan di ajuHal(): jumlah halaman berubah
-           saat pengajuan baru masuk atau diputuskan, dan nomor halaman yang
-           sudah melewati batas akan memulangkan daftar kosong yang terbaca
-           seperti riwayatnya hilang. */
-        +(AJU_RIWAYAT_BUKA
-          ? (function(){
-              const maks=Math.max(1,Math.ceil(riwayat.length/AJU_TAMPIL));
-              if(AJU_HAL>maks) AJU_HAL=maks;
-              const mulai=(AJU_HAL-1)*AJU_TAMPIL;
-              return riwayat.slice(mulai,mulai+AJU_TAMPIL).map(kartuAju).join('')
-                +ajuPagerHTML(AJU_HAL,maks,riwayat.length);
-            })()
-          : '<p class="mutedhint">Pengajuan yang sudah diputuskan, di luar '+AJU_TAMPIL+' terbaru.</p>')
-        +'</div>'
-      : '');
+    /* Panel Riwayat terpisah SUDAH TIDAK ADA — riwayat kini salah satu tab di
+       atas, dan pagernya menempel pada daftar yang sedang dibuka. Panel lama
+       hanya muncul kalau pengajuannya lebih dari 20, jadi pada venue yang baru
+       jalan ia tidak pernah terlihat sama sekali. */
+    ;
 }
 /* `tglAwal` diisi saat dipanggil dari kotak tanggal di kalender Jadwal Saya.
    Kru yang mengklik tanggal 12 sudah menyatakan hari mana yang ia maksud;

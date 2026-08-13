@@ -1205,7 +1205,39 @@ function toggleNav() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+function hashHalaman() {  }
+
+
+
+
+function halamanSah() { bolehBuka(); }
+function terapkanHash() { halamanSah(); hashHalaman(); render(); }
+
+
+
 function go() { toggleSidebar(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPengaturan(); }
 
 
@@ -2527,7 +2559,10 @@ function pilShiftAju() { shiftDef(); esc(); warnaTeks(); }
 
 
 
-function toggleRiwayatAju() { render(); }
+
+
+
+function ajuTab() { render(); }
 function ajuHal() { render(); }
 
 
@@ -2543,7 +2578,7 @@ function ajuPagerHTML() { ajuHal(); }
 
 
 
-function viewPengajuan() { isAdmin(); bisaPutuskan(); }
+function viewPengajuan() { isAdmin(); bisaPutuskan(); ajuHal(); }
 
 
 
@@ -2564,7 +2599,6 @@ function viewPengajuan() { isAdmin(); bisaPutuskan(); }
 
 
 
-function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaPutuskan(); putuskan(); escJs(); batalAju(); esc(); namaKru(); namaDivisi(); pilShiftAju(); bukaAjukan(); isAdmin(); divisiKuasa(); toggleRiwayatAju(); ajuHal(); ajuPagerHTML(); }
 
 
 
@@ -2589,6 +2623,7 @@ function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaP
 
 
 
+function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaPutuskan(); putuskan(); escJs(); batalAju(); esc(); namaKru(); namaDivisi(); pilShiftAju(); }
 
 
 
@@ -2612,6 +2647,24 @@ function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaP
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tab() { ajuTab(); esc(); bukaAjukan(); isAdmin(); divisiKuasa(); ajuPagerHTML(); }
 
 
 
@@ -3250,4 +3303,4 @@ function tampilkanGerbang() {  }
 
 
 
-function boot() { bulanDari(); hariIni(); seninDari(); bacaCache(); seed(); bacaSesi(); tampilkanGerbang(); inisial(); render(); muatRoster(); muatData(); divisiKuasa(); divisiSaya(); bolehBuka(); labelPeran(); }
+function boot() { bulanDari(); hariIni(); seninDari(); bacaCache(); seed(); bacaSesi(); tampilkanGerbang(); inisial(); muatRoster(); muatData(); hashHalaman(); render(); divisiKuasa(); divisiSaya(); bolehBuka(); halamanSah(); labelPeran(); }

@@ -1550,16 +1550,25 @@ function viewAntrean(){
   tunggu.forEach(a=>{ (perTgl[a.tgl]=perTgl[a.tgl]||[]).push(a); });
   const tgls=Object.keys(perTgl).sort();
 
-  /* 20 TERBARU DI PANEL "SUDAH DIPUTUSKAN", sisanya turun ke Riwayat yang
-     tertutup — bentuk yang sama persis dengan halaman Pengajuan di modul
-     Jadwal Shift (lihat AJU_TAMPIL di sana). Dulu 15, dan sisanya tidak punya
-     tempat sama sekali: keputusan ke-16 ke belakang tidak bisa dicari dari
-     layar mana pun, padahal justru itu yang ditanyakan berbulan-bulan
-     kemudian ("siapa yang menyetujui shift itu?"). */
-  const semuaPutus=(S.ajuan||[]).filter(a=>a.status!=='MENUNGGU')
+  /* RIWAYAT BERHALAMAN, SELALU TERLIHAT. Dulu "15 terakhir" tanpa jalan ke
+     sisanya: keputusan ke-16 ke belakang tidak bisa dicari dari layar mana
+     pun, padahal justru itu yang ditanyakan berbulan-bulan kemudian ("siapa
+     yang menyetujui shift itu?"). Sempat diganti panel Riwayat yang tertutup,
+     tapi panel itu hanya muncul kalau keputusannya sudah lebih dari 20 — pada
+     venue yang baru jalan ia tidak pernah terlihat sama sekali, dan yang
+     mencarinya menyimpulkan riwayatnya memang tidak ada.
+
+     Sekarang panelnya SELALU ada dengan pagernya sendiri, sepasang dengan tab
+     Riwayat di halaman Pengajuan modul Jadwal Shift. Ikut saringan divisi yang
+     sedang aktif, sama seperti antriannya — kalau tidak, HR yang menyaring Bar
+     membaca riwayat kitchen di bawah antrian bar. */
+  const semuaPutus=(S.ajuan||[]).filter(a=>a.status!=='MENUNGGU'
+      && (ANTREAN_DIV==='ALL' || a.divisi===ANTREAN_DIV))
     .sort((a,b)=>(b.putusAt||0)-(a.putusAt||0));
-  const putus=semuaPutus.slice(0,AJU_TAMPIL);
-  const riwayat=semuaPutus.slice(AJU_TAMPIL);
+  const maksHal=Math.max(1,Math.ceil(semuaPutus.length/AJU_TAMPIL));
+  if(AJU_HAL>maksHal) AJU_HAL=maksHal;
+  const mulaiHal=(AJU_HAL-1)*AJU_TAMPIL;
+  const putus=semuaPutus.slice(mulaiHal,mulaiHal+AJU_TAMPIL);
 
   let isi;
   if(!tgls.length){
@@ -1600,49 +1609,26 @@ function viewAntrean(){
     +'<div class="note i">Yang <b>disetujui</b> langsung muncul di kalender modul <b>Jadwal Shift</b>, di blok terpisah di bawah kru tetap. Yang masih menunggu sengaja belum tampil di sana — head bisa mengira lubangnya sudah terisi padahal belum.</div>'
     +isi
     +'</div>'
-    +(putus.length?'<div class="panel"><div class="rowbar"><h2>Sudah diputuskan</h2>'
-      +'<div class="mutedhint">'+putus.length+' terbaru'
-        +(riwayat.length?' · '+riwayat.length+' lainnya di Riwayat di bawah':'')+'</div></div>'
-      +putus.map(a=>barisAjuan(a,{tanggal:true, aksi:
+    /* PANEL RIWAYAT SELALU DIGAMBAR, termasuk saat isinya nol — lihat alasannya
+       di atas. Yang kosong menjelaskan dirinya sendiri, bukan menghilang. */
+    +'<div class="panel"><div class="rowbar"><h2>🗄️ Riwayat Keputusan</h2>'
+      +'<span class="chip">'+semuaPutus.length+'</span>'
+      +(ANTREAN_DIV==='ALL'?'':'<span class="chip">'+esc(namaDivisi(ANTREAN_DIV))+'</span>')
+      +'<div class="spacer"></div>'
+      +'<span class="mutedhint">Yang sudah disetujui atau ditolak, terbaru di atas.</span></div>'
+    +(putus.length
+      ? putus.map(a=>barisAjuan(a,{tanggal:true, aksi:
           '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(\''+escJs(a.id)+'\')">Detail</button>'})).join('')
-      +'</div>':'')
-    /* PANEL RIWAYAT — tertutup secara bawaan, dan isinya tidak digambar sama
-       sekali saat tertutup. Sama persis dengan Jadwal Shift, termasuk
-       alasannya: halaman ini digambar ulang penuh tiap satu tombol ditekan,
-       jadi menyembunyikan ratusan baris dengan CSS tetap membayar ongkos
-       merangkai HTML-nya setiap kali. */
-    +(riwayat.length
-      ? '<div class="panel"><div class="rowbar">'
-        +'<h2>🗄️ Riwayat Pengajuan</h2><span class="chip">'+riwayat.length+'</span>'
-        +'<div class="spacer"></div>'
-        +'<button class="btn btn-ghost btn-sm" onclick="toggleRiwayatAju()">'
-        +(AJU_RIWAYAT_BUKA?'Tutup':'Buka')+'</button></div>'
-        /* BERHALAMAN — alasannya sama dengan Jadwal Shift: render di modul ini
-           selalu total, jadi menggambar ratusan baris riwayat membuat SETIAP
-           tombol di panel atas terasa berat. AJU_HAL dijepit di sini, bukan di
-           ajuHal(): jumlah halaman berubah tiap ada ajuan baru diputuskan, dan
-           nomor yang melewati batas memulangkan daftar kosong yang terbaca
-           seperti riwayatnya hilang. */
-        +(AJU_RIWAYAT_BUKA
-          ? (function(){
-              const maks=Math.max(1,Math.ceil(riwayat.length/AJU_TAMPIL));
-              if(AJU_HAL>maks) AJU_HAL=maks;
-              const mulai=(AJU_HAL-1)*AJU_TAMPIL;
-              return riwayat.slice(mulai,mulai+AJU_TAMPIL).map(a=>barisAjuan(a,{tanggal:true, aksi:
-                  '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(\''+escJs(a.id)+'\')">Detail</button>'})).join('')
-                +ajuPagerHTML(AJU_HAL,maks,riwayat.length);
-            })()
-          : '<p class="mutedhint">Ajuan yang sudah diputuskan, di luar '+AJU_TAMPIL+' terbaru.</p>')
-        +'</div>'
-      : '');
+        +ajuPagerHTML(AJU_HAL,maksHal,semuaPutus.length)
+      : '<div class="empty"><div class="ic">🗂️</div>Belum ada ajuan yang diputuskan'
+        +(ANTREAN_DIV==='ALL'?'':' di '+esc(namaDivisi(ANTREAN_DIV)))+'.</div>')
+    +'</div>';
 }
 /* Sepasang dengan konstanta bernama sama di modul Jadwal Shift — kalau
    angkanya berbeda, dua halaman yang bentuknya sengaja dibuat sama akan
    memotong daftarnya di tempat yang berbeda. */
 const AJU_TAMPIL=20;
-let AJU_RIWAYAT_BUKA=false;
 let AJU_HAL=1;
-function toggleRiwayatAju(){ AJU_RIWAYAT_BUKA=!AJU_RIWAYAT_BUKA; AJU_HAL=1; render(); }
 function ajuHal(n){ AJU_HAL=Math.max(1,n); render(); }
 /* Pager riwayat — sama persis dengan modul Jadwal Shift, termasuk bentuknya:
    Sebelumnya / halaman x dari y / Berikutnya, tanpa deretan nomor. Riwayat
@@ -1658,7 +1644,10 @@ function ajuPagerHTML(hal,maks,total){
     +'<button class="btn btn-ghost btn-sm"'+(hal>=maks?' disabled':'')
       +' onclick="ajuHal('+(hal+1)+')">Berikutnya ›</button></div>';
 }
-function antreanDiv(k){ ANTREAN_DIV=k; render(); }
+/* Ganti divisi SELALU kembali ke halaman 1 riwayat. Tanpa itu, berpindah dari
+   Bar (7 halaman) ke Cashier (1 halaman) memperlihatkan riwayat kosong — dan
+   yang membacanya menyimpulkan Cashier belum pernah diputuskan. */
+function antreanDiv(k){ ANTREAN_DIV=k; AJU_HAL=1; render(); }
 
 async function setujuiAjuan(id){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
