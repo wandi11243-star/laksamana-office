@@ -926,6 +926,15 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
    parah seperti .tbl-note di bawah — cuma tombol yang berdempetan tanpa sela
    dan angka yang tidak sejajar — tapi keduanya memang dimaksudkan bergaya. */
 .pill-row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+/* Pemilih talent berbanyak di Recurring. Panel ini hidup DI DALAM modal yang
+   sedang terbuka, bukan sebagai modal kedua: modal() menimpa seluruh isi
+   #modalRoot, jadi popup bertingkat akan menghapus formulir yang sedang diisi
+   beserta tanggal & centang hari yang sudah dipilih. */
+.tal-pop{border:1px solid var(--line-hard);border-radius:9px;background:var(--panel2);
+  padding:9px;margin-top:8px;max-height:190px;overflow:auto}
+.tal-b{font-size:11.5px;padding:4px 9px;border-radius:20px;border:1px solid var(--line-hard);
+  background:var(--panel);color:var(--muted);cursor:pointer;width:auto;font-family:inherit}
+.tal-b.on{background:var(--accent);color:#241d05;font-weight:700;border-color:var(--accent)}
 .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 /* Catatan kecil di atas daftar (mis. "3 rencana menunggu keputusanmu").
    Kelas ini disalin dari Marketing tapi CSS-nya TIDAK ikut terbawa, dan
@@ -2665,35 +2674,112 @@ function saveSchedule(){
   if(schMinggu) return lanjutMingguan(date);
   closeModal(); renderSchedule();
 }
+/* ATURAN BERULANG UNTUK LEBIH DARI SATU TALENT.
+   Yang sebenarnya terjadi di lapangan: "band A tiap Jumat, band B tiap Sabtu,
+   akustik C tiap Minggu" — jam, rentang tanggal, dan tipenya sama persis,
+   cuma namanya beda. Dengan satu dropdown, itu berarti membuka formulir ini
+   tiga kali dan mengetik ulang seluruh isinya tiga kali.
+
+   DROPDOWN PENCARIAN TETAP ADA, dan itu disengaja: untuk daftar talent yang
+   panjang, mengetik dua huruf nama jauh lebih cepat daripada mencari tombolnya
+   di antara puluhan. Dua jalan masuk (dropdown + panel tombol), satu keranjang
+   yang sama — RECUR_TAL. Yang dilihat pemakai selalu barisan chip di atas,
+   bukan "yang terakhir dipilih di salah satu alat". */
+let RECUR_TAL=[];
 function recurringModal(){
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>🔁 Recurring Schedule</h3><p class="mini" style="margin-bottom:12px">Buat aturan berulang, sistem auto-generate dalam rentang tanpa duplikasi (idempotent).</p>
-  <div class="grid g2">
-    <div class="field"><label>Talent</label><select id="r_tal">${DB.talents.map(t=>`<option value="${t.id}" data-fee="${t.default_fee}">${esc(t.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Tipe</label><select id="r_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+  RECUR_TAL=[];
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>🔁 Recurring Schedule</h3><p class="mini" style="margin-bottom:12px">Buat aturan berulang, sistem auto-generate dalam rentang tanpa duplikasi (idempotent). Talent boleh lebih dari satu — tiap talent dapat aturannya sendiri.</p>
+  <div class="field"><label>Talent</label>
+    <div id="r_chips" class="pill-row" style="margin-bottom:7px"><span class="mini">Belum ada talent dipilih.</span></div>
+    <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+      <select id="r_tal" style="flex:1;min-width:170px"><option value="">— cari &amp; pilih talent —</option>${DB.talents.map(t=>`<option value="${t.id}">${esc(t.name)}${t.category?' · '+esc(t.category):''}</option>`).join('')}</select>
+      <button class="btn ghost sm" onclick="recurTalTambah()">+ Tambah</button>
+      <button class="btn ghost sm" onclick="recurPopup()">&#8862; Pilih Banyak</button>
+    </div>
+    <div id="r_pop" class="tal-pop" style="display:none">
+      <input id="r_cari" placeholder="Saring nama talent…" oninput="recurCari(this.value)" style="margin-bottom:8px">
+      <div class="pill-row">${DB.talents.map(t=>`<button type="button" class="tal-b" data-id="${t.id}" onclick="recurTalToggle('${t.id}')">${esc(t.name)}</button>`).join('')||'<span class="mini">Belum ada talent terdaftar.</span>'}</div>
+    </div>
   </div>
   <div class="field"><label>Hari</label><div style="display:flex;gap:8px;flex-wrap:wrap">${DOW.map((d,i)=>`<label style="display:inline-flex;gap:4px;color:var(--txt)"><input type="checkbox" style="width:auto" value="${i}" class="r_dow">${d}</label>`).join('')}</div></div>
   <div class="grid g2">
+    <div class="field"><label>Tipe</label><select id="r_type">${TAL_CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div class="field"><label>Fee / show</label>${uangInput('r_fee',0)}<span class="mini">Rp 0 = pakai fee bawaan masing-masing talent.</span></div>
     <div class="field"><label>Jam Mulai</label><input id="r_start" type="time" value="20:00"></div>
     <div class="field"><label>Jam Selesai</label><input id="r_end" type="time" value="23:00"></div>
     <div class="field"><label>Dari</label><input id="r_from" type="date" value="${dstr(new Date())}"></div>
     <div class="field"><label>Sampai</label><input id="r_to" type="date" value="${dstr(new Date(new Date().getFullYear(),new Date().getMonth()+2,0))}"></div>
-    <div class="field"><label>Fee</label>${uangInput('r_fee',1500000)}</div>
   </div>
   <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button><button class="btn" onclick="genRecurring()">Generate</button></div>`,true);
+}
+function recurPopup(){
+  const p=document.getElementById('r_pop'); if(!p) return;
+  p.style.display=(p.style.display==='none'?'':'none');
+  if(p.style.display===''){ const c=document.getElementById('r_cari'); if(c) c.focus(); }
+}
+function recurTalTambah(){
+  const s=document.getElementById('r_tal'); if(!s||!s.value) return;
+  if(RECUR_TAL.indexOf(s.value)<0) RECUR_TAL.push(s.value);
+  s.value='';                       // dikosongkan lagi supaya jelas ia alat TAMBAH, bukan penampung pilihan
+  catTalRecur();
+}
+function recurTalToggle(id){
+  const i=RECUR_TAL.indexOf(id);
+  if(i<0) RECUR_TAL.push(id); else RECUR_TAL.splice(i,1);
+  catTalRecur();
+}
+function recurCari(q){
+  const s=String(q||'').toLowerCase();
+  [].forEach.call(document.querySelectorAll('.tal-b'),function(b){
+    b.style.display=(b.textContent.toLowerCase().indexOf(s)>-1?'':'none');
+  });
+}
+/* Menggambar ulang HANYA barisan chip + keadaan tombol. Menggambar ulang
+   seluruh modal (pola biasa di modul ini) akan mengosongkan tanggal, jam, dan
+   centang hari yang sudah diisi — modal() menimpa innerHTML, dan nilai <input>
+   tidak ikut terbawa string HTML. */
+function catTalRecur(){
+  const box=document.getElementById('r_chips');
+  if(box) box.innerHTML=RECUR_TAL.length
+    ? RECUR_TAL.map(function(id){
+        const t=DB.talents.find(function(x){ return x.id===id; });
+        return '<span class="badge b-blue" style="cursor:pointer" title="Buang dari daftar" '
+          +'onclick="recurTalToggle(\''+id+'\')">'+esc(t?t.name:'?')+' &times;</span>';
+      }).join(' ')
+    : '<span class="mini">Belum ada talent dipilih.</span>';
+  [].forEach.call(document.querySelectorAll('.tal-b'),function(b){
+    b.classList.toggle('on',RECUR_TAL.indexOf(b.getAttribute('data-id'))>-1);
+  });
 }
 function genRecurring(){
   const g=x=>document.getElementById(x).value;
   const dows=[...document.querySelectorAll('.r_dow:checked')].map(c=>+c.value);
   if(!dows.length){toast('Pilih minimal satu hari.');return;}
-  const tid=g('r_tal'),st=g('r_start'),et=g('r_end'),fee=uangNilai('r_fee'),type=g('r_type');
-  const rid=uid();DB.recurringRules.push({id:rid,talent_id:tid,days_of_week:dows,start_time:st,end_time:et,valid_from:g('r_from'),valid_to:g('r_to'),performance_type:type,fee});
-  let added=0,skipped=0;const from=new Date(g('r_from')),to=new Date(g('r_to'));
-  for(let d=new Date(from);d<=to;d.setDate(d.getDate()+1)){
-    if(dows.includes(d.getDay())){const ds=dstr(d);
+  if(!RECUR_TAL.length){toast('Pilih minimal satu talent.');return;}
+  const st=g('r_start'),et=g('r_end'),type=g('r_type'),feeIsi=uangNilai('r_fee');
+  const dari=g('r_from'),sampai=g('r_to'),to=new Date(sampai);
+  let added=0,skipped=0;
+  RECUR_TAL.forEach(function(tid){
+    const t=DB.talents.find(function(x){ return x.id===tid; });
+    /* Fee kosong = fee bawaan MASING-MASING talent. Satu angka datar untuk
+       tiga orang yang tarifnya berbeda adalah cara paling mudah membuat rekap
+       pembayaran salah tanpa ada satu pun galat yang muncul. */
+    const fee=feeIsi||(t&&+t.default_fee)||0;
+    const rid=uid();
+    DB.recurringRules.push({id:rid,talent_id:tid,days_of_week:dows,start_time:st,end_time:et,
+      valid_from:dari,valid_to:sampai,performance_type:type,fee});
+    for(let d=new Date(dari);d<=to;d.setDate(d.getDate()+1)){
+      if(!dows.includes(d.getDay())) continue;
+      const ds=dstr(d);
       if(hasConflict(tid,ds,st,et)){skipped++;continue;}
-      DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date:ds,start_time:st,end_time:et,performance_type:type,fee,status:'Scheduled',recurring_rule_id:rid,source:'recurring'});added++;}
-  }
-  save();closeModal();renderSchedule();toast(`✓ ${added} jadwal dibuat${skipped?', '+skipped+' dilewati (konflik/duplikat)':''}.`);
+      DB.schedules.push({id:uid(),talent_id:tid,event_id:null,date:ds,start_time:st,end_time:et,
+        performance_type:type,fee,status:'Scheduled',recurring_rule_id:rid,source:'recurring'});
+      added++;
+    }
+  });
+  save();closeModal();renderSchedule();
+  toast('✓ '+added+' jadwal dibuat untuk '+RECUR_TAL.length+' talent'
+    +(skipped?', '+skipped+' dilewati (konflik/duplikat)':'')+'.');
 }
 function monthlyGenModal(){
   /* Seluruh bawaannya KELIHATAN di formulir ini dan bisa ditimpa per hari:
@@ -3993,8 +4079,10 @@ function breakdownEventEms(a){
     const omzet=DB.orders.filter(function(o){ return o.event_id===e.id && o.payment_status==='Paid'; })
       .reduce(function(x,o){ return x+(+o.total||0); },0);
     const top=kelas.slice().sort(function(x,y){ return (+y.sold||0)-(+x.sold||0); })[0];
-    return {e:e, terjual:terjual, tiket:tiket.length, hadir:hadir, omzet:omzet,
+    const kuota=kelas.reduce(function(x,c){ return x+(+c.quota||0); },0);
+    return {e:e, terjual:terjual, kuota:kuota, tiket:tiket.length, hadir:hadir, omzet:omzet,
             top:(top&&+top.sold)?top:null,
+            isi: kuota?Math.round(terjual/kuota*100):0,
             hadirPct: tiket.length?Math.round(hadir/tiket.length*100):0};
   }).sort(function(x,y){ return y.terjual-x.terjual; });
 }
@@ -4130,19 +4218,23 @@ function renderApprovalEms(){
 let planTab='rencana';
 function setPlanTab(v){ planTab=v; renderPlanning(); }
 function planTabsHTML(){
-  const t=[['rencana','Perencanaan'],['ide','Event Idea Bank'],['riwayat','Event History']];
+  /* 'Event Idea Bank' DICABUT dari sini. Halaman Perencanaan menjawab "apa yang
+     sedang disiapkan dan menunggu keputusan"; bank ide menjawab "apa yang
+     mungkin dibuat suatu saat" - dua jarak waktu yang sangat berbeda, dan
+     mencampurnya membuat tab ini terbaca seolah ide adalah tahap awal
+     perencanaan, padahal tidak pernah begitu dipakai.
+
+     Halamannya sendiri tidak dihapus (#/ideas masih ada di router) - yang
+     dicabut cuma pintunya dari Perencanaan. */
+  const t=[['rencana','Perencanaan'],['riwayat','Event History']];
   return '<div class="tabs">'+t.map(function(x){
     return '<button class="'+(planTab===x[0]?'active':'')+'" '
       +'onclick="setPlanTab(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')+'</div>';
 }
 function renderPlanning(){
   const boleh=bisaUbah('planning'), setuju=bisaSetujui();
-  if(planTab==='ide'){
-    renderIdeas();
-    C().innerHTML=planTabsHTML()+C().innerHTML;
-    setTop('Perencanaan Event','Bank ide — bahan untuk rencana berikutnya','');
-    return;
-  }
+  // Tab 'ide' sudah tidak ada; data lama yang tersimpan dipulangkan ke Perencanaan.
+  if(planTab==='ide') planTab='rencana';
   if(planTab==='riwayat'){
     renderHistory();
     C().innerHTML=planTabsHTML()+C().innerHTML;
@@ -4273,7 +4365,23 @@ function renderAkses(){
     });
     h+='</tbody></table></div>';
   }
-  h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="segarkanRoster()">&#8635; Segarkan dari Office</button></div>';
+  /* Tombol "Segarkan dari Office" DICABUT. Menyegarkan roster bukan keputusan
+     yang perlu diambil siapa pun — tidak ada keadaan di mana orang SENGAJA
+     ingin melihat daftar pegawai yang basi. Yang terjadi selama ini: kolom Tim
+     seseorang dibetulkan di Office, lalu di sini masih tampil yang lama sampai
+     ada yang kebetulan tahu bahwa tombol itu harus ditekan.
+
+     Sekarang halaman ini menariknya sendiri tiap kali dibuka (lihat
+     renderAkses -> segarkanRosterOtomatis). Yang tersisa hanya keterangan kapan
+     terakhir ditarik, supaya kalau Office sedang mati orang tahu bahwa yang
+     dilihatnya salinan lama, bukan kenyataan. */
+  h+='<div class="mini" style="margin-top:10px">'
+   +(EMS_ROSTER
+      ? 'Roster ditarik otomatis dari Office tiap kali halaman ini dibuka.'
+        +(window._rosterAt?' Terakhir '+new Date(window._rosterAt).toLocaleTimeString('id-ID')+'.':'')
+      : '<b style="color:var(--red)">Office tidak terjangkau</b> — yang tampil salinan terakhir. '
+        +esc(String(EMS_ROSTER_ERR||'')))
+   +'</div>';
   h+='</div>';
 
   h+='<div class="card" style="margin-top:16px"><h3 class="sec">Matriks Izin</h3>'
@@ -4295,15 +4403,30 @@ function renderAkses(){
   if(boleh) h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="resetIzin()">Kembalikan ke bawaan</button></div>';
   h+='</div>';
   C().innerHTML=h;
+  /* Ditarik TANPA ditunggu: halaman harus langsung tergambar dari salinan yang
+     ada, bukan menahan layar selama Office menjawab. Kalau isinya ternyata
+     berubah, fungsi itu yang menggambar ulang sendiri. */
+  segarkanRosterOtomatis();
 }
 /* Menarik ulang roster tanpa memuat ulang halaman — dipakai setelah seseorang
    baru saja dibetulkan kolom Tim-nya di Office. Menggambar ulang MENU juga,
    bukan cuma tabelnya: peran yang berubah bisa mengubah menu yang boleh
    dilihat, termasuk peranmu sendiri. */
-async function segarkanRoster(){
+/* Penarikan roster otomatis saat halaman Hak Akses dibuka.
+   TIDAK menggambar ulang kalau isinya sama persis: renderAkses() memanggil ini,
+   dan menggambar ulang tanpa syarat akan memanggil renderAkses() lagi -
+   putaran tak berujung. Perbandingannya lewat sidik jari JSON, bukan panjang
+   daftar: orang yang bertukar peran tidak mengubah jumlah anggota.
+
+   Menggambar ulang MENU juga, bukan cuma tabelnya: peran yang berubah bisa
+   mengubah menu yang boleh dilihat, termasuk peranmu sendiri. */
+async function segarkanRosterOtomatis(){
+  const sebelum=JSON.stringify(EMS_ROSTER||null);
   await muatRosterOffice();
-  buildNav(); renderAkses();
-  toast(EMS_ROSTER ? 'Roster Office dimuat ulang.' : 'Gagal memuat roster: '+EMS_ROSTER_ERR);
+  window._rosterAt=Date.now();
+  if(JSON.stringify(EMS_ROSTER||null)===sebelum) return;
+  buildNav();
+  if(String(location.hash).indexOf('akses')>-1) renderAkses();
 }
 function setIzin(hal,peran,nilai){
   if(!bisaUbah('akses')) return;
@@ -4973,7 +5096,7 @@ function jualBody(eid){
   },0);
 
   return '<div class="card" style="margin-bottom:16px">'
-   +'<h3 class="sec">Catat penjualan tiket</h3>'
+   +'<h3 class="sec">Catat Penjualan Tiket</h3>'
    +'<p class="mini" style="margin-bottom:12px">Untuk pembeli yang membayar langsung di tempat — '
    +'tiketnya terbit begitu disimpan, lengkap dengan QR untuk check-in.</p>'
    +'<div class="field"><label>Pilih Tiket</label>'
@@ -9020,20 +9143,57 @@ function renderHistory(){
     <span class="pill">${list.length} event</span></div>
   <div class="grid g3">${list.map(e=>{const idea=e.idea_id?DB.ideas.find(i=>i.id===e.idea_id):null;const ev=idea&&idea.evaluations[0];return `<div class="ecard" onclick="location.hash='#/history/${e.id}'"><div class="cover">${e.poster_img?`<img src="${fileUrl(e.poster_img.key)}" class="poster-img" alt="">`:''}</div><div class="body"><div class="t">${esc(e.title)}</div><div class="meta">📅 ${fmtDate(e.start_datetime)}</div>${ev?`<div class="meta" style="color:var(--accent)">💰 ${IDR(ev.omzet)} · 👥 ${ev.attendance} · ⭐ ${ev.score}/10</div>`:'<div class="meta">Evaluasi belum ada</div>'}</div></div>`;}).join('')||'<div class="empty">Belum ada event selesai.</div>'}</div>`;
 }
+/* MEMBUAT ULANG ACARA YANG SUDAH LEWAT.
+   Acara yang berhasil hampir selalu diulang - tahunan, atau tiap kuartal - dan
+   selama ini menyalinnya berarti mengetik ulang seluruh formulir sambil bolak-
+   balik membaca arsipnya di tab lain.
+
+   YANG DISALIN cuma yang menerangkan BENTUK acaranya: judul, kategori, tema,
+   venue, kapasitas, PIC, deskripsi, dan saklar ber-tiket.
+
+   YANG TIDAK IKUT, dan itu disengaja: tanggal (harus diputuskan orangnya),
+   kelas tiket & harganya (harga tahun lalu jarang masih berlaku), denah,
+   pesanan, tiket, dan seluruh angka pencapaian. Menyalinnya berarti membuat
+   acara baru yang lahir dengan penjualan milik acara lain.
+
+   Statusnya SELALU 'Planning' - salinan tetap harus lewat persetujuan
+   manajemen seperti rencana lain. */
+function buatEventLagi(id){
+  const e=DB.events.find(function(x){ return x.id===id; }); if(!e) return;
+  if(!bisaUbah('planning')) return toast('Kamu tidak punya izin membuat rencana event.');
+  eventForm(null,{
+    status:'Planning',
+    title:(e.title||'')+' (ulang)',
+    category:e.category||'', theme:e.theme||'',
+    venue:e.venue||'', capacity:+e.capacity||0,
+    pic:e.pic||'', description:e.description||'',
+    is_ticketed:!!e.is_ticketed
+  });
+  toast('Formulir diisi dari "'+(e.title||'')+'". Tanggal & kelas tiket sengaja dikosongkan.');
+}
 function renderHistoryDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/history';return;}
-  const idea=e.idea_id?DB.ideas.find(i=>i.id===e.idea_id):null;const ev=idea&&idea.evaluations[0];
+  /* EVALUASI DICABUT. Yang dulu berdiri di sini: skor, feedback, "Problem:
+     Sound sistem kurang di area belakang" dan "Improvement: Upgrade PA system"
+     - dua kalimat yang DITULIS MATI di dalam kode dan tampil sama persis di
+     SETIAP acara, sejak dulu. Arsip yang mengarang temuannya sendiri lebih
+     buruk daripada arsip yang diam.
+
+     Gantinya pencapaian yang memang tercatat dan bisa dipercaya, dihitung dari
+     sumber yang sama dengan laporan (lihat breakdownEventEms). */
+  const hasil=breakdownEventEms({events:[e]})[0];
   const d=DB.eventDetails[id];
   setTop(e.title,'<a href="#/history" style="color:var(--accent)">History</a> / '+esc(e.title),statusBadge(e.status));
   C().innerHTML=`<div style="display:flex;gap:16px;align-items:center;margin-bottom:16px"><div class="poster-head">${posterKecilHTML(e,54)}</div><div><h3 style="font-size:20px">${esc(e.title)}</h3><span class="mini">${e.category} · ${esc(e.venue)} · ${fmtDate(e.start_datetime)}</span></div></div>
-  <div class="grid g2"><div class="card"><h3 class="sec">📊 Hasil</h3><div class="kv">
-    <div class="k">Omzet</div><div><b>${ev?IDR(ev.omzet):'—'}</b></div>
-    <div class="k">Attendance</div><div>${ev?ev.attendance+' orang':'—'}</div>
-    <div class="k">Score</div><div>${ev?ev.score+'/10':'—'}</div>
-    <div class="k">Feedback</div><div>${ev?esc(ev.feedback):'—'}</div>
+  <div class="card"><h3 class="sec">📊 Pencapaian</h3><div class="kv">
+    <div class="k">Omzet Tiket</div><div><b>${IDR(hasil.omzet)}</b></div>
+    <div class="k">Tiket Terjual</div><div>${hasil.terjual}${hasil.kuota?` <span class="mini">dari ${hasil.kuota} kuota · ${hasil.isi}%</span>`:''}</div>
+    <div class="k">Hadir Hari-H</div><div>${hasil.hadir}${hasil.tiket?` <span class="mini">dari ${hasil.tiket} e-ticket · ${hasil.hadirPct}%</span>`:''}</div>
+    <div class="k">Kategori Terlaku</div><div>${hasil.top?`<b>${esc(hasil.top.name)}</b> <span class="mini">${+hasil.top.sold||0} terjual</span>`:'<span class="mini">—</span>'}</div>
+  </div>
+  <div class="pill-row" style="margin-top:14px">
+    <button class="btn" onclick="buatEventLagi('${e.id}')">↺ Buat Event Serupa</button>
   </div></div>
-  <div class="card"><h3 class="sec">🖼️ Media & Evaluasi</h3><div class="grid g3">${['📷','🎥','📸'].map(m=>`<div class="card" style="background:var(--panel2);text-align:center;font-size:28px">${m}</div>`).join('')}</div>
-    <div class="kv" style="margin-top:12px"><div class="k">Problem</div><div>Sound sistem kurang di area belakang.</div><div class="k">Improvement</div><div>Upgrade PA system + tambah stage monitor.</div></div></div></div>
   ${d&&d.budget.length?`<div class="card" style="margin-top:16px"><h3 class="sec">💰 P/L</h3><table><thead><tr><th>Item</th><th>Tipe</th><th>Actual</th></tr></thead><tbody>${d.budget.map(b=>`<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.actual)}</td></tr>`).join('')}</tbody></table></div>`:''}`;
 }
 
