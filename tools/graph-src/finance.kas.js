@@ -1388,6 +1388,8 @@ function rkBon() {  }
 
 
 
+
+
 function rkMdr() { rkRec(); }
 
 
@@ -1783,7 +1785,7 @@ function rkHapusSetoran() { rkSetoranSemua(); rkSetor(); rkKirim(); }
 
 
 
-function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); rkKetikMdr(); rkTanda(); rkSetTanda(); rkSimpan(); }
+function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); rkKetikMdr(); rkTanda(); rkSetTanda(); rkSimpan(); }
 
 
 
@@ -1833,6 +1835,42 @@ function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rkPanelBon() {  }
+
+
+function baris() {  }
 
 
 
@@ -2659,7 +2697,7 @@ function lembarTabelKolom() {  }
 
 
 
-function cetakDashboardOmset() { pct(); lembarKop(); lembarKpi(); lembarSeksi(); lembarTabelKolom(); lembarKaki(); }
+function cetakDashboardOmset() { baris(); pct(); lembarKop(); lembarKpi(); lembarSeksi(); lembarTabelKolom(); lembarKaki(); }
 
 
 
@@ -3324,7 +3362,7 @@ function clearChartsExcept() {  }
 
 
 
-function bonusKasir() {  }
+function bonusKasir() { baris(); }
 
 
 

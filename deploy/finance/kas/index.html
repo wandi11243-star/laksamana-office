@@ -1381,13 +1381,15 @@ function rkJual(tgl){
    Tanpa ini, hari yang ada tamu berhutang selalu terlihat selisih sebesar
    bonnya padahal tidak ada yang salah. */
 function rkBon(tgl){
-  let baru=0,lunas=0;
+  let baru=0,lunas=0; const listBaru=[],listLunas=[];
   ((DB&&DB.piutang)||[]).forEach(b=>{
-    if(b&&b.date===tgl) baru+=num(b.nominal);
-    if(b&&b.status==='lunas'&&b.lunasDate===tgl) lunas+=num(b.nominal);
+    if(!b) return;
+    if(b.date===tgl){ baru+=num(b.nominal); listBaru.push(b); }
+    if(b.status==='lunas'&&b.lunasDate===tgl){ lunas+=num(b.nominal); listLunas.push(b); }
   });
-  return {baru,lunas,koreksi:lunas-baru,ada:baru!==0||lunas!==0};
+  return {baru,lunas,koreksi:lunas-baru,ada:baru!==0||lunas!==0,listBaru,listLunas};
 }
+const rkPayName=k=>{ const p=PAYS.find(x=>x.k===k); return p?p.n:(k||'—'); };
 function rkMdr(tgl,bank){
   const u=RK_UBAH[tgl]; if(u&&u.mdr&&u.mdr[bank]!==undefined) return num(u.mdr[bank]);
   const r=rkRec(tgl), m=(r&&r.mdr)||{};
@@ -1805,6 +1807,7 @@ function rkHalInput(){
     +`</div>`;
   if(!h.r) html+=`<div class="notice warn">⚠ Report Daily tanggal ini <b>belum ada</b>, jadi seluruh angka POS &amp; Aktual masih nol. MDR dan penandanya tetap boleh diisi sekarang — urutan kerjanya di lapangan memang tidak selalu report dulu.</div>`;
   if(rkTanpaSvcTax(h)) html+=`<div class="notice bad">⚠ <b>Service charge &amp; tax tanggal ini masih nol</b> di Input Omset Harian, padahal setoran kasirnya ${fmtRp(h.setoran)}. Selisih di bawah kemungkinan besar berasal dari isian yang belum lengkap — bukan dari kas.</div>`;
+  html+=rkPanelBon(h);
 
   /* Centang "sudah setor" per hari DIBUANG dari sini 12 Agustus 2026: setoran
      sekarang punya sub-tab sendiri dengan tanggal, tujuan, dan riwayat. Dua
@@ -1852,6 +1855,41 @@ function rkHalInput(){
     <button class="btn btn-primary" id="rk-simpan" onclick="rkSimpan()"${(n&&!RK_JALAN)?'':' disabled'}>💾 Simpan Perubahan</button>
   </div>`;
   return html;
+}
+/* SELISIH YANG SEBABNYA PIUTANG HARUS MENYEBUT DIRINYA (13 Agustus 2026,
+   permintaan user). Hari yang ada bon memang tidak akan pernah "pas": barang
+   keluar dan omsetnya diakui, tapi uangnya belum ada di setoran — dan
+   sebaliknya, pelunasan bon lama membuat setoran hari ini lebih besar dari
+   tagihannya sendiri. Rumusnya sudah mengoreksi itu sejak awal, tapi koreksi
+   yang cuma muncul sebagai satu suku di kartu tidak memberi tahu siapa pun
+   BAHWA ada piutang hari itu — orangnya tetap menelusuri kas.
+
+   Panel ini muncul kapan pun ada bon pada tanggal itu, termasuk saat
+   selisihnya sudah nol: yang perlu diketahui bukan "ada masalah", melainkan
+   "hari ini uangnya memang tidak seharusnya sama". */
+function rkPanelBon(h){
+  const b=h.bon;
+  if(!b.ada) return '';
+  const baris=(daftar,arah)=>daftar.map(x=>
+    `<div class="dr"><span>${esc(x.nama||'(tanpa nama)')}${x.payKey?' · '+esc(rkPayName(arah==='lunas'?(x.lunasPayKey||x.payKey):x.payKey)):''}</span>`
+    +`<b>${arah==='lunas'?'+':'−'}${fmtRp(num(x.nominal))}</b></div>`).join('');
+  return `<div class="card" style="border-color:var(--info)">
+    <h3 style="color:var(--info)">Ada piutang / bon di tanggal ini</h3>
+    <div class="card-sub">Selisih di kartu atas <b>sudah dikoreksi</b> ${fmtSel(b.koreksi)} karenanya — jadi sisa selisih yang masih terlihat bukan berasal dari piutang ini.</div>
+    <div class="dg">
+      ${b.baru?`<div class="dtile" style="--c:var(--warn)">
+        <div class="dh"><b>Bon baru hari ini</b><span class="chip warn">−${esc(fmtRp(b.baru))}</span></div>
+        <div class="dr" style="border-bottom:1px dashed var(--line);padding-bottom:5px;margin-bottom:4px"><span>Tamu belum bayar, jadi setoran kasir memang kurang segitu</span><b></b></div>
+        ${baris(b.listBaru,'baru')}
+      </div>`:''}
+      ${b.lunas?`<div class="dtile" style="--c:var(--ok)">
+        <div class="dh"><b>Pelunasan bon lama</b><span class="chip ok">+${esc(fmtRp(b.lunas))}</span></div>
+        <div class="dr" style="border-bottom:1px dashed var(--line);padding-bottom:5px;margin-bottom:4px"><span>Uang masuk hari ini tapi tagihannya hari lain, jadi setoran lebih besar segitu</span><b></b></div>
+        ${baris(b.listLunas,'lunas')}
+      </div>`:''}
+    </div>
+    <div class="helper" style="margin-top:10px">Daftar &amp; pelunasannya diurus di panel <b>Input Omset Harian → Piutang / Bon</b>; layar ini cuma membacanya.</div>
+  </div>`;
 }
 function rkPilihTgl(ds){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(ds||'')) return;
