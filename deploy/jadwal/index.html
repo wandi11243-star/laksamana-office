@@ -1896,6 +1896,7 @@ function viewBulanan(){
       : '')
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div>'
     +'<div class="tools noprint">'
+    +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
     +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;bulan&#39;)">🖼️ PNG Sebulan</button>'
     +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;bulan&#39;)">💬 Teks WA</button>'
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
@@ -2243,7 +2244,8 @@ function viewMinggu(){
        alat massal di atas. Print/PDF TETAP ADA: ia mencetak apa yang benar-
        benar ada di layar, jadi justru di mode inilah ia paling berguna. */
     +(semuaDiv?''
-      : '<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
+      : '<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;minggu&#39;)">📗 Excel Seminggu</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
         +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;minggu&#39;)">💬 Teks WA</button>')
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
     +'</div></div>'
@@ -3630,6 +3632,321 @@ function exportPNG(lingkup){
     toast(minggu?'PNG jadwal minggu ini diunduh':'PNG jadwal sebulan diunduh');
   });
 }
+/* =====================================================================
+   EKSPOR EXCEL (.xlsx)
+
+   Kenapa .xlsx sungguhan dan bukan CSV atau tabel HTML ber-ekstensi .xls:
+   yang dibawa lembar ini SEBAGIAN BESAR adalah warnanya. Kru membaca papan
+   dari jauh dan mengenali shift-nya dari warna, bukan dari tulisannya —
+   CSV membuang seluruhnya, dan tabel HTML ber-nama .xls membuat Excel
+   memunculkan peringatan "format berbeda dengan ekstensi" tiap kali dibuka,
+   yang di kantor ini sudah cukup untuk membuat berkasnya dianggap rusak.
+
+   Kenapa ditulis sendiri sampai ke ZIP-nya: modul ini tidak memuat satu pun
+   skrip dari luar (lihat alasan yang sama di exportPNG). ZIP-nya memakai
+   metode SIMPAN (tanpa kompresi) — XML-nya beberapa ratus KB, dan menulis
+   deflate sendiri berarti menambah 200 baris demi menghemat berkas yang
+   toh langsung dibuka lalu ditutup.
+
+   Bentuknya sengaja MENIRU lembar Excel yang sudah dipakai kru sehari-hari:
+   pita mingguan yang mengulang kepala tanggal, kolom No/NAMA/jabatan di
+   kiri, legenda warna di kanan. Yang menerima berkas ini tidak sedang
+   belajar bentuk baru — ia sedang menerima lembar yang sudah dikenalnya,
+   cuma tidak diketik ulang.
+   ===================================================================== */
+let CRC_TABEL=null;
+function crc32(u8){
+  if(!CRC_TABEL){
+    CRC_TABEL=new Uint32Array(256);
+    for(let i=0;i<256;i++){
+      let c=i; for(let j=0;j<8;j++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);
+      CRC_TABEL[i]=c>>>0;
+    }
+  }
+  let c=0xFFFFFFFF;
+  for(let i=0;i<u8.length;i++) c=CRC_TABEL[(c^u8[i])&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0;
+}
+/* ZIP metode 0 (simpan). Bendera 0x0800 wajib: tanpa itu nama berkas di
+   dalam arsip dibaca sebagai CP437 dan Excel menolak paketnya. */
+function zipSimpan(berkas){
+  const enc=new TextEncoder(), isi=[], pusat=[]; let ofs=0;
+  const n=new Date();
+  const jam=((n.getHours()<<11)|(n.getMinutes()<<5)|((n.getSeconds()/2)|0))&0xFFFF;
+  const tgl=(((n.getFullYear()-1980)<<9)|((n.getMonth()+1)<<5)|n.getDate())&0xFFFF;
+  berkas.forEach(function(f){
+    const nm=enc.encode(f.nama), c=crc32(f.data);
+    const lok=new Uint8Array(30+nm.length), v=new DataView(lok.buffer);
+    v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0x0800,true);
+    v.setUint16(8,0,true); v.setUint16(10,jam,true); v.setUint16(12,tgl,true);
+    v.setUint32(14,c,true); v.setUint32(18,f.data.length,true); v.setUint32(22,f.data.length,true);
+    v.setUint16(26,nm.length,true); lok.set(nm,30);
+    isi.push(lok, f.data);
+    const cd=new Uint8Array(46+nm.length), w=new DataView(cd.buffer);
+    w.setUint32(0,0x02014b50,true); w.setUint16(4,20,true); w.setUint16(6,20,true);
+    w.setUint16(8,0x0800,true); w.setUint16(10,0,true);
+    w.setUint16(12,jam,true); w.setUint16(14,tgl,true);
+    w.setUint32(16,c,true); w.setUint32(20,f.data.length,true); w.setUint32(24,f.data.length,true);
+    w.setUint16(28,nm.length,true); w.setUint32(42,ofs,true); cd.set(nm,46);
+    pusat.push(cd);
+    ofs+=lok.length+f.data.length;
+  });
+  const pjgPusat=pusat.reduce((s,x)=>s+x.length,0);
+  const akhir=new Uint8Array(22), e=new DataView(akhir.buffer);
+  e.setUint32(0,0x06054b50,true);
+  e.setUint16(8,berkas.length,true); e.setUint16(10,berkas.length,true);
+  e.setUint32(12,pjgPusat,true); e.setUint32(16,ofs,true);
+  const semua=isi.concat(pusat,[akhir]);
+  const out=new Uint8Array(semua.reduce((s,x)=>s+x.length,0));
+  let p=0; semua.forEach(function(x){ out.set(x,p); p+=x.length; });
+  return out;
+}
+function xEsc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function kolHuruf(n){    // 1 -> A
+  let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=((n-r)/26)|0; }
+  return s;
+}
+/* Warna teks dipilih dari terang-gelapnya latar, bukan ditulis satu per satu:
+   warna shift bisa diubah user di Pengaturan, dan tulisan hitam di atas
+   CUTI merah tua (#C00000) praktis tidak terbaca. */
+function tulisanKontras(hex){
+  const h=String(hex||'#000000').replace('#','').padEnd(6,'0');
+  const r=parseInt(h.slice(0,2),16)||0, g=parseInt(h.slice(2,4),16)||0, b=parseInt(h.slice(4,6),16)||0;
+  return (0.299*r+0.587*g+0.114*b)>150 ? '000000' : 'FFFFFF';
+}
+function heks6(w){ return String(w||'#7A756B').replace('#','').padEnd(6,'0').slice(0,6).toUpperCase(); }
+
+/* Penyusun styles.xml. Font/fill/border dikumpulkan sambil jalan supaya
+   penambahan satu shift baru di Pengaturan tidak perlu menyentuh berkas ini. */
+function xlsxGaya(){
+  const fonts=[
+    '<font><sz val="11"/><name val="Calibri"/></font>',                                  //0
+    '<font><b/><sz val="11"/><name val="Calibri"/></font>',                              //1
+    '<font><b/><sz val="16"/><name val="Calibri"/></font>',                              //2
+    '<font><b/><i/><sz val="11"/><name val="Calibri"/></font>',                          //3
+    '<font><i/><sz val="10"/><color rgb="FF5C574D"/><name val="Calibri"/></font>'        //4
+  ];
+  const fills=['<fill><patternFill patternType="none"/></fill>',
+               '<fill><patternFill patternType="gray125"/></fill>'];
+  const petaFill={};
+  const xfs=[];
+  const api={
+    fill:function(hex){
+      if(!hex) return 0;
+      if(petaFill[hex]==null){
+        petaFill[hex]=fills.length;
+        fills.push('<fill><patternFill patternType="solid"><fgColor rgb="FF'+hex+'"/>'
+          +'<bgColor indexed="64"/></patternFill></fill>');
+      }
+      return petaFill[hex];
+    },
+    /* o = {f:font, bg:hex, br:1, h:'center'|'left', wrap:1, warnaTeks:hex} */
+    xf:function(o){
+      o=o||{};
+      const al='<alignment horizontal="'+(o.h||'center')+'" vertical="center"'
+        +(o.wrap?' wrapText="1"':'')+'/>';
+      xfs.push('<xf numFmtId="0" fontId="'+(o.f||0)+'" fillId="'+api.fill(o.bg)+'" borderId="'
+        +(o.br?1:0)+'" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">'
+        +al+'</xf>');
+      return xfs.length-1;
+    },
+    xml:function(){
+      /* Warna teks putih perlu font-nya sendiri; ditambahkan di sini supaya
+         daftar font tidak dibangun dua kali. */
+      return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        +'<fonts count="'+fonts.length+'">'+fonts.join('')+'</fonts>'
+        +'<fills count="'+fills.length+'">'+fills.join('')+'</fills>'
+        +'<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'
+        +'<border><left style="thin"><color rgb="FF000000"/></left>'
+        +'<right style="thin"><color rgb="FF000000"/></right>'
+        +'<top style="thin"><color rgb="FF000000"/></top>'
+        +'<bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders>'
+        +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        +'<cellXfs count="'+xfs.length+'">'+xfs.join('')+'</cellXfs>'
+        +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        +'</styleSheet>';
+    },
+    fontPutih:function(){
+      fonts.push('<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>');
+      return fonts.length-1;
+    }
+  };
+  return api;
+}
+
+function exportExcel(lingkup){
+  const div=divTunggal();
+  const emps=kruDivisi(div);
+  if(!emps.length){ toast('Belum ada kru untuk diekspor'); return; }
+  if(typeof TextEncoder==='undefined' || typeof Uint8Array==='undefined'){
+    toast('Peramban ini terlalu tua untuk ekspor Excel — pakai PNG atau Print', true); return;
+  }
+  const minggu=(lingkup==='minggu');
+  const pita=minggu?pitaMingguAktif():pitaBulanAktif();
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+
+  const G=xlsxGaya();
+  const fPutih=G.fontPutih();
+  const gJudul  = G.xf({f:2, h:'center'});
+  const gKuning = G.xf({f:1, bg:'FFFF00', br:1});
+  const gKuningI= G.xf({f:3, bg:'FFFF00', br:1});
+  const gAbu    = G.xf({f:1, bg:'BFBFBF', br:1});
+  const gNo     = G.xf({f:0, br:1});
+  const gNama   = G.xf({f:1, br:1, h:'left'});
+  const gJab    = G.xf({f:3, br:1});
+  const gKosong = G.xf({f:0, br:1});
+  const gPitaDW = G.xf({f:fPutih, bg:'2A2620', br:1, h:'left'});
+  const gCatat  = G.xf({f:4, h:'left'});
+  /* Satu gaya per kode shift, dipetakan sekali di depan: sel bulan penuh bisa
+     mencapai 1.500 buah, dan mencari gaya per sel membuat berkasnya tumbuh
+     tanpa perlu. */
+  const gShift={};
+  daftarShift().forEach(function(k){
+    const w=heks6(shiftDef(k).w);
+    gShift[k]=G.xf({f:(tulisanKontras(w)==='FFFFFF'?fPutih:1), bg:w, br:1});
+  });
+  const gDW = G.xf({f:0, bg:'FFF3D6', br:1});
+
+  const baris=[], gabung=[];
+  let r=0;
+  const KOL=10;                        // A..J : No, NAMA, TGL/HARI, 7 hari
+  const sel_=(c,v,s)=>({c:c, v:v, s:s});
+  const tambah=(sels,tinggi)=>{ r++; baris.push({r:r, sels:sels, h:tinggi}); return r; };
+
+  /* Judul, digabung selebar tabel — sama seperti lembar lama. */
+  tambah([sel_(1, judulLembar(lingkup), gJudul)], 26);
+  gabung.push('A1:'+kolHuruf(KOL)+'1');
+  tambah([sel_(1,'Laksamana Muda · dicetak '+tglPanjang(hariIni()), gCatat)], 15);
+  tambah([], 6);
+
+  pita.forEach(function(p){
+    const h=p.hari;
+    /* Dua baris kepala: tanggal lalu nama hari. Kolom No & NAMA digabung
+       menurun melintasi keduanya, persis seperti lembar yang dipakai kru. */
+    const rTgl=tambah([sel_(1,'No.',gKuning), sel_(2,'NAMA',gKuning), sel_(3,'TGL',gKuningI)]
+      .concat(h.map(function(d,i){
+        const q=parseD(d);
+        return sel_(4+i, ('0'+q.getDate()).slice(-2)+'/'+('0'+(q.getMonth()+1)).slice(-2)
+          +'/'+String(q.getFullYear()).slice(-2), gKuning);
+      })), 18);
+    const rHari=tambah([sel_(1,'',gKuning), sel_(2,'',gKuning), sel_(3,'HARI',gKuningI)]
+      .concat(h.map(function(d,i){
+        return sel_(4+i, HARI_PJG[(parseD(d).getDay()+6)%7], gAbu);
+      })), 18);
+    gabung.push('A'+rTgl+':A'+rHari, 'B'+rTgl+':B'+rHari);
+
+    emps.forEach(function(u,i){
+      /* Kolom ketiga = jabatan, lewat jabatanDari() yang sama dengan lembar
+         di layar — termasuk jatuhnya ke keterangan Office kalau belum
+         dipendekkan di Pengaturan. Menyalin aturannya ke sini berarti dua
+         tempat yang bisa menulis jabatan berbeda untuk orang yang sama. */
+      const jbt=jabatanDari(u);
+      const s=[sel_(1,i+1,gNo), sel_(2,u.name,gNama), sel_(3,jbt,gJab)];
+      h.forEach(function(d,j){
+        const c=sel(u.id,d);
+        s.push(c ? sel_(4+j, shiftDef(c.t).n, gShift[c.t]||gKosong)
+                 : sel_(4+j, '', gKosong));
+      });
+      tambah(s, 17);
+    });
+
+    /* Daily worker ikut, dengan pita pemisahnya sendiri — sama seperti di
+       layar. Lembar Excel yang diam-diam berbeda isi dengan papan justru
+       terjadi pada hari paling ramai, karena hari itulah DW dipanggil. */
+    const dw=dwOrang(div, h[0], h[h.length-1]);
+    if(dw.length){
+      const rp=tambah([sel_(1,'DAILY WORKER · '+dw.length+' orang · '
+        +tglManusia(h[0])+' – '+tglManusia(h[h.length-1]), gPitaDW)], 17);
+      gabung.push('A'+rp+':'+kolHuruf(3+h.length)+rp);
+      dw.forEach(function(u,i){
+        const s=[sel_(1,i+1,gNo), sel_(2,u.nama,gNama), sel_(3,(u.posisi||'DW'),gJab)];
+        h.forEach(function(d,j){
+          const x=dwSel(u.id,d);
+          s.push(x ? sel_(4+j, (x.posisi||'DW')+((x.m&&x.s)?(' '+x.m+'–'+x.s):''), gDW)
+                   : sel_(4+j, '', gKosong));
+        });
+        tambah(s, 17);
+      });
+    }
+    tambah([], 6);
+  });
+
+  /* Legenda di kolom L, sejajar kepala tabel — di lembar lama letaknya juga
+     di kanan, dan yang mencarinya mencari di sana. */
+  const kolLeg=12;
+  daftarShift().forEach(function(k,i){
+    const b=baris[Math.min(3+i, baris.length-1)];
+    if(!b) return;
+    b.sels.push(sel_(kolLeg, shiftDef(k).n, gShift[k]||gKosong));
+  });
+
+  const lebar=[{min:1,max:1,w:5},{min:2,max:2,w:22},{min:3,max:3,w:12},
+               {min:4,max:10,w:12},{min:11,max:11,w:2},{min:12,max:12,w:14}];
+  const xmlBaris=baris.map(function(b){
+    const cs=b.sels.slice().sort((x,y)=>x.c-y.c).map(function(c){
+      const ref=kolHuruf(c.c)+b.r;
+      const angka=(typeof c.v==='number');
+      return '<c r="'+ref+'" s="'+c.s+'"'+(angka?'':' t="inlineStr"')+'>'
+        +(angka ? '<v>'+c.v+'</v>' : '<is><t xml:space="preserve">'+xEsc(c.v)+'</t></is>')
+        +'</c>';
+    }).join('');
+    return '<row r="'+b.r+'"'+(b.h?' ht="'+b.h+'" customHeight="1"':'')+'>'+cs+'</row>';
+  }).join('');
+
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +'<sheetFormatPr defaultRowHeight="15"/>'
+    +'<cols>'+lebar.map(c=>'<col min="'+c.min+'" max="'+c.max+'" width="'+c.w+'" customWidth="1"/>').join('')+'</cols>'
+    +'<sheetData>'+xmlBaris+'</sheetData>'
+    +(gabung.length?'<mergeCells count="'+gabung.length+'">'
+        +gabung.map(g=>'<mergeCell ref="'+g+'"/>').join('')+'</mergeCells>':'')
+    +'<pageMargins left="0.25" right="0.25" top="0.3" bottom="0.3" header="0.3" footer="0.3"/>'
+    +'<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+    +'</worksheet>';
+
+  const P='http://schemas.openxmlformats.org/';
+  const enc=new TextEncoder();
+  const B=(nama,teks)=>({nama:nama, data:enc.encode(teks)});
+  const zip=zipSimpan([
+    B('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Types xmlns="'+P+'package/2006/content-types">'
+      +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      +'<Default Extension="xml" ContentType="application/xml"/>'
+      +'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      +'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      +'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      +'</Types>'),
+    B('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="'+P+'package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      +'</Relationships>'),
+    B('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<workbook xmlns="'+P+'spreadsheetml/2006/main" xmlns:r="'+P+'officeDocument/2006/relationships">'
+      +'<sheets><sheet name="'+xEsc(namaDivisi(div).slice(0,28))+'" sheetId="1" r:id="rId1"/></sheets>'
+      +'</workbook>'),
+    B('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="'+P+'package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      +'<Relationship Id="rId2" Type="'+P+'officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      +'</Relationships>'),
+    B('xl/styles.xml', G.xml()),
+    B('xl/worksheets/sheet1.xml', sheet)
+  ]);
+
+  const namaBerkas='jadwal-'+div+'-'
+    +(minggu?('minggu-'+(MINGGU_AKTIF||seninDari(hariIni()))):mk)+'.xlsx';
+  const blob=new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=namaBerkas;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1000);
+  toast(minggu?'Excel jadwal minggu ini diunduh':'Excel jadwal sebulan diunduh');
+}
+
 function potong(cx,txt,maxW){
   txt=String(txt==null?'':txt);
   if(cx.measureText(txt).width<=maxW) return txt;
