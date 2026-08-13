@@ -1390,6 +1390,24 @@ function rkBon() {  }
 
 
 
+
+
+
+
+
+
+function rkBonBulan() {  }
+
+
+
+
+
+
+
+
+
+
+
 function rkMdr() { rkRec(); }
 
 
@@ -1461,7 +1479,8 @@ function rkHariBulan() { daysInMonth(); }
 
 
 
-function rkRingkas() { rkHariBulan(); rkHitung(); rkTanpaSvcTax(); rkTanda(); rkSetor(); }
+function rkRingkas() { rkHariBulan(); rkHitung(); rkTanpaSvcTax(); rkTanda(); rkSetor(); rkBonBulan(); }
+
 
 
 
@@ -1515,6 +1534,15 @@ function rkGantiTab() { render(); }
 
 
 function rkHalRekap() { rkKartu(); rkAdaUbah(); labelPeriode(); rkTanda(); rkBuka(); rkLabelHari(); rkTanpaSvcTax(); rkSetor(); }
+
+
+
+
+
+
+
+
+
 
 
 

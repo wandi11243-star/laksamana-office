@@ -1390,6 +1390,24 @@ function rkBon(tgl){
   return {baru,lunas,koreksi:lunas-baru,ada:baru!==0||lunas!==0,listBaru,listLunas};
 }
 const rkPayName=k=>{ const p=PAYS.find(x=>x.k===k); return p?p.n:(k||'—'); };
+/* Piutang sebulan. DIHITUNG DARI DB.piutang LANGSUNG, bukan dijumlahkan dari
+   baris harian rekap: baris harian cuma memuat hari yang punya omset atau
+   Report Daily, sementara bon bisa saja tercatat pada hari yang belum diisi
+   apa-apa — dan bon yang hilang dari totalan justru bon yang paling perlu
+   dilihat. `lunas` dihitung menurut TANGGAL PELUNASANNYA, sama seperti
+   koreksi harian, karena itulah hari uangnya benar-benar masuk. */
+function rkBonBulan(ym){
+  let baru=0,lunas=0,n=0,belum=0,nBelum=0;
+  ((DB&&DB.piutang)||[]).forEach(b=>{
+    if(!b) return;
+    if(monthKeyOf(String(b.date||''))===ym){
+      baru+=num(b.nominal); n++;
+      if(b.status!=='lunas'){ belum+=num(b.nominal); nBelum++; }
+    }
+    if(b.status==='lunas'&&monthKeyOf(String(b.lunasDate||''))===ym) lunas+=num(b.nominal);
+  });
+  return {baru,lunas,n,belum,nBelum};
+}
 function rkMdr(tgl,bank){
   const u=RK_UBAH[tgl]; if(u&&u.mdr&&u.mdr[bank]!==undefined) return num(u.mdr[bank]);
   const r=rkRec(tgl), m=(r&&r.mdr)||{};
@@ -1481,7 +1499,8 @@ function rkRingkas(){
     });
     if(rkSetor(tgl)) nSetor++;
   });
-  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel,net,svc,tax,bonAda,nTanpaSvc,g,lain};
+  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel,net,svc,tax,bonAda,nTanpaSvc,
+          bon:rkBonBulan(PERIOD),g,lain};
 }
 
 const rkRp0=n=>(!n?'<span style="color:var(--muted-2)">—</span>':fmtRp(n));
@@ -1525,6 +1544,15 @@ function rkHalRekap(R){
     +rkKartu('Rekap Aktual',fmtRp(R.akt),'seluruh kolom Actual Report Daily, dipotong MDR','')
     +rkKartu('Total MDR',fmtRp(R.mdr),'potongan bank &amp; ojol','')
     +rkKartu('Total Selisih',fmtRp(R.sel),'Dibayar Tamu − Rekap Aktual'+(R.bonAda?' + koreksi bon':''),'')
+    /* Kartu piutang duduk PERSIS di sebelah Total Selisih, bukan di ujung
+       barisan: dua angka itu satu cerita — bon yang lahir bulan ini adalah
+       sebab paling sering dari selisih yang tersisa, dan menaruhnya berjauhan
+       membuat orang mencari sebabnya ke tempat lain. */
+    +rkKartu('Piutang / Bon',fmtRp(R.bon.baru),
+        R.bon.n
+          ? `${R.bon.n} bon bulan ini · <b>${fmtRp(R.bon.belum)}</b> belum lunas (${R.bon.nBelum})`
+              +(R.bon.lunas?` · pelunasan masuk ${fmtRp(R.bon.lunas)}`:'')
+          : (R.bon.lunas?`tidak ada bon baru · pelunasan bon lama masuk ${fmtRp(R.bon.lunas)}`:'tidak ada bon bulan ini'),'')
     +rkKartu('Adjust Terkunci di POS',fmtRp(R.adjKunci),
         (R.adj-R.adjKunci===0?'seluruhnya sudah diinput':fmtRp(R.adj-R.adjKunci)+' belum diinput'),'')
     +rkKartu('Sudah Setor',R.nSetor+' / '+R.baris.length,'hari yang cash-nya sudah disetor','')
