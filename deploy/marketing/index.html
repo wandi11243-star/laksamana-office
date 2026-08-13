@@ -6685,6 +6685,20 @@ function finKakiRows(ev,f,opsi){
       : (f.dpDiakui ? 'dari DP' : '');
     r.push({l:'Terbayar',lc:'TERBAYAR',v:rp(f.paid),ket:rinci});
     r.push({l:'SISA PELUNASAN',lc:'SISA PELUNASAN',v:rp(Math.max(0,f.grand-f.paid)),tebal:true});
+    /* KELEBIHAN BAYAR — baris yang selama ini tidak pernah ada.
+       Begitu Terbayar melampaui TOTAL, deretannya berbunyi TOTAL 1.9jt,
+       TERBAYAR 6.7jt, SISA Rp0: tiga angka yang tidak bisa dijumlahkan dengan
+       cara apa pun, dan yang membacanya menyimpulkan perhitungan kita kacau.
+       Sisanya memang benar nol (menuliskannya negatif lebih buruk lagi) —
+       yang hilang cuma keterangan ke mana selisihnya pergi.
+
+       Bukan kejadian langka: cukup diskon disepakati SESUDAH DP masuk, atau
+       lingkup acara dikurangi, atau satu nol kelebihan saat mencatat
+       pembayaran. Justru yang terakhir itu yang paling perlu segera terlihat. */
+    if(f.paid>f.grand){
+      r.push({l:'KELEBIHAN BAYAR',lc:'KELEBIHAN BAYAR',v:rp(f.paid-f.grand),
+              ket:'dibayar melebihi tagihan — periksa nominalnya atau kembalikan ke client'});
+    }
   }
   return r;
 }
@@ -8926,7 +8940,16 @@ function finHitungHTML(ev){
    +'</dl>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold-deep)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
-  h+='<dl class="kv-list"><dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
+  h+='<dl class="kv-list">'
+   +(finPakaiDp(ev)&&f.dp?'<dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd>':'')
+   +'<dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd>'
+   +'<dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd>'
+   /* Kelebihan bayar ditulis di sini juga, bukan hanya di lembar tagihan:
+      panel inilah yang dibaca saat mencatat pembayaran, dan salah ketik satu
+      nol paling murah diperbaiki di detik itu juga. */
+   +(f.paid>f.grand?'<dt>Kelebihan bayar</dt><dd class="mono" style="color:var(--danger)">'
+      +rp(f.paid-f.grand)+'</dd>':'')
+   +'<dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
   h+=paymentHistoryHtml(ev);
   /* PRATINJAU LEMBAR TAGIHAN — bentuk yang PERSIS diterima client.
      Sebelum ini, isi dokumen baru terlihat sesudah menekan Print, dan yang
@@ -8943,8 +8966,28 @@ function finHitungHTML(ev){
    +rincianTabelHTML(ev,f)+'</div>'
    +'<div class="fh" style="margin-top:7px">Baris FREE &amp; "to be confirm" diambil dari dua kotak template di sebelah kiri. '
    +'Kosongkan kotak FREE untuk memakai template umum di Pengaturan.</div>';
+  /* KIRIM INVOICE & REMINDER DP DIKEMBALIKAN — DI SINI, bukan di baris tabel
+     Invoice & Payment. Keduanya dicabut dari sana karena enam ikon berjajar
+     melipat jadi dua baris dan membuat tiap baris tabel setinggi dua kali
+     lipat (alasan yang masih berlaku, jangan dikembalikan ke sana). Tapi
+     mencabut tombolnya membuat waInvoice() & waReminderDP() jadi kode mati —
+     dan satu akibat yang tidak pernah dicatat: waInvoice adalah SATU-SATUNYA
+     yang menyetel ev.invoiceSent. Tanpa itu invStatus() tidak akan pernah
+     bisa memulangkan 'Sent', jadi invoice yang sudah dikirim ke client tetap
+     berlabel "Draft" selamanya, dan chip status itu punya satu keadaan yang
+     mustahil dicapai.
+
+     Panel ini tempat yang benar untuknya: ruangnya lega, dan orang yang
+     membukanya memang sedang mengurus uang acara ini — bukan sedang memindai
+     daftar invoice. */
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
+  h+='<button class="btn sm" title="Buka WhatsApp berisi rincian invoice" onclick="waInvoice(\''+ev.id+'\',\''+escJs(invoiceNo(ev))+'\')">'+svg(IC.wa)+'Kirim Invoice</button>';
+  /* Reminder DP hanya untuk acara yang memang ber-DP DAN DP-nya belum
+     terpenuhi. Menagih DP yang sudah lunas adalah pesan yang membuat client
+     mengira catatan kita berantakan. */
+  if(finPakaiDp(ev) && f.dp && f.paid<f.dp)
+    h+='<button class="btn sm" title="Buka WhatsApp berisi pengingat DP" onclick="waReminderDP(\''+ev.id+'\')">'+svg(IC.wa)+'Reminder DP</button>';
   h+='</div>';
   h+='<div style="margin-top:14px;padding:11px;background:var(--warn-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' <b>Perlu konfirmasi:</b> Tarif PB1 '+st.pb1+'% + service '+st.serviceCharge+'% belum final.</div>';
   return h;
@@ -10831,7 +10874,13 @@ function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
     +(canEdit?(extraBtn||''):'')
     +(canEdit?'<button class="btn sm" onclick="newSubCat(\''+dj+'\')">'+svg(IC.plus)+'Sub Kategori</button>':'')
     +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+dj+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
-    +(canEdit&&delFn?'<button class="btn sm" onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
+    /* title WAJIB: tombolnya cuma ikon tong sampah tanpa satu kata pun, dan ia
+       berdiri persis di sebelah "Tambah Task" yang berteks. Tanpa keterangan,
+       satu-satunya cara tahu apa yang dihapus — kategori ini, atau task
+       terakhir? — adalah menekannya. Kelas danger juga dipasang: ikon merah
+       lebih dulu terbaca sebagai tindakan yang tidak bisa dibatalkan. */
+    +(canEdit&&delFn?'<button class="btn sm danger" title="Hapus kategori '+esc(div)+' beserta seluruh task di dalamnya" '
+        +'onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
   /* Tertutup = isinya TIDAK digambar sama sekali, bukan disembunyikan CSS.
      Halaman ini bisa memuat ratusan baris tabel; menggambar semuanya lalu
      menyembunyikannya membuat halaman berat tanpa ada yang melihatnya. */
@@ -11374,7 +11423,17 @@ function waInvoice(evId,invNo){
     '⚓ Laksamana Muda Event Organizer'
   ].join('\n');
   window.open(waLink(c.hp,msg),'_blank');
-  if(!e.invoiceSent){ e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav(); go('invoices'); }
+  /* go('invoices') TIDAK LAGI TANPA SYARAT. Tombolnya kini juga ada di panel
+     Finance sebuah event, dan melempar orang ke daftar invoice sesudah
+     membuka WhatsApp berarti kehilangan tab yang sedang dikerjakan — beserta
+     isian yang belum sempat disimpan. Yang dituju semula cuma menyegarkan
+     daftar supaya chip statusnya ikut jadi "Sent"; itu hanya perlu kalau
+     daftarnya memang yang sedang dilihat. */
+  if(!e.invoiceSent){
+    e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav();
+    if(location.hash.slice(1).split('/')[0]==='invoices') go('invoices');
+    else if(typeof finLive==='function') finLive();
+  }
   else toast('WhatsApp dibuka','Pesan invoice untuk '+c.nama+' siap dikirim.','ok');
 }
 // Reminder DP via WhatsApp (deep link — gratis, tanpa API berbayar)
@@ -13659,19 +13718,18 @@ async function vipDetailDenahAsli(v){
   const h=vipDenahHTML(d,{},(v.meja||[]),{tanggal:v.tanggal, bacaSaja:true});
   if(h) el.innerHTML=h;
 }
-/* Omzet Reservasi VIP Assisted per marketing — dipakai Marketing Performance.
-   Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian.
-   Yang DIBATALKAN juga tidak: mejanya sudah dilepas dan tamunya tidak datang,
-   jadi menghitungnya berarti menilai orang dari uang yang tidak pernah masuk. */
-function vipOmzetPIC(uid){
-  return (S.vip||[]).filter(v=>v.mktPIC===uid && v.jenis==='Assisted' && !v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
-}
-function vipOmzetTotal(){
-  /* !v.batalAt: reservasi batal tidak menghasilkan omzet. Tanpa ini,
-     membatalkan booking justru tidak mengubah angka performa sama
-     sekali — dan angka itulah yang dipakai menilai orangnya. */
-  return (S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
-}
+/* vipOmzetPIC() & vipOmzetTotal() DIHAPUS — bukan karena tidak terpakai, tapi
+   karena SALAH kalau dipakai. Keduanya menjumlahkan SELURUH riwayat tanpa
+   penyaring periode, sementara Marketing Performance selalu menghitung untuk
+   satu periode yang sedang dipilih. Halaman itu sudah punya versinya sendiri
+   yang periode-sadar (vipPer / vipPicPer / omzetVip di renderPerformance),
+   dan itulah yang benar.
+
+   Dua fungsi ini sempat berdiri sebagai kode mati yang terlihat sah: siapa
+   pun yang butuh "omzet VIP orang ini" akan menemukannya lebih dulu daripada
+   hitungan yang benar, memakainya, dan mendapat angka seumur hidup di layar
+   yang judulnya menyebut satu bulan. Syarat yang memang benar (Regular tidak
+   ikut, yang dibatalkan tidak ikut) sudah ditulis ulang di sana. */
 
 /* ============================================================
    MODUL K — REPORTING & ANALYTICS

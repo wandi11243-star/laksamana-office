@@ -6688,6 +6688,20 @@ function finKakiRows() { finPakaiDp(); dpLabel(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function rinciKakiHTML() { finBayangan(); eventFinance(); }
 
 
@@ -8907,7 +8921,36 @@ function financeTab() { eventFinance(); rinciPanelHTML(); finSeksi(); finBaris()
 
 
 
-function finHitungHTML() { eventFinance(); dpLabel(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); genBriefFor(); svg(); invoiceKepalaHTML(); rincianTabelHTML(); can(); addPayment(); }
+function finHitungHTML() { eventFinance(); finPakaiDp(); dpLabel(); statusChip(); invStatus(); INV_STATUS_MAP(); paymentHistoryHtml(); genBriefFor(); svg(); invoiceKepalaHTML(); rincianTabelHTML(); waInvoice(); waReminderDP(); can(); addPayment(); escJs(); invoiceNo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10870,6 +10913,12 @@ function tmplCard() { divTemplates(); subsOf(); escJs(); tmplDitutup(); toggleTm
 
 
 
+
+
+
+
+
+
 function simpanTutup() {  }
 
 
@@ -11352,7 +11401,17 @@ function viewPaymentHistory() { eventFinance(); modal(); esc(); clientName(); cl
 
 
 
-function waInvoice() { toast(); eventFinance(); fmtDate(); dpLabel(); invStatus(); waLink(); logAct(); save(); buildNav(); go(); }
+function waInvoice() { toast(); eventFinance(); fmtDate(); dpLabel(); invStatus(); waLink(); go(); logAct(); save(); buildNav(); finLive(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13663,10 +13722,9 @@ function vipDetailDenahAsli() { rsvAmbil(); $(); vipDenahHTML(); }
 
 
 
-function vipOmzetPIC() { vipNominal(); }
 
 
-function vipOmzetTotal() { vipNominal(); }
+
 
 
 

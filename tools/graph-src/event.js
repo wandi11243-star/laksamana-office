@@ -6115,7 +6115,21 @@ function jualBody() { pfKelasBerubah(); esc(); doPurchase(); }
 function denahTabBody() { ldzJualAktif(); ldzLantai(); }
 
 
-function jml() { ldzSemuaItems(); ldzLantaiObjek(); ldzSetLantai(); ldzToggleEdit(); ldzPasangBawaan(); kursiTemplate(); hapusDenahTemplate(); ldzBarJualHTML(); layoutBody(); }
+function jml() { ldzSemuaItems(); ldzLantaiObjek(); ldzSetLantai(); ldzToggleEdit(); ldzJualAktif(); ldzToggleJual(); ldzPasangBawaan(); kursiTemplate(); hapusDenahTemplate(); ldzBarJualHTML(); layoutBody(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9519,8 +9533,12 @@ function ciHitungKelasHTML() { ciHitungSemuaHTML(); ciBaris(); ldzTierInfo(); es
 
 
 function ciKelas() { ciPaintTabel(); }
-function ciCari() { ciPaintTabel(); }
-function ciHal() { ciPaintTabel(); }
+function ciCari() { ciPaintTabel(); ciKeHal(); pagerHTML(); }
+
+
+
+
+
 function ciMode() { ciPilihKelasHTML(); ciPaintTabel(); }
 
 
