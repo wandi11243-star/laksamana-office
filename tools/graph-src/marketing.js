@@ -3638,6 +3638,26 @@ function eventFinance() { eventFbCost(); eventSubtotal(); ynBool(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function dpLabel() { baris(); }
 
 
@@ -6661,6 +6681,13 @@ function finKakiRows() { finPakaiDp(); dpLabel(); }
 
 
 
+
+
+
+
+
+
+
 function rinciKakiHTML() { finBayangan(); eventFinance(); }
 
 
@@ -8762,7 +8789,14 @@ function finBarisLebar() {  }
 
 
 
-function financeTab() { eventFinance(); rinciPanelHTML(); finSeksi(); finBaris(); rupiahInputHTML(); ynSeg(); ynBool(); dpPaidUbah(); rincianPenawaran(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+function financeTab() { eventFinance(); rinciPanelHTML(); finSeksi(); finBaris(); rupiahInputHTML(); ynSeg(); ynBool(); dpPaidUbah(); dpPaidKetHTML(); rincianPenawaran(); finBarisLebar(); esc(); finLive(); finHitungHTML(); }
+
+
+
+
+
+
+
 
 
 
@@ -9016,7 +9050,35 @@ function hitungFinanceLive() { segVal(); renderEventTab(); finLive(); autoSaveTr
 
 
 
-function dpPaidUbah() { $(); finLive(); autoSaveTrigger(); }
+
+
+function dpPaidKetHTML() { finPakaiDp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dpPaidUbah() { $(); finLive(); finBayangan(); dpPaidKetHTML(); eventFinance(); autoSaveTrigger(); }
+
+
+
+
+
+
+
 
 
 

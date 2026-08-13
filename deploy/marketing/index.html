@@ -3628,11 +3628,31 @@ function eventFinance(ev){
      centangnya. Menambahkan dp mentah-mentah ke paid akan membuat DP terhitung
      dua kali, dan sisa pelunasan yang terlalu kecil adalah kesalahan yang baru
      ketahuan saat menagih. */
-  const dpDiakui=ynBool(d.dpPaid,false) ? Math.max(0, dp - bayarTercatat) : 0;
+  const dpCentang=ynBool(d.dpPaid,false);
+  const dpDiakui=dpCentang ? Math.max(0, dp - bayarTercatat) : 0;
   const paid=bayarTercatat+dpDiakui;
   const remaining=Math.max(0,grand-paid);
+  /* dpCentang DAN dpDiakui KEDUANYA DIPULANGKAN, dan itu bukan kelebihan.
+     Keduanya menjawab pertanyaan yang berbeda, dan menyamakannya adalah sebab
+     keluhan "centangnya tidak ada pengaruh apa-apa" (13 Agustus 2026):
+
+       dpCentang  = orangnya menyatakan DP sudah masuk
+       dpDiakui   = BERAPA yang ditambahkan centang itu ke Terbayar
+
+     Keduanya berbeda tepat saat pembayaran yang tercatat SUDAH melampaui DP.
+     Contoh nyata dari layar: DP Rp1.000.000, pembayaran tercatat Rp5.000.000.
+     Dicentang atau tidak, Terbayar tetap Rp5.000.000 — dan itu MEMANG BENAR,
+     karena DP-nya sudah tercakup di dalam yang tercatat; menambahkannya lagi
+     akan menghitung uang yang sama dua kali.
+
+     Yang salah selama ini cuma keterangannya: layar memakai dpDiakui untuk
+     memutuskan tulisan "sudah dibayar / belum dibayar", jadi DP yang sudah
+     dicentang tetap berbunyi "belum dibayar" — dan orang menyimpulkan
+     centangnya rusak, lalu menekannya berkali-kali. dpTertutupBayar menandai
+     keadaan ketiga itu supaya layar bisa mengatakannya apa adanya. */
+  const dpTertutupBayar = dpCentang && dp>0 && dpDiakui===0 && bayarTercatat>=dp;
   return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,
-          bayarTercatat,dpDiakui,paid,remaining};
+          bayarTercatat,dpCentang,dpDiakui,dpTertutupBayar,paid,remaining};
 }
 /* Sebutan DP di layar & dokumen. Sejak DP diisi nominal, menulis "DP 50%" di
    invoice adalah bohong: angkanya tidak pernah lagi dihitung dari persen itu.
@@ -6638,9 +6658,16 @@ function finKakiRows(ev,f,opsi){
        sendiri di bawah TOTAL selalu terbaca sebagai potongan. Yang menentukan
        ia sudah dipotong atau belum adalah centang "DP sudah dibayar" — jadi
        jawabannya ditulis di baris itu juga, bukan disimpulkan dari selisih
-       dua baris di bawahnya. */
+       dua baris di bawahnya.
+
+       TIGA KEADAAN, bukan dua. Versi pertama keterangan ini cuma memeriksa
+       f.dpDiakui, jadi DP yang SUDAH dicentang tapi sudah tercakup pembayaran
+       tercatat tetap berbunyi "belum dibayar" — persis yang bikin orang
+       menyimpulkan centangnya tidak berfungsi. */
     r.push({l:dpLabel(f),lc:dpLabel(f).toUpperCase(),v:rp(f.dp),
-            ket:f.dpDiakui?'sudah masuk Terbayar':'belum dibayar — belum mengurangi sisa'});
+            ket: f.dpTertutupBayar ? 'sudah dibayar — termasuk dalam Terbayar di bawah'
+               : f.dpDiakui        ? 'sudah dibayar — sudah masuk Terbayar'
+               :                     'belum dibayar — belum mengurangi sisa'});
   }
   /* TERBAYAR SELALU DITULIS begitu ada DP atau pembayaran — tidak lagi
      disembunyikan saat nol. Tanpa baris ini deretannya berbunyi TOTAL, DP,
@@ -8834,10 +8861,17 @@ function financeTab(ev,canEdit){
      Yang perlu diketahui ("tidak pernah dobel") sudah dijamin rumusnya;
      menuliskannya di layar tiap kali cuma meminta orang mempercayai kalimat,
      bukan angka. */
+  /* KETERANGAN HIDUP DI BAWAH CENTANGNYA. Tanpa ini, centang yang benar-benar
+     tidak mengubah angka apa pun terbaca sebagai centang yang rusak — dan itu
+     memang terjadi (dilaporkan 13 Agustus 2026): begitu pembayaran yang
+     tercatat sudah melampaui DP, menyalakan centang tidak menambah apa-apa ke
+     Terbayar, karena DP-nya memang sudah tercakup di sana. Angkanya benar,
+     yang hilang cuma kalimat yang mengatakannya. */
   h+=finBaris('DP sudah dibayar',
       '<label class="cek"><input type="checkbox" id="efd_dpPaid"'
       +(ynBool(d.dpPaid,false)?' checked':'')+(canEdit?'':' disabled')
-      +' onchange="dpPaidUbah()"> Sudah masuk</label>', '');
+      +' onchange="dpPaidUbah()"> Sudah masuk</label>'
+      +'<div class="fh" id="efd_dpPaidKet">'+dpPaidKetHTML(ev,f)+'</div>', '');
 
   /* Dua kotak ini kini TEMPLATE, bukan isi lembar penawaran. Sejak tabel
      Rincian jadi satu-satunya sumber baris, rincianPenawaran() tidak lagi
@@ -9016,11 +9050,39 @@ function hitungFinanceLive(el){
    digambar ulang seketika: ia satu-satunya isian di tab ini yang langsung
    mengubah Sisa Pelunasan, dan angka yang baru berubah sesudah halaman
    digambar ulang membuat yang menekannya menyimpulkan centangnya rusak. */
+/* Kalimat di bawah centang "DP sudah dibayar". Menjawab satu pertanyaan:
+   apakah menyalakan centang ini mengubah angka, dan kalau tidak, kenapa. */
+function dpPaidKetHTML(ev,f){
+  /* Diperiksa lewat finPakaiDp, BUKAN `!f.dp`. eventFinance selalu memulangkan
+     angka DP — kalau nominalnya kosong ia jatuh ke persentase bawaan — jadi
+     f.dp tidak pernah nol dan penjagaan itu tidak pernah berbunyi. Akibatnya
+     acara yang dibayar penuh di awal ikut dikabari "Rp4.840.000 dihitung
+     sebagai Terbayar" atas DP yang tidak pernah ada. */
+  if(!f) return '';
+  if(!finPakaiDp(ev) || !f.dp)
+    return 'Acara ini belum memakai DP. Isi <b>DP / Uang Muka</b> di atas dulu.';
+  if(f.dpTertutupBayar)
+    return '✓ Ditandai sudah dibayar. Angkanya <b>tidak menambah Terbayar</b> — pembayaran '
+      +'yang sudah dicatat ('+rp(f.bayarTercatat)+') memang sudah melampaui DP ('+rp(f.dp)+'), '
+      +'jadi menambahkannya lagi akan menghitung uang yang sama dua kali.';
+  if(f.dpDiakui)
+    return '✓ Ditandai sudah dibayar. <b>'+rp(f.dpDiakui)+'</b> ikut dihitung sebagai Terbayar '
+      +(f.bayarTercatat?'di atas '+rp(f.bayarTercatat)+' yang sudah dicatat di tab Kasir.'
+                       :'walau belum ada pembayaran yang dicatat di tab Kasir.');
+  return 'Belum ditandai. Sisa pelunasan masih dihitung seolah DP '+rp(f.dp)+' belum masuk.';
+}
 function dpPaidUbah(){
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
   const c=$('efd_dpPaid'); if(!c) return;
   ev.detail=ev.detail||{};
   ev.detail.dpPaid={v:!!c.checked};
+  /* Keterangannya disegarkan di tempat. finLive() hanya menggambar ulang panel
+     kanan; kalimat ini duduk di kolom KIRI bersama centangnya, jadi tanpa
+     baris ini ia membeku pada keadaan sebelum ditekan — kalimat basi yang
+     menjelaskan keadaan yang sudah berubah lebih buruk daripada tidak ada. */
+  const ket=$('efd_dpPaidKet');
+  if(ket){ const bay=(typeof finBayangan==='function'?finBayangan(ev):ev);
+    ket.innerHTML=dpPaidKetHTML(bay,eventFinance(bay)); }
   finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
