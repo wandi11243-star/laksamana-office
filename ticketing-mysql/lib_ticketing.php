@@ -1698,7 +1698,13 @@ function smtp_tulis($fp, $baris, $harap) {
   fwrite($fp, $baris . "\r\n");
   return $harap ? smtp_baca($fp, $harap) : '';
 }
-function kirim_email($ke, $subjek, $html) {
+/* $lampiran: array of array('nama'=>..., 'mime'=>..., 'isi'=>biner).
+   Ditambahkan sebagai parameter KETIGA yang boleh kosong, bukan sebagai fungsi
+   baru: semua pemanggil lama (reset password, notifikasi) tetap jalan apa
+   adanya, dan hanya ada SATU jalur SMTP yang perlu dijaga. Dua penulis surel
+   yang hampir sama adalah cara paling cepat membuat salah satunya kehilangan
+   STARTTLS-nya tanpa ada yang sadar. */
+function kirim_email($ke, $subjek, $html, $lampiran = array()) {
   if (!smtp_siap()) throw new Exception('SMTP belum dikonfigurasi di server.');
   $port = defined('SMTP_PORT') ? (int)SMTP_PORT : 465;
   // Port 465 memakai TLS sejak detik pertama; 587 mulai polos lalu STARTTLS.
@@ -1725,13 +1731,40 @@ function kirim_email($ke, $subjek, $html) {
     smtp_tulis($fp, 'MAIL FROM:<' . $dari . '>', 250);
     smtp_tulis($fp, 'RCPT TO:<' . $ke . '>', 250);
     smtp_tulis($fp, 'DATA', 354);
-    $isi = 'From: =?UTF-8?B?' . base64_encode($nama) . "?= <" . $dari . ">\r\n"
-         . 'To: <' . $ke . ">\r\n"
-         . 'Subject: =?UTF-8?B?' . base64_encode($subjek) . "?=\r\n"
-         . "MIME-Version: 1.0\r\n"
-         . "Content-Type: text/html; charset=UTF-8\r\n"
-         . "Content-Transfer-Encoding: base64\r\n\r\n"
-         . chunk_split(base64_encode($html));
+    $kepala = 'From: =?UTF-8?B?' . base64_encode($nama) . "?= <" . $dari . ">\r\n"
+            . 'To: <' . $ke . ">\r\n"
+            . 'Subject: =?UTF-8?B?' . base64_encode($subjek) . "?=\r\n"
+            . "MIME-Version: 1.0\r\n";
+    if (!$lampiran) {
+      $isi = $kepala
+           . "Content-Type: text/html; charset=UTF-8\r\n"
+           . "Content-Transfer-Encoding: base64\r\n\r\n"
+           . chunk_split(base64_encode($html));
+    } else {
+      $batas = 'lm-' . bin2hex(random_bytes(12));
+      $isi = $kepala
+           . 'Content-Type: multipart/mixed; boundary="' . $batas . "\"\r\n\r\n"
+           . "Ini pesan MIME. Kalau terbaca apa adanya, klien email Anda tidak mendukungnya.\r\n\r\n"
+           . '--' . $batas . "\r\n"
+           . "Content-Type: text/html; charset=UTF-8\r\n"
+           . "Content-Transfer-Encoding: base64\r\n\r\n"
+           . chunk_split(base64_encode($html)) . "\r\n";
+      foreach ($lampiran as $l) {
+        $nm = preg_replace('/[^A-Za-z0-9._-]/', '', (string)$l['nama']);
+        $isi .= '--' . $batas . "\r\n"
+              . 'Content-Type: ' . $l['mime'] . '; name="' . $nm . "\"\r\n"
+              . "Content-Transfer-Encoding: base64\r\n"
+              . 'Content-Disposition: attachment; filename="' . $nm . "\"\r\n\r\n"
+              . chunk_split(base64_encode($l['isi'])) . "\r\n";
+      }
+      $isi .= '--' . $batas . "--\r\n";
+    }
+    /* Titik di awal baris HARUS digandakan sebelum badan surel dikirim: SMTP
+       memakai baris berisi satu titik sebagai penanda akhir data, jadi satu
+       baris base64 yang kebetulan diawali titik akan MEMOTONG lampirannya di
+       tengah. Yang sampai ke pembeli: PDF rusak yang tidak bisa dibuka, tanpa
+       satu pun galat di sisi kita. */
+    $isi = preg_replace('/^\./m', '..', $isi);
     fwrite($fp, $isi . "\r\n.\r\n");
     smtp_baca($fp, 250);
     smtp_tulis($fp, 'QUIT', 0);
@@ -1744,7 +1777,7 @@ function kirim_email($ke, $subjek, $html) {
    dan QR yang tidak tampil di pintu masuk adalah kegagalan yang paling buruk
    waktunya. Yang dikirim tautan permanen ke halaman e-ticket \u2014 di sana QR-nya
    digambar, dan statusnya selalu yang terbaru (termasuk kalau sudah check-in). */
-function email_eticket_html($o, $tiket) {
+function email_eticket_html($o, $tiket, $adaPdf = false) {
   $ev = event_satu_apa_adanya($o['event_id']);
   $judul = $ev ? $ev['title'] : 'Event Laksamana Muda';
   $tautan = site_url() . '/#tiket/' . rawurlencode($o['payment_ref']) . '/' . rawurlencode($o['access_token']);
@@ -1776,7 +1809,15 @@ function email_eticket_html($o, $tiket) {
     . '<div style="padding:22px 24px">'
     . '<p style="margin:0 0 14px">Halo <b>' . htmlspecialchars($o['buyer_name']) . '</b>, pembayaranmu sudah kami terima. Tiketmu siap.</p>'
     . '<table style="width:100%;border-collapse:collapse;font-size:14px">' . $baris . '</table>'
-    . '<p style="margin:18px 0 8px;font-size:13px;color:#5C574D">Tunjukkan QR di halaman berikut kepada petugas saat masuk:</p>'
+    /* Lampiran disebut lebih dulu, bukan sesudah tombol. Yang membuka email ini
+       di pintu masuk sedang berdiri dalam antrean: kalimat pertama harus
+       menyebut benda yang tidak butuh sinyal. */
+    . ($adaPdf
+        ? '<p style="margin:16px 0 8px;padding:10px 12px;background:#F7F1E2;border-radius:8px;font-size:13px;color:#5C574D">'
+          . '<b>Lampiran PDF</b> berisi seluruh QR pesanan ini (' . count($tiket) . ' tiket) — satu halaman dua tiket, '
+          . 'siap dicetak atau dibagikan. Bisa dibuka tanpa sinyal.</p>'
+        : '')
+    . '<p style="margin:18px 0 8px;font-size:13px;color:#5C574D">Atau tunjukkan QR di halaman berikut kepada petugas saat masuk:</p>'
     . '<p><a href="' . htmlspecialchars($tautan) . '" style="display:inline-block;background:#A9791F;color:#fff;'
     . 'padding:12px 20px;border-radius:9px;text-decoration:none;font-weight:bold">Buka e-ticket</a></p>'
     . '<p style="font-size:12px;color:#8C8677;margin-top:16px">Simpan email ini. Tautan di atas berlaku permanen dan hanya bisa dibuka olehmu.<br>'
@@ -1792,9 +1833,31 @@ function kirim_eticket($o, $tiket) {
   if (!smtp_siap()) return array('ok' => false, 'sebab' => 'SMTP belum dikonfigurasi');
   try {
     $ev = event_satu_apa_adanya($o['event_id']);
+    /* LAMPIRAN PDF berisi SEMUA QR pesanan itu \u2014 sepuluh tiket, sepuluh QR,
+       satu berkas. Yang dilayani: pembeli rombongan yang harus membagikan
+       tiket ke sepuluh orang berbeda, dan pembeli yang datang ke tempat tanpa
+       sinyal. Sebelum ini satu-satunya QR ada di halaman web, jadi keduanya
+       gagal di titik yang paling tidak bisa ditolong.
+
+       PEMBUATAN PDF-NYA DITELAN GALATNYA SENDIRI, terpisah dari pengiriman
+       emailnya. Uang sudah masuk dan tiket sudah terbit; kegagalan menggambar
+       QR (mis. token aneh yang tidak muat di versi 10) tidak boleh berujung
+       pada email yang tidak terkirim sama sekali. Kalau PDF-nya gagal, emailnya
+       tetap berangkat tanpa lampiran \u2014 dan tautan e-ticket di dalamnya masih
+       menjawab seluruh kebutuhan seperti sebelumnya. */
+    $lampiran = array(); $sebabPdf = '';
+    try {
+      require_once __DIR__ . '/lib_pdf.php';
+      $lampiran[] = array('nama' => pdf_nama_eticket($o), 'mime' => 'application/pdf',
+                          'isi' => pdf_eticket($o, $tiket, $ev));
+    } catch (Throwable $e2) {
+      $sebabPdf = $e2->getMessage();
+    }
     kirim_email($o['email'], 'E-Ticket ' . ($ev ? $ev['title'] : 'Laksamana Muda') . ' \u2014 ' . $o['payment_ref'],
-                email_eticket_html($o, $tiket));
-    return array('ok' => true, 'at' => gmdate('c'));
+                email_eticket_html($o, $tiket, !!$lampiran), $lampiran);
+    $hasil = array('ok' => true, 'at' => gmdate('c'), 'pdf' => !!$lampiran);
+    if ($sebabPdf) $hasil['pdf_sebab'] = $sebabPdf;
+    return $hasil;
   } catch (Throwable $e) {
     return array('ok' => false, 'sebab' => $e->getMessage(), 'at' => gmdate('c'));
   }

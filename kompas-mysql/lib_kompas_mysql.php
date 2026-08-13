@@ -346,7 +346,13 @@ function simpan_rekap($data) {
      menyimpannya diam-diam membuat penanda yang tidak pernah terbaca siapa
      pun. Lebih baik dilaporkan. */
   $grup = array('cash','qr_order','bri','mandiri','bca','transfer','gofood','grabfood','error');
-  $bank = array('bri','mandiri','bca');
+  /* Yang punya MDR. `gofood` & `grabfood` ditambahkan 12 Agustus 2026 atas
+     permintaan user: ojol memotong komisi persis seperti bank memotong MDR,
+     dan sampai kemarin potongannya tidak punya tempat sama sekali. Daftar ini
+     TERTUTUP — kunci di luar daftar dibuang diam-diam, jadi menambah bank/ojol
+     baru di frontend TANPA menambahnya di sini membuat angka yang diketik
+     hilang tanpa satu pun pesan galat. */
+  $bank = array('bri','mandiri','bca','gofood','grabfood');
 
   $ubah = 0; $takDikenal = array();
   foreach ($baris as $tgl => $isi) {

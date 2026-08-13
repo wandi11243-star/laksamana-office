@@ -317,6 +317,22 @@ node --check <blok-script-yang-diekstrak>   # sintaks
 node tools/smoke-modul.js <modul>           # render semua halaman
 ```
 
+### `tools/uji-qr.js` — kalau menyentuh QR tiket
+
+Pembuat QR ada **dua kali** di repo ini, dan itu disengaja: versi JS di
+`deploy/ticketing/index.html` (menggambar QR di layar) dan versi PHP di
+`ticketing-mysql/lib_qr.php` (menggambar QR di lampiran PDF, dibuat di server
+saat pesanan dilunaskan). Keduanya **harus** memulangkan matriks yang sama
+persis untuk teks yang sama.
+
+Kalau menyimpang, tidak ada galat sama sekali — yang terjadi cuma petugas
+gagal memindai lembar cetak di pintu masuk, malam acara. Karena itu ada
+pembanding otomatis:
+
+```bash
+node tools/uji-qr.js        # butuh `php` di PATH; kalau tidak ada, ia melewat, bukan gagal
+```
+
 ---
 
 ## 5. Git & deploy
