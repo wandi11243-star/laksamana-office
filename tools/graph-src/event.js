@@ -1111,6 +1111,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2144,13 +2152,7 @@ function dalamPeriode() { labelPeriodeEms(); C(); kartuPerhatian(); pitaPeriodeE
 
 
 function stat() { esc(); }
-function barChart() {  }
-
-
-
-
-
-
+function barChart() { talTeks(); }
 
 
 
@@ -2175,10 +2177,6 @@ function barChart() {  }
 
 
 function talWarna() {  }
-
-
-
-
 function talWarnaId() { talWarna(); }
 
 
@@ -2425,6 +2423,24 @@ function talentSimpanInline() { g(); toast(); uangNilai(); save(); renderTalentD
 
 
 function renderSchedule() { setTop(); inputMingguan(); recurringModal(); monthlyGenModal(); scheduleForm(); dstr(); schedInfo(); esc(); fmtDate(); C(); lembarTalentHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2847,21 +2863,12 @@ function chipTalentHTML() { talWarnaId(); talTeks(); esc(); }
 
 
 
-function legendaTalentHTML() { talentAktif(); talWarna(); esc(); }
 
 
 
 
 
-
-
-
-
-
-
-
-
-
+function legendaTalentHTML() {  }
 function inputMingguan() { mgBuka(); dstr(); }
 
 
@@ -9971,7 +9978,26 @@ function spawnEvent() { esc(); eventForm(); toast(); }
 
 
 
-function renderHistory() { setTop(); selesai(); normalize(); autoSelesaikanEvent(); C(); fileUrl(); esc(); fmtDate(); }
+function renderHistory() { setTop(); selesai(); normalize(); autoSelesaikanEvent(); C(); breakdownEventEms(); bisaUbah(); buatEventLagi(); fileUrl(); esc(); fmtDate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10026,7 +10052,29 @@ function buatEventLagi() { bisaUbah(); toast(); eventForm(); }
 
 
 
-function renderHistoryDetail() { breakdownEventEms(); setTop(); esc(); statusBadge(); C(); posterKecilHTML(); fmtDate(); buatEventLagi(); }
+function renderHistoryDetail() { breakdownEventEms(); setTop(); esc(); statusBadge(); posterKecilHTML(); fmtDate(); C(); fmtDateTime(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
