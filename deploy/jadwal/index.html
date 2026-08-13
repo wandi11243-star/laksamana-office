@@ -164,6 +164,11 @@ table.sched th,table.sched td{border-bottom:1px solid var(--line);border-right:1
 table.sched .no{width:40px;text-align:center;font-size:12px;color:var(--muted-2);font-weight:600}
 table.sched .nm{min-width:170px;max-width:200px;padding:7px 10px;text-align:left;background:var(--surface)}
 table.sched .jb{min-width:92px;padding:7px 8px;text-align:center;font-size:11.5px;font-weight:700;font-style:italic;color:var(--muted);background:var(--surface)}
+/* Kolom BEBAN di lembar bulanan: angka tegak & gelap supaya terbaca sebagai
+   angka, keterangannya kecil-miring di bawahnya. Tanpa ini keduanya mewarisi
+   font-style:italic milik .jb dan angkanya terbaca seperti catatan kaki. */
+table.sched .jb b{display:block;font-style:normal;font-size:13px;color:var(--ink);line-height:1.15}
+table.sched .jb i{display:block;font-size:9.5px;font-weight:600;font-style:normal;color:var(--muted-2);line-height:1.25}
 table.sched .nm b{font-weight:700;font-size:13px;display:block;line-height:1.2}
 table.sched .nm i{font-style:normal;font-size:11px;color:var(--muted-2)}
 tr.hdr th{background:var(--gold-soft);font-family:var(--font-display);font-size:12px;font-weight:700;color:var(--ink);
@@ -832,6 +837,17 @@ function jabatanDari(u){
   if(j) return j;
   return String(u.keterangan||'').trim() || '—';
 }
+/* Satu divisi NYATA, apa pun isi DIV. Sejak Input Mingguan punya tab "Semua
+   Divisi", DIV bisa bernilai 'ALL' — dan setiap kode yang butuh SATU divisi
+   (lembar bulanan, salin minggu lalu, isi sel kosong, kosongkan, ekspor
+   PNG/WA) akan diam-diam bekerja atas daftar kru kosong kalau menerimanya.
+   Diam-diam itu masalahnya: tidak ada galat, cuma "tidak terjadi apa-apa".
+   Yang dipulangkan divisi pertama yang memang jadi kuasa orang ini. */
+function divTunggal(){
+  if(typeof DIV!=='undefined' && DIV!=='ALL') return DIV;
+  const k=divisiKuasa();
+  return k[0] || DIVISI[0].k;
+}
 function kruDivisi(k){
   return ROSTER.filter(u=>u.active!==false && divisiDari(u)===k)
     .sort((a,b)=>{
@@ -1207,15 +1223,32 @@ function render(){
 /* =====================================================================
    POTONGAN HTML BERSAMA
    ===================================================================== */
-function segDivisi(aktif,onclick){
+/* dgnSemua = tambahkan tab "Semua Divisi" di depan. Dipakai Input Mingguan,
+   TIDAK dipakai halaman bulanan: lembar sebulan satu divisi sudah 31 kolom,
+   dan menumpuk empat divisi di lebar yang sama menghasilkan halaman yang cuma
+   bisa dibaca dengan menggulir dua arah sekaligus. */
+function segDivisi(aktif,onclick,dgnSemua){
   /* Hanya keempat divisi shift. Tidak ada tab tambahan untuk sisanya:
      yang tidak dijadwalkan memang tidak punya lembar untuk dilihat. */
   const semua=DIVISI.slice();
-  return '<div class="seg">'+semua.map(d=>{
+  const kuasa=divisiKuasa();
+  let h='<div class="seg">';
+  if(dgnSemua){
+    /* Hitungannya HANYA divisi yang boleh disusun orang ini — sama dengan isi
+       lembarnya nanti. Menampilkan jumlah seluruh kru sementara yang tergambar
+       cuma satu divisi membuat angka di tab tidak pernah cocok dengan yang
+       terlihat di bawahnya. */
+    const n=kuasa.reduce((a,k)=>a+kruDivisi(k).length,0);
+    h+='<button class="'+(aktif==='ALL'?'active':'')+'" onclick="'+onclick+'(\'ALL\')" '
+      +'title="Susun seluruh divisi yang Anda pegang dalam satu layar">🗂️ Semua Divisi'
+      +(n?' <span style="opacity:.6;font-weight:600">'+n+'</span>':'')+'</button>';
+  }
+  h+=semua.map(d=>{
     const n=kruDivisi(d.k).length;
     return '<button class="'+(aktif===d.k?'active':'')+'" onclick="'+onclick+'(\''+d.k+'\')">'+d.ic+' '+esc(d.n)+
            (n?' <span style="opacity:.6;font-weight:600">'+n+'</span>':'')+'</button>';
-  }).join('')+'</div>';
+  }).join('');
+  return h+'</div>';
 }
 function legendaShift(){
   return '<div class="legend">'+daftarShift().map(k=>{
@@ -1483,6 +1516,13 @@ function dashDiv(k){ DASH_HAL=1; DASH_HAL2=1; DASH_DIV=k; render(); }
    dibaca berbaris-baris dari papan. Tiap pita = satu minggu Senin–Minggu.
    ===================================================================== */
 function viewBulanan(){
+  /* DIV BOLEH BERNILAI 'ALL' sejak Input Mingguan punya tab Semua Divisi — dan
+     'ALL' BUKAN divisi. Kalau dibiarkan bocor ke sini, kruDivisi('ALL')
+     memulangkan array kosong dan halaman bulanan berbunyi "Belum ada kru di
+     divisi undefined" untuk divisi yang jelas penuh isinya, tanpa satu pun
+     galat. Ditarik kembali ke divisi nyata di sini, bukan disaring di belasan
+     tempat di bawahnya. */
+  if(DIV==='ALL') DIV=divTunggal();
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const emps=kruDivisi(DIV);
   const pita=pitaBulan(mk);
@@ -1524,15 +1564,39 @@ function viewBulanan(){
         +' <span>'+esc(rentangMinggu(p.senin))
         +(sambung?' · '+sambung+' kolom sambungan dari bulan sebelah (tidak bisa diubah di sini)':'')
         +'</span></th></tr>';
-      body+='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>TGL</th>'+
+      /* Kepala kolom ketiga IKUT BERGANTI. "TGL" di atas kolom yang isinya
+         jabatan sudah keliru sejak dulu — kolom tanggalnya justru ada di
+         sebelah kanannya. Sekarang ia menyebut isinya sendiri. */
+      body+='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>BEBAN</th>'+
         hariPita.map(d=>'<th class="'+(luarBulan(d,mk)?'luar':'')+'">'+tglPendek(d)+'</th>').join('')+'</tr>';
-      body+='<tr class="hdr2"><th></th><th></th><th>HARI</th>'+
+      body+='<tr class="hdr2"><th></th><th></th><th>BULAN INI</th>'+
         hariPita.map(d=>{ const i=idxHari(d);
           return '<th class="'+(i>=5?'wknd ':'')+(luarBulan(d,mk)?'luar':'')+'">'+HARI_PJG[i]+'</th>'; }).join('')+'</tr>';
       emps.forEach((u,ui)=>{
+        /* KOLOM KETIGA: BEBAN BULAN INI, bukan jabatan.
+           Dulu di sini tercetak jabatanDari(u) — dan karena kolom "Tim /
+           Keterangan" di Office hampir selalu berisi nama divisinya sendiri,
+           yang terbaca adalah "Kitchen / Kitchen / Kitchen …" menurun sepanjang
+           lembar Kitchen. Satu kolom penuh yang mengulang judul lembarnya
+           sendiri, di halaman yang justru sedang kekurangan tempat.
+
+           Gantinya angka yang memang dicari head saat memandang lembar ini:
+           berapa hari orang ini masuk bulan ini, berapa off, berapa jam.
+           Itulah yang menentukan siapa yang di-off-kan minggu depan, dan
+           selama ini harus dihitung dengan mata dari 31 sel.
+
+           Jabatan yang BENAR-BENAR diisi tangan di Pengaturan tetap dihormati:
+           kalau head repot-repot menulis "S. BAR", itu memang keterangan yang
+           membedakan orang — dan ia ditulis kecil di bawah angkanya. Yang
+           dibuang cuma keterangan yang cuma mengulang nama divisi. */
+        const bk=bebanKru(u,mk);
+        const jbt=(S&&S.setting.jabatan[u.id])||'';
+        const ket=(jbt && jbt.toLowerCase()!==namaDivisi(DIV).toLowerCase()) ? jbt : '';
         body+='<tr><td class="no">'+(ui+1)+'</td>'+
           '<td class="nm"><b>'+esc(u.name)+'</b>'+(isHeadUser(u.id,DIV)?'<i>head divisi</i>':'')+'</td>'+
-          '<td class="jb">'+esc(jabatanDari(u))+'</td>'+
+          '<td class="jb" title="'+esc(bk.masuk+' hari masuk · '+bk.libur+' off · '+bk.kosong+' belum diatur')+'">'+
+            '<b>'+bk.masuk+'</b> masuk'+
+            '<i>'+bk.libur+' off'+(bk.jam?' · '+bk.jam+' jam':'')+(ket?' · '+esc(ket):'')+'</i></td>'+
           hariPita.map(d=>selHtml(sel(u.id,d),u.id,d,bisa,luarBulan(d,mk))).join('')+'</tr>';
       });
       /* Daily worker ikut di TABEL YANG SAMA, di bawah kru tetap pita ini —
@@ -1808,46 +1872,86 @@ function viewMinggu(){
       +'Halaman ini untuk head divisi.<div class="mutedhint" style="margin-top:6px">'
       +'Kalau Anda memang head, minta admin menunjuk Anda di <b>Pengaturan → Head Divisi</b>.</div></div></div>';
   }
-  if(kuasa.indexOf(DIV)<0) DIV=kuasa[0];
+  if(DIV!=='ALL' && kuasa.indexOf(DIV)<0) DIV=kuasa[0];
+  const semuaDiv=(DIV==='ALL');
   const senin=MINGGU_AKTIF||seninDari(hariIni());
   const hari=tujuhHari(senin);
-  const emps=kruDivisi(DIV);
+  /* Divisi yang digambar. Di mode Semua HANYA yang boleh disusun orang ini —
+     head Bar tidak pernah boleh mengisi lembar Kitchen, dan menampilkannya
+     sebagai sel yang bisa diklik lalu ditolak backend adalah janji palsu. */
+  const daftarDiv=semuaDiv?kuasa.slice():[DIV];
+  const emps=semuaDiv?[]:kruDivisi(DIV);
 
-  let body='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>TGL</th>'
+  const kepala='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>TGL</th>'
     +hari.map(d=>'<th>'+tglPendek(d)+'</th>').join('')+'</tr>'
     +'<tr class="hdr2"><th></th><th></th><th>HARI</th>'
     +hari.map((d,i)=>'<th class="'+(i>=5?'wknd':'')+'">'+HARI[i].toUpperCase()+'</th>').join('')+'</tr>';
-  if(!emps.length){
-    body+='<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted-2)">Belum ada kru di divisi ini</td></tr>';
-  }
-  emps.forEach((u,ui)=>{
-    body+='<tr><td class="no">'+(ui+1)+'</td>'
-      +'<td class="nm"><b>'+esc(u.name)+'</b><i>'+esc(jabatanDari(u))+'</i></td>'
-      /* Dulu tombol ini cuma bertulis "baris" dan tidak ada yang menebak
-         gunanya. Namanya sekarang menyebut pekerjaannya: mengisi satu minggu
-         penuh untuk orang itu, satu klik satu hari. */
-      +'<td class="jb"><button class="btn btn-ghost btn-sm" title="Isi seluruh minggu untuk kru ini — satu klik satu hari" onclick="isiBaris(\''+escJs(u.id)+'\')">Input Mingguan</button></td>'
-      +hari.map(d=>selHtml(sel(u.id,d),u.id,d,true)).join('')+'</tr>';
-  });
-  /* Blok daily worker ikut tampil saat head menyusun minggu depan — justru di
-     sinilah ia paling dibutuhkan: head perlu tahu sudah ada berapa DW hari
-     Sabtu SEBELUM memutuskan berapa kru tetap yang di-off-kan. Barisnya
-     TIDAK bisa diklik: yang mengubahnya adalah HR di modul Daily Worker. */
-  body+=blokDW(DIV,hari);
+  /* Satu divisi = satu tabel. Dulu isi tabel dirakit langsung di sini; sejak
+     mode Semua ada, potongannya dipisah supaya KEDUA mode memakai perakit yang
+     sama — kalau tidak, kolom yang ditambahkan nanti pasti cuma masuk ke salah
+     satunya. */
+  const tabelDiv=function(k){
+    const list=kruDivisi(k);
+    let b=kepala;
+    if(!list.length){
+      b+='<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted-2)">Belum ada kru di divisi ini</td></tr>';
+    }
+    list.forEach((u,ui)=>{
+      b+='<tr><td class="no">'+(ui+1)+'</td>'
+        +'<td class="nm"><b>'+esc(u.name)+'</b><i>'+esc(jabatanDari(u))+'</i></td>'
+        /* Dulu tombol ini cuma bertulis "baris" dan tidak ada yang menebak
+           gunanya. Namanya sekarang menyebut pekerjaannya: mengisi satu minggu
+           penuh untuk orang itu, satu klik satu hari. */
+        +'<td class="jb"><button class="btn btn-ghost btn-sm" title="Isi seluruh minggu untuk kru ini — satu klik satu hari" onclick="isiBaris(\''+escJs(u.id)+'\')">Input Mingguan</button></td>'
+        +hari.map(d=>selHtml(sel(u.id,d),u.id,d,true)).join('')+'</tr>';
+    });
+    /* Blok daily worker ikut tampil saat head menyusun minggu depan — justru di
+       sinilah ia paling dibutuhkan: head perlu tahu sudah ada berapa DW hari
+       Sabtu SEBELUM memutuskan berapa kru tetap yang di-off-kan. Barisnya
+       TIDAK bisa diklik: yang mengubahnya adalah HR di modul Daily Worker. */
+    b+=blokDW(k,hari);
+    return '<div class="tablewrap"><table class="sched">'+b+'</table></div>';
+  };
+  const isiTabel=semuaDiv
+    ? daftarDiv.map(function(k){
+        const n=kruDivisi(k).length;
+        const kosong=kruDivisi(k).reduce((a,u)=>a+hari.filter(d=>!sel(u.id,d)).length,0);
+        return '<div class="rowbar" style="margin-top:14px">'
+          +'<h2 style="font-size:15px">'+esc(ikonDivisiJadwal(k)+' '+namaDivisi(k))+'</h2>'
+          +'<span class="chip">'+n+' kru</span>'
+          +(kosong?'<span class="chip" style="color:var(--danger)">'+kosong+' sel kosong</span>'
+                  :'<span class="chip" style="color:var(--ok)">lengkap</span>')
+          +'</div>'+tabelDiv(k);
+      }).join('')
+    : tabelDiv(DIV);
 
-  const belum=emps.reduce((n,u)=>n+hari.filter(d=>!sel(u.id,d)).length,0);
+  const belum=(semuaDiv?daftarDiv:[DIV]).reduce(function(n,k){
+    return n+kruDivisi(k).reduce((a,u)=>a+hari.filter(d=>!sel(u.id,d)).length,0);
+  },0);
   return '<div class="panel">'
-    +'<div class="rowbar">'+segDivisi(DIV,'gantiDivMinggu')+'<div class="spacer"></div>'
+    +'<div class="rowbar">'+segDivisi(DIV,'gantiDivMinggu',true)+'<div class="spacer"></div>'
     +'<div class="navdate"><button class="iconbtn" onclick="geserMinggu(-1)">‹</button>'
     +'<b>'+esc(rentangMinggu(senin))+'</b>'
     +'<button class="iconbtn" onclick="geserMinggu(1)">›</button>'
     +tombolKembali('mingguIni', senin===seninDari(hariIni()), 'Kembali ke minggu ini')+'</div></div>'
     +panelKosongRoster()+panelGagalDW()
-    +(belum?'<div class="note w"><b>'+belum+' sel</b> masih kosong di minggu ini.</div>':'<div class="note i">Minggu ini sudah terisi penuh.</div>')
+    +(belum?'<div class="note w"><b>'+belum+' sel</b> masih kosong di minggu ini'+(semuaDiv?' (seluruh divisi Anda)':'')+'.</div>'
+           :'<div class="note i">Minggu ini sudah terisi penuh.</div>')
+    /* ALAT MASSAL DISEMBUNYIKAN DI MODE SEMUA, dan itu bukan kemalasan.
+       Salin Minggu Lalu, Isi Sel Kosong, Kosongkan, PNG, dan Teks WA semuanya
+       bekerja atas kruDivisi(DIV) — dan kruDivisi('ALL') memulangkan array
+       KOSONG. Kalau tombolnya dibiarkan, menekannya tidak melakukan apa pun
+       (atau memunculkan "Belum ada kru untuk diekspor" pada divisi yang jelas
+       penuh isinya): kegagalan yang paling membingungkan, karena layarnya
+       memperlihatkan puluhan kru tepat di bawah tombol yang berkata tidak ada
+       kru. Yang tetap jalan di mode ini: klik sel satu per satu, dan tombol
+       "Input Mingguan" per baris — keduanya bekerja per ORANG, bukan per DIV. */
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div><div class="tools">'
-    +'<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
-    +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Sel Kosong</button>'
-    +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>'
+    +(semuaDiv
+      ? '<span class="mutedhint">Salin / isi massal &amp; ekspor bekerja per divisi — pilih tab divisinya.</span>'
+      : '<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Sel Kosong</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>')
     +'</div></div>'
     /* Alat berbagi diletakkan juga di sini, bukan cuma di halaman bulanan:
        yang paling sering ditempel di papan dan dikirim ke grup justru jadwal
@@ -1855,15 +1959,27 @@ function viewMinggu(){
        menyusunnya. Menyuruhnya pindah ke halaman bulanan dulu cuma untuk
        mengunduh gambar adalah langkah yang tidak ada gunanya. */
     +'<div class="rowbar noprint"><span class="mutedhint">Bagikan minggu ini:</span><div class="spacer"></div><div class="tools">'
-    +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
-    +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;minggu&#39;)">💬 Teks WA</button>'
+    /* PNG & Teks WA ikut disembunyikan di mode Semua — alasannya sama dengan
+       alat massal di atas. Print/PDF TETAP ADA: ia mencetak apa yang benar-
+       benar ada di layar, jadi justru di mode inilah ia paling berguna. */
+    +(semuaDiv?''
+      : '<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;minggu&#39;)">💬 Teks WA</button>')
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
     +'</div></div>'
-    +'<div class="tablewrap"><table class="sched">'+body+'</table></div>'
+    +isiTabel
     +'<p class="mutedhint" style="margin-top:10px">Klik sel untuk memilih shift. Jam bawaan tiap shift bisa ditimpa per sel — dipakai untuk jadwal khusus, mis. shift 9 jam.</p>'
     +'</div>';
 }
-function gantiDivMinggu(k){ if(divisiKuasa().indexOf(k)<0){ toast('Anda bukan head divisi '+namaDivisi(k)); return; } DIV=k; render(); }
+/* 'ALL' dilewatkan tanpa pemeriksaan divisi — ia BUKAN divisi, melainkan
+   permintaan menampilkan seluruh divisi yang memang sudah jadi kuasa orang ini
+   (viewMinggu menyaringnya lagi lewat divisiKuasa()). Tanpa pengecualian ini,
+   menekan tab Semua dijawab "Anda bukan head divisi undefined" — namaDivisi()
+   tidak mengenal 'ALL', dan tabnya jadi mati. */
+function gantiDivMinggu(k){
+  if(k!=='ALL' && divisiKuasa().indexOf(k)<0){ toast('Anda bukan head divisi '+namaDivisi(k)); return; }
+  DIV=k; render();
+}
 function geserMinggu(n){ MINGGU_AKTIF=addD(MINGGU_AKTIF||seninDari(hariIni()), n*7); muatDanGambar(); }
 function mingguIni(){ MINGGU_AKTIF=seninDari(hariIni()); muatDanGambar(); }
 
@@ -2005,7 +2121,7 @@ function konfirmasi(judul,pesan,cb,opsi){
 function salinMingguLalu(){
   const senin=MINGGU_AKTIF||seninDari(hariIni());
   const lalu=addD(senin,-7);
-  const emps=kruDivisi(DIV);
+  const emps=kruDivisi(divTunggal());
   const rows=[];
   emps.forEach(u=>{
     for(let i=0;i<7;i++){
@@ -2071,7 +2187,7 @@ function isiSisa(){
 }
 function isiSisaHitung(){
   const b=ISI_SISA, kosong=[0,0,0,0,0,0,0], terisi=[0,0,0,0,0,0,0];
-  kruDivisi(DIV).forEach(function(u){
+  kruDivisi(divTunggal()).forEach(function(u){
     for(let i=0;i<7;i++){ if(sel(u.id, addD(b.senin,i))) terisi[i]++; else kosong[i]++; }
   });
   return {kosong:kosong, terisi:terisi};
@@ -2110,7 +2226,7 @@ function gambarIsiSisa(){
     +'<div class="mb">'
       +'<p class="mutedhint" style="margin-bottom:10px">Centang hari yang mau diisi, lalu pilih shift-nya. '
       +'Mis. matikan semua kecuali <b>SELASA</b> lalu pilih <b>OFF</b> — seluruh kru divisi '
-      +esc(namaDivisi(DIV))+' libur hari Selasa.</p>'
+      +esc(namaDivisi(divTunggal()))+' libur hari Selasa.</p>'
       +'<div class="hari7">'+strip+'</div>'
       +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-6px 0 12px">'
         +'<button class="btn btn-ghost btn-sm" onclick="isiSisaSemua(1)">Semua hari</button>'
@@ -2136,7 +2252,7 @@ function isiSisaPilih(pilihan){
   const b=ISI_SISA; if(!b) return;
   if(!b.hari.some(Boolean)){ toast('Belum ada hari yang dicentang'); return; }
   const rows=[];
-  kruDivisi(DIV).forEach(function(u){
+  kruDivisi(divTunggal()).forEach(function(u){
     for(let i=0;i<7;i++){
       if(!b.hari[i]) continue;
       const tgl=addD(b.senin,i);
@@ -2290,12 +2406,12 @@ function isiBarisSimpan(){
 }
 function kosongkanMinggu(){
   const senin=MINGGU_AKTIF||seninDari(hariIni());
-  const emps=kruDivisi(DIV);
+  const emps=kruDivisi(divTunggal());
   const hapus=[];
   emps.forEach(u=>{ tujuhHari(senin).forEach(tgl=>{ if(sel(u.id,tgl)) hapus.push({u:u.id,d:tgl}); }); });
   if(!hapus.length){ toast('Minggu ini sudah kosong'); return; }
   konfirmasi('Kosongkan minggu ini?',
-    '<b>'+hapus.length+' sel</b> divisi '+esc(namaDivisi(DIV))+' pada '+esc(rentangMinggu(senin))+' akan dihapus. Tidak bisa dibatalkan.',
+    '<b>'+hapus.length+' sel</b> divisi '+esc(namaDivisi(divTunggal()))+' pada '+esc(rentangMinggu(senin))+' akan dihapus. Tidak bisa dibatalkan.',
     ()=>{ tulisSel([],hapus); toast('Minggu dikosongkan'); });
 }
 
@@ -2406,16 +2522,49 @@ function pilShiftAju(a){
   const jam=(!d.libur && a.jamMulai && a.jamSelesai) ? ' '+esc(a.jamMulai+'–'+a.jamSelesai) : '';
   return ' <span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(d.n)+jam+'</span>';
 }
+/* Berapa pengajuan yang ditampilkan di daftar utama. Sisanya turun ke panel
+   Riwayat yang tertutup. */
+const AJU_TAMPIL=20;
+let AJU_RIWAYAT_BUKA=false;
+let AJU_HAL=1;
+function toggleRiwayatAju(){ AJU_RIWAYAT_BUKA=!AJU_RIWAYAT_BUKA; AJU_HAL=1; render(); }
+function ajuHal(n){ AJU_HAL=Math.max(1,n); render(); }
+/* Pager sederhana: Sebelumnya / halaman x dari y / Berikutnya. Sengaja BUKAN
+   deretan nomor halaman — riwayat pengajuan tidak pernah dicari per nomor
+   halaman, dan deretan tombol kecil di layar HP lebih sering salah tekan
+   daripada tepat. Yang benar-benar dipakai cuma "mundur satu lagi". */
+function ajuPagerHTML(hal,maks,total){
+  if(maks<=1) return '';
+  return '<div class="rowbar noprint" style="margin-top:10px">'
+    +'<button class="btn btn-ghost btn-sm"'+(hal<=1?' disabled':'')
+      +' onclick="ajuHal('+(hal-1)+')">‹ Sebelumnya</button>'
+    +'<span class="mutedhint">Halaman <b>'+hal+'</b> dari '+maks+' · '+total+' pengajuan</span>'
+    +'<div class="spacer"></div>'
+    +'<button class="btn btn-ghost btn-sm"'+(hal>=maks?' disabled':'')
+      +' onclick="ajuHal('+(hal+1)+')">Berikutnya ›</button></div>';
+}
 function viewPengajuan(){
   const semua=(S.pengajuan||[]).slice();
   /* Yang MENUNGGU selalu di atas: itu satu-satunya yang menuntut tindakan.
      Sisanya urut terbaru — riwayat cuma untuk dilihat sekali-sekali. */
-  const list=semua.filter(a=>isAdmin() || bisaPutuskan(a) || a.userId===(ME&&ME.id))
+  const urut=semua.filter(a=>isAdmin() || bisaPutuskan(a) || a.userId===(ME&&ME.id))
     .sort((x,y)=>(x.status==='MENUNGGU'?0:1)-(y.status==='MENUNGGU'?0:1) || (y.dibuatAt||0)-(x.dibuatAt||0));
 
-  let kartu='';
-  if(!list.length) kartu='<div class="empty"><div class="ic">📭</div>Belum ada pengajuan.</div>';
-  list.forEach(a=>{
+  /* DAFTAR UTAMA DIPOTONG 20 TERBARU, sisanya ke panel Riwayat.
+     Sebelumnya seluruh pengajuan digambar sekaligus; setelah beberapa bulan
+     itu berarti ratusan kartu di satu halaman — yang menunggu keputusan
+     tenggelam, dan halamannya berat digambar ulang tiap satu tombol ditekan.
+
+     YANG MENUNGGU TIDAK PERNAH IKUT DIPOTONG, berapa pun jumlahnya. Batas 20
+     itu untuk riwayat, bukan untuk pekerjaan: menyembunyikan pengajuan ke-21
+     yang belum diputuskan berarti ia tidak akan pernah diputuskan. */
+  const menunggu=urut.filter(a=>a.status==='MENUNGGU');
+  const sudah=urut.filter(a=>a.status!=='MENUNGGU');
+  const sisaKuota=Math.max(0, AJU_TAMPIL-menunggu.length);
+  const list=menunggu.concat(sudah.slice(0,sisaKuota));
+  const riwayat=sudah.slice(sisaKuota);
+
+  const kartuAju=function(a){
     const u=kruById(a.userId);
     const div=u?divisiDari(u):DIV_NONSHIFT;
     const rentang=(a.dari===a.sampai)?tglPanjang(a.dari):(tglManusia(a.dari)+' – '+tglPanjang(a.sampai));
@@ -2427,7 +2576,7 @@ function viewPengajuan(){
       ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batalkan</button>' : '';
     const jejak=a.status!=='MENUNGGU'
       ? '<span class="mutedhint">'+esc(a.status==='DISETUJUI'?'disetujui':'ditolak')+' oleh '+esc(a.putusOleh||'—')+'</span>' : '';
-    kartu+='<div class="row aju" style="flex-direction:column;align-items:stretch">'
+    return '<div class="row aju" style="flex-direction:column;align-items:stretch">'
       +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
       +'<span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'+esc(JENIS_AJU[a.jenis]||a.jenis)+'</span>'
       +'<b>'+esc(u?u.name:namaKru(a.userId))+'</b>'
@@ -2440,8 +2589,11 @@ function viewPengajuan(){
       +'<div class="isi"><b>'+esc(rentang)+'</b>'+pilShiftAju(a)+(a.alasan?' — '+esc(a.alasan):'')+'</div>'
       +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+jejak
       +'<div class="spacer"></div>'+putus+batal+'</div></div>';
-  });
+  };
 
+  const kartu=list.length
+    ? list.map(kartuAju).join('')
+    : '<div class="empty"><div class="ic">📭</div>Belum ada pengajuan.</div>';
   const nMenunggu=list.filter(a=>a.status==='MENUNGGU'&&bisaPutuskan(a)).length;
   return '<div class="panel">'
     +'<div class="rowbar"><h2>📝 Pengajuan Off, Izin &amp; Tukar Shift</h2><div class="spacer"></div>'
@@ -2452,7 +2604,43 @@ function viewPengajuan(){
       :(divisiKuasa().length?'Sebagai head '+esc(divisiKuasa().map(namaDivisi).join(', '))+', Anda memutuskan pengajuan kru divisi itu.'
         :'Pengajuan Anda diputuskan oleh head divisi Anda.'))
     +' Pengajuan <b>Off/Izin/Cuti</b> yang disetujui langsung mengisi sel jadwalnya.</p>'
-    +kartu+'</div>';
+    +kartu
+    +(riwayat.length
+      ? '<p class="mutedhint" style="margin-top:10px">Menampilkan '+list.length+' terbaru. '
+        +riwayat.length+' pengajuan lama ada di Riwayat di bawah.</p>'
+      : '')
+    +'</div>'
+    /* PANEL RIWAYAT — TERTUTUP secara bawaan, dan isinya benar-benar TIDAK
+       DIGAMBAR saat tertutup (bukan disembunyikan CSS). Halaman ini digambar
+       ulang penuh tiap satu tombol ditekan; menyembunyikan ratusan kartu
+       dengan display:none tetap membayar ongkos merangkai HTML-nya setiap
+       kali, dan itulah yang membuat halaman ini melambat setelah beberapa
+       bulan berjalan. */
+    +(riwayat.length
+      ? '<div class="panel"><div class="rowbar">'
+        +'<h2>🗄️ Riwayat Pengajuan</h2><span class="chip">'+riwayat.length+'</span>'
+        +'<div class="spacer"></div>'
+        +'<button class="btn btn-ghost btn-sm" onclick="toggleRiwayatAju()">'
+        +(AJU_RIWAYAT_BUKA?'Tutup':'Buka')+'</button></div>'
+        /* BERHALAMAN, bukan digulir semuanya. Riwayat setahun bisa ratusan
+           kartu; menggambar seluruhnya sekali jalan membuat halaman ini berat
+           tiap kali satu tombol di panel atas ditekan — dan render di modul
+           ini selalu total, bukan diferensial.
+           AJU_HAL dijepit di sini, bukan di ajuHal(): jumlah halaman berubah
+           saat pengajuan baru masuk atau diputuskan, dan nomor halaman yang
+           sudah melewati batas akan memulangkan daftar kosong yang terbaca
+           seperti riwayatnya hilang. */
+        +(AJU_RIWAYAT_BUKA
+          ? (function(){
+              const maks=Math.max(1,Math.ceil(riwayat.length/AJU_TAMPIL));
+              if(AJU_HAL>maks) AJU_HAL=maks;
+              const mulai=(AJU_HAL-1)*AJU_TAMPIL;
+              return riwayat.slice(mulai,mulai+AJU_TAMPIL).map(kartuAju).join('')
+                +ajuPagerHTML(AJU_HAL,maks,riwayat.length);
+            })()
+          : '<p class="mutedhint">Pengajuan yang sudah diputuskan, di luar '+AJU_TAMPIL+' terbaru.</p>')
+        +'</div>'
+      : '');
 }
 /* `tglAwal` diisi saat dipanggil dari kotak tanggal di kalender Jadwal Saya.
    Kru yang mengklik tanggal 12 sudah menyatakan hari mana yang ia maksud;
@@ -2794,7 +2982,7 @@ function pitaMingguAktif(){
   return [{senin, hari:tujuhHari(senin)}];
 }
 function judulLembar(lingkup){
-  const nama=namaDivisi(DIV).toUpperCase();
+  const nama=namaDivisi(divTunggal()).toUpperCase();
   return lingkup==='minggu'
     ? 'SCHEDULE '+nama+' — '+rentangMinggu(MINGGU_AKTIF||seninDari(hariIni())).toUpperCase()
     : 'SCHEDULE '+nama+' — '+labelBulan(BULAN_AKTIF||bulanDari(hariIni())).toUpperCase();
@@ -2812,7 +3000,7 @@ function isiHariWA(emps,tgl){
   return {
     per: per,
     urut: daftarShift().filter(function(k){ return per[k]; }),
-    dw: DW_ROWS.filter(function(x){ return x.divisi===DIV && x.tgl===tgl; })
+    dw: DW_ROWS.filter(function(x){ return x.divisi===divTunggal() && x.tgl===tgl; })
                .sort(function(a,b){ return String(a.m||'').localeCompare(String(b.m||'')); }),
     kosong: emps.filter(function(u){ return !sel(u.id,tgl); }).length
   };
@@ -2834,18 +3022,18 @@ function isiHariWA(emps,tgl){
    sebulan ditulis padat (satu baris per hari). Sebulan dalam bentuk lapang
    menjadi 150-an baris dan tidak ada yang membacanya sampai habis. */
 function exportWA(lingkup){
-  const emps=kruDivisi(DIV);
+  const emps=kruDivisi(divTunggal());
   const pita=(lingkup==='minggu')?pitaMingguAktif():pitaBulanAktif();
   const mingguan=(lingkup==='minggu');
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const a=awalBulan(mk), z=akhirBulan(mk);
 
-  if(!emps.length && !DW_ROWS.some(function(x){ return x.divisi===DIV; })){
+  if(!emps.length && !DW_ROWS.some(function(x){ return x.divisi===divTunggal(); })){
     toast('Belum ada kru untuk diekspor'); return;
   }
 
   const garis='━━━━━━━━━━━━━━━';
-  let txt='*JADWAL SHIFT — '+namaDivisi(DIV).toUpperCase()+'*\n'
+  let txt='*JADWAL SHIFT — '+namaDivisi(divTunggal()).toUpperCase()+'*\n'
     +'_'+(mingguan ? rentangMinggu(MINGGU_AKTIF||seninDari(hariIni())) : labelBulan(mk))+'_\n'
     +garis+'\n';
 
@@ -2934,11 +3122,11 @@ function salinTeks(txt){
    skrip dari luar. Ukurannya mengikuti jumlah kru, jadi divisi besar tidak
    terpotong. */
 function exportPNG(lingkup){
-  const emps=kruDivisi(DIV);
+  const emps=kruDivisi(divTunggal());
   if(!emps.length){ toast('Belum ada kru untuk diekspor'); return; }
   const minggu=(lingkup==='minggu');
   const pita=minggu?pitaMingguAktif():pitaBulanAktif();
-  const namaBerkas='jadwal-'+DIV+'-'+(minggu?('minggu-'+(MINGGU_AKTIF||seninDari(hariIni())))
+  const namaBerkas='jadwal-'+divTunggal()+'-'+(minggu?('minggu-'+(MINGGU_AKTIF||seninDari(hariIni())))
                                             :(BULAN_AKTIF||bulanDari(hariIni())))+'.png';
 
   const sc=2, padX=20, noW=42, nmW=210, jbW=96, dayW=118;

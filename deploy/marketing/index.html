@@ -3628,11 +3628,31 @@ function eventFinance(ev){
      centangnya. Menambahkan dp mentah-mentah ke paid akan membuat DP terhitung
      dua kali, dan sisa pelunasan yang terlalu kecil adalah kesalahan yang baru
      ketahuan saat menagih. */
-  const dpDiakui=ynBool(d.dpPaid,false) ? Math.max(0, dp - bayarTercatat) : 0;
+  const dpCentang=ynBool(d.dpPaid,false);
+  const dpDiakui=dpCentang ? Math.max(0, dp - bayarTercatat) : 0;
   const paid=bayarTercatat+dpDiakui;
   const remaining=Math.max(0,grand-paid);
+  /* dpCentang DAN dpDiakui KEDUANYA DIPULANGKAN, dan itu bukan kelebihan.
+     Keduanya menjawab pertanyaan yang berbeda, dan menyamakannya adalah sebab
+     keluhan "centangnya tidak ada pengaruh apa-apa" (13 Agustus 2026):
+
+       dpCentang  = orangnya menyatakan DP sudah masuk
+       dpDiakui   = BERAPA yang ditambahkan centang itu ke Terbayar
+
+     Keduanya berbeda tepat saat pembayaran yang tercatat SUDAH melampaui DP.
+     Contoh nyata dari layar: DP Rp1.000.000, pembayaran tercatat Rp5.000.000.
+     Dicentang atau tidak, Terbayar tetap Rp5.000.000 — dan itu MEMANG BENAR,
+     karena DP-nya sudah tercakup di dalam yang tercatat; menambahkannya lagi
+     akan menghitung uang yang sama dua kali.
+
+     Yang salah selama ini cuma keterangannya: layar memakai dpDiakui untuk
+     memutuskan tulisan "sudah dibayar / belum dibayar", jadi DP yang sudah
+     dicentang tetap berbunyi "belum dibayar" — dan orang menyimpulkan
+     centangnya rusak, lalu menekannya berkali-kali. dpTertutupBayar menandai
+     keadaan ketiga itu supaya layar bisa mengatakannya apa adanya. */
+  const dpTertutupBayar = dpCentang && dp>0 && dpDiakui===0 && bayarTercatat>=dp;
   return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,
-          bayarTercatat,dpDiakui,paid,remaining};
+          bayarTercatat,dpCentang,dpDiakui,dpTertutupBayar,paid,remaining};
 }
 /* Sebutan DP di layar & dokumen. Sejak DP diisi nominal, menulis "DP 50%" di
    invoice adalah bohong: angkanya tidak pernah lagi dihitung dari persen itu.
@@ -6590,28 +6610,65 @@ function rinciTeksTotal(jenis,jml,harga){
    Angkanya BACA-SAJA di sini: yang mengubahnya tetap kotak Discount, saklar
    Service Charge, dan Deposit di kolom kiri. Dua tempat mengetik satu angka
    yang sama adalah cara paling cepat membuat keduanya berselisih. */
-function rinciKakiHTML(){
-  const ev=S.events.find(function(x){ return x.id===_asEvId; });
-  if(!ev) return '';
-  /* Dihitung dari BAYANGAN — isi kotak & tabel yang sedang di layar, bukan
-     yang terakhir disimpan. */
-  const f=eventFinance(typeof finBayangan==='function'?finBayangan(ev):ev);
-  const baris=function(label,nilai,tebal){
-    return '<tr class="rk'+(tebal?' kuat':'')+'"><td colspan="5">'+label+'</td>'
-      +'<td class="mono r">'+nilai+'</td><td></td></tr>';
-  };
-  let h='';
-  h+=baris('Subtotal',rp(f.sub));
-  if(f.disc)               h+=baris('Discount','− '+rp(f.disc));
-  if(f.svcOn && f.service) h+=baris('Service Charge ('+S.settings.serviceCharge+'%)',rp(f.service));
-  if(f.tax)                h+=baris('PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
-  h+=baris('TOTAL',rp(f.grand),true);
-  /* Baris DP hanya untuk acara yang MEMANG memakai DP. eventFinance selalu
-     memulangkan angka DP (jatuh ke persentase bawaan kalau nominalnya kosong),
-     jadi tanpa penyaring ini "DP 50%" ikut tercetak pada acara yang dibayar
-     penuh di awal — angka yang tidak pernah disepakati siapa pun. */
-  const pakaiDp = (ev.detail||{}).sistemBayar==='DP' || +((ev.detail||{}).depositNominal)>0;
-  if(pakaiDp && f.dp) h+=baris(dpLabel(f)+(f.dpDiakui?' <span class="cell-sub">(sudah masuk Terbayar)</span>':''),rp(f.dp));
+/* Acara ini MEMANG memakai DP? eventFinance selalu memulangkan angka DP (jatuh
+   ke persentase bawaan kalau nominalnya kosong), jadi tanpa penyaring ini
+   "DP 50%" ikut tercetak pada acara yang dibayar penuh di awal — angka yang
+   tidak pernah disepakati siapa pun. */
+function finPakaiDp(ev){
+  const d=(ev&&ev.detail)||{};
+  return d.sistemBayar==='DP' || +(d.depositNominal)>0;
+}
+/* ================= KAKI LEMBAR TAGIHAN — SATU SUMBER =================
+   Dulu ada DUA kaki yang menyusun deretan ini sendiri-sendiri: satu untuk
+   tabel Rincian di layar (rinciKakiHTML), satu lagi untuk dokumen yang
+   dicetak & dikirim ke client (rincianTabelHTML). Keduanya lambat laun
+   berselisih persis seperti yang selalu terjadi kalau satu angka dihitung di
+   dua tempat — dan yang berselisih justru baris DP:
+
+     layar  : baris DP hanya muncul kalau acaranya memang ber-DP, dan diikuti
+              TERBAYAR sehingga TOTAL − TERBAYAR = SISA bisa dijumlahkan mata.
+     cetak  : baris DP SELALU dicetak, tanpa peduli acaranya ber-DP atau tidak,
+              dan tanpa peduli centang "DP sudah dibayar" menyala atau tidak —
+              lalu langsung disusul SISA PELUNASAN tanpa baris TERBAYAR.
+
+   Akibatnya di kertas yang diterima client: TOTAL, lalu DP terpampang seperti
+   potongan, lalu SISA yang TIDAK sama dengan TOTAL − DP. Yang membacanya
+   menyimpulkan DP-nya sudah dipotong otomatis padahal belum ada uang masuk —
+   atau sebaliknya menagih ulang DP yang sudah dibayar. Penyaring pakaiDp
+   memang pernah ditambahkan, tapi hanya di kaki layar; kaki cetak tidak
+   pernah ikut, dan tidak ada yang melaporkannya karena dokumen itu jarang
+   dibaca berdampingan dengan layarnya.
+
+   Sekarang keduanya membaca deretan yang sama dari sini. Yang boleh berbeda
+   cuma cara menggambarnya (kelas CSS vs gaya cetak) dan dua saklar di opsi. */
+function finKakiRows(ev,f,opsi){
+  opsi=opsi||{};
+  const r=[];
+  if(opsi.subtotal) r.push({l:'Subtotal',lc:'SUBTOTAL',v:rp(f.sub)});
+  if(f.disc)               r.push({l:'Discount',lc:'DISCOUNT',v:'− '+rp(f.disc)});
+  if(f.svcOn && f.service) r.push({l:'Service Charge ('+S.settings.serviceCharge+'%)',
+                                   lc:'SERVICE CHARGE ('+S.settings.serviceCharge+'%)',v:rp(f.service)});
+  if(f.tax)                r.push({l:'PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',
+                                   lc:'PB1 / PAJAK ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',v:rp(f.tax)});
+  r.push({l:'TOTAL',lc:'TOTAL',v:rp(f.grand),tebal:true});
+  if(opsi.tagihan===false) return r;          // surat penawaran: belum ada yang dibayar
+  const pakaiDp=finPakaiDp(ev);
+  if(pakaiDp && f.dp){
+    /* KETERANGANNYA WAJIB, dan inilah inti perbaikannya. Angka DP yang berdiri
+       sendiri di bawah TOTAL selalu terbaca sebagai potongan. Yang menentukan
+       ia sudah dipotong atau belum adalah centang "DP sudah dibayar" — jadi
+       jawabannya ditulis di baris itu juga, bukan disimpulkan dari selisih
+       dua baris di bawahnya.
+
+       TIGA KEADAAN, bukan dua. Versi pertama keterangan ini cuma memeriksa
+       f.dpDiakui, jadi DP yang SUDAH dicentang tapi sudah tercakup pembayaran
+       tercatat tetap berbunyi "belum dibayar" — persis yang bikin orang
+       menyimpulkan centangnya tidak berfungsi. */
+    r.push({l:dpLabel(f),lc:dpLabel(f).toUpperCase(),v:rp(f.dp),
+            ket: f.dpTertutupBayar ? 'sudah dibayar — termasuk dalam Terbayar di bawah'
+               : f.dpDiakui        ? 'sudah dibayar — sudah masuk Terbayar'
+               :                     'belum dibayar — belum mengurangi sisa'});
+  }
   /* TERBAYAR SELALU DITULIS begitu ada DP atau pembayaran — tidak lagi
      disembunyikan saat nol. Tanpa baris ini deretannya berbunyi TOTAL, DP,
      SISA PELUNASAN, dan ketiganya TIDAK BISA DICOCOKKAN: sisa dihitung dari
@@ -6622,14 +6679,46 @@ function rinciKakiHTML(){
      Rinciannya ikut ditulis kalau Terbayar berisi dua sumber, supaya jelas DP
      yang tercantum di atas memang sudah termasuk dan tidak perlu dikurangkan
      sekali lagi. */
-  if(pakaiDp || f.paid){
+  if(pakaiDp || f.paid || opsi.bayarSelalu){
     const rinci=(f.dpDiakui&&f.bayarTercatat)
-      ? ' <span class="cell-sub">('+rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)+')</span>'
-      : (f.dpDiakui ? ' <span class="cell-sub">(dari DP)</span>' : '');
-    h+=baris('Terbayar'+rinci,rp(f.paid));
-    h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
+      ? rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)
+      : (f.dpDiakui ? 'dari DP' : '');
+    r.push({l:'Terbayar',lc:'TERBAYAR',v:rp(f.paid),ket:rinci});
+    r.push({l:'SISA PELUNASAN',lc:'SISA PELUNASAN',v:rp(Math.max(0,f.grand-f.paid)),tebal:true});
+    /* KELEBIHAN BAYAR — baris yang selama ini tidak pernah ada.
+       Begitu Terbayar melampaui TOTAL, deretannya berbunyi TOTAL 1.9jt,
+       TERBAYAR 6.7jt, SISA Rp0: tiga angka yang tidak bisa dijumlahkan dengan
+       cara apa pun, dan yang membacanya menyimpulkan perhitungan kita kacau.
+       Sisanya memang benar nol (menuliskannya negatif lebih buruk lagi) —
+       yang hilang cuma keterangan ke mana selisihnya pergi.
+
+       Bukan kejadian langka: cukup diskon disepakati SESUDAH DP masuk, atau
+       lingkup acara dikurangi, atau satu nol kelebihan saat mencatat
+       pembayaran. Justru yang terakhir itu yang paling perlu segera terlihat. */
+    if(f.paid>f.grand){
+      r.push({l:'KELEBIHAN BAYAR',lc:'KELEBIHAN BAYAR',v:rp(f.paid-f.grand),
+              ket:'dibayar melebihi tagihan — periksa nominalnya atau kembalikan ke client'});
+    }
   }
-  return h;
+  return r;
+}
+function rinciKakiHTML(){
+  const ev=S.events.find(function(x){ return x.id===_asEvId; });
+  if(!ev) return '';
+  /* Dihitung dari BAYANGAN — isi kotak & tabel yang sedang di layar, bukan
+     yang terakhir disimpan. Bayangannya dipakai untuk finKakiRows JUGA, bukan
+     cuma untuk angkanya: kalau pakaiDp dibaca dari ev yang tersimpan, deposit
+     yang baru diketik belum memunculkan baris DP-nya sampai Simpan ditekan —
+     dan orang menyimpulkan angkanya tidak terpakai. */
+  const bayangan=(typeof finBayangan==='function'?finBayangan(ev):ev);
+  const f=eventFinance(bayangan);
+  const baris=function(label,nilai,tebal){
+    return '<tr class="rk'+(tebal?' kuat':'')+'"><td colspan="5">'+label+'</td>'
+      +'<td class="mono r">'+nilai+'</td><td></td></tr>';
+  };
+  return finKakiRows(bayangan,f,{subtotal:true}).map(function(x){
+    return baris(x.l+(x.ket?' <span class="cell-sub">('+esc(x.ket)+')</span>':''),x.v,x.tebal);
+  }).join('');
 }
 /* rinciCentang() DIHAPUS bersama saklar "Ketik Rincian sebagai Tabel".
    Tabel Rincian kini satu-satunya tempat baris tagihan diketik, jadi tidak ada
@@ -8786,10 +8875,17 @@ function financeTab(ev,canEdit){
      Yang perlu diketahui ("tidak pernah dobel") sudah dijamin rumusnya;
      menuliskannya di layar tiap kali cuma meminta orang mempercayai kalimat,
      bukan angka. */
+  /* KETERANGAN HIDUP DI BAWAH CENTANGNYA. Tanpa ini, centang yang benar-benar
+     tidak mengubah angka apa pun terbaca sebagai centang yang rusak — dan itu
+     memang terjadi (dilaporkan 13 Agustus 2026): begitu pembayaran yang
+     tercatat sudah melampaui DP, menyalakan centang tidak menambah apa-apa ke
+     Terbayar, karena DP-nya memang sudah tercakup di sana. Angkanya benar,
+     yang hilang cuma kalimat yang mengatakannya. */
   h+=finBaris('DP sudah dibayar',
       '<label class="cek"><input type="checkbox" id="efd_dpPaid"'
       +(ynBool(d.dpPaid,false)?' checked':'')+(canEdit?'':' disabled')
-      +' onchange="dpPaidUbah()"> Sudah masuk</label>', '');
+      +' onchange="dpPaidUbah()"> Sudah masuk</label>'
+      +'<div class="fh" id="efd_dpPaidKet">'+dpPaidKetHTML(ev,f)+'</div>', '');
 
   /* Dua kotak ini kini TEMPLATE, bukan isi lembar penawaran. Sejak tabel
      Rincian jadi satu-satunya sumber baris, rincianPenawaran() tidak lagi
@@ -8844,7 +8940,16 @@ function finHitungHTML(ev){
    +'</dl>';
   h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;margin-top:6px;border-top:1px solid var(--line)"><span style="font-weight:600">GRAND TOTAL</span><span class="mono" style="font-family:var(--ff-display);font-size:22px;color:var(--gold-deep)">'+rp(f.grand)+'</span></div>';
   h+='<div class="divider"></div><h4 style="font-size:14px;margin-bottom:12px">Pembayaran</h4>';
-  h+='<dl class="kv-list"><dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd><dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd><dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd><dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
+  h+='<dl class="kv-list">'
+   +(finPakaiDp(ev)&&f.dp?'<dt>'+dpLabel(f)+'</dt><dd class="mono">'+rp(f.dp)+'</dd>':'')
+   +'<dt>Terbayar</dt><dd class="mono" style="color:var(--ok)">'+rp(f.paid)+'</dd>'
+   +'<dt>Sisa</dt><dd class="mono" style="color:var(--warn)">'+rp(f.remaining)+'</dd>'
+   /* Kelebihan bayar ditulis di sini juga, bukan hanya di lembar tagihan:
+      panel inilah yang dibaca saat mencatat pembayaran, dan salah ketik satu
+      nol paling murah diperbaiki di detik itu juga. */
+   +(f.paid>f.grand?'<dt>Kelebihan bayar</dt><dd class="mono" style="color:var(--danger)">'
+      +rp(f.paid-f.grand)+'</dd>':'')
+   +'<dt>Status Invoice</dt><dd>'+statusChip(invStatus(ev),INV_STATUS_MAP())+'</dd></dl>';
   h+=paymentHistoryHtml(ev);
   /* PRATINJAU LEMBAR TAGIHAN — bentuk yang PERSIS diterima client.
      Sebelum ini, isi dokumen baru terlihat sesudah menekan Print, dan yang
@@ -8861,8 +8966,28 @@ function finHitungHTML(ev){
    +rincianTabelHTML(ev,f)+'</div>'
    +'<div class="fh" style="margin-top:7px">Baris FREE &amp; "to be confirm" diambil dari dua kotak template di sebelah kiri. '
    +'Kosongkan kotak FREE untuk memakai template umum di Pengaturan.</div>';
+  /* KIRIM INVOICE & REMINDER DP DIKEMBALIKAN — DI SINI, bukan di baris tabel
+     Invoice & Payment. Keduanya dicabut dari sana karena enam ikon berjajar
+     melipat jadi dua baris dan membuat tiap baris tabel setinggi dua kali
+     lipat (alasan yang masih berlaku, jangan dikembalikan ke sana). Tapi
+     mencabut tombolnya membuat waInvoice() & waReminderDP() jadi kode mati —
+     dan satu akibat yang tidak pernah dicatat: waInvoice adalah SATU-SATUNYA
+     yang menyetel ev.invoiceSent. Tanpa itu invStatus() tidak akan pernah
+     bisa memulangkan 'Sent', jadi invoice yang sudah dikirim ke client tetap
+     berlabel "Draft" selamanya, dan chip status itu punya satu keadaan yang
+     mustahil dicapai.
+
+     Panel ini tempat yang benar untuknya: ruangnya lega, dan orang yang
+     membukanya memang sedang mengurus uang acara ini — bukan sedang memindai
+     daftar invoice. */
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
+  h+='<button class="btn sm" title="Buka WhatsApp berisi rincian invoice" onclick="waInvoice(\''+ev.id+'\',\''+escJs(invoiceNo(ev))+'\')">'+svg(IC.wa)+'Kirim Invoice</button>';
+  /* Reminder DP hanya untuk acara yang memang ber-DP DAN DP-nya belum
+     terpenuhi. Menagih DP yang sudah lunas adalah pesan yang membuat client
+     mengira catatan kita berantakan. */
+  if(finPakaiDp(ev) && f.dp && f.paid<f.dp)
+    h+='<button class="btn sm" title="Buka WhatsApp berisi pengingat DP" onclick="waReminderDP(\''+ev.id+'\')">'+svg(IC.wa)+'Reminder DP</button>';
   h+='</div>';
   h+='<div style="margin-top:14px;padding:11px;background:var(--warn-bg);border-radius:9px;font-size:11.5px;color:var(--sand-dim)">'+svg(IC.alert,'')+' <b>Perlu konfirmasi:</b> Tarif PB1 '+st.pb1+'% + service '+st.serviceCharge+'% belum final.</div>';
   return h;
@@ -8968,11 +9093,39 @@ function hitungFinanceLive(el){
    digambar ulang seketika: ia satu-satunya isian di tab ini yang langsung
    mengubah Sisa Pelunasan, dan angka yang baru berubah sesudah halaman
    digambar ulang membuat yang menekannya menyimpulkan centangnya rusak. */
+/* Kalimat di bawah centang "DP sudah dibayar". Menjawab satu pertanyaan:
+   apakah menyalakan centang ini mengubah angka, dan kalau tidak, kenapa. */
+function dpPaidKetHTML(ev,f){
+  /* Diperiksa lewat finPakaiDp, BUKAN `!f.dp`. eventFinance selalu memulangkan
+     angka DP — kalau nominalnya kosong ia jatuh ke persentase bawaan — jadi
+     f.dp tidak pernah nol dan penjagaan itu tidak pernah berbunyi. Akibatnya
+     acara yang dibayar penuh di awal ikut dikabari "Rp4.840.000 dihitung
+     sebagai Terbayar" atas DP yang tidak pernah ada. */
+  if(!f) return '';
+  if(!finPakaiDp(ev) || !f.dp)
+    return 'Acara ini belum memakai DP. Isi <b>DP / Uang Muka</b> di atas dulu.';
+  if(f.dpTertutupBayar)
+    return '✓ Ditandai sudah dibayar. Angkanya <b>tidak menambah Terbayar</b> — pembayaran '
+      +'yang sudah dicatat ('+rp(f.bayarTercatat)+') memang sudah melampaui DP ('+rp(f.dp)+'), '
+      +'jadi menambahkannya lagi akan menghitung uang yang sama dua kali.';
+  if(f.dpDiakui)
+    return '✓ Ditandai sudah dibayar. <b>'+rp(f.dpDiakui)+'</b> ikut dihitung sebagai Terbayar '
+      +(f.bayarTercatat?'di atas '+rp(f.bayarTercatat)+' yang sudah dicatat di tab Kasir.'
+                       :'walau belum ada pembayaran yang dicatat di tab Kasir.');
+  return 'Belum ditandai. Sisa pelunasan masih dihitung seolah DP '+rp(f.dp)+' belum masuk.';
+}
 function dpPaidUbah(){
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
   const c=$('efd_dpPaid'); if(!c) return;
   ev.detail=ev.detail||{};
   ev.detail.dpPaid={v:!!c.checked};
+  /* Keterangannya disegarkan di tempat. finLive() hanya menggambar ulang panel
+     kanan; kalimat ini duduk di kolom KIRI bersama centangnya, jadi tanpa
+     baris ini ia membeku pada keadaan sebelum ditekan — kalimat basi yang
+     menjelaskan keadaan yang sudah berubah lebih buruk daripada tidak ada. */
+  const ket=$('efd_dpPaidKet');
+  if(ket){ const bay=(typeof finBayangan==='function'?finBayangan(ev):ev);
+    ket.innerHTML=dpPaidKetHTML(bay,eventFinance(bay)); }
   finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
@@ -8994,8 +9147,42 @@ function collectFinanceInto(ev){
   const dRows=dealBaca('efd_fbDeal'); if(dRows!==undefined) ev.detail.fbDeal=dRows;
   return true;
 }
+/* ============ ANGKA MANA YANG DIPAKAI LAYAR PEMBAYARAN ============
+   Dilaporkan 13 Agustus 2026: kaki lembar tagihan berkata TERBAYAR Rp4.000.000
+   sementara modal Catat Pembayaran — dibuka dari tombol tepat di bawahnya —
+   berkata "Sudah terbayar Rp8.453.500". Dua angka untuk satu hal yang sama, di
+   dua layar yang saling bersentuhan.
+
+   SEBABNYA: kaki lembar dihitung dari finBayangan(ev) — isi kotak yang SEDANG
+   DI LAYAR — sedangkan modal ini dihitung dari ev yang TERSIMPAN. Begitu
+   seseorang mengetik DP 4 juta lalu menekan "Catat Pembayaran" tanpa menyimpan
+   dulu, yang tersimpan masih kosong; eventFinance jatuh ke persentase bawaan
+   50%, dan 50% dari 16.907.000 adalah persis 8.453.500 yang muncul di layar
+   itu. Jumlah yang diisikan otomatis pun ikut angka bayangan itu — jadi orang
+   nyaris mencatat pelunasan dua kali lipat dari yang disepakati.
+
+   TIDAK BOLEH memakai bayangan tanpa syarat: modal ini juga dibuka dari
+   halaman Invoice & Payment untuk event MANA PUN, sementara kotak efd_* di DOM
+   bisa saja milik event lain yang tab Finance-nya masih terbuka. Memakainya di
+   situ berarti menempelkan angka event lain ke event ini — kekeliruan yang
+   jauh lebih sulit disadari. Karena itu diperiksa dua hal sekaligus: tab
+   Finance memang terbuka, DAN yang terbuka adalah event ini. */
+function finEvLayar(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev) return null;
+  const finTerbuka = (typeof _asEvId!=='undefined') && _asEvId===id && !!$('efd_dpNominal');
+  return finTerbuka ? finBayangan(ev) : ev;
+}
+/* Apakah angka di layar sudah berbeda dari yang tersimpan? Dipakai untuk
+   memberi tahu, bukan untuk menolak: yang mencatat pembayaran berhak tahu
+   bahwa Grand Total di depannya belum pernah tersimpan. */
+function finBelumTersimpan(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev) return false;
+  const b=finEvLayar(id); if(b===ev) return false;
+  const a=eventFinance(ev), c=eventFinance(b);
+  return a.grand!==c.grand || a.dp!==c.dp || a.paid!==c.paid;
+}
 function addPayment(id,paymentId){
-  const ev=S.events.find(e=>e.id===id); const f=eventFinance(ev);
+  const ev=S.events.find(e=>e.id===id); const f=eventFinance(finEvLayar(id));
   const p=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
   /* BENTUK TABEL, bukan kisi kotak isian.
      Isi formulir ini adalah satu BARIS pembayaran — jenis, jumlah, metode,
@@ -9008,6 +9195,15 @@ function addPayment(id,paymentId){
      diketik — orang yang mencatat pelunasan perlu tahu apakah angkanya pas
      SEBELUM menekan simpan, bukan sesudah. */
   const opsi=(arr,skr)=>arr.map(t=>'<option'+(skr===t?' selected':'')+'>'+t+'</option>').join('');
+  /* JUMLAH & JENIS BAWAAN mengikuti keadaan tagihannya, bukan selalu "DP
+     sebesar f.dp". Dulu kotak Jumlah selalu terisi nilai DP — termasuk pada
+     event yang DP-nya SUDAH masuk, jadi yang mencatat pelunasan harus
+     menghapus angka itu lebih dulu, dan yang lupa menghapusnya mencatat DP
+     kedua sebesar DP pertama. Sekarang: selama DP belum terpenuhi, yang
+     ditawarkan kekurangannya; sesudah itu, sisa pelunasannya. */
+  const kurangDp = (finPakaiDp(ev) && f.dp>f.paid) ? (f.dp-f.paid) : 0;
+  const jumlahBawaan = p ? p.amount : (kurangDp || f.remaining);
+  const jenisBawaan  = p ? p.type   : (kurangDp ? 'DP' : 'Pelunasan');
   modal('<div class="modal-head"><div><h3>'+(p?'Edit Pembayaran':'Catat Pembayaran')+'</h3>'
      +'<p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div>'
      +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
@@ -9018,16 +9214,35 @@ function addPayment(id,paymentId){
        +'<th style="width:130px">Metode</th><th style="width:150px">Tanggal</th>'
      +'</tr></thead><tbody>'
      +'<tr>'
-       +'<td><select class="inp" id="pay_type">'+opsi(['DP','Pelunasan','Tambahan Hari-H'],p&&p.type)+'</select></td>'
-       +'<td>'+rupiahInputHTML('pay_amt',(p?p.amount:f.dp),'')+'</td>'
+       +'<td><select class="inp" id="pay_type">'+opsi(['DP','Pelunasan','Tambahan Hari-H'],jenisBawaan)+'</select></td>'
+       +'<td>'+rupiahInputHTML('pay_amt',jumlahBawaan,'')+'</td>'
        +'<td><select class="inp" id="pay_method">'+opsi(['Transfer','Cash','QRIS','Card'],p&&p.method)+'</select></td>'
        +'<td><input class="inp" type="date" id="pay_date" value="'+(p?p.at:today())+'"></td>'
      +'</tr>'
      +'<tr class="rk"><td colspan="3">Grand Total</td><td class="mono r">'+rp(f.grand)+'</td></tr>'
-     +'<tr class="rk"><td colspan="3">Sudah terbayar</td><td class="mono r">'+rp(f.paid)+'</td></tr>'
+     /* Rinciannya ikut ditulis kalau Terbayar berisi dua sumber — sama seperti
+        di kaki lembar tagihan. Tanpa itu, "Sudah terbayar" yang isinya DP hasil
+        centang (belum ada satu pun baris di riwayat pembayaran) terbaca seperti
+        angka yang datang entah dari mana. */
+     +'<tr class="rk"><td colspan="3">Sudah terbayar'
+       +((f.dpDiakui&&f.bayarTercatat)?' <span class="cell-sub">('+rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)+')</span>'
+         :f.dpDiakui?' <span class="cell-sub">(dari DP)</span>':'')
+       +'</td><td class="mono r">'+rp(f.paid)+'</td></tr>'
      +'<tr class="rk kuat"><td colspan="3">Sisa sesudah pembayaran ini</td>'
-       +'<td class="mono r" id="pay_sisa">'+rp(Math.max(0,f.remaining-(p?0:(+f.dp||0))))+'</td></tr>'
+       /* Dihitung dari nilai yang benar-benar terisi di kotak Jumlah, bukan
+          dari f.dp lagi: keduanya memang sama saat modal baru dibuka, tapi
+          menuliskan rumus yang sama dua kali berarti suatu saat yang satu
+          diperbaiki dan yang lain tidak. paySisaLive() di bawah sudah
+          menghitungnya, dan ia dipanggil sekali sebelum modal tampil. */
+       +'<td class="mono r" id="pay_sisa">'+rp(f.remaining)+'</td></tr>'
      +'</tbody></table></div>'
+     /* Peringatan hanya muncul saat memang ada bedanya. Kalimat yang selalu
+        ada akan berhenti dibaca justru pada saat ia penting. */
+     +(finBelumTersimpan(id)
+       ? '<div class="tbl-note" style="margin-top:10px;border-color:var(--warn);color:var(--warn)">'
+         +svg(IC.alert)+'<span>Angka di atas memakai isian tab Finance yang <b>belum disimpan</b>. '
+         +'Pembayaran ini tetap tercatat, tapi Grand Total &amp; DP-nya baru ikut berubah setelah tab Finance ditekan Simpan.</span></div>'
+       : '')
    +'<div class="form-grid" style="margin-top:14px">'
      +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label>'
        +'<input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf">'
@@ -9047,7 +9262,11 @@ function addPayment(id,paymentId){
 function paySisaLive(id,paymentId){
   const el=$('pay_sisa'); if(!el) return;
   const ev=S.events.find(e=>e.id===id); if(!ev) return;
-  const f=eventFinance(ev);
+  /* SUMBER YANG SAMA dengan addPayment (finEvLayar). Sebelumnya fungsi ini
+     membaca ev tersimpan sementara modalnya digambar dari angka lain, jadi
+     "Sisa sesudah pembayaran ini" melompat ke nilai yang berbeda begitu satu
+     digit diketik — tanpa ada yang menyentuh apa pun selain kotak Jumlah. */
+  const f=eventFinance(finEvLayar(id));
   const lama=paymentId?((ev.payments||[]).find(x=>x.id===paymentId)||{}).amount||0:0;
   const box=$('pay_amt');
   const kini=box?(+rupiahDigits(box.value)||0):0;
@@ -9626,19 +9845,19 @@ function rincianTabelHTML(ev, f, opsi){
       +(tebal?';font-size:13px':'')+'">'+label+'</td>'
       +'<td style="'+kanan+';font-weight:700'+(tebal?';font-size:13px':'')+'">'+nilai+'</td></tr>';
   };
-  /* Diskon/service/pajak hanya ditulis kalau memang ada. Baris "Discount Rp0"
-     membuat client bertanya diskon apa yang hilang. */
-  if(f.disc)  h+=kaki('DISCOUNT','− '+rp(f.disc));
-  if(f.svcOn && f.service) h+=kaki('SERVICE CHARGE ('+S.settings.serviceCharge+'%)',rp(f.service));
-  if(f.tax)   h+=kaki('PB1 / PAJAK ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
-  h+=kaki('TOTAL',rp(f.grand),true);
-  /* DP & sisa hanya untuk dokumen yang memang berfungsi sebagai tagihan.
-     Di surat penawaran, angka "sisa pelunasan" belum punya arti — belum ada
-     yang membayar apa pun. */
-  if(opsi.tagihan!==false){
-    h+=kaki(dpLabel(f).toUpperCase(), rp(f.dp));
-    h+=kaki('SISA PELUNASAN', rp(Math.max(0, f.grand-f.paid)));
-  }
+  /* Deretan kakinya datang dari finKakiRows — SUMBER YANG SAMA dengan kaki
+     tabel Rincian di layar. Sebelumnya disusun sendiri di sini, dan itulah
+     sebabnya baris DP di kertas tidak pernah ikut penyaring pakaiDp maupun
+     centang "DP sudah dibayar": dua daftar, satu yang diperbaiki.
+
+     bayarSelalu: dokumen ini sebuah TAGIHAN, jadi Terbayar & Sisa tetap
+     dicetak walau belum ada uang masuk sama sekali — nol yang tertulis adalah
+     keterangan, berbeda dengan di layar kerja yang barisnya baru muncul saat
+     ada isinya. Baris "Discount Rp0" tetap tidak dicetak: nol yang itu memang
+     tidak menerangkan apa pun. */
+  finKakiRows(ev,f,{tagihan:opsi.tagihan,bayarSelalu:opsi.tagihan!==false}).forEach(function(x){
+    h+=kaki(x.lc+(x.ket?' <span style="font-weight:400;font-size:10.5px;color:#666">('+esc(x.ket)+')</span>':''),x.v,x.tebal);
+  });
   h+='</tbody></table>';
   return h;
 }
@@ -10410,7 +10629,10 @@ function calEventPopup(id){
     +row('Lantai / Area',d.area)
     +row('Sifat Acara',d.privacy)
     +row('Grand Total',rp(f.grand))
-    +row(dpLabel(f),rp(f.dp))
+    /* Ikut penyaring yang sama dengan kaki lembar tagihan: acara yang dibayar
+       penuh di awal tidak punya DP, dan memajang "DP 50%" di popupnya adalah
+       angka yang tidak pernah disepakati siapa pun. */
+    +(finPakaiDp(e)&&f.dp?row(dpLabel(f),rp(f.dp)):'')
     +'</table></div>';
   h+='<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="closeModal();go(\'event\',\''+e.id+'\')">'+svg(IC.chevR)+'Buka Detail Event</button></div>';
   modal(h);
@@ -10718,7 +10940,13 @@ function tmplCard(div,canEdit,delFn,subtitle,extraBtn){
     +(canEdit?(extraBtn||''):'')
     +(canEdit?'<button class="btn sm" onclick="newSubCat(\''+dj+'\')">'+svg(IC.plus)+'Sub Kategori</button>':'')
     +(canEdit?'<button class="btn sm pri" onclick="newTemplateTask(\''+dj+'\')">'+svg(IC.plus)+'Tambah Task</button>':'')
-    +(canEdit&&delFn?'<button class="btn sm" onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
+    /* title WAJIB: tombolnya cuma ikon tong sampah tanpa satu kata pun, dan ia
+       berdiri persis di sebelah "Tambah Task" yang berteks. Tanpa keterangan,
+       satu-satunya cara tahu apa yang dihapus — kategori ini, atau task
+       terakhir? — adalah menekannya. Kelas danger juga dipasang: ikon merah
+       lebih dulu terbaca sebagai tindakan yang tidak bisa dibatalkan. */
+    +(canEdit&&delFn?'<button class="btn sm danger" title="Hapus kategori '+esc(div)+' beserta seluruh task di dalamnya" '
+        +'onclick="'+delFn+'(\''+dj+'\')">'+svg(IC.trash)+'</button>':'')+'</div></div>';
   /* Tertutup = isinya TIDAK digambar sama sekali, bukan disembunyikan CSS.
      Halaman ini bisa memuat ratusan baris tabel; menggambar semuanya lalu
      menyembunyikannya membuat halaman berat tanpa ada yang melihatnya. */
@@ -11261,7 +11489,17 @@ function waInvoice(evId,invNo){
     '⚓ Laksamana Muda Event Organizer'
   ].join('\n');
   window.open(waLink(c.hp,msg),'_blank');
-  if(!e.invoiceSent){ e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav(); go('invoices'); }
+  /* go('invoices') TIDAK LAGI TANPA SYARAT. Tombolnya kini juga ada di panel
+     Finance sebuah event, dan melempar orang ke daftar invoice sesudah
+     membuka WhatsApp berarti kehilangan tab yang sedang dikerjakan — beserta
+     isian yang belum sempat disimpan. Yang dituju semula cuma menyegarkan
+     daftar supaya chip statusnya ikut jadi "Sent"; itu hanya perlu kalau
+     daftarnya memang yang sedang dilihat. */
+  if(!e.invoiceSent){
+    e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav();
+    if(location.hash.slice(1).split('/')[0]==='invoices') go('invoices');
+    else if(typeof finLive==='function') finLive();
+  }
   else toast('WhatsApp dibuka','Pesan invoice untuk '+c.nama+' siap dikirim.','ok');
 }
 // Reminder DP via WhatsApp (deep link — gratis, tanpa API berbayar)
@@ -11584,30 +11822,49 @@ function renderApprovals(V){
      klik dan tidak memberi tahu ada apa di dalamnya; tab menyebutkan
      jumlahnya di muka.
 
-     'Semua perkara' dibuang: mencampur yang menunggu dengan yang sudah
-     diputuskan justru bentuk yang paling tidak berguna — yang menunggu
-     tenggelam di antara ratusan baris lama. */
+     'Semua perkara' PERNAH DIBUANG dengan alasan yang benar: mencampur yang
+     menunggu dengan yang sudah diputuskan membuat yang menunggu tenggelam di
+     antara ratusan baris lama. Ia dikembalikan (permintaan 13 Agustus 2026),
+     tapi TIDAK dengan bentuk yang dulu bermasalah — yang menunggu selalu
+     dinaikkan ke atas dan tetap bersorot, jadi tab ini menjawab "apa saja yang
+     pernah lewat meja ini" tanpa mengubur apa yang belum diputuskan.
+     Bawaannya tetap Antrian: itu pekerjaan hariannya. */
   const nPutus=approvalRows().filter(r=>!r.antri).length;
-  if(apprFilter!=='putus') apprFilter='antri';
+  if(['putus','semua'].indexOf(apprFilter)<0) apprFilter='antri';
   h+='<div class="card pad0"><div style="padding:14px 16px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
    +'<div class="seg">'
      +'<button class="'+(apprFilter==='antri'?'on':'')+'" onclick="setApprFilter(\'antri\')">Antrian'+(nAntri?' ('+nAntri+')':'')+'</button>'
      +'<button class="'+(apprFilter==='putus'?'on':'')+'" onclick="setApprFilter(\'putus\')">Riwayat Approval'+(nPutus?' ('+nPutus+')':'')+'</button>'
+     +'<button class="'+(apprFilter==='semua'?'on':'')+'" onclick="setApprFilter(\'semua\')">Semua'+((nAntri+nPutus)?' ('+(nAntri+nPutus)+')':'')+'</button>'
    +'</div>'
    +'<div class="cell-sub">'+(apprFilter==='antri'
        ?'Baris bersorot kuning masih menunggu keputusan.'
+       :apprFilter==='semua'
+       ?'Yang menunggu selalu di atas dan bersorot kuning, sisanya riwayat.'
        :'Keputusan yang sudah diambil, terbaru di atas.')+'</div>'
    +'</div>';
-  semua = (apprFilter==='putus') ? semua.filter(r=>!r.antri) : semua.filter(r=>r.antri);
+  if(apprFilter==='putus')      semua=semua.filter(r=>!r.antri);
+  else if(apprFilter==='antri') semua=semua.filter(r=>r.antri);
+  // 'semua' tidak menyaring apa pun — pengelompokannya dikerjakan SESUDAH
+  // tblUrut (lihat di bawah), karena tblUrut selalu menimpa urutan masukannya.
 
   if(!semua.length){
     h+='<div style="padding:8px 20px 20px">'+empty(
-      apprFilter==='antri'?'Tidak ada yang menunggu':'Riwayat masih kosong',
+      apprFilter==='antri'?'Tidak ada yang menunggu'
+        :apprFilter==='semua'?'Belum ada perkara sama sekali':'Riwayat masih kosong',
       apprFilter==='antri'?'Semua Surat Penawaran sudah diputuskan. ⚓'
+        :apprFilter==='semua'?'Pengajuan penawaran & negosiasi akan muncul di sini begitu ada.'
         :'Keputusan yang sudah diambil akan tercatat di sini.','approve')+'</div>';
     V.innerHTML=h+'</div>'; return;
   }
-  const p=tblPage(tblUrut(semua,'approval',KOL_APPROVAL),'approval',apprFilter);
+  /* URUTAN KOLOM DULU, PENGELOMPOKAN BELAKANGAN. tblUrut menyortir menurut
+     kolom yang dipilih pembaca (atau kolom bawaan), dan hasilnya menimpa
+     urutan apa pun yang masuk — jadi menaikkan yang menunggu harus dikerjakan
+     SESUDAHNYA, bukan sebelum. sort() dijamin stabil sejak ES2019, jadi
+     pilihan kolom pembaca tetap berlaku DI DALAM tiap kelompok. */
+  let urut=tblUrut(semua,'approval',KOL_APPROVAL);
+  if(apprFilter==='semua') urut=urut.slice().sort(function(a,b){ return (b.antri?1:0)-(a.antri?1:0); });
+  const p=tblPage(urut,'approval',apprFilter);
   h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('approval',KOL_APPROVAL)+'<tbody>';
   p.items.forEach(r=>{
     // Aksi mengikuti jenis perkara DAN izin pembacanya — kolomnya tetap satu.
@@ -13546,19 +13803,18 @@ async function vipDetailDenahAsli(v){
   const h=vipDenahHTML(d,{},(v.meja||[]),{tanggal:v.tanggal, bacaSaja:true});
   if(h) el.innerHTML=h;
 }
-/* Omzet Reservasi VIP Assisted per marketing — dipakai Marketing Performance.
-   Regular sengaja tidak pernah ikut: itu bantuan booking, bukan pencapaian.
-   Yang DIBATALKAN juga tidak: mejanya sudah dilepas dan tamunya tidak datang,
-   jadi menghitungnya berarti menilai orang dari uang yang tidak pernah masuk. */
-function vipOmzetPIC(uid){
-  return (S.vip||[]).filter(v=>v.mktPIC===uid && v.jenis==='Assisted' && !v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
-}
-function vipOmzetTotal(){
-  /* !v.batalAt: reservasi batal tidak menghasilkan omzet. Tanpa ini,
-     membatalkan booking justru tidak mengubah angka performa sama
-     sekali — dan angka itulah yang dipakai menilai orangnya. */
-  return (S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt).reduce((a,v)=>a+vipNominal(v),0);
-}
+/* vipOmzetPIC() & vipOmzetTotal() DIHAPUS — bukan karena tidak terpakai, tapi
+   karena SALAH kalau dipakai. Keduanya menjumlahkan SELURUH riwayat tanpa
+   penyaring periode, sementara Marketing Performance selalu menghitung untuk
+   satu periode yang sedang dipilih. Halaman itu sudah punya versinya sendiri
+   yang periode-sadar (vipPer / vipPicPer / omzetVip di renderPerformance),
+   dan itulah yang benar.
+
+   Dua fungsi ini sempat berdiri sebagai kode mati yang terlihat sah: siapa
+   pun yang butuh "omzet VIP orang ini" akan menemukannya lebih dulu daripada
+   hitungan yang benar, memakainya, dan mendapat angka seumur hidup di layar
+   yang judulnya menyebut satu bulan. Syarat yang memang benar (Regular tidak
+   ikut, yang dibatalkan tidak ikut) sudah ditulis ulang di sana. */
 
 /* ============================================================
    MODUL K — REPORTING & ANALYTICS
