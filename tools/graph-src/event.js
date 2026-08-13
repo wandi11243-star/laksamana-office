@@ -1915,6 +1915,23 @@ function statusBadge() { esc(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function autoSelesaikanJadwal() { dstr(); save(); toast(); }
 
 
@@ -3077,7 +3094,92 @@ function genRecurring() { toast(); g(); uangNilai(); uid(); dstr(); hasConflict(
 
 
 
-function monthlyGenModal() { modal(); closeModal(); ruleHari(); talentAktif(); esc(); mgIsiFee(); uangFormat(); uangKetik(); genMonthly(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function blDow() {  }
+function monthlyGenModal() { gambarBulanan(); }
+
+
+
+
+function blAmbilForm() { g(); }
+
+
+
+
+
+
+function blKe() { blAmbilForm(); gambarBulanan(); }
+function blTaruh() { toast(); blDow(); }
+
+
+
+
+
+
+
+
+
+function blKlikTalent() { blAmbilForm(); blTaruh(); gambarBulanan(); }
+
+
+
+
+
+function blBuang() { blAmbilForm(); gambarBulanan(); }
+function blKosongkanHari() { blAmbilForm(); gambarBulanan(); }
+
+function blSeretMulai() {  }
+
+
+
+function blSeretAtas() {  }
+function blSeretKeluar() {  }
+function blJatuh() { blAmbilForm(); blTaruh(); gambarBulanan(); }
+
+
+
+
+
+
+
+
+
+
+
+function blHitung() {  }
+
+
+
+
+
+
+
+
+
+
+
+function gambarBulanan() { talentAktif(); blHitung(); esc(); nama(); blBuang(); blKe(); blSeretAtas(); blSeretKeluar(); blJatuh(); blSeretMulai(); blKlikTalent(); modal(); closeModal(); blDow(); blKosongkanHari(); genMonthly(); }
 
 
 
@@ -3108,13 +3210,30 @@ function monthlyGenModal() { modal(); closeModal(); ruleHari(); talentAktif(); e
 
 
 
-function mgIsiFee() { uangFormat(); }
 
 
 
 
 
-function genMonthly() { dstr(); hasConflict(); uid(); save(); closeModal(); renderSchedule(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function genMonthly() { blAmbilForm(); toast(); dstr(); hasConflict(); uid(); save(); closeModal(); renderSchedule(); }
+
+
+
+
 
 
 
