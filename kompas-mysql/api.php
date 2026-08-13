@@ -16,12 +16,16 @@
  *                           mengirim seluruh state. Dipakai panel Finance >
  *                           Kas Kecil & Performa, yang memang tidak boleh
  *                           menulis blob ini utuh.
- *   POST {action:"simpanRekap", data:{hari:{"YYYY-MM-DD":{setor,mdr:{bri,
- *         mandiri,bca},esb:{grup:bool}}},by}}
- *                        -> {ok,data:{saved,ubah,hari,takDikenal:[...]}}
- *                           Tulis SEMPIT juga. Dipakai panel Finance > Rekap
- *                           Penjualan. TIDAK bisa menulis reports[].pay —
- *                           angka POS/Actual tetap milik Daily Report.
+ *   POST {action:"simpanRekap", data:{hari:{"YYYY-MM-DD":{setor,mdr:{kunci:n},
+ *         esb:{grup:bool}}}, setoran:{tambah:[{tgl,tujuan,catatan,hari:[...]}],
+ *         hapus:[id]}, by}}
+ *                        -> {ok,data:{saved,ubah,hari,takDikenal:[...],setoran:[...]}}
+ *                           Tulis SEMPIT juga. Dipakai menu Rekap Penjualan di
+ *                           panel Finance > Kas Kecil. TIDAK bisa menulis
+ *                           reports[].pay — angka POS/Actual tetap milik Daily
+ *                           Report. Nominal setoran DIHITUNG SERVER dari cash
+ *                           actual hari-hari yang dicakup, bukan dikirim
+ *                           peramban.
  *
  * Semua respons: {ok:true,data:...} atau {ok:false,error:"..."}.
  ************************************************************************/
