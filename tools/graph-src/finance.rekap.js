@@ -535,6 +535,13 @@ function rinciJual() { omsetRec(); }
 
 
 
+
+
+
+
+
+
+function tanpaSvcTax() {  }
 function bonHari() {  }
 
 
@@ -606,7 +613,8 @@ function sisi() { pay(); mdrOf(); rinciJual(); bonHari(); }
 
 
 
-function ringkasBulan() { hariDalamBulan(); hitungHari(); tandaOf(); setorOf(); }
+function ringkasBulan() { hariDalamBulan(); hitungHari(); tanpaSvcTax(); tandaOf(); setorOf(); }
+
 
 
 
@@ -684,7 +692,13 @@ function kartuBulan() { kartu(); }
 
 
 
-function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); tandaOf(); labelHari(); setorOf(); }
+
+
+
+
+
+
+function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); tandaOf(); labelHari(); tanpaSvcTax(); setorOf(); }
 
 
 
@@ -737,7 +751,10 @@ function viewRekap() { ringkasBulan(); kartuBulan(); adaUbah(); tandaOf(); label
 
 
 
-function detailHari() { hitungHari(); tandaOf(); }
+
+
+function detailHari() { hitungHari(); tanpaSvcTax(); tandaOf(); }
+
 
 
 
@@ -802,7 +819,8 @@ function bukaHari() { detailHari(); }
 
 
 
-function viewInput() { hitungHari(); kartu(); setorOf(); labelTglPanjang(); tandaOf(); render(); }
+function viewInput() { hitungHari(); kartu(); tanpaSvcTax(); setorOf(); labelTglPanjang(); tandaOf(); render(); }
+
 
 
 
