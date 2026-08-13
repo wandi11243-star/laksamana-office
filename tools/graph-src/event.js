@@ -1165,6 +1165,24 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -1880,7 +1898,7 @@ function svg() {  }
 
 
 
-function buildNav() { bisaLihat(); router(); svg(); }
+function buildNav() { bisaLihat(); router(); emsAntriApproval(); svg(); }
 
 
 
@@ -1893,6 +1911,35 @@ function buildNav() { bisaLihat(); router(); svg(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function emsAntriApproval() { pengajuan(); statusPengajuan(); apprRefundList(); }
 
 
 
@@ -2637,7 +2684,8 @@ function akhirPekan() { esc(); dstr(); fmtDate(); schedInfo(); }
 
 
 
-function schedInfo() { modal(); closeModal(); esc(); fmtDate(); statusBadge(); cycleSchedStatus(); delSched(); svgTong(); }
+
+function schedInfo() { save(); setSchedStatus(); modal(); closeModal(); esc(); fmtDate(); delSched(); svgTong(); }
 
 
 
@@ -2646,7 +2694,43 @@ function schedInfo() { modal(); closeModal(); esc(); fmtDate(); statusBadge(); c
 
 
 
-function cycleSchedStatus() { save(); closeModal(); renderSchedule(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setSchedStatus() { save(); renderSchedule(); renderCalendar(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2693,7 +2777,22 @@ function emsIsiEvent() {  }
 
 
 
-function hapusEvent() { bisaUbah(); toast(); emsIsiEvent(); modalInfo(); esc(); konfirmasiHapus(); fmtDate(); save(); renderEvents(); }
+function hapusEvent() { toast(); bisaUbah(); emsIsiEvent(); modalInfo(); esc(); konfirmasiHapus(); fmtDate(); save(); router(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4231,6 +4330,11 @@ function payHistory() { modal(); closeModal(); esc(); labelPeriodeBayar(); statu
 
 
 
+
+
+
+
+
 function labelIzin() { emsPermBawaan(); }
 
 
@@ -5111,7 +5215,12 @@ function renderPlanning() { bisaUbah(); bisaSetujui(); renderHistory(); C(); pla
 
 
 
-function tab() { renderPlanning(); planTabsHTML(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); }
+function tab() { renderPlanning(); planTabsHTML(); svg(); C(); pengajuan(); posterCoverHTML(); esc(); fmtDateTime(); ajukanRencana(); setujuiRencana(); tolakRencana(); hapusEvent(); svgTong(); }
+
+
+
+
+
 
 
 
@@ -5295,7 +5404,25 @@ function setIzin() { bisaUbah(); emsPerm(); toast(); save(); buildNav(); renderA
 
 function resetIzin() { emsPermBawaan(); save(); buildNav(); renderAkses(); toast(); }
 
-function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); evtRentang(); evtSetPeriode(); esc(); sorotCari(); C(); posterKecilHTML(); fmtDateTime(); statusBadge(); }
+function renderEvents() { autoSelesaikanEvent(); setTop(); bisaLihat(); evtRentang(); evtSetPeriode(); esc(); sorotCari(); C(); hapusEvent(); bisaUbah(); posterKecilHTML(); fmtDateTime(); statusBadge(); svgTong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5502,7 +5629,13 @@ function saveEvent() { g(); toast(); esc(); uid(); save(); closeModal(); }
 
 
 function ensureDetails() {  }
-function renderEventDetail() { ensureDetails(); bisaUbah(); setTop(); esc(); setEventStatusDetail(); eventForm(); fmtDateTime(); statusBadge(); toggleTimeline(); sama(); seksiHTML(); budgetStatHTML(); }
+function renderEventDetail() { ensureDetails(); bisaUbah(); setTop(); esc(); setEventStatusDetail(); eventForm(); hapusEvent(); svgTong(); fmtDateTime(); statusBadge(); toggleTimeline(); sama(); seksiHTML(); budgetStatHTML(); }
+
+
+
+
+
+
 
 
 

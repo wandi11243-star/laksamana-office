@@ -89,6 +89,15 @@ h1,h2,h3,h4{font-family:var(--ff-display)}
 .nav a.active{background:rgba(169,121,31,.13);color:var(--accent2);font-weight:600}
 /* ikon SVG: ukurannya dikunci di sini supaya tiap item sejajar rapi */
 .nav a svg{width:17px;height:17px;flex:none;stroke-width:1.8}
+/* Lencana jumlah antrian di menu — disalin dari modul Marketing supaya kru
+   yang membuka keduanya melihat bentuk yang sama. Aturan mini-nya (baris 127)
+   sudah ada sejak dulu, menunggu lencana yang tidak pernah dipasang.
+   Warnanya MERAH, bukan emas seperti di Marketing: di sana lencana ini juga
+   dipakai Notification Center yang isinya sekadar kabar, sementara di sini ia
+   cuma dipakai Approval Flow — dan yang dihitungnya adalah orang yang sedang
+   menunggu keputusan, bukan pemberitahuan yang boleh dibaca nanti. */
+.nav a .badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 7px;border-radius:20px;min-width:18px;text-align:center;flex:none}
 .nav .sect{font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);padding:16px 12px 7px}
 .side-foot{padding:10px 12px;font-size:11px;color:var(--muted)}
 .side-foot button{background:none;border:1px solid var(--line);color:var(--muted);padding:4px 8px;border-radius:5px;cursor:pointer;font-size:11px;margin-top:6px}
@@ -499,6 +508,15 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .seg-per button{border:none;background:none;padding:7px 13px;font-size:12.5px;cursor:pointer;color:var(--muted)}
 .seg-per button+button{border-left:1px solid var(--line-hard)}
 .seg-per button.on{background:var(--accent);color:#241d05;font-weight:700}
+/* Empat status jadwal talent berdampingan. Dibiarkan melipat di layar sempit —
+   .seg-per bawaan tidak pernah melipat, dan empat kata status berjejer tidak
+   muat di HP: yang keempat terpotong keluar modal tanpa bisa ditekan. */
+.seg-status{display:flex;flex-wrap:wrap;width:100%}
+.seg-status button{flex:1 1 88px;text-align:center}
+/* Yang DIBATALKAN tidak diberi warna emas seperti tiga lainnya: emas di sini
+   berarti "pilihan yang berlaku", dan status batal yang terlihat seperti
+   pilihan yang baik adalah kesalahan yang mahal di layar penjadwalan. */
+.seg-status button.on:last-child{background:var(--red);color:#fff}
 /* Kotak uang dengan awalan "Rp" menempel di dalamnya. Awalannya tidak bisa
    diklik (pointer-events:none) supaya mengetuk "Rp" tetap menaruh kursor di
    angkanya, bukan menelan ketukan itu. */
@@ -1898,8 +1916,37 @@ function buildNav(){
       const tujuan='#/'+it.h;
       if(location.hash===tujuan || (location.hash===''&&it.h==='dashboard')){ ev.preventDefault(); router(); }
     });
-    a.innerHTML=svg(IC[it.ic]||'')+'<span>'+it.t+'</span>';nav.appendChild(a);
+    /* LENCANA JUMLAH ANTRIAN, disamakan dengan modul Marketing (lihat
+       buildNav di sana). Approval Flow adalah satu-satunya halaman di modul
+       ini yang isinya PEKERJAAN ORANG LAIN yang menunggu: selama tidak ada
+       angka di menunya, satu-satunya cara tahu ada rencana yang menggantung
+       adalah membukanya berkala — dan yang tidak terlihat tidak dikerjakan.
+       Rencana yang menunggu bisa berhari-hari tidak diputuskan tanpa ada
+       satu pun tanda di layar siapa pun. */
+    const n=(it.h==='approval')?emsAntriApproval():0;
+    a.innerHTML=svg(IC[it.ic]||'')+'<span>'+it.t+'</span>'
+      +(n?'<span class="badge">'+n+'</span>':'');
+    nav.appendChild(a);
   });
+}
+/* Jumlah perkara yang MENUNGGU keputusan manajemen: rencana event + refund
+   e-ticket. Satu sumber untuk lencana menu DAN kartu ringkasan di halamannya
+   — kalau dihitung dua kali dengan dua syarat, angka di menu bisa berbeda
+   dari jumlah baris antriannya, dan yang percaya menu akan berhenti membuka
+   halamannya.
+
+   TIDAK PERNAH MELEMPAR: fungsi ini dipanggil buildNav, yang jalan pada tiap
+   perpindahan halaman termasuk sebelum data selesai dimuat. Satu galat di
+   sini berarti SELURUH sidebar gagal tergambar — kegagalan yang jauh lebih
+   besar daripada lencana yang meleset. */
+function emsAntriApproval(){
+  try{
+    if(!DB||!Array.isArray(DB.events)) return 0;
+    const ev=DB.events.filter(function(e){
+      return !!pengajuan(e) && statusPengajuan(e)==='Menunggu'; }).length;
+    const rf=apprRefundList().filter(function(x){ return x.r&&x.r.status==='Pending'; }).length;
+    return ev+rf;
+  }catch(_){ return 0; }
 }
 function setTop(title,crumb,actions){document.getElementById('pageTitle').textContent=title;document.getElementById('crumb').innerHTML=crumb||'Laksamana Muda EMS';document.getElementById('topActions').innerHTML=actions||'';}
 const C=()=>document.getElementById('content');
@@ -2637,16 +2684,53 @@ function lembarTalentHTML(y,m){
     +'</tr></tfoot></table></div></div>';
   return h;
 }
+const SCHED_STATUS=['Scheduled','Confirmed','Done','Cancelled'];
 function schedInfo(id){
   const s=DB.schedules.find(x=>x.id===id);const t=DB.talents.find(x=>x.id===s.talent_id);
-  modal(`<button class="close" onclick="closeModal()">×</button><h3>${esc(t.name)}</h3>
-  <div class="kv"><div class="k">Tanggal</div><div>${fmtDate(s.date)}</div><div class="k">Jam</div><div>${s.start_time} – ${s.end_time}</div><div class="k">Tipe</div><div>${s.performance_type}</div><div class="k">Fee</div><div>${IDR(s.fee)}</div><div class="k">Status</div><div>${statusBadge(s.status)}</div><div class="k">Source</div><div><span class="pill">${s.source}</span></div></div>
+  /* EMPAT TOMBOL STATUS, BUKAN SATU TOMBOL "UBAH STATUS".
+     Yang lama memutar status satu langkah tiap ditekan (Scheduled → Confirmed
+     → Done → Cancelled → Scheduled) lalu MENUTUP modalnya. Untuk menandai
+     jadwal Scheduled sebagai Done, orang harus menekannya dua kali — dan
+     karena modalnya tertutup tiap kali, itu berarti: klik balon, tekan, klik
+     balon lagi, tekan lagi. Kalau kelewat satu, satu-satunya jalan kembali
+     adalah memutar seluruh lingkaran, yang sempat melewati "Cancelled" — dan
+     jadwal yang sekejap berstatus batal itu benar-benar tersimpan ke server
+     oleh save() di tengah putaran.
+
+     Sekarang keempatnya berdiri sejajar, yang sedang berlaku ditandai, dan
+     menekan salah satunya langsung menyimpan status ITU. Tidak ada urutan
+     yang harus dilewati, dan tidak ada status antara yang ikut tersimpan. */
+  const tombol=SCHED_STATUS.map(function(st){
+    return '<button class="'+(s.status===st?'on':'')+'" onclick="setSchedStatus(\''+id+'\',\''+st+'\')">'+st+'</button>';
+  }).join('');
+  modal(`<button class="close" onclick="closeModal()">×</button><h3>${esc(t?t.name:'(talent terhapus)')}</h3>
+  <div class="kv"><div class="k">Tanggal</div><div>${fmtDate(s.date)}</div><div class="k">Jam</div><div>${s.start_time} – ${s.end_time}</div><div class="k">Tipe</div><div>${s.performance_type}</div><div class="k">Fee</div><div>${IDR(s.fee)}</div><div class="k">Source</div><div><span class="pill">${s.source}</span></div></div>
+  <div class="field" style="margin-top:14px"><label>Status</label>
+    <div class="seg-per seg-status" id="sched_status">${tombol}</div>
+    <div class="mini" style="margin-top:6px">Langsung tersimpan begitu ditekan.</div></div>
   <div class="modal-actions">
-    <button class="btn ghost" onclick="cycleSchedStatus('${id}')">Ubah Status</button>
-    <button class="btn danger" onclick="delSched('${id}')">${svgTong(14)} Hapus</button>
+    <button class="btn ghost danger" onclick="delSched('${id}')">${svgTong(14)} Hapus</button>
     <button class="btn" onclick="closeModal()">Tutup</button></div>`);
 }
-function cycleSchedStatus(id){const order=['Scheduled','Confirmed','Done','Cancelled'];const s=DB.schedules.find(x=>x.id===id);s.status=order[(order.indexOf(s.status)+1)%order.length];save();closeModal();renderSchedule();toast('Status → '+s.status);}
+/* Menyimpan status YANG DITUNJUK. Modalnya sengaja TIDAK ditutup: orang yang
+   salah tekan bisa langsung membetulkannya, dan menutup layar tepat setelah
+   satu ketukan membuat orang tidak sempat melihat bahwa yang tersimpan memang
+   yang dimaksud. Kalendernya digambar ulang di belakang modal supaya balonnya
+   ikut berubah saat modal ditutup. */
+function setSchedStatus(id,st){
+  const s=DB.schedules.find(x=>x.id===id); if(!s) return;
+  if(s.status===st) return;                     // sudah begitu — jangan tulis ulang ke server
+  const lama=s.status; s.status=st; save();
+  const seg=document.getElementById('sched_status');
+  if(seg) [...seg.children].forEach(function(b){ b.classList.toggle('on',b.textContent===st); });
+  /* Halaman di belakang bisa lembar jadwal ATAU kalender EMS — keduanya
+     menggambar balon jadwal yang sama. Yang tidak sedang terbuka dilewati:
+     memanggil render halaman lain akan menimpa isi #content dengan halaman
+     yang bukan sedang dilihat orangnya. */
+  if(location.hash.indexOf('#/schedule')===0) renderSchedule();
+  else if(location.hash.indexOf('#/calendar')===0) renderCalendar();
+  toast('Status: '+lama+' → '+st);
+}
 /* ============================================================
    MENGHAPUS DI MODUL EMS
 
@@ -2694,9 +2778,17 @@ function emsIsiEvent(eid){
 }
 
 function hapusEvent(eid){
-  if(!bisaUbah('events')) return toast('Tidak berwenang menghapus event.');
   const e=DB.events.find(x=>x.id===eid);
   if(!e) return toast('Event tidak ditemukan — mungkin sudah dihapus orang lain.');
+  /* IZINNYA IKUT TAHAP ACARANYA, bukan selalu 'events'. Rencana yang belum
+     disetujui hidup di halaman Perencanaan dan diurus orang yang berizin
+     'planning' — memaksa izin 'events' membuat tombol hapus di kartu rencana
+     tampil tapi selalu ditolak, yang terbaca sebagai tombol rusak. Begitu
+     rencananya disetujui dan pindah ke Event Management, yang berlaku izin
+     'events' lagi. */
+  const tahapRencana=(e.status==='Planning'||e.status==='Prospect');
+  if(!(tahapRencana ? (bisaUbah('planning')||bisaUbah('events')) : bisaUbah('events')))
+    return toast('Tidak berwenang menghapus '+(tahapRencana?'rencana':'event')+'.');
   const isi=emsIsiEvent(eid);
 
   if(isi.lunas.length){
@@ -2738,9 +2830,16 @@ function hapusEvent(eid){
       if(Array.isArray(DB.refunds))  DB.refunds =DB.refunds.filter(r=>!isi.refunds.some(x=>x.id===r.id));
       if(DB.eventDetails) delete DB.eventDetails[eid];
       save();
-      toast('Event "'+e.title+'" dihapus.');
-      location.hash='#/events';
-      if(typeof renderEvents==='function' && document.getElementById('content')) renderEvents();
+      toast((tahapRencana?'Rencana "':'Event "')+e.title+'" dihapus.');
+      /* KEMBALI KE HALAMAN ASALNYA, bukan selalu ke Event Management.
+         Menghapus satu rencana percobaan dari halaman Perencanaan lalu
+         terlempar ke daftar event adalah kehilangan tempat: yang berikutnya
+         mau dihapus ada di halaman yang barusan ditinggalkan. Yang dipaksa
+         pindah cuma halaman DETAIL event yang baru saja dihapus — halaman itu
+         memang sudah tidak punya isi. */
+      const dariDetail=/^#\/(events|history)\//.test(location.hash);
+      if(dariDetail){ location.hash='#/events'; }
+      else if(typeof router==='function'){ router(); }
     });
 }
 
@@ -4182,7 +4281,12 @@ function payHistory(pid){const p=DB.talentPayments.find(x=>x.id===pid);const t=D
 /* ============ EVENT MANAGEMENT ============ */
 const EVT_CATS=['Free','Paid','Internal','Community','Corporate','Wedding','Festival','Music','Launching','Private'];
 const TIMELINE_PHASES=['Preparation','Marketing','Vendor','Talent','Decoration','Opening','Closing','Evaluation'];
-let evtFilter='all';
+/* BUKAN 'all'. Halaman Event Management dibuka untuk mengurus acara yang
+   AKAN berjalan; "Semua" membuka daftar yang didominasi acara tahun lalu,
+   dan yang dicari orang selalu ada di bawah gulungan. Upcoming jadi bawaan,
+   dan "Semua" digeser ke ujung kanan — tetap ada, tapi tidak lagi jadi hal
+   pertama yang ditekan mata. */
+let evtFilter='Upcoming';
 /* ================= TIGA STATUS, SATU ALUR PERSETUJUAN =================
    Dulu ada lima status (Draft, Upcoming, Today, Finished, Cancelled) yang
    diputar satu tombol. Tiga di antaranya tidak pernah jadi keputusan siapa pun:
@@ -5155,6 +5259,11 @@ function renderPlanning(){
           ${boleh&&s!=='Menunggu'?`<button class="btn sm" onclick="ajukanRencana('${e.id}')">Ajukan ke manajemen</button>`:''}
           ${setuju&&s==='Menunggu'?`<button class="btn sm" onclick="setujuiRencana('${e.id}')">Setujui</button>
             <button class="btn ghost danger sm" onclick="tolakRencana('${e.id}')">Tolak</button>`:''}
+          <!-- Rencana yang salah ketik juga harus punya jalan keluar. Tanpa
+               tombol ini, satu-satunya cara membuang rencana percobaan adalah
+               menyetujuinya dulu supaya pindah ke Event Management — yang
+               berarti mengotori Approval Flow dengan keputusan palsu. -->
+          ${boleh?`<button class="rowdel" style="margin-left:auto" title="Hapus rencana" onclick="hapusEvent('${e.id}')">${svgTong(15)}</button>`:''}
         </div>
       </div></div>`;
    }catch(err){
@@ -5314,7 +5423,8 @@ function renderEvents(){
      cepat dibaca berjajar dalam kolom yang sejajar.
 
      Posternya tidak hilang: ikut sebagai gambar kecil di kolom Event. */
-  const filters=['all'].concat(EVT_STATUS.filter(function(x){ return x!=='Planning' && x!=='Prospect'; }));
+  /* 'all' di BELAKANG, bukan di depan — lihat catatan di deklarasi evtFilter. */
+  const filters=EVT_STATUS.filter(function(x){ return x!=='Planning' && x!=='Prospect'; }).concat(['all']);
   const q=(evtCari||'').trim().toLowerCase();
   const r=evtRentang();
   let semua=DB.events.filter(function(e){ return e.status!=='Planning' && e.status!=='Prospect'; });
@@ -5347,7 +5457,16 @@ function renderEvents(){
   }
   h+='<div class="card" style="padding:0"><div class="tbl-lebar"><table><thead><tr>'
     +'<th>Event</th><th>Tanggal</th><th>Venue</th><th>PIC</th>'
-    +'<th>Tiket</th><th>Omzet</th><th>Status</th></tr></thead><tbody>';
+    +'<th>Tiket</th><th>Omzet</th><th>Status</th>'
+    /* KOLOM HAPUS DIKEMBALIKAN. hapusEvent() sudah ada lengkap dengan seluruh
+       penjagaannya sejak 8 Agustus 2026 — yang hilang justru satu-satunya
+       tombol yang memanggilnya, ikut terbawa waktu halaman ini diubah dari
+       kisi kartu jadi tabel. Akibatnya fungsi itu jadi kode mati: event
+       percobaan dan salah ketik menumpuk selamanya, persis keadaan yang
+       fungsi itu dibuat untuk menyelesaikannya. Bentuknya .rowdel, sama
+       dengan kolom hapus di tabel Talent Management. */
+    +(bisaUbah('events')?'<th style="width:44px"></th>':'')
+    +'</tr></thead><tbody>';
   list.forEach(function(e){
     const sold=DB.ticketClasses.filter(function(c){ return c.event_id===e.id; })
       .reduce(function(a,c){ return a+(+c.sold||0); },0);
@@ -5364,7 +5483,15 @@ function renderEvents(){
       +'<td>'+esc(e.pic||'\u2014')+'</td>'
       +'<td>'+(e.is_ticketed?(sold+(kuota?' / '+kuota:'')):'<span class="mini">\u2014</span>')+'</td>'
       +'<td>'+(rev?IDR(rev):'<span class="mini">\u2014</span>')+'</td>'
-      +'<td>'+statusBadge(e.status)+'</td></tr>';
+      +'<td>'+statusBadge(e.status)+'</td>'
+      /* stopPropagation: seluruh barisnya sudah bisa diklik untuk membuka
+         detail. Tanpa ini, menekan tong sampah membuka dialog hapus DAN
+         berpindah halaman sekaligus \u2014 dialognya ikut tersapu render halaman
+         detail, jadi terlihat seperti tombolnya tidak berfungsi. */
+      +(bisaUbah('events')
+        ?'<td><button class="rowdel" title="Hapus event" onclick="event.stopPropagation();hapusEvent(&#39;'+e.id+'&#39;)">'+svgTong(15)+'</button></td>'
+        :'')
+      +'</tr>';
   });
   C().innerHTML=h+'</tbody></table></div></div>';
 }
@@ -5513,7 +5640,13 @@ function renderEventDetail(id){
   const locked=e.status==='Event Done';
   const boleh=!locked&&bisaUbah('events');
   setTop(e.title,'<a href="#/events" style="color:var(--accent)">Events</a> / '+esc(e.title),
-    `<select class="card-status st-${String(e.status).replace(/ /g,"_")}" style="width:auto;margin:0" onchange="setEventStatusDetail('${id}',this.value)">${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select> <button class="btn ghost sm" onclick="eventForm('${id}')">✎ Edit</button>`);
+    `<select class="card-status st-${String(e.status).replace(/ /g,"_")}" style="width:auto;margin:0" onchange="setEventStatusDetail('${id}',this.value)">${EVT_STATUS.map(s=>`<option ${e.status===s?'selected':''}>${s}</option>`).join('')}</select> <button class="btn ghost sm" onclick="eventForm('${id}')">✎ Edit</button>`
+    /* HAPUS DIKEMBALIKAN DI SINI JUGA. Ini halaman tempat orang benar-benar
+       memastikan sebuah event salah — sesudah membaca isinya — jadi menyuruh
+       kembali ke daftar hanya untuk menekan tong sampah berarti memutuskan
+       menghapus di layar yang tidak menampilkan apa yang akan dihapus.
+       hapusEvent() sendiri yang menolak kalau ada pesanan lunas. */
+    +(bisaUbah('events')?` <button class="btn ghost danger sm" onclick="hapusEvent('${id}')">${svgTong(14)} Hapus</button>`:''));
 
   /* Tujuh "tab" lama (Info & Marketing, Timeline, Rundown, Vendor, Budget,
      Sponsor, Task) DIGABUNG jadi satu halaman bertumpuk — seluruh detail event

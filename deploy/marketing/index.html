@@ -6590,28 +6590,58 @@ function rinciTeksTotal(jenis,jml,harga){
    Angkanya BACA-SAJA di sini: yang mengubahnya tetap kotak Discount, saklar
    Service Charge, dan Deposit di kolom kiri. Dua tempat mengetik satu angka
    yang sama adalah cara paling cepat membuat keduanya berselisih. */
-function rinciKakiHTML(){
-  const ev=S.events.find(function(x){ return x.id===_asEvId; });
-  if(!ev) return '';
-  /* Dihitung dari BAYANGAN — isi kotak & tabel yang sedang di layar, bukan
-     yang terakhir disimpan. */
-  const f=eventFinance(typeof finBayangan==='function'?finBayangan(ev):ev);
-  const baris=function(label,nilai,tebal){
-    return '<tr class="rk'+(tebal?' kuat':'')+'"><td colspan="5">'+label+'</td>'
-      +'<td class="mono r">'+nilai+'</td><td></td></tr>';
-  };
-  let h='';
-  h+=baris('Subtotal',rp(f.sub));
-  if(f.disc)               h+=baris('Discount','− '+rp(f.disc));
-  if(f.svcOn && f.service) h+=baris('Service Charge ('+S.settings.serviceCharge+'%)',rp(f.service));
-  if(f.tax)                h+=baris('PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
-  h+=baris('TOTAL',rp(f.grand),true);
-  /* Baris DP hanya untuk acara yang MEMANG memakai DP. eventFinance selalu
-     memulangkan angka DP (jatuh ke persentase bawaan kalau nominalnya kosong),
-     jadi tanpa penyaring ini "DP 50%" ikut tercetak pada acara yang dibayar
-     penuh di awal — angka yang tidak pernah disepakati siapa pun. */
-  const pakaiDp = (ev.detail||{}).sistemBayar==='DP' || +((ev.detail||{}).depositNominal)>0;
-  if(pakaiDp && f.dp) h+=baris(dpLabel(f)+(f.dpDiakui?' <span class="cell-sub">(sudah masuk Terbayar)</span>':''),rp(f.dp));
+/* Acara ini MEMANG memakai DP? eventFinance selalu memulangkan angka DP (jatuh
+   ke persentase bawaan kalau nominalnya kosong), jadi tanpa penyaring ini
+   "DP 50%" ikut tercetak pada acara yang dibayar penuh di awal — angka yang
+   tidak pernah disepakati siapa pun. */
+function finPakaiDp(ev){
+  const d=(ev&&ev.detail)||{};
+  return d.sistemBayar==='DP' || +(d.depositNominal)>0;
+}
+/* ================= KAKI LEMBAR TAGIHAN — SATU SUMBER =================
+   Dulu ada DUA kaki yang menyusun deretan ini sendiri-sendiri: satu untuk
+   tabel Rincian di layar (rinciKakiHTML), satu lagi untuk dokumen yang
+   dicetak & dikirim ke client (rincianTabelHTML). Keduanya lambat laun
+   berselisih persis seperti yang selalu terjadi kalau satu angka dihitung di
+   dua tempat — dan yang berselisih justru baris DP:
+
+     layar  : baris DP hanya muncul kalau acaranya memang ber-DP, dan diikuti
+              TERBAYAR sehingga TOTAL − TERBAYAR = SISA bisa dijumlahkan mata.
+     cetak  : baris DP SELALU dicetak, tanpa peduli acaranya ber-DP atau tidak,
+              dan tanpa peduli centang "DP sudah dibayar" menyala atau tidak —
+              lalu langsung disusul SISA PELUNASAN tanpa baris TERBAYAR.
+
+   Akibatnya di kertas yang diterima client: TOTAL, lalu DP terpampang seperti
+   potongan, lalu SISA yang TIDAK sama dengan TOTAL − DP. Yang membacanya
+   menyimpulkan DP-nya sudah dipotong otomatis padahal belum ada uang masuk —
+   atau sebaliknya menagih ulang DP yang sudah dibayar. Penyaring pakaiDp
+   memang pernah ditambahkan, tapi hanya di kaki layar; kaki cetak tidak
+   pernah ikut, dan tidak ada yang melaporkannya karena dokumen itu jarang
+   dibaca berdampingan dengan layarnya.
+
+   Sekarang keduanya membaca deretan yang sama dari sini. Yang boleh berbeda
+   cuma cara menggambarnya (kelas CSS vs gaya cetak) dan dua saklar di opsi. */
+function finKakiRows(ev,f,opsi){
+  opsi=opsi||{};
+  const r=[];
+  if(opsi.subtotal) r.push({l:'Subtotal',lc:'SUBTOTAL',v:rp(f.sub)});
+  if(f.disc)               r.push({l:'Discount',lc:'DISCOUNT',v:'− '+rp(f.disc)});
+  if(f.svcOn && f.service) r.push({l:'Service Charge ('+S.settings.serviceCharge+'%)',
+                                   lc:'SERVICE CHARGE ('+S.settings.serviceCharge+'%)',v:rp(f.service)});
+  if(f.tax)                r.push({l:'PB1 / Pajak ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',
+                                   lc:'PB1 / PAJAK ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',v:rp(f.tax)});
+  r.push({l:'TOTAL',lc:'TOTAL',v:rp(f.grand),tebal:true});
+  if(opsi.tagihan===false) return r;          // surat penawaran: belum ada yang dibayar
+  const pakaiDp=finPakaiDp(ev);
+  if(pakaiDp && f.dp){
+    /* KETERANGANNYA WAJIB, dan inilah inti perbaikannya. Angka DP yang berdiri
+       sendiri di bawah TOTAL selalu terbaca sebagai potongan. Yang menentukan
+       ia sudah dipotong atau belum adalah centang "DP sudah dibayar" — jadi
+       jawabannya ditulis di baris itu juga, bukan disimpulkan dari selisih
+       dua baris di bawahnya. */
+    r.push({l:dpLabel(f),lc:dpLabel(f).toUpperCase(),v:rp(f.dp),
+            ket:f.dpDiakui?'sudah masuk Terbayar':'belum dibayar — belum mengurangi sisa'});
+  }
   /* TERBAYAR SELALU DITULIS begitu ada DP atau pembayaran — tidak lagi
      disembunyikan saat nol. Tanpa baris ini deretannya berbunyi TOTAL, DP,
      SISA PELUNASAN, dan ketiganya TIDAK BISA DICOCOKKAN: sisa dihitung dari
@@ -6622,14 +6652,32 @@ function rinciKakiHTML(){
      Rinciannya ikut ditulis kalau Terbayar berisi dua sumber, supaya jelas DP
      yang tercantum di atas memang sudah termasuk dan tidak perlu dikurangkan
      sekali lagi. */
-  if(pakaiDp || f.paid){
+  if(pakaiDp || f.paid || opsi.bayarSelalu){
     const rinci=(f.dpDiakui&&f.bayarTercatat)
-      ? ' <span class="cell-sub">('+rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)+')</span>'
-      : (f.dpDiakui ? ' <span class="cell-sub">(dari DP)</span>' : '');
-    h+=baris('Terbayar'+rinci,rp(f.paid));
-    h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
+      ? rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)
+      : (f.dpDiakui ? 'dari DP' : '');
+    r.push({l:'Terbayar',lc:'TERBAYAR',v:rp(f.paid),ket:rinci});
+    r.push({l:'SISA PELUNASAN',lc:'SISA PELUNASAN',v:rp(Math.max(0,f.grand-f.paid)),tebal:true});
   }
-  return h;
+  return r;
+}
+function rinciKakiHTML(){
+  const ev=S.events.find(function(x){ return x.id===_asEvId; });
+  if(!ev) return '';
+  /* Dihitung dari BAYANGAN — isi kotak & tabel yang sedang di layar, bukan
+     yang terakhir disimpan. Bayangannya dipakai untuk finKakiRows JUGA, bukan
+     cuma untuk angkanya: kalau pakaiDp dibaca dari ev yang tersimpan, deposit
+     yang baru diketik belum memunculkan baris DP-nya sampai Simpan ditekan —
+     dan orang menyimpulkan angkanya tidak terpakai. */
+  const bayangan=(typeof finBayangan==='function'?finBayangan(ev):ev);
+  const f=eventFinance(bayangan);
+  const baris=function(label,nilai,tebal){
+    return '<tr class="rk'+(tebal?' kuat':'')+'"><td colspan="5">'+label+'</td>'
+      +'<td class="mono r">'+nilai+'</td><td></td></tr>';
+  };
+  return finKakiRows(bayangan,f,{subtotal:true}).map(function(x){
+    return baris(x.l+(x.ket?' <span class="cell-sub">('+esc(x.ket)+')</span>':''),x.v,x.tebal);
+  }).join('');
 }
 /* rinciCentang() DIHAPUS bersama saklar "Ketik Rincian sebagai Tabel".
    Tabel Rincian kini satu-satunya tempat baris tagihan diketik, jadi tidak ada
@@ -9626,19 +9674,19 @@ function rincianTabelHTML(ev, f, opsi){
       +(tebal?';font-size:13px':'')+'">'+label+'</td>'
       +'<td style="'+kanan+';font-weight:700'+(tebal?';font-size:13px':'')+'">'+nilai+'</td></tr>';
   };
-  /* Diskon/service/pajak hanya ditulis kalau memang ada. Baris "Discount Rp0"
-     membuat client bertanya diskon apa yang hilang. */
-  if(f.disc)  h+=kaki('DISCOUNT','− '+rp(f.disc));
-  if(f.svcOn && f.service) h+=kaki('SERVICE CHARGE ('+S.settings.serviceCharge+'%)',rp(f.service));
-  if(f.tax)   h+=kaki('PB1 / PAJAK ('+f.taxPct+'%'+(f.taxInc?' termasuk':'')+')',rp(f.tax));
-  h+=kaki('TOTAL',rp(f.grand),true);
-  /* DP & sisa hanya untuk dokumen yang memang berfungsi sebagai tagihan.
-     Di surat penawaran, angka "sisa pelunasan" belum punya arti — belum ada
-     yang membayar apa pun. */
-  if(opsi.tagihan!==false){
-    h+=kaki(dpLabel(f).toUpperCase(), rp(f.dp));
-    h+=kaki('SISA PELUNASAN', rp(Math.max(0, f.grand-f.paid)));
-  }
+  /* Deretan kakinya datang dari finKakiRows — SUMBER YANG SAMA dengan kaki
+     tabel Rincian di layar. Sebelumnya disusun sendiri di sini, dan itulah
+     sebabnya baris DP di kertas tidak pernah ikut penyaring pakaiDp maupun
+     centang "DP sudah dibayar": dua daftar, satu yang diperbaiki.
+
+     bayarSelalu: dokumen ini sebuah TAGIHAN, jadi Terbayar & Sisa tetap
+     dicetak walau belum ada uang masuk sama sekali — nol yang tertulis adalah
+     keterangan, berbeda dengan di layar kerja yang barisnya baru muncul saat
+     ada isinya. Baris "Discount Rp0" tetap tidak dicetak: nol yang itu memang
+     tidak menerangkan apa pun. */
+  finKakiRows(ev,f,{tagihan:opsi.tagihan,bayarSelalu:opsi.tagihan!==false}).forEach(function(x){
+    h+=kaki(x.lc+(x.ket?' <span style="font-weight:400;font-size:10.5px;color:#666">('+esc(x.ket)+')</span>':''),x.v,x.tebal);
+  });
   h+='</tbody></table>';
   return h;
 }
@@ -10410,7 +10458,10 @@ function calEventPopup(id){
     +row('Lantai / Area',d.area)
     +row('Sifat Acara',d.privacy)
     +row('Grand Total',rp(f.grand))
-    +row(dpLabel(f),rp(f.dp))
+    /* Ikut penyaring yang sama dengan kaki lembar tagihan: acara yang dibayar
+       penuh di awal tidak punya DP, dan memajang "DP 50%" di popupnya adalah
+       angka yang tidak pernah disepakati siapa pun. */
+    +(finPakaiDp(e)&&f.dp?row(dpLabel(f),rp(f.dp)):'')
     +'</table></div>';
   h+='<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button><button class="btn pri" onclick="closeModal();go(\'event\',\''+e.id+'\')">'+svg(IC.chevR)+'Buka Detail Event</button></div>';
   modal(h);

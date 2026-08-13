@@ -6590,15 +6590,11 @@ function rinciTeksTotal() {  }
 
 
 
-function rinciKakiHTML() { eventFinance(); finBayangan(); }
 
 
 
 
-
-function baris() { dpLabel(); rinciPanelHTML(); rincianPenawaran(); }
-
-
+function finPakaiDp() {  }
 
 
 
@@ -6624,6 +6620,58 @@ function baris() { dpLabel(); rinciPanelHTML(); rincianPenawaran(); }
 
 
 
+
+function finKakiRows() { finPakaiDp(); dpLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rinciKakiHTML() { finBayangan(); eventFinance(); }
+
+
+
+
+
+
+
+
+
+function baris() { finKakiRows(); esc(); rinciPanelHTML(); rincianPenawaran(); }
 
 
 
@@ -9621,7 +9669,7 @@ function rincianTabelHTML() { rincianPenawaran(); esc(); }
 
 
 
-function kaki() { dpLabel(); }
+function kaki() { finKakiRows(); esc(); }
 
 
 
@@ -10399,7 +10447,10 @@ function calToday() { go(); }
 function calEventPopup() { eventFinance(); }
 
 
-function row() { esc(); statusChip(); fmtDateLong(); closeModal(); svg(); clientName(); userName(); dpLabel(); go(); modal(); }
+function row() { esc(); statusChip(); fmtDateLong(); closeModal(); svg(); clientName(); userName(); finPakaiDp(); dpLabel(); go(); modal(); }
+
+
+
 
 
 
