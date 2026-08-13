@@ -544,6 +544,23 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1655,7 +1672,43 @@ function warnaStatus() {  }
 
 
 
-function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); pekerjaById(); warnaStatus(); bukaAjuan(); escJs(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
+
+
+
+
+
+
+
+
+
+function lembarTambahOrang() { tutupModal(); render(); }
+
+
+
+
+function lembarTambahModal() { awalBulan(); bulanDari(); hariIni(); akhirBulan(); modal(); esc(); namaDivisi(); lembarTambahOrang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); isHR(); pekerjaById(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); isiBarisDW(); escJs(); tglManusia(); isiSelDW(); warnaStatus(); bukaAjuan(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); lembarTambahModal(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
 
 
 
@@ -1706,6 +1759,201 @@ function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pit
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiSelDW() { isHR(); toast(); pekerjaById(); gambarSelDW(); }
+
+
+
+
+
+
+
+function selDwJam() { serapSelDW(); gambarSelDW(); serapAjukan(); }
+
+
+
+
+
+
+function serapSelDW() {  }
+
+function g() {  }
+
+
+
+
+
+function gambarSelDW() { ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); ikonDivisi(); namaDivisi(); jamAjuan(); tombolJam(); simpanSelDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanSelDW() { serapSelDW(); simpanAjuanRow(); namaSaya(); tutupModal(); toast(); namaDW(); tglManusia(); muatDanGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function isiBarisDW() { isHR(); toast(); pekerjaById(); ajuanOrangTgl(); addD(); barisDwKosongPertama(); gambarBarisDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function barisDwKosongPertama() {  }
+
+
+
+
+function barisDwKe() { gambarBarisDW(); }
+function barisDwKosongkan() { toast(); gambarBarisDW(); }
+
+
+
+
+function barisDwPilih() { toast(); barisDwKosongPertama(); gambarBarisDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarBarisDW() { addD(); warnaStatus(); esc(); barisDwKe(); tglPendek(); tglManusia(); modal(); namaDW(); rentangMinggu(); ikonDivisi(); namaDivisi(); warnaJam(); warnaTeks(); barisDwPilih(); barisDwKosongkan(); kirimBarisDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimBarisDW() { toast(); simpanAjuanRow(); addD(); namaSaya(); tutupModal(); muatDanGambar(); }
 
 
 
