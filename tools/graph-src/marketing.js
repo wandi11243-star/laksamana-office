@@ -1945,6 +1945,31 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -12013,7 +12038,18 @@ function rsvAmbil() {  }
 
 
 
-function rsvSisipkan() { rsvAmbil(); }
+function rsvSisipkan() { rsvAmbil(); vipGabungDps(); vipTerapkanRingkasanDp(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12494,24 +12530,13 @@ function seg() { segPick(); modal(); closeModal(); svg(); vipPilihJenis(); rupia
 
 
 
-function vipClientBaruToggle() { $(); }
+
+
+function vipClientBaruToggle() { $(); save(); }
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-function vipBuktiHTML() { esc(); attachUrl(); vipHapusBukti(); }
 
 
 
@@ -12533,7 +12558,22 @@ function vipBuktiHTML() { esc(); attachUrl(); vipHapusBukti(); }
 
 
 
-function vipBuktiBacaHTML() { attachUrl(); esc(); fmtDate(); }
+
+
+
+
+function vipBuktiList() {  }
+
+
+
+
+function vipDpTotal() { vipBuktiList(); }
+
+
+
+
+
+function vipBuktiHTML() { vipBuktiList(); vipDpTotal(); esc(); attachUrl(); vipBuktiIkonHTML(); onRupiahInput(); vipSetDpNominal(); vipSetDpMetode(); vipHapusBukti(); }
 
 
 
@@ -12542,6 +12582,112 @@ function vipBuktiBacaHTML() { attachUrl(); esc(); fmtDate(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipBuktiIkonHTML() { esc(); attachUrl(); }
+
+
+
+
+
+function vipSetDpNominal() { vipBuktiList(); vipDpTotal(); }
+
+
+
+
+
+
+function vipSetDpMetode() { vipBuktiList(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipBuktiBacaHTML() { vipBuktiList(); can(); attachUrl(); esc(); fmtDate(); vipHapusBuktiDetail(); vipDpTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipHapusBuktiDetail() { can(); toast(); vipBuktiList(); logAct(); save(); vipSyncDp(); vipDetail(); vipDpTotal(); }
 
 
 
@@ -12562,7 +12708,7 @@ function vipSegarkanBukti() { $(); vipBuktiHTML(); }
 
 
 
-function vipUnggahBukti() { toast(); esc(); fileToBase64(); vipSegarkanBukti(); }
+function vipUnggahBukti() { toast(); esc(); fileToBase64(); vipDataUri(); uid(); vipSegarkanBukti(); }
 
 
 
@@ -12586,7 +12732,16 @@ function vipUnggahBukti() { toast(); esc(); fileToBase64(); vipSegarkanBukti(); 
 
 
 
-function vipHapusBukti() { vipSegarkanBukti(); }
+
+
+
+
+
+
+
+
+
+function vipHapusBukti() { vipSegarkanBukti(); save(); vipSyncDp(); toast(); }
 
 
 
@@ -12597,7 +12752,145 @@ function vipHapusBukti() { vipSegarkanBukti(); }
 
 
 
-function vipSimpanSaja() { vipKumpulkan(); toast(); vipPastikanClient(); logAct(); fmtDate(); save(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipDataUri() { attachUrl(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipDpsUntukReservasi() { vipBuktiList(); vipDataUri(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipGabungDps() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipTerapkanRingkasanDp() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipSyncDp() { vipDpsUntukReservasi(); rsvUbahBaris(); vipGabungDps(); vipTerapkanRingkasanDp(); }
+
+
+
+
+
+
+
+
+
+function vipSimpanSaja() { vipKumpulkan(); toast(); vipPastikanClient(); logAct(); fmtDate(); vipDpTotal(); save(); closeModal(); go(); vipSyncDp(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13053,7 +13346,20 @@ function vipToggleMeja() { vipSegarkanRingkas(); }
 
 
 
-function vipSimpanKunci() { toast(); $(); rsvSisipkan(); rsvMejaTerpakai(); vipPerusahaan(); userName(); vipPax(); svg(); vipPastikanClient(); logAct(); fmtDate(); vipNominal(); save(); closeModal(); buildNav(); go(); }
+function vipSimpanKunci() { toast(); $(); vipDpsUntukReservasi(); rsvSisipkan(); rsvMejaTerpakai(); vipPerusahaan(); userName(); vipPax(); vipTerapkanRingkasanDp(); svg(); vipPastikanClient(); logAct(); fmtDate(); vipNominal(); save(); closeModal(); buildNav(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13141,8 +13447,18 @@ function vipIsiNominal() { can(); toast(); modal(); esc(); fmtDate(); closeModal
 
 
 
+
 function vipLepasForm() {  }
-function vipSimpanNominal() { $(); logAct(); vipNominal(); vipLepasForm(); save(); closeModal(); toast(); userName(); go(); }
+function vipSimpanNominal() { $(); logAct(); vipNominal(); vipDpTotal(); vipLepasForm(); save(); closeModal(); toast(); userName(); go(); vipSyncDp(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13153,6 +13469,7 @@ function vipSimpanNominal() { $(); logAct(); vipNominal(); vipLepasForm(); save(
 
 
 function vipDetail() { modal(); esc(); vipPerusahaan(); closeModal(); svg(); baris(); fmtDateLong(); vipJam(); vipPax(); userName(); vipBelumNominal(); vipNominal(); vipBuktiBacaHTML(); vipDenahHTML(); fmtDate(); can(); vipForm(); vipIsiNominal(); vipBatal(); vipHapus(); vipDetailDenahAsli(); vipDenahKey(); rsvAmbil(); }
+
 
 
 

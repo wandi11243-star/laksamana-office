@@ -353,6 +353,31 @@ table.tbl tr:last-child td{border-bottom:none}
    tombolnya yang menumpuk. */
 .aksi-1baris{display:flex;gap:6px;flex-wrap:nowrap;align-items:center;justify-content:flex-end}
 .aksi-1baris .btn{white-space:nowrap;flex:none}
+/* Baris DP di Reservasi VIP — satu baris satu kali transfer, sebentuk dengan
+   r.dps[] di modul Reservasi. Pratinjaunya kecil tapi ADA: yang mengisi
+   nominal sedang membaca angka dari struk itu juga, dan daftar nama berkas
+   ("IMG_20260813_0001.jpg") tidak menolong sama sekali membedakan transfer
+   pertama dari kedua. */
+.vip-dp-row{display:flex;align-items:center;gap:10px;padding:8px;margin-bottom:6px;
+  border:1px solid var(--line-soft);border-radius:10px;background:var(--ink-880)}
+.vip-dp-file{width:46px;height:46px;flex:none;border-radius:8px;overflow:hidden;display:flex;
+  align-items:center;justify-content:center;background:var(--ink-850);border:1px solid var(--line-soft)}
+.vip-dp-file img{width:100%;height:100%;object-fit:cover;display:block}
+.vip-dp-pdf{font-size:20px;line-height:1}
+.vip-dp-isi{flex:1;min-width:0}
+.vip-dp-nama{font-size:11px;color:var(--muted);margin-bottom:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vip-dp-form{display:flex;gap:6px;flex-wrap:wrap}
+.vip-dp-form .cur-wrap{flex:1 1 130px;min-width:0}
+.vip-dp-form select{flex:0 1 140px;min-width:0}
+/* Tombol × cuma tanda silang, bukan tombol berat: yang dominan di baris ini
+   harus nominalnya. Sasaran sentuhnya tetap 28px supaya bisa ditekan di HP. */
+.vip-dp-x{width:28px;height:28px;flex:none;border:none;background:none;cursor:pointer;
+  color:var(--muted);font-size:19px;line-height:1;border-radius:7px}
+.vip-dp-x:hover{background:var(--danger-bg);color:var(--danger)}
+.vip-dp-x-abs{position:absolute;top:4px;right:4px;z-index:2;background:rgba(0,0,0,.55);color:#fff}
+.vip-dp-x-abs:hover{background:var(--danger);color:#fff}
+.vip-dp-total{font-size:12px;color:var(--muted);padding-top:4px}
 /* Pemisah bulan DI DALAM tabel — bukan tabel terpisah per bulan, supaya
    pengurutan, pencarian, dan paginasi tetap satu perlakuan. */
 .bulan-sep td{background:var(--ink-880);font-weight:700;font-size:11.5px;letter-spacing:.06em;
@@ -12046,11 +12071,22 @@ async function rsvSisipkan(buatRecord){
         followups: Array.isArray(lama.followups)?lama.followups:(rec.followups||[]),
         // Status yang sudah bergerak melewati Confirmed tidak ditarik mundur.
         status: (lama.status==='Datang'||lama.status==='No-show'||lama.status==='Cancelled')?lama.status:rec.status,
-        // DP & dokumen yang diunggah di modul Reservasi juga bukan milik kita.
-        dpStatus: lama.dpStatus||rec.dpStatus, dpMethod: lama.dpMethod||rec.dpMethod,
-        dpAmount: lama.dpAmount||rec.dpAmount,
-        dpProofData: lama.dpProofData||rec.dpProofData, dpProofName: lama.dpProofName||rec.dpProofName
+        // Dokumen yang diunggah di modul Reservasi bukan milik kita.
+        docReqData: lama.docReqData||rec.docReqData, docReqName: lama.docReqName||rec.docReqName
       });
+      /* DP DIGABUNG, TIDAK LAGI DIPERTAHANKAN MENTAH-MENTAH.
+         Baris ini dulu berbunyi `dpStatus: lama.dpStatus||rec.dpStatus` dst.,
+         dengan alasan "DP itu milik modul Reservasi". Alasan itu benar selama
+         Marketing memang tidak punya DP — sekarang punya, dan aturan lama
+         berarti DP yang diisi di Marketing TIDAK PERNAH sampai: rec.dp* selalu
+         kalah oleh nilai lama yang sudah terisi.
+
+         Yang dipakai sekarang vipGabungDps: cicilan bertanda vipBuktiId
+         (asalnya dari sini) diperbarui, cicilan yang dicatat kru Reservasi
+         sendiri dibiarkan utuh. Ringkasannya dihitung ulang dari hasil
+         gabungan itu, bukan diambil dari salah satu sisi. */
+      data.reservations[idx].dps=vipGabungDps(lama.dps,Array.isArray(rec.dps)?rec.dps:[]);
+      vipTerapkanRingkasanDp(data.reservations[idx]);
     }
     const res=await fetch(RSV_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
       body:JSON.stringify({action:'saveAll',data,baseVer})});
@@ -12435,12 +12471,14 @@ function vipFormUI(){
         Bukan wajib, dan sengaja: nominalnya sendiri baru diisi sesudah acara,
         dan memaksa buktinya ada di detik yang sama cuma membuat orang menunda
         mengisi keduanya. Yang dituju: begitu buktinya ada, ada tempatnya. */
-   +'<div class="field"><label>Bukti Pembayaran</label>'
+   +'<div class="field"><label>DP &amp; Bukti Transfer</label>'
      +vipBuktiHTML(f)
      +'<input id="vip_bukti_file" type="file" accept="image/*,application/pdf" '
      +'onchange="vipUnggahBukti(this)" style="margin-top:6px">'
-     +'<div class="fh">Foto transfer atau PDF, maksimal 8MB. Tersimpan di server bersama '
-     +'lampiran event lain — bukan di peramban ini.</div></div>'
+     +'<div class="fh">Boleh lebih dari satu — DP yang dicicil ditulis satu baris per transfer, '
+     +'masing-masing dengan nominal, metode &amp; buktinya sendiri. Tekan <b>×</b> untuk membuang satu baris. '
+     +'Foto atau PDF, maksimal 8MB. <b>Ikut terkirim ke modul Reservasi</b>, jadi kru di sana '
+     +'melihat DP yang sama tanpa perlu diketik ulang.</div></div>'
      /* Pertanyaan menu hanya muncul untuk ASSISTED, dan ikut di dalam wrap
         yang sama. Untuk Regular marketing memang tidak mengaku menerima
         omset apa pun, jadi menanyakan siapa yang diakui cuma menambah satu
@@ -12508,42 +12546,130 @@ function vipClientBaruToggle(){
 /* Simpan perubahan TANPA menyentuh modul Reservasi. Yang bisa diubah dari sini
    memang cuma keterangannya (nama, HP, jam, catatan, nominal); meja dan
    kuncian di Reservasi tetap milik jalur "Ubah Meja & Kunci". */
+/* ================= DP BERTAHAP DI RESERVASI VIP =================
+   Bentuknya sengaja DICOCOKKAN dengan r.dps[] milik modul Reservasi
+   (lihat "DP BERTAHAP" di deploy/reservasi/index.html), karena ke sanalah ia
+   dikirim: satu baris = satu kali transfer, punya nominal, metode, dan
+   buktinya SENDIRI. Yang dulu ada di sini cuma daftar lampiran tanpa angka —
+   jadi "sudah DP berapa" tidak pernah terjawab dari Marketing, dan kru
+   Reservasi harus mengetik ulang DP-nya di modul sebelah dari foto yang
+   dikirim lewat WhatsApp.
+
+   `id` WAJIB dan stabil: itu satu-satunya cara baris ini dikenali lagi saat
+   disinkronkan (vipDpsUntukReservasi menandainya sebagai vipBuktiId), supaya
+   menyimpan ulang dari Marketing MEMPERBARUI cicilan yang sama, bukan
+   menumpuk cicilan kembar tiap kali orang menekan Simpan. Data lama tidak
+   punya id — diberikan di sini, sekali, dan ikut tersimpan pada save()
+   berikutnya. */
+const VIP_DP_METODE=['QRIS BRI','Transfer UOB','Cash','QRIS BCA'];
+function vipBuktiList(v){
+  const arr=Array.isArray(v&&v.bukti)?v.bukti:[];
+  arr.forEach(function(b,i){ if(b&&!b.id) b.id='dp'+i+'-'+String(b.key||'').slice(-8); });
+  return arr;
+}
+function vipDpTotal(v){
+  return vipBuktiList(v).reduce(function(a,b){ return a+(+b.nominal||0); },0);
+}
 /* Daftar bukti yang sudah terlampir. Digambar terpisah supaya bisa disegarkan
    sendiri sesudah unggah tanpa menggambar ulang seluruh modal — yang sedang
    diketik di kotak lain tidak boleh hilang cuma karena satu berkas masuk. */
 function vipBuktiHTML(f){
-  const arr=Array.isArray(f&&f.bukti)?f.bukti:[];
-  if(!arr.length) return '<div id="vip_bukti_list" class="fh">Belum ada bukti terlampir.</div>';
-  return '<div id="vip_bukti_list" class="pill-row" style="gap:6px">'
+  const arr=vipBuktiList(f);
+  const total=vipDpTotal(f);
+  if(!arr.length) return '<div id="vip_bukti_list" class="fh">Belum ada DP. Pilih berkas di bawah untuk menambah cicilan pertama.</div>';
+  return '<div id="vip_bukti_list">'
     +arr.map(function(b,i){
-        return '<span class="tag" style="display:inline-flex;align-items:center;gap:6px">'
-          +'<a href="'+esc(attachUrl(b.key))+'" target="_blank" rel="noopener">'+esc(b.name||'bukti')+'</a>'
-          +'<button type="button" class="x" title="Hapus" onclick="vipHapusBukti('+i+')">&times;</button></span>';
+        /* Nominal & metode diikat oninput/onchange langsung ke VIP_FORM, bukan
+           dibaca saat Simpan. Baris ini bisa bertambah & berkurang sesudah
+           formulir digambar, jadi membacanya belakangan lewat id yang ditebak
+           dari urutan akan meleset begitu ada satu yang dihapus di tengah. */
+        return '<div class="vip-dp-row">'
+          +'<a class="vip-dp-file" href="'+esc(attachUrl(b.key))+'" target="_blank" rel="noopener" '
+            +'title="Buka bukti '+esc(b.name||'')+'">'+vipBuktiIkonHTML(b)+'</a>'
+          +'<div class="vip-dp-isi">'
+            +'<div class="vip-dp-nama">'+esc(b.name||'bukti')+'</div>'
+            +'<div class="vip-dp-form">'
+              /* Kotak rupiahnya disusun di sini, BUKAN lewat rupiahInputHTML.
+                 Fungsi itu sudah menempelkan oninput="onRupiahInput(this)"
+                 sendiri, dan atribut oninput KEDUA pada satu tag diabaikan
+                 diam-diam oleh peramban (yang pertama menang) — nominal yang
+                 diketik tidak akan pernah sampai ke VIP_FORM, tanpa galat apa
+                 pun. Jadi keduanya digabung dalam satu penangan. */
+              +'<div class="cur-wrap"><span class="cur-pre">Rp</span>'
+                +'<input class="inp cur-inp" type="text" inputmode="numeric" id="vip_dp_n'+i+'" '
+                +'value="'+rupiahFmt(b.nominal)+'" placeholder="Nominal DP" '
+                +'oninput="onRupiahInput(this);vipSetDpNominal('+i+',this.value)"></div>'
+              +'<select onchange="vipSetDpMetode('+i+',this.value)">'
+                +'<option value="">Metode…</option>'
+                +VIP_DP_METODE.map(function(m){ return '<option'+(String(b.metode||'')===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')
+              +'</select>'
+            +'</div>'
+          +'</div>'
+          +'<button type="button" class="vip-dp-x" title="Hapus DP ini" onclick="vipHapusBukti('+i+')">&times;</button>'
+        +'</div>';
       }).join('')
+    +'<div class="vip-dp-total">Total DP <b class="mono">'+rp(total)+'</b>'
+      +(arr.length>1?' <span class="cell-sub">· '+arr.length+'× transfer</span>':'')+'</div>'
     +'</div>';
 }
-/* VERSI BACA-SAJA untuk vipDetail. Sengaja BUKAN vipBuktiHTML: yang itu
-   memasang tombol × yang memanggil vipHapusBukti(i), dan vipHapusBukti menulis
-   ke VIP_FORM — yang di layar detail bernilai null. Menekannya di sana akan
-   diam saja tanpa membuang apa pun, atau lebih buruk: membuang bukti milik
-   reservasi lain kalau VIP_FORM kebetulan masih menggantung dari layar
-   sebelumnya (itu sebab vipLepasForm ada).
+/* Kotak kecil di kiri tiap baris: foto tampil sebagai foto, PDF sebagai ikon.
+   Dipakai formulir maupun layar detail, jadi keduanya tidak bisa berselisih. */
+function vipBuktiIkonHTML(b){
+  const gbr=/\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(String(b.name||''));
+  return gbr
+    ? '<img src="'+esc(attachUrl(b.key))+'" alt="'+esc(b.name||'bukti')+'">'
+    : '<span class="vip-dp-pdf">📄</span>';
+}
+function vipSetDpNominal(i,val){
+  const arr=vipBuktiList(VIP_FORM); if(!arr[i]) return;
+  const d=rupiahDigits(val);
+  arr[i].nominal=(d===''?'':(+d));
+  const t=document.querySelector('#vip_bukti_list .vip-dp-total b');
+  if(t) t.textContent=rp(vipDpTotal(VIP_FORM));
+}
+function vipSetDpMetode(i,val){
+  const arr=vipBuktiList(VIP_FORM); if(!arr[i]) return;
+  arr[i].metode=val||'';
+}
+/* VERSI UNTUK vipDetail. Sengaja BUKAN vipBuktiHTML: yang itu punya kotak
+   isian nominal & metode yang terikat ke VIP_FORM — yang di layar detail
+   bernilai null, jadi mengetiknya di sana tidak akan tersimpan ke mana pun,
+   atau lebih buruk: mendarat di reservasi lain kalau VIP_FORM kebetulan masih
+   menggantung dari layar sebelumnya (itu sebab vipLepasForm ada).
+
+   Tombol × TETAP ADA di sini (permintaan 13 Agustus 2026) tapi lewat jalur
+   sendiri, vipHapusBuktiDetail, yang menulis langsung ke S.vip lalu save().
+   Menghapus bukti dari layar detail adalah pekerjaan yang wajar — bukti salah
+   kirim ketahuan justru saat orang sedang memeriksanya — dan menyuruh orang
+   membuka formulir suntingan penuh untuk satu tombol silang berarti seluruh
+   isian reservasi yang sudah jadi ikut terbuka dan bisa tergeser.
 
    Gambar ditampilkan sebagai gambar, bukan sekadar tautan. Yang membuka detail
    ini sedang mencocokkan nominal dengan transferan; menyuruhnya membuka tab
    baru dulu untuk melihat satu struk membuat pencocokan itu dikerjakan sambil
-   bolak-balik. PDF tetap tautan — tidak semua peramban menampilkannya inline. */
+   bolak-balik. PDF tetap ikon — tidak semua peramban menampilkannya inline. */
 function vipBuktiBacaHTML(v){
-  const arr=Array.isArray(v&&v.bukti)?v.bukti:[];
-  if(!arr.length) return '<div class="cell-sub">Belum ada bukti transfer terlampir.</div>';
+  const arr=vipBuktiList(v);
+  const bolehHapus=can('edit_vip')&&!v.batalAt;
+  if(!arr.length) return '<div class="cell-sub">Belum ada DP / bukti transfer terlampir.</div>';
   return '<div style="display:flex;flex-wrap:wrap;gap:10px">'
-    +arr.map(function(b){
+    +arr.map(function(b,i){
         const url=attachUrl(b.key);
         const gbr=/\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(String(b.name||''));
         const ket='<div class="cell-sub" style="font-size:10.5px;max-width:150px;'
           +'overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(b.name||'bukti')
           +(b.at?' · '+esc(fmtDate(String(b.at).slice(0,10))):'')+'</div>';
-        return '<a href="'+esc(url)+'" target="_blank" rel="noopener" '
+        const angka=(+b.nominal)
+          ? '<div class="mono" style="font-size:12px;font-weight:700">'+rp(+b.nominal)+'</div>'
+          : '<div class="cell-sub" style="font-size:10.5px;color:var(--warn)">nominal belum diisi</div>';
+        const cara=b.metode?'<div class="cell-sub" style="font-size:10.5px">'+esc(b.metode)+'</div>':'';
+        /* position:relative pada pembungkusnya, BUKAN pada <a>: tombol × yang
+           bersarang di dalam <a> ikut terbaca sebagai klik tautan, jadi
+           menghapus akan membuka tab baru berisi buktinya sekalian. */
+        return '<div style="position:relative;width:150px">'
+          +(bolehHapus?'<button type="button" class="vip-dp-x vip-dp-x-abs" title="Hapus DP ini" '
+            +'onclick="vipHapusBuktiDetail(\''+esc(v.id)+'\','+i+')">&times;</button>':'')
+          +'<a href="'+esc(url)+'" target="_blank" rel="noopener" '
           +'title="'+esc(b.name||'bukti')+(b.by?' · diunggah '+esc(b.by):'')+'" '
           +'style="text-decoration:none;display:block">'
           +(gbr
@@ -12552,9 +12678,29 @@ function vipBuktiBacaHTML(v){
                +'border:1px solid var(--line);display:block">'
              :'<div style="width:150px;height:150px;border-radius:8px;border:1px solid var(--line);'
                +'display:flex;align-items:center;justify-content:center;font-size:34px">📄</div>')
-          +ket+'</a>';
+          +angka+cara+ket+'</a></div>';
       }).join('')
-    +'</div>';
+    +'</div>'
+    +'<div class="vip-dp-total" style="margin-top:8px">Total DP <b class="mono">'+rp(vipDpTotal(v))+'</b>'
+      +(arr.length>1?' <span class="cell-sub">· '+arr.length+'× transfer</span>':'')+'</div>';
+}
+/* Hapus dari layar DETAIL. Berdiri sendiri karena sasarannya S.vip, bukan
+   VIP_FORM, dan karena ia harus ikut merapikan modul Reservasi — kalau tidak,
+   DP yang sudah dicabut di sini tetap terhitung di sana. */
+async function vipHapusBuktiDetail(id,i){
+  if(!can('edit_vip')) return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v) return;
+  const arr=vipBuktiList(v); const b=arr[i]; if(!b) return;
+  /* Sengaja bertanya. Bukti pembayaran yang sudah dilampirkan adalah jejak
+     uang — sama alasannya dengan vipHapusBukti di formulir. */
+  if(!confirm('Hapus DP "'+(b.name||'')+'"'+((+b.nominal)?' ('+rp(+b.nominal)+')':'')+' dari reservasi ini?')) return;
+  arr.splice(i,1);
+  logAct('vip',v.id,'DP / bukti transfer dihapus',(b.name||'')+((+b.nominal)?' · '+rp(+b.nominal):''));
+  save();
+  try{ await vipSyncDp(v); }
+  catch(e){ toast('Tersimpan di Marketing','Tapi modul Reservasi belum ikut diperbarui: '+e.message,'err'); }
+  vipDetail(id);
+  toast('DP dihapus','Sisa '+vipBuktiList(v).length+' bukti · total '+rp(vipDpTotal(v))+'.','ok');
 }
 function vipSegarkanBukti(){
   const el=$('vip_bukti_list'); if(!el) return;
@@ -12575,10 +12721,19 @@ async function vipUnggahBukti(inp){
     if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
     if(!VIP_FORM) return;
     VIP_FORM.bukti=Array.isArray(VIP_FORM.bukti)?VIP_FORM.bukti:[];
-    VIP_FORM.bukti.push({key:d.data.key,name:f.name,size:f.size,
+    /* base64-nya DISIMPAN DI INGATAN, bukan di data. Saat baris ini nanti
+       dikirim ke modul Reservasi, yang dibutuhkan di sana adalah isi berkasnya
+       (data: URI) — bukan kunci milik server Marketing, yang tidak berarti
+       apa-apa untuk backend Reservasi. Menyimpannya di S akan menggemukkan
+       blob Marketing dengan megabyte foto; menyimpannya di sini membuat alur
+       yang lazim (unggah lalu Simpan) tidak perlu mengunduh ulang berkas yang
+       baru saja dikirim. Kalau sesi berganti, vipDataUri() mengunduhnya lagi. */
+    VIP_BUKTI_DATA[d.data.key]='data:'+(f.type||'application/octet-stream')+';base64,'+b64;
+    VIP_FORM.bukti.push({id:uid('dp'),key:d.data.key,name:f.name,size:f.size,
+      nominal:'',metode:'',
       at:new Date().toISOString(),by:(ME&&ME.name)||''});
     vipSegarkanBukti();
-    toast('Bukti terlampir',esc(f.name)+' tersimpan di server.','ok');
+    toast('Bukti terlampir',esc(f.name)+' tersimpan. Isi nominal & metode DP-nya di baris itu.','ok');
   }catch(e){
     toast('Gagal unggah',esc(f.name)+': '+e.message,'err');
   }finally{
@@ -12586,18 +12741,146 @@ async function vipUnggahBukti(inp){
     if(semula) semula.scrollIntoView&&0;
   }
 }
-function vipHapusBukti(i){
+async function vipHapusBukti(i){
   if(!VIP_FORM||!Array.isArray(VIP_FORM.bukti)) return;
   const b=VIP_FORM.bukti[i]; if(!b) return;
-  if(!confirm('Hapus bukti "'+(b.name||'')+'" dari reservasi ini?')) return;
+  if(!confirm('Hapus DP "'+(b.name||'')+'"'+((+b.nominal)?' ('+rp(+b.nominal)+')':'')+' dari reservasi ini?')) return;
   /* Dibuang dari daftar reservasinya saja, berkasnya di server tidak dihapus:
      bukti pembayaran yang sudah pernah dilampirkan adalah jejak uang, dan
      menghapusnya permanen dari satu klik di modal bukan keputusan yang pantas
      diambil tanpa jejak. */
   VIP_FORM.bukti.splice(i,1);
   vipSegarkanBukti();
+  /* DUA PINTU MEMANGGIL FUNGSI INI, dan keduanya berbeda sifat:
+       vipForm       — VIP_FORM salinan; perubahan baru mengikat saat Simpan.
+       vipIsiNominal — VIP_FORM DITUNJUK LANGSUNG ke baris di S.vip.
+     Untuk pintu kedua, menghapus tanpa save() meninggalkan keadaan yang paling
+     menyesatkan: barisnya sudah hilang dari layar dan dari ingatan, tapi belum
+     dari server — lalu ikut tertulis diam-diam oleh save() lain yang tidak ada
+     hubungannya, atau kembali muncul kalau halaman disegarkan lebih dulu. */
+  if((S.vip||[]).some(function(x){ return x===VIP_FORM; })){
+    save();
+    if(VIP_FORM.resId){
+      try{ await vipSyncDp(VIP_FORM); }
+      catch(e){ toast('DP belum sampai ke Reservasi',e.message+' — simpan lagi untuk mengulang.','err'); }
+    }
+  }
 }
-function vipSimpanSaja(){
+/* ================= JEMBATAN DP: MARKETING → MODUL RESERVASI =================
+
+   Modul Reservasi menyimpan DP sebagai r.dps[] — satu baris per transfer,
+   masing-masing dengan proofData. proofData di sana boleh berupa data: URI
+   biasa: backend Reservasi sendiri yang memindahkannya ke berkas dan
+   menggantinya dengan penanda '@f:...' saat saveAll (lihat each_file_field di
+   reservasi-mysql/lib_*.php). Jadi yang perlu kita kirim cuma isi berkasnya,
+   dan seluruh alur baca/verifikasi/OCR di sana bekerja apa adanya.
+
+   YANG SENGAJA TIDAK DILAKUKAN: menyimpan URL bukti milik server Marketing ke
+   dalam proofData. Itu memang tampil di layar, tapi loadFile() di sana tidak
+   akan pernah bisa mengunduhnya, PDF-nya digambar sebagai <img> yang rusak,
+   dan tautannya mati begitu domain Marketing berubah. */
+const VIP_BUKTI_DATA={};        // {keyServerMarketing: 'data:...;base64,...'}
+async function vipDataUri(b){
+  if(VIP_BUKTI_DATA[b.key]) return VIP_BUKTI_DATA[b.key];
+  const res=await fetch(attachUrl(b.key));
+  if(!res.ok) throw new Error('bukti "'+(b.name||'')+'" tidak bisa diambil dari server Marketing (HTTP '+res.status+')');
+  const blob=await res.blob();
+  const uri=await new Promise(function(ok,no){
+    const fr=new FileReader();
+    fr.onload=function(){ ok(String(fr.result)); };
+    fr.onerror=function(){ no(new Error('bukti "'+(b.name||'')+'" gagal dibaca')); };
+    fr.readAsDataURL(blob);
+  });
+  VIP_BUKTI_DATA[b.key]=uri;
+  return uri;
+}
+/* Bentuk dps[] untuk satu reservasi VIP. ASINKRON, jadi WAJIB di-await SEBELUM
+   masuk ke rsvSisipkan/rsvUbahBaris — kedua fungsi itu memanggil penyusun
+   recordnya secara sinkron di dalam putaran coba-lagi, dan menunggu jaringan
+   di dalam sana berarti baseVer yang sudah basi ikut terkirim. */
+async function vipDpsUntukReservasi(v){
+  const arr=vipBuktiList(v), out=[];
+  for(let i=0;i<arr.length;i++){
+    const b=arr[i];
+    let data='';
+    try{ data=await vipDataUri(b); }
+    catch(e){ /* satu bukti gagal diambil tidak boleh membatalkan seluruh
+                 penguncian meja — nominalnya tetap dikirim, buktinya menyusul
+                 saat disimpan lagi. Yang paling buruk di sini adalah meja
+                 gagal terkunci gara-gara satu foto. */ }
+    out.push({
+      id:'vip-'+v.id+'-'+b.id,
+      vipBuktiId:b.id,                  // penanda asal: dipakai saat menggabung
+      amount:+b.nominal||0, method:b.metode||'',
+      proofData:data, proofName:b.name||'',
+      by:b.by||(ME?ME.name:'Marketing'),
+      at:b.at?(new Date(b.at).getTime()||Date.now()):Date.now(),
+      tfDate:'',tfTime:'',tfBank:'',tfName:'',tfAmount:0,
+      tfStatus:'',tfNote:'',tfSource:'',tfBy:'',tfAt:0,tfOcrAt:0,tfOcrText:''
+    });
+  }
+  return out;
+}
+/* Menggabung dps[] Marketing ke dps[] yang sudah ada di Reservasi.
+
+   TIDAK menimpa seluruh daftar: kru Reservasi bisa mencatat cicilan sendiri di
+   sana (tamu menambah DP saat datang), dan menghapusnya dari sini berarti uang
+   yang benar-benar masuk hilang dari catatan. Yang diganti hanya baris yang
+   MEMANG berasal dari Marketing — dikenali dari vipBuktiId. Yang sudah
+   diverifikasi di sana (tfStatus) tetap membawa hasil verifikasinya, karena
+   yang kita perbarui cuma nominal/metode/buktinya. */
+function vipGabungDps(lama,baru){
+  const sisa=(Array.isArray(lama)?lama:[]).filter(function(p){ return !(p&&p.vipBuktiId); });
+  const peta={};
+  (Array.isArray(lama)?lama:[]).forEach(function(p){ if(p&&p.vipBuktiId) peta[p.vipBuktiId]=p; });
+  const dari=baru.map(function(p){
+    const l=peta[p.vipBuktiId];
+    if(!l) return p;
+    return Object.assign({},l,p,{
+      // proofData kosong = pengambilan buktinya gagal; jangan hapus yang lama.
+      proofData:p.proofData||l.proofData||'',
+      proofName:p.proofName||l.proofName||'',
+      tfStatus:l.tfStatus||'', tfNote:l.tfNote||'', tfSource:l.tfSource||'',
+      tfBy:l.tfBy||'', tfAt:l.tfAt||0, tfAmount:l.tfAmount||0,
+      tfDate:l.tfDate||'', tfTime:l.tfTime||'', tfBank:l.tfBank||'', tfName:l.tfName||'',
+      tfOcrAt:l.tfOcrAt||0, tfOcrText:l.tfOcrText||''
+    });
+  });
+  return sisa.concat(dari);
+}
+/* Salinan syncDp() milik modul Reservasi. Field ringkasan (dpStatus, dpAmount,
+   dpMethod, dpProofData, dpProofName) masih dibaca kwitansi, rekap WA, CSV &
+   analitik di sana; kalau cuma dps[] yang diisi, semua itu tetap berkata
+   "Belum DP" padahal uangnya sudah masuk. syncDp() di sana hanya jalan saat
+   formulir Reservasi sendiri dipakai, jadi penulisnya harus ikut menyamakan. */
+function vipTerapkanRingkasanDp(rec){
+  const dps=Array.isArray(rec.dps)?rec.dps:[];
+  rec.dpAmount=dps.reduce(function(a,p){ return a+(Number(p.amount)||0); },0);
+  if(dps.length){
+    rec.dpStatus='Sudah';
+    rec.dpMethod=dps[0].method||'';
+    rec.dpProofData=dps[0].proofData||'';
+    rec.dpProofName=dps[0].proofName||'';
+  }else{
+    rec.dpStatus='Belum'; rec.dpMethod=''; rec.dpProofData=''; rec.dpProofName='';
+  }
+  return rec;
+}
+/* Mendorong DP terbaru ke baris Reservasi yang SUDAH ada. Dipakai jalur-jalur
+   yang mengubah DP di luar "Simpan & Kunci": hapus bukti dari layar detail,
+   dan Simpan Saja. Reservasi yang belum pernah dikunci (tanpa resId) tidak
+   punya baris di sana — itu bukan kegagalan, cuma belum waktunya. */
+async function vipSyncDp(v){
+  if(!v||!v.resId) return {ok:true,adaBarisnya:false};
+  const dps=await vipDpsUntukReservasi(v);
+  return await rsvUbahBaris(v.resId,function(rec){
+    rec.dps=vipGabungDps(rec.dps,dps);
+    vipTerapkanRingkasanDp(rec);
+    rec.updatedAt=Date.now();
+    return rec;
+  });
+}
+async function vipSimpanSaja(){
   const galat=vipKumpulkan();
   if(galat) return toast('Belum lengkap',galat,'err');
   const f=VIP_FORM;
@@ -12605,10 +12888,20 @@ function vipSimpanSaja(){
   if(i<0) return toast('Belum pernah dikunci','Reservasi ini belum tersimpan — pakai "Pilih Meja & Kunci".','err');
   vipPastikanClient(f);
   S.vip[i]=JSON.parse(JSON.stringify(f));
-  logAct('vip',f.id,'Reservasi VIP diperbarui',f.nama+' · '+fmtDate(f.tanggal));
+  logAct('vip',f.id,'Reservasi VIP diperbarui',f.nama+' · '+fmtDate(f.tanggal)
+    +(vipDpTotal(f)?' · DP '+rp(vipDpTotal(f)):''));
   save(); closeModal();
   toast('Tersimpan',f.nama+' diperbarui.'+(f.resId?' Meja & kuncian di modul Reservasi tidak berubah.':''),'ok');
   go('vip');
+  /* DP-nya menyusul ke modul Reservasi SESUDAH layar ditutup, bukan sebelum.
+     Mengunggah beberapa foto bisa memakan detik-detik, dan menahan modal
+     selama itu membuat orang menekan Simpan dua kali. Kalau gagal, yang
+     tersimpan di Marketing tidak ditarik mundur — cukup dikabarkan, dan
+     menyimpan lagi mengulang dorongannya. */
+  if(f.resId){
+    try{ await vipSyncDp(S.vip[i]); }
+    catch(e){ toast('DP belum sampai ke Reservasi',e.message+' — simpan lagi untuk mengulang.','err'); }
+  }
 }
 /* Penanda menu di form VIP. Menulis langsung ke VIP_FORM (bukan ke S.vip):
    form ini baru mengikat saat Simpan / Kunci Meja, sama seperti seluruh isian
@@ -13058,6 +13351,11 @@ async function vipSimpanKunci(){
   if(!(f.meja||[]).length) return toast('Meja belum dipilih','Pilih minimal satu meja supaya bisa dikunci di Reservasi.','err');
   const btn=$('vip_kunci_btn'); if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; }
   try{
+    /* DP disiapkan DI LUAR rsvSisipkan. Penyusun record di dalamnya dipanggil
+       sinkron pada tiap percobaan simpan, jadi mengunduh bukti di sana berarti
+       menahan putaran coba-lagi dengan baseVer yang keburu basi — dan pada
+       percobaan kedua seluruh berkas diunduh ulang. */
+    const dpsVip=await vipDpsUntukReservasi(f);
     const hasil=await rsvSisipkan(function(d){
       // Diperiksa ULANG di dalam putaran simpan: meja bisa saja baru diambil
       // orang lain di sela-sela kita memilih.
@@ -13072,11 +13370,18 @@ async function vipSimpanKunci(){
         'TV: '+(f.tv?'Ya':'Tidak')+' · Speaker & Mic: '+(f.speaker?'Ya':'Tidak'),
         f.catatan||'',
         'Dari modul Marketing — PIC '+userName(f.mktPIC)].filter(Boolean).join('\n');
-      return {
+      /* dps[] IKUT DIKIRIM. Sebelumnya baris ini selalu berangkat dengan
+         dpStatus:'Belum' dan dpAmount:0 — DP yang sudah diterima Marketing
+         tidak pernah sampai ke modul Reservasi, jadi kru di sana melihat
+         "Belum DP" untuk tamu yang uang mukanya sudah masuk, lalu menagihnya
+         lagi di pintu. Ringkasannya (dpStatus/dpAmount/dpMethod/dpProof*)
+         dihitung dari dps[] oleh vipTerapkanRingkasanDp, sama seperti
+         syncDp() di sana — dua tempat itu harus sepakat. */
+      const rec={
         id:'vip-'+f.id, name:f.nama, phone:f.hp, date:f.tanggal, time:f.jamMulai,
         pax:vipPax(f), table:(f.meja||[]).join(', '), sharing:false,
         category:'Corporate / Gathering', foodReq:'', drinkReq:'',
-        dpStatus:'Belum', dpMethod:'', dpAmount:0, dpProofData:'', dpProofName:'',
+        dps:dpsVip.slice(),
         docReqData:'', docReqName:'', source:'Marketing', picType:'Marketing',
         picName:userName(f.mktPIC), member:false, memberNo:'',
         /* 'Confirmed', BUKAN 'Booking'. Kosakata status modul Reservasi cuma
@@ -13088,6 +13393,7 @@ async function vipSimpanKunci(){
         actualPax:0, checkinAt:0, leftAt:0, arrivals:[],
         createdBy:(ME?ME.name:'Marketing'), createdAt:now, updatedAt:now, followups:[]
       };
+      return vipTerapkanRingkasanDp(rec);
     });
     if(hasil&&hasil.__batal){
       if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
@@ -13129,11 +13435,12 @@ function vipIsiNominal(id){
       menutup modal ini lalu membuka "Ubah reservasi" untuk melampirkannya
       berarti buktinya tidak pernah dilampirkan. Keduanya menulis ke tempat
       yang sama (v.bukti) lewat vipUnggahBukti. */
-   +'<div class="field"><label>Bukti Pembayaran</label>'
+   +'<div class="field"><label>DP &amp; Bukti Transfer</label>'
      +vipBuktiHTML(v)
      +'<input id="vip_bukti_file" type="file" accept="image/*,application/pdf" '
      +'onchange="vipUnggahBukti(this)" style="margin-top:6px">'
-     +'<div class="fh">Foto transfer atau PDF, maksimal 8MB.</div></div>'
+     +'<div class="fh">Boleh lebih dari satu; tekan <b>×</b> untuk membuang. Foto atau PDF, maksimal 8MB. '
+     +'DP-nya ikut terkirim ke modul Reservasi begitu Simpan ditekan.</div></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
    +'<button class="btn pri" onclick="vipSimpanNominal(\''+id+'\')">'+svg(IC.check)+'Simpan</button></div>');
   setTimeout(function(){ const el=$('vipn_nilai'); if(el)el.focus(); },40);
@@ -13142,15 +13449,24 @@ function vipIsiNominal(id){
    ke baris lama membuat unggahan berikutnya dari layar lain mendarat di
    reservasi yang salah. */
 function vipLepasForm(){ VIP_FORM=null; }
-function vipSimpanNominal(id){
+async function vipSimpanNominal(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
   const el=$('vipn_nilai'); if(!el)return;
   const lama=+v.nominal||0, d=rupiahDigits(el.value);
   v.nominal=(d===''?'':(+d));
-  logAct('vip',v.id,'Nominal Reservasi VIP diisi',v.nama+' · '+rp(lama)+' → '+rp(vipNominal(v)));
+  logAct('vip',v.id,'Nominal Reservasi VIP diisi',v.nama+' · '+rp(lama)+' → '+rp(vipNominal(v))
+    +(vipDpTotal(v)?' · DP '+rp(vipDpTotal(v)):''));
   vipLepasForm();
   save(); closeModal(); toast('Tersimpan',v.nama+' · '+rp(vipNominal(v))+' masuk omzet '+userName(v.mktPIC)+'.','ok');
   go('vip');
+  /* DP yang baru dilampirkan di layar ini ikut didorong ke modul Reservasi.
+     Layar inilah yang paling sering dipakai melampirkan bukti — dibuka
+     sesudah acara, saat transferannya baru ada di tangan — jadi kalau
+     jalurnya tidak ada di sini, DP-nya praktis tidak pernah sampai. */
+  if(v.resId){
+    try{ await vipSyncDp(v); }
+    catch(e){ toast('DP belum sampai ke Reservasi',e.message+' — simpan lagi untuk mengulang.','err'); }
+  }
 }
 function vipDetail(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
@@ -13178,8 +13494,9 @@ function vipDetail(id){
       salah untuk pekerjaan yang cuma "lihat". Yang paling sering butuh:
       Finance & kasir saat mencocokkan nominal, dan mereka tidak selalu punya
       izin edit_vip. */
-   +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">Bukti Transfer</h4>'
-   +'<p class="cell-sub" style="margin-bottom:8px">Berkas yang sudah dikirim tamu — klik untuk membuka ukuran penuh.</p>'
+   +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">DP &amp; Bukti Transfer</h4>'
+   +'<p class="cell-sub" style="margin-bottom:8px">Satu kotak = satu kali transfer. Klik untuk membuka ukuran penuh, '
+   +'tekan <b>×</b> untuk membuang. DP yang sama juga terbaca di modul Reservasi.</p>'
    +vipBuktiBacaHTML(v)
    +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">Denah Meja yang Dikunci</h4>'
    +'<p class="cell-sub" style="margin-bottom:10px">Denah '+esc(fmtDateLong(v.tanggal))+' — meja bertanda emas dipesan atas nama ini.</p>'
