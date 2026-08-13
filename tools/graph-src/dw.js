@@ -625,6 +625,54 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1975,7 +2023,7 @@ function lembarTambahOrang() { tutupModal(); render(); }
 
 
 
-function lembarTambahModal() { awalBulan(); bulanDari(); hariIni(); akhirBulan(); modal(); esc(); namaDivisi(); lembarTambahOrang(); }
+function lembarTambahModal() { awalBulan(); bulanDari(); hariIni(); akhirBulan(); modal(); esc(); namaDivisi(); lembarTambahOrang(); kopCetakHTML(); }
 
 
 
@@ -1997,7 +2045,53 @@ function lembarTambahModal() { awalBulan(); bulanDari(); hariIni(); akhirBulan()
 
 
 
-function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); isHR(); rentangDibutuhkan(); pekerjaById(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); isiBarisDW(); escJs(); tglManusia(); isiSelDW(); warnaStatus(); bukaAjuan(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); lembarTambahModal(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
+
+
+
+
+
+function kopCetakHTML() { esc(); tglManusia(); hariIni(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setCariKalDW() { render(); sorotCariKalDW(); }
+function sorotCariKalDW() {  }
+
+
+
+function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); isHR(); rentangDibutuhkan(); pekerjaById(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); isiBarisDW(); escJs(); tglManusia(); isiSelDW(); warnaStatus(); bukaAjuan(); jamAjuan(); kopCetakHTML(); segDivisi(); geserBulanAktif(); tombolKembali(); setCariKalDW(); lembarTambahModal(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

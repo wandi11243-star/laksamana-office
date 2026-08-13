@@ -446,9 +446,57 @@ td.nm .iconbtn{width:20px;height:20px;font-size:13px;margin-left:5px;vertical-al
   .panel{box-shadow:none;border:none;padding:0;margin:0}
   .tablewrap{overflow:visible;border:1px solid #999}
   table.sched{min-width:0;width:100%}
-  td.cell{height:32px;min-width:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   tr.hdr th,tr.hdr2 th{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  @page{size:landscape;margin:10mm}
+  @page{size:landscape;margin:8mm}
+
+  /* ============ LEMBAR CETAK MUAT SATU HALAMAN ============
+     DISALIN dari modul Jadwal Shift, dan sengaja sama sampai ke angkanya:
+     kedua lembar dicetak untuk ditempel di papan yang sama, dan dua lembar
+     berukuran huruf berbeda di papan yang sama terbaca seperti dua sistem.
+
+     Yang tumpah ke halaman kedua praktis tidak pernah ditempel — halaman
+     keduanya hilang, lalu kru membaca jadwal yang terpotong di tanggal 21.
+     Ukurannya diperas di sini, bukan dengan mengurangi isinya. */
+  td.cell{height:auto;min-width:0;padding:3px 2px;font-size:8.5px;line-height:1.15;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  td.cell .tm{font-size:6.5px;line-height:1.1}
+  /* Sel kosong dicetak polos: di lembar DW, kosong memang berarti "tidak ada
+     DW hari itu" — keadaan yang normal, bukan pekerjaan yang tertinggal.
+     Berbeda dengan Jadwal Shift, yang kosongnya justru harus menonjol. */
+  td.cell.kosong{color:#C9C3B7}
+  table.sched td.nm{font-size:9px;padding:3px 5px;max-width:120px}
+  table.sched td.nm i{font-size:7px}
+  table.sched td.no{font-size:8px;padding:3px 2px}
+  table.sched .jb{min-width:0;padding:3px 4px;font-size:8px}
+  tr.hdr th,tr.hdr2 th{font-size:8px;padding:2px 3px}
+  tr.bandgap td{height:6px}
+
+  /* Satu pita minggu tidak boleh terbelah dua halaman. */
+  table.sched tr{break-inside:avoid;page-break-inside:avoid}
+  tr.hdr{break-after:avoid;page-break-after:avoid}
+
+  /* Kop cetak: divisi & periode. Di layar keduanya terbaca dari pita tab dan
+     penunjuk bulan — tapi keduanya .noprint, jadi lembar yang ditempel di
+     papan selama ini TIDAK menyebut ia jadwal divisi apa dan bulan apa. */
+  #kopCetak{display:block !important;margin:0 0 6px;padding:0 0 5px;
+    border-bottom:2px solid #333;font-size:12px}
+  #kopCetak b{font-size:15px;letter-spacing:.01em}
+  #kopCetak span{float:right;font-size:10px;color:#444}
+
+  /* Legenda status tetap dicetak — tanpa itu warna di kertas tidak berarti
+     apa-apa bagi yang membacanya di papan. */
+  .legend{gap:6px;margin:5px 0 0;display:flex !important}
+  .legend .chip{font-size:8px;padding:1px 5px}
+  .legend .chip .sw{width:8px;height:8px}
+  .stats,.note,.rowbar,.mutedhint,h2,.langkah{display:none !important}
+
+  /* Halaman Pembayaran juga dicetak (daftar transfer dibawa ke m-banking).
+     Tabelnya dibiarkan penuh, cuma dirapatkan. */
+  table.list{min-width:0}
+  table.list td,table.list th{padding:4px 6px;font-size:9px}
+  table.list .kecil{font-size:7.5px}
+  .lunas{border:1px solid #999;background:#fff;color:#333;padding:1px 5px;font-size:8px}
+  .lunas.on{background:#ddd}
 }
 </style>
 </head>
@@ -1997,6 +2045,31 @@ function lembarTambahModal(){
     opsi.length?[{t:'Tambahkan',c:'btn-primary',f:function(){
       lembarTambahOrang((document.getElementById('lbTambah')||{}).value); return false; }}]:[]);
 }
+/* Kop yang HANYA muncul saat dicetak — sepasang dengan kopCetakHTML() di modul
+   Jadwal Shift, termasuk bentuk & alasannya: di layar divisi dan periode sudah
+   terbaca dari pita tab dan penunjuk bulan, tapi keduanya .noprint, jadi lembar
+   yang ditempel di papan tidak menyebut ia jadwal divisi apa dan bulan apa.
+   display:none di layar; #kopCetak di @media print yang menyalakannya. */
+function kopCetakHTML(judul,periode){
+  return '<div id="kopCetak" style="display:none">'
+    +'<b>'+esc(judul)+'</b>'
+    +'<span>'+esc(periode)+' · dicetak '+esc(tglManusia(hariIni()))+'</span>'
+    +'</div>';
+}
+/* Pencarian nama di lembar Kalender DW. Aturannya SAMA PERSIS dengan
+   setCariBulan() di Jadwal Shift: barisnya disaring (bukan disorot), kotaknya
+   hanya muncul kalau memang ada yang perlu dicari, dan fokusnya dikembalikan
+   sesudah render karena halaman ini digambar ulang penuh tiap ketukan.
+
+   Ambangnya lebih rendah daripada Jadwal Shift (6, bukan 8): lembar DW memuat
+   orang yang PUNYA ajuan bulan itu saja, jadi enam baris di sini kira-kira
+   sepadat tiga belas baris di sana. */
+let CARI_KAL_DW='';
+function setCariKalDW(v){ CARI_KAL_DW=v; render(); sorotCariKalDW(); }
+function sorotCariKalDW(){
+  const i=document.getElementById('cariKalDW'); if(!i) return;
+  i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){}
+}
 function viewKalender(){
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const a=awalBulan(mk), z=akhirBulan(mk);
@@ -2026,10 +2099,14 @@ function viewKalender(){
   const pitaDari  = pita.length?pita[0].hari[0]:a;
   const pitaSampai= pita.length?pita[pita.length-1].hari[6]:z;
   const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=pitaDari&&x.tgl<=pitaSampai&&x.divisi===DIV&&x.status!=='BATAL');
-  const idOrang=[];
+  let idOrang=[];
   ajuBulan.forEach(x=>{ if(idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
   LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
   idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
+  const semuaOrang=idOrang.slice();
+  const qKal=(CARI_KAL_DW||'').trim().toLowerCase();
+  if(qKal) idOrang=idOrang.filter(function(id){
+    return String(namaDW(id)||'').toLowerCase().indexOf(qKal)>-1; });
 
   const peta={};
   ajuBulan.forEach(x=>{ peta[x.dwId+'|'+x.tgl]=x; });
@@ -2085,6 +2162,7 @@ function viewKalender(){
 
   const setuju=ajuBulan.filter(x=>x.status==='DISETUJUI');
   return '<div class="panel">'
+    +kopCetakHTML('Jadwal Daily Worker — '+namaDivisi(DIV), labelBulan(mk))
     +'<div class="rowbar">'+segDivisi(DIV,'kalenderDiv')+'<div class="spacer"></div>'
     +'<div class="navdate noprint"><button class="iconbtn" onclick="geserBulanAktif(-1)" aria-label="Bulan sebelumnya">‹</button>'
     +'<b>'+esc(labelBulan(mk))+'</b>'
@@ -2094,6 +2172,22 @@ function viewKalender(){
       +'<span class="chip"><span class="sw" style="background:#F2E9D3;border-color:#C8961F"></span>Disetujui</span>'
       +'<span class="chip"><span class="sw" style="background:#FFFDF6;border-style:dashed;border-color:#E0C173"></span>Menunggu HR</span>'
       +'<span class="chip"><span class="sw" style="background:#F8E4DF;border-color:#E7B7AC"></span>Ditolak</span>'
+    /* Kotak cari nama — aturan sama dengan lembar bulanan Jadwal Shift:
+       barisnya DISARING (bukan disorot), dan kotaknya hanya muncul kalau
+       memang ada yang perlu dicari. Ambangnya 6, bukan 8: lembar ini cuma
+       memuat DW yang punya ajuan bulan itu, jadi enam baris di sini
+       kira-kira sepadat tiga belas baris di sana. */
+    +(semuaOrang.length>=6
+      ? '<div class="rowbar noprint"><input class="inp" id="cariKalDW" style="max-width:250px" '
+        +'placeholder="🔍 Cari nama DW…" value="'+esc(CARI_KAL_DW)+'" '
+        +'oninput="setCariKalDW(this.value)">'
+        +(qKal?'<span class="chip">'+idOrang.length+' dari '+semuaOrang.length+' DW</span>'
+           +'<button class="btn btn-ghost btn-sm" onclick="setCariKalDW(&#39;&#39;)">Tampilkan semua</button>':'')
+        +'<div class="spacer"></div></div>'
+      : '')
+    +(qKal&&!idOrang.length
+      ? '<div class="note w">Tidak ada DW bernama "<b>'+esc(CARI_KAL_DW)+'</b>" di lembar ini.</div>'
+      : '')
     +'</div><div class="spacer"></div>'
     +'<div class="tools noprint">'
     +(bolehIsi?'<button class="btn btn-ghost btn-sm" onclick="lembarTambahModal()">+ Tambah DW ke lembar</button> ':'')

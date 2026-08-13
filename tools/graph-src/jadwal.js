@@ -689,6 +689,21 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -1604,7 +1619,19 @@ function pil() { shiftDef(); esc(); warnaTeks(); labelSel(); potong(); jamSel();
 
 
 
-function pagerDash() { daftarShift(); shiftDef(); esc(); dashDiv(); bolehUbah(); namaDivisi(); panduanAwalHTML(); idxHari(); tglPanjang(); dashGeser(); dashSet(); tombolKembali(); panelKosongRoster(); panelGagalDW(); statBox(); }
+function pagerDash() { daftarShift(); shiftDef(); esc(); dashDiv(); bolehUbah(); namaDivisi(); panduanAwalHTML(); idxHari(); tglPanjang(); dashGeser(); dashSet(); tombolKembali(); panelKosongRoster(); panelGagalDW(); statBox(); divisiKuasa(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
