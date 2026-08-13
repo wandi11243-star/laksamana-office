@@ -172,6 +172,36 @@ table.list tbody tr.klik{cursor:pointer}
 table.list tbody tr.klik:hover{background:#FDFCFA}
 table.list .no{width:34px;color:var(--muted-2);font-size:12px}
 table.list .nama{font-weight:700}
+table.list .kecil{font-size:11px;color:var(--muted-2);font-weight:500;margin-top:1px}
+/* ---------- Tabel Pengajuan ----------
+   Menggantikan daftar kartu. Satu pengajuan = satu baris, jadi dua puluh
+   muat dalam satu layar alih-alih lima layar gulungan. Lebar kolom dipatok
+   supaya Alasan (kolom yang paling sering panjang) yang melar, bukan
+   kolom tanggal yang justru harus tetap sejajar untuk dipindai menurun. */
+table.tbl-aju{min-width:820px}
+table.tbl-aju td{padding:7px 9px;font-size:12.5px}
+table.tbl-aju th:nth-child(1),table.tbl-aju td:nth-child(1){width:104px}
+table.tbl-aju th:nth-child(2),table.tbl-aju td:nth-child(2){width:180px}
+table.tbl-aju th:nth-child(3),table.tbl-aju td:nth-child(3){width:150px;white-space:nowrap}
+table.tbl-aju th:nth-child(4),table.tbl-aju td:nth-child(4){width:130px}
+table.tbl-aju th:nth-child(6),table.tbl-aju td:nth-child(6){width:112px}
+table.tbl-aju .alasan{color:var(--muted);line-height:1.4}
+table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right;width:116px}
+table.tbl-aju .aksi-aju .btn{padding:3px 9px;font-size:12px;min-width:0}
+/* Yang MENUNGGU disorot: di antara sembilan belas baris yang sudah
+   diputuskan, satu baris yang menuntut tindakan harus terbaca dari jauh. */
+table.tbl-aju tr.tunggu td{background:var(--gold-glow,#FFFBF0)}
+table.tbl-aju tr.tunggu td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
+@media(max-width:760px){
+  /* Di HP kolom Alasan & Shift disembunyikan — keduanya paling panjang dan
+     paling jarang menentukan keputusan cepat. Yang tersisa cukup untuk
+     memutuskan: siapa, kapan, statusnya, tombolnya. */
+  table.tbl-aju{min-width:0}
+  table.tbl-aju th:nth-child(4),table.tbl-aju td:nth-child(4),
+  table.tbl-aju th:nth-child(5),table.tbl-aju td:nth-child(5){display:none}
+  table.tbl-aju td{padding:6px 6px;font-size:12px}
+}
+
 table.list .kecil{font-size:11px;color:var(--muted-2)}
 table.sched{border-collapse:separate;border-spacing:0;width:100%;min-width:900px}
 table.sched th,table.sched td{border-bottom:1px solid var(--line);border-right:1px solid var(--line);padding:0}
@@ -2886,38 +2916,63 @@ function viewPengajuan(){
   const mulai=(AJU_HAL-1)*AJU_TAMPIL;
   const list=sumber.slice(mulai,mulai+AJU_TAMPIL);
 
-  const kartuAju=function(a){
+  /* SATU BARIS TABEL, bukan kartu bertumpuk.
+     Bentuk kartu memakan ~110px per pengajuan: empat baris berisi jenis, nama,
+     rentang, alasan, jejak keputusan, dan tombol. Dua puluh di antaranya
+     berarti menggulir lima layar penuh untuk membaca satu bulan — padahal yang
+     dicari hampir selalu satu baris tertentu, dan yang membandingkan (siapa
+     paling sering minta off) justru butuh melihat banyak baris sekaligus.
+
+     Sebagai baris tabel, dua puluh pengajuan muat dalam satu layar dan
+     kolomnya sejajar, jadi bisa dipindai menurun. Yang hilang cuma jarak
+     antar-kartu — tidak ada satu pun keterangan yang dibuang: jenis, nama,
+     divisi, rentang, shift, alasan, status, jejak penyetuju, dan tombolnya
+     semuanya masih ada, cuma pindah ke kolomnya masing-masing. */
+  const barisAju=function(a){
     const u=kruById(a.userId);
     const div=u?divisiDari(u):DIV_NONSHIFT;
-    const rentang=(a.dari===a.sampai)?tglPanjang(a.dari):(tglManusia(a.dari)+' – '+tglPanjang(a.sampai));
+    const rentang=(a.dari===a.sampai)?tglManusia(a.dari):(tglManusia(a.dari)+' – '+tglManusia(a.sampai));
+    const hari=(a.dari===a.sampai)?'' :('<div class="kecil">'+(selisihHariAju(a))+' hari</div>');
     const putus=(a.status==='MENUNGGU'&&bisaPutuskan(a))
-      ? '<button class="btn btn-ok btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Setujui</button>'
-        +'<button class="btn btn-danger btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
+      ? '<button class="btn btn-ok btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓</button>'
+        +'<button class="btn btn-danger btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕</button>'
       : '';
     const batal=(a.userId===(ME&&ME.id)&&a.status==='MENUNGGU')
-      ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batalkan</button>' : '';
+      ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batal</button>' : '';
+    /* Jejak keputusan ditulis KECIL DI BAWAH statusnya, bukan di kolom sendiri:
+       ia cuma dibaca saat ada yang mempertanyakan, dan satu kolom penuh untuk
+       itu mengambil lebar dari kolom Alasan yang jauh lebih sering dibaca. */
     const jejak=a.status!=='MENUNGGU'
-      ? '<span class="mutedhint">'+esc(a.status==='DISETUJUI'?'disetujui':'ditolak')+' oleh '+esc(a.putusOleh||'—')+'</span>' : '';
-    return '<div class="row aju" style="flex-direction:column;align-items:stretch">'
-      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
-      +'<span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'+esc(JENIS_AJU[a.jenis]||a.jenis)+'</span>'
-      +'<b>'+esc(u?u.name:namaKru(a.userId))+'</b>'
-      +'<span style="font-size:11px;color:var(--muted-2)">'+esc(namaDivisi(div))+'</span>'
-      +'<div class="spacer"></div><span class="stpill st-'+esc(a.status)+'">'+esc(a.status)+'</span></div>'
-      /* Shift yang diminta ditampilkan sebagai pil berwarna, bukan dititip di
-         dalam kalimat alasan: inilah satu-satunya hal yang benar-benar perlu
-         dilihat head sebelum menekan Setujui, karena itu juga yang akan
-         ditulis ke sel jadwalnya. */
-      +'<div class="isi"><b>'+esc(rentang)+'</b>'+pilShiftAju(a)+(a.alasan?' — '+esc(a.alasan):'')+'</div>'
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+jejak
-      +'<div class="spacer"></div>'+putus+batal+'</div></div>';
+      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>' : '';
+    return '<tr'+(a.status==='MENUNGGU'?' class="tunggu"':'')+'>'
+      +'<td><span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'
+        +esc(JENIS_AJU[a.jenis]||a.jenis)+'</span></td>'
+      +'<td class="nama">'+esc(u?u.name:namaKru(a.userId))
+        +'<div class="kecil">'+esc(namaDivisi(div))+'</div></td>'
+      +'<td class="mono">'+esc(rentang)+hari+'</td>'
+      +'<td>'+(pilShiftAju(a)||'<span class="kecil">—</span>')+'</td>'
+      +'<td class="alasan">'+(a.alasan?esc(a.alasan):'<span class="kecil">—</span>')+'</td>'
+      +'<td><span class="stpill st-'+esc(a.status)+'">'+esc(a.status)+'</span>'+jejak+'</td>'
+      +'<td class="aksi-aju">'+(putus+batal||'<span class="kecil">—</span>')+'</td>'
+    +'</tr>';
   };
-
+  /* Berapa hari yang diajukan. Inklusif: 4–5 Agustus adalah DUA hari, bukan
+     satu — yang membacanya sedang menghitung berapa hari orangnya tidak masuk. */
+  const selisihHariAju=function(a){
+    let n=0; for(let d=a.dari; d<=a.sampai; d=addD(d,1)) n++;
+    return n;
+  };
   const kosongTeks = AJU_TAB==='antri'   ? 'Tidak ada pengajuan yang menunggu keputusan.'
                    : AJU_TAB==='riwayat' ? 'Belum ada pengajuan yang diputuskan.'
                    :                       'Belum ada pengajuan sama sekali.';
+  /* Tabel dibungkus tablewrap supaya di layar sempit yang bergeser cuma
+     tabelnya, bukan seluruh halaman. */
   const kartu=list.length
-    ? list.map(kartuAju).join('')
+    ? '<div class="tablewrap"><table class="list tbl-aju"><thead><tr>'
+      +'<th>Jenis</th><th>Nama</th><th>Tanggal</th><th>Shift</th>'
+      +'<th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>'
+      +list.map(barisAju).join('')
+      +'</tbody></table></div>'
     : '<div class="empty"><div class="ic">📭</div>'+kosongTeks+'</div>';
   /* Dihitung dari SELURUH antrian, bukan dari halaman yang sedang tampil:
      pita peringatan "N menunggu keputusan Anda" harus menyebut pekerjaan yang

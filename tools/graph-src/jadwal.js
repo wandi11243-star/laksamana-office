@@ -659,6 +659,36 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2886,7 +2916,19 @@ function viewPengajuan() { isAdmin(); bisaPutuskan(); ajuHal(); }
 
 
 
-function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaPutuskan(); putuskan(); escJs(); batalAju(); esc(); namaKru(); namaDivisi(); pilShiftAju(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function barisAju() { kruById(); divisiDari(); tglManusia(); selisihHariAju(); bisaPutuskan(); putuskan(); escJs(); batalAju(); esc(); namaKru(); namaDivisi(); pilShiftAju(); }
 
 
 
@@ -2904,6 +2946,19 @@ function kartuAju() { kruById(); divisiDari(); tglPanjang(); tglManusia(); bisaP
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+function selisihHariAju() { addD(); bisaPutuskan(); }
 
 
 

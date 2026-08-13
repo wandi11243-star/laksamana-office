@@ -603,6 +603,28 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1030,6 +1052,23 @@ function muatData() { rentangDibutuhkan(); isDW(); apiPost(); normalizeState(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function muatDanGambar() { render(); muatData(); muatTamu(); }
 
 
@@ -1407,6 +1446,35 @@ function segDivisi() { esc(); }
 
 
 function jamAjuan() {  }
+
+
+
+
+
+
+
+
+
+function barisRiwayatDW() { esc(); tglManusia(); namaDW(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); bukaAjuan(); escJs(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function barisAjuan() { namaDW(); esc(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); tglManusia(); rp(); biayaAjuan(); pilStatus(); }
 
 
@@ -1607,6 +1675,9 @@ function lampauiPanduan() { kuotaDiv(); terpakaiDiv(); konteksHari(); }
 
 
 function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); segDivisi(); isOffice(); go(); ajuPagerHTML(); }
+
+
+
 
 
 
@@ -1926,7 +1997,30 @@ function lembarTambahModal() { awalBulan(); bulanDari(); hariIni(); akhirBulan()
 
 
 
-function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); isHR(); pekerjaById(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); isiBarisDW(); escJs(); tglManusia(); isiSelDW(); warnaStatus(); bukaAjuan(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); lembarTambahModal(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
+function viewKalender() { bulanDari(); hariIni(); awalBulan(); akhirBulan(); pitaBulan(); isHR(); rentangDibutuhkan(); pekerjaById(); namaDW(); esc(); namaDivisi(); labelBulan(); tglPendek(); idxHari(); isiBarisDW(); escJs(); tglManusia(); isiSelDW(); warnaStatus(); bukaAjuan(); jamAjuan(); segDivisi(); geserBulanAktif(); tombolKembali(); lembarTambahModal(); statBox(); durasiJam(); statUang(); rp(); biayaAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3294,6 +3388,20 @@ function rekapBebanDW() { rekapAjuanDW(); durasiJam(); biayaAjuan(); idxHari(); 
 
 
 function viewRekap() { isHR(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); pilStatusDW(); statBox(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
