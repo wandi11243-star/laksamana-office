@@ -1326,6 +1326,22 @@ function syncKendaliPeriode() { modeHarian(); tagihanOf(); save(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function rkPay() { todayISO(); }
 
 
