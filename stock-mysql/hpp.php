@@ -68,6 +68,58 @@ function hpp_pastikan_tabel($pdo) {
        KEY idx_hpp_resep_tipe (jenis, tipe)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 }
+/* ---------- PEMAKAIAN BULANAN & PENGATURAN (13 Agustus 2026) ----------
+   Digabungkan dari dua prototipe yang dikirim user (Kontrol Bahan Baku &
+   Galangan HPP). Yang diambil cuma yang BELUM ada di modul ini: analisa selisih
+   pemakaian, COGS bulanan, dan target/ambang yang tadinya angka mati di kode.
+
+   Halaman order, reorder, opname, dan waste di prototipe itu SENGAJA tidak
+   dibawa: ketiganya sudah punya rumahnya sendiri di Stock (Ordering,
+   Purchasing, Pemakaian Bahan Baku). Dua tempat mencatat opname yang sama
+   berarti dua angka yang berbeda, dan tidak ada cara memilih mana yang benar. */
+function hpp_pastikan_tabel2($pdo) {
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hpp_pakai (
+       bulan      CHAR(7)      NOT NULL,
+       bahan      VARCHAR(190) NOT NULL,
+       sa         DOUBLE NOT NULL DEFAULT 0,   -- stok awal
+       beli       DOUBLE NOT NULL DEFAULT 0,
+       resep      DOUBLE NOT NULL DEFAULT 0,   -- terpakai menurut resep (teoretis)
+       spoil      DOUBLE NOT NULL DEFAULT 0,
+       team       DOUBLE NOT NULL DEFAULT 0,
+       rnd        DOUBLE NOT NULL DEFAULT 0,
+       comp       DOUBLE NOT NULL DEFAULT 0,
+       opname     DOUBLE NOT NULL DEFAULT 0,   -- stok fisik akhir bulan
+       updated_at BIGINT NOT NULL DEFAULT 0,
+       updated_by VARCHAR(120) NOT NULL DEFAULT \'\',
+       PRIMARY KEY (bulan, bahan)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hpp_bulan (
+       bulan      CHAR(7)      NOT NULL PRIMARY KEY,
+       penjualan  DOUBLE       NOT NULL DEFAULT 0,
+       catatan    VARCHAR(255) NOT NULL DEFAULT \'\',
+       updated_at BIGINT       NOT NULL DEFAULT 0,
+       updated_by VARCHAR(120) NOT NULL DEFAULT \'\'
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS hpp_setting (
+       id   TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+       data LONGTEXT NOT NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+function hpp_setting_baca($pdo) {
+  $row = $pdo->query('SELECT data FROM hpp_setting WHERE id=1')->fetch(PDO::FETCH_ASSOC);
+  $d = $row ? json_decode((string)$row['data'], true) : null;
+  if (!is_array($d)) $d = array();
+  /* Bawaan diambil dari berkas HPP aslinya: ambang 33% (kolom "Below 33%") dan
+     buffer 5% (baris buffer di sheet Harga). Ditaruh di sini, bukan di kode
+     frontend, supaya angkanya bisa diubah tanpa deploy. */
+  $bawaan = array('targetFood' => 0.33, 'targetDrink' => 0.33, 'buffer' => 0.05,
+                  'lampuKuning' => 3.0, 'lampuMerah' => 8.0);
+  foreach ($bawaan as $k => $v) if (!isset($d[$k])) $d[$k] = $v;
+  return $d;
+}
 function hpp_num($v) { if (is_int($v) || is_float($v)) return (float)$v;
   $s = preg_replace('/[^0-9.\-]/', '', (string)$v); return ($s === '' || $s === '-') ? 0.0 : (float)$s; }
 function hpp_txt($v, $n) { return mb_substr(trim((string)$v), 0, $n); }
@@ -97,7 +149,62 @@ function hpp_ambil($pdo) {
     $r['bahan'] = is_array($j) ? $j : array();
   }
   unset($r);
-  return array('bahan' => $bahan, 'resep' => $resep, 'ts' => gmdate('c'));
+  return array('bahan' => $bahan, 'resep' => $resep,
+               'setting' => hpp_setting_baca($pdo), 'ts' => gmdate('c'));
+}
+
+/* Satu bulan pemakaian: baris per bahan + nilai penjualan bulan itu. Dipisah
+   dari `all` karena bisa ada puluhan bulan × 296 bahan, dan yang dibuka orang
+   selalu satu bulan saja. */
+function hpp_pakai_ambil($pdo, $bulan) {
+  $st = $pdo->prepare('SELECT * FROM hpp_pakai WHERE bulan=:b ORDER BY bahan');
+  $st->execute(array(':b' => $bulan));
+  $baris = $st->fetchAll(PDO::FETCH_ASSOC);
+  foreach ($baris as &$r) {
+    foreach (array('sa','beli','resep','spoil','team','rnd','comp','opname') as $k) $r[$k] = (float)$r[$k];
+  }
+  unset($r);
+  $st2 = $pdo->prepare('SELECT * FROM hpp_bulan WHERE bulan=:b');
+  $st2->execute(array(':b' => $bulan));
+  $meta = $st2->fetch(PDO::FETCH_ASSOC);
+  $daftar = $pdo->query('SELECT bulan FROM hpp_bulan ORDER BY bulan DESC')->fetchAll(PDO::FETCH_COLUMN);
+  return array('bulan' => $bulan, 'baris' => $baris,
+               'penjualan' => $meta ? (float)$meta['penjualan'] : 0,
+               'catatan' => $meta ? $meta['catatan'] : '',
+               'daftarBulan' => $daftar);
+}
+function hpp_pakai_simpan($pdo, $d, $by) {
+  $bulan = trim((string)(isset($d->bulan) ? $d->bulan : ''));
+  if (!preg_match('/^\d{4}-\d{2}$/', $bulan)) throw new Exception('Bulan tidak sah (YYYY-MM)');
+  $ms = hpp_ms(); $ub = hpp_txt($by, 120);
+  $st = $pdo->prepare(
+    'INSERT INTO hpp_pakai (bulan,bahan,sa,beli,resep,spoil,team,rnd,comp,opname,updated_at,updated_by)
+     VALUES (:b,:n,:sa,:be,:re,:sp,:te,:rn,:co,:op,:ua,:ub)
+     ON DUPLICATE KEY UPDATE sa=VALUES(sa), beli=VALUES(beli), resep=VALUES(resep),
+       spoil=VALUES(spoil), team=VALUES(team), rnd=VALUES(rnd), comp=VALUES(comp),
+       opname=VALUES(opname), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
+  $n = 0;
+  if (isset($d->baris) && is_array($d->baris)) {
+    foreach ($d->baris as $r) {
+      if (is_object($r)) $r = (array)$r;
+      $nama = hpp_txt(isset($r['bahan']) ? $r['bahan'] : '', 190);
+      if ($nama === '') continue;
+      $st->execute(array(':b'=>$bulan, ':n'=>$nama,
+        ':sa'=>hpp_num(isset($r['sa'])?$r['sa']:0),      ':be'=>hpp_num(isset($r['beli'])?$r['beli']:0),
+        ':re'=>hpp_num(isset($r['resep'])?$r['resep']:0),':sp'=>hpp_num(isset($r['spoil'])?$r['spoil']:0),
+        ':te'=>hpp_num(isset($r['team'])?$r['team']:0),  ':rn'=>hpp_num(isset($r['rnd'])?$r['rnd']:0),
+        ':co'=>hpp_num(isset($r['comp'])?$r['comp']:0),  ':op'=>hpp_num(isset($r['opname'])?$r['opname']:0),
+        ':ua'=>$ms, ':ub'=>$ub));
+      $n++;
+    }
+  }
+  $st3 = $pdo->prepare(
+    'INSERT INTO hpp_bulan (bulan,penjualan,catatan,updated_at,updated_by) VALUES (:b,:p,:c,:ua,:ub)
+     ON DUPLICATE KEY UPDATE penjualan=VALUES(penjualan), catatan=VALUES(catatan),
+       updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
+  $st3->execute(array(':b'=>$bulan, ':p'=>hpp_num(isset($d->penjualan)?$d->penjualan:0),
+                      ':c'=>hpp_txt(isset($d->catatan)?$d->catatan:'',255), ':ua'=>$ms, ':ub'=>$ub));
+  return array('status'=>'success','saved'=>true,'bulan'=>$bulan,'baris'=>$n);
 }
 
 function hpp_simpan_bahan($pdo, $d, $by) {
@@ -238,9 +345,15 @@ function hpp_impor($pdo, $d, $by, $timpa) {
 try {
   $pdo = pur_pdo();
   hpp_pastikan_tabel($pdo);
+  hpp_pastikan_tabel2($pdo);
 
   if ($metode === 'GET') {
     pur_cek_token();
+    if ($aksiUrl === 'pakai') {
+      $bl = isset($_GET['bulan']) ? trim((string)$_GET['bulan']) : '';
+      if (!preg_match('/^\d{4}-\d{2}$/', $bl)) $bl = gmdate('Y-m');
+      pur_json(hpp_pakai_ambil($pdo, $bl));
+    }
     pur_json(hpp_ambil($pdo));
   }
 
@@ -263,6 +376,15 @@ try {
       pur_json(['status' => 'success', 'saved' => true]);
     }
     if ($a === 'impor') pur_json(hpp_impor($pdo, $b->data ?? new stdClass(), $by, !empty($b->timpa)));
+    if ($a === 'simpanPakai') pur_json(hpp_pakai_simpan($pdo, $b->data ?? new stdClass(), $by));
+    if ($a === 'simpanSetting') {
+      $lama = hpp_setting_baca($pdo);
+      $baru = (array)($b->data ?? new stdClass());
+      foreach ($baru as $k => $v) if (array_key_exists($k, $lama)) $lama[$k] = hpp_num($v);
+      $st = $pdo->prepare('INSERT INTO hpp_setting (id,data) VALUES (1,:d) ON DUPLICATE KEY UPDATE data=VALUES(data)');
+      $st->execute(array(':d' => json_encode($lama, JSON_UNESCAPED_UNICODE)));
+      pur_json(array('status'=>'success','saved'=>true,'setting'=>$lama));
+    }
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
   pur_json(['status' => 'error', 'message' => 'metode tidak didukung'], 405);

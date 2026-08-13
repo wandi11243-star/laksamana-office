@@ -241,6 +241,22 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kini() {  }
 
 
@@ -318,7 +334,11 @@ function chipCogs() {  }
 
 
 
+
 function dipakaiOleh() {  }
+
+
+
 
 
 
@@ -342,6 +362,7 @@ function go() { render(); }
 function setSync() {  }
 function pesan() {  }
 function render() {  }
+
 
 
 
@@ -827,6 +848,230 @@ function jalankanSimulasi() { hargaJual(); cogsOf(); modalMenu(); chipCogs(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bulanIni() {  }
+function hitungPakai() { per1(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatPakai() { bulanIni(); setSync(); render(); pesan(); }
+
+
+
+
+
+
+
+
+
+function isiPakai() { segarBaris(); }
+
+
+
+
+function segarBaris() { hitungPakai(); selHtml(); ringkasPakai(); }
+
+
+
+
+
+function selHtml() {  }
+
+
+
+
+function ringkasPakai() { hitungPakai(); kartu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewPakai() { muatPakai(); bulanIni(); hitungPakai(); ringkasPakai(); render(); simpanPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kot() { isiPakai(); per1(); selHtml(); }
+
+
+
+
+
+
+
+
+
+
+function simpanPakai() { kirimPakai(); }
+
+
+
+function kirimPakai() { setSync(); pesan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kalTotal() { hitungBaris(); }
+
+
+
+
+function viewKalk() { kalTotal(); hitungBaris(); render(); kartu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewAtur() { simpanAtur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanAtur() { pesan(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function lembarResep() { modalMenu(); hitungBaris(); per1(); hargaJual(); cogsOf(); }
 
 
@@ -891,6 +1136,7 @@ function kirim() { setSync(); tutupModal(); pesan(); muat(); }
 
 
 function muat() { petakan(); setSync(); tawarkanImpor(); render(); }
+
 
 
 
