@@ -1275,6 +1275,14 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
    isinya satu piksel dan seluruh baris ikut bergoyang tiap kali kursor pindah. */
 .sheet-tbl td .inp:focus{outline:none;box-shadow:inset 0 0 0 2px var(--gold);background:var(--card,#fff)!important}
 .sheet-tbl td.no{text-align:center;color:var(--muted);font-size:11.5px;width:34px;padding:0 4px!important}
+/* Gagang seret di kolom No tabel Rincian. Kursornya yang memberi tahu bahwa
+   baris bisa dipindahkan — tanpa itu tidak ada satu pun petunjuk di layar, dan
+   fitur yang tidak punya petunjuk sama saja dengan tidak ada. */
+.rinci-wrap td.no[onmousedown]{cursor:grab;user-select:none}
+.rinci-wrap td.no[onmousedown]:active{cursor:grabbing}
+.rinci-wrap tr.rinci-angkat td{opacity:.45}
+.rinci-wrap tr.rinci-atas td{box-shadow:inset 0 2px 0 0 var(--gold)}
+.rinci-wrap tr.rinci-bawah td{box-shadow:inset 0 -2px 0 0 var(--gold)}
 .sheet-tbl td .inp[type="number"],.sheet-tbl td .inp[inputmode="numeric"]{text-align:right;
   font-variant-numeric:tabular-nums}
 /* Kepala tabel bergaya lembar cetaknya: pita hangat, huruf kecil berjarak. */
@@ -3555,9 +3563,28 @@ function eventFinance(ev){
   const dpPct=ev.dpPercent||st.dpPercent;
   const dp=dpNom>0?dpNom:Math.round(grand*dpPct/100);
   const dpDariNominal=dpNom>0;
-  const paid=(ev.payments||[]).reduce((a,p)=>a+(+p.amount||0),0);
+  const bayarTercatat=(ev.payments||[]).reduce((a,p)=>a+(+p.amount||0),0);
+  /* CENTANG "DP SUDAH DIBAYAR" (d.dpPaid). Yang dijawabnya: DP hampir selalu
+     ditransfer jauh sebelum ada yang sempat mencatatnya sebagai pembayaran di
+     tab Kasir, dan selama belum tercatat, kolom Sisa Pelunasan memajang angka
+     yang semua orang tahu salah. Marketing lalu menghitung sisanya di kepala
+     tiap kali ditanya client.
+
+     DIHITUNG SEBAGAI SELISIH, bukan ditambahkan begitu saja:
+
+         dpDiakui = max(0, dp - pembayaran yang sudah tercatat)
+
+     Itu yang membuatnya MUSTAHIL dobel. Kalau DP-nya belakangan dicatat juga
+     di tab Kasir, pembayaran tercatat naik dan porsi yang diakui centang ini
+     menyusut sendiri sampai nol — tanpa ada yang perlu ingat melepas
+     centangnya. Menambahkan dp mentah-mentah ke paid akan membuat DP terhitung
+     dua kali, dan sisa pelunasan yang terlalu kecil adalah kesalahan yang baru
+     ketahuan saat menagih. */
+  const dpDiakui=ynBool(d.dpPaid,false) ? Math.max(0, dp - bayarTercatat) : 0;
+  const paid=bayarTercatat+dpDiakui;
   const remaining=Math.max(0,grand-paid);
-  return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,paid,remaining};
+  return {sub,fb,disc,afterDisc,svcOn,service,taxPct,taxInc,tax,grand,dpPct,dp,dpDariNominal,
+          bayarTercatat,dpDiakui,paid,remaining};
 }
 /* Sebutan DP di layar & dokumen. Sejak DP diisi nominal, menulis "DP 50%" di
    invoice adalah bohong: angkanya tidak pernah lagi dihitung dari persen itu.
@@ -4907,6 +4934,23 @@ function pipeKartu(e){
          tombol menumpuk ke bawah membuat kartunya lebih tinggi daripada
          rinciannya sendiri. */
       +'</dl><div class="kact">'
+      /* AJUKAN REVISI JUGA DARI SINI. Tombolnya sudah ada sejak alur revisi
+         dibuat, tapi cuma di kartu Penawaran DI DALAM halaman detail event —
+         empat klik dari papan. Yang terjadi: orang berdiri di kolom "Quotation
+         Terkirim", client baru saja minta perubahan lewat telepon, dan yang
+         terlihat di depannya cuma "Buka Event". Jadi ia menyeret kartunya
+         mundur ke Prospect — gerakan yang TIDAK meninggalkan perkara apa pun
+         di Approval Flow, persis yang mau dihindari alur ini.
+
+         Syaratnya sama persis dengan tombol di dalam (penawaranCard): status
+         penawarannya sudah 'Terkirim' dan eventnya belum jadi Deal. Ditulis
+         dua kali karena dua tempat, tapi keduanya memanggil ajukanRevisi()
+         yang sama — pemeriksaan sebenarnya ada di dalam fungsi itu, jadi
+         perbedaan syarat di layar paling jauh menyembunyikan tombol, tidak
+         pernah meloloskan revisi yang tidak boleh. */
+      +((can('edit_event') && penStatus(e)==='Terkirim' && !['Deal','Confirmed','Event Done'].includes(e.status))
+          ? '<button class="btn sm" onclick="'+henti+'ajukanRevisi(\''+e.id+'\')">Ajukan Revisi</button>'
+          : '')
       +'<button class="btn sm pri" onclick="'+henti+'go(\'event\',\''+e.id+'\')">Buka Event</button>'
       +'</div></div>';
   }
@@ -6222,16 +6266,42 @@ function dealTotal(wrap){
      tbc   -> tercetak "to be confirm"; harga sengaja dikunci, karena baris
               yang punya angka bukan lagi baris yang belum pasti.
    ============================================================ */
-const RINCI_JENIS=[['bayar','Ditagih'],['free','FREE'],['tbc','Belum pasti']];
+/* DUA JENIS SAJA. 'Belum pasti' (tbc) DICABUT dari pilihan.
+
+   Alasannya bukan sekadar merapikan: baris "to be confirm" adalah baris yang
+   dikirim ke client TANPA angka, dan yang terjadi berulang kali adalah lembar
+   penawaran berangkat dengan dua-tiga baris begitu lalu tidak pernah
+   dilengkapi — client menagih kepastian, marketing mencari-cari mana yang
+   belum diisi, dan tidak ada satu pun layar yang menandainya. Yang memang
+   belum pasti lebih baik TIDAK dituliskan sampai harganya ada.
+
+   Kodenya tetap DIKENALI (lihat rinciJenisKode & rinciTeksTotal) supaya
+   penawaran lama yang sudah terlanjur menyimpan 'tbc' tidak berubah isinya
+   diam-diam saat dibuka lagi. Yang hilang cuma kemampuan MEMILIHNYA untuk
+   baris baru. */
+const RINCI_JENIS=[['bayar','Ditagih'],['free','FREE']];
 
 function rinciRowHTML(r,canEdit,idx){
   r=r||{}; const dis=canEdit?'':'disabled';
   const jenis=r.jenis||'bayar', jml=+r.jumlah||0, harga=+r.harga||0;
-  return '<tr data-jenis="'+esc(jenis)+'">'
+  return '<tr data-jenis="'+esc(jenis)+'"'
+   +(canEdit?' ondragstart="rinciSeretMulai(event,this)" ondragend="rinciSeretSelesai(this)"'
+     +' ondragover="rinciSeretAtas(event,this)" ondragleave="rinciSeretKeluar(this)"'
+     +' ondrop="rinciJatuh(event,this)"':'')+'>'
    /* Nomor baris seperti di lembar Excel. Bukan hiasan: waktu marketing dan
       client membahas penawaran lewat telepon, "baris nomor 3" jauh lebih
       cepat daripada membacakan ulang nama menunya. */
-   +'<td class="no"></td>'
+   /* Kolom No merangkap GAGANG SERET. Baris rincian disusun sesuai urutan
+      bacanya di lembar penawaran, dan baris yang baru ditambahkan selalu
+      mendarat paling bawah — padahal yang baru diingat ("oh, sewa panggungnya
+      belum") hampir selalu miliknya tempat di tengah. Sebelum ini satu-satunya
+      cara memindahkannya adalah mengetik ulang seluruh baris di bawahnya.
+
+      draggable dipasang saat gagangnya DITEKAN, bukan tetap menyala di <tr>:
+      baris ini penuh kotak isian, dan <tr draggable> membuat menyorot teks di
+      dalam kotak berubah jadi menyeret barisnya. */
+   +'<td class="no"'+(canEdit?' title="Seret untuk memindahkan baris"'
+      +' onmousedown="rinciPegang(this)" onmouseup="rinciLepas(this)"':'')+'></td>'
    +'<td><input class="inp" data-r="desc" value="'+esc(r.desc||'')+'" '
      +'placeholder="mis. Biaya Konsumsi Event: Paketan 75rb" '+dis+' oninput="rinciHitung(this)"></td>'
    /* SETIAP SEL BISA DIKETIK, apa pun jenis barisnya. Dulu Qty & Harga baris
@@ -6250,7 +6320,7 @@ function rinciRowHTML(r,canEdit,idx){
    +'<td><input class="inp" data-r="jumlah" type="number" min="0" value="'+(jml||'')+'" '
      +'placeholder="–" '+dis+' oninput="rinciHitung(this)"></td>'
    +'<td><input class="inp" data-r="harga" inputmode="numeric" value="'+esc(harga?rp(harga):'')+'" '
-     +'placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);rinciHitung(this)"></td>'
+     +'placeholder="Rp 0" '+dis+' oninput="itemRupiah(this);rinciHargaUbah(this);rinciHitung(this)"></td>'
    /* JENIS JUGA DIKETIK, bukan dipilih dari <select>. Daftar bawaan peramban
       terbuka MENUTUPI kotaknya sendiri — yang sedang dilihat orang justru
       tertutup oleh daftarnya — dan hurufnya tidak bisa disamakan dengan
@@ -6280,8 +6350,19 @@ function rinciRowHTML(r,canEdit,idx){
    Qty dan tanpa Price — hanya satu angka di kolom AMOUNT. Aturan lama
    (total = qty x harga) memaksa mengetik Qty 1 supaya angkanya muncul, dan
    angka 1 itu ikut tercetak di lembar yang dikirim ke client. */
+/* Jenis WARISAN — kode yang tidak lagi bisa dipilih tapi masih ada di data
+   lama. Dipisah dari RINCI_JENIS supaya ia tidak pernah muncul di daftar
+   pilihan, TAPI tetap punya label dan tetap dikenali saat dibaca.
+
+   Tanpa ini, baris 'tbc' di penawaran lama akan jatuh ke label bawaan
+   ('Ditagih') begitu dibuka — dan karena label itulah yang ditulis balik ke
+   data saat kotaknya kehilangan fokus, baris yang dulu "to be confirm" berubah
+   jadi baris yang DITAGIH tanpa ada yang menyentuhnya. Penawaran lama berubah
+   isinya cuma karena dibuka. */
+const RINCI_JENIS_LAMA=[['tbc','Belum pasti']];
+function rinciJenisSemua(){ return RINCI_JENIS.concat(RINCI_JENIS_LAMA); }
 function rinciJenisLabel(kode){
-  const j=RINCI_JENIS.find(function(x){ return x[0]===kode; });
+  const j=rinciJenisSemua().find(function(x){ return x[0]===kode; });
   return j?j[1]:RINCI_JENIS[0][1];
 }
 /* Kode dari apa yang diketik. Dicocokkan dari awal kata dulu, baru di mana
@@ -6291,7 +6372,12 @@ function rinciJenisLabel(kode){
 function rinciJenisKode(teks){
   const q=String(teks||'').trim().toLowerCase();
   if(!q) return null;
-  let j=RINCI_JENIS.find(function(x){ return x[1].toLowerCase()===q || x[0]===q; });
+  /* Kecocokan PERSIS dicari di seluruh jenis termasuk yang warisan: kotak
+     berisi "Belum pasti" pada penawaran lama harus memulangkan 'tbc', bukan
+     null yang lalu dikembalikan ke 'Ditagih'. Pencocokan sebagian di bawah
+     sengaja TIDAK memakai yang warisan — mengetik "be" di baris baru tidak
+     boleh menghidupkan lagi jenis yang sudah dicabut. */
+  let j=rinciJenisSemua().find(function(x){ return x[1].toLowerCase()===q || x[0]===q; });
   if(j) return j[0];
   j=RINCI_JENIS.find(function(x){ return x[1].toLowerCase().indexOf(q)===0; });
   if(j) return j[0];
@@ -6517,6 +6603,27 @@ function rinciTblHTML(id,rows,canEdit){
    angka yang sudah diketik tanpa bisa dibatalkan. Yang berubah cuma apa yang
    TERCETAK dan apa yang ikut dijumlahkan — angkanya sendiri tetap
    tersimpan, dan kembali muncul begitu jenisnya dikembalikan. */
+/* HARGA YANG MENENTUKAN JENISNYA. Diisi angka = baris itu Ditagih; dikosongkan
+   atau nol = FREE. Sebelumnya keduanya terpisah, dan bentuk salah yang paling
+   sering lolos ke client adalah baris berharga 2 juta yang jenisnya masih FREE
+   karena tidak ada yang ingat memindahkannya — tercetak "FREE" dan tidak ikut
+   dijumlahkan, jadi Grand Total kurang 2 juta tanpa satu pun tanda.
+
+   TETAP BISA DITIMPA sesudahnya: menyetel FREE pada baris yang punya harga
+   adalah cara mencatat NILAI fasilitas yang diberikan cuma-cuma ("videotron
+   senilai 3 juta, gratis"), dan itu memang dipakai. Yang berlaku aturan
+   sederhana: sentuhan terakhir yang menang. Mengetik harga menyetel jenisnya;
+   memilih jenis sesudah itu menimpanya; mengetik harga lagi menyetelnya lagi. */
+function rinciHargaUbah(el){
+  const tr=el.closest?el.closest('tr'):null; if(!tr) return;
+  const jEl=tr.querySelector('[data-r="jenis"]'); if(!jEl) return;
+  const ada=(rupiahDigits(el.value||'')!=='' && +rupiahDigits(el.value||'')>0);
+  const mau=ada?'bayar':'free';
+  if((jEl.dataset&&jEl.dataset.v)===mau) return;
+  jEl.dataset.v=mau;
+  jEl.value=rinciJenisLabel(mau);
+  tr.setAttribute('data-jenis',mau);
+}
 function rinciGantiJenis(el){
   const tr=el.closest('tr'); if(!tr) return;
   tr.setAttribute('data-jenis',(el.dataset&&el.dataset.v)||el.value||'bayar');
@@ -6577,6 +6684,61 @@ function rinciBaca(id){
    menaruh baris baru DI BAWAH baris TOTAL — nomor 6 muncul sesudah
    jumlahnya sendiri, dan barang yang baru diketik terbaca seolah bukan bagian
    dari yang dijumlahkan. */
+/* ---------- MEMINDAHKAN BARIS RINCIAN ----------
+   Dipegang dari kolom No. Yang dijaga: baris kaki (Subtotal / PB1 / TOTAL)
+   tinggal di tbody yang sama, jadi setiap perpindahan harus tetap mendarat DI
+   ATAS kaki — kalau tidak, barangnya berdiri di bawah jumlahnya sendiri dan
+   terbaca seolah bukan bagian dari yang dijumlahkan.
+
+   Nomor barisnya tidak perlu diperbarui: penomorannya CSS counter, jadi ia
+   ikut sendiri begitu urutan DOM berubah. */
+let _rinciSeret=null;
+function rinciPegang(td){ const tr=td.closest('tr'); if(tr) tr.draggable=true; }
+function rinciLepas(td){ const tr=td.closest('tr'); if(tr) tr.draggable=false; }
+function rinciSeretMulai(ev,tr){
+  if(tr.classList.contains('rk')) return;
+  _rinciSeret=tr;
+  tr.classList.add('rinci-angkat');
+  try{ ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain','baris'); }catch(e){}
+}
+function rinciSeretSelesai(tr){
+  tr.draggable=false;
+  tr.classList.remove('rinci-angkat');
+  [...tr.parentNode.querySelectorAll('.rinci-atas,.rinci-bawah')].forEach(function(x){
+    x.classList.remove('rinci-atas','rinci-bawah'); });
+  _rinciSeret=null;
+}
+/* Penanda jatuh ditaruh di ATAS atau di BAWAH baris sasaran tergantung posisi
+   kursor di dalamnya. Tanpa itu, menyeret ke baris terakhir tidak pernah bisa
+   menghasilkan "paling bawah" — selalu mendarat di atas baris itu. */
+function rinciSeretAtas(ev,tr){
+  if(!_rinciSeret||tr===_rinciSeret||tr.classList.contains('rk')) return;
+  ev.preventDefault();
+  const k=tr.getBoundingClientRect();
+  const bawah=(ev.clientY - k.top) > k.height/2;
+  tr.classList.toggle('rinci-bawah',bawah);
+  tr.classList.toggle('rinci-atas',!bawah);
+}
+function rinciSeretKeluar(tr){ tr.classList.remove('rinci-atas','rinci-bawah'); }
+function rinciJatuh(ev,tr){
+  if(!_rinciSeret||tr===_rinciSeret||tr.classList.contains('rk')) return;
+  ev.preventDefault();
+  const body=tr.parentNode;
+  const bawah=tr.classList.contains('rinci-bawah');
+  tr.classList.remove('rinci-atas','rinci-bawah');
+  if(bawah){
+    const sesudah=tr.nextElementSibling;
+    // Tidak pernah melewati kaki: kalau baris berikutnya sudah kaki, sisipkan
+    // tepat sebelum kaki itu — hasilnya sama, tanpa risiko menembusnya.
+    if(sesudah && !sesudah.classList.contains('rk')) body.insertBefore(_rinciSeret,sesudah);
+    else rinciSisip(body,_rinciSeret);
+  } else {
+    body.insertBefore(_rinciSeret,tr);
+  }
+  const inp=_rinciSeret.querySelector('input');
+  if(inp) rinciHitung(inp);
+  else if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
 function rinciSisip(body,tr){
   const kaki=body.querySelector('tr.rk');
   if(kaki) body.insertBefore(tr,kaki); else body.appendChild(tr);
@@ -8473,6 +8635,15 @@ function financeTab(ev,canEdit){
   h+=finBaris('DP / Uang Muka',
       rupiahInputHTML('efd_dpNominal',(d.depositNominal===''||d.depositNominal==null)?'':d.depositNominal,dis),
       'Kosong = '+(ev.dpPercent||st.dpPercent)+'% dari Grand Total.');
+  /* Centangnya di BARIS SENDIRI tepat di bawah nominalnya, bukan diselipkan di
+     kalimat bantu: ini satu-satunya isian di tab Finance yang langsung
+     mengubah angka Sisa Pelunasan di panel sebelah, dan yang mengubah uang
+     harus punya barisnya sendiri. */
+  h+=finBaris('DP sudah dibayar?',
+      ynSeg('efd_dpPaid',ynBool(d.dpPaid,false),canEdit),
+      'Kalau <b>Ya</b>, DP langsung dihitung sebagai pembayaran dan Sisa Pelunasan '
+      +'ikut berkurang. Aman kalau DP-nya nanti dicatat juga di tab Kasir — yang '
+      +'diakui di sini cuma selisihnya, jadi tidak pernah terhitung dua kali.');
 
   /* Dua kotak ini kini TEMPLATE, bukan isi lembar penawaran. Sejak tabel
      Rincian jadi satu-satunya sumber baris, rincianPenawaran() tidak lagi
@@ -8592,6 +8763,7 @@ function finBayangan(ev){
   });
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
+  const dpP=segVal('efd_dpPaid'); if(dpP!==undefined)b.detail.dpPaid=dpP;
   // DP kini nominal; kotaknya menulis ke detail.depositNominal — sama dengan
   // "Deposit — Nominal" di tab Kasir, supaya satu angka satu tempat.
   const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); b.detail.depositNominal=dg===''?'':(+dg); }
@@ -8635,10 +8807,15 @@ function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'<
 function hitungFinanceLive(el){
   if(!el || !el.closest) return;
   const seg=el.closest('.seg'); if(!seg) return;
-  if(seg.id!=='efd_svcApply' && seg.id!=='efd_taxInclude') return;
+  /* efd_dpPaid ikut: ia SATU-SATUNYA saklar di tab ini yang langsung mengubah
+     Sisa Pelunasan, jadi kalau tidak terdaftar di sini, angkanya baru berubah
+     setelah halaman digambar ulang — dan yang menekannya menyimpulkan
+     centangnya tidak berfungsi. */
+  if(seg.id!=='efd_svcApply' && seg.id!=='efd_taxInclude' && seg.id!=='efd_dpPaid') return;
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev)return;
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
+  ev.detail.dpPaid=segVal('efd_dpPaid');
   /* Dulu di sini renderEventTab(): menggambar ULANG SELURUH TAB hanya untuk
      memperbarui empat angka di panel kanan, lengkap dengan simpan/pulihkan
      posisi gulir supaya layarnya tidak melompat. Sekarang cukup panel kanannya
@@ -8657,6 +8834,7 @@ function collectFinanceInto(ev){
   ['diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
+  ev.detail.dpPaid=segVal('efd_dpPaid');
   ev.detail.npwp=$('efd_npwp').value;
   const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); ev.detail.depositNominal=dg===''?'':(+dg); }
   const dOn=$('efd_fbDealOn'); if(dOn) ev.detail.fbDealOn=dOn.classList.contains('on');
@@ -12096,6 +12274,21 @@ function vipFormUI(){
      +'<div class="field"><label>Nominal Pendapatan (Rp)</label>'
      +rupiahInputHTML('vip_nominal',f.nominal,'')
      +'<div class="fh">Boleh dikosongkan dulu — diisi setelah acaranya selesai lewat tombol <b>Isi Nominal</b> di daftar. Inilah angka yang masuk laporan. Nominalnya <b>sudah termasuk tax &amp; service</b> — begitu yang dibaca Finance saat memecahnya di Breakdown.</div></div>'
+     /* BUKTI PEMBAYARAN, tepat di bawah angkanya. Yang dijawabnya: nominal
+        Assisted masuk ke Marketing Performance sebagai omzet orang itu, dan
+        selama ini satu-satunya dasarnya angka yang diketik sendiri. Saat
+        Finance mencocokkan, buktinya ada di WhatsApp seseorang — kalau masih
+        ada.
+
+        Bukan wajib, dan sengaja: nominalnya sendiri baru diisi sesudah acara,
+        dan memaksa buktinya ada di detik yang sama cuma membuat orang menunda
+        mengisi keduanya. Yang dituju: begitu buktinya ada, ada tempatnya. */
+   +'<div class="field"><label>Bukti Pembayaran</label>'
+     +vipBuktiHTML(f)
+     +'<input id="vip_bukti_file" type="file" accept="image/*,application/pdf" '
+     +'onchange="vipUnggahBukti(this)" style="margin-top:6px">'
+     +'<div class="fh">Foto transfer atau PDF, maksimal 8MB. Tersimpan di server bersama '
+     +'lampiran event lain — bukan di peramban ini.</div></div>'
      /* Pertanyaan menu hanya muncul untuk ASSISTED, dan ikut di dalam wrap
         yang sama. Untuk Regular marketing memang tidak mengaku menerima
         omset apa pun, jadi menanyakan siapa yang diakui cuma menambah satu
@@ -12163,6 +12356,61 @@ function vipClientBaruToggle(){
 /* Simpan perubahan TANPA menyentuh modul Reservasi. Yang bisa diubah dari sini
    memang cuma keterangannya (nama, HP, jam, catatan, nominal); meja dan
    kuncian di Reservasi tetap milik jalur "Ubah Meja & Kunci". */
+/* Daftar bukti yang sudah terlampir. Digambar terpisah supaya bisa disegarkan
+   sendiri sesudah unggah tanpa menggambar ulang seluruh modal — yang sedang
+   diketik di kotak lain tidak boleh hilang cuma karena satu berkas masuk. */
+function vipBuktiHTML(f){
+  const arr=Array.isArray(f&&f.bukti)?f.bukti:[];
+  if(!arr.length) return '<div id="vip_bukti_list" class="fh">Belum ada bukti terlampir.</div>';
+  return '<div id="vip_bukti_list" class="pill-row" style="gap:6px">'
+    +arr.map(function(b,i){
+        return '<span class="tag" style="display:inline-flex;align-items:center;gap:6px">'
+          +'<a href="'+esc(attachUrl(b.key))+'" target="_blank" rel="noopener">'+esc(b.name||'bukti')+'</a>'
+          +'<button type="button" class="x" title="Hapus" onclick="vipHapusBukti('+i+')">&times;</button></span>';
+      }).join('')
+    +'</div>';
+}
+function vipSegarkanBukti(){
+  const el=$('vip_bukti_list'); if(!el) return;
+  const tmp=document.createElement('div');
+  tmp.innerHTML=vipBuktiHTML(VIP_FORM||{});
+  el.replaceWith(tmp.firstElementChild);
+}
+async function vipUnggahBukti(inp){
+  const f=(inp.files||[])[0]; if(!f) return;
+  if(f.size>8*1024*1024){ inp.value=''; return toast('File terlalu besar',esc(f.name)+' lebih dari 8MB.','err'); }
+  const semula=inp.previousElementSibling;
+  inp.disabled=true;
+  try{
+    const b64=await fileToBase64(f);
+    const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'uploadReceipt',fileName:f.name,mimeType:f.type,dataBase64:b64})});
+    const d=await res.json();
+    if(!d||!d.ok) throw new Error((d&&d.error)||'ditolak server');
+    if(!VIP_FORM) return;
+    VIP_FORM.bukti=Array.isArray(VIP_FORM.bukti)?VIP_FORM.bukti:[];
+    VIP_FORM.bukti.push({key:d.data.key,name:f.name,size:f.size,
+      at:new Date().toISOString(),by:(ME&&ME.name)||''});
+    vipSegarkanBukti();
+    toast('Bukti terlampir',esc(f.name)+' tersimpan di server.','ok');
+  }catch(e){
+    toast('Gagal unggah',esc(f.name)+': '+e.message,'err');
+  }finally{
+    inp.disabled=false; inp.value='';     // biar berkas yang sama bisa dipilih lagi
+    if(semula) semula.scrollIntoView&&0;
+  }
+}
+function vipHapusBukti(i){
+  if(!VIP_FORM||!Array.isArray(VIP_FORM.bukti)) return;
+  const b=VIP_FORM.bukti[i]; if(!b) return;
+  if(!confirm('Hapus bukti "'+(b.name||'')+'" dari reservasi ini?')) return;
+  /* Dibuang dari daftar reservasinya saja, berkasnya di server tidak dihapus:
+     bukti pembayaran yang sudah pernah dilampirkan adalah jejak uang, dan
+     menghapusnya permanen dari satu klik di modal bukan keputusan yang pantas
+     diambil tanpa jejak. */
+  VIP_FORM.bukti.splice(i,1);
+  vipSegarkanBukti();
+}
 function vipSimpanSaja(){
   const galat=vipKumpulkan();
   if(galat) return toast('Belum lengkap',galat,'err');
