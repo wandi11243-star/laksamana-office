@@ -1065,6 +1065,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2098,7 +2126,52 @@ function dalamPeriode() { labelPeriodeEms(); C(); kartuPerhatian(); pitaPeriodeE
 
 
 function stat() { esc(); }
-function barChart() { statusBadge(); }
+function barChart() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function talWarna() {  }
+
+
+
+
+function talWarnaId() { talWarna(); }
+
+
+
+
+
+
+
+function talTeks() { statusBadge(); }
+
+
 
 
 
@@ -2399,7 +2472,12 @@ function lembarTalentHTML() { talentUrut(); }
 
 
 
-function akhirPekan() { esc(); dstr(); fmtDate(); schedInfo(); }
+function akhirPekan() { talWarna(); esc(); dstr(); fmtDate(); schedInfo(); }
+
+
+
+
+
 
 
 
@@ -2714,6 +2792,49 @@ function talentUrut() { tglGeser(); dstr(); }
 
 
 function talentAktif() { talentUrut(); }
+
+
+
+
+
+
+function tombolTalentHTML() { talWarna(); talTeks(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+function chipTalentHTML() { talWarnaId(); talTeks(); esc(); }
+
+
+
+
+
+
+
+
+
+function legendaTalentHTML() { talentAktif(); talWarna(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function inputMingguan() { mgBuka(); dstr(); }
 
 
@@ -2816,11 +2937,7 @@ function mgJatuh() { mgAmbilForm(); mgTaruh(); gambarMingguan(); }
 function gambarMingguan() { talentAktif(); }
 
 
-function nama() { tglGeser(); esc(); mgBuang(); mgKe(); mgSeretAtas(); mgSeretKeluar(); mgJatuh(); mgSeretMulai(); mgKlikTalent(); modal(); closeModal(); mgGeser(); fmtDate(); namaHari(); mgKosongkanHari(); mgSimpan(); }
-
-
-
-
+function nama() { tglGeser(); chipTalentHTML(); mgBuang(); mgKe(); mgSeretAtas(); mgSeretKeluar(); mgJatuh(); tombolTalentHTML(); modal(); closeModal(); mgGeser(); esc(); fmtDate(); namaHari(); legendaTalentHTML(); mgKosongkanHari(); mgSimpan(); }
 
 
 
@@ -2899,7 +3016,56 @@ function mgSimpan() { mgAmbilForm(); toast(); tglGeser(); hasConflict(); fmtDate
 
 
 
-function scheduleForm() { talentAktif(); dstr(); modal(); closeModal(); fmtDate(); esc(); talPilihUbah(); uangFormat(); uangKetik(); saveSchedule(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function scheduleForm() { dstr(); gambarTambahJadwal(); }
+
+
+
+
+
+
+
+
+function tjAmbilForm() { g(); }
+
+
+
+
+
+
+
+
+
+
+
+function tjToggle() { tjAmbilForm(); gambarTambahJadwal(); }
+
+
+
+
+
+
+
+
+
+
+function gambarTambahJadwal() { talentAktif(); tombolTalentHTML(); talWarna(); talTeks(); esc(); uangFormat(); uangKetik(); tjToggle(); modal(); closeModal(); fmtDate(); legendaTalentHTML(); tjAmbilForm(); saveSchedule(); }
 
 
 
@@ -2946,18 +3112,12 @@ function scheduleForm() { talentAktif(); dstr(); modal(); closeModal(); fmtDate(
 
 
 
-function talPilihUbah() {  }
 
 
 
 
 
-
-
-
-function saveSchedule() { g(); toast(); hasConflict(); fmtDate(); uid(); uangNilai(); save(); closeModal(); renderSchedule(); }
-
-
+function saveSchedule() { tjAmbilForm(); toast(); hasConflict(); fmtDate(); uid(); save(); closeModal(); renderSchedule(); }
 
 
 
@@ -3179,10 +3339,7 @@ function blHitung() {  }
 
 
 
-function gambarBulanan() { talentAktif(); blHitung(); esc(); nama(); blBuang(); blKe(); blSeretAtas(); blSeretKeluar(); blJatuh(); blSeretMulai(); blKlikTalent(); modal(); closeModal(); blDow(); blKosongkanHari(); genMonthly(); }
-
-
-
+function gambarBulanan() { talentAktif(); blHitung(); chipTalentHTML(); nama(); blBuang(); blKe(); blSeretAtas(); blSeretKeluar(); blJatuh(); tombolTalentHTML(); modal(); closeModal(); esc(); blDow(); legendaTalentHTML(); blKosongkanHari(); genMonthly(); }
 
 
 
