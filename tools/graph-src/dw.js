@@ -1507,7 +1507,7 @@ function lampauiPanduan() { kuotaDiv(); terpakaiDiv(); konteksHari(); }
 
 
 
-function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); segDivisi(); isOffice(); go(); }
+function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); segDivisi(); isOffice(); go(); toggleRiwayatAju(); ajuHal(); ajuPagerHTML(); }
 
 
 
@@ -1555,6 +1555,66 @@ function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konte
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function toggleRiwayatAju() { render(); }
+function ajuHal() { render(); }
+
+
+
+
+function ajuPagerHTML() { ajuHal(); }
 
 
 
