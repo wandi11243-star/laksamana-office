@@ -188,6 +188,14 @@ table.list tbody tr.klik:hover{background:#FDFCFA}
 table.list .no{width:34px;color:var(--muted-2);font-size:12px}
 table.list .nama{font-weight:700}
 table.list .kecil{font-size:11px;color:var(--muted-2)}
+/* Sel di luar bulan yang sedang dibuka: diredupkan supaya jelas ia milik
+   bulan sebelah, TAPI tetap bisa diisi — satu pita minggu memang dikerjakan
+   utuh. Sebelum kelas ini ada, 27–31 Juli di lembar Agustus terlihat persis
+   sama dengan tanggal Agustus, dan yang mengisinya tidak pernah tahu ia
+   sedang menjadwalkan bulan lalu. */
+td.cell.luar{opacity:.5}
+td.cell.kosong.luar{background-color:#F6F4EF}
+
 /* ---------- Tabel Riwayat Pengajuan ----------
    Sepasang dengan tbl-aju di modul Jadwal Shift, termasuk aturan HP-nya:
    satu pengajuan = satu baris, dan kolom yang paling jarang menentukan
@@ -1044,7 +1052,24 @@ async function muatData(paksa){
     console.warn('muatData:', e.message);
   }finally{ MUAT_JALAN=false; }
 }
-async function muatDanGambar(){ render(); await muatData(); render(); }
+/* paksa=true WAJIB dipakai SESUDAH MENULIS. muatData() tanpa paksa langsung
+   kembali kalau rentang yang dibutuhkan sudah termuat (lihat barisnya di
+   sana) — itu benar untuk perpindahan bulan/minggu, yang memang cuma perlu
+   menarik rentang yang belum ada. Tapi sesudah menyimpan ajuan, rentangnya
+   JELAS sudah termuat: yang berubah isinya, bukan rentangnya.
+
+   Akibatnya persis yang dilaporkan 13 Agustus 2026 — "pengajuan lewat
+   kalender tidak bisa": ajuannya BENAR-BENAR tersimpan di server dan toast
+   "terkirim" muncul, tapi kalender digambar ulang dari S lama sehingga
+   selnya tetap bertanda '+'. Yang mengerjakannya menyimpulkan tombolnya
+   tidak berfungsi lalu mengulanginya — dan pengulangan itu menimpa ajuan
+   yang sama lewat kunci (dw_id, tgl), jadi tidak ada satu pun jejak yang
+   memberi tahu bahwa sebenarnya tidak ada yang gagal.
+
+   Jalur tulis lain di modul ini (putusAjuan, putusBanyak, simpanPekerja,
+   kirimAjuan) sudah memakai muatData(true) sejak awal; dua jalur kalender
+   inilah yang tertinggal. */
+async function muatDanGambar(paksa){ render(); await muatData(paksa); render(); }
 
 /* =====================================================================
    AGENDA TAMU — dibaca dari Marketing & Event (Kalender Tamu)
@@ -1983,7 +2008,24 @@ function viewKalender(){
      dijadwalkan tenggelam, dan itu justru satu-satunya yang dicari di sini.
      Yang ditambahkan sendiri lewat "+ Tambah DW" ikut, supaya lembar ini bisa
      dipakai menyusun, bukan cuma membaca. */
-  const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=a&&x.tgl<=z&&x.divisi===DIV&&x.status!=='BATAL');
+  /* RENTANGNYA SELEBAR YANG DIGAMBAR, bukan sebatas bulannya.
+     Pita minggu di lembar ini selalu Senin–Minggu, jadi lembar Agustus ikut
+     menggambar 27–31 Juli dan beberapa hari September — dan sel-sel itu BISA
+     DIKLIK. Selama filternya masih a..z (1–31 Agustus), ajuan yang disimpan
+     lewat sel sambungan tersimpan di server lalu HILANG dari layar: selnya
+     kembali bertanda '+', dan yang mengerjakannya menyimpulkan tombolnya
+     tidak berfungsi. Dilaporkan 13 Agustus 2026 sebagai "pengajuan lewat
+     kalender tidak bisa".
+
+     Lebih buruk lagi: idOrang juga diturunkan dari daftar ini, jadi DW yang
+     ajuannya HANYA di hari sambungan tidak mendapat baris sama sekali —
+     namanya lenyap dari lembar tempat ia baru saja dijadwalkan.
+
+     rentangDibutuhkan() memang sudah menarik data ±7 hari di kedua ujung
+     justru untuk ini; yang kurang cuma filternya di sini. */
+  const pitaDari  = pita.length?pita[0].hari[0]:a;
+  const pitaSampai= pita.length?pita[pita.length-1].hari[6]:z;
+  const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=pitaDari&&x.tgl<=pitaSampai&&x.divisi===DIV&&x.status!=='BATAL');
   const idOrang=[];
   ajuBulan.forEach(x=>{ if(idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
   LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
@@ -2021,12 +2063,18 @@ function viewKalender(){
                satu-satunya jalan menambah tanggal adalah formulir Ajukan —
                pindah halaman, pilih ulang orangnya, pilih ulang tanggalnya,
                padahal keduanya sudah ditunjuk di layar ini. */
-            if(!x) return '<td class="cell kosong'+(bolehIsi?' editable':'')+'"'
+            /* Sel di luar bulan yang dibuka diredupkan (kelas 'luar'), tapi
+               TETAP bisa diisi: berbeda dengan lembar Jadwal Shift yang
+               menguncinya, di sini satu pita minggu memang dikerjakan utuh —
+               malam Sabtu 1 Agustus disusun bersama Jumat 31 Juli, bukan
+               dipisah karena kebetulan beda bulan. */
+            const diLuar=(d<a||d>z);
+            if(!x) return '<td class="cell kosong'+(bolehIsi?' editable':'')+(diLuar?' luar':'')+'"'
               +(bolehIsi?' title="Ajukan '+esc(namaDW(id))+' · '+esc(tglManusia(d))+'"'
                 +' onclick="isiSelDW(\''+escJs(id)+'\',\''+escJs(d)+'\')"':'')+'>'
               +(bolehIsi?'+':'·')+'</td>';
             const w=warnaStatus(x.status);
-            return '<td class="cell editable" style="background:'+w.bg+';color:'+w.fg+';box-shadow:inset 0 0 0 '+w.border.split(' ')[0]+' transparent;outline:'+w.border+';outline-offset:-2px" '
+            return '<td class="cell editable'+(diLuar?' luar':'')+'" style="background:'+w.bg+';color:'+w.fg+';box-shadow:inset 0 0 0 '+w.border.split(' ')[0]+' transparent;outline:'+w.border+';outline-offset:-2px" '
               +'onclick="bukaAjuan(\''+escJs(x.id)+'\')" title="'+esc(STATUS_AJU[x.status]||x.status)+'">'
               +esc(x.posisi||'DW')+'<span class="tm mono">'+esc(jamAjuan(x))+'</span></td>';
           }).join('')+'</tr>';
@@ -2128,7 +2176,7 @@ async function simpanSelDW(){
   if(!ok) return;
   SEL_DW=null; tutupModal();
   toast('Ajuan '+namaDW(b.dwId)+' '+tglManusia(b.tgl)+' terkirim');
-  await muatDanGambar();
+  await muatDanGambar(true);
 }
 
 /* ---------- ISI SATU BARIS (seminggu) ---------- */
@@ -2233,8 +2281,8 @@ async function kirimBarisDW(){
     if(berhasil) ok++; else gagal++;
   }
   BARIS_DW=null; tutupModal();
-  toast(ok+' ajuan terkirim'+(gagal?', '+gagal+' gagal':''), !!gagal);
-  await muatDanGambar();
+  toast(ok+' pengajuan terkirim'+(gagal?', '+gagal+' gagal':''), !!gagal);
+  await muatDanGambar(true);
 }
 function kalenderDiv(k){ DIV=k; render(); }
 function geserBulanAktif(n){ BULAN_AKTIF=geserBulan(BULAN_AKTIF||bulanDari(hariIni()),n); muatDanGambar(); }
@@ -3393,8 +3441,22 @@ function viewRekap(){
      ajuannya; hari kosong membuka formulir ajuan untuk tanggal itu. */
   const a=awalBulan(mk), z=akhirBulan(mk), ini=hariIni();
   const mulai=seninDari(a);
+  /* KOTAK KALENDER DIISI DARI RENTANG YANG DIGAMBAR, bukan dari `list` yang
+     sebatas bulannya. Kisi ini selalu 42 kotak mulai Senin, jadi ia ikut
+     menggambar akhir bulan lalu dan awal bulan depan — dan kotak-kotak itu
+     BISA DIKLIK untuk mengajukan. Kalau isinya cuma diambil dari `list`,
+     ajuan yang dibuat lewat kotak sambungan tersimpan di server lalu hilang
+     dari layar, persis bug yang baru diperbaiki di Kalender DW.
+
+     `list` TETAP dipakai apa adanya untuk angka & tabel di bawah: "berapa hari
+     masuk BULAN INI" memang harus berhenti di batas bulan, kalau tidak
+     angkanya menghitung hari yang bukan miliknya. Dua rentang yang berbeda
+     memang disengaja — pertanyaannya juga berbeda. */
+  const akhirKisi=addD(mulai,41);
   const perTgl={};
-  list.forEach(function(x){ (perTgl[x.tgl]=perTgl[x.tgl]||[]).push(x); });
+  (S.ajuan||[]).filter(function(x){
+    return x.dwId===p.id && x.status!=='BATAL' && x.tgl>=mulai && x.tgl<=akhirKisi;
+  }).forEach(function(x){ (perTgl[x.tgl]=perTgl[x.tgl]||[]).push(x); });
   let kal='<div class="kt">';
   HARI.forEach(function(h,i){ kal+='<div class="kh'+(i>=5?' wknd':'')+'">'+esc(h.slice(0,3))+'</div>'; });
   for(let i=0;i<42;i++){
