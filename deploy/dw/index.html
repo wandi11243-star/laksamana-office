@@ -2641,7 +2641,7 @@ async function kirimAjukanTgl(){
   if(sudahAda && !b.lanjutkanTimpa){
     modal('Sudah ada ajuan untuk '+esc(namaDW(b.dw)),
       '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(b.dw))+' sudah punya ajuan '
-      +esc(tglPanjang(b.tgl))+' ('+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
+      +esc(tglPanjang(b.tgl))+' ('+esc(namaDivisi(sudahAda.divisi))+' · '+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
       +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
       +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang.':'')+'</p>',
       [{t:'Kembali ke form', c:'btn-ghost', f:function(){ gambarAjukanTgl(); return false; }},
@@ -2834,12 +2834,98 @@ function ajuanOrangTgl(dwId,tgl){
   return (S.ajuan||[]).find(a=>a.dwId===dwId && a.tgl===tgl
     && (a.status==='MENUNGGU' || a.status==='DISETUJUI')) || null;
 }
+/* ================= BENTROK LINTAS DIVISI =================
+   Satu orang tidak bisa bekerja di dua divisi pada hari yang sama, dan
+   kunci (dw_id, tgl) memang cuma memuat satu baris per hari. Yang selama
+   ini tidak dijaga adalah SIAPA yang menimpa siapa: head Kitchen memanggil
+   ARIF di tanggal yang sudah dipesan head Bar, barisnya berpindah divisi
+   dan turun ke MENUNGGU, dan head Bar tidak diberi tahu apa pun.
+
+   Penjaga sebenarnya ada di backend (lihat simpan_ajuan) — frontend cuma
+   melihat ajuan yang termuat di rentang layarnya, jadi ajuan divisi lain
+   di luar rentang itu tidak terlihat dari sini. Yang dikerjakan di sini
+   adalah MENJELASKANNYA: siapa yang sudah memesan, jam berapa, dan apakah
+   jamnya benar-benar bertindih. */
+function menitJamDW(x){ const p=String(x||'').split(':'); return (+p[0]||0)*60+(+p[1]||0); }
+/* Jam yang melewati tengah malam (18:00–02:00) digeser +1 hari di ujungnya,
+   aturan yang sama dengan durasiJam() supaya keduanya tidak pernah berbeda
+   pendapat soal shift malam. */
+function jamBertindih(m1,s1,m2,s2){
+  let a1=menitJamDW(m1), b1=menitJamDW(s1); if(b1<=a1) b1+=1440;
+  let a2=menitJamDW(m2), b2=menitJamDW(s2); if(b2<=a2) b2+=1440;
+  return Math.max(a1,a2) < Math.min(b1,b2);
+}
+/* Mengembalikan Promise<boolean>. Menutup modal dengan cara apa pun (tombol
+   Tutup, klik latar) berarti "tidak" — jawaban bawaannya sengaja yang aman,
+   karena yang ragu-ragu lalu menutup modal TIDAK sedang bermaksud memindahkan
+   orang dari divisi lain. */
+function tanyaBentrok(b){
+  return new Promise(function(resolve){
+    let dijawab=false;
+    const selesai=function(v){ if(dijawab) return; dijawab=true; resolve(v); };
+    MODAL_TUTUP=function(){ selesai(false); };
+    /* Bentrok lintas hari sudah dipastikan bertindih oleh backend — ia baru
+       dikembalikan justru KARENA bertindih. Yang sehari sama dihitung di
+       sini supaya kalimatnya bisa membedakan "mustahil" dari "sekadar
+       tidak muat di satu baris". */
+    const tindih = b.lintasHari ? true : jamBertindih(b.m,b.s,b.mBaru,b.sBaru);
+    const tglBaru = b.tglBaru || b.tgl;
+    const barisTgl = b.lintasHari;
+    modal((b.lintasHari?'Bentrok jam — ':'Bentrok — ')+esc(b.nama)
+        +' sudah dipesan '+esc(namaDivisi(b.divisi)),
+      '<div style="font-size:13.5px;color:var(--muted)">'
+      +'<p><b>'+esc(b.nama)+'</b> sudah punya ajuan '
+      +(b.lintasHari?'yang jamnya menyentuh ajuan ini':'pada '+esc(tglPanjang(b.tgl)))+'.</p>'
+      +'<table class="list" style="min-width:0;margin:8px 0">'
+        +'<tr><th></th>'+(barisTgl?'<th>Tanggal</th>':'')+'<th>Divisi</th><th>Posisi</th><th>Jam</th><th>Status</th></tr>'
+        +'<tr><td class="kecil">Sudah ada</td>'
+          +(barisTgl?'<td class="mono">'+esc(tglManusia(b.tgl))+'</td>':'')
+          +'<td><b>'+esc(namaDivisi(b.divisi))+'</b></td>'
+          +'<td>'+esc(b.posisi||'—')+'</td><td class="mono">'+esc(b.m)+'–'+esc(b.s)+'</td>'
+          +'<td><span class="stpill st-'+esc(b.status)+'">'+esc(STATUS_AJU[b.status]||b.status)+'</span></td></tr>'
+        +'<tr><td class="kecil">Yang ini</td>'
+          +(barisTgl?'<td class="mono">'+esc(tglManusia(tglBaru))+'</td>':'')
+          +'<td><b>'+esc(namaDivisi(b.divisiBaru))+'</b></td>'
+          +'<td>'+esc(b.posisiBaru||'—')+'</td><td class="mono">'+esc(b.mBaru)+'–'+esc(b.sBaru)+'</td>'
+          +'<td class="kecil">belum tersimpan</td></tr>'
+      +'</table>'
+      +'<div class="note '+(tindih?'d':'w')+'">'
+        +(b.lintasHari
+          ? '<b>Jamnya bertindih melewati tengah malam.</b> Shift '+esc(namaDivisi(b.divisi))
+            +' '+esc(tglManusia(b.tgl))+' baru selesai pukul '+esc(b.s)+', sesudah shift ini dimulai.'
+          : tindih
+            ? '<b>Jamnya bertindih.</b> Orang ini tidak bisa berada di dua divisi sekaligus.'
+            : '<b>Jamnya tidak bertindih</b>, tapi satu orang tetap hanya bisa punya satu shift per hari '
+              +'di sistem ini — mengirim ini <b>memindahkannya</b> ke '+esc(namaDivisi(b.divisiBaru))
+              +', bukan menambah shift kedua.')
+        +'</div>'
+      +'<p class="mutedhint">'
+      +(b.lintasHari
+        ? 'Kalau tetap diajukan, kedua shift itu berdiri sendiri — tidak ada yang membatalkan yang mana pun, '
+          +'dan orangnya yang harus memilih malam itu juga.'
+        : 'Kalau dipindahkan, ajuan '+esc(namaDivisi(b.divisi))+' <b>hilang</b> dan '
+          +(b.status==='DISETUJUI' ? 'yang tadi sudah disetujui itu ikut hilang dari kalender Jadwal Shift. ' : ''))
+      +' Bicarakan dulu dengan head '+esc(namaDivisi(b.divisi))+' — tidak ada pemberitahuan otomatis ke sana.</p>'
+      +'</div>',
+      [{t:(b.lintasHari?'Ya, tetap ajukan':'Ya, pindahkan ke '+namaDivisi(b.divisiBaru)), c:'btn-danger',
+        f:function(){ selesai(true); tutupModal(); return false; }}], true);
+  });
+}
 async function simpanAjuanRow(row){
   if(!row.dwId){ toast('Pilih daily worker dulu', true); return false; }
   if(!row.tgl){ toast('Tanggal kerja wajib diisi', true); return false; }
   if(!row.m||!row.s){ toast('Jam mulai dan jam selesai wajib diisi', true); return false; }
   try{
-    await apiPost({action:'simpanAjuan', row:row});
+    const d=await apiPost({action:'simpanAjuan', row:row});
+    /* Backend menolak, bukan melempar: bentrok lintas divisi bukan galat
+       teknis melainkan keputusan yang perlu ditanyakan. Jawabannya ditunggu
+       di sini — SATU choke point untuk kedua pintu ajuan (kalender & form),
+       jadi tidak ada jalur yang bisa melewatinya. */
+    if(d && d.bentrok){
+      const b=Object.assign({}, d.bentrok, {posisiBaru:row.posisi});
+      if(!await tanyaBentrok(b)) return false;
+      await apiPost({action:'simpanAjuan', row:Object.assign({}, row, {timpa:1})});
+    }
     return true;
   }catch(e){
     toast('Gagal mengirim: '+e.message, true);
@@ -2874,7 +2960,7 @@ async function kirimAjuan(){
   if(sudahAda && !AJU_TIMPA){
     modal('Sudah ada ajuan untuk '+esc(namaDW(dwId)),
       '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(dwId))+' sudah punya ajuan '
-      +esc(tglPanjang(tgl))+' ('+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
+      +esc(tglPanjang(tgl))+' ('+esc(namaDivisi(sudahAda.divisi))+' · '+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
       +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
       +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang — namanya hilang dulu dari kalender Jadwal Shift.':'')+'</p>',
       /* "Kembali ke form" cukup menutup modal: formnya masih utuh di
@@ -4004,6 +4090,11 @@ function bukaAjuan(id){
    MODAL & KONFIRMASI
    ===================================================================== */
 let MODAL_AKSI=[];
+/* Dipanggil SEKALI saat modal ditutup dengan cara apa pun — termasuk tombol
+   Tutup dan klik latar. Dipakai konfirmasi yang berbentuk Promise
+   (tanyaBentrok): tanpa kait ini, menutup modal membuat `await`-nya
+   menggantung selamanya dan alur simpan berhenti tanpa jejak. */
+let MODAL_TUTUP=null;
 function modal(judul,isi,aksi,lebar){
   MODAL_AKSI=aksi||[];
   const root=document.getElementById('modalRoot'); if(!root) return;
@@ -4019,7 +4110,8 @@ function jalankanAksiModal(i){
   const a=MODAL_AKSI[i]; if(!a||!a.f) return;
   a.f();
 }
-function tutupModal(){ const m=document.getElementById('modalRoot'); if(m) m.innerHTML=''; MODAL_AKSI=[]; }
+function tutupModal(){ const m=document.getElementById('modalRoot'); if(m) m.innerHTML=''; MODAL_AKSI=[];
+  const f=MODAL_TUTUP; MODAL_TUTUP=null; if(f) f(); }
 /* opsi = {html, ya, lebar}. Ditambahkan supaya konfirmasi yang perlu
    menyebutkan ANGKA bisa memakai daftar & chip, bukan satu paragraf teks —
    "12 shift, 7 orang, Rp1.680.000" jauh lebih terbaca sebagai tiga potong

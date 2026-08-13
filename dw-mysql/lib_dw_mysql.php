@@ -477,6 +477,26 @@ function ajuan_saya($dwId) {
    status MENUNGGU, apa pun yang dikirim client. Kalau tidak, siapa pun yang
    bisa memanggil API bisa mengirim ajuannya sendiri dengan status DISETUJUI
    dan langsung muncul di kalender tanpa pernah dilihat HR. */
+/* Menit sejak 00:00. Sepasang dengan menitJamDW() di frontend. */
+function menit_jam($v) {
+  $p = explode(':', (string)$v);
+  return ((int)(isset($p[0]) ? $p[0] : 0)) * 60 + ((int)(isset($p[1]) ? $p[1] : 0));
+}
+/* Panjang shift dalam menit. Selesai yang lebih kecil atau sama dengan mulai
+   berarti lewat tengah malam (18:00-02:00 = 480 menit, bukan -960). Aturan
+   yang sama dengan durasiJam() di frontend — dua tempat yang berbeda pendapat
+   soal shift malam akan menghitung upah berbeda pula. */
+function durasi_menit($m, $s) {
+  $a = menit_jam($m); $b = menit_jam($s);
+  if ($b <= $a) $b += 1440;
+  return $b - $a;
+}
+/* Tanggal ISO digeser n hari. */
+function geser_hari($iso, $n) {
+  $t = strtotime($iso . ' 12:00:00');
+  return $t === false ? $iso : date('Y-m-d', $t + $n * 86400);
+}
+
 function simpan_ajuan($row, $by) {
   $pdo = db();
   pastikan_tabel($pdo);
@@ -503,6 +523,96 @@ function simpan_ajuan($row, $by) {
      berpindah kolom setiap kali HR mengubah divisi utamanya. */
   $divisi = pot(isset($row['divisi']) && s($row['divisi']) !== '' ? $row['divisi'] : $o['divisi'], 16);
   $posisi = pot(isset($row['posisi']) && s($row['posisi']) !== '' ? $row['posisi'] : $o['posisi'], 60);
+
+  /* ================= BENTROK LINTAS DIVISI =================
+     Kunci unik (dw_id, tgl) berarti satu orang cuma punya SATU baris per
+     hari — dan ON DUPLICATE KEY di bawah menimpanya tanpa bertanya. Untuk
+     head yang mengubah ajuannya sendiri itu memang yang diinginkan.
+
+     Yang TIDAK diinginkan: head Kitchen memanggil ARIF untuk 15 Agustus,
+     padahal head Bar sudah memanggil ARIF di tanggal yang sama dan sudah
+     disetujui. Yang terjadi bukan galat, bukan pula dua baris: baris Bar
+     BERUBAH jadi baris Kitchen dan turun ke MENUNGGU. Head Bar tidak
+     diberi tahu apa pun; ia baru sadar malam itu, saat orangnya tidak
+     datang. Satu orang tidak bisa bekerja di dua divisi pada hari yang
+     sama, jadi ini memang bentrok — dan bentrok harus berhenti di sini.
+
+     Kenapa di backend, padahal frontend sudah punya peringatan serupa:
+     frontend cuma melihat ajuan yang termuat di rentang layarnya. Ajuan
+     divisi lain di luar rentang itu TIDAK ada di memorinya, jadi
+     peringatannya diam. Dua head yang menyimpan berdekatan juga sama —
+     keduanya membaca keadaan sebelum yang lain menulis. Backend adalah
+     satu-satunya tempat yang selalu melihat baris yang sebenarnya.
+
+     Bukan larangan mutlak: `timpa` melewatkannya, dipakai frontend
+     sesudah orangnya membaca konfirmasi yang menyebut divisi lawannya.
+     Yang DITOLAK dan DIBATALKAN tidak dihitung — menimpanya justru yang
+     diinginkan. */
+  $timpa = !empty($row['timpa']);
+  $lama = $pdo->prepare('SELECT `id`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
+                           FROM `dw_ajuan` WHERE `dw_id`=:dw AND `tgl`=:tg');
+  $lama->execute(array(':dw' => $dw, ':tg' => $tgl));
+  $L = $lama->fetch();
+  if (!$timpa && $L && ($L['status'] === 'MENUNGGU' || $L['status'] === 'DISETUJUI')
+      && $L['divisi'] !== '' && $L['divisi'] !== $divisi) {
+    return array('saved' => false, 'bentrok' => array(
+      'nama'    => $o['nama'],
+      'tgl'     => $tgl,
+      'divisi'  => $L['divisi'],      // divisi yang SUDAH memesan
+      'posisi'  => $L['posisi'],
+      'm'       => $L['jam_mulai'],
+      's'       => $L['jam_selesai'],
+      'status'  => $L['status'],
+      'divisiBaru' => $divisi,
+      'mBaru'   => $m,
+      'sBaru'   => $sj,
+    ));
+  }
+
+  /* ---- Bentrok yang MELEWATI TENGAH MALAM ----
+     Guard di atas hanya melihat tanggal yang sama, dan kunci (dw_id, tgl)
+     memang menjamin satu baris per hari. Yang TIDAK dijamin siapa pun:
+     ARIF Bar 15 Agustus 18:00-02:00 dan ARIF Kitchen 16 Agustus 01:00-08:00
+     adalah DUA baris dengan tanggal berbeda — keduanya sah menurut kunci
+     unik, keduanya lolos guard di atas, dan keduanya bertindih satu jam
+     penuh di dunia nyata. Orangnya baru pulang jam 2 pagi.
+
+     Karena itu tetangganya ikut dibaca: baris H-1 yang jamnya tumpah ke
+     hari ini, dan baris H+1 yang tersenggol kalau ajuan ini sendiri yang
+     tumpah. Berlaku juga untuk divisi yang SAMA — 18:00-02:00 lalu
+     01:00-08:00 tetap mustahil walau head-nya satu orang. */
+  $ms = menit_jam($m); $ns = $ms + durasi_menit($m, $sj);   // menit relatif hari ini
+  $tet = $pdo->prepare('SELECT `tgl`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
+                          FROM `dw_ajuan`
+                         WHERE `dw_id`=:dw AND `tgl` IN (:t1,:t2)
+                           AND (`status`=\'MENUNGGU\' OR `status`=\'DISETUJUI\')');
+  $tet->execute(array(':dw' => $dw, ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
+  foreach ($tet->fetchAll() as $T) {
+    /* Offset hari: baris kemarin dimulai 1440 menit lebih awal, baris besok
+       1440 menit lebih lambat. Dengan begitu keduanya bisa dibandingkan di
+       satu garis waktu yang sama. */
+    $off = ($T['tgl'] < $tgl) ? -1440 : 1440;
+    $as = menit_jam($T['jam_mulai']) + $off;
+    $ae = $as + durasi_menit($T['jam_mulai'], $T['jam_selesai']);
+    if (max($as, $ms) < min($ae, $ns)) {
+      if ($timpa) break;   // sudah dibaca & disetujui orangnya di layar
+      return array('saved' => false, 'bentrok' => array(
+        'nama'    => $o['nama'],
+        'tgl'     => $T['tgl'],
+        'divisi'  => $T['divisi'],
+        'posisi'  => $T['posisi'],
+        'm'       => $T['jam_mulai'],
+        's'       => $T['jam_selesai'],
+        'status'  => $T['status'],
+        'divisiBaru' => $divisi,
+        'mBaru'   => $m,
+        'sBaru'   => $sj,
+        'lintasHari' => true,
+        'tglBaru' => $tgl,
+      ));
+    }
+  }
+
 
   $id = pot(isset($row['id']) ? $row['id'] : '', 32);
   if ($id === '') $id = id_baru('AJ');

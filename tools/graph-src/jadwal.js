@@ -1775,7 +1775,8 @@ function sorotCariBulan() {  }
 
 
 
-function viewBulanan() { kruDivisi(); divTunggal(); bulanDari(); hariIni(); pitaBulan(); bolehUbah(); dwOrang(); awalBulan(); akhirBulan(); esc(); namaDivisi(); isAdmin(); luarBulan(); rentangMinggu(); tglPendek(); idxHari(); jabatanDari(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); legendaShift(); exportPNG(); exportWA(); statBox(); }
+function viewBulanan() { kruDivisi(); divTunggal(); bulanDari(); hariIni(); pitaBulan(); bolehUbah(); dwOrang(); awalBulan(); akhirBulan(); esc(); namaDivisi(); isAdmin(); luarBulan(); rentangMinggu(); tglPendek(); idxHari(); jabatanDari(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); legendaShift(); exportExcel(); exportPNG(); exportWA(); statBox(); }
+
 
 
 
@@ -2169,7 +2170,8 @@ function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruD
 
 
 
-function tabelDiv() { kruDivisi(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportPNG(); exportWA(); divisiKuasa(); }
+function tabelDiv() { kruDivisi(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
+
 
 
 
@@ -3594,6 +3596,321 @@ function exportPNG() { kruDivisi(); divTunggal(); toast(); pitaMingguAktif(); pi
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function crc32() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function zipSimpan() { crc32(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function xEsc() {  }
+
+
+
+function kolHuruf() {  }
+
+
+
+
+
+
+function tulisanKontras() {  }
+
+
+
+
+function heks6() {  }
+
+
+
+function xlsxGaya() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); pitaBulanAktif(); bulanDari(); hariIni(); xlsxGaya(); daftarShift(); heks6(); shiftDef(); tulisanKontras(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sel_() {  }
+function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); parseD(); jabatanDari(); sel(); shiftDef(); dwOrang(); tglManusia(); dwSel(); daftarShift(); xEsc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function B() { zipSimpan(); xEsc(); namaDivisi(); seninDari(); hariIni(); toast(); }
 
 
 

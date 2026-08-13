@@ -2627,7 +2627,7 @@ function gambarAjukanTgl() { tamuTgl(); esc(); ajuanHidupTgl(); namaDW(); jamAju
 
 
 
-function kirimAjukanTgl() { serapAjukanTgl(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); gambarAjukanTgl(); lampauiPanduan(); konfirmasi(); namaDivisi(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); pilihJam(); selesai(); kirimAjuan(); }
+function kirimAjukanTgl() { serapAjukanTgl(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); namaDivisi(); jamAjuan(); gambarAjukanTgl(); lampauiPanduan(); konfirmasi(); simpanAjuanRow(); toast(); tglManusia(); muatData(); render(); pilihJam(); selesai(); kirimAjuan(); }
 
 
 
@@ -2834,7 +2834,35 @@ function ajuanOrangTgl() {  }
 
 
 
-function simpanAjuanRow() { toast(); apiPost(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function menitJamDW() { durasiJam(); }
+
+
+
+function jamBertindih() { menitJamDW(); }
+
+
+
+
+
+
+
+
+function tanyaBentrok() {  }
+
+
+function selesai() { jamBertindih(); modal(); esc(); namaDivisi(); tglPanjang(); tglManusia(); tutupModal(); }
 
 
 
@@ -2849,7 +2877,65 @@ function simpanAjuanRow() { toast(); apiPost(); }
 
 
 
-function kirimAjuan() { serapAjukan(); isDW(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); jamAjuan(); tutupModal(); lampauiPanduan(); namaDivisi(); simpanAjuanRow(); jalankanAksiModal(); toast(); tglManusia(); muatData(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanAjuanRow() { toast(); apiPost(); tanyaBentrok(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimAjuan() { serapAjukan(); isDW(); ajuanOrangTgl(); modal(); esc(); namaDW(); tglPanjang(); namaDivisi(); jamAjuan(); tutupModal(); lampauiPanduan(); simpanAjuanRow(); jalankanAksiModal(); toast(); tglManusia(); muatData(); render(); }
 
 
 
@@ -3240,12 +3326,12 @@ function kirimAksesDW() { pekerjaById(); toast(); waNomor(); pesanAksesDW(); }
 
 
 
-function salinTautanDW() { tautanDW(); }
+function salinTautanDW() { tautanDW(); toast(); }
 
 
 
 
-function selesai() { toast(); }
+
 
 
 
@@ -4004,6 +4090,11 @@ function bukaAjuan() { pekerjaById(); isHR(); tutupModal(); setujuiAjuan(); tola
 
 
 
+
+
+
+
+
 function modal() { tutupModal(); jalankanAksiModal(); esc(); }
 
 
@@ -4020,6 +4111,7 @@ function jalankanAksiModal() {  }
 
 
 function tutupModal() {  }
+
 
 
 
