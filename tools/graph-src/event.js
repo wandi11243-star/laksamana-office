@@ -6810,6 +6810,12 @@ function renderL1() { buatDenahL1(); seatCls(); seatBox(); esc(); denahLegend();
 
 
 
+
+
+
+
+
+
 function ldzTiers() {  }
 
 
@@ -7104,7 +7110,24 @@ function ldzTierClass() { uid(); }
 
 
 
-function ldzSyncQuota() { ldzItems(); ldzTierClass(); }
+function ldzSyncQuota() { ldzItems(); ldzTierClass(); ldzTierNames(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8839,6 +8862,30 @@ function lantaiBentrok() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function normKategori() {  }
+
+
+
+
+function kategoriKembar() { normKategori(); }
+
+
+
+
+
 function ticketClassForm() { modal(); closeModal(); esc(); uangInput(); dstr(); syncSaleWindow(); lantaiBentrok(); saveTicketClass(); }
 
 
@@ -8874,7 +8921,16 @@ function syncSaleWindow() {  }
 
 
 
-function saveTicketClass() { g(); toast(); uangNilai(); tiketTerjual(); save(); closeModal(); renderTicketDetail(); uid(); }
+function saveTicketClass() { g(); toast(); kategoriKembar(); uangNilai(); tiketTerjual(); save(); closeModal(); renderTicketDetail(); uid(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9395,6 +9451,14 @@ function ciBaris() { ciTiket(); seatTeks(); fmtDateTime(); }
 
 
 
+
+
+
+
+
+
+
+
 function ciTabelHTML() { ciBaris(); }
 
 
@@ -9515,7 +9579,20 @@ function ciPilihKelasHTML() { ciBaris(); ciKelas(); esc(); }
 
 
 
-function ciHitungSemuaHTML() { ciBaris(); esc(); ciKelas(); ldzTierInfo(); }
+function ciHitungSemuaHTML() { ciBaris(); esc(); ciKelas(); ldzTierInfo(); normKategori(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10016,7 +10093,7 @@ function muatEventMarketing() { renderCalendar(); }
 
 
 
-function panelGagalMkt() { esc(); muatEventMarketing(); }
+function panelGagalMkt() { esc(); muatEventMarketing(); save(); }
 
 
 
@@ -10024,7 +10101,184 @@ function panelGagalMkt() { esc(); muatEventMarketing(); }
 
 
 
-function renderCalendar() { setTop(); dstr(); calEventPopup(); calJadwalPopup(); calMktPopup(); muatEventMarketing(); esc(); C(); panelGagalMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatReservasiEms() { renderCalendar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelGagalRsvEms() { esc(); muatReservasiEms(); }
+
+
+
+
+
+
+
+
+
+function rsvHariPopupEms() { closeModal(); esc(); fmtDate(); modal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paxEventEms() {  }
+
+
+
+
+
+
+
+
+
+function calTotalPaxEms() {  }
+
+function pakai() { paxEventEms(); }
+
+
+
+
+
+
+
+
+
+function renderCalendar() { setTop(); dstr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pax() { paxEventEms(); esc(); calEventPopup(); calJadwalPopup(); calMktPopup(); muatEventMarketing(); muatReservasiEms(); calTotalPaxEms(); dstr(); rsvHariPopupEms(); C(); renderCalendar(); panelGagalMkt(); panelGagalRsvEms(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
