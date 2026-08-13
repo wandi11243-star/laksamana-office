@@ -4154,33 +4154,89 @@ function renderReportEms(){
    Yang bukan manajemen tetap boleh membuka halamannya — melihat antrian itu
    berguna bagi yang mengajukan ("punyaku sudah diputuskan belum?"). Yang
    disaring bisaSetujui() hanya tombol Setujui/Tolak. */
+/* DUA JENIS KEPUTUSAN di meja yang sama: rencana event, dan refund e-ticket.
+   Keduanya sama-sama "manajemen memutuskan sesuatu yang tim tidak boleh
+   putuskan sendiri", dan keduanya butuh riwayat yang bisa dibuka lagi enam
+   bulan kemudian ("siapa yang menyetujui pengembalian 4,2 juta itu?").
+
+   Sebelum ini refund diputuskan dari tab Penjualan di halaman Ticketing —
+   tombol Setujui/Tolak berdiri tepat di sebelah daftar pembeli. Dua akibatnya:
+   riwayat keputusan tidak pernah terkumpul di satu tempat, dan siapa pun yang
+   sedang membaca papan penjualan bisa menyetujui uang keluar hanya karena
+   tombolnya kebetulan ada di depan matanya. Tombol itu sekarang DICABUT dari
+   sana (lihat salesBody); di Ticketing tinggal statusnya saja.
+
+   Pemilih JENIS memakai .seg-per (segmented, seperti Upcoming/Riwayat di
+   Ticketing), sedangkan Antrian/Riwayat tetap .tabs — dua tingkat pilihan
+   yang digambar dengan gaya yang sama akan terbaca sebagai satu deret tab
+   yang membingungkan. */
 let apprEmsTab='antri';
+let apprEmsJenis='event';
 function setApprEmsTab(v){ apprEmsTab=v; router(); }
+function setApprEmsJenis(v){ apprEmsJenis=v; apprEmsTab='antri'; router(); }
+/* Pengajuan refund menunjuk order, bukan event. Yang dibutuhkan meja putusan
+   justru rangkaian lengkapnya: acara apa, pembeli siapa, berapa tiket yang
+   ikut hangus. Order yang sudah tidak ada (event dihapus beserta isinya)
+   memulangkan o=null dan disaring keluar — tidak ada yang bisa diputuskan
+   dari pengajuan yang tidak punya pesanan lagi. */
+function refundRingkas(r){
+  const o=DB.orders.find(function(x){ return x.id===r.order_id; })||null;
+  const e=o?DB.events.find(function(x){ return x.id===o.event_id; }):null;
+  const tks=o?DB.tickets.filter(function(t){ return t.order_item_id===o.id; }):[];
+  return { r:r, o:o, e:e, tiket:tks.length };
+}
+function apprRefundList(){
+  return (DB.refunds||[]).map(refundRingkas).filter(function(x){ return !!x.o; });
+}
 function renderApprovalEms(){
   const setuju=bisaSetujui();
   setTop('Approval Flow','Meja putusan manajemen','');
+
   const diajukan=DB.events.filter(function(e){ return !!pengajuan(e); });
-  const antri=diajukan.filter(function(e){ return statusPengajuan(e)==='Menunggu'; });
-  const riwayat=diajukan.filter(function(e){ return statusPengajuan(e)!=='Menunggu'; })
+  const antriEv=diajukan.filter(function(e){ return statusPengajuan(e)==='Menunggu'; });
+  const riwayatEv=diajukan.filter(function(e){ return statusPengajuan(e)!=='Menunggu'; })
     .sort(function(a,b){ return String((b.pengajuan||{}).disetujuiPada||'').localeCompare(String((a.pengajuan||{}).disetujuiPada||'')); });
-  const list = apprEmsTab==='riwayat' ? riwayat : antri;
+
+  const semuaRf=apprRefundList();
+  // Antrian refund diurut TERLAMA DI ATAS: yang paling lama menunggu uangnya
+  // kembali adalah yang paling mendesak, bukan yang paling baru masuk.
+  const antriRf=semuaRf.filter(function(x){ return x.r.status==='Pending'; })
+    .sort(function(a,b){ return String(a.r.requested_at||'').localeCompare(String(b.r.requested_at||'')); });
+  const riwayatRf=semuaRf.filter(function(x){ return x.r.status!=='Pending'; })
+    .sort(function(a,b){ return String(b.r.decided_at||b.r.approved_at||'').localeCompare(String(a.r.decided_at||a.r.approved_at||'')); });
+  const nilaiAntriRf=antriRf.reduce(function(a,x){ return a+(+x.o.total||0); },0);
 
   let h='<div class="grid g4" style="margin-bottom:18px">'
-    +'<div class="card stat"><div class="lbl">Menunggu Keputusan</div>'
-    +'<div class="val num">'+antri.length+'</div>'
-    +'<div class="sub">'+(antri.length?'perlu ditindak':'semua sudah diputuskan')+'</div></div>'
+    +stat('Rencana Menunggu',antriEv.length,antriEv.length?'perlu ditindak':'semua sudah diputuskan')
+    +stat('Refund Menunggu',antriRf.length,antriRf.length?'pembeli sedang menunggu uangnya':'tidak ada yang menggantung')
+    +stat('Nilai Refund Tertahan',IDR(nilaiAntriRf),'kalau semuanya disetujui')
     +'</div>';
+  h+='<div class="toolbar" style="margin-bottom:12px"><div class="seg-per">'
+    +'<button class="'+(apprEmsJenis==='event'?'on':'')+'" onclick="setApprEmsJenis(&#39;event&#39;)">Rencana Event'+(antriEv.length?' ('+antriEv.length+')':'')+'</button>'
+    +'<button class="'+(apprEmsJenis==='refund'?'on':'')+'" onclick="setApprEmsJenis(&#39;refund&#39;)">Refund E-Ticket'+(antriRf.length?' ('+antriRf.length+')':'')+'</button>'
+    +'</div></div>';
+
+  const antri  = apprEmsJenis==='refund' ? antriRf   : antriEv;
+  const riwayat= apprEmsJenis==='refund' ? riwayatRf : riwayatEv;
+  const list   = apprEmsTab==='riwayat' ? riwayat : antri;
   h+='<div class="tabs">'
     +'<button class="'+(apprEmsTab==='antri'?'active':'')+'" onclick="setApprEmsTab(&#39;antri&#39;)">Antrian'+(antri.length?' ('+antri.length+')':'')+'</button>'
     +'<button class="'+(apprEmsTab==='riwayat'?'active':'')+'" onclick="setApprEmsTab(&#39;riwayat&#39;)">Riwayat Approval'+(riwayat.length?' ('+riwayat.length+')':'')+'</button>'
     +'</div>';
   if(!list.length){
-    C().innerHTML=h+'<div class="empty">'+(apprEmsTab==='antri'
-      ?'Tidak ada rencana yang menunggu keputusan. ⚓'
-      :'Belum ada keputusan yang tercatat.')+'</div>';
+    const kosong = apprEmsTab==='antri'
+      ? (apprEmsJenis==='refund' ? 'Tidak ada pengajuan refund yang menunggu. ⚓'
+                                 : 'Tidak ada rencana yang menunggu keputusan. ⚓')
+      : 'Belum ada keputusan yang tercatat.';
+    C().innerHTML=h+'<div class="empty">'+kosong+'</div>';
     return;
   }
-  h+='<div class="card" style="padding:0"><table><thead><tr>'
+  C().innerHTML=h+(apprEmsJenis==='refund'
+    ? apprTabelRefund(list,setuju)
+    : apprTabelEvent(list,setuju));
+}
+function apprTabelEvent(list,setuju){
+  let h='<div class="card" style="padding:0"><table><thead><tr>'
     +'<th>Event</th><th>Tanggal</th><th>Venue</th><th>Diajukan</th><th>Status</th>'
     +(setuju&&apprEmsTab==='antri'?'<th>Aksi</th>':'<th></th>')+'</tr></thead><tbody>';
   list.forEach(function(e){
@@ -4199,7 +4255,47 @@ function renderApprovalEms(){
         :'<button class="btn ghost sm" onclick="location.hash=&#39;#/events/'+e.id+'&#39;">Buka</button>')
       +'</td></tr>';
   });
-  C().innerHTML=h+'</tbody></table></div>';
+  return h+'</tbody></table></div>';
+}
+function apprTabelRefund(list,setuju){
+  let h='<div class="card" style="padding:0"><div class="tbl-lebar"><table><thead><tr>'
+    +'<th>Pembeli</th><th>Event</th><th>Nominal</th><th>Alasan</th><th>Diajukan</th><th>Status</th>'
+    +(setuju&&apprEmsTab==='antri'?'<th>Aksi</th>':'<th></th>')+'</tr></thead><tbody>';
+  list.forEach(function(x){
+    const r=x.r, o=x.o, e=x.e;
+    const st = r.status==='Pending'  ? '<span class="badge b-yellow">Menunggu</span>'
+             : r.status==='Approved' ? '<span class="badge b-green">Disetujui</span>'
+             : '<span class="badge b-grey">Ditolak</span>';
+    h+='<tr><td><b>'+esc(o.buyer_name||'—')+'</b>'
+       +'<div class="mini">'+esc(o.phone||o.email||'')+'</div></td>'
+      +'<td>'+esc((e&&e.title)||'(event terhapus)')
+       +'<div class="mini">'+x.tiket+' tiket</div></td>'
+      +'<td>'+IDR(o.total)+'</td>'
+      +'<td class="mini">'+esc(r.reason||'—')+'</td>'
+      +'<td>'+esc(r.oleh||'—')
+       +'<div class="mini">'+(r.requested_at?esc(fmtDate(String(r.requested_at).slice(0,10))):'')+'</div></td>'
+      +'<td>'+st
+       +(r.penyetuju?'<div class="mini">'+esc(r.penyetuju)+'</div>':'')
+       +(r.alasan_tolak?'<div class="mini" style="color:var(--red)">'+esc(r.alasan_tolak)+'</div>':'')+'</td>'
+      +'<td>'+((setuju&&apprEmsTab==='antri')
+        ?'<div class="aksi-1baris">'
+          +'<button class="btn sm" onclick="approveRefund(&#39;'+r.id+'&#39;)">Setujui</button>'
+          +'<button class="btn ghost sm" onclick="tolakRefund(&#39;'+r.id+'&#39;)">Tolak</button></div>'
+        :(e?'<button class="btn ghost sm" onclick="bukaPesananRefund(&#39;'+r.id+'&#39;)">Buka</button>':''))
+      +'</td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
+}
+/* Dipanggil dari tab Penjualan. Jenisnya disetel LEBIH DULU, kalau tidak
+   Approval Flow terbuka di tab Rencana Event dan yang tadi diklik justru
+   tidak kelihatan. */
+function bukaApprovalRefund(){
+  apprEmsJenis='refund'; apprEmsTab='antri'; location.hash='#/approval';
+}
+function bukaPesananRefund(rid){
+  const x=refundRingkas((DB.refunds||[]).find(function(y){ return y.id===rid; })||{});
+  if(!x.o||!x.e) return toast('Pesanannya sudah tidak ada.');
+  window._tixTab='sales'; location.hash='#/ticketing/'+x.e.id;
 }
 /* TIGA TAB di satu halaman: rencana yang sedang digarap, bank ide, dan
    riwayat acara yang sudah lewat.
@@ -5525,7 +5621,14 @@ function salesBody(eid){
      +'<td class="mini">'+(kursi.length?esc(kursi.join(', ')):'\u2014')+'</td>'
      +'<td>'+IDR(o.total)+'</td>'
      +'<td>'+statusBadge(o.payment_status)+'</td>'
-     +'<td>'+rfCell+(rf&&rf.status==='Pending'?' <button class="btn sm" onclick="approveRefund(\''+rf.id+'\')">Setujui</button> <button class="btn danger sm" onclick="rejectRefund(\''+rf.id+'\')">Tolak</button>':'')+'</td>'
+     /* Tombol Setujui/Tolak DICABUT dari sini. Refund adalah keputusan uang
+        keluar dan tempatnya satu: Approval Flow. Selama tombolnya ada di dua
+        layar, riwayat keputusannya tidak pernah lengkap di salah satunya —
+        dan siapa pun yang sedang MEMBACA papan penjualan bisa menyetujui
+        pengembalian uang cuma karena tombolnya kebetulan ada di depan mata.
+        Yang tinggal di sini statusnya saja, plus penunjuk arah. */
+     +'<td>'+rfCell+(rf&&rf.status==='Pending'
+        ?' <a href="javascript:bukaApprovalRefund()" class="mini" style="color:var(--accent)">diputus di Approval Flow</a>':'')+'</td>'
      +'<td class="mini">'+(masuk?masuk+' / '+tks.length:'\u2014')+'</td>'
      +'<td>'+(tks.length?'<button class="btn ghost sm" onclick="showETicket(\''+tks[0].id+'\')">E-Ticket</button>'
         +(bisaAjukan?' <button class="btn ghost sm" onclick="requestRefund(\''+o.id+'\')">Refund</button>':''):'')+'</td></tr>';
@@ -8197,19 +8300,52 @@ function submitRefund(oid){
   const reason=document.getElementById('rf_reason').value.trim();
   if(!reason){toast('Alasan wajib diisi.');return;}
   if(refundAktif(oid)){toast('Refund untuk order ini sudah ada.');closeModal();return;}
-  DB.refunds.push({id:uid(),order_id:oid,reason,status:'Pending',requested_at:new Date().toISOString()});
-  save();closeModal();toast('✓ Refund diajukan — menunggu persetujuan.');
-  const o=DB.orders.find(x=>x.id===oid);window._tixTab='sales';renderTicketDetail(o.event_id);
+  const o0=DB.orders.find(x=>x.id===oid);
+  /* SIAPA yang mengajukan ikut dicatat. Tanpa ini, baris di Approval Flow
+     berbunyi "seseorang minta 4,2 juta dikembalikan" dan manajemen tidak punya
+     tempat bertanya sebelum memutuskan. event_id disalin supaya pembersihan
+     event (hapusIsiEvent) tetap menemukan pengajuannya walau pesanannya sudah
+     lebih dulu terhapus. */
+  DB.refunds.push({id:uid(),order_id:oid,event_id:(o0&&o0.event_id)||null,reason:reason,
+    status:'Pending',oleh:namaKru(),requested_at:new Date().toISOString()});
+  save();closeModal();toast('✓ Refund diajukan — menunggu keputusan manajemen di Approval Flow.');
+  window._tixTab='sales'; if(o0) renderTicketDetail(o0.event_id);
 }
 /* Satu pesanan bisa berisi BANYAK tiket sejak pembelian multi-kursi ada.
    Versi lama memakai DB.tickets.find(...) — satu tiket saja — sehingga
    pesanan 6 kursi yang di-refund menyisakan 5 tiket berstatus Valid, 5 kursi
    tetap terjual di denah, dan kuota kelas berkurang 1 dari 6 yang seharusnya.
    Uangnya sudah dikembalikan tapi kursinya tidak pernah bisa dijual lagi. */
+/* Menyetujui refund itu TIDAK bisa dibatalkan dari layar mana pun: tiketnya
+   hangus, kursinya dilepas ke kolam jual, dan kuota kelasnya kembali — kursi
+   yang sama bisa langsung terjual ke orang lain semenit kemudian. Karena itu
+   ada satu layar penegasan yang menyebutkan angka-angkanya lebih dulu, bukan
+   satu klik yang langsung mengeksekusi. */
 function approveRefund(rid){
-  const r=DB.refunds.find(x=>x.id===rid); if(!r) return;
-  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return;
-  r.status='Approved'; r.approved_at=new Date().toISOString();
+  if(!bisaSetujui()) return toast('Hanya manajemen yang bisa memutuskan refund.');
+  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return;
+  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return toast('Pesanannya sudah tidak ada.');
+  const n=DB.tickets.filter(t=>t.order_item_id===o.id && t.status!=='Cancelled').length;
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Setujui Refund</h3>'
+    +'<div class="kv" style="margin-bottom:12px">'
+    +'<div class="k">Pembeli</div><div><b>'+esc(o.buyer_name||'—')+'</b></div>'
+    +'<div class="k">Dikembalikan</div><div><b>'+IDR(o.total)+'</b></div>'
+    +'<div class="k">Alasan</div><div>'+esc(r.reason||'—')+'</div></div>'
+    +'<p class="mini">'+n+' tiket akan dibatalkan, kursinya dilepas, dan kuota kelasnya dikembalikan. '
+    +'Ini tidak bisa dibatalkan — kursi yang sama bisa langsung terjual ke orang lain.</p>'
+    +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+    +'<button class="btn" onclick="approveRefundYakin(\''+rid+'\')">Setujui &amp; Kembalikan</button></div>');
+}
+/* Satu pesanan bisa berisi BANYAK tiket sejak pembelian multi-kursi ada.
+   Versi lama memakai DB.tickets.find(...) — satu tiket saja — sehingga
+   pesanan 6 kursi yang di-refund menyisakan 5 tiket berstatus Valid, 5 kursi
+   tetap terjual di denah, dan kuota kelas berkurang 1 dari 6 yang seharusnya.
+   Uangnya sudah dikembalikan tapi kursinya tidak pernah bisa dijual lagi. */
+function approveRefundYakin(rid){
+  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return closeModal();
+  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return closeModal();
+  r.status='Approved'; r.penyetuju=namaKru();
+  r.decided_at=r.approved_at=new Date().toISOString();
   o.payment_status='Refunded';
   const tiket=DB.tickets.filter(t=>t.order_item_id===o.id && t.status!=='Cancelled');
   tiket.forEach(function(tk){
@@ -8218,11 +8354,35 @@ function approveRefund(rid){
     const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
     if(c&&c.sold>0) c.sold--;
   });
-  save();
+  save(); closeModal();
   toast('✓ Refund disetujui — '+tiket.length+' tiket dibatalkan & kursinya dilepas.');
-  renderTicketDetail(o.event_id);
+  /* router(), BUKAN renderTicketDetail(). Keputusan ini diambil dari Approval
+     Flow; memanggil renderTicketDetail akan melempar manajemen keluar ke
+     halaman Ticketing event itu, kehilangan antrian yang sedang dikerjakan. */
+  router();
 }
-function rejectRefund(rid){const r=DB.refunds.find(x=>x.id===rid);r.status='Rejected';save();const o=DB.orders.find(x=>x.id===r.order_id);renderTicketDetail(o.event_id);toast('Refund ditolak.');}
+function tolakRefund(rid){
+  if(!bisaSetujui()) return toast('Hanya manajemen yang bisa memutuskan refund.');
+  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return;
+  const o=DB.orders.find(x=>x.id===r.order_id);
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Tolak Refund</h3>'
+    +'<p class="mini">'+esc((o&&o.buyer_name)||'')+' · '+IDR((o&&o.total)||0)+'</p>'
+    +'<div class="field"><label>Alasan *</label><textarea id="rf_tolak" rows="3" '
+    +'placeholder="mis. tiket sudah dipakai masuk, di luar batas waktu refund"></textarea>'
+    +'<div class="mini">Alasannya wajib: pembeli akan menanyakannya, dan yang menjawab '
+    +'bukan orang yang menolak.</div></div>'
+    +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+    +'<button class="btn danger" onclick="tolakRefundYakin(\''+rid+'\')">Tolak</button></div>');
+}
+function tolakRefundYakin(rid){
+  const alasan=(document.getElementById('rf_tolak').value||'').trim();
+  if(!alasan) return toast('Alasan wajib diisi.');
+  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return closeModal();
+  r.status='Rejected'; r.penyetuju=namaKru(); r.alasan_tolak=alasan;
+  r.decided_at=new Date().toISOString();
+  save(); closeModal(); toast('Refund ditolak — alasannya tercatat di riwayat.');
+  router();
+}
 
 /* ============ CHECK-IN ============ */
 function renderCheckin(){
