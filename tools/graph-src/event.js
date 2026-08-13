@@ -1098,6 +1098,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -2477,7 +2490,16 @@ function lembarTalentHTML() { talentUrut(); }
 
 
 
-function akhirPekan() { talWarna(); esc(); dstr(); fmtDate(); schedInfo(); }
+function akhirPekan() { esc(); dstr(); fmtDate(); schedInfo(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9731,6 +9753,19 @@ function panelGagalMkt() { esc(); muatEventMarketing(); }
 
 
 function renderCalendar() { setTop(); dstr(); calEventPopup(); calJadwalPopup(); calMktPopup(); muatEventMarketing(); esc(); C(); panelGagalMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

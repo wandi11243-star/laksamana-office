@@ -579,9 +579,16 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .modal .close{float:right;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;background:none;border:none}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
 /* Calendar */
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+/* minmax(0,1fr), BUKAN 1fr. `1fr` berarti minmax(AUTO,1fr): lebar minimum
+   kolomnya ditentukan isinya, jadi satu balon jadwal bernama panjang
+   ("20:00 The Ocean Waves") memaksa kolomnya melebar, kisinya jadi lebih lebar
+   daripada halaman, dan muncul gulungan mendatar — kolom Sabtu terpotong di
+   tepi layar. minmax(0,…) membolehkan kolom menyusut lebih kecil daripada
+   isinya, dan yang kepanjangan dipotong oleh .evt-dot di bawah. */
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .cal .dow{text-align:center;font-size:11px;color:var(--muted);text-transform:uppercase;padding:4px}
-.cal .cell{min-height:88px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px;font-size:11px}
+.cal .cell{min-height:88px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;
+  padding:5px;font-size:11px;min-width:0;overflow:hidden}
 .cal .cell .dn{color:var(--muted);font-weight:600;margin-bottom:3px}
 .cal .cell.today{border-color:var(--accent)}
 /* Sel yang bisa diklik harus TERLIHAT bisa diklik. Tanpa tanda apa pun,
@@ -784,7 +791,12 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .kathead .kat-rp{display:block;font-size:11.5px;color:var(--muted);font-weight:600}
 .katfoot{display:flex;justify-content:space-between;gap:10px;margin-top:5px;flex-wrap:wrap}
 .katfoot b{color:var(--txt)}
-.kat-habis{color:var(--red)}
+/* "PENUH", bukan "HABIS", dan HIJAU, bukan merah. Kuota yang terjual seluruhnya
+   adalah kabar paling baik yang bisa dipulangkan halaman ini — memberi tahunya
+   dengan kata "habis" berwarna merah membuatnya terbaca sebagai kekurangan
+   stok, sewarna dengan galat dan peringatan di layar yang sama. Yang membaca
+   papan Ticketing sedang menghitung hasil jualan, bukan sisa gudang. */
+.kat-habis{color:var(--green);font-weight:800;letter-spacing:.02em}
 .salesbar{position:relative}
 
 .katlist{margin-top:10px;background:var(--panel);border-radius:8px;overflow:hidden}
@@ -1001,9 +1013,10 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .lembar td.jml{padding:4px 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .lembar i{display:block;width:100%;height:20px;line-height:20px;font-style:normal;
   font-size:10px;font-weight:700;color:#241d05}
+.lembar th .hh{display:block;font-size:8px;font-weight:700;letter-spacing:.03em;
+  color:var(--muted);opacity:.75;line-height:1.1}
+.lembar th.wknd .hh{color:var(--red);opacity:.9}
 tr.fee-on>td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
-.kat-dot{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:7px;
-  vertical-align:baseline;flex:none}
 .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 /* Catatan kecil di atas daftar (mis. "3 rencana menunggu keputusanmu").
    Kelas ini disalin dari Marketing tapi CSS-nya TIDAK ikut terbawa, dan
@@ -2484,7 +2497,14 @@ function lembarTalentHTML(y,m){
     +'<p class="mini" style="margin:-6px 0 10px">S = terjadwal · C = dikonfirmasi · '
     +'✓ = selesai · × = batal. Klik selnya untuk membuka jadwalnya.</p>'
     +'<div class="tbl-lebar"><table class="lembar"><thead><tr><th class="nm">Talent</th>';
-  for(let d=1;d<=days;d++) h+='<th'+(akhirPekan(d)?' class="wknd"':'')+'>'+d+'</th>';
+  /* NAMA HARI di atas angkanya. Tanpa itu, "kok Testing selalu tanggal 4, 11,
+     18, 25" adalah pola yang harus dihitung sendiri di kepala — padahal
+     jawabannya satu kata: Selasa. Lembar ini dibuka justru untuk menemukan pola
+     seperti itu, dan lembar Jadwal Shift pun menulis harinya. */
+  const HARI3=['MIN','SEN','SEL','RAB','KAM','JUM','SAB'];
+  for(let d=1;d<=days;d++)
+    h+='<th'+(akhirPekan(d)?' class="wknd"':'')+'>'
+      +'<span class="hh">'+HARI3[new Date(y,m,d).getDay()]+'</span>'+d+'</th>';
   h+='<th class="jml">Tampil</th><th class="jml">Selesai</th><th class="jml">Fee</th></tr></thead><tbody>';
 
   baris.forEach(function(t){
@@ -2496,12 +2516,14 @@ function lembarTalentHTML(y,m){
     const sah=punya.filter(function(s){ return s.status!=='Cancelled'; });
     const selesai=punya.filter(function(s){ return s.status==='Done'; });
     const fee=sah.reduce(function(a,s){ return a+(+s.fee||0); },0);
-    /* Titik kategori, warna yang SAMA dengan tombol di lembar mingguan/bulanan.
-       Itu yang menyambungkan dua layar: yang menyusun jadwal mengenali "kotak
-       biru" sebagai band, dan di lembar ini pola "Jumat selalu biru" terbaca
-       tanpa membaca satu nama pun. */
-    h+='<tr><td class="nm"><i class="kat-dot" style="background:'+talWarna(t)+'"'
-      +' title="'+esc(t.category||'tanpa kategori')+'"></i>'+esc(t.name)+'</td>';
+    /* TANPA titik kategori. Percobaan menaruhnya di sini salah dua kali: aturan
+       `.lembar i{display:block;width:100%}` yang dipakai penanda status ikut
+       kena, jadi titik kecil itu tergambar sebagai BALOK berwarna selebar kolom
+       di atas namanya; dan lebih pokok lagi, lembar ini memang bukan tempatnya.
+       Yang dibaca di sini POLA KEHADIRAN — siapa masuk hari apa — dan satu-
+       satunya warna yang boleh berbicara adalah warna status di dalam selnya.
+       Warna kedua yang berjajar di kolom nama cuma bersaing dengannya. */
+    h+='<tr><td class="nm">'+esc(t.name)+'</td>';
     for(let d=1;d<=days;d++){
       const ds=dstr(new Date(y,m,d));
       const sel=punya.filter(function(s){ return s.date===ds; });
@@ -5768,7 +5790,7 @@ function kartuKategoriHTML(eid,cls){
       +'<i style="background:'+((warna[c.name]||{}).c||'var(--muted)')+'"></i>'
       +'<span class="km-n">'+esc(c.name)+'</span>'
       +'<span class="km-v">'+sd+(q?'<span class="mini">/'+q+'</span>':'')
-      +(habis?' <b class="kat-habis">HABIS</b>':'')+'</span></div>';
+      +(habis?' <b class="kat-habis">PENUH</b>':'')+'</span></div>';
   });
   if(sisa.length) h+='<div class="km-row km-sisa"><span class="km-n">+'+sisa.length+' kategori lain</span>'
     +'<span class="km-v">'+sisa.reduce((a,c)=>a+(+c.sold||0),0)+'</span></div>';
@@ -6144,7 +6166,7 @@ function salesGrafikHTML(r,eid){
             eventnya cuma punya satu kategori - angka yang tidak pernah salah dan
             tidak pernah berguna - dan sisanya sudah terbaca persis di atasnya
             sebagai "terjual / kuota". */
-         +(sisa===0?'<span><b class="kat-habis">HABIS</b></span>':'')
+         +(sisa===0?'<span><b class="kat-habis">PENUH</b></span>':'')
        +'</div>'
        +'</div>';
    }).join('')
@@ -9767,7 +9789,20 @@ function renderCalendar(){
      keterangan yang hilang — yang hilang cuma warna yang tidak menjelaskan
      apa-apa. */
   DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.title,'purple','Event',"calEventPopup('"+e.id+"')"));
-  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'purple','Entertainment',"calJadwalPopup('"+s.id+"')");});
+  /* TALENT PUNYA WARNANYA SENDIRI, terpisah dari acara. Sebelumnya keduanya
+     sama-sama ungu dengan alasan "sama-sama milik EMS", dan legendanya harus
+     menerangkannya lewat kurung panjang "(event, talent, libur, ulang tahun)"
+     — keterangan sepanjang itu di bawah kalender adalah tanda bahwa warnanya
+     sendiri tidak menjelaskan apa pun.
+
+     Di layar keduanya memang dua pertanyaan berbeda: "malam ini ada acara apa"
+     dan "malam ini siapa yang main". Yang membuka kalender ini hampir selalu
+     mencari salah satunya, bukan keduanya sekaligus.
+
+     Libur & ulang tahun ikut warna acara: keduanya menandai HARInya, bukan
+     penampilnya — dan menambah warna kelima untuk dua jenis yang muncul
+     beberapa kali setahun akan mengembalikan persoalan yang sama. */
+  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'blue','Entertainment',"calJadwalPopup('"+s.id+"')");});
   DB.calendarExtra.forEach(x=>push(x.date,x.title,x.type==='Reservation'?'teal':'purple',x.type));
   /* Event Marketing — dibaca, tidak disalin. Ditandai jingga dan diberi
      awalan supaya jelas ia milik modul lain dan tidak bisa disunting di sini. */
@@ -9781,7 +9816,7 @@ function renderCalendar(){
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
   <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
   ${panelGagalMkt()}
-  <div class="legend"><span><i class="dotc" style="background:var(--purple)"></i>EMS <span class="mini">(event, talent, libur, ulang tahun)</span></span><span><i class="dotc" style="background:var(--accent)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:#0C6B64"></i>Reservasi</span></div>
+  <div class="legend"><span><i class="dotc" style="background:var(--purple)"></i>Event</span><span><i class="dotc" style="background:var(--blue)"></i>Talent</span><span><i class="dotc" style="background:var(--accent)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:#0C6B64"></i>Reservasi</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
 

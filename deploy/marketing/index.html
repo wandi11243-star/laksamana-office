@@ -2667,7 +2667,30 @@ function rpRingkas(n){
 const rupiahDigits = s => String(s==null?'':s).replace(/\D/g,'');
 const rupiahGroup  = d => d.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
 const rupiahFmt    = n => { const d=rupiahDigits(n); return d?rupiahGroup(d):''; };
-function onRupiahInput(el){ const d=rupiahDigits(el.value); el.value=d?rupiahGroup(d):''; }
+/* KURSOR DIJAGA DARI KANAN. Sebelumnya kotak rupiah menulis ulang value tiap
+   ketukan tanpa mengembalikan posisi kursor, jadi kursornya melompat ke ujung
+   setiap kali satu digit masuk. Selama diketik dari kosong hal itu tidak
+   terasa — kursornya memang sudah di ujung. Yang rusak adalah MEMBETULKAN
+   angka yang sudah ada: klik di tengah "10.000.000" untuk menghapus satu nol,
+   ketik satu digit, dan digit itu mendarat di ujung. Hasilnya angka seperti
+   "10.000.007" yang tidak pernah diketik siapa pun dan tidak ada yang bisa
+   menerangkan dari mana asalnya — lalu ikut ke DP, ke Sisa Pelunasan, dan ke
+   invoice.
+
+   Dihitung dari KANAN, bukan dari kiri: menyisipkan titik ribuan menggeser
+   seluruh teks di kiri kursor, sedangkan jarak ke ujung kanan tetap. Pola yang
+   sama dengan uangKetik() di modul EMS. */
+function jagaKursorRupiah(el,tulis){
+  const sisaKanan=String(el.value).length-(el.selectionStart||0);
+  tulis();
+  const pos=Math.max(0,String(el.value).length-sisaKanan);
+  try{ el.setSelectionRange(pos,pos); }catch(e){}
+}
+function onRupiahInput(el){
+  jagaKursorRupiah(el,function(){
+    const d=rupiahDigits(el.value); el.value=d?rupiahGroup(d):'';
+  });
+}
 function rupiahInputHTML(id,val,dis,extra){ return '<div class="cur-wrap"><span class="cur-pre">Rp</span><input class="inp cur-inp" type="text" inputmode="numeric" id="'+id+'" value="'+rupiahFmt(val)+'" placeholder="0" oninput="onRupiahInput(this)" '+(dis||'')+(extra||'')+'></div>'; }
 const MONTHS=['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
 const MONTHS_F=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
@@ -5328,6 +5351,20 @@ function renderEvents(V){
        return '<button class="'+(briefPeriode===x[0]?'on':'')+'" '
          +'onclick="briefSetPeriode(\''+x[0]+'\')">'+esc(x[1])+'</button>'; }).join('')
    +'</div>'
+   /* PENGGESER BULAN di ujung kanan, dipisah dari empat tombol periode oleh
+      margin-left:auto. Empat tombol itu menjawab "sekarang", penggeser ini
+      menjawab "bulan lain" — dua pertanyaan berbeda yang kalau dijejer rapat
+      terbaca sebagai satu deret pilihan yang sama. Bentuknya disalin dari
+      Jadwal Shift: dua panah mengapit nama bulan, plus jalan pulang ke bulan
+      berjalan yang hanya muncul saat memang sedang tidak di sana. */
+   +'<div class="pill-row" style="margin-left:auto;gap:6px">'
+     +'<button class="btn sm" title="Bulan sebelumnya" onclick="briefGeserBulan(-1)">&lsaquo;</button>'
+     +'<b style="min-width:118px;text-align:center;font-size:13px'
+       +(briefPeriode==='pilih'?';color:var(--gold-deep)':'')+'">'+esc(briefLabelBulan())+'</b>'
+     +'<button class="btn sm" title="Bulan berikutnya" onclick="briefGeserBulan(1)">&rsaquo;</button>'
+     +(briefPeriode==='pilih'
+        ? '<button class="btn sm" onclick="briefBulanIni()">Bulan ini</button>' : '')
+   +'</div>'
    /* Status pakai <select>, bukan deretan tombol seperti periode: enam
       status ditambah "Semua" jadi tujuh tombol, dan berjajar di samping
       empat tombol periode + kotak pencarian itu pasti melipat jadi dua
@@ -5388,6 +5425,24 @@ function paintEvents(){
   const seg=$('view')&&$('view').querySelector('.seg');
   if(seg) Array.prototype.forEach.call(seg.children,function(b,i){
     b.className=(BRIEF_PERIODE[i]&&BRIEF_PERIODE[i][0]===briefPeriode)?'on':''; });
+  /* Penggeser bulan tinggal di kepala halaman yang sama, jadi ia juga tidak
+     ikut digambar ulang. Tanpa baris ini panahnya bergerak, daftarnya berubah,
+     tapi nama bulannya tetap tertulis yang lama — satu-satunya penanda di
+     layar soal periode mana yang sedang dilihat justru berbohong. */
+  if(seg && seg.parentNode){
+    const nav=seg.parentNode.querySelector('.pill-row');
+    if(nav){
+      const lbl=nav.querySelector('b');
+      if(lbl){ lbl.textContent=briefLabelBulan();
+               lbl.style.color=(briefPeriode==='pilih')?'var(--gold-deep)':''; }
+      const pulang=nav.querySelector('button:last-child');
+      const adaPulang=pulang && /Bulan ini/.test(pulang.textContent||'');
+      if(briefPeriode==='pilih' && !adaPulang){
+        nav.insertAdjacentHTML('beforeend',
+          '<button class="btn sm" onclick="briefBulanIni()">Bulan ini</button>');
+      } else if(briefPeriode!=='pilih' && adaPulang){ pulang.remove(); }
+    }
+  }
   const hit=$('ev-hitung');
   if(hit) hit.textContent=evs.length+' dari '+seperiode.length+' event'
     +(r?' · '+fmtDate(r.a)+(r.a!==r.b?' – '+fmtDate(r.b):''):'');
@@ -6178,8 +6233,12 @@ function itemRowHTML(r,canEdit){
     +'</tr>';
 }
 function itemRupiah(el){
-  const d=rupiahDigits(el.value);
-  el.value = d===''?'':rp(+d);
+  // Kursor dijaga dengan cara yang sama seperti onRupiahInput — kotak Harga di
+  // tabel Rincian justru yang paling sering dibetulkan, bukan diketik ulang.
+  jagaKursorRupiah(el,function(){
+    const d=rupiahDigits(el.value);
+    el.value = d===''?'':rp(+d);
+  });
   itemTotal(el.closest('.rundown-wrap'));
 }
 /* ================= TABEL HARGA DEAL PER JENIS MAKANAN =================
@@ -6521,9 +6580,24 @@ function rinciKakiHTML(){
      jadi tanpa penyaring ini "DP 50%" ikut tercetak pada acara yang dibayar
      penuh di awal — angka yang tidak pernah disepakati siapa pun. */
   const pakaiDp = (ev.detail||{}).sistemBayar==='DP' || +((ev.detail||{}).depositNominal)>0;
-  if(pakaiDp && f.dp) h+=baris(dpLabel(f),rp(f.dp));
-  if(f.paid)          h+=baris('Terbayar',rp(f.paid));
-  if((pakaiDp&&f.dp)||f.paid) h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
+  if(pakaiDp && f.dp) h+=baris(dpLabel(f)+(f.dpDiakui?' <span class="cell-sub">(sudah masuk Terbayar)</span>':''),rp(f.dp));
+  /* TERBAYAR SELALU DITULIS begitu ada DP atau pembayaran — tidak lagi
+     disembunyikan saat nol. Tanpa baris ini deretannya berbunyi TOTAL, DP,
+     SISA PELUNASAN, dan ketiganya TIDAK BISA DICOCOKKAN: sisa dihitung dari
+     pembayaran, bukan dari DP, jadi TOTAL - DP tidak pernah sama dengan SISA
+     dan yang membacanya menyimpulkan perhitungannya kacau. Sekarang
+     deretannya bisa dijumlahkan dengan mata: TOTAL - TERBAYAR = SISA.
+
+     Rinciannya ikut ditulis kalau Terbayar berisi dua sumber, supaya jelas DP
+     yang tercantum di atas memang sudah termasuk dan tidak perlu dikurangkan
+     sekali lagi. */
+  if(pakaiDp || f.paid){
+    const rinci=(f.dpDiakui&&f.bayarTercatat)
+      ? ' <span class="cell-sub">('+rp(f.bayarTercatat)+' dicatat + DP '+rp(f.dpDiakui)+')</span>'
+      : (f.dpDiakui ? ' <span class="cell-sub">(dari DP)</span>' : '');
+    h+=baris('Terbayar'+rinci,rp(f.paid));
+    h+=baris('SISA PELUNASAN',rp(Math.max(0,f.grand-f.paid)),true);
+  }
   return h;
 }
 /* rinciCentang() DIHAPUS bersama saklar "Ketik Rincian sebagai Tabel".
@@ -7962,9 +8036,24 @@ function autoSaveCommit(){
   try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
   // Sinkron ke server lewat save() (bukan POST mentah) supaya cap versi &
   // penjaga bentrok ikut berlaku. Dijeda agar tidak membanjiri tiap ketukan.
+  /* INDIKATORNYA JUJUR. Dulu ia langsung berbunyi "Tersimpan otomatis" tepat
+     sesudah localStorage ditulis — padahal server belum menerima apa pun, dan
+     jarak antara dua peristiwa itu 4 detik. Yang menutup tab pada detik ketiga
+     sudah membaca "tersimpan" untuk sesuatu yang belum tersimpan.
+
+     Sekarang dua tahap: "Menyimpan…" begitu isian masuk ke perangkat ini, dan
+     "✓ Tersimpan" hanya sesudah save() benar-benar dipanggil. Jedanya juga
+     dipendekkan 4s -> 1,2s: cukup untuk tidak membanjiri server tiap ketukan,
+     tapi tidak lagi terasa seperti tidak menyimpan sama sekali. */
+  const ind=$('autosave-ind');
+  if(ind){ ind.textContent='Menyimpan…'; ind.style.opacity='1'; clearTimeout(ind._t); }
   clearTimeout(_asSrvTimer);
-  _asSrvTimer=setTimeout(()=>{ save(); },4000);
-  const ind=$('autosave-ind'); if(ind){ ind.textContent='✓ Tersimpan otomatis'; ind.style.opacity='1'; clearTimeout(ind._t); ind._t=setTimeout(()=>{ ind.style.opacity='0'; },1600); }
+  _asSrvTimer=setTimeout(()=>{
+    save();
+    const i2=$('autosave-ind');
+    if(i2){ i2.textContent='✓ Tersimpan'; i2.style.opacity='1';
+            clearTimeout(i2._t); i2._t=setTimeout(()=>{ i2.style.opacity='0'; },1600); }
+  },1200);
   segarkanRingkas(ev);
 }
 /* PENYELAMAT BERKALA — menyimpan tiap 20 detik selama form event terbuka, tanpa
@@ -8492,6 +8581,27 @@ function penawaranCard(ev,canEdit){
       +(p.sentAt?'<div><div class="cell-sub">Dikirim</div><b>'+fmtDate(p.sentAt.slice(0,10))+' · '+esc(p.sentVia||'')+'</b></div>':'')
       +'</div>';
     if(p.note) info+='<div class="cell-sub" style="margin-top:8px">Catatan: '+esc(p.note)+'</div>';
+    /* PITA AJAKAN untuk putaran negosiasi berikutnya. Tombolnya sudah ada di
+       baris tombol kartu ini, tapi di sana ia berdiri keempat di antara "Baca
+       PDF", "Kirim ulang", dan "Konfirmasi Deal" — tiga tombol yang semuanya
+       terlihat lebih rutin, dan pada layar sempit barisnya melipat sehingga
+       yang keempat turun ke bawah judul. Akibatnya jalan resmi untuk revisi
+       tidak pernah ditemukan, dan yang dilakukan orang tetap menyeret kartunya
+       mundur di papan.
+
+       Ditulis sebagai KALIMAT, bukan tombol telanjang: yang sedang dicari orang
+       pada saat itu bukan nama fiturnya, melainkan jawaban atas "client minta
+       diubah lagi, sekarang saya harus apa". */
+    if(st==='Terkirim' && canEdit && !['Deal','Confirmed','Event Done'].includes(ev.status)){
+      info+='<div class="card" style="margin-top:12px;background:var(--violet-bg,rgba(124,92,255,.10));'
+        +'border-color:var(--violet);display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
+        +'<div style="flex:1;min-width:220px;font-size:13px">'
+        +'<b>Client minta disesuaikan lagi?</b><div class="cell-sub" style="margin-top:2px">'
+        +'Ajukan revisi — tahapnya turun ke Prospect dan perkaranya langsung masuk antrian '
+        +'<b>Negosiasi Lanjutan</b> di Approval Flow.</div></div>'
+        +'<button class="btn pri" onclick="ajukanRevisi(\''+ev.id+'\')">'+svg(IC.edit)+'Ajukan Revisi</button>'
+        +'</div>';
+    }
     if(st==='Ditolak' && p.rejectNote) info+='<div class="card" style="margin-top:10px;background:var(--danger-bg);border-color:var(--danger)"><b style="color:var(--danger);font-size:12px">Ditolak Approver:</b> <span style="font-size:13px">'+esc(p.rejectNote)+'</span></div>';
     /* RIWAYAT NEGOSIASI. Ditulis di kartunya, bukan cuma di Timeline: yang
        bertanya "kenapa harganya jadi segini" adalah orang yang sedang membuka
@@ -8639,11 +8749,16 @@ function financeTab(ev,canEdit){
      kalimat bantu: ini satu-satunya isian di tab Finance yang langsung
      mengubah angka Sisa Pelunasan di panel sebelah, dan yang mengubah uang
      harus punya barisnya sendiri. */
-  h+=finBaris('DP sudah dibayar?',
-      ynSeg('efd_dpPaid',ynBool(d.dpPaid,false),canEdit),
-      'Kalau <b>Ya</b>, DP langsung dihitung sebagai pembayaran dan Sisa Pelunasan '
-      +'ikut berkurang. Aman kalau DP-nya nanti dicatat juga di tab Kasir — yang '
-      +'diakui di sini cuma selisihnya, jadi tidak pernah terhitung dua kali.');
+  /* CENTANG, bukan segmented Ya/Tidak, dan tanpa paragraf. Bentuk sebelumnya
+     memakan empat baris keterangan untuk satu saklar — lebih tinggi daripada
+     baris nominalnya sendiri, dan yang dibaca orang cuma kata pertamanya.
+     Yang perlu diketahui ("tidak pernah dobel") sudah dijamin rumusnya;
+     menuliskannya di layar tiap kali cuma meminta orang mempercayai kalimat,
+     bukan angka. */
+  h+=finBaris('DP sudah dibayar',
+      '<label class="cek"><input type="checkbox" id="efd_dpPaid"'
+      +(ynBool(d.dpPaid,false)?' checked':'')+(canEdit?'':' disabled')
+      +' onchange="dpPaidUbah()"> Sudah masuk</label>', '');
 
   /* Dua kotak ini kini TEMPLATE, bukan isi lembar penawaran. Sejak tabel
      Rincian jadi satu-satunya sumber baris, rincianPenawaran() tidak lagi
@@ -8763,7 +8878,7 @@ function finBayangan(ev){
   });
   const sv=segVal('efd_svcApply'); if(sv!==undefined)b.detail.svcApply=sv;
   const tx=segVal('efd_taxInclude'); if(tx!==undefined)b.detail.taxInclude=tx;
-  const dpP=segVal('efd_dpPaid'); if(dpP!==undefined)b.detail.dpPaid=dpP;
+  const dpC=$('efd_dpPaid'); if(dpC) b.detail.dpPaid={v:!!dpC.checked};
   // DP kini nominal; kotaknya menulis ke detail.depositNominal — sama dengan
   // "Deposit — Nominal" di tab Kasir, supaya satu angka satu tempat.
   const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); b.detail.depositNominal=dg===''?'':(+dg); }
@@ -8807,19 +8922,26 @@ function curField(label,k,val,dis){ return '<div class="field"><label>'+label+'<
 function hitungFinanceLive(el){
   if(!el || !el.closest) return;
   const seg=el.closest('.seg'); if(!seg) return;
-  /* efd_dpPaid ikut: ia SATU-SATUNYA saklar di tab ini yang langsung mengubah
-     Sisa Pelunasan, jadi kalau tidak terdaftar di sini, angkanya baru berubah
-     setelah halaman digambar ulang — dan yang menekannya menyimpulkan
-     centangnya tidak berfungsi. */
-  if(seg.id!=='efd_svcApply' && seg.id!=='efd_taxInclude' && seg.id!=='efd_dpPaid') return;
+  if(seg.id!=='efd_svcApply' && seg.id!=='efd_taxInclude') return;
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev)return;
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
-  ev.detail.dpPaid=segVal('efd_dpPaid');
   /* Dulu di sini renderEventTab(): menggambar ULANG SELURUH TAB hanya untuk
      memperbarui empat angka di panel kanan, lengkap dengan simpan/pulihkan
      posisi gulir supaya layarnya tidak melompat. Sekarang cukup panel kanannya
      saja — lebih murah, dan tidak ada lagi yang bisa melompat. */
+  finLive();
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
+/* Centang DP punya penangannya sendiri karena ia bukan .seg. Panel kanan
+   digambar ulang seketika: ia satu-satunya isian di tab ini yang langsung
+   mengubah Sisa Pelunasan, dan angka yang baru berubah sesudah halaman
+   digambar ulang membuat yang menekannya menyimpulkan centangnya rusak. */
+function dpPaidUbah(){
+  const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
+  const c=$('efd_dpPaid'); if(!c) return;
+  ev.detail=ev.detail||{};
+  ev.detail.dpPaid={v:!!c.checked};
   finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
@@ -8834,7 +8956,7 @@ function collectFinanceInto(ev){
   ['diskon'].forEach(k=>{ const el=$('efd_'+k); if(el){ const d=rupiahDigits(el.value); ev.detail[k]=d===''?'':(+d); } });
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
-  ev.detail.dpPaid=segVal('efd_dpPaid');
+  const dpC2=$('efd_dpPaid'); if(dpC2) ev.detail.dpPaid={v:!!dpC2.checked};
   ev.detail.npwp=$('efd_npwp').value;
   const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); ev.detail.depositNominal=dg===''?'':(+dg); }
   const dOn=$('efd_fbDealOn'); if(dOn) ev.detail.fbDealOn=dOn.classList.contains('on');
@@ -9019,7 +9141,29 @@ let briefCari='';
    Namanya tetap brief* supaya diff-nya kecil; yang berubah cuma halaman
    yang memakainya. */
 let briefPeriode='';
+/* Bulan yang sedang dilihat saat periode='pilih'. Kosong = belum pernah
+   digeser. Formatnya 'YYYY-MM', sama dengan Jadwal Shift. */
+let briefBulan='';
 const BRIEF_PERIODE=[['','Semua'],['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini']];
+const BULAN_PENUH=['Januari','Februari','Maret','April','Mei','Juni','Juli',
+                   'Agustus','September','Oktober','November','Desember'];
+function briefBulanAktif(){ return briefBulan || today().slice(0,7); }
+function briefLabelBulan(){
+  const b=briefBulanAktif();
+  return BULAN_PENUH[(+b.slice(5,7))-1]+' '+b.slice(0,4);
+}
+/* Geser bulan, persis pola Jadwal Shift: dua panah mengapit nama bulannya.
+   Menggesernya SEKALIGUS memindahkan periode ke 'pilih' — kalau tidak, panah
+   akan bergerak sementara daftarnya tetap menampilkan "Bulan ini", dan yang
+   menekannya menyimpulkan tombolnya rusak. */
+function briefGeserBulan(n){
+  const b=briefBulanAktif();
+  const d=new Date(+b.slice(0,4), (+b.slice(5,7)-1)+n, 1);
+  briefBulan=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  briefPeriode='pilih';
+  paintEvents();
+}
+function briefBulanIni(){ briefBulan=''; briefPeriode='bulan'; paintEvents(); }
 /* Minggu = Senin–Minggu, sama dengan modul Jadwal Shift dan cara orang di
    sini menyebut "minggu ini". Bulan = bulan kalender berjalan, bukan 30
    hari ke depan: yang ditanyakan manajemen adalah "Agustus ada berapa". */
@@ -9033,8 +9177,8 @@ function briefRentang(){
     const f=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
     return {a:f(sen),b:f(min)};
   }
-  if(briefPeriode==='bulan'){
-    const bl=t.slice(0,7);
+  if(briefPeriode==='bulan' || briefPeriode==='pilih'){
+    const bl=(briefPeriode==='pilih')?briefBulanAktif():t.slice(0,7);
     const akhir=new Date(+bl.slice(0,4),+bl.slice(5,7),0);
     return {a:bl+'-01',b:bl+'-'+String(akhir.getDate()).padStart(2,'0')};
   }
@@ -12121,10 +12265,12 @@ function renderVIP(V){
             ? (bolehUbah&&!v.batalAt
                 ? '<button class="btn sm pri" onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>'
                 : '<span class="tag" style="background:var(--warn-bg);color:var(--warn)">belum diisi</span>')
+            /* Ikon pensil di sebelah angkanya DICABUT. Baris ini sudah punya
+               tombol Ubah sendiri di kolom aksi paling kanan, jadi yang di
+               sini pensil kedua untuk pekerjaan yang sama — menempel pada
+               angkanya sehingga terbaca seolah "angkanya bisa diketik di
+               sini", padahal ia membuka modal. Yang tinggal cuma angkanya. */
             : rp(vipNominal(v))
-              +(bolehUbah&&!v.batalAt
-                 ? ' <button class="btn sm" style="padding:3px 7px" title="Ubah nominal" '
-                   +'onclick="vipIsiNominal(\''+v.id+'\')">'+svg(IC.edit)+'</button>' : '')
           ))+'</td>'
      /* SATU baris, ikon saja. Lima tombol bertuliskan teks melipat jadi dua
         baris dan membuat tiap baris tabel setinggi dua kali lipat — daftar
@@ -12924,22 +13070,45 @@ async function vipSimpanKunci(){
    tanpa menyentuh apa pun di modul Reservasi. Yang berubah cuma angka omzet. */
 function vipIsiNominal(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  /* vipUnggahBukti & vipHapusBukti menulis ke VIP_FORM — satu jalur untuk dua
+     pintu. Di sini VIP_FORM ditunjuk langsung ke baris aslinya (bukan salinan
+     seperti di vipForm), karena modal ini tidak punya tombol Batal yang
+     membuang perubahan: berkas yang sudah terunggah ke server memang sudah
+     terjadi, dan menyembunyikannya sampai Simpan ditekan cuma membuatnya
+     hilang kalau modalnya ditutup. */
+  VIP_FORM=v;
   if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
   if(v.jenis!=='Assisted')return toast('Hanya untuk Assisted','Reservasi Regular memang tidak punya nominal.','err');
   modal('<div class="modal-head"><div><h3>Nominal Pendapatan</h3><p>'+esc(v.nama)+' · '+fmtDate(v.tanggal)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
    +'<div class="field"><label>Nominal (Rp)</label>'+rupiahInputHTML('vipn_nilai',v.nominal,'')
    +'<div class="fh">Masuk sebagai omzet '+esc(userName(v.mktPIC))+' di Marketing Performance. Kosongkan bila ingin membatalkan pencatatannya.</div></div>'
+   /* BUKTI PEMBAYARAN IKUT DI SINI, bukan cuma di formulir reservasi. Inilah
+      layar tempat angkanya benar-benar diketik — dibuka sesudah acara selesai,
+      justru pada saat bukti transfernya baru ada di tangan. Menyuruh orang
+      menutup modal ini lalu membuka "Ubah reservasi" untuk melampirkannya
+      berarti buktinya tidak pernah dilampirkan. Keduanya menulis ke tempat
+      yang sama (v.bukti) lewat vipUnggahBukti. */
+   +'<div class="field"><label>Bukti Pembayaran</label>'
+     +vipBuktiHTML(v)
+     +'<input id="vip_bukti_file" type="file" accept="image/*,application/pdf" '
+     +'onchange="vipUnggahBukti(this)" style="margin-top:6px">'
+     +'<div class="fh">Foto transfer atau PDF, maksimal 8MB.</div></div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
    +'<button class="btn pri" onclick="vipSimpanNominal(\''+id+'\')">'+svg(IC.check)+'Simpan</button></div>');
   setTimeout(function(){ const el=$('vipn_nilai'); if(el)el.focus(); },40);
 }
+/* Dipanggil vipSimpanNominal & saat modalnya ditutup. VIP_FORM yang menggantung
+   ke baris lama membuat unggahan berikutnya dari layar lain mendarat di
+   reservasi yang salah. */
+function vipLepasForm(){ VIP_FORM=null; }
 function vipSimpanNominal(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
   const el=$('vipn_nilai'); if(!el)return;
   const lama=+v.nominal||0, d=rupiahDigits(el.value);
   v.nominal=(d===''?'':(+d));
   logAct('vip',v.id,'Nominal Reservasi VIP diisi',v.nama+' · '+rp(lama)+' → '+rp(vipNominal(v)));
+  vipLepasForm();
   save(); closeModal(); toast('Tersimpan',v.nama+' · '+rp(vipNominal(v))+' masuk omzet '+userName(v.mktPIC)+'.','ok');
   go('vip');
 }
