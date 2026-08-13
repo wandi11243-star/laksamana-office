@@ -4921,7 +4921,13 @@ function pipeKanban() { pipeStatusOfEv(); pipeCocokPIC(); pipeKartu(); }
 
 
 
-function pipeKartu() { eventFinance(); pipeToggle(); userName(); esc(); clientName(); jenisEvent(); fmtRentang(); fmtDate(); ajukanRevisi(); can(); penStatus(); go(); }
+
+function pipeKartu() { eventFinance(); pipeToggle(); userName(); esc(); clientName(); jenisEvent(); baris(); ajukanRevisi(); can(); penStatus(); go(); }
+
+
+
+
+
 
 
 
