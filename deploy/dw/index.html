@@ -245,6 +245,23 @@ tr.bandgap td{height:22px;border:none;background:transparent}
    seperti dua aplikasi asing. Warnanya pun mengikuti warna shift di sana
    (PAGI biru, MIDDLE hijau, SIANG kuning) — itu yang sudah dihafal kru dari
    papan pengumuman. */
+/* Strip tujuh hari untuk "Isi Seminggu". Disalin apa adanya dari Jadwal Shift
+   supaya HR yang bolak-balik antara dua modul melihat benda yang sama persis —
+   itu memang inti B5. */
+.hari7{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:14px}
+.hari7 .hb{border:2px solid var(--line);background:var(--surface);border-radius:9px;
+  padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.1;cursor:pointer}
+.hari7 .hb:hover{border-color:var(--gold-2)}
+.hari7 .hb small{font-size:9px;font-weight:700;color:var(--muted-2);letter-spacing:.04em}
+.hari7 .hb.wknd small{color:var(--danger)}
+.hari7 .hb b{font-size:10px;font-weight:600;color:var(--muted)}
+.hari7 .hb span{display:block;width:100%;border-radius:5px;font-size:9px;font-weight:800;
+  padding:3px 1px;background:var(--paper);color:#C9C3B7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hari7 .hb.sel{border-color:var(--ink);box-shadow:var(--ring)}
+@media(max-width:420px){ .hari7{grid-template-columns:repeat(4,1fr)} }
+/* Tombol ⋯ di kolom nama lembar. Kecil dan tanpa kotak supaya tidak bersaing
+   dengan namanya sendiri, yang tetap benda paling penting di baris itu. */
+td.nm .iconbtn{width:20px;height:20px;font-size:13px;margin-left:5px;vertical-align:middle}
 .pick{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px}
 .pick button{border:2px solid transparent;border-radius:9px;padding:10px 4px;font-weight:800;font-size:11.5px;
   display:flex;flex-direction:column;gap:2px;align-items:center;line-height:1.15}
@@ -1655,17 +1672,57 @@ function warnaStatus(st){
   if(st==='DITOLAK')   return {bg:'#F8E4DF', fg:'#C9432B', border:'1px solid #E7B7AC'};
   return {bg:'#F7F6F4', fg:'#928C80', border:'1px solid #E7E1D3'};
 }
+/* Baris yang SENGAJA ditambahkan ke lembar walau orangnya belum punya ajuan
+   satu pun bulan ini. Tanpa ini lembar cuma bisa dibaca dan diubah, tidak bisa
+   dipakai MENYUSUN: orang baru tidak pernah muncul barisnya, jadi tidak ada sel
+   kosong yang bisa diklik untuk memasukkannya — dan satu-satunya jalan kembali
+   ke formulir Ajukan satu per satu, persis pekerjaan yang mau dihilangkan.
+
+   Disimpan di memori saja (bukan ke server): ini keadaan layar, bukan data.
+   Begitu orangnya benar-benar punya ajuan, barisnya berdiri sendiri. */
+let LEMBAR_EKSTRA=[];
+function lembarTambahOrang(id){
+  if(!id) return;
+  if(LEMBAR_EKSTRA.indexOf(id)<0) LEMBAR_EKSTRA.push(id);
+  tutupModal(); render();
+}
+function lembarTambahModal(){
+  const a=awalBulan(BULAN_AKTIF||bulanDari(hariIni())), z=akhirBulan(BULAN_AKTIF||bulanDari(hariIni()));
+  const sudah={};
+  (S.ajuan||[]).filter(x=>x.tgl>=a&&x.tgl<=z&&x.divisi===DIV&&x.status!=='BATAL')
+    .forEach(x=>{ sudah[x.dwId]=1; });
+  LEMBAR_EKSTRA.forEach(id=>{ sudah[id]=1; });
+  /* Yang didahulukan: DW yang divisi tetapnya memang divisi ini. Sisanya tetap
+     bisa dipilih — DW dipanggil lintas divisi itu hal biasa — cuma tidak
+     mendahului yang memang orang divisi ini. */
+  const semua=(S.pekerja||[]).filter(p=>p.status==='AKTIF' && !sudah[p.id]);
+  const utama=semua.filter(p=>p.divisi===DIV), lain=semua.filter(p=>p.divisi!==DIV);
+  const opsi=utama.concat(lain);
+  modal('Tambah DW ke lembar',
+    (opsi.length
+      ? '<div class="field"><label>Daily worker</label><select id="lbTambah">'
+        +opsi.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))
+          +(p.posisi?' · '+esc(p.posisi):'')+'</option>').join('')
+        +'</select><div class="hint">Barisnya muncul kosong di lembar — klik selnya untuk mengisi tanggal.</div></div>'
+      : '<div class="note i">Semua daily worker aktif sudah ada di lembar bulan ini.</div>'),
+    opsi.length?[{t:'Tambahkan',c:'btn-primary',f:function(){
+      lembarTambahOrang((document.getElementById('lbTambah')||{}).value); return false; }}]:[]);
+}
 function viewKalender(){
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const a=awalBulan(mk), z=akhirBulan(mk);
   const pita=pitaBulan(mk);
+  const bolehIsi=isHR();
 
   /* Yang tampil di lembar: DW yang PUNYA ajuan di bulan ini pada divisi ini.
      Bukan seluruh talent pool — puluhan baris kosong membuat yang benar-benar
-     dijadwalkan tenggelam, dan itu justru satu-satunya yang dicari di sini. */
+     dijadwalkan tenggelam, dan itu justru satu-satunya yang dicari di sini.
+     Yang ditambahkan sendiri lewat "+ Tambah DW" ikut, supaya lembar ini bisa
+     dipakai menyusun, bukan cuma membaca. */
   const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=a&&x.tgl<=z&&x.divisi===DIV&&x.status!=='BATAL');
   const idOrang=[];
   ajuBulan.forEach(x=>{ if(idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
+  LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
   idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
 
   const peta={};
@@ -1686,11 +1743,24 @@ function viewKalender(){
       idOrang.forEach(function(id,ui){
         const orang=pekerjaById(id);
         body+='<tr><td class="no">'+(ui+1)+'</td>'
-          +'<td class="nm"><b>'+esc(namaDW(id))+'</b>'+(orang&&orang.status!=='AKTIF'?'<i>'+esc((STATUS_DW[orang.status]||{}).n||orang.status)+'</i>':'')+'</td>'
+          +'<td class="nm"><b>'+esc(namaDW(id))+'</b>'+(orang&&orang.status!=='AKTIF'?'<i>'+esc((STATUS_DW[orang.status]||{}).n||orang.status)+'</i>':'')
+          /* Tombol "isi satu baris" untuk pita minggu ini, sepasang dengan
+             isiBaris() di Jadwal Shift. Ditaruh di kolom NAMA supaya jelas ia
+             milik baris orang itu, bukan milik hari mana pun. */
+          +(bolehIsi?'<button class="iconbtn noprint" title="Isi seminggu untuk '+esc(namaDW(id))+'" '
+            +'onclick="isiBarisDW(\''+escJs(id)+'\',\''+escJs(p.senin)+'\')">⋯</button>':'')
+          +'</td>'
           +'<td class="jb">'+esc((orang&&orang.posisi)||'—')+'</td>'
           +p.hari.map(function(d){
             const x=peta[id+'|'+d];
-            if(!x) return '<td class="cell kosong">·</td>';
+            /* SEL KOSONG BISA DIKLIK, persis lembar Jadwal Shift. Sebelumnya
+               satu-satunya jalan menambah tanggal adalah formulir Ajukan —
+               pindah halaman, pilih ulang orangnya, pilih ulang tanggalnya,
+               padahal keduanya sudah ditunjuk di layar ini. */
+            if(!x) return '<td class="cell kosong'+(bolehIsi?' editable':'')+'"'
+              +(bolehIsi?' title="Ajukan '+esc(namaDW(id))+' · '+esc(tglManusia(d))+'"'
+                +' onclick="isiSelDW(\''+escJs(id)+'\',\''+escJs(d)+'\')"':'')+'>'
+              +(bolehIsi?'+':'·')+'</td>';
             const w=warnaStatus(x.status);
             return '<td class="cell editable" style="background:'+w.bg+';color:'+w.fg+';box-shadow:inset 0 0 0 '+w.border.split(' ')[0]+' transparent;outline:'+w.border+';outline-offset:-2px" '
               +'onclick="bukaAjuan(\''+escJs(x.id)+'\')" title="'+esc(STATUS_AJU[x.status]||x.status)+'">'
@@ -1713,7 +1783,9 @@ function viewKalender(){
       +'<span class="chip"><span class="sw" style="background:#FFFDF6;border-style:dashed;border-color:#E0C173"></span>Menunggu HR</span>'
       +'<span class="chip"><span class="sw" style="background:#F8E4DF;border-color:#E7B7AC"></span>Ditolak</span>'
     +'</div><div class="spacer"></div>'
-    +'<div class="tools noprint"><button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button></div></div>'
+    +'<div class="tools noprint">'
+    +(bolehIsi?'<button class="btn btn-ghost btn-sm" onclick="lembarTambahModal()">+ Tambah DW ke lembar</button> ':'')
+    +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button></div></div>'
     +'<div class="stats">'
       +statBox(idOrang.length,'DW Terpakai')
       +statBox(setuju.length,'Shift Disetujui')
@@ -1721,8 +1793,184 @@ function viewKalender(){
       +statUang(rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)),'Est. Biaya')
     +'</div>'
     +tabel
+    +(bolehIsi&&idOrang.length?'<p class="mutedhint noprint" style="margin-top:8px">Klik sel <b>+</b> untuk mengajukan satu tanggal, atau <b>⋯</b> di sebelah nama untuk mengisi seminggu sekaligus.</p>':'')
     +'<p class="mutedhint noprint" style="margin-top:10px">Lembar ini khusus daily worker. Untuk melihatnya bersama kru shift tetap, buka modul <b>Jadwal Shift</b> — di sana DW digambar di blok terpisah di bawah kru tetap.</p>'
     +'</div>';
+}
+/* =====================================================================
+   MENGISI LEMBAR DW LANGSUNG DARI SELNYA (B5)
+
+   Struktur sengaja dibuat sedekat mungkin dengan Jadwal Shift: sel kosong
+   diklik → editor sel (bukaEditor/pilihShift di sana, isiSelDW di sini), dan
+   tombol di kolom nama → pengisi satu baris seminggu (isiBaris di sana,
+   isiBarisDW di sini) dengan penunjuk yang maju sendiri tiap kali dipilih.
+
+   PENULISANNYA TETAP GRANULAR — satu simpanAjuanRow per sel, bukan satu blob
+   berisi seluruh lembar. Alasannya sama dengan yang tertulis di CLAUDE.md:
+   beberapa orang menyusun jadwal minggu yang sama di waktu berdekatan, dan
+   kiriman "seluruh state" membuat yang menyimpan belakangan menghapus kerja
+   yang lain tanpa satu pun galat. Karena itu isiBarisDW mengirim berurutan
+   dan melaporkan berapa yang benar-benar masuk.
+   ===================================================================== */
+let SEL_DW=null;      // {dwId,tgl,m,s,posisi,catatan}
+function isiSelDW(dwId,tgl){
+  if(!isHR()) return toast('Hanya HR yang bisa mengisi lembar ini', true);
+  const p=pekerjaById(dwId); if(!p) return;
+  const jam=(S.setting.jam||[])[0]||{m:'16:00',s:'23:00'};
+  SEL_DW={dwId:dwId, tgl:tgl, m:jam.m, s:jam.s,
+          posisi:p.posisi||((S.setting.posisi||POSISI_BAWAAN)[0]||''), catatan:''};
+  gambarSelDW();
+}
+function selDwJam(i){
+  const j=(S.setting.jam||[])[i]; if(!j||!SEL_DW) return;
+  serapSelDW(); SEL_DW.m=j.m; SEL_DW.s=j.s; gambarSelDW();
+}
+/* Sama seperti serapAjukan(): isian dibaca ke state SEBELUM digambar ulang.
+   Yang tidak pernah masuk state akan hilang tanpa jejak pada render berikutnya
+   — dan yang paling sering hilang justru catatan yang baru saja diketik. */
+function serapSelDW(){
+  if(!SEL_DW) return;
+  const g=function(id){ const el=document.getElementById(id); return el?el.value:null; };
+  SEL_DW.m       = g('selM')   || SEL_DW.m;
+  SEL_DW.s       = g('selS')   || SEL_DW.s;
+  SEL_DW.posisi  = g('selPos') || SEL_DW.posisi;
+  const c=g('selCat'); if(c!=null) SEL_DW.catatan=c;
+}
+function gambarSelDW(){
+  const b=SEL_DW; if(!b) return;
+  const posisi=S.setting.posisi||POSISI_BAWAAN;
+  const ada=ajuanOrangTgl(b.dwId,b.tgl);
+  modal('Ajukan — '+esc(namaDW(b.dwId)),
+    '<div class="rowbar"><span class="chip">'+esc(tglPanjang(b.tgl))+'</span>'
+    +'<span class="chip">'+esc(ikonDivisi(DIV)+' '+namaDivisi(DIV))+'</span></div>'
+    +(ada?'<div class="note w">Sudah ada ajuan '+esc(jamAjuan(ada))+' ('+esc(STATUS_AJU[ada.status]||ada.status)
+      +'). Menyimpan di sini <b>mengganti</b> ajuan itu dan statusnya kembali menunggu HR.</div>':'')
+    +'<div class="pick">'+tombolJam(b.m,b.s,'selDwJam')+'</div>'
+    +'<div class="duo">'
+      +'<div class="field"><label>Jam mulai *</label><input id="selM" type="time" value="'+esc(b.m)+'"></div>'
+      +'<div class="field"><label>Jam selesai *</label><input id="selS" type="time" value="'+esc(b.s)+'"></div>'
+    +'</div>'
+    +'<div class="field"><label>Posisi</label><select id="selPos">'
+      +posisi.map(p=>'<option'+(b.posisi===p?' selected':'')+'>'+esc(p)+'</option>').join('')
+    +'</select></div>'
+    +'<div class="field"><label>Catatan untuk HR</label><textarea id="selCat">'+esc(b.catatan||'')+'</textarea></div>',
+    [{t:'Simpan Ajuan',c:'btn-primary',f:function(){ simpanSelDW(); return false; }}]);
+}
+async function simpanSelDW(){
+  const b=SEL_DW; if(!b) return;
+  serapSelDW();
+  const ok=await simpanAjuanRow({dwId:b.dwId, tgl:b.tgl, m:b.m, s:b.s,
+    divisi:DIV, posisi:b.posisi, catatan:b.catatan, oleh:namaSaya()});
+  if(!ok) return;
+  SEL_DW=null; tutupModal();
+  toast('Ajuan '+namaDW(b.dwId)+' '+tglManusia(b.tgl)+' terkirim');
+  await muatDanGambar();
+}
+
+/* ---------- ISI SATU BARIS (seminggu) ---------- */
+let BARIS_DW=null;    // {dwId, senin, i, posisi, isi:[{m,s}|null x7]}
+function isiBarisDW(dwId,senin){
+  if(!isHR()) return toast('Hanya HR yang bisa mengisi lembar ini', true);
+  const p=pekerjaById(dwId); if(!p) return;
+  BARIS_DW={ dwId:dwId, senin:senin, i:0,
+    posisi:p.posisi||((S.setting.posisi||POSISI_BAWAAN)[0]||''),
+    isi:[0,1,2,3,4,5,6].map(function(k){
+      /* Yang SUDAH ada di minggu itu dimuat dan ditandai `ada:1` — dipajang,
+         tapi tidak dikirim ulang. Mengirim ulang ajuan yang sudah DISETUJUI
+         menurunkannya kembali ke MENUNGGU (kunci unik dw_id+tgl menimpa), dan
+         namanya hilang dari kalender Jadwal Shift tanpa satu pun pesan. */
+      const x=ajuanOrangTgl(dwId, addD(senin,k));
+      return x?{m:x.m, s:x.s, ada:1, status:x.status}:null;
+    }) };
+  BARIS_DW.i=barisDwKosongPertama(0);
+  gambarBarisDW();
+}
+/* Hari kosong pertama mulai dari `dari`, memutar balik ke awal minggu.
+   -1 = ketujuhnya sudah terisi. Sama persis dengan isiBarisKosongPertama di
+   Jadwal Shift, termasuk perilaku memutarnya. */
+function barisDwKosongPertama(dari){
+  const b=BARIS_DW; if(!b) return -1;
+  for(let n=0;n<7;n++){ const i=(dari+n)%7; if(!b.isi[i]) return i; }
+  return -1;
+}
+function barisDwKe(i){ const b=BARIS_DW; if(!b) return; b.i=i; gambarBarisDW(); }
+function barisDwKosongkan(){
+  const b=BARIS_DW; if(!b||b.i<0) return;
+  if(b.isi[b.i]&&b.isi[b.i].ada) return toast('Yang sudah tersimpan dibatalkan lewat selnya, bukan dari sini', true);
+  b.isi[b.i]=null; gambarBarisDW();
+}
+function barisDwPilih(i){
+  const b=BARIS_DW; if(!b) return;
+  const j=(S.setting.jam||[])[i]; if(!j) return;
+  /* Penunjuk -1 = ketujuhnya sudah terisi. Memilih jam saat itu tidak boleh
+     menulis ke mana pun; kalau tidak, satu klik yang tidak sengaja menimpa
+     hari yang tidak pernah dituju siapa pun. */
+  if(b.i<0) return toast('Pilih dulu hari yang mau diisi di atas', true);
+  if(b.isi[b.i]&&b.isi[b.i].ada) return toast('Hari itu sudah punya ajuan — ubah lewat selnya di lembar', true);
+  b.isi[b.i]={m:j.m, s:j.s};
+  const lanjut=barisDwKosongPertama(b.i+1);
+  b.i=lanjut;
+  gambarBarisDW();
+}
+function gambarBarisDW(){
+  const b=BARIS_DW; if(!b) return;
+  const hari=[0,1,2,3,4,5,6].map(k=>addD(b.senin,k));
+  const baru=b.isi.filter(x=>x&&!x.ada).length;
+  const posisi=S.setting.posisi||POSISI_BAWAAN;
+
+  const strip=hari.map(function(tgl,i){
+    const c=b.isi[i];
+    let isiHtml='<span>·</span>';
+    if(c){
+      const w=c.ada?warnaStatus(c.status):{bg:'#F2E9D3',fg:'#7A560F'};
+      isiHtml='<span style="background:'+w.bg+';color:'+w.fg+'">'+esc(c.m+'–'+c.s)+'</span>';
+    }
+    return '<button class="hb'+(i===b.i?' sel':'')+(i>=5?' wknd':'')+'" onclick="barisDwKe('+i+')">'
+      +'<small>'+esc(HARI[i].slice(0,3).toUpperCase())+'</small>'
+      +'<b>'+esc(tglPendek(tgl))+'</b>'+isiHtml+'</button>';
+  }).join('');
+
+  const sedang = b.i>=0
+    ? '<b>'+esc(HARI[b.i])+', '+esc(tglManusia(hari[b.i]))+'</b> — pilih jamnya di bawah, penunjuk maju sendiri ke hari berikutnya.'
+    : '<b>Tujuh hari sudah terisi.</b> Klik salah satu hari di atas kalau mau membetulkan, atau tekan Kirim.';
+
+  modal('Isi Seminggu — '+esc(namaDW(b.dwId)),
+    '<div class="rowbar"><span class="chip">'+esc(rentangMinggu(b.senin))+'</span>'
+    +'<span class="chip">'+esc(ikonDivisi(DIV)+' '+namaDivisi(DIV))+'</span>'
+    +'<span class="chip">'+baru+' baru</span></div>'
+    +'<div class="hari7">'+strip+'</div>'
+    +'<p class="mutedhint" style="margin:-4px 0 10px">'+sedang+'</p>'
+    +'<div class="pick">'+(S.setting.jam||[]).map(function(j,i){
+        const w=warnaJam(j,i);
+        return '<button type="button" style="background:'+esc(w)+';color:'+warnaTeks(w)+'" '
+          +'onclick="barisDwPilih('+i+')">'+esc(j.n)+'<small>'+esc(j.m)+'–'+esc(j.s)+'</small></button>';
+      }).join('')+'</div>'
+    +'<div class="field" style="margin-top:10px"><label>Posisi</label><select id="brPos" onchange="BARIS_DW.posisi=this.value">'
+      +posisi.map(p=>'<option'+(b.posisi===p?' selected':'')+'>'+esc(p)+'</option>').join('')
+    +'</select></div>'
+    +'<p class="mutedhint">Yang berwarna pudar sudah punya ajuan dan tidak dikirim ulang — mengirim ulang akan menurunkannya kembali ke <b>menunggu HR</b>.</p>',
+    [{t:'Kosongkan hari ini',c:'btn-ghost',f:function(){ barisDwKosongkan(); return false; }},
+     {t:'Kirim '+(baru?baru+' Ajuan':'Ajuan'),c:'btn-primary',f:function(){ kirimBarisDW(); return false; }}],
+    true);
+}
+async function kirimBarisDW(){
+  const b=BARIS_DW; if(!b) return;
+  const antre=[];
+  b.isi.forEach(function(c,i){ if(c&&!c.ada) antre.push({k:i,c:c}); });
+  if(!antre.length) return toast('Belum ada hari baru yang diisi', true);
+  /* Dikirim BERURUTAN, satu baris satu panggilan. Bukan karena lebih cepat —
+     justru lebih lambat — tapi karena inilah yang membuat kerja head lain di
+     minggu yang sama tidak terhapus, dan karena kegagalan di tengah masih
+     menyisakan yang sudah masuk sebagai benar-benar masuk. */
+  let ok=0, gagal=0;
+  for(const it of antre){
+    const berhasil=await simpanAjuanRow({dwId:b.dwId, tgl:addD(b.senin,it.k),
+      m:it.c.m, s:it.c.s, divisi:DIV, posisi:b.posisi, catatan:'', oleh:namaSaya()});
+    if(berhasil) ok++; else gagal++;
+  }
+  BARIS_DW=null; tutupModal();
+  toast(ok+' ajuan terkirim'+(gagal?', '+gagal+' gagal':''), !!gagal);
+  await muatDanGambar();
 }
 function kalenderDiv(k){ DIV=k; render(); }
 function geserBulanAktif(n){ BULAN_AKTIF=geserBulan(BULAN_AKTIF||bulanDari(hariIni()),n); muatDanGambar(); }
