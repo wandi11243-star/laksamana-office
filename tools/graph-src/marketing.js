@@ -11717,7 +11717,26 @@ function approvalRows() { penStatus(); penJenis(); fmtDate(); eventFinance(); }
 
 
 
-function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); setApprFilter(); empty(); tblPage(); tblUrut(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); svg(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHead(); stat(); setApprFilter(); tblUrut(); empty(); tblPage(); tblHead(); putusPenawaran(); decideApproval(); esc(); attachUrl(); svg(); go(); clientName(); fmtDate(); userName(); ago(); statusChip(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

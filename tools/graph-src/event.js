@@ -5030,6 +5030,8 @@ function renderReportEms() { setTop(); rentangPeriode(); angkaEms(); pitaPeriode
 
 
 
+
+
 function setApprEmsTab() { router(); }
 function setApprEmsJenis() { router(); }
 
@@ -5046,7 +5048,40 @@ function refundRingkas() {  }
 function apprRefundList() {  }
 
 
-function renderApprovalEms() { bisaSetujui(); setTop(); pengajuan(); statusPengajuan(); apprRefundList(); stat(); setApprEmsJenis(); setApprEmsTab(); C(); apprTabelRefund(); apprTabelEvent(); }
+function renderApprovalEms() { bisaSetujui(); setTop(); pengajuan(); statusPengajuan(); apprRefundList(); stat(); setApprEmsJenis(); setApprEmsTab(); apprTabelEvent(); apprTabelRefund(); C(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

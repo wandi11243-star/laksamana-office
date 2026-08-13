@@ -11756,30 +11756,49 @@ function renderApprovals(V){
      klik dan tidak memberi tahu ada apa di dalamnya; tab menyebutkan
      jumlahnya di muka.
 
-     'Semua perkara' dibuang: mencampur yang menunggu dengan yang sudah
-     diputuskan justru bentuk yang paling tidak berguna — yang menunggu
-     tenggelam di antara ratusan baris lama. */
+     'Semua perkara' PERNAH DIBUANG dengan alasan yang benar: mencampur yang
+     menunggu dengan yang sudah diputuskan membuat yang menunggu tenggelam di
+     antara ratusan baris lama. Ia dikembalikan (permintaan 13 Agustus 2026),
+     tapi TIDAK dengan bentuk yang dulu bermasalah — yang menunggu selalu
+     dinaikkan ke atas dan tetap bersorot, jadi tab ini menjawab "apa saja yang
+     pernah lewat meja ini" tanpa mengubur apa yang belum diputuskan.
+     Bawaannya tetap Antrian: itu pekerjaan hariannya. */
   const nPutus=approvalRows().filter(r=>!r.antri).length;
-  if(apprFilter!=='putus') apprFilter='antri';
+  if(['putus','semua'].indexOf(apprFilter)<0) apprFilter='antri';
   h+='<div class="card pad0"><div style="padding:14px 16px;border-bottom:1px solid var(--line-soft);display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
    +'<div class="seg">'
      +'<button class="'+(apprFilter==='antri'?'on':'')+'" onclick="setApprFilter(\'antri\')">Antrian'+(nAntri?' ('+nAntri+')':'')+'</button>'
      +'<button class="'+(apprFilter==='putus'?'on':'')+'" onclick="setApprFilter(\'putus\')">Riwayat Approval'+(nPutus?' ('+nPutus+')':'')+'</button>'
+     +'<button class="'+(apprFilter==='semua'?'on':'')+'" onclick="setApprFilter(\'semua\')">Semua'+((nAntri+nPutus)?' ('+(nAntri+nPutus)+')':'')+'</button>'
    +'</div>'
    +'<div class="cell-sub">'+(apprFilter==='antri'
        ?'Baris bersorot kuning masih menunggu keputusan.'
+       :apprFilter==='semua'
+       ?'Yang menunggu selalu di atas dan bersorot kuning, sisanya riwayat.'
        :'Keputusan yang sudah diambil, terbaru di atas.')+'</div>'
    +'</div>';
-  semua = (apprFilter==='putus') ? semua.filter(r=>!r.antri) : semua.filter(r=>r.antri);
+  if(apprFilter==='putus')      semua=semua.filter(r=>!r.antri);
+  else if(apprFilter==='antri') semua=semua.filter(r=>r.antri);
+  // 'semua' tidak menyaring apa pun — pengelompokannya dikerjakan SESUDAH
+  // tblUrut (lihat di bawah), karena tblUrut selalu menimpa urutan masukannya.
 
   if(!semua.length){
     h+='<div style="padding:8px 20px 20px">'+empty(
-      apprFilter==='antri'?'Tidak ada yang menunggu':'Riwayat masih kosong',
+      apprFilter==='antri'?'Tidak ada yang menunggu'
+        :apprFilter==='semua'?'Belum ada perkara sama sekali':'Riwayat masih kosong',
       apprFilter==='antri'?'Semua Surat Penawaran sudah diputuskan. ⚓'
+        :apprFilter==='semua'?'Pengajuan penawaran & negosiasi akan muncul di sini begitu ada.'
         :'Keputusan yang sudah diambil akan tercatat di sini.','approve')+'</div>';
     V.innerHTML=h+'</div>'; return;
   }
-  const p=tblPage(tblUrut(semua,'approval',KOL_APPROVAL),'approval',apprFilter);
+  /* URUTAN KOLOM DULU, PENGELOMPOKAN BELAKANGAN. tblUrut menyortir menurut
+     kolom yang dipilih pembaca (atau kolom bawaan), dan hasilnya menimpa
+     urutan apa pun yang masuk — jadi menaikkan yang menunggu harus dikerjakan
+     SESUDAHNYA, bukan sebelum. sort() dijamin stabil sejak ES2019, jadi
+     pilihan kolom pembaca tetap berlaku DI DALAM tiap kelompok. */
+  let urut=tblUrut(semua,'approval',KOL_APPROVAL);
+  if(apprFilter==='semua') urut=urut.slice().sort(function(a,b){ return (b.antri?1:0)-(a.antri?1:0); });
+  const p=tblPage(urut,'approval',apprFilter);
   h+='<div class="tbl-wrap"><table class="tbl">'+tblHead('approval',KOL_APPROVAL)+'<tbody>';
   p.items.forEach(r=>{
     // Aksi mengikuti jenis perkara DAN izin pembacanya — kolomnya tetap satu.

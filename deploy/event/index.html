@@ -5029,7 +5029,9 @@ function renderReportEms(){
    yang digambar dengan gaya yang sama akan terbaca sebagai satu deret tab
    yang membingungkan. */
 let apprEmsTab='antri';
-let apprEmsJenis='event';
+/* 'semua' jadi bawaannya — lihat alasannya di renderApprovalEms. Yang membuka
+   halaman ini datang dari lencana menu yang menghitung kedua jenis. */
+let apprEmsJenis='semua';
 function setApprEmsTab(v){ apprEmsTab=v; router(); }
 function setApprEmsJenis(v){ apprEmsJenis=v; apprEmsTab='antri'; router(); }
 /* Pengajuan refund menunjuk order, bukan event. Yang dibutuhkan meja putusan
@@ -5069,18 +5071,51 @@ function renderApprovalEms(){
     +stat('Refund Menunggu',antriRf.length,antriRf.length?'pembeli sedang menunggu uangnya':'tidak ada yang menggantung')
     +stat('Nilai Refund Tertahan',IDR(nilaiAntriRf),'kalau semuanya disetujui')
     +'</div>';
+  /* "SEMUA" DI DEPAN, dan jadi bawaannya. Lencana jumlah antrian di menu
+     menghitung KEDUA jenis sekaligus (emsAntriApproval), jadi menekannya lalu
+     mendarat di satu jenis saja adalah janji yang tidak ditepati: lencana
+     bilang 3, halamannya memperlihatkan 1, dan dua sisanya cuma bisa ditemukan
+     kalau orangnya kebetulan menekan tombol jenis satunya. Dengan "Semua",
+     angka di menu dan isi halaman akhirnya menyebut hal yang sama.
+
+     Dua jenis lainnya TIDAK dibuang: begitu antrian panjang, memutuskan refund
+     dan memutuskan rencana adalah dua pekerjaan berbeda yang lebih cepat
+     dikerjakan berombongan. */
   h+='<div class="toolbar" style="margin-bottom:12px"><div class="seg-per">'
+    +'<button class="'+(apprEmsJenis==='semua'?'on':'')+'" onclick="setApprEmsJenis(&#39;semua&#39;)">Semua'+((antriEv.length+antriRf.length)?' ('+(antriEv.length+antriRf.length)+')':'')+'</button>'
     +'<button class="'+(apprEmsJenis==='event'?'on':'')+'" onclick="setApprEmsJenis(&#39;event&#39;)">Rencana Event'+(antriEv.length?' ('+antriEv.length+')':'')+'</button>'
     +'<button class="'+(apprEmsJenis==='refund'?'on':'')+'" onclick="setApprEmsJenis(&#39;refund&#39;)">Refund E-Ticket'+(antriRf.length?' ('+antriRf.length+')':'')+'</button>'
     +'</div></div>';
 
-  const antri  = apprEmsJenis==='refund' ? antriRf   : antriEv;
-  const riwayat= apprEmsJenis==='refund' ? riwayatRf : riwayatEv;
-  const list   = apprEmsTab==='riwayat' ? riwayat : antri;
+  const semuaJenis = apprEmsJenis==='semua';
+  const listEv = apprEmsTab==='riwayat' ? riwayatEv : antriEv;
+  const listRf = apprEmsTab==='riwayat' ? riwayatRf : antriRf;
+  const antri  = semuaJenis ? antriEv.length+antriRf.length : (apprEmsJenis==='refund'?antriRf.length:antriEv.length);
+  const riwayat= semuaJenis ? riwayatEv.length+riwayatRf.length : (apprEmsJenis==='refund'?riwayatRf.length:riwayatEv.length);
   h+='<div class="tabs">'
-    +'<button class="'+(apprEmsTab==='antri'?'active':'')+'" onclick="setApprEmsTab(&#39;antri&#39;)">Antrian'+(antri.length?' ('+antri.length+')':'')+'</button>'
-    +'<button class="'+(apprEmsTab==='riwayat'?'active':'')+'" onclick="setApprEmsTab(&#39;riwayat&#39;)">Riwayat Approval'+(riwayat.length?' ('+riwayat.length+')':'')+'</button>'
+    +'<button class="'+(apprEmsTab==='antri'?'active':'')+'" onclick="setApprEmsTab(&#39;antri&#39;)">Antrian'+(antri?' ('+antri+')':'')+'</button>'
+    +'<button class="'+(apprEmsTab==='riwayat'?'active':'')+'" onclick="setApprEmsTab(&#39;riwayat&#39;)">Riwayat Approval'+(riwayat?' ('+riwayat+')':'')+'</button>'
     +'</div>';
+
+  if(semuaJenis){
+    /* Dua tabel BERJUDUL, bukan satu tabel gabungan. Kolomnya memang berbeda
+       (rencana punya Venue & Tanggal acara; refund punya Pembeli & Nominal),
+       dan memaksanya jadi satu tabel berarti separuh sel kosong di tiap baris —
+       bentuk yang paling sulit dipindai justru saat isinya paling banyak.
+       Yang kosong tidak digambar sama sekali: judul di atas tabel nol baris
+       cuma menambah tinggi halaman tanpa menambah keterangan. */
+    let isi='';
+    if(listEv.length) isi+='<h3 class="sec" style="margin-top:4px">📋 Rencana Event <span class="mini">('+listEv.length+')</span></h3>'
+      +apprTabelEvent(listEv,setuju);
+    if(listRf.length) isi+='<h3 class="sec" style="margin-top:'+(isi?'22px':'4px')+'">💸 Refund E-Ticket <span class="mini">('+listRf.length+')</span></h3>'
+      +apprTabelRefund(listRf,setuju);
+    C().innerHTML=h+(isi||'<div class="empty">'+(apprEmsTab==='antri'
+      ?'Tidak ada satu pun perkara yang menunggu keputusan. ⚓'
+      :'Belum ada keputusan yang tercatat.')+'</div>');
+    return;
+  }
+
+  const list = apprEmsJenis==='refund' ? listRf : listEv;
   if(!list.length){
     const kosong = apprEmsTab==='antri'
       ? (apprEmsJenis==='refund' ? 'Tidak ada pengajuan refund yang menunggu. ⚓'
