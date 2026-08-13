@@ -603,6 +603,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1407,6 +1421,35 @@ function segDivisi() { esc(); }
 
 
 function jamAjuan() {  }
+
+
+
+
+
+
+
+
+
+function barisRiwayatDW() { esc(); tglManusia(); namaDW(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); bukaAjuan(); escJs(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function barisAjuan() { namaDW(); esc(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); tglManusia(); rp(); biayaAjuan(); pilStatus(); }
 
 
@@ -1607,6 +1650,9 @@ function lampauiPanduan() { kuotaDiv(); terpakaiDiv(); konteksHari(); }
 
 
 function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); segDivisi(); isOffice(); go(); ajuPagerHTML(); }
+
+
+
 
 
 

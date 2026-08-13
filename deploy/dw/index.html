@@ -188,6 +188,20 @@ table.list tbody tr.klik:hover{background:#FDFCFA}
 table.list .no{width:34px;color:var(--muted-2);font-size:12px}
 table.list .nama{font-weight:700}
 table.list .kecil{font-size:11px;color:var(--muted-2)}
+/* ---------- Tabel Riwayat Pengajuan ----------
+   Sepasang dengan tbl-aju di modul Jadwal Shift, termasuk aturan HP-nya:
+   satu pengajuan = satu baris, dan kolom yang paling jarang menentukan
+   keputusan disembunyikan di layar sempit alih-alih memaksa geser. */
+table.tbl-aju{min-width:880px}
+table.tbl-aju td{padding:7px 9px;font-size:12.5px}
+table.tbl-aju .kecil{font-size:11px;color:var(--muted-2);margin-top:1px}
+@media(max-width:760px){
+  table.tbl-aju{min-width:0}
+  table.tbl-aju th:nth-child(4),table.tbl-aju td:nth-child(4),
+  table.tbl-aju th:nth-child(6),table.tbl-aju td:nth-child(6){display:none}
+  table.tbl-aju td{padding:6px;font-size:12px}
+}
+
 table.list td.kanan,table.list th.kanan{text-align:right}
 
 /* Kisi kalender — bentuknya sengaja sama dengan table.sched di modul Jadwal
@@ -1407,6 +1421,35 @@ function segDivisi(aktif,onclick,denganSemua){
   return h+'</div>';
 }
 function jamAjuan(a){ return (a.m||'—')+'–'+(a.s||'—'); }
+/* SATU BARIS TABEL untuk panel Riwayat. Antrean di atas tetap berbentuk
+   baris-kartu berkelompok per tanggal — di sana pengelompokan tanggal itu
+   justru inti pekerjaannya ("hari Sabtu sudah cukup belum"), dan tombol
+   "Setujui semua" hidup di kepala kelompoknya.
+
+   Riwayat tidak begitu: ia dibaca menurun untuk mencari satu keputusan lama,
+   dan bentuk kartu memakan ~64px per baris sehingga dua puluh keputusan
+   berarti menggulir tiga layar. Sebagai baris tabel, dua puluhnya muat
+   sekaligus dan kolomnya sejajar untuk dipindai. */
+function barisRiwayatDW(a){
+  const cat=String(a.catatan||'').trim();
+  const nota=String(a.putusNota||'').trim();
+  return '<tr>'
+    +'<td class="mono">'+esc(tglManusia(a.tgl))+'</td>'
+    +'<td class="nama">'+esc(namaDW(a.dwId))+'</td>'
+    +'<td>'+esc(ikonDivisi(a.divisi)+' '+namaDivisi(a.divisi))
+      +'<div class="kecil">'+esc(a.posisi||'—')+'</div></td>'
+    +'<td class="mono">'+esc(jamAjuan(a))+'<div class="kecil">'+durasiJam(a.m,a.s)+' jam</div></td>'
+    +'<td class="kanan mono">'+esc(rp(biayaAjuan(a)))+'</td>'
+    /* Catatan DW & alasan penolakan digabung di satu kolom: keduanya jarang
+       terisi bersamaan, dan dua kolom yang hampir selalu kosong mengambil
+       lebar dari kolom yang selalu terisi. */
+    +'<td class="kecil">'+(nota?esc(nota):(cat?esc(cat):'—'))+'</td>'
+    +'<td>'+pilStatus(a.status)
+      +(a.putusOleh?'<div class="kecil">'+esc(a.putusOleh)+'</div>':'')+'</td>'
+    +'<td class="kanan"><button class="btn btn-ghost btn-sm" onclick="bukaAjuan(&#39;'
+      +escJs(a.id)+'&#39;)">Detail</button></td>'
+  +'</tr>';
+}
 function barisAjuan(a,opsi){
   opsi=opsi||{};
   const nama=namaDW(a.dwId);
@@ -1682,8 +1725,11 @@ function viewAntrean(){
       +'<div class="spacer"></div>'
       +'<span class="mutedhint">Yang sudah disetujui atau ditolak, terbaru di atas.</span></div>'
     +(putus.length
-      ? putus.map(a=>barisAjuan(a,{tanggal:true, aksi:
-          '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(\''+escJs(a.id)+'\')">Detail</button>'})).join('')
+      ? '<div class="tablewrap"><table class="list tbl-aju"><thead><tr>'
+        +'<th>Tanggal</th><th>Daily Worker</th><th>Divisi / Posisi</th><th>Jam</th>'
+        +'<th class="kanan">Upah</th><th>Catatan</th><th>Status</th><th></th></tr></thead><tbody>'
+        +putus.map(barisRiwayatDW).join('')
+        +'</tbody></table></div>'
         +ajuPagerHTML(AJU_HAL,maksHal,semuaPutus.length)
       : '<div class="empty"><div class="ic">🗂️</div>Belum ada pengajuan yang diputuskan'
         +(ANTREAN_DIV==='ALL'?'':' di '+esc(namaDivisi(ANTREAN_DIV)))+'.</div>')
