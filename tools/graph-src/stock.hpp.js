@@ -355,7 +355,6 @@ function dipakaiOleh() {  }
 
 
 
-
 function go() { render(); }
 
 
@@ -366,13 +365,7 @@ function go() { render(); }
 
 function setSync() {  }
 function pesan() {  }
-function segarBadge() {  }
-
-
-
-
-function render() { segarBadge(); }
-
+function render() {  }
 
 
 
@@ -591,7 +584,7 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { render(); bukaBahan(); dipakaiOleh(); per1(); }
+function viewBahan() { vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
 
 
 
@@ -633,7 +626,11 @@ function viewBahan() { render(); bukaBahan(); dipakaiOleh(); per1(); }
 
 
 
-function bukaBahan() { tutupModal(); segarPer1(); isiVendor(); hapusBahan(); kirim(); }
+
+function bukaBahan() { tutupModal(); segarPer1(); hapusBahan(); kirim(); }
+
+
+
 
 
 
@@ -671,10 +668,6 @@ function segarPer1() {  }
 
 
 
-function isiVendor() {  }
-
-
-
 function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
@@ -687,22 +680,21 @@ function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
 
-function skorMirip() {  }
 
 
 
 
 
 
+function vendorOf() {  }
 
-function saranProduk() { skorMirip(); }
 
 
 
-function viewCocok() { kartu(); daftarSudah(); saranProduk(); dipakaiOleh(); per1(); cocokkan(); bukaBahan(); }
 
 
 
+function spanduSamakan() { samakanNama(); }
 
 
 
@@ -713,6 +705,7 @@ function viewCocok() { kartu(); daftarSudah(); saranProduk(); dipakaiOleh(); per
 
 
 
+function spanduBelumTerdaftar() { render(); daftarkanSemua(); }
 
 
 
@@ -723,13 +716,13 @@ function viewCocok() { kartu(); daftarSudah(); saranProduk(); dipakaiOleh(); per
 
 
 
+function samakanNama() { setSync(); pesan(); muat(); }
 
 
 
 
 
 
-function daftarSudah() { render(); dipakaiOleh(); skorMirip(); bukaBahan(); lepasCocok(); }
 
 
 
@@ -741,15 +734,18 @@ function daftarSudah() { render(); dipakaiOleh(); skorMirip(); bukaBahan(); lepa
 
 
 
+function daftarkanKePurchasing() { kirimProduk(); }
 
 
 
 
+function daftarkanSemua() { kirimProduk(); }
 
 
 
 
 
+function kirimProduk() { setSync(); }
 
 
 
@@ -759,6 +755,7 @@ function daftarSudah() { render(); dipakaiOleh(); skorMirip(); bukaBahan(); lepa
 
 
 
+function lanjut() { muatProduk(); setSync(); pesan(); render(); }
 
 
 
@@ -766,14 +763,6 @@ function daftarSudah() { render(); dipakaiOleh(); skorMirip(); bukaBahan(); lepa
 
 
 
-
-
-function lepasCocok() { kirim(); }
-
-
-
-
-function cocokkan() { kirim(); }
 
 
 

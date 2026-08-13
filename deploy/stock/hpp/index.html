@@ -181,12 +181,12 @@ tbody tr:hover{background:var(--gold-soft)}
       <div class="nav-group">
         <div class="nav-label">Bahan</div>
         <a data-view="bahan"><span class="ico">🧂</span> Bahan &amp; Harga</a>
-        <!-- Lencana = berapa bahan yang belum disandingkan. Menunya TIDAK
-             disembunyikan waktu angkanya nol: halaman ini juga satu-satunya
-             tempat memeriksa & melepas sandingan yang salah, dan menu yang
-             hilang begitu pekerjaannya selesai membuat kesalahan lama tidak
-             pernah ketemu lagi. -->
-        <a data-view="cocok"><span class="ico">🔗</span> Cocokkan Bahan <span id="badgeCocok" class="chip warn hidden" style="margin-left:auto"></span></a>
+        <!-- Menu "Cocokkan Bahan" DIHAPUS 14 Agustus 2026 atas permintaan user.
+             Konsepnya diganti: nama bahan di sini WAJIB sama persis dengan nama
+             di basis purchasing, jadi tidak ada lagi yang perlu disandingkan —
+             bahan baru di purchasing langsung terpakai di HPP. Sisa gunanya
+             (mendaftarkan bahan yang belum ada di sana) pindah jadi satu bagian
+             di dalam Bahan & Harga, tempat orang memang sudah berada. -->
       </div>
       <!-- Tiga menu di bawah lahir dari dua prototipe yang dikirim user
            13 Agustus 2026 (Kontrol Bahan Baku & Galangan HPP). Yang diambil
@@ -351,7 +351,6 @@ const JUDUL={
   resep:['Daftar Resep','Semua resep base & menu jadi berikut modalnya'],
   dash :['Dashboard HPP','COGS, menu paling boros, dan bahan yang paling menggerakkan modal'],
   bahan:['Bahan & Harga','Harga beli tiap bahan — sumber semua angka modal di modul ini'],
-  cocok:['Cocokkan Bahan','Sandingkan bahan HPP dengan basis bahan baku purchasing'],
   pakai:['Pemakaian & Selisih','Stok awal, belanja, pemakaian, dan opname — selisihnya jadi lampu'],
   kalk :['Kalkulator HPP','Hitung modal & harga jual sebuah menu tanpa menyimpan apa pun'],
   atur :['Pengaturan','Target COGS, buffer, dan ambang lampu selisih']
@@ -366,15 +365,9 @@ function go(v){
 }
 function setSync(st,msg){ const e=$('sync'); e.className='sync'+(st?' '+st:''); e.textContent=msg; }
 function pesan(html){ PESAN=html; $('pesan').innerHTML=html; }
-function segarBadge(){
-  const b=$('badgeCocok'); if(!b) return;
-  const n=S.bahan.filter(x=>!x.produk).length;
-  b.textContent=n; b.classList.toggle('hidden',n===0);
-}
 function render(){
   $('pesan').innerHTML=PESAN;
-  segarBadge();
-  $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,cocok:viewCocok,
+  $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,
                         pakai:viewPakai,kalk:viewKalk,atur:viewAtur}[VIEW])();
 }
 
@@ -594,17 +587,17 @@ let FB={q:'',hal:1,per:25,belum:false};
 function viewBahan(){
   const q=low(FB.q);
   const semua=S.bahan.filter(b=>{
-    if(FB.belum&&b.produk) return false;
-    return !q||low(b.nama).indexOf(q)>-1||low(b.vendor).indexOf(q)>-1;
+    if(FB.belum&&adaDiPurchasing(b.nama)) return false;
+    return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   }).sort((a,b)=>low(a.nama)<low(b.nama)?-1:1);
   const nHal=Math.max(1,Math.ceil(semua.length/FB.per));
   if(FB.hal>nHal) FB.hal=nHal;
   const hal=semua.slice((FB.hal-1)*FB.per,FB.hal*FB.per);
-  let h=`<div class="card">
+  let h=spanduSamakan()+spanduBelumTerdaftar()+`<div class="card">
     <div class="bar">
       <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="FB.q=this.value;FB.hal=1;render();document.getElementById('qb').focus()">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
-        <input type="checkbox" ${FB.belum?'checked':''} onchange="FB.belum=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> belum dicocokkan saja</label>
+        <input type="checkbox" ${FB.belum?'checked':''} onchange="FB.belum=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> belum ada di purchasing saja</label>
       <button class="btn btn-primary btn-sm" onclick="bukaBahan('')">+ Bahan Baru</button>
     </div>
     <div class="tbl-wrap"><table><thead><tr>
@@ -612,16 +605,17 @@ function viewBahan(){
       <th class="num">Harga beli</th><th class="num">Harga / satuan</th><th class="num">Dipakai</th><th></th>
     </tr></thead><tbody>`;
   hal.forEach(b=>{
-    const n=dipakaiOleh(b.nama).length;
+    const n=dipakaiOleh(b.nama).length, di=adaDiPurchasing(b.nama);
     h+=`<tr>
-      <td><b>${esc(b.nama)}</b>${b.produk?'':' <span class="chip mute" title="belum disandingkan dengan basis purchasing">mandiri</span>'}</td>
-      <td style="font-size:12px">${b.vendor?esc(b.vendor):'<span style="color:var(--muted-2)">—</span>'}</td>
+      <td><b>${esc(b.nama)}</b>${di?'':` <span class="chip warn" title="nama ini belum ada di basis bahan baku purchasing">belum di purchasing</span>`}</td>
+      <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
       <td>${esc(b.satuan||'')}</td>
       <td class="num mono">${rp(b.harga_beli)}</td>
       <td class="num mono"><b>${rp2(per1(b))}</b></td>
       <td class="num">${n?n:'<span style="color:var(--muted-2)">0</span>'}</td>
-      <td><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button></td></tr>`;
+      <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
+        ${di?'':`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`}</td></tr>`;
   });
   const dari=(FB.hal-1)*FB.per+1, sampai=Math.min(FB.hal*FB.per,semua.length);
   let pg='';
@@ -643,18 +637,21 @@ function bukaBahan(nama){
       <button class="btn btn-ghost btn-sm" onclick="tutupModal()">Tutup</button></div>
     <div class="mdl-b">
       <datalist id="dlProduk">${opsi}</datalist>
-      <div class="field"><label>Nama bahan</label><input value="${esc(EB.nama)}" oninput="EB.nama=this.value"></div>
+      <div class="field"><label>Nama bahan <span style="font-weight:400;color:var(--muted)">— samakan dengan nama di purchasing</span></label>
+        <input list="dlProduk" value="${esc(EB.nama)}" oninput="EB.nama=this.value"></div>
       <div class="g3">
         <div class="field"><label>Qty beli</label><input type="number" step="any" value="${EB.qty_beli}" oninput="EB.qty_beli=this.value;segarPer1()"></div>
         <div class="field"><label>Satuan</label><input value="${esc(EB.satuan||'')}" oninput="EB.satuan=this.value"></div>
         <div class="field"><label>Harga beli</label><input type="number" step="any" value="${EB.harga_beli}" oninput="EB.harga_beli=this.value;segarPer1()"></div>
       </div>
       <div class="notice info" id="per1Box"></div>
-      <div class="g2">
-        <div class="field"><label>Bahan di basis purchasing</label>
-          <input list="dlProduk" value="${esc(EB.produk||'')}" placeholder="kosongkan kalau berdiri sendiri" oninput="EB.produk=this.value;isiVendor()"></div>
-        <div class="field"><label>Vendor</label><input id="vend" value="${esc(EB.vendor||'')}" oninput="EB.vendor=this.value"></div>
-      </div>
+      <!-- Nama bahan DI ATAS itu sendiri kunci ke purchasing — tidak ada lagi
+           kolom "pasangan". Kotak nama memakai daftar purchasing sebagai saran
+           ketik supaya nama baru yang diketik cenderung sama sejak awal. -->
+      <div class="notice ${adaDiPurchasing(EB.nama)?'ok':'warn'}" id="pkBox">${
+        adaDiPurchasing(EB.nama)
+          ? `✓ Nama ini ada di purchasing — vendornya <b>${esc((PRODUK[EB.nama]||{}).utama||'belum diisi di sana')}</b>, dibaca langsung dari sana.`
+          : `⚠ Nama ini belum ada di basis purchasing. Bahannya tetap terpakai penuh di resep; daftarkan kalau memang barang yang dibeli.`}</div>
       <div class="field"><label>Catatan</label><input value="${esc(EB.catatan||'')}" oninput="EB.catatan=this.value"></div>
     </div>
     <div class="mdl-f">
@@ -671,10 +668,6 @@ function segarPer1(){
     ? `<div>Harga per satuan: <b>${rp2(hg/q)}</b> per ${esc(EB.satuan||'unit')} — inilah angka yang dipakai semua resep.</div>`
     : `<div>Qty beli harus lebih dari 0, kalau tidak harga per satuannya tidak bisa dihitung.</div>`;
 }
-function isiVendor(){
-  const p=PRODUK[EB.produk];
-  if(p&&p.utama&&!EB.vendor){ EB.vendor=p.utama; const v=$('vend'); if(v) v.value=p.utama; }
-}
 function hapusBahan(nama){
   const n=dipakaiOleh(nama).length;
   if(n && !confirm(`"${nama}" dipakai ${n} resep. Modalnya akan kehilangan komponen ini. Tetap hapus?`)) return;
@@ -682,102 +675,98 @@ function hapusBahan(nama){
   kirim({action:'hapusBahan',nama:nama},'Bahan dihapus.');
 }
 
-/* ====================== 3. COCOKKAN BAHAN ======================
-   296 bahan dari Excel vs 238 bahan di basis purchasing; yang namanya cocok
-   persis cuma 106. Sisanya TIDAK dicocokkan otomatis — nama mirip bukan berarti
-   barang sama ("Ayam Paha Pcs" vs "Ayam Potong 1.6"), dan salah sandingan
-   berarti harga vendor yang salah menempel ke puluhan resep sekaligus. */
-function skorMirip(a,b){
-  a=low(a); b=low(b);
-  if(a===b) return 100;
-  if(a.indexOf(b)>-1||b.indexOf(a)>-1) return 70;
-  const ka=a.split(/\s+/), kb=b.split(/\s+/);
-  const sama=ka.filter(x=>x.length>2&&kb.indexOf(x)>-1).length;
-  return sama?40+sama*10:0;
+/* ====================== SATU DAFTAR NAMA DENGAN PURCHASING ======================
+   14 Agustus 2026, permintaan user: pencocokan dihapus sebagai konsep. Nama
+   bahan di HPP HARUS sama persis dengan nama di basis bahan baku purchasing,
+   supaya bahan baru di sana langsung terpakai di sini tanpa ada yang perlu
+   menyandingkan.
+
+   Konsekuensi yang disengaja: vendor TIDAK lagi disimpan di sini, melainkan
+   dibaca langsung dari purchasing tiap kali digambar. Vendor yang disalin akan
+   basi diam-diam begitu purchasing ganti pemasok — dan tidak ada satu pun
+   layar yang akan memberitahu. */
+const adaDiPurchasing=nama=>!!PRODUK[nama];
+function vendorOf(b){
+  const p=PRODUK[b.nama];
+  if(p&&p.utama) return p.utama;
+  return b.vendor||'';        // cadangan: bahan yang belum ada di purchasing
 }
-function saranProduk(nama){
-  return Object.keys(PRODUK).map(p=>({p,s:skorMirip(nama,p)}))
-    .filter(x=>x.s>=40).sort((a,b)=>b.s-a.s).slice(0,4);
+/* Sisa pekerjaan dari masa pencocokan: bahan yang namanya masih beda dari
+   nama purchasing pasangannya. Sekali klik, seluruhnya diganti nama dan semua
+   baris resep yang merujuknya ikut ditambal server. */
+function spanduSamakan(){
+  const beda=S.bahan.filter(b=>b.produk&&b.produk!=='-'&&b.produk!==b.nama);
+  const sisa=S.bahan.filter(b=>b.produk&&b.produk!=='-'&&b.produk===b.nama);
+  if(!beda.length&&!sisa.length) return '';
+  return `<div class="notice warn"><div>
+    <b>${beda.length} bahan namanya masih berbeda dari purchasing</b>${sisa.length?` (dan ${sisa.length} sudah sama, tinggal dibersihkan penandanya)`:''}.
+    Sejak modul ini memakai satu daftar nama, pasangan yang dulu Anda buat dipakai sekali untuk <b>mengganti namanya</b> — resep yang memakainya ikut disesuaikan otomatis.
+    ${beda.length?`<div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${beda.slice(0,4).map(b=>esc(b.nama)+' → '+esc(b.produk)).join(' · ')}</div>`:''}
+    <div style="margin-top:9px"><button class="btn btn-primary btn-sm" onclick="samakanNama()">🔤 Samakan nama dengan purchasing</button></div>
+  </div></div>`;
 }
-function viewCocok(){
-  const belum=S.bahan.filter(b=>!b.produk);
-  const sudah=S.bahan.length-belum.length;
-  let h=`<div class="row-in">
-    ${kartu('Sudah dicocokkan',sudah+' / '+S.bahan.length,'bahan yang sudah punya pasangan di purchasing','accent')}
-    ${kartu('Belum',belum.length,'ditawari saran di bawah; boleh juga dibiarkan mandiri','')}
-    ${kartu('Bahan di purchasing',Object.keys(PRODUK).length,'sumber nama & vendor','')}
-  </div>
-  <div class="notice info">ℹ️ Mencocokkan berarti bahan ini <b>barang yang sama</b> dengan yang dibeli purchasing — vendornya ikut terisi dari sana. Nama mirip belum tentu barang sama, jadi tidak ada yang disandingkan otomatis. Bahan yang memang tidak dibeli lewat purchasing (mis. Air) tandai saja <b>mandiri</b>.</div>`;
-  if(!belum.length) h+=`<div class="card"><div class="empty" style="padding:24px"><div class="big">✓</div>Semua bahan sudah disandingkan. Daftar di bawah untuk memeriksa ulang kalau ada yang terasa keliru.</div></div>`+daftarSudah();
-  else h+=`<div class="card"><h3>Belum dicocokkan</h3><div class="card-sub">Pilih pasangannya, atau tandai mandiri supaya berhenti muncul di sini.</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Bahan HPP</th><th class="num">Harga/satuan</th><th>Saran dari purchasing</th><th></th></tr></thead><tbody>`;
-  belum.slice(0,80).forEach(b=>{
-    const s=saranProduk(b.nama);
-    h+=`<tr><td><b>${esc(b.nama)}</b><div style="font-size:11px;color:var(--muted-2)">dipakai ${dipakaiOleh(b.nama).length} resep</div></td>
-      <td class="num mono">${rp2(per1(b))}</td>
-      <td>${s.length?s.map(x=>`<button class="btn btn-ghost btn-xs" style="margin:2px" onclick="cocokkan('${esc(b.nama)}','${esc(x.p)}')">${esc(x.p)}</button>`).join(''):'<span style="color:var(--muted-2)">tidak ada yang mirip</span>'}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Pilih manual</button>
-        <button class="btn btn-ghost btn-xs" onclick="cocokkan('${esc(b.nama)}','-')">Mandiri</button></td></tr>`;
-  });
-  h+=`</tbody></table></div>${belum.length>80?`<div class="ket" style="margin-top:10px;font-size:12px;color:var(--muted)">Menampilkan 80 dari ${belum.length}; sisanya muncul setelah yang ini beres.</div>`:''}</div>`;
-  return h+daftarSudah();
+function spanduBelumTerdaftar(){
+  if(!Object.keys(PRODUK).length) return `<div class="notice bad">✕ Basis bahan baku purchasing tidak bisa dibaca, jadi kolom vendor kosong dan penanda "belum di purchasing" tidak bisa dipercaya. Coba muat ulang halaman.</div>`;
+  const blm=S.bahan.filter(b=>!adaDiPurchasing(b.nama));
+  if(!blm.length) return '';
+  return `<div class="notice info"><div>
+    <b>${blm.length} bahan belum ada di basis purchasing.</b> Mereka tetap terpakai penuh di resep — yang belum cuma vendornya.
+    Daftarkan supaya keduanya benar-benar satu daftar; purchasing bisa mengisi vendornya belakangan.
+    <div style="margin-top:9px"><button class="btn btn-ghost btn-sm" onclick="FB.belum=true;FB.hal=1;render()">Lihat daftarnya</button>
+    <button class="btn btn-ghost btn-sm" onclick="daftarkanSemua()">+ Daftarkan semuanya ke Purchasing</button></div>
+  </div></div>`;
 }
-/* DAFTAR YANG SUDAH DISANDINGKAN — kekurangan yang baru terasa sesudah 296
-   bahan selesai dicocokkan (14 Agustus 2026): sebelumnya halaman ini hanya
-   memajang yang BELUM, jadi sandingan yang keliru tidak punya tempat untuk
-   ketahuan. Satu salah sanding memindahkan harga vendor yang salah ke puluhan
-   resep sekaligus, dan tidak ada gejala apa pun di layar mana pun. */
-let FC={q:'',mode:'cocok'};   // 'cocok' | 'mandiri'
-function daftarSudah(){
-  const q=low(FC.q);
-  const semua=S.bahan.filter(b=>FC.mode==='mandiri'?b.produk==='-':(b.produk&&b.produk!=='-'));
-  const hasil=semua.filter(b=>!q||low(b.nama).indexOf(q)>-1||low(b.produk).indexOf(q)>-1||low(b.vendor).indexOf(q)>-1);
-  const nCocok=S.bahan.filter(b=>b.produk&&b.produk!=='-').length;
-  const nMandiri=S.bahan.filter(b=>b.produk==='-').length;
-  let h=`<div class="card"><h3>Tinjau yang sudah disandingkan</h3>
-    <div class="card-sub">Periksa ulang kalau ada yang terasa keliru — terutama bahan yang dipakai banyak resep. Melepas sandingan tidak menghapus bahannya, hanya memutus kaitan ke purchasing.</div>
-    <div class="bar">
-      <div class="seg">
-        <button class="${FC.mode==='cocok'?'active':''}" onclick="FC.mode='cocok';render()">Dicocokkan (${nCocok})</button>
-        <button class="${FC.mode==='mandiri'?'active':''}" onclick="FC.mode='mandiri';render()">Mandiri (${nMandiri})</button>
-      </div>
-      <input type="search" id="qc" placeholder="Cari bahan, produk, atau vendor…" value="${esc(FC.q)}"
-        oninput="FC.q=this.value;render();document.getElementById('qc').focus()">
-    </div>`;
-  if(!hasil.length) return h+`<div class="empty" style="padding:22px">Tidak ada yang cocok dengan pencarian ini.</div></div>`;
-  h+=`<div class="tbl-wrap"><table><thead><tr><th>Bahan HPP</th>
-      <th>${FC.mode==='mandiri'?'Alasan':'Bahan purchasing'}</th><th>Vendor</th>
-      <th class="num">Dipakai</th><th></th></tr></thead><tbody>`;
-  hasil.slice(0,60).forEach(b=>{
-    const n=dipakaiOleh(b.nama).length;
-    /* Sandingan yang namanya jauh berbeda ditandai: itu belum tentu salah
-       (nama internal memang bisa beda), tapi di situlah salah sanding
-       biasanya bersembunyi. */
-    const jauh=FC.mode==='cocok'&&skorMirip(b.nama,b.produk)<70;
-    h+=`<tr><td><b>${esc(b.nama)}</b></td>
-      <td>${FC.mode==='mandiri'
-        ? '<span class="chip mute">tidak dibeli lewat purchasing</span>'
-        : esc(b.produk)+(jauh?' <span class="chip warn" title="namanya jauh berbeda — pastikan memang barang yang sama">beda nama</span>':'')}</td>
-      <td style="font-size:12px">${b.vendor?esc(b.vendor):'<span style="color:var(--muted-2)">—</span>'}</td>
-      <td class="num">${n?n:'<span style="color:var(--muted-2)">0</span>'}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
-        <button class="btn btn-ghost btn-xs" onclick="lepasCocok('${esc(b.nama)}')">Lepas</button></td></tr>`;
-  });
-  h+=`</tbody></table></div>${hasil.length>60?`<div class="ket" style="margin-top:10px;font-size:12px;color:var(--muted)">Menampilkan 60 dari ${hasil.length}. Pakai pencarian untuk menyempitkan.</div>`:''}</div>`;
-  return h;
+function samakanNama(){
+  if(!confirm('Ganti nama bahan HPP mengikuti nama purchasing pasangannya?\n\nSeluruh baris resep yang merujuk nama lama ikut disesuaikan. Nama yang tujuannya sudah dipakai bahan lain akan dilewati dan dilaporkan.')) return;
+  setSync('','Menyamakan…');
+  fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'samakanNama',by:(ME&&ME.name)||''})})
+    .then(r=>r.text()).then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON');
+      pesan(`<div class="notice ok">✓ ${j.ganti} nama disamakan${j.bersih?`, ${j.bersih} sudah sama`:''}.${
+        (j.bentrok&&j.bentrok.length)?` <b>${j.bentrok.length} dilewati karena nama tujuannya sudah dipakai bahan lain</b> — gabungkan manual: ${esc(j.bentrok.slice(0,5).join(', '))}`:''}</div>`);
+      return muat();
+    })
+    .catch(e=>{ setSync('err','✕ Gagal'); pesan(`<div class="notice bad">✕ Gagal: ${esc(e.message||'')}</div>`); });
 }
-function lepasCocok(nama){
+/* Menulis ke basis purchasing — modul TETANGGA. Yang dikirim cuma nama +
+   satuan; vendor, kategori, dan cara beli sengaja dibiarkan kosong supaya
+   purchasing yang memutuskannya. Menebak isian milik modul lain berarti
+   mengarang data atas nama orang lain. */
+function daftarkanKePurchasing(nama){
   const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
-  if(!confirm(`Lepas sandingan "${nama}"${b.produk&&b.produk!=='-'?' dari "'+b.produk+'"':''}?\n\nBahannya tidak dihapus — ia cuma kembali ke daftar "belum dicocokkan".`)) return;
-  kirim({action:'simpanBahan',data:Object.assign({},b,{produk:''})},'Sandingan dilepas.');
+  if(!confirm(`Tambahkan "${nama}" ke basis bahan baku purchasing?\n\nVendor & kategorinya dikosongkan — biar purchasing yang mengisi.`)) return;
+  kirimProduk([b]);
 }
-function cocokkan(nama,produk){
-  const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
-  const d=Object.assign({},b,{produk:produk==='-'?'-':produk});
-  if(produk!=='-'&&PRODUK[produk]&&PRODUK[produk].utama&&!d.vendor) d.vendor=PRODUK[produk].utama;
-  kirim({action:'simpanBahan',data:d},'Bahan dicocokkan.');
+function daftarkanSemua(){
+  const blm=S.bahan.filter(b=>!adaDiPurchasing(b.nama));
+  if(!blm.length) return;
+  if(!confirm(`Tambahkan ${blm.length} bahan ke basis bahan baku purchasing?\n\nSemuanya masuk tanpa vendor & kategori; purchasing mengisinya belakangan.`)) return;
+  kirimProduk(blm);
+}
+function kirimProduk(daftar){
+  setSync('','Mendaftarkan…');
+  const satu=b=>fetch(API_ITEM,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'addProduct',productName:b.nama,primaryVendor:b.vendor||'',
+                           backupVendors:[],oldProductName:'',units:b.satuan?[b.satuan]:[]})})
+    .then(r=>r.text());
+  /* Berurutan, bukan serentak: purchasing menyimpan peta produk sebagai satu
+     blob per baris, dan 130 permintaan bersamaan membuat yang belakangan
+     menimpa yang duluan. Lambat sedikit, tapi tidak ada yang hilang. */
+  let i=0, gagal=0;
+  const lanjut=()=>{
+    if(i>=daftar.length){
+      return muatProduk().then(()=>{
+        setSync('ok','✓ Tersambung');
+        pesan(`<div class="notice ${gagal?'warn':'ok'}">✓ ${daftar.length-gagal} bahan terdaftar di purchasing${gagal?`, ${gagal} gagal`:''}.</div>`);
+        render();
+      });
+    }
+    const b=daftar[i++];
+    return satu(b).catch(()=>{gagal++;}).then(lanjut);
+  };
+  lanjut();
 }
 
 /* ====================== 4. DASHBOARD HPP ====================== */
