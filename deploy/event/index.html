@@ -935,6 +935,42 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .tal-b{font-size:11.5px;padding:4px 9px;border-radius:20px;border:1px solid var(--line-hard);
   background:var(--panel);color:var(--muted);cursor:pointer;width:auto;font-family:inherit}
 .tal-b.on{background:var(--accent);color:#241d05;font-weight:700;border-color:var(--accent)}
+/* Lembar mingguan talent — bentuknya sengaja meniru lembar Jadwal Shift:
+   tujuh kolom hari di atas, tombol yang mengisi di bawah. Kru yang bolak-balik
+   antara dua modul tidak perlu belajar dua tata letak untuk pekerjaan yang
+   sama persis. Bedanya satu dan penting: di Jadwal Shift satu sel = satu
+   shift, di sini satu HARI bisa berisi beberapa talent (pembuka, band utama,
+   DJ penutup), jadi selnya menumpuk chip, bukan mengganti isi. */
+.mg-hari{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-bottom:8px}
+.mg-h{border:1px solid var(--line-hard);border-radius:9px;background:var(--panel2);
+  padding:6px 5px;min-height:92px;text-align:center;cursor:pointer;color:var(--muted)}
+.mg-h.sel{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--panel2))}
+.mg-h.jatuh{border-style:dashed;border-color:var(--accent)}
+.mg-h small{display:block;font-size:9.5px;letter-spacing:.05em}
+.mg-h b{display:block;font-size:12px;color:var(--txt);margin-bottom:4px}
+.mg-c{display:block;font-size:10px;line-height:1.35;background:var(--panel);
+  border:1px solid var(--line);border-radius:20px;padding:2px 5px;margin:3px 0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
+.mg-c.lama{opacity:.62;font-style:italic}
+.mg-tal{display:flex;gap:6px;flex-wrap:wrap;max-height:168px;overflow:auto;
+  border:1px solid var(--line);border-radius:9px;padding:8px;background:var(--panel2)}
+.mg-tal .tal-b{cursor:grab}
+/* Lembar kehadiran talent × hari, di bawah kalender. Sel sengaja SEMPIT:
+   sebulan itu 31 kolom, dan lembar yang tiap selnya memuat teks tidak akan
+   pernah muat di satu layar — yang dicari orang di sini pola, bukan detail
+   (siapa yang tiap Jumat, siapa yang menghilang dua minggu). Detailnya satu
+   klik jauhnya di kalender di atasnya. */
+.lembar{border-collapse:collapse;font-size:11px}
+.lembar th,.lembar td{border:1px solid var(--line);padding:0;text-align:center}
+.lembar th{background:var(--panel2);font-weight:600;color:var(--muted);
+  padding:4px 0;min-width:22px;font-size:10px}
+.lembar th.nm,.lembar td.nm{text-align:left;padding:4px 8px;min-width:150px;
+  position:sticky;left:0;background:var(--panel);z-index:1;white-space:nowrap}
+.lembar th.wknd,.lembar td.wknd{background:color-mix(in srgb,var(--muted) 9%,transparent)}
+.lembar td.jml{padding:4px 7px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lembar i{display:block;width:100%;height:20px;line-height:20px;font-style:normal;
+  font-size:10px;font-weight:700;color:#241d05}
+tr.fee-on>td{background:color-mix(in srgb,var(--accent) 10%,transparent)}
 .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 /* Catatan kecil di atas daftar (mis. "3 rencana menunggu keputusanmu").
    Kelas ini disalin dari Marketing tapi CSS-nya TIDAK ikut terbawa, dan
@@ -2310,7 +2346,91 @@ function renderSchedule(){
   <button class="btn ghost sm" onclick="schMonth=new Date(${y},${m+1},1);renderSchedule()">›</button>
   <span class="pill">${DB.schedules.filter(s=>s.date.startsWith(y+'-'+pad(m+1))).length} jadwal bulan ini</span></div>
   <div class="legend"><span><i class="dotc" style="background:var(--accent)"></i>Scheduled</span><span><i class="dotc" style="background:var(--blue)"></i>Confirmed</span><span><i class="dotc" style="background:var(--green)"></i>Done</span><span><i class="dotc" style="background:var(--grey)"></i>Cancelled</span>
-  <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
+  <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`
+  +lembarTalentHTML(y,m);
+}
+/* ---------- LEMBAR KEHADIRAN TALENT (talent × hari) ----------
+   Kalender di atas menjawab "malam ini siapa". Yang TIDAK bisa dijawab kalender
+   adalah pertanyaan yang justru paling sering dibawa ke halaman ini: "si A
+   bulan ini tampil berapa kali", "kenapa dua minggu terakhir kosong", "kok
+   Jumat selalu orang yang sama". Menjawabnya dari kalender berarti membaca 30
+   sel dan menghitung di kepala.
+
+   Bentuknya sengaja sama dengan lembar Jadwal Shift — satu baris satu orang,
+   satu kolom satu hari — karena itu bentuk yang sudah dikenal kru, dan pola
+   (bukan detail) memang paling terbaca dalam bentuk kisi.
+
+   Yang dipajang hanya talent yang PUNYA jadwal bulan itu. Menampilkan seluruh
+   daftar talent berarti puluhan baris kosong yang mendorong barisan yang
+   berisi keluar layar. */
+function lembarTalentHTML(y,m){
+  const days=new Date(y,m+1,0).getDate();
+  const awal=y+'-'+pad(m+1);
+  const bulan=(DB.schedules||[]).filter(function(s){ return s && String(s.date||'').startsWith(awal); });
+  if(!bulan.length){
+    return '<div class="card" style="margin-top:16px"><h3 class="sec">Kehadiran Talent</h3>'
+      +'<div class="empty">Belum ada jadwal talent di '+MONTHS[m]+' '+y+'.</div></div>';
+  }
+  const adaId={}; bulan.forEach(function(s){ adaId[s.talent_id]=1; });
+  const baris=talentUrut(DB.talents.filter(function(t){ return adaId[t.id]; }));
+  /* Talent yang jadwalnya ada tapi datanya sudah terhapus tetap harus muncul —
+     kalau tidak, jumlah di lembar ini diam-diam lebih kecil daripada jumlah di
+     kalender, dan tidak ada satu pun tempat yang menerangkan selisihnya. */
+  Object.keys(adaId).forEach(function(id){
+    if(!baris.some(function(t){ return t.id===id; })) baris.push({id:id,name:'(talent terhapus)'});
+  });
+
+  const WARNA={Scheduled:'var(--accent)',Confirmed:'var(--blue)',Done:'var(--green)',Cancelled:'var(--grey)'};
+  const HURUF={Scheduled:'S',Confirmed:'C',Done:'✓',Cancelled:'×'};
+  const akhirPekan=function(d){ const w=new Date(y,m,d).getDay(); return w===0||w===6; };
+
+  let h='<div class="card" style="margin-top:16px"><h3 class="sec">Kehadiran Talent · '
+    +MONTHS[m]+' '+y+'</h3>'
+    +'<p class="mini" style="margin:-6px 0 10px">S = terjadwal · C = dikonfirmasi · '
+    +'✓ = selesai · × = batal. Klik selnya untuk membuka jadwalnya.</p>'
+    +'<div class="tbl-lebar"><table class="lembar"><thead><tr><th class="nm">Talent</th>';
+  for(let d=1;d<=days;d++) h+='<th'+(akhirPekan(d)?' class="wknd"':'')+'>'+d+'</th>';
+  h+='<th class="jml">Tampil</th><th class="jml">Selesai</th><th class="jml">Fee</th></tr></thead><tbody>';
+
+  baris.forEach(function(t){
+    const punya=bulan.filter(function(s){ return s.talent_id===t.id; });
+    /* Yang dibatalkan TIDAK ikut dihitung "tampil" maupun fee. Ia tetap
+       digambar di selnya supaya jejaknya kelihatan (batal itu informasi), tapi
+       menghitungnya sebagai tampil akan membuat lembar ini berselisih dengan
+       rekap pembayaran, dan yang berselisih dengan uang selalu dianggap salah. */
+    const sah=punya.filter(function(s){ return s.status!=='Cancelled'; });
+    const selesai=punya.filter(function(s){ return s.status==='Done'; });
+    const fee=sah.reduce(function(a,s){ return a+(+s.fee||0); },0);
+    h+='<tr><td class="nm">'+esc(t.name)+'</td>';
+    for(let d=1;d<=days;d++){
+      const ds=dstr(new Date(y,m,d));
+      const sel=punya.filter(function(s){ return s.date===ds; });
+      h+='<td'+(akhirPekan(d)?' class="wknd"':'')+'>'
+        +sel.map(function(s){
+            return '<i style="background:'+WARNA[s.status]+';cursor:pointer" '
+              +'title="'+esc(t.name)+' · '+esc(fmtDate(ds))+' · '+esc(s.start_time||'')+' · '+esc(s.status||'')+'" '
+              +'onclick="schedInfo(&#39;'+s.id+'&#39;)">'+(HURUF[s.status]||'?')+'</i>';
+          }).join('')
+        +'</td>';
+    }
+    h+='<td class="jml"><b>'+sah.length+'</b></td>'
+      +'<td class="jml">'+selesai.length+'</td>'
+      +'<td class="jml">'+IDR(fee)+'</td></tr>';
+  });
+
+  // Baris jumlah per hari: "malam Sabtu berapa penampil" tanpa menghitung kolom.
+  h+='</tbody><tfoot><tr><td class="nm"><b>Penampil / hari</b></td>';
+  for(let d=1;d<=days;d++){
+    const ds=dstr(new Date(y,m,d));
+    const n=bulan.filter(function(s){ return s.date===ds && s.status!=='Cancelled'; }).length;
+    h+='<td'+(akhirPekan(d)?' class="wknd"':'')+'>'+(n||'')+'</td>';
+  }
+  const sahBulan=bulan.filter(function(s){ return s.status!=='Cancelled'; });
+  h+='<td class="jml"><b>'+sahBulan.length+'</b></td>'
+    +'<td class="jml">'+bulan.filter(function(s){ return s.status==='Done'; }).length+'</td>'
+    +'<td class="jml"><b>'+IDR(sahBulan.reduce(function(a,s){ return a+(+s.fee||0); },0))+'</b></td>'
+    +'</tr></tfoot></table></div></div>';
+  return h;
 }
 function schedInfo(id){
   const s=DB.schedules.find(x=>x.id===id);const t=DB.talents.find(x=>x.id===s.talent_id);
@@ -2525,79 +2645,260 @@ function hasConflict(talent_id,date,st,et,ignoreId){return DB.schedules.some(s=>
 /* `tgl` datang dari sel kalender yang diklik. Tetap boleh kosong — tombol
    "+ Jadwal" di pojok atas memanggilnya tanpa argumen, dan jatuh ke hari ini
    seperti sebelumnya. */
-/* ---------- INPUT MINGGUAN ----------
-   Menyusun jadwal seminggu itu tujuh kali pekerjaan yang sama persis, dan
-   sebelumnya berarti tujuh kali: klik sel → centang talent → Simpan → cari
-   sel berikutnya di kalender. Langkah keempat itu yang paling sering
-   membuat orang berhenti di tengah minggu — dan jadwal setengah jadi lebih
-   buruk daripada tidak ada, karena yang membacanya mengira Rabu memang
-   kosong.
+/* ---------- INPUT MINGGUAN: SATU LEMBAR, BUKAN TUJUH FORMULIR ----------
+   Menyusun jadwal seminggu itu tujuh kali pekerjaan yang sama persis.
+   Bentuk pertama modul ini: klik sel → centang talent → Simpan → cari sel
+   berikutnya di kalender. Bentuk kedua memperbaiki langkah keempat dengan
+   merantai tujuh formulir — lebih baik, tapi masih tujuh layar berturut-turut
+   yang terlihat sama persis, dan yang mengisi kehilangan hitungan di tengah.
+   Jadwal setengah jadi lebih buruk daripada tidak ada, karena yang membacanya
+   mengira Rabu memang kosong.
 
-   Sekarang: pilih Senin-nya sekali, lalu formulir yang sama berjalan
-   sendiri Senin → Selasa → … → Minggu. Yang dipakai TETAP scheduleForm()
-   dan saveSchedule() yang sudah ada — termasuk pemeriksaan bentroknya. Satu
-   formulir kedua yang menyalin logika itu pasti lambat laun kehilangan
-   salah satu penjaganya.
+   Sekarang bentuknya LEMBAR, meniru Jadwal Shift: tujuh kolom hari kelihatan
+   sekaligus, tombol nama talent di bawah. Klik tombol → masuk ke hari yang
+   sedang ditunjuk, dan penunjuknya maju sendiri ke hari berikutnya. Jadi
+   "klik, klik, klik" mengisi Senin, Selasa, Rabu tanpa memindahkan tangan.
 
-   null = sedang tidak dalam mode mingguan. */
-let schMinggu=null;      // {akhir:'YYYY-MM-DD'}
+   Bedanya dengan Jadwal Shift, dan ini yang menentukan bentuk datanya: di
+   sana satu sel = satu shift, di sini satu HARI bisa berisi beberapa talent
+   (pembuka, band utama, DJ penutup). Karena itu tiap hari menyimpan ARRAY,
+   dan tombol talent bisa DISERET ke kolom mana pun untuk menambah tanpa
+   memindahkan penunjuk.
+
+   null = lembar sedang tidak terbuka. */
+let MG=null;
 const HARI_PJG_EMS=['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+const HARI_PDK_EMS=['SEN','SEL','RAB','KAM','JUM','SAB','MIN'];
 function tglGeser(t,n){ const d=new Date(t+'T00:00:00'); d.setDate(d.getDate()+n); return dstr(d); }
 function namaHari(t){ const d=new Date(t+'T00:00:00'); return isNaN(d)?'':HARI_PJG_EMS[d.getDay()]; }
+/* URUTAN TALENT: yang paling sering & paling baru dipakai naik ke atas.
+   Daftar talent tumbuh terus dan tidak pernah menyusut — yang sudah lama tidak
+   dipakai tetap tinggal demi riwayat fee-nya. Diurut abjad, band yang tampil
+   tiap Jumat bisa berada di bawah sepuluh nama yang terakhir main tahun lalu,
+   dan penyusun jadwal menggulir daftar yang sama tiap kali.
+
+   Bobotnya sengaja sederhana dan bisa diterangkan kalau ditanya: jumlah tampil
+   90 hari terakhir, lalu tanggal tampil terakhir sebagai pemecah seri, lalu
+   abjad. Bukan skor rahasia — kalau urutannya terasa aneh, sebabnya bisa
+   ditunjuk. */
+function talentUrut(list){
+  const batas=tglGeser(dstr(new Date()),-90);
+  const skor={}, akhir={};
+  (DB.schedules||[]).forEach(function(s){
+    if(!s||s.status==='Cancelled'||!s.talent_id) return;
+    if(s.date>=batas) skor[s.talent_id]=(skor[s.talent_id]||0)+1;
+    if(!akhir[s.talent_id]||s.date>akhir[s.talent_id]) akhir[s.talent_id]=s.date;
+  });
+  return (list||[]).slice().sort(function(a,b){
+    const d=(skor[b.id]||0)-(skor[a.id]||0); if(d) return d;
+    const x=akhir[b.id]||'', y=akhir[a.id]||'';
+    if(x!==y) return x<y?1:-1;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
+}
+function talentAktif(){ return talentUrut(DB.talents.filter(function(x){ return x.status!=='Inactive'; })); }
 function inputMingguan(){
   /* Senin dari minggu yang sedang dibuka di kalender, bukan dari hari ini:
      orang menekan tombol ini setelah menggulir ke bulan yang mau diisi. */
   const dasar=new Date(schMonth.getFullYear(),schMonth.getMonth(),1);
-  const hariIni=new Date();
-  const acuan=(dasar.getFullYear()===hariIni.getFullYear()&&dasar.getMonth()===hariIni.getMonth())
-    ? hariIni : dasar;
+  const kini=new Date();
+  const acuan=(dasar.getFullYear()===kini.getFullYear()&&dasar.getMonth()===kini.getMonth())
+    ? kini : dasar;
   const sen=new Date(acuan); sen.setDate(acuan.getDate()-((acuan.getDay()+6)%7));
-  modal('<button class="close" onclick="closeModal()">\u00d7</button>'
-   +'<h3>Input Mingguan</h3>'
-   +'<p class="mini" style="margin-bottom:12px">Isi jadwal tujuh hari berturut-turut. '
-   +'Setiap kali Simpan, formulirnya lanjut sendiri ke hari berikutnya.</p>'
-   +'<div class="field"><label>Mulai dari (Senin)</label>'
-   +'<input id="mg_mulai" type="date" value="'+dstr(sen)+'"></div>'
-   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
-   +'<button class="btn" onclick="mulaiMingguan()">Mulai \u2192</button></div>');
+  mgBuka(dstr(sen));
 }
-function mulaiMingguan(){
-  const t=(document.getElementById('mg_mulai')||{}).value||'';
-  if(!t){ toast('Pilih tanggal mulainya dulu.'); return; }
-  schMinggu={akhir:tglGeser(t,6)};
-  scheduleForm(t);
-}
-function lewatiHariIni(){
-  if(!schMinggu) return closeModal();
-  const t=(document.getElementById('s_date')||{}).value||'';
-  lanjutMingguan(t);
-}
-/* Satu tempat yang memutuskan "lanjut atau selesai". Dipanggil sesudah
-   simpan DAN sesudah dilewati, supaya dua jalur itu tidak pernah bisa
-   berbeda perilakunya. */
-function lanjutMingguan(tglSekarang){
-  if(!schMinggu) return;
-  const berikut=tglGeser(tglSekarang,1);
-  if(berikut>schMinggu.akhir){
-    schMinggu=null; closeModal(); renderSchedule();
-    toast('\u2713 Seminggu selesai diisi.');
-    return;
+function mgBuka(senin){
+  MG={ senin:senin, i:0, mulai:'20:00', selesai:'23:00', tipe:(TAL_CATS[0]||''), hari:[] };
+  /* Yang SUDAH terjadwal di minggu itu ikut dimuat, bukan lembar kosong.
+     Lembar kosong padahal jadwalnya sudah ada membuat orang mengisi ulang hari
+     yang sudah beres — dan tiap isian ulang berakhir sebagai "bentrok,
+     dilewati" yang tidak bisa dijelaskan ke yang mengisinya. Baris lama
+     ditandai `lama:1`: ia dipajang tapi TIDAK ditulis ulang saat Simpan. */
+  for(let k=0;k<7;k++){
+    const tgl=tglGeser(senin,k);
+    MG.hari.push((DB.schedules||[])
+      .filter(function(s){ return s.date===tgl && s.status!=='Cancelled'; })
+      .map(function(s){ return {id:s.talent_id, fee:+s.fee||0, lama:1}; }));
   }
-  scheduleForm(berikut);
+  gambarMingguan();
+}
+function mgGeser(n){ if(!MG) return; mgAmbilForm(); mgBuka(tglGeser(MG.senin,n*7)); }
+/* Nilai jam/tipe dibaca dari DOM SEBELUM lembar digambar ulang. Tanpa ini,
+   mengubah jam lalu mengklik talent akan mengembalikan jam ke 20:00 — modal
+   digambar ulang dari MG, dan yang tidak pernah masuk ke MG tidak ada. */
+function mgAmbilForm(){
+  if(!MG) return;
+  const g=function(id){ const el=document.getElementById(id); return el?el.value:null; };
+  MG.mulai   = g('mg_jam1') || MG.mulai;
+  MG.selesai = g('mg_jam2') || MG.selesai;
+  MG.tipe    = g('mg_tipe') || MG.tipe;
+}
+function mgKe(i){ if(!MG) return; mgAmbilForm(); MG.i=i; gambarMingguan(); }
+/* Menaruh talent di hari ke-i. Satu talent tidak boleh dua kali di hari yang
+   sama: itu bukan "tampil dua sesi", itu dua baris jadwal dengan jam identik
+   yang akan saling dianggap bentrok saat disimpan, dan fee-nya terhitung
+   dobel di rekap. */
+function mgTaruh(tid,i){
+  if(!MG||i<0||i>6) return false;
+  const t=DB.talents.find(function(x){ return x.id===tid; });
+  if(MG.hari[i].some(function(x){ return x.id===tid; })){
+    toast(((t&&t.name)||'Talent')+' sudah ada di '+namaHari(tglGeser(MG.senin,i))+'.');
+    return false;
+  }
+  MG.hari[i].push({id:tid, fee:(t&&+t.default_fee)||0});
+  return true;
+}
+/* Klik tombol talent = isi hari yang sedang ditunjuk, lalu penunjuk MAJU.
+   Di hari terakhir penunjuk berhenti (tidak memutar balik ke Senin): klik
+   berlebih yang diam-diam menumpuk di awal minggu jauh lebih mahal daripada
+   klik yang tidak melakukan apa-apa. */
+function mgKlikTalent(tid){
+  if(!MG) return;
+  mgAmbilForm();
+  if(mgTaruh(tid,MG.i) && MG.i<6) MG.i++;
+  gambarMingguan();
+}
+function mgBuang(i,k){
+  if(!MG) return;
+  mgAmbilForm(); MG.hari[i].splice(k,1); gambarMingguan();
+}
+function mgKosongkanHari(i){
+  if(!MG) return;
+  mgAmbilForm();
+  /* Baris lama TIDAK ikut dibuang: menghapus jadwal yang sudah tersimpan
+     bukan pekerjaan lembar ini (tempatnya di kalender, lewat Hapus). Yang
+     dibersihkan cuma isian yang belum sempat disimpan. */
+  MG.hari[i]=MG.hari[i].filter(function(x){ return x.lama; });
+  gambarMingguan();
+}
+/* Seret tombol talent ke kolom hari mana pun — inilah yang membuat satu hari
+   bisa berisi dua talent tanpa memindahkan penunjuk bolak-balik. dataTransfer
+   dipakai apa adanya; di peramban yang tidak meneruskannya (sebagian peramban
+   HP) jalur kliknya tetap ada, dan itu yang utama. */
+let MG_SERET=null;
+function mgSeretMulai(ev,tid){
+  MG_SERET=tid;
+  try{ ev.dataTransfer.setData('text/plain',tid); ev.dataTransfer.effectAllowed='copy'; }catch(e){}
+}
+function mgSeretAtas(ev,i){
+  ev.preventDefault();
+  const el=document.getElementById('mg_h'+i); if(el) el.classList.add('jatuh');
+}
+function mgSeretKeluar(i){ const el=document.getElementById('mg_h'+i); if(el) el.classList.remove('jatuh'); }
+function mgJatuh(ev,i){
+  ev.preventDefault();
+  let tid=MG_SERET;
+  try{ tid=(ev.dataTransfer&&ev.dataTransfer.getData('text/plain'))||tid; }catch(e){}
+  MG_SERET=null;
+  if(!tid||!MG) return;
+  mgAmbilForm();
+  mgTaruh(tid,i);
+  MG.i=i;            // penunjuk ikut ke kolom yang dituju — itu yang barusan diperhatikan
+  gambarMingguan();
+}
+function gambarMingguan(){
+  if(!MG) return;
+  const tals=talentAktif();
+  const nama=function(id){ const t=DB.talents.find(function(x){ return x.id===id; }); return t?t.name:'?'; };
+  const baru=MG.hari.reduce(function(a,d){ return a+d.filter(function(x){ return !x.lama; }).length; },0);
+
+  const kolom=MG.hari.map(function(isi,i){
+    const tgl=tglGeser(MG.senin,i);
+    const chip=isi.map(function(x,k){
+      return '<span class="mg-c'+(x.lama?' lama':'')+'" title="'+esc(nama(x.id))+(x.lama?' — sudah tersimpan':' — klik untuk membuang')+'" '
+        +(x.lama?'':'onclick="event.stopPropagation();mgBuang('+i+','+k+')"')+'>'
+        +esc(nama(x.id))+'</span>';
+    }).join('')||'<span class="mini">·</span>';
+    return '<div class="mg-h'+(i===MG.i?' sel':'')+'" id="mg_h'+i+'" '
+      +'onclick="mgKe('+i+')" ondragover="mgSeretAtas(event,'+i+')" '
+      +'ondragleave="mgSeretKeluar('+i+')" ondrop="mgJatuh(event,'+i+')">'
+      +'<small>'+HARI_PDK_EMS[i]+'</small><b>'+String(+tgl.slice(8))+'</b>'+chip+'</div>';
+  }).join('');
+
+  const tombol=tals.map(function(t){
+    return '<button type="button" class="tal-b" draggable="true" data-id="'+t.id+'" '
+      +'ondragstart="mgSeretMulai(event,&#39;'+t.id+'&#39;)" '
+      +'onclick="mgKlikTalent(&#39;'+t.id+'&#39;)" '
+      +'title="'+esc(t.category||'')+' · '+esc(IDR(t.default_fee||0))+'/hari">'
+      +esc(t.name)+'</button>';
+  }).join('')||'<span class="mini">Belum ada talent. Tambahkan dulu di Talent Management.</span>';
+
+  modal('<button class="close" onclick="MG=null;closeModal()">&times;</button>'
+   +'<h3>Input Mingguan</h3>'
+   +'<div class="toolbar" style="margin-bottom:10px">'
+     +'<button class="btn ghost sm" onclick="mgGeser(-1)">&lsaquo;</button>'
+     +'<b style="min-width:190px;text-align:center">'+esc(fmtDate(MG.senin))+' – '+esc(fmtDate(tglGeser(MG.senin,6)))+'</b>'
+     +'<button class="btn ghost sm" onclick="mgGeser(1)">&rsaquo;</button>'
+     +'<span class="pill">'+baru+' baris baru</span></div>'
+   +'<div class="mg-hari">'+kolom+'</div>'
+   +'<p class="mini" style="margin:-2px 0 10px">Menunjuk <b>'+esc(namaHari(tglGeser(MG.senin,MG.i)))
+     +', '+esc(fmtDate(tglGeser(MG.senin,MG.i)))+'</b> — klik nama talent untuk mengisinya, penunjuk maju sendiri. '
+     +'Seret nama ke kolom lain kalau satu hari diisi lebih dari satu talent. '
+     +'Nama yang pudar sudah tersimpan sebelumnya dan tidak ditulis ulang.</p>'
+   +'<div class="mg-tal">'+tombol+'</div>'
+   +'<div class="grid g3" style="margin-top:12px">'
+     +'<div class="field"><label>Jam Mulai</label><input id="mg_jam1" type="time" value="'+esc(MG.mulai)+'"></div>'
+     +'<div class="field"><label>Jam Selesai</label><input id="mg_jam2" type="time" value="'+esc(MG.selesai)+'"></div>'
+     +'<div class="field"><label>Tipe</label><select id="mg_tipe">'
+       +TAL_CATS.map(function(c){ return '<option'+(c===MG.tipe?' selected':'')+'>'+esc(c)+'</option>'; }).join('')
+     +'</select></div></div>'
+   +'<p class="mini">Jam & tipe berlaku untuk seluruh baris baru minggu ini. Fee memakai fee bawaan '
+   +'tiap talent — ubah per baris lewat kalender kalau malam itu beda.</p>'
+   +'<div class="modal-actions">'
+     +'<button class="btn ghost" onclick="mgKosongkanHari('+MG.i+')">Kosongkan hari ini</button>'
+     +'<button class="btn ghost" onclick="MG=null;closeModal()">Batal</button>'
+     +'<button class="btn" onclick="mgSimpan()"'+(baru?'':' disabled')+'>Simpan'+(baru?' '+baru+' Jadwal':'')+'</button>'
+   +'</div>',true);
+}
+function mgSimpan(){
+  if(!MG) return;
+  mgAmbilForm();
+  const m=MG.mulai, s=MG.selesai;
+  if(m>=s) return toast('Jam selesai harus lebih dari jam mulai.');
+  /* Bentrok diperiksa untuk SELURUH lembar sebelum satu pun ditulis — sama
+     seperti saveSchedule. Kalau diperiksa sambil menulis, sebagian sudah masuk
+     lalu berhenti di tengah, dan yang mengisi harus menebak mana yang jadi. */
+  const tulis=[], lewat=[];
+  MG.hari.forEach(function(isi,i){
+    const tgl=tglGeser(MG.senin,i);
+    isi.forEach(function(x){
+      if(x.lama) return;
+      if(hasConflict(x.id,tgl,m,s)){
+        const t=DB.talents.find(function(y){ return y.id===x.id; });
+        lewat.push(((t&&t.name)||'?')+' '+fmtDate(tgl));
+        return;
+      }
+      tulis.push({id:uid(),talent_id:x.id,event_id:null,date:tgl,start_time:m,end_time:s,
+        performance_type:MG.tipe,fee:x.fee,status:'Scheduled',recurring_rule_id:null,source:'mingguan'});
+    });
+  });
+  if(!tulis.length && !lewat.length) return toast('Belum ada baris baru untuk disimpan.');
+  tulis.forEach(function(r){ DB.schedules.push(r); });
+  save();
+  const dt=new Date(MG.senin+'T00:00:00');
+  if(!isNaN(dt)) schMonth=new Date(dt.getFullYear(),dt.getMonth(),1);
+  MG=null; closeModal(); renderSchedule();
+  toast('✓ '+tulis.length+' jadwal tersimpan'
+    +(lewat.length?' · '+lewat.length+' dilewati karena bentrok: '+lewat.slice(0,3).join(', ')
+      +(lewat.length>3?' …':''):'')+'.');
 }
 function scheduleForm(tgl){
-  const t=DB.talents.filter(x=>x.status!=='Inactive');
+  /* Urutannya sama dengan lembar mingguan: yang paling sering & paling baru
+     dipakai di atas. Dua daftar talent dengan dua urutan berbeda di modul yang
+     sama membuat orang mencari nama yang sama di tempat yang berlainan. */
+  const t=talentAktif();
   const tanggal=tgl||dstr(new Date());
   /* Jadwal yang SUDAH ada di tanggal itu ikut diperlihatkan. Tanpa ini orang
      yang mengklik tanggal ramai tidak tahu siapa saja yang sudah masuk, dan
      bentroknya baru ketahuan sesudah menekan Simpan. */
   const sudah=DB.schedules.filter(x=>x.date===tanggal);
-  /* Dalam mode mingguan, kepala formulirnya menyebut hari keberapa yang
-     sedang diisi — tanpa itu tujuh formulir beruntun terlihat sama persis
-     dan orang kehilangan hitungan. */
-  const mg=schMinggu;
-  const judul=mg ? ('Input Mingguan \u00b7 '+namaHari(tanggal)) : 'Tambah Jadwal';
-  modal(`<button class="close" onclick="schMinggu=null;closeModal()">&times;</button><h3>${judul}</h3>${mg?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">Hari ini <b>${fmtDate(tanggal)}</b> \u2014 terakhir <b>${fmtDate(mg.akhir)}</b>. Kosongkan lalu tekan <b>Lewati</b> kalau hari itu memang tidak ada yang tampil.</div>`:''}
+  /* Mode mingguan yang merantai tujuh formulir SUDAH DICABUT — penggantinya
+     lembar tujuh kolom (lihat mgBuka). Formulir ini kembali jadi satu
+     pekerjaan tunggal: menambah jadwal untuk SATU hari, dengan fee yang bisa
+     diketik per talent — satu-satunya tempat yang punya itu, dan sebab
+     formulir ini tidak ikut dihapus. */
+  const judul='Tambah Jadwal';
+  modal(`<button class="close" onclick="closeModal()">&times;</button><h3>${judul}</h3>
   <p class="mini" style="margin-bottom:10px">${fmtDate(tanggal)} &mdash; centang semua talent yang tampil
      hari itu; tiap talent jadi satu baris jadwal dengan fee-nya sendiri.</p>
   ${sudah.length?`<div class="mini" style="margin-bottom:10px;padding:7px 9px;background:var(--panel2);border-radius:7px">
@@ -2623,7 +2924,7 @@ function scheduleForm(tgl){
       : '<div class="empty">Belum ada talent. Tambahkan dulu di Talent Management.</div>'}</div>
     <div class="mini" id="s_talinfo" style="margin-top:6px">Belum ada talent dipilih.</div>
   </div>
-  <div class="modal-actions">${mg?`<button class="btn ghost" onclick="schMinggu=null;closeModal();renderSchedule()">Berhenti</button><button class="btn ghost" onclick="lewatiHariIni()">Lewati \u2192</button>`:`<button class="btn ghost" onclick="closeModal()">Batal</button>`}    <button class="btn" onclick="saveSchedule()">${mg?'Simpan &amp; Lanjut \u2192':'Simpan'}</button></div>`,true);
+  <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button> <button class="btn" onclick="saveSchedule()">Simpan</button></div>`,true);
 }
 /* Kotak fee baru bisa diketik kalau talentnya dicentang. Kotak aktif yang
    isinya diabaikan (karena orangnya tidak dipilih) adalah cara paling cepat
@@ -2667,11 +2968,6 @@ function saveSchedule(){
   if(!isNaN(dt)) schMonth=new Date(dt.getFullYear(),dt.getMonth(),1);
   toast(pilih.length>1 ? pilih.length+' jadwal tersimpan (tanpa konflik).'
                        : 'Jadwal tersimpan (tanpa konflik).');
-  /* Dalam mode mingguan formulirnya TIDAK ditutup — langsung berganti ke
-     hari berikutnya. renderSchedule() ditunda sampai seminggu selesai:
-     menggambar ulang kalender di belakang modal tiap hari cuma membuang
-     kerja yang tidak terlihat siapa pun. */
-  if(schMinggu) return lanjutMingguan(date);
   closeModal(); renderSchedule();
 }
 /* ATURAN BERULANG UNTUK LEBIH DARI SATU TALENT.
@@ -2792,9 +3088,13 @@ function monthlyGenModal(){
   <div class="tbl-edit"><table><thead><tr><th style="width:56px">Hari</th><th>Talent</th><th style="width:96px">Mulai</th><th style="width:96px">Selesai</th><th style="width:140px">Fee / show</th></tr></thead><tbody>
   ${DOW.map((d,i)=>{
     const r=ruleHari(i);
-    // Talent yang dipilih lebih dulu: yang kategorinya cocok dengan aturan hari itu.
-    const cocok=r.category?DB.talents.filter(t=>t.category===r.category):[];
-    const pilihan=cocok.length?cocok:DB.talents;
+    /* Talent yang dipilih lebih dulu: yang kategorinya cocok dengan aturan hari
+       itu. Di dalam kelompok mana pun, urutannya sama dengan lembar mingguan —
+       yang paling sering & paling baru dipakai di atas, supaya nama yang
+       dicari tidak berpindah-pindah tempat antar layar. */
+    const aktif=talentAktif();
+    const cocok=r.category?aktif.filter(t=>t.category===r.category):[];
+    const pilihan=cocok.length?cocok:aktif;
     return `<tr>
       <td><b>${d}</b>${r.rule?`<div class="mini" title="${esc(r.rule)}">ℹ</div>`:''}</td>
       <td><select class="inp mg_tal" data-dow="${i}" onchange="mgIsiFee(this)"><option value="">— kosong —</option>${pilihan.map(t=>`<option value="${t.id}" data-fee="${t.default_fee||0}">${esc(t.name)}${t.category?' · '+t.category:''}</option>`).join('')}</select></td>
@@ -3021,6 +3321,72 @@ function feeAngka(s){
   if(typeof v==='number') return isFinite(v)?v:0;
   return +String(v==null?'':v).replace(/[^\d]/g,'')||0;
 }
+/* ---------- RINCIAN SATU TALENT (ala rekap Jadwal Shift) ----------
+   Tabel di bawah menjawab "siapa dibayar berapa". Yang tidak dijawabnya, dan
+   selalu jadi pertanyaan berikutnya begitu angkanya dibawa ke talent-nya:
+   "empat hari itu tanggal berapa saja", dan "saya ingat main enam kali, kenapa
+   di sini empat".
+
+   Pertanyaan kedua itu yang paling sering jadi perselisihan, dan sebabnya
+   hampir selalu sama: dua jadwal masih berstatus Scheduled/Confirmed, belum
+   ditandai Done. Karena itu panel ini menampilkan SELURUH jadwal pada periode
+   itu — yang tidak Done ikut dipajang, diberi tanda, dan diterangkan bahwa ia
+   belum masuk hitungan. Menyembunyikannya berarti selisihnya cuma bisa
+   ditemukan dengan membuka kalender satu per satu. */
+let FEE_PILIH=null;
+function feePilih(tid){ FEE_PILIH=(FEE_PILIH===tid?null:tid); renderFee(); }
+function feeRincianHTML(){
+  if(!FEE_PILIH) return '';
+  const t=DB.talents.find(function(x){ return x.id===FEE_PILIH; });
+  if(!t){ FEE_PILIH=null; return ''; }
+  const per=feeRentang();
+  const semua=(DB.schedules||[])
+    .filter(function(s){ return s.talent_id===t.id && s.date>=per.a && s.date<=per.b; })
+    .sort(function(a,b){ return String(a.date).localeCompare(String(b.date)); });
+  const done=semua.filter(function(s){ return s.status==='Done'; });
+  const belum=semua.filter(function(s){ return s.status!=='Done' && s.status!=='Cancelled'; });
+  const batal=semua.filter(function(s){ return s.status==='Cancelled'; });
+  const total=done.reduce(function(a,s){ return a+feeAngka(s); },0);
+  const nanti=belum.reduce(function(a,s){ return a+feeAngka(s); },0);
+  const pay=(DB.talentPayments||[]).find(function(p){ return p.talent_id===t.id && p.period_month===feeKunci(); });
+
+  let h='<div class="card" style="margin-bottom:14px;border-color:var(--accent)">'
+   +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+   +'<div><h3 class="sec" style="margin-bottom:2px">'+esc(t.name)+'</h3>'
+   +'<span class="mini">'+esc(t.category||'')+' · '+esc(feeLabelPeriode())
+   +(t.bank_name?' · '+esc(t.bank_name)+(t.bank_account?' '+esc(t.bank_account):''):'')+'</span></div>'
+   +'<button class="btn ghost sm" onclick="feePilih(&#39;'+t.id+'&#39;)">Tutup</button></div>'
+   +'<div class="grid g4" style="margin:12px 0">'
+   +stat('Hari Tampil',done.length,'berstatus Done')
+   +stat('Total Dibayar',IDR(total),done.length?('rata-rata '+IDR(Math.round(total/done.length))+' / hari'):'belum ada yang selesai')
+   +stat('Belum Dihitung',belum.length,belum.length?('senilai '+IDR(nanti)+' — belum Done'):'semua sudah diputuskan')
+   +stat('Status Tagihan',pay?pay.status:'—',pay?('dibuat '+fmtDate(String(pay.created_at||'').slice(0,10))):'belum di-generate')
+   +'</div>';
+
+  if(!semua.length){
+    return h+'<div class="empty">Tidak ada jadwal pada periode ini.</div></div>';
+  }
+  h+='<div class="tbl-lebar"><table><thead><tr><th>Tanggal</th><th>Hari</th><th>Jam</th>'
+   +'<th>Tipe</th><th>Status</th><th style="text-align:right">Fee</th></tr></thead><tbody>';
+  semua.forEach(function(s){
+    const f=feeAngka(s);
+    const ikut=(s.status==='Done');
+    h+='<tr'+(ikut?'':' style="opacity:.6"')+'>'
+      +'<td><a href="javascript:schedInfo(\''+s.id+'\')" style="color:var(--accent)">'+esc(fmtDate(s.date))+'</a></td>'
+      +'<td class="mini">'+esc(namaHari(s.date))+'</td>'
+      +'<td class="mini">'+esc(s.start_time||'')+'–'+esc(s.end_time||'')+'</td>'
+      +'<td class="mini">'+esc(s.performance_type||'—')+'</td>'
+      +'<td>'+statusBadge(s.status)+'</td>'
+      +'<td style="text-align:right">'+(ikut
+          ? (f?'<b>'+IDR(f)+'</b>':'<span class="mini" style="color:var(--red)" title="Jadwal Done tanpa fee — isi dulu sebelum tagihan dibuat">Rp 0</span>')
+          : '<span class="mini">'+IDR(f)+' · belum dihitung</span>')+'</td></tr>';
+  });
+  h+='</tbody><tfoot><tr><td colspan="5"><b>Total dibayar periode ini</b>'
+   +(belum.length?' <span class="mini">('+belum.length+' jadwal belum Done tidak ikut'
+     +(batal.length?', '+batal.length+' batal':'')+')</span>':'')
+   +'</td><td style="text-align:right"><b>'+IDR(total)+'</b></td></tr></tfoot></table></div></div>';
+  return h;
+}
 function renderFee(){
   setTop('Fee & Pembayaran Talent','Rekap otomatis show Done × fee','');
   // build recap per talent for month
@@ -3064,9 +3430,11 @@ function renderFee(){
     <span class="pill">Total fee: ${IDR(Object.values(recap).reduce((a,r)=>a+r.total,0))}</span>
   </div>
   <p class="mini" style="margin:-4px 0 12px">Fee di profil talent adalah <b>fee per hari tampil</b>.
-     Total di bawah = jumlah hari berstatus <b>Done</b> pada periode ini &times; fee hari itu.</p>
+     Total di bawah = jumlah hari berstatus <b>Done</b> pada periode ini &times; fee hari itu.
+     Klik nama talent untuk membuka rinciannya.</p>
+  ${feeRincianHTML()}
   <div class="card" style="padding:0"><table><thead><tr><th>Talent</th><th>Bank</th><th>Hari Tampil</th><th>Total Fee</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
-  ${rows.map(r=>`<tr${r.count?'':' style="opacity:.62"'}><td><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} hari${r.tanpaFee?`<br><span class="mini" style="color:var(--red)" title="Jadwal berstatus Done yang fee-nya kosong atau nol. Isi fee-nya di Talent Schedule sebelum tagihan dibuat.">${r.tanpaFee} tanpa fee</span>`:''}</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak tampil di periode ini</span>')}</td>
+  ${rows.map(r=>`<tr class="${r.t.id===FEE_PILIH?'fee-on':''}"${r.count?'':' style="opacity:.62"'}><td style="cursor:pointer" title="Lihat rincian hari tampilnya" onclick="feePilih('${r.t.id}')"><b>${esc(r.t.name)}</b><br><span class="mini">${r.t.category}</span></td><td>${esc(r.t.bank_name||'—')}${r.t.bank_account?' · '+esc(r.t.bank_account):''}</td><td>${r.count} hari${r.tanpaFee?`<br><span class="mini" style="color:var(--red)" title="Jadwal berstatus Done yang fee-nya kosong atau nol. Isi fee-nya di Talent Schedule sebelum tagihan dibuat.">${r.tanpaFee} tanpa fee</span>`:''}</td><td><b>${IDR(r.total)}</b></td><td>${r.pay?statusBadge(r.pay.status):(r.count?'<span class="mini">belum di-generate</span>':'<span class="mini">tidak tampil di periode ini</span>')}</td>
     <td>${r.pay?(r.pay.status==='Waiting'?`<button class="btn sm" onclick="payAction('${r.pay.id}')">Bayar</button> <button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`:`<button class="btn ghost sm" onclick="payHistory('${r.pay.id}')">Detail</button>`):(r.count?`<button class="btn blue sm" onclick="genPayment('${r.t.id}',${r.total},${r.count})">Generate Payment</button>`:'<span class="mini">—</span>')}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">Belum ada talent. Tambahkan di menu Talent Management.</td></tr>'}
   </tbody></table></div>`;
 }
