@@ -6788,8 +6788,14 @@ function renderL1(id){
    - PALET BENTUK yang ditarik ke kanvas, plus perataan (align) & distribusi
      yang jadi alasan orang memakai draw.io untuk denah kursi.
    ============================================================ */
+/* Nama bawaan sengaja BERBAHASA SAMA dengan sisa modul ini. Dulu kelas
+   dasarnya bernama "Regular", sementara setiap tempat lain yang mencetak kelas
+   tiket (denah Laksamana Muda, denah Lantai 1, template kustom) menulis
+   "Reguler". Satu event bisa berakhir punya keduanya -- beda satu huruf,
+   tampil sebagai dua kategori, dan tidak ada satu pun layar yang menyebut
+   keduanya sebenarnya hal yang sama. */
 const LDZ_TIERS={
-  Regular:{c:'#2f7fc4'},   // biru  — kelas dasar
+  Reguler:{c:'#2f7fc4'},   // biru  — kelas dasar
   Silver :{c:'#8d97a3'},   // perak
   Gold   :{c:'#e0b23c'},   // kuning
   VIP    :{c:'#c9432b'}    // merah
@@ -6823,7 +6829,7 @@ function ldzTierNames(eid){ return Object.keys(ldzTiers(eid)); }
 // Tingkatan yang sedang dipilih di palet, dijamin ada di event ini.
 function ldzTierAktif(eid){
   const nama=ldzTierNames(eid);
-  return (nama.indexOf(window._ldzTier)>=0)?window._ldzTier:(nama[0]||'Regular');
+  return (nama.indexOf(window._ldzTier)>=0)?window._ldzTier:(nama[0]||'Reguler');
 }
 // Kelas tiket yang mewakili tingkatan aktif (null kalau event belum punya kelas).
 function ldzKelasAktif(eid){
@@ -7106,7 +7112,24 @@ function ldzTierClass(eid,tier){
 // Kuota kelas mengikuti isi denah: 1 kursi = 1, 1 meja = kapasitas mejanya.
 function ldzSyncQuota(eid){
   const its=ldzItems(eid);
-  LDZ_TIER_NAMES.forEach(t=>{
+  /* TIER MILIK EVENT INI, bukan LDZ_TIER_NAMES.
+
+     LDZ_TIER_NAMES adalah empat nama BAWAAN yang dipatok di kode dan hanya
+     dipakai kalau event belum punya satu kelas pun. Memutarinya di sini salah
+     dua arah sekaligus, dan keduanya diam:
+
+     1. Kelas nyata yang namanya di luar empat itu -- "Reguler", "VIP Table",
+        "Early Bird" -- TIDAK PERNAH ikut disinkronkan. Kuotanya berhenti di
+        angka lama walau denahnya dirombak, dan tidak ada yang melaporkannya.
+     2. Objek denah yang tier-nya kebetulan salah satu nama bawaan membuat
+        ldzTierClass() MENCETAK kelas tiket baru dengan nama itu di event yang
+        kelas aslinya bernama lain. Dua kategori beda satu huruf lalu berdiri
+        bersebelahan di Ticketing dan di ringkasan Check-In, dan yang
+        melihatnya menyimpulkan modulnya menampilkan event lain.
+
+     Sudah kejadian dan dilaporkan 13 Agustus 2026 lewat layar Check-In:
+     "Reguler" dan "Regular" muncul sebagai dua baris di event yang sama. */
+  ldzTierNames(eid).forEach(t=>{
     const mine=its.filter(i=>i.tier===t);
     if(!mine.length) return;
     const c=ldzTierClass(eid,t);
@@ -8839,6 +8862,30 @@ function lantaiBentrok(c){
   if(!n||!t||n[1]===t[1]) return null;
   return {nama:n[1], teks:t[1]};
 }
+/* ---------- KATEGORI YANG SEBENARNYA SAMA ----------
+   "Reguler" dan "Regular" pada satu event adalah satu kategori yang ditulis
+   dua kali, tapi bagi kode keduanya dua kelas tiket berbeda: dua baris di
+   Ticketing, dua baris di ringkasan Check-In, dua kuota yang dihitung
+   sendiri-sendiri, dan penjualan yang terbelah tanpa ada yang menyadarinya.
+   Yang melihatnya di layar pintu menyimpulkan modulnya sedang menampilkan
+   event lain -- dilaporkan 13 Agustus 2026.
+
+   Sumber utamanya sudah ditutup (lihat ldzSyncQuota), tapi pintu manualnya
+   masih terbuka: siapa pun bisa mengetik nama kelas kedua yang cuma beda
+   ejaan. Perbandingannya mengabaikan huruf besar-kecil, spasi, tanda baca,
+   dan pasangan ejaan yang di venue ini memang berarti sama. */
+const EJAAN_SAMA=[[/regular/g,'reguler'],[/vvip/g,'vip'],[/table/g,'meja']];
+function normKategori(n){
+  let t=String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  EJAAN_SAMA.forEach(function(r){ t=t.replace(r[0],r[1]); });
+  return t;
+}
+function kategoriKembar(eid,nama,kecualiId){
+  const k=normKategori(nama);
+  if(!k) return [];
+  return DB.ticketClasses.filter(function(c){
+    return c.event_id===eid && c.id!==kecualiId && normKategori(c.name)===k; });
+}
 function ticketClassForm(eid, id){
   /* Satu form untuk BUAT dan UBAH. Sebelumnya hanya bisa membuat: salah ketik
      harga sekali berarti kelas itu menetap selamanya, dan satu-satunya jalan
@@ -8877,6 +8924,15 @@ function syncSaleWindow(){
 function saveTicketClass(eid, id){
   const g=x=>document.getElementById(x).value;
   const name=g('tc_name').trim();if(!name){toast('Nama wajib.');return;}
+  /* Ditolak, bukan digabung diam-diam: menggabung dua kelas berarti
+     memindahkan tiket yang sudah terjual, dan itu keputusan yang harus
+     diambil orang, bukan oleh form yang sedang disimpan. */
+  const kembar=kategoriKembar(eid,name,id);
+  if(kembar.length){
+    toast('Event ini sudah punya kategori "'+kembar[0].name+'" yang artinya sama. '
+      +'Pakai yang itu, atau beri nama yang benar-benar berbeda.');
+    return;
+  }
   const ss=g('tc_ss'), se=g('tc_se');
   if(!ss){toast('Sale Start wajib diisi.');return;}
   if(!se){toast('Sale End wajib diisi.');return;}
@@ -9388,10 +9444,18 @@ let _ciFilter={q:'',mode:'belum',kelas:'',hal:1};
 function ciBaris(eid){
   return ciTiket(eid).map(function(tk){
     const o=DB.orders.find(x=>x.id===tk.order_item_id)||{};
-    const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
+    /* Kelas dicari DI DALAM event ini. Pencarian lewat id saja memulangkan
+       kelas milik event mana pun -- dan tiket yang kelasnya sudah dihapus,
+       atau yang id-nya menunjuk ke event lain, lalu tampil memakai NAMA
+       KATEGORI EVENT LAIN tanpa satu pun tanda. Ringkasan kategori di atas
+       tabel ikut memecahnya jadi baris tersendiri, dan yang membacanya
+       menyimpulkan daftar tamunya tercampur antar-event. */
+    const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id && x.event_id===eid);
+    const cLain=c?null:DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
     const ci=DB.checkins.find(x=>x.ticket_id===tk.id);
-    return {tk:tk, nama:o.buyer_name||'Tamu', hp:o.phone||'', kelas:c?c.name:'—',
-            tempat:seatTeks(tk), masuk:tk.status==='Checked-In',
+    return {tk:tk, nama:o.buyer_name||'Tamu', hp:o.phone||'',
+            kelas:c?c.name:(cLain?'(kategori event lain)':'(kategori terhapus)'),
+            tempat:seatTeks(tk), masuk:tk.status==='Checked-In', asing:!!cLain,
             jam:ci?fmtDateTime(ci.checked_in_at):''};
   });
 }
@@ -9543,6 +9607,19 @@ function ciHitungSemuaHTML(eid){
       +'<div class="ci-bar"><i style="width:'+pct+'%"></i></div>'
       +'</div>';
   });
+  /* Kategori yang artinya sama tidak digabung -- angka yang digabung
+     diam-diam menyembunyikan bahwa datanya memang terbelah. Yang dilakukan
+     cuma MENYEBUTNYA, lengkap dengan tempat memperbaikinya, karena dua baris
+     mirip di layar pintu terbaca sebagai daftar tamu yang tercampur. */
+  const kel={};
+  nama.forEach(function(k){ (kel[normKategori(k)]=kel[normKategori(k)]||[]).push(k); });
+  const dobel=Object.keys(kel).filter(function(k){ return kel[k].length>1; });
+  if(dobel.length){
+    h+='<div class="cs-row" style="color:var(--accent);cursor:default">'
+      +'<span style="flex:1">Kategori <b>'+esc(kel[dobel[0]].join('</b> & <b>'))+'</b> '
+      +'sebenarnya satu kategori yang tertulis dua ejaan. Angkanya sengaja tidak '
+      +'digabung -- rapikan di Ticketing &rsaquo; Kelas Tiket.</span></div>';
+  }
   return h+'</div>';
 }
 function ciHitungKelasHTML(eid){
@@ -10024,6 +10101,124 @@ function panelGagalMkt(){
     +'<button class="btn ghost sm" style="margin-left:6px" onclick="muatEventMarketing(true)">Coba lagi</button></div>';
 }
 
+/* ---------- RESERVASI DI KALENDER EMS ----------
+   Pasangan dari muatReservasi() di modul Marketing, dan sengaja sama sampai
+   ke penyaringnya. Kalender EMS selama ini punya tipe "Reservation", tapi
+   isinya DB.calendarExtra — catatan yang diketik manual di modul ini
+   sendiri. Reservasi yang sebenarnya, yang dicatat kru di modul Reservasi,
+   tidak pernah sampai ke sini sama sekali.
+
+   Akibatnya kalender yang judulnya "terpadu multi-sumber" memperlihatkan
+   malam Sabtu sebagai tanggal kosong padahal 40 meja sudah dibooking — dan
+   itu tanggal yang lalu ditawarkan untuk acara.
+
+   DIBACA, TIDAK DISALIN. Barisnya tidak pernah masuk DB: kalau disalin, ia
+   ikut terkirim balik ke database EMS pada save() berikutnya lalu muncul
+   sebagai acara palsu di Event Management dan ikut terhitung di laporan.
+
+   Yang DIBUANG: Cancelled dan No-show — keduanya tidak lagi memakai meja,
+   jadi menghitungnya membuat venue terlihat lebih penuh daripada
+   kenyataannya. Aturan ini disalin dari Marketing supaya dua kalender tidak
+   pernah memulangkan angka pax yang berbeda untuk hari yang sama. */
+const RSV_API_EMS = '../reservasi-api-mysql/api.php';
+let RSV_HARI  = {};      // 'YYYY-MM-DD' -> {jml, pax, baris:[...]}
+let RSV_ERR   = '';
+let RSV_MUAT  = false;
+let RSV_SUDAH = false;
+async function muatReservasiEms(paksa){
+  if(RSV_MUAT) return;
+  if(RSV_SUDAH && !paksa) return;
+  RSV_MUAT=true;
+  const stop=new AbortController();
+  const jam=setTimeout(function(){ stop.abort(); }, 8000);
+  try{
+    const r=await fetch(RSV_API_EMS+'?action=getAll&t='+Date.now(),
+      {method:'GET', redirect:'follow', signal:stop.signal});
+    const j=await r.json();
+    if(!j || !j.ok || !j.data) throw new Error('balasan tidak dikenali');
+    const peta={};
+    (j.data.reservations||[]).forEach(function(x){
+      if(!x||!x.date) return;
+      const st=String(x.status||'').toLowerCase();
+      if(st==='cancelled'||st==='no-show'||st==='noshow'||st==='batal') return;
+      const k=String(x.date).slice(0,10);
+      if(!peta[k]) peta[k]={jml:0,pax:0,baris:[]};
+      peta[k].jml++;
+      peta[k].pax+=(+x.pax||0);
+      peta[k].baris.push({nama:x.name||'(tanpa nama)', jam:x.time||'', pax:+x.pax||0,
+                          meja:x.table||'', status:x.status||'', vip:!!x.vip});
+    });
+    Object.keys(peta).forEach(function(k){
+      peta[k].baris.sort(function(a,b){ return String(a.jam).localeCompare(String(b.jam)); });
+    });
+    RSV_HARI=peta; RSV_ERR='';
+  }catch(err){
+    RSV_HARI={};
+    RSV_ERR=(err && err.name==='AbortError')
+      ? 'Modul Reservasi tidak menjawab dalam 8 detik.'
+      : 'Tidak bisa membaca modul Reservasi: '+((err&&err.message)||'gagal');
+  }finally{
+    clearTimeout(jam);
+    RSV_MUAT=false; RSV_SUDAH=true;
+    if(location.hash.indexOf('#/calendar')===0) renderCalendar();
+  }
+}
+function panelGagalRsvEms(){
+  if(!RSV_ERR) return '';
+  return '<div class="mini" style="margin:8px 0;padding:9px 12px;border-radius:8px;'
+    +'background:rgba(201,150,31,.10);border:1px solid rgba(201,150,31,.32)">'
+    +esc(RSV_ERR)+' Reservasi tidak ikut tergambar — acara di kisi bawah tetap benar. '
+    +'<button class="btn ghost sm" style="margin-left:6px" onclick="muatReservasiEms(true)">Coba lagi</button></div>';
+}
+/* Rincian satu hari. Read-only dengan sengaja — yang boleh mengubah
+   reservasi adalah modulnya sendiri; tombol ubah di sini cuma melahirkan dua
+   tempat menyunting satu baris yang sama. */
+function rsvHariPopupEms(ds){
+  const h1=RSV_HARI[ds]; if(!h1) return;
+  let h='<button class="close" onclick="closeModal()">&times;</button>'
+   +'<h3>Reservasi &middot; '+esc(fmtDate(ds))+'</h3>'
+   +'<p class="mini" style="margin-bottom:12px">'+h1.jml+' booking &middot; '+h1.pax+' pax</p>'
+   +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Jam</th><th>Atas Nama</th>'
+   +'<th>Pax</th><th>Meja</th><th>Status</th></tr></thead><tbody>';
+  h1.baris.forEach(function(r){
+    h+='<tr><td class="mono">'+esc(r.jam||'—')+'</td>'
+     +'<td><b>'+esc(r.nama)+'</b>'+(r.vip?' <span class="pill">VIP</span>':'')+'</td>'
+     +'<td class="mono">'+(r.pax||'—')+'</td>'
+     +'<td>'+esc(r.meja||'—')+'</td>'
+     +'<td>'+esc(r.status||'—')+'</td></tr>';
+  });
+  h+='</tbody></table></div>'
+   +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Tutup</button>'
+   +'<a class="btn" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>';
+  modal(h);
+}
+/* Pax satu acara EMS. Untuk acara bertiket = tiket yang benar-benar terjual;
+   untuk acara tanpa tiket = kapasitas yang direncanakan. Dua-duanya menjawab
+   pertanyaan yang sama saat kalender dibuka ("malam itu berapa orang di
+   venue"), tapi jangan sampai tertukar — karena itu bedanya ditulis di
+   tooltip, bukan cuma di angkanya. */
+function paxEventEms(e){
+  const terjual=DB.ticketClasses.filter(function(c){ return c.event_id===e.id; })
+    .reduce(function(a,c){ return a+(+c.sold||0); },0);
+  return terjual ? {n:terjual, dari:'tiket terjual'}
+                 : {n:(+e.capacity||0), dari:'kapasitas rencana'};
+}
+/* Total pax SEBULAN dari ketiga sumber, dihitung dengan penyaring yang sama
+   persis dengan kisinya — termasuk calFilter. Angka ringkasan yang
+   diambil dari daftar lain bisa tidak cocok dengan yang benar-benar terlihat,
+   dan ketidakcocokan seperti itu paling sulit dilacak orang. */
+function calTotalPaxEms(y,m){
+  const bl=y+'-'+String(m+1).padStart(2,'0');
+  const pakai=function(t){ return calFilter==='all'||calFilter===t; };
+  let ems=0, mkt=0, rsv=0;
+  if(pakai('Event')) DB.events.forEach(function(e){
+    if(String(e.start_datetime||'').slice(0,7)===bl) ems+=paxEventEms(e).n; });
+  if(pakai('Marketing')) MKT_EVENTS.forEach(function(e){
+    if(String(e.tanggal||'').slice(0,7)===bl) mkt+=(+e.pax||0); });
+  if(pakai('Reservation')) Object.keys(RSV_HARI).forEach(function(k){
+    if(k.slice(0,7)===bl) rsv+=RSV_HARI[k].pax; });
+  return {total:ems+mkt+rsv, ems:ems, mkt:mkt, rsv:rsv};
+}
 function renderCalendar(){
   setTop('Event Calendar','Kalender terpadu multi-sumber','');
   const y=calMonth.getFullYear(),m=calMonth.getMonth();
@@ -10033,7 +10228,10 @@ function renderCalendar(){
   /* `klik` = pemanggil popup untuk item itu. Kosong berarti item tidak bisa
      diklik (mis. hari libur) — dan itu ditandai di layar lewat kursor, supaya
      orang tidak menekan sesuatu yang memang tidak akan merespons. */
-  const push=(date,title,color,type,klik)=>{if(calFilter!=='all'&&calFilter!==type)return;(items[date]=items[date]||[]).push({title,color,type,klik});};
+  /* `judul` = teks tooltip. Terpisah dari `title` karena `title` sekarang
+     memuat HTML (badge pax), dan HTML di dalam atribut title tampil apa
+     adanya sebagai tag. */
+  const push=(date,title,color,type,klik,judul)=>{if(calFilter!=='all'&&calFilter!==type)return;(items[date]=items[date]||[]).push({title,color,type,klik,judul});};
   /* TIGA WARNA SAJA, mengikuti PEMILIKNYA — bukan jenis acaranya.
      Dulu enam: Event kuning, Entertainment hijau, Reservation ungu, Marketing
      jingga, Holiday merah, Birthday biru. Enam warna untuk satu kisi kecil
@@ -10060,7 +10258,19 @@ function renderCalendar(){
      ungu. Jenisnya tetap tertulis di label & saringan, jadi tidak ada
      keterangan yang hilang — yang hilang cuma warna yang tidak menjelaskan
      apa-apa. */
-  DB.events.forEach(e=>push(e.start_datetime.slice(0,10),e.title,'purple','Event',"calEventPopup('"+e.id+"')"));
+  /* Pax MENEMPEL DI PITANYA, bukan cuma di tooltip — aturan yang sama dengan
+     kalender Marketing, dan alasannya sama: kalender ini dibuka untuk
+     memutuskan "tanggal ini masih muat?", dan itu menuntut angkanya terbaca
+     sekilas tanpa menyorot satu per satu. Ditulis lengkap "120 pax", bukan
+     disingkat "120p" — singkatan satu huruf itu tidak terbaca sebagai satuan
+     apa pun oleh yang belum pernah diberi tahu. */
+  const pax=(n)=>n?'<b style="float:right;margin-left:6px">'+n+' pax</b>':'';
+  DB.events.forEach(function(e){
+    const p=paxEventEms(e);
+    push(e.start_datetime.slice(0,10), esc(e.title)+pax(p.n), 'purple', 'Event',
+         "calEventPopup('"+e.id+"')",
+         e.title+(p.n?' — '+p.n+' pax ('+p.dari+')':''));
+  });
   /* TALENT PUNYA WARNANYA SENDIRI, terpisah dari acara. Sebelumnya keduanya
      sama-sama ungu dengan alasan "sama-sama milik EMS", dan legendanya harus
      menerangkannya lewat kurung panjang "(event, talent, libur, ulang tahun)"
@@ -10071,26 +10281,70 @@ function renderCalendar(){
      dan "malam ini siapa yang main". Yang membuka kalender ini hampir selalu
      mencari salah satunya, bukan keduanya sekaligus.
 
-     Libur & ulang tahun ikut warna acara: keduanya menandai HARInya, bukan
-     penampilnya — dan menambah warna kelima untuk dua jenis yang muncul
-     beberapa kali setahun akan mengembalikan persoalan yang sama. */
-  DB.schedules.forEach(s=>{const t=DB.talents.find(x=>x.id===s.talent_id);push(s.date,'🎤 '+(t?t.name:''),'blue','Entertainment',"calJadwalPopup('"+s.id+"')");});
-  DB.calendarExtra.forEach(x=>push(x.date,x.title,x.type==='Reservation'?'teal':'purple',x.type));
-  /* Event Marketing — dibaca, tidak disalin. Ditandai jingga dan diberi
-     awalan supaya jelas ia milik modul lain dan tidak bisa disunting di sini. */
+     Talent adalah yang MEMBEDAKAN kalender ini dari kalender Marketing —
+     selebihnya keduanya sengaja dibuat sama persis, sampai ke warna, urutan
+     baris, dan cara pax ditulis. */
+  DB.schedules.forEach(function(s){
+    const t=DB.talents.find(function(x){ return x.id===s.talent_id; });
+    push(s.date, '🎤 '+esc(t?t.name:''), 'blue', 'Entertainment',
+         "calJadwalPopup('"+s.id+"')",
+         (t?t.name:'(talent dihapus)')+' — '+(s.start_time||'')+' '+(s.performance_type||''));
+  });
+  /* calendarExtra: libur & ulang tahun yang diketik di modul ini. Baris
+     bertipe Reservation SENGAJA tidak lagi ikut — reservasi yang sebenarnya
+     sekarang dibaca dari modulnya (RSV_HARI di bawah), dan dua sumber untuk
+     satu jenis baris berarti hari yang sama bisa dilaporkan dua kali. */
+  DB.calendarExtra.forEach(function(x){
+    if(x.type==='Reservation') return;
+    push(x.date, esc(x.title), 'purple', x.type, '', x.title);
+  });
+  /* Event Marketing — dibaca, tidak disalin. Emas, sama dengan kalender
+     Marketing sendiri: di KEDUA kalender, emas selalu berarti Marketing. */
   MKT_EVENTS.forEach(function(e,i){
-    push(e.tanggal, '[MKT] '+e.nama+(e.client?' - '+e.client:''), 'yellow', 'Marketing',
-         'calMktPopup('+i+')'); });
+    push(e.tanggal, esc(e.nama)+pax(+e.pax||0), 'yellow', 'Marketing',
+         'calMktPopup('+i+')',
+         'Acara Marketing: '+e.nama+(e.client?' — '+e.client:'')+(e.pax?' · '+e.pax+' pax':''));
+  });
   muatEventMarketing();
+  muatReservasiEms();
+
+  const adaRsv=(calFilter==='all'||calFilter==='Reservation');
+  const jml=calTotalPaxEms(y,m);
   let cells='';for(let i=0;i<startDow;i++)cells+='<div class="cell other"></div>';
-  for(let d=1;d<=days;d++){const ds=dstr(new Date(y,m,d));const its=items[ds]||[];cells+=`<div class="cell ${ds===todayStr?'today':''}"><div class="dn">${d}</div>${its.slice(0,4).map(it=>`<span class="evt-dot b-${it.color}${it.klik?' bisa':''}"${it.klik?` onclick="${it.klik}"`:''}>${esc(it.title)}</span>`).join('')}${its.length>4?`<span class="mini">+${its.length-4} lagi</span>`:''}</div>`;}
+  for(let d=1;d<=days;d++){
+    const ds=dstr(new Date(y,m,d));
+    const its=items[ds]||[];
+    const rr=adaRsv?RSV_HARI[ds]:null;
+    cells+='<div class="cell '+(ds===todayStr?'today':'')+'"><div class="dn">'+d+'</div>'
+      +its.slice(0,4).map(function(it){
+          return '<span class="evt-dot b-'+it.color+(it.klik?' bisa':'')+'"'
+            +(it.klik?' onclick="'+it.klik+'"':'')
+            +(it.judul?' title="'+esc(it.judul)+'"':'')+'>'+it.title+'</span>';
+        }).join('')
+      +(its.length>4?'<span class="mini">+'+(its.length-4)+' lagi</span>':'')
+      /* Reservasi PALING BAWAH dan cuma SATU baris ringkasan per hari — sama
+         seperti Marketing. Di bawah supaya acara, yang bisa dibuka dan
+         disunting dari sini, tetap yang pertama terbaca; satu baris karena
+         malam Sabtu bisa berisi 40 booking dan empat puluh baris di dalam
+         satu kotak tanggal bukan lagi kalender. Ia juga TIDAK ikut dipotong
+         oleh batas 4 di atas: hari yang penuh acara justru hari yang paling
+         perlu memperlihatkan reservasinya. */
+      +(rr?'<span class="evt-dot b-teal bisa" onclick="rsvHariPopupEms(\''+ds+'\')" '
+          +'title="'+rr.jml+' reservasi · '+rr.pax+' pax — klik untuk rinciannya">'
+          +'● '+rr.jml+' reservasi'+(rr.pax?'<b style="float:right;margin-left:6px">'+rr.pax+' pax</b>':'')
+          +'</span>':'')
+      +'</div>';
+  }
   const types=['all','Event','Entertainment','Reservation','Marketing','Holiday','Birthday'];
   C().innerHTML=`<div class="toolbar"><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m-1},1);renderCalendar()">‹</button><b style="min-width:140px;text-align:center">${MONTHS[m]} ${y}</b><button class="btn ghost sm" onclick="calMonth=new Date(${y},${m+1},1);renderCalendar()">›</button>
+  <button class="btn ghost sm" onclick="calMonth=new Date();calMonth.setDate(1);renderCalendar()">Hari Ini</button>
   <select onchange="calFilter=this.value;renderCalendar()" style="width:auto">${types.map(t=>`<option value="${t}" ${calFilter===t?'selected':''}>${t==='all'?'Semua tipe':t}</option>`).join('')}</select></div>
-  ${panelGagalMkt()}
-  <div class="legend"><span><i class="dotc" style="background:var(--purple)"></i>Event</span><span><i class="dotc" style="background:var(--blue)"></i>Talent</span><span><i class="dotc" style="background:var(--accent)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:#0C6B64"></i>Reservasi</span></div>
+  ${panelGagalMkt()}${panelGagalRsvEms()}
+  <div class="legend"><span><i class="dotc" style="background:var(--purple)"></i>Event EMS</span><span><i class="dotc" style="background:var(--blue)"></i>Talent${DB.schedules.length?' ('+DB.schedules.length+')':''}</span><span><i class="dotc" style="background:var(--accent2)"></i>Marketing${MKT_EVENTS.length?' ('+MKT_EVENTS.length+')':''}</span><span><i class="dotc" style="background:#0C6B64"></i>Reservasi${Object.keys(RSV_HARI).length?' ('+Object.keys(RSV_HARI).length+' hari)':''}</span>
+  <span style="margin-left:auto;font-weight:700;color:var(--accent)" title="EMS ${jml.ems} · Marketing ${jml.mkt} · Reservasi ${jml.rsv} pax">${jml.total.toLocaleString('id-ID')} pax bulan ini</span></div>
   <div class="cal">${DOW.map(d=>`<div class="dow">${d}</div>`).join('')}${cells}</div>`;
 }
+
 
 /* ---------- POPUP DETAIL DARI KALENDER ----------
    Sebelum ini kalender EMS cuma memajang nama. Untuk tahu jam berapa, di
