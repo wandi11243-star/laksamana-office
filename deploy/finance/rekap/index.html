@@ -535,6 +535,13 @@ function rinciJual(tgl){
    Tanpa koreksi ini, setiap hari yang ada tamu berhutang selalu terlihat
    selisih sebesar bonnya padahal tidak ada yang salah — persis alasan yang
    membuat gerbang selisih di panel omset dilonggarkan 4 Agustus 2026. */
+/* Hari yang jelas TIDAK MUNGKIN dicocokkan: ada setoran kasir, ada omset, tapi
+   service & tax di Input Omset Harian dua-duanya nol. Kalau begitu keadaannya,
+   selisih yang muncul hampir pasti bukan uang hilang melainkan isian yang belum
+   lengkap — dan menyuruh orang menelusuri kas untuk itu membuang satu hari
+   kerja. Panel ini tidak bisa memperbaikinya (isian itu milik panel sebelah),
+   tapi wajib mengatakannya. */
+function tanpaSvcTax(h){ return h.setoran>0 && h.j.ada && h.j.net>0 && (h.j.svc+h.j.tax)===0; }
 function bonHari(tgl){
   let baru=0,lunas=0;
   ((DB&&DB.piutang)||[]).forEach(b=>{
@@ -614,11 +621,12 @@ function ringkasBulan(){
      jadi tidak mungkin ada dua tempat yang menjumlahkan dengan cara berbeda. */
   const g={}; GRUP.forEach(x=>g[x.k]={pos:0,kotor:0,mdr:0,akt:0,sel:0,adj:0,cek:0,punyaPos:x.pos.length>0});
   const lain={comp:0,mdep:0,vou:0,errC:0,errK:0};
-  let sel=0, svc=0, tax=0, disc=0, net=0, bonBaru=0, bonLunas=0;
+  let sel=0, svc=0, tax=0, disc=0, net=0, bonBaru=0, bonLunas=0, nTanpaSvc=0;
   baris.forEach(({tgl,h})=>{
     jual+=h.jual; akt+=h.rekapAkt; mdr+=h.mdrTotal; sel+=h.selisihTotal;
     net+=h.j.net; svc+=h.j.svc; tax+=h.j.tax; disc+=h.j.disc;
     bonBaru+=h.bon.baru; bonLunas+=h.bon.lunas;
+    if(tanpaSvcTax(h)) nTanpaSvc++;
     lain.comp+=h.comp; lain.mdep+=h.mdep; lain.vou+=h.vou; lain.errC+=h.errCust; lain.errK+=h.errKit;
     GRUP.forEach(x=>{
       const s=h.g[x.k], t=g[x.k];
@@ -629,7 +637,7 @@ function ringkasBulan(){
     });
     if(setorOf(tgl)) nSetor++;
   });
-  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel,net,svc,tax,disc,bonBaru,bonLunas,g,lain};
+  return {baris,jual,akt,mdr,adj,adjKunci,nSetor,sel,net,svc,tax,disc,bonBaru,bonLunas,nTanpaSvc,g,lain};
 }
 
 /* ====================== KERANGKA ====================== */
@@ -640,7 +648,7 @@ function setSync(st,msg){
 }
 function toggleNav(){ $('app').classList.toggle('nav-mini'); }
 const SUB_TITLE={
-  rekap:'Cocokkan POS dengan setoran bank — pengganti berkas Excel "Penjualan 2026"',
+  rekap:'Cocokkan POS dengan setoran bank — angka penjualannya after tax & service, sama dengan yang dibayar tamu',
   input:'MDR, penanda Setor, dan centang Input POS untuk satu hari'
 };
 function gantiTab(t){
@@ -663,12 +671,18 @@ function kartu(lab,val,foot,kelas){
 }
 function kartuBulan(R){
   return `<div class="row-in">`
-    +kartu('Total Tagihan',fmtRp(R.jual),
-        `omset net ${fmtRp(R.net)} + service ${fmtRp(R.svc)} + tax ${fmtRp(R.tax)}`,'accent')
+    /* Namanya "Dibayar Tamu", bukan "Total Penjualan" (12 Agustus 2026,
+       permintaan user: "beneran yang dibayar tamu, karena saya mau
+       mencocokkan"). Kata "penjualan" di layar ini pernah dibaca sebagai omset
+       barang — dan omset barang MEMANG tidak akan pernah sama dengan setoran
+       kasir, karena tamu membayar sesudah service & tax. Nama yang menyebut
+       apa adanya membuat salah baca itu tidak bisa terjadi lagi. */
+    +kartu('Dibayar Tamu',fmtRp(R.jual),
+        `after tax &amp; service · omset net ${fmtRp(R.net)} + service ${fmtRp(R.svc)} + tax ${fmtRp(R.tax)}`,'accent')
     +kartu('Rekap Aktual',fmtRp(R.akt),'seluruh kolom Actual Report Daily, dipotong MDR','')
     +kartu('Total MDR',fmtRp(R.mdr),'biaya bank yang mengurangi aktual','')
     +kartu('Total Selisih',fmtRp(R.sel),
-        'Tagihan − Rekap Aktual'+((R.bonBaru||R.bonLunas)?' + koreksi bon':''),
+        'Dibayar Tamu − Rekap Aktual'+((R.bonBaru||R.bonLunas)?' + koreksi bon':''),
         Math.abs(R.sel)<=TOLERANSI*R.baris.length?'baik':'buruk')
     /* Yang dijumlahkan nominal ADJUST tiap kelompok yang centang Input POS-nya
        sudah menyala, jadi angka ini menjawab satu pertanyaan: berapa yang sudah
@@ -688,6 +702,7 @@ function viewRekap(){
   const R=ringkasBulan();
   let html=kartuBulan(R);
   if(adaUbah()) html+=`<div class="notice warn"><div>⚠ <b>${Object.keys(UBAH).length} hari punya perubahan yang belum disimpan.</b> Angka di bawah sudah memperhitungkannya. Buka sub-tab <b>Input Harian</b> untuk menyimpan.</div></div>`;
+  if(R.nTanpaSvc) html+=`<div class="notice bad"><div>⚠ <b>${R.nTanpaSvc} hari punya setoran kasir tapi service charge &amp; tax-nya masih nol</b> di Input Omset Harian. Yang dibayar tamu sudah termasuk service &amp; tax, jadi hari-hari itu akan selalu terlihat selisih sebesar service+tax-nya — <b>bukan uang hilang</b>. Lengkapi dulu isiannya di panel <b>Input Omset Harian</b> sebelum menelusuri kas.</div></div>`;
 
   if(!R.baris.length){
     return html+'<div class="card"><div class="empty"><div class="big">🗓️</div>Belum ada data omset maupun Daily Report untuk <b>'+esc(labelBulan(PERIODE))+'</b>.<br>Isi dulu di panel <b>Input Omset Harian</b>.</div></div>';
@@ -720,11 +735,12 @@ function viewRekap(){
     const nCek=GRUP.filter(g=>tandaOf(tgl,g.k)).length;
     html+=`<button type="button" class="hrow" data-tgl="${tgl}" aria-expanded="false">
         <div class="hd"><b>${esc(labelHari(tgl))}</b><span>${esc(MONTHS_F[+PERIODE.split('-')[1]-1]||'')}</span></div>
-        <div class="hn"><span class="lab">Tagihan</span><b>${rp0(h.jual)}</b></div>
+        <div class="hn"><span class="lab">Dibayar Tamu</span><b>${rp0(h.jual)}</b></div>
         <div class="hn"><span class="lab">Rekap Aktual</span><b>${rp0(h.rekapAkt)}</b></div>
         <div class="hn"><span class="lab">MDR</span><b>${rp0(h.mdrTotal)}</b></div>
         <div class="hn"><span class="lab">Selisih</span><b class="${klsSel(h.selisihTotal)}">${rp0(h.selisihTotal)}</b></div>
-        <div class="hb">${setorOf(tgl)?'<span class="chip ok">✓ Setor</span>':'<span class="chip mute">belum setor</span>'}
+        <div class="hb">${tanpaSvcTax(h)?'<span class="chip bad">svc &amp; tax kosong</span>':''}
+          ${setorOf(tgl)?'<span class="chip ok">✓ Setor</span>':'<span class="chip mute">belum setor</span>'}
           <span class="chip ${nCek===GRUP.length?'ok':(nCek?'warn':'mute')}">POS ${nCek}/${GRUP.length}</span></div>
         <span class="hch">⌄</span>
       </button>
@@ -754,7 +770,7 @@ function detailHari(tgl){
     <div class="op">+</div>
     <div class="hs"><span>Tax</span><b>${rp0(j.tax)}</b></div>
     <div class="op">=</div>
-    <div class="hs kuat"><span>Tagihan</span><b>${rp0(h.jual)}</b></div>
+    <div class="hs kuat"><span>Dibayar Tamu</span><b>${rp0(h.jual)}</b></div>
     <div class="op">−</div>
     <div class="hs"><span>Setoran (Actual)</span><b>${rp0(h.setoran)}</b></div>
     ${h.mdrTotal?`<div class="op">+</div><div class="hs"><span>MDR</span><b>${rp0(h.mdrTotal)}</b></div>`:''}
@@ -763,7 +779,8 @@ function detailHari(tgl){
     <div class="hs kuat"><span>Selisih</span><b class="${klsSel(sel)}">${rp0(sel)}</b></div>
     <div class="hsket">${Math.abs(sel)<=TOLERANSI
       ? 'cocok ✓ (toleransi '+fmtRp(TOLERANSI)+')'
-      : 'lewat toleransi '+fmtRp(TOLERANSI)+' — perlu ditelusuri'}${j.disc?' · diskon hari ini '+fmtRp(j.disc)+' sudah dikurangkan':''}</div>
+      : 'lewat toleransi '+fmtRp(TOLERANSI)+' — perlu ditelusuri'}${j.disc?' · diskon hari ini '+fmtRp(j.disc)+' sudah dikurangkan':''}${
+      tanpaSvcTax(h)?' · <b style="color:var(--danger)">service &amp; tax masih nol di Input Omset Harian — selisih ini kemungkinan besar dari sana, bukan dari kas</b>':''}</div>
   </div>`;
   html+='<div class="dg">';
   GRUP.forEach(g=>{
@@ -819,16 +836,17 @@ function viewInput(){
   </div>`;
 
   html+=`<div class="row-in">`
-    +kartu('Tagihan',fmtRp(h.jual),
-        `omset net ${fmtRp(h.j.net)} + service ${fmtRp(h.j.svc)} + tax ${fmtRp(h.j.tax)}`,'accent')
+    +kartu('Dibayar Tamu',fmtRp(h.jual),
+        `after tax &amp; service · net ${fmtRp(h.j.net)} + svc ${fmtRp(h.j.svc)} + tax ${fmtRp(h.j.tax)}`,'accent')
     +kartu('Rekap Aktual',`<span id="o-akt">${fmtRp(h.rekapAkt)}</span>`,
         `setoran ${fmtRp(h.setoran)} − MDR`,'')
     +kartu('Total MDR',`<span id="o-mdr">${fmtRp(h.mdrTotal)}</span>`,'biaya bank hari ini','')
     +kartu('Selisih',`<span id="o-sel">${fmtRp(h.selisihTotal)}</span>`,
-        'Tagihan − Rekap Aktual'+(h.bon.ada?` + koreksi bon ${fmtRp(h.bon.koreksi)}`:''),'')
+        'Dibayar Tamu − Rekap Aktual'+(h.bon.ada?` + koreksi bon ${fmtRp(h.bon.koreksi)}`:''),'')
     +`</div>`;
 
   if(!h.r) html+=`<div class="notice warn"><div>⚠ Daily Report tanggal ini <b>belum ada</b>, jadi seluruh angka POS &amp; Aktual masih nol. MDR dan penandanya tetap boleh diisi sekarang — urutan kerjanya di lapangan memang tidak selalu report dulu.</div></div>`;
+  if(tanpaSvcTax(h)) html+=`<div class="notice bad"><div>⚠ <b>Service charge &amp; tax tanggal ini masih nol</b> di Input Omset Harian, padahal setoran kasirnya ${fmtRp(h.setoran)}. Yang dibayar tamu sudah termasuk service &amp; tax, jadi selisih di bawah kemungkinan besar berasal dari isian yang belum lengkap — bukan dari kas.</div></div>`;
 
   html+=`<div class="card">
     <h3>Setoran Cash</h3>
