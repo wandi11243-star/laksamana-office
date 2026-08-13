@@ -3993,8 +3993,10 @@ function breakdownEventEms(a){
     const omzet=DB.orders.filter(function(o){ return o.event_id===e.id && o.payment_status==='Paid'; })
       .reduce(function(x,o){ return x+(+o.total||0); },0);
     const top=kelas.slice().sort(function(x,y){ return (+y.sold||0)-(+x.sold||0); })[0];
-    return {e:e, terjual:terjual, tiket:tiket.length, hadir:hadir, omzet:omzet,
+    const kuota=kelas.reduce(function(x,c){ return x+(+c.quota||0); },0);
+    return {e:e, terjual:terjual, kuota:kuota, tiket:tiket.length, hadir:hadir, omzet:omzet,
             top:(top&&+top.sold)?top:null,
+            isi: kuota?Math.round(terjual/kuota*100):0,
             hadirPct: tiket.length?Math.round(hadir/tiket.length*100):0};
   }).sort(function(x,y){ return y.terjual-x.terjual; });
 }
@@ -4130,19 +4132,23 @@ function renderApprovalEms(){
 let planTab='rencana';
 function setPlanTab(v){ planTab=v; renderPlanning(); }
 function planTabsHTML(){
-  const t=[['rencana','Perencanaan'],['ide','Event Idea Bank'],['riwayat','Event History']];
+  /* 'Event Idea Bank' DICABUT dari sini. Halaman Perencanaan menjawab "apa yang
+     sedang disiapkan dan menunggu keputusan"; bank ide menjawab "apa yang
+     mungkin dibuat suatu saat" - dua jarak waktu yang sangat berbeda, dan
+     mencampurnya membuat tab ini terbaca seolah ide adalah tahap awal
+     perencanaan, padahal tidak pernah begitu dipakai.
+
+     Halamannya sendiri tidak dihapus (#/ideas masih ada di router) - yang
+     dicabut cuma pintunya dari Perencanaan. */
+  const t=[['rencana','Perencanaan'],['riwayat','Event History']];
   return '<div class="tabs">'+t.map(function(x){
     return '<button class="'+(planTab===x[0]?'active':'')+'" '
       +'onclick="setPlanTab(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')+'</div>';
 }
 function renderPlanning(){
   const boleh=bisaUbah('planning'), setuju=bisaSetujui();
-  if(planTab==='ide'){
-    renderIdeas();
-    C().innerHTML=planTabsHTML()+C().innerHTML;
-    setTop('Perencanaan Event','Bank ide — bahan untuk rencana berikutnya','');
-    return;
-  }
+  // Tab 'ide' sudah tidak ada; data lama yang tersimpan dipulangkan ke Perencanaan.
+  if(planTab==='ide') planTab='rencana';
   if(planTab==='riwayat'){
     renderHistory();
     C().innerHTML=planTabsHTML()+C().innerHTML;
@@ -4273,7 +4279,23 @@ function renderAkses(){
     });
     h+='</tbody></table></div>';
   }
-  h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="segarkanRoster()">&#8635; Segarkan dari Office</button></div>';
+  /* Tombol "Segarkan dari Office" DICABUT. Menyegarkan roster bukan keputusan
+     yang perlu diambil siapa pun — tidak ada keadaan di mana orang SENGAJA
+     ingin melihat daftar pegawai yang basi. Yang terjadi selama ini: kolom Tim
+     seseorang dibetulkan di Office, lalu di sini masih tampil yang lama sampai
+     ada yang kebetulan tahu bahwa tombol itu harus ditekan.
+
+     Sekarang halaman ini menariknya sendiri tiap kali dibuka (lihat
+     renderAkses -> segarkanRosterOtomatis). Yang tersisa hanya keterangan kapan
+     terakhir ditarik, supaya kalau Office sedang mati orang tahu bahwa yang
+     dilihatnya salinan lama, bukan kenyataan. */
+  h+='<div class="mini" style="margin-top:10px">'
+   +(EMS_ROSTER
+      ? 'Roster ditarik otomatis dari Office tiap kali halaman ini dibuka.'
+        +(window._rosterAt?' Terakhir '+new Date(window._rosterAt).toLocaleTimeString('id-ID')+'.':'')
+      : '<b style="color:var(--red)">Office tidak terjangkau</b> — yang tampil salinan terakhir. '
+        +esc(String(EMS_ROSTER_ERR||'')))
+   +'</div>';
   h+='</div>';
 
   h+='<div class="card" style="margin-top:16px"><h3 class="sec">Matriks Izin</h3>'
@@ -4295,15 +4317,30 @@ function renderAkses(){
   if(boleh) h+='<div class="pill-row" style="margin-top:10px"><button class="btn ghost sm" onclick="resetIzin()">Kembalikan ke bawaan</button></div>';
   h+='</div>';
   C().innerHTML=h;
+  /* Ditarik TANPA ditunggu: halaman harus langsung tergambar dari salinan yang
+     ada, bukan menahan layar selama Office menjawab. Kalau isinya ternyata
+     berubah, fungsi itu yang menggambar ulang sendiri. */
+  segarkanRosterOtomatis();
 }
 /* Menarik ulang roster tanpa memuat ulang halaman — dipakai setelah seseorang
    baru saja dibetulkan kolom Tim-nya di Office. Menggambar ulang MENU juga,
    bukan cuma tabelnya: peran yang berubah bisa mengubah menu yang boleh
    dilihat, termasuk peranmu sendiri. */
-async function segarkanRoster(){
+/* Penarikan roster otomatis saat halaman Hak Akses dibuka.
+   TIDAK menggambar ulang kalau isinya sama persis: renderAkses() memanggil ini,
+   dan menggambar ulang tanpa syarat akan memanggil renderAkses() lagi -
+   putaran tak berujung. Perbandingannya lewat sidik jari JSON, bukan panjang
+   daftar: orang yang bertukar peran tidak mengubah jumlah anggota.
+
+   Menggambar ulang MENU juga, bukan cuma tabelnya: peran yang berubah bisa
+   mengubah menu yang boleh dilihat, termasuk peranmu sendiri. */
+async function segarkanRosterOtomatis(){
+  const sebelum=JSON.stringify(EMS_ROSTER||null);
   await muatRosterOffice();
-  buildNav(); renderAkses();
-  toast(EMS_ROSTER ? 'Roster Office dimuat ulang.' : 'Gagal memuat roster: '+EMS_ROSTER_ERR);
+  window._rosterAt=Date.now();
+  if(JSON.stringify(EMS_ROSTER||null)===sebelum) return;
+  buildNav();
+  if(String(location.hash).indexOf('akses')>-1) renderAkses();
 }
 function setIzin(hal,peran,nilai){
   if(!bisaUbah('akses')) return;
@@ -9020,20 +9057,57 @@ function renderHistory(){
     <span class="pill">${list.length} event</span></div>
   <div class="grid g3">${list.map(e=>{const idea=e.idea_id?DB.ideas.find(i=>i.id===e.idea_id):null;const ev=idea&&idea.evaluations[0];return `<div class="ecard" onclick="location.hash='#/history/${e.id}'"><div class="cover">${e.poster_img?`<img src="${fileUrl(e.poster_img.key)}" class="poster-img" alt="">`:''}</div><div class="body"><div class="t">${esc(e.title)}</div><div class="meta">📅 ${fmtDate(e.start_datetime)}</div>${ev?`<div class="meta" style="color:var(--accent)">💰 ${IDR(ev.omzet)} · 👥 ${ev.attendance} · ⭐ ${ev.score}/10</div>`:'<div class="meta">Evaluasi belum ada</div>'}</div></div>`;}).join('')||'<div class="empty">Belum ada event selesai.</div>'}</div>`;
 }
+/* MEMBUAT ULANG ACARA YANG SUDAH LEWAT.
+   Acara yang berhasil hampir selalu diulang - tahunan, atau tiap kuartal - dan
+   selama ini menyalinnya berarti mengetik ulang seluruh formulir sambil bolak-
+   balik membaca arsipnya di tab lain.
+
+   YANG DISALIN cuma yang menerangkan BENTUK acaranya: judul, kategori, tema,
+   venue, kapasitas, PIC, deskripsi, dan saklar ber-tiket.
+
+   YANG TIDAK IKUT, dan itu disengaja: tanggal (harus diputuskan orangnya),
+   kelas tiket & harganya (harga tahun lalu jarang masih berlaku), denah,
+   pesanan, tiket, dan seluruh angka pencapaian. Menyalinnya berarti membuat
+   acara baru yang lahir dengan penjualan milik acara lain.
+
+   Statusnya SELALU 'Planning' - salinan tetap harus lewat persetujuan
+   manajemen seperti rencana lain. */
+function buatEventLagi(id){
+  const e=DB.events.find(function(x){ return x.id===id; }); if(!e) return;
+  if(!bisaUbah('planning')) return toast('Kamu tidak punya izin membuat rencana event.');
+  eventForm(null,{
+    status:'Planning',
+    title:(e.title||'')+' (ulang)',
+    category:e.category||'', theme:e.theme||'',
+    venue:e.venue||'', capacity:+e.capacity||0,
+    pic:e.pic||'', description:e.description||'',
+    is_ticketed:!!e.is_ticketed
+  });
+  toast('Formulir diisi dari "'+(e.title||'')+'". Tanggal & kelas tiket sengaja dikosongkan.');
+}
 function renderHistoryDetail(id){
   const e=DB.events.find(x=>x.id===id);if(!e){location.hash='#/history';return;}
-  const idea=e.idea_id?DB.ideas.find(i=>i.id===e.idea_id):null;const ev=idea&&idea.evaluations[0];
+  /* EVALUASI DICABUT. Yang dulu berdiri di sini: skor, feedback, "Problem:
+     Sound sistem kurang di area belakang" dan "Improvement: Upgrade PA system"
+     - dua kalimat yang DITULIS MATI di dalam kode dan tampil sama persis di
+     SETIAP acara, sejak dulu. Arsip yang mengarang temuannya sendiri lebih
+     buruk daripada arsip yang diam.
+
+     Gantinya pencapaian yang memang tercatat dan bisa dipercaya, dihitung dari
+     sumber yang sama dengan laporan (lihat breakdownEventEms). */
+  const hasil=breakdownEventEms({events:[e]})[0];
   const d=DB.eventDetails[id];
   setTop(e.title,'<a href="#/history" style="color:var(--accent)">History</a> / '+esc(e.title),statusBadge(e.status));
   C().innerHTML=`<div style="display:flex;gap:16px;align-items:center;margin-bottom:16px"><div class="poster-head">${posterKecilHTML(e,54)}</div><div><h3 style="font-size:20px">${esc(e.title)}</h3><span class="mini">${e.category} · ${esc(e.venue)} · ${fmtDate(e.start_datetime)}</span></div></div>
-  <div class="grid g2"><div class="card"><h3 class="sec">📊 Hasil</h3><div class="kv">
-    <div class="k">Omzet</div><div><b>${ev?IDR(ev.omzet):'—'}</b></div>
-    <div class="k">Attendance</div><div>${ev?ev.attendance+' orang':'—'}</div>
-    <div class="k">Score</div><div>${ev?ev.score+'/10':'—'}</div>
-    <div class="k">Feedback</div><div>${ev?esc(ev.feedback):'—'}</div>
+  <div class="card"><h3 class="sec">📊 Pencapaian</h3><div class="kv">
+    <div class="k">Omzet Tiket</div><div><b>${IDR(hasil.omzet)}</b></div>
+    <div class="k">Tiket Terjual</div><div>${hasil.terjual}${hasil.kuota?` <span class="mini">dari ${hasil.kuota} kuota · ${hasil.isi}%</span>`:''}</div>
+    <div class="k">Hadir Hari-H</div><div>${hasil.hadir}${hasil.tiket?` <span class="mini">dari ${hasil.tiket} e-ticket · ${hasil.hadirPct}%</span>`:''}</div>
+    <div class="k">Kategori Terlaku</div><div>${hasil.top?`<b>${esc(hasil.top.name)}</b> <span class="mini">${+hasil.top.sold||0} terjual</span>`:'<span class="mini">—</span>'}</div>
+  </div>
+  <div class="pill-row" style="margin-top:14px">
+    <button class="btn" onclick="buatEventLagi('${e.id}')">↺ Buat Event Serupa</button>
   </div></div>
-  <div class="card"><h3 class="sec">🖼️ Media & Evaluasi</h3><div class="grid g3">${['📷','🎥','📸'].map(m=>`<div class="card" style="background:var(--panel2);text-align:center;font-size:28px">${m}</div>`).join('')}</div>
-    <div class="kv" style="margin-top:12px"><div class="k">Problem</div><div>Sound sistem kurang di area belakang.</div><div class="k">Improvement</div><div>Upgrade PA system + tambah stage monitor.</div></div></div></div>
   ${d&&d.budget.length?`<div class="card" style="margin-top:16px"><h3 class="sec">💰 P/L</h3><table><thead><tr><th>Item</th><th>Tipe</th><th>Actual</th></tr></thead><tbody>${d.budget.map(b=>`<tr><td>${esc(b.item)}</td><td>${b.type}</td><td>${IDR(b.actual)}</td></tr>`).join('')}</tbody></table></div>`:''}`;
 }
 
