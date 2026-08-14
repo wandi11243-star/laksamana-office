@@ -596,7 +596,7 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
+function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
 
 
 
@@ -768,6 +768,36 @@ function spanduSamakan() { samakanNama(); }
 
 
 
+
+
+
+function spanduTarik() { tarikProduk(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tarikProduk() { setSync(); pesan(); muat(); }
+
+
+
+
+
+
+
+
+
+
+
+
 function spanduBelumTerdaftar() { statusPur(); render(); daftarkanSemua(); }
 
 
@@ -782,6 +812,10 @@ function spanduBelumTerdaftar() { statusPur(); render(); daftarkanSemua(); }
 
 
 function samakanNama() { setSync(); pesan(); muat(); }
+
+
+
+
 
 
 

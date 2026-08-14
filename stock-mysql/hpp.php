@@ -379,7 +379,59 @@ try {
     pur_cek_token($b);
     $a  = isset($b->action) ? $b->action : '';
     $by = isset($b->by) ? $b->by : '';
-    if ($a === 'simpanBahan') pur_json(hpp_simpan_bahan($pdo, $b->data ?? new stdClass(), $by));
+    if ($a === 'simpanBahan') {
+      $d = $b->data ?? new stdClass();
+      $nm = hpp_txt(isset($d->nama) ? $d->nama : '', 190);
+      /* Bahan BARU di HPP ikut didaftarkan ke Purchasing (permintaan user
+         14 Agustus 2026: penambahan dari sisi mana pun harus menambah di
+         keduanya). Diperiksa SEBELUM menyimpan — sesudahnya barisnya sudah ada
+         dan "baru" tidak bisa dibedakan dari "disunting".
+
+         Yang dikirim cuma nama + satuan. Vendor, kategori, dan cara beli
+         dibiarkan kosong supaya purchasing yang memutuskan; menebak isian milik
+         modul lain berarti mengarang data atas nama orang lain.
+
+         SENGAJA TIDAK DILAKUKAN saat impor awal (hpp_impor) — 296 bahan
+         sekaligus akan membanjiri daftar purchasing dengan nama yang belum
+         tentu mereka beli. */
+      $baruDiHpp = false;
+      if ($nm !== '') {
+        $cek = $pdo->prepare('SELECT COUNT(*) FROM hpp_bahan WHERE nama=:n');
+        $cek->execute(array(':n' => $nm));
+        $baruDiHpp = !(int)$cek->fetchColumn();
+      }
+      $hasil = hpp_simpan_bahan($pdo, $d, $by);
+      if ($baruDiHpp) {
+        try {
+          $ada = $pdo->prepare('SELECT COUNT(*) FROM products WHERE nama=:n');
+          $ada->execute(array(':n' => $nm));
+          if (!(int)$ada->fetchColumn()) {
+            $sat = hpp_txt(isset($d->satuan) ? $d->satuan : '', 32);
+            pur_product_simpan($pdo, $nm, '', array(), '', $sat !== '' ? array($sat) : array());
+            $hasil['purchasingBaru'] = true;
+          }
+        } catch (Throwable $e) {
+          error_log('[stock/hpp] daftar ke purchasing gagal: ' . $e->getMessage());
+          $hasil['purchasingGagal'] = true;
+        }
+      }
+      pur_json($hasil);
+    }
+    /* SEKALI JALAN: tarik semua bahan purchasing yang belum punya baris di HPP.
+       Penyambungan otomatis di atas cuma menangkap produk yang DISIMPAN sejak
+       hari ini; ratusan produk yang sudah ada sebelumnya tidak akan pernah
+       lewat sana. */
+    if ($a === 'tarikProduk') {
+      require_once __DIR__ . '/lib_hpp_nama.php';
+      $n = 0;
+      foreach ($pdo->query('SELECT nama, data FROM products')->fetchAll(PDO::FETCH_ASSOC) as $p) {
+        $sat = array();
+        $j = json_decode((string)$p['data'], true);
+        if (is_array($j) && isset($j['satuan']) && is_array($j['satuan'])) $sat = $j['satuan'];
+        if (hpp_ikut_tambah($pdo, $p['nama'], $sat)) $n++;
+      }
+      pur_json(array('status'=>'success','saved'=>true,'ditarik'=>$n));
+    }
     if ($a === 'hapusBahan') {
       $n = hpp_txt($b->nama ?? '', 190);
       $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n')->execute(array(':n' => $n));

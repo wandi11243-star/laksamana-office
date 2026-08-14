@@ -605,7 +605,7 @@ function viewBahan(){
   const nHal=Math.max(1,Math.ceil(semua.length/FB.per));
   if(FB.hal>nHal) FB.hal=nHal;
   const hal=semua.slice((FB.hal-1)*FB.per,FB.hal*FB.per);
-  let h=spanduSamakan()+spanduBelumTerdaftar()+`<div class="card">
+  let h=spanduSamakan()+spanduTarik()+spanduBelumTerdaftar()+`<div class="card">
     <div class="bar">
       <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="cari(this,v=>{FB.q=v;FB.hal=1})">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
@@ -768,6 +768,36 @@ function spanduSamakan(){
     <div style="margin-top:9px"><button class="btn btn-primary btn-sm" onclick="samakanNama()">🔤 Samakan nama dengan purchasing</button></div>
   </div></div>`;
 }
+/* Produk purchasing yang belum punya baris di HPP. Sejak penambahan disambung
+   dua arah, ini cuma sisa sejarah — produk yang sudah berdiri di sana sebelum
+   penyambungannya dibuat. Ditarik sekali, lalu spanduknya hilang selamanya. */
+function spanduTarik(){
+  const nama=Object.keys(PRODUK);
+  if(!nama.length) return '';
+  const adaHpp={}; S.bahan.forEach(b=>{ adaHpp[b.nama]=1; });
+  const kurang=nama.filter(n=>!adaHpp[n]);
+  if(!kurang.length) return '';
+  return `<div class="notice warn"><div>
+    <b>${kurang.length} bahan ada di Purchasing tapi belum ada di sini.</b>
+    Sejak sekarang bahan baru dari sana masuk sendiri — yang ini sisa yang sudah berdiri lebih dulu.
+    Tarik sekali supaya kedua daftar benar-benar sama; harganya dibiarkan nol untuk diisi belakangan.
+    <div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${kurang.slice(0,5).map(esc).join(' · ')}</div>
+    <div style="margin-top:9px"><button class="btn btn-primary btn-sm" onclick="tarikProduk()">⬇ Tarik ${kurang.length} bahan dari Purchasing</button></div>
+  </div></div>`;
+}
+function tarikProduk(){
+  if(!confirm('Tarik semua bahan purchasing yang belum ada di sini?\n\nBarisnya dibuat dengan harga nol — tidak ada harga yang ditimpa.')) return;
+  setSync('','Menarik…');
+  fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'tarikProduk',by:(ME&&ME.name)||''})})
+    .then(r=>r.text()).then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON');
+      pesan(`<div class="notice ok">✓ ${j.ditarik} bahan ditarik dari Purchasing. Harganya masih nol — isi lewat tombol Ubah.</div>`);
+      return muat();
+    })
+    .catch(e=>{ setSync('err','✕ Gagal'); pesan(`<div class="notice bad">✕ Gagal menarik: ${esc(e.message||'')}</div>`); });
+}
 function spanduBelumTerdaftar(){
   if(!Object.keys(PRODUK).length) return `<div class="notice bad">✕ Basis bahan baku purchasing tidak bisa dibaca, jadi kolom vendor kosong dan penanda "belum di purchasing" tidak bisa dipercaya. Coba muat ulang halaman.</div>`;
   const blm=S.bahan.filter(b=>statusPur(b).k==='belum');
@@ -799,6 +829,10 @@ function samakanNama(){
    satuan; vendor, kategori, dan cara beli sengaja dibiarkan kosong supaya
    purchasing yang memutuskannya. Menebak isian milik modul lain berarti
    mengarang data atas nama orang lain. */
+/* Bahan BARU yang dibuat dari layar ini didaftarkan ke purchasing oleh SERVER
+   (lihat simpanBahan di stock-mysql/hpp.php), bukan dari sini — supaya jalurnya
+   satu dan tidak bergantung pada layar mana yang dipakai. Tombol di bawah
+   khusus untuk bahan LAMA yang terlanjur berdiri sendiri. */
 function daftarkanKePurchasing(nama){
   const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
   if(!confirm(`Tambahkan "${nama}" ke basis bahan baku purchasing?\n\nVendor & kategorinya dikosongkan — biar purchasing yang mengisi.`)) return;

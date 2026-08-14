@@ -35,6 +35,41 @@ function hpp_tabel_ada($pdo, $nama) {
 }
 
 /**
+ * Bahan baru di Purchasing ikut lahir di HPP (permintaan user 14 Agustus 2026:
+ * "jika ada penambahan bahan baku di modul purchasing, HPP & Resep tetap harus
+ * sync"). Barisnya dibuat dengan HARGA NOL — harga bukan milik purchasing dan
+ * tidak boleh ditebak; yang penting namanya sudah berdiri di kedua daftar,
+ * sehingga resep bisa langsung memakainya dan halaman Bahan & Harga tinggal
+ * memintanya diisi.
+ *
+ * IDEMPOTEN: dipanggil tiap kali produk disimpan (baru maupun disunting), jadi
+ * ia harus aman diulang. Bahan yang sudah ada TIDAK disentuh sama sekali —
+ * menimpanya berarti mengembalikan harga yang sudah susah payah diisi ke nol.
+ */
+function hpp_ikut_tambah($pdo, $nama, $satuan = array()) {
+  $nama = trim((string)$nama);
+  if ($nama === '') return false;
+  if (!hpp_tabel_ada($pdo, 'hpp_bahan')) return false;
+  try {
+    $st = $pdo->prepare('SELECT COUNT(*) FROM hpp_bahan WHERE nama=:n');
+    $st->execute(array(':n' => $nama));
+    if ((int)$st->fetchColumn()) return false;      // sudah ada — jangan diapa-apakan
+    $sat = '';
+    if (is_array($satuan) && count($satuan)) $sat = mb_substr(trim((string)$satuan[0]), 0, 32);
+    $pdo->prepare(
+      'INSERT INTO hpp_bahan (nama,satuan,qty_beli,harga_beli,vendor,produk,kategori,catatan,updated_at,updated_by)
+       VALUES (:n,:s,0,0,\'\',\'\',\'\',:c,:ua,\'purchasing\')')
+      ->execute(array(':n' => $nama, ':s' => $sat,
+                      ':c' => 'Dibuat otomatis dari Purchasing — harga belum diisi.',
+                      ':ua' => (int)(microtime(true) * 1000)));
+    return true;
+  } catch (Throwable $e) {
+    error_log('[stock/hpp-nama] tambah: ' . $e->getMessage());
+    return false;
+  }
+}
+
+/**
  * Ganti nama satu bahan di seluruh data HPP.
  * Memulangkan array laporan; tidak pernah melempar ke pemanggil.
  */

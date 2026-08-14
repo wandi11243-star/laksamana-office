@@ -857,17 +857,22 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
        purchasing SUDAH sah dan tidak boleh dibatalkan hanya karena modul
        sebelah bermasalah. Kalau HPP gagal menyesuaikan, yang terjadi paling
        jauh satu bahan yang perlu disamakan manual — bukan kehilangan data. */
-    $laporHpp = null;
-    if ($namaLama !== '' && $namaLama !== $nama) {
-      try {
-        require_once __DIR__ . '/lib_hpp_nama.php';
+    $laporHpp = null; $lahirHpp = false;
+    try {
+      require_once __DIR__ . '/lib_hpp_nama.php';
+      if ($namaLama !== '' && $namaLama !== $nama) {
         $laporHpp = hpp_ikut_ganti_nama($pdo, $namaLama, $nama);
-      } catch (Throwable $e) {
-        error_log('[stock/items] sinkron nama HPP gagal: ' . $e->getMessage());
       }
+      /* Bahan baru di sini ikut berdiri di HPP — juga saat produk lama
+         disunting, karena pemanggilan ini idempoten dan menutup celah bahan
+         yang terlanjur ada sebelum penyambungan ini dibuat. */
+      $lahirHpp = hpp_ikut_tambah($pdo, $nama, $satuan);
+    } catch (Throwable $e) {
+      error_log('[stock/items] sinkron HPP gagal: ' . $e->getMessage());
     }
     $out = ['status' => 'success'];
     if ($laporHpp && ($laporHpp['bahan'] || $laporHpp['resep'] || $laporHpp['lewat'])) $out['hpp'] = $laporHpp;
+    if ($lahirHpp) $out['hppBaru'] = true;
     return $out;
   } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
