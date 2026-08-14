@@ -370,6 +370,24 @@ function pesan(html){ PESAN=html; $('pesan').innerHTML=html; }
    Akibatnya mustahil membetulkan huruf di tengah kata: yang diketik masuk ke
    belakang. Posisi kursor sekarang dicatat sebelum menggambar ulang dan
    dikembalikan sesudahnya. */
+/* KOTAK NOMINAL BERFORMAT RUPIAH. "102125" mustahil dibaca sebagai seratus dua
+   ribu seratus dua puluh lima — dan harga beli adalah satu-satunya angka di
+   modul ini yang salah ketiknya menggeser SELURUH modal menu. Titik ribuan
+   dipasang sambil mengetik.
+
+   Kursor dijaga dengan cara menghitung DIGIT sebelum kursor, bukan posisi
+   karakternya: menambah satu titik ribuan menggeser posisi karakter tapi tidak
+   menggeser jumlah digit, jadi hanya cara ini yang tidak melompat sendiri. */
+const fmtIn=v=>{ const d=String(v==null?'':v).replace(/[^0-9]/g,''); return d?Number(d).toLocaleString('id-ID'):''; };
+function angkaKetik(el,setter){
+  const digitSebelum=String(el.value).slice(0,el.selectionStart).replace(/[^0-9]/g,'').length;
+  const bersih=String(el.value).replace(/[^0-9]/g,'');
+  setter(bersih);
+  el.value=fmtIn(bersih);
+  let pos=0, n=0;
+  while(pos<el.value.length && n<digitSebelum){ if(/[0-9]/.test(el.value[pos])) n++; pos++; }
+  try{ el.setSelectionRange(pos,pos); }catch(_){}
+}
 function cari(el,setter){
   const id=el.id, p=el.selectionStart;
   setter(el.value);
@@ -599,10 +617,18 @@ function hapusResep(id){
 }
 
 /* ====================== 2. BAHAN & HARGA ====================== */
-let FB={q:'',hal:1,per:25,belum:false};
+let FB={q:'',hal:1,per:25,belum:false,kembar:false};
 function viewBahan(){
   const q=low(FB.q);
+  /* NAMA YANG SUDAH ADA DI DAFTAR RESEP DISEMBUNYIKAN dari sini (14 Agustus
+     2026, permintaan user). Halaman ini isinya BAHAN BAKU RAW; barang yang
+     dibuat sendiri hidup sebagai resep, dan memajangnya di dua tempat membuat
+     orang mengubah harga di satu sisi lalu bingung kenapa modal tidak bergerak
+     — penghitung modal mengambil sisi resep lebih dulu (lihat modalResep). */
+  const namaResep={}; S.resep.forEach(r=>{ namaResep[low(r.nama)]=1; });
+  const kembar=S.bahan.filter(b=>namaResep[low(b.nama)]);
   const semua=S.bahan.filter(b=>{
+    if(!FB.kembar&&namaResep[low(b.nama)]) return false;
     if(FB.belum&&statusPur(b).k!=='belum') return false;
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   }).sort((a,b)=>low(a.nama)<low(b.nama)?-1:1);
@@ -614,8 +640,12 @@ function viewBahan(){
       <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="cari(this,v=>{FB.q=v;FB.hal=1})">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
         <input type="checkbox" ${FB.belum?'checked':''} onchange="FB.belum=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> belum ada di purchasing saja</label>
+      ${kembar.length?`<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)" title="${kembar.length} nama juga terdaftar sebagai resep">
+        <input type="checkbox" ${FB.kembar?'checked':''} onchange="FB.kembar=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> tampilkan ${kembar.length} yang bernama sama dengan resep</label>`:''}
       <button class="btn btn-primary btn-sm" onclick="bukaBahan('')">+ Bahan Baru</button>
     </div>
+    ${kembar.length&&!FB.kembar?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
+      ${kembar.length} nama disembunyikan karena sudah ada di <b>Daftar Resep</b> (${esc(kembar.slice(0,4).map(b=>b.nama).join(', '))}${kembar.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.</div>`:''}
     <div class="tbl-wrap"><table><thead><tr>
       <th>Bahan</th><th>Vendor</th><th class="num">Qty beli</th><th>Satuan</th>
       <th class="num">Harga beli</th><th class="num">Harga / satuan</th><th class="num">Dipakai</th><th></th>
@@ -665,9 +695,11 @@ function bukaBahan(nama,pertahankan){
       <div class="field"><label>Nama bahan <span style="font-weight:400;color:var(--muted)">— samakan dengan nama di purchasing</span></label>
         <input list="dlProduk" value="${esc(EB.nama)}" oninput="EB.nama=this.value"></div>
       <div class="g3">
-        <div class="field"><label>Qty beli</label><input type="number" step="any" value="${EB.qty_beli}" oninput="EB.qty_beli=this.value;segarPer1()"></div>
+        <div class="field"><label>Qty beli</label>
+          <input inputmode="numeric" value="${fmtIn(EB.qty_beli)}" oninput="angkaKetik(this,v=>{EB.qty_beli=v});segarPer1()"></div>
         <div class="field"><label>Satuan</label><input value="${esc(EB.satuan||'')}" oninput="EB.satuan=this.value"></div>
-        <div class="field"><label>Harga beli</label><input type="number" step="any" value="${EB.harga_beli}" oninput="EB.harga_beli=this.value;segarPer1()"></div>
+        <div class="field"><label>Harga beli <span style="font-weight:400;color:var(--muted)">(Rp)</span></label>
+          <input inputmode="numeric" value="${fmtIn(EB.harga_beli)}" oninput="angkaKetik(this,v=>{EB.harga_beli=v});segarPer1()"></div>
       </div>
       <div class="notice info" id="per1Box"></div>
       <!-- Nama bahan DI ATAS itu sendiri kunci ke purchasing — tidak ada lagi
@@ -1336,8 +1368,16 @@ function kirim(payload,sukses){
       if(!j) throw new Error('balasan bukan JSON (stock-api-mysql/hpp.php belum ter-deploy?)');
       if(j.status==='error') throw new Error(j.message||'ditolak server');
       tutupModal();
-      pesan(`<div class="notice ok">✓ ${esc(sukses)}</div>`);
-      return muat();
+      /* Pendaftaran ke purchasing dilakukan server, jadi layar harus
+         MENGATAKANNYA — kalau tidak, orang tidak punya cara tahu apakah
+         saklarnya benar-benar berbuat sesuatu. */
+      const tambahan=j.purchasingBaru?' Namanya sekaligus didaftarkan di basis bahan baku Purchasing.'
+        :j.purchasingGagal?' <b>Tapi gagal mendaftarkan ke Purchasing</b> — coba lagi, atau tambahkan manual di sana.':'';
+      pesan(`<div class="notice ${j.purchasingGagal?'warn':'ok'}">✓ ${esc(sukses)}${tambahan}</div>`);
+      /* Daftar produk purchasing ikut dimuat ulang: kalau tidak, bahan yang
+         baru saja didaftarkan masih terbaca "belum di purchasing" sampai
+         halaman disegarkan sendiri. */
+      return muatProduk().then(muat);
     })
     .catch(e=>{ pesan(`<div class="notice bad">✕ Gagal: ${esc(e.message||'')}</div>`); })
     .then(()=>{ JALAN=false; setSync('ok','✓ Tersambung'); });

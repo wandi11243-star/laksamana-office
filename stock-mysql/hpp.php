@@ -437,17 +437,19 @@ try {
          SENGAJA TIDAK DILAKUKAN saat impor awal (hpp_impor) — 296 bahan
          sekaligus akan membanjiri daftar purchasing dengan nama yang belum
          tentu mereka beli. */
-      $baruDiHpp = false;
-      if ($nm !== '') {
-        $cek = $pdo->prepare('SELECT COUNT(*) FROM hpp_bahan WHERE nama=:n');
-        $cek->execute(array(':n' => $nm));
-        $baruDiHpp = !(int)$cek->fetchColumn();
-      }
       $hasil = hpp_simpan_bahan($pdo, $d, $by);
-      /* Saklarnya menentukan. Bahan yang dinyatakan tidak dibeli lewat
-         purchasing tidak boleh mendarat di daftar belanja mereka hanya karena
-         dibuat di sini. */
-      if ($baruDiHpp && !(isset($d->di_purchasing) && !$d->di_purchasing)) {
+      /* MENYALAKAN SAKLARNYA SUDAH CUKUP untuk mendaftarkan bahan ke purchasing
+         — tidak perlu bahan itu baru (14 Agustus 2026, permintaan user:
+         "ketika saya klik bahan ini dibeli lewat purchasing, datanya otomatis
+         ditambahkan di halaman purchasing"). Sebelumnya pendaftaran hanya
+         terjadi untuk bahan yang baru dibuat, jadi mencentang saklar pada 179
+         bahan lama tidak menghasilkan apa pun dan tidak ada yang menjelaskan
+         kenapa.
+
+         Aman diulang: produk yang sudah ada di sana dilewati, jadi menyimpan
+         bahan yang sama dua kali tidak menimpa vendor/kategori yang sudah diisi
+         purchasing. */
+      if (!(isset($d->di_purchasing) && !$d->di_purchasing)) {
         try {
           $ada = $pdo->prepare('SELECT COUNT(*) FROM products WHERE nama=:n');
           $ada->execute(array(':n' => $nm));
