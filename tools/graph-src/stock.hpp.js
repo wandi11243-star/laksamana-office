@@ -263,6 +263,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kini() {  }
 
 
@@ -396,15 +409,7 @@ function cari() { render(); }
 
 
 
-function render() {  }
-
-
-
-
-
-
-
-function resepTersaring() { cogsOf(); modalMenu(); }
+function render() { modalMenu(); hargaJual(); cogsOf(); }
 
 
 
@@ -418,7 +423,6 @@ function resepTersaring() { cogsOf(); modalMenu(); }
 
 
 
-function viewResep() { resepTersaring(); cari(); render(); bukaResep(); cetakBanyak(); modalMenu(); cogsOf(); hargaJual(); chipCogs(); cetakResep(); pager(); }
 
 
 
@@ -429,6 +433,60 @@ function viewResep() { resepTersaring(); cari(); render(); bukaResep(); cetakBan
 
 
 
+
+
+
+
+
+
+
+function resepTersaring() { urutkanDaftar(); }
+
+
+
+
+
+
+
+
+
+
+
+function setAktif() { kirim(); }
+
+
+
+
+
+
+
+function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); tabelResep(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tabelResep() { resepTersaring(); thUrut(); modalMenu(); hargaJual(); chipCogs(); cogsOf(); setAktif(); bukaResep(); cetakResep(); pagerBar(); }
 
 
 
@@ -479,6 +537,24 @@ function viewResep() { resepTersaring(); cari(); render(); bukaResep(); cetakBan
 
 
 function keHal() { render(); }
+function urutKolom() { render(); }
+
+
+
+
+function thUrut() { urutKolom(); }
+
+
+
+function urutkanDaftar() {  }
+
+
+
+
+
+
+
+
 function pagerBar() { keHal(); }
 
 
@@ -491,7 +567,6 @@ function pagerBar() { keHal(); }
 
 
 
-function pager() { pagerBar(); }
 
 
 
@@ -504,6 +579,10 @@ function bukaResep() { gambarEditor(); }
 
 function tutupModal() {  }
 function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModal(); ringkasEditor(); hapusResep(); simpanResep(); }
+
+
+
+
 
 
 
@@ -629,7 +708,14 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+function viewBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); thUrut(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+
+
+
+
+
+
+
 
 
 
@@ -1404,6 +1490,8 @@ function cetakResep() { cetak(); lembarResep(); }
 
 
 function cetakBanyak() { resepTersaring(); cetak(); lembarResep(); }
+
+
 
 
 

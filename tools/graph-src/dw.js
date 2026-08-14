@@ -786,6 +786,7 @@
 
 
 
+<<<<<<< Updated upstream
 
 
 
@@ -793,6 +794,8 @@
 
 
 
+=======
+>>>>>>> Stashed changes
 function posisiDivisi() {  }
 
 
