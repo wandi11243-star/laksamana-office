@@ -432,10 +432,19 @@ try {
     if ($a === 'gabungBahan') {
       $dari = hpp_txt($b->dari ?? '', 190);
       $ke   = hpp_txt($b->ke ?? '', 190);
-      if ($dari === '' || $ke === '' || $dari === $ke) throw new Exception('Nama gabung tidak sah');
+      /* Penolakan yang WAJAR dipulangkan dengan HTTP 200 + status error, bukan
+         4xx. Server Rumahweb mengganti badan balasan non-200 dengan halaman
+         galatnya sendiri, jadi pesan yang dikirim lewat 400/500 sampai ke
+         peramban sebagai badan KOSONG — layar cuma bisa bilang "Gagal:" tanpa
+         sebab. Terbukti 14 Agustus 2026 saat menguji endpoint ini di dev. */
+      if ($dari === '' || $ke === '' || $dari === $ke) {
+        pur_json(array('status' => 'error', 'message' => 'Nama gabung tidak sah'));
+      }
       $c = $pdo->prepare('SELECT COUNT(*) FROM hpp_bahan WHERE nama=:n');
       $c->execute(array(':n' => $ke));
-      if (!(int)$c->fetchColumn()) throw new Exception('Bahan tujuan "' . $ke . '" tidak ada');
+      if (!(int)$c->fetchColumn()) {
+        pur_json(array('status' => 'error', 'message' => 'Bahan tujuan "' . $ke . '" tidak ada'));
+      }
       $nResep = 0;
       $st = $pdo->query('SELECT id,bahan FROM hpp_resep');
       $tulis = $pdo->prepare('UPDATE hpp_resep SET bahan=:b WHERE id=:i');
