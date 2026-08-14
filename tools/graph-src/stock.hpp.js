@@ -578,7 +578,12 @@ function bukaResep() { gambarEditor(); }
 
 
 function tutupModal() {  }
-function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModal(); ringkasEditor(); hapusResep(); simpanResep(); }
+function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModal(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
+
+
+
+
+
 
 
 
@@ -1372,7 +1377,7 @@ function kalTotal() { hitungBaris(); }
 
 
 
-function viewKalk() { kalTotal(); hitungBaris(); render(); kartu(); }
+function viewKalk() { hitungBaris(); render(); segarKalk(); angkaKetik(); kartuKalk(); noteKalk(); }
 
 
 
@@ -1405,6 +1410,27 @@ function viewKalk() { kalTotal(); hitungBaris(); render(); kartu(); }
 
 
 
+
+function kartuKalk() { kalTotal(); kartu(); }
+
+
+
+
+
+
+
+
+
+function noteKalk() { kalTotal(); }
+
+
+
+
+
+
+
+
+function segarKalk() { hitungBaris(); kartuKalk(); noteKalk(); }
 
 
 
