@@ -228,12 +228,52 @@ function jadwal_api_url() {
   $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
   return $skema . '://' . $host . '/jadwal-api-mysql/api.php';
 }
+/* Berkas cache berumur pendek untuk daftar head.
+   ---------------------------------------------------------------------
+   TANPA INI biayanya nyata dan tersembunyi. modul_untuk() memanggil
+   adalah_head() untuk SETIAP orang yang tidak lolos lewat kolom Tim atau
+   status admin — dan itu mencakup seluruh kru shift, yaitu hampir semua
+   orang. modul_untuk() sendiri dijalankan oleh whoami, yang dipanggil:
+
+     - dw-mysql dan jadwal-mysql pada TIAP permintaan API, dan
+     - absensi-mysql pada TIAP KETUKAN ABSEN.
+
+   Jadi satu ketukan absen memicu rantai HTTP bersarang absensi -> account ->
+   jadwal, masing-masing dengan timeout sendiri. Saat modul Jadwal lambat,
+   yang melambat adalah absensi — modul yang sama sekali tidak ada urusannya,
+   dan tidak ada satu pun layar yang bisa menjelaskan kenapa.
+
+   60 detik dipilih karena "siapa head divisi" berubah paling sering sebulan
+   sekali; basi satu menit tidak pernah merugikan siapa pun, sedangkan satu
+   permintaan HTTP per ketukan absen jelas merugikan.
+
+   Kegagalan menulis/membaca cache DIABAIKAN — ia kembali ke perilaku tanpa
+   cache, bukan menggagalkan apa pun. */
+function head_cache_path() {
+  $dir = sys_get_temp_dir();
+  if (!$dir || !is_dir($dir)) return '';
+  /* Nama memuat DB_NAME: dev dan produksi bisa berbagi host, dan cache yang
+     tertukar berarti head dev dipakai memutuskan hak akses produksi. */
+  $kunci = defined('DB_NAME') ? DB_NAME : 'lm';
+  return $dir . DIRECTORY_SEPARATOR . 'lm-head-' . md5((string)$kunci) . '.json';
+}
 function head_divisi_peta() {
   static $cache = null;
   if ($cache !== null) return $cache;
+
+  $berkas = head_cache_path();
+  if ($berkas !== '' && is_file($berkas) && (time() - (int)@filemtime($berkas)) < 60) {
+    $isi = @file_get_contents($berkas);
+    if ($isi !== false && $isi !== '') {
+      $d = json_decode($isi, true);
+      if (is_array($d)) return $cache = $d;
+    }
+  }
+
   $cache = array();
   $url = jadwal_api_url();
   if ($url === '') return $cache;
+  $berhasil = false;
   try {
     $jawab = null;
     /* Timeout PENDEK (3 detik), bukan 8 seperti panggilan lain: ini duduk di
@@ -256,8 +296,19 @@ function head_divisi_peta() {
     $d = json_decode($jawab, true);
     if (is_array($d) && !empty($d['ok']) && isset($d['data']['heads']) && is_array($d['data']['heads'])) {
       $cache = $d['data']['heads'];
+      $berhasil = true;
     }
   } catch (Exception $e) { $cache = array(); }
+
+  /* Hanya hasil yang BERHASIL yang di-cache. Menyimpan hasil gagal berarti
+     memperpanjang gangguan modul Jadwal selama satu menit lagi untuk seluruh
+     Office — dan daftar head yang kosong karena gangguan tidak bisa dibedakan
+     dari daftar head yang memang belum diisi. Daftar kosong yang SAH tetap
+     di-cache: itu jawaban yang benar, dan pemasangan yang belum menunjuk head
+     justru yang paling sering menanyakannya. */
+  if ($berhasil && $berkas !== '') {
+    @file_put_contents($berkas, json_encode($cache), LOCK_EX);
+  }
   return $cache;
 }
 function adalah_head($userId) {

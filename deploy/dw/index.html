@@ -1430,6 +1430,16 @@ function bolehBuka(k){
 function buildNav(){
   const el=document.getElementById('nav'); if(!el) return;
   const menunggu=(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
+  /* Lencana Permintaan DW, DIHITUNG MENURUT SIAPA YANG MELIHAT: HRD memandang
+     seluruh permintaan yang menunggu putusannya, head cuma divisinya sendiri.
+     Angka yang tidak bisa ditindaklanjuti pemiliknya cuma melatih orang
+     mengabaikan lencana — dan lencana yang sudah diabaikan berhenti berguna
+     untuk yang sungguhan juga. */
+  const kuasaNav=(S&&S.peran&&S.peran.divisi)||[];
+  const mintaTunggu=(S&&S.permintaan||[]).filter(function(x){
+    if(x.status!=='MENUNGGU') return false;
+    return isHR() || kuasaNav.indexOf(x.divisi)>-1;
+  }).length;
   let h='', adaIsi=false, tunda='';
   NAV_DEF.forEach(function(n){
     /* Judul kelompok ditahan dulu, baru ditulis kalau ternyata ada halaman
@@ -1444,6 +1454,7 @@ function buildNav(){
     adaIsi=true;
     let badge='';
     if(n.k==='antrean'  && menunggu)   badge='<span class="badge">'+menunggu+'</span>';
+    if(n.k==='permintaan' && mintaTunggu) badge='<span class="badge">'+mintaTunggu+'</span>';
     h+='<a class="'+(VIEW===n.k?'active':'')+'" onclick="go(&#39;'+n.k+'&#39;)" title="'+esc(n.sub||n.t)+'">'
       +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'+badge+'</a>';
   });
@@ -1687,6 +1698,12 @@ function viewDashboard(){
   const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t);
   const setuju=hariItu.filter(a=>a.status==='DISETUJUI');
   const tunggu=(S.ajuan||[]).filter(a=>a.status==='MENUNGGU');
+  /* Permintaan yang menunggu IKUT di layar pertama. Sebelumnya Dashboard cuma
+     menyebut ajuan, jadi HRD yang membukanya tiap pagi tidak pernah tahu ada
+     head yang sudah meminta tiga orang untuk Sabtu — kecuali ia kebetulan
+     membuka halaman Permintaan. Yang tidak terlihat di layar pertama sama saja
+     dengan yang tidak ada. */
+  const mintaTunggu=(S.permintaan||[]).filter(x=>x.status==='MENUNGGU');
   const tungguHariItu=hariItu.filter(a=>a.status==='MENUNGGU');
   const biaya=setuju.reduce((n,a)=>n+biayaAjuan(a),0);
   const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
@@ -1729,11 +1746,22 @@ function viewDashboard(){
       +statBox(setuju.length,'DW Masuk')
       +statBox(tungguHariItu.length,'Menunggu (hari ini)')
       +statBox(tunggu.length,'Menunggu (semua)')
+      +statBox(mintaTunggu.length,'Permintaan Head')
       +statBox(Math.round(jam*10)/10,'Total Jam')
       +statUang(rp(biaya),'Est. Biaya')
     +'</div>'
     +tabel
     +'</div>'
+    +(mintaTunggu.length?'<div class="panel"><div class="rowbar"><h2>📋 Permintaan head yang menunggu</h2>'
+      +'<div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="go(&#39;permintaan&#39;)">Buka permintaan</button></div>'
+      +mintaTunggu.slice(0,5).map(function(x){
+          return '<div class="row"><div class="who"><b>'+esc(namaDivisi(x.divisi))+' — '+x.jumlah+' orang</b>'
+            +'<span>'+esc(tglPanjang(x.tgl))+' · '+esc(x.m+'–'+x.s)+' · '+esc(x.posisi||'DW')
+            +(x.dibuatOleh?' · diminta '+esc(x.dibuatOleh):'')+'</span></div>'
+            +'<span class="chip">'+esc(tglManusia(x.tgl))+'</span></div>';
+        }).join('')
+      +(mintaTunggu.length>5?'<p class="mutedhint">…dan '+(mintaTunggu.length-5)+' lagi.</p>':'')
+      +'</div>':'')
     +(tunggu.length?'<div class="panel"><div class="rowbar"><h2>Menunggu keputusan Anda</h2>'
       +'<div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="go(\'antrean\')">Buka antrean</button></div>'
       +tunggu.slice(0,5).map(a=>barisAjuan(a,{tanggal:true})).join('')
@@ -1888,8 +1916,15 @@ function viewPermintaan(){
       aksi.push('<button class="btn btn-ok btn-sm" onclick="bukaTunjuk(\''+escJs(x.id)+'\')">👤 Tunjuk '+kurang+' orang</button>');
     if(isHR() && x.status==='MENUNGGU')
       aksi.push('<button class="btn btn-danger btn-sm" onclick="tolakPermintaan(\''+escJs(x.id)+'\')">✕ Tolak</button>');
-    if(x.status==='MENUNGGU' && !isHR())
+    if(x.status==='MENUNGGU' && !isHR()){
+      /* Ubah, bukan cuma Tarik kembali. Salah ketik jumlah adalah kesalahan
+         yang paling sering terjadi di form ini, dan tanpa tombol ini satu-
+         satunya jalan adalah menarik permintaan lalu mengetik ulang semuanya
+         — yang sebagian orang tidak lakukan, jadi permintaannya dibiarkan
+         salah dan HRD memenuhi angka yang bukan maksudnya. */
+      aksi.push('<button class="btn btn-ghost btn-sm" onclick="bukaMinta(&#39;'+escJs(x.id)+'&#39;)">Ubah</button>');
       aksi.push('<button class="btn btn-ghost btn-sm" onclick="batalPermintaan(\''+escJs(x.id)+'\')">Tarik kembali</button>');
+    }
     return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
       +'<td class="mono">'+esc(tglManusia(x.tgl))
         +'<div class="kecil">'+esc(HARI[idxHari(x.tgl)])+'</div></td>'
