@@ -128,6 +128,12 @@ tbody tr:hover{background:var(--gold-soft)}
 .pager button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .pager button.on{background:var(--gold-soft);border-color:var(--gold);color:var(--gold-dim)}
 .pager button:disabled{opacity:.4;cursor:not-allowed}
+.thurut{cursor:pointer;user-select:none;white-space:nowrap}
+.thurut:hover{color:var(--gold-dim)}
+.thurut.on{color:var(--gold-dim)}
+.thurut .ar{font-size:9px;margin-left:4px;opacity:.45}
+.thurut.on .ar{opacity:1}
+tr.mati td{opacity:.5}
 .pager .ket{font-size:12px;color:var(--muted)}
 /* modal */
 .ovl{position:fixed;inset:0;background:rgba(30,25,15,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:80;overflow:auto}
@@ -174,10 +180,17 @@ tbody tr:hover{background:var(--gold-soft)}
     <div class="brand"><div class="logo">HPP</div>
       <div><div class="bt">HPP &amp; RESEP</div><div class="bs">STOCK · LAKSAMANA MUDA</div></div></div>
     <nav class="nav">
+      <!-- Dashboard di ATAS (14 Agustus 2026, permintaan user) — dan sekaligus
+           halaman pertama saat modul dibuka. Pertanyaan pertama tiap kali orang
+           masuk ke sini adalah "COGS kita berapa", bukan "resep nomor 200 isinya
+           apa". -->
+      <div class="nav-group">
+        <div class="nav-label">Ringkasan</div>
+        <a data-view="dash" class="active"><span class="ico">📊</span> Dashboard HPP</a>
+      </div>
       <div class="nav-group">
         <div class="nav-label">Resep</div>
-        <a data-view="resep" class="active"><span class="ico">📋</span> Daftar Resep</a>
-        <a data-view="dash"><span class="ico">📊</span> Dashboard HPP</a>
+        <a data-view="resep"><span class="ico">📋</span> Daftar Resep</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Bahan</div>
@@ -265,7 +278,7 @@ const pct=n=>(isFinite(n)?(n*100).toFixed(1):'—')+'%';
 const low=s=>String(s||'').trim().toLowerCase();
 const kini=()=>new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
 
-let ME=null, S={bahan:[],resep:[]}, PRODUK={}, VIEW='resep', PESAN='';
+let ME=null, S={bahan:[],resep:[]}, PRODUK={}, VIEW='dash', PESAN='';
 let PB={}, PR={};          // peta nama -> bahan / resep
 let MEMO={};               // hasil hitung modal, dibuang tiap data berubah
 
@@ -357,7 +370,7 @@ const JUDUL={
   atur :['Pengaturan','Target COGS, buffer, dan ambang lampu selisih']
 };
 function go(v){
-  if(!JUDUL[v]) v='resep';
+  if(!JUDUL[v]) v='dash';
   VIEW=v;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===v));
   $('judul').textContent=JUDUL[v][0]; $('subjudul').textContent=JUDUL[v][1];
@@ -403,74 +416,109 @@ function render(){
 }
 
 /* ====================== 1. DAFTAR RESEP ====================== */
-let F={q:'',jenis:'',tipe:'',seksi:'',hal:1,per:25,urut:'nama'};
-function resepTersaring(){
+/* F = tabel Menu Jadi, FBS = tabel Base. DIPISAH jadi dua tabel (14 Agustus
+   2026, permintaan user): keduanya dibaca dengan pertanyaan yang berbeda —
+   menu jadi dinilai dari COGS terhadap harga jual, base dari modal per satuan
+   hasil. Dicampur dalam satu daftar, kolom Harga jual & COGS kosong di separuh
+   barisnya dan pengurutan menurut COGS jadi tidak ada artinya.
+
+   `aktifSaja` menyala secara bawaan: yang ingin dilihat cuma resep yang masih
+   dipakai. Resep lama tidak dihapus — ia cuma dinonaktifkan, karena
+   menghapusnya akan memutus rujukan di resep lain yang mungkin masih
+   memakainya, dan riwayat modalnya ikut hilang. */
+let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktifSaja:true};
+let FBS={hal:1,per:25,sortK:'nama',sortD:1};
+const AMB_RESEP={
+  nama:r=>low(r.nama), jenis:r=>r.jenis, seksi:r=>low(r.seksi||''),
+  yield:r=>num(r.yield_qty), bahan:r=>(r.bahan||[]).filter(x=>x&&x.nama).length,
+  modal:r=>modalMenu(r).total,
+  perunit:r=>modalMenu(r).total/(num(r.yield_qty)||1),
+  harga:r=>hargaJual(r),
+  /* Menu tanpa harga jual tidak punya COGS. Diberi -1 supaya ia mengumpul di
+     satu ujung, bukan berserak di tengah sebagai nol yang terlihat "sangat
+     sehat". */
+  cogs:r=>{ const c=cogsOf(r); return c===null?-1:c; },
+  aktif:r=>(r.aktif===0?0:1)
+};
+function resepTersaring(tipe){
   const q=low(F.q);
-  return S.resep.filter(r=>{
+  const l=S.resep.filter(r=>{
+    if(tipe&&r.tipe!==tipe) return false;
+    if(F.aktifSaja&&r.aktif===0) return false;
     if(F.jenis&&r.jenis!==F.jenis) return false;
-    if(F.tipe&&r.tipe!==F.tipe) return false;
     if(F.seksi&&r.seksi!==F.seksi) return false;
-    if(q&&low(r.nama).indexOf(q)<0&&low(r.seksi).indexOf(q)<0) return false;
+    if(q&&low(r.nama).indexOf(q)<0&&low(r.seksi||'').indexOf(q)<0) return false;
     return true;
-  }).sort((a,b)=>{
-    if(F.urut==='cogs'){ const ca=cogsOf(a),cb=cogsOf(b); return (cb===null?-1:cb)-(ca===null?-1:ca); }
-    if(F.urut==='modal') return modalMenu(b).total-modalMenu(a).total;
-    return low(a.nama)<low(b.nama)?-1:1;
   });
+  return urutkanDaftar(l,tipe==='base'?'FBS':'F',AMB_RESEP,'nama');
+}
+function setAktif(id,on){
+  const r=S.resep.find(x=>x.id===id); if(!r) return;
+  if(!on){
+    const pakai=S.resep.filter(x=>x.id!==id&&(x.bahan||[]).some(b=>b&&b.ref==='resep'&&low(b.nama)===low(r.nama)));
+    if(pakai.length&&!confirm(`"${r.nama}" masih dipakai ${pakai.length} resep lain (${pakai.slice(0,3).map(x=>x.nama).join(', ')}${pakai.length>3?', …':''}).\n\nMenonaktifkan tidak menghapusnya — modal resep-resep itu tetap terhitung — tapi ia hilang dari daftar. Lanjut?`)) return;
+  }
+  kirim({action:'simpanResep',data:Object.assign({},r,{aktif:on?1:0})},on?'Resep diaktifkan.':'Resep dinonaktifkan.');
 }
 function viewResep(){
-  const semua=resepTersaring();
-  const nHal=Math.max(1,Math.ceil(semua.length/F.per));
-  if(F.hal>nHal) F.hal=nHal;
-  const hal=semua.slice((F.hal-1)*F.per,F.hal*F.per);
   const seksiSet=[...new Set(S.resep.map(r=>r.seksi).filter(Boolean))].sort();
-  let h=`<div class="card">
-    <div class="bar">
-      <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="cari(this,v=>{F.q=v;F.hal=1})">
-      <select onchange="F.jenis=this.value;F.hal=1;render()">
+  const nMati=S.resep.filter(r=>r.aktif===0).length;
+  let h=`<div class="card"><div class="bar" style="margin-bottom:0">
+      <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="cari(this,v=>{F.q=v;F.hal=1;FBS.hal=1})">
+      <select onchange="F.jenis=this.value;F.hal=1;FBS.hal=1;render()">
         <option value="">Semua jenis</option>
         <option value="food"${F.jenis==='food'?' selected':''}>Food</option>
         <option value="drink"${F.jenis==='drink'?' selected':''}>Drink</option></select>
-      <select onchange="F.tipe=this.value;F.hal=1;render()">
-        <option value="">Base &amp; Menu Jadi</option>
-        <option value="base"${F.tipe==='base'?' selected':''}>Base saja</option>
-        <option value="dish"${F.tipe==='dish'?' selected':''}>Menu jadi saja</option></select>
-      <select onchange="F.seksi=this.value;F.hal=1;render()">
+      <select onchange="F.seksi=this.value;F.hal=1;FBS.hal=1;render()">
         <option value="">Semua seksi</option>
         ${seksiSet.map(s=>`<option value="${esc(s)}"${F.seksi===s?' selected':''}>${esc(s)}</option>`).join('')}</select>
-      <select onchange="F.urut=this.value;render()">
-        <option value="nama"${F.urut==='nama'?' selected':''}>Urut nama</option>
-        <option value="cogs"${F.urut==='cogs'?' selected':''}>COGS% tertinggi</option>
-        <option value="modal"${F.urut==='modal'?' selected':''}>Modal tertinggi</option></select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
+        <input type="checkbox" ${F.aktifSaja?'checked':''} onchange="F.aktifSaja=this.checked;F.hal=1;FBS.hal=1;render()" style="accent-color:var(--gold)">
+        hanya yang aktif${nMati?` (${nMati} non-aktif)`:''}</label>
       <button class="btn btn-primary btn-sm" onclick="bukaResep('')">+ Resep Baru</button>
-      <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF semua (+modal)</button>
-      <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF semua (resep saja)</button>
-    </div>`;
-  if(!semua.length){ return h+`<div class="empty"><div class="big">🍳</div>Tidak ada resep yang cocok dengan saringan ini.</div></div>`; }
+      <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF (+modal)</button>
+      <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF (resep saja)</button>
+    </div></div>`;
+  h+=tabelResep('dish','Menu Jadi','Yang dijual — dinilai dari COGS terhadap harga jualnya.','F');
+  h+=tabelResep('base','Base &amp; Bahan Olahan','Dibuat sendiri lalu dipakai resep lain — dinilai dari modal per satuan hasil.','FBS');
+  return h;
+}
+/* Satu pembuat untuk kedua tabel. Kolom Harga jual & COGS hanya ada di Menu
+   Jadi: di tabel Base keduanya selalu kosong, dan kolom yang selalu kosong
+   cuma memakan lebar sambil membuat orang mengira ada yang belum diisi. */
+function tabelResep(tipe,judul,sub,mana){
+  const semua=resepTersaring(tipe), st=ST[mana]();
+  const nHal=Math.max(1,Math.ceil(semua.length/st.per));
+  if(st.hal>nHal) st.hal=nHal;
+  const hal=semua.slice((st.hal-1)*st.per,st.hal*st.per);
+  const dish=(tipe==='dish');
+  let h=`<div class="card"><h3>${judul} <span style="font-weight:400;color:var(--muted-2);font-size:13px">${semua.length}</span></h3>
+    <div class="card-sub">${sub}</div>`;
+  if(!semua.length) return h+`<div class="empty" style="padding:22px">Tidak ada yang cocok dengan saringan ini.</div></div>`;
   h+=`<div class="tbl-wrap"><table><thead><tr>
-      <th>Nama</th><th>Jenis</th><th>Tipe</th><th>Seksi</th><th class="num">Yield</th>
-      <th class="num">Bahan</th><th class="num">Modal</th><th class="num">Per unit</th>
-      <th class="num">Harga jual</th><th class="num">COGS%</th><th></th></tr></thead><tbody>`;
+      ${thUrut(mana,'nama','Nama')}${thUrut(mana,'jenis','Jenis')}${thUrut(mana,'seksi','Seksi')}
+      ${thUrut(mana,'yield','Yield','num')}${thUrut(mana,'bahan','Bahan','num')}
+      ${thUrut(mana,'modal','Modal','num')}${thUrut(mana,'perunit','Per unit','num')}
+      ${dish?thUrut(mana,'harga','Harga jual','num')+thUrut(mana,'cogs','COGS%','num'):''}
+      ${thUrut(mana,'aktif','Aktif')}<th></th></tr></thead><tbody>`;
   hal.forEach(r=>{
-    const m=modalMenu(r), c=cogsOf(r), y=num(r.yield_qty)||1;
-    h+=`<tr>
+    const m=modalMenu(r), y=num(r.yield_qty)||1, mati=(r.aktif===0);
+    h+=`<tr class="${mati?'mati':''}">
       <td><b>${esc(r.nama)}</b>${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}</td>
       <td>${r.jenis==='drink'?'<span class="chip teal">Drink</span>':'<span class="chip violet">Food</span>'}</td>
-      <td>${r.tipe==='base'?'<span class="chip info">Base</span>':'<span class="chip warn">Menu jadi</span>'}</td>
       <td style="font-size:11.5px;color:var(--muted)">${esc(r.seksi||'—')}</td>
       <td class="num">${y} ${esc(r.yield_unit||'')}</td>
       <td class="num">${(r.bahan||[]).filter(b=>b&&b.nama).length}</td>
       <td class="num mono">${rp(m.total)}</td>
       <td class="num mono">${rp2(m.total/y)}</td>
-      <td class="num mono">${hargaJual(r)?rp(hargaJual(r)):'—'}</td>
-      <td class="num">${chipCogs(c,r)}</td>
+      ${dish?`<td class="num mono">${hargaJual(r)?rp(hargaJual(r)):'—'}</td><td class="num">${chipCogs(cogsOf(r),r)}</td>`:''}
+      <td><button class="btn btn-ghost btn-xs" onclick="setAktif('${esc(r.id)}',${mati?1:0})" title="${mati?'Aktifkan kembali':'Nonaktifkan — resepnya tetap tersimpan, cuma hilang dari daftar'}">${mati?'○ non-aktif':'● aktif'}</button></td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-xs" onclick="bukaResep('${esc(r.id)}')">Ubah</button>
         <button class="btn btn-ghost btn-xs" onclick="cetakResep('${esc(r.id)}',1)" title="Cetak / simpan PDF dengan harga modal">PDF</button>
       </td></tr>`;
   });
-  h+=`</tbody></table></div>${pager(semua.length,nHal)}</div>`;
-  return h;
+  return h+`</tbody></table></div>${pagerBar(semua.length,st.hal,nHal,st.per,mana,'resep')}</div>`;
 }
 /* SATU pembuat pagination untuk kedua daftar (resep & bahan). Sebelumnya
    masing-masing punya kodenya sendiri, dan yang di daftar Bahan tidak punya
@@ -478,7 +526,35 @@ function viewResep(){
    berarti harus membidik kotak kecil. Tombolnya sekarang berlabel, bukan cuma
    panah, dan mati sendiri di ujung supaya tidak ada klik yang tidak berbuat
    apa-apa. */
-function keHal(mana,n){ const s=(mana==='F')?F:FB; s.hal=n; render(); }
+/* ---- PENGURUTAN KOLOM (14 Agustus 2026, permintaan user) ----
+   Satu mesin untuk semua tabel. Tiap daftar menyetor peta "kunci kolom ->
+   cara mengambil nilainya"; header yang bisa diurut cukup dipanggil lewat
+   thUrut(). Dibuat bersama, bukan per tabel, karena tiga tabel dengan tiga
+   pengurut sendiri berarti tiga tempat yang bisa menyimpang — dan yang
+   menyimpang tidak akan kelihatan sampai ada yang membandingkan hasilnya.
+
+   Angka diurut sebagai ANGKA, teks pakai localeCompare 'id'. Tanpa itu
+   "Rp1.000.000" duduk sebelum "Rp90.000" karena dibaca sebagai teks. */
+const ST={F:()=>F,FB:()=>FB,FBS:()=>FBS,PK:()=>PK};
+function keHal(mana,n){ ST[mana]().hal=n; render(); }
+function urutKolom(mana,k){
+  const s=ST[mana]();
+  if(s.sortK===k) s.sortD=-(s.sortD||1); else { s.sortK=k; s.sortD=1; }
+  s.hal=1; render();
+}
+function thUrut(mana,k,label,kelas){
+  const s=ST[mana](), on=s.sortK===k;
+  return `<th class="thurut ${kelas||''}${on?' on':''}" onclick="urutKolom('${mana}','${k}')" title="Urutkan menurut ${esc(label)}">${label}<span class="ar">${on?(s.sortD>0?'▲':'▼'):'↕'}</span></th>`;
+}
+function urutkanDaftar(list,mana,peta,bawaan){
+  const s=ST[mana](), k=s.sortK||bawaan, d=s.sortD||1, amb=peta[k]||peta[bawaan];
+  if(!amb) return list;
+  return list.slice().sort((a,b)=>{
+    const x=amb(a), y=amb(b);
+    if(typeof x==='number'&&typeof y==='number') return (x-y)*d;
+    return String(x==null?'':x).localeCompare(String(y==null?'':y),'id')*d;
+  });
+}
 function pagerBar(total,hal,nHal,per,mana,satuan){
   const dari=total?((hal-1)*per+1):0, sampai=Math.min(hal*per,total);
   let b='';
@@ -491,7 +567,6 @@ function pagerBar(total,hal,nHal,per,mana,satuan){
     ${b}
     <button ${hal>=nHal?'disabled':''} onclick="keHal('${mana}',${hal+1})">Berikutnya ›</button></div></div>`;
 }
-function pager(total,nHal){ return pagerBar(total,F.hal,nHal,F.per,'F','resep'); }
 
 /* ---- penyunting resep ---- */
 let ED=null;
@@ -571,6 +646,10 @@ function gambarEditor(){
       </div>
       <div class="field" style="margin-top:14px"><label>Catatan / cara masak</label>
         <textarea rows="2" oninput="ED.catatan=this.value">${esc(r.catatan||'')}</textarea></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink)">
+        <input type="checkbox" ${r.aktif===0?'':'checked'} onchange="ED.aktif=this.checked?1:0">
+        Resep aktif — tampil di daftar</label>
+      <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin-top:4px">Resep lama sebaiknya dinonaktifkan, bukan dihapus: menghapusnya memutus rujukan di resep lain yang mungkin masih memakainya, dan modal resep itu turun tanpa sebab yang terlihat.</div>
       <div class="notice info" id="ringkasEd">${ringkasEditor(m,r)}</div>
     </div>
     <div class="mdl-f">
@@ -638,7 +717,7 @@ function viewBahan(){
      — penghitung modal mengambil sisi resep lebih dulu (lihat modalResep). */
   const namaResep={}; S.resep.forEach(r=>{ namaResep[low(r.nama)]=1; });
   const kembar=S.bahan.filter(b=>namaResep[low(b.nama)]);
-  const semua=S.bahan.filter(b=>{
+  const kasar=S.bahan.filter(b=>{
     if(!FB.kembar&&namaResep[low(b.nama)]) return false;
     /* Saringan keadaan purchasing (14 Agustus 2026, permintaan user). Dulu cuma
        centang "belum ada di purchasing saja" — sekarang keempat keadaannya bisa
@@ -646,7 +725,12 @@ function viewBahan(){
        ingin ditinjau ulang. */
     if(FB.st&&statusPur(b).k!==FB.st) return false;
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
-  }).sort((a,b)=>low(a.nama)<low(b.nama)?-1:1);
+  });
+  const semua=urutkanDaftar(kasar,'FB',{
+    nama:b=>low(b.nama), vendor:b=>low(vendorOf(b)), qty:b=>num(b.qty_beli),
+    satuan:b=>low(b.satuan||''), harga:b=>num(b.harga_beli), per1:b=>per1(b),
+    dipakai:b=>dipakaiOleh(b.nama).length
+  },'nama');
   const nHal=Math.max(1,Math.ceil(semua.length/FB.per));
   if(FB.hal>nHal) FB.hal=nHal;
   const hal=semua.slice((FB.hal-1)*FB.per,FB.hal*FB.per);
@@ -665,8 +749,10 @@ function viewBahan(){
     ${kembar.length&&!FB.kembar?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
       ${kembar.length} nama disembunyikan karena sudah ada di <b>Daftar Resep</b> (${esc(kembar.slice(0,4).map(b=>b.nama).join(', '))}${kembar.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.</div>`:''}
     <div class="tbl-wrap"><table><thead><tr>
-      <th>Bahan</th><th>Vendor</th><th class="num">Qty beli</th><th>Satuan</th>
-      <th class="num">Harga beli</th><th class="num">Harga / satuan</th><th class="num">Dipakai</th><th></th>
+      ${thUrut('FB','nama','Bahan')}${thUrut('FB','vendor','Vendor')}
+      ${thUrut('FB','qty','Qty beli','num')}${thUrut('FB','satuan','Satuan')}
+      ${thUrut('FB','harga','Harga beli','num')}${thUrut('FB','per1','Harga / satuan','num')}
+      ${thUrut('FB','dipakai','Dipakai','num')}<th></th>
     </tr></thead><tbody>`;
   hal.forEach(b=>{
     const n=dipakaiOleh(b.nama).length, st=statusPur(b);
@@ -1040,7 +1126,7 @@ function uraiBahan(r,faktor,keranjang,jalur){
   delete jalur[r.id];
 }
 function viewDash(){
-  const dish=S.resep.filter(r=>r.tipe==='dish');
+  const dish=S.resep.filter(r=>r.tipe==='dish'&&r.aktif!==0);   // resep non-aktif tidak ikut dinilai
   const berharga=dish.filter(r=>hargaJual(r)>0);
   const cogsList=berharga.map(r=>({r,c:cogsOf(r)})).filter(x=>x.c!==null);
   const rata=j=>{ const l=cogsList.filter(x=>x.r.jenis===j); return l.length?l.reduce((s,x)=>s+x.c,0)/l.length:null; };
@@ -1404,7 +1490,9 @@ function cetakResep(id,denganModal){
   cetak(r.nama,lembarResep(r,denganModal));
 }
 function cetakBanyak(denganModal){
-  const daftar=resepTersaring();
+  /* Kedua tabel ikut tercetak: saringannya satu, jadi "PDF semua" yang cuma
+     memuat menu jadi akan terasa seperti setengah pekerjaan. */
+  const daftar=resepTersaring('dish').concat(resepTersaring('base'));
   if(!daftar.length) return;
   if(daftar.length>60&&!confirm(`${daftar.length} resep akan dicetak. Lanjut?`)) return;
   cetak(denganModal?'Resep & Modal':'Resep',daftar.map((r,i)=>
