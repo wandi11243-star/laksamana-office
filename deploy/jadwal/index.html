@@ -178,7 +178,7 @@ table.list .kecil{font-size:11px;color:var(--muted-2);font-weight:500;margin-top
    muat dalam satu layar alih-alih lima layar gulungan. Lebar kolom dipatok
    supaya Alasan (kolom yang paling sering panjang) yang melar, bukan
    kolom tanggal yang justru harus tetap sejajar untuk dipindai menurun. */
-table.tbl-aju{min-width:860px}
+table.tbl-aju{min-width:940px}
 table.tbl-aju td{padding:9px;font-size:12.5px;vertical-align:middle}
 /* Kolom Jenis dilebarkan & pilnya dilarang pecah. "Ganti Hari Off" di
    kolom 104px terpotong jadi dua baris ("Ganti Hari" / "Off") dan membuat
@@ -191,7 +191,12 @@ table.tbl-aju th:nth-child(3),table.tbl-aju td:nth-child(3){width:150px;white-sp
 table.tbl-aju th:nth-child(4),table.tbl-aju td:nth-child(4){width:130px}
 table.tbl-aju th:nth-child(6),table.tbl-aju td:nth-child(6){width:112px}
 table.tbl-aju .alasan{color:var(--muted);line-height:1.4}
-table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right;width:120px}
+/* Kolom Aksi memuat DUA tombol berlabel. `gap` supaya Setujui dan Tolak tidak
+   berdempet — dua tombol yang bersentuhan di layar HP adalah cara tercepat
+   menyetujui pengajuan yang sebenarnya mau ditolak. */
+table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right;width:196px}
+table.tbl-aju .aksi-aju .btn{margin-left:6px}
+table.tbl-aju .aksi-aju .btn:first-child{margin-left:0}
 table.tbl-aju .aksi-aju .btn{padding:4px 10px;font-size:12px;min-width:0}
 table.tbl-aju .aksi-aju .btn+.btn{margin-left:4px}
 /* Baris tanpa aksi memulangkan '—'. Diredupkan & ditipiskan supaya ia
@@ -3000,17 +3005,36 @@ function viewPengajuan(){
     const div=u?divisiDari(u):DIV_NONSHIFT;
     const rentang=(a.dari===a.sampai)?tglManusia(a.dari):(tglManusia(a.dari)+' – '+tglManusia(a.sampai));
     const hari=(a.dari===a.sampai)?'' :('<div class="kecil">'+(selisihHariAju(a))+' hari</div>');
+    /* TOMBOL BERLABEL, bukan ✓ dan ✕ telanjang.
+       Dua ikon tanpa kata di kolom paling kanan menuntut ditebak — dan yang
+       menebak salah di sini MENYETUJUI pengajuan, tindakan yang langsung
+       menulis sel jadwal untuk seluruh rentang tanggalnya. Alasannya sama
+       persis dengan yang sudah ditulis di modul Daily Worker soal ikon 💬
+       ("ikon chat ini apa?"): ikon hanya terbaca oleh yang sudah tahu
+       artinya, dan yang sudah tahu tidak butuh tombolnya diperkecil.
+
+       Ikonnya TETAP ada di depan katanya — itu yang membuat baris hijau dan
+       merah bisa dibedakan sekilas saat memindai dua puluh baris. */
     const putus=(a.status==='MENUNGGU'&&bisaPutuskan(a))
-      ? '<button class="btn btn-ok btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓</button>'
-        +'<button class="btn btn-danger btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕</button>'
+      ? '<button class="btn btn-ok btn-sm" title="Setujui pengajuan ini"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Setujui</button>'
+        +'<button class="btn btn-danger btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
       : '';
     const batal=(a.userId===(ME&&ME.id)&&a.status==='MENUNGGU')
       ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batal</button>' : '';
     /* Jejak keputusan ditulis KECIL DI BAWAH statusnya, bukan di kolom sendiri:
        ia cuma dibaca saat ada yang mempertanyakan, dan satu kolom penuh untuk
        itu mengambil lebar dari kolom Alasan yang jauh lebih sering dibaca. */
+    /* Alasan penolakan ikut ditulis di bawah statusnya. Sebelumnya ia tersimpan
+       di database tapi tidak pernah tergambar di mana pun — kru yang ditolak
+       menanyakannya lewat WhatsApp, dan jawabannya tidak pernah kembali ke
+       sistem. Kolom yang diisi tapi tidak pernah dibaca sama saja dengan
+       kolom yang tidak ada. */
     const jejak=a.status!=='MENUNGGU'
-      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>' : '';
+      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>'
+        +(a.putusNota?'<div class="kecil" style="color:var(--danger)">"'+esc(a.putusNota)+'"</div>':'')
+      : '';
     return '<tr'+(a.status==='MENUNGGU'?' class="tunggu"':'')+'>'
       +'<td><span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'
         +esc(JENIS_AJU[a.jenis]||a.jenis)+'</span></td>'
@@ -3197,11 +3221,68 @@ async function kirimAju(){
 /* Menyetujui Off/Izin/Cuti langsung menulis selnya. Head yang baru saja
    menekan Setujui menganggap urusannya selesai — kalau jadwalnya tidak ikut
    berubah, kru tetap tercatat masuk dan itu baru ketahuan saat absensi. */
-async function putuskan(id,status){
+/* Satu ketukan di sini MENULIS SEL JADWAL untuk seluruh rentang tanggalnya —
+   dan yang tertimpa adalah shift yang sudah disusun head sendiri minggu lalu.
+   Karena itu keduanya ditanya dulu, dengan kalimat yang menyebut akibatnya
+   secara spesifik: berapa hari, shift apa yang akan tertulis, dan tanggal
+   berapa saja. Konfirmasi yang cuma bertanya "yakin?" tidak menambah apa pun;
+   yang menambah adalah menyebutkan apa yang akan berubah.
+
+   Penolakan MEMINTA ALASAN, tidak lagi mengirim nota kosong. Kru yang
+   pengajuannya ditolak tanpa sebab akan menanyakannya lewat WhatsApp, dan
+   jawabannya tidak pernah kembali ke sistem — persis alasan modul Daily
+   Worker sudah meminta alasan sejak awal (lihat tolakAjuan di sana). */
+function putuskan(id,status){
   const a=(S.pengajuan||[]).find(x=>x.id===id); if(!a) return;
   if(!bisaPutuskan(a)){ toast('Pengajuan ini bukan wewenang Anda', true); return; }
+  const u=kruById(a.userId);
+  const nama=u?u.name:namaKru(a.userId);
+  const rentang=(a.dari===a.sampai)?tglPanjang(a.dari):(tglPanjang(a.dari)+' – '+tglPanjang(a.sampai));
+  let n=0; for(let d=a.dari; d<=a.sampai; d=addD(d,1)) n++;
+
+  if(status==='DITOLAK'){
+    tanyaAlasanTolak(nama, function(nota){ kirimPutusan(id,'DITOLAK',nota); });
+    return;
+  }
+  const tShift = AJU_KE_SHIFT[a.jenis] || (a.shift && S.setting.shifts[a.shift] ? a.shift : '');
+  const efek = tShift
+    ? 'Sel jadwalnya langsung terisi <b>'+esc(shiftDef(tShift).n)+'</b> untuk <b>'+n
+      +' hari</b> — menimpa shift yang sekarang ada di sana.'
+    : 'Pengajuan ini tidak menyebut shift yang diminta, jadi <b>sel jadwalnya tidak ikut berubah</b>. '
+      +'Isi sendiri di lembar setelah ini.';
+  konfirmasi('Setujui '+JENIS_AJU[a.jenis]+' — '+nama+'?',
+    '<b>'+esc(rentang)+'</b><br>'+efek
+    +(a.alasan?'<br><br><i>"'+esc(a.alasan)+'"</i>':''),
+    function(){ kirimPutusan(id,'DISETUJUI',''); },
+    { ya:'Ya, setujui', lebar:'430px' });
+}
+/* Kotak alasan penolakan. Sengaja BUKAN prompt() peramban: yang itu tidak bisa
+   diberi keterangan, tidak bisa diberi contoh, dan di sebagian peramban HP
+   muncul sebagai kotak abu-abu tanpa judul yang tidak jelas milik halaman apa. */
+function tanyaAlasanTolak(nama, cb){
+  window.TOLAK_CB=function(){
+    const el=document.getElementById('tolakNota');
+    const v=el?String(el.value||'').trim():'';
+    tutupModal();
+    cb(v||'Tidak disetujui head divisi');
+  };
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:430px">'
+    +'<div class="mh"><h3>Tolak pengajuan '+esc(nama)+'</h3>'
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb"><div class="field"><label>Alasan penolakan</label>'
+    +'<textarea id="tolakNota" rows="3" placeholder="Mis. hari itu sudah dua orang off di Cashier"></textarea>'
+    +'<div class="hint">Dibaca kru yang mengajukan. Kosongkan kalau memang tidak perlu — '
+    +'akan tertulis "Tidak disetujui head divisi".</div></div></div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-danger" onclick="TOLAK_CB()">Tolak pengajuan</button></div></div></div>';
+  setTimeout(function(){ const el=document.getElementById('tolakNota'); if(el) el.focus(); },50);
+}
+async function kirimPutusan(id,status,nota){
+  const a=(S.pengajuan||[]).find(x=>x.id===id); if(!a) return;
   try{
-    await apiPost({action:'putusPengajuan', id, status, nota:''});
+    await apiPost({action:'putusPengajuan', id, status, nota:nota||''});
+    a.putusNota=nota||'';
     a.status=status; a.putusOleh=(ME&&ME.name)||''; a.putusAt=Date.now();
     /* Shift tujuan: OFF/IZIN/CUTI disimpulkan dari jenisnya, TUKAR/UBAH
        dibaca dari yang DIPILIH kru saat mengajukan. Sebelum kolom `shift`

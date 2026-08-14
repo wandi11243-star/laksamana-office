@@ -430,6 +430,10 @@
     .pick.otomatis{cursor:default; border-style:dashed; opacity:.9}
     .pick.otomatis:hover{border-color:var(--gold-2); background:var(--gold-soft)}
     .pick.otomatis em{font-style:normal; font-weight:600; font-size:11px; color:var(--muted)}
+    /* Modul terbatas yang orang ini tidak berhak: terkunci dan jelas mati. */
+    .pick.terlarang{cursor:not-allowed; opacity:.55; border-style:dashed; background:transparent}
+    .pick.terlarang:hover{border-color:var(--line); background:transparent}
+    .pick.terlarang em{font-style:normal; font-weight:600; font-size:11px; color:var(--muted)}
     .pick-hint{font-size:11.5px; color:var(--muted); margin-top:7px}
     .r-row .u-mods{font-size:11.5px; color:var(--muted); display:block; margin-top:2px}
 
@@ -706,9 +710,10 @@
                                 kotaknya tergambar tercentang &amp; terkunci, tidak perlu diberikan satu
                                 per satu. Dasarnya kolom <b>Tim</b> di atas: kalau namanya muncul di
                                 sebuah lembar divisi, ia bisa membuka lembarnya.<br>
-                                <b>Roster · Daily Worker</b> berbeda dan sengaja tidak otomatis: itu alat HR,
-                                isinya nomor HP seluruh pekerja harian, status PIN, daftar transfer, dan
-                                tombol setujui ajuan. Centang hanya untuk HR.<br>
+                                <b>Roster · Daily Worker</b> kebalikannya: <b>hanya bisa diberikan ke Tim
+                                HRD atau CEO</b>, admin modul Daily Worker, dan Admin Akses. Untuk yang lain
+                                kotaknya terkunci — isinya nomor HP seluruh pekerja harian, status PIN,
+                                daftar transfer, dan tombol setujui ajuan yang langsung jadi uang keluar.<br>
                                 Daily worker sendiri <b>tidak punya akun di sini sama sekali</b> — mereka
                                 bukan pegawai tetap, terdaftar di dalam modul Daily Worker, dan masuk
                                 pakai no. HP + PIN.
@@ -1517,11 +1522,33 @@
        persis. Satu kalimat aturannya — kalau namanya muncul di sebuah lembar
        divisi, ia bisa membuka lembarnya. HRD dan CEO ikut walau tidak masuk
        lembar mana pun, karena memang perlu membaca jadwal seluruh perusahaan. */
-    let ATURAN_BAWAAN = null;      // diisi dari listModules
+    let ATURAN_BAWAAN = null;      // diisi dari listUsers/listModules
+    let ATURAN_TERBATAS = null;
     function aturanBawaan(){
         return ATURAN_BAWAAN || [{ module:'jadwal', adminModul:true,
             tim:['kitchen','dapur','bar','bartender','floor','service','waiter','waitress',
                  'cashier','kasir','hrd','hr','ceo'] }];
+    }
+    /* Kebalikannya: modul yang TIDAK BOLEH dipegang di luar peran tertentu,
+       apa pun yang dicentang. Sekarang cuma Daily Worker — alat HR berisi
+       nomor HP seluruh pekerja harian, status PIN, daftar transfer, dan tombol
+       yang menyetujui shift (yang langsung jadi uang yang harus ditransfer).
+       Cadangannya disamakan dengan tim_boleh_dw() di account-api. */
+    function aturanTerbatas(){
+        return ATURAN_TERBATAS || [{ module:'dw', adminModul:true, tim:['hrd','hr','ceo'] }];
+    }
+    /* Modul terbatas yang TIDAK boleh dipegang orang ini. Superadmin selalu
+       boleh — mustahil mengelola akses modul yang tidak bisa ia buka. */
+    function modulTerlarangUntuk(u){
+        const out = new Set();
+        const adm = (u && u.adminModules) || [];
+        if(adm.includes('*')) return out;
+        aturanTerbatas().forEach(r => {
+            const lewatTim = timCocok((u && u.keterangan) || '', r.tim);
+            const lewatAdmin = r.adminModul && adm.includes(r.module);
+            if(!lewatTim && !lewatAdmin) out.add(r.module);
+        });
+        return out;
     }
     /* Kata dicocokkan UTUH — "Barista" tidak boleh terbaca sebagai "bar". */
     function timCocok(keterangan, daftar){
@@ -1593,6 +1620,11 @@
            menambah apa pun. */
         const deny = new Set((u && u.denies) || []);
         modulBawaanUntuk(u).forEach(k => { if(!deny.has(k)) chosen.add(k); });
+        /* Modul terbatas dibuang dari ringkasan juga — kalau tidak, daftar user
+           memajang "Roster · Daily Worker" untuk orang yang sebenarnya sudah
+           dicabut aksesnya oleh account-api, dan angka di layar tidak pernah
+           cocok dengan kenyataan. */
+        modulTerlarangUntuk(u).forEach(k => chosen.delete(k));
         return chosen;
     }
 
@@ -1617,14 +1649,26 @@
            bukan di kotak "admin modul": bawaan berarti boleh MEMBUKA, bukan
            boleh mengelola. */
         const bawaan = bintangCentangSemua ? modulBawaanUntuk(userBawaan) : new Set();
+        /* Modul terbatas yang orang ini tidak berhak: digambar TERKUNCI DAN
+           TIDAK TERCENTANG. Kalau dibiarkan sebagai kotak biasa, admin
+           mencentangnya, menyimpan, lalu mengira orangnya sudah bisa membuka
+           Daily Worker — padahal account-api mencabutnya lagi saat menghitung
+           akses, dan tidak ada satu pun layar yang menyebutkan itu terjadi. */
+        const terlarang = bintangCentangSemua ? modulTerlarangUntuk(userBawaan) : new Set();
         container.innerHTML = keys.map(k => {
             const otomatis = bawaan.has(k);
-            const on = otomatis || chosen.has(k);
+            const dilarang = terlarang.has(k);
+            const on = otomatis || (chosen.has(k) && !dilarang);
             const label = moduleLabel(k);
             if(otomatis){
                 return `<label class="pick on otomatis" data-k="${esc(k)}"
                     title="Otomatis untuk semua pegawai tetap — tidak perlu dicentang satu per satu">
                     <input type="checkbox" checked disabled> ${esc(label)} <em>· semua pegawai</em></label>`;
+            }
+            if(dilarang){
+                return `<label class="pick terlarang" data-k="${esc(k)}"
+                    title="Hanya untuk HRD, CEO, dan admin modul. Ubah kolom Tim di atas kalau orang ini memang HRD.">
+                    <input type="checkbox" disabled> ${esc(label)} <em>· khusus HRD / CEO</em></label>`;
             }
             return `<label class="pick${on?' on':''}" data-k="${esc(k)}">
                 <input type="checkbox" name="${name}" value="${esc(k)}" ${on?'checked':''}> ${esc(label)}</label>`;
@@ -1726,6 +1770,7 @@
            yang menegakkannya account-api, dan dua daftar yang berbeda isi
            berarti centang di layar berbohong tentang siapa punya akses apa. */
         if(Array.isArray(data.bawaan)) ATURAN_BAWAAN = data.bawaan;
+        if(Array.isArray(data.terbatas)) ATURAN_TERBATAS = data.terbatas;
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', [], true);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
 
