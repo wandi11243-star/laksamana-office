@@ -1689,6 +1689,20 @@ function bolehBuka() { isAdmin(); isHR(); isHeadDW(); bisaLihat(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function buildNav() { isHR(); bolehBuka(); go(); esc(); svg(); }
 
 
@@ -2157,7 +2171,16 @@ function viewPermintaan() { divisiKuasaDW(); isHR(); }
 
 
 
-function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHR(); setujuiPermintaan(); escJs(); bukaTunjuk(); tolakPermintaan(); bukaMinta(); batalPermintaan(); esc(); tglManusia(); segeraHTML(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); mintaTab(); }
+function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHR(); go(); isHeadDW(); bukaMinta(); escJs(); batalPermintaan(); esc(); tglManusia(); segeraHTML(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); mintaTab(); }
+
+
+
+
+
+
+
+
+
 
 
 
