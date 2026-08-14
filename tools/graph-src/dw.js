@@ -709,6 +709,11 @@
 
 
 
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -1877,6 +1882,17 @@ function mintaOrang() {  }
 
 
 
+
+
+
+function segeraHTML() { parseD(); hariIni(); }
+
+
+
+
+
+
+
 function viewPermintaan() { divisiKuasaDW(); isHR(); }
 
 
@@ -1899,7 +1915,12 @@ function viewPermintaan() { divisiKuasaDW(); isHR(); }
 
 
 
-function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHR(); bukaTunjuk(); escJs(); tolakPermintaan(); bukaMinta(); batalPermintaan(); esc(); tglManusia(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); go(); mintaTab(); segDivisi(); }
+function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHR(); bukaTunjuk(); escJs(); tolakPermintaan(); bukaMinta(); batalPermintaan(); esc(); tglManusia(); segeraHTML(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); go(); mintaTab(); segDivisi(); }
+
+
+
+
+
 
 
 
@@ -1999,7 +2020,7 @@ function mintaJam() { serapMinta(); gambarMinta(); }
 
 
 
-function gambarMinta() { divisiKuasaDW(); modal(); esc(); ikonDivisi(); namaDivisi(); tombolJam(); kirimMinta(); }
+function gambarMinta() { divisiKuasaDW(); modal(); esc(); ikonDivisi(); namaDivisi(); serapMinta(); tombolJam(); biayaPermintaanHTML(); kirimMinta(); tarifPosisi(); }
 
 
 
@@ -2020,6 +2041,31 @@ function gambarMinta() { divisiKuasaDW(); modal(); esc(); ikonDivisi(); namaDivi
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function biayaPermintaanHTML() { tarifPosisi(); esc(); rp(); }
 
 
 
@@ -4858,7 +4904,33 @@ function modal() { tutupModal(); jalankanAksiModal(); esc(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function jalankanAksiModal() {  }
+
+
+
 
 
 

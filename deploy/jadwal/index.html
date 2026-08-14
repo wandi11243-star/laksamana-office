@@ -3137,7 +3137,7 @@ function bukaAjukan(tglAwal){
     +'<textarea id="ajAlasan" rows="3" placeholder="Contoh: ada urusan keluarga, sudah dibicarakan dengan Yuza"></textarea></div>'
     +'<p class="mutedhint">Pengajuan masuk ke head divisi untuk disetujui. Begitu disetujui, jadwalnya <b>langsung terisi</b> sesuai shift yang dipilih di atas — head tidak perlu mengetik ulang.</p>'
     +'</div><div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
-    +'<button class="btn btn-primary" onclick="kirimAju()">Kirim Pengajuan</button></div></div></div>';
+    +'<button class="btn btn-primary" id="ajKirim" onclick="kirimAju()">Kirim Pengajuan</button></div></div></div>';
   gambarShiftAju();
 }
 /* Shift yang diminta, dipilih dari tombol — bukan diketik di dalam kalimat
@@ -3193,6 +3193,16 @@ function gambarShiftAju(){
 }
 function pilihShiftAju(k){ AJU_SHIFT=k; gambarShiftAju(); }
 async function kirimAju(){
+  /* TOMBOLNYA DIKUNCI SELAMA KIRIMAN BERJALAN.
+     `row.id` dibuat DI LAYAR dan berbeda tiap pemanggilan, jadi klik kedua
+     saat yang pertama masih menunggu jawaban melahirkan PENGAJUAN KEDUA yang
+     identik — bukan menimpa yang pertama. Head lalu melihat dua permintaan
+     cuti untuk orang dan tanggal yang sama, dan yang menyetujui keduanya
+     menulis sel jadwalnya dua kali.
+
+     Di jaringan venue jeda satu-dua detik itu biasa, dan layar tidak berubah
+     apa pun selama menunggu — jadi menekan ulang adalah reaksi yang wajar,
+     bukan kecerobohan. */
   const el=id=>document.getElementById(id);
   const uid=el('ajKru')?el('ajKru').value:(ME&&ME.id);
   const jenis=el('ajJenis').value;
@@ -3209,6 +3219,23 @@ async function kirimAju(){
   const jamM=(!tetap&&el('ajJamM'))?el('ajJamM').value:'';
   const jamS=(!tetap&&el('ajJamS'))?el('ajJamS').value:'';
   if(!shift){ toast('Pilih shift yang diminta dulu', true); return; }
+
+  /* TOMBOL DIKUNCI DI SINI — SESUDAH seluruh validasi, tepat sebelum kiriman
+     berangkat. Kalau dikunci di awal, tiap galat validasi meninggalkan tombol
+     "Mengirim…" yang mati padahal tidak ada yang sedang dikirim, dan orangnya
+     terjebak di formulir yang kelihatan menggantung.
+
+     Yang dijaga: `row.id` dibuat DI LAYAR dan berbeda tiap pemanggilan, jadi
+     klik kedua saat yang pertama masih menunggu jawaban melahirkan PENGAJUAN
+     KEDUA yang identik — bukan menimpa yang pertama. Head lalu melihat dua
+     permintaan cuti untuk orang dan tanggal yang sama. Di jaringan venue jeda
+     satu-dua detik itu biasa, dan layar tidak berubah apa pun selama menunggu,
+     jadi menekan ulang adalah reaksi yang wajar. */
+  const btnKirim=document.getElementById('ajKirim');
+  if(btnKirim){
+    if(btnKirim.disabled) return;
+    btnKirim.disabled=true; btnKirim.textContent='Mengirim…';
+  }
   tutupModal();
   const row={id:'A'+Date.now().toString(36)+Math.floor(Math.random()*900+100), userId:uid, jenis, dari, sampai, alasan,
              shift, jamMulai:jamM, jamSelesai:jamS};
@@ -3216,7 +3243,12 @@ async function kirimAju(){
     await apiPost({action:'simpanPengajuan', row});
     S.pengajuan.unshift(Object.assign({status:'MENUNGGU', dibuatAt:Date.now(), dibuatOleh:(ME&&ME.name)||'', putusOleh:'', putusAt:0}, row));
     simpanCache(); render(); toast('Pengajuan terkirim ke head divisi');
-  }catch(e){ toast('Gagal mengirim: '+e.message, true); }
+  }catch(e){
+    /* Modal sudah tertutup, jadi tombolnya ikut hilang — tidak ada yang perlu
+       dibebaskan. Yang penting galatnya sampai, dan isian tidak hilang karena
+       pengajuannya bisa diulang dari awal dengan data yang masih sama. */
+    toast('Gagal mengirim: '+e.message, true);
+  }
 }
 /* Menyetujui Off/Izin/Cuti langsung menulis selnya. Head yang baru saja
    menekan Setujui menganggap urusannya selesai — kalau jadwalnya tidak ikut

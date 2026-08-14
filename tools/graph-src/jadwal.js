@@ -3232,6 +3232,38 @@ function kirimAju() { toast(); tutupModal(); apiPost(); simpanCache(); render();
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function putuskan() { bisaPutuskan(); toast(); kruById(); namaKru(); tglPanjang(); addD(); tanyaAlasanTolak(); kirimPutusan(); esc(); shiftDef(); konfirmasi(); }
 
 
