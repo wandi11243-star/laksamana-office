@@ -25,14 +25,18 @@
 -- bermasalah yang paling sering didaftar ulang. Nomor juga dipakai sebagai
 -- nama pengguna saat DW masuk sendiri untuk mengajukan jadwal.
 --
--- `pin` boleh kosong: DW yang belum diberi PIN tetap bisa dijadwalkan HR,
--- ia hanya tidak bisa mengajukan sendiri.
+-- `pin` SUDAH TIDAK DIPAKAI sejak 14 Agustus 2026. Gerbang masuk mandiri DW
+-- (no HP + PIN) dicabut seluruhnya: daily worker tidak punya akun dan tidak
+-- pernah membuka sistem — head mengajukan kebutuhan divisinya, HRD menyetujui
+-- lalu menunjuk siapa yang dipakai. Kolomnya sengaja TIDAK di-DROP (menghapus
+-- kolom tidak bisa dibatalkan), tapi tidak lagi dibaca maupun ditulis di mana
+-- pun; lihat daftar kolom di baca_semua() dan simpan_pekerja().
 -- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `dw_pekerja` (
   `id`           VARCHAR(32)  NOT NULL PRIMARY KEY,
   `nama`         VARCHAR(120) NOT NULL,
   `no_hp`        VARCHAR(32)  NOT NULL,               -- hanya angka, sudah dinormalkan ke 08xxxx
-  `pin`          VARCHAR(8)   NOT NULL DEFAULT '',    -- '' = belum bisa masuk sendiri
+  `pin`          VARCHAR(8)   NOT NULL DEFAULT '',    -- menganggur, lihat catatan di atas
   `gender`       VARCHAR(10)  NOT NULL DEFAULT '',
   `area`         VARCHAR(80)  NOT NULL DEFAULT '',
   `bank`         VARCHAR(120) NOT NULL DEFAULT '',            -- keterangan lama (teks bebas), dibiarkan

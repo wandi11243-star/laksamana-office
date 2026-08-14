@@ -112,7 +112,7 @@ const dirJD = salinBackend('jadwal-mysql');
    kolomnya; MySQL menyimpulkannya sendiri dari kunci unik mana pun yang
    kena. Yang dipilih di sini kunci yang memang jadi maksud pernyataannya. */
 const SASARAN_KONFLIK = {
-  dw_ajuan: '`dw_id`,`tgl`', dw_setting: '`id`', dw_login_gagal: '`kunci`',
+  dw_ajuan: '`dw_id`,`tgl`', dw_setting: '`id`',
   jadwal_sel: '`user_id`,`tgl`', jadwal_setting: '`id`', jadwal_pengajuan: '`id`',
 };
 
@@ -204,8 +204,15 @@ $orang = array(
                          'modules'=>array('dw','jadwal'),'adminModules'=>array()),
   'tok-staf'    => array('id'=>'u-staf','name'=>'Uji Staf','keterangan'=>'Marketing',
                          'modules'=>array('dw','jadwal'),'adminModules'=>array()),
+  /* Head divisi Bar. Kunci headDivisi adalah yang dipulangkan account-api
+     asli sesudah menanyakannya ke modul Jadwal (action=headIds); modul DW
+     memakainya apa adanya, tanpa bertanya sekali lagi.
+     CATATAN: blok PHP ini duduk di dalam template literal JS — JANGAN pakai
+     backtick di sini, satu saja memutus literalnya dan seluruh berkas gagal
+     diurai dengan pesan yang tidak menyebut barisnya. */
   'tok-headbar' => array('id'=>'u-headbar','name'=>'Uji Head Bar','keterangan'=>'Bar',
-                         'modules'=>array('jadwal','dw'),'adminModules'=>array()),
+                         'modules'=>array('jadwal','dw'),'adminModules'=>array(),
+                         'headDivisi'=>array('bar')),
   /* Pegawai tetap yang centangnya TERTUKAR di Kelola Akses: ia memegang
      "Roster · Daily Worker" padahal yang ia butuhkan "Roster · Jadwal Shift".
      Inilah keadaan yang membuat pegawai tetap mendarat di modul DW — pemilih
@@ -353,41 +360,52 @@ async function main() {
   j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=token-karangan');
   cek('token karangan ditolak', ditolak(j), JSON.stringify(j).slice(0, 160));
 
-  /* ——— daily worker: hanya urusan dirinya sendiri ——— */
-  j = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '1234' });
-  cek('DW bisa masuk dan menerima token', j.ok && j.data.token, j.error);
-  const tokDW = j.ok ? j.data.token : '';
-
-  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: tokDW, id: ajuId, status: 'DISETUJUI' });
-  cek('DW TIDAK bisa menyetujui ajuannya sendiri', ditolak(j), JSON.stringify(j));
-
-  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=' + tokDW);
-  cek('token DW TIDAK bisa membuka talent pool', ditolak(j), JSON.stringify(j).slice(0, 160));
-
-  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: tokDW, id: ajuId, status: 'BATAL' });
-  cek('DW bisa MEMBATALKAN ajuannya sendiri', j.ok, j.error);
-
-  // Ajuan atas nama orang lain: dwId dari client harus diabaikan.
-  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-hrd',
-    row: { nama: 'Budi DW', hp: '081200000002', divisi: 'bar' } });
-  const dwLain = j.ok ? j.data.id : '';
-  j = await panggil('dw-mysql', { action: 'simpanAjuan', sesi: tokDW,
-    row: { dwId: dwLain, tgl: '2026-08-25', m: '16:00', s: '23:00', divisi: 'bar' } });
-  const jadiMilikSendiri = j.ok && j.data.row && j.data.row.dwId === dwId;
-  cek('DW TIDAK bisa mengajukan atas nama rekannya', jadiMilikSendiri,
-    'ajuan mendarat di ' + (j.ok && j.data.row ? j.data.row.dwId : '?') + ', seharusnya ' + dwId);
-
-  // ——— pembatas percobaan PIN ———
-  let kena = '';
-  for (let i = 0; i < 7; i++) {
-    const r = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '0000' });
-    if (!r.ok && /Terlalu banyak percobaan/.test(String(r.error))) { kena = r.error; break; }
+  /* ——— jalur masuk daily worker sudah TIDAK ADA ———
+     Dicabut 14 Agustus 2026: DW tidak punya akun dan tidak pernah membuka
+     sistem. Diuji supaya gerbangnya tidak pernah hidup lagi tanpa sengaja —
+     endpoint yang dihidupkan kembali diam-diam tidak akan terlihat dari layar
+     mana pun, dan ia menerima tebakan PIN dari siapa saja. */
+  for (const mati of ['loginDW', 'logoutDW', 'ajuanSaya']) {
+    j = await panggil('dw-mysql', { action: mati, hp: '081200000001', pin: '1234' });
+    cek('aksi `' + mati + '` sudah tidak dikenal', !j.ok && /tidak dikenal/i.test(String(j.error || '')),
+      JSON.stringify(j).slice(0, 140));
   }
-  cek('percobaan PIN dibatasi sesudah beberapa kali salah', !!kena, 'tujuh tebakan lolos tanpa jeda');
-  j = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '1234' });
-  cek('PIN benar pun ikut tertahan selama terkunci', !j.ok && /Terlalu banyak/.test(String(j.error)), JSON.stringify(j));
 
-  /* ================= MODUL JADWAL SHIFT ================= */
+  /* Nomor HP boleh dibaca HRD, tapi PIN TIDAK PERNAH ikut — kolomnya masih
+     ada di database (sengaja tidak di-DROP) dan yang menjaganya sekarang cuma
+     daftar kolom di baca_semua(). */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-hrd');
+  cek('PIN tidak pernah ikut terkirim ke layar',
+    j.ok && JSON.stringify(j).indexOf('"pin"') < 0 && JSON.stringify(j).indexOf('adaPin') < 0,
+    JSON.stringify(j).slice(0, 160));
+
+  /* ——— HEAD DIVISI di modul DW: lihat semuanya, putuskan tidak satu pun ——— */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-headbar');
+  cek('head bisa membuka modul DW', j.ok, j.error);
+  cek('head menerima isi PENUH (termasuk no. HP talent pool)',
+    j.ok && j.data.pekerja[0] && typeof j.data.pekerja[0].hp === 'string',
+    JSON.stringify(j).slice(0, 160));
+  cek('peran head dilaporkan server apa adanya',
+    j.ok && j.data.peran && j.data.peran.head === 1 && j.data.peran.lihat === 1 && j.data.peran.hrd === 0,
+    JSON.stringify(j.ok ? j.data.peran : j).slice(0, 160));
+
+  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: 'tok-headbar', id: ajuId, status: 'DISETUJUI' });
+  cek('head TIDAK bisa menyetujui ajuan DW', ditolak(j), JSON.stringify(j));
+  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-headbar',
+    row: { nama: 'Selundupan Head', hp: '081200000077' } });
+  cek('head TIDAK bisa menyunting talent pool', ditolak(j), JSON.stringify(j));
+  j = await panggil('dw-mysql', { action: 'tandaiBayar', sesi: 'tok-headbar',
+    senin: '2026-08-10', kunci: 'BANK|1', nyala: true });
+  cek('head TIDAK bisa menandai pembayaran', ditolak(j), JSON.stringify(j));
+
+  /* Staf biasa tetap TIDAK menerima isi penuh — pembeda head vs staf harus
+     benar-benar berbeda, bukan cuma label yang berbeda. */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-staf');
+  cek('staf biasa tetap tanpa no. HP dan peran lihat=0',
+    j.ok && j.data.pekerja[0] && j.data.pekerja[0].hp === undefined && j.data.peran.lihat === 0,
+    JSON.stringify(j.ok ? j.data.peran : j).slice(0, 160));
+
+  /* ================= MODUL JADWAL SHIFT ================= */  /* ================= MODUL JADWAL SHIFT ================= */
   console.log('\n— Jadwal Shift —');
 
   j = await panggil('jadwal-mysql', { action: 'simpanSetting', sesi: 'tok-admin',
@@ -479,6 +497,16 @@ async function main() {
 
   j = await ambil('jadwal-mysql', 'action=shiftHari&user=kru-bar&dari=2026-08-20&sampai=2026-08-20');
   cek('shiftHari tetap terbuka (dipanggil backend Absensi)', j.ok, j.error);
+
+  /* headIds — jalur yang dipakai Office untuk memberi head kunci modul DW.
+     Isinya harus id + divisi saja: tidak ada nama, tidak ada jadwal. */
+  j = await ambil('jadwal-mysql', 'action=headIds');
+  const heads = j.ok ? (j.data.heads || {}) : {};
+  cek('headIds memulangkan head Bar', !!(heads['u-headbar'] || []).includes('bar'),
+    JSON.stringify(j).slice(0, 160));
+  cek('headIds tidak membocorkan nama siapa pun',
+    JSON.stringify(j).indexOf('Uji Head Bar') < 0 && JSON.stringify(j).indexOf('Kru Bar') < 0,
+    JSON.stringify(j).slice(0, 160));
 
   console.log('\n' + (jumlah - gagal) + '/' + jumlah + ' pemeriksaan lulus');
   process.exit(gagal ? 1 : 0);

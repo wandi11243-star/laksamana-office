@@ -365,6 +365,18 @@ function go(v){
 }
 function setSync(st,msg){ const e=$('sync'); e.className='sync'+(st?' '+st:''); e.textContent=msg; }
 function pesan(html){ PESAN=html; $('pesan').innerHTML=html; }
+/* KOTAK PENCARIAN. Sebelumnya tiap ketikan memanggil render() lalu focus()
+   saja — elemennya digambar ulang, jadi kursor selalu meloncat ke UJUNG teks.
+   Akibatnya mustahil membetulkan huruf di tengah kata: yang diketik masuk ke
+   belakang. Posisi kursor sekarang dicatat sebelum menggambar ulang dan
+   dikembalikan sesudahnya. */
+function cari(el,setter){
+  const id=el.id, p=el.selectionStart;
+  setter(el.value);
+  render();
+  const n=document.getElementById(id);
+  if(n){ n.focus(); try{ n.setSelectionRange(p,p); }catch(_){} }
+}
 function render(){
   $('pesan').innerHTML=PESAN;
   $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,
@@ -395,7 +407,7 @@ function viewResep(){
   const seksiSet=[...new Set(S.resep.map(r=>r.seksi).filter(Boolean))].sort();
   let h=`<div class="card">
     <div class="bar">
-      <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="F.q=this.value;F.hal=1;render();document.getElementById('q').focus()">
+      <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="cari(this,v=>{F.q=v;F.hal=1})">
       <select onchange="F.jenis=this.value;F.hal=1;render()">
         <option value="">Semua jenis</option>
         <option value="food"${F.jenis==='food'?' selected':''}>Food</option>
@@ -587,7 +599,7 @@ let FB={q:'',hal:1,per:25,belum:false};
 function viewBahan(){
   const q=low(FB.q);
   const semua=S.bahan.filter(b=>{
-    if(FB.belum&&adaDiPurchasing(b.nama)) return false;
+    if(FB.belum&&statusPur(b).k!=='belum') return false;
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   }).sort((a,b)=>low(a.nama)<low(b.nama)?-1:1);
   const nHal=Math.max(1,Math.ceil(semua.length/FB.per));
@@ -595,7 +607,7 @@ function viewBahan(){
   const hal=semua.slice((FB.hal-1)*FB.per,FB.hal*FB.per);
   let h=spanduSamakan()+spanduBelumTerdaftar()+`<div class="card">
     <div class="bar">
-      <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="FB.q=this.value;FB.hal=1;render();document.getElementById('qb').focus()">
+      <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="cari(this,v=>{FB.q=v;FB.hal=1})">
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
         <input type="checkbox" ${FB.belum?'checked':''} onchange="FB.belum=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> belum ada di purchasing saja</label>
       <button class="btn btn-primary btn-sm" onclick="bukaBahan('')">+ Bahan Baru</button>
@@ -605,9 +617,10 @@ function viewBahan(){
       <th class="num">Harga beli</th><th class="num">Harga / satuan</th><th class="num">Dipakai</th><th></th>
     </tr></thead><tbody>`;
   hal.forEach(b=>{
-    const n=dipakaiOleh(b.nama).length, di=adaDiPurchasing(b.nama);
+    const n=dipakaiOleh(b.nama).length, st=statusPur(b);
     h+=`<tr>
-      <td><b>${esc(b.nama)}</b>${di?'':` <span class="chip warn" title="nama ini belum ada di basis bahan baku purchasing">belum di purchasing</span>`}</td>
+      <td><b>${esc(b.nama)}</b>${st.k==='ada'?''
+        :` <span class="chip ${st.c}" title="${st.k==='beda'?'sudah punya pasangan di purchasing ('+esc(b.produk)+') — tinggal disamakan namanya':st.k==='mandiri'?'ditandai tidak dibeli lewat purchasing':'nama ini belum ada di basis bahan baku purchasing'}">${st.t}</span>`}</td>
       <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
       <td>${esc(b.satuan||'')}</td>
@@ -615,7 +628,7 @@ function viewBahan(){
       <td class="num mono"><b>${rp2(per1(b))}</b></td>
       <td class="num">${n?n:'<span style="color:var(--muted-2)">0</span>'}</td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
-        ${di?'':`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`}</td></tr>`;
+        ${st.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
   });
   const dari=(FB.hal-1)*FB.per+1, sampai=Math.min(FB.hal*FB.per,semua.length);
   let pg='';
@@ -648,16 +661,23 @@ function bukaBahan(nama){
       <!-- Nama bahan DI ATAS itu sendiri kunci ke purchasing — tidak ada lagi
            kolom "pasangan". Kotak nama memakai daftar purchasing sebagai saran
            ketik supaya nama baru yang diketik cenderung sama sejak awal. -->
-      <div class="notice ${adaDiPurchasing(EB.nama)?'ok':'warn'}" id="pkBox">${
-        adaDiPurchasing(EB.nama)
+      <div class="notice ${statusPur(EB).k==='ada'?'ok':statusPur(EB).k==='beda'?'warn':'info'}" id="pkBox">${
+        statusPur(EB).k==='ada'
           ? `✓ Nama ini ada di purchasing — vendornya <b>${esc((PRODUK[EB.nama]||{}).utama||'belum diisi di sana')}</b>, dibaca langsung dari sana.`
+        : statusPur(EB).k==='beda'
+          ? `⚠ Bahan ini berpasangan dengan <b>${esc(EB.produk)}</b> di purchasing, tapi namanya masih berbeda. Samakan lewat tombol di halaman Bahan &amp; Harga — resep yang memakainya ikut disesuaikan.`
+        : statusPur(EB).k==='mandiri'
+          ? `Ditandai tidak dibeli lewat purchasing.`
           : `⚠ Nama ini belum ada di basis purchasing. Bahannya tetap terpakai penuh di resep; daftarkan kalau memang barang yang dibeli.`}</div>
+      ${b&&statusPur(EB).k==='ada'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:12px">
+        <input type="checkbox" id="ikutPur" checked style="accent-color:var(--gold)">
+        Kalau namanya diganti, ganti juga di basis purchasing — supaya kedua daftar tidak pernah berbeda</label>`:''}
       <div class="field"><label>Catatan</label><input value="${esc(EB.catatan||'')}" oninput="EB.catatan=this.value"></div>
     </div>
     <div class="mdl-f">
       ${b?`<button class="btn btn-danger btn-sm" onclick="hapusBahan('${esc(b.nama)}')">Hapus</button>`:''}
       <button class="btn btn-ghost" onclick="tutupModal()">Batal</button>
-      <button class="btn btn-primary" onclick="kirim({action:'simpanBahan',data:EB},'Bahan tersimpan.')">💾 Simpan</button>
+      <button class="btn btn-primary" onclick="simpanBahan()">💾 Simpan</button>
     </div></div></div>`;
   segarPer1();
 }
@@ -667,6 +687,35 @@ function segarPer1(){
   el.innerHTML=q>0
     ? `<div>Harga per satuan: <b>${rp2(hg/q)}</b> per ${esc(EB.satuan||'unit')} — inilah angka yang dipakai semua resep.</div>`
     : `<div>Qty beli harus lebih dari 0, kalau tidak harga per satuannya tidak bisa dihitung.</div>`;
+}
+/* GANTI NAMA MENGUBAH KEDUA SISI (permintaan user 14 Agustus 2026: "kalau saya
+   ubah nama, yang di bahan & harga juga ikut berubah"). Karena kedua modul
+   sekarang memakai satu daftar nama, mengganti nama hanya di satu sisi justru
+   MEMUTUS kaitannya — bahan yang tadinya dikenal jadi "belum ada di
+   purchasing" tanpa ada yang mengubah apa pun di sana.
+
+   Purchasing diberi tahu lewat addProduct berikut `oldProductName`; itu jalur
+   ganti-nama miliknya sendiri, jadi order lama tetap menunjuk barang yang sama.
+   Kalau purchasing menolak, penggantian di HPP TETAP jalan dan pesannya
+   disebutkan — data HPP tidak boleh tersandera modul tetangga. */
+function simpanBahan(){
+  const lama=EB.namaLama||'', baru=String(EB.nama||'').trim();
+  if(!baru){ alert('Nama bahan belum diisi.'); return; }
+  const kotak=$('ikutPur');
+  const ikut=!!(kotak&&kotak.checked&&lama&&lama!==baru&&PRODUK[lama]);
+  if(!ikut){ kirim({action:'simpanBahan',data:EB},'Bahan tersimpan.'); return; }
+  const p=PRODUK[lama]||{};
+  fetch(API_ITEM,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'addProduct',productName:baru,oldProductName:lama,
+        primaryVendor:p.utama||'',backupVendors:p.cadangan||[],units:p.satuan||[]})})
+    .then(r=>r.text())
+    .then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(j&&j.status==='error') throw new Error(j.message||'ditolak purchasing');
+      return muatProduk();
+    })
+    .catch(e=>{ pesan(`<div class="notice warn">⚠ Nama di purchasing TIDAK ikut berubah (${esc(e.message||'')}). Nama di HPP tetap disimpan — samakan manual di modul Purchasing.</div>`); })
+    .then(()=>kirim({action:'simpanBahan',data:EB},'Bahan tersimpan, nama purchasing ikut disesuaikan.'));
 }
 function hapusBahan(nama){
   const n=dipakaiOleh(nama).length;
@@ -686,10 +735,23 @@ function hapusBahan(nama){
    basi diam-diam begitu purchasing ganti pemasok — dan tidak ada satu pun
    layar yang akan memberitahu. */
 const adaDiPurchasing=nama=>!!PRODUK[nama];
+/* Keadaan sebuah bahan terhadap purchasing. EMPAT keadaan, bukan dua —
+   "ada" vs "belum ada" saja pernah membuat bahan yang SUDAH disandingkan user
+   tetap tertulis "belum ada di purchasing", dan itu terbaca seperti pekerjaan
+   yang hilang padahal cuma namanya yang belum diganti. */
+function statusPur(b){
+  if(PRODUK[b.nama]) return {k:'ada',t:'',c:''};
+  if(b.produk==='-') return {k:'mandiri',t:'tidak lewat purchasing',c:'mute'};
+  if(b.produk&&PRODUK[b.produk]) return {k:'beda',t:'nama beda',c:'warn'};
+  return {k:'belum',t:'belum di purchasing',c:'info'};
+}
 function vendorOf(b){
-  const p=PRODUK[b.nama];
+  /* Vendor selalu dari purchasing — lewat nama kalau sudah sama, lewat pasangan
+     lama selama namanya belum disamakan. Yang tersimpan di hpp_bahan cuma
+     cadangan untuk bahan yang memang tidak ada di sana. */
+  const p=PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
   if(p&&p.utama) return p.utama;
-  return b.vendor||'';        // cadangan: bahan yang belum ada di purchasing
+  return b.vendor||'';
 }
 /* Sisa pekerjaan dari masa pencocokan: bahan yang namanya masih beda dari
    nama purchasing pasangannya. Sekali klik, seluruhnya diganti nama dan semua
@@ -707,10 +769,12 @@ function spanduSamakan(){
 }
 function spanduBelumTerdaftar(){
   if(!Object.keys(PRODUK).length) return `<div class="notice bad">✕ Basis bahan baku purchasing tidak bisa dibaca, jadi kolom vendor kosong dan penanda "belum di purchasing" tidak bisa dipercaya. Coba muat ulang halaman.</div>`;
-  const blm=S.bahan.filter(b=>!adaDiPurchasing(b.nama));
+  const blm=S.bahan.filter(b=>statusPur(b).k==='belum');
+  const mandiri=S.bahan.filter(b=>statusPur(b).k==='mandiri').length;
   if(!blm.length) return '';
   return `<div class="notice info"><div>
-    <b>${blm.length} bahan belum ada di basis purchasing.</b> Mereka tetap terpakai penuh di resep — yang belum cuma vendornya.
+    <b>${blm.length} bahan belum ada di basis purchasing.</b>${mandiri?` (${mandiri} lagi Anda tandai tidak dibeli lewat purchasing — itu tidak dihitung di sini.)`:''}
+    Mereka tetap terpakai penuh di resep — yang belum cuma vendornya.
     Daftarkan supaya keduanya benar-benar satu daftar; purchasing bisa mengisi vendornya belakangan.
     <div style="margin-top:9px"><button class="btn btn-ghost btn-sm" onclick="FB.belum=true;FB.hal=1;render()">Lihat daftarnya</button>
     <button class="btn btn-ghost btn-sm" onclick="daftarkanSemua()">+ Daftarkan semuanya ke Purchasing</button></div>
@@ -986,7 +1050,7 @@ function viewPakai(){
       <div class="field" style="margin:0"><input type="number" step="any" placeholder="Nilai penjualan bulan ini"
         value="${PK.penjualan||''}" oninput="PK.penjualan=this.value;document.getElementById('pkRingkas').innerHTML=ringkasPakai()" style="min-width:200px"></div>
       <input type="search" id="qp" placeholder="Cari bahan untuk ditambahkan…" value="${esc(PK.q)}"
-        oninput="PK.q=this.value;render();document.getElementById('qp').focus()">
+        oninput="cari(this,v=>{PK.q=v})">
       <button class="btn btn-primary btn-sm" onclick="simpanPakai()">💾 Simpan bulan ini</button>
     </div>
     <div id="pkRingkas">${ringkasPakai()}</div>

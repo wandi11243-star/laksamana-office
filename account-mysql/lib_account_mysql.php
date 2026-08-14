@@ -201,8 +201,72 @@ function tim_cocok($keterangan, $daftar) {
 function tim_boleh_dw() {
   return array('hrd', 'hr', 'ceo');
 }
+
+/* ==================== SIAPA HEAD DIVISI ====================
+   Daftarnya TIDAK ada di sini. Ia tinggal di `jadwal_setting` milik modul
+   Jadwal Shift, karena di sanalah admin menunjuknya lewat layar Head Divisi —
+   dan menyalinnya ke Office berarti dua daftar yang bisa berbeda isi, dengan
+   yang salah selalu yang jarang dilihat.
+
+   Jadi ditanyakan langsung, server-ke-server, lewat action=headIds. Yang
+   dipulangkan cuma id + kode divisi.
+
+   TIGA HAL YANG MENJAGA INI TIDAK MERUSAK LOGIN:
+     1. Hanya dipanggil saat memang perlu — lihat modul_bawaan_untuk(), yang
+        menanyakannya HANYA untuk orang yang belum lolos lewat kolom Tim atau
+        status admin. Jadi HRD, CEO, dan kru shift biasa tidak pernah memicu
+        satu pun permintaan tambahan.
+     2. Di-cache sepanjang satu permintaan.
+     3. Gagal = array kosong, BUKAN melempar. Modul Jadwal yang mati tidak
+        boleh mematikan login seluruh Office; yang terjadi paling jauh seorang
+        head kehilangan kunci modul DW-nya sampai modul itu hidup lagi. */
+function jadwal_api_url() {
+  if (defined('JADWAL_API_URL') && JADWAL_API_URL !== '') return JADWAL_API_URL;
+  $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME']
+        : (isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
+  if ($host === '') return '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $host . '/jadwal-api-mysql/api.php';
+}
+function head_divisi_peta() {
+  static $cache = null;
+  if ($cache !== null) return $cache;
+  $cache = array();
+  $url = jadwal_api_url();
+  if ($url === '') return $cache;
+  try {
+    $jawab = null;
+    /* Timeout PENDEK (3 detik), bukan 8 seperti panggilan lain: ini duduk di
+       jalur login dan whoami, dan yang menunggu adalah orang yang sedang
+       menatap layar putih. Lebih baik seorang head kehilangan kunci DW-nya
+       selama modul Jadwal bermasalah daripada seluruh Office terasa mati. */
+    if (function_exists('curl_init')) {
+      $ch = curl_init($url . '?action=headIds');
+      curl_setopt_array($ch, array(
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 3,
+        CURLOPT_CONNECTTIMEOUT => 2, CURLOPT_FOLLOWLOCATION => true,
+      ));
+      $jawab = curl_exec($ch);
+      curl_close($ch);
+    } else {
+      $ctx = stream_context_create(array('http' => array('timeout' => 3)));
+      $jawab = @file_get_contents($url . '?action=headIds', false, $ctx);
+    }
+    if (!is_string($jawab) || $jawab === '') return $cache;
+    $d = json_decode($jawab, true);
+    if (is_array($d) && !empty($d['ok']) && isset($d['data']['heads']) && is_array($d['data']['heads'])) {
+      $cache = $d['data']['heads'];
+    }
+  } catch (Exception $e) { $cache = array(); }
+  return $cache;
+}
+function adalah_head($userId) {
+  $peta = head_divisi_peta();
+  return isset($peta[s($userId)]) && count($peta[s($userId)]) > 0;
+}
 function aturan_terbatas() {
-  return array(array('module' => 'dw', 'tim' => tim_boleh_dw(), 'adminModul' => true));
+  return array(array('module' => 'dw', 'tim' => tim_boleh_dw(),
+                     'adminModul' => true, 'head' => true));
 }
 /* Boleh memegang modul yang dibatasi? Superadmin ('*' di tabel admins) dan
    admin modul itu sendiri selalu boleh — mustahil mengelola modul yang tidak
@@ -214,7 +278,12 @@ function boleh_modul_terbatas($userId, $aturan) {
     $adm = admin_modul_untuk($userId);
     if (in_array('*', $adm, true)) return true;
     if (!empty($aturan['adminModul']) && in_array($aturan['module'], $adm, true)) return true;
-    return tim_cocok($ket, $aturan['tim']);
+    if (tim_cocok($ket, $aturan['tim'])) return true;
+    /* Head divisi ikut boleh. Head-lah yang mengajukan kebutuhan daily worker
+       divisinya, jadi mustahil ia diminta melakukannya tanpa bisa membuka
+       modulnya. Ditanyakan paling akhir supaya HRD/CEO/admin tidak pernah
+       memicu permintaan ke modul Jadwal. */
+    return !empty($aturan['head']) && adalah_head($userId);
   } catch (Exception $e) {
     /* Gagal memastikan = JANGAN dicabut. Fungsi ini dipakai login dan whoami
        setiap modul; mencabut akses gara-gara satu kueri gagal akan terbaca
@@ -243,6 +312,18 @@ function modul_bawaan_untuk($userId) {
     if (tim_cocok($ket, tim_bawaan_jadwal())
         || in_array('*', $adm, true) || in_array('jadwal', $adm, true)) {
       $out[] = 'jadwal';
+    }
+    /* Modul Daily Worker OTOMATIS untuk HRD/CEO dan untuk HEAD DIVISI —
+       head yang mengajukan kebutuhan DW divisinya, HRD yang menyetujui dan
+       menunjuk orangnya. Keduanya tidak perlu dicentang satu per satu.
+
+       `adalah_head()` ditanyakan PALING AKHIR dan hanya kalau syarat lain
+       belum terpenuhi: ia memicu satu permintaan ke modul Jadwal, dan tidak
+       ada gunanya membayar itu untuk orang yang sudah jelas berhak. */
+    if (tim_cocok($ket, tim_boleh_dw())
+        || in_array('*', $adm, true) || in_array('dw', $adm, true)
+        || adalah_head($uid)) {
+      $out[] = 'dw';
     }
   } catch (Exception $e) {
     /* Diam, dan memulangkan kosong. Fungsi pemanggilnya (modul_untuk) dipakai
@@ -439,6 +520,14 @@ function aksi_whoami($body) {
     'keterangan'   => s($u['keterangan']),
     'modules'      => modul_untuk($u['id']),
     'adminModules' => admin_modul_untuk($u['id']),
+    /* Divisi yang di-head orang ini, mis. ['bar']. Ikut dibawa supaya modul
+       yang menanyakan identitas (dw, jadwal) tidak perlu bertanya sekali lagi
+       ke modul Jadwal — satu perjalanan server-ke-server, bukan dua. Kosong
+       untuk yang bukan head. */
+    'headDivisi'   => (function ($id) {
+                        $p = head_divisi_peta();
+                        return isset($p[$id]) ? array_values($p[$id]) : array();
+                      })(s($u['id'])),
   ));
 }
 

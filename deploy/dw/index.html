@@ -525,20 +525,16 @@ td.nm .iconbtn{width:20px;height:20px;font-size:13px;margin-left:5px;vertical-al
       <p style="color:var(--muted);font-size:13.5px;margin:8px 0 16px" id="gatePesan">
         Staf Laksamana masuk lewat Office. Daily worker masuk pakai no. HP dan PIN dari HR.</p>
       <a class="btn btn-primary btn-block" href="../" style="text-decoration:none">Masuk lewat Laksamana Office</a>
-
-      <div class="pisah">atau daily worker</div>
-
-      <div class="field" style="text-align:left">
-        <label for="gHp">No. HP</label>
-        <input id="gHp" type="tel" inputmode="numeric" placeholder="08xxxxxxxxxx" autocomplete="username">
-      </div>
-      <div class="field" style="text-align:left">
-        <label for="gPin">PIN</label>
-        <input id="gPin" type="password" inputmode="numeric" placeholder="4 angka dari HR" autocomplete="current-password">
-      </div>
-      <button class="btn btn-ghost btn-block" id="gBtn" onclick="masukDW()">Masuk sebagai Daily Worker</button>
-      <div id="gErr" class="note d hidden" style="margin:12px 0 0;text-align:left"></div>
-      <p class="mutedhint" style="margin-top:12px">Belum punya PIN? Minta ke HR — PIN diberikan sekali saat Anda didaftarkan.</p>
+      <!-- FORM No. HP + PIN DICABUT 14 Agustus 2026.
+           Daily worker tidak punya akun dan tidak pernah membuka modul ini:
+           head mengajukan kebutuhannya, HRD menyetujui lalu menunjuk siapa
+           yang dipakai, dan orangnya dikabari lewat WhatsApp seperti biasa.
+           Gerbang yang dibiarkan menganggur bukan sisa yang tak berbahaya —
+           ia tetap menerima tebakan PIN, dan tetap terbaca sebagai janji
+           bahwa DW punya cara masuk. -->
+      <p class="mutedhint" style="margin-top:14px">Modul ini untuk staf Office.
+        Daily worker tidak punya akun — jadwalnya diatur HR di sini, dan
+        dikabari lewat WhatsApp.</p>
     </div>
   </div>
 </div>
@@ -629,7 +625,6 @@ const TAMU_SUMBER = [
    memutuskan ajuan. Sama dengan yang dipakai modul Jadwal Shift. */
 const ACC_URL   = '../account-api-mysql/api.php';
 const SESSION_KEY = 'lm_session';        // sesi Office (SSO), sama dengan modul lain
-const DW_SESI_KEY = 'lm_dw_sesi_v1';     // sesi daily worker di perangkatnya sendiri
 const CACHE_KEY   = 'lm_dw_cache_v1';
 
 const HARI      = ['Senin','Selasa','Rabu','Kamis','Jumat','Sabtu','Minggu'];
@@ -716,9 +711,11 @@ const IC = {
 };
 function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p||'')+'</svg>'; }
 
-/* Halaman sidebar. `dw:1` = ikut tampil untuk daily worker yang masuk pakai
-   HP+PIN; sisanya khusus staf Office. Entri ber-`s` adalah judul kelompok,
-   bukan halaman — smoke test menyaringnya sendiri lewat `filter(x=>x&&x.k)`. */
+/* Halaman sidebar. Entri ber-`s` adalah judul kelompok, bukan halaman — smoke
+   test menyaringnya sendiri lewat `filter(x=>x&&x.k)`.
+
+   Penanda `dw:1`/`dwSaja` DICABUT bersama gerbang masuk daily worker: seluruh
+   modul ini sekarang untuk staf Office. */
 const NAV_DEF = [
   {s:'Operasional'},
   {k:'dashboard', t:'Dashboard',      ic:'dash',     sub:'DW yang masuk hari ini'},
@@ -726,18 +723,7 @@ const NAV_DEF = [
   {k:'tamu',      t:'Kalender Tamu',  ic:'kalender', sub:'Jumlah tamu dari Marketing & Event — klik hari untuk ajukan DW'},
   {s:'Daily Worker'},
   {k:'antrean',   t:'Antrean Pengajuan', ic:'surat', sub:'Setujui atau tolak pengajuan DW'},
-  /* "Ajukan Jadwal" PUNYA BARIS SIDEBAR LAGI, untuk DW maupun staf Office.
-     Sebelumnya ia disembunyikan dari sidebar Office dengan alasan pintu
-     masuknya sudah ada di tempat lain (tombol di Antrean, tombol di profil
-     DW). Alasan itu benar untuk yang sudah tahu; bagi yang belum, halaman
-     itu praktis tidak ada — dan pertanyaan yang muncul persis
-     "ngajuinnya dari mana?". Menu yang tidak terlihat sama saja dengan menu
-     yang tidak ada.
-
-     `dwSaja` tetap dipakai untuk "Ajuan Saya", yang bagi staf Office memang
-     cuma halaman berisi satu kalimat "halaman ini untuk daily worker". */
-  {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Pilih tanggal & jam kerja', dw:1},
-  {k:'saya',      t:'Pengajuan Saya', ic:'kalender', sub:'Riwayat & status pengajuan saya', dw:1, dwSaja:1},
+  {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Jadwalkan DW pada satu tanggal'},
   {s:'Data'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
   /* REKAP PEGAWAI — bentuk & isinya disamakan dengan halaman bernama sama di
@@ -758,7 +744,6 @@ const NAV_DEF = [
 /* ---------- State ---------- */
 let S = null;            // {setting:{...}, pekerja:[], ajuan:[]}
 let ME = null;           // sesi Office: {id,name,admin} — null kalau yang masuk DW
-let MEDW = null;         // sesi daily worker: {id,nama,hp,divisi,posisi}
 let VIEW = 'dashboard';
 let DASH_TGL = '';                     // tanggal yang dilihat di Dashboard
 let BULAN_AKTIF = '';                  // 'YYYY-MM' untuk Kalender DW
@@ -846,7 +831,8 @@ function normalHp(v){
    BENTUK DATA
    ===================================================================== */
 function seed(){
-  return {setting:normalSetting(null), pekerja:[], ajuan:[]};
+  return {setting:normalSetting(null), pekerja:[], ajuan:[],
+          peran:{hrd:false, head:false, lihat:false, admin:false}};
 }
 /* Semua migrasi data lama tinggal di sini. Bentuk yang pulang dari server
    TIDAK pernah dipercaya apa adanya — halaman yang menerima `ajuan:null`
@@ -854,12 +840,20 @@ function seed(){
    ("modulnya mati") tidak menyebut penyebabnya sama sekali. */
 function normalizeState(d){
   d = d || {};
-  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[]};
+  /* `peran` DIHITUNG SERVER dan dipakai apa adanya — lihat peran_pemanggil()
+     di lib_dw_mysql.php. Layar tidak pernah menyimpulkannya sendiri dari
+     daftar modul & setting: dua tempat yang menyimpulkan hal yang sama pasti
+     berbeda pendapat suatu saat, dan yang berbeda pendapat soal hak akses
+     tidak pernah melapor — ia cuma menampilkan tombol yang lalu ditolak
+     server, atau menyembunyikan halaman yang sebenarnya boleh dibuka. */
+  const pr = (d.peran && typeof d.peran==='object') ? d.peran : {};
+  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[],
+    peran:{ hrd:!!pr.hrd, head:!!pr.head, lihat:!!pr.lihat, admin:!!pr.admin }};
   (Array.isArray(d.pekerja)?d.pekerja:[]).forEach(function(p){
     if(!p||!p.id) return;
     out.pekerja.push({
       id:String(p.id), nama:String(p.nama||''), hp:String(p.hp||''),
-      adaPin:!!p.adaPin, gender:String(p.gender||''), area:String(p.area||''),
+      gender:String(p.gender||''), area:String(p.area||''),
       bank:String(p.bank||''),
       /* Tujuan pembayaran. `bank` yang lama (teks bebas "BCA · 1234xxxx")
          tetap dibawa dan ditampilkan sebagai keterangan sampai HR sempat
@@ -1007,7 +1001,6 @@ function pekerjaById(id){ return (S.pekerja||[]).find(p=>p.id===id)||null; }
 function namaDW(id){
   const p=pekerjaById(id);
   if(p) return p.nama;
-  if(MEDW && MEDW.id===id) return MEDW.nama;
   /* Ajuan boleh hidup lebih lama daripada orangnya (hapus pekerja sengaja
      tidak menghapus riwayatnya — lihat lib_dw_mysql.php). Yang tidak
      ketemu tetap digambar, bukan dibuang diam-diam. */
@@ -1020,12 +1013,15 @@ function biayaAjuan(a){ return tarifPosisi(a.posisi); }
 
 /* =====================================================================
    HAK AKSES
-   Tiga peran, dan hanya dua yang perlu diperiksa:
+   Empat peran, dan jawabannya DATANG DARI SERVER (S.peran) — bukan
+   disimpulkan ulang di sini:
      - admin modul  : semua halaman, termasuk Pengaturan
-     - staf Office  : semua kecuali Pengaturan
-     - daily worker : HANYA Ajukan Jadwal & Ajuan Saya
+     - HRD          : semua kecuali Pengaturan; satu-satunya yang MEMUTUSKAN
+     - head divisi  : MELIHAT semuanya, tidak memutuskan apa pun
+     - staf Office  : hanya Dashboard, Kalender DW, Kalender Tamu — dan
+                      tanpa no HP siapa pun (disaring di server, bukan di sini)
+   Daily worker tidak punya akun dan tidak pernah membuka modul ini.
    ===================================================================== */
-function isDW(){ return !!MEDW; }
 /* Kunci modul yang dipegang akun Office ini. Daily worker tidak punya sesi
    Office sama sekali, jadi selalu false untuknya. */
 function isAdmin(){ return !!(ME && ME.admin); }
@@ -1033,15 +1029,19 @@ function isAdmin(){ return !!(ME && ME.admin); }
    Pengaturan — dan selama daftarnya masih kosong, semua staf Office boleh
    (lihat alasannya di normalSetting). */
 function daftarHR(){ return (S&&S.setting&&S.setting.hr)||[]; }
-function isHR(){
-  if(!isOffice()) return false;
-  if(isAdmin()) return true;
-  const d=daftarHR();
-  if(!d.length) return true;
-  return d.indexOf(String(ME&&ME.id))>-1;
-}
+/* Berhak MEMUTUSKAN — menyetujui ajuan, menyunting talent pool, menandai
+   transfer. Jawabannya datang dari server (`peran.hrd`); sebelum data pertama
+   sampai, `peran` masih kosong dan layar berperilaku seperti staf biasa —
+   menampilkan lebih sedikit dulu lalu menambah, bukan sebaliknya. */
+function isHR(){ return !!(S&&S.peran&&S.peran.hrd); }
+/* Head divisi. Boleh MELIHAT seluruh isi modul ini — termasuk nomor HP talent
+   pool dan daftar pembayaran — tapi tidak memutuskan apa pun. Head-lah yang
+   mengajukan kebutuhan DW divisinya. */
+function isHeadDW(){ return !!(S&&S.peran&&S.peran.head); }
+/* Boleh membuka halaman yang berisi data lengkap: HRD atau head. */
+function bisaLihat(){ return !!(S&&S.peran&&S.peran.lihat); }
 function isOffice(){ return !!ME; }
-function namaSaya(){ return isDW() ? (MEDW.nama+' (DW)') : ((ME&&ME.name)||''); }
+function namaSaya(){ return (ME&&ME.name)||''; }
 
 /* =====================================================================
    JARINGAN
@@ -1074,7 +1074,6 @@ function toast(msg,err){
    harus ditransfer. `by` masih ikut terkirim untuk pemasangan backend lama
    yang belum sempat diperbarui; backend baru mengabaikannya. */
 function tokenSesi(){
-  if(MEDW && MEDW.token) return MEDW.token;
   return (ME && ME.token) || '';
 }
 /* Sesi yang tidak lagi dikenali backend TIDAK boleh berakhir sebagai toast
@@ -1091,13 +1090,8 @@ function sesiDitolak(pesan){
     return true;
   }
   if(p.indexOf('sesi_tidak_sah')<0) return false;
-  if(isDW()){
-    try{ localStorage.removeItem(DW_SESI_KEY); }catch(e){}
-    tampilkanGerbang('Sesi berakhir','Masuk lagi dengan no. HP dan PIN Anda.');
-  }else{
-    tampilkanGerbang('Sesi berakhir',
-      'Sesi Anda tidak lagi berlaku. Buka Laksamana Office dan masuk lagi, lalu buka modul ini dari sana.');
-  }
+  tampilkanGerbang('Sesi berakhir',
+    'Sesi Anda tidak lagi berlaku. Buka Laksamana Office dan masuk lagi, lalu buka modul ini dari sana.');
   return true;
 }
 async function apiPost(payload){
@@ -1147,17 +1141,8 @@ async function muatData(paksa){
   if(!paksa && RANGE && RANGE.dari<=r.dari && RANGE.sampai>=r.sampai) return;
   MUAT_JALAN=true;
   try{
-    if(isDW()){
-      /* DW hanya menerima ajuannya sendiri. getAll akan mengirimkan seluruh
-         talent pool beserta nomor telepon semua orang ke HP-nya — tidak ada
-         satu pun halaman DW yang membutuhkannya. */
-      const d=await apiPost({action:'ajuanSaya', dwId:MEDW.id});
-      const st=normalizeState({setting:d.setting, ajuan:d.ajuan, pekerja:[]});
-      S.setting=st.setting; S.ajuan=st.ajuan; S.pekerja=[];
-    }else{
-      const d=await apiGet(r.dari,r.sampai);
-      S=normalizeState(d);
-    }
+    const d=await apiGet(r.dari,r.sampai);
+    S=normalizeState(d);
     RANGE={dari:r.dari, sampai:r.sampai};
     simpanCache();
     setSync('');
@@ -1245,10 +1230,6 @@ async function ambilSumber(s){
 async function muatTamu(paksa){
   if(TAMU_JALAN) return;
   if(TAMU_ADA && !paksa) return;
-  /* Daily worker tidak boleh menariknya sama sekali. Nama klien dan besar
-     acara adalah data komersial Marketing; halaman ini memang cuma ada di
-     sisi Office. */
-  if(isDW()) return;
   TAMU_JALAN=true;
   const gabung=[], gagal=[];
   let sukses=0;
@@ -1316,11 +1297,7 @@ async function muatRosterDanGambar(){ await muatRoster(); render(); }
 function tamuTgl(iso){ return TAMU.filter(function(a){ return a.tgl===iso; }); }
 function paxTgl(iso){ return tamuTgl(iso).reduce(function(n,a){ return n+(+a.pax||0); },0); }
 
-/* Cache lokal hanya untuk staf Office. Sesi DW dipakai di HP pribadi yang
-   sering dipinjam-pinjamkan, dan meninggalkan salinan ajuan orang lain di
-   localStorage-nya tidak ada gunanya. */
 function simpanCache(){
-  if(isDW()) return;
   try{ localStorage.setItem(CACHE_KEY, JSON.stringify({s:S, range:RANGE, at:Date.now()})); }catch(e){}
 }
 function bacaCache(){
@@ -1358,65 +1335,10 @@ function bacaSesi(){
             admin:(adm.indexOf('*')>-1 || adm.indexOf('dw')>-1)};
   }catch(e){ return null; }
 }
-function bacaSesiDW(){
-  try{
-    const s=JSON.parse(localStorage.getItem(DW_SESI_KEY)||'null');
-    if(!s||!s.id||!s.expiry||Date.now()>=s.expiry) return null;
-    /* Tanpa token, sesi ini tidak bisa dibuktikan ke backend sama sekali —
-       jadi ia dianggap tidak ada, dan gerbang PIN muncul seperti biasa.
-       Itu yang terjadi pada sesi yang tersimpan sebelum versi ini: satu kali
-       ketik PIN, bukan modul yang mati tanpa penjelasan. */
-    if(!s.token) return null;
-    return {id:s.id, nama:s.nama, hp:s.hp, token:s.token,
-            divisi:s.divisi||'', posisi:s.posisi||''};
-  }catch(e){ return null; }
-}
-function simpanSesiDW(dw){
-  try{
-    localStorage.setItem(DW_SESI_KEY, JSON.stringify(Object.assign({}, dw,
-      /* 30 hari. Lebih pendek dari itu membuat DW mengetik ulang PIN tiap
-         kali ia mau mengambil shift — dan yang terjadi berikutnya selalu
-         sama: ia berhenti memakai sistemnya dan mengirim WhatsApp lagi. */
-      {expiry: Date.now()+30*24*3600*1000})));
-  }catch(e){}
-}
-async function masukDW(){
-  const hp=normalHp((document.getElementById('gHp')||{}).value);
-  const pin=String((document.getElementById('gPin')||{}).value||'').replace(/\D+/g,'');
-  const err=document.getElementById('gErr');
-  const btn=document.getElementById('gBtn');
-  const gagal=(m)=>{ if(err){ err.textContent=m; err.classList.remove('hidden'); } };
-  if(err) err.classList.add('hidden');
-  if(!hp || !pin){ gagal('No. HP dan PIN wajib diisi.'); return; }
-  if(btn){ btn.disabled=true; btn.textContent='Memeriksa…'; }
-  try{
-    const d=await apiPost({action:'loginDW', hp, pin});
-    /* Token diterbitkan server dan disimpan bersama identitasnya. Mulai
-       sekarang inilah satu-satunya yang membuktikan DW ini benar dirinya —
-       `dwId` yang dikirim client tidak lagi dipercaya backend sama sekali. */
-    MEDW=Object.assign({}, d.dw, {token:d.token||''}); simpanSesiDW(MEDW);
-    document.getElementById('gate').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    await mulaiAplikasi();
-  }catch(e){
-    gagal(e.message||'Gagal masuk.');
-  }finally{
-    if(btn){ btn.disabled=false; btn.textContent='Masuk sebagai Daily Worker'; }
-  }
-}
-function keluarDW(){
-  /* Tokennya dicabut DI SERVER, tidak cuma dilupakan peramban. HP daily
-     worker sering dipinjam-pinjamkan, dan token yang masih hidup di database
-     berarti orang berikutnya tinggal mengembalikan isi localStorage. Tidak
-     ditunggu: kalau jaringannya putus, keluar dari perangkat ini tetap harus
-     terjadi — tokennya akan mati sendiri saat kedaluwarsa. */
-  /* .catch() WAJIB, bukan try/catch: apiPost async, jadi kegagalannya datang
-     sebagai promise yang ditolak — try/catch di sekelilingnya tidak menangkap
-     apa pun, dan yang muncul di konsol adalah unhandled rejection. */
-  try{ apiPost({action:'logoutDW'}).catch(function(){}); }catch(e){}
-  try{ localStorage.removeItem(DW_SESI_KEY); }catch(e){}
-  location.reload();
-}
+/* Fungsi sesi daily worker (bacaSesiDW/simpanSesiDW/masukDW/keluarDW) DICABUT
+   14 Agustus 2026 bersama gerbang no HP + PIN-nya. Daily worker tidak punya
+   akun: head mengajukan kebutuhannya, HRD menyetujui lalu menunjuk siapa yang
+   dipakai, dan orangnya dikabari lewat WhatsApp. */
 
 /* =====================================================================
    ROUTER
@@ -1429,9 +1351,12 @@ function keluarDW(){
    sama sensitifnya dengan Database DW dan Pembayaran. */
 const HALAMAN_HR = ['antrean','pekerja','bayar','rekap'];
 function bolehBuka(k){
-  if(isDW()) return k==='ajukan' || k==='saya';
   if(k==='pengaturan') return isAdmin();
-  if(HALAMAN_HR.indexOf(k)>-1) return isHR();
+  /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
+     halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
+     head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
+     Setujui/Tolak/Sunting hanya muncul untuk HRD. */
+  if(HALAMAN_HR.indexOf(k)>-1) return bisaLihat();
   /* Halaman DW ("Ajukan Jadwal") tetap terbuka untuk staf Office: HR memang
      sering mengisikan ajuan atas nama DW yang meneleponnya. Yang berbeda
      hanya isinya — di sisi Office ada pemilih nama DW. */
@@ -1439,7 +1364,7 @@ function bolehBuka(k){
 }
 function buildNav(){
   const el=document.getElementById('nav'); if(!el) return;
-  const menunggu=isDW()?0:(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
+  const menunggu=(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
   let h='', adaIsi=false, tunda='';
   NAV_DEF.forEach(function(n){
     /* Judul kelompok ditahan dulu, baru ditulis kalau ternyata ada halaman
@@ -1450,7 +1375,6 @@ function buildNav(){
     /* Halaman DW yang disembunyikan dari sidebar Office. Disaring DI SINI,
        bukan di bolehBuka(): halamannya tetap harus bisa dibuka lewat tombol
        dan lewat go(), yang disembunyikan cuma barisnya di menu. */
-    if(n.dwSaja && !isDW()) return;
     if(tunda){ h+='<div class="sect">'+esc(tunda)+'</div>'; tunda=''; }
     adaIsi=true;
     let badge='';
@@ -1462,9 +1386,7 @@ function buildNav(){
 
   const foot=document.getElementById('sideFoot');
   if(foot){
-    foot.innerHTML = isDW()
-      ? 'Masuk sebagai daily worker'
-      : 'DW aktif: '+(S&&S.pekerja||[]).filter(p=>p.status==='AKTIF').length;
+    foot.innerHTML = 'DW aktif: '+(S&&S.pekerja||[]).filter(p=>p.status==='AKTIF').length;
   }
 }
 const TITLES={
@@ -1473,7 +1395,6 @@ const TITLES={
   kalender:  ['Kalender DW','Sebulan penuh per divisi'],
   tamu:      ['Kalender Tamu','Pax dari Marketing & Event — klik hari untuk ajukan DW'],
   ajukan:    ['Ajukan Jadwal','Pilih tanggal dan jam kerja'],
-  saya:      ['Pengajuan Saya','Riwayat dan status pengajuan'],
   pekerja:   ['Database DW','Talent pool daily worker'],
   rekap:     ['Rekap Pegawai','Jadwal sebulan, jam kerja & upah satu daily worker'],
   bayar:     ['Pembayaran','Rekap seminggu per DW dan daftar transfernya'],
@@ -1546,9 +1467,10 @@ function render(){
      mengatakannya — bukan tampil kosong. */
   if(!bolehBuka(VIEW)){
     V.innerHTML='<div class="panel"><div class="empty"><div class="ic">🔒</div>'
-      +'Halaman ini untuk yang berhak memutuskan ajuan DW.'
+      +'Halaman ini untuk HRD dan head divisi.'
       +'<div class="mutedhint" style="margin-top:6px">Minta admin modul menambahkan Anda di '
-      +'<b>Pengaturan → Hak Akses</b>.</div></div></div>';
+      +'<b>Pengaturan → Hak Akses</b>, atau minta ditunjuk sebagai head divisi di modul '
+      +'<b>Jadwal Shift → Pengaturan → Head Divisi</b>.</div></div></div>';
     return;
   }
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
@@ -1556,7 +1478,6 @@ function render(){
   else if(VIEW==='kalender')   V.innerHTML=viewKalender();
   else if(VIEW==='tamu')       V.innerHTML=viewTamu();
   else if(VIEW==='ajukan')     V.innerHTML=viewAjukan();
-  else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pekerja')    V.innerHTML=viewPekerja();
   else if(VIEW==='rekap')      V.innerHTML=viewRekap();
   else if(VIEW==='bayar')      V.innerHTML=viewBayar();
@@ -1568,6 +1489,18 @@ function render(){
    POTONGAN HTML BERSAMA
    ===================================================================== */
 function statBox(n,l){ return '<div class="stat"><div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>'; }
+/* Pita untuk head divisi di halaman yang boleh ia LIHAT tapi tidak ubah.
+   Tanpa ini, head menekan tombol yang tidak ada lalu menyimpulkan modulnya
+   rusak — atau lebih buruk, mengira ajuannya sudah disetujui karena ia bisa
+   membaca seluruh antreannya. Yang ditulis bukan "Anda tidak berhak",
+   melainkan siapa yang berhak dan apa yang harus ia lakukan. */
+function pitaHead(){
+  if(!isHeadDW() || isHR()) return '';
+  return '<div class="note i noprint">👑 <b>Anda head divisi</b> — bisa melihat seluruh isi modul ini, '
+    +'tapi yang <b>menyetujui ajuan dan menunjuk DW</b> tetap HRD. '
+    +'Sampaikan kebutuhan divisi Anda ke HRD; begitu disetujui, namanya muncul sendiri di lembar '
+    +'<b>Jadwal Shift</b> hari itu.</div>';
+}
 /* Tombol balik ke rentang berjalan. Sama persis dengan modul Jadwal Shift —
    tulisannya kata kerja (bukan "Hari Ini", yang di sebelah label tanggal
    terbaca sebagai keterangan halaman dan tetap tertulis walau sudah digeser
@@ -1874,7 +1807,8 @@ function viewAntrean(){
     }).join('');
   }
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar">'+segDivisi(ANTREAN_DIV,'antreanDiv',true)+'<div class="spacer"></div>'
     +(isOffice()?'<button class="btn btn-primary btn-sm" onclick="go(\'ajukan\')">+ Buat ajuan atas nama DW</button>':'')
     +'</div>'
@@ -2884,21 +2818,18 @@ function viewAjukan(){
      mengembalikannya diam-diam. */
   const mSekarang  = AJU_M   || (jam[0]?jam[0].m:'16:00');
   const sSekarang  = AJU_S   || (jam[0]?jam[0].s:'23:00');
-  const divSekarang= AJU_DIV || (isDW()?MEDW.divisi:'');
-  const posSekarang= AJU_POS || (isDW()?MEDW.posisi:'');
+  const divSekarang= AJU_DIV || '';
+  const posSekarang= AJU_POS || '';
 
-  const siapa = isDW()
-    ? '<div class="field"><label>Daily Worker</label><input class="inp" style="width:100%" value="'+esc(MEDW.nama)+'" disabled></div>'
-    : '<div class="field"><label>Daily Worker *</label><select id="ajDw" onchange="pilihDwAjukan(this.value)">'
+  const siapa = '<div class="field"><label>Daily Worker *</label><select id="ajDw" onchange="pilihDwAjukan(this.value)">'
         +'<option value="">— pilih daily worker —</option>'
         +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
           .map(p=>'<option value="'+esc(p.id)+'"'+(AJU_DW===p.id?' selected':'')+'>'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))+'</option>').join('')
-        +'</select><div class="hint">Yang berstatus Blokir / Tidak Aktif sengaja tidak ada di daftar ini.</div></div>';
+        +'</select><div class="hint">Yang berstatus Tidak Aktif sengaja tidak ada di daftar ini.</div></div>';
 
-  /* Ajuan milik sendiri yang akan datang — supaya DW melihat apa yang sudah
-     ia kirim tanpa pindah halaman, dan tidak mengirim ulang tanggal yang
-     sama karena mengira gagal. */
-  const akuId = isDW()?MEDW.id:AJU_DW;
+  /* Ajuan orang yang sedang dipilih, supaya yang mengisikan melihat apa yang
+     sudah terkirim untuknya dan tidak mengirim ulang tanggal yang sama. */
+  const akuId = AJU_DW;
   const nanti=(S.ajuan||[]).filter(a=>a.dwId===akuId && a.tgl>=hariIni() && a.status!=='BATAL')
     .sort((a,b)=>a.tgl.localeCompare(b.tgl));
 
@@ -3104,7 +3035,7 @@ async function kirimAjuan(){
      digambar ulang dari state — dan tanpa langkah ini semua yang baru saja
      diketik lenyap tepat pada saat orangnya paling kesal. */
   serapAjukan();
-  const dwId = isDW() ? MEDW.id : AJU_DW;
+  const dwId = AJU_DW;
   const tgl=AJU_TGL;
 
   /* DUA PERIKSA YANG SAMA PERSIS dengan pintu di Kalender Tamu
@@ -3191,32 +3122,10 @@ function batalkanAjuan(id){
 /* =====================================================================
    HALAMAN — AJUAN SAYA (daily worker)
    ===================================================================== */
-function viewSaya(){
-  const akuId = isDW()?MEDW.id:'';
-  const mine=(S.ajuan||[]).filter(a=>a.dwId===akuId).sort((a,b)=>b.tgl.localeCompare(a.tgl));
-  if(!isDW()){
-    return '<div class="panel"><div class="empty"><div class="ic">👤</div>'
-      +'Halaman ini untuk daily worker yang masuk pakai no. HP dan PIN.'
-      +'<div class="mutedhint" style="margin-top:6px">Sebagai staf Office, riwayat tiap DW ada di <b>Database DW</b> → klik namanya.</div></div></div>';
-  }
-  const setuju=mine.filter(a=>a.status==='DISETUJUI');
-  const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
-  const menunggu=mine.filter(a=>a.status==='MENUNGGU').length;
-
-  return '<div class="panel">'
-    +'<div class="rowbar"><h2>Halo, '+esc(MEDW.nama)+'</h2><div class="spacer"></div>'
-    +'<button class="btn btn-primary btn-sm" onclick="go(\'ajukan\')">+ Ajukan tanggal</button></div>'
-    +'<div class="stats">'
-      +statBox(setuju.length,'Shift Disetujui')
-      +statBox(Math.round(jam*10)/10,'Total Jam')
-      +statBox(menunggu,'Menunggu HR')
-    +'</div>'
-    +(mine.length?mine.map(a=>barisAjuan(a,{tanggal:true, aksi:
-        ((a.status==='MENUNGGU'||a.status==='DISETUJUI') && a.tgl>=hariIni())
-          ?'<button class="btn btn-ghost btn-sm" onclick="batalkanAjuan(\''+escJs(a.id)+'\')">Batalkan</button>':''})).join('')
-      :'<div class="empty"><div class="ic">📭</div>Belum ada ajuan. Tekan <b>Ajukan tanggal</b> untuk mulai.</div>')
-    +'</div>';
-}
+/* HALAMAN "PENGAJUAN SAYA" DICABUT 14 Agustus 2026. Ia dibuat untuk daily
+   worker yang membuka modul ini dari HP-nya sendiri — dan itu sudah tidak ada
+   lagi. Riwayat tiap DW tetap terbaca staf lewat Database DW → klik namanya,
+   dan sebulan penuhnya di Rekap Pegawai. */
 
 /* =====================================================================
    HALAMAN — DATABASE DW (talent pool)
@@ -3241,7 +3150,8 @@ function viewPekerja(){
 
   const chip=(k,l)=>'<button class="'+(FILTER_PEKERJA===k?'active':'')+'" onclick="filterPekerja(\''+k+'\')">'+esc(l)+'</button>';
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar">'
       +'<div class="seg">'+chip('ALL','Semua ('+(S.pekerja||[]).length+')')
         +chip('AKTIF','Aktif ('+hitung.AKTIF+')')+chip('NONAKTIF','Nonaktif ('+hitung.NONAKTIF+')')+'</div>'
@@ -3255,16 +3165,13 @@ function viewPekerja(){
        satu pun menu di portal yang menuntun ke sini. Tautannya harus dikirim
        tangan, dan halaman ini yang menyediakannya. */
     +'<div class="note i" style="margin-bottom:12px">'
-      +'<b>DW mengajukan jadwalnya sendiri</b> — mereka tidak punya akun Office, '
-      +'jadi tautannya harus dikirim sekali ke tiap orang.<br>'
-      +'Buka <span class="mono">'+esc(tautanDW())+'</span> → masuk pakai <b>No. HP + PIN</b> '
-      +'→ menu <b>Ajukan Jadwal</b>. Ajuannya masuk ke <b>Antrean Ajuan</b> di sini.<br>'
-      +'<button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="salinTautanDW()">Salin tautan</button> '
-      +'<span class="mutedhint">PIN dibuat lewat <b>Sunting</b> pada tiap DW — tanpa PIN ia tidak bisa masuk.</span>'
+      +'<b>Daily worker tidak punya akun.</b> Jadwalnya diatur di sini: head mengajukan '
+      +'kebutuhan divisinya, HRD menyetujui lalu menunjuk siapa yang dipakai, dan orangnya '
+      +'dikabari lewat WhatsApp. Yang disetujui langsung muncul di kalender <b>Jadwal Shift</b>.'
     +'</div>'
     +(list.length?'<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Nama</th><th>No. HP</th><th>Divisi / Posisi</th>'
-      +'<th class="kanan">Kerja</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>'
+      +'<th class="kanan">Kerja</th><th>Status</th><th></th></tr></thead><tbody>'
       +list.map(function(p,i){
         const st=statistikDW(p.id);
         return '<tr>'
@@ -3273,19 +3180,9 @@ function viewPekerja(){
           +'<td class="mono">'+esc(p.hp)+'</td>'
           +'<td>'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div></td>'
           +'<td class="kanan mono">'+st.total+'×<div class="kecil">'+st.jam+' jam</div></td>'
-          /* "belum" bukan sekadar keterangan: selama PIN kosong orang ini
-             TIDAK BISA masuk sama sekali, dan itu penyebab paling sering
-             ajuannya tidak pernah datang. */
-          +'<td>'+(p.adaPin?'<span class="stpill st-AKTIF">ada</span>'
-                           :'<span class="stpill st-NONAKTIF" title="Belum bisa masuk — buatkan PIN lewat Sunting">belum</span>')+'</td>'
           +'<td>'+pilStatusDW(p.status)+'</td>'
           +'<td class="aksi-dw">'
         +'<button class="btn btn-ghost btn-sm" onclick="bukaProfil(\''+escJs(p.id)+'\')">Profil</button>'
-        /* Tombolnya di baris daftarnya sendiri, bukan cuma di dalam profil:
-           yang mengirimkannya biasanya sedang menyisir seluruh daftar sekali
-           duduk, bukan membuka satu orang untuk dibaca. */
-        +'<button class="btn btn-ghost btn-sm" title="Kirim cara masuk lewat WhatsApp" '
-          +'onclick="kirimAksesDW(\''+escJs(p.id)+'\')">Kirim akses</button>'
       +'</td>'
         +'</tr>';
       }).join('')+'</tbody></table></div>'
@@ -3315,8 +3212,6 @@ function bukaPekerja(id){
     +'<div class="duo">'
       +'<div class="field"><label>No. HP *</label><input id="pkHp" type="tel" inputmode="numeric" value="'+esc(p?p.hp:'')+'" placeholder="08xxxxxxxxxx">'
         +'<div class="hint">Nomor ini adalah identitas DW sekaligus cara ia masuk sendiri. Satu nomor hanya boleh dipakai satu orang.</div></div>'
-      +'<div class="field"><label>PIN'+(p?' (kosongkan = tidak diubah)':'')+'</label><input id="pkPin" inputmode="numeric" maxlength="8" placeholder="'+(p&&p.adaPin?'••••':'mis. 1234')+'">'
-        +'<div class="hint">Diberikan ke DW supaya ia bisa mengajukan sendiri.</div></div>'
     +'</div>'
     +'<div class="duo">'
       +'<div class="field"><label>Divisi</label><select id="pkDiv">'
@@ -3377,8 +3272,6 @@ async function simpanPekerja(id){
   /* `pin` hanya IKUT DIKIRIM kalau diisi. Backend menulis kolom PIN hanya
      ketika kuncinya ada — kalau dikirim kosong setiap kali menyunting, DW-nya
      terkunci di luar tiap kali HR memperbaiki ejaan namanya. */
-  const pin=String((el('pkPin')||{}).value||'').replace(/\D+/g,'');
-  if(pin) row.pin=pin;
 
   /* Dihitung SEBELUM menyimpan, selagi status lamanya masih terbaca.
      Menonaktifkan orang meninggalkan lubang yang sama persis dengan
@@ -3458,134 +3351,16 @@ function bukaProfil(id){
       :'<div class="mutedhint">Belum pernah dijadwalkan.</div>'),
     [{t:'Hapus',c:'btn-danger',f:function(){ hapusPekerja(id); return false; }},
      {t:'Sunting',c:'btn-ghost',f:function(){ tutupModal(); bukaPekerja(id); return false; }},
-     /* Yang paling sering dibutuhkan bukan "buatkan ajuan", tapi memberi tahu
-        orangnya cara mengajukan sendiri — sekali dikirim, ia tidak bertanya
-        lagi dan HR berhenti jadi juru ketik. */
-     {t:'Kirim cara masuk',c:'btn-ghost',f:function(){ kirimAksesDW(id); return false; }},
      {t:'Buatkan ajuan',c:'btn-primary',f:function(){ tutupModal(); AJU_DW=id; go('ajukan'); return false; }}],
     true);
 }
-/* Tautan halaman ini, tanpa query & tanpa hash. Dipakai untuk memberi tahu
-   DW harus membuka apa — pertanyaan pertama mereka selalu itu, dan selama
-   tidak terjawab tidak ada satu pun ajuan yang masuk lewat sistem. */
-function tautanDW(){
-  return location.origin + location.pathname.replace(/[^/]*$/,'');
-}
+/* tautanDW/pesanAksesDW/kirimAksesDW/salinTautanDW DICABUT 14 Agustus 2026:
+   tidak ada lagi tautan masuk untuk daily worker. `waNomor` DIPERTAHANKAN —
+   nomornya tetap dipakai untuk mengabari orangnya lewat WhatsApp. */
 function waNomor(hp){
   const d=String(hp||'').replace(/\D+/g,'');
   return d.slice(0,1)==='0' ? '62'+d.slice(1) : d;
 }
-/* Pesan siap kirim: tautannya, nomornya sendiri, dan pengingat PIN.
-   PIN-nya TIDAK ikut ditulis — halaman ini tidak pernah menerimanya dari
-   server (backend hanya membalas adaPin), dan menuliskannya di pesan yang
-   bisa diteruskan ke mana saja juga bukan hal yang pantas dilakukan sistem. */
-function pesanAksesDW(p){
-  return 'Halo '+(p.nama||'')+', ini cara mengajukan jadwal kerja di Laksamana Muda:'
-    +'\n\n1. Buka: '+tautanDW()
-    +'\n2. Masuk pakai No. HP: '+(p.hp||'')+' dan PIN yang sudah diberikan HR'
-    +'\n3. Pilih menu *Ajukan Jadwal*, isi tanggal & jamnya, lalu Kirim Ajuan'
-    +'\n\nSetelah disetujui HR, nama kamu otomatis muncul di jadwal hari itu.'
-    +'\nSimpan tautannya supaya tidak perlu bertanya lagi. Terima kasih ⚓';
-}
-function kirimAksesDW(id){
-  const p=pekerjaById(id); if(!p) return;
-  if(!p.hp){ toast('Nomor HP-nya belum diisi', true); return; }
-  if(!p.adaPin){
-    toast('PIN-nya belum dibuat — isi dulu lewat Sunting, kalau tidak ia tidak bisa masuk', true);
-    return;
-  }
-  window.open('https://wa.me/'+waNomor(p.hp)+'?text='+encodeURIComponent(pesanAksesDW(p)), '_blank');
-}
-function salinTautanDW(){
-  const t=tautanDW();
-  /* navigator.clipboard tidak ada di konteks non-HTTPS dan di sebagian
-     peramban dalam aplikasi — kalau gagal, tautannya tetap diperlihatkan
-     supaya bisa disalin tangan, bukan sekadar "gagal menyalin". */
-  const selesai=function(){ toast('Tautan disalin: '+t); };
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(t).then(selesai, function(){ prompt('Salin tautan ini:', t); });
-      return;
-    }
-  }catch(e){}
-  prompt('Salin tautan ini:', t);
-}
-/* Shift yang sudah DISETUJUI dan tanggalnya BELUM lewat.
-
-   Inilah yang tertinggal jadi baris hantu. `jadwal_dw` memulangkan setiap
-   ajuan DISETUJUI tanpa memeriksa apakah orangnya masih ada atau masih
-   aktif — pekerja yang barisnya sudah dihapus sekalipun tetap digambar di
-   lembar Jadwal Shift, dengan nama pengganti "(DW dihapus)". Itu memang
-   disengaja di sisi sana (sel yang hilang dari kalender lebih berbahaya
-   daripada nama yang aneh), tapi berarti tempat yang benar untuk
-   membereskannya adalah DI SINI, saat HR menghapus atau menonaktifkan
-   orangnya — bukan di modul jadwal, yang tidak tahu apa-apa soal keputusan
-   itu.
-
-   Yang sudah LEWAT sengaja tidak diikutkan: orangnya benar-benar bekerja
-   hari itu dan uangnya masih harus ditransfer. Membatalkannya berarti
-   menghapus baris itu dari halaman Pembayaran, yang hanya menghitung yang
-   DISETUJUI. */
-function shiftDepan(id){
-  return (S.ajuan||[]).filter(function(a){
-    return a.dwId===id && a.status==='DISETUJUI' && a.tgl>=hariIni();
-  }).sort(function(a,b){ return a.tgl.localeCompare(b.tgl); });
-}
-function daftarShiftDepan(list){
-  return list.map(function(a){
-    return tglManusia(a.tgl)+' '+namaDivisi(a.divisi)+' '+(a.m||'—')+'–'+(a.s||'—');
-  }).join(' · ');
-}
-/* Membatalkan beruntun, satu per satu — modul ini memang menulis granular
-   (tidak ada saveAll). Yang gagal dilaporkan apa adanya, bukan ditelan:
-   shift yang dikira sudah dibatalkan padahal masih berdiri di kalender
-   persis kesalahan yang sedang dicegah di sini. */
-async function batalkanShiftDepan(list, sebab){
-  let gagal=0;
-  for(const a of list){
-    try{
-      await apiPost({action:'putusAjuan', id:a.id, status:'BATAL', nota:sebab});
-    }catch(e){ gagal++; }
-  }
-  return gagal;
-}
-function hapusPekerja(id){
-  if(!isHR()){ toast('Hanya yang berhak yang bisa menghapus daily worker', true); return; }
-  const p=pekerjaById(id); if(!p) return;
-  const nanti=shiftDepan(id);
-
-  const lakukan=async function(batalkanDulu){
-    try{
-      if(batalkanDulu){
-        const g=await batalkanShiftDepan(nanti, p.nama+' dihapus dari talent pool');
-        if(g){ toast(g+' shift gagal dibatalkan — hapus dibatalkan, coba lagi', true); return; }
-      }
-      await apiPost({action:'hapusPekerja', id});
-      tutupModal(); toast(p.nama+' dihapus');
-      await muatData(true); render();
-    }catch(e){ toast('Gagal menghapus: '+e.message, true); }
-  };
-
-  if(!nanti.length){
-    konfirmasi('Hapus '+p.nama+' dari database?',
-      'Riwayat kerjanya TIDAK ikut terhapus — rekap bulan lalu tidak akan berubah angka. Yang hilang hanya datanya dari talent pool.',
-      function(){ lakukan(false); });
-    return;
-  }
-  /* Dua pilihan yang berbeda akibatnya, jadi dua tombol — bukan satu tombol
-     "Ya" yang diam-diam memilihkan salah satunya. */
-  modal('Hapus '+esc(p.nama)+'?',
-    '<div class="note w"><b>'+nanti.length+' shift yang sudah disetujui</b> masih berdiri di kalender '
-    +'<b>Jadwal Shift</b>:<br><span class="mono">'+esc(daftarShiftDepan(nanti))+'</span><br><br>'
-    +'Menghapus orangnya TIDAK menghapus shift itu — yang terjadi barisnya tetap ada, '
-    +'berganti nama jadi <b>(DW dihapus)</b>, dan head divisi tetap menghitungnya sebagai orang yang akan datang.</div>'
-    +'<p style="font-size:13.5px;color:var(--muted)">Riwayat kerja yang sudah lewat tidak ikut '
-    +'tersentuh apa pun pilihannya — rekap Pembayaran minggu lalu tetap sama.</p>',
-    [{t:'Batalkan shift itu, lalu hapus', c:'btn-primary', f:function(){ lakukan(true); return false; }},
-     {t:'Hapus saja, shift dibiarkan', c:'btn-danger', f:function(){ lakukan(false); return false; }}],
-    true);
-}
-
 /* =====================================================================
    HALAMAN — PEMBAYARAN MINGGUAN
 
@@ -3746,10 +3521,9 @@ function rekapBebanDW(dwId,mk){
   return out;
 }
 function viewRekap(){
-  if(!isHR()){
+  if(!bisaLihat()){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
-      +'Halaman ini untuk HR dan admin modul.'
-      +'<div class="mutedhint" style="margin-top:6px">Riwayat ajuanmu sendiri ada di <b>Ajuan Saya</b>.</div></div></div>';
+      +'Halaman ini untuk HRD dan head divisi.</div></div>';
   }
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   /* Yang bisa dipilih: DW yang MASIH AKTIF, ditambah siapa pun yang punya
@@ -4020,7 +3794,8 @@ function viewBayar(){
   const belum=baris.filter(x=>!(x.p&&x.p.bayarNomor));
   const nol=baris.filter(x=>x.total<=0);
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar"><h2>Pembayaran mingguan</h2><div class="spacer"></div>'
     +'<div class="navdate noprint"><button class="iconbtn" onclick="bayarGeser(-1)" aria-label="Minggu sebelumnya">‹</button>'
     +'<b>'+esc(rentangMinggu(senin))+'</b>'
@@ -4675,21 +4450,10 @@ function tampilkanGerbang(judul,pesan){
   document.getElementById('app').classList.add('hidden');
 }
 async function mulaiAplikasi(){
-  const nama = isDW()?MEDW.nama:(ME&&ME.name)||'—';
+  const nama = (ME&&ME.name)||'—';
   document.getElementById('su-un').textContent=nama;
   document.getElementById('su-avatar').textContent=inisial(nama);
-  document.getElementById('su-ur').textContent =
-    isDW() ? 'Daily worker' : (isAdmin()?'Admin modul':'Staf Office');
-
-  /* Tombol keluar berbeda arah: staf Office kembali ke portal, DW keluar
-     dari sesinya sendiri — mengirim DW ke halaman Office cuma menyodorkan
-     layar login yang tidak pernah bisa ia pakai. */
-  const kel=document.getElementById('su-keluar');
-  if(kel && isDW()){
-    kel.removeAttribute('href');
-    kel.title='Keluar';
-    kel.onclick=keluarDW;
-  }
+  document.getElementById('su-ur').textContent = isAdmin()?'Admin modul':'Staf Office';
 
   try{ if(localStorage.getItem('lm_dw_navmini')==='1') document.getElementById('app').classList.add('nav-mini'); }catch(e){}
 
@@ -4702,7 +4466,7 @@ async function mulaiAplikasi(){
      replaceState, bukan location.hash: alamat yang dirapikan (mis. DW yang
      membuka #/bayar) tidak boleh menambah entri riwayat — kalau menambah,
      tombol Back memantul balik ke alamat yang barusan ditolak. */
-  const bawaan = isDW() ? 'ajukan' : 'dashboard';
+  const bawaan = 'dashboard';
   VIEW = halamanSah(hashHalaman()) ? hashHalaman() : bawaan;
   try{ history.replaceState(null,'','#/'+VIEW); }catch(e){}
   render();                       // gambar dari cache dulu — layar tidak pernah kosong menunggu jaringan
@@ -4723,32 +4487,26 @@ async function boot(){
   BULAN_AKTIF=bulanDari(hariIni());
   DASH_TGL=hariIni();
 
-  const sesDW=bacaSesiDW();
   const ses=bacaSesi();
-
-  /* Sesi Office menang kalau keduanya ada: satu-satunya cara itu terjadi
-     adalah staf yang pernah menguji gerbang DW di perangkatnya sendiri, dan
-     yang ia harapkan berikutnya adalah layar HR-nya, bukan layar DW. */
-  if(ses && !ses.tolak){
-    ME=ses;
-    S=bacaCache()||seed();
-  }else if(sesDW){
-    MEDW=sesDW;
-    S=seed();
-  }else{
+  /* SATU jalur masuk saja: sesi Office. Gerbang no HP + PIN untuk daily worker
+     sudah dicabut — mereka tidak punya akun dan tidak pernah membuka modul
+     ini. */
+  if(!ses || ses.tolak){
     S=seed();
     if(ses&&ses.tolak){
       /* Nama centangnya disebut persis seperti di Kelola Akses — lihat alasan
          lengkapnya di gerbang kembarannya pada modul Jadwal Shift. */
-      tampilkanGerbang('Tidak punya akses Office',
+      tampilkanGerbang('Tidak punya akses',
         (ses.name?ses.name+', a':'A')+'kun Anda belum diberi akses Daily Worker. '
-        +'Minta admin mencentang "Roster · Daily Worker" lewat Kelola Akses di Office '
-        +'— atau masuk sebagai daily worker di bawah.');
+        +'Modul ini khusus HRD — minta admin mencentang "Roster · Daily Worker" '
+        +'lewat Kelola Akses di Office.');
     }else{
       tampilkanGerbang(null,null);
     }
     return;
   }
+  ME=ses;
+  S=bacaCache()||seed();
 
   document.getElementById('gate').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
@@ -4758,7 +4516,7 @@ async function boot(){
 /* Tab yang dibiarkan terbuka semalaman memegang antrean kemarin. Saat kembali
    aktif, ambil ulang — HR lain mungkin sudah memutuskan sebagiannya. */
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='visible' || !(ME||MEDW)) return;
+  if(document.visibilityState!=='visible' || !ME) return;
   muatData(true).then(render);
   /* Agenda tamu ikut disegarkan, tapi hanya kalau sudah basi lebih dari 10
      menit. Ia dipakai untuk menentukan "hari event" di panduan jumlah DW,
