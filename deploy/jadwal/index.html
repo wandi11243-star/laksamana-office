@@ -2927,7 +2927,22 @@ let AJU_HAL=1;
 /* Pindah tab SELALU kembali ke halaman 1. Tanpa itu, berpindah dari Riwayat
    halaman 7 ke Antrian yang cuma punya satu halaman memperlihatkan daftar
    kosong — dan yang membacanya menyimpulkan antriannya memang kosong. */
-function ajuTab(k){ AJU_TAB=k; AJU_HAL=1; render(); }
+function ajuTab(k){ AJU_TAB=k; AJU_HAL=1; CARI_AJU=''; render(); }
+/* Cari nama di halaman Pengajuan — aturannya SAMA PERSIS dengan setCariBulan()
+   di lembar bulanan: barisnya disaring (bukan disorot), kotaknya hanya muncul
+   kalau memang ada yang perlu dicari, dan fokusnya dikembalikan sesudah render
+   karena halaman ini digambar ulang penuh tiap ketukan.
+
+   Kenapa perlu: head Kitchen dengan dua belas kru membaca antrean yang memuat
+   pengajuan sebulan penuh, dan pertanyaan yang dibawa orang ke ruangannya
+   selalu spesifik — "punya saya sudah diputuskan belum?". Tanpa kotak ini
+   jawabannya dicari dengan mata, satu halaman pager demi satu halaman. */
+let CARI_AJU='';
+function setCariAju(v){ CARI_AJU=v; AJU_HAL=1; render(); sorotCariAju(); }
+function sorotCariAju(){
+  const i=document.getElementById('cariAju'); if(!i) return;
+  i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){}
+}
 function ajuHal(n){ AJU_HAL=Math.max(1,n); render(); }
 /* Pager sederhana: Sebelumnya / halaman x dari y / Berikutnya. Sengaja BUKAN
    deretan nomor halaman — riwayat pengajuan tidak pernah dicari per nomor
@@ -2977,16 +2992,22 @@ function viewPengajuan(){
   const menunggu=urut.filter(a=>a.status==='MENUNGGU');
   const sudah=urut.filter(a=>a.status!=='MENUNGGU');
   if(['riwayat','semua'].indexOf(AJU_TAB)<0) AJU_TAB='antri';
+  const qAju=(CARI_AJU||'').trim().toLowerCase();
+  const saring=(arr)=>qAju?arr.filter(function(a){
+    const u=kruById(a.userId);
+    return String((u?u.name:namaKru(a.userId))||'').toLowerCase().indexOf(qAju)>-1;
+  }):arr;
   const sumber = AJU_TAB==='riwayat' ? sudah
                : AJU_TAB==='semua'   ? urut
                :                       menunggu;
   /* Halaman dijepit saat menggambar, bukan di ajuHal(): jumlah halaman
      berubah tiap ada keputusan baru, dan nomor yang melewati batas
      memulangkan daftar kosong yang terbaca seperti datanya hilang. */
-  const maksHal=Math.max(1,Math.ceil(sumber.length/AJU_TAMPIL));
+  const sumberSaring=saring(sumber);
+  const maksHal=Math.max(1,Math.ceil(sumberSaring.length/AJU_TAMPIL));
   if(AJU_HAL>maksHal) AJU_HAL=maksHal;
   const mulai=(AJU_HAL-1)*AJU_TAMPIL;
-  const list=sumber.slice(mulai,mulai+AJU_TAMPIL);
+  const list=sumberSaring.slice(mulai,mulai+AJU_TAMPIL);
 
   /* SATU BARIS TABEL, bukan kartu bertumpuk.
      Bentuk kartu memakan ~110px per pengajuan: empat baris berisi jenis, nama,
@@ -3091,12 +3112,30 @@ function viewPengajuan(){
       +tab('riwayat','Riwayat',sudah.length)
       +tab('semua','Semua',urut.length)
     +'</div><div class="spacer"></div>'
+    /* Kotak cari muncul hanya kalau memang ada yang perlu dicari — ambang 8
+       sama dengan lembar bulanan. Di bawah itu memindai dengan mata lebih
+       cepat daripada mengetik, dan satu baris alat yang tidak pernah dipakai
+       cuma mendorong isi halaman ke bawah. */
+    +(sumber.length>=8
+      ? '<input class="inp noprint" id="cariAju" style="max-width:220px" '
+        +'placeholder="🔍 Cari nama kru…" value="'+esc(CARI_AJU)+'" '
+        +'oninput="setCariAju(this.value)">'
+      : '')
     +'<span class="mutedhint">'+(AJU_TAB==='antri'
         ?'Yang belum diputuskan — semuanya tampil, tidak dipotong.'
         :AJU_TAB==='riwayat'?'Keputusan yang sudah diambil, terbaru di atas.'
         :'Seluruh pengajuan; yang menunggu di atas.')+'</span></div>'
+    +(qAju
+      ? '<div class="rowbar noprint"><span class="chip">'+sumberSaring.length+' dari '+sumber.length+' pengajuan</span>'
+        +'<button class="btn btn-ghost btn-sm" onclick="setCariAju(&#39;&#39;)">Tampilkan semua</button>'
+        +'<div class="spacer"></div></div>'
+      : '')
+    +(qAju&&!sumberSaring.length
+      ? '<div class="note w">Tidak ada pengajuan atas nama "<b>'+esc(CARI_AJU)+'</b>" di tab ini. '
+        +'Coba tab <b>Semua</b> — mungkin sudah diputuskan.</div>'
+      : '')
     +kartu
-    +ajuPagerHTML(AJU_HAL,maksHal,sumber.length)
+    +ajuPagerHTML(AJU_HAL,maksHal,sumberSaring.length)
     +'</div>'
     /* Panel Riwayat terpisah SUDAH TIDAK ADA — riwayat kini salah satu tab di
        atas, dan pagernya menempel pada daftar yang sedang dibuka. Panel lama
