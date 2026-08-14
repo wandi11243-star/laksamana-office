@@ -232,6 +232,31 @@ td.cell.editable:hover{filter:brightness(.94)}
 td.cell .tm{display:block;font-size:9.5px;font-weight:600;opacity:.85;letter-spacing:0}
 td.cell.kosong{color:#C9C3B7;font-weight:600;font-size:16px}
 tr.bandgap td{height:22px;border:none;background:transparent}
+
+/* ---------- Halaman Permintaan DW ---------- */
+table.tbl-minta{min-width:900px}
+table.tbl-minta td{padding:9px;font-size:12.5px;vertical-align:middle}
+table.tbl-minta .aksi-minta{white-space:nowrap;text-align:right;width:210px}
+table.tbl-minta .aksi-minta .btn{margin-left:6px}
+table.tbl-minta .aksi-minta .btn:first-child{margin-left:0}
+/* Pemilih orang saat HRD menugaskan. Kisi, bukan <select> berjejer: yang
+   dikerjakan HRD adalah MEMBANDINGKAN beberapa nama sekaligus ("siapa yang
+   belum kepakai"), dan itu mustahil di dalam daftar yang harus dibuka satu
+   per satu. */
+.pilih-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+  gap:7px;max-height:320px;overflow:auto;padding:2px}
+.pilih-dw{display:flex;align-items:center;gap:7px;border:1.5px solid var(--line);
+  border-radius:9px;padding:8px 10px;font-size:12.5px;font-weight:600;cursor:pointer;
+  background:var(--surface);transition:.12s}
+.pilih-dw:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.pilih-dw.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
+.pilih-dw em{font-style:normal;font-weight:600;font-size:11px;color:var(--muted-2)}
+/* Yang sudah dijadwalkan hari itu: TETAP TAMPIL, tapi mati. Menyembunyikannya
+   membuat HRD mencari-cari nama yang ia tahu ada, lalu mengira orangnya
+   dihapus dari talent pool. */
+.pilih-dw.mati{opacity:.5;cursor:not-allowed;border-style:dashed;background:transparent}
+.pilih-dw.mati:hover{border-color:var(--line);background:transparent}
+.pilih-dw input{width:15px;height:15px;accent-color:var(--gold);margin:0}
 /* Pita "MINGGU N" di kepala tiap blok — DISALIN dari modul Jadwal Shift,
    termasuk alasannya. Tanpa kepala ini lembar bulanan ambigu justru di tempat
    yang paling penting: pita minggu selalu Senin–Minggu, jadi ujung lembar
@@ -722,6 +747,7 @@ const NAV_DEF = [
   {k:'kalender',  t:'Kalender DW',    ic:'kalender', sub:'Sebulan penuh per divisi'},
   {k:'tamu',      t:'Kalender Tamu',  ic:'kalender', sub:'Jumlah tamu dari Marketing & Event — klik hari untuk ajukan DW'},
   {s:'Daily Worker'},
+  {k:'permintaan',t:'Permintaan DW',  ic:'surat',    sub:'Head minta berapa orang — HRD menunjuk siapa'},
   {k:'antrean',   t:'Antrean Pengajuan', ic:'surat', sub:'Setujui atau tolak pengajuan DW'},
   {k:'ajukan',    t:'Ajukan Jadwal',  ic:'pena',     sub:'Jadwalkan DW pada satu tanggal'},
   {s:'Data'},
@@ -831,8 +857,8 @@ function normalHp(v){
    BENTUK DATA
    ===================================================================== */
 function seed(){
-  return {setting:normalSetting(null), pekerja:[], ajuan:[],
-          peran:{hrd:false, head:false, lihat:false, admin:false}};
+  return {setting:normalSetting(null), pekerja:[], ajuan:[], permintaan:[],
+          peran:{hrd:false, head:false, lihat:false, admin:false, divisi:[]}};
 }
 /* Semua migrasi data lama tinggal di sini. Bentuk yang pulang dari server
    TIDAK pernah dipercaya apa adanya — halaman yang menerima `ajuan:null`
@@ -847,8 +873,9 @@ function normalizeState(d){
      tidak pernah melapor — ia cuma menampilkan tombol yang lalu ditolak
      server, atau menyembunyikan halaman yang sebenarnya boleh dibuka. */
   const pr = (d.peran && typeof d.peran==='object') ? d.peran : {};
-  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[],
-    peran:{ hrd:!!pr.hrd, head:!!pr.head, lihat:!!pr.lihat, admin:!!pr.admin }};
+  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[], permintaan:[],
+    peran:{ hrd:!!pr.hrd, head:!!pr.head, lihat:!!pr.lihat, admin:!!pr.admin,
+            divisi:Array.isArray(pr.divisi)?pr.divisi.map(String):[] }};
   (Array.isArray(d.pekerja)?d.pekerja:[]).forEach(function(p){
     if(!p||!p.id) return;
     out.pekerja.push({
@@ -883,7 +910,22 @@ function normalizeState(d){
          arah yang paling berbahaya: seakan tidak pernah ada yang mangkir.
          Kolomnya masih ADA di database dan backend supaya catatan lama tidak
          hilang — cuma tidak lagi dibaca maupun ditulis dari layar. */
-      putusAt:+a.putusAt||0, putusOleh:String(a.putusOleh||''), putusNota:String(a.putusNota||'')
+      putusAt:+a.putusAt||0, putusOleh:String(a.putusOleh||''), putusNota:String(a.putusNota||''),
+      /* Penghubung ke permintaan head yang melahirkannya. Kosong = ajuan yang
+         dibuat langsung (head menunjuk orangnya sendiri, atau HRD
+         menjadwalkan biasa). */
+      permintaanId:String(a.permintaanId||'')
+    });
+  });
+  (Array.isArray(d.permintaan)?d.permintaan:[]).forEach(function(x){
+    if(!x||!x.id) return;
+    out.permintaan.push({
+      id:String(x.id), divisi:String(x.divisi||''), tgl:String(x.tgl||''),
+      m:String(x.m||''), s:String(x.s||''), posisi:String(x.posisi||''),
+      jumlah:+x.jumlah||0, catatan:String(x.catatan||''),
+      status:String(x.status||'MENUNGGU'),
+      dibuatAt:+x.dibuatAt||0, dibuatOleh:String(x.dibuatOleh||''),
+      putusAt:+x.putusAt||0, putusOleh:String(x.putusOleh||''), putusNota:String(x.putusNota||'')
     });
   });
   return out;
@@ -1351,7 +1393,12 @@ function bacaSesi(){
    sama sensitifnya dengan Database DW dan Pembayaran. */
 const HALAMAN_HR = ['antrean','pekerja','bayar','rekap'];
 function bolehBuka(k){
-  if(k==='pengaturan') return isAdmin();
+  /* Pengaturan: admin modul DAN HRD. Yang menyetel tarif, kuota, dan jam
+     bawaan memang HRD — mengunci layar itu untuk admin saja berarti tiap
+     perubahan tarif harus lewat orang yang tidak mengurus pembayarannya. */
+  if(k==='pengaturan') return isAdmin() || isHR();
+  /* Permintaan DW: head divisi (meminta) dan HRD (memenuhi). */
+  if(k==='permintaan') return bisaLihat();
   /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
      halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
      head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
@@ -1391,6 +1438,7 @@ function buildNav(){
 }
 const TITLES={
   dashboard: ['Dashboard','Daily worker yang masuk hari ini'],
+  permintaan:['Permintaan DW','Head meminta jumlah, HRD menunjuk orangnya'],
   antrean:   ['Antrean Pengajuan','Pengajuan yang menunggu keputusan HR'],
   kalender:  ['Kalender DW','Sebulan penuh per divisi'],
   tamu:      ['Kalender Tamu','Pax dari Marketing & Event — klik hari untuk ajukan DW'],
@@ -1474,6 +1522,7 @@ function render(){
     return;
   }
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
+  else if(VIEW==='permintaan') V.innerHTML=viewPermintaan();
   else if(VIEW==='antrean')    V.innerHTML=viewAntrean();
   else if(VIEW==='kalender')   V.innerHTML=viewKalender();
   else if(VIEW==='tamu')       V.innerHTML=viewTamu();
@@ -1738,6 +1787,301 @@ function lampauiPanduan(tgl,div,status,kecualiId){
   const kini=terpakaiDiv(tgl,div,status,kecualiId);
   if(kini+1<=k) return null;
   return {tgl:tgl, div:div, kuota:k, kini:kini, jadi:kini+1, konteks:konteksHari(tgl)};
+}
+
+/* =====================================================================
+   HALAMAN — PERMINTAAN DW  (head meminta, HRD memenuhi)
+
+   Dua cara head meminta, dan keduanya memang dipakai di lapangan:
+
+     1. TUNJUK ORANGNYA  — head sudah menghubungi sendiri anak yang minggu
+        lalu bagus. Tombolnya mengarah ke "Ajukan Jadwal" yang sudah ada;
+        hasilnya baris MENUNGGU yang tinggal disetujui HRD.
+     2. MINTA JUMLAHNYA  — "Sabtu butuh 3 orang, 16:00–23:00". Head tidak
+        perlu tahu siapa yang senggang, dan justru tidak boleh menebak:
+        tebakan itulah yang melahirkan satu orang dijanjikan dua divisi.
+
+   Yang membedakan halaman ini dari Antrean: di sana yang diputuskan ORANG,
+   di sini yang diputuskan KEBUTUHAN. Head melihat permintaan divisinya
+   sendiri; HRD melihat semuanya dan punya tombol Tunjuk Orang.
+   ===================================================================== */
+let MINTA_TAB = 'antri';        // antri | riwayat
+let MINTA_DIV = 'ALL';
+function mintaTab(k){ MINTA_TAB=k; render(); }
+function mintaDiv(k){ MINTA_DIV=k; render(); }
+
+/* Divisi yang boleh diminta orang ini. HRD: semua. Head: divisinya saja —
+   dan kalau cuma satu, pemilihnya tidak usah ditampilkan sama sekali. */
+function divisiKuasaDW(){
+  if(isHR()) return DIVISI.map(d=>d.k);
+  const h=(S&&S.peran&&S.peran.divisi)||[];
+  return h.slice();
+}
+/* Berapa orang yang sudah ditugaskan untuk permintaan ini. Dihitung dari
+   ajuan yang menunjuk ke sana — sama seperti di server, dan sengaja bukan
+   angka tersimpan: dua tempat yang menyimpan hitungan yang sama pasti
+   berbeda suatu saat. */
+function mintaTerpenuhi(id){
+  return (S.ajuan||[]).filter(a=>a.permintaanId===id
+    && (a.status==='MENUNGGU'||a.status==='DISETUJUI')).length;
+}
+function mintaOrang(id){
+  return (S.ajuan||[]).filter(a=>a.permintaanId===id
+    && (a.status==='MENUNGGU'||a.status==='DISETUJUI'));
+}
+
+function viewPermintaan(){
+  const kuasa=divisiKuasaDW();
+  if(!kuasa.length && !isHR()){
+    return '<div class="panel"><div class="empty"><div class="ic">👑</div>'
+      +'Halaman ini untuk head divisi dan HRD.'
+      +'<div class="mutedhint" style="margin-top:6px">Head ditunjuk di modul '
+      +'<b>Jadwal Shift → Pengaturan → Head Divisi</b>.</div></div></div>';
+  }
+
+  let semua=(S.permintaan||[]).slice();
+  /* Head hanya melihat divisinya. Bukan penyembunyian demi rahasia —
+     permintaan divisi lain memang bukan pekerjaannya, dan daftar yang
+     memuat semuanya membuat yang miliknya sendiri tenggelam. */
+  if(!isHR()) semua=semua.filter(x=>kuasa.indexOf(x.divisi)>-1);
+  if(MINTA_DIV!=='ALL') semua=semua.filter(x=>x.divisi===MINTA_DIV);
+
+  const antri=semua.filter(x=>x.status==='MENUNGGU')
+    .sort((a,b)=>String(a.tgl).localeCompare(String(b.tgl)));
+  const riwayat=semua.filter(x=>x.status!=='MENUNGGU')
+    .sort((a,b)=>(b.putusAt||0)-(a.putusAt||0));
+  const list=(MINTA_TAB==='riwayat')?riwayat:antri;
+
+  const baris=function(x){
+    const isi=mintaTerpenuhi(x.id), kurang=Math.max(0,x.jumlah-isi);
+    const orang=mintaOrang(x.id);
+    /* "2 dari 3" ditulis apa adanya, bukan disembunyikan di balik status.
+       Yang dicari HRD saat menyisir daftar ini persis angka itu: mana yang
+       masih kurang orang. */
+    const pil = x.status==='MENUNGGU'
+      ? '<span class="stpill st-MENUNGGU">Menunggu HRD</span>'
+      : (x.status==='DISETUJUI'
+          ? (kurang?'<span class="stpill st-MENUNGGU">'+isi+' dari '+x.jumlah+'</span>'
+                   :'<span class="stpill st-DISETUJUI">Terpenuhi '+isi+'/'+x.jumlah+'</span>')
+          : pilStatus(x.status));
+    const aksi=[];
+    if(isHR() && x.status!=='DITOLAK' && x.status!=='BATAL' && kurang>0)
+      aksi.push('<button class="btn btn-ok btn-sm" onclick="bukaTunjuk(\''+escJs(x.id)+'\')">👤 Tunjuk '+kurang+' orang</button>');
+    if(isHR() && x.status==='MENUNGGU')
+      aksi.push('<button class="btn btn-danger btn-sm" onclick="tolakPermintaan(\''+escJs(x.id)+'\')">✕ Tolak</button>');
+    if(x.status==='MENUNGGU' && !isHR())
+      aksi.push('<button class="btn btn-ghost btn-sm" onclick="batalPermintaan(\''+escJs(x.id)+'\')">Tarik kembali</button>');
+    return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
+      +'<td class="mono">'+esc(tglManusia(x.tgl))
+        +'<div class="kecil">'+esc(HARI[idxHari(x.tgl)])+'</div></td>'
+      +'<td>'+esc(ikonDivisi(x.divisi)+' '+namaDivisi(x.divisi))
+        +'<div class="kecil">'+esc(x.posisi||'—')+'</div></td>'
+      +'<td class="mono">'+esc(x.m+'–'+x.s)+'<div class="kecil">'+durasiJam(x.m,x.s)+' jam</div></td>'
+      +'<td class="kanan"><b>'+x.jumlah+'</b> orang'
+        +(isi?'<div class="kecil">'+orang.map(a=>esc(namaDW(a.dwId))).join(', ')+'</div>':'')+'</td>'
+      +'<td class="kecil">'+(x.catatan?esc(x.catatan):'—')
+        +(x.putusNota?'<div class="kecil" style="color:var(--danger)">"'+esc(x.putusNota)+'"</div>':'')+'</td>'
+      +'<td>'+pil+'<div class="kecil">'+esc(x.dibuatOleh||'—')+'</div></td>'
+      +'<td class="kanan aksi-minta">'+(aksi.join('')||'<span class="kecil">—</span>')+'</td>'
+    +'</tr>';
+  };
+
+  const tabel=list.length
+    ? '<div class="tablewrap"><table class="list tbl-minta"><thead><tr>'
+      +'<th>Tanggal</th><th>Divisi / Posisi</th><th>Jam</th><th class="kanan">Butuh</th>'
+      +'<th>Catatan</th><th>Status</th><th></th></tr></thead><tbody>'
+      +list.map(baris).join('')+'</tbody></table></div>'
+    : '<div class="empty"><div class="ic">📋</div>'
+      +(MINTA_TAB==='riwayat'?'Belum ada permintaan yang diputuskan.'
+                             :'Tidak ada permintaan yang menunggu.')
+      +(MINTA_TAB!=='riwayat'?'<div class="mutedhint" style="margin-top:6px">Tekan <b>+ Minta DW</b> untuk mengajukan kebutuhan divisi Anda.</div>':'')
+      +'</div>';
+
+  return pitaHead()
+    +'<div class="panel">'
+    +'<div class="rowbar"><h2>📋 Permintaan Daily Worker</h2><div class="spacer"></div>'
+    +'<button class="btn btn-ghost btn-sm" onclick="go(\'ajukan\')">Tunjuk orangnya langsung</button>'
+    +'<button class="btn btn-primary btn-sm" onclick="bukaMinta()">+ Minta DW</button></div>'
+    +'<div class="note i">Dua cara meminta: <b>tunjuk orangnya langsung</b> kalau Anda sudah tahu siapa, '
+    +'atau <b>minta jumlahnya saja</b> dan HRD yang menunjuk dari talent pool. '
+    +'Keduanya berakhir sama — begitu HRD menyetujui, namanya muncul di lembar <b>Jadwal Shift</b> hari itu.</div>'
+    +'<div class="rowbar">'
+      +'<div class="seg">'
+        +'<button class="'+(MINTA_TAB==='antri'?'active':'')+'" onclick="mintaTab(\'antri\')">Menunggu '+antri.length+'</button>'
+        +'<button class="'+(MINTA_TAB==='riwayat'?'active':'')+'" onclick="mintaTab(\'riwayat\')">Riwayat '+riwayat.length+'</button>'
+      +'</div>'
+      +(isHR()?'<div class="spacer"></div>'+segDivisi(MINTA_DIV,'mintaDiv',true):'')
+    +'</div>'
+    +tabel
+    +'</div>';
+}
+
+/* ---------- Head: form minta jumlah ---------- */
+let MINTA=null;
+function bukaMinta(id){
+  const kuasa=divisiKuasaDW();
+  if(!kuasa.length) return toast('Hanya head divisi dan HRD yang bisa meminta DW', true);
+  const lama=id?(S.permintaan||[]).find(x=>x.id===id):null;
+  const jam=(S.setting.jam||[])[0]||{m:'16:00',s:'23:00'};
+  MINTA = lama
+    ? {id:lama.id, tgl:lama.tgl, divisi:lama.divisi, m:lama.m, s:lama.s,
+       posisi:lama.posisi, jumlah:lama.jumlah, catatan:lama.catatan}
+    : {id:'', tgl:hariIni(), divisi:kuasa[0], m:jam.m, s:jam.s,
+       posisi:(S.setting.posisi||POSISI_BAWAAN)[0], jumlah:1, catatan:''};
+  gambarMinta();
+}
+function serapMinta(){
+  if(!MINTA) return;
+  const g=id=>{ const el=document.getElementById(id); return el?el.value:null; };
+  MINTA.tgl    = g('mtTgl')    || MINTA.tgl;
+  MINTA.divisi = g('mtDiv')    || MINTA.divisi;
+  MINTA.m      = g('mtM')      || MINTA.m;
+  MINTA.s      = g('mtS')      || MINTA.s;
+  MINTA.posisi = g('mtPos')    || MINTA.posisi;
+  const j=g('mtJml'); if(j!=null) MINTA.jumlah=Math.max(1,Math.min(30,+j||1));
+  const c=g('mtCat'); if(c!=null) MINTA.catatan=c;
+}
+function mintaJam(i){
+  const j=(S.setting.jam||[])[i]; if(!j||!MINTA) return;
+  serapMinta(); MINTA.m=j.m; MINTA.s=j.s; gambarMinta();
+}
+function gambarMinta(){
+  const b=MINTA; if(!b) return;
+  const kuasa=divisiKuasaDW();
+  const posisi=S.setting.posisi||POSISI_BAWAAN;
+  modal((b.id?'Ubah permintaan':'Minta Daily Worker'),
+    '<div class="field"><label>Tanggal *</label>'
+      +'<input id="mtTgl" class="inp" style="width:100%" type="date" value="'+esc(b.tgl)+'"></div>'
+    +'<div class="duo">'
+      +'<div class="field"><label>Divisi *</label><select id="mtDiv"'+(kuasa.length<2?' disabled':'')+'>'
+        +kuasa.map(k=>'<option value="'+esc(k)+'"'+(b.divisi===k?' selected':'')+'>'+ikonDivisi(k)+' '+esc(namaDivisi(k))+'</option>').join('')
+      +'</select>'+(kuasa.length<2?'<div class="hint">Anda head divisi ini.</div>':'')+'</div>'
+      /* Jumlah orang — inti halaman ini. Diberi tempat sendiri dan bukan
+         diselipkan di antara isian lain, karena inilah satu-satunya angka
+         yang membedakan permintaan dari ajuan biasa. */
+      +'<div class="field"><label>Butuh berapa orang? *</label>'
+        +'<input id="mtJml" class="inp" type="number" min="1" max="30" value="'+(+b.jumlah||1)+'">'
+        +'<div class="hint">HRD yang menunjuk siapa orangnya.</div></div>'
+    +'</div>'
+    +(( S.setting.jam||[]).length?'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
+      +'<div class="pick">'+tombolJam(b.m,b.s,'mintaJam')+'</div>':'')
+    +'<div class="duo">'
+      +'<div class="field"><label>Jam mulai *</label><input id="mtM" type="time" value="'+esc(b.m)+'"></div>'
+      +'<div class="field"><label>Jam selesai *</label><input id="mtS" type="time" value="'+esc(b.s)+'"></div>'
+    +'</div>'
+    +'<div class="field"><label>Posisi</label><select id="mtPos">'
+      +posisi.map(p=>'<option'+(b.posisi===p?' selected':'')+'>'+esc(p)+'</option>').join('')
+    +'</select></div>'
+    +'<div class="field"><label>Catatan untuk HRD</label>'
+      +'<textarea id="mtCat" placeholder="Mis. ada acara 300 pax, butuh yang sudah pernah handle banquet">'+esc(b.catatan||'')+'</textarea></div>',
+    [{t:(b.id?'Simpan perubahan':'Kirim permintaan'),c:'btn-primary',f:function(){ kirimMinta(); return false; }}]);
+}
+async function kirimMinta(){
+  const b=MINTA; if(!b) return;
+  serapMinta();
+  try{
+    await apiPost({action:'simpanPermintaan', row:{
+      id:b.id, tgl:b.tgl, divisi:b.divisi, m:b.m, s:b.s,
+      posisi:b.posisi, jumlah:b.jumlah, catatan:b.catatan}});
+    MINTA=null; tutupModal();
+    toast('Permintaan terkirim — menunggu HRD');
+    await muatDanGambar(true);
+  }catch(e){ toast('Gagal mengirim: '+e.message, true); }
+}
+function batalPermintaan(id){
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  konfirmasi('Tarik kembali permintaan '+tglManusia(x.tgl)+'?',
+    'Permintaan ini hilang dari antrean HRD. Kalau ternyata masih butuh, ajukan lagi.',
+    async function(){
+      try{
+        await apiPost({action:'putusPermintaan', id, status:'BATAL', nota:'Ditarik '+namaSaya()});
+        toast('Permintaan ditarik'); await muatDanGambar(true);
+      }catch(e){ toast('Gagal: '+e.message, true); }
+    });
+}
+function tolakPermintaan(id){
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  tanyaTeks('Tolak permintaan '+namaDivisi(x.divisi), 'Alasan (dibaca head divisi)', '',
+    async function(nota){
+      try{
+        await apiPost({action:'putusPermintaan', id, status:'DITOLAK',
+                       nota:nota||'Tidak bisa dipenuhi'});
+        toast('Permintaan ditolak'); await muatDanGambar(true);
+      }catch(e){ toast('Gagal: '+e.message, true); }
+    });
+}
+
+/* ---------- HRD: menunjuk orangnya ---------- */
+let TUNJUK=null;
+function bukaTunjuk(id){
+  if(!isHR()) return toast('Hanya HRD yang bisa menugaskan DW', true);
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  TUNJUK={id:id, pilih:[]};
+  gambarTunjuk();
+}
+function tunjukToggle(dwId){
+  const t=TUNJUK; if(!t) return;
+  const i=t.pilih.indexOf(dwId);
+  if(i>-1) t.pilih.splice(i,1); else t.pilih.push(dwId);
+  gambarTunjuk();
+}
+function gambarTunjuk(){
+  const t=TUNJUK; if(!t) return;
+  const x=(S.permintaan||[]).find(p=>p.id===t.id); if(!x) return;
+  const sudah=mintaTerpenuhi(t.id), kurang=Math.max(0,x.jumlah-sudah);
+
+  /* Yang ditawarkan: DW aktif, DIURUTKAN supaya yang paling masuk akal ada di
+     atas — divisi yang sama dulu, lalu nama. Yang SUDAH punya ajuan hari itu
+     ditandai dan tidak bisa dipilih: mereka sumber bentrok yang paling sering,
+     dan menawarkannya berarti melempar penolakan balik ke muka HRD setelah ia
+     menekan Tugaskan. */
+  const semua=(S.pekerja||[]).filter(p=>p.status==='AKTIF');
+  const utama=semua.filter(p=>p.divisi===x.divisi);
+  const lain =semua.filter(p=>p.divisi!==x.divisi);
+  const urut=utama.concat(lain);
+
+  const kartu=urut.map(function(p){
+    const bentrok=ajuanOrangTgl(p.id, x.tgl);
+    const on=t.pilih.indexOf(p.id)>-1;
+    if(bentrok){
+      return '<label class="pilih-dw mati" title="Sudah dijadwalkan '+esc(namaDivisi(bentrok.divisi))
+        +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
+        +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
+    }
+    return '<label class="pilih-dw'+(on?' on':'')+'">'
+      +'<input type="checkbox"'+(on?' checked':'')+' onchange="tunjukToggle(\''+escJs(p.id)+'\')"> '
+      +esc(p.nama)+(p.posisi?' <em>· '+esc(p.posisi)+'</em>':'')+'</label>';
+  }).join('');
+
+  const lebih=t.pilih.length>kurang;
+  modal('Tunjuk DW — '+esc(namaDivisi(x.divisi))+' '+esc(tglManusia(x.tgl)),
+    '<div class="rowbar"><span class="chip">'+esc(x.m+'–'+x.s)+'</span>'
+      +'<span class="chip">'+esc(x.posisi||'DW')+'</span>'
+      +'<span class="chip"><b>'+sudah+'</b> dari '+x.jumlah+' terisi</span>'
+      +(kurang?'<span class="chip" style="background:var(--warn-soft,#FFF6E0)">kurang '+kurang+'</span>':'')+'</div>'
+    +(x.catatan?'<div class="note i">Catatan head: '+esc(x.catatan)+'</div>':'')
+    +'<p class="mutedhint" style="margin:8px 0 6px">Pilih '+kurang+' orang. Yang sudah dijadwalkan di hari yang sama tidak bisa dipilih — itu bentrok yang paling sering terjadi.</p>'
+    +'<div class="pilih-grid">'+(kartu||'<div class="empty">Belum ada daily worker aktif.</div>')+'</div>'
+    +(lebih?'<div class="note w" style="margin-top:8px">Anda memilih '+t.pilih.length+' orang, lebih banyak dari yang diminta ('+kurang+'). Boleh saja — pastikan anggarannya memang disiapkan.</div>':''),
+    [{t:'Tugaskan '+(t.pilih.length||'')+' orang',c:'btn-primary',f:function(){ kirimTunjuk(); return false; }}],
+    true);
+}
+async function kirimTunjuk(){
+  const t=TUNJUK; if(!t) return;
+  if(!t.pilih.length) return toast('Pilih dulu siapa yang ditugaskan', true);
+  try{
+    const d=await apiPost({action:'tugaskanDW', permintaanId:t.id, dwIds:t.pilih});
+    TUNJUK=null; tutupModal();
+    /* Yang TERTAHAN dilaporkan, tidak dilewati diam-diam — penugasan yang
+       diam-diam kurang satu orang baru ketahuan malam itu, saat kurang orang. */
+    if(d.tertahan && d.tertahan.length){
+      const n=d.tertahan.map(b=>namaDW(b.dwId||'')||b.nama).join(', ');
+      toast(d.masuk+' ditugaskan, '+d.tertahan.length+' tertahan bentrok: '+n, true);
+    }else{
+      toast(d.masuk+' daily worker ditugaskan — sudah masuk kalender Jadwal Shift');
+    }
+    await muatDanGambar(true);
+  }catch(e){ toast('Gagal menugaskan: '+e.message, true); }
 }
 
 /* =====================================================================

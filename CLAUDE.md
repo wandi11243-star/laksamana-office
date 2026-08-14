@@ -106,14 +106,18 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 
 | | boleh |
 |---|---|
-| DW — memutuskan (setujui/tolak, talent pool, tandai bayar) | **HRD saja** (`dw_hrd`) |
+| DW — memutuskan (setujui/tolak, talent pool, tandai bayar, **tugaskanDW**) | **HRD saja** (`dw_hrd`) |
+| DW — minta DW (`simpanPermintaan`) & tunjuk orang langsung (`simpanAjuan`) | **head divisi ITU** atau HRD (`wajib_minta`) |
+| DW — `simpanSetting` | HRD, tapi daftar `hr` dipertahankan server kalau bukan admin modul |
 | DW — MELIHAT seluruh isi modul | HRD **dan head divisi** (`dw_boleh_lihat`); peran dihitung server & dikirim sebagai `data.peran`, layar tidak menyimpulkannya sendiri |
 | akses modul `dw` di Office | otomatis untuk Tim HRD/CEO, admin modul, Admin Akses, **dan head divisi** — head-nya ditanyakan ke `jadwal-api?action=headIds`, lazy + cache + gagal = kosong |
 | akses modul `jadwal` di Office | **otomatis** untuk Tim Kitchen/Bar/Floor/Cashier/HRD/CEO + admin modul (`modul_bawaan_untuk`) — tidak perlu dicentang |
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
-| kedua modul — `simpanSetting` | admin modul saja (blob-nya memuat daftar HRD/head) |
+| Jadwal — `simpanSetting` | admin modul saja (blob-nya memuat daftar head) |
 
-Sengaja **tetap terbuka**: `ping`, `stats`, `jadwalDW`, `shiftHari`. Dua yang
+Sengaja **tetap terbuka**: `ping`, `stats`, `jadwalDW`, `shiftHari`, `headIds`, `probeTulis`.
+`probeTulis` dipakai langkah Verifikasi kedua workflow FTP — probe lama memakai
+`simpanSel`, dan begitu itu dijaga sesi **seluruh deploy gagal**. Dua yang
 terakhir dipanggil backend Absensi server-ke-server, yang `config.php`-nya cuma
 bisa disunting manual di cPanel — menutupnya mematikan absensi kedua situs
 tanpa satu pun galat yang menyebut sebabnya.
@@ -127,7 +131,7 @@ modul yang mati.
 Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
 
 ```bash
-node tools/uji-hak-akses.js     # 45 pemeriksaan, butuh php + pdo_sqlite di PATH
+node tools/uji-hak-akses.js     # 60 pemeriksaan, butuh php + pdo_sqlite di PATH
 ```
 
 Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan
