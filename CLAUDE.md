@@ -106,8 +106,9 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 
 | | boleh |
 |---|---|
-| DW — SELURUH modul | **HRD saja** (`dw_hrd`: admin modul, atau ada di `setting.hr`; daftar kosong = semua staf bermodul, sama dengan layar) |
-| akses modul `dw` di Office | hanya Tim HRD/CEO, admin modul, Admin Akses — dicabut paling akhir di `modul_untuk()`, `*` sekalipun tidak mengembalikannya |
+| DW — memutuskan (setujui/tolak, talent pool, tandai bayar) | **HRD saja** (`dw_hrd`) |
+| DW — MELIHAT seluruh isi modul | HRD **dan head divisi** (`dw_boleh_lihat`); peran dihitung server & dikirim sebagai `data.peran`, layar tidak menyimpulkannya sendiri |
+| akses modul `dw` di Office | otomatis untuk Tim HRD/CEO, admin modul, Admin Akses, **dan head divisi** — head-nya ditanyakan ke `jadwal-api?action=headIds`, lazy + cache + gagal = kosong |
 | akses modul `jadwal` di Office | **otomatis** untuk Tim Kitchen/Bar/Floor/Cashier/HRD/CEO + admin modul (`modul_bawaan_untuk`) — tidak perlu dicentang |
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
 | kedua modul — `simpanSetting` | admin modul saja (blob-nya memuat daftar HRD/head) |
@@ -126,11 +127,11 @@ modul yang mati.
 Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
 
 ```bash
-node tools/uji-hak-akses.js     # 36 pemeriksaan, butuh php + pdo_sqlite di PATH
+node tools/uji-hak-akses.js     # 45 pemeriksaan, butuh php + pdo_sqlite di PATH
 ```
 
 Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan
-berisi empat peran (admin / HRD / staf biasa / head Bar). Hak akses adalah
+berisi lima peran (admin / HRD / staf biasa / head Bar / salah-centang). Hak akses adalah
 satu-satunya bagian repo ini yang **kegagalannya tidak terlihat dari layar** —
 penjaga yang longgar tidak menampilkan apa pun yang aneh.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu

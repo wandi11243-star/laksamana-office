@@ -837,7 +837,16 @@ function seed() { normalSetting(); }
 
 
 
+
 function normalizeState() { normalSetting(); bayarJenisSah(); statusDW(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1011,18 +1020,26 @@ function biayaAjuan() { tarifPosisi(); }
 
 
 
+
+
+
+
 function isAdmin() {  }
 
 
 
 function daftarHR() {  }
-function isHR() { isOffice(); isAdmin(); daftarHR(); }
 
 
 
 
+function isHR() {  }
 
 
+
+function isHeadDW() {  }
+
+function bisaLihat() {  }
 function isOffice() {  }
 function namaSaya() {  }
 
@@ -1333,7 +1350,11 @@ function bacaSesi() {  }
 
 
 
-function bolehBuka() { isAdmin(); isHR(); }
+function bolehBuka() { isAdmin(); bisaLihat(); }
+
+
+
+
 
 
 
@@ -1466,7 +1487,20 @@ function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboa
 
 
 
+
 function statBox() { esc(); }
+
+
+
+
+
+function pitaHead() { isHeadDW(); isHR(); }
+
+
+
+
+
+
 
 
 
@@ -1712,7 +1746,8 @@ function lampauiPanduan() { kuotaDiv(); terpakaiDiv(); konteksHari(); }
 
 
 
-function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); segDivisi(); isOffice(); go(); ajuPagerHTML(); }
+function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); pitaHead(); segDivisi(); isOffice(); go(); ajuPagerHTML(); }
+
 
 
 
@@ -3113,7 +3148,8 @@ function viewPekerja() {  }
 
 
 
-function chip() { filterPekerja(); esc(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
+function chip() { filterPekerja(); esc(); pitaHead(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
+
 
 
 
@@ -3484,8 +3520,7 @@ function rekapBebanDW() { rekapAjuanDW(); durasiJam(); biayaAjuan(); idxHari(); 
 
 
 
-function viewRekap() { isHR(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); escJs(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); pilStatusDW(); statBox(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
-
+function viewRekap() { bisaLihat(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); escJs(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); pilStatusDW(); statBox(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
 
 
 
@@ -3702,7 +3737,8 @@ function viewBayar() { bayarSenin(); addD(); rekapBayar(); bayarJenisSah(); kunc
 
 
 
-function hitungJenis() { bayarJenisSah(); esc(); rentangMinggu(); labelTujuan(); rp(); tombolLunasHTML(); idxHari(); ikonDivisi(); namaDivisi(); kunciBayar(); bayarGeser(); tombolKembali(); seninDari(); hariIni(); statBox(); statUang(); chip(); bayarGabung(); salinBayar(); }
+function hitungJenis() { bayarJenisSah(); esc(); rentangMinggu(); labelTujuan(); rp(); tombolLunasHTML(); idxHari(); ikonDivisi(); namaDivisi(); kunciBayar(); pitaHead(); bayarGeser(); tombolKembali(); seninDari(); hariIni(); statBox(); statUang(); chip(); bayarGabung(); salinBayar(); }
+
 
 
 

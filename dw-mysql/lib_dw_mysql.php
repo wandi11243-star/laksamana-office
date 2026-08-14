@@ -214,6 +214,26 @@ function dw_office($body = null) {
 }
 function dw_admin($u) { return sesi_admin_modul($u, 'dw'); }
 
+/* Head divisi. Datang dari whoami (`headDivisi`) — account-api yang
+   menanyakannya ke modul Jadwal, jadi modul ini tidak perlu satu perjalanan
+   server-ke-server lagi untuk pertanyaan yang sama.
+
+   HEAD BOLEH MELIHAT SELURUH ISI MODUL INI, termasuk nomor HP talent pool dan
+   daftar pembayaran. Itu keputusan pemiliknya, dan bukan keputusan setengah:
+   head-lah yang mengajukan kebutuhan DW divisinya, dan menyembunyikan separuh
+   layar dari orang yang diminta memakainya cuma membuat ia menelepon HR untuk
+   hal yang seharusnya bisa ia lihat sendiri.
+
+   Yang TIDAK ikut: MEMUTUSKAN. Menyetujui ajuan berarti mengeluarkan uang, dan
+   itu tetap HRD. Lihat wajib_hrd() di api.php. */
+function dw_head($u) {
+  if (!$u) return false;
+  $h = (isset($u['headDivisi']) && is_array($u['headDivisi'])) ? $u['headDivisi'] : array();
+  return count($h) > 0;
+}
+/* Boleh melihat isi penuh: HRD atau head. */
+function dw_boleh_lihat($u) { return dw_hrd($u) || dw_head($u); }
+
 /* Berhak MEMUTUSKAN di modul ini — inilah "HRD" yang dimaksud.
    Aturannya SAMA PERSIS dengan isHR() di deploy/dw/index.html, termasuk
    bagian yang mudah terlewat: daftar kosong berarti SEMUA staf Office yang
@@ -241,10 +261,11 @@ function dw_hrd($u) {
    Pekerja dikirim SELURUHNYA tanpa batas tanggal: talent pool-nya berukuran
    puluhan, bukan ribuan, dan hampir setiap halaman butuh namanya untuk
    menerjemahkan `dw_id` di ajuan. Yang dibatasi tanggal hanya ajuan. */
-/* $penuh = pemanggilnya berhak memutuskan (HRD). Yang TIDAK berhak tetap
-   menerima daftar orangnya — Dashboard dan Kalender DW memang terbuka untuk
-   seluruh staf yang punya akses modul, dan keduanya butuh nama untuk
-   menerjemahkan `dw_id` — tapi TANPA nomor HP dan tanpa tujuan pembayaran.
+/* $penuh = pemanggilnya boleh melihat isi penuh (HRD atau head divisi). Yang
+   TIDAK berhak tetap menerima daftar orangnya — Dashboard dan Kalender DW
+   memang terbuka untuk seluruh staf yang punya akses modul, dan keduanya butuh
+   nama untuk menerjemahkan `dw_id` — tapi TANPA nomor HP dan tanpa tujuan
+   pembayaran.
 
    Disaring DI SINI, bukan di layar. Sebelumnya satu GET memulangkan nomor HP
    seluruh talent pool kepada siapa pun; layar staf non-HR memang tidak
@@ -301,6 +322,25 @@ function baca_semua($dari, $sampai, $penuh = true) {
   foreach ($st->fetchAll() as $r) $ajuan[] = bentuk_ajuan($r);
 
   return array('setting' => baca_setting(), 'pekerja' => $pekerja, 'ajuan' => $ajuan);
+}
+
+/* Peran pemanggil, dibalas bersama datanya.
+   ---------------------------------------------------------------------
+   Layar perlu tahu tiga hal untuk menggambar dirinya: boleh memutuskan
+   (HRD), boleh melihat isi penuh (HRD atau head), dan boleh mengubah
+   pengaturan (admin modul). Ketiganya DIHITUNG DI SERVER dan dikirim jadi,
+   bukan disimpulkan ulang di peramban dari daftar modul & setting —
+   dua tempat yang menyimpulkan hal yang sama pasti akan berbeda pendapat
+   suatu saat, dan yang berbeda pendapat soal hak akses tidak pernah
+   melapor. Layar cuma menggambar apa yang server sudah putuskan. */
+function peran_pemanggil($u) {
+  return array(
+    'hrd'   => dw_hrd($u) ? 1 : 0,
+    'head'  => dw_head($u) ? 1 : 0,
+    'lihat' => dw_boleh_lihat($u) ? 1 : 0,
+    'admin' => dw_admin($u) ? 1 : 0,
+    'nama'  => ($u && isset($u['name'])) ? (string)$u['name'] : '',
+  );
 }
 
 function bentuk_ajuan($r) {

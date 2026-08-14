@@ -197,6 +197,32 @@ function jdw_divisi_user($uid) {
   return JDW_DIV_NONSHIFT;
 }
 
+/* Peta head: userId => [divisi, ...]. Dibaca modul LAIN lewat action=headIds.
+   ---------------------------------------------------------------------
+   Daftar head hanya ada di sini, di `jadwal_setting`, dan itu memang tempat
+   yang benar — yang menunjuknya admin modul Jadwal lewat layar Head Divisi.
+   Tapi dua modul lain perlu tahu jawabannya: Office (untuk memberi head kunci
+   modul Daily Worker) dan modul DW sendiri (untuk membuka halamannya).
+
+   Yang dipulangkan HANYA id dan kode divisi — tanpa nama, tanpa jadwal, tanpa
+   apa pun yang bisa dipakai di luar pertanyaannya. */
+function head_ids() {
+  $set = json_decode(json_encode(baca_setting()), true);
+  $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads']))
+         ? $set['heads'] : array();
+  $out = array();
+  foreach ($heads as $div => $daftar) {
+    if (!is_array($daftar)) continue;
+    foreach ($daftar as $uid) {
+      $uid = s($uid);
+      if ($uid === '') continue;
+      if (!isset($out[$uid])) $out[$uid] = array();
+      if (!in_array((string)$div, $out[$uid], true)) $out[$uid][] = (string)$div;
+    }
+  }
+  return $out;
+}
+
 function jdw_office($body = null) {
   $u = sesi_user($body);
   if (!$u) return null;

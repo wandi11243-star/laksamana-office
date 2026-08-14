@@ -126,15 +126,19 @@ function nama_pemanggil($u) {
 try {
   switch ($action) {
     case 'getAll': {
-      /* Butuh sesi Office. Yang BUKAN HRD tetap dilayani — Dashboard dan
-         Kalender DW memang terbuka untuknya — tapi tanpa no HP dan tanpa
-         tujuan transfer siapa pun. */
+      /* Butuh sesi Office. HRD dan HEAD DIVISI menerima isi penuh; staf lain
+         tetap dilayani — Dashboard dan Kalender DW memang terbuka untuknya —
+         tapi tanpa no HP dan tanpa tujuan transfer siapa pun. */
       $u = wajib_office($body);
-      keluar(array('ok' => true, 'data' => baca_semua(
+      $data = baca_semua(
         isset($_GET['dari']) ? $_GET['dari'] : '',
         isset($_GET['sampai']) ? $_GET['sampai'] : '',
-        dw_hrd($u)
-      )));
+        dw_boleh_lihat($u)
+      );
+      /* Peran ikut dikirim supaya layar tidak menyimpulkannya sendiri dari
+         daftar modul & setting — lihat peran_pemanggil(). */
+      $data['peran'] = peran_pemanggil($u);
+      keluar(array('ok' => true, 'data' => $data));
     }
 
     case 'jadwalDW':

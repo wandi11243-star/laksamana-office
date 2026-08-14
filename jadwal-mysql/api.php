@@ -121,6 +121,16 @@ try {
         isset($_GET['dari']) ? $_GET['dari'] : ambil($body, 'dari', ''),
         isset($_GET['sampai']) ? $_GET['sampai'] : ambil($body, 'sampai', ''))));
 
+    /* Daftar head divisi, dibaca MODUL LAIN — Office (untuk memberi head kunci
+       modul Daily Worker) dan modul DW sendiri. Sengaja terbuka, dengan alasan
+       yang sama seperti shiftHari: pemanggilnya server-ke-server, dan yang
+       dipulangkan cuma id user + kode divisi. Tidak ada nama, tidak ada
+       jadwal, tidak ada apa pun yang bisa dipakai di luar pertanyaannya —
+       "siapa head divisi apa" memang sudah tertulis di layar Pengaturan yang
+       dibuka seluruh pemegang akses modul. */
+    case 'headIds':
+      keluar(array('ok' => true, 'data' => array('heads' => head_ids())));
+
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
 

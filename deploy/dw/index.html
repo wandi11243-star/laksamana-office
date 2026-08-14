@@ -831,7 +831,8 @@ function normalHp(v){
    BENTUK DATA
    ===================================================================== */
 function seed(){
-  return {setting:normalSetting(null), pekerja:[], ajuan:[]};
+  return {setting:normalSetting(null), pekerja:[], ajuan:[],
+          peran:{hrd:false, head:false, lihat:false, admin:false}};
 }
 /* Semua migrasi data lama tinggal di sini. Bentuk yang pulang dari server
    TIDAK pernah dipercaya apa adanya — halaman yang menerima `ajuan:null`
@@ -839,7 +840,15 @@ function seed(){
    ("modulnya mati") tidak menyebut penyebabnya sama sekali. */
 function normalizeState(d){
   d = d || {};
-  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[]};
+  /* `peran` DIHITUNG SERVER dan dipakai apa adanya — lihat peran_pemanggil()
+     di lib_dw_mysql.php. Layar tidak pernah menyimpulkannya sendiri dari
+     daftar modul & setting: dua tempat yang menyimpulkan hal yang sama pasti
+     berbeda pendapat suatu saat, dan yang berbeda pendapat soal hak akses
+     tidak pernah melapor — ia cuma menampilkan tombol yang lalu ditolak
+     server, atau menyembunyikan halaman yang sebenarnya boleh dibuka. */
+  const pr = (d.peran && typeof d.peran==='object') ? d.peran : {};
+  const out = {setting:normalSetting(d.setting), pekerja:[], ajuan:[],
+    peran:{ hrd:!!pr.hrd, head:!!pr.head, lihat:!!pr.lihat, admin:!!pr.admin }};
   (Array.isArray(d.pekerja)?d.pekerja:[]).forEach(function(p){
     if(!p||!p.id) return;
     out.pekerja.push({
@@ -1004,10 +1013,14 @@ function biayaAjuan(a){ return tarifPosisi(a.posisi); }
 
 /* =====================================================================
    HAK AKSES
-   Tiga peran, dan hanya dua yang perlu diperiksa:
+   Empat peran, dan jawabannya DATANG DARI SERVER (S.peran) — bukan
+   disimpulkan ulang di sini:
      - admin modul  : semua halaman, termasuk Pengaturan
-     - staf Office  : semua kecuali Pengaturan
-     - daily worker : HANYA Ajukan Jadwal & Ajuan Saya
+     - HRD          : semua kecuali Pengaturan; satu-satunya yang MEMUTUSKAN
+     - head divisi  : MELIHAT semuanya, tidak memutuskan apa pun
+     - staf Office  : hanya Dashboard, Kalender DW, Kalender Tamu — dan
+                      tanpa no HP siapa pun (disaring di server, bukan di sini)
+   Daily worker tidak punya akun dan tidak pernah membuka modul ini.
    ===================================================================== */
 /* Kunci modul yang dipegang akun Office ini. Daily worker tidak punya sesi
    Office sama sekali, jadi selalu false untuknya. */
@@ -1016,13 +1029,17 @@ function isAdmin(){ return !!(ME && ME.admin); }
    Pengaturan — dan selama daftarnya masih kosong, semua staf Office boleh
    (lihat alasannya di normalSetting). */
 function daftarHR(){ return (S&&S.setting&&S.setting.hr)||[]; }
-function isHR(){
-  if(!isOffice()) return false;
-  if(isAdmin()) return true;
-  const d=daftarHR();
-  if(!d.length) return true;
-  return d.indexOf(String(ME&&ME.id))>-1;
-}
+/* Berhak MEMUTUSKAN — menyetujui ajuan, menyunting talent pool, menandai
+   transfer. Jawabannya datang dari server (`peran.hrd`); sebelum data pertama
+   sampai, `peran` masih kosong dan layar berperilaku seperti staf biasa —
+   menampilkan lebih sedikit dulu lalu menambah, bukan sebaliknya. */
+function isHR(){ return !!(S&&S.peran&&S.peran.hrd); }
+/* Head divisi. Boleh MELIHAT seluruh isi modul ini — termasuk nomor HP talent
+   pool dan daftar pembayaran — tapi tidak memutuskan apa pun. Head-lah yang
+   mengajukan kebutuhan DW divisinya. */
+function isHeadDW(){ return !!(S&&S.peran&&S.peran.head); }
+/* Boleh membuka halaman yang berisi data lengkap: HRD atau head. */
+function bisaLihat(){ return !!(S&&S.peran&&S.peran.lihat); }
 function isOffice(){ return !!ME; }
 function namaSaya(){ return (ME&&ME.name)||''; }
 
@@ -1335,7 +1352,11 @@ function bacaSesi(){
 const HALAMAN_HR = ['antrean','pekerja','bayar','rekap'];
 function bolehBuka(k){
   if(k==='pengaturan') return isAdmin();
-  if(HALAMAN_HR.indexOf(k)>-1) return isHR();
+  /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
+     halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
+     head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
+     Setujui/Tolak/Sunting hanya muncul untuk HRD. */
+  if(HALAMAN_HR.indexOf(k)>-1) return bisaLihat();
   /* Halaman DW ("Ajukan Jadwal") tetap terbuka untuk staf Office: HR memang
      sering mengisikan ajuan atas nama DW yang meneleponnya. Yang berbeda
      hanya isinya — di sisi Office ada pemilih nama DW. */
@@ -1446,9 +1467,10 @@ function render(){
      mengatakannya — bukan tampil kosong. */
   if(!bolehBuka(VIEW)){
     V.innerHTML='<div class="panel"><div class="empty"><div class="ic">🔒</div>'
-      +'Halaman ini untuk yang berhak memutuskan ajuan DW.'
+      +'Halaman ini untuk HRD dan head divisi.'
       +'<div class="mutedhint" style="margin-top:6px">Minta admin modul menambahkan Anda di '
-      +'<b>Pengaturan → Hak Akses</b>.</div></div></div>';
+      +'<b>Pengaturan → Hak Akses</b>, atau minta ditunjuk sebagai head divisi di modul '
+      +'<b>Jadwal Shift → Pengaturan → Head Divisi</b>.</div></div></div>';
     return;
   }
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
@@ -1467,6 +1489,18 @@ function render(){
    POTONGAN HTML BERSAMA
    ===================================================================== */
 function statBox(n,l){ return '<div class="stat"><div class="n">'+n+'</div><div class="l">'+esc(l)+'</div></div>'; }
+/* Pita untuk head divisi di halaman yang boleh ia LIHAT tapi tidak ubah.
+   Tanpa ini, head menekan tombol yang tidak ada lalu menyimpulkan modulnya
+   rusak — atau lebih buruk, mengira ajuannya sudah disetujui karena ia bisa
+   membaca seluruh antreannya. Yang ditulis bukan "Anda tidak berhak",
+   melainkan siapa yang berhak dan apa yang harus ia lakukan. */
+function pitaHead(){
+  if(!isHeadDW() || isHR()) return '';
+  return '<div class="note i noprint">👑 <b>Anda head divisi</b> — bisa melihat seluruh isi modul ini, '
+    +'tapi yang <b>menyetujui ajuan dan menunjuk DW</b> tetap HRD. '
+    +'Sampaikan kebutuhan divisi Anda ke HRD; begitu disetujui, namanya muncul sendiri di lembar '
+    +'<b>Jadwal Shift</b> hari itu.</div>';
+}
 /* Tombol balik ke rentang berjalan. Sama persis dengan modul Jadwal Shift —
    tulisannya kata kerja (bukan "Hari Ini", yang di sebelah label tanggal
    terbaca sebagai keterangan halaman dan tetap tertulis walau sudah digeser
@@ -1773,7 +1807,8 @@ function viewAntrean(){
     }).join('');
   }
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar">'+segDivisi(ANTREAN_DIV,'antreanDiv',true)+'<div class="spacer"></div>'
     +(isOffice()?'<button class="btn btn-primary btn-sm" onclick="go(\'ajukan\')">+ Buat ajuan atas nama DW</button>':'')
     +'</div>'
@@ -3115,7 +3150,8 @@ function viewPekerja(){
 
   const chip=(k,l)=>'<button class="'+(FILTER_PEKERJA===k?'active':'')+'" onclick="filterPekerja(\''+k+'\')">'+esc(l)+'</button>';
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar">'
       +'<div class="seg">'+chip('ALL','Semua ('+(S.pekerja||[]).length+')')
         +chip('AKTIF','Aktif ('+hitung.AKTIF+')')+chip('NONAKTIF','Nonaktif ('+hitung.NONAKTIF+')')+'</div>'
@@ -3485,10 +3521,9 @@ function rekapBebanDW(dwId,mk){
   return out;
 }
 function viewRekap(){
-  if(!isHR()){
+  if(!bisaLihat()){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
-      +'Halaman ini untuk HR dan admin modul.'
-      +'<div class="mutedhint" style="margin-top:6px">Riwayat ajuanmu sendiri ada di <b>Ajuan Saya</b>.</div></div></div>';
+      +'Halaman ini untuk HRD dan head divisi.</div></div>';
   }
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   /* Yang bisa dipilih: DW yang MASIH AKTIF, ditambah siapa pun yang punya
@@ -3759,7 +3794,8 @@ function viewBayar(){
   const belum=baris.filter(x=>!(x.p&&x.p.bayarNomor));
   const nol=baris.filter(x=>x.total<=0);
 
-  return '<div class="panel">'
+  return pitaHead()
+    +'<div class="panel">'
     +'<div class="rowbar"><h2>Pembayaran mingguan</h2><div class="spacer"></div>'
     +'<div class="navdate noprint"><button class="iconbtn" onclick="bayarGeser(-1)" aria-label="Minggu sebelumnya">‹</button>'
     +'<b>'+esc(rentangMinggu(senin))+'</b>'

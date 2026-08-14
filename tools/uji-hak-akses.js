@@ -204,8 +204,15 @@ $orang = array(
                          'modules'=>array('dw','jadwal'),'adminModules'=>array()),
   'tok-staf'    => array('id'=>'u-staf','name'=>'Uji Staf','keterangan'=>'Marketing',
                          'modules'=>array('dw','jadwal'),'adminModules'=>array()),
+  /* Head divisi Bar. Kunci headDivisi adalah yang dipulangkan account-api
+     asli sesudah menanyakannya ke modul Jadwal (action=headIds); modul DW
+     memakainya apa adanya, tanpa bertanya sekali lagi.
+     CATATAN: blok PHP ini duduk di dalam template literal JS — JANGAN pakai
+     backtick di sini, satu saja memutus literalnya dan seluruh berkas gagal
+     diurai dengan pesan yang tidak menyebut barisnya. */
   'tok-headbar' => array('id'=>'u-headbar','name'=>'Uji Head Bar','keterangan'=>'Bar',
-                         'modules'=>array('jadwal','dw'),'adminModules'=>array()),
+                         'modules'=>array('jadwal','dw'),'adminModules'=>array(),
+                         'headDivisi'=>array('bar')),
   /* Pegawai tetap yang centangnya TERTUKAR di Kelola Akses: ia memegang
      "Roster · Daily Worker" padahal yang ia butuhkan "Roster · Jadwal Shift".
      Inilah keadaan yang membuat pegawai tetap mendarat di modul DW — pemilih
@@ -372,6 +379,32 @@ async function main() {
     j.ok && JSON.stringify(j).indexOf('"pin"') < 0 && JSON.stringify(j).indexOf('adaPin') < 0,
     JSON.stringify(j).slice(0, 160));
 
+  /* ——— HEAD DIVISI di modul DW: lihat semuanya, putuskan tidak satu pun ——— */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-headbar');
+  cek('head bisa membuka modul DW', j.ok, j.error);
+  cek('head menerima isi PENUH (termasuk no. HP talent pool)',
+    j.ok && j.data.pekerja[0] && typeof j.data.pekerja[0].hp === 'string',
+    JSON.stringify(j).slice(0, 160));
+  cek('peran head dilaporkan server apa adanya',
+    j.ok && j.data.peran && j.data.peran.head === 1 && j.data.peran.lihat === 1 && j.data.peran.hrd === 0,
+    JSON.stringify(j.ok ? j.data.peran : j).slice(0, 160));
+
+  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: 'tok-headbar', id: ajuId, status: 'DISETUJUI' });
+  cek('head TIDAK bisa menyetujui ajuan DW', ditolak(j), JSON.stringify(j));
+  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-headbar',
+    row: { nama: 'Selundupan Head', hp: '081200000077' } });
+  cek('head TIDAK bisa menyunting talent pool', ditolak(j), JSON.stringify(j));
+  j = await panggil('dw-mysql', { action: 'tandaiBayar', sesi: 'tok-headbar',
+    senin: '2026-08-10', kunci: 'BANK|1', nyala: true });
+  cek('head TIDAK bisa menandai pembayaran', ditolak(j), JSON.stringify(j));
+
+  /* Staf biasa tetap TIDAK menerima isi penuh — pembeda head vs staf harus
+     benar-benar berbeda, bukan cuma label yang berbeda. */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-staf');
+  cek('staf biasa tetap tanpa no. HP dan peran lihat=0',
+    j.ok && j.data.pekerja[0] && j.data.pekerja[0].hp === undefined && j.data.peran.lihat === 0,
+    JSON.stringify(j.ok ? j.data.peran : j).slice(0, 160));
+
   /* ================= MODUL JADWAL SHIFT ================= */  /* ================= MODUL JADWAL SHIFT ================= */
   console.log('\n— Jadwal Shift —');
 
@@ -464,6 +497,16 @@ async function main() {
 
   j = await ambil('jadwal-mysql', 'action=shiftHari&user=kru-bar&dari=2026-08-20&sampai=2026-08-20');
   cek('shiftHari tetap terbuka (dipanggil backend Absensi)', j.ok, j.error);
+
+  /* headIds — jalur yang dipakai Office untuk memberi head kunci modul DW.
+     Isinya harus id + divisi saja: tidak ada nama, tidak ada jadwal. */
+  j = await ambil('jadwal-mysql', 'action=headIds');
+  const heads = j.ok ? (j.data.heads || {}) : {};
+  cek('headIds memulangkan head Bar', !!(heads['u-headbar'] || []).includes('bar'),
+    JSON.stringify(j).slice(0, 160));
+  cek('headIds tidak membocorkan nama siapa pun',
+    JSON.stringify(j).indexOf('Uji Head Bar') < 0 && JSON.stringify(j).indexOf('Kru Bar') < 0,
+    JSON.stringify(j).slice(0, 160));
 
   console.log('\n' + (jumlah - gagal) + '/' + jumlah + ' pemeriksaan lulus');
   process.exit(gagal ? 1 : 0);
