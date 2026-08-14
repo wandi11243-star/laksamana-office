@@ -541,14 +541,14 @@ td.nm .iconbtn{width:20px;height:20px;font-size:13px;margin-left:5px;vertical-al
 </head>
 <body>
 
-<!-- Gerbang: staf Office lewat SSO, daily worker lewat no HP + PIN -->
+<!-- Gerbang: HANYA staf Office lewat SSO. Jalur masuk daily worker dicabut. -->
 <div id="gate" class="hidden">
   <div class="kotak">
     <div class="panel">
       <div style="font-size:34px;margin-bottom:8px">🧑‍🍳</div>
       <h2 id="gateJudul">Daily Worker</h2>
       <p style="color:var(--muted);font-size:13.5px;margin:8px 0 16px" id="gatePesan">
-        Staf Laksamana masuk lewat Office. Daily worker masuk pakai no. HP dan PIN dari HR.</p>
+        Modul ini dibuka lewat Laksamana Office. Daily worker tidak punya akun — jadwalnya diatur di sini oleh HRD dan head divisi.</p>
       <a class="btn btn-primary btn-block" href="../" style="text-decoration:none">Masuk lewat Laksamana Office</a>
       <!-- FORM No. HP + PIN DICABUT 14 Agustus 2026.
            Daily worker tidak punya akun dan tidak pernah membuka modul ini:
@@ -1397,8 +1397,11 @@ function bolehBuka(k){
      bawaan memang HRD — mengunci layar itu untuk admin saja berarti tiap
      perubahan tarif harus lewat orang yang tidak mengurus pembayarannya. */
   if(k==='pengaturan') return isAdmin() || isHR();
-  /* Permintaan DW: head divisi (meminta) dan HRD (memenuhi). */
-  if(k==='permintaan') return bisaLihat();
+  /* Permintaan DW & Ajukan Jadwal: head divisi (meminta) dan HRD (memenuhi).
+     Keduanya ditolak backend untuk selain itu, jadi membiarkannya terbuka di
+     sidebar berarti menjanjikan halaman yang isinya pasti gagal saat Kirim
+     ditekan — janji palsu yang baru ketahuan sesudah orangnya mengisi form. */
+  if(k==='permintaan' || k==='ajukan') return bisaLihat();
   /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
      halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
      head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
@@ -1639,10 +1642,11 @@ function panduanAwalDWHTML(){
   const langkah=[
     ['1','Daftarkan daily worker dulu',
      'Buka <b>Database DW</b> lalu tambahkan orangnya: nama, no HP, divisi, posisi, dan nomor rekening. '
-     +'DW <b>bukan</b> user Office — ia masuk ke modul ini pakai <b>no HP + PIN</b>, bukan akun Laksamana Office.'],
+     +'DW <b>bukan</b> pegawai tetap dan <b>tidak punya akun</b> — nomornya dipakai untuk mengabarinya lewat WhatsApp.'],
     ['2','Ajuan bisa datang dari dua arah',
-     'DW mengajukan sendiri dari HP-nya, atau Anda yang mengisikan lewat <b>Ajukan Jadwal</b> saat ia menelepon. '
-     +'Keduanya masuk ke <b>Antrean Ajuan</b> untuk Anda setujui atau tolak.'],
+     'Head divisi meminta lewat <b>Permintaan DW</b> — bisa menyebut jumlahnya saja ("Sabtu butuh 3 orang") '
+     +'lalu Anda yang menunjuk siapa, atau langsung menunjuk orangnya sendiri. Yang menyebut jumlah masuk ke '
+     +'<b>Permintaan DW</b>; yang sudah bernama masuk ke <b>Antrean Pengajuan</b>.'],
     ['3','Upah dihitung otomatis dari tarif posisi',
      'Isi tarif tiap posisi di <b>Pengaturan</b>. Shift yang <b>disetujui</b> langsung muncul di '
      +'<b>Pembayaran</b> beserta nominal dan daftar transfernya — tidak perlu dihitung manual.']
@@ -2122,7 +2126,8 @@ function viewAntrean(){
   let isi;
   if(!tgls.length){
     isi='<div class="empty"><div class="ic">✅</div>Tidak ada pengajuan yang menunggu.'
-      +'<div class="mutedhint" style="margin-top:6px">Pengajuan baru muncul di sini begitu daily worker mengirimnya.</div></div>';
+      +'<div class="mutedhint" style="margin-top:6px">Pengajuan muncul di sini saat head divisi menunjuk orangnya langsung. '
+      +'Yang menyebut jumlahnya saja ada di <b>Permintaan DW</b>.</div></div>';
   }else{
     isi=tgls.map(function(t){
       const list=perTgl[t];
@@ -2141,12 +2146,17 @@ function viewAntrean(){
         +'<span class="chip">'+sudah+' sudah disetujui'+(ANTREAN_DIV==='ALL'?'':' di '+esc(namaDivisi(ANTREAN_DIV)))+'</span>'
         +'<span class="chip" title="'+esc(panduanTeks(t))+'">'+esc(KONTEKS_LBL[konteksHari(t)])+'</span>'
         +'<div class="spacer"></div>'
-        +'<button class="btn btn-ok btn-sm" onclick="setujuiBanyak('+JSON.stringify(ids).replace(/"/g,'&quot;')+')">Setujui semua ('+list.length+')</button>'
+        +(isHR()?'<button class="btn btn-ok btn-sm" onclick="setujuiBanyak('+JSON.stringify(ids).replace(/"/g,'&quot;')+')">Setujui semua ('+list.length+')</button>':'')
         +'</div><div class="db">'
         +list.map(a=>barisAjuan(a,{aksi:
-            '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(\''+escJs(a.id)+'\')">Detail</button>'
-           +'<button class="btn btn-danger btn-sm" onclick="tolakAjuan(\''+escJs(a.id)+'\')">Tolak</button>'
-           +'<button class="btn btn-ok btn-sm" onclick="setujuiAjuan(\''+escJs(a.id)+'\')">Setujui</button>'})).join('')
+            '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(&#39;'+escJs(a.id)+'&#39;)">Detail</button>'
+           /* Tolak & Setujui HANYA untuk HRD. Head boleh membaca antrean ini
+              — itu memang kebutuhan divisinya — tapi tombol yang pasti
+              ditolak server lebih buruk daripada tombol yang tidak ada. */
+           +(isHR()
+             ? '<button class="btn btn-danger btn-sm" onclick="tolakAjuan(&#39;'+escJs(a.id)+'&#39;)">Tolak</button>'
+              +'<button class="btn btn-ok btn-sm" onclick="setujuiAjuan(&#39;'+escJs(a.id)+'&#39;)">Setujui</button>'
+             : '')})).join('')
         +'</div></div>';
     }).join('');
   }
@@ -2154,7 +2164,7 @@ function viewAntrean(){
   return pitaHead()
     +'<div class="panel">'
     +'<div class="rowbar">'+segDivisi(ANTREAN_DIV,'antreanDiv',true)+'<div class="spacer"></div>'
-    +(isOffice()?'<button class="btn btn-primary btn-sm" onclick="go(\'ajukan\')">+ Buat ajuan atas nama DW</button>':'')
+    +(bisaLihat()?'<button class="btn btn-primary btn-sm" onclick="go(\'ajukan\')">+ Buat ajuan atas nama DW</button>':'')
     +'</div>'
     +'<div class="note i">Yang <b>disetujui</b> langsung muncul di kalender modul <b>Jadwal Shift</b>, di blok terpisah di bawah kru tetap. Yang masih menunggu sengaja belum tampil di sana — head bisa mengira lubangnya sudah terisi padahal belum.</div>'
     +isi
@@ -3186,7 +3196,9 @@ function viewAjukan(){
     +'<div class="rowbar"><h2>Ajukan tanggal kerja</h2><div class="spacer"></div>'
     +(isOffice()?'<button class="btn btn-ghost btn-sm" onclick="go(\'antrean\')">↩ Kembali ke Antrean</button>':'')
     +'</div>'
-    +'<div class="note i">Ajuan masuk ke antrean HR. Begitu <b>disetujui</b>, nama Anda otomatis muncul di kalender Jadwal Shift hari itu — tidak perlu mengabari siapa pun lagi.</div>'
+    +'<div class="note i">Dipakai saat orangnya <b>sudah ditentukan</b>. Ajuan masuk ke antrean untuk disetujui HRD, '
+    +'dan begitu disetujui namanya muncul di kalender <b>Jadwal Shift</b> hari itu.<br>'
+    +'Kalau belum tahu siapa yang mau dipakai, pakai <b>Permintaan DW</b> — sebut jumlahnya saja, HRD yang menunjuk.</div>'
     +siapa
     +'<div class="field"><label>Tanggal kerja *</label>'
       /* Tanpa `min`: tidak ada tanggal yang dikunci, termasuk hari ini dan
@@ -3453,7 +3465,7 @@ async function kirimAjuan(){
 function batalkanAjuan(id){
   const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
   konfirmasi('Batalkan ajuan '+tglManusia(a.tgl)+'?',
-    'Kalau sudah disetujui, nama Anda akan hilang dari kalender Jadwal Shift hari itu.',
+    'Kalau sudah disetujui, namanya akan hilang dari kalender Jadwal Shift hari itu.',
     async function(){
       try{
         await apiPost({action:'putusAjuan', id, status:'BATAL', nota:'Dibatalkan oleh '+namaSaya()});
@@ -3501,7 +3513,7 @@ function viewPekerja(){
         +chip('AKTIF','Aktif ('+hitung.AKTIF+')')+chip('NONAKTIF','Nonaktif ('+hitung.NONAKTIF+')')+'</div>'
       +'<div class="spacer"></div>'
       +'<input class="inp" placeholder="Cari nama / HP / skill…" value="'+esc(CARI_PEKERJA)+'" oninput="cariPekerja(this.value)">'
-      +'<button class="btn btn-primary btn-sm" onclick="bukaPekerja(\'\')">+ DW Baru</button>'
+      +(isHR()?'<button class="btn btn-primary btn-sm" onclick="bukaPekerja(\'\')">+ DW Baru</button>':'')
     +'</div>'
     /* CARA DW MASUK, ditulis di halaman tempat HR mendaftarkan mereka.
        Pertanyaan "ngajuinnya dari mana?" muncul karena jawabannya memang
@@ -3613,9 +3625,6 @@ async function simpanPekerja(id){
     skill:(el('pkSkill')||{}).value||'',
     status:(el('pkStatus')||{}).value||'AKTIF', catatan:(el('pkCat')||{}).value||''
   };
-  /* `pin` hanya IKUT DIKIRIM kalau diisi. Backend menulis kolom PIN hanya
-     ketika kuncinya ada — kalau dikirim kosong setiap kali menyunting, DW-nya
-     terkunci di luar tiap kali HR memperbaiki ejaan namanya. */
 
   /* Dihitung SEBELUM menyimpan, selagi status lamanya masih terbaca.
      Menonaktifkan orang meninggalkan lubang yang sama persis dengan
@@ -3693,9 +3702,15 @@ function bukaProfil(id){
     +'<div class="mutedhint" style="margin:12px 0 6px"><b>Riwayat terakhir</b></div>'
     +(riwayat.length?riwayat.map(a=>barisAjuan(a,{tanggal:true})).join('')
       :'<div class="mutedhint">Belum pernah dijadwalkan.</div>'),
-    [{t:'Hapus',c:'btn-danger',f:function(){ hapusPekerja(id); return false; }},
-     {t:'Sunting',c:'btn-ghost',f:function(){ tutupModal(); bukaPekerja(id); return false; }},
-     {t:'Buatkan ajuan',c:'btn-primary',f:function(){ tutupModal(); AJU_DW=id; go('ajukan'); return false; }}],
+    /* Hapus & Sunting hanya HRD — head boleh membaca profilnya (itu bagian
+       dari "melihat semuanya") tapi tidak mengubah talent pool. "Buatkan
+       ajuan" ikut head, karena menunjuk orangnya memang salah satu dari dua
+       cara ia meminta DW. */
+    (isHR()
+      ? [{t:'Hapus',c:'btn-danger',f:function(){ hapusPekerja(id); return false; }},
+         {t:'Sunting',c:'btn-ghost',f:function(){ tutupModal(); bukaPekerja(id); return false; }},
+         {t:'Buatkan ajuan',c:'btn-primary',f:function(){ tutupModal(); AJU_DW=id; go('ajukan'); return false; }}]
+      : [{t:'Buatkan ajuan',c:'btn-primary',f:function(){ tutupModal(); AJU_DW=id; go('ajukan'); return false; }}]),
     true);
 }
 /* tautanDW/pesanAksesDW/kirimAksesDW/salinTautanDW DICABUT 14 Agustus 2026:
