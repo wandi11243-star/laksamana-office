@@ -915,6 +915,34 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .seg button{padding:6px 13px;border:none;background:none;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;transition:.14s}
 .seg button.on{background:var(--gold);color:#fff}
 
+/* Penggeser periode ‹ Agustus 2026 › — bentuk yang sama dengan modul Jadwal
+   Shift dan Daily Worker, supaya orang yang berpindah antar modul tidak perlu
+   belajar dua cara membaca periode. Tombolnya dimatikan (bukan disembunyikan)
+   di ujung rentang data: yang hilang membuat orang mengira halamannya rusak,
+   yang mati langsung menjelaskan "tidak ada lagi di arah ini". */
+.navdate{display:inline-flex;align-items:center;gap:8px}
+.navdate b{font-size:14px;font-weight:700;color:var(--sand);min-width:150px;text-align:center}
+.navbtn{width:34px;height:34px;border-radius:9px;border:1.5px solid var(--line);background:var(--ink-900);
+  display:inline-flex;align-items:center;justify-content:center;font-size:16px;color:var(--sand);
+  cursor:pointer;transition:.14s;line-height:1}
+.navbtn:hover:not(:disabled){border-color:var(--gold);background:var(--ink-850)}
+.navbtn:disabled{opacity:.32;cursor:not-allowed}
+/* Label di tengah yang sebenarnya <select>: dibuat persis serupa teks tebal
+   biasa. `text-align-last` yang membuat isinya benar-benar di tengah — hanya
+   `text-align` saja tidak berlaku untuk teks yang sedang terpilih di <select>
+   pada Chrome, dan labelnya melompat ke kiri begitu bulannya diganti. */
+.navpick{appearance:none;-webkit-appearance:none;border:none;background:none;
+  font-family:inherit;font-size:14px;font-weight:700;color:var(--sand);
+  text-align:center;text-align-last:center;min-width:150px;padding:5px 4px;
+  border-radius:8px;cursor:pointer}
+.navpick:hover{background:var(--ink-850)}
+@media(max-width:600px){
+  /* Lebar tetap 150px mendorong tombol › keluar barisnya di layar 360px. */
+  .navdate{flex:1;min-width:0}
+  .navdate b{min-width:0;flex:1;font-size:13px}
+  .navpick{min-width:0;flex:1;font-size:16px}   /* 16px: di bawah itu Safari iOS memperbesar sendiri halamannya */
+}
+
 /* Kotak jam: ikon pemilih dibuat kentara supaya terlihat bisa diklik.
    Bawaannya samar dan orang mengira kotaknya cuma bisa diketik. */
 .inp-jam::-webkit-calendar-picker-indicator{
@@ -11955,7 +11983,16 @@ function decideApproval(id,decision){
    papan performanya sendiri. Paling jauh satu pita peringatan — pola yang
    sama dengan muatDW() di modul Jadwal dan muatEventHari() di Finance. */
 const KOMPAS_API='../kompas-api-mysql/api.php';
-let perfPeriode=today().slice(0,7);        // 'YYYY-MM'; '' = semua waktu
+/* SATU variabel, tiga bentuk — sengaja tidak dipecah jadi `mode` + `nilai`.
+   Dua variabel yang harus selalu cocok adalah dua variabel yang cepat atau
+   lambat tidak cocok, dan di sini akibatnya diam: papan menampilkan angka
+   satu bulan dengan judul "Tahun 2026" tanpa satu pun galat.
+     ''         = semua waktu
+     'YYYY'     = satu tahun penuh
+     'YYYY-MM'  = satu bulan
+   Panjang teksnya yang menentukan modenya, jadi tidak ada keadaan ketiga
+   yang bisa dibuat tanpa sengaja. */
+let perfPeriode=today().slice(0,7);
 let PERF_BD={key:null,st:'idle',pic:[],total:null,hariAda:0,hariIsi:0,galat:''};
 function perfBulanOpsi(){
   const set={};
@@ -11965,22 +12002,102 @@ function perfBulanOpsi(){
   set[today().slice(0,7)]=1;               // bulan berjalan selalu bisa dipilih
   return Object.keys(set).sort().reverse();
 }
+function perfTahunOpsi(){
+  const set={};
+  perfBulanOpsi().forEach(b=>{ set[b.slice(0,4)]=1; });
+  return Object.keys(set).sort().reverse();
+}
+function perfMode(){ return !perfPeriode?'semua':(perfPeriode.length===4?'tahun':'bulan'); }
 function perfDalam(tgl){
   if(!perfPeriode) return true;
-  return String(tgl||'').slice(0,7)===perfPeriode;
+  /* Pembandingan awalan, bukan tiga cabang: 'YYYY' memotong 4 huruf,
+     'YYYY-MM' memotong 7, dan keduanya benar dengan satu baris yang sama. */
+  return String(tgl||'').slice(0,perfPeriode.length)===perfPeriode;
 }
 function perfRentang(){
   /* Semua Waktu tetap memakai rentang, bukan endpoint tanpa tanggal: backend
      membandingkan tanggal sebagai STRING, jadi batas selebar ini menangkap
      segalanya tanpa perlu cabang kedua yang harus dijaga terpisah. */
   if(!perfPeriode) return {a:'1900-01-01',b:'2999-12-31'};
+  if(perfPeriode.length===4) return {a:perfPeriode+'-01-01',b:perfPeriode+'-12-31'};
   const akhir=new Date(+perfPeriode.slice(0,4),+perfPeriode.slice(5,7),0).getDate();
   return {a:perfPeriode+'-01',b:perfPeriode+'-'+String(akhir).padStart(2,'0')};
 }
-function perfLabelPeriode(){ return perfPeriode?labelBulan(perfPeriode):'Semua Waktu'; }
+function perfLabelPeriode(){
+  if(!perfPeriode) return 'Semua Waktu';
+  return perfPeriode.length===4?('Tahun '+perfPeriode):labelBulan(perfPeriode);
+}
+/* Batas geseran = rentang bulan yang PUNYA data (plus bulan berjalan, yang
+   selalu diikutkan perfBulanOpsi). Tanpa batas, tombol › bisa ditekan sampai
+   tahun 2200 dan tiap ketukan menggambar ulang halaman kosong — orang yang
+   kelewatan satu bulan lalu tidak punya penanda untuk balik. */
+function perfBatas(){
+  const o=perfBulanOpsi();                 // sudah urut menurun
+  return {maks:o[0], min:o[o.length-1]};
+}
+function perfGeser(n){
+  if(perfMode()==='semua') return;
+  const b=perfBatas();
+  if(perfMode()==='tahun'){
+    const th=String(+perfPeriode+n);
+    if(th<b.min.slice(0,4)||th>b.maks.slice(0,4)) return;
+    perfPeriode=th;
+  }else{
+    const d=new Date(+perfPeriode.slice(0,4),(+perfPeriode.slice(5,7)-1)+n,1);
+    const mk=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    if(mk<b.min||mk>b.maks) return;
+    perfPeriode=mk;
+  }
+  go('performance');
+}
+function perfBisaGeser(n){
+  if(perfMode()==='semua') return false;
+  const b=perfBatas();
+  if(perfMode()==='tahun'){
+    const th=String(+perfPeriode+n);
+    return th>=b.min.slice(0,4)&&th<=b.maks.slice(0,4);
+  }
+  const d=new Date(+perfPeriode.slice(0,4),(+perfPeriode.slice(5,7)-1)+n,1);
+  const mk=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  return mk>=b.min&&mk<=b.maks;
+}
+/* Berpindah mode MEMPERTAHANKAN tahun yang sedang dilihat. Kalau tidak,
+   orang yang sedang membaca Agustus 2025 lalu menekan "Tahun" akan mendarat
+   di 2026 — angkanya berubah total dan ia mengira papannya salah hitung. */
+function perfSetMode(m){
+  const b=perfBatas();
+  const th=perfPeriode?perfPeriode.slice(0,4):today().slice(0,4);
+  if(m==='semua') perfPeriode='';
+  else if(m==='tahun'){
+    const jepit=Math.min(Math.max(+th,+b.min.slice(0,4)),+b.maks.slice(0,4));
+    perfPeriode=String(jepit);
+  }else{
+    /* Tahun → bulan: kalau tahunnya sama dengan sekarang pilih bulan
+       berjalan, kalau bukan pilih Desember tahun itu — sama-sama "ujung
+       terakhir yang punya isi" dari sudut pandang pembacanya. */
+    let mk=(th===today().slice(0,4))?today().slice(0,7):(th+'-12');
+    if(mk>b.maks) mk=b.maks;
+    if(mk<b.min)  mk=b.min;
+    perfPeriode=mk;
+  }
+  go('performance');
+}
 function perfGantiPeriode(v){
   perfPeriode=v;
   go('performance');
+}
+/* Label di antara dua tombol geser. Di mode Semua ia teks biasa — tidak ada
+   yang bisa dipilih, dan <select> berisi satu baris cuma memancing ketukan
+   yang tidak menghasilkan apa-apa. */
+function perfLabelPilihHTML(){
+  if(perfMode()==='semua') return '<b>Semua Waktu</b>';
+  const opsi=(perfMode()==='tahun')?perfTahunOpsi():perfBulanOpsi();
+  return '<select class="navpick" onchange="perfGantiPeriode(this.value)" '
+    +'title="Klik untuk lompat ke periode lain">'
+    +opsi.map(function(v){
+        return '<option value="'+v+'"'+(v===perfPeriode?' selected':'')+'>'
+          +esc(v.length===4?('Tahun '+v):labelBulan(v))+'</option>'; }).join('')
+    +'</select>';
 }
 /* Mencocokkan PIC breakdown (milik modul Finance) dengan user modul ini.
    LEWAT officeUserId LEBIH DULU, nama cuma cadangan: dua modul menyimpan
@@ -12058,15 +12175,28 @@ function perfPitaBD(){
 function renderPerformance(V){
   muatPerfBD();
   let h=pageHead('Modul J','Marketing Performance','Ukur performa objektif — bukan kesan, tapi angka.','');
-  /* Pemilih periode di kepala halaman. <select>, bukan deretan tombol seperti
-     penyaring Input & Event: daftar bulannya tumbuh terus dan deretan tombol
-     yang melipat jadi tiga baris justru mendorong halamannya turun. */
+  /* Pemilih periode di kepala halaman. DULU satu <select> berisi seluruh bulan,
+     dan itu salah untuk cara halaman ini dipakai: yang paling sering dilakukan
+     bukan melompat ke bulan sembarang, melainkan MEMBANDINGKAN dengan bulan
+     sebelahnya — dan lewat dropdown itu berarti buka, cari di daftar yang makin
+     panjang, pilih, ulangi. Sekarang ‹ › satu ketukan, bentuk yang sama dengan
+     Jadwal Shift dan Daily Worker.
+     Daftar penuhnya TIDAK dibuang, cuma pindah ke label di tengah (yang juga
+     sebuah <select>, dibuat tanpa rupa): lompat jauh tetap satu ketukan, dan di
+     HP ia memanggil pemilih bawaan sistem. */
   h+='<div class="toolbar" style="margin-bottom:16px">'
-   +'<div class="field" style="margin:0;min-width:220px"><label>Periode</label>'
-   +'<select class="inp" onchange="perfGantiPeriode(this.value)">'
-   +'<option value=""'+(perfPeriode?'':' selected')+'>Semua Waktu</option>'
-   +perfBulanOpsi().map(b=>'<option value="'+b+'"'+(b===perfPeriode?' selected':'')+'>'+esc(labelBulan(b))+'</option>').join('')
-   +'</select></div>'
+   +'<div class="seg">'
+   +[['bulan','Bulan'],['tahun','Tahun'],['semua','Semua']].map(function(x){
+       return '<button class="'+(perfMode()===x[0]?'on':'')+'" '
+         +'onclick="perfSetMode(\''+x[0]+'\')">'+esc(x[1])+'</button>'; }).join('')
+   +'</div>'
+   +'<div class="navdate">'
+   +'<button class="navbtn" onclick="perfGeser(-1)"'+(perfBisaGeser(-1)?'':' disabled')
+     +' aria-label="Periode sebelumnya" title="Periode sebelumnya">‹</button>'
+   +perfLabelPilihHTML()
+   +'<button class="navbtn" onclick="perfGeser(1)"'+(perfBisaGeser(1)?'':' disabled')
+     +' aria-label="Periode berikutnya" title="Periode berikutnya">›</button>'
+   +'</div>'
    +'<span class="cell-sub">Seluruh angka di halaman ini mengikuti periode yang dipilih, termasuk kolom yang dibaca dari Finance.</span></div>';
   /* SIAPA YANG DIUKUR DI SINI: anggota TIM MARKETING yang masih aktif.
      Timnya dibaca dari satu kolom di Office -> Kelola User -> "Tim /
