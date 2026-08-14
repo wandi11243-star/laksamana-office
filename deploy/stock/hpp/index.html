@@ -278,6 +278,108 @@ const pct=n=>(isFinite(n)?(n*100).toFixed(1):'—')+'%';
 const low=s=>String(s||'').trim().toLowerCase();
 const kini=()=>new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
 
+/* ====================== SATUAN & KONVERSI ======================
+   Dua hal yang sebelumnya tidak ada di modul ini, dan dua-duanya menghasilkan
+   angka salah tanpa satu pun tanda di layar (permintaan user 14 Agustus 2026).
+
+   1. SATUAN TIDAK DIKETIK BEBAS LAGI. Kotak satuan di Ubah Bahan / Bahan Baru
+      dulu input teks: "Gr", "gr", "gram", dan "Gram" hidup berdampingan untuk
+      bahan yang sama. Sekarang daftarnya datang dari basis bahan baku
+      PURCHASING — satuan yang dicentang di sana untuk bahan itu, atau seluruh
+      daftar baku kalau bahannya belum diatur.
+
+   2. Qty di baris resep TIDAK selalu sesatuan dengan harga belinya. Bahan
+      dibeli per Kg, resep menakar per Gram — sebelum ini 200 Gr dikalikan
+      langsung dengan harga per Kg, jadi modalnya 1.000× terlalu mahal dan
+      tetap terbaca seperti angka biasa.
+
+   SATUAN_TERSEDIA di bawah adalah SALINAN KEEMPAT (purchasing, ordering,
+   catat-common.js, di sini). Keempatnya HARUS sama persis: satuan yang cuma
+   dikenal satu modul adalah satuan yang tidak pernah bisa dipilih di modul
+   lain, atau tidak pernah bisa dibacanya. */
+const SATUAN_TERSEDIA=["Kg","Gram","Liter","ML","Pcs","Porsi","Pack","Dus","Sack","Jerigen","Rim","Botol",
+                       "Ekor","Slice","Tabung","Bal","Buah","Kaleng","Ikat","Papan"];
+/* Tiap satuan: [keluarga, faktor ke satuan dasar keluarga] — berat→Kg,
+   volume→Liter. Bentuknya sama persis dengan SO_SATUAN di stock/usage; kalau
+   salah satu ditambah, yang lain ikut, kalau tidak dua halaman menjawab beda
+   untuk bahan yang sama.
+
+   Ejaan lama HPP ("Gr", "Ml" — 296 bahan dan ~2.000 baris resep memakainya)
+   ikut dikenali DI SINI, bukan diperbaiki massal di data: migrasi ejaan bisa
+   gagal separuh jalan, dan hasil akhirnya sama saja.
+
+   Keluarga WAJIB diperiksa: 'kg' dan 'liter' sama-sama berfaktor 1, jadi tanpa
+   pemisahan keluarga, Kg→Liter akan lolos sebagai konversi yang sah. */
+const SATUAN_FAM={
+  'kg':['berat',1],'kilo':['berat',1],'kilogram':['berat',1],
+  'gram':['berat',0.001],'gr':['berat',0.001],'g':['berat',0.001],
+  'liter':['volume',1],'ltr':['volume',1],'l':['volume',1],
+  'ml':['volume',0.001],'cc':['volume',0.001],
+  /* SATUAN HITUNGAN. Bukan konversi fisika — ini kata yang sama dalam dialek
+     berbeda: "1 Butir telur" dan "1 Pcs telur" benda yang sama persis, dan di
+     data awal ada 14 baris resep yang menulis Butir/Btr untuk bahan yang
+     harganya per Pcs. Yang TIDAK masuk sini: Slice, Lembar, Papan, Bks, Dus,
+     Botol — itu KEMASAN, dan "1 Papan = berapa Pcs" beda tiap barang. */
+  'pcs':['hitung',1],'butir':['hitung',1],'btr':['hitung',1],'biji':['hitung',1],'buah':['hitung',1]
+};
+const satFam=u=>SATUAN_FAM[String(u==null?'':u).trim().toLowerCase()];
+/* Konversi qty dari satuan `dari` ke satuan `ke`.
+   → angka bila kedua satuan sebanding
+   → null bila tidak: satuan kemasan (Dus, Pack, Botol, Papan, Slice — "1 Dus =
+     berapa Pcs" beda tiap barang, tidak ada rasio universal), atau hitungan vs
+     berat/volume. Yang null TIDAK ditebak; pemanggil memakai angkanya apa
+     adanya lalu menandainya ⚠.
+
+   BERAT ↔ VOLUME SENGAJA DIIZINKAN, dengan anggapan 1 Gram = 1 ML. Ini beda
+   dari soKonversi di stock/usage yang menolaknya, dan alasannya ada di data:
+   137 baris resep menakar cairan (Air, Kecap Asin, Minyak Wijen) dalam "Gr"
+   padahal harganya per "Ml" — dapur memang menulis begitu, dan angka yang
+   dipakai selama ini persis hasil anggapan itu (250 Gr air = 250 Ml).
+   Menolaknya tidak akan mengubah satu pun angka, cuma memasang ⚠ di 137 baris
+   sekaligus sampai tandanya berhenti dibaca orang. Yang justru diselamatkan
+   anggapan ini: "1 Kg" untuk bahan berharga per Ml — dulu terbaca 1, sekarang
+   1.000. Kesalahan kepadatannya (minyak ±8%) jauh lebih kecil daripada
+   kesalahan skala 1.000× yang sedang diperbaiki. */
+function konvSatuan(qty,dari,ke){
+  const a=satFam(dari), b=satFam(ke);
+  if(!a||!b) return null;                       // ada yang kemasan / tak dikenal
+  if(a[0]!==b[0]){
+    const cair=(x,y)=>x==='berat'&&y==='volume';
+    if(!cair(a[0],b[0])&&!cair(b[0],a[0])) return null;   // hitungan vs takaran
+  }
+  return qty*a[1]/b[1];
+}
+/* Qty sebuah baris resep, dinyatakan dalam satuan HARGA bahannya (atau satuan
+   hasil resep yang dirujuk). Memulangkan {qty, campur}.
+
+   `campur` = satuannya beda dan tidak bisa dikonversi. Angkanya tetap dipakai
+   apa adanya — itu perilaku lama, dan diam-diam mengubahnya jadi nol akan
+   menurunkan modal ratusan resep tanpa ada yang tahu — TAPI barisnya diberi
+   tanda ⚠ supaya "1 Pcs telur" yang harganya per Gram terbaca sebagai
+   pertanyaan, bukan sebagai modal Rp0,05. */
+function qtySesuai(qty,dari,ke){
+  const d=String(dari||'').trim(), k=String(ke||'').trim();
+  if(!d||!k||low(d)===low(k)) return {qty:qty,campur:false};
+  const c=konvSatuan(qty,d,k);
+  if(c===null) return {qty:qty,campur:true};
+  return {qty:c,campur:false};
+}
+/* Ejaan baku untuk dikirim ke purchasing: "Gr" → "Gram", "Ml" → "ML".
+   Purchasing menyimpan satuan sebagai daftar centang dari SATUAN_TERSEDIA;
+   ejaan di luar daftar itu tetap tersimpan tapi tidak pernah muncul sebagai
+   centang — aturan yang ada tapi tak bisa dilihat siapa pun di sana. */
+function bakuSatuan(u){
+  const s=String(u||'').trim(); if(!s) return '';
+  const tepat=SATUAN_TERSEDIA.find(x=>low(x)===low(s));
+  if(tepat) return tepat;
+  const f=satFam(s);
+  if(f){
+    const sama=SATUAN_TERSEDIA.find(x=>{ const g=satFam(x); return g&&g[0]===f[0]&&g[1]===f[1]; });
+    if(sama) return sama;
+  }
+  return s;
+}
+
 let ME=null, S={bahan:[],resep:[]}, PRODUK={}, VIEW='dash', PESAN='';
 let PB={}, PR={};          // peta nama -> bahan / resep
 let MEMO={};               // hasil hitung modal, dibuang tiap data berubah
@@ -310,12 +412,12 @@ function per1(b){ return (b&&num(b.qty_beli)>0)?num(b.harga_beli)/num(b.qty_beli
    dihitung nol diam-diam: modal yang kelihatan murah karena bahannya hilang
    adalah kesalahan yang paling mahal di layar ini. */
 function modalResep(r,jalur){
-  if(!r) return {total:0,hilang:[],siklus:false};
+  if(!r) return {total:0,hilang:[],siklus:false,campur:[]};
   if(MEMO[r.id]) return MEMO[r.id];
   jalur=jalur||{};
-  if(jalur[r.id]) return {total:0,hilang:[],siklus:true};   // resep memanggil dirinya sendiri
+  if(jalur[r.id]) return {total:0,hilang:[],siklus:true,campur:[]};   // resep memanggil dirinya sendiri
   jalur[r.id]=1;
-  let total=0, hilang=[], siklus=false;
+  let total=0, hilang=[], siklus=false, campur=[];
   (r.bahan||[]).forEach(b=>{
     if(!b||!b.nama) return;
     if(b.ref==='resep'){
@@ -324,16 +426,25 @@ function modalResep(r,jalur){
       const m=modalResep(sub,jalur);
       if(m.siklus) siklus=true;
       const perUnit=num(sub.yield_qty)>0?m.total/num(sub.yield_qty):0;
-      total+=perUnit*num(b.qty);
-      hilang=hilang.concat(m.hilang);
+      /* Takaran baris DIKONVERSI ke satuan hasil resep yang dirujuk: base
+         "Ayam Karage" hasil 1000 Gr dipakai 0,08 Kg tetap 80 Gr, bukan 0,08. */
+      const q=qtySesuai(num(b.qty),b.satuan,sub.yield_unit);
+      if(q.campur) campur.push(b.nama);
+      total+=perUnit*q.qty;
+      hilang=hilang.concat(m.hilang); campur=campur.concat(m.campur||[]);
     }else{
       const it=PB[low(b.nama)];
       if(!it){ hilang.push(b.nama); return; }
-      total+=per1(it)*num(b.qty);
+      /* per1(it) itu harga per SATUAN BELI bahan. Kalau barisnya menakar
+         dengan satuan lain (beli per Kg, takar per Gram) harus dikonversi
+         dulu — inilah tempat modal 1.000× dulu terbentuk. */
+      const q=qtySesuai(num(b.qty),b.satuan,it.satuan);
+      if(q.campur) campur.push(b.nama);
+      total+=per1(it)*q.qty;
     }
   });
   delete jalur[r.id];
-  const hasil={total,hilang,siklus};
+  const hasil={total,hilang,siklus,campur};
   if(!siklus) MEMO[r.id]=hasil;    // hasil di bawah siklus tidak boleh disimpan
   return hasil;
 }
@@ -341,7 +452,7 @@ function modalResep(r,jalur){
    jadi, atau yang resepnya belum dipindahkan). */
 function modalMenu(r){
   const m=modalResep(r);
-  if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,manual:true};
+  if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,campur:[],manual:true};
   return m;
 }
 function hargaJual(r){ return num(r.harga_baru)||num(r.harga_lama)||0; }
@@ -520,7 +631,8 @@ function tabelResep(tipe,judul,sub,mana){
   hal.forEach(r=>{
     const m=modalMenu(r), y=num(r.yield_qty)||1, mati=(r.aktif===0);
     h+=`<tr class="${mati?'mati':''}">
-      <td><b>${esc(r.nama)}</b>${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}</td>
+      <td><b>${esc(r.nama)}</b>${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}${
+        (m.campur&&m.campur.length)?` <span class="chip warn" title="${esc([...new Set(m.campur)].join(', '))} — satuan takarannya tidak sebanding dengan satuan harga bahannya (mis. Pcs vs Gram), jadi angkanya dipakai apa adanya. Kg↔Gram dan Liter↔ML dikonversi otomatis dan tidak muncul di sini.">${[...new Set(m.campur)].length} satuan campur</span>`:''}</td>
       <td>${r.jenis==='drink'?'<span class="chip teal">Drink</span>':'<span class="chip violet">Food</span>'}</td>
       <td style="font-size:11.5px;color:var(--muted)">${esc(r.seksi||'—')}</td>
       <td class="num">${y} ${esc(r.yield_unit||'')}</td>
@@ -621,8 +733,13 @@ function gambarEditor(){
              oninput="ED.bahan[${i}].nama=this.value;segarSub()">
       <input type="number" step="any" value="${b.qty!=null?b.qty:''}" placeholder="qty"
              oninput="ED.bahan[${i}].qty=this.value;segarSub()">
-      <input value="${esc(b.satuan||'')}" placeholder="satuan" oninput="ED.bahan[${i}].satuan=this.value">
-      <div class="sub" data-sub="${i}">${sub.ada?rp2(sub.nilai):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
+      <!-- Satuan baris resep TETAP bisa diketik (bukan pilihan tertutup seperti
+           di Bahan & Harga): takaran resep sering memakai satuan dapur yang tidak
+           pernah dibeli — "sdm", "secukupnya" pada baris catatan. Yang diberikan
+           di sini saran ketik + tanda ⚠ kalau satuannya tidak sebanding dengan
+           satuan harga bahannya. -->
+      <input list="dlSatuan" value="${esc(b.satuan||'')}" placeholder="satuan" oninput="ED.bahan[${i}].satuan=this.value;segarSub()">
+      <div class="sub" data-sub="${i}">${sub.ada?rp2(sub.nilai)+tandaCampur(sub,b):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
       <button class="x" onclick="ED.bahan.splice(${i},1);gambarEditor()">✕</button></div>`;
   });
   const m=modalPratinjau(r);
@@ -632,6 +749,7 @@ function gambarEditor(){
       <button class="btn btn-ghost btn-sm" onclick="tutupModal()">Tutup</button></div>
     <div class="mdl-b">
       <datalist id="dlBahan">${opsiBahan}</datalist><datalist id="dlResep">${opsiResep}</datalist>
+      <datalist id="dlSatuan">${dlSatuanHtml()}</datalist>
       <div class="g3">
         <div class="field"><label>Nama</label><input value="${esc(r.nama)}" oninput="ED.nama=this.value"></div>
         <div class="field"><label>Jenis</label><select onchange="ED.jenis=this.value;gambarEditor()">
@@ -680,29 +798,40 @@ function gambarEditor(){
     </div></div></div>`;
 }
 function hitungBaris(b,jenis){
-  if(!b||!b.nama) return {ada:false,nilai:0};
+  if(!b||!b.nama) return {ada:false,nilai:0,campur:false,sat:''};
   if(b.ref==='resep'){
     const sub=cariResep(b.nama,jenis);
-    if(!sub) return {ada:false,nilai:0};
+    if(!sub) return {ada:false,nilai:0,campur:false,sat:''};
     const m=modalResep(sub); const y=num(sub.yield_qty)||1;
-    return {ada:true,nilai:(m.total/y)*num(b.qty)};
+    const q=qtySesuai(num(b.qty),b.satuan,sub.yield_unit);
+    return {ada:true,nilai:(m.total/y)*q.qty,campur:q.campur,sat:sub.yield_unit||''};
   }
   const it=PB[low(b.nama)];
-  if(!it) return {ada:false,nilai:0};
-  return {ada:true,nilai:per1(it)*num(b.qty)};
+  if(!it) return {ada:false,nilai:0,campur:false,sat:''};
+  const q=qtySesuai(num(b.qty),b.satuan,it.satuan);
+  return {ada:true,nilai:per1(it)*q.qty,campur:q.campur,sat:it.satuan||''};
+}
+/* Tanda ⚠ untuk baris yang satuannya tidak sebanding. Judulnya menyebut KEDUA
+   satuannya — "satuan campur" saja membuat orang harus menebak sisi mana yang
+   perlu diperbaiki, dan sisi yang salah biasanya bukan yang sedang dilihat. */
+function tandaCampur(s,b){
+  if(!s||!s.campur) return '';
+  return `<span style="color:var(--warn);cursor:help" title="Satuan baris ini (${esc(b.satuan||'—')}) tidak sebanding dengan satuan harganya (${esc(s.sat||'—')}), jadi angkanya dipakai apa adanya. Samakan satuannya, atau perbaiki satuan bahan di Bahan &amp; Harga.">⚠</span>`;
 }
 function modalPratinjau(r){
-  let t=0,hilang=0;
-  (r.bahan||[]).forEach(b=>{ if(!b||!b.nama) return; const s=hitungBaris(b,r.jenis); if(s.ada) t+=s.nilai; else hilang++; });
+  let t=0,hilang=0,campur=0;
+  (r.bahan||[]).forEach(b=>{ if(!b||!b.nama) return; const s=hitungBaris(b,r.jenis);
+    if(s.ada){ t+=s.nilai; if(s.campur) campur++; } else hilang++; });
   if((r.bahan||[]).length===0) t=num(r.modal_manual);
-  return {total:t,hilang};
+  return {total:t,hilang,campur};
 }
 function ringkasEditor(m,r){
   const y=num(r.yield_qty)||1, hj=num(r.harga_baru)||num(r.harga_lama)||0;
   const c=hj>0?m.total/hj:null;
   return `<div>Modal <b>${rp(m.total)}</b> · per ${esc(r.yield_unit||'unit')} <b>${rp2(m.total/y)}</b>`
     +(hj>0?` · harga jual ${rp(hj)} → COGS <b>${pct(c)}</b> ${c>AMBANG?'<span class="chip bad">di atas '+(AMBANG*100)+'%</span>':'<span class="chip ok">sehat</span>'}`:'')
-    +(m.hilang?` · <span style="color:var(--danger)">${m.hilang} baris bahannya belum dikenal</span>`:'')+`</div>`;
+    +(m.hilang?` · <span style="color:var(--danger)">${m.hilang} baris bahannya belum dikenal</span>`:'')
+    +(m.campur?` · <span style="color:var(--warn)">${m.campur} baris satuannya tidak sebanding dengan satuan harga bahannya (⚠) — angkanya dipakai apa adanya</span>`:'')+`</div>`;
 }
 /* Mengetik qty tidak menggambar ulang seluruh modal — fokus akan lompat dari
    kotak yang sedang diketik. Yang diperbarui cuma subtotal & ringkasan. */
@@ -711,7 +840,7 @@ function segarSub(){
   document.querySelectorAll('[data-sub]').forEach(el=>{
     const b=ED.bahan[+el.dataset.sub]; if(!b) return;
     const s=hitungBaris(b,ED.jenis);
-    el.innerHTML=s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>';
+    el.innerHTML=s.ada?rp2(s.nilai)+tandaCampur(s,b):'<span style="color:var(--danger)">tak dikenal</span>';
   });
   const box=$('ringkasEd'); if(box) box.innerHTML=ringkasEditor(modalPratinjau(ED),ED);
 }
@@ -838,6 +967,65 @@ function lihatPakai(nama){
     <div class="mdl-f"><button class="btn btn-ghost btn-sm" onclick="bukaBahan('${esc(nama)}')">Ubah harga bahan ini</button>
       <button class="btn btn-ghost" onclick="tutupModal()">Tutup</button></div></div></div>`;
 }
+/* ---- PILIHAN SATUAN DATANG DARI PURCHASING (14 Agustus 2026) ----
+   Sebelumnya kotak satuan di Ubah Bahan / Bahan Baru adalah input teks bebas.
+   Akibatnya satu bahan bisa bersatuan "Gr" di sini dan tercentang "Gram" di
+   purchasing — dua ejaan yang sama artinya bagi manusia, tapi bukan bagi
+   konversi Kg↔Gram di bawah. Sumbernya sekarang satu: daftar satuan yang
+   dicentang purchasing untuk bahan ITU. */
+function satuanPurchasing(nama){
+  const p=PRODUK[nama]; if(!p) return null;
+  const s=Array.isArray(p.satuan)?p.satuan.map(x=>String(x||'').trim()).filter(Boolean):[];
+  /* Barang produksi Central Kitchen tidak memakai daftar centang: satuannya
+     ditentukan isi pack-nya (1 Pack = 500 Gram), persis seperti di form order
+     purchasing. Keduanya ditawarkan supaya harga belinya boleh dicatat per
+     pack maupun per satuan dasar. */
+  const ck=[];
+  if(p.sumber==='ck'||p.sumber==='both'){
+    if(p.packSatuan) ck.push(String(p.packSatuan));
+    if(num(p.packIsi)>0) ck.push('Pack');
+  }
+  const gab=[]; s.concat(ck).forEach(u=>{ if(u&&!gab.some(x=>low(x)===low(u))) gab.push(u); });
+  return gab.length?gab:null;
+}
+/* Daftar kosong di purchasing = BELUM DIATUR, dan itu berarti seluruh satuan
+   baku boleh — perilaku yang sama dengan form order dan halaman catat
+   (satuanBahan() di catat-common.js). Kalau di sini dibuat lebih ketat, bahan
+   yang belum diatur jadi tidak punya satu pun satuan yang bisa dipilih.
+
+   Nilai yang SEDANG tersimpan selalu ikut digambar walau di luar daftar,
+   ditandai "(lama)". Tanpa itu, membuka bahan lama bersatuan "Gr" lalu menekan
+   Simpan diam-diam menggantinya ke pilihan pertama — dan satuan yang berubah
+   tanpa disadari langsung mengubah modal SETIAP resep yang memakai bahan itu. */
+function opsiSatuanBahan(nama,terpilih){
+  const daftar=satuanPurchasing(nama)||SATUAN_TERSEDIA;
+  const t=String(terpilih||'').trim();
+  const ada=daftar.some(u=>low(u)===low(t));
+  let h=daftar.map(u=>`<option value="${esc(u)}"${low(u)===low(t)?' selected':''}>${esc(u)}</option>`).join('');
+  if(t&&!ada) h=`<option value="${esc(t)}" selected>${esc(t)} (lama)</option>`+h;
+  if(!t)      h=`<option value="" selected>— pilih satuan —</option>`+h;
+  return h;
+}
+/* Saran ketik satuan untuk baris resep & kalkulator — daftar baku yang sama,
+   tapi TIDAK mengunci: takaran resep sering memakai satuan dapur yang tidak
+   pernah dibeli. */
+function dlSatuanHtml(){ return SATUAN_TERSEDIA.map(u=>`<option value="${esc(u)}">`).join(''); }
+/* Nama bahan menentukan daftar satuannya, tapi mengetik nama TIDAK boleh
+   menggambar ulang jendelanya — fokus akan lepas dari kotak yang sedang
+   diketik, persis masalah yang sudah diselesaikan di penyunting resep. Jadi
+   yang diperbarui cuma isi <select>-nya. */
+function ketSatuan(nama){
+  const d=satuanPurchasing(nama);
+  return `Pilihan satuan diambil dari basis bahan baku <b>Purchasing</b>${
+    d?` — bahan ini di sana ditetapkan bersatuan <b>${esc(d.join(', '))}</b>.`
+     :`; bahan ini belum diatur satuannya di sana, jadi seluruh satuan baku ditawarkan.`
+  } Resep boleh menakar dengan satuan sekeluarga (<b>Kg↔Gram</b>, <b>Liter↔ML</b>) — modalnya dikonversi sendiri ke satuan ini.`;
+}
+function segarSatuan(){
+  const el=$('satBahan'); if(!el||!EB) return;
+  el.innerHTML=opsiSatuanBahan(EB.nama,EB.satuan);
+  const k=$('ketSatuan'); if(k) k.innerHTML=ketSatuan(EB.nama);
+}
 /* Mengubah saklar purchasing mengubah keterangan di jendela yang sama (chip
    status, kalimat penjelas), jadi jendelanya digambar ulang — bukan seluruh
    halaman, supaya isian lain yang sedang diketik tidak hilang. */
@@ -848,7 +1036,11 @@ function bukaBahan(nama,pertahankan){
      tetap dipakai, bukan dibaca ulang dari data tersimpan. */
   if(!pertahankan||!EB){
     EB=b?Object.assign({namaLama:b.nama},JSON.parse(JSON.stringify(b)))
-        :{nama:'',satuan:'Gr',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1};
+        /* Bawaan "Gram", bukan "Gr" seperti dulu: ejaan itulah yang dikenal
+           purchasing (SATUAN_TERSEDIA), jadi bahan baru langsung sama di kedua
+           daftar. Data lama bersatuan "Gr" tidak diapa-apakan — konversinya
+           mengenali keduanya. */
+        :{nama:'',satuan:'Gram',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1};
   }
   const opsi=Object.keys(PRODUK).sort().map(p=>`<option value="${esc(p)}">`).join('');
   $('modal').innerHTML=`<div class="ovl" onclick="if(event.target===this)tutupModal()"><div class="mdl" style="max-width:620px">
@@ -857,15 +1049,19 @@ function bukaBahan(nama,pertahankan){
     <div class="mdl-b">
       <datalist id="dlProduk">${opsi}</datalist>
       <div class="field"><label>Nama bahan <span style="font-weight:400;color:var(--muted)">— samakan dengan nama di purchasing</span></label>
-        <input list="dlProduk" value="${esc(EB.nama)}" oninput="EB.nama=this.value"></div>
+        <input list="dlProduk" value="${esc(EB.nama)}" oninput="EB.nama=this.value;segarSatuan();segarPer1()"></div>
       <div class="g3">
         <div class="field"><label>Qty beli</label>
           <input inputmode="numeric" value="${fmtIn(EB.qty_beli)}" placeholder="0" oninput="angkaKetik(this,v=>{EB.qty_beli=v});segarPer1()"></div>
-        <div class="field"><label>Satuan</label><input value="${esc(EB.satuan||'')}" oninput="EB.satuan=this.value"></div>
+        <!-- Bukan input teks lagi: satuannya dipilih dari yang ditetapkan
+             purchasing untuk bahan ini. Lihat opsiSatuanBahan(). -->
+        <div class="field"><label>Satuan</label>
+          <select id="satBahan" onchange="EB.satuan=this.value;segarPer1()">${opsiSatuanBahan(EB.nama,EB.satuan)}</select></div>
         <div class="field"><label>Harga beli <span style="font-weight:400;color:var(--muted)">(Rp)</span></label>
           <input inputmode="numeric" value="${fmtIn(EB.harga_beli)}" placeholder="0" oninput="angkaKetik(this,v=>{EB.harga_beli=v});segarPer1()"></div>
       </div>
       <div class="notice info" id="per1Box"></div>
+      <div class="ket" id="ketSatuan" style="font-size:11.5px;color:var(--muted-2);margin:-6px 0 12px">${ketSatuan(EB.nama)}</div>
       <!-- Nama bahan DI ATAS itu sendiri kunci ke purchasing — tidak ada lagi
            kolom "pasangan". Kotak nama memakai daftar purchasing sebagai saran
            ketik supaya nama baru yang diketik cenderung sama sejak awal. -->
@@ -1100,8 +1296,12 @@ function daftarkanSemua(){
 function kirimProduk(daftar){
   setSync('','Mendaftarkan…');
   const satu=b=>fetch(API_ITEM,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      /* Satuan dibakukan dulu: yang tersimpan di sini bisa ejaan lama ("Gr"),
+         dan purchasing menggambar satuan sebagai centang dari SATUAN_TERSEDIA
+         — ejaan di luar daftar itu tersimpan tapi tak pernah terlihat di sana. */
       body:JSON.stringify({action:'addProduct',productName:b.nama,primaryVendor:b.vendor||'',
-                           backupVendors:[],oldProductName:'',units:b.satuan?[b.satuan]:[]})})
+                           backupVendors:[],oldProductName:'',
+                           units:bakuSatuan(b.satuan)?[bakuSatuan(b.satuan)]:[]})})
     .then(r=>r.text());
   /* Berurutan, bukan serentak: purchasing menyimpan peta produk sebagai satu
      blob per baris, dan 130 permintaan bersamaan membuat yang belakangan
@@ -1136,12 +1336,15 @@ function uraiBahan(r,faktor,keranjang,jalur){
     if(b.ref==='resep'){
       const sub=cariResep(b.nama,r.jenis); if(!sub) return;
       const y=num(sub.yield_qty)||1;
-      uraiBahan(sub,faktor*(num(b.qty)/y),keranjang,jalur);
+      /* Konversi sama dengan modalResep — kalau di sini dilewatkan, halaman
+         Dashboard memberi urutan "bahan paling menggerakkan modal" yang
+         berbeda dari modal resepnya sendiri. */
+      uraiBahan(sub,faktor*(qtySesuai(num(b.qty),b.satuan,sub.yield_unit).qty/y),keranjang,jalur);
     }else{
       const it=PB[low(b.nama)]; if(!it) return;
       const k=it.nama;
       keranjang[k]=keranjang[k]||{nama:k,nilai:0,menu:{}};
-      keranjang[k].nilai+=per1(it)*num(b.qty)*faktor;
+      keranjang[k].nilai+=per1(it)*qtySesuai(num(b.qty),b.satuan,it.satuan).qty*faktor;
     }
   });
   delete jalur[r.id];
@@ -1398,6 +1601,7 @@ function viewKalk(){
     <div class="card-sub">Pilih bahan atau resep yang sudah ada, isi takarannya. Tidak ada yang tersimpan — kalau hasilnya bagus, buat resepnya di menu Daftar Resep.</div>
     <datalist id="dlBahanK">${S.bahan.map(b=>`<option value="${esc(b.nama)}">`).join('')}</datalist>
     <datalist id="dlResepK">${S.resep.map(r=>`<option value="${esc(r.nama)}">`).join('')}</datalist>
+    <datalist id="dlSatuanK">${dlSatuanHtml()}</datalist>
     <div class="brs" style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase">
       <div>Sumber</div><div>Nama</div><div>Qty</div><div>Satuan</div><div style="text-align:right">Subtotal</div><div></div></div>`;
   KAL.baris.forEach((b,i)=>{
@@ -1411,8 +1615,8 @@ function viewKalk(){
            ulang seluruh kalkulator, jadi setiap huruf melempar fokus keluar. -->
       <input list="${b.ref==='resep'?'dlResepK':'dlBahanK'}" value="${esc(b.nama||'')}" placeholder="nama…" oninput="KAL.baris[${i}].nama=this.value;segarKalk()">
       <input inputmode="numeric" value="${b.qty||''}" placeholder="qty" oninput="KAL.baris[${i}].qty=this.value;segarKalk()">
-      <input value="${esc(b.satuan||'')}" placeholder="satuan" oninput="KAL.baris[${i}].satuan=this.value">
-      <div class="sub" data-ksub="${i}">${s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
+      <input list="dlSatuanK" value="${esc(b.satuan||'')}" placeholder="satuan" oninput="KAL.baris[${i}].satuan=this.value;segarKalk()">
+      <div class="sub" data-ksub="${i}">${s.ada?rp2(s.nilai)+tandaCampur(s,b):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
       <button class="x" onclick="KAL.baris.splice(${i},1);render()">✕</button></div>`;
   });
   h+=`<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="KAL.baris.push({nama:'',qty:'',ref:'bahan'});render()">+ Baris</button>
@@ -1450,7 +1654,7 @@ function segarKalk(){
   document.querySelectorAll('[data-ksub]').forEach(el=>{
     const b=KAL.baris[+el.dataset.ksub]; if(!b) return;
     const s=hitungBaris(b,'food');
-    el.innerHTML=s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>';
+    el.innerHTML=s.ada?rp2(s.nilai)+tandaCampur(s,b):'<span style="color:var(--danger)">tak dikenal</span>';
   });
   const k=$('kalKartu'); if(k) k.innerHTML=kartuKalk();
   const n=$('kalNote'); if(n) n.innerHTML=noteKalk();

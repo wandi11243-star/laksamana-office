@@ -55,6 +55,12 @@ a{color:var(--gold-dim)}
    paling tertangkap mata justru Tolak — tindakan yang paling jarang benar.
    Sejak 14 Agustus 2026 hanya SATU tombol yang terisi penuh di tiap baris,
    sisanya bergaris; warnanya baru muncul saat disentuh. */
+/* Tindakan KETIGA di baris permintaan: memenuhi sebagian. Bukan menyetujui
+   (bukan yang diminta) dan bukan menolak (orangnya tetap dikirim), jadi ia
+   memang tidak boleh memakai warna keduanya. Biru dipilih karena satu-satunya
+   warna di palet ini yang belum berarti apa-apa di kolom aksi. */
+.btn-info{background:var(--info);color:#fff}
+.btn-info:hover{filter:brightness(1.06)}
 .btn-ghost.bahaya{color:var(--danger);border-color:var(--danger-bg)}
 .btn-ghost.bahaya:hover{background:var(--danger);border-color:var(--danger);color:#fff}
 .btn-block{width:100%}
@@ -983,7 +989,13 @@ const NAV_DEF = [
      kelompok teratas; dua ini dibuka saat ada yang perlu diubah. */
   {s:'Sistem'},
   {k:'pekerja',   t:'Database DW',    ic:'orang',    sub:'Talent pool daily worker'},
-  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, posisi, jam bawaan, panduan jumlah DW'}
+  {k:'pengaturan',t:'Pengaturan',     ic:'gir',      sub:'Tarif, posisi, jam bawaan, panduan jumlah DW'},
+  /* HAK AKSES keluar dari Pengaturan jadi halaman sendiri (14 Agustus 2026).
+     Ia satu-satunya panel di sana yang bukan milik HRD, dan menumpang di
+     halaman yang justru dibuka HRD tiap kali menyetel tarif. Sebagai menu
+     sendiri, siapa yang boleh membukanya terbaca dari sidebar — bukan baru
+     ketahuan setelah menggulir melewati empat panel yang lain. */
+  {k:'akses',     t:'Hak Akses',      ic:'orang',    sub:'Siapa yang berhak memutuskan di modul ini'}
 ];
 
 /* ---------- State ---------- */
@@ -1665,8 +1677,19 @@ function bacaSesi(){
    pemeriksaan yang tersebar selalu menyisakan satu halaman yang terlupa. */
 /* 'rekap' ikut daftar HR: isinya jam kerja & upah satu orang — data yang
    sama sensitifnya dengan Database DW dan Pembayaran. */
-const HALAMAN_HR = ['pekerja','bayar','rekap'];
+/* PEMBAYARAN KELUAR dari daftar ini 14 Agustus 2026 — ia HRD saja, bukan
+   "HRD dan head". Isinya nomor rekening seluruh talent pool dan jumlah yang
+   akan ditransfer minggu itu; head tidak mengurus satu pun dari keduanya, dan
+   "melihat semuanya" tidak pernah dimaksudkan sampai ke daftar transfer. */
+const HALAMAN_HR = ['pekerja','rekap'];
 function bolehBuka(k){
+  /* Hak Akses: admin modul saja. Isinya daftar siapa yang MENJADI HRD, dan
+     yang menentukannya bukan orang yang berada di dalam daftar itu. Server
+     sudah memegangnya (simpanSetting mempertahankan `hr` kalau penyimpannya
+     bukan admin); ini membuat layarnya jujur soal itu. */
+  if(k==='akses') return isAdmin();
+  /* Pembayaran: HRD/admin saja — lihat HALAMAN_HR di atas. */
+  if(k==='bayar') return isHR();
   /* Pengaturan: admin modul DAN HRD. Yang menyetel tarif, kuota, dan jam
      bawaan memang HRD — mengunci layar itu untuk admin saja berarti tiap
      perubahan tarif harus lewat orang yang tidak mengurus pembayarannya. */
@@ -1703,7 +1726,20 @@ function bolehBuka(k){
   /* Sisanya terbuka untuk staf Office. */
   return true;
 }
+/* Keterangan peran di bawah nama, di kaki sidebar. Disebut apa adanya dan
+   BERURUT dari yang paling menentukan: yang memegang dua-duanya perlu tahu
+   kewenangannya yang mana yang sedang dipakai — "Admin modul" saja membuat
+   HRD mengira daftar HRD-nya tidak berlaku untuknya. */
+function setSubPeran(){
+  const el=document.getElementById('su-ur'); if(!el) return;
+  const p=[];
+  if(isAdmin())   p.push('Admin modul');
+  if(isHR())      p.push('HRD');
+  if(isHeadDW())  p.push('Head divisi');
+  el.textContent = p.length ? p.join(' · ') : 'Staf Office';
+}
 function buildNav(){
+  setSubPeran();
   const el=document.getElementById('nav'); if(!el) return;
   const menunggu=(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
   /* Lencana Permintaan DW, DIHITUNG MENURUT SIAPA YANG MELIHAT: HRD memandang
@@ -1750,7 +1786,8 @@ const TITLES={
   pekerja:   ['Database DW','Talent pool daily worker'],
   rekap:     ['Rekap Pegawai','Jadwal sebulan, jam kerja & upah satu daily worker'],
   bayar:     ['Pembayaran','Rekap seminggu per DW dan daftar transfernya'],
-  pengaturan:['Pengaturan','Tarif, jam bawaan, dan panduan jumlah DW per divisi']
+  pengaturan:['Pengaturan','Tarif, jam bawaan, dan panduan jumlah DW per divisi'],
+  akses:['Hak Akses','Siapa yang berhak memutuskan di modul ini']
 };
 function setTop(){
   const t=TITLES[VIEW]||['Daily Worker','Laksamana Muda'];
@@ -1834,6 +1871,7 @@ function render(){
   else if(VIEW==='rekap')      V.innerHTML=viewRekap();
   else if(VIEW==='bayar')      V.innerHTML=viewBayar();
   else if(VIEW==='pengaturan') V.innerHTML=viewPengaturan();
+  else if(VIEW==='akses')      V.innerHTML=viewAkses();
   else V.innerHTML='<div class="panel"><div class="empty">Halaman tidak dikenal.</div></div>';
 }
 
@@ -2198,9 +2236,6 @@ function viewPermintaan(){
        seluruhnya dari HRD. Yang benar bukan menutup pintunya, melainkan
        memisahkan pekerjaannya: Antrean untuk memutuskan, halaman ini untuk
        melihat riwayat permintaan berikut putusannya. */
-    if(isHR() && x.status==='MENUNGGU')
-      aksi.push('<button class="btn btn-ghost btn-sm" title="Putusannya diambil di Antrean Pengajuan" '
-        +'onclick="go(&#39;antrean&#39;)">Putuskan di Antrean</button>');
     /* Head boleh membetulkan permintaannya sendiri. Syaratnya ia head DIVISI
        ITU — bukan sekadar "bukan HRD": head yang juga admin modul mendapat
        hrd=true dari server, dan dengan syarat lama tombolnya lenyap justru
@@ -2652,12 +2687,31 @@ let TUNJUK=null;
 function bukaTunjuk(id){
   if(!isHR()) return toast('Hanya HRD yang bisa menugaskan DW', true);
   const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
-  TUNJUK={id:id, pilih:[], cari:''};
+  TUNJUK={id:id, pilih:[], cari:'', sebagian:false, alasan:''};
   gambarTunjuk();
+}
+/* Memenuhi permintaan dengan orang LEBIH SEDIKIT dari yang diminta. Modal dan
+   daftar kandidatnya sama persis dengan Tunjuk — yang berbeda cuma dua hal:
+   alasannya wajib, dan sisanya ditutup dengan alasan itu, bukan dibiarkan
+   menggantung sebagai "kurang 1" yang tidak pernah dijelaskan siapa pun. */
+function bukaSebagian(id){
+  if(!isHR()) return toast('Hanya HRD yang bisa menugaskan DW', true);
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  TUNJUK={id:id, pilih:[], cari:'', sebagian:true, alasan:''};
+  gambarTunjuk();
+}
+/* Alasan dibaca ke state SEBELUM modal digambar ulang — modal ini digambar
+   ulang penuh tiap satu nama dicentang, dan yang tidak pernah masuk state
+   hilang tanpa jejak. Kesalahan yang sama sudah pernah terjadi di catatan
+   form Ajukan (lihat serapSelDW). */
+function serapTunjuk(){
+  const t=TUNJUK; if(!t) return;
+  const el=document.getElementById('tunjukAlasan');
+  if(el) t.alasan=el.value;
 }
 function tunjukCari(v){
   const t=TUNJUK; if(!t) return;
-  t.cari=v; gambarTunjuk();
+  serapTunjuk(); t.cari=v; gambarTunjuk();
   /* Fokus dikembalikan karena modalnya digambar ulang penuh tiap ketukan —
      aturan yang sama dengan kotak cari di lembar bulanan. */
   const i=document.getElementById('cariTunjuk');
@@ -2665,6 +2719,7 @@ function tunjukCari(v){
 }
 function tunjukToggle(dwId){
   const t=TUNJUK; if(!t) return;
+  serapTunjuk();
   const i=t.pilih.indexOf(dwId);
   if(i>-1){ t.pilih.splice(i,1); gambarTunjuk(); return; }
   /* BATAS = sisa yang diminta. Dulu kelebihannya cuma diberi pita peringatan
@@ -2728,7 +2783,7 @@ function gambarTunjuk(){
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
-  modal('Tunjuk DW — '+esc(namaDivisi(x.divisi))+' '+esc(tglManusia(x.tgl)),
+  modal((t.sebagian?'Penuhi Sebagian — ':'Tunjuk DW — ')+esc(namaDivisi(x.divisi))+' '+esc(tglManusia(x.tgl)),
     '<div class="rowbar"><span class="chip">'+esc(x.m+'–'+x.s)+'</span>'
       +'<span class="chip">'+esc(x.posisi||'DW')+'</span>'
       +'<span class="chip"><b>'+sudah+'</b> dari '+x.jumlah+' terisi</span>'
@@ -2746,20 +2801,54 @@ function gambarTunjuk(){
       ? '<div class="pilih-grid">'+kartu+'</div>'
       : (qT?'<div class="empty">Tidak ada yang cocok dengan "'+esc(t.cari)+'".</div>'
            :kosongKandidatHTML(x.divisi, x.posisi)))
+    /* Alasan hanya di mode Sebagian. Di mode Tunjuk biasa permintaannya
+       memang terpenuhi utuh — tidak ada yang perlu dijelaskan, dan kotak
+       kosong yang selalu muncul akhirnya diisi asal-asalan. */
+    +(t.sebagian
+      ? '<div class="field" style="margin-top:10px"><label>Alasan tidak penuh *</label>'
+        +'<textarea id="tunjukAlasan" placeholder="Mis. talent pool Bar cuma tersisa 3 orang malam itu">'
+        +esc(t.alasan||'')+'</textarea>'
+        +'<div class="hint">Dibaca head di halaman <b>Permintaan DW</b> miliknya. '
+        +'Sisanya (<b>'+Math.max(0,kurang-t.pilih.length)+' orang</b>) ditutup dengan alasan ini.</div></div>'
+      : '')
     ,
-    [{t:'Tugaskan '+(t.pilih.length||'')+' orang',c:'btn-primary',f:function(){ kirimTunjuk(); return false; }}],
+    [{t:(t.sebagian
+         ? 'Kirim '+(t.pilih.length||'')+' dari '+kurang
+         : 'Tugaskan '+(t.pilih.length||'')+' orang'),
+      c:(t.sebagian?'btn-info':'btn-primary'),
+      f:function(){ kirimTunjuk(); return false; }}],
     true);
 }
 async function kirimTunjuk(){
   const t=TUNJUK; if(!t) return;
+  serapTunjuk();
   if(!t.pilih.length) return toast('Pilih dulu siapa yang ditugaskan', true);
+  /* Alasan WAJIB di mode Sebagian, dan diperiksa SEBELUM apa pun dikirim:
+     memenuhi 3 dari 4 tanpa sebabnya sama saja dengan tidak dijelaskan. */
+  const alasan=String(t.alasan||'').trim();
+  if(t.sebagian && !alasan){
+    toast('Tulis dulu alasannya — head yang membacanya', true);
+    return gambarTunjuk();
+  }
   /* Disalin SEBELUM modal ditutup: tutupModal() membuang TUNJUK, dan
      membacanya sesudah itu mengirim daftar kosong. */
-  const ids=t.pilih.slice(), id=t.id;
+  const ids=t.pilih.slice(), id=t.id, sebagian=!!t.sebagian;
   try{
     TUNJUK=null; tutupModal();
-    await jalankanTugaskan(id, ids,
-      d=>d.masuk+' daily worker ditugaskan — sudah masuk kalender Jadwal Shift');
+    const d=await jalankanTugaskan(id, ids, function(x){
+      return sebagian
+        ? x.masuk+' dari '+((x.jumlah|0)||ids.length)+' dikirim — alasannya tercatat untuk head'
+        : x.masuk+' daily worker ditugaskan — sudah masuk kalender Jadwal Shift';
+    });
+    /* Alasannya ditulis SESUDAH penugasan berhasil, bukan sebelum. Kalau
+       ditulis lebih dulu lalu penugasannya gagal, yang tertinggal adalah
+       permintaan yang berbunyi "cuma dapat 3" padahal tidak seorang pun
+       benar-benar dikirim. tugaskan_dw sudah menyetel statusnya DISETUJUI;
+       yang ditambahkan di sini cuma notanya. */
+    if(sebagian && d && d.masuk){
+      await apiPost({action:'putusPermintaan', id:id, status:'DISETUJUI', nota:alasan});
+      await muatDanGambar(true);
+    }
   }catch(e){ toast('Gagal menugaskan: '+e.message, true); }
 }
 
@@ -3029,11 +3118,24 @@ function barisMintaAntrean(x){
      mengusulkan siapa pun, memilih orang JUSTRU tindakan utamanya — di baris
      itu tombol ini yang naik jadi terisi, dan namanya "Pilih DW" karena tidak
      ada pilihan sebelumnya yang sedang diulang. */
+  /* SATU NAMA, SATU WARNA untuk tombol ini (14 Agustus 2026). Dulu labelnya
+     berganti antara "Pilih DW" dan "Pilih Ulang DW", dan warnanya ikut
+     berpindah antara bergaris dan terisi tergantung ada-tidaknya usulan head —
+     satu tombol yang mengerjakan hal yang sama persis tampil dua rupa di dua
+     baris yang bersebelahan, dan yang memindainya harus membacanya ulang tiap
+     baris. Bedanya sudah tertulis di kolom Pengajuan ("usul: …"). */
   if(isHR()&&hidup&&kurang>0)
     aksi.push('<button class="btn btn-ghost btn-sm" title="'+esc(kurang+' orang masih perlu ditunjuk')+'"'
-      +' onclick="bukaTunjuk(&#39;'+escJs(x.id)+'&#39;)">👤 '+(usul.length?'Pilih Ulang DW':'Pilih DW')+'</button>');
-  if(isHR()&&!usul.length&&aksi.length)
-    aksi[0]=aksi[0].replace('btn-ghost','btn-primary');
+      +' onclick="bukaTunjuk(&#39;'+escJs(x.id)+'&#39;)">👤 Pilih DW</button>');
+  /* PENUHI SEBAGIAN — head minta 4, yang ada 3. Sebelum tombol ini, satu-
+     satunya jalan adalah menugaskan 3 lalu membiarkan permintaannya tertutup
+     "3 dari 4" tanpa satu kata pun sebabnya; head membacanya sebagai kelalaian
+     dan menanyakannya lewat WhatsApp, dan jawabannya tidak pernah kembali ke
+     sistem. Di sini alasannya WAJIB dan tersimpan sebagai putusNota, tampil di
+     baris permintaan miliknya. Muncul hanya kalau memang bisa kurang (>1). */
+  if(isHR()&&hidup&&kurang>1)
+    aksi.push('<button class="btn btn-info btn-sm" title="Kirim lebih sedikit dari yang diminta, dengan alasan"'
+      +' onclick="bukaSebagian(&#39;'+escJs(x.id)+'&#39;)">◑ Sebagian</button>');
   if(isHR()&&x.status==='MENUNGGU')
     aksi.push('<button class="btn btn-ghost bahaya btn-sm" onclick="tolakPermintaan(&#39;'+escJs(x.id)+'&#39;)">✕ Tolak</button>');
   const tarif=tarifPosisi(x.posisi);
@@ -5724,11 +5826,8 @@ function viewPengaturan(){
   /* Roster ditarik saat halaman ini digambar, lalu halamannya digambar ulang
      sekali begitu datanya sampai. Tidak di-await: layar Pengaturan tidak boleh
      menunggu jaringan hanya untuk menampilkan tarif. */
-  /* Roster hanya ditarik kalau ada yang akan memakainya. Sejak panel Hak Akses
-     jadi milik admin modul saja, menariknya untuk HRD berarti satu panggilan
-     ke account-api tiap kali halaman ini dibuka, demi daftar yang tidak akan
-     digambar sama sekali. */
-  if(isAdmin() && !ROSTER.length && !ROSTER_ERR) setTimeout(muatRosterDanGambar,0);
+  /* Roster TIDAK ditarik di sini lagi — panel Hak Akses sudah pindah ke
+     halamannya sendiri (viewAkses), dan di sanalah rosternya dibutuhkan. */
   /* Panel "Tarif per shift" DIBUBARKAN 14 Agustus 2026 — isinya pindah ke
      baris masing-masing posisi di panel Posisi per Divisi. Ia daftar kedua
      berisi posisi yang sama persis, cuma tanpa divisinya, dan dua daftar untuk
@@ -5750,7 +5849,6 @@ function viewPengaturan(){
       +'<button class="btn btn-ghost btn-sm" onclick="hapusJam('+i+')">Hapus</button></div>').join('')
     +'</div>'
 
-    +hakAksesPanelHTML()
     +'<div class="panel">'
     +'<div class="rowbar"><h2>Panduan jumlah DW per hari</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:10px">Panduan, <b>bukan penguncian</b>. Melebihinya hanya memunculkan satu pertanyaan yang bisa dilanjutkan — larangan keras akan menghambat malam Sabtu yang butuh tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang mencatatnya di luar sistem.</p>'
@@ -5772,6 +5870,19 @@ function viewPengaturan(){
    pekerjaan (melihat jadwal DW, dan memutuskan/mengelola), jadi matriks
    sembilan baris di sini akan diisi asal-asalan sekali lalu tidak pernah
    dibuka lagi. */
+/* Halaman Hak Akses. Rosternya ditarik di sini, bukan lagi di viewPengaturan:
+   sejak panel ini berdiri sendiri, HRD yang membuka Pengaturan tidak perlu
+   memicu satu panggilan ke account-api demi daftar yang tidak akan digambar. */
+function viewAkses(){
+  if(!isAdmin()){
+    return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
+      +'Halaman ini untuk <b>admin modul</b>.'
+      +'<div class="mutedhint" style="margin-top:6px">Isinya daftar siapa yang menjadi HRD di modul '
+      +'ini — dan yang menentukannya bukan orang yang ada di dalam daftar itu.</div></div></div>';
+  }
+  if(!ROSTER.length && !ROSTER_ERR) setTimeout(muatRosterDanGambar,0);
+  return hakAksesPanelHTML();
+}
 function hakAksesPanelHTML(){
   /* PANEL INI HANYA UNTUK ADMIN MODUL (14 Agustus 2026), bukan HRD.
      ---------------------------------------------------------------------
@@ -6061,7 +6172,14 @@ async function mulaiAplikasi(){
   const nama = (ME&&ME.name)||'—';
   document.getElementById('su-un').textContent=nama;
   document.getElementById('su-avatar').textContent=inisial(nama);
-  document.getElementById('su-ur').textContent = isAdmin()?'Admin modul':'Staf Office';
+  /* Label peran diperbaiki 14 Agustus 2026. Sebelumnya cuma dua keadaan —
+     "Admin modul" atau "Staf Office" — dan keduanya menyesatkan: HRD yang
+     bukan admin terbaca sebagai staf biasa, sedangkan admin yang juga HRD
+     terbaca seolah kewenangannya datang dari keanggotaan admin, bukan dari
+     daftar HRD. Ditulis ulang di setSubPeran() karena `S.peran` baru sampai
+     SESUDAH data pertama dimuat; di sini `isAdmin()` (dari sesi Office) sudah
+     terbaca, jadi ia yang dipakai lebih dulu. */
+  setSubPeran();
 
   try{ if(localStorage.getItem('lm_dw_navmini')==='1') document.getElementById('app').classList.add('nav-mini'); }catch(e){}
 
