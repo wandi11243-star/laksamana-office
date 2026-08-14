@@ -1907,7 +1907,29 @@ function pesanAdminErr() {  }
 
 
 
-function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); resetAdminForm(); loadAdminUsers(); }
+function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); resetAdminForm(); loadAdminUsers(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

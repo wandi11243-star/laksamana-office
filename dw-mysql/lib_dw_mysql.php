@@ -287,9 +287,25 @@ function dw_hrd($u) {
   if (dw_admin($u)) return true;
   $st = baca_setting();
   $hr = (is_object($st) && isset($st->hr) && is_array($st->hr)) ? $st->hr : array();
-  if (!count($hr)) return true;
   foreach ($hr as $id) { if ((string)$id === (string)$u['id']) return true; }
-  return false;
+  if (count($hr)) return false;
+
+  /* DAFTAR HRD MASIH KOSONG = belum disetel. Semua pemegang modul dianggap
+     berhak, supaya pemasangan yang sudah jalan tidak mendadak mengunci semua
+     orang di luar — termasuk admin yang seharusnya mengisi daftarnya.
+
+     KECUALI HEAD DIVISI, dan ini bukan pengecualian kecil. Sejak head ikut
+     memegang kunci modul (14 Agustus 2026), aturan lama "kosong = semua"
+     diam-diam menjadikan SETIAP head sebagai HRD: ia bisa menyetujui
+     permintaannya sendiri, menunjuk orang, menyunting talent pool, dan
+     menandai transfer. Persis pembagian tugas yang sengaja dibuat — head
+     meminta, HRD memenuhi — runtuh tanpa satu pun layar menyebutkannya, dan
+     runtuhnya justru pada pemasangan yang paling umum: yang daftar HRD-nya
+     memang belum pernah diisi.
+
+     Head tetap MELIHAT semuanya (dw_boleh_lihat); yang ditahan cuma
+     memutuskan. */
+  return !dw_head($u);
 }
 
 

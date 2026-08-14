@@ -546,6 +546,10 @@ function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModa
 
 
 
+
+
+
+
 function hitungBaris() { cariResep(); modalResep(); per1(); }
 
 
@@ -640,7 +644,19 @@ function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); 
 
 
 
-function bukaBahan() { tutupModal(); segarPer1(); statusPur(); hapusBahan(); simpanBahan(); }
+
+
+
+function gambarUlangBahan() { bukaBahan(); }
+function bukaBahan() { tutupModal(); segarPer1(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -741,6 +757,10 @@ function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
 function statusPur() {  }
+
+
+
+
 
 
 

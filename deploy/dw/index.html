@@ -131,6 +131,8 @@ a{color:var(--gold-dim)}
   padding:7px 13px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:inherit}
 .hrchip:hover{border-color:var(--gold-2);background:var(--gold-soft)}
 .hrchip.on{border-color:var(--gold-dim);background:var(--gold-soft);color:var(--gold-dim)}
+.hrchip.mati,.lunas.mati{cursor:default;opacity:.6}
+.lunas.mati{display:inline-block;padding:5px 10px;font-size:12px;font-weight:700;color:var(--muted-2)}
 .hrchip .mini{font-weight:500;color:var(--muted-2)}
 .seg{display:inline-flex;background:var(--gold-soft);border:1px solid var(--line);border-radius:30px;padding:3px;flex-wrap:wrap}
 .seg button{border:none;background:transparent;padding:7px 13px;border-radius:30px;font-weight:600;font-size:13px;color:var(--muted)}
@@ -1345,7 +1347,20 @@ function simpanCache(){
 function bacaCache(){
   try{
     const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
-    if(c&&c.s){ RANGE=c.range||null; return normalizeState(c.s); }
+    if(c&&c.s){
+      RANGE=c.range||null;
+      const st=normalizeState(c.s);
+      /* PERAN TIDAK PERNAH DIPULIHKAN DARI CACHE. Cache ditulis dengan peran
+         yang berlaku SAAT ITU; kalau hak akses orangnya berubah sejak terakhir
+         membuka (mis. daftar HRD baru diisi, atau ia baru ditunjuk head),
+         layar pertama digambar memakai peran lama — tombol Setujui muncul lalu
+         hilang sendiri beberapa detik kemudian, dan yang sempat menekannya
+         ditolak server tanpa mengerti kenapa.
+         Dikosongkan dulu, lalu diisi jawaban server di muatData(). Menampilkan
+         lebih sedikit dulu lalu menambah selalu lebih aman daripada kebalikan. */
+      st.peran={hrd:false, head:false, lihat:false, admin:false, divisi:[]};
+      return st;
+    }
   }catch(e){}
   return null;
 }
@@ -1415,6 +1430,16 @@ function bolehBuka(k){
 function buildNav(){
   const el=document.getElementById('nav'); if(!el) return;
   const menunggu=(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
+  /* Lencana Permintaan DW, DIHITUNG MENURUT SIAPA YANG MELIHAT: HRD memandang
+     seluruh permintaan yang menunggu putusannya, head cuma divisinya sendiri.
+     Angka yang tidak bisa ditindaklanjuti pemiliknya cuma melatih orang
+     mengabaikan lencana — dan lencana yang sudah diabaikan berhenti berguna
+     untuk yang sungguhan juga. */
+  const kuasaNav=(S&&S.peran&&S.peran.divisi)||[];
+  const mintaTunggu=(S&&S.permintaan||[]).filter(function(x){
+    if(x.status!=='MENUNGGU') return false;
+    return isHR() || kuasaNav.indexOf(x.divisi)>-1;
+  }).length;
   let h='', adaIsi=false, tunda='';
   NAV_DEF.forEach(function(n){
     /* Judul kelompok ditahan dulu, baru ditulis kalau ternyata ada halaman
@@ -1429,6 +1454,7 @@ function buildNav(){
     adaIsi=true;
     let badge='';
     if(n.k==='antrean'  && menunggu)   badge='<span class="badge">'+menunggu+'</span>';
+    if(n.k==='permintaan' && mintaTunggu) badge='<span class="badge">'+mintaTunggu+'</span>';
     h+='<a class="'+(VIEW===n.k?'active':'')+'" onclick="go(&#39;'+n.k+'&#39;)" title="'+esc(n.sub||n.t)+'">'
       +svg(IC[n.ic])+'<span>'+esc(n.t)+'</span>'+badge+'</a>';
   });
@@ -1672,6 +1698,12 @@ function viewDashboard(){
   const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t);
   const setuju=hariItu.filter(a=>a.status==='DISETUJUI');
   const tunggu=(S.ajuan||[]).filter(a=>a.status==='MENUNGGU');
+  /* Permintaan yang menunggu IKUT di layar pertama. Sebelumnya Dashboard cuma
+     menyebut ajuan, jadi HRD yang membukanya tiap pagi tidak pernah tahu ada
+     head yang sudah meminta tiga orang untuk Sabtu — kecuali ia kebetulan
+     membuka halaman Permintaan. Yang tidak terlihat di layar pertama sama saja
+     dengan yang tidak ada. */
+  const mintaTunggu=(S.permintaan||[]).filter(x=>x.status==='MENUNGGU');
   const tungguHariItu=hariItu.filter(a=>a.status==='MENUNGGU');
   const biaya=setuju.reduce((n,a)=>n+biayaAjuan(a),0);
   const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
@@ -1714,11 +1746,22 @@ function viewDashboard(){
       +statBox(setuju.length,'DW Masuk')
       +statBox(tungguHariItu.length,'Menunggu (hari ini)')
       +statBox(tunggu.length,'Menunggu (semua)')
+      +statBox(mintaTunggu.length,'Permintaan Head')
       +statBox(Math.round(jam*10)/10,'Total Jam')
       +statUang(rp(biaya),'Est. Biaya')
     +'</div>'
     +tabel
     +'</div>'
+    +(mintaTunggu.length?'<div class="panel"><div class="rowbar"><h2>📋 Permintaan head yang menunggu</h2>'
+      +'<div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="go(&#39;permintaan&#39;)">Buka permintaan</button></div>'
+      +mintaTunggu.slice(0,5).map(function(x){
+          return '<div class="row"><div class="who"><b>'+esc(namaDivisi(x.divisi))+' — '+x.jumlah+' orang</b>'
+            +'<span>'+esc(tglPanjang(x.tgl))+' · '+esc(x.m+'–'+x.s)+' · '+esc(x.posisi||'DW')
+            +(x.dibuatOleh?' · diminta '+esc(x.dibuatOleh):'')+'</span></div>'
+            +'<span class="chip">'+esc(tglManusia(x.tgl))+'</span></div>';
+        }).join('')
+      +(mintaTunggu.length>5?'<p class="mutedhint">…dan '+(mintaTunggu.length-5)+' lagi.</p>':'')
+      +'</div>':'')
     +(tunggu.length?'<div class="panel"><div class="rowbar"><h2>Menunggu keputusan Anda</h2>'
       +'<div class="spacer"></div><button class="btn btn-primary btn-sm" onclick="go(\'antrean\')">Buka antrean</button></div>'
       +tunggu.slice(0,5).map(a=>barisAjuan(a,{tanggal:true})).join('')
@@ -1873,8 +1916,15 @@ function viewPermintaan(){
       aksi.push('<button class="btn btn-ok btn-sm" onclick="bukaTunjuk(\''+escJs(x.id)+'\')">👤 Tunjuk '+kurang+' orang</button>');
     if(isHR() && x.status==='MENUNGGU')
       aksi.push('<button class="btn btn-danger btn-sm" onclick="tolakPermintaan(\''+escJs(x.id)+'\')">✕ Tolak</button>');
-    if(x.status==='MENUNGGU' && !isHR())
+    if(x.status==='MENUNGGU' && !isHR()){
+      /* Ubah, bukan cuma Tarik kembali. Salah ketik jumlah adalah kesalahan
+         yang paling sering terjadi di form ini, dan tanpa tombol ini satu-
+         satunya jalan adalah menarik permintaan lalu mengetik ulang semuanya
+         — yang sebagian orang tidak lakukan, jadi permintaannya dibiarkan
+         salah dan HRD memenuhi angka yang bukan maksudnya. */
+      aksi.push('<button class="btn btn-ghost btn-sm" onclick="bukaMinta(&#39;'+escJs(x.id)+'&#39;)">Ubah</button>');
       aksi.push('<button class="btn btn-ghost btn-sm" onclick="batalPermintaan(\''+escJs(x.id)+'\')">Tarik kembali</button>');
+    }
     return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
       +'<td class="mono">'+esc(tglManusia(x.tgl))
         +'<div class="kecil">'+esc(HARI[idxHari(x.tgl)])+'</div></td>'
@@ -2079,7 +2129,15 @@ async function kirimTunjuk(){
     /* Yang TERTAHAN dilaporkan, tidak dilewati diam-diam — penugasan yang
        diam-diam kurang satu orang baru ketahuan malam itu, saat kurang orang. */
     if(d.tertahan && d.tertahan.length){
-      const n=d.tertahan.map(b=>namaDW(b.dwId||'')||b.nama).join(', ');
+      /* `b.nama` DIPAKAI LANGSUNG. Payload bentrok dari backend tidak memuat
+         dwId sama sekali — dan namaDW('') memulangkan '(DW dihapus)', yang
+         truthy, jadi fallback `||b.nama` tidak pernah jalan. Pesannya dulu
+         berbunyi "1 tertahan bentrok: (DW dihapus)": nama yang salah, untuk
+         orang yang jelas masih ada, tepat saat HRD perlu tahu siapa yang harus
+         ia ganti. */
+      const n=d.tertahan.map(function(b){
+        return (b.nama||'?')+(b.divisi?' (sudah di '+namaDivisi(b.divisi)+')':'');
+      }).join(', ');
       toast(d.masuk+' ditugaskan, '+d.tertahan.length+' tertahan bentrok: '+n, true);
     }else{
       toast(d.masuk+' daily worker ditugaskan — sudah masuk kalender Jadwal Shift');
@@ -3172,7 +3230,13 @@ function viewAjukan(){
      mengembalikannya diam-diam. */
   const mSekarang  = AJU_M   || (jam[0]?jam[0].m:'16:00');
   const sSekarang  = AJU_S   || (jam[0]?jam[0].s:'23:00');
-  const divSekarang= AJU_DIV || '';
+  /* BAWAAN DIVISI = divisi head-nya sendiri, bukan dibiarkan kosong.
+     Kalau kosong, tidak ada <option> yang selected dan peramban memilih yang
+     PERTAMA — 'bar'. Head Floor yang langsung menekan Kirim mengirim ajuan
+     berdivisi Bar, dan backend menolaknya dengan pesan yang menyebut divisi
+     yang tidak pernah ia pilih. */
+  const kuasaAj= divisiKuasaDW();
+  const divSekarang= AJU_DIV || kuasaAj[0] || '';
   const posSekarang= AJU_POS || '';
 
   const siapa = '<div class="field"><label>Daily Worker *</label><select id="ajDw" onchange="pilihDwAjukan(this.value)">'
@@ -3217,7 +3281,10 @@ function viewAjukan(){
     +'</div>'
     +'<div class="duo">'
       +'<div class="field"><label>Divisi</label><select id="ajDiv">'
-        +DIVISI.map(d=>'<option value="'+d.k+'"'+(divSekarang===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
+        /* Head cuma ditawari divisinya sendiri — menawarkan yang lain berarti
+           menawarkan pilihan yang pasti ditolak backend. HRD dapat semuanya. */
+        +DIVISI.filter(d=>isHR()||kuasaAj.indexOf(d.k)>-1)
+          .map(d=>'<option value="'+d.k+'"'+(divSekarang===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
       +'</select></div>'
       +'<div class="field"><label>Posisi</label><select id="ajPos">'
         +posisi.map(p=>'<option'+(posSekarang===p?' selected':'')+'>'+esc(p)+'</option>').join('')
@@ -3249,7 +3316,13 @@ function pilihDwAjukan(id){
   serapAjukan();
   const p=pekerjaById(id);
   if(p){
-    if(p.divisi) AJU_DIV=p.divisi;
+    /* Divisi bawaan orang itu diikuti HANYA kalau pemanggilnya memang boleh
+       memakainya. Untuk head, memilih "Budi · Kitchen" tidak boleh diam-diam
+       memindahkan ajuannya ke Kitchen — backend menolaknya, dan penolakan itu
+       menyebut divisi yang tidak pernah ia pilih sendiri. DW memang biasa
+       dipanggil lintas divisi; yang menentukan tetap divisi si peminta. */
+    const kuasa=divisiKuasaDW();
+    if(p.divisi && (isHR() || kuasa.indexOf(p.divisi)>-1)) AJU_DIV=p.divisi;
     if(p.posisi) AJU_POS=p.posisi;
   }
   render();
@@ -3812,6 +3885,15 @@ function tombolLunasHTML(senin,kunciTujuan){
     ? 'Ditandai sudah ditransfer'+(info.oleh?' oleh '+info.oleh:'')
       +(info.at?' · '+tglManusia(fmtD(new Date(info.at))):'')+'. Klik untuk membatalkan tanda.'
     : 'Klik kalau transfer ini sudah dikirim';
+  /* Head boleh MELIHAT halaman Pembayaran, tapi menandai transfer tetap HRD.
+     Untuknya tombolnya digambar MATI, bukan hilang: yang hilang membuat kolom
+     Transfer terbaca seolah belum ada penandanya sama sekali, padahal HRD
+     mungkin sudah menandai sebagian — dan itu justru yang paling dicari saat
+     head bertanya "yang punya saya sudah dibayar belum". */
+  if(!isHR()){
+    return '<span class="lunas mati" title="'+esc(sudah?judul:'Ditandai HRD saat transfernya dikirim')+'">'
+      +(sudah?'✓ Sudah':'—')+'</span>';
+  }
   return '<button type="button" class="lunas'+(sudah?' on':'')+'" title="'+esc(judul)+'" '
     +'onclick="toggleBayarLunas(\''+escJs(senin)+'\',\''+escJs(kunciTujuan)+'\')">'
     +(sudah?'✓ Sudah':'Tandai')+'</button>';
@@ -4667,12 +4749,23 @@ function hakAksesPanelHTML(){
   }else if(!daftar.length){
     isi='<div class="mutedhint">Mengambil daftar user Office…</div>';
   }else{
+    /* Halaman Pengaturan sekarang terbuka untuk HRD juga, tapi daftar HRD-nya
+       sendiri tetap milik admin modul — server mempertahankannya kalau yang
+       menyimpan bukan admin. Jadi untuk HRD chip-nya digambar MATI: menekan
+       yang hidup akan tampak berhasil di layar lalu dikembalikan server pada
+       pemuatan berikutnya, tanpa satu pun pesan. */
+    const bolehUbahHr=isAdmin();
     isi='<div class="pilihhr">'+daftar.map(function(u){
       const on=d.indexOf(String(u.id))>-1;
+      if(!bolehUbahHr){
+        return '<span class="hrchip'+(on?' on':'')+' mati">'+(on?'☑':'☐')+' '+esc(u.name)
+          +(u.keterangan?'<span class="mini"> · '+esc(u.keterangan)+'</span>':'')+'</span>';
+      }
       return '<button type="button" class="hrchip'+(on?' on':'')+'" onclick="toggleHR(\''+escJs(u.id)+'\')">'
         +(on?'☑':'☐')+' '+esc(u.name)
         +(u.keterangan?'<span class="mini"> · '+esc(u.keterangan)+'</span>':'')+'</button>';
-    }).join('')+'</div>';
+    }).join('')+'</div>'
+      +(bolehUbahHr?'':'<p class="mutedhint" style="margin-top:8px">Hanya <b>admin modul</b> yang bisa mengubah daftar ini.</p>');
   }
   return '<div class="panel">'
    +'<div class="rowbar"><h2>Hak Akses</h2><div class="spacer"></div>'

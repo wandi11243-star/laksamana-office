@@ -470,7 +470,7 @@ function bukaResep(id){
   const r=S.resep.find(x=>x.id===id);
   ED=r?JSON.parse(JSON.stringify(r))
       :{id:'',nama:'',jenis:'food',tipe:'base',seksi:'',yield_qty:1,yield_unit:'Porsi',
-        harga_lama:0,harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1};
+        harga_lama:0,harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0};
   gambarEditor();
 }
 function tutupModal(){ ED=null; $('modal').innerHTML=''; }
@@ -525,6 +525,10 @@ function gambarEditor(){
         <div class="field"><label>Harga jual lama</label><input type="number" step="any" value="${r.harga_lama||''}" oninput="ED.harga_lama=this.value;segarSub()"></div>
         <div class="field"><label>Harga jual baru</label><input type="number" step="any" value="${r.harga_baru||''}" oninput="ED.harga_baru=this.value;segarSub()"></div>
         <div class="field"><label>Harga upsize</label><input type="number" step="any" value="${r.harga_upsize||''}" oninput="ED.harga_upsize=this.value"></div></div>`:''}
+      ${r.tipe==='base'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px">
+        <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
+        Base ini juga <b>berdiri di Purchasing</b> — barang produksi Central Kitchen yang dipesan outlet</label>
+      <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin-bottom:12px">Bawaannya mati: base dibuat sendiri, bukan dibeli. Nyalakan hanya kalau outlet memesannya lewat purchasing — ia akan didaftarkan di sana bertanda <b>produksi CK</b>, bukan sebagai barang vendor.</div>`:''}
       ${(r.bahan||[]).length===0?`<div class="field"><label>Modal manual (dipakai kalau menu ini tidak punya resep)</label>
         <input type="number" step="any" value="${r.modal_manual||''}" oninput="ED.modal_manual=this.value;segarSub()"></div>`:''}
       <h4 style="margin:14px 0 8px">Bahan</h4>
@@ -640,10 +644,18 @@ function viewBahan(){
   return h;
 }
 let EB=null;
-function bukaBahan(nama){
+/* Mengubah saklar purchasing mengubah keterangan di jendela yang sama (chip
+   status, kalimat penjelas), jadi jendelanya digambar ulang — bukan seluruh
+   halaman, supaya isian lain yang sedang diketik tidak hilang. */
+function gambarUlangBahan(){ if(EB) bukaBahan(EB.namaLama||EB.nama,true); }
+function bukaBahan(nama,pertahankan){
   const b=S.bahan.find(x=>x.nama===nama);
-  EB=b?Object.assign({namaLama:b.nama},JSON.parse(JSON.stringify(b)))
-      :{nama:'',satuan:'Gr',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:''};
+  /* `pertahankan` = jendelanya cuma digambar ulang; isian yang sedang diketik
+     tetap dipakai, bukan dibaca ulang dari data tersimpan. */
+  if(!pertahankan||!EB){
+    EB=b?Object.assign({namaLama:b.nama},JSON.parse(JSON.stringify(b)))
+        :{nama:'',satuan:'Gr',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1};
+  }
   const opsi=Object.keys(PRODUK).sort().map(p=>`<option value="${esc(p)}">`).join('');
   $('modal').innerHTML=`<div class="ovl" onclick="if(event.target===this)tutupModal()"><div class="mdl" style="max-width:620px">
     <div class="mdl-h"><h3>${b?'Ubah Bahan':'Bahan Baru'}</h3>
@@ -669,6 +681,10 @@ function bukaBahan(nama){
         : statusPur(EB).k==='mandiri'
           ? `Ditandai tidak dibeli lewat purchasing.`
           : `⚠ Nama ini belum ada di basis purchasing. Bahannya tetap terpakai penuh di resep; daftarkan kalau memang barang yang dibeli.`}</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:10px">
+        <input type="checkbox" ${EB.di_purchasing===0?'':'checked'} onchange="EB.di_purchasing=this.checked?1:0;gambarUlangBahan()" style="accent-color:var(--gold)">
+        Bahan ini <b>dibeli lewat Purchasing</b> — harus berdiri juga di daftar bahan baku mereka</label>
+      <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin:-6px 0 12px">Matikan untuk bahan yang tidak pernah dibeli ke vendor (air keran, es dari mesin sendiri). Ia berhenti dihitung sebagai pekerjaan yang tertinggal, dan tidak akan didaftarkan ke sana.</div>
       ${b&&statusPur(EB).k==='ada'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:12px">
         <input type="checkbox" id="ikutPur" checked style="accent-color:var(--gold)">
         Kalau namanya diganti, ganti juga di basis purchasing — supaya kedua daftar tidak pernah berbeda</label>
@@ -742,7 +758,11 @@ const adaDiPurchasing=nama=>!!PRODUK[nama];
    yang hilang padahal cuma namanya yang belum diganti. */
 function statusPur(b){
   if(PRODUK[b.nama]) return {k:'ada',t:'',c:''};
-  if(b.produk==='-') return {k:'mandiri',t:'tidak lewat purchasing',c:'mute'};
+  /* Saklar "perlu ada di purchasing" (14 Agustus 2026). Bahan yang memang tidak
+     dibeli lewat purchasing BUKAN pekerjaan yang tertinggal — ia tidak boleh
+     ikut menghitung di spanduk, kalau tidak angkanya tidak pernah bisa nol dan
+     spanduknya jadi peringatan abadi yang berhenti dibaca orang. */
+  if(b.di_purchasing===0||b.produk==='-') return {k:'mandiri',t:'tidak perlu di purchasing',c:'mute'};
   if(b.produk&&PRODUK[b.produk]) return {k:'beda',t:'nama beda',c:'warn'};
   return {k:'belum',t:'belum di purchasing',c:'info'};
 }

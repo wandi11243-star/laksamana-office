@@ -474,6 +474,34 @@ async function main() {
     j.ok && j.data.setting.tarif && +j.data.setting.tarif['Bar Helper'] === 150000,
     JSON.stringify(j.ok ? j.data.setting.tarif : j).slice(0, 120));
 
+  /* ——— DAFTAR HRD KOSONG: head TETAP bukan HRD ———
+     Ini keadaan yang PALING UMUM di pemasangan nyata — daftar HRD memang
+     jarang langsung diisi. Aturan lama "kosong = semua pemegang modul
+     berhak" diam-diam menjadikan setiap head sebagai HRD begitu head ikut
+     memegang kunci modul, dan seluruh pembagian tugas runtuh tanpa satu pun
+     layar menyebutkannya. */
+  j = await panggil('dw-mysql', { action: 'simpanSetting', sesi: 'tok-admin',
+    data: { hr: [], tarif: {}, kuota: {} } });
+  cek('admin bisa mengosongkan daftar HRD (menyiapkan keadaan uji)', j.ok, j.error);
+
+  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: 'tok-headbar',
+    id: ajuId, status: 'DISETUJUI' });
+  cek('daftar HRD kosong: head TETAP tidak bisa menyetujui', ditolak(j), JSON.stringify(j));
+  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-headbar',
+    row: { nama: 'Selundupan2', hp: '081200000088' } });
+  cek('daftar HRD kosong: head TETAP tidak bisa menyunting talent pool',
+    ditolak(j), JSON.stringify(j));
+  /* ...tapi staf bermodul yang BUKAN head tetap dianggap berhak, supaya
+     pemasangan yang belum disetel tidak mengunci semua orang di luar. */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-staf');
+  cek('daftar HRD kosong: staf bermodul tetap dianggap HRD (tidak mengunci semua orang)',
+    j.ok && j.data.peran && j.data.peran.hrd === 1, JSON.stringify(j.ok ? j.data.peran : j).slice(0, 140));
+
+  // kembalikan daftarnya untuk pemeriksaan berikutnya
+  j = await panggil('dw-mysql', { action: 'simpanSetting', sesi: 'tok-admin',
+    data: { hr: ['u-hrd'], tarif: {}, kuota: {} } });
+  cek('daftar HRD dipulihkan', j.ok, j.error);
+
   /* ================= MODUL JADWAL SHIFT ================= */  /* ================= MODUL JADWAL SHIFT ================= */
   console.log('\n— Jadwal Shift —');
 
