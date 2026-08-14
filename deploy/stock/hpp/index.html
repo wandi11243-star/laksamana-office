@@ -758,15 +758,52 @@ function vendorOf(b){
    nama purchasing pasangannya. Sekali klik, seluruhnya diganti nama dan semua
    baris resep yang merujuknya ikut ditambal server. */
 function spanduSamakan(){
+  const punyaNama={}; S.bahan.forEach(b=>{ punyaNama[b.nama]=1; });
   const beda=S.bahan.filter(b=>b.produk&&b.produk!=='-'&&b.produk!==b.nama);
+  /* DIPISAH: yang bisa diganti namanya, dan yang tujuannya sudah dipakai bahan
+     lain. Sebelumnya keduanya dihitung jadi satu, jadi tombolnya tetap muncul
+     sesudah diklik dan selalu memulangkan "0 disamakan, N dilewati" — tombol
+     yang mustahil menyelesaikan pekerjaannya sendiri. Yang bentrok sekarang
+     punya jalan keluarnya masing-masing. */
+  const bisa=beda.filter(b=>!punyaNama[b.produk]);
+  const bentrok=beda.filter(b=>punyaNama[b.produk]);
   const sisa=S.bahan.filter(b=>b.produk&&b.produk!=='-'&&b.produk===b.nama);
-  if(!beda.length&&!sisa.length) return '';
-  return `<div class="notice warn"><div>
-    <b>${beda.length} bahan namanya masih berbeda dari purchasing</b>${sisa.length?` (dan ${sisa.length} sudah sama, tinggal dibersihkan penandanya)`:''}.
-    Sejak modul ini memakai satu daftar nama, pasangan yang dulu Anda buat dipakai sekali untuk <b>mengganti namanya</b> — resep yang memakainya ikut disesuaikan otomatis.
-    ${beda.length?`<div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${beda.slice(0,4).map(b=>esc(b.nama)+' → '+esc(b.produk)).join(' · ')}</div>`:''}
-    <div style="margin-top:9px"><button class="btn btn-primary btn-sm" onclick="samakanNama()">🔤 Samakan nama dengan purchasing</button></div>
-  </div></div>`;
+  let h='';
+  if(bisa.length||sisa.length){
+    h+=`<div class="notice warn"><div>
+      <b>${bisa.length} bahan namanya masih berbeda dari purchasing</b>${sisa.length?` (dan ${sisa.length} sudah sama, tinggal dibersihkan penandanya)`:''}.
+      Pasangan yang dulu Anda buat dipakai sekali untuk <b>mengganti namanya</b> — resep yang memakainya ikut disesuaikan otomatis.
+      ${bisa.length?`<div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${bisa.slice(0,4).map(b=>esc(b.nama)+' → '+esc(b.produk)).join(' · ')}</div>`:''}
+      <div style="margin-top:9px"><button class="btn btn-primary btn-sm" onclick="samakanNama()">🔤 Samakan nama dengan purchasing</button></div>
+    </div></div>`;
+  }
+  if(bentrok.length){
+    h+=`<div class="notice bad"><div>
+      <b>${bentrok.length} pasangan tidak bisa disamakan otomatis</b> — nama tujuannya sudah dipakai bahan lain di sini, dan menggabung dua bahan berharga beda itu keputusan Anda, bukan skrip.
+      <div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th>Bahan HPP</th><th>Dipasangkan ke</th><th class="num">Dipakai</th><th></th></tr></thead><tbody>
+      ${bentrok.map(b=>`<tr>
+        <td><b>${esc(b.nama)}</b> <span style="color:var(--muted-2)">${rp2(per1(b))}</span></td>
+        <td>${esc(b.produk)} <span style="color:var(--muted-2)">${rp2(per1(S.bahan.find(x=>x.nama===b.produk)||{}))}</span></td>
+        <td class="num">${dipakaiOleh(b.nama).length}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-ghost btn-xs" onclick="lepasPasangan('${esc(b.nama)}')">Lepas pasangan</button>
+          <button class="btn btn-danger btn-xs" onclick="gabungBahan('${esc(b.nama)}','${esc(b.produk)}')">Gabungkan</button></td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="ket" style="font-size:11.5px;margin-top:8px;color:var(--muted)"><b>Lepas</b> = keduanya tetap berdiri sendiri (pilih ini kalau pasangannya memang salah, mis. Tomat Chery ≠ Tomato Paste). <b>Gabungkan</b> = resep yang memakai bahan kiri dialihkan ke bahan kanan, lalu yang kiri dihapus.</div>
+    </div></div>`;
+  }
+  return h;
+}
+function lepasPasangan(nama){
+  const b=S.bahan.find(x=>x.nama===nama); if(!b) return;
+  if(!confirm(`Lepas pasangan "${nama}" dari "${b.produk}"?\n\nTidak ada yang dihapus — keduanya tetap berdiri sendiri.`)) return;
+  kirim({action:'simpanBahan',data:Object.assign({},b,{produk:''})},'Pasangan dilepas.');
+}
+function gabungBahan(dari,ke){
+  const a=S.bahan.find(x=>x.nama===dari), n=dipakaiOleh(dari).length;
+  if(!a) return;
+  if(!confirm(`Gabungkan "${dari}" ke "${ke}"?\n\n${n} resep yang memakai "${dari}" akan dialihkan memakai "${ke}", lalu "${dari}" dihapus.\n\nHarga "${ke}" tidak diubah. Tidak bisa dibatalkan.`)) return;
+  kirim({action:'gabungBahan',dari:dari,ke:ke},`"${dari}" digabungkan ke "${ke}".`);
 }
 /* Produk purchasing yang belum punya baris di HPP. Sejak penambahan disambung
    dua arah, ini cuma sisa sejarah — produk yang sudah berdiri di sana sebelum

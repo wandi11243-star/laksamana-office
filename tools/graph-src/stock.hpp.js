@@ -757,12 +757,49 @@ function vendorOf() {  }
 
 
 
-function spanduSamakan() { samakanNama(); }
+function spanduSamakan() { samakanNama(); per1(); dipakaiOleh(); lepasPasangan(); gabungBahan(); }
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lepasPasangan() { kirim(); }
+
+
+
+
+function gabungBahan() { dipakaiOleh(); kirim(); }
 
 
 

@@ -26,12 +26,30 @@
  *      dan modal resep itu turun tanpa ada yang tahu sebabnya.
  ************************************************************************/
 
+/* Cek keberadaan tabel lewat information_schema, BUKAN "SHOW TABLES LIKE ?".
+   Koneksi stock memakai PDO::ATTR_EMULATE_PREPARES => false, dan SHOW dengan
+   penanda terikat tidak dilayani prepared statement asli — ia melempar, dan
+   try/catch di sini menelannya jadi "tabelnya tidak ada". Akibatnya SELURUH
+   penyambungan HPP <-> Purchasing diam total: `tarikProduk` memulangkan
+   "success, ditarik 0" dan ganti nama tidak merambat, tanpa satu pun pesan
+   galat di mana pun. Ditemukan 14 Agustus 2026 saat user melaporkan tombolnya
+   tidak hilang setelah diklik.
+
+   SELECT biasa ke information_schema selalu bisa di-prepare, jadi jalur ini
+   tidak punya kejutan yang sama. */
 function hpp_tabel_ada($pdo, $nama) {
+  static $memo = array();
+  if (isset($memo[$nama])) return $memo[$nama];
   try {
-    $st = $pdo->prepare('SHOW TABLES LIKE ?');
-    $st->execute(array($nama));
-    return (bool)$st->fetchColumn();
-  } catch (Throwable $e) { return false; }
+    $st = $pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES
+                          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t');
+    $st->execute(array(':t' => $nama));
+    $memo[$nama] = (bool)(int)$st->fetchColumn();
+  } catch (Throwable $e) {
+    error_log('[stock/hpp-nama] cek tabel ' . $nama . ' gagal: ' . $e->getMessage());
+    $memo[$nama] = false;
+  }
+  return $memo[$nama];
 }
 
 /**

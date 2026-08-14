@@ -1409,6 +1409,9 @@ function bolehBuka() { isAdmin(); isHR(); bisaLihat(); }
 
 
 
+
+
+
 function buildNav() { bolehBuka(); go(); esc(); svg(); }
 
 
@@ -1634,6 +1637,7 @@ function dashTgl() { hariIni(); }
 
 
 function panduanAwalDWHTML() { isOffice(); esc(); isHR(); go(); isAdmin(); }
+
 
 
 
@@ -2090,7 +2094,13 @@ function kirimTunjuk() { toast(); apiPost(); tutupModal(); namaDW(); muatDanGamb
 
 
 
-function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); pitaHead(); segDivisi(); isOffice(); go(); ajuPagerHTML(); }
+function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); pitaHead(); segDivisi(); bisaLihat(); go(); ajuPagerHTML(); }
+
+
+
+
+
+
 
 
 
@@ -3233,6 +3243,8 @@ function viewAjukan() { hariIni(); pilihDwAjukan(); esc(); namaDivisi(); isOffic
 
 
 
+
+
 function pilihDwAjukan() { serapAjukan(); pekerjaById(); render(); }
 
 
@@ -3492,7 +3504,7 @@ function viewPekerja() {  }
 
 
 
-function chip() { filterPekerja(); esc(); pitaHead(); cariPekerja(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
+function chip() { filterPekerja(); esc(); pitaHead(); cariPekerja(); isHR(); bukaPekerja(); statistikDW(); ikonDivisi(); namaDivisi(); pilStatusDW(); bukaProfil(); escJs(); }
 
 
 
@@ -3641,9 +3653,6 @@ function simpanPekerja() { isHR(); toast(); pekerjaById(); normalHp(); bayarJeni
 
 
 
-
-
-
 function tanyaShiftTertinggal() { modal(); esc(); tutupModal(); toast(); muatData(); render(); }
 
 
@@ -3673,7 +3682,13 @@ function ubahJenisBayar() { bayarJenisSah(); }
 
 
 
-function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); labelTujuan(); statBox(); barisAjuan(); tutupModal(); bukaPekerja(); go(); }
+function bukaProfil() { pekerjaById(); statistikDW(); modal(); esc(); pilStatusDW(); ikonDivisi(); namaDivisi(); labelTujuan(); statBox(); barisAjuan(); isHR(); tutupModal(); bukaPekerja(); go(); }
+
+
+
+
+
+
 
 
 
