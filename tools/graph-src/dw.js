@@ -3162,7 +3162,7 @@ function serapAjukan() {  }
 
 
 
-function viewAjukan() { hariIni(); pilihDwAjukan(); esc(); namaDivisi(); isOffice(); go(); normalSetting(); tombolJam(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); serapAjukan(); }
+function viewAjukan() { hariIni(); divisiKuasaDW(); pilihDwAjukan(); esc(); namaDivisi(); isOffice(); go(); normalSetting(); tombolJam(); isHR(); kirimAjuan(); barisAjuan(); batalkanAjuan(); escJs(); serapAjukan(); }
 
 
 
@@ -3245,7 +3245,22 @@ function viewAjukan() { hariIni(); pilihDwAjukan(); esc(); namaDivisi(); isOffic
 
 
 
-function pilihDwAjukan() { serapAjukan(); pekerjaById(); render(); }
+
+
+
+
+
+
+
+
+
+function pilihDwAjukan() { serapAjukan(); pekerjaById(); divisiKuasaDW(); isHR(); render(); }
+
+
+
+
+
+
 
 
 

@@ -3172,7 +3172,13 @@ function viewAjukan(){
      mengembalikannya diam-diam. */
   const mSekarang  = AJU_M   || (jam[0]?jam[0].m:'16:00');
   const sSekarang  = AJU_S   || (jam[0]?jam[0].s:'23:00');
-  const divSekarang= AJU_DIV || '';
+  /* BAWAAN DIVISI = divisi head-nya sendiri, bukan dibiarkan kosong.
+     Kalau kosong, tidak ada <option> yang selected dan peramban memilih yang
+     PERTAMA — 'bar'. Head Floor yang langsung menekan Kirim mengirim ajuan
+     berdivisi Bar, dan backend menolaknya dengan pesan yang menyebut divisi
+     yang tidak pernah ia pilih. */
+  const kuasaAj= divisiKuasaDW();
+  const divSekarang= AJU_DIV || kuasaAj[0] || '';
   const posSekarang= AJU_POS || '';
 
   const siapa = '<div class="field"><label>Daily Worker *</label><select id="ajDw" onchange="pilihDwAjukan(this.value)">'
@@ -3217,7 +3223,10 @@ function viewAjukan(){
     +'</div>'
     +'<div class="duo">'
       +'<div class="field"><label>Divisi</label><select id="ajDiv">'
-        +DIVISI.map(d=>'<option value="'+d.k+'"'+(divSekarang===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
+        /* Head cuma ditawari divisinya sendiri — menawarkan yang lain berarti
+           menawarkan pilihan yang pasti ditolak backend. HRD dapat semuanya. */
+        +DIVISI.filter(d=>isHR()||kuasaAj.indexOf(d.k)>-1)
+          .map(d=>'<option value="'+d.k+'"'+(divSekarang===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')
       +'</select></div>'
       +'<div class="field"><label>Posisi</label><select id="ajPos">'
         +posisi.map(p=>'<option'+(posSekarang===p?' selected':'')+'>'+esc(p)+'</option>').join('')
@@ -3249,7 +3258,13 @@ function pilihDwAjukan(id){
   serapAjukan();
   const p=pekerjaById(id);
   if(p){
-    if(p.divisi) AJU_DIV=p.divisi;
+    /* Divisi bawaan orang itu diikuti HANYA kalau pemanggilnya memang boleh
+       memakainya. Untuk head, memilih "Budi · Kitchen" tidak boleh diam-diam
+       memindahkan ajuannya ke Kitchen — backend menolaknya, dan penolakan itu
+       menyebut divisi yang tidak pernah ia pilih sendiri. DW memang biasa
+       dipanggil lintas divisi; yang menentukan tetap divisi si peminta. */
+    const kuasa=divisiKuasaDW();
+    if(p.divisi && (isHR() || kuasa.indexOf(p.divisi)>-1)) AJU_DIV=p.divisi;
     if(p.posisi) AJU_POS=p.posisi;
   }
   render();

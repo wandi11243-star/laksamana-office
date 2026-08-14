@@ -106,7 +106,7 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 
 | | boleh |
 |---|---|
-| DW — memutuskan (setujui/tolak, talent pool, tandai bayar, **tugaskanDW**) | **HRD saja** (`dw_hrd`) |
+| DW — memutuskan (setujui/tolak, talent pool, tandai bayar, **tugaskanDW**) | **HRD saja** (`dw_hrd`). Daftar `hr` kosong = semua pemegang modul dianggap HRD **KECUALI head divisi** — tanpa pengecualian itu setiap head jadi HRD begitu ia ikut memegang kunci modul, dan pembagian "head meminta, HRD memenuhi" runtuh diam-diam |
 | DW — minta DW (`simpanPermintaan`) & tunjuk orang langsung (`simpanAjuan`) | **head divisi ITU** atau HRD (`wajib_minta`) |
 | DW — `simpanSetting` | HRD, tapi daftar `hr` dipertahankan server kalau bukan admin modul |
 | DW — MELIHAT seluruh isi modul | HRD **dan head divisi** (`dw_boleh_lihat`); peran dihitung server & dikirim sebagai `data.peran`, layar tidak menyimpulkannya sendiri |
@@ -131,7 +131,7 @@ modul yang mati.
 Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
 
 ```bash
-node tools/uji-hak-akses.js     # 60 pemeriksaan, butuh php + pdo_sqlite di PATH
+node tools/uji-hak-akses.js     # 65 pemeriksaan, butuh php + pdo_sqlite di PATH
 ```
 
 Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan
