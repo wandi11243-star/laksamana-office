@@ -475,6 +475,22 @@ function pemanggil_hr($u) {
    dengan jam kosong — itu BUKAN "tidak dijadwalkan", melainkan dijadwalkan
    untuk tidak bekerja, dan bedanya penting: absen saat OFF harus diajukan,
    dengan sebab yang menyebut OFF-nya. */
+/* Memulangkan TIGA keadaan yang berbeda, dan bedanya menentukan apakah
+   seluruh absensi hari itu masuk antrean HR:
+
+     array  = shift-nya ketemu
+     null   = modulnya MENJAWAB, orangnya memang tidak dijadwalkan hari itu
+     false  = modulnya TIDAK MENJAWAB — kita tidak tahu apa-apa
+
+   Dulu dua yang terakhir sama-sama null, dan pemanggilnya menerjemahkan
+   keduanya jadi `TANPA_SHIFT` -> status MENUNGGU. Artinya satu gangguan
+   jaringan di modul Jadwal mengirim SETIAP KETUKAN ABSEN hari itu ke antrean
+   persetujuan HR — tanpa satu pun pesan yang menyebut sebabnya, dan HR harus
+   menyetujui seluruh perusahaan satu per satu.
+
+   Kegagalan berbentuk itu SUDAH PERNAH TERJADI di sini karena sebab lain
+   (kunci `shifts` sempat ditebak `shift`, lihat lib_jadwal_mysql.php), jadi
+   bentuknya memang bukan hipotesis. */
 function shift_hari($tipe, $id, $tgl) {
   $tipe = strtoupper(s($tipe));
   $tgl  = tgl_valid($tgl);
@@ -484,7 +500,8 @@ function shift_hari($tipe, $id, $tgl) {
     $url = (defined('DW_API_URL') && DW_API_URL !== '') ? DW_API_URL : sisi_url('dw-api-mysql');
     if ($url === '') return null;
     $d = http_json($url . '?action=jadwalDW&dari=' . $tgl . '&sampai=' . $tgl);
-    if (!$d || empty($d['ok']) || empty($d['data']['rows'])) return null;
+    if ($d === null || empty($d['ok'])) return false;   // tak terjangkau / menolak
+    if (empty($d['data']['rows'])) return null;         // menjawab: memang kosong
     foreach ($d['data']['rows'] as $r) {
       if (s($r['dwId']) === s($id))
         return array('kode' => 'DW', 'mulai' => s($r['m']), 'selesai' => s($r['s']),
@@ -496,7 +513,8 @@ function shift_hari($tipe, $id, $tgl) {
   $url = (defined('JADWAL_API_URL') && JADWAL_API_URL !== '') ? JADWAL_API_URL : sisi_url('jadwal-api-mysql');
   if ($url === '') return null;
   $d = http_json($url . '?action=shiftHari&user=' . rawurlencode(s($id)) . '&dari=' . $tgl . '&sampai=' . $tgl);
-  if (!$d || empty($d['ok']) || empty($d['data']['rows'])) return null;
+  if ($d === null || empty($d['ok'])) return false;   // tak terjangkau / menolak
+  if (empty($d['data']['rows'])) return null;         // menjawab: memang kosong
   foreach ($d['data']['rows'] as $r) {
     if (s($r['u']) === s($id))
       return array('kode' => s($r['t']), 'mulai' => s($r['m']), 'selesai' => s($r['s']),
@@ -610,7 +628,19 @@ function catat_punch($p, $pemanggil) {
   $wajahHalangi = $w['terdaftar'] ? !$w['ok'] : !empty($set['wajahWajib']);
 
   $sebab = '';
+  /* `false` = jadwalnya TIDAK BISA DIBACA (lihat shift_hari). Ketukannya
+     TIDAK diantrekan: kita tidak tahu orangnya dijadwalkan atau tidak, dan
+     menebak "tidak" berarti melempar seluruh absensi perusahaan ke antrean HR
+     gara-gara modul tetangga yang sedang bermasalah. Ketukannya tetap
+     tercatat lengkap dengan waktu, lokasi, dan wajahnya — HR masih bisa
+     memeriksanya belakangan; yang dihindari cuma antrean palsu sepanjang
+     satu perusahaan.
+
+     Pemeriksaan area dan wajah TETAP berlaku: keduanya tidak bergantung pada
+     jadwal sama sekali. */
+  $shiftTakTerbaca = ($shift === false);
   if (!$dalamArea)                          $sebab = 'LUAR_AREA';
+  else if ($shiftTakTerbaca)                $sebab = '';
   else if (!$shift)                         $sebab = empty($set['tanpaShiftBoleh']) ? 'TANPA_SHIFT' : '';
   else if (!empty($shift['libur']))         $sebab = 'HARI_LIBUR';
   else if (!$dalamShift)                    $sebab = 'LUAR_SHIFT';
@@ -647,7 +677,13 @@ function catat_punch($p, $pemanggil) {
     ':lk' => $lokId, ':jr' => $jarak, ':da' => $dalamArea ? 1 : 0,
     ':ws' => $w['skor'], ':wo' => $w['ok'] ? 1 : 0,
     ':sk' => $shift ? s($shift['kode']) : '', ':sm' => $shift ? s($shift['mulai']) : '',
-    ':ss' => $shift ? s($shift['selesai']) : '', ':su' => $shift ? s($shift['sumber']) : 'NONE',
+    /* `shift_sumber` membedakan DUA keadaan yang tanpa ini terlihat sama di
+       data: 'NONE' = memang tidak dijadwalkan, 'TAK_TERBACA' = jadwalnya tidak
+       bisa dibaca saat itu. Bedanya baru dicari berbulan-bulan kemudian, saat
+       ada yang bertanya kenapa satu hari penuh tidak punya shift sama sekali —
+       dan saat itu tidak ada tempat lain yang menyimpan jawabannya. */
+    ':ss' => $shift ? s($shift['selesai']) : '',
+    ':su' => $shift ? s($shift['sumber']) : ($shiftTakTerbaca ? 'TAK_TERBACA' : 'NONE'),
     ':ds' => $dalamShift ? 1 : 0, ':st' => $status, ':sb' => $sebab, ':al' => $alasan,
     ':fo' => isset($p['foto']) && $p['foto'] ? s($p['foto']) : null, ':cr' => $now,
   );
@@ -745,8 +781,29 @@ function hitung_hari($masuk, $pulang, $set) {
     if ($sel >= 0) {
       $mul = jam_ke_menit($masuk['m']);
       if ($mul >= 0 && $sel <= $mul) $sel += 1440;
-      $keluar = jam_ke_menit($pulang['jam']);
-      if ($mul >= 0 && $keluar + 720 < $mul) $keluar += 1440;
+
+      /* JAM PULANG DIHITUNG DARI LAMA KERJA SUNGGUHAN, bukan ditebak dari
+         jam dindingnya.
+         ---------------------------------------------------------------
+         Yang lama memakai tebakan `$keluar + 720 < $mul` — "kalau jam
+         pulangnya terlihat lebih dari 12 jam SEBELUM shift mulai, berarti ia
+         sudah lewat tengah malam". Tebakan itu benar untuk shift sore dan
+         malam, tapi TIDAK PERNAH menyala untuk shift pagi: untuk shift yang
+         mulai 08:00, syaratnya berarti jam pulang di bawah menit -240, yang
+         mustahil.
+
+         Akibatnya kru shift PAGI yang pulang lewat tengah malam — jarang,
+         tapi persis yang terjadi pada malam acara — tercatat PULANG CEPAT
+         16,5 jam, bukan lembur 7,5 jam. Rekapnya lalu dipakai menghitung
+         upah dan menilai orangnya.
+
+         Tidak perlu menebak sama sekali: selisih dua ketukan sudah dihitung
+         di atas sebagai `durasi`, dari stempel waktu sungguhan. Jam pulang =
+         jam datang + lama kerja. Benar untuk shift apa pun, sepanjang apa
+         pun, tanpa satu pun ambang. */
+      $datangK = jam_ke_menit($masuk['jam']);
+      if ($mul >= 0 && $datangK + 720 < $mul) $datangK += 1440;
+      $keluar = $datangK + (int)$out['durasi'];
       $lem = $keluar - $sel;
       $out['lembur'] = $lem >= (int)$set['lemburMinMenit'] ? $lem : 0;
       $out['cepat']  = max(0, $sel - $keluar);

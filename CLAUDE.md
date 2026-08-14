@@ -178,6 +178,19 @@ Absensi **membaca** shift, tidak menyalinnya: `jadwal-api-mysql?action=shiftHari
 adalah endpoint sempit yang dibuat khusus untuk ini — jangan diganti `getAll`,
 yang memulangkan seluruh sel + 200 pengajuan tiap kali orang menekan tombol.
 
+`shift_hari()` memulangkan **tiga** keadaan, dan bedanya menentukan apakah
+seluruh absensi hari itu masuk antrean HR: `array` (ketemu), `null` (modulnya
+menjawab, orangnya memang tidak dijadwalkan), `false` (modulnya **tidak
+menjawab**). Yang `false` **tidak** diantrekan — kalau disamakan dengan `null`,
+satu gangguan di modul Jadwal mengirim setiap ketukan hari itu ke antrean
+persetujuan tanpa satu pun pesan yang menyebut sebabnya. Jejaknya disimpan di
+`shift_sumber` = `TAK_TERBACA`.
+
+Lembur & pulang-cepat dihitung dari **lama kerja sungguhan** (`durasi`, dari
+selisih dua stempel waktu), bukan dari menebak tanggal jam pulang. Tebakan lama
+(`jam_pulang + 720 < jam_mulai`) tidak pernah menyala untuk shift pagi, jadi kru
+pagi yang pulang lewat tengah malam tercatat **pulang cepat 16 jam**.
+
 Yang **tidak** disimpan, dan jangan "dioptimalkan" jadi disimpan: telat, lembur,
 durasi kerja. Semuanya dihitung ulang dari ketukan + shift tiap kali dibaca,
 karena shift bisa berubah sesudah absen dan pengajuan bisa disetujui
