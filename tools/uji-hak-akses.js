@@ -458,6 +458,81 @@ async function main() {
   cek('yang ditugaskan muncul di jadwalDW (lembar Jadwal Shift)',
     j.ok && (j.data.rows || []).length >= 1, JSON.stringify(j).slice(0, 200));
 
+  /* ——— USULAN NAMA DARI HEAD ———
+     Head boleh menyebut siapa yang ia mau, tapi yang disebut TETAP cuma
+     usulan: HRD yang menyetujui. Yang diuji di sini bukan tampilannya
+     melainkan penyaringan di server — id yang tidak ada, yang sudah nonaktif,
+     dan yang lebih banyak dari jumlah yang diminta harus dibuang SEBELUM
+     tersimpan. Kalau lolos, HRD menekan Setujui lalu mendapat penugasan yang
+     gagal sebagian tanpa satu pun pesan yang menyebut sebabnya. */
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-headbar',
+    row: { tgl: '2026-08-23', divisi: 'bar', m: '16:00', s: '23:00',
+           posisi: 'Bar Helper', jumlah: 1,
+           usulan: [dwId, dwLain, 'dw-tidak-ada'] } });
+  cek('usulan head dipotong sebanyak jumlah yang diminta',
+    j.ok && j.data.row && j.data.row.usulan.length === 1 && j.data.row.usulan[0] === dwId,
+    JSON.stringify(j.ok ? j.data.row.usulan : j));
+  const pmUsul = (j.ok && j.data.row) ? j.data.row.id : '';
+
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-headbar',
+    row: { tgl: '2026-08-24', divisi: 'bar', m: '16:00', s: '23:00',
+           posisi: 'Bar Helper', jumlah: 3, usulan: ['dw-hantu', ''] } });
+  cek('id yang tidak ada di talent pool dibuang',
+    j.ok && j.data.row && j.data.row.usulan.length === 0,
+    JSON.stringify(j.ok ? j.data.row.usulan : j));
+
+  /* Menyetujui usulan = jalur tugaskanDW yang sama. Yang dijaga: haknya tetap
+     HRD, bukan ikut terbuka untuk head hanya karena namanya sudah ia sebut. */
+  j = await panggil('dw-mysql', { action: 'tugaskanDW', sesi: 'tok-headbar',
+    permintaanId: pmUsul, dwIds: [dwId] });
+  cek('head TIDAK bisa menyetujui usulannya sendiri', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('dw-mysql', { action: 'tugaskanDW', sesi: 'tok-hrd',
+    permintaanId: pmUsul, dwIds: [dwId] });
+  cek('HRD bisa menyetujui usulan head', j.ok && j.data.masuk === 1,
+    JSON.stringify(j).slice(0, 200));
+
+  /* ——— PENUTUP OTOMATIS YANG TANGGALNYA LEWAT ———
+     Permintaan & ajuan yang tidak pernah diputuskan tetap MENUNGGU selamanya,
+     dan antrean HRD makin penuh oleh hari yang sudah berlalu sampai yang
+     benar-benar mendesak tenggelam. Dijalankan saat DIBACA, jadi cukup satu
+     getAll untuk membuktikannya — dan cukup satu getAll juga untuk
+     membuktikan bahwa yang tanggalnya BELUM lewat tidak ikut tersapu. */
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-hrd',
+    row: { tgl: '2020-01-05', divisi: 'bar', m: '16:00', s: '23:00',
+           posisi: 'Bar Helper', jumlah: 1 } });
+  const pmLampau = (j.ok && j.data.row) ? j.data.row.id : '';
+  cek('permintaan bertanggal lampau bisa dibuat (menyiapkan keadaan uji)',
+    j.ok && j.data.row.status === 'MENUNGGU', JSON.stringify(j).slice(0, 160));
+
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-hrd',
+    row: { tgl: '2099-12-31', divisi: 'bar', m: '16:00', s: '23:00',
+           posisi: 'Bar Helper', jumlah: 1 } });
+  const pmDepan = (j.ok && j.data.row) ? j.data.row.id : '';
+
+  j = await ambil('dw-mysql', 'action=getAll&dari=2020-01-01&sampai=2099-12-31&sesi=tok-hrd');
+  const semuaMinta = j.ok ? (j.data.permintaan || []) : [];
+  const lampau = semuaMinta.find(x => x.id === pmLampau) || {};
+  const depan  = semuaMinta.find(x => x.id === pmDepan)  || {};
+  cek('permintaan yang tanggalnya lewat ditutup jadi KEDALUWARSA',
+    lampau.status === 'KEDALUWARSA', JSON.stringify(lampau).slice(0, 160));
+  cek('penutupnya ditulis sebagai sistem, bukan sebagai manusia yang menolak',
+    lampau.putusOleh === '(sistem)' && lampau.status !== 'DITOLAK',
+    JSON.stringify(lampau).slice(0, 160));
+  cek('permintaan yang tanggalnya BELUM lewat tidak ikut tersapu',
+    depan.status === 'MENUNGGU', JSON.stringify(depan).slice(0, 160));
+
+  /* Ajuan kena aturan yang sama — Antrean Pengajuan adalah daftar HRD yang
+     kedua, dan membersihkan satu daftar saja cuma memindahkan masalahnya. */
+  j = await panggil('dw-mysql', { action: 'simpanAjuan', sesi: 'tok-hrd',
+    row: { dwId: dwId, tgl: '2020-02-10', m: '16:00', s: '23:00',
+           divisi: 'bar', posisi: 'Bar Helper' } });
+  const ajLampau = (j.ok && j.data.row) ? j.data.row.id : '';
+  j = await ambil('dw-mysql', 'action=getAll&dari=2020-01-01&sampai=2099-12-31&sesi=tok-hrd');
+  const ajL = (j.ok ? (j.data.ajuan || []) : []).find(a => a.id === ajLampau) || {};
+  cek('ajuan yang tanggalnya lewat ikut ditutup', ajL.status === 'KEDALUWARSA',
+    JSON.stringify(ajL).slice(0, 160));
+
   j = await panggil('dw-mysql', { action: 'putusPermintaan', sesi: 'tok-staf',
     id: pmId, status: 'DITOLAK' });
   cek('staf biasa TIDAK bisa menolak permintaan', ditolak(j), JSON.stringify(j));
