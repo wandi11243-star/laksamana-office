@@ -714,6 +714,12 @@
 
 
 
+
+
+
+
+
+
 function bayarJenisSah() {  }
 
 
@@ -872,6 +878,9 @@ function seed() { normalSetting(); }
 
 
 function normalizeState() { normalSetting(); bayarJenisSah(); statusDW(); }
+
+
+
 
 
 
@@ -2119,13 +2128,42 @@ function bukaTunjuk() { isHR(); toast(); gambarTunjuk(); }
 
 
 
+function tunjukCari() { gambarTunjuk(); }
+
+
+
+
+
+
+
 function tunjukToggle() { gambarTunjuk(); }
 
 
 
 
 
-function gambarTunjuk() { mintaTerpenuhi(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); tunjukToggle(); escJs(); modal(); tglManusia(); kirimTunjuk(); }
+function gambarTunjuk() { mintaTerpenuhi(); parseD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bagi() { ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); tunjukToggle(); escJs(); riwayatPakaiHTML(); modal(); tglManusia(); tunjukCari(); kirimTunjuk(); }
+
+
+
 
 
 
@@ -3595,6 +3633,20 @@ function batalkanAjuan() { konfirmasi(); tglManusia(); apiPost(); namaSaya(); to
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function riwayatPakaiHTML() { parseD(); hariIni(); esc(); tglPanjang(); }
 
 
 

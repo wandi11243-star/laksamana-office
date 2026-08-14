@@ -332,19 +332,53 @@ function baca_semua($dari, $sampai, $penuh = true) {
   $pdo = db();
   pastikan_tabel($pdo);
 
+  /* RIWAYAT RINGKAS PER ORANG — dihitung SERVER atas SELURUH tabel, bukan
+     atas ajuan yang kebetulan termuat di rentang layar.
+     ---------------------------------------------------------------------
+     Dipakai HRD saat menunjuk orang: "kapan terakhir dipakai" adalah satu-
+     satunya angka yang membuat pilihannya adil, dan tanpa itu daftar 40 nama
+     dibaca menurut abjad — Andi dipanggil terus, dan yang di huruf belakang
+     tidak pernah kebagian.
+
+     Kenapa di server: `dw_ajuan` yang dikirim ke layar dibatasi rentang
+     tanggal (lihat di bawah), jadi menghitungnya di layar akan menjawab
+     "belum pernah" untuk orang yang justru rajin dipakai bulan lalu. Itu
+     kelas kesalahan yang paling sering muncul di modul ini — angka yang
+     benar menurut data yang ada, dan salah menurut kenyataan. */
+  $riwayat = array();
+  try {
+    $awalBulan = gmdate('Y-m-01', time() + 7 * 3600);
+    $rq = $pdo->prepare(
+      'SELECT `dw_id`, MAX(`tgl`) AS terakhir,
+              SUM(CASE WHEN `tgl` >= :ab THEN 1 ELSE 0 END) AS bulan_ini
+         FROM `dw_ajuan` WHERE `status`=\'DISETUJUI\'
+        GROUP BY `dw_id`');
+    $rq->execute(array(':ab' => $awalBulan));
+    foreach ($rq->fetchAll() as $r) {
+      $riwayat[$r['dw_id']] = array(
+        'terakhir' => (string)$r['terakhir'],
+        'bulanIni' => (int)$r['bulan_ini'],
+      );
+    }
+  } catch (Throwable $e) { $riwayat = array(); }
+
   $pekerja = array();
-  $q = $pdo->query(
+  $q2 = $pdo->query(
     'SELECT `id`,`nama`,`no_hp`,`gender`,`area`,`bank`,
             `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,
             `skill`,`status`,`catatan`,`dibuat_at`
        FROM `dw_pekerja` ORDER BY `nama`');
-  foreach ($q->fetchAll() as $r) {
+  foreach ($q2->fetchAll() as $r) {
     $baris = array(
       'id' => $r['id'], 'nama' => $r['nama'],
       'gender' => $r['gender'], 'area' => $r['area'],
       'divisi' => $r['divisi'], 'posisi' => $r['posisi'],
       'skill' => $r['skill'], 'status' => $r['status'],
       'dibuatAt' => (int)$r['dibuat_at'],
+      /* '' = belum pernah dipakai sama sekali. Dibedakan dari 0 kali bulan
+         ini, karena keduanya menuntun HRD ke keputusan yang berbeda. */
+      'terakhirKerja' => isset($riwayat[$r['id']]) ? $riwayat[$r['id']]['terakhir'] : '',
+      'kerjaBulanIni' => isset($riwayat[$r['id']]) ? $riwayat[$r['id']]['bulanIni'] : 0,
     );
     if ($penuh) {
       /* Hanya untuk yang berhak memutuskan: nomor HP, tujuan transfer, dan

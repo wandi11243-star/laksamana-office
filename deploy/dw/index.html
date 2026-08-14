@@ -263,7 +263,13 @@ table.tbl-minta .aksi-minta .btn:first-child{margin-left:0}
    dihapus dari talent pool. */
 .pilih-dw.mati{opacity:.5;cursor:not-allowed;border-style:dashed;background:transparent}
 .pilih-dw.mati:hover{border-color:var(--line);background:transparent}
-.pilih-dw input{width:15px;height:15px;accent-color:var(--gold);margin:0}
+.pilih-dw input{width:15px;height:15px;accent-color:var(--gold);margin:0;flex:none}
+.pilih-dw .pd-teks{display:flex;flex-direction:column;gap:1px;min-width:0;line-height:1.3}
+.pilih-dw .pd-riwayat{font-size:10.5px;color:var(--muted-2);font-weight:600}
+.pilih-dw .pd-riwayat em{font-style:normal}
+/* Yang belum pernah dipakai ditandai — merekalah yang paling mudah terlupakan
+   di daftar empat puluh nama, dan justru yang paling perlu dicoba. */
+.pilih-dw .pd-riwayat em.baru{color:var(--gold-dim);font-weight:800}
 /* Pita "MINGGU N" di kepala tiap blok — DISALIN dari modul Jadwal Shift,
    termasuk alasannya. Tanpa kepala ini lembar bulanan ambigu justru di tempat
    yang paling penting: pita minggu selalu Senin–Minggu, jadi ujung lembar
@@ -897,7 +903,10 @@ function normalizeState(d){
       bayarNomor:String(p.bayarNomor||''), bayarNama:String(p.bayarNama||''),
       divisi:String(p.divisi||''), posisi:String(p.posisi||''),
       skill:String(p.skill||''), status:statusDW(p.status),
-      catatan:String(p.catatan||''), dibuatAt:+p.dibuatAt||0
+      catatan:String(p.catatan||''), dibuatAt:+p.dibuatAt||0,
+      /* Dihitung SERVER atas seluruh tabel — bukan dari S.ajuan yang dibatasi
+         rentang layar. Lihat alasannya di baca_semua(). */
+      terakhirKerja:String(p.terakhirKerja||''), kerjaBulanIni:+p.kerjaBulanIni||0
     });
   });
   (Array.isArray(d.ajuan)?d.ajuan:[]).forEach(function(a){
@@ -2116,8 +2125,16 @@ let TUNJUK=null;
 function bukaTunjuk(id){
   if(!isHR()) return toast('Hanya HRD yang bisa menugaskan DW', true);
   const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
-  TUNJUK={id:id, pilih:[]};
+  TUNJUK={id:id, pilih:[], cari:''};
   gambarTunjuk();
+}
+function tunjukCari(v){
+  const t=TUNJUK; if(!t) return;
+  t.cari=v; gambarTunjuk();
+  /* Fokus dikembalikan karena modalnya digambar ulang penuh tiap ketukan —
+     aturan yang sama dengan kotak cari di lembar bulanan. */
+  const i=document.getElementById('cariTunjuk');
+  if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} }
 }
 function tunjukToggle(dwId){
   const t=TUNJUK; if(!t) return;
@@ -2135,9 +2152,21 @@ function gambarTunjuk(){
      ditandai dan tidak bisa dipilih: mereka sumber bentrok yang paling sering,
      dan menawarkannya berarti melempar penolakan balik ke muka HRD setelah ia
      menekan Tugaskan. */
+  /* URUTANNYA: divisi yang cocok dulu, lalu YANG PALING LAMA TIDAK DIPAKAI.
+     Sebelumnya menurut abjad, dan akibatnya bukan sekadar tidak rapi: HRD
+     memilih tiga dari empat puluh nama dengan menyapu dari atas, jadi yang
+     berhuruf awal dipanggil terus dan sisanya nyaris tidak pernah kebagian.
+     Yang belum pernah dipakai sama sekali ditaruh paling atas — merekalah yang
+     paling perlu dicoba, dan yang paling mudah terlupakan. */
   const semua=(S.pekerja||[]).filter(p=>p.status==='AKTIF');
-  const utama=semua.filter(p=>p.divisi===x.divisi);
-  const lain =semua.filter(p=>p.divisi!==x.divisi);
+  const skor=p=>p.terakhirKerja?parseD(p.terakhirKerja).getTime():0;   // 0 = belum pernah
+  const bagi=(arr)=>arr.slice().sort((a,b)=>skor(a)-skor(b)
+    || String(a.nama).localeCompare(String(b.nama)));
+  const qT=(t.cari||'').trim().toLowerCase();
+  const cocok=p=>!qT || String(p.nama||'').toLowerCase().indexOf(qT)>-1
+                     || String(p.posisi||'').toLowerCase().indexOf(qT)>-1;
+  const utama=bagi(semua.filter(p=>p.divisi===x.divisi&&cocok(p)));
+  const lain =bagi(semua.filter(p=>p.divisi!==x.divisi&&cocok(p)));
   const urut=utama.concat(lain);
 
   const kartu=urut.map(function(p){
@@ -2150,7 +2179,9 @@ function gambarTunjuk(){
     }
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="tunjukToggle(\''+escJs(p.id)+'\')"> '
-      +esc(p.nama)+(p.posisi?' <em>· '+esc(p.posisi)+'</em>':'')+'</label>';
+      +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
+        +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
   const lebih=t.pilih.length>kurang;
@@ -2160,8 +2191,15 @@ function gambarTunjuk(){
       +'<span class="chip"><b>'+sudah+'</b> dari '+x.jumlah+' terisi</span>'
       +(kurang?'<span class="chip" style="background:var(--warn-soft,#FFF6E0)">kurang '+kurang+'</span>':'')+'</div>'
     +(x.catatan?'<div class="note i">Catatan head: '+esc(x.catatan)+'</div>':'')
-    +'<p class="mutedhint" style="margin:8px 0 6px">Pilih '+kurang+' orang. Yang sudah dijadwalkan di hari yang sama tidak bisa dipilih — itu bentrok yang paling sering terjadi.</p>'
-    +'<div class="pilih-grid">'+(kartu||'<div class="empty">Belum ada daily worker aktif.</div>')+'</div>'
+    +'<p class="mutedhint" style="margin:8px 0 6px">Pilih '+kurang+' orang — <b>yang paling lama tidak dipakai ada di atas</b>. '
+    +'Yang sudah dijadwalkan di hari yang sama tidak bisa dipilih; itu bentrok yang paling sering terjadi.</p>'
+    +(semua.length>=8
+      ? '<input class="inp" id="cariTunjuk" style="width:100%;margin-bottom:8px" '
+        +'placeholder="🔍 Cari nama atau posisi…" value="'+esc(t.cari||'')+'" '
+        +'oninput="tunjukCari(this.value)">'
+      : '')
+    +'<div class="pilih-grid">'+(kartu
+        || '<div class="empty">'+(qT?'Tidak ada yang cocok dengan "'+esc(t.cari)+'".':'Belum ada daily worker aktif.')+'</div>')+'</div>'
     +(lebih?'<div class="note w" style="margin-top:8px">Anda memilih '+t.pilih.length+' orang, lebih banyak dari yang diminta ('+kurang+'). Boleh saja — pastikan anggarannya memang disiapkan.</div>':''),
     [{t:'Tugaskan '+(t.pilih.length||'')+' orang',c:'btn-primary',f:function(){ kirimTunjuk(); return false; }}],
     true);
@@ -3605,6 +3643,20 @@ function batalkanAjuan(id){
 /* =====================================================================
    HALAMAN — DATABASE DW (talent pool)
    ===================================================================== */
+/* "Terakhir dipakai" dalam bahasa yang langsung bisa dipakai memutuskan.
+   Angka hari lebih berguna daripada tanggal saat yang dicari adalah "sudah
+   lama tidak kebagian atau belum" — tanggalnya tetap ditulis di title. */
+function riwayatPakaiHTML(p){
+  const n=+p.kerjaBulanIni||0;
+  const bulan=n?('<em> · '+n+'× bulan ini</em>'):'';
+  if(!p.terakhirKerja) return '<em class="baru">belum pernah dipakai</em>'+bulan;
+  const beda=Math.round((parseD(hariIni())-parseD(p.terakhirKerja))/86400000);
+  const teks = beda<=0 ? 'hari ini'
+             : beda===1 ? 'kemarin'
+             : beda<30  ? (beda+' hari lalu')
+             : (Math.round(beda/30)+' bulan lalu');
+  return '<em title="Terakhir kerja '+esc(tglPanjang(p.terakhirKerja))+'">· '+teks+'</em>'+bulan;
+}
 function statistikDW(id){
   const mine=(S.ajuan||[]).filter(a=>a.dwId===id);
   const kerja=mine.filter(a=>a.status==='DISETUJUI');
