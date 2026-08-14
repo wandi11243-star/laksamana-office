@@ -127,6 +127,7 @@ tbody tr:hover{background:var(--gold-soft)}
 .pager .pg{display:flex;gap:4px;flex-wrap:wrap}
 .pager button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:5px 10px;font-size:12.5px;font-weight:600;color:var(--muted)}
 .pager button.on{background:var(--gold-soft);border-color:var(--gold);color:var(--gold-dim)}
+.pager button:disabled{opacity:.4;cursor:not-allowed}
 .pager .ket{font-size:12px;color:var(--muted)}
 /* modal */
 .ovl{position:fixed;inset:0;background:rgba(30,25,15,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:80;overflow:auto}
@@ -471,16 +472,26 @@ function viewResep(){
   h+=`</tbody></table></div>${pager(semua.length,nHal)}</div>`;
   return h;
 }
-function pager(total,nHal){
-  const dari=(F.hal-1)*F.per+1, sampai=Math.min(F.hal*F.per,total);
+/* SATU pembuat pagination untuk kedua daftar (resep & bahan). Sebelumnya
+   masing-masing punya kodenya sendiri, dan yang di daftar Bahan tidak punya
+   tombol maju/mundur sama sekali — angka halaman saja, yang di layar sempit
+   berarti harus membidik kotak kecil. Tombolnya sekarang berlabel, bukan cuma
+   panah, dan mati sendiri di ujung supaya tidak ada klik yang tidak berbuat
+   apa-apa. */
+function keHal(mana,n){ const s=(mana==='F')?F:FB; s.hal=n; render(); }
+function pagerBar(total,hal,nHal,per,mana,satuan){
+  const dari=total?((hal-1)*per+1):0, sampai=Math.min(hal*per,total);
   let b='';
   for(let i=1;i<=nHal;i++){
-    if(nHal>9 && i>2 && i<nHal-1 && Math.abs(i-F.hal)>1){ if(i===3||i===nHal-2) b+='<span style="padding:5px 4px;color:var(--muted-2)">…</span>'; continue; }
-    b+=`<button class="${i===F.hal?'on':''}" onclick="F.hal=${i};render()">${i}</button>`;
+    if(nHal>9 && i>2 && i<nHal-1 && Math.abs(i-hal)>1){ if(i===3||i===nHal-2) b+='<span style="padding:5px 4px;color:var(--muted-2)">…</span>'; continue; }
+    b+=`<button class="${i===hal?'on':''}" onclick="keHal('${mana}',${i})">${i}</button>`;
   }
-  return `<div class="pager"><div class="ket">Menampilkan ${dari}–${sampai} dari ${total} resep</div><div class="pg">
-    <button onclick="if(F.hal>1){F.hal--;render()}">‹</button>${b}<button onclick="if(F.hal<${nHal}){F.hal++;render()}">›</button></div></div>`;
+  return `<div class="pager"><div class="ket">Menampilkan ${dari}–${sampai} dari ${total} ${esc(satuan)} · halaman ${hal}/${nHal}</div><div class="pg">
+    <button ${hal<=1?'disabled':''} onclick="keHal('${mana}',${hal-1})">‹ Sebelumnya</button>
+    ${b}
+    <button ${hal>=nHal?'disabled':''} onclick="keHal('${mana}',${hal+1})">Berikutnya ›</button></div></div>`;
 }
+function pager(total,nHal){ return pagerBar(total,F.hal,nHal,F.per,'F','resep'); }
 
 /* ---- penyunting resep ---- */
 let ED=null;
@@ -667,20 +678,59 @@ function viewBahan(){
       <td>${esc(b.satuan||'')}</td>
       <td class="num mono">${rp(b.harga_beli)}</td>
       <td class="num mono"><b>${rp2(per1(b))}</b></td>
-      <td class="num">${n?n:'<span style="color:var(--muted-2)">0</span>'}</td>
+      <td class="num">${n
+        ? `<button class="btn btn-ghost btn-xs" onclick="lihatPakai('${esc(b.nama)}')" title="Lihat resep mana saja yang memakainya">${n} resep</button>`
+        : '<span style="color:var(--muted-2)">0</span>'}</td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
         ${st.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
   });
-  const dari=(FB.hal-1)*FB.per+1, sampai=Math.min(FB.hal*FB.per,semua.length);
-  let pg='';
-  for(let i=1;i<=nHal;i++){
-    if(nHal>9&&i>2&&i<nHal-1&&Math.abs(i-FB.hal)>1){ if(i===3||i===nHal-2) pg+='<span style="padding:5px 4px">…</span>'; continue; }
-    pg+=`<button class="${i===FB.hal?'on':''}" onclick="FB.hal=${i};render()">${i}</button>`;
-  }
-  h+=`</tbody></table></div><div class="pager"><div class="ket">Menampilkan ${dari}–${sampai} dari ${semua.length} bahan</div><div class="pg">${pg}</div></div></div>`;
+  h+=`</tbody></table></div>${pagerBar(semua.length,FB.hal,nHal,FB.per,'FB','bahan')}</div>`;
   return h;
 }
 let EB=null;
+/* "DIPAKAI KE MANA" (14 Agustus 2026, permintaan user). Angka di kolom Dipakai
+   sebelumnya cuma jumlah — tahu 11 resep memakai sebuah bahan tapi tidak tahu
+   yang mana, jadi tiap perubahan harga atau takaran berujung menyisir 365 resep
+   satu-satu. Sekarang angkanya tombol: daftar resep pemakainya keluar berikut
+   takaran di baris itu, kontribusinya ke modal resep tersebut, dan jalan
+   langsung ke penyuntingnya.
+
+   Diurut menurut KONTRIBUSI, bukan nama: kalau harga bahan ini naik, resep di
+   baris atas itulah yang paling goyang, dan itu yang perlu diputuskan lebih
+   dulu. */
+function lihatPakai(nama){
+  const b=PB[low(nama)];
+  const pakai=dipakaiOleh(nama).map(r=>{
+    const baris=(r.bahan||[]).filter(x=>x&&low(x.nama)===low(nama));
+    const qty=baris.reduce((s,x)=>s+num(x.qty),0);
+    const sat=(baris[0]&&baris[0].satuan)||(b&&b.satuan)||'';
+    const ref=(baris[0]&&baris[0].ref==='resep')?'resep':'bahan';
+    const nilai=baris.reduce((s,x)=>s+hitungBaris(x,r.jenis).nilai,0);
+    const m=modalMenu(r).total;
+    return {r,qty,sat,ref,nilai,porsi:m>0?nilai/m:0};
+  }).sort((a,b2)=>b2.nilai-a.nilai);
+  $('modal').innerHTML=`<div class="ovl" onclick="if(event.target===this)tutupModal()"><div class="mdl" style="max-width:760px">
+    <div class="mdl-h"><div><h3>${esc(nama)} dipakai di ${pakai.length} resep</h3>
+      <div class="card-sub" style="margin:0">Harga sekarang <b>${rp2(per1(b||{}))}</b> per ${esc((b&&b.satuan)||'unit')}. Urut menurut seberapa besar bahan ini menyumbang modal resepnya.</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="tutupModal()">Tutup</button></div>
+    <div class="mdl-b">
+      ${pakai.length?`<div class="tbl-wrap"><table><thead><tr>
+        <th>Resep</th><th>Tipe</th><th class="num">Takaran</th><th class="num">Nilai di resep</th><th class="num">Porsi modal</th><th></th>
+      </tr></thead><tbody>
+      ${pakai.map(p=>`<tr>
+        <td><b>${esc(p.r.nama)}</b>${p.ref==='resep'?' <span class="chip info" title="dirujuk sebagai resep, bukan bahan mentah">via resep</span>':''}
+          <div style="font-size:11px;color:var(--muted-2)">${esc(p.r.seksi||'')}</div></td>
+        <td>${p.r.tipe==='base'?'<span class="chip info">Base</span>':'<span class="chip warn">Menu jadi</span>'}</td>
+        <td class="num mono">${p.qty} ${esc(p.sat)}</td>
+        <td class="num mono">${rp2(p.nilai)}</td>
+        <td class="num">${p.porsi?pct(p.porsi):'—'}</td>
+        <td><button class="btn btn-primary btn-xs" onclick="bukaResep('${esc(p.r.id)}')">Ubah resep →</button></td>
+      </tr>`).join('')}
+      </tbody></table></div>`:'<div class="empty">Belum dipakai resep mana pun.</div>'}
+    </div>
+    <div class="mdl-f"><button class="btn btn-ghost btn-sm" onclick="bukaBahan('${esc(nama)}')">Ubah harga bahan ini</button>
+      <button class="btn btn-ghost" onclick="tutupModal()">Tutup</button></div></div></div>`;
+}
 /* Mengubah saklar purchasing mengubah keterangan di jendela yang sama (chip
    status, kalimat penjelas), jadi jendelanya digambar ulang — bukan seluruh
    halaman, supaya isian lain yang sedang diketik tidak hilang. */
