@@ -1676,11 +1676,25 @@ function bolehBuka(k){
      memutuskan cuma HRD. Head yang membukanya hanya akan membaca antrean
      divisi lain yang bukan urusannya. */
   if(k==='antrean') return isHR();
-  /* PERMINTAAN DW = MEJA HEAD, dan HRD TIDAK melihatnya di menu. Isinya sama
-     persis dengan yang sudah ada di Antrean miliknya; dua pintu ke daftar yang
-     sama cuma membuat HRD memutuskan di satu tempat lalu mencarinya lagi di
-     tempat lain. */
-  if(k==='permintaan') return isHeadDW() && !isHR();
+  /* PERMINTAAN DW — terbuka untuk HEAD **dan** HRD/admin (dikembalikan
+     14 Agustus 2026).
+     ---------------------------------------------------------------------
+     Sempat dibatasi `isHeadDW() && !isHR()` dengan alasan yang masih benar:
+     seluruh permintaan yang MENUNGGU sudah ada di Antrean HRD, dan dua pintu
+     ke daftar yang sama membuat HRD memutuskan di satu tempat lalu mencarinya
+     lagi di tempat lain.
+
+     Yang tidak diperhitungkan: `!isHR()` bukan cuma menyingkirkan HRD. Head
+     divisi yang JUGA admin modul mendapat hrd=true dari server (dw_hrd()
+     memulangkan true untuk admin), jadi menunya lenyap justru bagi orang yang
+     paling butuh — ia head yang tetap harus mengajukan kebutuhan divisinya.
+     Admin modul pun kehilangan satu-satunya halaman yang menampilkan
+     permintaan yang SUDAH diputuskan; Antrean cuma memuat yang menunggu.
+
+     Keduanya tetap tidak tumpang tindih: Antrean = yang perlu diputuskan hari
+     ini (semua divisi, dengan tombolnya), Permintaan DW = riwayat permintaan
+     berikut putusannya. */
+  if(k==='permintaan') return isHeadDW() || isHR();
   /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
      halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
      head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
@@ -1729,7 +1743,7 @@ function buildNav(){
 }
 const TITLES={
   dashboard: ['Dashboard','Daily worker yang masuk hari ini'],
-  permintaan:['Permintaan DW','Head meminta jumlah, HRD menunjuk orangnya'],
+  permintaan:['Permintaan DW','Riwayat permintaan divisi berikut putusannya'],
   antrean:   ['Antrean Pengajuan','Pengajuan yang menunggu keputusan HR'],
   kalender:  ['Kalender DW','Sebulan penuh per divisi'],
   tamu:      ['Kalender Tamu','Pax dari Marketing & Event — klik hari untuk ajukan DW'],
@@ -2177,15 +2191,21 @@ function viewPermintaan(){
        akhirnya dikerjakan asal-asalan. Tombol Tunjuk tetap ada di sebelahnya
        untuk sisanya kalau usulannya kurang dari jumlah yang diminta. */
     const usul=(x.usulan||[]).filter(id=>!mintaOrang(x.id).some(a=>a.dwId===id));
-    if(isHR() && hidup && kurang>0 && usul.length)
-      aksi.push('<button class="btn btn-primary btn-sm" onclick="setujuiPermintaan(\''+escJs(x.id)+'\')">'
-        +'✓ Setujui '+usul.length+' nama</button>');
-    if(isHR() && hidup && kurang>0)
-      aksi.push('<button class="btn btn-ok btn-sm" onclick="bukaTunjuk(\''+escJs(x.id)+'\')">👤 Tunjuk '
-        +(usul.length?(kurang-usul.length>0?(kurang-usul.length)+' sisanya':'orang lain'):kurang+' orang')+'</button>');
+    /* HALAMAN INI TIDAK MEMUTUSKAN (14 Agustus 2026). Tombol Setujui/Tunjuk/
+       Tolak dicabut dari sini dan tinggal di Antrean Pengajuan. Selama
+       keduanya bisa memutuskan, HRD menyetujui di satu tempat lalu mencari
+       jejaknya di tempat lain — persis alasan halaman ini sempat disembunyikan
+       seluruhnya dari HRD. Yang benar bukan menutup pintunya, melainkan
+       memisahkan pekerjaannya: Antrean untuk memutuskan, halaman ini untuk
+       melihat riwayat permintaan berikut putusannya. */
     if(isHR() && x.status==='MENUNGGU')
-      aksi.push('<button class="btn btn-danger btn-sm" onclick="tolakPermintaan(\''+escJs(x.id)+'\')">✕ Tolak</button>');
-    if(x.status==='MENUNGGU' && !isHR()){
+      aksi.push('<button class="btn btn-ghost btn-sm" title="Putusannya diambil di Antrean Pengajuan" '
+        +'onclick="go(&#39;antrean&#39;)">Putuskan di Antrean</button>');
+    /* Head boleh membetulkan permintaannya sendiri. Syaratnya ia head DIVISI
+       ITU — bukan sekadar "bukan HRD": head yang juga admin modul mendapat
+       hrd=true dari server, dan dengan syarat lama tombolnya lenyap justru
+       untuk orang yang permintaannya sedang dilihat. */
+    if(x.status==='MENUNGGU' && isHeadDW() && kuasa.indexOf(x.divisi)>-1){
       /* Ubah, bukan cuma Tarik kembali. Salah ketik jumlah adalah kesalahan
          yang paling sering terjadi di form ini, dan tanpa tombol ini satu-
          satunya jalan adalah menarik permintaan lalu mengetik ulang semuanya
@@ -2240,8 +2260,11 @@ function viewPermintaan(){
        penjelasan lengkap "dua cara" itu tempatnya di dalam form Minta DW,
        tepat di sebelah centangnya, bukan di halaman daftar yang head buka
        tiap hari untuk melihat status permintaan kemarin. */
-    +'<p class="mutedhint" style="margin:-2px 0 12px">Ajukan kebutuhan divisi Anda; '
-    +'HRD yang menyetujui dan menunjuk orangnya. Yang disetujui muncul di <b>Jadwal Shift</b>.</p>'
+    +'<p class="mutedhint" style="margin:-2px 0 12px">'
+    +(isHR()
+      ? 'Riwayat permintaan semua divisi berikut putusannya. Yang <b>menunggu</b> diputuskan di <b>Antrean Pengajuan</b>.'
+      : 'Ajukan kebutuhan divisi Anda; HRD yang menyetujui dan menunjuk orangnya. '
+        +'Yang disetujui muncul di <b>Jadwal Shift</b>.')+'</p>'
     +'<div class="rowbar">'
       +'<div class="seg">'
         +'<button class="'+(MINTA_TAB==='antri'?'active':'')+'" onclick="mintaTab(\'antri\')">Menunggu '+antri.length+'</button>'
@@ -2480,6 +2503,17 @@ function pilihOrangHTML(b){
         +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
         +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
     }
+    /* Sudah diusulkan head divisi lain untuk tanggal yang sama. Dimatikan di
+       sini supaya head tahu SEBELUM mengirim — server juga membuangnya
+       (bentrok_usulan), tapi peringatan yang datang sesudah Simpan sudah
+       terlambat: ia menutup form dengan mengira orangnya diamankan. */
+    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, b.divisi, b.id) : null;
+    if(dipesan){
+      return '<label class="pilih-dw mati" title="Sudah diusulkan '+esc(namaDivisi(dipesan.divisi))
+        +(dipesan.dibuatOleh?' oleh '+esc(dipesan.dibuatOleh):'')
+        +' untuk '+esc(dipesan.m+'–'+dipesan.s)+'"><input type="checkbox" disabled> '
+        +esc(p.nama)+' <em>· diusulkan '+esc(namaDivisi(dipesan.divisi))+'</em></label>';
+    }
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="mintaToggleOrang(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
@@ -2513,15 +2547,41 @@ async function kirimMinta(){
   const b=MINTA; if(!b) return;
   serapMinta();
   try{
-    await apiPost({action:'simpanPermintaan', row:{
+    const d=await apiPost({action:'simpanPermintaan', row:{
       id:b.id, tgl:b.tgl, divisi:b.divisi, m:b.m, s:b.s,
       posisi:b.posisi, jumlah:b.jumlah, catatan:b.catatan,
       usulan:b.pilihOrang?b.usulan:[]}});
-    const n=b.pilihOrang?b.usulan.length:0;
+    const tolak=(d&&Array.isArray(d.bentrok))?d.bentrok:[];
+    const n=((d&&d.row&&d.row.usulan)||[]).length;
     MINTA=null; tutupModal();
+    await muatDanGambar(true);
+    /* NAMA YANG DILEPAS DISEBUTKAN, dan disebutkan sebagai KOTAK, bukan toast.
+       Server membuang usulan yang bentrok (lihat simpan_permintaan); kalau
+       layarnya diam, head membaca "Permintaan terkirim dengan 2 nama" padahal
+       ia mencentang tiga, dan menyimpulkan centangnya tidak tersimpan. Toast
+       hilang sendiri dalam beberapa detik — terlalu cepat untuk keterangan
+       yang menuntut ia mencari orang pengganti. */
+    if(tolak.length){
+      modal('Ada yang sudah terpakai di jam itu',
+        '<p style="font-size:13.5px;color:var(--muted);margin-bottom:10px">Permintaan Anda '
+        +'<b>tetap terkirim</b>, tapi '+tolak.length+' nama dilepas karena jadwalnya bentrok. '
+        +'Tunjuk penggantinya lewat <b>Ubah</b>, atau biarkan HRD yang memilihkan.</p>'
+        +tolak.map(function(x){
+          return '<div class="note w" style="margin-bottom:6px"><b>'+esc(x.nama||x.dwId)+'</b> — '
+            +(x.status==='DIUSULKAN'
+              ? 'sudah diusulkan '+esc(namaDivisi(x.divisi))
+                +(x.oleh?' oleh '+esc(x.oleh):'')
+              : 'sudah dijadwalkan '+esc(namaDivisi(x.divisi))
+                +' ('+esc(STATUS_AJU[x.status]||x.status)+')')
+            +' '+esc(x.m+'–'+x.s)
+            +(x.lintasHari?' pada '+esc(tglManusia(x.tgl))+' — jamnya melewati tengah malam dan bertindih':'')
+            +'.</div>';
+        }).join(''),
+        [{t:'Mengerti',c:'btn-primary',f:function(){ tutupModal(); return false; }}]);
+      return;
+    }
     toast(n?('Permintaan terkirim dengan '+n+' nama — HRD tinggal menyetujui')
            :'Permintaan terkirim — menunggu HRD');
-    await muatDanGambar(true);
   }catch(e){ toast('Gagal mengirim: '+e.message, true); }
 }
 function batalPermintaan(id){
@@ -2655,10 +2715,16 @@ function gambarTunjuk(){
         +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
         +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
     }
+    /* HRD tetap boleh memilihnya — dialah yang memutuskan siapa yang dapat
+       kalau dua divisi mengincar orang yang sama — tapi ia harus tahu bahwa
+       menyetujui di sini berarti permintaan divisi lain kehilangan satu nama. */
+    const diantre=usulanOrangTgl(p.id, x.tgl, x.divisi, t.id);
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="tunjukToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
         +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +(diantre?'<em> · juga diantre '+esc(namaDivisi(diantre.divisi))
+          +(diantre.dibuatOleh?' ('+esc(diantre.dibuatOleh)+')':'')+'</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
@@ -3640,11 +3706,23 @@ function gambarSelDW(){
         +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
         +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
     }
+    /* Sudah diusulkan head divisi lain untuk tanggal ini. Bagi HEAD ini
+       penghalang — ia tidak boleh menyerobot nama yang sedang diantre divisi
+       lain. Bagi HRD tidak: justru dialah yang memutuskan siapa yang dapat,
+       jadi keterangannya ditulis tapi pilihannya tetap terbuka. */
+    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, DIV, '') : null;
+    if(dipesan && !hrd){
+      return '<label class="pilih-dw mati" title="Sudah diusulkan '+esc(namaDivisi(dipesan.divisi))
+        +(dipesan.dibuatOleh?' oleh '+esc(dipesan.dibuatOleh):'')+'">'
+        +'<input type="checkbox" disabled> '+esc(p.nama)
+        +' <em>· diusulkan '+esc(namaDivisi(dipesan.divisi))+'</em></label>';
+    }
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="selDwToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
         +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
         +(bentrok?'<em> · sudah ada ajuan '+esc(jamAjuan(bentrok))+'</em>':'')
+        +(dipesan?'<em> · diantre '+esc(namaDivisi(dipesan.divisi))+'</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
@@ -4234,6 +4312,31 @@ async function kirimAjukanTgl(){
 function ajuanOrangTgl(dwId,tgl){
   return (S.ajuan||[]).find(a=>a.dwId===dwId && a.tgl===tgl
     && (a.status==='MENUNGGU' || a.status==='DISETUJUI')) || null;
+}
+/* SUDAH DIUSULKAN HEAD LAIN untuk tanggal yang sama (14 Agustus 2026).
+   ---------------------------------------------------------------------
+   Bentrok yang tidak terlihat di `S.ajuan` sama sekali: dua head mencentang
+   orang yang sama, dan belum satu pun jadi baris ajuan. Keduanya masuk antrean
+   HRD dengan nama yang sama, dan salah satunya PASTI gagal saat ditugaskan —
+   yang membayarnya head yang kalah cepat, yang sejak kemarin mengira orangnya
+   sudah diamankan.
+
+   Bisa dipercaya justru karena backend memulangkan SELURUH permintaan yang
+   MENUNGGU tanpa peduli rentang tanggal layar (lihat baca_semua). Ini bukan
+   pengganti penjaga server (bentrok_usulan) — dua head yang menyimpan
+   berdekatan tetap sama-sama membaca keadaan sebelum yang lain menulis — cuma
+   pemberi tahu lebih awal, di titik orangnya dipilih.
+
+   Divisi yang SAMA tidak dihitung: itu head yang sama menyusun ulang
+   permintaannya sendiri, bukan dua orang berebut. */
+function usulanOrangTgl(dwId,tgl,divisi,kecualiId){
+  return (S.permintaan||[]).find(function(p){
+    if(p.status!=='MENUNGGU') return false;
+    if(p.tgl!==tgl) return false;
+    if(kecualiId && p.id===kecualiId) return false;
+    if(divisi && p.divisi===divisi) return false;
+    return (p.usulan||[]).indexOf(dwId)>-1;
+  }) || null;
 }
 /* ================= BENTROK LINTAS DIVISI =================
    Satu orang tidak bisa bekerja di dua divisi pada hari yang sama, dan

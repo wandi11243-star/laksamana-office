@@ -50,6 +50,13 @@ a{color:var(--gold-dim)}
 .btn-sm{padding:7px 11px;font-size:13px;border-radius:8px}
 .btn-danger{background:var(--danger);color:#fff}
 .btn-ok{background:var(--ok);color:#fff}
+/* Aksi SEKUNDER di baris tabel. Dua tombol pekat berdempet (hijau + merah)
+   membuat keduanya sama-sama berteriak, dan yang paling tertangkap mata jadi
+   Tolak — tindakan yang paling jarang benar. Satu tombol terisi per baris:
+   yang dituju. Warnanya baru muncul saat disentuh. Sepasang dengan aturan
+   yang sama di modul Daily Worker. */
+.btn-ghost.bahaya{color:var(--danger);border-color:var(--danger-bg)}
+.btn-ghost.bahaya:hover{background:var(--danger);border-color:var(--danger);color:#fff}
 .btn[disabled]{opacity:.5;cursor:default}
 
 /* ===== KERANGKA: sidebar kiri + main =====
@@ -205,8 +212,17 @@ table.tbl-aju .aksi-aju .btn+.btn{margin-left:4px}
    terbaca sebagai "tidak ada", bukan sebagai isi kolom yang setara dengan
    tombol di baris sebelahnya. */
 table.tbl-aju .aksi-aju .kecil{color:#C4BDB0}
-/* Status & jejak penyetuju dirapatkan jadi satu blok. */
-table.tbl-aju td:nth-child(6) .stpill{display:inline-block;margin-bottom:2px}
+/* Status & jejak penyetuju dirapatkan jadi satu blok. Pilnya diberi lebar
+   minimum supaya "Menunggu", "Disetujui", dan "Ditolak" berdiri sama lebar —
+   pil yang panjangnya mengikuti kata membuat tepi kanannya bergerigi di
+   sepanjang kolom, dan kolom bergerigi itulah yang terbaca berantakan lebih
+   dulu daripada isinya. */
+table.tbl-aju td:nth-child(6) .stpill{display:inline-block;margin-bottom:2px;
+  min-width:78px;text-align:center}
+table.tbl-aju .st-kol{white-space:nowrap}
+table.tbl-aju .st-kol .kecil{white-space:normal}
+/* Kolom Aksi & kepalanya sama-sama rata kanan — lihat kepalanya di barisAju. */
+table.tbl-aju th.kanan{text-align:right}
 table.tbl-aju .alasan{max-width:280px}
 /* Yang MENUNGGU disorot: di antara sembilan belas baris yang sudah
    diputuskan, satu baris yang menuntut tindakan harus terbaca dari jauh. */
@@ -684,6 +700,11 @@ const JENIS_AJU = {
   OFF :'Ganti Hari Off', IZIN:'Izin', CUTI:'Cuti',
   TUKAR:'Tukar Shift',   UBAH:'Ubah Jam Shift'
 };
+/* Label status yang dibaca manusia. Kolom Status selama ini menulis nama
+   konstantanya apa adanya — "MENUNGGU", "DISETUJUI", "DITOLAK" — tiga kata
+   berhuruf besar semua yang berteriak lebih keras daripada tombol di
+   sebelahnya, padahal ia cuma keterangan. */
+const LABEL_STATUS_AJU = {MENUNGGU:'Menunggu', DISETUJUI:'Disetujui', DITOLAK:'Ditolak'};
 /* Pengajuan yang DISETUJUI langsung menulis sel jadwal untuk jenis-jenis di
    bawah — head tidak perlu mengetik ulang apa yang baru saja ia setujui, dan
    itu justru sumber jadwal yang tidak cocok dengan keputusannya. TUKAR/UBAH
@@ -2889,7 +2910,7 @@ function viewSaya(){
             const rentang=(x.dari===x.sampai)?tglPanjang(x.dari):(tglManusia(x.dari)+' – '+tglPanjang(x.sampai));
             return '<div class="row"><div class="who"><b>'+esc(JENIS_AJU[x.jenis]||x.jenis)+'</b>'
               +'<span>'+esc(rentang)+'</span></div>'+pilShiftAju(x)
-              +'<span class="stpill st-MENUNGGU">MENUNGGU</span></div>';
+              +'<span class="stpill st-MENUNGGU">'+esc(LABEL_STATUS_AJU.MENUNGGU)+'</span></div>';
           }).join('')
         +'</div>'
       : '');
@@ -3041,7 +3062,10 @@ function viewPengajuan(){
     const putus=(a.status==='MENUNGGU'&&bisaPutuskan(a))
       ? '<button class="btn btn-ok btn-sm" title="Setujui pengajuan ini"'
         +' onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Setujui</button>'
-        +'<button class="btn btn-danger btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
+        /* Bergaris, bukan terisi — lihat .btn-ghost.bahaya. Di baris yang
+           sudah punya tombol Setujui, satu-satunya yang boleh menonjol adalah
+           tindakan yang dituju. */
+        +'<button class="btn btn-ghost bahaya btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
         +' onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
       : '';
     const batal=(a.userId===(ME&&ME.id)&&a.status==='MENUNGGU')
@@ -3066,7 +3090,8 @@ function viewPengajuan(){
       +'<td class="mono">'+esc(rentang)+hari+'</td>'
       +'<td>'+(pilShiftAju(a)||'<span class="kecil">—</span>')+'</td>'
       +'<td class="alasan">'+(a.alasan?esc(a.alasan):'<span class="kecil">—</span>')+'</td>'
-      +'<td><span class="stpill st-'+esc(a.status)+'">'+esc(a.status)+'</span>'+jejak+'</td>'
+      +'<td class="st-kol"><span class="stpill st-'+esc(a.status)+'">'
+        +esc(LABEL_STATUS_AJU[a.status]||a.status)+'</span>'+jejak+'</td>'
       +'<td class="aksi-aju">'+(putus+batal||'<span class="kecil">—</span>')+'</td>'
     +'</tr>';
   };
@@ -3084,7 +3109,11 @@ function viewPengajuan(){
   const kartu=list.length
     ? '<div class="tablewrap"><table class="list tbl-aju"><thead><tr>'
       +'<th>Jenis</th><th>Nama</th><th>Tanggal</th><th>Shift</th>'
-      +'<th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead><tbody>'
+      /* Kepala "Aksi" ikut rata kanan. Selama ia rata kiri sementara selnya
+         rata kanan, judulnya berdiri di ujung yang berlawanan dari tombol yang
+         ia namai — dan di tabel selebar tujuh kolom itu terbaca sebagai kolom
+         yang meleset satu. */
+      +'<th>Alasan</th><th>Status</th><th class="kanan">Aksi</th></tr></thead><tbody>'
       +list.map(barisAju).join('')
       +'</tbody></table></div>'
     : '<div class="empty"><div class="ic">📭</div>'+kosongTeks+'</div>';
@@ -4062,7 +4091,6 @@ function exportExcel(lingkup){
   const gNama   = G.xf({f:1, br:1, h:'left'});
   const gJab    = G.xf({f:3, br:1});
   const gKosong = G.xf({f:0, br:1});
-  const gPitaDW = G.xf({f:fPutih, bg:'2A2620', br:1, h:'left'});
   const gCatat  = G.xf({f:4, h:'left'});
   /* Satu gaya per kode shift, dipetakan sekali di depan: sel bulan penuh bisa
      mencapai 1.500 buah, dan mencari gaya per sel membuat berkasnya tumbuh
@@ -4072,7 +4100,6 @@ function exportExcel(lingkup){
     const w=heks6(shiftDef(k).w);
     gShift[k]=G.xf({f:(tulisanKontras(w)==='FFFFFF'?fPutih:1), bg:w, br:1});
   });
-  const gDW = G.xf({f:0, bg:'FFF3D6', br:1});
 
   const baris=[], gabung=[];
   let r=0;
@@ -4117,24 +4144,23 @@ function exportExcel(lingkup){
       tambah(s, 17);
     });
 
-    /* Daily worker ikut, dengan pita pemisahnya sendiri — sama seperti di
-       layar. Lembar Excel yang diam-diam berbeda isi dengan papan justru
-       terjadi pada hari paling ramai, karena hari itulah DW dipanggil. */
-    const dw=dwOrang(div, h[0], h[h.length-1]);
-    if(dw.length){
-      const rp=tambah([sel_(1,'DAILY WORKER · '+dw.length+' orang · '
-        +tglManusia(h[0])+' – '+tglManusia(h[h.length-1]), gPitaDW)], 17);
-      gabung.push('A'+rp+':'+kolHuruf(3+h.length)+rp);
-      dw.forEach(function(u,i){
-        const s=[sel_(1,i+1,gNo), sel_(2,u.nama,gNama), sel_(3,(u.posisi||'DW'),gJab)];
-        h.forEach(function(d,j){
-          const x=dwSel(u.id,d);
-          s.push(x ? sel_(4+j, (x.posisi||'DW')+((x.m&&x.s)?(' '+x.m+'–'+x.s):''), gDW)
-                   : sel_(4+j, '', gKosong));
-        });
-        tambah(s, 17);
-      });
-    }
+    /* DAILY WORKER TIDAK IKUT KE EXCEL (14 Agustus 2026).
+       ---------------------------------------------------------------------
+       Blok ini dulu ikut, dengan alasan "lembar Excel tidak boleh diam-diam
+       berbeda isi dengan papan". Yang tidak diperhitungkan: isinya tidak muat
+       di sel selebar kolom shift. Kru tetap menulis satu kata ("PAGI",
+       "MIDDLE"), DW menulis posisi + rentang jam ("Kitchen Helper 08:00–17:00")
+       — di lembar cetak/Excel yang lebarnya sudah dikunci per hari, teks itu
+       terpotong jadi "n Helper 08:00" dan menjulur ke sel tetangga yang kosong,
+       sehingga satu shift DW terbaca seolah milik hari yang salah.
+
+       Lembarnya juga memang dipakai untuk hal yang berbeda: yang dibagikan ke
+       grup adalah jadwal KRU TETAP. Jadwal DW disusun, diputuskan, dan
+       diekspor sendiri dari modul DW (Excel Sebulan di Kalender DW), lengkap
+       dengan kolom yang lebarnya memang disiapkan untuk jam.
+
+       Di LAYAR blok DW tetap ada — di sana lebarnya ikut isinya, dan head
+       memang perlu melihat DW hari Sabtu sebelum meng-off-kan kru tetap. */
     tambah([], 6);
   });
 

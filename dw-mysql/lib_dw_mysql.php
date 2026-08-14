@@ -747,6 +747,106 @@ function geser_hari($iso, $n) {
   return $t === false ? $iso : date('Y-m-d', $t + $n * 86400);
 }
 
+/* ============ SATU PEMERIKSA BENTROK UNTUK SEMUA PINTU ============
+   Sampai 14 Agustus 2026 pemeriksaan ini hidup HANYA di dalam simpan_ajuan(),
+   jadi jalur yang tidak lewat sana tidak diperiksa sama sekali — dan jalur
+   itu adalah `usulan` di simpan_permintaan(). Akibatnya: head Bar mengusulkan
+   ARIF untuk Sabtu, head Kitchen mengusulkan ARIF untuk Sabtu juga, keduanya
+   masuk antrean tanpa satu pun tanda. HRD menyetujui yang pertama, lalu yang
+   kedua "gagal sebagian" tanpa sebab yang tertulis — di layar HRD, bukan di
+   layar head yang membuat kesalahannya.
+
+   Memulangkan baris yang bentrok (array) atau null. Yang DITOLAK, DIBATALKAN,
+   dan KEDALUWARSA tidak dihitung: ketiganya berarti orangnya TIDAK jadi
+   datang.
+
+   Dua bentuk bentrok, dan keduanya harus ada:
+
+   1. HARI YANG SAMA, DIVISI LAIN. Kunci unik (dw_id, tgl) berarti satu orang
+      cuma punya satu baris per hari, dan ON DUPLICATE KEY menimpanya tanpa
+      bertanya — untuk head yang membetulkan ajuannya sendiri itu memang yang
+      diinginkan, tapi untuk divisi lain artinya baris Bar BERUBAH jadi baris
+      Kitchen dan turun ke MENUNGGU tanpa ada yang diberi tahu.
+
+   2. MELEWATI TENGAH MALAM. ARIF Bar 15 Agustus 18:00-02:00 dan ARIF Kitchen
+      16 Agustus 01:00-08:00 adalah DUA baris bertanggal berbeda: keduanya sah
+      menurut kunci unik, keduanya lolos pemeriksaan (1), dan keduanya
+      bertindih satu jam penuh di dunia nyata. Berlaku juga untuk divisi yang
+      SAMA — 18:00-02:00 lalu 01:00-08:00 tetap mustahil walau head-nya satu. */
+function bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi) {
+  $lama = $pdo->prepare('SELECT `id`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
+                           FROM `dw_ajuan` WHERE `dw_id`=:dw AND `tgl`=:tg');
+  $lama->execute(array(':dw' => $dw, ':tg' => $tgl));
+  $L = $lama->fetch();
+  if ($L && ($L['status'] === 'MENUNGGU' || $L['status'] === 'DISETUJUI')
+      && $L['divisi'] !== '' && $L['divisi'] !== $divisi) {
+    return array(
+      'tgl' => $tgl, 'divisi' => $L['divisi'], 'posisi' => $L['posisi'],
+      'm' => $L['jam_mulai'], 's' => $L['jam_selesai'], 'status' => $L['status'],
+      'lintasHari' => false,
+    );
+  }
+
+  /* Offset hari: baris kemarin dimulai 1440 menit lebih awal, baris besok
+     1440 menit lebih lambat. Dengan begitu keduanya bisa dibandingkan di satu
+     garis waktu yang sama. */
+  $ms = menit_jam($m); $ns = $ms + durasi_menit($m, $sj);
+  $tet = $pdo->prepare('SELECT `tgl`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
+                          FROM `dw_ajuan`
+                         WHERE `dw_id`=:dw AND `tgl` IN (:t1,:t2)
+                           AND (`status`=\'MENUNGGU\' OR `status`=\'DISETUJUI\')');
+  $tet->execute(array(':dw' => $dw, ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
+  foreach ($tet->fetchAll() as $T) {
+    $off = ($T['tgl'] < $tgl) ? -1440 : 1440;
+    $as = menit_jam($T['jam_mulai']) + $off;
+    $ae = $as + durasi_menit($T['jam_mulai'], $T['jam_selesai']);
+    if (max($as, $ms) < min($ae, $ns)) {
+      return array(
+        'tgl' => $T['tgl'], 'divisi' => $T['divisi'], 'posisi' => $T['posisi'],
+        'm' => $T['jam_mulai'], 's' => $T['jam_selesai'], 'status' => $T['status'],
+        'lintasHari' => true,
+      );
+    }
+  }
+  return null;
+}
+
+/* Orang yang sudah DIUSULKAN head lain untuk shift yang bertindih, padahal
+   belum satu pun jadi baris ajuan. Bukan bentrok yang sama kerasnya dengan di
+   atas — belum ada yang dipesan — tapi membiarkannya berarti dua permintaan
+   berdiri di antrean HRD dengan nama yang sama, dan salah satunya PASTI gagal
+   saat ditugaskan. Yang membayarnya head yang kalah cepat: ia mengira orangnya
+   sudah diamankan sejak kemarin.
+   `abaikan` = id permintaan yang sedang disunting; tanpa itu, membuka Ubah
+   lalu menekan Simpan membuat permintaan bentrok dengan dirinya sendiri. */
+function bentrok_usulan($pdo, $dw, $tgl, $m, $sj, $divisi, $abaikan = '') {
+  $ms = menit_jam($m); $ns = $ms + durasi_menit($m, $sj);
+  $st = $pdo->prepare('SELECT `id`,`divisi`,`tgl`,`jam_mulai`,`jam_selesai`,`usulan`,`dibuat_oleh`
+                         FROM `dw_permintaan`
+                        WHERE `status`=\'MENUNGGU\' AND `tgl` IN (:t0,:t1,:t2)');
+  $st->execute(array(':t0' => $tgl, ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
+  foreach ($st->fetchAll() as $P) {
+    if ($abaikan !== '' && (string)$P['id'] === (string)$abaikan) continue;
+    $us = ($P['usulan'] === null || s($P['usulan']) === '')
+            ? array() : array_filter(explode(',', $P['usulan']));
+    if (!in_array((string)$dw, array_map('strval', $us), true)) continue;
+    $off = ($P['tgl'] === $tgl) ? 0 : (($P['tgl'] < $tgl) ? -1440 : 1440);
+    $as = menit_jam($P['jam_mulai']) + $off;
+    $ae = $as + durasi_menit($P['jam_mulai'], $P['jam_selesai']);
+    /* Hari yang sama & divisi yang sama bukan bentrok: itu head yang sama
+       menyusun ulang permintaannya, bukan dua orang berebut. */
+    if ($off === 0 && $P['divisi'] === $divisi) continue;
+    if (max($as, $ms) < min($ae, $ns)) {
+      return array(
+        'tgl' => $P['tgl'], 'divisi' => $P['divisi'], 'posisi' => '',
+        'm' => $P['jam_mulai'], 's' => $P['jam_selesai'], 'status' => 'DIUSULKAN',
+        'oleh' => $P['dibuat_oleh'], 'lintasHari' => ($off !== 0),
+      );
+    }
+  }
+  return null;
+}
+
 function simpan_ajuan($row, $by) {
   $pdo = db();
   pastikan_tabel($pdo);
@@ -799,70 +899,27 @@ function simpan_ajuan($row, $by) {
      Yang DITOLAK dan DIBATALKAN tidak dihitung — menimpanya justru yang
      diinginkan. */
   $timpa = !empty($row['timpa']);
-  $lama = $pdo->prepare('SELECT `id`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
-                           FROM `dw_ajuan` WHERE `dw_id`=:dw AND `tgl`=:tg');
-  $lama->execute(array(':dw' => $dw, ':tg' => $tgl));
-  $L = $lama->fetch();
-  if (!$timpa && $L && ($L['status'] === 'MENUNGGU' || $L['status'] === 'DISETUJUI')
-      && $L['divisi'] !== '' && $L['divisi'] !== $divisi) {
-    return array('saved' => false, 'bentrok' => array(
+  /* Pemeriksaannya sendiri ada di bentrok_ajuan_row() — SATU tempat, dipakai
+     juga oleh penyaring usulan di simpan_permintaan(). Sebelumnya logikanya
+     hidup utuh di sini, jadi pintu mana pun yang tidak lewat simpan_ajuan()
+     tidak diperiksa sama sekali. */
+  $B = $timpa ? null : bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi);
+  if ($B) {
+    $out = array(
       'nama'    => $o['nama'],
-      'tgl'     => $tgl,
-      'divisi'  => $L['divisi'],      // divisi yang SUDAH memesan
-      'posisi'  => $L['posisi'],
-      'm'       => $L['jam_mulai'],
-      's'       => $L['jam_selesai'],
-      'status'  => $L['status'],
+      'tgl'     => $B['tgl'],
+      'divisi'  => $B['divisi'],      // divisi yang SUDAH memesan
+      'posisi'  => $B['posisi'],
+      'm'       => $B['m'],
+      's'       => $B['s'],
+      'status'  => $B['status'],
       'divisiBaru' => $divisi,
       'mBaru'   => $m,
       'sBaru'   => $sj,
-    ));
+    );
+    if (!empty($B['lintasHari'])) { $out['lintasHari'] = true; $out['tglBaru'] = $tgl; }
+    return array('saved' => false, 'bentrok' => $out);
   }
-
-  /* ---- Bentrok yang MELEWATI TENGAH MALAM ----
-     Guard di atas hanya melihat tanggal yang sama, dan kunci (dw_id, tgl)
-     memang menjamin satu baris per hari. Yang TIDAK dijamin siapa pun:
-     ARIF Bar 15 Agustus 18:00-02:00 dan ARIF Kitchen 16 Agustus 01:00-08:00
-     adalah DUA baris dengan tanggal berbeda — keduanya sah menurut kunci
-     unik, keduanya lolos guard di atas, dan keduanya bertindih satu jam
-     penuh di dunia nyata. Orangnya baru pulang jam 2 pagi.
-
-     Karena itu tetangganya ikut dibaca: baris H-1 yang jamnya tumpah ke
-     hari ini, dan baris H+1 yang tersenggol kalau ajuan ini sendiri yang
-     tumpah. Berlaku juga untuk divisi yang SAMA — 18:00-02:00 lalu
-     01:00-08:00 tetap mustahil walau head-nya satu orang. */
-  $ms = menit_jam($m); $ns = $ms + durasi_menit($m, $sj);   // menit relatif hari ini
-  $tet = $pdo->prepare('SELECT `tgl`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
-                          FROM `dw_ajuan`
-                         WHERE `dw_id`=:dw AND `tgl` IN (:t1,:t2)
-                           AND (`status`=\'MENUNGGU\' OR `status`=\'DISETUJUI\')');
-  $tet->execute(array(':dw' => $dw, ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
-  foreach ($tet->fetchAll() as $T) {
-    /* Offset hari: baris kemarin dimulai 1440 menit lebih awal, baris besok
-       1440 menit lebih lambat. Dengan begitu keduanya bisa dibandingkan di
-       satu garis waktu yang sama. */
-    $off = ($T['tgl'] < $tgl) ? -1440 : 1440;
-    $as = menit_jam($T['jam_mulai']) + $off;
-    $ae = $as + durasi_menit($T['jam_mulai'], $T['jam_selesai']);
-    if (max($as, $ms) < min($ae, $ns)) {
-      if ($timpa) break;   // sudah dibaca & disetujui orangnya di layar
-      return array('saved' => false, 'bentrok' => array(
-        'nama'    => $o['nama'],
-        'tgl'     => $T['tgl'],
-        'divisi'  => $T['divisi'],
-        'posisi'  => $T['posisi'],
-        'm'       => $T['jam_mulai'],
-        's'       => $T['jam_selesai'],
-        'status'  => $T['status'],
-        'divisiBaru' => $divisi,
-        'mBaru'   => $m,
-        'sBaru'   => $sj,
-        'lintasHari' => true,
-        'tglBaru' => $tgl,
-      ));
-    }
-  }
-
 
   $id = pot(isset($row['id']) ? $row['id'] : '', 32);
   if ($id === '') $id = id_baru('AJ');
@@ -1024,6 +1081,14 @@ function simpan_permintaan($row, $by) {
      memang butuh lebih, dua permintaan lebih jujur dibaca. */
   if ($jml < 1 || $jml > 30)   throw new Exception('Jumlah orang harus antara 1 dan 30');
 
+  /* Id dihitung DI ATAS penyaringan usulan, bukan di bawahnya: bentrok_usulan
+     perlu tahu permintaan mana yang sedang disunting supaya ia tidak dilaporkan
+     bentrok dengan dirinya sendiri — membuka Ubah lalu menekan Simpan akan
+     membuang seluruh usulannya. */
+  $id = pot(isset($row['id']) ? $row['id'] : '', 32);
+  $baru = ($id === '');
+  if ($baru) $id = id_baru('PM');
+
   /* USULAN NAMA — disaring di SERVER, bukan dipercaya dari layar.
      Yang tidak ada di talent pool atau sudah NONAKTIF dibuang diam-diam:
      kalau dibiarkan lolos, HRD menekan Setujui lalu mendapat penugasan yang
@@ -1031,6 +1096,7 @@ function simpan_permintaan($row, $by) {
      karena angka itulah yang diminta — usulan yang lebih banyak dari
      kebutuhannya berarti head diam-diam menaikkan anggarannya sendiri. */
   $usulan = array();
+  $ditolak = array();
   if (isset($row['usulan']) && is_array($row['usulan']) && count($row['usulan'])) {
     $minta = array();
     foreach ($row['usulan'] as $u) {
@@ -1047,14 +1113,24 @@ function simpan_permintaan($row, $by) {
       /* Urutan pilihan head dipertahankan, bukan urutan yang dipulangkan
          database — yang pertama disebut biasanya yang paling ia inginkan. */
       foreach ($minta as $u) {
-        if (in_array($u, $sah, true) && count($usulan) < $jml) $usulan[] = $u;
+        if (!in_array($u, $sah, true) || count($usulan) >= $jml) continue;
+        /* BENTROK JADWAL DIPERIKSA DI SINI (14 Agustus 2026), bukan nanti saat
+           HRD menugaskan. Sebelumnya usulan lolos apa adanya: head Bar
+           mengusulkan ARIF untuk Sabtu, head Kitchen mengusulkan ARIF untuk
+           Sabtu juga, keduanya masuk antrean tanpa satu pun tanda. HRD
+           menyetujui yang pertama, lalu yang kedua "gagal sebagian" — dan yang
+           membaca kegagalannya adalah HRD, bukan head yang membuatnya, jadi
+           tidak ada yang belajar apa pun dari situ.
+           Dua sumber bentrok, keduanya diperiksa: baris ajuan yang sudah ada
+           (bentrok_ajuan_row) dan usulan permintaan lain yang masih menunggu
+           (bentrok_usulan). */
+        $b = bentrok_ajuan_row($pdo, $u, $tgl, $m, $sj, $div);
+        if (!$b) $b = bentrok_usulan($pdo, $u, $tgl, $m, $sj, $div, ($baru ? '' : $id));
+        if ($b) { $b['dwId'] = $u; $b['nama'] = nama_pekerja($pdo, $u); $ditolak[] = $b; continue; }
+        $usulan[] = $u;
       }
     }
   }
-
-  $id = pot(isset($row['id']) ? $row['id'] : '', 32);
-  $baru = ($id === '');
-  if ($baru) $id = id_baru('PM');
 
   $arg = array(
     ':id' => $id, ':dv' => $div, ':tg' => $tgl, ':m' => $m, ':s' => $sj,
@@ -1085,7 +1161,23 @@ function simpan_permintaan($row, $by) {
   }
   $st->execute($arg);
   $ada = permintaan_by_id($id);
-  return array('saved' => true, 'row' => $ada ? bentuk_permintaan($ada) : null);
+  /* `bentrok` DIPULANGKAN, bukan ditelan. Permintaannya tetap tersimpan —
+     head yang butuh 3 orang dan salah satu usulannya bentrok tetap butuh 3
+     orang — tapi layarnya wajib menyebut siapa yang dilepas dan kenapa.
+     Penyaringan diam-diam di sinilah asal keluhan "kok nama yang saya centang
+     hilang sendiri". */
+  return array('saved' => true, 'row' => $ada ? bentuk_permintaan($ada) : null,
+               'bentrok' => $ditolak);
+}
+/* Nama satu DW untuk pesan bentrok. Dibaca terpisah, bukan lewat JOIN: yang
+   memanggilnya paling banyak tiga puluh kali per simpan (batas `jumlah`), dan
+   pesan bentrok yang menyebut id alih-alih nama tidak bisa ditindaklanjuti
+   siapa pun. */
+function nama_pekerja($pdo, $id) {
+  $st = $pdo->prepare('SELECT `nama` FROM `dw_pekerja` WHERE `id`=:id');
+  $st->execute(array(':id' => s($id)));
+  $r = $st->fetch();
+  return $r ? (string)$r['nama'] : (string)$id;
 }
 
 function putus_permintaan($id, $status, $nota, $by) {
