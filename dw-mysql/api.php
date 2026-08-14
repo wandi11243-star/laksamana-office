@@ -11,9 +11,6 @@
  *   GET  ?action=stats   -> {ok,data:{jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *
- *   POST {action:'loginDW',       hp, pin}      -> {ok,data:{token,dw:{...}}}
- *   POST {action:'logoutDW'}                    -- mencabut token di server
- *   POST {action:'ajuanSaya'}                   -> {ok,data:{ajuan,setting}}
  *   POST {action:'simpanPekerja', row:{...}}
  *   POST {action:'hapusPekerja',  id}
  *   POST {action:'simpanAjuan',   row:{...}}     -- status SELALU MENUNGGU
@@ -24,10 +21,14 @@
  *   POST {action:'tandaiBayar',   senin, kunci, nyala}
  *   POST {action:'simpanSetting', data:{...}}
  *
- * TIAP PERMINTAAN MEMBAWA `sesi` — token sesi Office (staf) atau token dari
- * loginDW (daily worker); lewat ?sesi= untuk GET, lewat body untuk POST.
- * Tanpa itu jawabannya `sesi_tidak_sah`. Daftar siapa boleh apa ada di
- * bagian PENJAGA di bawah.
+ * TIAP PERMINTAAN MEMBAWA `sesi` — token sesi Office, lewat ?sesi= untuk GET
+ * dan lewat body untuk POST. Tanpa itu jawabannya `sesi_tidak_sah`. Daftar
+ * siapa boleh apa ada di bagian PENJAGA di bawah.
+ *
+ * DAILY WORKER TIDAK PUNYA AKUN dan tidak pernah memanggil API ini. Gerbang
+ * no HP + PIN beserta loginDW/logoutDW/ajuanSaya dicabut 14 Agustus 2026 —
+ * alurnya sekarang: head mengajukan kebutuhan, HRD menyetujui lalu menunjuk
+ * siapa yang dipakai.
  *
  * `by` SUDAH TIDAK DIPAKAI lagi walau frontend masih mengirimnya: nama
  * pemutus sekarang diambil dari identitas yang terbukti, bukan dari yang
@@ -70,9 +71,8 @@ function ambil($body, $k, $def = '') { return isset($body[$k]) ? $body[$k] : $de
 /* ======================================================================
    PENJAGA — SIAPA BOLEH MELAKUKAN APA
    ----------------------------------------------------------------------
-   Aturannya satu kalimat: YANG MEMUTUSKAN DI MODUL INI HANYA HRD. Selain
-   itu, seorang daily worker boleh mengurus ajuannya SENDIRI — mengirim dan
-   membatalkan, tidak lebih.
+   Aturannya satu kalimat: SELURUH modul ini hanya untuk HRD. Daily worker
+   tidak punya akun dan tidak pernah memanggilnya.
 
    Ditulis di sini, di satu tempat, bukan disebar sebagai `if` di dalam tiap
    fungsi lib: daftar yang bisa dibaca sekali dari atas ke bawah bisa
@@ -119,10 +119,8 @@ function wajib_admin($body, $apa) {
    TERBUKTI, bukan dari `by` yang dikirim client — `by` bisa diketik siapa
    saja, dan kolom "disetujui oleh" yang bisa diketik sendiri tidak menjawab
    apa pun saat ditanyakan berbulan-bulan kemudian. */
-function nama_pemanggil($u, $dw = null) {
-  if ($u && isset($u['name'])) return (string)$u['name'];
-  if ($dw && isset($dw['nama'])) return $dw['nama'] . ' (DW)';
-  return '';
+function nama_pemanggil($u) {
+  return ($u && isset($u['name'])) ? (string)$u['name'] : '';
 }
 
 try {
@@ -148,24 +146,6 @@ try {
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
 
-    case 'loginDW':
-      keluar(array('ok' => true, 'data' => login_dw(ambil($body, 'hp'), ambil($body, 'pin'))));
-
-    case 'logoutDW':
-      keluar(array('ok' => true, 'data' => logout_dw(sesi_token($body))));
-
-    case 'ajuanSaya': {
-      /* `dwId` dari client TIDAK dipercaya sama sekali — yang dipakai adalah
-         pemilik tokennya. Sebelumnya siapa pun bisa menyebut id orang lain
-         dan menerima seluruh riwayat kerjanya. HR juga boleh membacanya
-         (halaman profil DW memakai jalur ini). */
-      $dw = dw_sesi_pemilik($body);
-      if ($dw) keluar(array('ok' => true, 'data' => ajuan_saya($dw['id'])));
-      $u = dw_office($body);
-      if ($u && dw_hrd($u)) keluar(array('ok' => true, 'data' => ajuan_saya(ambil($body, 'dwId'))));
-      sesi_tolak_tak_dikenal();
-    }
-
     case 'simpanPekerja': {
       $u = wajib_hrd($body, 'Mengubah data daily worker');
       keluar(array('ok' => true, 'data' => simpan_pekerja(
@@ -177,49 +157,25 @@ try {
       keluar(array('ok' => true, 'data' => hapus_pekerja(ambil($body, 'id'))));
 
     case 'simpanAjuan': {
-      /* DUA pemanggil yang sah, dan hanya dua: HRD yang mengisikan atas nama
-         DW yang menelepon, dan DW itu sendiri UNTUK DIRINYA SENDIRI. Yang
-         terakhir itu sebabnya dwId-nya dipaksa dari token — tanpa itu seorang
-         DW bisa mengirim ajuan atas nama rekannya, dan yang muncul di antrean
-         HR adalah nama orang yang tidak pernah menyanggupinya. */
-      $row = ambil($body, 'row', array());
-      $dw = dw_sesi_pemilik($body);
-      if ($dw) {
-        $row = (array)$row;
-        $row['dwId'] = $dw['id'];
-        keluar(array('ok' => true, 'data' => simpan_ajuan($row, nama_pemanggil(null, $dw))));
-      }
-      $u = wajib_hrd($body, 'Membuat ajuan atas nama daily worker');
-      keluar(array('ok' => true, 'data' => simpan_ajuan($row, nama_pemanggil($u))));
+      /* Hanya HRD. Dulu ada cabang kedua untuk DW yang mengajukan sendiri;
+         gerbangnya sudah dicabut, jadi tidak ada lagi pemanggil selain staf. */
+      $u = wajib_hrd($body, 'Membuat ajuan daily worker');
+      keluar(array('ok' => true, 'data' => simpan_ajuan(
+        ambil($body, 'row', array()), nama_pemanggil($u))));
     }
 
     case 'putusAjuan': {
       /* INI PINTU YANG PALING MAHAL DI MODUL INI. Yang disetujui di sini
          langsung berdiri di kalender Jadwal Shift dan ikut terhitung sebagai
-         uang yang harus ditransfer minggu itu di halaman Pembayaran. Karena
-         itu: menyetujui/menolak HANYA HRD.
+         uang yang harus ditransfer minggu itu di halaman Pembayaran.
 
-         Satu-satunya pengecualian, dan sengaja sempit: seorang DW boleh
-         MEMBATALKAN ajuannya SENDIRI (status BATAL, tidak ada status lain).
-         Itu memang tombol yang ada di halaman "Pengajuan Saya" miliknya, dan
-         membatalkan kesanggupan sendiri bukan keputusan HR. */
-      $id = ambil($body, 'id');
-      $status = strtoupper(trim((string)ambil($body, 'status')));
-      $dw = dw_sesi_pemilik($body);
-      if ($dw) {
-        if ($status !== 'BATAL') {
-          sesi_tolak_tak_berhak('Menyetujui atau menolak ajuan hanya bisa dilakukan HRD.');
-        }
-        $a = ajuan_by_id($id);
-        if (!$a || $a['dw_id'] !== $dw['id']) {
-          sesi_tolak_tak_berhak('Ajuan ini bukan milik Anda.');
-        }
-        keluar(array('ok' => true, 'data' => putus_ajuan(
-          $id, 'BATAL', ambil($body, 'nota'), nama_pemanggil(null, $dw))));
-      }
+         HRD saja. Pengecualian "DW boleh membatalkan ajuannya sendiri" ikut
+         hilang bersama gerbang masuknya — tidak ada lagi DW yang bisa
+         memanggil endpoint ini. */
       $u = wajib_hrd($body, 'Memutuskan ajuan daily worker');
       keluar(array('ok' => true, 'data' => putus_ajuan(
-        $id, $status, ambil($body, 'nota'), nama_pemanggil($u))));
+        ambil($body, 'id'), ambil($body, 'status'),
+        ambil($body, 'nota'), nama_pemanggil($u))));
     }
 
     case 'putusBanyak': {

@@ -112,7 +112,7 @@ const dirJD = salinBackend('jadwal-mysql');
    kolomnya; MySQL menyimpulkannya sendiri dari kunci unik mana pun yang
    kena. Yang dipilih di sini kunci yang memang jadi maksud pernyataannya. */
 const SASARAN_KONFLIK = {
-  dw_ajuan: '`dw_id`,`tgl`', dw_setting: '`id`', dw_login_gagal: '`kunci`',
+  dw_ajuan: '`dw_id`,`tgl`', dw_setting: '`id`',
   jadwal_sel: '`user_id`,`tgl`', jadwal_setting: '`id`', jadwal_pengajuan: '`id`',
 };
 
@@ -353,41 +353,26 @@ async function main() {
   j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=token-karangan');
   cek('token karangan ditolak', ditolak(j), JSON.stringify(j).slice(0, 160));
 
-  /* ——— daily worker: hanya urusan dirinya sendiri ——— */
-  j = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '1234' });
-  cek('DW bisa masuk dan menerima token', j.ok && j.data.token, j.error);
-  const tokDW = j.ok ? j.data.token : '';
-
-  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: tokDW, id: ajuId, status: 'DISETUJUI' });
-  cek('DW TIDAK bisa menyetujui ajuannya sendiri', ditolak(j), JSON.stringify(j));
-
-  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=' + tokDW);
-  cek('token DW TIDAK bisa membuka talent pool', ditolak(j), JSON.stringify(j).slice(0, 160));
-
-  j = await panggil('dw-mysql', { action: 'putusAjuan', sesi: tokDW, id: ajuId, status: 'BATAL' });
-  cek('DW bisa MEMBATALKAN ajuannya sendiri', j.ok, j.error);
-
-  // Ajuan atas nama orang lain: dwId dari client harus diabaikan.
-  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-hrd',
-    row: { nama: 'Budi DW', hp: '081200000002', divisi: 'bar' } });
-  const dwLain = j.ok ? j.data.id : '';
-  j = await panggil('dw-mysql', { action: 'simpanAjuan', sesi: tokDW,
-    row: { dwId: dwLain, tgl: '2026-08-25', m: '16:00', s: '23:00', divisi: 'bar' } });
-  const jadiMilikSendiri = j.ok && j.data.row && j.data.row.dwId === dwId;
-  cek('DW TIDAK bisa mengajukan atas nama rekannya', jadiMilikSendiri,
-    'ajuan mendarat di ' + (j.ok && j.data.row ? j.data.row.dwId : '?') + ', seharusnya ' + dwId);
-
-  // ——— pembatas percobaan PIN ———
-  let kena = '';
-  for (let i = 0; i < 7; i++) {
-    const r = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '0000' });
-    if (!r.ok && /Terlalu banyak percobaan/.test(String(r.error))) { kena = r.error; break; }
+  /* ——— jalur masuk daily worker sudah TIDAK ADA ———
+     Dicabut 14 Agustus 2026: DW tidak punya akun dan tidak pernah membuka
+     sistem. Diuji supaya gerbangnya tidak pernah hidup lagi tanpa sengaja —
+     endpoint yang dihidupkan kembali diam-diam tidak akan terlihat dari layar
+     mana pun, dan ia menerima tebakan PIN dari siapa saja. */
+  for (const mati of ['loginDW', 'logoutDW', 'ajuanSaya']) {
+    j = await panggil('dw-mysql', { action: mati, hp: '081200000001', pin: '1234' });
+    cek('aksi `' + mati + '` sudah tidak dikenal', !j.ok && /tidak dikenal/i.test(String(j.error || '')),
+      JSON.stringify(j).slice(0, 140));
   }
-  cek('percobaan PIN dibatasi sesudah beberapa kali salah', !!kena, 'tujuh tebakan lolos tanpa jeda');
-  j = await panggil('dw-mysql', { action: 'loginDW', hp: '081200000001', pin: '1234' });
-  cek('PIN benar pun ikut tertahan selama terkunci', !j.ok && /Terlalu banyak/.test(String(j.error)), JSON.stringify(j));
 
-  /* ================= MODUL JADWAL SHIFT ================= */
+  /* Nomor HP boleh dibaca HRD, tapi PIN TIDAK PERNAH ikut — kolomnya masih
+     ada di database (sengaja tidak di-DROP) dan yang menjaganya sekarang cuma
+     daftar kolom di baca_semua(). */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-hrd');
+  cek('PIN tidak pernah ikut terkirim ke layar',
+    j.ok && JSON.stringify(j).indexOf('"pin"') < 0 && JSON.stringify(j).indexOf('adaPin') < 0,
+    JSON.stringify(j).slice(0, 160));
+
+  /* ================= MODUL JADWAL SHIFT ================= */  /* ================= MODUL JADWAL SHIFT ================= */
   console.log('\n— Jadwal Shift —');
 
   j = await panggil('jadwal-mysql', { action: 'simpanSetting', sesi: 'tok-admin',

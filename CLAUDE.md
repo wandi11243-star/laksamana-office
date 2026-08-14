@@ -61,11 +61,13 @@ lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 ### `dw` ↔ `jadwal`: satu arah, dan sengaja begitu
 
 `dw` menyimpan pekerja harian (part time). Mereka **bukan** user Office — tidak
-ada di `account-mysql`, tidak muncul di `listDivisiRoster`, dan masuk ke
-modulnya sendiri pakai **no HP + PIN** (`loginDW`). Itu sebabnya `dw` punya
-tabel orang sendiri (`dw_pekerja`) padahal `jadwal` sengaja tidak punya:
-mendaftarkan puluhan part-timer sebagai user Office akan mencemari roster
-**setiap** modul.
+ada di `account-mysql`, tidak muncul di `listDivisiRoster`, dan **tidak punya
+akun sama sekali**: sejak 14 Agustus 2026 gerbang no HP + PIN (`loginDW`)
+dicabut seluruhnya. Alurnya sekarang **head mengajukan kebutuhan divisinya,
+HRD menyetujui lalu menunjuk siapa yang dipakai**; orangnya dikabari lewat
+WhatsApp. Itu sebabnya `dw` tetap punya tabel orang sendiri (`dw_pekerja`)
+padahal `jadwal` sengaja tidak punya: mendaftarkan puluhan part-timer sebagai
+user Office akan mencemari roster **setiap** modul.
 
 Ajuan yang sudah `DISETUJUI` muncul di kalender `jadwal`. Yang terjadi adalah
 **pembacaan**, bukan penyalinan baris ke `jadwal_sel`:
@@ -84,8 +86,8 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
   boleh membuat lembar kru tetap ikut blank — paling jauh satu baris peringatan
   (`panelGagalDW()`).
 - Baris DW di lembar jadwal **read-only**. Yang mengubahnya HR di modul `dw`.
-- `jadwalDW` sengaja tidak membalas `no_hp`/`pin`. Modul jadwal dibuka seluruh
-  kru yang punya akses jadwal.
+- `jadwalDW` sengaja tidak membalas `no_hp`. Modul jadwal dibuka seluruh kru
+  yang punya akses jadwal.
 - Semua backend memakai `PDO::ATTR_EMULATE_PREPARES => false`, jadi penanda
   bernama diikat **berdasarkan posisi**: satu nama yang dipakai dua kali dalam
   satu `prepare()` gagal dengan `SQLSTATE[HY093]` yang tidak menyebut kolom apa
@@ -95,7 +97,7 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
 
 Beda dengan modul lain, `dw` dan `jadwal` **tidak** lagi menjaga hak akses cuma
 di layar. Tiap permintaan wajib membawa `sesi` (token sesi Office dari
-`lm_session`, atau token `loginDW` untuk daily worker); backend menanyakannya
+`lm_session`); backend menanyakannya
 balik ke `account-api?action=whoami` **server-ke-server** lewat
 `<modul>-mysql/lib_sesi.php` — **berkas kembar, dua salinan identik**, kalau
 salah satu disunting yang lain harus ikut.
@@ -104,8 +106,9 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 
 | | boleh |
 |---|---|
-| DW — setujui/tolak/hapus ajuan, talent pool | **HRD saja** (`dw_hrd`: admin modul, atau ada di `setting.hr`; daftar kosong = semua staf bermodul, sama dengan layar) |
-| DW — ajukan & batalkan ajuan sendiri | DW pemilik tokennya (`dwId` dari client **diabaikan**) |
+| DW — SELURUH modul | **HRD saja** (`dw_hrd`: admin modul, atau ada di `setting.hr`; daftar kosong = semua staf bermodul, sama dengan layar) |
+| akses modul `dw` di Office | hanya Tim HRD/CEO, admin modul, Admin Akses — dicabut paling akhir di `modul_untuk()`, `*` sekalipun tidak mengembalikannya |
+| akses modul `jadwal` di Office | **otomatis** untuk Tim Kitchen/Bar/Floor/Cashier/HRD/CEO + admin modul (`modul_bawaan_untuk`) — tidak perlu dicentang |
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
 | kedua modul — `simpanSetting` | admin modul saja (blob-nya memuat daftar HRD/head) |
 
