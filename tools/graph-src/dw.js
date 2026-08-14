@@ -1081,7 +1081,15 @@ function tokenSesi() {  }
 
 
 
-function sesiDitolak() { isDW(); tampilkanGerbang(); }
+function sesiDitolak() { tampilkanGerbang(); isDW(); }
+
+
+
+
+
+
+
+
 
 
 

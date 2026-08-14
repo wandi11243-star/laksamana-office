@@ -94,10 +94,14 @@ function ambil($body, $k, $def = '') { return isset($body[$k]) ? $body[$k] : $de
    mana pun, dan justru itu yang paling mahal di repo ini.
    ====================================================================== */
 
-/* Staf Office dengan akses modul DW. Menolak kalau tidak terbukti. */
+/* Staf Office dengan akses modul DW. DUA sebab penolakan yang berbeda, dan
+   sengaja dibedakan: token yang tidak dikenali disembuhkan dengan masuk ulang,
+   akun tanpa kunci modul TIDAK — menyuruhnya masuk ulang cuma membuatnya
+   berputar tanpa pernah tahu apa yang kurang. */
 function wajib_office($body) {
-  $u = dw_office($body);
+  $u = sesi_user($body);
   if (!$u) sesi_tolak_tak_dikenal();
+  if (!sesi_punya_modul($u, 'dw')) sesi_tolak_tanpa_modul('Roster · Daily Worker');
   return $u;
 }
 /* Yang berhak memutuskan. Inilah pintu untuk seluruh aksi tulis HR. */

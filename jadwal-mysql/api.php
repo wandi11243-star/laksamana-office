@@ -77,9 +77,18 @@ function ambil($body, $k, $def = '') { return isset($body[$k]) ? $body[$k] : $de
    `ping`/`stats` juga terbuka karena dipakai langkah Verifikasi di kedua
    workflow FTP dan tidak memulangkan satu baris data pun.
    ====================================================================== */
+/* DUA sebab penolakan yang berbeda, dan sengaja dibedakan: token yang tidak
+   dikenali disembuhkan dengan masuk ulang, akun tanpa kunci modul TIDAK.
+
+   Nama centangnya disebut persis seperti di Kelola Akses — "Roster · Jadwal
+   Shift", bukan "Jadwal Shift". Kartunya di portal bernama Roster dan memuat
+   DUA kunci bersebelahan, dan tertukar centang di situ persis yang membuat
+   pegawai tetap mendarat di Daily Worker: pemilih panel mengalihkan sendiri
+   ke satu-satunya panel yang ia pegang, tanpa mengatakan apa pun. */
 function wajib_office($body) {
-  $u = jdw_office($body);
+  $u = sesi_user($body);
   if (!$u) sesi_tolak_tak_dikenal();
+  if (!sesi_punya_modul($u, 'jadwal')) sesi_tolak_tanpa_modul('Roster · Jadwal Shift');
   return $u;
 }
 function wajib_admin($body, $apa) {

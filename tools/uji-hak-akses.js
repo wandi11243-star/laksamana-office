@@ -206,6 +206,12 @@ $orang = array(
                          'modules'=>array('dw','jadwal'),'adminModules'=>array()),
   'tok-headbar' => array('id'=>'u-headbar','name'=>'Uji Head Bar','keterangan'=>'Bar',
                          'modules'=>array('jadwal','dw'),'adminModules'=>array()),
+  /* Pegawai tetap yang centangnya TERTUKAR di Kelola Akses: ia memegang
+     "Roster · Daily Worker" padahal yang ia butuhkan "Roster · Jadwal Shift".
+     Inilah keadaan yang membuat pegawai tetap mendarat di modul DW — pemilih
+     panel mengalihkannya ke satu-satunya panel yang ia pegang. */
+  'tok-salahcentang' => array('id'=>'u-andi','name'=>'Uji Andi','keterangan'=>'Cashier',
+                         'modules'=>array('dw'),'adminModules'=>array()),
 );
 if ($act === 'whoami') {
   $t = isset($b['token']) ? $b['token'] : '';
@@ -425,6 +431,25 @@ async function main() {
 
   j = await ambil('jadwal-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31');
   cek('tanpa token, jadwal + alasan izin/cuti tidak bisa dibaca', ditolak(j), JSON.stringify(j).slice(0, 160));
+
+  /* ——— akun sah tapi centangnya kurang: HARUS beda pesannya ———
+     Kalau ini dijawab `sesi_tidak_sah`, orangnya disuruh masuk ulang, ia masuk
+     ulang, ditolak lagi — berputar tanpa pernah tahu kotak mana yang kurang.
+     Pesannya wajib menyebut nama centang PERSIS seperti di Kelola Akses,
+     karena di sana tidak ada kotak bernama "Jadwal Shift": yang ada
+     "Roster · Jadwal Shift", bersebelahan dengan "Roster · Daily Worker". */
+  j = await ambil('jadwal-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-salahcentang');
+  const pesanKurang = String(j.error || '');
+  cek('akun tanpa kunci `jadwal` ditolak SEBAGAI kurang akses, bukan sesi berakhir',
+    !j.ok && pesanKurang.indexOf('tanpa_modul') === 0, pesanKurang.slice(0, 120));
+  cek('pesannya menyebut nama centang yang persis ada di Kelola Akses',
+    pesanKurang.indexOf('Roster · Jadwal Shift') > -1, pesanKurang.slice(0, 160));
+
+  /* Dan orang yang sama TETAP diterima modul DW — memang itu kunci yang ia
+     pegang. Ini yang membuat gejalanya membingungkan: tidak ada yang rusak,
+     ia cuma diberi kunci yang salah. */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-salahcentang');
+  cek('akun yang sama tetap diterima modul DW (kunci yang memang ia pegang)', j.ok, j.error);
 
   /* ——— pengajuan: kru untuk dirinya, head yang memutus ——— */
   j = await panggil('jadwal-mysql', { action: 'simpanPengajuan', sesi: 'tok-staf',

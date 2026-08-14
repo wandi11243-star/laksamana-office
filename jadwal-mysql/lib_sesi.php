@@ -150,3 +150,17 @@ function sesi_tolak_tak_dikenal() {
 function sesi_tolak_tak_berhak($apa) {
   throw new Exception('tidak_berhak: ' . $apa);
 }
+/* Token SAH tapi akunnya tidak memegang kunci modul ini — beda dari token
+   yang tidak dikenali, dan bedanya penting.
+
+   Kalau keduanya dijawab `sesi_tidak_sah`, orangnya disuruh masuk ulang; ia
+   masuk ulang, ditolak lagi, masuk ulang lagi — dan tidak ada satu pun layar
+   yang menyebut apa yang sebenarnya kurang. Pesan ini menyebut NAMA CENTANG
+   yang persis seperti tertulis di Kelola Akses, bukan nama modulnya: kartunya
+   bernama "Roster" dan memuat DUA kunci bersebelahan ("Roster · Jadwal Shift"
+   dan "Roster · Daily Worker"), jadi "minta akses Jadwal Shift" tidak cukup
+   untuk menunjuk kotak mana yang harus dicentang. */
+function sesi_tolak_tanpa_modul($labelCentang) {
+  throw new Exception('tanpa_modul: Akun Anda belum diberi akses modul ini. '
+    . 'Minta admin mencentang "' . $labelCentang . '" lewat Kelola Akses di Laksamana Office.');
+}
