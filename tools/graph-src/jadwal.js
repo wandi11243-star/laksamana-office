@@ -2927,7 +2927,22 @@ function pilShiftAju() { shiftDef(); esc(); warnaTeks(); }
 
 
 
-function ajuTab() { render(); }
+function ajuTab() { render(); setCariBulan(); }
+
+
+
+
+
+
+
+
+
+
+function setCariAju() { render(); sorotCariAju(); }
+function sorotCariAju() {  }
+
+
+
 function ajuHal() { render(); }
 
 
@@ -2943,7 +2958,7 @@ function ajuPagerHTML() { ajuHal(); }
 
 
 
-function viewPengajuan() { isAdmin(); bisaPutuskan(); ajuHal(); }
+function viewPengajuan() { isAdmin(); bisaPutuskan(); }
 
 
 
@@ -2973,6 +2988,12 @@ function viewPengajuan() { isAdmin(); bisaPutuskan(); ajuHal(); }
 
 
 
+
+
+
+
+
+function saring() { kruById(); namaKru(); ajuHal(); }
 
 
 
@@ -3073,7 +3094,25 @@ function selisihHariAju() { addD(); bisaPutuskan(); }
 
 
 
-function tab() { ajuTab(); esc(); bukaAjukan(); isAdmin(); divisiKuasa(); ajuPagerHTML(); }
+function tab() { ajuTab(); esc(); bukaAjukan(); isAdmin(); divisiKuasa(); setCariAju(); ajuPagerHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3193,6 +3232,38 @@ function gambarShiftAju() { shiftDef(); esc(); warnaTeks(); shiftKru(); daftarSh
 
 function pilihShiftAju() { gambarShiftAju(); }
 function kirimAju() { toast(); tutupModal(); apiPost(); simpanCache(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -370,6 +370,24 @@ function pesan() { render(); }
 
 
 
+
+
+
+
+
+
+
+
+
+function angkaKetik() {  }
+
+
+
+
+
+
+
+
 function cari() { render(); }
 
 
@@ -647,8 +665,22 @@ function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function gambarUlangBahan() { bukaBahan(); }
-function bukaBahan() { tutupModal(); segarPer1(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+function bukaBahan() { tutupModal(); angkaKetik(); segarPer1(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+
+
 
 
 
@@ -1324,7 +1356,15 @@ function cetakBanyak() { resepTersaring(); cetak(); lembarResep(); }
 
 
 
-function kirim() { setSync(); tutupModal(); pesan(); muat(); }
+function kirim() { setSync(); tutupModal(); pesan(); muatProduk(); }
+
+
+
+
+
+
+
+
 
 
 
