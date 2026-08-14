@@ -498,6 +498,18 @@ async function main() {
   j = await ambil('jadwal-mysql', 'action=shiftHari&user=kru-bar&dari=2026-08-20&sampai=2026-08-20');
   cek('shiftHari tetap terbuka (dipanggil backend Absensi)', j.ok, j.error);
 
+  /* probeTulis — dipakai langkah Verifikasi di KEDUA workflow FTP, TANPA
+     sesi. Kalau ia ikut dijaga, seluruh deploy gagal dan penyebabnya tidak
+     kelihatan dari mana pun kecuali log Actions. Sudah kejadian: probe lama
+     memanggil simpanSel, dan begitu simpanSel dijaga sesi, deploy ke main
+     merah untuk setiap commit. */
+  j = await panggil('jadwal-mysql', { action: 'probeTulis' });
+  cek('probeTulis jalan TANPA sesi (dipakai Verifikasi deploy)',
+    j.ok && j.data && j.data.isi === 0, JSON.stringify(j).slice(0, 160));
+  const sebelum = await ambil('jadwal-mysql', 'action=getAll&sesi=tok-admin');
+  cek('probeTulis tidak menulis satu baris pun',
+    sebelum.ok && Array.isArray(sebelum.data.sel), JSON.stringify(sebelum).slice(0, 120));
+
   /* headIds — jalur yang dipakai Office untuk memberi head kunci modul DW.
      Isinya harus id + divisi saja: tidak ada nama, tidak ada jadwal. */
   j = await ambil('jadwal-mysql', 'action=headIds');

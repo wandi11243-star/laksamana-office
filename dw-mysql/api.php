@@ -13,7 +13,11 @@
  *
  *   POST {action:'simpanPekerja', row:{...}}
  *   POST {action:'hapusPekerja',  id}
- *   POST {action:'simpanAjuan',   row:{...}}     -- status SELALU MENUNGGU
+ *   POST {action:'simpanAjuan',      row:{...}}  -- status SELALU MENUNGGU
+ *   POST {action:'simpanPermintaan', row:{...}}  -- head minta N orang
+ *   POST {action:'putusPermintaan',  id, status, nota}
+ *   POST {action:'tugaskanDW',       permintaanId, dwIds:[...]}
+ *   POST {action:'hapusPermintaan',  id}
  *   POST {action:'putusAjuan',    id, status, nota}
  *   POST {action:'putusBanyak',   ids:[...], status, nota}
  *   POST {action:'hapusAjuan',    id}
@@ -110,6 +114,24 @@ function wajib_hrd($body, $apa) {
   if (!dw_hrd($u)) sesi_tolak_tak_berhak($apa . ' hanya bisa dilakukan HRD. Minta admin modul menambahkan Anda di Pengaturan → Hak Akses.');
   return $u;
 }
+/* Head divisi, untuk DIVISINYA SENDIRI. Head Bar tidak boleh meminta DW
+   untuk Kitchen — bukan karena curiga, tapi karena permintaan yang mendarat
+   di divisi yang salah baru ketahuan saat orangnya datang ke tempat yang
+   salah, dan yang mengirimnya sudah lupa pernah salah pilih. HRD boleh
+   semuanya. */
+function wajib_minta($body, $divisi) {
+  $u = wajib_office($body);
+  if (dw_hrd($u)) return $u;
+  $h = (isset($u['headDivisi']) && is_array($u['headDivisi'])) ? $u['headDivisi'] : array();
+  if (!count($h)) {
+    sesi_tolak_tak_berhak('Hanya head divisi dan HRD yang bisa meminta daily worker.');
+  }
+  if ($divisi !== '' && !in_array($divisi, $h, true)) {
+    sesi_tolak_tak_berhak('Anda head divisi ' . implode(', ', $h)
+      . ' — permintaan untuk divisi ' . $divisi . ' harus diajukan head divisi itu.');
+  }
+  return $u;
+}
 function wajib_admin($body, $apa) {
   $u = wajib_office($body);
   if (!dw_admin($u)) sesi_tolak_tak_berhak($apa . ' hanya bisa dilakukan admin modul Daily Worker.');
@@ -161,11 +183,61 @@ try {
       keluar(array('ok' => true, 'data' => hapus_pekerja(ambil($body, 'id'))));
 
     case 'simpanAjuan': {
-      /* Hanya HRD. Dulu ada cabang kedua untuk DW yang mengajukan sendiri;
-         gerbangnya sudah dicabut, jadi tidak ada lagi pemanggil selain staf. */
-      $u = wajib_hrd($body, 'Membuat ajuan daily worker');
-      keluar(array('ok' => true, 'data' => simpan_ajuan(
-        ambil($body, 'row', array()), nama_pemanggil($u))));
+      /* CARA 1 — head menunjuk orangnya langsung untuk divisinya sendiri,
+         atau HRD menjadwalkan seperti biasa. Hasilnya SELALU baris MENUNGGU
+         (simpan_ajuan memaksanya), jadi head tetap tidak bisa menyetujui
+         pilihannya sendiri — yang memutuskan tetap HRD. */
+      $row = (array)ambil($body, 'row', array());
+      $u = wajib_minta($body, pot(isset($row['divisi']) ? $row['divisi'] : '', 16));
+      keluar(array('ok' => true, 'data' => simpan_ajuan($row, nama_pemanggil($u))));
+    }
+
+    /* CARA 2 — head meminta JUMLAHNYA saja, HRD yang menunjuk orangnya. */
+    case 'simpanPermintaan': {
+      $row = (array)ambil($body, 'row', array());
+      $u = wajib_minta($body, pot(isset($row['divisi']) ? $row['divisi'] : '', 16));
+      keluar(array('ok' => true, 'data' => simpan_permintaan($row, nama_pemanggil($u))));
+    }
+
+    case 'putusPermintaan': {
+      /* Menyetujui/menolak permintaan: HRD saja. Head boleh MEMBATALKAN
+         permintaannya sendiri — menarik kembali apa yang ia minta bukan
+         keputusan HRD, dan memaksanya menelepon untuk itu cuma membuat
+         permintaan hantu menumpuk di antrean. */
+      $id = ambil($body, 'id');
+      $status = strtoupper(trim((string)ambil($body, 'status')));
+      $u = wajib_office($body);
+      if (!dw_hrd($u)) {
+        $pm = permintaan_by_id($id);
+        $h = (isset($u['headDivisi']) && is_array($u['headDivisi'])) ? $u['headDivisi'] : array();
+        if ($status !== 'BATAL' || !$pm || !in_array($pm['divisi'], $h, true)) {
+          sesi_tolak_tak_berhak('Menyetujui atau menolak permintaan hanya bisa dilakukan HRD.');
+        }
+      }
+      keluar(array('ok' => true, 'data' => putus_permintaan(
+        $id, $status, ambil($body, 'nota'), nama_pemanggil($u))));
+    }
+
+    case 'tugaskanDW': {
+      /* MENUNJUK ORANGNYA — HRD saja, dan inilah inti pembagian tugasnya:
+         head tahu berapa yang ia butuhkan, HRD tahu siapa yang senggang dan
+         menanggung akibat uangnya. */
+      $u = wajib_hrd($body, 'Menugaskan daily worker');
+      keluar(array('ok' => true, 'data' => tugaskan_dw(
+        ambil($body, 'permintaanId'), ambil($body, 'dwIds', array()), nama_pemanggil($u))));
+    }
+
+    case 'hapusPermintaan': {
+      $id = ambil($body, 'id');
+      $u = wajib_office($body);
+      if (!dw_hrd($u)) {
+        $pm = permintaan_by_id($id);
+        $h = (isset($u['headDivisi']) && is_array($u['headDivisi'])) ? $u['headDivisi'] : array();
+        if (!$pm || !in_array($pm['divisi'], $h, true)) {
+          sesi_tolak_tak_berhak('Permintaan ini bukan milik divisi Anda.');
+        }
+      }
+      keluar(array('ok' => true, 'data' => hapus_permintaan($id)));
     }
 
     case 'putusAjuan': {

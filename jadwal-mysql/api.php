@@ -134,6 +134,26 @@ try {
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
 
+    /* PROBE TULIS untuk langkah Verifikasi di kedua workflow FTP.
+       ---------------------------------------------------------------------
+       Membuka transaksi (berikut CREATE TABLE IF NOT EXISTS) lalu commit
+       TANPA MENULIS SATU BARIS PUN. Gunanya menyentuh DB dengan cara yang
+       sama seperti penulisan sungguhan, sehingga grant yang salah muncul
+       sebagai SQLSTATE — sesuatu yang `ping` tidak bisa lihat sama sekali
+       (ia cuma membacakan config.php) dan `stats` juga tidak (ia menelan
+       galat DB lalu membalas nol).
+
+       DULU probe ini memanggil `simpanSel` dengan payload kosong. Begitu
+       simpanSel dijaga sesi (14 Agustus 2026), probe itu dijawab
+       `sesi_tidak_sah` dan SELURUH deploy ke main gagal — CI tidak punya
+       sesi Office dan tidak seharusnya punya. Karena itu ia dipisah jadi
+       aksinya sendiri yang memang terbuka: ia tidak menerima parameter apa
+       pun, tidak menulis apa pun, dan tidak memulangkan satu baris data pun.
+       Menjaganya dengan sesi berarti kehilangan satu-satunya pemeriksaan
+       yang menangkap grant DB yang salah. */
+    case 'probeTulis':
+      keluar(array('ok' => true, 'data' => simpan_sel(array(), array(), 'ci-probe', null)));
+
     case 'simpanSel': {
       /* Tiap baris diperiksa terhadap divisi kru yang ditunjuknya di dalam
          simpan_sel — bukan di sini — karena satu kiriman bisa memuat

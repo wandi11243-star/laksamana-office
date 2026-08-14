@@ -809,14 +809,23 @@ jobs:
             *) echo "GAGAL   env BUKAN dev — config.php belum diunggah manual ke /jadwal-api-mysql/ atau salah isi"; gagal=1 ;;
           esac
 
-          # Probe tulis: simpanSel TANPA rows/hapus membuka transaksi (dan
+          # Probe tulis: membuka transaksi (dan CREATE TABLE IF NOT EXISTS)
+          # lalu commit TANPA menulis satu baris pun.
+          #
+          # Aksinya `probeTulis`, BUKAN lagi `simpanSel`. Sejak simpanSel
+          # dijaga sesi Office (14 Agustus 2026), probe lama dijawab
+          # `sesi_tidak_sah` dan SELURUH deploy gagal — CI tidak punya sesi
+          # Office dan tidak seharusnya punya. probeTulis sengaja terbuka: ia
+          # tidak menerima parameter, tidak menulis apa pun, dan tidak
+          # memulangkan satu baris data pun.
+          # (lanjutan alasan lama:) simpanSel TANPA rows/hapus membuka transaksi (dan
           # CREATE TABLE IF NOT EXISTS) lalu commit tanpa menulis apa pun.
           # Ini menyentuh DB sungguhan, jadi grant yang salah muncul sebagai
           # SQLSTATE — sesuatu yang ping dan stats sama sekali tidak bisa
           # lihat (stats menelan galat DB dan membalas nol).
           jdwp=$(curl -s -m 60 -X POST "https://dev.laksamanamuda.id/jadwal-api-mysql/api.php" \
                    -H 'Content-Type: text/plain;charset=utf-8' \
-                   -d '{"action":"simpanSel"}')
+                   -d '{"action":"probeTulis"}')
           echo "probe tulis: $(printf '%s' "$jdwp" | head -c 300)"
           case "$jdwp" in
             *'"isi":0'*) echo "OK      koneksi DB sehat, tabel siap, tidak ada baris ditulis" ;;

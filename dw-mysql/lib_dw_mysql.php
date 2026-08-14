@@ -186,6 +186,46 @@ function pastikan_tabel($pdo) {
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_jenis', "VARCHAR(16)  NOT NULL DEFAULT 'BANK'");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nomor', "VARCHAR(60)  NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nama',  "VARCHAR(120) NOT NULL DEFAULT ''");
+  /* PERMINTAAN DW — head meminta, HRD memenuhi.
+     ---------------------------------------------------------------------
+     Bedanya dengan `dw_ajuan` mendasar: baris di sini BELUM PUNYA ORANG.
+     Isinya "divisi X butuh 3 orang tanggal sekian, jam sekian" — dan itu
+     memang bentuk pertanyaannya di lapangan. Head tahu berapa orang yang ia
+     butuhkan dan jam berapa; siapa orangnya urusan HRD, yang memegang talent
+     pool, tahu siapa yang sudah dipakai di divisi lain hari itu, dan yang
+     menanggung akibat uangnya.
+
+     Memaksa head menyebut nama sejak awal (bentuk lama) membuat dua hal
+     buruk: head menebak-nebak siapa yang senggang, dan bentrok antar divisi
+     baru ketahuan di antrean HRD saat orangnya sudah dijanjikan.
+
+     `terpenuhi` TIDAK disimpan sebagai kolom — ia dihitung dari jumlah baris
+     `dw_ajuan` yang menunjuk ke sini. Angka yang disimpan dua kali pasti
+     berbeda suatu saat, dan yang salah selalu yang jarang dilihat. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `dw_permintaan` (
+       `id`          VARCHAR(32)  NOT NULL PRIMARY KEY,
+       `divisi`      VARCHAR(16)  NOT NULL DEFAULT \'\',
+       `tgl`         DATE         NOT NULL,
+       `jam_mulai`   VARCHAR(5)   NOT NULL DEFAULT \'\',
+       `jam_selesai` VARCHAR(5)   NOT NULL DEFAULT \'\',
+       `posisi`      VARCHAR(60)  NOT NULL DEFAULT \'\',
+       `jumlah`      INT          NOT NULL DEFAULT 1,
+       `catatan`     VARCHAR(255) NOT NULL DEFAULT \'\',
+       `status`      VARCHAR(16)  NOT NULL DEFAULT \'MENUNGGU\',
+       `dibuat_at`   BIGINT       NOT NULL DEFAULT 0,
+       `dibuat_oleh` VARCHAR(120) NOT NULL DEFAULT \'\',
+       `putus_at`    BIGINT       NOT NULL DEFAULT 0,
+       `putus_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
+       `putus_nota`  VARCHAR(255) NOT NULL DEFAULT \'\',
+       KEY `idx_minta_tgl` (`tgl`),
+       KEY `idx_minta_status` (`status`),
+       KEY `idx_minta_divisi` (`divisi`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Penghubung penugasan ke permintaannya. Kosong = ajuan yang dibuat
+     langsung (head menunjuk orangnya sendiri, atau HRD menjadwalkan biasa). */
+  pastikan_kolom($pdo, 'dw_ajuan', 'permintaan_id', "VARCHAR(32) NOT NULL DEFAULT ''");
+
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `dw_setting` (
        `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -321,7 +361,35 @@ function baca_semua($dari, $sampai, $penuh = true) {
   $ajuan = array();
   foreach ($st->fetchAll() as $r) $ajuan[] = bentuk_ajuan($r);
 
-  return array('setting' => baca_setting(), 'pekerja' => $pekerja, 'ajuan' => $ajuan);
+  /* Permintaan: yang di dalam rentang + SEMUA yang masih MENUNGGU, aturan
+     yang sama dengan ajuan di atas dan alasannya sama — yang menunggu wajib
+     selalu kelihatan HRD walau tanggalnya di luar bulan yang sedang dibuka. */
+  $minta = array();
+  if ($a !== '' && $b !== '') {
+    $st = $pdo->prepare(
+      'SELECT * FROM `dw_permintaan`
+        WHERE (`tgl` BETWEEN :a AND :b) OR `status` = \'MENUNGGU\'
+        ORDER BY `tgl`');
+    $st->execute(array(':a' => $a, ':b' => $b));
+  } else {
+    $st = $pdo->query('SELECT * FROM `dw_permintaan` ORDER BY `tgl`');
+  }
+  foreach ($st->fetchAll() as $r) $minta[] = bentuk_permintaan($r);
+
+  return array('setting' => baca_setting(), 'pekerja' => $pekerja,
+               'ajuan' => $ajuan, 'permintaan' => $minta);
+}
+
+function bentuk_permintaan($r) {
+  return array(
+    'id' => $r['id'], 'divisi' => $r['divisi'], 'tgl' => $r['tgl'],
+    'm' => $r['jam_mulai'], 's' => $r['jam_selesai'],
+    'posisi' => $r['posisi'], 'jumlah' => (int)$r['jumlah'],
+    'catatan' => $r['catatan'], 'status' => $r['status'],
+    'dibuatAt' => (int)$r['dibuat_at'], 'dibuatOleh' => $r['dibuat_oleh'],
+    'putusAt' => (int)$r['putus_at'], 'putusOleh' => $r['putus_oleh'],
+    'putusNota' => $r['putus_nota'],
+  );
 }
 
 /* Peran pemanggil, dibalas bersama datanya.
@@ -776,6 +844,199 @@ function hapus_ajuan($id) {
   pastikan_tabel($pdo);
   $st = $pdo->prepare('DELETE FROM `dw_ajuan` WHERE `id`=:id');
   $st->execute(array(':id' => s($id)));
+  return array('deleted' => true, 'id' => s($id));
+}
+
+/* ==================== PERMINTAAN DW (head -> HRD) ====================
+   DUA CARA head meminta daily worker, dan keduanya memang dipakai:
+
+     1. TUNJUK ORANGNYA LANGSUNG — head sudah tahu siapa yang mau dipakai
+        (mis. anak yang minggu lalu bagus dan sudah dihubunginya sendiri).
+        Ini lewat simpan_ajuan() biasa; hasilnya baris MENUNGGU yang tinggal
+        disetujui HRD. Head TIDAK bisa menyetujui punyanya sendiri.
+
+     2. MINTA JUMLAHNYA SAJA — "Sabtu butuh 3 orang, 16:00–23:00". Head sering
+        tidak tahu siapa yang senggang, dan menebak-nebak justru sumber
+        bentrok: orang yang sama dijanjikan dua divisi. Yang punya jawabannya
+        HRD, yang memegang talent pool. Inilah yang dilayani bagian ini.
+
+   Yang menyambung keduanya: penugasan menghasilkan baris `dw_ajuan` yang sama
+   persis bentuknya dengan cara 1, cuma `permintaan_id`-nya terisi. Jadi
+   kalender, rekap, dan pembayaran tidak perlu tahu sebuah shift lahir dari
+   jalur yang mana — satu bentuk, satu tempat dibaca. */
+
+function permintaan_by_id($id) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $st = $pdo->prepare('SELECT * FROM `dw_permintaan` WHERE `id`=:id');
+  $st->execute(array(':id' => s($id)));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+
+/* Berapa orang yang SUDAH ditugaskan untuk permintaan ini. Dihitung, tidak
+   disimpan — lihat alasannya di kepala tabelnya. Yang BATAL/DITOLAK tidak
+   ikut: orangnya memang tidak jadi datang, jadi lubangnya terbuka lagi. */
+function permintaan_terpenuhi($id) {
+  $pdo = db();
+  $st = $pdo->prepare(
+    'SELECT COUNT(*) c FROM `dw_ajuan`
+      WHERE `permintaan_id`=:id AND (`status`=\'MENUNGGU\' OR `status`=\'DISETUJUI\')');
+  $st->execute(array(':id' => s($id)));
+  $r = $st->fetch();
+  return $r ? (int)$r['c'] : 0;
+}
+
+function simpan_permintaan($row, $by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $row = (array)$row;
+
+  $tgl = tgl_valid(isset($row['tgl']) ? $row['tgl'] : '');
+  $m   = jam_valid(isset($row['m']) ? $row['m'] : '');
+  $sj  = jam_valid(isset($row['s']) ? $row['s'] : '');
+  $div = pot(isset($row['divisi']) ? $row['divisi'] : '', 16);
+  $jml = (int)(isset($row['jumlah']) ? $row['jumlah'] : 0);
+  if ($tgl === '')             throw new Exception('Tanggal permintaan wajib diisi');
+  if ($m === '' || $sj === '') throw new Exception('Jam mulai dan jam selesai wajib diisi');
+  if ($div === '')             throw new Exception('Divisi wajib diisi');
+  /* Batas atas ada dengan sengaja. Bukan karena 50 orang mustahil, tapi karena
+     angka sebesar itu hampir selalu salah ketik — dan HRD baru menyadarinya
+     setelah membuka daftar penugasan berisi lima puluh baris kosong. Kalau
+     memang butuh lebih, dua permintaan lebih jujur dibaca. */
+  if ($jml < 1 || $jml > 30)   throw new Exception('Jumlah orang harus antara 1 dan 30');
+
+  $id = pot(isset($row['id']) ? $row['id'] : '', 32);
+  $baru = ($id === '');
+  if ($baru) $id = id_baru('PM');
+
+  $arg = array(
+    ':id' => $id, ':dv' => $div, ':tg' => $tgl, ':m' => $m, ':s' => $sj,
+    ':ps' => pot(isset($row['posisi']) ? $row['posisi'] : '', 60),
+    ':jm' => $jml,
+    ':ct' => pot(isset($row['catatan']) ? $row['catatan'] : '', 255),
+    ':t' => ms(), ':by' => pot($by, 120),
+  );
+  if ($baru) {
+    $st = $pdo->prepare(
+      'INSERT INTO `dw_permintaan`
+         (`id`,`divisi`,`tgl`,`jam_mulai`,`jam_selesai`,`posisi`,`jumlah`,`catatan`,
+          `status`,`dibuat_at`,`dibuat_oleh`)
+       VALUES (:id,:dv,:tg,:m,:s,:ps,:jm,:ct,\'MENUNGGU\',:t,:by)');
+  } else {
+    /* Menyunting permintaan MENGEMBALIKANNYA ke MENUNGGU dan menghapus jejak
+       putusannya — alasannya sama dengan ajuan: yang diubah harus dilihat
+       ulang HRD, tidak boleh diam-diam tetap DISETUJUI dengan jumlah yang
+       sudah berbeda. */
+    $st = $pdo->prepare(
+      'UPDATE `dw_permintaan` SET
+         `divisi`=:dv, `tgl`=:tg, `jam_mulai`=:m, `jam_selesai`=:s,
+         `posisi`=:ps, `jumlah`=:jm, `catatan`=:ct,
+         `status`=\'MENUNGGU\', `dibuat_at`=:t, `dibuat_oleh`=:by,
+         `putus_at`=0, `putus_oleh`=\'\', `putus_nota`=\'\'
+       WHERE `id`=:id');
+  }
+  $st->execute($arg);
+  $ada = permintaan_by_id($id);
+  return array('saved' => true, 'row' => $ada ? bentuk_permintaan($ada) : null);
+}
+
+function putus_permintaan($id, $status, $nota, $by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $status = strtoupper(s($status));
+  if (!in_array($status, array('DISETUJUI', 'DITOLAK', 'MENUNGGU', 'BATAL'), true)) {
+    throw new Exception('Status putusan tidak dikenal: ' . $status);
+  }
+  $st = $pdo->prepare(
+    'UPDATE `dw_permintaan` SET `status`=:s, `putus_at`=:t, `putus_oleh`=:by, `putus_nota`=:n
+      WHERE `id`=:id');
+  $st->execute(array(
+    ':s' => $status, ':t' => ms(), ':by' => pot($by, 120),
+    ':n' => pot($nota, 255), ':id' => s($id),
+  ));
+  if ($st->rowCount() === 0 && !permintaan_by_id($id)) {
+    throw new Exception('Permintaan tidak ditemukan: ' . s($id));
+  }
+  return array('saved' => true, 'id' => s($id), 'status' => $status);
+}
+
+/* HRD menunjuk orang untuk sebuah permintaan.
+   ---------------------------------------------------------------------
+   Menugaskan SEKALIGUS MENYETUJUI: yang menunjuk memang orang yang berhak
+   memutuskan, jadi meminta ia menekan Setujui sekali lagi untuk baris yang
+   baru saja ia buat sendiri cuma langkah kosong — yang akan dilewati lalu
+   dilupakan, dan shift yang tertinggal di MENUNGGU tidak muncul sama sekali
+   di kalender Jadwal Shift.
+
+   Bentroknya tetap dijaga: tiap penugasan lewat simpan_ajuan() yang sama,
+   jadi orang yang sudah dipesan divisi lain hari itu tetap tertahan. Yang
+   tertahan DILAPORKAN BALIK, bukan dilewati diam-diam — penugasan yang
+   diam-diam kurang satu orang baru ketahuan malam itu, saat kurang orang. */
+function tugaskan_dw($permintaanId, $dwIds, $by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $pm = permintaan_by_id($permintaanId);
+  if (!$pm) throw new Exception('Permintaan tidak ditemukan: ' . s($permintaanId));
+  if (!is_array($dwIds) || !count($dwIds)) throw new Exception('Pilih dulu siapa yang ditugaskan');
+
+  $now = ms();
+  $by  = pot($by, 120);
+  $masuk = array(); $tertahan = array();
+
+  foreach ($dwIds as $dwId) {
+    $dwId = pot($dwId, 32);
+    if ($dwId === '') continue;
+    /* `timpa` sengaja TIDAK dinyalakan: kalau orangnya sudah dipesan divisi
+       lain hari itu, penugasan ini HARUS berhenti dan dilaporkan. HRD yang
+       memutuskan mau memindahkan atau memilih orang lain, dan keputusan itu
+       tidak boleh diambil diam-diam oleh kode. */
+    $hasil = simpan_ajuan(array(
+      'dwId' => $dwId, 'tgl' => $pm['tgl'],
+      'm' => $pm['jam_mulai'], 's' => $pm['jam_selesai'],
+      'divisi' => $pm['divisi'], 'posisi' => $pm['posisi'],
+      'catatan' => $pm['catatan'],
+    ), $by);
+    if (empty($hasil['saved'])) { $tertahan[] = $hasil['bentrok']; continue; }
+
+    $aj = isset($hasil['row']) ? $hasil['row'] : null;
+    if (!$aj) continue;
+    /* Langsung DISETUJUI + ditandai milik permintaan ini. Dilakukan DI SINI,
+       bukan di dalam simpan_ajuan(), karena simpan_ajuan SELALU memaksa
+       MENUNGGU dengan sengaja — penjaga yang tidak boleh dilonggarkan untuk
+       jalur mana pun (lihat komentarnya di sana). */
+    $up = $pdo->prepare(
+      'UPDATE `dw_ajuan` SET `permintaan_id`=:pm, `status`=\'DISETUJUI\',
+         `putus_at`=:t, `putus_oleh`=:by, `putus_nota`=\'Ditugaskan dari permintaan head\'
+       WHERE `id`=:id');
+    $up->execute(array(':pm' => $pm['id'], ':t' => $now, ':by' => $by, ':id' => $aj['id']));
+    $masuk[] = array('id' => $aj['id'], 'dwId' => $dwId);
+  }
+
+  /* Permintaan ikut DISETUJUI begitu ada yang ditugaskan — walau baru
+     sebagian. "Sebagian" sengaja BUKAN status tersendiri: berapa yang sudah
+     terisi dihitung dari barisnya (permintaan_terpenuhi) dan ditulis apa
+     adanya di layar, "2 dari 3". Menambah status SEBAGIAN cuma melahirkan
+     keadaan keempat yang harus diingat semua orang tanpa menjawab apa pun. */
+  if (count($masuk)) {
+    $pdo->prepare(
+      'UPDATE `dw_permintaan` SET `status`=\'DISETUJUI\', `putus_at`=:t, `putus_oleh`=:by
+        WHERE `id`=:id')->execute(array(':t' => $now, ':by' => $by, ':id' => $pm['id']));
+  }
+  return array('saved' => true, 'masuk' => count($masuk), 'ditugaskan' => $masuk,
+               'tertahan' => $tertahan, 'terpenuhi' => permintaan_terpenuhi($pm['id']),
+               'jumlah' => (int)$pm['jumlah']);
+}
+
+function hapus_permintaan($id) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  /* Penugasan yang sudah terbit TIDAK ikut terhapus — orangnya sudah
+     dijanjikan datang, dan menghapus permintaannya tidak membatalkan janji
+     itu. Yang lepas cuma tautannya. */
+  $pdo->prepare('UPDATE `dw_ajuan` SET `permintaan_id`=\'\' WHERE `permintaan_id`=:id')
+      ->execute(array(':id' => s($id)));
+  $pdo->prepare('DELETE FROM `dw_permintaan` WHERE `id`=:id')->execute(array(':id' => s($id)));
   return array('deleted' => true, 'id' => s($id));
 }
 
