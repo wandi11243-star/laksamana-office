@@ -262,6 +262,7 @@
 
 
 
+
 function kini() {  }
 
 
@@ -471,7 +472,14 @@ function viewResep() { resepTersaring(); cari(); render(); bukaResep(); cetakBan
 
 
 
-function pager() { render(); }
+
+
+
+
+
+
+function keHal() { render(); }
+function pagerBar() { keHal(); }
 
 
 
@@ -481,6 +489,9 @@ function pager() { render(); }
 
 
 
+
+
+function pager() { pagerBar(); }
 
 
 
@@ -618,7 +629,7 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
+function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
 
 
 
@@ -642,6 +653,52 @@ function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduTarik(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lihatPakai() { dipakaiOleh(); hitungBaris(); modalMenu(); tutupModal(); per1(); bukaResep(); bukaBahan(); }
 
 
 
