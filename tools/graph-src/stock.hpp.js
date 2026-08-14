@@ -393,6 +393,11 @@ function pesan() { render(); }
 
 
 
+
+
+
+
+
 function angkaKetik() {  }
 
 
@@ -460,7 +465,18 @@ function setAktif() { kirim(); }
 
 
 
-function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); tabelResep(); }
+function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -392,7 +392,12 @@ function pesan(html){ PESAN=html; $('pesan').innerHTML=html; }
    Kursor dijaga dengan cara menghitung DIGIT sebelum kursor, bukan posisi
    karakternya: menambah satu titik ribuan menggeser posisi karakter tapi tidak
    menggeser jumlah digit, jadi hanya cara ini yang tidak melompat sendiri. */
-const fmtIn=v=>{ const d=String(v==null?'':v).replace(/[^0-9]/g,''); return d?Number(d).toLocaleString('id-ID'):''; };
+/* NOL DITAMPILKAN SEBAGAI KOSONG di kotak isian (14 Agustus 2026, permintaan
+   user). Angka 0 yang sudah duduk di kotak memaksa orang menghapusnya dulu
+   sebelum mengetik — dan yang lupa menghapus mengetik di belakangnya. Kotaknya
+   dikosongkan; nolnya tetap tersimpan sebagai nol karena num('') = 0. */
+const fmtIn=v=>{ const d=String(v==null?'':v).replace(/[^0-9]/g,''); const n=Number(d);
+  return (d&&n)?n.toLocaleString('id-ID'):''; };
 function angkaKetik(el,setter){
   const digitSebelum=String(el.value).slice(0,el.selectionStart).replace(/[^0-9]/g,'').length;
   const bersih=String(el.value).replace(/[^0-9]/g,'');
@@ -426,7 +431,7 @@ function render(){
    dipakai. Resep lama tidak dihapus — ia cuma dinonaktifkan, karena
    menghapusnya akan memutus rujukan di resep lain yang mungkin masih
    memakainya, dan riwayat modalnya ikut hilang. */
-let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktifSaja:true};
+let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktifSaja:true,tab:'dish'};
 let FBS={hal:1,per:25,sortK:'nama',sortD:1};
 const AMB_RESEP={
   nama:r=>low(r.nama), jenis:r=>r.jenis, seksi:r=>low(r.seksi||''),
@@ -479,8 +484,19 @@ function viewResep(){
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF (+modal)</button>
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF (resep saja)</button>
     </div></div>`;
-  h+=tabelResep('dish','Menu Jadi','Yang dijual — dinilai dari COGS terhadap harga jualnya.','F');
-  h+=tabelResep('base','Base &amp; Bahan Olahan','Dibuat sendiri lalu dipakai resep lain — dinilai dari modal per satuan hasil.','FBS');
+  /* SUB-TAB, bukan dua tabel bertumpuk (14 Agustus 2026, permintaan user).
+     Menu Jadi 237 baris dan Base 128 baris: ditumpuk, tabel kedua selalu di
+     bawah lipatan dan pagination-nya harus dicari dengan menggulir jauh. Satu
+     tab = satu pekerjaan; jumlahnya tetap terlihat di labelnya supaya tidak
+     ada yang tersembunyi tanpa jejak. */
+  const nD=resepTersaring('dish').length, nB=resepTersaring('base').length;
+  h+=`<div class="seg" style="margin-bottom:14px">
+      <button class="${F.tab!=='base'?'active':''}" onclick="F.tab='dish';render()">🍽 Menu Jadi <span class="chip mute" style="margin-left:6px">${nD}</span></button>
+      <button class="${F.tab==='base'?'active':''}" onclick="F.tab='base';render()">🥣 Base &amp; Olahan <span class="chip mute" style="margin-left:6px">${nB}</span></button>
+    </div>`;
+  h+=(F.tab==='base')
+    ? tabelResep('base','Base &amp; Bahan Olahan','Dibuat sendiri lalu dipakai resep lain — dinilai dari modal per satuan hasil.','FBS')
+    : tabelResep('dish','Menu Jadi','Yang dijual — dinilai dari COGS terhadap harga jualnya.','F');
   return h;
 }
 /* Satu pembuat untuk kedua tabel. Kolom Harga jual & COGS hanya ada di Menu
@@ -631,15 +647,15 @@ function gambarEditor(){
         <div class="field"><label>Satuan hasil</label><input value="${esc(r.yield_unit||'')}" placeholder="Porsi / Gr / Pcs" oninput="ED.yield_unit=this.value"></div>
       </div>
       ${r.tipe==='dish'?`<div class="g3">
-        <div class="field"><label>Harga jual lama (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_lama)}" oninput="angkaKetik(this,v=>{ED.harga_lama=v});segarSub()"></div>
-        <div class="field"><label>Harga jual baru (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
-        <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div></div>`:''}
+        <div class="field"><label>Harga jual lama (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_lama)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_lama=v});segarSub()"></div>
+        <div class="field"><label>Harga jual baru (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
+        <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div></div>`:''}
       ${r.tipe==='base'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px">
         <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
         Base ini juga <b>berdiri di Purchasing</b> — barang produksi Central Kitchen yang dipesan outlet</label>
       <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin-bottom:12px">Bawaannya mati: base dibuat sendiri, bukan dibeli. Nyalakan hanya kalau outlet memesannya lewat purchasing — ia akan didaftarkan di sana bertanda <b>produksi CK</b>, bukan sebagai barang vendor.</div>`:''}
       ${(r.bahan||[]).length===0?`<div class="field"><label>Modal manual (dipakai kalau menu ini tidak punya resep)</label>
-        <input inputmode="numeric" value="${fmtIn(r.modal_manual)}" oninput="angkaKetik(this,v=>{ED.modal_manual=v});segarSub()"></div>`:''}
+        <input inputmode="numeric" value="${fmtIn(r.modal_manual)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.modal_manual=v});segarSub()"></div>`:''}
       <h4 style="margin:14px 0 8px">Bahan</h4>
       <div class="brs" style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase">
         <div>Sumber</div><div>Nama</div><div>Qty</div><div>Satuan</div><div style="text-align:right">Subtotal</div><div></div></div>
@@ -844,10 +860,10 @@ function bukaBahan(nama,pertahankan){
         <input list="dlProduk" value="${esc(EB.nama)}" oninput="EB.nama=this.value"></div>
       <div class="g3">
         <div class="field"><label>Qty beli</label>
-          <input inputmode="numeric" value="${fmtIn(EB.qty_beli)}" oninput="angkaKetik(this,v=>{EB.qty_beli=v});segarPer1()"></div>
+          <input inputmode="numeric" value="${fmtIn(EB.qty_beli)}" placeholder="0" oninput="angkaKetik(this,v=>{EB.qty_beli=v});segarPer1()"></div>
         <div class="field"><label>Satuan</label><input value="${esc(EB.satuan||'')}" oninput="EB.satuan=this.value"></div>
         <div class="field"><label>Harga beli <span style="font-weight:400;color:var(--muted)">(Rp)</span></label>
-          <input inputmode="numeric" value="${fmtIn(EB.harga_beli)}" oninput="angkaKetik(this,v=>{EB.harga_beli=v});segarPer1()"></div>
+          <input inputmode="numeric" value="${fmtIn(EB.harga_beli)}" placeholder="0" oninput="angkaKetik(this,v=>{EB.harga_beli=v});segarPer1()"></div>
       </div>
       <div class="notice info" id="per1Box"></div>
       <!-- Nama bahan DI ATAS itu sendiri kunci ke purchasing — tidak ada lagi
@@ -1403,7 +1419,7 @@ function viewKalk(){
       <button class="btn btn-ghost btn-sm" onclick="KAL={baris:[{nama:'',qty:'',ref:'bahan'}],hargaJual:'',porsi:1};render()">Bersihkan</button></div>
     <div class="g3" style="margin-top:14px">
       <div class="field"><label>Jadi berapa porsi</label><input inputmode="numeric" value="${KAL.porsi}" oninput="KAL.porsi=this.value;segarKalk()"></div>
-      <div class="field"><label>Rencana harga jual (Rp)</label><input inputmode="numeric" value="${fmtIn(KAL.hargaJual)}" oninput="angkaKetik(this,v=>{KAL.hargaJual=v});segarKalk()"></div>
+      <div class="field"><label>Rencana harga jual (Rp)</label><input inputmode="numeric" value="${fmtIn(KAL.hargaJual)}" placeholder="0" oninput="angkaKetik(this,v=>{KAL.hargaJual=v});segarKalk()"></div>
     </div></div>
   <div class="row-in" id="kalKartu">${kartuKalk()}</div>
   <div id="kalNote">${noteKalk()}</div>`;
