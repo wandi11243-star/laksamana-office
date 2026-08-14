@@ -156,19 +156,46 @@ dengan centang *"saya sudah tahu orangnya"*.
 - Server **menyaring usulan**: id yang tidak ada / `NONAKTIF` dibuang, dan
   dipotong sebanyak `jumlah`. Usulan yang lebih banyak dari kebutuhan berarti
   head menaikkan anggarannya sendiri tanpa menyebutkannya.
-- **Posisi terikat divisi** (`POSISI_DIVISI`): bar → Bar Helper/Dishwasher,
-  kitchen → Kitchen Helper/Dishwasher, floor → Waiter/Waitress, Host,
-  Cleaning, cashier → Cashier. `Runner` dan `Event Crew` dicabut. Ejaan
-  `Waiter/Waitress` dan `Dishwasher` **sengaja dipertahankan** — string itulah
-  kunci `setting.tarif` dan isi `dw_pekerja.posisi`; menggantinya membuat
-  `tarifPosisi()` memulangkan 0 tanpa satu pun galat, dan salahnya muncul
-  sebagai uang.
+- **Posisi terikat divisi**, dan sejak 14 Agustus 2026 **disimpan di
+  `setting.posisiDivisi`** ({divisi: [posisi]}) yang bisa ditambah/dihapus HRD
+  di Pengaturan → Posisi per Divisi. `POSISI_DIVISI` cuma nilai bawaannya.
+  `posisiSemua()` (gabungan) dipakai tabel Tarif — tarif memang satu daftar
+  untuk semua divisi. `normalPosisiDivisi()` memigrasi `setting.posisi` lama:
+  posisi buatan sendiri masuk ke SEMUA divisi (tidak ada keterangan tersimpan
+  yang bisa menebak divisinya), `POSISI_CABUT` (Runner, Event Crew) dibuang.
+  Ejaan `Waiter/Waitress` dan `Dishwasher` **sengaja dipertahankan** — string
+  itulah kunci `setting.tarif` dan isi `dw_pekerja.posisi`; menggantinya
+  membuat `tarifPosisi()` memulangkan 0 tanpa satu pun galat, dan salahnya
+  muncul sebagai uang. `opsiPosisi(div, terpilih)` tetap menggambar nilai lama
+  yang sudah dihapus, ditandai `(lama)` — kalau tidak, membuka form seorang DW
+  berposisi lama diam-diam mengganti posisinya (dan tarifnya) saat Simpan.
 - Modal **Tunjuk** HRD ikut disaring posisi, dan pilihannya **dibatasi**
   sebanyak yang diminta (dulu cuma diberi pita peringatan lalu tetap dikirim).
 - `kandidatDW(divisi, posisi, urut)` satu sumber untuk kedua daftar. Urutan
   **beda dan memang harus beda**: head `'sering'` (yang ia kenal kerjanya),
-  HRD `'lama'` (menjaga giliran). Melebar sendiri kalau tidak ada yang cocok —
-  daftar kosong = permintaan yang tidak bisa dipenuhi, tanpa penjelasan.
+  HRD `'lama'` (menjaga giliran). **Tidak ada pelonggaran** — sempat dibuat
+  melebar sendiri saat tak seorang pun cocok, dan hasilnya permintaan Cashier
+  menampilkan Kitchen Helper lengkap dengan centangnya. Kosongnya dijelaskan
+  `kosongKandidatHTML()`, yang membedakan "tidak ada yang berposisi itu" dari
+  "divisinya memang belum punya siapa-siapa" — dua masalah dengan dua jalan
+  keluar yang berbeda.
+
+### DW: satu meja HRD, satu meja head (14 Agustus 2026)
+
+| halaman | siapa | isinya |
+|---|---|---|
+| **Antrean Pengajuan** | **HRD saja** (`bolehBuka('antrean') = isHR()`) | permintaan head **dan** pengajuan DW dalam satu tabel, dibedakan kolom Jenis |
+| **Permintaan DW** | **head saja** (`isHeadDW() && !isHR()`) | permintaan divisinya sendiri + putusannya, tanpa tombol putusan |
+
+Digabung karena yang punya dua meja masuk selalu lupa membuka salah satunya:
+permintaan untuk Sabtu bisa menganggur tiga hari sementara HRD merasa
+antreannya kosong. HRD **tidak** melihat menu Permintaan DW — isinya sudah ada
+di Antrean miliknya, dan dua pintu ke daftar yang sama membuat ia memutuskan di
+satu tempat lalu mencarinya lagi di tempat lain.
+
+`Setujui semua` di baris kepala tanggal hanya menyapu **pengajuan**, tidak
+permintaan: tiap permintaan perlu diputuskan siapa orangnya, dan tombol yang
+menyapu keduanya melewati justru bagian yang butuh dipikirkan.
 
 ### DW: `KEDALUWARSA` ditulis saat DIBACA, bukan lewat cron
 
