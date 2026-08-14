@@ -421,6 +421,46 @@ try {
        Penyambungan otomatis di atas cuma menangkap produk yang DISIMPAN sejak
        hari ini; ratusan produk yang sudah ada sebelumnya tidak akan pernah
        lewat sana. */
+    /* GABUNGKAN dua bahan. Dipakai saat pasangan lama menunjuk nama yang sudah
+       dipakai bahan lain — ganti nama otomatis menolak kasus ini karena
+       menggabung dua bahan berharga beda itu keputusan manusia.
+
+       Yang digabung cuma RUJUKANNYA: baris resep yang memakai `dari` dialihkan
+       ke `ke`, pemakaian bulanan ikut pindah kalau bulannya belum terisi, lalu
+       baris `dari` dihapus. Harga `ke` TIDAK disentuh — yang dipilih user
+       sebagai tujuan adalah yang dianggap benar. */
+    if ($a === 'gabungBahan') {
+      $dari = hpp_txt($b->dari ?? '', 190);
+      $ke   = hpp_txt($b->ke ?? '', 190);
+      if ($dari === '' || $ke === '' || $dari === $ke) throw new Exception('Nama gabung tidak sah');
+      $c = $pdo->prepare('SELECT COUNT(*) FROM hpp_bahan WHERE nama=:n');
+      $c->execute(array(':n' => $ke));
+      if (!(int)$c->fetchColumn()) throw new Exception('Bahan tujuan "' . $ke . '" tidak ada');
+      $nResep = 0;
+      $st = $pdo->query('SELECT id,bahan FROM hpp_resep');
+      $tulis = $pdo->prepare('UPDATE hpp_resep SET bahan=:b WHERE id=:i');
+      foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $baris = json_decode((string)$r['bahan'], true);
+        if (!is_array($baris)) continue;
+        $ubah = false;
+        foreach ($baris as &$ln) {
+          if (isset($ln['nama']) && $ln['nama'] === $dari) { $ln['nama'] = $ke; $ubah = true; }
+        }
+        unset($ln);
+        if ($ubah) { $tulis->execute(array(':b' => json_encode($baris, JSON_UNESCAPED_UNICODE), ':i' => $r['id'])); $nResep++; }
+      }
+      $bl = $pdo->prepare('SELECT bulan FROM hpp_pakai WHERE bahan=:l'); $bl->execute(array(':l' => $dari));
+      $adaB = $pdo->prepare('SELECT COUNT(*) FROM hpp_pakai WHERE bahan=:b AND bulan=:m');
+      $pindah = $pdo->prepare('UPDATE hpp_pakai SET bahan=:b WHERE bahan=:l AND bulan=:m');
+      foreach ($bl->fetchAll(PDO::FETCH_COLUMN) as $m) {
+        $adaB->execute(array(':b' => $ke, ':m' => $m));
+        if ((int)$adaB->fetchColumn()) continue;
+        $pindah->execute(array(':b' => $ke, ':l' => $dari, ':m' => $m));
+      }
+      $pdo->prepare('DELETE FROM hpp_pakai WHERE bahan=:l')->execute(array(':l' => $dari));
+      $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:l')->execute(array(':l' => $dari));
+      pur_json(array('status'=>'success','saved'=>true,'resep'=>$nResep));
+    }
     if ($a === 'tarikProduk') {
       require_once __DIR__ . '/lib_hpp_nama.php';
       $n = 0;
