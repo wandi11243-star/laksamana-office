@@ -108,6 +108,37 @@ function hpp_pastikan_tabel2($pdo) {
        data LONGTEXT NOT NULL
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 }
+/* PERLU ADA DI PURCHASING? — saklar per barang (14 Agustus 2026, permintaan
+   user). Sebabnya: daftar Bahan & Harga isinya BAHAN BAKU RAW, sementara base
+   dan produk rakitan hidup sebagai RESEP. Keduanya tidak selalu perlu berdiri
+   di basis purchasing:
+
+     - bahan raw     : hampir semuanya dibeli, jadi bawaannya YA. Yang tidak
+                       dibeli (Air, es dari mesin sendiri) dimatikan saklarnya.
+     - resep base    : dibuat sendiri, jadi bawaannya TIDAK. Tapi base yang
+                       diproduksi Central Kitchen lalu diambil outlet MEMANG
+                       barang purchasing — purchasing sudah punya penanda
+                       `sumber:'ck'` untuk itu — jadi saklarnya bisa dinyalakan.
+
+   Kolomnya ditambahkan belakangan lewat ALTER, bukan lewat CREATE TABLE saja:
+   tabelnya sudah berisi di dev dan produksi, dan CREATE TABLE IF NOT EXISTS
+   tidak pernah menyentuh tabel yang sudah ada. */
+function hpp_pastikan_kolom($pdo) {
+  $cek = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c');
+  foreach (array(array('hpp_bahan', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 1'),
+                 array('hpp_resep', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 0')) as $k) {
+    $cek->execute(array(':t' => $k[0], ':c' => $k[1]));
+    if ((int)$cek->fetchColumn()) continue;
+    $pdo->exec('ALTER TABLE `' . $k[0] . '` ADD COLUMN `' . $k[1] . '` ' . $k[2]);
+    if ($k[0] === 'hpp_bahan') {
+      /* Warisan: bahan yang dulu ditandai "mandiri" (produk = '-') adalah
+         persis bahan yang user nyatakan tidak dibeli lewat purchasing. Saklarnya
+         dimatikan sekali di sini supaya keputusan itu tidak perlu diulang. */
+      $pdo->exec("UPDATE hpp_bahan SET di_purchasing = 0 WHERE produk = '-'");
+    }
+  }
+}
 function hpp_setting_baca($pdo) {
   $row = $pdo->query('SELECT data FROM hpp_setting WHERE id=1')->fetch(PDO::FETCH_ASSOC);
   $d = $row ? json_decode((string)$row['data'], true) : null;
@@ -135,6 +166,7 @@ function hpp_ambil($pdo) {
        sudah diubah tapi per1-nya tertinggal — persis jenis bug yang tidak
        pernah kelihatan sampai HPP satu menu terlihat aneh. */
     $b['per1'] = $b['qty_beli'] > 0 ? $b['harga_beli'] / $b['qty_beli'] : 0;
+    $b['di_purchasing'] = isset($b['di_purchasing']) ? (int)$b['di_purchasing'] : 1;
   }
   unset($b);
   $resep = $pdo->query('SELECT * FROM hpp_resep ORDER BY jenis, tipe, nama')->fetchAll(PDO::FETCH_ASSOC);
@@ -145,6 +177,7 @@ function hpp_ambil($pdo) {
     $r['harga_upsize'] = (float)$r['harga_upsize'];
     $r['modal_manual'] = (float)$r['modal_manual'];
     $r['aktif']        = (int)$r['aktif'];
+    $r['di_purchasing'] = isset($r['di_purchasing']) ? (int)$r['di_purchasing'] : 0;
     $j = json_decode((string)$r['bahan'], true);
     $r['bahan'] = is_array($j) ? $j : array();
   }
@@ -215,11 +248,11 @@ function hpp_simpan_bahan($pdo, $d, $by) {
      rujukan BERUPA NAMA, jadi penggantian nama tanpa menyentuh resep akan
      memutus rujukan diam-diam — karena itu resep ikut ditambal di bawah. */
   $st = $pdo->prepare(
-    'INSERT INTO hpp_bahan (nama,satuan,qty_beli,harga_beli,vendor,produk,kategori,catatan,updated_at,updated_by)
-     VALUES (:n,:s,:q,:h,:v,:p,:k,:c,:ua,:ub)
+    'INSERT INTO hpp_bahan (nama,satuan,qty_beli,harga_beli,vendor,produk,kategori,catatan,di_purchasing,updated_at,updated_by)
+     VALUES (:n,:s,:q,:h,:v,:p,:k,:c,:dp,:ua,:ub)
      ON DUPLICATE KEY UPDATE satuan=VALUES(satuan), qty_beli=VALUES(qty_beli),
        harga_beli=VALUES(harga_beli), vendor=VALUES(vendor), produk=VALUES(produk),
-       kategori=VALUES(kategori), catatan=VALUES(catatan),
+       kategori=VALUES(kategori), catatan=VALUES(catatan), di_purchasing=VALUES(di_purchasing),
        updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
   $st->execute(array(
     ':n' => $nama,
@@ -230,6 +263,10 @@ function hpp_simpan_bahan($pdo, $d, $by) {
     ':p' => hpp_txt(isset($d->produk) ? $d->produk : '', 190),
     ':k' => hpp_txt(isset($d->kategori) ? $d->kategori : '', 64),
     ':c' => hpp_txt(isset($d->catatan) ? $d->catatan : '', 255),
+    /* Bahan raw bawaannya HARUS ada di purchasing; yang tidak dibeli dimatikan
+       satu per satu. Bawaan sebaliknya (default mati) akan membuat ratusan
+       bahan diam-diam hilang dari daftar belanja tanpa ada yang memutuskan. */
+    ':dp' => (isset($d->di_purchasing) && !$d->di_purchasing) ? 0 : 1,
     ':ua' => hpp_ms(), ':ub' => hpp_txt($by, 120),
   ));
   $ikut = 0;
@@ -302,14 +339,15 @@ function hpp_simpan_resep($pdo, $d, $by) {
   }
   $st = $pdo->prepare(
     'INSERT INTO hpp_resep (id,nama,jenis,tipe,seksi,yield_qty,yield_unit,
-       harga_lama,harga_baru,harga_upsize,modal_manual,catatan,bahan,aktif,updated_at,updated_by)
-     VALUES (:i,:n,:j,:t,:s,:yq,:yu,:hl,:hb,:hu,:mm,:c,:b,:a,:ua,:ub)
+       harga_lama,harga_baru,harga_upsize,modal_manual,catatan,bahan,aktif,di_purchasing,updated_at,updated_by)
+     VALUES (:i,:n,:j,:t,:s,:yq,:yu,:hl,:hb,:hu,:mm,:c,:b,:a,:dp,:ua,:ub)
      ON DUPLICATE KEY UPDATE nama=VALUES(nama), jenis=VALUES(jenis), tipe=VALUES(tipe),
        seksi=VALUES(seksi), yield_qty=VALUES(yield_qty), yield_unit=VALUES(yield_unit),
        harga_lama=VALUES(harga_lama), harga_baru=VALUES(harga_baru),
        harga_upsize=VALUES(harga_upsize), modal_manual=VALUES(modal_manual),
        catatan=VALUES(catatan), bahan=VALUES(bahan),
-       aktif=VALUES(aktif), updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
+       aktif=VALUES(aktif), di_purchasing=VALUES(di_purchasing),
+       updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
   $yq = hpp_num(isset($d->yield_qty) ? $d->yield_qty : 1);
   $st->execute(array(
     ':i' => $id, ':n' => $nama,
@@ -332,6 +370,10 @@ function hpp_simpan_resep($pdo, $d, $by) {
     ':c'  => hpp_txt(isset($d->catatan) ? $d->catatan : '', 2000),
     ':b'  => json_encode($baris, JSON_UNESCAPED_UNICODE),
     ':a'  => (isset($d->aktif) && !$d->aktif) ? 0 : 1,
+    /* Resep dibuat sendiri, jadi bawaannya TIDAK berdiri di purchasing.
+       Dinyalakan hanya untuk base yang diproduksi Central Kitchen lalu diambil
+       outlet — itu memang barang yang dipesan lewat sana. */
+    ':dp' => (isset($d->di_purchasing) && $d->di_purchasing) ? 1 : 0,
     ':ua' => hpp_ms(), ':ub' => hpp_txt($by, 120),
   ));
   return array('status' => 'success', 'saved' => true, 'id' => $id, 'bahan' => count($baris));
@@ -362,6 +404,7 @@ try {
   $pdo = pur_pdo();
   hpp_pastikan_tabel($pdo);
   hpp_pastikan_tabel2($pdo);
+  hpp_pastikan_kolom($pdo);
 
   if ($metode === 'GET') {
     pur_cek_token();
@@ -401,7 +444,10 @@ try {
         $baruDiHpp = !(int)$cek->fetchColumn();
       }
       $hasil = hpp_simpan_bahan($pdo, $d, $by);
-      if ($baruDiHpp) {
+      /* Saklarnya menentukan. Bahan yang dinyatakan tidak dibeli lewat
+         purchasing tidak boleh mendarat di daftar belanja mereka hanya karena
+         dibuat di sini. */
+      if ($baruDiHpp && !(isset($d->di_purchasing) && !$d->di_purchasing)) {
         try {
           $ada = $pdo->prepare('SELECT COUNT(*) FROM products WHERE nama=:n');
           $ada->execute(array(':n' => $nm));
@@ -486,7 +532,32 @@ try {
       $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n')->execute(array(':n' => $n));
       pur_json(['status' => 'success', 'saved' => true]);
     }
-    if ($a === 'simpanResep') pur_json(hpp_simpan_resep($pdo, $b->data ?? new stdClass(), $by));
+    if ($a === 'simpanResep') {
+      $d = $b->data ?? new stdClass();
+      $hasil = hpp_simpan_resep($pdo, $d, $by);
+      /* Base yang ditandai "ada di purchasing" didaftarkan sebagai barang
+         produksi Central Kitchen (`sumber:'ck'`) — penanda yang memang sudah
+         dipakai purchasing untuk barang yang tidak dibeli ke vendor tapi tetap
+         dipesan outlet. Tanpa penanda itu, ia akan muncul di daftar belanja
+         vendor sebagai barang yang tidak pernah bisa dibeli dari siapa pun. */
+      if (!empty($d->di_purchasing)) {
+        $nmR = hpp_txt(isset($d->nama) ? $d->nama : '', 190);
+        try {
+          $adaP = $pdo->prepare('SELECT COUNT(*) FROM products WHERE nama=:n');
+          $adaP->execute(array(':n' => $nmR));
+          if ($nmR !== '' && !(int)$adaP->fetchColumn()) {
+            $satR = hpp_txt(isset($d->yield_unit) ? $d->yield_unit : '', 32);
+            pur_product_simpan($pdo, $nmR, '', array(), '', $satR !== '' ? array($satR) : array(),
+                               null, null, null, 'ck');
+            $hasil['purchasingBaru'] = true;
+          }
+        } catch (Throwable $e) {
+          error_log('[stock/hpp] daftar resep ke purchasing gagal: ' . $e->getMessage());
+          $hasil['purchasingGagal'] = true;
+        }
+      }
+      pur_json($hasil);
+    }
     if ($a === 'hapusResep') {
       $i = hpp_txt($b->id ?? '', 48);
       $pdo->prepare('DELETE FROM hpp_resep WHERE id=:i')->execute(array(':i' => $i));
