@@ -30,6 +30,11 @@
 if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.local.php';
 else                                            require_once __DIR__ . '/config.php';
 
+/* Identitas pemanggil. Sampai berkas ini ada, seluruh hak akses modul hidup
+   hanya di layar dan API-nya terbuka untuk siapa saja — lihat kepala
+   lib_sesi.php untuk apa saja yang bisa diambil dan diubah orang asing. */
+require_once __DIR__ . '/lib_sesi.php';
+
 function db() {
   static $pdo = null;
   if ($pdo !== null) return $pdo;
@@ -188,7 +193,149 @@ function pastikan_tabel($pdo) {
        `updated_at` BIGINT           NOT NULL DEFAULT 0,
        `updated_by` VARCHAR(120)     NOT NULL DEFAULT \'\'
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Sesi daily worker. DW tidak punya akun Office, jadi ia tidak bisa
+     dibuktikan lewat whoami seperti staf — gerbangnya no HP + PIN, dan
+     buktinya token yang diterbitkan di sini.
+
+     Tanpa tabel ini, `ajuanSaya` dan `simpanAjuan` hanya menerima `dwId` apa
+     adanya dari client: siapa pun bisa menyebut id orang lain dan membaca
+     seluruh riwayat kerjanya, atau mengirim ajuan atas namanya. Frontend
+     memang selalu mengirim id yang benar — tapi frontend bukan penjaga. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `dw_sesi` (
+       `token`          VARCHAR(64) NOT NULL PRIMARY KEY,
+       `dw_id`          VARCHAR(32) NOT NULL,
+       `dibuat_at`      BIGINT      NOT NULL DEFAULT 0,
+       `dipakai_at`     BIGINT      NOT NULL DEFAULT 0,
+       `kedaluwarsa_at` BIGINT      NOT NULL DEFAULT 0,
+       KEY `idx_sesi_dw` (`dw_id`),
+       KEY `idx_sesi_exp` (`kedaluwarsa_at`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Pembatas percobaan masuk. PIN-nya EMPAT ANGKA — sepuluh ribu kemungkinan,
+     dan tanpa tabel ini seluruhnya bisa dicoba satu per satu dalam hitungan
+     menit oleh skrip mana pun, dari mana pun (CORS-nya `*`). Yang berhasil
+     masuk langsung bisa mengajukan atas nama orang itu.
+
+     Dihitung per NOMOR dan per IP sekaligus: per nomor menahan tebakan
+     terhadap satu orang, per IP menahan penyapuan seluruh daftar nomor
+     dengan PIN yang sama ("1234" untuk semua orang). */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `dw_login_gagal` (
+       `kunci`      VARCHAR(80) NOT NULL PRIMARY KEY,
+       `jumlah`     INT         NOT NULL DEFAULT 0,
+       `terakhir_at` BIGINT     NOT NULL DEFAULT 0,
+       `sampai_at`  BIGINT      NOT NULL DEFAULT 0
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
   $sudah = true;
+}
+
+/* ==================== SIAPA YANG MEMANGGIL ====================
+   Dua jenis pemakai, dua jalur bukti yang sama sekali berbeda:
+
+     staf Office  -> token sesi Office, dibuktikan ke account-api (whoami)
+     daily worker -> token dari loginDW, dibuktikan ke tabel dw_sesi
+
+   Keduanya sengaja TIDAK bisa saling menyamar: token DW tidak pernah
+   memulangkan user Office, dan sebaliknya. */
+
+/* Staf Office yang punya akses modul ini, atau null. Akses modulnya ikut
+   diperiksa DI SINI — bukan cuma "token sah": akun Office yang tidak dicentang
+   modul DW tetap punya token yang sah untuk modul lain, dan tanpa baris ini
+   ia bisa membaca seluruh talent pool lewat token itu. */
+function dw_office($body = null) {
+  $u = sesi_user($body);
+  if (!$u) return null;
+  return sesi_punya_modul($u, 'dw') ? $u : null;
+}
+function dw_admin($u) { return sesi_admin_modul($u, 'dw'); }
+
+/* Berhak MEMUTUSKAN di modul ini — inilah "HRD" yang dimaksud.
+   Aturannya SAMA PERSIS dengan isHR() di deploy/dw/index.html, termasuk
+   bagian yang mudah terlewat: daftar kosong berarti SEMUA staf Office yang
+   punya akses modul dianggap berhak. Itu disengaja, dan menyalinnya ke sini
+   wajib — kalau backend lebih ketat daripada layar, pemasangan yang sudah
+   jalan (daftarnya memang masih kosong) mendadak mengunci semua orang di
+   luar begitu versi ini mendarat, termasuk admin yang seharusnya mengisi
+   daftarnya. */
+function dw_hrd($u) {
+  if (!$u) return false;
+  if (dw_admin($u)) return true;
+  $st = baca_setting();
+  $hr = (is_object($st) && isset($st->hr) && is_array($st->hr)) ? $st->hr : array();
+  if (!count($hr)) return true;
+  foreach ($hr as $id) { if ((string)$id === (string)$u['id']) return true; }
+  return false;
+}
+
+/* Daily worker pemilik token, atau null. */
+function dw_sesi_pemilik($body = null) {
+  $t = trim((string)sesi_token($body));
+  if ($t === '') return null;
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $st = $pdo->prepare(
+    'SELECT s.`dw_id`, s.`kedaluwarsa_at`, p.`nama`, p.`status`
+       FROM `dw_sesi` s LEFT JOIN `dw_pekerja` p ON p.`id` = s.`dw_id`
+      WHERE s.`token` = :t');
+  $st->execute(array(':t' => $t));
+  $r = $st->fetch();
+  if (!$r) return null;
+  if ((int)$r['kedaluwarsa_at'] < ms()) {
+    $pdo->prepare('DELETE FROM `dw_sesi` WHERE `token`=:t')->execute(array(':t' => $t));
+    return null;
+  }
+  /* Yang dinonaktifkan (atau dihapus) berhenti berlaku SEKETIKA, tanpa
+     menunggu tokennya kedaluwarsa. Kalau tidak, orang yang baru dilepas masih
+     bisa mengajukan selama tiga puluh hari berikutnya. */
+  if ($r['nama'] === null) return null;
+  if ($r['status'] === 'NONAKTIF' || $r['status'] === 'BLOKIR') return null;
+  return array('id' => $r['dw_id'], 'nama' => $r['nama']);
+}
+
+/* ==================== PEMBATAS PERCOBAAN MASUK ====================
+   Tangga jeda, bukan penguncian permanen: DW yang benar-benar lupa PIN-nya
+   akan mencoba beberapa kali, dan mengunci akunnya berarti ia menelepon HR
+   malam itu juga. Yang perlu dihentikan adalah percobaan yang RIBUAN, bukan
+   yang kelima. */
+function dw_jeda_gagal($n) {
+  if ($n < 5)  return 0;
+  if ($n < 10) return 60;      // 1 menit
+  if ($n < 20) return 600;     // 10 menit
+  return 3600;                 // 1 jam
+}
+function dw_ip() {
+  $v = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+  return substr((string)$v, 0, 60);
+}
+/* Sisa detik penguncian untuk kunci ini, 0 kalau tidak terkunci. */
+function dw_sisa_kunci($pdo, $kunci) {
+  $st = $pdo->prepare('SELECT `sampai_at` FROM `dw_login_gagal` WHERE `kunci`=:k');
+  $st->execute(array(':k' => $kunci));
+  $r = $st->fetch();
+  if (!$r) return 0;
+  $sisa = (int)$r['sampai_at'] - ms();
+  return $sisa > 0 ? (int)ceil($sisa / 1000) : 0;
+}
+function dw_catat_gagal($pdo, $kunci) {
+  $now = ms();
+  /* Hitungannya direset kalau percobaan terakhir sudah lama (> 1 jam):
+     sepuluh kali salah yang tersebar sepanjang tahun bukan serangan, dan
+     menumpuknya selamanya berarti DW yang pelupa lama-lama terkunci sejam
+     hanya karena riwayat berbulan-bulan lalu. */
+  $st = $pdo->prepare('SELECT `jumlah`,`terakhir_at` FROM `dw_login_gagal` WHERE `kunci`=:k');
+  $st->execute(array(':k' => $kunci));
+  $r = $st->fetch();
+  $n = ($r && ($now - (int)$r['terakhir_at']) < 3600000) ? ((int)$r['jumlah'] + 1) : 1;
+  $sampai = $now + dw_jeda_gagal($n) * 1000;
+  $up = $pdo->prepare(
+    'INSERT INTO `dw_login_gagal` (`kunci`,`jumlah`,`terakhir_at`,`sampai_at`)
+     VALUES (:k,:n,:t,:s)
+     ON DUPLICATE KEY UPDATE `jumlah`=VALUES(`jumlah`),
+       `terakhir_at`=VALUES(`terakhir_at`), `sampai_at`=VALUES(`sampai_at`)');
+  $up->execute(array(':k' => $kunci, ':n' => $n, ':t' => $now, ':s' => $sampai));
+}
+function dw_hapus_gagal($pdo, $kunci) {
+  $pdo->prepare('DELETE FROM `dw_login_gagal` WHERE `kunci`=:k')->execute(array(':k' => $kunci));
 }
 
 /* ==================== BACA ====================
@@ -198,7 +345,17 @@ function pastikan_tabel($pdo) {
    Pekerja dikirim SELURUHNYA tanpa batas tanggal: talent pool-nya berukuran
    puluhan, bukan ribuan, dan hampir setiap halaman butuh namanya untuk
    menerjemahkan `dw_id` di ajuan. Yang dibatasi tanggal hanya ajuan. */
-function baca_semua($dari, $sampai) {
+/* $penuh = pemanggilnya berhak memutuskan (HRD). Yang TIDAK berhak tetap
+   menerima daftar orangnya — Dashboard dan Kalender DW memang terbuka untuk
+   seluruh staf yang punya akses modul, dan keduanya butuh nama untuk
+   menerjemahkan `dw_id` — tapi TANPA nomor HP dan tanpa tujuan pembayaran.
+
+   Disaring DI SINI, bukan di layar. Sebelumnya satu GET memulangkan nomor HP
+   seluruh talent pool kepada siapa pun; layar staf non-HR memang tidak
+   menampilkannya (lihat `p&&boleh` di bukaAjuan), tapi datanya sudah terlanjur
+   sampai di perangkatnya dan tinggal dibuka di tab Network. Yang tidak dikirim
+   tidak bisa bocor. */
+function baca_semua($dari, $sampai, $penuh = true) {
   $pdo = db();
   pastikan_tabel($pdo);
 
@@ -209,20 +366,29 @@ function baca_semua($dari, $sampai) {
             `skill`,`status`,`catatan`,`dibuat_at`
        FROM `dw_pekerja` ORDER BY `nama`');
   foreach ($q->fetchAll() as $r) {
-    $pekerja[] = array(
-      'id' => $r['id'], 'nama' => $r['nama'], 'hp' => $r['no_hp'],
+    $baris = array(
+      'id' => $r['id'], 'nama' => $r['nama'],
       /* PIN tidak pernah dikirim apa adanya. HR cuma perlu tahu SUDAH atau
          BELUM diberi PIN; nilainya sendiri tidak ada gunanya di layar dan
          hanya menambah satu tempat lagi ia bisa bocor. */
       'adaPin' => ($r['pin'] !== '' ? 1 : 0),
-      'gender' => $r['gender'], 'area' => $r['area'], 'bank' => $r['bank'],
-      'bayarJenis' => isset($r['bayar_jenis']) ? $r['bayar_jenis'] : 'BANK',
-      'bayarNomor' => isset($r['bayar_nomor']) ? $r['bayar_nomor'] : '',
-      'bayarNama'  => isset($r['bayar_nama'])  ? $r['bayar_nama']  : '',
+      'gender' => $r['gender'], 'area' => $r['area'],
       'divisi' => $r['divisi'], 'posisi' => $r['posisi'],
       'skill' => $r['skill'], 'status' => $r['status'],
-      'catatan' => $r['catatan'], 'dibuatAt' => (int)$r['dibuat_at'],
+      'dibuatAt' => (int)$r['dibuat_at'],
     );
+    if ($penuh) {
+      /* Hanya untuk yang berhak memutuskan: nomor HP, tujuan transfer, dan
+         catatan HR tentang orangnya. Ketiganya tidak dipakai satu pun halaman
+         yang terbuka untuk staf biasa. */
+      $baris['hp']         = $r['no_hp'];
+      $baris['bank']       = $r['bank'];
+      $baris['bayarJenis'] = isset($r['bayar_jenis']) ? $r['bayar_jenis'] : 'BANK';
+      $baris['bayarNomor'] = isset($r['bayar_nomor']) ? $r['bayar_nomor'] : '';
+      $baris['bayarNama']  = isset($r['bayar_nama'])  ? $r['bayar_nama']  : '';
+      $baris['catatan']    = $r['catatan'];
+    }
+    $pekerja[] = $baris;
   }
 
   /* Ajuan: yang di dalam rentang tanggal + SEMUA yang masih MENUNGGU.
@@ -438,10 +604,23 @@ function login_dw($hp, $pin) {
   $pin = preg_replace('/\D+/', '', (string)$pin);
   if ($hp === '' || $pin === '') throw new Exception('No. HP dan PIN wajib diisi');
 
+  /* Penguncian diperiksa SEBELUM PIN dicocokkan. Kalau diperiksa sesudahnya,
+     penebak tetap mendapat jawaban untuk tiap percobaan dan pembatasnya cuma
+     memperlambat pelaporannya, bukan penebakannya. */
+  $kHp = 'hp:' . $hp;
+  $kIp = 'ip:' . dw_ip();
+  $sisa = max(dw_sisa_kunci($pdo, $kHp), dw_sisa_kunci($pdo, $kIp));
+  if ($sisa > 0) {
+    throw new Exception('Terlalu banyak percobaan. Coba lagi dalam '
+      . ($sisa >= 60 ? (int)ceil($sisa / 60) . ' menit' : $sisa . ' detik') . '.');
+  }
+
   $st = $pdo->prepare('SELECT * FROM `dw_pekerja` WHERE `no_hp`=:h');
   $st->execute(array(':h' => $hp));
   $r = $st->fetch();
   if (!$r || $r['pin'] === '' || !hash_equals((string)$r['pin'], (string)$pin)) {
+    dw_catat_gagal($pdo, $kHp);
+    dw_catat_gagal($pdo, $kIp);
     // Pesan sengaja tidak membedakan "nomor tidak ada" dan "PIN salah".
     throw new Exception('No. HP atau PIN salah. Kalau lupa, hubungi HR.');
   }
@@ -453,10 +632,45 @@ function login_dw($hp, $pin) {
     throw new Exception('Akun Anda sudah tidak aktif. Hubungi HR.');
   }
 
-  return array('dw' => array(
+  /* Berhasil = hitungan gagal dihapus, untuk KEDUA kunci. Kalau hanya kunci
+     nomornya yang dibersihkan, satu HP yang dipakai berdua (hal biasa di sini)
+     tetap membawa hukuman IP dari kesalahan orang sebelumnya. */
+  dw_hapus_gagal($pdo, $kHp);
+  dw_hapus_gagal($pdo, $kIp);
+
+  /* Sapuan sesi kedaluwarsa, sesekali saja (kira-kira 1 dari 20 kali masuk).
+     Menyapunya di TIAP permintaan berarti satu DELETE untuk setiap orang yang
+     cuma membuka halamannya; sesi mati yang menganggur beberapa hari tidak
+     merugikan apa pun karena dw_sesi_pemilik() memeriksa tanggalnya sendiri. */
+  if (random_int(1, 20) === 1) {
+    $pdo->prepare('DELETE FROM `dw_sesi` WHERE `kedaluwarsa_at` < :t')->execute(array(':t' => ms()));
+  }
+
+  /* 30 hari — sama dengan umur sesi yang disimpan peramban DW (lihat
+     simpanSesiDW di frontend). Dua angka yang berbeda berarti salah satunya
+     mati lebih dulu, dan yang terjadi di layar cuma "tiba-tiba diminta PIN
+     lagi" tanpa sebab yang bisa dijelaskan. */
+  $token = bin2hex(random_bytes(32));
+  $now = ms();
+  $ins = $pdo->prepare(
+    'INSERT INTO `dw_sesi` (`token`,`dw_id`,`dibuat_at`,`dipakai_at`,`kedaluwarsa_at`)
+     VALUES (:t,:d,:a,:b,:c)');
+  $ins->execute(array(':t' => $token, ':d' => $r['id'], ':a' => $now, ':b' => $now,
+                      ':c' => $now + 30 * 24 * 3600 * 1000));
+
+  return array('token' => $token, 'dw' => array(
     'id' => $r['id'], 'nama' => $r['nama'], 'hp' => $r['no_hp'],
     'divisi' => $r['divisi'], 'posisi' => $r['posisi'], 'status' => $r['status'],
   ));
+}
+/* Keluar = tokennya dicabut di server, bukan cuma dilupakan peramban. HP
+   daily worker sering dipinjam-pinjamkan, dan token yang masih hidup di
+   database berarti orang berikutnya tinggal mengembalikan isi localStorage. */
+function logout_dw($token) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $pdo->prepare('DELETE FROM `dw_sesi` WHERE `token`=:t')->execute(array(':t' => (string)$token));
+  return array('ok' => true);
 }
 
 /* Ajuan + riwayat MILIK SATU DW saja. Dipakai halaman "Jadwal Saya" saat
@@ -742,7 +956,53 @@ function simpan_hadir($id, $hadir, $nota, $by) {
   return array('saved' => true, 'id' => s($id));
 }
 
-/* ==================== SETTING ==================== */
+/* Satu ajuan apa adanya — dipakai penjaga di api.php untuk memastikan yang
+   membatalkan sebuah ajuan memang pemiliknya. */
+function ajuan_by_id($id) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $st = $pdo->prepare('SELECT * FROM `dw_ajuan` WHERE `id`=:id');
+  $st->execute(array(':id' => s($id)));
+  $r = $st->fetch();
+  return $r ? $r : null;
+}
+
+/* ==================== SETTING ====================
+   simpan_setting() menulis SELURUH blob dan karena itu dikunci untuk admin
+   modul saja (lihat api.php). Tapi penanda "sudah ditransfer" di halaman
+   Pembayaran ditekan HR biasa, belasan kali berturut-turut — kalau ia ikut
+   lewat simpan_setting, dua orang yang menandai berbarengan saling menimpa
+   seluruh tarif dan kuota, bukan cuma centangnya.
+
+   Karena itu penandanya punya jalur sendiri yang MENGUBAH SATU KUNCI saja,
+   dibaca-ubah-tulis di dalam satu transaksi. */
+function tandai_bayar($senin, $kunciTujuan, $nyala, $by) {
+  $senin = tgl_valid($senin);
+  $kunciTujuan = pot($kunciTujuan, 120);
+  if ($senin === '' || $kunciTujuan === '') throw new Exception('Penanda pembayaran butuh minggu & tujuan');
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $pdo->beginTransaction();
+  try {
+    $row = $pdo->query('SELECT `data` FROM `dw_setting` WHERE `id`=1 FOR UPDATE')->fetch();
+    $data = ($row && $row['data'] !== '') ? json_decode($row['data'], true) : array();
+    if (!is_array($data)) $data = array();
+    if (!isset($data['bayarLunas']) || !is_array($data['bayarLunas'])) $data['bayarLunas'] = array();
+    $k = $senin . '|' . $kunciTujuan;
+    if ($nyala) $data['bayarLunas'][$k] = array('at' => ms(), 'oleh' => pot($by, 120));
+    else        unset($data['bayarLunas'][$k]);
+    $st = $pdo->prepare(
+      'INSERT INTO `dw_setting` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
+       ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');
+    $st->execute(array(':d' => json_enc($data), ':ua' => ms(), ':ub' => pot($by, 120)));
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return array('saved' => true, 'kunci' => $senin . '|' . $kunciTujuan, 'nyala' => $nyala ? 1 : 0);
+}
+
 function simpan_setting($data, $by) {
   if (!is_array($data) && !is_object($data)) throw new Exception('Payload setting kosong/invalid');
   $pdo = db();

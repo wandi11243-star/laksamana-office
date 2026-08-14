@@ -704,6 +704,11 @@
 
 
 
+
+
+
+
+
 function svg() {  }
 
 
@@ -1034,7 +1039,6 @@ function toast() {  }
 
 
 
-function apiPost() {  }
 
 
 
@@ -1043,7 +1047,39 @@ function apiPost() {  }
 
 
 
-function apiGet() {  }
+
+
+
+function tokenSesi() {  }
+
+
+
+function sesiDitolak() { tampilkanGerbang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function apiPost() { tokenSesi(); sesiDitolak(); }
+
+
+
+
+
+
+
+
+function apiGet() { tokenSesi(); sesiDitolak(); }
+
 
 
 
@@ -1248,6 +1284,13 @@ function save() { simpanSetting(); }
 
 
 function bacaSesi() {  }
+
+
+
+
+
+
+
 
 
 
@@ -2987,6 +3030,25 @@ function barisAju() { kruById(); divisiDari(); tglManusia(); selisihHariAju(); b
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function selisihHariAju() { addD(); bisaPutuskan(); }
 
 
@@ -3159,7 +3221,64 @@ function kirimAju() { toast(); tutupModal(); apiPost(); simpanCache(); render();
 
 
 
-function putuskan() { bisaPutuskan(); toast(); apiPost(); shiftDef(); addD(); tulisSel(); simpanCache(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+function putuskan() { bisaPutuskan(); toast(); kruById(); namaKru(); tglPanjang(); addD(); tanyaAlasanTolak(); kirimPutusan(); esc(); shiftDef(); konfirmasi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tanyaAlasanTolak() { tutupModal(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimPutusan() { apiPost(); shiftDef(); addD(); tulisSel(); toast(); simpanCache(); render(); }
 
 
 
@@ -3816,6 +3935,22 @@ function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); 
 
 function sel_() {  }
 function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); parseD(); jabatanDari(); sel(); shiftDef(); dwOrang(); tglManusia(); dwSel(); daftarShift(); xEsc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

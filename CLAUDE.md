@@ -90,6 +90,46 @@ Konsekuensi yang harus dijaga saat menyunting keduanya:
   bernama diikat **berdasarkan posisi**: satu nama yang dipakai dua kali dalam
   satu `prepare()` gagal dengan `SQLSTATE[HY093]` yang tidak menyebut kolom apa
   pun. Sudah kejadian 5 Agustus 2026 di `simpan_pekerja`.
+
+### Hak akses DUA modul ini ditegakkan di SERVER (sejak 14 Agustus 2026)
+
+Beda dengan modul lain, `dw` dan `jadwal` **tidak** lagi menjaga hak akses cuma
+di layar. Tiap permintaan wajib membawa `sesi` (token sesi Office dari
+`lm_session`, atau token `loginDW` untuk daily worker); backend menanyakannya
+balik ke `account-api?action=whoami` **server-ke-server** lewat
+`<modul>-mysql/lib_sesi.php` — **berkas kembar, dua salinan identik**, kalau
+salah satu disunting yang lain harus ikut.
+
+Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
+
+| | boleh |
+|---|---|
+| DW — setujui/tolak/hapus ajuan, talent pool | **HRD saja** (`dw_hrd`: admin modul, atau ada di `setting.hr`; daftar kosong = semua staf bermodul, sama dengan layar) |
+| DW — ajukan & batalkan ajuan sendiri | DW pemilik tokennya (`dwId` dari client **diabaikan**) |
+| Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
+| kedua modul — `simpanSetting` | admin modul saja (blob-nya memuat daftar HRD/head) |
+
+Sengaja **tetap terbuka**: `ping`, `stats`, `jadwalDW`, `shiftHari`. Dua yang
+terakhir dipanggil backend Absensi server-ke-server, yang `config.php`-nya cuma
+bisa disunting manual di cPanel — menutupnya mematikan absensi kedua situs
+tanpa satu pun galat yang menyebut sebabnya.
+
+`ACCOUNT_API_URL` **tidak perlu diisi**: alamatnya diturunkan dari `SERVER_NAME`
+(bukan `HTTP_HOST`, yang bisa dipalsukan), jadi tidak ada langkah cPanel saat
+mendarat. Yang berubah untuk pemakai: sesi Office lama yang belum menyimpan
+`token` akan mendapat gerbang "Sesi berakhir" — satu kali masuk ulang, bukan
+modul yang mati.
+
+Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
+
+```bash
+node tools/uji-hak-akses.js     # 36 pemeriksaan, butuh php + pdo_sqlite di PATH
+```
+
+Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan
+berisi empat peran (admin / HRD / staf biasa / head Bar). Hak akses adalah
+satu-satunya bagian repo ini yang **kegagalannya tidak terlihat dari layar** —
+penjaga yang longgar tidak menampilkan apa pun yang aneh.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
   baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
   satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).

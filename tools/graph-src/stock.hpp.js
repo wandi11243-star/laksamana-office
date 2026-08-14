@@ -257,6 +257,11 @@
 
 
 
+
+
+
+
+
 function kini() {  }
 
 
@@ -336,7 +341,6 @@ function chipCogs() {  }
 
 
 function dipakaiOleh() {  }
-
 
 
 
@@ -580,7 +584,7 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { render(); bukaBahan(); dipakaiOleh(); per1(); }
+function viewBahan() { vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
 
 
 
@@ -622,7 +626,11 @@ function viewBahan() { render(); bukaBahan(); dipakaiOleh(); per1(); }
 
 
 
-function bukaBahan() { tutupModal(); segarPer1(); isiVendor(); hapusBahan(); kirim(); }
+
+function bukaBahan() { tutupModal(); segarPer1(); hapusBahan(); kirim(); }
+
+
+
 
 
 
@@ -660,10 +668,6 @@ function segarPer1() {  }
 
 
 
-function isiVendor() {  }
-
-
-
 function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
@@ -676,7 +680,13 @@ function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
 
-function skorMirip() {  }
+
+
+
+
+
+
+function vendorOf() {  }
 
 
 
@@ -684,21 +694,7 @@ function skorMirip() {  }
 
 
 
-function saranProduk() { skorMirip(); }
-
-
-
-function viewCocok() { kartu(); saranProduk(); dipakaiOleh(); per1(); cocokkan(); bukaBahan(); }
-
-
-
-
-
-
-
-
-
-
+function spanduSamakan() { samakanNama(); }
 
 
 
@@ -709,10 +705,64 @@ function viewCocok() { kartu(); saranProduk(); dipakaiOleh(); per1(); cocokkan()
 
 
 
+function spanduBelumTerdaftar() { render(); daftarkanSemua(); }
 
 
 
-function cocokkan() { kirim(); }
+
+
+
+
+
+
+
+function samakanNama() { setSync(); pesan(); muat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function daftarkanKePurchasing() { kirimProduk(); }
+
+
+
+
+function daftarkanSemua() { kirimProduk(); }
+
+
+
+
+
+function kirimProduk() { setSync(); }
+
+
+
+
+
+
+
+
+
+function lanjut() { muatProduk(); setSync(); pesan(); render(); }
+
+
+
+
+
+
+
 
 
 

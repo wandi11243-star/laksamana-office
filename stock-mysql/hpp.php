@@ -376,6 +376,42 @@ try {
       pur_json(['status' => 'success', 'saved' => true]);
     }
     if ($a === 'impor') pur_json(hpp_impor($pdo, $b->data ?? new stdClass(), $by, !empty($b->timpa)));
+    /* SAMAKAN NAMA DENGAN PURCHASING (14 Agustus 2026, permintaan user).
+       Pencocokan dihapus sebagai konsep: nama bahan di HPP harus SAMA PERSIS
+       dengan nama di basis purchasing, supaya bahan baru di sana langsung
+       terpakai di sini tanpa disandingkan siapa pun.
+
+       Pekerjaan menyandingkan yang sudah terlanjur dilakukan TIDAK dibuang —
+       justru dipakai sekali sebagai peta ganti nama: tiap bahan yang punya
+       pasangan diganti namanya jadi nama purchasing, seluruh baris resep yang
+       merujuknya ikut ditambal (lihat hpp_simpan_bahan), lalu penandanya
+       dikosongkan supaya tidak ada yang membacanya lagi.
+
+       Nama tujuan yang SUDAH dipakai baris lain sengaja dilewati dan
+       dilaporkan: menggabung dua bahan berharga beda adalah keputusan manusia,
+       bukan sesuatu yang boleh diputuskan skrip. */
+    if ($a === 'samakanNama') {
+      $rows = $pdo->query("SELECT * FROM hpp_bahan WHERE produk<>'' AND produk<>'-'")->fetchAll(PDO::FETCH_ASSOC);
+      $ada = array();
+      foreach ($pdo->query('SELECT nama FROM hpp_bahan')->fetchAll(PDO::FETCH_COLUMN) as $n) $ada[$n] = 1;
+      $ganti = 0; $bersih = 0; $bentrok = array();
+      foreach ($rows as $r) {
+        if ($r['produk'] === $r['nama']) {
+          $pdo->prepare("UPDATE hpp_bahan SET produk='' WHERE nama=:n")->execute(array(':n' => $r['nama']));
+          $bersih++; continue;
+        }
+        if (isset($ada[$r['produk']])) { $bentrok[] = $r['nama'] . ' → ' . $r['produk']; continue; }
+        $d = (object)array('nama' => $r['produk'], 'namaLama' => $r['nama'],
+                           'satuan' => $r['satuan'], 'qty_beli' => $r['qty_beli'],
+                           'harga_beli' => $r['harga_beli'], 'vendor' => $r['vendor'],
+                           'produk' => '', 'kategori' => $r['kategori'], 'catatan' => $r['catatan']);
+        hpp_simpan_bahan($pdo, $d, $by);
+        unset($ada[$r['nama']]); $ada[$r['produk']] = 1;
+        $ganti++;
+      }
+      pur_json(array('status'=>'success','saved'=>true,'ganti'=>$ganti,'bersih'=>$bersih,
+                     'bentrok'=>$bentrok));
+    }
     if ($a === 'simpanPakai') pur_json(hpp_pakai_simpan($pdo, $b->data ?? new stdClass(), $by));
     if ($a === 'simpanSetting') {
       $lama = hpp_setting_baca($pdo);

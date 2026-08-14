@@ -36,6 +36,11 @@
 if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.local.php';
 else                                            require_once __DIR__ . '/config.php';
 
+/* Identitas pemanggil. Sampai berkas ini ada, `bolehUbah(divisi)` hanya hidup
+   di layar: siapa pun yang tahu URL api.php bisa menulis sel jadwal divisi
+   mana pun. Lihat kepala lib_sesi.php. */
+require_once __DIR__ . '/lib_sesi.php';
+
 function db() {
   static $pdo = null;
   if ($pdo !== null) return $pdo;
@@ -145,6 +150,90 @@ function pastikan_tabel($pdo) {
        `updated_by` VARCHAR(120)     NOT NULL DEFAULT \'\'
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
   $sudah = true;
+}
+
+/* ==================== SIAPA YANG MEMANGGIL ====================
+   Aturan modul ini satu kalimat: YANG MENYUSUN JADWAL SEBUAH DIVISI ADALAH
+   HEAD DIVISI ITU. Admin modul boleh semuanya; selain keduanya, tidak ada
+   yang boleh menulis sel.
+
+   Yang membuat ini tidak sesederhana modul DW: sel dikenali dari `user_id`,
+   dan modul ini SENGAJA tidak punya daftar pegawai sendiri (lihat kepala
+   berkas). Jadi untuk tahu sebuah sel milik divisi apa, divisinya harus
+   disimpulkan dari sumber yang sama dengan layar — `divOverride` di
+   jadwal_setting, lalu kata pada `keterangan` akun Office. */
+
+/* SINONIM DIVISI — KEMBARAN `DIV_SINONIM` di deploy/jadwal/index.html.
+   Kalau salah satunya diubah, YANG SATUNYA HARUS IKUT. Kalau tidak, head
+   yang di layarnya jelas memegang divisi itu akan ditolak backend saat
+   menyimpan, dan pesannya akan menyebut divisi yang menurut layarnya bukan
+   divisinya — kebingungan yang tidak ada satu pun tempat melaporkannya.
+   Dicocokkan sebagai KATA UTUH, supaya "Barista" tidak terbaca sebagai
+   divisi "bar". */
+$GLOBALS['JDW_DIV_SINONIM'] = array(
+  'bar'     => array('bar', 'bartender'),
+  'kitchen' => array('kitchen', 'dapur'),
+  'floor'   => array('floor', 'service', 'waiter', 'waitress'),
+  'cashier' => array('cashier', 'kasir'),
+);
+define('JDW_DIV_NONSHIFT', 'nonshift');
+
+/* Divisi seorang kru. Urutannya SAMA dengan divisiDari() di frontend:
+   penempatan manual menang atas apa pun, baru kata pada keterangan Office. */
+function jdw_divisi_user($uid) {
+  $set = json_decode(json_encode(baca_setting()), true);
+  $ov = (is_array($set) && isset($set['divOverride']) && is_array($set['divOverride']))
+      ? $set['divOverride'] : array();
+  if (isset($ov[$uid]) && $ov[$uid] !== '') return (string)$ov[$uid];
+
+  $roster = sesi_roster();
+  if (!isset($roster[$uid])) return JDW_DIV_NONSHIFT;
+  $ket = strtolower((string)(isset($roster[$uid]['keterangan']) ? $roster[$uid]['keterangan'] : ''));
+  $kata = preg_split('/[^a-z]+/', $ket, -1, PREG_SPLIT_NO_EMPTY);
+  if (!is_array($kata)) $kata = array();
+  foreach ($GLOBALS['JDW_DIV_SINONIM'] as $kode => $sin) {
+    foreach ($sin as $x) { if (in_array($x, $kata, true)) return $kode; }
+  }
+  return JDW_DIV_NONSHIFT;
+}
+
+function jdw_office($body = null) {
+  $u = sesi_user($body);
+  if (!$u) return null;
+  return sesi_punya_modul($u, 'jadwal') ? $u : null;
+}
+function jdw_admin($u) { return sesi_admin_modul($u, 'jadwal'); }
+
+/* Head divisi ini? Sumbernya `heads` di jadwal_setting — daftar yang sama
+   yang dipakai isHeadUser() di layar. */
+function jdw_head($u, $div) {
+  if (!$u) return false;
+  $set = json_decode(json_encode(baca_setting()), true);
+  $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads']))
+         ? $set['heads'] : array();
+  $daftar = (isset($heads[$div]) && is_array($heads[$div])) ? $heads[$div] : array();
+  foreach ($daftar as $id) { if ((string)$id === (string)$u['id']) return true; }
+  return false;
+}
+
+/* Boleh menulis sel divisi ini? Sepasang dengan bolehUbah() di frontend.
+   BELUM ADA SATU PUN HEAD DITUNJUK = semua yang punya akses modul boleh.
+   Itu disengaja dan wajib disalin dari layar: pemasangan yang sudah jalan
+   belum tentu sudah mengisi daftar head, dan penjaga yang lebih ketat
+   daripada layar akan mengunci seluruh perusahaan di luar begitu versi ini
+   mendarat — termasuk admin yang seharusnya menunjuk head-nya. */
+function jdw_ada_head() {
+  $set = json_decode(json_encode(baca_setting()), true);
+  $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads']))
+         ? $set['heads'] : array();
+  foreach ($heads as $d) { if (is_array($d) && count($d)) return true; }
+  return false;
+}
+function jdw_boleh_divisi($u, $div) {
+  if (!$u) return false;
+  if (jdw_admin($u)) return true;
+  if (!jdw_ada_head()) return true;
+  return jdw_head($u, $div);
 }
 
 /* ==================== BACA ====================
@@ -290,11 +379,68 @@ function baca_setting() {
 
    Sengaja TANPA GET_LOCK global: yang ditulis hanya baris milik kru yang
    memang sedang disunting, jadi head divisi lain tidak perlu menunggu. */
-function simpan_sel($rows, $hapus, $by) {
+/* Head di divisi mana pun. Dipakai HANYA sebagai jalan mundur saat divisi
+   seorang kru tidak bisa ditentukan — lihat jdw_wajib_boleh_baris(). */
+function jdw_head_di_mana_pun($u) {
+  if (!$u) return false;
+  $set = json_decode(json_encode(baca_setting()), true);
+  $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads'])) ? $set['heads'] : array();
+  foreach ($heads as $daftar) {
+    if (!is_array($daftar)) continue;
+    foreach ($daftar as $id) { if ((string)$id === (string)$u['id']) return true; }
+  }
+  return false;
+}
+
+/* Menolak dengan menyebut divisinya, BUKAN diam-diam melewati barisnya.
+   Baris yang dilewati tanpa suara adalah persis kegagalan yang paling mahal
+   di modul ini: layar bilang "tersimpan", dan yang hilang baru ketahuan hari
+   Senin. Head yang sah tidak akan pernah mengirim baris di luar divisinya —
+   layarnya memang tidak menawarkannya — jadi ketidakcocokan di sini berarti
+   ada yang salah, dan yang salah harus berhenti dengan berisik. */
+function jdw_wajib_boleh_baris($u, $uid) {
+  if (jdw_admin($u)) return;
+  if (!jdw_ada_head()) return;      // belum ada head ditunjuk — sama dengan layar
+
+  /* Roster Office tidak terjangkau (API akun mati / jaringan antar-server
+     putus). Divisi tiap kru TIDAK BISA ditentukan sama sekali, dan menolak
+     semuanya berarti seluruh head berhenti bisa menyusun jadwal karena
+     modul TETANGGA yang bermasalah. Identitasnya sendiri sudah terbukti,
+     jadi yang dipakai jalan mundur: harus head di suatu divisi. Yang bukan
+     head tetap ditolak, apa pun keadaannya. */
+  $roster = sesi_roster();
+  if (!count($roster)) {
+    if (jdw_head_di_mana_pun($u)) return;
+    sesi_tolak_tak_berhak('Hanya head divisi yang bisa menyusun jadwal.');
+  }
+
+  $div = jdw_divisi_user($uid);
+  if ($div === JDW_DIV_NONSHIFT) {
+    sesi_tolak_tak_berhak('Kru ini belum ditempatkan di divisi mana pun, jadi hanya admin modul yang bisa mengatur jadwalnya. Tempatkan dulu lewat Pengaturan → Penempatan Divisi.');
+  }
+  if (!jdw_head($u, $div)) {
+    sesi_tolak_tak_berhak('Jadwal divisi ' . $div . ' hanya bisa disusun head divisi itu.');
+  }
+}
+
+/* $u = pemanggil yang sudah terbukti (dari api.php). Tiap baris diperiksa
+   terhadap divisi kru yang ditunjuknya, bukan sekali di depan: satu kiriman
+   "Isi Cepat" bisa memuat puluhan baris, dan yang perlu dijaga adalah tiap
+   barisnya — bukan divisi yang kebetulan sedang dibuka di layar pengirim. */
+function simpan_sel($rows, $hapus, $by, $u = null) {
   $pdo = db();
   pastikan_tabel($pdo);
   if (!is_array($rows))  $rows  = array();
   if (!is_array($hapus)) $hapus = array();
+
+  /* Diperiksa SEBELUM transaksi dibuka. Kalau diperiksa sambil menulis,
+     penolakan di baris kelima belas meninggalkan empat belas baris yang
+     sudah masuk — dan rollback-nya benar, tapi pesannya sampai setelah
+     layar terlanjur menggambar semuanya sebagai tersimpan. */
+  $semua = array();
+  foreach ($rows as $r)  { $r = (array)$r; if (isset($r['u'])) $semua[(string)$r['u']] = 1; }
+  foreach ($hapus as $r) { $r = (array)$r; if (isset($r['u'])) $semua[(string)$r['u']] = 1; }
+  foreach (array_keys($semua) as $uid) jdw_wajib_boleh_baris($u, $uid);
 
   $now = ms();
   $by  = mb_substr(s($by), 0, 120);
@@ -424,6 +570,17 @@ function putus_pengajuan($id, $status, $nota, $by) {
     if (!$ada->fetch()) throw new Exception('Pengajuan tidak ditemukan: ' . $id);
   }
   return array('saved' => true, 'id' => $id, 'status' => $status);
+}
+
+/* Satu pengajuan apa adanya — dipakai penjaga di api.php untuk tahu
+   pengajuan ini milik divisi siapa sebelum memutuskan boleh atau tidak. */
+function pengajuan_by_id($id) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $st = $pdo->prepare('SELECT * FROM `jadwal_pengajuan` WHERE `id`=:id');
+  $st->execute(array(':id' => s($id)));
+  $r = $st->fetch();
+  return $r ? $r : null;
 }
 
 function hapus_pengajuan($id) {

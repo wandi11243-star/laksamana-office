@@ -816,6 +816,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -845,6 +873,26 @@ function moduleLabel() { appModuleList(); }
 
 
 function moduleLabels() { appModuleList(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1452,6 +1500,76 @@ function add() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function aturanBawaan() {  }
+
+
+
+
+
+
+
+
+
+function aturanTerbatas() {  }
+
+
+
+
+function modulTerlarangUntuk() { aturanTerbatas(); timCocok(); add(); }
+
+
+
+
+
+
+
+
+
+
+
+function timCocok() {  }
+
+
+
+
+
+
+function modulBawaanUntuk() { aturanBawaan(); timCocok(); add(); }
+
+
+
+
+
+
+
+
+
+
+
 function openAdminPanel() { verifyAdminPin(); switchAdminTab(); resetAdminForm(); adminCall(); appModuleList(); loadAdminUsers(); }
 
 
@@ -1490,7 +1608,7 @@ function katalogModul() { ALL_MODULE_KEYS_SEED(); }
 
 
 
-function grantEfektif() { katalogModul(); add(); }
+function grantEfektif() { katalogModul(); add(); modulBawaanUntuk(); modulTerlarangUntuk(); }
 
 
 
@@ -1506,7 +1624,52 @@ function grantEfektif() { katalogModul(); add(); }
 
 
 
-function renderPickGrid() { katalogModul(); moduleLabel(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+function renderPickGrid() { katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); moduleLabel(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1592,6 +1755,11 @@ function readTimGrid() {  }
 
 
 function loadAdminUsers() { adminCall(); esc(); renderPickGrid(); renderAdminList(); }
+
+
+
+
+
 
 
 

@@ -178,7 +178,7 @@ table.list .kecil{font-size:11px;color:var(--muted-2);font-weight:500;margin-top
    muat dalam satu layar alih-alih lima layar gulungan. Lebar kolom dipatok
    supaya Alasan (kolom yang paling sering panjang) yang melar, bukan
    kolom tanggal yang justru harus tetap sejajar untuk dipindai menurun. */
-table.tbl-aju{min-width:860px}
+table.tbl-aju{min-width:940px}
 table.tbl-aju td{padding:9px;font-size:12.5px;vertical-align:middle}
 /* Kolom Jenis dilebarkan & pilnya dilarang pecah. "Ganti Hari Off" di
    kolom 104px terpotong jadi dua baris ("Ganti Hari" / "Off") dan membuat
@@ -191,7 +191,12 @@ table.tbl-aju th:nth-child(3),table.tbl-aju td:nth-child(3){width:150px;white-sp
 table.tbl-aju th:nth-child(4),table.tbl-aju td:nth-child(4){width:130px}
 table.tbl-aju th:nth-child(6),table.tbl-aju td:nth-child(6){width:112px}
 table.tbl-aju .alasan{color:var(--muted);line-height:1.4}
-table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right;width:120px}
+/* Kolom Aksi memuat DUA tombol berlabel. `gap` supaya Setujui dan Tolak tidak
+   berdempet — dua tombol yang bersentuhan di layar HP adalah cara tercepat
+   menyetujui pengajuan yang sebenarnya mau ditolak. */
+table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right;width:196px}
+table.tbl-aju .aksi-aju .btn{margin-left:6px}
+table.tbl-aju .aksi-aju .btn:first-child{margin-left:0}
 table.tbl-aju .aksi-aju .btn{padding:4px 10px;font-size:12px;min-width:0}
 table.tbl-aju .aksi-aju .btn+.btn{margin-left:4px}
 /* Baris tanpa aksi memulangkan '—'. Diredupkan & ditipiskan supaya ia
@@ -1034,21 +1039,52 @@ function toast(msg,err){
   t.textContent=msg; t.className='show'+(err?' err':'');
   clearTimeout(toast._t); toast._t=setTimeout(()=>{ t.className=''; },2800);
 }
+/* ================= TOKEN SESI =================
+   Backend modul ini sekarang punya penjaganya sendiri, jadi tiap panggilan
+   harus membawa bukti siapa pemanggilnya. Tokennya dari `lm_session`, dan
+   backend menanyakannya balik ke account-api (whoami) server-ke-server —
+   peramban tidak pernah memegang jawabannya, jadi ia tidak bisa mengaku jadi
+   head divisi lain.
+
+   Sebelum ini yang dikirim cuma `by`, yaitu NAMA, yang bisa diketik siapa
+   saja: aturan "jadwal divisi ini disusun head-nya" hanya berlaku di layar,
+   dan siapa pun yang tahu URL api.php bisa menulis sel divisi mana pun.
+   `by` masih ikut demi pemasangan backend lama; backend baru mengabaikannya. */
+function tokenSesi(){ return (ME && ME.token) || ''; }
+/* Sesi yang tidak lagi dikenali backend berakhir sebagai GERBANG, bukan toast
+   merah yang berulang — yang membacanya harus tahu bahwa yang perlu ia
+   lakukan adalah masuk lagi, bukan menunggu modulnya sembuh. */
+function sesiDitolak(pesan){
+  const p=String(pesan||'');
+  /* DUA sebab yang berbeda, dua gerbang yang berbeda. Menyamakannya adalah
+     cara tercepat membuat orang berputar: yang aksesnya dicabut disuruh masuk
+     ulang, ia masuk ulang, ditolak lagi — dan tidak ada satu pun layar yang
+     menyebut apa yang sebenarnya kurang. */
+  if(p.indexOf('tanpa_modul')>-1){
+    tampilkanGerbang('Tidak punya akses', p.replace(/^.*?tanpa_modul:\s*/,''));
+    return true;
+  }
+  if(p.indexOf('sesi_tidak_sah')<0) return false;
+  tampilkanGerbang('Sesi berakhir',
+    'Sesi Anda tidak lagi berlaku. Buka Laksamana Office dan masuk lagi, lalu buka modul ini dari sana.');
+  return true;
+}
 async function apiPost(payload){
   const r=await fetch(API_URL,{method:'POST',redirect:'follow',
     headers:{'Content-Type':'text/plain;charset=utf-8'},   // permintaan sederhana: hindari preflight CORS
-    body:JSON.stringify(Object.assign({by:(ME&&ME.name)||''},payload))});
+    body:JSON.stringify(Object.assign({by:(ME&&ME.name)||'', sesi:tokenSesi()},payload))});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 async function apiGet(dari,sampai){
-  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)+'&t='+Date.now(),
+  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)
+    +'&sesi='+encodeURIComponent(tokenSesi())+'&t='+Date.now(),
     {method:'GET',redirect:'follow'});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 
@@ -1255,6 +1291,13 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('jadwal')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
+            /* Token sesi Office — bukti identitas yang dikirim ulang ke
+               backend modul ini supaya SERVER-nya bisa menegakkan "jadwal
+               divisi ini disusun head-nya". Sesi lama (sebelum portal
+               menyimpan token) tidak punya kuncinya, dan yang muncul bukan
+               galat aneh melainkan gerbang "Sesi berakhir" yang menyuruh
+               masuk lagi lewat Office. */
+            token:s.token||'',
             admin:(adm.indexOf('*')>-1 || adm.indexOf('jadwal')>-1)};
   }catch(e){ return null; }
 }
@@ -2962,17 +3005,36 @@ function viewPengajuan(){
     const div=u?divisiDari(u):DIV_NONSHIFT;
     const rentang=(a.dari===a.sampai)?tglManusia(a.dari):(tglManusia(a.dari)+' – '+tglManusia(a.sampai));
     const hari=(a.dari===a.sampai)?'' :('<div class="kecil">'+(selisihHariAju(a))+' hari</div>');
+    /* TOMBOL BERLABEL, bukan ✓ dan ✕ telanjang.
+       Dua ikon tanpa kata di kolom paling kanan menuntut ditebak — dan yang
+       menebak salah di sini MENYETUJUI pengajuan, tindakan yang langsung
+       menulis sel jadwal untuk seluruh rentang tanggalnya. Alasannya sama
+       persis dengan yang sudah ditulis di modul Daily Worker soal ikon 💬
+       ("ikon chat ini apa?"): ikon hanya terbaca oleh yang sudah tahu
+       artinya, dan yang sudah tahu tidak butuh tombolnya diperkecil.
+
+       Ikonnya TETAP ada di depan katanya — itu yang membuat baris hijau dan
+       merah bisa dibedakan sekilas saat memindai dua puluh baris. */
     const putus=(a.status==='MENUNGGU'&&bisaPutuskan(a))
-      ? '<button class="btn btn-ok btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓</button>'
-        +'<button class="btn btn-danger btn-sm" onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕</button>'
+      ? '<button class="btn btn-ok btn-sm" title="Setujui pengajuan ini"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Setujui</button>'
+        +'<button class="btn btn-danger btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
       : '';
     const batal=(a.userId===(ME&&ME.id)&&a.status==='MENUNGGU')
       ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batal</button>' : '';
     /* Jejak keputusan ditulis KECIL DI BAWAH statusnya, bukan di kolom sendiri:
        ia cuma dibaca saat ada yang mempertanyakan, dan satu kolom penuh untuk
        itu mengambil lebar dari kolom Alasan yang jauh lebih sering dibaca. */
+    /* Alasan penolakan ikut ditulis di bawah statusnya. Sebelumnya ia tersimpan
+       di database tapi tidak pernah tergambar di mana pun — kru yang ditolak
+       menanyakannya lewat WhatsApp, dan jawabannya tidak pernah kembali ke
+       sistem. Kolom yang diisi tapi tidak pernah dibaca sama saja dengan
+       kolom yang tidak ada. */
     const jejak=a.status!=='MENUNGGU'
-      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>' : '';
+      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>'
+        +(a.putusNota?'<div class="kecil" style="color:var(--danger)">"'+esc(a.putusNota)+'"</div>':'')
+      : '';
     return '<tr'+(a.status==='MENUNGGU'?' class="tunggu"':'')+'>'
       +'<td><span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'
         +esc(JENIS_AJU[a.jenis]||a.jenis)+'</span></td>'
@@ -3159,11 +3221,68 @@ async function kirimAju(){
 /* Menyetujui Off/Izin/Cuti langsung menulis selnya. Head yang baru saja
    menekan Setujui menganggap urusannya selesai — kalau jadwalnya tidak ikut
    berubah, kru tetap tercatat masuk dan itu baru ketahuan saat absensi. */
-async function putuskan(id,status){
+/* Satu ketukan di sini MENULIS SEL JADWAL untuk seluruh rentang tanggalnya —
+   dan yang tertimpa adalah shift yang sudah disusun head sendiri minggu lalu.
+   Karena itu keduanya ditanya dulu, dengan kalimat yang menyebut akibatnya
+   secara spesifik: berapa hari, shift apa yang akan tertulis, dan tanggal
+   berapa saja. Konfirmasi yang cuma bertanya "yakin?" tidak menambah apa pun;
+   yang menambah adalah menyebutkan apa yang akan berubah.
+
+   Penolakan MEMINTA ALASAN, tidak lagi mengirim nota kosong. Kru yang
+   pengajuannya ditolak tanpa sebab akan menanyakannya lewat WhatsApp, dan
+   jawabannya tidak pernah kembali ke sistem — persis alasan modul Daily
+   Worker sudah meminta alasan sejak awal (lihat tolakAjuan di sana). */
+function putuskan(id,status){
   const a=(S.pengajuan||[]).find(x=>x.id===id); if(!a) return;
   if(!bisaPutuskan(a)){ toast('Pengajuan ini bukan wewenang Anda', true); return; }
+  const u=kruById(a.userId);
+  const nama=u?u.name:namaKru(a.userId);
+  const rentang=(a.dari===a.sampai)?tglPanjang(a.dari):(tglPanjang(a.dari)+' – '+tglPanjang(a.sampai));
+  let n=0; for(let d=a.dari; d<=a.sampai; d=addD(d,1)) n++;
+
+  if(status==='DITOLAK'){
+    tanyaAlasanTolak(nama, function(nota){ kirimPutusan(id,'DITOLAK',nota); });
+    return;
+  }
+  const tShift = AJU_KE_SHIFT[a.jenis] || (a.shift && S.setting.shifts[a.shift] ? a.shift : '');
+  const efek = tShift
+    ? 'Sel jadwalnya langsung terisi <b>'+esc(shiftDef(tShift).n)+'</b> untuk <b>'+n
+      +' hari</b> — menimpa shift yang sekarang ada di sana.'
+    : 'Pengajuan ini tidak menyebut shift yang diminta, jadi <b>sel jadwalnya tidak ikut berubah</b>. '
+      +'Isi sendiri di lembar setelah ini.';
+  konfirmasi('Setujui '+JENIS_AJU[a.jenis]+' — '+nama+'?',
+    '<b>'+esc(rentang)+'</b><br>'+efek
+    +(a.alasan?'<br><br><i>"'+esc(a.alasan)+'"</i>':''),
+    function(){ kirimPutusan(id,'DISETUJUI',''); },
+    { ya:'Ya, setujui', lebar:'430px' });
+}
+/* Kotak alasan penolakan. Sengaja BUKAN prompt() peramban: yang itu tidak bisa
+   diberi keterangan, tidak bisa diberi contoh, dan di sebagian peramban HP
+   muncul sebagai kotak abu-abu tanpa judul yang tidak jelas milik halaman apa. */
+function tanyaAlasanTolak(nama, cb){
+  window.TOLAK_CB=function(){
+    const el=document.getElementById('tolakNota');
+    const v=el?String(el.value||'').trim():'';
+    tutupModal();
+    cb(v||'Tidak disetujui head divisi');
+  };
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:430px">'
+    +'<div class="mh"><h3>Tolak pengajuan '+esc(nama)+'</h3>'
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb"><div class="field"><label>Alasan penolakan</label>'
+    +'<textarea id="tolakNota" rows="3" placeholder="Mis. hari itu sudah dua orang off di Cashier"></textarea>'
+    +'<div class="hint">Dibaca kru yang mengajukan. Kosongkan kalau memang tidak perlu — '
+    +'akan tertulis "Tidak disetujui head divisi".</div></div></div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-danger" onclick="TOLAK_CB()">Tolak pengajuan</button></div></div></div>';
+  setTimeout(function(){ const el=document.getElementById('tolakNota'); if(el) el.focus(); },50);
+}
+async function kirimPutusan(id,status,nota){
+  const a=(S.pengajuan||[]).find(x=>x.id===id); if(!a) return;
   try{
-    await apiPost({action:'putusPengajuan', id, status, nota:''});
+    await apiPost({action:'putusPengajuan', id, status, nota:nota||''});
+    a.putusNota=nota||'';
     a.status=status; a.putusOleh=(ME&&ME.name)||''; a.putusAt=Date.now();
     /* Shift tujuan: OFF/IZIN/CUTI disimpulkan dari jenisnya, TUKAR/UBAH
        dibaca dari yang DIPILIH kru saat mengajukan. Sebelum kolom `shift`
@@ -3878,8 +3997,24 @@ function exportExcel(lingkup){
   /* Legenda di kolom L, sejajar kepala tabel — di lembar lama letaknya juga
      di kanan, dan yang mencarinya mencari di sana. */
   const kolLeg=12;
+  /* LEMBARNYA DIPANJANGKAN DULU KALAU MEMANG KURANG BARIS.
+
+     Yang lama menjepit indeksnya dengan Math.min(…, baris.length-1), dan itu
+     BUKAN sekadar legenda yang tertumpuk di layar: dua entri yang jatuh ke
+     baris yang sama menulis DUA <c r="L9"> di dalam satu <row>, dan sel
+     berulang membuat Excel menolak seluruh berkasnya — "We found a problem
+     with some content", isinya hilang semua, bukan cuma legendanya.
+
+     Terjadi diam-diam pada lembar pendek: ekspor MINGGUAN divisi berisi
+     kurang dari lima kru cuma punya 9-10 baris, sedangkan shift bawaannya
+     delapan. Cashier bertiga sudah cukup untuk memicunya, dan yang mengekspor
+     tidak melihat apa pun yang salah sampai berkasnya dibuka.
+
+     Barisnya ditambah (kosong, tanpa isi) supaya tiap shift dapat barisnya
+     sendiri — nomor barisnya tetap berurutan karena baris[j].r selalu j+1. */
+  while(baris.length < 3+daftarShift().length) tambah([], 15);
   daftarShift().forEach(function(k,i){
-    const b=baris[Math.min(3+i, baris.length-1)];
+    const b=baris[3+i];
     if(!b) return;
     b.sels.push(sel_(kolLeg, shiftDef(k).n, gShift[k]||gKosong));
   });
@@ -3975,8 +4110,18 @@ async function boot(){
   const ses=bacaSesi();
   if(!ses){ tampilkanGerbang('Belum masuk','Modul ini dibuka lewat Laksamana Office. Silakan masuk dulu di sana.'); return; }
   if(ses.tolak){
+    /* Nama CENTANGNYA yang disebut, bukan nama modulnya. Di Kelola Akses tidak
+       ada kotak bernama "Jadwal Shift": kartunya bernama Roster dan memuat dua
+       kunci bersebelahan — "Roster · Jadwal Shift" dan "Roster · Daily Worker".
+       Tertukar centang di situ adalah sebab pegawai tetap mendarat di Daily
+       Worker, dan pemilih panel mengalihkannya ke sana TANPA berkata apa pun
+       karena itu memang satu-satunya panel yang ia pegang. Pesan yang cuma
+       menyebut "modul Jadwal Shift" membuat admin mencari kotak yang tidak
+       pernah ada, lalu menyimpulkan aksesnya sudah benar. */
     tampilkanGerbang('Tidak punya akses',
-      (ses.name?ses.name+', a':'A')+'kun Anda belum diberi akses modul Jadwal Shift. Minta admin menambahkannya lewat Kelola Akses di Office.');
+      (ses.name?ses.name+', a':'A')+'kun Anda belum diberi akses Jadwal Shift. '
+      +'Minta admin mencentang "Roster · Jadwal Shift" lewat Kelola Akses di Office '
+      +'— perhatikan namanya, karena di sebelahnya ada "Roster · Daily Worker" yang berbeda.');
     return;
   }
   ME=ses;
