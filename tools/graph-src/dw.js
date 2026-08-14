@@ -707,6 +707,8 @@
 
 
 
+
+
 function bayarJenisSah() {  }
 
 
@@ -1342,7 +1344,20 @@ function paxTgl() { tamuTgl(); }
 function simpanCache() {  }
 
 
-function bacaCache() { normalizeState(); }
+function bacaCache() { normalizeState(); muatData(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2070,7 +2085,15 @@ function gambarTunjuk() { mintaTerpenuhi(); ajuanOrangTgl(); esc(); namaDivisi()
 
 
 
-function kirimTunjuk() { toast(); apiPost(); tutupModal(); namaDW(); muatDanGambar(); }
+function kirimTunjuk() { toast(); apiPost(); tutupModal(); namaDW(); namaDivisi(); muatDanGambar(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -3820,7 +3843,16 @@ function toggleBayarLunas() { isHR(); toast(); bayarLunasPeta(); namaSaya(); ren
 
 
 
-function tombolLunasHTML() { bayarLunasInfo(); tglManusia(); fmtD(); esc(); toggleBayarLunas(); escJs(); }
+function tombolLunasHTML() { bayarLunasInfo(); tglManusia(); fmtD(); isHR(); esc(); toggleBayarLunas(); escJs(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4672,7 +4704,18 @@ function viewPengaturan() { esc(); fmtRibuan(); tarifPosisi(); ubahTarif(); escJ
 
 
 
-function hakAksesPanelHTML() { daftarHR(); esc(); muatRosterDanGambar(); toggleHR(); escJs(); }
+function hakAksesPanelHTML() { daftarHR(); esc(); muatRosterDanGambar(); isAdmin(); toggleHR(); escJs(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
