@@ -728,6 +728,21 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function posisiDivisi() {  }
 
 
@@ -1678,7 +1693,12 @@ function jamAjuan() {  }
 
 
 
+
+
+
+
 function barisRiwayatDW() { esc(); tglManusia(); namaDW(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); bukaAjuan(); escJs(); }
+
 
 
 
@@ -2530,7 +2550,33 @@ function kirimTunjuk() { toast(); tutupModal(); jalankanTugaskan(); }
 
 
 
-function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisAjuan(); bukaAjuan(); escJs(); tolakAjuan(); setujuiAjuan(); pitaHead(); segDivisi(); bisaLihat(); go(); ajuPagerHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function antTab() { render(); }
+function setCariAnt() { render(); }
+
+
+
+
+
+
+function viewAntrean() { namaDW(); ajuHal(); isHR(); tolakAjuan(); escJs(); setujuiAjuan(); esc(); tglPanjang(); namaDivisi(); panduanTeks(); konteksHari(); setujuiBanyak(); barisRiwayatDW(); }
 
 
 
@@ -2572,6 +2618,48 @@ function viewAntrean() { esc(); tglPanjang(); namaDivisi(); panduanTeks(); konte
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tab() { antTab(); esc(); isHR(); pitaHead(); bisaLihat(); bukaMinta(); segDivisi(); setCariAnt(); ajuPagerHTML(); }
 
 
 
