@@ -2157,6 +2157,27 @@ function perhatian() {  }
 
 
 
+function tglWIB() {  }
+
+
+function hari() { tglWIB(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

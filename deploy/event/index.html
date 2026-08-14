@@ -2142,7 +2142,28 @@ function autoSelesaikanJadwal(){
 /* Hal yang perlu diperhatikan hari ini. Dikumpulkan dari data, bukan
    diketik manual, supaya tidak ada yang lolos karena lupa dicek. */
 function perhatian(){
-  const out=[]; const hariIni=new Date(); const hari=(d)=>Math.ceil((new Date(d)-hariIni)/86400000);
+  /* SISA HARI DIHITUNG PER TANGGAL KALENDER WIB, bukan dari selisih milidetik.
+     `Math.ceil(selisih/86400000)` yang lama membulatkan ke ATAS, jadi acara
+     nanti malam pukul 20:00 yang dilihat pukul 10:00 pagi menghasilkan
+     ceil(0,4) = 1 dan tertulis "tinggal 1 hari lagi". Cabang `sisa<=0` yang
+     seharusnya berbunyi "hari ini" baru menyala SESUDAH acaranya dimulai.
+
+     Akibatnya panel ini — satu-satunya tempat yang dibaca untuk tahu apa yang
+     perlu diurus hari ini — melaporkan acara malam ini sebagai masih punya
+     jatah sehari lagi, termasuk saat PIC-nya belum ada.
+
+     `start_datetime` disimpan sebagai INSTANT UTC berakhiran Z (lihat
+     pecahWaktu di modul DW & Radar), jadi tanggal WIB-nya diambil dengan
+     menggeser +7 jam dulu — memotong string UTC mentah akan menggeser acara
+     lewat tengah malam ke hari sebelumnya. */
+  const out=[];
+  const tglWIB=(x)=>{ const t=Date.parse(x); return isNaN(t)?null
+      : new Date(t+7*3600*1000).toISOString().slice(0,10); };
+  const hariIniWIB=tglWIB(new Date().toISOString());
+  const hari=(d)=>{
+    const a=tglWIB(d); if(!a||!hariIniWIB) return 999;
+    return Math.round((Date.parse(a+'T00:00:00Z')-Date.parse(hariIniWIB+'T00:00:00Z'))/86400000);
+  };
 
   DB.events.filter(e=>e.status==='Upcoming').forEach(e=>{
     const sisa=hari(e.start_datetime);
