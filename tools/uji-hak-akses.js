@@ -317,8 +317,11 @@ async function main() {
     data: { hr: ['u-hrd'], tarif: {}, kuota: {} } });
   cek('admin bisa menulis pengaturan', j.ok, j.error);
 
-  j = await panggil('dw-mysql', { action: 'simpanSetting', sesi: 'tok-hrd', data: { hr: [] } });
-  cek('HRD TIDAK bisa menulis pengaturan (bisa mengangkat dirinya jadi admin)', ditolak(j), JSON.stringify(j));
+  /* HRD BOLEH menyetel tarif/kuota/jam — itu pekerjaannya. Yang tidak boleh
+     ia sentuh: daftar HRD-nya sendiri, karena HRD yang bisa menyunting daftar
+     HRD bukan pembatasan apa pun. Diuji utuh di bagian Pengaturan di bawah. */
+  j = await panggil('dw-mysql', { action: 'simpanSetting', sesi: 'tok-staf', data: { hr: [] } });
+  cek('staf biasa TIDAK bisa menulis pengaturan', ditolak(j), JSON.stringify(j));
 
   j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-hrd',
     row: { nama: 'Arif DW', hp: '081200000001', pin: '1234', divisi: 'bar', posisi: 'Bar Helper' } });
@@ -328,6 +331,11 @@ async function main() {
   j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-staf',
     row: { nama: 'Selundupan', hp: '081200000009' } });
   cek('staf biasa TIDAK bisa mendaftarkan daily worker', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('dw-mysql', { action: 'simpanPekerja', sesi: 'tok-hrd',
+    row: { nama: 'Budi DW', hp: '081200000002', divisi: 'bar', posisi: 'Runner' } });
+  cek('HRD bisa mendaftarkan daily worker kedua', j.ok, j.error);
+  const dwLain = j.ok ? j.data.id : '';
 
   j = await panggil('dw-mysql', { action: 'simpanAjuan', sesi: 'tok-hrd',
     row: { dwId, tgl: '2026-08-20', m: '16:00', s: '23:00', divisi: 'bar', posisi: 'Bar Helper' } });
@@ -404,6 +412,67 @@ async function main() {
   cek('staf biasa tetap tanpa no. HP dan peran lihat=0',
     j.ok && j.data.pekerja[0] && j.data.pekerja[0].hp === undefined && j.data.peran.lihat === 0,
     JSON.stringify(j.ok ? j.data.peran : j).slice(0, 160));
+
+  /* ——— ALUR PERMINTAAN: head minta jumlah, HRD menunjuk orangnya ——— */
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-headbar',
+    row: { tgl: '2026-08-22', divisi: 'bar', m: '16:00', s: '23:00',
+           posisi: 'Bar Helper', jumlah: 2, catatan: 'acara 300 pax' } });
+  cek('head bisa meminta DW untuk divisinya sendiri', j.ok && j.data.saved, j.error);
+  const pmId = (j.ok && j.data.row) ? j.data.row.id : '';
+
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-headbar',
+    row: { tgl: '2026-08-22', divisi: 'kitchen', m: '16:00', s: '23:00', jumlah: 1 } });
+  cek('head Bar TIDAK bisa meminta DW untuk Kitchen', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('dw-mysql', { action: 'simpanPermintaan', sesi: 'tok-staf',
+    row: { tgl: '2026-08-22', divisi: 'bar', m: '16:00', s: '23:00', jumlah: 1 } });
+  cek('staf biasa TIDAK bisa meminta DW', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('dw-mysql', { action: 'tugaskanDW', sesi: 'tok-headbar',
+    permintaanId: pmId, dwIds: [dwId] });
+  cek('head TIDAK bisa menunjuk orangnya sendiri', ditolak(j), JSON.stringify(j));
+
+  /* Penugasan oleh HRD. Dua orang diminta; yang kedua sengaja dibuat bentrok
+     supaya penolakannya ikut teruji — penugasan yang diam-diam kurang satu
+     orang baru ketahuan malam itu, saat kurang orang. */
+  j = await panggil('dw-mysql', { action: 'tugaskanDW', sesi: 'tok-hrd',
+    permintaanId: pmId, dwIds: [dwId, dwLain] });
+  cek('HRD bisa menugaskan, dan hasilnya dilaporkan apa adanya',
+    j.ok && j.data.masuk >= 1, JSON.stringify(j).slice(0, 200));
+
+  /* Yang ditugaskan harus LANGSUNG DISETUJUI — kalau tertinggal MENUNGGU, ia
+     tidak muncul sama sekali di kalender Jadwal Shift, dan HRD yang baru saja
+     menunjuk orangnya menganggap urusannya selesai. */
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-hrd');
+  const tugas = j.ok ? (j.data.ajuan || []).filter(a => a.permintaanId === pmId) : [];
+  cek('penugasan langsung berstatus DISETUJUI',
+    tugas.length >= 1 && tugas.every(a => a.status === 'DISETUJUI'),
+    JSON.stringify(tugas).slice(0, 200));
+  cek('penugasan tertaut ke permintaannya', tugas.length >= 1 && !!tugas[0].permintaanId,
+    JSON.stringify(tugas[0] || {}).slice(0, 160));
+
+  /* ...dan karena DISETUJUI, ia ikut terbaca modul Jadwal Shift lewat
+     jadwalDW. Inilah ujung yang sebenarnya dicari: head minta, HRD tunjuk,
+     namanya muncul di lembar. */
+  j = await ambil('dw-mysql', 'action=jadwalDW&dari=2026-08-22&sampai=2026-08-22');
+  cek('yang ditugaskan muncul di jadwalDW (lembar Jadwal Shift)',
+    j.ok && (j.data.rows || []).length >= 1, JSON.stringify(j).slice(0, 200));
+
+  j = await panggil('dw-mysql', { action: 'putusPermintaan', sesi: 'tok-staf',
+    id: pmId, status: 'DITOLAK' });
+  cek('staf biasa TIDAK bisa menolak permintaan', ditolak(j), JSON.stringify(j));
+
+  /* ——— Pengaturan: HRD boleh, tapi daftar HRD-nya tidak ikut berubah ——— */
+  j = await panggil('dw-mysql', { action: 'simpanSetting', sesi: 'tok-hrd',
+    data: { hr: ['u-staf', 'u-hrd'], tarif: { 'Bar Helper': 150000 } } });
+  cek('HRD bisa menyetel tarif lewat Pengaturan', j.ok, j.error);
+  j = await ambil('dw-mysql', 'action=getAll&dari=2026-08-01&sampai=2026-08-31&sesi=tok-hrd');
+  const hrList = j.ok ? (j.data.setting.hr || []) : [];
+  cek('daftar HRD TIDAK ikut berubah saat HRD yang menyimpan',
+    hrList.length === 1 && hrList[0] === 'u-hrd', JSON.stringify(hrList));
+  cek('tarifnya sendiri BENAR-BENAR tersimpan',
+    j.ok && j.data.setting.tarif && +j.data.setting.tarif['Bar Helper'] === 150000,
+    JSON.stringify(j.ok ? j.data.setting.tarif : j).slice(0, 120));
 
   /* ================= MODUL JADWAL SHIFT ================= */  /* ================= MODUL JADWAL SHIFT ================= */
   console.log('\n— Jadwal Shift —');

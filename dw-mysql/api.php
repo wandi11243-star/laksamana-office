@@ -284,12 +284,13 @@ try {
     }
 
     case 'simpanSetting': {
-      /* Menulis SELURUH blob setting: tarif, kuota, jam bawaan, dan daftar
-         siapa yang berhak memutuskan. Yang terakhir itu sebabnya ini admin
-         saja — HRD yang bisa menyunting daftar HRD bukan pembatasan. */
-      $u = wajib_admin($body, 'Mengubah pengaturan modul');
+      /* HRD boleh menyetel tarif, kuota, jam bawaan, dan daftar posisi — itu
+         memang pekerjaannya. Yang tidak ikut: daftar HRD itu sendiri, yang
+         dipertahankan server kalau pemanggilnya bukan admin modul. Lihat
+         simpan_setting(). */
+      $u = wajib_hrd($body, 'Mengubah pengaturan modul');
       keluar(array('ok' => true, 'data' => simpan_setting(
-        ambil($body, 'data', null), nama_pemanggil($u))));
+        ambil($body, 'data', null), nama_pemanggil($u), dw_admin($u))));
     }
 
     default:

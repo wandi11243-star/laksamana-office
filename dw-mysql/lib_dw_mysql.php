@@ -408,6 +408,11 @@ function peran_pemanggil($u) {
     'lihat' => dw_boleh_lihat($u) ? 1 : 0,
     'admin' => dw_admin($u) ? 1 : 0,
     'nama'  => ($u && isset($u['name'])) ? (string)$u['name'] : '',
+    /* Divisi yang di-head orang ini. Dipakai layar untuk menawarkan divisi
+       mana saja yang boleh ia mintakan DW — dan supaya head yang cuma
+       memegang satu divisi tidak disodori pemilih berisi satu pilihan. */
+    'divisi' => ($u && isset($u['headDivisi']) && is_array($u['headDivisi']))
+                ? array_values($u['headDivisi']) : array(),
   );
 }
 
@@ -425,6 +430,13 @@ function bentuk_ajuan($r) {
     'hadir' => $r['hadir'],
     'hadirNota' => isset($r['hadir_nota']) ? $r['hadir_nota'] : '',
     'hadirOleh' => isset($r['hadir_oleh']) ? $r['hadir_oleh'] : '',
+    /* Penghubung ke permintaan head yang melahirkannya. isset() karena
+       kolomnya lahir belakangan: baris dari tabel yang belum sempat di-ALTER
+       tidak punya kuncinya. Tanpa baris ini kolomnya tertulis di database tapi
+       tidak pernah sampai ke layar — halaman Permintaan menghitung "0 dari 3"
+       untuk permintaan yang orangnya sudah ditugaskan, dan HRD menugaskan
+       orang kedua kalinya. */
+    'permintaanId' => isset($r['permintaan_id']) ? $r['permintaan_id'] : '',
   );
 }
 
@@ -1114,10 +1126,26 @@ function tandai_bayar($senin, $kunciTujuan, $nyala, $by) {
   return array('saved' => true, 'kunci' => $senin . '|' . $kunciTujuan, 'nyala' => $nyala ? 1 : 0);
 }
 
-function simpan_setting($data, $by) {
+/* $bolehUbahHr = pemanggilnya admin modul. HRD boleh menyetel tarif, kuota,
+   jam bawaan, dan daftar posisi — itu memang pekerjaannya, dan mengunci layar
+   Pengaturan untuk admin saja berarti tiap perubahan tarif harus lewat orang
+   yang tidak mengurus pembayarannya.
+
+   Yang TIDAK boleh ia sentuh: daftar `hr` itu sendiri. Blob setting memuat
+   siapa saja yang berhak memutuskan, dan HRD yang bisa menyunting daftar HRD
+   bukan pembatasan apa pun — ia tinggal menambahkan siapa saja, termasuk
+   dirinya sendiri kalau suatu saat dicabut. Jadi daftarnya DIPERTAHANKAN dari
+   yang tersimpan, bukan diambil dari kiriman. */
+function simpan_setting($data, $by, $bolehUbahHr = true) {
   if (!is_array($data) && !is_object($data)) throw new Exception('Payload setting kosong/invalid');
   $pdo = db();
   pastikan_tabel($pdo);
+  if (!$bolehUbahHr) {
+    $lama = json_decode(json_encode(baca_setting()), true);
+    $hrLama = (is_array($lama) && isset($lama['hr']) && is_array($lama['hr'])) ? $lama['hr'] : array();
+    $data = (array)$data;
+    $data['hr'] = $hrLama;
+  }
   $st = $pdo->prepare(
     'INSERT INTO `dw_setting` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
      ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');

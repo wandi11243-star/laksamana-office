@@ -3323,7 +3323,7 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); jalan(); panelKosongRoster(); ulangRoster(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); panelKosongRoster(); ulangRoster(); }
 
 
 
@@ -3429,6 +3429,77 @@ function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTe
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tambahShift() { isAdmin(); toast(); tanyaNamaShift(); simpanSetting(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tanyaNamaShift() { tutupModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hapusShift() { isAdmin(); toast(); konfirmasi(); shiftDef(); simpanSetting(); render(); }
 
 
 

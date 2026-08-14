@@ -3338,6 +3338,11 @@ function viewPengaturan(){
       +'<input type="color" value="'+esc(d.w)+'" onchange="ubahShift(\''+escJs(k)+'\',\'w\',this.value)" style="width:44px;height:36px;border:1.5px solid var(--line);border-radius:8px;padding:2px;background:var(--surface)">'
       +'<label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px">'
       +'<input type="checkbox"'+(d.libur?' checked':'')+' onchange="ubahShift(\''+escJs(k)+'\',\'libur\',this.checked?1:0)" style="width:auto"> tidak masuk</label>'
+      /* Hapus hanya untuk shift BUATAN SENDIRI. Yang bawaan (PAGI, OFF, CUTI…)
+      sengaja tidak bisa dihapus: kodenya sudah tertulis di sel jadwal yang
+      ada dan di pengajuan lama, dan menghapus definisinya membuat sel-sel itu
+      digambar abu-abu tanpa nama — kehilangan arti, tanpa satu pun galat. */
+      +(SHIFT_BAWAAN[k]?'':'<button class="btn btn-ghost btn-sm" title="Hapus shift ini" onclick="hapusShift(&#39;'+escJs(k)+'&#39;)">🗑</button>')
       +'</div>';
   }).join('');
 
@@ -3420,9 +3425,12 @@ function viewPengaturan(){
         +'</div>';
     }).join('');
 
-  return '<div class="panel"><div class="rowbar"><h2>⚙️ Definisi Shift</h2></div>'
+  return '<div class="panel"><div class="rowbar"><h2>⚙️ Definisi Shift</h2><div class="spacer"></div>'
+    +'<button class="btn btn-primary btn-sm" onclick="tambahShift()">+ Tambah Shift</button></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Nama, jam bawaan, dan warna tiap shift. Mengubah jam di sini berlaku untuk sel yang <b>belum</b> punya jam khusus — sel yang jamnya sudah ditimpa per orang tidak ikut berubah.</p>'
-    +barisShift+'</div>'
+    +barisShift
+    +'<p class="mutedhint" style="margin-top:10px">Shift buatan sendiri bisa dihapus lewat 🗑. Shift bawaan (PAGI, MIDDLE, SPLIT, SIANG, OFF, IZIN, CUTI, LAIN) sengaja tidak — kodenya sudah tertulis di sel jadwal dan pengajuan lama, dan menghapus definisinya membuat sel-sel itu kehilangan nama tanpa satu pun galat.</p>'
+    +'</div>'
 
     /* Panel "Batas Beban Kerja" dihapus 5 Agustus 2026 atas permintaan.
        Peringatannya SENDIRI tetap jalan (panel Beban Kerja di Jadwal Bulanan
@@ -3446,6 +3454,69 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Kolom <b>shift kebiasaan</b> tiap kru dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
     +panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>';
+}
+/* Shift baru — mis. "MALAM" atau "EVENT" yang cuma dipakai satu outlet.
+   Kodenya diturunkan dari NAMANYA (huruf kapital, tanpa spasi) supaya yang
+   tertulis di sel jadwal tetap terbaca manusia saat datanya diperiksa langsung
+   di database, bukan deretan id acak. Kalau kodenya sudah dipakai, angka
+   ditambahkan di belakang — menimpanya berarti mengubah arti SELURUH sel yang
+   sudah memakai kode itu, dan tidak ada satu pun layar yang akan menyebutkan
+   itu terjadi. */
+function tambahShift(){
+  if(!isAdmin()) return toast('Hanya admin modul yang bisa menambah shift', true);
+  tanyaNamaShift(function(nama){
+    nama=String(nama||'').trim();
+    if(!nama) return;
+    let k=nama.toUpperCase().replace(/[^A-Z0-9]+/g,'').slice(0,12);
+    if(!k) k='SHIFT';
+    if(S.setting.shifts[k]){
+      let n=2; while(S.setting.shifts[k+n]) n++;
+      k=k+n;
+    }
+    /* `urut` menentukan letaknya di legenda dan di daftar pilihan sel. Yang
+       baru ditaruh SESUDAH seluruh shift kerja tapi SEBELUM shift libur (OFF
+       urut 50), karena shift tambahan di sini praktis selalu shift kerja.
+       Bisa digeser sendiri kalau ternyata bukan. */
+    S.setting.shifts[k]={n:nama.toUpperCase().slice(0,12), m:'16:00', s:'23:00',
+                         w:'#7C6BD6', libur:0, urut:45};
+    simpanSetting(); render();
+    toast('Shift '+k+' ditambahkan — atur jam & warnanya di baris barunya');
+  });
+}
+function tanyaNamaShift(cb){
+  window.SHIFT_CB=function(){
+    const el=document.getElementById('nmShift');
+    const v=el?el.value:'';
+    tutupModal(); cb(v);
+  };
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:390px">'
+    +'<div class="mh"><h3>Tambah Shift</h3><button class="xbtn" onclick="tutupModal()">&times;</button></div>'
+    +'<div class="mb"><div class="field"><label>Nama shift</label>'
+    +'<input id="nmShift" class="inp" style="width:100%" maxlength="12" placeholder="Mis. MALAM">'
+    +'<div class="hint">Inilah yang tampil di sel jadwal. Jam dan warnanya diatur di baris barunya setelah ini.</div></div></div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-primary" onclick="SHIFT_CB()">Tambahkan</button></div></div></div>';
+  setTimeout(function(){ const el=document.getElementById('nmShift'); if(el) el.focus(); },50);
+}
+function hapusShift(k){
+  if(!isAdmin()) return toast('Hanya admin modul yang bisa menghapus shift', true);
+  if(SHIFT_BAWAAN[k]) return toast('Shift bawaan tidak bisa dihapus', true);
+  /* Berapa sel yang MEMAKAINYA dihitung dulu dan disebut di pertanyaannya.
+     "Yakin hapus?" tidak menambah apa pun; "17 sel memakai shift ini dan akan
+     kehilangan namanya" yang membuat orang berhenti dan berpikir. */
+  const pakai=Object.keys(S.sel||{}).filter(x=>S.sel[x] && S.sel[x].t===k).length;
+  konfirmasi('Hapus shift '+shiftDef(k).n+'?',
+    pakai
+      ? '<b>'+pakai+' sel jadwal</b> masih memakainya. Selnya TIDAK ikut terhapus — '
+        +'ia tetap ada tapi kehilangan nama, jam, dan warnanya, lalu tergambar abu-abu polos. '
+        +'Lebih aman ganti dulu sel-sel itu ke shift lain.'
+      : 'Belum ada satu sel pun yang memakainya, jadi tidak ada yang terpengaruh.',
+    function(){
+      delete S.setting.shifts[k];
+      simpanSetting(); render();
+      toast('Shift dihapus');
+    }, { ya:'Ya, hapus', lebar:'420px' });
 }
 function ubahShift(k,f,v){
   const cur=S.setting.shifts[k]||Object.assign({},SHIFT_BAWAAN[k]);
