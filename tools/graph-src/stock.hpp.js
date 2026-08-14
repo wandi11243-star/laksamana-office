@@ -681,6 +681,7 @@ function bukaBahan() { tutupModal(); segarPer1(); statusPur(); hapusBahan(); sim
 
 
 
+
 function segarPer1() {  }
 
 
@@ -1149,6 +1150,7 @@ function viewKalk() { kalTotal(); hitungBaris(); render(); kartu(); }
 
 
 function viewAtur() { simpanAtur(); }
+
 
 
 
