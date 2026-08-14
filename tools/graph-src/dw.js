@@ -2487,7 +2487,18 @@ function gambarMinta() { divisiKuasaDW(); posisiDivisi(); modal(); esc(); ikonDi
 
 
 
-function pilihOrangHTML() { mintaPilihOrang(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); mintaToggleOrang(); escJs(); riwayatPakaiHTML(); kosongKandidatHTML(); tarifPosisi(); }
+function pilihOrangHTML() { mintaPilihOrang(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); usulanOrangTgl(); mintaToggleOrang(); escJs(); riwayatPakaiHTML(); kosongKandidatHTML(); tarifPosisi(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2532,7 +2543,33 @@ function biayaPermintaanHTML() { tarifPosisi(); esc(); rp(); }
 
 
 
-function kirimMinta() { serapMinta(); apiPost(); tutupModal(); toast(); muatDanGambar(); }
+function kirimMinta() { serapMinta(); apiPost(); tutupModal(); muatDanGambar(); modal(); esc(); namaDivisi(); tglManusia(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2642,7 +2679,13 @@ function tunjukToggle() { gambarTunjuk(); mintaTerpenuhi(); toast(); }
 
 
 
-function gambarTunjuk() { mintaTerpenuhi(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); tunjukToggle(); escJs(); riwayatPakaiHTML(); modal(); tglManusia(); tunjukCari(); kosongKandidatHTML(); kirimTunjuk(); }
+function gambarTunjuk() { mintaTerpenuhi(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); usulanOrangTgl(); tunjukToggle(); escJs(); riwayatPakaiHTML(); modal(); tglManusia(); tunjukCari(); kosongKandidatHTML(); kirimTunjuk(); }
+
+
+
+
+
+
 
 
 
@@ -3631,7 +3674,19 @@ function g() {  }
 
 
 
-function gambarSelDW() { isiSelDW(); isHR(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); selDwToggle(); escJs(); riwayatPakaiHTML(); modal(); tglPanjang(); ikonDivisi(); tombolJam(); serapSelDW(); opsiPosisi(); selDwCari(); kosongKandidatHTML(); biayaPermintaanHTML(); simpanSelDW(); }
+function gambarSelDW() { isiSelDW(); isHR(); kandidatDW(); ajuanOrangTgl(); esc(); namaDivisi(); jamAjuan(); usulanOrangTgl(); selDwToggle(); escJs(); riwayatPakaiHTML(); modal(); tglPanjang(); ikonDivisi(); tombolJam(); serapSelDW(); opsiPosisi(); selDwCari(); kosongKandidatHTML(); biayaPermintaanHTML(); simpanSelDW(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4255,6 +4310,31 @@ function kirimAjukanTgl() { serapAjukanTgl(); tglLampau(); toast(); gambarAjukan
 
 
 function ajuanOrangTgl() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function usulanOrangTgl() {  }
+
+
+
+
+
 
 
 
