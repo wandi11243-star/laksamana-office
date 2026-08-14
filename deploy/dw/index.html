@@ -1059,21 +1059,55 @@ function toast(msg,err){
   t.textContent=msg; t.classList.toggle('err',!!err); t.classList.add('show');
   clearTimeout(toast._j); toast._j=setTimeout(()=>t.classList.remove('show'), err?4200:2600);
 }
+/* ================= TOKEN SESI =================
+   Sejak backend punya penjaga sendiri, TIAP panggilan harus membawa bukti
+   siapa pemanggilnya. Dua jenis pemakai, dua token yang sama sekali berbeda:
+
+     staf Office  -> token dari `lm_session`, dibuktikan backend ke
+                     account-api lewat whoami (server-ke-server)
+     daily worker -> token dari loginDW, dibuktikan ke tabel dw_sesi
+
+   Sebelum ini yang dikirim cuma `by` — NAMA, yang bisa diketik siapa saja.
+   Kolom "disetujui oleh" yang bisa diisi sendiri tidak menjawab apa pun saat
+   ditanyakan berbulan-bulan kemudian, dan yang lebih parah: siapa pun yang
+   tahu URL api.php bisa menyetujui shift dan memunculkannya sebagai uang yang
+   harus ditransfer. `by` masih ikut terkirim untuk pemasangan backend lama
+   yang belum sempat diperbarui; backend baru mengabaikannya. */
+function tokenSesi(){
+  if(MEDW && MEDW.token) return MEDW.token;
+  return (ME && ME.token) || '';
+}
+/* Sesi yang tidak lagi dikenali backend TIDAK boleh berakhir sebagai toast
+   merah yang berulang tiap beberapa detik — yang membacanya menyimpulkan
+   "modulnya rusak", bukan "saya perlu masuk lagi". Kalimatnya menyebut
+   tindakan yang menyembuhkannya, dan sesi lokal yang basi ikut dibuang. */
+function sesiDitolak(pesan){
+  if(String(pesan||'').indexOf('sesi_tidak_sah')<0) return false;
+  if(isDW()){
+    try{ localStorage.removeItem(DW_SESI_KEY); }catch(e){}
+    tampilkanGerbang('Sesi berakhir','Masuk lagi dengan no. HP dan PIN Anda.');
+  }else{
+    tampilkanGerbang('Sesi berakhir',
+      'Sesi Anda tidak lagi berlaku. Buka Laksamana Office dan masuk lagi, lalu buka modul ini dari sana.');
+  }
+  return true;
+}
 async function apiPost(payload){
   const r=await fetch(API_URL,{method:'POST',redirect:'follow',
     headers:{'Content-Type':'text/plain;charset=utf-8'},   // permintaan sederhana: hindari preflight CORS
-    body:JSON.stringify(Object.assign({by:namaSaya()},payload))});
+    body:JSON.stringify(Object.assign({by:namaSaya(), sesi:tokenSesi()},payload))});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 async function apiGet(dari,sampai){
-  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)+'&t='+Date.now(),
+  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)
+    +'&sesi='+encodeURIComponent(tokenSesi())+'&t='+Date.now(),
     {method:'GET',redirect:'follow'});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 
@@ -1306,6 +1340,13 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('dw')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
+            /* Token sesi Office. Inilah bukti identitas yang dikirim ulang ke
+               backend modul ini supaya SERVER-nya tahu siapa pemanggilnya —
+               tanpa ini seluruh hak akses cuma hidup di layar. Sesi lama
+               (sebelum portal menyimpan token) tidak punya kuncinya; yang
+               terjadi bukan galat aneh melainkan gerbang "Sesi berakhir"
+               dengan kalimat yang menyuruh masuk lagi lewat Office. */
+            token:s.token||'',
             admin:(adm.indexOf('*')>-1 || adm.indexOf('dw')>-1)};
   }catch(e){ return null; }
 }
@@ -1313,7 +1354,13 @@ function bacaSesiDW(){
   try{
     const s=JSON.parse(localStorage.getItem(DW_SESI_KEY)||'null');
     if(!s||!s.id||!s.expiry||Date.now()>=s.expiry) return null;
-    return {id:s.id, nama:s.nama, hp:s.hp, divisi:s.divisi||'', posisi:s.posisi||''};
+    /* Tanpa token, sesi ini tidak bisa dibuktikan ke backend sama sekali —
+       jadi ia dianggap tidak ada, dan gerbang PIN muncul seperti biasa.
+       Itu yang terjadi pada sesi yang tersimpan sebelum versi ini: satu kali
+       ketik PIN, bukan modul yang mati tanpa penjelasan. */
+    if(!s.token) return null;
+    return {id:s.id, nama:s.nama, hp:s.hp, token:s.token,
+            divisi:s.divisi||'', posisi:s.posisi||''};
   }catch(e){ return null; }
 }
 function simpanSesiDW(dw){
@@ -1336,7 +1383,10 @@ async function masukDW(){
   if(btn){ btn.disabled=true; btn.textContent='Memeriksa…'; }
   try{
     const d=await apiPost({action:'loginDW', hp, pin});
-    MEDW=d.dw; simpanSesiDW(MEDW);
+    /* Token diterbitkan server dan disimpan bersama identitasnya. Mulai
+       sekarang inilah satu-satunya yang membuktikan DW ini benar dirinya —
+       `dwId` yang dikirim client tidak lagi dipercaya backend sama sekali. */
+    MEDW=Object.assign({}, d.dw, {token:d.token||''}); simpanSesiDW(MEDW);
     document.getElementById('gate').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     await mulaiAplikasi();
@@ -1347,6 +1397,15 @@ async function masukDW(){
   }
 }
 function keluarDW(){
+  /* Tokennya dicabut DI SERVER, tidak cuma dilupakan peramban. HP daily
+     worker sering dipinjam-pinjamkan, dan token yang masih hidup di database
+     berarti orang berikutnya tinggal mengembalikan isi localStorage. Tidak
+     ditunggu: kalau jaringannya putus, keluar dari perangkat ini tetap harus
+     terjadi — tokennya akan mati sendiri saat kedaluwarsa. */
+  /* .catch() WAJIB, bukan try/catch: apiPost async, jadi kegagalannya datang
+     sebagai promise yang ditolak — try/catch di sekelilingnya tidak menangkap
+     apa pun, dan yang muncul di konsol adalah unhandled rejection. */
+  try{ apiPost({action:'logoutDW'}).catch(function(){}); }catch(e){}
   try{ localStorage.removeItem(DW_SESI_KEY); }catch(e){}
   location.reload();
 }
@@ -3588,10 +3647,18 @@ async function toggleBayarLunas(senin,kunciTujuan){
   else peta[k]={at:Date.now(), oleh:namaSaya()};
   S.setting.bayarLunas=peta;
   /* Digambar lebih dulu, disimpan belakangan — menandai 15 transfer berturut-
-     turut tidak boleh menunggu jaringan tiap ketukan. simpanSetting() sendiri
-     yang melaporkan kalau gagal. */
+     turut tidak boleh menunggu jaringan tiap ketukan. */
   render();
-  try{ await apiPost({action:'simpanSetting', data:S.setting}); setSync(''); }
+  /* JALUR SENDIRI, bukan simpanSetting. Dua alasan, keduanya nyata:
+     (1) simpanSetting menulis SELURUH blob, jadi dua orang yang menandai
+     transfer berbarengan saling menimpa tarif dan kuota — bukan cuma
+     centangnya; (2) simpanSetting sekarang dikunci untuk admin modul,
+     sementara yang mengerjakan transfer adalah HR biasa. Backend hanya
+     menyentuh satu kunci di dalam satu transaksi. */
+  try{
+    await apiPost({action:'tandaiBayar', senin:senin, kunci:kunciTujuan, nyala:!!peta[k]});
+    setSync('');
+  }
   catch(e){ setSync('Tanda pembayaran belum tersimpan: '+e.message, true); }
 }
 /* Tombol tandai untuk satu baris transfer. Bentuknya centang besar, bukan

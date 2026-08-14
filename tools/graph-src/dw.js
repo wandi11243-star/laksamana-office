@@ -1059,7 +1059,6 @@ function toast() {  }
 
 
 
-function apiPost() { namaSaya(); }
 
 
 
@@ -1068,7 +1067,42 @@ function apiPost() { namaSaya(); }
 
 
 
-function apiGet() {  }
+
+
+
+
+
+
+function tokenSesi() {  }
+
+
+
+
+
+
+
+function sesiDitolak() { isDW(); tampilkanGerbang(); }
+
+
+
+
+
+
+
+
+
+
+function apiPost() { namaSaya(); tokenSesi(); sesiDitolak(); }
+
+
+
+
+
+
+
+
+function apiGet() { tokenSesi(); sesiDitolak(); }
+
 
 
 
@@ -1309,7 +1343,20 @@ function bacaSesi() {  }
 
 
 
+
+
+
+
+
+
+
 function bacaSesiDW() {  }
+
+
+
+
+
+
 
 
 
@@ -1346,7 +1393,19 @@ function gagal() { apiPost(); simpanSesiDW(); mulaiAplikasi(); }
 
 
 
-function keluarDW() {  }
+
+
+
+function keluarDW() { apiPost(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3579,7 +3638,15 @@ function bayarLunasPeta() {  }
 
 function bayarSudah() { bayarLunasPeta(); }
 function bayarLunasInfo() { bayarLunasPeta(); }
-function toggleBayarLunas() { isHR(); toast(); bayarLunasPeta(); namaSaya(); simpanSetting(); render(); apiPost(); setSync(); }
+function toggleBayarLunas() { isHR(); toast(); bayarLunasPeta(); namaSaya(); render(); apiPost(); setSync(); }
+
+
+
+
+
+
+
+
 
 
 

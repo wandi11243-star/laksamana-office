@@ -9,11 +9,19 @@
  *   GET  ?action=stats   -> {ok,data:{jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *
- *   POST {action:'simpanSel',       rows:[...], hapus:[...], by:'Nama'}
- *   POST {action:'simpanSetting',   data:{...}, by:'Nama'}
- *   POST {action:'simpanPengajuan', row:{...},  by:'Nama'}
- *   POST {action:'putusPengajuan',  id, status:'DISETUJUI'|'DITOLAK', nota, by}
+ *   POST {action:'simpanSel',       rows:[...], hapus:[...]}
+ *   POST {action:'simpanSetting',   data:{...}}
+ *   POST {action:'simpanPengajuan', row:{...}}
+ *   POST {action:'putusPengajuan',  id, status:'DISETUJUI'|'DITOLAK', nota}
  *   POST {action:'hapusPengajuan',  id}
+ *
+ * TIAP PERMINTAAN MEMBAWA `sesi` — token sesi Office; lewat ?sesi= untuk GET,
+ * lewat body untuk POST. Tanpa itu jawabannya `sesi_tidak_sah`. Daftar siapa
+ * boleh apa ada di bagian PENJAGA di bawah; ringkasnya, jadwal sebuah divisi
+ * hanya bisa disusun head divisi itu.
+ *
+ * `by` SUDAH TIDAK DIPAKAI walau frontend masih mengirimnya: nama pemutus
+ * diambil dari identitas yang terbukti, bukan dari yang diketik client.
  *
  * Penulisan sengaja GRANULAR (bukan saveAll satu blob) karena tiap divisi
  * punya head sendiri yang menyunting bersamaan — alasannya panjang lebar di
@@ -49,9 +57,47 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 
 function ambil($body, $k, $def = '') { return isset($body[$k]) ? $body[$k] : $def; }
 
+/* ======================================================================
+   PENJAGA — SIAPA BOLEH MELAKUKAN APA
+   ----------------------------------------------------------------------
+   Aturannya satu kalimat: JADWAL SEBUAH DIVISI DISUSUN HEAD DIVISI ITU.
+   Admin modul boleh semuanya. Kru biasa boleh MENGAJUKAN (off/izin/cuti/
+   tukar) untuk dirinya sendiri, dan tidak lebih — yang memutuskan tetap
+   head.
+
+   Diperiksa PER BARIS, bukan sekali di depan: satu simpanSel bisa memuat
+   puluhan sel milik orang yang berbeda-beda, dan divisi yang sedang dibuka
+   di layar pengirim bukan bukti apa pun. Lihat jdw_wajib_boleh_baris().
+
+   `shiftHari` SENGAJA DIBIARKAN TERBUKA. Ia dipanggil backend Absensi
+   server-ke-server, dan config.php di sana hanya bisa diubah manual lewat
+   cPanel — menutupnya berarti absensi kedua situs mati sampai ada yang
+   menyuntingnya, tanpa satu pun galat yang menyebut sebabnya. Isinya memang
+   sudah setipis mungkin: kode shift + jam untuk satu orang pada satu hari.
+   `ping`/`stats` juga terbuka karena dipakai langkah Verifikasi di kedua
+   workflow FTP dan tidak memulangkan satu baris data pun.
+   ====================================================================== */
+function wajib_office($body) {
+  $u = jdw_office($body);
+  if (!$u) sesi_tolak_tak_dikenal();
+  return $u;
+}
+function wajib_admin($body, $apa) {
+  $u = wajib_office($body);
+  if (!jdw_admin($u)) sesi_tolak_tak_berhak($apa . ' hanya bisa dilakukan admin modul Jadwal Shift.');
+  return $u;
+}
+/* Nama untuk kolom `*_oleh`, dari identitas yang TERBUKTI — bukan dari `by`
+   yang dikirim client dan bisa diketik siapa saja. */
+function nama_pemanggil($u) { return ($u && isset($u['name'])) ? (string)$u['name'] : ''; }
+
 try {
   switch ($action) {
     case 'getAll':
+      /* Butuh sesi Office dengan akses modul. Isinya seluruh jadwal
+         perusahaan plus alasan tiap pengajuan izin/cuti — teks bebas yang
+         sering memuat hal pribadi ("operasi", "urus kematian"). */
+      wajib_office($body);
       keluar(array('ok' => true, 'data' => baca_semua(
         isset($_GET['dari']) ? $_GET['dari'] : '',
         isset($_GET['sampai']) ? $_GET['sampai'] : ''
@@ -69,24 +115,61 @@ try {
     case 'stats': keluar(array('ok' => true, 'data' => stats()));
     case 'ping':  keluar(array('ok' => true, 'data' => ping()));
 
-    case 'simpanSel':
+    case 'simpanSel': {
+      /* Tiap baris diperiksa terhadap divisi kru yang ditunjuknya di dalam
+         simpan_sel — bukan di sini — karena satu kiriman bisa memuat
+         puluhan orang dari divisi yang berbeda. */
+      $u = wajib_office($body);
       keluar(array('ok' => true, 'data' => simpan_sel(
-        ambil($body, 'rows', array()), ambil($body, 'hapus', array()), ambil($body, 'by'))));
+        ambil($body, 'rows', array()), ambil($body, 'hapus', array()),
+        nama_pemanggil($u), $u)));
+    }
 
-    case 'simpanSetting':
+    case 'simpanSetting': {
+      /* Blob setting memuat daftar head tiap divisi DAN daftar manajemen.
+         Siapa pun yang bisa menulisnya bisa mengangkat dirinya sendiri jadi
+         head semua divisi — jadi ini admin modul saja, tanpa pengecualian. */
+      $u = wajib_admin($body, 'Mengubah pengaturan modul');
       keluar(array('ok' => true, 'data' => simpan_setting(
-        ambil($body, 'data', null), ambil($body, 'by'))));
+        ambil($body, 'data', null), nama_pemanggil($u))));
+    }
 
-    case 'simpanPengajuan':
-      keluar(array('ok' => true, 'data' => simpan_pengajuan(
-        ambil($body, 'row', array()), ambil($body, 'by'))));
+    case 'simpanPengajuan': {
+      /* Kru mengajukan UNTUK DIRINYA SENDIRI. `userId` dipaksa dari identitas
+         yang terbukti, bukan diterima apa adanya — kalau tidak, siapa pun
+         bisa mengirimkan pengajuan cuti atas nama rekannya, dan head hanya
+         melihat nama orang yang tidak pernah memintanya.
 
-    case 'putusPengajuan':
+         Admin tetap boleh mengisikan atas nama orang lain: HR memang
+         mencatatkan izin yang masuk lewat telepon. */
+      $u = wajib_office($body);
+      $row = (array)ambil($body, 'row', array());
+      if (!jdw_admin($u)) $row['userId'] = (string)$u['id'];
+      keluar(array('ok' => true, 'data' => simpan_pengajuan($row, nama_pemanggil($u))));
+    }
+
+    case 'putusPengajuan': {
+      /* Sepasang dengan bisaPutuskan() di layar: yang memutuskan adalah head
+         divisi SI PENGAJU — bukan head mana pun, dan jelas bukan pengajunya
+         sendiri. Tanpa ini, kru yang mengajukan cuti tinggal memanggil
+         endpoint ini sekali untuk menyetujui cutinya sendiri, dan sel
+         jadwalnya ikut berubah tanpa satu pun head tahu. */
+      $u = wajib_office($body);
+      $a = pengajuan_by_id(ambil($body, 'id'));
+      if (!$a) throw new Exception('Pengajuan tidak ditemukan: ' . ambil($body, 'id'));
+      jdw_wajib_boleh_baris($u, $a['user_id']);
       keluar(array('ok' => true, 'data' => putus_pengajuan(
-        ambil($body, 'id'), ambil($body, 'status'), ambil($body, 'nota'), ambil($body, 'by'))));
+        ambil($body, 'id'), ambil($body, 'status'), ambil($body, 'nota'), nama_pemanggil($u))));
+    }
 
-    case 'hapusPengajuan':
+    case 'hapusPengajuan': {
+      /* Boleh dihapus pengajunya sendiri (menarik kembali sebelum diputus)
+         atau head divisinya. */
+      $u = wajib_office($body);
+      $a = pengajuan_by_id(ambil($body, 'id'));
+      if ($a && (string)$a['user_id'] !== (string)$u['id']) jdw_wajib_boleh_baris($u, $a['user_id']);
       keluar(array('ok' => true, 'data' => hapus_pengajuan(ambil($body, 'id'))));
+    }
 
     default:
       keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));

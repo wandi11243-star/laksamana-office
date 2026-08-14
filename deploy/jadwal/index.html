@@ -1034,21 +1034,43 @@ function toast(msg,err){
   t.textContent=msg; t.className='show'+(err?' err':'');
   clearTimeout(toast._t); toast._t=setTimeout(()=>{ t.className=''; },2800);
 }
+/* ================= TOKEN SESI =================
+   Backend modul ini sekarang punya penjaganya sendiri, jadi tiap panggilan
+   harus membawa bukti siapa pemanggilnya. Tokennya dari `lm_session`, dan
+   backend menanyakannya balik ke account-api (whoami) server-ke-server —
+   peramban tidak pernah memegang jawabannya, jadi ia tidak bisa mengaku jadi
+   head divisi lain.
+
+   Sebelum ini yang dikirim cuma `by`, yaitu NAMA, yang bisa diketik siapa
+   saja: aturan "jadwal divisi ini disusun head-nya" hanya berlaku di layar,
+   dan siapa pun yang tahu URL api.php bisa menulis sel divisi mana pun.
+   `by` masih ikut demi pemasangan backend lama; backend baru mengabaikannya. */
+function tokenSesi(){ return (ME && ME.token) || ''; }
+/* Sesi yang tidak lagi dikenali backend berakhir sebagai GERBANG, bukan toast
+   merah yang berulang — yang membacanya harus tahu bahwa yang perlu ia
+   lakukan adalah masuk lagi, bukan menunggu modulnya sembuh. */
+function sesiDitolak(pesan){
+  if(String(pesan||'').indexOf('sesi_tidak_sah')<0) return false;
+  tampilkanGerbang('Sesi berakhir',
+    'Sesi Anda tidak lagi berlaku. Buka Laksamana Office dan masuk lagi, lalu buka modul ini dari sana.');
+  return true;
+}
 async function apiPost(payload){
   const r=await fetch(API_URL,{method:'POST',redirect:'follow',
     headers:{'Content-Type':'text/plain;charset=utf-8'},   // permintaan sederhana: hindari preflight CORS
-    body:JSON.stringify(Object.assign({by:(ME&&ME.name)||''},payload))});
+    body:JSON.stringify(Object.assign({by:(ME&&ME.name)||'', sesi:tokenSesi()},payload))});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 async function apiGet(dari,sampai){
-  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)+'&t='+Date.now(),
+  const r=await fetch(API_URL+'?action=getAll&dari='+encodeURIComponent(dari)+'&sampai='+encodeURIComponent(sampai)
+    +'&sesi='+encodeURIComponent(tokenSesi())+'&t='+Date.now(),
     {method:'GET',redirect:'follow'});
   const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
   if(!j) throw new Error('Server membalas bukan JSON (backend belum terpasang?)');
-  if(!j.ok) throw new Error(j.error||'ditolak server');
+  if(!j.ok){ sesiDitolak(j.error); throw new Error(j.error||'ditolak server'); }
   return j.data;
 }
 
@@ -1255,6 +1277,13 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('jadwal')<0) return {tolak:true, name:s.name};
     const adm=s.adminModules||[];
     return {id:s.userId, name:s.name, keterangan:s.keterangan||'',
+            /* Token sesi Office — bukti identitas yang dikirim ulang ke
+               backend modul ini supaya SERVER-nya bisa menegakkan "jadwal
+               divisi ini disusun head-nya". Sesi lama (sebelum portal
+               menyimpan token) tidak punya kuncinya, dan yang muncul bukan
+               galat aneh melainkan gerbang "Sesi berakhir" yang menyuruh
+               masuk lagi lewat Office. */
+            token:s.token||'',
             admin:(adm.indexOf('*')>-1 || adm.indexOf('jadwal')>-1)};
   }catch(e){ return null; }
 }

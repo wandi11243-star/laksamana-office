@@ -37,3 +37,20 @@ define('DB_CHARSET', 'utf8mb4');
 define('ENV_LABEL', 'produksi');   // dev: 'dev'
 
 define('API_TOKEN', '');
+
+/* ---------------------------------------------------------------------
+   ACCOUNT_API_URL — BIASANYA TIDAK PERLU DIISI.
+
+   Sejak modul ini punya penjaga sendiri, tiap permintaan membawa token sesi
+   Office dan backend menanyakannya balik ke API akun (action=whoami),
+   server-ke-server. Alamatnya DITURUNKAN SENDIRI dari host yang sedang
+   melayani, jadi dev bertanya ke akun dev dan produksi ke akun produksi
+   tanpa bisa tertukar — dan tidak ada satu baris pun yang harus disunting
+   di cPanel saat versi ini mendarat.
+
+   Isi HANYA kalau API akun suatu saat pindah ke domain lain. Salah isi di
+   sini adalah jenis kesalahan yang tidak menimbulkan galat: kru dev akan
+   diverifikasi memakai akun produksi, dan sebaliknya.
+
+   define('ACCOUNT_API_URL', 'https://team.laksamanamuda.id/account-api-mysql/api.php');
+   --------------------------------------------------------------------- */

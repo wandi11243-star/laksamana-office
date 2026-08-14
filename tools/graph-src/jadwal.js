@@ -1034,7 +1034,6 @@ function toast() {  }
 
 
 
-function apiPost() {  }
 
 
 
@@ -1043,7 +1042,30 @@ function apiPost() {  }
 
 
 
-function apiGet() {  }
+
+
+
+function tokenSesi() {  }
+
+
+
+function sesiDitolak() { tampilkanGerbang(); }
+
+
+
+
+
+function apiPost() { tokenSesi(); sesiDitolak(); }
+
+
+
+
+
+
+
+
+function apiGet() { tokenSesi(); sesiDitolak(); }
+
 
 
 
@@ -1248,6 +1270,13 @@ function save() { simpanSetting(); }
 
 
 function bacaSesi() {  }
+
+
+
+
+
+
+
 
 
 
