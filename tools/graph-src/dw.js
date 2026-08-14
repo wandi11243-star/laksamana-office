@@ -846,6 +846,12 @@
 
 
 
+
+
+
+
+
+
 function posisiDivisi() {  }
 
 
@@ -948,6 +954,12 @@ function bayarJenisSah() {  }
 
 
 function svg() { viewAntrean(); }
+
+
+
+
+
+
 
 
 
@@ -1666,6 +1678,10 @@ function bacaSesi() {  }
 
 
 
+
+
+
+
 function bolehBuka() { isAdmin(); isHR(); isHeadDW(); bisaLihat(); }
 
 
@@ -1703,7 +1719,28 @@ function bolehBuka() { isAdmin(); isHR(); isHeadDW(); bisaLihat(); }
 
 
 
-function buildNav() { isHR(); bolehBuka(); go(); esc(); svg(); }
+
+
+
+
+
+
+
+
+
+
+
+function setSubPeran() { isAdmin(); isHR(); isHeadDW(); }
+
+
+
+
+
+
+
+function buildNav() { setSubPeran(); isHR(); bolehBuka(); go(); esc(); svg(); }
+
+
 
 
 
@@ -1810,7 +1847,8 @@ function go() { toggleSidebar(); render(); muatTamuDanGambar(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboard(); viewPermintaan(); viewAntrean(); viewKalender(); viewTamu(); viewPekerja(); viewRekap(); viewBayar(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); go(); bolehBuka(); viewDashboard(); viewPermintaan(); viewAntrean(); viewKalender(); viewTamu(); viewPekerja(); viewRekap(); viewBayar(); viewPengaturan(); viewAkses(); }
+
 
 
 
@@ -2171,10 +2209,7 @@ function viewPermintaan() { divisiKuasaDW(); isHR(); }
 
 
 
-function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHR(); go(); isHeadDW(); bukaMinta(); escJs(); batalPermintaan(); esc(); tglManusia(); segeraHTML(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); mintaTab(); }
-
-
-
+function baris() { mintaTerpenuhi(); mintaOrang(); pilStatus(); isHeadDW(); bukaMinta(); escJs(); batalPermintaan(); esc(); tglManusia(); segeraHTML(); idxHari(); ikonDivisi(); namaDivisi(); durasiJam(); namaDW(); pitaHead(); isHR(); mintaTab(); }
 
 
 
@@ -2655,7 +2690,11 @@ function bukaTunjuk() { isHR(); toast(); gambarTunjuk(); }
 
 
 
-function tunjukCari() { gambarTunjuk(); }
+
+
+
+
+function bukaSebagian() { isHR(); toast(); gambarTunjuk(); }
 
 
 
@@ -2663,7 +2702,23 @@ function tunjukCari() { gambarTunjuk(); }
 
 
 
-function tunjukToggle() { gambarTunjuk(); mintaTerpenuhi(); toast(); }
+
+
+function serapTunjuk() {  }
+
+
+
+
+function tunjukCari() { serapTunjuk(); gambarTunjuk(); }
+
+
+
+
+
+
+
+function tunjukToggle() { serapTunjuk(); gambarTunjuk(); mintaTerpenuhi(); toast(); }
+
 
 
 
@@ -2750,7 +2805,41 @@ function gambarTunjuk() { mintaTerpenuhi(); kandidatDW(); ajuanOrangTgl(); esc()
 
 
 
-function kirimTunjuk() { toast(); tutupModal(); jalankanTugaskan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimTunjuk() { serapTunjuk(); toast(); gambarTunjuk(); tutupModal(); jalankanTugaskan(); apiPost(); muatDanGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3009,7 +3098,20 @@ function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tol
 
 
 
-function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); tolakPermintaan(); tarifPosisi(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); pilStatus(); }
+function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); tarifPosisi(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); pilStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5719,7 +5821,7 @@ function exportWADW() { bulanDari(); hariIni(); lembarDW(); toast(); namaDivisi(
 
 
 
-function viewPengaturan() { isAdmin(); panelPosisiHTML(); tambahJam(); esc(); ubahJam(); durasiJam(); hapusJam(); hakAksesPanelHTML(); ubahKuota(); }
+function viewPengaturan() { panelPosisiHTML(); tambahJam(); esc(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); }
 
 
 
@@ -5763,6 +5865,15 @@ function viewPengaturan() { isAdmin(); panelPosisiHTML(); tambahJam(); esc(); ub
 
 
 
+
+
+
+
+
+
+
+
+function viewAkses() { isAdmin(); hakAksesPanelHTML(); }
 
 
 
@@ -6057,7 +6168,14 @@ function tampilkanGerbang() {  }
 
 
 
-function mulaiAplikasi() { inisial(); isAdmin(); halamanSah(); hashHalaman(); render(); muatTamuDanGambar(); muatData(); isOffice(); }
+function mulaiAplikasi() { inisial(); setSubPeran(); isAdmin(); halamanSah(); hashHalaman(); render(); muatTamuDanGambar(); muatData(); isOffice(); }
+
+
+
+
+
+
+
 
 
 

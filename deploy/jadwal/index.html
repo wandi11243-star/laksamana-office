@@ -301,6 +301,16 @@ tr.wkhdr th{background:var(--ink);color:#fff;font-family:var(--font-display);
   padding:7px 12px;text-align:left;border-right:none;border-bottom:none}
 tr.wkhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
   opacity:.62;font-size:11px;margin-left:6px}
+/* Pita nama divisi, hanya muncul di mode "Semua" (14 Agustus 2026). Sengaja
+   LEBIH TENANG daripada pita minggu di atasnya: yang membagi lembar jadi
+   babak tetap minggunya, dan dua pita sama pekat bertumpuk membuat pembaca
+   kehilangan mana yang memuat mana. */
+tr.divhdr th{background:var(--gold-soft);color:var(--gold-dim);
+  font-family:var(--font-display);font-size:10.5px;font-weight:800;
+  letter-spacing:.1em;text-transform:uppercase;padding:5px 12px;text-align:left;
+  border-right:none;border-bottom:1px solid var(--line)}
+tr.divhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
+  opacity:.7;margin-left:6px}
 
 /* ---------- Blok DAILY WORKER di dalam lembar yang sama ----------
    Pekerja harian digambar di TABEL YANG SAMA dengan kru tetap — satu lembar
@@ -383,6 +393,10 @@ table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
 .st-MENUNGGU{background:var(--warn-bg);color:var(--warn)}
 .st-DISETUJUI{background:var(--ok-bg);color:var(--ok)}
 .st-DITOLAK{background:var(--danger-bg);color:var(--danger)}
+/* Pil jenis shift di kolom Shift halaman Pengajuan. inline-block + nowrap:
+   sebagai <span> biasa ia ikut membungkus mengikuti lebar kolom, dan latar
+   berwarnanya terpotong di tengah kata. */
+.shiftpil{display:inline-block;white-space:nowrap;text-align:center;min-width:64px}
 .aju .isi{font-size:13px;color:var(--muted);margin:4px 0 8px;width:100%}
 .inp{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:14px}
 .inp:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
@@ -1452,10 +1466,16 @@ function render(){
 /* =====================================================================
    POTONGAN HTML BERSAMA
    ===================================================================== */
-/* dgnSemua = tambahkan tab "Semua Divisi" di depan. Dipakai Input Mingguan,
-   TIDAK dipakai halaman bulanan: lembar sebulan satu divisi sudah 31 kolom,
-   dan menumpuk empat divisi di lebar yang sama menghasilkan halaman yang cuma
-   bisa dibaca dengan menggulir dua arah sekaligus. */
+/* dgnSemua = tambahkan tab "Semua Divisi" di depan. Dipakai Input Mingguan
+   DAN, sejak 14 Agustus 2026, halaman bulanan.
+   Keberatan lamanya masih benar — lembar sebulan satu divisi sudah 31 kolom,
+   dan menumpuk empat divisi di lebar yang sama tidak menambah satu kolom pun
+   tapi memanjangkan halamannya berlipat. Yang berubah: lembarnya tidak
+   ditumpuk melainkan DIURUT — tiap divisi mendapat pita namanya sendiri di
+   dalam pita minggu yang sama, jadi yang bertambah cuma gulungan ke bawah,
+   arah yang memang sudah dipakai halaman ini. Itu ditukar dengan satu-satunya
+   tampilan yang menjawab "malam Sabtu ini siapa saja yang masuk, di semua
+   pos" tanpa membuka empat tab bergantian. */
 function segDivisi(aktif,onclick,dgnSemua){
   /* Hanya keempat divisi shift. Tidak ada tab tambahan untuk sisanya:
      yang tidak dijadwalkan memang tidak punya lembar untuk dilihat. */
@@ -1848,21 +1868,38 @@ function viewBulanan(){
      divisi undefined" untuk divisi yang jelas penuh isinya, tanpa satu pun
      galat. Ditarik kembali ke divisi nyata di sini, bukan disaring di belasan
      tempat di bawahnya. */
-  if(DIV==='ALL') DIV=divTunggal();
+  /* 'ALL' TIDAK LAGI DITARIK KEMBALI KE SATU DIVISI (14 Agustus 2026).
+     Lembar bulanan kini bisa menggambar seluruh divisi sekaligus — itu satu-
+     satunya tampilan yang menjawab "malam Sabtu ini siapa saja yang masuk, di
+     semua pos", pertanyaan yang selama ini dijawab dengan membuka empat tab
+     divisi bergantian lalu mengingat isinya. Yang di bawah tetap bekerja per
+     divisi; yang berubah cuma jumlah divisi yang dilewati. */
   const mk=BULAN_AKTIF||bulanDari(hariIni());
-  const semuaKru=kruDivisi(DIV);
+  const modeAll=(DIV==='ALL');
+  const divList=modeAll?DIVISI.map(d=>d.k):[DIV];
   const q=(CARI_BULAN||'').trim().toLowerCase();
-  const emps=q?semuaKru.filter(u=>String(u.name||'').toLowerCase().indexOf(q)>-1):semuaKru;
+  const saring=arr=>q?arr.filter(u=>String(u.name||'').toLowerCase().indexOf(q)>-1):arr;
+  const kruPer={}, bisaPer={};
+  let semuaKru=[], emps=[];
+  divList.forEach(function(dv){
+    const semua=kruDivisi(dv);
+    kruPer[dv]=saring(semua);
+    bisaPer[dv]=bolehUbah(dv);
+    semuaKru=semuaKru.concat(semua);
+    emps=emps.concat(kruPer[dv]);
+  });
   const pita=pitaBulan(mk);
-  const bisa=bolehUbah(DIV);
+  const bisa=modeAll?false:bisaPer[DIV];
+  const judulLembar=modeAll?'Semua Divisi':namaDivisi(DIV);
 
   let tabel='';
   /* Divisi tanpa kru tetap TAPI ada daily worker tetap digambar tabelnya.
      Dulu syaratnya cuma `!emps.length`, dan akibatnya DW yang sudah disetujui
      HR sama sekali tidak kelihatan di divisi yang kebetulan belum punya kru
      tetap — persis kasus yang paling butuh dilihat. */
-  if(!emps.length && !dwOrang(DIV, awalBulan(mk), akhirBulan(mk)).length){
-    tabel='<div class="empty"><div class="ic">👥</div>Belum ada kru di divisi '+esc(namaDivisi(DIV))+'.'+
+  const adaDW=divList.some(dv=>dwOrang(dv, awalBulan(mk), akhirBulan(mk)).length);
+  if(!emps.length && !adaDW){
+    tabel='<div class="empty"><div class="ic">👥</div>Belum ada kru di '+esc(judulLembar)+'.'+
       '<div class="mutedhint" style="margin-top:6px">Kru muncul otomatis begitu kolom <b>Tim</b>-nya diisi di Laksamana Office'+
       (isAdmin()?', atau tempatkan manual lewat Pengaturan.':'.')+'</div></div>';
   }else{
@@ -1900,7 +1937,17 @@ function viewBulanan(){
       body+='<tr class="hdr2"><th></th><th></th><th>BULAN INI</th>'+
         hariPita.map(d=>{ const i=idxHari(d);
           return '<th class="'+(i>=5?'wknd ':'')+(luarBulan(d,mk)?'luar':'')+'">'+HARI_PJG[i]+'</th>'; }).join('')+'</tr>';
-      emps.forEach((u,ui)=>{
+      /* Satu blok per divisi di dalam pita minggu yang sama. Kepala kolomnya
+         (hdr/hdr2) sengaja TIDAK diulang per divisi: tanggalnya identik untuk
+         semuanya, dan mengulangnya membuat pembaca mengira ia sudah pindah ke
+         minggu berikutnya. Yang memisahkan cukup satu pita nama divisi. */
+      divList.forEach(function(dv){
+      const empsDiv=kruPer[dv], bisaDiv=bisaPer[dv];
+      if(modeAll){
+        body+='<tr class="divhdr"><th colspan="'+kolom+'">'+ikonDivisiJadwal(dv)+' '
+          +esc(namaDivisi(dv))+' <span>'+empsDiv.length+' kru</span></th></tr>';
+      }
+      empsDiv.forEach((u,ui)=>{
         /* KOLOM KETIGA: BEBAN BULAN INI, bukan jabatan.
            Dulu di sini tercetak jabatanDari(u) — dan karena kolom "Tim /
            Keterangan" di Office hampir selalu berisi nama divisinya sendiri,
@@ -1919,26 +1966,30 @@ function viewBulanan(){
            dibuang cuma keterangan yang cuma mengulang nama divisi. */
         const bk=bebanKru(u,mk);
         const jbt=(S&&S.setting.jabatan[u.id])||'';
-        const ket=(jbt && jbt.toLowerCase()!==namaDivisi(DIV).toLowerCase()) ? jbt : '';
+        const ket=(jbt && jbt.toLowerCase()!==namaDivisi(dv).toLowerCase()) ? jbt : '';
         body+='<tr><td class="no">'+(ui+1)+'</td>'+
-          '<td class="nm"><b>'+esc(u.name)+'</b>'+(isHeadUser(u.id,DIV)?'<i>head divisi</i>':'')+'</td>'+
+          '<td class="nm"><b>'+esc(u.name)+'</b>'+(isHeadUser(u.id,dv)?'<i>head divisi</i>':'')+'</td>'+
           '<td class="jb" title="'+esc(bk.masuk+' hari masuk · '+bk.libur+' off · '+bk.kosong+' belum diatur')+'">'+
             '<b>'+bk.masuk+'</b> masuk'+
             '<i>'+bk.libur+' off'+(bk.jam?' · '+bk.jam+' jam':'')+(ket?' · '+esc(ket):'')+'</i></td>'+
-          hariPita.map(d=>selHtml(sel(u.id,d),u.id,d,bisa,luarBulan(d,mk))).join('')+'</tr>';
+          /* Hak ubah dihitung PER DIVISI, bukan sekali untuk seluruh lembar:
+             di mode semua divisi, head Bar tetap head Bar — selnya sendiri
+             boleh ia ubah, sel Kitchen di baris bawahnya tidak. */
+          hariPita.map(d=>selHtml(sel(u.id,d),u.id,d,bisaDiv,luarBulan(d,mk))).join('')+'</tr>';
       });
       /* Daily worker ikut di TABEL YANG SAMA, di bawah kru tetap pita ini —
          itulah gunanya: satu lembar untuk melihat seluruh orang yang masuk
          minggu itu. Yang membedakan cuma pita label dan warnanya. */
-      body+=blokDW(DIV,hariPita,mk);
+      body+=blokDW(dv,hariPita,mk);
+      });
     });
     tabel='<div class="tablewrap" id="lembarBulan"><table class="sched bulanan">'+body+'</table></div>';
   }
 
   const r=rekapBulan(emps,mk);
   return '<div class="panel">'
-    +kopCetakHTML('Jadwal Shift — '+namaDivisi(DIV), labelBulan(mk))
-    +'<div class="rowbar">'+segDivisi(DIV,'gantiDiv')+'<div class="spacer"></div>'
+    +kopCetakHTML('Jadwal Shift — '+judulLembar, labelBulan(mk))
+    +'<div class="rowbar">'+segDivisi(DIV,'gantiDiv',true)+'<div class="spacer"></div>'
     +'<div class="navdate noprint"><button class="iconbtn" onclick="geserBulanAktif(-1)">‹</button>'
     +'<b>'+esc(labelBulan(mk))+'</b>'
     +'<button class="iconbtn" onclick="geserBulanAktif(1)">›</button>'
@@ -1957,21 +2008,30 @@ function viewBulanan(){
         +'<div class="spacer"></div></div>'
       : '')
     +(q&&!emps.length
-      ? '<div class="note w">Tidak ada kru '+esc(namaDivisi(DIV))+' bernama "<b>'+esc(CARI_BULAN)+'</b>". '
-        +'Mungkin ia ada di divisi lain — pilih tab divisinya di atas.</div>'
+      ? '<div class="note w">Tidak ada kru '+esc(judulLembar)+' bernama "<b>'+esc(CARI_BULAN)+'</b>".'
+        +(modeAll?'':' Mungkin ia ada di divisi lain — pilih <b>Semua</b> di atas.')+'</div>'
       : '')
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div>'
     +'<div class="tools noprint">'
-    +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
-    +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;bulan&#39;)">🖼️ PNG Sebulan</button>'
-    +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;bulan&#39;)">💬 Teks WA</button>'
+    /* Excel/PNG/WA menyusun isinya sendiri dari kruDivisi(DIV) — satu divisi,
+       satu berkas. Di mode Semua mereka akan memulangkan lembar KOSONG tanpa
+       satu pun galat, dan yang mengirimnya ke grup tidak akan tahu. Jadi
+       disembunyikan, bukan dibiarkan gagal diam-diam; Print tetap ada karena
+       ia mencetak apa yang benar-benar tergambar di layar. */
+    +(modeAll
+      ? '<span class="mutedhint">Ekspor berkas tersedia per divisi — pilih divisinya di atas.</span>'
+      : '<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;bulan&#39;)">🖼️ PNG Sebulan</button>'
+        +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;bulan&#39;)">💬 Teks WA</button>')
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
     +'</div></div>'
     +'<div class="stats noprint">'+statBox(emps.length,'Kru')+statBox(r.masuk,'Hari Masuk')
       +statBox(r.libur,'Off / Cuti')+statBox(r.kosong,'Sel Kosong')+'</div>'
     +tabel
-    +(bisa?'<p class="mutedhint noprint" style="margin-top:10px">Klik sel mana pun untuk mengubahnya. Untuk mengisi satu minggu sekaligus, pakai <b>Input Mingguan</b>.</p>'
-          :'<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</p>')
+    +(modeAll
+      ? '<p class="mutedhint noprint" style="margin-top:10px">Semua divisi dalam satu lembar. Sel yang boleh Anda ubah tetap sel divisi Anda sendiri.</p>'
+      : (bisa?'<p class="mutedhint noprint" style="margin-top:10px">Klik sel mana pun untuk mengubahnya. Untuk mengisi satu minggu sekaligus, pakai <b>Input Mingguan</b>.</p>'
+            :'<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</p>'))
     /* Panel "Beban Kerja Bulan Ini" dihapus 5 Agustus 2026 atas permintaan.
        Angka yang sama kini dibaca per orang di halaman Rekap Pegawai, dan
        tabel sepanjang divisi di kaki lembar ini jarang dipakai sementara ia
@@ -2939,8 +2999,17 @@ function pilShiftAju(a){
   const k = AJU_KE_SHIFT[a.jenis] || a.shift || '';
   if(!k || !S.setting.shifts[k]) return '';
   const d=shiftDef(k);
-  const jam=(!d.libur && a.jamMulai && a.jamSelesai) ? ' '+esc(a.jamMulai+'–'+a.jamSelesai) : '';
-  return ' <span class="stpill" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'+esc(d.n)+jam+'</span>';
+  /* JAM TURUN KE BARIS SENDIRI, tidak lagi dijejalkan ke dalam pil.
+     Kolom Shift dipatok 130px; pil berisi "MIDDLE 16:00–23:00" tidak muat dan
+     pecah jadi dua baris DI DALAM latar berwarnanya — tepinya bergerigi,
+     tingginya melompat, dan barisnya ikut menjulur. Yang terlihat persis
+     seperti CSS yang rusak, padahal isinya yang kelebihan.
+     `shiftpil` juga dilarang pecah, supaya nama shift sepanjang apa pun tetap
+     satu baris utuh. */
+  const jam=(!d.libur && a.jamMulai && a.jamSelesai)
+    ? '<div class="kecil mono">'+esc(a.jamMulai+'–'+a.jamSelesai)+'</div>' : '';
+  return '<span class="stpill shiftpil" style="background:'+esc(d.w)+';color:'+warnaTeks(d.w)+'">'
+    +esc(d.n)+'</span>'+jam;
 }
 /* Berapa pengajuan yang ditampilkan di daftar utama. Sisanya turun ke panel
    Riwayat yang tertutup. */
