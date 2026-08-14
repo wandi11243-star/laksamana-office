@@ -596,8 +596,13 @@ function gambarEditor(){
       <select onchange="ED.bahan[${i}].ref=this.value;gambarEditor()">
         <option value="bahan"${b.ref!=='resep'?' selected':''}>Bahan</option>
         <option value="resep"${b.ref==='resep'?' selected':''}>Resep</option></select>
+      <!-- oninput TIDAK menggambar ulang jendela. Dulu ia memanggil
+           gambarEditor() tiap huruf: kotaknya dibuat ulang, fokus lepas, dan
+           huruf kedua mendarat entah di mana. Yang perlu berubah saat mengetik
+           cuma subtotal & ringkasan — daftar saran (list=) hanya berganti saat
+           SUMBER-nya diubah, dan itu ditangani select di sebelahnya. -->
       <input list="${b.ref==='resep'?'dlResep':'dlBahan'}" value="${esc(b.nama||'')}" placeholder="nama…"
-             oninput="ED.bahan[${i}].nama=this.value;gambarEditor()">
+             oninput="ED.bahan[${i}].nama=this.value;segarSub()">
       <input type="number" step="any" value="${b.qty!=null?b.qty:''}" placeholder="qty"
              oninput="ED.bahan[${i}].qty=this.value;segarSub()">
       <input value="${esc(b.satuan||'')}" placeholder="satuan" oninput="ED.bahan[${i}].satuan=this.value">
@@ -626,15 +631,15 @@ function gambarEditor(){
         <div class="field"><label>Satuan hasil</label><input value="${esc(r.yield_unit||'')}" placeholder="Porsi / Gr / Pcs" oninput="ED.yield_unit=this.value"></div>
       </div>
       ${r.tipe==='dish'?`<div class="g3">
-        <div class="field"><label>Harga jual lama</label><input type="number" step="any" value="${r.harga_lama||''}" oninput="ED.harga_lama=this.value;segarSub()"></div>
-        <div class="field"><label>Harga jual baru</label><input type="number" step="any" value="${r.harga_baru||''}" oninput="ED.harga_baru=this.value;segarSub()"></div>
-        <div class="field"><label>Harga upsize</label><input type="number" step="any" value="${r.harga_upsize||''}" oninput="ED.harga_upsize=this.value"></div></div>`:''}
+        <div class="field"><label>Harga jual lama (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_lama)}" oninput="angkaKetik(this,v=>{ED.harga_lama=v});segarSub()"></div>
+        <div class="field"><label>Harga jual baru (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
+        <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div></div>`:''}
       ${r.tipe==='base'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px">
         <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
         Base ini juga <b>berdiri di Purchasing</b> — barang produksi Central Kitchen yang dipesan outlet</label>
       <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin-bottom:12px">Bawaannya mati: base dibuat sendiri, bukan dibeli. Nyalakan hanya kalau outlet memesannya lewat purchasing — ia akan didaftarkan di sana bertanda <b>produksi CK</b>, bukan sebagai barang vendor.</div>`:''}
       ${(r.bahan||[]).length===0?`<div class="field"><label>Modal manual (dipakai kalau menu ini tidak punya resep)</label>
-        <input type="number" step="any" value="${r.modal_manual||''}" oninput="ED.modal_manual=this.value;segarSub()"></div>`:''}
+        <input inputmode="numeric" value="${fmtIn(r.modal_manual)}" oninput="angkaKetik(this,v=>{ED.modal_manual=v});segarSub()"></div>`:''}
       <h4 style="margin:14px 0 8px">Bahan</h4>
       <div class="brs" style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase">
         <div>Sumber</div><div>Nama</div><div>Qty</div><div>Satuan</div><div style="text-align:right">Subtotal</div><div></div></div>
@@ -1373,11 +1378,6 @@ function kalTotal(){
   return {t,hilang};
 }
 function viewKalk(){
-  const {t,hilang}=kalTotal();
-  const porsi=num(KAL.porsi)||1, perPorsi=t/porsi;
-  const hj=num(KAL.hargaJual);
-  const c=hj>0?perPorsi/hj:null;
-  const saranF=perPorsi/num(SET.targetFood), saranD=perPorsi/num(SET.targetDrink);
   let h=`<div class="card"><h3>Coba hitung</h3>
     <div class="card-sub">Pilih bahan atau resep yang sudah ada, isi takarannya. Tidak ada yang tersimpan — kalau hasilnya bagus, buat resepnya di menu Daftar Resep.</div>
     <datalist id="dlBahanK">${S.bahan.map(b=>`<option value="${esc(b.nama)}">`).join('')}</datalist>
@@ -1390,28 +1390,54 @@ function viewKalk(){
       <select onchange="KAL.baris[${i}].ref=this.value;render()">
         <option value="bahan"${b.ref!=='resep'?' selected':''}>Bahan</option>
         <option value="resep"${b.ref==='resep'?' selected':''}>Resep</option></select>
-      <input list="${b.ref==='resep'?'dlResepK':'dlBahanK'}" value="${esc(b.nama||'')}" placeholder="nama…" oninput="KAL.baris[${i}].nama=this.value;render()">
-      <input type="number" step="any" value="${b.qty||''}" placeholder="qty" oninput="KAL.baris[${i}].qty=this.value;render()">
+      <!-- Sama seperti penyunting resep: mengetik TIDAK menggambar ulang
+           halaman. Di sini akibatnya bahkan lebih parah — render() membangun
+           ulang seluruh kalkulator, jadi setiap huruf melempar fokus keluar. -->
+      <input list="${b.ref==='resep'?'dlResepK':'dlBahanK'}" value="${esc(b.nama||'')}" placeholder="nama…" oninput="KAL.baris[${i}].nama=this.value;segarKalk()">
+      <input inputmode="numeric" value="${b.qty||''}" placeholder="qty" oninput="KAL.baris[${i}].qty=this.value;segarKalk()">
       <input value="${esc(b.satuan||'')}" placeholder="satuan" oninput="KAL.baris[${i}].satuan=this.value">
-      <div class="sub">${s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
+      <div class="sub" data-ksub="${i}">${s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
       <button class="x" onclick="KAL.baris.splice(${i},1);render()">✕</button></div>`;
   });
   h+=`<div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="KAL.baris.push({nama:'',qty:'',ref:'bahan'});render()">+ Baris</button>
       <button class="btn btn-ghost btn-sm" onclick="KAL={baris:[{nama:'',qty:'',ref:'bahan'}],hargaJual:'',porsi:1};render()">Bersihkan</button></div>
     <div class="g3" style="margin-top:14px">
-      <div class="field"><label>Jadi berapa porsi</label><input type="number" step="any" value="${KAL.porsi}" oninput="KAL.porsi=this.value;render()"></div>
-      <div class="field"><label>Rencana harga jual</label><input type="number" step="any" value="${KAL.hargaJual}" oninput="KAL.hargaJual=this.value;render()"></div>
+      <div class="field"><label>Jadi berapa porsi</label><input inputmode="numeric" value="${KAL.porsi}" oninput="KAL.porsi=this.value;segarKalk()"></div>
+      <div class="field"><label>Rencana harga jual (Rp)</label><input inputmode="numeric" value="${fmtIn(KAL.hargaJual)}" oninput="angkaKetik(this,v=>{KAL.hargaJual=v});segarKalk()"></div>
     </div></div>
-  <div class="row-in">
-    ${kartu('Modal total',rp(t),hilang?`${hilang} baris belum dikenal`:'dari '+KAL.baris.filter(b=>b.nama).length+' bahan','accent')}
-    ${kartu('Modal per porsi',rp2(perPorsi),porsi+' porsi','')}
-    ${kartu('COGS',c===null?'—':pct(c),hj>0?('harga jual '+rp(hj)):'isi rencana harga jual',c!==null&&c>num(SET.targetFood)?'':'')}
-    ${kartu('Harga ideal',rp(saranF),`supaya COGS pas ${(num(SET.targetFood)*100).toFixed(0)}% (drink: ${rp(saranD)})`,'')}
-  </div>`;
-  if(c!==null) h+=`<div class="notice ${c>num(SET.targetFood)?'bad':'ok'}">${c>num(SET.targetFood)
-    ? `Dengan harga ${rp(hj)}, COGS-nya ${pct(c)} — di atas target. Harga minimalnya ${rp(saranF)}, atau modalnya perlu turun ke ${rp2(hj*num(SET.targetFood))} per porsi.`
-    : `COGS ${pct(c)}, di bawah target. Marginnya ${rp(hj-perPorsi)} per porsi.`}</div>`;
+  <div class="row-in" id="kalKartu">${kartuKalk()}</div>
+  <div id="kalNote">${noteKalk()}</div>`;
   return h;
+}
+/* Kartu & catatan kalkulator dipisah jadi fungsinya sendiri supaya bisa
+   digambar ulang TANPA menyentuh kotak isian yang sedang diketik. */
+function kartuKalk(){
+  const {t,hilang}=kalTotal();
+  const porsi=num(KAL.porsi)||1, perPorsi=t/porsi, hj=num(KAL.hargaJual);
+  const c=hj>0?perPorsi/hj:null;
+  return kartu('Modal total',rp(t),hilang?`${hilang} baris belum dikenal`:'dari '+KAL.baris.filter(b=>b.nama).length+' bahan','accent')
+    +kartu('Modal per porsi',rp2(perPorsi),porsi+' porsi','')
+    +kartu('COGS',c===null?'—':pct(c),hj>0?('harga jual '+rp(hj)):'isi rencana harga jual','')
+    +kartu('Harga ideal',rp(perPorsi/num(SET.targetFood)),
+        `supaya COGS pas ${(num(SET.targetFood)*100).toFixed(0)}% (drink: ${rp(perPorsi/num(SET.targetDrink))})`,'');
+}
+function noteKalk(){
+  const {t}=kalTotal();
+  const porsi=num(KAL.porsi)||1, perPorsi=t/porsi, hj=num(KAL.hargaJual);
+  if(hj<=0) return '';
+  const c=perPorsi/hj, tgt=num(SET.targetFood);
+  return `<div class="notice ${c>tgt?'bad':'ok'}">${c>tgt
+    ? `Dengan harga ${rp(hj)}, COGS-nya ${pct(c)} — di atas target. Harga minimalnya ${rp(perPorsi/tgt)}, atau modalnya perlu turun ke ${rp2(hj*tgt)} per porsi.`
+    : `COGS ${pct(c)}, di bawah target. Marginnya ${rp(hj-perPorsi)} per porsi.`}</div>`;
+}
+function segarKalk(){
+  document.querySelectorAll('[data-ksub]').forEach(el=>{
+    const b=KAL.baris[+el.dataset.ksub]; if(!b) return;
+    const s=hitungBaris(b,'food');
+    el.innerHTML=s.ada?rp2(s.nilai):'<span style="color:var(--danger)">tak dikenal</span>';
+  });
+  const k=$('kalKartu'); if(k) k.innerHTML=kartuKalk();
+  const n=$('kalNote'); if(n) n.innerHTML=noteKalk();
 }
 
 /* ====================== 7. PENGATURAN ====================== */
