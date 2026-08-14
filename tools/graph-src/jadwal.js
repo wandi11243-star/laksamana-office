@@ -711,6 +711,27 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -3072,7 +3093,15 @@ function barisAju() { kruById(); divisiDari(); tglManusia(); selisihHariAju(); b
 
 
 
+
+
+
+
 function selisihHariAju() { addD(); bisaPutuskan(); }
+
+
+
+
 
 
 
@@ -4075,11 +4104,8 @@ function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); 
 
 
 
-
-
 function sel_() {  }
-function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); parseD(); jabatanDari(); sel(); shiftDef(); dwOrang(); tglManusia(); dwSel(); daftarShift(); xEsc(); }
-
+function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); parseD(); jabatanDari(); sel(); shiftDef(); daftarShift(); xEsc(); }
 
 
 
