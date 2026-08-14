@@ -846,7 +846,29 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
                    ON DUPLICATE KEY UPDATE `utama`=VALUES(`utama`), `data`=VALUES(`data`)")
         ->execute([$nama, (string)$utama, json_encode($rec, JSON_UNESCAPED_UNICODE)]);
     $pdo->commit();
-    return ['status' => 'success'];
+
+    /* GANTI NAMA MERAMBAT KE HPP & RESEP (14 Agustus 2026, permintaan user).
+       Modul HPP memakai NAMA bahan sebagai kunci ke daftar ini, jadi produk
+       yang berganti nama di sini akan lepas kaitannya di sana tanpa ada yang
+       menyentuh HPP — bahan yang tadinya dikenal mendadak "belum ada di
+       purchasing", dan resepnya diam-diam kehilangan rujukan harga.
+
+       DI LUAR TRANSAKSI, dan dibungkus try/catch: penggantian nama di
+       purchasing SUDAH sah dan tidak boleh dibatalkan hanya karena modul
+       sebelah bermasalah. Kalau HPP gagal menyesuaikan, yang terjadi paling
+       jauh satu bahan yang perlu disamakan manual — bukan kehilangan data. */
+    $laporHpp = null;
+    if ($namaLama !== '' && $namaLama !== $nama) {
+      try {
+        require_once __DIR__ . '/lib_hpp_nama.php';
+        $laporHpp = hpp_ikut_ganti_nama($pdo, $namaLama, $nama);
+      } catch (Throwable $e) {
+        error_log('[stock/items] sinkron nama HPP gagal: ' . $e->getMessage());
+      }
+    }
+    $out = ['status' => 'success'];
+    if ($laporHpp && ($laporHpp['bahan'] || $laporHpp['resep'] || $laporHpp['lewat'])) $out['hpp'] = $laporHpp;
+    return $out;
   } catch (Exception $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     throw $e;

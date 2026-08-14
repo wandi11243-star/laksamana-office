@@ -235,6 +235,22 @@ function hpp_simpan_bahan($pdo, $d, $by) {
   $ikut = 0;
   if ($lama !== '' && $lama !== $nama) {
     $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n')->execute(array(':n' => $lama));
+    /* Pemakaian bulanan ikut pindah. Kuncinya (bulan, bahan), jadi bulan yang
+       nama barunya SUDAH terisi dilewati — menimpanya berarti membuang angka
+       opname yang sudah diketik orang. */
+    $bl = $pdo->prepare('SELECT bulan FROM hpp_pakai WHERE bahan=:l');
+    $bl->execute(array(':l' => $lama));
+    $adaB = $pdo->prepare('SELECT COUNT(*) FROM hpp_pakai WHERE bahan=:b AND bulan=:m');
+    $pindah = $pdo->prepare('UPDATE hpp_pakai SET bahan=:b WHERE bahan=:l AND bulan=:m');
+    foreach ($bl->fetchAll(PDO::FETCH_COLUMN) as $m) {
+      $adaB->execute(array(':b' => $nama, ':m' => $m));
+      if ((int)$adaB->fetchColumn()) continue;
+      $pindah->execute(array(':b' => $nama, ':l' => $lama, ':m' => $m));
+    }
+    /* Penanda pasangan lama ikut diarahkan ulang, kalau tidak ia menunjuk nama
+       yang sudah tidak ada. */
+    $pdo->prepare('UPDATE hpp_bahan SET produk=:b WHERE produk=:l')
+        ->execute(array(':b' => $nama, ':l' => $lama));
     $rs = $pdo->query('SELECT id,bahan FROM hpp_resep')->fetchAll(PDO::FETCH_ASSOC);
     foreach ($rs as $r) {
       $baris = json_decode((string)$r['bahan'], true);
