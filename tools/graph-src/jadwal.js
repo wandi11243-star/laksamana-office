@@ -3910,6 +3910,22 @@ function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function B() { zipSimpan(); xEsc(); namaDivisi(); seninDari(); hariIni(); toast(); }
 
 

@@ -232,6 +232,17 @@ td.cell.editable:hover{filter:brightness(.94)}
 td.cell .tm{display:block;font-size:9.5px;font-weight:600;opacity:.85;letter-spacing:0}
 td.cell.kosong{color:#C9C3B7;font-weight:600;font-size:16px}
 tr.bandgap td{height:22px;border:none;background:transparent}
+/* Pita "MINGGU N" di kepala tiap blok — DISALIN dari modul Jadwal Shift,
+   termasuk alasannya. Tanpa kepala ini lembar bulanan ambigu justru di tempat
+   yang paling penting: pita minggu selalu Senin–Minggu, jadi ujung lembar
+   memuat kolom sambungan dari bulan sebelah, dan pembaca harus menebak baris
+   yang dilihatnya milik minggu yang mana. Tebakan yang salah berarti orang
+   dikira masuk di hari yang salah. */
+tr.wkhdr th{background:var(--ink);color:#fff;font-family:var(--font-display);
+  font-size:11.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  padding:7px 12px;text-align:left;border-right:none;border-bottom:none}
+tr.wkhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
+  opacity:.62;font-size:11px;margin-left:6px}
 
 /* Ringkasan */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;margin-bottom:14px}
@@ -470,10 +481,13 @@ td.nm .iconbtn{width:20px;height:20px;font-size:13px;margin-left:5px;vertical-al
   table.sched .jb{min-width:0;padding:3px 4px;font-size:8px}
   tr.hdr th,tr.hdr2 th{font-size:8px;padding:2px 3px}
   tr.bandgap td{height:6px}
+  tr.wkhdr th{font-size:9px;padding:3px 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  tr.wkhdr th span{font-size:7.5px}
 
   /* Satu pita minggu tidak boleh terbelah dua halaman. */
   table.sched tr{break-inside:avoid;page-break-inside:avoid}
   tr.hdr{break-after:avoid;page-break-after:avoid}
+  tr.wkhdr{break-after:avoid;page-break-after:avoid}
 
   /* Kop cetak: divisi & periode. Di layar keduanya terbaca dari pita tab dan
      penunjuk bulan — tapi keduanya .noprint, jadi lembar yang ditempel di
@@ -967,7 +981,17 @@ function normalSetting(x){
        berhak. Itu disengaja: pemasangan yang sudah jalan tidak boleh mendadak
        mengunci semua orang di luar begitu versi ini mendarat — termasuk admin
        yang seharusnya mengisi daftarnya. */
-    hr: Array.isArray(s.hr) ? s.hr.map(String).filter(Boolean) : []
+    hr: Array.isArray(s.hr) ? s.hr.map(String).filter(Boolean) : [],
+    /* PENANDA "SUDAH DITRANSFER" — WAJIB IKUT DIBAWA DI SINI.
+       Sempat tidak, dan akibatnya dua lapis sekaligus tanpa satu pun galat:
+       (1) tiap kali data dimuat ulang S.setting dibangun ulang dari fungsi ini,
+       jadi seluruh centang minggu itu lenyap dari layar dan HR mengira ia belum
+       mentransfer siapa pun; (2) jauh lebih mahal — penyimpanan berikutnya
+       (mengubah satu tarif saja sudah cukup) mengirim setting TANPA kunci ini,
+       dan penandanya ikut terhapus DI SERVER. Yang paling mahal di halaman
+       Pembayaran bukan lupa mentransfer, melainkan mentransfer dua kali.
+       Bentuknya {'<senin>|<kunciTujuan>': {at,oleh}} — lihat bayarLunasPeta(). */
+    bayarLunas: (s.bayarLunas&&typeof s.bayarLunas==='object') ? s.bayarLunas : {}
   };
 }
 
@@ -1948,7 +1972,17 @@ async function setujuiBanyak(ids){
 }
 async function setujuiBanyakLangsung(ids){
   if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa menyetujui pengajuan', true); return; }
-  ids.forEach(function(id){ const a=(S.ajuan||[]).find(x=>x.id===id); if(a) a.status='DISETUJUI'; });
+  /* JEJAK PUTUSANNYA IKUT DITULIS, bukan cuma statusnya — sama seperti
+     putusAjuan() yang satuan. Tanpa ini, dua belas shift yang baru saja
+     disetujui borongan pulang dengan putusAt=0, jadi di panel Riwayat (yang
+     diurutkan menurut putusAt menurun) mereka mendarat di HALAMAN PALING
+     BELAKANG, di bawah keputusan berbulan-bulan lalu, dan kolom "diputuskan
+     oleh"-nya kosong. Yang mencarinya menyimpulkan borongannya tidak jalan. */
+  const kini=Date.now(), oleh=namaSaya();
+  ids.forEach(function(id){
+    const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+    a.status='DISETUJUI'; a.putusNota=''; a.putusOleh=oleh; a.putusAt=kini;
+  });
   simpanCache(); render();
   try{
     await apiPost({action:'putusBanyak', ids, status:'DISETUJUI', nota:''});
@@ -2070,10 +2104,38 @@ function sorotCariKalDW(){
   const i=document.getElementById('cariKalDW'); if(!i) return;
   i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){}
 }
-function viewKalender(){
-  const mk=BULAN_AKTIF||bulanDari(hariIni());
+/* SATU SUMBER BENTUK LEMBAR untuk layar DAN untuk berkas ekspor.
+
+   Dipisah dari viewKalender() bukan demi kerapian: begitu ekspor menyusun
+   daftar orangnya sendiri, ia akan menyimpang dari papan tepat pada hal yang
+   paling halus — siapa yang dapat baris, dan sampai tanggal berapa pitanya
+   menjulur. Lembar Excel yang diam-diam berbeda isi dengan papan justru
+   terjadi pada hari paling ramai, karena hari itulah DW dipanggil.
+
+   Yang TIDAK ikut ke sini: saringan kotak cari. Itu keadaan layar, bukan isi
+   lembar — mengekspor hasil pencarian berarti mengirim lembar yang bolong ke
+   grup tanpa ada yang tahu ada yang hilang. Sama seperti exportExcel di modul
+   Jadwal Shift, yang memakai kruDivisi() penuh, bukan `emps` yang tersaring. */
+function lembarDW(mk,div){
   const a=awalBulan(mk), z=akhirBulan(mk);
   const pita=pitaBulan(mk);
+  /* RENTANGNYA SELEBAR YANG DIGAMBAR, bukan sebatas bulannya — alasan
+     lengkapnya di bawah, di viewKalender(). */
+  const pitaDari  = pita.length?pita[0].hari[0]:a;
+  const pitaSampai= pita.length?pita[pita.length-1].hari[6]:z;
+  const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=pitaDari&&x.tgl<=pitaSampai&&x.divisi===div&&x.status!=='BATAL');
+  const idOrang=[];
+  ajuBulan.forEach(x=>{ if(idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
+  LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
+  idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
+  const peta={};
+  ajuBulan.forEach(x=>{ peta[x.dwId+'|'+x.tgl]=x; });
+  return {mk:mk, div:div, a:a, z:z, pita:pita, ajuan:ajuBulan, idOrang:idOrang, peta:peta};
+}
+function viewKalender(){
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const L=lembarDW(mk,DIV);
+  const a=L.a, z=L.z, pita=L.pita;
   const bolehIsi=isHR();
 
   /* Yang tampil di lembar: DW yang PUNYA ajuan di bulan ini pada divisi ini.
@@ -2096,20 +2158,14 @@ function viewKalender(){
 
      rentangDibutuhkan() memang sudah menarik data ±7 hari di kedua ujung
      justru untuk ini; yang kurang cuma filternya di sini. */
-  const pitaDari  = pita.length?pita[0].hari[0]:a;
-  const pitaSampai= pita.length?pita[pita.length-1].hari[6]:z;
-  const ajuBulan=(S.ajuan||[]).filter(x=>x.tgl>=pitaDari&&x.tgl<=pitaSampai&&x.divisi===DIV&&x.status!=='BATAL');
-  let idOrang=[];
-  ajuBulan.forEach(x=>{ if(idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
-  LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
-  idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
-  const semuaOrang=idOrang.slice();
+  const ajuBulan=L.ajuan;
+  const semuaOrang=L.idOrang.slice();
+  let idOrang=L.idOrang.slice();
   const qKal=(CARI_KAL_DW||'').trim().toLowerCase();
   if(qKal) idOrang=idOrang.filter(function(id){
     return String(namaDW(id)||'').toLowerCase().indexOf(qKal)>-1; });
 
-  const peta={};
-  ajuBulan.forEach(x=>{ peta[x.dwId+'|'+x.tgl]=x; });
+  const peta=L.peta;
 
   let tabel;
   if(!idOrang.length){
@@ -2119,6 +2175,16 @@ function viewKalender(){
     let body='';
     pita.forEach(function(p,pi){
       if(pi) body+='<tr class="bandgap"><td colspan="'+(3+p.hari.length)+'"></td></tr>';
+      /* Kepala "MINGGU N" — sepasang dengan lembar bulanan Jadwal Shift.
+         Kolom sambungan disebut jumlahnya, tapi keterangannya BERBEDA dengan
+         di sana dan itu memang disengaja: di Jadwal Shift kolom sambungan
+         terkunci, di sini tetap bisa diisi karena satu pita minggu DW memang
+         dikerjakan utuh — malam Sabtu 1 Agustus disusun bersama Jumat 31 Juli. */
+      const sambung=p.hari.filter(function(d){ return d<a||d>z; }).length;
+      body+='<tr class="wkhdr"><th colspan="'+(3+p.hari.length)+'">MINGGU '+(pi+1)
+        +' <span>'+esc(rentangMinggu(p.senin))
+        +(sambung?' · '+sambung+' kolom sambungan dari bulan sebelah (tetap bisa diisi)':'')
+        +'</span></th></tr>';
       body+='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>POSISI</th>'
         +p.hari.map(d=>'<th>'+tglPendek(d)+'</th>').join('')+'</tr>';
       body+='<tr class="hdr2"><th></th><th></th><th>HARI</th>'
@@ -2189,8 +2255,16 @@ function viewKalender(){
       ? '<div class="note w">Tidak ada DW bernama "<b>'+esc(CARI_KAL_DW)+'</b>" di lembar ini.</div>'
       : '')
     +'</div><div class="spacer"></div>'
+    /* Deretan tombol ini SENGAJA sama urutannya dengan lembar bulanan Jadwal
+       Shift (Excel · Teks WA · Print), karena HR yang sama membuka keduanya
+       bergantian dan mencari tombol di tempat yang sudah dihafalnya. Yang
+       tidak ada di sini cuma PNG — lembar DW jarang ditempel di papan, dan
+       satu penggambar canvas lagi berarti satu tempat lagi yang harus ikut
+       diperbaiki tiap kali bentuk selnya berubah. */
     +'<div class="tools noprint">'
     +(bolehIsi?'<button class="btn btn-ghost btn-sm" onclick="lembarTambahModal()">+ Tambah DW ke lembar</button> ':'')
+    +'<button class="btn btn-ghost btn-sm" onclick="exportExcelDW()">📗 Excel Sebulan</button>'
+    +'<button class="btn btn-ghost btn-sm" onclick="exportWADW()">💬 Teks WA</button>'
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button></div></div>'
     +'<div class="stats">'
       +statBox(idOrang.length,'DW Terpakai')
@@ -2267,7 +2341,11 @@ async function simpanSelDW(){
   serapSelDW();
   const ok=await simpanAjuanRow({dwId:b.dwId, tgl:b.tgl, m:b.m, s:b.s,
     divisi:DIV, posisi:b.posisi, catatan:b.catatan, oleh:namaSaya()});
-  if(!ok) return;
+  /* Kotak bentrok MENIMPA modal ini. Kalau orangnya menjawab "tidak" (atau
+     kirimannya gagal), tanpa menggambar ulang di sini layarnya kembali ke
+     lembar tanpa satu pun kotak — isian yang baru diketik hilang, dan tidak
+     ada apa pun yang menjelaskan kenapa. */
+  if(!ok){ gambarSelDW(); return; }
   SEL_DW=null; tutupModal();
   toast('Ajuan '+namaDW(b.dwId)+' '+tglManusia(b.tgl)+' terkirim');
   await muatDanGambar(true);
@@ -2496,17 +2574,25 @@ function viewTamu(){
    setelah mengirim, karena hari ramai hampir tidak pernah butuh cuma satu
    orang. */
 let AJT=null;   // {tgl,dw,div,pos,m,s,cat}
-function ajukanTgl(tgl){
+/* `dwId` opsional — diisi oleh pintu yang SUDAH tahu orangnya, yaitu kalender
+   di Rekap Pegawai (yang seluruh halamannya memang tentang satu orang). Tanpa
+   ini kotaknya terbuka dengan "— pilih daily worker —", padahal kalimat di
+   bawah kalendernya berjanji "klik tanggal mana pun untuk mengajukan <nama>";
+   yang menekan tanggal lalu langsung Kirim mendapat galat "pilih daily worker
+   dulu" di halaman yang cuma memuat satu nama. Pintu Kalender Tamu tetap
+   memanggilnya tanpa argumen — di sana orangnya memang belum ditentukan. */
+function ajukanTgl(tgl,dwId){
   if(!isOffice()){ toast('Halaman ini untuk staf Office'); return; }
   const jam=S.setting.jam||[];
   const lama=AJT||{};
+  const org=dwId?pekerjaById(dwId):null;
   /* Divisi, posisi, dan jam DIPERTAHANKAN dari pengisian sebelumnya — HR yang
      memasukkan lima DW untuk malam Sabtu memilih jam yang sama lima kali.
      Nama dan catatan selalu dikosongkan: itu yang berbeda tiap orang. */
   AJT={
-    tgl:tgl, dw:'', cat:'',
-    div:lama.div||DIVISI[0].k,
-    pos:lama.pos||(S.setting.posisi||POSISI_BAWAAN)[0],
+    tgl:tgl, dw:org?org.id:'', cat:'',
+    div:(org&&org.divisi)||lama.div||DIVISI[0].k,
+    pos:(org&&org.posisi)||lama.pos||(S.setting.posisi||POSISI_BAWAAN)[0],
     m:lama.m||(jam[0]?jam[0].m:'16:00'),
     s:lama.s||(jam[0]?jam[0].s:'23:00')
   };
@@ -2644,11 +2730,10 @@ async function kirimAjukanTgl(){
       +esc(tglPanjang(b.tgl))+' ('+esc(namaDivisi(sudahAda.divisi))+' · '+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
       +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
       +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang.':'')+'</p>',
-      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ gambarAjukanTgl(); return false; }},
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ b.lanjutkanTimpa=false; b.lanjutkanLebih=false; gambarAjukanTgl(); return false; }},
        {t:'Ya, ganti ajuannya', c:'btn-danger', f:function(){ b.lanjutkanTimpa=true; kirimAjukanTgl(); return false; }}]);
     return;
   }
-  b.lanjutkanTimpa=false;
   /* Ajuan yang sedang DITIMPA dikecualikan dari hitungan — orangnya sudah
      masuk angka itu, jadi mengganti jam/divisinya bukan penambahan orang.
      Tanpa `sudahAda.id` peringatan ini muncul untuk perubahan yang tidak
@@ -2666,14 +2751,26 @@ async function kirimAjukanTgl(){
       +'sudah ada '+l.kini+' (termasuk yang masih menunggu). Dengan ini jadi <b>'+l.jadi+'</b>.</p>'
       +'<p class="mutedhint">Bukan larangan — lanjutkan saja kalau memang perlu. '
       +'Angkanya diatur di Pengaturan → Panduan jumlah DW.</p>',
-      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ gambarAjukanTgl(); return false; }},
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ b.lanjutkanTimpa=false; b.lanjutkanLebih=false; gambarAjukanTgl(); return false; }},
        {t:'Ya, tetap ajukan', c:'btn-primary', f:function(){ b.lanjutkanLebih=true; kirimAjukanTgl(); return false; }}]);
     return;
   }
-  b.lanjutkanLebih=false;
+  /* KEDUA PENANDA DIBERSIHKAN DI SINI, SESUDAH SEMUA PERTANYAAN LEWAT — bukan
+     satu per satu tepat setelah pertanyaannya masing-masing.
+
+     Yang lama membersihkan `lanjutkanTimpa` sebelum pertanyaan panduan
+     ditanyakan, jadi jawaban "ya" pada panduan memanggil fungsi ini sekali
+     lagi dengan penanda timpa yang sudah kembali kosong — dan pertanyaan
+     "sudah ada ajuan, mau diganti?" muncul UNTUK KEDUA KALINYA atas ajuan yang
+     sama. Yang mengalaminya menyimpulkan tombolnya tidak bekerja lalu menekan
+     "kembali", dan ajuannya tidak pernah terkirim. */
   const ok=await simpanAjuanRow({dwId:b.dw, tgl:b.tgl, m:b.m, s:b.s,
     divisi:b.div, posisi:b.pos, catatan:b.cat});
-  if(!ok) return;
+  b.lanjutkanTimpa=false; b.lanjutkanLebih=false;
+  /* Gagal atau ditolak orangnya di kotak bentrok → formnya DIKEMBALIKAN, bukan
+     ditinggal hilang: kotak bentrok menimpa modal ini, dan yang menutupnya
+     tanpa langkah ini kehilangan seluruh isian yang baru saja diketik. */
+  if(!ok){ gambarAjukanTgl(); return; }
   toast(namaDW(b.dw)+' diajukan untuk '+tglManusia(b.tgl));
   b.dw=''; b.cat='';
   await muatData(true);
@@ -2966,11 +3063,10 @@ async function kirimAjuan(){
       /* "Kembali ke form" cukup menutup modal: formnya masih utuh di
          belakang, karena serapAjukan() di atas sudah menyimpan seluruh
          isian ke state. */
-      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ tutupModal(); }},
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ AJU_TIMPA=false; AJU_LEBIH=false; tutupModal(); }},
        {t:'Ya, ganti ajuannya', c:'btn-danger', f:function(){ AJU_TIMPA=true; kirimAjuan(); return false; }}]);
     return;
   }
-  AJU_TIMPA=false;
 
   /* Panduan jumlah DW per divisi. Bukan larangan — cuma ditanyakan sekali,
      sama seperti di pintu satunya. Ajuan yang sedang DITIMPA dikecualikan
@@ -2984,15 +3080,22 @@ async function kirimAjuan(){
       +'sudah ada '+l.kini+' (termasuk yang masih menunggu). Dengan ini jadi <b>'+l.jadi+'</b>.</p>'
       +'<p class="mutedhint">Bukan larangan — lanjutkan saja kalau memang perlu. '
       +'Angkanya diatur di Pengaturan → Panduan jumlah DW.</p>',
-      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ tutupModal(); }},
+      [{t:'Kembali ke form', c:'btn-ghost', f:function(){ AJU_TIMPA=false; AJU_LEBIH=false; tutupModal(); }},
        {t:'Ya, tetap ajukan', c:'btn-primary', f:function(){ AJU_LEBIH=true; kirimAjuan(); return false; }}]);
     return;
   }
-  AJU_LEBIH=false;
 
+  /* Dibersihkan SESUDAH semua pertanyaan lewat — alasan lengkapnya di
+     kirimAjukanTgl(): membersihkan AJU_TIMPA sebelum pertanyaan panduan
+     membuat pertanyaan "sudah ada ajuan" muncul dua kali untuk ajuan yang
+     sama, dan yang kedua terbaca sebagai tombol yang tidak bekerja. */
   const ok=await simpanAjuanRow({dwId, tgl, m:AJU_M, s:AJU_S,
     divisi:AJU_DIV, posisi:AJU_POS, catatan:AJU_CAT});
-  if(!ok) return;
+  AJU_TIMPA=false; AJU_LEBIH=false;
+  /* Modal peringatan ditutup juga saat GAGAL. Kalau tidak, kotak "sudah ada
+     ajuan" tetap menggantung di layar sesudah toast galat lewat, dan yang
+     membacanya mengira pertanyaannya belum terjawab. */
+  if(!ok){ tutupModal(); return; }
   /* Modal peringatan (kalau tadi muncul) ditutup DI SINI, bukan oleh
      tombolnya: jalankanAksiModal() sengaja mengabaikan nilai balik, jadi
      tidak ada yang menutup modal selain kode ini. */
@@ -3647,7 +3750,7 @@ function viewRekap(){
     isi.forEach(function(x){ judul.push((STATUS_AJU[x.status]||x.status)+' · '+namaDivisi(x.divisi)+' '+x.m+'–'+x.s); });
     if(!isi.length && !luar) judul.push('Belum ada ajuan — klik untuk mengajukan');
     kal+='<button type="button" class="kd'+(luar?' luar':'')+(iso===ini?' ini':'')+'" '
-      +'onclick="ajukanTgl(\''+iso+'\')" title="'+esc(judul.join(' · '))+'">'
+      +'onclick="ajukanTgl(\''+iso+'\',\''+escJs(p.id)+'\')" title="'+esc(judul.join(' · '))+'">'
       +'<div class="n">'+parseD(iso).getDate()
         +(iso===ini?'<em>hari ini</em>':(idxHari(iso)>=5?'<em class="wknd">'+esc(HARI[idxHari(iso)].slice(0,3))+'</em>':''))+'</div>';
     isi.forEach(function(x){
@@ -3916,21 +4019,368 @@ function salinBayar(){
   t+='\nTOTAL: '+rp(grup.reduce((n,g)=>n+g.total,0));
   salinTeks(t);
 }
-function salinTeks(t){
+/* `judul` opsional — dipakai dua pemanggil yang isinya berbeda jauh (daftar
+   transfer dan teks jadwal untuk WhatsApp). Tanpa itu, teks jadwal yang
+   disalin melaporkan dirinya sebagai "Daftar transfer disalin", dan yang
+   membacanya mengira ia menekan tombol yang salah. */
+function salinTeks(t,judul){
+  judul=judul||'Daftar transfer';
   try{
     if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(t).then(function(){ toast('Daftar transfer disalin'); },
-        function(){ salinLewatKotak(t); });
+      navigator.clipboard.writeText(t).then(function(){ toast(judul+' disalin'); },
+        function(){ salinLewatKotak(t,judul); });
       return;
     }
   }catch(e){}
-  salinLewatKotak(t);
+  salinLewatKotak(t,judul);
 }
 /* Peramban lama / halaman tanpa izin clipboard: tampilkan teksnya supaya
    tetap bisa disalin manual, bukan diam-diam gagal. */
-function salinLewatKotak(t){
-  modal('Daftar transfer', '<textarea style="width:100%;height:260px" readonly>'+esc(t)+'</textarea>'
+function salinLewatKotak(t,judul){
+  modal(esc(judul||'Daftar transfer'), '<textarea style="width:100%;height:260px" readonly>'+esc(t)+'</textarea>'
     +'<p class="mutedhint">Peramban ini tidak mengizinkan salin otomatis — pilih semua teks di atas lalu salin sendiri.</p>', []);
+}
+
+/* =====================================================================
+   EKSPOR LEMBAR DW — Excel (.xlsx) & teks WhatsApp
+
+   Sepasang dengan exportExcel/exportWA di modul Jadwal Shift, dan sengaja
+   memakai penulis ZIP + styles yang bentuknya sama persis. Alasannya bukan
+   penghematan baris: HR yang sama mengirim dua lembar ke grup yang sama pada
+   malam yang sama, dan dua berkas yang tata letaknya berbeda memaksa penerima
+   membaca ulang bentuknya tiap kali.
+
+   Kenapa DISALIN, bukan dijadikan berkas bersama di deploy/assets/: tiap modul
+   di repo ini satu berkas HTML mandiri yang berdiri sendiri saat di-deploy,
+   dan menariknya lewat skrip eksternal baru berarti satu permintaan jaringan
+   lagi yang bisa gagal diam-diam di jaringan venue. Yang harus dijaga
+   kalau salah satunya diperbaiki: BENTUK BERKASNYA, bukan barisnya.
+   ===================================================================== */
+let CRC_TABEL=null;
+function crc32(u8){
+  if(!CRC_TABEL){
+    CRC_TABEL=new Uint32Array(256);
+    for(let i=0;i<256;i++){
+      let c=i; for(let j=0;j<8;j++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);
+      CRC_TABEL[i]=c>>>0;
+    }
+  }
+  let c=0xFFFFFFFF;
+  for(let i=0;i<u8.length;i++) c=CRC_TABEL[(c^u8[i])&0xFF]^(c>>>8);
+  return (c^0xFFFFFFFF)>>>0;
+}
+/* ZIP metode 0 (simpan). Bendera 0x0800 wajib: tanpa itu nama berkas di dalam
+   arsip dibaca sebagai CP437 dan Excel menolak paketnya. */
+function zipSimpan(berkas){
+  const enc=new TextEncoder(), isi=[], pusat=[]; let ofs=0;
+  const n=new Date();
+  const jam=((n.getHours()<<11)|(n.getMinutes()<<5)|((n.getSeconds()/2)|0))&0xFFFF;
+  const tgl=(((n.getFullYear()-1980)<<9)|((n.getMonth()+1)<<5)|n.getDate())&0xFFFF;
+  berkas.forEach(function(f){
+    const nm=enc.encode(f.nama), c=crc32(f.data);
+    const lok=new Uint8Array(30+nm.length), v=new DataView(lok.buffer);
+    v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0x0800,true);
+    v.setUint16(8,0,true); v.setUint16(10,jam,true); v.setUint16(12,tgl,true);
+    v.setUint32(14,c,true); v.setUint32(18,f.data.length,true); v.setUint32(22,f.data.length,true);
+    v.setUint16(26,nm.length,true); lok.set(nm,30);
+    isi.push(lok, f.data);
+    const cd=new Uint8Array(46+nm.length), w=new DataView(cd.buffer);
+    w.setUint32(0,0x02014b50,true); w.setUint16(4,20,true); w.setUint16(6,20,true);
+    w.setUint16(8,0x0800,true); w.setUint16(10,0,true);
+    w.setUint16(12,jam,true); w.setUint16(14,tgl,true);
+    w.setUint32(16,c,true); w.setUint32(20,f.data.length,true); w.setUint32(24,f.data.length,true);
+    w.setUint16(28,nm.length,true); w.setUint32(42,ofs,true); cd.set(nm,46);
+    pusat.push(cd);
+    ofs+=lok.length+f.data.length;
+  });
+  const pjgPusat=pusat.reduce((s,x)=>s+x.length,0);
+  const akhir=new Uint8Array(22), e=new DataView(akhir.buffer);
+  e.setUint32(0,0x06054b50,true);
+  e.setUint16(8,berkas.length,true); e.setUint16(10,berkas.length,true);
+  e.setUint32(12,pjgPusat,true); e.setUint32(16,ofs,true);
+  const semua=isi.concat(pusat,[akhir]);
+  const out=new Uint8Array(semua.reduce((s,x)=>s+x.length,0));
+  let p=0; semua.forEach(function(x){ out.set(x,p); p+=x.length; });
+  return out;
+}
+function xEsc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function kolHuruf(n){    // 1 -> A
+  let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=((n-r)/26)|0; }
+  return s;
+}
+function heks6(w){ return String(w||'#7A756B').replace('#','').padEnd(6,'0').slice(0,6).toUpperCase(); }
+function xlsxGaya(){
+  const fonts=[
+    '<font><sz val="11"/><name val="Calibri"/></font>',                            //0
+    '<font><b/><sz val="11"/><name val="Calibri"/></font>',                        //1
+    '<font><b/><sz val="16"/><name val="Calibri"/></font>',                        //2
+    '<font><b/><i/><sz val="11"/><name val="Calibri"/></font>',                    //3
+    '<font><i/><sz val="10"/><color rgb="FF5C574D"/><name val="Calibri"/></font>', //4
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'  //5
+  ];
+  const fills=['<fill><patternFill patternType="none"/></fill>',
+               '<fill><patternFill patternType="gray125"/></fill>'];
+  const petaFill={};
+  const xfs=[];
+  const api={
+    fill:function(hex){
+      if(!hex) return 0;
+      if(petaFill[hex]==null){
+        petaFill[hex]=fills.length;
+        fills.push('<fill><patternFill patternType="solid"><fgColor rgb="FF'+hex+'"/>'
+          +'<bgColor indexed="64"/></patternFill></fill>');
+      }
+      return petaFill[hex];
+    },
+    xf:function(o){
+      o=o||{};
+      const al='<alignment horizontal="'+(o.h||'center')+'" vertical="center"'
+        +(o.wrap?' wrapText="1"':'')+'/>';
+      xfs.push('<xf numFmtId="0" fontId="'+(o.f||0)+'" fillId="'+api.fill(o.bg)+'" borderId="'
+        +(o.br?1:0)+'" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">'
+        +al+'</xf>');
+      return xfs.length-1;
+    },
+    xml:function(){
+      return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        +'<fonts count="'+fonts.length+'">'+fonts.join('')+'</fonts>'
+        +'<fills count="'+fills.length+'">'+fills.join('')+'</fills>'
+        +'<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'
+        +'<border><left style="thin"><color rgb="FF000000"/></left>'
+        +'<right style="thin"><color rgb="FF000000"/></right>'
+        +'<top style="thin"><color rgb="FF000000"/></top>'
+        +'<bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders>'
+        +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        +'<cellXfs count="'+xfs.length+'">'+xfs.join('')+'</cellXfs>'
+        +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        +'</styleSheet>';
+    }
+  };
+  return api;
+}
+/* Warna status DI BERKAS, bukan di layar — dan sengaja TIDAK sama persis.
+   MENUNGGU di layar hampir putih (#FFFDF6) karena yang membedakannya di sana
+   adalah garis putus-putus; Excel tidak punya garis putus-putus per sel, dan
+   lembar yang dicetak hitam-putih menghilangkan sisa bedanya. Jadi di sini
+   warnanya diperkuat sampai masih terbaca sesudah difotokopi, dan tiap sel
+   MENUNGGU juga menyebut statusnya sendiri di dalam teksnya. */
+const XLS_STATUS = {
+  DISETUJUI:{bg:'F2E9D3', n:'Disetujui'},
+  MENUNGGU :{bg:'FFF0C9', n:'Menunggu HR'},
+  DITOLAK  :{bg:'F8E4DF', n:'Ditolak'}
+};
+function exportExcelDW(){
+  if(typeof TextEncoder==='undefined' || typeof Uint8Array==='undefined'){
+    toast('Peramban ini terlalu tua untuk ekspor Excel — pakai Print / PDF', true); return;
+  }
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const L=lembarDW(mk,DIV);
+  if(!L.idOrang.length){ toast('Belum ada daily worker terjadwal di lembar ini'); return; }
+
+  const G=xlsxGaya();
+  const gJudul  = G.xf({f:2, h:'center'});
+  const gKuning = G.xf({f:1, bg:'FFFF00', br:1});
+  const gKuningI= G.xf({f:3, bg:'FFFF00', br:1});
+  const gAbu    = G.xf({f:1, bg:'BFBFBF', br:1});
+  const gNo     = G.xf({f:0, br:1});
+  const gNama   = G.xf({f:1, br:1, h:'left'});
+  const gJab    = G.xf({f:3, br:1});
+  const gKosong = G.xf({f:0, br:1});
+  const gPitaMg = G.xf({f:5, bg:'2A2620', br:1, h:'left'});
+  const gCatat  = G.xf({f:4, h:'left'});
+  const gStatus={};
+  Object.keys(XLS_STATUS).forEach(function(k){
+    gStatus[k]=G.xf({f:0, bg:XLS_STATUS[k].bg, br:1, wrap:1});
+  });
+
+  const baris=[], gabung=[];
+  let r=0;
+  const KOL=10;                        // A..J : No, NAMA, POSISI, 7 hari
+  const sel_=(c,v,s)=>({c:c, v:v, s:s});
+  const tambah=(sels,tinggi)=>{ r++; baris.push({r:r, sels:sels, h:tinggi}); return r; };
+
+  tambah([sel_(1,'JADWAL DAILY WORKER — '+namaDivisi(DIV).toUpperCase()
+    +' — '+labelBulan(mk).toUpperCase(), gJudul)], 26);
+  gabung.push('A1:'+kolHuruf(KOL)+'1');
+  tambah([sel_(1,'Laksamana Muda · hanya pekerja harian — kru shift tetap ada di modul Jadwal Shift'
+    +' · dicetak '+tglPanjang(hariIni()), gCatat)], 15);
+  tambah([], 6);
+
+  L.pita.forEach(function(p,pi){
+    const h=p.hari;
+    const rMg=tambah([sel_(1,'MINGGU '+(pi+1)+' · '+rentangMinggu(p.senin), gPitaMg)], 17);
+    gabung.push('A'+rMg+':'+kolHuruf(3+h.length)+rMg);
+    const rTgl=tambah([sel_(1,'No.',gKuning), sel_(2,'NAMA',gKuning), sel_(3,'TGL',gKuningI)]
+      .concat(h.map(function(d,i){
+        const q=parseD(d);
+        return sel_(4+i, ('0'+q.getDate()).slice(-2)+'/'+('0'+(q.getMonth()+1)).slice(-2)
+          +'/'+String(q.getFullYear()).slice(-2), gKuning);
+      })), 18);
+    const rHari=tambah([sel_(1,'',gKuning), sel_(2,'',gKuning), sel_(3,'HARI',gKuningI)]
+      .concat(h.map(function(d,i){
+        return sel_(4+i, HARI_PJG[idxHari(d)], gAbu);
+      })), 18);
+    gabung.push('A'+rTgl+':A'+rHari, 'B'+rTgl+':B'+rHari);
+
+    L.idOrang.forEach(function(id,i){
+      const orang=pekerjaById(id);
+      const s=[sel_(1,i+1,gNo), sel_(2,namaDW(id),gNama),
+               sel_(3,(orang&&orang.posisi)||'DW',gJab)];
+      h.forEach(function(d,j){
+        const x=L.peta[id+'|'+d];
+        if(!x){ s.push(sel_(4+j,'',gKosong)); return; }
+        /* Statusnya ikut ditulis untuk yang BELUM disetujui, tidak cuma
+           diwarnai. Lembar ini ikut dibaca di HP dan dicetak hitam-putih, dan
+           yang paling mahal salah baca justru "menunggu" yang dikira sudah
+           pasti — head lalu mengira lubangnya sudah tertutup. */
+        const st=XLS_STATUS[x.status];
+        s.push(sel_(4+j,
+          (x.posisi||'DW')+((x.m&&x.s)?('\n'+x.m+'–'+x.s):'')
+          +(x.status==='DISETUJUI'?'':'\n('+((st&&st.n)||x.status)+')'),
+          gStatus[x.status]||gKosong));
+      });
+      tambah(s, tinggiBarisDW(L,id,h));
+    });
+    tambah([], 6);
+  });
+
+  /* Legenda status di kolom L, sejajar kepala tabel — letak yang sama dengan
+     lembar Jadwal Shift, jadi yang mencarinya mencari di tempat yang sama.
+     Barisnya DIPANJANGKAN dulu kalau lembarnya lebih pendek daripada legenda:
+     dua entri di baris yang sama menulis dua <c r="L9"> dalam satu <row>, dan
+     sel berulang membuat Excel menolak SELURUH berkas ("We found a problem
+     with some content") — bukan cuma legendanya yang hilang. Sudah kejadian
+     di modul Jadwal Shift pada divisi berisi tiga orang. */
+  const kunciSt=Object.keys(XLS_STATUS);
+  while(baris.length < 3+kunciSt.length) tambah([], 15);
+  kunciSt.forEach(function(k,i){
+    const b=baris[3+i]; if(!b) return;
+    b.sels.push(sel_(12, XLS_STATUS[k].n, gStatus[k]||gKosong));
+  });
+
+  /* Ringkasan di kaki lembar — angka yang sama dengan kotak statistik di layar,
+     supaya berkas yang dikirim ke grup bisa dibaca sendirian tanpa membuka
+     modulnya. Hanya yang DISETUJUI, sama seperti di layar. */
+  const setuju=L.ajuan.filter(x=>x.status==='DISETUJUI');
+  tambah([], 6);
+  tambah([sel_(1, setuju.length+' shift disetujui · '
+    +Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0))+' jam · estimasi '
+    +rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0))
+    +' · '+L.idOrang.length+' daily worker', gCatat)], 15);
+
+  const lebar=[{min:1,max:1,w:5},{min:2,max:2,w:22},{min:3,max:3,w:14},
+               {min:4,max:10,w:14},{min:11,max:11,w:2},{min:12,max:12,w:14}];
+  const xmlBaris=baris.map(function(b){
+    const cs=b.sels.slice().sort((x,y)=>x.c-y.c).map(function(c){
+      const ref=kolHuruf(c.c)+b.r;
+      const angka=(typeof c.v==='number');
+      return '<c r="'+ref+'" s="'+c.s+'"'+(angka?'':' t="inlineStr"')+'>'
+        +(angka ? '<v>'+c.v+'</v>' : '<is><t xml:space="preserve">'+xEsc(c.v)+'</t></is>')
+        +'</c>';
+    }).join('');
+    return '<row r="'+b.r+'"'+(b.h?' ht="'+b.h+'" customHeight="1"':'')+'>'+cs+'</row>';
+  }).join('');
+
+  const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +'<sheetFormatPr defaultRowHeight="15"/>'
+    +'<cols>'+lebar.map(c=>'<col min="'+c.min+'" max="'+c.max+'" width="'+c.w+'" customWidth="1"/>').join('')+'</cols>'
+    +'<sheetData>'+xmlBaris+'</sheetData>'
+    +(gabung.length?'<mergeCells count="'+gabung.length+'">'
+        +gabung.map(g=>'<mergeCell ref="'+g+'"/>').join('')+'</mergeCells>':'')
+    +'<pageMargins left="0.25" right="0.25" top="0.3" bottom="0.3" header="0.3" footer="0.3"/>'
+    +'<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
+    +'</worksheet>';
+
+  const P='http://schemas.openxmlformats.org/';
+  const enc=new TextEncoder();
+  const B=(nama,teks)=>({nama:nama, data:enc.encode(teks)});
+  const zip=zipSimpan([
+    B('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Types xmlns="'+P+'package/2006/content-types">'
+      +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      +'<Default Extension="xml" ContentType="application/xml"/>'
+      +'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      +'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+      +'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      +'</Types>'),
+    B('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="'+P+'package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+      +'</Relationships>'),
+    B('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<workbook xmlns="'+P+'spreadsheetml/2006/main" xmlns:r="'+P+'officeDocument/2006/relationships">'
+      +'<sheets><sheet name="'+xEsc(('DW '+namaDivisi(DIV)).slice(0,28))+'" sheetId="1" r:id="rId1"/></sheets>'
+      +'</workbook>'),
+    B('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<Relationships xmlns="'+P+'package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+      +'<Relationship Id="rId2" Type="'+P+'officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      +'</Relationships>'),
+    B('xl/styles.xml', G.xml()),
+    B('xl/worksheets/sheet1.xml', sheet)
+  ]);
+
+  const blob=new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='daily-worker-'+DIV+'-'+mk+'.xlsx';
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1000);
+  toast('Excel lembar '+namaDivisi(DIV)+' '+labelBulan(mk)+' diunduh');
+}
+/* Tinggi baris: sel DW memuat dua sampai tiga baris teks (posisi, jam, dan
+   status untuk yang belum disetujui). Tinggi tetap membuat baris ketiga
+   terpotong tanpa tanda apa pun — dan yang terpotong justru kata
+   "(Menunggu HR)". */
+function tinggiBarisDW(L,id,hari){
+  let maks=1;
+  hari.forEach(function(d){
+    const x=L.peta[id+'|'+d]; if(!x) return;
+    const n=1+((x.m&&x.s)?1:0)+((x.status==='DISETUJUI')?0:1);
+    if(n>maks) maks=n;
+  });
+  return 15*maks+4;
+}
+
+/* Teks WhatsApp — disusun PER HARI, bentuk yang sama dengan exportWA di modul
+   Jadwal Shift. Yang dibawa orang ke grup bukan "si A bulan ini bagaimana"
+   melainkan "Sabtu siapa yang masuk".
+
+   Yang MENUNGGU ikut ditulis dan ditandai. Berbeda dengan kalender Jadwal
+   Shift (yang sengaja hanya memuat DISETUJUI supaya head tidak mengira
+   lubangnya terisi), teks ini dikirim justru untuk mengejar keputusan yang
+   belum turun — menyembunyikannya di sini membuat yang perlu ditagih tidak
+   pernah kelihatan. */
+function exportWADW(){
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const L=lembarDW(mk,DIV);
+  if(!L.ajuan.length){ toast('Belum ada ajuan di lembar ini'); return; }
+  const garis='━━━━━━━━━━━━━━━';
+  let txt='*DAILY WORKER — '+namaDivisi(DIV).toUpperCase()+'*\n_'+labelBulan(mk)+'_\n'+garis+'\n';
+  let nTunggu=0, nSetuju=0;
+  L.pita.forEach(function(p){
+    p.hari.forEach(function(d){
+      // Hari milik bulan tetangga tidak ikut — pitanya memang cuma pelengkap.
+      if(d<L.a || d>L.z) return;
+      const isi=L.ajuan.filter(function(x){ return x.tgl===d && x.status!=='DITOLAK'; })
+        .sort(function(x,y){ return String(x.m||'').localeCompare(String(y.m||'')); });
+      if(!isi.length) return;
+      txt+='\n*'+HARI[idxHari(d)]+' · '+tglManusia(d)+(idxHari(d)>=5?' 🔴':'')+'*\n';
+      isi.forEach(function(x){
+        if(x.status==='MENUNGGU') nTunggu++; else nSetuju++;
+        txt+='   • '+namaDW(x.dwId)+' _('+(x.posisi||'DW')
+          +((x.m&&x.s)?(' · '+x.m+'–'+x.s):'')+')_'
+          +(x.status==='MENUNGGU'?' ⏳ _belum disetujui_':'')+'\n';
+      });
+    });
+  });
+  txt+='\n'+garis+'\n_'+nSetuju+' shift disetujui'+(nTunggu?', '+nTunggu+' masih menunggu HR':'')+'_\n';
+  txt+='_Laksamana Muda · daily worker_';
+  salinTeks(txt,'Teks WhatsApp');
 }
 
 /* =====================================================================
