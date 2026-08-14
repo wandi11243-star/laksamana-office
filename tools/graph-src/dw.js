@@ -4397,9 +4397,39 @@ function cariPekerja() { render(); }
 
 
 
-function filterPekerja() { render(); }
+function filterPekerja() { render(); opsiPosisi(); serapMinta(); }
 
-function bukaPekerja() { pekerjaById(); modal(); esc(); opsiPosisi(); ubahJenisBayar(); bayarJenisSah(); simpanPekerja(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ubahDivisiPekerja() { posisiDivisi(); opsiPosisi(); posisiBawaanDivisi(); namaDivisi(); }
+
+
+
+
+
+
+
+function bukaPekerja() { pekerjaById(); modal(); esc(); ubahDivisiPekerja(); opsiPosisi(); namaDivisi(); ubahJenisBayar(); bayarJenisSah(); simpanPekerja(); }
+
+
 
 
 
