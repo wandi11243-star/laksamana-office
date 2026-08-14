@@ -1970,6 +1970,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -11957,6 +11985,15 @@ function decideApproval() { logAct(); pushNotif(); save(); buildNav(); toast(); 
 
 
 
+
+
+
+
+
+
+
+
+
 function perfBulanOpsi() { today(); }
 
 
@@ -11965,7 +12002,15 @@ function perfBulanOpsi() { today(); }
 
 
 
+function perfTahunOpsi() { perfBulanOpsi(); }
+
+
+
+
+function perfMode() {  }
 function perfDalam() {  }
+
+
 
 
 
@@ -11977,8 +12022,80 @@ function perfRentang() {  }
 
 
 
+
 function perfLabelPeriode() { labelBulan(); }
+
+
+
+
+
+
+
+function perfBatas() { perfBulanOpsi(); }
+
+
+
+function perfGeser() { perfMode(); perfBatas(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfBisaGeser() { perfMode(); perfBatas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfSetMode() { perfBatas(); today(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function perfGantiPeriode() { go(); }
+
+
+
+
+
+
+function perfLabelPilihHTML() { perfMode(); perfTahunOpsi(); perfBulanOpsi(); perfGantiPeriode(); esc(); labelBulan(); }
+
+
+
+
+
+
 
 
 
@@ -12055,7 +12172,20 @@ function perfPitaBD() { esc(); perfLabelPeriode(); svg(); muatPerfBD(); }
 
 
 
-function renderPerformance() { muatPerfBD(); pageHead(); perfGantiPeriode(); perfBulanOpsi(); esc(); labelBulan(); timMarketing(); perfDalam(); vipNominal(); eventFinance(); stat(); perfPitaBD(); perfLabelPeriode(); svg(); clientEventCount(); empty(); perfBdUntuk(); tblUrut(); tblPage(); tblHead(); tblPagerHtml(); }
+function renderPerformance() { muatPerfBD(); pageHead(); perfMode(); perfSetMode(); esc(); perfGeser(); perfBisaGeser(); perfLabelPilihHTML(); timMarketing(); perfDalam(); vipNominal(); eventFinance(); stat(); perfPitaBD(); perfLabelPeriode(); svg(); clientEventCount(); empty(); perfBdUntuk(); tblUrut(); tblPage(); tblHead(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

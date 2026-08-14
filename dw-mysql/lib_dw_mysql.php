@@ -225,6 +225,16 @@ function pastikan_tabel($pdo) {
   /* Penghubung penugasan ke permintaannya. Kosong = ajuan yang dibuat
      langsung (head menunjuk orangnya sendiri, atau HRD menjadwalkan biasa). */
   pastikan_kolom($pdo, 'dw_ajuan', 'permintaan_id', "VARCHAR(32) NOT NULL DEFAULT ''");
+  /* USULAN NAMA DARI HEAD — id daily worker, dipisah koma.
+     ---------------------------------------------------------------------
+     Head boleh menyebut siapa yang ia mau ("yang kemarin itu saja"), dan
+     kalau ia menyebutnya HRD tinggal menekan Setujui. Disimpan sebagai
+     USULAN, bukan langsung jadi baris `dw_ajuan`: kalau langsung jadi ajuan,
+     head efektif menjadwalkan orang sendiri dan pembagian "head meminta, HRD
+     memutuskan" runtuh — padahal HRD-lah yang tahu orang itu sudah dipesan
+     divisi lain atau sedang tidak dipakai lagi.
+     Kosong = head tidak menyebut siapa pun, HRD yang memilih. */
+  pastikan_kolom($pdo, 'dw_permintaan', 'usulan', "VARCHAR(400) NOT NULL DEFAULT ''");
 
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `dw_setting` (
@@ -328,23 +338,98 @@ function dw_hrd($u) {
    menampilkannya (lihat `p&&boleh` di bukaAjuan), tapi datanya sudah terlanjur
    sampai di perangkatnya dan tinggal dibuka di tab Network. Yang tidak dikirim
    tidak bisa bocor. */
+/* MENUTUP YANG TANGGALNYA SUDAH LEWAT.
+   ---------------------------------------------------------------------
+   Permintaan dan ajuan yang tidak pernah diputuskan tetap MENUNGGU selamanya.
+   Akibatnya bukan sekadar daftar yang panjang: antrean HRD makin lama makin
+   penuh oleh hari-hari yang sudah berlalu, dan yang benar-benar mendesak —
+   permintaan untuk BESOK — tenggelam di antaranya. Yang paling mahal justru
+   itu; DW dihubungi H-1 malam atau tidak sama sekali.
+
+   Dijalankan saat DIBACA, bukan lewat cron: hosting ini tidak punya penjadwal
+   yang bisa diandalkan, dan penutupan yang bergantung pada cron yang mati
+   adalah penutupan yang tidak pernah terjadi. Sekali sehari atau seratus kali
+   sehari hasilnya sama — UPDATE-nya idempoten.
+
+   'KEDALUWARSA', bukan 'DITOLAK': tidak ada manusia yang menolaknya, dan
+   menulis DITOLAK berarti riwayatnya berbohong tentang siapa yang memutuskan.
+   Hari ini dihitung WIB (bukan UTC): di server yang jamnya UTC, permintaan
+   untuk hari ini akan tertutup sendiri setiap sore lewat pukul 17.00 WIB. */
+function tutup_kedaluwarsa($pdo) {
+  $hariIni = gmdate('Y-m-d', time() + 7 * 3600);
+  $now = ms();
+  try {
+    $pdo->prepare(
+      'UPDATE `dw_permintaan`
+          SET `status`=\'KEDALUWARSA\', `putus_at`=:t, `putus_oleh`=\'(sistem)\',
+              `putus_nota`=\'Tanggalnya lewat tanpa diputuskan\'
+        WHERE `status`=\'MENUNGGU\' AND `tgl` < :h')
+      ->execute(array(':t' => $now, ':h' => $hariIni));
+    $pdo->prepare(
+      'UPDATE `dw_ajuan`
+          SET `status`=\'KEDALUWARSA\', `putus_at`=:t, `putus_oleh`=\'(sistem)\',
+              `putus_nota`=\'Tanggalnya lewat tanpa diputuskan\'
+        WHERE `status`=\'MENUNGGU\' AND `tgl` < :h')
+      ->execute(array(':t' => $now, ':h' => $hariIni));
+  } catch (Throwable $e) {
+    /* Gagal menutup TIDAK boleh menjatuhkan pembacaan. Ini kerapian, bukan
+       kebenaran data — modul yang mati total karena satu UPDATE kebersihan
+       gagal adalah pertukaran yang jelas salah. */
+  }
+}
+
 function baca_semua($dari, $sampai, $penuh = true) {
   $pdo = db();
   pastikan_tabel($pdo);
+  tutup_kedaluwarsa($pdo);
+
+  /* RIWAYAT RINGKAS PER ORANG — dihitung SERVER atas SELURUH tabel, bukan
+     atas ajuan yang kebetulan termuat di rentang layar.
+     ---------------------------------------------------------------------
+     Dipakai HRD saat menunjuk orang: "kapan terakhir dipakai" adalah satu-
+     satunya angka yang membuat pilihannya adil, dan tanpa itu daftar 40 nama
+     dibaca menurut abjad — Andi dipanggil terus, dan yang di huruf belakang
+     tidak pernah kebagian.
+
+     Kenapa di server: `dw_ajuan` yang dikirim ke layar dibatasi rentang
+     tanggal (lihat di bawah), jadi menghitungnya di layar akan menjawab
+     "belum pernah" untuk orang yang justru rajin dipakai bulan lalu. Itu
+     kelas kesalahan yang paling sering muncul di modul ini — angka yang
+     benar menurut data yang ada, dan salah menurut kenyataan. */
+  $riwayat = array();
+  try {
+    $awalBulan = gmdate('Y-m-01', time() + 7 * 3600);
+    $rq = $pdo->prepare(
+      'SELECT `dw_id`, MAX(`tgl`) AS terakhir,
+              SUM(CASE WHEN `tgl` >= :ab THEN 1 ELSE 0 END) AS bulan_ini
+         FROM `dw_ajuan` WHERE `status`=\'DISETUJUI\'
+        GROUP BY `dw_id`');
+    $rq->execute(array(':ab' => $awalBulan));
+    foreach ($rq->fetchAll() as $r) {
+      $riwayat[$r['dw_id']] = array(
+        'terakhir' => (string)$r['terakhir'],
+        'bulanIni' => (int)$r['bulan_ini'],
+      );
+    }
+  } catch (Throwable $e) { $riwayat = array(); }
 
   $pekerja = array();
-  $q = $pdo->query(
+  $q2 = $pdo->query(
     'SELECT `id`,`nama`,`no_hp`,`gender`,`area`,`bank`,
             `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,
             `skill`,`status`,`catatan`,`dibuat_at`
        FROM `dw_pekerja` ORDER BY `nama`');
-  foreach ($q->fetchAll() as $r) {
+  foreach ($q2->fetchAll() as $r) {
     $baris = array(
       'id' => $r['id'], 'nama' => $r['nama'],
       'gender' => $r['gender'], 'area' => $r['area'],
       'divisi' => $r['divisi'], 'posisi' => $r['posisi'],
       'skill' => $r['skill'], 'status' => $r['status'],
       'dibuatAt' => (int)$r['dibuat_at'],
+      /* '' = belum pernah dipakai sama sekali. Dibedakan dari 0 kali bulan
+         ini, karena keduanya menuntun HRD ke keputusan yang berbeda. */
+      'terakhirKerja' => isset($riwayat[$r['id']]) ? $riwayat[$r['id']]['terakhir'] : '',
+      'kerjaBulanIni' => isset($riwayat[$r['id']]) ? $riwayat[$r['id']]['bulanIni'] : 0,
     );
     if ($penuh) {
       /* Hanya untuk yang berhak memutuskan: nomor HP, tujuan transfer, dan
@@ -405,6 +490,11 @@ function bentuk_permintaan($r) {
     'dibuatAt' => (int)$r['dibuat_at'], 'dibuatOleh' => $r['dibuat_oleh'],
     'putusAt' => (int)$r['putus_at'], 'putusOleh' => $r['putus_oleh'],
     'putusNota' => $r['putus_nota'],
+    /* isset() karena kolomnya lahir belakangan (14 Agustus 2026) dan baris
+       lama dibaca dari tabel yang belum sempat dipatch di server dev. */
+    'usulan' => (isset($r['usulan']) && s($r['usulan']) !== '')
+                  ? array_values(array_filter(explode(',', $r['usulan'])))
+                  : array(),
   );
 }
 
@@ -934,6 +1024,34 @@ function simpan_permintaan($row, $by) {
      memang butuh lebih, dua permintaan lebih jujur dibaca. */
   if ($jml < 1 || $jml > 30)   throw new Exception('Jumlah orang harus antara 1 dan 30');
 
+  /* USULAN NAMA — disaring di SERVER, bukan dipercaya dari layar.
+     Yang tidak ada di talent pool atau sudah NONAKTIF dibuang diam-diam:
+     kalau dibiarkan lolos, HRD menekan Setujui lalu mendapat penugasan yang
+     gagal sebagian tanpa pernah tahu sebabnya. Dipotong sebanyak `jumlah`
+     karena angka itulah yang diminta — usulan yang lebih banyak dari
+     kebutuhannya berarti head diam-diam menaikkan anggarannya sendiri. */
+  $usulan = array();
+  if (isset($row['usulan']) && is_array($row['usulan']) && count($row['usulan'])) {
+    $minta = array();
+    foreach ($row['usulan'] as $u) {
+      $u = pot($u, 32);
+      if ($u !== '' && !in_array($u, $minta, true)) $minta[] = $u;
+    }
+    if (count($minta)) {
+      $tanda = implode(',', array_fill(0, count($minta), '?'));
+      $cek = $pdo->prepare(
+        'SELECT `id` FROM `dw_pekerja` WHERE `status`=\'AKTIF\' AND `id` IN (' . $tanda . ')');
+      $cek->execute($minta);
+      $sah = array();
+      foreach ($cek->fetchAll() as $r) $sah[] = (string)$r['id'];
+      /* Urutan pilihan head dipertahankan, bukan urutan yang dipulangkan
+         database — yang pertama disebut biasanya yang paling ia inginkan. */
+      foreach ($minta as $u) {
+        if (in_array($u, $sah, true) && count($usulan) < $jml) $usulan[] = $u;
+      }
+    }
+  }
+
   $id = pot(isset($row['id']) ? $row['id'] : '', 32);
   $baru = ($id === '');
   if ($baru) $id = id_baru('PM');
@@ -943,14 +1061,15 @@ function simpan_permintaan($row, $by) {
     ':ps' => pot(isset($row['posisi']) ? $row['posisi'] : '', 60),
     ':jm' => $jml,
     ':ct' => pot(isset($row['catatan']) ? $row['catatan'] : '', 255),
+    ':us' => pot(implode(',', $usulan), 400),
     ':t' => ms(), ':by' => pot($by, 120),
   );
   if ($baru) {
     $st = $pdo->prepare(
       'INSERT INTO `dw_permintaan`
          (`id`,`divisi`,`tgl`,`jam_mulai`,`jam_selesai`,`posisi`,`jumlah`,`catatan`,
-          `status`,`dibuat_at`,`dibuat_oleh`)
-       VALUES (:id,:dv,:tg,:m,:s,:ps,:jm,:ct,\'MENUNGGU\',:t,:by)');
+          `usulan`,`status`,`dibuat_at`,`dibuat_oleh`)
+       VALUES (:id,:dv,:tg,:m,:s,:ps,:jm,:ct,:us,\'MENUNGGU\',:t,:by)');
   } else {
     /* Menyunting permintaan MENGEMBALIKANNYA ke MENUNGGU dan menghapus jejak
        putusannya — alasannya sama dengan ajuan: yang diubah harus dilihat
@@ -959,7 +1078,7 @@ function simpan_permintaan($row, $by) {
     $st = $pdo->prepare(
       'UPDATE `dw_permintaan` SET
          `divisi`=:dv, `tgl`=:tg, `jam_mulai`=:m, `jam_selesai`=:s,
-         `posisi`=:ps, `jumlah`=:jm, `catatan`=:ct,
+         `posisi`=:ps, `jumlah`=:jm, `catatan`=:ct, `usulan`=:us,
          `status`=\'MENUNGGU\', `dibuat_at`=:t, `dibuat_oleh`=:by,
          `putus_at`=0, `putus_oleh`=\'\', `putus_nota`=\'\'
        WHERE `id`=:id');

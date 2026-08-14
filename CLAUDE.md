@@ -131,7 +131,7 @@ modul yang mati.
 Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
 
 ```bash
-node tools/uji-hak-akses.js     # 65 pemeriksaan, butuh php + pdo_sqlite di PATH
+node tools/uji-hak-akses.js     # 74 pemeriksaan, butuh php + pdo_sqlite di PATH
 ```
 
 Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan
@@ -141,6 +141,45 @@ penjaga yang longgar tidak menampilkan apa pun yang aneh.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
   baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
   satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).
+
+### DW: satu formulir, dua cara meminta (sejak 14 Agustus 2026)
+
+Halaman **Ajukan Jadwal dihapus**. Ia pintu kedua ke tujuan yang sama dan
+menulis langsung ke jadwal **tanpa melewati HRD** — kebalikan dari pembagian
+yang justru sedang ditegakkan. Yang menggantikannya: satu form `bukaMinta()`
+dengan centang *"saya sudah tahu orangnya"*.
+
+- Nama yang dicentang head tersimpan sebagai **`dw_permintaan.usulan`** (CSV
+  id, kolom sendiri), **bukan** baris `dw_ajuan`. Kalau langsung jadi ajuan,
+  head efektif menjadwalkan sendiri. HRD menekan **Setujui** → jalur
+  `tugaskanDW` yang sama dengan modal Tunjuk.
+- Server **menyaring usulan**: id yang tidak ada / `NONAKTIF` dibuang, dan
+  dipotong sebanyak `jumlah`. Usulan yang lebih banyak dari kebutuhan berarti
+  head menaikkan anggarannya sendiri tanpa menyebutkannya.
+- **Posisi terikat divisi** (`POSISI_DIVISI`): bar → Bar Helper/Dishwasher,
+  kitchen → Kitchen Helper/Dishwasher, floor → Waiter/Waitress, Host,
+  Cleaning, cashier → Cashier. `Runner` dan `Event Crew` dicabut. Ejaan
+  `Waiter/Waitress` dan `Dishwasher` **sengaja dipertahankan** — string itulah
+  kunci `setting.tarif` dan isi `dw_pekerja.posisi`; menggantinya membuat
+  `tarifPosisi()` memulangkan 0 tanpa satu pun galat, dan salahnya muncul
+  sebagai uang.
+- Modal **Tunjuk** HRD ikut disaring posisi, dan pilihannya **dibatasi**
+  sebanyak yang diminta (dulu cuma diberi pita peringatan lalu tetap dikirim).
+- `kandidatDW(divisi, posisi, urut)` satu sumber untuk kedua daftar. Urutan
+  **beda dan memang harus beda**: head `'sering'` (yang ia kenal kerjanya),
+  HRD `'lama'` (menjaga giliran). Melebar sendiri kalau tidak ada yang cocok —
+  daftar kosong = permintaan yang tidak bisa dipenuhi, tanpa penjelasan.
+
+### DW: `KEDALUWARSA` ditulis saat DIBACA, bukan lewat cron
+
+`tutup_kedaluwarsa()` dipanggil di awal `baca_semua()`: permintaan & ajuan
+`MENUNGGU` yang tanggalnya sudah lewat jadi `KEDALUWARSA`, `putus_oleh` =
+`(sistem)`. Bukan cron — hosting ini tidak punya penjadwal yang bisa
+diandalkan, dan penutupan yang bergantung pada cron yang mati adalah
+penutupan yang tidak pernah terjadi. Idempoten, jadi dipanggil seratus kali
+sehari pun sama saja. Bukan `DITOLAK`: tidak ada manusia yang menolaknya.
+Hari ini dihitung **WIB**, kalau UTC maka setiap sore lewat 17.00 permintaan
+untuk HARI INI ikut tertutup.
 
 ### `absensi` — SATU-SATUNYA modul yang TIDAK di bawah `deploy/`
 
