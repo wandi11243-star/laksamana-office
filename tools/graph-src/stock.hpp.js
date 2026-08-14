@@ -364,7 +364,19 @@ function go() { render(); }
 
 
 function setSync() {  }
-function pesan() {  }
+function pesan() { render(); }
+
+
+
+
+
+function cari() { render(); }
+
+
+
+
+
+
 function render() {  }
 
 
@@ -387,7 +399,7 @@ function resepTersaring() { cogsOf(); modalMenu(); }
 
 
 
-function viewResep() { resepTersaring(); render(); bukaResep(); cetakBanyak(); modalMenu(); cogsOf(); hargaJual(); chipCogs(); cetakResep(); pager(); }
+function viewResep() { resepTersaring(); cari(); render(); bukaResep(); cetakBanyak(); modalMenu(); cogsOf(); hargaJual(); chipCogs(); cetakResep(); pager(); }
 
 
 
@@ -584,7 +596,7 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
+function viewBahan() { statusPur(); vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); dipakaiOleh(); per1(); daftarkanKePurchasing(); }
 
 
 
@@ -627,7 +639,15 @@ function viewBahan() { vendorOf(); spanduSamakan(); spanduBelumTerdaftar(); rend
 
 
 
-function bukaBahan() { tutupModal(); segarPer1(); hapusBahan(); kirim(); }
+
+function bukaBahan() { tutupModal(); segarPer1(); statusPur(); hapusBahan(); simpanBahan(); }
+
+
+
+
+
+
+
 
 
 
@@ -668,6 +688,35 @@ function segarPer1() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+function simpanBahan() { kirim(); muatProduk(); pesan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
@@ -686,7 +735,20 @@ function hapusBahan() { dipakaiOleh(); kirim(); }
 
 
 
+
+
+
+
+function statusPur() {  }
+
+
+
+
+
 function vendorOf() {  }
+
+
+
 
 
 
@@ -705,7 +767,9 @@ function spanduSamakan() { samakanNama(); }
 
 
 
-function spanduBelumTerdaftar() { render(); daftarkanSemua(); }
+function spanduBelumTerdaftar() { statusPur(); render(); daftarkanSemua(); }
+
+
 
 
 
@@ -971,7 +1035,7 @@ function ringkasPakai() { hitungPakai(); kartu(); }
 
 
 
-function viewPakai() { muatPakai(); bulanIni(); hitungPakai(); ringkasPakai(); render(); simpanPakai(); }
+function viewPakai() { muatPakai(); bulanIni(); hitungPakai(); ringkasPakai(); cari(); simpanPakai(); }
 
 
 
