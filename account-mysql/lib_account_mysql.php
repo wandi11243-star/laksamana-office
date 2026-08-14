@@ -130,6 +130,85 @@ function username_valid($v) {
   return (bool)preg_match('/^[A-Za-z0-9._-]{3,40}$/', $v);
 }
 // Key modul AKTIF di registri.
+/* ==================== AKSES BAWAAN ====================
+   Modul yang dipegang seseorang TANPA perlu dicentang di Kelola Akses.
+
+   Sekarang cuma satu: `jadwal`. Alasannya, dan ini yang membuat aturannya
+   layak ditulis di kode alih-alih jadi empat puluhan centang:
+
+   Jadwal Shift adalah PAPAN JADWAL. Siapa pun yang namanya digambar di salah
+   satu lembar divisi jelas perlu membukanya untuk melihat jadwalnya sendiri.
+   Memberikannya lewat centang berarti satu kotak yang harus diingat tiap kali
+   ada orang baru — dan yang terlewat tidak pernah melapor: orangnya cuma
+   tidak bisa membuka modulnya. Lebih buruk lagi karena kartu Roster memuat DUA
+   kunci bersebelahan di Kelola Akses ("Roster · Jadwal Shift" dan
+   "Roster · Daily Worker"), jadi yang tertukar centang mendarat di modul
+   Daily Worker — alat HR berisi nomor HP seluruh pekerja harian, yang sama
+   sekali bukan urusan kru dapur.
+
+   DASARNYA KOLOM TIM, bukan "punya akun". Yang otomatis dapat: kru shift
+   (Kitchen, Bar, Floor, Cashier), ditambah HRD dan CEO yang tidak masuk lembar
+   mana pun tapi memang perlu membaca jadwal seluruh perusahaan. Admin modul
+   Jadwal juga, karena mustahil mengelola modul yang tidak bisa dibuka.
+
+   Katanya SENGAJA SAMA dengan DIV_SINONIM di deploy/jadwal/index.html, dan itu
+   bukan kebetulan: yang menentukan seseorang masuk lembar Bar adalah kata yang
+   sama persis. Jadi aturannya bisa dibaca sebagai satu kalimat — kalau namanya
+   muncul di sebuah lembar divisi, ia bisa membuka lembarnya. Kalau salah satu
+   daftar diubah tanpa yang lain, akan ada orang yang tergambar di lembar tapi
+   tidak bisa membukanya, dan tidak ada satu layar pun yang menyebut kenapa.
+
+   `dw` sengaja TIDAK pernah bawaan: daily worker BUKAN pegawai tetap dan tidak
+   punya akun di sini sama sekali; modulnya alat HR dan tetap harus dicentang. */
+function tim_bawaan_jadwal() {
+  return array(
+    'kitchen', 'dapur',
+    'bar', 'bartender',
+    'floor', 'service', 'waiter', 'waitress',
+    'cashier', 'kasir',
+    'hrd', 'hr',
+    'ceo',
+  );
+}
+/* Dicocokkan sebagai KATA UTUH — "Barista" tidak boleh terbaca sebagai "bar",
+   dan "Chef" tidak terbaca sebagai apa pun. Aturan yang sama dipakai modul
+   lain saat membaca kolom Tim (lihat pur_tim_pemanggil di stock-mysql). */
+function tim_cocok($keterangan, $daftar) {
+  $kata = preg_split('/[^a-z]+/', strtolower((string)$keterangan), -1, PREG_SPLIT_NO_EMPTY);
+  if (!is_array($kata)) return false;
+  foreach ($daftar as $x) if (in_array($x, $kata, true)) return true;
+  return false;
+}
+/* Aturan akses bawaan dalam bentuk yang bisa dikirim ke layar. Dipulangkan
+   listUsers/listAccess/listModules supaya Kelola Akses menggambar centangnya
+   sebagai OTOMATIS untuk orang yang memenuhi syarat — kotak kosong di sana
+   terbaca "belum punya akses" padahal punya, dan admin akan menambahkan
+   centang yang tidak menambah apa pun. */
+function aturan_bawaan() {
+  return array(array('module' => 'jadwal', 'tim' => tim_bawaan_jadwal(), 'adminModul' => true));
+}
+function modul_bawaan_untuk($userId) {
+  static $cache = array();
+  $uid = s($userId);
+  if (isset($cache[$uid])) return $cache[$uid];
+  $out = array();
+  try {
+    $u = user_by_id($uid);
+    $ket = $u ? s($u['keterangan']) : '';
+    $adm = admin_modul_untuk($uid);
+    if (tim_cocok($ket, tim_bawaan_jadwal())
+        || in_array('*', $adm, true) || in_array('jadwal', $adm, true)) {
+      $out[] = 'jadwal';
+    }
+  } catch (Exception $e) {
+    /* Diam, dan memulangkan kosong. Fungsi pemanggilnya (modul_untuk) dipakai
+       login dan whoami SETIAP modul — satu galat di sini mematikan seluruh
+       Office, bukan cuma fitur ini. Gagal di sini artinya kembali ke perilaku
+       lama: aksesnya harus dicentang manual. */
+    $out = array();
+  }
+  return $cache[$uid] = $out;
+}
 function semua_modul_aktif() {
   $out = array();
   foreach (q('SELECT `key` FROM `modules` WHERE active = 1 ORDER BY urut ASC, `key` ASC') as $r)
@@ -149,6 +228,12 @@ function modul_untuk($userId) {
   $rows = q('SELECT `module`, `access` FROM `grants` WHERE user_id = :u', array(':u' => $uid))->fetchAll();
 
   $eff = array();
+  /* 0) AKSES BAWAAN menurut kolom Tim — lihat modul_bawaan_untuk().
+     Ditaruh PALING DULU supaya baris deny eksplisit (access=0) di langkah 2
+     tetap bisa mencabutnya untuk orang tertentu; kalau ditaruh belakangan,
+     pencabutan itu tidak akan pernah berlaku dan tidak ada satu layar pun yang
+     menjelaskan kenapa. */
+  foreach (modul_bawaan_untuk($uid) as $k) $eff[$k] = true;
   foreach ($rows as $g) {                       // 1) bintang
     if (s($g['module']) !== '*') continue;
     if ((int)$g['access'] === 1)
@@ -411,7 +496,8 @@ function aksi_list_users($body) {
       'adminModules' => admin_modul_untuk($u['id']),
     );
   }
-  return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif());
+  return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif(),
+               'bawaan' => aturan_bawaan());
 }
 
 /* Tambah (tanpa id) atau ubah (id ada). Nama wajib unik tanpa membedakan
@@ -518,7 +604,12 @@ function aksi_list_modules($body) {
     $mods[] = array('key' => s($m['key']), 'label' => s($m['label']),
                     'active' => ((int)$m['active'] === 1));
   }
-  return array('ok' => true, 'modules' => $mods);
+  /* Aturan akses bawaan ikut dikirim supaya Kelola Akses bisa menggambar
+     centangnya sebagai OTOMATIS untuk orang yang memenuhi syarat — bukan kotak
+     kosong yang terbaca "belum punya akses" padahal punya. Dikirim sebagai
+     ATURAN (modul + daftar tim), bukan daftar jadi, karena syaratnya berbeda
+     per user dan yang tahu Tim seseorang adalah form yang sedang membukanya. */
+  return array('ok' => true, 'modules' => $mods, 'bawaan' => aturan_bawaan());
 }
 
 /* Sinkronkan registri dari daftar modul aplikasi (BRANCHES di landing).
@@ -540,6 +631,12 @@ function aksi_sync_modules($body) {
       array(':k' => $key, ':l' => $label, ':u' => $urut));
     $added[] = $key;
   }
+  /* Akses bawaan TIDAK disimpan di tabel ini. Ia aturan, bukan setelan:
+     sumbernya tim_bawaan_jadwal() di berkas ini, satu tempat, berlaku seketika
+     begitu berkasnya mendarat. Sempat dirancang sebagai kolom `modules.bawaan`
+     dan dibatalkan — bentuk itu menuntut ALTER TABLE berhasil DAN superadmin
+     membuka panel ini sekali supaya tandanya tertulis, dua langkah yang
+     kegagalannya tidak terlihat di layar mana pun. */
   return array('ok' => true, 'added' => $added);
 }
 
@@ -598,7 +695,8 @@ function aksi_list_access($body) {
       'adminModules' => admin_modul_untuk($u['id']),
     );
   }
-  return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif());
+  return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif(),
+               'bawaan' => aturan_bawaan());
 }
 
 function aksi_set_module_access($body) {

@@ -424,6 +424,12 @@
     .pick:hover{border-color:var(--gold-2); background:var(--gold-soft)}
     .pick input{width:15px; height:15px; accent-color:var(--gold); margin:0}
     .pick.on{border-color:var(--gold); background:var(--gold-soft); color:var(--gold-dim)}
+    /* Modul bawaan: tercentang, terkunci, dan KELIHATAN berbeda dari centang
+       biasa — kalau bentuknya sama, admin akan mencoba melepasnya lalu mengira
+       panelnya rusak karena tidak bisa. */
+    .pick.otomatis{cursor:default; border-style:dashed; opacity:.9}
+    .pick.otomatis:hover{border-color:var(--gold-2); background:var(--gold-soft)}
+    .pick.otomatis em{font-style:normal; font-weight:600; font-size:11px; color:var(--muted)}
     .pick-hint{font-size:11.5px; color:var(--muted); margin-top:7px}
     .r-row .u-mods{font-size:11.5px; color:var(--muted); display:block; margin-top:2px}
 
@@ -690,6 +696,23 @@
                             <label>Modul yang boleh dibuka</label>
                             <div id="af-modules" class="pick-grid"></div>
                             <p class="pick-hint">Centang <b>Semua (*)</b> untuk memberi seluruh modul, termasuk modul baru yang ditambahkan nanti — modul lain ikut tercentang sendiri. <b>Lepas</b> centang salah satunya untuk mengecualikan modul itu saja.</p>
+                            <!-- PEMBEDA PEGAWAI TETAP vs DAILY WORKER.
+                                 Ditulis di sini, di layar tempat keputusannya
+                                 diambil — bukan cuma di dokumentasi yang tidak
+                                 dibuka siapa pun saat sedang menambah user. -->
+                            <p class="pick-hint" style="border-left:3px solid var(--gold); padding-left:9px">
+                                <b>Roster · Jadwal Shift diberikan OTOMATIS</b> kepada Tim
+                                <b>Kitchen, Bar, Floor, Cashier, HRD, CEO</b> dan admin modul Jadwal —
+                                kotaknya tergambar tercentang &amp; terkunci, tidak perlu diberikan satu
+                                per satu. Dasarnya kolom <b>Tim</b> di atas: kalau namanya muncul di
+                                sebuah lembar divisi, ia bisa membuka lembarnya.<br>
+                                <b>Roster · Daily Worker</b> berbeda dan sengaja tidak otomatis: itu alat HR,
+                                isinya nomor HP seluruh pekerja harian, status PIN, daftar transfer, dan
+                                tombol setujui ajuan. Centang hanya untuk HR.<br>
+                                Daily worker sendiri <b>tidak punya akun di sini sama sekali</b> — mereka
+                                bukan pegawai tetap, terdaftar di dalam modul Daily Worker, dan masuk
+                                pakai no. HP + PIN.
+                            </p>
                         </div>
                         <div class="field" style="margin-top:12px">
                             <label>Kelola akses (admin modul)</label>
@@ -1028,9 +1051,29 @@
                cuma berhak satu panel (keadaan yang paling umum: hampir seluruh
                kru diberi `jadwal` saja), jadi pemilihnya tidak pernah muncul
                untuk mereka. */
+            /* `jadwal` BAWAAN — otomatis dipegang setiap pegawai tetap.
+
+               Punya akun di Kelola User berarti pegawai tetap, dan Jadwal Shift
+               adalah papan jadwal: semua orang perlu melihat jadwalnya sendiri.
+               Memberikannya lewat centang berarti empat puluhan kotak yang
+               harus diingat tiap kali ada orang baru, dan yang terlewat tidak
+               pernah melapor — ia cuma tidak bisa membuka modulnya. Lebih buruk
+               lagi karena dua kunci kartu ini bersebelahan di Kelola Akses:
+               yang tertukar centang mendarat di Daily Worker, alat HR yang
+               sama sekali bukan urusannya.
+
+               Yang MENYUSUN jadwal tetap head divisinya, dan itu ditegakkan di
+               server (jadwal-mysql). Membuka modulnya untuk semua orang tidak
+               memberi siapa pun hak menulis satu sel pun; halaman Pengajuan
+               juga hanya memperlihatkan pengajuan miliknya sendiri.
+
+               `dw` sengaja TIDAK bawaan: daily worker BUKAN pegawai tetap, dan
+               modulnya memuat nomor HP seluruh talent pool, status PIN, daftar
+               transfer, dan tombol setujui ajuan. Itu alat HR. */
             key:'jadwal', grup:'tim', icon:'shift', access:['jadwal','dw'],
+            bawaan:['jadwal'],
             href:'./roster/',
-            accessLabels:{ jadwal:'Roster · Jadwal Shift', dw:'Roster · Daily Worker' },
+            accessLabels:{ jadwal:'Roster · Jadwal Shift', dw:'Roster · Daily Worker (khusus HR)' },
             title:'Roster', tag:'Jadwal Shift & Daily Worker',
             desc:'Lembar jadwal bulanan per divisi seperti di papan, disusun per minggu oleh head divisi. Kru mengajukan off, izin, dan tukar shift; daily worker mengajukan tanggal kerjanya sendiri lewat no HP + PIN, dan yang disetujui HR langsung muncul di kalender yang sama.',
             /* Cakupan sengaja SATU KATA (kecuali Daily Worker, yang memang
@@ -1438,17 +1481,65 @@
     // + baris khusus (howandi_life). Dipakai untuk auto-sync ke tab Modules.
     function appModuleList(){
         const seen = {}, out = [];
-        const add = (key, label) => { key = String(key||'').trim(); if(key && !seen[key]){ seen[key]=1; out.push({key, label: label || key}); } };
+        const add = (key, label, bawaan) => { key = String(key||'').trim(); if(key && !seen[key]){ seen[key]=1; out.push({key, label: label || key, bawaan: !!bawaan}); } };
         BRANCHES.forEach(b => {
             const keys = b.access && b.access.length ? b.access : [b.key];
             const lbl = b.accessLabels || {};
+            /* Kunci yang ditandai `bawaan` di registri ini dikirim ke Office
+               lewat syncModules, dan di sana ia berarti "otomatis untuk semua
+               pegawai tetap". Registri ini yang jadi sumbernya — bukan tombol
+               di panel admin — supaya keputusan itu tercatat di kode bersama
+               alasannya, bukan cuma jadi satu baris di database yang tidak
+               bisa dilacak kenapa. */
+            const bw = new Set(b.bawaan || []);
             /* Urutan sumber nama: accessLabels -> judul modul (kalau modulnya
                cuma punya SATU kunci, judulnya memang nama kunci itu) -> kunci
                mentah. Modul grup seperti Stock punya banyak kunci, jadi
                memakai judulnya akan menamai keempatnya "Stock". */
-            keys.forEach(k => add(k, lbl[k] || (keys.length === 1 ? b.title : k)));
+            keys.forEach(k => add(k, lbl[k] || (keys.length === 1 ? b.title : k), bw.has(k)));
         });
         (typeof SUPER_BRANCHES !== 'undefined' ? SUPER_BRANCHES : []).forEach(b => add(b.key, b.title));
+        return out;
+    }
+    /* ============ AKSES BAWAAN (otomatis, tanpa dicentang) ============
+       Aturannya ditegakkan di account-api (modul_bawaan_untuk), dan SALINANNYA
+       ada di sini hanya untuk MENGGAMBAR centangnya dengan jujur — kotak yang
+       tampil kosong padahal orangnya sudah punya akses adalah persis yang
+       membuat admin menambahkan centang yang tidak menambah apa pun, lalu
+       menyimpulkan panelnya tidak bekerja.
+
+       Server mengirimkan aturannya lewat listModules (`bawaan`), dan daftar di
+       bawah cuma cadangan supaya kotaknya tetap benar sebelum balasan itu
+       sampai — pola yang sama dengan ALL_MODULE_KEYS_SEED.
+
+       Katanya SENGAJA sama dengan DIV_SINONIM di modul Jadwal Shift: yang
+       menentukan seseorang tergambar di lembar Bar adalah kata yang sama
+       persis. Satu kalimat aturannya — kalau namanya muncul di sebuah lembar
+       divisi, ia bisa membuka lembarnya. HRD dan CEO ikut walau tidak masuk
+       lembar mana pun, karena memang perlu membaca jadwal seluruh perusahaan. */
+    let ATURAN_BAWAAN = null;      // diisi dari listModules
+    function aturanBawaan(){
+        return ATURAN_BAWAAN || [{ module:'jadwal', adminModul:true,
+            tim:['kitchen','dapur','bar','bartender','floor','service','waiter','waitress',
+                 'cashier','kasir','hrd','hr','ceo'] }];
+    }
+    /* Kata dicocokkan UTUH — "Barista" tidak boleh terbaca sebagai "bar". */
+    function timCocok(keterangan, daftar){
+        const kata = String(keterangan||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+        return (daftar||[]).some(x => kata.indexOf(x) > -1);
+    }
+    /* Modul yang otomatis dipegang SATU orang tertentu. `u` boleh null (form
+       user baru): saat itu belum ada Tim yang bisa diperiksa, jadi tidak ada
+       yang digambar otomatis — dan itu jujur, karena memang belum. */
+    function modulBawaanUntuk(u){
+        const out = new Set();
+        if(!u) return out;
+        const adm = u.adminModules || [];
+        aturanBawaan().forEach(r => {
+            const lewatTim = timCocok(u.keterangan || '', r.tim);
+            const lewatAdmin = r.adminModul && (adm.includes('*') || adm.includes(r.module));
+            if(lewatTim || lewatAdmin) out.add(r.module);
+        });
         return out;
     }
 
@@ -1496,6 +1587,12 @@
             const deny = new Set((u && u.denies) || []);
             katalogModul().forEach(k => { if(!deny.has(k)) chosen.add(k); });
         }
+        /* Modul bawaan ikut, kecuali orang ini memang dikecualikan. Tanpa baris
+           ini daftar user memajang "modul: —" untuk orang yang sebenarnya bisa
+           membuka Jadwal Shift, dan admin akan menambahkan centang yang tidak
+           menambah apa pun. */
+        const deny = new Set((u && u.denies) || []);
+        modulBawaanUntuk(u).forEach(k => { if(!deny.has(k)) chosen.add(k); });
         return chosen;
     }
 
@@ -1506,12 +1603,29 @@
     // "admin modul" tidak ikut — di sana '*' berarti superadmin, dan mencentang
     // tiap modul untuknya akan meninggalkan orang itu admin SEMUA modul walau
     // status superadmin-nya kelak dicabut.
-    function renderPickGrid(container, name, sel, bintangCentangSemua){
+    function renderPickGrid(container, name, sel, bintangCentangSemua, userBawaan){
         const keys = ['*'].concat(katalogModul());
         const chosen = new Set(sel || []);
+        /* Modul bawaan digambar TERCENTANG dan TERKUNCI, dengan keterangannya.
+           Kalau digambar sebagai kotak kosong seperti dulu, admin membacanya
+           sebagai "orang ini belum punya akses Jadwal Shift" — padahal punya —
+           lalu mencentangnya, dan yang tersimpan cuma baris grant yang tidak
+           menambah apa pun. Kotak yang berbohong lebih buruk daripada kotak
+           yang tidak ada.
+
+           Hanya berlaku di kotak "modul yang boleh dibuka" (bintangCentangSemua),
+           bukan di kotak "admin modul": bawaan berarti boleh MEMBUKA, bukan
+           boleh mengelola. */
+        const bawaan = bintangCentangSemua ? modulBawaanUntuk(userBawaan) : new Set();
         container.innerHTML = keys.map(k => {
-            const on = chosen.has(k);
+            const otomatis = bawaan.has(k);
+            const on = otomatis || chosen.has(k);
             const label = moduleLabel(k);
+            if(otomatis){
+                return `<label class="pick on otomatis" data-k="${esc(k)}"
+                    title="Otomatis untuk semua pegawai tetap — tidak perlu dicentang satu per satu">
+                    <input type="checkbox" checked disabled> ${esc(label)} <em>· semua pegawai</em></label>`;
+            }
             return `<label class="pick${on?' on':''}" data-k="${esc(k)}">
                 <input type="checkbox" name="${name}" value="${esc(k)}" ${on?'checked':''}> ${esc(label)}</label>`;
         }).join('');
@@ -1534,8 +1648,13 @@
             });
         });
     }
+    /* `:not(:disabled)` WAJIB. Kotak modul bawaan digambar tercentang dan
+       terkunci tanpa name/value; tanpa saringan ini ia ikut terbaca sebagai
+       centang dan `i.value` memulangkan "on" — satu grant bernama "on" yang
+       tersimpan ke database untuk setiap user yang disunting, tidak cocok
+       dengan modul mana pun, dan tidak pernah muncul salah di layar mana pun. */
     function readPickGrid(container){
-        return Array.from(container.querySelectorAll('input:checked')).map(i => i.value);
+        return Array.from(container.querySelectorAll('input:checked:not(:disabled)')).map(i => i.value);
     }
 
     /* ---------- TIM / KETERANGAN (boleh lebih dari satu) ----------
@@ -1603,6 +1722,10 @@
             return;
         }
         ADMIN_MODULES = data.modules || [];
+        /* Aturan akses bawaan datang dari server, bukan ditebak di sini —
+           yang menegakkannya account-api, dan dua daftar yang berbeda isi
+           berarti centang di layar berbohong tentang siapa punya akses apa. */
+        if(Array.isArray(data.bawaan)) ATURAN_BAWAAN = data.bawaan;
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', [], true);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
 
@@ -1710,7 +1833,7 @@
         document.getElementById('af-display').value = u.username || '';
         document.getElementById('af-active').checked = !!u.active;
         // Centang sesuai akses NYATA user ini: grant mentah + perluasan '*' - deny.
-        renderPickGrid(document.getElementById('af-modules'), 'af-mod', Array.from(grantEfektif(u)), true);
+        renderPickGrid(document.getElementById('af-modules'), 'af-mod', Array.from(grantEfektif(u)), true, u);
         // Admin modul: dari adminModules ('*' = superadmin).
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', u.adminModules || []);
         document.getElementById('af-cancel').classList.remove('hidden');

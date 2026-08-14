@@ -65,6 +65,12 @@
             background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:16px 16px;transition:.15s;font-family:inherit;
         }
         .side-card:hover{border-color:var(--gold-2);background:var(--gold-soft);transform:translateY(-2px)}
+        /* Kartu panel yang belum dipegang orang ini: TETAP tergambar, tapi jelas
+           mati — kalau bentuknya tetap seperti tombol hidup, ia akan ditekan
+           berkali-kali dan halaman ini yang dikira rusak. */
+        .side-card.terkunci{cursor:not-allowed;opacity:.62;border-style:dashed;background:transparent}
+        .side-card.terkunci:hover{border-color:var(--line);background:transparent;transform:none}
+        .side-card.terkunci .av{filter:grayscale(1)}
         .side-card:focus-visible{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(227,160,8,.16)}
         .side-card .av{width:46px;height:46px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim))}
         .side-card .who-text{line-height:1.3;min-width:0;flex:1}
@@ -111,12 +117,31 @@
             if (semua || m.indexOf('dw') > -1)     panel.push('dw');
 
             if (panel.length === 0) { window.location.replace('../'); return; }
-            /* Satu tujuan = pemilih berisi satu tombol, tak ada gunanya.
-               Ini keadaan yang paling umum di sini: hampir seluruh kru diberi
-               `jadwal` saja supaya bisa melihat jadwalnya sendiri, dan hanya
-               HR yang juga memegang `dw`. */
-            if (panel.length === 1) {
-                window.location.replace(panel[0] === 'dw' ? '../dw/' : '../jadwal/');
+            /* Satu tujuan = pemilih berisi satu tombol, tak ada gunanya —
+               TAPI HANYA KALAU TUJUANNYA JADWAL SHIFT.
+
+               `jadwal` saja adalah keadaan yang paling umum dan paling benar:
+               hampir seluruh kru diberi itu supaya bisa melihat jadwalnya
+               sendiri. Dilempar langsung ke sana persis yang ia mau.
+
+               `dw` SAJA adalah keadaan yang hampir selalu SALAH SETEL. Modul
+               Daily Worker itu alat HR — isinya nomor HP seluruh talent pool,
+               status PIN, daftar transfer, dan tombol setujui ajuan; orang
+               yang memegangnya pasti juga perlu `jadwal`. Kru tetap yang
+               mendarat di sana adalah kru yang centangnya tertukar di Kelola
+               Akses ("Roster · Daily Worker" alih-alih "Roster · Jadwal
+               Shift") — dua kotak bersebelahan yang namanya sama-sama diawali
+               "Roster · ".
+
+               Dulu ia tetap dilempar diam-diam ke DW. Dari kursi pemakainya
+               itu tidak masuk akal sama sekali: ia menekan Roster untuk
+               melihat jadwalnya, mendarat di modul pekerja harian, dan tidak
+               ada satu pun layar yang menyebut kenapa. Sekarang pemilihnya
+               TETAP DITAMPILKAN untuk kasus ini, dengan kartu Jadwal Shift
+               yang terkunci dan menyebut centang mana yang kurang — salah
+               setel yang kelihatan bisa diperbaiki, yang tak kelihatan tidak. */
+            if (panel.length === 1 && panel[0] === 'jadwal') {
+                window.location.replace('../jadwal/');
                 return;
             }
             document.documentElement.className += ' tampilkan-pemilih';
@@ -218,7 +243,29 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!s) return;                       // seharusnya mustahil; skrip <head> sudah mengalihkan
     const panels = allowedPanels(s);
     document.querySelectorAll('.side-card[data-key]').forEach(btn => {
-        btn.style.display = panels.includes(btn.dataset.key) ? '' : 'none';
+        if (panels.includes(btn.dataset.key)) { btn.style.display = ''; return; }
+        /* Panel yang TIDAK dipegang orang ini: dulu disembunyikan sama sekali.
+           Untuk kartu Daily Worker itu benar — hampir seluruh kru tidak
+           berurusan dengannya dan tidak perlu tahu ia ada.
+
+           Untuk kartu JADWAL SHIFT tidak: pegawai tetap yang sampai di halaman
+           ini justru sedang mencari jadwalnya, dan menyembunyikan satu-satunya
+           kartu yang ia cari membuat halaman ini terbaca seperti "Roster =
+           Daily Worker". Ia lalu melapor "kok saya diarahkan ke DW", dan tidak
+           ada satu pun layar yang bisa menjawabnya. Jadi kartunya TETAP
+           tergambar, terkunci, dan menyebut centang mana yang kurang. */
+        if (btn.dataset.key === 'jadwal') {
+            btn.classList.add('terkunci');
+            btn.disabled = true;
+            btn.onclick = null;
+            const t = btn.querySelector('.who-text');
+            if (t) t.innerHTML = '<b>Jadwal Shift</b><span>Belum diberi akses — minta admin mencentang '
+                + '<b>"Roster &middot; Jadwal Shift"</b> di Kelola Akses Office</span>';
+            const a = btn.querySelector('.arrow');
+            if (a) a.textContent = '🔒';
+            return;
+        }
+        btn.style.display = 'none';
     });
     const el = document.getElementById('who-name');
     if (el) el.textContent = s.name || 'Pengguna';
