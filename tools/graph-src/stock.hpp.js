@@ -276,7 +276,117 @@
 
 
 
+
+
+
+
+
+
+
+
 function kini() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function konvSatuan() {  }
+
+
+
+function cair() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function qtySesuai() { konvSatuan(); }
+
+
+
+
+
+
+
+
+
+
+function bakuSatuan() {  }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -309,7 +419,16 @@ function per1() {  }
 
 
 
-function modalResep() { cariResep(); per1(); }
+function modalResep() { cariResep(); qtySesuai(); per1(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -355,6 +474,7 @@ function chipCogs() {  }
 
 
 function dipakaiOleh() {  }
+
 
 
 
@@ -552,6 +672,7 @@ function tabelResep() { resepTersaring(); thUrut(); modalMenu(); hargaJual(); ch
 
 
 
+
 function keHal() { render(); }
 function urutKolom() { render(); }
 
@@ -594,7 +715,7 @@ function bukaResep() { gambarEditor(); }
 
 
 function tutupModal() {  }
-function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModal(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
+function gambarEditor() { hitungBaris(); segarSub(); tandaCampur(); modalPratinjau(); tutupModal(); dlSatuanHtml(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
 
 
 
@@ -679,19 +800,35 @@ function gambarEditor() { hitungBaris(); segarSub(); modalPratinjau(); tutupModa
 
 
 
-function hitungBaris() { cariResep(); modalResep(); per1(); }
 
 
 
 
 
 
+function hitungBaris() { cariResep(); modalResep(); qtySesuai(); per1(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tandaCampur() {  }
 
 
 
 function modalPratinjau() { hitungBaris(); }
+
 
 
 
@@ -706,7 +843,8 @@ function ringkasEditor() {  }
 
 
 
-function segarSub() { hitungBaris(); ringkasEditor(); modalPratinjau(); }
+
+function segarSub() { hitungBaris(); tandaCampur(); ringkasEditor(); modalPratinjau(); }
 
 
 
@@ -719,7 +857,7 @@ function simpanResep() { kirim(); }
 
 
 
-function hapusResep() { dipakaiOleh(); kirim(); }
+function hapusResep() { dipakaiOleh(); kirim(); vendorOf(); }
 
 
 
@@ -729,7 +867,61 @@ function hapusResep() { dipakaiOleh(); kirim(); }
 
 
 
-function viewBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); thUrut(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+
+
+
+
+
+
+
+
+
+
+
+function areaOf() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewBahan() { layarBahan(); }
+function viewFloor() { layarBahan(); }
+
+
+
+
+function layarBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); go(); thUrut(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -841,8 +1033,75 @@ function lihatPakai() { dipakaiOleh(); hitungBaris(); modalMenu(); tutupModal();
 
 
 
+
+
+
+function satuanPurchasing() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiSatuanBahan() { satuanPurchasing(); }
+
+
+
+
+
+
+
+
+
+
+
+function dlSatuanHtml() {  }
+
+
+
+
+function ketSatuan() { satuanPurchasing(); }
+
+
+
+
+
+
+function segarSatuan() { opsiSatuanBahan(); ketSatuan(); }
+
+
+
+
+
+
+
 function gambarUlangBahan() { bukaBahan(); }
-function bukaBahan() { tutupModal(); angkaKetik(); segarPer1(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+function bukaBahan() { tutupModal(); segarSatuan(); segarPer1(); angkaKetik(); opsiSatuanBahan(); ketSatuan(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1038,6 +1297,12 @@ function spanduTarik() { tarikProduk(); }
 
 
 
+
+
+
+
+
+
 function tarikProduk() { setSync(); pesan(); muat(); }
 
 
@@ -1097,7 +1362,11 @@ function daftarkanSemua() { kirimProduk(); }
 
 
 
-function kirimProduk() { setSync(); }
+function kirimProduk() { setSync(); bakuSatuan(); }
+
+
+
+
 
 
 
@@ -1129,7 +1398,10 @@ function kartu() {  }
 
 
 
-function uraiBahan() { cariResep(); per1(); }
+function uraiBahan() { cariResep(); qtySesuai(); per1(); }
+
+
+
 
 
 
@@ -1393,7 +1665,8 @@ function kalTotal() { hitungBaris(); }
 
 
 
-function viewKalk() { hitungBaris(); render(); segarKalk(); angkaKetik(); kartuKalk(); noteKalk(); }
+function viewKalk() { dlSatuanHtml(); hitungBaris(); render(); segarKalk(); tandaCampur(); angkaKetik(); kartuKalk(); noteKalk(); }
+
 
 
 
@@ -1446,7 +1719,7 @@ function noteKalk() { kalTotal(); }
 
 
 
-function segarKalk() { hitungBaris(); kartuKalk(); noteKalk(); }
+function segarKalk() { hitungBaris(); tandaCampur(); kartuKalk(); noteKalk(); }
 
 
 

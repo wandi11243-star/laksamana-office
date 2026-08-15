@@ -1789,10 +1789,30 @@ function lihatFotoWaste() { bukaFoto(); timSaya(); }
 
 
 
-function soAreaCocok() { timSaya(); }
 
 
 
+
+
+
+
+function soAreaCocok() { timSaya(); soArea(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soArea() {  }
 
 
 
@@ -1963,7 +1983,22 @@ function soHitung() { soKemarin(); soAngka(); }
 
 
 
-function soGrup() { soAreaCocok(); soKategori(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soGrup() { soAreaCocok(); soArea(); soKategori(); }
 
 
 
@@ -1979,6 +2014,9 @@ function soGrup() { soAreaCocok(); soKategori(); }
 
 
 function soRenderDaftar() { kosong(); soRingkas(); soGrup(); soHitung(); soUnit(); soSet(); soSelisihTeks(); fmtQty(); }
+
+
+
 
 
 
@@ -2185,6 +2223,10 @@ function soBuka() { setNilaiTim(); soMuatHari(); }
 
 
 function soTambahItem() { timSaya(); }
+
+
+
+
 
 
 
