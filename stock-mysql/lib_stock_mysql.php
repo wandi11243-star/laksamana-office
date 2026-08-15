@@ -660,6 +660,33 @@ function pur_vendor_hapus($pdo, $nama) {
 // =====================================================================
 // PRODUCTS — peta berkunci NAMA
 // =====================================================================
+/* AREA -> selalu array of string, apa pun bentuk simpanannya.
+   Tiga bentuk yang sah masuk ke sini, dan ketiganya benar-benar ada di data:
+     - array            (bentuk baku sejak 15 Agustus 2026)
+     - 'Bar'            (satu area, baris lama)
+     - 'Bar,Floor'      (kiriman frontend — lihat catatan di pur_product_simpan)
+   '' dan null jadi [] = Umum.
+
+   Kembar dibuang TANPA membedakan besar-kecil huruf: 'Floor' dan 'floor' adalah
+   satu area yang sama, dan menyimpan keduanya membuat penyaring Daily SO
+   menghitung item itu dua kali di kelompok yang sama. Yang DIPERTAHANKAN ejaan
+   yang datang lebih dulu — tidak dibakukan ke daftar tim, karena di sini memang
+   tidak ada daftar sah (lihat catatan soAreas di stock/usage: nilai asing
+   diperlakukan sebagai Umum oleh pembacanya, bukan dibuang oleh penyimpannya). */
+function pur_area_normal($v) {
+  if (is_string($v)) $v = ($v === '' ? [] : explode(',', $v));
+  if (!is_array($v)) return [];
+  $out = [];
+  foreach ($v as $a) {
+    $a = trim((string)$a);
+    if ($a === '') continue;
+    $ada = false;
+    foreach ($out as $x) if (strcasecmp($x, $a) === 0) { $ada = true; break; }
+    if (!$ada) $out[] = $a;
+  }
+  return array_values($out);
+}
+
 function pur_products_ambil($pdo) {
   $out = [];
   foreach ($pdo->query("SELECT `nama`, `data` FROM `products` ORDER BY `nama`")->fetchAll() as $r) {
@@ -674,9 +701,14 @@ function pur_products_ambil($pdo) {
     // kategori: kelompok bahan (DRY ITEM, CHILLER, FRESH, dst) untuk Daily SO.
     // '' = belum dikelompokkan; Daily SO menaruhnya di "Belum dikategori".
     if (!isset($p->kategori) || !is_string($p->kategori)) $p->kategori = '';
-    // area: lokasi hitung — 'Bar' | 'Kitchen' | 'Umum'/'' (dipakai kedua tempat).
-    // Daily SO menyaring item menurut area supaya Bar tidak melihat item Kitchen.
-    if (!isset($p->area) || !is_string($p->area)) $p->area = '';
+    // area: DAFTAR lokasi hitung — boleh lebih dari satu sejak 15 Agustus 2026
+    // (mis. tisu dipegang Floor DAN Bar). Daily SO menyaring item menurut area
+    // supaya Bar tidak melihat item Kitchen. [] = Umum, tampil di semua area.
+    //
+    // Sampai 14 Agustus 2026 isinya string tunggal. Baris lama dinaikkan DI SINI
+    // saat dibaca, jadi tidak ada langkah migrasi — `area` memang ikut di dalam
+    // blob `data`, bukan kolom tersendiri.
+    $p->area = pur_area_normal($p->area ?? null);
     // sumber: '' = bahan vendor (perilaku lama), 'ck' = produksi Central
     // Kitchen. packIsi/packSatuan hanya berarti untuk yang 'ck'; dinormalkan
     // di sini supaya frontend tidak perlu memeriksa tipenya tiap pemakaian.
@@ -729,7 +761,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      dari baris lama dalam SATU query supaya tidak menembak DB dua kali. */
   $satuanLama = [];
   $kategoriLama = '';
-  $areaLama = '';
+  $areaLama = [];
   $caraBeliLama = '';
   $sumberLama = '';
   $packIsiLama = 0;
@@ -744,7 +776,11 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       $lama = json_decode($row['data']);
       if (is_object($lama) && isset($lama->satuan) && is_array($lama->satuan)) $satuanLama = $lama->satuan;
       if (is_object($lama) && isset($lama->kategori) && is_string($lama->kategori)) $kategoriLama = $lama->kategori;
-      if (is_object($lama) && isset($lama->area) && is_string($lama->area)) $areaLama = $lama->area;
+      /* TANPA `is_string`: sejak area boleh banyak, baris yang sudah tersimpan
+         berbentuk array — dan syarat is_string lama akan membuat SETIAP
+         penyimpanan yang tidak menyertakan area (mis. dari HPP, yang cuma
+         mengirim nama + satuan) mengosongkan areanya diam-diam. */
+      if (is_object($lama) && isset($lama->area)) $areaLama = pur_area_normal($lama->area);
       if (is_object($lama) && isset($lama->caraBeli) && is_string($lama->caraBeli)) $caraBeliLama = $lama->caraBeli;
       if (is_object($lama) && isset($lama->sumber) && is_string($lama->sumber)) $sumberLama = $lama->sumber;
       if (is_object($lama) && isset($lama->packIsi)) $packIsiLama = (float)$lama->packIsi;
@@ -769,7 +805,13 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $satuan = array_values(array_unique(array_filter(array_map(fn($s) => trim((string)$s), $satuan), fn($s) => $s !== '')));
 
   $kategori = trim((string)$kategori);
-  $area     = trim((string)$area);
+  /* Menerima array MAUPUN 'Bar,Floor'. Yang dikirim frontend adalah teks
+     dipisah koma, bukan array, dan itu disengaja: server versi lama menyimpan
+     nilainya lewat trim((string)$area), jadi teks koma mendarat utuh sementara
+     array akan tersimpan sebagai kata "Array". Selama satu deploy FTP masih
+     bisa mengunggah deploy/ tapi gagal di stock-mysql/ (sudah kejadian), bentuk
+     kiriman yang tidak merusak server lama adalah yang menentukan. */
+  $area     = pur_area_normal($area);
   // Hanya dua nilai yang berarti; apa pun selain itu disimpan sebagai ''
   // (belum ditentukan), bukan diteruskan apa adanya. Daftar "perlu dijemput"
   // dibangun dari kolom ini, jadi nilai asing di sini berarti barang yang

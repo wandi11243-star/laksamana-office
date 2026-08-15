@@ -1802,20 +1802,42 @@
     // Daftarnya TIM_OPSI, bukan tulisan tangan: menambah tim keempat nanti
     // tidak boleh diam-diam mengembalikannya ke "melihat semua".
     if (!TIM_OPSI.some(([v]) => v === saya)) return true;    // admin/tanpa tim: semua
-    const area = soArea(nama);
-    return area === '' || area === saya;
+    const area = soAreas(nama);
+    return !area.length || area.indexOf(saya) > -1;
   }
-  /* Area item, dinormalkan ke salah satu TIM_OPSI. '' = Umum.
+  /* Area item — DAFTAR sejak 15 Agustus 2026, dinormalkan ke TIM_OPSI.
+     [] = Umum, tampil di semua area.
 
-     Nilai di luar daftar (sisa ejaan lama, salah ketik — server menyimpan
-     `area` apa adanya, tidak ada daftar sah di sana) dianggap UMUM, bukan
-     area tersendiri. Kalau tidak, satu nilai asing membuat itemnya lenyap dari
-     daftar hitung SETIAP tim sekaligus — cuma admin yang masih melihatnya, dan
-     tidak ada satu pun layar yang menyebutkan sebabnya. */
-  function soArea(nama) {
+     Satu barang boleh dipegang dua tim (tisu di Floor dan di Bar, es batu di
+     Bar dan di Kitchen). Sebelumnya keadaan itu cuma bisa ditulis sebagai
+     "Umum" — dan Umum berarti SEMUA tim melihatnya, termasuk yang memang tidak
+     pernah memegangnya. Jadi pilihan tunggal justru membuat daftar hitung lebih
+     kotor daripada tidak menyaring sama sekali.
+
+     TIGA bentuk simpanan harus terbaca, dan ketiganya beredar di data:
+       - array              -> server yang sudah diperbarui
+       - 'Bar'              -> baris lama, sebelum area boleh banyak
+       - 'Bar,Floor'        -> server LAMA yang menerima kiriman baru; purchasing
+                               sengaja mengirim teks koma supaya server yang
+                               belum ikut ter-deploy tidak menyimpan "Array"
+
+     Nilai di luar TIM_OPSI (sisa ejaan lama, salah ketik — server menyimpan
+     `area` apa adanya, tidak ada daftar sah di sana) DIBUANG, dan barang yang
+     seluruh areanya asing berakhir sebagai [] = Umum. Bukan area tersendiri:
+     kalau tidak, satu nilai asing membuat itemnya lenyap dari daftar hitung
+     SETIAP tim sekaligus — cuma admin yang masih melihatnya, dan tidak ada satu
+     pun layar yang menyebutkan sebabnya. */
+  function soAreas(nama) {
     const p = INFO_BAHAN && INFO_BAHAN[nama];
-    const a = (p && typeof p.area === 'string') ? p.area.trim() : '';
-    return TIM_OPSI.some(([v]) => v === a) ? a : '';
+    const v = p ? p.area : null;
+    const l = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : []);
+    const out = [];
+    l.forEach(x => {
+      const a = String(x || '').trim().toLowerCase();
+      const cocok = TIM_OPSI.find(([val]) => val.toLowerCase() === a);
+      if (cocok && out.indexOf(cocok[0]) < 0) out.push(cocok[0]);
+    });
+    return out;
   }
 
   /* KELUAR hari itu = pemakaian (prasmanan/RND) + waste + serah terima untuk
@@ -1996,13 +2018,24 @@
      Yang DIPISAH hanya Floor. Memisah Bar & Kitchen juga akan memecah daftar
      tiap kru jadi dua ("Bar · DRY ITEM" + "DRY ITEM" milik Umum) untuk sesuatu
      yang sudah diselesaikan penyaring area — dua kali lipat judul tanpa satu
-     pun pertanyaan baru yang terjawab. */
+     pun pertanyaan baru yang terjawab.
+
+     SEJAK AREA BOLEH BANYAK (15 Agustus 2026), yang dipisah adalah barang yang
+     areanya HANYA Floor. Barang Floor+Bar memang dipegang Bar juga, jadi di
+     lembar Bar ia bagian dari hitungan biasa; menaruhnya di kelompok terpisah
+     berjudul FLOOR justru membuat kru Bar melewatinya — persis kebalikan dari
+     alasan pemisahan ini ada. Patokan yang sama dipakai halaman Barang Floor di
+     modul HPP, supaya satu barang tidak digolongkan berbeda di dua modul. */
   const SO_AWALAN_AREA = 'FLOOR · ';
+  function soFloorMurni(nama) {
+    const a = soAreas(nama);
+    return a.length === 1 && a[0] === 'Floor';
+  }
   function soGrup() {
     const grup = {};
     (DAFTAR_BAHAN || []).forEach(nama => {
       if (!soAreaCocok(nama)) return;                 // Bar tak lihat item Kitchen
-      const k = (soArea(nama) === 'Floor' ? SO_AWALAN_AREA : '') + soKategori(nama);
+      const k = (soFloorMurni(nama) ? SO_AWALAN_AREA : '') + soKategori(nama);
       (grup[k] = grup[k] || []).push(nama);
     });
     const urut = SO_KATEGORI.filter(k => grup[k]);
@@ -2228,9 +2261,10 @@
     // langsung muncul di Daily SO orang yang menambahnya. Selain itu Umum.
     // Diambil dari TIM_OPSI supaya tidak ada tim yang tertinggal saat daftarnya
     // bertambah — Floor sempat tertinggal begitu selama area-nya belum ada.
+    // BOLEH LEBIH DARI SATU sejak 15 Agustus 2026 — barang yang dipegang dua
+    // tim dulu terpaksa ditulis "Umum", dan Umum berarti semua tim melihatnya.
+    // Tidak ada yang dicentang = Umum, sama seperti dulu.
     const areaDefault = TIM_OPSI.some(([v]) => v === timSaya()) ? timSaya() : '';
-    const areaOpsi = [''].concat(TIM_OPSI.map(([v]) => v));
-    const labelArea = a => a || 'Umum (semua area)';
     const wrap = document.createElement('div');
     // Bentuk modalnya menyalin .modal-back / .modal Reservasi.
     wrap.className = 'fixed inset-0 z-[60] backdrop-blur-sm flex items-center justify-center p-4';
@@ -2257,11 +2291,16 @@
             </div>
           </div>
           <div class="field">
-            <label>Area</label>
-            <select id="si-area">
-              <option value="${areaDefault}">${labelArea(areaDefault)}</option>
-              ${areaOpsi.filter(a => a !== areaDefault).map(a => `<option value="${a}">${labelArea(a)}</option>`).join('')}
-            </select>
+            <label>Area <span style="font-weight:400;color:var(--muted-2)">— boleh lebih dari satu; kosong = Umum</span></label>
+            <div class="grid grid-cols-3 gap-2">
+              ${TIM_OPSI.map(([v, l]) => `
+                <label class="flex items-center gap-1.5 text-[12.5px] font-semibold cursor-pointer px-2 py-1.5 rounded-lg"
+                       style="border:1px solid var(--line);background:var(--surface)">
+                  <input type="checkbox" name="si-area-check" value="${v}" ${v === areaDefault ? 'checked' : ''}
+                         style="accent-color:var(--gold);width:15px;height:15px">
+                  <span>${esc(l)}</span>
+                </label>`).join('')}
+            </div>
           </div>
           <div class="field"><input id="si-kat-lain" type="text" placeholder="nama kategori baru…" class="hidden"></div>
           <button type="button" data-simpan class="btn btn-primary btn-block">Tambah ke database</button>
@@ -2284,7 +2323,11 @@
         const d = await apiPost('items.php', {
           action: 'addProduct', productName: nama, primaryVendor: '',
           backupVendors: [], units: [wrap.querySelector('#si-unit').value], kategori: kat,
-          area: wrap.querySelector('#si-area').value
+          /* Teks dipisah koma, BUKAN array — alasannya sama dengan purchasing:
+             server versi lama menyimpan area lewat trim((string)$area), jadi
+             array akan mendarat sebagai kata "Array" dan area barangnya hilang
+             tanpa satu pun galat. */
+          area: Array.from(wrap.querySelectorAll('input[name="si-area-check"]:checked')).map(c => c.value).join(',')
         });
         if (d && d.status === 'success') {
           await muatBahan();

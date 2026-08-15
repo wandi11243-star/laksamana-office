@@ -1252,16 +1252,20 @@
 
                          Nilainya disimpan apa adanya oleh server (tidak ada
                          daftar sah di pur_product_simpan), jadi tidak ada
-                         langkah migrasi untuk penambahan ini. -->
+                         langkah migrasi untuk penambahan ini.
+
+                         BOLEH LEBIH DARI SATU sejak 15 Agustus 2026 (permintaan
+                         user). Satu pilihan memaksa barang yang nyata-nyata
+                         dipegang dua tim — tisu di Floor dan di Bar, es batu di
+                         Bar dan di Kitchen — ditaruh di "Umum", dan Umum berarti
+                         SEMUA tim melihatnya, termasuk yang tidak pernah
+                         memegangnya. Jadi pilihan tunggal justru menghasilkan
+                         daftar hitung yang lebih kotor daripada tidak menyaring.
+                         Tidak ada yang dicentang = Umum, persis seperti dulu. -->
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Area</label>
-                        <select id="prod-area" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                          <option value="">Umum (semua area)</option>
-                          <option value="Bar">Bar</option>
-                          <option value="Kitchen">Kitchen</option>
-                          <option value="Floor">Floor</option>
-                        </select>
-                        <span class="text-[10px] text-slate-400 mt-1 block">Menyaring item di <b>Daily SO</b> per lokasi. Item <b>Floor</b> dipisahkan jadi kelompoknya sendiri di sana.</span>
+                        <div id="prod-area-container" class="grid grid-cols-3 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
+                        <span class="text-[10px] text-slate-400 mt-1 block">Menyaring item di <b>Daily SO</b> per lokasi — boleh dicentang lebih dari satu. <b>Tidak dicentang = Umum</b>, tampil di semua area. Item yang <b>Floor saja</b> dipisahkan jadi kelompoknya sendiri di sana.</span>
                     </div>
                     <!-- CARA BELI: online (dikirim) vs jemput sendiri. Dipakai
                          modul Ordering untuk menyusun daftar "Perlu Dijemput
@@ -3423,7 +3427,13 @@
                                   : sumber === 'both' ? chip('🔁 Vendor &amp; CK', 'bg-violet-50 text-violet-700 border border-violet-200')
                                   : '';
                 const badgeKategori = mapping.kategori ? chip(mapping.kategori, 'bg-slate-100 text-slate-700 border border-slate-200') : kosong;
-                const badgeArea     = mapping.area     ? chip(mapping.area, 'bg-sky-50 text-sky-700 border border-sky-200') : kosong;
+                /* Area boleh lebih dari satu, jadi kolomnya jadi beberapa chip.
+                   Kosong tetap "—" = Umum: itu keadaan yang justru dicari saat
+                   merapikan master bahan, bukan sesuatu untuk disembunyikan. */
+                const daftarArea    = areaList(mapping);
+                const badgeArea     = daftarArea.length
+                    ? daftarArea.map(a => chip(a, 'bg-sky-50 text-sky-700 border border-sky-200')).join(' ')
+                    : kosong;
                 const badgeCaraBeli = mapping.caraBeli === 'jemput' ? chip('🛵 Jemput Sendiri', 'bg-amber-50 text-amber-800 border border-amber-200')
                                     : mapping.caraBeli === 'online' ? chip('🛒 Online', 'bg-indigo-50 text-indigo-700 border border-indigo-200')
                                     : kosong;
@@ -5311,6 +5321,55 @@
                 </label>`).join("");
         }
 
+        /* ====== AREA: DAFTAR, bukan satu nilai (15 Agustus 2026) ======
+           AREA_TERSEDIA adalah salinan daftar tim yang juga hidup sebagai
+           TIM_OPSI di stock/usage. Kode divisinya WAJIB sama persis di kedua
+           tempat: mengganti salah satu membuat item area itu lenyap dari daftar
+           hitung timnya tanpa satu pun galat, dan tidak ada layar yang
+           melaporkannya. */
+        const AREA_TERSEDIA = ['Bar', 'Kitchen', 'Floor'];
+
+        /* Membaca `area` dari sebuah produk, apa pun bentuk simpanannya.
+           TIGA bentuk benar-benar beredar dan semuanya harus terbaca:
+             - array              -> server yang sudah diperbarui
+             - 'Bar'              -> baris lama, sebelum area boleh banyak
+             - 'Bar,Floor'        -> server LAMA yang menerima kiriman baru
+           Yang ketiga bukan kemungkinan teoretis: kiriman sengaja berbentuk
+           teks dipisah koma supaya server yang belum ikut ter-deploy tetap
+           menyimpannya utuh (lihat pur_product_simpan). Tanpa cabang ini,
+           layar akan menampilkan satu area bernama "Bar,Floor". */
+        function areaList(mapping) {
+            const v = mapping ? mapping.area : null;
+            const l = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : []);
+            const out = [];
+            l.forEach(x => {
+                const a = String(x || '').trim();
+                if (a && !out.some(y => y.toLowerCase() === a.toLowerCase())) out.push(a);
+            });
+            return out;
+        }
+
+        // Gambar centang area. `terpilih` = daftar area yang sudah tersimpan;
+        // kosong berarti Umum — tampil di semua area, perilaku bawaan lama.
+        function renderAreaCheckboxes(terpilih) {
+            const container = document.getElementById('prod-area-container');
+            if (!container) return;
+            const dipakai = new Set((terpilih || []).map(s => String(s).trim().toLowerCase()));
+            /* Nilai tersimpan yang TIDAK ada di daftar (sisa ejaan lama, salah
+               ketik) tetap digambar, ditandai "(lama)". Kalau tidak, membuka
+               lalu menyimpan sebuah barang diam-diam membuang areanya — dan
+               area yang hilang tidak terlihat dari layar mana pun, ia cuma
+               membuat barangnya muncul di daftar hitung SEMUA tim. */
+            const asing = (terpilih || []).map(s => String(s).trim())
+                .filter(a => a && !AREA_TERSEDIA.some(x => x.toLowerCase() === a.toLowerCase()));
+            container.innerHTML = AREA_TERSEDIA.concat(asing).map(a => `
+                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded bg-white border border-slate-100">
+                    <input type="checkbox" name="prod-area-check" value="${a}" ${dipakai.has(a.toLowerCase()) ? "checked" : ""}
+                           class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                    <span>${a}${AREA_TERSEDIA.some(x => x.toLowerCase() === a.toLowerCase()) ? '' : ' <i class="text-slate-400 not-italic">(lama)</i>'}</span>
+                </label>`).join("");
+        }
+
         /* ====== SUMBER BARANG: vendor vs Central Kitchen ======
            Menyembunyikan field yang tidak berlaku, bukan sekadar mengabaikannya
            saat menyimpan. Vendor cadangan & cara beli untuk barang produksi
@@ -5433,7 +5492,15 @@
             // setelah sebelumnya dibatasi.
             const units = Array.from(document.querySelectorAll('input[name="prod-unit-check"]:checked')).map(cb => cb.value);
             const kategori = document.getElementById('prod-kategori').value.trim();
-            const area = document.getElementById('prod-area').value;
+            /* DIKIRIM SEBAGAI TEKS DIPISAH KOMA, bukan array — dan ini bukan
+               kemalasan. Server versi lama menyimpan area lewat
+               trim((string)$area): teks koma mendarat utuh dan bisa dibaca
+               kembali, sedangkan array akan tersimpan sebagai kata "Array" dan
+               area barang itu hilang tanpa satu pun galat. Deploy FTP di sini
+               sudah pernah mengunggah deploy/ dengan sukses tapi gagal di
+               stock-mysql/, jadi keadaan "frontend baru, server lama" bukan
+               kemungkinan teoretis. Kosong dikirim apa adanya = Umum. */
+            const area = Array.from(document.querySelectorAll('input[name="prod-area-check"]:checked')).map(cb => cb.value).join(',');
             const caraBeli = document.getElementById('prod-carabeli').value;
             const editKey = document.getElementById('prod-edit-key').value;
             const sumber = document.getElementById('prod-sumber').value;
@@ -5762,7 +5829,7 @@
             updateBackupCheckboxes();
             renderUnitCheckboxes([]);      // bahan baru: belum ada satuan yang ditetapkan
             document.getElementById('prod-kategori').value = '';
-            document.getElementById('prod-area').value = '';
+            renderAreaCheckboxes([]);      // bahan baru: belum ada area -> Umum
             document.getElementById('prod-carabeli').value = '';
             document.getElementById('prod-pack-isi').value = '';
             // setSumberProduk() dipanggil BELAKANGAN karena ia yang menyusun
@@ -5799,7 +5866,7 @@
             });
             renderUnitCheckboxes(mapping.satuan || []);
             document.getElementById('prod-kategori').value = mapping.kategori || '';
-            document.getElementById('prod-area').value = mapping.area || '';
+            renderAreaCheckboxes(areaList(mapping));
             document.getElementById('prod-carabeli').value = mapping.caraBeli || '';
 
             // Urutannya penting: setSumberProduk() menyusun daftar satuan dasar

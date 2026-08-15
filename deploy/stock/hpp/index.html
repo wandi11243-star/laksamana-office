@@ -878,9 +878,21 @@ let FF={q:'',hal:1,per:25,st:'',kembar:false};
    selama namanya belum disamakan. Tidak disalin ke hpp_bahan dengan alasan yang
    sama pula — salinan area akan basi diam-diam begitu purchasing memindahkan
    barangnya, dan tidak ada satu pun layar yang akan memberitahu. */
+/* DAFTAR area, bukan satu nilai (15 Agustus 2026): satu barang boleh dipegang
+   dua tim. TIGA bentuk simpanan harus terbaca, dan ketiganya beredar di data:
+     - array          -> server yang sudah diperbarui
+     - 'Bar'          -> baris lama, sebelum area boleh banyak
+     - 'Bar,Floor'    -> server LAMA yang menerima kiriman baru; purchasing
+                         sengaja mengirim teks koma supaya server yang belum
+                         ikut ter-deploy tidak menyimpan kata "Array" */
 function areaOf(b){
   const p=PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
-  return p?String(p.area||'').trim():'';
+  const v=p?p.area:null;
+  const l=Array.isArray(v)?v:(typeof v==='string'?v.split(','):[]);
+  const out=[];
+  l.forEach(x=>{ const a=String(x||'').trim();
+    if(a&&!out.some(y=>low(y)===low(a))) out.push(a); });
+  return out;
 }
 /* Barang Floor — tisu, sedotan, cutlery, lilin meja — dipisah jadi halaman
    sendiri (15 Agustus 2026, permintaan user). Ia dibeli dan berharga, jadi
@@ -889,10 +901,18 @@ function areaOf(b){
    untuk menjawab "modal menu ini dari mana".
 
    PRODUK KOSONG (purchasing tidak terbaca) berarti TIDAK ADA yang berpindah —
-   areaOf() memulangkan '' untuk semuanya, jadi Bahan & Harga tetap lengkap dan
+   areaOf() memulangkan [] untuk semuanya, jadi Bahan & Harga tetap lengkap dan
    halaman Floor yang kosong. Kebalikannya, menebak Floor saat basisnya tidak
-   terbaca, akan menyembunyikan bahan dari KEDUA halaman sekaligus. */
-const isFloor=b=>low(areaOf(b))==='floor';
+   terbaca, akan menyembunyikan bahan dari KEDUA halaman sekaligus.
+
+   FLOOR SAJA, bukan "termasuk Floor" (15 Agustus 2026, sejak area boleh
+   banyak). Barang berarea Floor+Kitchen memang dipegang dapur juga dan bisa
+   betul-betul masuk resep — mengeluarkannya dari Bahan & Harga berarti
+   menyembunyikan bahan resep dari daftar harga yang jadi sumber seluruh angka
+   modal di modul ini. Patokan yang sama dipakai pengelompokan Daily SO
+   (soFloorMurni di stock/usage), supaya satu barang tidak digolongkan berbeda
+   di dua modul. */
+const isFloor=b=>{ const a=areaOf(b); return a.length===1&&low(a[0])==='floor'; };
 
 function viewBahan(){ return layarBahan(false); }
 function viewFloor(){ return layarBahan(true); }
@@ -954,9 +974,9 @@ function layarBahan(floor){
          simpanBahan di stock-mysql/hpp.php) lalu muncul di Bahan & Harga —
          tombol yang selalu meleset dari halaman tempat ia ditekan. */
       ? `<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
-          Isi halaman ini mengikuti kolom <b>Area = Floor</b> di <b>Purchasing → Database &amp; Vendor</b>. Untuk memindahkan barang ke sini atau mengeluarkannya, ubah areanya di sana — harga belinya tetap diisi dari halaman ini.</div>`
+          Isi halaman ini mengikuti kolom <b>Area</b> di <b>Purchasing → Database &amp; Vendor</b>: yang masuk sini adalah barang berarea <b>Floor saja</b>. Yang juga bercentang Bar atau Kitchen tetap di Bahan &amp; Harga — ia memang bisa masuk resep. Untuk memindahkan barang, ubah areanya di sana; harga belinya tetap diisi dari halaman ini.</div>`
       : (nFloor?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
-          ${nFloor} barang berarea Floor tidak ditampilkan di sini — ia punya halamannya sendiri di <b><a href="#" onclick="go('floor');return false" style="color:var(--gold)">Barang Floor</a></b>.</div>`:'')}
+          ${nFloor} barang berarea <b>Floor saja</b> tidak ditampilkan di sini — ia punya halamannya sendiri di <b><a href="#" onclick="go('floor');return false" style="color:var(--gold)">Barang Floor</a></b>.</div>`:'')}
     <div class="tbl-wrap"><table><thead><tr>
       ${thUrut(mana,'nama',floor?'Barang':'Bahan')}${thUrut(mana,'vendor','Vendor')}
       ${thUrut(mana,'qty','Qty beli','num')}${thUrut(mana,'satuan','Satuan')}
@@ -981,7 +1001,7 @@ function layarBahan(floor){
   });
   if(!hal.length) h+=`<tr><td colspan="8"><div class="empty">${floor
     ? (nFloor?'Tidak ada barang Floor yang cocok dengan saringan ini.'
-             :'Belum ada barang berarea <b>Floor</b>. Tetapkan areanya di <b>Purchasing → Database &amp; Vendor</b>, lalu barangnya muncul di sini.')
+             :'Belum ada barang berarea <b>Floor saja</b>. Centang Area <b>Floor</b> (dan hanya Floor) di <b>Purchasing → Database &amp; Vendor</b>, lalu barangnya muncul di sini.')
     : 'Tidak ada bahan yang cocok dengan saringan ini.'}</div></td></tr>`;
   h+=`</tbody></table></div>${pagerBar(semua.length,st.hal,nHal,st.per,mana,floor?'barang':'bahan')}</div>`;
   return h;
@@ -1293,7 +1313,7 @@ function spanduTarik(){
      di halaman Barang Floor, bukan di halaman tempat spanduk ini dibaca — dan
      tombol yang menjanjikan N baris lalu memunculkan sebagiannya di tempat lain
      terbaca seperti tarikan yang setengah gagal. */
-  const nFloorKurang=kurang.filter(n=>low(String((PRODUK[n]||{}).area||'').trim())==='floor').length;
+  const nFloorKurang=kurang.filter(n=>isFloor({nama:n})).length;
   return `<div class="notice warn"><div>
     <b>${kurang.length} bahan ada di Purchasing tapi belum ada di modul ini.</b>${
       nFloorKurang?` ${nFloorKurang} di antaranya berarea Floor dan akan mendarat di halaman <b>Barang Floor</b>.`:''}

@@ -1796,7 +1796,7 @@ function lihatFotoWaste() { bukaFoto(); timSaya(); }
 
 
 
-function soAreaCocok() { timSaya(); soArea(); }
+function soAreaCocok() { timSaya(); soAreas(); }
 
 
 
@@ -1812,7 +1812,29 @@ function soAreaCocok() { timSaya(); soArea(); }
 
 
 
-function soArea() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soAreas() {  }
+
+
+
+
+
+
+
 
 
 
@@ -1998,7 +2020,18 @@ function soHitung() { soKemarin(); soAngka(); }
 
 
 
-function soGrup() { soAreaCocok(); soArea(); soKategori(); }
+
+
+
+
+
+
+
+function soFloorMurni() { soAreas(); }
+
+
+
+function soGrup() { soAreaCocok(); soFloorMurni(); soKategori(); }
 
 
 
@@ -2268,7 +2301,17 @@ function soTambahItem() { timSaya(); }
 
 
 
+
+
+
+
+
+
 function tutup() { soRenderDaftar(); }
+
+
+
+
 
 
 
