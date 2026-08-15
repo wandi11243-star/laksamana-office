@@ -3575,7 +3575,17 @@ function renderInput(editId){
        </div>
      </div>
      <div class="divider"></div>
-     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+     <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;align-items:center">
+       <!-- HAPUS DI FORM EDIT (15 Agustus 2026, permintaan user). Tombolnya
+            sudah lama ada, tapi cuma di modal detail — sedangkan orang yang
+            sadar salah input justru sedang berada DI SINI, dan dari sini tidak
+            ada jalan ke sana selain membatalkan lalu mencari barisnya lagi.
+            Izinnya tetap CAN.deleteReservation (manager/admin): memindahkan
+            tombol ke tempat yang lebih mudah dijangkau bukan alasan untuk
+            memberikannya kepada peran yang tidak berhak menghapus. -->
+       ${editId&&CAN.deleteReservation(SESSION.role)
+         ? `<button type="button" class="btn btn-danger" style="margin-right:auto" onclick="delReservation('${editId}')">🗑️ Hapus Reservasi</button>`
+         : ""}
        <button type="button" class="btn btn-ghost" onclick="navigate('dashboard')">Batal</button>
        <button type="button" class="btn btn-primary" onclick="saveReservation()">💾 ${editId?"Simpan Perubahan":"Simpan Reservasi"}</button>
      </div>
@@ -6378,13 +6388,33 @@ async function kembalikanKeAsli(id){
 }
 async function delReservation(id){
   const r=STATE.reservations.find(x=>x.id===id);
-  if(!confirm(`Hapus permanen reservasi "${r.name}"? Tindakan ini tercatat di audit log.`)) return;
+  /* Barisnya bisa sudah lenyap: dua orang membuka reservasi yang sama, yang
+     satu menghapusnya lebih dulu. Tanpa penjagaan ini yang kedua bertemu
+     "Cannot read properties of undefined" — galat yang tidak menyebutkan
+     apa pun tentang keadaan yang sebenarnya. */
+  if(!r){ toast("Reservasi itu sudah tidak ada — mungkin baru dihapus orang lain.","err"); return; }
+  /* Pesannya menyEBUT APA YANG IKUT HILANG, bukan cuma bertanya. DP yang sudah
+     masuk adalah uang yang sudah diterima kasir; menghapus reservasinya
+     menghapus catatan penerimaannya juga, dan itu tidak boleh baru disadari
+     sesudah ditekan Ya. */
+  const dp = dpTotal(r), gel = arrivalsOf(r).length;
+  if(!confirm(`Hapus permanen reservasi "${r.name}" (${fmtDateShort(r.date)}, meja ${r.table||"-"})?`
+    + (dp?`\n\n⚠ DP ${rpDot(dp)} yang sudah tercatat masuk IKUT TERHAPUS, termasuk bukti transfernya.`:"")
+    + (gel?`\n\n${gel} catatan kedatangan (${arrivedPax(r)} orang) ikut terhapus.`:"")
+    + `\n\nTidak bisa dikembalikan. Tindakan ini tercatat di audit log.`)) return;
   const backup=STATE.reservations.slice();
   STATE.reservations=STATE.reservations.filter(x=>x.id!==id);
-  logAudit("Hapus Reservasi",`${r.name} (${fmtDateShort(r.date)})`);
+  logAudit("Hapus Reservasi",`${r.name} (${fmtDateShort(r.date)})`+(dp?`, DP ${rpDot(dp)} ikut terhapus`:""));
   const ok=await commit("Menghapus dari database…");
   if(!ok){ STATE.reservations=backup; buildNav(); return; }
-  buildNav(); closeModal(); toast("Reservasi dihapus","err"); navigate(CURRENT_PAGE);
+  /* KEMBALI KE DASHBOARD kalau dihapus dari form Edit. navigate("input") akan
+     membuka ulang form untuk id yang barusan dihapus — formnya tergambar kosong
+     tanpa satu pun keterangan, dan yang melihatnya mengira penghapusannya gagal
+     atau datanya rusak. EDIT_ID ikut dibersihkan supaya tidak ada jalan lain
+     yang membangkitkannya lagi. */
+  const tujuan = (CURRENT_PAGE==="input") ? "dashboard" : CURRENT_PAGE;
+  EDIT_ID=null;
+  buildNav(); closeModal(); toast("Reservasi dihapus","err"); navigate(tujuan);
 }
 
 /* ======================================================================
