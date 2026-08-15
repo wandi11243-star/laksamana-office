@@ -284,6 +284,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kini() {  }
 
 
@@ -523,7 +551,15 @@ function modalResep() { cariResep(); qtySesuai(); per1(); infoPur(); }
 
 
 
-function modalMenu() { modalResep(); }
+function modalMenu() { modalResep(); muat(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -642,7 +678,21 @@ function resepTersaring() { urutkanDaftar(); }
 
 
 
-function setAktif() { kirim(); }
+
+
+
+
+
+function setAktif() {  }
+
+function jalan() { kirim(); konfirmasi(); }
+
+
+
+
+
+
+
 
 
 
@@ -738,6 +788,8 @@ function tabelResep() { resepTersaring(); thUrut(); modalMenu(); hargaJual(); ch
 
 
 
+
+
 function keHal() { render(); }
 function urutKolom() { render(); }
 
@@ -779,9 +831,35 @@ function bukaResep() { gambarEditor(); }
 
 
 
-function tutupModal() {  }
-function gambarEditor() { hitungBaris(); segarSub(); tandaCampur(); modalPratinjau(); tutupModal(); dlSatuanHtml(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
+function tutupModal() { KONFIRMASI(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+function konfirmasi() { tutupKonfirm(); konfirmYa(); }
+
+
+
+
+
+
+
+
+
+
+
+function tutupKonfirm() {  }
+function konfirmYa() { tutupKonfirm(); }
+function gambarEditor() { hitungBaris(); segarSub(); tandaCampur(); modalPratinjau(); tutupModal(); dlSatuanHtml(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
 
 
 
@@ -899,7 +977,7 @@ function modalPratinjau() { hitungBaris(); }
 
 
 
-function ringkasEditor() {  }
+function ringkasEditor() { hargaJual(); }
 
 
 
@@ -922,7 +1000,11 @@ function simpanResep() { kirim(); }
 
 
 
-function hapusResep() { dipakaiOleh(); kirim(); vendorOf(); }
+function hapusResep() { dipakaiOleh(); konfirmasi(); kirim(); vendorOf(); }
+
+
+
+
 
 
 
@@ -1264,7 +1346,7 @@ function segarPer1() {  }
 
 
 
-function simpanBahan() { kirim(); muatProduk(); pesan(); }
+function simpanBahan() { kirim(); muatProduk(); pesan(); konfirmasi(); }
 
 
 
@@ -1283,7 +1365,13 @@ function simpanBahan() { kirim(); muatProduk(); pesan(); }
 
 
 
-function hapusBahan() { dipakaiOleh(); kirim(); }
+
+
+
+function hapusBahan() { dipakaiOleh(); konfirmasi(); kirim(); }
+
+
+
 
 
 
@@ -1937,6 +2025,18 @@ function kirim() { setSync(); tutupModal(); pesan(); muatProduk(); }
 
 
 function muat() { petakan(); setSync(); tawarkanImpor(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

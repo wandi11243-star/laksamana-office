@@ -105,6 +105,22 @@ a{color:var(--info)}
 .chip.warn{background:var(--warn-bg);color:var(--warn)} .chip.info{background:var(--info-bg);color:var(--info)}
 .chip.mute{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
 .chip.violet{background:var(--violet-bg);color:var(--violet)} .chip.teal{background:var(--teal-bg);color:var(--teal)}
+/* SAKLAR AKTIF / NON-AKTIF (15 Agustus 2026, permintaan user).
+   Dulu tombol teks kecil "● aktif" yang bentuk & warnanya sama persis dengan
+   "Ubah" dan "PDF" di baris yang sama — keadaan sebuah resep harus DIBACA satu
+   per satu, padahal itu satu-satunya kolom yang dipindai sekilas saat menyisir
+   daftar 237 menu. Sekarang berupa saklar: posisi knop dan warnanya terbaca
+   tanpa membaca hurufnya. */
+.sw{display:inline-flex;align-items:center;gap:7px;border:1.5px solid var(--line);background:var(--paper);
+    border-radius:999px;padding:3px 11px 3px 3px;cursor:pointer;font:inherit;font-size:11.5px;
+    font-weight:700;color:var(--muted-2);transition:background .15s,border-color .15s,color .15s;white-space:nowrap}
+.sw .knop{width:30px;height:17px;border-radius:999px;background:var(--line);position:relative;flex:none;transition:background .15s}
+.sw .knop::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.28);transition:transform .15s}
+.sw.on{border-color:rgba(31,157,95,.35);background:var(--ok-bg);color:var(--ok)}
+.sw.on .knop{background:var(--ok)}
+.sw.on .knop::after{transform:translateX(13px)}
+.sw:hover{border-color:var(--gold-dim)}
 .notice{padding:11px 14px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:14px;display:flex;gap:9px}
 .notice.ok{background:var(--ok-bg);color:#146c42} .notice.bad{background:var(--danger-bg);color:#8f2718}
 .notice.info{background:var(--info-bg);color:#1a5a91} .notice.warn{background:var(--warn-bg);color:#7a5a10}
@@ -133,7 +149,14 @@ tbody tr:hover{background:var(--gold-soft)}
 .thurut.on{color:var(--gold-dim)}
 .thurut .ar{font-size:9px;margin-left:4px;opacity:.45}
 .thurut.on .ar{opacity:1}
-tr.mati td{opacity:.5}
+/* Baris non-aktif: dipudarkan DAN diberi garis kiri, bukan cuma dipudarkan.
+   Opasitas saja hilang begitu barisnya kebetulan tersorot atau layarnya terang,
+   dan saklar di ujung kanan tidak terlihat saat memindai kolom Nama.
+   Saklarnya sendiri dikecualikan dari pudar — justru itu yang harus terbaca
+   jelas, karena itu yang perlu ditekan untuk mengembalikannya. */
+tr.mati td{opacity:.55;background:var(--paper)}
+tr.mati td:first-child{box-shadow:inset 3px 0 0 var(--line)}
+tr.mati td .sw{opacity:1}
 .pager .ket{font-size:12px;color:var(--muted)}
 /* modal */
 .ovl{position:fixed;inset:0;background:rgba(30,25,15,.5);display:flex;align-items:flex-start;justify-content:center;padding:24px;z-index:80;overflow:auto}
@@ -241,6 +264,11 @@ tr.mati td{opacity:.5}
   </main>
 </div>
 <div id="modal"></div>
+<!-- WADAH KONFIRMASI TERPISAH dari #modal, dan itu bukan kerapian belaka:
+     tutupModal() menyetel ED=null, jadi konfirmasi yang menumpang wadah yang
+     sama akan menutup penyunting resep yang sedang terbuka begitu ditekan
+     Batal — perubahan yang sedang diketik ikut hilang. -->
+<div id="konfirm"></div>
 <div id="sheet"></div>
 
 <script>
@@ -528,7 +556,15 @@ function modalMenu(r){
   if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,campur:[],manual:true};
   return m;
 }
-function hargaJual(r){ return num(r.harga_baru)||num(r.harga_lama)||0; }
+/* HARGA JUAL LAMA DIHAPUS 15 Agustus 2026 (permintaan user). Yang tersisa satu
+   harga jual saja — `harga_baru`. Kolom lamanya tidak lagi dibaca di mana pun.
+
+   Nilai yang telanjur tersimpan TIDAK dibuang begitu saja: kalau dihapus mentah,
+   setiap menu yang harganya cuma pernah diisi di kotak "lama" mendadak jadi
+   "belum ada harga" dan COGS-nya hilang — puluhan baris berubah tanpa ada yang
+   menyentuhnya. Nilainya dipindahkan ke harga_baru saat data dimuat (lihat
+   muat()), jadi tidak ada satu pun menu yang kehilangan harganya. */
+function hargaJual(r){ return num(r.harga_baru)||0; }
 function cogsOf(r){ const h=hargaJual(r); if(h<=0) return null; return modalMenu(r).total/h; }
 function chipCogs(c,r){
   if(c===null) return '<span class="chip mute">belum ada harga</span>';
@@ -642,13 +678,27 @@ function resepTersaring(tipe){
   });
   return urutkanDaftar(l,tipe==='base'?'FBS':'F',AMB_RESEP,'nama');
 }
+/* SELALU BERTANYA sejak 15 Agustus 2026 (permintaan user), termasuk saat
+   mengaktifkan kembali. Sebelumnya cuma bertanya kalau resepnya dipakai resep
+   lain, jadi saklarnya berpindah dari satu klik yang tak sengaja — dan di
+   daftar 237 baris, satu resep yang mendadak lenyap dari layar tidak akan
+   dicari orang sampai ada yang menanyakan kenapa menunya hilang. */
 function setAktif(id,on){
   const r=S.resep.find(x=>x.id===id); if(!r) return;
-  if(!on){
-    const pakai=S.resep.filter(x=>x.id!==id&&(x.bahan||[]).some(b=>b&&b.ref==='resep'&&low(b.nama)===low(r.nama)));
-    if(pakai.length&&!confirm(`"${r.nama}" masih dipakai ${pakai.length} resep lain (${pakai.slice(0,3).map(x=>x.nama).join(', ')}${pakai.length>3?', …':''}).\n\nMenonaktifkan tidak menghapusnya — modal resep-resep itu tetap terhitung — tapi ia hilang dari daftar. Lanjut?`)) return;
+  const jalan=()=>kirim({action:'simpanResep',data:Object.assign({},r,{aktif:on?1:0})},
+                        on?'Resep diaktifkan.':'Resep dinonaktifkan.');
+  if(on){
+    konfirmasi({judul:'Aktifkan resep?', tombol:'Aktifkan', onYa:jalan,
+      pesan:`<b>${esc(r.nama)}</b> akan tampil lagi di daftar dan ikut dihitung di Dashboard HPP.`});
+    return;
   }
-  kirim({action:'simpanResep',data:Object.assign({},r,{aktif:on?1:0})},on?'Resep diaktifkan.':'Resep dinonaktifkan.');
+  const pakai=S.resep.filter(x=>x.id!==id&&(x.bahan||[]).some(b=>b&&b.ref==='resep'&&low(b.nama)===low(r.nama)));
+  konfirmasi({judul:'Nonaktifkan resep?', tombol:'Nonaktifkan', bahaya:true, onYa:jalan,
+    pesan:`<b>${esc(r.nama)}</b> akan hilang dari daftar dan tidak lagi ikut dihitung di Dashboard HPP.
+      Resepnya <b>tetap tersimpan</b> — bisa diaktifkan lagi lewat saringan “hanya yang aktif”.`
+      +(pakai.length?`<div class="notice warn" style="margin:12px 0 0">
+        <div>Masih dipakai <b>${pakai.length} resep lain</b>: ${esc(pakai.slice(0,5).map(x=>x.nama).join(', '))}${pakai.length>5?', …':''}.
+        Modal resep-resep itu tetap terhitung, jadi angkanya tidak berubah.</div></div>`:'')});
 }
 function viewResep(){
   const seksiSet=[...new Set(S.resep.map(r=>r.seksi).filter(Boolean))].sort();
@@ -714,7 +764,9 @@ function tabelResep(tipe,judul,sub,mana){
       <td class="num mono">${rp(m.total)}</td>
       <td class="num mono">${rp2(m.total/y)}</td>
       ${dish?`<td class="num mono">${hargaJual(r)?rp(hargaJual(r)):'—'}</td><td class="num">${chipCogs(cogsOf(r),r)}</td>`:''}
-      <td><button class="btn btn-ghost btn-xs" onclick="setAktif('${esc(r.id)}',${mati?1:0})" title="${mati?'Aktifkan kembali':'Nonaktifkan — resepnya tetap tersimpan, cuma hilang dari daftar'}">${mati?'○ non-aktif':'● aktif'}</button></td>
+      <td><button type="button" class="sw${mati?'':' on'}" role="switch" aria-checked="${mati?'false':'true'}"
+            onclick="setAktif('${esc(r.id)}',${mati?1:0})"
+            title="${mati?'Aktifkan kembali — akan ditanya dulu':'Nonaktifkan — resepnya tetap tersimpan, cuma hilang dari daftar'}"><span class="knop"></span>${mati?'Non-aktif':'Aktif'}</button></td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-xs" onclick="bukaResep('${esc(r.id)}')">Ubah</button>
         <button class="btn btn-ghost btn-xs" onclick="cetakResep('${esc(r.id)}',1)" title="Cetak / simpan PDF dengan harga modal">PDF</button>
@@ -776,10 +828,37 @@ function bukaResep(id){
   const r=S.resep.find(x=>x.id===id);
   ED=r?JSON.parse(JSON.stringify(r))
       :{id:'',nama:'',jenis:'food',tipe:'base',seksi:'',yield_qty:1,yield_unit:'Porsi',
-        harga_lama:0,harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0};
+        harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0};
   gambarEditor();
 }
 function tutupModal(){ ED=null; $('modal').innerHTML=''; }
+
+/* ---- KONFIRMASI (15 Agustus 2026, permintaan user) ----
+   Menggantikan confirm() bawaan peramban untuk tindakan yang tidak bisa
+   dibatalkan. Bukan sekadar soal tampilan: confirm() memulangkan teks polos
+   satu blok, jadi hal yang paling perlu dilihat — resep mana saja yang ikut
+   terdampak — tenggelam di tengah kalimat. Di sini ia bisa ditebalkan dan
+   didaftar.
+
+   Callback disimpan di variabel, bukan diselipkan ke onclick sebagai string:
+   nama resep bisa memuat petik dan tanda kutip, dan yang begitu akan memutus
+   atributnya diam-diam (baru ketahuan saat ada menu bernama "Ayam 'Spesial'"
+   yang tombol Ya-nya tidak berbuat apa-apa). */
+let KONFIRM_YA=null;
+function konfirmasi(o){
+  KONFIRM_YA=o.onYa||null;
+  const bahaya=!!o.bahaya;
+  $('konfirm').innerHTML=`<div class="ovl" style="z-index:90" onclick="if(event.target===this)tutupKonfirm()">
+    <div class="mdl" style="max-width:460px">
+      <div class="mdl-h"><div><h3>${esc(o.judul||'Konfirmasi')}</h3></div></div>
+      <div class="mdl-b" style="font-size:13.5px;line-height:1.55">${o.pesan||''}</div>
+      <div class="mdl-f">
+        <button class="btn btn-ghost btn-sm" onclick="tutupKonfirm()">Batal</button>
+        <button class="btn ${bahaya?'btn-danger':'btn-primary'} btn-sm" onclick="konfirmYa()">${esc(o.tombol||'Lanjut')}</button>
+      </div></div></div>`;
+}
+function tutupKonfirm(){ KONFIRM_YA=null; $('konfirm').innerHTML=''; }
+function konfirmYa(){ const f=KONFIRM_YA; tutupKonfirm(); if(f) f(); }
 function gambarEditor(){
   const r=ED;
   const opsiBahan=S.bahan.map(b=>`<option value="${esc(b.nama)}">`).join('');
@@ -838,9 +917,8 @@ function gambarEditor(){
         <div class="field"><label>Hasil (yield)</label><input type="number" step="any" value="${r.yield_qty}" oninput="ED.yield_qty=this.value;segarSub()"></div>
         <div class="field"><label>Satuan hasil</label><input value="${esc(r.yield_unit||'')}" placeholder="Porsi / Gr / Pcs" oninput="ED.yield_unit=this.value"></div>
       </div>
-      ${r.tipe==='dish'?`<div class="g3">
-        <div class="field"><label>Harga jual lama (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_lama)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_lama=v});segarSub()"></div>
-        <div class="field"><label>Harga jual baru (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
+      ${r.tipe==='dish'?`<div class="g2">
+        <div class="field"><label>Harga jual (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
         <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div></div>`:''}
       ${r.tipe==='base'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px">
         <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
@@ -900,7 +978,7 @@ function modalPratinjau(r){
   return {total:t,hilang,campur};
 }
 function ringkasEditor(m,r){
-  const y=num(r.yield_qty)||1, hj=num(r.harga_baru)||num(r.harga_lama)||0;
+  const y=num(r.yield_qty)||1, hj=hargaJual(r);
   const c=hj>0?m.total/hj:null;
   return `<div>Modal <b>${rp(m.total)}</b> · per ${esc(r.yield_unit||'unit')} <b>${rp2(m.total/y)}</b>`
     +(hj>0?` · harga jual ${rp(hj)} → COGS <b>${pct(c)}</b> ${c>AMBANG?'<span class="chip bad">di atas '+(AMBANG*100)+'%</span>':'<span class="chip ok">sehat</span>'}`:'')
@@ -925,9 +1003,13 @@ function simpanResep(){
 function hapusResep(id){
   const r=S.resep.find(x=>x.id===id); if(!r) return;
   const pakai=dipakaiOleh(r.nama).filter(x=>x.id!==id);
-  if(pakai.length && !confirm(`"${r.nama}" dipakai ${pakai.length} resep lain (${pakai.slice(0,3).map(x=>x.nama).join(', ')}…).\n\nModal resep-resep itu akan kehilangan komponen ini. Tetap hapus?`)) return;
-  if(!pakai.length && !confirm(`Hapus resep "${r.nama}"?`)) return;
-  kirim({action:'hapusResep',id:id},'Resep dihapus.');
+  konfirmasi({judul:'Hapus resep?', tombol:'Hapus permanen', bahaya:true,
+    onYa:()=>kirim({action:'hapusResep',id:id},'Resep dihapus.'),
+    pesan:`<b>${esc(r.nama)}</b> akan dihapus dan <b>tidak bisa dikembalikan</b>.
+      <div class="ket" style="font-size:12px;color:var(--muted);margin-top:8px">Kalau cuma ingin menyembunyikannya dari daftar, <b>nonaktifkan</b> saja — resepnya tetap tersimpan berikut riwayat modalnya.</div>`
+      +(pakai.length?`<div class="notice bad" style="margin:12px 0 0">
+        <div>Dipakai <b>${pakai.length} resep lain</b>: ${esc(pakai.slice(0,5).map(x=>x.nama).join(', '))}${pakai.length>5?', …':''}.
+        Modal resep-resep itu akan <b>kehilangan komponen ini</b> dan turun tanpa sebab yang terlihat di sana.</div></div>`:'')});
 }
 
 /* ====================== 2. BAHAN & HARGA ====================== */
@@ -1283,11 +1365,17 @@ function simpanBahan(){
     .catch(e=>{ pesan(`<div class="notice warn">⚠ Nama di purchasing TIDAK ikut berubah (${esc(e.message||'')}). Nama di HPP tetap disimpan — samakan manual di modul Purchasing.</div>`); })
     .then(()=>kirim({action:'simpanBahan',data:EB},'Bahan tersimpan, nama purchasing ikut disesuaikan.'));
 }
+// Ikut memakai konfirmasi() yang sama dengan Hapus resep: dua tombol hapus
+// dengan dua gaya bertanya membuat yang satu terasa lebih ringan daripada
+// yang lain, padahal keduanya sama-sama tidak bisa dibatalkan.
 function hapusBahan(nama){
-  const n=dipakaiOleh(nama).length;
-  if(n && !confirm(`"${nama}" dipakai ${n} resep. Modalnya akan kehilangan komponen ini. Tetap hapus?`)) return;
-  if(!n && !confirm(`Hapus bahan "${nama}"?`)) return;
-  kirim({action:'hapusBahan',nama:nama},'Bahan dihapus.');
+  const pakai=dipakaiOleh(nama);
+  konfirmasi({judul:'Hapus bahan?', tombol:'Hapus permanen', bahaya:true,
+    onYa:()=>kirim({action:'hapusBahan',nama:nama},'Bahan dihapus.'),
+    pesan:`<b>${esc(nama)}</b> akan dihapus dari daftar bahan dan <b>tidak bisa dikembalikan</b>.`
+      +(pakai.length?`<div class="notice bad" style="margin:12px 0 0">
+        <div>Dipakai <b>${pakai.length} resep</b>: ${esc(pakai.slice(0,5).map(x=>x.nama).join(', '))}${pakai.length>5?', …':''}.
+        Modal resep-resep itu akan <b>kehilangan komponen ini</b> dan turun tanpa sebab yang terlihat di sana.</div></div>`:'')});
 }
 
 /* ====================== SATU DAFTAR NAMA DENGAN PURCHASING ======================
@@ -1944,6 +2032,18 @@ function muat(){
       if(!j) throw new Error('balasan bukan JSON');
       if(j.status==='error') throw new Error(j.message);
       S={bahan:j.bahan||[],resep:j.resep||[]};
+      /* HARGA JUAL LAMA -> HARGA JUAL (15 Agustus 2026). Kotaknya sudah dihapus
+         dari layar, jadi menu yang harganya cuma pernah diisi di sana akan
+         terbaca "belum ada harga" dan kehilangan COGS-nya. Dipindahkan di sini,
+         bukan lewat migrasi SQL: hosting ini tidak menjalankan berkas migrasi
+         sendiri, dan migrasi yang harus diingat manusia adalah migrasi yang
+         sebagian server tidak pernah dapat.
+
+         Idempoten — sesudah harga_baru terisi, syaratnya tidak pernah benar
+         lagi. Yang tersimpan di kolom lama dibiarkan apa adanya; ia tidak
+         dibaca siapa pun dan menghapusnya butuh tulis ulang 365 baris untuk
+         sesuatu yang tidak terlihat dari mana pun. */
+      S.resep.forEach(r=>{ if(!num(r.harga_baru)&&num(r.harga_lama)) r.harga_baru=num(r.harga_lama); });
       if(j.setting) SET=Object.assign(SET,j.setting);
       petakan(); setSync('ok','✓ Tersambung');
       if(!S.resep.length&&!S.bahan.length) tawarkanImpor();
