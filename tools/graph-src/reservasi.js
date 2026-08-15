@@ -3424,7 +3424,17 @@ function renderInput() {  }
 
 
 
-function opt() { esc(); byId(); navigate(); onGuestNameInput(); checkPhoneHistory(); guestDirectory(); displayPhone(); datePickerHtml(); todayStr(); timePickerHtml(); checkBigEvent(); hintPaxDatang(); setSeatLayout(); setSeatLantai2(); checkConflict(); toggleDP(); rpDot(); fmtRupiahInput(); fileToData(); toggleMember(); saveReservation(); togglePIC(); tablesOf(); dayTypeLayout(); renderSeatMap(); }
+function opt() { esc(); byId(); navigate(); onGuestNameInput(); checkPhoneHistory(); guestDirectory(); displayPhone(); datePickerHtml(); todayStr(); timePickerHtml(); checkBigEvent(); hintPaxDatang(); setSeatLayout(); setSeatLantai2(); checkConflict(); toggleDP(); rpDot(); fmtRupiahInput(); fileToData(); toggleMember(); delReservation(); saveReservation(); togglePIC(); tablesOf(); dayTypeLayout(); renderSeatMap(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6376,7 +6386,27 @@ function kembalikanKeAsli() { mejaMasihKosong(); hideBusy(); closeModal(); tolak
 
 
 
-function delReservation() { logAudit(); fmtDateShort(); commit(); buildNav(); closeModal(); toast(); navigate(); }
+function delReservation() { toast(); dpTotal(); arrivalsOf(); fmtDateShort(); rpDot(); arrivedPax(); logAudit(); commit(); buildNav(); navigate(); closeModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
