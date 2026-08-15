@@ -1208,7 +1208,19 @@
                 <div id="prod-units-wrap">
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Satuan Bahan Ini (Boleh Lebih Dari 1)</label>
                     <div id="prod-units-container" class="grid grid-cols-3 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
-                    <span class="text-[10px] text-slate-400 mt-1 block">Kru hanya bisa memilih satuan yang dicentang. <b>Tidak dicentang sama sekali = semua satuan boleh</b> (perilaku lama, untuk bahan yang belum diatur).</span>
+                    <!-- SATUAN BUATAN SENDIRI (15 Agustus 2026). Sejak ukuran
+                         satuan diambil dari yang dicentang di sini, satuan yang
+                         tidak ada di daftar baku harus bisa masuk DARI SINI —
+                         kalau tidak, "Botol Besar" dan "Botol Kecil" mustahil
+                         didefinisikan, dan daftar baku cuma punya satu "Botol". -->
+                    <div class="flex items-center gap-2 mt-2">
+                        <input type="text" id="prod-unit-baru" placeholder="satuan sendiri, mis. Botol Besar"
+                               onkeydown="if(event.key==='Enter'){event.preventDefault();tambahSatuanSendiri();}"
+                               class="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        <button type="button" onclick="tambahSatuanSendiri()"
+                                class="shrink-0 px-3 py-2 rounded-xl text-xs font-bold bg-slate-900 text-white hover:bg-slate-700 transition-all">+ Satuan</button>
+                    </div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Kru hanya bisa memilih satuan yang dicentang. Ukuran tiap satuan diisi di bagian <b>Ukuran Satuan</b> di bawah.</span>
                 </div>
 
                 <!-- UKURAN SATUAN (15 Agustus 2026, permintaan user).
@@ -1226,21 +1238,18 @@
                      satuan sah barang ini, jadi ia langsung bisa dipilih di
                      form order. -->
                 <div id="prod-ukuran-wrap">
-                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Ukuran Satuan <span class="text-slate-400 font-semibold normal-case">(opsional)</span></label>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Ukuran Satuan <span class="text-rose-500 font-bold normal-case">(wajib)</span></label>
                     <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-3">
                         <div>
                             <label class="block text-[11px] font-bold text-slate-500 mb-1">Satuan terkecil</label>
-                            <input list="prod-satuan-opsi" id="prod-satuan-dasar" oninput="renderUkuranBaris()" placeholder="cth: ML, Gram, Pcs"
-                                   class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                            <span class="text-[10px] text-slate-400 mt-1 block">Satuan paling kecil yang dipakai barang ini. Semua ukuran di bawah dihitung terhadap satuan ini.</span>
+                            <select id="prod-satuan-dasar" onchange="pilihSatuanDasar(this.value)"
+                                    class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
+                            <span class="text-[10px] text-slate-400 mt-1 block">Dipilih dari satuan yang dicentang di atas. Semua ukuran di bawah dihitung terhadap satuan ini.</span>
                         </div>
                         <div id="prod-ukuran-baris" class="space-y-2"></div>
-                        <button type="button" onclick="tambahBarisUkuran()" id="prod-ukuran-tambah"
-                                class="text-[11px] font-bold text-indigo-600 hover:text-indigo-700">+ tambah ukuran satuan</button>
                     </div>
-                    <span class="text-[10px] text-slate-400 mt-1 block">Dipakai <b>Daily SO</b>, <b>HPP &amp; Resep</b>, dan <b>form order</b> untuk menyetarakan angka yang beda satuan. Dikosongkan = perilaku lama (beda satuan ditandai &quot;satuan campur&quot;, tidak dijumlah).</span>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Dipakai <b>Daily SO</b>, <b>HPP &amp; Resep</b>, dan <b>form order</b> untuk menyetarakan angka yang beda satuan. <b>Barisnya mengikuti satuan yang dicentang di atas</b> — tambah/hapus centangnya, daftar di sini ikut berubah.</span>
                 </div>
-                <datalist id="prod-satuan-opsi"></datalist>
 
                 <!-- KATEGORI: kelompok bahan untuk Daily SO (DRY ITEM, CHILLER,
                      FRESH, dst). Dipisah dari satuan karena menjawab pertanyaan
@@ -5346,8 +5355,18 @@
             return keys.some(k => p[k] && typeof p[k] === 'object' && 'satuan' in p[k]);
         }
 
+        /* Satuan buatan sendiri yang sedang ditawarkan sebagai centang — di luar
+           SATUAN_TERSEDIA. Dipegang di sini, bukan dibaca ulang dari DOM, supaya
+           satuan yang baru ditambahkan lalu dicentang-lepas tidak lenyap dari
+           daftar (dan ukurannya ikut hilang) hanya karena sempat tidak
+           tercentang saat bagian ini digambar ulang. */
+        let satuanSendiri = [];
+
         // Gambar centang satuan. `terpilih` = daftar satuan yang sudah tersimpan
-        // untuk bahan itu; kosong berarti belum diatur (semua satuan boleh).
+        // untuk bahan itu. Satuan di luar daftar baku ikut digambar: sejak ukuran
+        // satuan diambil dari yang dicentang di sini, satuan buatan sendiri harus
+        // punya centangnya — kalau tidak, "Botol Besar" yang sudah tersimpan akan
+        // hilang begitu barangnya dibuka lalu disimpan lagi.
         function renderUnitCheckboxes(terpilih) {
             const container = document.getElementById('prod-units-container');
             if (!container) return;
@@ -5360,13 +5379,39 @@
                 return;
             }
             container.className = "grid grid-cols-3 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50";
-            const dipakai = new Set((terpilih || []).map(s => String(s).trim()));
-            container.innerHTML = SATUAN_TERSEDIA.map(u => `
-                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded bg-white border border-slate-100">
-                    <input type="checkbox" name="prod-unit-check" value="${u}" ${dipakai.has(u) ? "checked" : ""}
+            const daftar = SATUAN_TERSEDIA.concat(satuanSendiri);
+            const dipakai = new Set((terpilih || []).map(s => String(s).trim().toLowerCase()));
+            container.innerHTML = daftar.map(u => {
+                const sendiri = !SATUAN_TERSEDIA.some(x => x.toLowerCase() === u.toLowerCase());
+                return `
+                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded bg-white border ${sendiri ? 'border-indigo-200' : 'border-slate-100'}">
+                    <input type="checkbox" name="prod-unit-check" value="${u}" ${dipakai.has(u.toLowerCase()) ? "checked" : ""}
+                           onchange="renderUkuranBaris()"
                            class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4">
-                    <span>${u}</span>
-                </label>`).join("");
+                    <span class="truncate" title="${u}">${u}</span>
+                </label>`;
+            }).join("");
+        }
+
+        /* Tambah satuan buatan sendiri, langsung tercentang: orang mengetiknya
+           justru karena barang ini memakainya. Yang sudah ada tidak digandakan —
+           cukup dicentang, karena "Botol" yang diketik ulang bukan satuan kedua. */
+        function tambahSatuanSendiri() {
+            const inp = document.getElementById('prod-unit-baru');
+            const nama = String(inp.value || '').trim();
+            if (!nama) return;
+            const semua = SATUAN_TERSEDIA.concat(satuanSendiri);
+            const ada = semua.find(x => x.toLowerCase() === nama.toLowerCase());
+            if (!ada) satuanSendiri.push(nama);
+            const pilih = satuanTercentang();
+            pilih.push(ada || nama);
+            renderUnitCheckboxes(pilih);
+            renderUkuranBaris();
+            inp.value = '';
+            inp.focus();
+        }
+        function satuanTercentang() {
+            return Array.from(document.querySelectorAll('input[name="prod-unit-check"]:checked')).map(cb => cb.value);
         }
 
         /* ====== AREA: DAFTAR, bukan satu nilai (15 Agustus 2026) ======
@@ -5451,79 +5496,117 @@
                                  .filter(r => r[0] && r[1] > 0);
         }
 
-        // Baris yang SEDANG digambar. Disimpan di sini, bukan dibaca ulang dari
-        // DOM tiap kali, supaya baris yang belum diisi tidak lenyap saat
-        // satuan terkecilnya diketik (yang memicu gambar ulang labelnya).
-        let ukuranBaris = [];
+        /* BARISNYA DITURUNKAN DARI CENTANG SATUAN (15 Agustus 2026, permintaan
+           user), bukan diketik ulang di sini. Dulu nama satuan diketik dua kali
+           — sekali sebagai centang, sekali sebagai baris ukuran — dan dua daftar
+           yang harus sama tapi diisi terpisah selalu berakhir berbeda: satuan
+           yang diukur tapi tidak dicentang tidak pernah bisa dipilih kru, dan
+           yang dicentang tapi tidak diukur diam-diam kembali jadi "satuan
+           campur" di Daily SO. Sekarang satu daftar, satu tempat mengisinya.
+
+           `ukuranNilai` bertahan saat centang berubah: melepas centang lalu
+           memasangnya lagi tidak boleh menghapus angka yang sudah diketik. Yang
+           menentukan apa yang TERSIMPAN tetap centangnya (lihat bacaUkuran). */
+        let ukuranNilai = {};     // {satuan huruf kecil: angka}
+        let ukuranDasar = '';     // satuan terkecil yang sedang dipilih
+
+        function pilihSatuanDasar(v) { ukuranDasar = String(v || '').trim(); renderUkuranBaris(); }
 
         function renderUkuranBaris() {
             const box = document.getElementById('prod-ukuran-baris');
-            const tombol = document.getElementById('prod-ukuran-tambah');
-            if (!box) return;
+            const selDasar = document.getElementById('prod-satuan-dasar');
+            if (!box || !selDasar) return;
             if (!serverDukungUkuran()) {
+                selDasar.innerHTML = '';
                 box.innerHTML = `<div class="text-[11px] font-bold text-amber-800 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-2.5">
                     ⚠️ Server belum mendukung ukuran satuan.<br>
                     <span class="font-semibold">Unggah ulang <code>stock-mysql/</code> (lib_stock_mysql.php + items.php) ke server dulu.</span>
                     Kalau dipaksa disimpan sekarang, ukurannya tidak akan tersimpan.</div>`;
-                if (tombol) tombol.classList.add('hidden');
                 return;
             }
-            if (tombol) tombol.classList.remove('hidden');
-            const dasar = document.getElementById('prod-satuan-dasar').value.trim();
-            if (!ukuranBaris.length) {
-                box.innerHTML = `<div class="text-[11px] text-slate-400 italic">Belum ada ukuran. ${dasar
-                    ? `Tambahkan mis. <b>Botol Besar = 750 ${dasar}</b>.`
-                    : 'Isi satuan terkecil dulu, baru ukurannya bisa dihitung terhadap apa.'}</div>`;
+            const dicentang = satuanTercentang();
+            if (!dicentang.length) {
+                selDasar.innerHTML = '<option value="">—</option>';
+                box.innerHTML = `<div class="text-[11px] text-amber-800 font-bold bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    Centang dulu <b>Satuan Bahan Ini</b> di atas — daftar ukuran di sini mengikuti satuan yang dicentang.</div>`;
                 return;
             }
-            box.innerHTML = ukuranBaris.map((r, i) => `
+            /* Satuan terkecil yang tersimpan dipertahankan selama masih
+               dicentang. Kalau tidak, membuka barang lalu menyimpannya bisa
+               memindahkan satuan terkecilnya ke pilihan pertama — dan satuan
+               terkecil yang bergeser mengubah SETIAP angka yang pernah dihitung
+               dari barang itu, tanpa satu pun layar menyebutkannya. */
+            if (!dicentang.some(u => u.toLowerCase() === ukuranDasar.toLowerCase())) ukuranDasar = '';
+            selDasar.innerHTML = `<option value="">— pilih satuan terkecil —</option>` +
+                dicentang.map(u => `<option value="${u}"${u.toLowerCase() === ukuranDasar.toLowerCase() ? ' selected' : ''}>${u}</option>`).join('');
+
+            const lain = dicentang.filter(u => u.toLowerCase() !== ukuranDasar.toLowerCase());
+            if (!ukuranDasar) {
+                box.innerHTML = `<div class="text-[11px] text-amber-800 font-bold bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    Pilih satuan terkecil dulu — ukuran di bawah dihitung terhadap satuan itu.</div>`;
+                return;
+            }
+            if (!lain.length) {
+                box.innerHTML = `<div class="text-[11px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 rounded-lg p-2.5">
+                    ✓ Barang ini cuma punya satu satuan (<b>${ukuranDasar}</b>), jadi tidak ada ukuran yang perlu diisi.</div>`;
+                return;
+            }
+            box.innerHTML = lain.map(u => {
+                const v = ukuranNilai[u.toLowerCase()];
+                return `
                 <div class="flex items-center gap-2">
-                    <input list="prod-satuan-opsi" value="${String(r[0]).replace(/"/g, '&quot;')}" placeholder="cth: Botol Besar"
-                           oninput="ukuranBaris[${i}][0]=this.value"
-                           class="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <span class="flex-1 min-w-0 truncate text-xs font-bold text-slate-700" title="${u}">1 ${u}</span>
                     <span class="text-xs font-bold text-slate-400 shrink-0">=</span>
-                    <input type="number" step="any" min="0" value="${r[1] || ''}" placeholder="750"
-                           oninput="ukuranBaris[${i}][1]=this.value"
-                           class="w-20 shrink-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                    <span class="text-xs font-bold text-slate-500 shrink-0 w-14 truncate">${dasar || '—'}</span>
-                    <button type="button" onclick="hapusBarisUkuran(${i})" title="Hapus baris"
-                            class="shrink-0 p-1 text-slate-400 hover:text-rose-600">✕</button>
-                </div>`).join('');
+                    <input type="number" step="any" min="0" value="${v > 0 ? v : ''}" placeholder="750"
+                           oninput="ukuranNilai['${u.toLowerCase().replace(/'/g, "\\'")}']=this.value"
+                           class="w-24 shrink-0 border ${v > 0 ? 'border-slate-200' : 'border-rose-300'} rounded-lg px-2.5 py-1.5 text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <span class="text-xs font-bold text-slate-500 shrink-0 w-16 truncate" title="${ukuranDasar}">${ukuranDasar}</span>
+                </div>`;
+            }).join('');
         }
-        function tambahBarisUkuran() { ukuranBaris.push(['', '']); renderUkuranBaris(); }
-        function hapusBarisUkuran(i) { ukuranBaris.splice(i, 1); renderUkuranBaris(); }
 
         // Isi ulang seluruh bagian ukuran dari sebuah produk (atau kosong).
+        // Dipanggil SESUDAH renderUnitCheckboxes: barisnya dibaca dari centang.
         function pasangUkuran(mapping) {
-            document.getElementById('prod-satuan-dasar').value = satuanDasarOf(mapping);
-            ukuranBaris = isiList(mapping).map(r => [r[0], r[1]]);
-            const dl = document.getElementById('prod-satuan-opsi');
-            if (dl) dl.innerHTML = SATUAN_TERSEDIA.map(u => `<option value="${u}">`).join('');
+            ukuranDasar = satuanDasarOf(mapping);
+            ukuranNilai = {};
+            isiList(mapping).forEach(r => { ukuranNilai[r[0].toLowerCase()] = r[1]; });
             renderUkuranBaris();
         }
 
-        /* Baca balik jadi {satuan: angka}, atau {pesan} kalau ada yang salah.
-           DITOLAK, tidak dibersihkan diam-diam — sama seperti "Dipack tapi isi
-           pack kosong": baris yang separuh terisi adalah pekerjaan yang belum
-           selesai, dan membuangnya tanpa bilang membuat orang mengira sudah. */
+        /* Baca balik jadi {satuanDasar, isi}, atau {pesan} kalau belum lengkap.
+           WAJIB sejak 15 Agustus 2026 (permintaan user): barang tanpa ukuran
+           adalah barang yang angkanya tetap tidak bisa dijumlahkan di Daily SO
+           maupun HPP, dan selama pengisiannya opsional ia tidak pernah terisi.
+
+           Yang diperiksa cuma satuan yang DICENTANG. Angka sisa milik satuan
+           yang centangnya sudah dilepas tidak ikut terkirim — kalau ikut, satuan
+           yang sengaja dibuang tetap hidup di basis data dan muncul lagi sebagai
+           pilihan di form order (server menambahkan satuan berukuran ke daftar
+           satuan sah). */
         function bacaUkuran() {
-            const dasar = document.getElementById('prod-satuan-dasar').value.trim();
-            const isi = {};
-            for (let i = 0; i < ukuranBaris.length; i++) {
-                const nama = String(ukuranBaris[i][0] || '').trim();
-                const n = parseFloat(ukuranBaris[i][1]);
-                if (!nama && !(n > 0)) continue;                 // baris kosong: memang belum diisi
-                if (!dasar) return { pesan: 'Isi satuan terkecil dulu — ukurannya dihitung terhadap satuan itu.' };
-                if (!nama) return { pesan: `Ada ukuran ${n} ${dasar} tanpa nama satuan.` };
-                if (!(n > 0)) return { pesan: `Isi berapa ${dasar} dalam 1 ${nama}.` };
-                if (nama.toLowerCase() === dasar.toLowerCase()) {
-                    return { pesan: `"${nama}" itu satuan terkecilnya sendiri — ukurannya selalu 1, tidak perlu diisi.` };
-                }
-                const kembar = Object.keys(isi).find(k => k.toLowerCase() === nama.toLowerCase());
-                if (kembar) return { pesan: `Satuan "${nama}" ditulis dua kali dengan ukuran berbeda.` };
-                isi[nama] = n;
+            // Barang CK murni: satuannya ditentukan blok Central Kitchen (satuan
+            // dasar + isi pack), bagian ini disembunyikan. Tidak ada yang perlu
+            // diwajibkan di sini — menuntutnya berarti menuntut isian yang
+            // layarnya sendiri tidak menampilkan.
+            const wrap = document.getElementById('prod-ukuran-wrap');
+            if (wrap && wrap.classList.contains('hidden')) return { satuanDasar: '', isi: {} };
+            if (!serverDukungUkuran()) return { satuanDasar: '', isi: {} };
+
+            const dicentang = satuanTercentang();
+            if (!dicentang.length) {
+                return { pesan: 'Centang dulu satuan bahan ini — ukurannya diambil dari satuan yang dicentang.' };
             }
-            return { satuanDasar: dasar, isi: isi };
+            if (!ukuranDasar) return { pesan: 'Pilih satuan terkecil bahan ini.' };
+            const isi = {};
+            for (let i = 0; i < dicentang.length; i++) {
+                const u = dicentang[i];
+                if (u.toLowerCase() === ukuranDasar.toLowerCase()) continue;   // selalu 1
+                const n = parseFloat(ukuranNilai[u.toLowerCase()]);
+                if (!(n > 0)) return { pesan: `Isi berapa ${ukuranDasar} dalam 1 ${u}.` };
+                isi[u] = n;
+            }
+            return { satuanDasar: ukuranDasar, isi: isi };
         }
 
         /* ====== SUMBER BARANG: vendor vs Central Kitchen ======
@@ -5555,6 +5638,13 @@
             document.getElementById('prod-vendor-wrap').classList.toggle('hidden', !dariVendor);
             document.getElementById('prod-backup-wrap').classList.toggle('hidden', !dariVendor);
             document.getElementById('prod-units-wrap').classList.toggle('hidden', !dariVendor);
+            /* Ukuran satuan ikut sembunyi untuk barang CK MURNI: satuannya sudah
+               ditentukan blok Central Kitchen (satuan dasar + isi pack), dan
+               bagian ini mengambil barisnya dari centang satuan yang di sana
+               memang tidak ada. Menampilkannya berarti menuntut isian yang
+               daftarnya selalu kosong. */
+            const ukWrap = document.getElementById('prod-ukuran-wrap');
+            if (ukWrap) ukWrap.classList.toggle('hidden', !dariVendor);
             document.getElementById('prod-carabeli-wrap').classList.toggle('hidden', !dariVendor);
 
             /* "Disimpan Di" cuma pertanyaan untuk barang CK MURNI. Barang
@@ -5988,6 +6078,7 @@
             cekGantiNamaProduk();   // bahan baru: tidak ada nama lama, peringatan harus tertutup
             populateVendorDropdowns();
             updateBackupCheckboxes();
+            satuanSendiri = [];            // bahan baru: belum ada satuan buatan sendiri
             renderUnitCheckboxes([]);      // bahan baru: belum ada satuan yang ditetapkan
             document.getElementById('prod-kategori').value = '';
             renderAreaCheckboxes([]);      // bahan baru: belum ada area -> Umum
@@ -6025,6 +6116,18 @@
             registeredBackups.forEach(vc => {
                 const cb = document.querySelector(`input[name="prod-backup-check"][value="${vc}"]`);
                 if (cb) cb.checked = true;
+            });
+            /* Satuan buatan sendiri yang sudah tersimpan disiapkan LEBIH DULU —
+               ia datang dari dua tempat (daftar satuan dan kunci ukuran) dan
+               keduanya harus ikut, kalau tidak satuan yang cuma punya ukuran
+               tidak akan punya centang lalu hilang saat Simpan berikutnya. */
+            satuanSendiri = [];
+            (mapping.satuan || []).concat(isiList(mapping).map(r => r[0])).forEach(u => {
+                const s = String(u || '').trim();
+                if (!s) return;
+                if (SATUAN_TERSEDIA.some(x => x.toLowerCase() === s.toLowerCase())) return;
+                if (satuanSendiri.some(x => x.toLowerCase() === s.toLowerCase())) return;
+                satuanSendiri.push(s);
             });
             renderUnitCheckboxes(mapping.satuan || []);
             document.getElementById('prod-kategori').value = mapping.kategori || '';
