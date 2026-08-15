@@ -1464,6 +1464,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -5348,7 +5357,17 @@ function serverDukungSatuan() {  }
 
 
 
-function renderUnitCheckboxes() { serverDukungSatuan(); }
+
+
+
+
+
+
+
+
+
+
+function renderUnitCheckboxes() { serverDukungSatuan(); renderUkuranBaris(); }
 
 
 
@@ -5366,6 +5385,32 @@ function renderUnitCheckboxes() { serverDukungSatuan(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+function tambahSatuanSendiri() { satuanTercentang(); renderUnitCheckboxes(); renderUkuranBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function satuanTercentang() {  }
 
 
 
@@ -5456,7 +5501,18 @@ function isiList() {  }
 
 
 
-function renderUkuranBaris() { serverDukungUkuran(); hapusBarisUkuran(); }
+
+
+
+
+
+
+
+
+
+function pilihSatuanDasar() { renderUkuranBaris(); }
+
+function renderUkuranBaris() { serverDukungUkuran(); satuanTercentang(); }
 
 
 
@@ -5490,8 +5546,25 @@ function renderUkuranBaris() { serverDukungUkuran(); hapusBarisUkuran(); }
 
 
 
-function tambahBarisUkuran() { renderUkuranBaris(); }
-function hapusBarisUkuran() { renderUkuranBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 function pasangUkuran() { satuanDasarOf(); isiList(); renderUkuranBaris(); }
@@ -5506,7 +5579,17 @@ function pasangUkuran() { satuanDasarOf(); isiList(); renderUkuranBaris(); }
 
 
 
-function bacaUkuran() {  }
+
+
+
+
+
+function bacaUkuran() { serverDukungUkuran(); satuanTercentang(); }
+
+
+
+
+
 
 
 
@@ -5540,6 +5623,13 @@ function bacaUkuran() {  }
 
 
 function setSumberProduk() { setLokasiCK(); syncSatuanDasarLabel(); }
+
+
+
+
+
+
+
 
 
 
@@ -6006,7 +6096,20 @@ function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns()
 
 
 
-function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); renderAreaCheckboxes(); areaList(); pasangUkuran(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); isiList(); renderUnitCheckboxes(); renderAreaCheckboxes(); areaList(); pasangUkuran(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
