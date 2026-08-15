@@ -666,7 +666,13 @@ function render() { modalMenu(); hargaJual(); cogsOf(); }
 
 
 
+
+
+
+
+
 function resepTersaring() { urutkanDaftar(); }
+
 
 
 
@@ -701,6 +707,13 @@ function jalan() { kirim(); konfirmasi(); }
 
 
 function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
+
+
+
+
+
+
 
 
 
@@ -859,7 +872,52 @@ function konfirmasi() { tutupKonfirm(); konfirmYa(); }
 
 function tutupKonfirm() {  }
 function konfirmYa() { tutupKonfirm(); }
-function gambarEditor() { hitungBaris(); segarSub(); tandaCampur(); modalPratinjau(); tutupModal(); dlSatuanHtml(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function saranSatuanBaris() { cariResep(); satuanPurchasing(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function dlSaranSatuan() { saranSatuanBaris(); }
+
+
+function judulSaranSatuan() { saranSatuanBaris(); }
+
+
+
+
+
+
+
+function gambarEditor() { hitungBaris(); segarSub(); dlSaranSatuan(); judulSaranSatuan(); tandaCampur(); modalPratinjau(); tutupModal(); dlSatuanHtml(); angkaKetik(); ringkasEditor(); hapusResep(); simpanResep(); }
+
+
+
+
+
+
+
 
 
 
@@ -987,7 +1045,19 @@ function ringkasEditor() { hargaJual(); }
 
 
 
-function segarSub() { hitungBaris(); tandaCampur(); ringkasEditor(); modalPratinjau(); }
+function segarSub() { hitungBaris(); tandaCampur(); gambarEditor(); dlSaranSatuan(); judulSaranSatuan(); ringkasEditor(); modalPratinjau(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

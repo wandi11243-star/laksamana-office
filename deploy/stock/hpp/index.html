@@ -648,11 +648,16 @@ function render(){
    hasil. Dicampur dalam satu daftar, kolom Harga jual & COGS kosong di separuh
    barisnya dan pengurutan menurut COGS jadi tidak ada artinya.
 
-   `aktifSaja` menyala secara bawaan: yang ingin dilihat cuma resep yang masih
-   dipakai. Resep lama tidak dihapus — ia cuma dinonaktifkan, karena
+   `aktif` = 'ya' (bawaan) | 'tidak' | '' (semua). SEBELUMNYA sebuah centang
+   "hanya yang aktif" — dan centang cuma punya dua keadaan, jadi keadaan ketiga
+   yang justru paling dicari mustahil diminta: MELIHAT yang non-aktif saja.
+   Untuk menemukan satu resep yang tak sengaja dimatikan, orang harus mencentang
+   lepas lalu menyisir 237 baris mencari yang pudar (permintaan user 15 Agustus
+   2026). Bawaannya tetap 'ya': yang ingin dilihat sehari-hari cuma resep yang
+   masih dipakai. Resep lama tidak dihapus — ia cuma dinonaktifkan, karena
    menghapusnya akan memutus rujukan di resep lain yang mungkin masih
    memakainya, dan riwayat modalnya ikut hilang. */
-let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktifSaja:true,tab:'dish'};
+let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktif:'ya',tab:'dish'};
 let FBS={hal:1,per:25,sortK:'nama',sortD:1};
 const AMB_RESEP={
   nama:r=>low(r.nama), jenis:r=>r.jenis, seksi:r=>low(r.seksi||''),
@@ -670,7 +675,8 @@ function resepTersaring(tipe){
   const q=low(F.q);
   const l=S.resep.filter(r=>{
     if(tipe&&r.tipe!==tipe) return false;
-    if(F.aktifSaja&&r.aktif===0) return false;
+    if(F.aktif==='ya'&&r.aktif===0) return false;
+    if(F.aktif==='tidak'&&r.aktif!==0) return false;
     if(F.jenis&&r.jenis!==F.jenis) return false;
     if(F.seksi&&r.seksi!==F.seksi) return false;
     if(q&&low(r.nama).indexOf(q)<0&&low(r.seksi||'').indexOf(q)<0) return false;
@@ -703,6 +709,7 @@ function setAktif(id,on){
 function viewResep(){
   const seksiSet=[...new Set(S.resep.map(r=>r.seksi).filter(Boolean))].sort();
   const nMati=S.resep.filter(r=>r.aktif===0).length;
+  const nAktif=S.resep.length-nMati;
   let h=`<div class="card"><div class="bar" style="margin-bottom:0">
       <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="cari(this,v=>{F.q=v;F.hal=1;FBS.hal=1})">
       <select onchange="F.jenis=this.value;F.hal=1;FBS.hal=1;render()">
@@ -712,9 +719,15 @@ function viewResep(){
       <select onchange="F.seksi=this.value;F.hal=1;FBS.hal=1;render()">
         <option value="">Semua seksi</option>
         ${seksiSet.map(s=>`<option value="${esc(s)}"${F.seksi===s?' selected':''}>${esc(s)}</option>`).join('')}</select>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)">
-        <input type="checkbox" ${F.aktifSaja?'checked':''} onchange="F.aktifSaja=this.checked;F.hal=1;FBS.hal=1;render()" style="accent-color:var(--gold)">
-        hanya yang aktif${nMati?` (${nMati} non-aktif)`:''}</label>
+      <!-- TIGA keadaan, bukan centang dua keadaan: yang paling sering dicari
+           justru "tampilkan yang non-aktif saja" — untuk menemukan resep yang
+           tak sengaja dimatikan tanpa menyisir seluruh daftar mencari baris
+           yang pudar. Jumlahnya ditulis di tiap pilihan supaya "ada berapa yang
+           mati" terjawab tanpa perlu memilihnya dulu. -->
+      <select onchange="F.aktif=this.value;F.hal=1;FBS.hal=1;render()" title="Saring menurut keadaan resep">
+        ${[['ya','● Aktif saja',nAktif],['tidak','○ Non-aktif saja',nMati],['','Aktif & non-aktif',nAktif+nMati]]
+          .map(o=>`<option value="${o[0]}"${F.aktif===o[0]?' selected':''}>${o[1]} (${o[2]})</option>`).join('')}
+      </select>
       <button class="btn btn-primary btn-sm" onclick="bukaResep('')">+ Resep Baru</button>
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF (+modal)</button>
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF (resep saja)</button>
@@ -859,6 +872,44 @@ function konfirmasi(o){
 }
 function tutupKonfirm(){ KONFIRM_YA=null; $('konfirm').innerHTML=''; }
 function konfirmYa(){ const f=KONFIRM_YA; tutupKonfirm(); if(f) f(); }
+/* ---- SARAN SATUAN SEBUAH BARIS RESEP (15 Agustus 2026, permintaan user) ----
+   Urutan sumbernya, dari yang paling tahu ke yang paling menebak:
+
+   1. baris bertipe RESEP  -> satuan hasil resep yang dirujuk. Base "Sirup Gula"
+      berhasil 100 ML, jadi satu-satunya satuan yang berarti untuk memakainya
+      adalah ML — menawarkan Rim di situ tidak pernah benar.
+   2. baris bertipe BAHAN  -> satuan yang DITETAPKAN purchasing untuk bahan itu
+      (satuanPurchasing sudah memuat satuan berukuran & satuan pack CK).
+   3. belum ada di purchasing -> satuan beli yang tercatat di HPP sendiri.
+   4. tidak dikenal sama sekali -> seluruh daftar baku, seperti dulu.
+
+   Kotaknya TETAP bisa diketik bebas: takaran dapur ("sdm", "secukupnya") tidak
+   pernah ada di daftar mana pun, dan menutup pilihannya akan membuat baris
+   seperti itu mustahil ditulis. Yang dipersempit cuma SARANNYA. */
+function saranSatuanBaris(b){
+  if(!b) return null;
+  if(b.ref==='resep'){
+    const sub=cariResep(b.nama, ED?ED.jenis:'');
+    const u=sub&&String(sub.yield_unit||'').trim();
+    return u?[u]:null;
+  }
+  const dari=satuanPurchasing(b.nama);
+  if(dari&&dari.length) return dari;
+  const it=PB[low(String(b.nama||''))];
+  const u=it&&String(it.satuan||'').trim();
+  return u?[u]:null;
+}
+function dlSaranSatuan(b){
+  return (saranSatuanBaris(b)||SATUAN_TERSEDIA).map(u=>`<option value="${esc(u)}">`).join('');
+}
+function judulSaranSatuan(b){
+  const s=saranSatuanBaris(b);
+  if(!s) return 'Bahan ini belum dikenal, jadi sarannya seluruh satuan baku. Boleh diketik bebas.';
+  return (b&&b.ref==='resep')
+    ? `Satuan hasil resep yang dirujuk: ${s.join(', ')}. Boleh diketik bebas.`
+    : `Satuan yang ditetapkan untuk bahan ini: ${s.join(', ')}. Boleh diketik bebas.`;
+}
+
 function gambarEditor(){
   const r=ED;
   const opsiBahan=S.bahan.map(b=>`<option value="${esc(b.nama)}">`).join('');
@@ -890,8 +941,15 @@ function gambarEditor(){
            di Bahan & Harga): takaran resep sering memakai satuan dapur yang tidak
            pernah dibeli — "sdm", "secukupnya" pada baris catatan. Yang diberikan
            di sini saran ketik + tanda ⚠ kalau satuannya tidak sebanding dengan
-           satuan harga bahannya. -->
-      <input list="dlSatuan" value="${esc(b.satuan||'')}" placeholder="satuan" oninput="ED.bahan[${i}].satuan=this.value;segarSub()">
+           satuan harga bahannya.
+
+           SARANNYA PER BARIS sejak 15 Agustus 2026 (permintaan user): diambil
+           dari satuan yang sudah ditetapkan untuk bahan ITU di Purchasing,
+           bukan seluruh 20 satuan baku. Daftar penuh berarti "Rim" dan "Ekor"
+           ikut ditawarkan untuk sirup — dan satuan yang tidak sebanding dengan
+           satuan harganya adalah persis yang membuat modalnya meleset. -->
+      <datalist id="dlSat${i}">${dlSaranSatuan(b)}</datalist>
+      <input list="dlSat${i}" value="${esc(b.satuan||'')}" placeholder="satuan" title="${esc(judulSaranSatuan(b))}" oninput="ED.bahan[${i}].satuan=this.value;segarSub()">
       <div class="sub" data-sub="${i}">${sub.ada?rp2(sub.nilai)+tandaCampur(sub,b):'<span style="color:var(--danger)">tak dikenal</span>'}</div>
       <button class="x" onclick="ED.bahan.splice(${i},1);gambarEditor()">✕</button></div>`;
   });
@@ -990,9 +1048,21 @@ function ringkasEditor(m,r){
 function segarSub(){
   if(!ED) return;
   document.querySelectorAll('[data-sub]').forEach(el=>{
-    const b=ED.bahan[+el.dataset.sub]; if(!b) return;
+    const i=+el.dataset.sub, b=ED.bahan[i]; if(!b) return;
     const s=hitungBaris(b,ED.jenis);
     el.innerHTML=s.ada?rp2(s.nilai)+tandaCampur(s,b):'<span style="color:var(--danger)">tak dikenal</span>';
+    /* Saran satuan ikut nama yang sedang diketik. Diperbarui DI SINI, bukan
+       lewat gambarEditor(): menggambar ulang barisnya membuat kotak yang sedang
+       diketik dibuat ulang, fokus lepas, dan huruf berikutnya mendarat entah di
+       mana — jebakan yang sudah dicatat di atas kotak nama. Mengganti isi
+       <datalist> tidak menyentuh fokus sama sekali. */
+    const dl=document.getElementById('dlSat'+i);
+    if(dl){
+      const baru=dlSaranSatuan(b);
+      if(dl.innerHTML!==baru) dl.innerHTML=baru;
+    }
+    const kotak=dl&&dl.nextElementSibling;
+    if(kotak&&kotak.tagName==='INPUT') kotak.title=judulSaranSatuan(b);
   });
   const box=$('ringkasEd'); if(box) box.innerHTML=ringkasEditor(modalPratinjau(ED),ED);
 }
