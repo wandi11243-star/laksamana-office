@@ -1082,13 +1082,14 @@ function hapusResep(id){
         Modal resep-resep itu akan <b>kehilangan komponen ini</b> dan turun tanpa sebab yang terlihat di sana.</div></div>`:'')});
 }
 
-/* ====================== 2. BAHAN & HARGA ====================== */
-let FB={q:'',hal:1,per:25,st:'',kembar:false};
+/* ====================== 2. BAHAN & HARGA ======================
+   `kembar` = '' (sembunyikan, bawaan) | 'semua' | 'hanya'. Lihat layarBahan. */
+let FB={q:'',hal:1,per:25,st:'',kembar:''};
 /* Saringan halaman Barang Floor. SENGAJA objek sendiri, bukan menumpang FB:
    kedua halaman dibaca bergantian saat merapikan master bahan, dan pencarian
    yang terbawa dari halaman sebelah membuat halaman baru terlihat kosong
    padahal isinya cuma tersaring. */
-let FF={q:'',hal:1,per:25,st:'',kembar:false};
+let FF={q:'',hal:1,per:25,st:'',kembar:''};
 
 /* ---- AREA: MILIK PURCHASING, DI SINI CUMA DIBACA ----
    Jalurnya persis vendorOf(): lewat nama kalau sudah sama, lewat pasangan lama
@@ -1146,15 +1147,34 @@ function layarBahan(floor){
      — penghitung modal mengambil sisi resep lebih dulu (lihat modalResep). */
   const namaResep={}; S.resep.forEach(r=>{ namaResep[low(r.nama)]=1; });
   const lingkup=S.bahan.filter(b=>isFloor(b)===floor);
-  const kembar=lingkup.filter(b=>namaResep[low(b.nama)]);
-  const kasar=lingkup.filter(b=>{
-    if(!st.kembar&&namaResep[low(b.nama)]) return false;
+  const adaResepnya=b=>!!namaResep[low(b.nama)];
+  const kembar=lingkup.filter(adaResepnya);
+  /* Saringan SELAIN kembar, dipisah jadi fungsi sendiri supaya bisa dipakai dua
+     kali: untuk menyusun daftarnya, DAN untuk menghitung berapa yang tersembunyi
+     DI DALAM pencarian yang sedang berjalan. Dulu angka "N disembunyikan"
+     dihitung dari seluruh daftar, jadi saat mencari "dimsum" ia tetap berbunyi
+     "102 disembunyikan (Acar Timun, Ad. Pancake, …)" — angka dan contoh yang
+     tidak ada hubungannya dengan yang sedang dicari, sehingga pertanyaan
+     "kenapa dimsum tidak muncul" justru tidak terjawab olehnya. */
+  const lolosSaringLain=b=>{
     /* Saringan keadaan purchasing (14 Agustus 2026, permintaan user). Dulu cuma
        centang "belum ada di purchasing saja" — sekarang keempat keadaannya bisa
        dipilih, termasuk "tidak perlu di purchasing" yang justru paling sering
        ingin ditinjau ulang. */
     if(st.st&&statusPur(b).k!==st.st) return false;
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
+  };
+  const kembarCocok=kembar.filter(lolosSaringLain);
+  const kasar=lingkup.filter(b=>{
+    /* TIGA keadaan sejak 15 Agustus 2026 (permintaan user), dulu centang dua
+       keadaan. Yang ketiga — "hanya yang bernama sama" — adalah DAFTAR KERJA
+       untuk merapikan nama bahan baku supaya tidak lagi bertabrakan dengan nama
+       resep. Tanpa itu, satu-satunya cara menemukan yang bertabrakan adalah
+       menampilkan semuanya lalu mencocokkan 102 nama dengan Daftar Resep
+       satu per satu. */
+    if(st.kembar==='hanya'){ if(!adaResepnya(b)) return false; }
+    else if(st.kembar!=='semua'){ if(adaResepnya(b)) return false; }
+    return lolosSaringLain(b);
   });
   const semua=urutkanDaftar(kasar,mana,{
     nama:b=>low(b.nama), vendor:b=>low(vendorOf(b)), qty:b=>num(b.qty_beli),
@@ -1178,12 +1198,33 @@ function layarBahan(floor){
            ['mandiri','⃠ Tidak perlu di purchasing'],['beda','⚠ Nama beda']]
           .map(o=>`<option value="${o[0]}"${st.st===o[0]?' selected':''}>${o[1]}${o[0]?' ('+lingkup.filter(b=>statusPur(b).k===o[0]).length+')':''}</option>`).join('')}
       </select>
-      ${kembar.length?`<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)" title="${kembar.length} nama juga terdaftar sebagai resep">
-        <input type="checkbox" ${st.kembar?'checked':''} onchange="${mana}.kembar=this.checked;${mana}.hal=1;render()" style="accent-color:var(--gold)"> tampilkan ${kembar.length} yang bernama sama dengan resep</label>`:''}
+      ${kembar.length?`<select onchange="${mana}.kembar=this.value;${mana}.hal=1;render()" title="${kembar.length} nama bahan juga terdaftar sebagai resep">
+        ${[['','Sembunyikan yang sama dengan resep',lingkup.length-kembar.length],
+           ['semua','Tampilkan semuanya',lingkup.length],
+           ['hanya','⚠ Hanya yang sama dengan resep',kembar.length]]
+          .map(o=>`<option value="${o[0]}"${st.kembar===o[0]?' selected':''}>${o[1]} (${o[2]})</option>`).join('')}
+      </select>`:''}
       ${floor?'':'<button class="btn btn-primary btn-sm" onclick="bukaBahan(\'\')">+ Bahan Baru</button>'}
     </div>
-    ${kembar.length&&!st.kembar?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
-      ${kembar.length} nama disembunyikan karena sudah ada di <b>Daftar Resep</b> (${esc(kembar.slice(0,4).map(b=>b.nama).join(', '))}${kembar.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.</div>`:''}
+    ${(function(){
+      if(!kembar.length) return '';
+      const ket=(isi)=>`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">${isi}</div>`;
+      /* Bunyinya ikut PENCARIAN yang sedang berjalan. Angka dari seluruh daftar
+         tidak menjawab pertanyaan yang sedang dipegang orang ("kenapa dimsum
+         tidak muncul") — ia malah menyebut nama-nama lain, dan yang membacanya
+         menyimpulkan bahwa barangnya memang tidak ada. */
+      const sebut=q?` yang cocok dengan “${esc(st.q)}”`:'';
+      if(st.kembar==='hanya'){
+        return ket(`Menampilkan <b>${semua.length}</b> nama${sebut} yang ada di <b>dua daftar sekaligus</b> — di sini sebagai bahan baku, dan di <b>Daftar Resep</b> sebagai resep.
+          Modalnya selalu diambil dari sisi resep, jadi harga yang diisi di sini tidak berpengaruh. Daftar ini untuk merapikannya: ganti nama bahan bakunya, atau hapus salah satu sisi.`);
+      }
+      if(st.kembar==='semua'){
+        return ket(`Menampilkan semuanya, termasuk <b>${kembarCocok.length}</b> nama${sebut} yang juga ada di <b>Daftar Resep</b>.`);
+      }
+      if(!kembarCocok.length) return '';
+      return ket(`<b>${kembarCocok.length} nama${sebut} disembunyikan</b> karena sudah ada di <b>Daftar Resep</b> (${esc(kembarCocok.slice(0,4).map(b=>b.nama).join(', '))}${kembarCocok.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.
+        <a href="#" onclick="${mana}.kembar='hanya';${mana}.hal=1;render();return false" style="color:var(--gold);font-weight:700">Tampilkan yang disembunyikan →</a>`);
+    })()}
     ${floor
       /* Tidak ada tombol "+ Barang Baru" di sini, dan itu disengaja. Yang
          menentukan sebuah barang berarea Floor adalah PURCHASING; barang yang
