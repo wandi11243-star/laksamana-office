@@ -32,7 +32,10 @@ try {
                                   $b->units ?? null, $b->kategori ?? null, $b->area ?? null,
                                   $b->caraBeli ?? null, $b->sumber ?? null,
                                   $b->packIsi ?? null, $b->packSatuan ?? null,
-                                  $b->diOutlet ?? null));
+                                  $b->diOutlet ?? null,
+                                  // satuanDasar/isi: ukuran satuan per barang,
+                                  // ikut aturan preserve-if-null yang sama.
+                                  $b->satuanDasar ?? null, $b->isi ?? null));
     }
     if ($a === 'deleteProduct') pur_json(pur_product_hapus($pdo, $b->productName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);

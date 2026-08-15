@@ -1860,7 +1860,7 @@
       const dasar = soUnit(nm);
       let nilai = qn;
       if (unit && dasar && String(unit).trim().toLowerCase() !== String(dasar).trim().toLowerCase()) {
-        const k = soKonversi(qn, unit, dasar);
+        const k = soKonversi(qn, unit, dasar, nm);
         if (k === null) SO_KELUAR_CAMPUR[nm] = true;   // tak sekeluarga → tandai
         else nilai = k;
       }
@@ -1923,11 +1923,68 @@
      -> angka bila kedua satuan SEKELUARGA. -> null bila tidak bisa (satuan
         diskrit seperti Pcs/Dus, atau beda keluarga berat vs volume) —
         pemanggil memutuskan: pakai apa adanya + beri tanda "satuan campur". */
-  function soKonversi(qty, dari, ke) {
+  function soKonvFam(qty, dari, ke) {
     const a = soUnitInfo(dari), b = soUnitInfo(ke);
     if (!a || !b) return null;              // ada yang diskrit
     if (a[0] !== b[0]) return null;         // beda keluarga (berat vs volume)
     return qty * a[1] / b[1];
+  }
+
+  /* ===== UKURAN SATUAN PER BARANG (15 Agustus 2026, permintaan user) =====
+     Yang selama ini kurang bukan rumusnya, melainkan datanya: "1 Dus berapa
+     Pcs" memang beda tiap barang, jadi konversi di atas benar ketika menolak
+     menebaknya. Sekarang jawabannya bisa diisi di Purchasing → Database &
+     Vendor (satuan terkecil + ukuran tiap satuan), dan yang sudah diisi tidak
+     lagi berakhir sebagai "satuan campur".
+
+     Barang yang BELUM diisi berperilaku persis seperti dulu — soDasar()
+     memulangkan '' dan seluruh jalur di bawah memulangkan null. Itu penting:
+     ratusan bahan belum diukur, dan menebak untuk mereka akan mengarang angka
+     yang terbaca seperti angka sungguhan. */
+  function soDasar(nama) {
+    const p = INFO_BAHAN && INFO_BAHAN[nama];
+    return String((p && p.satuanDasar) || '').trim();
+  }
+  function soIsi(nama) {
+    const p = INFO_BAHAN && INFO_BAHAN[nama];
+    const v = p && p.isi;
+    const out = {};
+    if (v && typeof v === 'object') Object.keys(v).forEach(k => {
+      const s = String(k).trim().toLowerCase(), n = Number(v[k]);
+      if (s && n > 0) out[s] = n;
+    });
+    return out;
+  }
+  // qty -> dinyatakan dalam satuan TERKECIL barang itu. null = tidak bisa.
+  function soKeDasar(qty, u, nama) {
+    const dasar = soDasar(nama); if (!dasar) return null;
+    const a = String(u || '').trim().toLowerCase();
+    if (a === dasar.toLowerCase()) return qty;
+    const isi = soIsi(nama);
+    if (isi[a] > 0) return qty * isi[a];
+    // Satuan yang tidak diukur tapi sekeluarga dengan satuan terkecil
+    // (Liter terhadap ML) tetap bisa lewat — rasionya universal.
+    return soKonvFam(qty, u, dasar);
+  }
+  function soDariDasar(qty, u, nama) {
+    const dasar = soDasar(nama); if (!dasar) return null;
+    const a = String(u || '').trim().toLowerCase();
+    if (a === dasar.toLowerCase()) return qty;
+    const isi = soIsi(nama);
+    if (isi[a] > 0) return qty / isi[a];
+    return soKonvFam(qty, dasar, u);
+  }
+  /* KELUARGA BAKU DIDAHULUKAN, baru tabel per barang. Kg↔Gram pasti dan tidak
+     bergantung pada data yang mungkin salah ketik; tabel per barang dipakai
+     justru untuk yang TIDAK punya rasio universal. Dibalik urutannya, satu
+     salah ketik "1 Kg = 100 Gram" pada satu barang akan menang atas fisika. */
+  function soKonversi(qty, dari, ke, nama) {
+    const f = soKonvFam(qty, dari, ke);
+    if (f !== null) return f;
+    if (!nama) return null;
+    const b = soKeDasar(qty, dari, nama);
+    if (b === null) return null;
+    return soDariDasar(b, ke, nama);
   }
 
   /* Stok tercatat SEBELUM tanggal terpilih untuk satu item, tim yang sama.
@@ -2971,6 +3028,21 @@
   function bariskan(nama, qty, unit) {
     const u = String(unit || '').trim();
     const q = Number(qty) || 0;
+    /* BARANG YANG SUDAH DIUKUR memakai satuan terkecilnya sendiri, dan itu
+       didahulukan — termasuk untuk satuan yang sekeluarga. Kalau tidak, satu
+       barang bisa pecah jadi dua baris rekap: "Botol Besar" jatuh ke
+       kelompok per-barang sementara "ML" jatuh ke kelompok keluarga volume,
+       padahal keduanya satuan yang sama-sama bisa disetarakan.
+       Aman dilakukan di sini karena rekapnya memang per bahan (lihat kunci di
+       rekapBaris) — satuan terkecil satu barang tidak pernah dijumlahkan
+       dengan satuan terkecil barang lain. */
+    if (soDasar(nama)) {
+      const c = soKeDasar(q, u, nama);
+      if (c !== null) {
+        const d = soDasar(nama);
+        return { qty: c, unit: d, kunciSat: 'item:' + d.toLowerCase() };
+      }
+    }
     const info = soUnitInfo(u);                  // [keluarga, faktor] | undefined
     if (!info) return { qty: q, unit: u, kunciSat: 'u:' + u.toLowerCase() };
     const keluarga = info[0];

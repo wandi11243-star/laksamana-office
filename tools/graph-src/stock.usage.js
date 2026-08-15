@@ -1923,7 +1923,64 @@ function soUnitInfo() {  }
 
 
 
-function soKonversi() { soUnitInfo(); }
+function soKonvFam() { soUnitInfo(); soDasar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soDasar() {  }
+
+
+
+function soIsi() {  }
+
+
+
+
+
+
+
+
+
+
+function soKeDasar() { soDasar(); soIsi(); soKonvFam(); }
+
+
+
+
+
+
+
+
+
+function soDariDasar() { soDasar(); soIsi(); soKonvFam(); }
+
+
+
+
+
+
+
+
+
+
+
+function soKonversi() { soKonvFam(); soKeDasar(); soDariDasar(); }
+
+
 
 
 
@@ -2968,7 +3025,22 @@ function renderWasteReport() { segAktif(); rekapBaris(); barisWaste(); totalPerS
 
 
 
-function bariskan() { soUnitInfo(); soUnit(); soKonversi(); }
+function bariskan() { soDasar(); soKeDasar(); soUnitInfo(); soUnit(); soKonversi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

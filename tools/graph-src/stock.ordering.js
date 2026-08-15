@@ -3005,7 +3005,51 @@ function satuanUntukItem() {  }
 
 
 
-function applyUnitOptions() { satuanUntukItem(); }
+
+
+
+
+
+
+
+function ukuranItem() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiSatuanItem() { satuanUntukItem(); ukuranItem(); }
+
+
+
+function tambah() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function applyUnitOptions() { satuanUntukItem(); opsiSatuanItem(); }
+
+
+
+
+
+
 
 
 
@@ -3255,7 +3299,7 @@ function buangDraf() { drafSemua(); drafTulis(); gambarBannerDraf(); showToast()
 
 
 
-function pulihkanDraf() { drafSemua(); drafAdaIsi(); }
+function pulihkanDraf() { drafSemua(); drafAdaIsi(); tambah(); }
 
 
 

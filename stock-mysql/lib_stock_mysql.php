@@ -687,6 +687,35 @@ function pur_area_normal($v) {
   return array_values($out);
 }
 
+/* UKURAN SATUAN — {namaSatuan: berapa satuanDasar dalam 1 satuan itu}.
+   Menjawab pertanyaan yang selama ini sengaja ditolak oleh konversi otomatis:
+   "1 Dus berapa Pcs", "1 Botol Besar berapa ML". Rasionya memang beda tiap
+   barang — tidak ada jawaban universal — jadi satu-satunya tempat yang benar
+   untuk menyimpannya adalah pada barangnya sendiri.
+
+   Angka <= 0 DIBUANG, bukan disimpan sebagai 0. Nol berarti "1 Botol = 0 ML",
+   dan konversi yang memakainya akan memulangkan 0 atau tak hingga — dua angka
+   yang tidak pernah terbaca sebagai kesalahan pengisian, cuma sebagai stok
+   atau modal yang aneh. Yang belum diisi lebih baik tidak ada sama sekali:
+   pemanggilnya sudah tahu cara memperlakukan "tidak bisa dikonversi". */
+function pur_isi_normal($v) {
+  if (is_string($v)) { $d = json_decode($v); if ($d !== null) $v = $d; }
+  if (is_object($v)) $v = (array)$v;
+  if (!is_array($v)) return (object)[];
+  $out = [];
+  foreach ($v as $sat => $n) {
+    $sat = trim((string)$sat);
+    if ($sat === '') continue;
+    $n = (float)$n;
+    if (!($n > 0)) continue;
+    // Kembar tanpa peduli besar-kecil huruf: "Botol" dan "botol" satu satuan.
+    $ada = false;
+    foreach ($out as $k => $_) if (strcasecmp($k, $sat) === 0) { $ada = true; break; }
+    if (!$ada) $out[$sat] = $n;
+  }
+  return (object)$out;
+}
+
 function pur_products_ambil($pdo) {
   $out = [];
   foreach ($pdo->query("SELECT `nama`, `data` FROM `products` ORDER BY `nama`")->fetchAll() as $r) {
@@ -709,6 +738,19 @@ function pur_products_ambil($pdo) {
     // saat dibaca, jadi tidak ada langkah migrasi — `area` memang ikut di dalam
     // blob `data`, bukan kolom tersendiri.
     $p->area = pur_area_normal($p->area ?? null);
+    /* satuanDasar + isi: satuan TERKECIL barang ini, dan berapa satuan terkecil
+       yang ada di dalam tiap satuan lain. '' / {} = belum diatur, dan itu berarti
+       perilaku lama persis: konversi antar satuan kemasan tetap ditolak.
+
+       SENGAJA TERPISAH dari packSatuan/packIsi milik Central Kitchen walau
+       artinya bertetangga. packSatuan adalah satuan penyimpanan SALDO CK dan
+       packIsi mengunci pengambilan per pack utuh — dua aturan yang hanya
+       berlaku di CK. Menggabungkannya berarti mengubah satuan pembelian sebuah
+       barang vendor bisa menggeser saldo CK barang lain yang kebetulan
+       sesatuan, dan itu tidak akan terlihat sampai stok opname berikutnya. */
+    if (!isset($p->satuanDasar) || !is_string($p->satuanDasar)) $p->satuanDasar = '';
+    $p->satuanDasar = trim($p->satuanDasar);
+    $p->isi = pur_isi_normal($p->isi ?? null);
     // sumber: '' = bahan vendor (perilaku lama), 'ck' = produksi Central
     // Kitchen. packIsi/packSatuan hanya berarti untuk yang 'ck'; dinormalkan
     // di sini supaya frontend tidak perlu memeriksa tipenya tiap pemakaian.
@@ -740,7 +782,12 @@ function pur_products_ambil($pdo) {
 
    packIsi + packSatuan = isi satu pack, mis. 1 Pack = 500 Gram. Itulah yang
    membuat "2 Pack" dan "1000 Gram" bisa dijumlah jadi satu saldo. */
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null) {
+/* $satuanDasar / $isi DITARUH DI EKOR daftar parameter, bukan di sebelah
+   $satuan yang secara makna paling dekat. Pemanggilnya positional (items.php,
+   hpp.php), jadi menyisipkan di tengah akan menggeser SETIAP argumen
+   sesudahnya — kategori terbaca sebagai area, packIsi sebagai diOutlet — tanpa
+   satu pun galat, karena semuanya sama-sama boleh null. */
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null, $satuanDasar = null, $isi = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -767,8 +814,11 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $packIsiLama = 0;
   $packSatuanLama = '';
   $diOutletLama = false;
+  $satuanDasarLama = '';
+  $isiLama = (object)[];
   if ($satuan === null || $kategori === null || $area === null || $caraBeli === null
-      || $sumber === null || $packIsi === null || $packSatuan === null || $diOutlet === null) {
+      || $sumber === null || $packIsi === null || $packSatuan === null || $diOutlet === null
+      || $satuanDasar === null || $isi === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -786,6 +836,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->packIsi)) $packIsiLama = (float)$lama->packIsi;
       if (is_object($lama) && isset($lama->packSatuan) && is_string($lama->packSatuan)) $packSatuanLama = $lama->packSatuan;
       if (is_object($lama) && isset($lama->diOutlet)) $diOutletLama = (bool)$lama->diOutlet;
+      if (is_object($lama) && isset($lama->satuanDasar) && is_string($lama->satuanDasar)) $satuanDasarLama = $lama->satuanDasar;
+      if (is_object($lama) && isset($lama->isi)) $isiLama = pur_isi_normal($lama->isi);
     }
   }
   if ($satuan === null)     $satuan = $satuanLama;
@@ -796,6 +848,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   if ($packIsi === null)    $packIsi = $packIsiLama;
   if ($packSatuan === null) $packSatuan = $packSatuanLama;
   if ($diOutlet === null)   $diOutlet = $diOutletLama;
+  if ($satuanDasar === null) $satuanDasar = $satuanDasarLama;
+  if ($isi === null)         $isi = $isiLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -873,10 +927,43 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
     foreach ($wajib as $w) if (!in_array($w, $satuan, true)) $satuan[] = $w;
   }
 
+  /* UKURAN SATUAN. Dibersihkan SESUDAH satuan CK dipaksa, supaya penambahan di
+     bawah bekerja pada daftar satuan yang final. */
+  $satuanDasar = trim((string)$satuanDasar);
+  $isi = pur_isi_normal($isi);
+  /* Satuan terkecil tidak boleh punya ukuran sendiri: "1 ML = 500 ML" adalah
+     pernyataan yang tidak punya arti, dan kalau lolos ia akan mengalikan setiap
+     konversi yang melewatinya. Nilainya dibuang, bukan ditolak — orang yang
+     mengetiknya jelas bermaksud "ini yang terkecil". */
+  if ($satuanDasar !== '') {
+    foreach ((array)$isi as $k => $_) if (strcasecmp($k, $satuanDasar) === 0) unset($isi->$k);
+  } else {
+    // Tanpa satuan terkecil, ukurannya tidak punya penyebut. Menyimpannya
+    // berarti menyimpan angka yang tak seorang pun bisa membacanya kembali.
+    $isi = (object)[];
+  }
+
+  /* Satuan yang PUNYA UKURAN ikut jadi satuan sah — kalau tidak, "Botol Besar"
+     yang sudah didefinisikan tetap tidak bisa dipilih di form order, dan
+     ukurannya jadi angka yang tersimpan tanpa satu pun jalan memakainya.
+
+     Daftar KOSONG tetap dibiarkan kosong, sama seperti aturan pack di atas:
+     kosong berarti "semua satuan boleh", dan mengisinya justru MEMPERSEMPIT
+     jadi beberapa saja tanpa admin pernah memintanya. */
+  if ($satuan) {
+    $tambah = array_keys((array)$isi);
+    if ($satuanDasar !== '') $tambah[] = $satuanDasar;
+    foreach ($tambah as $w) {
+      $ada = false;
+      foreach ($satuan as $s) if (strcasecmp($s, $w) === 0) { $ada = true; break; }
+      if (!$ada) $satuan[] = $w;
+    }
+  }
+
   $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan,
                   'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli,
                   'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan,
-                  'diOutlet' => $diOutlet];
+                  'diOutlet' => $diOutlet, 'satuanDasar' => $satuanDasar, 'isi' => $isi];
 
   $pdo->beginTransaction();
   try {

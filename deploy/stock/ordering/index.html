@@ -3000,6 +3000,44 @@
             return s.length ? s : null;
         }
 
+        /* ===== UKURAN SATUAN PER BARANG (15 Agustus 2026, permintaan user) =====
+           Purchasing bisa menetapkan satuan terkecil sebuah barang dan ukuran
+           tiap satuan lainnya ("1 Botol Besar = 750 ML"). Nama satuannya bebas,
+           jadi ia TIDAK ada di SATUAN_TERSEDIA — daftar baku cuma punya satu
+           "Botol". Tanpa dua fungsi di bawah, satuan yang sudah diukur tetap
+           tidak bisa dipilih saat memesan, dan ukurannya jadi angka yang
+           tersimpan tanpa satu pun jalan memakainya.
+
+           Server sudah menambahkan satuan berukuran ke daftar `satuan` — TAPI
+           hanya untuk barang yang daftarnya tidak kosong. Daftar kosong berarti
+           "semua satuan boleh", dan mengisinya justru mempersempit. Untuk
+           barang seperti itu, dari sinilah satuannya datang. */
+        function ukuranItem(nama){
+            const p = globalProductInfo && globalProductInfo[nama];
+            const dasar = String((p && p.satuanDasar) || '').trim();
+            const isi = {};
+            const v = p && p.isi;
+            if (v && typeof v === 'object') Object.keys(v).forEach(k => {
+                const s = String(k).trim(); if (s && Number(v[k]) > 0) isi[s] = Number(v[k]);
+            });
+            return { dasar: dasar, isi: isi };
+        }
+        // Daftar satuan yang boleh dipilih + label yang menyebut ukurannya.
+        // Ukurannya ditulis di option ("Botol Besar (750 ML)") karena di sinilah
+        // orang memutuskan; membukanya di modul lain berarti menebak.
+        function opsiSatuanItem(nama){
+            const izin = satuanUntukItem(nama);
+            const u = ukuranItem(nama);
+            const daftar = (izin || SATUAN_TERSEDIA).slice();
+            const tambah = (x) => { if (x && !daftar.some(y => y.toLowerCase() === x.toLowerCase())) daftar.push(x); };
+            if (u.dasar) tambah(u.dasar);
+            Object.keys(u.isi).forEach(tambah);
+            return daftar.map(s => {
+                const kunci = Object.keys(u.isi).find(k => k.toLowerCase() === s.toLowerCase());
+                return { v: s, t: kunci ? `${s} (${u.isi[kunci]} ${u.dasar})` : s };
+            });
+        }
+
         /* Susun ulang pilihan satuan satu baris mengikuti bahan yang dipilih.
            Nilai yang sedang terpilih dipertahankan bila masih sah; kalau tidak,
            jatuh ke satuan pertama yang diizinkan. Tanpa itu, mengganti bahan
@@ -3009,14 +3047,20 @@
             const sel = document.getElementById(`batch-row-unit-${rowId}`);
             const inp = document.getElementById(`batch-row-item-${rowId}`);
             if(!sel || !inp) return;
-            const izin = satuanUntukItem(inp.value.trim());
-            const daftar = izin || SATUAN_TERSEDIA;
+            const nama = inp.value.trim();
+            const izin = satuanUntukItem(nama);
+            const opsi = opsiSatuanItem(nama);
+            const daftar = opsi.map(o => o.v);
             const sebelum = sel.value;
-            sel.innerHTML = daftar.map(u => `<option value="${u}">${u}</option>`).join("");
+            sel.innerHTML = opsi.map(o => `<option value="${o.v}">${o.t}</option>`).join("");
             sel.value = daftar.includes(sebelum) ? sebelum : daftar[0];
             // Tanda visual bahwa pilihannya memang sengaja dipersempit, supaya
             // kru tidak mengira satuannya "hilang".
-            sel.title = izin ? `Satuan untuk bahan ini dibatasi: ${izin.join(", ")}` : "";
+            // Judulnya menyebut daftar YANG DIPAKAI, bukan `izin` mentah:
+            // satuan berukuran ikut masuk lewat opsiSatuanItem(), dan judul yang
+            // menyebutkan daftar lebih pendek daripada isi dropdown terbaca
+            // seperti pilihan yang bocor.
+            sel.title = izin ? `Satuan untuk bahan ini dibatasi: ${daftar.join(", ")}` : "";
             sel.classList.toggle('ring-1', !!izin);
             sel.classList.toggle('ring-indigo-200', !!izin);
         }
