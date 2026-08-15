@@ -195,6 +195,14 @@ tr.mati td{opacity:.5}
       <div class="nav-group">
         <div class="nav-label">Bahan</div>
         <a data-view="bahan"><span class="ico">🧂</span> Bahan &amp; Harga</a>
+        <!-- BARANG FLOOR punya halamannya sendiri (15 Agustus 2026, permintaan
+             user). Tisu, sedotan, cutlery, lilin meja memang dibeli dan
+             berharga — jadi ia tidak bisa sekadar dibuang dari modul ini — tapi
+             ia tidak pernah masuk resep. Dicampur di Bahan & Harga, ia menumpuk
+             di daftar yang justru dibaca untuk menjawab "modal menu ini dari
+             mana". Yang menentukan sebuah barang Floor atau bukan tetap
+             Purchasing (kolom Area); di sini cuma dibaca. -->
+        <a data-view="floor"><span class="ico">🧻</span> Barang Floor</a>
         <!-- Menu "Cocokkan Bahan" DIHAPUS 14 Agustus 2026 atas permintaan user.
              Konsepnya diganti: nama bahan di sini WAJIB sama persis dengan nama
              di basis purchasing, jadi tidak ada lagi yang perlu disandingkan —
@@ -476,6 +484,7 @@ const JUDUL={
   resep:['Daftar Resep','Semua resep base & menu jadi berikut modalnya'],
   dash :['Dashboard HPP','COGS, menu paling boros, dan bahan yang paling menggerakkan modal'],
   bahan:['Bahan & Harga','Harga beli tiap bahan — sumber semua angka modal di modul ini'],
+  floor:['Barang Floor','Barang berarea Floor di purchasing — dibeli & berharga, tapi tidak masuk resep'],
   pakai:['Pemakaian & Selisih','Stok awal, belanja, pemakaian, dan opname — selisihnya jadi lampu'],
   kalk :['Kalkulator HPP','Hitung modal & harga jual sebuah menu tanpa menyimpan apa pun'],
   atur :['Pengaturan','Target COGS, buffer, dan ambang lampu selisih']
@@ -527,7 +536,7 @@ function cari(el,setter){
 }
 function render(){
   $('pesan').innerHTML=PESAN;
-  $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,
+  $('view').innerHTML=({resep:viewResep,dash:viewDash,bahan:viewBahan,floor:viewFloor,
                         pakai:viewPakai,kalk:viewKalk,atur:viewAtur}[VIEW])();
 }
 
@@ -663,7 +672,7 @@ function tabelResep(tipe,judul,sub,mana){
 
    Angka diurut sebagai ANGKA, teks pakai localeCompare 'id'. Tanpa itu
    "Rp1.000.000" duduk sebelum "Rp90.000" karena dibaca sebagai teks. */
-const ST={F:()=>F,FB:()=>FB,FBS:()=>FBS,PK:()=>PK};
+const ST={F:()=>F,FB:()=>FB,FF:()=>FF,FBS:()=>FBS,PK:()=>PK};
 function keHal(mana,n){ ST[mana]().hal=n; render(); }
 function urutKolom(mana,k){
   const s=ST[mana]();
@@ -858,57 +867,107 @@ function hapusResep(id){
 
 /* ====================== 2. BAHAN & HARGA ====================== */
 let FB={q:'',hal:1,per:25,st:'',kembar:false};
-function viewBahan(){
-  const q=low(FB.q);
+/* Saringan halaman Barang Floor. SENGAJA objek sendiri, bukan menumpang FB:
+   kedua halaman dibaca bergantian saat merapikan master bahan, dan pencarian
+   yang terbawa dari halaman sebelah membuat halaman baru terlihat kosong
+   padahal isinya cuma tersaring. */
+let FF={q:'',hal:1,per:25,st:'',kembar:false};
+
+/* ---- AREA: MILIK PURCHASING, DI SINI CUMA DIBACA ----
+   Jalurnya persis vendorOf(): lewat nama kalau sudah sama, lewat pasangan lama
+   selama namanya belum disamakan. Tidak disalin ke hpp_bahan dengan alasan yang
+   sama pula — salinan area akan basi diam-diam begitu purchasing memindahkan
+   barangnya, dan tidak ada satu pun layar yang akan memberitahu. */
+function areaOf(b){
+  const p=PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
+  return p?String(p.area||'').trim():'';
+}
+/* Barang Floor — tisu, sedotan, cutlery, lilin meja — dipisah jadi halaman
+   sendiri (15 Agustus 2026, permintaan user). Ia dibeli dan berharga, jadi
+   tidak bisa sekadar dibuang dari modul ini, tapi ia tidak pernah masuk resep:
+   di daftar Bahan & Harga ia cuma menumpuk di antara barang yang justru dibaca
+   untuk menjawab "modal menu ini dari mana".
+
+   PRODUK KOSONG (purchasing tidak terbaca) berarti TIDAK ADA yang berpindah —
+   areaOf() memulangkan '' untuk semuanya, jadi Bahan & Harga tetap lengkap dan
+   halaman Floor yang kosong. Kebalikannya, menebak Floor saat basisnya tidak
+   terbaca, akan menyembunyikan bahan dari KEDUA halaman sekaligus. */
+const isFloor=b=>low(areaOf(b))==='floor';
+
+function viewBahan(){ return layarBahan(false); }
+function viewFloor(){ return layarBahan(true); }
+/* Satu mesin untuk dua halaman. Ditulis bersama, bukan disalin, karena dua
+   tabel bahan dengan dua penggambar sendiri berarti dua tempat yang bisa
+   menyimpang — dan yang menyimpang baru ketahuan saat ada yang membandingkan
+   angkanya. */
+function layarBahan(floor){
+  const st=floor?FF:FB, mana=floor?'FF':'FB', q=low(st.q);
   /* NAMA YANG SUDAH ADA DI DAFTAR RESEP DISEMBUNYIKAN dari sini (14 Agustus
      2026, permintaan user). Halaman ini isinya BAHAN BAKU RAW; barang yang
      dibuat sendiri hidup sebagai resep, dan memajangnya di dua tempat membuat
      orang mengubah harga di satu sisi lalu bingung kenapa modal tidak bergerak
      — penghitung modal mengambil sisi resep lebih dulu (lihat modalResep). */
   const namaResep={}; S.resep.forEach(r=>{ namaResep[low(r.nama)]=1; });
-  const kembar=S.bahan.filter(b=>namaResep[low(b.nama)]);
-  const kasar=S.bahan.filter(b=>{
-    if(!FB.kembar&&namaResep[low(b.nama)]) return false;
+  const lingkup=S.bahan.filter(b=>isFloor(b)===floor);
+  const kembar=lingkup.filter(b=>namaResep[low(b.nama)]);
+  const kasar=lingkup.filter(b=>{
+    if(!st.kembar&&namaResep[low(b.nama)]) return false;
     /* Saringan keadaan purchasing (14 Agustus 2026, permintaan user). Dulu cuma
        centang "belum ada di purchasing saja" — sekarang keempat keadaannya bisa
        dipilih, termasuk "tidak perlu di purchasing" yang justru paling sering
        ingin ditinjau ulang. */
-    if(FB.st&&statusPur(b).k!==FB.st) return false;
+    if(st.st&&statusPur(b).k!==st.st) return false;
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   });
-  const semua=urutkanDaftar(kasar,'FB',{
+  const semua=urutkanDaftar(kasar,mana,{
     nama:b=>low(b.nama), vendor:b=>low(vendorOf(b)), qty:b=>num(b.qty_beli),
     satuan:b=>low(b.satuan||''), harga:b=>num(b.harga_beli), per1:b=>per1(b),
     dipakai:b=>dipakaiOleh(b.nama).length
   },'nama');
-  const nHal=Math.max(1,Math.ceil(semua.length/FB.per));
-  if(FB.hal>nHal) FB.hal=nHal;
-  const hal=semua.slice((FB.hal-1)*FB.per,FB.hal*FB.per);
-  let h=spanduSamakan()+spanduTarik()+spanduBelumTerdaftar()+`<div class="card">
+  const nHal=Math.max(1,Math.ceil(semua.length/st.per));
+  if(st.hal>nHal) st.hal=nHal;
+  const hal=semua.slice((st.hal-1)*st.per,st.hal*st.per);
+  const nFloor=S.bahan.filter(isFloor).length;
+  /* Spanduk pekerjaan-tertinggal (samakan nama, tarik dari purchasing, belum
+     terdaftar) TETAP hanya di Bahan & Harga. Isinya urusan seluruh modul, bukan
+     halaman ini; dipasang di dua tempat, satu pekerjaan yang sama terbaca
+     sebagai dua tumpukan dan yang menyelesaikannya di sini akan mencarinya lagi
+     di sebelah. */
+  let h=(floor?'':spanduSamakan()+spanduTarik()+spanduBelumTerdaftar())+`<div class="card">
     <div class="bar">
-      <input type="search" id="qb" placeholder="Cari bahan atau vendor…" value="${esc(FB.q)}" oninput="cari(this,v=>{FB.q=v;FB.hal=1})">
-      <select onchange="FB.st=this.value;FB.hal=1;render()" title="Saring menurut keadaannya di purchasing">
+      <input type="search" id="${floor?'qf':'qb'}" placeholder="Cari ${floor?'barang':'bahan'} atau vendor…" value="${esc(st.q)}" oninput="cari(this,v=>{${mana}.q=v;${mana}.hal=1})">
+      <select onchange="${mana}.st=this.value;${mana}.hal=1;render()" title="Saring menurut keadaannya di purchasing">
         ${[['','Semua keadaan'],['ada','✓ Ada di purchasing'],['belum','• Belum di purchasing'],
            ['mandiri','⃠ Tidak perlu di purchasing'],['beda','⚠ Nama beda']]
-          .map(o=>`<option value="${o[0]}"${FB.st===o[0]?' selected':''}>${o[1]}${o[0]?' ('+S.bahan.filter(b=>statusPur(b).k===o[0]).length+')':''}</option>`).join('')}
+          .map(o=>`<option value="${o[0]}"${st.st===o[0]?' selected':''}>${o[1]}${o[0]?' ('+lingkup.filter(b=>statusPur(b).k===o[0]).length+')':''}</option>`).join('')}
       </select>
       ${kembar.length?`<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;color:var(--muted)" title="${kembar.length} nama juga terdaftar sebagai resep">
-        <input type="checkbox" ${FB.kembar?'checked':''} onchange="FB.kembar=this.checked;FB.hal=1;render()" style="accent-color:var(--gold)"> tampilkan ${kembar.length} yang bernama sama dengan resep</label>`:''}
-      <button class="btn btn-primary btn-sm" onclick="bukaBahan('')">+ Bahan Baru</button>
+        <input type="checkbox" ${st.kembar?'checked':''} onchange="${mana}.kembar=this.checked;${mana}.hal=1;render()" style="accent-color:var(--gold)"> tampilkan ${kembar.length} yang bernama sama dengan resep</label>`:''}
+      ${floor?'':'<button class="btn btn-primary btn-sm" onclick="bukaBahan(\'\')">+ Bahan Baru</button>'}
     </div>
-    ${kembar.length&&!FB.kembar?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
+    ${kembar.length&&!st.kembar?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
       ${kembar.length} nama disembunyikan karena sudah ada di <b>Daftar Resep</b> (${esc(kembar.slice(0,4).map(b=>b.nama).join(', '))}${kembar.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.</div>`:''}
+    ${floor
+      /* Tidak ada tombol "+ Barang Baru" di sini, dan itu disengaja. Yang
+         menentukan sebuah barang berarea Floor adalah PURCHASING; barang yang
+         dibuat dari layar ini akan didaftarkan ke sana tanpa area (lihat
+         simpanBahan di stock-mysql/hpp.php) lalu muncul di Bahan & Harga —
+         tombol yang selalu meleset dari halaman tempat ia ditekan. */
+      ? `<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
+          Isi halaman ini mengikuti kolom <b>Area = Floor</b> di <b>Purchasing → Database &amp; Vendor</b>. Untuk memindahkan barang ke sini atau mengeluarkannya, ubah areanya di sana — harga belinya tetap diisi dari halaman ini.</div>`
+      : (nFloor?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
+          ${nFloor} barang berarea Floor tidak ditampilkan di sini — ia punya halamannya sendiri di <b><a href="#" onclick="go('floor');return false" style="color:var(--gold)">Barang Floor</a></b>.</div>`:'')}
     <div class="tbl-wrap"><table><thead><tr>
-      ${thUrut('FB','nama','Bahan')}${thUrut('FB','vendor','Vendor')}
-      ${thUrut('FB','qty','Qty beli','num')}${thUrut('FB','satuan','Satuan')}
-      ${thUrut('FB','harga','Harga beli','num')}${thUrut('FB','per1','Harga / satuan','num')}
-      ${thUrut('FB','dipakai','Dipakai','num')}<th></th>
+      ${thUrut(mana,'nama',floor?'Barang':'Bahan')}${thUrut(mana,'vendor','Vendor')}
+      ${thUrut(mana,'qty','Qty beli','num')}${thUrut(mana,'satuan','Satuan')}
+      ${thUrut(mana,'harga','Harga beli','num')}${thUrut(mana,'per1','Harga / satuan','num')}
+      ${thUrut(mana,'dipakai','Dipakai','num')}<th></th>
     </tr></thead><tbody>`;
   hal.forEach(b=>{
-    const n=dipakaiOleh(b.nama).length, st=statusPur(b);
+    const n=dipakaiOleh(b.nama).length, sp=statusPur(b);
     h+=`<tr>
-      <td><b>${esc(b.nama)}</b>${st.k==='ada'?''
-        :` <span class="chip ${st.c}" title="${st.k==='beda'?'sudah punya pasangan di purchasing ('+esc(b.produk)+') — tinggal disamakan namanya':st.k==='mandiri'?'ditandai tidak dibeli lewat purchasing':'nama ini belum ada di basis bahan baku purchasing'}">${st.t}</span>`}</td>
+      <td><b>${esc(b.nama)}</b>${sp.k==='ada'?''
+        :` <span class="chip ${sp.c}" title="${sp.k==='beda'?'sudah punya pasangan di purchasing ('+esc(b.produk)+') — tinggal disamakan namanya':sp.k==='mandiri'?'ditandai tidak dibeli lewat purchasing':'nama ini belum ada di basis bahan baku purchasing'}">${sp.t}</span>`}</td>
       <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
       <td>${esc(b.satuan||'')}</td>
@@ -918,9 +977,13 @@ function viewBahan(){
         ? `<button class="btn btn-ghost btn-xs" onclick="lihatPakai('${esc(b.nama)}')" title="Lihat resep mana saja yang memakainya">${n} resep</button>`
         : '<span style="color:var(--muted-2)">0</span>'}</td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
-        ${st.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
+        ${sp.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
   });
-  h+=`</tbody></table></div>${pagerBar(semua.length,FB.hal,nHal,FB.per,'FB','bahan')}</div>`;
+  if(!hal.length) h+=`<tr><td colspan="8"><div class="empty">${floor
+    ? (nFloor?'Tidak ada barang Floor yang cocok dengan saringan ini.'
+             :'Belum ada barang berarea <b>Floor</b>. Tetapkan areanya di <b>Purchasing → Database &amp; Vendor</b>, lalu barangnya muncul di sini.')
+    : 'Tidak ada bahan yang cocok dengan saringan ini.'}</div></td></tr>`;
+  h+=`</tbody></table></div>${pagerBar(semua.length,st.hal,nHal,st.per,mana,floor?'barang':'bahan')}</div>`;
   return h;
 }
 let EB=null;
@@ -1226,8 +1289,14 @@ function spanduTarik(){
   const adaHpp={}; S.bahan.forEach(b=>{ adaHpp[b.nama]=1; });
   const kurang=nama.filter(n=>!adaHpp[n]);
   if(!kurang.length) return '';
+  /* "belum ada di modul ini", bukan "di sini": yang berarea Floor akan mendarat
+     di halaman Barang Floor, bukan di halaman tempat spanduk ini dibaca — dan
+     tombol yang menjanjikan N baris lalu memunculkan sebagiannya di tempat lain
+     terbaca seperti tarikan yang setengah gagal. */
+  const nFloorKurang=kurang.filter(n=>low(String((PRODUK[n]||{}).area||'').trim())==='floor').length;
   return `<div class="notice warn"><div>
-    <b>${kurang.length} bahan ada di Purchasing tapi belum ada di sini.</b>
+    <b>${kurang.length} bahan ada di Purchasing tapi belum ada di modul ini.</b>${
+      nFloorKurang?` ${nFloorKurang} di antaranya berarea Floor dan akan mendarat di halaman <b>Barang Floor</b>.`:''}
     Sejak sekarang bahan baru dari sana masuk sendiri — yang ini sisa yang sudah berdiri lebih dulu.
     Tarik sekali supaya kedua daftar benar-benar sama; harganya dibiarkan nol untuk diisi belakangan.
     <div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${kurang.slice(0,5).map(esc).join(' · ')}</div>
