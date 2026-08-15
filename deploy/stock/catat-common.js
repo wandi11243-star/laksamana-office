@@ -182,10 +182,35 @@ function satuanBahan(nama) {
   const s = p && Array.isArray(p.satuan) ? p.satuan.filter(Boolean) : [];
   return s.length ? s : null;
 }
+/* Satuan yang PUNYA UKURAN ikut ditawarkan (15 Agustus 2026). Purchasing bisa
+   menetapkan satuan terkecil sebuah barang berikut ukuran satuan lainnya, dan
+   namanya bebas — "Botol Besar" tidak ada di SATUAN_TERSEDIA, yang cuma punya
+   satu "Botol". Server sudah menambahkannya ke `satuan`, TAPI hanya untuk
+   barang yang daftarnya tidak kosong (kosong = semua satuan boleh, dan
+   mengisinya justru mempersempit). Untuk barang seperti itu, dari sinilah
+   satuannya datang. Ukurannya ikut ditulis di label karena di layar inilah
+   orang memilih — membukanya di modul lain berarti menebak. */
+function ukuranBahan(nama) {
+  const p = INFO_BAHAN && INFO_BAHAN[nama];
+  const isi = {};
+  const v = p && p.isi;
+  if (v && typeof v === 'object') Object.keys(v).forEach(k => {
+    const s = String(k).trim(); if (s && Number(v[k]) > 0) isi[s] = Number(v[k]);
+  });
+  return { dasar: String((p && p.satuanDasar) || '').trim(), isi: isi };
+}
 function opsiSatuan(nama, terpilih) {
-  const daftar = satuanBahan(nama) || SATUAN_TERSEDIA;
+  const u = ukuranBahan(nama);
+  const daftar = (satuanBahan(nama) || SATUAN_TERSEDIA).slice();
+  const tambah = x => { if (x && !daftar.some(y => y.toLowerCase() === x.toLowerCase())) daftar.push(x); };
+  if (u.dasar) tambah(u.dasar);
+  Object.keys(u.isi).forEach(tambah);
   const pakai = daftar.includes(terpilih) ? terpilih : daftar[0];
-  return daftar.map(u => `<option value="${esc(u)}"${u === pakai ? ' selected' : ''}>${esc(u)}</option>`).join('');
+  return daftar.map(x => {
+    const kunci = Object.keys(u.isi).find(k => k.toLowerCase() === x.toLowerCase());
+    const label = kunci ? `${x} (${u.isi[kunci]} ${u.dasar})` : x;
+    return `<option value="${esc(x)}"${x === pakai ? ' selected' : ''}>${esc(label)}</option>`;
+  }).join('');
 }
 
 /* Autocomplete nama bahan. Dipasang ke sebuah <input> + wadah hasil.

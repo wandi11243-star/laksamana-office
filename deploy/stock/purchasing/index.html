@@ -1211,6 +1211,37 @@
                     <span class="text-[10px] text-slate-400 mt-1 block">Kru hanya bisa memilih satuan yang dicentang. <b>Tidak dicentang sama sekali = semua satuan boleh</b> (perilaku lama, untuk bahan yang belum diatur).</span>
                 </div>
 
+                <!-- UKURAN SATUAN (15 Agustus 2026, permintaan user).
+                     "1 Dus = berapa Pcs" beda tiap barang — itu sebabnya
+                     konversi otomatis di Daily SO & HPP sengaja MENOLAK satuan
+                     kemasan dan cuma menandainya "satuan campur". Yang kurang
+                     bukan rumusnya, melainkan tempat menyimpan jawabannya. Di
+                     sinilah tempatnya, dan karena rasionya melekat pada barang,
+                     ia disimpan pada barang itu sendiri.
+
+                     Nama satuannya BEBAS DIKETIK, tidak dibatasi daftar baku:
+                     "Botol Besar" dan "Botol Kecil" adalah dua satuan berbeda
+                     untuk barang yang sama, dan daftar baku hanya punya satu
+                     "Botol". Satuan yang diberi ukuran otomatis ikut jadi
+                     satuan sah barang ini, jadi ia langsung bisa dipilih di
+                     form order. -->
+                <div id="prod-ukuran-wrap">
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Ukuran Satuan <span class="text-slate-400 font-semibold normal-case">(opsional)</span></label>
+                    <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 mb-1">Satuan terkecil</label>
+                            <input list="prod-satuan-opsi" id="prod-satuan-dasar" oninput="renderUkuranBaris()" placeholder="cth: ML, Gram, Pcs"
+                                   class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                            <span class="text-[10px] text-slate-400 mt-1 block">Satuan paling kecil yang dipakai barang ini. Semua ukuran di bawah dihitung terhadap satuan ini.</span>
+                        </div>
+                        <div id="prod-ukuran-baris" class="space-y-2"></div>
+                        <button type="button" onclick="tambahBarisUkuran()" id="prod-ukuran-tambah"
+                                class="text-[11px] font-bold text-indigo-600 hover:text-indigo-700">+ tambah ukuran satuan</button>
+                    </div>
+                    <span class="text-[10px] text-slate-400 mt-1 block">Dipakai <b>Daily SO</b>, <b>HPP &amp; Resep</b>, dan <b>form order</b> untuk menyetarakan angka yang beda satuan. Dikosongkan = perilaku lama (beda satuan ditandai &quot;satuan campur&quot;, tidak dijumlah).</span>
+                </div>
+                <datalist id="prod-satuan-opsi"></datalist>
+
                 <!-- KATEGORI: kelompok bahan untuk Daily SO (DRY ITEM, CHILLER,
                      FRESH, dst). Dipisah dari satuan karena menjawab pertanyaan
                      berbeda — bukan "dipesan per apa" melainkan "dihitung di rak
@@ -1252,16 +1283,20 @@
 
                          Nilainya disimpan apa adanya oleh server (tidak ada
                          daftar sah di pur_product_simpan), jadi tidak ada
-                         langkah migrasi untuk penambahan ini. -->
+                         langkah migrasi untuk penambahan ini.
+
+                         BOLEH LEBIH DARI SATU sejak 15 Agustus 2026 (permintaan
+                         user). Satu pilihan memaksa barang yang nyata-nyata
+                         dipegang dua tim — tisu di Floor dan di Bar, es batu di
+                         Bar dan di Kitchen — ditaruh di "Umum", dan Umum berarti
+                         SEMUA tim melihatnya, termasuk yang tidak pernah
+                         memegangnya. Jadi pilihan tunggal justru menghasilkan
+                         daftar hitung yang lebih kotor daripada tidak menyaring.
+                         Tidak ada yang dicentang = Umum, persis seperti dulu. -->
                     <div>
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Area</label>
-                        <select id="prod-area" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                          <option value="">Umum (semua area)</option>
-                          <option value="Bar">Bar</option>
-                          <option value="Kitchen">Kitchen</option>
-                          <option value="Floor">Floor</option>
-                        </select>
-                        <span class="text-[10px] text-slate-400 mt-1 block">Menyaring item di <b>Daily SO</b> per lokasi. Item <b>Floor</b> dipisahkan jadi kelompoknya sendiri di sana.</span>
+                        <div id="prod-area-container" class="grid grid-cols-3 gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50"></div>
+                        <span class="text-[10px] text-slate-400 mt-1 block">Menyaring item di <b>Daily SO</b> per lokasi — boleh dicentang lebih dari satu. <b>Tidak dicentang = Umum</b>, tampil di semua area. Item yang <b>Floor saja</b> dipisahkan jadi kelompoknya sendiri di sana.</span>
                     </div>
                     <!-- CARA BELI: online (dikirim) vs jemput sendiri. Dipakai
                          modul Ordering untuk menyusun daftar "Perlu Dijemput
@@ -3406,9 +3441,26 @@
                 // dan itu ditulis apa adanya ("semua") supaya bedanya dengan
                 // "sudah diatur, kebetulan satu satuan" tetap terlihat.
                 const satuanList = Array.isArray(mapping.satuan) ? mapping.satuan : [];
-                const badgesSatuan = satuanList.length
-                    ? satuanList.map(s => `<span class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 mr-1 mb-1">${s}</span>`).join("")
-                    : `<span class="text-[10px] text-slate-400 font-medium italic">semua satuan</span>`;
+                /* Satuan yang punya UKURAN diberi warna berbeda + ukurannya
+                   ditulis di bawah. Tanpa itu, satu-satunya cara mengetahui
+                   barang mana yang sudah diukur adalah membuka modal edit satu
+                   per satu — persis keadaan yang dibereskan 8 Agustus 2026
+                   untuk kategori & area. */
+                const dasarProd = satuanDasarOf(mapping);
+                const isiProd = {};
+                isiList(mapping).forEach(r => { isiProd[r[0].toLowerCase()] = r[1]; });
+                const badgesSatuan = (satuanList.length
+                    ? satuanList.map(s => {
+                        const n = isiProd[String(s).trim().toLowerCase()];
+                        const terkecil = dasarProd && String(s).trim().toLowerCase() === dasarProd.toLowerCase();
+                        const warna = n ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                 : terkecil ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                            : 'bg-indigo-50 text-indigo-700 border-indigo-100';
+                        return `<span class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${warna} mr-1 mb-1"
+                                      title="${n ? `1 ${s} = ${n} ${dasarProd}` : (terkecil ? 'satuan terkecil barang ini' : 'belum ada ukurannya')}">${s}${n ? ` ·&nbsp;${n}` : (terkecil ? ' ·&nbsp;terkecil' : '')}</span>`;
+                      }).join("")
+                    : `<span class="text-[10px] text-slate-400 font-medium italic">semua satuan</span>`)
+                    + (dasarProd ? `<div class="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">terkecil: ${dasarProd}</div>` : '');
 
                 /* Kolom pelengkap. Semua nilainya sudah ada di data sejak lama;
                    yang kurang cuma tempat menampilkannya. Kosong ditulis "—"
@@ -3423,7 +3475,13 @@
                                   : sumber === 'both' ? chip('🔁 Vendor &amp; CK', 'bg-violet-50 text-violet-700 border border-violet-200')
                                   : '';
                 const badgeKategori = mapping.kategori ? chip(mapping.kategori, 'bg-slate-100 text-slate-700 border border-slate-200') : kosong;
-                const badgeArea     = mapping.area     ? chip(mapping.area, 'bg-sky-50 text-sky-700 border border-sky-200') : kosong;
+                /* Area boleh lebih dari satu, jadi kolomnya jadi beberapa chip.
+                   Kosong tetap "—" = Umum: itu keadaan yang justru dicari saat
+                   merapikan master bahan, bukan sesuatu untuk disembunyikan. */
+                const daftarArea    = areaList(mapping);
+                const badgeArea     = daftarArea.length
+                    ? daftarArea.map(a => chip(a, 'bg-sky-50 text-sky-700 border border-sky-200')).join(' ')
+                    : kosong;
                 const badgeCaraBeli = mapping.caraBeli === 'jemput' ? chip('🛵 Jemput Sendiri', 'bg-amber-50 text-amber-800 border border-amber-200')
                                     : mapping.caraBeli === 'online' ? chip('🛒 Online', 'bg-indigo-50 text-indigo-700 border border-indigo-200')
                                     : kosong;
@@ -5311,6 +5369,163 @@
                 </label>`).join("");
         }
 
+        /* ====== AREA: DAFTAR, bukan satu nilai (15 Agustus 2026) ======
+           AREA_TERSEDIA adalah salinan daftar tim yang juga hidup sebagai
+           TIM_OPSI di stock/usage. Kode divisinya WAJIB sama persis di kedua
+           tempat: mengganti salah satu membuat item area itu lenyap dari daftar
+           hitung timnya tanpa satu pun galat, dan tidak ada layar yang
+           melaporkannya. */
+        const AREA_TERSEDIA = ['Bar', 'Kitchen', 'Floor'];
+
+        /* Membaca `area` dari sebuah produk, apa pun bentuk simpanannya.
+           TIGA bentuk benar-benar beredar dan semuanya harus terbaca:
+             - array              -> server yang sudah diperbarui
+             - 'Bar'              -> baris lama, sebelum area boleh banyak
+             - 'Bar,Floor'        -> server LAMA yang menerima kiriman baru
+           Yang ketiga bukan kemungkinan teoretis: kiriman sengaja berbentuk
+           teks dipisah koma supaya server yang belum ikut ter-deploy tetap
+           menyimpannya utuh (lihat pur_product_simpan). Tanpa cabang ini,
+           layar akan menampilkan satu area bernama "Bar,Floor". */
+        function areaList(mapping) {
+            const v = mapping ? mapping.area : null;
+            const l = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',') : []);
+            const out = [];
+            l.forEach(x => {
+                const a = String(x || '').trim();
+                if (a && !out.some(y => y.toLowerCase() === a.toLowerCase())) out.push(a);
+            });
+            return out;
+        }
+
+        // Gambar centang area. `terpilih` = daftar area yang sudah tersimpan;
+        // kosong berarti Umum — tampil di semua area, perilaku bawaan lama.
+        function renderAreaCheckboxes(terpilih) {
+            const container = document.getElementById('prod-area-container');
+            if (!container) return;
+            const dipakai = new Set((terpilih || []).map(s => String(s).trim().toLowerCase()));
+            /* Nilai tersimpan yang TIDAK ada di daftar (sisa ejaan lama, salah
+               ketik) tetap digambar, ditandai "(lama)". Kalau tidak, membuka
+               lalu menyimpan sebuah barang diam-diam membuang areanya — dan
+               area yang hilang tidak terlihat dari layar mana pun, ia cuma
+               membuat barangnya muncul di daftar hitung SEMUA tim. */
+            const asing = (terpilih || []).map(s => String(s).trim())
+                .filter(a => a && !AREA_TERSEDIA.some(x => x.toLowerCase() === a.toLowerCase()));
+            container.innerHTML = AREA_TERSEDIA.concat(asing).map(a => `
+                <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer p-1.5 hover:bg-slate-100 rounded bg-white border border-slate-100">
+                    <input type="checkbox" name="prod-area-check" value="${a}" ${dipakai.has(a.toLowerCase()) ? "checked" : ""}
+                           class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4">
+                    <span>${a}${AREA_TERSEDIA.some(x => x.toLowerCase() === a.toLowerCase()) ? '' : ' <i class="text-slate-400 not-italic">(lama)</i>'}</span>
+                </label>`).join("");
+        }
+
+        /* ====== UKURAN SATUAN PER BARANG (15 Agustus 2026) ======
+           `satuanDasar` = satuan terkecil, `isi` = {satuan: berapa satuanDasar
+           di dalamnya}. Rasionya memang beda tiap barang — "1 Dus = berapa Pcs"
+           tidak punya jawaban universal — jadi ia disimpan pada barangnya. */
+
+        /* Apakah SERVER sudah mengenal field ini? Sama persis alasannya dengan
+           serverDukungSatuan(): backend baru SELALU memulangkan kunci
+           `satuanDasar` (walau isinya ''), yang lama tidak pernah. Tanpa
+           pemeriksaan ini layar tetap menerima isian dan melaporkan "Berhasil
+           Disinkronkan" sementara backend lama membuang keduanya diam-diam —
+           staf bisa mengukur ratusan barang yang hilang semua tanpa satu pun
+           tanda. items.php meneruskannya sebagai argumen ke-14 & 15; server
+           lama yang belum punya parameter itu mengabaikannya begitu saja. */
+        function serverDukungUkuran() {
+            const p = appState.products || {};
+            const keys = Object.keys(p);
+            if (!keys.length) return true;      // belum ada produk: jangan menuduh
+            return keys.some(k => p[k] && typeof p[k] === 'object' && 'satuanDasar' in p[k]);
+        }
+
+        function satuanDasarOf(mapping) {
+            return String((mapping && mapping.satuanDasar) || '').trim();
+        }
+        /* {satuan: angka} -> [[satuan, angka]], hanya yang angkanya > 0.
+           Nol dibuang di sini juga, bukan cuma di server: baris "1 Botol = 0 ML"
+           yang sempat digambar akan ikut terkirim balik saat Simpan berikutnya. */
+        function isiList(mapping) {
+            const v = (mapping && mapping.isi) || null;
+            if (!v || typeof v !== 'object') return [];
+            return Object.keys(v).map(k => [String(k).trim(), Number(v[k])])
+                                 .filter(r => r[0] && r[1] > 0);
+        }
+
+        // Baris yang SEDANG digambar. Disimpan di sini, bukan dibaca ulang dari
+        // DOM tiap kali, supaya baris yang belum diisi tidak lenyap saat
+        // satuan terkecilnya diketik (yang memicu gambar ulang labelnya).
+        let ukuranBaris = [];
+
+        function renderUkuranBaris() {
+            const box = document.getElementById('prod-ukuran-baris');
+            const tombol = document.getElementById('prod-ukuran-tambah');
+            if (!box) return;
+            if (!serverDukungUkuran()) {
+                box.innerHTML = `<div class="text-[11px] font-bold text-amber-800 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    ⚠️ Server belum mendukung ukuran satuan.<br>
+                    <span class="font-semibold">Unggah ulang <code>stock-mysql/</code> (lib_stock_mysql.php + items.php) ke server dulu.</span>
+                    Kalau dipaksa disimpan sekarang, ukurannya tidak akan tersimpan.</div>`;
+                if (tombol) tombol.classList.add('hidden');
+                return;
+            }
+            if (tombol) tombol.classList.remove('hidden');
+            const dasar = document.getElementById('prod-satuan-dasar').value.trim();
+            if (!ukuranBaris.length) {
+                box.innerHTML = `<div class="text-[11px] text-slate-400 italic">Belum ada ukuran. ${dasar
+                    ? `Tambahkan mis. <b>Botol Besar = 750 ${dasar}</b>.`
+                    : 'Isi satuan terkecil dulu, baru ukurannya bisa dihitung terhadap apa.'}</div>`;
+                return;
+            }
+            box.innerHTML = ukuranBaris.map((r, i) => `
+                <div class="flex items-center gap-2">
+                    <input list="prod-satuan-opsi" value="${String(r[0]).replace(/"/g, '&quot;')}" placeholder="cth: Botol Besar"
+                           oninput="ukuranBaris[${i}][0]=this.value"
+                           class="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <span class="text-xs font-bold text-slate-400 shrink-0">=</span>
+                    <input type="number" step="any" min="0" value="${r[1] || ''}" placeholder="750"
+                           oninput="ukuranBaris[${i}][1]=this.value"
+                           class="w-20 shrink-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <span class="text-xs font-bold text-slate-500 shrink-0 w-14 truncate">${dasar || '—'}</span>
+                    <button type="button" onclick="hapusBarisUkuran(${i})" title="Hapus baris"
+                            class="shrink-0 p-1 text-slate-400 hover:text-rose-600">✕</button>
+                </div>`).join('');
+        }
+        function tambahBarisUkuran() { ukuranBaris.push(['', '']); renderUkuranBaris(); }
+        function hapusBarisUkuran(i) { ukuranBaris.splice(i, 1); renderUkuranBaris(); }
+
+        // Isi ulang seluruh bagian ukuran dari sebuah produk (atau kosong).
+        function pasangUkuran(mapping) {
+            document.getElementById('prod-satuan-dasar').value = satuanDasarOf(mapping);
+            ukuranBaris = isiList(mapping).map(r => [r[0], r[1]]);
+            const dl = document.getElementById('prod-satuan-opsi');
+            if (dl) dl.innerHTML = SATUAN_TERSEDIA.map(u => `<option value="${u}">`).join('');
+            renderUkuranBaris();
+        }
+
+        /* Baca balik jadi {satuan: angka}, atau {pesan} kalau ada yang salah.
+           DITOLAK, tidak dibersihkan diam-diam — sama seperti "Dipack tapi isi
+           pack kosong": baris yang separuh terisi adalah pekerjaan yang belum
+           selesai, dan membuangnya tanpa bilang membuat orang mengira sudah. */
+        function bacaUkuran() {
+            const dasar = document.getElementById('prod-satuan-dasar').value.trim();
+            const isi = {};
+            for (let i = 0; i < ukuranBaris.length; i++) {
+                const nama = String(ukuranBaris[i][0] || '').trim();
+                const n = parseFloat(ukuranBaris[i][1]);
+                if (!nama && !(n > 0)) continue;                 // baris kosong: memang belum diisi
+                if (!dasar) return { pesan: 'Isi satuan terkecil dulu — ukurannya dihitung terhadap satuan itu.' };
+                if (!nama) return { pesan: `Ada ukuran ${n} ${dasar} tanpa nama satuan.` };
+                if (!(n > 0)) return { pesan: `Isi berapa ${dasar} dalam 1 ${nama}.` };
+                if (nama.toLowerCase() === dasar.toLowerCase()) {
+                    return { pesan: `"${nama}" itu satuan terkecilnya sendiri — ukurannya selalu 1, tidak perlu diisi.` };
+                }
+                const kembar = Object.keys(isi).find(k => k.toLowerCase() === nama.toLowerCase());
+                if (kembar) return { pesan: `Satuan "${nama}" ditulis dua kali dengan ukuran berbeda.` };
+                isi[nama] = n;
+            }
+            return { satuanDasar: dasar, isi: isi };
+        }
+
         /* ====== SUMBER BARANG: vendor vs Central Kitchen ======
            Menyembunyikan field yang tidak berlaku, bukan sekadar mengabaikannya
            saat menyimpan. Vendor cadangan & cara beli untuk barang produksi
@@ -5433,8 +5648,21 @@
             // setelah sebelumnya dibatasi.
             const units = Array.from(document.querySelectorAll('input[name="prod-unit-check"]:checked')).map(cb => cb.value);
             const kategori = document.getElementById('prod-kategori').value.trim();
-            const area = document.getElementById('prod-area').value;
+            /* DIKIRIM SEBAGAI TEKS DIPISAH KOMA, bukan array — dan ini bukan
+               kemalasan. Server versi lama menyimpan area lewat
+               trim((string)$area): teks koma mendarat utuh dan bisa dibaca
+               kembali, sedangkan array akan tersimpan sebagai kata "Array" dan
+               area barang itu hilang tanpa satu pun galat. Deploy FTP di sini
+               sudah pernah mengunggah deploy/ dengan sukses tapi gagal di
+               stock-mysql/, jadi keadaan "frontend baru, server lama" bukan
+               kemungkinan teoretis. Kosong dikirim apa adanya = Umum. */
+            const area = Array.from(document.querySelectorAll('input[name="prod-area-check"]:checked')).map(cb => cb.value).join(',');
             const caraBeli = document.getElementById('prod-carabeli').value;
+            const ukuran = bacaUkuran();
+            if (ukuran.pesan) {
+                showToast("Ukuran Satuan Belum Lengkap", ukuran.pesan, "danger");
+                btn.innerHTML = originalHTML; btn.disabled = false; return;
+            }
             const editKey = document.getElementById('prod-edit-key').value;
             const sumber = document.getElementById('prod-sumber').value;
             const adaDiCKProd = (sumber === 'ck' || sumber === 'both');
@@ -5483,7 +5711,7 @@
             }
 
             try {
-                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet }, 'items');
+                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet, satuanDasar: ukuran.satuanDasar, isi: ukuran.isi }, 'items');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Aturan "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
                     catatLog(editKey ? "bahan_ubah" : "bahan_tambah",
@@ -5762,7 +5990,8 @@
             updateBackupCheckboxes();
             renderUnitCheckboxes([]);      // bahan baru: belum ada satuan yang ditetapkan
             document.getElementById('prod-kategori').value = '';
-            document.getElementById('prod-area').value = '';
+            renderAreaCheckboxes([]);      // bahan baru: belum ada area -> Umum
+            pasangUkuran(null);            // bahan baru: belum ada ukuran satuan
             document.getElementById('prod-carabeli').value = '';
             document.getElementById('prod-pack-isi').value = '';
             // setSumberProduk() dipanggil BELAKANGAN karena ia yang menyusun
@@ -5799,7 +6028,8 @@
             });
             renderUnitCheckboxes(mapping.satuan || []);
             document.getElementById('prod-kategori').value = mapping.kategori || '';
-            document.getElementById('prod-area').value = mapping.area || '';
+            renderAreaCheckboxes(areaList(mapping));
+            pasangUkuran(mapping);
             document.getElementById('prod-carabeli').value = mapping.caraBeli || '';
 
             // Urutannya penting: setSumberProduk() menyusun daftar satuan dasar

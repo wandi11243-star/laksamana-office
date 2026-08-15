@@ -348,7 +348,7 @@ const satFam=u=>SATUAN_FAM[String(u==null?'':u).trim().toLowerCase()];
    anggapan ini: "1 Kg" untuk bahan berharga per Ml — dulu terbaca 1, sekarang
    1.000. Kesalahan kepadatannya (minyak ±8%) jauh lebih kecil daripada
    kesalahan skala 1.000× yang sedang diperbaiki. */
-function konvSatuan(qty,dari,ke){
+function konvFam(qty,dari,ke){
   const a=satFam(dari), b=satFam(ke);
   if(!a||!b) return null;                       // ada yang kemasan / tak dikenal
   if(a[0]!==b[0]){
@@ -356,6 +356,71 @@ function konvSatuan(qty,dari,ke){
     if(!cair(a[0],b[0])&&!cair(b[0],a[0])) return null;   // hitungan vs takaran
   }
   return qty*a[1]/b[1];
+}
+/* ===== UKURAN SATUAN PER BARANG (15 Agustus 2026, permintaan user) =====
+   Yang selama ini kurang bukan rumus di atas, melainkan datanya: "1 Botol
+   berapa ML" memang beda tiap barang, jadi konvFam benar ketika menolak
+   menebaknya — dan bahan berharga per Botol yang ditakar per ML berakhir
+   sebagai baris ⚠ dengan modal yang meleset ratusan kali lipat.
+
+   Jawabannya sekarang ada di basis purchasing (Database & Vendor: satuan
+   terkecil + ukuran tiap satuan), dan dibaca dari sana — TIDAK disalin ke
+   hpp_bahan, alasan yang sama dengan vendor & area: salinan akan basi
+   diam-diam begitu purchasing mengoreksi ukurannya.
+
+   Bahan yang BELUM diukur berperilaku persis seperti dulu: purDasar()
+   memulangkan '' dan seluruh jalur ini memulangkan null. */
+/* Basis purchasing sebuah bahan HPP — lewat NAMA kalau sudah sama, lewat
+   pasangan lama selama namanya belum disamakan. Satu jalur untuk semuanya
+   (vendor, area, ukuran satuan): tiga penelusuran sendiri berarti tiga tempat
+   yang bisa menyimpang saat aturan pasangannya berubah. */
+function infoPur(b){
+  if(!b) return null;
+  return PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
+}
+function purDasar(p){ return String((p&&p.satuanDasar)||'').trim(); }
+/* DUA pembaca, sengaja: purIsi() berkunci huruf kecil untuk MENCARI (satuan
+   ditulis "Botol besar" di satu tempat dan "Botol Besar" di tempat lain), dan
+   purSatuanUkur() memulangkan ejaan ASLINYA untuk DITAMPILKAN. Satu peta
+   berhuruf kecil dipakai dua-duanya akan menaruh "botol besar" di dropdown. */
+function purIsi(p){
+  const v=p&&p.isi, out={};
+  if(v&&typeof v==='object') Object.keys(v).forEach(k=>{
+    const s=low(String(k).trim()), n=Number(v[k]); if(s&&n>0) out[s]=n; });
+  return out;
+}
+function purSatuanUkur(p){
+  const v=p&&p.isi, out=[];
+  if(v&&typeof v==='object') Object.keys(v).forEach(k=>{
+    const s=String(k).trim(); if(s&&Number(v[k])>0) out.push(s); });
+  return out;
+}
+function keDasarPur(qty,u,p){
+  const d=purDasar(p); if(!d) return null;
+  const a=low(String(u||'').trim());
+  if(a===low(d)) return qty;
+  const isi=purIsi(p); if(isi[a]>0) return qty*isi[a];
+  return konvFam(qty,u,d);      // Liter terhadap ML: rasionya universal
+}
+function dariDasarPur(qty,u,p){
+  const d=purDasar(p); if(!d) return null;
+  const a=low(String(u||'').trim());
+  if(a===low(d)) return qty;
+  const isi=purIsi(p); if(isi[a]>0) return qty/isi[a];
+  return konvFam(qty,d,u);
+}
+/* KELUARGA BAKU DIDAHULUKAN, baru tabel per barang. Kg↔Gram pasti dan tidak
+   bergantung pada data yang bisa salah ketik; tabel per barang justru untuk
+   yang TIDAK punya rasio universal. Dibalik urutannya, satu "1 Kg = 100 Gram"
+   yang salah ketik pada satu barang akan menang atas fisika — dan salahnya
+   muncul sebagai modal, bukan sebagai galat. */
+function konvSatuan(qty,dari,ke,pur){
+  const f=konvFam(qty,dari,ke);
+  if(f!==null) return f;
+  if(!pur) return null;
+  const b=keDasarPur(qty,dari,pur);
+  if(b===null) return null;
+  return dariDasarPur(b,ke,pur);
 }
 /* Qty sebuah baris resep, dinyatakan dalam satuan HARGA bahannya (atau satuan
    hasil resep yang dirujuk). Memulangkan {qty, campur}.
@@ -365,10 +430,10 @@ function konvSatuan(qty,dari,ke){
    menurunkan modal ratusan resep tanpa ada yang tahu — TAPI barisnya diberi
    tanda ⚠ supaya "1 Pcs telur" yang harganya per Gram terbaca sebagai
    pertanyaan, bukan sebagai modal Rp0,05. */
-function qtySesuai(qty,dari,ke){
+function qtySesuai(qty,dari,ke,pur){
   const d=String(dari||'').trim(), k=String(ke||'').trim();
   if(!d||!k||low(d)===low(k)) return {qty:qty,campur:false};
-  const c=konvSatuan(qty,d,k);
+  const c=konvSatuan(qty,d,k,pur);
   if(c===null) return {qty:qty,campur:true};
   return {qty:c,campur:false};
 }
@@ -446,7 +511,7 @@ function modalResep(r,jalur){
       /* per1(it) itu harga per SATUAN BELI bahan. Kalau barisnya menakar
          dengan satuan lain (beli per Kg, takar per Gram) harus dikonversi
          dulu — inilah tempat modal 1.000× dulu terbentuk. */
-      const q=qtySesuai(num(b.qty),b.satuan,it.satuan);
+      const q=qtySesuai(num(b.qty),b.satuan,it.satuan,infoPur(it));
       if(q.campur) campur.push(b.nama);
       total+=per1(it)*q.qty;
     }
@@ -817,7 +882,7 @@ function hitungBaris(b,jenis){
   }
   const it=PB[low(b.nama)];
   if(!it) return {ada:false,nilai:0,campur:false,sat:''};
-  const q=qtySesuai(num(b.qty),b.satuan,it.satuan);
+  const q=qtySesuai(num(b.qty),b.satuan,it.satuan,infoPur(it));
   return {ada:true,nilai:per1(it)*q.qty,campur:q.campur,sat:it.satuan||''};
 }
 /* Tanda ⚠ untuk baris yang satuannya tidak sebanding. Judulnya menyebut KEDUA
@@ -878,9 +943,21 @@ let FF={q:'',hal:1,per:25,st:'',kembar:false};
    selama namanya belum disamakan. Tidak disalin ke hpp_bahan dengan alasan yang
    sama pula — salinan area akan basi diam-diam begitu purchasing memindahkan
    barangnya, dan tidak ada satu pun layar yang akan memberitahu. */
+/* DAFTAR area, bukan satu nilai (15 Agustus 2026): satu barang boleh dipegang
+   dua tim. TIGA bentuk simpanan harus terbaca, dan ketiganya beredar di data:
+     - array          -> server yang sudah diperbarui
+     - 'Bar'          -> baris lama, sebelum area boleh banyak
+     - 'Bar,Floor'    -> server LAMA yang menerima kiriman baru; purchasing
+                         sengaja mengirim teks koma supaya server yang belum
+                         ikut ter-deploy tidak menyimpan kata "Array" */
 function areaOf(b){
-  const p=PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
-  return p?String(p.area||'').trim():'';
+  const p=infoPur(b);
+  const v=p?p.area:null;
+  const l=Array.isArray(v)?v:(typeof v==='string'?v.split(','):[]);
+  const out=[];
+  l.forEach(x=>{ const a=String(x||'').trim();
+    if(a&&!out.some(y=>low(y)===low(a))) out.push(a); });
+  return out;
 }
 /* Barang Floor — tisu, sedotan, cutlery, lilin meja — dipisah jadi halaman
    sendiri (15 Agustus 2026, permintaan user). Ia dibeli dan berharga, jadi
@@ -889,10 +966,18 @@ function areaOf(b){
    untuk menjawab "modal menu ini dari mana".
 
    PRODUK KOSONG (purchasing tidak terbaca) berarti TIDAK ADA yang berpindah —
-   areaOf() memulangkan '' untuk semuanya, jadi Bahan & Harga tetap lengkap dan
+   areaOf() memulangkan [] untuk semuanya, jadi Bahan & Harga tetap lengkap dan
    halaman Floor yang kosong. Kebalikannya, menebak Floor saat basisnya tidak
-   terbaca, akan menyembunyikan bahan dari KEDUA halaman sekaligus. */
-const isFloor=b=>low(areaOf(b))==='floor';
+   terbaca, akan menyembunyikan bahan dari KEDUA halaman sekaligus.
+
+   FLOOR SAJA, bukan "termasuk Floor" (15 Agustus 2026, sejak area boleh
+   banyak). Barang berarea Floor+Kitchen memang dipegang dapur juga dan bisa
+   betul-betul masuk resep — mengeluarkannya dari Bahan & Harga berarti
+   menyembunyikan bahan resep dari daftar harga yang jadi sumber seluruh angka
+   modal di modul ini. Patokan yang sama dipakai pengelompokan Daily SO
+   (soFloorMurni di stock/usage), supaya satu barang tidak digolongkan berbeda
+   di dua modul. */
+const isFloor=b=>{ const a=areaOf(b); return a.length===1&&low(a[0])==='floor'; };
 
 function viewBahan(){ return layarBahan(false); }
 function viewFloor(){ return layarBahan(true); }
@@ -954,9 +1039,9 @@ function layarBahan(floor){
          simpanBahan di stock-mysql/hpp.php) lalu muncul di Bahan & Harga —
          tombol yang selalu meleset dari halaman tempat ia ditekan. */
       ? `<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
-          Isi halaman ini mengikuti kolom <b>Area = Floor</b> di <b>Purchasing → Database &amp; Vendor</b>. Untuk memindahkan barang ke sini atau mengeluarkannya, ubah areanya di sana — harga belinya tetap diisi dari halaman ini.</div>`
+          Isi halaman ini mengikuti kolom <b>Area</b> di <b>Purchasing → Database &amp; Vendor</b>: yang masuk sini adalah barang berarea <b>Floor saja</b>. Yang juga bercentang Bar atau Kitchen tetap di Bahan &amp; Harga — ia memang bisa masuk resep. Untuk memindahkan barang, ubah areanya di sana; harga belinya tetap diisi dari halaman ini.</div>`
       : (nFloor?`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">
-          ${nFloor} barang berarea Floor tidak ditampilkan di sini — ia punya halamannya sendiri di <b><a href="#" onclick="go('floor');return false" style="color:var(--gold)">Barang Floor</a></b>.</div>`:'')}
+          ${nFloor} barang berarea <b>Floor saja</b> tidak ditampilkan di sini — ia punya halamannya sendiri di <b><a href="#" onclick="go('floor');return false" style="color:var(--gold)">Barang Floor</a></b>.</div>`:'')}
     <div class="tbl-wrap"><table><thead><tr>
       ${thUrut(mana,'nama',floor?'Barang':'Bahan')}${thUrut(mana,'vendor','Vendor')}
       ${thUrut(mana,'qty','Qty beli','num')}${thUrut(mana,'satuan','Satuan')}
@@ -981,7 +1066,7 @@ function layarBahan(floor){
   });
   if(!hal.length) h+=`<tr><td colspan="8"><div class="empty">${floor
     ? (nFloor?'Tidak ada barang Floor yang cocok dengan saringan ini.'
-             :'Belum ada barang berarea <b>Floor</b>. Tetapkan areanya di <b>Purchasing → Database &amp; Vendor</b>, lalu barangnya muncul di sini.')
+             :'Belum ada barang berarea <b>Floor saja</b>. Centang Area <b>Floor</b> (dan hanya Floor) di <b>Purchasing → Database &amp; Vendor</b>, lalu barangnya muncul di sini.')
     : 'Tidak ada bahan yang cocok dengan saringan ini.'}</div></td></tr>`;
   h+=`</tbody></table></div>${pagerBar(semua.length,st.hal,nHal,st.per,mana,floor?'barang':'bahan')}</div>`;
   return h;
@@ -1048,7 +1133,16 @@ function satuanPurchasing(nama){
     if(p.packSatuan) ck.push(String(p.packSatuan));
     if(num(p.packIsi)>0) ck.push('Pack');
   }
-  const gab=[]; s.concat(ck).forEach(u=>{ if(u&&!gab.some(x=>low(x)===low(u))) gab.push(u); });
+  /* Satuan yang PUNYA UKURAN ikut ditawarkan — "Botol Besar" tidak ada di
+     SATUAN_TERSEDIA (daftar baku cuma punya satu "Botol"), jadi tanpa baris ini
+     satuan buatan sendiri yang sudah diukur tetap tidak bisa dipilih di sini,
+     dan ukurannya jadi angka yang tersimpan tanpa jalan memakainya.
+     Server sudah menambahkannya ke `satuan` — tapi HANYA kalau daftar itu tidak
+     kosong (kosong berarti "semua satuan boleh", mengisinya justru
+     mempersempit). Untuk bahan berdaftar kosong, dari sinilah ia datang. */
+  const uk=[]; if(purDasar(p)) uk.push(purDasar(p));
+  purSatuanUkur(p).forEach(k=>uk.push(k));
+  const gab=[]; s.concat(ck).concat(uk).forEach(u=>{ if(u&&!gab.some(x=>low(x)===low(u))) gab.push(u); });
   return gab.length?gab:null;
 }
 /* Daftar kosong di purchasing = BELUM DIATUR, dan itu berarti seluruh satuan
@@ -1225,7 +1319,7 @@ function vendorOf(b){
   /* Vendor selalu dari purchasing — lewat nama kalau sudah sama, lewat pasangan
      lama selama namanya belum disamakan. Yang tersimpan di hpp_bahan cuma
      cadangan untuk bahan yang memang tidak ada di sana. */
-  const p=PRODUK[b.nama]||(b.produk&&b.produk!=='-'?PRODUK[b.produk]:null);
+  const p=infoPur(b);
   if(p&&p.utama) return p.utama;
   return b.vendor||'';
 }
@@ -1293,7 +1387,7 @@ function spanduTarik(){
      di halaman Barang Floor, bukan di halaman tempat spanduk ini dibaca — dan
      tombol yang menjanjikan N baris lalu memunculkan sebagiannya di tempat lain
      terbaca seperti tarikan yang setengah gagal. */
-  const nFloorKurang=kurang.filter(n=>low(String((PRODUK[n]||{}).area||'').trim())==='floor').length;
+  const nFloorKurang=kurang.filter(n=>isFloor({nama:n})).length;
   return `<div class="notice warn"><div>
     <b>${kurang.length} bahan ada di Purchasing tapi belum ada di modul ini.</b>${
       nFloorKurang?` ${nFloorKurang} di antaranya berarea Floor dan akan mendarat di halaman <b>Barang Floor</b>.`:''}
@@ -1413,7 +1507,7 @@ function uraiBahan(r,faktor,keranjang,jalur){
       const it=PB[low(b.nama)]; if(!it) return;
       const k=it.nama;
       keranjang[k]=keranjang[k]||{nama:k,nilai:0,menu:{}};
-      keranjang[k].nilai+=per1(it)*qtySesuai(num(b.qty),b.satuan,it.satuan).qty*faktor;
+      keranjang[k].nilai+=per1(it)*qtySesuai(num(b.qty),b.satuan,it.satuan,infoPur(it)).qty*faktor;
     }
   });
   delete jalur[r.id];

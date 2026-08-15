@@ -1429,6 +1429,41 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3321,7 +3356,7 @@ function potongHalaman() {  }
 
 
 
-function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDeleteVendorConfirm(); }
+function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
 
 
 
@@ -3415,7 +3450,30 @@ function renderDatabaseTab() { potongHalaman(); openEditVendorModal(); triggerDe
 
 
 
-function chip() { vendorPerluJadwal(); openEditProductModal(); triggerDeleteProductConfirm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chip() { areaList(); vendorPerluJadwal(); openEditProductModal(); triggerDeleteProductConfirm(); }
+
+
+
+
+
+
 
 
 
@@ -5324,6 +5382,163 @@ function renderUnitCheckboxes() { serverDukungSatuan(); }
 
 
 
+
+
+
+
+function areaList() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function renderAreaCheckboxes() { serverDukungSatuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function serverDukungUkuran() {  }
+
+
+
+
+
+
+function satuanDasarOf() {  }
+
+
+
+
+
+function isiList() {  }
+
+
+
+
+
+
+
+
+
+
+
+function renderUkuranBaris() { serverDukungUkuran(); hapusBarisUkuran(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tambahBarisUkuran() { renderUkuranBaris(); }
+function hapusBarisUkuran() { renderUkuranBaris(); }
+
+
+function pasangUkuran() { satuanDasarOf(); isiList(); renderUkuranBaris(); }
+
+
+
+
+
+
+
+
+
+
+
+function bacaUkuran() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function setSumberProduk() { setLokasiCK(); syncSatuanDasarLabel(); }
 
 
@@ -5416,7 +5631,20 @@ function updateBackupCheckboxes() {  }
 
 
 
-function submitProductMapping() { requireEditPage(); showToast(); sendPostRequest(); catatLog(); closeProductModal(); fetchSheetData(); }
+function submitProductMapping() { requireEditPage(); bacaUkuran(); showToast(); sendPostRequest(); catatLog(); closeProductModal(); fetchSheetData(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5752,7 +5980,7 @@ function openEditVendorModal() { toggleModal(); }
 
 function closeVendorModal() { toggleModal(); }
 
-function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); toggleModal(); }
+function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); renderAreaCheckboxes(); pasangUkuran(); setSumberProduk(); setDipackProduk(); toggleModal(); }
 
 
 
@@ -5777,7 +6005,9 @@ function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns()
 
 
 
-function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); renderUnitCheckboxes(); renderAreaCheckboxes(); areaList(); pasangUkuran(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
 
 
 

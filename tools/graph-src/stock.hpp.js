@@ -348,11 +348,76 @@ function kini() {  }
 
 
 
-function konvSatuan() {  }
+function konvFam() {  }
 
 
 
-function cair() {  }
+function cair() { purDasar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function infoPur() {  }
+
+
+
+function purDasar() { purIsi(); purSatuanUkur(); }
+
+
+
+
+function purIsi() {  }
+
+
+
+
+
+function purSatuanUkur() {  }
+
+
+
+
+
+function keDasarPur() { purDasar(); purIsi(); konvFam(); }
+
+
+
+
+
+
+function dariDasarPur() { purDasar(); purIsi(); konvFam(); }
+
+
+
+
+
+
+
+
+
+
+
+function konvSatuan() { konvFam(); keDasarPur(); dariDasarPur(); }
+
+
+
 
 
 
@@ -419,7 +484,7 @@ function per1() {  }
 
 
 
-function modalResep() { cariResep(); qtySesuai(); per1(); }
+function modalResep() { cariResep(); qtySesuai(); per1(); infoPur(); }
 
 
 
@@ -806,7 +871,7 @@ function gambarEditor() { hitungBaris(); segarSub(); tandaCampur(); modalPratinj
 
 
 
-function hitungBaris() { cariResep(); modalResep(); qtySesuai(); per1(); }
+function hitungBaris() { cariResep(); modalResep(); qtySesuai(); infoPur(); per1(); }
 
 
 
@@ -878,7 +943,27 @@ function hapusResep() { dipakaiOleh(); kirim(); vendorOf(); }
 
 
 
-function areaOf() {  }
+
+
+
+
+
+
+
+function areaOf() { infoPur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1036,7 +1121,16 @@ function lihatPakai() { dipakaiOleh(); hitungBaris(); modalMenu(); tutupModal();
 
 
 
-function satuanPurchasing() {  }
+function satuanPurchasing() { purDasar(); purSatuanUkur(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1221,7 +1315,7 @@ function statusPur() {  }
 
 
 
-function vendorOf() {  }
+function vendorOf() { infoPur(); }
 
 
 
@@ -1398,7 +1492,7 @@ function kartu() {  }
 
 
 
-function uraiBahan() { cariResep(); qtySesuai(); per1(); }
+function uraiBahan() { cariResep(); qtySesuai(); per1(); infoPur(); }
 
 
 

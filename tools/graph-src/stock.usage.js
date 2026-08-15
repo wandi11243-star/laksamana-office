@@ -1796,7 +1796,7 @@ function lihatFotoWaste() { bukaFoto(); timSaya(); }
 
 
 
-function soAreaCocok() { timSaya(); soArea(); }
+function soAreaCocok() { timSaya(); soAreas(); }
 
 
 
@@ -1812,7 +1812,29 @@ function soAreaCocok() { timSaya(); soArea(); }
 
 
 
-function soArea() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soAreas() {  }
+
+
+
+
+
+
+
 
 
 
@@ -1901,7 +1923,64 @@ function soUnitInfo() {  }
 
 
 
-function soKonversi() { soUnitInfo(); }
+function soKonvFam() { soUnitInfo(); soDasar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function soDasar() {  }
+
+
+
+function soIsi() {  }
+
+
+
+
+
+
+
+
+
+
+function soKeDasar() { soDasar(); soIsi(); soKonvFam(); }
+
+
+
+
+
+
+
+
+
+function soDariDasar() { soDasar(); soIsi(); soKonvFam(); }
+
+
+
+
+
+
+
+
+
+
+
+function soKonversi() { soKonvFam(); soKeDasar(); soDariDasar(); }
+
+
 
 
 
@@ -1998,7 +2077,18 @@ function soHitung() { soKemarin(); soAngka(); }
 
 
 
-function soGrup() { soAreaCocok(); soArea(); soKategori(); }
+
+
+
+
+
+
+
+function soFloorMurni() { soAreas(); }
+
+
+
+function soGrup() { soAreaCocok(); soFloorMurni(); soKategori(); }
 
 
 
@@ -2268,7 +2358,17 @@ function soTambahItem() { timSaya(); }
 
 
 
+
+
+
+
+
+
 function tutup() { soRenderDaftar(); }
+
+
+
+
 
 
 
@@ -2925,7 +3025,22 @@ function renderWasteReport() { segAktif(); rekapBaris(); barisWaste(); totalPerS
 
 
 
-function bariskan() { soUnitInfo(); soUnit(); soKonversi(); }
+function bariskan() { soDasar(); soKeDasar(); soUnitInfo(); soUnit(); soKonversi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
