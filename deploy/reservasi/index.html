@@ -1239,6 +1239,10 @@ function isSeated(r){ return r && r.status==="Datang" && !r.leftAt; }
    Tamu booking 10 pax, tapi datangnya dicicil: 2 orang dulu, lalu 3, lalu sisanya.
    Tiap gelombang dicatat di r.arrivals = [{ts, pax, by}]. r.actualPax = jumlah semua
    gelombang (tetap diisi supaya laporan/CSV lama tidak berubah artinya). */
+/* Batas atas satu catatan gelombang kedatangan. Di ATAS kapasitas seluruh
+   restoran (453 kursi) dengan sengaja: angka di atasnya bukan rombongan besar,
+   melainkan salah ketik atau nomor HP yang tertempel. Lihat saveArrival. */
+const MAX_PAX_GELOMBANG = 500;
 function arrivalsOf(r){ return Array.isArray(r && r.arrivals) ? r.arrivals : []; }
 // Total orang yang sudah benar-benar masuk.
 function arrivedPax(r){
@@ -3413,6 +3417,10 @@ function newReservation(){ EDIT_ID=null; PENDING_FILES={}; navigate("input"); }
 function editReservation(id){ EDIT_ID=id; PENDING_FILES={}; navigate("input"); }
 function renderInput(editId){
   EDIT_ID = editId||null;
+  /* Koreksi gelombang yang belum disimpan tidak boleh menyeberang ke reservasi
+     berikutnya. Dibuang saat form DIBUKA, bukan cuma sesudah Simpan: yang
+     ditinggalkan lewat tombol Batal tidak pernah melewati saveReservation. */
+  PENDING_ARRIVALS = null;
   const r = editId ? STATE.reservations.find(x=>x.id===editId) : null;
   const m = STATE.master;
   const marketingPICs = USERS.filter(u=>u.role==="marketing").map(u=>u.name);
@@ -3454,6 +3462,14 @@ function renderInput(editId){
          <label>Jumlah Pax <span class="req">*</span></label>
          <input type="number" name="pax" required min="1" value="${r?.pax||""}" placeholder="mis. 4" onchange="checkBigEvent(this.value)">
          <div id="bigEventHint"></div>
+         <!-- Form ini hanya menyunting pax yang DIPESAN; jumlah yang sudah
+              MASUK hidup di r.arrivals dan tidak tersentuh dari sini. Selama
+              tidak ada yang mengatakannya, memperbaiki Jumlah Pax di sini
+              terasa seperti perbaikan yang tidak berbuat apa-apa: angkanya di
+              daftar & Dashboard tetap salah sesudah Simpan (dilaporkan user
+              15 Agustus 2026). Sekarang keadaan itu ditampilkan berikut jalan
+              keluarnya, dan hanya muncul kalau memang bentrok. -->
+         <div id="paxDatangHint">${hintPaxDatang(r)}</div>
        </div>
        <div class="field">
          <label>Jenis Reservasi <span class="req">*</span></label>
@@ -3713,6 +3729,42 @@ async function mejaMasihKosong(date, table, time, exceptId, sharing){
   return { ok:false, bentrok };
 }
 
+/* ---- KOREKSI CATATAN KEDATANGAN DARI FORM EDIT (15 Agustus 2026) ----
+   Gelombang kedatangan adalah data operasional sungguhan, jadi ia TIDAK ikut
+   ditimpa diam-diam setiap kali Jumlah Pax disunting — yang begitu akan
+   menghapus rincian "5 masuk jam 18.00, 3 menyusul jam 19.15" setiap kali ada
+   yang membetulkan salah ketik nama. Yang ditawarkan cuma tombolnya, dan hanya
+   saat angkanya memang mustahil (tercatat masuk lebih banyak dari yang
+   dipesan). Perubahannya DITAHAN sampai Simpan ditekan: kalau tidak, menekan
+   tombol lalu Batal sudah terlanjur mengubah data di layar orang lain. */
+let PENDING_ARRIVALS = null;
+function hintPaxDatang(r){
+  if(PENDING_ARRIVALS){
+    const n = PENDING_ARRIVALS.reduce((s,a)=>s+(Number(a.pax)||0),0);
+    return `<div class="inline-warn" style="margin-top:8px;display:block">Catatan kedatangan akan diperbaiki jadi <b>${n} pax</b> begitu <b>Simpan</b> ditekan.</div>`;
+  }
+  if(!r) return "";
+  const masuk = arrivedPax(r), pesan = Number(r.pax)||0;
+  if(!(masuk > pesan)) return "";
+  return `<div class="inline-warn" style="margin-top:8px;display:block">
+    Tercatat <b>${masuk} orang</b> sudah masuk — lebih banyak dari yang dipesan (${pesan} pax).
+    Angka inilah yang tampil di daftar &amp; Dashboard, bukan Jumlah Pax di atas.
+    <div style="margin-top:8px"><button type="button" class="btn btn-xs btn-primary" onclick="perbaikiKedatangan()">Samakan dengan Jumlah Pax</button></div></div>`;
+}
+function perbaikiKedatangan(){
+  const r = EDIT_ID ? STATE.reservations.find(x=>x.id===EDIT_ID) : null;
+  if(!r) return;
+  const n = Number(byId("resForm")?.elements["pax"]?.value||0);
+  if(!(n>0)){ toast("Isi Jumlah Pax dulu","err"); return; }
+  /* Stempel waktu & pencatat gelombang PERTAMA dipertahankan: jam tamu duduk
+     dipakai menghitung lama duduk di daftar, dan menggantinya dengan jam
+     sekarang akan membuat tamu yang sudah dua jam di meja terbaca baru masuk. */
+  const a = arrivalsOf(r);
+  PENDING_ARRIVALS = [{ ts:(a[0]&&a[0].ts) || r.checkinAt || Date.now(), pax:n, by:(a[0]&&a[0].by) || SESSION.name }];
+  const box = byId("paxDatangHint"); if(box) box.innerHTML = hintPaxDatang(r);
+  toast(`Disiapkan jadi ${n} pax — tekan Simpan untuk menerapkannya`);
+}
+
 async function saveReservation(){
   const f = byId("resForm");
   const g = n => f.elements[n]?.value?.trim() || "";
@@ -3781,7 +3833,10 @@ async function saveReservation(){
     createdAt: existing?existing.createdAt:now,
     updatedAt: now,
     actualPax: existing?.actualPax||null,
-    arrivals: existing?.arrivals||[],     // gelombang kedatangan (rombongan bisa datang bertahap)
+    // Gelombang kedatangan (rombongan bisa datang bertahap). Dipertahankan apa
+    // adanya KECUALI kalau koreksinya memang diminta lewat tombol di form —
+    // lihat perbaikiKedatangan().
+    arrivals: PENDING_ARRIVALS || existing?.arrivals || [],
     checkinAt: existing?.checkinAt||null,
     leftAt: existing?.leftAt||0,
     followups: existing?.followups||[],
@@ -3792,6 +3847,11 @@ async function saveReservation(){
     tfSource: existing?.tfSource||"", tfBy: existing?.tfBy||"", tfAt: existing?.tfAt||0,
     tfOcrAt: existing?.tfOcrAt||0, tfOcrText: existing?.tfOcrText||"",
   };
+  /* actualPax adalah TURUNAN dari arrivals, jadi ia ikut dihitung ulang — bukan
+     disalin dari baris lama. Kalau tidak, koreksi di atas memperbaiki rinciannya
+     tapi meninggalkan totalnya tetap salah, dan arrivedPax() memakai totalnya
+     untuk data lama yang belum punya rincian. */
+  if(PENDING_ARRIVALS) rec.actualPax = arrivedPax(rec);
   /* DP dari form ini = cicilan PERTAMA. Cicilan berikutnya ditambah lewat tombol
      "Tambah Bukti TF DP" di detail reservasi, dan TIDAK ikut tertimpa di sini. */
   ensureDps(rec);
@@ -5638,7 +5698,7 @@ function openArrivalModal(id, first){
      ${sisa===0?`<div class="inline-warn">Rombongan sudah lengkap (${sudah}/${r.pax}). Kalau tetap ada tamu tambahan di luar booking, jumlahnya akan melebihi pesanan.</div>`:""}
      <div class="field" style="margin-top:12px">
        <label>Jumlah orang yang masuk sekarang <span class="req">*</span></label>
-       <input id="arvPax" type="number" min="1" value="${dflt}" onkeydown="if(event.key==='Enter')saveArrival('${r.id}',${!!first})">
+       <input id="arvPax" type="number" inputmode="numeric" min="1" max="${MAX_PAX_GELOMBANG}" value="${dflt}" onkeydown="if(event.key==='Enter')saveArrival('${r.id}',${!!first})">
      </div>
      <div class="pill-row">
        ${quick.map(n=>`<span class="pill" style="cursor:pointer" onclick="byId('arvPax').value=${n}">${n===sisa&&sisa>0?`semua sisa (${n})`:n+" orang"}</span>`).join("")}
@@ -5657,6 +5717,25 @@ async function saveArrival(id, first){
   ensureArrivals(r);
   const n=Number(byId("arvPax")?.value||0);
   if(!n || n<1){ toast("Jumlah orang yang masuk minimal 1","err"); return; }
+  /* BATAS ATAS KERAS (15 Agustus 2026). Kotak ini terbuka dengan isinya
+     TERSELEKSI (lihat el.select() di openArrivalModal), jadi apa pun yang
+     ditempel berikutnya langsung menggantikannya — dan yang paling sering ada
+     di papan klip petugas reservasi adalah NOMOR HP. Sudah kejadian: satu
+     reservasi tercatat "81277984606 orang masuk", yang membuat kartu Pax Datang
+     di Dashboard berbunyi 81 miliar dan realisasinya 2.031.949.615.150%.
+
+     Sebelumnya penjaganya cuma confirm() "lebih banyak dari booking, tetap
+     catat?" — pertanyaan yang wajar untuk 5 vs 4 orang, jadi ia sudah biasa
+     ditekan Ya, dan angka sebelas digit lolos lewat pintu yang sama.
+     Ambangnya di atas kapasitas seluruh restoran (453 kursi): jumlah di
+     atasnya BUKAN rombongan besar, ia selalu salah ketik atau nomor telepon. */
+  if(n > MAX_PAX_GELOMBANG){
+    toast(String(n).length>=8
+      ? `${n} bukan jumlah orang — sepertinya nomor HP yang tertempel di kotak ini.`
+      : `Jumlah orang maksimal ${MAX_PAX_GELOMBANG} per catatan.`, "err");
+    const el=byId("arvPax"); if(el){ el.focus(); el.select(); }
+    return;
+  }
   const total=arrivedPax(r)+n;
   if(total > Number(r.pax||0) &&
      !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)) return;

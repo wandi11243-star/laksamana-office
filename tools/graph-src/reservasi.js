@@ -1239,6 +1239,10 @@ function isSeated() {  }
 
 
 
+
+
+
+
 function arrivalsOf() {  }
 
 function arrivedPax() { arrivalsOf(); }
@@ -3416,7 +3420,19 @@ function renderInput() {  }
 
 
 
-function opt() { esc(); byId(); navigate(); onGuestNameInput(); checkPhoneHistory(); guestDirectory(); displayPhone(); datePickerHtml(); todayStr(); timePickerHtml(); checkBigEvent(); setSeatLayout(); setSeatLantai2(); checkConflict(); toggleDP(); rpDot(); fmtRupiahInput(); fileToData(); toggleMember(); saveReservation(); togglePIC(); tablesOf(); dayTypeLayout(); renderSeatMap(); }
+
+
+
+
+function opt() { esc(); byId(); navigate(); onGuestNameInput(); checkPhoneHistory(); guestDirectory(); displayPhone(); datePickerHtml(); todayStr(); timePickerHtml(); checkBigEvent(); hintPaxDatang(); setSeatLayout(); setSeatLantai2(); checkConflict(); toggleDP(); rpDot(); fmtRupiahInput(); fileToData(); toggleMember(); saveReservation(); togglePIC(); tablesOf(); dayTypeLayout(); renderSeatMap(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -3713,7 +3729,51 @@ function mejaMasihKosong() { apiConfigured(); setSync(); showBusy(); apiGet(); c
 
 
 
-function saveReservation() { byId(); toast(); normTime(); todayStr(); dpToggle(); mejaMasihKosong(); hideBusy(); tablesOf(); renderSeatMap(); checkConflict(); popupMejaDiambil(); uid(); normPhone(); rupiahVal(); ensureDps(); newDp(); resetDpScan(); syncDp(); logAudit(); fmtDateShort(); setBusy(); saveNow(); reportRejected(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
+
+function hintPaxDatang() { arrivedPax(); perbaikiKedatangan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function perbaikiKedatangan() { byId(); toast(); arrivalsOf(); hintPaxDatang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function saveReservation() { byId(); toast(); normTime(); todayStr(); dpToggle(); mejaMasihKosong(); hideBusy(); tablesOf(); renderSeatMap(); checkConflict(); popupMejaDiambil(); uid(); normPhone(); rupiahVal(); perbaikiKedatangan(); arrivedPax(); ensureDps(); newDp(); resetDpScan(); syncDp(); logAudit(); fmtDateShort(); setBusy(); saveNow(); reportRejected(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -5653,6 +5713,25 @@ function openArrivalModal() { ensureArrivals(); arrivedPax(); remainingPax(); ar
 
 
 function saveArrival() { ensureArrivals(); byId(); toast(); arrivedPax(); remainingPax(); logAudit(); commit(); buildNav(); closeModal(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
