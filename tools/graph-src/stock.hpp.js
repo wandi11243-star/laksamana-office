@@ -1102,6 +1102,7 @@ function hapusResep() { dipakaiOleh(); konfirmasi(); kirim(); vendorOf(); }
 
 
 
+
 function areaOf() { infoPur(); }
 
 
@@ -1137,7 +1138,7 @@ function viewFloor() { layarBahan(); }
 
 
 
-function layarBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); go(); thUrut(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+function layarBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); }
 
 
 
@@ -1168,6 +1169,46 @@ function layarBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipaka
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ket() { render(); go(); thUrut(); dipakaiOleh(); statusPur(); vendorOf(); per1(); lihatPakai(); bukaBahan(); daftarkanKePurchasing(); pagerBar(); }
 
 
 
