@@ -1564,6 +1564,52 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3630,6 +3676,404 @@ function chipBarang() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatXlsx() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function galatXlsx() { showToast(); }
+
+
+
+
+
+
+
+
+
+
+function csvSel() {  }
+function csvBaris() {  }
+function unduhCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function uraiCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function petaKolom() {  }
+
+
+
+
+
+
+
+
+
+
+
+function barisEksporVendor() { tutupHariOf(); }
+
+
+
+
+
+
+function exportVendorCsv() { barisEksporVendor(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+function bacaVendorCsv() { bacaVendorRows(); uraiCsv(); }
+function bacaProdukCsv() { bacaProdukRows(); uraiCsv(); }
+
+function bacaVendorRows() { petaKolom(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); }
+
+
+
+
+
+
+
+
+
+
+function exportProdukCsv() { barisEksporProduk(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
+
+
+
+
+
+
+function bacaProdukRows() { petaKolom(); }
+
+
+
+
+
+
+
+
+
+
+function set() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function exportXlsx() { muatXlsx(); galatXlsx(); barisEksporVendor(); barisEksporProduk(); tglOffsetLokal(); showToast(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihBerkasImpor() { requireEditPage(); }
+
+
+
+
+
+
+
+
+
+
+function bacaBerkasImpor() { bacaVendorRows(); bacaProdukRows(); showToast(); gambarPratinjauImpor(); muatXlsx(); galatXlsx(); uraiCsv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarPratinjauImpor() { toggleModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tutupImpor() { toggleModal(); }
+
+function jalankanImpor() { requireEditPage(); sendPostRequest(); showToast(); catatLog(); tutupImpor(); fetchSheetData(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
 
 
@@ -5539,11 +5983,11 @@ function simpanMutasiCK() { requireEditPage(); showToast(); tglOffsetLokal(); re
 
 
 
-function setArahRiwayatCK() {  }
+function setArahRiwayatCK() { renderCKMutasi(); }
 
 
 
-function set() { renderCKMutasi(); }
+
 
 
 

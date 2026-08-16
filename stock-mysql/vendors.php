@@ -27,6 +27,9 @@ try {
       pur_json(pur_vendor_simpan($pdo, $b->vendorName ?? '', $b->vendorPhone ?? '', $b->oldVendorName ?? '',
                                  $b->perluJadwalJemput ?? null, $b->tutupHari ?? null));
     }
+    // Impor massal dari Excel/CSV. Upsert berdasarkan NAMA; tidak ada yang
+    // dihapus. Lihat catatan panjang di pur_vendors_impor.
+    if ($a === 'importVendors') pur_json(pur_vendors_impor($pdo, $b->rows ?? null));
     if ($a === 'deleteVendor') pur_json(pur_vendor_hapus($pdo, $b->vendorName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
