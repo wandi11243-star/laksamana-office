@@ -172,14 +172,14 @@
                  Ditaruh di grup Operasi bersama Monitor & Jemput karena
                  pertanyaannya sama-sama harian ("hari ini siapkan apa"),
                  bukan analisa. -->
-            <!-- ONLINE HARI INI (15 Agustus 2026, permintaan user). Cerminan
+            <!-- BARANG ONLINE (15 Agustus 2026, permintaan user). Cerminan
                  Jemput Hari Ini untuk sisi sebaliknya: barang yang DIKIRIM.
                  Sebelum ini "cara beli = online" cuma jadi lencana di master
                  bahan — tidak ada satu pun daftar yang mengumpulkannya, jadi
                  tidak ada tempat untuk menjawab "kiriman apa saja yang
                  seharusnya datang hari ini, dan mana yang belum". -->
             <button onclick="switchTab('online')" id="tab-online" class="nav-side w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
-                <i class="fa-solid fa-cart-shopping w-5 text-center"></i> Online Hari Ini
+                <i class="fa-solid fa-cart-shopping w-5 text-center"></i> Barang Online
             </button>
             <button onclick="switchTab('ck')" id="tab-ck" class="nav-side w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
                 <i class="fa-solid fa-kitchen-set w-5 text-center"></i> Central Kitchen
@@ -410,7 +410,7 @@
         </section>
 
         <!-- ============================================================== -->
-        <!-- ONLINE HARI INI — barang yang DIKIRIM, bukan diambil.           -->
+        <!-- BARANG ONLINE — barang yang DIKIRIM, bukan diambil.           -->
         <!--                                                                -->
         <!-- Bentuknya sengaja menyalin Jemput Hari Ini: dua halaman ini     -->
         <!-- dibuka bergantian oleh orang yang sama tiap pagi, dan tata      -->
@@ -422,8 +422,8 @@
         <section id="content-online" class="tab-content hidden">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Online Hari Ini</h2>
-                    <p class="text-slate-500 text-sm mt-1">Barang yang dipesan daring &amp; dikirim vendor. Centang begitu barangnya benar-benar sampai.</p>
+                    <h2 class="text-2xl font-bold text-slate-900">Barang Online</h2>
+                    <p class="text-slate-500 text-sm mt-1">Barang yang dipesan daring &amp; dikirim vendor. Centang begitu barangnya sampai — tanggal terimanya dicatat dan ordernya langsung diarsipkan.</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <input type="date" id="online-date" onchange="renderOnline(true)" class="border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
@@ -1539,7 +1539,7 @@
         const PERM_PAGES = [
             { id: 'dashboard',   label: 'Monitor Order' },
             { id: 'jemput',      label: 'Jemput Hari Ini' },
-            { id: 'online',      label: 'Online Hari Ini' },
+            { id: 'online',      label: 'Barang Online' },
             { id: 'ck',          label: 'Central Kitchen' },
             { id: 'overview',    label: 'Rekap Per Bulan' },
             { id: 'database',    label: 'Database & Vendor' },
@@ -4118,6 +4118,39 @@
            mencentang tidak diam-diam mengubah data yang dipakai halaman lain:
            sampai "Selesai Dijemput" ditekan, yang berubah cuma layar ini. */
         let jemputCentang = null;   // Set<rowIndex>; null = belum pernah dirender
+        /* Jumlah & keterangan penerimaan, kembaran onlineAktual. Barang jemputan
+           juga bisa datang beda jumlah dari yang dipesan (permintaan user
+           15 Agustus 2026) — dan justru lebih sering, karena yang menjemput
+           melihat sendiri barangnya di toko. */
+        let jemputAktual = {};
+        function jemputNilai(o) {
+            const k = Number(o.rowIndex);
+            const a = jemputAktual[k] || {};
+            return { qty: (a.qty === undefined || a.qty === '') ? String(o.qty || 0) : String(a.qty),
+                     note: a.note || '' };
+        }
+        function setJemputQty(rowIndex, v) {
+            const k = Number(rowIndex);
+            jemputAktual[k] = jemputAktual[k] || {};
+            jemputAktual[k].qty = v;
+            segarkanSelisihJemput(rowIndex);
+        }
+        function setJemputNote(rowIndex, v) {
+            const k = Number(rowIndex);
+            jemputAktual[k] = jemputAktual[k] || {};
+            jemputAktual[k].note = v;
+        }
+        function segarkanSelisihJemput(rowIndex) {
+            const o = (appState.orders || []).find(x => Number(x.rowIndex) === Number(rowIndex));
+            if (!o) return;
+            const el = document.getElementById(`jemput-selisih-${rowIndex}`);
+            const nw = document.getElementById(`jemput-note-wrap-${rowIndex}`);
+            const n = jemputNilai(o), beda = Number(n.qty) - Number(o.qty || 0);
+            if (el) el.innerHTML = beda
+                ? `<span class="px-2 py-0.5 rounded-lg text-[10px] font-black ${beda > 0 ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'} whitespace-nowrap">${beda > 0 ? 'lebih' : 'kurang'} ${Math.abs(beda)}</span>`
+                : '';
+            if (nw) nw.classList.toggle('hidden', !beda);
+        }
         // Nama grup untuk pengambilan dari dapur pusat. Konstanta, bukan teks
         // yang diketik di dua tempat: ia dipakai sebagai KUNCI grup sekaligus
         // judul yang tampil, jadi beda satu huruf memecahnya jadi dua grup.
@@ -4273,6 +4306,7 @@
             // sini juga — satu kenyataan fisik, satu sumber kebenaran.
             if (reset || !jemputCentang) {
                 jemputCentang = new Set(daftar.filter(o => (o.kedatangan || '') === 'Datang').map(o => Number(o.rowIndex)));
+                jemputAktual = {};
             }
 
             const sudah = daftar.filter(o => jemputCentang.has(Number(o.rowIndex))).length;
@@ -4354,51 +4388,17 @@
                 const nSudah = items.filter(o => jemputCentang.has(Number(o.rowIndex))).length;
                 const beres = nSudah === items.length;
                 const nTelat = items.filter(o => jemputTelat(o, tgl) && !jemputCentang.has(Number(o.rowIndex))).length;
+                /* Baris digambar barisTerima() yang SAMA dengan Barang Online.
+                   Keduanya menanyakan hal yang sama begitu barangnya ada di
+                   tangan: berapa yang datang, dan kalau beda kenapa. Penanda
+                   keterlambatan pindah ke kepala grup & pita di bawah, supaya
+                   satu penggambar baris cukup untuk kedua halaman. */
                 const baris = items.map(o => {
                     const on = jemputCentang.has(Number(o.rowIndex));
-                    const div = divisiOrder(o);
-                    /* Barisnya sendiri diwarnai merah muda, bukan cuma diberi
-                       lencana kecil. Lencana saja terbukti terlewat: ia berada
-                       di baris ketiga meta yang abu-abu, sementara yang dipindai
-                       mata saat membuka daftar ini adalah blok barisnya. Warna
-                       dicabut begitu dicentang — sesudah diambil, keterlambatannya
-                       tidak lagi menuntut apa pun. */
                     const telat = jemputTelat(o, tgl);
-                    const tandaTelat = telat && !on;
-                    return `
-                    <button type="button" ${bisaUbah ? `onclick="toggleJemputBaris(${Number(o.rowIndex)})"` : 'disabled'}
-                        class="w-full text-left flex items-center gap-3 px-4 py-3 border-t transition-all ${on ? 'bg-emerald-50/60 border-slate-100' : (tandaTelat ? 'bg-rose-50/70 border-rose-100 border-l-4 border-l-rose-500 hover:bg-rose-50' : 'border-slate-100 hover:bg-slate-50')} ${bisaUbah ? '' : 'cursor-default'}">
-                        <span class="w-5 h-5 flex-none rounded-md border-2 flex items-center justify-center text-[10px] ${on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 text-transparent'}">
-                            <i class="fa-solid fa-check"></i>
-                        </span>
-                        <span class="min-w-0 flex-1">
-                            <span class="block text-[13px] font-bold ${on ? 'text-emerald-800 line-through decoration-emerald-300' : 'text-slate-800'} truncate">${o.item}</span>
-                            <span class="block text-[10px] text-slate-500 mt-0.5">${div}${o.pic ? ' &middot; ' + o.pic : ''}</span>
-                            <!-- Jadwal ASLINYA ikut ditulis untuk yang tertunda. Tanpa itu
-                                 barangnya muncul di hari ini seolah memang dipesan untuk
-                                 hari ini, dan tidak ada yang tahu ia sudah menunggu tiga
-                                 hari — padahal justru itu yang menentukan mana yang harus
-                                 dijemput lebih dulu. -->
-                            ${telat ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg ${on ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-rose-600 text-white border border-rose-600'} text-[10px] font-black uppercase tracking-wide">
-                                ⚠️ Tertunda ${telat} hari · jadwal ${formatFriendlyDate(tglJemputEfektif(o), false)}</span>` : ''}
-                            ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
-                        </span>
-                        <!-- JUMLAH dipindah ke kanan dan dibesarkan (permintaan
-                             user 31 Juli 2026). Dulu ia awalan baris meta kecil
-                             abu-abu bersama divisi dan PIC — angka yang justru
-                             menentukan berapa banyak yang harus diangkut, tapi
-                             ditulis sekecil dan sesamar keterangan yang cuma
-                             dibaca sekali. Sekarang ia sekolom lurus ke bawah,
-                             jadi seluruh jemputan bisa dibaca sekali lihat. -->
-                        <span class="shrink-0 text-right">
-                            <span class="block text-[15px] font-black whitespace-nowrap ${on ? 'text-emerald-700' : 'text-slate-900'}">
-                                ${o.qty}<span class="text-[11px] font-bold text-slate-500 ml-1">${o.unit || ''}</span>
-                            </span>
-                            ${(o.kedatangan || '') === 'Datang'
-                                ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-wider">Tersimpan</span>'
-                                : (on ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">Belum disimpan</span>' : '')}
-                        </span>
-                    </button>`;
+                    return (telat && !on
+                        ? `<div class="px-4 pt-2 -mb-1 bg-rose-50/70 border-t border-rose-100"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[10px] font-black uppercase tracking-wide">⚠️ Tertunda ${telat} hari</span></div>`
+                        : '') + barisTerima('jemput', o, on, bisaUbah);
                 }).join('');
 
                 /* Kepala grup ikut menandai keterlambatan. Kartu jemputan sering
@@ -4420,10 +4420,13 @@
                     ${baris}
                 </div>`;
             }).join('');
+            // Selisih & kotak keterangan dipulihkan SESUDAH digambar — nilainya
+            // hidup di jemputAktual, bukan di DOM yang barusan dibuat ulang.
+            daftar.forEach(o => segarkanSelisihJemput(Number(o.rowIndex)));
         }
 
         /* ==================================================================
-           ONLINE HARI INI — kembaran Jemput Hari Ini untuk barang yang DIKIRIM.
+           BARANG ONLINE — kembaran Jemput Hari Ini untuk barang yang DIKIRIM.
 
            Memakai mesin yang SAMA PERSIS untuk menandai selesai:
            `kedatangan === 'Datang'` lewat action updateKedatangan, yaitu kolom
@@ -4441,6 +4444,11 @@
            dicentang dua kali oleh dua orang yang berbeda.
            ================================================================== */
         let onlineCentang = null;
+        /* Jumlah & keterangan penerimaan per baris: {rowIndex: {qty, note}}.
+           Dipegang di sini, bukan dibaca ulang dari DOM tiap kali, supaya angka
+           yang sedang diketik tidak hilang saat daftarnya digambar ulang oleh
+           centang baris lain. */
+        let onlineAktual = {};
 
         function onlineTglAktif() {
             const el = document.getElementById('online-date');
@@ -4452,30 +4460,83 @@
             if (el) el.value = tglOffsetLokal(offset);
             renderOnline(true);
         }
-        /* Kiriman yang terlewat IKUT TERBAWA ke hari berikutnya, dengan batas
-           yang sama (JEMPUT_TELAT_MAKS_HARI). Alasannya identik dengan jemputan
-           dan justru lebih menggigit di sini: kiriman yang tidak datang adalah
-           barang yang HILANG tanpa ada yang menagih, dan kalau ia lenyap dari
-           layar begitu tanggalnya lewat, tidak ada satu pun tempat di modul ini
-           yang masih menyebutnya. */
+        /* DAFTAR SAJA, tanpa penanda terlambat (15 Agustus 2026, permintaan
+           user). Yang belum datang tetap terbawa dari hari-hari sebelumnya —
+           kalau tidak, barang yang tidak kunjung dikirim lenyap dari layar dan
+           tidak ada satu pun tempat di modul ini yang masih menyebutnya — tapi
+           tidak lagi diberi tanda merah, hitungan hari, maupun tombol tagih.
+           Yang sudah datang keluar dari daftar dengan sendirinya karena ia
+           langsung diarsipkan (lihat simpanOnline).
+
+           Batas 14 hari dipertahankan: order lama yang memang tidak pernah
+           di-check-in — termasuk dari masa sebelum fitur ini ada — akan
+           menumpuk jadi ratusan baris basi, dan daftar begitu lebih tidak
+           berguna daripada daftar yang kehilangan satu baris. */
         function daftarOnline(tgl) {
             return (appState.orders || []).filter(o => {
                 if (caraBeliProduk(o.item) !== 'online') return false;
                 // Pengajuan CK & barang berjadwal jemput adalah urusan halaman
                 // sebelah. Lihat catatan "tidak ada irisan" di atas.
                 if (pesananCK(o) || o.tglJemput) return false;
+                /* SUDAH DATANG = keluar dari daftar, termasuk untuk tanggal hari
+                   ini. Halaman ini adalah daftar YANG DITUNGGU; barang yang
+                   sudah sampai tidak menuntut apa-apa lagi. Sejak penerimaan
+                   langsung mengarsipkan (lihat simpanOnline), keadaan
+                   "datang tapi belum terarsip" cuma tersisa pada data lama dan
+                   pada barang yang di-check-in dari modul Ordering — dua-duanya
+                   tetap harus hilang dari sini, kalau tidak daftar hari ini
+                   terus memuat baris yang sudah beres dan orang berhenti
+                   mempercayai isinya. */
+                if (jemputTerarsip(o) || (o.kedatangan || '') === 'Datang') return false;
                 const d = normalizeDateToYYYYMMDD(o.tglDatang);
                 if (!d) return false;
                 if (d === tgl) return true;
                 if (d >= tgl) return false;
-                return (o.kedatangan || '') !== 'Datang'
-                    && onlineTelat(o, tgl) <= JEMPUT_TELAT_MAKS_HARI;
+                return onlineUmur(o, tgl) <= JEMPUT_TELAT_MAKS_HARI;
             });
         }
-        function onlineTelat(o, tgl) {
+        // Umur baris terhadap tanggal yang dilihat. Dipakai HANYA sebagai batas
+        // pembawaan — tidak ditampilkan di mana pun.
+        function onlineUmur(o, tgl) {
             const d = normalizeDateToYYYYMMDD(o && o.tglDatang);
             if (!d || d >= tgl) return 0;
             return Math.round((Date.parse(tgl + 'T00:00:00') - Date.parse(d + 'T00:00:00')) / 86400000);
+        }
+
+        /* Jumlah & keterangan yang sedang tercatat untuk sebuah baris. Bawaannya
+           = qty yang dipesan, karena itu yang benar di sebagian besar kiriman;
+           yang perlu diketik cuma kalau ternyata beda. */
+        function onlineNilai(o) {
+            const k = Number(o.rowIndex);
+            const a = onlineAktual[k] || {};
+            return { qty: (a.qty === undefined || a.qty === '') ? String(o.qty || 0) : String(a.qty),
+                     note: a.note || '' };
+        }
+        function setOnlineQty(rowIndex, v) {
+            const k = Number(rowIndex);
+            onlineAktual[k] = onlineAktual[k] || {};
+            onlineAktual[k].qty = v;
+            // Hanya label selisihnya yang disegarkan — menggambar ulang seluruh
+            // daftar akan merebut fokus dari kotak yang sedang diketik.
+            segarkanSelisihOnline(rowIndex);
+        }
+        function setOnlineNote(rowIndex, v) {
+            const k = Number(rowIndex);
+            onlineAktual[k] = onlineAktual[k] || {};
+            onlineAktual[k].note = v;
+        }
+        function segarkanSelisihOnline(rowIndex) {
+            const o = (appState.orders || []).find(x => Number(x.rowIndex) === Number(rowIndex));
+            if (!o) return;
+            const el = document.getElementById(`online-selisih-${rowIndex}`);
+            const nw = document.getElementById(`online-note-wrap-${rowIndex}`);
+            const n = onlineNilai(o), beda = Number(n.qty) - Number(o.qty || 0);
+            if (el) el.innerHTML = beda
+                ? `<span class="px-2 py-0.5 rounded-lg text-[10px] font-black ${beda > 0 ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-800'} whitespace-nowrap">${beda > 0 ? 'lebih' : 'kurang'} ${Math.abs(beda)}</span>`
+                : '';
+            // Kotak keterangan hanya muncul saat jumlahnya memang berbeda —
+            // pertanyaan "kenapa" tidak punya arti kalau tidak ada selisihnya.
+            if (nw) nw.classList.toggle('hidden', !beda);
         }
         function toggleOnlineBaris(rowIndex) {
             if (!onlineCentang) return;
@@ -4497,33 +4558,22 @@
             const tgl = onlineTglAktif();
             const daftar = daftarOnline(tgl);
 
-            // Centang awal dibaca dari kedatangan yang SUDAH tersimpan — satu
-            // kenyataan fisik, satu sumber kebenaran.
-            if (reset || !onlineCentang) {
-                onlineCentang = new Set(daftar.filter(o => (o.kedatangan || '') === 'Datang').map(o => Number(o.rowIndex)));
-            }
+            if (reset || !onlineCentang) { onlineCentang = new Set(); onlineAktual = {}; }
 
             const sudah = daftar.filter(o => onlineCentang.has(Number(o.rowIndex))).length;
-            const tersimpan = daftar.filter(o => (o.kedatangan || '') === 'Datang').length;
-            // Yang dihitung telat: tertunda DAN belum dicentang — kalau yang
-            // sudah dicentang ikut, angka peringatannya tidak pernah turun ke
-            // nol walau semuanya sudah diterima.
-            const telat = daftar.filter(o => onlineTelat(o, tgl) && !onlineCentang.has(Number(o.rowIndex))).length;
-
             const ringkas = document.getElementById('online-ringkas');
             const ringkasSub = document.getElementById('online-ringkas-sub');
             const btnSimpan = document.getElementById('btn-online-simpan');
             const btnSemua = document.getElementById('btn-online-semua');
-            if (ringkas) ringkas.innerHTML = daftar.length
-                ? `<span class="${sudah === daftar.length ? 'text-emerald-600' : 'text-slate-800'}">${sudah} dari ${daftar.length} kiriman sudah diterima</span>`
-                  + (telat ? ` <span class="inline-flex items-center gap-1 ml-1 px-2 py-0.5 rounded-lg bg-rose-600 text-white text-[11px] font-black align-middle">⚠️ ${telat} BELUM DATANG</span>` : '')
-                : 'Tidak ada kiriman online';
+            if (ringkas) ringkas.textContent = daftar.length
+                ? `${daftar.length} barang menunggu · ${sudah} ditandai sudah datang`
+                : 'Tidak ada barang online yang ditunggu';
             if (ringkasSub) ringkasSub.textContent = daftar.length
-                ? (sudah === tersimpan
-                    ? 'Belum ada perubahan yang perlu disimpan.'
-                    : `${Math.abs(sudah - tersimpan)} perubahan belum disimpan — tekan "Selesai Diterima".`)
-                : `Tidak ada order berstatus "online / dikirim" untuk tanggal ${formatFriendlyDate(tgl, false)}.`;
-            if (btnSimpan) btnSimpan.disabled = !daftar.length || sudah === tersimpan || !canEditPage('online');
+                ? (sudah
+                    ? 'Tekan "Selesai Diterima" — tanggal terimanya dicatat dan ordernya langsung diarsipkan.'
+                    : 'Centang barang yang sudah sampai.')
+                : `Tidak ada order berstatus "online / dikirim" yang belum datang sampai tanggal ${formatFriendlyDate(tgl, false)}.`;
+            if (btnSimpan) btnSimpan.disabled = !sudah || !canEditPage('online');
             if (btnSemua) {
                 btnSemua.disabled = !daftar.length || !canEditPage('online');
                 const semua = daftar.length > 0 && sudah === daftar.length;
@@ -4536,16 +4586,15 @@
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-16 text-center">
                     <div class="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-4"><i class="fa-solid fa-box-open text-xl"></i></div>
                     <h3 class="font-bold text-slate-800">Tidak Ada Kiriman</h3>
-                    <p class="text-slate-500 text-sm mt-1">Tidak ada barang bercara beli <b>Online / dikirim</b> yang dijadwalkan datang pada tanggal ini.
+                    <p class="text-slate-500 text-sm mt-1">Semua barang online sudah datang, atau belum ada yang dipesan.
                        Cara beli diatur di <b>Database &amp; Vendor → Atur Produk</b>.</p>
                 </div>`;
                 return;
             }
 
-            /* Dikelompokkan per VENDOR, bukan per barang. Menagih kiriman yang
-               belum datang berarti menghubungi satu toko dan menanyakan seluruh
-               barangnya sekaligus — daftar yang urut per barang membuat orang
-               menelepon toko yang sama tiga kali. */
+            /* Dikelompokkan per VENDOR: satu toko biasanya mengirim beberapa
+               barang sekaligus, dan yang membongkar kiriman mencentangnya
+               sekaligus juga. */
             const grup = {};
             daftar.forEach(o => {
                 const m = appState.products[o.item] || {};
@@ -4558,77 +4607,122 @@
                 const items = grup[vendor].slice().sort((a, b) =>
                     String(a.item || '').localeCompare(String(b.item || '')));
                 const nSudah = items.filter(o => onlineCentang.has(Number(o.rowIndex))).length;
-                const beres = nSudah === items.length;
-                const nTelat = items.filter(o => onlineTelat(o, tgl) && !onlineCentang.has(Number(o.rowIndex))).length;
-                const baris = items.map(o => {
-                    const on = onlineCentang.has(Number(o.rowIndex));
-                    const div = divisiOrder(o);
-                    const telat = onlineTelat(o, tgl);
-                    const tandaTelat = telat && !on;
-                    return `
-                    <button type="button" ${bisaUbah ? `onclick="toggleOnlineBaris(${Number(o.rowIndex)})"` : 'disabled'}
-                        class="w-full text-left flex items-center gap-3 px-4 py-3 border-t transition-all ${on ? 'bg-emerald-50/60 border-slate-100' : (tandaTelat ? 'bg-rose-50/70 border-rose-100 border-l-4 border-l-rose-500 hover:bg-rose-50' : 'border-slate-100 hover:bg-slate-50')} ${bisaUbah ? '' : 'cursor-default'}">
-                        <span class="w-5 h-5 flex-none rounded-md border-2 flex items-center justify-center text-[10px] ${on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 text-transparent'}">
-                            <i class="fa-solid fa-check"></i>
-                        </span>
-                        <span class="min-w-0 flex-1">
-                            <span class="block text-[13px] font-bold ${on ? 'text-emerald-800 line-through decoration-emerald-300' : 'text-slate-800'} truncate">${o.item}</span>
-                            <span class="block text-[10px] text-slate-500 mt-0.5">${div}${o.pic ? ' &middot; ' + o.pic : ''}</span>
-                            ${telat ? `<span class="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-lg ${on ? 'bg-slate-100 text-slate-500 border border-slate-200' : 'bg-rose-600 text-white border border-rose-600'} text-[10px] font-black uppercase tracking-wide">
-                                ⚠️ Telat ${telat} hari · dijadwalkan ${formatFriendlyDate(normalizeDateToYYYYMMDD(o.tglDatang), false)}</span>` : ''}
-                            ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
-                        </span>
-                        <span class="shrink-0 text-right">
-                            <span class="block text-[15px] font-black whitespace-nowrap ${on ? 'text-emerald-700' : 'text-slate-900'}">
-                                ${o.qty}<span class="text-[11px] font-bold text-slate-500 ml-1">${o.unit || ''}</span>
-                            </span>
-                            ${(o.kedatangan || '') === 'Datang'
-                                ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-wider">Tersimpan</span>'
-                                : (on ? '<span class="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[9px] font-black uppercase tracking-wider">Belum disimpan</span>' : '')}
-                        </span>
-                    </button>`;
-                }).join('');
-
-                const wa = (appState.vendors[vendor] || {}).whatsapp || '';
+                const baris = items.map(o => barisTerima('online', o, onlineCentang.has(Number(o.rowIndex)), bisaUbah)).join('');
                 return `
-                <div class="bg-white border ${beres ? 'border-emerald-200' : (nTelat ? 'border-rose-300' : 'border-slate-200')} rounded-2xl shadow-sm overflow-hidden">
-                    <div class="px-4 py-3 flex items-center justify-between gap-3 ${beres ? 'bg-emerald-50' : (nTelat ? 'bg-rose-50' : 'bg-slate-50')}">
+                <div class="bg-white border ${nSudah === items.length ? 'border-emerald-200' : 'border-slate-200'} rounded-2xl shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 flex items-center justify-between gap-3 ${nSudah === items.length ? 'bg-emerald-50' : 'bg-slate-50'}">
                         <div class="min-w-0">
                             <div class="text-[13px] font-black text-slate-800 truncate">🛒 ${vendor}</div>
                             <div class="text-[10px] text-slate-500 mt-0.5">${items.length} barang dikirim</div>
                         </div>
-                        <div class="shrink-0 flex items-center gap-1.5">
-                            <!-- Tombol tagih hanya muncul kalau memang ada yang
-                                 telat DAN nomornya diketahui. Tombol yang selalu
-                                 ada tapi separuh waktu tidak bisa dipakai akan
-                                 tetap ditekan, lalu dianggap rusak. -->
-                            ${nTelat && wa ? `<a href="https://wa.me/${wa}" target="_blank" rel="noopener"
-                                 class="px-2 py-1 rounded-full text-[10px] font-black bg-white border border-rose-300 text-rose-700 hover:bg-rose-50 whitespace-nowrap">Tagih</a>` : ''}
-                            ${nTelat ? `<span class="px-2 py-1 rounded-full text-[10px] font-black bg-rose-600 text-white whitespace-nowrap">⚠️ ${nTelat} belum datang</span>` : ''}
-                            <span class="px-2.5 py-1 rounded-full text-[10px] font-black ${beres ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${nSudah}/${items.length}</span>
-                        </div>
+                        <span class="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-black ${nSudah === items.length ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${nSudah}/${items.length}</span>
                     </div>
                     ${baris}
                 </div>`;
             }).join('');
+            // Selisih & kotak keterangan dipulihkan SESUDAH digambar — nilainya
+            // hidup di onlineAktual, bukan di DOM yang barusan dibuat ulang.
+            daftar.forEach(o => segarkanSelisihOnline(Number(o.rowIndex)));
+        }
+
+        /* ---- SATU PENGGAMBAR BARIS untuk Barang Online & Jemput Hari Ini ----
+           Keduanya menanyakan hal yang sama begitu barangnya ada di tangan:
+           berapa yang datang, dan kalau beda kenapa. Ditulis dua kali, kotak
+           jumlahnya akan berbeda perilakunya di dua halaman yang dipakai orang
+           yang sama — dan yang begitu selalu berakhir sebagai "kok di sini
+           tidak bisa". `pre` = 'online' | 'jemput', menentukan state mana yang
+           dipakai; sisanya identik. */
+        function barisTerima(pre, o, on, bisaUbah) {
+            const row = Number(o.rowIndex);
+            const nilai = (pre === 'online') ? onlineNilai(o) : jemputNilai(o);
+            const div = divisiOrder(o);
+            return `
+            <div class="border-t ${on ? 'bg-emerald-50/60 border-slate-100' : 'border-slate-100'}">
+              <button type="button" ${bisaUbah ? `onclick="toggle${pre === 'online' ? 'Online' : 'Jemput'}Baris(${row})"` : 'disabled'}
+                  class="w-full text-left flex items-center gap-3 px-4 py-3 transition-all ${on ? '' : 'hover:bg-slate-50'} ${bisaUbah ? '' : 'cursor-default'}">
+                  <span class="w-5 h-5 flex-none rounded-md border-2 flex items-center justify-center text-[10px] ${on ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 text-transparent'}">
+                      <i class="fa-solid fa-check"></i>
+                  </span>
+                  <span class="min-w-0 flex-1">
+                      <span class="block text-[13px] font-bold ${on ? 'text-emerald-800' : 'text-slate-800'} truncate">${o.item}</span>
+                      <span class="block text-[10px] text-slate-500 mt-0.5">${div}${o.pic ? ' &middot; ' + o.pic : ''} &middot; dijadwalkan ${formatFriendlyDate(normalizeDateToYYYYMMDD(o.tglDatang), false)}</span>
+                      ${o.note && o.note !== '-' ? `<span class="block text-[10px] text-amber-700 mt-0.5">📝 ${o.note}</span>` : ''}
+                  </span>
+                  <span class="shrink-0 text-right">
+                      <span class="block text-[15px] font-black whitespace-nowrap ${on ? 'text-emerald-700' : 'text-slate-900'}">
+                          ${o.qty}<span class="text-[11px] font-bold text-slate-500 ml-1">${o.unit || ''}</span>
+                      </span>
+                      <span class="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">dipesan</span>
+                  </span>
+              </button>
+              <!-- JUMLAH YANG BENAR-BENAR DATANG (15 Agustus 2026, permintaan
+                   user). Hanya muncul sesudah barisnya dicentang: sebelum
+                   barangnya ada di tangan, tidak ada yang bisa dihitung, dan
+                   kotak yang selalu terbuka membuat daftar 30 baris jadi 30
+                   kotak isian yang hampir semuanya tidak perlu disentuh. -->
+              ${on && bisaUbah ? `
+              <div class="px-4 pb-3 pl-12 space-y-2">
+                  <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Datang</span>
+                      <input type="number" step="any" min="0" value="${nilai.qty}"
+                             oninput="set${pre === 'online' ? 'Online' : 'Jemput'}Qty(${row}, this.value)"
+                             class="w-24 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-right focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
+                      <span class="text-[11px] font-bold text-slate-500">${o.unit || ''}</span>
+                      <span id="${pre}-selisih-${row}"></span>
+                  </div>
+                  <div id="${pre}-note-wrap-${row}" class="hidden">
+                      <input type="text" value="${String(nilai.note).replace(/"/g, '&quot;')}" maxlength="300"
+                             placeholder="kenapa jumlahnya beda? mis. 2 botol pecah, sisanya menyusul"
+                             oninput="set${pre === 'online' ? 'Online' : 'Jemput'}Note(${row}, this.value)"
+                             class="w-full border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50">
+                  </div>
+              </div>` : ''}
+            </div>`;
         }
 
         /* Menulis ke kolom kedatangan YANG SAMA dengan Jemput & Check-in
-           Penerimaan. Lihat catatan di kepala blok ini. */
+           Penerimaan, LALU mengarsipkan ordernya. Diarsipkan di sini, bukan
+           dibiarkan menunggu di Monitor Order: barang online yang sudah sampai
+           tidak menyisakan pekerjaan apa pun, dan order yang selesai tapi masih
+           nongkrong di antrean membuat antrean berhenti dibaca sebagai
+           "yang belum beres". */
         async function simpanOnline() {
-            if (!requireEditPage('online', 'Online Hari Ini')) return;
+            if (!requireEditPage('online', 'Barang Online')) return;
             if (!navigator.onLine) return showToast("Tidak Ada Internet", "Status kiriman tidak bisa disimpan saat offline.", "danger");
 
-            const tgl = onlineTglAktif();
-            const updates = [];
-            daftarOnline(tgl).forEach(o => {
+            const hariIni = tglOffsetLokal(0);
+            const updates = [], idsArsip = [], rowsArsip = [];
+            daftarOnline(onlineTglAktif()).forEach(o => {
                 const row = Number(o.rowIndex);
-                if (!row) return;
-                const on = onlineCentang.has(row);
-                if (on === ((o.kedatangan || '') === 'Datang')) return;   // tidak berubah
-                updates.push({ rowIndex: row, kedatangan: on ? 'Datang' : '', catatanAktual: on ? String(o.qty || 0) : '' });
+                if (!row || !onlineCentang.has(row)) return;
+                const n = onlineNilai(o);
+                updates.push({ rowIndex: row, kedatangan: 'Datang', catatanAktual: String(n.qty),
+                               /* TANGGAL TERIMA = hari ini, bukan tanggal yang
+                                  sedang dilihat di pemilih tanggal. Yang dicatat
+                                  adalah kapan barangnya benar-benar diterima,
+                                  dan itu selalu saat orangnya menekan tombol —
+                                  pemilih tanggal cuma alat menelusuri daftar. */
+                               tglTerima: hariIni,
+                               catatanTerima: (Number(n.qty) !== Number(o.qty || 0)) ? String(n.note || '') : '' });
+                idsArsip.push(o.nomorOrder);
+                if (row > 0) rowsArsip.push(row);
             });
-            if (!updates.length) return showToast("Tidak Ada Perubahan", "Status kiriman sudah sama dengan yang tersimpan.", "info");
+            if (!updates.length) return showToast("Belum Ada Yang Dicentang", "Centang dulu barang yang sudah datang.", "info");
+
+            /* Selisih tanpa keterangan DITOLAK. Jumlah yang berbeda dari pesanan
+               adalah satu-satunya hal di halaman ini yang perlu dijelaskan ke
+               orang lain nanti — dan kalau boleh kosong, ia akan selalu kosong,
+               lalu angkanya jadi selisih tanpa sebab yang tidak bisa ditelusuri
+               siapa pun. */
+            const bolong = updates.filter(u => {
+                const o = appState.orders.find(x => Number(x.rowIndex) === u.rowIndex);
+                return o && Number(u.catatanAktual) !== Number(o.qty || 0) && !String(u.catatanTerima).trim();
+            });
+            if (bolong.length) {
+                const o = appState.orders.find(x => Number(x.rowIndex) === bolong[0].rowIndex);
+                return showToast("Keterangan Belum Diisi",
+                    `Jumlah "${o ? o.item : ''}" yang datang berbeda dari pesanan — tulis keterangannya dulu.`, "danger");
+            }
 
             const btn = document.getElementById('btn-online-simpan');
             const htmlAsli = btn.innerHTML;
@@ -4637,15 +4731,29 @@
             try {
                 const res = await sendPostRequest({ action: 'updateKedatangan', updates }, 'orders');
                 if (!res || res.status === 'error') throw new Error((res && res.message) || 'gagal');
+                await sendPostRequest({ action: 'archive', orderIds: idsArsip, rows: rowsArsip }, 'orders');
+
                 updates.forEach(u => {
                     const t = appState.orders.find(o => Number(o.rowIndex) === u.rowIndex);
-                    if (t) t.kedatangan = u.kedatangan;
+                    if (!t) return;
+                    t.kedatangan = u.kedatangan;
+                    t.tglTerima = u.tglTerima;
+                    t.catatanTerima = u.catatanTerima;
+                    t.status = 'Arsip';
+                });
+                appState.archivedOrderIds = appState.archivedOrderIds || [];
+                appState.archivedAt = appState.archivedAt || {};
+                idsArsip.forEach(id => {
+                    if (!appState.archivedOrderIds.includes(id)) appState.archivedOrderIds.push(id);
+                    appState.archivedAt[id] = Date.now();
                 });
                 saveStateToStorage();
+                onlineCentang = new Set(); onlineAktual = {};
                 renderOnline(false);
-                showToast("Tersimpan", `${updates.length} kiriman diperbarui. Check-in Penerimaan otomatis ikut tercentang.`, "success");
-                catatLog("online_simpan", `Selesai diterima: ${updates.length} kiriman ditandai datang`,
-                         { jumlah: updates.length });
+                showToast("Tersimpan & Diarsipkan",
+                    `${updates.length} barang ditandai datang ${formatFriendlyDate(hariIni, false)} dan dipindahkan ke Arsip.`, "success");
+                catatLog("online_simpan", `Barang online diterima: ${updates.length} baris, tanggal terima ${hariIni}`,
+                         { jumlah: updates.length, tglTerima: hariIni });
             } catch (e) {
                 console.error(e);
                 showToast("Gagal Menyimpan", "Status kiriman tidak tersimpan ke server.", "danger");
@@ -5529,15 +5637,36 @@
 
             const tgl = jemputTglAktif();
             const daftar = daftarJemput(tgl);
+            const hariIni = tglOffsetLokal(0);
             const updates = [];
             daftar.forEach(o => {
                 const row = Number(o.rowIndex);
                 if (!row) return;
                 const on = jemputCentang.has(row);
                 if (on === ((o.kedatangan || '') === 'Datang')) return;   // tidak berubah
-                updates.push({ rowIndex: row, kedatangan: on ? 'Datang' : '', catatanAktual: on ? String(o.qty || 0) : '' });
+                const n = jemputNilai(o);
+                updates.push({ rowIndex: row, kedatangan: on ? 'Datang' : '',
+                               // Jumlah yang benar-benar dibawa pulang, bukan
+                               // yang dipesan (permintaan user 15 Agustus 2026).
+                               catatanAktual: on ? String(n.qty) : '',
+                               tglTerima: on ? hariIni : '',
+                               catatanTerima: (on && Number(n.qty) !== Number(o.qty || 0)) ? String(n.note || '') : '' });
             });
             if (!updates.length) return showToast("Tidak Ada Perubahan", "Status jemputan sudah sama dengan yang tersimpan.", "info");
+
+            /* Selisih tanpa keterangan DITOLAK — alasan yang sama dengan Barang
+               Online: kalau boleh kosong, ia akan selalu kosong, lalu angkanya
+               jadi selisih tanpa sebab yang tidak bisa ditelusuri siapa pun. */
+            const bolong = updates.filter(u => {
+                if (u.kedatangan !== 'Datang') return false;
+                const o = daftar.find(x => Number(x.rowIndex) === u.rowIndex);
+                return o && Number(u.catatanAktual) !== Number(o.qty || 0) && !String(u.catatanTerima).trim();
+            });
+            if (bolong.length) {
+                const o = daftar.find(x => Number(x.rowIndex) === bolong[0].rowIndex);
+                return showToast("Keterangan Belum Diisi",
+                    `Jumlah "${o ? o.item : ''}" yang dijemput berbeda dari pesanan — tulis keterangannya dulu.`, "danger");
+            }
 
             const btn = document.getElementById('btn-jemput-simpan');
             const htmlAsli = btn.innerHTML;
