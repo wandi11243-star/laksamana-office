@@ -586,6 +586,28 @@ function pur_orders_delete_row($pdo, $rowIndex) {
 // =====================================================================
 // VENDORS — peta berkunci NAMA
 // =====================================================================
+/* HARI TUTUP -> selalu array angka 0..6 (0 Minggu … 6 Sabtu, sama dengan
+   Date.getDay() di JavaScript supaya kedua sisi memakai angka yang sama; satu
+   sisi memakai 1=Senin adalah pergeseran satu hari yang tidak melempar apa pun
+   dan baru ketahuan saat ada vendor yang dihubungi tepat di hari tutupnya).
+
+   Nilai di luar 0..6 dibuang, kembar dibuang, lalu diurutkan — daftarnya
+   ditampilkan apa adanya di layar, dan urutan yang ikut urutan klik membuat
+   "Sabtu, Rabu" terbaca seperti dua vendor yang berbeda aturannya. */
+function pur_hari_normal($v) {
+  if (is_string($v)) $v = ($v === '' ? [] : explode(',', $v));
+  if (!is_array($v)) return [];
+  $out = [];
+  foreach ($v as $h) {
+    if (!is_numeric($h)) continue;
+    $n = (int)$h;
+    if ($n < 0 || $n > 6) continue;
+    if (!in_array($n, $out, true)) $out[] = $n;
+  }
+  sort($out);
+  return array_values($out);
+}
+
 function pur_vendors_ambil($pdo) {
   $out = [];
   foreach ($pdo->query("SELECT `nama`, `data` FROM `vendors` ORDER BY `nama`")->fetchAll() as $r) {
@@ -599,6 +621,11 @@ function pur_vendors_ambil($pdo) {
        centangnya tampil setengah-setengah (tidak tercentang, tapi juga tidak
        pernah sama dengan false saat dibandingkan ketat). */
     $v->perluJadwalJemput = isset($v->perluJadwalJemput) ? (bool)$v->perluJadwalJemput : false;
+    /* tutupHari: daftar hari vendor ini TUTUP, dalam angka getDay() JavaScript
+       (0 Minggu … 6 Sabtu). Dipakai Monitor Order untuk mengalihkan pesanan ke
+       vendor alternatif yang buka pada tanggal kedatangannya. [] = buka tiap
+       hari, dan itulah keadaan seluruh vendor lama yang belum punya kunci ini. */
+    $v->tutupHari = pur_hari_normal($v->tutupHari ?? null);
     $out[$r['nama']] = $v;
   }
   // (object) supaya peta kosong terkirim sebagai {} bukan [] — lihat
@@ -606,7 +633,7 @@ function pur_vendors_ambil($pdo) {
   return (object)$out;
 }
 
-function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJemput = null) {
+function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJemput = null, $tutupHari = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama vendor kosong'];
 
@@ -616,18 +643,22 @@ function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJempu
      perluJadwalJemput akan diam-diam mematikan penandanya — dan akibatnya
      tidak terlihat sampai ada order yang lolos diarsipkan tanpa jadwal
      penjemputan. */
-  if ($perluJadwalJemput === null) {
+  if ($perluJadwalJemput === null || $tutupHari === null) {
     $st = $pdo->prepare("SELECT `data` FROM `vendors` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
-    $perluJadwalJemput = false;
+    $pjLama = false; $thLama = [];
     if ($row) {
       $lama = json_decode($row['data']);
-      if (is_object($lama) && isset($lama->perluJadwalJemput)) $perluJadwalJemput = (bool)$lama->perluJadwalJemput;
+      if (is_object($lama) && isset($lama->perluJadwalJemput)) $pjLama = (bool)$lama->perluJadwalJemput;
+      if (is_object($lama) && isset($lama->tutupHari)) $thLama = pur_hari_normal($lama->tutupHari);
     }
+    if ($perluJadwalJemput === null) $perluJadwalJemput = $pjLama;
+    if ($tutupHari === null)         $tutupHari = $thLama;
   }
 
-  $rec = (object)['whatsapp' => (string)$telp, 'perluJadwalJemput' => (bool)$perluJadwalJemput];
+  $rec = (object)['whatsapp' => (string)$telp, 'perluJadwalJemput' => (bool)$perluJadwalJemput,
+                  'tutupHari' => pur_hari_normal($tutupHari)];
 
   $pdo->beginTransaction();
   try {

@@ -22,8 +22,10 @@ try {
     if ($a === 'addVendor') {
       // perluJadwalJemput dilewatkan null bila tidak dikirim — preserve-if-null,
       // sama seperti field opsional di items.php.
+      // tutupHari: daftar hari vendor tutup (0 Minggu … 6 Sabtu), aturan
+      // preserve-if-null yang sama.
       pur_json(pur_vendor_simpan($pdo, $b->vendorName ?? '', $b->vendorPhone ?? '', $b->oldVendorName ?? '',
-                                 $b->perluJadwalJemput ?? null));
+                                 $b->perluJadwalJemput ?? null, $b->tutupHari ?? null));
     }
     if ($a === 'deleteVendor') pur_json(pur_vendor_hapus($pdo, $b->vendorName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
