@@ -1600,6 +1600,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3690,6 +3700,35 @@ function chipBarang() {  }
 
 
 
+
+
+
+
+function muatXlsx() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function galatXlsx() { showToast(); }
+
+
+
+
+
+
+
+
+
+
 function csvSel() {  }
 function csvBaris() {  }
 function unduhCsv() {  }
@@ -3766,25 +3805,28 @@ function petaKolom() {  }
 
 
 
-function exportVendorCsv() { tutupHariOf(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
+function barisEksporVendor() { tutupHariOf(); }
 
 
 
 
 
 
+function exportVendorCsv() { barisEksporVendor(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
 
 
 
 
 
-function bacaVendorCsv() { uraiCsv(); petaKolom(); }
 
 
 
 
 
+function bacaVendorCsv() { bacaVendorRows(); uraiCsv(); }
+function bacaProdukCsv() { bacaProdukRows(); uraiCsv(); }
 
+function bacaVendorRows() { petaKolom(); }
 
 
 
@@ -3816,12 +3858,12 @@ function bacaVendorCsv() { uraiCsv(); petaKolom(); }
 
 
 
-function exportProdukCsv() { isiList(); areaList(); satuanDasarOf(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
 
 
 
 
 
+function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); }
 
 
 
@@ -3832,8 +3874,14 @@ function exportProdukCsv() { isiList(); areaList(); satuanDasarOf(); unduhCsv();
 
 
 
-function bacaProdukCsv() { uraiCsv(); petaKolom(); }
+function exportProdukCsv() { barisEksporProduk(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
 
+
+
+
+
+
+function bacaProdukRows() { petaKolom(); }
 
 
 
@@ -3877,6 +3925,35 @@ function set() {  }
 
 
 
+
+
+
+function exportXlsx() { muatXlsx(); galatXlsx(); barisEksporVendor(); barisEksporProduk(); tglOffsetLokal(); showToast(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pilihBerkasImpor() { requireEditPage(); }
 
 
@@ -3884,7 +3961,37 @@ function pilihBerkasImpor() { requireEditPage(); }
 
 
 
-function bacaBerkasImpor() { bacaVendorCsv(); bacaProdukCsv(); showToast(); gambarPratinjauImpor(); }
+
+
+
+
+function bacaBerkasImpor() { bacaVendorRows(); bacaProdukRows(); showToast(); gambarPratinjauImpor(); muatXlsx(); galatXlsx(); uraiCsv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
