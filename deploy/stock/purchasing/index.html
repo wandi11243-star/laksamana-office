@@ -864,15 +864,9 @@
                         <div class="overflow-x-auto">
                             <table class="w-full text-left border-collapse">
                                 <thead>
-                                    <tr class="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                        <th class="py-3 px-3">Nama Vendor</th>
-                                        <th class="py-3 px-3">WhatsApp</th>
-                                        <th class="py-3 px-3">Jadwal Jemput</th>
-                                        <th class="py-3 px-3">Hari Tutup</th>
-                                        <th class="py-3 px-3">Vendor Utama Untuk</th>
-                                        <th class="py-3 px-3">Alternatif Untuk</th>
-                                        <th class="py-3 px-3 text-right">Aksi</th>
-                                    </tr>
+                                    <!-- Kepala kolom digambar JS supaya panah
+                                         urutannya ikut keadaan; lihat thPur(). -->
+                                    <tr id="vendor-head" class="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap"></tr>
                                 </thead>
                                 <tbody id="vendor-list" class="divide-y divide-slate-100"></tbody>
                             </table>
@@ -954,17 +948,7 @@
                                          caraBeli, sumber, packIsi) — cuma tidak pernah
                                          ditampilkan, jadi satu-satunya cara memeriksanya
                                          adalah membuka modal edit satu per satu. -->
-                                    <tr class="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
-                                        <th class="py-3 px-4">Nama Bahan Baku</th>
-                                        <th class="py-3 px-4">Kategori</th>
-                                        <th class="py-3 px-4">Area</th>
-                                        <th class="py-3 px-4">Vendor Utama</th>
-                                        <th class="py-3 px-4">Vendor Alternatif</th>
-                                        <th class="py-3 px-4">Satuan</th>
-                                        <th class="py-3 px-4">Cara Beli</th>
-                                        <th class="py-3 px-4">Pack</th>
-                                        <th class="py-3 px-4 text-right">Aksi</th>
-                                    </tr>
+                                    <tr id="product-head" class="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap"></tr>
                                 </thead>
                                 <tbody id="product-mapping-list" class="divide-y divide-slate-100"></tbody>
                             </table>
@@ -1466,11 +1450,18 @@
                     <div id="prod-carabeli-wrap">
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Cara Beli</label>
                         <select id="prod-carabeli" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                          <option value="">Belum ditentukan</option>
+                          <!-- Kosong = DIANTAR, bukan "belum ditentukan"
+                               (15 Agustus 2026, permintaan user). Diantar memang
+                               keadaan bawaan hampir semua vendor; menyebutnya
+                               belum ditentukan membuat 200-an baris terlihat
+                               seperti pekerjaan yang tertinggal padahal tidak
+                               ada yang perlu dikerjakan. Nilai simpanannya tetap
+                               '' — lihat labelCaraBeli(). -->
+                          <option value="">Diantar vendor</option>
                           <option value="online">Online / dikirim</option>
                           <option value="jemput">Jemput sendiri</option>
                         </select>
-                        <span class="text-[10px] text-slate-400 mt-1 block">Yang <b>jemput sendiri</b> muncul di daftar jemput harian modul Ordering.</span>
+                        <span class="text-[10px] text-slate-400 mt-1 block">Yang <b>jemput sendiri</b> muncul di daftar jemput harian modul Ordering; yang <b>online</b> muncul di tab <b>Barang Online</b>. <b>Diantar</b> = vendor mengantar sendiri, tidak perlu ditunggu di daftar mana pun.</span>
                     </div>
                 </div>
 
@@ -3595,6 +3586,58 @@
 
         function cariVendor(q) { vendorQuery = String(q || "").toLowerCase().trim(); vendorHal = 1; renderDatabaseTab(); }
         function cariProduk(q) { produkQuery = String(q || "").toLowerCase().trim(); produkHal = 1; renderDatabaseTab(); }
+
+        /* ====== PENGURUTAN KOLOM (15 Agustus 2026, permintaan user) ======
+           Satu mesin untuk kedua tabel. Tiap tabel menyetor peta "kunci kolom ->
+           cara mengambil nilainya"; kepala yang bisa diurut cukup digambar lewat
+           thPur(). Dibuat bersama, bukan per tabel, karena dua tabel dengan dua
+           pengurut sendiri berarti dua tempat yang bisa menyimpang — dan yang
+           menyimpang tidak akan kelihatan sampai ada yang membandingkan hasilnya.
+
+           Angka diurut sebagai ANGKA, teks pakai localeCompare 'id'. Tanpa itu
+           "10" duduk sebelum "9" karena dibaca sebagai teks. */
+        /* CARA BELI: kosong BUKAN "belum ditentukan" lagi, melainkan DIANTAR
+           (15 Agustus 2026, permintaan user). Diantar memang keadaan bawaan —
+           hampir semua vendor mengantar — jadi menyebutnya "belum ditentukan"
+           membuat 200-an baris terlihat seperti pekerjaan yang tertinggal,
+           padahal tidak ada yang perlu dikerjakan.
+
+           NILAI TERSIMPANNYA TETAP '' , bukan diganti jadi 'antar'. Mengubahnya
+           menuntut menulis ulang 240 baris untuk sesuatu yang tidak mengubah
+           satu pun perilaku — dan tiap penulisan massal di modul ini adalah
+           kesempatan baru untuk kehilangan data. Yang berubah cuma cara
+           membacanya, dan itu dikerjakan di SATU fungsi supaya tabel, form,
+           pencarian, dan ekspor tidak bisa menyebutnya berbeda-beda. */
+        function labelCaraBeli(v) {
+            const s = String(v || '').toLowerCase();
+            return s === 'jemput' ? 'Jemput Sendiri' : s === 'online' ? 'Online' : 'Diantar';
+        }
+
+        const SORT_PUR = { vendor: { k: 'nama', d: 1 }, product: { k: 'nama', d: 1 } };
+        function urutKolomPur(prefix, k) {
+            const s = SORT_PUR[prefix]; if (!s) return;
+            if (s.k === k) s.d = -s.d; else { s.k = k; s.d = 1; }
+            // Kembali ke halaman 1: urutan baru berarti baris yang berbeda
+            // sepenuhnya, dan bertahan di halaman 7 setelah diurut ulang
+            // memperlihatkan potongan tengah yang tidak dicari siapa pun.
+            if (prefix === 'vendor') vendorHal = 1; else produkHal = 1;
+            renderDatabaseTab();
+        }
+        function thPur(prefix, k, label, kelas) {
+            const s = SORT_PUR[prefix], on = s.k === k;
+            return `<th class="py-3 px-3 cursor-pointer select-none hover:text-slate-600 transition-colors ${kelas || ''}"
+                        onclick="urutKolomPur('${prefix}','${k}')" title="Urutkan menurut ${label}">
+                ${label}<span class="ml-1 ${on ? 'text-indigo-500' : 'text-slate-300'}">${on ? (s.d > 0 ? '▲' : '▼') : '↕'}</span></th>`;
+        }
+        function urutkanPur(list, prefix, peta) {
+            const s = SORT_PUR[prefix], amb = peta[s.k] || peta['nama'];
+            if (!amb) return list;
+            return list.slice().sort((a, b) => {
+                const x = amb(a), y = amb(b);
+                if (typeof x === 'number' && typeof y === 'number') return (x - y) * s.d;
+                return String(x == null ? '' : x).localeCompare(String(y == null ? '' : y), 'id') * s.d;
+            });
+        }
         function halamanVendor(d) { vendorHal += d; renderDatabaseTab(); }
         function halamanProduk(d) { produkHal += d; renderDatabaseTab(); }
 
@@ -3903,7 +3946,7 @@
                 return [n, m.kategori || '', areaList(m).join(CSV_SUB), m.utama || '',
                         (Array.isArray(m.cadangan) ? m.cadangan : []).join(CSV_SUB),
                         (Array.isArray(m.satuan) ? m.satuan : []).join(CSV_SUB),
-                        satuanDasarOf(m), isi, m.caraBeli || '', m.sumber || '',
+                        satuanDasarOf(m), isi, labelCaraBeli(m.caraBeli), m.sumber || '',
                         m.packIsi || 0, m.packSatuan || '', capYa(m.diOutlet)];
             });
         }
@@ -3945,7 +3988,13 @@
                     });
                     return o;
                 });
-                set('Cara Beli', 'caraBeli', v => v.toLowerCase());
+                /* Label dibaca balik ke nilai simpanannya. Yang tidak dikenal jadi ''
+                   = Diantar, sama dengan aturan server (pur_product_simpan
+                   hanya mengakui 'online' & 'jemput'). */
+                set('Cara Beli', 'caraBeli', v => {
+                    const s = String(v || '').toLowerCase();
+                    return s.indexOf('jemput') > -1 ? 'jemput' : s.indexOf('online') > -1 ? 'online' : '';
+                });
                 set('Sumber', 'sumber', v => v.toLowerCase());
                 set('Isi Pack', 'packIsi', v => parseFloat(v) || 0);
                 set('Satuan Dasar Pack', 'packSatuan');
@@ -4112,11 +4161,40 @@
             vendorList.innerHTML = '';
 
             // Saring dulu, baru potong per halaman.
-            const namaVendor = Object.keys(appState.vendors).filter(n => {
-                if (!vendorQuery) return true;
-                const wa = String((appState.vendors[n] || {}).whatsapp || '');
-                return n.toLowerCase().includes(vendorQuery) || wa.includes(vendorQuery);
-            });
+            /* DICARI DI SELURUH KOLOM (15 Agustus 2026, permintaan user), bukan
+               cuma nama & nomor. Pertanyaan yang dibawa ke kotak ini bukan
+               selalu "vendor bernama apa" — sering justru "siapa yang tutup
+               Minggu" atau "siapa yang memasok Ayam Fillet", dan jawabannya ada
+               di kolom yang dulu tidak ikut dicari. Teks pencariannya disusun
+               dari yang TAMPIL di layar, jadi apa pun yang terbaca di tabel
+               bisa dipakai mencarinya. */
+            const teksCariVendor = n => {
+                const v = appState.vendors[n] || {};
+                const p = barangVendor(n);
+                return [n, v.whatsapp || '', v.perluJadwalJemput ? 'perlu jadwal jemput' : 'hari yang sama',
+                        labelTutup(n) || 'buka tiap hari', p.utama.join(' '), p.cadangan.join(' ')]
+                       .join(' ').toLowerCase();
+            };
+            const kepalaV = document.getElementById('vendor-head');
+            if (kepalaV) kepalaV.innerHTML =
+                thPur('vendor', 'nama', 'Nama Vendor') + thPur('vendor', 'wa', 'WhatsApp') +
+                thPur('vendor', 'jemput', 'Jadwal Jemput') + thPur('vendor', 'tutup', 'Hari Tutup') +
+                thPur('vendor', 'utama', 'Vendor Utama Untuk') + thPur('vendor', 'cadangan', 'Alternatif Untuk') +
+                '<th class="py-3 px-3 text-right">Aksi</th>';
+
+            const namaVendor = urutkanPur(
+                Object.keys(appState.vendors).filter(n =>
+                    !vendorQuery || teksCariVendor(n).includes(vendorQuery)),
+                'vendor', {
+                    nama: n => n.toLowerCase(),
+                    wa: n => String((appState.vendors[n] || {}).whatsapp || ''),
+                    jemput: n => (appState.vendors[n] || {}).perluJadwalJemput ? 1 : 0,
+                    // Diurut menurut BERAPA hari tutupnya, bukan tulisannya:
+                    // "Min, Sen" vs "Sab" sebagai teks tidak menjawab apa pun.
+                    tutup: n => tutupHariOf(n).length,
+                    utama: n => barangVendor(n).utama.length,
+                    cadangan: n => barangVendor(n).cadangan.length
+                });
 
             const pv = potongHalaman(vendorHal, 'vendor', namaVendor.length);
             vendorHal = pv.hal;
@@ -4159,14 +4237,45 @@
             const productList = document.getElementById('product-mapping-list');
             productList.innerHTML = '';
 
-            // Cocokkan nama bahan, vendor utama, DAN vendor cadangan — supaya
-            // "vendor ini memasok apa saja" bisa dijawab dari kotak yang sama.
-            const namaProduk = Object.keys(appState.products).filter(n => {
-                if (!produkQuery) return true;
+            /* SELURUH KOLOM ikut dicari (15 Agustus 2026, permintaan user).
+               Dulu cuma nama bahan + vendor utama + cadangan, jadi "cari semua
+               yang CHILLER ITEM" atau "yang dijemput sendiri" mustahil dijawab
+               dari kotak ini — padahal itu justru cara orang menyisir 240 baris.
+               Disusun dari yang TAMPIL, termasuk label cara belinya. */
+            const teksCariProduk = n => {
                 const m = appState.products[n] || {};
-                const cadangan = Array.isArray(m.cadangan) ? m.cadangan.join(' ') : '';
-                return (n + ' ' + (m.utama || '') + ' ' + cadangan).toLowerCase().includes(produkQuery);
-            });
+                return [n, m.kategori || '', areaList(m).join(' '), m.utama || '',
+                        (Array.isArray(m.cadangan) ? m.cadangan : []).join(' '),
+                        (Array.isArray(m.satuan) ? m.satuan : []).join(' '),
+                        satuanDasarOf(m), isiList(m).map(r => r[0]).join(' '),
+                        labelCaraBeli(m.caraBeli),
+                        m.sumber === 'ck' ? 'central kitchen' : (m.sumber === 'both' ? 'vendor & ck' : ''),
+                        m.packSatuan || ''].join(' ').toLowerCase();
+            };
+            const kepalaP = document.getElementById('product-head');
+            if (kepalaP) kepalaP.innerHTML =
+                thPur('product', 'nama', 'Nama Bahan Baku') + thPur('product', 'kategori', 'Kategori') +
+                thPur('product', 'area', 'Area') + thPur('product', 'utama', 'Vendor Utama') +
+                thPur('product', 'cadangan', 'Vendor Alternatif') + thPur('product', 'satuan', 'Satuan') +
+                thPur('product', 'carabeli', 'Cara Beli') + thPur('product', 'pack', 'Pack') +
+                '<th class="py-3 px-4 text-right">Aksi</th>';
+
+            const namaProduk = urutkanPur(
+                Object.keys(appState.products).filter(n =>
+                    !produkQuery || teksCariProduk(n).includes(produkQuery)),
+                'product', {
+                    nama: n => n.toLowerCase(),
+                    /* Yang KOSONG mengumpul di satu ujung, bukan berserak di
+                       tengah: saat mengurut menurut kategori, yang dicari justru
+                       "mana yang belum dikategorikan". */
+                    kategori: n => ((appState.products[n] || {}).kategori || 'zzz').toLowerCase(),
+                    area: n => (areaList(appState.products[n]).join(',') || 'zzz').toLowerCase(),
+                    utama: n => ((appState.products[n] || {}).utama || 'zzz').toLowerCase(),
+                    cadangan: n => ((appState.products[n] || {}).cadangan || []).length,
+                    satuan: n => ((appState.products[n] || {}).satuan || []).length,
+                    carabeli: n => labelCaraBeli((appState.products[n] || {}).caraBeli),
+                    pack: n => Number((appState.products[n] || {}).packIsi) || 0
+                });
 
             const pp = potongHalaman(produkHal, 'product', namaProduk.length);
             produkHal = pp.hal;
@@ -4239,7 +4348,9 @@
                     : kosong;
                 const badgeCaraBeli = mapping.caraBeli === 'jemput' ? chip('🛵 Jemput Sendiri', 'bg-amber-50 text-amber-800 border border-amber-200')
                                     : mapping.caraBeli === 'online' ? chip('🛒 Online', 'bg-indigo-50 text-indigo-700 border border-indigo-200')
-                                    : kosong;
+                                    // Kosong bukan lagi "—": ia keadaan yang sah,
+                                    // dan tanda hubung membacanya sebagai belum diisi.
+                                    : chip('🚚 Diantar', 'bg-slate-100 text-slate-600 border border-slate-200');
                 // Pack hanya berarti untuk barang yang ada di CK — untuk bahan
                 // vendor murni kolomnya memang tidak pernah diisi, dan menulis
                 // "Curah" di sana akan terbaca sebagai keputusan yang tak pernah diambil.

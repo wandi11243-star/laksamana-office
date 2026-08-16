@@ -1617,15 +1617,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
 function pagePerm() {  }
 
 
@@ -3594,7 +3585,59 @@ function renderConsolidatedCard() { teamBadge(); pilihVendorHari(); opsiVendorHa
 
 
 function cariVendor() { renderDatabaseTab(); }
-function cariProduk() { renderDatabaseTab(); }
+function cariProduk() { renderDatabaseTab(); thPur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function labelCaraBeli() {  }
+
+
+
+
+
+function urutKolomPur() { renderDatabaseTab(); }
+
+
+
+
+
+
+
+
+function thPur() { urutKolomPur(); }
+
+
+
+
+
+function urutkanPur() {  }
+
+
+
+
+
+
+
+
 function halamanVendor() { renderDatabaseTab(); }
 function halamanProduk() { renderDatabaseTab(); potongHalaman(); renderCKSaldo(); }
 
@@ -3896,7 +3939,7 @@ function bacaVendorRows() { petaKolom(); }
 
 
 
-function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); }
+function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); labelCaraBeli(); }
 
 
 
@@ -3926,6 +3969,12 @@ function bacaProdukRows() { petaKolom(); }
 
 
 function set() {  }
+
+
+
+
+
+
 
 
 
@@ -4107,7 +4156,67 @@ function jalankanImpor() { requireEditPage(); sendPostRequest(); showToast(); ca
 
 
 
-function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
+function renderDatabaseTab() { barangVendor(); labelTutup(); thPur(); urutkanPur(); tutupHariOf(); potongHalaman(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); areaList(); satuanDasarOf(); isiList(); labelCaraBeli(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4223,6 +4332,8 @@ function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); ch
 
 
 function chip() { areaList(); vendorPerluJadwal(); openEditProductModal(); triggerDeleteProductConfirm(); }
+
+
 
 
 
