@@ -1301,7 +1301,7 @@ function pur_settings_simpan($pdo, $modul, $data) {
 // =====================================================================
 function pur_stock_ambil($pdo) {
   $stock = [];
-  $asOf  = '';  = true;
+  $asOf  = '';
   foreach ($pdo->query("SELECT `nama`,`stock_now`,`stock_unit`,`as_of` FROM `stock`")->fetchAll() as $r) {
     $stock[$r['nama']] = (object)['stock_now' => (float)$r['stock_now'],
                                   'stock_unit' => $r['stock_unit']];
