@@ -345,6 +345,13 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="piutang"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9.5 12.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/></svg></span> Piutang / Bon</a>
         <a data-view="compliment"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7Z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7Z"/></svg></span> Compliment</a>
         <a data-view="rokok"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="13" width="16" height="6" rx="1"/><path d="M13 13v6"/><path d="M20 12v2M20 17v2"/><path d="M17 5c0 2 2 2 2 4"/></svg></span> Daily Stock Rokok</a>
+        <!-- REKAP dipisah dari INPUT (15 Agustus 2026, permintaan user).
+             Halaman Daily Stock Rokok adalah tempat MENGISI satu hari; rekap
+             bulanan dibaca dengan pertanyaan yang sama sekali berbeda ("bulan
+             ini habis berapa"). Ditumpuk di halaman yang sama, tabel isian
+             harian terdorong ke bawah rekap yang tidak sedang dicari orang
+             yang cuma mau menutup stok malam itu. -->
+        <a data-view="rokokrekap"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span> Rekap Stock Rokok</a>
         <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
         <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg></span> Dana Masuk (DP)</a>
       </div>
@@ -868,6 +875,7 @@ const TITLES={
   piutang:['Piutang / Bon','Bill yang belum dibayar tamu & owner — beserta metode POS sementaranya'],
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   rokok:['Daily Stock Rokok','Barang masuk & keluar per hari, per item'],
+  rokokrekap:['Rekap Stock Rokok','Masuk, keluar, dan sisa tiap produk sepanjang satu bulan'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
   dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
@@ -902,7 +910,8 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
+  ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,
+    rokokrekap:viewRokokRekap,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -2142,8 +2151,17 @@ const ROKOK_ITEMS=[
   {k:'dos_h_torito',    n:'Dos H. Torito'},
   {k:'gold_seal_petit', n:'Gold Seal Petit'},
   {k:'gold_seal_senor', n:'Gold Seal Senor'},
-  {k:'coin',            n:'Coin', lain:true}
+  {k:'coin',            n:'Coin', lain:true},
+  /* ESKRIM ditambahkan 15 Agustus 2026 atas permintaan user. Sama seperti Coin
+     dan Korek: bukan rokok, tapi dihitung di meja yang sama oleh orang yang
+     sama tiap malam — memisahkannya jadi halaman sendiri cuma menambah tempat
+     yang harus dibuka. */
+  {k:'eskrim',          n:'Eskrim', lain:true}
 ];
+// Kunci non-rokok PERTAMA — dipakai menaruh garis pemisah SEKALI saja. Dulu
+// pemisahnya menempel di tiap item ber-`lain`, jadi dengan dua item begitu
+// tabelnya punya dua garis dan terbaca seperti tiga kelompok.
+const ROKOK_LAIN_PERTAMA=(ROKOK_ITEMS.find(it=>it.lain)||{}).k||'';
 let rokokDate=todayISO();
 function rokokOf(date){ return (DB.rokok||{})[date]||null; }
 function rokokItem(rec,k){ const x=(rec&&rec.items&&rec.items[k])||{}; return {in:num(x.in),out:num(x.out)}; }
@@ -2166,7 +2184,7 @@ function viewRokok(){
   const awal=rokokSisaAwal(rokokDate);
   const baris=it=>{
     const v=rokokItem(rec,it.k);
-    return `<tr${it.lain?' style="border-top:2px solid var(--line)"':''}>
+    return `<tr${it.k===ROKOK_LAIN_PERTAMA?' style="border-top:2px solid var(--line)"':''}>
       <td><b>${esc(it.n)}</b>${it.lain?'<div class="muted" style="font-size:11px">bukan rokok — ikut dihitung di sini</div>':''}</td>
       <td class="num mono" id="rk_aw_${it.k}">${awal[it.k]}</td>
       <td class="num"><input class="rkf mono" data-k="${it.k}" data-f="in" inputmode="numeric" value="${v.in}" style="width:86px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td>
@@ -2249,6 +2267,102 @@ function viewRokok(){
     setTimeout(()=>render(),700);
   });
   hitung();
+}
+
+/* ============ 3b. REKAP STOCK ROKOK (BULANAN) ============
+   15 Agustus 2026, permintaan user. Halaman ini MEMBACA saja — tidak ada satu
+   pun isian di sini, dan itu disengaja: yang mengisi tetap Daily Stock Rokok
+   per hari, supaya tidak ada dua pintu menuju angka yang sama.
+
+   Bulannya mengikuti pemilih Periode di topbar (PERIOD), bukan pemilih sendiri.
+   Modul ini sudah punya satu; menambah yang kedua berarti dua kotak bulan di
+   layar yang sama yang bisa menunjuk bulan berbeda, dan tidak ada apa pun yang
+   menjelaskan mana yang sedang dipakai. */
+function rokokTanggalBulan(monthKey){
+  return Object.keys(DB.rokok||{}).filter(d=>monthKeyOf(d)===monthKey).sort();
+}
+/* Rekap satu bulan per item. `awal` = sisa sebelum tanggal 1 bulan itu, dipakai
+   ulang dari rokokSisaAwal() — bukan dihitung ulang dengan rumus sendiri, yang
+   berarti dua tempat bisa menjawab beda untuk pertanyaan yang sama. */
+function rokokRekapBulan(monthKey){
+  const tgl=rokokTanggalBulan(monthKey);
+  const awal=rokokSisaAwal(monthKey+'-01');
+  const baris=ROKOK_ITEMS.map(it=>{
+    let masuk=0,keluar=0,hariGerak=0;
+    tgl.forEach(d=>{
+      const v=rokokItem(DB.rokok[d],it.k);
+      masuk+=v.in; keluar+=v.out;
+      if(v.in||v.out) hariGerak++;
+    });
+    return {k:it.k,n:it.n,lain:!!it.lain,awal:awal[it.k],masuk,keluar,
+            akhir:awal[it.k]+masuk-keluar,hariGerak};
+  });
+  return {tgl,baris,
+    tMasuk:baris.reduce((s,b)=>s+b.masuk,0),
+    tKeluar:baris.reduce((s,b)=>s+b.keluar,0),
+    tAkhir:baris.reduce((s,b)=>s+b.akhir,0)};
+}
+function viewRokokRekap(){
+  const el=document.getElementById('app-view');
+  const R=rokokRekapBulan(PERIOD);
+  const labelBulan=(()=>{ const d=new Date(PERIOD+'-01T00:00:00');
+    return isNaN(d)?PERIOD:d.toLocaleDateString('id-ID',{month:'long',year:'numeric'}); })();
+
+  if(!R.tgl.length){
+    el.innerHTML=`<div class="card"><div class="empty"><div class="big">📦</div>
+      Belum ada catatan stock untuk <b>${esc(labelBulan)}</b>.
+      <div class="muted" style="margin-top:6px">Isi lewat menu <b>Daily Stock Rokok</b> — rekap ini menjumlah apa yang sudah dicatat di sana.</div></div></div>`;
+    return;
+  }
+
+  /* Diurut menurut KELUAR, bukan nama. Pertanyaan yang dibawa orang ke halaman
+     ini hampir selalu "apa yang paling laku / paling perlu dibeli lagi", dan
+     urutan alfabetis membuat jawabannya harus dicari dengan mata. Yang tidak
+     bergerak sama sekali tetap ditampilkan, di bawah — nol adalah jawaban yang
+     sah, dan menyembunyikannya membuat "tidak laku" tak bisa dibedakan dari
+     "belum pernah didaftarkan". */
+  const urut=R.baris.slice().sort((a,b)=>b.keluar-a.keluar||a.n.localeCompare(b.n));
+  const maxKeluar=Math.max(1,...urut.map(b=>b.keluar));
+  const nGerak=R.baris.filter(b=>b.masuk||b.keluar).length;
+  const minus=R.baris.filter(b=>b.akhir<0);
+
+  el.innerHTML=`
+    <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div><h3>Rekap ${esc(labelBulan)}</h3>
+        <div class="card-sub" style="margin:0">Dijumlah dari <b>${R.tgl.length} hari</b> yang tercatat di Daily Stock Rokok. Ganti bulannya lewat pemilih <b>Periode</b> di atas.</div></div>
+    </div>
+    <div class="grid g4">
+      <div class="stat"><div class="lab">Total Keluar</div><div class="val mono">${R.tKeluar}</div>
+        <div class="foot">${R.tgl.length?('rata-rata '+(R.tKeluar/R.tgl.length).toFixed(1)+' / hari tercatat'):''}</div></div>
+      <div class="stat"><div class="lab">Total Masuk</div><div class="val mono">${R.tMasuk}</div>
+        <div class="foot">barang yang ditambahkan bulan ini</div></div>
+      <div class="stat"><div class="lab">Sisa Akhir Bulan</div><div class="val mono">${R.tAkhir}</div>
+        <div class="foot">seluruh item digabung</div></div>
+      <div class="stat"><div class="lab">Produk Bergerak</div><div class="val mono">${nGerak} / ${R.baris.length}</div>
+        <div class="foot">${R.baris.length-nGerak} item tanpa pergerakan</div></div>
+    </div>
+    ${minus.length?`<div class="notice warn">⚠ ${minus.length} item sisa akhirnya minus (${esc(minus.map(x=>x.n).join(', '))}). Biasanya ada hari yang barang masuknya belum dicatat — periksa di <b>Daily Stock Rokok</b>.</div>`:''}
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>Produk</th><th class="num">Sisa Awal</th><th class="num">Masuk</th>
+          <th class="num">Keluar</th><th class="num">Sisa Akhir</th><th class="num">Hari Bergerak</th></tr></thead>
+        <tbody>${urut.map(b=>`<tr>
+          <td><b>${esc(b.n)}</b>${b.lain?'<div class="muted" style="font-size:11px">bukan rokok</div>':''}
+            <div style="height:4px;border-radius:3px;background:var(--line);margin-top:5px;overflow:hidden">
+              <div style="height:100%;width:${Math.round(b.keluar/maxKeluar*100)}%;background:var(--gold-dim)"></div></div></td>
+          <td class="num mono">${b.awal}</td>
+          <td class="num mono">${b.masuk||'<span class="muted">0</span>'}</td>
+          <td class="num mono"><b>${b.keluar||'<span class="muted" style="font-weight:400">0</span>'}</b></td>
+          <td class="num mono"${b.akhir<0?' style="color:var(--danger);font-weight:800"':''}>${b.akhir}</td>
+          <td class="num mono muted">${b.hariGerak} / ${R.tgl.length}</td>
+        </tr>`).join('')}</tbody>
+        <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
+          <td>TOTAL</td><td class="num mono">${R.baris.reduce((s,b)=>s+b.awal,0)}</td>
+          <td class="num mono">${R.tMasuk}</td><td class="num mono">${R.tKeluar}</td>
+          <td class="num mono">${R.tAkhir}</td><td></td>
+        </tr></tfoot>
+      </table></div>
+    </div>`;
 }
 
 /* ============ 4. PERFORMA KASIR ============ */
