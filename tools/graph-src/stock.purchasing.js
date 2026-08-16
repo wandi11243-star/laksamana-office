@@ -1486,6 +1486,32 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -2005,7 +2031,7 @@ function setUserRole() { loadUsersLocal(); renderUserList(); showToast(); saveUs
 
 
 
-function loadForecastData() { fetchSharedStock(); }
+function loadForecastData() { sama(); fetchSharedStock(); }
 
 
 
@@ -3047,7 +3073,7 @@ function forecastRecoHTML() {  }
 
 
 
-function vendorPerluJadwal() {  }
+function vendorPerluJadwal() { sama(); }
 
 
 
@@ -3435,13 +3461,7 @@ function renderConsolidatedCard() { teamBadge(); pilihVendorHari(); opsiVendorHa
 function cariVendor() { renderDatabaseTab(); }
 function cariProduk() { renderDatabaseTab(); }
 function halamanVendor() { renderDatabaseTab(); }
-function halamanProduk() { renderDatabaseTab(); }
-
-
-
-
-
-function potongHalaman() {  }
+function halamanProduk() { renderDatabaseTab(); potongHalaman(); renderCKSaldo(); }
 
 
 
@@ -3461,10 +3481,103 @@ function potongHalaman() {  }
 
 
 
+function keHalamanPager() {  }
 
 
 
-function renderDatabaseTab() { potongHalaman(); labelTutup(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
+
+
+
+function nomorHalaman() {  }
+
+
+
+
+
+
+
+
+
+
+function potongHalaman() { nomorHalaman(); keHalamanPager(); sama(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function barangVendor() {  }
+
+
+function sama() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chipBarang() {  }
+
+
+
+
+
+
+
+
+
+
+function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
+
+
+
 
 
 
