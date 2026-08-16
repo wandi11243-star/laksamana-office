@@ -1512,6 +1512,58 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -2217,7 +2269,11 @@ function formatFriendlyDate() {  }
 
 
 
-function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); siapkanLog(); }
+function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); renderOnline(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); siapkanLog(); }
+
+
+
+
 
 
 
@@ -4327,6 +4383,239 @@ function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); forma
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function onlineTglAktif() { tglOffsetLokal(); }
+
+
+
+
+function setOnlineHari() { tglOffsetLokal(); renderOnline(); sama(); }
+
+
+
+
+
+
+
+
+
+
+function daftarOnline() { caraBeliProduk(); pesananCK(); normalizeDateToYYYYMMDD(); onlineTelat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function onlineTelat() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+function toggleOnlineBaris() { renderOnline(); }
+
+
+
+
+
+function tandaiSemuaOnline() { daftarOnline(); onlineTglAktif(); renderOnline(); }
+
+
+
+
+
+
+
+function renderOnline() { onlineTglAktif(); daftarOnline(); onlineTelat(); formatFriendlyDate(); canEditPage(); divisiOrder(); toggleOnlineBaris(); normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanOnline() { requireEditPage(); showToast(); onlineTglAktif(); daftarOnline(); sendPostRequest(); saveStateToStorage(); renderOnline(); catatLog(); }
 
 
 
