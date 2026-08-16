@@ -1034,6 +1034,19 @@
                     </span>
                 </label>
 
+                <!-- HARI TUTUP (15 Agustus 2026, permintaan user). Ada vendor
+                     yang libur di hari tertentu; pesanan yang kedatangannya
+                     jatuh di hari itu harus diarahkan ke vendor alternatif yang
+                     buka. Sebelum ini tidak ada tempat menyimpan faktanya, jadi
+                     satu-satunya penjaganya adalah ingatan petugas yang
+                     kebetulan tahu — dan yang tidak tahu mengirim chat ke toko
+                     tutup lalu baru sadar besoknya, saat barangnya tidak datang. -->
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Hari Tutup <span class="text-slate-400 font-semibold normal-case">(opsional)</span></label>
+                    <div id="vend-tutup-hari" class="grid grid-cols-7 gap-1.5"></div>
+                    <span class="text-[10px] text-slate-400 mt-1.5 block font-medium">Pesanan yang <b>kedatangannya</b> jatuh di hari tutup akan otomatis diarahkan ke <b>vendor alternatif</b> yang buka hari itu. Tidak dicentang = buka tiap hari.</span>
+                </div>
+
                 <div class="flex gap-2 pt-3">
                     <button type="button" onclick="closeVendorModal()" class="w-1/2 border border-slate-200 text-slate-600 text-xs font-bold py-3 rounded-xl hover:bg-slate-50 transition-all font-sans">Batal</button>
                     <button type="submit" id="btn-submit-vendor" class="w-1/2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-100 font-sans">Simpan Vendor</button>
@@ -3038,6 +3051,88 @@
             const v = (appState.vendors || {})[namaVendor];
             return !!(v && v.perluJadwalJemput);
         }
+
+        /* ====== HARI TUTUP VENDOR (15 Agustus 2026, permintaan user) ======
+           Angkanya SAMA dengan Date.getDay(): 0 Minggu … 6 Sabtu. Server memakai
+           angka yang sama (pur_hari_normal). Satu sisi memakai 1=Senin adalah
+           pergeseran satu hari yang tidak melempar apa pun — ia cuma membuat
+           chat mendarat di toko yang tutup, dan itu baru ketahuan besoknya saat
+           barangnya tidak datang. */
+        const HARI_NAMA = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+        const HARI_SINGKAT = ['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+
+        function tutupHariOf(namaVendor) {
+            const v = (appState.vendors || {})[namaVendor];
+            const raw = v && v.tutupHari;
+            const l = Array.isArray(raw) ? raw : (typeof raw === 'string' ? raw.split(',') : []);
+            const out = [];
+            l.forEach(x => { const n = parseInt(x, 10); if (n >= 0 && n <= 6 && out.indexOf(n) < 0) out.push(n); });
+            return out.sort();
+        }
+        /* Tanggalnya bisa datang dalam beberapa bentuk (YYYY-MM-DD dari server,
+           atau teks lain dari data lama), jadi dinormalkan dulu lewat jalur yang
+           sama dengan sisa modul ini. TANGGAL YANG TIDAK TERBACA memulangkan
+           null, dan seluruh pemanggil memperlakukan null sebagai "tidak tahu" —
+           bukan sebagai "buka". Menebak buka akan membuat pengalihannya diam
+           justru pada baris yang datanya paling berantakan. */
+        function hariDari(tgl) {
+            const s = normalizeDateToYYYYMMDD(tgl);
+            if (!s) return null;
+            const d = new Date(s + 'T00:00:00');
+            return isNaN(d) ? null : d.getDay();
+        }
+        function vendorTutupPada(namaVendor, tgl) {
+            const h = hariDari(tgl);
+            if (h === null) return false;
+            return tutupHariOf(namaVendor).indexOf(h) > -1;
+        }
+        function labelTutup(namaVendor) {
+            const t = tutupHariOf(namaVendor);
+            return t.length ? t.map(n => HARI_SINGKAT[n]).join(', ') : '';
+        }
+        /* Vendor mana yang dipakai untuk tanggal ini: yang utama kalau buka,
+           kalau tidak alternatif PERTAMA yang buka. Urutan cadangan dihormati
+           apa adanya — itu urutan prioritas yang sudah disusun purchasing, dan
+           memilih "yang mana saja yang buka" akan mengabaikannya.
+
+           Memulangkan {pakai, alasan, tutup, adaGanti} supaya pemanggil bisa
+           MENJELASKAN pengalihannya, bukan cuma diam-diam mengganti pilihan.
+           Pengalihan yang tidak dijelaskan adalah pengalihan yang akan dianggap
+           kesalahan layar oleh orang yang menekan tombolnya. */
+        function pilihVendorHari(utama, cadangan, tgl) {
+            const daftar = Array.isArray(cadangan) ? cadangan : [];
+            if (!vendorTutupPada(utama, tgl)) return { pakai: utama, tutup: false, adaGanti: false };
+            const ganti = daftar.find(v => (appState.vendors || {})[v] && v !== utama && !vendorTutupPada(v, tgl));
+            return { pakai: ganti || utama, tutup: true, adaGanti: !!ganti };
+        }
+        /* Pita penjelasan di atas dropdown. Dipakai kartu individual maupun
+           gabungan supaya keduanya tidak menjelaskan hal yang sama dengan dua
+           kalimat berbeda. */
+        function pitaVendorTutup(hasil, utama, tgl) {
+            if (!hasil.tutup) return '';
+            const h = hariDari(tgl);
+            const namaHari = h === null ? 'hari itu' : HARI_NAMA[h];
+            return hasil.adaGanti
+                ? `<div class="text-[11px] leading-relaxed font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2 mb-1.5">
+                     🚫 <b>${utama}</b> tutup hari <b>${namaHari}</b> — dialihkan ke <b>${hasil.pakai}</b> yang buka.
+                     <span class="block font-medium text-amber-700">Masih bisa diganti sendiri lewat pilihan di bawah.</span></div>`
+                : `<div class="text-[11px] leading-relaxed font-semibold text-rose-900 bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-2 mb-1.5">
+                     🚫 <b>${utama}</b> tutup hari <b>${namaHari}</b>, dan <b>tidak ada vendor alternatif yang buka</b>.
+                     <span class="block font-medium text-rose-700">Tambahkan vendor alternatif di Database &amp; Vendor, atau geser tanggal kedatangannya.</span></div>`;
+        }
+        /* Satu penyusun <option> untuk kedua kartu. Vendor yang tutup TETAP
+           ditawarkan, cuma diberi keterangan — kadang toko memang mau dihubungi
+           di hari tutupnya untuk kiriman besoknya, dan mengunci pilihannya
+           berarti memaksa orang mengarang data supaya bisa lanjut. */
+        function opsiVendorHari(utama, cadangan, tgl, terpilih) {
+            const ket = v => vendorTutupPada(v, tgl) ? ' — TUTUP hari ini' : '';
+            let h = `<option value="${utama}"${terpilih === utama ? ' selected' : ''}>Utama: ${utama}${ket(utama)}</option>`;
+            (cadangan || []).forEach(v => {
+                if (!(appState.vendors || {})[v] || v === utama) return;
+                h += `<option value="${v}"${terpilih === v ? ' selected' : ''}>Alternatif: ${v}${ket(v)}</option>`;
+            });
+            return h;
+        }
         function vendorUtamaOrder(ord) {
             const m = (appState.products || {})[ord && ord.item];
             return (m && m.utama) || '';
@@ -3132,16 +3227,18 @@
                         🍳 Barang <b>Central Kitchen</b> — diproduksi dapur sendiri, tidak dipesan ke vendor.
                         Permintaannya dilayani lewat modul <b>Ordering → Central Kitchen</b>.</div>`;
                 } else if (!tanpaVendor) {
-                    let optionsHTML = `<option value="${vendorUtama}">Utama: ${vendorUtama}</option>`;
-                    vendorsCadangan.forEach(vc => {
-                        if (appState.vendors[vc]) {
-                            optionsHTML += `<option value="${vc}">Alternatif: ${vc}</option>`;
-                        }
-                    });
+                    /* Vendor yang dipakai ditentukan TANGGAL KEDATANGAN, bukan
+                       hari ini: order yang dibuat Sabtu untuk datang Senin harus
+                       dinilai terhadap Senin. Yang terpilih di dropdown sudah
+                       hasil pengalihannya, jadi tombol Kirim Draf WhatsApp
+                       langsung menunjuk vendor yang benar tanpa perlu diubah. */
+                    const hariVd = pilihVendorHari(vendorUtama, vendorsCadangan, ord.tglDatang);
+                    const optionsHTML = opsiVendorHari(vendorUtama, vendorsCadangan, ord.tglDatang, hariVd.pakai);
 
                     actionsHTML += `
                         <div class="space-y-1.5">
                             <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Kirim via Vendor:</label>
+                            ${pitaVendorTutup(hariVd, vendorUtama, ord.tglDatang)}
                             <select id="vendor-select-${ord.nomorOrder}" class="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 bg-white">
                                 ${optionsHTML}
                             </select>
@@ -3260,12 +3357,13 @@
                 }
             });
 
-            let optionsHTML = `<option value="${group.vendor}">Utama: ${group.vendor}</option>`;
-            alternativeVendors.forEach(vc => {
-                if (appState.vendors[vc] && vc !== group.vendor) {
-                    optionsHTML += `<option value="${vc}">Alternatif: ${vc}</option>`;
-                }
-            });
+            /* Sama seperti kartu individual: dinilai terhadap tanggal
+               KEDATANGAN grup ini. Urutan cadangan dari Set mengikuti urutan
+               penyisipannya, yaitu urutan cadangan tiap barang — jadi prioritas
+               yang sudah disusun purchasing tetap terhormati. */
+            const cadanganGrup = [...alternativeVendors];
+            const hariGrup = pilihVendorHari(group.vendor, cadanganGrup, group.tglDatang);
+            const optionsHTML = opsiVendorHari(group.vendor, cadanganGrup, group.tglDatang, hariGrup.pakai);
 
             const itemIdsStr = group.items.map(o => `'${o.nomorOrder}'`).join(',');
             const rowIndicesArr = group.items.map(o => o.rowIndex);
@@ -3302,6 +3400,7 @@
                     
                     <div class="space-y-1.5 mb-2">
                         <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Kirim Borongan via Vendor:</label>
+                        ${pitaVendorTutup(hariGrup, group.vendor, group.tglDatang)}
                         <select id="vendor-select-${cardId}" class="w-full border border-slate-200 rounded-lg p-2 text-xs font-semibold focus:ring-1 focus:ring-indigo-500 bg-white shadow-sm">
                             ${optionsHTML}
                         </select>
@@ -3397,6 +3496,7 @@
                         <h4 class="font-bold text-sm text-slate-900">${name}</h4>
                         <p class="text-xs text-slate-500 font-mono mt-0.5">${item.whatsapp}</p>
                         ${item.perluJadwalJemput ? `<span class="inline-flex items-center px-2 py-0.5 mt-1.5 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">📅 Perlu jadwal penjemputan</span>` : ''}
+                        ${labelTutup(name) ? `<span class="inline-flex items-center px-2 py-0.5 mt-1.5 ml-1 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Pesanan yang kedatangannya jatuh di hari ini dialihkan ke vendor alternatif yang buka">🚫 Tutup ${labelTutup(name)}</span>` : ''}
                     </div>
                     <div class="flex items-center gap-1">
                         <button onclick="openEditVendorModal('${name}')" class="p-1 text-slate-400 hover:text-indigo-600 rounded-lg transition-colors">
@@ -5301,7 +5401,13 @@
 
             try {
                 const perluJadwalJemput = document.getElementById('vend-jadwal-jemput').checked;
-                const result = await sendPostRequest({ action: 'addVendor', vendorName: name, vendorPhone: phone, oldVendorName: editKey, perluJadwalJemput: perluJadwalJemput }, 'vendors');
+                /* Dikirim sebagai TEKS DIPISAH KOMA, bukan array — alasan yang
+                   sama dengan `area` di bahan baku: server versi lama tidak
+                   punya parameter ini sama sekali dan akan mengabaikannya, tapi
+                   jalur lain yang meneruskannya apa adanya akan menyimpan kata
+                   "Array". Teks koma mendarat utuh di kedua versi. */
+                const tutupHari = bacaTutupHari();
+                const result = await sendPostRequest({ action: 'addVendor', vendorName: name, vendorPhone: phone, oldVendorName: editKey, perluJadwalJemput: perluJadwalJemput, tutupHari: tutupHari.join(',') }, 'vendors');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Vendor "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
                     catatLog(editKey ? "vendor_ubah" : "vendor_tambah",
@@ -6056,7 +6162,38 @@
             document.getElementById('vend-name').removeAttribute('readonly');
             document.getElementById('vend-phone').value = "";
             document.getElementById('vend-jadwal-jemput').checked = false;
+            renderTutupHari([]);              // vendor baru: dianggap buka tiap hari
             toggleModal('modal-vendor', true);
+        }
+
+        /* Tujuh tombol hari. Urutannya SENIN dulu, bukan Minggu, walau angkanya
+           tetap 0=Minggu — orang membaca minggu kerja dari Senin, dan urutan
+           yang mengikuti angka internal membuat "Minggu" duduk di kolom paling
+           kiri sebagai hari pertama. Angkanya tidak ikut digeser: yang bergeser
+           cuma urutan gambar, sedangkan value-nya tetap getDay(). */
+        const HARI_URUT_TAMPIL = [1,2,3,4,5,6,0];
+        function renderTutupHari(terpilih){
+            const box = document.getElementById('vend-tutup-hari');
+            if (!box) return;
+            const dipakai = new Set((terpilih || []).map(Number));
+            box.innerHTML = HARI_URUT_TAMPIL.map(n => `
+                <label class="flex flex-col items-center gap-1 py-1.5 rounded-lg border cursor-pointer text-[10px] font-bold transition-all
+                              ${dipakai.has(n) ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}">
+                    <input type="checkbox" name="vend-hari-check" value="${n}" ${dipakai.has(n) ? 'checked' : ''}
+                           onchange="renderTutupHari(bacaTutupHari())" class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500">
+                    ${HARI_SINGKAT[n]}
+                </label>`).join('');
+        }
+        /* DIURUTKAN, bukan mengikuti urutan gambar. Kotaknya digambar Senin
+           dulu, jadi urutan DOM-nya 1,2,3,4,5,6,0 — dan mencentang Minggu +
+           Senin akan terkirim sebagai "1,0". Server memang mengurutkannya lagi,
+           tapi kirimannya sendiri jadi tidak deterministik: yang tercatat di log
+           aktivitas dan yang terlihat saat menelusuri jaringan berbeda dari yang
+           tersimpan, dan beda itu memakan waktu justru saat sedang mencari
+           penyebab sesuatu. */
+        function bacaTutupHari(){
+            return Array.from(document.querySelectorAll('input[name="vend-hari-check"]:checked'))
+                        .map(cb => Number(cb.value)).sort((a,b) => a-b);
         }
 
         function openEditVendorModal(name) {
@@ -6066,6 +6203,7 @@
             document.getElementById('vend-name').removeAttribute('readonly'); 
             document.getElementById('vend-phone').value = appState.vendors[name].whatsapp;
             document.getElementById('vend-jadwal-jemput').checked = !!appState.vendors[name].perluJadwalJemput;
+            renderTutupHari(tutupHariOf(name));
             toggleModal('modal-vendor', true);
         }
         function closeVendorModal() { toggleModal('modal-vendor', false); }
