@@ -429,6 +429,13 @@
 
 
 
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -872,6 +879,7 @@ function syncKendaliPeriode() { modeHarian(); }
 
 
 
+
 function go() { bolehLihat(); render(); }
 
 
@@ -897,6 +905,7 @@ function go() { bolehLihat(); render(); }
 function clearCharts() {  }
 
 function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO(); }
+
 
 
 
@@ -2145,6 +2154,15 @@ function emptyCanvas() { todayISO(); }
 
 
 
+
+
+
+
+
+
+
+
+
 function rokokOf() {  }
 function rokokItem() {  }
 
@@ -2202,6 +2220,102 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); jeja
 
 
 function hitung() { nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rokokTanggalBulan() { rokokSisaAwal(); }
+
+
+
+
+
+function rokokRekapBulan() { rokokTanggalBulan(); rokokSisaAwal(); rokokItem(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewRokokRekap() { rokokRekapBulan(); }
+
+
+function labelBulan() {  }
+
+
+
+
+
+
+
+
+
+
 
 
 
