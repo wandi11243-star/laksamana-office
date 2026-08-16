@@ -35,7 +35,10 @@ try {
                                   $b->diOutlet ?? null,
                                   // satuanDasar/isi: ukuran satuan per barang,
                                   // ikut aturan preserve-if-null yang sama.
-                                  $b->satuanDasar ?? null, $b->isi ?? null));
+                                  $b->satuanDasar ?? null, $b->isi ?? null,
+                                  // aktif: barang yang berhenti dipakai tidak lagi
+                                  // ditawarkan saat memesan, tapi datanya utuh.
+                                  $b->aktif ?? null));
     }
     // Impor massal dari Excel/CSV. Upsert berdasarkan NAMA; tidak ada yang
     // dihapus. Lihat catatan panjang di pur_products_impor.

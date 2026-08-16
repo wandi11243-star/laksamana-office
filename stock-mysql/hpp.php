@@ -534,6 +534,29 @@ try {
       $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n')->execute(array(':n' => $n));
       pur_json(['status' => 'success', 'saved' => true]);
     }
+    /* HAPUS BAHAN YANG NAMANYA SUDAH ADA DI DAFTAR RESEP (15 Agustus 2026,
+       permintaan user). Barang yang dibuat sendiri hidup sebagai RESEP; barisnya
+       di hpp_bahan cuma bayangan yang tidak pernah dibaca — penghitung modal
+       mengambil sisi resep lebih dulu (lihat modalResep di layar).
+
+       Dihitung DI SERVER, bukan menerima daftar nama dari layar: layar cuma
+       memegang halaman yang sedang tampil, dan daftar yang dikirim sebagian
+       akan menyisakan sisanya tanpa ada yang tahu. Perbandingannya
+       case-insensitive lewat LOWER(), sama dengan cara layar mencocokkannya.
+
+       TIDAK menyentuh hpp_resep sama sekali: yang dibuang bayangannya, bukan
+       resepnya. */
+    if ($a === 'hapusBahanSamaResep') {
+      $st = $pdo->query('SELECT b.nama FROM hpp_bahan b
+                          WHERE LOWER(b.nama) IN (SELECT LOWER(r.nama) FROM hpp_resep r)');
+      $nama = array_map(function ($x) { return $x['nama']; }, $st->fetchAll());
+      if ($nama) {
+        $pdo->prepare('DELETE FROM hpp_bahan
+                        WHERE LOWER(nama) IN (SELECT LOWER(r.nama) FROM (SELECT nama FROM hpp_resep) r)')
+            ->execute();
+      }
+      pur_json(['status' => 'success', 'dihapus' => count($nama), 'nama' => array_slice($nama, 0, 50)]);
+    }
     if ($a === 'simpanResep') {
       $d = $b->data ?? new stdClass();
       $hasil = hpp_simpan_resep($pdo, $d, $by);

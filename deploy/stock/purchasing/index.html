@@ -1373,6 +1373,22 @@
                      "Botol". Satuan yang diberi ukuran otomatis ikut jadi
                      satuan sah barang ini, jadi ia langsung bisa dipilih di
                      form order. -->
+                <!-- AKTIF / NON-AKTIF (15 Agustus 2026, permintaan user).
+                     Barang yang berhenti dipakai tidak dihapus — riwayat order
+                     dan saldo CK-nya menunjuk ke baris ini, dan menghapusnya
+                     membuat rekap bulan-bulan lalu kehilangan namanya. Ia cuma
+                     berhenti ditawarkan saat memesan. -->
+                <label class="flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                    <input type="checkbox" id="prod-aktif" checked class="mt-0.5 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                    <span class="text-xs leading-relaxed text-slate-700">
+                        <b>Bahan ini masih dipakai</b>
+                        <span class="block text-[11px] text-slate-500 mt-0.5 font-medium">
+                            Kalau dimatikan, namanya <b>tidak lagi muncul saat kru mencari bahan di form order</b>.
+                            Datanya tetap utuh — riwayat order, harga, dan saldo CK-nya tidak hilang.
+                        </span>
+                    </span>
+                </label>
+
                 <div id="prod-ukuran-wrap">
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Ukuran Satuan <span class="text-rose-500 font-bold normal-case">(wajib)</span></label>
                     <div class="border border-slate-200 rounded-xl p-3 bg-slate-50 space-y-3">
@@ -3608,6 +3624,12 @@
            kesempatan baru untuk kehilangan data. Yang berubah cuma cara
            membacanya, dan itu dikerjakan di SATU fungsi supaya tabel, form,
            pencarian, dan ekspor tidak bisa menyebutnya berbeda-beda. */
+        /* AKTIF: satu pembaca untuk semua tempat. Tidak punya kunci `aktif` =
+           AKTIF — 240 bahan lama tidak punya kunci ini, dan menganggapnya
+           non-aktif akan mengosongkan daftar pilihan di form order sekaligus.
+           Aturan yang sama ditegakkan server di pur_products_ambil. */
+        function bahanAktif(m) { return !m || m.aktif !== false; }
+
         function labelCaraBeli(v) {
             const s = String(v || '').toLowerCase();
             return s === 'jemput' ? 'Jemput Sendiri' : s === 'online' ? 'Online' : 'Diantar';
@@ -3938,7 +3960,7 @@
         // ---------- BAHAN BAKU ----------
         const KOL_PRODUK = ['Nama Bahan Baku', 'Kategori', 'Area', 'Vendor Utama', 'Vendor Alternatif',
                             'Satuan', 'Satuan Terkecil', 'Ukuran Satuan', 'Cara Beli', 'Sumber',
-                            'Isi Pack', 'Satuan Dasar Pack', 'Disimpan Di Outlet'];
+                            'Isi Pack', 'Satuan Dasar Pack', 'Disimpan Di Outlet', 'Aktif'];
         function barisEksporProduk() {
             return Object.keys(appState.products || {}).sort().map(n => {
                 const m = appState.products[n] || {};
@@ -3947,7 +3969,7 @@
                         (Array.isArray(m.cadangan) ? m.cadangan : []).join(CSV_SUB),
                         (Array.isArray(m.satuan) ? m.satuan : []).join(CSV_SUB),
                         satuanDasarOf(m), isi, labelCaraBeli(m.caraBeli), m.sumber || '',
-                        m.packIsi || 0, m.packSatuan || '', capYa(m.diOutlet)];
+                        m.packIsi || 0, m.packSatuan || '', capYa(m.diOutlet), capYa(bahanAktif(m))];
             });
         }
         function exportProdukCsv() {
@@ -3999,6 +4021,7 @@
                 set('Isi Pack', 'packIsi', v => parseFloat(v) || 0);
                 set('Satuan Dasar Pack', 'packSatuan');
                 set('Disimpan Di Outlet', 'diOutlet', bacaYa);
+                set('Aktif', 'aktif', bacaYa);
                 out.push(rec);
             });
             return { rows: out, bolong };
@@ -4250,7 +4273,8 @@
                         satuanDasarOf(m), isiList(m).map(r => r[0]).join(' '),
                         labelCaraBeli(m.caraBeli),
                         m.sumber === 'ck' ? 'central kitchen' : (m.sumber === 'both' ? 'vendor & ck' : ''),
-                        m.packSatuan || ''].join(' ').toLowerCase();
+                        m.packSatuan || '',
+                        bahanAktif(m) ? 'aktif' : 'non-aktif'].join(' ').toLowerCase();
             };
             const kepalaP = document.getElementById('product-head');
             if (kepalaP) kepalaP.innerHTML =
@@ -4258,6 +4282,7 @@
                 thPur('product', 'area', 'Area') + thPur('product', 'utama', 'Vendor Utama') +
                 thPur('product', 'cadangan', 'Vendor Alternatif') + thPur('product', 'satuan', 'Satuan') +
                 thPur('product', 'carabeli', 'Cara Beli') + thPur('product', 'pack', 'Pack') +
+                thPur('product', 'aktif', 'Aktif') +
                 '<th class="py-3 px-4 text-right">Aksi</th>';
 
             const namaProduk = urutkanPur(
@@ -4274,14 +4299,17 @@
                     cadangan: n => ((appState.products[n] || {}).cadangan || []).length,
                     satuan: n => ((appState.products[n] || {}).satuan || []).length,
                     carabeli: n => labelCaraBeli((appState.products[n] || {}).caraBeli),
-                    pack: n => Number((appState.products[n] || {}).packIsi) || 0
+                    pack: n => Number((appState.products[n] || {}).packIsi) || 0,
+                    // Non-aktif dulu (0): mengurut kolom ini hampir selalu
+                    // berarti "mana saja yang sudah dimatikan".
+                    aktif: n => bahanAktif(appState.products[n]) ? 1 : 0
                 });
 
             const pp = potongHalaman(produkHal, 'product', namaProduk.length);
             produkHal = pp.hal;
 
             if (namaProduk.length === 0) {
-                productList.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-xs text-slate-400 italic">${produkQuery
+                productList.innerHTML = `<tr><td colspan="10" class="text-center py-6 text-xs text-slate-400 italic">${produkQuery
                     ? `Tidak ada aturan yang cocok dengan "${produkQuery}".`
                     : 'Belum ada aturan distribusi bahan baku tersambung.'}</td></tr>`;
             }
@@ -4387,6 +4415,9 @@
                     </td>
                     <td class="py-3 px-4 align-top">${badgeCaraBeli}</td>
                     <td class="py-3 px-4 align-top">${badgePack}</td>
+                    <td class="py-3 px-4 align-top">${bahanAktif(mapping)
+                        ? chip('✓ Aktif', 'bg-emerald-50 text-emerald-700 border border-emerald-200')
+                        : chip('✕ Non-aktif', 'bg-slate-200 text-slate-600 border border-slate-300')}</td>
                     <td class="py-3 px-4 text-right align-top">
                         <div class="flex items-center justify-end gap-1">
                             <button onclick="openEditProductModal('${name}')" class="p-1 text-slate-400 hover:text-indigo-600 rounded-lg">
@@ -7099,7 +7130,7 @@
             }
 
             try {
-                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet, satuanDasar: ukuran.satuanDasar, isi: ukuran.isi }, 'items');
+                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet, satuanDasar: ukuran.satuanDasar, isi: ukuran.isi, aktif: document.getElementById('prod-aktif').checked }, 'items');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Aturan "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
                     catatLog(editKey ? "bahan_ubah" : "bahan_tambah",
@@ -7412,6 +7443,7 @@
             renderUnitCheckboxes([]);      // bahan baru: belum ada satuan yang ditetapkan
             document.getElementById('prod-kategori').value = '';
             renderAreaCheckboxes([]);      // bahan baru: belum ada area -> Umum
+            document.getElementById('prod-aktif').checked = true;   // bahan baru selalu aktif
             pasangUkuran(null);            // bahan baru: belum ada ukuran satuan
             document.getElementById('prod-carabeli').value = '';
             document.getElementById('prod-pack-isi').value = '';
@@ -7462,6 +7494,8 @@
             renderUnitCheckboxes(mapping.satuan || []);
             document.getElementById('prod-kategori').value = mapping.kategori || '';
             renderAreaCheckboxes(areaList(mapping));
+            // Tanpa kunci  = bahan lama = aktif. Lihat pur_products_ambil.
+            document.getElementById('prod-aktif').checked = (mapping.aktif !== false);
             pasangUkuran(mapping);
             document.getElementById('prod-carabeli').value = mapping.caraBeli || '';
 
