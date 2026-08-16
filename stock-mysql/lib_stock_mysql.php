@@ -643,6 +643,80 @@ function pur_hari_normal($v) {
   return array_values($out);
 }
 
+/* ==================================================================
+   IMPOR MASSAL (15 Agustus 2026, permintaan user) — vendor & bahan baku.
+
+   Keduanya MEMAKAI ULANG pur_vendor_simpan / pur_product_simpan baris demi
+   baris, bukan menulis INSERT sendiri. Jalur simpan satuan itu sudah memuat
+   belasan aturan yang tidak kelihatan dari luar: pemaksaan satuan barang CK,
+   pembersihan ukuran satuan, penyelarasan diOutlet untuk sumber 'both',
+   perambatan ganti nama ke HPP. Impor yang menulis langsung ke tabel akan
+   melewati semuanya, dan barang yang masuk lewat Excel jadi berbeda aturan
+   dari barang yang diketik di layar — beda yang tidak akan terlihat sampai
+   ada yang membandingkan dua barang yang seharusnya sama.
+
+   TIDAK ADA YANG DIHAPUS. Baris yang ada di database tapi tidak ada di berkas
+   dibiarkan apa adanya. Ekspor memang menyertakan seluruh isi, jadi
+   bolak-balik ekspor–impor tidak kehilangan apa pun; tapi menghapus baris
+   yang "hilang dari berkas" berarti satu salah filter di Excel bisa
+   menghapus ratusan bahan baku, dan tidak ada cara mengembalikannya.
+
+   KUNCINYA NAMA, tidak peduli besar-kecil huruf — itu pula kunci tabelnya.
+   Jadi baris yang namanya sudah ada MEMPERBARUI, bukan menambah kembar. */
+function pur_impor_hitung($pdo, $tabel) {
+  $ada = [];
+  foreach ($pdo->query("SELECT `nama` FROM `$tabel`")->fetchAll() as $r) {
+    $ada[mb_strtolower(trim($r['nama']))] = true;
+  }
+  return $ada;
+}
+
+function pur_vendors_impor($pdo, $rows) {
+  if (!is_array($rows)) return ['status' => 'error', 'message' => 'rows bukan array'];
+  $ada = pur_impor_hitung($pdo, 'vendors');
+  $baru = 0; $ubah = 0; $lewat = 0; $galat = [];
+  foreach ($rows as $r) {
+    if (!is_object($r)) { $lewat++; continue; }
+    $nm = trim((string)($r->nama ?? ''));
+    if ($nm === '') { $lewat++; continue; }
+    $k = mb_strtolower($nm);
+    $sebelum = isset($ada[$k]);
+    $res = pur_vendor_simpan($pdo, $nm, $r->whatsapp ?? '', '',
+                             $r->perluJadwalJemput ?? null, $r->tutupHari ?? null);
+    if (is_array($res) && ($res['status'] ?? '') === 'error') { $galat[] = $nm; continue; }
+    if ($sebelum) $ubah++; else { $baru++; $ada[$k] = true; }
+  }
+  return ['status' => 'success', 'baru' => $baru, 'diubah' => $ubah,
+          'dilewati' => $lewat, 'galat' => $galat];
+}
+
+function pur_products_impor($pdo, $rows) {
+  if (!is_array($rows)) return ['status' => 'error', 'message' => 'rows bukan array'];
+  $ada = pur_impor_hitung($pdo, 'products');
+  $baru = 0; $ubah = 0; $lewat = 0; $galat = [];
+  foreach ($rows as $r) {
+    if (!is_object($r)) { $lewat++; continue; }
+    $nm = trim((string)($r->nama ?? ''));
+    if ($nm === '') { $lewat++; continue; }
+    $k = mb_strtolower($nm);
+    $sebelum = isset($ada[$k]);
+    /* namaLama SENGAJA kosong: impor tidak pernah mengganti nama. Nama di
+       berkas yang berbeda dari yang tersimpan berarti BARANG BARU, bukan
+       barang lama yang berganti nama — tidak ada kolom di berkas yang bisa
+       memberitahu yang mana. Mengganti nama tetap lewat layar, di mana ada
+       peringatan soal order lama yang ikut terdampak. */
+    $res = pur_product_simpan($pdo, $nm, $r->utama ?? '', $r->cadangan ?? [], '',
+             $r->satuan ?? null, $r->kategori ?? null, $r->area ?? null,
+             $r->caraBeli ?? null, $r->sumber ?? null, $r->packIsi ?? null,
+             $r->packSatuan ?? null, $r->diOutlet ?? null,
+             $r->satuanDasar ?? null, $r->isi ?? null);
+    if (is_array($res) && ($res['status'] ?? '') === 'error') { $galat[] = $nm; continue; }
+    if ($sebelum) $ubah++; else { $baru++; $ada[$k] = true; }
+  }
+  return ['status' => 'success', 'baru' => $baru, 'diubah' => $ubah,
+          'dilewati' => $lewat, 'galat' => $galat];
+}
+
 function pur_vendors_ambil($pdo) {
   $out = [];
   foreach ($pdo->query("SELECT `nama`, `data` FROM `vendors` ORDER BY `nama`")->fetchAll() as $r) {

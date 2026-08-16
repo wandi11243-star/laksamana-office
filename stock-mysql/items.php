@@ -37,6 +37,9 @@ try {
                                   // ikut aturan preserve-if-null yang sama.
                                   $b->satuanDasar ?? null, $b->isi ?? null));
     }
+    // Impor massal dari Excel/CSV. Upsert berdasarkan NAMA; tidak ada yang
+    // dihapus. Lihat catatan panjang di pur_products_impor.
+    if ($a === 'importProducts') pur_json(pur_products_impor($pdo, $b->rows ?? null));
     if ($a === 'deleteProduct') pur_json(pur_product_hapus($pdo, $b->productName ?? ''));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }

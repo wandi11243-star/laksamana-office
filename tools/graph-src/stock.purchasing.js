@@ -1564,6 +1564,42 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3630,6 +3666,307 @@ function chipBarang() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function csvSel() {  }
+function csvBaris() {  }
+function unduhCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function uraiCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function petaKolom() {  }
+
+
+
+
+
+
+
+
+
+
+
+function exportVendorCsv() { tutupHariOf(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+function bacaVendorCsv() { uraiCsv(); petaKolom(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function exportProdukCsv() { isiList(); areaList(); satuanDasarOf(); unduhCsv(); tglOffsetLokal(); csvBaris(); showToast(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bacaProdukCsv() { uraiCsv(); petaKolom(); }
+
+
+
+
+
+
+
+
+
+
+
+function set() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihBerkasImpor() { requireEditPage(); }
+
+
+
+
+
+
+function bacaBerkasImpor() { bacaVendorCsv(); bacaProdukCsv(); showToast(); gambarPratinjauImpor(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarPratinjauImpor() { toggleModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tutupImpor() { toggleModal(); }
+
+function jalankanImpor() { requireEditPage(); sendPostRequest(); showToast(); catatLog(); tutupImpor(); fetchSheetData(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
 
 
@@ -5539,11 +5876,11 @@ function simpanMutasiCK() { requireEditPage(); showToast(); tglOffsetLokal(); re
 
 
 
-function setArahRiwayatCK() {  }
+function setArahRiwayatCK() { renderCKMutasi(); }
 
 
 
-function set() { renderCKMutasi(); }
+
 
 
 
