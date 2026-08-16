@@ -1616,6 +1616,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -5002,7 +5012,7 @@ function tandaiSemuaOnline() { daftarOnline(); renderOnline(); }
 
 
 
-function renderOnline() { daftarOnline(); canEditPage(); normalizeDateToYYYYMMDD(); barisTerima(); formatFriendlyDate(); segarkanSelisihOnline(); }
+function renderOnline() { daftarOnline(); tglOffsetLokal(); canEditPage(); normalizeDateToYYYYMMDD(); barisTerima(); formatFriendlyDate(); segarkanSelisihOnline(); }
 
 
 
@@ -5097,7 +5107,6 @@ function renderOnline() { daftarOnline(); canEditPage(); normalizeDateToYYYYMMDD
 
 
 
-function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFriendlyDate(); normalizeDateToYYYYMMDD(); }
 
 
 
@@ -5108,6 +5117,7 @@ function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFrie
 
 
 
+function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFriendlyDate(); normalizeDateToYYYYMMDD(); canEditPage(); batalTerimaOnline(); }
 
 
 
@@ -5125,6 +5135,73 @@ function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFrie
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function batalTerimaOnline() { requireEditPage(); showToast(); sendPostRequest(); saveStateToStorage(); renderOnline(); catatLog(); }
 
 
 
@@ -5152,6 +5229,11 @@ function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFrie
 
 
 function simpanOnline() { requireEditPage(); showToast(); tglOffsetLokal(); daftarOnline(); onlineNilai(); sendPostRequest(); saveStateToStorage(); renderOnline(); formatFriendlyDate(); catatLog(); }
+
+
+
+
+
 
 
 
