@@ -93,6 +93,17 @@ function pur_order_dari_baris($r) {
      semua lingkungan sejak awal.
      Dinormalkan ke string supaya frontend tidak pernah menerima undefined. */
   $o->tglJemput  = isset($o->tglJemput) ? (string)$o->tglJemput : '';
+  /* tglTerima & catatanTerima: KAPAN barangnya benar-benar sampai, dan
+     keterangan kalau jumlahnya ternyata berbeda dari yang dipesan
+     (15 Agustus 2026). Ikut di dalam `data` dengan alasan yang sama persis
+     dengan tglJemput di atas — kolom baru menuntut ALTER TABLE, dan migrasi di
+     modul ini berkali-kali tertinggal di produksi.
+
+     DIBEDAKAN dari `catatan` (jumlah aktual). Menumpuk "berapa yang datang" dan
+     "kenapa berbeda" di satu kolom membuat angkanya tidak bisa dijumlah lagi
+     begitu ada yang menuliskan alasannya. */
+  $o->tglTerima     = isset($o->tglTerima) ? (string)$o->tglTerima : '';
+  $o->catatanTerima = isset($o->catatanTerima) ? (string)$o->catatanTerima : '';
   return $o;
 }
 
@@ -494,6 +505,19 @@ function pur_orders_update_kedatangan($pdo, $updates) {
              `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'),
                         '$.kedatangan', ?, '$.catatan', ?)
        WHERE `row_index` = ?");
+    /* Statement KEDUA untuk pemanggil yang ikut mengirim tanggal terima &
+       keterangan selisih. Dipisah, bukan satu statement yang selalu menulis
+       keduanya: pemanggil lama (Check-in Penerimaan di modul Ordering) tidak
+       mengirim field ini, dan menulis '' untuknya akan MENGHAPUS tanggal terima
+       yang sudah dicatat halaman Barang Online — diam-diam, karena
+       menghapusnya bukan error. */
+    $st2 = $pdo->prepare(
+      "UPDATE `orders`
+         SET `kedatangan` = ?,
+             `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'),
+                        '$.kedatangan', ?, '$.catatan', ?,
+                        '$.tglTerima', ?, '$.catatanTerima', ?)
+       WHERE `row_index` = ?");
     $n = 0;
     foreach ($updates as $u) {
       if (!is_object($u) || !isset($u->rowIndex)) continue;
@@ -502,8 +526,19 @@ function pur_orders_update_kedatangan($pdo, $updates) {
       $kdt  = (string)($u->kedatangan ?? '');
       // catatanAktual bisa angka atau teks; disimpan apa adanya sebagai string.
       $cat  = isset($u->catatanAktual) ? (string)$u->catatanAktual : '';
-      $st->execute([$kdt, $kdt, $cat, $row]);
-      $n += $st->rowCount();
+      if (isset($u->tglTerima) || isset($u->catatanTerima)) {
+        $tt = trim((string)($u->tglTerima ?? ''));
+        // Bentuknya divalidasi seperti tglJemput: apa pun selain YYYY-MM-DD
+        // ditolak jadi kosong, supaya tidak ada tanggal berformat asing yang
+        // lolos lalu tidak pernah cocok dengan tanggal mana pun.
+        if ($tt !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $tt)) $tt = '';
+        $ct = mb_substr(trim((string)($u->catatanTerima ?? '')), 0, 300);
+        $st2->execute([$kdt, $kdt, $cat, $tt, $ct, $row]);
+        $n += $st2->rowCount();
+      } else {
+        $st->execute([$kdt, $kdt, $cat, $row]);
+        $n += $st->rowCount();
+      }
     }
     $pdo->commit();
     return ['status' => 'success', 'updated' => $n];

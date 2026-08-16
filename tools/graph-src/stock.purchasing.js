@@ -1512,6 +1512,58 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -2217,7 +2269,11 @@ function formatFriendlyDate() {  }
 
 
 
-function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); siapkanLog(); }
+function switchTab() { applyPagePerms(); canViewPage(); showToast(); renderDashboard(); renderJemput(); renderOnline(); bukaCK(); renderDatabaseTab(); updateOverviewStats(); openUserManager(); siapkanLog(); }
+
+
+
+
 
 
 
@@ -4067,6 +4123,39 @@ function caraBeliProduk() {  }
 
 
 
+function jemputNilai() {  }
+
+
+
+
+
+function setJemputQty() { segarkanSelisihJemput(); }
+
+
+
+
+
+function setJemputNote() {  }
+
+
+
+
+function segarkanSelisihJemput() { jemputNilai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function jemputTglAktif() { tglOffsetLokal(); }
 
 
@@ -4206,7 +4295,7 @@ function tandaiSemuaJemput() { daftarJemput(); jemputTglAktif(); renderJemput();
 
 
 
-function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); pesananCK(); divisiOrder(); toggleJemputBaris(); tglJemputEfektif(); }
+function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); formatFriendlyDate(); canEditPage(); pesananCK(); barisTerima(); segarkanSelisihJemput(); }
 
 
 
@@ -4290,6 +4379,314 @@ function renderJemput() { jemputTglAktif(); daftarJemput(); jemputTelat(); forma
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function onlineTglAktif() { tglOffsetLokal(); }
+
+
+
+
+function setOnlineHari() { tglOffsetLokal(); renderOnline(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function daftarOnline() { caraBeliProduk(); pesananCK(); jemputTerarsip(); normalizeDateToYYYYMMDD(); onlineUmur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function onlineUmur() { normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+function onlineNilai() {  }
+
+
+
+
+
+function setOnlineQty() { segarkanSelisihOnline(); }
+
+
+
+
+
+
+
+function setOnlineNote() {  }
+
+
+
+
+function segarkanSelisihOnline() { onlineNilai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function toggleOnlineBaris() { renderOnline(); }
+
+
+
+
+
+function tandaiSemuaOnline() { daftarOnline(); onlineTglAktif(); renderOnline(); }
+
+
+
+
+
+
+
+function renderOnline() { onlineTglAktif(); daftarOnline(); formatFriendlyDate(); canEditPage(); barisTerima(); segarkanSelisihOnline(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function barisTerima() { onlineNilai(); jemputNilai(); divisiOrder(); formatFriendlyDate(); normalizeDateToYYYYMMDD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanOnline() { requireEditPage(); showToast(); tglOffsetLokal(); daftarOnline(); onlineTglAktif(); onlineNilai(); sendPostRequest(); saveStateToStorage(); renderOnline(); formatFriendlyDate(); catatLog(); }
 
 
 
@@ -5234,7 +5631,28 @@ function hapusMutasiCK() { requireEditPage(); openConfirmModal(); muatCK(); show
 
 
 
-function simpanJemput() { requireEditPage(); showToast(); jemputTglAktif(); daftarJemput(); sendPostRequest(); saveStateToStorage(); renderJemput(); muatCK(); catatLog(); }
+function simpanJemput() { requireEditPage(); showToast(); jemputTglAktif(); daftarJemput(); tglOffsetLokal(); jemputNilai(); sendPostRequest(); saveStateToStorage(); renderJemput(); muatCK(); catatLog(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
