@@ -129,12 +129,21 @@ function hpp_pastikan_tabel2($pdo) {
 function hpp_pastikan_kolom($pdo) {
   $cek = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
                          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :c');
+  /* dibeli_jadi (17 Agustus 2026): "barang ini dibeli ke vendor walaupun ada
+     resep/menu bernama sama". Bawaannya 0 — yang menyatakan sah adalah bukti
+     (ada baris resep yang memakainya sebagai Bahan) atau saklar ini, dan
+     bawaan 1 akan menyatakan sah 296 bahan sekaligus tanpa ada yang memutuskan.
+     Lihat catatan panjang di tabrakan() pada deploy/stock/hpp/index.html. */
   foreach (array(array('hpp_bahan', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 1'),
+                 array('hpp_bahan', 'dibeli_jadi',   'TINYINT(1) NOT NULL DEFAULT 0'),
                  array('hpp_resep', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 0')) as $k) {
     $cek->execute(array(':t' => $k[0], ':c' => $k[1]));
     if ((int)$cek->fetchColumn()) continue;
     $pdo->exec('ALTER TABLE `' . $k[0] . '` ADD COLUMN `' . $k[1] . '` ' . $k[2]);
-    if ($k[0] === 'hpp_bahan') {
+    /* Syaratnya kolomnya, BUKAN cuma tabelnya: sejak hpp_bahan punya dua kolom
+       yang ditambahkan lewat jalur ini, `$k[0] === 'hpp_bahan'` saja akan
+       menjalankan backfill di_purchasing lagi saat dibeli_jadi lahir. */
+    if ($k[0] === 'hpp_bahan' && $k[1] === 'di_purchasing') {
       /* Warisan: bahan yang dulu ditandai "mandiri" (produk = '-') adalah
          persis bahan yang user nyatakan tidak dibeli lewat purchasing. Saklarnya
          dimatikan sekali di sini supaya keputusan itu tidak perlu diulang. */
@@ -170,6 +179,7 @@ function hpp_ambil($pdo) {
        pernah kelihatan sampai HPP satu menu terlihat aneh. */
     $b['per1'] = $b['qty_beli'] > 0 ? $b['harga_beli'] / $b['qty_beli'] : 0;
     $b['di_purchasing'] = isset($b['di_purchasing']) ? (int)$b['di_purchasing'] : 1;
+    $b['dibeli_jadi']   = isset($b['dibeli_jadi'])   ? (int)$b['dibeli_jadi']   : 0;
   }
   unset($b);
   $resep = $pdo->query('SELECT * FROM hpp_resep ORDER BY jenis, tipe, nama')->fetchAll(PDO::FETCH_ASSOC);
@@ -251,11 +261,12 @@ function hpp_simpan_bahan($pdo, $d, $by) {
      rujukan BERUPA NAMA, jadi penggantian nama tanpa menyentuh resep akan
      memutus rujukan diam-diam — karena itu resep ikut ditambal di bawah. */
   $st = $pdo->prepare(
-    'INSERT INTO hpp_bahan (nama,satuan,qty_beli,harga_beli,vendor,produk,kategori,catatan,di_purchasing,updated_at,updated_by)
-     VALUES (:n,:s,:q,:h,:v,:p,:k,:c,:dp,:ua,:ub)
+    'INSERT INTO hpp_bahan (nama,satuan,qty_beli,harga_beli,vendor,produk,kategori,catatan,di_purchasing,dibeli_jadi,updated_at,updated_by)
+     VALUES (:n,:s,:q,:h,:v,:p,:k,:c,:dp,:dj,:ua,:ub)
      ON DUPLICATE KEY UPDATE satuan=VALUES(satuan), qty_beli=VALUES(qty_beli),
        harga_beli=VALUES(harga_beli), vendor=VALUES(vendor), produk=VALUES(produk),
        kategori=VALUES(kategori), catatan=VALUES(catatan), di_purchasing=VALUES(di_purchasing),
+       dibeli_jadi=VALUES(dibeli_jadi),
        updated_at=VALUES(updated_at), updated_by=VALUES(updated_by)');
   $st->execute(array(
     ':n' => $nama,
@@ -270,6 +281,11 @@ function hpp_simpan_bahan($pdo, $d, $by) {
        satu per satu. Bawaan sebaliknya (default mati) akan membuat ratusan
        bahan diam-diam hilang dari daftar belanja tanpa ada yang memutuskan. */
     ':dp' => (isset($d->di_purchasing) && !$d->di_purchasing) ? 0 : 1,
+    /* Kebalikan bawaannya dari di_purchasing, dan itu disengaja: "dibeli jadi"
+       adalah PERNYATAAN untuk kasus langka (nama barang beli yang bertabrakan
+       dengan nama menu), bukan keadaan wajar sebuah bahan. Bawaan menyala akan
+       membuat setiap baris bayangan sisa pindahan Excel terlihat sah. */
+    ':dj' => (isset($d->dibeli_jadi) && $d->dibeli_jadi) ? 1 : 0,
     ':ua' => hpp_ms(), ':ub' => hpp_txt($by, 120),
   ));
   $ikut = 0;
@@ -601,27 +617,55 @@ try {
       $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n')->execute(array(':n' => $n));
       pur_json(['status' => 'success', 'saved' => true]);
     }
-    /* HAPUS BAHAN YANG NAMANYA SUDAH ADA DI DAFTAR RESEP (15 Agustus 2026,
-       permintaan user). Barang yang dibuat sendiri hidup sebagai RESEP; barisnya
-       di hpp_bahan cuma bayangan yang tidak pernah dibaca — penghitung modal
-       mengambil sisi resep lebih dulu (lihat modalResep di layar).
+    /* HAPUS BAYANGAN — bahan yang namanya ada di Daftar Resep (15 Agustus 2026),
+       DIPERSEMPIT 17 Agustus 2026.
 
-       Dihitung DI SERVER, bukan menerima daftar nama dari layar: layar cuma
-       memegang halaman yang sedang tampil, dan daftar yang dikirim sebagian
-       akan menyisakan sisanya tanpa ada yang tahu. Perbandingannya
-       case-insensitive lewat LOWER(), sama dengan cara layar mencocokkannya.
+       Aturan lamanya menyapu SETIAP tabrakan nama, dengan anggapan barang yang
+       bernama sama dengan resep pasti barang buatan sendiri yang barisnya cuma
+       bayangan. Anggapan itu salah untuk barang yang DIBELI dan kebetulan
+       bernama sama dengan menunya — Dimsum Ayam, Indomie Goreng, Sate Taichan —
+       dan tombol ini akan menghapus harga belinya tanpa bisa dikembalikan.
+
+       Dua hal yang sekarang menyelamatkan sebuah baris:
+         1. ada baris resep yang memakainya sebagai Bahan (`ref` != 'resep'),
+         2. saklar `dibeli_jadi` menyala.
+       Syarat 1 tidak bisa ditulis sebagai SQL: baris bahan sebuah resep
+       disimpan sebagai JSON di kolom `bahan`, jadi ia disaring di PHP.
+
+       Tetap dihitung DI SERVER, bukan menerima daftar nama dari layar: layar
+       cuma memegang halaman yang sedang tampil, dan daftar yang dikirim
+       sebagian akan menyisakan sisanya tanpa ada yang tahu. Aturannya harus
+       sama persis dengan tabrakan() di layar — kalau menyimpang, angka di
+       tombol tidak pernah sama dengan yang benar-benar terhapus.
 
        TIDAK menyentuh hpp_resep sama sekali: yang dibuang bayangannya, bukan
        resepnya. */
     if ($a === 'hapusBahanSamaResep') {
-      $st = $pdo->query('SELECT b.nama FROM hpp_bahan b
-                          WHERE LOWER(b.nama) IN (SELECT LOWER(r.nama) FROM hpp_resep r)');
-      $nama = array_map(function ($x) { return $x['nama']; }, $st->fetchAll());
-      if ($nama) {
-        $pdo->prepare('DELETE FROM hpp_bahan
-                        WHERE LOWER(nama) IN (SELECT LOWER(r.nama) FROM (SELECT nama FROM hpp_resep) r)')
-            ->execute();
+      // Nama yang dipakai sebagai BAHAN oleh resep mana pun (huruf kecil).
+      $dipakai = array();
+      foreach ($pdo->query('SELECT bahan FROM hpp_resep')->fetchAll(PDO::FETCH_COLUMN) as $js) {
+        $baris = json_decode((string)$js, true);
+        if (!is_array($baris)) continue;
+        foreach ($baris as $ln) {
+          if (!is_array($ln) || !isset($ln['nama'])) continue;
+          if (isset($ln['ref']) && $ln['ref'] === 'resep') continue;
+          $dipakai[mb_strtolower(trim((string)$ln['nama']))] = true;
+        }
       }
+      $st = $pdo->query('SELECT b.nama FROM hpp_bahan b
+                          WHERE b.dibeli_jadi = 0
+                            AND LOWER(b.nama) IN (SELECT LOWER(r.nama) FROM hpp_resep r)');
+      $nama = array();
+      foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $n) {
+        if (isset($dipakai[mb_strtolower(trim((string)$n))])) continue;
+        $nama[] = $n;
+      }
+      /* Dihapus SATU PER SATU dengan nama yang sudah disaring, bukan lewat satu
+         DELETE ... IN (subquery): subquery-nya tidak bisa memuat syarat "dipakai
+         sebagai bahan", jadi ia akan menghapus lebih banyak daripada yang
+         dihitung — dan angka yang dilaporkan ke layar jadi bohong. */
+      $hapus = $pdo->prepare('DELETE FROM hpp_bahan WHERE nama=:n');
+      foreach ($nama as $n) $hapus->execute(array(':n' => $n));
       pur_json(['status' => 'success', 'dihapus' => count($nama), 'nama' => array_slice($nama, 0, 50)]);
     }
     if ($a === 'simpanResep') {
