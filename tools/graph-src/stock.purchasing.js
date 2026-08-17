@@ -1626,6 +1626,13 @@
 
 
 
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3594,7 +3601,65 @@ function renderConsolidatedCard() { teamBadge(); pilihVendorHari(); opsiVendorHa
 
 
 function cariVendor() { renderDatabaseTab(); }
-function cariProduk() { renderDatabaseTab(); }
+function cariProduk() { renderDatabaseTab(); thPur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bahanAktif() {  }
+
+function labelCaraBeli() {  }
+
+
+
+
+
+function urutKolomPur() { renderDatabaseTab(); }
+
+
+
+
+
+
+
+
+function thPur() { urutKolomPur(); }
+
+
+
+
+
+function urutkanPur() {  }
+
+
+
+
+
+
+
+
 function halamanVendor() { renderDatabaseTab(); }
 function halamanProduk() { renderDatabaseTab(); potongHalaman(); renderCKSaldo(); }
 
@@ -3896,7 +3961,7 @@ function bacaVendorRows() { petaKolom(); }
 
 
 
-function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); }
+function barisEksporProduk() { isiList(); areaList(); satuanDasarOf(); labelCaraBeli(); bahanAktif(); }
 
 
 
@@ -3926,6 +3991,13 @@ function bacaProdukRows() { petaKolom(); }
 
 
 function set() {  }
+
+
+
+
+
+
+
 
 
 
@@ -4107,7 +4179,7 @@ function jalankanImpor() { requireEditPage(); sendPostRequest(); showToast(); ca
 
 
 
-function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); satuanDasarOf(); isiList(); }
+function renderDatabaseTab() { barangVendor(); labelTutup(); thPur(); urutkanPur(); tutupHariOf(); potongHalaman(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); areaList(); satuanDasarOf(); isiList(); labelCaraBeli(); bahanAktif(); }
 
 
 
@@ -4222,7 +4294,77 @@ function renderDatabaseTab() { potongHalaman(); barangVendor(); labelTutup(); ch
 
 
 
-function chip() { areaList(); vendorPerluJadwal(); openEditProductModal(); triggerDeleteProductConfirm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chip() { areaList(); vendorPerluJadwal(); bahanAktif(); openEditProductModal(); triggerDeleteProductConfirm(); }
+
+
+
+
+
 
 
 
@@ -7316,7 +7458,10 @@ function openAddProductModal() { cekGantiNamaProduk(); populateVendorDropdowns()
 
 
 
+
 function openEditProductModal() { cekGantiNamaProduk(); populateVendorDropdowns(); updateBackupCheckboxes(); isiList(); renderUnitCheckboxes(); renderAreaCheckboxes(); areaList(); pasangUkuran(); setSumberProduk(); setDipackProduk(); setLokasiCK(); toggleModal(); }
+
+
 
 
 

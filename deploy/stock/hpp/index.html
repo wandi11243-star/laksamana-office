@@ -579,6 +579,53 @@ function dipakaiOleh(nama){
   S.resep.forEach(r=>{ if((r.bahan||[]).some(b=>b&&low(b.nama)===n)) out.push(r); });
   return out;
 }
+/* ====================== SATU NAMA DI DUA SISI ======================
+   17 Agustus 2026, permintaan user. Contoh yang dibawanya: Dimsum Ayam, Dimsum
+   Beef, Lumpia Kulit Tahu, Indomie Goreng, Pisang Goreng, Sate Maranggi, Sate
+   Taichan. Semuanya nama MENU yang dijual, dan semuanya juga nama BARANG yang
+   dibeli ke vendor (dimsum beku, mi instan, sate mentah) — bukan data kembar,
+   melainkan dua benda berbeda yang kebetulan bernama sama.
+
+   Aturan 14–15 Agustus 2026 memperlakukan setiap tabrakan nama sebagai
+   BAYANGAN: barisnya disembunyikan dari Bahan & Harga dan spanduk menawarkan
+   menghapusnya. Itu benar untuk kasus yang melahirkannya (base buatan sendiri
+   yang terlanjur punya baris harga ketikan tangan dari berkas Maret 2026), tapi
+   salah untuk barang yang memang dibeli — dan salahnya mahal: barisnya tak
+   terlihat, jadi harganya TIDAK BISA diisi sama sekali, sementara menu yang
+   memakainya menghitung modal dari bahan yang harganya nol.
+
+   Klaim lama "penghitung modal selalu mengambil sisi resep lebih dulu" juga
+   TIDAK BENAR, dan itu yang membuat aturannya terasa masuk akal. Lihat
+   modalResep: tiap baris resep menyimpan `ref` sendiri — 'bahan' atau 'resep' —
+   dan itulah yang menentukan sisi mana yang dibaca. Tidak pernah ada tebakan
+   dari nama. Jadi dua sisi memang bisa hidup berdampingan tanpa satu pun angka
+   jadi ambigu; yang perlu diputuskan cuma "baris ini maksudnya yang mana", dan
+   itu sudah dipilih di penyunting resep lewat dropdown Bahan/Resep.
+
+   YANG MENENTUKAN sebuah baris bahan bertabrakan itu sah atau cuma bayangan:
+
+     1. ADA BUKTINYA — ada baris resep yang memakainya sebagai **Bahan**. Ini
+        bukti terkuat, dan ia menyembuh sendiri: begitu menu "Dimsum Ayam"
+        menyebut bahan "Dimsum Ayam", tidak ada lagi yang perlu diatur.
+     2. DINYATAKAN — saklar "dibeli jadi" di Ubah Bahan, untuk barang yang baru
+        didaftarkan dan menunya belum disusun. Tanpa ini, barang yang benar
+        tetap masuk daftar bayangan selama seminggu sampai resepnya dibuat.
+
+   Yang tidak memenuhi keduanya tetap disebut bayangan, tapi sekarang ia
+   TERLIHAT (dengan tanda) dan bisa ditinjau satu per satu — bukan disembunyikan
+   lalu ditawarkan penghapusan massal. */
+function dipakaiSebagaiBahan(nama){
+  const n=low(nama), out=[];
+  S.resep.forEach(r=>{ if((r.bahan||[]).some(b=>b&&b.ref!=='resep'&&low(b.nama)===n)) out.push(r); });
+  return out;
+}
+function tabrakan(b){
+  const r=b?PR[low(b.nama)]:null;
+  if(!r) return {ada:false,sah:false,bayangan:false,dipakai:[],r:null};
+  const dipakai=dipakaiSebagaiBahan(b.nama);
+  const sah=!!(b.dibeli_jadi||dipakai.length);
+  return {ada:true,sah:sah,bayangan:!sah,dipakai:dipakai,r:r};
+}
 
 /* ====================== KERANGKA ====================== */
 const JUDUL={
@@ -1082,14 +1129,13 @@ function hapusResep(id){
         Modal resep-resep itu akan <b>kehilangan komponen ini</b> dan turun tanpa sebab yang terlihat di sana.</div></div>`:'')});
 }
 
-/* ====================== 2. BAHAN & HARGA ======================
-   `kembar` = '' (sembunyikan, bawaan) | 'semua' | 'hanya'. Lihat layarBahan. */
-let FB={q:'',hal:1,per:25,st:'',kembar:''};
+/* ====================== 2. BAHAN & HARGA ====================== */
+let FB={q:'',hal:1,per:25,st:'',nm:''};
 /* Saringan halaman Barang Floor. SENGAJA objek sendiri, bukan menumpang FB:
    kedua halaman dibaca bergantian saat merapikan master bahan, dan pencarian
    yang terbawa dari halaman sebelah membuat halaman baru terlihat kosong
    padahal isinya cuma tersaring. */
-let FF={q:'',hal:1,per:25,st:'',kembar:''};
+let FF={q:'',hal:1,per:25,st:'',nm:''};
 
 /* ---- AREA: MILIK PURCHASING, DI SINI CUMA DIBACA ----
    Jalurnya persis vendorOf(): lewat nama kalau sudah sama, lewat pasangan lama
@@ -1140,15 +1186,15 @@ function viewFloor(){ return layarBahan(true); }
    angkanya. */
 function layarBahan(floor){
   const st=floor?FF:FB, mana=floor?'FF':'FB', q=low(st.q);
-  /* NAMA YANG SUDAH ADA DI DAFTAR RESEP DISEMBUNYIKAN dari sini (14 Agustus
-     2026, permintaan user). Halaman ini isinya BAHAN BAKU RAW; barang yang
-     dibuat sendiri hidup sebagai resep, dan memajangnya di dua tempat membuat
-     orang mengubah harga di satu sisi lalu bingung kenapa modal tidak bergerak
-     — penghitung modal mengambil sisi resep lebih dulu (lihat modalResep). */
-  const namaResep={}; S.resep.forEach(r=>{ namaResep[low(r.nama)]=1; });
+  /* PENYEMBUNYIAN NAMA YANG JUGA ADA DI DAFTAR RESEP DICABUT (17 Agustus 2026,
+     permintaan user) — lihat catatan panjang di tabrakan(). Ringkasnya: barang
+     yang DIBELI boleh bernama sama dengan menu yang dijual, dan menyembunyikan
+     barisnya membuat harganya mustahil diisi. Yang tinggal cuma bayangan
+     sungguhan: tabrakan tanpa satu pun baris resep yang memakainya sebagai
+     Bahan dan tanpa saklar "dibeli jadi". Itu pun sekarang TERLIHAT, ditandai,
+     dan bisa ditinjau satu-satu. */
   const lingkup=S.bahan.filter(b=>isFloor(b)===floor);
-  const adaResepnya=b=>!!namaResep[low(b.nama)];
-  const kembar=lingkup.filter(adaResepnya);
+  const kembar=lingkup.filter(b=>tabrakan(b).bayangan);
   /* Saringan SELAIN kembar, dipisah jadi fungsi sendiri supaya bisa dipakai dua
      kali: untuk menyusun daftarnya, DAN untuk menghitung berapa yang tersembunyi
      DI DALAM pencarian yang sedang berjalan. Dulu angka "N disembunyikan"
@@ -1162,20 +1208,21 @@ function layarBahan(floor){
        dipilih, termasuk "tidak perlu di purchasing" yang justru paling sering
        ingin ditinjau ulang. */
     if(st.st&&statusPur(b).k!==st.st) return false;
+    /* Saringan tabrakan nama (17 Agustus 2026). Menggantikan penyembunyian yang
+       dicabut: yang dulu otomatis hilang sekarang bisa DIMINTA — "tunjukkan
+       nama yang juga ada di Daftar Resep" untuk meninjaunya, atau "bayangan
+       saja" untuk membereskan sisa data lama. Bawaannya kosong = semuanya
+       tampil, karena halaman ini dibuka untuk mengisi harga, bukan untuk
+       mengurus tabrakan nama. */
+    if(st.nm){
+      const t=tabrakan(b);
+      if(st.nm==='tabrakan'&&!t.ada) return false;
+      if(st.nm==='bayangan'&&!t.bayangan) return false;
+      if(st.nm==='dibeli'&&!(t.ada&&t.sah)) return false;
+    }
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   };
-  const kembarCocok=kembar.filter(lolosSaringLain);
-  const kasar=lingkup.filter(b=>{
-    /* TIGA keadaan sejak 15 Agustus 2026 (permintaan user), dulu centang dua
-       keadaan. Yang ketiga — "hanya yang bernama sama" — adalah DAFTAR KERJA
-       untuk merapikan nama bahan baku supaya tidak lagi bertabrakan dengan nama
-       resep. Tanpa itu, satu-satunya cara menemukan yang bertabrakan adalah
-       menampilkan semuanya lalu mencocokkan 102 nama dengan Daftar Resep
-       satu per satu. */
-    if(st.kembar==='hanya'){ if(!adaResepnya(b)) return false; }
-    else if(st.kembar!=='semua'){ if(adaResepnya(b)) return false; }
-    return lolosSaringLain(b);
-  });
+  const kasar=lingkup.filter(lolosSaringLain);
   const semua=urutkanDaftar(kasar,mana,{
     nama:b=>low(b.nama), vendor:b=>low(vendorOf(b)), qty:b=>num(b.qty_beli),
     satuan:b=>low(b.satuan||''), harga:b=>num(b.harga_beli), per1:b=>per1(b),
@@ -1198,33 +1245,33 @@ function layarBahan(floor){
            ['mandiri','⃠ Tidak perlu di purchasing'],['beda','⚠ Nama beda']]
           .map(o=>`<option value="${o[0]}"${st.st===o[0]?' selected':''}>${o[1]}${o[0]?' ('+lingkup.filter(b=>statusPur(b).k===o[0]).length+')':''}</option>`).join('')}
       </select>
-      ${kembar.length?`<select onchange="${mana}.kembar=this.value;${mana}.hal=1;render()" title="${kembar.length} nama bahan juga terdaftar sebagai resep">
-        ${[['','Sembunyikan yang sama dengan resep',lingkup.length-kembar.length],
-           ['semua','Tampilkan semuanya',lingkup.length],
-           ['hanya','⚠ Hanya yang sama dengan resep',kembar.length]]
-          .map(o=>`<option value="${o[0]}"${st.kembar===o[0]?' selected':''}>${o[1]} (${o[2]})</option>`).join('')}
-      </select>`:''}
+      <select onchange="${mana}.nm=this.value;${mana}.hal=1;render()" title="Saring menurut namanya yang juga ada di Daftar Resep">
+        ${[['','Semua nama'],['tabrakan','⇄ Juga nama resep'],['dibeli','⇄ Dibeli jadi'],['bayangan','⚠ Bayangan']]
+          .map(o=>{ const n=o[0]?lingkup.filter(b=>{ const t=tabrakan(b);
+                      return o[0]==='tabrakan'?t.ada:o[0]==='bayangan'?t.bayangan:(t.ada&&t.sah); }).length:0;
+                    return `<option value="${o[0]}"${st.nm===o[0]?' selected':''}>${o[1]}${o[0]?' ('+n+')':''}</option>`; }).join('')}
+      </select>
       ${floor?'':'<button class="btn btn-primary btn-sm" onclick="bukaBahan(\'\')">+ Bahan Baru</button>'}
+      <!-- EKSPOR/IMPOR ADA DI KEDUA HALAMAN dan isinya SAMA: satu berkas untuk
+           seluruh bahan, termasuk Barang Floor. Dua berkas terpisah berarti dua
+           unggahan yang harus diingat, dan yang lupa mengunggah satunya tidak
+           akan diberitahu apa pun. Saringan & pencarian yang sedang aktif
+           sengaja tidak ikut — lihat catatan di bagian EKSPOR & IMPOR EXCEL. -->
+      <button class="btn btn-ghost btn-sm" onclick="exportBahanXlsx()" title="Unduh SELURUH bahan (termasuk Barang Floor) sebagai berkas Excel — saringan di layar ini tidak ikut">⬇ Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportBahanCsv()" title="Sama isinya dengan Excel, tapi tanpa mengunduh pustaka apa pun. Excel membukanya sama saja">⬇ CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="pilihBerkasBahan()" title="Unggah berkas hasil ekspor yang sudah disunting — .xlsx maupun .csv dikenali sendiri. Tidak ada yang dihapus, dan ada pratinjau sebelum ditulis">⬆ Impor</button>
+      <input type="file" id="fBahan" accept=".xlsx,.xls,.csv,text/csv" class="hidden" onchange="bacaBerkasBahan(this)">
     </div>
-    ${(function(){
-      if(!kembar.length) return '';
-      const ket=(isi)=>`<div class="ket" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">${isi}</div>`;
-      /* Bunyinya ikut PENCARIAN yang sedang berjalan. Angka dari seluruh daftar
-         tidak menjawab pertanyaan yang sedang dipegang orang ("kenapa dimsum
-         tidak muncul") — ia malah menyebut nama-nama lain, dan yang membacanya
-         menyimpulkan bahwa barangnya memang tidak ada. */
-      const sebut=q?` yang cocok dengan “${esc(st.q)}”`:'';
-      if(st.kembar==='hanya'){
-        return ket(`Menampilkan <b>${semua.length}</b> nama${sebut} yang ada di <b>dua daftar sekaligus</b> — di sini sebagai bahan baku, dan di <b>Daftar Resep</b> sebagai resep.
-          Modalnya selalu diambil dari sisi resep, jadi harga yang diisi di sini tidak berpengaruh. Daftar ini untuk merapikannya: ganti nama bahan bakunya, atau hapus salah satu sisi.`);
-      }
-      if(st.kembar==='semua'){
-        return ket(`Menampilkan semuanya, termasuk <b>${kembarCocok.length}</b> nama${sebut} yang juga ada di <b>Daftar Resep</b>.`);
-      }
-      if(!kembarCocok.length) return '';
-      return ket(`<b>${kembarCocok.length} nama${sebut} disembunyikan</b> karena sudah ada di <b>Daftar Resep</b> (${esc(kembarCocok.slice(0,4).map(b=>b.nama).join(', '))}${kembarCocok.length>4?', …':''}) — barang yang dibuat sendiri diurus di sana, bukan di sini.
-        <a href="#" onclick="${mana}.kembar='hanya';${mana}.hal=1;render();return false" style="color:var(--gold);font-weight:700">Tampilkan yang disembunyikan →</a>`);
-    })()}
+    ${(!floor&&kembar.length)?`<div class="notice warn" style="margin:0 0 12px"><div>
+      <b>${kembar.length} nama di sini juga ada di Daftar Resep, dan belum ada yang memakainya sebagai bahan.</b>
+      Dua kemungkinan, dan keduanya perlu diputuskan orang — bukan ditebak layar ini:
+      <div style="margin-top:6px;font-size:12px;color:var(--muted)">
+        <b>Barangnya memang dibeli</b> (dimsum beku, mi instan, sate mentah) → buka <b>Ubah</b>, nyalakan <b>“Dibeli jadi”</b>, lalu pakai namanya sebagai <b>Bahan</b> di resep menunya. Tandanya hilang sendiri begitu ada resep yang memakainya.<br>
+        <b>Barangnya dibuat sendiri</b> dan barisnya sisa pindahan Excel Maret 2026 → hapus barisnya; resepnya tidak tersentuh.</div>
+      <div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${esc(kembar.slice(0,5).map(b=>b.nama).join(' · '))}${kembar.length>5?' · …':''}</div>
+      <div style="margin-top:9px"><button class="btn btn-ghost btn-sm" onclick="FB.nm='bayangan';FB.hal=1;render()">Lihat daftarnya</button>
+      <button class="btn btn-danger btn-sm" onclick="hapusBahanKembar()">🗑 Hapus ${kembar.length} bayangan itu</button></div>
+    </div></div>`:''}
     ${floor
       /* Tidak ada tombol "+ Barang Baru" di sini, dan itu disengaja. Yang
          menentukan sebuah barang berarea Floor adalah PURCHASING; barang yang
@@ -1242,10 +1289,16 @@ function layarBahan(floor){
       ${thUrut(mana,'dipakai','Dipakai','num')}<th></th>
     </tr></thead><tbody>`;
   hal.forEach(b=>{
-    const n=dipakaiOleh(b.nama).length, sp=statusPur(b);
+    const n=dipakaiOleh(b.nama).length, sp=statusPur(b), tb=tabrakan(b);
     h+=`<tr>
       <td><b>${esc(b.nama)}</b>${sp.k==='ada'?''
-        :` <span class="chip ${sp.c}" title="${sp.k==='beda'?'sudah punya pasangan di purchasing ('+esc(b.produk)+') — tinggal disamakan namanya':sp.k==='mandiri'?'ditandai tidak dibeli lewat purchasing':'nama ini belum ada di basis bahan baku purchasing'}">${sp.t}</span>`}</td>
+        :` <span class="chip ${sp.c}" title="${sp.k==='beda'?'sudah punya pasangan di purchasing ('+esc(b.produk)+') — tinggal disamakan namanya':sp.k==='mandiri'?'ditandai tidak dibeli lewat purchasing':'nama ini belum ada di basis bahan baku purchasing'}">${sp.t}</span>`}${
+        /* Tanda tabrakan nama dipasang di baris, bukan cuma dihitung di spanduk:
+           yang mengisi harga di sini perlu tahu bahwa ada MENU bernama sama,
+           supaya ia tidak mengira sedang mengubah harga jual menu itu. */
+        !tb.ada?''
+        : tb.sah?` <span class="chip ok" title="Ada juga menu/resep bernama sama, dan itu disengaja — barang ini dibeli jadi.${tb.dipakai.length?' Dipakai sebagai bahan di: '+esc(tb.dipakai.slice(0,4).map(r=>r.nama).join(', ')):' Ditandai lewat saklar Dibeli jadi.'}">⇄ juga resep</span>`
+        : ` <span class="chip warn" title="Ada resep bernama sama, tapi tidak ada satu pun baris resep yang memakai nama ini sebagai Bahan. Kalau barangnya memang dibeli, nyalakan saklar Dibeli jadi lewat tombol Ubah; kalau ia dibuat sendiri, baris ini sisa pindahan dan boleh dihapus.">⚠ bayangan?</span>`}</td>
       <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
       <td>${esc(b.satuan||'')}</td>
@@ -1255,6 +1308,7 @@ function layarBahan(floor){
         ? `<button class="btn btn-ghost btn-xs" onclick="lihatPakai('${esc(b.nama)}')" title="Lihat resep mana saja yang memakainya">${n} resep</button>`
         : '<span style="color:var(--muted-2)">0</span>'}</td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
+        ${tb.bayangan?`<button class="btn btn-ghost btn-xs" onclick="tandaiDibeliJadi('${esc(b.nama)}')" title="Nyatakan bahwa barang ini memang dibeli ke vendor, walaupun ada menu bernama sama">✓ Dibeli jadi</button>`:''}
         ${sp.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
   });
   if(!hal.length) h+=`<tr><td colspan="8"><div class="empty">${floor
@@ -1390,7 +1444,7 @@ function bukaBahan(nama,pertahankan){
            purchasing (SATUAN_TERSEDIA), jadi bahan baru langsung sama di kedua
            daftar. Data lama bersatuan "Gr" tidak diapa-apakan — konversinya
            mengenali keduanya. */
-        :{nama:'',satuan:'Gram',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1};
+        :{nama:'',satuan:'Gram',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1,dibeli_jadi:0};
   }
   const opsi=Object.keys(PRODUK).sort().map(p=>`<option value="${esc(p)}">`).join('');
   $('modal').innerHTML=`<div class="ovl" onclick="if(event.target===this)tutupModal()"><div class="mdl" style="max-width:620px">
@@ -1427,6 +1481,22 @@ function bukaBahan(nama,pertahankan){
         <input type="checkbox" ${EB.di_purchasing===0?'':'checked'} onchange="EB.di_purchasing=this.checked?1:0;gambarUlangBahan()" style="accent-color:var(--gold)">
         Bahan ini <b>dibeli lewat Purchasing</b> — harus berdiri juga di daftar bahan baku mereka</label>
       <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin:-6px 0 12px">Matikan untuk bahan yang tidak pernah dibeli ke vendor (air keran, es dari mesin sendiri). Ia berhenti dihitung sebagai pekerjaan yang tertinggal, dan tidak akan didaftarkan ke sana.</div>
+      <!-- SAKLAR "DIBELI JADI" hanya muncul kalau namanya memang bertabrakan
+           dengan sebuah resep (17 Agustus 2026, permintaan user). Dipasang di
+           semua bahan, ia jadi pertanyaan yang tidak punya arti untuk 290 bahan
+           yang tidak pernah bertabrakan — dan saklar yang tidak berarti akan
+           dinyalakan asal saja. Lihat catatan di tabrakan(). -->
+      ${PR[low(EB.nama)]?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:10px">
+        <input type="checkbox" ${EB.dibeli_jadi?'checked':''} onchange="EB.dibeli_jadi=this.checked?1:0;gambarUlangBahan()" style="accent-color:var(--gold)">
+        Nama ini juga ada di Daftar Resep — dan barang ini <b>dibeli jadi</b></label>
+      <div class="notice ${tabrakan(EB).sah?'ok':'warn'}" style="font-size:12px">${(function(){
+        const t=tabrakan(EB);
+        return t.dipakai.length
+          ? `✓ Sudah ada buktinya: <b>${t.dipakai.length} resep</b> memakai nama ini sebagai <b>Bahan</b> (${esc(t.dipakai.slice(0,3).map(r=>r.nama).join(', '))}${t.dipakai.length>3?', …':''}). Saklarnya boleh dibiarkan mati — tandanya tidak akan muncul lagi.`
+          : t.sah
+            ? `Ditandai dibeli jadi. Langkah berikutnya: buka menu <b>${esc(t.r.nama)}</b> di Daftar Resep, dan tambahkan baris bertipe <b>Bahan</b> bernama <b>${esc(EB.nama)}</b> — di situlah harga di halaman ini mulai terpakai.`
+            : `Ada resep bernama <b>${esc(t.r.nama)}</b>, tapi belum ada baris resep mana pun yang memakai nama ini sebagai <b>Bahan</b>. Selama begitu, baris ini dihitung sebagai bayangan sisa pindahan Excel. Nyalakan saklar di atas kalau barangnya memang dibeli ke vendor.`;
+      })()}</div>`:''}
       ${b&&statusPur(EB).k==='ada'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:12px">
         <input type="checkbox" id="ikutPur" checked style="accent-color:var(--gold)">
         Kalau namanya diganti, ganti juga di basis purchasing — supaya kedua daftar tidak pernah berbeda</label>
@@ -1476,6 +1546,53 @@ function simpanBahan(){
     .catch(e=>{ pesan(`<div class="notice warn">⚠ Nama di purchasing TIDAK ikut berubah (${esc(e.message||'')}). Nama di HPP tetap disimpan — samakan manual di modul Purchasing.</div>`); })
     .then(()=>kirim({action:'simpanBahan',data:EB},'Bahan tersimpan, nama purchasing ikut disesuaikan.'));
 }
+/* Membuang bayangan bahan yang namanya sudah ada di Daftar Resep. Yang
+   menentukan APA yang dihapus adalah SERVER (lihat hapusBahanSamaResep di
+   stock-mysql/hpp.php), bukan daftar nama dari layar ini: layar cuma memegang
+   halaman yang sedang tampil, dan daftar yang dikirim sebagian akan menyisakan
+   sisanya tanpa ada yang tahu.
+
+   Resepnya sendiri TIDAK tersentuh — yang dibuang bayangannya. */
+function hapusBahanKembar(){
+  /* DIPERSEMPIT 17 Agustus 2026: yang dihapus cuma bayangan SUNGGUHAN — tabrakan
+     nama yang tidak dipakai resep mana pun sebagai Bahan dan tidak ditandai
+     "dibeli jadi". Aturan lamanya menyapu SETIAP tabrakan, jadi tombol ini akan
+     menghapus Dimsum Ayam, Indomie Goreng, dan Sate Taichan yang justru barang
+     beli. Servernya memakai aturan yang sama persis (hapusBahanSamaResep di
+     stock-mysql/hpp.php) — dua aturan berbeda di dua sisi berarti angka di
+     tombol tidak pernah sama dengan yang benar-benar terhapus. */
+  const n=S.bahan.filter(b=>tabrakan(b).bayangan);
+  if(!n.length) return;
+  konfirmasi({judul:'Hapus bayangan bahan?', tombol:`Hapus ${n.length} bahan`, bahaya:true,
+    onYa:()=>{
+      setSync('','Menghapus…');
+      fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+          body:JSON.stringify({action:'hapusBahanSamaResep',by:(ME&&ME.name)||''})})
+        .then(r=>r.text()).then(t=>{
+          let j=null; try{ j=JSON.parse(t); }catch(e){}
+          if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON');
+          pesan(`<div class="notice ok">✓ ${j.dihapus} bahan dihapus dari daftar bahan. Resepnya tidak tersentuh.</div>`);
+          return muat();
+        })
+        .catch(e=>{ setSync('err','✕ Gagal'); pesan(`<div class="notice bad">✕ Gagal menghapus: ${esc(e.message||'')}. Kalau server belum diperbarui, unggah ulang <b>stock-mysql/</b> dulu.</div>`); });
+    },
+    pesan:`<b>${n.length} baris</b> akan dihapus dari <b>Bahan &amp; Harga</b>: namanya ada di <b>Daftar Resep</b>, tidak ada satu pun resep yang memakainya sebagai <b>Bahan</b>, dan tidak ditandai <b>dibeli jadi</b>.
+      <div style="margin-top:8px;font-size:12px;color:var(--muted)">${esc(n.slice(0,8).map(b=>b.nama).join(' · '))}${n.length>8?` · … (+${n.length-8})`:''}</div>
+      <div class="ket" style="font-size:12px;color:var(--muted);margin-top:8px">Resepnya sendiri <b>tidak disentuh</b> — yang dibuang barisnya di daftar bahan.</div>
+      <div class="notice warn" style="margin:12px 0 0"><div>Harga beli yang tersimpan di baris-baris itu ikut hilang. Kalau ada yang sebenarnya <b>barang beli</b> (dimsum beku, mi instan, sate mentah), <b>batalkan dulu</b> dan nyalakan saklar <b>Dibeli jadi</b> pada baris itu — sesudah itu ia tidak akan ikut terhapus.</div></div>`});
+}
+
+/* Jalan pintas dari baris tabel: satu tekan, tanpa membuka modal. Yang dikirim
+   baris LENGKAP (kirim -> simpanBahan menulis seluruh kolom), bukan cuma
+   saklarnya — mengirim sebagian akan mengosongkan harga & satuan barang yang
+   justru sedang dinyatakan sah. */
+function tandaiDibeliJadi(nama){
+  const b=S.bahan.find(x=>low(x.nama)===low(nama)); if(!b) return;
+  const d=Object.assign({},b,{dibeli_jadi:1});
+  delete d.per1; delete d.updated_at; delete d.updated_by;
+  kirim({action:'simpanBahan',data:d},`"${b.nama}" ditandai dibeli jadi. Tinggal pakai namanya sebagai Bahan di resep menunya.`);
+}
+
 // Ikut memakai konfirmasi() yang sama dengan Hapus resep: dua tombol hapus
 // dengan dua gaya bertanya membuat yang satu terasa lebih ringan daripada
 // yang lain, padahal keduanya sama-sama tidak bisa dibatalkan.
@@ -1681,6 +1798,384 @@ function kirimProduk(daftar){
     return satu(b).catch(()=>{gagal++;}).then(lanjut);
   };
   lanjut();
+}
+
+/* ====================== EKSPOR & IMPOR EXCEL (17 Agustus 2026, permintaan user)
+   ======================
+   "Bahan dan harga bisa di-import dan export via Excel." Yang dijawab bukan
+   kenyamanan: menaikkan harga 40 bahan sesudah vendor kirim daftar harga baru
+   berarti 40× buka modal, ketik, simpan — dan yang terlewat tidak kelihatan
+   dari mana pun, karena modal resep tetap terhitung dengan harga lama tanpa
+   satu pun tanda.
+
+   ALURNYA SATU ARAH BOLAK-BALIK, sama persis dengan Purchasing → Database &
+   Vendor: unduh dulu (isinya SELURUH bahan), sunting di Excel, unggah lagi.
+   Ekspor sengaja TIDAK ikut saringan/pencarian yang sedang aktif — berkas yang
+   cuma memuat sebagian akan terasa seperti "data lengkap" saat dibuka besok,
+   dan yang mengimpornya kembali mengira sisanya memang sudah tidak ada.
+
+   IMPOR TIDAK PERNAH MENGHAPUS dan tidak pernah menggandakan: baris dicocokkan
+   ke data lewat NAMA (tak peduli besar-kecil huruf, sama dengan aturan kunci
+   tabelnya). Nama yang sudah ada diperbarui, yang belum ada ditambahkan, dan
+   yang ada di data tapi tidak ada di berkas DIBIARKAN.
+
+   IMPOR JUGA TIDAK PERNAH MENGGANTI NAMA. Nama di berkas yang berbeda dari yang
+   tersimpan berarti bahan BARU — tidak ada kolom yang bisa memberitahu mana
+   yang sebenarnya "bahan lama yang berganti nama". Ganti nama tetap lewat
+   tombol Ubah, tempat resep yang memakainya ikut ditambal server.
+
+   DUA FORMAT: .xlsx dan .csv. Ekspor menawarkan keduanya; IMPOR cuma satu
+   tombol dan mengenali sendiri berkas yang dipilih — yang mengunggah tidak
+   perlu mengingat lagi tadi mengunduhnya dalam bentuk apa.
+
+   Pustaka .xlsx DIMUAT SAAT DIBUTUHKAN, bukan di <head>: ratusan KB untuk
+   fitur yang dipakai sebulan sekali, sementara halaman ini dibuka tiap hari.
+   Gagal memuatnya hanya mematikan jalur Excel, dan pesannya menunjuk ke CSV
+   yang tidak butuh unduhan apa pun. */
+const XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+let _xlsxJanji=null;
+function muatXlsx(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  // Janji yang sama dipakai ulang: menekan Excel dua kali beruntun tidak boleh
+  // menyuntikkan dua <script>.
+  if(_xlsxJanji) return _xlsxJanji;
+  _xlsxJanji=new Promise((ok,gagal)=>{
+    const s=document.createElement('script');
+    s.src=XLSX_URL;
+    s.onload=()=>window.XLSX?ok(window.XLSX):gagal(new Error('XLSX tidak terpasang'));
+    s.onerror=()=>gagal(new Error('gagal memuat'));
+    document.head.appendChild(s);
+  }).catch(e=>{ _xlsxJanji=null; throw e; });   // boleh dicoba lagi
+  return _xlsxJanji;
+}
+function galatXlsx(){
+  pesan(`<div class="notice bad">✕ Pustaka Excel gagal diunduh — periksa koneksi, atau pakai <b>⬇ CSV</b> yang tidak butuh unduhan apa pun. Excel membuka CSV sama saja.</div>`);
+}
+
+// Pemisah nilai DI DALAM satu sel (kolom Area bisa berisi lebih dari satu).
+// '|' dipilih karena ia tidak pernah muncul di nama bahan/vendor dan tidak
+// punya arti khusus bagi Excel — sama dengan yang dipakai Purchasing, supaya
+// dua berkas dari dua modul tidak memakai dua aturan.
+const CSV_SUB='|';
+const capYa=v=>v?'Ya':'Tidak';
+const bacaYa=v=>/^(ya|y|true|1|benar)$/i.test(String(v||'').trim());
+function csvSel(v){ return `"${String(v==null?'':v).replace(/"/g,'""')}"`; }
+function csvBaris(a){ return a.map(csvSel).join(','); }
+function unduhCsv(nama,teks){
+  /* BOM di depan: tanpa itu Excel membaca UTF-8 sebagai ANSI, dan nama
+     ber-aksen berubah jadi karakter sampah begitu dibuka. */
+  const blob=new Blob(['﻿'+teks],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=nama; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+/* Pembaca CSV yang benar-benar mengurai tanda kutip: nama bahan memuat koma
+   ("Ayam Fillet, Fresh") dan catatan memuat baris baru. Membelah dengan
+   split(',') memecah baris seperti itu jadi dua kolom dan menggeser SELURUH
+   kolom sesudahnya — data yang mendarat di kolom yang salah tidak menimbulkan
+   galat apa pun, ia cuma jadi harga yang aneh.
+
+   Pemisah kolom DIDETEKSI dari baris pertama: Excel berbahasa Indonesia
+   menyimpan ulang CSV dengan titik-koma, jadi berkas yang kita ekspor dengan
+   koma bisa kembali sebagai titik-koma tanpa penggunanya tahu. */
+function uraiCsv(teks){
+  const t=String(teks||'').replace(/^﻿/,'');
+  const brs=t.split(/\r?\n/)[0]||'';
+  let luar=true,koma=0,titik=0;
+  for(let i=0;i<brs.length;i++){
+    const c=brs[i];
+    if(c==='"') luar=!luar;
+    else if(luar&&c===',') koma++;
+    else if(luar&&c===';') titik++;
+  }
+  const SEP=titik>koma?';':',';
+  const rows=[]; let row=[],sel='',dalam=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(dalam){
+      if(c==='"'){ if(t[i+1]==='"'){ sel+='"'; i++; } else dalam=false; }
+      else sel+=c;
+      continue;
+    }
+    if(c==='"'){ dalam=true; continue; }
+    if(c===SEP){ row.push(sel); sel=''; continue; }
+    if(c==='\r') continue;
+    if(c==='\n'){ row.push(sel); rows.push(row); row=[]; sel=''; continue; }
+    sel+=c;
+  }
+  if(sel!==''||row.length){ row.push(sel); rows.push(row); }
+  // Baris kosong dibuang: Excel hampir selalu meninggalkan satu di ekor.
+  return rows.filter(r=>r.some(c=>String(c).trim()!==''));
+}
+/* Kolom dicocokkan lewat NAMA KEPALANYA, bukan posisi. Orang menyisipkan kolom
+   sendiri, memindahkan kolom, atau menghapus yang tidak dipakai — dan impor
+   yang membaca posisi akan diam-diam memasukkan catatan ke kolom harga. Yang
+   tidak ada di berkas memulangkan undefined, dan pemanggil memperlakukannya
+   sebagai "tidak disebutkan". */
+function petaKolom(kepala){
+  const p={};
+  (kepala||[]).forEach((h,i)=>{ p[String(h||'').trim().toLowerCase()]=i; });
+  return (baris,nama)=>{
+    const i=p[String(nama).toLowerCase()];
+    return i===undefined?undefined:String(baris[i]==null?'':baris[i]).trim();
+  };
+}
+/* ANGKA DARI BERKAS — jangan diganti num(). num() membuang semua kecuali digit
+   dan titik, jadi "1.000" (ribuan gaya Indonesia, dan itulah yang diketik orang
+   di Excel berbahasa Indonesia) terbaca sebagai 1. Harga beli adalah satu-
+   satunya angka di modul ini yang salahnya menggeser SELURUH modal menu, dan
+   selisih 1.000× seperti itu tidak menimbulkan satu pun galat — ia cuma muncul
+   sebagai COGS yang tiba-tiba sangat sehat.
+
+   Aturannya: kalau titik DAN koma sama-sama ada, yang paling belakang adalah
+   desimalnya. Kalau cuma satu jenis yang ada, ia dianggap pemisah ribuan hanya
+   bila polanya memang berkelompok tiga (1.234.567) — "12.5" tetap 12,5. */
+function angkaImpor(v){
+  if(typeof v==='number') return isFinite(v)?v:0;
+  let s=String(v==null?'':v).replace(/[^0-9.,\-]/g,'').trim();
+  if(!s) return 0;
+  const t=s.lastIndexOf('.'), k=s.lastIndexOf(',');
+  if(t>-1&&k>-1){
+    if(t>k){ s=s.split(',').join(''); }
+    else   { s=s.split('.').join('').replace(',','.'); }
+  } else if(k>-1){
+    s=/^-?\d{1,3}(,\d{3})+$/.test(s) ? s.split(',').join('') : s.replace(',','.');
+  } else if(t>-1){
+    if(/^-?\d{1,3}(\.\d{3})+$/.test(s)) s=s.split('.').join('');
+  }
+  const n=parseFloat(s);
+  return isNaN(n)?0:n;
+}
+
+/* KOLOM. Enam yang pertama BISA DISUNTING dan dibaca kembali saat impor; empat
+   sisanya keterangan — dituliskan supaya berkasnya bisa dibaca sebagai daftar
+   harga yang utuh (harga per satuan, vendor, area, dipakai berapa resep), tapi
+   diubah pun tidak berpengaruh. Judulnya sengaja menyebutkan itu sendiri:
+   kolom "Vendor" polos akan disunting orang, lalu hilang tanpa penjelasan —
+   vendor memang milik Purchasing, bukan modul ini (lihat vendorOf). */
+const KOL_BAHAN=['Nama Bahan','Satuan','Qty Beli','Harga Beli','Dibeli Lewat Purchasing','Dibeli Jadi','Catatan',
+                 'Harga / Satuan (otomatis)','Vendor (dari Purchasing)','Area (dari Purchasing)','Dipakai (resep)'];
+/* BAYANGAN TIDAK IKUT DIEKSPOR — dan sejak 17 Agustus 2026 yang disebut
+   bayangan jauh lebih sempit: tabrakan nama yang tidak dipakai resep mana pun
+   sebagai Bahan DAN tidak ditandai "dibeli jadi" (lihat tabrakan()). Barang
+   beli yang bernama sama dengan menu — Dimsum Ayam, Indomie Goreng — sekarang
+   ikut diekspor, karena harganya memang diurus dari berkas ini.
+
+   Yang benar-benar bayangan tetap dikecualikan: baris itu ditawarkan untuk
+   dihapus di halaman yang sama, dan memasukkannya ke berkas berarti unggahan
+   berikutnya MENGHIDUPKANNYA KEMBALI — pekerjaan yang sudah diselesaikan orang
+   muncul lagi tanpa ada yang merasa melakukannya. */
+function bahanEkspor(){
+  return S.bahan.filter(b=>!tabrakan(b).bayangan)
+                .slice().sort((a,b)=>low(a.nama).localeCompare(low(b.nama)));
+}
+function barisEksporBahan(){
+  return bahanEkspor().map(b=>[
+    b.nama, b.satuan||'', num(b.qty_beli), num(b.harga_beli),
+    capYa(b.di_purchasing!==0), capYa(b.dibeli_jadi), b.catatan||'',
+    Math.round(per1(b)*100)/100, vendorOf(b), areaOf(b).join(CSV_SUB),
+    dipakaiOleh(b.nama).length
+  ]);
+}
+function tglBerkas(){
+  const d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function ringkasEkspor(n,bentuk){
+  const bayangan=S.bahan.length-bahanEkspor().length;
+  pesan(`<div class="notice ok"><div>✓ <b>${n} bahan</b> diekspor ke ${bentuk}. Sunting kolom <b>Satuan, Qty Beli, Harga Beli, Dibeli Lewat Purchasing, Dibeli Jadi, dan Catatan</b> di sana, lalu unggah lagi lewat <b>⬆ Impor</b>.
+    <div style="margin-top:6px;font-size:12px;color:var(--muted)">Empat kolom terakhir cuma keterangan — diubah pun tidak dibaca saat impor. Baris yang dihapus dari berkas <b>tidak</b> ikut terhapus dari data.${
+      bayangan?` ${bayangan} baris bayangan tidak ikut diekspor: namanya ada di Daftar Resep dan belum ada resep yang memakainya sebagai bahan.`:''}</div></div></div>`);
+}
+function exportBahanCsv(){
+  const r=barisEksporBahan();
+  unduhCsv(`bahan_hpp_laksamana_${tglBerkas()}.csv`,[csvBaris(KOL_BAHAN),...r.map(csvBaris)].join('\n'));
+  ringkasEkspor(r.length,'CSV');
+}
+/* Baris yang diekspor disusun SEKALI di barisEksporBahan, lalu dipakai jalur
+   CSV maupun Excel. Menyusunnya dua kali berarti kolom yang ditambahkan nanti
+   bisa ikut di satu format dan tertinggal di format lain — dan yang tertinggal
+   tidak menimbulkan galat, ia cuma hilang dari berkas yang dipakai orang. */
+async function exportBahanXlsx(){
+  let XL; try{ XL=await muatXlsx(); }catch(e){ return galatXlsx(); }
+  const aoa=[KOL_BAHAN,...barisEksporBahan()];
+  const ws=XL.utils.aoa_to_sheet(aoa);
+  /* Lebar kolom disetel supaya nama bahan tidak terpotong dan angka tidak
+     tampil "####" saat dibuka. Berkas yang harus dilebarkan manual dulu sebelum
+     bisa dibaca akan membuat orang kembali mengetik satu-satu di layar. */
+  ws['!cols']=aoa[0].map((h,i)=>({wch:Math.min(42,Math.max(String(h).length+2,
+    ...aoa.slice(1).map(r=>String(r[i]==null?'':r[i]).length+2)))}));
+  const wb=XL.utils.book_new();
+  XL.utils.book_append_sheet(wb,ws,'Bahan & Harga');
+  XL.writeFile(wb,`bahan_hpp_laksamana_${tglBerkas()}.xlsx`);
+  ringkasEkspor(aoa.length-1,'Excel');
+}
+
+/* ---------- ALUR IMPOR ---------- */
+let IMPOR=null;   // {rows:[…]} — sudah digabung dengan data lama, menunggu Ya
+function pilihBerkasBahan(){
+  const i=$('fBahan'); if(!i) return;
+  i.value='';                       // berkas yang sama boleh dipilih dua kali
+  i.click();
+}
+/* FORMATNYA DIKENALI SENDIRI dari nama berkasnya — tidak ada tombol "impor
+   Excel" vs "impor CSV". Salah pilih tombol adalah kesalahan yang tidak perlu
+   ada. */
+function bacaBerkasBahan(el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  const excel=/\.xlsx?$/i.test(f.name||'');
+  const lanjut=rows=>{
+    const h=bacaBahanRows(rows);
+    if(h.galat) return pesan(`<div class="notice bad">✕ ${h.galat}</div>`);
+    if(!h.rows.length) return pesan(`<div class="notice bad">✕ Tidak ada baris berisi nama bahan di berkas itu.</div>`);
+    siapkanImpor(h.rows,h.bolong);
+  };
+  const fr=new FileReader();
+  fr.onerror=()=>pesan(`<div class="notice bad">✕ Berkasnya tidak bisa dibaca.</div>`);
+  if(excel){
+    fr.onload=()=>{
+      muatXlsx().then(XL=>{
+        const wb=XL.read(new Uint8Array(fr.result),{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        if(!ws) return pesan(`<div class="notice bad">✕ Tidak ada sheet yang bisa dibaca di berkas itu.</div>`);
+        /* header:1 -> array-of-array, bentuknya sama persis dengan keluaran
+           uraiCsv, jadi CSV dan Excel memakai SATU pembaca kolom. Dua pembaca
+           terpisah berarti kolom yang ditambahkan nanti bisa terbaca di satu
+           format dan diam di format lain. raw:false + defval:'' supaya angka &
+           sel kosong datang sebagai teks — sisa kodenya memperlakukan semuanya
+           sebagai teks lalu mengubahnya sendiri lewat angkaImpor. */
+        lanjut(XL.utils.sheet_to_json(ws,{header:1,raw:false,defval:''})
+                 .filter(r=>(r||[]).some(c=>String(c).trim()!=='')));
+      }).catch(e=>{
+        if(!window.XLSX) return galatXlsx();
+        console.error(e);
+        pesan(`<div class="notice bad">✕ Isi berkas Excel tidak bisa dibaca. Coba buka lalu simpan ulang dari Excel.</div>`);
+      });
+    };
+    fr.readAsArrayBuffer(f);
+  } else {
+    fr.onload=()=>lanjut(uraiCsv(fr.result));
+    fr.readAsText(f,'utf-8');
+  }
+}
+function bacaBahanRows(rows){
+  if(!rows.length) return {galat:'Berkasnya kosong.'};
+  const amb=petaKolom(rows[0]);
+  if(amb(rows[0],'Nama Bahan')===undefined){
+    return {galat:'Kolom <b>Nama Bahan</b> tidak ada di baris pertama berkas itu. Pakai hasil <b>⬇ Excel</b> atau <b>⬇ CSV</b> dari halaman ini sebagai kerangkanya.'};
+  }
+  const out=[],bolong=[];
+  rows.slice(1).forEach((b,i)=>{
+    const n=amb(b,'Nama Bahan');
+    if(!n){ bolong.push(i+2); return; }        // +2: baris kepala + hitungan dari 1
+    const rec={nama:n};
+    /* SEL KOSONG = "tidak disebutkan", BUKAN nol. Harga yang dikosongkan orang
+       di Excel hampir selalu berarti "saya tidak mengurus baris ini", bukan
+       "bahan ini gratis" — dan nol di sini menjatuhkan modal setiap resep yang
+       memakainya tanpa satu pun tanda. Catatan dikecualikan: mengosongkan
+       catatan memang satu-satunya cara menghapusnya dari berkas. */
+    const isi=(kol,kunci,ubah)=>{
+      const v=amb(b,kol);
+      if(v===undefined||v==='') return;
+      rec[kunci]=ubah?ubah(v):v;
+    };
+    isi('Satuan','satuan');
+    isi('Qty Beli','qty_beli',angkaImpor);
+    isi('Harga Beli','harga_beli',angkaImpor);
+    isi('Dibeli Lewat Purchasing','di_purchasing',v=>bacaYa(v)?1:0);
+    isi('Dibeli Jadi','dibeli_jadi',v=>bacaYa(v)?1:0);
+    const ct=amb(b,'Catatan');
+    if(ct!==undefined) rec.catatan=ct;
+    out.push(rec);
+  });
+  return {rows:out,bolong};
+}
+/* PRATINJAU SEBELUM MENULIS. Impor 300 baris adalah satu tekan tombol yang
+   mengubah sumber SELURUH angka modal di modul ini; tanpa pratinjau, satu
+   berkas salah pilih baru ketahuan sesudahnya — dan tidak ada tombol urungnya.
+
+   Yang paling perlu dilihat bukan jumlah barisnya, tapi HARGA YANG PALING
+   BERGERAK: satu angka yang salah baca (1.000 jadi 1) muncul di situ sebagai
+   −99,9% dan langsung terbaca, sementara di ringkasan "40 diperbarui" ia tidak
+   bisa dibedakan dari kenaikan yang memang diniatkan. */
+function siapkanImpor(rows,bolong){
+  const baru=[],ubah=[]; let sama=0;
+  rows.forEach(r=>{
+    const lama=PB[low(r.nama)];
+    if(!lama){
+      baru.push(Object.assign({satuan:'Gram',qty_beli:0,harga_beli:0,vendor:'',produk:'',
+                               kategori:'',catatan:'',di_purchasing:1,dibeli_jadi:0},r));
+      return;
+    }
+    /* DIGABUNG DENGAN BARIS LAMA, bukan dikirim apa adanya: server menulis
+       seluruh kolom tiap kali (hpp_simpan_bahan), jadi kolom yang tidak ada di
+       berkas — vendor cadangan, penanda pasangan `produk`, kategori — akan
+       terhapus jadi kosong tanpa ada yang memintanya. */
+    const rec=Object.assign({},lama,r);
+    delete rec.per1; delete rec.updated_at; delete rec.updated_by; delete rec.namaLama;
+    /* Ejaan yang TERSIMPAN dipertahankan. Pencocokan tidak peduli besar-kecil
+       huruf, dan kunci tabelnya juga tidak — jadi "ayam fillet" di berkas tidak
+       akan mengganti nama "Ayam Fillet" yang sudah ada, ia cuma memperbarui
+       barisnya. Mengirim ejaan berkas justru menyesatkan: layar akan
+       menampilkannya seolah berubah padahal tidak. */
+    rec.nama=lama.nama;
+    const beda=['satuan','qty_beli','harga_beli','catatan'].some(k=>
+        String(rec[k]==null?'':rec[k])!==String(lama[k]==null?'':lama[k]))
+      || (rec.di_purchasing===0)!==(lama.di_purchasing===0)
+      || (!!rec.dibeli_jadi)!==(!!lama.dibeli_jadi);
+    if(beda) ubah.push({rec,lama}); else sama++;
+  });
+  if(!baru.length&&!ubah.length){
+    return pesan(`<div class="notice info">Tidak ada yang berubah — ${sama} baris di berkas itu isinya sama persis dengan yang tersimpan.</div>`);
+  }
+  const rasio=g=>g.dari>0?(g.ke-g.dari)/g.dari:(g.ke>0?1:0);
+  const gerak=ubah.map(x=>({nama:x.rec.nama,dari:per1(x.lama),ke:per1(x.rec)}))
+    .filter(g=>Math.abs(g.ke-g.dari)>0.005)
+    .sort((a,b)=>Math.abs(rasio(b))-Math.abs(rasio(a))).slice(0,5);
+  IMPOR={rows:baru.concat(ubah.map(x=>x.rec))};
+  konfirmasi({
+    judul:'Impor Bahan & Harga',
+    tombol:`Impor ${IMPOR.rows.length} baris`,
+    onYa:jalankanImpor,
+    pesan:`<div style="display:flex;gap:8px;margin-bottom:12px">
+        ${[['Baru',baru.length],['Diperbarui',ubah.length],['Sama, dilewati',sama]].map(k=>
+          `<div style="flex:1;text-align:center;border:1px solid var(--line);border-radius:10px;padding:9px 6px">
+             <div class="mono" style="font-size:19px;font-weight:800">${k[1]}</div>
+             <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">${k[0]}</div></div>`).join('')}
+      </div>
+      <div style="font-size:12.5px">Nama yang <b>sudah ada akan diperbarui</b>, bukan ditambah kembar. Bahan yang ada di data tapi <b>tidak ada di berkas ini tidak dihapus</b> — ia dibiarkan apa adanya. Nama tidak pernah diganti lewat impor.</div>
+      ${gerak.length?`<div class="notice warn" style="margin:12px 0 0"><div>
+        <b>Harga per satuan yang paling bergerak</b> — periksa dulu, angka yang salah ketik muncul di sini:
+        <div style="margin-top:6px;font-size:12px">${gerak.map(g=>
+          `${esc(g.nama)}: ${rp2(g.dari)} → <b>${rp2(g.ke)}</b> (${g.dari>0?(rasio(g)>0?'+':'')+(rasio(g)*100).toFixed(1)+'%':'baru'})`).join('<br>')}</div>
+      </div></div>`:''}
+      ${baru.length?`<div style="margin-top:12px;font-size:12px;color:var(--muted)"><b>Contoh yang akan ditambahkan:</b> ${esc(baru.slice(0,8).map(r=>r.nama).join(', '))}${baru.length>8?`, … (+${baru.length-8})`:''}</div>`:''}
+      ${(bolong&&bolong.length)?`<div class="notice warn" style="margin:12px 0 0"><div>⚠ ${bolong.length} baris dilewati karena kolom namanya kosong (baris ${bolong.slice(0,6).join(', ')}${bolong.length>6?', …':''}).</div></div>`:''}`
+  });
+}
+function jalankanImpor(){
+  if(!IMPOR||!IMPOR.rows.length) return;
+  const rows=IMPOR.rows; IMPOR=null;
+  setSync('','Mengimpor…');
+  fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'imporBahan',by:(ME&&ME.name)||'',rows:rows})})
+    .then(r=>r.text()).then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON (stock-api-mysql/hpp.php belum ter-deploy?)');
+      /* Bahan baru dari impor SENGAJA tidak didaftarkan sendiri ke purchasing,
+         beda dengan tombol Simpan di layar. Satu berkas bisa membawa ratusan
+         nama, dan membanjiri basis bahan baku modul tetangga adalah keputusan
+         yang harus diambil orang, bukan efek samping sebuah unggahan. Jalannya
+         sudah ada dan disebut di sini: spanduk "Daftarkan semuanya". */
+      pesan(`<div class="notice ok"><div>✓ Impor selesai: <b>${j.baru||0} bahan baru</b>, <b>${j.diubah||0} diperbarui</b>${
+        (j.galat&&j.galat.length)?`, <b>${j.galat.length} gagal</b> (${esc(j.galat.slice(0,5).join(', '))})`:''}. Yang tidak ada di berkas tidak disentuh.${
+        j.baru?`<div style="margin-top:6px;font-size:12px">Bahan baru itu <b>belum</b> berdiri di basis bahan baku Purchasing — pakai tombol <b>+ Daftarkan semuanya ke Purchasing</b> di spanduk atas kalau memang dibeli ke vendor.</div>`:''}</div></div>`);
+      return muat();
+    })
+    .catch(e=>{
+      setSync('err','✕ Gagal');
+      pesan(`<div class="notice bad">✕ Gagal mengimpor: ${esc(e.message||'')}. <b>Tidak ada yang tersimpan.</b> Kalau server belum diperbarui, unggah ulang <b>stock-mysql/</b> dulu.</div>`);
+    });
 }
 
 /* ====================== 4. DASHBOARD HPP ====================== */
@@ -2040,7 +2535,9 @@ function viewAtur(){
   <div class="card"><h3>Dari mana data modul ini</h3>
     <div class="card-sub">Supaya tidak ada yang mencari-cari sumbernya.</div>
     <table><tbody>
-      <tr><td><b>Resep &amp; bahan</b></td><td>dipindahkan sekali dari <i>HPP Food Laksamana Updated March 2026.xlsx</i>; sesudah itu diurus dari layar ini.</td></tr>
+      <tr><td><b>Resep &amp; bahan</b></td><td>dipindahkan sekali dari <i>HPP Food Laksamana Updated March 2026.xlsx</i>; sesudah itu diurus dari layar ini. <b>Resep</b> hanya dari layar.</td></tr>
+      <tr><td><b>Bahan &amp; harga lewat Excel</b></td><td>daftar bahan berikut harganya bisa diunduh (<b>⬇ Excel</b> / <b>⬇ CSV</b>) dan diunggah kembali dari halaman <b>Bahan &amp; Harga</b> — untuk daftar harga baru dari vendor, yang mengubah puluhan baris sekaligus. Impor <b>tidak pernah menghapus</b> dan <b>tidak pernah mengganti nama</b>: yang tidak ada di berkas dibiarkan, dan nama baru dianggap bahan baru.</td></tr>
+      <tr><td><b>Nama yang sama di dua sisi</b></td><td>Satu nama boleh jadi <b>bahan yang dibeli</b> sekaligus <b>menu yang dijual</b> — Dimsum Ayam, Indomie Goreng, Sate Taichan. Yang menentukan sisi mana yang dipakai adalah dropdown <b>Bahan / Resep</b> di tiap baris resep, bukan namanya. Caranya: <b>1)</b> daftarkan barangnya di Bahan &amp; Harga berikut harga belinya, <b>2)</b> di menunya, tambahkan baris bertipe <b>Bahan</b> dengan nama itu. Selama langkah 2 belum ada, barisnya ditandai <b>⚠ bayangan?</b> — nyalakan saklar <b>Dibeli jadi</b> lewat tombol Ubah supaya tanda itu berhenti sampai menunya sempat disusun.</td></tr>
       <tr><td><b>Nama &amp; vendor bahan</b></td><td>satu daftar dengan basis bahan baku Purchasing — nama bahan di sini <b>adalah</b> nama di sana. Ganti nama di salah satu modul, yang satunya ikut berubah otomatis (termasuk baris resep yang memakainya).</td></tr>
       <tr><td><b>Harga beli</b></td><td>milik modul ini. Purchasing tidak menyimpan harga sama sekali, jadi tidak ada yang bisa ditarik dari sana — di sinilah satu-satunya tempat harga bahan hidup.</td></tr>
       <tr><td><b>Opname, waste, order</b></td><td>tetap di Stock &gt; Pemakaian Bahan Baku dan Ordering/Purchasing — modul ini tidak menduplikasinya, angkanya diketik ulang di halaman Pemakaian sampai kedua modul disambungkan.</td></tr>

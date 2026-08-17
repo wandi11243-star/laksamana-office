@@ -709,7 +709,7 @@ function pur_products_impor($pdo, $rows) {
              $r->satuan ?? null, $r->kategori ?? null, $r->area ?? null,
              $r->caraBeli ?? null, $r->sumber ?? null, $r->packIsi ?? null,
              $r->packSatuan ?? null, $r->diOutlet ?? null,
-             $r->satuanDasar ?? null, $r->isi ?? null);
+             $r->satuanDasar ?? null, $r->isi ?? null, $r->aktif ?? null);
     if (is_array($res) && ($res['status'] ?? '') === 'error') { $galat[] = $nm; continue; }
     if ($sebelum) $ubah++; else { $baru++; $ada[$k] = true; }
   }
@@ -888,6 +888,12 @@ function pur_products_ambil($pdo) {
        berlaku di CK. Menggabungkannya berarti mengubah satuan pembelian sebuah
        barang vendor bisa menggeser saldo CK barang lain yang kebetulan
        sesatuan, dan itu tidak akan terlihat sampai stok opname berikutnya. */
+    /* aktif: barang yang masih dipakai. BAWAANNYA TRUE — 240 bahan lama tidak
+       punya kunci ini, dan menganggapnya non-aktif akan mengosongkan daftar
+       pilihan di form order untuk semuanya sekaligus. Yang non-aktif tetap
+       tersimpan lengkap (riwayat order & saldo CK-nya menunjuk ke sini); ia
+       cuma berhenti ditawarkan saat memesan. */
+    $p->aktif = isset($p->aktif) ? (bool)$p->aktif : true;
     if (!isset($p->satuanDasar) || !is_string($p->satuanDasar)) $p->satuanDasar = '';
     $p->satuanDasar = trim($p->satuanDasar);
     $p->isi = pur_isi_normal($p->isi ?? null);
@@ -927,7 +933,7 @@ function pur_products_ambil($pdo) {
    hpp.php), jadi menyisipkan di tengah akan menggeser SETIAP argumen
    sesudahnya — kategori terbaca sebagai area, packIsi sebagai diOutlet — tanpa
    satu pun galat, karena semuanya sama-sama boleh null. */
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null, $satuanDasar = null, $isi = null) {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null, $satuanDasar = null, $isi = null, $aktif = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -955,10 +961,11 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $packSatuanLama = '';
   $diOutletLama = false;
   $satuanDasarLama = '';
+  $aktifLama = true;
   $isiLama = (object)[];
   if ($satuan === null || $kategori === null || $area === null || $caraBeli === null
       || $sumber === null || $packIsi === null || $packSatuan === null || $diOutlet === null
-      || $satuanDasar === null || $isi === null) {
+      || $satuanDasar === null || $isi === null || $aktif === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -978,6 +985,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->diOutlet)) $diOutletLama = (bool)$lama->diOutlet;
       if (is_object($lama) && isset($lama->satuanDasar) && is_string($lama->satuanDasar)) $satuanDasarLama = $lama->satuanDasar;
       if (is_object($lama) && isset($lama->isi)) $isiLama = pur_isi_normal($lama->isi);
+      if (is_object($lama) && isset($lama->aktif)) $aktifLama = (bool)$lama->aktif;
     }
   }
   if ($satuan === null)     $satuan = $satuanLama;
@@ -990,6 +998,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   if ($diOutlet === null)   $diOutlet = $diOutletLama;
   if ($satuanDasar === null) $satuanDasar = $satuanDasarLama;
   if ($isi === null)         $isi = $isiLama;
+  if ($aktif === null)       $aktif = $aktifLama;
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -1103,7 +1112,8 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $rec = (object)['utama' => (string)$utama, 'cadangan' => $cadangan, 'satuan' => $satuan,
                   'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli,
                   'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan,
-                  'diOutlet' => $diOutlet, 'satuanDasar' => $satuanDasar, 'isi' => $isi];
+                  'diOutlet' => $diOutlet, 'satuanDasar' => $satuanDasar, 'isi' => $isi,
+                  'aktif' => (bool)$aktif];
 
   $pdo->beginTransaction();
   try {
