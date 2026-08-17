@@ -1413,7 +1413,17 @@ function layarBahan(floor){
         : tb.sisi==='beli'?` <span class="chip ok" title="Ada menu/resep bernama sama, dan itu disengaja: barang ini DIBELI, jadi harga di baris inilah yang dipakai.${tb.dipakai.length?' Dipakai sebagai bahan di: '+esc(tb.dipakai.slice(0,4).map(r=>r.nama).join(', ')):' Dinyatakan lewat tombol Ubah.'}">⇄ dibeli</span>`
         : tb.sisi==='resep'?` <span class="chip mute" title="Dibuat sendiri: harganya dihitung dari resep bernama sama, bukan dari baris ini. Barisnya tetap ada supaya namanya berdiri di Purchasing — outlet memesannya ke Central Kitchen.${tb.pakaiResep.length?' Dirujuk sebagai resep oleh: '+esc(tb.pakaiResep.slice(0,4).map(r=>r.nama).join(', ')):''}">⇄ harga dari resep</span>`
         : ` <span class="chip warn" title="Ada MENU JADI bernama sama, tapi belum ada baris resep mana pun yang memakai nama ini sebagai Bahan. Tentukan lewat tombol di kanan: Dibeli (harga dari sini) atau Dari resep (dibuat sendiri).">⚠ bayangan?</span>`}</td>
-      <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
+      ${(function(){ const v=vendorInfo(b);
+        /* Keadaan digambar sebagai chip, bukan teks polos: "Online" yang
+           tertulis sebaris dengan "Novi" dan "Toko Jaya" akan terbaca sebagai
+           nama vendor bernama Online, dan orang akan mencarinya di daftar
+           vendor. */
+        return `<td style="font-size:12px">${
+          v.keadaan==='online'?'<span class="chip info" title="Dipesan daring di Purchasing — memang tidak punya vendor tetap">🛒 Online</span>'
+        : v.keadaan==='ck'?'<span class="chip mute" title="Diproduksi Central Kitchen lalu diambil outlet — bukan barang vendor">🍳 Central Kitchen</span>'
+        : v.teks?esc(v.teks)
+        : `<span style="color:var(--muted-2)" title="${infoPur(b)?'Purchasing belum menunjuk vendor utama untuk bahan ini':'Bahan ini belum ada di basis bahan baku purchasing'}">—</span>`}</td>`;
+      })()}
       ${tb.sisi==='resep'
         /* Qty & harga beli DIPUDARKAN, dan harga/satuan diambil dari resepnya.
            Baris ini penopang nama untuk purchasing; angka yang tersimpan di
@@ -1597,7 +1607,16 @@ function bukaBahan(nama,pertahankan){
            ketik supaya nama baru yang diketik cenderung sama sejak awal. -->
       <div class="notice ${statusPur(EB).k==='ada'?'ok':statusPur(EB).k==='beda'?'warn':'info'}" id="pkBox">${
         statusPur(EB).k==='ada'
-          ? `✓ Nama ini ada di purchasing — vendornya <b>${esc((PRODUK[EB.nama]||{}).utama||'belum diisi di sana')}</b>, dibaca langsung dari sana.`
+          /* Ikut vendorInfo(), bukan membaca `utama` sendiri: "belum diisi di
+             sana" adalah kalimat yang salah untuk barang yang justru SUDAH
+             ditentukan dibeli online atau diproduksi CK — dua-duanya memang
+             tidak punya vendor. */
+          ? (function(){ const v=vendorInfo(EB);
+              return v.keadaan==='online' ? `✓ Nama ini ada di purchasing, dan di sana ditandai <b>dibeli online</b> — jadi ia memang tidak punya vendor tetap.`
+                   : v.keadaan==='ck'     ? `✓ Nama ini ada di purchasing sebagai barang <b>Central Kitchen</b> — diproduksi sendiri lalu diambil outlet, bukan dibeli ke vendor.`
+                   : v.teks               ? `✓ Nama ini ada di purchasing — vendornya <b>${esc(v.teks)}</b>, dibaca langsung dari sana.`
+                                          : `✓ Nama ini ada di purchasing, tapi <b>vendor utamanya belum ditunjuk</b> di sana. Isi dari modul Purchasing; halaman ini cuma membacanya.`;
+            })()
         : statusPur(EB).k==='beda'
           ? `⚠ Bahan ini berpasangan dengan <b>${esc(EB.produk)}</b> di purchasing, tapi namanya masih berbeda. Samakan lewat tombol di halaman Bahan &amp; Harga — resep yang memakainya ikut disesuaikan.`
         : statusPur(EB).k==='mandiri'
@@ -1762,14 +1781,47 @@ function statusPur(b){
   if(b.produk&&PRODUK[b.produk]) return {k:'beda',t:'nama beda',c:'warn'};
   return {k:'belum',t:'belum di purchasing',c:'info'};
 }
-function vendorOf(b){
-  /* Vendor selalu dari purchasing — lewat nama kalau sudah sama, lewat pasangan
-     lama selama namanya belum disamakan. Yang tersimpan di hpp_bahan cuma
-     cadangan untuk bahan yang memang tidak ada di sana. */
+/* SIAPA YANG MEMASOK SEBUAH BAHAN — teks yang tampil di kolom Vendor, dan
+   apakah ia NAMA VENDOR atau KEADAAN.
+
+   17 Agustus 2026, permintaan user: "di purchasing saya sudah define dia online
+   dan tidak ada vendor, kenapa masih ada nama Novi?". Sebabnya cabang terakhir
+   yang dulu berbunyi `return b.vendor||''` — jatuh ke vendor yang TERSIMPAN di
+   hpp_bahan, salinan dari berkas Excel Maret 2026. Bunga Telang sudah dipindah
+   ke pembelian online di purchasing, tapi salinan lamanya masih menyebut Novi,
+   dan tidak ada satu pun layar yang akan memberitahu bahwa itu sudah basi —
+   persis yang sudah ditulis sebagai peringatan di kepala bagian ini, cuma
+   kodenya sendiri belum mengikutinya.
+
+   Sekarang: kalau bahannya ADA di basis purchasing, purchasing-lah jawabannya,
+   TERMASUK ketika ia menjawab "tidak ada vendor". Kosongnya itu jawaban, bukan
+   isian yang belum sempat diisi:
+
+     - caraBeli 'online' -> "Online". Barang dipesan daring, memang tidak punya
+       vendor tetap. Sama dengan yang ditampilkan kartu order di Purchasing
+       (lihat onlineTanpaVendor di deploy/stock/purchasing/index.html).
+     - sumber 'ck'       -> "Central Kitchen". Diproduksi sendiri lalu diambil
+       outlet; juga tidak punya vendor, dan juga bukan kekurangan data.
+     - selain itu       -> kosong, artinya purchasing memang belum menunjuk
+       vendor utamanya.
+
+   Salinan `b.vendor` hanya dipakai untuk bahan yang TIDAK ADA di purchasing
+   sama sekali — di situ ia satu-satunya keterangan yang kita punya, dan tidak
+   ada sumber lain yang bisa membantahnya. */
+function vendorInfo(b){
   const p=infoPur(b);
-  if(p&&p.utama) return p.utama;
-  return b.vendor||'';
+  if(p&&p.utama) return {teks:p.utama,keadaan:''};
+  if(p){
+    if(low(p.caraBeli)==='online') return {teks:'Online',keadaan:'online'};
+    if(low(p.sumber)==='ck')       return {teks:'Central Kitchen',keadaan:'ck'};
+    return {teks:'',keadaan:''};
+  }
+  return {teks:(b&&b.vendor)||'',keadaan:''};
 }
+// Satu pembaca teks untuk pencarian, pengurutan, dan ekspor — supaya "online"
+// bisa diketik di kotak cari dan berkas ekspornya menyebut hal yang sama
+// dengan layarnya.
+function vendorOf(b){ return vendorInfo(b).teks; }
 /* Sisa pekerjaan dari masa pencocokan: bahan yang namanya masih beda dari
    nama purchasing pasangannya. Sekali klik, seluruhnya diganti nama dan semua
    baris resep yang merujuknya ikut ditambal server. */
