@@ -13,6 +13,9 @@
  *   POST {action:'hapusResep',  id}
  *   POST {action:'impor', data:{bahan:[],resep:[]}, timpa:bool}
  *                                              pemindahan awal dari Excel
+ *   POST {action:'imporBahan', rows:[…]}       impor BERULANG bahan dari
+ *                                              Excel/CSV; upsert per nama,
+ *                                              tidak menghapus & tidak ganti nama
  *
  * KENAPA UPSERT PER BARIS, BUKAN "kirim semua". Resep diubah satu-satu oleh
  * kitchen sementara harga bahan diubah purchasing di jam yang sama; kiriman
@@ -400,6 +403,64 @@ function hpp_impor($pdo, $d, $by, $timpa) {
   return array('status' => 'success', 'saved' => true, 'bahan' => $nB, 'resep' => $nR);
 }
 
+/* IMPOR BAHAN DARI EXCEL/CSV (17 Agustus 2026, permintaan user).
+ *
+ * Beda dari hpp_impor di atas, yang sekali-jalan untuk pemindahan awal dan
+ * MENOLAK bila tabelnya sudah berisi. Yang ini justru dipakai berulang: daftar
+ * harga baru dari vendor disunting di Excel lalu diunggah kembali.
+ *
+ * TIDAK MENGHAPUS APA PUN. Bahan yang ada di tabel tapi tidak ada di berkas
+ * dibiarkan — berkas yang tidak lengkap (orang menyaring dulu di Excel lalu
+ * menyimpan) tidak boleh berarti "sisanya sudah tidak ada".
+ *
+ * TIDAK MENGGANTI NAMA: `namaLama` dibuang paksa. Nama di berkas yang berbeda
+ * dari yang tersimpan berarti bahan BARU — tidak ada kolom yang bisa
+ * memberitahu mana yang sebenarnya bahan lama yang berganti nama, dan tebakan
+ * yang salah memutus rujukan di ribuan baris resep tanpa satu pun galat.
+ *
+ * Barisnya sudah DIGABUNG dengan data lama di layar (lihat siapkanImpor),
+ * jadi di sini ia disimpan apa adanya lewat jalur simpan yang sama — satu
+ * penulis, satu aturan. Yang tidak dilakukan dan itu disengaja: mendaftarkan
+ * bahan baru ke basis purchasing. Satu berkas bisa membawa ratusan nama, dan
+ * membanjiri modul tetangga adalah keputusan orang, bukan efek samping sebuah
+ * unggahan; tombol "Daftarkan semuanya" di layar sudah menyediakan jalannya.
+ */
+function hpp_impor_bahan($pdo, $rows, $by) {
+  if (!is_array($rows)) return array('status' => 'error', 'message' => 'rows bukan array');
+  /* Daftar nama yang sudah ada dikumpulkan SEKALI di depan. Menanyakannya per
+     baris berarti 300 query untuk pertanyaan yang jawabannya tidak berubah,
+     dan angka "baru" harus dihitung SEBELUM barisnya ditulis — sesudahnya
+     semua baris terlihat sudah ada. */
+  $ada = array();
+  foreach ($pdo->query('SELECT nama FROM hpp_bahan')->fetchAll(PDO::FETCH_COLUMN) as $n) {
+    $ada[mb_strtolower((string)$n)] = true;
+  }
+  $baru = 0; $ubah = 0; $lewat = 0; $galat = array();
+  foreach ($rows as $r) {
+    if (is_array($r)) $r = (object)$r;
+    if (!is_object($r)) { $lewat++; continue; }
+    $nm = hpp_txt(isset($r->nama) ? $r->nama : '', 190);
+    if ($nm === '') { $lewat++; continue; }
+    unset($r->namaLama);
+    $k = mb_strtolower($nm);
+    $sebelum = isset($ada[$k]);
+    try {
+      hpp_simpan_bahan($pdo, $r, $by);
+    } catch (Throwable $e) {
+      /* Satu baris yang gagal TIDAK menjatuhkan seluruh unggahan: 299 harga
+         yang benar tidak boleh hilang karena satu nama yang kepanjangan.
+         Namanya dipulangkan supaya yang gagal bisa disebut di layar, bukan
+         cuma dihitung. */
+      error_log('[stock/hpp] impor bahan "' . $nm . '" gagal: ' . $e->getMessage());
+      $galat[] = $nm;
+      continue;
+    }
+    if ($sebelum) $ubah++; else { $baru++; $ada[$k] = true; }
+  }
+  return array('status' => 'success', 'saved' => true, 'baru' => $baru,
+               'diubah' => $ubah, 'dilewati' => $lewat, 'galat' => $galat);
+}
+
 try {
   $pdo = pur_pdo();
   hpp_pastikan_tabel($pdo);
@@ -464,6 +525,12 @@ try {
         }
       }
       pur_json($hasil);
+    }
+    /* Impor massal dari Excel/CSV (halaman Bahan & Harga). Upsert berdasarkan
+       NAMA; tidak ada yang dihapus, tidak ada yang diganti nama. Lihat catatan
+       panjang di hpp_impor_bahan. */
+    if ($a === 'imporBahan') {
+      pur_json(hpp_impor_bahan($pdo, isset($b->rows) ? $b->rows : null, $by));
     }
     /* SEKALI JALAN: tarik semua bahan purchasing yang belum punya baris di HPP.
        Penyambungan otomatis di atas cuma menangkap produk yang DISIMPAN sejak
