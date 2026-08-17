@@ -521,7 +521,12 @@ function modalResep(r,jalur){
   let total=0, hilang=[], siklus=false, campur=[];
   (r.bahan||[]).forEach(b=>{
     if(!b||!b.nama) return;
-    if(b.ref==='resep'){
+    /* lewatResep(): `ref` baris ini, ATAU baris bahannya sendiri menyatakan
+       harganya datang dari resep bernama sama (sisi 'resep'). Base olahan
+       seperti Ayam Karage berdiri di daftar bahan cuma sebagai penopang nama
+       untuk purchasing/CK dan harganya di sana nol — baris resep yang
+       terlanjur bertipe Bahan akan menghitungnya Rp0 tanpa satu pun tanda. */
+    if(lewatResep(b)){
       const sub=cariResep(b.nama,r.jenis);
       if(!sub){ hilang.push(b.nama); return; }
       const m=modalResep(sub,jalur);
@@ -602,29 +607,118 @@ function dipakaiOleh(nama){
    jadi ambigu; yang perlu diputuskan cuma "baris ini maksudnya yang mana", dan
    itu sudah dipilih di penyunting resep lewat dropdown Bahan/Resep.
 
-   YANG MENENTUKAN sebuah baris bahan bertabrakan itu sah atau cuma bayangan:
+   ADA SISI KETIGA, dan ia yang paling banyak (17 Agustus 2026, sesudah user
+   melihat hasilnya di dev): **base olahan buatan sendiri yang berdiri juga di
+   Purchasing** — Ayam Karage, Ayam Hainan, Ayam Panggang Merah, Sate Lilit.
+   Outlet MEMESANNYA ke Central Kitchen, jadi namanya memang harus ada di basis
+   bahan baku purchasing; tapi harganya bukan harga beli, melainkan modal
+   resepnya sendiri. Tiga jalan yang ditawarkan sebelumnya — hapus, ganti nama,
+   atau nyatakan "dibeli jadi" — tidak satu pun benar untuk barang seperti ini:
+   menghapusnya memutus namanya dari purchasing, mengganti namanya membuat dua
+   nama untuk satu benda, dan "dibeli jadi" bohong.
 
-     1. ADA BUKTINYA — ada baris resep yang memakainya sebagai **Bahan**. Ini
-        bukti terkuat, dan ia menyembuh sendiri: begitu menu "Dimsum Ayam"
-        menyebut bahan "Dimsum Ayam", tidak ada lagi yang perlu diatur.
-     2. DINYATAKAN — saklar "dibeli jadi" di Ubah Bahan, untuk barang yang baru
-        didaftarkan dan menunya belum disusun. Tanpa ini, barang yang benar
-        tetap masuk daftar bayangan selama seminggu sampai resepnya dibuat.
+   Maka yang disimpan bukan lagi saklar ya/tidak, melainkan JAWABAN atas satu
+   pertanyaan: **harga untuk nama ini diambil dari mana?**
 
-   Yang tidak memenuhi keduanya tetap disebut bayangan, tapi sekarang ia
-   TERLIHAT (dengan tanda) dan bisa ditinjau satu per satu — bukan disembunyikan
-   lalu ditawarkan penghapusan massal. */
+     'beli'  → dari baris bahan ini. Barang yang benar-benar dibeli ke vendor
+               walaupun ada menu bernama sama (dimsum beku, mi instan).
+     'resep' → dari resep bernama sama. Barisnya di sini cuma PENOPANG NAMA
+               supaya purchasing/CK punya barang yang bisa dipesan; qty & harga
+               belinya tidak dibaca siapa pun.
+     ''      → belum diputuskan.
+
+   Yang kosong DISIMPULKAN, bukan dibiarkan menggantung — dan yang menyimpulkan
+   adalah TIPE resep yang bertabrakan dengannya, bukan cara orang mengetik
+   barisnya:
+
+     - bertabrakan dengan **BASE** → 'resep'. Base adalah "dibuat sendiri lalu
+       dipakai resep lain" menurut definisi halaman Daftar Resep sendiri, jadi
+       harganya memang modal resepnya. Inilah keempat contoh user: Ayam Karage,
+       Ayam Hainan, Ayam Panggang Merah, Sate Lilit — semuanya bersih tanpa satu
+       pun klik.
+     - bertabrakan dengan **MENU JADI** dan ada baris resep yang memakainya
+       sebagai **Bahan** → 'beli'. Ada yang benar-benar membaca harganya.
+     - bertabrakan dengan menu jadi, tapi tidak dipakai siapa pun → tetap
+       kosong, ditandai "bayangan?" untuk ditinjau. Ini satu-satunya keadaan
+       yang masih perlu diputuskan orang, dan jumlahnya kecil.
+
+   TIPE, BUKAN CARA MERUJUK, dan itu penting. Sempat dicoba menyimpulkan dari
+   `ref` baris-baris yang memakainya — dirujuk sebagai Resep berarti 'resep'.
+   Tapi satu baris yang salah pilih dropdown (menyebut Ayam Karage sebagai
+   Bahan, padahal ia base) langsung membalik kesimpulannya jadi 'beli', dan
+   seluruh base itu dihargai nol di setiap resep yang memakainya. Kesimpulan
+   yang bisa dibalik oleh satu salah ketik bukan kesimpulan.
+
+   KONSEKUENSI DI PENGHITUNG MODAL: baris resep yang menunjuk nama bersisi
+   'resep' dibaca dari RESEPNYA walaupun barisnya terlanjur bertipe Bahan (lihat
+   modalResep). Ini bukan tebakan dari nama — ini pernyataan tersimpan, sama
+   derajatnya dengan `ref`. Tanpa itu, satu baris yang salah tipe akan
+   menghitung Ayam Karage sebagai Rp0 tanpa satu pun tanda di layar. */
 function dipakaiSebagaiBahan(nama){
   const n=low(nama), out=[];
   S.resep.forEach(r=>{ if((r.bahan||[]).some(b=>b&&b.ref!=='resep'&&low(b.nama)===n)) out.push(r); });
   return out;
 }
+function dipakaiSebagaiResep(nama){
+  const n=low(nama), out=[];
+  S.resep.forEach(r=>{ if((r.bahan||[]).some(b=>b&&b.ref==='resep'&&low(b.nama)===n)) out.push(r); });
+  return out;
+}
+/* Sisi harga yang tersimpan TERANG-TERANGAN: '' kalau belum diputuskan. */
+function sisiTersimpan(b){
+  const s=low((b&&b.sisi_harga)||'');
+  if(s==='beli'||s==='resep') return s;
+  /* Warisan saklar `dibeli_jadi` yang berumur satu hari (17 Agustus 2026 pagi),
+     sebelum sisi ketiga ada. Server sudah memindahkannya saat kolom baru lahir;
+     ini lapis keduanya, untuk data yang keburu terbaca sebelum migrasi jalan. */
+  return (b&&b.dibeli_jadi)?'beli':'';
+}
+/* Sisi harga sebuah bahan: 'beli' | 'resep' | '' (belum diputuskan).
+   Pernyataan lebih dulu, lalu kesimpulan dari TIPE resep yang bertabrakan.
+
+   SENGAJA MURAH: cuma satu pencarian peta, tidak menyisir daftar resep sama
+   sekali. Ia dipanggil dari dalam modalResep untuk tiap baris tiap resep, dan
+   menyisir 365 resep di sana membuat satu penggambaran daftar jadi ratusan ribu
+   langkah. Sisi 'beli' yang butuh bukti pemakaian dihitung di tabrakan(), yang
+   cuma dipakai layar — dan untuk penghitung modal bedanya tidak ada: yang
+   bukan 'resep' selalu dibaca dari daftar bahan. */
+function sisiHarga(b){
+  const s=sisiTersimpan(b);
+  if(s) return s;
+  const r=b?PR[low(b.nama)]:null;
+  return (r&&r.tipe==='base')?'resep':'';
+}
+/* "Baris resep ini dibaca dari RESEP, bukan dari daftar bahan." Satu penentu
+   untuk SEMUA pembacanya — modalResep, hitungBaris (angka per baris di
+   penyunting), uraiBahan (uraian Dashboard), dan saran satuan. Ditulis
+   sekali karena empat salinan aturan yang sama pasti menyimpang, dan yang
+   menyimpang di sini muncul sebagai penyunting resep yang menampilkan angka
+   berbeda dari totalnya sendiri. */
+const lewatResep=b=>{
+  if(!b) return false;
+  if(b.ref==='resep') return true;
+  const it=PB[low(b.nama)];
+  return !!(it&&sisiHarga(it)==='resep');
+};
 function tabrakan(b){
   const r=b?PR[low(b.nama)]:null;
-  if(!r) return {ada:false,sah:false,bayangan:false,dipakai:[],r:null};
-  const dipakai=dipakaiSebagaiBahan(b.nama);
-  const sah=!!(b.dibeli_jadi||dipakai.length);
-  return {ada:true,sah:sah,bayangan:!sah,dipakai:dipakai,r:r};
+  if(!r) return {ada:false,sisi:'',sah:false,bayangan:false,dipakai:[],pakaiResep:[],r:null};
+  const dipakai=dipakaiSebagaiBahan(b.nama), pakaiResep=dipakaiSebagaiResep(b.nama);
+  const eksplisit=sisiTersimpan(b);
+  // sisiHarga() sudah menutup tabrakan dengan BASE; sisanya (menu jadi) baru
+  // butuh bukti pemakaian sebagai Bahan.
+  const sisi=eksplisit||sisiHarga(b)||(dipakai.length?'beli':'');
+  return {ada:true,sisi:sisi,tebakan:!eksplisit&&!!sisi,sah:!!sisi,bayangan:!sisi,
+          dipakai:dipakai,pakaiResep:pakaiResep,r:r};
+}
+/* Modal per satuan hasil sebuah resep — angka yang menggantikan "harga /
+   satuan" untuk bahan bersisi 'resep'. Dua daftar yang menampilkan dua angka
+   untuk benda yang sama adalah cara paling pasti membuat orang berhenti
+   percaya keduanya. */
+function perUnitResep(r){
+  if(!r) return 0;
+  const y=num(r.yield_qty)||1;
+  return modalMenu(r).total/y;
 }
 
 /* ====================== KERANGKA ====================== */
@@ -935,7 +1029,7 @@ function konfirmYa(){ const f=KONFIRM_YA; tutupKonfirm(); if(f) f(); }
    seperti itu mustahil ditulis. Yang dipersempit cuma SARANNYA. */
 function saranSatuanBaris(b){
   if(!b) return null;
-  if(b.ref==='resep'){
+  if(lewatResep(b)){
     const sub=cariResep(b.nama, ED?ED.jenis:'');
     const u=sub&&String(sub.yield_unit||'').trim();
     return u?[u]:null;
@@ -1056,7 +1150,10 @@ function gambarEditor(){
 }
 function hitungBaris(b,jenis){
   if(!b||!b.nama) return {ada:false,nilai:0,campur:false,sat:''};
-  if(b.ref==='resep'){
+  // lewatResep(), bukan b.ref: angka per baris di penyunting HARUS memakai
+  // aturan yang sama dengan modalResep, kalau tidak jumlah barisnya tidak
+  // pernah sama dengan total yang tertulis di bawahnya.
+  if(lewatResep(b)){
     const sub=cariResep(b.nama,jenis);
     if(!sub) return {ada:false,nilai:0,campur:false,sat:''};
     const m=modalResep(sub); const y=num(sub.yield_qty)||1;
@@ -1218,7 +1315,7 @@ function layarBahan(floor){
       const t=tabrakan(b);
       if(st.nm==='tabrakan'&&!t.ada) return false;
       if(st.nm==='bayangan'&&!t.bayangan) return false;
-      if(st.nm==='dibeli'&&!(t.ada&&t.sah)) return false;
+      if((st.nm==='beli'||st.nm==='resep')&&t.sisi!==st.nm) return false;
     }
     return !q||low(b.nama).indexOf(q)>-1||low(vendorOf(b)).indexOf(q)>-1;
   };
@@ -1246,9 +1343,9 @@ function layarBahan(floor){
           .map(o=>`<option value="${o[0]}"${st.st===o[0]?' selected':''}>${o[1]}${o[0]?' ('+lingkup.filter(b=>statusPur(b).k===o[0]).length+')':''}</option>`).join('')}
       </select>
       <select onchange="${mana}.nm=this.value;${mana}.hal=1;render()" title="Saring menurut namanya yang juga ada di Daftar Resep">
-        ${[['','Semua nama'],['tabrakan','⇄ Juga nama resep'],['dibeli','⇄ Dibeli jadi'],['bayangan','⚠ Bayangan']]
+        ${[['','Semua nama'],['tabrakan','⇄ Juga nama resep'],['beli','⇄ Dibeli'],['resep','⇄ Harga dari resep'],['bayangan','⚠ Bayangan']]
           .map(o=>{ const n=o[0]?lingkup.filter(b=>{ const t=tabrakan(b);
-                      return o[0]==='tabrakan'?t.ada:o[0]==='bayangan'?t.bayangan:(t.ada&&t.sah); }).length:0;
+                      return o[0]==='tabrakan'?t.ada:o[0]==='bayangan'?t.bayangan:t.sisi===o[0]; }).length:0;
                     return `<option value="${o[0]}"${st.nm===o[0]?' selected':''}>${o[1]}${o[0]?' ('+n+')':''}</option>`; }).join('')}
       </select>
       ${floor?'':'<button class="btn btn-primary btn-sm" onclick="bukaBahan(\'\')">+ Bahan Baru</button>'}
@@ -1263,11 +1360,12 @@ function layarBahan(floor){
       <input type="file" id="fBahan" accept=".xlsx,.xls,.csv,text/csv" class="hidden" onchange="bacaBerkasBahan(this)">
     </div>
     ${(!floor&&kembar.length)?`<div class="notice warn" style="margin:0 0 12px"><div>
-      <b>${kembar.length} nama di sini juga ada di Daftar Resep, dan belum ada yang memakainya sebagai bahan.</b>
-      Dua kemungkinan, dan keduanya perlu diputuskan orang — bukan ditebak layar ini:
+      <b>${kembar.length} nama di sini juga jadi nama Menu Jadi, dan belum ada resep yang memakainya sebagai bahan.</b>
+      Tiga kemungkinan, dan ketiganya perlu diputuskan orang — bukan ditebak layar ini:
       <div style="margin-top:6px;font-size:12px;color:var(--muted)">
-        <b>Barangnya memang dibeli</b> (dimsum beku, mi instan, sate mentah) → buka <b>Ubah</b>, nyalakan <b>“Dibeli jadi”</b>, lalu pakai namanya sebagai <b>Bahan</b> di resep menunya. Tandanya hilang sendiri begitu ada resep yang memakainya.<br>
-        <b>Barangnya dibuat sendiri</b> dan barisnya sisa pindahan Excel Maret 2026 → hapus barisnya; resepnya tidak tersentuh.</div>
+        <b>Barangnya DIBELI</b> (dimsum beku, mi instan, sate mentah) → tekan <b>⇄ Dibeli</b> di barisnya. Harga di daftar ini yang dipakai.<br>
+        <b>Barangnya DIBUAT SENDIRI</b> dan namanya berdiri di sini supaya bisa dipesan ke Central Kitchen (Ayam Karage, Sate Lilit) → tekan <b>⇄ Dari resep</b>. Barisnya tetap ada untuk Purchasing, tapi harganya dihitung dari resepnya — <b>tidak perlu dihapus dan tidak perlu diganti nama</b>.<br>
+        <b>Barisnya memang sisa</b> pindahan Excel Maret 2026 dan tidak dipesan ke mana-mana → hapus; resepnya tidak tersentuh.</div>
       <div style="margin-top:6px;font-size:12px;color:var(--muted)">Contoh: ${esc(kembar.slice(0,5).map(b=>b.nama).join(' · '))}${kembar.length>5?' · …':''}</div>
       <div style="margin-top:9px"><button class="btn btn-ghost btn-sm" onclick="FB.nm='bayangan';FB.hal=1;render()">Lihat daftarnya</button>
       <button class="btn btn-danger btn-sm" onclick="hapusBahanKembar()">🗑 Hapus ${kembar.length} bayangan itu</button></div>
@@ -1297,18 +1395,31 @@ function layarBahan(floor){
            yang mengisi harga di sini perlu tahu bahwa ada MENU bernama sama,
            supaya ia tidak mengira sedang mengubah harga jual menu itu. */
         !tb.ada?''
-        : tb.sah?` <span class="chip ok" title="Ada juga menu/resep bernama sama, dan itu disengaja — barang ini dibeli jadi.${tb.dipakai.length?' Dipakai sebagai bahan di: '+esc(tb.dipakai.slice(0,4).map(r=>r.nama).join(', ')):' Ditandai lewat saklar Dibeli jadi.'}">⇄ juga resep</span>`
-        : ` <span class="chip warn" title="Ada resep bernama sama, tapi tidak ada satu pun baris resep yang memakai nama ini sebagai Bahan. Kalau barangnya memang dibeli, nyalakan saklar Dibeli jadi lewat tombol Ubah; kalau ia dibuat sendiri, baris ini sisa pindahan dan boleh dihapus.">⚠ bayangan?</span>`}</td>
+        : tb.sisi==='beli'?` <span class="chip ok" title="Ada menu/resep bernama sama, dan itu disengaja: barang ini DIBELI, jadi harga di baris inilah yang dipakai.${tb.dipakai.length?' Dipakai sebagai bahan di: '+esc(tb.dipakai.slice(0,4).map(r=>r.nama).join(', ')):' Dinyatakan lewat tombol Ubah.'}">⇄ dibeli</span>`
+        : tb.sisi==='resep'?` <span class="chip mute" title="Dibuat sendiri: harganya dihitung dari resep bernama sama, bukan dari baris ini. Barisnya tetap ada supaya namanya berdiri di Purchasing — outlet memesannya ke Central Kitchen.${tb.pakaiResep.length?' Dirujuk sebagai resep oleh: '+esc(tb.pakaiResep.slice(0,4).map(r=>r.nama).join(', ')):''}">⇄ harga dari resep</span>`
+        : ` <span class="chip warn" title="Ada MENU JADI bernama sama, tapi belum ada baris resep mana pun yang memakai nama ini sebagai Bahan. Tentukan lewat tombol di kanan: Dibeli (harga dari sini) atau Dari resep (dibuat sendiri).">⚠ bayangan?</span>`}</td>
       <td style="font-size:12px">${vendorOf(b)?esc(vendorOf(b)):'<span style="color:var(--muted-2)">—</span>'}</td>
-      <td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
-      <td>${esc(b.satuan||'')}</td>
-      <td class="num mono">${rp(b.harga_beli)}</td>
-      <td class="num mono"><b>${rp2(per1(b))}</b></td>
+      ${tb.sisi==='resep'
+        /* Qty & harga beli DIPUDARKAN, dan harga/satuan diambil dari resepnya.
+           Baris ini penopang nama untuk purchasing; angka yang tersimpan di
+           kolom belinya tidak dibaca siapa pun. Menampilkannya seperti biasa
+           berarti dua angka untuk benda yang sama berdiri bersebelahan
+           (Sate Lilit: Rp2.191,52 ketikan lama vs Rp2.182,19 hasil resep) —
+           dan yang melihatnya berhenti mempercayai keduanya. */
+        ? `<td class="num mono" style="color:var(--muted-2)" title="Tidak dipakai — harganya dihitung dari resep">${num(b.qty_beli).toLocaleString('id-ID')}</td>
+           <td style="color:var(--muted-2)">${esc(b.satuan||'')}</td>
+           <td class="num mono" style="color:var(--muted-2)" title="Tidak dipakai — harganya dihitung dari resep">${rp(b.harga_beli)}</td>
+           <td class="num mono" title="Modal per ${esc(tb.r.yield_unit||'satuan')} hasil resep ${esc(tb.r.nama)} — dihitung, bukan diketik"><b>${rp2(perUnitResep(tb.r))}</b> <span style="font-size:10px;color:var(--muted-2)">dari resep</span></td>`
+        : `<td class="num mono">${num(b.qty_beli).toLocaleString('id-ID')}</td>
+           <td>${esc(b.satuan||'')}</td>
+           <td class="num mono">${rp(b.harga_beli)}</td>
+           <td class="num mono"><b>${rp2(per1(b))}</b></td>`}
       <td class="num">${n
         ? `<button class="btn btn-ghost btn-xs" onclick="lihatPakai('${esc(b.nama)}')" title="Lihat resep mana saja yang memakainya">${n} resep</button>`
         : '<span style="color:var(--muted-2)">0</span>'}</td>
       <td style="white-space:nowrap"><button class="btn btn-ghost btn-xs" onclick="bukaBahan('${esc(b.nama)}')">Ubah</button>
-        ${tb.bayangan?`<button class="btn btn-ghost btn-xs" onclick="tandaiDibeliJadi('${esc(b.nama)}')" title="Nyatakan bahwa barang ini memang dibeli ke vendor, walaupun ada menu bernama sama">✓ Dibeli jadi</button>`:''}
+        ${tb.bayangan?`<button class="btn btn-ghost btn-xs" onclick="tandaiSisi('${esc(b.nama)}','beli')" title="Barang ini DIBELI ke vendor walaupun ada menu bernama sama — harga di baris ini yang dipakai">⇄ Dibeli</button>
+        <button class="btn btn-ghost btn-xs" onclick="tandaiSisi('${esc(b.nama)}','resep')" title="Barang ini DIBUAT SENDIRI — harganya dihitung dari resep bernama sama. Barisnya tetap ada supaya namanya berdiri di Purchasing">⇄ Dari resep</button>`:''}
         ${sp.k==='belum'?`<button class="btn btn-ghost btn-xs" onclick="daftarkanKePurchasing('${esc(b.nama)}')" title="Tambahkan nama ini ke basis bahan baku purchasing">+ Purchasing</button>`:''}</td></tr>`;
   });
   if(!hal.length) h+=`<tr><td colspan="8"><div class="empty">${floor
@@ -1444,7 +1555,7 @@ function bukaBahan(nama,pertahankan){
            purchasing (SATUAN_TERSEDIA), jadi bahan baru langsung sama di kedua
            daftar. Data lama bersatuan "Gr" tidak diapa-apakan — konversinya
            mengenali keduanya. */
-        :{nama:'',satuan:'Gram',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1,dibeli_jadi:0};
+        :{nama:'',satuan:'Gram',qty_beli:1000,harga_beli:0,vendor:'',produk:'',kategori:'',catatan:'',di_purchasing:1,sisi_harga:''};
   }
   const opsi=Object.keys(PRODUK).sort().map(p=>`<option value="${esc(p)}">`).join('');
   $('modal').innerHTML=`<div class="ovl" onclick="if(event.target===this)tutupModal()"><div class="mdl" style="max-width:620px">
@@ -1486,16 +1597,19 @@ function bukaBahan(nama,pertahankan){
            semua bahan, ia jadi pertanyaan yang tidak punya arti untuk 290 bahan
            yang tidak pernah bertabrakan — dan saklar yang tidak berarti akan
            dinyalakan asal saja. Lihat catatan di tabrakan(). -->
-      ${PR[low(EB.nama)]?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:10px">
-        <input type="checkbox" ${EB.dibeli_jadi?'checked':''} onchange="EB.dibeli_jadi=this.checked?1:0;gambarUlangBahan()" style="accent-color:var(--gold)">
-        Nama ini juga ada di Daftar Resep — dan barang ini <b>dibeli jadi</b></label>
-      <div class="notice ${tabrakan(EB).sah?'ok':'warn'}" style="font-size:12px">${(function(){
+      ${PR[low(EB.nama)]?`<div class="field"><label>Nama ini juga ada di Daftar Resep — harganya diambil dari mana?</label>
+        <select onchange="EB.sisi_harga=this.value;gambarUlangBahan()">
+          ${[['','— belum diputuskan —'],['beli','Dari baris ini — barangnya DIBELI ke vendor'],
+             ['resep','Dari resepnya — barangnya DIBUAT SENDIRI']]
+            .map(o=>`<option value="${o[0]}"${sisiHarga(EB)===o[0]?' selected':''}>${o[1]}</option>`).join('')}
+        </select></div>
+      <div class="notice ${tabrakan(EB).sah?(tabrakan(EB).sisi==='resep'?'info':'ok'):'warn'}" style="font-size:12px">${(function(){
         const t=tabrakan(EB);
-        return t.dipakai.length
-          ? `✓ Sudah ada buktinya: <b>${t.dipakai.length} resep</b> memakai nama ini sebagai <b>Bahan</b> (${esc(t.dipakai.slice(0,3).map(r=>r.nama).join(', '))}${t.dipakai.length>3?', …':''}). Saklarnya boleh dibiarkan mati — tandanya tidak akan muncul lagi.`
-          : t.sah
-            ? `Ditandai dibeli jadi. Langkah berikutnya: buka menu <b>${esc(t.r.nama)}</b> di Daftar Resep, dan tambahkan baris bertipe <b>Bahan</b> bernama <b>${esc(EB.nama)}</b> — di situlah harga di halaman ini mulai terpakai.`
-            : `Ada resep bernama <b>${esc(t.r.nama)}</b>, tapi belum ada baris resep mana pun yang memakai nama ini sebagai <b>Bahan</b>. Selama begitu, baris ini dihitung sebagai bayangan sisa pindahan Excel. Nyalakan saklar di atas kalau barangnya memang dibeli ke vendor.`;
+        if(t.sisi==='resep') return `Harganya dihitung dari resep <b>${esc(t.r.nama)}</b>: <b>${rp2(perUnitResep(t.r))}</b> per ${esc(t.r.yield_unit||'satuan')}. Qty &amp; harga beli di atas <b>tidak dibaca siapa pun</b> — barisnya tetap ada supaya namanya berdiri di Purchasing dan bisa dipesan ke Central Kitchen.${t.tebakan?' <i>(Disimpulkan sendiri karena resep bernama sama itu bertipe <b>Base &amp; Olahan</b> — dibuat sendiri lalu dipakai resep lain. Pilih terang-terangan di atas kalau barangnya ternyata dibeli.)</i>':''}`;
+        if(t.sisi==='beli') return `Harganya dari baris ini — <b>${rp2(per1(EB))}</b> per ${esc(EB.satuan||'satuan')}.${
+          t.dipakai.length?` Sudah ada buktinya: <b>${t.dipakai.length} resep</b> memakainya sebagai <b>Bahan</b> (${esc(t.dipakai.slice(0,3).map(r=>r.nama).join(', '))}${t.dipakai.length>3?', …':''}).`
+                          :` Langkah berikutnya: buka menu <b>${esc(t.r.nama)}</b> di Daftar Resep dan tambahkan baris bertipe <b>Bahan</b> bernama <b>${esc(EB.nama)}</b> — di situlah harga ini mulai terpakai.`}`;
+        return `Ada <b>menu jadi</b> bernama <b>${esc(t.r.nama)}</b>, tapi belum ada baris resep mana pun yang memakai nama ini sebagai <b>Bahan</b>. Selama begitu barisnya dihitung sebagai bayangan. Pilih di atas: <b>dibeli</b> kalau barangnya dipesan ke vendor, <b>dibuat sendiri</b> kalau ia olahan dapur/CK yang namanya cuma perlu berdiri di Purchasing.`;
       })()}</div>`:''}
       ${b&&statusPur(EB).k==='ada'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--muted);margin-bottom:12px">
         <input type="checkbox" id="ikutPur" checked style="accent-color:var(--gold)">
@@ -1576,21 +1690,23 @@ function hapusBahanKembar(){
         })
         .catch(e=>{ setSync('err','✕ Gagal'); pesan(`<div class="notice bad">✕ Gagal menghapus: ${esc(e.message||'')}. Kalau server belum diperbarui, unggah ulang <b>stock-mysql/</b> dulu.</div>`); });
     },
-    pesan:`<b>${n.length} baris</b> akan dihapus dari <b>Bahan &amp; Harga</b>: namanya ada di <b>Daftar Resep</b>, tidak ada satu pun resep yang memakainya sebagai <b>Bahan</b>, dan tidak ditandai <b>dibeli jadi</b>.
+    pesan:`<b>${n.length} baris</b> akan dihapus dari <b>Bahan &amp; Harga</b>: namanya ada di <b>Daftar Resep</b>, dan tidak ada satu pun baris resep yang memakainya — baik sebagai Bahan maupun sebagai Resep — serta belum ditentukan sumber harganya.
       <div style="margin-top:8px;font-size:12px;color:var(--muted)">${esc(n.slice(0,8).map(b=>b.nama).join(' · '))}${n.length>8?` · … (+${n.length-8})`:''}</div>
       <div class="ket" style="font-size:12px;color:var(--muted);margin-top:8px">Resepnya sendiri <b>tidak disentuh</b> — yang dibuang barisnya di daftar bahan.</div>
-      <div class="notice warn" style="margin:12px 0 0"><div>Harga beli yang tersimpan di baris-baris itu ikut hilang. Kalau ada yang sebenarnya <b>barang beli</b> (dimsum beku, mi instan, sate mentah), <b>batalkan dulu</b> dan nyalakan saklar <b>Dibeli jadi</b> pada baris itu — sesudah itu ia tidak akan ikut terhapus.</div></div>`});
+      <div class="notice warn" style="margin:12px 0 0"><div>Namanya ikut hilang dari daftar ini, jadi <b>tidak bisa lagi dipesan lewat Purchasing</b> kalau ternyata masih dibutuhkan. Batalkan dulu dan tekan <b>⇄ Dibeli</b> (barang beli) atau <b>⇄ Dari resep</b> (olahan sendiri yang dipesan ke Central Kitchen) pada baris yang memang masih dipakai — sesudah itu ia tidak akan ikut terhapus.</div></div>`});
 }
 
 /* Jalan pintas dari baris tabel: satu tekan, tanpa membuka modal. Yang dikirim
    baris LENGKAP (kirim -> simpanBahan menulis seluruh kolom), bukan cuma
    saklarnya — mengirim sebagian akan mengosongkan harga & satuan barang yang
    justru sedang dinyatakan sah. */
-function tandaiDibeliJadi(nama){
+function tandaiSisi(nama,sisi){
   const b=S.bahan.find(x=>low(x.nama)===low(nama)); if(!b) return;
-  const d=Object.assign({},b,{dibeli_jadi:1});
+  const d=Object.assign({},b,{sisi_harga:sisi});
   delete d.per1; delete d.updated_at; delete d.updated_by;
-  kirim({action:'simpanBahan',data:d},`"${b.nama}" ditandai dibeli jadi. Tinggal pakai namanya sebagai Bahan di resep menunya.`);
+  kirim({action:'simpanBahan',data:d}, sisi==='resep'
+    ? `"${b.nama}" memakai harga dari resepnya. Barisnya tetap berdiri di Purchasing, dan qty/harga beli di sini berhenti dibaca.`
+    : `"${b.nama}" ditandai barang beli. Tinggal pakai namanya sebagai Bahan di resep menunya.`);
 }
 
 // Ikut memakai konfirmasi() yang sama dengan Hapus resep: dua tombol hapus
@@ -1953,7 +2069,11 @@ function angkaImpor(v){
    diubah pun tidak berpengaruh. Judulnya sengaja menyebutkan itu sendiri:
    kolom "Vendor" polos akan disunting orang, lalu hilang tanpa penjelasan —
    vendor memang milik Purchasing, bukan modul ini (lihat vendorOf). */
-const KOL_BAHAN=['Nama Bahan','Satuan','Qty Beli','Harga Beli','Dibeli Lewat Purchasing','Dibeli Jadi','Catatan',
+/* "Sumber Harga" hanya berarti untuk nama yang bertabrakan dengan resep;
+   kosong untuk ratusan bahan lain, dan kosong memang artinya "tidak ada
+   pertanyaannya". Isinya `Beli` / `Resep` — kata yang sama dengan yang dipilih
+   di layar, supaya yang menyunting di Excel tidak perlu menerjemahkan. */
+const KOL_BAHAN=['Nama Bahan','Satuan','Qty Beli','Harga Beli','Dibeli Lewat Purchasing','Sumber Harga','Catatan',
                  'Harga / Satuan (otomatis)','Vendor (dari Purchasing)','Area (dari Purchasing)','Dipakai (resep)'];
 /* BAYANGAN TIDAK IKUT DIEKSPOR — dan sejak 17 Agustus 2026 yang disebut
    bayangan jauh lebih sempit: tabrakan nama yang tidak dipakai resep mana pun
@@ -1970,12 +2090,22 @@ function bahanEkspor(){
                 .slice().sort((a,b)=>low(a.nama).localeCompare(low(b.nama)));
 }
 function barisEksporBahan(){
-  return bahanEkspor().map(b=>[
-    b.nama, b.satuan||'', num(b.qty_beli), num(b.harga_beli),
-    capYa(b.di_purchasing!==0), capYa(b.dibeli_jadi), b.catatan||'',
-    Math.round(per1(b)*100)/100, vendorOf(b), areaOf(b).join(CSV_SUB),
-    dipakaiOleh(b.nama).length
-  ]);
+  return bahanEkspor().map(b=>{
+    const t=tabrakan(b);
+    return [
+      b.nama, b.satuan||'', num(b.qty_beli), num(b.harga_beli),
+      capYa(b.di_purchasing!==0),
+      /* Yang ditulis SISI YANG BERLAKU, termasuk yang disimpulkan dari bukti —
+         bukan cuma yang tersimpan. Berkas yang membiarkan kolomnya kosong untuk
+         baris yang jelas-jelas 'resep' akan terbaca seperti pekerjaan yang
+         belum diputuskan, padahal ia sudah beres. */
+      t.sisi==='beli'?'Beli':t.sisi==='resep'?'Resep':'',
+      b.catatan||'',
+      /* Harga per satuan mengikuti sisinya, sama dengan yang tampil di layar. */
+      Math.round((t.sisi==='resep'?perUnitResep(t.r):per1(b))*100)/100,
+      vendorOf(b), areaOf(b).join(CSV_SUB), dipakaiOleh(b.nama).length
+    ];
+  });
 }
 function tglBerkas(){
   const d=new Date();
@@ -1983,7 +2113,7 @@ function tglBerkas(){
 }
 function ringkasEkspor(n,bentuk){
   const bayangan=S.bahan.length-bahanEkspor().length;
-  pesan(`<div class="notice ok"><div>✓ <b>${n} bahan</b> diekspor ke ${bentuk}. Sunting kolom <b>Satuan, Qty Beli, Harga Beli, Dibeli Lewat Purchasing, Dibeli Jadi, dan Catatan</b> di sana, lalu unggah lagi lewat <b>⬆ Impor</b>.
+  pesan(`<div class="notice ok"><div>✓ <b>${n} bahan</b> diekspor ke ${bentuk}. Sunting kolom <b>Satuan, Qty Beli, Harga Beli, Dibeli Lewat Purchasing, Sumber Harga, dan Catatan</b> di sana, lalu unggah lagi lewat <b>⬆ Impor</b>.
     <div style="margin-top:6px;font-size:12px;color:var(--muted)">Empat kolom terakhir cuma keterangan — diubah pun tidak dibaca saat impor. Baris yang dihapus dari berkas <b>tidak</b> ikut terhapus dari data.${
       bayangan?` ${bayangan} baris bayangan tidak ikut diekspor: namanya ada di Daftar Resep dan belum ada resep yang memakainya sebagai bahan.`:''}</div></div></div>`);
 }
@@ -2083,7 +2213,17 @@ function bacaBahanRows(rows){
     isi('Qty Beli','qty_beli',angkaImpor);
     isi('Harga Beli','harga_beli',angkaImpor);
     isi('Dibeli Lewat Purchasing','di_purchasing',v=>bacaYa(v)?1:0);
-    isi('Dibeli Jadi','dibeli_jadi',v=>bacaYa(v)?1:0);
+    /* Sumber Harga: cuma dua kata yang dikenali. Yang lain — termasuk sel
+       kosong — berarti "tidak disebutkan", dan nilai tersimpannya dipertahankan.
+       Mengosongkan kolom ini di Excel adalah hal yang paling mungkin terjadi
+       tanpa disengaja (kolomnya memang kosong untuk ratusan baris lain), dan
+       menafsirkannya sebagai "batalkan keputusannya" akan mengembalikan Ayam
+       Karage jadi bayangan berharga Rp0 di seluruh resep yang memakainya. */
+    isi('Sumber Harga','sisi_harga',v=>{
+      const s=low(v);
+      return s.indexOf('resep')>-1?'resep':s.indexOf('beli')>-1?'beli':undefined;
+    });
+    if(rec.sisi_harga===undefined) delete rec.sisi_harga;
     const ct=amb(b,'Catatan');
     if(ct!==undefined) rec.catatan=ct;
     out.push(rec);
@@ -2104,7 +2244,7 @@ function siapkanImpor(rows,bolong){
     const lama=PB[low(r.nama)];
     if(!lama){
       baru.push(Object.assign({satuan:'Gram',qty_beli:0,harga_beli:0,vendor:'',produk:'',
-                               kategori:'',catatan:'',di_purchasing:1,dibeli_jadi:0},r));
+                               kategori:'',catatan:'',di_purchasing:1,sisi_harga:''},r));
       return;
     }
     /* DIGABUNG DENGAN BARIS LAMA, bukan dikirim apa adanya: server menulis
@@ -2122,7 +2262,13 @@ function siapkanImpor(rows,bolong){
     const beda=['satuan','qty_beli','harga_beli','catatan'].some(k=>
         String(rec[k]==null?'':rec[k])!==String(lama[k]==null?'':lama[k]))
       || (rec.di_purchasing===0)!==(lama.di_purchasing===0)
-      || (!!rec.dibeli_jadi)!==(!!lama.dibeli_jadi);
+      /* Sisi dibandingkan terhadap sisi yang BERLAKU, bukan yang tersimpan.
+         Ekspor menuliskan sisi hasil simpulan juga (Ayam Karage -> "Resep"),
+         jadi membandingkannya dengan kolom tersimpan yang masih kosong akan
+         membuat unduh-lalu-unggah tanpa menyunting apa pun terbaca sebagai
+         puluhan baris "diperbarui" — dan pratinjau yang berbohong soal itu
+         adalah pratinjau yang berhenti dibaca orang. */
+      || sisiHarga(rec)!==tabrakan(lama).sisi;
     if(beda) ubah.push({rec,lama}); else sama++;
   });
   if(!baru.length&&!ubah.length){
@@ -2190,7 +2336,10 @@ function uraiBahan(r,faktor,keranjang,jalur){
   jalur=jalur||{}; if(jalur[r.id]) return; jalur[r.id]=1;
   (r.bahan||[]).forEach(b=>{
     if(!b||!b.nama) return;
-    if(b.ref==='resep'){
+    // lewatResep(), bukan b.ref: base olahan bersisi 'resep' harus DIURAI sampai
+    // bahan mentahnya di sini juga, kalau tidak ia muncul di Dashboard sebagai
+    // satu "bahan" berharga nol dan menutupi ayam yang sebenarnya menggerakkan.
+    if(lewatResep(b)){
       const sub=cariResep(b.nama,r.jenis); if(!sub) return;
       const y=num(sub.yield_qty)||1;
       /* Konversi sama dengan modalResep — kalau di sini dilewatkan, halaman
@@ -2537,7 +2686,10 @@ function viewAtur(){
     <table><tbody>
       <tr><td><b>Resep &amp; bahan</b></td><td>dipindahkan sekali dari <i>HPP Food Laksamana Updated March 2026.xlsx</i>; sesudah itu diurus dari layar ini. <b>Resep</b> hanya dari layar.</td></tr>
       <tr><td><b>Bahan &amp; harga lewat Excel</b></td><td>daftar bahan berikut harganya bisa diunduh (<b>⬇ Excel</b> / <b>⬇ CSV</b>) dan diunggah kembali dari halaman <b>Bahan &amp; Harga</b> — untuk daftar harga baru dari vendor, yang mengubah puluhan baris sekaligus. Impor <b>tidak pernah menghapus</b> dan <b>tidak pernah mengganti nama</b>: yang tidak ada di berkas dibiarkan, dan nama baru dianggap bahan baru.</td></tr>
-      <tr><td><b>Nama yang sama di dua sisi</b></td><td>Satu nama boleh jadi <b>bahan yang dibeli</b> sekaligus <b>menu yang dijual</b> — Dimsum Ayam, Indomie Goreng, Sate Taichan. Yang menentukan sisi mana yang dipakai adalah dropdown <b>Bahan / Resep</b> di tiap baris resep, bukan namanya. Caranya: <b>1)</b> daftarkan barangnya di Bahan &amp; Harga berikut harga belinya, <b>2)</b> di menunya, tambahkan baris bertipe <b>Bahan</b> dengan nama itu. Selama langkah 2 belum ada, barisnya ditandai <b>⚠ bayangan?</b> — nyalakan saklar <b>Dibeli jadi</b> lewat tombol Ubah supaya tanda itu berhenti sampai menunya sempat disusun.</td></tr>
+      <tr><td><b>Nama yang sama di dua sisi</b></td><td>Satu nama boleh berdiri di daftar bahan <b>dan</b> di Daftar Resep — dan itu <b>tidak perlu diganti nama, tidak perlu dihapus</b>. Yang ditanyakan modul cuma satu: <b>harganya diambil dari mana?</b>
+        <div style="margin-top:6px"><b>⇄ Dibeli</b> — barangnya dipesan ke vendor walaupun ada menu bernama sama (dimsum beku, mi instan, sate mentah). Harga di daftar bahan yang dipakai; lalu sebut namanya sebagai baris <b>Bahan</b> di resep menunya.</div>
+        <div><b>⇄ Dari resep</b> — barangnya dibuat sendiri, dan namanya berdiri di daftar bahan supaya bisa <b>dipesan ke Central Kitchen lewat Purchasing</b> (Ayam Karage, Ayam Hainan, Sate Lilit). Harganya dihitung dari resepnya; qty &amp; harga beli di barisnya berhenti dibaca. Resep lain boleh merujuknya sebagai <b>Resep</b> maupun <b>Bahan</b> — dua-duanya mendarat di angka yang sama.</div>
+        <div style="margin-top:6px;color:var(--muted)">Modul menyimpulkannya sendiri dari <b>tipe resepnya</b>: bertabrakan dengan <b>Base &amp; Olahan</b> → Dari resep (tidak perlu diapa-apakan sama sekali); bertabrakan dengan <b>Menu Jadi</b> dan sudah dipakai sebagai Bahan → Dibeli. Sisanya ditandai <b>⚠ bayangan?</b> dan menunggu diputuskan — tekan tombolnya sekali di baris itu, atau pilih di Ubah.</div></td></tr>
       <tr><td><b>Nama &amp; vendor bahan</b></td><td>satu daftar dengan basis bahan baku Purchasing — nama bahan di sini <b>adalah</b> nama di sana. Ganti nama di salah satu modul, yang satunya ikut berubah otomatis (termasuk baris resep yang memakainya).</td></tr>
       <tr><td><b>Harga beli</b></td><td>milik modul ini. Purchasing tidak menyimpan harga sama sekali, jadi tidak ada yang bisa ditarik dari sana — di sinilah satu-satunya tempat harga bahan hidup.</td></tr>
       <tr><td><b>Opname, waste, order</b></td><td>tetap di Stock &gt; Pemakaian Bahan Baku dan Ordering/Purchasing — modul ini tidak menduplikasinya, angkanya diketik ulang di halaman Pemakaian sampai kedua modul disambungkan.</td></tr>
