@@ -930,16 +930,54 @@ function seed(){
 /* Dipanggil untuk apa pun yang datang dari server ATAU cache lama. Semua
    cabang diberi bentuk aman, sebab satu properti hilang di sini berarti
    halaman blank di browser kru — bukan pesan error yang bisa dilaporkan. */
+/* PETA YANG PULANG SEBAGAI ARRAY KOSONG — sebab head divisi hilang setiap
+   kali disimpan (dilaporkan 18 Agustus 2026, terbukti di produksi).
+   ---------------------------------------------------------------------
+   Rantainya begini, dan tidak satu pun mata rantainya melempar galat:
+
+     1. `S.setting.heads` lahir sebagai `{}` di seed().
+     2. Dikirim ke PHP, `json_decode($raw, true)` mengubah `{}` menjadi ARRAY
+        KOSONG — di PHP keduanya tipe yang sama.
+     3. Disimpan ulang dengan json_encode, array kosong itu keluar sebagai
+        `[]`, bukan `{}`. Sejak titik ini blob-nya rusak diam-diam.
+     4. Layar menerima `heads: []` dan menyimpannya apa adanya, karena
+        `typeof [] === 'object'` — pemeriksaan lama tidak membedakannya.
+     5. ubahHead() menulis `heads['kitchen'] = [...]`. JavaScript mengizinkan
+        properti BERNAMA pada array, jadi di memori semuanya benar: centangnya
+        menyala, isHeadUser() benar, layar tidak berbohong.
+     6. Tapi `JSON.stringify([])` HANYA menulis elemen berindeks angka.
+        Properti bernama dibuang tanpa peringatan. Yang sampai ke server:
+        `"heads":[]`.
+
+   Hasilnya persis seperti yang dilaporkan: menyimpan "berhasil", lalu
+   halaman dimuat ulang dan isinya kosong lagi. Di dev tidak terjadi karena
+   blob-nya kebetulan sudah pernah berisi satu kunci, jadi ia sudah objek.
+
+   Dipakai untuk SEMUA peta di dalam setting. Array yang datang ke sini
+   memang tidak punya isi yang berarti — kunci peta ini selalu berupa nama
+   (kode divisi / id user), tidak pernah angka. */
+function petaObjek(v){
+  if(!v || typeof v!=='object') return {};
+  if(Array.isArray(v)){
+    /* Kunci bernama pada array TIDAK pernah selamat melewati JSON, jadi yang
+       tiba di sini selalu kosong. Tetap disalin kalau-kalau pemanggilnya dari
+       memori, bukan dari jaringan. */
+    const o={};
+    Object.keys(v).forEach(function(k){ if(!/^\d+$/.test(k)) o[k]=v[k]; });
+    return o;
+  }
+  return v;
+}
 function normalizeState(d){
   const b=seed();
   if(!d || typeof d!=='object') return b;
-  const st=(d.setting&&typeof d.setting==='object')?d.setting:{};
+  const st=petaObjek(d.setting);
   const shifts={};
   Object.keys(SHIFT_BAWAAN).forEach(k=>{ shifts[k]=Object.assign({}, SHIFT_BAWAAN[k], (st.shifts&&st.shifts[k])||{}); });
   // Shift buatan admin (di luar bawaan) ikut dipertahankan.
-  Object.keys((st.shifts)||{}).forEach(k=>{ if(!shifts[k]) shifts[k]=Object.assign({n:k,m:'',s:'',w:'#7A756B',libur:0,urut:90}, st.shifts[k]); });
+  Object.keys(petaObjek(st.shifts)).forEach(k=>{ if(!shifts[k]) shifts[k]=Object.assign({n:k,m:'',s:'',w:'#7A756B',libur:0,urut:90}, st.shifts[k]); });
   b.setting.shifts=shifts;
-  b.setting.heads=(st.heads&&typeof st.heads==='object')?st.heads:{};
+  b.setting.heads=petaObjek(st.heads);
   /* Daftar manajemen — orang yang boleh melihat rekap jadwal SELURUH kru
      tanpa menjadi head divisi mana pun (owner, GM, HR).
 
@@ -948,9 +986,9 @@ function normalizeState(d){
      cara, dan salah tebak berarti orang yang salah melihat jam kerja seluruh
      perusahaan. Alasannya sama persis dengan `heads`. */
   b.setting.manajemen=Array.isArray(st.manajemen)?st.manajemen:[];
-  b.setting.divOverride=(st.divOverride&&typeof st.divOverride==='object')?st.divOverride:{};
-  b.setting.jabatan=(st.jabatan&&typeof st.jabatan==='object')?st.jabatan:{};
-  b.setting.shiftKru=(st.shiftKru&&typeof st.shiftKru==='object')?st.shiftKru:{};
+  b.setting.divOverride=petaObjek(st.divOverride);
+  b.setting.jabatan=petaObjek(st.jabatan);
+  b.setting.shiftKru=petaObjek(st.shiftKru);
   /* Template shift per divisi: {bar:['PAGI','PAGI',…7 hari…]}. Dinormalkan
      jadi PERSIS tujuh kolom, Senin di indeks 0 — sisanya diisi kosong. Yang
      tersimpan dari versi lama (atau dari layar yang setengah jalan) bisa
@@ -958,7 +996,7 @@ function normalizeState(d){
      `undefined` untuk hari Minggu tanpa satu pun galat: hari itu diam-diam
      tidak pernah ikut terisi, dan yang mencarinya menyalahkan tombolnya. */
   b.setting.template={};
-  const tpl=(st.template&&typeof st.template==='object')?st.template:{};
+  const tpl=petaObjek(st.template);
   DIVISI.forEach(function(d){
     const a=Array.isArray(tpl[d.k])?tpl[d.k]:[];
     b.setting.template[d.k]=Array.from({length:7},(_,i)=>{

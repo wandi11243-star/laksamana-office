@@ -923,14 +923,52 @@ function warnaLembut() { hexRgb(); }
 
 
 
-function seed() {  }
+function seed() { ubahHead(); isHeadUser(); }
 
 
 
 
 
 
-function normalizeState() { seed(); terapkanTemplate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function petaObjek() {  }
+
+
+
+
+
+
+
+
+
+
+
+function normalizeState() { seed(); petaObjek(); terapkanTemplate(); }
 
 
 

@@ -529,8 +529,31 @@ function simpan_sel($rows, $hapus, $by, $u = null) {
 }
 
 /* ==================== SETTING ==================== */
+/* Kunci di dalam setting yang BENTUKNYA PETA (objek), bukan daftar. PHP tidak
+   membedakan keduanya: `json_decode('{}', true)` dan `json_decode('[]', true)`
+   sama-sama array kosong, dan json_encode memulangkan keduanya sebagai `[]`.
+
+   Akibatnya nyata dan sudah menggigit (18 Agustus 2026, di produksi): layar
+   menerima `heads: []`, menulis `heads['kitchen']=[...]` ke dalamnya — sah di
+   JavaScript — lalu JSON.stringify membuang properti bernama pada array tanpa
+   satu pun galat. Head divisi "tersimpan" lalu hilang saat halaman dimuat
+   ulang, berulang-ulang, tanpa ada layar yang bisa menjelaskannya.
+
+   Karena itu peta yang kosong ditulis sebagai objek, bukan array. Layar juga
+   sudah dijaga (petaObjek() di deploy/jadwal/index.html), dan keduanya memang
+   perlu: yang di sini menyembuhkan blob untuk pemanggil mana pun, yang di
+   layar menyembuhkan blob yang terlanjur rusak sebelum baris ini ada. */
+function jdw_peta_objek($data) {
+  $peta = array('shifts', 'heads', 'divOverride', 'jabatan', 'shiftKru', 'template');
+  $d = (array)$data;
+  foreach ($peta as $k) {
+    if (isset($d[$k]) && is_array($d[$k]) && count($d[$k]) === 0) $d[$k] = new stdClass();
+  }
+  return $d;
+}
 function simpan_setting($data, $by) {
   if (!is_array($data) && !is_object($data)) throw new Exception('Payload setting kosong/invalid');
+  $data = jdw_peta_objek($data);
   $pdo = db();
   pastikan_tabel($pdo);
   $st = $pdo->prepare(
