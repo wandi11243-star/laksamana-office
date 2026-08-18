@@ -4409,7 +4409,7 @@ function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); 
 
 
 
-function B() { zipSimpan(); xEsc(); namaDivisi(); seninDari(); hariIni(); toast(); }
+function B() { zipSimpan(); xEsc(); namaDivisi(); namaEkspor(); toast(); }
 
 
 
@@ -4443,6 +4443,33 @@ function B() { zipSimpan(); xEsc(); namaDivisi(); seninDari(); hariIni(); toast(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function capWaktuBerkas() { pad(); }
+
+
+
+
+function namaEkspor() { capWaktuBerkas(); }
 
 
 

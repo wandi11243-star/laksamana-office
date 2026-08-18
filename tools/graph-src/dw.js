@@ -5821,7 +5821,7 @@ function exportWADW() { bulanDari(); hariIni(); lembarDW(); toast(); namaDivisi(
 
 
 
-function viewPengaturan() { panelPosisiHTML(); tambahJam(); esc(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); }
+function viewPengaturan() { panelPosisiHTML(); tambahJam(); esc(); ubahJam(); durasiJam(); hapusJam(); ubahKuota(); panelKosongkanHTML(); }
 
 
 
@@ -5850,6 +5850,69 @@ function viewPengaturan() { panelPosisiHTML(); tambahJam(); esc(); ubahJam(); du
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function panelKosongkanHTML() { isAdmin(); bukaKosongkan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bukaKosongkan() { isAdmin(); toast(); modal(); tutupModal(); kosongkanSemua(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kosongkanSemua() { apiPost(); simpanCache(); toast(); muatDanGambar(); }
 
 
 

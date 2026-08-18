@@ -73,6 +73,7 @@ sering didaftar ulang.
 | `hapusAjuan` | POST | `{id}` |
 | `simpanHadir` | POST | `{id,hadir,nota,by}` — `hadir` = HADIR/TELAT/ALFA. **Tidak ada penilaian**: skor bintang 1–5 dibuang 5 Agustus 2026 karena tidak pernah dipakai memutuskan apa pun tapi selalu menuntut diisi |
 | `simpanSetting` | POST | `{data:{tarif,jam,posisi,kuota,batasHari}, by}` |
+| `kosongkanSemua` | POST | `{konfirmasi:"HAPUS SEMUA", pekerja:0|1}` — hapus SELURUH permintaan & ajuan; talent pool hanya kalau `pekerja` diisi, setting tidak pernah ikut. Admin modul saja |
 
 > Database kedua lingkungan sudah terpasang (5 Agustus 2026) dan verifikasi di
 > `.github/workflows/` sekarang **menggagalkan build** kalau salah satu dari

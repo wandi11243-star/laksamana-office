@@ -293,6 +293,24 @@ try {
         ambil($body, 'data', null), nama_pemanggil($u), dw_admin($u))));
     }
 
+    /* Mengosongkan seluruh permintaan & pengajuan supaya modul bisa dimulai
+       dari nol. ADMIN MODUL saja -- bukan HRD. Menyetujui ajuan adalah
+       pekerjaan HRD sehari-hari; menghapus seluruh riwayatnya bukan, dan
+       tombol yang berada satu halaman dengan tarif tidak boleh bisa ditekan
+       oleh setiap orang yang berwenang menyetel tarif.
+
+       `pekerja` (talent pool) hanya ikut kalau diminta eksplisit. Kata kunci
+       konfirmasinya diperiksa lagi di sini supaya panggilan API yang nyasar
+       -- tanpa lewat layar dan modalnya -- tidak bisa menghapus apa pun. */
+    case 'kosongkanSemua': {
+      $u = wajib_admin($body, 'Mengosongkan seluruh data modul');
+      if (s(ambil($body, 'konfirmasi', '')) !== 'HAPUS SEMUA') {
+        throw new Exception('Konfirmasi tidak cocok — pengosongan dibatalkan.');
+      }
+      keluar(array('ok' => true, 'data' => kosongkan_semua(
+        !empty($body['pekerja']), nama_pemanggil($u))));
+    }
+
     default:
       keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
   }

@@ -5862,7 +5862,70 @@ function viewPengaturan(){
           +'value="'+(+(((st.kuota||{})[d.k]||{})[k])||0)+'" onchange="ubahKuota(\''+d.k+'\',\''+k+'\',this.value)"></td>';
       }).join('')+'</tr>').join('')
     +'</tbody></table></div>'
+    +'</div>'
+    +panelKosongkanHTML();
+}
+/* MULAI DARI NOL.
+   ---------------------------------------------------------------------
+   Panel terakhir, dan hanya untuk ADMIN MODUL -- bukan setiap HRD yang boleh
+   membuka Pengaturan. Menyetujui ajuan itu pekerjaan HRD sehari-hari;
+   menghapus seluruh riwayatnya bukan, dan tombol yang duduk satu halaman
+   dengan tarif tidak boleh bisa ditekan siapa saja yang berwenang menyetel
+   tarif. Server memeriksa hal yang sama, jadi menyembunyikan panelnya bukan
+   satu-satunya penjaga. */
+function panelKosongkanHTML(){
+  if(!isAdmin()) return '';
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>🧹 Mulai Dari Nol</h2></div>'
+    +'<p class="mutedhint" style="margin-bottom:10px">Menghapus <b>seluruh permintaan head</b> dan <b>seluruh pengajuan/penugasan DW</b> di server, supaya modul bisa dipakai ulang dari kosong. Tarif, kuota, jam siap pakai, posisi per divisi, dan daftar HRD <b>tidak</b> ikut terhapus.</p>'
+    +'<p class="mutedhint" style="margin-bottom:10px"><b>Talent pool tidak ikut kecuali dicentang</b> di kotak konfirmasi. Isinya nama, nomor HP, dan rekam jejak puluhan part-timer yang dikumpulkan berbulan-bulan — mengumpulkannya lagi berarti menelepon satu per satu.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Tidak ada pembatalan.</p>'
+    +'<button class="btn btn-danger btn-sm" onclick="bukaKosongkan()">Kosongkan Data Modul</button>'
     +'</div>';
+}
+/* Dua lapis penjaga, dan keduanya perlu: kata kunci yang harus DIKETIK
+   (bukan tombol "Ya" yang sudah jadi refleks) di layar, dan kata kunci yang
+   sama diperiksa ulang di server -- supaya panggilan API yang nyasar tanpa
+   lewat layar ini tidak bisa menghapus apa pun. */
+const KOSONG_SANDI = 'HAPUS SEMUA';
+function bukaKosongkan(){
+  if(!isAdmin()){ toast('Hanya admin modul yang bisa mengosongkan data', true); return; }
+  /* TIDAK menyebut "sekian baris akan dihapus" dari S: layar hanya memuat
+     rentang tanggal yang sedang dibuka, jadi angka apa pun di sini pasti
+     lebih kecil dari yang sebenarnya terhapus — dan angka yang meremehkan
+     akibatnya justru membuat orang menekan lanjut. Jumlah sesungguhnya
+     dilaporkan server sesudahnya. */
+  modal('Kosongkan data Daily Worker?',
+    '<p class="mutedhint">Seluruh <b>permintaan</b> dan <b>pengajuan/penugasan DW</b> — semua tanggal, semua divisi — akan dihapus dari server. Pengaturan modul tetap.</p>'
+    +'<label class="row" style="gap:8px;cursor:pointer">'
+    +'<input type="checkbox" id="kosongPekerja" style="width:auto">'
+    +'<span>Hapus <b>talent pool</b> juga (nama, no HP, dan rekam jejak seluruh pekerja)</span></label>'
+    +'<div class="field" style="margin-top:10px"><label>Ketik <b>'+KOSONG_SANDI+'</b> untuk melanjutkan</label>'
+    +'<input id="kosongKode" class="inp" style="width:100%" autocomplete="off" placeholder="'+KOSONG_SANDI+'"></div>',
+    [{t:'Kosongkan', c:'btn-danger', f:function(){
+      const el=document.getElementById('kosongKode');
+      const v=String(el?el.value:'').trim().toUpperCase();
+      if(v!==KOSONG_SANDI){ toast('Ketik '+KOSONG_SANDI+' persis untuk melanjutkan', true); return; }
+      const pk=document.getElementById('kosongPekerja');
+      const ikut=!!(pk && pk.checked);
+      tutupModal(); kosongkanSemua(ikut);
+    }}]);
+  setTimeout(function(){ const el=document.getElementById('kosongKode'); if(el) el.focus(); },50);
+}
+async function kosongkanSemua(ikutPekerja){
+  try{
+    const d=await apiPost({action:'kosongkanSemua', konfirmasi:KOSONG_SANDI, pekerja:ikutPekerja?1:0});
+    /* Cache lokal ikut dikosongkan. Kalau hanya server yang bersih, tab yang
+       sedang terbuka menggambar ulang dari cache dan datanya terlihat masih
+       utuh — lalu baris "lama" itu ikut terkirim lagi begitu ada satu yang
+       disunting. */
+    S.ajuan=[]; S.permintaan=[];
+    if(ikutPekerja) S.pekerja=[];
+    RANGE=null; simpanCache();
+    toast('Terhapus: '+((d&&d.permintaan)||0)+' permintaan, '+((d&&d.ajuan)||0)+' pengajuan'
+      +(ikutPekerja?(', '+((d&&d.pekerja)||0)+' pekerja'):''));
+    muatDanGambar(true);
+  }catch(e){ toast('Gagal mengosongkan: '+e.message, true); }
 }
 /* ---- HAK AKSES ----
    Satu daftar: siapa yang boleh MEMUTUSKAN. Bukan matriks halaman × peran
