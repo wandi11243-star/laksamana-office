@@ -746,7 +746,13 @@
 
 
 
-function svg() {  }
+function svg() { stafKantor(); }
+
+
+
+
+
+
 
 
 
@@ -993,6 +999,25 @@ function divisiDari() { divisiDariMurni(); }
 function divisiDariMurni() {  }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function stafKantor() { divisiDariMurni(); }
 
 
 
@@ -2143,7 +2168,7 @@ function rekapDetail() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); i
 
 
 
-function viewRekap() { bolehRekap(); bulanDari(); hariIni(); rekapKandidat(); panelKosongRoster(); kruById(); divisiDari(); bebanKru(); rekapDetail(); rincianShift(); pilihRekap(); esc(); awalBulan(); akhirBulan(); pitaBulan(); sel(); shiftDef(); jamSel(); bolehUbah(); bukaEditor(); escJs(); parseD(); warnaTeks(); labelSel(); geserBulanAktif(); labelBulan(); tombolKembali(); ikonDivisiJadwal(); namaDivisi(); jabatanDari(); isHeadUser(); statBox(); tglPanjang(); tglManusia(); pilShiftAju(); }
+function viewRekap() { bolehRekap(); bulanDari(); hariIni(); rekapKandidat(); panelKosongRoster(); kruById(); divisiDari(); bebanKru(); rekapDetail(); rincianShift(); pilihRekap(); esc(); awalBulan(); akhirBulan(); pitaBulan(); sel(); shiftDef(); jamSel(); bolehUbah(); bukaEditor(); escJs(); parseD(); warnaTeks(); labelSel(); geserBulanAktif(); labelBulan(); tombolKembali(); ikonDivisiJadwal(); namaDivisi(); jabatanDari(); jabatanSetara(); isHeadUser(); statBox(); tglPanjang(); tglManusia(); pilShiftAju(); }
 
 
 
@@ -2255,6 +2280,18 @@ function viewRekap() { bolehRekap(); bulanDari(); hariIni(); rekapKandidat(); pa
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+function jabatanSetara() { namaDivisi(); }
 
 
 
@@ -3494,7 +3531,7 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); panelKosongRoster(); ulangRoster(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); stafKantor(); toggleKantor(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); panelKosongRoster(); ulangRoster(); bukaKosongkan(); }
 
 
 
@@ -3626,6 +3663,72 @@ function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTe
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bukaKosongkan() { isAdmin(); toast(); tutupModal(); kosongkanSemua(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kosongkanSemua() { apiPost(); simpanCache(); toast(); muatDanGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+function toggleKantor() { render(); }
 
 
 

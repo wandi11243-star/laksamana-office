@@ -617,6 +617,40 @@ function hapus_pengajuan($id) {
   return array('deleted' => true, 'id' => s($id));
 }
 
+/* ==================== KOSONGKAN SELURUH DATA ====================
+   Menghapus SELURUH sel jadwal dan SELURUH pengajuan — semua bulan, semua
+   divisi — supaya modul bisa dimulai dari nol. Admin modul saja (dijaga di
+   api.php), dan pemanggilnya wajib menyertakan kata kunci konfirmasi: aksi
+   ini tidak punya undo, dan satu panggilan nyasar dari skrip percobaan
+   menghapus jadwal seluruh perusahaan tanpa satu pun galat.
+
+   `jadwal_setting` SENGAJA tidak ikut dikosongkan. Isinya konfigurasi —
+   definisi shift, head tiap divisi, penempatan kru, akses rekap — yang
+   disusun sekali dan dipakai terus. Menghapusnya bersama jadwal berarti
+   setiap pembersihan diikuti setengah jam menempatkan ulang orang, dan
+   sel-sel baru terlanjur diisi sebelum head-nya dipasang kembali.
+
+   TRUNCATE sengaja tidak dipakai walau lebih cepat: ia DDL (tidak bisa
+   di-rollback, dan meng-commit transaksi yang sedang berjalan) dan di
+   sebagian hosting butuh grant DROP yang tidak dimiliki user aplikasi —
+   gagalnya muncul sebagai SQLSTATE yang tidak menyebut soal grant sama
+   sekali. Tabel ini paling banyak puluhan ribu baris, jadi DELETE cukup. */
+function kosongkan_semua($by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $pdo->beginTransaction();
+  try {
+    $nSel = (int)$pdo->exec('DELETE FROM `jadwal_sel`');
+    $nAju = (int)$pdo->exec('DELETE FROM `jadwal_pengajuan`');
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return array('cleared' => true, 'sel' => $nSel, 'pengajuan' => $nAju,
+               'oleh' => mb_substr(s($by), 0, 120), 'ts' => gmdate('c'));
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',

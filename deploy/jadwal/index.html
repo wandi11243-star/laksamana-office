@@ -791,6 +791,12 @@ let RANGE = null;                      // {dari,sampai} rentang sel yang sudah d
    itu untuk data lama; lembar ini mengabaikannya. */
 let DW_ROWS = [];
 let DW_ERR  = '';
+/* Staf kantor sengaja tidak digambar di Penempatan Kru (lihat stafKantor()).
+   Tombol di panel itu bisa memunculkannya lagi -- untuk sesi ini saja, tidak
+   ikut tersimpan: yang membutuhkannya cuma admin yang sedang mencari satu
+   orang tertentu, dan menyimpannya berarti daftar itu diam-diam kembali
+   panjang berbulan-bulan kemudian tanpa ada yang ingat kenapa. */
+let TAMPIL_KANTOR = false;
 
 /* =====================================================================
    BANTU: teks, tanggal
@@ -997,6 +1003,25 @@ function divisiDariMurni(u){
     if(sin.some(x=>kata.indexOf(x)>-1)) return d.k;
   }
   return DIV_NONSHIFT;
+}
+/* Staf kantor: kolom Tim / keterangan di Office menyebut Office atau Kantor,
+   dan tidak menyebut satu pun divisi shift. Mereka tidak pernah masuk lembar
+   jadwal, jadi sejak 18 Agustus 2026 barisnya TIDAK ikut digambar di
+   Pengaturan -> Penempatan Kru: daftar itu jadi didominasi nama yang memang
+   tak akan pernah dijadwalkan, dan kru yang benar-benar perlu ditempatkan
+   (kolom Tim-nya masih kosong) tenggelam di antaranya. Itu persis masalah
+   yang dulu membuat tab "Belum Berdivisi" dihapus.
+
+   Yang disembunyikan hanya yang MURNI kantor. Begitu ia diberi penempatan
+   manual, barisnya muncul lagi -- kalau tidak, penempatan yang terlanjur
+   dipasang mustahil dilepas kembali. Untuk alasan yang sama panelnya tetap
+   punya tombol "Tampilkan". */
+const KANTOR_KATA = ['office','kantor'];
+function stafKantor(u){
+  /* Keterangan yang menyebut divisi shift menang: "Bar / Office" tetap kru Bar. */
+  if(divisiDariMurni(u)!==DIV_NONSHIFT) return false;
+  const kata=String(u&&u.keterangan||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  return KANTOR_KATA.some(x=>kata.indexOf(x)>-1);
 }
 function namaDivisi(k){
   const d=DIVISI.find(x=>x.k===k);
@@ -2222,7 +2247,11 @@ function viewRekap(){
     +panelKosongRoster()
     +'<div class="rowbar">'+pilih
     +'<span class="chip">'+esc(ikonDivisiJadwal(div)+' '+namaDivisi(div))+'</span>'
-    +'<span class="chip">'+esc(jabatanDari(u))+'</span>'
+    /* Chip jabatan hanya kalau ia MENAMBAH keterangan. jabatanDari() jatuh ke
+       kolom keterangan Office, yang untuk sebagian besar kru berisi persis
+       nama divisinya ("Bar") -- jadi barisnya memajang divisi dua kali
+       berturut-turut, dan yang kedua terbaca seolah jabatan yang berbeda. */
+    +(jabatanSetara(jabatanDari(u), div) ? '' : '<span class="chip">'+esc(jabatanDari(u))+'</span>')
     +(isHeadUser(u.id,div)?'<span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">head divisi</span>':'')
     +'<div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm noprint" onclick="window.print()">🖨️ Print / PDF</button></div>'
@@ -2258,6 +2287,14 @@ function viewRekap(){
           }).join('')
         +'</div>'
       : '');
+}
+/* Benar-benar sama dengan nama divisinya? Dibandingkan setelah huruf besar,
+   spasi, dan tanda baca dibuang, supaya "bar", "BAR", dan "Bar " terhitung
+   sama. Yang kosong ("-") juga tidak perlu chip sendiri. */
+function jabatanSetara(jab,div){
+  const rapi=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
+  const j=rapi(jab);
+  return !j || j===rapi(namaDivisi(div));
 }
 function pilihRekap(id){ REKAP_UID=id; render(); }
 function ikonDivisiJadwal(k){ const d=DIVISI.find(x=>x.k===k); return d?d.ic:'•'; }
@@ -3541,8 +3578,21 @@ function viewPengaturan(){
      satu baris. */
   const mnj=(S.setting.manajemen||[]);
 
-  const barisKru=ROSTER.filter(u=>u.active!==false)
-    .sort((a,b)=>String(a.name).localeCompare(String(b.name)))
+  const kruAktif=ROSTER.filter(u=>u.active!==false)
+    .sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  /* Yang disembunyikan dihitung DULU dan jumlahnya disebut di layar. Daftar
+     yang diam-diam menyusut membuat admin mengira akun orangnya hilang dari
+     Office, lalu mencarinya di tempat yang salah. */
+  const kantor=kruAktif.filter(u=>stafKantor(u) && !S.setting.divOverride[u.id]);
+  const notaKantor = kantor.length
+    ? '<p class="mutedhint" style="margin-bottom:12px"><b>'+kantor.length+' akun staf kantor</b> '
+      +'(kolom Tim-nya di Office menyebut Office/Kantor) '
+      +(TAMPIL_KANTOR?'sedang ikut ditampilkan':'tidak ditampilkan di daftar ini')
+      +' &mdash; mereka tidak pernah masuk lembar shift. '
+      +'<button class="btn btn-ghost btn-sm" onclick="toggleKantor()">'
+      +(TAMPIL_KANTOR?'Sembunyikan lagi':'Tampilkan')+'</button></p>'
+    : '';
+  const barisKru=(TAMPIL_KANTOR?kruAktif:kruAktif.filter(u=>kantor.indexOf(u)<0))
     .map(u=>{
       const d=divisiDari(u);
       return '<div class="row">'
@@ -3623,9 +3673,62 @@ function viewPengaturan(){
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Centang <b>📈 Rekap</b> untuk memberi orang itu akses ke halaman <b>Rekap Pegawai</b> (jam kerja, pola libur, dan peringatan beban kerja seluruh kru). <b>Head divisi dan admin modul otomatis berhak</b> — barisnya bertanda <i>otomatis</i> dan tidak perlu dicentang. Kru biasa sengaja tidak bisa membukanya: jadwalnya sendiri memang terbuka di Jadwal Bulanan, yang ditahan adalah rekap dan angkanya, karena itu bahan perbandingan antar kru yang ujungnya jadi keributan di grup.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Kolom <b>shift kebiasaan</b> tiap kru dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. <b>Halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan.</p>'
-    +panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>';
+    +'<p class="mutedhint" style="margin-bottom:12px">Hanya kolom Tim yang menyebut <b>Bar</b>, <b>Kitchen</b>, <b>Floor</b>, atau <b>Cashier</b> yang masuk lembar jadwal. Selebihnya — staf kantor maupun kru yang kolom Tim-nya masih kosong — ditandai <b>Tidak dijadwalkan</b> dan tidak muncul di lembar mana pun. Yang kolom Tim-nya masih <b>kosong</b> tetap ditampilkan di sini — <b>halaman ini satu-satunya tempat mereka kelihatan</b>, jadi kalau ada kru yang hilang dari jadwalnya, di sinilah dicari dan ditempatkan. Yang kolom Tim-nya sudah jelas <b>Office/Kantor</b> disembunyikan, karena mereka memang tidak pernah dijadwalkan.</p>'
+    +notaKantor+panelKosongRoster()+(barisKru||'<div class="empty">Roster kosong.</div>')+'</div>'
+
+    /* Mulai dari nol. Sengaja diletakkan PALING BAWAH dan di panel sendiri:
+       tombol yang menghapus jadwal seluruh perusahaan tidak boleh berdiri
+       sebaris dengan tombol yang dipakai sehari-hari. */
+    +'<div class="panel"><div class="rowbar"><h2>&#129529; Mulai Dari Nol</h2></div>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Menghapus <b>seluruh sel jadwal</b> (semua bulan, semua divisi) dan <b>seluruh pengajuan</b> di server, supaya modul bisa disusun ulang dari kosong. <b>Definisi shift, head divisi, penempatan kru, dan akses rekap TIDAK ikut terhapus</b> &mdash; semua yang sudah diatur di halaman ini tetap berlaku.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Tidak ada pembatalan. Jadwal yang terhapus tidak bisa dikembalikan dari layar mana pun, termasuk oleh admin.</p>'
+    +'<button class="btn btn-danger btn-sm" onclick="bukaKosongkan()">Kosongkan Semua Data Jadwal</button>'
+    +'</div>';
 }
+/* Dua lapis penjaga, dan keduanya memang perlu: kata kunci yang harus
+   DIKETIK (bukan sekadar tombol "Ya" yang sudah jadi refleks) di layar, dan
+   kata kunci yang sama diperiksa ulang di server -- supaya panggilan API yang
+   nyasar tanpa lewat layar ini tidak bisa menghapus apa pun. */
+const KOSONG_SANDI = 'HAPUS SEMUA';
+function bukaKosongkan(){
+  if(!isAdmin()) return toast('Hanya admin modul yang bisa mengosongkan data', true);
+  window.KOSONG_CB=function(){
+    const el=document.getElementById('kosongKode');
+    const v=String(el?el.value:'').trim().toUpperCase();
+    if(v!==KOSONG_SANDI){ toast('Ketik '+KOSONG_SANDI+' persis untuk melanjutkan', true); return; }
+    tutupModal(); kosongkanSemua();
+  };
+  /* TIDAK menyebut angka "sekian sel akan dihapus". S.sel hanya memuat
+     rentang yang sedang dimuat di layar, jadi angka apa pun di sini pasti
+     lebih kecil dari yang sebenarnya terhapus -- dan angka yang meremehkan
+     akibatnya justru membuat orang menekan lanjut. Jumlah sesungguhnya
+     dilaporkan server sesudahnya. */
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:430px">'
+    +'<div class="mh"><h3>Kosongkan semua data jadwal?</h3><button class="xbtn" onclick="tutupModal()">&times;</button></div>'
+    +'<div class="mb"><p style="color:var(--muted);font-size:13.5px">Seluruh <b>sel jadwal</b> dan <b>pengajuan</b> di semua bulan dan semua divisi akan dihapus dari server. '
+    +'Definisi shift, head divisi, dan penempatan kru tetap.</p>'
+    +'<p style="color:var(--muted);font-size:13.5px">Tindakan ini <b>tidak bisa dibatalkan</b>.</p>'
+    +'<div class="field"><label>Ketik <b>'+KOSONG_SANDI+'</b> untuk melanjutkan</label>'
+    +'<input id="kosongKode" class="inp" style="width:100%" autocomplete="off" placeholder="'+KOSONG_SANDI+'">'
+    +'</div></div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-danger" onclick="KOSONG_CB()">Kosongkan</button></div></div></div>';
+  setTimeout(function(){ const el=document.getElementById('kosongKode'); if(el) el.focus(); },50);
+}
+async function kosongkanSemua(){
+  try{
+    const d=await apiPost({action:'kosongkanSemua', konfirmasi:KOSONG_SANDI});
+    /* Cache lokal ikut dikosongkan di sini juga. Kalau hanya server yang
+       bersih, tab yang sedang terbuka menggambar ulang dari cache dan
+       jadwalnya terlihat masih utuh -- lalu sel-sel "lama" itu ikut terkirim
+       lagi begitu ada satu sel disunting. */
+    S.sel={}; S.pengajuan=[]; RANGE=null; simpanCache();
+    toast('Terhapus: '+((d&&d.sel)||0)+' sel jadwal, '+((d&&d.pengajuan)||0)+' pengajuan');
+    muatDanGambar();
+  }catch(e){ toast('Gagal mengosongkan: '+e.message, true); }
+}
+function toggleKantor(){ TAMPIL_KANTOR=!TAMPIL_KANTOR; render(); }
 /* Shift baru — mis. "MALAM" atau "EVENT" yang cuma dipakai satu outlet.
    Kodenya diturunkan dari NAMANYA (huruf kapital, tanpa spasi) supaya yang
    tertulis di sel jadwal tetap terbaca manusia saat datanya diperiksa langsung
