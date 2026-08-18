@@ -826,9 +826,25 @@ let TAMPIL_KANTOR = false;
    Setting disimpan sebagai SATU blob, jadi menyimpan salah satu panel ikut
    menyimpan yang lain — karena itu simpanSetting() yang berhasil membersihkan
    kedua penanda sekaligus, bukan tombolnya masing-masing. */
-let SETTING_KOTOR = {head:false, kru:false, template:false};
-function settingKotor(){ return SETTING_KOTOR.head || SETTING_KOTOR.kru || SETTING_KOTOR.template; }
+let SETTING_KOTOR = {head:false, kru:false, template:false, shift:false};
+function settingKotor(){ return Object.keys(SETTING_KOTOR).some(k=>SETTING_KOTOR[k]); }
 function tandaiKotor(bagian){ SETTING_KOTOR[bagian]=true; }
+/* BAGIAN MANA MENYENTUH KUNCI MANA di dalam blob setting.
+   ---------------------------------------------------------------------
+   Dipakai simpanSetting() untuk menggabung, bukan menimpa. Kalau suatu saat
+   ada panel baru, ia WAJIB masuk peta ini juga — bagian yang tidak terdaftar
+   akan tersimpan di layar, hilang begitu halaman dimuat ulang, dan tidak ada
+   satu pun galat yang menyebutnya. */
+const KUNCI_SETTING = {
+  head:     ['heads'],
+  kru:      ['divOverride','shiftKru','manajemen','jabatan'],
+  template: ['template'],
+  shift:    ['shifts','maksBeruntun','jedaMin']
+};
+/* Pesan kegagalan simpan yang BERTAHAN di layar. Toast merah hilang sesudah
+   beberapa detik, dan yang sedang menatap daftar centang tidak pernah
+   membacanya — lalu yang tersisa cuma kesan "tombolnya tidak bekerja". */
+let SIMPAN_PESAN = '';
 
 /* =====================================================================
    BANTU: teks, tanggal
@@ -1492,20 +1508,57 @@ async function tulisSel(rows,hapus){
     await muatData(true); render();
   }
 }
+/* Setting disimpan sebagai SATU blob, dan yang mengirimnya selalu mengirim
+   SELURUH isinya. Selama cuma satu layar yang pernah membukanya itu aman —
+   dan sejak panel Head Divisi & Penempatan Kru menunggu tombol Simpan
+   (18 Agustus 2026), jendelanya melebar cukup untuk menggigit:
+
+     - satu tab yang sudah terbuka sejak pagi memegang salinan LAMA;
+     - apa pun yang ia simpan — bahkan sekadar mengganti nama shift, yang
+       menyimpan sendiri tanpa tombol — mengembalikan SELURUH blob ke keadaan
+       pagi itu;
+     - head yang baru ditunjuk siang tadi hilang tanpa satu pun pesan, dan
+       yang menunjuknya melihat centangnya kosong lagi lalu menyimpulkan
+       tombol Simpannya rusak.
+
+   Karena itu yang dikirim BUKAN salinan kita apa adanya, melainkan salinan
+   SERVER yang baru dibaca, ditimpa HANYA pada bagian yang memang disunting
+   di layar ini. SETTING_KOTOR sudah tahu bagian mana; petanya KUNCI_SETTING.
+
+   Kalau server tidak bisa dibaca, kiriman tetap dilanjutkan dengan salinan
+   kita apa adanya: gagal menyimpan sama sekali lebih buruk daripada
+   menyimpan tanpa penggabungan, dan keadaan itu (jaringan mati) justru saat
+   tab kedua paling tidak mungkin ada. */
+async function settingServer(){
+  const t=hariIni();
+  const d=await apiGet(t,t);         // rentang satu hari — balasan sekecil mungkin
+  return normalizeState({setting:d&&d.setting}).setting;
+}
 async function simpanSetting(){
   simpanCache();
+  let kirim=S.setting, digabung=false;
   try{
-    await apiPost({action:'simpanSetting', data:S.setting});
-    setSync('');
-    /* Satu blob untuk seluruh pengaturan: yang terkirim barusan memuat juga
-       perubahan panel yang lain. Membersihkan keduanya di sini membuat
-       penanda "belum disimpan" tidak pernah berbohong — mis. saat yang
-       ditekan justru Tambah Shift, yang menyimpan sendiri. */
-    SETTING_KOTOR={head:false, kru:false, template:false};
+    const srv=await settingServer();
+    Object.keys(SETTING_KOTOR).forEach(function(bag){
+      if(!SETTING_KOTOR[bag]) return;
+      (KUNCI_SETTING[bag]||[]).forEach(function(k){ srv[k]=S.setting[k]; });
+    });
+    kirim=srv; digabung=true;
+  }catch(e){ /* dibiarkan: kirim salinan sendiri, seperti perilaku lama */ }
+
+  try{
+    await apiPost({action:'simpanSetting', data:kirim});
+    /* Yang dipegang layar diganti dengan yang BENAR-BENAR dikirim, bukan
+       dengan salinan lama kita — kalau tidak, panel lain tetap menggambar
+       keadaan usang sampai halaman dimuat ulang. */
+    if(digabung) S.setting=normalizeState({setting:kirim}).setting;
+    simpanCache(); setSync(''); SIMPAN_PESAN='';
+    SETTING_KOTOR={head:false, kru:false, template:false, shift:false};
     return true;
   }catch(e){
     setSync('Pengaturan belum tersimpan', true);
-    toast('Gagal menyimpan pengaturan: '+e.message, true);
+    SIMPAN_PESAN=String(e&&e.message||'sebab tidak diketahui');
+    toast('Gagal menyimpan pengaturan: '+SIMPAN_PESAN, true);
     return false;
   }
 }
@@ -4002,7 +4055,12 @@ function viewPengaturan(){
         +'</div>';
     }).join('');
 
-  return '<div class="panel"><div class="rowbar"><h2>⚙️ Definisi Shift</h2><div class="spacer"></div>'
+  return (SIMPAN_PESAN
+      ? '<div class="note w"><b>Pengaturan terakhir GAGAL disimpan.</b> Sebab dari server: <b>'
+        +esc(SIMPAN_PESAN)+'</b>.<br>Perubahan Anda masih ada di layar ini — tekan <b>Simpan</b> lagi. '
+        +'Kalau sebabnya menyebut sesi atau hak akses, tutup lalu buka modul ini lagi dari Laksamana Office.</div>'
+      : '')
+    +'<div class="panel"><div class="rowbar"><h2>⚙️ Definisi Shift</h2><div class="spacer"></div>'
     +'<button class="btn btn-primary btn-sm" onclick="tambahShift()">+ Tambah Shift</button></div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Nama, jam bawaan, dan warna tiap shift. Mengubah jam di sini berlaku untuk sel yang <b>belum</b> punya jam khusus — sel yang jamnya sudah ditimpa per orang tidak ikut berubah.</p>'
     +barisShift
@@ -4115,7 +4173,9 @@ function tambahShift(){
        Bisa digeser sendiri kalau ternyata bukan. */
     S.setting.shifts[k]={n:nama.toUpperCase().slice(0,12), m:'16:00', s:'23:00',
                          w:'#7C6BD6', libur:0, urut:45};
-    simpanSetting(); render();
+    /* Ditandai walau ia menyimpan sendiri: simpanSetting() menggabung
+       berdasarkan penanda ini, jadi yang tidak ditandai tidak ikut terkirim. */
+    tandaiKotor('shift'); simpanSetting(); render();
     toast('Shift '+k+' ditambahkan — atur jam & warnanya di baris barunya');
   });
 }
@@ -4150,14 +4210,14 @@ function hapusShift(k){
       : 'Belum ada satu sel pun yang memakainya, jadi tidak ada yang terpengaruh.',
     function(){
       delete S.setting.shifts[k];
-      simpanSetting(); render();
+      tandaiKotor('shift'); simpanSetting(); render();
       toast('Shift dihapus');
     }, { ya:'Ya, hapus', lebar:'420px' });
 }
 function ubahShift(k,f,v){
   const cur=S.setting.shifts[k]||Object.assign({},SHIFT_BAWAAN[k]);
   cur[f]=v; S.setting.shifts[k]=cur;
-  simpanSetting(); render();
+  tandaiKotor('shift'); simpanSetting(); render();
 }
 function ubahHead(div,uid,on){
   const l=(S.setting.heads[div]||[]).filter(x=>x!==uid);

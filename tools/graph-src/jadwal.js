@@ -828,7 +828,23 @@ function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 
 function settingKotor() {  }
-function tandaiKotor() {  }
+function tandaiKotor() { simpanSetting(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1492,7 +1508,44 @@ function tulisSel() { kunci(); simpanCache(); render(); apiPost(); setSync(); to
 
 
 
-function simpanSetting() { simpanCache(); apiPost(); setSync(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function settingServer() { hariIni(); apiGet(); normalizeState(); }
+
+
+
+
+function simpanSetting() { simpanCache(); settingServer(); apiPost(); normalizeState(); setSync(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4052,6 +4105,11 @@ function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTe
 
 
 
+
+
+
+
+
 function bukaKosongkan() { isAdmin(); toast(); tutupModal(); kosongkanSemua(); }
 
 
@@ -4098,7 +4156,9 @@ function toggleKantor() { render(); }
 
 
 
-function tambahShift() { isAdmin(); toast(); tanyaNamaShift(); simpanSetting(); render(); }
+function tambahShift() { isAdmin(); toast(); tanyaNamaShift(); simpanSetting(); tandaiKotor(); render(); }
+
+
 
 
 
@@ -4135,7 +4195,7 @@ function tanyaNamaShift() { tutupModal(); }
 
 
 
-function hapusShift() { isAdmin(); toast(); konfirmasi(); shiftDef(); simpanSetting(); render(); }
+function hapusShift() { isAdmin(); toast(); konfirmasi(); shiftDef(); tandaiKotor(); simpanSetting(); render(); }
 
 
 
@@ -4154,7 +4214,7 @@ function hapusShift() { isAdmin(); toast(); konfirmasi(); shiftDef(); simpanSett
 
 
 
-function ubahShift() { simpanSetting(); render(); }
+function ubahShift() { tandaiKotor(); simpanSetting(); render(); }
 
 
 
