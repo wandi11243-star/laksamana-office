@@ -210,6 +210,20 @@ try {
       keluar(array('ok' => true, 'data' => hapus_pengajuan(ambil($body, 'id'))));
     }
 
+    /* Mengosongkan SELURUH jadwal & pengajuan — dipakai saat modul dimulai
+       ulang dari nol. Admin modul saja, dan kata kunci konfirmasinya wajib
+       ikut dikirim: tidak ada undo, dan aksi tanpa parameter apa pun terlalu
+       gampang terpanggil tanpa disengaja (riwayat URL, skrip percobaan,
+       tombol yang tertekan dua kali). Setting tidak ikut terhapus — lihat
+       kosongkan_semua(). */
+    case 'kosongkanSemua': {
+      $u = wajib_admin($body, 'Mengosongkan seluruh data jadwal');
+      if (s(ambil($body, 'konfirmasi', '')) !== 'HAPUS SEMUA') {
+        throw new Exception('Konfirmasi tidak cocok — pengosongan dibatalkan.');
+      }
+      keluar(array('ok' => true, 'data' => kosongkan_semua(nama_pemanggil($u))));
+    }
+
     default:
       keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
   }

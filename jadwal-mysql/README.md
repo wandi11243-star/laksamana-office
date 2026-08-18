@@ -58,3 +58,4 @@ Penjelasan lengkap ada di kepala `lib_jadwal_mysql.php`.
 | `simpanPengajuan` | POST | `{row:{id?,userId,jenis,dari,sampai,alasan}, by}` — status **selalu** dipaksa `MENUNGGU` |
 | `putusPengajuan` | POST | `{id,status,nota,by}` |
 | `hapusPengajuan` | POST | `{id}` |
+| `kosongkanSemua` | POST | `{konfirmasi:"HAPUS SEMUA"}` — hapus SELURUH sel jadwal & pengajuan (setting tetap). Admin modul saja; kata kuncinya diperiksa ulang di server |
