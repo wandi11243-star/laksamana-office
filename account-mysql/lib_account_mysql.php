@@ -164,7 +164,7 @@ function tim_bawaan_jadwal() {
   return array(
     'kitchen', 'dapur',
     'bar', 'bartender',
-    'floor', 'service', 'waiter', 'waitress',
+    'floor', 'service', 'waiter', 'waitress', 'host', 'hostess',
     'cashier', 'kasir',
     'hrd', 'hr',
     'ceo',
