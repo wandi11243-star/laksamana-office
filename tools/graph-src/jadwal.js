@@ -4332,7 +4332,22 @@ function exportExcel() { kruSemuaDivisi(); kruDivisi(); divTunggal(); toast(); t
 
 
 
+
+
+
+
+
+
+
+
 function sel_() { sel(); shiftDef(); kolHuruf(); xEsc(); }
+
+
+
+
+
+
+
 
 
 

@@ -39,6 +39,7 @@ function db() {
     PDO::ATTR_EMULATE_PREPARES   => false,
   ));
   pastikan_kolom_no_hp($pdo);
+  pastikan_kolom_hr($pdo);
   return $pdo;
 }
 /* No HP ditambahkan belakangan. Database yang terlanjur dibuat tanpa kolom ini
@@ -55,6 +56,66 @@ function pastikan_kolom_no_hp($pdo) {
       $pdo->exec('ALTER TABLE `users` ADD COLUMN `no_hp` VARCHAR(32) NOT NULL DEFAULT \'\' AFTER `keterangan`');
   } catch (Exception $e) { /* hak DDL tidak ada / balapan antar-request: abaikan, biar SELECT yang menegur */ }
 }
+/* DATA KEPEGAWAIAN — enam kolom yang dituntut berkas impor Talenta
+   (Branch, Organization, Job Position, Job Level, Employment Status,
+   Join Date). Ditambahkan 18 Agustus 2026 atas permintaan: berkas ekspor
+   jadwal shift memuat keenamnya di kolom paling kanan, dan sebelum ini
+   satu-satunya tempat isinya ada adalah di dalam kepala HR.
+
+   Kuncinya (kiri) adalah nama yang dipakai di JSON — camelCase, sama seperti
+   `talentaId`/`noHp` — dan nilainya (kanan) nama kolom di database. Satu peta
+   supaya penambahan kolom berikutnya cukup satu baris, bukan tujuh tempat.
+
+   `join_date` disimpan sebagai VARCHAR, bukan DATE. Kolom DATE menolak
+   string kosong dan menyimpannya sebagai '0000-00-00' pada mode SQL yang
+   longgar — nilai yang lalu tercetak apa adanya ke berkas ekspor dan ditolak
+   Talenta. Yang dibutuhkan di sini cuma teks 'YYYY-MM-DD' apa adanya. */
+function kolom_hr() {
+  return array(
+    'branch'           => 'branch',
+    'organization'     => 'organization',
+    'jobPosition'      => 'job_position',
+    'jobLevel'         => 'job_level',
+    'employmentStatus' => 'employment_status',
+    'joinDate'         => 'join_date',
+  );
+}
+/* Alasannya sama persis dengan pastikan_kolom_no_hp: database yang terlanjur
+   dibuat tanpa kolom ini akan menabrak SETIAP SELECT yang menyebutnya — dan
+   karena account-api adalah SSO seluruh Office, satu SELECT yang gagal di
+   sini mematikan login SEMUA modul sekaligus. Jadi kolomnya dibuat otomatis
+   saat koneksi pertama, bukan lewat migrasi manual yang gampang tertinggal
+   di salah satu lingkungan. */
+function pastikan_kolom_hr($pdo) {
+  $tipe = array(
+    'branch'            => "VARCHAR(120) NOT NULL DEFAULT ''",
+    'organization'      => "VARCHAR(80)  NOT NULL DEFAULT ''",
+    'job_position'      => "VARCHAR(120) NOT NULL DEFAULT ''",
+    'job_level'         => "VARCHAR(60)  NOT NULL DEFAULT ''",
+    'employment_status' => "VARCHAR(60)  NOT NULL DEFAULT ''",
+    'join_date'         => "VARCHAR(10)  NOT NULL DEFAULT ''",
+  );
+  try {
+    $st = $pdo->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = \'users\'');
+    $st->execute();
+    $ada = array();
+    foreach ($st->fetchAll() as $r) $ada[strtolower($r['COLUMN_NAME'])] = 1;
+    foreach ($tipe as $kol => $ddl) {
+      if (!isset($ada[$kol])) $pdo->exec('ALTER TABLE `users` ADD COLUMN `' . $kol . '` ' . $ddl);
+    }
+  } catch (Exception $e) { /* hak DDL tidak ada / balapan antar-request: biar SELECT yang menegur */ }
+}
+/* Nilai bersih untuk salah satu kolom di atas. Join Date yang bukan
+   'YYYY-MM-DD' dibuang jadi kosong, bukan disimpan apa adanya: tanggal
+   setengah jadi ("2025-6-") lolos tanpa keluhan sampai berkas ekspornya
+   ditolak Talenta berbulan-bulan kemudian, dan yang membacanya tidak akan
+   menghubungkannya dengan kotak yang pernah salah diketik. */
+function nilai_hr($key, $v) {
+  $v = s($v);
+  if ($key === 'joinDate') return preg_match('/^\d{4}-\d{2}-\d{2}$/', $v) ? $v : '';
+  return mb_substr($v, 0, 120);
+}
 function q($sql, $args = array()) { $st = db()->prepare($sql); $st->execute($args); return $st; }
 function s($v) { return trim((string)$v); }
 
@@ -63,15 +124,28 @@ function s($v) { return trim((string)$v); }
 /* Baris yang benar-benar berisi user. Menirukan realUsers_() di Apps
    Script, yang membuang baris Sheet setengah kosong supaya tidak muncul
    sebagai user hantu "?" di daftar. */
+function kolom_user_sql() {
+  return 'id, name, pin, active, keterangan, no_hp, talenta_id, username, '
+       . implode(', ', array_values(kolom_hr()));
+}
 function semua_user() {
-  return q('SELECT id, name, pin, active, keterangan, no_hp, talenta_id, username FROM `users`
+  return q('SELECT ' . kolom_user_sql() . ' FROM `users`
             WHERE TRIM(id) <> \'\' AND TRIM(name) <> \'\'
             ORDER BY name ASC')->fetchAll();
 }
 function user_by_id($id) {
-  $r = q('SELECT id, name, pin, active, keterangan, no_hp, talenta_id, username FROM `users` WHERE id = :i LIMIT 1',
+  $r = q('SELECT ' . kolom_user_sql() . ' FROM `users` WHERE id = :i LIMIT 1',
          array(':i' => s($id)))->fetch();
   return $r ?: null;
+}
+/* Keenam kolom kepegawaian dalam bentuk JSON, untuk ditempelkan ke balasan
+   mana pun yang membawa data user. Baris yang datang dari database lama
+   (sebelum kolomnya ada) tetap membalas string kosong, bukan null — yang
+   membacanya di layar tidak perlu tahu bedanya. */
+function hr_json($u) {
+  $out = array();
+  foreach (kolom_hr() as $key => $kol) $out[$key] = isset($u[$kol]) ? s($u[$kol]) : '';
+  return $out;
 }
 /* Cocokkan nama + PIN + tidak nonaktif. PIN boleh duplikat antar user
    karena nama ikut jadi kunci — persis findUserByCreds_(). LOWER() dipakai
@@ -672,7 +746,10 @@ function aksi_list_users($body) {
   if (!butuh_superadmin($body)) return array('ok' => false, 'error' => 'forbidden');
   $users = array();
   foreach (semua_user() as $u) {
-    $users[] = array(
+    /* hr_json() ditempel lebih dulu supaya kunci di bawah selalu menang kalau
+       suatu saat namanya bertabrakan — data kepegawaian ini tambahan, bukan
+       pengganti apa pun yang sudah ada di sini. */
+    $users[] = array_merge(hr_json($u), array(
       'id'           => s($u['id']),
       'name'         => s($u['name']),
       'pin'          => s($u['pin']),
@@ -685,7 +762,7 @@ function aksi_list_users($body) {
       'grants'       => grant_mentah_untuk($u['id']), // baris mentah, untuk centang form
       'denies'       => deny_mentah_untuk($u['id']),  // pengecualian yang menimpa '*'
       'adminModules' => admin_modul_untuk($u['id']),
-    );
+    ));
   }
   return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif(),
                'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas());
@@ -731,6 +808,19 @@ function aksi_simpan_user($body) {
        ulang baris seadanya) tidak. Tanpa penjaga ini, satu klik nonaktifkan
        akan menghapus username yang dipilih kru — dan orang itu tiba-tiba
        tidak bisa login dengan yang biasa dia ketik. */
+    /* SET disusun sambil jalan, bukan dua kalimat tetap. Sebabnya aturan yang
+       sudah berlaku untuk `username` sekarang berlaku juga untuk keenam kolom
+       kepegawaian: kolom hanya ditulis kalau field-nya MEMANG dikirim.
+
+       Tombol aktif/nonaktif di Kelola Akses mengirim ulang baris seadanya —
+       tanpa username, dan tanpa keenam kolom itu. Kalau semuanya ditulis
+       tanpa syarat, satu klik nonaktifkan akan mengosongkan seluruh data
+       kepegawaian yang baru saja diisi, tanpa satu pun pesan, dan yang
+       ketahuan cuma berkas ekspor berikutnya yang kolom kanannya kosong. */
+    $set = array('name = :n', 'pin = :p', 'active = :a', 'keterangan = :k',
+                 'no_hp = :h', 'talenta_id = :t');
+    $arg = array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket,
+                 ':h' => $hp, ':t' => $tid);
     if (array_key_exists('username', $body)) {
       $un = trim(s($body['username']));
       if ($un !== '') {
@@ -741,14 +831,15 @@ function aksi_simpan_user($body) {
         // Username tidak boleh sama dengan nama resmi orang ITU SENDIRI di
         // baris yang sama — itu bukan bentrok, tapi juga tidak ada gunanya.
       }
-      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, no_hp = :h,
-                 talenta_id = :t, username = :u WHERE id = :i',
-              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp,
-                    ':t' => $tid, ':u' => $un, ':i' => $editId));
-    } else {
-      $st = q('UPDATE `users` SET name = :n, pin = :p, active = :a, keterangan = :k, no_hp = :h, talenta_id = :t WHERE id = :i',
-              array(':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp, ':t' => $tid, ':i' => $editId));
+      $set[] = 'username = :u'; $arg[':u'] = $un;
     }
+    foreach (kolom_hr() as $key => $kol) {
+      if (!array_key_exists($key, $body)) continue;
+      $set[] = '`' . $kol . '` = :' . $kol;
+      $arg[':' . $kol] = nilai_hr($key, $body[$key]);
+    }
+    $arg[':i'] = $editId;
+    $st = q('UPDATE `users` SET ' . implode(', ', $set) . ' WHERE id = :i', $arg);
     // rowCount 0 kalau tidak ada yang berubah, jadi keberadaannya dicek sendiri.
     if ($st->rowCount() === 0 && !user_by_id($editId))
       return array('ok' => false, 'error' => 'not_found');
@@ -760,8 +851,15 @@ function aksi_simpan_user($body) {
   if ($base === 'u-') $base = 'u-user';
   $id = $base; $n = 2;
   while (user_by_id($id)) { $id = $base . $n; $n++; }
-  q('INSERT INTO `users` (id, name, pin, active, keterangan, no_hp, talenta_id) VALUES (:i, :n, :p, :a, :k, :h, :t)',
-    array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active, ':k' => $ket, ':h' => $hp, ':t' => $tid));
+  $kol = array('id', 'name', 'pin', 'active', 'keterangan', 'no_hp', 'talenta_id');
+  $pen = array(':i', ':n', ':p', ':a', ':k', ':h', ':t');
+  $arg = array(':i' => $id, ':n' => $name, ':p' => $pin, ':a' => $active,
+               ':k' => $ket, ':h' => $hp, ':t' => $tid);
+  foreach (kolom_hr() as $key => $nama) {
+    $kol[] = '`' . $nama . '`'; $pen[] = ':' . $nama;
+    $arg[':' . $nama] = array_key_exists($key, $body) ? nilai_hr($key, $body[$key]) : '';
+  }
+  q('INSERT INTO `users` (' . implode(', ', $kol) . ') VALUES (' . implode(', ', $pen) . ')', $arg);
   return array('ok' => true, 'id' => $id);
 }
 
@@ -933,7 +1031,7 @@ function aksi_list_module_roster($body) {
 function aksi_list_divisi_roster($body) {
   $out = array();
   foreach (semua_user() as $u) {
-    $out[] = array(
+    $out[] = array_merge(hr_json($u), array(
       'id'         => s($u['id']),
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
@@ -946,7 +1044,7 @@ function aksi_list_divisi_roster($body) {
          bukan PIN, dan endpoint ini memang tidak pernah membalas PIN. */
       'talentaId'  => s($u['talenta_id']),
       'active'     => ((int)$u['active'] === 1),
-    );
+    ));
   }
   return array('ok' => true, 'members' => $out);
 }
@@ -958,7 +1056,7 @@ function anggota_modul($module, $withAdminFlag) {
     /* talentaId ikut di roster (bukan cuma di listUsers) supaya modul HR
        bisa mencocokkan report absensi Talenta tanpa kredensial superadmin.
        Ini bukan data sensitif: nomor pegawai, bukan PIN. */
-    $row = array(
+    $row = array_merge(hr_json($u), array(
       'id'         => s($u['id']),
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
@@ -966,7 +1064,7 @@ function anggota_modul($module, $withAdminFlag) {
       'talentaId'  => s($u['talenta_id']),
       'username'   => s($u['username']),
       'active'     => ((int)$u['active'] === 1),
-    );
+    ));
     if ($withAdminFlag) {
       $adm = admin_modul_untuk($u['id']);
       $row['isModuleAdmin'] = in_array('*', $adm, true) || in_array($module, $adm, true);

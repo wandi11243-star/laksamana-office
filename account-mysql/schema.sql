@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS `users` (
   `no_hp`      VARCHAR(32)  NOT NULL DEFAULT '',
   `talenta_id` VARCHAR(32)  NOT NULL DEFAULT '',
   `username`   VARCHAR(40)  NOT NULL DEFAULT '',
+  -- Data kepegawaian, dituntut berkas impor Talenta (lihat catatan di bawah).
+  -- Kolomnya dibuat OTOMATIS oleh pastikan_kolom_hr() di lib_account_mysql.php
+  -- pada database yang terlanjur ada, jadi tidak ada ALTER manual yang perlu
+  -- diingat saat mendarat.
+  `branch`            VARCHAR(120) NOT NULL DEFAULT '',
+  `organization`      VARCHAR(80)  NOT NULL DEFAULT '',
+  `job_position`      VARCHAR(120) NOT NULL DEFAULT '',
+  `job_level`         VARCHAR(60)  NOT NULL DEFAULT '',
+  `employment_status` VARCHAR(60)  NOT NULL DEFAULT '',
+  -- join_date sengaja VARCHAR, bukan DATE: kolom DATE menolak string kosong
+  -- dan pada mode SQL yang longgar menyimpannya sebagai '0000-00-00' — nilai
+  -- yang lalu tercetak apa adanya ke berkas ekspor dan ditolak Talenta. Yang
+  -- dibutuhkan cuma teks 'YYYY-MM-DD'.
+  `join_date`         VARCHAR(10)  NOT NULL DEFAULT '',
   `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
