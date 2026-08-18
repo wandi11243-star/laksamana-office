@@ -759,6 +759,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 
@@ -829,7 +857,6 @@ function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 function settingKotor() {  }
 function tandaiKotor() { simpanSetting(); }
-
 
 
 
@@ -968,22 +995,7 @@ function petaObjek() {  }
 
 
 
-function normalizeState() { seed(); petaObjek(); terapkanTemplate(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function normalizeState() { seed(); petaObjek(); }
 
 
 
@@ -1846,6 +1858,9 @@ function tombolKembali() { esc(); }
 
 
 
+
+
+
 function selHtml() { bukaEditor(); escJs(); shiftDef(); jamSel(); esc(); warnaTeks(); labelSel(); }
 
 
@@ -2177,7 +2192,7 @@ function sorotCariBulan() {  }
 
 
 
-function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); pitaBulan(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); luarBulan(); rentangMinggu(); tglPendek(); idxHari(); ikonDivisiJadwal(); jabatanDari(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); pitaBelumAdaHead(); legendaShift(); terapkanTemplate(); exportExcel(); exportPNG(); exportWA(); statBox(); }
+function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); hariSebulan(); idxHari(); tglPendek(); ikonDivisiJadwal(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); pitaBelumAdaHead(); legendaShift(); salinBulanLalu(); exportExcel(); exportPNG(); exportWA(); statBox(); }
 
 
 
@@ -2373,6 +2388,7 @@ function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUba
 
 
 
+function salinBulanLalu() { divTunggal(); bolehUbah(); toast(); namaDivisi(); kruDivisi(); bulanDari(); hariIni(); konfirmasi(); labelBulan(); salinBulanJalan(); }
 
 
 
@@ -2389,8 +2405,8 @@ function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUba
 
 
 
-function terapkanTemplate() { divTunggal(); bolehUbah(); toast(); namaDivisi(); templateDiv(); kruDivisi(); bulanDari(); hariIni(); hariSebulan(); idxHari(); shiftDef(); daftarTimpa(); }
 
+function sumberBulanLalu() { geserBulan(); akhirBulan(); addD(); awalBulan(); }
 
 
 
@@ -2404,6 +2420,7 @@ function terapkanTemplate() { divTunggal(); bolehUbah(); toast(); namaDivisi(); 
 
 
 
+function salinBulanJalan() { divTunggal(); kruDivisi(); hariSebulan(); sumberBulanLalu(); sel(); toast(); namaDivisi(); daftarTimpa(); }
 
 
 
@@ -2412,8 +2429,20 @@ function terapkanTemplate() { divTunggal(); bolehUbah(); toast(); namaDivisi(); 
 
 
 
-function jalan() { toast(); tulisSel(); namaDivisi(); konfirmasi(); esc(); labelBulan(); kunci(); selDariPengajuan(); htmlTimpa(); }
 
+
+
+
+
+
+
+
+
+
+
+
+
+function jalan() { toast(); tulisSel(); konfirmasi(); esc(); labelBulan(); kunci(); selDariPengajuan(); htmlTimpa(); }
 
 
 
@@ -3951,40 +3980,7 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); templateDiv(); ubahTemplate(); shiftPilihan(); stafKantor(); toggleKantor(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); tombolSimpanPanel(); panelKosongRoster(); ulangRoster(); bukaKosongkan(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); stafKantor(); toggleKantor(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); tombolSimpanPanel(); panelKosongRoster(); ulangRoster(); bukaKosongkan(); }
 
 
 
@@ -4288,27 +4284,6 @@ function ubahDivisi() { tandaiKotor(); render(); jabatanDari(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-function templateDiv() {  }
-
-
-
-
-
-
-function ubahTemplate() { templateDiv(); tandaiKotor(); render(); }
 
 
 

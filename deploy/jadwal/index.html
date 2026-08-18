@@ -295,6 +295,34 @@ tr.hdr th.luar,tr.hdr2 th.luar{opacity:.45}
    dengan celah tipis, batas antar minggu tidak terbaca dan blok DW seperti
    menggantung di antara keduanya. */
 tr.bandgap td{height:22px;border:none;background:transparent}
+/* ---------- LEMBAR BULANAN MEMANJANG (19 Agustus 2026, atas permintaan) ----
+   Sebelumnya lembar sebulan dipotong jadi pita mingguan, dan setiap nama
+   muncul lima kali menurun. Untuk membaca sebulan milik SATU orang, mata
+   harus melompat lima blok dan mengingat isinya — padahal itu justru
+   pertanyaan yang paling sering diajukan di depan papan.
+
+   Sekarang satu baris per orang, tanggalnya memanjang ke kanan. Yang membuat
+   bentuk ini bisa dipakai adalah kolom kiri yang DIBEKUKAN: tanpa itu, nama
+   ikut hilang begitu digeser dan yang tersisa cuma deretan warna tanpa
+   pemilik. Lebarnya ditulis pasti (bukan min/max) karena `left` sticky
+   dihitung dari lebar tetangga kirinya — kalau lebarnya mengambang, kolomnya
+   saling menindih saat digeser. */
+table.sched.lurus{min-width:0}
+table.sched.lurus td.cell{min-width:58px;height:38px;font-size:11px}
+table.sched.lurus td.cell .tm{font-size:8.5px}
+table.sched.lurus .no{position:sticky;left:0;z-index:2;width:32px;min-width:32px;background:var(--surface)}
+table.sched.lurus .nm{position:sticky;left:32px;z-index:2;width:148px;min-width:148px;max-width:148px}
+table.sched.lurus tr.hdr th.no{background:var(--gold-soft)}
+table.sched.lurus tr.hdr2 th.no{background:#EFECE4}
+/* Batas antar minggu: garis tegas di kolom Senin. Tanpa penanda apa pun, tiga
+   puluh satu kolom seragam membuat "Sabtu depan" mustahil ditemukan tanpa
+   menghitung satu per satu. */
+table.sched.lurus td.sen,table.sched.lurus th.sen{border-left:2px solid #C9C1B2}
+/* BEBAN ikut dibekukan HANYA di layar lebar. Di HP, tiga kolom beku memakan
+   hampir separuh lebar layar dan yang tersisa cuma dua kolom tanggal. */
+@media (min-width:900px){
+  table.sched.lurus .jb{position:sticky;left:180px;z-index:2;width:96px;min-width:96px}
+}
 /* Kepala tiap blok minggu: MINGGU 1 · 3 Agu – 9 Agu 2026 */
 tr.wkhdr th{background:var(--ink);color:#fff;font-family:var(--font-display);
   font-size:11.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
@@ -826,7 +854,7 @@ let TAMPIL_KANTOR = false;
    Setting disimpan sebagai SATU blob, jadi menyimpan salah satu panel ikut
    menyimpan yang lain — karena itu simpanSetting() yang berhasil membersihkan
    kedua penanda sekaligus, bukan tombolnya masing-masing. */
-let SETTING_KOTOR = {head:false, kru:false, template:false, shift:false};
+let SETTING_KOTOR = {head:false, kru:false, shift:false};
 function settingKotor(){ return Object.keys(SETTING_KOTOR).some(k=>SETTING_KOTOR[k]); }
 function tandaiKotor(bagian){ SETTING_KOTOR[bagian]=true; }
 /* BAGIAN MANA MENYENTUH KUNCI MANA di dalam blob setting.
@@ -838,7 +866,6 @@ function tandaiKotor(bagian){ SETTING_KOTOR[bagian]=true; }
 const KUNCI_SETTING = {
   head:     ['heads'],
   kru:      ['divOverride','shiftKru','manajemen','jabatan'],
-  template: ['template'],
   shift:    ['shifts','maksBeruntun','jedaMin']
 };
 /* Pesan kegagalan simpan yang BERTAHAN di layar. Toast merah hilang sesudah
@@ -924,7 +951,7 @@ function warnaLembut(bg,a){ const c=hexRgb(bg); return 'rgba('+c.r+','+c.g+','+c
    STATE: seed & normalisasi
    ===================================================================== */
 function seed(){
-  return { setting:{ shifts:JSON.parse(JSON.stringify(SHIFT_BAWAAN)), heads:{}, divOverride:{}, jabatan:{}, shiftKru:{}, template:{}, maksBeruntun:6, jedaMin:10 },
+  return { setting:{ shifts:JSON.parse(JSON.stringify(SHIFT_BAWAAN)), heads:{}, divOverride:{}, jabatan:{}, shiftKru:{}, maksBeruntun:6, jedaMin:10 },
            sel:{}, pengajuan:[] };
 }
 /* Dipanggil untuk apa pun yang datang dari server ATAU cache lama. Semua
@@ -989,21 +1016,6 @@ function normalizeState(d){
   b.setting.divOverride=petaObjek(st.divOverride);
   b.setting.jabatan=petaObjek(st.jabatan);
   b.setting.shiftKru=petaObjek(st.shiftKru);
-  /* Template shift per divisi: {bar:['PAGI','PAGI',…7 hari…]}. Dinormalkan
-     jadi PERSIS tujuh kolom, Senin di indeks 0 — sisanya diisi kosong. Yang
-     tersimpan dari versi lama (atau dari layar yang setengah jalan) bisa
-     lebih pendek, dan template pendek membuat terapkanTemplate() membaca
-     `undefined` untuk hari Minggu tanpa satu pun galat: hari itu diam-diam
-     tidak pernah ikut terisi, dan yang mencarinya menyalahkan tombolnya. */
-  b.setting.template={};
-  const tpl=petaObjek(st.template);
-  DIVISI.forEach(function(d){
-    const a=Array.isArray(tpl[d.k])?tpl[d.k]:[];
-    b.setting.template[d.k]=Array.from({length:7},(_,i)=>{
-      const v=String(a[i]||'');
-      return (v && (b.setting.shifts[v])) ? v : '';
-    });
-  });
   /* Ambang peringatan beban kerja. Angka, bukan aturan mati: tiap outlet
      punya kebiasaan sendiri, dan peringatan yang tidak bisa disetel akan
      diabaikan begitu dianggap cerewet. */
@@ -1591,7 +1603,7 @@ async function simpanSetting(){
        keadaan usang sampai halaman dimuat ulang. */
     if(digabung) S.setting=normalizeState({setting:kirim}).setting;
     simpanCache(); setSync(''); SIMPAN_PESAN='';
-    SETTING_KOTOR={head:false, kru:false, template:false, shift:false};
+    SETTING_KOTOR={head:false, kru:false, shift:false};
     return true;
   }catch(e){
     setSync('Pengaturan belum tersimpan', true);
@@ -1846,9 +1858,12 @@ function tombolKembali(fn,diRentangIni,ket){
    Ia digambar redup DAN dipaksa tidak bisa diklik di sini, bukan cuma di
    pemanggilnya: satu pemanggil yang lupa mengirim `editable:false` sudah
    cukup untuk membuat head menimpa jadwal bulan lalu tanpa sadar. */
-function selHtml(c,uid,tgl,editable,luar){
+/* `extra` = kelas tambahan untuk sel itu. Dipakai lembar bulanan memanjang
+   untuk menandai kolom Senin sebagai batas minggu; pemanggil lain
+   membiarkannya kosong. */
+function selHtml(c,uid,tgl,editable,luar,extra){
   if(luar) editable=false;
-  const cls='cell'+(editable?' editable':'')+(luar?' luar':'');
+  const cls='cell'+(editable?' editable':'')+(luar?' luar':'')+(extra?' '+extra:'');
   const klik=editable?' onclick="bukaEditor(\''+escJs(uid)+'\',\''+tgl+'\')"':'';
   if(!c) return '<td class="'+cls+' kosong"'+klik+'>·</td>';
   const d=shiftDef(c.t);
@@ -2204,7 +2219,6 @@ function viewBulanan(){
     semuaKru=semuaKru.concat(semua);
     emps=emps.concat(kruPer[dv]);
   });
-  const pita=pitaBulan(mk);
   const bisa=modeAll?false:bisaPer[DIV];
   const judulLembar=modeAll?'Semua Divisi':namaDivisi(DIV);
 
@@ -2219,87 +2233,57 @@ function viewBulanan(){
       '<div class="mutedhint" style="margin-top:6px">Kru muncul otomatis begitu kolom <b>Tim</b>-nya diisi di Laksamana Office'+
       (isAdmin()?', atau tempatkan manual lewat Pengaturan.':'.')+'</div></div>';
   }else{
-    let body='';
-    pita.forEach((p,pi)=>{
-      /* Minggu digambar UTUH Senin–Minggu, bukan dipotong di batas bulan.
-         1 Agustus 2026 jatuh hari Sabtu: pita pertama dulu cuma dua kolom,
-         dan lembar itu terbaca seolah seluruh divisi libur lima hari di awal
-         bulan — padahal Senin–Jumat-nya ada, cuma tertinggal di lembar Juli.
-         Sekarang hari bulan tetangga ikut tampil sebagai kolom sambungan:
-         redup, dan tidak bisa diklik. Yang boleh disunting di lembar ini
-         tetap hanya hari milik bulan yang sedang dibuka. */
-      const hariPita=p.hari7||p.hari;
-      const kolom=3+hariPita.length;
-      if(pi) body+='<tr class="bandgap"><td colspan="'+kolom+'"></td></tr>';
-      /* Pita berlabel MINGGU N di kepala tiap blok.
+    /* SATU BARIS PER ORANG, SEBULAN PENUH MENYAMPING. Pita mingguan dibuang
+       19 Agustus 2026 atas permintaan; alasan bentuknya ada di CSS
+       `table.sched.lurus`.
 
-         Tanpa ini lembarnya ambigu justru di tempat yang paling penting: blok
-         DAILY WORKER duduk di ANTARA dua minggu, dan pembaca tidak punya cara
-         tahu ia milik minggu di atasnya atau minggu di bawahnya — padahal
-         salah baca berarti salah orang dikira masuk di hari yang salah.
-         Sekarang tiap minggu punya kepala sendiri, dan blok DW berada jelas di
-         dalam kepala itu. Rentang tanggalnya ikut ditulis supaya pita ini bisa
-         dibaca sendirian saat lembarnya dicetak dan ditempel di papan. */
-      const sambung=hariPita.filter(d=>luarBulan(d,mk)).length;
-      body+='<tr class="wkhdr"><th colspan="'+kolom+'">MINGGU '+(pi+1)
-        +' <span>'+esc(rentangMinggu(p.senin))
-        +(sambung?' · '+sambung+' kolom sambungan dari bulan sebelah (tidak bisa diubah di sini)':'')
-        +'</span></th></tr>';
-      /* Kepala kolom ketiga IKUT BERGANTI. "TGL" di atas kolom yang isinya
-         jabatan sudah keliru sejak dulu — kolom tanggalnya justru ada di
-         sebelah kanannya. Sekarang ia menyebut isinya sendiri. */
-      body+='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>BEBAN</th>'+
-        hariPita.map(d=>'<th class="'+(luarBulan(d,mk)?'luar':'')+'">'+tglPendek(d)+'</th>').join('')+'</tr>';
-      body+='<tr class="hdr2"><th></th><th></th><th>BULAN INI</th>'+
-        hariPita.map(d=>{ const i=idxHari(d);
-          return '<th class="'+(i>=5?'wknd ':'')+(luarBulan(d,mk)?'luar':'')+'">'+HARI_PJG[i]+'</th>'; }).join('')+'</tr>';
-      /* Satu blok per divisi di dalam pita minggu yang sama. Kepala kolomnya
-         (hdr/hdr2) sengaja TIDAK diulang per divisi: tanggalnya identik untuk
-         semuanya, dan mengulangnya membuat pembaca mengira ia sudah pindah ke
-         minggu berikutnya. Yang memisahkan cukup satu pita nama divisi. */
-      divList.forEach(function(dv){
+       Kolom sambungan dari bulan tetangga ikut hilang bersama pita, dan itu
+       konsekuensi yang benar: sambungan itu ada semata-mata untuk menggenapkan
+       minggu Senin–Minggu yang terpotong di batas bulan. Tanpa potongan
+       minggu, tidak ada lagi yang perlu digenapkan — lembar ini kembali memuat
+       PERSIS bulan yang sedang dibuka, tidak lebih. */
+    const hariBulan=hariSebulan(mk);
+    const kolomB=3+hariBulan.length;
+    let body='<tr class="hdr"><th class="no">No.</th><th>NAMA</th><th>BEBAN</th>'
+      +hariBulan.map(function(d){
+          return '<th'+(idxHari(d)===0?' class="sen"':'')+'>'+esc(tglPendek(d))+'</th>';
+        }).join('')+'</tr>'
+      +'<tr class="hdr2"><th class="no"></th><th></th><th>BULAN INI</th>'
+      +hariBulan.map(function(d){ const i=idxHari(d);
+          return '<th class="'+(i>=5?'wknd ':'')+(i===0?'sen':'')+'">'+HARI[i].slice(0,3).toUpperCase()+'</th>';
+        }).join('')+'</tr>';
+    divList.forEach(function(dv){
       const empsDiv=kruPer[dv], bisaDiv=bisaPer[dv];
       if(modeAll){
-        body+='<tr class="divhdr"><th colspan="'+kolom+'">'+ikonDivisiJadwal(dv)+' '
+        body+='<tr class="divhdr"><th colspan="'+kolomB+'">'+ikonDivisiJadwal(dv)+' '
           +esc(namaDivisi(dv))+' <span>'+empsDiv.length+' kru</span></th></tr>';
       }
-      empsDiv.forEach((u,ui)=>{
-        /* KOLOM KETIGA: BEBAN BULAN INI, bukan jabatan.
-           Dulu di sini tercetak jabatanDari(u) — dan karena kolom "Tim /
+      empsDiv.forEach(function(u,ui){
+        /* Kolom ketiga = BEBAN BULAN INI, bukan jabatan: kolom "Tim /
            Keterangan" di Office hampir selalu berisi nama divisinya sendiri,
-           yang terbaca adalah "Kitchen / Kitchen / Kitchen …" menurun sepanjang
-           lembar Kitchen. Satu kolom penuh yang mengulang judul lembarnya
-           sendiri, di halaman yang justru sedang kekurangan tempat.
-
-           Gantinya angka yang memang dicari head saat memandang lembar ini:
-           berapa hari orang ini masuk bulan ini, berapa off, berapa jam.
-           Itulah yang menentukan siapa yang di-off-kan minggu depan, dan
-           selama ini harus dihitung dengan mata dari 31 sel.
-
-           Jabatan yang BENAR-BENAR diisi tangan di Pengaturan tetap dihormati:
-           kalau head repot-repot menulis "S. BAR", itu memang keterangan yang
-           membedakan orang — dan ia ditulis kecil di bawah angkanya. Yang
-           dibuang cuma keterangan yang cuma mengulang nama divisi. */
+           jadi yang dulu tercetak "Kitchen / Kitchen / Kitchen…" menurun
+           sepanjang lembar Kitchen. Yang dicari head saat memandang lembar ini
+           justru angkanya. Jabatan yang BENAR-BENAR diisi tangan di Pengaturan
+           tetap dihormati, ditulis kecil di bawah angkanya. */
         const bk=bebanKru(u,mk);
         const jbt=(S&&S.setting.jabatan[u.id])||'';
         const ket=(jbt && jbt.toLowerCase()!==namaDivisi(dv).toLowerCase()) ? jbt : '';
-        body+='<tr><td class="no">'+(ui+1)+'</td>'+
-          '<td class="nm"><b>'+esc(u.name)+'</b>'+(isHeadUser(u.id,dv)?'<i>head divisi</i>':'')+'</td>'+
-          '<td class="jb" title="'+esc(bk.masuk+' hari masuk · '+bk.libur+' off · '+bk.kosong+' belum diatur')+'">'+
-            '<b>'+bk.masuk+'</b> masuk'+
-            '<i>'+bk.libur+' off'+(bk.jam?' · '+bk.jam+' jam':'')+(ket?' · '+esc(ket):'')+'</i></td>'+
+        body+='<tr><td class="no">'+(ui+1)+'</td>'
+          +'<td class="nm"><b>'+esc(u.name)+'</b>'+(isHeadUser(u.id,dv)?'<i>head divisi</i>':'')+'</td>'
+          +'<td class="jb" title="'+esc(bk.masuk+' hari masuk · '+bk.libur+' off · '+bk.kosong+' belum diatur')+'">'
+            +'<b>'+bk.masuk+'</b> masuk'
+            +'<i>'+bk.libur+' off'+(bk.jam?' · '+bk.jam+' jam':'')+(ket?' · '+esc(ket):'')+'</i></td>'
           /* Hak ubah dihitung PER DIVISI, bukan sekali untuk seluruh lembar:
              di mode semua divisi, head Bar tetap head Bar — selnya sendiri
              boleh ia ubah, sel Kitchen di baris bawahnya tidak. */
-          hariPita.map(d=>selHtml(sel(u.id,d),u.id,d,bisaDiv,luarBulan(d,mk))).join('')+'</tr>';
+          +hariBulan.map(function(d){
+              return selHtml(sel(u.id,d),u.id,d,bisaDiv,false,(idxHari(d)===0?'sen':''));
+            }).join('')+'</tr>';
       });
-      /* Daily worker ikut di TABEL YANG SAMA, di bawah kru tetap pita ini —
-         itulah gunanya: satu lembar untuk melihat seluruh orang yang masuk
-         minggu itu. Yang membedakan cuma pita label dan warnanya. */
-      body+=blokDW(dv,hariPita,mk);
-      });
+      /* Daily worker di tabel yang sama, di bawah kru tetap divisi itu. */
+      body+=blokDW(dv,hariBulan,mk);
     });
-    tabel='<div class="tablewrap" id="lembarBulan"><table class="sched bulanan">'+body+'</table></div>';
+    tabel='<div class="tablewrap" id="lembarBulan"><table class="sched bulanan lurus">'+body+'</table></div>';
   }
 
   const r=rekapBulan(emps,mk);
@@ -2342,11 +2326,11 @@ function viewBulanan(){
        galat, dan yang mengirimnya ke grup tidak akan tahu — jadi disembunyikan,
        bukan dibiarkan gagal diam-diam. Print tetap ada karena ia mencetak apa
        yang benar-benar tergambar di layar. */
-    /* Terapkan Template hanya di tab satu divisi, dan hanya untuk yang boleh
-       mengubah lembarnya. Di mode Semua ia harus memilih template divisi yang
-       mana — pertanyaan yang tidak punya jawaban benar, jadi tombolnya tidak
-       ditawarkan sama sekali. */
-    +((!modeAll && bisa)?'<button class="btn btn-ghost btn-sm" title="Isi sebulan penuh mengikuti template divisi ini" onclick="terapkanTemplate()">🗓️ Terapkan Template</button>':'')
+    /* Salin Bulan Lalu hanya di tab satu divisi, dan hanya untuk yang boleh
+       mengubah lembarnya. Di mode Semua ia harus bekerja atas empat divisi
+       sekaligus — dan yang menekan satu tombol lalu menimpa ratusan sel milik
+       head lain adalah persis kerusakan yang paling mahal di modul ini. */
+    +((!modeAll && bisa)?'<button class="btn btn-ghost btn-sm" title="Isi sebulan ini dari jadwal bulan sebelumnya" onclick="salinBulanLalu()">📋 Salin Bulan Lalu</button>':'')
     +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
     +(modeAll
       ? '<span class="mutedhint">PNG &amp; Teks WA tersedia per divisi — pilih divisinya di atas.</span>'
@@ -2383,57 +2367,102 @@ function viewBulanan(){
    Panel yang dulu memakainya di kaki Jadwal Bulanan sudah dihapus; angkanya
    sekarang dibaca PER ORANG di halaman Rekap Pegawai. Fungsinya tetap di sini
    karena Rekap memanggilnya. */
-/* Menempelkan template divisi yang sedang dibuka ke SELURUH bulan aktif.
-   Bentuk konfirmasinya sengaja disamakan dengan Salin Minggu Lalu: dua alat
-   ini melakukan hal yang sama besarnya (menulis ratusan sel sekaligus), dan
-   satu-satunya cara membuat peringatannya dibaca adalah membuatnya selalu
-   berbentuk sama — jumlahnya, daftar yang tertimpa, dan pilihan melewati
-   yang sudah terisi. */
-function terapkanTemplate(){
+/* SALIN BULAN LALU (19 Agustus 2026, atas permintaan).
+   ---------------------------------------------------------------------
+   Sepasang dengan Salin Minggu Lalu di Input Mingguan, tapi untuk satu bulan
+   penuh — dan justru di sinilah pertanyaan "mengambil dari tanggal berapa"
+   punya DUA jawaban yang sama-sama masuk akal, jadi yang memilih orangnya,
+   bukan kodenya:
+
+   - IKUT HARI: 1 September (Selasa) mengambil dari Selasa terakhir sebelum
+     bulan ini, yaitu 28 hari sebelumnya. Ini yang benar untuk rotasi shift —
+     pola PAGI/SIANG/OFF melekat pada HARI, bukan pada tanggal. Yang dipakai
+     28 hari, bukan "bulan lalu tanggal sama", supaya harinya selalu sama.
+     Untuk tanggal 29–31 pengurangan 28 hari mendarat di bulan yang SAMA
+     (29 Sep − 28 = 1 Sep), jadi di situ dipakai 35 hari — tetap hari yang
+     sama, tapi benar-benar dari bulan sebelumnya.
+   - IKUT TANGGAL: 1 ke 1, 2 ke 2. Ini yang dicari kalau jadwalnya memang
+     ditempel ke tanggal (mis. tutup buku tiap tanggal 25), dan harinya
+     memang bergeser.
+
+   Keduanya lewat konfirmasi bentrok yang sama dengan alat massal lain —
+   ratusan sel sekaligus tidak boleh ditulis tanpa menyebutkan apa yang
+   tertimpa. */
+function salinBulanLalu(){
   const div=divTunggal();
   if(!bolehUbah(div)){ toast('Hanya head divisi '+namaDivisi(div)+' yang bisa mengisi lembar ini', true); return; }
-  const t=templateDiv(div);
-  if(!t.filter(Boolean).length){
-    toast('Template divisi '+namaDivisi(div)+' belum diatur — isi dulu di Pengaturan → Template Shift Bulanan', true);
-    return;
-  }
-  const emps=kruDivisi(div);
-  if(!emps.length){ toast('Belum ada kru di divisi ini'); return; }
+  if(!kruDivisi(div).length){ toast('Belum ada kru di divisi ini'); return; }
   const mk=BULAN_AKTIF||bulanDari(hariIni());
-  const rows=[];
+  konfirmasi('Salin bulan lalu ke '+labelBulan(mk),
+    'Pilih cara mengambilnya:<br><br>'
+    +'<b>Ikut hari</b> — Senin mengambil dari Senin, Sabtu dari Sabtu. '
+    +'Ini yang menjaga pola shift &amp; hari libur tetap di tempatnya.<br><br>'
+    +'<b>Ikut tanggal</b> — tanggal 1 mengambil dari tanggal 1 bulan lalu. '
+    +'Harinya bergeser dua-tiga hari.',
+    function(){ salinBulanJalan(mk,'hari'); },
+    { ya:'Ikut hari (Senin↔Senin)', lebar:'460px',
+      alt:{ label:'Ikut tanggal (1↔1)', cb:function(){ salinBulanJalan(mk,'tanggal'); } } });
+}
+/* Tanggal sumber untuk satu tanggal tujuan. Dipisah supaya dua caranya bisa
+   dibaca berdampingan — dan supaya yang menambah cara ketiga nanti tahu
+   persis di mana menaruhnya. */
+function sumberBulanLalu(d,mk,mode){
+  if(mode==='tanggal'){
+    const p=d.split('-'), lalu=geserBulan(mk,-1), pl=lalu.split('-');
+    const akhir=+akhirBulan(lalu).slice(-2);
+    /* Tanggal 31 pada bulan sumber yang cuma 30 hari TIDAK dibulatkan ke 30:
+       yang dibulatkan akan menyalin hari yang sama dua kali, dan tidak ada
+       satu pun tempat yang melaporkannya. Hari itu dilewati saja. */
+    if(+p[2] > akhir) return '';
+    return pl[0]+'-'+pl[1]+'-'+p[2];
+  }
+  let s=addD(d,-28);
+  if(s>=awalBulan(mk)) s=addD(d,-35);   // 29–31: mundur satu minggu lagi
+  return s;
+}
+function salinBulanJalan(mk,mode){
+  const div=divTunggal();
+  const emps=kruDivisi(div);
+  const rows=[], lewat=[];
   emps.forEach(function(u){
     hariSebulan(mk).forEach(function(d){
-      const k=t[idxHari(d)];
-      if(!k) return;                      // hari yang sengaja dikosongkan di template
-      const sd=shiftDef(k);
-      rows.push({u:u.id, d:d, t:k, m:sd.libur?'':(sd.m||''), s:sd.libur?'':(sd.s||''), n:''});
+      const s=sumberBulanLalu(d,mk,mode);
+      if(!s){ lewat.push(d); return; }
+      const c=sel(u.id,s);
+      if(!c) return;                       // sumbernya kosong: tidak menulis apa-apa
+      rows.push({u:u.id, d:d, t:c.t, m:c.m, s:c.s, n:c.n});
     });
   });
-  if(!rows.length){ toast('Template tidak menghasilkan satu sel pun'); return; }
-
+  if(!rows.length){
+    toast('Bulan sebelumnya masih kosong untuk divisi '+namaDivisi(div), true);
+    return;
+  }
+  const catatan=lewat.length
+    ? '<div class="note i" style="margin-top:8px">'+(lewat.length/Math.max(1,emps.length)|0)
+      +' tanggal dilewati karena tidak ada padanannya di bulan sebelumnya.</div>'
+    : '';
   const bentrok=daftarTimpa(rows);
   const jalan=function(pakai){
     return function(){
       if(!pakai.length){ toast('Tidak ada sel yang perlu diisi'); return; }
       tulisSel(pakai,[]);
-      toast(pakai.length+' sel diisi dari template '+namaDivisi(div));
+      toast(pakai.length+' sel disalin dari bulan sebelumnya');
     };
   };
   if(!bentrok.length){
-    konfirmasi('Terapkan template '+namaDivisi(div)+'?',
-      '<b>'+rows.length+' sel</b> di '+esc(labelBulan(mk))+' akan diisi mengikuti template divisi ini.'
-      +'<br>Tidak ada sel terisi yang tertimpa.',
-      jalan(rows), {ya:'Ya, terapkan'});
+    konfirmasi('Salin bulan lalu?',
+      '<b>'+rows.length+' sel</b> akan diisi di '+esc(labelBulan(mk))+'.<br>'
+      +'Tidak ada sel terisi yang tertimpa.'+catatan,
+      jalan(rows), {ya:'Ya, salin'});
     return;
   }
   const bentrokKunci={};
   bentrok.forEach(function(x){ bentrokKunci[kunci(x.baru.u,x.baru.d)]=1; });
   const aman=rows.filter(function(r){ return !bentrokKunci[kunci(r.u,r.d)]; });
-
-  konfirmasi('Terapkan template — '+bentrok.length+' sel akan tertimpa',
-    '<b>'+rows.length+' sel</b> di '+esc(labelBulan(mk))+' akan diisi dari template '
-    +esc(namaDivisi(div))+'. <b style="color:var(--danger)">'+bentrok.length+' di antaranya sudah terisi</b> '
-    +'dan isinya akan diganti. Sisanya ('+aman.length+' sel) mengisi sel yang masih kosong.'
+  konfirmasi('Salin bulan lalu — '+bentrok.length+' sel akan tertimpa',
+    '<b>'+rows.length+' sel</b> akan diisi di '+esc(labelBulan(mk))+'. '
+    +'<b style="color:var(--danger)">'+bentrok.length+' di antaranya sudah terisi</b> dan isinya akan '
+    +'diganti. Sisanya ('+aman.length+' sel) mengisi sel yang masih kosong.'
     +(function(){
         const aju=selDariPengajuan(bentrok.map(function(x){ return x.baru; }));
         return aju.length
@@ -2441,7 +2470,7 @@ function terapkanTemplate(){
             +'pengajuan yang sudah disetujui.</b> Pakai “Lewati yang terisi” kalau tidak bermaksud membatalkannya.</div>'
           : '';
       })()
-    +htmlTimpa(bentrok),
+    +catatan+htmlTimpa(bentrok),
     jalan(rows),
     { lebar:'580px', ya:'Ya, timpa '+bentrok.length+' sel',
       alt: aman.length?{label:'Lewati yang terisi ('+aman.length+')', cb:jalan(aman)}:null });
@@ -3990,33 +4019,6 @@ function viewPengaturan(){
       +'<div style="margin-top:8px">'+(pil||'<span class="mutedhint">Belum ada kru di divisi ini.</span>')+'</div></div>';
   }).join('');
 
-  /* Satu baris per divisi, tujuh kotak pilih. Ditulis mendatar dan bukan
-     sebagai tabel supaya di layar HP ia melipat sendiri jadi beberapa baris —
-     panel ini dibuka admin sambil berdiri di outlet sama seringnya dengan di
-     depan komputer. */
-  const barisTemplate=DIVISI.map(function(d){
-    const t=templateDiv(d.k);
-    const isi=t.filter(Boolean).length;
-    return '<div class="row" style="flex-direction:column;align-items:stretch">'
-      +'<div style="display:flex;align-items:center;gap:8px"><b>'+d.ic+' '+esc(d.n)+'</b>'
-      +'<span style="font-size:11px;color:var(--muted-2)">'+kruDivisi(d.k).length+' kru</span>'
-      +'<div class="spacer"></div>'
-      +'<span class="stpill" style="background:'+(isi?'var(--ok-bg);color:var(--ok)':'var(--warn-bg);color:var(--warn)')+'">'
-      +(isi?isi+' dari 7 hari diatur':'belum diatur')+'</span></div>'
-      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'
-      +HARI.map(function(h,i){
-          return '<label style="font-size:11px;color:var(--muted-2);display:flex;flex-direction:column;gap:4px">'
-            +esc(h.slice(0,3).toUpperCase())
-            +'<select class="inp" style="width:108px" onchange="ubahTemplate(\''+escJs(d.k)+'\','+i+',this.value)">'
-            +'<option value="">— kosong —</option>'
-            +shiftPilihan(t[i]).map(function(k){
-                return '<option value="'+esc(k)+'"'+(t[i]===k?' selected':'')+'>'+esc(shiftDef(k).n)+'</option>';
-              }).join('')
-            +'</select></label>';
-        }).join('')
-      +'</div></div>';
-  }).join('');
-
   /* Akses Rekap Pegawai dulu punya panel sendiri berisi deretan centang nama.
      Dipindah ke baris tiap pegawai di Penempatan Kru: di panel terpisah, satu
      orang muncul DUA KALI di halaman yang sama — sekali untuk divisinya,
@@ -4121,12 +4123,6 @@ function viewPengaturan(){
        sudah ada tombol "Coba lagi" di panelKosongRoster() yang muncul persis
        saat roster gagal diambil. ulangRoster() tetap ada karena panel itu
        memakainya. */
-    +'<div class="panel"><div class="rowbar"><h2>🗓️ Template Shift Bulanan</h2>'+tombolSimpanPanel('template')+'</div>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Pola satu minggu untuk tiap divisi. Setelah disimpan, head (atau admin) menekan <b>🗓️ Terapkan Template</b> di <b>Jadwal Bulanan</b> dan seluruh bulan yang sedang dibuka terisi mengikuti pola ini — Senin ikut kolom Senin, dan seterusnya.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">Hari yang dibiarkan <b>— kosong —</b> tidak ikut ditulis sama sekali; selnya tetap kosong dan bisa diisi sendiri. Sel yang sudah terisi <b>tidak langsung tertimpa</b>: jumlahnya disebut lebih dulu, berikut pilihan melewati yang sudah ada.</p>'
-    +'<p class="mutedhint" style="margin-bottom:12px">IZIN dan CUTI sengaja tidak ada di pilihan — keduanya lahir dari pengajuan kru yang disetujui, bukan dari pola bulanan.</p>'
-    +barisTemplate+'</div>'
-
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2>'+tombolSimpanPanel('kru')+'</div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Centang <b>📈 Rekap</b> untuk memberi orang itu akses ke halaman <b>Rekap Pegawai</b> (jam kerja, pola libur, dan peringatan beban kerja seluruh kru). <b>Head divisi dan admin modul otomatis berhak</b> — barisnya bertanda <i>otomatis</i> dan tidak perlu dicentang. Kru biasa sengaja tidak bisa membukanya: jadwalnya sendiri memang terbuka di Jadwal Bulanan, yang ditahan adalah rekap dan angkanya, karena itu bahan perbandingan antar kru yang ujungnya jadi keributan di grup.</p>'
@@ -4285,35 +4281,14 @@ function ubahDivisi(uid,k){
    `jedaMin` oleh peringatan beban kerja (kini memakai bawaan 6 hari & 10 jam
    kalau belum pernah diisi), dan `S.setting.jabatan` oleh jabatanDari() —
    jadi penyesuaian lama tidak hilang, cuma tidak bisa diubah dari sini lagi. */
-/* TEMPLATE SHIFT PER DIVISI (18 Agustus 2026, atas permintaan).
-   ---------------------------------------------------------------------
-   Satu pola Senin–Minggu per divisi, disetel admin sekali di Pengaturan,
-   lalu ditempelkan ke satu bulan penuh dengan satu tombol di Jadwal Bulanan.
+/* Template Shift Bulanan (18 Agustus 2026) DIBUANG 19 Agustus 2026 atas
+   permintaan, sehari setelah lahir. Yang menggantikannya Salin Bulan Lalu:
+   pola bulan berikutnya hampir selalu pola bulan ini, jadi menyalinnya
+   langsung menghasilkan jadwal yang jauh lebih dekat ke hasil akhir daripada
+   satu pola tujuh hari yang tetap harus dibetulkan orang per orang.
 
-   Kenapa polanya MINGGUAN padahal namanya "template bulanan": bulan tidak
-   punya bentuk yang bisa diulang — Agustus 31 hari mulai Sabtu, September 30
-   hari mulai Selasa. Yang benar-benar berulang adalah minggunya, dan itulah
-   cara jadwal ini memang disusun di papan. Templatenya dipakai untuk SEBULAN;
-   yang disimpan tujuh kolom.
-
-   Kenapa satu pola untuk seluruh kru divisi, bukan per orang: yang per orang
-   sudah ada dan lebih tepat — "Isi Sel Kosong → Ikut minggu lalu" menyalin
-   pola tiap orang apa adanya. Template ini menjawab keadaan yang berbeda:
-   bulan baru yang belum punya riwayat sama sekali, atau divisi yang seluruh
-   krunya memang masuk di jam yang sama. */
-function templateDiv(k){
-  const t=(S&&S.setting.template&&S.setting.template[k])||[];
-  return Array.from({length:7},(_,i)=>{
-    const v=String(t[i]||'');
-    return (v && S.setting.shifts[v]) ? v : '';
-  });
-}
-function ubahTemplate(div,i,v){
-  const t=templateDiv(div);
-  t[i]=String(v||'');
-  S.setting.template[div]=t;
-  tandaiKotor('template'); render();
-}
+   `setting.template` yang terlanjur tersimpan tidak dibaca lagi dan akan
+   hilang sendiri pada penyimpanan berikutnya. */
 function ubahShiftKru(uid,k){
   if(k) S.setting.shiftKru[uid]=k; else delete S.setting.shiftKru[uid];
   tandaiKotor('kru'); render();
