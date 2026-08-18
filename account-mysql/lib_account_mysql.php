@@ -938,6 +938,13 @@ function aksi_list_divisi_roster($body) {
       'name'       => s($u['name']),
       'keterangan' => s($u['keterangan']),
       'noHp'       => s($u['no_hp']),
+      /* Employee ID Talenta ikut sejak 18 Agustus 2026, dengan alasan yang
+         sama seperti di anggota_modul(): ekspor jadwal shift dibuat untuk
+         diimpor kembali ke Talenta, dan Talenta mencocokkan barisnya lewat
+         kolom ini — bukan lewat nama, yang ditulis berbeda di dua sistem
+         lebih sering daripada tidak. Bukan data sensitif: nomor pegawai,
+         bukan PIN, dan endpoint ini memang tidak pernah membalas PIN. */
+      'talentaId'  => s($u['talenta_id']),
       'active'     => ((int)$u['active'] === 1),
     );
   }

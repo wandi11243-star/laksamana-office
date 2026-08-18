@@ -1380,6 +1380,46 @@ function simpan_setting($data, $by, $bolehUbahHr = true) {
   return array('saved' => true, 'ts' => gmdate('c'));
 }
 
+/* ==================== KOSONGKAN SELURUH DATA ====================
+   Menghapus SELURUH permintaan head dan SELURUH pengajuan/penugasan DW,
+   supaya modul bisa dimulai dari nol. Admin modul saja (dijaga di api.php),
+   dan kata kunci konfirmasinya wajib ikut dikirim -- tidak ada undo, dan satu
+   panggilan nyasar menghapus riwayat seluruh musim tanpa satu pun galat.
+
+   TALENT POOL (`dw_pekerja`) hanya ikut kalau diminta eksplisit, dan
+   bawaannya TIDAK. Isinya nama, nomor HP, dan rekam jejak no-show puluhan
+   part-timer yang dikumpulkan berbulan-bulan; itu bukan "data jadwal" yang
+   dimaksud saat orang menekan mulai dari nol, dan mengumpulkannya kembali
+   berarti menelepon satu per satu. Yang ingin membersihkan orangnya juga
+   harus mengatakannya sendiri.
+
+   `dw_setting` tidak pernah ikut: tarif per posisi, kuota, jam siap pakai,
+   posisi per divisi, dan daftar HRD adalah konfigurasi. Menghapusnya bersama
+   data berarti setiap pembersihan diikuti menyetel ulang tarif -- dan tarif
+   yang belum disetel dibayar NOL tanpa satu pun galat.
+
+   Urutan hapus: ajuan dulu, baru permintaan, baru pekerja. Ajuan menunjuk
+   keduanya, jadi urutan sebaliknya meninggalkan baris yang menunjuk ke id
+   yang sudah tidak ada di antara dua DELETE -- tidak masalah di dalam satu
+   transaksi, tapi urutan yang benar tetap lebih murah dibaca nanti. */
+function kosongkan_semua($ikutPekerja, $by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $pdo->beginTransaction();
+  try {
+    $nAjuan = (int)$pdo->exec('DELETE FROM `dw_ajuan`');
+    $nMinta = (int)$pdo->exec('DELETE FROM `dw_permintaan`');
+    $nOrang = $ikutPekerja ? (int)$pdo->exec('DELETE FROM `dw_pekerja`') : 0;
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return array('cleared' => true, 'ajuan' => $nAjuan, 'permintaan' => $nMinta,
+               'pekerja' => $nOrang, 'ikutPekerja' => $ikutPekerja ? true : false,
+               'oleh' => mb_substr(s($by), 0, 120), 'ts' => gmdate('c'));
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',

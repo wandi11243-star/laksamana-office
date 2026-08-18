@@ -2060,15 +2060,22 @@ function viewBulanan(){
       : '')
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div>'
     +'<div class="tools noprint">'
-    /* Excel/PNG/WA menyusun isinya sendiri dari kruDivisi(DIV) — satu divisi,
-       satu berkas. Di mode Semua mereka akan memulangkan lembar KOSONG tanpa
-       satu pun galat, dan yang mengirimnya ke grup tidak akan tahu. Jadi
-       disembunyikan, bukan dibiarkan gagal diam-diam; Print tetap ada karena
-       ia mencetak apa yang benar-benar tergambar di layar. */
+    /* EXCEL IKUT DI MODE SEMUA sejak 18 Agustus 2026: bentuknya kini satu
+       baris per orang (lihat exportExcel), jadi menggabung empat divisi dalam
+       satu berkas justru bentuk yang paling dicari — itu yang diunggah ke
+       Talenta sekali jalan.
+
+       PNG & Teks WA TETAP per divisi: keduanya menggambar papan yang ditempel
+       dan dikirim ke grup divisi, dan satu gambar berisi seluruh perusahaan
+       tidak terbaca di layar HP. Keduanya menyusun isinya dari kruDivisi(DIV);
+       di mode Semua mereka akan memulangkan lembar KOSONG tanpa satu pun
+       galat, dan yang mengirimnya ke grup tidak akan tahu — jadi disembunyikan,
+       bukan dibiarkan gagal diam-diam. Print tetap ada karena ia mencetak apa
+       yang benar-benar tergambar di layar. */
+    +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
     +(modeAll
-      ? '<span class="mutedhint">Ekspor berkas tersedia per divisi — pilih divisinya di atas.</span>'
-      : '<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
-        +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;bulan&#39;)">🖼️ PNG Sebulan</button>'
+      ? '<span class="mutedhint">PNG &amp; Teks WA tersedia per divisi — pilih divisinya di atas.</span>'
+      : '<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;bulan&#39;)">🖼️ PNG Sebulan</button>'
         +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;bulan&#39;)">💬 Teks WA</button>')
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
     +'</div></div>'
@@ -2425,12 +2432,14 @@ function viewMinggu(){
        menyusunnya. Menyuruhnya pindah ke halaman bulanan dulu cuma untuk
        mengunduh gambar adalah langkah yang tidak ada gunanya. */
     +'<div class="rowbar noprint"><span class="mutedhint">Bagikan minggu ini:</span><div class="spacer"></div><div class="tools">'
-    /* PNG & Teks WA ikut disembunyikan di mode Semua — alasannya sama dengan
-       alat massal di atas. Print/PDF TETAP ADA: ia mencetak apa yang benar-
-       benar ada di layar, jadi justru di mode inilah ia paling berguna. */
+    /* Excel ikut di mode Semua (satu baris per orang, lihat exportExcel).
+       PNG & Teks WA tetap per divisi: keduanya gambar papan untuk grup divisi,
+       dan menyusun isinya dari kruDivisi(DIV) — di mode Semua hasilnya lembar
+       KOSONG tanpa satu pun galat. Print/PDF TETAP ADA: ia mencetak apa yang
+       benar-benar ada di layar, jadi justru di mode inilah ia paling berguna. */
+    +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;minggu&#39;)">📗 Excel Seminggu</button>'
     +(semuaDiv?''
-      : '<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;minggu&#39;)">📗 Excel Seminggu</button>'
-        +'<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
+      : '<button class="btn btn-ghost btn-sm" onclick="exportPNG(&#39;minggu&#39;)">🖼️ PNG Seminggu</button>'
         +'<button class="btn btn-ghost btn-sm" onclick="exportWA(&#39;minggu&#39;)">💬 Teks WA</button>')
     +'<button class="btn btn-ghost btn-sm" onclick="window.print()">🖨️ Print / PDF</button>'
     +'</div></div>'
@@ -4195,16 +4204,6 @@ function kolHuruf(n){    // 1 -> A
   let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=((n-r)/26)|0; }
   return s;
 }
-/* Warna teks dipilih dari terang-gelapnya latar, bukan ditulis satu per satu:
-   warna shift bisa diubah user di Pengaturan, dan tulisan hitam di atas
-   CUTI merah tua (#C00000) praktis tidak terbaca. */
-function tulisanKontras(hex){
-  const h=String(hex||'#000000').replace('#','').padEnd(6,'0');
-  const r=parseInt(h.slice(0,2),16)||0, g=parseInt(h.slice(2,4),16)||0, b=parseInt(h.slice(4,6),16)||0;
-  return (0.299*r+0.587*g+0.114*b)>150 ? '000000' : 'FFFFFF';
-}
-function heks6(w){ return String(w||'#7A756B').replace('#','').padEnd(6,'0').slice(0,6).toUpperCase(); }
-
 /* Penyusun styles.xml. Font/fill/border dikumpulkan sambil jalan supaya
    penambahan satu shift baru di Pengaturan tidak perlu menyentuh berkas ini. */
 function xlsxGaya(){
@@ -4264,145 +4263,112 @@ function xlsxGaya(){
   return api;
 }
 
+/* Semua kru yang benar-benar dijadwalkan, urut divisi lalu nama — dipakai
+   ekspor Excel di tab "Semua Divisi". Satu orang hanya bisa berada di satu
+   divisi (divisiDari memulangkan satu nilai), jadi tidak ada nama yang
+   muncul dua kali. */
+function kruSemuaDivisi(){
+  const out=[];
+  DIVISI.forEach(function(d){ kruDivisi(d.k).forEach(function(u){ out.push(u); }); });
+  return out;
+}
+/* Seluruh tanggal sebuah bulan, 'YYYY-MM-DD'. Bukan pitaBulan(), yang
+   sengaja memuat tanggal dari bulan sebelah supaya minggunya utuh di layar —
+   di berkas impor, tanggal di luar bulan yang diminta akan ikut menimpa
+   jadwal bulan lain. */
+function hariSebulan(mk){
+  const z=akhirBulan(mk), out=[];
+  for(let d=awalBulan(mk); d<=z; d=addD(d,1)) out.push(d);
+  return out;
+}
+/* ISI BERKAS: bentuk impor Talenta, bukan lembar papan (18 Agustus 2026).
+   ---------------------------------------------------------------------
+   Satu baris per orang, satu kolom per tanggal:
+
+     Employee ID | Employee Name | 2026-09-01 | 2026-09-02 | ...
+     81124       | M. Rizki Arfan| Shift Pagi | dayoff     | ...
+
+   Sebelumnya berkas ini meniru lembar papan yang ditempel di dinding —
+   pita mingguan, kolom jabatan, warna per shift, legenda. Bentuk itu enak
+   dibaca dan sama sekali tidak bisa diimpor: yang dituju berkas ini adalah
+   Talenta, dan Talenta membaca matriks orang x tanggal. Papannya sendiri
+   TIDAK hilang — PNG dan Print/PDF masih menghasilkan bentuk yang sama
+   persis seperti sebelumnya, dan itulah yang dikirim ke grup.
+
+   Tiga hal yang menentukan berkasnya diterima atau ditolak saat diimpor:
+
+   - KOLOM A adalah Employee ID Talenta (`talentaId` dari account-api), bukan
+     id user Office. Talenta mencocokkan barisnya lewat nomor itu; nama
+     ditulis berbeda di dua sistem lebih sering daripada tidak. Yang belum
+     punya nomor tetap diekspor dengan kolom A kosong — barisnya terlihat
+     dan bisa diperbaiki — dan jumlahnya disebutkan di toast, karena kalau
+     tidak, satu-satunya gejalanya adalah beberapa orang diam-diam tidak
+     ikut terjadwal setelah impor.
+   - YANG DITULIS NAMA SHIFT, bukan labelSel(). labelSel mendahulukan
+     catatan bebas di dalam sel ("HARAU!!!") supaya papan di layar bisa
+     bicara — dan catatan itu bukan nama shift yang dikenali Talenta.
+   - SEL KOSONG DITINGGALKAN KOSONG, bukan diisi "-" atau "OFF". Kolom
+     berisi apa pun akan dicoba dicocokkan sebagai nama shift saat impor,
+     dan "belum diatur" bukan hal yang sama dengan "libur".
+
+   Nama shift-nya sendiri harus persis sama dengan nama shift di Talenta
+   ("Shift Pagi", "Middle", "dayoff"). Itu bisa disamakan tanpa menyentuh
+   kode: nama tiap shift diatur di Pengaturan -> Definisi Shift, dan itulah
+   yang ditulis ke sini. */
 function exportExcel(lingkup){
-  const div=divTunggal();
-  const emps=kruDivisi(div);
+  const semuaDiv=(typeof DIV!=='undefined' && DIV==='ALL');
+  const emps=semuaDiv?kruSemuaDivisi():kruDivisi(divTunggal());
   if(!emps.length){ toast('Belum ada kru untuk diekspor'); return; }
   if(typeof TextEncoder==='undefined' || typeof Uint8Array==='undefined'){
     toast('Peramban ini terlalu tua untuk ekspor Excel — pakai PNG atau Print', true); return;
   }
   const minggu=(lingkup==='minggu');
-  const pita=minggu?pitaMingguAktif():pitaBulanAktif();
-  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const hari=minggu ? tujuhHari(MINGGU_AKTIF||seninDari(hariIni()))
+                    : hariSebulan(BULAN_AKTIF||bulanDari(hariIni()));
+  const namaSheet=semuaDiv?'Semua Divisi':namaDivisi(divTunggal());
 
   const G=xlsxGaya();
-  const fPutih=G.fontPutih();
-  const gJudul  = G.xf({f:2, h:'center'});
-  const gKuning = G.xf({f:1, bg:'FFFF00', br:1});
-  const gKuningI= G.xf({f:3, bg:'FFFF00', br:1});
-  const gAbu    = G.xf({f:1, bg:'BFBFBF', br:1});
-  const gNo     = G.xf({f:0, br:1});
-  const gNama   = G.xf({f:1, br:1, h:'left'});
-  const gJab    = G.xf({f:3, br:1});
-  const gKosong = G.xf({f:0, br:1});
-  const gCatat  = G.xf({f:4, h:'left'});
-  /* Satu gaya per kode shift, dipetakan sekali di depan: sel bulan penuh bisa
-     mencapai 1.500 buah, dan mencari gaya per sel membuat berkasnya tumbuh
-     tanpa perlu. */
-  const gShift={};
-  daftarShift().forEach(function(k){
-    const w=heks6(shiftDef(k).w);
-    gShift[k]=G.xf({f:(tulisanKontras(w)==='FFFFFF'?fPutih:1), bg:w, br:1});
-  });
+  const gKepala=G.xf({f:1, br:1, h:'center'});
+  const gKiri  =G.xf({f:0, h:'left'});
+  const gIsi   =G.xf({f:0, h:'center'});
 
-  const baris=[], gabung=[];
-  let r=0;
-  const KOL=10;                        // A..J : No, NAMA, TGL/HARI, 7 hari
   const sel_=(c,v,s)=>({c:c, v:v, s:s});
-  const tambah=(sels,tinggi)=>{ r++; baris.push({r:r, sels:sels, h:tinggi}); return r; };
+  const baris=[];
+  baris.push({r:1, sels:[sel_(1,'Employee ID',gKepala), sel_(2,'Employee Name',gKepala)]
+    .concat(hari.map(function(d,i){ return sel_(3+i, d, gKepala); }))});
 
-  /* Judul, digabung selebar tabel — sama seperti lembar lama. */
-  tambah([sel_(1, judulLembar(lingkup), gJudul)], 26);
-  gabung.push('A1:'+kolHuruf(KOL)+'1');
-  tambah([sel_(1,'Laksamana Muda · dicetak '+tglPanjang(hariIni()), gCatat)], 15);
-  tambah([], 6);
-
-  pita.forEach(function(p){
-    const h=p.hari;
-    /* Dua baris kepala: tanggal lalu nama hari. Kolom No & NAMA digabung
-       menurun melintasi keduanya, persis seperti lembar yang dipakai kru. */
-    const rTgl=tambah([sel_(1,'No.',gKuning), sel_(2,'NAMA',gKuning), sel_(3,'TGL',gKuningI)]
-      .concat(h.map(function(d,i){
-        const q=parseD(d);
-        return sel_(4+i, ('0'+q.getDate()).slice(-2)+'/'+('0'+(q.getMonth()+1)).slice(-2)
-          +'/'+String(q.getFullYear()).slice(-2), gKuning);
-      })), 18);
-    const rHari=tambah([sel_(1,'',gKuning), sel_(2,'',gKuning), sel_(3,'HARI',gKuningI)]
-      .concat(h.map(function(d,i){
-        return sel_(4+i, HARI_PJG[(parseD(d).getDay()+6)%7], gAbu);
-      })), 18);
-    gabung.push('A'+rTgl+':A'+rHari, 'B'+rTgl+':B'+rHari);
-
-    emps.forEach(function(u,i){
-      /* Kolom ketiga = jabatan, lewat jabatanDari() yang sama dengan lembar
-         di layar — termasuk jatuhnya ke keterangan Office kalau belum
-         dipendekkan di Pengaturan. Menyalin aturannya ke sini berarti dua
-         tempat yang bisa menulis jabatan berbeda untuk orang yang sama. */
-      const jbt=jabatanDari(u);
-      const s=[sel_(1,i+1,gNo), sel_(2,u.name,gNama), sel_(3,jbt,gJab)];
-      h.forEach(function(d,j){
-        const c=sel(u.id,d);
-        s.push(c ? sel_(4+j, shiftDef(c.t).n, gShift[c.t]||gKosong)
-                 : sel_(4+j, '', gKosong));
-      });
-      tambah(s, 17);
+  let tanpaId=0;
+  emps.forEach(function(u,i){
+    const eid=String(u.talentaId||'').trim();
+    if(!eid) tanpaId++;
+    const sels=[sel_(1, eid, gKiri), sel_(2, String(u.name||''), gKiri)];
+    hari.forEach(function(d,j){
+      const c=sel(u.id,d);
+      if(c) sels.push(sel_(3+j, shiftDef(c.t).n, gIsi));
     });
-
-    /* DAILY WORKER TIDAK IKUT KE EXCEL (14 Agustus 2026).
-       ---------------------------------------------------------------------
-       Blok ini dulu ikut, dengan alasan "lembar Excel tidak boleh diam-diam
-       berbeda isi dengan papan". Yang tidak diperhitungkan: isinya tidak muat
-       di sel selebar kolom shift. Kru tetap menulis satu kata ("PAGI",
-       "MIDDLE"), DW menulis posisi + rentang jam ("Kitchen Helper 08:00–17:00")
-       — di lembar cetak/Excel yang lebarnya sudah dikunci per hari, teks itu
-       terpotong jadi "n Helper 08:00" dan menjulur ke sel tetangga yang kosong,
-       sehingga satu shift DW terbaca seolah milik hari yang salah.
-
-       Lembarnya juga memang dipakai untuk hal yang berbeda: yang dibagikan ke
-       grup adalah jadwal KRU TETAP. Jadwal DW disusun, diputuskan, dan
-       diekspor sendiri dari modul DW (Excel Sebulan di Kalender DW), lengkap
-       dengan kolom yang lebarnya memang disiapkan untuk jam.
-
-       Di LAYAR blok DW tetap ada — di sana lebarnya ikut isinya, dan head
-       memang perlu melihat DW hari Sabtu sebelum meng-off-kan kru tetap. */
-    tambah([], 6);
+    baris.push({r:2+i, sels:sels});
   });
 
-  /* Legenda di kolom L, sejajar kepala tabel — di lembar lama letaknya juga
-     di kanan, dan yang mencarinya mencari di sana. */
-  const kolLeg=12;
-  /* LEMBARNYA DIPANJANGKAN DULU KALAU MEMANG KURANG BARIS.
-
-     Yang lama menjepit indeksnya dengan Math.min(…, baris.length-1), dan itu
-     BUKAN sekadar legenda yang tertumpuk di layar: dua entri yang jatuh ke
-     baris yang sama menulis DUA <c r="L9"> di dalam satu <row>, dan sel
-     berulang membuat Excel menolak seluruh berkasnya — "We found a problem
-     with some content", isinya hilang semua, bukan cuma legendanya.
-
-     Terjadi diam-diam pada lembar pendek: ekspor MINGGUAN divisi berisi
-     kurang dari lima kru cuma punya 9-10 baris, sedangkan shift bawaannya
-     delapan. Cashier bertiga sudah cukup untuk memicunya, dan yang mengekspor
-     tidak melihat apa pun yang salah sampai berkasnya dibuka.
-
-     Barisnya ditambah (kosong, tanpa isi) supaya tiap shift dapat barisnya
-     sendiri — nomor barisnya tetap berurutan karena baris[j].r selalu j+1. */
-  while(baris.length < 3+daftarShift().length) tambah([], 15);
-  daftarShift().forEach(function(k,i){
-    const b=baris[3+i];
-    if(!b) return;
-    b.sels.push(sel_(kolLeg, shiftDef(k).n, gShift[k]||gKosong));
-  });
-
-  const lebar=[{min:1,max:1,w:5},{min:2,max:2,w:22},{min:3,max:3,w:12},
-               {min:4,max:10,w:12},{min:11,max:11,w:2},{min:12,max:12,w:14}];
+  const lebar=[{min:1,max:1,w:16},{min:2,max:2,w:30},{min:3,max:2+hari.length,w:14}];
   const xmlBaris=baris.map(function(b){
-    const cs=b.sels.slice().sort((x,y)=>x.c-y.c).map(function(c){
-      const ref=kolHuruf(c.c)+b.r;
-      const angka=(typeof c.v==='number');
-      return '<c r="'+ref+'" s="'+c.s+'"'+(angka?'':' t="inlineStr"')+'>'
-        +(angka ? '<v>'+c.v+'</v>' : '<is><t xml:space="preserve">'+xEsc(c.v)+'</t></is>')
-        +'</c>';
+    const cs=b.sels.map(function(c){
+      return '<c r="'+kolHuruf(c.c)+b.r+'" s="'+c.s+'" t="inlineStr">'
+        +'<is><t xml:space="preserve">'+xEsc(c.v)+'</t></is></c>';
     }).join('');
-    return '<row r="'+b.r+'"'+(b.h?' ht="'+b.h+'" customHeight="1"':'')+'>'+cs+'</row>';
+    return '<row r="'+b.r+'">'+cs+'</row>';
   }).join('');
 
+  /* Kolom nama & baris tanggal dibekukan. Sebulan penuh berarti 30 kolom:
+     tanpa ini, menggulir ke akhir bulan meninggalkan layar penuh angka yang
+     tidak lagi punya nama di kirinya. */
   const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    +'<sheetViews><sheetView workbookViewId="0">'
+    +'<pane xSplit="2" ySplit="1" topLeftCell="C2" activePane="bottomRight" state="frozen"/>'
+    +'</sheetView></sheetViews>'
     +'<sheetFormatPr defaultRowHeight="15"/>'
     +'<cols>'+lebar.map(c=>'<col min="'+c.min+'" max="'+c.max+'" width="'+c.w+'" customWidth="1"/>').join('')+'</cols>'
     +'<sheetData>'+xmlBaris+'</sheetData>'
-    +(gabung.length?'<mergeCells count="'+gabung.length+'">'
-        +gabung.map(g=>'<mergeCell ref="'+g+'"/>').join('')+'</mergeCells>':'')
     +'<pageMargins left="0.25" right="0.25" top="0.3" bottom="0.3" header="0.3" footer="0.3"/>'
     +'<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>'
     +'</worksheet>';
@@ -4425,7 +4391,7 @@ function exportExcel(lingkup){
       +'</Relationships>'),
     B('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       +'<workbook xmlns="'+P+'spreadsheetml/2006/main" xmlns:r="'+P+'officeDocument/2006/relationships">'
-      +'<sheets><sheet name="'+xEsc(namaDivisi(div).slice(0,28))+'" sheetId="1" r:id="rId1"/></sheets>'
+      +'<sheets><sheet name="'+xEsc(String(namaSheet).slice(0,28))+'" sheetId="1" r:id="rId1"/></sheets>'
       +'</workbook>'),
     B('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       +'<Relationships xmlns="'+P+'package/2006/relationships">'
@@ -4436,16 +4402,48 @@ function exportExcel(lingkup){
     B('xl/worksheets/sheet1.xml', sheet)
   ]);
 
-  const namaBerkas='jadwal-'+div+'-'
-    +(minggu?('minggu-'+(MINGGU_AKTIF||seninDari(hariIni()))):mk)+'.xlsx';
+  const namaBerkas=namaEkspor('shift_attendance','xlsx');
   const blob=new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download=namaBerkas;
   document.body.appendChild(a); a.click();
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1000);
-  toast(minggu?'Excel jadwal minggu ini diunduh':'Excel jadwal sebulan diunduh');
+  /* Yang belum punya Employee ID disebut jumlahnya, bukan didiamkan: baris
+     tanpa nomor itu diterima Talenta tanpa keluhan lalu dilewati, jadi
+     satu-satunya gejalanya adalah beberapa orang tidak terjadwal sesudah
+     impor — dan itu baru ketahuan saat orangnya tidak muncul. */
+  toast((minggu?'Excel jadwal minggu ini diunduh':'Excel jadwal sebulan diunduh')
+    +(tanpaId?(' — '+tanpaId+' kru belum punya Employee ID Talenta, kolomnya kosong'):''), !!tanpaId);
 }
 
+/* NAMA BERKAS EKSPOR — pola yang sama dengan berkas ekspor Talenta yang
+   sudah dipakai HR sehari-hari (`20260818044108-4167486-export_shift_attendance.xlsx`):
+   cap waktu 14 angka, satu angka acak, lalu `export_<isi>`.
+
+   Diminta 18 Agustus 2026. Sebabnya bukan selera: berkas ekspor dari sini dan
+   dari Talenta berakhir di folder Unduhan yang sama lalu dilampirkan
+   berdampingan, dan dua pola penamaan membuat yang mana-yang mana hanya bisa
+   dipastikan dengan membukanya satu per satu.
+
+   Cap waktunya WAKTU SETEMPAT, bukan UTC: nama berkas dibaca manusia yang
+   membandingkannya dengan jam dinding, dan berkas "pukul 21.00" yang tertulis
+   14.00 terbaca sebagai berkas kemarin.
+
+   Angka acak bukan hiasan — dua ekspor dalam detik yang sama (dua divisi
+   berturut-turut, yang memang kebiasaannya) akan bertabrakan namanya, dan
+   peramban menimpanya atau menempelkan "(1)" di belakang. Divisi dan
+   periodenya sengaja TIDAK lagi masuk nama berkas: keduanya tertulis di dalam
+   berkasnya sendiri (nama sheet dan baris kop), dan pola Talenta memang tidak
+   memuatnya. */
+function capWaktuBerkas(){
+  const d=new Date();
+  return String(d.getFullYear())+pad(d.getMonth()+1)+pad(d.getDate())
+        +pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds());
+}
+function namaEkspor(isi,ext){
+  const acak=String(Math.floor(1000000+Math.random()*9000000));
+  return capWaktuBerkas()+'-'+acak+'-export_'+isi+'.'+ext;
+}
 function potong(cx,txt,maxW){
   txt=String(txt==null?'':txt);
   if(cx.measureText(txt).width<=maxW) return txt;

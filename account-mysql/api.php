@@ -25,7 +25,7 @@
  *   {action:"listModuleMembers", module}         -> {ok,members:[...]}
  *   -- tanpa gerbang, dipanggil modul saat boot --
  *   {action:"listModuleRoster", module}          -> {ok,members:[...]}
- *   {action:"listDivisiRoster"}                  -> {ok,members:[{id,name,keterangan,active}]}  (tanpa PIN)
+ *   {action:"listDivisiRoster"}                  -> {ok,members:[{id,name,keterangan,noHp,talentaId,active}]}  (tanpa PIN)
  *
  * Diagnostik (GET):  ?action=ping   ?action=stats
  ************************************************************************/
