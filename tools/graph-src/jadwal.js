@@ -914,7 +914,22 @@ function seed() {  }
 
 
 
-function normalizeState() { seed(); }
+function normalizeState() { seed(); terapkanTemplate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1130,7 +1145,37 @@ function isManajemen() {  }
 
 
 
-function bolehRekap() { isAdmin(); divisiKuasa(); isManajemen(); }
+
+
+
+
+
+
+
+
+
+
+
+function bisaLihatSemua() { isAdmin(); isManajemen(); kruById(); stafKantor(); }
+
+
+
+
+
+
+
+
+
+
+
+function divisiLihat() { bisaLihatSemua(); divisiKuasa(); divisiSaya(); }
+
+
+
+
+
+
+function bolehRekap() { bisaLihatSemua(); divisiKuasa(); }
 function bolehUbah() { isAdmin(); isHeadUser(); }
 
 
@@ -1420,7 +1465,14 @@ function simpanSetting() { simpanCache(); apiPost(); setSync(); toast(); }
 
 
 
-function simpanPanelSetting() { settingKotor(); toast(); simpanSetting(); render(); }
+function simpanPanelSetting() { simpanSetting(); render(); toast(); }
+
+
+
+
+
+
+
 
 
 
@@ -1483,7 +1535,10 @@ function muatRoster() {  }
 
 
 
-function bolehBuka() { isAdmin(); divisiKuasa(); bolehRekap(); }
+function bolehBuka() { isAdmin(); divisiKuasa(); bisaLihatSemua(); bolehRekap(); }
+
+
+
 
 
 
@@ -1571,7 +1626,7 @@ function go() { toggleSidebar(); render(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPengaturan(); }
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPengaturan(); divisiLihat(); }
 
 
 
@@ -1598,7 +1653,11 @@ function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan()
 
 
 
-function segDivisi() { divisiKuasa(); kruDivisi(); esc(); }
+
+
+
+
+function segDivisi() { kruDivisi(); esc(); }
 
 
 
@@ -1983,7 +2042,7 @@ function sorotCariBulan() {  }
 
 
 
-function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); pitaBulan(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); luarBulan(); rentangMinggu(); tglPendek(); idxHari(); ikonDivisiJadwal(); jabatanDari(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); legendaShift(); exportExcel(); exportPNG(); exportWA(); statBox(); }
+function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); pitaBulan(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); luarBulan(); rentangMinggu(); tglPendek(); idxHari(); ikonDivisiJadwal(); jabatanDari(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); legendaShift(); terapkanTemplate(); exportExcel(); exportPNG(); exportWA(); statBox(); }
 
 
 
@@ -2144,6 +2203,74 @@ function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUba
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function terapkanTemplate() { divTunggal(); bolehUbah(); toast(); namaDivisi(); templateDiv(); kruDivisi(); bulanDari(); hariIni(); hariSebulan(); idxHari(); shiftDef(); daftarTimpa(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jalan() { toast(); tulisSel(); namaDivisi(); konfirmasi(); esc(); labelBulan(); kunci(); selDariPengajuan(); htmlTimpa(); }
 
 
 
@@ -2243,7 +2370,14 @@ function rekapBulan() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); be
 
 
 
-function rekapKandidat() { kruDivisi(); }
+
+
+
+
+function rekapKandidat() { divisiLihat(); kruDivisi(); }
+
+
+
 
 
 
@@ -2395,6 +2529,11 @@ function viewRekap() { bolehRekap(); bulanDari(); hariIni(); rekapKandidat(); pa
 
 
 
+
+
+
+
+
 function jabatanSetara() { namaDivisi(); }
 
 
@@ -2412,7 +2551,7 @@ function muatDanGambar() { render(); muatData(); }
 
 
 
-function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruDivisi(); tglPendek(); }
+function viewMinggu() { divisiLihat(); bolehUbah(); seninDari(); hariIni(); tujuhHari(); kruDivisi(); tglPendek(); }
 
 
 
@@ -2437,12 +2576,12 @@ function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruD
 
 
 
-function tabelDiv() { kruDivisi(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
 
 
 
 
 
+function tabelDiv() { kruDivisi(); bolehUbah(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
 
 
 
@@ -2527,7 +2666,24 @@ function tabelDiv() { kruDivisi(); esc(); jabatanDari(); isiBaris(); escJs(); se
 
 
 
-function gantiDivMinggu() { divisiKuasa(); toast(); namaDivisi(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gantiDivMinggu() { divisiLihat(); toast(); namaDivisi(); render(); }
 
 
 
@@ -2684,7 +2840,7 @@ function konfirmasi() { tutupModal(); esc(); }
 
 
 
-function salinMingguLalu() { seninDari(); hariIni(); addD(); kruDivisi(); divTunggal(); sel(); toast(); rentangMinggu(); daftarTimpa(); }
+function salinMingguLalu() { seninDari(); hariIni(); addD(); kruDivisi(); divTunggal(); sel(); toast(); rentangMinggu(); daftarTimpa(); tulisSel(); konfirmasi(); esc(); jalan(); kunci(); selDariPengajuan(); htmlTimpa(); }
 
 
 
@@ -2698,7 +2854,7 @@ function salinMingguLalu() { seninDari(); hariIni(); addD(); kruDivisi(); divTun
 
 
 
-function jalan() { toast(); tulisSel(); rentangMinggu(); konfirmasi(); esc(); kunci(); selDariPengajuan(); htmlTimpa(); }
+
 
 
 
@@ -3652,7 +3808,40 @@ function batalAju() { apiPost(); simpanCache(); render(); toast(); }
 
 
 
-function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); stafKantor(); toggleKantor(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); tombolSimpanPanel(); panelKosongRoster(); ulangRoster(); bukaKosongkan(); }
+function viewPengaturan() { isAdmin(); daftarShift(); shiftDef(); esc(); warnaTeks(); ubahShift(); escJs(); hapusShift(); kruDivisi(); ubahHead(); namaDivisi(); templateDiv(); ubahTemplate(); shiftPilihan(); stafKantor(); toggleKantor(); divisiDari(); ubahDivisi(); divisiDariMurni(); jabatanDari(); ubahShiftKru(); shiftKru(); bolehRekap(); isHeadUser(); ubahManajemen(); tambahShift(); jalan(); tombolSimpanPanel(); panelKosongRoster(); ulangRoster(); bukaKosongkan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3941,6 +4130,35 @@ function ubahDivisi() { tandaiKotor(); render(); jabatanDari(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function templateDiv() {  }
+
+
+
+
+
+
+function ubahTemplate() { templateDiv(); tandaiKotor(); render(); }
 
 
 

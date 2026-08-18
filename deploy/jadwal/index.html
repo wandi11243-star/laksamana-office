@@ -826,8 +826,8 @@ let TAMPIL_KANTOR = false;
    Setting disimpan sebagai SATU blob, jadi menyimpan salah satu panel ikut
    menyimpan yang lain — karena itu simpanSetting() yang berhasil membersihkan
    kedua penanda sekaligus, bukan tombolnya masing-masing. */
-let SETTING_KOTOR = {head:false, kru:false};
-function settingKotor(){ return SETTING_KOTOR.head || SETTING_KOTOR.kru; }
+let SETTING_KOTOR = {head:false, kru:false, template:false};
+function settingKotor(){ return SETTING_KOTOR.head || SETTING_KOTOR.kru || SETTING_KOTOR.template; }
 function tandaiKotor(bagian){ SETTING_KOTOR[bagian]=true; }
 
 /* =====================================================================
@@ -908,7 +908,7 @@ function warnaLembut(bg,a){ const c=hexRgb(bg); return 'rgba('+c.r+','+c.g+','+c
    STATE: seed & normalisasi
    ===================================================================== */
 function seed(){
-  return { setting:{ shifts:JSON.parse(JSON.stringify(SHIFT_BAWAAN)), heads:{}, divOverride:{}, jabatan:{}, shiftKru:{}, maksBeruntun:6, jedaMin:10 },
+  return { setting:{ shifts:JSON.parse(JSON.stringify(SHIFT_BAWAAN)), heads:{}, divOverride:{}, jabatan:{}, shiftKru:{}, template:{}, maksBeruntun:6, jedaMin:10 },
            sel:{}, pengajuan:[] };
 }
 /* Dipanggil untuk apa pun yang datang dari server ATAU cache lama. Semua
@@ -935,6 +935,21 @@ function normalizeState(d){
   b.setting.divOverride=(st.divOverride&&typeof st.divOverride==='object')?st.divOverride:{};
   b.setting.jabatan=(st.jabatan&&typeof st.jabatan==='object')?st.jabatan:{};
   b.setting.shiftKru=(st.shiftKru&&typeof st.shiftKru==='object')?st.shiftKru:{};
+  /* Template shift per divisi: {bar:['PAGI','PAGI',…7 hari…]}. Dinormalkan
+     jadi PERSIS tujuh kolom, Senin di indeks 0 — sisanya diisi kosong. Yang
+     tersimpan dari versi lama (atau dari layar yang setengah jalan) bisa
+     lebih pendek, dan template pendek membuat terapkanTemplate() membaca
+     `undefined` untuk hari Minggu tanpa satu pun galat: hari itu diam-diam
+     tidak pernah ikut terisi, dan yang mencarinya menyalahkan tombolnya. */
+  b.setting.template={};
+  const tpl=(st.template&&typeof st.template==='object')?st.template:{};
+  DIVISI.forEach(function(d){
+    const a=Array.isArray(tpl[d.k])?tpl[d.k]:[];
+    b.setting.template[d.k]=Array.from({length:7},(_,i)=>{
+      const v=String(a[i]||'');
+      return (v && (b.setting.shifts[v])) ? v : '';
+    });
+  });
   /* Ambang peringatan beban kerja. Angka, bukan aturan mati: tiap outlet
      punya kebiasaan sendiri, dan peringatan yang tidak bisa disetel akan
      diabaikan begitu dianggap cerewet. */
@@ -1130,7 +1145,37 @@ function isManajemen(){ return !!(ME && ((S&&S.setting.manajemen)||[]).indexOf(M
    pola libur orang lain sekaligus, dan itu bahan perbandingan antar kru yang
    ujungnya selalu jadi keributan di grup. Jadwalnya sendiri memang terbuka di
    Jadwal Bulanan; yang dibatasi di sini adalah rekap dan angkanya. */
-function bolehRekap(){ return isAdmin() || divisiKuasa().length>0 || isManajemen(); }
+/* SIAPA YANG MELIHAT SELURUH DIVISI (18 Agustus 2026).
+   ---------------------------------------------------------------------
+   Aturannya satu kalimat: yang mengurus satu divisi melihat divisinya, yang
+   mengurus perusahaan melihat semuanya. Yang kedua itulah yang di layar
+   disebut "Office" — admin modul, manajemen (dicentang Rekap di Pengaturan),
+   dan siapa pun yang kolom Tim-nya di Office berbunyi Office/Kantor.
+
+   Kenapa kolom Tim ikut dipakai, bukan cuma centang: HRD dan CEO memang tidak
+   pernah ditunjuk sebagai head divisi mana pun, dan menuntut mereka dicentang
+   satu per satu berarti setiap orang baru di kantor kehilangan akses tanpa
+   ada yang tahu sebabnya sampai ia mengeluh. */
+function bisaLihatSemua(){
+  if(isAdmin() || isManajemen()) return true;
+  const u=ME && (kruById(ME.id) || ME);
+  return !!(u && stafKantor(u));
+}
+/* Divisi yang boleh DILIHAT isinya di halaman yang memang dibatasi per divisi
+   (Rekap Pegawai & Input Mingguan). Jadwal Bulanan sengaja TIDAK memakai ini:
+   lembar bulanan terbuka untuk seluruh kru, apa pun divisinya — yang dijaga
+   di sana hak MENGUBAH (bolehUbah), bukan hak melihat.
+
+   Head melihat divisi yang ia pegang; yang bukan head melihat divisinya
+   sendiri. */
+function divisiLihat(){
+  if(bisaLihatSemua()) return DIVISI.map(d=>d.k);
+  const k=divisiKuasa();
+  if(k.length) return k;
+  const d=divisiSaya();
+  return DIVISI.some(x=>x.k===d) ? [d] : [];
+}
+function bolehRekap(){ return bisaLihatSemua() || divisiKuasa().length>0; }
 function bolehUbah(div){ return isAdmin() || (!!ME && isHeadUser(ME.id,div)); }
 /* Divisi mana saja yang boleh disunting orang ini — dipakai untuk memilih
    tab default dan untuk menyaring pengajuan yang bisa ia putuskan. */
@@ -1412,7 +1457,7 @@ async function simpanSetting(){
        perubahan panel yang lain. Membersihkan keduanya di sini membuat
        penanda "belum disimpan" tidak pernah berbohong — mis. saat yang
        ditekan justru Tambah Shift, yang menyimpan sendiri. */
-    SETTING_KOTOR={head:false, kru:false};
+    SETTING_KOTOR={head:false, kru:false, template:false};
     return true;
   }catch(e){
     setSync('Pengaturan belum tersimpan', true);
@@ -1421,20 +1466,27 @@ async function simpanSetting(){
   }
 }
 async function simpanPanelSetting(){
-  if(!settingKotor()){ toast('Tidak ada perubahan untuk disimpan'); return; }
+  /* Tidak ada penjaga "tidak ada perubahan": menyimpan ulang isi yang sama
+     tidak merusak apa pun, dan tombol yang kadang menolak bekerja lebih
+     membingungkan daripada satu kiriman yang mubazir. */
   const ok=await simpanSetting();
   render();
   if(ok) toast('Pengaturan disimpan');
 }
-/* Pita penanda + tombol, dipakai kedua panel. Tombolnya MATI saat belum ada
-   yang berubah: tombol Simpan yang selalu bisa ditekan tidak memberi tahu
-   apa-apa soal ada tidaknya perubahan, dan yang ragu akan menekannya berkali
-   -kali "untuk memastikan". */
+/* Pita penanda + tombol, dipakai ketiga panel.
+
+   Tombolnya SELALU BISA DITEKAN. Sempat dibuat mati selama belum ada
+   perubahan, dengan maksud memberi tahu bahwa memang tidak ada yang perlu
+   disimpan — dan yang sampai ke pemakai justru "tombol Simpan-nya rusak"
+   (dilaporkan 18 Agustus 2026, hari yang sama tombolnya lahir). Tombol mati
+   tidak bisa membedakan dirinya dari tombol yang tidak bekerja, dan menyimpan
+   ulang isi yang sama tidak merusak apa pun. Yang tetap menjelaskan keadaan
+   adalah pita "belum disimpan" di sebelahnya. */
 function tombolSimpanPanel(bagian){
   const kotor=!!SETTING_KOTOR[bagian];
   return '<div class="spacer"></div>'
     +(kotor?'<span class="stpill" style="background:var(--warn-bg);color:var(--warn)">belum disimpan</span>':'')
-    +'<button class="btn '+(kotor?'btn-primary':'btn-ghost')+' btn-sm"'+(kotor?'':' disabled')
+    +'<button class="btn '+(kotor?'btn-primary':'btn-ghost')+' btn-sm"'
     +' onclick="simpanPanelSetting()">💾 Simpan</button>';
 }
 function save(){ simpanSetting(); }   // nama yang sama dengan modul lain (dan di-stub smoke test)
@@ -1485,7 +1537,10 @@ async function muatRoster(){
    ===================================================================== */
 function bolehBuka(k){
   if(k==='pengaturan') return isAdmin();
-  if(k==='minggu')     return divisiKuasa().length>0;
+  /* Input Mingguan: head divisi (yang menyusunnya) dan Office (yang perlu
+     melihat susunan seluruh divisi). Kru biasa tidak — jadwalnya sendiri
+     sudah terbuka di Jadwal Bulanan dan Jadwal Saya. */
+  if(k==='minggu')     return divisiKuasa().length>0 || bisaLihatSemua();
   if(k==='rekap')      return bolehRekap();
   return true;
 }
@@ -1598,18 +1653,22 @@ function render(){
    arah yang memang sudah dipakai halaman ini. Itu ditukar dengan satu-satunya
    tampilan yang menjawab "malam Sabtu ini siapa saja yang masuk, di semua
    pos" tanpa membuka empat tab bergantian. */
-function segDivisi(aktif,onclick,dgnSemua){
+/* `daftar` (opsional) = kode divisi yang boleh muncul sebagai tab. Kosong
+   berarti keempatnya — itu Jadwal Bulanan, yang memang terbuka untuk seluruh
+   kru. Input Mingguan mengirimkan divisiLihat(), supaya head Kitchen tidak
+   melihat tab Bar yang menolak begitu ditekan. */
+function segDivisi(aktif,onclick,dgnSemua,daftar){
   /* Hanya keempat divisi shift. Tidak ada tab tambahan untuk sisanya:
      yang tidak dijadwalkan memang tidak punya lembar untuk dilihat. */
-  const semua=DIVISI.slice();
-  const kuasa=divisiKuasa();
+  const boleh=(daftar&&daftar.length)?daftar:DIVISI.map(d=>d.k);
+  const semua=DIVISI.filter(d=>boleh.indexOf(d.k)>-1);
   let h='<div class="seg">';
   if(dgnSemua){
-    /* Hitungannya HANYA divisi yang boleh disusun orang ini — sama dengan isi
-       lembarnya nanti. Menampilkan jumlah seluruh kru sementara yang tergambar
-       cuma satu divisi membuat angka di tab tidak pernah cocok dengan yang
-       terlihat di bawahnya. */
-    const n=kuasa.reduce((a,k)=>a+kruDivisi(k).length,0);
+    /* Hitungannya HANYA divisi yang tampil di tab — sama dengan isi lembarnya
+       nanti. Menampilkan jumlah seluruh kru sementara yang tergambar cuma satu
+       divisi membuat angka di tab tidak pernah cocok dengan yang terlihat di
+       bawahnya. */
+    const n=boleh.reduce((a,k)=>a+kruDivisi(k).length,0);
     h+='<button class="'+(aktif==='ALL'?'active':'')+'" onclick="'+onclick+'(\'ALL\')" '
       +'title="Susun seluruh divisi yang Anda pegang dalam satu layar">🗂️ Semua Divisi'
       +(n?' <span style="opacity:.6;font-weight:600">'+n+'</span>':'')+'</button>';
@@ -2147,6 +2206,11 @@ function viewBulanan(){
        galat, dan yang mengirimnya ke grup tidak akan tahu — jadi disembunyikan,
        bukan dibiarkan gagal diam-diam. Print tetap ada karena ia mencetak apa
        yang benar-benar tergambar di layar. */
+    /* Terapkan Template hanya di tab satu divisi, dan hanya untuk yang boleh
+       mengubah lembarnya. Di mode Semua ia harus memilih template divisi yang
+       mana — pertanyaan yang tidak punya jawaban benar, jadi tombolnya tidak
+       ditawarkan sama sekali. */
+    +((!modeAll && bisa)?'<button class="btn btn-ghost btn-sm" title="Isi sebulan penuh mengikuti template divisi ini" onclick="terapkanTemplate()">🗓️ Terapkan Template</button>':'')
     +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
     +(modeAll
       ? '<span class="mutedhint">PNG &amp; Teks WA tersedia per divisi — pilih divisinya di atas.</span>'
@@ -2177,6 +2241,69 @@ function viewBulanan(){
    Panel yang dulu memakainya di kaki Jadwal Bulanan sudah dihapus; angkanya
    sekarang dibaca PER ORANG di halaman Rekap Pegawai. Fungsinya tetap di sini
    karena Rekap memanggilnya. */
+/* Menempelkan template divisi yang sedang dibuka ke SELURUH bulan aktif.
+   Bentuk konfirmasinya sengaja disamakan dengan Salin Minggu Lalu: dua alat
+   ini melakukan hal yang sama besarnya (menulis ratusan sel sekaligus), dan
+   satu-satunya cara membuat peringatannya dibaca adalah membuatnya selalu
+   berbentuk sama — jumlahnya, daftar yang tertimpa, dan pilihan melewati
+   yang sudah terisi. */
+function terapkanTemplate(){
+  const div=divTunggal();
+  if(!bolehUbah(div)){ toast('Hanya head divisi '+namaDivisi(div)+' yang bisa mengisi lembar ini', true); return; }
+  const t=templateDiv(div);
+  if(!t.filter(Boolean).length){
+    toast('Template divisi '+namaDivisi(div)+' belum diatur — isi dulu di Pengaturan → Template Shift Bulanan', true);
+    return;
+  }
+  const emps=kruDivisi(div);
+  if(!emps.length){ toast('Belum ada kru di divisi ini'); return; }
+  const mk=BULAN_AKTIF||bulanDari(hariIni());
+  const rows=[];
+  emps.forEach(function(u){
+    hariSebulan(mk).forEach(function(d){
+      const k=t[idxHari(d)];
+      if(!k) return;                      // hari yang sengaja dikosongkan di template
+      const sd=shiftDef(k);
+      rows.push({u:u.id, d:d, t:k, m:sd.libur?'':(sd.m||''), s:sd.libur?'':(sd.s||''), n:''});
+    });
+  });
+  if(!rows.length){ toast('Template tidak menghasilkan satu sel pun'); return; }
+
+  const bentrok=daftarTimpa(rows);
+  const jalan=function(pakai){
+    return function(){
+      if(!pakai.length){ toast('Tidak ada sel yang perlu diisi'); return; }
+      tulisSel(pakai,[]);
+      toast(pakai.length+' sel diisi dari template '+namaDivisi(div));
+    };
+  };
+  if(!bentrok.length){
+    konfirmasi('Terapkan template '+namaDivisi(div)+'?',
+      '<b>'+rows.length+' sel</b> di '+esc(labelBulan(mk))+' akan diisi mengikuti template divisi ini.'
+      +'<br>Tidak ada sel terisi yang tertimpa.',
+      jalan(rows), {ya:'Ya, terapkan'});
+    return;
+  }
+  const bentrokKunci={};
+  bentrok.forEach(function(x){ bentrokKunci[kunci(x.baru.u,x.baru.d)]=1; });
+  const aman=rows.filter(function(r){ return !bentrokKunci[kunci(r.u,r.d)]; });
+
+  konfirmasi('Terapkan template — '+bentrok.length+' sel akan tertimpa',
+    '<b>'+rows.length+' sel</b> di '+esc(labelBulan(mk))+' akan diisi dari template '
+    +esc(namaDivisi(div))+'. <b style="color:var(--danger)">'+bentrok.length+' di antaranya sudah terisi</b> '
+    +'dan isinya akan diganti. Sisanya ('+aman.length+' sel) mengisi sel yang masih kosong.'
+    +(function(){
+        const aju=selDariPengajuan(bentrok.map(function(x){ return x.baru; }));
+        return aju.length
+          ? '<div class="note w" style="margin-top:8px"><b>'+aju.length+' di antaranya menimpa hasil '
+            +'pengajuan yang sudah disetujui.</b> Pakai “Lewati yang terisi” kalau tidak bermaksud membatalkannya.</div>'
+          : '';
+      })()
+    +htmlTimpa(bentrok),
+    jalan(rows),
+    { lebar:'580px', ya:'Ya, timpa '+bentrok.length+' sel',
+      alt: aman.length?{label:'Lewati yang terisi ('+aman.length+')', cb:jalan(aman)}:null });
+}
 function bebanKru(u,mk){
   const a=awalBulan(mk), z=akhirBulan(mk);
   let masuk=0, libur=0, kosong=0, jam=0, beruntun=0, maxBeruntun=0;
@@ -2243,9 +2370,16 @@ function rekapBulan(emps,mk){
 let REKAP_UID='';
 /* Semua kru yang memang dijadwalkan, diurut per divisi lalu nama — bentuk
    yang sama dengan cara orang menyebut mereka ("anak bar", "anak kitchen"). */
+/* Siapa saja yang bisa dipilih di Rekap Pegawai. DIBATASI ke divisi yang boleh
+   dilihat orang ini: head Bar membuka rekap kru Bar, bukan seisi perusahaan.
+   Office (admin, manajemen, staf kantor) tetap melihat semuanya — merekalah
+   yang memang membandingkan beban kerja antar divisi. */
 function rekapKandidat(){
-  const out=[];
-  DIVISI.forEach(function(d){ kruDivisi(d.k).forEach(function(u){ out.push({u:u, div:d.k}); }); });
+  const boleh=divisiLihat(), out=[];
+  DIVISI.forEach(function(d){
+    if(boleh.indexOf(d.k)<0) return;
+    kruDivisi(d.k).forEach(function(u){ out.push({u:u, div:d.k}); });
+  });
   return out;
 }
 /* Berapa kali tiap kode shift dipakai orang ini sebulan. Inilah yang
@@ -2275,8 +2409,8 @@ function rekapDetail(uid,mk){
 function viewRekap(){
   if(!bolehRekap()){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
-      +'Halaman ini untuk head divisi, manajemen, dan admin modul.'
-      +'<div class="mutedhint" style="margin-top:6px">Jadwal Anda sendiri ada di <b>Jadwal Saya</b>.</div></div></div>';
+      +'Halaman ini untuk head divisi, staf kantor, manajemen, dan admin modul.'
+      +'<div class="mutedhint" style="margin-top:6px">Head melihat rekap divisinya sendiri; yang bertim Office melihat seluruh divisi. Jadwal Anda sendiri ada di <b>Jadwal Saya</b>.</div></div></div>';
   }
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const kandidat=rekapKandidat();
@@ -2286,7 +2420,12 @@ function viewRekap(){
   }
   /* Kalau belum memilih siapa pun, jatuh ke orang pertama — halaman yang
      dibuka dengan seluruh angka kosong terbaca seperti rusak. */
-  if(!REKAP_UID || !kruById(REKAP_UID)) REKAP_UID=kandidat[0].u.id;
+  /* Pilihan yang tidak ada di daftar kandidat ikut ditarik kembali — bukan
+     cuma yang akunnya hilang. Sejak daftarnya dibatasi per divisi, REKAP_UID
+     bisa tertinggal menunjuk orang divisi lain (mis. sesudah admin membuka
+     rekap lalu berganti akun), dan halaman akan menampilkan angka seseorang
+     yang namanya tidak ada di kotak pilihan. */
+  if(!REKAP_UID || !kandidat.some(x=>x.u.id===REKAP_UID)) REKAP_UID=kandidat[0].u.id;
   const u=kruById(REKAP_UID);
   const div=divisiDari(u);
   const b=bebanKru(u,mk);
@@ -2413,13 +2552,18 @@ async function muatDanGambar(){ render(); await muatData(); render(); }
    Satuan kerja head: satu minggu Senin–Minggu, satu divisi.
    ===================================================================== */
 function viewMinggu(){
-  const kuasa=divisiKuasa();
+  /* Yang TAMPIL dibatasi divisiLihat(), yang BISA DIUBAH tetap bolehUbah()
+     per divisi. Keduanya sengaja dipisah sejak 18 Agustus 2026: head Kitchen
+     melihat lembar divisinya saja, Office melihat keempatnya — dan Office yang
+     bukan head tidak bisa menyunting satu sel pun, selnya digambar mati. */
+  const kuasa=divisiLihat();
   if(!kuasa.length){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
       +'Halaman ini untuk head divisi.<div class="mutedhint" style="margin-top:6px">'
       +'Kalau Anda memang head, minta admin menunjuk Anda di <b>Pengaturan → Head Divisi</b>.</div></div></div>';
   }
   if(DIV!=='ALL' && kuasa.indexOf(DIV)<0) DIV=kuasa[0];
+  const bisaUbahDiv=(DIV!=='ALL' && bolehUbah(DIV));
   const semuaDiv=(DIV==='ALL');
   const senin=MINGGU_AKTIF||seninDari(hariIni());
   const hari=tujuhHari(senin);
@@ -2443,14 +2587,22 @@ function viewMinggu(){
     if(!list.length){
       b+='<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted-2)">Belum ada kru di divisi ini</td></tr>';
     }
+    /* Sejak halaman ini juga dibuka Office (yang melihat, tidak menyusun),
+       hak ubah dihitung PER DIVISI di sini — bukan lagi dianggap selalu ada.
+       Sel yang bisa diklik tapi ditolak backend adalah janji palsu, dan
+       tombol "Input Mingguan" di barisnya lebih buruk lagi: ia membuka modal
+       tujuh hari yang seluruh isinya akan gagal saat Simpan. */
+    const bisaK=bolehUbah(k);
     list.forEach((u,ui)=>{
       b+='<tr><td class="no">'+(ui+1)+'</td>'
         +'<td class="nm"><b>'+esc(u.name)+'</b><i>'+esc(jabatanDari(u))+'</i></td>'
         /* Dulu tombol ini cuma bertulis "baris" dan tidak ada yang menebak
            gunanya. Namanya sekarang menyebut pekerjaannya: mengisi satu minggu
            penuh untuk orang itu, satu klik satu hari. */
-        +'<td class="jb"><button class="btn btn-ghost btn-sm" title="Isi seluruh minggu untuk kru ini — satu klik satu hari" onclick="isiBaris(\''+escJs(u.id)+'\')">Input Mingguan</button></td>'
-        +hari.map(d=>selHtml(sel(u.id,d),u.id,d,true)).join('')+'</tr>';
+        +'<td class="jb">'+(bisaK
+            ? '<button class="btn btn-ghost btn-sm" title="Isi seluruh minggu untuk kru ini — satu klik satu hari" onclick="isiBaris(\''+escJs(u.id)+'\')">Input Mingguan</button>'
+            : '<span class="mutedhint">lihat saja</span>')+'</td>'
+        +hari.map(d=>selHtml(sel(u.id,d),u.id,d,bisaK)).join('')+'</tr>';
     });
     /* Blok daily worker ikut tampil saat head menyusun minggu depan — justru di
        sinilah ia paling dibutuhkan: head perlu tahu sudah ada berapa DW hari
@@ -2477,7 +2629,7 @@ function viewMinggu(){
   },0);
   return '<div class="panel">'
     +kopCetakHTML('Jadwal Shift — '+(semuaDiv?'Semua Divisi':namaDivisi(DIV)), rentangMinggu(senin))
-    +'<div class="rowbar">'+segDivisi(DIV,'gantiDivMinggu',true)+'<div class="spacer"></div>'
+    +'<div class="rowbar">'+segDivisi(DIV,'gantiDivMinggu',true,kuasa)+'<div class="spacer"></div>'
     +'<div class="navdate"><button class="iconbtn" onclick="geserMinggu(-1)">‹</button>'
     +'<b>'+esc(rentangMinggu(senin))+'</b>'
     +'<button class="iconbtn" onclick="geserMinggu(1)">›</button>'
@@ -2497,9 +2649,13 @@ function viewMinggu(){
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div><div class="tools">'
     +(semuaDiv
       ? '<span class="mutedhint">Salin / isi massal &amp; ekspor bekerja per divisi — pilih tab divisinya.</span>'
-      : '<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
-        +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Sel Kosong</button>'
-        +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>')
+      : (bisaUbahDiv
+        ? '<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
+          +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Sel Kosong</button>'
+          +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>'
+        /* Office membuka halaman ini untuk MELIHAT. Alat massalnya tetap
+           disembunyikan, bukan dibiarkan menolak saat ditekan. */
+        : '<span class="mutedhint">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</span>'))
     +'</div></div>'
     /* Alat berbagi diletakkan juga di sini, bukan cuma di halaman bulanan:
        yang paling sering ditempel di papan dan dikirim ke grup justru jadwal
@@ -2528,7 +2684,7 @@ function viewMinggu(){
    menekan tab Semua dijawab "Anda bukan head divisi undefined" — namaDivisi()
    tidak mengenal 'ALL', dan tabnya jadi mati. */
 function gantiDivMinggu(k){
-  if(k!=='ALL' && divisiKuasa().indexOf(k)<0){ toast('Anda bukan head divisi '+namaDivisi(k)); return; }
+  if(k!=='ALL' && divisiLihat().indexOf(k)<0){ toast('Jadwal divisi '+namaDivisi(k)+' tidak dibuka untuk Anda di halaman ini'); return; }
   DIV=k; render();
 }
 function geserMinggu(n){ MINGGU_AKTIF=addD(MINGGU_AKTIF||seninDari(hariIni()), n*7); muatDanGambar(); }
@@ -3691,6 +3847,33 @@ function viewPengaturan(){
       +'<div style="margin-top:8px">'+(pil||'<span class="mutedhint">Belum ada kru di divisi ini.</span>')+'</div></div>';
   }).join('');
 
+  /* Satu baris per divisi, tujuh kotak pilih. Ditulis mendatar dan bukan
+     sebagai tabel supaya di layar HP ia melipat sendiri jadi beberapa baris —
+     panel ini dibuka admin sambil berdiri di outlet sama seringnya dengan di
+     depan komputer. */
+  const barisTemplate=DIVISI.map(function(d){
+    const t=templateDiv(d.k);
+    const isi=t.filter(Boolean).length;
+    return '<div class="row" style="flex-direction:column;align-items:stretch">'
+      +'<div style="display:flex;align-items:center;gap:8px"><b>'+d.ic+' '+esc(d.n)+'</b>'
+      +'<span style="font-size:11px;color:var(--muted-2)">'+kruDivisi(d.k).length+' kru</span>'
+      +'<div class="spacer"></div>'
+      +'<span class="stpill" style="background:'+(isi?'var(--ok-bg);color:var(--ok)':'var(--warn-bg);color:var(--warn)')+'">'
+      +(isi?isi+' dari 7 hari diatur':'belum diatur')+'</span></div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'
+      +HARI.map(function(h,i){
+          return '<label style="font-size:11px;color:var(--muted-2);display:flex;flex-direction:column;gap:4px">'
+            +esc(h.slice(0,3).toUpperCase())
+            +'<select class="inp" style="width:108px" onchange="ubahTemplate(\''+escJs(d.k)+'\','+i+',this.value)">'
+            +'<option value="">— kosong —</option>'
+            +shiftPilihan(t[i]).map(function(k){
+                return '<option value="'+esc(k)+'"'+(t[i]===k?' selected':'')+'>'+esc(shiftDef(k).n)+'</option>';
+              }).join('')
+            +'</select></label>';
+        }).join('')
+      +'</div></div>';
+  }).join('');
+
   /* Akses Rekap Pegawai dulu punya panel sendiri berisi deretan centang nama.
      Dipindah ke baris tiap pegawai di Penempatan Kru: di panel terpisah, satu
      orang muncul DUA KALI di halaman yang sama — sekali untuk divisinya,
@@ -3790,6 +3973,12 @@ function viewPengaturan(){
        sudah ada tombol "Coba lagi" di panelKosongRoster() yang muncul persis
        saat roster gagal diambil. ulangRoster() tetap ada karena panel itu
        memakainya. */
+    +'<div class="panel"><div class="rowbar"><h2>🗓️ Template Shift Bulanan</h2>'+tombolSimpanPanel('template')+'</div>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Pola satu minggu untuk tiap divisi. Setelah disimpan, head (atau admin) menekan <b>🗓️ Terapkan Template</b> di <b>Jadwal Bulanan</b> dan seluruh bulan yang sedang dibuka terisi mengikuti pola ini — Senin ikut kolom Senin, dan seterusnya.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">Hari yang dibiarkan <b>— kosong —</b> tidak ikut ditulis sama sekali; selnya tetap kosong dan bisa diisi sendiri. Sel yang sudah terisi <b>tidak langsung tertimpa</b>: jumlahnya disebut lebih dulu, berikut pilihan melewati yang sudah ada.</p>'
+    +'<p class="mutedhint" style="margin-bottom:12px">IZIN dan CUTI sengaja tidak ada di pilihan — keduanya lahir dari pengajuan kru yang disetujui, bukan dari pola bulanan.</p>'
+    +barisTemplate+'</div>'
+
     +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2>'+tombolSimpanPanel('kru')+'</div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Centang <b>📈 Rekap</b> untuk memberi orang itu akses ke halaman <b>Rekap Pegawai</b> (jam kerja, pola libur, dan peringatan beban kerja seluruh kru). <b>Head divisi dan admin modul otomatis berhak</b> — barisnya bertanda <i>otomatis</i> dan tidak perlu dicentang. Kru biasa sengaja tidak bisa membukanya: jadwalnya sendiri memang terbuka di Jadwal Bulanan, yang ditahan adalah rekap dan angkanya, karena itu bahan perbandingan antar kru yang ujungnya jadi keributan di grup.</p>'
@@ -3946,6 +4135,35 @@ function ubahDivisi(uid,k){
    `jedaMin` oleh peringatan beban kerja (kini memakai bawaan 6 hari & 10 jam
    kalau belum pernah diisi), dan `S.setting.jabatan` oleh jabatanDari() —
    jadi penyesuaian lama tidak hilang, cuma tidak bisa diubah dari sini lagi. */
+/* TEMPLATE SHIFT PER DIVISI (18 Agustus 2026, atas permintaan).
+   ---------------------------------------------------------------------
+   Satu pola Senin–Minggu per divisi, disetel admin sekali di Pengaturan,
+   lalu ditempelkan ke satu bulan penuh dengan satu tombol di Jadwal Bulanan.
+
+   Kenapa polanya MINGGUAN padahal namanya "template bulanan": bulan tidak
+   punya bentuk yang bisa diulang — Agustus 31 hari mulai Sabtu, September 30
+   hari mulai Selasa. Yang benar-benar berulang adalah minggunya, dan itulah
+   cara jadwal ini memang disusun di papan. Templatenya dipakai untuk SEBULAN;
+   yang disimpan tujuh kolom.
+
+   Kenapa satu pola untuk seluruh kru divisi, bukan per orang: yang per orang
+   sudah ada dan lebih tepat — "Isi Sel Kosong → Ikut minggu lalu" menyalin
+   pola tiap orang apa adanya. Template ini menjawab keadaan yang berbeda:
+   bulan baru yang belum punya riwayat sama sekali, atau divisi yang seluruh
+   krunya memang masuk di jam yang sama. */
+function templateDiv(k){
+  const t=(S&&S.setting.template&&S.setting.template[k])||[];
+  return Array.from({length:7},(_,i)=>{
+    const v=String(t[i]||'');
+    return (v && S.setting.shifts[v]) ? v : '';
+  });
+}
+function ubahTemplate(div,i,v){
+  const t=templateDiv(div);
+  t[i]=String(v||'');
+  S.setting.template[div]=t;
+  tandaiKotor('template'); render();
+}
 function ubahShiftKru(uid,k){
   if(k) S.setting.shiftKru[uid]=k; else delete S.setting.shiftKru[uid];
   tandaiKotor('kru'); render();
