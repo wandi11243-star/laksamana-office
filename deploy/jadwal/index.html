@@ -1170,13 +1170,57 @@ function bisaLihatSemua(){
    sendiri. */
 function divisiLihat(){
   if(bisaLihatSemua()) return DIVISI.map(d=>d.k);
+  /* Belum ada head sama sekali: semua divisi terbuka, karena semuanya memang
+     boleh disusun siapa saja (lihat bolehUbah). Membatasi yang TAMPIL
+     sementara yang BOLEH DIUBAH tidak dibatasi cuma menyembunyikan lembar
+     yang sebenarnya terbuka. */
+  if(!adaHead()) return DIVISI.map(d=>d.k);
   const k=divisiKuasa();
   if(k.length) return k;
   const d=divisiSaya();
   return DIVISI.some(x=>x.k===d) ? [d] : [];
 }
 function bolehRekap(){ return bisaLihatSemua() || divisiKuasa().length>0; }
-function bolehUbah(div){ return isAdmin() || (!!ME && isHeadUser(ME.id,div)); }
+/* BELUM ADA SATU PUN HEAD DITUNJUK DI SELURUH MODUL?
+   ---------------------------------------------------------------------
+   KEMBARAN jdw_ada_head() di jadwal-mysql/lib_jadwal_mysql.php, dan
+   kembarannya memang sudah ada di sana sejak awal — yang hilang justru
+   salinan di layar ini. Backend menulis:
+
+       if (!jdw_ada_head()) return;   // belum ada head ditunjuk — sama dengan layar
+
+   sementara bolehUbah() di sini tidak pernah punya cabang itu. Akibatnya
+   persis kebalikan dari yang biasa ditakutkan: LAYAR LEBIH KETAT DARIPADA
+   SERVER. Pada pemasangan yang daftar head-nya masih kosong — pemasangan
+   baru, atau daftar yang hilang karena tombol Simpan-nya sempat tidak bisa
+   ditekan (18 Agustus 2026) — server bersedia menerima tulisan siapa pun
+   yang punya akses modul, tapi selnya digambar mati dan menu Input Mingguan
+   tidak muncul sama sekali. Tidak ada satu pun pesan yang menyebut sebabnya;
+   yang terlihat cuma modul yang "rusak untuk head Kitchen".
+
+   Sengaja longgar, dan memang harus: yang menunjuk head adalah admin lewat
+   Pengaturan, dan penjaga yang mengunci semua orang sebelum head pertama
+   ditunjuk mengunci admin itu sendiri di luar. Begitu SATU head ditunjuk di
+   divisi mana pun, aturan normal berlaku lagi untuk SEMUA divisi. */
+function adaHead(){
+  const h=(S&&S.setting&&S.setting.heads)||{};
+  return DIVISI.some(d=>Array.isArray(h[d.k]) && h[d.k].length>0);
+}
+function bolehUbah(div){
+  if(isAdmin()) return true;
+  if(!adaHead()) return true;              // sepasang dengan jdw_boleh_divisi()
+  return !!ME && isHeadUser(ME.id,div);
+}
+/* Pita peringatan yang menyertai keadaan longgar di atas. Keadaan yang
+   melonggarkan hak akses tanpa mengatakan apa pun adalah keadaan yang
+   bertahan bertahun-tahun karena tidak ada yang tahu ia menyala. */
+function pitaBelumAdaHead(){
+  if(adaHead()) return '';
+  return '<div class="note w noprint"><b>Belum ada head divisi yang ditunjuk.</b> '
+    +'Selama daftarnya kosong, semua pemegang akses modul ini bisa menyusun jadwal divisi mana pun — '
+    +'sama seperti aturan di server. Tunjuk head-nya di <b>Pengaturan → Head Divisi</b>, '
+    +'lalu tekan <b>Simpan</b>; sesudah itu tiap divisi hanya bisa disusun head-nya sendiri.</div>';
+}
 /* Divisi mana saja yang boleh disunting orang ini — dipakai untuk memilih
    tab default dan untuk menyaring pengajuan yang bisa ia putuskan. */
 function divisiKuasa(){
@@ -1540,7 +1584,7 @@ function bolehBuka(k){
   /* Input Mingguan: head divisi (yang menyusunnya) dan Office (yang perlu
      melihat susunan seluruh divisi). Kru biasa tidak — jadwalnya sendiri
      sudah terbuka di Jadwal Bulanan dan Jadwal Saya. */
-  if(k==='minggu')     return divisiKuasa().length>0 || bisaLihatSemua();
+  if(k==='minggu')     return divisiKuasa().length>0 || bisaLihatSemua() || !adaHead();
   if(k==='rekap')      return bolehRekap();
   return true;
 }
@@ -2192,6 +2236,7 @@ function viewBulanan(){
       ? '<div class="note w">Tidak ada kru '+esc(judulLembar)+' bernama "<b>'+esc(CARI_BULAN)+'</b>".'
         +(modeAll?'':' Mungkin ia ada di divisi lain — pilih <b>Semua</b> di atas.')+'</div>'
       : '')
+    +pitaBelumAdaHead()
     +'<div class="rowbar">'+legendaShift()+'<div class="spacer"></div>'
     +'<div class="tools noprint">'
     /* EXCEL IKUT DI MODE SEMUA sejak 18 Agustus 2026: bentuknya kini satu
@@ -2223,8 +2268,14 @@ function viewBulanan(){
     +tabel
     +(modeAll
       ? '<p class="mutedhint noprint" style="margin-top:10px">Semua divisi dalam satu lembar. Sel yang boleh Anda ubah tetap sel divisi Anda sendiri.</p>'
+      /* Yang tidak bisa mengubah diberi tahu APA yang kurang dan di mana
+         diperbaiki. "Mode lihat saja" sendirian tidak menjawab pertanyaan
+         yang sebenarnya dipunyai orangnya — ia merasa memang head divisi itu,
+         dan yang salah cuma daftar di Pengaturan yang belum dicentang atau
+         belum ditekan Simpan. */
       : (bisa?'<p class="mutedhint noprint" style="margin-top:10px">Klik sel mana pun untuk mengubahnya. Untuk mengisi satu minggu sekaligus, pakai <b>Input Mingguan</b>.</p>'
-            :'<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal divisi ini adalah head-nya.</p>'))
+            :'<p class="mutedhint noprint" style="margin-top:10px">Mode lihat saja — yang menyusun jadwal '+esc(namaDivisi(DIV))+' adalah head divisi itu. '
+              +'Kalau Anda memang head-nya, minta admin modul mencentang nama Anda di <b>Pengaturan → Head Divisi</b> lalu menekan <b>Simpan</b>.</p>'))
     /* Panel "Beban Kerja Bulan Ini" dihapus 5 Agustus 2026 atas permintaan.
        Angka yang sama kini dibaca per orang di halaman Rekap Pegawai, dan
        tabel sepanjang divisi di kaki lembar ini jarang dipakai sementara ia
@@ -2560,7 +2611,8 @@ function viewMinggu(){
   if(!kuasa.length){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
       +'Halaman ini untuk head divisi.<div class="mutedhint" style="margin-top:6px">'
-      +'Kalau Anda memang head, minta admin menunjuk Anda di <b>Pengaturan → Head Divisi</b>.</div></div></div>';
+      +'Kalau Anda memang head, minta admin modul mencentang nama Anda di <b>Pengaturan → Head Divisi</b> lalu menekan <b>Simpan</b> — '
+      +'centang yang belum disimpan tidak berlaku.</div></div></div>';
   }
   if(DIV!=='ALL' && kuasa.indexOf(DIV)<0) DIV=kuasa[0];
   const bisaUbahDiv=(DIV!=='ALL' && bolehUbah(DIV));
@@ -2634,7 +2686,7 @@ function viewMinggu(){
     +'<b>'+esc(rentangMinggu(senin))+'</b>'
     +'<button class="iconbtn" onclick="geserMinggu(1)">›</button>'
     +tombolKembali('mingguIni', senin===seninDari(hariIni()), 'Kembali ke minggu ini')+'</div></div>'
-    +panelKosongRoster()+panelGagalDW()
+    +panelKosongRoster()+panelGagalDW()+pitaBelumAdaHead()
     +(belum?'<div class="note w"><b>'+belum+' sel</b> masih kosong di minggu ini'+(semuaDiv?' (seluruh divisi Anda)':'')+'.</div>'
            :'<div class="note i">Minggu ini sudah terisi penuh.</div>')
     /* ALAT MASSAL DISEMBUNYIKAN DI MODE SEMUA, dan itu bukan kemalasan.
