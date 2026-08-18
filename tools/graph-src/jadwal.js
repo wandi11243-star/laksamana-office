@@ -2095,6 +2095,13 @@ function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUba
 
 
 
+
+
+
+
+
+
+
 function bebanKru() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); jamSel(); durasiJam(); }
 
 
@@ -2356,6 +2363,8 @@ function viewMinggu() { divisiKuasa(); seninDari(); hariIni(); tujuhHari(); kruD
 
 
 function tabelDiv() { kruDivisi(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
+
+
 
 
 
@@ -4197,16 +4206,6 @@ function kolHuruf() {  }
 
 
 
-
-function tulisanKontras() {  }
-
-
-
-
-function heks6() {  }
-
-
-
 function xlsxGaya() {  }
 
 
@@ -4264,11 +4263,11 @@ function xlsxGaya() {  }
 
 
 
-function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); pitaBulanAktif(); bulanDari(); hariIni(); xlsxGaya(); daftarShift(); heks6(); shiftDef(); tulisanKontras(); }
 
 
 
 
+function kruSemuaDivisi() { kruDivisi(); pitaBulan(); }
 
 
 
@@ -4277,6 +4276,7 @@ function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); 
 
 
 
+function hariSebulan() { akhirBulan(); awalBulan(); addD(); labelSel(); sel(); }
 
 
 
@@ -4298,8 +4298,6 @@ function exportExcel() { divTunggal(); kruDivisi(); toast(); pitaMingguAktif(); 
 
 
 
-function sel_() {  }
-function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); parseD(); jabatanDari(); sel(); shiftDef(); daftarShift(); xEsc(); }
 
 
 
@@ -4317,6 +4315,7 @@ function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); 
 
 
 
+function exportExcel() { kruSemuaDivisi(); kruDivisi(); divTunggal(); toast(); tujuhHari(); seninDari(); hariIni(); hariSebulan(); bulanDari(); namaDivisi(); xlsxGaya(); }
 
 
 
@@ -4333,6 +4332,7 @@ function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); 
 
 
 
+function sel_() { sel(); shiftDef(); kolHuruf(); xEsc(); }
 
 
 
@@ -4375,41 +4375,12 @@ function tambah() { sel_(); judulLembar(); kolHuruf(); tglPanjang(); hariIni(); 
 
 
 
+function B() { zipSimpan(); xEsc(); namaEkspor(); toast(); }
 
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function B() { zipSimpan(); xEsc(); namaDivisi(); namaEkspor(); toast(); }
 
 
 
