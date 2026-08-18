@@ -844,6 +844,38 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -1846,7 +1878,22 @@ function toggleAdminUser() { askConfirm(); adminCall(); notify(); loadAdminUsers
 
 
 
+
+
+
+
+
 function resetAdminForm() { renderTimGrid(); add(); renderPickGrid(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1899,6 +1946,12 @@ function fillAdminForm() { pisahKeterangan(); renderTimGrid(); renderPickGrid();
 
 
 
+
+
+
+
+
+
 function pesanAdminErr() {  }
 
 
@@ -1908,6 +1961,17 @@ function pesanAdminErr() {  }
 
 
 function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); resetAdminForm(); loadAdminUsers(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

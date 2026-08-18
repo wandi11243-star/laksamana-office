@@ -12,7 +12,9 @@
  *   {action:"changePin", name, newPin}           -> {ok}
  *   -- superadmin (wajib callerName + callerPin) --
  *   {action:"listUsers"}                         -> {ok,users:[{...,grants,denies}],modules:[...]}
- *   {action:"saveUser", id?,name,pin,active,keterangan}
+ *   {action:"saveUser", id?,name,pin,active,keterangan,noHp?,talentaId?,username?,
+ *                       branch?,organization?,jobPosition?,jobLevel?,employmentStatus?,joinDate?}
+ *        -- username & keenam kolom kepegawaian hanya DITULIS kalau field-nya dikirim
  *   {action:"deleteUser", id}
  *   {action:"listModules", all?}                 -> {ok,modules:[{key,label,active}]}
  *   {action:"syncModules", modules:[{key,label}]}-> {ok,added:[...]}
@@ -25,7 +27,8 @@
  *   {action:"listModuleMembers", module}         -> {ok,members:[...]}
  *   -- tanpa gerbang, dipanggil modul saat boot --
  *   {action:"listModuleRoster", module}          -> {ok,members:[...]}
- *   {action:"listDivisiRoster"}                  -> {ok,members:[{id,name,keterangan,noHp,talentaId,active}]}  (tanpa PIN)
+ *   {action:"listDivisiRoster"}                  -> {ok,members:[{id,name,keterangan,noHp,talentaId,active,
+ *                                                    branch,organization,jobPosition,jobLevel,employmentStatus,joinDate}]}  (tanpa PIN)
  *
  * Diagnostik (GET):  ?action=ping   ?action=stats
  ************************************************************************/
