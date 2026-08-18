@@ -173,10 +173,18 @@ function pastikan_tabel($pdo) {
 $GLOBALS['JDW_DIV_SINONIM'] = array(
   'bar'     => array('bar', 'bartender'),
   'kitchen' => array('kitchen', 'dapur'),
-  'floor'   => array('floor', 'service', 'waiter', 'waitress'),
+  'floor'   => array('floor', 'service', 'waiter', 'waitress', 'host', 'hostess'),
   'cashier' => array('cashier', 'kasir'),
 );
 define('JDW_DIV_NONSHIFT', 'nonshift');
+
+/* KEMBARAN `KANTOR_KATA` di deploy/jadwal/index.html, dan sama wajibnya
+   diubah berpasangan. Keterangan yang menyebut Office/Kantor dianggap staf
+   kantor MESKIPUN ia juga menyebut kata divisi: "Kasir Office" itu kasir
+   kantor, bukan kru shift Cashier. Kalau salinan ini tertinggal, backend
+   masih mengira orangnya kru Cashier, sehingga head Cashier tetap boleh
+   menulis sel milik orang yang di layar sudah tidak ada di divisinya. */
+$GLOBALS['JDW_KANTOR_KATA'] = array('office', 'kantor');
 
 /* Divisi seorang kru. Urutannya SAMA dengan divisiDari() di frontend:
    penempatan manual menang atas apa pun, baru kata pada keterangan Office. */
@@ -191,6 +199,11 @@ function jdw_divisi_user($uid) {
   $ket = strtolower((string)(isset($roster[$uid]['keterangan']) ? $roster[$uid]['keterangan'] : ''));
   $kata = preg_split('/[^a-z]+/', $ket, -1, PREG_SPLIT_NO_EMPTY);
   if (!is_array($kata)) $kata = array();
+  /* Diperiksa SEBELUM daftar sinonim, urutan yang sama dengan
+     divisiDariMurni() di layar: Office menang atas kata divisi mana pun. */
+  foreach ($GLOBALS['JDW_KANTOR_KATA'] as $x) {
+    if (in_array($x, $kata, true)) return JDW_DIV_NONSHIFT;
+  }
   foreach ($GLOBALS['JDW_DIV_SINONIM'] as $kode => $sin) {
     foreach ($sin as $x) { if (in_array($x, $kata, true)) return $kode; }
   }

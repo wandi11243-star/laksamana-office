@@ -689,10 +689,23 @@ const DIVISI = [
    tempat orangnya memang perlu dicari. */
 const DIV_NONSHIFT = 'nonshift';
 /* Sinonim yang benar-benar dipakai di Office. Dicocokkan sebagai KATA UTUH,
-   jadi "Barista" tidak ikut terbaca sebagai divisi "bar". */
+   jadi "Barista" tidak ikut terbaca sebagai divisi "bar".
+
+   `host`/`hostess` masuk Floor (18 Agustus 2026): yang menerima tamu di pintu
+   bekerja dalam shift yang sama dan diatur head yang sama dengan waiter, tapi
+   kolom Tim-nya tidak menyebut satu pun kata Floor -- jadi selama ini mereka
+   jatuh ke "Tidak dijadwalkan" dan lembar Floor tidak lengkap tanpa ada yang
+   menunjukkan siapa yang hilang.
+
+   DAFTAR INI PUNYA EMPAT SALINAN yang harus berubah bersama-sama:
+   jadwal-mysql/lib_jadwal_mysql.php (JDW_DIV_SINONIM, penjaga hak tulis),
+   account-mysql/lib_account_mysql.php (tim_bawaan_jadwal, pemberi kunci modul
+   otomatis), dan cadangan aturanBawaan() di deploy/index.html. Yang tertinggal
+   satu salinan menghasilkan orang yang tergambar di lembar tapi ditolak saat
+   head-nya menyimpan, atau tidak bisa membuka modulnya sama sekali. */
 const DIV_SINONIM = {
   bar:['bar','bartender'], kitchen:['kitchen','dapur'],
-  floor:['floor','service','waiter','waitress'],
+  floor:['floor','service','waiter','waitress','host','hostess'],
   cashier:['cashier','kasir']
 };
 
@@ -997,6 +1010,13 @@ function divisiDari(u){
    pada pilihan "Ikut Office" — supaya admin tahu apa yang terjadi kalau
    penempatan manualnya dilepas. */
 function divisiDariMurni(u){
+  /* Office/Kantor MENANG atas kata divisi mana pun, dan urutannya memang
+     harus begini. "Kasir Office" itu kasir kantor -- ia memegang uang, bukan
+     mesin kasir di outlet, dan tidak pernah masuk shift Cashier. Sebelumnya
+     kata "kasir" ketemu lebih dulu, jadi ia tergambar di lembar Cashier tiap
+     bulan dan head-nya harus mengingat sendiri untuk melewatinya. Yang benar
+     ikut dijadwalkan tetap bisa dipasang lewat penempatan manual. */
+  if(stafKantor(u)) return DIV_NONSHIFT;
   const kata=String(u&&u.keterangan||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);
   for(const d of DIVISI){
     const sin=DIV_SINONIM[d.k]||[d.k];
@@ -1012,14 +1032,16 @@ function divisiDariMurni(u){
    (kolom Tim-nya masih kosong) tenggelam di antaranya. Itu persis masalah
    yang dulu membuat tab "Belum Berdivisi" dihapus.
 
-   Yang disembunyikan hanya yang MURNI kantor. Begitu ia diberi penempatan
-   manual, barisnya muncul lagi -- kalau tidak, penempatan yang terlanjur
-   dipasang mustahil dilepas kembali. Untuk alasan yang sama panelnya tetap
-   punya tombol "Tampilkan". */
+   Begitu ia diberi penempatan manual, barisnya muncul lagi -- kalau tidak,
+   penempatan yang terlanjur dipasang mustahil dilepas kembali. Untuk alasan
+   yang sama panelnya tetap punya tombol "Tampilkan".
+
+   Sengaja TIDAK memanggil divisiDariMurni(): sejak 18 Agustus 2026 justru
+   kebalikannya yang berlaku -- divisiDariMurni() yang bertanya ke sini lebih
+   dulu, supaya "Kasir Office" terbaca kantor, bukan Cashier. Menambahkan
+   panggilan balik ke sini membuat keduanya saling memanggil tanpa ujung. */
 const KANTOR_KATA = ['office','kantor'];
 function stafKantor(u){
-  /* Keterangan yang menyebut divisi shift menang: "Bar / Office" tetap kru Bar. */
-  if(divisiDariMurni(u)!==DIV_NONSHIFT) return false;
   const kata=String(u&&u.keterangan||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);
   return KANTOR_KATA.some(x=>kata.indexOf(x)>-1);
 }

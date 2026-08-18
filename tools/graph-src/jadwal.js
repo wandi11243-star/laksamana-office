@@ -746,6 +746,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() { stafKantor(); }
 
 
@@ -996,7 +1009,7 @@ function divisiDari() { divisiDariMurni(); }
 
 
 
-function divisiDariMurni() {  }
+function divisiDariMurni() { stafKantor(); }
 
 
 
@@ -1017,9 +1030,18 @@ function divisiDariMurni() {  }
 
 
 
-function stafKantor() { divisiDariMurni(); }
 
 
+
+
+
+
+
+
+
+
+
+function stafKantor() {  }
 
 
 
