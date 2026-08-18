@@ -810,6 +810,25 @@ let DW_ERR  = '';
    orang tertentu, dan menyimpannya berarti daftar itu diam-diam kembali
    panjang berbulan-bulan kemudian tanpa ada yang ingat kenapa. */
 let TAMPIL_KANTOR = false;
+/* PANEL HEAD DIVISI & PENEMPATAN KRU TIDAK LAGI MENYIMPAN TIAP CENTANG
+   (18 Agustus 2026, atas permintaan). Menempatkan dua puluh kru berarti dua
+   puluh kiriman ke server, dan satu di antaranya yang gagal meninggalkan
+   layar yang sudah terlanjur berubah — orang membaca layarnya, bukan toast
+   merah yang sudah lewat. Sekarang perubahannya menumpuk di S dulu, lalu
+   dikirim sekali lewat tombol Simpan.
+
+   Dua akibatnya harus dijaga, dan keduanya sudah:
+     - muatData() tidak boleh menimpa S.setting selama masih ada yang belum
+       disimpan; tanpa itu, berpindah bulan lalu kembali menghapus pekerjaan
+       yang belum ditekan Simpan tanpa satu pun pesan;
+     - jendela yang ditutup dengan perubahan menggantung diperingatkan
+       (beforeunload di bawah boot).
+   Setting disimpan sebagai SATU blob, jadi menyimpan salah satu panel ikut
+   menyimpan yang lain — karena itu simpanSetting() yang berhasil membersihkan
+   kedua penanda sekaligus, bukan tombolnya masing-masing. */
+let SETTING_KOTOR = {head:false, kru:false};
+function settingKotor(){ return SETTING_KOTOR.head || SETTING_KOTOR.kru; }
+function tandaiKotor(bagian){ SETTING_KOTOR[bagian]=true; }
 
 /* =====================================================================
    BANTU: teks, tanggal
@@ -971,6 +990,28 @@ function shiftTersering(uid,senin){
   let top='', max=0;
   Object.keys(n).forEach(function(k){ if(n[k]>max){ max=n[k]; top=k; } });
   return top;
+}
+/* SHIFT YANG LAHIR DARI PENGAJUAN, bukan dari ketikan head: IZIN, CUTI, dan
+   LAIN. Ketiganya sengaja tidak lagi muncul sebagai tombol di layar input
+   (18 Agustus 2026, atas permintaan) — jalannya adalah kru mengajukan lalu
+   head menekan Setujui, dan sel jadwalnya berubah sendiri dari sana. Tombol
+   yang menuliskannya langsung membuat jalur kedua ke tujuan yang sama, dan
+   yang lewat jalur itu tidak meninggalkan alasan, tanggal pengajuan, maupun
+   siapa yang menyetujuinya.
+
+   OFF SENGAJA TETAP ADA. Ia bukan pengajuan melainkan bagian dari menyusun
+   rotasi: hari libur ditentukan head saat membagi minggu, dan ia juga yang
+   tercetak sebagai `dayoff` di berkas impor Talenta. Menghapusnya dari
+   layar input berarti hari libur cuma bisa dinyatakan dengan sel kosong —
+   dan sel kosong sudah punya arti sendiri, "belum diatur", yang dihitung
+   di panel Beban Kerja dan diperingatkan di Rekap Pegawai. */
+const SHIFT_AJU=['IZIN','CUTI','LAIN'];
+/* Yang SEDANG terpasang di sel tetap ikut ditampilkan, walau ia shift
+   pengajuan. Sel berisi CUTI hasil pengajuan yang sudah disetujui harus tetap
+   terlihat sebagai CUTI saat dibuka — kalau tidak, tombol yang menyala malah
+   shift lain, dan menekan Simpan diam-diam mengganti cuti orang jadi masuk. */
+function shiftPilihan(sekarang){
+  return daftarShift().filter(k=>SHIFT_AJU.indexOf(k)<0 || k===sekarang);
 }
 function daftarShift(){
   return Object.keys(S.setting.shifts).sort((a,b)=>(shiftDef(a).urut||99)-(shiftDef(b).urut||99));
@@ -1313,7 +1354,12 @@ async function muatData(paksa){
   try{
     const d=await apiGet(r.dari,r.sampai);
     const st=normalizeState({setting:d.setting, pengajuan:d.pengajuan});
-    S.setting=st.setting;
+    /* Setting yang sedang disunting di Pengaturan TIDAK ditimpa balasan
+       server. Head Divisi & Penempatan Kru sekarang menunggu tombol Simpan,
+       dan pemuatan ulang bisa datang kapan saja (pindah bulan, tab kembali
+       aktif) — menimpanya berarti pekerjaan yang belum sempat disimpan
+       lenyap di tengah pengetikan, tanpa satu pun pesan. */
+    if(!settingKotor()) S.setting=st.setting;
     S.pengajuan=st.pengajuan;
     /* Sel di dalam rentang yang baru diambil DIBUANG dulu, baru diisi ulang.
        Tanpa ini, sel yang dihapus orang lain tetap hidup di layar kita —
@@ -1359,8 +1405,37 @@ async function tulisSel(rows,hapus){
 }
 async function simpanSetting(){
   simpanCache();
-  try{ await apiPost({action:'simpanSetting', data:S.setting}); setSync(''); }
-  catch(e){ setSync('Pengaturan belum tersimpan', true); toast('Gagal menyimpan pengaturan: '+e.message, true); }
+  try{
+    await apiPost({action:'simpanSetting', data:S.setting});
+    setSync('');
+    /* Satu blob untuk seluruh pengaturan: yang terkirim barusan memuat juga
+       perubahan panel yang lain. Membersihkan keduanya di sini membuat
+       penanda "belum disimpan" tidak pernah berbohong — mis. saat yang
+       ditekan justru Tambah Shift, yang menyimpan sendiri. */
+    SETTING_KOTOR={head:false, kru:false};
+    return true;
+  }catch(e){
+    setSync('Pengaturan belum tersimpan', true);
+    toast('Gagal menyimpan pengaturan: '+e.message, true);
+    return false;
+  }
+}
+async function simpanPanelSetting(){
+  if(!settingKotor()){ toast('Tidak ada perubahan untuk disimpan'); return; }
+  const ok=await simpanSetting();
+  render();
+  if(ok) toast('Pengaturan disimpan');
+}
+/* Pita penanda + tombol, dipakai kedua panel. Tombolnya MATI saat belum ada
+   yang berubah: tombol Simpan yang selalu bisa ditekan tidak memberi tahu
+   apa-apa soal ada tidaknya perubahan, dan yang ragu akan menekannya berkali
+   -kali "untuk memastikan". */
+function tombolSimpanPanel(bagian){
+  const kotor=!!SETTING_KOTOR[bagian];
+  return '<div class="spacer"></div>'
+    +(kotor?'<span class="stpill" style="background:var(--warn-bg);color:var(--warn)">belum disimpan</span>':'')
+    +'<button class="btn '+(kotor?'btn-primary':'btn-ghost')+' btn-sm"'+(kotor?'':' disabled')
+    +' onclick="simpanPanelSetting()">💾 Simpan</button>';
 }
 function save(){ simpanSetting(); }   // nama yang sama dengan modul lain (dan di-stub smoke test)
 
@@ -2468,26 +2543,35 @@ function bukaEditor(uid,tgl){
   const div=divisiDari(u);
   if(!bolehUbah(div)){ toast('Hanya head divisi '+namaDivisi(div)+' yang bisa mengatur jadwal ini'); return; }
   const c=sel(uid,tgl);
-  /* Sel kosong dibuka dengan shift orang itu pada hari yang sama MINGGU LALU,
-     bukan selalu PAGI. Pola tiap orang berulang minggu demi minggu, jadi
-     tebakan yang benar menghemat satu klik di hampir setiap sel — dan sel yang
-     salah tebak tetap tinggal dipilih ulang seperti biasa. */
-  const bawaan=shiftKru(uid,tgl);
-  EDIT={uid, tgl, t:(c?c.t:bawaan), m:(c?c.m:''), s:(c?c.s:''), n:(c?c.n:''), ada:!!c};
+  /* SEL KOSONG DIBUKA TANPA SATU PUN SHIFT TERPILIH (18 Agustus 2026, atas
+     permintaan). Sebelumnya editor menebak dari hari yang sama minggu lalu,
+     dengan maksud menghemat satu klik. Yang terjadi di lapangan kebalikannya:
+     modalnya terbuka sudah "terisi", jadi menutupnya dengan Simpan tanpa
+     melihat pilihan shift tetap menuliskan sesuatu — dan tebakan yang salah
+     tersimpan sebagai jadwal sungguhan tanpa ada yang merasa memilihnya.
+
+     Sekarang Simpan mati sampai shift benar-benar dipilih. Tebakan minggu
+     lalu TIDAK hilang: ia tetap dipakai alat massal "Isi Sel Kosong ->
+     Ikut minggu lalu", tempat menebak memang yang diminta secara sadar. */
+  EDIT={uid, tgl, t:(c?c.t:''), m:(c?c.m:''), s:(c?c.s:''), n:(c?c.n:''), ada:!!c};
   gambarEditor();
 }
 function gambarEditor(){
   const e=EDIT; if(!e) return;
   const u=kruById(e.uid)||{name:'—'};
-  const d=shiftDef(e.t);
-  const pilih=daftarShift().map(k=>{
+  /* e.t boleh KOSONG — sel baru dibuka tanpa pilihan. shiftDef('') memulangkan
+     shift bayangan berlabel kosong, jadi semua yang membaca `d` di bawah harus
+     lewat penjaga `ada` ini, bukan mengandalkan nilainya. */
+  const ada=!!e.t;
+  const d=ada?shiftDef(e.t):{n:'',m:'',s:'',w:'#7A756B',libur:1};
+  const pilih=shiftPilihan(e.t).map(k=>{
     const sd=shiftDef(k), on=(e.t===k);
     const sub=sd.libur?'&nbsp;':(sd.m+'–'+sd.s);
     return '<button class="'+(on?'sel':'')+'" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'" onclick="pilihShift(\''+escJs(k)+'\')">'
       +esc(sd.n)+'<small>'+sub+'</small></button>';
   }).join('');
   const m=e.m||d.m, s=e.s||d.s;
-  const blokJam=d.libur?'':(
+  const blokJam=(!ada||d.libur)?'':(
     '<div class="timerow">'
     +'<div class="field"><label>Jam Masuk</label><input id="edM" type="time" value="'+esc(m)+'" oninput="EDIT.m=this.value"></div>'
     +'<div class="field"><label>Jam Pulang</label><input id="edS" type="time" value="'+esc(s)+'" oninput="EDIT.s=this.value"></div></div>'
@@ -2500,6 +2584,7 @@ function gambarEditor(){
     +'<div class="mb">'
     +'<label style="font-size:13px;font-weight:600;display:block;margin-bottom:8px">Shift / Status</label>'
     +'<div class="pick">'+pilih+'</div>'
+    +(ada?'':'<p class="mutedhint" style="margin:-4px 0 12px">Belum ada shift yang dipilih — tekan salah satu di atas dulu.</p>')
     +blokJam
     +'<div class="field"><label>Catatan di dalam sel <span style="font-weight:500;color:var(--muted-2)">(opsional)</span></label>'
     +'<input id="edN" value="'+esc(e.n)+'" maxlength="20" placeholder="mis. HARAU!!!, TRAINING" oninput="EDIT.n=this.value">'
@@ -2508,7 +2593,7 @@ function gambarEditor(){
     +'<div class="mf">'
     +(e.ada?'<button class="btn btn-ghost btn-sm" onclick="hapusSel()">Kosongkan</button>':'')
     +'<button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
-    +'<button class="btn btn-primary" onclick="simpanSel()">Simpan</button></div>'
+    +'<button class="btn btn-primary"'+(ada?'':' disabled')+' onclick="simpanSel()">Simpan</button></div>'
     +'</div></div>';
   document.getElementById('modalRoot').innerHTML=html;
 }
@@ -2520,6 +2605,11 @@ function pilihShift(k){
 }
 function simpanSel(){
   const e=EDIT; if(!e) return;
+  /* Tombolnya memang sudah mati saat kosong; ini penjaga keduanya, untuk
+     pemanggilan lewat papan ketik atau konsol. Sel bershift '' tersimpan
+     sebagai sel yang ADA tapi tak bernama — abu-abu polos di lembar, dan
+     tidak terhitung "belum diatur" di panel mana pun. */
+  if(!e.t){ toast('Pilih shift dulu', true); return; }
   const d=shiftDef(e.t);
   const row={u:e.uid, d:e.tgl, t:e.t, m:d.libur?'':(e.m||''), s:d.libur?'':(e.s||''), n:(e.n||'').trim()};
   tutupModal(); tulisSel([row],[]); toast('Jadwal disimpan');
@@ -2699,7 +2789,7 @@ function gambarIsiSisa(){
       +'<u>'+n+' sel</u></button>';
   }).join('');
 
-  const tombolShift=daftarShift().map(function(k){
+  const tombolShift=shiftPilihan().map(function(k){
     const sd=shiftDef(k);
     return '<button style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'" onclick="isiSisaPilih(&#39;'+escJs(k)+'&#39;)">'
       +esc(sd.n)+'<small>'+(sd.libur?'&nbsp;':(sd.m+'–'+sd.s))+'</small></button>';
@@ -2821,7 +2911,7 @@ function gambarIsiBaris(){
       +'<b>'+esc(tglPendek(tgl))+'</b>'+isiHtml+'</button>';
   }).join('');
 
-  const tombolShift=daftarShift().map(function(k){
+  const tombolShift=shiftPilihan().map(function(k){
     const sd=shiftDef(k);
     return '<button style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'" onclick="isiBarisPilih(&#39;'+escJs(k)+'&#39;)">'
       +esc(sd.n)+'<small>'+(sd.libur?'&nbsp;':(sd.m+'–'+sd.s))+'</small></button>';
@@ -3690,7 +3780,7 @@ function viewPengaturan(){
        jadi keduanya memakai angka bawaan: 6 hari beruntun, jeda 10 jam.
        Kalau suatu saat perlu disetel lagi, `S.setting.maksBeruntun` dan
        `S.setting.jedaMin` masih dibaca di semua tempat pemakainya. */
-    +'<div class="panel"><div class="rowbar"><h2>👑 Head Divisi</h2></div>'
+    +'<div class="panel"><div class="rowbar"><h2>👑 Head Divisi</h2>'+tombolSimpanPanel('head')+'</div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Head menyusun jadwal divisinya dan memutuskan pengajuan kru divisinya. Sengaja ditunjuk manual, bukan ditebak dari jabatan: salah tebak berarti tombol Setujui dipegang orang yang salah. Boleh lebih dari satu per divisi.</p>'
     +barisHead+'</div>'
 
@@ -3700,7 +3790,7 @@ function viewPengaturan(){
        sudah ada tombol "Coba lagi" di panelKosongRoster() yang muncul persis
        saat roster gagal diambil. ulangRoster() tetap ada karena panel itu
        memakainya. */
-    +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2></div>'
+    +'<div class="panel"><div class="rowbar"><h2>👥 Penempatan Kru</h2>'+tombolSimpanPanel('kru')+'</div>'
     +'<p class="mutedhint" style="margin-bottom:12px">Divisi diambil dari kolom <b>Tim</b> di Laksamana Office. Ubah di sini hanya kalau kru itu memang dijadwalkan di divisi lain — dan lebih baik perbaiki di Office supaya modul lain ikut benar. Jabatan yang tampil di lembar bulanan (mis. <i>S. BAR</i>, <i>BARISTA</i>) selalu mengikuti kolom keterangan di Office.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Centang <b>📈 Rekap</b> untuk memberi orang itu akses ke halaman <b>Rekap Pegawai</b> (jam kerja, pola libur, dan peringatan beban kerja seluruh kru). <b>Head divisi dan admin modul otomatis berhak</b> — barisnya bertanda <i>otomatis</i> dan tidak perlu dicentang. Kru biasa sengaja tidak bisa membukanya: jadwalnya sendiri memang terbuka di Jadwal Bulanan, yang ditahan adalah rekap dan angkanya, karena itu bahan perbandingan antar kru yang ujungnya jadi keributan di grup.</p>'
     +'<p class="mutedhint" style="margin-bottom:12px">Kolom <b>shift kebiasaan</b> tiap kru dipakai sebagai <b>cadangan saja</b>. Shift bawaan yang sesungguhnya diambil dari <b>hari yang sama minggu lalu</b>: sel kosong yang diklik terbuka di shift itu, dan tombol <b>Isi Sel Kosong &rarr; Ikut minggu lalu</b> menyalin pola satu minggu penuh berikut OFF-nya. Kolom di bawah baru dipakai untuk kru yang <b>belum punya riwayat</b> minggu lalu — mis. yang baru masuk.</p>'
@@ -3832,19 +3922,19 @@ function ubahHead(div,uid,on){
   const l=(S.setting.heads[div]||[]).filter(x=>x!==uid);
   if(on) l.push(uid);
   S.setting.heads[div]=l;
-  simpanSetting(); render();
-  toast(on?(namaKru(uid)+' jadi head '+namaDivisi(div)):(namaKru(uid)+' bukan head lagi'));
+  tandaiKotor('head'); render();
+  toast(on?(namaKru(uid)+' jadi head '+namaDivisi(div)+' — tekan Simpan'):(namaKru(uid)+' bukan head lagi — tekan Simpan'));
 }
 function ubahManajemen(uid,on){
   const l=(S.setting.manajemen||[]).filter(x=>x!==uid);
   if(on) l.push(uid);
   S.setting.manajemen=l;
-  simpanSetting(); render();
-  toast(on?(namaKru(uid)+' bisa membuka Rekap Pegawai'):(namaKru(uid)+' tidak lagi bisa membukanya'));
+  tandaiKotor('kru'); render();
+  toast((on?(namaKru(uid)+' bisa membuka Rekap Pegawai'):(namaKru(uid)+' tidak lagi bisa membukanya'))+' — tekan Simpan');
 }
 function ubahDivisi(uid,k){
   if(k) S.setting.divOverride[uid]=k; else delete S.setting.divOverride[uid];
-  simpanSetting(); render();
+  tandaiKotor('kru'); render();
 }
 /* ubahAmbang() dan ubahJabatan() dihapus 5 Agustus 2026 bersama dua panel
    Pengaturan yang memanggilnya (Batas Beban Kerja & kotak "Jabatan di
@@ -3858,7 +3948,7 @@ function ubahDivisi(uid,k){
    jadi penyesuaian lama tidak hilang, cuma tidak bisa diubah dari sini lagi. */
 function ubahShiftKru(uid,k){
   if(k) S.setting.shiftKru[uid]=k; else delete S.setting.shiftKru[uid];
-  simpanSetting(); render();
+  tandaiKotor('kru'); render();
 }
 
 /* =====================================================================
@@ -4557,6 +4647,14 @@ async function boot(){
    aktif, ambil ulang — head lain mungkin sudah mengubahnya. */
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible' && ME){ muatData(true).then(render); }
+});
+/* Head Divisi & Penempatan Kru menunggu tombol Simpan, jadi menutup tab
+   dengan perubahan menggantung berarti kehilangannya. Peramban hanya
+   memunculkan dialog bawaannya sendiri — teksnya tidak bisa diatur, dan
+   itu tidak apa-apa: yang dibutuhkan cuma jeda satu detik untuk ingat. */
+window.addEventListener('beforeunload',function(ev){
+  if(!settingKotor()) return;
+  ev.preventDefault(); ev.returnValue='';
 });
 
 boot();
