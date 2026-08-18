@@ -551,6 +551,11 @@ function modalResep() { cariResep(); qtySesuai(); per1(); infoPur(); }
 
 
 
+
+
+
+
+
 function modalMenu() { modalResep(); muat(); }
 
 
@@ -575,6 +580,142 @@ function chipCogs() {  }
 
 
 function dipakaiOleh() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function dipakaiSebagaiBahan() {  }
+
+
+
+
+function dipakaiSebagaiResep() {  }
+
+
+
+
+
+function sisiTersimpan() { tabrakan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sisiHarga() { sisiTersimpan(); hitungBaris(); uraiBahan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tabrakan() { dipakaiSebagaiBahan(); dipakaiSebagaiResep(); sisiTersimpan(); sisiHarga(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perUnitResep() { modalMenu(); }
 
 
 
@@ -1024,6 +1165,9 @@ function hitungBaris() { cariResep(); modalResep(); qtySesuai(); infoPur(); per1
 
 
 
+
+
+
 function tandaCampur() {  }
 
 
@@ -1137,7 +1281,72 @@ function viewFloor() { layarBahan(); }
 
 
 
-function layarBahan() { statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); hapusBahanKembar(); go(); thUrut(); lihatPakai(); daftarkanKePurchasing(); pagerBar(); }
+function layarBahan() { tabrakan(); statusPur(); vendorOf(); urutkanDaftar(); per1(); dipakaiOleh(); spanduSamakan(); spanduTarik(); spanduBelumTerdaftar(); cari(); render(); bukaBahan(); exportBahanXlsx(); exportBahanCsv(); pilihBerkasBahan(); bacaBerkasBahan(); hapusBahanKembar(); go(); thUrut(); vendorInfo(); infoPur(); perUnitResep(); lihatPakai(); tandaiSisi(); daftarkanKePurchasing(); pagerBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1361,7 +1570,35 @@ function segarSatuan() { opsiSatuanBahan(); ketSatuan(); }
 
 
 function gambarUlangBahan() { bukaBahan(); }
-function bukaBahan() { tutupModal(); segarSatuan(); segarPer1(); angkaKetik(); opsiSatuanBahan(); ketSatuan(); statusPur(); gambarUlangBahan(); hapusBahan(); simpanBahan(); }
+function bukaBahan() { tutupModal(); segarSatuan(); segarPer1(); angkaKetik(); opsiSatuanBahan(); ketSatuan(); statusPur(); vendorInfo(); gambarUlangBahan(); tabrakan(); sisiHarga(); perUnitResep(); per1(); hapusBahan(); simpanBahan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1464,7 +1701,7 @@ function simpanBahan() { kirim(); muatProduk(); pesan(); }
 
 
 
-function hapusBahanKembar() { konfirmasi(); setSync(); pesan(); muat(); }
+function hapusBahanKembar() { tabrakan(); konfirmasi(); setSync(); pesan(); muat(); }
 
 
 
@@ -1477,6 +1714,27 @@ function hapusBahanKembar() { konfirmasi(); setSync(); pesan(); muat(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tandaiSisi() { kirim(); konfirmasi(); }
 
 
 
@@ -1523,7 +1781,6 @@ function statusPur() {  }
 
 
 
-function vendorOf() { infoPur(); }
 
 
 
@@ -1531,6 +1788,40 @@ function vendorOf() { infoPur(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vendorInfo() { infoPur(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function vendorOf() { vendorInfo(); }
 
 
 
@@ -1693,6 +1984,414 @@ function lanjut() { muatProduk(); setSync(); pesan(); render(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatXlsx() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function galatXlsx() { pesan(); }
+
+
+
+
+
+
+
+
+
+
+function csvSel() {  }
+function csvBaris() {  }
+function unduhCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function uraiCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function petaKolom() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function angkaImpor() { tabrakan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bahanEkspor() { tabrakan(); }
+
+
+
+function barisEksporBahan() { bahanEkspor(); tabrakan(); perUnitResep(); per1(); vendorOf(); areaOf(); dipakaiOleh(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tglBerkas() {  }
+
+
+
+function ringkasEkspor() { bahanEkspor(); pesan(); }
+
+
+
+
+
+function exportBahanCsv() { barisEksporBahan(); unduhCsv(); tglBerkas(); csvBaris(); ringkasEkspor(); }
+
+
+
+
+
+
+
+
+function exportBahanXlsx() { muatXlsx(); galatXlsx(); barisEksporBahan(); tglBerkas(); ringkasEkspor(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pilihBerkasBahan() {  }
+
+
+
+
+
+
+
+function bacaBerkasBahan() { bacaBahanRows(); pesan(); siapkanImpor(); muatXlsx(); lanjut(); galatXlsx(); uraiCsv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bacaBahanRows() { petaKolom(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isi() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function siapkanImpor() { sisiHarga(); tabrakan(); pesan(); per1(); konfirmasi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jalankanImpor() { setSync(); pesan(); muat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kartu() {  }
 
 
@@ -1701,6 +2400,9 @@ function kartu() {  }
 
 
 function uraiBahan() { cariResep(); qtySesuai(); per1(); infoPur(); }
+
+
+
 
 
 
@@ -2033,6 +2735,11 @@ function segarKalk() { hitungBaris(); tandaCampur(); kartuKalk(); noteKalk(); }
 
 
 function viewAtur() { simpanAtur(); }
+
+
+
+
+
 
 
 
