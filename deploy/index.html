@@ -354,6 +354,12 @@
 
     .admin-list-head{font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted-2); margin:22px 0 10px}
     .admin-list{display:flex; flex-direction:column; gap:8px}
+    .admin-xls{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px}
+    .admin-xls .btn{font-size:12px; padding:7px 10px}
+    /* Ringkasan impor memuat beberapa baris (berapa dibuat, berapa diperbarui,
+       baris mana yang dilewati). Tanpa ini semuanya menyatu jadi satu paragraf
+       panjang yang justru tidak dibaca orang sebelum menekan Lanjut. */
+    #ask-desc{white-space:pre-line}
     .u-row{display:flex; align-items:center; gap:12px; border:1px solid var(--line); border-radius:12px; padding:11px 13px; background:var(--surface)}
     .u-row.inactive{opacity:.55}
     .u-av{width:36px; height:36px; flex:none; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:800; color:#fff; font-size:13px; background:linear-gradient(135deg,var(--gold-2),var(--gold-dim))}
@@ -770,6 +776,18 @@
                         <!-- Pencarian: daftar kru bisa puluhan orang, dan
                              mencarinya dengan mata satu per satu justru masalah
                              yang sama dengan menggulir. -->
+                        <!-- EKSPOR / IMPOR EXCEL.
+                             Mengetik 40 kru satu per satu lewat form di sebelah
+                             kiri adalah pekerjaan setengah hari yang harus
+                             diulang tiap kali ada perubahan massal (mis. seluruh
+                             kolom Job Position diisi belakangan). Berkasnya
+                             berbentuk sama dengan yang diekspor, jadi alurnya
+                             selalu: ekspor -> sunting di Excel -> impor. -->
+                        <div class="admin-xls">
+                            <button class="btn btn-ghost" type="button" id="usr-export">⬇️ Ekspor Excel</button>
+                            <button class="btn btn-ghost" type="button" id="usr-import">⬆️ Impor Excel</button>
+                            <input type="file" id="usr-file" accept=".xlsx" hidden>
+                        </div>
                         <input type="text" id="admin-search" class="admin-search" placeholder="Cari nama atau keterangan…" autocomplete="off">
                         <div id="admin-list" class="admin-list"></div>
                     </div>
@@ -1878,6 +1896,336 @@
         await loadAdminUsers();
     }
 
+    /* ===================== EXCEL: EKSPOR & IMPOR USER =====================
+       Satu bentuk berkas untuk dua arah. Judul kolomnya yang menentukan, bukan
+       urutannya: kolom boleh digeser, disembunyikan, atau dihapus di Excel dan
+       impornya tetap benar. Mengunci ke huruf kolom akan diam-diam salah baca
+       begitu seseorang menyisipkan satu kolom catatan di tengah.
+
+       KOLOM YANG TIDAK ADA DI BERKAS TIDAK DIKOSONGKAN. Ini penjaga yang
+       paling penting di sini: saveUser menulis ulang seluruh baris, jadi
+       mengunggah berkas berisi dua kolom saja akan menghapus No HP, Talenta
+       ID, dan seluruh data kepegawaian setiap orang tanpa satu pun galat.
+       Yang hilang dari berkas diisi kembali dari data user yang sudah ada di
+       layar sebelum dikirim. */
+    const USR_KOLOM = [
+      { judul:'ID',                 f:'id',               catatan:'jangan diubah — kosong berarti user baru' },
+      { judul:'Nama',               f:'name' },
+      { judul:'PIN',                f:'pin' },
+      { judul:'Tim / Keterangan',   f:'keterangan' },
+      { judul:'No HP',              f:'noHp' },
+      { judul:'Talenta ID',         f:'talentaId' },
+      { judul:'Nama Panggilan',     f:'username' },
+      { judul:'Aktif',              f:'active', bool:true },
+      { judul:'Branch',             f:'branch' },
+      { judul:'Organization',       f:'organization' },
+      { judul:'Job Position',       f:'jobPosition' },
+      { judul:'Job Level',          f:'jobLevel' },
+      { judul:'Employment Status',  f:'employmentStatus' },
+      { judul:'Join Date',          f:'joinDate' },
+      /* Akses modul SENGAJA hanya dibawa keluar, tidak pernah dibaca masuk.
+         Aturannya bertingkat ('*' yang diperluas, deny yang menimpanya, modul
+         bawaan yang terkunci), dan satu kolom teks tidak bisa membedakan
+         "tidak dicentang" dari "dicabut khusus". Impor yang menebaknya akan
+         mencabut akses orang tanpa ada yang memintanya. */
+      { judul:'Modul (info saja, tidak diimpor)', f:'_modul', keluarSaja:true }
+    ];
+
+    function usrNilai(u, k){
+      if(k.f === '_modul') return (u.modules||[]).join(', ');
+      if(k.bool) return u.active ? 'YA' : 'TIDAK';
+      return String(u[k.f] == null ? '' : u[k.f]);
+    }
+    function usrBool(v){
+      const t = String(v==null?'':v).trim().toUpperCase();
+      if(t === '') return true;                     // kolom kosong = biarkan aktif
+      return !(t==='TIDAK'||t==='FALSE'||t==='0'||t==='NO'||t==='NONAKTIF');
+    }
+
+    /* ---------- Penulis XLSX ----------
+       Ditulis sendiri sampai ke ZIP-nya karena portal ini tidak memuat satu
+       pun skrip dari luar. Metode SIMPAN (tanpa kompresi): berkasnya beberapa
+       puluh KB, dan menulis deflate sendiri berarti menambah ratusan baris
+       demi menghemat berkas yang toh langsung dibuka lalu ditutup. */
+    let USR_CRC = null;
+    function usrCrc32(u8){
+      if(!USR_CRC){
+        USR_CRC = new Uint32Array(256);
+        for(let i=0;i<256;i++){ let c=i; for(let j=0;j<8;j++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); USR_CRC[i]=c>>>0; }
+      }
+      let c = 0xFFFFFFFF;
+      for(let i=0;i<u8.length;i++) c = USR_CRC[(c^u8[i])&0xFF] ^ (c>>>8);
+      return (c^0xFFFFFFFF)>>>0;
+    }
+    function usrZip(berkas){
+      const enc = new TextEncoder(), isi = [], pusat = []; let ofs = 0;
+      const n = new Date();
+      const jam = ((n.getHours()<<11)|(n.getMinutes()<<5)|((n.getSeconds()/2)|0)) & 0xFFFF;
+      const tgl = (((n.getFullYear()-1980)<<9)|((n.getMonth()+1)<<5)|n.getDate()) & 0xFFFF;
+      berkas.forEach(function(x){
+        const nm = enc.encode(x.nama), c = usrCrc32(x.data);
+        const lok = new Uint8Array(30+nm.length), v = new DataView(lok.buffer);
+        v.setUint32(0,0x04034b50,true); v.setUint16(4,20,true); v.setUint16(6,0x0800,true);
+        v.setUint16(8,0,true); v.setUint16(10,jam,true); v.setUint16(12,tgl,true);
+        v.setUint32(14,c,true); v.setUint32(18,x.data.length,true); v.setUint32(22,x.data.length,true);
+        v.setUint16(26,nm.length,true); lok.set(nm,30);
+        isi.push(lok, x.data);
+        const cd = new Uint8Array(46+nm.length), w = new DataView(cd.buffer);
+        w.setUint32(0,0x02014b50,true); w.setUint16(4,20,true); w.setUint16(6,20,true);
+        w.setUint16(8,0x0800,true); w.setUint16(10,0,true);
+        w.setUint16(12,jam,true); w.setUint16(14,tgl,true);
+        w.setUint32(16,c,true); w.setUint32(20,x.data.length,true); w.setUint32(24,x.data.length,true);
+        w.setUint16(28,nm.length,true); w.setUint32(42,ofs,true); cd.set(nm,46);
+        pusat.push(cd);
+        ofs += lok.length + x.data.length;
+      });
+      const pjg = pusat.reduce((s,x)=>s+x.length,0);
+      const akhir = new Uint8Array(22), e = new DataView(akhir.buffer);
+      e.setUint32(0,0x06054b50,true);
+      e.setUint16(8,berkas.length,true); e.setUint16(10,berkas.length,true);
+      e.setUint32(12,pjg,true); e.setUint32(16,ofs,true);
+      const semua = isi.concat(pusat,[akhir]);
+      const out = new Uint8Array(semua.reduce((s,x)=>s+x.length,0));
+      let p = 0; semua.forEach(function(x){ out.set(x,p); p += x.length; });
+      return out;
+    }
+    const usrXesc = s => String(s==null?'':s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    function usrKolHuruf(n){ let s=''; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=((n-r)/26)|0; } return s; }
+    /* Nama berkas mengikuti pola ekspor Talenta yang sudah dipakai HR —
+       cap waktu, angka acak, lalu export_<isi>. Alasannya sama: berkas dari
+       sini dan dari Talenta mendarat di folder Unduhan yang sama. */
+    function usrNamaBerkas(){
+      const d = new Date(), p = n => String(n).padStart(2,'0');
+      return String(d.getFullYear())+p(d.getMonth()+1)+p(d.getDate())
+            +p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())
+            +'-'+String(Math.floor(1000000+Math.random()*9000000))+'-export_users.xlsx';
+    }
+    function eksporUserExcel(){
+      const users = (document.getElementById('admin-list')._users || []);
+      if(!users.length){ notify('Belum ada user untuk diekspor.', 'err'); return; }
+      const baris = [];
+      baris.push(USR_KOLOM.map(k=>k.judul));
+      users.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)))
+           .forEach(u => baris.push(USR_KOLOM.map(k => usrNilai(u,k))));
+      const xmlBaris = baris.map(function(sel, i){
+        const cs = sel.map(function(v, j){
+          return '<c r="'+usrKolHuruf(j+1)+(i+1)+'" s="'+(i?0:1)+'" t="inlineStr">'
+               + '<is><t xml:space="preserve">'+usrXesc(v)+'</t></is></c>';
+        }).join('');
+        return '<row r="'+(i+1)+'">'+cs+'</row>';
+      }).join('');
+      const lebar = USR_KOLOM.map((k,j)=>'<col min="'+(j+1)+'" max="'+(j+1)+'" width="'
+                    +(k.f==='name'?26:(k.f==='keterangan'||k.f==='_modul'?30:18))+'" customWidth="1"/>').join('');
+      const sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        +'<sheetViews><sheetView workbookViewId="0">'
+        +'<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        +'<cols>'+lebar+'</cols><sheetData>'+xmlBaris+'</sheetData></worksheet>';
+      const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        +'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        +'<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+        +'<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+        +'<fills count="2"><fill><patternFill patternType="none"/></fill>'
+        +'<fill><patternFill patternType="gray125"/></fill></fills>'
+        +'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        +'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        +'<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+        +'<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+        +'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        +'</styleSheet>';
+      const P = 'http://schemas.openxmlformats.org/';
+      const enc = new TextEncoder();
+      const B = (nama,teks) => ({nama, data: enc.encode(teks)});
+      const zip = usrZip([
+        B('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          +'<Types xmlns="'+P+'package/2006/content-types">'
+          +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+          +'<Default Extension="xml" ContentType="application/xml"/>'
+          +'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+          +'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+          +'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+          +'</Types>'),
+        B('_rels/.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          +'<Relationships xmlns="'+P+'package/2006/relationships">'
+          +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+          +'</Relationships>'),
+        B('xl/workbook.xml','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          +'<workbook xmlns="'+P+'spreadsheetml/2006/main" xmlns:r="'+P+'officeDocument/2006/relationships">'
+          +'<sheets><sheet name="Users" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+        B('xl/_rels/workbook.xml.rels','<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+          +'<Relationships xmlns="'+P+'package/2006/relationships">'
+          +'<Relationship Id="rId1" Type="'+P+'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+          +'<Relationship Id="rId2" Type="'+P+'officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+          +'</Relationships>'),
+        B('xl/styles.xml', styles),
+        B('xl/worksheets/sheet1.xml', sheet)
+      ]);
+      const blob = new Blob([zip], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = usrNamaBerkas();
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      notify(users.length+' user diekspor ke Excel.', 'ok');
+    }
+
+    /* ---------- Pembaca XLSX ----------
+       Kembaran unzipEntries() di deploy/hr/index.html; disalin, bukan
+       di-import, karena portal ini sengaja satu berkas tanpa skrip luar.
+       Kalau salah satunya diperbaiki, yang lain layak ikut. */
+    async function usrUnzip(buf){
+      const dv = new DataView(buf), u8 = new Uint8Array(buf), out = {};
+      let eocd = -1;
+      for(let i=u8.length-22;i>=0 && i>u8.length-65558;i--){
+        if(dv.getUint32(i,true) === 0x06054b50){ eocd = i; break; }
+      }
+      if(eocd < 0) throw new Error('Berkas rusak atau bukan .xlsx (struktur ZIP tidak ditemukan).');
+      let n = dv.getUint16(eocd+10,true), p = dv.getUint32(eocd+16,true);
+      const dec = new TextDecoder();
+      for(let i=0;i<n;i++){
+        if(dv.getUint32(p,true) !== 0x02014b50) break;
+        const metode = dv.getUint16(p+10,true);
+        const ukuran = dv.getUint32(p+20,true);
+        const nLen = dv.getUint16(p+28,true), eLen = dv.getUint16(p+30,true), kLen = dv.getUint16(p+32,true);
+        const nama = dec.decode(u8.subarray(p+46, p+46+nLen));
+        const lho = dv.getUint32(p+42,true);
+        p += 46 + nLen + eLen + kLen;
+        // Panjang field di header LOKAL tidak selalu sama dengan yang di
+        // central directory; memakai yang salah menggeser awal data.
+        const lnLen = dv.getUint16(lho+26,true), leLen = dv.getUint16(lho+28,true);
+        const mulai = lho + 30 + lnLen + leLen;
+        const data = u8.subarray(mulai, mulai + ukuran);
+        if(!/\.xml$/.test(nama)) continue;
+        if(metode === 0){ out[nama] = dec.decode(data); continue; }
+        if(metode !== 8) continue;
+        if(typeof DecompressionStream === 'undefined'){
+          throw new Error('Peramban ini belum bisa membuka .xlsx terkompresi. Pakai Chrome/Edge versi baru.');
+        }
+        const ds = new DecompressionStream('deflate-raw');
+        const buf2 = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+        out[nama] = dec.decode(buf2);
+      }
+      return out;
+    }
+    const usrXmlTeks = s => String(s).replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');
+    function usrKolIndex(ref){
+      let n = 0;
+      for(const ch of ref.replace(/\d+/g,'')) n = n*26 + (ch.charCodeAt(0)-64);
+      return n;
+    }
+    async function usrBacaXlsx(file){
+      const zip = await usrUnzip(await file.arrayBuffer());
+      const sheet = zip['xl/worksheets/sheet1.xml'];
+      if(!sheet) throw new Error('Bukan berkas XLSX yang dikenali: sheet1.xml tidak ada.');
+      let shared = [];
+      if(zip['xl/sharedStrings.xml']){
+        shared = (zip['xl/sharedStrings.xml'].match(/<si>[\s\S]*?<\/si>/g)||[]).map(si=>
+          (si.match(/<t[^>]*>([\s\S]*?)<\/t>/g)||[]).map(t=>usrXmlTeks(t.replace(/<[^>]+>/g,''))).join(''));
+      }
+      const isiSel = c => {
+        const inline = /<is>[\s\S]*?<\/is>/.exec(c);
+        if(inline) return usrXmlTeks(inline[0].replace(/<[^>]+>/g,''));
+        const v = /<v>([\s\S]*?)<\/v>/.exec(c);
+        if(!v) return '';
+        if(/\bt="s"/.test(c)) return shared[+v[1]] != null ? shared[+v[1]] : '';
+        return usrXmlTeks(v[1]);
+      };
+      const rows = sheet.match(/<row[\s\S]*?<\/row>/g) || [];
+      if(rows.length < 2) throw new Error('Berkas tidak berisi satu baris data pun.');
+      const peta = {};                       // indeks kolom -> field
+      const adaKolom = {};                   // field -> ada di berkas?
+      (rows[0].match(/<c [\s\S]*?(?:\/>|<\/c>)/g)||[]).forEach(function(c){
+        const ref = /r="([A-Z]+)\d+"/.exec(c);
+        if(!ref) return;
+        const judul = isiSel(c).trim().toLowerCase();
+        const k = USR_KOLOM.find(x => x.judul.toLowerCase() === judul);
+        if(k && !k.keluarSaja){ peta[usrKolIndex(ref[1])] = k.f; adaKolom[k.f] = true; }
+      });
+      if(!adaKolom.name) throw new Error('Kolom "Nama" tidak ada di berkas. Ekspor dulu, sunting berkas itu, lalu unggah kembali.');
+      const out = [];
+      for(let i=1;i<rows.length;i++){
+        const rec = {};
+        (rows[i].match(/<c [\s\S]*?(?:\/>|<\/c>)/g)||[]).forEach(function(c){
+          const ref = /r="([A-Z]+)\d+"/.exec(c);
+          if(!ref) return;
+          const f = peta[usrKolIndex(ref[1])];
+          if(f) rec[f] = isiSel(c).trim();
+        });
+        rec._baris = i+1;                    // nomor baris seperti terlihat di Excel
+        if(!String(rec.name||'').trim()) continue;   // baris kosong di ekor berkas
+        out.push(rec);
+      }
+      return { rows: out, adaKolom };
+    }
+
+    async function imporUserExcel(file){
+      let hasil;
+      try{ hasil = await usrBacaXlsx(file); }
+      catch(e){ notify(e.message || 'Berkas tidak bisa dibaca.', 'err'); return; }
+
+      const lama = (document.getElementById('admin-list')._users || []);
+      const petaLama = {};
+      lama.forEach(u => petaLama[String(u.id)] = u);
+
+      let baru = 0, ubah = 0; const asing = [];
+      const kirim = hasil.rows.map(function(r){
+        const id = String(r.id||'').trim();
+        const u = id ? petaLama[id] : null;
+        if(id && !u) asing.push(r._baris);
+        if(u) ubah++; else baru++;
+        /* Yang tidak ada kolomnya di berkas diisi dari data yang sekarang —
+           BUKAN dikosongkan. saveUser menulis ulang seluruh baris, jadi
+           berkas berisi dua kolom akan menghapus sisanya tanpa satu pun
+           galat. Untuk user baru, yang kosong memang kosong. */
+        const p = { _baris: r._baris, id: id };
+        USR_KOLOM.forEach(function(k){
+          if(k.keluarSaja || k.f==='id') return;
+          let v;
+          if(hasil.adaKolom[k.f]) v = r[k.f];
+          else if(u) v = k.bool ? (u.active?'YA':'TIDAK') : u[k.f];
+          else v = '';
+          p[k.f] = k.bool ? usrBool(v) : String(v==null?'':v);
+        });
+        return p;
+      });
+
+      const rincian = [
+        kirim.length + ' baris terbaca dari berkas.',
+        '• ' + ubah + ' user diperbarui',
+        '• ' + baru + ' user baru dibuat',
+        asing.length ? '• ' + asing.length + ' baris ber-ID yang tidak dikenal akan dibuat sebagai user BARU (baris ' + asing.slice(0,6).join(', ') + (asing.length>6?', …':'') + ')' : '',
+        '',
+        'Kolom yang tidak ada di berkas tidak diubah. Akses modul tidak ikut diimpor.'
+      ].filter(Boolean).join('\n');
+
+      const ya = await askConfirm('Impor ' + kirim.length + ' user dari Excel?', rincian, 'Ya, impor');
+      if(!ya) return;
+
+      let data;
+      try{ data = await adminCall('saveUsers', { users: kirim }); }
+      catch(e){ notify('Gagal terhubung. Cek koneksi.', 'err'); return; }
+      if(!data.ok){ notify(ADMIN_ERR[data.error] || ('Impor gagal: ' + data.error), 'err'); return; }
+
+      await loadAdminUsers();
+      if(data.gagal){
+        /* Yang gagal disebut satu per satu berikut nomor barisnya. "3 baris
+           gagal" tanpa nomor berarti membuka berkas 40 baris dan mencocokkan
+           sendiri — dan yang paling sering terjadi sesudahnya: seluruh impor
+           diulang, termasuk baris yang sudah benar. */
+        const pesan = (data.baris||[]).slice(0,8).map(function(b){
+          const sebab = ADMIN_ERR[b.error] || b.error;
+          return 'Baris ' + b.baris + ' (' + (b.nama||'—') + '): ' + sebab
+               + (b.takenBy ? ' — dipakai ' + b.takenBy : '');
+        }).join('\n');
+        await askConfirm(data.sukses + ' user tersimpan, ' + data.gagal + ' gagal',
+          pesan + ((data.baris||[]).length>8 ? '\n… dan ' + ((data.baris||[]).length-8) + ' lagi.' : ''),
+          'Mengerti');
+      }else{
+        notify(data.sukses + ' user tersimpan dari Excel.', 'ok');
+      }
+    }
+
     /* Badan hukum yang tertulis di berkas Talenta. Satu untuk semua pegawai,
        jadi diisikan di depan pada form user baru. Kalau suatu saat ada badan
        hukum kedua, kotaknya tetap bisa diketik bebas — dan nilai ini cukup
@@ -2588,6 +2936,17 @@
         // ----- Panel Kelola User -----
         document.getElementById('admin-btn').addEventListener('click', openAdminPanel);
         document.getElementById('admin-close').addEventListener('click', closeAdminPanel);
+        document.getElementById('usr-export').addEventListener('click', eksporUserExcel);
+        document.getElementById('usr-import').addEventListener('click', () => document.getElementById('usr-file').click());
+        document.getElementById('usr-file').addEventListener('change', function(e){
+          const f = e.target.files && e.target.files[0];
+          /* Nilainya dikosongkan SEBELUM diproses: tanpa itu, mengunggah
+             berkas dengan nama yang sama dua kali berturut-turut tidak
+             memicu 'change' sama sekali, dan yang terlihat cuma tombol yang
+             berhenti bekerja setelah satu kali pakai. */
+          e.target.value = '';
+          if(f) imporUserExcel(f);
+        });
         /* Penutup lewat klik latar DIHAPUS: ini halaman penuh sekarang, bukan
            modal. Kalau dipertahankan, mengklik ruang kosong di mana pun akan
            menutup halaman dan membuang isian yang sedang diketik. Keluar hanya

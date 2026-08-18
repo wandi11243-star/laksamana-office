@@ -863,6 +863,56 @@ function aksi_simpan_user($body) {
   return array('ok' => true, 'id' => $id);
 }
 
+/* IMPOR EXCEL — banyak user sekali kirim.
+   ---------------------------------------------------------------------
+   Bukan endpoint baru yang menulis sendiri ke tabel: tiap baris tetap lewat
+   aksi_simpan_user(), fungsi yang sama persis dengan yang dipakai form satu
+   orang. Itu yang membuat impor tidak bisa menyelinapkan data yang tidak akan
+   pernah diterima form — nama kembar, Talenta ID kembar, username tidak sah.
+   Endpoint yang menulis sendiri "supaya cepat" adalah cara paling umum
+   membuat aturan yang sudah dipikirkan matang berlaku separuh.
+
+   SATU BARIS GAGAL TIDAK MENGGAGALKAN SISANYA, dan sebaliknya juga tidak
+   didiamkan: tiap baris memulangkan hasilnya sendiri berikut nomor barisnya
+   di berkas, supaya layar bisa mengatakan "baris 14: nama sudah dipakai
+   Andi" alih-alih "impor gagal". Tanpa nomor baris, memperbaiki satu sel di
+   berkas 40 baris berarti mencocokkan satu per satu.
+
+   Kredensial pemanggil disalin ke tiap baris karena aksi_simpan_user()
+   memeriksa superadmin sendiri — diperiksa 40 kali untuk 40 baris, dan itu
+   memang harga yang benar: yang menjaga bukan siapa yang membuka layarnya,
+   melainkan siapa yang mengirim tiap penulisan. */
+function aksi_simpan_user_banyak($body) {
+  $caller = butuh_superadmin($body);
+  if (!$caller) return array('ok' => false, 'error' => 'forbidden');
+  $rows = (isset($body['users']) && is_array($body['users'])) ? $body['users'] : array();
+  if (!count($rows)) return array('ok' => false, 'error' => 'empty');
+  /* Batas atas yang longgar tapi ada. Berkas 5.000 baris hampir pasti berkas
+     yang salah (mis. ekspor absensi), dan menjalankannya sampai habis berarti
+     ribuan penulisan sebelum ada yang sempat menekan batal. */
+  if (count($rows) > 500) return array('ok' => false, 'error' => 'too_many');
+
+  $out = array(); $sukses = 0; $gagal = 0;
+  foreach ($rows as $r) {
+    $r = (array)$r;
+    $baris = isset($r['_baris']) ? (int)$r['_baris'] : 0;
+    unset($r['_baris']);
+    $r['callerName'] = isset($body['callerName']) ? $body['callerName'] : '';
+    $r['callerPin']  = isset($body['callerPin'])  ? $body['callerPin']  : '';
+    $r['action']     = 'saveUser';
+    $h = aksi_simpan_user($r);
+    if (!empty($h['ok'])) { $sukses++; }
+    else {
+      $gagal++;
+      $out[] = array('baris' => $baris,
+                     'nama'  => s(isset($r['name']) ? $r['name'] : ''),
+                     'error' => isset($h['error']) ? $h['error'] : 'gagal',
+                     'takenBy' => isset($h['takenBy']) ? $h['takenBy'] : '');
+    }
+  }
+  return array('ok' => true, 'sukses' => $sukses, 'gagal' => $gagal, 'baris' => $out);
+}
+
 function aksi_hapus_user($body) {
   $caller = butuh_superadmin($body);
   if (!$caller) return array('ok' => false, 'error' => 'forbidden');

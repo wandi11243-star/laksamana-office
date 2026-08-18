@@ -15,6 +15,8 @@
  *   {action:"saveUser", id?,name,pin,active,keterangan,noHp?,talentaId?,username?,
  *                       branch?,organization?,jobPosition?,jobLevel?,employmentStatus?,joinDate?}
  *        -- username & keenam kolom kepegawaian hanya DITULIS kalau field-nya dikirim
+ *   {action:"saveUsers", users:[{…seperti saveUser…, _baris:n}]}   <- impor Excel
+ *        -- tiap baris lewat saveUser yang sama; yang gagal dilaporkan per baris
  *   {action:"deleteUser", id}
  *   {action:"listModules", all?}                 -> {ok,modules:[{key,label,active}]}
  *   {action:"syncModules", modules:[{key,label}]}-> {ok,added:[...]}
@@ -79,6 +81,7 @@ try {
     case 'setUsername':       keluar(aksi_set_username($body));
     case 'listUsers':         keluar(aksi_list_users($body));
     case 'saveUser':          keluar(aksi_simpan_user($body));
+    case 'saveUsers':         keluar(aksi_simpan_user_banyak($body));
     case 'deleteUser':        keluar(aksi_hapus_user($body));
     case 'listModules':       keluar(aksi_list_modules($body));
     case 'syncModules':       keluar(aksi_sync_modules($body));
