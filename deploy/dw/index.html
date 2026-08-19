@@ -159,6 +159,13 @@ table.tbl-akses td.nama svg{vertical-align:-3px;margin-right:6px;color:var(--mut
    selnya sewarna harus dibaca satu per satu; yang berwarna bisa dipindai. */
 table.tbl-akses td.ya{color:var(--ok);font-weight:800}
 table.tbl-akses td.tidak{color:var(--muted-2);opacity:.5}
+/* Sel yang bisa dibalik. Dibuat setinggi barisnya supaya sasaran ketuknya
+   selebar selnya — matriks 4 kolom di layar HP punya sel selebar 60px, dan
+   tanda ✓ setinggi 12px adalah sasaran yang meleset terus. */
+table.tbl-akses button.sel-akses{display:block;width:100%;padding:8px 0;border:0;border-radius:8px;
+  background:transparent;color:inherit;font:inherit;font-weight:inherit;cursor:pointer;line-height:1}
+table.tbl-akses button.sel-akses:hover{background:var(--line)}
+.ubah-tanda{color:var(--gold-2);font-weight:800;margin-left:3px;font-size:15px;line-height:0}
 table.tbl-hrd{min-width:720px}
 table.tbl-hrd .ya{color:var(--ok)}
 table.tbl-hrd .tidak{color:var(--muted-2)}
@@ -1312,6 +1319,25 @@ function durasiJam(m,s){
   let a=t(m), b=t(s); if(b<=a) b+=1440;
   return Math.round((b-a)/6)/10;
 }
+/* Menit ditambahkan ke sebuah jam, DIBUNGKUS 24 jam. Hasilnya selalu
+   00:00–23:59 — backend memvalidasi jam dengan pola itu dan menolak '24:00'
+   sebagai jam kosong, sehingga ajuannya gagal tersimpan tanpa penjelasan
+   (lihat catatan `jam` di normalSetting). */
+function jamTambah(j,menit){
+  const p=String(j||'').split(':');
+  let t=((+p[0]||0)*60+(+p[1]||0)+(+menit||0))%1440;
+  if(t<0) t+=1440;
+  const h=Math.floor(t/60), m=t%60;
+  return (h<10?'0':'')+h+':'+(m<10?'0':'')+m;
+}
+/* Apakah pasangan jam ini persis salah satu shift siap pakai di Pengaturan.
+   Dipakai untuk memutuskan "ini di luar shift yang ditetapkan" — dan sengaja
+   pasangan UTUH, bukan cuma jam mulainya: shift Pagi yang mulainya sama tapi
+   pulangnya dipanjangkan bukan lagi shift Pagi, dan justru itulah yang perlu
+   dihitung berbeda. */
+function cocokJamSiap(m,s){
+  return (S&&S.setting&&S.setting.jam||[]).some(function(j){ return j.m===m && j.s===s; });
+}
 /* Seluruh tanggal satu bulan, PERSIS bulan itu — tidak ada hari sambungan dari
    bulan tetangga. Dipakai lembar bulanan memanjang, yang sudah tidak lagi
    dipotong per minggu Senin–Minggu sehingga tidak ada yang perlu digenapkan. */
@@ -1566,7 +1592,44 @@ function normalSetting(x){
        dan penandanya ikut terhapus DI SERVER. Yang paling mahal di halaman
        Pembayaran bukan lupa mentransfer, melainkan mentransfer dua kali.
        Bentuknya {'<senin>|<kunciTujuan>': {at,oleh}} — lihat bayarLunasPeta(). */
-    bayarLunas: (s.bayarLunas&&typeof s.bayarLunas==='object') ? s.bayarLunas : {}
+    bayarLunas: (s.bayarLunas&&typeof s.bayarLunas==='object') ? s.bayarLunas : {},
+    /* MATRIKS "SIAPA MELIHAT HALAMAN APA" — bisa disetel admin modul sejak
+       19 Agustus 2026. Sebelumnya tabelnya cuma penjelas; aturannya terkunci
+       di dalam kode, jadi satu-satunya cara memberi seorang staf akses ke
+       satu halaman adalah menjadikannya HRD — yang sekalian memberinya
+       seluruh kewenangan memutuskan.
+
+       Bentuknya {halaman:{peran:0|1}} dan HANYA memuat yang diubah. Disimpan
+       sebagai SELISIH, bukan salinan penuh: salinan penuh membekukan aturan
+       hari ini selamanya, sehingga halaman baru yang ditambahkan nanti tidak
+       pernah sampai ke pemasangan yang sudah jalan. Yang tidak disebut jatuh
+       ke bolehBukaBawaan().
+
+       Dijaga server juga (simpan_setting mempertahankan kunci ini kalau yang
+       menyimpan bukan admin modul) — persis seperti daftar `hr`, dan dengan
+       alasan yang sama: yang bisa menyunting matriks hak akses sendiri bukan
+       pembatasan apa pun. */
+    akses: (s.akses&&typeof s.akses==='object') ? s.akses : {},
+    /* SHIFT DASAR & TAMBAHAN SHIFT PANJANG (19 Agustus 2026).
+       ---------------------------------------------------------------------
+       `jamDasar` = panjang satu shift DW yang dianggap normal. Dua gunanya:
+       (1) permintaan yang jam mulainya di luar shift siap pakai langsung
+       diisikan jam selesainya sepanjang ini, supaya head tidak mengarang
+       sendiri jam yang lalu ditagih berbeda; (2) di atasnya, tarifnya naik.
+
+       `tambahanPanjang` = kenaikan sekali jalan untuk shift yang lebih
+       panjang dari `jamDasar`. Angkanya disetel, bukan ditanam: yang
+       menaikkannya HRD, dan angka yang ditanam di kode berarti tiap
+       penyesuaian harus lewat orang yang memegang repo ini.
+
+       `jamBatas` TIDAK mengubah harga — ia batas kewajaran yang memunculkan
+       peringatan "sebaiknya dipecah dua shift". Sengaja begitu: membuat
+       shift >= 12 jam kembali bertarif polos akan membuatnya LEBIH MURAH
+       daripada shift 7 jam, dan salah seperti itu muncul sebagai uang, bukan
+       sebagai galat. */
+    jamDasar: (+s.jamDasar>0) ? +s.jamDasar : 6,
+    jamBatas: (+s.jamBatas>0) ? +s.jamBatas : 12,
+    tambahanPanjang: (s.tambahanPanjang==null) ? 20000 : Math.max(0, +s.tambahanPanjang||0)
   };
 }
 
@@ -1624,7 +1687,29 @@ function labelDivPekerja(p,penuh){
   return ikonDivisi(d[0])+' '+namaDivisi(d[0])+' +'+(d.length-1);
 }
 function tarifPosisi(p){ const t=S.setting.tarif||{}; return +t[p]||0; }
-function biayaAjuan(a){ return tarifPosisi(a.posisi); }
+/* ================= SHIFT PANJANG =================
+   Tarif per posisi adalah harga SATU shift dasar (bawaan 6 jam). Yang lebih
+   panjang dari itu dapat tambahan sekali jalan — angkanya disetel HRD di
+   Pengaturan, tidak ditanam di kode.
+
+   Kenapa tambahannya berlaku untuk SELURUH yang di atas shift dasar, bukan
+   cuma sampai `jamBatas`: kalau di atas 12 jam tarifnya kembali polos, shift
+   13 jam menjadi LEBIH MURAH daripada shift 7 jam. Salah seperti itu tidak
+   pernah muncul sebagai galat — ia muncul sebagai uang, berminggu-minggu
+   kemudian, saat seseorang membandingkan dua baris di halaman Pembayaran.
+   `jamBatas` tetap dipakai, tapi untuk memunculkan PERINGATAN ("sebaiknya
+   dipecah dua shift"), bukan untuk mengubah harga. */
+function jamDasarDW(){ const n=+((S&&S.setting||{}).jamDasar); return n>0?n:6; }
+function jamBatasDW(){ const n=+((S&&S.setting||{}).jamBatas); return n>0?n:12; }
+function tambahanPanjangDW(){ const n=+((S&&S.setting||{}).tambahanPanjang); return n>=0?n:20000; }
+/* Tambahan untuk satu rentang jam. Dipisah dari biayaAjuan supaya form
+   Permintaan — yang belum punya baris ajuan sama sekali — memakai hitungan
+   yang sama persis, bukan salinannya. */
+function tambahanJam(m,s){
+  return (durasiJam(m,s) > jamDasarDW()) ? tambahanPanjangDW() : 0;
+}
+function shiftKepanjangan(m,s){ return durasiJam(m,s) >= jamBatasDW(); }
+function biayaAjuan(a){ return tarifPosisi(a.posisi) + tambahanJam(a.m, a.s); }
 /* ================= SIAPA BOLEH MELIHAT ANGKA UANG =================
    HRD saja (19 Agustus 2026, atas permintaan). Head divisi TIDAK — tidak di
    form permintaan, tidak di kalender, tidak di rekap, tidak di ekspor.
@@ -2076,23 +2161,40 @@ function bacaSesi(){
    akan ditransfer minggu itu; head tidak mengurus satu pun dari keduanya, dan
    "melihat semuanya" tidak pernah dimaksudkan sampai ke daftar transfer. */
 const HALAMAN_HR = ['pekerja','rekap'];
-function bolehBuka(k){
+/* Halaman yang TIDAK BISA dilonggarkan lewat matriks di halaman Hak Akses.
+   Cuma satu, dan alasannya melingkar: yang bisa membuka Hak Akses bisa
+   mengubah matriksnya sendiri, jadi membagikannya ke peran lain sama saja
+   dengan membagikan seluruh sisanya sekalian. */
+const HALAMAN_KUNCI = ['akses'];
+/* ATURAN BAWAAN, sebagai fungsi MURNI: halaman × peran → boleh dibuka.
+   Tidak membaca siapa yang sedang masuk sama sekali — itulah yang membuat
+   tabel di halaman Hak Akses memakai aturan yang sama persis dengan sidebar
+   tanpa perlu memalsukan S.peran sesaat seperti versi sebelumnya, dan yang
+   membuat "bawaan" bisa dibandingkan dengan "yang disetel". */
+function bolehBukaBawaan(k, peran){
+  /* Admin modul selalu terhitung HRD juga — server pun begitu (dw_hrd
+     memulangkan true untuk admin), dan tabel yang mengatakan sebaliknya akan
+     membuat orang mencari-cari kenapa layarnya tidak cocok. */
+  const admin = (peran==='admin');
+  const hrd   = (peran==='hrd' || peran==='admin');
+  const head  = (peran==='head');
+  const lihat = hrd || head;
   /* Hak Akses: admin modul saja. Isinya daftar siapa yang MENJADI HRD, dan
      yang menentukannya bukan orang yang berada di dalam daftar itu. Server
      sudah memegangnya (simpanSetting mempertahankan `hr` kalau penyimpannya
      bukan admin); ini membuat layarnya jujur soal itu. */
-  if(k==='akses') return isAdmin();
+  if(k==='akses') return admin;
   /* Pembayaran: HRD/admin saja — lihat HALAMAN_HR di atas. */
-  if(k==='bayar') return isHR();
+  if(k==='bayar') return hrd;
   /* Pengaturan: admin modul DAN HRD. Yang menyetel tarif, kuota, dan jam
      bawaan memang HRD — mengunci layar itu untuk admin saja berarti tiap
      perubahan tarif harus lewat orang yang tidak mengurus pembayarannya. */
-  if(k==='pengaturan') return isAdmin() || isHR();
+  if(k==='pengaturan') return admin || hrd;
   /* ANTREAN = MEJA HRD. Sejak permintaan head ikut masuk ke sana (14 Agustus
      2026), halaman itu berisi seluruh yang menunggu putusan — dan yang
      memutuskan cuma HRD. Head yang membukanya hanya akan membaca antrean
      divisi lain yang bukan urusannya. */
-  if(k==='antrean') return isHR();
+  if(k==='antrean') return hrd;
   /* PERMINTAAN DW — terbuka untuk HEAD **dan** HRD/admin (dikembalikan
      14 Agustus 2026).
      ---------------------------------------------------------------------
@@ -2111,14 +2213,44 @@ function bolehBuka(k){
      Keduanya tetap tidak tumpang tindih: Antrean = yang perlu diputuskan hari
      ini (semua divisi, dengan tombolnya), Permintaan DW = riwayat permintaan
      berikut putusannya. */
-  if(k==='permintaan') return isHeadDW() || isHR();
+  if(k==='permintaan') return head || hrd;
   /* HEAD IKUT MEMBUKA halaman-halaman ini. Yang membedakannya dari HRD bukan
      halaman mana yang terlihat, melainkan tombol mana yang ada di dalamnya:
      head melihat antrean, talent pool, rekap, dan pembayaran, tapi tombol
      Setujui/Tolak/Sunting hanya muncul untuk HRD. */
-  if(HALAMAN_HR.indexOf(k)>-1) return bisaLihat();
+  if(HALAMAN_HR.indexOf(k)>-1) return lihat;
   /* Sisanya terbuka untuk staf Office. */
   return true;
+}
+function aksesSetel(){
+  const a=S&&S.setting&&S.setting.akses;
+  return (a&&typeof a==='object')?a:{};
+}
+/* Jawaban akhir untuk satu halaman × satu peran: yang disetel admin kalau ada,
+   kalau tidak yang bawaan. Dipakai DUA-DUANYA oleh sidebar dan oleh tabel di
+   halaman Hak Akses — tabel yang menerangkan aturan sambil menyimpan
+   salinannya sendiri akan berbohong pada perubahan pertama. */
+function bolehBukaPeran(k, peran){
+  if(HALAMAN_KUNCI.indexOf(k)>-1) return bolehBukaBawaan(k, peran);
+  const baris=aksesSetel()[k];
+  if(baris && typeof baris==='object' && baris[peran]!=null) return !!baris[peran];
+  return bolehBukaBawaan(k, peran);
+}
+/* Peran yang sedang dipegang orang ini — BISA LEBIH DARI SATU, dan 'staf'
+   selalu ikut. Itu bukan kelalaian: melonggarkan sebuah halaman untuk "Staf
+   Office" berarti melonggarkannya untuk semua orang yang punya modul ini,
+   termasuk head dan HRD, dan matriks yang tidak begitu akan menghasilkan
+   head yang KEHILANGAN halaman gara-gara admin membukanya untuk staf. */
+function peranSayaDW(){
+  const out=[];
+  if(isAdmin())    out.push('admin');
+  if(isHR())       out.push('hrd');
+  if(isHeadDW())   out.push('head');
+  out.push('staf');
+  return out;
+}
+function bolehBuka(k){
+  return peranSayaDW().some(function(p){ return bolehBukaPeran(k, p); });
 }
 /* Keterangan peran di bawah nama, di kaki sidebar. Disebut apa adanya dan
    BERURUT dari yang paling menentukan: yang memegang dua-duanya perlu tahu
@@ -2846,12 +2978,27 @@ function bukaMinta(id){
 function serapMinta(){
   if(!MINTA) return;
   const g=id=>{ const el=document.getElementById(id); return el?el.value:null; };
-  const divLama=MINTA.divisi, posLama=MINTA.posisi;
+  const divLama=MINTA.divisi, posLama=MINTA.posisi, mLama=MINTA.m;
   MINTA.tgl    = g('mtTgl')    || MINTA.tgl;
   MINTA.divisi = g('mtDiv')    || MINTA.divisi;
   MINTA.m      = g('mtM')      || MINTA.m;
   MINTA.s      = g('mtS')      || MINTA.s;
   MINTA.posisi = g('mtPos')    || MINTA.posisi;
+  /* JAM MULAI DI LUAR SHIFT SIAP PAKAI → jam selesai diisikan sepanjang shift
+     dasar (bawaan 6 jam, disetel di Pengaturan).
+     ---------------------------------------------------------------------
+     Sebelum ini, mengetik jam mulai sendiri meninggalkan jam selesai milik
+     shift yang tadi dipilih — 09:00 dengan pulang 17:00 warisan shift Pagi,
+     lalu 20:00 dengan pulang 17:00 yang berarti tujuh belas jam. Yang
+     memintanya tidak melihat angka jamnya sama sekali (head tidak melihat
+     uang), jadi salahnya baru ketahuan saat orangnya menagih.
+
+     Hanya berjalan saat JAM MULAI-nya yang berubah. Yang menyunting jam
+     selesai dengan sengaja — memang boleh, itu yang jadi shift panjang —
+     tidak boleh ditimpa balik oleh isian otomatis ini. */
+  if(MINTA.m!==mLama && !cocokJamSiap(MINTA.m, MINTA.s)){
+    MINTA.s = jamTambah(MINTA.m, jamDasarDW()*60);
+  }
   const j=g('mtJml'); if(j!=null) MINTA.jumlah=Math.max(1,Math.min(30,+j||1));
   const c=g('mtCat'); if(c!=null) MINTA.catatan=c;
 
@@ -2948,10 +3095,16 @@ function gambarMinta(){
     +'</div>'
     +(( S.setting.jam||[]).length?'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
       +'<div class="pick">'+tombolJam(b.m,b.s,'mintaJam')+'</div>':'')
+    /* Digambar ulang tiap jamnya berubah: jam selesai bisa terisi sendiri
+       (lihat serapMinta) dan keterangan durasi di bawahnya ikut bergerak.
+       Perubahan yang tidak terlihat di layar sama saja dengan tidak terjadi —
+       yang mengetik jam mulai harus MELIHAT jam selesainya berubah, bukan
+       menemukannya nanti di antrean HRD. */
     +'<div class="duo">'
-      +'<div class="field"><label>Jam mulai *</label><input id="mtM" type="time" value="'+esc(b.m)+'"></div>'
-      +'<div class="field"><label>Jam selesai *</label><input id="mtS" type="time" value="'+esc(b.s)+'"></div>'
+      +'<div class="field"><label>Jam mulai *</label><input id="mtM" type="time" value="'+esc(b.m)+'" onchange="serapMinta();gambarMinta()"></div>'
+      +'<div class="field"><label>Jam selesai *</label><input id="mtS" type="time" value="'+esc(b.s)+'" onchange="serapMinta();gambarMinta()"></div>'
     +'</div>'
+    +durasiMintaHTML(b)
     +'<div class="field"><label>Posisi</label><select id="mtPos" onchange="serapMinta();gambarMinta()">'
       +opsiPosisi(b.divisi, b.posisi)
     +'</select>'
@@ -3036,6 +3189,30 @@ function pilihOrangHTML(b){
 /* Perkiraan biaya satu permintaan: tarif posisinya x jumlah orang. Memakai
    tarifPosisi() yang sama dengan seluruh modul, jadi angkanya tidak pernah
    bisa berbeda dengan yang muncul di Pembayaran nanti. */
+/* Keterangan durasi — DITULIS UNTUK SEMUA, termasuk head yang tidak melihat
+   angka uang. Yang perlu ia tahu bukan rupiahnya melainkan bahwa shift yang ia
+   minta lebih panjang dari shift biasa: itu yang membuat HRD bertanya balik,
+   dan lebih murah ditanyakan sekarang daripada nanti lewat WhatsApp.
+   Rupiah tambahannya baru disebut kalau yang membaca memang berhak. */
+function durasiMintaHTML(b){
+  const j=durasiJam(b.m,b.s);
+  const dasar=jamDasarDW();
+  const siap=cocokJamSiap(b.m,b.s);
+  const lebih=j>dasar;
+  const kepanjangan=shiftKepanjangan(b.m,b.s);
+  let cls='i', teks='<b>'+j+' jam</b>'+(siap?' — sesuai shift siap pakai':' — di luar shift siap pakai');
+  if(lebih){
+    cls = kepanjangan ? 'w' : 'i';
+    teks='<b>'+j+' jam</b> — lebih panjang dari shift dasar ('+dasar+' jam)'
+      +(bolehLihatUang()&&tambahanPanjangDW()
+        ? ', tarifnya naik <b>'+esc(rp(tambahanPanjangDW()))+'</b> per orang' : '');
+  }
+  if(kepanjangan){
+    teks+='<br><b>'+jamBatasDW()+' jam atau lebih</b> — sebaiknya dipecah jadi dua shift dengan orang berbeda. '
+      +'Tarifnya tetap dihitung satu shift + tambahan, jadi angkanya akan terasa murah untuk jam sepanjang ini.';
+  }
+  return '<div class="note '+cls+'" style="margin:-2px 0 10px">'+teks+'</div>';
+}
 function biayaPermintaanHTML(b){
   /* KOSONG UNTUK HEAD (19 Agustus 2026, atas permintaan) — dan inilah tempat
      yang paling penting dari seluruh perubahan itu. Yang diputuskan head di
@@ -3055,8 +3232,16 @@ function biayaPermintaanHTML(b){
       +'</b> belum disetel, jadi perkiraan biayanya belum bisa dihitung. '
       +'Atur di <b>Pengaturan → Posisi per Divisi</b>, di baris posisinya.</div>';
   }
-  return '<div class="note i" style="margin-top:4px">Perkiraan biaya: <b>'+esc(rp(tarif*jml))+'</b> '
-    +'<span class="mutedhint">('+jml+' × '+esc(rp(tarif))+' per shift)</span></div>';
+  /* Tambahan shift panjang IKUT DIHITUNG di sini, bukan cuma nanti di halaman
+     Pembayaran. Perkiraan yang mengabaikannya adalah perkiraan yang selalu
+     meleset ke bawah, dan yang meleset ke bawah justru yang paling mudah
+     disetujui. */
+  const tambah=tambahanJam(b.m,b.s);
+  const satuan=tarif+tambah;
+  return '<div class="note i" style="margin-top:4px">Perkiraan biaya: <b>'+esc(rp(satuan*jml))+'</b> '
+    +'<span class="mutedhint">('+jml+' × '+esc(rp(satuan))
+    +(tambah?' = '+esc(rp(tarif))+' + '+esc(rp(tambah))+' shift panjang':' per shift')
+    +')</span></div>';
 }
 async function kirimMinta(){
   const b=MINTA; if(!b) return;
@@ -6828,6 +7013,30 @@ function viewPengaturan(){
     +'</div>'
 
     +'<div class="panel">'
+    +'<div class="rowbar"><h2>Shift dasar &amp; shift panjang</h2></div>'
+    +'<p class="mutedhint" style="margin-bottom:10px">Tarif per posisi di atas adalah harga <b>satu shift dasar</b>. '
+    +'Permintaan yang jam mulainya <b>di luar shift siap pakai</b> langsung diisikan jam selesainya sepanjang shift dasar — '
+    +'supaya tidak ada jam warisan shift sebelumnya yang tertinggal di kotak dan ditagih berbeda.</p>'
+    +'<div class="row">'
+      +'<div class="field" style="max-width:190px"><label>Shift dasar (jam)</label>'
+        +'<input class="inp mono" type="number" min="1" max="24" step="0.5" value="'+(+st.jamDasar||6)+'" '
+        +'onchange="ubahAngkaShift(\'jamDasar\',this.value)"></div>'
+      +'<div class="field" style="max-width:230px"><label>Tambahan shift panjang</label>'
+        +'<input class="inp mono" inputmode="numeric" value="'+esc(fmtRibuan(+st.tambahanPanjang||0))+'" '
+        +'onchange="ubahAngkaShift(\'tambahanPanjang\',this.value,this)"></div>'
+      +'<div class="field" style="max-width:210px"><label>Batas kewajaran (jam)</label>'
+        +'<input class="inp mono" type="number" min="1" max="24" step="0.5" value="'+(+st.jamBatas||12)+'" '
+        +'onchange="ubahAngkaShift(\'jamBatas\',this.value)"></div>'
+    +'</div>'
+    +'<p class="mutedhint" style="margin-top:8px">Shift yang <b>lebih panjang dari shift dasar</b> dihitung '
+    +'<b>tarif posisi + tambahan</b>, berapa pun panjangnya. Tambahannya sengaja tidak berhenti di batas kewajaran: '
+    +'kalau di atasnya tarifnya kembali polos, shift 13 jam jadi lebih murah daripada shift 7 jam — dan salah seperti itu '
+    +'muncul sebagai uang, bukan sebagai galat.</p>'
+    +'<p class="mutedhint"><b>Batas kewajaran</b> tidak mengubah harga. Ia memunculkan peringatan di form permintaan '
+    +'bahwa shift sepanjang itu sebaiknya dipecah jadi dua shift dengan orang berbeda.</p>'
+    +'</div>'
+
+    +'<div class="panel">'
     +'<div class="rowbar"><h2>Panduan jumlah DW per hari</h2></div>'
     +'<p class="mutedhint" style="margin-bottom:10px">Panduan, <b>bukan penguncian</b>. Melebihinya hanya memunculkan satu pertanyaan yang bisa dilanjutkan — larangan keras akan menghambat malam Sabtu yang butuh tambahan mendadak, dan yang terjadi berikutnya selalu sama: orang mencatatnya di luar sistem.</p>'
     +'<p class="mutedhint" style="margin-bottom:10px"><b>Hari event</b> = hari yang ada acaranya di Marketing atau Event (lihat Kalender Tamu). <b>Akhir pekan</b> = Sabtu &amp; Minggu. Sisanya hari biasa. Isi <b>0</b> untuk divisi yang tidak perlu dipandu — nol tidak pernah memunculkan pertanyaan.</p>'
@@ -6926,42 +7135,74 @@ const AKSES_KOLOM = [
   {k:'hrd',   t:'HRD',          ket:'dicentang di bawah'},
   {k:'admin', t:'Admin Modul',  ket:'dari Kelola Akses Office'}
 ];
-/* Jawaban bolehBuka() untuk satu peran, dihitung dengan MEMALSUKAN S.peran
-   sesaat. Sengaja begitu daripada menyalin aturannya: kalau bolehBuka berubah,
-   tabel ini ikut berubah tanpa ada yang harus ingat memperbaruinya.
-
-   ME dipalsukan juga — isAdmin() membacanya, bukan S.peran. Keduanya
-   dikembalikan di `finally` supaya satu galat di tengah tidak meninggalkan
-   seluruh modul mengira dirinya admin. */
-function bolehBukaPeran(halaman, peran){
-  const simpanPeran=S.peran, simpanMe=ME;
-  try{
-    S.peran={
-      hrd:   (peran==='hrd'||peran==='admin'),
-      head:  (peran==='head'),
-      lihat: (peran==='hrd'||peran==='admin'||peran==='head')
-    };
-    ME=Object.assign({}, simpanMe||{}, {admin:(peran==='admin')});
-    return !!bolehBuka(halaman);
-  }catch(e){ return false; }
-  finally{ S.peran=simpanPeran; ME=simpanMe; }
-}
+/* `bolehBukaPeran()` sekarang ada di dekat bolehBuka() (fungsi murni atas
+   bolehBukaBawaan + matriks setelan). Versi lama di sini MEMALSUKAN S.peran
+   dan ME sesaat lalu memanggil bolehBuka(); dihapus 19 Agustus 2026 karena
+   sejak matriksnya bisa disetel, "aturan untuk satu peran" harus bisa dibaca
+   tanpa menyentuh keadaan global sama sekali — pemalsuan yang gagal di tengah
+   akan meninggalkan seluruh modul mengira dirinya admin. */
 function tabelPeranHTML(){
   const halaman=NAV_DEF.filter(x=>x&&x.k);
+  /* Bisa DISUNTING oleh admin modul (19 Agustus 2026). Sebelumnya tabel ini
+     cuma penjelas, dan akibatnya satu-satunya cara memberi seorang staf akses
+     ke SATU halaman adalah menjadikannya HRD — yang sekalian memberinya
+     seluruh kewenangan memutuskan. */
+  const bisaUbah=isAdmin();
   return '<div class="tablewrap"><table class="list tbl-akses">'
     +'<thead><tr><th>Halaman</th>'
     +AKSES_KOLOM.map(c=>'<th class="tengah">'+esc(c.t)+'<div class="kecil">'+esc(c.ket)+'</div></th>').join('')
     +'</tr></thead><tbody>'
     +halaman.map(function(h){
-        return '<tr><td class="nama">'+svg(IC[h.ic]||IC.orang)+' '+esc(h.t)+'</td>'
+        const kunci=HALAMAN_KUNCI.indexOf(h.k)>-1;
+        return '<tr><td class="nama">'+svg(IC[h.ic]||IC.orang)+' '+esc(h.t)
+          +(kunci?'<div class="kecil">terkunci — admin modul saja</div>':'')+'</td>'
           +AKSES_KOLOM.map(function(c){
               const bisa=bolehBukaPeran(h.k, c.k);
-              return '<td class="tengah '+(bisa?'ya':'tidak')+'" title="'+esc(h.t+' — '+c.t+': '+(bisa?'boleh dibuka':'tidak terlihat'))+'">'
-                +(bisa?'✓':'·')+'</td>';
+              /* Yang menyimpang dari bawaan ditandai. Tanpa penanda, matriks
+                 yang pernah disetel setahun lalu tidak bisa dibedakan dari
+                 aturan asli modul — dan yang mencari sebab sebuah halaman
+                 hilang akan menyalahkan kodenya. */
+              const beda=(bisa!==bolehBukaBawaan(h.k, c.k));
+              const jdl=h.t+' — '+c.t+': '+(bisa?'boleh dibuka':'tidak terlihat')
+                +(beda?' (diubah dari bawaan)':'')
+                +(kunci?' — tidak bisa diubah':(bisaUbah?' — klik untuk membalik':''));
+              const isi=(bisa?'✓':'·')+(beda?'<span class="ubah-tanda">•</span>':'');
+              if(!bisaUbah || kunci){
+                return '<td class="tengah '+(bisa?'ya':'tidak')+'" title="'+esc(jdl)+'">'+isi+'</td>';
+              }
+              return '<td class="tengah '+(bisa?'ya':'tidak')+'">'
+                +'<button type="button" class="sel-akses" title="'+esc(jdl)+'" '
+                +'onclick="toggleAkses(&#39;'+escJs(h.k)+'&#39;,&#39;'+escJs(c.k)+'&#39;)">'+isi+'</button></td>';
             }).join('')
           +'</tr>';
       }).join('')
     +'</tbody></table></div>';
+}
+/* Membalik satu sel matriks. Menyimpan SELISIH: begitu hasilnya sama dengan
+   bawaan, kuncinya dibuang lagi — supaya blob setting tidak menumpuk setelan
+   yang tidak mengubah apa pun, dan supaya perubahan aturan bawaan di kemudian
+   hari tetap sampai ke pemasangan yang sudah jalan. */
+function toggleAkses(k, peran){
+  if(!isAdmin()){ toast('Hanya admin modul yang bisa mengubah hak akses', true); return; }
+  if(HALAMAN_KUNCI.indexOf(k)>-1){
+    toast('Halaman Hak Akses tidak bisa dibagikan — yang bisa membukanya bisa mengubah seluruh matriks ini', true);
+    return;
+  }
+  const a=(S.setting.akses=(S.setting.akses&&typeof S.setting.akses==='object')?S.setting.akses:{});
+  const baris=(a[k]=a[k]||{});
+  const nilai=!bolehBukaPeran(k, peran);
+  if(nilai===bolehBukaBawaan(k, peran)) delete baris[peran];
+  else baris[peran]=nilai?1:0;
+  if(!Object.keys(baris).length) delete a[k];
+  simpanSetting(); render();
+}
+function resetAkses(){
+  if(!isAdmin()){ toast('Hanya admin modul yang bisa mengubah hak akses', true); return; }
+  if(!Object.keys(aksesSetel()).length) return toast('Tidak ada yang diubah dari bawaan');
+  konfirmasi('Kembalikan matriks ke aturan bawaan?',
+    'Seluruh sel yang pernah diubah kembali ke aturan asli modul. Daftar HRD di bawah tidak ikut berubah.',
+    function(){ S.setting.akses={}; simpanSetting(); render(); toast('Matriks dikembalikan ke bawaan'); },
+    {ya:'Kembalikan ke bawaan', warna:'btn-primary'});
 }
 function viewAkses(){
   if(!isAdmin()){
@@ -7069,10 +7310,28 @@ function hakAksesPanelHTML(){
    +'<p class="mutedhint" style="margin-bottom:12px">Modul ini memuat nomor HP seluruh talent pool dan daftar transfer, '
    +'sementara yang benar-benar perlu dibuka banyak orang cuma "hari ini siapa yang masuk". Akses modul di Office cuma '
    +'satu saklar hidup/mati, jadi pemisahan di dalamnya diatur di sini.</p>'
-   +'<h3 class="subjudul">Siapa melihat halaman apa</h3>'
+   +'<div class="rowbar" style="margin-top:4px"><h3 class="subjudul" style="margin:0">Siapa melihat halaman apa</h3>'
+   +'<div class="spacer"></div>'
+   +(Object.keys(aksesSetel()).length
+      ? '<span class="chip">'+Object.keys(aksesSetel()).length+' halaman diubah dari bawaan</span>'
+        +'<button class="btn btn-ghost btn-sm" onclick="resetAkses()">Kembalikan ke bawaan</button>'
+      : '<span class="chip">semua masih bawaan</span>')
+   +'</div>'
    +'<p class="mutedhint" style="margin-bottom:8px">Dibaca menurun: tiap baris satu menu di sidebar. '
    +'<b>&#10003;</b> berarti menunya muncul, titik berarti menunya tidak ada sama sekali. '
-   +'Peran bisa bertumpuk — head divisi yang juga dicentang HRD mendapat gabungan keduanya.</p>'
+   +'<b>Klik selnya untuk membalik.</b> Titik kecil <span class="ubah-tanda">&bull;</span> menandai sel yang '
+   +'sudah diubah dari aturan bawaan modul. '
+   +'Peran bisa bertumpuk — head divisi yang juga dicentang HRD mendapat gabungan keduanya, dan '
+   +'melonggarkan sebuah baris untuk <b>Staf Office</b> berarti melonggarkannya untuk semua orang yang punya modul ini.</p>'
+   /* Yang dilonggarkan di sini cuma HALAMANNYA. Perlu ditulis, karena kalau
+      tidak, admin yang membuka Pembayaran untuk staf akan mengira ia juga
+      memberi hak menandai transfer — dan yang sebaliknya juga terjadi: ia
+      mengira tidak ada yang bocor padahal halaman Pembayaran memang berisi
+      angka upah seluruh orang. */
+   +'<div class="note i" style="margin-bottom:10px">Yang diatur di sini <b>hanya halaman mana yang terlihat</b>. '
+   +'Siapa yang boleh <b>memutuskan</b> (menyetujui, menyunting talent pool, menandai transfer) tetap '
+   +'ditentukan daftar HRD di bawah, dan tetap diperiksa ulang oleh server. '
+   +'Sebaliknya, membuka <b>Pembayaran</b> atau <b>Rekap Pegawai</b> berarti angka upah ikut terlihat.</div>'
    +tabelPeranHTML()
    +'<h3 class="subjudul" style="margin-top:20px">Siapa yang boleh memutuskan</h3>'
    +'<p class="mutedhint" style="margin-bottom:8px">Yang berhak boleh <b>menyetujui &amp; menolak</b> permintaan dan pengajuan, '
@@ -7188,6 +7447,27 @@ function hapusPosisi(div, nama){
 function tambahJam(){ (S.setting.jam=S.setting.jam||[]).push({n:'Shift Baru',m:'16:00',s:'23:00'}); simpanSetting(); render(); }
 function ubahJam(i,f,v){ const j=(S.setting.jam||[])[i]; if(!j) return; j[f]=v; simpanSetting(); render(); }
 function hapusJam(i){ (S.setting.jam||[]).splice(i,1); simpanSetting(); render(); }
+/* Shift dasar / batas kewajaran / tambahan shift panjang. Satu fungsi untuk
+   ketiganya karena bentuk salahnya sama: kotaknya bertitik ribuan, dan
+   `+'20.000'` adalah NaN yang diam-diam menjadi tambahan NOL — tambahan yang
+   hilang tidak menampilkan apa pun yang aneh, ia cuma membayar kurang. */
+function ubahAngkaShift(kunci,v,el){
+  const angka=String(v==null?'':v).replace(/[^\d.]/g,'');
+  let n=+angka||0;
+  if(kunci==='tambahanPanjang'){
+    n=Math.max(0, Math.round(+String(v==null?'':v).replace(/\D+/g,'')||0));
+    if(el) el.value=fmtRibuan(n);
+  }else{
+    /* Jam nol berarti SETIAP shift dianggap panjang, dan tidak ada satu pun
+       layar yang menjelaskan kenapa semua tarifnya mendadak naik. */
+    n=Math.max(0.5, Math.min(24, n||(kunci==='jamBatas'?12:6)));
+  }
+  S.setting[kunci]=n;
+  simpanSetting(); render();
+  toast(kunci==='tambahanPanjang'
+    ? 'Tambahan shift panjang: '+rp(n)
+    : (kunci==='jamBatas'?'Batas kewajaran: ':'Shift dasar: ')+n+' jam');
+}
 function ubahKuota(div,konteks,v){
   const kuota=(S.setting.kuota=normalKuota(S.setting.kuota));
   kuota[div]=kuota[div]||{};

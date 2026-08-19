@@ -1566,7 +1566,15 @@ function tandai_bayar($senin, $kunciTujuan, $nyala, $by) {
    siapa saja yang berhak memutuskan, dan HRD yang bisa menyunting daftar HRD
    bukan pembatasan apa pun — ia tinggal menambahkan siapa saja, termasuk
    dirinya sendiri kalau suatu saat dicabut. Jadi daftarnya DIPERTAHANKAN dari
-   yang tersimpan, bukan diambil dari kiriman. */
+   yang tersimpan, bukan diambil dari kiriman.
+
+   Sejak 19 Agustus 2026 `akses` ikut dipertahankan, dengan alasan yang sama
+   persis. Itu matriks "halaman mana terlihat oleh peran mana" yang disunting
+   di halaman Hak Akses — halaman admin-modul-saja. Tanpa penjagaan di sini
+   penguncian itu cuma berlaku DI LAYAR: HRD tinggal mengirim satu
+   simpanSetting berisi matriks pilihannya sendiri, dan tidak ada satu pun
+   pesan yang menyebutnya. Hak akses adalah satu-satunya bagian modul ini yang
+   kegagalannya tidak terlihat dari layar. */
 function simpan_setting($data, $by, $bolehUbahHr = true) {
   if (!is_array($data) && !is_object($data)) throw new Exception('Payload setting kosong/invalid');
   $pdo = db();
@@ -1576,6 +1584,11 @@ function simpan_setting($data, $by, $bolehUbahHr = true) {
     $hrLama = (is_array($lama) && isset($lama['hr']) && is_array($lama['hr'])) ? $lama['hr'] : array();
     $data = (array)$data;
     $data['hr'] = $hrLama;
+    /* Dipertahankan APA ADANYA, termasuk saat yang tersimpan belum punya
+       kunci ini: yang belum pernah disetel harus tetap belum disetel, bukan
+       diisi dari kiriman orang yang tidak berhak menyetelnya. */
+    $data['akses'] = (is_array($lama) && isset($lama['akses']) && is_array($lama['akses']))
+                     ? $lama['akses'] : array();
   }
   $st = $pdo->prepare(
     'INSERT INTO `dw_setting` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)

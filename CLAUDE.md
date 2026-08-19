@@ -115,6 +115,24 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
 | Jadwal — `simpanSetting` | admin modul saja (blob-nya memuat daftar head) |
 
+**Matriks halaman × peran DW bisa disetel** (19 Agustus 2026) — `setting.akses`
+`{halaman:{peran:0|1}}`, disunting admin modul di halaman Hak Akses. Yang perlu
+diingat sebelum menyentuhnya:
+
+- Ia **hanya mengubah halaman mana yang terlihat**. Siapa yang boleh
+  MEMUTUSKAN tetap tabel di atas, dan tetap diperiksa server.
+- Disimpan sebagai **selisih** dari `bolehBukaBawaan()`, bukan salinan penuh —
+  salinan penuh membekukan aturan hari ini, sehingga halaman baru tidak pernah
+  sampai ke pemasangan yang sudah jalan.
+- `HALAMAN_KUNCI = ['akses']` tidak bisa dilonggarkan: yang bisa membukanya
+  bisa mengubah matriksnya sendiri.
+- `simpan_setting` **mempertahankan `akses`** persis seperti `hr` kalau yang
+  menyimpan bukan admin modul. Tanpa itu penguncian cuma berlaku di layar.
+- `bolehBuka()` menggabungkan SELURUH peran yang dipegang orangnya (dan `staf`
+  selalu ikut). Melonggarkan sebuah baris untuk Staf = melonggarkannya untuk
+  semua orang; itu disengaja, kalau tidak head bisa KEHILANGAN halaman gara-gara
+  admin membukanya untuk staf.
+
 Sengaja **tetap terbuka**: `ping`, `stats`, `jadwalDW`, `shiftHari`, `headIds`, `probeTulis`.
 `probeTulis` dipakai langkah Verifikasi kedua workflow FTP — probe lama memakai
 `simpanSel`, dan begitu itu dijaga sesi **seluruh deploy gagal**. Dua yang
@@ -202,6 +220,25 @@ Yang ikut berubah, dan semuanya harus dijaga bersama:
   salahnya muncul sebagai **uang**, bukan sebagai galat.
 - Indeksnya dicabut lewat `cabut_indeks()` di `pastikan_tabel()`, **bukan**
   berkas migrasi: migrasi tidak ikut ter-deploy dan produksi rutin tertinggal.
+
+### DW: shift dasar & tambahan shift panjang (19 Agustus 2026)
+
+Tarif per posisi = harga **satu shift dasar** (`setting.jamDasar`, bawaan 6 jam).
+Dua akibatnya, dan keduanya disetel HRD di Pengaturan:
+
+- Permintaan yang **jam mulainya di luar shift siap pakai** langsung diisikan
+  jam selesainya sepanjang shift dasar (`serapMinta`, hanya saat jam MULAI yang
+  berubah — yang menyunting jam selesai dengan sengaja tidak boleh ditimpa).
+- Shift **lebih panjang dari `jamDasar`** dapat tambahan sekali jalan
+  (`setting.tambahanPanjang`, bawaan 20.000) lewat `tambahanJam()` → masuk ke
+  `biayaAjuan()`, jadi seluruh halaman uang ikut sendiri.
+
+`setting.jamBatas` (bawaan 12) **tidak mengubah harga** — ia cuma memunculkan
+peringatan "sebaiknya dipecah dua shift". Jangan "melengkapinya" jadi batas
+atas tambahan: kalau di atas 12 jam tarifnya kembali polos, shift 13 jam jadi
+LEBIH MURAH daripada shift 7 jam, dan salah seperti itu muncul sebagai uang.
+
+Uang di modul ini dihitung **frontend saja** — tidak ada satu pun tarif di PHP.
 
 ### DW: Kalender Tamu membaca TIGA modul (19 Agustus 2026)
 
