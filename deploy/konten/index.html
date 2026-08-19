@@ -610,6 +610,14 @@ async function initAPI() {
     DB.shootings = DB.shootings || [];
     DB.prodTasks = DB.prodTasks || []; // tugas produksi mandiri (di luar konten)
     DB.kols = DB.kols || [];       // database KOL / influencer
+    // Starting Price: data lama tidak punya riwayat. Yang sudah bernominal
+    // diberi satu entri pembuka (bertanggal saat datanya dibuat, tanpa nama
+    // pencatat) supaya modal riwayat tidak terbaca seolah harganya baru
+    // ditetapkan hari ini. Idempoten: sekali terisi, tidak ditambah lagi.
+    (DB.kols||[]).forEach(k=>{
+      if(Array.isArray(k.rateHistory))return;
+      k.rateHistory = (+k.rateValue||0) ? [{value:+k.rateValue,prev:0,at:k.createdAt||0,by:''}] : [];
+    });
     DB.visits = DB.visits || [];   // planning influencer visit
     DB.ads = DB.ads || [];         // ads management - DANA KELUAR (rincian biaya iklan)
     DB.adFunds = DB.adFunds || []; // DANA MASUK - budget/top-up (terpisah dari pembuatan iklan)
@@ -2395,6 +2403,53 @@ function waLink(n){const d=waDigits(n);return d?`https://wa.me/${d}`:'';}
 function viewImage(src,title){if(!src)return;modal(`<div class="modal-h"><h3>${esc(title||'Gambar')}</h3><button class="x-btn" onclick="COMS.closeModal()">✕</button></div><div class="modal-b" style="text-align:center;background:var(--panel-3)"><img src="${esc(src)}" style="max-width:100%;border-radius:10px"></div>`,true);}
 function viewKolRate(id){const k=getKol(id);if(!k||!k.rateImage){toast('Belum ada gambar rate card','err');return;}viewImage(k.rateImage,'Rate Card - '+k.name);}
 
+/* ---------- Starting Price + riwayat perubahannya ----------
+   Dulu nominalnya cuma satu angka (`rateValue`) yang ditimpa diam-diam tiap
+   KOL menaikkan harga, jadi tidak ada satu pun tempat yang bisa menjawab
+   "sejak kapan segini, dulu berapa". `rateHistory` menyimpan tiap perubahan
+   (terbaru di depan) beserta harga sebelumnya, supaya kenaikan bisa dibaca
+   tanpa membandingkan ingatan. Nominalnya SENDIRI tetap di `rateValue` —
+   riwayat adalah tambahan, bukan penggantinya. */
+function rateHist(k){return (k&&Array.isArray(k.rateHistory))?k.rateHistory:[];}
+// Catat perubahan hanya kalau nominalnya memang berbeda: menyimpan form tanpa
+// menyentuh harga tidak boleh menumpuk entri palsu bertanggal hari ini.
+function rateHistUpdate(k,baru){
+  const lama=+((k&&k.rateValue)||0), h=rateHist(k).slice();
+  if((+baru||0)===lama)return h;
+  h.unshift({value:+baru||0,prev:lama,at:Date.now(),by:SES});
+  if(h.length>60)h.pop();
+  return h;
+}
+function rateDelta(e){return (+e.value||0)-(+e.prev||0);}
+// Satu baris riwayat: naik = merah (biaya), turun = hijau.
+function rateHistRow(e){
+  const d=rateDelta(e), naik=d>0, awal=!(+e.prev||0);
+  const col=awal?'var(--txt-2)':(naik?'var(--bad)':'var(--ok)');
+  const tanda=awal?'ditetapkan':`${naik?'▲':'▼'} ${rupiah(Math.abs(d))}`;
+  return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)">
+    <div style="flex:1;min-width:0">
+      <div class="mono" style="font-weight:700">${rupiah(e.value)} <span style="font-weight:600;font-size:11px;color:${col}">${tanda}</span></div>
+      <div style="font-size:11px;color:var(--txt-3)">${awal?'':'sebelumnya '+rupiah(e.prev)+' - '}${e.at?fmtDT(e.at):'-'}${e.by?' - '+esc(userName(e.by)):''}</div>
+    </div></div>`;
+}
+function rateHistHtml(k){
+  const h=rateHist(k);
+  if(!h.length)return '<div style="font-size:12px;color:var(--txt-3)">Belum ada perubahan harga tercatat.</div>';
+  return h.map(rateHistRow).join('');
+}
+// Lencana di tabel: tanpa ini riwayatnya ada tapi tak seorang pun tahu.
+function rateHistBadge(k){
+  const h=rateHist(k);
+  if(h.length<2)return '';
+  const d=rateDelta(h[0]), naik=d>0;
+  return `<div><button class="tag" style="margin-top:3px;border:0;cursor:pointer;background:${naik?'var(--bad-bg)':'var(--ok-bg)'};color:${naik?'var(--bad)':'var(--ok)'}" title="Lihat riwayat Starting Price" onclick="event.stopPropagation();COMS.viewKolRateHist('${k.id}')">${naik?'▲':'▼'} ${h.length}x - ${fmtDateShort(h[0].at)}</button></div>`;
+}
+function viewKolRateHist(id){
+  const k=getKol(id);if(!k)return;
+  modal(`<div class="modal-h"><h3>Riwayat Starting Price - ${esc(k.name)}</h3><button class="x-btn" onclick="COMS.closeModal()">✕</button></div>
+  <div class="modal-b"><div style="font-size:12px;color:var(--txt-3);margin-bottom:8px">Berlaku sekarang: <b class="mono" style="color:var(--txt)">${k.rateValue?rupiah(k.rateValue):'-'}</b></div>${rateHistHtml(k)}</div>`);
+}
+
 VIEWS.kol=function(){
   const seg=`<div class="seg" style="margin-bottom:18px">
     <button class="${kolTab==='db'?'on':''}" onclick="COMS.setKolTab('db')">📇 Database KOL & Medpar</button>
@@ -2431,12 +2486,12 @@ function kolDatabaseView(){
       <td>${k.instagram?`<a href="https://instagram.com/${esc(String(k.instagram).replace(/^@/,''))}" target="_blank" rel="noopener" style="color:var(--purple)">@${esc(String(k.instagram).replace(/^@/,''))}</a>`:'<span style="color:var(--txt-3)">-</span>'}</td>
       <td>${k.tiktok?`<a href="https://tiktok.com/@${esc(String(k.tiktok).replace(/^@/,''))}" target="_blank" rel="noopener" style="color:var(--info)">@${esc(String(k.tiktok).replace(/^@/,''))}</a>`:'<span style="color:var(--txt-3)">-</span>'}</td>
       <td>${k.rateImage?`<img src="${esc(k.rateImage)}" onclick="event.stopPropagation();COMS.viewKolRate('${k.id}')" title="Lihat rate card" style="width:44px;height:32px;object-fit:cover;border-radius:6px;border:1px solid var(--line-soft);cursor:zoom-in">`:(k.rateDrive?`<a href="${esc(k.rateDrive)}" target="_blank" rel="noopener" class="tag" style="color:var(--info)" onclick="event.stopPropagation()">📎 Drive</a>`:'<span style="color:var(--txt-3)">-</span>')}</td>
-      <td class="mono" style="font-weight:600">${k.rateValue?rupiah(k.rateValue):(k.rateTier?`<span class="tag">${esc(k.rateTier)}</span>`:'<span style="color:var(--txt-3)">-</span>')}</td>
+      <td class="mono" style="font-weight:600">${k.rateValue?rupiah(k.rateValue):(k.rateTier?`<span class="tag">${esc(k.rateTier)}</span>`:'<span style="color:var(--txt-3)">-</span>')}${rateHistBadge(k)}</td>
       <td>${cats.length?`<div style="display:flex;flex-wrap:wrap;gap:4px">${cats.map(c=>`<span class="pill" style="background:${t.bg};color:${t.fg}">${esc(c)}</span>`).join('')}</div>`:'<span style="color:var(--txt-3)">-</span>'}</td>
       <td style="text-align:right;white-space:nowrap">${can('kol')?`<button class="btn btn-ghost btn-sm" onclick="COMS.openKolForm('${k.id}')">✎</button> <button class="btn btn-danger btn-sm" onclick="COMS.delKol('${k.id}')">🗑</button>`:''}</td>
     </tr>`;}).join('');
   return head+filterBar+`<div class="tbl-wrap"><table><thead><tr>
-    <th>Nama</th><th>Tipe</th><th>WhatsApp</th><th>Instagram</th><th>TikTok</th><th>Rate Card</th><th>Rate (Nominal)</th><th>Niche</th><th></th>
+    <th>Nama</th><th>Tipe</th><th>WhatsApp</th><th>Instagram</th><th>TikTok</th><th>Rate Card</th><th>Starting Price</th><th>Niche</th><th></th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 function kolF(k,v){kolFilters[k]=v;route('kol');}
@@ -2458,7 +2513,10 @@ function openKolForm(id){
     <div class="full field"><label>Rate Card - Upload Gambar (maks 10 MB)</label>
       <input type="file" accept="image/*" class="ctrl" style="padding:8px" onchange="COMS.onKolRateFile(this)">
       <img id="k_ratePreview" src="${k?.rateImage||''}" style="${k?.rateImage?'':'display:none;'}max-width:100%;margin-top:10px;border-radius:10px;border:1px solid var(--line-soft)"></div>
-    <div class="field"><label>Rate Card - Nominal (Rp)</label><input type="number" min="0" class="ctrl" id="k_rateValue" value="${k?.rateValue||''}" placeholder="mis. 1500000"></div>
+    <div class="field"><label>Starting Price (Rp)</label><input type="number" min="0" class="ctrl" id="k_rateValue" value="${k?.rateValue||''}" placeholder="mis. 1500000">
+      <div style="font-size:11px;color:var(--txt-3);margin-top:4px">Harga mulai. Setiap perubahan nominal otomatis tercatat di riwayat.</div></div>
+    ${isEdit?`<div class="field"><label>Riwayat Starting Price</label>
+      <div style="max-height:150px;overflow:auto;border:1px solid var(--line-soft);border-radius:10px;padding:2px 10px;background:var(--panel-2)">${rateHistHtml(k)}</div></div>`:''}
     <div class="full field"><label>Catatan</label><textarea class="ctrl" id="k_note" placeholder="Catatan tambahan (pengalaman, jangkauan, dsb)">${esc(k?.note||'')}</textarea></div>
   </div></div>
   <div class="modal-f">${isEdit?`<button class="btn btn-danger" onclick="COMS.delKol('${k.id}')">Hapus</button>`:''}<button class="btn btn-ghost" onclick="COMS.closeDrawer()">Batal</button><button class="btn btn-gold" onclick="COMS.saveKol('${id||''}')">${isEdit?'Simpan Perubahan':'⚓ Simpan'}</button></div>`);
@@ -2476,10 +2534,16 @@ function saveKol(id){
   const g=k=>{const el=$('#k_'+k);return el?el.value.trim():'';};
   const name=g('name');if(!name){toast('Nama wajib diisi','err');return;}
   const categories=[...document.querySelectorAll('.k_cat:checked')].map(x=>x.value);
+  const rateValue=+($('#k_rateValue').value)||0;
   const data={name,type:$('#k_type').value,whatsapp:g('whatsapp'),instagram:g('instagram').replace(/^@/,''),tiktok:g('tiktok').replace(/^@/,''),
-    rateImage:_kolRateImg||'',rateValue:+($('#k_rateValue').value)||0,categories,note:g('note')};
-  if(id){Object.assign(getKol(id),data);logAct('mengubah data '+data.type,name);toast('Data diperbarui','ok');}
-  else{DB.kols.push(Object.assign({id:uid('kol'),createdAt:Date.now()},data));logAct('menambah '+data.type,name);toast(data.type+' ditambahkan','ok');}
+    rateImage:_kolRateImg||'',rateValue,categories,note:g('note')};
+  if(id){const k=getKol(id);
+    // Riwayat dihitung SEBELUM Object.assign - sesudahnya harga lamanya sudah
+    // tertimpa dan tidak ada lagi yang bisa dibandingkan.
+    data.rateHistory=rateHistUpdate(k,rateValue);
+    Object.assign(k,data);logAct('mengubah data '+data.type,name);toast('Data diperbarui','ok');}
+  else{data.rateHistory=rateValue?[{value:rateValue,prev:0,at:Date.now(),by:SES}]:[];
+    DB.kols.push(Object.assign({id:uid('kol'),createdAt:Date.now()},data));logAct('menambah '+data.type,name);toast(data.type+' ditambahkan','ok');}
   _kolRateImg=null;save();closeDrawer();route('kol');
 }
 function delKol(id){const k=getKol(id);if(!k)return;if(!confirm('Hapus "'+k.name+'" dari database?'))return;
@@ -2560,7 +2624,7 @@ function openVisitForm(id){
   }
   drawer(`<div class="drawer-h"><h3>${isEdit?'Edit Event Kunjungan':'Buat Event Kunjungan'}</h3><button class="x-btn" onclick="COMS.closeDrawer()">✕</button></div>
   <div class="drawer-b"><div class="form-grid">
-    <div class="full field"><label>Nama Event *</label><input class="ctrl" id="v_title" value="${esc(v?.title||'')}" placeholder="mis. Grand Launching Menu Baru"></div>
+    <div class="full field"><label>Event / Campaign *</label><input class="ctrl" id="v_title" value="${esc(v?.title||'')}" placeholder="mis. Grand Launching Menu Baru / Campaign Ramadan"></div>
     <div class="field"><label>Tanggal Event</label><input type="date" class="ctrl" id="v_date" value="${defDate}"></div>
     <div class="field"><label>Jam</label><input type="time" class="ctrl" id="v_time" value="${esc(v?.time||'13:00')}"></div>
     <div class="field"><label>Lokasi</label><select class="ctrl" id="v_location">${VISIT_LOCATIONS.map(l=>`<option ${loc===l?'selected':''}>${esc(l)}</option>`).join('')}${loc&&!VISIT_LOCATIONS.includes(loc)?`<option selected>${esc(loc)}</option>`:''}</select></div>
@@ -2579,7 +2643,7 @@ function openVisitForm(id){
 }
 function saveVisit(id){
   const g=k=>{const el=$('#v_'+k);return el?el.value:'';};
-  const title=g('title').trim();if(!title){toast('Nama event wajib diisi','err');return;}
+  const title=g('title').trim();if(!title){toast('Event / Campaign wajib diisi','err');return;}
   const invitees=[...document.querySelectorAll('.v_inv:checked')].map(x=>x.value);
   const data={title,brand:g('brand'),date:g('date'),time:g('time'),location:g('location'),
     desc:g('desc').trim(),invitees,kolId:invitees[0]||'',pic:g('pic'),status:g('status')||'planned',objective:g('objective').trim(),note:g('desc').trim()};
@@ -3153,7 +3217,7 @@ const API={
   mentionScan,mentionClose,pickMention,cmtKey,
   planF,planReset,
   queueF,queueSort,queueReset,
-  setKolTab,kolF,kolReset,openKolForm,saveKol,delKol,onKolRateFile,viewImage,viewKolRate,
+  setKolTab,kolF,kolReset,openKolForm,saveKol,delKol,onKolRateFile,viewImage,viewKolRate,viewKolRateHist,
   visitF,visitReset,openVisitForm,saveVisit,delVisit,setVisitStatus,dmInvitee,
   adsF,adsReset,openAdForm,saveAd,delAd,setAdStatus,_adAdd,_adDel,_adEdit,
   adsPerPageSet,adsPageSet,exportAdsMonth,
