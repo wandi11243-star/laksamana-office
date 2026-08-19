@@ -2273,7 +2273,12 @@ function setSubPeran() { isAdmin(); isHR(); isHeadDW(); }
 
 
 
-function buildNav() { setSubPeran(); isHR(); bolehBuka(); go(); esc(); svg(); }
+function buildNav() { setSubPeran(); antreanPerluDikerjakan(); isHR(); bolehBuka(); go(); esc(); svg(); }
+
+
+
+
+
 
 
 
@@ -2744,7 +2749,41 @@ function permintaanById() {  }
 
 
 
-function mintaTerwakiliAjuan() { mintaTerpenuhi(); }
+function mintaTerwakiliAjuan() { mintaBelumTuntas(); viewPermintaan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mintaBelumTuntas() { mintaTerpenuhi(); }
+
+
+
+
+
+function entriPerluDikerjakan() { mintaBelumTuntas(); }
+
+
+
+
+
+function antreanPerluDikerjakan() {  }
 
 
 
@@ -3641,7 +3680,10 @@ function setCariAnt() { render(); }
 
 
 
-function viewAntrean() { mintaTerwakiliAjuan(); namaDW(); ajuHal(); esc(); tglPanjang(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisMintaAntrean(); barisAjuanAntrean(); }
+function viewAntrean() { entriPerluDikerjakan(); mintaTerwakiliAjuan(); namaDW(); ajuHal(); esc(); tglPanjang(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisMintaAntrean(); barisAjuanAntrean(); }
+
+
+
 
 
 
@@ -3745,6 +3787,16 @@ function viewAntrean() { mintaTerwakiliAjuan(); namaDW(); ajuHal(); esc(); tglPa
 
 
 function tab() { antTab(); esc(); pitaHead(); bukaMinta(); setCariAnt(); ajuPagerHTML(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3920,7 +3972,11 @@ function kataPutusan() {  }
 
 
 
-function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); kembalikanPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); biayaPermintaan(); pilStatus(); kataPutusan(); }
+function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); kembalikanPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); mintaBelumTuntas(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); biayaPermintaan(); pilStatus(); kataPutusan(); }
+
+
+
+
 
 
 

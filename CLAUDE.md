@@ -312,13 +312,21 @@ satu tempat lalu mencarinya lagi di tempat lain.
 permintaan: tiap permintaan perlu diputuskan siapa orangnya, dan tombol yang
 menyapu keduanya melewati justru bagian yang butuh dipikirkan.
 
-Di tab **Riwayat/Semua**, permintaan yang sudah **terpenuhi penuh** tidak
-diulang (`mintaTerwakiliAjuan`): baris penugasannya menceritakan hal yang sama
-dengan lebih lengkap, dan dua baris untuk satu shift membuat kolom Upah
-terbaca dua kali. Yang ditolak/kedaluwarsa/**terpenuhi sebagian** tetap tampil
-— di situlah ada yang tidak diceritakan baris penugasan mana pun. Jejak "dari
-permintaan `<head>`" pindah ke baris penugasannya (`asalPermintaanHTML`), dan
-permintaannya sendiri tetap utuh di halaman **Permintaan DW**.
+Antrian ↔ Riwayat dipisah menurut **masih ada pekerjaannya atau tidak**
+(`entriPerluDikerjakan`), **bukan** menurut status. Permintaan `DISETUJUI` yang
+orangnya belum lengkap ("0 dari 1", terjadi begitu penugasannya ditolak/ditarik)
+masuk **Antrian**: selama pemisahnya status, baris itu duduk di Riwayat lengkap
+dengan tombol Setuju & Pilih DW-nya sementara Antrian menulis 0 — pekerjaan yang
+disembunyikan di balik tab bernama Riwayat, dan yang terlewat adalah shift yang
+malam itu kurang orang. Lencana sidebar memakai fungsi yang sama
+(`antreanPerluDikerjakan`); dulu ia cuma menghitung ajuan `MENUNGGU`.
+
+Di **Riwayat**, permintaan yang **terpenuhi penuh** tidak diulang
+(`mintaTerwakiliAjuan`): baris penugasannya menceritakan hal yang sama dengan
+lebih lengkap, dan dua baris untuk satu shift membuat kolom Upah terbaca dua
+kali. Jejak "dari permintaan `<head>`" pindah ke baris penugasannya
+(`asalPermintaanHTML`). `viewPermintaan` (halaman head) **sengaja tetap memakai
+status** — di sana pertanyaannya "sudah diputuskan atau belum".
 
 **Putusan bisa ditarik** (`kembalikanAjuan` / `kembalikanPermintaan`, HRD saja):
 statusnya kembali `MENUNGGU`, catatan putusan lama dibuang, `putus_oleh`/`putus_at`

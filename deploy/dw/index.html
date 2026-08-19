@@ -2276,7 +2276,12 @@ function setSubPeran(){
 function buildNav(){
   setSubPeran();
   const el=document.getElementById('nav'); if(!el) return;
-  const menunggu=(S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length;
+  /* Aturan yang SAMA PERSIS dengan tab Antrian (antreanPerluDikerjakan):
+     permintaan yang disetujui tapi orangnya belum lengkap ikut terhitung.
+     Sebelumnya lencana ini cuma menghitung ajuan MENUNGGU, jadi ia menulis 0
+     — atau tidak muncul sama sekali — sementara halamannya memuat baris yang
+     masih menunggu ditunjuk orangnya. */
+  const menunggu=antreanPerluDikerjakan();
   /* Lencana Permintaan DW, DIHITUNG MENURUT SIAPA YANG MELIHAT: HRD memandang
      seluruh permintaan yang menunggu putusannya, head cuma divisinya sendiri.
      Angka yang tidak bisa ditindaklanjuti pemiliknya cuma melatih orang
@@ -2746,7 +2751,41 @@ function permintaanById(id){ return (S.permintaan||[]).find(x=>x.id===id)||null;
    Permintaan DW, lengkap dengan yang sudah terpenuhi. */
 function mintaTerwakiliAjuan(x){
   if(!x || x.status!=='DISETUJUI') return false;
-  return mintaTerpenuhi(x.id) >= Math.max(1, +x.jumlah||1);
+  return !mintaBelumTuntas(x);
+}
+/* ================= "MASIH PERLU DIKERJAKAN" =================
+   SATU definisi untuk tab Antrian, lencana sidebar, dan pemisah Riwayat.
+   ---------------------------------------------------------------------
+   Bukan sekadar `status==='MENUNGGU'`, dan bedanya nyata: permintaan yang
+   sudah DISETUJUI tapi orangnya belum lengkap ("0 dari 1", terjadi begitu
+   penugasannya ditolak atau ditarik) tetap menuntut pekerjaan — HRD masih
+   harus menunjuk penggantinya. Selama pemisahnya cuma status, baris itu
+   duduk di tab RIWAYAT lengkap dengan tombol Setuju dan Pilih DW-nya,
+   sementara tab Antrian menulis 0. Halaman yang menyembunyikan pekerjaan di
+   balik tab bernama "Riwayat" adalah halaman yang pekerjaannya terlewat, dan
+   yang terlewat di sini adalah shift yang malam itu kurang orang.
+
+   Yang DITOLAK / BATAL / KEDALUWARSA selesai betul walau tak seorang pun
+   pernah ditugaskan: putusannya memang tidak menugaskan siapa-siapa.
+
+   Sengaja TIDAK dipakai viewPermintaan (halaman head). Di sana pertanyaannya
+   berbeda — "permintaan saya sudah diputuskan atau belum" — dan bagi head,
+   yang sudah disetujui memang sudah selesai; sisanya urusan HRD. */
+function mintaBelumTuntas(x){
+  if(!x) return false;
+  if(x.status==='MENUNGGU')  return true;
+  if(x.status!=='DISETUJUI') return false;
+  return mintaTerpenuhi(x.id) < Math.max(1, +x.jumlah||1);
+}
+function entriPerluDikerjakan(e){
+  return e.jenis==='minta' ? mintaBelumTuntas(e.x) : e.status==='MENUNGGU';
+}
+/* Angka untuk lencana sidebar. Dihitung dengan aturan yang sama persis dengan
+   tab Antrian — lencana yang menulis 0 sementara halamannya menampilkan satu
+   baris yang menunggu adalah lencana yang berhenti dipercaya. */
+function antreanPerluDikerjakan(){
+  return (S&&S.ajuan||[]).filter(a=>a.status==='MENUNGGU').length
+       + (S&&S.permintaan||[]).filter(mintaBelumTuntas).length;
 }
 
 /* Label "hari ini / besok / lewat" untuk satu tanggal. Dihitung dari selisih
@@ -3670,13 +3709,16 @@ function viewAntrean(){
     .concat((S.ajuan||[]).map(a=>({jenis:'ajuan', x:a,
       id:a.id, tgl:a.tgl, divisi:a.divisi, status:a.status, putusAt:a.putusAt||0, m:a.m})));
 
-  const menunggu=entri.filter(e=>e.status==='MENUNGGU')
+  /* Dipisah menurut MASIH ADA PEKERJAANNYA ATAU TIDAK, bukan menurut status —
+     lihat entriPerluDikerjakan(). Permintaan yang disetujui tapi orangnya
+     belum lengkap ikut Antrian, bukan Riwayat. */
+  const menunggu=entri.filter(entriPerluDikerjakan)
     .sort((a,b)=>String(a.tgl).localeCompare(String(b.tgl))||String(a.m).localeCompare(String(b.m)));
   /* PERMINTAAN YANG SUDAH TERPENUHI PENUH TIDAK DIULANG DI RIWAYAT.
      Baris penugasannya sudah menceritakan hal yang sama dengan lebih lengkap
      (nama orangnya, bukan cuma jumlahnya), dan dua baris untuk satu shift
      membuat kolom Upah terbaca dua kali. Lihat mintaTerwakiliAjuan(). */
-  const sudah=entri.filter(e=>e.status!=='MENUNGGU')
+  const sudah=entri.filter(e=>!entriPerluDikerjakan(e))
     .filter(e=>!(e.jenis==='minta' && mintaTerwakiliAjuan(e.x)))
     .sort((a,b)=>b.putusAt-a.putusAt);
   /* Yang MENUNGGU selalu di atas di tab Semua: itu satu-satunya yang menuntut
@@ -3731,7 +3773,7 @@ function viewAntrean(){
     return kepala+(e.jenis==='minta'?barisMintaAntrean(e.x):barisAjuanAntrean(e.x));
   }).join('');
 
-  const kosongTeks = ANT_TAB==='antri'   ? 'Tidak ada permintaan atau pengajuan yang menunggu keputusan.'
+  const kosongTeks = ANT_TAB==='antri'   ? 'Tidak ada permintaan atau pengajuan yang perlu dikerjakan.'
                    : ANT_TAB==='riwayat' ? 'Belum ada yang diputuskan.'
                    :                       'Belum ada permintaan maupun pengajuan.';
   const tabel=list.length
@@ -3753,6 +3795,9 @@ function viewAntrean(){
      pekerjaan yang kebetulan muat di layar ini. */
   const nMinta=menunggu.filter(e=>e.jenis==='minta').length;
   const nAjuan=menunggu.length-nMinta;
+  /* Yang sudah DISETUJUI tapi orangnya belum lengkap. Disebut terpisah karena
+     tindakannya berbeda: bukan Setujui, melainkan Pilih DW. */
+  const nBelumLengkap=menunggu.filter(e=>e.jenis==='minta'&&e.x.status==='DISETUJUI').length;
 
   return pitaHead()
     +'<div class="panel">'
@@ -3769,11 +3814,18 @@ function viewAntrean(){
        harian yang harus dilewati paragraf tiap kali dibuka lama-lama tidak
        dibaca sama sekali. Yang benar-benar tidak bisa disimpulkan dari layar
        (rincian permintaan head vs pengajuan) diringkas jadi satu baris kecil. */
+    /* "menunggu TINDAKAN", bukan "menunggu KEPUTUSAN": sebagian di antaranya
+       sudah diputuskan (disetujui) dan yang tersisa justru menunjuk orangnya.
+       Kalimat yang menjanjikan keputusan membuat yang membukanya mencari
+       tombol Setujui di baris yang cuma butuh Pilih DW. */
     +(menunggu.length
       ? '<p class="mutedhint" style="margin:-2px 0 12px">'
-        +'<b>'+menunggu.length+'</b> menunggu keputusan Anda'
+        +'<b>'+menunggu.length+'</b> menunggu tindakan Anda'
         +(nMinta&&nAjuan?' — '+nMinta+' permintaan head, '+nAjuan+' pengajuan.'
-          :(nMinta?' — semuanya permintaan head.':'.'))+'</p>'
+          :(nMinta?' — semuanya permintaan head.':'.'))
+        +(nBelumLengkap
+          ? ' <b>'+nBelumLengkap+'</b> di antaranya sudah disetujui tapi orangnya belum lengkap.'
+          : '')+'</p>'
       : '')
     +'<div class="rowbar"><div class="seg">'
       +tab('antri','Antrian',menunggu.length)
@@ -3982,7 +4034,11 @@ function barisMintaAntrean(x){
   if(bolehHapusMinta(x))
     aksi.push('<button class="btn btn-ghost bahaya btn-sm" title="Hapus permanen — barisnya hilang dari riwayat juga"'
       +' onclick="hapusPermintaan(&#39;'+escJs(x.id)+'&#39;)">🗑 Hapus</button>');
-  return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
+  /* Ditandai kuning selama MASIH ADA PEKERJAANNYA — termasuk yang sudah
+     disetujui tapi orangnya belum lengkap. Kalau cuma yang MENUNGGU yang
+     ditandai, baris "0 dari 1" berdiri putih polos di antrean dan terbaca
+     seperti sudah beres. */
+  return '<tr'+(mintaBelumTuntas(x)?' class="tunggu"':'')+'>'
     +'<td class="mono">'+esc(tglManusia(x.tgl))+segeraHTML(x.tgl)+'</td>'
     /* Susunannya sengaja sejajar dengan baris pengajuan di atas: pil jenis,
        lalu "siapa"-nya, lalu baris-baris kecil keterangan. Bedanya cuma isi —
