@@ -141,6 +141,42 @@ penjaga yang longgar tidak menampilkan apa pun yang aneh.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
   baris, riwayat no-show tidak pecah).
 
+### DW: SATU ORANG BEBERAPA DIVISI & POSISI (19 Agustus 2026)
+
+`dw_pekerja.divisi` dan `.posisi` sekarang **CSV**, bukan satu nilai —
+`"floor,bar"`. **Yang pertama adalah yang utama**: itulah yang dipakai saat
+sebuah pintu menjadwalkan orang tanpa menyebut divisinya, dan itu yang tampil
+sebagai identitasnya di daftar. Kolomnya diperlebar otomatis oleh
+`pastikan_lebar()` (VARCHAR 120/240) — tanpa itu MySQL **memotong diam-diam**.
+
+- Layar: `divPekerja()` / `posPekerja()` / `punyaDiv()` / `punyaPos()` /
+  `divUtama()` / `posUtama()`. **Jangan** bandingkan `p.divisi === div` lagi —
+  orang berdivisi `"bar,floor"` tidak akan pernah cocok dengan satu pun.
+- **`dw_ajuan.divisi`/`.posisi` TETAP TUNGGAL.** `simpan_ajuan` memakai
+  `csv_utama()` saat mewarisi dari master; menyalin CSV ke sana tidak melempar
+  apa pun — barisnya cuma tidak pernah cocok dengan lembar divisi mana pun,
+  di sini maupun di modul Jadwal Shift, dan orangnya lenyap dari kalender.
+- Tiap pintu yang menjadwalkan memilih posisi **yang berlaku di divisi itu**,
+  bukan posisi pertama: posisi yang tidak berlaku membuat `tarifPosisi()`
+  memulangkan 0, dan salahnya muncul sebagai uang.
+
+### DW: HEAD TIDAK MELIHAT ANGKA UANG (19 Agustus 2026)
+
+`bolehLihatUang()` = `isHR()`, satu penjaga untuk seluruh modul. Yang
+disembunyikan: estimasi biaya di form Minta, kolom & kotak Est. Biaya di
+Dashboard/Kalender, kolom & kotak Upah di Rekap Pegawai, chip upah di
+`barisAjuan`, "Estimasi biaya" di modal detail ajuan, **dan baris kaki berkas
+Excel ekspor kalender**. Yang terakhir paling mudah terlewat — tidak ada yang
+membuka berkas ekspor untuk memeriksa apa ia menyembunyikan sesuatu.
+
+Halaman yang perlu dijaga adalah yang terbuka untuk head: `dashboard`, `tamu`,
+`kalender`, `rekap`, `pekerja`. `antrean`/`bayar`/`pengaturan`/`akses` sudah
+HRD-only lewat `bolehBuka()`.
+
+Yang disembunyikan hanya **tampilannya**; `S.setting.tarif` tetap ikut dalam
+balasan API. Kalau tarif harus benar-benar dirahasiakan dari head, yang perlu
+diubah `baca_semua()` di server.
+
 ### DW: DOBEL SHIFT SEHARI diizinkan (19 Agustus 2026)
 
 `dw_ajuan (dw_id, tgl)` **sudah bukan kunci unik**. Sampai 19 Agustus 2026 ia

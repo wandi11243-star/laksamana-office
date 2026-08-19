@@ -107,7 +107,61 @@ function pastikan_indeks($pdo, $tabel, $indeks, $kolom) {
   }
 }
 
+/* Memperlebar kolom yang sudah ada. Beda dengan pastikan_kolom(), yang cuma
+   MENAMBAH: kolom yang sudah lahir sempit tidak akan berubah oleh CREATE
+   TABLE IF NOT EXISTS maupun ADD COLUMN, dan yang terjadi kalau dibiarkan
+   bukan galat melainkan pemotongan diam-diam — "bar,floor" tersimpan sebagai
+   "bar,floor" yang terpotong di tengah, dan divisi keduanya hilang tanpa satu
+   pun pesan. Idempoten: lebar yang sudah cukup dilewati. */
+function pastikan_lebar($pdo, $tabel, $kolom, $lebar, $ddl) {
+  try {
+    $st = $pdo->prepare(
+      'SELECT CHARACTER_MAXIMUM_LENGTH c FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND COLUMN_NAME = :k');
+    $st->execute(array(':t' => $tabel, ':k' => $kolom));
+    $row = $st->fetch();
+    if (!$row) return;                                   // kolomnya belum ada
+    if ((int)$row['c'] >= $lebar) return;                 // sudah cukup lebar
+    $pdo->exec('ALTER TABLE `' . $tabel . '` MODIFY `' . $kolom . '` ' . $ddl);
+  } catch (Throwable $e) {
+    // Diam: sama alasannya dengan pastikan_kolom().
+  }
+}
+
 function json_enc($v) { return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }
+/* ================= DAFTAR BERKOMA =================
+   Divisi dan posisi seorang daily worker disimpan sebagai CSV di kolom yang
+   SAMA, bukan di tabel penghubung sendiri (19 Agustus 2026, atas permintaan:
+   "1 orang bisa lebih dari 1 divisi").
+
+   Kenapa CSV dan bukan tabel: yang dibutuhkan cuma keanggotaan, tanpa atribut
+   per pasangan dan tanpa kueri yang menyaringnya di SQL — `dw_pekerja` selalu
+   dibaca utuh lalu disaring di layar (lihat baca_semua). Tabel penghubung
+   berarti satu JOIN di tiap pembacaan untuk menjawab pertanyaan yang sudah
+   terjawab tanpa itu. Pola yang sama sudah dipakai `dw_permintaan.usulan`.
+
+   YANG PERTAMA ADALAH YANG UTAMA, dan itu bukan kesepakatan kosong: ajuan
+   hanya punya SATU divisi dan SATU posisi, jadi saat sebuah pintu menjadwalkan
+   orang tanpa menyebut divisinya, yang dipakai adalah yang pertama. Urutan
+   yang dikirim layar dipertahankan apa adanya. */
+function csv_daftar($v) {
+  if (is_array($v)) $bagian = $v;
+  else              $bagian = explode(',', (string)$v);
+  $out = array();
+  foreach ($bagian as $x) {
+    $x = trim((string)$x);
+    if ($x !== '' && !in_array($x, $out, true)) $out[] = $x;
+  }
+  return $out;
+}
+/* Nilai TUNGGAL dari sebuah kolom yang mungkin berisi CSV. Dipakai tiap kali
+   satu baris ajuan harus mewarisi divisi/posisi dari master — menyimpan
+   "bar,floor" ke `dw_ajuan.divisi` akan membuat barisnya tidak pernah cocok
+   dengan lembar divisi mana pun, di sini maupun di modul Jadwal Shift. */
+function csv_utama($v) {
+  $d = csv_daftar($v);
+  return count($d) ? $d[0] : '';
+}
 function s($v) { return trim((string)$v); }
 function ms() { return (int)(microtime(true) * 1000); }
 function pot($v, $n) { return mb_substr(s($v), 0, $n); }
@@ -171,8 +225,11 @@ function pastikan_tabel($pdo) {
        `bayar_jenis`  VARCHAR(16)  NOT NULL DEFAULT \'BANK\',
        `bayar_nomor`  VARCHAR(60)  NOT NULL DEFAULT \'\',
        `bayar_nama`   VARCHAR(120) NOT NULL DEFAULT \'\',
-       `divisi`       VARCHAR(16)  NOT NULL DEFAULT \'\',
-       `posisi`       VARCHAR(60)  NOT NULL DEFAULT \'\',
+       /* BERKOMA: satu orang bisa memegang beberapa divisi/posisi sejak
+          19 Agustus 2026. Yang pertama adalah yang utama — lihat csv_daftar().
+          Pemasangan lama diperlebar oleh pastikan_lebar() di bawah. */
+       `divisi`       VARCHAR(120) NOT NULL DEFAULT \'\',
+       `posisi`       VARCHAR(240) NOT NULL DEFAULT \'\',
        `skill`        VARCHAR(255) NOT NULL DEFAULT \'\',
        `status`       VARCHAR(16)  NOT NULL DEFAULT \'AKTIF\',
        `catatan`      VARCHAR(255) NOT NULL DEFAULT \'\',
@@ -241,6 +298,13 @@ function pastikan_tabel($pdo) {
      ditulis "BCA 1234", "bca-1234", dan "1234 (BCA)" oleh tiga orang yang
      berbeda. Kolom `bank` yang lama TIDAK di-DROP: isinya masih ditampilkan
      sebagai keterangan sampai HR sempat memisahnya sendiri. */
+  /* Satu daily worker bisa memegang beberapa divisi & posisi sejak 19 Agustus
+     2026, disimpan berkoma di kolom yang sama (lihat csv_daftar). Kolom lama
+     VARCHAR(16)/(60) memuat satu nilai dengan pas — "bar,floor,cashier" tidak
+     muat, dan MySQL memotongnya diam-diam alih-alih menolak. Diperlebar di
+     sini supaya tidak ada langkah manual di cPanel. */
+  pastikan_lebar($pdo, 'dw_pekerja', 'divisi', 120, "VARCHAR(120) NOT NULL DEFAULT ''");
+  pastikan_lebar($pdo, 'dw_pekerja', 'posisi', 240, "VARCHAR(240) NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_jenis', "VARCHAR(16)  NOT NULL DEFAULT 'BANK'");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nomor', "VARCHAR(60)  NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nama',  "VARCHAR(120) NOT NULL DEFAULT ''");
@@ -726,8 +790,12 @@ function simpan_pekerja($row, $by) {
     ':bj' => bayar_jenis_sah(isset($row['bayarJenis']) ? $row['bayarJenis'] : ''),
     ':bn' => pot(isset($row['bayarNomor']) ? $row['bayarNomor'] : '', 60),
     ':ba' => pot(isset($row['bayarNama']) ? $row['bayarNama'] : '', 120),
-    ':dv' => pot(isset($row['divisi']) ? $row['divisi'] : '', 16),
-    ':ps' => pot(isset($row['posisi']) ? $row['posisi'] : '', 60),
+    /* Diterima sebagai array ATAU string berkoma — layar mengirim array,
+       impor/pemanggil lama mengirim string. csv_daftar() merapikan keduanya
+       jadi satu bentuk: tanpa spasi menggantung, tanpa duplikat, urutan
+       dipertahankan (yang pertama = yang utama). */
+    ':dv' => pot(implode(',', csv_daftar(isset($row['divisi']) ? $row['divisi'] : '')), 120),
+    ':ps' => pot(implode(',', csv_daftar(isset($row['posisi']) ? $row['posisi'] : '')), 240),
     ':sk' => pot(isset($row['skill']) ? $row['skill'] : '', 255),
     ':st' => $status,
     ':ct' => pot(isset($row['catatan']) ? $row['catatan'] : '', 255),
@@ -955,8 +1023,18 @@ function simpan_ajuan($row, $by) {
      master. Seorang DW bisa dipanggil ke Bar minggu ini dan Kitchen minggu
      depan; kalau kalender membaca divisi dari master, riwayat lama ikut
      berpindah kolom setiap kali HR mengubah divisi utamanya. */
-  $divisi = pot(isset($row['divisi']) && s($row['divisi']) !== '' ? $row['divisi'] : $o['divisi'], 16);
-  $posisi = pot(isset($row['posisi']) && s($row['posisi']) !== '' ? $row['posisi'] : $o['posisi'], 60);
+  /* csv_utama() WAJIB di kedua baris. Sejak seorang DW bisa memegang beberapa
+     divisi/posisi (19 Agustus 2026), `$o['divisi']` bisa berisi "bar,floor" —
+     dan satu baris ajuan hanya punya SATU divisi. Menyalinnya apa adanya
+     tidak melempar apa pun: barisnya tersimpan dengan divisi "bar,floor",
+     lalu tidak pernah cocok dengan lembar divisi mana pun, di sini maupun di
+     modul Jadwal Shift. Orangnya lenyap dari kalender tanpa satu pun galat.
+     Yang dikirim layar tetap dipakai apa adanya kalau ada — layar selalu
+     mengirim satu nilai. */
+  $divisi = pot(isset($row['divisi']) && s($row['divisi']) !== ''
+                  ? csv_utama($row['divisi']) : csv_utama($o['divisi']), 16);
+  $posisi = pot(isset($row['posisi']) && s($row['posisi']) !== ''
+                  ? csv_utama($row['posisi']) : csv_utama($o['posisi']), 60);
 
   /* ================= BENTROK JAM =================
      Satu daily worker boleh punya BEBERAPA shift di hari yang sama sejak

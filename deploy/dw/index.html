@@ -458,6 +458,29 @@ table.tbl-minta .aksi-minta .btn{margin-left:6px;margin-top:3px}
    dikerjakan HRD adalah MEMBANDINGKAN beberapa nama sekaligus ("siapa yang
    belum kepakai"), dan itu mustahil di dalam daftar yang harus dibuka satu
    per satu. */
+/* ---------- Kotak centang divisi & posisi (form Database DW) ----------
+   Pil yang membungkus, bukan kisi kolom tetap: jumlah posisi per divisi
+   berbeda-beda (Cashier satu, Floor tiga) dan kisi tetap meninggalkan kolom
+   kosong yang terbaca seperti pilihan yang gagal dimuat. */
+.pick-div{display:flex;flex-wrap:wrap;gap:6px}
+.cekdiv{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--line);
+  border-radius:20px;padding:5px 11px;font-size:12.5px;font-weight:600;color:var(--ink);
+  background:var(--surface);cursor:pointer;transition:.12s var(--ease)}
+.cekdiv:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.cekdiv.on{border-color:var(--gold-dim);background:var(--gold-soft);color:var(--gold-dim)}
+.cekdiv input{width:14px;height:14px;accent-color:var(--gold);margin:0}
+/* Penanda "utama" pada divisi yang dicentang pertama. Ditulis, bukan sekadar
+   diurutkan — urutan pil tidak berubah saat dicentang, jadi tanpa label ini
+   tidak ada satu pun cara melihat mana yang jadi bawaan penjadwalan. */
+.cekdiv em.utama{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;color:#fff;background:var(--gold-dim);border-radius:10px;padding:1px 6px}
+.cekdiv em{font-style:normal;font-size:10.5px;color:var(--muted-2);font-weight:600}
+/* Posisi dikelompokkan per divisi; judul kelompoknya satu baris penuh supaya
+   pil di bawahnya jelas miliknya. */
+.posgrup{width:100%;margin-bottom:6px}
+.posgrup b{display:block;font-size:11px;font-weight:800;color:var(--muted-2);
+  text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.posgrup .cekdiv{margin:0 5px 5px 0}
 .pilih-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
   gap:7px;max-height:320px;overflow:auto;padding:2px}
 .pilih-dw{display:flex;align-items:center;gap:7px;border:1.5px solid var(--line);
@@ -1529,8 +1552,65 @@ function namaDW(id){
 }
 function namaDivisi(k){ const d=DIVISI.find(x=>x.k===k); return d?d.n:(k||'—'); }
 function ikonDivisi(k){ const d=DIVISI.find(x=>x.k===k); return d?d.ic:'•'; }
+/* ================= SATU ORANG, BEBERAPA DIVISI =================
+   Sejak 19 Agustus 2026 seorang daily worker bisa memegang lebih dari satu
+   divisi dan lebih dari satu posisi. Disimpan berkoma di kolom yang sama
+   (`dw_pekerja.divisi` / `.posisi`) — alasannya di csv_daftar() pada backend.
+
+   YANG PERTAMA ADALAH YANG UTAMA. Ajuan hanya punya satu divisi dan satu
+   posisi, jadi tiap pintu yang menjadwalkan tanpa menyebutnya memakai yang
+   pertama. Itu juga yang tampil sebagai identitas orangnya di daftar.
+
+   Kenapa tidak diubah jadi array di normalizeState: `p.divisi` dibaca di
+   belasan tempat, sebagian mengirimkannya lagi ke server, dan mengubah
+   bentuknya berarti tiap satu yang terlewat menyimpan "[object Object]" atau
+   array ke kolom yang seharusnya string. Bentuk tersimpannya tetap string;
+   yang memecahnya fungsi-fungsi di bawah, dan pemakainya jelas terbaca. */
+function csvDaftar(v){
+  return String(v==null?'':v).split(',')
+    .map(function(x){ return x.trim(); })
+    .filter(function(x,i,a){ return x!=='' && a.indexOf(x)===i; });
+}
+function divPekerja(p){ return csvDaftar(p&&p.divisi); }
+function posPekerja(p){ return csvDaftar(p&&p.posisi); }
+function divUtama(p){ return divPekerja(p)[0]||''; }
+function posUtama(p){ return posPekerja(p)[0]||''; }
+function punyaDiv(p,div){ return divPekerja(p).indexOf(div)>-1; }
+function punyaPos(p,pos){ return posPekerja(p).indexOf(pos)>-1; }
+/* Label divisi seseorang untuk dibaca: "🍹 Bar + 1" di daftar yang sempit,
+   dan seluruhnya di tooltip. Menuliskan keempatnya apa adanya di kolom yang
+   lebarnya satu nama membuat baris tabelnya melar dua kali lipat. */
+function labelDivPekerja(p,penuh){
+  const d=divPekerja(p);
+  if(!d.length) return '—';
+  if(penuh||d.length===1) return d.map(k=>ikonDivisi(k)+' '+namaDivisi(k)).join(', ');
+  return ikonDivisi(d[0])+' '+namaDivisi(d[0])+' +'+(d.length-1);
+}
 function tarifPosisi(p){ const t=S.setting.tarif||{}; return +t[p]||0; }
 function biayaAjuan(a){ return tarifPosisi(a.posisi); }
+/* ================= SIAPA BOLEH MELIHAT ANGKA UANG =================
+   HRD saja (19 Agustus 2026, atas permintaan). Head divisi TIDAK — tidak di
+   form permintaan, tidak di kalender, tidak di rekap, tidak di ekspor.
+
+   Alasannya bukan kerahasiaan tarif semata: yang diputuskan head adalah
+   BERAPA ORANG yang ia butuhkan malam itu, dan angka rupiah di sebelah kotak
+   jumlah mengubah pertanyaannya jadi "berapa yang sanggup saya belanjakan" —
+   pertanyaan yang bukan miliknya, dan yang jawabannya ia tebak tanpa tahu
+   anggaran. Yang menanggung uangnya HRD, dan HRD-lah yang melihat angkanya
+   saat memutuskan.
+
+   `isHR()` datang dari SERVER (`data.peran.hrd`), bukan disimpulkan layar —
+   jadi head yang membuka DevTools pun tidak bisa membalikkannya sendiri.
+   Yang disembunyikan hanya TAMPILANNYA; `S.setting.tarif` tetap ikut dalam
+   balasan API, dan itu memang bukan rahasia yang dijaga backend. Kalau suatu
+   saat tarif benar-benar harus dirahasiakan dari head, yang perlu diubah
+   adalah baca_semua() di server, bukan berkas ini. */
+function bolehLihatUang(){ return isHR(); }
+/* Nominal siap tampil, atau string kosong untuk yang tidak berhak. Pemanggil
+   yang memutuskan apa yang terjadi pada kosongnya — sebagian menyembunyikan
+   seluruh kolom, sebagian cuma melewati satu baris. Kolom "Upah" yang berisi
+   "—" di setiap barisnya lebih membingungkan daripada kolom yang tidak ada. */
+function rpJika(n){ return bolehLihatUang() ? rp(n) : ''; }
 
 /* =====================================================================
    HAK AKSES
@@ -2218,7 +2298,10 @@ function barisAjuan(a,opsi){
     +esc(jamAjuan(a))+' · '+durasiJam(a.m,a.s)+' jam'
     +(cat?' · “'+catPendek+'”':'')+'</span></div>'
     +(opsi.tanggal?'<span class="chip">'+esc(tglManusia(a.tgl))+'</span>':'')
-    +'<span class="chip mono">'+esc(rp(biayaAjuan(a)))+'</span>'
+    /* Chip upah hilang seluruhnya untuk yang bukan HRD — lihat
+       bolehLihatUang(). Bukan diganti "—": chip kosong di antara chip berisi
+       terbaca sebagai data yang gagal dimuat. */
+    +(bolehLihatUang()?'<span class="chip mono">'+esc(rp(biayaAjuan(a)))+'</span>':'')
     +pilStatus(a.status)
     +(opsi.aksi||'')
     +'</div>';
@@ -2291,8 +2374,14 @@ function viewDashboard(){
       +(tungguHariItu.length?'<div class="mutedhint" style="margin-top:6px"><b>'+tungguHariItu.length+' ajuan</b> untuk hari ini masih menunggu keputusan Anda.</div>':'')
       +'</div>';
   }else{
+    /* Kolom Est. Biaya HILANG SELURUHNYA untuk yang bukan HRD, kepala kolomnya
+       sekalian — lihat bolehLihatUang(). Kolom berisi "—" di tiap barisnya
+       cuma memberi tahu bahwa ada sesuatu yang disembunyikan, dan itu
+       pertanyaan yang tidak perlu dimunculkan di halaman kerja harian. */
+    const uang=bolehLihatUang();
     tabel='<div class="tablewrap"><table class="list">'
-      +'<thead><tr><th class="no">No.</th><th>Daily Worker</th><th>Divisi</th><th>Posisi</th><th>Jam</th><th>Durasi</th><th class="kanan">Est. Biaya</th></tr></thead><tbody>'
+      +'<thead><tr><th class="no">No.</th><th>Daily Worker</th><th>Divisi</th><th>Posisi</th><th>Jam</th><th>Durasi</th>'
+      +(uang?'<th class="kanan">Est. Biaya</th>':'')+'</tr></thead><tbody>'
       +setuju.map((a,i)=>'<tr class="klik" onclick="bukaAjuan(\''+escJs(a.id)+'\')">'
         +'<td class="no">'+(i+1)+'</td>'
         +'<td class="nama">'+esc(namaDW(a.dwId))+'</td>'
@@ -2300,7 +2389,7 @@ function viewDashboard(){
         +'<td>'+esc(a.posisi||'—')+'</td>'
         +'<td class="mono">'+esc(jamAjuan(a))+'</td>'
         +'<td class="mono">'+durasiJam(a.m,a.s)+' jam</td>'
-        +'<td class="kanan mono">'+esc(rp(biayaAjuan(a)))+'</td></tr>').join('')
+        +(uang?'<td class="kanan mono">'+esc(rp(biayaAjuan(a)))+'</td>':'')+'</tr>').join('')
       +'</tbody></table></div>';
   }
 
@@ -2325,7 +2414,7 @@ function viewDashboard(){
       +statBox(tunggu.length,'Menunggu (semua)')
       +statBox(mintaTunggu.length,'Permintaan Head')
       +statBox(Math.round(jam*10)/10,'Total Jam')
-      +statUang(rp(biaya),'Est. Biaya')
+      +(bolehLihatUang()?statUang(rp(biaya),'Est. Biaya'):'')
     +'</div>'
     +tabel
     +'</div>'
@@ -2638,8 +2727,12 @@ function viewPermintaan(){
                 dipanggil terus. */
 function kandidatDW(divisi, posisi, urut){
   const aktif=(S.pekerja||[]).filter(p=>p.status==='AKTIF');
-  const diDiv=aktif.filter(p=>p.divisi===divisi);
-  let list=posisi?diDiv.filter(p=>p.posisi===posisi):diDiv;
+  /* punyaDiv/punyaPos, bukan perbandingan langsung: satu DW bisa memegang
+     beberapa divisi dan beberapa posisi sejak 19 Agustus 2026. Perbandingan
+     lama membuat orang berdivisi "bar,floor" tidak pernah muncul sebagai
+     kandidat di satu pun divisinya. */
+  const diDiv=aktif.filter(p=>punyaDiv(p,divisi));
+  let list=posisi?diDiv.filter(p=>punyaPos(p,posisi)):diDiv;
   const kapan=p=>p.terakhirKerja?parseD(p.terakhirKerja).getTime():0;
   const nm=(a,b)=>String(a.nama||'').localeCompare(String(b.nama||''));
   list=list.slice().sort(urut==='sering'
@@ -2652,7 +2745,7 @@ function kandidatDW(divisi, posisi, urut){
    memang belum punya siapa-siapa" diselesaikan dengan mendaftarkan orang.
    Satu kalimat "tidak ada data" mengirim yang membacanya ke tempat yang salah. */
 function kosongKandidatHTML(divisi, posisi){
-  const adaDiDiv=(S.pekerja||[]).some(p=>p.status==='AKTIF' && p.divisi===divisi);
+  const adaDiDiv=(S.pekerja||[]).some(p=>p.status==='AKTIF' && punyaDiv(p,divisi));
   if(!adaDiDiv)
     return '<div class="empty">Belum ada daily worker aktif di divisi <b>'+esc(namaDivisi(divisi))+'</b>.'
       +'<div class="mutedhint" style="margin-top:6px">Daftarkan dulu di <b>Database DW</b>.</div></div>';
@@ -2677,10 +2770,17 @@ function mintaUntukOrang(dwId){
   /* Divisi orangnya dipakai kalau memang boleh diminta pemanggil; kalau bukan
      divisinya, jatuh ke divisi pertama yang ia pegang — dan usulannya tidak
      ikut, karena orang itu memang bukan miliknya. */
-  const bolehDiv=kuasa.indexOf(o.divisi)>-1;
-  const div=bolehDiv?o.divisi:kuasa[0];
+  /* Dicari IRISAN antara divisi yang dipegang orangnya dan divisi yang boleh
+     diminta pemanggil — bukan sekadar divisi utamanya. Sejak satu DW bisa
+     memegang beberapa divisi (19 Agustus 2026), head Bar yang menekan "minta
+     orang ini" pada seorang DW berdivisi "floor,bar" dulu mendapat pesan
+     "bukan divisi Anda" padahal orangnya memang miliknya juga. */
+  const divBisa=divPekerja(o).filter(k=>kuasa.indexOf(k)>-1);
+  const bolehDiv=divBisa.length>0;
+  const div=bolehDiv?divBisa[0]:kuasa[0];
   const jam=(S.setting.jam||[])[0]||{m:'16:00',s:'23:00'};
-  const pos=posisiDivisi(div).indexOf(o.posisi)>-1?o.posisi:posisiBawaanDivisi(div);
+  /* Posisi yang berlaku di divisi itu, di antara posisi yang dipegangnya. */
+  const pos=posPekerja(o).filter(x=>posisiDivisi(div).indexOf(x)>-1)[0]||posisiBawaanDivisi(div);
   MINTA={id:'', tgl:hariIni(), divisi:div, m:jam.m, s:jam.s, posisi:pos,
          jumlah:1, catatan:'', usulan:bolehDiv?[dwId]:[], pilihOrang:bolehDiv};
   if(!bolehDiv) toast(o.nama+' bukan divisi Anda — divisinya diganti', true);
@@ -2882,7 +2982,7 @@ function pilihOrangHTML(b){
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="mintaToggleOrang(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
-        +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +(posPekerja(p).length?'<em> · '+esc(posPekerja(p).join(', '))+'</em>':'')
         +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
           +' hari itu</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
@@ -2900,6 +3000,17 @@ function pilihOrangHTML(b){
    tarifPosisi() yang sama dengan seluruh modul, jadi angkanya tidak pernah
    bisa berbeda dengan yang muncul di Pembayaran nanti. */
 function biayaPermintaanHTML(b){
+  /* KOSONG UNTUK HEAD (19 Agustus 2026, atas permintaan) — dan inilah tempat
+     yang paling penting dari seluruh perubahan itu. Yang diputuskan head di
+     form ini adalah BERAPA ORANG yang ia butuhkan malam itu; angka rupiah
+     yang bergerak tiap kali kotak jumlah diubah mengganti pertanyaannya jadi
+     "berapa yang sanggup saya belanjakan" — pertanyaan yang bukan miliknya,
+     dan yang jawabannya ia tebak tanpa tahu anggarannya.
+
+     Peringatan "tarif belum disetel" ikut hilang: ia perintah untuk HRD
+     ("atur di Pengaturan"), dan head tidak bisa mengerjakannya. Yang tersisa
+     untuk head cuma pita merah yang tidak bisa ia tindaklanjuti. */
+  if(!bolehLihatUang()) return '';
   const tarif=tarifPosisi(b.posisi);
   const jml=Math.max(1,+b.jumlah||1);
   if(!tarif){
@@ -3171,7 +3282,7 @@ function gambarTunjuk(){
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="tunjukToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
-        +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +(posPekerja(p).length?'<em> · '+esc(posPekerja(p).join(', '))+'</em>':'')
         +(diantre?'<em> · juga diantre '+esc(namaDivisi(diantre.divisi))
           +(diantre.dibuatOleh?' ('+esc(diantre.dibuatOleh)+')':'')+'</em>':'')
         +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
@@ -3859,13 +3970,13 @@ function lembarTambahModal(){
      bisa dipilih — DW dipanggil lintas divisi itu hal biasa — cuma tidak
      mendahului yang memang orang divisi ini. */
   const semua=(S.pekerja||[]).filter(p=>p.status==='AKTIF' && !sudah[p.id]);
-  const utama=semua.filter(p=>p.divisi===DIV), lain=semua.filter(p=>p.divisi!==DIV);
+  const utama=semua.filter(p=>punyaDiv(p,DIV)), lain=semua.filter(p=>!punyaDiv(p,DIV));
   const opsi=utama.concat(lain);
   modal('Tambah DW ke lembar',
     (opsi.length
       ? '<div class="field"><label>Daily worker</label><select id="lbTambah">'
-        +opsi.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nama)+' · '+esc(namaDivisi(p.divisi))
-          +(p.posisi?' · '+esc(p.posisi):'')+'</option>').join('')
+        +opsi.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nama)+' · '+esc(divPekerja(p).map(namaDivisi).join('/')||'—')
+          +(posPekerja(p).length?' · '+esc(posPekerja(p).join(', ')):'')+'</option>').join('')
         +'</select><div class="hint">Barisnya muncul kosong di lembar — klik selnya untuk mengisi tanggal.</div></div>'
       : '<div class="note i">Semua daily worker aktif sudah ada di lembar bulan ini.</div>'),
     opsi.length?[{t:'Tambahkan',c:'btn-primary',f:function(){
@@ -3935,7 +4046,7 @@ function lembarDW(mk,div){
      Yang dulu diperbaiki 13 Agustus 2026 — ajuan yang disimpan lewat sel
      sambungan lalu barisnya lenyap — tetap dijaga LEMBAR_EKSTRA. */
   const idOrang=[];
-  (S.pekerja||[]).forEach(p=>{ if(p.status==='AKTIF' && p.divisi===div) idOrang.push(p.id); });
+  (S.pekerja||[]).forEach(p=>{ if(p.status==='AKTIF' && punyaDiv(p,div)) idOrang.push(p.id); });
   ajuBulan.forEach(x=>{ if(x.tgl>=a && x.tgl<=z && idOrang.indexOf(x.dwId)<0) idOrang.push(x.dwId); });
   LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
   idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
@@ -4028,7 +4139,12 @@ function viewKalender(){
         }).join('')+'</tr>';
     idOrang.forEach(function(id,ui){
       const orang=pekerjaById(id);
-      const posisiOrang=(orang&&orang.posisi)||'';
+      /* Posisi yang berlaku DI LEMBAR INI, bukan seluruh posisi orangnya.
+         Seorang DW berposisi "Waiter/Waitress, Bar Helper" di lembar Bar cuma
+         relevan sebagai Bar Helper — menulis keduanya membuat kolom nama
+         melebar dan menyebut pekerjaan yang tidak ia kerjakan di lembar ini. */
+      const posisiOrang=posPekerja(orang).filter(x=>posisiDivisi(DIV).indexOf(x)>-1).join(', ')
+        ||posUtama(orang)||'';
       const statusOrang=(orang&&orang.status!=='AKTIF')
         ? ((STATUS_DW[orang.status]||{}).n||orang.status) : '';
       /* Kolom ketiga = BEBAN BULAN INI, bukan posisi. Posisi sudah tertulis
@@ -4162,7 +4278,7 @@ function viewKalender(){
       +statBox(setuju.reduce(function(n,x){ return n.indexOf(x.dwId)<0?n.concat([x.dwId]):n; },[]).length,'DW Terpakai')
       +statBox(setuju.length,'Shift Disetujui')
       +statBox(Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0)),'Total Jam')
-      +statUang(rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)),'Est. Biaya')
+      +(bolehLihatUang()?statUang(rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)),'Est. Biaya'):'')
     +'</div>'
     +tabel
     +(bolehIsi&&idOrang.length?'<p class="mutedhint noprint" style="margin-top:8px">Klik sel <b>+</b> untuk '
@@ -4224,7 +4340,13 @@ function isiSelDW(dwId,tgl){
   const p=pekerjaById(dwId);
   const jam=(S.setting.jam||[])[0]||{m:'16:00',s:'23:00'};
   SEL_DW={tgl:tgl, m:jam.m, s:jam.s,
-          posisi:(p&&p.posisi)||posisiBawaanDivisi(DIV), catatan:'',
+          /* Posisi yang berlaku di DIVISI YANG SEDANG DIBUKA, bukan posisi
+             utamanya. Seorang DW berposisi "Waiter/Waitress,Bar Helper" yang
+             selnya diklik di lembar Bar jelas sedang dijadwalkan sebagai Bar
+             Helper; memakai yang pertama membuat barisnya tersimpan dengan
+             posisi yang tidak berlaku di divisi itu — dan tarif yang terpakai
+             bukan tarif yang dimaksud. */
+          posisi:(posPekerja(p).filter(x=>posisiDivisi(DIV).indexOf(x)>-1)[0])||posisiBawaanDivisi(DIV), catatan:'',
           /* Orang yang selnya diklik langsung tercentang. Sisanya ditambahkan
              di modal — satu hari sering butuh lebih dari satu orang, dan
              sebelumnya itu berarti membuka modal ini berulang kali. */
@@ -4309,7 +4431,7 @@ function gambarSelDW(){
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="selDwToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
-        +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +(posPekerja(p).length?'<em> · '+esc(posPekerja(p).join(', '))+'</em>':'')
         +(dipesan?'<em> · diantre '+esc(namaDivisi(dipesan.divisi))+'</em>':'')
         +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
           +' hari itu</em>':'')
@@ -4412,7 +4534,7 @@ function isiBarisDW(dwId,senin){
   if(!bolehIsiKalender()) return toast('Hanya head divisi ini dan HRD yang bisa mengisi lembar ini', true);
   const p=pekerjaById(dwId); if(!p) return;
   BARIS_DW={ dwId:dwId, senin:senin, i:0,
-    posisi:p.posisi||posisiBawaanDivisi(p.divisi||DIV),
+    posisi:posUtama(p)||posisiBawaanDivisi(divUtama(p)||DIV),
     isi:[0,1,2,3,4,5,6].map(function(k){
       /* Hari yang sudah lewat dikunci seperti hari yang sudah terisi (`ada:1`,
          tanpa jam): pengisi seminggu tidak boleh jadi pintu belakang ke
@@ -4700,8 +4822,8 @@ function ajukanTgl(tgl,dwId){
      Nama dan catatan selalu dikosongkan: itu yang berbeda tiap orang. */
   AJT={
     tgl:tgl, dw:org?org.id:'', cat:'',
-    div:(org&&org.divisi)||lama.div||DIVISI[0].k,
-    pos:(org&&org.posisi)||lama.pos||posisiBawaanDivisi((org&&org.divisi)||lama.div||DIVISI[0].k),
+    div:(org?divUtama(org):'')||lama.div||DIVISI[0].k,
+    pos:(org?posUtama(org):'')||lama.pos||posisiBawaanDivisi((org?divUtama(org):'')||lama.div||DIVISI[0].k),
     m:lama.m||(jam[0]?jam[0].m:'16:00'),
     s:lama.s||(jam[0]?jam[0].s:'23:00')
   };
@@ -4734,8 +4856,17 @@ function ajtPilihDw(id){
   serapAjukanTgl();
   const p=pekerjaById(id);
   if(p){
-    if(p.divisi) AJT.div=p.divisi;
-    if(p.posisi) AJT.pos=p.posisi;
+    /* Kalau orangnya memegang divisi yang SEDANG dibuka, itu yang dipakai —
+       bukan divisi utamanya. Seorang DW berdivisi "bar,floor" yang dipilih
+       dari lembar Floor jelas sedang dijadwalkan untuk Floor, dan memaksanya
+       ke Bar berarti barisnya mendarat di lembar yang bukan tempat ia baru
+       saja dipilih. */
+    const dv = punyaDiv(p, AJT.div) ? AJT.div : divUtama(p);
+    if(dv) AJT.div=dv;
+    /* Posisi mengikuti divisi itu: yang pertama di antara posisi orang ini
+       yang memang berlaku di divisi tersebut. */
+    const pos = posPekerja(p).filter(x=>posisiDivisi(dv).indexOf(x)>-1)[0] || posUtama(p);
+    if(pos) AJT.pos=pos;
   }
   gambarAjukanTgl();
 }
@@ -4821,7 +4952,7 @@ function gambarAjukanTgl(){
              tahu apakah yang mau ditambahkan ini bertabrakan atau tidak. */
           const ada=ajuanOrangTgl(p.id, b.tgl);
           return '<option value="'+esc(p.id)+'"'+(b.dw===p.id?' selected':'')+'>'
-            +esc(p.nama)+' · '+esc(namaDivisi(p.divisi))
+            +esc(p.nama)+' · '+esc(divPekerja(p).map(namaDivisi).join('/')||'—')
             +(ada.length?' — sudah '+esc(ada.map(a=>jamAjuan(a)).join(', ')):'')+'</option>';
         }).join('')
       +'</select></div>'
@@ -5274,7 +5405,7 @@ function viewPekerja(){
           +'<td class="no">'+(i+1)+'</td>'
           +'<td class="nama">'+esc(p.nama)+(p.area?'<div class="kecil">'+esc(p.area)+'</div>':'')+'</td>'
           +'<td class="mono">'+esc(p.hp)+'</td>'
-          +'<td>'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div></td>'
+          +'<td title="'+esc(labelDivPekerja(p,true)+' · '+(posPekerja(p).join(', ')||'—'))+'">'+esc(labelDivPekerja(p))+'<div class="kecil">'+esc(posPekerja(p).join(', ')||'—')+'</div></td>'
           +'<td class="kanan mono">'+st.total+'×<div class="kecil">'+st.jam+' jam</div></td>'
           +'<td>'+pilStatusDW(p.status)+'</td>'
           /* CRUD LANGSUNG DARI DAFTAR (14 Agustus 2026). Sebelumnya barisnya
@@ -5324,13 +5455,107 @@ function filterPekerja(k){ FILTER_PEKERJA=k; render(); }
    yang dulu pernah sah di divisi yang SAMA; di sini divisinya sendiri yang
    berubah, jadi mempertahankannya justru menghasilkan pasangan yang mustahil.
    Aturan yang sama dipakai serapMinta() di form Minta DW. */
-function ubahDivisiPekerja(div){
-  const sel=document.getElementById('pkPos'); if(!sel) return;
-  const sekarang=sel.value;
-  const sah=posisiDivisi(div);
-  sel.innerHTML=opsiPosisi(div, sah.indexOf(sekarang)>-1?sekarang:posisiBawaanDivisi(div));
-  const h=document.getElementById('pkPosHint');
-  if(h) h.textContent='Pilihannya mengikuti divisi '+namaDivisi(div)+'.';
+/* Kotak centang divisi. Nilainya dibaca dari DOM saat Simpan (bacaPilih),
+   bukan disimpan di variabel — modal ini tidak punya state sendiri, dan
+   menambahkannya berarti satu tempat lagi yang bisa tidak sinkron dengan
+   yang terlihat.
+
+   `data-urut` menyimpan URUTAN pencentangan, dan itu bukan hiasan: yang
+   pertama dipilih adalah divisi UTAMA, dan urutan DOM (Bar, Kitchen, Floor,
+   Cashier) tidak mengatakan apa pun tentang mana yang orangnya sendiri sebut
+   lebih dulu. Tanpa ini, mencentang Floor lalu Bar akan menyimpan Bar sebagai
+   utama semata-mata karena Bar digambar lebih kiri. */
+function pilihDivisiHTML(terpilih){
+  const t=Array.isArray(terpilih)?terpilih:[];
+  return DIVISI.map(function(d){
+    const i=t.indexOf(d.k);
+    return '<label class="cekdiv'+(i>-1?' on':'')+'" data-k="'+esc(d.k)+'">'
+      +'<input type="checkbox" data-div="'+esc(d.k)+'"'+(i>-1?' checked':'')
+      +' data-urut="'+(i>-1?i:'')+'" onchange="ubahDivisiPekerja()"> '
+      +d.ic+' '+esc(d.n)
+      +(i===0?'<em class="utama">utama</em>':'')+'</label>';
+  }).join('');
+}
+/* Posisi DIKELOMPOKKAN PER DIVISI yang dicentang, bukan satu daftar datar
+   gabungan. Bedanya menentukan: "Dishwasher" berlaku di Bar dan Kitchen, dan
+   daftar datar membuatnya muncul sekali tanpa mengatakan untuk divisi mana —
+   sementara yang mengisinya justru sedang menjawab "orang ini bisa apa saja
+   di mana saja".
+
+   Posisi yang sudah tersimpan tapi TIDAK berlaku di divisi mana pun yang
+   dicentang tetap digambar, ditandai "(lama)", dengan alasan yang sama
+   seperti opsiPosisi(): kalau tidak, membuka form seorang DW lalu menekan
+   Simpan diam-diam mencabut posisinya — dan tarifnya ikut. */
+function pilihPosisiHTML(divs, terpilih){
+  const d=Array.isArray(divs)?divs:[];
+  const t=Array.isArray(terpilih)?terpilih:[];
+  if(!d.length)
+    return '<span class="mutedhint">Centang divisinya dulu — posisi mengikuti divisi.</span>';
+  const sudahDigambar=[];
+  let h=d.map(function(k){
+    const list=posisiDivisi(k);
+    if(!list.length) return '';
+    return '<div class="posgrup"><b>'+ikonDivisi(k)+' '+esc(namaDivisi(k))+'</b>'
+      +list.map(function(x){
+          const on=t.indexOf(x)>-1;
+          if(sudahDigambar.indexOf(x)<0) sudahDigambar.push(x);
+          /* `name` diberi divisi supaya dua divisi yang berbagi posisi yang
+             sama (Dishwasher) tidak menggambar dua kotak yang saling
+             membatalkan centang. Yang dibaca saat Simpan tetap nilainya, dan
+             duplikatnya dibuang di sana. */
+          return '<label class="cekdiv'+(on?' on':'')+'">'
+            +'<input type="checkbox" data-pos="'+esc(x)+'"'+(on?' checked':'')
+            +' onchange="tandaiPilih(this)"> '+esc(x)+'</label>';
+        }).join('')
+      +'</div>';
+  }).join('');
+  /* Posisi tersimpan yang tidak ada di satu pun divisi tercentang. */
+  const lama=t.filter(x=>sudahDigambar.indexOf(x)<0);
+  if(lama.length)
+    h+='<div class="posgrup"><b>Posisi lama</b>'
+      +lama.map(x=>'<label class="cekdiv on" title="Tidak berlaku di divisi yang dicentang sekarang. '
+        +'Dibiarkan supaya tidak tercabut diam-diam saat Simpan.">'
+        +'<input type="checkbox" data-pos="'+esc(x)+'" checked onchange="tandaiPilih(this)"> '
+        +esc(x)+' <em>(lama)</em></label>').join('')
+      +'</div>';
+  return h;
+}
+/* Membaca kotak centang dari DOM. `data-urut` dipakai mengurutkan divisi
+   menurut kapan ia dicentang; yang belum punya urutan (baru saja dicentang)
+   diletakkan di belakang. */
+function bacaPilihDiv(){
+  const box=document.getElementById('pkDivBox'); if(!box) return [];
+  return Array.from(box.querySelectorAll('input[data-div]:checked'))
+    .map(function(i,n){ const u=i.getAttribute('data-urut'); return {k:i.dataset.div, u:(u===''||u==null)?9000+n:+u}; })
+    .sort(function(a,b){ return a.u-b.u; })
+    .map(function(x){ return x.k; });
+}
+function bacaPilihPos(){
+  const box=document.getElementById('pkPosBox'); if(!box) return [];
+  const out=[];
+  Array.from(box.querySelectorAll('input[data-pos]:checked')).forEach(function(i){
+    if(out.indexOf(i.dataset.pos)<0) out.push(i.dataset.pos);
+  });
+  return out;
+}
+function tandaiPilih(el){
+  const l=el.closest('.cekdiv'); if(l) l.classList.toggle('on', el.checked);
+}
+/* Digambar ulang DI TEMPAT (innerHTML satu kotak), bukan dengan menggambar
+   ulang modalnya: nama, no HP, dan catatan yang sudah diketik ada di kotak
+   lain di modal yang sama dan akan hilang bersamanya. Alasan yang sama
+   dengan versi <select> yang digantikannya. */
+function ubahDivisiPekerja(){
+  const boxD=document.getElementById('pkDivBox');
+  const boxP=document.getElementById('pkPosBox');
+  if(!boxD||!boxP) return;
+  /* Urutan pencentangan dipertahankan: yang baru dicentang mendapat nomor di
+     belakang yang sudah ada, jadi divisi utama tidak berpindah hanya karena
+     seseorang menambah divisi kedua. */
+  const div=bacaPilihDiv();
+  const pos=bacaPilihPos();
+  boxD.innerHTML=pilihDivisiHTML(div);
+  boxP.innerHTML=pilihPosisiHTML(div, pos);
 }
 function bukaPekerja(id){
   const p=id?pekerjaById(id):null;
@@ -5340,14 +5565,18 @@ function bukaPekerja(id){
       +'<div class="field"><label>No. HP *</label><input id="pkHp" type="tel" inputmode="numeric" value="'+esc(p?p.hp:'')+'" placeholder="08xxxxxxxxxx">'
         +'<div class="hint">Nomor ini adalah identitas DW sekaligus cara ia masuk sendiri. Satu nomor hanya boleh dipakai satu orang.</div></div>'
     +'</div>'
-    +'<div class="duo">'
-      +'<div class="field"><label>Divisi</label><select id="pkDiv" onchange="ubahDivisiPekerja(this.value)">'
-        +DIVISI.map(d=>'<option value="'+d.k+'"'+(p&&p.divisi===d.k?' selected':'')+'>'+d.ic+' '+esc(d.n)+'</option>').join('')+'</select></div>'
-      +'<div class="field"><label>Posisi</label><select id="pkPos">'
-        +opsiPosisi((p&&p.divisi)||DIVISI[0].k, p&&p.posisi)+'</select>'
-        +'<div class="hint" id="pkPosHint">Pilihannya mengikuti divisi '
-        +esc(namaDivisi((p&&p.divisi)||DIVISI[0].k))+'.</div></div>'
-    +'</div>'
+    /* DIVISI & POSISI JADI PILIHAN BANYAK (19 Agustus 2026, atas permintaan:
+       "1 orang bisa lebih dari 1 divisi"). Yang dipilih pertama adalah yang
+       utama — itulah yang dipakai saat sebuah pintu menjadwalkan orang ini
+       tanpa menyebut divisinya, dan itu yang tampil sebagai identitasnya di
+       daftar. Ditulis di layar, bukan disimpan sebagai pengetahuan diam. */
+    +'<div class="field"><label>Divisi <span class="mutedhint">— boleh lebih dari satu</span></label>'
+      +'<div class="pick-div" id="pkDivBox">'+pilihDivisiHTML(divPekerja(p))+'</div>'
+      +'<div class="hint">Yang <b>pertama dipilih</b> jadi divisi utamanya: dipakai sebagai bawaan saat '
+      +'dijadwalkan tanpa menyebut divisi, dan tampil di kolom Divisi.</div></div>'
+    +'<div class="field"><label>Posisi <span class="mutedhint">— boleh lebih dari satu</span></label>'
+      +'<div class="pick-div" id="pkPosBox">'+pilihPosisiHTML(divPekerja(p), posPekerja(p))+'</div>'
+      +'<div class="hint" id="pkPosHint">Pilihannya mengikuti divisi yang dicentang di atas.</div></div>'
     +'<div class="duo">'
       +'<div class="field"><label>Gender</label><select id="pkGen">'
         +['','Pria','Wanita'].map(g=>'<option value="'+g+'"'+(p&&p.gender===g?' selected':'')+'>'+(g||'—')+'</option>').join('')+'</select></div>'
@@ -5461,9 +5690,22 @@ async function simpanPekerja(id){
   const hp=normalHp((el('pkHp')||{}).value);
   if(!nama.trim()){ toast('Nama wajib diisi', true); return false; }
   if(!hp){ toast('No. HP wajib diisi', true); return false; }
+  /* Dibaca dari kotak centang, bukan <select> — satu orang bisa memegang
+     beberapa divisi & posisi sejak 19 Agustus 2026. Dikirim sebagai ARRAY;
+     backend (csv_daftar) menerima array maupun string berkoma, dan
+     merapikannya jadi satu bentuk. Urutan dipertahankan: yang pertama utama. */
+  const divPilih=bacaPilihDiv();
+  const posPilih=bacaPilihPos();
+  /* Divisi kosong DITOLAK di sini, bukan dibiarkan tersimpan. DW tanpa divisi
+     tidak muncul sebagai kandidat di mana pun dan tidak punya baris di lembar
+     mana pun — ia terdaftar tapi tidak bisa dipakai, dan tidak ada satu layar
+     pun yang menjelaskan kenapa. Posisi sengaja TIDAK diwajibkan: yang belum
+     ditentukan posisinya tetap muncul saat HRD mencari kandidat tanpa
+     menyaring posisi. */
+  if(!divPilih.length){ toast('Centang minimal satu divisi', true); return false; }
   const row={
     id, nama:nama.trim(), hp,
-    divisi:(el('pkDiv')||{}).value||'', posisi:(el('pkPos')||{}).value||'',
+    divisi:divPilih, posisi:posPilih,
     gender:(el('pkGen')||{}).value||'', area:(el('pkArea')||{}).value||'',
     bank:lama?lama.bank:'',
     bayarJenis:bayarJenisSah((el('pkBayarJenis')||{}).value),
@@ -5543,8 +5785,8 @@ function bukaProfil(id){
   modal(esc(p.nama),
     '<div class="rowbar">'+pilStatusDW(p.status)
       +'<span class="chip mono">'+esc(p.hp)+'</span>'
-      +'<span class="chip">'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'</span>'
-      +'<span class="chip">'+esc(p.posisi||'—')+'</span></div>'
+      +divPekerja(p).map(k=>'<span class="chip">'+esc(ikonDivisi(k)+' '+namaDivisi(k))+'</span>').join('')
+      +'<span class="chip">'+esc(posPekerja(p).join(', ')||'—')+'</span></div>'
     +'<div class="row"><div class="who"><b>Tujuan pembayaran</b><span>'+esc(labelTujuan(p))+'</span></div></div>'
     +'<div class="stats">'
       +statBox(st.total,'Kali Kerja')+statBox(st.jam,'Total Jam')
@@ -5855,8 +6097,8 @@ function viewRekap(){
     +'<button class="iconbtn" onclick="geserBulanAktif(1)" aria-label="Bulan berikutnya">›</button>'
     +tombolKembali('bulanIni', mk===bulanDari(hariIni()), 'Kembali ke bulan ini')+'</div></div>'
     +'<div class="rowbar">'+pilih
-    +(p.divisi?'<span class="chip">'+esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'</span>':'')
-    +(p.posisi?'<span class="chip">'+esc(p.posisi)+'</span>':'')
+    +divPekerja(p).map(k=>'<span class="chip">'+esc(ikonDivisi(k)+' '+namaDivisi(k))+'</span>').join('')
+    +(posPekerja(p).length?'<span class="chip">'+esc(posPekerja(p).join(', '))+'</span>':'')
     +pilStatusDW(p.status)
     +'<div class="spacer"></div>'
     +'<button class="btn btn-ghost btn-sm noprint" onclick="window.print()">🖨️ Print / PDF</button></div>'
@@ -5869,7 +6111,10 @@ function viewRekap(){
       +statBox(b.wknd,'Masuk Akhir Pekan')
       +statBox(b.menunggu,'Ajuan Menunggu')
       +statBox(b.ditolak,'Ajuan Ditolak')
-      +statBox(rp(b.upah),'Upah Bulan Ini')
+      /* Halaman ini terbuka untuk HEAD juga (HALAMAN_HR → bisaLihat), jadi
+         kotak upah harus dijaga di sini — bukan cuma di halaman yang
+         HRD-only. Lihat bolehLihatUang(). */
+      +(bolehLihatUang()?statBox(rp(b.upah),'Upah Bulan Ini'):'')
     +'</div>'
     +(alarm.length
       ? '<div class="note w"><b>Perlu dilihat:</b><ul style="margin:6px 0 0 18px">'
@@ -5885,7 +6130,7 @@ function viewRekap(){
         +'<span class="chip">'+list.length+'</span></div>'
         +'<div class="tablewrap"><table class="list"><thead><tr>'
           +'<th>Tanggal</th><th>Divisi / Posisi</th><th>Jam</th>'
-          +'<th class="kanan">Upah</th><th>Status</th></tr></thead><tbody>'
+          +(bolehLihatUang()?'<th class="kanan">Upah</th>':'')+'<th>Status</th></tr></thead><tbody>'
         +list.map(function(x){
             return '<tr>'
               +'<td>'+esc(tglManusia(x.tgl))+'</td>'
@@ -5894,8 +6139,11 @@ function viewRekap(){
               /* Upah ditulis HANYA untuk yang disetujui. Menuliskannya pada
                  ajuan yang masih menunggu membuat kolomnya terbaca sebagai
                  uang yang sudah pasti keluar, dan jumlah kolom itu tidak akan
-                 pernah cocok dengan angka di halaman Pembayaran. */
-              +'<td class="kanan">'+(x.status==='DISETUJUI'?esc(rp(biayaAjuan(x))):'<span class="kecil">—</span>')+'</td>'
+                 pernah cocok dengan angka di halaman Pembayaran.
+                 Kolomnya sendiri hilang untuk yang bukan HRD. */
+              +(bolehLihatUang()
+                ? '<td class="kanan">'+(x.status==='DISETUJUI'?esc(rp(biayaAjuan(x))):'<span class="kecil">—</span>')+'</td>'
+                : '')
               +'<td>'+pilStatus(x.status)+(x.putusNota?'<div class="kecil">'+esc(x.putusNota)+'</div>':'')+'</td>'
             +'</tr>';
           }).join('')
@@ -5996,7 +6244,7 @@ function viewBayar(){
           +'<td class="no">'+(i+1)+'</td>'
           +'<td class="nama">'+esc(x.nama)
             +'<div class="kecil">'+esc(x.tgl.map(t=>HARI[idxHari(t)].slice(0,3)).join(', '))+'</div></td>'
-          +'<td>'+(p?esc(ikonDivisi(p.divisi)+' '+namaDivisi(p.divisi))+'<div class="kecil">'+esc(p.posisi||'—')+'</div>':'—')+'</td>'
+          +'<td>'+(p?esc(labelDivPekerja(p))+'<div class="kecil">'+esc(posPekerja(p).join(', ')||'—')+'</div>':'—')+'</td>'
           +'<td class="kanan mono">'+x.kali+'×</td>'
           +'<td class="kanan mono">'+(Math.round(x.jam*10)/10)+'</td>'
           +'<td class="kecil">'+esc(labelTujuan(p))+'</td>'
@@ -6048,7 +6296,7 @@ function viewBayar(){
        belasan baris lain tidak pernah tertangkap mata — dan orangnya tetap
        bekerja tanpa dibayar. */
     +(nol.length?'<div class="note d">Nominal <b>Rp 0</b> untuk '
-      +esc(nol.map(x=>x.nama+' ('+((x.p&&x.p.posisi)||'tanpa posisi')+')').join(', '))
+      +esc(nol.map(x=>x.nama+' ('+(posPekerja(x.p).join(', ')||'tanpa posisi')+')').join(', '))
       +'. Tarif posisinya belum disetel di <b>Pengaturan → Posisi per Divisi</b>.</div>':'')
     +'<div class="rowbar">'
       +'<div class="seg">'+chip('ALL','Semua ('+semua.length+')')
@@ -6301,7 +6549,7 @@ function exportExcelDW(){
     L.idOrang.forEach(function(id,i){
       const orang=pekerjaById(id);
       const s=[sel_(1,i+1,gNo), sel_(2,namaDW(id),gNama),
-               sel_(3,(orang&&orang.posisi)||'DW',gJab)];
+               sel_(3, posPekerja(orang).filter(x=>posisiDivisi(L.div).indexOf(x)>-1).join(', ')||posUtama(orang)||'DW', gJab)];
       h.forEach(function(d,j){
         const xs=L.peta[id+'|'+d];
         if(!xs||!xs.length){ s.push(sel_(4+j,'',gKosong)); return; }
@@ -6345,9 +6593,15 @@ function exportExcelDW(){
      modulnya. Hanya yang DISETUJUI, sama seperti di layar. */
   const setuju=L.ajuan.filter(x=>x.status==='DISETUJUI');
   tambah([], 6);
+  /* Estimasi biaya ikut dijaga DI BERKAS EKSPOR, bukan cuma di layar. Lembar
+     ini dibuat dari Kalender DW — halaman yang terbuka untuk head — dan berkas
+     yang keluar dari layar tanpa angka rupiah lalu memuatnya di baris kaki
+     adalah kebocoran yang paling tidak kelihatan: tidak ada yang membuka
+     berkasnya untuk memeriksa apa ia menyembunyikan sesuatu. Berlaku sama
+     untuk exportWADW(). */
   tambah([sel_(1, setuju.length+' shift disetujui · '
-    +Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0))+' jam · estimasi '
-    +rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0))
+    +Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0))+' jam'
+    +(bolehLihatUang()?' · estimasi '+rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)):'')
     +' · '+L.idOrang.length+' daily worker', gCatat)], 15);
 
   const lebar=[{min:1,max:1,w:5},{min:2,max:2,w:22},{min:3,max:3,w:14},
@@ -6882,7 +7136,9 @@ function bukaAjuan(id){
       +'<span class="chip">'+esc(tglPanjang(a.tgl))+'</span></div>'
     +'<div class="row"><div class="who"><b>Jam kerja</b><span>'+esc(jamAjuan(a))+' · '+durasiJam(a.m,a.s)+' jam</span></div></div>'
     +'<div class="row"><div class="who"><b>Penempatan</b><span>'+esc(ikonDivisi(a.divisi)+' '+namaDivisi(a.divisi))+' · '+esc(a.posisi||'—')+'</span></div></div>'
-    +'<div class="row"><div class="who"><b>Estimasi biaya</b><span class="mono">'+esc(rp(biayaAjuan(a)))+'</span></div></div>'
+    /* Modal ini dibuka dari sel Kalender DW juga — halaman yang terbuka untuk
+       head. Lihat bolehLihatUang(). */
+    +(bolehLihatUang()?'<div class="row"><div class="who"><b>Estimasi biaya</b><span class="mono">'+esc(rp(biayaAjuan(a)))+'</span></div></div>':'')
     +(p&&boleh?'<div class="row"><div class="who"><b>Kontak</b><span class="mono">'+esc(p.hp)+(p.bank?' · '+esc(p.bank):'')+'</span></div></div>':'')
     +(a.catatan?'<div class="note i"><b>Catatan DW:</b> '+esc(a.catatan)+'</div>':'')
     +(a.putusNota?'<div class="note w"><b>Catatan HR:</b> '+esc(a.putusNota)+'</div>':'')
