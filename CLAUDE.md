@@ -320,6 +320,13 @@ terbaca dua kali. Yang ditolak/kedaluwarsa/**terpenuhi sebagian** tetap tampil
 permintaan `<head>`" pindah ke baris penugasannya (`asalPermintaanHTML`), dan
 permintaannya sendiri tetap utuh di halaman **Permintaan DW**.
 
+**Putusan bisa ditarik** (`kembalikanAjuan` / `kembalikanPermintaan`, HRD saja):
+statusnya kembali `MENUNGGU`, catatan putusan lama dibuang, `putus_oleh`/`putus_at`
+ditimpa dan tergambar sebagai "dikembalikan `<nama>`" (`kataPutusan('MENUNGGU')`).
+Backend sudah menerima `MENUNGGU` sejak awal — tidak ada endpoint baru.
+Permintaan **ditahan** kalau masih punya penugasan hidup: `kurang` jadi nol, jadi
+Setuju & Pilih DW tidak muncul satu pun dan barisnya duduk di antrean selamanya.
+
 Uang satu orang satu shift dihitung **satu tempat**: `biayaSatuOrang()` →
 `biayaAjuan()` dan `biayaPermintaan()`. Sempat dua tempat, dan yang di baris
 permintaan tertinggal saat tambahan shift panjang lahir — Antrean menulis

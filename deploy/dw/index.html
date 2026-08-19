@@ -3834,8 +3834,17 @@ function barisAjuanAntrean(a){
     ? '<button class="btn btn-ok btn-sm" onclick="setujuiAjuan(&#39;'+escJs(a.id)+'&#39;)">✓ Setuju</button>'
       +'<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(&#39;'+escJs(a.id)+'&#39;)">Detail</button>'
       +'<button class="btn btn-ghost bahaya btn-sm" onclick="tolakAjuan(&#39;'+escJs(a.id)+'&#39;)">✕ Tolak</button>'
-    /* Yang sudah diputuskan cuma bisa dilihat. */
-    : '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(&#39;'+escJs(a.id)+'&#39;)">Detail</button>';
+    /* Yang sudah diputuskan bisa dilihat — dan sejak 19 Agustus 2026 bisa
+       DIKEMBALIKAN ke antrean oleh HRD. Salah tekan di kolom ini adalah
+       kesalahan yang paling mudah terjadi (tiga tombol rapat di ujung tabel),
+       dan sampai sekarang satu-satunya jalan keluarnya adalah menghapus
+       barisnya lalu mengetik ulang — yang menghapus juga jejak siapa yang
+       memintanya. */
+    : '<button class="btn btn-ghost btn-sm" onclick="bukaAjuan(&#39;'+escJs(a.id)+'&#39;)">Detail</button>'
+      +(isHR()
+        ? '<button class="btn btn-ghost btn-sm" title="Batalkan putusan ini — barisnya kembali menunggu keputusan"'
+          +' onclick="kembalikanAjuan(&#39;'+escJs(a.id)+'&#39;)">↩ Kembalikan</button>'
+        : '');
   /* SEMBILAN KOLOM JADI TUJUH (14 Agustus 2026). Jenis dan Catatan berdiri
      sendiri-sendiri, dan keduanya hampir selalu sempit atau kosong — sebuah
      pil satu kata, dan sebuah "—". Yang mereka rebut adalah lebar dari kolom
@@ -3900,6 +3909,12 @@ function kataPutusan(status){
        : status==='DITOLAK'     ? 'ditolak'
        : status==='BATAL'       ? 'dibatalkan'
        : status==='KEDALUWARSA' ? 'ditutup'
+       /* MENUNGGU yang MEMBAWA jejak putusan cuma bisa berarti satu hal: ia
+          pernah diputuskan lalu ditarik kembali (kembalikanAjuan). Yang belum
+          pernah diputuskan sama sekali punya putus_oleh kosong, dan
+          jejakKecilHTML tidak menggambar apa pun untuknya — jadi kata ini
+          tidak akan pernah muncul di baris yang memang baru masuk. */
+       : status==='MENUNGGU'    ? 'dikembalikan'
        :                          'diputuskan';
 }
 /* Baris permintaan head di antrean HRD. Kolomnya sama dengan pengajuan supaya
@@ -3945,6 +3960,11 @@ function barisMintaAntrean(x){
       +' onclick="bukaSebagian(&#39;'+escJs(x.id)+'&#39;)">◑ Sebagian</button>');
   if(isHR()&&x.status==='MENUNGGU')
     aksi.push('<button class="btn btn-ghost bahaya btn-sm" onclick="tolakPermintaan(&#39;'+escJs(x.id)+'&#39;)">✕ Tolak</button>');
+  /* Batalkan putusan — lihat kembalikanPermintaan(). Tidak muncul untuk yang
+     masih MENUNGGU: tidak ada putusan yang bisa ditarik di sana. */
+  if(isHR()&&x.status!=='MENUNGGU')
+    aksi.push('<button class="btn btn-ghost btn-sm" title="Batalkan putusan ini — barisnya kembali menunggu keputusan"'
+      +' onclick="kembalikanPermintaan(&#39;'+escJs(x.id)+'&#39;)">↩ Kembalikan</button>');
   /* UBAH & HAPUS ikut berdiri di sini (19 Agustus 2026), bukan cuma di halaman
      Permintaan DW. Di sinilah HRD sebenarnya bekerja — dan permintaan yang
      jelas salah ketik (jumlah 30 alih-alih 3) dulu hanya bisa ia TOLAK, lalu
@@ -4042,6 +4062,78 @@ function tolakAjuan(id){
   tanyaTeks('Tolak ajuan '+namaDW(a.dwId), 'Alasan penolakan (dilihat DW)', '', async function(nota){
     await putusAjuan(id,'DITOLAK',nota||'Tidak dibutuhkan pada tanggal itu');
   });
+}
+/* ================= KEMBALIKAN KE ANTREAN =================
+   Membatalkan satu putusan: barisnya kembali MENUNGGU dan muncul lagi di tab
+   Antrian. Ada karena salah tekan di halaman ini adalah kesalahan yang paling
+   mudah terjadi — Setuju, Detail, dan Tolak berdiri rapat di ujung kanan
+   tabel — dan sampai sekarang satu-satunya jalan keluarnya adalah menghapus
+   barisnya lalu mengetik ulang seluruh permintaannya, yang menghapus juga
+   jejak siapa yang memintanya dan kapan.
+
+   Catatan putusan yang lama IKUT DIBUANG (nota dikirim kosong). Kalau tidak,
+   baris yang kembali menunggu tetap membawa "Tidak dibutuhkan pada tanggal
+   itu" berwarna merah di bawah namanya — dan yang membacanya di antrean besok
+   pagi akan menolaknya lagi tanpa pernah tahu penolakan itu sudah ditarik.
+
+   Nama & waktu pengembalian tetap tersimpan (`putus_oleh`/`putus_at` ditimpa),
+   dan tergambar sebagai "dikembalikan <nama>" — lihat kataPutusan(). */
+function kembalikanAjuan(id){
+  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa mengembalikan ke antrean', true); return; }
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  if(a.status==='MENUNGGU'){ toast('Pengajuan ini memang masih menunggu keputusan'); return; }
+  /* Yang DISETUJUI berdiri di kalender Jadwal Shift dan sudah terhitung
+     sebagai uang minggu itu. Menariknya kembali bukan sekadar mengubah warna
+     pil — itu satu shift yang hilang dari lembar kru, dan orang yang mungkin
+     sudah dikabari lewat WhatsApp. Disebut apa adanya, bukan disamakan dengan
+     menarik kembali penolakan. */
+  const sudah=(a.status==='DISETUJUI');
+  konfirmasi('Kembalikan ke antrean?',
+    '<b>'+esc(namaDW(a.dwId))+'</b> · '+esc(tglPanjang(a.tgl))+' · '+esc(jamAjuan(a))
+    +'<div class="mutedhint" style="margin-top:8px">Statusnya kembali <b>Menunggu HR</b> dan barisnya '
+    +'muncul lagi di tab <b>Antrian</b> untuk diputuskan ulang. Catatan putusan yang lama dibuang.</div>'
+    +(sudah
+      ? '<div class="note w" style="margin-top:8px">Shift ini <b>hilang dari kalender Jadwal Shift</b> '
+        +'dan upahnya <b>hilang dari halaman Pembayaran</b> minggu itu. Kalau orangnya sudah dikabari, '
+        +'ia perlu dikabari lagi.</div>'
+      : ''),
+    function(){ putusAjuan(id,'MENUNGGU',''); },
+    {html:true, ya:'↩ Kembalikan ke antrean', warna:'btn-primary'});
+}
+/* Pasangannya untuk permintaan head.
+   DITAHAN kalau permintaannya sudah punya penugasan yang hidup. Bukan
+   kerewelan: permintaan MENUNGGU yang orangnya sudah ditugaskan adalah jalan
+   buntu — `kurang` jadi nol, jadi tombol Setuju dan Pilih DW tidak muncul
+   satu pun, dan barisnya duduk di antrean selamanya tanpa ada yang bisa
+   dikerjakan padanya. Penugasannya harus ditarik lebih dulu, satu per satu,
+   dan namanya disebut supaya tahu yang mana. */
+function kembalikanPermintaan(id){
+  if(!isHR()){ toast('Hanya yang berhak memutuskan yang bisa mengembalikan ke antrean', true); return; }
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  if(x.status==='MENUNGGU'){ toast('Permintaan ini memang masih menunggu keputusan'); return; }
+  const orang=mintaOrang(id);
+  if(orang.length){
+    return modal('Tarik penugasannya dulu',
+      '<p class="mutedhint">Permintaan ini sudah punya <b>'+orang.length+'</b> penugasan yang hidup: '
+      +'<b>'+esc(orang.map(a=>namaDW(a.dwId)).join(', '))+'</b>.</p>'
+      +'<div class="note w">Kalau permintaannya dikembalikan ke antrean sekarang, ia akan terhitung sudah '
+      +'terpenuhi — tombol <b>Setuju</b> dan <b>Pilih DW</b> tidak muncul satu pun, dan barisnya duduk di '
+      +'antrean tanpa ada yang bisa dikerjakan padanya.</div>'
+      +'<p class="mutedhint">Kembalikan atau tolak dulu penugasan di atas, lalu ulangi.</p>',
+      [{t:'Mengerti',c:'btn-primary',f:function(){ tutupModal(); return false; }}]);
+  }
+  konfirmasi('Kembalikan permintaan ke antrean?',
+    '<b>'+esc(namaDivisi(x.divisi))+'</b> · '+esc(tglPanjang(x.tgl))+' · '+esc(x.m+'–'+x.s)
+    +' · <b>'+(+x.jumlah||1)+'</b> orang'
+    +'<div class="mutedhint" style="margin-top:8px">Statusnya kembali <b>Menunggu HR</b> dan barisnya '
+    +'muncul lagi di tab <b>Antrian</b>. Catatan putusan yang lama dibuang.</div>',
+    async function(){
+      try{
+        await apiPost({action:'putusPermintaan', id, status:'MENUNGGU', nota:''});
+        toast('Permintaan dikembalikan ke antrean'); await muatDanGambar(true);
+      }catch(e){ toast('Gagal: '+e.message, true); }
+    },
+    {html:true, ya:'↩ Kembalikan ke antrean', warna:'btn-primary'});
 }
 /* Terapkan di layar lebih dulu, baru kirim — HR memutuskan satu per satu dan
    menunggu bolak-balik jaringan tiap klik membuatnya terasa rusak. Kalau
@@ -7533,6 +7625,11 @@ function bukaAjuan(id){
   const p=pekerjaById(a.dwId);
   const boleh=isHR();
   const aksi=[];
+  /* Kembalikan ke antrean ada DI SINI JUGA, bukan cuma di tabel Antrean:
+     modal ini dibuka dari sel Kalender DW dan dari Rekap Pegawai, dan yang
+     menyadari salah tekannya di sana tidak boleh disuruh mencari barisnya
+     dulu di halaman lain. */
+  if(boleh && a.status!=='MENUNGGU')  aksi.push({t:'↩ Kembalikan ke antrean',c:'btn-ghost',f:function(){ tutupModal(); kembalikanAjuan(id); return false; }});
   if(boleh && a.status!=='DISETUJUI') aksi.push({t:'Setujui',c:'btn-ok',f:function(){ tutupModal(); setujuiAjuan(id); return false; }});
   if(boleh && a.status!=='DITOLAK')   aksi.push({t:'Tolak',c:'btn-danger',f:function(){ tutupModal(); tolakAjuan(id); return false; }});
 

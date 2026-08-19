@@ -3814,7 +3814,16 @@ function pilJenis() {  }
 
 
 
-function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tolakAjuan(); esc(); tglManusia(); pilJenis(); namaDW(); jejakKecilHTML(); asalPermintaanHTML(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); kataPutusan(); }
+function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tolakAjuan(); kembalikanAjuan(); esc(); tglManusia(); pilJenis(); namaDW(); jejakKecilHTML(); asalPermintaanHTML(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); kataPutusan(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3905,7 +3914,18 @@ function kataPutusan() {  }
 
 
 
-function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); biayaPermintaan(); pilStatus(); kataPutusan(); }
+
+
+
+
+
+
+function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); kembalikanPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); biayaPermintaan(); pilStatus(); kataPutusan(); }
+
+
+
+
+
 
 
 
@@ -4037,7 +4057,79 @@ function setujuiAjuan() { lampauiPanduan(); konfirmasi(); namaDW(); esc(); tglPa
 
 
 
-function tolakAjuan() { tanyaTeks(); namaDW(); putusAjuan(); }
+function tolakAjuan() { tanyaTeks(); namaDW(); putusAjuan(); kataPutusan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kembalikanAjuan() { isHR(); toast(); konfirmasi(); esc(); namaDW(); tglPanjang(); jamAjuan(); putusAjuan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kembalikanPermintaan() { isHR(); toast(); mintaOrang(); modal(); esc(); namaDW(); tutupModal(); konfirmasi(); namaDivisi(); tglPanjang(); apiPost(); muatDanGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7528,7 +7620,12 @@ function ubahKuota() { normalKuota(); simpanSetting(); }
 
 
 
-function bukaAjuan() { pekerjaById(); isHR(); tutupModal(); setujuiAjuan(); tolakAjuan(); modal(); esc(); namaDW(); pilStatus(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); bolehLihatUang(); rp(); biayaAjuan(); jejakTeks(); kataPutusan(); }
+function bukaAjuan() { pekerjaById(); isHR(); tutupModal(); kembalikanAjuan(); setujuiAjuan(); tolakAjuan(); modal(); esc(); namaDW(); pilStatus(); tglPanjang(); jamAjuan(); durasiJam(); ikonDivisi(); namaDivisi(); bolehLihatUang(); rp(); biayaAjuan(); jejakTeks(); kataPutusan(); }
+
+
+
+
+
 
 
 
