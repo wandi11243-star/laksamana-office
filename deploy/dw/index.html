@@ -1090,13 +1090,45 @@ const STATUS_AJU = {MENUNGGU:'Menunggu HR', DISETUJUI:'Disetujui', DITOLAK:'Dito
    teks bebas, karena halaman Pembayaran menggabungkan orang berdasarkan
    kesamaan nomor tujuannya. */
 const BAYAR = {
-  BANK :{n:'Transfer Bank', ic:'🏦', ket:'No. rekening', hint:'Sertakan nama banknya di kolom nomor, mis. "BCA 1234567890"'},
+  BANK :{n:'Transfer Bank', ic:'🏦', ket:'No. rekening', hint:'Angka rekeningnya saja — nama banknya di kolom sebelah kiri.'},
   GOPAY:{n:'GoPay',         ic:'🟢', ket:'No. HP GoPay', hint:'Nomor HP yang terdaftar di GoPay'},
   DANA :{n:'DANA',          ic:'🔵', ket:'No. HP DANA',  hint:'Nomor HP yang terdaftar di DANA'}
 };
 function bayarJenisSah(v){
   const k=String(v||'').toUpperCase();
   return BAYAR[k] ? k : 'BANK';
+}
+/* NAMA BANK — kolom sendiri sejak 19 Agustus 2026.
+   ---------------------------------------------------------------------
+   Sebelumnya banknya dititipkan ke kolom nomor ("BCA 1234567890") karena
+   hint-nya memang menyuruh begitu. Yang rusak karenanya bukan kerapian:
+   angka yang dicopy dari kolom itu ke m-banking ikut membawa kata "BCA",
+   dan yang menulis "1234567890 (BCA)" lalu tidak pernah tergabung dengan
+   yang menulis "BCA 1234567890" walau rekeningnya sama persis — padahal
+   penggabungan itulah gunanya halaman Pembayaran.
+
+   Daftar di bawah cuma NILAI BAWAAN, bukan daftar tertutup: isiannya
+   <input list=…>, jadi bank yang belum ada tinggal diketik. Yang sudah
+   terlanjur diketik seseorang ikut muncul sebagai pilihan untuk yang
+   berikutnya (lihat opsiBankHTML) — supaya "Bank Jago" tidak tersimpan
+   tiga ejaan berbeda hanya karena tiga orang mengetiknya sendiri-sendiri.
+   BPD Bali ada di daftar karena venue-nya di Bali; itu bank yang paling
+   sering muncul di sini sesudah BCA. */
+const BANK_UMUM = ['BCA','Mandiri','BNI','BRI','BTN','BPD Bali','CIMB Niaga','Permata',
+  'Danamon','Panin','OCBC','Maybank','Mega','Sinarmas','BSI','Muamalat',
+  'Bank Jago','SeaBank','blu BCA Digital','Neo Commerce','Jenius (BTPN)'];
+/* Isi <datalist>: bawaan + yang sudah dipakai DW lain. Dibandingkan dalam
+   huruf kecil supaya "bca" yang terlanjur tersimpan tidak muncul lagi
+   sebagai baris kedua di sebelah "BCA". */
+function opsiBankHTML(){
+  const ada={}, out=[];
+  BANK_UMUM.forEach(function(b){ ada[b.toLowerCase()]=1; out.push(b); });
+  (S&&S.pekerja?S.pekerja:[]).forEach(function(p){
+    const b=String(p.bayarBank||'').trim();
+    if(!b || ada[b.toLowerCase()]) return;
+    ada[b.toLowerCase()]=1; out.push(b);
+  });
+  return out.map(b=>'<option value="'+esc(b)+'"></option>').join('');
 }
 
 /* Ikon sidebar. SVG garis, bukan emoji — emoji berbeda bentuk di tiap sistem
@@ -1345,6 +1377,11 @@ function normalizeState(d){
          memisahnya — dihapus begitu saja berarti satu-satunya catatan ke mana
          orang ini dibayar hilang tanpa ada yang tahu. */
       bayarJenis:bayarJenisSah(p.bayarJenis),
+      /* `bayarBank` hanya berarti untuk jenis BANK — GoPay/DANA tidak punya
+         bank. Nilainya tetap dibawa apa adanya kalau jenisnya sedang bukan
+         BANK: HR yang salah pilih jenis lalu membetulkannya tidak kehilangan
+         nama bank yang sudah diketiknya. */
+      bayarBank:String(p.bayarBank||''),
       bayarNomor:String(p.bayarNomor||''), bayarNama:String(p.bayarNama||''),
       divisi:String(p.divisi||''), posisi:String(p.posisi||''),
       skill:String(p.skill||''), status:statusDW(p.status),
@@ -5591,6 +5628,19 @@ function bukaPekerja(id){
         +Object.keys(BAYAR).map(k=>'<option value="'+k+'"'+((p?bayarJenisSah(p.bayarJenis):'BANK')===k?' selected':'')+'>'
           +BAYAR[k].ic+' '+esc(BAYAR[k].n)+'</option>').join('')
       +'</select></div>'
+      /* Nama bank: kotak biasa yang PUNYA daftar pilihan (datalist), bukan
+         <select>. Dipilih begitu supaya bank yang belum ada di daftar tinggal
+         diketik — daftar tertutup akan memaksa yang punya rekening BPR atau
+         bank digital baru menitipkannya lagi ke kolom nomor, persis kebiasaan
+         yang sedang dihentikan. Ikut hilang saat jenisnya GoPay/DANA. */
+      +'<div class="field" id="pkBankWrap"'+((p?bayarJenisSah(p.bayarJenis):'BANK')==='BANK'?'':' style="display:none"')+'>'
+        +'<label>Nama bank</label>'
+        +'<input id="pkBayarBank" list="dlBankDW" autocomplete="off" placeholder="Pilih atau ketik…" value="'+esc(p?p.bayarBank:'')+'">'
+        +'<datalist id="dlBankDW">'+opsiBankHTML()+'</datalist>'
+        +'<div class="hint">Belum ada di daftar? Ketik saja — bank itu ikut jadi pilihan berikutnya.</div>'
+      +'</div>'
+    +'</div>'
+    +'<div class="duo">'
       +'<div class="field"><label id="pkBayarLbl">'+esc(BAYAR[p?bayarJenisSah(p.bayarJenis):'BANK'].ket)+'</label>'
         +'<input id="pkBayarNomor" inputmode="numeric" value="'+esc(p?p.bayarNomor:'')+'">'
         +'<div class="hint" id="pkBayarHint">'+esc(BAYAR[p?bayarJenisSah(p.bayarJenis):'BANK'].hint)+'</div>'
@@ -5601,7 +5651,7 @@ function bukaPekerja(id){
            `ubahJenisBayar` tiap ganti jenis, jadi baris ini sengaja div
            terpisah — bukan tambahan pada teks hint itu. */
         +(p&&p.bank&&!p.bayarNomor
-            ?'<div class="hint">Catatan rekening lama: <b>'+esc(p.bank)+'</b> — pindahkan ke kolom di atas, lalu baris ini hilang sendiri.</div>':'')
+            ?'<div class="hint">Catatan rekening lama: <b>'+esc(p.bank)+'</b> — nama banknya ke kolom <b>Nama bank</b>, angkanya ke kolom di atas. Baris ini hilang sendiri sesudahnya.</div>':'')
       +'</div>'
     +'</div>'
     +'<div class="field"><label>Skill</label><input id="pkSkill" value="'+esc(p?p.skill:'')+'" placeholder="Dipisah koma: Bar, Runner"></div>'
@@ -5709,6 +5759,13 @@ async function simpanPekerja(id){
     gender:(el('pkGen')||{}).value||'', area:(el('pkArea')||{}).value||'',
     bank:lama?lama.bank:'',
     bayarJenis:bayarJenisSah((el('pkBayarJenis')||{}).value),
+    /* Nama bank hanya ikut tersimpan kalau jenisnya memang Transfer Bank.
+       Kotaknya cuma disembunyikan saat jenisnya diganti (lihat
+       ubahJenisBayar), jadi tanpa saringan ini seorang DW yang dipindah ke
+       GoPay tetap membawa "BCA" — dan labelTujuan akan menuliskannya di
+       halaman Pembayaran, tepat di baris yang seharusnya berbunyi GoPay. */
+    bayarBank:(bayarJenisSah((el('pkBayarJenis')||{}).value)==='BANK'
+                ? String((el('pkBayarBank')||{}).value||'').trim() : ''),
     bayarNomor:String((el('pkBayarNomor')||{}).value||'').trim(),
     /* Sama seperti `bank` di atas: formnya tidak lagi punya isian "Atas nama"
        (dihapus 14 Agustus 2026 — hampir semua rekening atas nama DW-nya
@@ -5772,11 +5829,17 @@ function tanyaShiftTertinggal(nama, list, sebab){
    tercepat membuat kolomnya diisi salah. Diubah di tempat, bukan lewat
    render(): halaman ini sedang berupa modal yang belum tersimpan. */
 function ubahJenisBayar(v){
-  const b=BAYAR[bayarJenisSah(v)];
+  const k=bayarJenisSah(v), b=BAYAR[k];
   const lbl=document.getElementById('pkBayarLbl');
   const hint=document.getElementById('pkBayarHint');
   if(lbl) lbl.textContent=b.ket;
   if(hint) hint.textContent=b.hint;
+  /* Kotak nama bank cuma berlaku untuk transfer bank. Disembunyikan, BUKAN
+     dikosongkan: yang salah pilih jenis lalu kembali ke Transfer Bank
+     mendapati bank yang tadi diketiknya masih di tempatnya. Yang tersimpan
+     tetap disaring simpanPekerja — GoPay tidak pernah membawa nama bank. */
+  const wrap=document.getElementById('pkBankWrap');
+  if(wrap) wrap.style.display = (k==='BANK') ? '' : 'none';
 }
 function bukaProfil(id){
   const p=pekerjaById(id); if(!p) return;
@@ -5928,6 +5991,13 @@ function kunciBayar(p, dwId){
      `p` bernilai null dan semua yang null akan menyatu jadi SATU baris
      transfer berisi beberapa orang yang tidak ada hubungannya. */
   if(!nomor) return 'KOSONG|'+(dwId||(p?p.id:''));
+  /* Nama bank SENGAJA tidak ikut kunci, walau sejak 19 Agustus 2026 ia punya
+     kolom sendiri. Kunci ini juga dipakai penanda "sudah ditransfer"
+     (setting.bayarLunas, '<senin>|<kunci>'), jadi mengubah bentuknya membuat
+     seluruh centang minggu berjalan padam — dan yang melihatnya padam akan
+     mentransfer ulang. Risiko yang ditukar kecil: dua rekening dengan angka
+     yang sama persis di bank berbeda praktis tidak ada, karena panjang dan
+     awalan nomornya beda tiap bank. */
   return bayarJenisSah(p.bayarJenis)+'|'+nomor.toLowerCase();
 }
 /* Rekap satu minggu: {uid → {p, kali, jam, total}} */
@@ -6170,9 +6240,14 @@ function rekapBayar(senin){
 }
 function labelTujuan(p){
   if(!p) return 'Data DW terhapus';
-  const j=BAYAR[bayarJenisSah(p.bayarJenis)];
-  if(!p.bayarNomor) return j.ic+' '+j.n+' — nomor belum diisi';
-  return j.ic+' '+j.n+' '+p.bayarNomor+(p.bayarNama?' a.n. '+p.bayarNama:' a.n. '+p.nama);
+  const k=bayarJenisSah(p.bayarJenis), j=BAYAR[k];
+  /* Untuk transfer bank yang nama banknya sudah diisi, "BCA" jauh lebih
+     berguna daripada "Transfer Bank" — inilah kata yang dicari HR saat
+     memilih rekening mana di m-banking. Yang belum mengisinya tetap
+     terbaca "Transfer Bank", bukan baris yang setengah kosong. */
+  const nm=(k==='BANK' && p.bayarBank) ? String(p.bayarBank) : j.n;
+  if(!p.bayarNomor) return j.ic+' '+nm+' — nomor belum diisi';
+  return j.ic+' '+nm+' '+p.bayarNomor+(p.bayarNama?' a.n. '+p.bayarNama:' a.n. '+p.nama);
 }
 function viewBayar(){
   const senin=bayarSenin();

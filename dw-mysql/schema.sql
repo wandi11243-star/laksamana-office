@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS `dw_pekerja` (
   -- Tujuan pembayaran yang dipakai halaman Pembayaran. Dipecah supaya
   -- orang dengan tujuan yang sama bisa digabung jadi satu transfer.
   `bayar_jenis`  VARCHAR(16)  NOT NULL DEFAULT 'BANK',        -- BANK | GOPAY | DANA
-  `bayar_nomor`  VARCHAR(60)  NOT NULL DEFAULT '',            -- no rekening, atau no HP untuk GoPay/DANA
+  `bayar_bank`   VARCHAR(60)  NOT NULL DEFAULT '',            -- nama bank, hanya untuk jenis BANK (BCA, BPD Bali, …)
+  `bayar_nomor`  VARCHAR(60)  NOT NULL DEFAULT '',            -- ANGKA saja: no rekening, atau no HP untuk GoPay/DANA
   `bayar_nama`   VARCHAR(120) NOT NULL DEFAULT '',            -- atas nama
   `divisi`       VARCHAR(16)  NOT NULL DEFAULT '',    -- bar|kitchen|floor|cashier — kode SAMA dengan modul Jadwal
   `posisi`       VARCHAR(60)  NOT NULL DEFAULT '',

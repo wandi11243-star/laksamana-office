@@ -223,6 +223,7 @@ function pastikan_tabel($pdo) {
        `area`         VARCHAR(80)  NOT NULL DEFAULT \'\',
        `bank`         VARCHAR(120) NOT NULL DEFAULT \'\',
        `bayar_jenis`  VARCHAR(16)  NOT NULL DEFAULT \'BANK\',
+       `bayar_bank`   VARCHAR(60)  NOT NULL DEFAULT \'\',
        `bayar_nomor`  VARCHAR(60)  NOT NULL DEFAULT \'\',
        `bayar_nama`   VARCHAR(120) NOT NULL DEFAULT \'\',
        /* BERKOMA: satu orang bisa memegang beberapa divisi/posisi sejak
@@ -306,6 +307,12 @@ function pastikan_tabel($pdo) {
   pastikan_lebar($pdo, 'dw_pekerja', 'divisi', 120, "VARCHAR(120) NOT NULL DEFAULT ''");
   pastikan_lebar($pdo, 'dw_pekerja', 'posisi', 240, "VARCHAR(240) NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_jenis', "VARCHAR(16)  NOT NULL DEFAULT 'BANK'");
+  /* Nama bank punya kolom sendiri sejak 19 Agustus 2026. Sebelumnya ia
+     dititipkan ke `bayar_nomor` ("BCA 1234567890") karena hint-nya memang
+     menyuruh begitu — dan angka yang di-copy ke m-banking ikut membawa
+     kata "BCA". Ditambahkan lewat pastikan_kolom, BUKAN berkas migrasi:
+     migrasi tidak ikut ter-deploy dan produksi rutin tertinggal. */
+  pastikan_kolom($pdo, 'dw_pekerja', 'bayar_bank',  "VARCHAR(60)  NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nomor', "VARCHAR(60)  NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'dw_pekerja', 'bayar_nama',  "VARCHAR(120) NOT NULL DEFAULT ''");
   /* PERMINTAAN DW — head meminta, HRD memenuhi.
@@ -545,7 +552,7 @@ function baca_semua($dari, $sampai, $penuh = true) {
   $pekerja = array();
   $q2 = $pdo->query(
     'SELECT `id`,`nama`,`no_hp`,`gender`,`area`,`bank`,
-            `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,
+            `bayar_jenis`,`bayar_bank`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,
             `skill`,`status`,`catatan`,`dibuat_at`
        FROM `dw_pekerja` ORDER BY `nama`');
   foreach ($q2->fetchAll() as $r) {
@@ -567,6 +574,7 @@ function baca_semua($dari, $sampai, $penuh = true) {
       $baris['hp']         = $r['no_hp'];
       $baris['bank']       = $r['bank'];
       $baris['bayarJenis'] = isset($r['bayar_jenis']) ? $r['bayar_jenis'] : 'BANK';
+      $baris['bayarBank']  = isset($r['bayar_bank'])  ? $r['bayar_bank']  : '';
       $baris['bayarNomor'] = isset($r['bayar_nomor']) ? $r['bayar_nomor'] : '';
       $baris['bayarNama']  = isset($r['bayar_nama'])  ? $r['bayar_nama']  : '';
       $baris['catatan']    = $r['catatan'];
@@ -788,6 +796,12 @@ function simpan_pekerja($row, $by) {
     ':ar' => pot(isset($row['area']) ? $row['area'] : '', 80),
     ':bk' => pot(isset($row['bank']) ? $row['bank'] : '', 120),
     ':bj' => bayar_jenis_sah(isset($row['bayarJenis']) ? $row['bayarJenis'] : ''),
+    /* Nama bank hanya berlaku untuk transfer bank. Disaring di sini juga,
+       bukan cuma di layar: pemanggil lain (impor, perbaikan manual) tidak
+       lewat form, dan "GoPay BCA" di halaman Pembayaran adalah baris yang
+       menyesatkan orang yang sedang memegang uang. */
+    ':bb' => (bayar_jenis_sah(isset($row['bayarJenis']) ? $row['bayarJenis'] : '') === 'BANK'
+               ? pot(isset($row['bayarBank']) ? $row['bayarBank'] : '', 60) : ''),
     ':bn' => pot(isset($row['bayarNomor']) ? $row['bayarNomor'] : '', 60),
     ':ba' => pot(isset($row['bayarNama']) ? $row['bayarNama'] : '', 120),
     /* Diterima sebagai array ATAU string berkoma — layar mengirim array,
@@ -815,15 +829,15 @@ function simpan_pekerja($row, $by) {
     $st = $pdo->prepare(
       'INSERT INTO `dw_pekerja`
          (`id`,`nama`,`no_hp`,`gender`,`area`,`bank`,
-          `bayar_jenis`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,`skill`,
+          `bayar_jenis`,`bayar_bank`,`bayar_nomor`,`bayar_nama`,`divisi`,`posisi`,`skill`,
           `status`,`catatan`,`dibuat_at`,`dibuat_oleh`,`updated_at`,`updated_oleh`)
-       VALUES (:id,:nm,:hp,:g,:ar,:bk,:bj,:bn,:ba,:dv,:ps,:sk,:st,:ct,:t,:by,:t2,:by2)');
+       VALUES (:id,:nm,:hp,:g,:ar,:bk,:bj,:bb,:bn,:ba,:dv,:ps,:sk,:st,:ct,:t,:by,:t2,:by2)');
     $st->execute($arg);
   } else {
     $st = $pdo->prepare(
       'UPDATE `dw_pekerja` SET
          `nama`=:nm, `no_hp`=:hp, `gender`=:g, `area`=:ar, `bank`=:bk,
-         `bayar_jenis`=:bj, `bayar_nomor`=:bn, `bayar_nama`=:ba,
+         `bayar_jenis`=:bj, `bayar_bank`=:bb, `bayar_nomor`=:bn, `bayar_nama`=:ba,
          `divisi`=:dv, `posisi`=:ps, `skill`=:sk, `status`=:st, `catatan`=:ct,
          `updated_at`=:t, `updated_oleh`=:by
        WHERE `id`=:id');
