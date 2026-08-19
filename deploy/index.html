@@ -770,6 +770,7 @@
                             <label>Kelola akses (admin modul)</label>
                             <div id="af-admin" class="pick-grid"></div>
                             <p class="pick-hint">User ini bisa membuka konsol "Kelola Akses" internal modul yang dicentang. Centang <b>Semua (*)</b> untuk menjadikannya <b>superadmin</b> (kelola semua + halaman ini).</p>
+                            <p class="pick-hint">Tim <b>HRD</b> otomatis mengelola <b>kedua modul Roster</b> (Jadwal Shift &amp; Daily Worker) — tarif, posisi, panduan jumlah DW, dan siapa yang berhak memutuskan memang urusan HRD. Kotaknya terkunci karena tidak ada pengecualian per orang di sini: yang mencabutnya adalah mengubah kolom <b>Tim</b> di atas. <b>CEO tidak ikut</b> — CEO membaca jadwal seluruh perusahaan, itu sudah diberikan lewat "modul yang boleh dibuka".</p>
                         </div>
                         <label class="af-active"><input type="checkbox" id="af-active" checked> Akun aktif</label>
                         <p class="auth-err" id="af-err" role="alert"></p>
@@ -1618,6 +1619,25 @@
         });
         return out;
     }
+    /* ---- ADMIN MODUL BAWAAN: Tim HRD mengelola kedua modul Roster ----
+       Salinan aturan `aturan_admin_bawaan()` di account-api, untuk MENGGAMBAR
+       saja. Beda dengan akses modul biasa: tidak ada tabel deny untuk
+       `admins`, jadi kotaknya memang tidak bisa dicabut per orang — cara
+       mencabutnya mengubah kolom Tim. Itu ditulis di kotaknya sendiri supaya
+       tidak ada yang melepas centangnya lalu mengira panelnya rusak. */
+    let ATURAN_ADMIN_BAWAAN = null;
+    function aturanAdminBawaan(){
+        return ATURAN_ADMIN_BAWAAN || [{ modules:['jadwal','dw'], tim:['hrd','hr'] }];
+    }
+    function adminBawaanUntuk(u){
+        const out = new Set();
+        if(!u) return out;
+        if((u.adminModules||[]).includes('*')) return out;   // superadmin sudah lebih dari cukup
+        aturanAdminBawaan().forEach(r => {
+            if(timCocok(u.keterangan || '', r.tim)) (r.modules||[]).forEach(k => out.add(k));
+        });
+        return out;
+    }
     /* Kata dicocokkan UTUH — "Barista" tidak boleh terbaca sebagai "bar". */
     function timCocok(keterangan, daftar){
         const kata = String(keterangan||'').toLowerCase().split(/[^a-z]+/).filter(Boolean);
@@ -1739,7 +1759,19 @@
            tidak membagikan Daily Worker, sementara penugasan satu orang yang
            memang disengaja tetap mungkin. */
         const terlarang = bintangCentangSemua ? modulTerlarangUntuk(userBawaan) : new Set();
+        /* Kotak ADMIN MODUL punya bawaannya sendiri: Tim HRD mengelola kedua
+           modul Roster. Yang ini memang digambar TERKUNCI, dan itu bukan
+           kelalaian setelah kotak akses dibuka — tidak ada tabel deny untuk
+           `admins`, jadi melepas centangnya benar-benar tidak bisa mencabut
+           apa pun. Kotak yang bisa diklik tapi tidak berakibat lebih menipu
+           daripada kotak yang jelas mati berikut keterangannya. */
+        const adminBawaan = bintangCentangSemua ? new Set() : adminBawaanUntuk(userBawaan);
         container.innerHTML = keys.map(k => {
+            if(adminBawaan.has(k)){
+                return `<label class="pick on otomatis" data-k="${esc(k)}"
+                    title="Otomatis karena kolom Tim memuat HRD. Cara mencabutnya: ubah kolom Tim di atas.">
+                    <input type="checkbox" checked disabled> ${esc(moduleLabel(k))} <em>· Tim HRD</em></label>`;
+            }
             /* `chosen` sudah hasil grantEfektif — jadi modul bawaan yang
                DICABUT eksplisit untuk orang ini tidak ada di dalamnya, dan
                kotaknya harus ikut tergambar kosong. Menggambarnya menyala
@@ -1868,6 +1900,7 @@
            berarti centang di layar berbohong tentang siapa punya akses apa. */
         if(Array.isArray(data.bawaan)) ATURAN_BAWAAN = data.bawaan;
         if(Array.isArray(data.terbatas)) ATURAN_TERBATAS = data.terbatas;
+        if(Array.isArray(data.adminBawaan)) ATURAN_ADMIN_BAWAAN = data.adminBawaan;
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', [], true);
         renderPickGrid(document.getElementById('af-admin'), 'af-adm', []);
 
@@ -2328,7 +2361,7 @@
         // Centang sesuai akses NYATA user ini: grant mentah + perluasan '*' - deny.
         renderPickGrid(document.getElementById('af-modules'), 'af-mod', Array.from(grantEfektif(u)), true, u);
         // Admin modul: dari adminModules ('*' = superadmin).
-        renderPickGrid(document.getElementById('af-admin'), 'af-adm', u.adminModules || []);
+        renderPickGrid(document.getElementById('af-admin'), 'af-adm', u.adminModules || [], false, u);
         document.getElementById('af-cancel').classList.remove('hidden');
         document.getElementById('af-delete').classList.remove('hidden');   // hard delete hanya saat edit
         document.getElementById('af-delete').dataset.id = u.id;
@@ -2431,8 +2464,18 @@
                 const on = now.has(k), was = before.has(k);
                 if(on !== was) await adminCall('setModuleAccess', { userId:uid, module:k, access:on });
             }
-            // Tulis Admins (admin modul): diff sama polanya.
+            /* Tulis Admins (admin modul): diff sama polanya, KECUALI modul
+               yang otomatis dikelola Tim HRD. Kotaknya digambar terkunci tanpa
+               name/value, jadi `nowAdmin` tidak pernah memuatnya sementara
+               `beforeAdmin` (dari server) memuatnya — selisih yang terbaca
+               sebagai "admin melepas centangnya" dan mengirim setAdmin
+               access=false tiap kali user HRD disimpan. Baris yang dihapusnya
+               memang tidak ada, jadi tidak ada yang rusak; yang ada cuma dua
+               permintaan sia-sia di tiap penyimpanan, dan pesan galat jaringan
+               yang menyebut "akses modul gagal ditulis" tanpa ada yang gagal. */
+            const adminOtomatis = adminBawaanUntuk(priorUser);
             for(const k of keys){
+                if(adminOtomatis.has(k)) continue;
                 const on = nowAdmin.has(k), was = beforeAdmin.has(k);
                 if(on !== was){
                     const r = await adminCall('setAdmin', { userId:uid, module:k, access:on });

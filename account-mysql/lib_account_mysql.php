@@ -538,12 +538,65 @@ function modul_untuk($userId) {
   sort($out);
   return $out;
 }
+/* ==================== ADMIN MODUL BAWAAN ====================
+   Modul yang OTOMATIS dikelola seseorang karena perannya, tanpa satu baris
+   pun di tabel `admins`.
+
+   Sekarang cuma Roster (`jadwal` + `dw`) untuk Tim HRD. Alasannya sama dengan
+   akses bawaan, satu tingkat lebih tinggi: yang mengurus siapa masuk kapan,
+   siapa yang jadi daily worker, tarifnya berapa, dan siapa yang berhak
+   memutuskan — itu HRD, dan itu persis isi konsol Kelola Akses kedua modul
+   Roster. Menyerahkannya ke centang manual berarti HRD baru tidak bisa
+   menyetel apa pun sampai ada superadmin yang ingat mencentangkannya, dan
+   yang terlewat tidak pernah melapor: halamannya cuma tidak ada di sidebar.
+
+   `ceo` sengaja TIDAK ikut. CEO perlu MEMBACA jadwal seluruh perusahaan
+   (itu sudah diberikan modul_bawaan_untuk), bukan menyetel tarif dan menunjuk
+   siapa yang jadi HRD. Dua hal berbeda, dan yang kedua tidak pernah diminta.
+
+   Bedanya dengan akses modul biasa: TIDAK ADA baris deny untuk `admins`,
+   jadi aturan ini tidak bisa ditimpa per orang. Itu disengaja — cara
+   mencabutnya adalah mengubah kolom Tim, dan Kelola Akses menuliskannya
+   apa adanya di kotak yang bersangkutan supaya tidak ada yang mencoba
+   melepas centang lalu mengira panelnya rusak. */
+function tim_admin_roster() {
+  return array('hrd', 'hr');
+}
+function modul_admin_bawaan() {
+  return array('jadwal', 'dw');
+}
+/* Aturan dalam bentuk yang bisa dikirim ke layar — dipulangkan bersama
+   `bawaan`/`terbatas`, dipakai Kelola Akses untuk menggambar centang admin
+   modul dengan jujur. */
+function aturan_admin_bawaan() {
+  return array(array('modules' => modul_admin_bawaan(), 'tim' => tim_admin_roster()));
+}
 // Modul yang boleh DIKELOLA (buka konsol Kelola Akses). '*' = semua.
 function admin_modul_untuk($userId) {
+  static $cache = array();
+  $uid = s($userId);
+  if (isset($cache[$uid])) return $cache[$uid];
   $out = array();
-  foreach (q('SELECT `module` FROM `admins` WHERE user_id = :u', array(':u' => s($userId))) as $r)
+  foreach (q('SELECT `module` FROM `admins` WHERE user_id = :u', array(':u' => $uid)) as $r)
     if (s($r['module']) !== '') $out[] = s($r['module']);
-  return $out;
+  /* Tim HRD ikut mengelola kedua modul Roster. Ditaruh SESUDAH tabel dan
+     disaring duplikat: superadmin ('*') tidak perlu tambahan apa pun, dan
+     HRD yang memang sudah dicentang manual tidak boleh muncul dua kali —
+     `in_array($module, $adm)` di butuh_admin_modul tidak peduli, tapi layar
+     menggambar daftarnya. */
+  if (!in_array('*', $out, true)) {
+    try {
+      $u = user_by_id($uid);
+      if ($u && tim_cocok(s($u['keterangan']), tim_admin_roster())) {
+        foreach (modul_admin_bawaan() as $k) if (!in_array($k, $out, true)) $out[] = $k;
+      }
+    } catch (Exception $e) {
+      /* Diam. Fungsi ini dipakai login dan whoami SETIAP modul; satu kueri
+         gagal tidak boleh mematikan Office. Gagal di sini artinya kembali ke
+         perilaku lama — statusnya harus dicentang manual. */
+    }
+  }
+  return $cache[$uid] = $out;
 }
 /* Modul yang PUNYA baris grant access=1, apa adanya ('*' tetap '*').
    Dipakai form Kelola Akses supaya centangnya mencerminkan isi tabel,
@@ -797,7 +850,7 @@ function aksi_list_users($body) {
     ));
   }
   return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif(),
-               'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas());
+               'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas(), 'adminBawaan' => aturan_admin_bawaan());
 }
 
 /* Tambah (tanpa id) atau ubah (id ada). Nama wajib unik tanpa membedakan
@@ -980,7 +1033,7 @@ function aksi_list_modules($body) {
      kosong yang terbaca "belum punya akses" padahal punya. Dikirim sebagai
      ATURAN (modul + daftar tim), bukan daftar jadi, karena syaratnya berbeda
      per user dan yang tahu Tim seseorang adalah form yang sedang membukanya. */
-  return array('ok' => true, 'modules' => $mods, 'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas());
+  return array('ok' => true, 'modules' => $mods, 'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas(), 'adminBawaan' => aturan_admin_bawaan());
 }
 
 /* Sinkronkan registri dari daftar modul aplikasi (BRANCHES di landing).
@@ -1067,7 +1120,7 @@ function aksi_list_access($body) {
     );
   }
   return array('ok' => true, 'users' => $users, 'modules' => semua_modul_aktif(),
-               'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas());
+               'bawaan' => aturan_bawaan(), 'terbatas' => aturan_terbatas(), 'adminBawaan' => aturan_admin_bawaan());
 }
 
 function aksi_set_module_access($body) {
