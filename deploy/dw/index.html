@@ -1709,7 +1709,16 @@ function tambahanJam(m,s){
   return (durasiJam(m,s) > jamDasarDW()) ? tambahanPanjangDW() : 0;
 }
 function shiftKepanjangan(m,s){ return durasiJam(m,s) >= jamBatasDW(); }
-function biayaAjuan(a){ return tarifPosisi(a.posisi) + tambahanJam(a.m, a.s); }
+function biayaAjuan(a){ return biayaSatuOrang(a.posisi, a.m, a.s); }
+/* Harga SATU orang untuk satu shift: tarif posisinya + tambahan kalau shiftnya
+   lebih panjang dari shift dasar. Dipakai ajuan MAUPUN permintaan, dan itu
+   yang penting — keduanya sempat menghitung sendiri-sendiri, lalu yang di
+   baris permintaan tertinggal saat tambahan shift panjang lahir: permintaan
+   Bar Helper 11 jam tertulis Rp 50.000 di Antrean, lalu Rp 70.000 begitu
+   orangnya ditugaskan. Dua angka untuk satu shift yang sama persis, dan yang
+   pertama justru yang dipakai HRD untuk memutuskan. */
+function biayaSatuOrang(posisi,m,s){ return tarifPosisi(posisi) + tambahanJam(m,s); }
+function biayaPermintaan(x){ return biayaSatuOrang(x.posisi,x.m,x.s) * Math.max(1, +x.jumlah||1); }
 /* ================= SIAPA BOLEH MELIHAT ANGKA UANG =================
    HRD saja (19 Agustus 2026, atas permintaan). Head divisi TIDAK — tidak di
    form permintaan, tidak di kalender, tidak di rekap, tidak di ekspor.
@@ -2720,6 +2729,25 @@ function mintaOrang(id){
   return (S.ajuan||[]).filter(a=>a.permintaanId===id
     && (a.status==='MENUNGGU'||a.status==='DISETUJUI'));
 }
+function permintaanById(id){ return (S.permintaan||[]).find(x=>x.id===id)||null; }
+/* Apakah cerita permintaan ini SUDAH SELESAI DICERITAKAN oleh baris-baris
+   penugasannya. Dipakai untuk menyembunyikannya dari Riwayat Antrean.
+   ---------------------------------------------------------------------
+   Permintaan yang disetujui melahirkan satu baris pengajuan per orang, dan
+   di riwayat keduanya berdiri berdampingan: "Permintaan 1 orang · Disetujui ·
+   Rp 70.000" tepat di atas "Pengajuan cicicic · Disetujui · Rp 70.000". Satu
+   shift, dua baris, dua kali uang — dan siapa pun yang menjumlahkan kolom
+   Upah mendapat angka dua kali lipat.
+
+   Yang disembunyikan HANYA yang sudah terpenuhi penuh. Yang ditolak,
+   kedaluwarsa, dibatalkan, atau cuma terpenuhi sebagian TETAP tampil: justru
+   di situlah ada yang tidak diceritakan baris penugasan mana pun — "diminta 4,
+   dikirim 3, sebabnya begini". Permintaannya sendiri tetap utuh di halaman
+   Permintaan DW, lengkap dengan yang sudah terpenuhi. */
+function mintaTerwakiliAjuan(x){
+  if(!x || x.status!=='DISETUJUI') return false;
+  return mintaTerpenuhi(x.id) >= Math.max(1, +x.jumlah||1);
+}
 
 /* Label "hari ini / besok / lewat" untuk satu tanggal. Dihitung dari selisih
    HARI KALENDER, bukan jam: yang dicari pembacanya "masih sempat atau tidak",
@@ -3237,8 +3265,8 @@ function biayaPermintaanHTML(b){
      meleset ke bawah, dan yang meleset ke bawah justru yang paling mudah
      disetujui. */
   const tambah=tambahanJam(b.m,b.s);
-  const satuan=tarif+tambah;
-  return '<div class="note i" style="margin-top:4px">Perkiraan biaya: <b>'+esc(rp(satuan*jml))+'</b> '
+  const satuan=biayaSatuOrang(b.posisi,b.m,b.s);
+  return '<div class="note i" style="margin-top:4px">Perkiraan biaya: <b>'+esc(rp(biayaPermintaan(b)))+'</b> '
     +'<span class="mutedhint">('+jml+' × '+esc(rp(satuan))
     +(tambah?' = '+esc(rp(tarif))+' + '+esc(rp(tambah))+' shift panjang':' per shift')
     +')</span></div>';
@@ -3644,7 +3672,13 @@ function viewAntrean(){
 
   const menunggu=entri.filter(e=>e.status==='MENUNGGU')
     .sort((a,b)=>String(a.tgl).localeCompare(String(b.tgl))||String(a.m).localeCompare(String(b.m)));
-  const sudah=entri.filter(e=>e.status!=='MENUNGGU').sort((a,b)=>b.putusAt-a.putusAt);
+  /* PERMINTAAN YANG SUDAH TERPENUHI PENUH TIDAK DIULANG DI RIWAYAT.
+     Baris penugasannya sudah menceritakan hal yang sama dengan lebih lengkap
+     (nama orangnya, bukan cuma jumlahnya), dan dua baris untuk satu shift
+     membuat kolom Upah terbaca dua kali. Lihat mintaTerwakiliAjuan(). */
+  const sudah=entri.filter(e=>e.status!=='MENUNGGU')
+    .filter(e=>!(e.jenis==='minta' && mintaTerwakiliAjuan(e.x)))
+    .sort((a,b)=>b.putusAt-a.putusAt);
   /* Yang MENUNGGU selalu di atas di tab Semua: itu satu-satunya yang menuntut
      tindakan. Sisanya urut terbaru. */
   const urut=menunggu.concat(sudah);
@@ -3823,6 +3857,12 @@ function barisAjuanAntrean(a){
          sama sekali sejak 14 Agustus 2026. Yang mengirim selalu staf: head
          divisinya, atau HRD lewat sel kalender. */
       +jejakKecilHTML('diajukan', a.dibuatOleh, a.dibuatAt)
+      /* SIAPA YANG MEMINTANYA, di baris penugasannya sendiri. Perlu sejak
+         baris permintaan yang sudah terpenuhi penuh berhenti diulang di
+         Riwayat (lihat mintaTerwakiliAjuan): tanpa ini, satu-satunya jejak ke
+         head yang memintanya hilang dari halaman ini. Catatan head ikut,
+         karena di sanalah alasannya ditulis ("ada acara 300 pax"). */
+      +asalPermintaanHTML(a)
       +(nota?'<div class="kecil" style="color:var(--danger)">"'+esc(nota)+'"</div>':'')+'</td>'
     +'<td>'+esc(ikonDivisi(a.divisi)+' '+namaDivisi(a.divisi))
       +'<div class="kecil">'+esc(a.posisi||'—')+'</div></td>'
@@ -3838,6 +3878,17 @@ function barisAjuanAntrean(a){
       +jejakKecilHTML(kataPutusan(a.status), a.putusOleh, a.putusAt)+'</td>'
     +'<td class="kanan aksi-aju">'+aksi+'</td>'
   +'</tr>';
+}
+/* "dari permintaan <head>" untuk pengajuan yang lahir dari permintaan head.
+   Kosong untuk yang diajukan langsung lewat sel kalender — di sana tidak ada
+   permintaan apa pun di belakangnya, dan baris kosong yang berbunyi "dari
+   permintaan —" cuma menimbulkan pertanyaan yang tidak ada jawabannya. */
+function asalPermintaanHTML(a){
+  if(!a || !a.permintaanId) return '';
+  const p=permintaanById(a.permintaanId);
+  if(!p) return '';
+  return '<div class="kecil">dari permintaan <b>'+esc(p.dibuatOleh||'—')+'</b>'
+    +(p.catatan?' — '+esc(p.catatan):'')+'</div>';
 }
 /* Kata kerja yang mendahului nama pemutus. Dibuat satu fungsi karena dipakai
    di tiga tempat, dan yang paling mudah salah adalah menulis "disetujui" untuk
@@ -3911,7 +3962,6 @@ function barisMintaAntrean(x){
   if(bolehHapusMinta(x))
     aksi.push('<button class="btn btn-ghost bahaya btn-sm" title="Hapus permanen — barisnya hilang dari riwayat juga"'
       +' onclick="hapusPermintaan(&#39;'+escJs(x.id)+'&#39;)">🗑 Hapus</button>');
-  const tarif=tarifPosisi(x.posisi);
   return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
     +'<td class="mono">'+esc(tglManusia(x.tgl))+segeraHTML(x.tgl)+'</td>'
     /* Susunannya sengaja sejajar dengan baris pengajuan di atas: pil jenis,
@@ -3927,7 +3977,7 @@ function barisMintaAntrean(x){
     +'<td>'+esc(ikonDivisi(x.divisi)+' '+namaDivisi(x.divisi))
       +'<div class="kecil">'+esc(x.posisi||'—')+'</div></td>'
     +'<td class="mono">'+esc(x.m+'–'+x.s)+'<div class="kecil">'+durasiJam(x.m,x.s)+' jam</div></td>'
-    +'<td class="kanan mono">'+esc(rp(tarif*(+x.jumlah||1)))+'</td>'
+    +'<td class="kanan mono">'+esc(rp(biayaPermintaan(x)))+'</td>'
     +'<td>'+(x.status==='DISETUJUI'&&kurang
         ? '<span class="stpill st-MENUNGGU">'+isi+' dari '+x.jumlah+'</span>'
         : pilStatus(x.status))

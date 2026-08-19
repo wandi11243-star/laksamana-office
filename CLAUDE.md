@@ -312,6 +312,19 @@ satu tempat lalu mencarinya lagi di tempat lain.
 permintaan: tiap permintaan perlu diputuskan siapa orangnya, dan tombol yang
 menyapu keduanya melewati justru bagian yang butuh dipikirkan.
 
+Di tab **Riwayat/Semua**, permintaan yang sudah **terpenuhi penuh** tidak
+diulang (`mintaTerwakiliAjuan`): baris penugasannya menceritakan hal yang sama
+dengan lebih lengkap, dan dua baris untuk satu shift membuat kolom Upah
+terbaca dua kali. Yang ditolak/kedaluwarsa/**terpenuhi sebagian** tetap tampil
+— di situlah ada yang tidak diceritakan baris penugasan mana pun. Jejak "dari
+permintaan `<head>`" pindah ke baris penugasannya (`asalPermintaanHTML`), dan
+permintaannya sendiri tetap utuh di halaman **Permintaan DW**.
+
+Uang satu orang satu shift dihitung **satu tempat**: `biayaSatuOrang()` →
+`biayaAjuan()` dan `biayaPermintaan()`. Sempat dua tempat, dan yang di baris
+permintaan tertinggal saat tambahan shift panjang lahir — Antrean menulis
+Rp 50.000 untuk shift yang ditagih Rp 70.000 begitu orangnya ditugaskan.
+
 ### DW: `KEDALUWARSA` ditulis saat DIBACA, bukan lewat cron
 
 `tutup_kedaluwarsa()` dipanggil di awal `baca_semua()`: permintaan & ajuan

@@ -1709,7 +1709,16 @@ function tambahanJam() { durasiJam(); jamDasarDW(); tambahanPanjangDW(); }
 
 
 function shiftKepanjangan() { durasiJam(); jamBatasDW(); }
-function biayaAjuan() { tarifPosisi(); tambahanJam(); isHR(); }
+function biayaAjuan() { biayaSatuOrang(); }
+
+
+
+
+
+
+
+function biayaSatuOrang() { tarifPosisi(); tambahanJam(); }
+function biayaPermintaan() { biayaSatuOrang(); isHR(); }
 
 
 
@@ -2720,6 +2729,25 @@ function mintaOrang() {  }
 
 
 
+function permintaanById() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mintaTerwakiliAjuan() { mintaTerpenuhi(); }
+
+
+
 
 
 
@@ -3213,7 +3241,7 @@ function durasiMintaHTML() { durasiJam(); jamDasarDW(); cocokJamSiap(); shiftKep
 
 
 
-function biayaPermintaanHTML() { bolehLihatUang(); tarifPosisi(); esc(); tambahanJam(); rp(); }
+function biayaPermintaanHTML() { bolehLihatUang(); tarifPosisi(); esc(); tambahanJam(); biayaSatuOrang(); rp(); biayaPermintaan(); }
 
 
 
@@ -3613,7 +3641,13 @@ function setCariAnt() { render(); }
 
 
 
-function viewAntrean() { namaDW(); ajuHal(); esc(); tglPanjang(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisMintaAntrean(); barisAjuanAntrean(); }
+function viewAntrean() { mintaTerwakiliAjuan(); namaDW(); ajuHal(); esc(); tglPanjang(); panduanTeks(); konteksHari(); isHR(); setujuiBanyak(); barisMintaAntrean(); barisAjuanAntrean(); }
+
+
+
+
+
+
 
 
 
@@ -3780,7 +3814,7 @@ function pilJenis() {  }
 
 
 
-function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tolakAjuan(); esc(); tglManusia(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); kataPutusan(); }
+function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tolakAjuan(); esc(); tglManusia(); pilJenis(); namaDW(); jejakKecilHTML(); asalPermintaanHTML(); ikonDivisi(); namaDivisi(); jamAjuan(); durasiJam(); rp(); biayaAjuan(); pilStatus(); kataPutusan(); }
 
 
 
@@ -3833,6 +3867,23 @@ function barisAjuanAntrean() { isHR(); setujuiAjuan(); escJs(); bukaAjuan(); tol
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function asalPermintaanHTML() { permintaanById(); esc(); }
 
 
 
@@ -3854,8 +3905,7 @@ function kataPutusan() {  }
 
 
 
-function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); tarifPosisi(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); pilStatus(); kataPutusan(); }
-
+function barisMintaAntrean() { mintaTerpenuhi(); mintaOrang(); isHR(); setujuiPermintaan(); escJs(); esc(); bukaTunjuk(); bukaSebagian(); tolakPermintaan(); bolehUbahMinta(); bukaMinta(); bolehHapusMinta(); hapusPermintaan(); tglManusia(); segeraHTML(); pilJenis(); namaDW(); jejakKecilHTML(); ikonDivisi(); namaDivisi(); durasiJam(); rp(); biayaPermintaan(); pilStatus(); kataPutusan(); }
 
 
 
