@@ -876,6 +876,34 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -1566,6 +1594,15 @@ function aturanBawaan() {  }
 
 
 
+
+
+
+
+
+
+
+
+
 function aturanTerbatas() {  }
 
 
@@ -1574,6 +1611,25 @@ function aturanTerbatas() {  }
 function modulTerlarangUntuk() { aturanTerbatas(); timCocok(); add(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function aturanAdminBawaan() {  }
+
+
+function adminBawaanUntuk() { aturanAdminBawaan(); timCocok(); add(); }
 
 
 
@@ -1667,7 +1723,48 @@ function grantEfektif() { katalogModul(); add(); modulBawaanUntuk(); modulTerlar
 
 
 
-function renderPickGrid() { katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); moduleLabel(); esc(); }
+
+
+
+
+
+
+
+
+function renderPickGrid() { katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); adminBawaanUntuk(); esc(); moduleLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1814,6 +1911,7 @@ function loadAdminUsers() { adminCall(); esc(); renderPickGrid(); renderAdminLis
 
 
 
+
 function renderAdminList() { moduleLabels(); esc(); initials(); }
 
 
@@ -1854,6 +1952,336 @@ function renderAdminList() { moduleLabels(); esc(); initials(); }
 
 
 function toggleAdminUser() { askConfirm(); adminCall(); notify(); loadAdminUsers(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function usrNilai() {  }
+
+
+
+
+function usrBool() {  }
+
+
+
+
+
+
+
+
+
+
+
+function usrCrc32() {  }
+
+
+
+
+
+
+
+
+function usrZip() { usrCrc32(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function usrKolHuruf() {  }
+
+
+
+function usrNamaBerkas() {  }
+
+
+
+
+
+function eksporUserExcel() { notify(); usrNilai(); usrKolHuruf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function B() { usrZip(); usrNamaBerkas(); notify(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function usrUnzip() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function usrKolIndex() {  }
+
+
+
+
+function usrBacaXlsx() { usrUnzip(); usrKolIndex(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporUserExcel() { usrBacaXlsx(); notify(); usrBool(); askConfirm(); adminCall(); loadAdminUsers(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1960,7 +2388,12 @@ function pesanAdminErr() {  }
 
 
 
-function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); modulBawaanUntuk(); modulTerlarangUntuk(); resetAdminForm(); loadAdminUsers(); }
+function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); adminBawaanUntuk(); resetAdminForm(); loadAdminUsers(); }
+
+
+
+
+
 
 
 
@@ -2579,4 +3012,4 @@ function openNickModal() { closeAcctMenu(); getSession(); }
 
 
 
-function closeNickModal() { add(); renderAdminList(); deleteAdminUser(); fillAdminForm(); toggleAdminUser(); switchAdminTab(); toggleModuleActive(); saveModuleLabel(); toggleModuleUsersPanel(); toggleModuleUserAccess(); }
+function closeNickModal() { add(); imporUserExcel(); renderAdminList(); deleteAdminUser(); fillAdminForm(); toggleAdminUser(); switchAdminTab(); toggleModuleActive(); saveModuleLabel(); toggleModuleUsersPanel(); toggleModuleUserAccess(); }
