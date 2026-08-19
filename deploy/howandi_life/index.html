@@ -518,7 +518,11 @@ function migrate(s){const b=emptyState();
   if(!Array.isArray(s.finance.ledger)){s.finance.ledger=[];if(Array.isArray(s.finance.monthly)){s.finance.monthly.forEach(r=>{s.finance.ledger.push({id:uid(),month:r.month,scope:'personal',income:r.pIncome||0,expense:r.pExpense||0,note:r.note||''});if((r.bIncome||0)||(r.bExpense||0))s.finance.ledger.push({id:uid(),month:r.month,scope:'__umum',income:r.bIncome||0,expense:r.bExpense||0,note:''})});delete s.finance.monthly}else s.finance.ledger=b.finance.ledger;}
   if(!s.auth||typeof s.auth!=='object')s.auth={enabled:false,hash:''};
   s.tasks.forEach(t=>{t.desc=t.desc||'';t.project=t.project||'';t.owner=t.owner||''});
-  s.projects.forEach(p=>{p.pic=p.pic||'';p.team=p.team||'';p.desc=p.desc||''});
+  /* Stage 'Archive' dicabut 19 Agustus 2026 dan dilebur ke 'Done' (lihat
+     STAGES). Dipindahkan di sini, bukan dibiarkan: kolomnya sudah tidak
+     digambar lagi, jadi project yang tertinggal di 'Archive' akan LENYAP dari
+     papan Kanban tanpa satu pun tempat yang menyebut ke mana perginya. */
+  s.projects.forEach(p=>{p.pic=p.pic||'';p.team=p.team||'';p.desc=p.desc||'';if(p.stage==='Archive'){p.stage='Done';if(!p.progress)p.progress=100}});
   s.goals.forEach(g=>{g.desc=g.desc||'';g.milestone=g.milestone||''});
   s.roadmap.forEach(r=>{r.desc=r.desc||''});
   s.dreams.forEach(d=>{d.milestone=d.milestone||''});
@@ -575,7 +579,7 @@ function render(){
   document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===view||(view==='projectDetail'&&b.dataset.view==='projects')||(view==='bizDetail'&&b.dataset.view==='business')));
   renderMobnav();
   document.getElementById('nav-tasks').textContent=S.tasks.filter(t=>!t.done).length;
-  document.getElementById('nav-proj').textContent=S.projects.filter(p=>p.stage!=='Done'&&p.stage!=='Archive').length;
+  document.getElementById('nav-proj').textContent=S.projects.filter(p=>p.stage!=='Done').length;
   const m=document.getElementById('main');
   ({home:viewHome,tasks:viewTasks,projects:viewProjects,projectDetail:viewProjectDetail,content:viewContent,goals:viewGoals,roadmap:viewRoadmap,learning:viewLearning,reviews:viewReviews,calendar:viewCalendar,finance:viewFinance,business:viewBusiness,bizDetail:viewBizDetail,settings:viewSettings}[view]||viewHome)(m);
   hydrateIcons(m);
@@ -631,7 +635,13 @@ function listHtml(l,t){return`<div class="panel"><div class="panel-h"><div class
 function bizHtml(base){const g={};base.filter(t=>!t.done).forEach(t=>{(g[t.biz||'Tanpa bisnis']=g[t.biz||'Tanpa bisnis']||[]).push(t)});return Object.entries(g).map(([b,l])=>`<div class="panel" style="margin-bottom:14px"><div class="panel-h"><div class="panel-title"><span class="dot"></span>${b} · ${l.length}</div></div><div class="panel-b">${l.map(t=>taskRow(t)).join('')}</div></div>`).join('')||'<div class="empty"><div class="em-t">Belum ada task aktif</div></div>'}
 
 /* ===== PROJECTS ===== */
-const STAGES=['Idea','Planning','Research','Ready','Doing','Waiting','Review','Done','Archive'];
+/* ARCHIVE DICABUT (19 Agustus 2026) — dilebur ke Done.
+   Dua kolom untuk satu maksud yang sama: keduanya berarti "sudah tidak
+   dikerjakan lagi", dan bedanya tidak pernah bisa dijelaskan tanpa mengarang
+   aturan. Yang terjadi di papan: project selesai tersebar di dua kolom, dan
+   yang mencari salah satunya harus melihat dua tempat. Project berstage
+   'Archive' yang terlanjur tersimpan dipindahkan ke 'Done' oleh migrate(). */
+const STAGES=['Idea','Planning','Research','Ready','Doing','Waiting','Review','Done'];
 function viewProjects(m){
   m.innerHTML=`<div class="topbar"><div><div class="pagetitle">Project Center</div><div class="pagesub">Klik project untuk lihat detail & task-nya. Drag kartu antar kolom.</div></div><button class="btn btn-primary" onclick="openProjModal()">${svg('plus','',15)} Project</button></div>
   <div class="kanban">${STAGES.map(st=>{const l=S.projects.filter(p=>p.stage===st);return`<div class="kcol" data-stage="${st}" ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')" ondrop="dropProj(event,'${st}')"><div class="kcol-h"><span class="kt">${st}</span><span class="kc">${l.length}</span></div><div class="kcol-b">${l.map(p=>projCard(p)).join('')}</div></div>`}).join('')}</div>`;
@@ -782,7 +792,7 @@ function finAssets(){return`<div class="topbar" style="margin-bottom:12px"><div 
 /* ===== BUSINESS ===== */
 function viewBusiness(m){
   m.innerHTML=`<div class="topbar"><div><div class="pagetitle">Businesses</div><div class="pagesub">Howandi Chandra Inc. — klik untuk detail tiap anak perusahaan.</div></div><button class="btn btn-primary" onclick="openBizModal()">${svg('plus','',15)} Bisnis</button></div>
-  <div class="grid dash">${S.businesses.map(b=>{const tasks=S.tasks.filter(t=>t.biz===b.name&&!t.done).length;const projs=S.projects.filter(p=>p.biz===b.name&&p.stage!=='Done'&&p.stage!=='Archive').length;const age=b.founded?(THISYEAR-b.founded+1):0;return`<div class="panel col-4" style="cursor:pointer" onclick="openBizDetail('${b.id}')"><div class="panel-b"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--disp);font-size:16px;font-weight:600;line-height:1.2">${b.name}</div><div class="hint" style="color:var(--muted);margin-top:3px">${b.field||b.area}</div></div><span class="tag">${b.founded||'—'}</span></div><div class="stat-row" style="margin-top:16px"><div class="stat"><span class="k">Avg Rev/thn</span><span class="v" style="font-size:14px;color:var(--brass-dim)">${fmtRp(b.revenue||0)}</span></div><div class="stat"><span class="k">Task</span><span class="v" style="font-size:18px">${tasks}</span></div><div class="stat"><span class="k">Project</span><span class="v" style="font-size:18px">${projs}</span></div></div>${age?`<div class="hint" style="margin-top:10px">Berdiri ${age} tahun</div>`:''}</div></div>`}).join('')}</div>`;
+  <div class="grid dash">${S.businesses.map(b=>{const tasks=S.tasks.filter(t=>t.biz===b.name&&!t.done).length;const projs=S.projects.filter(p=>p.biz===b.name&&p.stage!=='Done').length;const age=b.founded?(THISYEAR-b.founded+1):0;return`<div class="panel col-4" style="cursor:pointer" onclick="openBizDetail('${b.id}')"><div class="panel-b"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><div style="font-family:var(--disp);font-size:16px;font-weight:600;line-height:1.2">${b.name}</div><div class="hint" style="color:var(--muted);margin-top:3px">${b.field||b.area}</div></div><span class="tag">${b.founded||'—'}</span></div><div class="stat-row" style="margin-top:16px"><div class="stat"><span class="k">Avg Rev/thn</span><span class="v" style="font-size:14px;color:var(--brass-dim)">${fmtRp(b.revenue||0)}</span></div><div class="stat"><span class="k">Task</span><span class="v" style="font-size:18px">${tasks}</span></div><div class="stat"><span class="k">Project</span><span class="v" style="font-size:18px">${projs}</span></div></div>${age?`<div class="hint" style="margin-top:10px">Berdiri ${age} tahun</div>`:''}</div></div>`}).join('')}</div>`;
 }
 function openBizDetail(id){currentBid=id;view='bizDetail';render();window.scrollTo(0,0)}
 function viewBizDetail(m){
@@ -824,6 +834,21 @@ function openMoreMenu(){openModal(`<div class="modal-h"><h3>Semua Modul</h3><but
 </script>
 
 <script>
+/* Pilihan project di modal Task. Yang sudah 'Done' TIDAK ikut: project selesai
+   tidak menerima task baru lagi, dan menempelkannya ke sana adalah cara paling
+   cepat membuat task itu hilang dari perhatian — halaman Project Center pun
+   sudah tidak menghitungnya.
+
+   SATU PENGECUALIAN, dan ini yang menahan bug diam: project yang SEDANG
+   terpasang di task yang sedang disunting tetap digambar, ditandai
+   "· selesai". Tanpa itu, membuka task lama milik project yang belakangan
+   ditandai Done membuat <select> tidak punya option-nya sama sekali; value-nya
+   jatuh ke '' dan saveTask() MELEPAS project itu dari task-nya — gara-gara HR
+   membuka form untuk membetulkan satu salah ketik, tanpa satu pun pesan. */
+function projOptions(cur){
+  return S.projects.filter(p=>p.stage!=='Done'||p.id===cur)
+    .map(p=>`<option value="${p.id}" ${cur===p.id?'selected':''}>${p.name}${p.stage==='Done'?' · selesai':''}</option>`).join('');
+}
 /* ===== MODALS CORE ===== */
 function openModal(html){const o=document.getElementById('overlay');document.getElementById('modal').innerHTML=html;o.classList.add('show');hydrateIcons(document.getElementById('modal'))}
 function closeModal(){document.getElementById('overlay').classList.remove('show')}
@@ -835,7 +860,7 @@ function openTaskModal(id,prefill){editId=id;prefill=prefill||{};const t=id?S.ta
   openModal(`<div class="modal-h"><h3>${t?'Edit Task':'Task Baru'}</h3><button class="icon-btn" onclick="closeModal()">${svg('x','',18)}</button></div><div class="modal-b">
     <div class="field"><label>Nama task</label><input id="f-name" value="${t?esc(t.name):''}" placeholder="Apa yang harus dikerjakan?" autofocus></div>
     <div class="field"><label>Detail / keterangan (opsional)</label><textarea id="f-desc" placeholder="Konteks, checklist singkat, catatan…">${t?esc(t.desc||''):''}</textarea></div>
-    <div class="field-row"><div class="field"><label>Bisnis</label><select id="f-biz"><option value="">— Tanpa bisnis —</option>${S.businesses.map(b=>`<option ${curBiz===b.name?'selected':''}>${b.name}</option>`).join('')}</select></div><div class="field"><label>Project</label><select id="f-proj"><option value="">— Tanpa project —</option>${S.projects.map(p=>`<option value="${p.id}" ${curProj===p.id?'selected':''}>${p.name}</option>`).join('')}</select></div></div>
+    <div class="field-row"><div class="field"><label>Bisnis</label><select id="f-biz"><option value="">— Tanpa bisnis —</option>${S.businesses.map(b=>`<option ${curBiz===b.name?'selected':''}>${b.name}</option>`).join('')}</select></div><div class="field"><label>Project</label><select id="f-proj"><option value="">— Tanpa project —</option>${projOptions(curProj)}</select></div></div>
     <div class="field-row"><div class="field"><label>Owner / PIC</label><input id="f-owner" value="${t?esc(t.owner||''):''}" placeholder="Saya / nama tim"></div><div class="field"><label>Deadline</label><input id="f-due" type="date" value="${t?t.due||'':''}"></div></div>
     <div class="field-row"><div class="field"><label>Estimasi (menit)</label><input id="f-est" type="number" value="${t?t.est||'':''}" placeholder="mis. 30"></div><div class="field"><label>&nbsp;</label><div class="q-preview q-${quadrant({important:mImportant,urgent:mUrgent}).k}" id="q-prev" style="padding:11px"></div></div></div>
     <div class="field"><label>Prioritas (Eisenhower)</label><div class="toggles"><button class="toggle ${mImportant?'on':''}" id="tg-imp" onclick="tgl('imp')"><span class="tick">${svg('check')}</span>Penting</button><button class="toggle ${mUrgent?'on':''}" id="tg-urg" onclick="tgl('urg')"><span class="tick">${svg('check')}</span>Mendesak</button></div></div>

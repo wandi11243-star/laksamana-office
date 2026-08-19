@@ -527,6 +527,10 @@ function migrate() { emptyState(); uid(); weekKey(); }
 
 
 
+
+
+
+
 function load() { apiConfigured(); apiGetState(); migrate(); emptyState(); }
 
 
@@ -628,7 +632,13 @@ function viewTasks() { applyTaskFilter(); render(); openTaskModal(); svg(); matr
 
 function matrixHtml() { taskRow(); }
 function listHtml() { taskRow(); }
-function bizHtml() { taskRow(); }
+function bizHtml() { taskRow(); migrate(); }
+
+
+
+
+
+
 
 
 
@@ -820,7 +830,22 @@ function resetAll() { modalConfirm(); emptyState(); save(); closeModal(); setVie
 
 
 function renderMobnav() { setView(); svg(); }
-function openMoreMenu() { openModal(); closeModal(); svg(); setView(); }
+function openMoreMenu() { openModal(); closeModal(); svg(); setView(); saveTask(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function projOptions() {  }
 
 
 
@@ -831,7 +856,7 @@ function modalConfirm() { openModal(); closeModal(); svg(); }
 
 
 
-function openTaskModal() { openModal(); closeModal(); svg(); esc(); quadrant(); tgl(); delTask(); saveTask(); updateQPrev(); }
+function openTaskModal() { openModal(); closeModal(); svg(); esc(); projOptions(); quadrant(); tgl(); delTask(); saveTask(); updateQPrev(); }
 
 
 
