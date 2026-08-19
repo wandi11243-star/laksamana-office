@@ -4654,7 +4654,12 @@ function kapasitasLayout() { capMax(); renderHariHListOnly(); }
 function harihL2() { dayTypeLayout2(); }
 function harihLayoutKey() { harihL2(); harihL1(); }
 function harihLantai() {  }
-function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); renderHariH(); adaDenahTanggal(); ltCfg(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
+function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); tamuMasihDuduk(); renderHariH(); konfirmPulangSemua(); adaDenahTanggal(); ltCfg(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
+
+
+
+
+
 
 
 
@@ -5722,7 +5727,7 @@ function openArrivalModal() { ensureArrivals(); arrivedPax(); remainingPax(); ar
 
 
 
-function saveArrival() { ensureArrivals(); byId(); toast(); arrivedPax(); remainingPax(); logAudit(); commit(); buildNav(); closeModal(); navigate(); }
+function saveArrival() { ensureArrivals(); byId(); toast(); arrivedPax(); remainingPax(); logAudit(); commit(); pulihkanRes(); buildNav(); closeModal(); navigate(); }
 
 
 
@@ -5771,7 +5776,7 @@ function saveArrival() { ensureArrivals(); byId(); toast(); arrivedPax(); remain
 
 
 
-function undoArrival() { ensureArrivals(); fmtTs(); arrivedPax(); logAudit(); commit(); buildNav(); closeModal(); navigate(); openArrivalModal(); toast(); }
+function undoArrival() { ensureArrivals(); fmtTs(); arrivedPax(); logAudit(); commit(); pulihkanRes(); buildNav(); closeModal(); navigate(); openArrivalModal(); toast(); }
 
 
 
@@ -6313,12 +6318,104 @@ function changeStatus() { openCancelModal(); arrivedPax(); logAudit(); commit();
 
 
 
-function guestLeft() { toast(); dineDuration(); logAudit(); fmtDur(); commit(); buildNav(); closeModal(); navigate(); tablesOf(); sedangDialihkan(); mejaAsliOf(); denahFilterAktif(); tawarkanKembaliKeAsli(); waitingQueue(); offerWaitlist(); }
+function guestLeft() { toast(); dineDuration(); logAudit(); fmtDur(); commit(); pulihkanRes(); buildNav(); closeModal(); navigate(); tablesOf(); sedangDialihkan(); mejaAsliOf(); denahFilterAktif(); tawarkanKembaliKeAsli(); waitingQueue(); offerWaitlist(); harihOccupancy(); }
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tamuMasihDuduk() { harihOccupancy(); isSeated(); tablesOf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function pulihkanRes() {  }
+
+
+
+
+function konfirmPulangSemua() { toast(); tolakKarenaFilter(); tamuMasihDuduk(); arrivedPax(); openModal(); fmtDate(); closeModal(); esc(); seatTimeLabel(); fmtDur(); seatedSoFar(); pulangSemua(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pulangSemua() { toast(); tamuMasihDuduk(); closeModal(); logAudit(); commit(); pulihkanRes(); buildNav(); navigate(); }
 
 
 

@@ -4666,6 +4666,9 @@ function harihMapView(){
   const ov1=hasOverrideLt(HARIH_DATE,1), ov2=hasOverrideLt(HARIH_DATE,2);
   const lt=harihLantai(), ovOn=(lt===2?ov2:ov1), curLabel=(lt===2?l2label:l1label);
   const canEdit=CAN.input(SESSION.role);
+  /* Dihitung dari `occ` yang sudah ada di tangan, bukan memanggil
+     harihOccupancy() lagi — perhitungan itu menyapu seluruh STATE.reservations. */
+  const duduk=canEdit?tamuMasihDuduk(occ):[];
   return `<div class="panel"><div class="panel-body">
     <div class="seat-toolbar">
       <div class="seat-switch">
@@ -4673,6 +4676,8 @@ function harihMapView(){
         <button class="${HARIH_LAYOUT==='lantai2'?'on':''}" onclick="HARIH_LAYOUT='lantai2';renderHariH()">Lantai 2 (${l2label}${ov2?" ⚑":""})</button>
       </div>
       <span class="seat-selinfo">Klik meja <b>terisi</b> → detail/aksi, <b>🤝 sharing</b> → kelola & tambah tamu, <b>kosong</b> → walk-in</span>
+      ${duduk.length?`<button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="konfirmPulangSemua()"
+         title="Tutup malam — tandai SEMUA tamu yang masih duduk sebagai pulang sekaligus, semua mejanya terbuka kembali. Ada konfirmasi dulu.">🍽️ Semua Tamu Pulang (${duduk.length})</button>`:""}
     </div>
     ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ ${adaDenahTanggal(HARIH_DATE,lt)
         ? `Meja <b>${ltCfg(lt).nama}</b> digeser khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (denah tanggal). Template Weekday/Weekend tidak ikut berubah.`
@@ -5762,7 +5767,7 @@ async function saveArrival(id, first){
   logAudit(first?"Datang":"Datang Susulan",
     `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`);
   const ok=await commit("Menyimpan kedatangan…");
-  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(sisa
@@ -5785,7 +5790,7 @@ async function undoArrival(id, idx){
   r.updatedAt=Date.now();
   logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`);
   const ok=await commit("Menyimpan koreksi…");
-  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   buildNav();
   if(r.arrivals.length) openArrivalModal(id,false); else closeModal();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -6323,7 +6328,7 @@ async function guestLeft(id){
   const dur=dineDuration(r);
   logAudit("Selesai Duduk",`${r.name}${dur!=null?`, duduk ${fmtDur(dur)}`:""}`);
   const ok=await commit("Menandai selesai…");
-  if(!ok){ Object.assign(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
+  if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(`${r.name} selesai${dur!=null?` — duduk ${fmtDur(dur)}`:""}, meja bebas ✓`,"ok");
@@ -6343,6 +6348,98 @@ async function guestLeft(id){
   if(freed && r.date===HARIH_DATE && !denahFilterAktif() && waitingQueue(HARIH_DATE).length){
     setTimeout(()=>offerWaitlist(freed), 350);
   }
+}
+
+/* ===== TUTUP MALAM: SEMUA TAMU PULANG SEKALIGUS =====
+   Saat tutup, kru menandai "🍽️ Selesai" satu per satu untuk belasan meja.
+   Yang berulang kali terjadi: beberapa meja terlewat, timer duduknya jalan
+   semalaman, dan baru dibereskan tutup-otomatis jam 04:00 — durasi di Riwayat
+   & Analitik jadi angka yang tidak berarti, dan denah pagi berikutnya masih
+   terlihat penuh. Satu tombol menutup semuanya sekaligus.
+
+   Daftarnya diturunkan dari harihOccupancy(), BUKAN dari filter tanggal biasa:
+   denah hari ini juga menggambar tamu yang check-in kemarin malam dan belum
+   pulang (booking lewat tengah malam). Tombol yang menjanjikan "semua meja
+   terbuka kembali" harus benar-benar mengosongkan meja yang TERLIHAT terisi,
+   bukan sebagiannya. Tamu yang sudah duduk tapi BELUM dapat meja ikut lewat
+   cabang kedua — ia tidak muncul di denah, tapi timernya tetap berjalan. */
+function tamuMasihDuduk(occ){
+  const peta = occ || harihOccupancy().occ;
+  const out=[], seen=new Set();
+  const tambah=r=>{ if(!isSeated(r) || seen.has(r.id)) return; seen.add(r.id); out.push(r); };
+  peta.forEach(list=>list.forEach(tambah));
+  STATE.reservations.forEach(r=>{ if(r.date===HARIH_DATE && !tablesOf(r).length) tambah(r); });
+  return out.sort((a,b)=>(a.checkinAt||0)-(b.checkinAt||0));
+}
+
+/* Pulihkan sebuah reservasi ke bentuk sebelum aksi gagal.
+   Object.assign(r, snap) SAJA tidak cukup: field yang baru DITAMBAHKAN aksi itu
+   (leftAt, checkinAt) tidak ada di snap, jadi assign membiarkannya menempel —
+   layar tetap menunjukkan tamu sudah pulang padahal database menolak. */
+function pulihkanRes(r, snap){
+  Object.keys(r).forEach(k=>{ if(!(k in snap)) delete r[k]; });
+  Object.assign(r, snap);
+}
+
+function konfirmPulangSemua(){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
+  /* Selama denah disaring, sebagian reservasi disembunyikan. Aksi massal yang
+     dijalankan dari daftar yang tidak lengkap justru MENINGGALKAN meja terisi
+     sambil melaporkan "semua meja terbuka kembali". */
+  if(tolakKarenaFilter()) return;
+  const list=tamuMasihDuduk();
+  if(!list.length){ toast("Tidak ada tamu yang sedang duduk di denah ini","err"); return; }
+  const meja=[...new Set(list.flatMap(tablesOf))];
+  const pax=list.reduce((a,r)=>a+(arrivedPax(r)||0),0);
+  openModal(`<div class="modal-head"><h3>🍽️ Semua Tamu Pulang — ${fmtDate(HARIH_DATE)}</h3>
+     <button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-warn"><div><b>${list.length} tamu${pax?` (${pax} pax)`:""}</b> yang masih duduk akan ditandai
+       <b>Selesai</b> sekaligus${meja.length?`, dan <b>${meja.length} meja</b> (${esc(meja.join(", "))}) terbuka kembali`:""}.
+       Durasi duduknya dihitung sampai <b>sekarang</b>. Tindakan ini tercatat di audit log.</div></div>
+     <div class="table-wrap" style="max-height:280px;overflow-y:auto;border:1px solid var(--line);margin-top:12px">
+       <table><thead><tr><th class="no-sort">Meja</th><th class="no-sort">Tamu</th><th class="no-sort">Sudah Duduk</th></tr></thead><tbody>
+       ${list.map(r=>`<tr>
+          <td style="white-space:nowrap;font-weight:600">${esc(r.table||"—")}</td>
+          <td><div class="name">${esc(r.name)}</div><div class="muted">${r.pax} pax · ${esc(seatTimeLabel(r))}</div></td>
+          <td style="white-space:nowrap">${fmtDur(seatedSoFar(r))}</td></tr>`).join("")}
+       </tbody></table>
+     </div>
+     <p style="margin:12px 0 0">Tamu yang <b>belum datang</b> dan yang sudah pulang tidak tersentuh.
+       Kalau ternyata masih ada meja yang terisi, tamunya perlu ditandai datang lagi manual —
+       tidak ada tombol pembatal untuk aksi ini.</p>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" style="margin-left:auto" onclick="pulangSemua()">🍽️ Ya, Semua Tamu Pulang (${list.length})</button>
+   </div>`);
+}
+
+async function pulangSemua(){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
+  /* Daftarnya diambil ULANG di sini, bukan dibawa dari modal: kru bisa saja
+     menandai satu tamu pulang lewat tab lain sebelum menekan tombol ini, dan
+     menulis leftAt baru ke tamu yang sudah pulang akan MENGGESER jam pulangnya. */
+  const list=tamuMasihDuduk();
+  if(!list.length){ closeModal(); toast("Tidak ada tamu yang sedang duduk di denah ini","err"); return; }
+  const cadangan=list.map(r=>({r, snap:JSON.parse(JSON.stringify(r))}));
+  const now=Date.now();
+  list.forEach(r=>{
+    if(!r.checkinAt) r.checkinAt=now;
+    r.leftAt=now; r.updatedAt=now;
+    /* autoClosed sengaja TIDAK diisi. Penanda itu berarti "ditutup sistem saat
+       jam tutup terlewat", dan badge 🌙 di Riwayat menuliskan jam 04:00 sebagai
+       jam pulangnya — untuk tombol yang ditekan kru jam 01:30 itu bohong. */
+  });
+  const nama=list.slice(0,8).map(r=>`${r.name}${r.table?` (${r.table})`:""}`).join(", ")
+             +(list.length>8?`, +${list.length-8} lagi`:"");
+  logAudit("Selesai Duduk (semua)", `${list.length} tamu ditandai pulang sekaligus: ${nama}`);
+  const ok=await commit("Menandai semua tamu pulang…");
+  if(!ok) cadangan.forEach(c=>pulihkanRes(c.r, c.snap));
+  closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  if(!ok) return;
+  toast(`${list.length} tamu ditandai selesai — semua meja terbuka kembali ✓`,"ok");
 }
 /* Tawarkan memindahkan tamu kembali ke meja aslinya (setelah meja itu bebas).
    Bukan otomatis: kru yang tahu kondisi lapangan — tamu bisa saja sudah nyaman di meja
