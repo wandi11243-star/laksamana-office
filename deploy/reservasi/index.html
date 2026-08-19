@@ -3848,6 +3848,11 @@ async function saveReservation(){
     // lihat perbaikiKedatangan().
     arrivals: PENDING_ARRIVALS || existing?.arrivals || [],
     checkinAt: existing?.checkinAt||null,
+    // Penanda "dianggap datang saat tutup malam" (lihat pulangSemua). Ikut
+    // disalin karena baris ini dibangun ulang dari daftar field yang eksplisit:
+    // yang tidak disebut akan HILANG begitu reservasinya disunting sekali, dan
+    // durasi duduk yang kosong jadi terlihat seperti data rusak, bukan sengaja.
+    datangDiasumsikan: existing?.datangDiasumsikan||0,
     leftAt: existing?.leftAt||0,
     followups: existing?.followups||[],
     cancelReason: existing?.cancelReason||"",
@@ -4346,7 +4351,10 @@ function recapTable(list, pg, nowMin, canEdit){
           <td><div class="name">${esc(r.name)} ${tagFor(p)}${r.sharing?`<span class="badge-status" style="background:var(--purple-bg);color:var(--purple);font-size:10px;margin-left:5px">🤝 sharing</span>`:""}</div><div class="muted">${displayPhone(r.phone)}</div>${r.category?`<span class="tag-cat">${esc(r.category)}</span>`:""}
             ${r.status==="Datang"&&!r.leftAt&&r.checkinAt?`<div style="font-size:12.5px;margin-top:3px;color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">🍽️ duduk ${seatTimerHtml(r)} <span class="muted" style="font-weight:500">· sejak ${clockOf(r.checkinAt)}</span></div>
               ${overStay(r)?`<div style="font-size:11.5px;margin-top:2px;color:var(--warn);font-weight:700">⚠️ lewat estimasi ${fmtDur(dineEst())} — mejanya sudah dianggap bebas, tandai 🍽️ Selesai</div>`:""}`
-              :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span></div>
+              :r.leftAt?`<div class="muted" style="font-size:11.5px;margin-top:3px">✔ selesai duduk${r.checkinAt
+                  ? `, ${fmtDur(dineDuration(r))} <span style="opacity:.8">(${clockOf(r.checkinAt)}–${clockOf(r.leftAt)})</span>`
+                  : ` <span style="opacity:.8">(pulang ${clockOf(r.leftAt)})</span>`}</div>
+              ${r.datangDiasumsikan?`<div style="font-size:11px;margin-top:2px;color:var(--muted)" title="Tamu ini tidak pernah ditandai datang satu per satu. Saat tutup malam ia dianggap datang penuh lalu langsung diselesaikan, jadi jam mulai duduk & durasinya memang tidak diketahui.">📋 dianggap datang saat tutup malam</div>`:""}
               ${r.autoClosed?`<div style="font-size:11px;margin-top:2px;color:var(--muted)" title="Tamu ini masih tercatat duduk saat jam tutup ${CLOSING_LABEL}, jadi sistem yang menandai selesai — bukan kru. Jam pulangnya dipakai jam tutup, bukan jam data ini dibuka.">🌙 ditutup otomatis jam ${CLOSING_LABEL}</div>`:""}`:""}</td>
           <td>${paxCell(r)}</td>
           <td style="font-variant-numeric:tabular-nums">${sisaKursi===null
@@ -4668,7 +4676,7 @@ function harihMapView(){
   const canEdit=CAN.input(SESSION.role);
   /* Dihitung dari `occ` yang sudah ada di tangan, bukan memanggil
      harihOccupancy() lagi — perhitungan itu menyapu seluruh STATE.reservations. */
-  const duduk=canEdit?tamuMasihDuduk(occ):[];
+  const tutup=canEdit?tamuTutupMalam(occ):{duduk:[],belum:[],semua:[]};
   return `<div class="panel"><div class="panel-body">
     <div class="seat-toolbar">
       <div class="seat-switch">
@@ -4676,8 +4684,9 @@ function harihMapView(){
         <button class="${HARIH_LAYOUT==='lantai2'?'on':''}" onclick="HARIH_LAYOUT='lantai2';renderHariH()">Lantai 2 (${l2label}${ov2?" ⚑":""})</button>
       </div>
       <span class="seat-selinfo">Klik meja <b>terisi</b> → detail/aksi, <b>🤝 sharing</b> → kelola & tambah tamu, <b>kosong</b> → walk-in</span>
-      ${duduk.length?`<button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="konfirmPulangSemua()"
-         title="Tutup malam — tandai SEMUA tamu yang masih duduk sebagai pulang sekaligus, semua mejanya terbuka kembali. Ada konfirmasi dulu.">🍽️ Semua Tamu Pulang (${duduk.length})</button>`:""}
+      ${tutup.semua.length?`<button class="btn btn-sm btn-primary" style="margin-left:auto" onclick="konfirmPulangSemua()"
+         title="Tutup malam — tandai SEMUA tamu yang masih duduk sebagai pulang sekaligus, semua mejanya terbuka kembali.${
+           tutup.belum.length?` Termasuk ${tutup.belum.length} booking yang jamnya sudah lewat tapi belum ditandai datang — mereka dianggap datang lalu langsung diselesaikan.`:""} Ada konfirmasi dulu.">🍽️ Semua Tamu Pulang (${tutup.semua.length})</button>`:""}
     </div>
     ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ ${adaDenahTanggal(HARIH_DATE,lt)
         ? `Meja <b>${ltCfg(lt).nama}</b> digeser khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (denah tanggal). Template Weekday/Weekend tidak ikut berubah.`
@@ -5220,7 +5229,9 @@ function seatAction(id){
        <div class="detail-item"><div class="k">No. HP</div><div class="v">${displayPhone(r.phone)||"-"}</div></div>
        <div class="detail-item"><div class="k">DP</div><div class="v">${r.dpStatus==="Sudah"?rpDot(r.dpAmount):"Belum"}</div></div>
        ${r.checkinAt?`<div class="detail-item"><div class="k">Mulai Duduk</div><div class="v">${fmtTs(r.checkinAt)} ${latenessLabel(r)}</div></div>`:""}
-       ${seated&&r.checkinAt?`<div class="detail-item"><div class="k">Sedang Duduk</div><div class="v" style="color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">${seatTimerHtml(r)}</div></div>`:r.leftAt?`<div class="detail-item"><div class="k">Durasi Duduk</div><div class="v">⏱ ${fmtDur(dineDuration(r))} (pulang ${fmtTs(r.leftAt)})</div></div>`:""}
+       ${seated&&r.checkinAt?`<div class="detail-item"><div class="k">Sedang Duduk</div><div class="v" style="color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">${seatTimerHtml(r)}</div></div>`:r.leftAt?`<div class="detail-item"><div class="k">Durasi Duduk</div><div class="v">${r.datangDiasumsikan&&!r.checkinAt
+              ? `<span title="Dianggap datang saat tutup malam — jam mulai duduknya tidak pernah tercatat">📋 tak diketahui</span> (pulang ${fmtTs(r.leftAt)})`
+              : `⏱ ${fmtDur(dineDuration(r))} (pulang ${fmtTs(r.leftAt)})`}</div></div>`:""}
      </div>
      ${canEdit?`<div class="section-title" style="margin-top:14px">🔄 Ubah Status Langsung</div>
       ${statusButtons(r)}`:""}
@@ -6159,7 +6170,10 @@ function openDetail(id){
        ${di("Diinput oleh",esc(r.createdBy)+", "+fmtTs(r.createdAt))}
        ${r.checkinAt?di("Mulai Duduk",fmtTs(r.checkinAt)+" "+latenessLabel(r)):""}
        ${r.leftAt?di("Selesai / Pulang",fmtTs(r.leftAt)):(r.status==="Datang"&&r.checkinAt?di("Sedang Duduk",`<span style="color:var(--ok);font-weight:700;font-variant-numeric:tabular-nums">${seatTimerHtml(r)}</span> (masih di meja)`):"")}
-       ${r.leftAt?di("Durasi Duduk","⏱ "+fmtDur(dineDuration(r))):""}
+       ${r.leftAt?di("Durasi Duduk", r.datangDiasumsikan&&!r.checkinAt
+           ? `<span title="Dianggap datang saat tutup malam — jam mulai duduknya tidak pernah tercatat">📋 tak diketahui</span>`
+           : "⏱ "+fmtDur(dineDuration(r))):""}
+       ${r.datangDiasumsikan?di("Catatan","📋 Tidak pernah ditandai datang satu per satu — dianggap datang penuh saat tutup malam"):""}
        ${r.cancelReason?di("Alasan Batal",esc(r.cancelReason)):""}
      </div>
      ${canEdit?`<div class="section-title">🔄 Ubah Status</div>
@@ -6362,14 +6376,52 @@ async function guestLeft(id){
    pulang (booking lewat tengah malam). Tombol yang menjanjikan "semua meja
    terbuka kembali" harus benar-benar mengosongkan meja yang TERLIHAT terisi,
    bukan sebagiannya. Tamu yang sudah duduk tapi BELUM dapat meja ikut lewat
-   cabang kedua — ia tidak muncul di denah, tapi timernya tetap berjalan. */
-function tamuMasihDuduk(occ){
+   cabang kedua — ia tidak muncul di denah, tapi timernya tetap berjalan.
+
+   19 Agustus 2026: yang disapu BUKAN cuma tamu yang sudah ditandai datang.
+   Di lapangan, meja yang ramai justru yang paling sering terlewat ditandai
+   "✅ Datang" — tamunya jelas ada di tempat, tapi di layar statusnya masih
+   Confirmed. Tombol yang cuma menutup tamu berstatus "Datang" meninggalkan
+   persis meja-meja itu: keesokan paginya denah masih terlihat terisi dan
+   bookingnya menggantung tanpa status akhir. Jadi booking yang JAM DATANGNYA
+   SUDAH LEWAT tapi belum ditandai datang ikut disapu — dianggap datang penuh,
+   lalu langsung diselesaikan.
+
+   Dua penjaga yang tidak boleh dilepas:
+   - Hanya yang jam bookingnya SUDAH LEWAT. Denah hari ini juga menggambar
+     booking yang baru terkunci H-3 jam (mis. jam 23:00 saat tombol ditekan
+     jam 20:30) dan booking dini hari BESOK. Tanpa penjaga ini, satu tekan
+     tombol menutup tamu yang belum tiba — dan tak ada pembatalnya.
+   - checkinAt SENGAJA dibiarkan kosong untuk yang dianggap datang. Kita tahu
+     tamunya ada, tapi TIDAK tahu jam berapa ia duduk. Diisi jam sekarang →
+     Analitik mencatatnya telat berjam-jam; diisi jam booking → ia tercatat
+     tepat waktu dengan durasi duduk karangan. Kosong membuat dineDuration()
+     & arrivalLateness() memulangkan null, yaitu "tidak diketahui" — satu-
+     satunya jawaban yang benar. Penandanya r.datangDiasumsikan. */
+/* Booking yang jam datangnya sudah lewat tapi belum pernah ditandai datang.
+   Cancelled / No-show tidak ikut: itu keputusan yang sudah diambil manusia. */
+function bookingBelumDatang(r){
+  if(!r || r.leftAt) return false;
+  if(!["Pending","Confirmed"].includes(r.status)) return false;
+  if(!r.date || !r.time) return false;
+  return absMin(r.date, r.time) <= absNow();
+}
+/* Dua kelompok yang ikut disapu tombol tutup malam, dipisah karena
+   perlakuannya beda: `duduk` cuma ditandai pulang, `belum` ditandai datang
+   dulu baru pulang. `semua` = urutan tampil di modal & jumlah di tombol. */
+function tamuTutupMalam(occ){
   const peta = occ || harihOccupancy().occ;
-  const out=[], seen=new Set();
-  const tambah=r=>{ if(!isSeated(r) || seen.has(r.id)) return; seen.add(r.id); out.push(r); };
+  const duduk=[], belum=[], seen=new Set();
+  const tambah=r=>{
+    if(!r || seen.has(r.id)) return;
+    if(isSeated(r)){ seen.add(r.id); duduk.push(r); return; }
+    if(bookingBelumDatang(r)){ seen.add(r.id); belum.push(r); }
+  };
   peta.forEach(list=>list.forEach(tambah));
   STATE.reservations.forEach(r=>{ if(r.date===HARIH_DATE && !tablesOf(r).length) tambah(r); });
-  return out.sort((a,b)=>(a.checkinAt||0)-(b.checkinAt||0));
+  duduk.sort((a,b)=>(a.checkinAt||0)-(b.checkinAt||0));
+  belum.sort((a,b)=>absMin(a.date,a.time)-absMin(b.date,b.time));
+  return { duduk, belum, semua: duduk.concat(belum) };
 }
 
 /* Pulihkan sebuah reservasi ke bentuk sebelum aksi gagal.
@@ -6387,31 +6439,46 @@ function konfirmPulangSemua(){
      dijalankan dari daftar yang tidak lengkap justru MENINGGALKAN meja terisi
      sambil melaporkan "semua meja terbuka kembali". */
   if(tolakKarenaFilter()) return;
-  const list=tamuMasihDuduk();
-  if(!list.length){ toast("Tidak ada tamu yang sedang duduk di denah ini","err"); return; }
-  const meja=[...new Set(list.flatMap(tablesOf))];
-  const pax=list.reduce((a,r)=>a+(arrivedPax(r)||0),0);
+  const {duduk, belum, semua}=tamuTutupMalam();
+  if(!semua.length){ toast("Tidak ada tamu yang masih terbuka di denah ini","err"); return; }
+  const meja=[...new Set(semua.flatMap(tablesOf))];
+  /* Pax yang ditutup: yang sudah duduk pakai realisasi, yang dianggap datang
+     pakai angka booking-nya — itulah yang akan tercatat sebagai realisasinya. */
+  const pax=duduk.reduce((a,r)=>a+(arrivedPax(r)||0),0)+belum.reduce((a,r)=>a+(Number(r.pax)||0),0);
+  const baris=r=>{
+    const anggap=!isSeated(r);
+    return `<tr>
+      <td style="white-space:nowrap;font-weight:600">${esc(r.table||"—")}</td>
+      <td><div class="name">${esc(r.name)}</div><div class="muted">${r.pax} pax · ${esc(seatTimeLabel(r))}</div></td>
+      <td style="white-space:nowrap">${anggap
+          ? `<span class="badge-status st-pending" style="font-size:10px" title="Belum pernah ditandai datang — akan dianggap datang ${r.pax} pax, lalu langsung selesai">📋 dianggap datang</span>`
+          : fmtDur(seatedSoFar(r))}</td></tr>`;
+  };
   openModal(`<div class="modal-head"><h3>🍽️ Semua Tamu Pulang — ${fmtDate(HARIH_DATE)}</h3>
      <button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
-     <div class="inline-warn"><div><b>${list.length} tamu${pax?` (${pax} pax)`:""}</b> yang masih duduk akan ditandai
+     <div class="inline-warn"><div><b>${semua.length} tamu${pax?` (${pax} pax)`:""}</b> akan ditandai
        <b>Selesai</b> sekaligus${meja.length?`, dan <b>${meja.length} meja</b> (${esc(meja.join(", "))}) terbuka kembali`:""}.
-       Durasi duduknya dihitung sampai <b>sekarang</b>. Tindakan ini tercatat di audit log.</div></div>
+       ${duduk.length?`<b>${duduk.length}</b> sedang duduk — durasinya dihitung sampai <b>sekarang</b>.`:""}
+       ${belum.length?`<b>${belum.length}</b> belum pernah ditandai datang tapi jam bookingnya sudah lewat —
+         mereka <b>dianggap datang penuh</b> (${belum.reduce((a,r)=>a+(Number(r.pax)||0),0)} pax) lalu langsung diselesaikan.`:""}
+       Tindakan ini tercatat di audit log.</div></div>
+     ${belum.length?`<div class="inline-info" style="margin-top:10px"><div>Kalau di antara ${belum.length} booking itu ada yang
+       <b>benar-benar tidak datang</b>, tandai <b>No-show</b> dulu sebelum menekan tombol ini — sesudahnya ia
+       sudah tercatat datang, dan angka no-show malam ini jadi salah.</div></div>`:""}
      <div class="table-wrap" style="max-height:280px;overflow-y:auto;border:1px solid var(--line);margin-top:12px">
        <table><thead><tr><th class="no-sort">Meja</th><th class="no-sort">Tamu</th><th class="no-sort">Sudah Duduk</th></tr></thead><tbody>
-       ${list.map(r=>`<tr>
-          <td style="white-space:nowrap;font-weight:600">${esc(r.table||"—")}</td>
-          <td><div class="name">${esc(r.name)}</div><div class="muted">${r.pax} pax · ${esc(seatTimeLabel(r))}</div></td>
-          <td style="white-space:nowrap">${fmtDur(seatedSoFar(r))}</td></tr>`).join("")}
+       ${semua.map(baris).join("")}
        </tbody></table>
      </div>
-     <p style="margin:12px 0 0">Tamu yang <b>belum datang</b> dan yang sudah pulang tidak tersentuh.
+     <p style="margin:12px 0 0">Booking yang jamnya <b>belum tiba</b>, yang sudah <b>Cancelled/No-show</b>,
+       dan yang sudah pulang tidak tersentuh.
        Kalau ternyata masih ada meja yang terisi, tamunya perlu ditandai datang lagi manual —
        tidak ada tombol pembatal untuk aksi ini.</p>
    </div>
    <div class="modal-foot">
      <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
-     <button class="btn btn-primary" style="margin-left:auto" onclick="pulangSemua()">🍽️ Ya, Semua Tamu Pulang (${list.length})</button>
+     <button class="btn btn-primary" style="margin-left:auto" onclick="pulangSemua()">🍽️ Ya, Semua Tamu Pulang (${semua.length})</button>
    </div>`);
 }
 
@@ -6420,26 +6487,39 @@ async function pulangSemua(){
   /* Daftarnya diambil ULANG di sini, bukan dibawa dari modal: kru bisa saja
      menandai satu tamu pulang lewat tab lain sebelum menekan tombol ini, dan
      menulis leftAt baru ke tamu yang sudah pulang akan MENGGESER jam pulangnya. */
-  const list=tamuMasihDuduk();
-  if(!list.length){ closeModal(); toast("Tidak ada tamu yang sedang duduk di denah ini","err"); return; }
-  const cadangan=list.map(r=>({r, snap:JSON.parse(JSON.stringify(r))}));
+  const {duduk, belum, semua}=tamuTutupMalam();
+  if(!semua.length){ closeModal(); toast("Tidak ada tamu yang masih terbuka di denah ini","err"); return; }
+  const cadangan=semua.map(r=>({r, snap:JSON.parse(JSON.stringify(r))}));
   const now=Date.now();
-  list.forEach(r=>{
-    if(!r.checkinAt) r.checkinAt=now;
+  /* Yang belum pernah ditandai datang: dianggap datang PENUH sebanyak pax
+     booking-nya, sama seperti menekan tombol status "📍 Datang" (lihat
+     changeStatus). Bedanya cuma checkinAt — lihat komentar tamuTutupMalam(). */
+  belum.forEach(r=>{
+    ensureArrivals(r);
+    if(!r.arrivals.length) r.arrivals=[{ ts:now, pax:Number(r.pax)||0, by:SESSION.name }];
+    r.actualPax=arrivedPax(r);
+    r.status="Datang";
+    r.datangDiasumsikan=1;
+  });
+  semua.forEach(r=>{
+    if(!r.datangDiasumsikan && !r.checkinAt) r.checkinAt=now;
     r.leftAt=now; r.updatedAt=now;
     /* autoClosed sengaja TIDAK diisi. Penanda itu berarti "ditutup sistem saat
        jam tutup terlewat", dan badge 🌙 di Riwayat menuliskan jam 04:00 sebagai
        jam pulangnya — untuk tombol yang ditekan kru jam 01:30 itu bohong. */
   });
-  const nama=list.slice(0,8).map(r=>`${r.name}${r.table?` (${r.table})`:""}`).join(", ")
-             +(list.length>8?`, +${list.length-8} lagi`:"");
-  logAudit("Selesai Duduk (semua)", `${list.length} tamu ditandai pulang sekaligus: ${nama}`);
+  const nama=semua.slice(0,8).map(r=>`${r.name}${r.table?` (${r.table})`:""}`).join(", ")
+             +(semua.length>8?`, +${semua.length-8} lagi`:"");
+  logAudit("Selesai Duduk (semua)",
+    `${semua.length} tamu ditandai pulang sekaligus`
+    +(belum.length?` (${duduk.length} sedang duduk, ${belum.length} dianggap datang karena belum ditandai)`:"")
+    +`: ${nama}`);
   const ok=await commit("Menandai semua tamu pulang…");
   if(!ok) cadangan.forEach(c=>pulihkanRes(c.r, c.snap));
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   if(!ok) return;
-  toast(`${list.length} tamu ditandai selesai — semua meja terbuka kembali ✓`,"ok");
+  toast(`${semua.length} tamu ditandai selesai${belum.length?` (${belum.length} dianggap datang)`:""} — semua meja terbuka kembali ✓`,"ok");
 }
 /* Tawarkan memindahkan tamu kembali ke meja aslinya (setelah meja itu bebas).
    Bukan otomatis: kru yang tahu kondisi lapangan — tamu bisa saja sudah nyaman di meja
