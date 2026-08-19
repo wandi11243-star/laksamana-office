@@ -491,7 +491,26 @@ function pemanggil_hr($u) {
    Kegagalan berbentuk itu SUDAH PERNAH TERJADI di sini karena sebab lain
    (kunci `shifts` sempat ditebak `shift`, lihat lib_jadwal_mysql.php), jadi
    bentuknya memang bukan hipotesis. */
-function shift_hari($tipe, $id, $tgl) {
+/* Jarak sebuah ketukan ke rentang satu shift, dalam menit. 0 = di dalamnya.
+   Dipakai memilih shift yang mana saat satu daily worker punya LEBIH DARI
+   SATU shift di hari yang sama — lihat shift_hari(). */
+function jarak_ke_shift($menit, $mulai, $selesai) {
+  $a = jam_ke_menit($mulai);
+  $b = jam_ke_menit($selesai);
+  if ($b <= $a) $b += 1440;                 // lewat tengah malam
+  if ($menit >= $a && $menit <= $b) return 0;
+  /* Ketukan sebelum tengah malam untuk shift yang dimulai dini hari dan
+     sebaliknya: dibandingkan juga digeser satu hari, lalu diambil yang
+     terdekat. Tanpa ini, ketukan 23:50 untuk shift 00:30-08:00 terhitung
+     berjarak 22 jam padahal cuma 40 menit. */
+  $d1 = ($menit < $a) ? ($a - $menit) : ($menit - $b);
+  $d2 = ($menit + 1440 >= $a && $menit + 1440 <= $b) ? 0
+      : min(abs($a - ($menit + 1440)), abs(($menit + 1440) - $b));
+  return min($d1, $d2);
+}
+/* `$menit` = menit WIB saat ketukan. Boleh null: pemanggil lama tetap bekerja,
+   dan yang dipulangkan jadi shift PERTAMA seperti dulu. */
+function shift_hari($tipe, $id, $tgl, $menit = null) {
   $tipe = strtoupper(s($tipe));
   $tgl  = tgl_valid($tgl);
   if ($tgl === '') return null;
@@ -502,12 +521,27 @@ function shift_hari($tipe, $id, $tgl) {
     $d = http_json($url . '?action=jadwalDW&dari=' . $tgl . '&sampai=' . $tgl);
     if ($d === null || empty($d['ok'])) return false;   // tak terjangkau / menolak
     if (empty($d['data']['rows'])) return null;         // menjawab: memang kosong
+    /* SATU DW BISA PUNYA BEBERAPA SHIFT SEHARI sejak 19 Agustus 2026 (kunci
+       unik dw_id+tgl di modul DW dicabut) — Bar 11:00-17:00 lalu Floor
+       18:00-23:00. Sebelum ini yang diambil selalu baris pertama yang cocok,
+       dan itu diam-diam salah pada orang yang dobel shift: ketukan pukul
+       18:05 dihitung terhadap shift PAGI, jadi tercatat "telat 7 jam" dan
+       pulangnya jadi lembur 6 jam. Salahnya muncul sebagai UANG, bukan
+       sebagai galat.
+
+       Yang dipilih: shift yang rentangnya memuat waktu ketukan; kalau tidak
+       ada satu pun (datang terlalu awal / terlambat jauh), yang paling
+       dekat. */
+    $pas = null; $pasJarak = null;
     foreach ($d['data']['rows'] as $r) {
-      if (s($r['dwId']) === s($id))
-        return array('kode' => 'DW', 'mulai' => s($r['m']), 'selesai' => s($r['s']),
-                     'sumber' => 'DW', 'libur' => 0);
+      if (s($r['dwId']) !== s($id)) continue;
+      $ini = array('kode' => 'DW', 'mulai' => s($r['m']), 'selesai' => s($r['s']),
+                   'sumber' => 'DW', 'libur' => 0);
+      if ($menit === null) return $ini;      // pemanggil tanpa jam: perilaku lama
+      $j = jarak_ke_shift((int)$menit, $ini['mulai'], $ini['selesai']);
+      if ($pasJarak === null || $j < $pasJarak) { $pas = $ini; $pasJarak = $j; }
     }
-    return null;
+    return $pas;                              // null kalau memang tidak dijadwalkan
   }
 
   $url = (defined('JADWAL_API_URL') && JADWAL_API_URL !== '') ? JADWAL_API_URL : sisi_url('jadwal-api-mysql');
@@ -593,8 +627,13 @@ function catat_punch($p, $pemanggil) {
      SELURUH absensi hari pertama ke antrean pengajuan. */
   if (!$adaLokasi) { $dalamArea = true; $jarak = -1; }
 
-  $shift = shift_hari($tipe, $id, tgl_wib($now));
+  /* `$menit` dihitung LEBIH DULU dan ikut dikirim: satu daily worker bisa
+     punya dua shift di hari yang sama sejak 19 Agustus 2026, dan yang mana
+     yang dipakai ditentukan oleh jam ketukannya. Tanpa itu yang terambil
+     selalu baris pertama — ketukan 18:05 dihitung terhadap shift pagi,
+     tercatat telat 7 jam, dan salahnya muncul sebagai uang. */
   $menit = menit_wib($now);
+  $shift = shift_hari($tipe, $id, tgl_wib($now), $menit);
   $dalamShift = false;
   if ($shift && empty($shift['libur']))
     $dalamShift = dalam_rentang_shift($menit, $shift['mulai'], $shift['selesai'],

@@ -370,6 +370,24 @@ td.cell.editable{cursor:pointer}
 td.cell.editable:hover{filter:brightness(.94)}
 td.cell .tm{display:block;font-size:9.5px;font-weight:600;opacity:.85;letter-spacing:0}
 td.cell.kosong{color:#C9C3B7;font-weight:600;font-size:16px}
+/* ---------- SATU SEL, BEBERAPA SHIFT (19 Agustus 2026) ----------
+   Sejak satu daily worker boleh masuk dua kali dalam sehari, sel tidak lagi
+   bisa berupa satu blok berwarna: dua shift bisa berbeda status, dan satu
+   warna untuk dua keadaan membohongi salah satunya. Sekarang selnya netral
+   dan yang berwarna balon di dalamnya. */
+td.cell.terisi{padding:3px;vertical-align:top}
+td.cell.terisi .selaju{display:block;width:100%;border:none;border-radius:6px;padding:3px 4px;
+  font:inherit;font-weight:800;font-size:11px;line-height:1.15;cursor:pointer;text-align:center;
+  margin-bottom:3px}
+td.cell.terisi .selaju:last-child{margin-bottom:0}
+td.cell.terisi .selaju:hover{filter:brightness(.94)}
+td.cell.terisi .selaju .tm{display:block;font-size:8.5px;font-weight:600;opacity:.85;letter-spacing:0}
+/* Tombol tambah shift kedua. Sengaja SAMAR sampai selnya disentuh: kalau
+   sepekat balonnya, tiap sel terisi punya dua benda yang sama-sama meminta
+   diklik dan yang dicari (membuka shift yang sudah ada) jadi yang kedua. */
+td.cell.terisi .tambahsel{display:block;font-size:12px;font-weight:700;color:#C9C3B7;
+  line-height:1;margin-top:2px;opacity:0;transition:opacity .12s}
+td.cell.terisi.editable:hover .tambahsel{opacity:1}
 tr.bandgap td{height:22px;border:none;background:transparent}
 
 /* ---------- LEMBAR BULANAN MEMANJANG (19 Agustus 2026, atas permintaan) ----
@@ -442,6 +460,11 @@ table.tbl-minta .aksi-minta .btn:first-child{margin-left:0}
 .pilih-dw:hover{border-color:var(--gold-2);background:var(--gold-soft)}
 .pilih-dw.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
 .pilih-dw em{font-style:normal;font-weight:600;font-size:11px;color:var(--muted-2)}
+/* "sudah Bar 11:00–17:00 hari itu" — orang yang boleh dipilih tapi hari itu
+   sudah punya shift lain. Bukan penghalang (jamnya tidak bertindih), tapi
+   harus terbaca: yang memilihnya perlu tahu orangnya masuk dua kali. Warna
+   peringatan, bukan kelabu seperti keterangan biasa. */
+.pilih-dw em.dobel{color:var(--warn);font-weight:700}
 /* Yang sudah dijadwalkan hari itu: TETAP TAMPIL, tapi mati. Menyembunyikannya
    membuat HRD mencari-cari nama yang ia tahu ada, lalu mengira orangnya
    dihapus dari talent pool. */
@@ -2796,18 +2819,29 @@ function pilihOrangHTML(b){
 
   const k=kandidatDW(b.divisi, b.posisi, 'sering');
   const kartu=k.list.map(function(p){
-    const bentrok=ajuanOrangTgl(p.id, b.tgl);
+    /* YANG MEMATIKAN CENTANG SEKARANG JAM YANG BERTINDIH, bukan sekadar
+       "sudah punya ajuan hari itu" (19 Agustus 2026, atas permintaan).
+       Sebelumnya seorang DW yang masuk Bar 11:00–17:00 tidak bisa dipilih
+       untuk Floor 18:00–23:00 di hari yang sama — dua shift yang sama sekali
+       tidak bertabrakan — dan satu-satunya sebabnya adalah kunci unik
+       (dw_id, tgl) di database, yang sudah dicabut. */
+    const bentrok=bentrokOrangJam(p.id, b.tgl, b.m, b.s);
     const on=b.usulan.indexOf(p.id)>-1;
     if(bentrok && !on){
-      return '<label class="pilih-dw mati" title="Sudah dijadwalkan '+esc(namaDivisi(bentrok.divisi))
-        +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
-        +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
+      return '<label class="pilih-dw mati" title="'+esc('Jamnya bertindih: '+namaDivisi(bentrok.divisi)
+          +' '+tglManusia(bentrok.tgl)+' '+jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
+        +esc(p.nama)+' <em>· bentrok '+esc(namaDivisi(bentrok.divisi)+' '+jamAjuan(bentrok))+'</em></label>';
     }
+    /* Shift LAIN di hari yang sama yang jamnya TIDAK bertindih: tetap boleh
+       dicentang, tapi disebutkan. Head yang memesan orang yang sudah kerja
+       pagi itu perlu tahu — bukan supaya batal, melainkan supaya ia tahu
+       orangnya masuk dua kali hari itu. */
+    const lainHariItu=ajuanOrangTgl(p.id, b.tgl).filter(a=>!bentrok||a.id!==bentrok.id);
     /* Sudah diusulkan head divisi lain untuk tanggal yang sama. Dimatikan di
        sini supaya head tahu SEBELUM mengirim — server juga membuangnya
        (bentrok_usulan), tapi peringatan yang datang sesudah Simpan sudah
        terlambat: ia menutup form dengan mengira orangnya diamankan. */
-    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, b.divisi, b.id) : null;
+    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, b.divisi, b.id, b.m, b.s) : null;
     if(dipesan){
       return '<label class="pilih-dw mati" title="Sudah diusulkan '+esc(namaDivisi(dipesan.divisi))
         +(dipesan.dibuatOleh?' oleh '+esc(dipesan.dibuatOleh):'')
@@ -2818,6 +2852,8 @@ function pilihOrangHTML(b){
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="mintaToggleOrang(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
         +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
+        +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
+          +' hari itu</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
@@ -3028,23 +3064,28 @@ function gambarTunjuk(){
   const urut=semua.filter(cocok);
 
   const kartu=urut.map(function(p){
-    const bentrok=ajuanOrangTgl(p.id, x.tgl);
+    /* Sama dengan form Minta: yang mematikan centang adalah jam yang
+       bertindih, bukan tanggal yang sama. Lihat bentrokOrangJam(). */
+    const bentrok=bentrokOrangJam(p.id, x.tgl, x.m, x.s);
     const on=t.pilih.indexOf(p.id)>-1;
     if(bentrok){
-      return '<label class="pilih-dw mati" title="Sudah dijadwalkan '+esc(namaDivisi(bentrok.divisi))
-        +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
-        +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
+      return '<label class="pilih-dw mati" title="'+esc('Jamnya bertindih: '+namaDivisi(bentrok.divisi)
+          +' '+tglManusia(bentrok.tgl)+' '+jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
+        +esc(p.nama)+' <em>· bentrok '+esc(namaDivisi(bentrok.divisi)+' '+jamAjuan(bentrok))+'</em></label>';
     }
+    const lainHariItu=ajuanOrangTgl(p.id, x.tgl);
     /* HRD tetap boleh memilihnya — dialah yang memutuskan siapa yang dapat
        kalau dua divisi mengincar orang yang sama — tapi ia harus tahu bahwa
        menyetujui di sini berarti permintaan divisi lain kehilangan satu nama. */
-    const diantre=usulanOrangTgl(p.id, x.tgl, x.divisi, t.id);
+    const diantre=usulanOrangTgl(p.id, x.tgl, x.divisi, t.id, x.m, x.s);
     return '<label class="pilih-dw'+(on?' on':'')+'">'
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="tunjukToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
         +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
         +(diantre?'<em> · juga diantre '+esc(namaDivisi(diantre.divisi))
           +(diantre.dibuatOleh?' ('+esc(diantre.dibuatOleh)+')':'')+'</em>':'')
+        +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
+          +' hari itu</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
@@ -3791,7 +3832,17 @@ function lembarDW(mk,div){
   LEMBAR_EKSTRA.forEach(id=>{ if(idOrang.indexOf(id)<0 && pekerjaById(id)) idOrang.push(id); });
   idOrang.sort((x,y)=>String(namaDW(x)).localeCompare(String(namaDW(y))));
   const peta={};
-  ajuBulan.forEach(x=>{ peta[x.dwId+'|'+x.tgl]=x; });
+  /* SATU SEL BISA MEMUAT BEBERAPA AJUAN sejak 19 Agustus 2026: satu daily
+     worker boleh masuk Bar 11:00–17:00 lalu Floor 18:00–23:00 di hari yang
+     sama. Dulu nilainya satu objek — baris kedua diam-diam menimpa yang
+     pertama di layar walau keduanya tersimpan di server, dan yang hilang
+     justru yang jamnya lebih awal.
+
+     Diurutkan menurut jam mulai supaya sel selalu membacakan shift pagi lebih
+     dulu; tanpa itu urutannya mengikuti urutan baris dari server, yang bisa
+     berbeda antar pemuatan. */
+  ajuBulan.forEach(x=>{ (peta[x.dwId+'|'+x.tgl]=peta[x.dwId+'|'+x.tgl]||[]).push(x); });
+  Object.keys(peta).forEach(k=>peta[k].sort((a,b)=>String(a.m||'').localeCompare(String(b.m||''))));
   return {mk:mk, div:div, a:a, z:z, pita:pita, ajuan:ajuBulan, idOrang:idOrang, peta:peta};
 }
 function viewKalender(){
@@ -3877,7 +3928,10 @@ function viewKalender(){
          saat memandang satu baris sepanjang tiga puluh kolom adalah angkanya:
          "orang ini sudah dipakai berapa hari bulan ini". Yang MENUNGGU disebut
          terpisah — ajuan yang belum disetujui bukan hari yang sudah pasti. */
-      const selOrang=hariBulan.map(d=>peta[id+'|'+d]).filter(Boolean);
+      /* Dihitung dari SHIFT, bukan dari hari: orang yang masuk dua kali di
+         satu tanggal memang dibayar dua shift, dan menghitungnya satu hari
+         membuat angka di kolom ini tidak pernah cocok dengan Pembayaran. */
+      const selOrang=[].concat.apply([], hariBulan.map(d=>peta[id+'|'+d]||[]));
       const nSetuju=selOrang.filter(x=>x.status==='DISETUJUI').length;
       const nTunggu=selOrang.filter(x=>x.status==='MENUNGGU').length;
       /* Tombol pengisi seminggu tetap ada, tapi mingguannya harus dipilihkan:
@@ -3913,15 +3967,32 @@ function viewKalender(){
              (bukaAjuan) — membaca riwayat bukan menulis. */
           const lampau=tglLampau(d);
           const isi=bolehIsi&&!lampau;
-          if(!x) return '<td class="cell kosong'+sen+(isi?' editable':'')+(lampau?' lewat':'')+'"'
+          if(!x||!x.length) return '<td class="cell kosong'+sen+(isi?' editable':'')+(lampau?' lewat':'')+'"'
             +(isi?' title="'+(isHR()?'Assign':'Ajukan')+' '+esc(namaDW(id))+' · '+esc(tglManusia(d))+'"'
               +' onclick="isiSelDW(\''+escJs(id)+'\',\''+escJs(d)+'\')"'
               :(lampau?' title="Tanggal sudah lewat"':''))+'>'
             +(isi?'+':'·')+'</td>';
-          const w=warnaStatus(x.status);
-          return '<td class="cell editable'+sen+'" style="background:'+w.bg+';color:'+w.fg+';box-shadow:inset 0 0 0 '+w.border.split(' ')[0]+' transparent;outline:'+w.border+';outline-offset:-2px" '
-            +'onclick="bukaAjuan(\''+escJs(x.id)+'\')" title="'+esc(STATUS_AJU[x.status]||x.status)+'">'
-            +esc(x.posisi||'DW')+'<span class="tm mono">'+esc(jamAjuan(x))+'</span></td>';
+          /* DUA SHIFT DALAM SATU SEL digambar bertumpuk, masing-masing dengan
+             warnanya sendiri — status keduanya bisa berbeda (yang pagi sudah
+             disetujui, yang malam masih menunggu), dan satu warna untuk sel
+             yang memuat dua keadaan akan membohongi salah satunya.
+
+             Warna latar sel dilepas: yang berwarna sekarang balonnya. Tombol
+             "+" kecil ikut digambar di bawahnya kalau selnya masih boleh diisi
+             — tanpa itu, sel yang sudah punya satu shift tidak punya jalan
+             menambahkan shift kedua sama sekali, dan justru itu yang jadi
+             sebab seluruh perubahan ini. */
+          const balon=x.map(function(a){
+            const w=warnaStatus(a.status);
+            return '<button type="button" class="selaju" style="background:'+w.bg+';color:'+w.fg+';outline:'+w.border+';outline-offset:-2px" '
+              +'onclick="event.stopPropagation();bukaAjuan(\''+escJs(a.id)+'\')" '
+              +'title="'+esc(namaDivisi(a.divisi)+' · '+(a.posisi||'DW')+' · '+jamAjuan(a)+' · '+(STATUS_AJU[a.status]||a.status))+'">'
+              +esc(a.posisi||'DW')+'<span class="tm mono">'+esc(jamAjuan(a))+'</span></button>';
+          }).join('');
+          return '<td class="cell terisi'+sen+(isi?' editable':'')+'"'
+            +(isi?' title="'+esc('Tambah shift lagi untuk '+namaDW(id)+' · '+tglManusia(d))+'"'
+              +' onclick="isiSelDW(\''+escJs(id)+'\',\''+escJs(d)+'\')"':'')+'>'
+            +balon+(isi?'<span class="tambahsel">+</span>':'')+'</td>';
         }).join('')+'</tr>';
     });
     tabel='<div class="tablewrap"><table class="sched lurus">'+body+'</table></div>';
@@ -4105,20 +4176,22 @@ function gambarSelDW(){
   const urut=k.list.filter(cocok);
   const kartu=urut.map(function(p){
     const on=b.pilih.indexOf(p.id)>-1;
-    /* Yang SUDAH punya ajuan hari itu tetap ditawarkan kalau ia yang sedang
-       tercentang — selnya memang sedang disunting. Yang bentrok di divisi lain
-       dimatikan: itu sumber penolakan balik yang paling sering. */
-    const bentrok=ajuanOrangTgl(p.id, b.tgl);
-    if(bentrok && !on && bentrok.divisi!==DIV){
-      return '<label class="pilih-dw mati" title="Sudah dijadwalkan '+esc(namaDivisi(bentrok.divisi))
-        +' '+esc(jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
-        +esc(p.nama)+' <em>· sudah di '+esc(namaDivisi(bentrok.divisi))+'</em></label>';
+    /* Yang jamnya BERTINDIH dimatikan — itu sumber penolakan balik yang
+       paling sering. Yang sekadar punya shift lain di hari yang sama tetap
+       ditawarkan sejak dobel shift diizinkan (19 Agustus 2026); keterangannya
+       ditulis di bawah namanya. */
+    const bentrok=bentrokOrangJam(p.id, b.tgl, b.m, b.s);
+    if(bentrok && !on){
+      return '<label class="pilih-dw mati" title="'+esc('Jamnya bertindih: '+namaDivisi(bentrok.divisi)
+          +' '+tglManusia(bentrok.tgl)+' '+jamAjuan(bentrok))+'"><input type="checkbox" disabled> '
+        +esc(p.nama)+' <em>· bentrok '+esc(namaDivisi(bentrok.divisi)+' '+jamAjuan(bentrok))+'</em></label>';
     }
+    const lainHariItu=ajuanOrangTgl(p.id, b.tgl).filter(a=>!bentrok||a.id!==bentrok.id);
     /* Sudah diusulkan head divisi lain untuk tanggal ini. Bagi HEAD ini
        penghalang — ia tidak boleh menyerobot nama yang sedang diantre divisi
        lain. Bagi HRD tidak: justru dialah yang memutuskan siapa yang dapat,
        jadi keterangannya ditulis tapi pilihannya tetap terbuka. */
-    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, DIV, '') : null;
+    const dipesan=(!bentrok && !on) ? usulanOrangTgl(p.id, b.tgl, DIV, '', b.m, b.s) : null;
     if(dipesan && !hrd){
       return '<label class="pilih-dw mati" title="Sudah diusulkan '+esc(namaDivisi(dipesan.divisi))
         +(dipesan.dibuatOleh?' oleh '+esc(dipesan.dibuatOleh):'')+'">'
@@ -4129,8 +4202,9 @@ function gambarSelDW(){
       +'<input type="checkbox"'+(on?' checked':'')+' onchange="selDwToggle(\''+escJs(p.id)+'\')"> '
       +'<span class="pd-teks"><b>'+esc(p.nama)+'</b>'
         +(p.posisi?'<em> · '+esc(p.posisi)+'</em>':'')
-        +(bentrok?'<em> · sudah ada ajuan '+esc(jamAjuan(bentrok))+'</em>':'')
         +(dipesan?'<em> · diantre '+esc(namaDivisi(dipesan.divisi))+'</em>':'')
+        +(lainHariItu.length?'<em class="dobel"> · sudah '+esc(lainHariItu.map(a=>namaDivisi(a.divisi)+' '+jamAjuan(a)).join(', '))
+          +' hari itu</em>':'')
         +'<span class="pd-riwayat">'+riwayatPakaiHTML(p)+'</span></span></label>';
   }).join('');
 
@@ -4236,12 +4310,22 @@ function isiBarisDW(dwId,senin){
          tanpa jam): pengisi seminggu tidak boleh jadi pintu belakang ke
          tanggal yang selnya sendiri sudah menolak diklik. */
       if(tglLampau(addD(senin,k))) return {m:'', s:'', ada:1, status:'KEDALUWARSA', lampau:1};
-      /* Yang SUDAH ada di minggu itu dimuat dan ditandai `ada:1` — dipajang,
-         tapi tidak dikirim ulang. Mengirim ulang ajuan yang sudah DISETUJUI
-         menurunkannya kembali ke MENUNGGU (kunci unik dw_id+tgl menimpa), dan
-         namanya hilang dari kalender Jadwal Shift tanpa satu pun pesan. */
-      const x=ajuanOrangTgl(dwId, addD(senin,k));
-      return x?{m:x.m, s:x.s, ada:1, status:x.status}:null;
+      /* Yang SUDAH ada di hari itu dimuat dan ditandai `ada:1` — dipajang,
+         tapi tidak dikirim ulang.
+
+         PENGISI SEMINGGU SENGAJA TETAP SATU SHIFT PER HARI, walau database
+         sudah mengizinkan dobel (19 Agustus 2026). Alatnya memang untuk
+         menyapu tujuh hari sekaligus dengan satu jam yang sama; shift kedua
+         di hari tertentu adalah pengecualian yang diputuskan per hari, dan
+         itu dikerjakan lewat sel kalendernya sendiri. Menjejalkan keduanya ke
+         sini membuat satu tombol mengerjakan dua pekerjaan yang berbeda, dan
+         yang menekan "Isi seminggu" tidak sedang bermaksud menggandakan
+         shift orang yang sudah terjadwal.
+
+         Yang dipajang shift PERTAMA hari itu. */
+      const xs=ajuanOrangTgl(dwId, addD(senin,k));
+      const x=xs.slice().sort((p,q)=>String(p.m||'').localeCompare(String(q.m||'')))[0];
+      return x?{m:x.m, s:x.s, ada:1, status:x.status, dobel:(xs.length>1)}:null;
     }) };
   BARIS_DW.i=barisDwKosongPertama(0);
   gambarBarisDW();
@@ -4624,10 +4708,13 @@ function gambarAjukanTgl(){
       +'<option value="">— pilih daily worker —</option>'
       +(S.pekerja||[]).filter(p=>p.status==='AKTIF')
         .map(function(p){
+          /* Seluruh shift hari itu disebut, bukan cuma yang pertama: sejak
+             dobel shift diizinkan, "sudah ada" tanpa jamnya tidak cukup untuk
+             tahu apakah yang mau ditambahkan ini bertabrakan atau tidak. */
           const ada=ajuanOrangTgl(p.id, b.tgl);
           return '<option value="'+esc(p.id)+'"'+(b.dw===p.id?' selected':'')+'>'
             +esc(p.nama)+' · '+esc(namaDivisi(p.divisi))
-            +(ada?' — sudah ada ('+esc(STATUS_AJU[ada.status]||ada.status)+')':'')+'</option>';
+            +(ada.length?' — sudah '+esc(ada.map(a=>jamAjuan(a)).join(', ')):'')+'</option>';
         }).join('')
       +'</select></div>'
     +(jam.length?'<label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Jam siap pakai</label>'
@@ -4669,16 +4756,27 @@ async function kirimAjukanTgl(){
      termasuk yang masih menunggu: orangnya sudah dipesan, dan menambah orang
      keenam ke hari berpanduan empat tetap keputusan yang layak ditanyakan
      sekali walau belum satu pun disetujui. */
-  /* Orang yang sama, tanggal yang sama → menimpa ajuan lama. Ditanya lebih
-     dulu, dan kalimatnya menyebut akibat yang paling mudah terlewat: yang
-     sudah DISETUJUI turun lagi jadi menunggu. */
-  const sudahAda=(b.dw && b.tgl) ? ajuanOrangTgl(b.dw, b.tgl) : null;
+  /* SHIFT KEDUA DI HARI YANG SAMA TIDAK LAGI DITANYAKAN (19 Agustus 2026).
+     Selama satu orang cuma boleh punya satu baris per hari, mengirim ulang
+     memang MENGGANTI — dan pertanyaan ini yang menahannya. Sekarang shift
+     kedua yang jamnya tidak bertindih adalah hal yang sah, dan bertanya
+     "yakin mau mengganti?" untuk sesuatu yang tidak mengganti apa pun cuma
+     melatih orang menekan lanjut tanpa membaca.
+
+     Yang tersisa ditanyakan: JAM YANG BERTINDIH. Di situ memang cuma ada dua
+     kemungkinan — batal, atau mengganti shift lama — dan akibat yang paling
+     mudah terlewat tetap disebut: yang sudah DISETUJUI turun lagi jadi
+     menunggu. */
+  const sudahAda=(b.dw && b.tgl) ? bentrokOrangJam(b.dw, b.tgl, b.m, b.s) : null;
   if(sudahAda && !b.lanjutkanTimpa){
-    modal('Sudah ada ajuan untuk '+esc(namaDW(b.dw)),
-      '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(b.dw))+' sudah punya ajuan '
-      +esc(tglPanjang(b.tgl))+' ('+esc(namaDivisi(sudahAda.divisi))+' · '+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+'). '
-      +'Mengirim lagi <b>mengganti</b> ajuan itu, bukan menambah orang.'
-      +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang.':'')+'</p>',
+    modal('Jamnya bertindih dengan shift '+esc(namaDW(b.dw))+' yang sudah ada',
+      '<p style="font-size:13.5px;color:var(--muted)">'+esc(namaDW(b.dw))+' sudah punya shift '
+      +esc(tglPanjang(sudahAda.tgl))+' ('+esc(namaDivisi(sudahAda.divisi))+' · '+esc(jamAjuan(sudahAda))+' · '+esc(STATUS_AJU[sudahAda.status]||sudahAda.status)+') '
+      +'yang jamnya bertabrakan dengan <b>'+esc(b.m+'–'+b.s)+'</b>. Satu orang tidak bisa berada di dua tempat sekaligus.<br><br>'
+      +'Mengirim ini <b>mengganti</b> shift itu, bukan menambah shift kedua.'
+      +(sudahAda.status==='DISETUJUI'?' Statusnya akan <b>kembali menunggu</b> dan perlu disetujui ulang.':'')
+      +'<br><br><span class="mutedhint">Kalau maksudnya memang shift kedua, ubah jamnya supaya tidak bertindih — '
+      +'dua shift dalam sehari diperbolehkan.</span></p>',
       [{t:'Kembali ke form', c:'btn-ghost', f:function(){ b.lanjutkanTimpa=false; b.lanjutkanLebih=false; gambarAjukanTgl(); return false; }},
        {t:'Ya, ganti ajuannya', c:'btn-danger', f:function(){ b.lanjutkanTimpa=true; kirimAjukanTgl(); return false; }}]);
     return;
@@ -4748,21 +4846,64 @@ async function kirimAjukanTgl(){
    tempat: pintu yang lupa memeriksanya akan mengirim ajuan yang ditolak
    backend dengan pesan yang jauh lebih membingungkan.
    Mengembalikan true kalau benar-benar tersimpan. */
-/* Ajuan yang sudah ada untuk orang + tanggal yang sama. Backend memakai kunci
-   unik (dw_id, tgl) dan MENIMPA lewat ON DUPLICATE KEY — barisnya kembali
-   MENUNGGU, jejak putusannya dihapus. Itu benar sebagai perilaku, tapi
-   berbahaya kalau terjadi tanpa disadari: HR yang memasukkan lima orang untuk
-   malam Sabtu lalu salah memilih nama yang sama dua kali TIDAK melihat
-   jumlahnya bertambah — yang terjadi justru shift yang tadi sudah disetujui
-   turun lagi jadi menunggu, dan tidak ada satu pun pesan yang menyebutkannya.
+/* Ajuan hidup milik satu orang di satu tanggal — SELURUHNYA, bukan satu.
+   ---------------------------------------------------------------------
+   Sampai 19 Agustus 2026 fungsi ini memulangkan SATU baris, dan itu benar
+   karena backend memegang kunci unik (dw_id, tgl): mengirim tanggal yang sama
+   untuk orang yang sama MENIMPA barisnya lewat ON DUPLICATE KEY. Kunci itu
+   sudah dicabut — satu orang boleh masuk Bar 11:00–17:00 lalu Floor
+   18:00–23:00 di hari yang sama — jadi yang dipulangkan sekarang daftar.
 
-   Yang dianggap "sudah ada" hanya ajuan yang MASIH HIDUP (menunggu atau
-   disetujui). Yang DITOLAK dan DIBATALKAN sengaja tidak dihitung: menimpanya
-   justru yang diinginkan — HR berubah pikiran, dan menanyakan konfirmasi
-   untuk baris yang memang sudah mati cuma melatih orang menekan lanjut. */
+   Yang dianggap hidup hanya MENUNGGU dan DISETUJUI. Yang DITOLAK, DIBATALKAN,
+   dan KEDALUWARSA tidak dihitung: ketiganya berarti orangnya tidak jadi
+   datang, dan memperlakukannya sebagai shift yang sudah ada akan menahan
+   penjadwalan yang justru diinginkan. */
 function ajuanOrangTgl(dwId,tgl){
-  return (S.ajuan||[]).find(a=>a.dwId===dwId && a.tgl===tgl
-    && (a.status==='MENUNGGU' || a.status==='DISETUJUI')) || null;
+  return (S.ajuan||[]).filter(a=>a.dwId===dwId && a.tgl===tgl
+    && (a.status==='MENUNGGU' || a.status==='DISETUJUI'));
+}
+/* AJUAN YANG JAMNYA BERTINDIH dengan shift yang sedang direncanakan.
+   ---------------------------------------------------------------------
+   Inilah pengganti "sudah punya ajuan di tanggal itu" yang dulu dipakai
+   mematikan centang kandidat. Bedanya bukan kehalusan: sebelum ini seorang DW
+   yang masuk Bar 11:00–17:00 tidak bisa dipilih untuk Floor 18:00–23:00 di
+   hari yang sama, padahal keduanya sama sekali tidak bertabrakan — dan
+   satu-satunya sebabnya adalah kunci unik (dw_id, tgl) di database, yang
+   sudah dicabut.
+
+   TIGA HARI DIPERIKSA, bukan satu. Shift yang melewati tengah malam membuat
+   baris KEMARIN masih berjalan hari ini: Bar 15 Agustus 18:00–02:00 bertindih
+   dengan Kitchen 16 Agustus 01:00–08:00 walau tanggalnya berbeda. Aturan ini
+   sepasang dengan bentrok_ajuan_row() di backend — kalau salah satunya
+   berubah, yang lain harus ikut, karena yang lolos di sini akan ditolak di
+   sana dengan pesan yang datang sesudah form ditutup.
+
+   `abaikan` = id ajuan yang sedang disunting; tanpa itu, membuka satu ajuan
+   lalu menyimpannya tanpa perubahan membuatnya bentrok dengan dirinya
+   sendiri. */
+function bentrokOrangJam(dwId,tgl,m,s,abaikan){
+  const hari=[addD(tgl,-1), tgl, addD(tgl,1)];
+  return (S.ajuan||[]).find(function(a){
+    if(a.dwId!==dwId) return false;
+    if(a.status!=='MENUNGGU' && a.status!=='DISETUJUI') return false;
+    if(hari.indexOf(a.tgl)<0) return false;
+    if(abaikan && a.id===abaikan) return false;
+    const off=(a.tgl===tgl)?0:((a.tgl<tgl)?-1440:1440);
+    return jamBertindihOffset(a.m,a.s,off,m,s);
+  }) || null;
+}
+/* jamBertindih() dengan geseran hari untuk baris tetangga. Dipisah supaya
+   jamBertindih() yang lama — dipakai tanyaBentrok untuk dua shift di hari
+   yang sama — tidak perlu ikut berubah. */
+function jamBertindihOffset(m1,s1,off,m2,s2){
+  let a1=menitJamDW(m1)+off, b1=a1+durasiMenitDW(m1,s1);
+  let a2=menitJamDW(m2),     b2=a2+durasiMenitDW(m2,s2);
+  return Math.max(a1,a2) < Math.min(b1,b2);
+}
+function durasiMenitDW(m,s){
+  let a=menitJamDW(m), b=menitJamDW(s);
+  if(b<=a) b+=1440;
+  return b-a;
 }
 /* SUDAH DIUSULKAN HEAD LAIN untuk tanggal yang sama (14 Agustus 2026).
    ---------------------------------------------------------------------
@@ -4780,21 +4921,25 @@ function ajuanOrangTgl(dwId,tgl){
 
    Divisi yang SAMA tidak dihitung: itu head yang sama menyusun ulang
    permintaannya sendiri, bukan dua orang berebut. */
-function usulanOrangTgl(dwId,tgl,divisi,kecualiId){
+/* `m`/`s` opsional: kalau diisi, yang dihitung hanya usulan yang JAMNYA
+   BERTINDIH — aturan yang sama dengan bentrokOrangJam() sejak dobel shift
+   diizinkan. Tanpa keduanya, perilaku lama (tanggal yang sama sudah cukup)
+   dipertahankan untuk pemanggil yang memang tidak punya jam. */
+function usulanOrangTgl(dwId,tgl,divisi,kecualiId,m,s){
   return (S.permintaan||[]).find(function(p){
     if(p.status!=='MENUNGGU') return false;
     if(p.tgl!==tgl) return false;
     if(kecualiId && p.id===kecualiId) return false;
     if(divisi && p.divisi===divisi) return false;
-    return (p.usulan||[]).indexOf(dwId)>-1;
+    if((p.usulan||[]).indexOf(dwId)<0) return false;
+    if(!m || !s) return true;
+    return jamBertindihOffset(p.m, p.s, 0, m, s);
   }) || null;
 }
-/* ================= BENTROK LINTAS DIVISI =================
-   Satu orang tidak bisa bekerja di dua divisi pada hari yang sama, dan
-   kunci (dw_id, tgl) memang cuma memuat satu baris per hari. Yang selama
-   ini tidak dijaga adalah SIAPA yang menimpa siapa: head Kitchen memanggil
-   ARIF di tanggal yang sudah dipesan head Bar, barisnya berpindah divisi
-   dan turun ke MENUNGGU, dan head Bar tidak diberi tahu apa pun.
+/* ================= BENTROK JAM =================
+   Satu orang boleh bekerja di dua divisi pada hari yang sama sejak kunci
+   (dw_id, tgl) dicabut (19 Agustus 2026) — Bar 11:00–17:00 lalu Floor
+   18:00–23:00 memang terjadi. Yang tetap mustahil cuma JAM YANG BERTINDIH.
 
    Penjaga sebenarnya ada di backend (lihat simpan_ajuan) — frontend cuma
    melihat ajuan yang termuat di rentang layarnya, jadi ajuan divisi lain
@@ -4819,10 +4964,13 @@ function tanyaBentrok(b){
     let dijawab=false;
     const selesai=function(v){ if(dijawab) return; dijawab=true; resolve(v); };
     MODAL_TUTUP=function(){ selesai(false); };
-    /* Bentrok lintas hari sudah dipastikan bertindih oleh backend — ia baru
-       dikembalikan justru KARENA bertindih. Yang sehari sama dihitung di
-       sini supaya kalimatnya bisa membedakan "mustahil" dari "sekadar
-       tidak muat di satu baris". */
+    /* SEJAK 19 Agustus 2026 backend HANYA memulangkan bentrok kalau jamnya
+       benar-benar bertindih — hari yang sama dengan jam yang tidak
+       bertabrakan sekarang sah dan tersimpan sebagai shift kedua. Kotak ini
+       jadi hanya punya satu bentuk, dan kalimat "jamnya tidak bertindih tapi
+       satu orang cuma boleh satu shift per hari" ikut dibuang bersama kunci
+       uniknya. `tindih` dipertahankan sebagai jaring pengaman untuk backend
+       lama yang belum ikut ter-deploy. */
     const tindih = b.lintasHari ? true : jamBertindih(b.m,b.s,b.mBaru,b.sBaru);
     const tglBaru = b.tglBaru || b.tgl;
     const barisTgl = b.lintasHari;
@@ -4849,9 +4997,14 @@ function tanyaBentrok(b){
           ? '<b>Jamnya bertindih melewati tengah malam.</b> Shift '+esc(namaDivisi(b.divisi))
             +' '+esc(tglManusia(b.tgl))+' baru selesai pukul '+esc(b.s)+', sesudah shift ini dimulai.'
           : tindih
-            ? '<b>Jamnya bertindih.</b> Orang ini tidak bisa berada di dua divisi sekaligus.'
-            : '<b>Jamnya tidak bertindih</b>, tapi satu orang tetap hanya bisa punya satu shift per hari '
-              +'di sistem ini — mengirim ini <b>memindahkannya</b> ke '+esc(namaDivisi(b.divisiBaru))
+            ? '<b>Jamnya bertindih.</b> Orang ini tidak bisa berada di dua tempat sekaligus. '
+              +'Kalau maksudnya shift kedua, ubah jamnya supaya tidak bertabrakan — '
+              +'<b>dua shift dalam sehari diperbolehkan</b>.'
+            /* Cabang ini hanya tercapai kalau backend-nya masih versi lama
+               (yang menolak hari sama tanpa melihat jam). Dibiarkan supaya
+               deploy yang setengah jalan tetap punya kalimat yang benar. */
+            : '<b>Jamnya tidak bertindih</b>, tapi backend modul ini belum diperbarui — '
+              +'mengirim ini <b>memindahkannya</b> ke '+esc(namaDivisi(b.divisiBaru))
               +', bukan menambah shift kedua.')
         +'</div>'
       +'<p class="mutedhint">'
@@ -4884,10 +5037,9 @@ async function simpanAjuanRow(row){
     }
     /* Memulangkan BARIS yang benar-benar tersimpan, bukan cuma `true`. Yang
        membutuhkannya: HRD yang menjadwalkan dari kalender harus langsung
-       menyetujui baris itu, dan untuk itu ia perlu id-nya — id yang tersimpan
-       bisa berbeda dari yang dikirim kalau kunci (dw_id, tgl) yang terpicu
-       (baris lama ditimpa). Objek tetap truthy, jadi pemanggil lama yang cuma
-       memeriksa `if(!ok)` tidak berubah perilakunya. */
+       menyetujui baris itu, dan untuk itu ia perlu id-nya. Objek tetap truthy,
+       jadi pemanggil lama yang cuma memeriksa `if(!ok)` tidak berubah
+       perilakunya. */
     return (hasil && hasil.row) ? hasil.row : true;
   }catch(e){
     toast('Gagal mengirim: '+e.message, true);
@@ -6043,17 +6195,23 @@ function exportExcelDW(){
       const s=[sel_(1,i+1,gNo), sel_(2,namaDW(id),gNama),
                sel_(3,(orang&&orang.posisi)||'DW',gJab)];
       h.forEach(function(d,j){
-        const x=L.peta[id+'|'+d];
-        if(!x){ s.push(sel_(4+j,'',gKosong)); return; }
+        const xs=L.peta[id+'|'+d];
+        if(!xs||!xs.length){ s.push(sel_(4+j,'',gKosong)); return; }
         /* Statusnya ikut ditulis untuk yang BELUM disetujui, tidak cuma
            diwarnai. Lembar ini ikut dibaca di HP dan dicetak hitam-putih, dan
            yang paling mahal salah baca justru "menunggu" yang dikira sudah
            pasti — head lalu mengira lubangnya sudah tertutup. */
-        const st=XLS_STATUS[x.status];
-        s.push(sel_(4+j,
-          (x.posisi||'DW')+((x.m&&x.s)?('\n'+x.m+'–'+x.s):'')
-          +(x.status==='DISETUJUI'?'':'\n('+((st&&st.n)||x.status)+')'),
-          gStatus[x.status]||gKosong));
+        /* DUA SHIFT SEHARI ditulis dalam satu sel, dipisah baris kosong.
+           Excel tidak bisa memberi dua warna dalam satu sel, jadi warnanya
+           mengikuti shift PERTAMA dan status masing-masing tetap ditulis
+           sebagai teks — di berkas yang dicetak, teks yang selalu ada lebih
+           bisa dipercaya daripada warna yang cuma bisa satu. */
+        const teks=xs.map(function(x){
+          const st=XLS_STATUS[x.status];
+          return (x.posisi||'DW')+((x.m&&x.s)?('\n'+x.m+'–'+x.s):'')
+            +(x.status==='DISETUJUI'?'':'\n('+((st&&st.n)||x.status)+')');
+        }).join('\n·\n');
+        s.push(sel_(4+j, teks, gStatus[xs[0].status]||gKosong));
       });
       tambah(s, tinggiBarisDW(L,id,h));
     });
@@ -6151,8 +6309,14 @@ function exportExcelDW(){
 function tinggiBarisDW(L,id,hari){
   let maks=1;
   hari.forEach(function(d){
-    const x=L.peta[id+'|'+d]; if(!x) return;
-    const n=1+((x.m&&x.s)?1:0)+((x.status==='DISETUJUI')?0:1);
+    const xs=L.peta[id+'|'+d]; if(!xs||!xs.length) return;
+    /* Dijumlahkan seluruh shift di sel itu, plus satu baris pemisah "·" di
+       antaranya. Sel berisi dua shift butuh dua kali tingginya, dan tinggi
+       yang dihitung dari satu shift saja memotong shift kedua tanpa tanda
+       apa pun — persis kelas kesalahan yang membuat fungsi ini ada. */
+    let n=0;
+    xs.forEach(function(x){ n+=1+((x.m&&x.s)?1:0)+((x.status==='DISETUJUI')?0:1); });
+    n+=Math.max(0, xs.length-1);
     if(n>maks) maks=n;
   });
   return 15*maks+4;

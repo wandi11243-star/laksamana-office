@@ -66,6 +66,47 @@ function pastikan_kolom($pdo, $tabel, $kolom, $ddl) {
   }
 }
 
+/* Pasangan pastikan_kolom(), untuk MENCABUT indeks yang sudah tidak berlaku.
+   ---------------------------------------------------------------------
+   Sengaja dikerjakan di sini, bukan lewat berkas migrasi-*.sql: berkas
+   migrasi TIDAK ikut ter-deploy lewat FTP dan harus dijalankan tangan di
+   cPanel, sehingga produksi rutin tertinggal — dan yang tertinggal muncul
+   sebagai endpoint balas 500 sementara tetangganya 200, tanpa satu pun pesan
+   yang menyebut sebabnya.
+
+   Idempoten dan menelan galatnya: dipanggil di tiap boot, dan user DB yang
+   tidak punya ALTER cukup membuatnya tidak berubah, bukan mematikan modul. */
+function cabut_indeks($pdo, $tabel, $indeks) {
+  try {
+    $st = $pdo->prepare(
+      'SELECT COUNT(*) c FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND INDEX_NAME = :i');
+    $st->execute(array(':t' => $tabel, ':i' => $indeks));
+    $row = $st->fetch();
+    if (!$row || (int)$row['c'] === 0) return;
+    $pdo->exec('ALTER TABLE `' . $tabel . '` DROP INDEX `' . $indeks . '`');
+  } catch (Throwable $e) {
+    // Diam: indeksnya kemungkinan sudah dicabut, atau user DB tidak punya ALTER.
+  }
+}
+
+/* Kembarannya untuk MENAMBAH indeks biasa. Dipakai menggantikan kunci unik
+   yang dicabut: pemasangan lama kehilangan indeksnya bersama kunci itu, dan
+   tanpa penggantinya tiap pemeriksaan bentrok memindai seluruh tabel. */
+function pastikan_indeks($pdo, $tabel, $indeks, $kolom) {
+  try {
+    $st = $pdo->prepare(
+      'SELECT COUNT(*) c FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t AND INDEX_NAME = :i');
+    $st->execute(array(':t' => $tabel, ':i' => $indeks));
+    $row = $st->fetch();
+    if ($row && (int)$row['c'] > 0) return;
+    $pdo->exec('ALTER TABLE `' . $tabel . '` ADD INDEX `' . $indeks . '` ' . $kolom);
+  } catch (Throwable $e) {
+    // Diam: sama alasannya dengan pastikan_kolom().
+  }
+}
+
 function json_enc($v) { return json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); }
 function s($v) { return trim((string)$v); }
 function ms() { return (int)(microtime(true) * 1000); }
@@ -163,10 +204,27 @@ function pastikan_tabel($pdo) {
        `hadir_nota`  VARCHAR(255) NOT NULL DEFAULT \'\',
        `hadir_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
        `hadir_at`    BIGINT       NOT NULL DEFAULT 0,
-       UNIQUE KEY `uq_ajuan_orang_tgl` (`dw_id`, `tgl`),
+       /* TIDAK ADA LAGI kunci unik (dw_id, tgl) — dicabut 19 Agustus 2026.
+          Dulu ia yang memaksa satu daily worker punya PALING BANYAK satu
+          shift per hari, dan itu memang benar sampai kenyataannya berubah:
+          satu orang bisa masuk Bar 11:00–17:00 lalu Floor 18:00–23:00 di hari
+          yang sama, dan tidak ada alasan sistem melarangnya. Yang tidak boleh
+          adalah JAMNYA BERTINDIH, dan itu tidak bisa dijaga sebuah indeks —
+          penjaganya bentrok_ajuan_row(). Lihat juga cabut_indeks() di bawah
+          untuk pemasangan yang sudah terlanjur punya indeks itu. */
+       KEY `idx_ajuan_orang_tgl` (`dw_id`, `tgl`),
        KEY `idx_ajuan_tgl` (`tgl`),
        KEY `idx_ajuan_status` (`status`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Pemasangan lama masih memegang kunci uniknya. Dicabut di sini supaya
+     tidak ada langkah manual di cPanel — tanpa ini, penugasan shift kedua
+     ditolak MySQL dengan "Duplicate entry", dan yang sampai ke layar cuma
+     "gagal menugaskan" tanpa menyebut kunci apa pun. */
+  cabut_indeks($pdo, 'dw_ajuan', 'uq_ajuan_orang_tgl');
+  /* Penggantinya indeks BIASA dengan nama berbeda — kueri bentrok mencari
+     (dw_id, tgl) tiga hari sekaligus, dan tanpa indeks itu ia memindai
+     seluruh tabel tiap kali orang menekan satu sel kalender. */
+  pastikan_indeks($pdo, 'dw_ajuan', 'idx_ajuan_orang_tgl', '(`dw_id`, `tgl`)');
   /* Tabel yang sudah terlanjur dibuat masih memakai nama lama (nilai_*) dan
      tidak akan berubah oleh CREATE TABLE IF NOT EXISTS. Tiga kolom di bawah
      ditambahkan agar pemasangan lama ikut punya bentuk yang baru. Kolom
@@ -583,7 +641,12 @@ function jadwal_dw($dari, $sampai) {
        FROM `dw_ajuan` j
        LEFT JOIN `dw_pekerja` p ON p.`id` = j.`dw_id`
       WHERE j.`status` = \'DISETUJUI\' AND j.`tgl` BETWEEN :a AND :b
-      ORDER BY p.`nama`, j.`tgl`');
+      /* `jam_mulai` ikut mengurutkan sejak satu orang boleh punya beberapa
+         shift sehari (19 Agustus 2026). Tanpa itu urutan dua baris bertanggal
+         sama tidak dijamin, dan pembacanya — lembar Jadwal Shift maupun
+         absensi — akan menampilkan shift malam di atas shift pagi pada satu
+         pemuatan lalu sebaliknya pada pemuatan berikutnya. */
+      ORDER BY p.`nama`, j.`tgl`, j.`jam_mulai`');
   $st->execute(array(':a' => $a, ':b' => $b));
 
   $rows = array();
@@ -757,54 +820,63 @@ function geser_hari($iso, $n) {
    layar head yang membuat kesalahannya.
 
    Memulangkan baris yang bentrok (array) atau null. Yang DITOLAK, DIBATALKAN,
+   Memulangkan baris yang bentrok (array) atau null. Yang DITOLAK, DIBATALKAN,
    dan KEDALUWARSA tidak dihitung: ketiganya berarti orangnya TIDAK jadi
    datang.
 
-   Dua bentuk bentrok, dan keduanya harus ada:
+   YANG DIPERIKSA SEKARANG HANYA SATU HAL: JAMNYA BERTINDIH ATAU TIDAK
+   (19 Agustus 2026, atas permintaan).
+   ---------------------------------------------------------------------
+   Sampai kemarin ada dua bentuk bentrok, dan yang pertama berbunyi "hari yang
+   sama, divisi lain" — tanpa melihat jam sama sekali. Itu bukan aturan
+   lapangan melainkan bayangan dari KUNCI UNIK (dw_id, tgl): selama satu orang
+   cuma boleh punya satu baris per hari, baris kedua PASTI menimpa yang
+   pertama, jadi satu-satunya yang bisa dilakukan adalah menolaknya.
 
-   1. HARI YANG SAMA, DIVISI LAIN. Kunci unik (dw_id, tgl) berarti satu orang
-      cuma punya satu baris per hari, dan ON DUPLICATE KEY menimpanya tanpa
-      bertanya — untuk head yang membetulkan ajuannya sendiri itu memang yang
-      diinginkan, tapi untuk divisi lain artinya baris Bar BERUBAH jadi baris
-      Kitchen dan turun ke MENUNGGU tanpa ada yang diberi tahu.
+   Kunci itu sudah dicabut. Sekarang satu orang boleh punya dua shift di hari
+   yang sama — Bar 11:00-17:00 lalu Floor 18:00-23:00 memang terjadi, dan
+   tidak ada alasan sistem melarangnya. Yang tetap mustahil cuma dua shift
+   yang JAMNYA BERTINDIH, dan itu berlaku sama untuk divisi yang sama maupun
+   berbeda: 18:00-02:00 lalu 01:00-08:00 tidak bisa dikerjakan siapa pun.
 
-   2. MELEWATI TENGAH MALAM. ARIF Bar 15 Agustus 18:00-02:00 dan ARIF Kitchen
-      16 Agustus 01:00-08:00 adalah DUA baris bertanggal berbeda: keduanya sah
-      menurut kunci unik, keduanya lolos pemeriksaan (1), dan keduanya
-      bertindih satu jam penuh di dunia nyata. Berlaku juga untuk divisi yang
-      SAMA — 18:00-02:00 lalu 01:00-08:00 tetap mustahil walau head-nya satu. */
-function bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi) {
-  $lama = $pdo->prepare('SELECT `id`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
-                           FROM `dw_ajuan` WHERE `dw_id`=:dw AND `tgl`=:tg');
-  $lama->execute(array(':dw' => $dw, ':tg' => $tgl));
-  $L = $lama->fetch();
-  if ($L && ($L['status'] === 'MENUNGGU' || $L['status'] === 'DISETUJUI')
-      && $L['divisi'] !== '' && $L['divisi'] !== $divisi) {
-    return array(
-      'tgl' => $tgl, 'divisi' => $L['divisi'], 'posisi' => $L['posisi'],
-      'm' => $L['jam_mulai'], 's' => $L['jam_selesai'], 'status' => $L['status'],
-      'lintasHari' => false,
-    );
-  }
+   TIGA HARI SEKALIGUS, bukan satu. Shift yang melewati tengah malam membuat
+   baris KEMARIN masih berjalan hari ini: ARIF Bar 15 Agustus 18:00-02:00 dan
+   ARIF Kitchen 16 Agustus 01:00-08:00 adalah dua baris bertanggal berbeda
+   yang bertindih satu jam penuh di dunia nyata. Semuanya dibandingkan di satu
+   garis waktu dengan offset per hari.
 
-  /* Offset hari: baris kemarin dimulai 1440 menit lebih awal, baris besok
-     1440 menit lebih lambat. Dengan begitu keduanya bisa dibandingkan di satu
-     garis waktu yang sama. */
+   `$abaikan` = id baris yang sedang DISUNTING. Tanpa itu, membuka satu ajuan
+   lalu menekan Simpan tanpa mengubah apa pun membuatnya bentrok dengan
+   dirinya sendiri — dan pesan "sudah dipesan Bar 16:00-23:00" untuk baris Bar
+   16:00-23:00 yang sedang dibuka tidak bisa ditindaklanjuti siapa pun. */
+function bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi, $abaikan = '') {
   $ms = menit_jam($m); $ns = $ms + durasi_menit($m, $sj);
-  $tet = $pdo->prepare('SELECT `tgl`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
+  $tet = $pdo->prepare('SELECT `id`,`tgl`,`divisi`,`posisi`,`jam_mulai`,`jam_selesai`,`status`
                           FROM `dw_ajuan`
-                         WHERE `dw_id`=:dw AND `tgl` IN (:t1,:t2)
+                         WHERE `dw_id`=:dw AND `tgl` IN (:t0,:t1,:t2)
                            AND (`status`=\'MENUNGGU\' OR `status`=\'DISETUJUI\')');
-  $tet->execute(array(':dw' => $dw, ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
+  $tet->execute(array(':dw' => $dw, ':t0' => $tgl,
+                      ':t1' => geser_hari($tgl, -1), ':t2' => geser_hari($tgl, 1)));
   foreach ($tet->fetchAll() as $T) {
-    $off = ($T['tgl'] < $tgl) ? -1440 : 1440;
+    if ($abaikan !== '' && (string)$T['id'] === (string)$abaikan) continue;
+    /* Offset hari: baris kemarin dimulai 1440 menit lebih awal, baris besok
+       1440 menit lebih lambat, baris hari ini tidak digeser. Dengan begitu
+       ketiganya bisa dibandingkan di satu garis waktu yang sama. */
+    $off = ($T['tgl'] === $tgl) ? 0 : (($T['tgl'] < $tgl) ? -1440 : 1440);
     $as = menit_jam($T['jam_mulai']) + $off;
     $ae = $as + durasi_menit($T['jam_mulai'], $T['jam_selesai']);
     if (max($as, $ms) < min($ae, $ns)) {
       return array(
+        /* `id` IKUT DIPULANGKAN sejak 19 Agustus 2026, dan itu bukan
+           kelengkapan: `timpa` dulu bekerja karena kunci unik (dw_id, tgl)
+           membuat INSERT jatuh ke baris yang sama dengan sendirinya. Tanpa
+           kunci itu, "timpa" tanpa id justru MELAHIRKAN baris kedua yang
+           bertindih — persis kebalikan dari yang diminta orangnya di kotak
+           konfirmasi. simpan_ajuan memakai id ini sebagai sasaran timpaan. */
+        'id' => $T['id'],
         'tgl' => $T['tgl'], 'divisi' => $T['divisi'], 'posisi' => $T['posisi'],
         'm' => $T['jam_mulai'], 's' => $T['jam_selesai'], 'status' => $T['status'],
-        'lintasHari' => true,
+        'lintasHari' => ($T['tgl'] !== $tgl),
       );
     }
   }
@@ -874,36 +946,44 @@ function simpan_ajuan($row, $by) {
   $divisi = pot(isset($row['divisi']) && s($row['divisi']) !== '' ? $row['divisi'] : $o['divisi'], 16);
   $posisi = pot(isset($row['posisi']) && s($row['posisi']) !== '' ? $row['posisi'] : $o['posisi'], 60);
 
-  /* ================= BENTROK LINTAS DIVISI =================
-     Kunci unik (dw_id, tgl) berarti satu orang cuma punya SATU baris per
-     hari — dan ON DUPLICATE KEY di bawah menimpanya tanpa bertanya. Untuk
-     head yang mengubah ajuannya sendiri itu memang yang diinginkan.
+  /* ================= BENTROK JAM =================
+     Satu daily worker boleh punya BEBERAPA shift di hari yang sama sejak
+     kunci unik (dw_id, tgl) dicabut (19 Agustus 2026) — Bar 11:00-17:00 lalu
+     Floor 18:00-23:00 memang terjadi. Yang tetap mustahil cuma jam yang
+     BERTINDIH, dan itu berlaku sama untuk divisi yang sama maupun berbeda.
 
-     Yang TIDAK diinginkan: head Kitchen memanggil ARIF untuk 15 Agustus,
-     padahal head Bar sudah memanggil ARIF di tanggal yang sama dan sudah
-     disetujui. Yang terjadi bukan galat, bukan pula dua baris: baris Bar
-     BERUBAH jadi baris Kitchen dan turun ke MENUNGGU. Head Bar tidak
-     diberi tahu apa pun; ia baru sadar malam itu, saat orangnya tidak
-     datang. Satu orang tidak bisa bekerja di dua divisi pada hari yang
-     sama, jadi ini memang bentrok — dan bentrok harus berhenti di sini.
-
-     Kenapa di backend, padahal frontend sudah punya peringatan serupa:
+     Kenapa dijaga di backend, padahal frontend sudah punya peringatan serupa:
      frontend cuma melihat ajuan yang termuat di rentang layarnya. Ajuan
      divisi lain di luar rentang itu TIDAK ada di memorinya, jadi
      peringatannya diam. Dua head yang menyimpan berdekatan juga sama —
      keduanya membaca keadaan sebelum yang lain menulis. Backend adalah
      satu-satunya tempat yang selalu melihat baris yang sebenarnya.
 
-     Bukan larangan mutlak: `timpa` melewatkannya, dipakai frontend
-     sesudah orangnya membaca konfirmasi yang menyebut divisi lawannya.
-     Yang DITOLAK dan DIBATALKAN tidak dihitung — menimpanya justru yang
-     diinginkan. */
+     Bukan larangan mutlak: `timpa` melewatkannya, dipakai frontend sesudah
+     orangnya membaca konfirmasi yang menyebut shift lawannya. Yang DITOLAK
+     dan DIBATALKAN tidak dihitung — menimpanya justru yang diinginkan. */
   $timpa = !empty($row['timpa']);
+  $id = pot(isset($row['id']) ? $row['id'] : '', 32);
   /* Pemeriksaannya sendiri ada di bentrok_ajuan_row() — SATU tempat, dipakai
      juga oleh penyaring usulan di simpan_permintaan(). Sebelumnya logikanya
      hidup utuh di sini, jadi pintu mana pun yang tidak lewat simpan_ajuan()
-     tidak diperiksa sama sekali. */
-  $B = $timpa ? null : bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi);
+     tidak diperiksa sama sekali.
+
+     `$id` dikirim sebagai `abaikan`: baris yang sedang disunting tidak boleh
+     bentrok dengan dirinya sendiri. Dulu tidak perlu — kunci uniknya membuat
+     baris lama SELALU jadi baris yang sama, dan pemeriksaannya berhenti di
+     "divisi berbeda". Sekarang baris lama adalah salah satu dari beberapa,
+     dan yang membuka satu ajuan lalu menekan Simpan tanpa mengubah apa pun
+     akan ditolak oleh jamnya sendiri. */
+  $B = bentrok_ajuan_row($pdo, $dw, $tgl, $m, $sj, $divisi, $id);
+  /* `timpa` = orangnya sudah membaca kotak konfirmasi dan memilih MENGGANTI
+     shift yang bertabrakan. Sasarannya ditunjuk EKSPLISIT lewat id baris
+     bentrok itu; sebelum kunci unik dicabut, hal ini terjadi dengan
+     sendirinya karena INSERT jatuh ke baris yang sama. Sekarang tidak, dan
+     "timpa" tanpa langkah ini akan menambah shift kedua yang bertindih —
+     kebalikan persis dari yang diminta. */
+  if ($timpa && $B && $id === '') { $id = (string)$B['id']; }
+  if ($timpa) $B = null;
   if ($B) {
     $out = array(
       'nama'    => $o['nama'],
@@ -921,21 +1001,23 @@ function simpan_ajuan($row, $by) {
     return array('saved' => false, 'bentrok' => $out);
   }
 
-  $id = pot(isset($row['id']) ? $row['id'] : '', 32);
   if ($id === '') $id = id_baru('AJ');
 
-  /* ON DUPLICATE KEY di sini menangani dua kunci sekaligus: PRIMARY (id)
-     saat ajuan yang sama disunting, dan uq_ajuan_orang_tgl saat orang yang
-     sama mengirim ulang untuk tanggal yang sama. Keduanya berakhir sebagai
-     SATU baris yang kembali MENUNGGU — itulah yang diinginkan: ajuan yang
-     diubah harus disetujui ulang, tidak boleh diam-diam tetap DISETUJUI
-     dengan jam yang sudah berbeda. */
+  /* ON DUPLICATE KEY sekarang menangani SATU kunci saja: PRIMARY (id), yaitu
+     ajuan yang sama disunting. Kunci (dw_id, tgl) sudah bukan kunci unik
+     lagi, jadi mengirim tanggal yang sama untuk orang yang sama melahirkan
+     BARIS KEDUA — itulah yang diinginkan sejak dobel shift diizinkan.
+
+     Statusnya tetap dipaksa MENUNGGU pada penyuntingan: ajuan yang diubah
+     harus disetujui ulang, tidak boleh diam-diam tetap DISETUJUI dengan jam
+     yang sudah berbeda. */
   $st = $pdo->prepare(
     'INSERT INTO `dw_ajuan`
        (`id`,`dw_id`,`tgl`,`jam_mulai`,`jam_selesai`,`divisi`,`posisi`,`catatan`,
         `status`,`dibuat_at`,`dibuat_oleh`)
      VALUES (:id,:dw,:tg,:m,:s,:dv,:ps,:ct,\'MENUNGGU\',:t,:by)
      ON DUPLICATE KEY UPDATE
+       `dw_id`=VALUES(`dw_id`), `tgl`=VALUES(`tgl`),
        `jam_mulai`=VALUES(`jam_mulai`), `jam_selesai`=VALUES(`jam_selesai`),
        `divisi`=VALUES(`divisi`), `posisi`=VALUES(`posisi`),
        `catatan`=VALUES(`catatan`), `status`=\'MENUNGGU\',
@@ -948,12 +1030,19 @@ function simpan_ajuan($row, $by) {
     ':t' => ms(), ':by' => pot($by, 120),
   ));
 
-  /* Baris hasil dibaca ulang: kalau yang terpicu adalah kunci
-     (dw_id, tgl), `id` yang benar-benar tersimpan adalah id LAMA, bukan
-     yang baru saja dibuat di atas. Frontend perlu id yang asli untuk
-     tombol Batal-nya. */
-  $ambil = $pdo->prepare('SELECT * FROM `dw_ajuan` WHERE `dw_id`=:dw AND `tgl`=:tg');
-  $ambil->execute(array(':dw' => $dw, ':tg' => $tgl));
+  /* Baris hasil dibaca ulang MENURUT ID, bukan menurut (dw_id, tgl).
+     Dulu memang menurut pasangan itu — kunci uniknya menjamin cuma ada satu
+     baris, dan kalau yang terpicu adalah kunci itu maka `id` yang benar-benar
+     tersimpan adalah id LAMA, bukan yang baru saja dibuat di atas.
+
+     Sejak dobel shift diizinkan (19 Agustus 2026) pasangan itu bisa cocok
+     dengan BEBERAPA baris, dan fetch() memulangkan salah satunya tanpa urutan
+     yang bisa dipastikan. Akibatnya bukan galat: layar menerima baris shift
+     PAGI sesudah menyimpan shift MALAM, lalu tombol Batal-nya membatalkan
+     shift yang salah. `id` sekarang selalu diketahui — baris baru pun sudah
+     mendapatkannya sebelum INSERT. */
+  $ambil = $pdo->prepare('SELECT * FROM `dw_ajuan` WHERE `id`=:id');
+  $ambil->execute(array(':id' => $id));
   $ada = $ambil->fetch();
   return array('saved' => true, 'row' => $ada ? bentuk_ajuan($ada) : null);
 }

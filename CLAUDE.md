@@ -139,8 +139,50 @@ berisi lima peran (admin / HRD / staf biasa / head Bar / salah-centang). Hak aks
 satu-satunya bagian repo ini yang **kegagalannya tidak terlihat dari layar** —
 penjaga yang longgar tidak menampilkan apa pun yang aneh.
 - Kunci unik yang menahan bug diam-diam: `dw_pekerja.no_hp` (satu orang satu
-  baris, riwayat no-show tidak pecah) dan `dw_ajuan (dw_id, tgl)` (satu orang
-  satu sel kalender per hari; kirim ulang **menimpa** dan balik ke `MENUNGGU`).
+  baris, riwayat no-show tidak pecah).
+
+### DW: DOBEL SHIFT SEHARI diizinkan (19 Agustus 2026)
+
+`dw_ajuan (dw_id, tgl)` **sudah bukan kunci unik**. Sampai 19 Agustus 2026 ia
+memaksa satu DW punya paling banyak satu shift per hari, dan kunci itulah —
+bukan aturan lapangan — yang membuat kandidat "sudah terjadwal" dimatikan
+centangnya. Sekarang Bar 11:00–17:00 lalu Floor 18:00–23:00 di hari yang sama
+adalah hal yang sah. Yang tetap mustahil cuma **jam yang bertindih**.
+
+Yang ikut berubah, dan semuanya harus dijaga bersama:
+
+- Penjaganya `bentrok_ajuan_row()` (backend) ↔ `bentrokOrangJam()` (layar).
+  **Keduanya memeriksa TIGA hari** (kemarin/hari ini/besok) karena shift lewat
+  tengah malam. Kalau salah satu diubah, yang lain harus ikut — yang lolos di
+  layar akan ditolak backend dengan pesan yang datang sesudah form ditutup.
+- `timpa` **tidak lagi menimpa dengan sendirinya**. Dulu INSERT jatuh ke baris
+  yang sama karena kunci uniknya; sekarang `simpan_ajuan` harus menunjuk id
+  baris bentrok secara eksplisit, kalau tidak "timpa" justru melahirkan shift
+  kedua yang bertindih — kebalikan persis dari yang diminta orangnya.
+- `lembarDW().peta[dwId|tgl]` sekarang **array**, bukan satu objek.
+- **Absensi ikut**: `shift_hari('DW',…)` menerima menit ketukan dan memilih
+  shift yang paling pas. Tanpa itu yang terambil selalu baris pertama —
+  ketukan 18:05 dihitung terhadap shift pagi, tercatat telat 7 jam, dan
+  salahnya muncul sebagai **uang**, bukan sebagai galat.
+- Indeksnya dicabut lewat `cabut_indeks()` di `pastikan_tabel()`, **bukan**
+  berkas migrasi: migrasi tidak ikut ter-deploy dan produksi rutin tertinggal.
+
+### DW: Kalender Tamu membaca TIGA modul (19 Agustus 2026)
+
+`TAMU_SUMBER` = Marketing + Event + **Reservasi**. Total pax di layar adalah
+gabungan ketiganya. Tapi `konteksHari()` — yang menentukan panduan jumlah DW —
+sengaja memakai **`paxAcaraTgl()`, bukan `paxTgl()`**: venue ini hampir selalu
+punya reservasi, jadi kalau ikut dijumlahkan maka setiap hari jadi "hari
+event" dan seluruh kolom kuota di Pengaturan berubah arti tanpa ada yang
+mengubahnya.
+
+### Tim HRD otomatis admin modul Roster (19 Agustus 2026)
+
+`admin_modul_untuk()` di account-api menambahkan `jadwal` + `dw` untuk user
+yang kolom Tim-nya memuat `hrd`/`hr`. **CEO tidak ikut** (ia perlu membaca
+jadwal, bukan menyetel tarif). Tidak ada tabel deny untuk `admins`, jadi
+aturan ini tidak bisa ditimpa per orang — cara mencabutnya mengubah kolom Tim,
+dan Kelola Akses menuliskannya di kotak yang bersangkutan.
 
 ### DW: satu formulir, dua cara meminta (sejak 14 Agustus 2026)
 
