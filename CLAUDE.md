@@ -147,6 +147,13 @@ menyentuhnya:
 - **Rekap Pegawai membaca SEMUA divisi** sejak tanggal yang sama
   (`rekapKandidat` tidak lagi dipotong `divisiLihat()`). Hak MENGUBAH sel di
   halaman itu tetap `bolehUbah(div)`.
+- Empat kolom kepegawaian adalah **daftar tertutup** di layar ini:
+  `HR_BRANCH` / `HR_ORG` / `HR_LEVEL` / `HR_STATUS`. Nilai tersimpan yang tidak
+  ada di daftar tetap digambar dan ditandai `(lama)` lewat `opsiHR()` — tanpa
+  itu, membuka form seorang kru yang datanya diimpor dengan ejaan lain akan
+  MENGGANTI kolomnya ke pilihan pertama begitu Simpan ditekan, tanpa satu pun
+  galat. `jobPosition` sengaja tetap teks bebas: isinya jabatan sungguhan, dan
+  daftar tertutup di situ akan basi tiap ada posisi baru.
 
 **Matriks halaman × peran DW bisa disetel** (19 Agustus 2026) — `setting.akses`
 `{halaman:{peran:0|1}}`, disunting admin modul di halaman Hak Akses. Yang perlu
@@ -203,6 +210,13 @@ sebagai identitasnya di daftar. Kolomnya diperlebar otomatis oleh
 - Layar: `divPekerja()` / `posPekerja()` / `punyaDiv()` / `punyaPos()` /
   `divUtama()` / `posUtama()`. **Jangan** bandingkan `p.divisi === div` lagi —
   orang berdivisi `"bar,floor"` tidak akan pernah cocok dengan satu pun.
+  Sama berbahayanya: memakai `p.divisi` utuh sebagai **kunci pengelompokan**.
+  Terjadi 19 Agustus 2026 di kotak pilihan Rekap Pegawai — kelompok bernama
+  `"floor,bar"` tidak sama dengan kode divisi mana pun, jadi orangnya **lenyap
+  dari daftar** tanpa galat sementara chip di sebelahnya tetap menulis kedua
+  divisinya. Kelompokkan per divisi yang ia pegang (satu orang boleh muncul di
+  beberapa kelompok), dan sediakan keranjang terakhir untuk kode tak dikenal —
+  daftar pilihan tidak boleh pernah menjatuhkan orang diam-diam.
 - **`dw_ajuan.divisi`/`.posisi` TETAP TUNGGAL.** `simpan_ajuan` memakai
   `csv_utama()` saat mewarisi dari master; menyalin CSV ke sana tidak melempar
   apa pun — barisnya cuma tidak pernah cocok dengan lembar divisi mana pun,

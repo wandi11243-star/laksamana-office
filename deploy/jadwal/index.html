@@ -1869,6 +1869,39 @@ let PEG_TAPIS='aktif';        // aktif | nonaktif | semua
 let PEG_DIV='ALL';            // ALL | kode divisi | nonshift
 let PEG_FORM=null;            // isi form yang sedang dibuka
 
+/* PILIHAN TETAP UNTUK KOLOM KEPEGAWAIAN (19 Agustus 2026).
+   ---------------------------------------------------------------------
+   Empat kolom ini sengaja daftar tertutup, bukan kotak teks bebas. Isinya
+   dipakai untuk MENGELOMPOKKAN dan mencocokkan dengan Talenta, dan kolom
+   pengelompokan yang diketik bebas selalu berakhir sama: satu orang menulis
+   "Kontrak", yang lain "Contract", yang ketiga "contract " dengan spasi — dan
+   laporan yang menghitungnya melaporkan tiga kelompok tanpa satu pun yang
+   terlihat salah ketik.
+
+   Kalau daftarnya perlu bertambah, ubah di sini saja: form dan penandaan
+   "(lama)" di bawah ikut sendiri. */
+const HR_BRANCH = ['PT Laksamana Indonesia Nusantara'];
+const HR_ORG    = ['Office','FOH','Cashier','Kitchen','Bar'];
+const HR_LEVEL  = ['Staff','Karyawan'];
+const HR_STATUS = ['Contract','Probation','Permanent'];
+/* Nilai yang SUDAH TERSIMPAN tapi tidak ada di daftar tetap tetap digambar,
+   ditandai "(lama)". Tanpa itu, membuka form seorang kru yang datanya
+   terlanjur diimpor dengan ejaan lain akan diam-diam MENGGANTI kolom itu
+   begitu Simpan ditekan — kotak pilihan yang nilainya tidak ada selalu
+   menampilkan pilihan pertama, dan tidak ada satu pun galat yang menyebutnya.
+   Yang ketahuan cuma berkas ekspor berikutnya. Pola yang sama dipakai
+   opsiPosisi() di modul Daily Worker. */
+function opsiHR(daftar, nilai){
+  const v=String(nilai==null?'':nilai).trim();
+  let h='<option value="">— belum diisi —</option>';
+  daftar.forEach(function(x){
+    h+='<option value="'+esc(x)+'"'+(v===x?' selected':'')+'>'+esc(x)+'</option>';
+  });
+  if(v && daftar.indexOf(v)<0)
+    h+='<option value="'+esc(v)+'" selected>'+esc(v)+' (lama)</option>';
+  return h;
+}
+
 /* Panggilan TULIS ke account-api. Bedanya dengan muatRoster(): yang ini
    membawa token sesi Office, karena yang di seberang benar-benar menulis
    tabel users. Gerbangnya ada di server — layar boleh menyembunyikan
@@ -2003,9 +2036,14 @@ function bukaFormPegawai(id){
   if(id && !u){ toast('Data tidak ditemukan — muat ulang halaman', true); return; }
   PEG_FORM = u
     ? {id:u.id, name:u.name||'', keterangan:u.keterangan||'', noHp:u.noHp||'',
-       talentaId:u.talentaId||'', jobPosition:u.jobPosition||'',
+       talentaId:u.talentaId||'', branch:u.branch||'', organization:u.organization||'',
+       jobPosition:u.jobPosition||'', jobLevel:u.jobLevel||'',
        employmentStatus:u.employmentStatus||'', joinDate:u.joinDate||''}
-    : {id:'', name:'', keterangan:'', noHp:'', talentaId:'', jobPosition:'',
+    /* Branch diisi lebih dulu untuk kru baru: perusahaannya cuma satu, dan
+       memaksa memilihnya tiap kali cuma menambah satu klik yang jawabannya
+       sudah pasti. Tetap bisa dikosongkan lewat "— belum diisi —". */
+    : {id:'', name:'', keterangan:'', noHp:'', talentaId:'',
+       branch:(HR_BRANCH[0]||''), organization:'', jobPosition:'', jobLevel:'',
        employmentStatus:'', joinDate:''};
   gambarFormPegawai();
 }
@@ -2017,6 +2055,11 @@ function gambarFormPegawai(){
       +'<input id="pf_'+k+'" type="'+(tipe||'text')+'" value="'+esc(f[k]||'')+'"'
       +(ph?(' placeholder="'+esc(ph)+'"'):'')
       +' oninput="PEG_FORM.'+k+'=this.value">'
+      +(hint?('<p class="mutedhint">'+hint+'</p>'):'')+'</div>';
+  };
+  const pilihan=function(k,label,daftar,hint){
+    return '<div class="field"><label>'+label+'</label>'
+      +'<select id="pf_'+k+'" onchange="PEG_FORM.'+k+'=this.value">'+opsiHR(daftar,f[k])+'</select>'
       +(hint?('<p class="mutedhint">'+hint+'</p>'):'')+'</div>';
   };
   const html='<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
@@ -2036,8 +2079,11 @@ function gambarFormPegawai(){
       +'<p class="mutedhint" id="pegDivHint" style="margin-top:7px"></p></div>'
     +kolom('noHp','Nomor HP','text','Dipakai modul lain untuk menghubungi; bukan untuk masuk.','08xxxxxxxxxx')
     +kolom('talentaId','Employee ID Talenta','text','Kolom yang dipakai Talenta mencocokkan baris saat jadwal diimpor. Kosongkan kalau belum dipetakan.')
-    +kolom('jobPosition','Jabatan','text','','mis. Bartender, Cook Helper')
-    +kolom('employmentStatus','Status Kerja','text','','mis. Tetap, Kontrak, Training')
+    +pilihan('branch','Branch',HR_BRANCH)
+    +pilihan('organization','Organization',HR_ORG,'Kolom kepegawaian di Office. Berbeda dari <b>Tim</b> di atas — yang menentukan lembar jadwal tetap Tim.')
+    +kolom('jobPosition','Job Position','text','','mis. Bartender, Cook Helper')
+    +pilihan('jobLevel','Job Level',HR_LEVEL)
+    +pilihan('employmentStatus','Employment Status',HR_STATUS)
     +kolom('joinDate','Tanggal Masuk','date')
     +(baru
       ? '<div class="note i" style="margin:4px 0 0">Akun baru dibuat dengan <b>PIN 1111</b> — kru menggantinya sendiri lewat Laksamana Office. '
@@ -2078,7 +2124,9 @@ async function simpanPegawai(){
   if(b){ b.disabled=true; b.textContent='Menyimpan…'; }
   const kirim={action:'rosterSaveUser', name:nama,
     keterangan:String(f.keterangan||'').trim(), noHp:String(f.noHp||'').trim(),
-    talentaId:String(f.talentaId||'').trim(), jobPosition:String(f.jobPosition||'').trim(),
+    talentaId:String(f.talentaId||'').trim(),
+    branch:String(f.branch||'').trim(), organization:String(f.organization||'').trim(),
+    jobPosition:String(f.jobPosition||'').trim(), jobLevel:String(f.jobLevel||'').trim(),
     employmentStatus:String(f.employmentStatus||'').trim(), joinDate:String(f.joinDate||'').trim()};
   if(f.id) kirim.id=f.id;
   try{

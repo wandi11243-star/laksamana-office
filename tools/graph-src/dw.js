@@ -6437,7 +6437,26 @@ function rekapBebanDW() { rekapAjuanDW(); durasiJam(); biayaAjuan(); idxHari(); 
 
 
 
-function viewRekap() { bisaLihat(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); escJs(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); divPekerja(); posPekerja(); pilStatusDW(); statBox(); bolehLihatUang(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
+function viewRekap() { bisaLihat(); bulanDari(); hariIni(); awalBulan(); akhirBulan(); pekerjaById(); rekapBebanDW(); rekapAjuanDW(); divPekerja(); pilihRekapDW(); esc(); seninDari(); addD(); tglPanjang(); namaDivisi(); ajukanTgl(); escJs(); parseD(); idxHari(); ikonDivisi(); geserBulanAktif(); labelBulan(); tombolKembali(); posPekerja(); pilStatusDW(); statBox(); bolehLihatUang(); rp(); tglManusia(); durasiJam(); biayaAjuan(); pilStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7623,7 +7642,12 @@ function tambahPosisi() { normalPosisiDivisi(); toast(); namaDivisi(); simpanSet
 
 
 
-function hapusPosisi() { normalPosisiDivisi(); konfirmasi(); namaDivisi(); simpanSetting(); render(); toast(); }
+function hapusPosisi() { normalPosisiDivisi(); punyaDiv(); punyaPos(); konfirmasi(); namaDivisi(); simpanSetting(); render(); toast(); }
+
+
+
+
+
 
 
 

@@ -1823,7 +1823,7 @@ function go() { toggleSidebar(); render(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPegawai(); viewPengaturan(); muatRoster(); }
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPegawai(); viewPengaturan(); }
 
 
 
@@ -1859,6 +1859,39 @@ function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiHR() { esc(); muatRoster(); }
 
 
 
@@ -2009,10 +2042,23 @@ function bukaFormPegawai() { bolehBuka(); toast(); kruById(); gambarFormPegawai(
 
 
 
+
+
+
+
+
 function gambarFormPegawai() {  }
 
 
-function kolom() { esc(); tutupModal(); hintDivisiForm(); isiTimForm(); escJs(); simpanPegawai(); }
+function kolom() { esc(); }
+
+
+
+
+
+
+function pilihan() { opsiHR(); tutupModal(); esc(); hintDivisiForm(); isiTimForm(); escJs(); kolom(); simpanPegawai(); }
+
 
 
 
@@ -2071,6 +2117,8 @@ function isiTimForm() { hintDivisiForm(); }
 
 
 function simpanPegawai() { toast(); accPost(); tutupModal(); muatRoster(); render(); }
+
+
 
 
 

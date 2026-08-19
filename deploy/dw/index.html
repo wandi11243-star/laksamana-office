@@ -6468,8 +6468,27 @@ function viewRekap(){
      terikat satu divisi — divisinya ditentukan per ajuan — jadi yang dipakai
      mengelompokkan adalah divisi bawaan di profilnya, dan yang tidak punya
      masuk kelompok terakhir. */
+  /* SATU ORANG MUNCUL DI SETIAP DIVISI YANG IA PEGANG, dan itu bukan sekadar
+     kerapian — pengelompokan lama MENGHILANGKAN orang berdivisi ganda.
+
+     `p.divisi` sudah berupa CSV sejak 19 Agustus 2026 ("floor,bar"), tapi
+     baris ini memakainya utuh sebagai kunci kelompok. Untuk Arkan hasilnya
+     kelompok bernama "floor,bar" — yang tidak sama dengan satu pun kode di
+     DIVISI, dan bukan '_' juga, jadi tidak ada satu pun optgroup yang
+     menampungnya. Ia lenyap dari kotak pilihan TANPA galat apa pun, sementara
+     chip di sebelah kotak itu tetap menuliskan Floor DAN Bar — jadi layarnya
+     terbaca seperti berbohong pada dirinya sendiri. Dilaporkan 19 Agustus 2026.
+
+     Kode divisi yang tidak dikenal (data lama, divisi yang sudah dihapus)
+     jatuh ke "Tanpa divisi", bukan hilang. Kotak pilihan yang menjatuhkan
+     orang diam-diam adalah persis penyakit yang sedang diperbaiki di sini. */
   const grup={};
-  kandidat.forEach(function(x){ const k=x.divisi||'_'; (grup[k]=grup[k]||[]).push(x); });
+  const kodeDivisi=DIVISI.map(function(d){ return d.k; });
+  kandidat.forEach(function(x){
+    const ds=divPekerja(x).filter(function(k){ return kodeDivisi.indexOf(k)>-1; });
+    if(!ds.length){ (grup['_']=grup['_']||[]).push(x); return; }
+    ds.forEach(function(k){ (grup[k]=grup[k]||[]).push(x); });
+  });
   const pilih='<select class="inp" style="min-width:230px" onchange="pilihRekapDW(this.value)">'
     +DIVISI.map(function(d){
         const isi=grup[d.k]||[];
@@ -7630,7 +7649,12 @@ function hapusPosisi(div, nama){
      posisi tidak merusak data lama — tapi yang menghapusnya berhak tahu bahwa
      ada tujuh orang yang mulai besok tidak lagi punya posisi yang bisa dipilih
      ulang, dan angka itu tidak muncul di mana pun kalau tidak ditulis di sini. */
-  const dipakai=(S.pekerja||[]).filter(x=>x.divisi===div && x.posisi===nama).length;
+  /* Lewat punyaDiv/punyaPos, bukan perbandingan langsung: kedua kolom itu CSV
+     sejak 19 Agustus 2026, jadi `x.divisi===div` melewatkan setiap DW
+     berdivisi ganda. Yang muncul di layar bukan galat melainkan angka yang
+     terlalu kecil — atau kalimat "Belum ada daily worker di posisi ini" untuk
+     posisi yang sebenarnya sedang dipakai tujuh orang. */
+  const dipakai=(S.pekerja||[]).filter(x=>punyaDiv(x,div) && punyaPos(x,nama)).length;
   konfirmasi('Hapus posisi "'+nama+'" dari '+namaDivisi(div)+'?',
     (dipakai?dipakai+' daily worker masih tercatat di posisi ini. Datanya TIDAK berubah — '
              +'posisinya tetap terbaca (ditandai "lama") dan tetap dibayar menurut tarifnya. '
