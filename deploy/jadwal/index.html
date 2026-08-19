@@ -768,8 +768,23 @@ const SHIFT_BAWAAN = {
 };
 const JENIS_AJU = {
   OFF :'Ganti Hari Off', IZIN:'Izin', CUTI:'Cuti',
-  TUKAR:'Tukar Shift',   UBAH:'Ubah Jam Shift'
+  TUKAR:'Tukar Shift',
+  /* UBAH ("Ubah Jam Shift") DICABUT dari formulir 19 Agustus 2026 — jam kerja
+     ditentukan shift-nya, dan pengajuan yang menggeser jam SATU ORANG di luar
+     definisi shift membuat absensi menghitung telat/lembur terhadap angka yang
+     tidak ada di mana pun selain baris pengajuan itu. Kalau jamnya memang
+     berubah, yang diubah shift-nya di Pengaturan.
+
+     Tetap dipertahankan DI PETA INI (bukan dihapus) supaya baris lama yang
+     terlanjur tersimpan tetap terbaca namanya di riwayat; yang hilang cuma
+     pilihannya di form. */
+  UBAH:'Ubah Jam Shift'
 };
+/* Jenis yang masih boleh DIPILIH kru. Sengaja daftar tersendiri, bukan
+   `Object.keys(JENIS_AJU)` dikurangi — peta di atas adalah kamus label untuk
+   data lama, dan menyamakan keduanya berarti menghapus salah satunya
+   menghapus yang lain juga. */
+const JENIS_AJU_PILIH = ['OFF','IZIN','CUTI','TUKAR'];
 /* Label status yang dibaca manusia. Kolom Status selama ini menulis nama
    konstantanya apa adanya — "MENUNGGU", "DISETUJUI", "DITOLAK" — tiga kata
    berhuruf besar semua yang berteriak lebih keras daripada tombol di
@@ -3776,7 +3791,7 @@ function bukaAjukan(tglAwal){
     +'<div class="mh"><h3>Ajukan Perubahan Jadwal</h3><button class="xbtn" onclick="tutupModal()">×</button></div>'
     +'<div class="mb">'+opsiKru
     +'<div class="field"><label>Jenis</label><select id="ajJenis" onchange="gambarShiftAju()">'
-    +Object.keys(JENIS_AJU).map(k=>'<option value="'+k+'">'+esc(JENIS_AJU[k])+'</option>').join('')+'</select></div>'
+    +JENIS_AJU_PILIH.map(k=>'<option value="'+k+'">'+esc(JENIS_AJU[k])+'</option>').join('')+'</select></div>'
     +'<div class="timerow"><div class="field"><label>Dari Tanggal</label><input id="ajDari" type="date" value="'+hari+'"></div>'
     +'<div class="field"><label>Sampai Tanggal</label><input id="ajSampai" type="date" value="'+hari+'"></div></div>'
     +'<div id="ajShiftBox"></div>'
@@ -3797,8 +3812,8 @@ function bukaAjukan(tglAwal){
    berstatus DISETUJUI dengan jadwal yang masih shift lama adalah kesalahan
    paling mahal di modul ini — kru merasa sudah beres, absensi berkata lain.
 
-   Sekarang bentuknya eksplisit, jadi TUKAR dan UBAH ikut bisa mengisi sel
-   otomatis seperti OFF/IZIN/CUTI. */
+   Sekarang bentuknya eksplisit, jadi TUKAR ikut bisa mengisi sel otomatis
+   seperti OFF/IZIN/CUTI. */
 let AJU_SHIFT='';
 function gambarShiftAju(){
   const box=document.getElementById('ajShiftBox'); if(!box) return;
@@ -3820,23 +3835,15 @@ function gambarShiftAju(){
     const el2=document.getElementById("ajDari");
     AJU_SHIFT=shiftKru(ME&&ME.id, el2?el2.value:"");
   }
-  const d=shiftDef(AJU_SHIFT);
   box.innerHTML='<div class="field"><label>Shift yang diminta</label>'
     +'<div class="pick">'+daftarShift().filter(k=>!shiftDef(k).libur).map(function(k){
         const sd=shiftDef(k);
         return '<button type="button" class="'+(k===AJU_SHIFT?'sel':'')+'" style="background:'+esc(sd.w)+';color:'+warnaTeks(sd.w)+'" '
           +'onclick="pilihShiftAju(&#39;'+escJs(k)+'&#39;)">'+esc(sd.n)+'<small>'+esc(sd.m+'–'+sd.s)+'</small></button>';
-      }).join('')+'</div></div>'
-    /* Jam khusus hanya untuk UBAH — itu memang seluruh isi jenis tersebut.
-       Untuk TUKAR, jam ikut shift tujuannya dan kotak tambahan cuma satu
-       tempat lagi yang bisa diisi tidak konsisten. */
-    +(jenis==='UBAH'
-      ? '<div class="timerow"><div class="field"><label>Jam mulai</label>'
-        +'<input id="ajJamM" type="time" value="'+esc(d.m)+'"></div>'
-        +'<div class="field"><label>Jam selesai</label>'
-        +'<input id="ajJamS" type="time" value="'+esc(d.s)+'"></div></div>'
-        +'<p class="mutedhint" style="margin-top:-6px">Kosongkan kalau jamnya ikut bawaan shift di atas.</p>'
-      : '');
+      }).join('')+'</div></div>';
+  /* Kotak "Jam mulai / Jam selesai" DIBUANG bersama jenis UBAH (19 Agustus
+     2026). Jam selalu ikut shift yang dipilih di atas — satu sumber, dan
+     absensi menghitung telat/lembur terhadap angka yang sama. */
 }
 function pilihShiftAju(k){ AJU_SHIFT=k; gambarShiftAju(); }
 async function kirimAju(){
@@ -3863,8 +3870,10 @@ async function kirimAju(){
      tidak ada dan nilainya hilang tanpa jejak. */
   const tetap=AJU_KE_SHIFT[jenis];
   const shift=tetap||AJU_SHIFT||'';
-  const jamM=(!tetap&&el('ajJamM'))?el('ajJamM').value:'';
-  const jamS=(!tetap&&el('ajJamS'))?el('ajJamS').value:'';
+  /* Jam tidak lagi bisa diisi sendiri (jenis UBAH dicabut 19 Agustus 2026).
+     Kolomnya tetap dikirim kosong supaya bentuk baris tidak berubah — baris
+     lama masih menyimpan jam, dan penyetujuannya membacanya dari sana. */
+  const jamM='', jamS='';
   if(!shift){ toast('Pilih shift yang diminta dulu', true); return; }
 
   /* TOMBOL DIKUNCI DI SINI — SESUDAH seluruh validasi, tepat sebelum kiriman
@@ -3929,7 +3938,7 @@ function putuskan(id,status){
       +' hari</b> — menimpa shift yang sekarang ada di sana.'
     : 'Pengajuan ini tidak menyebut shift yang diminta, jadi <b>sel jadwalnya tidak ikut berubah</b>. '
       +'Isi sendiri di lembar setelah ini.';
-  konfirmasi('Setujui '+JENIS_AJU[a.jenis]+' — '+nama+'?',
+  konfirmasi('Setujui '+(JENIS_AJU[a.jenis]||a.jenis)+' — '+nama+'?',
     '<b>'+esc(rentang)+'</b><br>'+efek
     +(a.alasan?'<br><br><i>"'+esc(a.alasan)+'"</i>':''),
     function(){ kirimPutusan(id,'DISETUJUI',''); },

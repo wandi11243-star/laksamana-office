@@ -430,15 +430,19 @@
     .pick:hover{border-color:var(--gold-2); background:var(--gold-soft)}
     .pick input{width:15px; height:15px; accent-color:var(--gold); margin:0}
     .pick.on{border-color:var(--gold); background:var(--gold-soft); color:var(--gold-dim)}
-    /* Modul bawaan: tercentang, terkunci, dan KELIHATAN berbeda dari centang
-       biasa — kalau bentuknya sama, admin akan mencoba melepasnya lalu mengira
-       panelnya rusak karena tidak bisa. */
-    .pick.otomatis{cursor:default; border-style:dashed; opacity:.9}
-    .pick.otomatis:hover{border-color:var(--gold-2); background:var(--gold-soft)}
+    /* Modul bawaan & modul terbatas: garis PUTUS-PUTUS supaya kelihatan
+       berbeda dari centang biasa — yang satu sudah menyala tanpa dicentang,
+       yang satu cuma untuk peran tertentu.
+
+       Keduanya TETAP BISA DIKLIK (sejak 19 Agustus 2026). Sebelumnya kotaknya
+       `disabled`, dan itu menutup satu-satunya jalan untuk mengecualikan satu
+       orang: kru yang memang tidak boleh melihat jadwal, atau staf non-HRD
+       yang memang ditugasi mengurus daily worker. Aturannya tetap ada — ia
+       cuma jadi NILAI BAWAAN yang bisa ditimpa per orang, bukan tembok. */
+    .pick.otomatis{border-style:dashed}
     .pick.otomatis em{font-style:normal; font-weight:600; font-size:11px; color:var(--muted)}
-    /* Modul terbatas yang orang ini tidak berhak: terkunci dan jelas mati. */
-    .pick.terlarang{cursor:not-allowed; opacity:.55; border-style:dashed; background:transparent}
-    .pick.terlarang:hover{border-color:var(--line); background:transparent}
+    .pick.terlarang{border-style:dashed}
+    .pick.terlarang:not(.on){opacity:.75}
     .pick.terlarang em{font-style:normal; font-weight:600; font-size:11px; color:var(--muted)}
     .pick-hint{font-size:11.5px; color:var(--muted); margin-top:7px}
     .r-row .u-mods{font-size:11.5px; color:var(--muted); display:block; margin-top:2px}
@@ -745,16 +749,21 @@
                             <p class="pick-hint" style="border-left:3px solid var(--gold); padding-left:9px">
                                 <b>Roster · Jadwal Shift diberikan OTOMATIS</b> kepada Tim
                                 <b>Kitchen, Bar, Floor, Cashier, HRD, CEO</b> dan admin modul Jadwal —
-                                kotaknya tergambar tercentang &amp; terkunci, tidak perlu diberikan satu
-                                per satu. Dasarnya kolom <b>Tim</b> di atas: kalau namanya muncul di
-                                sebuah lembar divisi, ia bisa membuka lembarnya.<br>
-                                <b>Roster · Daily Worker</b> kebalikannya: <b>hanya bisa diberikan ke Tim
-                                HRD atau CEO</b>, admin modul Daily Worker, dan Admin Akses. Untuk yang lain
-                                kotaknya terkunci — isinya nomor HP seluruh pekerja harian, status PIN,
-                                daftar transfer, dan tombol setujui ajuan yang langsung jadi uang keluar.<br>
+                                kotaknya tergambar tercentang bergaris putus-putus, tidak perlu
+                                diberikan satu per satu. Dasarnya kolom <b>Tim</b> di atas: kalau
+                                namanya muncul di sebuah lembar divisi, ia bisa membuka lembarnya.
+                                <b>Lepas centangnya</b> kalau orang ini memang harus dikecualikan —
+                                pengecualian itu menang atas aturan otomatis.<br>
+                                <b>Roster · Daily Worker</b> kebalikannya: otomatis hanya untuk Tim
+                                <b>HRD / CEO</b>, admin modul Daily Worker, head divisi, dan Admin Akses.
+                                Untuk yang lain kotaknya tergambar kosong bertanda "khusus HRD / CEO",
+                                tapi <b>tetap bisa dicentang</b> kalau memang orang itu yang ditugasi.
+                                Yang tidak cukup: memberi <b>Semua (*)</b> saja — modul ini sengaja tidak
+                                ikut tersapu, karena isinya nomor HP seluruh pekerja harian, daftar
+                                transfer, dan tombol setujui ajuan yang langsung jadi uang keluar.<br>
                                 Daily worker sendiri <b>tidak punya akun di sini sama sekali</b> — mereka
-                                bukan pegawai tetap, terdaftar di dalam modul Daily Worker, dan masuk
-                                pakai no. HP + PIN.
+                                bukan pegawai tetap dan terdaftar di dalam modul Daily Worker; head
+                                mengajukan kebutuhannya, HRD menyetujui &amp; menunjuk orangnya.
                             </p>
                         </div>
                         <div class="field" style="margin-top:12px">
@@ -1575,9 +1584,18 @@
     let ATURAN_BAWAAN = null;      // diisi dari listUsers/listModules
     let ATURAN_TERBATAS = null;
     function aturanBawaan(){
-        return ATURAN_BAWAAN || [{ module:'jadwal', adminModul:true,
-            tim:['kitchen','dapur','bar','bartender','floor','service','waiter','waitress','host','hostess',
-                 'cashier','kasir','hrd','hr','ceo'] }];
+        return ATURAN_BAWAAN || [
+            { module:'jadwal', adminModul:true,
+              tim:['kitchen','dapur','bar','bartender','floor','service','waiter','waitress','host','hostess',
+                   'cashier','kasir','hrd','hr','ceo'] },
+            /* Daily Worker otomatis untuk HRD/CEO — server sudah lama begitu
+               (modul_bawaan_untuk), cadangan ini yang dulu tidak menyebutnya.
+               Head divisi juga dapat di server, tapi tidak bisa diwakili di
+               sini: aturannya "dia head di modul Jadwal", bukan sebuah kata di
+               kolom Tim. Kotaknya cuma tergambar kosong untuk head — dan kotak
+               kosong di sini tidak mencabut apa pun. */
+            { module:'dw', adminModul:true, tim:['hrd','hr','ceo'] }
+        ];
     }
     /* Kebalikannya: modul yang TIDAK BOLEH dipegang di luar peran tertentu,
        apa pun yang dicentang. Sekarang cuma Daily Worker — alat HR berisi
@@ -1673,8 +1691,16 @@
         /* Modul terbatas dibuang dari ringkasan juga — kalau tidak, daftar user
            memajang "Roster · Daily Worker" untuk orang yang sebenarnya sudah
            dicabut aksesnya oleh account-api, dan angka di layar tidak pernah
-           cocok dengan kenyataan. */
-        modulTerlarangUntuk(u).forEach(k => chosen.delete(k));
+           cocok dengan kenyataan.
+
+           KECUALI kalau ada baris grant EKSPLISIT untuk modul itu. Jatah lewat
+           '*' tetap dicabut server; centang satu-per-satu dihormati (lihat
+           `$eksplisit` di modul_untuk). Bedanya harus dibaca dari `grants`
+           MENTAH, bukan dari `chosen` yang sudah diperluas '*' di atas —
+           kalau tidak, setiap pemegang "Semua (*)" akan tergambar memegang
+           Daily Worker padahal server mencabutnya. */
+        const eksplisit = new Set(((u && (u.grants || u.modules)) || []).filter(k => k !== '*'));
+        modulTerlarangUntuk(u).forEach(k => { if(!eksplisit.has(k)) chosen.delete(k); });
         return chosen;
     }
 
@@ -1688,40 +1714,52 @@
     function renderPickGrid(container, name, sel, bintangCentangSemua, userBawaan){
         const keys = ['*'].concat(katalogModul());
         const chosen = new Set(sel || []);
-        /* Modul bawaan digambar TERCENTANG dan TERKUNCI, dengan keterangannya.
-           Kalau digambar sebagai kotak kosong seperti dulu, admin membacanya
-           sebagai "orang ini belum punya akses Jadwal Shift" — padahal punya —
-           lalu mencentangnya, dan yang tersimpan cuma baris grant yang tidak
+        /* Modul bawaan digambar TERCENTANG, dengan keterangannya. Kalau
+           digambar sebagai kotak kosong seperti dulu, admin membacanya sebagai
+           "orang ini belum punya akses Jadwal Shift" — padahal punya — lalu
+           mencentangnya, dan yang tersimpan cuma baris grant yang tidak
            menambah apa pun. Kotak yang berbohong lebih buruk daripada kotak
            yang tidak ada.
+
+           TIDAK LAGI TERKUNCI (19 Agustus 2026). Kotak yang mati juga sebuah
+           kebohongan bentuk lain: aksesnya SEBENARNYA bisa dicabut per orang —
+           `modul_untuk` di account-api menjalankan baris deny SESUDAH aturan
+           bawaan justru supaya bisa — dan yang terkunci membuat admin
+           menyimpulkan pengecualian itu mustahil.
 
            Hanya berlaku di kotak "modul yang boleh dibuka" (bintangCentangSemua),
            bukan di kotak "admin modul": bawaan berarti boleh MEMBUKA, bukan
            boleh mengelola. */
         const bawaan = bintangCentangSemua ? modulBawaanUntuk(userBawaan) : new Set();
-        /* Modul terbatas yang orang ini tidak berhak: digambar TERKUNCI DAN
-           TIDAK TERCENTANG. Kalau dibiarkan sebagai kotak biasa, admin
-           mencentangnya, menyimpan, lalu mengira orangnya sudah bisa membuka
-           Daily Worker — padahal account-api mencabutnya lagi saat menghitung
-           akses, dan tidak ada satu pun layar yang menyebutkan itu terjadi. */
+        /* Modul terbatas yang orang ini tidak berhak MENURUT TIM-nya: digambar
+           tidak tercentang, bertanda "khusus HRD / CEO", tapi TETAP BISA
+           DICENTANG. Centang eksplisit di sini memang berlaku — account-api
+           menghormatinya (lihat `$eksplisit` di modul_untuk), yang tidak
+           berlaku cuma jatah lewat "Semua (*)". Jadi mis-klik massal tetap
+           tidak membagikan Daily Worker, sementara penugasan satu orang yang
+           memang disengaja tetap mungkin. */
         const terlarang = bintangCentangSemua ? modulTerlarangUntuk(userBawaan) : new Set();
         container.innerHTML = keys.map(k => {
-            const otomatis = bawaan.has(k);
+            /* `chosen` sudah hasil grantEfektif — jadi modul bawaan yang
+               DICABUT eksplisit untuk orang ini tidak ada di dalamnya, dan
+               kotaknya harus ikut tergambar kosong. Menggambarnya menyala
+               "karena aturannya bilang begitu" akan mengembalikan aksesnya
+               diam-diam pada penyimpanan berikutnya. */
+            const otomatis = bawaan.has(k) && chosen.has(k);
             const dilarang = terlarang.has(k);
-            const on = otomatis || (chosen.has(k) && !dilarang);
+            const on = chosen.has(k);
             const label = moduleLabel(k);
-            if(otomatis){
-                return `<label class="pick on otomatis" data-k="${esc(k)}"
-                    title="Otomatis untuk semua pegawai tetap — tidak perlu dicentang satu per satu">
-                    <input type="checkbox" checked disabled> ${esc(label)} <em>· semua pegawai</em></label>`;
-            }
-            if(dilarang){
-                return `<label class="pick terlarang" data-k="${esc(k)}"
-                    title="Hanya untuk HRD, CEO, dan admin modul. Ubah kolom Tim di atas kalau orang ini memang HRD.">
-                    <input type="checkbox" disabled> ${esc(label)} <em>· khusus HRD / CEO</em></label>`;
-            }
-            return `<label class="pick${on?' on':''}" data-k="${esc(k)}">
-                <input type="checkbox" name="${name}" value="${esc(k)}" ${on?'checked':''}> ${esc(label)}</label>`;
+            const kelas = 'pick' + (on ? ' on' : '') + (otomatis ? ' otomatis' : '') + (dilarang ? ' terlarang' : '');
+            const nota = otomatis
+                ? ' <em>· semua pegawai</em>'
+                : (dilarang ? ' <em>· khusus HRD / CEO</em>' : '');
+            const judul = otomatis
+                ? 'Otomatis untuk tim ini — lepas centangnya kalau orang ini memang dikecualikan.'
+                : (dilarang
+                    ? 'Biasanya hanya HRD, CEO, dan admin modul. Boleh dicentang untuk orang tertentu; centang lewat "Semua (*)" saja tidak cukup.'
+                    : '');
+            return `<label class="${kelas}" data-k="${esc(k)}"${judul?` title="${esc(judul)}"`:''}>
+                <input type="checkbox" name="${name}" value="${esc(k)}" ${on?'checked':''}> ${esc(label)}${nota}</label>`;
         }).join('');
         container.querySelectorAll('input').forEach(inp => {
             inp.addEventListener('change', () => {
@@ -1737,16 +1775,25 @@
                    mencabut, dan mencabut semua akses sekaligus tanpa diminta
                    terlalu mudah dilakukan tanpa sadar. */
                 if(bintangCentangSemua && inp.value === '*' && inp.checked)
-                    container.querySelectorAll('input').forEach(o => { o.checked = true; });
+                    /* MODUL TERBATAS SENGAJA TIDAK IKUT TERSAPU. Itulah satu-
+                       satunya hal yang tersisa dari penguncian lama, dan yang
+                       paling penting: "Semua (*)" ditekan tanpa membaca daftar
+                       modulnya, dan yang ikut terbawa adalah Daily Worker —
+                       nomor HP seluruh pekerja harian dan tombol yang jadi uang
+                       keluar. Yang memang mau memberikannya mencentang kotaknya
+                       sendiri, dan itu satu klik yang disengaja. */
+                    container.querySelectorAll('.pick:not(.terlarang) input').forEach(o => { o.checked = true; });
                 container.querySelectorAll('.pick').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
             });
         });
     }
-    /* `:not(:disabled)` WAJIB. Kotak modul bawaan digambar tercentang dan
-       terkunci tanpa name/value; tanpa saringan ini ia ikut terbaca sebagai
-       centang dan `i.value` memulangkan "on" — satu grant bernama "on" yang
-       tersimpan ke database untuk setiap user yang disunting, tidak cocok
-       dengan modul mana pun, dan tidak pernah muncul salah di layar mana pun. */
+    /* `:not(:disabled)` dipertahankan sebagai jaring pengaman. Sejak kotak
+       bawaan/terbatas tidak lagi dikunci, tidak ada lagi input tanpa
+       name/value di sini — tapi dulu ada, dan yang terbaca waktu itu adalah
+       `i.value` = "on": satu grant bernama "on" yang tersimpan ke database
+       untuk SETIAP user yang disunting, tidak cocok dengan modul mana pun, dan
+       tidak pernah muncul salah di layar mana pun. Saringan ini yang menahan
+       kalau suatu saat ada kotak terkunci lagi. */
     function readPickGrid(container){
         return Array.from(container.querySelectorAll('input:checked:not(:disabled)')).map(i => i.value);
     }
@@ -2362,30 +2409,25 @@
         const uid = data.id || editId;
         const keys = ['*'].concat(katalogModul());
         const now = new Set(wanted), nowAdmin = new Set(wantedAdmin);
-        /* MODUL BAWAAN & TERBATAS TIDAK IKUT DIFF — dan ini bukan kerapian.
+        /* MODUL BAWAAN & TERBATAS SEKARANG IKUT DIFF seperti modul lain —
+           sejak kotaknya tidak lagi dikunci (19 Agustus 2026).
 
-           Keduanya digambar sebagai kotak TERKUNCI, dan readPickGrid sengaja
-           melewati input yang disabled. Jadi `now` tidak pernah memuatnya,
-           sementara `before` (grantEfektif) MEMUATNYA. Selisih itu terbaca
-           sebagai "admin melepas centangnya", dan yang tertulis adalah baris
-           DENY.
+           Dulu keduanya DIKELUARKAN dari diff, dan itu benar untuk waktu itu:
+           kotaknya digambar terkunci tanpa name/value, jadi `now` tidak pernah
+           memuatnya sementara `before` (grantEfektif) memuatnya. Selisih itu
+           terbaca sebagai "admin melepas centangnya", dan yang tertulis baris
+           DENY — sehingga menyimpan user cuma untuk memperbaiki ejaan namanya
+           MENCABUT akses Jadwal Shift orang itu selamanya, tanpa satu pun layar
+           yang menyebutkannya.
 
-           Akibatnya: setiap kali admin menyimpan user mana pun — cuma
-           memperbaiki ejaan nama sekalipun — orang itu KEHILANGAN akses Jadwal
-           Shift selamanya, karena baris deny menang atas aturan bawaan. Tidak
-           ada satu pun layar yang menyebutkannya; centangnya bahkan tetap
-           tergambar menyala, karena yang menggambarnya aturan bawaan, bukan
-           isi tabel grants.
-
-           Keduanya memang bukan grant: yang satu aturan, yang satu larangan.
-           Tidak ada yang perlu ditulis untuk mereka. */
-        const takIkutDiff = new Set([
-            ...modulBawaanUntuk(priorUser),
-            ...modulTerlarangUntuk(priorUser)
-        ]);
+           Yang menahan bug itu sekarang bukan pengecualian ini, melainkan
+           `renderPickGrid` yang menggambar keduanya dari `chosen` (= hasil
+           grantEfektif) — sumber yang sama persis dengan `before`. Kotak yang
+           tidak disentuh selalu berakhir sama dengan keadaan awalnya, jadi
+           tidak ada selisih untuk ditulis. Yang tersisa cuma perubahan yang
+           memang diklik admin, dan itulah yang harus tersimpan. */
         try{
             for(const k of keys){
-                if(takIkutDiff.has(k)) continue;
                 const on = now.has(k), was = before.has(k);
                 if(on !== was) await adminCall('setModuleAccess', { userId:uid, module:k, access:on });
             }

@@ -423,7 +423,22 @@ function boleh_modul_terbatas($userId, $aturan) {
    terbaca "belum punya akses" padahal punya, dan admin akan menambahkan
    centang yang tidak menambah apa pun. */
 function aturan_bawaan() {
-  return array(array('module' => 'jadwal', 'tim' => tim_bawaan_jadwal(), 'adminModul' => true));
+  return array(
+    array('module' => 'jadwal', 'tim' => tim_bawaan_jadwal(), 'adminModul' => true),
+    /* `dw` IKUT DISEBUT DI SINI sejak 19 Agustus 2026. modul_bawaan_untuk()
+       sudah lama memberikannya otomatis ke HRD/CEO, tapi daftar ini tidak
+       menyebutkannya — jadi Kelola Akses menggambar kotak Daily Worker KOSONG
+       untuk HRD yang sebenarnya sudah bisa membukanya, dan admin menambahkan
+       centang yang tidak menambah apa pun. Persis penyakit yang daftar ini
+       diadakan untuk menyembuhkan.
+
+       HEAD DIVISI tidak bisa diwakili di sini — aturannya "dia head di modul
+       Jadwal", bukan sebuah kata di kolom Tim, dan layar tidak punya daftar
+       head. Head tetap mendapat modulnya dari server; yang kurang cuma
+       gambarnya di Kelola Akses, dan kotak yang kosong di situ tidak mencabut
+       apa pun. */
+    array('module' => 'dw', 'tim' => tim_boleh_dw(), 'adminModul' => true)
+  );
 }
 function modul_bawaan_untuk($userId) {
   static $cache = array();
@@ -495,12 +510,29 @@ function modul_untuk($userId) {
     if ((int)$g['access'] === 1) $eff[$m] = true;
     else                        unset($eff[$m]);
   }
-  /* 3) AKSES TERBATAS — dijalankan PALING AKHIR supaya tidak ada satu pun
-     langkah di atas yang bisa mengembalikannya, termasuk '*'. Modul Daily
-     Worker dicabut dari siapa pun di luar HRD/CEO/admin modul, apa pun yang
-     tercentang. Lihat aturan_terbatas(). */
+  /* 3) AKSES TERBATAS — dijalankan PALING AKHIR supaya jatah lewat '*' tidak
+     bisa mengembalikannya. Modul Daily Worker dicabut dari siapa pun di luar
+     HRD/CEO/admin modul/head divisi. Lihat aturan_terbatas().
+
+     SATU PENGECUALIAN: baris grant EKSPLISIT untuk modul itu (dicentang
+     satu-satu di Kelola Akses) dihormati. Sebelumnya tidak, dan akibatnya
+     kotaknya harus digambar terkunci — yang berarti tidak ada cara sama sekali
+     menugaskan seorang staf non-HRD mengurus daily worker, walau itu keputusan
+     yang sah dan memang dipakai.
+
+     Yang tetap dijaga adalah bedanya dengan '*': "Semua (*)" ditekan tanpa
+     membaca daftar modulnya, dan itulah mis-klik yang dulu membagikan nomor HP
+     seluruh pekerja harian ke kru dapur. Centang satu kotak bernama
+     "Roster · Daily Worker" tidak bisa terjadi tanpa disengaja. */
+  $eksplisit = array();
+  foreach ($rows as $g) {
+    $m = s($g['module']);
+    if ($m !== '' && $m !== '*' && (int)$g['access'] === 1) $eksplisit[$m] = true;
+  }
   foreach (aturan_terbatas() as $r) {
-    if (isset($eff[$r['module']]) && !boleh_modul_terbatas($uid, $r)) unset($eff[$r['module']]);
+    if (!isset($eff[$r['module']])) continue;
+    if (isset($eksplisit[$r['module']])) continue;
+    if (!boleh_modul_terbatas($uid, $r)) unset($eff[$r['module']]);
   }
   $out = array_keys($eff);
   sort($out);
