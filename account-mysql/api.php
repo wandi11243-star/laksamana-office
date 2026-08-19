@@ -25,6 +25,13 @@
  *   {action:"listAccess"}                        -> {ok,users:[...],modules:[...]}
  *   {action:"setModuleAccess", userId,module,access}
  *   {action:"import", users?,modules?,grants?,admins?}  <- pindahan dari Sheet
+ *   -- pengelola roster: admin modul `jadwal` (termasuk Tim HRD), gerbangnya
+ *      TOKEN SESI Office (`sesi`), bukan PIN. Hanya kolom identitas di tabel
+ *      users; hak akses modul TIDAK bisa disentuh dari sini. --
+ *   {action:"rosterSaveUser", sesi, id?,name,keterangan?,noHp?,talentaId?,active?,
+ *                             branch?,organization?,jobPosition?,jobLevel?,
+ *                             employmentStatus?,joinDate?}   -> {ok,id}
+ *   {action:"rosterSetActive", sesi, id, active}             -> {ok,id,active}
  *   -- admin modul --
  *   {action:"listModuleMembers", module}         -> {ok,members:[...]}
  *   -- tanpa gerbang, dipanggil modul saat boot --
@@ -92,6 +99,10 @@ try {
     case 'listModuleMembers': keluar(aksi_list_module_members($body));
     case 'listModuleRoster':  keluar(aksi_list_module_roster($body));
     case 'listDivisiRoster':  keluar(aksi_list_divisi_roster($body));
+    // Pengelola roster (admin modul `jadwal`, termasuk Tim HRD). Gerbangnya
+    // token sesi Office, bukan PIN — lihat butuh_pengelola_roster().
+    case 'rosterSaveUser':    keluar(aksi_roster_simpan_user($body));
+    case 'rosterSetActive':   keluar(aksi_roster_set_active($body));
     case 'import':            keluar(aksi_import($body));
     case 'sessionRefresh':    keluar(aksi_segarkan_sesi($body));
 

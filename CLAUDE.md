@@ -114,6 +114,39 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 | akses modul `jadwal` di Office | **otomatis** untuk Tim Kitchen/Bar/Floor/Cashier/HRD/CEO + admin modul (`modul_bawaan_untuk`) — tidak perlu dicentang |
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
 | Jadwal — `simpanSetting` | admin modul saja (blob-nya memuat daftar head) |
+| Jadwal — halaman **Data Pegawai** (`rosterSaveUser`, `rosterSetActive` di account-api) | admin modul `jadwal` — dan itu sudah berarti HRD, lihat `admin_modul_untuk`. Gerbangnya **token sesi**, bukan callerName+callerPin |
+
+### Jadwal: HRD mengurus DATA DIRI, bukan hak akses (19 Agustus 2026)
+
+Halaman **Data Pegawai** di modul Jadwal Shift memberi HRD dua hal yang dulu
+harus menunggu superadmin: **menambah kru baru** dan **menonaktifkan yang
+keluar**, plus membetulkan data dirinya (Tim, no HP, Employee ID Talenta,
+jabatan, status kerja, tanggal masuk). Yang **tidak** ikut, dan pemisahan
+inilah alasan halamannya ada: modul mana yang boleh dibuka siapa, dan siapa
+yang jadi admin modul — keduanya tetap di **Kelola Akses** superadmin.
+
+Ditegakkan di server lewat dua endpoint account-api yang **tidak menyentuh
+tabel `grants` maupun `admins` sama sekali**. Yang harus dijaga saat
+menyentuhnya:
+
+- `simpan_user_inti()` adalah isi `saveUser` **tanpa gerbang**, dipakai
+  bersama oleh jalur superadmin dan jalur roster. Ia **selalu menulis kolom
+  `pin` dan `active`** saat mengubah, dan yang tidak dikirim dianggap
+  `'1111'` / aktif. `aksi_roster_simpan_user()` karena itu **menyisipkan
+  keduanya dari baris lama**. Menghapus dua baris itu tidak melempar apa pun:
+  gejalanya PIN seluruh kru jadi 1111 satu per satu, dan kru yang sudah keluar
+  hidup lagi begitu nomor HP-nya dibetulkan.
+- **Kolom Tim memang memberi akses modul bawaan** (`tim_bawaan_jadwal`), jadi
+  HRD menulis "Bar" = orang itu bisa membuka modul Jadwal. Disengaja — tanpa
+  Tim, kru baru tidak muncul di lembar mana pun. Yang tetap mustahil: modul di
+  LUAR bawaan Tim, dan mengangkat siapa pun jadi admin.
+- Nonaktif **bukan** hapus. `kruDivisi()` menyaring `active!==false`, jadi yang
+  dinonaktifkan hilang dari **seluruh** lembar termasuk bulan lalu — selnya
+  tetap tersimpan dan kembali saat diaktifkan lagi. Menghapus akun (hanya bisa
+  superadmin) membuat jadwal lama benar-benar kehilangan namanya.
+- **Rekap Pegawai membaca SEMUA divisi** sejak tanggal yang sama
+  (`rekapKandidat` tidak lagi dipotong `divisiLihat()`). Hak MENGUBAH sel di
+  halaman itu tetap `bolehUbah(div)`.
 
 **Matriks halaman × peran DW bisa disetel** (19 Agustus 2026) — `setting.akses`
 `{halaman:{peran:0|1}}`, disunting admin modul di halaman Hak Akses. Yang perlu

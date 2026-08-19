@@ -857,6 +857,22 @@ function aksi_list_users($body) {
    huruf besar-kecil. PIN TIDAK perlu unik — disengaja. */
 function aksi_simpan_user($body) {
   if (!butuh_superadmin($body)) return array('ok' => false, 'error' => 'forbidden');
+  return simpan_user_inti($body);
+}
+
+/* Isi sebenarnya dari saveUser, TANPA gerbang. Dipisah supaya jalur kedua —
+   pengelola roster di modul Jadwal Shift — memakai aturan yang sama persis:
+   nama unik lintas kolom, Talenta ID unik, kolom yang tidak dikirim tidak
+   ditulis. Endpoint kedua yang menulis sendiri "supaya sederhana" adalah cara
+   paling umum membuat aturan yang sudah dipikirkan matang berlaku separuh —
+   alasan yang sama dengan aksi_simpan_user_banyak() di bawah.
+
+   PERHATIAN untuk pemanggil baru: kolom `pin` SELALU ditulis saat mengubah,
+   dan kosong berarti '1111'. Pemanggil yang tidak memegang PIN lama WAJIB
+   menyisipkannya sendiri, kalau tidak satu penyuntingan nama akan mengganti
+   PIN orang itu tanpa satu pun pesan — dan yang ketahuan cuma orangnya tidak
+   bisa masuk besok pagi. */
+function simpan_user_inti($body) {
 
   $name = s(isset($body['name']) ? $body['name'] : '');
   $pin  = s(isset($body['pin']) ? $body['pin'] : '');
@@ -1012,6 +1028,101 @@ function aksi_hapus_user($body) {
   q('DELETE FROM `admins` WHERE user_id = :i', array(':i' => $id));
   q('DELETE FROM `users`  WHERE id = :i',      array(':i' => $id));
   return array('ok' => true);
+}
+
+/* ==================== PENGELOLA ROSTER (modul Jadwal Shift) ====================
+   HRD perlu mendaftarkan kru baru dan menonaktifkan yang keluar TANPA menunggu
+   superadmin, tapi tidak boleh menyentuh hak akses modul. Dua kebutuhan itu
+   dipisah di sini: yang ada di bawah cuma menulis kolom identitas di tabel
+   `users` — tidak ada satu pun yang menyentuh `grants` atau `admins`, jadi
+   siapa yang bisa membuka modul apa tetap urusan Kelola Akses di Office.
+
+   Gerbangnya TOKEN SESI, bukan callerName+callerPin. Sebabnya HRD masuk lewat
+   SSO Office dan tidak pernah mengetikkan PIN-nya lagi; menuntut PIN di sini
+   berarti membangun kotak PIN kedua di modul yang sudah punya sesi sah, dan
+   kotak PIN yang muncul di tempat tak terduga adalah persis bentuk yang
+   dipakai orang untuk memancing PIN.
+
+   "Pengelola roster" = admin modul `jadwal`. Itu sudah mencakup HRD tanpa
+   aturan baru: admin_modul_untuk() menambahkan jadwal+dw untuk yang kolom
+   Tim-nya berbunyi HRD (lihat tim_admin_roster). Menambah daftar peran kedua
+   di sini berarti dua sumber kebenaran yang pelan-pelan berbeda. */
+function butuh_pengelola_roster($body) {
+  $u = user_dari_token(isset($body['sesi']) ? $body['sesi'] : '');
+  if (!$u) return null;
+  $adm = admin_modul_untuk($u['id']);
+  return (in_array('*', $adm, true) || in_array('jadwal', $adm, true)) ? $u : null;
+}
+
+/* Tambah kru baru / ubah data dirinya. Lewat simpan_user_inti() yang sama
+   dengan form superadmin, jadi nama kembar & Talenta ID kembar tetap ditolak
+   dengan pesan yang sama.
+
+   Yang dikirim disaring jadi DAFTAR PUTIH, bukan diteruskan apa adanya.
+   Bukan karena simpan_user_inti() bisa menulis hak akses — ia tidak bisa —
+   melainkan supaya penambahan kolom di kemudian hari tidak diam-diam ikut
+   terbuka untuk jalur ini. `username` sengaja di luar daftar: itu identitas
+   LOGIN, bukan data diri, dan menggantinya membuat orangnya tidak bisa masuk
+   dengan yang biasa ia ketik. */
+function aksi_roster_simpan_user($body) {
+  $caller = butuh_pengelola_roster($body);
+  if (!$caller) return array('ok' => false, 'error' => 'forbidden');
+
+  $bersih = array();
+  foreach (array('id', 'name', 'keterangan', 'noHp', 'talentaId', 'active') as $k)
+    if (array_key_exists($k, $body)) $bersih[$k] = $body[$k];
+  foreach (kolom_hr() as $k => $kol)
+    if (array_key_exists($k, $body)) $bersih[$k] = $body[$k];
+
+  $editId = s(isset($bersih['id']) ? $bersih['id'] : '');
+  if ($editId !== '') {
+    /* PIN LAMA WAJIB DISISIPKAN. simpan_user_inti() selalu menulis kolom pin
+       saat mengubah, dan kosong berarti '1111' — jadi tanpa baris ini setiap
+       kali HRD membetulkan sebuah nomor HP, PIN orang itu ikut jadi 1111.
+       Tidak ada satu pun pesan yang menyebutkannya; yang ketahuan cuma
+       orangnya tidak bisa masuk keesokan harinya. Layar ini memang tidak
+       pernah memegang PIN — listDivisiRoster tidak membalasnya. */
+    $lama = user_by_id($editId);
+    if (!$lama) return array('ok' => false, 'error' => 'not_found');
+    $bersih['pin'] = s($lama['pin']);
+    /* `active` kena persis alasan yang sama: kolomnya SELALU ditulis, dan yang
+       TIDAK dikirim dianggap aktif. Tanpa baris ini, membetulkan nomor HP
+       seorang kru yang sudah keluar diam-diam MENGHIDUPKAN akunnya lagi —
+       namanya muncul kembali di seluruh lembar jadwal dan ia bisa masuk
+       Office, tanpa satu pun tombol yang pernah ditekan untuk itu. */
+    if (!array_key_exists('active', $bersih))
+      $bersih['active'] = ((int)$lama['active'] === 1);
+  }
+  return simpan_user_inti($bersih);
+}
+
+/* Aktif / nonaktif. Sengaja BUKAN lewat simpan_user_inti(): satu kolom yang
+   berubah tidak perlu mengirim ulang seluruh baris, dan baris yang dikirim
+   ulang seadanya adalah cara paling umum menghapus kolom yang kebetulan tidak
+   ikut terbawa (sudah kejadian di Kelola Akses — lihat catatan di sana).
+
+   Nonaktif, bukan hapus: aksi_hapus_user() membuang barisnya berikut seluruh
+   hak aksesnya, dan jadwal bulan-bulan lalu yang menyebut id itu langsung
+   kehilangan namanya. Kru yang keluar tetap harus terbaca di lembar lama. */
+function aksi_roster_set_active($body) {
+  $caller = butuh_pengelola_roster($body);
+  if (!$caller) return array('ok' => false, 'error' => 'forbidden');
+  $id = s(isset($body['id']) ? $body['id'] : '');
+  $aktif = (isset($body['active']) && $body['active'] === false) ? 0 : 1;
+  if ($id === '') return array('ok' => false, 'error' => 'missing_fields');
+  $u = user_by_id($id);
+  if (!$u) return array('ok' => false, 'error' => 'not_found');
+  /* Dua pagar yang keduanya soal mengunci orang di luar pintunya sendiri:
+     tidak boleh menonaktifkan diri sendiri, dan tidak boleh menonaktifkan
+     superadmin. Yang kedua penting karena pengelola roster bukan superadmin —
+     tanpa pagar itu, HRD bisa mematikan satu-satunya akun yang bisa
+     mengembalikannya. */
+  if (!$aktif && s($caller['id']) === $id)
+    return array('ok' => false, 'error' => 'cannot_deactivate_self');
+  if (!$aktif && in_array('*', admin_modul_untuk($id), true))
+    return array('ok' => false, 'error' => 'cannot_deactivate_admin');
+  q('UPDATE `users` SET active = :a WHERE id = :i', array(':a' => $aktif, ':i' => $id));
+  return array('ok' => true, 'id' => $id, 'active' => ($aktif === 1));
 }
 
 /* ==================== REGISTRI MODUL (superadmin) ==================== */

@@ -831,6 +831,13 @@ const NAV_DEF = [
   {k:'saya',       t:'Jadwal Saya',    ic:'orang',    sub:'Shift saya bulan ini'},
   {k:'pengajuan',  t:'Pengajuan',      ic:'surat',    sub:'Off, izin, cuti, tukar shift'},
   {s:'Pengaturan'},
+  /* Data Pegawai berdiri SENDIRI, bukan panel di dalam Pengaturan. Isi
+     Pengaturan semuanya tentang bentuk jadwal (shift, head, penempatan) dan
+     dipakai sesekali; yang ini tentang orangnya dan dibuka HRD tiap ada kru
+     masuk atau keluar. Menyembunyikannya di halaman yang jarang dibuka
+     berarti tetap ditanyakan lewat chat, dan halaman ini justru dibuat untuk
+     menghentikan itu. */
+  {k:'pegawai',    t:'Data Pegawai',   ic:'orang',    sub:'Tambah kru baru & nonaktifkan yang keluar'},
   {k:'pengaturan', t:'Pengaturan',     ic:'gir',      sub:'Shift, head divisi, penempatan kru'}
 ];
 
@@ -1714,6 +1721,15 @@ async function muatRoster(){
    ===================================================================== */
 function bolehBuka(k){
   if(k==='pengaturan') return isAdmin();
+  /* Data Pegawai = admin modul ini, dan itu SUDAH berarti HRD: account-api
+     menjadikan siapa pun yang kolom Tim-nya berbunyi HRD sebagai admin modul
+     jadwal + dw (admin_modul_untuk). Menambahkan pemeriksaan "atau Tim-nya
+     HRD" di sini berarti dua sumber kebenaran untuk pertanyaan yang sama,
+     dan yang satu akan tertinggal saat aturannya berubah.
+
+     Yang menjaganya tetap SERVER (butuh_pengelola_roster di account-api) —
+     baris ini cuma menentukan menunya muncul atau tidak. */
+  if(k==='pegawai')    return isAdmin();
   /* Input Mingguan: head divisi (yang menyusunnya) dan Office (yang perlu
      melihat susunan seluruh divisi). Kru biasa tidak — jadwalnya sendiri
      sudah terbuka di Jadwal Bulanan dan Jadwal Saya. */
@@ -1749,6 +1765,10 @@ const TITLES={
   rekap:     ['Rekap Pegawai','Jadwal sebulan dan jam kerja satu orang'],
   saya:      ['Jadwal Saya','Shift saya bulan ini'],
   pengajuan: ['Pengajuan','Off, izin, cuti, dan tukar shift'],
+  /* Wajib ada di sini, bukan cuma di NAV_DEF: halamanSah() memakai TITLES
+     sebagai daftar halaman yang sah, jadi yang lupa didaftarkan tetap muncul
+     di menu tapi alamat #/-nya jatuh ke Dashboard. */
+  pegawai:   ['Data Pegawai','Tambah kru baru, ubah data diri, nonaktifkan yang keluar'],
   pengaturan:['Pengaturan','Definisi shift, head divisi, penempatan kru']
 };
 function setTop(){
@@ -1813,8 +1833,306 @@ function render(){
   else if(VIEW==='rekap')      V.innerHTML=viewRekap();
   else if(VIEW==='saya')       V.innerHTML=viewSaya();
   else if(VIEW==='pengajuan')  V.innerHTML=viewPengajuan();
+  else if(VIEW==='pegawai')    V.innerHTML=viewPegawai();
   else if(VIEW==='pengaturan') V.innerHTML=viewPengaturan();
   else V.innerHTML='<div class="panel"><div class="empty">Halaman tidak dikenal.</div></div>';
+}
+
+/* =====================================================================
+   HALAMAN — DATA PEGAWAI  (pengelola roster: HRD & admin modul)
+   ---------------------------------------------------------------------
+   Sebelum ini, satu kru baru berarti menunggu superadmin: HRD mengirim nama
+   lewat chat, dan sampai ada yang sempat membukanya orang itu tidak ada di
+   lembar mana pun — sudah masuk kerja, tapi tidak bisa dijadwalkan.
+
+   Yang dipisah TEGAS di sini, dan pemisahan inilah alasan halaman ini ada:
+
+     DATA DIRI  -> boleh HRD. Nama, Tim, no HP, Employee ID, jabatan, status
+                   kerja, tanggal masuk, dan aktif/nonaktif.
+     HAK AKSES  -> TIDAK. Modul mana yang boleh dibuka siapa, dan siapa yang
+                   jadi admin modul, tetap di Kelola Akses milik superadmin
+                   di Laksamana Office.
+
+   Pemisahan itu ditegakkan di SERVER (butuh_pengelola_roster di account-api),
+   bukan dengan menyembunyikan tombol: endpoint yang dipakai halaman ini
+   memang tidak bisa menyentuh tabel grants maupun admins sama sekali.
+
+   SATU AKIBAT YANG HARUS DISADARI: kolom Tim menentukan divisi (DIV_SINONIM)
+   DAN memberi akses modul bawaan (tim_bawaan_jadwal di account-api). Jadi
+   menulis "Bar" di sini memang membuat orangnya bisa membuka modul Jadwal.
+   Itu disengaja — tanpa Tim, kru baru tidak muncul di lembar mana pun dan
+   halaman ini tidak menyelesaikan apa pun. Yang tetap mustahil dari sini:
+   memberi modul DI LUAR bawaan Tim-nya, dan mengangkat siapa pun jadi admin.
+   ===================================================================== */
+let PEG_Q='';                 // kotak cari
+let PEG_TAPIS='aktif';        // aktif | nonaktif | semua
+let PEG_DIV='ALL';            // ALL | kode divisi | nonshift
+let PEG_FORM=null;            // isi form yang sedang dibuka
+
+/* Panggilan TULIS ke account-api. Bedanya dengan muatRoster(): yang ini
+   membawa token sesi Office, karena yang di seberang benar-benar menulis
+   tabel users. Gerbangnya ada di server — layar boleh menyembunyikan
+   tombolnya, tapi bukan itu yang menjaganya. */
+async function accPost(payload){
+  const r=await fetch(ACC_URL,{method:'POST',redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(Object.assign({sesi:tokenSesi()},payload))});
+  const t=await r.text(); let j=null; try{ j=JSON.parse(t); }catch(e){}
+  if(!j) throw new Error('Office membalas bukan JSON (account-api belum diperbarui?)');
+  if(!j.ok) throw new Error(pesanGagalRoster(j));
+  return j;
+}
+/* Kode galat server -> kalimat yang menyebut apa yang harus dilakukan.
+   Menampilkan 'name_taken' apa adanya membuat yang membacanya menebak, dan
+   tebakan pertama hampir selalu "modulnya rusak". */
+function pesanGagalRoster(j){
+  const e=String(j&&j.error||'gagal');
+  const siapa=(j&&j.takenBy)?(' ('+j.takenBy+')'):'';
+  const peta={
+    forbidden:'tidak berhak — atau sesi Office sudah berakhir. Tutup lalu buka modul ini lagi dari Office.',
+    missing_fields:'nama wajib diisi',
+    name_taken:'nama itu sudah dipakai akun lain'+siapa,
+    talenta_taken:'Employee ID Talenta itu sudah dipakai akun lain'+siapa,
+    not_found:'datanya tidak ada lagi di Office — muat ulang halaman',
+    cannot_deactivate_self:'akun Anda sendiri tidak bisa dinonaktifkan dari sini',
+    cannot_deactivate_admin:'akun superadmin tidak bisa dinonaktifkan dari sini'
+  };
+  return peta[e]||e;
+}
+
+/* Roster yang lolos kotak cari & tapis. Nonaktif SENGAJA tidak ikut secara
+   bawaan: daftar ini dipakai untuk mengurus yang sedang bekerja, dan yang
+   sudah keluar bertahun-tahun menumpuk di bawahnya. */
+function pegDaftar(){
+  const q=PEG_Q.trim().toLowerCase();
+  return ROSTER.filter(function(u){
+    const aktif=(u.active!==false);
+    if(PEG_TAPIS==='aktif'    && !aktif) return false;
+    if(PEG_TAPIS==='nonaktif' &&  aktif) return false;
+    if(PEG_DIV!=='ALL' && divisiDari(u)!==PEG_DIV) return false;
+    if(!q) return true;
+    return [u.name,u.keterangan,u.noHp,u.talentaId,u.jobPosition]
+      .some(x=>String(x||'').toLowerCase().indexOf(q)>-1);
+  }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+}
+function viewPegawai(){
+  if(!bolehBuka('pegawai')){
+    return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
+      +'Halaman ini untuk HRD dan admin modul.'
+      +'<div class="mutedhint" style="margin-top:6px">Data diri kru diurus di sini; hak akses modul tetap di <b>Kelola Akses</b> milik superadmin di Laksamana Office.</div></div></div>';
+  }
+  const daftar=pegDaftar();
+  const nAktif=ROSTER.filter(u=>u.active!==false).length;
+  const nMati =ROSTER.length-nAktif;
+
+  const tapis=function(k,t,n){
+    return '<button class="'+(PEG_TAPIS===k?'active':'')+'" onclick="pegSetTapis(&#39;'+k+'&#39;)">'+esc(t)+' ('+n+')</button>';
+  };
+  const pilihDiv='<select class="inp" onchange="PEG_DIV=this.value;render()">'
+    +'<option value="ALL"'+(PEG_DIV==='ALL'?' selected':'')+'>Semua divisi</option>'
+    +DIVISI.map(d=>'<option value="'+esc(d.k)+'"'+(PEG_DIV===d.k?' selected':'')+'>'+esc(d.ic+' '+d.n)+'</option>').join('')
+    +'<option value="'+DIV_NONSHIFT+'"'+(PEG_DIV===DIV_NONSHIFT?' selected':'')+'>Tidak dijadwalkan</option>'
+    +'</select>';
+
+  const baris=daftar.map(function(u,i){
+    const aktif=(u.active!==false);
+    const d=divisiDari(u);
+    const manual=!!(S&&S.setting.divOverride&&S.setting.divOverride[u.id]);
+    return '<tr>'
+      +'<td class="no">'+(i+1)+'</td>'
+      +'<td><b>'+esc(u.name)+'</b>'
+        +(u.jobPosition?('<div class="mutedhint">'+esc(u.jobPosition)+'</div>'):'')+'</td>'
+      +'<td>'+esc(u.keterangan||'—')+'</td>'
+      +'<td><span class="chip"'+(d===DIV_NONSHIFT?' style="opacity:.6"':'')+'>'+esc(namaDivisi(d))+'</span>'
+        +(manual?'<div class="mutedhint">penempatan manual</div>':'')+'</td>'
+      +'<td>'+esc(u.noHp||'—')+'</td>'
+      +'<td>'+esc(u.talentaId||'—')+'</td>'
+      +'<td>'+(aktif
+          ? '<span class="stpill" style="background:var(--ok-bg);color:var(--ok)">AKTIF</span>'
+          : '<span class="stpill" style="background:var(--danger-bg);color:var(--danger)">NONAKTIF</span>')+'</td>'
+      +'<td style="white-space:nowrap">'
+        +'<button class="btn btn-ghost btn-sm" onclick="bukaFormPegawai(&#39;'+escJs(u.id)+'&#39;)">Ubah</button> '
+        +(aktif
+          ? '<button class="btn btn-ghost btn-sm bahaya" onclick="konfirmAktifPegawai(&#39;'+escJs(u.id)+'&#39;,false)">Nonaktifkan</button>'
+          : '<button class="btn btn-ghost btn-sm" onclick="konfirmAktifPegawai(&#39;'+escJs(u.id)+'&#39;,true)">Aktifkan</button>')
+      +'</td></tr>';
+  }).join('');
+
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>👥 Data Pegawai</h2><div class="spacer"></div>'
+    +'<button class="btn btn-primary btn-sm" onclick="bukaFormPegawai(&#39;&#39;)">+ Tambah Kru</button></div>'
+    +'<div class="note i">Yang diurus di sini <b>data diri</b> kru: nama, Tim, nomor HP, Employee ID Talenta, jabatan, dan aktif/nonaktif. '
+      +'<b>Hak akses modul tidak bisa diubah dari sini</b> — itu tetap di <b>Kelola Akses</b> milik superadmin di Laksamana Office. '
+      +'Kolom <b>Tim</b> yang menentukan kru masuk lembar divisi mana.</div>'
+    +panelKosongRoster()
+    +'<div class="rowbar">'
+      +'<div class="seg">'+tapis('aktif','Aktif',nAktif)+tapis('nonaktif','Nonaktif',nMati)+tapis('semua','Semua',ROSTER.length)+'</div>'
+      +pilihDiv
+      +'<input class="inp" id="pegCari" style="min-width:200px;flex:1" placeholder="Cari nama, Tim, no HP, Employee ID…" value="'+esc(PEG_Q)+'" oninput="pegCari(this.value)">'
+    +'</div>'
+    +(daftar.length
+      ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Tim (Office)</th>'
+        +'<th>Divisi</th><th>No HP</th><th>Employee ID</th><th>Status</th><th>Aksi</th></tr></thead><tbody>'
+        +baris+'</tbody></table></div>'
+      : '<div class="empty"><div class="ic">🔍</div>Tidak ada yang cocok dengan saringan ini.</div>')
+    +'<p class="mutedhint" style="margin-top:10px">'+daftar.length+' dari '+ROSTER.length+' akun Office. '
+      +'Kru yang keluar <b>dinonaktifkan</b>, bukan dihapus — menghapusnya membuat jadwal bulan-bulan lalu kehilangan namanya.</p>'
+    +'</div>';
+}
+function pegSetTapis(k){ PEG_TAPIS=k; render(); }
+/* Kotak cari menggambar ulang seluruh halaman, jadi fokus & kursor hilang tiap
+   satu huruf kalau tidak dikembalikan. Pola yang sama dipakai modul lain. */
+function pegCari(v){
+  PEG_Q=v; render();
+  const i=document.getElementById('pegCari');
+  if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} }
+}
+
+/* ---------- Form data diri ---------- */
+/* Yang TIDAK ada di form ini sama pentingnya dengan yang ada:
+     - PIN. Kru baru mulai dengan 1111 dan menggantinya sendiri di Office.
+       Kotak PIN di sini berarti HRD memegang kunci masuk akun orang lain.
+     - Username. Itu identitas LOGIN, bukan data diri; menggantinya membuat
+       orangnya tidak bisa masuk dengan yang biasa ia ketik.
+     - Cabang, organisasi, job level. Kolomnya ada di Office dan TIDAK ikut
+       terkirim dari sini — server hanya menulis kolom yang memang dikirim,
+       jadi isinya aman, bukan terhapus jadi kosong. */
+function bukaFormPegawai(id){
+  if(!bolehBuka('pegawai')){ toast('Tidak berhak', true); return; }
+  const u=id?kruById(id):null;
+  if(id && !u){ toast('Data tidak ditemukan — muat ulang halaman', true); return; }
+  PEG_FORM = u
+    ? {id:u.id, name:u.name||'', keterangan:u.keterangan||'', noHp:u.noHp||'',
+       talentaId:u.talentaId||'', jobPosition:u.jobPosition||'',
+       employmentStatus:u.employmentStatus||'', joinDate:u.joinDate||''}
+    : {id:'', name:'', keterangan:'', noHp:'', talentaId:'', jobPosition:'',
+       employmentStatus:'', joinDate:''};
+  gambarFormPegawai();
+}
+function gambarFormPegawai(){
+  const f=PEG_FORM; if(!f) return;
+  const baru=!f.id;
+  const kolom=function(k,label,tipe,hint,ph){
+    return '<div class="field"><label>'+label+'</label>'
+      +'<input id="pf_'+k+'" type="'+(tipe||'text')+'" value="'+esc(f[k]||'')+'"'
+      +(ph?(' placeholder="'+esc(ph)+'"'):'')
+      +' oninput="PEG_FORM.'+k+'=this.value">'
+      +(hint?('<p class="mutedhint">'+hint+'</p>'):'')+'</div>';
+  };
+  const html='<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
+    +'<div class="mh"><h3>'+(baru?'Tambah Kru':'Ubah Data Diri')+'</h3>'
+    +(baru?'':('<span class="chip">'+esc(f.name)+'</span>'))
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb">'
+    +'<div class="field"><label>Nama <span style="color:var(--danger)">*</span></label>'
+      +'<input id="pf_name" value="'+esc(f.name)+'" oninput="PEG_FORM.name=this.value" placeholder="Nama seperti yang dipakai masuk Office">'
+      +'<p class="mutedhint">Dipakai juga untuk masuk ke Office, jadi harus unik.</p></div>'
+    +'<div class="field"><label>Tim / Divisi</label>'
+      +'<input id="pf_keterangan" value="'+esc(f.keterangan)+'" oninput="PEG_FORM.keterangan=this.value;hintDivisiForm()" placeholder="mis. Bar, Kitchen, Floor, Cashier, Office">'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">'
+        +DIVISI.map(d=>'<button type="button" class="btn btn-ghost btn-sm" onclick="isiTimForm(&#39;'+escJs(d.n)+'&#39;)">'+d.ic+' '+esc(d.n)+'</button>').join('')
+        +'<button type="button" class="btn btn-ghost btn-sm" onclick="isiTimForm(&#39;Office&#39;)">🏢 Office</button>'
+      +'</div>'
+      +'<p class="mutedhint" id="pegDivHint" style="margin-top:7px"></p></div>'
+    +kolom('noHp','Nomor HP','text','Dipakai modul lain untuk menghubungi; bukan untuk masuk.','08xxxxxxxxxx')
+    +kolom('talentaId','Employee ID Talenta','text','Kolom yang dipakai Talenta mencocokkan baris saat jadwal diimpor. Kosongkan kalau belum dipetakan.')
+    +kolom('jobPosition','Jabatan','text','','mis. Bartender, Cook Helper')
+    +kolom('employmentStatus','Status Kerja','text','','mis. Tetap, Kontrak, Training')
+    +kolom('joinDate','Tanggal Masuk','date')
+    +(baru
+      ? '<div class="note i" style="margin:4px 0 0">Akun baru dibuat dengan <b>PIN 1111</b> — kru menggantinya sendiri lewat Laksamana Office. '
+        +'Modul yang bisa ia buka mengikuti <b>bawaan kolom Tim</b>; selebihnya diatur superadmin di Kelola Akses.</div>'
+      : '<div class="note i" style="margin:4px 0 0">PIN, username, dan hak akses modul <b>tidak tersentuh</b> dari layar ini.</div>')
+    +'</div>'
+    +'<div class="mf">'
+    +'<button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-primary" id="pegSimpan" onclick="simpanPegawai()">Simpan</button></div>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+  hintDivisiForm();
+  setTimeout(function(){ const el=document.getElementById('pf_name'); if(el) el.focus(); },40);
+}
+/* Divisi dihitung dari kata di kolom Tim (DIV_SINONIM), dan aturan itu tidak
+   kelihatan dari kotak teks kosong. Tanpa panduan ini, "Barista" diketik
+   dengan yakin lalu orangnya tidak muncul di lembar mana pun — tanpa galat,
+   tanpa petunjuk. Diperbarui di tempat, bukan lewat render ulang, supaya
+   kursor tidak lompat tiap huruf. */
+function hintDivisiForm(){
+  const el=document.getElementById('pegDivHint'); if(!el||!PEG_FORM) return;
+  const d=divisiDariMurni({keterangan:PEG_FORM.keterangan||''});
+  el.innerHTML = (d===DIV_NONSHIFT)
+    ? '⚠️ Belum menyebut divisi shift — kru ini <b>tidak akan muncul</b> di lembar jadwal. Bisa ditempatkan manual lewat Pengaturan → Penempatan Kru.'
+    : '→ masuk lembar <b>'+esc(ikonDivisiJadwal(d)+' '+namaDivisi(d))+'</b>';
+}
+function isiTimForm(v){
+  if(!PEG_FORM) return;
+  PEG_FORM.keterangan=v;
+  const el=document.getElementById('pf_keterangan'); if(el) el.value=v;
+  hintDivisiForm();
+}
+async function simpanPegawai(){
+  const f=PEG_FORM; if(!f) return;
+  const nama=String(f.name||'').trim();
+  if(!nama){ toast('Nama wajib diisi', true); return; }
+  const b=document.getElementById('pegSimpan');
+  if(b){ b.disabled=true; b.textContent='Menyimpan…'; }
+  const kirim={action:'rosterSaveUser', name:nama,
+    keterangan:String(f.keterangan||'').trim(), noHp:String(f.noHp||'').trim(),
+    talentaId:String(f.talentaId||'').trim(), jobPosition:String(f.jobPosition||'').trim(),
+    employmentStatus:String(f.employmentStatus||'').trim(), joinDate:String(f.joinDate||'').trim()};
+  if(f.id) kirim.id=f.id;
+  try{
+    await accPost(kirim);
+    tutupModal();
+    await muatRoster();      // daftar di layar ikut yang benar-benar tersimpan, bukan tebakan
+    render();
+    toast(f.id?('Data '+nama+' diperbarui'):('Kru '+nama+' ditambahkan'));
+  }catch(e){
+    if(b){ b.disabled=false; b.textContent='Simpan'; }
+    toast('Gagal menyimpan: '+e.message, true);
+  }
+}
+
+/* ---------- Aktif / nonaktif ---------- */
+/* Sengaja pakai konfirmasi bertulisan panjang, bukan tombol yang langsung
+   jalan. Akibat nonaktif tidak terlihat dari halaman ini: barisnya hilang
+   dari SELURUH lembar jadwal, termasuk bulan-bulan yang sudah lewat
+   (kruDivisi menyaring yang aktif saja). Selnya tetap tersimpan dan kembali
+   begitu diaktifkan lagi — tapi yang membuka lembar Juli dan tidak menemukan
+   namanya akan mengira jadwalnya yang hilang. */
+function konfirmAktifPegawai(id, aktif){
+  const u=kruById(id); if(!u) return;
+  const html='<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
+    +'<div class="mh"><h3>'+(aktif?'Aktifkan kembali':'Nonaktifkan')+' — '+esc(u.name)+'</h3>'
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb">'
+    +(aktif
+      ? '<div class="note i"><b>'+esc(u.name)+'</b> akan muncul lagi di lembar divisi <b>'+esc(namaDivisi(divisiDari(u)))
+        +'</b> dan bisa masuk ke Laksamana Office seperti biasa. Shift lamanya yang masih tersimpan ikut tergambar lagi.</div>'
+      : '<div class="note w"><b>'+esc(u.name)+'</b> tidak akan bisa masuk ke Laksamana Office, dan barisnya hilang dari '
+        +'<b>seluruh lembar jadwal — termasuk bulan-bulan yang sudah lewat</b>. Selnya tidak dihapus: begitu diaktifkan lagi, semuanya kembali.</div>'
+        +'<p style="margin:12px 0 0;font-size:13px">Ini yang dipakai untuk kru yang keluar. Menghapus akunnya sama sekali hanya bisa lewat '
+        +'<b>Kelola User</b> superadmin di Office — dan itu membuat jadwal lama benar-benar kehilangan namanya.</p>')
+    +'</div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn '+(aktif?'btn-primary':'btn-danger')+'" id="pegAktifBtn" onclick="setAktifPegawai(&#39;'+escJs(id)+'&#39;,'+(aktif?'true':'false')+')">'
+    +(aktif?'Ya, aktifkan':'Ya, nonaktifkan')+'</button></div>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+async function setAktifPegawai(id, aktif){
+  const b=document.getElementById('pegAktifBtn');
+  if(b){ b.disabled=true; b.textContent='Menyimpan…'; }
+  try{
+    await accPost({action:'rosterSetActive', id:id, active:!!aktif});
+    tutupModal();
+    await muatRoster();
+    render();
+    toast(aktif?'Diaktifkan kembali':'Dinonaktifkan');
+  }catch(e){
+    if(b){ b.disabled=false; b.textContent=(aktif?'Ya, aktifkan':'Ya, nonaktifkan'); }
+    toast('Gagal: '+e.message, true);
+  }
 }
 
 /* =====================================================================
@@ -2578,14 +2896,24 @@ function rekapBulan(emps,mk){
 let REKAP_UID='';
 /* Semua kru yang memang dijadwalkan, diurut per divisi lalu nama — bentuk
    yang sama dengan cara orang menyebut mereka ("anak bar", "anak kitchen"). */
-/* Siapa saja yang bisa dipilih di Rekap Pegawai. DIBATASI ke divisi yang boleh
-   dilihat orang ini: head Bar membuka rekap kru Bar, bukan seisi perusahaan.
-   Office (admin, manajemen, staf kantor) tetap melihat semuanya — merekalah
-   yang memang membandingkan beban kerja antar divisi. */
+/* Siapa saja yang bisa dipilih di Rekap Pegawai: SELURUH DIVISI, siapa pun
+   yang boleh membuka halaman ini (19 Agustus 2026, atas permintaan).
+
+   Sebelumnya daftarnya dipotong divisiLihat() — head Bar hanya menemukan kru
+   Bar di kotak pilihan. Yang membuatnya keliru bukan soal rahasia: shift satu
+   sama lain sudah terbuka utuh di Jadwal Bulanan, jadi yang disembunyikan
+   cuma penjumlahannya. Sementara head yang perlu menukar orang antar divisi,
+   atau menjelaskan ke kru "yang lain juga sama banyaknya", harus menghitung
+   sendiri dari lembar bulanan pakai jari — persis pekerjaan yang halaman ini
+   dibuat untuk menghapus.
+
+   Yang TIDAK ikut dilonggarkan: hak MENGUBAH. Sel kalender di halaman ini
+   tetap lewat bolehUbah(div), jadi head Bar membaca rekap Kitchen tanpa bisa
+   menyentuh selnya. Siapa yang boleh membuka halamannya sama sekali juga
+   tetap bolehRekap() — kru biasa tetap di luar. */
 function rekapKandidat(){
-  const boleh=divisiLihat(), out=[];
+  const out=[];
   DIVISI.forEach(function(d){
-    if(boleh.indexOf(d.k)<0) return;
     kruDivisi(d.k).forEach(function(u){ out.push({u:u, div:d.k}); });
   });
   return out;
@@ -2618,7 +2946,7 @@ function viewRekap(){
   if(!bolehRekap()){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
       +'Halaman ini untuk head divisi, staf kantor, manajemen, dan admin modul.'
-      +'<div class="mutedhint" style="margin-top:6px">Head melihat rekap divisinya sendiri; yang bertim Office melihat seluruh divisi. Jadwal Anda sendiri ada di <b>Jadwal Saya</b>.</div></div></div>';
+      +'<div class="mutedhint" style="margin-top:6px">Yang boleh membukanya melihat rekap <b>seluruh divisi</b>; yang bisa diubah dari sini tetap divisinya sendiri. Jadwal Anda sendiri ada di <b>Jadwal Saya</b>.</div></div></div>';
   }
   const mk=BULAN_AKTIF||bulanDari(hariIni());
   const kandidat=rekapKandidat();
@@ -2629,10 +2957,10 @@ function viewRekap(){
   /* Kalau belum memilih siapa pun, jatuh ke orang pertama — halaman yang
      dibuka dengan seluruh angka kosong terbaca seperti rusak. */
   /* Pilihan yang tidak ada di daftar kandidat ikut ditarik kembali — bukan
-     cuma yang akunnya hilang. Sejak daftarnya dibatasi per divisi, REKAP_UID
-     bisa tertinggal menunjuk orang divisi lain (mis. sesudah admin membuka
-     rekap lalu berganti akun), dan halaman akan menampilkan angka seseorang
-     yang namanya tidak ada di kotak pilihan. */
+     cuma yang akunnya hilang. REKAP_UID bertahan antar render dan antar
+     pergantian akun, jadi ia bisa tertinggal menunjuk orang yang sudah
+     nonaktif atau sudah dihapus dari roster, dan halaman akan menampilkan
+     angka seseorang yang namanya tidak ada di kotak pilihan. */
   if(!REKAP_UID || !kandidat.some(x=>x.u.id===REKAP_UID)) REKAP_UID=kandidat[0].u.id;
   const u=kruById(REKAP_UID);
   const div=divisiDari(u);

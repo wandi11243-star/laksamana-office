@@ -885,6 +885,13 @@ function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 
 
+
+
+
+
+
+
+
 function settingKotor() {  }
 function tandaiKotor() { simpanSetting(); }
 
@@ -1721,7 +1728,20 @@ function bolehBuka() { isAdmin(); divisiKuasa(); bisaLihatSemua(); adaHead(); bo
 
 
 
-function buildNav() { bisaPutuskan(); bolehBuka(); esc(); go(); svg(); kruDivisi(); }
+
+
+
+
+
+
+
+
+
+function buildNav() { bisaPutuskan(); bolehBuka(); esc(); go(); svg(); kruDivisi(); halamanSah(); }
+
+
+
+
 
 
 
@@ -1803,7 +1823,305 @@ function go() { toggleSidebar(); render(); }
 
 
 
-function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPengaturan(); divisiLihat(); }
+function render() { buildNav(); setTop(); seed(); viewDashboard(); viewBulanan(); viewMinggu(); viewRekap(); viewSaya(); viewPengajuan(); viewPegawai(); viewPengaturan(); muatRoster(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function accPost() { tokenSesi(); pesanGagalRoster(); }
+
+
+
+
+
+
+
+
+
+
+
+function pesanGagalRoster() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pegDaftar() { divisiDari(); }
+
+
+
+
+
+
+
+
+
+
+
+function viewPegawai() { bolehBuka(); pegDaftar(); }
+
+
+
+
+
+
+
+
+
+function tapis() { pegSetTapis(); esc(); render(); divisiDari(); namaDivisi(); bukaFormPegawai(); escJs(); konfirmAktifPegawai(); panelKosongRoster(); pegCari(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pegSetTapis() { render(); }
+
+
+function pegCari() { render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bukaFormPegawai() { bolehBuka(); toast(); kruById(); gambarFormPegawai(); }
+
+
+
+
+
+
+
+
+
+
+
+function gambarFormPegawai() {  }
+
+
+function kolom() { esc(); tutupModal(); hintDivisiForm(); isiTimForm(); escJs(); simpanPegawai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function hintDivisiForm() { divisiDariMurni(); esc(); ikonDivisiJadwal(); namaDivisi(); }
+
+
+
+
+
+
+function isiTimForm() { hintDivisiForm(); }
+
+
+
+
+
+function simpanPegawai() { toast(); accPost(); tutupModal(); muatRoster(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function konfirmAktifPegawai() { kruById(); tutupModal(); esc(); namaDivisi(); divisiDari(); setAktifPegawai(); escJs(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function setAktifPegawai() { accPost(); tutupModal(); muatRoster(); render(); toast(); divisiLihat(); }
+
 
 
 
@@ -2549,7 +2867,7 @@ function men() {  }
 
 
 
-function rekapBulan() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); bebanKru(); jedaKeBesok(); }
+function rekapBulan() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); bebanKru(); jedaKeBesok(); divisiLihat(); bolehUbah(); bolehRekap(); }
 
 
 
@@ -2582,8 +2900,18 @@ function rekapBulan() { awalBulan(); akhirBulan(); addD(); sel(); shiftDef(); be
 
 
 
-function rekapKandidat() { divisiLihat(); kruDivisi(); }
 
+
+
+
+
+
+
+
+
+
+
+function rekapKandidat() { kruDivisi(); }
 
 
 
