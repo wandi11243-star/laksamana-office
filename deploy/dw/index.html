@@ -301,9 +301,14 @@ table.tbl-aju tr.grp:hover td{background:var(--paper)}
    Pilih Ulang DW, dan Tolak berdempet tanpa satu piksel pun di antaranya.
    Margin, bukan flex: `display:flex` mencabut sel dari tata letak tabel dan
    membuat tinggi barisnya berhenti sejajar dengan sel lain di baris itu. */
-table.tbl-aju .aksi-aju{white-space:nowrap;text-align:right}
-table.tbl-aju .aksi-aju .btn{margin-left:6px}
-table.tbl-aju .aksi-aju .btn:first-child{margin-left:0}
+/* `nowrap` DICABUT 19 Agustus 2026, saat Ubah & Hapus ikut berdiri di sini.
+   Lima tombol dalam satu baris yang tidak boleh membungkus akan mendorong
+   tabelnya melebar sampai kolom Pengajuan — yang justru dibaca — terdorong
+   keluar layar laptop. Sekarang tombol yang tidak muat turun ke baris kedua,
+   tetap rata kanan, dengan jarak vertikal supaya dua baris tombol tidak
+   berdempet. Urutannya tidak berubah: tiga tindakan harian tetap di depan. */
+table.tbl-aju .aksi-aju{text-align:right;min-width:230px}
+table.tbl-aju .aksi-aju .btn{margin-left:6px;margin-top:3px}
 table.tbl-aju tr.grp b{font-size:13px;margin-right:9px}
 table.tbl-aju tr.grp .chip{margin-right:6px}
 table.tbl-aju tr.grp .btn{float:right}
@@ -440,9 +445,10 @@ table.sched.lurus .jb .btn{margin-top:4px;padding:2px 7px;font-size:10px}
 /* ---------- Halaman Permintaan DW ---------- */
 table.tbl-minta{min-width:900px}
 table.tbl-minta td{padding:9px;font-size:12.5px;vertical-align:middle}
-table.tbl-minta .aksi-minta{white-space:nowrap;text-align:right;width:210px}
-table.tbl-minta .aksi-minta .btn{margin-left:6px}
-table.tbl-minta .aksi-minta .btn:first-child{margin-left:0}
+/* Sama alasannya dengan .aksi-aju: sejak Hapus ikut, tiga tombol tidak muat
+   dalam 210px dan `nowrap` membuatnya melebarkan seluruh tabel. */
+table.tbl-minta .aksi-minta{text-align:right;min-width:210px}
+table.tbl-minta .aksi-minta .btn{margin-left:6px;margin-top:3px}
 .segera{display:inline-block;margin-left:5px;padding:1px 7px;border-radius:999px;
   font-size:10px;font-weight:800;letter-spacing:.02em;vertical-align:middle}
 .segera.kini{background:#FDECEA;color:#B3261E}
@@ -1357,6 +1363,10 @@ function normalizeState(d){
       jumlah:+x.jumlah||0, catatan:String(x.catatan||''),
       status:String(x.status||'MENUNGGU'),
       dibuatAt:+x.dibuatAt||0, dibuatOleh:String(x.dibuatOleh||''),
+      /* Terpisah dari `dibuat*`: sejak HRD ikut bisa menyunting permintaan
+         head (19 Agustus 2026), "siapa yang meminta" dan "siapa yang terakhir
+         mengubah" adalah dua pertanyaan berbeda. */
+      diubahAt:+x.diubahAt||0, diubahOleh:String(x.diubahOleh||''),
       putusAt:+x.putusAt||0, putusOleh:String(x.putusOleh||''), putusNota:String(x.putusNota||''),
       /* Nama yang DIUSULKAN head. Kosong = head tidak menyebut siapa pun dan
          HRD yang memilih. Bukan penugasan — baru jadi baris jadwal setelah
@@ -2516,19 +2526,26 @@ function viewPermintaan(){
        seluruhnya dari HRD. Yang benar bukan menutup pintunya, melainkan
        memisahkan pekerjaannya: Antrean untuk memutuskan, halaman ini untuk
        melihat riwayat permintaan berikut putusannya. */
-    /* Head boleh membetulkan permintaannya sendiri. Syaratnya ia head DIVISI
-       ITU — bukan sekadar "bukan HRD": head yang juga admin modul mendapat
-       hrd=true dari server, dan dengan syarat lama tombolnya lenyap justru
-       untuk orang yang permintaannya sedang dilihat. */
-    if(x.status==='MENUNGGU' && isHeadDW() && kuasa.indexOf(x.divisi)>-1){
-      /* Ubah, bukan cuma Tarik kembali. Salah ketik jumlah adalah kesalahan
-         yang paling sering terjadi di form ini, dan tanpa tombol ini satu-
-         satunya jalan adalah menarik permintaan lalu mengetik ulang semuanya
-         — yang sebagian orang tidak lakukan, jadi permintaannya dibiarkan
-         salah dan HRD memenuhi angka yang bukan maksudnya. */
+    /* Head boleh membetulkan permintaannya sendiri, dan sejak 19 Agustus 2026
+       HRD juga — aturannya dipusatkan di bolehUbahMinta()/bolehHapusMinta()
+       supaya halaman ini dan Antrean Pengajuan tidak pernah berbeda pendapat
+       soal siapa yang boleh apa.
+
+       Ubah, bukan cuma Tarik kembali. Salah ketik jumlah adalah kesalahan yang
+       paling sering terjadi di form ini, dan tanpa tombol ini satu-satunya
+       jalan adalah menarik permintaan lalu mengetik ulang semuanya — yang
+       sebagian orang tidak lakukan, jadi permintaannya dibiarkan salah dan HRD
+       memenuhi angka yang bukan maksudnya. */
+    if(bolehUbahMinta(x))
       aksi.push('<button class="btn btn-ghost btn-sm" onclick="bukaMinta(&#39;'+escJs(x.id)+'&#39;)">Ubah</button>');
+    /* Tarik kembali TETAP milik head saja. Untuk HRD tindakan yang setara
+       adalah Tolak (dengan alasan yang dibaca head) — "ditarik" oleh orang
+       yang bukan pemintanya adalah keterangan yang keliru di riwayat. */
+    if(x.status==='MENUNGGU' && isHeadDW() && kuasa.indexOf(x.divisi)>-1)
       aksi.push('<button class="btn btn-ghost btn-sm" onclick="batalPermintaan(\''+escJs(x.id)+'\')">Tarik kembali</button>');
-    }
+    if(bolehHapusMinta(x))
+      aksi.push('<button class="btn btn-ghost bahaya btn-sm" title="Hapus permanen — beda dengan Tarik kembali, yang menyimpannya sebagai riwayat" '
+        +'onclick="hapusPermintaan(&#39;'+escJs(x.id)+'&#39;)">Hapus</button>');
     return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
       /* PENANDA MENDESAK. "22 Agu" tidak mengatakan apa pun tentang seberapa
          segera — dan permintaan untuk BESOK yang tenggelam di antara permintaan
@@ -2559,6 +2576,7 @@ function viewPermintaan(){
          terbaca dari kata kerjanya. */
       +'<td>'+pil
         +jejakKecilHTML('diminta', x.dibuatOleh, x.dibuatAt)
+        +jejakKecilHTML('diubah', x.diubahOleh, x.diubahAt)
         +jejakKecilHTML(kataPutusan(x.status), x.putusOleh, x.putusAt)+'</td>'
       +'<td class="kanan aksi-minta">'+(aksi.join('')||'<span class="kecil">—</span>')+'</td>'
     +'</tr>';
@@ -2760,8 +2778,21 @@ function gambarMinta(){
      Head Kitchen cuma melihat Kitchen Helper dan Dishwasher. */
   const posisi=posisiDivisi(b.divisi);
   if(posisi.indexOf(b.posisi)<0) b.posisi=posisi[0]||'';
+  /* HRD yang menyunting permintaan HEAD LAIN diberi tahu di dalam formnya.
+     Tanpa pita ini, form Ubah tampak persis seperti form Minta miliknya
+     sendiri — dan yang menyimpannya tidak menyadari ia baru saja mengubah
+     angka yang diminta orang lain. Yang lama tetap tercatat sebagai peminta
+     (`dibuat_oleh` tidak ditimpa); yang menyunting masuk ke `diubah_oleh`. */
+  const lamaMinta = b.id ? (S.permintaan||[]).find(x=>x.id===b.id) : null;
+  const milikOrangLain = !!(lamaMinta && lamaMinta.dibuatOleh
+    && lamaMinta.dibuatOleh !== namaSaya());
   modal((b.id?'Ubah permintaan':'Minta Daily Worker'),
-    '<div class="field"><label>Tanggal *</label>'
+    (milikOrangLain
+      ? '<div class="note w" style="margin-bottom:10px">Permintaan ini diminta <b>'
+        +esc(lamaMinta.dibuatOleh)+'</b>. Perubahan Anda tercatat terpisah — namanya tetap '
+        +'tertulis sebagai peminta, dan statusnya kembali <b>menunggu keputusan</b>.</div>'
+      : '')
+    +'<div class="field"><label>Tanggal *</label>'
       +'<input id="mtTgl" class="inp" style="width:100%" type="date" value="'+esc(b.tgl)+'"></div>'
     +'<div class="duo">'
       +'<div class="field"><label>Divisi *</label><select id="mtDiv"'+(kuasa.length<2?' disabled':'')+'>'
@@ -2930,6 +2961,65 @@ function batalPermintaan(id){
         toast('Permintaan ditarik'); await muatDanGambar(true);
       }catch(e){ toast('Gagal: '+e.message, true); }
     });
+}
+/* SIAPA BOLEH MENYUNTING & MENGHAPUS PERMINTAAN (19 Agustus 2026, atas
+   permintaan).
+   ---------------------------------------------------------------------
+   Sebelum ini Ubah dan Tarik kembali hanya muncul untuk head divisi ITU, dan
+   hanya selama statusnya MENUNGGU. Akibatnya HRD — yang justru bekerja di
+   Antrean sepanjang hari — tidak punya jalan sama sekali membetulkan
+   permintaan yang jelas salah ketik (jumlah 30 alih-alih 3, tanggal bulan
+   depan), dan yang bisa ia lakukan cuma menolaknya lalu meminta head
+   mengetik ulang lewat WhatsApp. Permintaan salah yang ditolak lalu tidak
+   pernah diajukan ulang adalah lubang jadwal yang tidak pernah dilaporkan
+   siapa pun.
+
+   UBAH tetap dibatasi status MENUNGGU. Yang sudah DISETUJUI berarti orangnya
+   sudah ditugaskan dan mungkin sudah dikabari lewat WhatsApp — mengubah
+   jumlah/tanggalnya di belakang layar akan membuat baris ajuan yang sudah
+   terbit menunjuk ke permintaan yang isinya sudah lain.
+
+   HAPUS beda: ia boleh kapan saja, TAPI hanya untuk HRD. Yang dihapus cuma
+   baris permintaannya — penugasan yang sudah terbit tetap berdiri (lihat
+   hapus_permintaan di backend), dan itu disengaja: orangnya sudah dijanjikan
+   datang, dan menghapus permintaan tidak membatalkan janji itu. Kalimat
+   konfirmasinya menyebut hal itu, karena ia justru yang paling mudah
+   disalahpahami. Head cukup punya "Tarik kembali", yang meninggalkan jejak. */
+function bolehUbahMinta(x){
+  if(x.status!=='MENUNGGU') return false;
+  if(isHR()) return true;
+  return isHeadDW() && divisiKuasaDW().indexOf(x.divisi)>-1;
+}
+function bolehHapusMinta(x){
+  if(isHR()) return true;
+  /* Head boleh menghapus permintaannya sendiri SELAMA belum diputuskan dan
+     belum ada satu orang pun yang terlanjur ditugaskan. Sesudah itu yang
+     tersisa untuknya adalah Tarik kembali — menghapus baris yang sudah
+     melahirkan penugasan membuat penugasan itu jadi yatim, dan yang
+     membacanya di Pembayaran tidak punya cara tahu ia berasal dari mana. */
+  return isHeadDW() && divisiKuasaDW().indexOf(x.divisi)>-1
+      && x.status==='MENUNGGU' && !mintaTerpenuhi(x.id);
+}
+async function hapusPermintaan(id){
+  const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
+  const isi=mintaTerpenuhi(x.id);
+  konfirmasi('Hapus permintaan '+namaDivisi(x.divisi)+' '+tglManusia(x.tgl)+'?',
+    '<b>'+x.jumlah+' orang · '+esc(x.m+'–'+x.s)+'</b>'
+    +(x.dibuatOleh?'<br>Diminta '+esc(x.dibuatOleh):'')
+    +'<br><br>Barisnya hilang permanen dan tidak bisa dikembalikan — berbeda dengan '
+    +'<b>Tarik kembali</b>, yang menyimpannya sebagai riwayat berstatus Batal.'
+    +(isi
+      ? '<div class="note w" style="margin-top:10px"><b>'+isi+' daily worker sudah ditugaskan dari permintaan ini, '
+        +'dan mereka TETAP terjadwal.</b> Orangnya sudah dijanjikan datang — menghapus permintaannya tidak '
+        +'membatalkan janji itu. Kalau memang mau dibatalkan, batalkan shift-nya satu per satu di Kalender DW '
+        +'lebih dulu.</div>'
+      : ''),
+    async function(){
+      try{
+        await apiPost({action:'hapusPermintaan', id:id});
+        toast('Permintaan dihapus'); await muatDanGambar(true);
+      }catch(e){ toast('Gagal menghapus: '+e.message, true); }
+    }, {ya:'Ya, hapus permanen', html:true, lebar:'460px'});
 }
 function tolakPermintaan(id){
   const x=(S.permintaan||[]).find(p=>p.id===id); if(!x) return;
@@ -3471,6 +3561,23 @@ function barisMintaAntrean(x){
       +' onclick="bukaSebagian(&#39;'+escJs(x.id)+'&#39;)">◑ Sebagian</button>');
   if(isHR()&&x.status==='MENUNGGU')
     aksi.push('<button class="btn btn-ghost bahaya btn-sm" onclick="tolakPermintaan(&#39;'+escJs(x.id)+'&#39;)">✕ Tolak</button>');
+  /* UBAH & HAPUS ikut berdiri di sini (19 Agustus 2026), bukan cuma di halaman
+     Permintaan DW. Di sinilah HRD sebenarnya bekerja — dan permintaan yang
+     jelas salah ketik (jumlah 30 alih-alih 3) dulu hanya bisa ia TOLAK, lalu
+     head diminta mengetik ulang lewat WhatsApp. Permintaan salah yang ditolak
+     lalu tidak pernah diajukan ulang adalah lubang jadwal yang tidak pernah
+     dilaporkan siapa pun.
+
+     Ditaruh PALING BELAKANG, sesudah Tolak: tiga slot pertama adalah tindakan
+     yang dikerjakan tiap hari (setuju / pilih orang / tolak) dan urutannya
+     sengaja tetap supaya bisa ditekan tanpa dibaca. Ubah & Hapus jarang, dan
+     yang jarang tidak boleh menggeser yang sering. */
+  if(bolehUbahMinta(x))
+    aksi.push('<button class="btn btn-ghost btn-sm" title="Betulkan jumlah, jam, tanggal, atau posisinya"'
+      +' onclick="bukaMinta(&#39;'+escJs(x.id)+'&#39;)">✎ Ubah</button>');
+  if(bolehHapusMinta(x))
+    aksi.push('<button class="btn btn-ghost bahaya btn-sm" title="Hapus permanen — barisnya hilang dari riwayat juga"'
+      +' onclick="hapusPermintaan(&#39;'+escJs(x.id)+'&#39;)">🗑 Hapus</button>');
   const tarif=tarifPosisi(x.posisi);
   return '<tr'+(x.status==='MENUNGGU'?' class="tunggu"':'')+'>'
     +'<td class="mono">'+esc(tglManusia(x.tgl))+segeraHTML(x.tgl)+'</td>'
@@ -3481,6 +3588,7 @@ function barisMintaAntrean(x){
       +(isi?'<div class="kecil">'+orang.map(a=>esc(namaDW(a.dwId))).join(', ')+'</div>':'')
       +(usul.length?'<div class="kecil usulnama">usul: '+usul.map(id=>esc(namaDW(id))).join(', ')+'</div>':'')
       +jejakKecilHTML('diminta', x.dibuatOleh, x.dibuatAt)
+      +jejakKecilHTML('diubah', x.diubahOleh, x.diubahAt)
       +(x.catatan?'<div class="kecil">'+esc(x.catatan)+'</div>':'')
       +(x.putusNota?'<div class="kecil" style="color:var(--danger)">"'+esc(x.putusNota)+'"</div>':'')+'</td>'
     +'<td>'+esc(ikonDivisi(x.divisi)+' '+namaDivisi(x.divisi))

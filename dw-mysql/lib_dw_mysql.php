@@ -283,6 +283,13 @@ function pastikan_tabel($pdo) {
   /* Penghubung penugasan ke permintaannya. Kosong = ajuan yang dibuat
      langsung (head menunjuk orangnya sendiri, atau HRD menjadwalkan biasa). */
   pastikan_kolom($pdo, 'dw_ajuan', 'permintaan_id', "VARCHAR(32) NOT NULL DEFAULT ''");
+  /* SIAPA YANG TERAKHIR MENYUNTING permintaan — terpisah dari siapa yang
+     meminta. Lahir 19 Agustus 2026 bersama tombol Ubah untuk HRD: sebelum
+     itu penyuntingnya selalu head pemiliknya sendiri, jadi `dibuat_oleh`
+     cukup. Sekarang tidak, dan menimpanya akan menghapus satu-satunya jejak
+     siapa yang benar-benar meminta. */
+  pastikan_kolom($pdo, 'dw_permintaan', 'diubah_at',   "BIGINT       NOT NULL DEFAULT 0");
+  pastikan_kolom($pdo, 'dw_permintaan', 'diubah_oleh', "VARCHAR(120) NOT NULL DEFAULT ''");
   /* USULAN NAMA DARI HEAD — id daily worker, dipisah koma.
      ---------------------------------------------------------------------
      Head boleh menyebut siapa yang ia mau ("yang kemarin itu saja"), dan
@@ -548,6 +555,11 @@ function bentuk_permintaan($r) {
     'dibuatAt' => (int)$r['dibuat_at'], 'dibuatOleh' => $r['dibuat_oleh'],
     'putusAt' => (int)$r['putus_at'], 'putusOleh' => $r['putus_oleh'],
     'putusNota' => $r['putus_nota'],
+    /* isset() dengan alasan yang sama seperti `usulan` di bawah: kolomnya
+       lahir 19 Agustus 2026, dan baris lama dibaca dari tabel yang belum
+       sempat dipatch. Nol/kosong berarti belum pernah disunting. */
+    'diubahAt' => isset($r['diubah_at']) ? (int)$r['diubah_at'] : 0,
+    'diubahOleh' => isset($r['diubah_oleh']) ? $r['diubah_oleh'] : '',
     /* isset() karena kolomnya lahir belakangan (14 Agustus 2026) dan baris
        lama dibaca dari tabel yang belum sempat dipatch di server dev. */
     'usulan' => (isset($r['usulan']) && s($r['usulan']) !== '')
@@ -1239,12 +1251,23 @@ function simpan_permintaan($row, $by) {
     /* Menyunting permintaan MENGEMBALIKANNYA ke MENUNGGU dan menghapus jejak
        putusannya — alasannya sama dengan ajuan: yang diubah harus dilihat
        ulang HRD, tidak boleh diam-diam tetap DISETUJUI dengan jumlah yang
-       sudah berbeda. */
+       sudah berbeda.
+
+       `dibuat_at` / `dibuat_oleh` TIDAK IKUT DITIMPA (19 Agustus 2026).
+       Dulu ikut, dan selama yang menyunting cuma head pemiliknya sendiri itu
+       tidak kelihatan salah. Sejak HRD juga bisa membetulkan permintaan head,
+       menimpanya menghapus satu-satunya jejak SIAPA YANG MEMINTA: baris yang
+       diminta head Bar berubah jadi "diminta Rina HRD", dan kolom itu justru
+       baru diadakan supaya pertanyaan "siapa yang minta ini" bisa dijawab
+       berminggu-minggu kemudian.
+
+       Yang menyunting dicatat terpisah di `diubah_*`. Dua pertanyaan yang
+       berbeda, dua kolom. */
     $st = $pdo->prepare(
       'UPDATE `dw_permintaan` SET
          `divisi`=:dv, `tgl`=:tg, `jam_mulai`=:m, `jam_selesai`=:s,
          `posisi`=:ps, `jumlah`=:jm, `catatan`=:ct, `usulan`=:us,
-         `status`=\'MENUNGGU\', `dibuat_at`=:t, `dibuat_oleh`=:by,
+         `status`=\'MENUNGGU\', `diubah_at`=:t, `diubah_oleh`=:by,
          `putus_at`=0, `putus_oleh`=\'\', `putus_nota`=\'\'
        WHERE `id`=:id');
   }
