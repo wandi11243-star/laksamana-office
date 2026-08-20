@@ -637,6 +637,7 @@
 
 
 
+
 function pct() {  }
 
 
@@ -1990,6 +1991,7 @@ function rkSimpan() { rkAdaUbah(); rkKirim(); }
 
 
 function rkKirim() { fetchTimeout(); render(); }
+
 
 
 
@@ -4349,6 +4351,261 @@ function daftar() { kkUbahNama(); kkSimpanPos(); kkSimpanKat(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatInv() { kkApi(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invWaktu() {  }
+
+
+
+
+
+function invRing() {  }
+
+
+
+
+function invPenuh() { invRing(); }
+
+
+
+function invChipStatus() {  }
+
+
+
+
+function invRincianDP() { invRing(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invBarisHTML() { invRing(); invPenuh(); invWaktu(); invChipStatus(); invBatal(); invBuat(); invTolak(); invRincianDP(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewInvoice() { muatInv(); }
+
+
+
+
+
+
+
+function tab() { render(); }
+
+
+
+
+
+function gbr() { invUpload(); invHapusGambar(); invSimpanSetting(); invBarisHTML(); render(); tab(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invKirim() { render(); kkApi(); setSync(); }
+
+
+
+
+
+
+
+
+
+function invBuat() { invRing(); invPenuh(); invKirim(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invTolak() { invRing(); invKirim(); }
+
+
+
+
+
+
+
+
+
+
+function invBatal() { invKirim(); }
+
+
+
+
+
+function invSimpanSetting() { invKirim(); }
+
+
+
+
+
+
+function invHapusGambar() { invKirim(); }
+
+
+
+
+
+
+
+
+
+
+function invUpload() { invKirim(); }
 
 
 

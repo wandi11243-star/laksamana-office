@@ -5590,6 +5590,173 @@ function dpReceivedBy() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bolehKwitansiLangsung() {  }
+
+
+
+
+
+
+function invFetch() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invRingkas() { dpsOf(); isLunas(); kwitansiNo(); dpTotal(); dpVerifiedTotal(); dpVerifiedCount(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatInvStatus() { invFetch(); segarkanSlotKwi(); byId(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function segarkanSlotKwi() { slotKwitansiHTML(); }
+
+
+
+
+
+
+function slotKwitansi() { hasDP(); esc(); slotKwitansiHTML(); }
+
+
+
+function slotKwitansiHTML() {  }
+
+function tombolPdf() { closeModal(); kwitansiPDF(); esc(); bolehKwitansiLangsung(); fmtTs(); mintaKwitansi(); muatInvStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mintaKwitansi() { hasDP(); toast(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); invFetch(); invRingkas(); segarkanSlotKwi(); logAudit(); kwitansiNo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function terbitkanKwitansiLangsung() { invFetch(); invRingkas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kwitansiHTML() {  }
 function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); todayStr(); rpDot(); dpTotal(); dpReceivedBy(); }
 
@@ -5674,7 +5841,55 @@ function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); to
 
 
 
-function kwitansiPDF() { hasDP(); toast(); kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kwitansiPDF() { hasDP(); toast(); siapkanBerkasKwi(); tulisKwitansi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function siapkanBerkasKwi() { invFetch(); bolehKwitansiLangsung(); terbitkanKwitansiLangsung(); muatInvStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+function tulisKwitansi() { kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
 
 
 
@@ -6115,7 +6330,7 @@ function openDetail() { customerProfile(); }
 
 
 
-function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); displayPhone(); fmtDate(); arrivedPax(); paxBadge(); remainingPax(); fmtDateShort(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); hasDP(); kwitansiNo(); dpBadge(); fmtTs(); viewProof(); openTfEdit(); verifyTf(); rejectTf(); delDp(); openAddDp(); kwitansiPDF(); viewFile(); arrivalsOf(); latenessLabel(); seatTimerHtml(); fmtDur(); dineDuration(); statusButtons(); delReservation(); canAddArrival(); addArrival(); guestLeft(); openWAModal(); editReservation(); }
+function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); displayPhone(); fmtDate(); arrivedPax(); paxBadge(); remainingPax(); fmtDateShort(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); hasDP(); kwitansiNo(); dpBadge(); fmtTs(); viewProof(); openTfEdit(); verifyTf(); rejectTf(); delDp(); openAddDp(); slotKwitansi(); viewFile(); arrivalsOf(); latenessLabel(); seatTimerHtml(); fmtDur(); dineDuration(); statusButtons(); delReservation(); canAddArrival(); addArrival(); guestLeft(); openWAModal(); editReservation(); muatInvStatus(); }
 
 
 
@@ -6200,7 +6415,12 @@ function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); d
 
 
 
-function dpBadge() {  }
+
+
+
+
+
+function dpBadge() { tfTandaGambar(); }
 function findDp() { ensureDps(); }
 
 
@@ -6860,7 +7080,14 @@ function txMismatch() {  }
 
 
 
-function tfBadge() { todayStr(); }
+
+
+
+function tfTandaGambar() { esc(); }
+
+
+
+function tfBadge() { tfTandaGambar(); todayStr(); }
 
 
 
@@ -7234,7 +7461,7 @@ function readTfForm() { byId(); rupiahVal(); }
 
 
 
-function saveTf() { findDp(); readTfForm(); toast(); logAudit(); rpDot(); commit(); closeModal(); navigate(); }
+function saveTf() { findDp(); readTfForm(); verifyTf(); logAudit(); rpDot(); commit(); closeModal(); navigate(); toast(); }
 
 
 
@@ -7248,7 +7475,98 @@ function saveTf() { findDp(); readTfForm(); toast(); logAudit(); rpDot(); commit
 
 
 
-function verifyTf() { findDp(); txAmount(); openTfEdit(); toast(); bankFromMethod(); logAudit(); rpDot(); commit(); closeModal(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tfKurangData() { txBank(); }
+
+
+
+
+
+
+
+function verifyTf() { findDp(); tfKurangData(); openModal(); esc(); closeModal(); txProofIsImage(); baris(); fmtDateShort(); txBank(); rpDot(); tfBadge(); openTfEdit(); verifyTfGo(); muatBuktiKeImg(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function verifyTfGo() { findDp(); tfKurangData(); bankFromMethod(); logAudit(); rpDot(); txAmount(); commit(); closeModal(); navigate(); toast(); }
+
+
+
+
+
+
 
 
 
@@ -7276,6 +7594,7 @@ function rejectTf() { findDp(); byId(); readTfForm(); logAudit(); commit(); clos
 
 
 function exportFinanceCSV() { financeList(); toast(); txBank(); txName(); txAmount(); dpTotal(); displayPhone(); fmtTs(); todayStr(); }
+
 
 
 

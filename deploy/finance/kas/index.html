@@ -527,6 +527,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
              yang dibuka orang yang sama tiap pagi. -->
         <div class="nav-label">Penjualan</div>
         <a data-view="rekap"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M3 15h18"/></svg></span> Rekap Penjualan</a>
+        <a data-view="invoice"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h6M8 16h4"/></svg></span> Invoice &amp; Kwitansi</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
@@ -2053,6 +2054,7 @@ const TITLES={
   kk_buku:['Buku Kas Kecil','Semua transaksi berikut saldo berjalan tiap pos'],
   kk_pos:['Pos & Kategori','Daftar pos pembayaran dan kategori belanja'],
   rekap:['Rekap Penjualan','Cocokkan POS dengan setoran bank — angka penjualannya after tax & service'],
+  invoice:['Invoice & Kwitansi','Permintaan kwitansi dari Reservasi — periksa dana masuknya, lalu terbitkan'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
   summary:['Ranking Seluruh PIC','Leaderboard achievement bulanan'],
@@ -2094,7 +2096,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,rekap:viewRekap,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,rekap:viewRekap,invoice:viewInvoice,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -4362,6 +4364,261 @@ function viewKkPos(){
           '<button class="btn btn-primary btn-sm" onclick="kkSimpanKat()" '+(KK_SIBUK?'disabled':'')+'>Tambah</button>'+
         '</div></div>'+
     '</div>';
+}
+
+/* ============ INVOICE / KWITANSI (20 Agustus 2026) ============
+   Antrean permintaan kwitansi yang datang dari modul Reservasi.
+
+   Kenapa halaman ini ada: kwitansi adalah pengakuan perusahaan bahwa uang
+   sudah diterima, sementara yang menekan tombolnya di modul Reservasi
+   (host/marketing/cashier) belum tentu tahu apakah transfernya benar-benar
+   masuk ke rekening. Sebelum ini kwitansi bisa terbit untuk DP yang buktinya
+   belum diverifikasi, dan yang memegang kertasnya adalah tamu.
+
+   Datanya milik backend Finance (tabel inv_kwitansi), BUKAN state Reservasi —
+   alasannya ditulis panjang di finance-mysql/lib_invoice.php. Halaman ini
+   satu-satunya tempat yang menulisnya; modul Reservasi hanya membaca.
+
+   Status verifikasi DP yang ditampilkan di sini adalah SALINAN yang ikut
+   dikirim saat permintaan dibuat, bukan bacaan langsung ke database
+   Reservasi. Disengaja: Finance tidak punya akses ke sana, dan yang perlu
+   diputuskan adalah keadaan saat permintaan diajukan. Kalau DP-nya baru
+   diverifikasi sesudahnya, yang meminta cukup menekan Request lagi —
+   permintaannya tersegarkan, bukan menumpuk jadi baris kedua. */
+let INV=null, INV_SET={}, INV_ERR='', INV_SIBUK=false, INV_TAB='antrean', INV_MUAT=false;
+
+function muatInv(){
+  if(INV_MUAT) return Promise.resolve();
+  INV_MUAT=true; INV_ERR='';
+  return kkApi('invDaftar').then(function(d){
+    INV=d.list||[]; INV_SET=d.setting||{}; INV_MUAT=false;
+    if(CURRENT==='invoice') render();
+  },function(e){
+    /* Gagal TIDAK meninggalkan INV=null: null berarti "sedang dimuat", dan
+       halamannya akan berputar di "Memuat…" selamanya tanpa menyebut sebabnya.
+       Daftar kosong + pita galat jauh lebih jujur. */
+    INV_MUAT=false; INV_ERR=e.message||String(e); INV=INV||[];
+    if(CURRENT==='invoice') render();
+  });
+}
+function invWaktu(ms){
+  if(!ms) return '—';
+  const d=new Date(Number(ms));
+  const p=n=>(n<10?'0':'')+n;
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
+}
+function invRing(x){ return (x&&x.ringkas)||{}; }
+/* Sepenuhnya terverifikasi = semua transfer sudah dicek Finance di modul
+   Reservasi. Yang belum bukan penghalang menerbitkan kwitansi — kadang
+   uangnya memang sudah dilihat di rekening — tapi harus TERLIHAT sebelum
+   tombolnya ditekan, bukan sesudah kertasnya di tangan tamu. */
+function invPenuh(x){
+  const g=invRing(x);
+  return (g.dpCount||0)>0 && (g.dpVerifiedCount||0)>=(g.dpCount||0);
+}
+function invChipStatus(s){
+  if(s==='DIBUAT')  return '<span class="chip ok">✓ Invoice terbit</span>';
+  if(s==='DITOLAK') return '<span class="chip bad">✕ Ditolak</span>';
+  return '<span class="chip warn">⏳ Menunggu</span>';
+}
+function invRincianDP(x){
+  const g=invRing(x), dp=g.dp||[];
+  if(!dp.length) return '<div class="muted">Tidak ada rincian transfer yang ikut dikirim.</div>';
+  return '<div class="tbl-wrap"><table><thead><tr>'+
+      '<th style="text-align:left">Transfer</th><th style="text-align:left">Pengirim</th>'+
+      '<th style="text-align:right">Nominal</th><th style="text-align:left">Status</th></tr></thead><tbody>'+
+    dp.map(function(p){
+      const st = p.status==='verified' ? '<span class="chip ok">terverifikasi</span>'
+               : p.status==='rejected' ? '<span class="chip bad">ditolak</span>'
+               : '<span class="chip warn">belum dicek</span>';
+      return '<tr>'+
+        '<td>'+esc(p.tanggal||'—')+(p.jam?' '+esc(p.jam):'')+
+          '<div class="muted" style="font-size:11.5px">'+esc(p.bank||p.metode||'—')+
+          (p.adaBukti?'':' · <b>tanpa bukti</b>')+'</div></td>'+
+        '<td>'+esc(p.pengirim||'—')+'</td>'+
+        '<td class="mono" style="text-align:right">'+fmtRp(p.nominal)+'</td>'+
+        '<td>'+st+(p.tanpaData?'<div class="muted" style="font-size:11px">dari gambar — '+esc(p.tanpaData)+' tidak terbaca</div>':'')+'</td>'+
+      '</tr>';
+    }).join('')+'</tbody></table></div>';
+}
+function invBarisHTML(x, mode){
+  const g=invRing(x);
+  const penuh=invPenuh(x);
+  return '<tr>'+
+    '<td><b>'+esc(g.nama||'(tanpa nama)')+'</b>'+
+      '<div class="muted" style="font-size:11.5px">'+esc(g.tanggal||'—')+(g.jam?' · '+esc(g.jam):'')+
+      (g.pax?' · '+g.pax+' pax':'')+(g.meja?' · meja '+esc(g.meja):'')+'</div></td>'+
+    '<td class="mono" style="text-align:right">'+fmtRp(g.dpTotal||0)+
+      (g.lunas?'<div><span class="chip ok">LUNAS</span></div>':'')+'</td>'+
+    '<td>'+(penuh
+        ? '<span class="chip ok">✓ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>'
+        : '<span class="chip warn">⚠ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>')+
+      '<div class="muted" style="font-size:11.5px">'+fmtRp(g.dpVerified||0)+' dipastikan masuk</div></td>'+
+    '<td>'+esc(x.mintaOleh||'—')+'<div class="muted" style="font-size:11.5px">'+invWaktu(x.mintaAt)+'</div></td>'+
+    '<td>'+(mode==='riwayat'
+        ? invChipStatus(x.status)+
+          (x.no?'<div class="mono" style="font-size:11.5px">'+esc(x.no)+'</div>':'')+
+          (x.catatan?'<div class="muted" style="font-size:11.5px">'+esc(x.catatan)+'</div>':'')+
+          '<div class="muted" style="font-size:11px">'+esc(x.putusOleh||'—')+' · '+invWaktu(x.putusAt)+'</div>'
+        : invChipStatus(x.status))+'</td>'+
+    '<td style="text-align:right;white-space:nowrap">'+
+      (x.status==='DIBUAT'
+        ? '<button class="btn btn-ghost btn-xs" onclick="invBatal(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+
+            ' title="Kembalikan ke antrean. Nomor invoice yang sudah terbit TIDAK dipakai ulang.">↩ Batalkan</button>'
+        : '<button class="btn btn-primary btn-xs" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 Buat Invoice</button> '+
+          '<button class="btn btn-danger btn-xs" onclick="invTolak(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Tolak</button>')+
+    '</td></tr>'+
+    '<tr><td colspan="6" style="padding-top:0">'+
+      '<details><summary class="muted" style="cursor:pointer;font-size:12px">Rincian transfer &amp; data reservasi</summary>'+
+      '<div style="margin-top:8px">'+invRincianDP(x)+
+      '<div class="muted" style="font-size:11.5px;margin-top:6px">Diinput oleh '+esc(g.diinputOleh||'—')+
+        ' · No. kwitansi internal '+esc(g.noKwitansi||'—')+'</div></div></details></td></tr>';
+}
+function viewInvoice(){
+  const el=document.getElementById('app-view');
+  if(INV===null){
+    el.innerHTML='<div class="card"><div class="empty"><div class="big">⏳</div>Memuat permintaan kwitansi…</div></div>';
+    muatInv(); return;
+  }
+  const antre=INV.filter(function(x){return x.status==='MENUNGGU';});
+  const arsip=INV.filter(function(x){return x.status!=='MENUNGGU';});
+  const tab=function(id,teks,n){
+    return '<button class="btn '+(INV_TAB===id?'btn-primary':'btn-ghost')+' btn-sm" onclick="INV_TAB=\''+id+'\';render()">'+
+      teks+(n!==undefined?' ('+n+')':'')+'</button>';
+  };
+  let isi='';
+  if(INV_TAB==='pengaturan'){
+    const gbr=function(judul,kunci,ket){
+      const ada=INV_SET[kunci];
+      return '<div class="card" style="margin:0">'+
+        '<h3>'+judul+'</h3><div class="card-sub">'+ket+'</div>'+
+        '<div style="border:1.5px dashed var(--line);border-radius:10px;padding:14px;text-align:center;min-height:120px;display:flex;align-items:center;justify-content:center">'+
+          (ada?'<img src="'+esc(ada)+'" alt="'+judul+'" style="max-height:110px;max-width:100%">'
+              :'<span class="muted">Belum ada gambar</span>')+
+        '</div>'+
+        '<div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">'+
+          '<input type="file" accept="image/png,image/jpeg,image/webp" id="inv_f_'+kunci+'" onchange="invUpload(this,\''+kunci+'\')">'+
+          (ada?'<button class="btn btn-danger btn-xs" onclick="invHapusGambar(\''+kunci+'\')" '+(INV_SIBUK?'disabled':'')+'>Hapus</button>':'')+
+        '</div></div>';
+    };
+    isi='<div class="notice info">💡 <div>Tanda tangan &amp; cap di bawah ini <b>otomatis menempel</b> pada setiap kwitansi yang diterbitkan dari halaman ini. '+
+        'Pakai gambar <b>berlatar transparan (PNG)</b> — latar putih akan menutupi garis nama di lembarnya. '+
+        'Ukuran wajar: tinggi 150–400 px, di bawah 300 KB.</div></div>'+
+      '<div class="grid g2">'+
+        gbr('Tanda Tangan','ttd','Ditempel di ruang tanda tangan')+
+        gbr('Cap Perusahaan','cap','Ditempel miring di belakang tanda tangan')+
+      '</div>'+
+      '<div class="card">'+
+        '<h3>Identitas Penanda Tangan</h3><div class="card-sub">Nama &amp; jabatan yang tercetak di bawah garis tanda tangan</div>'+
+        '<div class="grid g2">'+
+          '<div><label class="muted" style="font-size:12px">Nama</label>'+
+            '<input id="inv_nama" value="'+esc(INV_SET.penandaNama||'')+'" placeholder="(Wandi Pranata)" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px"></div>'+
+          '<div><label class="muted" style="font-size:12px">Jabatan</label>'+
+            '<input id="inv_jab" value="'+esc(INV_SET.penandaJabatan||'')+'" placeholder="Finance" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px"></div>'+
+        '</div>'+
+        '<div style="margin-top:12px"><label class="muted" style="font-size:12px">Awalan nomor invoice</label>'+
+          '<input id="inv_prefix" value="'+esc(INV_SET.prefix||'INV')+'" style="width:180px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
+          '<div class="muted" style="font-size:11.5px;margin-top:5px">Nomornya jadi <span class="mono">'+esc(INV_SET.prefix||'INV')+'/2026/08/0001</span> — urut per bulan.</div></div>'+
+        '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="invSimpanSetting()" '+(INV_SIBUK?'disabled':'')+'>Simpan Pengaturan</button></div>'+
+      '</div>';
+  } else {
+    const rows = INV_TAB==='riwayat' ? arsip : antre;
+    isi='<div class="tbl-wrap"><table><thead><tr>'+
+        '<th style="text-align:left">Tamu &amp; Reservasi</th><th style="text-align:right">Total DP</th>'+
+        '<th style="text-align:left">Dana Masuk</th><th style="text-align:left">Diminta</th>'+
+        '<th style="text-align:left">Status</th><th></th></tr></thead><tbody>'+
+      (rows.length?rows.map(function(x){return invBarisHTML(x, INV_TAB);}).join('')
+        :'<tr><td colspan="6" class="empty">'+(INV_TAB==='riwayat'
+            ?'Belum ada kwitansi yang diterbitkan atau ditolak.'
+            :'Tidak ada permintaan kwitansi yang menunggu. Permintaan masuk sendiri dari modul Reservasi.')+'</td></tr>')+
+      '</tbody></table></div>';
+  }
+  el.innerHTML=
+    (INV_ERR?'<div class="notice bad">⚠ <div>'+esc(INV_ERR)+
+      ' <button class="btn btn-ghost btn-xs" onclick="INV_ERR=\'\';INV=null;render()">↻ Coba lagi</button></div></div>':'')+
+    ((!INV_SET.ttd&&INV_TAB!=='pengaturan')
+      ? '<div class="notice warn">⚠ <div>Tanda tangan belum diunggah — kwitansi yang terbit sekarang keluar <b>tanpa tanda tangan</b>. '+
+        'Unggah di tab <b>Pengaturan</b>.</div></div>' : '')+
+    '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
+      tab('antrean','Antrean',antre.length)+tab('riwayat','Riwayat',arsip.length)+tab('pengaturan','Pengaturan')+
+      '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="INV=null;render()">↻ Segarkan</button>'+
+    '</div>'+isi;
+}
+function invKirim(action, payload, pesan){
+  if(INV_SIBUK) return;
+  INV_SIBUK=true; render();
+  kkApi(action, payload).then(function(){
+    INV_SIBUK=false; INV=null; render();
+    setSync('ok', pesan);
+  },function(e){
+    INV_SIBUK=false; INV_ERR=e.message||String(e); render();
+  });
+}
+function invBuat(id){
+  const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
+  const g=invRing(x);
+  let peringatan='';
+  if(!invPenuh(x)){
+    peringatan='\n\n⚠ PERHATIAN: baru '+(g.dpVerifiedCount||0)+' dari '+(g.dpCount||0)+
+      ' transfer yang terverifikasi di halaman Dana Masuk. '+
+      'Kwitansi yang terbit adalah pengakuan perusahaan bahwa uangnya sudah diterima.';
+  }
+  if(!INV_SET.ttd) peringatan+='\n\n⚠ Tanda tangan belum diunggah — lembarnya akan keluar tanpa tanda tangan.';
+  if(!confirm('Terbitkan kwitansi resmi untuk "'+(g.nama||'-')+'"?\n\n'+
+    'Total DP: '+fmtRp(g.dpTotal||0)+'\n'+
+    'Terverifikasi: '+fmtRp(g.dpVerified||0)+peringatan+
+    '\n\nNomor invoice diberikan sekali dan tidak bisa dipakai ulang.')) return;
+  invKirim('invPutus', {id:id, aksi:'buat'}, 'Kwitansi diterbitkan');
+}
+function invTolak(id){
+  const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
+  /* Alasan WAJIB — dan diperiksa lagi di server. Tanpa alasan, yang meminta di
+     modul Reservasi cuma melihat "ditolak" dan tidak pernah tahu harus
+     membetulkan apa; ia akan menekan Request lagi dengan data yang sama. */
+  const nota=prompt('Alasan menolak permintaan kwitansi "'+(invRing(x).nama||'-')+'":\n'+
+    '(mis. DP belum terverifikasi di Dana Masuk / nominalnya tidak cocok dengan bukti)','');
+  if(nota===null) return;
+  if(!nota.trim()){ alert('Alasan wajib diisi.'); return; }
+  invKirim('invPutus', {id:id, aksi:'tolak', catatan:nota.trim()}, 'Permintaan ditolak');
+}
+function invBatal(id){
+  if(!confirm('Kembalikan kwitansi ini ke antrean?\n\n'+
+    'Nomor invoice yang sudah terbit TIDAK dilepas — kalau lembarnya sempat dikirim ke tamu, '+
+    'nomornya sudah beredar dan tidak boleh dipakai dokumen lain.')) return;
+  invKirim('invPutus', {id:id, aksi:'batal'}, 'Dikembalikan ke antrean');
+}
+function invSimpanSetting(){
+  invKirim('invSetting', {data:{
+    penandaNama: document.getElementById('inv_nama').value.trim(),
+    penandaJabatan: document.getElementById('inv_jab').value.trim(),
+    prefix: document.getElementById('inv_prefix').value.trim()||'INV'
+  }}, 'Pengaturan invoice tersimpan');
+}
+function invHapusGambar(kunci){
+  if(!confirm('Hapus gambar ini? Kwitansi berikutnya terbit tanpa gambar tersebut.')) return;
+  const d={}; d[kunci]='';
+  invKirim('invSetting', {data:d}, 'Gambar dihapus');
+}
+/* Gambar dikirim sebagai data URI, bukan berkas — tidak ada folder unggahan di
+   hosting ini, dan folder yang lupa dibuat saat modul mendarat tidak
+   menimbulkan galat, cuma kwitansi tanpa tanda tangan. Batas ukurannya
+   diperiksa DI SINI juga, bukan cuma di server: balasan "413 Request Entity
+   Too Large" dari Apache datang sebagai HTML dan pesannya tidak pernah
+   menyebut soal ukuran gambar. */
+function invUpload(input, kunci){
+  const f=input.files&&input.files[0]; if(!f) return;
+  if(f.size>1200000){
+    alert('Gambar terlalu besar ('+Math.round(f.size/1024)+' KB). Kecilkan dulu sampai di bawah 1 MB — '+
+          'tanda tangan/cap tidak perlu resolusi tinggi.');
+    input.value=''; return;
+  }
+  const fr=new FileReader();
+  fr.onload=function(){
+    const d={}; d[kunci]=String(fr.result||'');
+    invKirim('invSetting', {data:d}, 'Gambar tersimpan');
+  };
+  fr.onerror=function(){ alert('Gambar gagal dibaca.'); };
+  fr.readAsDataURL(f);
 }
 
 /* ---- chart option factories ---- */

@@ -8,6 +8,16 @@
  *   POST     ?action=tandai    {id,field:"input"|"bon",nilai:0|1}
  *   POST     ?action=simpanPos / nonaktifPos / aktifPos / hapusPos
  *   POST     ?action=simpanKategori / nonaktifKategori / aktifKategori / hapusKategori
+ *   --- Invoice / kwitansi (lihat lib_invoice.php) ---
+ *   POST     ?action=invMinta   {resId,oleh,ringkas}  -> baris permintaan
+ *   POST     ?action=invStatus  {res:[id,…]}          -> {resId: baris}
+ *   POST     ?action=invBerkas  {resId}               -> {ada,no,ttd,cap,…}
+ *   POST     ?action=invDaftar                        -> {list,setting}
+ *   POST     ?action=invPutus   {id,aksi,oleh,catatan}
+ *   POST     ?action=invSetting {data:{ttd,cap,penandaNama,penandaJabatan,prefix}}
+ *   invMinta/invStatus/invBerkas dipanggil dari modul RESERVASI; sisanya dari
+ *   tab Invoice di panel Finance > Kas Kecil.
+ *
  *   GET      ?action=ping   -> {ok,data:{pong,env,db}}
  *   GET      ?action=stats  -> {ok,data:{...jumlah per tabel}}
  *
@@ -107,6 +117,53 @@ try {
     case 'nonaktifKategori': keluar(array('ok' => true, 'data' => aktif_daftar('kk_kategori', $id, false)));
     case 'aktifKategori':    keluar(array('ok' => true, 'data' => aktif_daftar('kk_kategori', $id, true)));
     case 'hapusKategori':    keluar(array('ok' => true, 'data' => hapus_kategori($id)));
+
+    /* ---- INVOICE / KWITANSI (20 Agustus 2026) ----
+       lib_invoice.php di-require DI SINI, bukan di puncak berkas. Tidak ada
+       `php` di mesin pengembangan untuk memeriksa sintaksnya lebih dulu, dan
+       satu parse error di puncak mematikan SELURUH endpoint folder ini —
+       termasuk Kas Kecil, yang tidak ada hubungannya dengan invoice. Dengan
+       require di dalam cabang, kegagalannya terkurung di aksi invoice saja.
+
+       invMinta & invStatus & invBerkas dipanggil dari modul RESERVASI
+       (origin yang sama, folder tetangga). Header CORS di atas sudah
+       mengizinkannya. */
+    case 'invMinta':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_minta($body)));
+
+    case 'invStatus':
+      require_once __DIR__ . '/lib_invoice.php';
+      /* Daftar id boleh datang lewat GET (?res=a,b,c) maupun body POST —
+         daftar panjang tidak muat di query string, dan yang pendek lebih
+         enak di-debug dari access log. */
+      $ids = array();
+      if (isset($body['res']) && is_array($body['res'])) $ids = $body['res'];
+      else if (isset($_GET['res']) && $_GET['res'] !== '') $ids = explode(',', (string)$_GET['res']);
+      keluar(array('ok' => true, 'data' => inv_status_banyak($ids)));
+
+    case 'invBerkas':
+      require_once __DIR__ . '/lib_invoice.php';
+      $rid = isset($body['resId']) ? (string)$body['resId']
+           : (isset($_GET['resId']) ? (string)$_GET['resId'] : '');
+      keluar(array('ok' => true, 'data' => inv_berkas($rid)));
+
+    case 'invDaftar':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => array(
+        'list'    => inv_daftar(),
+        'setting' => inv_setting_baca(),
+      )));
+
+    case 'invPutus':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_putus($body)));
+
+    case 'invSetting':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_setting_simpan(
+        isset($body['data']) && is_array($body['data']) ? $body['data'] : $body
+      )));
 
     /* ping sengaja tetap ok:true walau DB gagal — gunanya justru MELAPORKAN
        keadaan itu, bukan ikut mati. Petunjuknya ditempel di sini, bukan di

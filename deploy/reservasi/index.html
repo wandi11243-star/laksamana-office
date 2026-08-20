@@ -5576,6 +5576,169 @@ function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"
    kwitansi kini hanya berbentuk PDF berkop (kwitansiPDF). Tombol kwitansi langsung
    membuka PDF-nya; modal perantara "Salin / Kirim ke Tamu" ikut dilepas karena tak ada
    lagi yang bisa disalin/dikirim sebagai teks. */
+/* ================= KWITANSI RESMI LEWAT FINANCE (20 Agustus 2026) =================
+   Sampai hari ini siapa pun yang bisa membuka detail reservasi bisa langsung
+   menerbitkan kwitansi PDF untuk tamu. Masalahnya bukan orangnya — melainkan
+   bahwa kwitansi adalah pengakuan perusahaan bahwa uang sudah diterima,
+   sementara yang menekan tombolnya (host/marketing/cashier) belum tentu tahu
+   apakah transfernya benar-benar masuk ke rekening. Kwitansi bisa keluar
+   untuk DP yang buktinya belum diverifikasi, dan yang memegang kertasnya
+   adalah tamu.
+
+   Sekarang alurnya dua jalur:
+
+     host / marketing / cashier  →  "Request Kwitansi"  →  antrean di modul
+                                    Finance (tab Invoice), Finance melihat
+                                    detail reservasi + DP + status verifikasi
+                                    Dana Masuk, lalu menekan Buat Invoice
+                                    (nomor resmi + tanda tangan + cap)
+                                 →  tombol berubah jadi "Kwitansi PDF"
+
+     manager / admin             →  langsung. Tidak menunggu siapa pun; sistem
+                                    menerbitkan nomor invoice-nya sendiri di
+                                    belakang layar supaya lembarnya tetap
+                                    bertanda tangan & tercatat di arsip
+                                    Finance, bukan kwitansi kelas dua.
+
+   DATANYA TIDAK DI SINI. Permintaan & kwitansi resmi disimpan di backend
+   Finance (tabel inv_kwitansi), bukan di state Reservasi. Dua sebabnya
+   ditulis panjang di finance-mysql/lib_invoice.php; ringkasnya: state modul
+   ini disimpan sebagai SATU blob lewat saveAll, jadi Finance yang ikut
+   menulis ke sana akan menimpa reservasi yang baru diinput host — dan
+   backend modul ini tidak ikut auto-deploy.
+
+   Modul ini hanya MEMBACA statusnya. Kalau backend Finance mati, tombolnya
+   jatuh ke perilaku lama (kwitansi tanpa tanda tangan) dan bukan jadi layar
+   kosong — kwitansi yang tidak bisa dicetak sama sekali jauh lebih merugikan
+   daripada kwitansi tanpa cap. */
+const API_INV_URL = "../finance-api-mysql/api.php";
+const ROLE_KWI_LANGSUNG = ["manager","admin"];
+function bolehKwitansiLangsung(){ return ROLE_KWI_LANGSUNG.includes(SESSION&&SESSION.role); }
+
+/* resId -> baris invoice, `null` = sudah ditanya & memang belum ada permintaan,
+   `undefined` = belum pernah ditanya. Tiga keadaan, bukan dua: tanpa memisahkan
+   "belum ditanya" dari "tidak ada", tombolnya menawarkan Request untuk baris
+   yang sebenarnya sudah punya kwitansi resmi. */
+let INV_CACHE = {};
+function invFetch(action, data){
+  const ac = ("AbortController" in window) ? new AbortController() : null;
+  const jam = setTimeout(()=>{ try{ ac && ac.abort(); }catch(e){} }, 20000);
+  return fetch(API_INV_URL+"?action="+encodeURIComponent(action), {
+      method:"POST", redirect:"follow", cache:"no-store",
+      headers:{"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify(Object.assign({action:action}, data||{})),
+      signal: ac ? ac.signal : undefined
+    })
+    .then(res=>res.text())
+    .then(teks=>{
+      let j=null; try{ j=JSON.parse(teks); }catch(e){}
+      if(!j) throw new Error("Modul Finance membalas bukan-JSON — backend invoice belum terpasang?");
+      if(!j.ok) throw new Error(j.error||"galat tidak dikenal dari modul Finance");
+      return j.data;
+    })
+    .finally(()=>clearTimeout(jam));
+}
+/* Ringkasan yang IKUT dikirim bersama permintaan. Finance perlu memutuskan
+   tanpa membuka modul Reservasi, dan ia tidak punya akses ke database
+   reservasi. Yang dikirim sengaja secukupnya untuk memutuskan — bukan seluruh
+   baris reservasi, yang memuat nomor HP dan catatan internal. */
+function invRingkas(r){
+  const dps = dpsOf(r);
+  return {
+    nama: r.name||"", tanggal: r.date||"", jam: r.time||"",
+    pax: Number(r.pax)||0, meja: r.table||"",
+    lunas: isLunas(r), noKwitansi: kwitansiNo(r),
+    dpTotal: dpTotal(r), dpVerified: dpVerifiedTotal(r),
+    dpCount: dps.length, dpVerifiedCount: dpVerifiedCount(r),
+    diinputOleh: r.createdBy||"",
+    dp: dps.map(p=>({
+      nominal: Number(p.tfAmount)||Number(p.amount)||0,
+      metode: p.method||"", bank: p.tfBank||"", pengirim: p.tfName||"",
+      tanggal: p.tfDate||"", jam: p.tfTime||"",
+      status: p.tfStatus||"", tanpaData: p.tfTanpaData||"",
+      adaBukti: !!p.proofData
+    }))
+  };
+}
+function muatInvStatus(resId){
+  if(!resId) return;
+  invFetch("invStatus", {res:[resId]})
+    .then(map=>{ INV_CACHE[resId] = (map && map[resId]) ? map[resId] : null; segarkanSlotKwi(resId); })
+    /* Gagal TIDAK ditandai null: null berarti "sudah ditanya, memang belum
+       ada", dan menyamakannya dengan gagal-jaringan akan menawarkan Request
+       untuk reservasi yang sudah punya kwitansi resmi. Dibiarkan undefined,
+       slotnya menjelaskan sendiri. */
+    .catch(e=>{ INV_CACHE[resId] = undefined; segarkanSlotKwi(resId, e.message||String(e)); });
+}
+/* Ditandai CLASS + data-res, bukan id. Satu modal detail memuat DUA slot untuk
+   reservasi yang sama (satu di blok Down Payment, satu di kaki modal), dan id
+   kembar membuat byId() hanya menemukan yang pertama — tombol di kaki modal
+   akan berhenti selamanya di "memeriksa…" tanpa satu pun galat. */
+function segarkanSlotKwi(resId, err){
+  const r = STATE.reservations.find(x=>x.id===resId); if(!r) return;
+  Array.prototype.forEach.call(document.querySelectorAll(".kwiSlot"), el=>{
+    if(el.dataset.res!==resId) return;
+    el.innerHTML = slotKwitansiHTML(r, el.dataset.cls||"btn-sm", err);
+  });
+}
+function slotKwitansi(r, cls){
+  if(!hasDP(r)) return "";
+  return `<span class="kwiSlot" data-res="${esc(r.id)}" data-cls="${cls}">${slotKwitansiHTML(r, cls)}</span>`;
+}
+function slotKwitansiHTML(r, cls, err){
+  const inv = INV_CACHE[r.id];
+  const tombolPdf = (judul)=>`<button class="btn btn-ghost ${cls}" onclick="closeModal();kwitansiPDF('${r.id}')" title="${esc(judul)}">🧾 Kwitansi PDF</button>`;
+
+  if(inv && inv.status==="DIBUAT")
+    return tombolPdf(`Kwitansi resmi ${inv.no} — sudah bertanda tangan & cap perusahaan`);
+
+  /* Manager/admin tidak pernah melihat tombol Request. Kalau backendnya tak
+     terjangkau pun tombolnya tetap Kwitansi PDF: kwitansiPDF() sendiri yang
+     nanti jatuh ke lembar tanpa tanda tangan, jadi mereka tidak pernah
+     kehilangan kemampuan mencetak. */
+  if(bolehKwitansiLangsung())
+    return tombolPdf("Buka kwitansi berkop → simpan sebagai PDF / cetak");
+
+  if(inv && inv.status==="MENUNGGU")
+    return `<span class="badge-status st-pending" title="Diminta ${esc(inv.mintaOleh||"-")}${inv.mintaAt?" · "+fmtTs(inv.mintaAt):""}">⏳ Kwitansi menunggu Finance</span>`;
+
+  if(inv && inv.status==="DITOLAK")
+    return `<span class="badge-status st-noshow" title="${esc(inv.catatan||"")}">✕ Kwitansi ditolak</span>
+      <button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Alasan: ${esc(inv.catatan||"-")}">🔁 Request ulang</button>`;
+
+  if(inv === undefined)
+    return `<button class="btn btn-ghost ${cls}" onclick="muatInvStatus('${r.id}')" title="${esc(err||"Status kwitansi belum terbaca dari modul Finance")}">🧾 Status kwitansi ${err?"gagal dibaca — coba lagi":"…"}</button>`;
+
+  return `<button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Minta Finance menerbitkan kwitansi resmi bertanda tangan untuk tamu ini">🧾 Request Kwitansi</button>`;
+}
+async function mintaKwitansi(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  const belum = dpsOf(r).length - dpVerifiedCount(r);
+  if(!confirm(`Minta Finance menerbitkan kwitansi resmi untuk "${r.name}"?\n\n`+
+    `Total DP: ${rpDot(dpTotal(r))}\n`+
+    `Terverifikasi: ${rpDot(dpVerifiedTotal(r))}${belum>0?`  (${belum} transfer belum diverifikasi)`:""}\n\n`+
+    `Finance akan memeriksa dana masuknya dulu, lalu menerbitkan kwitansi bertanda tangan & cap. `+
+    `Tombol Kwitansi PDF muncul di sini begitu terbit.`)) return;
+  try{
+    const baris = await invFetch("invMinta", {resId:r.id, oleh:(SESSION&&SESSION.name)||"", ringkas:invRingkas(r)});
+    INV_CACHE[r.id]=baris; segarkanSlotKwi(r.id);
+    logAudit("Request Kwitansi", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
+    toast(baris.status==="DIBUAT"?"Kwitansi resmi sudah terbit ✓":"Permintaan kwitansi terkirim ke Finance ✓","ok");
+  }catch(e){
+    toast("Gagal mengirim permintaan: "+(e.message||e),"err");
+  }
+}
+/* Jalur manager/admin: menerbitkan sendiri tanpa antre. Dua panggilan, bukan
+   satu endpoint gabungan — supaya antrean Finance tetap punya barisnya
+   (siapa, kapan, atas reservasi mana), persis seperti yang lewat request. */
+async function terbitkanKwitansiLangsung(r){
+  const baris = await invFetch("invMinta", {resId:r.id, oleh:(SESSION&&SESSION.name)||"", ringkas:invRingkas(r)});
+  if(baris.status==="DIBUAT") return baris;
+  return await invFetch("invPutus", {id:baris.id, aksi:"buat", oleh:(SESSION&&SESSION.name)||"",
+    catatan:"Diterbitkan langsung oleh "+((SESSION&&SESSION.role)||"-")+" dari modul Reservasi"});
+}
+
 /* ===== KWITANSI DP → PDF =====
    Menggantikan kwitansi-struk (printer thermal dihapus). Dibuat sebagai halaman HTML
    berkop lalu dibuka dialog cetak browser → kru pilih "Save as PDF".
@@ -5590,10 +5753,18 @@ const KWI_KOP = {
   ttdNama:"(Wandi Pranata)",
   ttdJabatan:"Finance"
 };
-function kwitansiHTML(r){
+/* `inv` = berkas kwitansi resmi dari modul Finance (nomor invoice + gambar
+   tanda tangan & cap), atau null kalau belum diterbitkan / backend Finance
+   tak terjangkau. Lembarnya tetap tercetak tanpa itu — cuma tanpa tanda
+   tangan, persis seperti sebelum 20 Agustus 2026. */
+function kwitansiHTML(r, inv){
   const baris=(k,v)=>`<tr><td class="k">${esc(k)}</td><td class="v">${v}</td></tr>`;
   const lunas = isLunas(r);
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(kwitansiNo(r))} — ${esc(r.name||"")}</title>
+  const resmi = !!(inv && inv.ada);
+  const noDok = resmi && inv.no ? inv.no : kwitansiNo(r);
+  const ttdNama    = resmi && inv.penandaNama    ? inv.penandaNama    : KWI_KOP.ttdNama;
+  const ttdJabatan = resmi && inv.penandaJabatan ? inv.penandaJabatan : KWI_KOP.ttdJabatan;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(noDok)} — ${esc(r.name||"")}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font:13px/1.55 "Segoe UI",Arial,sans-serif;color:#1d1a15;background:#fff;padding:28px 30px}
@@ -5640,7 +5811,7 @@ function kwitansiHTML(r){
       ${baris("Untuk", lunas?"Pelunasan Reservasi":"Down Payment (DP) Reservasi")}
     </table>
     <table>
-      ${baris("No. Kwitansi", `<b>${esc(kwitansiNo(r))}</b>`)}
+      ${baris(resmi?"No. Invoice":"No. Kwitansi", `<b>${esc(noDok)}</b>`)}
       ${baris("Tanggal Terbit", esc(fmtDate(todayStr())))}
       ${baris("Metode Bayar", esc(r.dpMethod||"-"))}
     </table>
@@ -5661,10 +5832,20 @@ function kwitansiHTML(r){
       <div class="bayar"><b>Pembayaran dapat ditransfer ke:</b>${esc(KWI_KOP.bank)}<br><b style="margin-top:3px">${esc(KWI_KOP.rek)}</b></div>
       <div style="margin-top:12px"><span class="lunas">${lunas?"LUNAS":"DP DITERIMA"}</span></div>
     </div>
-    <div class="ttd">Hormat Kami,<div class="sp"></div>
-      <div class="nm">${esc(KWI_KOP.ttdNama)}</div>
-      <div style="color:#5c574d;font-size:11.5px">${esc(KWI_KOP.ttdJabatan)}</div>
+    <div class="ttd">Hormat Kami,
+      <!-- Ruang tanda tangan: kalau kwitansinya sudah resmi, ruang kosong itu
+           diisi gambar tanda tangan dengan CAP di belakangnya (cap sengaja
+           setengah menimpa tanda tangan & garis nama, seperti cap basah yang
+           dibubuhkan di atas kertas). Tanpa berkas resmi, tingginya tetap
+           sama supaya tata letaknya tidak melompat antara dua versi lembar. -->
+      <div class="sp" style="position:relative">
+        ${resmi&&inv.cap?`<img src="${esc(inv.cap)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">`:""}
+        ${resmi&&inv.ttd?`<img src="${esc(inv.ttd)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">`:""}
+      </div>
+      <div class="nm">${esc(ttdNama)}</div>
+      <div style="color:#5c574d;font-size:11.5px">${esc(ttdJabatan)}</div>
       <div style="color:#5c574d;font-size:11px;margin-top:5px">Diterima oleh: ${esc(dpReceivedBy(r))}</div>
+      ${resmi?`<div style="color:#1F9D5F;font-size:10.5px;margin-top:4px">✓ Diverifikasi Finance${inv.putusOleh?" · "+esc(inv.putusOleh):""}</div>`:""}
     </div>
   </div>
   <div class="catatan">${lunas
@@ -5677,13 +5858,47 @@ function kwitansiHTML(r){
 function kwitansiPDF(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  /* Jendelanya dibuka SINKRON, sebelum satu pun await. Kalau menunggu balasan
+     Finance dulu, window.open() tidak lagi berada di dalam gestur klik dan
+     peramban memblokirnya sebagai popup — kwitansinya tidak pernah muncul dan
+     yang terlihat cuma tidak terjadi apa-apa. Isinya diganti belakangan. */
   const w=window.open("","_blank","width=860,height=980");
   if(!w){ toast("Popup diblokir — izinkan popup untuk membuat PDF","err"); return; }
-  w.document.write(kwitansiHTML(r)); w.document.close();
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Menyiapkan kwitansi…</title></head>'+
+    '<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px">⏳ Menyiapkan kwitansi…</body></html>');
+  w.document.close();
+  siapkanBerkasKwi(r)
+    .then(inv=>tulisKwitansi(w,r,inv))
+    .catch(e=>{
+      /* Lembar TETAP tercetak, cuma tanpa tanda tangan. Kwitansi yang tidak
+         bisa dicetak sama sekali jauh lebih merugikan bagi tamu yang sedang
+         menunggu di depan kasir daripada kwitansi tanpa cap. */
+      tulisKwitansi(w,r,null);
+      toast("Kwitansi dicetak tanpa tanda tangan — modul Finance tak terjangkau ("+(e.message||e)+")","err");
+    });
+}
+async function siapkanBerkasKwi(r){
+  let inv = await invFetch("invBerkas", {resId:r.id});
+  /* Manager/admin menerbitkan sendiri saat mencetak, bukan lewat antrean.
+     Hasilnya lembar yang sama lengkapnya dengan yang lewat request — bukan
+     kwitansi kelas dua — dan arsip Finance tetap punya barisnya. */
+  if((!inv || !inv.ada) && bolehKwitansiLangsung()){
+    await terbitkanKwitansiLangsung(r);
+    inv = await invFetch("invBerkas", {resId:r.id});
+    muatInvStatus(r.id);
+  }
+  return inv;
+}
+function tulisKwitansi(w, r, inv){
+  const resmi = !!(inv && inv.ada);
+  try{
+    w.document.open(); w.document.write(kwitansiHTML(r, inv)); w.document.close();
+  }catch(e){ return; }   // jendelanya keburu ditutup orangnya
   // Beri jeda agar logo & font selesai dimuat sebelum dialog cetak muncul; tanpa ini
   // PDF-nya bisa tercetak tanpa kop.
   w.onload=()=>setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
-  logAudit("Kwitansi DP (PDF)", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
+  logAudit("Kwitansi DP (PDF)",
+    `${r.name}, ${rpDot(dpTotal(r))} (${resmi?inv.no:kwitansiNo(r)})${resmi?" — kwitansi resmi bertanda tangan":" — tanpa tanda tangan"}`);
 }
 ["recap","wlQueue","wlSeated"].forEach(k=>{ TBL_RENDER[k]=()=>renderHariH(); });
 /* ===== Check-in & kedatangan susulan =====
@@ -6156,7 +6371,7 @@ function openDetail(id){
            </div>`).join("")}
          ${canEdit?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-xs btn-ok" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi / cicilan berikutnya">➕ Tambah Bukti TF DP</button>
-            ${hasDP(r)?`<button class="btn btn-xs btn-ghost" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
+            ${slotKwitansi(r,"btn-xs")}
           </div>`:""}
        </div>
        ${r.notes?`<div class="detail-item full"><div class="k">📝 Catatan Khusus</div><div class="v">${esc(r.notes)}</div></div>`:""}
@@ -6189,18 +6404,23 @@ function openDetail(id){
           sudah tidak ada di berkas ini akan diam saja saat ditekan — gagal
           yang paling sulit dilaporkan orang, karena tidak ada pesan apa pun. -->
      ${canEdit?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
-     ${hasDP(r)?`<button class="btn btn-ghost btn-sm" onclick="closeModal();kwitansiPDF('${r.id}')" title="Buka kwitansi berkop → simpan sebagai PDF / cetak">🧾 Kwitansi PDF</button>`:""}
+     ${slotKwitansi(r,"btn-sm")}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
      ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
    </div>`, true);
+  /* Status kwitansi ditanyakan ke modul Finance SESUDAH modal tergambar, lalu
+     tombolnya ditambal di tempat (slotKwitansi). Menunggu balasannya dulu
+     berarti seluruh detail reservasi tertahan oleh modul lain — dan kalau
+     modul itu mati, detailnya tidak pernah terbuka sama sekali. */
+  if(hasDP(r)) muatInvStatus(r.id);
 }
 /* ===== DP bertahap: tambah / hapus cicilan + buktinya ===== */
 const DP_BADGE = {
   verified:'<span class="badge-status dp-yes" style="font-size:10px">✓ terverifikasi</span>',
   rejected:'<span class="badge-status st-noshow" style="font-size:10px">✕ ditolak</span>',
 };
-function dpBadge(p){ return DP_BADGE[p.tfStatus] || '<span class="badge-status st-pending" style="font-size:10px">⏳ belum terverifikasi</span>'; }
+function dpBadge(p){ return (DP_BADGE[p.tfStatus] || '<span class="badge-status st-pending" style="font-size:10px">⏳ belum terverifikasi</span>') + tfTandaGambar(p); }
 function findDp(resId, payId){
   const r=STATE.reservations.find(x=>x.id===resId); if(!r) return {};
   ensureDps(r);
@@ -6860,7 +7080,14 @@ const TF_BADGE = {
   verified:'<span class="badge-status dp-yes">✓ Terverifikasi</span>',
   rejected:'<span class="badge-status st-noshow">✕ Ditolak</span>',
 };
-function tfBadge(p){ return TF_BADGE[p.tfStatus] || '<span class="badge-status st-pending">⏳ Belum terverifikasi</span>'; }
+/* Penanda "dari gambar" menempel pada lencana, bukan berdiri sebagai kolom
+   sendiri: yang perlu tahu bedanya adalah orang yang sedang membaca status
+   baris itu, dan kolom tambahan cuma kosong di 95% baris. */
+function tfTandaGambar(p){
+  return (p.tfStatus==="verified" && p.tfTanpaData)
+    ? ` <span class="hint" title="Diverifikasi dari gambar bukti — ${esc(p.tfTanpaData)} tidak terbaca OCR">(dari gambar)</span>` : "";
+}
+function tfBadge(p){ return (TF_BADGE[p.tfStatus] || '<span class="badge-status st-pending">⏳ Belum terverifikasi</span>') + tfTandaGambar(p); }
 
 /* ---------- Halaman ---------- */
 // Default: HARI INI saja (bukan sebulan) — begitu buka, langsung lihat dana
@@ -7238,8 +7465,13 @@ async function saveTf(resId, payId, verify){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   readTfForm(p);
   if(verify){
-    if(!p.tfDate || !p.tfAmount){ toast("Tanggal & nominal transfer wajib diisi sebelum verifikasi","err"); return; }
-    p.tfStatus="verified"; p.tfBy=SESSION.name; p.tfAt=Date.now();
+    /* Isian formulir sudah masuk ke `p` di atas, jadi dialog konfirmasi
+       menampilkan angka yang BARUSAN diketik, bukan yang tersimpan. Kalau
+       dialognya dibatalkan, ketikan itu tetap ada di memori (tidak
+       ter-commit) — sama seperti perilaku lama saat penjaga formulir menolak,
+       dan memang lebih baik daripada menghapus ketikan orang diam-diam. */
+    verifyTf(resId, payId);
+    return;
   }
   r.updatedAt=Date.now();
   logAudit(verify?"Verifikasi Dana Masuk":"Koreksi Data Transfer",
@@ -7248,19 +7480,105 @@ async function saveTf(resId, payId, verify){
   closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // bisa dilakukan dari halaman mana pun (mis. detail reservasi)
   if(ok) toast(verify?"Dana masuk terverifikasi ✓":"Data transfer disimpan ✓","ok");
 }
-async function verifyTf(resId, payId){
+/* ===== KONFIRMASI VERIFIKASI (20 Agustus 2026) =====
+   Dua perubahan yang datang bersamaan, dan keduanya dari kejadian nyata.
+
+   1. VERIFIKASI SEKARANG PUNYA DIALOG. Sebelumnya sekali tombolnya tersentuh
+      barisnya langsung jadi "terverifikasi" — tidak ada langkah antara,
+      padahal yang dinyatakan adalah "uang ini benar-benar masuk ke rekening",
+      pernyataan yang dipakai halaman lain sebagai fakta dan tercatat atas
+      nama orangnya di audit log. Dialognya menampilkan APA yang sedang
+      dinyatakan benar, lengkap dengan gambar buktinya di sebelahnya.
+
+   2. KOLOM KOSONG TIDAK LAGI MENGHALANGI. Kolom tanggal/nominal/bank/pengirim
+      diisi OCR dari gambar bukti, dan OCR gagal membaca bukti yang gelap,
+      miring, atau berupa foto layar. Dulu baris seperti itu MUSTAHIL
+      diverifikasi lewat tombolnya (`if(!p.tfDate…) return`) — padahal
+      orangnya sedang MELIHAT buktinya di layar dan tahu uangnya masuk. Satu-
+      satunya jalan keluar yang tersisa adalah mengetik ulang isi bukti supaya
+      penjaga formulirnya lolos, dan angka ketikan itu tidak lebih benar
+      daripada mengakui terus terang bahwa datanya tidak terbaca.
+
+   Yang diverifikasi tanpa data lengkap ditandai `tfTanpaData` (berisi daftar
+   kolom yang kosong) supaya baris itu tidak terlihat sama dengan yang datanya
+   lengkap saat diaudit. Reservasi disimpan sebagai JSON utuh di kolom `data`
+   oleh backend, jadi field baru ini tidak butuh migrasi. */
+function tfKurangData(p, x){
+  const kurang=[];
+  if(!p.tfDate) kurang.push("tanggal transfer");
+  if(!(Number(p.tfAmount)>0)) kurang.push("nominal di bukti");
+  if(!txBank(x)) kurang.push("bank");
+  if(!p.tfName) kurang.push("nama pengirim");
+  return kurang;
+}
+function verifyTf(resId, payId){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
   const x={r,p};
-  if(!p.tfDate || !txAmount(x)){ openTfEdit(resId,payId); toast("Lengkapi tanggal & nominal transfer dulu","err"); return; }
+  const ke=r.dps.findIndex(d=>d.id===p.id)+1, dari=r.dps.length;
+  const kurang=tfKurangData(p,x);
+  const nomHost=Number(p.amount)||0, nomBukti=Number(p.tfAmount)||0;
+  const baris=(l,v)=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--line)"><span class="hint">${l}</span><span>${v}</span></div>`;
+  const kosong='<span class="hint">— tidak terbaca —</span>';
+  openModal(`
+   <div class="modal-head"><h3>✓ Verifikasi Dana Masuk — ${esc(r.name)}${dari>1?` (DP ${ke} dari ${dari})`:""}</h3>
+     <button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div style="display:grid;grid-template-columns:${txProofIsImage(x)?"1fr 1fr":"1fr"};gap:16px">
+       <div>
+         <div class="inline-info" style="margin-bottom:12px"><div>
+           Kamu menyatakan uang ini <b>benar-benar sudah masuk</b> ke rekening.
+           Pernyataan ini dipakai halaman lain sebagai fakta dan tercatat atas namamu di audit log.
+         </div></div>
+         ${baris("Tanggal transfer", p.tfDate?`<b>${esc(fmtDateShort(p.tfDate))}${p.tfTime?" "+esc(p.tfTime):""}</b>`:kosong)}
+         ${baris("Bank / metode", txBank(x)?esc(txBank(x)):kosong)}
+         ${baris("Nama pengirim", p.tfName?esc(p.tfName):kosong)}
+         ${baris("Nominal di bukti", nomBukti?`<b>${rpDot(nomBukti)}</b>`:kosong)}
+         ${baris("Nominal menurut host", rpDot(nomHost))}
+         ${(nomBukti&&nomHost&&nomBukti!==nomHost)?`<div class="inline-info" style="margin-top:12px"><div>
+           ⚠️ <b>Selisih ${rpDot(Math.abs(nomBukti-nomHost))}</b> antara bukti dan angka yang diinput host.
+           Yang dipakai sebagai dana masuk adalah <b>${rpDot(nomBukti)}</b> (angka di bukti).</div></div>`:""}
+         ${kurang.length?`<div class="inline-info" style="margin-top:12px"><div>
+           ⚠️ <b>${kurang.length} data tidak terbaca:</b> ${esc(kurang.join(", "))}.<br>
+           Ini wajar kalau gambar buktinya gelap, miring, atau berupa foto layar — OCR gagal, bukan datanya yang tidak ada.
+           <b>Kamu tetap boleh memverifikasi</b> berdasarkan gambar bukti di samping.
+           Barisnya akan ditandai <i>“dari gambar”</i> supaya bedanya terlihat saat diaudit.
+           ${!nomBukti?`<br>Nominal yang dicatat memakai angka host: <b>${rpDot(nomHost)}</b>.`:""}
+         </div></div>`:""}
+       </div>
+       ${txProofIsImage(x)?`<div>
+         <div class="lbl" style="font-size:11.5px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Bukti Transfer</div>
+         <img id="tfProofImg" style="width:100%;border:1px solid var(--line);border-radius:10px;background:var(--paper);min-height:120px" alt="bukti transfer">
+         <div id="tfProofLoad" class="hint" style="text-align:center;margin-top:6px">⏳ memuat bukti…</div>
+       </div>`:""}
+     </div>
+   </div>
+   <div class="modal-foot" style="flex-wrap:wrap">
+     <span style="margin-right:auto">${tfBadge(p)}</span>
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-ghost" onclick="closeModal();openTfEdit('${r.id}','${p.id}')">✏️ Lengkapi dulu</button>
+     <button class="btn btn-ok" onclick="verifyTfGo('${r.id}','${p.id}')">✓ Ya, verifikasi${kurang.length?" tanpa data lengkap":""}</button>
+   </div>`, true);
+  if(txProofIsImage(x)) muatBuktiKeImg(p.proofData);
+}
+async function verifyTfGo(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const x={r,p};
   const prev=JSON.parse(JSON.stringify(p));
+  const kurang=tfKurangData(p,x);
   if(!Number(p.tfAmount)) p.tfAmount=Number(p.amount)||0;
   if(!p.tfBank) p.tfBank=bankFromMethod(p.method);
   p.tfStatus="verified"; p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
-  logAudit("Verifikasi Dana Masuk", `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate} ${p.tfTime||""} ${rpDot(txAmount(x))}`);
+  if(kurang.length) p.tfTanpaData=kurang.join(", "); else delete p.tfTanpaData;
+  logAudit("Verifikasi Dana Masuk",
+    `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"(tanggal tidak terbaca)"} ${p.tfTime||""} ${rpDot(txAmount(x))}`+
+    (kurang.length?` — TANPA ${kurang.join(", ").toUpperCase()}, diverifikasi dari gambar bukti`:""));
   const ok=await commit("Memverifikasi dana masuk ke database…");
-  if(!ok) Object.assign(p, prev);
+  /* tfTanpaData dihapus lebih dulu: Object.assign tidak membuang field yang
+     TIDAK ada di salinan lama, jadi tanpa baris ini penanda "dari gambar"
+     tertinggal pada baris yang verifikasinya justru gagal tersimpan. */
+  if(!ok){ delete p.tfTanpaData; Object.assign(p, prev); }
   closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
-  if(ok) toast("Dana masuk terverifikasi ✓","ok");
+  if(ok) toast(kurang.length?"Dana masuk terverifikasi ✓ (data tidak lengkap)":"Dana masuk terverifikasi ✓","ok");
 }
 async function rejectTf(resId, payId){
   const {r,p}=findDp(resId,payId); if(!r||!p) return;
@@ -7287,7 +7605,8 @@ function exportFinanceCSV(){
       p.tfDate||"", p.tfTime||"", txBank(x), txName(x), txAmount(x), Number(p.amount)||0,
       (Number(p.tfAmount)||0) && (Number(p.amount)||0) ? (Number(p.tfAmount)-Number(p.amount)) : 0,
       x.ke, x.dari, dpTotal(r),
-      p.tfStatus==="verified"?"Terverifikasi":p.tfStatus==="rejected"?"Ditolak":"Belum dicek",
+      p.tfStatus==="verified"?("Terverifikasi"+(p.tfTanpaData?" (dari gambar, "+p.tfTanpaData+" tidak terbaca)":""))
+        :p.tfStatus==="rejected"?"Ditolak":"Belum dicek",
       p.tfNote||"", r.name, displayPhone(r.phone), r.date, r.time, r.table, r.pax,
       p.proofData?"Ada":"Tidak ada", p.tfSource==="ocr"?"OCR bukti":p.tfSource==="manual"?"Manual":"-",
       p.tfBy||"", p.tfAt?fmtTs(p.tfAt):"",
