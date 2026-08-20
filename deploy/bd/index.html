@@ -2423,6 +2423,22 @@ function poRekapMingguan(){
    yang tahu mana yang benar — persis masalah yang membuat rekap spreadsheet
    lama harus dicek ulang manual. */
 function prItems(prId){ return DB.po.filter(function(p){return p.prId===prId;}); }
+/* Lembar PR dianggap SELESAI kalau seluruh itemnya sudah beres, dan itu
+   DIHITUNG — bukan penanda tersimpan yang harus ditekan seseorang.
+
+   Sebabnya: penanda tersimpan berarti ada dua kebenaran yang bisa berselisih.
+   Lembar bertanda "arsip" yang salah satu itemnya dibuka lagi akan duduk di
+   arsip dengan pekerjaan hidup di dalamnya, dan tidak ada tempat yang
+   melaporkannya. Dihitung dari itemnya, melepas centang satu item langsung
+   menarik lembarnya kembali ke daftar berjalan.
+
+   Lembar KOSONG tidak pernah dianggap selesai: nol dari nol memenuhi "semua
+   sudah beres" secara logika, tapi lembar yang baru dibuat dan itemnya belum
+   dimasukkan akan langsung lenyap ke arsip. */
+function prBeres(prId){
+  var items=prItems(prId);
+  return items.length>0 && items.every(poBeres);
+}
 function prTotal(prId){
   var grand=0, belum=0;
   prItems(prId).forEach(function(p){
@@ -2442,6 +2458,7 @@ function prNoBerikut(){
 }
 
 var prAktif=null;
+var prLihatArsip=false;
 
 /* Request yang BELUM ikut dokumen mana pun.
 
@@ -2524,15 +2541,33 @@ function vPrList(){
      kelima), dan tiga penyetuju ditampilkan terpisah supaya terlihat siapa
      yang belum tanda tangan tanpa harus masuk ke dokumennya. */
   var urut=DB.pr.slice().sort(function(a,b){return (b.tanggal||b.weekStart||'')<(a.tanggal||a.weekStart||'')?-1:1;});
+  var jalan=urut.filter(function(x){return !prBeres(x.id);});
+  var arsip=urut.filter(function(x){return  prBeres(x.id);});
+  var tampil=prLihatArsip?arsip:jalan;
+
+  h+='<div class="filters">'+
+    '<div class="seg">'+
+      '<button class="'+(prLihatArsip?'':'on')+'" onclick="APP.setPrArsip(0)">Berjalan ('+jalan.length+')</button>'+
+      '<button class="'+(prLihatArsip?'on':'')+'" onclick="APP.setPrArsip(1)">Arsip ('+arsip.length+')</button>'+
+    '</div>'+
+    '<span class="muted" style="font-size:12px;margin-left:auto">lembar pindah ke arsip sendiri begitu seluruh itemnya diproses</span>'+
+  '</div>';
+
+  if(!tampil.length) return h+'<div class="card"><div class="card-b">'+
+    kosong(prLihatArsip?'Arsip masih kosong':'Tidak ada lembar PR yang berjalan',
+      prLihatArsip?'Lembar masuk ke sini otomatis begitu seluruh itemnya ditandai selesai.'
+                 :'Semua lembar sudah selesai diproses — lihat tab Arsip.')+'</div></div>';
+
   return h+'<div class="tw"><table><thead><tr>'+
     '<th>PR No</th><th>Tanggal</th><th>Periode</th><th>Penyusun</th><th>Dept</th>'+
-    '<th>Isi lembar</th><th>Item</th><th>Grand total</th>'+
+    '<th>Isi lembar</th><th>Item</th><th>Diproses</th><th>Grand total</th>'+
     penyetujuPr(null).map(function(s){return '<th>'+esc(s.l)+'</th>';}).join('')+
     '<th>Status</th><th></th></tr></thead><tbody>'+
-    urut.map(function(x){
+    tampil.map(function(x){
       var t=prTotal(x.id), items=prItems(x.id);
       var nama=items.slice(0,5).map(function(p){return p.item;});
       var sisa=items.length-nama.length;
+      var beres=items.filter(poBeres).length;
       return '<tr class="clk" onclick="APP.bukaPr(\''+x.id+'\')">'+
         '<td><span class="nm">PR-'+esc(x.no||'?')+'</span></td>'+
         '<td><span class="mut" style="white-space:nowrap">'+esc(fTgl(x.tanggal))+'</span></td>'+
@@ -2542,6 +2577,11 @@ function vPrList(){
         '<td style="max-width:280px"><span class="mut" style="font-size:12px;line-height:1.5">'+
           (nama.length?esc(nama.join(', '))+(sisa?' <b>+'+sisa+' lagi</b>':''):'<i>belum ada item</i>')+'</span></td>'+
         '<td><span class="num">'+items.length+'</span>'+(t.belum?'<div>'+pill(t.belum+' tanpa harga','p-warn')+'</div>':'')+'</td>'+
+        /* "berapa dari berapa" — pertanyaan yang selama ini dijawab dengan
+           membuka lembarnya satu per satu dan menghitung pil hijaunya. */
+        '<td>'+(items.length
+            ? pill(beres+' / '+items.length, beres===items.length?'p-go':beres?'p-warn':'p-mute')
+            : '<span class="mut">—</span>')+'</td>'+
         '<td><span class="nm num" style="white-space:nowrap">'+fRpPenuh(t.grand)+'</span></td>'+
         penyetujuPr(x).map(function(s){
           var a=(x.approvals||{})[s.k]||{};
@@ -2629,7 +2669,9 @@ function vPrDetail(){
 
   var h='<div class="no-print">'+
     '<button class="backlink" onclick="APP.go(\'purchasing\')">'+ic('chevL',13)+'Semua dokumen PR</button>'+
-    head('PR-'+esc(pr.no||'?'),'Purchase Request · '+labelMinggu(pr.weekStart||pr.tanggal),
+    head('PR-'+esc(pr.no||'?'),'Purchase Request · '+labelMinggu(pr.weekStart||pr.tanggal)+
+      ' · '+prItems(pr.id).filter(poBeres).length+' dari '+prItems(pr.id).length+' item diproses'+
+      (prBeres(pr.id)?' · sudah diarsipkan':''),
       '<button class="btn" onclick="APP.prModal(\''+pr.id+'\')">'+ic('edit')+'Kepala surat</button>'+
       '<button class="btn" onclick="APP.cetakPr()">'+ic('cart')+'Cetak / Simpan PDF</button>'+
       (pr.status==='Draft'
@@ -3717,6 +3759,7 @@ window.APP={
     tr.remove(); nomoriBarisReq();
   },
   buatPr:buatPr, bukaPr:bukaPr, hapusPr:hapusPr, prModal:prModal, simpanPr:simpanPr,
+  setPrArsip:function(v){ prLihatArsip=!!v; render(); },
   /* Centang TIDAK memicu render ulang — halaman yang menggambar ulang dirinya
      tiap centang akan menggulung balik ke atas dan menghapus pilihan yang
      sedang disusun. Yang diperbarui cuma tulisan di tombolnya. */

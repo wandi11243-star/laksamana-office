@@ -5613,7 +5613,16 @@ function dpReceivedBy() {  }
 
 
 
+
+
+
+
+
+
+
+
 function bolehKwitansiLangsung() {  }
+function bolehMintaKwitansi() {  }
 
 
 
@@ -5687,7 +5696,7 @@ function slotKwitansi() { hasDP(); esc(); slotKwitansiHTML(); }
 
 function slotKwitansiHTML() {  }
 
-function tombolPdf() { closeModal(); kwitansiPDF(); esc(); bolehKwitansiLangsung(); fmtTs(); mintaKwitansi(); muatInvStatus(); }
+function tombolPdf() { closeModal(); kwitansiPDF(); esc(); bolehKwitansiLangsung(); fmtTs(); mintaKwitansi(); muatInvStatus(); bolehMintaKwitansi(); }
 
 
 
@@ -5711,7 +5720,25 @@ function tombolPdf() { closeModal(); kwitansiPDF(); esc(); bolehKwitansiLangsung
 
 
 
-function mintaKwitansi() { hasDP(); toast(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); invFetch(); invRingkas(); segarkanSlotKwi(); logAudit(); kwitansiNo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mintaKwitansi() { bolehMintaKwitansi(); toast(); hasDP(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); invFetch(); invRingkas(); segarkanSlotKwi(); logAudit(); kwitansiNo(); }
+
 
 
 
@@ -5872,7 +5899,15 @@ function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); to
 
 
 
-function kwitansiPDF() { hasDP(); toast(); siapkanBerkasKwi(); tulisKwitansi(); }
+function kwitansiPDF() { bolehKwitansiLangsung(); toast(); hasDP(); siapkanBerkasKwi(); tulisKwitansi(); }
+
+
+
+
+
+
+
+
 
 
 

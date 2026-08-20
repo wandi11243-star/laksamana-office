@@ -5612,8 +5612,17 @@ function dpReceivedBy(r){ return r.createdBy || (SESSION && SESSION.name) || "-"
    kosong — kwitansi yang tidak bisa dicetak sama sekali jauh lebih merugikan
    daripada kwitansi tanpa cap. */
 const API_INV_URL = "../finance-api-mysql/api.php";
+/* Yang boleh MENGELUARKAN kwitansi (menghasilkan lembar PDF-nya). Daftar
+   putih, bukan daftar hitam: role yang ditambahkan nanti tidak boleh
+   diam-diam ikut bisa mencetak hanya karena lupa dimasukkan ke daftar
+   larangan. */
 const ROLE_KWI_LANGSUNG = ["manager","admin"];
+/* Yang boleh MEMINTA kwitansi ke Finance. View Only sengaja di luar: ia tidak
+   mengubah apa pun di modul ini, dan permintaan adalah perubahan yang
+   menimbulkan pekerjaan buat orang lain. */
+const ROLE_KWI_MINTA = ["host","marketing","cashier","manager","admin"];
 function bolehKwitansiLangsung(){ return ROLE_KWI_LANGSUNG.includes(SESSION&&SESSION.role); }
+function bolehMintaKwitansi(){ return ROLE_KWI_MINTA.includes(SESSION&&SESSION.role); }
 
 /* resId -> baris invoice, `null` = sudah ditanya & memang belum ada permintaan,
    `undefined` = belum pernah ditanya. Tiga keadaan, bukan dua: tanpa memisahkan
@@ -5689,8 +5698,22 @@ function slotKwitansiHTML(r, cls, err){
   const inv = INV_CACHE[r.id];
   const tombolPdf = (judul)=>`<button class="btn btn-ghost ${cls}" onclick="closeModal();kwitansiPDF('${r.id}')" title="${esc(judul)}">🧾 Kwitansi PDF</button>`;
 
-  if(inv && inv.status==="DIBUAT")
+  /* MENCETAK KWITANSI = MANAJER/OWNER & ADMIN SAJA (21 Agustus 2026).
+     Host/Captain, Marketing (PIC), Cashier, dan View Only tidak pernah
+     mendapat tombol PDF — bukan cuma "tidak bisa menerbitkan sendiri".
+     Sebelumnya, begitu Finance menerbitkan invoice-nya, tombol Kwitansi PDF
+     muncul untuk SEMUA orang yang bisa membuka detail reservasi; artinya
+     lembar bertanda tangan resmi bisa dikirim ke tamu oleh siapa saja, dan
+     seluruh gerbang permintaan di atasnya jadi cuma penunda satu langkah.
+
+     Yang tidak berhak tetap melihat KEADAANNYA (sudah terbit / menunggu /
+     ditolak) — mereka yang berhadapan dengan tamu dan perlu tahu kabarnya —
+     cuma tanpa tombol yang menghasilkan dokumennya. */
+  if(inv && inv.status==="DIBUAT"){
+    if(!bolehKwitansiLangsung())
+      return `<span class="badge-status dp-yes" title="Kwitansi resmi ${esc(inv.no||"")} sudah terbit. Yang mengirimkannya ke tamu: Manajer/Owner atau Admin Sistem.">✓ Kwitansi terbit${inv.no?" · "+esc(inv.no):""}</span>`;
     return tombolPdf(`Kwitansi resmi ${inv.no} — sudah bertanda tangan & cap perusahaan`);
+  }
 
   /* Manager/admin tidak pernah melihat tombol Request. Kalau backendnya tak
      terjangkau pun tombolnya tetap Kwitansi PDF: kwitansiPDF() sendiri yang
@@ -5709,10 +5732,14 @@ function slotKwitansiHTML(r, cls, err){
   if(inv === undefined)
     return `<button class="btn btn-ghost ${cls}" onclick="muatInvStatus('${r.id}')" title="${esc(err||"Status kwitansi belum terbaca dari modul Finance")}">🧾 Status kwitansi ${err?"gagal dibaca — coba lagi":"…"}</button>`;
 
+  if(!bolehMintaKwitansi())
+    return `<span class="badge-status st-pending" title="Kwitansi diminta oleh Host/Captain, Marketing, atau Cashier, lalu diterbitkan Finance.">🧾 Belum ada kwitansi</span>`;
+
   return `<button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Minta Finance menerbitkan kwitansi resmi bertanda tangan untuk tamu ini">🧾 Request Kwitansi</button>`;
 }
 async function mintaKwitansi(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  if(!bolehMintaKwitansi()){ toast("Anda tidak punya akses meminta kwitansi.","err"); return; }
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
   const belum = dpsOf(r).length - dpVerifiedCount(r);
   if(!confirm(`Minta Finance menerbitkan kwitansi resmi untuk "${r.name}"?\n\n`+
@@ -5874,6 +5901,14 @@ function kwitansiHTML(r, inv){
 }
 function kwitansiPDF(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  /* Gerbang KEDUA, bukan pengulangan yang mubazir. Menyembunyikan tombolnya
+     saja tidak pernah cukup: fungsi ini global, terpanggil dari beberapa
+     tempat, dan pernah dipasang di tombol lain. Yang menyembunyikan menu
+     tanpa menjaga fungsinya cuma menyembunyikan, bukan melarang. */
+  if(!bolehKwitansiLangsung()){
+    toast("Hanya Manajer/Owner & Admin Sistem yang bisa mengeluarkan kwitansi. Pakai tombol Request Kwitansi.","err");
+    return;
+  }
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
   /* Jendelanya dibuka SINKRON, sebelum satu pun await. Kalau menunggu balasan
      Finance dulu, window.open() tidak lagi berada di dalam gestur klik dan

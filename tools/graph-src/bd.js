@@ -2423,6 +2423,22 @@ function poRekapMingguan() { geserMinggu(); awalMinggu(); todayISO(); ic(); labe
 
 
 function prItems() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function prBeres() { prItems(); }
+
+
+
 function prTotal() { prItems(); }
 
 
@@ -2455,9 +2471,33 @@ function prNoBerikut() {  }
 
 
 
+
 function poBebas() {  }
 
-function vPrList() { poBebas(); buatPr(); ic(); poModal(); esc(); poRequester(); fRpPenuh(); fTgl(); fWaktu(); hapusPo(); kosong(); penyetujuPr(); prTotal(); prItems(); bukaPr(); labelMinggu(); todayISO(); pill(); hapusPr(); }
+function vPrList() { poBebas(); buatPr(); ic(); poModal(); esc(); poRequester(); fRpPenuh(); fTgl(); fWaktu(); hapusPo(); kosong(); prBeres(); penyetujuPr(); prTotal(); prItems(); bukaPr(); labelMinggu(); todayISO(); pill(); hapusPr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2609,7 +2649,9 @@ function hapusPr() { prItems(); save(); render(); toast(); }
 
 
 
-function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); selRealisasi(); selOverbudget(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); approverSets(); setPr(); penyetujuPr(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+function vPrDetail() { vPurchasing(); prItems(); prTotal(); go(); ic(); head(); esc(); labelMinggu(); prBeres(); prModal(); statusPr(); fTglPanjang(); poRequester(); fRpPenuh(); selRealisasi(); selOverbudget(); poProsesSel(); poModal(); lepasDariPr(); realisasiNum(); approverSets(); setPr(); penyetujuPr(); fTgl(); bolehSetuju(); setujuPr(); alasanTakBolehSetuju(); poBebas(); masukkanKePr(); kosong(); }
+
+
 
 
 
@@ -3638,6 +3680,7 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 function showModal() { $(); taskModal(); render(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+
 
 
 
