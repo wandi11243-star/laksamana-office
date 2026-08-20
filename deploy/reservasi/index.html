@@ -5698,22 +5698,20 @@ function slotKwitansiHTML(r, cls, err){
   const inv = INV_CACHE[r.id];
   const tombolPdf = (judul)=>`<button class="btn btn-ghost ${cls}" onclick="closeModal();kwitansiPDF('${r.id}')" title="${esc(judul)}">🧾 Kwitansi PDF</button>`;
 
-  /* MENCETAK KWITANSI = MANAJER/OWNER & ADMIN SAJA (21 Agustus 2026).
-     Host/Captain, Marketing (PIC), Cashier, dan View Only tidak pernah
-     mendapat tombol PDF — bukan cuma "tidak bisa menerbitkan sendiri".
-     Sebelumnya, begitu Finance menerbitkan invoice-nya, tombol Kwitansi PDF
-     muncul untuk SEMUA orang yang bisa membuka detail reservasi; artinya
-     lembar bertanda tangan resmi bisa dikirim ke tamu oleh siapa saja, dan
-     seluruh gerbang permintaan di atasnya jadi cuma penunda satu langkah.
+  /* YANG DIJAGA ITU MENERBITKAN, BUKAN MENGUNDUH (21 Agustus 2026).
 
-     Yang tidak berhak tetap melihat KEADAANNYA (sudah terbit / menunggu /
-     ditolak) — mereka yang berhadapan dengan tamu dan perlu tahu kabarnya —
-     cuma tanpa tombol yang menghasilkan dokumennya. */
-  if(inv && inv.status==="DIBUAT"){
-    if(!bolehKwitansiLangsung())
-      return `<span class="badge-status dp-yes" title="Kwitansi resmi ${esc(inv.no||"")} sudah terbit. Yang mengirimkannya ke tamu: Manajer/Owner atau Admin Sistem.">✓ Kwitansi terbit${inv.no?" · "+esc(inv.no):""}</span>`;
+     Sempat dibuat sebaliknya — tombol PDF hanya untuk Manajer/Admin, bahkan
+     sesudah Finance menerbitkan kwitansinya. Hasilnya jalan buntu: kru yang
+     meminta melihat chip "✓ Kwitansi terbit · INV/…" lalu tidak bisa berbuat
+     apa-apa dengannya, padahal dialah yang sedang berhadapan dengan tamunya.
+     Seluruh alur permintaan jadi tidak ada gunanya.
+
+     Aturannya sekarang: begitu status DIBUAT, SIAPA PUN yang bisa membuka
+     detail reservasi boleh mengunduh lembarnya. Yang tetap mustahil bagi
+     selain Manajer/Admin adalah MENGHASILKAN kwitansi tanpa lewat Finance —
+     dan itu dijaga di cabang di bawah + di dalam kwitansiPDF(). */
+  if(inv && inv.status==="DIBUAT")
     return tombolPdf(`Kwitansi resmi ${inv.no} — sudah bertanda tangan & cap perusahaan`);
-  }
 
   /* Manager/admin tidak pernah melihat tombol Request. Kalau backendnya tak
      terjangkau pun tombolnya tetap Kwitansi PDF: kwitansiPDF() sendiri yang
@@ -5796,6 +5794,20 @@ function kwitansiHTML(r, inv){
   const pen = (resmi && Array.isArray(inv.penanda) && inv.penanda.length)
     ? inv.penanda
     : [{nama:KWI_KOP.ttdNama, jabatan:KWI_KOP.ttdJabatan, ttd:""}];
+  /* Dua baris DIBUANG dari blok tanda tangan pada 21 Agustus 2026 atas
+     permintaan tim: "Diterima oleh: <kru>" dan "✓ Diverifikasi Finance
+     · <kru>". Keduanya catatan INTERNAL — siapa yang menerima uangnya dan
+     siapa yang meloloskan lembarnya — sementara lembar ini dipegang TAMU.
+     Nama kru di dokumen keluar cuma menimbulkan pertanyaan yang tidak perlu
+     dijawab ke luar; jejaknya tetap lengkap di audit log dan arsip Finance.
+
+     Catatannya ditulis DI SINI, bukan sebagai komentar HTML di dalam template
+     di bawah: komentar di sana ikut tercetak ke sumber PDF yang diterima tamu,
+     dan sempat membuat uji "nama kru tidak bocor" merah karena menemukan
+     kalimat penjelasannya sendiri.
+
+     dpReceivedBy() sengaja dibiarkan ada — tidak dicetak lagi, tapi datanya
+     (r.createdBy) masih dipakai halaman lain. */
   return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(noDok)} — ${esc(r.name||"")}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -5888,8 +5900,6 @@ function kwitansiHTML(r, inv){
           <div style="color:#5c574d;font-size:11.5px">${esc(p.jabatan||"")}</div>
         </div>`).join("")}
       </div>
-      <div style="color:#5c574d;font-size:11px;margin-top:5px">Diterima oleh: ${esc(dpReceivedBy(r))}</div>
-      ${resmi?`<div style="color:#1F9D5F;font-size:10.5px;margin-top:4px">✓ Diverifikasi Finance${inv.putusOleh?" · "+esc(inv.putusOleh):""}</div>`:""}
     </div>
   </div>
   <div class="catatan">${lunas
@@ -5902,11 +5912,13 @@ function kwitansiHTML(r, inv){
 function kwitansiPDF(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   /* Gerbang KEDUA, bukan pengulangan yang mubazir. Menyembunyikan tombolnya
-     saja tidak pernah cukup: fungsi ini global, terpanggil dari beberapa
-     tempat, dan pernah dipasang di tombol lain. Yang menyembunyikan menu
-     tanpa menjaga fungsinya cuma menyembunyikan, bukan melarang. */
-  if(!bolehKwitansiLangsung()){
-    toast("Hanya Manajer/Owner & Admin Sistem yang bisa mengeluarkan kwitansi. Pakai tombol Request Kwitansi.","err");
+     saja tidak pernah cukup: fungsi ini global dan terpanggil dari beberapa
+     tempat. Yang dijaga MENERBITKAN, bukan mengunduh — kwitansi yang sudah
+     terbit boleh diambil siapa pun yang bisa membuka detailnya. */
+  const langsung = bolehKwitansiLangsung();
+  const sudahTerbit = !!(INV_CACHE[r.id] && INV_CACHE[r.id].status==="DIBUAT");
+  if(!langsung && !sudahTerbit){
+    toast("Kwitansi resmi belum diterbitkan Finance. Tekan Request Kwitansi dulu.","err");
     return;
   }
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
@@ -5922,9 +5934,24 @@ function kwitansiPDF(id){
   siapkanBerkasKwi(r)
     .then(inv=>tulisKwitansi(w,r,inv))
     .catch(e=>{
-      /* Lembar TETAP tercetak, cuma tanpa tanda tangan. Kwitansi yang tidak
-         bisa dicetak sama sekali jauh lebih merugikan bagi tamu yang sedang
-         menunggu di depan kasir daripada kwitansi tanpa cap. */
+      if(e && e.belumTerbit){
+        /* Bukan gangguan jaringan: statusnya di layar sudah basi. Jendelanya
+           menjelaskan itu alih-alih mencetak lembar tanpa tanda tangan. */
+        try{
+          w.document.open();
+          w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi belum terbit</title></head>'+
+            '<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px;line-height:1.7">'+
+            '<b style="color:#1d1a15;font-size:16px">Kwitansi resmi belum terbit</b><br>'+
+            'Finance belum menerbitkan kwitansi untuk reservasi ini. Tutup jendela ini, lalu tekan '+
+            '<b>Request Kwitansi</b> di detail reservasinya.</body></html>');
+          w.document.close();
+        }catch(x){}
+        toast(e.message,"err");
+        return;
+      }
+      /* Gangguan jaringan: lembar TETAP tercetak, cuma tanpa tanda tangan.
+         Kwitansi yang tidak bisa dicetak sama sekali jauh lebih merugikan bagi
+         tamu yang sedang menunggu di depan kasir daripada kwitansi tanpa cap. */
       tulisKwitansi(w,r,null);
       toast("Kwitansi dicetak tanpa tanda tangan — modul Finance tak terjangkau ("+(e.message||e)+")","err");
     });
@@ -5938,6 +5965,17 @@ async function siapkanBerkasKwi(r){
     await terbitkanKwitansiLangsung(r);
     inv = await invFetch("invBerkas", {resId:r.id});
     muatInvStatus(r.id);
+  }
+  /* Untuk yang BUKAN Manajer/Admin, kwitansi yang ternyata belum terbit tidak
+     boleh jatuh ke lembar-tanpa-tanda-tangan seperti jalur mereka. Itu persis
+     penerbitan sendiri lewat pintu belakang — cukup dengan status yang sudah
+     basi di layar. Dilempar sebagai galat bertanda supaya penangkapnya tahu
+     bedanya dari "Finance sedang tidak terjangkau". */
+  if((!inv || !inv.ada) && !bolehKwitansiLangsung()){
+    const e=new Error("Kwitansi resmi belum diterbitkan Finance untuk reservasi ini.");
+    e.belumTerbit=true;
+    muatInvStatus(r.id);
+    throw e;
   }
   return inv;
 }
