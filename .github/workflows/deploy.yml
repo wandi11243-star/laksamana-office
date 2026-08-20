@@ -11,6 +11,102 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ==================================================================
+      # PROBE FTP — LANGKAH PERTAMA, DAN HASILNYA DITULIS KE RINGKASAN RUN
+      #
+      # Kenapa ada: 20-21 Agustus 2026 deploy produksi gagal tiga kali
+      # berturut-turut dengan gejala yang sama — berkas yang berubah tidak
+      # mendarat, `.ftp-deploy-sync-state.json` di server tidak ikut ter-
+      # perbarui (artinya aksi FTP tidak pernah menyelesaikan sinkron), dan
+      # dev dengan commit yang sama mendarat mulus. Jelas gangguannya di
+      # koneksi/akun FTP produksi, bukan di repo.
+      #
+      # Masalahnya SEBABNYA tidak pernah sampai ke orang yang bisa
+      # memperbaikinya. Pesan aslinya ada di dalam langkah "Deploy via FTP",
+      # yang bertanda continue-on-error sehingga ikonnya TIDAK merah — jadi
+      # yang membuka run gagal langsung menuju langkah merah di paling bawah
+      # (Verifikasi), membaca "berkas beda dari repo", dan menyimpulkan yang
+      # salah adalah berkasnya.
+      #
+      # Langkah ini menerjemahkan kode keluar curl jadi satu kalimat yang
+      # menyebut APA yang harus dibetulkan, lalu menuliskannya ke
+      # $GITHUB_STEP_SUMMARY — halaman ringkasan run, yang terbuka duluan
+      # tanpa perlu membentangkan langkah apa pun.
+      #
+      # TANPA `-v`. Mode verbose curl mencetak percakapan FTP lengkap; itu
+      # menambah risiko tanpa menambah kejelasan, karena baris ringkas
+      # "curl: (67) ... 530" sudah menyebut sebabnya.
+      # ==================================================================
+      - name: Probe FTP & tulis diagnosis ke ringkasan run
+        if: always()
+        continue-on-error: true
+        env:
+          FTP_SERVER:   ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          set +e
+          # Secret-nya diisi manusia dan bisa saja memuat skema atau garis
+          # miring di ujung ("ftp://host/"). Aksi FTP di bawah memaafkannya,
+          # curl tidak — dan probe yang salah bentuk akan melapor "URL
+          # malformed" seolah servernya yang bermasalah.
+          HOST="${FTP_SERVER#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          probe() {
+            curl -sS --connect-timeout 20 --max-time 60 \
+                 --user "$FTP_USERNAME:$FTP_PASSWORD" \
+                 "ftp://$HOST$1" -o /dev/null 2>"/tmp/ftp_err$2.txt"
+            echo $?
+          }
+          artinya() {
+            case "$1" in
+              0)  echo "OK — login berhasil & folder terbaca" ;;
+              3)  echo "Alamat FTP salah bentuk. Periksa isi secret **FTP_SERVER** (harus nama host saja, tanpa \`ftp://\`)." ;;
+              6)  echo "Nama server tidak bisa di-resolve. Secret **FTP_SERVER** salah, atau DNS-nya berubah." ;;
+              7)  echo "Koneksi ditolak / tidak sampai. Port 21 diblokir — besar kemungkinan IP runner GitHub kena firewall (CSF) Rumahweb. **Minta whitelist ke support Rumahweb.**" ;;
+              28) echo "Timeout, server tidak menjawab dalam 60 detik. Server sedang bermasalah atau koneksinya disaring." ;;
+              67) echo "**LOGIN DITOLAK.** Secret **FTP_USERNAME / FTP_PASSWORD** sudah tidak cocok, atau akun FTP-nya dihapus. Reset password di cPanel → FTP Accounts, lalu perbarui secret-nya di GitHub." ;;
+              9)  echo "Login berhasil TAPI foldernya tidak bisa dibuka. **server-dir** di workflow ini menunjuk path yang sudah tidak ada, atau hak aksesnya berubah." ;;
+              *)  echo "Gagal dengan kode curl $1 — lihat cuplikan di bawah." ;;
+            esac
+          }
+          r1=$(probe "/" 1)
+          r2=$(probe "/public_html/office/" 2)
+          e1=$(tail -n 2 /tmp/ftp_err1.txt 2>/dev/null | tr -d '\r')
+          e2=$(tail -n 2 /tmp/ftp_err2.txt 2>/dev/null | tr -d '\r')
+          {
+            echo "## Diagnosis koneksi FTP produksi"
+            echo ""
+            if [ "$r1" = "0" ] && [ "$r2" = "0" ]; then
+              echo "✅ **FTP produksi sehat** — login berhasil dan \`/public_html/office/\` terbaca."
+              echo ""
+              echo "Kalau run ini tetap gagal di langkah Verifikasi, berarti sambungannya baik"
+              echo "tapi transfernya yang putus. Jaring \"unggah paksa\" di bawah sudah menanganinya."
+            else
+              echo "❌ **FTP produksi TIDAK BISA DIPAKAI.** Ini yang membuat deploy gagal —"
+              echo "bukan isi berkasnya. Selama ini belum dibetulkan, setiap deploy ke \`main\`"
+              echo "akan gagal dengan gejala yang sama."
+            fi
+            echo ""
+            echo "| Yang dicoba | Kode curl | Artinya |"
+            echo "|---|---|---|"
+            echo "| Login + buka \`/\` | $r1 | $(artinya "$r1") |"
+            echo "| Buka \`/public_html/office/\` | $r2 | $(artinya "$r2") |"
+            echo ""
+            if [ -n "$e1$e2" ]; then
+              echo "<details><summary>Pesan mentah dari curl</summary>"
+              echo ""
+              echo '```'
+              [ -n "$e1" ] && echo "/            : $e1"
+              [ -n "$e2" ] && echo "/public_html/office/ : $e2"
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Selalu sukses: ini diagnosa, bukan gerbang. Yang menentukan
+          # lulus/tidaknya deploy tetap langkah Verifikasi di bawah.
+          exit 0
+
       # continue-on-error + percobaan ulang di bawah: transfer FTP ke Rumahweb
       # kadang putus tanpa sebab yang bisa kita kendalikan. Kegagalan di sini
       # tidak langsung menggagalkan job; yang menentukan tetap langkah

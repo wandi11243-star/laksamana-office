@@ -11,6 +11,74 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ==================================================================
+      # PROBE FTP — kembaran langkah yang sama di deploy.yml, dipasang di sini
+      # supaya kedua workflow tidak berbeda perlakuan. Catatan lengkap soal
+      # kenapa langkah ini ada ditulis di deploy.yml; ringkasnya: sebab
+      # kegagalan FTP selama ini terkubur di dalam langkah ber-continue-on-
+      # error yang ikonnya tidak merah, jadi yang membuka run gagal salah
+      # menyimpulkan bahwa yang bermasalah adalah berkasnya.
+      #
+      # Beda dari produksi cuma dua: secret DEV_* dan server-dir `/`
+      # (di dev seluruh isi ./deploy/ diunggah ke root akun).
+      # ==================================================================
+      - name: Probe FTP & tulis diagnosis ke ringkasan run
+        if: always()
+        continue-on-error: true
+        env:
+          FTP_SERVER:   ${{ secrets.DEV_FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.DEV_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.DEV_FTP_PASSWORD }}
+        run: |
+          set +e
+          # Lihat catatan di deploy.yml: secret bisa memuat skema/garis miring,
+          # dan curl tidak memaafkannya seperti aksi FTP.
+          HOST="${FTP_SERVER#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          probe() {
+            curl -sS --connect-timeout 20 --max-time 60 \
+                 --user "$FTP_USERNAME:$FTP_PASSWORD" \
+                 "ftp://$HOST$1" -o /dev/null 2>"/tmp/ftp_err$2.txt"
+            echo $?
+          }
+          artinya() {
+            case "$1" in
+              0)  echo "OK — login berhasil & folder terbaca" ;;
+              3)  echo "Alamat FTP salah bentuk. Periksa isi secret **DEV_FTP_SERVER** (harus nama host saja, tanpa \`ftp://\`)." ;;
+              6)  echo "Nama server tidak bisa di-resolve. Secret **DEV_FTP_SERVER** salah, atau DNS-nya berubah." ;;
+              7)  echo "Koneksi ditolak / tidak sampai. Port 21 diblokir — besar kemungkinan IP runner GitHub kena firewall (CSF) Rumahweb. **Minta whitelist ke support Rumahweb.**" ;;
+              28) echo "Timeout, server tidak menjawab dalam 60 detik. Server sedang bermasalah atau koneksinya disaring." ;;
+              67) echo "**LOGIN DITOLAK.** Secret **DEV_FTP_USERNAME / DEV_FTP_PASSWORD** sudah tidak cocok, atau akun FTP-nya dihapus." ;;
+              9)  echo "Login berhasil TAPI foldernya tidak bisa dibuka. **server-dir** menunjuk path yang sudah tidak ada, atau hak aksesnya berubah." ;;
+              *)  echo "Gagal dengan kode curl $1 — lihat cuplikan di bawah." ;;
+            esac
+          }
+          r1=$(probe "/" 1)
+          e1=$(tail -n 2 /tmp/ftp_err1.txt 2>/dev/null | tr -d '\r')
+          {
+            echo "## Diagnosis koneksi FTP dev"
+            echo ""
+            if [ "$r1" = "0" ]; then
+              echo "✅ **FTP dev sehat** — login berhasil dan root akun terbaca."
+            else
+              echo "❌ **FTP dev TIDAK BISA DIPAKAI.** Ini yang membuat deploy gagal, bukan isi berkasnya."
+            fi
+            echo ""
+            echo "| Yang dicoba | Kode curl | Artinya |"
+            echo "|---|---|---|"
+            echo "| Login + buka \`/\` | $r1 | $(artinya "$r1") |"
+            if [ -n "$e1" ]; then
+              echo ""
+              echo "<details><summary>Pesan mentah dari curl</summary>"
+              echo ""
+              echo '```'
+              echo "$e1"
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       # continue-on-error: transfer FTP ke Rumahweb kadang putus di tengah tanpa
       # sebab yang bisa kita kendalikan (sudah kejadian 16 Juli 2026 2x, lalu
       # 21 Juli 2026 pada reservasi/index.html yang 513KB). Kegagalan di sini
