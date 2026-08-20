@@ -643,6 +643,117 @@ jobs:
       # Di dev tidak perlu: di sana seluruh deploy/ diunggah apa adanya, jadi
       # dev.laksamanamuda.id/ticketing/ memang alamat yang benar.
       - name: Verifikasi file di server benar-benar versi ini
+        id: cek1
+        if: always()
+        continue-on-error: true
+        run: |
+          bash tools/verifikasi-deploy.sh https://team.laksamanamuda.id \
+               ticketing=https://laksamanamuda.id/ticketing
+
+      # ==================================================================
+      # UNGGAH PAKSA — SALINAN dari deploy-dev.yml, dan sengaja disamakan.
+      #
+      # Sampai 20 Agustus 2026 jaring ini cuma ada di dev. Akibatnya persis
+      # yang bisa diduga: dev selalu mendarat, produksi kadang tidak, dan
+      # bedanya bukan pada berkasnya. 20 Agustus 2026 deploy produksi gagal
+      # dengan SATU berkas tertinggal — deploy/bd/index.html — sementara
+      # berkas yang sama sudah mendarat sempurna di dev dari commit yang
+      # sama. Server memegang versi commit sebelumnya UTUH (221.942 byte,
+      # bukan terpotong), dan `.ftp-deploy-sync-state.json` di server masih
+      # bertanggal run sebelumnya: aksi FTP tidak pernah menyelesaikan sinkron
+      # hari itu, dan percobaan 1-3 tidak menolong karena ketiganya memakai
+      # state yang sama.
+      #
+      # Cara kerjanya sama dengan di dev: `state-name` unik per run membuat
+      # aksi tidak menemukan state apa pun, jadi ia mengunggah SEMUANYA tanpa
+      # bertanya pada catatan lama. BUKAN `dangerous-clean-slate` — itu
+      # menghapus berkas server yang tidak ada di local-dir, dan local-dir
+      # kita (./deploy/) tidak memuat satu pun folder backend: seluruh API
+      # akan ikut terhapus.
+      #
+      # `exclude: ticketing/**` WAJIB ikut, sama seperti unggahan utama di
+      # atas. Tanpa itu unggah paksa justru MENCIPTAKAN salinan kedua di
+      # office/ticketing/ yang pasti rusak — ../ticketing-api/ dari sana
+      # menunjuk folder yang tak pernah ada.
+      #
+      # Hanya jalan kalau verifikasi gagal, jadi run normal tetap secepat
+      # dulu. Efek sampingnya satu berkas state kecil tertinggal per run yang
+      # gagal; jauh lebih murah daripada produksi yang diam-diam tidak
+      # berubah sementara Actions-nya merah tanpa jalan keluar selain
+      # menunggu commit berikutnya.
+      # ==================================================================
+      - name: Unggah paksa (abaikan sync-state) karena verifikasi gagal
+        if: always() && steps.cek1.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/office/
+          exclude: |
+            ticketing/**
+          state-name: .ftp-deploy-paksa-${{ github.run_id }}.json
+          timeout: 300000
+
+      # Situs customer punya alamat sendiri, jadi unggah paksa office di atas
+      # TIDAK menyentuhnya — padahal verifikasi ikut memeriksanya lewat
+      # `ticketing=`. Tanpa langkah ini, kegagalan yang cuma mengenai
+      # ticketing akan melewati seluruh jaring pengaman lalu tetap merah di
+      # gerbang terakhir, tanpa satu pun percobaan yang bisa memperbaikinya.
+      - name: Unggah paksa situs customer ticketing
+        if: always() && steps.cek1.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/ticketing/
+          server-dir: /public_html/ticketing/
+          state-name: .ftp-deploy-paksa-tix-${{ github.run_id }}.json
+          timeout: 300000
+
+      # Gerbangnya VERIFIKASI, bukan outcome langkah FTP di atasnya: unggah
+      # paksa bisa saja melaporkan sukses padahal berkasnya dilewati — itu
+      # justru penyakit yang sedang diobati di sini.
+      - name: Verifikasi setelah unggah paksa
+        id: cek2
+        if: always() && steps.cek1.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          bash tools/verifikasi-deploy.sh https://team.laksamanamuda.id \
+               ticketing=https://laksamanamuda.id/ticketing
+
+      # Jeda panjang: kegagalan yang sampai di sini bukan gangguan sesaat
+      # (sudah lewat 1-3 percobaan biasa + 1 unggah paksa), jadi menembak
+      # lagi dalam hitungan detik menabrak dinding yang sama.
+      - name: Jeda sebelum unggah paksa 2
+        if: always() && steps.cek2.outcome == 'failure'
+        run: sleep 90
+
+      - name: Unggah paksa 2 (kesempatan terakhir)
+        if: always() && steps.cek2.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./deploy/
+          server-dir: /public_html/office/
+          exclude: |
+            ticketing/**
+          state-name: .ftp-deploy-paksa2-${{ github.run_id }}.json
+          timeout: 300000
+
+      # Penentu lulus/tidaknya seluruh unggahan frontend. TANPA
+      # continue-on-error: inilah satu-satunya langkah verifikasi berkas yang
+      # boleh menggagalkan job. Kalau ia ikut dilonggarkan, deploy yang tidak
+      # pernah mendarat akan berakhir HIJAU — persis kebalikan dari gunanya
+      # berkas ini.
+      - name: Verifikasi ulang (penentu lulus/tidak)
         if: always()
         run: |
           bash tools/verifikasi-deploy.sh https://team.laksamanamuda.id \
