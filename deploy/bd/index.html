@@ -701,6 +701,11 @@ const COORD_FLOW   = ["Diminta","Diproses","Review","Selesai"];
 const COORD_COLOR  = {Diminta:"p-warn",Diproses:"p-sea",Review:"p-vip",Selesai:"p-go"};
 const PO_FLOW      = ["Draft","Diajukan","Approved","Dibeli","Diterima"];
 const PO_COLOR     = {Draft:"p-mute",Diajukan:"p-warn",Approved:"p-sea",Dibeli:"p-vip",Diterima:"p-go"};
+/* Tahap terakhir alur pembelian, dipakai sebagai "Done" oleh penanda proses.
+   Ditulis sekali di sini, bukan diketik 'Diterima' di lima tempat — kalau
+   nanti nama tahapnya berubah, yang tertinggal satu tempat tidak melempar
+   apa pun: barisnya cuma diam-diam berhenti dihitung selesai. */
+const PO_SELESAI   = "Diterima";
 
 /* Kolom cara bayar (CASH/ONLINE/CREDIT) DIHAPUS atas permintaan tim.
    Kolom `payment` di database sengaja dibiarkan: menjatuhkannya berarti
@@ -1674,8 +1679,8 @@ function taskModal(id){
           ['Ad-hoc','Rutin','Project'].map(function(p){return '<option'+(t.type===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div></div>'+
       '<div class="frow">'+
         '<div class="field"><label>Deadline</label><input type="date" id="m_due" value="'+(t.deadline||'')+'"></div>'+
-        '<div class="field"><label>Project (opsional)</label><select id="m_proj"><option value="">— tanpa project —</option>'+
-          DB.projects.map(function(p){return '<option value="'+p.id+'"'+(t.project===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></div></div>'+
+        '<div class="field"><label>Project (opsional)</label><select id="m_proj">'+
+          opsiProject(t.project,'— tanpa project —')+'</select></div></div>'+
       '<div class="field"><label>Prioritas Eisenhower</label><div class="toggles">'+
         '<button type="button" class="toggle'+(t.important?' on':'')+'" id="tg_imp" onclick="this.classList.toggle(\'on\');APP.qprev()"><span class="tick">'+ic('check')+'</span> Penting</button>'+
         '<button type="button" class="toggle'+(t.urgent?' on':'')+'" id="tg_urg" onclick="this.classList.toggle(\'on\');APP.qprev()"><span class="tick">'+ic('check')+'</span> Mendesak</button>'+
@@ -1721,6 +1726,44 @@ function simpanTask(id){
 
 /* ============ PROJECTS ============ */
 function projTasks(pid){return DB.tasks.filter(function(t){return t.project===pid;});}
+function projBeres(p){ return !!p && p.stage==='Completed'; }
+
+/* Kotak pilihan project — dipakai task, koordinasi, dan purchase order.
+   Project yang sudah Completed TIDAK ditawarkan lagi: pekerjaan baru untuk
+   project yang sudah ditutup hampir selalu salah tempat, dan daftar yang
+   terus memanjang membuat project yang masih jalan susah dicari.
+
+   Yang SUDAH tertaut tetap digambar, ditandai "(selesai)". Tanpa pengecualian
+   itu, membuka form sebuah task lama diam-diam MELEPAS project-nya begitu
+   Simpan ditekan — <select> tanpa <option> yang cocok jatuh ke pilihan
+   pertama, dan pilihan pertama di sini adalah "tanpa project". */
+function opsiProject(terpilih,labelKosong){
+  var out='<option value="">'+esc(labelKosong||'— tanpa project —')+'</option>';
+  DB.projects.forEach(function(p){
+    var beres=projBeres(p);
+    if(beres && p.id!==terpilih) return;
+    out+='<option value="'+p.id+'"'+(terpilih===p.id?' selected':'')+'>'+
+      esc(p.name)+(beres?' (selesai)':'')+'</option>';
+  });
+  return out;
+}
+
+/* Project ditutup = seluruh task-nya ikut selesai.
+   Sebelumnya project bisa berdiri di kolom Completed sementara task-nya masih
+   "Doing", dan task itu tetap muncul tiap pagi di papan "hari ini & overdue"
+   — pekerjaan hantu yang tidak akan dikerjakan siapa pun karena projectnya
+   sudah tutup, sekaligus membuat progress project mentok di bawah 100%.
+
+   Dipanggil HANYA saat stage berpindah ke Completed, bukan tiap render: task
+   yang sengaja dibuka lagi sesudahnya tidak boleh ditutup ulang sendiri. */
+function tuntaskanTaskProject(pid){
+  var n=0;
+  projTasks(pid).forEach(function(t){
+    if(selesai(t)) return;
+    t.status='Done'; t.progress=100; n++;
+  });
+  return n;
+}
 /* Progress dihitung dari TASK kalau ada, baru jatuh ke milestone. Bukan angka
    yang diketik manual: persen yang diketik tangan selalu ketinggalan dari
    kenyataan dan tidak ada yang tahu kapan terakhir diperbarui. */
@@ -1782,7 +1825,11 @@ function dropProj(e,st){
   document.querySelectorAll('.kcol-b').forEach(function(c){c.classList.remove('drop');});
   var p=DB.projects.find(function(x){return x.id===_dragProj;});
   if(!p) return;
-  p.stage=st; save(); render(); toast('Project dipindah ke '+st);
+  var dulu=p.stage;
+  p.stage=st;
+  var ikut=(st==='Completed'&&dulu!=='Completed')?tuntaskanTaskProject(p.id):0;
+  save(); render();
+  toast('Project dipindah ke '+st+(ikut?' — '+ikut+' task ikut jadi Done':''));
 }
 function bukaProject(id){pidAktif=id;view='projectDetail';render();window.scrollTo(0,0);}
 function vProjectDetail(){
@@ -1890,11 +1937,16 @@ function simpanProj(id){
     stage:g('p_stage'),start:g('p_start'),end:g('p_end'),
     budget:bacaRp('p_budget'),spent:bacaRp('p_spent'),health:g('p_health'),
     milestones:bacaMilestone(g('p_ms'),lama)};
-  var p;
-  if(id){ p=DB.projects.find(function(x){return x.id===id;}); Object.assign(p,data); }
+  var p, dulu='';
+  if(id){ p=DB.projects.find(function(x){return x.id===id;}); dulu=p.stage; Object.assign(p,data); }
   else  { p=Object.assign({id:uid('p')},data); DB.projects.push(p); }
   setPics(p,bacaPic('p_pics'));
-  save(); closeModal(); render(); toast(id?'Project diperbarui':'Project ditambahkan');
+  /* Sesudah setPics, sebelum save: task yang ikut ditutup harus ikut terkirim
+     dalam satu simpanan yang sama. Menutupnya sesudah save() berarti layar
+     sudah menampilkan Done sementara servernya belum tahu. */
+  var ikut=(p.stage==='Completed'&&dulu!=='Completed')?tuntaskanTaskProject(p.id):0;
+  save(); closeModal(); render();
+  toast((id?'Project diperbarui':'Project ditambahkan')+(ikut?' — '+ikut+' task ikut jadi Done':''));
 }
 function hapusProj(id){
   if(!confirm('Hapus project ini? Task-nya TIDAK ikut terhapus — hanya dilepas dari project.')) return;
@@ -2004,8 +2056,8 @@ function coordModal(id){
         '<div class="field"><label>Prioritas</label><select id="c_prio">'+
           PRIORITAS.map(function(p){return '<option'+(c.priority===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div>'+
         '<div class="field"><label>Due</label><input type="date" id="c_due" value="'+(c.due||'')+'"></div>'+
-        '<div class="field"><label>Project</label><select id="c_proj"><option value="">—</option>'+
-          DB.projects.map(function(p){return '<option value="'+p.id+'"'+(c.project===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></div></div>'+
+        '<div class="field"><label>Project</label><select id="c_proj">'+
+          opsiProject(c.project,'—')+'</select></div></div>'+
     '</div>'+
     '<div class="modal-f"><div>'+(baru?'':'<button class="btn bad sm" onclick="APP.hapusCoord(\''+id+'\')">'+ic('trash')+'Hapus</button>')+'</div>'+
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
@@ -2146,29 +2198,42 @@ function poRequester(p){
 }
 
 function vPurchasing(){
-  var berjalan=DB.po.filter(function(p){return p.status!=='Diterima';});
+  var berjalan=DB.po.filter(function(p){return !poBeres(p);});
   var nilai=berjalan.reduce(function(s,p){return s+(+p.amount||0);},0);
-  var perluApproval=DB.po.filter(function(p){return p.status==='Diajukan';}).length;
+  var perluApproval=DB.po.filter(function(p){return !poBeres(p)&&p.status==='Diajukan';}).length;
 
   var h=head('Purchasing',SUB.purchasing[2],
     '<div class="seg">'+
-      '<button class="'+(poMode==='pr'?'on':'')+'" onclick="APP.setPoMode(\'pr\')">PR Mingguan</button>'+
+      '<button class="'+(poMode==='daftar'||poMode==='setuju'?'':'on')+'" onclick="APP.setPoMode(\'pr\')">PR &amp; Rekap Mingguan</button>'+
       '<button class="'+(poMode==='daftar'?'on':'')+'" onclick="APP.setPoMode(\'daftar\')">Semua Item</button>'+
-      '<button class="'+(poMode==='minggu'?'on':'')+'" onclick="APP.setPoMode(\'minggu\')">Rekap</button>'+
-    '<button class="'+(poMode==='setuju'?'on':'')+'" onclick="APP.setPoMode(\'setuju\')">Penyetuju</button>'+
+      '<button class="'+(poMode==='setuju'?'on':'')+'" onclick="APP.setPoMode(\'setuju\')">Penyetuju</button>'+
     '</div>'+
     '<button class="btn pri" onclick="APP.requestModal()">'+ic('plus')+'Request Order</button>');
 
   h+='<div class="stats">'+
-    stat('Total PO',DB.po.length,DB.po.filter(function(p){return p.status==='Diterima';}).length+' sudah diterima','')+
+    stat('Total PO',DB.po.length,DB.po.filter(poBeres).length+' sudah selesai','')+
     stat('Perlu approval',perluApproval,'status Diajukan',perluApproval?'wa':'gr')+
-    stat('Nilai berjalan',fRpPenuh(nilai),'belum diterima','tl')+
+    stat('Nilai berjalan',fRpPenuh(nilai),'belum selesai','tl')+
   '</div>';
 
-  return h+(poMode==='pr'?vPrList()
-          :poMode==='minggu'?poRekapMingguan()
-          :poMode==='setuju'?vPenyetuju()
-          :poDaftar());
+  /* PR Mingguan dan Rekap DIGABUNG jadi satu lembar (20 Agustus 2026).
+     Dua tab untuk satu pekerjaan yang sama: yang menyusun PR minggu ini
+     selalu perlu melihat rekap kebutuhan minggu itu juga, dan bolak-balik
+     antar-tab membuat orang menyusun lembar sambil menghafal angkanya.
+     Urutannya lembar PR dulu, rekap di bawahnya — yang dikerjakan di atas,
+     yang dilihat sebagai konteks di bawah.
+
+     poMode selain 'daftar'/'setuju' jatuh ke sini, termasuk 'minggu' yang
+     tidak lagi punya tombol: nilai lama yang tersisa di sesi berjalan tidak
+     boleh menghasilkan halaman kosong. */
+  return h+(poMode==='setuju'?vPenyetuju()
+          :poMode==='daftar'?poDaftar()
+          :vPrList()+
+            '<div style="margin:26px 0 12px;display:flex;align-items:center;gap:10px">'+
+              '<h2 style="margin:0;font-size:15px;font-weight:700">Rekap kebutuhan mingguan</h2>'+
+              '<span class="muted" style="font-size:12px">apa yang harus dikeluarkan minggu itu</span>'+
+            '</div>'+
+            poRekapMingguan());
 }
 
 function poDaftar(){
@@ -2182,37 +2247,53 @@ function poDaftar(){
     :'<div class="card"><div class="card-b">'+kosong('Tidak ada PO',poFilter?'Tidak ada PO berstatus '+poFilter+'.':'')+'</div></div>');
 }
 
-/* ---- PENANDA "SUDAH DIPROSES" ----
-   Terpisah dari `status`, dan itu disengaja. `status` (Draft → Diajukan →
-   Approved → Dibeli → Diterima) adalah posisi barang di alur pembelian —
-   yang menggerakkannya approval dan barang datang. Penanda ini menjawab
-   pertanyaan lain: "baris ini sudah saya kerjakan atau belum". Purchasing
-   memakainya untuk menandai mana yang sudah ditindaklanjuti walau statusnya
-   belum bergerak, mis. sudah menghubungi vendor tapi harga belum keluar.
+/* ---- PENANDA "SUDAH DIPROSES" = BARIS SELESAI ----
+   `status` (Draft → Diajukan → Approved → Dibeli → Diterima) adalah posisi
+   barang di alur pembelian. Penanda `proses` dulu berdiri SENDIRI di
+   sampingnya: purchasing menandai mana yang sudah ditindaklanjuti, tapi
+   statusnya tidak ikut bergerak.
 
-   Menumpangkannya ke `status` sebagai tahap baru akan merusak rekap: nilai
-   mingguan dan hitungan "perlu approval" dihitung dari status, jadi tahap
-   tambahan membuat baris hilang dari salah satu hitungan itu.
+   Sampai 20 Agustus 2026 itu justru membuat daftarnya berbohong. Barang yang
+   sudah diurus sampai tuntas tetap berstatus Draft/Diajukan dengan kolom
+   Butuh memerah "3h lewat", jadi lembar purchasing terbaca sebagai tumpukan
+   keterlambatan yang sebenarnya sudah beres — dan yang benar-benar telat
+   tenggelam di antaranya.
+
+   Sekarang penandanya MENGGERAKKAN status ke tahap terakhir (PO_SELESAI), dan
+   tanggal butuhnya tidak lagi digambar sebagai tenggat. Status sebelumnya
+   disimpan di `statusSebelum` supaya centang yang salah tekan bisa dibatalkan
+   tanpa kehilangan posisi barang di alurnya — mengembalikannya ke 'Draft'
+   akan menghapus fakta bahwa barang itu sudah pernah di-approve.
 
    Disimpan di field `proses` + jejak siapa/kapan. Backend menyimpan seluruh
    baris sebagai JSON di kolom `data`, jadi field baru tidak butuh migrasi. */
+function poBeres(p){ return !!p.proses || p.status===PO_SELESAI; }
 function poProsesSel(p){
   var on=!!p.proses;
   var judul=on
     ? 'Sudah diproses'+(p.prosesBy?' oleh '+p.prosesBy:'')+(p.prosesAt?' · '+fWaktu(p.prosesAt):'')+' — klik untuk batalkan'
-    : 'Klik kalau barang ini sudah diproses';
+    : 'Klik kalau barang ini sudah diproses — statusnya jadi '+PO_SELESAI;
   return '<span class="pill '+(on?'p-go':'p-mute')+'" role="button" tabindex="0" style="cursor:pointer;user-select:none"'+
     ' title="'+esc(judul)+'"'+
     ' onclick="event.stopPropagation();APP.togglePoProses(\''+p.id+'\')">'+
-    (on?'✓ Diproses':'Belum')+'</span>';
+    (on?'✓ Done':'Belum')+'</span>';
 }
 function togglePoProses(id){
   var p=DB.po.find(function(x){return x.id===id;}); if(!p) return;
   p.proses=!p.proses;
   // Jejaknya ikut dibersihkan saat penandanya dilepas — meninggalkan nama dan
   // jam pada baris yang statusnya "Belum" membuat tooltip berbohong.
-  if(p.proses){ p.prosesAt=Date.now(); p.prosesBy=(AKU&&AKU.name)||''; }
-  else { delete p.prosesAt; delete p.prosesBy; }
+  if(p.proses){
+    p.prosesAt=Date.now(); p.prosesBy=(AKU&&AKU.name)||'';
+    if(p.status!==PO_SELESAI){ p.statusSebelum=p.status; p.status=PO_SELESAI; }
+  }else{
+    delete p.prosesAt; delete p.prosesBy;
+    /* Hanya dikembalikan kalau statusnya memang masih yang kita pasang.
+       Kalau sesudah dicentang orang mengubah statusnya sendiri lewat modal,
+       pilihan orang itu yang menang. */
+    if(p.status===PO_SELESAI && p.statusSebelum) p.status=p.statusSebelum;
+    delete p.statusSebelum;
+  }
   save(); render();
 }
 
@@ -2221,7 +2302,8 @@ function poTabel(list){
     '<th>Divisi</th><th>Butuh</th><th>Proses</th><th>Status</th><th></th></tr></thead><tbody>'+
     list.map(function(p){
       var pr=p.project&&DB.projects.find(function(x){return x.id===p.project;});
-      var telat=sisaHari(p.needBy)<0&&p.status!=='Diterima';
+      var beres=poBeres(p);
+      var telat=!beres&&sisaHari(p.needBy)<0;
       /* Nilai 0 pada request yang belum diproses BUKAN "gratis" — belum
          dihitung. Menampilkannya sebagai "Rp 0" membuat rekap mingguan
          terbaca seolah minggu itu tidak memakan biaya apa pun. */
@@ -2245,7 +2327,13 @@ function poTabel(list){
         '<td><span class="mut num">'+(+p.qty||0)+' '+esc(p.unit||'')+'</span></td>'+
         '<td>'+(belumDihitung?'<span class="mut">belum dihitung</span>':'<span class="nm num">'+fRpPenuh(p.amount)+'</span>')+'</td>'+
         '<td><span class="tag div">'+esc(String(p.div).split(' ')[0])+'</span></td>'+
-        '<td><span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span></td>'+
+        /* Baris yang sudah beres tidak lagi menampilkan tenggat sama sekali —
+           bukan cuma dihilangkan merahnya. "Kemarin" di kolom Butuh tetap
+           terbaca sebagai keterlambatan walau warnanya netral; tanggalnya
+           dipindah ke tooltip supaya tidak hilang dari layar. */
+        '<td>'+(beres
+            ? '<span class="pill p-go" title="'+esc(p.needBy?'Dibutuhkan '+fTgl(p.needBy):'Tanpa tanggal butuh')+'">Done</span>'
+            : '<span class="mut"'+(telat?' style="color:var(--danger);font-weight:600"':'')+'>'+fDue(p.needBy)+'</span>')+'</td>'+
         '<td>'+poProsesSel(p)+'</td>'+
         '<td>'+pill(p.status,PO_COLOR[p.status]||'p-mute')+'</td>'+
         '<td><button class="iconbtn" title="Hapus" onclick="event.stopPropagation();APP.hapusPo(\''+p.id+'\')">'+ic('trash')+'</button></td></tr>';
@@ -3095,8 +3183,8 @@ function requestModal(){
             return '<option'+sel+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
         '<div class="field"><label>Dibutuhkan tanggal</label>'+
           '<input type="date" id="q_need" value="'+akhirMinggu(todayISO())+'"></div>'+
-        '<div class="field"><label>Project (opsional)</label><select id="q_proj"><option value="">—</option>'+
-          DB.projects.map(function(x){return '<option value="'+x.id+'">'+esc(x.name)+'</option>';}).join('')+
+        '<div class="field"><label>Project (opsional)</label><select id="q_proj">'+
+          opsiProject('','—')+
         '</select></div></div>'+
       '<div class="field"><label>Daftar barang</label>'+
         '<div class="req-wrap"><table class="req-tbl"><thead><tr>'+
@@ -3175,8 +3263,8 @@ function poModal(id){
         '<div class="field"><label>Status</label><select id="o_status">'+
           PO_FLOW.map(function(s){return '<option'+(p.status===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div></div>'+
       '<div class="frow">'+
-        '<div class="field"><label>Project</label><select id="o_proj"><option value="">—</option>'+
-          DB.projects.map(function(x){return '<option value="'+x.id+'"'+(p.project===x.id?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</select></div>'+
+        '<div class="field"><label>Project</label><select id="o_proj">'+
+          opsiProject(p.project,'—')+'</select></div>'+
         '<div class="field"><label>Catatan</label><input id="o_note" value="'+esc(p.note)+'"></div></div>'+
     '</div>'+
     '<div class="modal-f"><div>'+(baru?'':'<button class="btn bad sm" onclick="APP.hapusPo(\''+id+'\')">'+ic('trash')+'Hapus</button>')+'</div>'+
@@ -3235,7 +3323,10 @@ function calItems(){
       if(ms.date) out.push({date:ms.date,title:ms.t+' ('+p.name+')',color:'var(--violet)',jenis:'Milestone'});});});
 
   DB.po.filter(function(p){
-      return p.status!=='Diterima' && p.needBy &&
+      /* poBeres, bukan status saja: baris lama yang sudah ditandai proses
+         sebelum 20 Agustus 2026 statusnya masih Draft/Diajukan, dan tanpa ini
+         ia terus nongol di kalender sebagai kebutuhan yang belum diurus. */
+      return !poBeres(p) && p.needBy &&
              (!pDiv||p.div===pDiv) && (!fPics.length || fPics.indexOf(p.pic)>-1);
     }).forEach(function(p){
       out.push({date:p.needBy,title:'PO: '+p.item,color:'var(--teal)',jenis:'PO'});});

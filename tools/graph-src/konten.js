@@ -758,6 +758,14 @@ function initAPI() { readLmSession(); seed(); save(); normPlatform(); refreshSna
 
 
 
+
+
+
+
+
+
+
+
 function PERM_DEFAULT() { getPerm(); }
 
 
@@ -2393,7 +2401,50 @@ function waDigits() {  }
 function waLink() { waDigits(); }
 
 function viewImage() { modal(); esc(); closeModal(); }
-function viewKolRate() { getKol(); toast(); viewImage(); setKolTab(); kolDatabaseView(); kolVisitView(); }
+function viewKolRate() { getKol(); toast(); viewImage(); }
+
+
+
+
+
+
+
+
+function rateHist() {  }
+
+
+function rateHistUpdate() { rateHist(); }
+
+
+
+
+
+
+function rateDelta() {  }
+
+function rateHistRow() { rateDelta(); rupiah(); fmtDT(); esc(); userName(); }
+
+
+
+
+
+
+
+
+
+function rateHistHtml() { rateHist(); }
+
+
+
+
+
+function rateHistBadge() { rateHist(); rateDelta(); viewKolRateHist(); fmtDateShort(); }
+
+
+
+
+
+function viewKolRateHist() { getKol(); modal(); esc(); closeModal(); rupiah(); rateHistHtml(); setKolTab(); kolDatabaseView(); kolVisitView(); }
 
 
 
@@ -2404,7 +2455,11 @@ function viewKolRate() { getKol(); toast(); viewImage(); setKolTab(); kolDatabas
 
 
 
-function kolDatabaseView() { kolCats(); kolType(); can(); openKolForm(); esc(); kolF(); kolReset(); tint(); waLink(); avatar(); viewKolRate(); rupiah(); delKol(); }
+
+
+
+
+function kolDatabaseView() { kolCats(); kolType(); can(); openKolForm(); esc(); kolF(); kolReset(); tint(); waLink(); avatar(); viewKolRate(); rupiah(); rateHistBadge(); delKol(); }
 
 
 
@@ -2441,7 +2496,10 @@ function kolDatabaseView() { kolCats(); kolType(); can(); openKolForm(); esc(); 
 
 function kolF() { route(); }
 function kolReset() { route(); }
-function openKolForm() { can(); toast(); getKol(); kolCats(); kolType(); drawer(); closeDrawer(); esc(); onKolRateFile(); delKol(); saveKol(); }
+function openKolForm() { can(); toast(); getKol(); kolCats(); kolType(); drawer(); closeDrawer(); esc(); onKolRateFile(); rateHistHtml(); delKol(); saveKol(); }
+
+
+
 
 
 
@@ -2472,7 +2530,13 @@ function onKolRateFile() { toast(); }
 
 
 
-function saveKol() { toast(); getKol(); logAct(); uid(); save(); closeDrawer(); route(); }
+function saveKol() { toast(); getKol(); rateHistUpdate(); logAct(); uid(); save(); closeDrawer(); route(); }
+
+
+
+
+
+
 
 
 

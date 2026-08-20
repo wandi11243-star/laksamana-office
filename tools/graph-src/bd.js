@@ -725,6 +725,11 @@
 
 
 
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -1649,7 +1654,7 @@ function avStack() { esc(); P(); inisial(); }
 
 
 
-function taskModal() { todayISO(); showModal(); ic(); esc(); picPicker(); pics(); qprev(); hapusTask(); simpanTask(); }
+function taskModal() { todayISO(); showModal(); ic(); esc(); picPicker(); pics(); opsiProject(); qprev(); hapusTask(); simpanTask(); }
 
 
 
@@ -1721,6 +1726,44 @@ function g() { toast(); uid(); setPics(); bacaPic(); save(); render(); }
 
 
 function projTasks() {  }
+function projBeres() {  }
+
+
+
+
+
+
+
+
+
+
+function opsiProject() { esc(); projBeres(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tuntaskanTaskProject() { projTasks(); selesai(); }
+
+
+
+
+
+
+
 
 
 
@@ -1777,7 +1820,11 @@ function projCard() { projProgress(); projTasks(); sisaHari(); dragProj(); bukaP
 
 
 function dragProj() {  }
-function dropProj() { save(); render(); toast(); }
+function dropProj() { tuntaskanTaskProject(); save(); render(); toast(); }
+
+
+
+
 
 
 
@@ -1881,7 +1928,12 @@ function bacaMilestone() {  }
 
 
 
-function simpanProj() { g(); toast(); bacaRp(); bacaMilestone(); uid(); setPics(); bacaPic(); save(); render(); }
+function simpanProj() { g(); toast(); bacaRp(); bacaMilestone(); uid(); setPics(); bacaPic(); save(); tuntaskanTaskProject(); render(); }
+
+
+
+
+
 
 
 
@@ -1977,7 +2029,7 @@ function coordTable() { kosong(); coordModal(); esc(); pill(); fDue(); hapusCoor
 
 
 
-function coordModal() { inDays(); showModal(); ic(); esc(); hapusCoord(); simpanCoord(); }
+function coordModal() { inDays(); showModal(); ic(); esc(); opsiProject(); hapusCoord(); simpanCoord(); }
 
 
 
@@ -2145,7 +2197,20 @@ function poRequester() { P(); }
 
 
 
-function vPurchasing() { head(); requestModal(); ic(); stat(); fRpPenuh(); vPrList(); poRekapMingguan(); vPenyetuju(); poDaftar(); }
+function vPurchasing() { poBeres(); head(); requestModal(); ic(); stat(); fRpPenuh(); vPenyetuju(); poDaftar(); vPrList(); poRekapMingguan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2196,6 +2261,13 @@ function poDaftar() { ic(); poTabel(); kosong(); }
 
 
 
+
+
+
+
+
+
+function poBeres() {  }
 function poProsesSel() { fWaktu(); esc(); togglePoProses(); }
 
 
@@ -2216,7 +2288,23 @@ function togglePoProses() { save(); render(); }
 
 
 
-function poTabel() { sisaHari(); poModal(); esc(); poRequester(); fWaktu(); fRpPenuh(); fDue(); poProsesSel(); pill(); hapusPo(); ic(); }
+
+
+
+
+
+
+
+
+
+function poTabel() { poBeres(); sisaHari(); poModal(); esc(); poRequester(); fWaktu(); fRpPenuh(); fTgl(); fDue(); poProsesSel(); pill(); hapusPo(); ic(); }
+
+
+
+
+
+
+
 
 
 
@@ -3080,7 +3168,7 @@ function nomoriBarisReq() {  }
 
 
 
-function requestModal() { showModal(); ic(); esc(); akhirMinggu(); todayISO(); barisRequest(); simpanRequest(); nomoriBarisReq(); }
+function requestModal() { showModal(); ic(); esc(); akhirMinggu(); todayISO(); opsiProject(); barisRequest(); simpanRequest(); nomoriBarisReq(); }
 
 
 
@@ -3145,7 +3233,7 @@ function q() { uid(); bacaRpEl(); sesi(); nowStamp(); toast(); save(); render();
 
 
 
-function poModal() { inDays(); showModal(); ic(); esc(); P(); fTglPanjang(); sisaHari(); rpInput(); picOptions(); hapusPo(); simpanPo(); }
+function poModal() { inDays(); showModal(); ic(); esc(); P(); fTglPanjang(); sisaHari(); rpInput(); picOptions(); opsiProject(); hapusPo(); simpanPo(); }
 
 
 
@@ -3222,7 +3310,10 @@ function hapusPo() { save(); render(); toast(); }
 
 
 
-function calItems() { saringLingkup(); selesai(); }
+function calItems() { saringLingkup(); selesai(); poBeres(); }
+
+
+
 
 
 

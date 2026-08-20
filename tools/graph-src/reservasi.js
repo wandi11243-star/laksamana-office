@@ -3920,6 +3920,11 @@ function saveReservation() { byId(); toast(); normTime(); todayStr(); dpToggle()
 
 
 
+
+
+
+
+
 function buildWAText() { fmtDate(); rp(); }
 
 
@@ -4377,6 +4382,9 @@ function recapTable() { exportCSV(); customerProfile(); todayStr(); toMin(); sis
 
 
 
+
+
+
 function tagFor() {  }
 
 
@@ -4654,7 +4662,8 @@ function kapasitasLayout() { capMax(); renderHariHListOnly(); }
 function harihL2() { dayTypeLayout2(); }
 function harihLayoutKey() { harihL2(); harihL1(); }
 function harihLantai() {  }
-function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); tamuMasihDuduk(); renderHariH(); konfirmPulangSemua(); adaDenahTanggal(); ltCfg(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
+function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutName(); harihL1(); harihL2(); hasOverrideLt(); harihLantai(); tamuTutupMalam(); renderHariH(); konfirmPulangSemua(); adaDenahTanggal(); ltCfg(); fmtDate(); clearLayoutOverride(); seatMapMarkup(); }
+
 
 
 
@@ -5157,6 +5166,8 @@ function updateHarihTimers() { byId(); harihOccupancy(); occSig(); renderHariH()
 
 
 function seatAction() { closeModal(); checkIn(); normPhone(); followUp(); fmtClock(); canAddArrival(); addArrival(); remainingPax(); sedangDialihkan(); tawarkanKembaliKeAsli(); esc(); guestLeft(); tablesOf(); tambahPaxSharing(); toggleSharing(); changeTable(); addTable(); cancelReservation(); harihOccupancy(); partiesAt(); absMin(); openModal(); seatTimeLabel(); arrivedPax(); paxBadge(); getLayout(); harihLayoutKey(); tableFill(); roomText(); displayPhone(); rpDot(); fmtTs(); latenessLabel(); seatTimerHtml(); fmtDur(); dineDuration(); statusButtons(); openDetail(); }
+
+
 
 
 
@@ -6186,6 +6197,9 @@ function di() { openModal(); esc(); tagFor(); closeModal(); rp(); normPhone(); d
 
 
 
+
+
+
 function dpBadge() {  }
 function findDp() { ensureDps(); }
 
@@ -6318,7 +6332,7 @@ function changeStatus() { openCancelModal(); arrivedPax(); logAudit(); commit();
 
 
 
-function guestLeft() { toast(); dineDuration(); logAudit(); fmtDur(); commit(); pulihkanRes(); buildNav(); closeModal(); navigate(); tablesOf(); sedangDialihkan(); mejaAsliOf(); denahFilterAktif(); tawarkanKembaliKeAsli(); waitingQueue(); offerWaitlist(); harihOccupancy(); }
+function guestLeft() { toast(); dineDuration(); logAudit(); fmtDur(); commit(); pulihkanRes(); buildNav(); closeModal(); navigate(); tablesOf(); sedangDialihkan(); mejaAsliOf(); denahFilterAktif(); tawarkanKembaliKeAsli(); waitingQueue(); offerWaitlist(); harihOccupancy(); arrivalLateness(); }
 
 
 
@@ -6363,7 +6377,45 @@ function guestLeft() { toast(); dineDuration(); logAudit(); fmtDur(); commit(); 
 
 
 
-function tamuMasihDuduk() { harihOccupancy(); isSeated(); tablesOf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bookingBelumDatang() { absMin(); absNow(); }
+
+
+
+
+
+
+
+
+function tamuTutupMalam() { harihOccupancy(); isSeated(); bookingBelumDatang(); tablesOf(); absMin(); }
+
+
+
+
+
+
 
 
 
@@ -6381,7 +6433,7 @@ function pulihkanRes() {  }
 
 
 
-function konfirmPulangSemua() { toast(); tolakKarenaFilter(); tamuMasihDuduk(); arrivedPax(); openModal(); fmtDate(); closeModal(); esc(); seatTimeLabel(); fmtDur(); seatedSoFar(); pulangSemua(); }
+function konfirmPulangSemua() { toast(); tolakKarenaFilter(); tamuTutupMalam(); arrivedPax(); isSeated(); esc(); seatTimeLabel(); fmtDur(); seatedSoFar(); openModal(); fmtDate(); closeModal(); pulangSemua(); }
 
 
 
@@ -6415,7 +6467,35 @@ function konfirmPulangSemua() { toast(); tolakKarenaFilter(); tamuMasihDuduk(); 
 
 
 
-function pulangSemua() { toast(); tamuMasihDuduk(); closeModal(); logAudit(); commit(); pulihkanRes(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pulangSemua() { toast(); tamuTutupMalam(); closeModal(); ensureArrivals(); arrivedPax(); logAudit(); commit(); pulihkanRes(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
