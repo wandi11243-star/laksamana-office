@@ -4385,13 +4385,18 @@ function viewKkPos(){
    diputuskan adalah keadaan saat permintaan diajukan. Kalau DP-nya baru
    diverifikasi sesudahnya, yang meminta cukup menekan Request lagi —
    permintaannya tersegarkan, bukan menumpuk jadi baris kedua. */
-let INV=null, INV_SET={}, INV_ERR='', INV_SIBUK=false, INV_TAB='antrean', INV_MUAT=false;
+let INV=null, INV_SET={}, INV_PEN=[], INV_ERR='', INV_SIBUK=false, INV_TAB='antrean', INV_MUAT=false;
+/* Baris antrean yang sedang dipilihkan penanda tangannya: {id, ids:[]}.
+   Pemilihannya dibuka DI DALAM barisnya, bukan modal — panel ini tidak punya
+   sistem modal, dan menambahkannya untuk satu dialog berarti satu mekanisme
+   baru yang harus ikut dirawat seluruh halaman. */
+let INV_PILIH=null;
 
 function muatInv(){
   if(INV_MUAT) return Promise.resolve();
   INV_MUAT=true; INV_ERR='';
   return kkApi('invDaftar').then(function(d){
-    INV=d.list||[]; INV_SET=d.setting||{}; INV_MUAT=false;
+    INV=d.list||[]; INV_SET=d.setting||{}; INV_PEN=d.penanda||[]; INV_MUAT=false;
     if(CURRENT==='invoice') render();
   },function(e){
     /* Gagal TIDAK meninggalkan INV=null: null berarti "sedang dimuat", dan
@@ -4465,14 +4470,69 @@ function invBarisHTML(x, mode){
       (x.status==='DIBUAT'
         ? '<button class="btn btn-ghost btn-xs" onclick="invBatal(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+
             ' title="Kembalikan ke antrean. Nomor invoice yang sudah terbit TIDAK dipakai ulang.">↩ Batalkan</button>'
-        : '<button class="btn btn-primary btn-xs" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 Buat Invoice</button> '+
+        : '<button class="btn btn-primary btn-xs" onclick="invBukaPilih(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 Buat Invoice</button> '+
           '<button class="btn btn-danger btn-xs" onclick="invTolak(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Tolak</button>')+
     '</td></tr>'+
     '<tr><td colspan="6" style="padding-top:0">'+
+      (INV_PILIH&&INV_PILIH.id===x.id ? invPanelPilih(x) : '')+
       '<details><summary class="muted" style="cursor:pointer;font-size:12px">Rincian transfer &amp; data reservasi</summary>'+
       '<div style="margin-top:8px">'+invRincianDP(x)+
       '<div class="muted" style="font-size:11.5px;margin-top:6px">Diinput oleh '+esc(g.diinputOleh||'—')+
-        ' · No. kwitansi internal '+esc(g.noKwitansi||'—')+'</div></div></details></td></tr>';
+        ' · No. kwitansi internal '+esc(g.noKwitansi||'—')+'</div></div></details>'+
+      (x.status==='DIBUAT'&&(x.penanda||[]).length
+        ? '<div class="muted" style="font-size:11.5px;margin-top:6px">Ditandatangani: '+
+          x.penanda.map(function(p){return esc(p.nama)+(p.jabatan?' ('+esc(p.jabatan)+')':'');}).join(', ')+'</div>'
+        : '')+
+    '</td></tr>';
+}
+/* Panel pemilih penanda tangan — muncul di dalam baris yang sedang diproses.
+   Yang dipilih di sini berlaku UNTUK LEMBAR INI SAJA; bawaannya diambil dari
+   tab Pengaturan supaya kasus yang paling sering tidak perlu diklik apa-apa. */
+function invPanelPilih(x){
+  const aktif=INV_PEN.filter(function(p){return p.aktif!==false;});
+  const pilih=INV_PILIH.ids||[];
+  if(!aktif.length){
+    return '<div class="notice warn" style="margin:10px 0">⚠ <div>Belum ada penanda tangan yang terdaftar. '+
+      'Tambahkan dulu di tab <b>Pengaturan</b>, atau terbitkan tanpa tanda tangan.'+
+      '<div style="margin-top:8px">'+
+        '<button class="btn btn-primary btn-xs" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Terbitkan tanpa tanda tangan</button> '+
+        '<button class="btn btn-ghost btn-xs" onclick="INV_PILIH=null;render()">Batal</button>'+
+      '</div></div></div>';
+  }
+  return '<div class="card" style="margin:10px 0;padding:14px">'+
+    '<b style="font-size:13px">Siapa yang menandatangani kwitansi ini?</b>'+
+    '<div class="muted" style="font-size:11.5px;margin:4px 0 10px">Boleh lebih dari satu — tanda tangannya berjajar di lembar kwitansi.</div>'+
+    '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
+      aktif.map(function(p){
+        const on=pilih.indexOf(p.id)>-1;
+        return '<label style="display:flex;gap:8px;align-items:center;border:1.5px solid '+(on?'var(--gold,#C9A227)':'var(--line)')+
+          ';border-radius:10px;padding:8px 12px;cursor:pointer">'+
+          '<input type="checkbox" '+(on?'checked':'')+' onchange="invTogglePenanda(\''+p.id+'\')">'+
+          (p.ttd?'<img src="'+esc(p.ttd)+'" alt="" style="height:30px">':'<span class="chip mute">tanpa gambar</span>')+
+          '<span><b style="font-size:12.5px">'+esc(p.nama)+'</b>'+
+          (p.jabatan?'<div class="muted" style="font-size:11px">'+esc(p.jabatan)+'</div>':'')+'</span></label>';
+      }).join('')+
+    '</div>'+
+    (pilih.length?'':'<div class="muted" style="font-size:11.5px;margin-top:10px">Tidak ada yang dicentang — lembarnya terbit <b>tanpa tanda tangan</b>.</div>')+
+    '<div style="margin-top:12px">'+
+      '<button class="btn btn-primary btn-sm" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan Kwitansi</button> '+
+      '<button class="btn btn-ghost btn-sm" onclick="INV_PILIH=null;render()">Batal</button>'+
+    '</div></div>';
+}
+function invBukaPilih(id){
+  const bawaan=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+  /* Bawaan disaring terhadap yang masih AKTIF: penanda tangan yang sudah
+     dinonaktifkan tidak boleh diam-diam ikut tercentang, karena kotaknya
+     memang tidak digambar dan orangnya tidak akan pernah melihatnya. */
+  const aktif=INV_PEN.filter(function(p){return p.aktif!==false;}).map(function(p){return p.id;});
+  INV_PILIH={id:id, ids:bawaan.filter(function(i){return aktif.indexOf(i)>-1;})};
+  render();
+}
+function invTogglePenanda(pid){
+  if(!INV_PILIH) return;
+  const i=INV_PILIH.ids.indexOf(pid);
+  if(i>-1) INV_PILIH.ids.splice(i,1); else INV_PILIH.ids.push(pid);
+  render();
 }
 function viewInvoice(){
   const el=document.getElementById('app-view');
@@ -4501,26 +4561,55 @@ function viewInvoice(){
           (ada?'<button class="btn btn-danger btn-xs" onclick="invHapusGambar(\''+kunci+'\')" '+(INV_SIBUK?'disabled':'')+'>Hapus</button>':'')+
         '</div></div>';
     };
-    isi='<div class="notice info">💡 <div>Tanda tangan &amp; cap di bawah ini <b>otomatis menempel</b> pada setiap kwitansi yang diterbitkan dari halaman ini. '+
-        'Pakai gambar <b>berlatar transparan (PNG)</b> — latar putih akan menutupi garis nama di lembarnya. '+
+    const bawaan=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+    const barisPen=function(p){
+      const isBawaan=bawaan.indexOf(p.id)>-1;
+      return '<tr'+(p.aktif===false?' style="opacity:.55"':'')+'>'+
+        '<td style="width:150px">'+(p.ttd
+            ? '<img src="'+esc(p.ttd)+'" alt="" style="max-height:52px;max-width:140px">'
+            : '<span class="chip mute">tanpa gambar</span>')+'</td>'+
+        '<td><b>'+esc(p.nama)+'</b>'+(p.aktif===false?' <span class="chip mute">nonaktif</span>':'')+
+          '<div class="muted" style="font-size:11.5px">'+esc(p.jabatan||'—')+'</div></td>'+
+        '<td style="width:150px">'+
+          '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer">'+
+          '<input type="checkbox" '+(isBawaan?'checked':'')+' '+(p.aktif===false?'disabled':'')+
+          ' onchange="invToggleBawaan(\''+p.id+'\')"> dipakai bawaan</label></td>'+
+        '<td style="text-align:right;white-space:nowrap">'+
+          '<label class="btn btn-ghost btn-xs" style="cursor:pointer">Ganti gambar'+
+            '<input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="invPenGambar(this,\''+p.id+'\')"></label> '+
+          '<button class="btn btn-ghost btn-xs" onclick="invPenUbah(\''+p.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Ubah nama</button> '+
+          '<button class="btn btn-ghost btn-xs" onclick="invPenAktif(\''+p.id+'\','+(p.aktif===false?'true':'false')+')" '+(INV_SIBUK?'disabled':'')+'>'+
+            (p.aktif===false?'Aktifkan':'Nonaktifkan')+'</button> '+
+          '<button class="btn btn-danger btn-xs" onclick="invPenHapus(\''+p.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Hapus</button>'+
+        '</td></tr>';
+    };
+    isi='<div class="notice info">💡 <div>Penanda tangan boleh <b>lebih dari satu</b>. Yang dicentang <i>dipakai bawaan</i> akan tercentang sendiri saat menerbitkan kwitansi, '+
+        'tapi tiap lembar tetap bisa disetel sendiri — berapa orang dan siapa saja — di panel <b>Buat Invoice</b> pada tab Antrean. '+
+        'Pakai gambar <b>berlatar transparan (PNG)</b>; latar putih akan menutupi garis nama di lembarnya. '+
         'Ukuran wajar: tinggi 150–400 px, di bawah 300 KB.</div></div>'+
-      '<div class="grid g2">'+
-        gbr('Tanda Tangan','ttd','Ditempel di ruang tanda tangan')+
-        gbr('Cap Perusahaan','cap','Ditempel miring di belakang tanda tangan')+
-      '</div>'+
       '<div class="card">'+
-        '<h3>Identitas Penanda Tangan</h3><div class="card-sub">Nama &amp; jabatan yang tercetak di bawah garis tanda tangan</div>'+
-        '<div class="grid g2">'+
-          '<div><label class="muted" style="font-size:12px">Nama</label>'+
-            '<input id="inv_nama" value="'+esc(INV_SET.penandaNama||'')+'" placeholder="(Wandi Pranata)" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px"></div>'+
-          '<div><label class="muted" style="font-size:12px">Jabatan</label>'+
-            '<input id="inv_jab" value="'+esc(INV_SET.penandaJabatan||'')+'" placeholder="Finance" style="width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px"></div>'+
+        '<h3>Penanda Tangan</h3><div class="card-sub">Tanda tangannya berjajar di lembar kwitansi, urut sesuai daftar ini</div>'+
+        '<div class="tbl-wrap"><table><tbody>'+
+          (INV_PEN.length?INV_PEN.map(barisPen).join('')
+            :'<tr><td class="empty">Belum ada penanda tangan. Tambahkan di bawah.</td></tr>')+
+        '</tbody></table></div>'+
+        '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;align-items:center">'+
+          '<input id="inv_pen_nama" placeholder="Nama, mis. (Wandi Pranata)" style="flex:1;min-width:180px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
+          '<input id="inv_pen_jab" placeholder="Jabatan, mis. Finance" style="flex:1;min-width:150px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
+          '<input type="file" accept="image/png,image/jpeg,image/webp" id="inv_pen_file">'+
+          '<button class="btn btn-primary btn-sm" onclick="invPenTambah()" '+(INV_SIBUK?'disabled':'')+'>Tambah</button>'+
         '</div>'+
+        '<div class="muted" style="font-size:11.5px;margin-top:6px">Gambar boleh diisi belakangan lewat tombol <b>Ganti gambar</b>.</div>'+
+      '</div>'+
+      '<div class="grid g2">'+
+        gbr('Cap Perusahaan','cap','Ditempel miring di belakang tanda tangan')+
+      '<div class="card" style="margin:0">'+
+        '<h3>Penomoran</h3><div class="card-sub">Awalan nomor invoice resmi</div>'+
         '<div style="margin-top:12px"><label class="muted" style="font-size:12px">Awalan nomor invoice</label>'+
           '<input id="inv_prefix" value="'+esc(INV_SET.prefix||'INV')+'" style="width:180px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
           '<div class="muted" style="font-size:11.5px;margin-top:5px">Nomornya jadi <span class="mono">'+esc(INV_SET.prefix||'INV')+'/2026/08/0001</span> — urut per bulan.</div></div>'+
-        '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="invSimpanSetting()" '+(INV_SIBUK?'disabled':'')+'>Simpan Pengaturan</button></div>'+
-      '</div>';
+        '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="invSimpanSetting()" '+(INV_SIBUK?'disabled':'')+'>Simpan Penomoran</button></div>'+
+      '</div></div>';
   } else {
     const rows = INV_TAB==='riwayat' ? arsip : antre;
     isi='<div class="tbl-wrap"><table><thead><tr>'+
@@ -4536,9 +4625,9 @@ function viewInvoice(){
   el.innerHTML=
     (INV_ERR?'<div class="notice bad">⚠ <div>'+esc(INV_ERR)+
       ' <button class="btn btn-ghost btn-xs" onclick="INV_ERR=\'\';INV=null;render()">↻ Coba lagi</button></div></div>':'')+
-    ((!INV_SET.ttd&&INV_TAB!=='pengaturan')
-      ? '<div class="notice warn">⚠ <div>Tanda tangan belum diunggah — kwitansi yang terbit sekarang keluar <b>tanpa tanda tangan</b>. '+
-        'Unggah di tab <b>Pengaturan</b>.</div></div>' : '')+
+    ((INV_TAB!=='pengaturan'&&!INV_PEN.some(function(p){return p.aktif!==false&&p.ttd;}))
+      ? '<div class="notice warn">⚠ <div>Belum ada penanda tangan bergambar yang aktif — kwitansi yang terbit sekarang keluar <b>tanpa tanda tangan</b>. '+
+        'Tambahkan di tab <b>Pengaturan</b>.</div></div>' : '')+
     '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
       tab('antrean','Antrean',antre.length)+tab('riwayat','Riwayat',arsip.length)+tab('pengaturan','Pengaturan')+
       '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="INV=null;render()">↻ Segarkan</button>'+
@@ -4548,7 +4637,10 @@ function invKirim(action, payload, pesan){
   if(INV_SIBUK) return;
   INV_SIBUK=true; render();
   kkApi(action, payload).then(function(){
-    INV_SIBUK=false; INV=null; render();
+    /* INV=null memaksa muat ulang dari server, dan INV_PILIH dilepas: panel
+       pemilih yang tertinggal terbuka di atas baris yang statusnya sudah
+       berubah menawarkan "Terbitkan" untuk kwitansi yang sudah terbit. */
+    INV_SIBUK=false; INV=null; INV_PILIH=null; render();
     setSync('ok', pesan);
   },function(e){
     INV_SIBUK=false; INV_ERR=e.message||String(e); render();
@@ -4563,12 +4655,20 @@ function invBuat(id){
       ' transfer yang terverifikasi di halaman Dana Masuk. '+
       'Kwitansi yang terbit adalah pengakuan perusahaan bahwa uangnya sudah diterima.';
   }
-  if(!INV_SET.ttd) peringatan+='\n\n⚠ Tanda tangan belum diunggah — lembarnya akan keluar tanpa tanda tangan.';
+  const ids=(INV_PILIH&&INV_PILIH.id===id)?INV_PILIH.ids.slice():[];
+  const namaPen=ids.map(function(i){
+    const p=INV_PEN.find(function(v){return v.id===i;}); return p?p.nama:'';
+  }).filter(Boolean);
+  if(!ids.length) peringatan+='\n\n⚠ Tidak ada penanda tangan yang dipilih — lembarnya akan keluar tanpa tanda tangan.';
   if(!confirm('Terbitkan kwitansi resmi untuk "'+(g.nama||'-')+'"?\n\n'+
     'Total DP: '+fmtRp(g.dpTotal||0)+'\n'+
-    'Terverifikasi: '+fmtRp(g.dpVerified||0)+peringatan+
+    'Terverifikasi: '+fmtRp(g.dpVerified||0)+'\n'+
+    'Ditandatangani: '+(namaPen.join(', ')||'—')+peringatan+
     '\n\nNomor invoice diberikan sekali dan tidak bisa dipakai ulang.')) return;
-  invKirim('invPutus', {id:id, aksi:'buat'}, 'Kwitansi diterbitkan');
+  /* `penanda` dikirim eksplisit walau kosong. Kalau field-nya dihilangkan saat
+     tak ada yang dicentang, server jatuh ke daftar bawaan — jadi "sengaja
+     tanpa tanda tangan" berubah diam-diam jadi "ditandatangani bawaan". */
+  invKirim('invPutus', {id:id, aksi:'buat', penanda:ids}, 'Kwitansi diterbitkan');
 }
 function invTolak(id){
   const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
@@ -4589,10 +4689,78 @@ function invBatal(id){
 }
 function invSimpanSetting(){
   invKirim('invSetting', {data:{
-    penandaNama: document.getElementById('inv_nama').value.trim(),
-    penandaJabatan: document.getElementById('inv_jab').value.trim(),
     prefix: document.getElementById('inv_prefix').value.trim()||'INV'
-  }}, 'Pengaturan invoice tersimpan');
+  }}, 'Penomoran tersimpan');
+}
+/* ---- daftar penanda tangan ---- */
+function invPenTambah(){
+  const nama=document.getElementById('inv_pen_nama').value.trim();
+  if(!nama){ alert('Nama penanda tangan wajib diisi.'); return; }
+  const jab=document.getElementById('inv_pen_jab').value.trim();
+  const f=document.getElementById('inv_pen_file');
+  const berkas=f&&f.files&&f.files[0];
+  const kirim=function(ttd){
+    const d={nama:nama, jabatan:jab, urut:INV_PEN.length, aktif:1};
+    if(ttd!==null) d.ttd=ttd;
+    invKirim('invPenandaSimpan', {data:d}, 'Penanda tangan ditambahkan');
+  };
+  if(!berkas) return kirim(null);
+  invBacaGambar(berkas, kirim);
+}
+function invPenGambar(input, id){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const p=INV_PEN.find(function(v){return v.id===id;}); if(!p) return;
+  /* nama & jabatan IKUT dikirim: simpan_penanda menolak nama kosong, dan
+     mengirim gambar saja akan ditolak dengan pesan yang tidak nyambung
+     ("nama penanda tangan wajib diisi") pada tombol yang jelas-jelas cuma
+     mengganti gambar. */
+  invBacaGambar(f, function(ttd){
+    invKirim('invPenandaSimpan', {data:{id:id, nama:p.nama, jabatan:p.jabatan,
+      urut:p.urut, aktif:p.aktif===false?0:1, ttd:ttd}}, 'Gambar diperbarui');
+  });
+}
+function invPenUbah(id){
+  const p=INV_PEN.find(function(v){return v.id===id;}); if(!p) return;
+  const nama=prompt('Nama penanda tangan:', p.nama); if(nama===null) return;
+  if(!nama.trim()){ alert('Nama wajib diisi.'); return; }
+  const jab=prompt('Jabatan:', p.jabatan||''); if(jab===null) return;
+  /* `ttd` sengaja TIDAK ikut — kalau dikirim kosong, gambar orang itu lenyap
+     hanya karena namanya dibetulkan. Server memang membedakan field yang
+     tidak dikirim dari field kosong. */
+  invKirim('invPenandaSimpan', {data:{id:id, nama:nama.trim(), jabatan:jab.trim(),
+    urut:p.urut, aktif:p.aktif===false?0:1}}, 'Penanda tangan diperbarui');
+}
+function invPenAktif(id, aktif){
+  const p=INV_PEN.find(function(v){return v.id===id;}); if(!p) return;
+  invKirim('invPenandaSimpan', {data:{id:id, nama:p.nama, jabatan:p.jabatan,
+    urut:p.urut, aktif:aktif?1:0}}, aktif?'Diaktifkan':'Dinonaktifkan');
+}
+function invPenHapus(id){
+  const p=INV_PEN.find(function(v){return v.id===id;}); if(!p) return;
+  if(!confirm('Hapus penanda tangan "'+p.nama+'"?\n\n'+
+    'Kalau ia sudah menempel di kwitansi yang terbit, penghapusan akan ditolak — '+
+    'nonaktifkan saja supaya dokumen lama tetap bertanda tangan.')) return;
+  invKirim('invPenandaHapus', {penandaId:id}, 'Penanda tangan dihapus');
+}
+/* Bawaan disimpan sebagai CSV id di inv_setting, bukan kolom di inv_penanda:
+   yang ditanyakan bukan sifat orangnya melainkan "siapa yang biasanya
+   menandatangani", dan itu satu daftar berurutan milik perusahaan. */
+function invToggleBawaan(id){
+  const kini=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+  const i=kini.indexOf(id);
+  if(i>-1) kini.splice(i,1); else kini.push(id);
+  invKirim('invSetting', {data:{penandaDefault:kini.join(',')}}, 'Bawaan penanda tangan disimpan');
+}
+function invBacaGambar(f, lanjut){
+  if(f.size>1200000){
+    alert('Gambar terlalu besar ('+Math.round(f.size/1024)+' KB). Kecilkan dulu sampai di bawah 1 MB — '+
+          'tanda tangan/cap tidak perlu resolusi tinggi.');
+    return;
+  }
+  const fr=new FileReader();
+  fr.onload=function(){ lanjut(String(fr.result||'')); };
+  fr.onerror=function(){ alert('Gambar gagal dibaca.'); };
+  fr.readAsDataURL(f);
 }
 function invHapusGambar(kunci){
   if(!confirm('Hapus gambar ini? Kwitansi berikutnya terbit tanpa gambar tersebut.')) return;

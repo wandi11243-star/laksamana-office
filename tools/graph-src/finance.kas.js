@@ -4387,6 +4387,11 @@ function daftar() { kkUbahNama(); kkSimpanPos(); kkSimpanKat(); }
 
 
 
+
+
+
+
+
 function muatInv() { kkApi(); render(); }
 
 
@@ -4441,7 +4446,7 @@ function invRincianDP() { invRing(); }
 
 
 
-function invBarisHTML() { invRing(); invPenuh(); invWaktu(); invChipStatus(); invBatal(); invBuat(); invTolak(); invRincianDP(); }
+function invBarisHTML() { invRing(); invPenuh(); invWaktu(); invChipStatus(); invBatal(); invBukaPilih(); invTolak(); invPanelPilih(); invRincianDP(); }
 
 
 
@@ -4469,6 +4474,61 @@ function invBarisHTML() { invRing(); invPenuh(); invWaktu(); invChipStatus(); in
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invPanelPilih() { invBuat(); render(); invTogglePenanda(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invBukaPilih() { render(); }
+
+
+
+
+
+
+
+
+function invTogglePenanda() { render(); }
 
 
 
@@ -4488,7 +4548,36 @@ function tab() { render(); }
 
 
 
-function gbr() { invUpload(); invHapusGambar(); invSimpanSetting(); invBarisHTML(); render(); tab(); }
+function gbr() { invUpload(); invHapusGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function barisPen() { invToggleBawaan(); invPenGambar(); invPenUbah(); invPenAktif(); invPenHapus(); invPenTambah(); gbr(); invSimpanSetting(); invBarisHTML(); render(); tab(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4554,7 +4643,18 @@ function invKirim() { render(); kkApi(); setSync(); }
 
 
 
+
+
+
 function invBuat() { invRing(); invPenuh(); invKirim(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -4588,6 +4688,74 @@ function invBatal() { invKirim(); }
 
 
 function invSimpanSetting() { invKirim(); }
+
+
+
+
+
+function invPenTambah() { invKirim(); kirim(); invBacaGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function invPenGambar() { invBacaGambar(); invKirim(); }
+
+
+
+
+
+
+
+
+
+
+
+function invPenUbah() { invKirim(); }
+
+
+
+
+
+
+
+
+
+
+function invPenAktif() { invKirim(); }
+
+
+
+
+function invPenHapus() { invKirim(); }
+
+
+
+
+
+
+
+
+
+function invToggleBawaan() { invKirim(); }
+
+
+
+
+
+function invBacaGambar() {  }
+
+
+
+
 
 
 

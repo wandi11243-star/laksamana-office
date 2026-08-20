@@ -5855,6 +5855,23 @@ function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); to
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function kwitansiPDF() { hasDP(); toast(); siapkanBerkasKwi(); tulisKwitansi(); }
 
 

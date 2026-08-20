@@ -12,9 +12,11 @@
  *   POST     ?action=invMinta   {resId,oleh,ringkas}  -> baris permintaan
  *   POST     ?action=invStatus  {res:[id,…]}          -> {resId: baris}
  *   POST     ?action=invBerkas  {resId}               -> {ada,no,ttd,cap,…}
- *   POST     ?action=invDaftar                        -> {list,setting}
- *   POST     ?action=invPutus   {id,aksi,oleh,catatan}
- *   POST     ?action=invSetting {data:{ttd,cap,penandaNama,penandaJabatan,prefix}}
+ *   POST     ?action=invDaftar                        -> {list,setting,penanda}
+ *   POST     ?action=invPutus   {id,aksi,oleh,catatan,penanda:[penandaId,…]}
+ *   POST     ?action=invSetting {data:{cap,prefix,penandaDefault}}
+ *   POST     ?action=invPenandaSimpan {data:{id?,nama,jabatan,ttd?,urut,aktif}}
+ *   POST     ?action=invPenandaHapus  {penandaId}
  *   invMinta/invStatus/invBerkas dipanggil dari modul RESERVASI; sisanya dari
  *   tab Invoice di panel Finance > Kas Kecil.
  *
@@ -153,6 +155,19 @@ try {
       keluar(array('ok' => true, 'data' => array(
         'list'    => inv_daftar(),
         'setting' => inv_setting_baca(),
+        'penanda' => inv_penanda_daftar(true),
+      )));
+
+    case 'invPenandaSimpan':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_penanda_simpan(
+        isset($body['data']) && is_array($body['data']) ? $body['data'] : $body
+      )));
+
+    case 'invPenandaHapus':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_penanda_hapus(
+        isset($body['penandaId']) ? $body['penandaId'] : ''
       )));
 
     case 'invPutus':

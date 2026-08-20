@@ -5762,8 +5762,13 @@ function kwitansiHTML(r, inv){
   const lunas = isLunas(r);
   const resmi = !!(inv && inv.ada);
   const noDok = resmi && inv.no ? inv.no : kwitansiNo(r);
-  const ttdNama    = resmi && inv.penandaNama    ? inv.penandaNama    : KWI_KOP.ttdNama;
-  const ttdJabatan = resmi && inv.penandaJabatan ? inv.penandaJabatan : KWI_KOP.ttdJabatan;
+  /* Penanda tangan bisa lebih dari satu, dan siapa saja ditentukan per lembar
+     oleh Finance. Kalau kwitansinya belum resmi — atau Finance sengaja
+     menerbitkannya tanpa tanda tangan — jatuh ke SATU blok berisi nama
+     bawaan di kop, supaya tata letak bagian bawah lembarnya tidak berubah. */
+  const pen = (resmi && Array.isArray(inv.penanda) && inv.penanda.length)
+    ? inv.penanda
+    : [{nama:KWI_KOP.ttdNama, jabatan:KWI_KOP.ttdJabatan, ttd:""}];
   return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(noDok)} — ${esc(r.name||"")}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -5791,6 +5796,12 @@ function kwitansiHTML(r, inv){
   .bayar{border:1px solid #D9CDB2;border-radius:8px;padding:11px 13px;font-size:12px;max-width:290px}
   .bayar b{display:block;margin-bottom:3px}
   .ttd{text-align:center;font-size:12.5px;min-width:190px}
+  /* Beberapa penanda tangan berjajar. min-width diperkecil saat jumlahnya
+     lebih dari satu — tiga kolom @190px memaksa blok tanda tangan melebar
+     melewati kertas A4 dan yang paling kanan terpotong saat dicetak. */
+  .ttd-grup{text-align:right;font-size:12.5px}
+  .ttd-baris{display:flex;gap:20px;justify-content:flex-end;align-items:flex-end}
+  .ttd-baris .ttd{min-width:150px}
   .ttd .sp{height:58px}
   .ttd .nm{border-top:1px solid #1d1a15;padding-top:5px;font-weight:700;display:inline-block;min-width:170px}
   .catatan{margin-top:20px;font-size:11px;color:#5c574d;border-top:1px dashed #D9CDB2;padding-top:9px}
@@ -5832,18 +5843,24 @@ function kwitansiHTML(r, inv){
       <div class="bayar"><b>Pembayaran dapat ditransfer ke:</b>${esc(KWI_KOP.bank)}<br><b style="margin-top:3px">${esc(KWI_KOP.rek)}</b></div>
       <div style="margin-top:12px"><span class="lunas">${lunas?"LUNAS":"DP DITERIMA"}</span></div>
     </div>
-    <div class="ttd">Hormat Kami,
+    <div class="ttd-grup">Hormat Kami,
       <!-- Ruang tanda tangan: kalau kwitansinya sudah resmi, ruang kosong itu
-           diisi gambar tanda tangan dengan CAP di belakangnya (cap sengaja
-           setengah menimpa tanda tangan & garis nama, seperti cap basah yang
-           dibubuhkan di atas kertas). Tanpa berkas resmi, tingginya tetap
-           sama supaya tata letaknya tidak melompat antara dua versi lembar. -->
-      <div class="sp" style="position:relative">
-        ${resmi&&inv.cap?`<img src="${esc(inv.cap)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">`:""}
-        ${resmi&&inv.ttd?`<img src="${esc(inv.ttd)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">`:""}
+           diisi gambar tanda tangan tiap penanda tangan, dengan CAP di
+           belakang yang PERTAMA (sengaja setengah menimpa tanda tangan &
+           garis nama, seperti cap basah yang dibubuhkan di atas kertas —
+           satu cap untuk satu lembar, bukan satu per orang). Tanpa berkas
+           resmi tingginya tetap sama, supaya tata letak bagian bawah tidak
+           melompat antara dua versi lembar. -->
+      <div class="ttd-baris">
+        ${pen.map((p,i)=>`<div class="ttd">
+          <div class="sp" style="position:relative">
+            ${resmi&&i===0&&inv.cap?`<img src="${esc(inv.cap)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">`:""}
+            ${p.ttd?`<img src="${esc(p.ttd)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">`:""}
+          </div>
+          <div class="nm">${esc(p.nama||"")}</div>
+          <div style="color:#5c574d;font-size:11.5px">${esc(p.jabatan||"")}</div>
+        </div>`).join("")}
       </div>
-      <div class="nm">${esc(ttdNama)}</div>
-      <div style="color:#5c574d;font-size:11.5px">${esc(ttdJabatan)}</div>
       <div style="color:#5c574d;font-size:11px;margin-top:5px">Diterima oleh: ${esc(dpReceivedBy(r))}</div>
       ${resmi?`<div style="color:#1F9D5F;font-size:10.5px;margin-top:4px">✓ Diverifikasi Finance${inv.putusOleh?" · "+esc(inv.putusOleh):""}</div>`:""}
     </div>
