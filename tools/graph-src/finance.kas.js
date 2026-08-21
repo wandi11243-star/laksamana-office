@@ -4695,6 +4695,11 @@ function invBarisHTML() { invRing(); invSelIdentitas(); invSelNilai(); invSelDan
 
 
 
+
+
+
+
+
 function invKataDok() { invAdalahInvoice(); }
 function invPanelPilih() { invKataDok(); invBuat(); render(); invAdalahInvoice(); invTogglePenanda(); }
 

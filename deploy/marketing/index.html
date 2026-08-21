@@ -2678,9 +2678,15 @@ const DEFAULT_SETTINGS = {
      Approval di modul ini tinggal satu: Surat Penawaran, disetujui sebelum
      dikirim ke klien. Lihat catatan di bagian APPROVAL FLOW. */
   fuTarget:10,
-  // Nomor invoice & kwitansi: sekali diberikan, melekat permanen ke event/pembayaran.
-  // invSeq/kwSeq = nomor urut berikutnya yang akan dipakai.
-  invPrefix:'INV/LM/2026/', invSeq:1,
+  /* Nomor KWITANSI: penanda tiap baris pembayaran, sekali diberikan melekat
+     permanen ke pembayarannya. kwSeq = nomor urut berikutnya yang akan
+     dipakai.
+
+     invPrefix/invSeq SENGAJA TIDAK ADA LAGI (21 Agustus 2026): nomor invoice
+     resmi diterbitkan Finance, dan penomoran kedua di sini cuma menghasilkan
+     nomor tandingan yang ikut tercetak di dokumen client. Kunci lamanya tetap
+     terbaca dari data tersimpan — normalizeState tidak membuangnya, dan
+     event yang sempat punya ev.invNo tetap menyimpannya sebagai jejak. */
   kwPrefix:'KW/LM/2026/', kwSeq:1,
   waBooking:'6285365234898',
   fuNextDays:3,    // jeda default jadwal follow up berikutnya
@@ -3688,17 +3694,26 @@ function eventFinance(ev){
    BENAR-BENAR datang dari persentase bawaan. */
 function dpLabel(f){ return f && f.dpDariNominal ? 'DP' : ('DP '+((f&&f.dpPct)||0)+'%'); }
 
-/* ---------- NOMOR INVOICE & KWITANSI ----------
+/* ---------- NOMOR KWITANSI ----------
    Dulu nomor invoice dihitung dari posisi baris (String(1000+i)) sehingga bergeser
    tiap ada event baru — nomor yang sudah dikirim ke klien jadi tidak cocok.
-   Sekarang nomor diberikan sekali lalu disimpan di event (ev.invNo) / pembayaran (p.no). */
+   Lalu nomor diberikan sekali dan disimpan di event (ev.invNo).
+
+   PENOMORAN INVOICE INTERNAL SUDAH TIDAK ADA (21 Agustus 2026). Sejak invoice
+   resmi diterbitkan Finance, modul ini sempat punya nomor keduanya sendiri:
+   satu tertulis di daftar & lembar tagihan, satu lagi tercetak di lembar
+   bertanda tangan yang benar-benar dipegang client. Dua nomor untuk satu
+   tagihan tidak bisa dicocokkan lagi setahun kemudian, dan yang salah selalu
+   ketahuan dari pihak client. Sekarang satu-satunya nomor invoice adalah
+   terbitan Finance — lihat invNoResmi().
+
+   `ev.invNo` yang SUDAH TERSIMPAN sengaja tidak dibuang dari data: ia jejak
+   nomor yang mungkin pernah dikirim ke client sebelum tanggal itu. Ia cuma
+   tidak lagi ditampilkan, dan tidak ada nomor baru yang dibuat.
+
+   Nomor KWITANSI tetap ada dan tetap dipakai: itu penanda tiap baris
+   pembayaran (p.no), bukan nomor dokumen resmi. */
 function nextSeq(key){ const n=Math.max(1,+S.settings[key]||1); S.settings[key]=n+1; return n; }
-function ensureInvNos(evs){
-  let changed=false;
-  evs.forEach(e=>{ if(!e.invNo){ e.invNo=S.settings.invPrefix+String(nextSeq('invSeq')).padStart(4,'0'); changed=true; } });
-  if(changed) save();
-}
-function invoiceNo(ev){ return (ev&&ev.invNo)||'—'; }
 function kwitansiNo(){ return (S.settings.kwPrefix||'KW/')+String(nextSeq('kwSeq')).padStart(4,'0'); }
 function invStatus(ev){
   const f=eventFinance(ev);
@@ -5225,7 +5240,12 @@ function delEvent(id){
    +'<div class="modal-body">'
    +'<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Tindakan ini <em>permanen</em> dan <em>tidak bisa dibatalkan</em>. Data di bawah ikut terhapus.</span></div>'
    +'<dl class="kv-list" style="margin-top:14px">'
-     +'<dt>No. invoice</dt><dd class="mono">'+esc(e.invNo||'—')+'</dd>'
+     /* Nomor invoice RESMI, dari Finance — bukan lagi nomor internal. Justru
+        di layar ini bedanya penting: nomor yang sudah terbit berarti lembar
+        bertanda tangan yang sudah beredar di luar, dan itu alasan kuat untuk
+        tidak menghapus eventnya. Nomor internal karangan sendiri tidak pernah
+        berarti apa-apa di luar. */
+     +'<dt>No. invoice resmi</dt><dd class="mono">'+esc(invNoResmi(e)||'belum diterbitkan')+'</dd>'
      +'<dt>Pembayaran & kwitansi</dt><dd class="mono"'+(pay?' style="color:var(--danger);font-weight:600"':'')+'>'+pay+(paid?' · sudah masuk '+rp(paid):'')+'</dd>'
      +'<dt>Riwayat follow up</dt><dd class="mono">'+fu+'</dd>'
      +'<dt>Antrian approval</dt><dd class="mono">'+ap+'</dd>'
@@ -8943,6 +8963,12 @@ function financeTab(ev,canEdit){
   h+='<div class="card" id="fin-hitung" style="background:var(--ink-900)">'+finHitungHTML(ev)+'</div>';
   h+='</div>';                       // tutup kisi dua kolom
   h+='</div>';                       // tutup .fin-panel
+  /* Nomor invoice di lembar tagihan datang dari Finance, jadi statusnya perlu
+     ditanyakan begitu tab ini dibuka — bukan hanya dari halaman Invoice &
+     Payment. setTimeout(0) supaya jalan SESUDAH pemanggil menaruh `h` ini ke
+     DOM: muatInvMkt menyegarkan slotnya lewat querySelectorAll, dan slot yang
+     belum ada saat itu akan berhenti selamanya di "memeriksa…". */
+  setTimeout(function(){ muatInvMkt([ev]); },0);
   return h;
 }
 /* Isi panel "Perhitungan Otomatis". Dipisah dari financeTab() supaya bisa
@@ -8990,7 +9016,7 @@ function finHitungHTML(ev){
      +'<h4 style="font-size:14px;flex:1">Pratinjau Lembar Tagihan</h4>'
      +'<button class="btn sm" onclick="genBriefFor(\''+ev.id+'\',\'quote\')">'+svg(IC.print)+'Cetak</button>'
    +'</div>'
-   +'<div class="inv-pratinjau">'+invoiceKepalaHTML(ev,S.clients.find(c=>c.id===ev.clientId))
+   +'<div class="inv-pratinjau">'+invoiceKepalaHTML(ev,S.clients.find(c=>c.id===ev.clientId),true)
    +rincianTabelHTML(ev,f)+'</div>'
    +'<div class="fh" style="margin-top:7px">Baris FREE &amp; "to be confirm" diambil dari dua kotak template di sebelah kiri. '
    +'Kosongkan kotak FREE untuk memakai template umum di Pengaturan.</div>';
@@ -9010,7 +9036,7 @@ function finHitungHTML(ev){
      daftar invoice. */
   h+='<div class="pill-row" style="margin-top:14px">';
   if(can('verify_payment')||ME.role==='super_admin')h+='<button class="btn sm pri" onclick="addPayment(\''+ev.id+'\')">'+svg(IC.money)+'Catat Pembayaran</button>';
-  h+='<button class="btn sm" title="Buka WhatsApp berisi rincian invoice" onclick="waInvoice(\''+ev.id+'\',\''+escJs(invoiceNo(ev))+'\')">'+svg(IC.wa)+'Kirim Invoice</button>';
+  h+='<button class="btn sm" title="Buka WhatsApp berisi rincian invoice" onclick="waInvoice(\''+ev.id+'\')">'+svg(IC.wa)+'Kirim Invoice</button>';
   /* Reminder DP hanya untuk acara yang memang ber-DP DAN DP-nya belum
      terpenuhi. Menagih DP yang sudah lunas adalah pesan yang membuat client
      mengira catatan kita berantakan. */
@@ -9081,8 +9107,11 @@ function finLive(){
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev)return;
   wrap.innerHTML=finHitungHTML(finBayangan(ev));
 }
-// Riwayat pembayaran satu event: dipakai di tab Finance event DAN di modal
-// riwayat dari modul Invoice & Payment, supaya sumbernya satu (tidak dobel).
+/* Riwayat pembayaran satu event. Sejak 21 Agustus 2026 hanya SATU pemakainya:
+   tab Finance event. Modal riwayat di halaman Invoice & Payment dicabut —
+   isinya persis sama dengan yang sudah tergambar penuh di tab itu, dan dua
+   pintu ke daftar yang sama membuat orang mengeditnya di satu tempat lalu
+   mencarinya lagi di tempat lain. */
 function paymentHistoryHtml(ev){
   if(!(ev.payments||[]).length) return '<div class="lma-empty" style="padding:14px 0">Belum ada pembayaran tercatat.</div>';
   const canEdit=can('verify_payment')||ME.role==='super_admin';
@@ -9891,15 +9920,20 @@ function rincianTabelHTML(ev, f, opsi){
 }
 
 /* Kepala dokumen bergaya invoice: nama customer di kiri, nomor & tanggal di
-   kanan. Dipisah dari tabelnya supaya bisa dipakai di pratinjau layar juga. */
-function invoiceKepalaHTML(ev, c){
+   kanan. Dipisah dari tabelnya supaya bisa dipakai di pratinjau layar juga.
+
+   `live` = digambar di LAYAR, jadi nomornya dibungkus slot yang ikut
+   tersegarkan begitu jawaban Finance datang. Untuk dokumen yang DICETAK slot
+   itu tidak ada gunanya — isinya dibekukan saat tombol ditekan — dan wadah
+   yang tidak akan pernah diperbarui hanya berisiko mencetak "memeriksa…". */
+function invoiceKepalaHTML(ev, c, live){
   const kol='padding:3px 0;font-size:12.5px';
   return '<table style="width:100%;border-collapse:collapse;margin-bottom:14px">'
    +'<tr>'
      +'<td style="'+kol+';width:120px;color:#555">Customer Name</td>'
      +'<td style="'+kol+'">: <b>'+esc(c&&(c.perusahaan||c.nama)||'—')+'</b></td>'
      +'<td style="'+kol+';width:120px;color:#555;text-align:right">Invoice Number</td>'
-     +'<td style="'+kol+';width:170px">: '+esc(invoiceNo(ev))+'</td>'
+     +'<td style="'+kol+';width:170px">: '+(live?slotInvNo(ev):esc(invNoTeks(ev)))+'</td>'
    +'</tr><tr>'
      +'<td style="'+kol+';color:#555">Acara</td>'
      +'<td style="'+kol+'">: '+esc(ev.nama||'—')+'</td>'
@@ -11466,22 +11500,35 @@ function renderInvoices(V){
     h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');
     V.innerHTML=h; return;
   }
-  ensureInvNos(evs);
   const urutInv=tblUrut(evs,'invoices',KOL_INVOICES);
   const pInv=tblPage(urutInv,'invoices');
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
-  pInv.items.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
-    h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target '+dpLabel(f)+': '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
+  pInv.items.forEach(e=>{ const f=eventFinance(e);
+    h+='<tr><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target '+dpLabel(f)+': '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
      /* Dua dokumen dalam satu sel — DP di atas, pelunasan di bawah. Bukan dua
         kolom: keduanya jarang hidup bersamaan (pelunasan baru ada setelah DP
         selesai), dan dua kolom yang salah satunya hampir selalu kosong cuma
         mempersempit kolom lain di tabel yang sudah penuh. */
      +'<td><div>'+slotInv(e,'INV_DP')+'</div><div style="margin-top:6px">'+slotInv(e,'INV_LUNAS')+'</div></td>'
-     /* Tiga tombol dicabut: ikon MATA (buka tab Finance — seluruh barisnya
-        sudah bisa diklik ke sana), KIRIM INVOICE, dan REMINDER DP. Enam ikon
-        berjajar melipat jadi dua baris dan membuat tiap baris tabel setinggi
-        dua kali lipat; yang tersisa hanya yang tidak punya jalan lain. */
-     +'<td><div class="aksi-1baris"><button class="btn sm" title="Riwayat pembayaran" onclick="viewPaymentHistory(\''+e.id+'\')">'+svg(IC.perf)+'</button><button class="btn sm" title="Print / PDF" onclick="genBriefFor(\''+e.id+'\',\'quote\')">'+svg(IC.print)+'</button>'+((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+(can('del_event')?'<button class="btn sm danger" title="Hapus event/invoice" onclick="delEvent(\''+e.id+'\')">'+svg(IC.trash)+'</button>':'')+'</div></td></tr>';
+     /* KOLOM AKSI TINGGAL SATU TOMBOL (21 Agustus 2026, permintaan tim).
+        Yang dicabut dan KENAPA masing-masing tidak meninggalkan jalan buntu:
+
+          · ikon MATA (buka tab Finance) — seluruh barisnya sudah bisa diklik
+            ke sana. Dicabut lebih dulu.
+          · KIRIM INVOICE & REMINDER DP — pindah ke tab Finance event.
+          · RIWAYAT PEMBAYARAN — daftarnya sudah tergambar penuh di tab
+            Finance event (paymentHistoryHtml dipanggil dari sana), jadi modal
+            ini cuma pintu kedua ke isi yang sama.
+          · PRINT/PDF — lembar tagihannya ada di tab Finance lengkap dengan
+            pratinjaunya; mencetak dari daftar berarti mencetak sesuatu yang
+            belum sempat dilihat.
+          · HAPUS EVENT — tempatnya di halaman event, bukan di daftar tagihan.
+            Tombol hapus permanen di sebelah tombol catat-pembayaran adalah
+            dua benda yang sangat berbeda dengan jarak dua sentimeter.
+
+        Yang tersisa Catat Pembayaran: dari sinilah alur pelunasan dimulai,
+        dan permintaan invoice pelunasan menunggu barisnya tercatat dulu. */
+     +'<td><div class="aksi-1baris">'+(((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0)?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
   V.innerHTML=h;
@@ -11492,8 +11539,12 @@ function renderInvoices(V){
      dibuka adalah permintaan yang isinya 99% tidak akan dilihat siapa pun. */
   muatInvMkt(pInv.items);
 }
+/* KOLOM "No. Invoice" DIBUANG (21 Agustus 2026). Isinya nomor internal yang
+   dikarang modul ini sendiri, dan sejak invoice resmi datang dari Finance ada
+   DUA nomor untuk satu tagihan — yang tercetak di lembar bertanda tangan dan
+   yang tertulis di daftar ini. Yang berlaku cuma satu: nomor Finance, dan ia
+   sudah tampil di kolom Invoice Resmi. */
 const KOL_INVOICES=[
-  {k:'no',      t:'No. Invoice',    v:e=>invoiceNo(e), cls:'mono'},
   {k:'client',  t:'Client / Event', v:e=>clientName(e.clientId)},
   {k:'grand',   t:'Grand Total',    v:e=>eventFinance(e).grand,     cls:'mono', turun:1},
   {k:'paid',    t:'Terbayar',       v:e=>eventFinance(e).paid,      cls:'mono', turun:1},
@@ -11650,6 +11701,9 @@ function invRingkasMkt(ev,jenis){
     client:(c.nama||clientName(ev.clientId)), perusahaan:c.perusahaan||'',
     picClient:c.pic||'', event:ev.nama, jenisAcara:ev.jenis||'',
     tanggal:ev.tanggal||'', pax:+ev.pax||0,
+    /* Nomor internal SUDAH TIDAK DIBUAT LAGI. Yang masih terkirim cuma milik
+       event lama yang sempat punya satu — berguna bagi Finance sebagai
+       rujukan silang ke berkas lama, dan tidak digambar kalau kosong. */
     noInternal:ev.invNo||'', pic:userName(ev.mktPIC),
     sub:f.sub, disc:f.disc, service:f.service, tax:f.tax, taxPct:f.taxPct,
     grand:f.grand, dp:f.dp, paid:f.paid, remaining:f.remaining,
@@ -11693,13 +11747,41 @@ function muatInvMkt(evs){
     segarkanSlotInv();
   });
 }
+/* ---- NOMOR INVOICE: SATU-SATUNYA, DAN DATANG DARI FINANCE ----
+   Dipakai lembar tagihan & pesan WA. Pelunasan didahulukan kalau dua-duanya
+   sudah terbit: itu dokumen terakhir yang dipegang client, dan nomor itulah
+   yang ia sebut saat menelepon. */
+function invNoResmi(ev){
+  if(!ev) return '';
+  const l=MKT_INV[invResId(ev.id,'INV_LUNAS')];
+  if(l && l.status==='DIBUAT' && l.no) return l.no;
+  const d=MKT_INV[invResId(ev.id,'INV_DP')];
+  if(d && d.status==='DIBUAT' && d.no) return d.no;
+  return '';
+}
+/* Tiga keadaan, bukan dua — sama seperti slot tombolnya. "Belum diterbitkan"
+   yang sebenarnya berarti "belum sempat ditanyakan" adalah kalimat yang
+   membuat orang meminta invoice yang sebetulnya sudah terbit. */
+function invNoTeks(ev){
+  const no=invNoResmi(ev);
+  if(no) return no;
+  const st=MKT_INV[invResId(ev.id,'INV_DP')];
+  return (st===undefined||st===MKT_INV_MUAT) ? 'memeriksa ke Finance…' : 'belum diterbitkan Finance';
+}
+function slotInvNo(ev){
+  return '<span class="invNoSlot" data-ev="'+esc(ev.id)+'">'+esc(invNoTeks(ev))+'</span>';
+}
 /* Ditandai CLASS + data-*, bukan id: satu event bisa punya slot di tabel DAN
-   di modal riwayat pembayaran pada saat yang sama, dan id kembar membuat
-   hanya yang pertama tersegarkan — slot kedua berhenti selamanya di "…". */
+   di lembar tagihan pada saat yang sama, dan id kembar membuat hanya yang
+   pertama tersegarkan — slot kedua berhenti selamanya di "…". */
 function segarkanSlotInv(){
   Array.prototype.forEach.call(document.querySelectorAll('.invSlot'),function(el){
     const ev=S.events.find(x=>x.id===el.dataset.ev);
     if(ev) el.innerHTML=slotInvIsi(ev,el.dataset.jenis);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.invNoSlot'),function(el){
+    const ev=S.events.find(x=>x.id===el.dataset.ev);
+    if(ev) el.textContent=invNoTeks(ev);
   });
 }
 function slotInv(ev,jenis){
@@ -11756,11 +11838,6 @@ async function mintaInvoiceMkt(evId,jenis){
   if(lunas && !mktPunyaPelunasan(ev)) return toast('Pelunasan belum dicatat','Catat pembayaran pelunasannya dulu (nominal + bukti transfer).','err');
   if(!lunas && !mktPunyaDP(ev)) return toast('DP belum masuk','Catat pembayaran DP-nya dulu di halaman ini.','err');
   const f=eventFinance(ev);
-  /* Nomor invoice internal DIPASTIKAN ADA sebelum permintaan dikirim. Ia ikut
-     di dalam ringkasan sebagai rujukan silang antara arsip Finance dan daftar
-     di sini; kalau dikirim kosong, satu-satunya penghubung kedua sisi adalah
-     nama event — yang bisa berubah kapan saja. */
-  ensureInvNos([ev]);
   const tanpaBukti=(ev.payments||[]).filter(p=>!p.receiptUrl).length;
   const pra=mktPraPelunasan(ev);
   const rincian = lunas
@@ -11779,7 +11856,7 @@ async function mintaInvoiceMkt(evId,jenis){
     });
     MKT_INV[invResId(ev.id,jenis)]=baris;
     segarkanSlotInv();
-    logAct('event',ev.id,'Request invoice '+(lunas?'pelunasan':'DP'),(ev.invNo||'')+' · '+rp(lunas?pra.tagih:f.dp));
+    logAct('event',ev.id,'Request invoice '+(lunas?'pelunasan':'DP'),clientName(ev.clientId)+' · '+rp(lunas?pra.tagih:f.dp));
     save();
     toast(baris.status==='DIBUAT'?'Invoice resmi sudah terbit ✓':'Permintaan invoice terkirim ke Finance ✓',
       lunas?'Finance akan menerbitkan lembar pelunasannya.':'Finance akan menerbitkan lembar DP-nya.','ok');
@@ -11821,7 +11898,10 @@ function invoiceMktDoc(ev,jenis,inv){
   const lunas=jenis==='INV_LUNAS';
   const logo=window.LM_LOGO||'';
   const resmi=!!(inv&&inv.ada);
-  const noDok=resmi&&inv.no?inv.no:(ev.invNo||'—');
+  /* Tidak ada lagi nomor cadangan dari Marketing. Lembar yang belum
+     diterbitkan Finance memang belum bernomor, dan mencetak nomor karangan di
+     tempat itu persis kesalahan yang membuat penomoran internal dibuang. */
+  const noDok=resmi&&inv.no?inv.no:'—';
   const items=((ev.detail&&ev.detail.rincianItem)||[]).filter(r=>(r.jenis||'bayar')==='bayar');
   const dpBayar=(ev.payments||[]).filter(p=>String(p.type||'')==='DP');
 
@@ -11941,28 +12021,23 @@ async function invoiceMktPDF(evId,jenis){
     +window._printDoc+'</div>');
   $('modal').classList.add('wide');
 }
-function viewPaymentHistory(evId){
-  const e=S.events.find(x=>x.id===evId); if(!e)return;
-  const f=eventFinance(e);
-  /* Slot invoice resmi ikut DI SINI, bukan cuma di tabel: inilah layar tempat
-     orang berada tepat sesudah mencatat pelunasan, dan menyuruhnya menutup
-     modal lalu mencari lagi barisnya di tabel untuk menekan "Request Invoice"
-     adalah dua langkah yang paling sering tidak jadi dilakukan. */
-  modal('<div class="modal-head"><div><h3>Riwayat Pembayaran</h3><p>'+esc(e.nama)+' · '+esc(clientName(e.clientId))+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+paymentHistoryHtml(e)
-   +'<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft)">'
-   +'<div class="cell-sub" style="margin:0 0 8px">Invoice resmi dari Finance</div>'
-   +'<div class="pill-row">'+slotInv(e,'INV_DP')+slotInv(e,'INV_LUNAS')+'</div></div>'
-   +'</div>');
-  muatInvMkt([e]);
-}
-function waInvoice(evId,invNo){
+/* Argumen `invNo` DIBUANG (21 Agustus 2026). Nomornya dulu dikirim dari
+   pemanggil sebagai nomor internal; sekarang satu-satunya nomor invoice
+   adalah terbitan Finance, dan fungsi ini membacanya sendiri.
+
+   Kalau BELUM terbit, baris "No:" DIHILANGKAN — bukan diisi "belum
+   diterbitkan Finance" seperti di layar internal. Pesan ini dibaca CLIENT,
+   dan kalimat tentang proses internal kita di kepala sebuah tagihan hanya
+   menimbulkan pertanyaan yang harus dijawab marketing satu per satu. */
+function waInvoice(evId){
   const e=S.events.find(x=>x.id===evId); if(!e)return;
   const c=S.clients.find(x=>x.id===e.clientId);
   if(!c||!c.hp)return toast('Nomor WA kosong','Client belum punya No. HP/WhatsApp. Lengkapi di Database Client.','err');
   const f=eventFinance(e);
+  const noResmi=invNoResmi(e);
   const msg=[
-    '*INVOICE — Laksamana Muda*',
-    'No: '+invNo,
+    '*INVOICE — Laksamana Muda*'
+  ].concat(noResmi?['No: '+noResmi]:[]).concat([
     '',
     'Halo '+c.nama+', berikut rincian invoice untuk event *'+e.nama+'* ('+fmtDate(e.tanggal)+'):',
     '',
@@ -11975,7 +12050,7 @@ function waInvoice(evId,invNo){
     '',
     'Mohon konfirmasi setelah pembayaran ya 🙏',
     '⚓ Laksamana Muda Event Organizer'
-  ].join('\n');
+  ]).join('\n');
   window.open(waLink(c.hp,msg),'_blank');
   /* go('invoices') TIDAK LAGI TANPA SYARAT. Tombolnya kini juga ada di panel
      Finance sebuah event, dan melempar orang ke daftar invoice sesudah
@@ -11984,7 +12059,7 @@ function waInvoice(evId,invNo){
      daftar supaya chip statusnya ikut jadi "Sent"; itu hanya perlu kalau
      daftarnya memang yang sedang dilihat. */
   if(!e.invoiceSent){
-    e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',invNo); save(); buildNav();
+    e.invoiceSent=true; logAct('event',e.id,'Invoice dikirim via WA',noResmi||'(nomor belum terbit)'); save(); buildNav();
     if(location.hash.slice(1).split('/')[0]==='invoices') go('invoices');
     else if(typeof finLive==='function') finLive();
   }
@@ -16082,8 +16157,16 @@ function renderSettings(V){
       +'kalau komponen itu ternyata ditagihkan — supaya dokumennya tidak menulis "FREE" '
       +'tepat di bawah baris yang ada harganya. Bisa ditimpa per event di tab Finance.')
    // "Baseline Revenue Harian" dihapus bersama kartu Baseline vs Uplift di Reporting.
-   +setRow('Prefix Invoice',txt('set_inv',st.invPrefix),'1 invoice per event, nomornya melekat permanen. Berikutnya: <em>'+esc(st.invPrefix)+String(Math.max(1,+st.invSeq||1)).padStart(4,'0')+'</em>')
-   +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Tiap pembayaran dapat kwitansi sendiri. Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
+   /* "Prefix Invoice" DIBUANG dari sini (21 Agustus 2026). Penomoran invoice
+      resmi sekarang milik Finance dan disetel di Finance → Invoice &
+      Kwitansi → Pengaturan. Dua tempat untuk satu penomoran hanya membuat
+      orang bertanya yang mana yang tercetak di lembar yang dipegang client —
+      dan selama ini jawabannya memang dua-duanya, di dua dokumen berbeda.
+
+      "Prefix Kwitansi" TETAP: itu penanda tiap baris pembayaran di riwayat
+      (kwitansiNo → p.no), bukan nomor dokumen resmi, dan tidak ada modul lain
+      yang menerbitkannya. */
+   +setRow('Prefix Kwitansi',txt('set_kw',st.kwPrefix||''),'Penanda tiap baris pembayaran di riwayat — bukan nomor invoice resmi (itu diterbitkan Finance). Berikutnya: <em>'+esc(st.kwPrefix||'')+String(Math.max(1,+st.kwSeq||1)).padStart(4,'0')+'</em>')
    +setRow('WA Booking',txt('set_wa',st.waBooking),'Nomor WhatsApp yang dicantumkan pada quotation & brief versi client.')
    +'</tbody></table></div>'
    +'<div style="padding:14px 20px;border-top:1px solid var(--line-soft);display:flex;justify-content:flex-end"><button class="btn pri" onclick="saveSettings()">'+svg(IC.check)+'Simpan Pengaturan</button></div></div>';
@@ -16117,7 +16200,7 @@ function saveSettings(){
   // discountThreshold DIBUANG bersama approval berbasis ambang diskon. Kotaknya
   // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
   // seluruh Simpan Pengaturan gagal tanpa pesan.
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,invPrefix:$('set_inv').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7,
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7,
     freeTemplate:($('set_free')?$('set_free').value:(S.settings.freeTemplate||''))});
   // S.baseline TIDAK dibaca lagi: kotaknya sudah tidak ada di halaman ini, dan
   // membacanya berarti `null.value` — persis kegagalan diam yang sudah pernah
