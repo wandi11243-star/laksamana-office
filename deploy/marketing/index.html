@@ -11469,6 +11469,20 @@ function delTaskCategory(name){
 /* ============================================================
    MODUL G — INVOICE & PAYMENT
    ============================================================ */
+/* Tab pengelompokan menurut keadaan pembayaran. Di luar renderInvoices supaya
+   nilainya bertahan saat halaman digambar ulang — render di modul ini total,
+   jadi variabel di dalam fungsi akan kembali ke 'semua' tiap kali seseorang
+   mencatat pembayaran, dan orang yang sedang menyisir tab "Belum Payment"
+   terlempar ke daftar penuh persis sesudah menyelesaikan satu baris. */
+let INV_TAB_AKTIF='semua';
+function invGantiTab(t){
+  INV_TAB_AKTIF=t;
+  /* Halaman tabel kembali ke satu: tab baru isinya lebih sedikit, dan
+     bertahan di halaman 4 berarti mendarat di daftar kosong yang terbaca
+     seperti "tidak ada apa-apa di sini". */
+  if(typeof TBL_HAL==='object'&&TBL_HAL) TBL_HAL['invoices']=1;
+  go('invoices');
+}
 function renderInvoices(V){
   let h=pageHead('Modul G','Invoice & Payment','Status pembayaran tiap event, real-time untuk Finance & Marketing.','');
   const evs=S.events.filter(e=>['Confirmed','Deal','Event Done','Quotation Terkirim'].includes(e.status)).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
@@ -11500,7 +11514,43 @@ function renderInvoices(V){
     h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');
     V.innerHTML=h; return;
   }
-  const urutInv=tblUrut(evs,'invoices',KOL_INVOICES);
+  /* PENGELOMPOKAN JADI TAB (21 Agustus 2026, permintaan tim). Satu daftar
+     panjang yang mencampur tagihan lunas dengan yang belum dibayar sama sekali
+     membuat pekerjaan hari ini — menagih — harus dicari dulu di antara puluhan
+     baris yang sudah selesai. Tiga keadaan itulah yang menentukan tindakan
+     berikutnya, jadi itu yang jadi tabnya.
+
+     'Semua' tetap ada dan tetap yang pertama: pencarian "event X ini
+     bagaimana" tidak boleh menuntut orang menebak lebih dulu ia masuk
+     kelompok mana. */
+  const bayarTab=e=>{
+    const f=eventFinance(e);
+    if(f.grand>0 && f.remaining<=0) return 'lunas';
+    return f.paid>0 ? 'dp' : 'belum';
+  };
+  const TAB_INV=[
+    ['semua','Semua',null],
+    ['lunas','Lunas',      'Grand Total sudah tertutup seluruhnya'],
+    ['dp',   'Sudah DP',   'Sudah ada uang masuk, masih ada sisa tagihan'],
+    ['belum','Belum Payment','Belum ada satu rupiah pun tercatat']
+  ];
+  const jml={semua:evs.length,lunas:0,dp:0,belum:0};
+  evs.forEach(e=>{ jml[bayarTab(e)]++; });
+  if(!TAB_INV.some(t=>t[0]===INV_TAB_AKTIF)) INV_TAB_AKTIF='semua';
+  h+='<div class="tabs" style="position:static;top:auto">'
+   +TAB_INV.map(t=>'<div class="tab '+(INV_TAB_AKTIF===t[0]?'active':'')+'"'
+      +(t[2]?' title="'+esc(t[2])+'"':'')
+      +' onclick="invGantiTab(\''+t[0]+'\')"><span class="tn">'+jml[t[0]]+'</span>'+esc(t[1])+'</div>').join('')
+   +'</div>';
+  const evsTab = INV_TAB_AKTIF==='semua' ? evs : evs.filter(e=>bayarTab(e)===INV_TAB_AKTIF);
+  if(!evsTab.length){
+    h+=empty('Tidak ada invoice di kelompok ini',
+      INV_TAB_AKTIF==='lunas' ? 'Belum ada tagihan yang tertutup penuh.'
+      : INV_TAB_AKTIF==='dp'  ? 'Belum ada tagihan yang sudah menerima sebagian pembayaran.'
+      : 'Semua tagihan sudah menerima pembayaran — tidak ada yang kosong.','money');
+    V.innerHTML=h; return;
+  }
+  const urutInv=tblUrut(evsTab,'invoices',KOL_INVOICES);
   const pInv=tblPage(urutInv,'invoices');
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
   pInv.items.forEach(e=>{ const f=eventFinance(e);
@@ -12201,7 +12251,115 @@ function renderPurchasingBD(V){
       '<button class="btn pri" id="bp_kirim" onclick="poKirimKeBD()">Kirim ke BD OS</button>'+
     '</div>'+
     '<div id="bp_hasil" style="margin-top:16px"></div>'+
+  '</div>'+
+  /* DAFTAR YANG SUDAH DIKIRIM (21 Agustus 2026, permintaan tim). Sebelum ini
+     halaman ini cuma formulir sekali-pakai: begitu Kirim ditekan dan pita
+     "TERKIRIM" hilang, tidak ada satu pun cara melihat apa yang pernah
+     diajukan — apalagi apakah purchasing sudah menyetujuinya. Yang bertanya
+     lalu menanyakannya lewat WhatsApp, satu per satu.
+
+     Barisnya dibaca HIDUP dari BD OS, bukan disalin ke state Marketing.
+     Statusnya berubah di sana (Diajukan → Disetujui → masuk PR mingguan), dan
+     salinan di sini akan membeku pada keadaan saat dikirim — persis informasi
+     yang membuat orang berhenti percaya daftarnya. */
+  '<div class="card" style="margin-top:18px">'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">'+
+      '<h3 style="font-size:15px;flex:1">Kebutuhan yang sudah dikirim</h3>'+
+      '<button class="btn sm" onclick="poMuatDaftar()">↻ Segarkan</button></div>'+
+    '<p class="section-desc">Dibaca langsung dari papan Purchasing BD OS. Statusnya berubah di sana, bukan di sini.</p>'+
+    '<div id="bp_daftar"><div class="cell-sub">Memuat dari BD OS…</div></div>'+
   '</div>';
+  /* Yang sudah ada di memori digambar SEKETIKA, dan permintaan barunya jalan
+     di belakang. Tanpa itu, kembali ke halaman ini menampilkan "Memuat…" lagi
+     selama satu perjalanan jaringan padahal datanya sudah di tangan. */
+  if(PO_BD!==null) poGambarDaftar();
+  poMuatDaftar();
+}
+/* Ambil sekali, simpan di memori halaman. `null` = belum pernah diambil. */
+let PO_BD=null, PO_BD_ERR='', PO_BD_JALAN=false;
+function poMuatDaftar(){
+  const wadah=document.getElementById('bp_daftar');
+  if(PO_BD_JALAN) return;
+  PO_BD_JALAN=true; PO_BD_ERR='';
+  if(wadah) wadah.innerHTML='<div class="cell-sub">Memuat dari BD OS…</div>';
+  const stop=new AbortController();
+  const jam=setTimeout(function(){ stop.abort(); },20000);
+  /* getAll, bukan endpoint sempit. bd-mysql TIDAK ikut auto-deploy (ia
+     di-upload manual ke cPanel), jadi endpoint baru berarti fitur ini
+     menunggu orang lain sebelum bisa hidup — dan halaman ini sudah memakai
+     getAll-nya tidak untuk apa pun. Balasannya memang seluruh state BD;
+     dipakai sekali saat halaman dibuka, dan penyaringannya di sini. */
+  fetch(BD_API+'?action=getAll',{method:'POST',redirect:'follow',cache:'no-store',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'getAll'}), signal:stop.signal})
+    .then(r=>r.text())
+    .then(function(teks){
+      clearTimeout(jam);
+      let j=null; try{ j=JSON.parse(teks); }catch(e){}
+      if(!j)    throw new Error('BD OS membalas bukan JSON — backend bd-api-mysql belum terpasang?');
+      if(!j.ok) throw new Error(j.error||'ditolak BD OS');
+      PO_BD=Array.isArray(j.data&&j.data.po)?j.data.po:[];
+    })
+    .catch(function(e){
+      clearTimeout(jam);
+      PO_BD=PO_BD||[];
+      PO_BD_ERR=e.name==='AbortError'?'BD OS tidak menjawab dalam 20 detik':(e.message||String(e));
+    })
+    .then(function(){ PO_BD_JALAN=false; poGambarDaftar(); });
+}
+/* Warna status mengikuti arti, bukan abjad: yang masih menunggu orang lain
+   bertindak berwarna peringatan, yang sudah beres hijau, yang ditolak merah.
+   Status TAK DIKENAL tetap digambar apa adanya — papan BD boleh menambah
+   status baru kapan saja, dan menjatuhkannya dari daftar berarti barisnya
+   lenyap tanpa ada yang tahu. */
+function poChipStatus(s){
+  const t=String(s||'').trim()||'—';
+  const l=t.toLowerCase();
+  let warna='--muted';
+  if(/tolak|reject|batal|cancel/.test(l))      warna='--danger';
+  else if(/setuju|approve|terima|selesai|done|beli|terbeli/.test(l)) warna='--ok';
+  else if(/ajukan|menunggu|pending|proses/.test(l)) warna='--warn';
+  return '<span class="chip" style="background:color-mix(in srgb,var('+warna+') 15%,transparent);color:var('+warna+')">'
+    +'<span class="cd" style="background:var('+warna+')"></span>'+esc(t)+'</span>';
+}
+function poGambarDaftar(){
+  const wadah=document.getElementById('bp_daftar'); if(!wadah) return;
+  if(PO_BD===null){ wadah.innerHTML='<div class="cell-sub">Memuat dari BD OS…</div>'; return; }
+  /* Yang ditampilkan hanya yang DIKIRIM DARI MARKETING. Papan Purchasing BD
+     memuat kebutuhan seluruh divisi, dan menampilkannya semua di sini berarti
+     halaman Marketing berubah jadi salinan modul lain. */
+  const baris=PO_BD.filter(p=>p&&String(p.sumber||'')==='Marketing')
+    .slice().sort((a,b)=>(+b.createdAt||0)-(+a.createdAt||0));
+  let h='';
+  if(PO_BD_ERR){
+    h+='<div class="tbl-note" style="margin:0 0 12px;border-color:var(--warn);color:var(--warn)">'
+      +svg(IC.alert)+'<span>Daftar tidak bisa dibaca dari BD OS: '+esc(PO_BD_ERR)
+      +'. Yang sudah terkirim tetap ada di sana — ini cuma tampilannya.</span></div>';
+  }
+  if(!baris.length){
+    wadah.innerHTML=h+(PO_BD_ERR?'':'<div class="lma-empty" style="padding:14px 0">Belum ada kebutuhan yang dikirim dari Marketing.</div>');
+    return;
+  }
+  h+='<div class="tbl-wrap"><table class="tbl" style="min-width:820px"><thead><tr>'
+    +'<th>Item</th><th>Jumlah</th><th>Dibutuhkan</th><th>Peminta</th>'
+    +'<th>Perkiraan</th><th>Status</th><th>Vendor / PR</th></tr></thead><tbody>';
+  baris.forEach(function(p){
+    h+='<tr>'
+      +'<td><div class="cell-strong">'+esc(p.item||'—')+'</div>'
+        +(p.note?'<div class="cell-sub">'+esc(p.note)+'</div>':'')+'</td>'
+      +'<td class="mono">'+(+p.qty||1)+' '+esc(p.unit||'')+'</td>'
+      +'<td class="mono">'+esc(p.needBy?fmtDate(p.needBy):'—')+'</td>'
+      +'<td>'+esc(p.byName||p.input||'—')+'</td>'
+      +'<td class="mono">'+(+p.amount?rp(p.amount):'<span class="cell-sub">belum ditentukan</span>')+'</td>'
+      +'<td>'+poChipStatus(p.status)+'</td>'
+      /* Vendor & nomor PR baru terisi SESUDAH purchasing mengerjakannya — itu
+         justru tanda paling jelas bahwa pengajuannya sudah diproses, jadi
+         kolomnya tetap ada walau sering kosong. */
+      +'<td>'+(p.vendor?esc(p.vendor):'<span class="cell-sub">—</span>')
+        +(p.prId?'<div class="cell-sub mono">PR '+esc(p.prId)+'</div>':'')+'</td>'
+    +'</tr>';
+  });
+  wadah.innerHTML=h+'</tbody></table></div>';
 }
 
 function poKirimKeBD(){
@@ -12250,6 +12408,10 @@ function poKirimKeBD(){
         'Tim purchasing yang melanjutkan dari sana.</div>';
       document.getElementById('bp_rows').innerHTML=poBarisMkt()+poBarisMkt()+poBarisMkt();
       toast('Terkirim',n+' item masuk ke BD OS.','ok');
+      /* Daftar di bawah disegarkan supaya baris yang barusan dikirim langsung
+         terlihat di sana. Pita "TERKIRIM" hilang begitu halaman digambar
+         ulang; daftarnya yang jadi buktinya. */
+      poMuatDaftar();
     })
     .catch(function(e){
       clearTimeout(jam);

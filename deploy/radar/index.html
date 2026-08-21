@@ -599,7 +599,6 @@ var SUMBER = [
   {id:'evt', nama:'Event',      url:'../event-api-mysql/api.php',     href:'../event/'},
   {id:'rsv', nama:'Reservasi',  url:'../reservasi-api-mysql/api.php', href:'../reservasi/'}
 ];
-var DIVISI = ['Kitchen','Bar','Floor','Design','Event','Security'];
 /* PENDEK{} dan pendek() DIHAPUS, tidak sekadar tidak dipakai. Selama masih
    ada, cepat atau lambat ia akan dipanggil lagi di tempat baru dan
    mengembalikan persis masalah yang baru saja dibuang. */
@@ -913,21 +912,6 @@ function kesiapan(ev){
   if(!dv.length) return {pct:0, per:per, ada:false};   // tanpa format: jangan bagi nol
   dv.forEach(function(d){ var p=divProgress(ev,d); per[d]=p; tot+=p; });
   return {pct:Math.round(tot/dv.length), per:per, ada:adaJob(ev)};
-}
-/* Kelengkapan isian detail event Marketing — dipakai sebagai sinyal kedua:
-   kesiapan divisi bisa 0% hanya karena job belum disusun, padahal detail
-   acaranya sendiri sudah lengkap. Dua angka ini menjawab pertanyaan berbeda. */
-function isianTerisi(ev){
-  var d=(ev&&ev.detail)||{}, isi=0, tot=0;
-  Object.keys(d).forEach(function(k){
-    if(k.charAt(0)==='_') return;
-    var v=d[k];
-    if(v===null||v===undefined) return;
-    tot++;
-    if(Array.isArray(v)? v.length>0 : (typeof v==='object'? Object.keys(v).length>0 : String(v).trim()!==''))
-      isi++;
-  });
-  return {isi:isi, tot:tot};
 }
 
 /* Panel kesiapan. MENGGANTIKAN mawar SVG berlengan (4 Agustus 2026, permintaan
@@ -1304,12 +1288,12 @@ function pitaGagal(){
 var fRd=periodeBaru('hari'); fRd.fb='';
 function vRadar(){
   var t=todayISO();
-  /* "Fokus koordinasi berikutnya" pun hanya dari acara yang pasti jalan —
-     kartu paling menonjol di halaman ini tidak boleh menampilkan peluang yang
-     masih ditawar. */
-  var akan=agendaTampil().filter(function(a){return dDay(a.tgl)>=0;});
+  /* Kartu "Fokus koordinasi berikutnya" DIBUANG (21 Agustus 2026, permintaan
+     tim) bersama tab Koordinasi. Isinya satu acara terdekat yang ditulis
+     besar-besar di atas Agenda 14 hari — yang barisnya pertama memang acara
+     yang sama. Satu acara dua kali di layar yang sama, dan yang di atas
+     memakan sepertiga tinggi halaman sebelum daftarnya kelihatan. */
   var al=peringatan();
-  var fokus=akan[0]||null;
   var h=pitaGagal();
 
   /* Penyaring format F&B berlaku untuk angka Marketing/Event DAN untuk daftar
@@ -1348,33 +1332,6 @@ function vRadar(){
      'Hanya acara yang sudah pasti jalan yang dihitung (Marketing: Deal / Event Done · Event: Upcoming / Today / Finished).</div>';
 
   h+='<div class="split"><div>';
-  if(fokus){
-    h+='<div class="card gold" style="margin-bottom:16px">'+
-      '<div class="sec-h"><span class="eyebrow">Fokus koordinasi berikutnya</span><span class="rule"></span>'+
-      '<button class="btn sm" onclick="APP.buka(\''+fokus.sumber+'\',\''+esc(fokus.id)+'\')">'+ico('file')+'Detail lengkap</button></div>'+
-      '<div style="display:grid;grid-template-columns:1fr 236px;gap:18px;align-items:center" class="fokus">'+
-      '<div><h3 style="font-size:21px;margin:0 0 7px">'+esc(fokus.judul)+'</h3>'+
-      '<div class="ev-meta" style="margin-bottom:10px">'+
-        '<span>'+ico('cal')+fTgl(fokus.tgl)+'</span>'+
-        (fokus.jam?'<span>'+ico('clock')+esc(fokus.jam)+'</span>':'')+
-        (fokus.tempat?'<span>'+ico('pin')+esc(fokus.tempat)+'</span>':'')+'</div>'+
-      '<div class="pill-row" style="margin-bottom:12px">'+badgeSumber(fokus.sumber)+
-        pill(dLabel(dDay(fokus.tgl)),'p-warn')+(fokus.status?pill(fokus.status,'p-mute'):'')+'</div>';
-    if(fokus.sumber==='mkt'){
-      var isi=isianTerisi(fokus.mentah);
-      /* Pax event dan pax reservasi meja TIDAK digabung. Pax event datang dari
-         kontrak klien; reservasi meja tamu venue yang lain. Menyandingkannya
-         sebagai "24 / 340" dulu terbaca seolah eventnya baru terisi 7%. */
-      h+='<div class="kv" style="margin:0">'+
-        '<div><b>Pax event (kontrak)</b><span>'+(fokus.pax||'—')+'</span></div>'+
-        '<div><b>Isian detail</b><span>'+isi.isi+' dari '+isi.tot+' terisi</span></div>'+
-        '<div><b>Jenis</b><span>'+esc(fokus.jenis||'—')+'</span></div>'+
-        '<div><b>Status</b><span>'+esc(fokus.status||'—')+'</span></div></div>';
-    }
-    h+='</div><div>'+(fokus.sumber==='mkt'?panelKesiapan(fokus.mentah):
-       '<div class="empty" style="padding:20px"><b>—</b>Kesiapan per divisi hanya tersedia untuk event Marketing.</div>')+'</div>';
-    h+='</div></div>';
-  }
 
   /* AGENDA 14 HARI — ACARA SAJA, tanpa reservasi.
      Sumbernya agendaTampil(), jadi aturan tab Event ikut berlaku: hanya yang
@@ -1561,116 +1518,6 @@ function vKalender(){
   return h;
 }
 
-/* ---------- TAMPILAN: KOORDINASI ---------- */
-function vKoordinasi(){
-  /* Matriks kesiapan hanya untuk event yang pasti jalan. Menyusun job untuk
-     event yang masih ditawar itu pekerjaan yang belum tentu terpakai, dan
-     barisnya cuma membuat matriks penuh merah tanpa arti. */
-  var list=agendaTampil().filter(function(a){return a.sumber==='mkt' && dDay(a.tgl)>=0;});
-  var h=pitaGagal();
-  h+='<div class="card" style="margin-bottom:16px"><div class="sec-h"><h2>Matriks kesiapan lintas divisi</h2><span class="rule"></span>'+
-    '<span class="legend">'+
-    '<span style="display:inline-flex;align-items:center;gap:5px"><i style="background:var(--ink-750)"></i>Belum</span>'+
-    '<span style="display:inline-flex;align-items:center;gap:5px"><i style="background:var(--warn)"></i>Proses</span>'+
-    '<span style="display:inline-flex;align-items:center;gap:5px"><i style="background:var(--ok)"></i>Siap</span></span></div>';
-  h+='<div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6">'+
-     'Angka diambil langsung dari progres job per divisi di modul Marketing — sama persis dengan yang dilihat tim di sana. '+
-     'Untuk mengubahnya, buka Task Divisi di Marketing.</div>';
-  if(!list.length) h+='<div class="empty"><b>Belum ada event Marketing mendatang</b>Matriks terisi begitu ada event terjadwal.</div>';
-  else{
-    h+='<div style="overflow-x:auto"><div class="mgrid" style="grid-template-columns:230px repeat('+DIVISI.length+',minmax(0,1fr))">';
-    h+='<div class="mh" style="text-align:left">Event</div>';
-    DIVISI.forEach(function(d){h+='<div class="mh" title="'+esc(d)+'">'+esc(d)+'</div>';});
-    // Matriks ikut dipaginasi: barisnya tumbuh seiring event, dan matriks
-    // sepanjang lima layar tidak bisa dibandingkan dengan mata.
-    pgIris('koord',list).forEach(function(a){
-      var k=kesiapan(a.mentah);
-      h+='<button type="button" class="mn" onclick="APP.detail(\'ag\',\'mkt\',\''+esc(a.id)+'\')"><span>'+esc(a.judul)+'</span>'+
-        '<small>'+fTglP(a.tgl)+' · '+dLabel(dDay(a.tgl))+' · '+k.pct+'%</small></button>';
-      /* Kolomnya TETAP enam nama divisi, dan sekarang dibaca sebagai SUB
-         KATEGORI di dalam Format F&B tiap event. Tabelnya membandingkan banyak
-         event bersebelahan, jadi sumbunya harus tetap sama di semua baris —
-         padahal formatnya bisa berbeda per event.
-
-         Sel dibedakan tegas: format yang memang tidak punya sub kategori itu
-         tampil '—', BUKAN 0%. Nol berarti "belum dikerjakan"; strip berarti
-         "tidak ada yang ditugaskan di sini". Menyamakan keduanya membuat
-         matriks penuh merah untuk pekerjaan yang tidak pernah ada. */
-      var cat=evDivisi(a.mentah)[0]||'', subs=evSubs(a.mentah);
-      DIVISI.forEach(function(d){
-        if(!cat || subs.indexOf(d)<0){
-          h+='<div class="mc s0" title="'+esc(a.judul+' — '+d+': tidak ada di format '+(cat||'(belum dipilih)')+')')+'">—</div>';
-          return;
-        }
-        var p=subProgress(a.mentah,cat,d);
-        h+='<div class="mc s'+(p>=100?2:(p>0?1:0))+'" title="'+esc(a.judul+' — '+d+': '+p+'%')+'">'+p+'%</div>';
-      });
-    });
-    h+='</div></div>'+pager('koord',list.length,'event');
-  }
-  h+='</div>';
-
-  h+='<div class="split"><div>';
-  h+='<div class="sec-h"><h2>Divisi yang belum bergerak</h2><span class="rule"></span></div>';
-  var diam=[];
-  list.filter(function(a){return dDay(a.tgl)<=14;}).forEach(function(a){
-    /* "Belum bergerak" dihitung per SUB KATEGORI (Kitchen, Bar, ...) di dalam
-       format event — itu satuan yang berarti bagi orang yang mengerjakannya.
-       Sub yang tidak punya item sama sekali dilewati: 0% di situ bukan berarti
-       tertinggal, berarti tidak ada yang ditugaskan. */
-    var cat=evDivisi(a.mentah)[0]||'';
-    if(cat) evSubs(a.mentah).forEach(function(d){
-      if(tmplEvDiv(a.mentah,cat).filter(function(t){return (t.sub||'')===d;}).length
-         && subProgress(a.mentah,cat,d)===0) diam.push({a:a,d:d});
-    });
-  });
-  if(!diam.length) h+='<div class="card muted" style="font-size:12.5px">Semua divisi sudah bergerak di event 14 hari ke depan.</div>';
-  else{
-    var perEv={};
-    diam.forEach(function(x){ (perEv[x.a.id]=perEv[x.a.id]||{a:x.a,ds:[]}).ds.push(x.d); });
-    Object.keys(perEv).forEach(function(k){
-      var x=perEv[k];
-      h+='<button type="button" class="card" style="margin-bottom:10px;width:100%;text-align:left;cursor:pointer" onclick="APP.detail(\'ag\',\'mkt\',\''+esc(x.a.id)+'\')">'+
-        '<div style="font-weight:700;font-size:13.5px">'+esc(x.a.judul)+'</div>'+
-        '<div style="font-size:11.5px;color:var(--muted);margin:3px 0 7px">'+fTglP(x.a.tgl)+' · '+dLabel(dDay(x.a.tgl))+'</div>'+
-        '<div class="pill-row">'+x.ds.map(function(d){return pill(d,'p-bad');}).join('')+'</div></button>';
-    });
-  }
-  h+='</div><div>';
-
-  /* Beban per PIC — dihitung dari data NYATA: mktPIC event Marketing (via
-     daftar user Marketing) dan pic modul Event. Menjawab "siapa yang sedang
-     memegang paling banyak acara mendatang" tanpa menanya satu per satu. */
-  var beban={};
-  agendaTampil().filter(function(a){return dDay(a.tgl)>=0;}).forEach(function(a){
-    var nama = a.sumber==='mkt' ? namaMkt(a.mentah.mktPIC) : (a.mentah.pic||'');
-    if(nama) (beban[nama]=beban[nama]||{n:0,src:a.sumber}).n++;
-  });
-  var pics=Object.keys(beban).sort(function(x,y){return beban[y].n-beban[x].n;});
-  h+='<div class="card" style="margin-bottom:14px"><div class="sec-h"><h2>Beban per PIC</h2><span class="rule"></span></div>';
-  if(!pics.length) h+='<div class="muted" style="font-size:12.5px">Belum ada PIC tercatat di event mendatang. (Event Marketing di dev banyak yang PIC-nya masih kosong.)</div>';
-  pics.forEach(function(p){
-    h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line-soft)">'+
-      '<span class="avatar">'+initial(p)+'</span>'+
-      '<span style="flex:1"><b style="font-size:12.5px">'+esc(p)+'</b>'+
-        '<div style="font-size:10.5px;color:var(--muted)">'+(beban[p].src==='mkt'?'Marketing':'Event')+'</div></span>'+
-      pill(beban[p].n+' agenda','p-sea')+'</div>';
-  });
-  h+='</div>';
-
-  h+='<div class="card"><div class="sec-h"><h2>Agenda modul Event</h2><span class="rule"></span></div>';
-  var ev=agendaTampil().filter(function(a){return a.sumber==='evt' && dDay(a.tgl)>=0;}).slice(0,8);
-  if(!ev.length) h+='<div class="muted" style="font-size:12.5px">Tidak ada jadwal dari modul Event.</div>';
-  ev.forEach(function(a){
-    h+='<button type="button" style="display:block;width:100%;text-align:left;padding:9px 0;border-bottom:1px solid var(--line-soft);cursor:pointer;background:none" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
-      '<div style="font-size:13px;font-weight:600">'+esc(a.judul)+'</div>'+
-      '<div style="font-size:11.5px;color:var(--muted)">'+fTglP(a.tgl)+' · '+dLabel(dDay(a.tgl))+
-      (a.tempat?' · '+esc(a.tempat):'')+(a.status?' · '+esc(a.status):'')+'</div></button>';
-  });
-  h+='</div></div></div>';
-  return h;
-}
-
 /* ---------- TAMPILAN: BRIEFING ---------- */
 /* ---------- HALAMAN: DETAIL LENGKAP EVENT (baca-saja, bisa dicetak) ----------
    Menggantikan tombol "buka di Marketing/Event". Dirender dari data yang sudah
@@ -1739,7 +1586,11 @@ function vDetailEvent(){
       kvRow('PIC',esc(e.pic||''))+
       kvRow('Co-PIC',esc(e.co_pic||''))+'</div>';
     if(e.theme||e.is_ticketed!==undefined) h+='<div class="kv">'+kvRow('Tema',esc(e.theme||''))+kvRow('Tiketing',e.is_ticketed?'Ya':'Tidak')+'</div>';
-    if(e.description) h+='<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin:8px 0 14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;white-space:pre-wrap">'+esc(String(e.description))+'</div>';
+    /* tanpaTag(): deskripsi acara diketik di editor kaya modul Event, jadi
+       isinya "<p>…</p>". esc() TETAP dipakai sesudahnya — yang dibuang cuma
+       tag-nya, bukan penjagaannya. */
+    var desc=e.description?tanpaTag(e.description):'';
+    if(desc) h+='<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin:8px 0 14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;white-space:pre-wrap">'+esc(desc)+'</div>';
     if(tal.length){
       h+='<div class="sec-h" style="margin-top:6px"><h2>Talent terjadwal</h2><span class="rule"></span></div>';
       tal.forEach(function(t){ h+='<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft)">'+
@@ -2106,20 +1957,65 @@ function fmtMenuLike(o){
 }
 /* Format satu nilai apa pun MENURUT BENTUKNYA — bukan menurut tipe skema, supaya
    tahan kalau Marketing mengubah bentuk field. */
+/* BUANG TAG HTML DARI TEKS (21 Agustus 2026).
+   Deskripsi acara datang dari editor kaya di modul Event, jadi isinya
+   "<p>Satu malam spesial…</p>". Radar menggambarnya lewat esc() — yang memang
+   benar, supaya isian tidak bisa menyuntikkan markup — tapi akibatnya TAG-nya
+   ikut terbaca sebagai tulisan di tengah kalimat.
+
+   Yang dibuang cuma tag & entitasnya; isinya tetap utuh. Perhentian baris
+   dipertahankan sebagai "\n" karena tabel detail memakai white-space:pre-wrap,
+   jadi paragraf tetap terpisah tanpa satu pun tag. */
+function tanpaTag(s){
+  return String(s==null?'':s)
+    .replace(/<br\s*\/?>/gi,'\n')
+    .replace(/<\/(p|div|li|h[1-6]|tr)>/gi,'\n')
+    .replace(/<li[^>]*>/gi,'• ')
+    .replace(/<[^>]+>/g,'')
+    .replace(/&nbsp;/gi,' ')
+    .replace(/&lt;/gi,'<').replace(/&gt;/gi,'>')
+    .replace(/&quot;/gi,'"').replace(/&#0?39;/gi,"'")
+    /* &amp; TERAKHIR. Kalau lebih dulu, "&amp;lt;" berubah jadi "&lt;" lalu
+       jadi "<" — teks yang memang ingin menulis "&lt;" jadi hilang. */
+    .replace(/&amp;/gi,'&')
+    .replace(/[ \t]+\n/g,'\n')
+    .replace(/\n{3,}/g,'\n\n')
+    .trim();
+}
 function fmtDetVal(v){
   if(v==null) return '';
   if(typeof v==='boolean') return v?'Ya':'Tidak';
   if(typeof v==='number') return String(v);
-  if(typeof v==='string') return v.trim();
+  if(typeof v==='string') return tanpaTag(v);
   if(Array.isArray(v)){
     if(!v.length) return '';
     if(typeof v[0]==='object' && v[0]){
-      if('kegiatan' in v[0] || 'mulai' in v[0]) return v.map(function(r){var j=[r.mulai,r.selesai].filter(Boolean).join('–');return (j?j+' — ':'')+(r.kegiatan||'');}).filter(function(x){return x.trim();}).join('\n');
-      if('barang' in v[0]) return v.map(function(r){return (r.barang||'')+([r.tgl,r.jam].filter(Boolean).length?' — '+[r.tgl,r.jam].filter(Boolean).join(' '):'');}).filter(function(x){return x.trim();}).join('\n');
-      if('nama' in v[0]) return v.map(function(r){return (r.nama||'')+((r.nominal!=null&&r.nominal!=='')?' — '+rp(r.nominal):'');}).join('\n');
-      return v.map(function(x){return typeof x==='string'?x:JSON.stringify(x);}).join(', ');
+      /* LAMPIRAN BERKAS — dibuang, bukan digambar (21 Agustus 2026).
+         Bentuknya {key,name,size,at,by}, dan sampai sekarang ia jatuh ke
+         JSON.stringify di ekor fungsi ini: satu baris JSON mentah lengkap
+         dengan nama berkas, ukuran byte, dan stempel waktu, di tengah tabel
+         detail. Radar juga tidak bisa membuka berkasnya — `key` itu kunci di
+         penyimpanan modul Marketing, dan papan ini memang hanya membaca. */
+      if('key' in v[0] && 'name' in v[0]) return '';
+      /* RINCIAN TAGIHAN — dibuang. Bentuknya {desc,jumlah,harga,jenis}, dan
+         nasibnya sama: JSON mentah di layar. Lagi pula Radar papan koordinasi,
+         bukan papan finance (lihat catatan di bagian angka) — rincian biaya
+         per item memang bukan isinya. */
+      if('desc' in v[0] && ('harga' in v[0] || 'jumlah' in v[0])) return '';
+      if('kegiatan' in v[0] || 'mulai' in v[0]) return v.map(function(r){var j=[r.mulai,r.selesai].filter(Boolean).join('–');return (j?j+' — ':'')+tanpaTag(r.kegiatan||'');}).filter(function(x){return x.trim();}).join('\n');
+      if('barang' in v[0]) return v.map(function(r){return tanpaTag(r.barang||'')+([r.tgl,r.jam].filter(Boolean).length?' — '+[r.tgl,r.jam].filter(Boolean).join(' '):'');}).filter(function(x){return x.trim();}).join('\n');
+      if('nama' in v[0]) return v.map(function(r){return tanpaTag(r.nama||'')+((r.nominal!=null&&r.nominal!=='')?' — '+rp(r.nominal):'');}).join('\n');
+      /* Ekor: yang berbentuk teks tetap digambar, OBJEK YANG TIDAK DIKENAL
+         DIJATUHKAN. Dulu di sini JSON.stringify — dan itulah sumber semua
+         baris JSON mentah di layar: bentuk data baru mana pun di modul asal
+         langsung muncul apa adanya di papan ini, tanpa ada yang mengubah
+         Radar. Baris yang hilang jauh lebih baik daripada baris berisi JSON:
+         yang hilang bisa ditanyakan, yang JSON cuma bikin orang berhenti
+         percaya halamannya. */
+      return v.map(function(x){return typeof x==='string'?tanpaTag(x):'';})
+              .filter(function(x){return x!=='';}).join(', ');
     }
-    return v.join(', ');
+    return v.map(function(x){return tanpaTag(x);}).filter(function(x){return x!=='';}).join(', ');
   }
   if(typeof v==='object'){
     if(('rows' in v) || ('_teks' in v)) return fmtMenuLike(v);
@@ -2292,20 +2188,33 @@ function drawerRes(r){
 function bukaDrw(){ $('#drw').classList.add('on'); $('#scrim').classList.add('on'); }
 
 /* ---------- ROUTER ---------- */
+/* Tab KOORDINASI dibuang 21 Agustus 2026 (permintaan tim) bersama kartu
+   "Fokus koordinasi berikutnya" di halaman Radar. Isinya matriks kesiapan
+   lintas divisi, "divisi yang belum bergerak", dan beban per PIC — semuanya
+   turunan progres job yang dikerjakan di modul Marketing (Task Divisi), dan
+   papan yang cuma memantulkannya balik tidak pernah jadi tempat siapa pun
+   bertindak. Kesiapan per divisi TETAP ADA di panel detail event, tempat ia
+   memang dibaca saat menyiapkan satu acara.
+
+   Alamat lama '#koordinasi' otomatis jatuh ke Radar lewat penjaga di go(). */
 var NAV=[['radar','Radar','radar'],['kalender','Kalender Terpadu','cal'],
-         ['agenda','Event','star'],['reservasi','Reservasi','book'],
-         ['koordinasi','Koordinasi','grid']];
+         ['agenda','Event','star'],['reservasi','Reservasi','book']];
 var JUDUL={radar:['Pusat Koordinasi','Radar'],kalender:['Tiga Modul, Satu Jadwal','Kalender Terpadu'],
            agenda:['Marketing + Event','Daftar Event'],reservasi:['Dari Modul Reservasi','Reservasi'],
-           koordinasi:['Kesiapan Lintas Divisi','Koordinasi'],detail:['Detail Lengkap Event','Detail Event']};
+           detail:['Detail Lengkap Event','Detail Event']};
 function render(){
   /* Bagian "Modul Sumber" (tautan keluar ke Marketing/Event/Reservasi) DIHAPUS.
      Radar berdiri sendiri — semua detail dibaca di sini, tidak melempar kru ke
      modul lain. SUMBER[] tetap dipakai untuk MENARIK data (lihat muat()), hanya
      tautan navigasinya yang tidak ditampilkan. */
-  $('#nav').innerHTML='<div class="nav-l">Koordinasi</div>'+
+  $('#nav').innerHTML='<div class="nav-l">Papan</div>'+
     NAV.map(function(n){return '<button class="nl'+(page===n[0]?' on':'')+'" onclick="APP.go(\''+n[0]+'\')">'+ico(n[2])+n[1]+'</button>';}).join('');
   $('#navFoot').innerHTML='Radar hanya membaca.<br>Perubahan dilakukan di modul asalnya.';
+  /* Halaman tak dikenal dinormalkan ke Radar SEBELUM judulnya dipasang.
+     Sejak tab Koordinasi dibuang, '#koordinasi' masih tersimpan sebagai
+     pintasan di peramban orang; tanpa baris ini judul topbar-nya kosong
+     melompong walau isinya benar. */
+  if(!JUDUL[page]) page='radar';
   var j=JUDUL[page]||['',''];
   $('#tbSub').textContent=j[0]; $('#tbTitle').textContent=j[1];
   var s=sesi()||{};
@@ -2318,8 +2227,12 @@ function render(){
   else if(page==='kalender') v.innerHTML=vKalender();
   else if(page==='agenda') v.innerHTML=vAgendaList();
   else if(page==='reservasi') v.innerHTML=vResList();
-  else if(page==='koordinasi') v.innerHTML=vKoordinasi();
   else if(page==='detail') v.innerHTML=vDetailEvent();
+  /* Halaman tak dikenal jatuh ke Radar, tidak dibiarkan kosong. Sejak tab
+     Koordinasi dibuang, '#koordinasi' yang masih tersimpan sebagai pintasan
+     di peramban orang akan mendarat di sini — dan layar putih tanpa satu pun
+     pesan terbaca sebagai modul yang rusak. */
+  else { page='radar'; v.innerHTML=vRadar(); }
   window.scrollTo(0,0);
 }
 /* tickClock() DIHAPUS bersama jam dinding di topbar.

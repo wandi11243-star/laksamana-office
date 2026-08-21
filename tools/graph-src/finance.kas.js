@@ -1251,7 +1251,10 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 
-function syncKendaliPeriode() { modeHarian(); tagihanOf(); save(); }
+function syncKendaliPeriode() { modeHarian(); tagihanOf(); save(); rkHitung(); }
+
+
+
 
 
 
@@ -1435,7 +1438,34 @@ function rkBonBulan() {  }
 
 
 
+
+
+
+
+
+
+
 function rkMdr() { rkRec(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rkAktInput() { rkRec(); }
+
 
 
 
@@ -1467,9 +1497,24 @@ function rkAdaUbah() {  }
 
 
 
+
+
+
+
+
 function rkHitung() { rkRec(); }
 
-function sisi() { rkPay(); rkMdr(); rkJual(); rkBon(); }
+function sisi() { rkPay(); rkAktInput(); rkMdr(); rkJual(); rkBon(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1840,7 +1885,20 @@ function rkHapusSetoran() { rkSetoranSemua(); rkSetor(); rkKirim(); }
 
 
 
-function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); rkKetikMdr(); rkTanda(); rkSetTanda(); rkSimpan(); }
+function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); rkKetikAkt(); rkMdrSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1960,7 +2018,30 @@ function rkGeser() { rkPilihTgl(); }
 
 
 function rkSetTanda() { rkUbah(); rkSegarSimpan(); }
-function rkKetikMdr() { rkUbah(); rkSegarTurunan(); render(); }
+
+
+
+
+
+
+function rkMdrSel() {  }
+
+
+
+
+
+
+
+
+function rkKetikAkt() { rkUbah(); rkSegarTurunan(); render(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1968,7 +2049,7 @@ function rkKetikMdr() { rkUbah(); rkSegarTurunan(); render(); }
 function rkSegarTurunan() { rkHitung(); }
 
 
-function set() { rkSegarSimpan(); }
+function set() { rkMdrSel(); rkSegarSimpan(); }
 
 
 
@@ -2001,6 +2082,19 @@ function rkSimpan() { rkAdaUbah(); rkKirim(); }
 
 
 function rkKirim() { fetchTimeout(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

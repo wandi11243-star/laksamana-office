@@ -390,6 +390,40 @@ function simpan_rekap($data) {
         $r['mdr'][$b] = $baru;
       }
     }
+    /* AKTUAL MASUK (21 Agustus 2026, permintaan tim). Menggantikan `mdr`
+       sebagai satu-satunya angka yang diketik di panel Rekap Penjualan: yang
+       dipegang orang finance adalah nominal yang benar-benar masuk rekening
+       (ia melihatnya di mutasi bank), sementara MDR cuma selisihnya terhadap
+       Aktual kotor dari Report Daily.
+
+       Disimpan sebagai AKTUAL, bukan sebagai MDR hasil hitungan, dan bedanya
+       baru terasa saat Report Daily-nya dikoreksi belakangan: kalau yang
+       tersimpan MDR, nilai aktual ikut bergeser sendiri padahal uang yang
+       masuk rekening tidak berubah sepeser pun.
+
+       `mdr` di atas SENGAJA TETAP DITERIMA & TETAP DIBACA. Hari-hari sebelum
+       tanggal ini hanya menyimpan MDR, dan panelnya jatuh ke sana kalau
+       `aktual` belum ada — membuang jalur itu berarti seluruh riwayat rekap
+       berubah angkanya sendiri.
+
+       STRING KOSONG = HAPUS, bukan nol. Nol berarti "uangnya tidak masuk sama
+       sekali"; itu arti yang sangat berbeda, dan menyimpannya membuat kotak
+       yang sengaja dikosongkan di layar tidak pernah benar-benar kosong. */
+    if (isset($isi['aktual']) && is_array($isi['aktual'])) {
+      if (!isset($r['aktual']) || !is_array($r['aktual'])) $r['aktual'] = array();
+      foreach ($bank as $b) {
+        if (!array_key_exists($b, $isi['aktual'])) continue;
+        $v = $isi['aktual'][$b];
+        if ($v === '' || $v === null) {
+          if (array_key_exists($b, $r['aktual'])) { unset($r['aktual'][$b]); $ubah++; }
+          continue;
+        }
+        $baru = kp_num($v);
+        $ada  = array_key_exists($b, $r['aktual']);
+        if (!$ada || kp_num($r['aktual'][$b]) !== $baru) $ubah++;
+        $r['aktual'][$b] = $baru;
+      }
+    }
     if (isset($isi['esb']) && is_array($isi['esb'])) {
       if (!isset($r['esb']) || !is_array($r['esb'])) $r['esb'] = array();
       foreach ($isi['esb'] as $g => $v) {

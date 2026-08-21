@@ -11469,7 +11469,57 @@ function delTaskCategory() { subsOf(); confirmUI(); esc(); getCats(); getSubs();
 
 
 
-function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); tblUrut(); tblPage(); tblHead(); esc(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); slotInv(); can(); addPayment(); svg(); tblPagerHtml(); muatInvMkt(); }
+
+
+
+
+
+
+function invGantiTab() { go(); }
+
+
+
+
+
+
+
+function renderInvoices() { pageHead(); eventFinance(); invStatus(); stat(); empty(); esc(); invGantiTab(); tblUrut(); tblPage(); tblHead(); clientName(); dpLabel(); statusChip(); INV_STATUS_MAP(); slotInv(); can(); addPayment(); svg(); tblPagerHtml(); muatInvMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12159,7 +12209,7 @@ function poHapusBaris() {  }
 
 
 
-function renderPurchasingBD() { pageHead(); poAkhirMinggu(); esc(); poBarisMkt(); poTambahBaris(); svg(); poKirimKeBD(); }
+function renderPurchasingBD() { pageHead(); poAkhirMinggu(); esc(); poBarisMkt(); poTambahBaris(); svg(); poKirimKeBD(); poMuatDaftar(); poGambarDaftar(); }
 
 
 
@@ -12204,7 +12254,119 @@ function renderPurchasingBD() { pageHead(); poAkhirMinggu(); esc(); poBarisMkt()
 
 
 
-function poKirimKeBD() { poBacaRp(); toast(); poBarisMkt(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poMuatDaftar() { poGambarDaftar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poChipStatus() { esc(); }
+
+
+
+
+
+
+
+
+
+function poGambarDaftar() { svg(); esc(); fmtDate(); poChipStatus(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poKirimKeBD() { poBacaRp(); toast(); poBarisMkt(); poMuatDaftar(); esc(); }
+
+
+
+
 
 
 

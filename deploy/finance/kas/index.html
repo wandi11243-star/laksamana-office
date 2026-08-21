@@ -1336,7 +1336,10 @@ const RK_GRUP=[
   {k:'error',       n:'Error',        warna:'danger', pos:['error_customer','error_floor','error_kasir','error_bar'],
                                                       akt:['error_customer','error_floor','error_kasir','error_bar']}
 ];
-const RK_MDRKEY=RK_GRUP.filter(g=>g.mdr).map(g=>g.mdr);
+/* RK_MDRKEY dibuang 21 Agustus 2026 bersama pengetikan MDR. Total MDR kini
+   dijumlahkan dari hasil tiap kelompok di rkHitung(), bukan dari daftar kunci
+   tersendiri — dua rumus untuk satu angka berarti kartu "Total MDR" bisa tidak
+   cocok dengan jumlah kolom di bawahnya. */
 /* WARISAN sebelum EDC/QRIS dipecah. Panel ini lahir pagi 12 Agustus 2026 dengan
    kelompok gabungan ('bri','mandiri','bca'), jadi MDR & penanda yang sempat
    disimpan hari itu memakai kunci lama. Dibaca sebagai CADANGAN — hanya kalau
@@ -1435,12 +1438,39 @@ function rkBonBulan(ym){
   });
   return {baru,lunas,n,belum,nBelum};
 }
+/* MDR tersimpan — WARISAN. Sampai 21 Agustus 2026 inilah yang diketik orang
+   finance, dan aktual bersih dihitung darinya. Sekarang kebalikannya: yang
+   diketik AKTUAL, dan MDR jadi hitungan (lihat rkAktInput & rkHitung).
+
+   Fungsinya tetap ada dan tetap dibaca — hari-hari sebelum tanggal itu hanya
+   menyimpan MDR, dan tanpa jalur ini seluruh riwayat rekap berubah angkanya
+   sendiri begitu panel ini dimuat ulang. */
 function rkMdr(tgl,bank){
   const u=RK_UBAH[tgl]; if(u&&u.mdr&&u.mdr[bank]!==undefined) return num(u.mdr[bank]);
   const r=rkRec(tgl), m=(r&&r.mdr)||{};
   if(m[bank]!==undefined) return num(m[bank]);
   const lama=RK_MDR_LAMA[bank];
   return lama!==undefined?num(m[lama]):0;
+}
+/* AKTUAL YANG DIKETIK (21 Agustus 2026, permintaan tim: "yang diinput aktual
+   saja, jangan MDR-nya"). Yang benar-benar masuk rekening adalah fakta yang
+   dipegang orang finance — ia melihatnya di mutasi bank. MDR cuma selisihnya.
+
+   Disimpan sebagai ANGKA AKTUAL, bukan sebagai MDR hasil hitungan. Bedanya
+   baru terasa saat Report Daily-nya dikoreksi belakangan: kalau yang tersimpan
+   MDR, aktual ikut bergeser sendiri padahal uang yang masuk rekening tidak
+   berubah sepeser pun — dan tidak ada apa pun di layar yang menjelaskannya.
+
+   `null` = belum pernah diketik untuk hari itu → pemanggil jatuh ke hitungan
+   lama (kotor − MDR tersimpan), supaya riwayat lama terbaca persis seperti
+   sebelumnya. */
+function rkAktInput(tgl,bank){
+  const u=RK_UBAH[tgl];
+  /* '' = sengaja dikosongkan di layar → kembali ke hitungan lama, BUKAN nol. */
+  if(u&&u.aktual&&u.aktual[bank]!==undefined) return u.aktual[bank]===''?null:num(u.aktual[bank]);
+  const r=rkRec(tgl), a=(r&&r.aktual)||{};
+  if(a[bank]!==undefined && a[bank]!=='') return num(a[bank]);
+  return null;
 }
 function rkSetor(tgl){
   const u=RK_UBAH[tgl]; if(u&&u.setor!==undefined) return !!u.setor;
@@ -1465,23 +1495,38 @@ function rkUbah(tgl,jalan,nilai){
 }
 function rkAdaUbah(){ return Object.keys(RK_UBAH).length>0; }
 
-/* SATU-SATUNYA tempat MDR dikurangkan dari aktual. Kartu bulan, kartu
-   kelompok, daftar harian, rincian, dan sub-tab Input semuanya lewat sini. */
+/* SATU-SATUNYA tempat aktual bersih & MDR ditentukan. Kartu bulan, kartu
+   kelompok, daftar harian, rincian, dan sub-tab Input semuanya lewat sini.
+
+   ARAHNYA DIBALIK 21 Agustus 2026: dulu MDR yang diketik lalu aktual dihitung;
+   sekarang AKTUAL yang diketik lalu MDR dihitung sebagai selisihnya. Hari yang
+   aktualnya belum pernah diketik tetap memakai jalur lama, jadi riwayat rekap
+   tidak berubah angkanya. */
 function rkHitung(tgl){
   const r=rkRec(tgl);
   const sisi=(daftar,f)=>daftar.reduce((s,k)=>s+rkPay(r,k,f),0);
   const g={};
   RK_GRUP.forEach(x=>{
     const pos=sisi(x.pos,'pos'), kotor=sisi(x.akt,'actual');
-    const mdr=x.mdr?rkMdr(tgl,x.mdr):0, akt=kotor-mdr;
+    let akt=kotor, mdr=0, diketik=false;
+    if(x.mdr){
+      const ketik=rkAktInput(tgl,x.mdr);
+      diketik = ketik!==null;
+      akt = diketik ? ketik : (kotor - rkMdr(tgl,x.mdr));
+      mdr = kotor - akt;
+    }
     /* Kelompok tanpa sisi POS tidak punya selisih — bukan "selisih nol".
        Menulisnya nol membuat kolomnya terlihat sudah dicocokkan padahal tidak
        ada yang dicocokkan. */
-    g[x.k]={pos,kotor,mdr,akt,punyaPos:x.pos.length>0,
+    g[x.k]={pos,kotor,mdr,akt,diketik,punyaPos:x.pos.length>0,
             selisih:x.pos.length?pos-akt:null,
             adjust:x.pos.length?pos-akt:akt};
   });
-  const mdrTotal=RK_MDRKEY.reduce((s,b)=>s+rkMdr(tgl,b),0);
+  /* Dijumlahkan DARI HASIL KELOMPOK, bukan dari rkMdr() lagi. Sejak MDR jadi
+     angka turunan, menghitungnya dua kali dengan dua rumus berarti kartu
+     "Total MDR" bisa tidak cocok dengan jumlah kolom di bawahnya — dan yang
+     mencari sebabnya akan mengira uangnya yang hilang. */
+  const mdrTotal=RK_GRUP.reduce((s,x)=>s+(x.mdr?g[x.k].mdr:0),0);
   const setoran=RK_PAY.reduce((s,k)=>s+rkPay(r,k,'actual'),0);
   const totPos=RK_PAY.reduce((s,k)=>s+rkPay(r,k,'pos'),0);
   const rekapAkt=setoran-mdrTotal;
@@ -1656,7 +1701,7 @@ function rkDetail(tgl){
       <div class="dh"><b>${esc(g.n)}</b>${rkTanda(tgl,g.k)?'<span class="chip ok">✓ Input POS</span>':'<span class="chip mute">belum diinput</span>'}</div>
       ${x.punyaPos?`<div class="dr"><span>POS</span><b>${rkRp0(x.pos)}</b></div>`:''}
       <div class="dr"><span>Aktual${x.mdr?' kotor':''}</span><b>${rkRp0(x.kotor)}</b></div>
-      ${x.mdr?`<div class="dr"><span>MDR</span><b>−${fmtRp(x.mdr)}</b></div><div class="dr"><span>Aktual bersih</span><b>${rkRp0(x.akt)}</b></div>`:''}
+      ${x.mdr?`<div class="dr"><span>MDR</span><b>${x.mdr<0?'+'+fmtRp(-x.mdr):'−'+fmtRp(x.mdr)}</b></div><div class="dr"><span>Aktual bersih</span><b>${rkRp0(x.akt)}</b></div>`:''}
       ${x.punyaPos?`<div class="dr"><span>Selisih</span><b class="${rkKls(x.selisih)}">${rkRp0(x.selisih)}</b></div>`:''}
       <div class="dr"><span>Adjust</span><b>${rkRp0(x.adjust)}</b></div>
     </div>`;
@@ -1856,11 +1901,16 @@ function rkHalInput(){
   html+=`<div class="row-in">`
     +rkKartu('Dibayar Tamu',fmtRp(h.jual),`after tax &amp; service · ${esc(dateLabel(RK_TGL))}`,'accent')
     +rkKartu('Rekap Aktual',`<span id="rk-akt">${fmtRp(h.rekapAkt)}</span>`,`setoran ${fmtRp(h.setoran)} − MDR`,'')
-    +rkKartu('Total MDR',`<span id="rk-mdr">${fmtRp(h.mdrTotal)}</span>`,'potongan bank &amp; ojol hari ini','')
+    +rkKartu('Total MDR',`<span id="rk-mdr">${fmtRp(h.mdrTotal)}</span>`,'hitungan: Aktual kotor − Aktual masuk','')
     +rkKartu('Selisih',`<span id="rk-sel">${fmtRp(h.selisihTotal)}</span>`,
         'Dibayar Tamu − Rekap Aktual'+(h.bon.ada?` + koreksi bon ${fmtSel(h.bon.koreksi)}`:''),'')
     +`</div>`;
-  if(!h.r) html+=`<div class="notice warn">⚠ Report Daily tanggal ini <b>belum ada</b>, jadi seluruh angka POS &amp; Aktual masih nol. MDR dan penandanya tetap boleh diisi sekarang — urutan kerjanya di lapangan memang tidak selalu report dulu.</div>`;
+  /* Peringatannya BERUBAH ARTI sejak yang diketik jadi Aktual (21 Agustus
+     2026). Dulu MDR boleh diketik lebih dulu karena ia angka berdiri sendiri.
+     Aktual tidak: MDR dihitung sebagai Aktual kotor − Aktual, dan Aktual kotor
+     masih nol selama Report Daily-nya belum ada — jadi mengetik sekarang
+     menghasilkan MDR negatif sebesar angka yang baru saja diketik. */
+  if(!h.r) html+=`<div class="notice warn">⚠ Report Daily tanggal ini <b>belum ada</b>, jadi seluruh angka POS &amp; Aktual kotor masih nol. Penandanya boleh dicentang sekarang, tapi <b>Aktual masuk sebaiknya diisi setelah Report Daily-nya ada</b> — MDR dihitung sebagai selisih terhadap Aktual kotor, dan selisih terhadap nol akan terbaca terbalik.</div>`;
   if(rkTanpaSvcTax(h)) html+=`<div class="notice bad">⚠ <b>Service charge &amp; tax tanggal ini masih nol</b> di Input Omset Harian, padahal setoran kasirnya ${fmtRp(h.setoran)}. Selisih di bawah kemungkinan besar berasal dari isian yang belum lengkap — bukan dari kas.</div>`;
   html+=rkPanelBon(h);
 
@@ -1880,11 +1930,13 @@ function rkHalInput(){
   </div>`;
 
   html+=`<div class="card">
-    <h3>MDR &amp; Penanda Input POS</h3>
-    <div class="card-sub">MDR mengurangi nilai Aktual kelompoknya — termasuk komisi Gofood &amp; Grabfood. Centang <b>Input POS</b> berarti nominal <em>adjust</em> kelompok itu sudah dikunci di POS.</div>
+    <h3>Aktual Masuk &amp; Penanda Input POS</h3>
+    <div class="card-sub">Isi <b>Aktual</b> — nominal yang benar-benar masuk rekening menurut mutasi bank / laporan ojol.
+      MDR di sebelahnya <b>dihitung sendiri</b> sebagai selisihnya terhadap Aktual kotor, tidak perlu diketik.
+      Kosongkan kalau memang tidak ada potongan. Centang <b>Input POS</b> berarti nominal <em>adjust</em> kelompok itu sudah dikunci di POS.</div>
     <div class="tbl-wrap kkd"><table><thead><tr>
       <th>Kelompok</th><th class="num">POS</th><th class="num">Aktual (kotor)</th>
-      <th class="num" style="width:130px">MDR</th><th class="num">Aktual (bersih)</th>
+      <th class="num" style="width:140px">Aktual masuk</th><th class="num">MDR (hitungan)</th>
       <th class="num">Selisih</th><th class="num">Adjust</th><th style="text-align:center">Input POS</th>
     </tr></thead><tbody>`;
   RK_GRUP.forEach(g=>{
@@ -1894,9 +1946,15 @@ function rkHalInput(){
       <td class="num mono">${x.punyaPos?rkRp0(x.pos):'<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono">${rkRp0(x.kotor)}</td>
       <td class="num">${g.mdr
-          ? `<input inputmode="numeric" value="${x.mdr||''}" placeholder="0" aria-label="MDR ${esc(g.n)}" oninput="rkKetikMdr('${g.mdr}',this.value)">`
+          /* Kotak KOSONG kalau belum pernah diketik, dan placeholder-nya
+             menampilkan angka yang sedang dipakai. Mengisikan angka itu ke
+             dalam value akan membuat seluruh baris terlihat sudah diperiksa
+             orang padahal belum satu pun disentuh — dan di layar pencocokan
+             uang, "sudah diperiksa" adalah persis hal yang tidak boleh
+             ditebak-tebak layar. */
+          ? `<input inputmode="numeric" value="${x.diketik?x.akt:''}" placeholder="${x.akt||0}" aria-label="Aktual masuk ${esc(g.n)}" oninput="rkKetikAkt('${g.mdr}',this.value)">`
           : '<span style="color:var(--muted-2)">—</span>'}</td>
-      <td class="num mono" id="rk-net-${g.k}">${rkRp0(x.akt)}</td>
+      <td class="num mono" id="rk-mdr-${g.k}">${rkMdrSel(g,x)}</td>
       <td class="num mono ${x.selisih===null?'':rkKls(x.selisih)}" id="rk-sel-${g.k}">${x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rkRp0(x.selisih)}</td>
       <td class="num mono" id="rk-adj-${g.k}">${rkRp0(x.adjust)}</td>
       <td style="text-align:center"><input type="checkbox" ${rkTanda(RK_TGL,g.k)?'checked':''} onchange="rkSetTanda('${g.k}',this.checked)" style="width:16px;height:16px;accent-color:var(--gold);cursor:pointer"></td>
@@ -1906,7 +1964,7 @@ function rkHalInput(){
   html+=`<div class="balance-bar">
     <div class="bnums"><div class="bi" id="rk-ket">${n
       ? `<b style="color:var(--warn)">${n} hari punya perubahan yang belum disimpan.</b>`
-      : 'Yang disimpan dari layar ini hanya MDR, Setor, dan centang Input POS.'}</div></div>
+      : 'Yang disimpan dari layar ini hanya Aktual masuk, Setor, dan centang Input POS.'}</div></div>
     <button class="btn btn-primary" id="rk-simpan" onclick="rkSimpan()"${(n&&!RK_JALAN)?'':' disabled'}>💾 Simpan Perubahan</button>
   </div>`;
   return html;
@@ -1960,9 +2018,32 @@ function rkGeser(n){
   rkPilihTgl(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
 }
 function rkSetTanda(g,v){ rkUbah(RK_TGL,['tanda',g],!!v); rkSegarSimpan(); }
-function rkKetikMdr(bank,v){ rkUbah(RK_TGL,['mdr',bank],num(v)); rkSegarTurunan(); }
-/* Memperbarui HANYA angka turunan. Tabelnya TIDAK digambar ulang: mengetik MDR
-   mengubah aktual bersih, selisih, adjust, dan keempat kartu sekaligus, dan
+/* Isi sel MDR — angka turunan, jadi digambar satu tempat saja supaya bentuknya
+   di gambar-pertama dan di penyegaran-per-ketukan tidak bisa berbeda. MDR
+   negatif (aktual lebih besar daripada kotor) DITANDAI MERAH, bukan
+   disembunyikan: itu bukan potongan, itu tanda salah ketik atau Report Daily
+   yang belum lengkap, dan diam-diam menerimanya membuat Rekap Aktual lebih
+   besar daripada setoran tanpa satu pun penjelasan. */
+function rkMdrSel(g,x){
+  if(!g.mdr) return '<span style="color:var(--muted-2)">—</span>';
+  if(!x.mdr) return rkRp0(0);
+  if(x.mdr<0) return '<span style="color:var(--danger)" title="Aktual lebih besar daripada Aktual kotor — periksa angkanya atau Report Daily hari ini">+'+rkRp0(-x.mdr)+'</span>';
+  return '−'+rkRp0(x.mdr);
+}
+/* Yang diketik AKTUAL, bukan MDR (21 Agustus 2026). Kotak kosong = "belum
+   diketik" dan HARUS menghapus isiannya, bukan menyimpan nol: nol berarti
+   "uangnya tidak masuk sama sekali", dan itu arti yang sangat berbeda. */
+function rkKetikAkt(bank,v){
+  /* String kosong DIKIRIM APA ADANYA, tidak dihapus dari daftar perubahan.
+     Kalau cuma dihapus, nilai yang sudah tersimpan di server tetap berlaku dan
+     kotaknya terisi lagi begitu halaman dimuat ulang — orangnya sudah
+     mengosongkannya, menekan Simpan, dan tidak terjadi apa-apa. Server
+     membuang kuncinya saat menerima string kosong. */
+  rkUbah(RK_TGL,['aktual',bank], String(v).trim()===''?'':num(v));
+  rkSegarTurunan();
+}
+/* Memperbarui HANYA angka turunan. Tabelnya TIDAK digambar ulang: mengetik
+   Aktual mengubah MDR, selisih, adjust, dan keempat kartu sekaligus, dan
    render() penuh akan merebut fokus dari kotak yang sedang diketik pada
    karakter pertama. */
 function rkSegarTurunan(){
@@ -1972,7 +2053,7 @@ function rkSegarTurunan(){
   set('rk-akt',fmtRp(h.rekapAkt)); set('rk-mdr',fmtRp(h.mdrTotal)); set('rk-sel',fmtRp(h.selisihTotal));
   RK_GRUP.forEach(g=>{
     const x=h.g[g.k];
-    set('rk-net-'+g.k,rkRp0(x.akt));
+    set('rk-mdr-'+g.k,rkMdrSel(g,x));
     set('rk-adj-'+g.k,rkRp0(x.adjust));
     const s=document.getElementById('rk-sel-'+g.k);
     if(s){
@@ -1988,7 +2069,7 @@ function rkSegarSimpan(){
   const k=document.getElementById('rk-ket'); if(!k) return;
   k.innerHTML = n
     ? `<b style="color:var(--warn)">${n} hari punya perubahan yang belum disimpan.</b>`
-    : 'Yang disimpan dari layar ini hanya MDR, Setor, dan centang Input POS.';
+    : 'Yang disimpan dari layar ini hanya Aktual masuk, Setor, dan centang Input POS.';
 }
 /* MENYIMPAN LEWAT ENDPOINT SEMPIT `simpanRekap`, bukan saveAll: saveAll
    mengirim SELURUH state, jadi satu penyimpanan dari layar yang salinannya
@@ -2011,7 +2092,8 @@ function rkKirim(extra,sesudah){
   Object.keys(kiriman).forEach(tgl=>{
     const u=kiriman[tgl], o={};
     if(u.setor!==undefined) o.setor=u.setor;
-    if(u.mdr) o.mdr=u.mdr;
+    if(u.mdr) o.mdr=u.mdr;        // warisan; tidak diketik lagi dari layar ini
+    if(u.aktual) o.aktual=u.aktual;
     if(u.tanda) o[RK_TANDA]=u.tanda;   // `tanda` di layar → `esb` di kawat
     badan[tgl]=o;
   });
@@ -2033,6 +2115,18 @@ function rkKirim(extra,sesudah){
         const u=kiriman[tgl], r=DB.reports[tgl]=DB.reports[tgl]||{};
         if(u.setor!==undefined) r.setor=!!u.setor;
         if(u.mdr){ r.mdr=r.mdr||{}; Object.keys(u.mdr).forEach(b=>{ r.mdr[b]=num(u.mdr[b]); }); }
+        /* Cerminan lokal harus meniru server PERSIS, termasuk soal string
+           kosong: yang dikosongkan DIHAPUS, bukan disimpan sebagai 0. Kalau
+           di sini disamakan dengan nol, kotak yang barusan dikosongkan
+           langsung menulis "Aktual 0" sampai halaman dimuat ulang — dan
+           angkanya berbeda dari yang sesungguhnya tersimpan. */
+        if(u.aktual){
+          r.aktual=r.aktual||{};
+          Object.keys(u.aktual).forEach(b=>{
+            if(u.aktual[b]==='') delete r.aktual[b];
+            else r.aktual[b]=num(u.aktual[b]);
+          });
+        }
         if(u.tanda){ r[RK_TANDA]=r[RK_TANDA]||{}; Object.keys(u.tanda).forEach(g=>{ r[RK_TANDA][g]=!!u.tanda[g]; }); }
       });
       RK_UBAH={};

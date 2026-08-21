@@ -633,7 +633,6 @@
 
 
 
-
 function $() {  }
 function esc() {  }
 
@@ -908,21 +907,6 @@ function adaJob() { evDivisi(); tmplEvDiv(); }
 
 
 function kesiapan() { evDivisi(); divProgress(); adaJob(); }
-
-
-
-
-
-
-
-
-
-function isianTerisi() {  }
-
-
-
-
-
 
 
 
@@ -1302,7 +1286,7 @@ function pitaGagal() { esc(); periodeBaru(); }
 
 
 
-function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(); dalamPeriode(); cocokFb(); resAktif(); resHidup(); }
+function vRadar() { todayISO(); peringatan(); pitaGagal(); agendaTampil(); dalamPeriode(); cocokFb(); resAktif(); resHidup(); }
 
 
 
@@ -1321,34 +1305,7 @@ function vRadar() { todayISO(); agendaTampil(); dDay(); peringatan(); pitaGagal(
 
 
 
-function paxOf() { labelPeriode(); kendaliPeriode(); selFb(); esc(); stat(); paxRes(); ico(); fTgl(); badgeSumber(); pill(); dLabel(); dDay(); isianTerisi(); panelKesiapan(); agendaTampil(); cocokFb(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); agendaTgl(); resAktif(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function paxOf() { labelPeriode(); kendaliPeriode(); selFb(); esc(); stat(); paxRes(); agendaTampil(); dDay(); cocokFb(); kosong(); pgIris(); agendaCard(); pager(); resTgl(); tabelRes(); fTgl(); agendaTgl(); ico(); resAktif(); pill(); }
 
 
 
@@ -1562,121 +1519,15 @@ function paxBln() { stat(); paxRes(); pad(); agendaTgl(); resTgl(); paxTgl(); es
 
 
 
-function vKoordinasi() { agendaTampil(); dDay(); pitaGagal(); esc(); pgIris(); kesiapan(); fTglP(); dLabel(); evDivisi(); evSubs(); subProgress(); pager(); tmplEvDiv(); pill(); namaMkt(); initial(); }
 
 
 
 
+function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); tanpaTag(); todayISO(); seninMinggu(); bulanISO(); }
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function vDetailEvent() { ico(); pitaGagal(); kosong(); dDay(); esc(); badgeSumber(); pill(); fTgl(); dLabel(); nowStamp(); sesi(); klienMkt(); kesiapan(); kvRow(); namaMkt(); panelKesiapan(); evDivisi(); evSubs(); tmplEvDiv(); subProgress(); detailFields(); talentEvt(); todayISO(); seninMinggu(); bulanISO(); }
 
 
 
@@ -2087,7 +1938,7 @@ function kvRow() { esc(); }
 function humanKey() {  }
 function detLabel() { humanKey(); }
 
-function fmtMenuLike() {  }
+function fmtMenuLike() { esc(); }
 
 
 
@@ -2106,7 +1957,52 @@ function fmtMenuLike() {  }
 
 
 
-function fmtDetVal() { rp(); fmtMenuLike(); }
+
+
+
+
+
+
+
+
+
+function tanpaTag() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fmtDetVal() { tanpaTag(); rp(); fmtMenuLike(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2298,7 +2194,24 @@ function bukaDrw() { $(); }
 
 
 
-function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender(); vAgendaList(); vResList(); vKoordinasi(); vDetailEvent(); }
+
+
+
+
+
+
+
+
+function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender(); vAgendaList(); vResList(); vDetailEvent(); }
+
+
+
+
+
+
+
+
+
 
 
 
