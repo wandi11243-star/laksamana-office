@@ -2006,6 +2006,9 @@
 
 
 
+
+
+
 function svg() {  }
 
 
@@ -13593,7 +13596,8 @@ function vipRingkasKwi() { vipBuktiList(); vipPax(); vipStatusBayar(); vipDpTota
 function vipSlotKwi() { esc(); vipSlotKwiIsi(); }
 
 
-function vipSlotKwiIsi() { vipDpTotal(); muatKwiVip(); escJs(); esc(); bolehMintaInvoice(); vipMintaKwitansi(); svg(); }
+function vipSlotKwiIsi() { vipDpTotal(); muatKwiVip(); escJs(); esc(); vipKwitansiPDF(); svg(); bolehMintaInvoice(); vipMintaKwitansi(); }
+
 
 
 
@@ -13647,6 +13651,87 @@ function muatKwiVip() { segarkanSlotInv(); invFetchFin(); }
 
 
 function vipMintaKwitansi() { bolehMintaInvoice(); toast(); vipDpTotal(); vipBuktiList(); invFetchFin(); vipRingkasKwi(); segarkanSlotInv(); logAct(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipKwitansiData() { vipBuktiList(); vipStatusBayar(); fmtDate(); today(); vipJam(); vipPax(); vipDpTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipKwitansiPDF() { toast(); invFetchFin(); muatKwiVip(); vipKwitansiData(); logAct(); vipDpTotal(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

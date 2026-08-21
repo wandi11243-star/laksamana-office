@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="../assets/venue-layouts.js"></script>
+<!-- Lembar kwitansi. Berkas BERSAMA dengan modul Reservasi — satu lembar,
+     dua modul yang mencetaknya. Lihat catatan di dalam berkasnya. -->
+<script src="../assets/kwitansi-sheet.js"></script>
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
   var ok=s&&s.expiry&&Date.now()<s.expiry&&(s.modules||[]).some(function(m){return m==='*'||m==='marketing';});
@@ -13611,7 +13614,8 @@ function vipSlotKwiIsi(v){
     return '<span class="chip" style="background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)">'
       +'&#10003; Kwitansi terbit</span>'
       +'<div class="cell-sub mono" style="margin-top:3px">'+esc(inv.no||'')+'</div>'
-      +'<div class="cell-sub" style="margin-top:3px">Lembar PDF-nya dicetak di modul Reservasi.</div>';
+      +'<div style="margin-top:6px"><button class="btn sm pri" onclick="vipKwitansiPDF(\''+escJs(v.id)+'\')">'
+      +svg(IC.print)+'Kwitansi PDF</button></div>';
   }
   if(inv && inv.status==='MENUNGGU'){
     /* TIDAK ADA tombol request ulang selama masih menunggu. Permintaan kedua
@@ -13658,7 +13662,7 @@ async function vipMintaKwitansi(id){
     +'Bukti transfer: '+vipBuktiList(v).length+' berkas'
     +(tanpaBukti?' ('+tanpaBukti+' tanpa berkas)':'')
     +'\n\nFinance memeriksa dana masuknya dulu di halaman Dana Masuk modul Reservasi, '
-    +'lalu menerbitkan kwitansi bertanda tangan. Lembar PDF-nya dicetak dari modul Reservasi.')) return;
+    +'lalu menerbitkan kwitansi bertanda tangan. Tombol Kwitansi PDF muncul di sini begitu terbit.')) return;
   try{
     const baris=await invFetchFin('invMinta',{
       resId:v.resId, jenis:'KWITANSI',
@@ -13673,6 +13677,87 @@ async function vipMintaKwitansi(id){
   }catch(e){
     toast('Gagal mengirim permintaan',(e.message||String(e)),'err');
   }
+}
+/* Pemeta record VIP -> data datar untuk lembar bersama assets/kwitansi-sheet.js.
+   Lembarnya SATU untuk dua modul; yang berbeda cuma bentuk datanya, dan
+   pemetaannya memang tempatnya di sini — berkas bersama tidak boleh tahu
+   apa-apa soal bentuk record modul mana pun. */
+function vipKwitansiData(v, inv){
+  const arr=vipBuktiList(v);
+  return {
+    no: (inv&&inv.no)||'', resmi:true,
+    lunas: vipStatusBayar(v).k==='lunas',
+    nama: v.nama||'',
+    hp: v.hp||'',
+    metode: (arr[0]&&arr[0].metode)||'',
+    tanggalTerbit: fmtDate(today()),
+    keterangan: 'Reservasi VIP'+(v.jenis?' ('+v.jenis+')':''),
+    subKeterangan: fmtDate(v.tanggal)+' · '+(vipJam(v)||'-')+' WIB'
+      +((v.meja||[]).length?' · Meja '+(v.meja||[]).join(', '):''),
+    pax: vipPax(v),
+    total: vipDpTotal(v),
+    penanda: (inv&&Array.isArray(inv.penanda)&&inv.penanda.length)?inv.penanda:null,
+    cap: (inv&&inv.cap)||'',
+    logo: window.LM_LOGO||window.__LOGO__||''
+  };
+}
+async function vipKwitansiPDF(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v) return;
+  /* GERBANG, bukan pengulangan yang mubazir: fungsi ini global dan bisa
+     terpanggil dari mana pun. Beda dengan modul Reservasi, di sini TIDAK ADA
+     jalur "terbitkan sendiri" — Marketing tidak pernah boleh menghasilkan
+     kwitansi tanpa lewat Finance, dan lembar tanpa tanda tangan yang keluar
+     dari sini akan tetap terlihat seperti kwitansi di tangan tamu. */
+  const inv=MKT_INV[v.resId];
+  if(!(inv&&inv.status==='DIBUAT')){
+    return toast('Kwitansi belum terbit','Finance belum menerbitkan kwitansi untuk reservasi ini. Tekan Request Kwitansi dulu.','err');
+  }
+  /* Jendelanya dibuka SINKRON, sebelum satu pun await. Kalau menunggu balasan
+     Finance dulu, window.open() tidak lagi berada di dalam gestur klik dan
+     peramban memblokirnya sebagai popup — kwitansinya tidak pernah muncul dan
+     yang terlihat cuma tidak terjadi apa-apa. Isinya diganti belakangan. */
+  const w=window.open('','_blank','width=860,height=980');
+  if(!w) return toast('Popup diblokir','Izinkan popup untuk membuat PDF kwitansi.','err');
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Menyiapkan kwitansi…</title></head>'
+    +'<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px">⏳ Menyiapkan kwitansi…</body></html>');
+  w.document.close();
+  let berkas=null;
+  try{
+    berkas=await invFetchFin('invBerkas',{resId:v.resId});
+  }catch(e){
+    /* Gangguan jaringan TIDAK boleh jatuh ke lembar tanpa tanda tangan seperti
+       jalur Manajer/Admin di modul Reservasi — di sini tidak ada wewenang
+       menerbitkan sendiri, jadi lembar tanpa cap yang keluar dari sini adalah
+       kwitansi yang tidak pernah diperiksa Finance. Jendelanya menjelaskan
+       apa yang terjadi alih-alih mencetak sesuatu yang setengah sah. */
+    try{
+      w.document.open();
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi gagal disiapkan</title></head>'
+        +'<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px;line-height:1.7">'
+        +'<b style="color:#1d1a15;font-size:16px">Modul Finance tak terjangkau</b><br>'
+        +'Tanda tangan &amp; cap kwitansi diambil dari sana, jadi lembarnya belum bisa dicetak. '
+        +'Tutup jendela ini dan coba lagi sebentar lagi.</body></html>');
+      w.document.close();
+    }catch(x){}
+    return toast('Gagal menyiapkan kwitansi',(e.message||String(e)),'err');
+  }
+  if(!(berkas&&berkas.ada)){
+    try{
+      w.document.open();
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi belum terbit</title></head>'
+        +'<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px;line-height:1.7">'
+        +'<b style="color:#1d1a15;font-size:16px">Kwitansi resmi belum terbit</b><br>'
+        +'Finance belum menerbitkan kwitansi untuk reservasi ini. Tutup jendela ini, lalu tekan '
+        +'<b>Request Kwitansi</b> di detail reservasinya.</body></html>');
+      w.document.close();
+    }catch(x){}
+    /* Statusnya di layar ternyata basi — segarkan supaya tombolnya ikut benar. */
+    delete MKT_INV[v.resId]; muatKwiVip(v.id);
+    return toast('Kwitansi belum terbit','Statusnya di layar sudah tidak sesuai — sudah disegarkan.','err');
+  }
+  if(!window.LMKwitansi.tulis(w, vipKwitansiData(v, berkas))) return;
+  logAct('vip',v.id,'Kwitansi PDF dicetak',v.nama+' · '+(berkas.no||'')+' · '+rp(vipDpTotal(v)));
+  save();
 }
 
 /* ---------- FORM ---------- */

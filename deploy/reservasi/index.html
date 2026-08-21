@@ -7,6 +7,9 @@
 <link rel="icon" type="image/jpeg" href="../assets/LaksamanaMudaLogo.jpeg">
 <!-- Guard SSO: tanpa sesi Office yang berhak buka reservasi, langsung ke login Office. -->
 <script src="../assets/venue-layouts.js"></script>
+<!-- Lembar kwitansi. Berkas BERSAMA dengan modul Marketing (Reservasi VIP
+     mencetak lembar yang sama) — lihat catatan di dalam berkasnya. -->
+<script src="../assets/kwitansi-sheet.js"></script>
 <script>
 (function(){try{var s=JSON.parse(localStorage.getItem('lm_session')||'null');
   var hidup=s&&s.expiry&&Date.now()<s.expiry;
@@ -5770,145 +5773,55 @@ async function terbitkanKwitansiLangsung(r){
    Sengaja TANPA library PDF (jsPDF dll): halaman ini dilindungi CSP yang memblokir CDN,
    dan dialog cetak bawaan sudah menghasilkan PDF yang rapi + bisa langsung dicetak.
    Semua isinya diambil dari data reservasi; kop mengikuti format faktur perusahaan. */
-const KWI_KOP = {
-  pt:"PT. LAKSAMANA MUDA BERSATU",
-  alamat:"Jl. Soekarno - Hatta No. 39, Labuh Baru Tim, Kec. Payung Sekaki,<br>Kota Pekanbaru, Riau 28282",
-  bank:"UOB | PT. Laksamana Muda Bersatu",
-  rek:"319-303-3588",
-  ttdNama:"(Wandi Pranata)",
-  ttdJabatan:"Finance"
-};
-/* `inv` = berkas kwitansi resmi dari modul Finance (nomor invoice + gambar
+/* KWI_KOP PINDAH ke assets/kwitansi-sheet.js bersama lembarnya (21 Agustus
+   2026), dan TIDAK disalin balik ke sini: nomor rekening & alamat perusahaan
+   yang tersimpan di dua tempat pasti suatu saat cuma diperbaiki di salah
+   satunya, dan yang tertinggal tetap tercetak di kertas yang dipegang tamu.
+   Yang butuh membacanya memakai window.LMKwitansi.KOP. */
+/* Pemeta ke lembar bersama assets/kwitansi-sheet.js (21 Agustus 2026).
+
+   Isi lembarnya PINDAH ke berkas itu supaya modul Marketing bisa mencetak
+   lembar yang SAMA untuk reservasi VIP — bukan salinannya. Dua salinan berarti
+   dua kwitansi untuk satu perusahaan yang lambat laun berbeda nomor rekening
+   dan tata letaknya, dan yang tidak ikut diperbaiki tetap tercetak lalu
+   dipegang tamu.
+
+   Yang tinggal di sini cuma PEMETAAN dari record reservasi ke data datar yang
+   dimengerti lembar itu — dan memang tempatnya di sini: berkas bersama tidak
+   boleh tahu apa-apa soal bentuk record modul ini.
+
+   `inv` = berkas kwitansi resmi dari modul Finance (nomor invoice + gambar
    tanda tangan & cap), atau null kalau belum diterbitkan / backend Finance
    tak terjangkau. Lembarnya tetap tercetak tanpa itu — cuma tanpa tanda
-   tangan, persis seperti sebelum 20 Agustus 2026. */
-function kwitansiHTML(r, inv){
-  const baris=(k,v)=>`<tr><td class="k">${esc(k)}</td><td class="v">${v}</td></tr>`;
-  const lunas = isLunas(r);
+   tangan, persis seperti sebelum 20 Agustus 2026.
+
+   Dua baris SENGAJA TIDAK IKUT ke lembar (dibuang 21 Agustus 2026 atas
+   permintaan tim): "Diterima oleh: <kru>" dan "✓ Diverifikasi Finance ·
+   <kru>". Keduanya catatan INTERNAL sementara lembar ini dipegang TAMU; nama
+   kru di dokumen keluar cuma menimbulkan pertanyaan yang tidak perlu dijawab
+   ke luar. Jejaknya tetap lengkap di audit log dan arsip Finance.
+   dpReceivedBy() dibiarkan ada — tidak dicetak lagi, tapi datanya (r.createdBy)
+   masih dipakai halaman lain. */
+function kwitansiData(r, inv){
   const resmi = !!(inv && inv.ada);
-  const noDok = resmi && inv.no ? inv.no : kwitansiNo(r);
-  /* Penanda tangan bisa lebih dari satu, dan siapa saja ditentukan per lembar
-     oleh Finance. Kalau kwitansinya belum resmi — atau Finance sengaja
-     menerbitkannya tanpa tanda tangan — jatuh ke SATU blok berisi nama
-     bawaan di kop, supaya tata letak bagian bawah lembarnya tidak berubah. */
-  const pen = (resmi && Array.isArray(inv.penanda) && inv.penanda.length)
-    ? inv.penanda
-    : [{nama:KWI_KOP.ttdNama, jabatan:KWI_KOP.ttdJabatan, ttd:""}];
-  /* Dua baris DIBUANG dari blok tanda tangan pada 21 Agustus 2026 atas
-     permintaan tim: "Diterima oleh: <kru>" dan "✓ Diverifikasi Finance
-     · <kru>". Keduanya catatan INTERNAL — siapa yang menerima uangnya dan
-     siapa yang meloloskan lembarnya — sementara lembar ini dipegang TAMU.
-     Nama kru di dokumen keluar cuma menimbulkan pertanyaan yang tidak perlu
-     dijawab ke luar; jejaknya tetap lengkap di audit log dan arsip Finance.
-
-     Catatannya ditulis DI SINI, bukan sebagai komentar HTML di dalam template
-     di bawah: komentar di sana ikut tercetak ke sumber PDF yang diterima tamu,
-     dan sempat membuat uji "nama kru tidak bocor" merah karena menemukan
-     kalimat penjelasannya sendiri.
-
-     dpReceivedBy() sengaja dibiarkan ada — tidak dicetak lagi, tapi datanya
-     (r.createdBy) masih dipakai halaman lain. */
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Kwitansi ${esc(noDok)} — ${esc(r.name||"")}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font:13px/1.55 "Segoe UI",Arial,sans-serif;color:#1d1a15;background:#fff;padding:28px 30px}
-  .kop{display:flex;align-items:flex-start;gap:18px;border-bottom:3px solid #C9A227;padding-bottom:14px}
-  .kop img{width:74px;height:74px;object-fit:contain;flex:none}
-  .kop .pt{font-size:17px;font-weight:800;letter-spacing:.2px}
-  .kop .al{font-size:11.5px;color:#5c574d;margin-top:4px}
-  .judul{margin-left:auto;text-align:right;flex:none}
-  .judul b{font-size:22px;letter-spacing:2px;display:block}
-  .judul span{font-size:11px;color:#5c574d;letter-spacing:1px}
-  .meta{display:flex;justify-content:space-between;gap:24px;margin:18px 0 16px}
-  .meta table{border-collapse:collapse}
-  .meta td{padding:2px 0;font-size:12.5px;vertical-align:top}
-  .meta td.k{color:#5c574d;padding-right:10px;white-space:nowrap}
-  .meta td.v{font-weight:600}
-  .lunas{display:inline-block;border:2px solid ${lunas?"#1F9D5F":"#C9A227"};color:${lunas?"#1F9D5F":"#8a6a12"};
-    font-weight:800;font-size:12px;letter-spacing:1.5px;padding:5px 12px;border-radius:6px;transform:rotate(-3deg)}
-  table.isi{width:100%;border-collapse:collapse;margin-top:6px}
-  table.isi th{background:#F4EEE0;border:1px solid #D9CDB2;padding:8px;font-size:11.5px;letter-spacing:.4px;text-transform:uppercase}
-  table.isi td{border:1px solid #D9CDB2;padding:9px 8px;font-size:12.5px}
-  .num{text-align:right;white-space:nowrap}
-  .tot td{background:#FAF6EC;font-weight:800;font-size:13.5px}
-  .bawah{display:flex;justify-content:space-between;gap:30px;margin-top:24px}
-  .bayar{border:1px solid #D9CDB2;border-radius:8px;padding:11px 13px;font-size:12px;max-width:290px}
-  .bayar b{display:block;margin-bottom:3px}
-  .ttd{text-align:center;font-size:12.5px;min-width:190px}
-  /* Beberapa penanda tangan berjajar. min-width diperkecil saat jumlahnya
-     lebih dari satu — tiga kolom @190px memaksa blok tanda tangan melebar
-     melewati kertas A4 dan yang paling kanan terpotong saat dicetak. */
-  .ttd-grup{text-align:right;font-size:12.5px}
-  .ttd-baris{display:flex;gap:20px;justify-content:flex-end;align-items:flex-end}
-  .ttd-baris .ttd{min-width:150px}
-  .ttd .sp{height:58px}
-  .ttd .nm{border-top:1px solid #1d1a15;padding-top:5px;font-weight:700;display:inline-block;min-width:170px}
-  .catatan{margin-top:20px;font-size:11px;color:#5c574d;border-top:1px dashed #D9CDB2;padding-top:9px}
-  @page{size:A4;margin:12mm}
-  @media print{body{padding:0}.noprint{display:none}}
-  .noprint{margin-top:22px;text-align:center}
-  .noprint button{font:600 13px/1 "Segoe UI",Arial;padding:10px 18px;border-radius:8px;border:0;background:#C9A227;color:#2a2620;cursor:pointer}
-</style></head><body>
-  <div class="kop">
-    <img src="${LOGO_B64}" alt="">
-    <div><div class="pt">${esc(KWI_KOP.pt)}</div><div class="al">${KWI_KOP.alamat}</div></div>
-    <div class="judul"><b>KWITANSI</b><span>${lunas?"PELUNASAN":"PEMBAYARAN DP"}</span></div>
-  </div>
-  <div class="meta">
-    <table>
-      ${baris("Diterima dari", `<b>${esc((r.name||"-").toUpperCase())}</b>`)}
-      ${r.phone?baris("No. HP", esc(displayPhone(r.phone))):""}
-      ${baris("Untuk", lunas?"Pelunasan Reservasi":"Down Payment (DP) Reservasi")}
-    </table>
-    <table>
-      ${baris(resmi?"No. Invoice":"No. Kwitansi", `<b>${esc(noDok)}</b>`)}
-      ${baris("Tanggal Terbit", esc(fmtDate(todayStr())))}
-      ${baris("Metode Bayar", esc(r.dpMethod||"-"))}
-    </table>
-  </div>
-  <table class="isi">
-    <thead><tr><th style="width:38px">No</th><th style="text-align:left">Keterangan</th><th style="width:60px">Pax</th><th style="width:130px">Jumlah</th></tr></thead>
-    <tbody>
-      <tr><td class="num">1</td>
-        <td>Reservasi ${esc(r.category||"Tamu Umum")}<br>
-          <span style="color:#5c574d;font-size:11.5px">${esc(fmtDate(r.date))} · ${esc(r.time||"-")} WIB${r.table?` · Meja ${esc(r.table)}`:""}</span></td>
-        <td class="num">${esc(String(r.pax||"-"))}</td>
-        <td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
-      <tr class="tot"><td colspan="3" class="num">TOTAL DITERIMA</td><td class="num">${esc(rpDot(dpTotal(r)))}</td></tr>
-    </tbody>
-  </table>
-  <div class="bawah">
-    <div>
-      <div class="bayar"><b>Pembayaran dapat ditransfer ke:</b>${esc(KWI_KOP.bank)}<br><b style="margin-top:3px">${esc(KWI_KOP.rek)}</b></div>
-      <div style="margin-top:12px"><span class="lunas">${lunas?"LUNAS":"DP DITERIMA"}</span></div>
-    </div>
-    <div class="ttd-grup">Hormat Kami,
-      <!-- Ruang tanda tangan: kalau kwitansinya sudah resmi, ruang kosong itu
-           diisi gambar tanda tangan tiap penanda tangan, dengan CAP di
-           belakang yang PERTAMA (sengaja setengah menimpa tanda tangan &
-           garis nama, seperti cap basah yang dibubuhkan di atas kertas —
-           satu cap untuk satu lembar, bukan satu per orang). Tanpa berkas
-           resmi tingginya tetap sama, supaya tata letak bagian bawah tidak
-           melompat antara dua versi lembar. -->
-      <div class="ttd-baris">
-        ${pen.map((p,i)=>`<div class="ttd">
-          <div class="sp" style="position:relative">
-            ${resmi&&i===0&&inv.cap?`<img src="${esc(inv.cap)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">`:""}
-            ${p.ttd?`<img src="${esc(p.ttd)}" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">`:""}
-          </div>
-          <div class="nm">${esc(p.nama||"")}</div>
-          <div style="color:#5c574d;font-size:11.5px">${esc(p.jabatan||"")}</div>
-        </div>`).join("")}
-      </div>
-    </div>
-  </div>
-  <div class="catatan">${lunas
-      ? "Pembayaran reservasi ini telah <b>LUNAS</b>. Mohon simpan kwitansi ini sebagai bukti pembayaran."
-      : "DP ini akan <b>memotong total tagihan</b> saat tamu datang. Mohon simpan kwitansi ini sebagai bukti pembayaran."}
-    <br>Dokumen ini dicetak dari sistem reservasi Laksamana Muda dan sah tanpa tanda tangan basah.</div>
-  <div class="noprint"><button onclick="window.print()">🖨️ Simpan sebagai PDF / Cetak</button></div>
-</body></html>`;
+  return {
+    no: (resmi && inv.no) ? inv.no : kwitansiNo(r),
+    resmi: resmi,
+    lunas: isLunas(r),
+    nama: r.name || "",
+    hp: r.phone ? displayPhone(r.phone) : "",
+    metode: r.dpMethod || "",
+    tanggalTerbit: fmtDate(todayStr()),
+    keterangan: "Reservasi " + (r.category || "Tamu Umum"),
+    subKeterangan: fmtDate(r.date) + " · " + (r.time || "-") + " WIB" + (r.table ? " · Meja " + r.table : ""),
+    pax: r.pax || "",
+    total: dpTotal(r),
+    penanda: (resmi && Array.isArray(inv.penanda) && inv.penanda.length) ? inv.penanda : null,
+    cap: resmi ? (inv.cap || "") : "",
+    logo: LOGO_B64
+  };
 }
+function kwitansiHTML(r, inv){ return window.LMKwitansi.html(kwitansiData(r, inv)); }
 function kwitansiPDF(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   /* Gerbang KEDUA, bukan pengulangan yang mubazir. Menyembunyikan tombolnya
@@ -5981,12 +5894,11 @@ async function siapkanBerkasKwi(r){
 }
 function tulisKwitansi(w, r, inv){
   const resmi = !!(inv && inv.ada);
-  try{
-    w.document.open(); w.document.write(kwitansiHTML(r, inv)); w.document.close();
-  }catch(e){ return; }   // jendelanya keburu ditutup orangnya
-  // Beri jeda agar logo & font selesai dimuat sebelum dialog cetak muncul; tanpa ini
-  // PDF-nya bisa tercetak tanpa kop.
-  w.onload=()=>setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
+  /* Penulisan ke jendela + jeda sebelum print() ikut PINDAH ke berkas
+     bersama: keduanya sifat lembarnya, bukan sifat modul ini, dan modul
+     Marketing membutuhkan perilaku yang sama persis. Jeda itu ada supaya
+     dialog cetak tidak memotret dokumen yang logonya belum selesai dimuat. */
+  if(!window.LMKwitansi.tulis(w, kwitansiData(r, inv))) return;
   logAudit("Kwitansi DP (PDF)",
     `${r.name}, ${rpDot(dpTotal(r))} (${resmi?inv.no:kwitansiNo(r)})${resmi?" — kwitansi resmi bertanda tangan":" — tanpa tanda tangan"}`);
 }

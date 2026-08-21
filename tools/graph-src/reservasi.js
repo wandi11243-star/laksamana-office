@@ -11,6 +11,9 @@
 
 
 
+
+
+
 function punya() { boot(); navigate(); }
 
 
@@ -5757,7 +5760,7 @@ function mintaKwitansi() { bolehMintaKwitansi(); toast(); hasDP(); dpsOf(); dpVe
 
 
 
-function terbitkanKwitansiLangsung() { invFetch(); invRingkas(); }
+function terbitkanKwitansiLangsung() { invFetch(); invRingkas(); dpReceivedBy(); }
 
 
 
@@ -5782,8 +5785,6 @@ function terbitkanKwitansiLangsung() { invFetch(); invRingkas(); }
 
 
 
-function kwitansiHTML() {  }
-function baris() { esc(); isLunas(); kwitansiNo(); dpReceivedBy(); displayPhone(); fmtDate(); todayStr(); rpDot(); dpTotal(); }
 
 
 
@@ -5801,6 +5802,7 @@ function baris() { esc(); isLunas(); kwitansiNo(); dpReceivedBy(); displayPhone(
 
 
 
+function kwitansiData() { kwitansiNo(); isLunas(); displayPhone(); fmtDate(); todayStr(); dpTotal(); }
 
 
 
@@ -5819,96 +5821,7 @@ function baris() { esc(); isLunas(); kwitansiNo(); dpReceivedBy(); displayPhone(
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function kwitansiHTML() { kwitansiData(); }
 function kwitansiPDF() { bolehKwitansiLangsung(); toast(); hasDP(); siapkanBerkasKwi(); tulisKwitansi(); }
 
 
@@ -5979,8 +5892,7 @@ function siapkanBerkasKwi() { invFetch(); bolehKwitansiLangsung(); terbitkanKwit
 
 
 
-function tulisKwitansi() { kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
-
+function tulisKwitansi() { kwitansiData(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
 
 
 
@@ -7601,13 +7513,13 @@ function tfKurangData() { txBank(); }
 
 
 
-function verifyTf() { findDp(); tfKurangData(); openModal(); esc(); closeModal(); txProofIsImage(); baris(); fmtDateShort(); txBank(); rpDot(); tfBadge(); openTfEdit(); verifyTfGo(); muatBuktiKeImg(); }
+function verifyTf() { findDp(); tfKurangData(); }
 
 
 
 
 
-
+function baris() { openModal(); esc(); closeModal(); txProofIsImage(); fmtDateShort(); txBank(); rpDot(); tfBadge(); openTfEdit(); verifyTfGo(); muatBuktiKeImg(); }
 
 
 
